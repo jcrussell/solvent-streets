@@ -3,7 +3,11 @@ package resource
 import (
 	"strings"
 	"testing"
+
+	"pvmt/internal/geo"
 )
+
+var testProj = geo.NewUTMProjector(-121.76, 37.68)
 
 func TestPavement_Name(t *testing.T) {
 	p := &Pavement{}
@@ -27,7 +31,6 @@ func TestPavement_OverpassQuery(t *testing.T) {
 }
 
 func TestPavement_ProcessFeatures_LineString(t *testing.T) {
-	// Use real Livermore-area coords so projection works
 	features := []Feature{
 		{
 			ID:   "test1",
@@ -37,7 +40,7 @@ func TestPavement_ProcessFeatures_LineString(t *testing.T) {
 		},
 	}
 	p := &Pavement{}
-	_, area, err := p.ProcessFeatures(features)
+	_, area, err := p.ProcessFeatures(features, testProj)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +59,7 @@ func TestPavement_ProcessFeatures_Polygon(t *testing.T) {
 		},
 	}
 	p := &Pavement{}
-	_, area, err := p.ProcessFeatures(features)
+	_, area, err := p.ProcessFeatures(features, testProj)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +70,7 @@ func TestPavement_ProcessFeatures_Polygon(t *testing.T) {
 
 func TestPavement_ProcessFeatures_Empty(t *testing.T) {
 	p := &Pavement{}
-	_, _, err := p.ProcessFeatures(nil)
+	_, _, err := p.ProcessFeatures(nil, testProj)
 	if err == nil {
 		t.Error("expected error for empty features")
 	}
@@ -87,7 +90,7 @@ func TestPavement_ProcessFeatures_InvalidSkipped(t *testing.T) {
 		},
 	}
 	p := &Pavement{}
-	_, area, err := p.ProcessFeatures(features)
+	_, area, err := p.ProcessFeatures(features, testProj)
 	if err != nil {
 		t.Fatal(err)
 	}

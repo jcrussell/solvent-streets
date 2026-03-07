@@ -2,6 +2,8 @@ package root
 
 import (
 	"pvmt/pkg/cmd/all"
+	"pvmt/pkg/cmd/export"
+	forecastcmd "pvmt/pkg/cmd/forecast"
 	"pvmt/pkg/cmd/parking"
 	"pvmt/pkg/cmd/roads"
 	"pvmt/pkg/cmd/serve"
@@ -38,6 +40,16 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 	serveCmd := serve.NewCmdServe(f)
 	serveCmd.GroupID = "server"
 	cmd.AddCommand(serveCmd)
+
+	exportCmd := export.NewCmdExport(f)
+	exportCmd.GroupID = "server"
+	cmd.AddCommand(exportCmd)
+
+	// Analysis commands
+	cmd.AddGroup(&cobra.Group{ID: "analysis", Title: "Analysis commands:"})
+	fcCmd := forecastcmd.NewCmdForecast(f)
+	fcCmd.GroupID = "analysis"
+	cmd.AddCommand(fcCmd)
 
 	// Info commands
 	cmd.AddGroup(&cobra.Group{ID: "info", Title: "Info commands:"})

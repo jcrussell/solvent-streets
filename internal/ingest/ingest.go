@@ -13,15 +13,15 @@ type Source interface {
 	Fetch(client *http.Client, rt resource.ResourceType) ([]db.Feature, error)
 }
 
-func AllSources() []Source {
+func AllSources(bbox [4]float64, arcgisURL string) []Source {
 	return []Source{
-		&OverpassSource{},
-		&ArcGISSource{},
+		&OverpassSource{BBox: bbox},
+		&ArcGISSource{BBox: bbox, URL: arcgisURL},
 	}
 }
 
-func SourceByName(name string) (Source, error) {
-	for _, s := range AllSources() {
+func SourceByName(name string, bbox [4]float64, arcgisURL string) (Source, error) {
+	for _, s := range AllSources(bbox, arcgisURL) {
 		if s.Name() == name {
 			return s, nil
 		}

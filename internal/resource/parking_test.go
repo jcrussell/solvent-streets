@@ -30,7 +30,7 @@ func TestParking_ProcessFeatures_Polygon(t *testing.T) {
 		},
 	}
 	p := &Parking{}
-	_, area, err := p.ProcessFeatures(features)
+	_, area, err := p.ProcessFeatures(features, testProj)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestParking_ProcessFeatures_LineStringSkipped(t *testing.T) {
 		},
 	}
 	p := &Parking{}
-	_, _, err := p.ProcessFeatures(features)
+	_, _, err := p.ProcessFeatures(features, testProj)
 	if err == nil {
 		t.Error("expected error when only LineString features (no polygons)")
 	}
@@ -56,7 +56,7 @@ func TestParking_ProcessFeatures_LineStringSkipped(t *testing.T) {
 
 func TestParking_ProcessFeatures_Empty(t *testing.T) {
 	p := &Parking{}
-	_, _, err := p.ProcessFeatures(nil)
+	_, _, err := p.ProcessFeatures(nil, testProj)
 	if err == nil {
 		t.Error("expected error for empty features")
 	}

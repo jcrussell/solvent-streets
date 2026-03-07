@@ -8,15 +8,19 @@ import (
 	"github.com/peterstace/simplefeatures/geom"
 )
 
-// BufferLineString buffers a projected linestring (in US survey feet) by width/2 with flat end caps.
-func BufferLineString(coords [][2]float64, widthFeet float64) (geom.Geometry, error) {
+// US survey foot
+const usSurveyFoot = 1200.0 / 3937.0
+
+// BufferLineString buffers a projected linestring by width/2 with flat end caps.
+// Coordinates must already be in the projected coordinate system.
+func BufferLineString(coords [][2]float64, widthProjected float64) (geom.Geometry, error) {
 	if len(coords) < 2 {
 		return geom.Geometry{}, fmt.Errorf("need at least 2 coordinates")
 	}
 	seq := coordsToSequence(coords)
 	ls := geom.NewLineString(seq)
 	g := ls.AsGeometry()
-	buffered, err := geom.Buffer(g, widthFeet/2, geom.BufferEndCapFlat(), geom.BufferQuadSegments(8))
+	buffered, err := geom.Buffer(g, widthProjected/2, geom.BufferEndCapFlat(), geom.BufferQuadSegments(8))
 	if err != nil {
 		return geom.Geometry{}, fmt.Errorf("buffer: %w", err)
 	}
@@ -35,8 +39,8 @@ func UnionAll(geometries []geom.Geometry) (geom.Geometry, error) {
 	return geom.UnionMany(geometries)
 }
 
-// AreaSqFt returns the area of a geometry in square US survey feet.
-func AreaSqFt(g geom.Geometry) float64 {
+// AreaInProjectedUnits returns the raw area in the projector's coordinate units squared.
+func AreaInProjectedUnits(g geom.Geometry) float64 {
 	return g.Area()
 }
 
@@ -45,21 +49,28 @@ func AreaAcres(sqft float64) float64 {
 	return sqft / 43560.0
 }
 
-// GeometryToGeoJSON converts a simplefeatures geometry to a GeoJSON string,
-// reprojecting from EPSG:2227 to WGS84.
-func GeometryToGeoJSON(g geom.Geometry) (string, error) {
-	gj := g.MarshalJSON
-	raw, err := gj()
+// AreaSqFtFromProjected converts area from projected units to square feet.
+// For UTM (meters), converts sq meters to sq feet. For Lambert (feet), returns as-is.
+func AreaSqFtFromProjected(area float64, proj Projector) float64 {
+	if proj.Unit() == "meters" {
+		// 1 meter = 3.28084 feet, 1 sq meter = 10.7639 sq feet
+		return area * 10.763910417
+	}
+	return area // already in sq feet
+}
+
+// GeometryToGeoJSON converts a geometry to GeoJSON using the given projector.
+func GeometryToGeoJSON(g geom.Geometry, proj Projector) (string, error) {
+	raw, err := g.MarshalJSON()
 	if err != nil {
 		return "", fmt.Errorf("marshal geojson: %w", err)
 	}
 
-	// Reproject all coordinates from state plane to WGS84
 	var gjObj map[string]any
 	if err := json.Unmarshal(raw, &gjObj); err != nil {
 		return "", err
 	}
-	reprojectGeoJSON(gjObj)
+	reprojectGeoJSON(gjObj, proj)
 	result, err := json.Marshal(gjObj)
 	if err != nil {
 		return "", err
@@ -67,27 +78,27 @@ func GeometryToGeoJSON(g geom.Geometry) (string, error) {
 	return string(result), nil
 }
 
-func reprojectGeoJSON(obj map[string]any) {
+func reprojectGeoJSON(obj map[string]any, proj Projector) {
 	if coords, ok := obj["coordinates"]; ok {
-		obj["coordinates"] = reprojectCoords(coords)
+		obj["coordinates"] = reprojectCoords(coords, proj)
 	}
 	if geoms, ok := obj["geometries"].([]any); ok {
 		for _, g := range geoms {
 			if gm, ok := g.(map[string]any); ok {
-				reprojectGeoJSON(gm)
+				reprojectGeoJSON(gm, proj)
 			}
 		}
 	}
 }
 
-func reprojectCoords(v any) any {
+func reprojectCoords(v any, proj Projector) any {
 	switch c := v.(type) {
 	case []any:
 		if len(c) >= 2 {
 			if x, ok := c[0].(float64); ok {
 				if y, ok := c[1].(float64); ok {
 					if !isLonLat(x, y) {
-						lon, lat := ToWGS84(x, y)
+						lon, lat, _ := proj.FromProjected(x, y)
 						return []any{roundTo(lon, 7), roundTo(lat, 7)}
 					}
 					return c
@@ -96,7 +107,7 @@ func reprojectCoords(v any) any {
 		}
 		result := make([]any, len(c))
 		for i, item := range c {
-			result[i] = reprojectCoords(item)
+			result[i] = reprojectCoords(item, proj)
 		}
 		return result
 	}
@@ -163,8 +174,9 @@ func ParseGeoJSONCoords(gjson string) ([][2]float64, string, error) {
 	}
 }
 
-// GeoJSONToProjectedGeometry converts a GeoJSON geometry to a simplefeatures Geometry in EPSG:2227.
-func GeoJSONToProjectedGeometry(gjson string) (geom.Geometry, string, error) {
+// GeoJSONToProjectedGeometry converts a GeoJSON geometry to a
+// simplefeatures Geometry using the given projector.
+func GeoJSONToProjectedGeometry(gjson string, proj Projector) (geom.Geometry, string, error) {
 	var obj struct {
 		Type        string          `json:"type"`
 		Coordinates json.RawMessage `json:"coordinates"`
@@ -179,35 +191,110 @@ func GeoJSONToProjectedGeometry(gjson string) (geom.Geometry, string, error) {
 		if err := json.Unmarshal(obj.Coordinates, &coords); err != nil {
 			return geom.Geometry{}, "", err
 		}
-		projected := projectCoords(coords)
+		projected, err := projectCoords(coords, proj)
+		if err != nil {
+			return geom.Geometry{}, "", err
+		}
 		seq := coordsToSequence(projected)
 		ls := geom.NewLineString(seq)
 		return ls.AsGeometry(), obj.Type, nil
 
 	case "Polygon":
-		var rings [][][2]float64
-		if err := json.Unmarshal(obj.Coordinates, &rings); err != nil {
+		g, err := buildProjectedPolygon(obj.Coordinates, proj)
+		if err != nil {
 			return geom.Geometry{}, "", err
 		}
-		lineRings := make([]geom.LineString, len(rings))
-		for i, ring := range rings {
-			projected := projectCoords(ring)
-			seq := coordsToSequence(projected)
-			lineRings[i] = geom.NewLineString(seq)
+		return g, obj.Type, nil
+
+	case "MultiPolygon":
+		var polys [][][][2]float64
+		if err := json.Unmarshal(obj.Coordinates, &polys); err != nil {
+			return geom.Geometry{}, "", err
 		}
-		poly := geom.NewPolygon(lineRings)
-		return poly.AsGeometry(), obj.Type, nil
+		var geometries []geom.Geometry
+		for _, polyCoords := range polys {
+			raw, _ := json.Marshal(polyCoords)
+			g, err := buildProjectedPolygon(raw, proj)
+			if err != nil {
+				continue
+			}
+			geometries = append(geometries, g)
+		}
+		if len(geometries) == 0 {
+			return geom.Geometry{}, obj.Type, fmt.Errorf("no valid polygons in MultiPolygon")
+		}
+		if len(geometries) == 1 {
+			return geometries[0], obj.Type, nil
+		}
+		union, err := UnionAll(geometries)
+		if err != nil {
+			return geom.Geometry{}, obj.Type, err
+		}
+		return union, obj.Type, nil
+
+	case "GeometryCollection":
+		var raw struct {
+			Geometries []json.RawMessage `json:"geometries"`
+		}
+		if err := json.Unmarshal([]byte(gjson), &raw); err != nil {
+			return geom.Geometry{}, obj.Type, err
+		}
+		var geometries []geom.Geometry
+		for _, gRaw := range raw.Geometries {
+			g, _, err := GeoJSONToProjectedGeometry(string(gRaw), proj)
+			if err != nil {
+				continue
+			}
+			geometries = append(geometries, g)
+		}
+		if len(geometries) == 0 {
+			return geom.Geometry{}, obj.Type, fmt.Errorf("no valid geometries in collection")
+		}
+		union, err := UnionAll(geometries)
+		if err != nil {
+			return geom.Geometry{}, obj.Type, err
+		}
+		return union, obj.Type, nil
 
 	default:
 		return geom.Geometry{}, obj.Type, fmt.Errorf("unsupported geometry type: %s", obj.Type)
 	}
 }
 
-func projectCoords(coords [][2]float64) [][2]float64 {
+func buildProjectedPolygon(coordsRaw json.RawMessage, proj Projector) (geom.Geometry, error) {
+	var rings [][][2]float64
+	if err := json.Unmarshal(coordsRaw, &rings); err != nil {
+		return geom.Geometry{}, err
+	}
+	lineRings := make([]geom.LineString, len(rings))
+	for i, ring := range rings {
+		projected, err := projectCoords(ring, proj)
+		if err != nil {
+			return geom.Geometry{}, err
+		}
+		seq := coordsToSequence(projected)
+		lineRings[i] = geom.NewLineString(seq)
+	}
+	poly := geom.NewPolygon(lineRings)
+	return poly.AsGeometry(), nil
+}
+
+func projectCoords(coords [][2]float64, proj Projector) ([][2]float64, error) {
 	projected := make([][2]float64, len(coords))
 	for i, c := range coords {
-		x, y := ToStatePlane(c[0], c[1])
+		x, y, err := proj.ToProjected(c[0], c[1])
+		if err != nil {
+			return nil, fmt.Errorf("project coordinate %d: %w", i, err)
+		}
 		projected[i] = [2]float64{x, y}
 	}
-	return projected
+	return projected, nil
+}
+
+// WidthInProjectedUnits converts a width in meters to the projector's units.
+func WidthInProjectedUnits(widthMeters float64, proj Projector) float64 {
+	if proj.Unit() == "feet" {
+		return widthMeters / usSurveyFoot
+	}
+	return widthMeters // already in meters for UTM
 }

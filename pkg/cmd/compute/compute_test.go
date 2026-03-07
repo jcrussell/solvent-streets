@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"pvmt/internal/config"
 	"pvmt/internal/db"
 	"pvmt/internal/resource"
 	"pvmt/pkg/cmdutil"
@@ -21,9 +22,20 @@ func (m *mockStore) UpsertFeatures(string, []db.Feature) error              { re
 func (m *mockStore) ListFeatures(string) ([]db.Feature, error)              { return m.features, m.listErr }
 func (m *mockStore) SaveComputeResult(r db.ComputeResult) error             { m.savedResult = &r; return nil }
 func (m *mockStore) LatestComputeResult(string) (*db.ComputeResult, error)  { return nil, nil }
+func (m *mockStore) SaveHexStats([]db.HexStat) error                       { return nil }
+func (m *mockStore) ListHexStats(string) ([]db.HexStat, error)             { return nil, nil }
+func (m *mockStore) CreateSnapshot(string) (*db.Snapshot, error)           { return &db.Snapshot{ID: 1}, nil }
+func (m *mockStore) ListSnapshots() ([]db.Snapshot, error)                 { return nil, nil }
+func (m *mockStore) SaveForecastResults([]db.ForecastResult) error         { return nil }
+func (m *mockStore) ListForecastResults(string) ([]db.ForecastResult, error) { return nil, nil }
 func (m *mockStore) Stats(string) (*db.StatusInfo, error)                   { return &db.StatusInfo{}, nil }
 func (m *mockStore) ResourceTypes() ([]string, error)                       { return nil, nil }
 func (m *mockStore) Close() error                                           { return nil }
+
+var testCfg = &config.Config{
+	Project: config.ProjectConfig{Name: "Test City"},
+	Area:    config.AreaConfig{BBox: [4]float64{37.64, -121.84, 37.72, -121.68}},
+}
 
 func TestNewCmdCompute_RunFInjection(t *testing.T) {
 	ios, _, _ := iostreams.Test()
@@ -55,6 +67,9 @@ func TestRunCompute_NoFeatures(t *testing.T) {
 		IOStreams: ios,
 		DB: func() (db.Store, error) {
 			return store, nil
+		},
+		Config: func() (*config.Config, error) {
+			return testCfg, nil
 		},
 	}
 	rt := &resource.Pavement{}
@@ -90,6 +105,9 @@ func TestRunCompute_Success(t *testing.T) {
 		DB: func() (db.Store, error) {
 			return store, nil
 		},
+		Config: func() (*config.Config, error) {
+			return testCfg, nil
+		},
 	}
 	rt := &resource.Pavement{}
 
@@ -114,6 +132,9 @@ func TestRunCompute_DBError(t *testing.T) {
 	ios, _, _ := iostreams.Test()
 	f := &cmdutil.Factory{
 		IOStreams: ios,
+		Config: func() (*config.Config, error) {
+			return testCfg, nil
+		},
 		DB: func() (db.Store, error) {
 			return nil, fmt.Errorf("db connection failed")
 		},

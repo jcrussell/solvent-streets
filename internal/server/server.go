@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"pvmt/internal/config"
 	"pvmt/internal/db"
 )
 
@@ -20,11 +21,12 @@ var frontendFS embed.FS
 
 type Server struct {
 	store db.Store
+	cfg   *config.Config
 	port  int
 }
 
-func New(store db.Store, port int) *Server {
-	return &Server{store: store, port: port}
+func New(store db.Store, cfg *config.Config, port int) *Server {
+	return &Server{store: store, cfg: cfg, port: port}
 }
 
 func (s *Server) ListenAndServe() error {
@@ -32,6 +34,8 @@ func (s *Server) ListenAndServe() error {
 
 	// API routes
 	mux.HandleFunc("GET /api/stats", s.handleStats)
+	mux.HandleFunc("GET /api/config", s.handleConfig)
+	mux.HandleFunc("GET /api/hexstats", s.handleHexStats)
 
 	// Frontend
 	frontendContent, err := fs.Sub(frontendFS, "frontend")

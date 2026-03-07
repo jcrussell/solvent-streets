@@ -16,15 +16,14 @@ import (
 
 const overpassAPI = "https://overpass-api.de/api/interpreter"
 
-// Livermore, CA bounding box: [south, west, north, east]
-var LivermoreBBox = [4]float64{37.64, -121.84, 37.72, -121.68}
-
-type OverpassSource struct{}
+type OverpassSource struct {
+	BBox [4]float64 // [south, west, north, east]
+}
 
 func (s *OverpassSource) Name() string { return "overpass" }
 
 func (s *OverpassSource) Fetch(client *http.Client, rt resource.ResourceType) ([]db.Feature, error) {
-	query := rt.OverpassQuery(LivermoreBBox)
+	query := rt.OverpassQuery(s.BBox)
 
 	resp, err := client.PostForm(overpassAPI, url.Values{"data": {query}})
 	if err != nil {

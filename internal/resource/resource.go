@@ -1,5 +1,7 @@
 package resource
 
+import "pvmt/internal/geo"
+
 type Feature struct {
 	ID           string
 	Name         string
@@ -11,7 +13,7 @@ type Feature struct {
 type ResourceType interface {
 	Name() string
 	OverpassQuery(bbox [4]float64) string
-	ProcessFeatures(features []Feature) (string, float64, error) // returns (unionGeoJSON, areaSqFt, error)
+	ProcessFeatures(features []Feature, proj geo.Projector) (string, float64, error) // returns (unionGeoJSON, areaSqFt, error)
 }
 
 var All = []ResourceType{

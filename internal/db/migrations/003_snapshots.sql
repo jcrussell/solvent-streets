@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    computed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    config_hash TEXT NOT NULL DEFAULT ''
+);
+
+ALTER TABLE compute_results ADD COLUMN snapshot_id INTEGER REFERENCES snapshots(id);
+ALTER TABLE hex_stats ADD COLUMN snapshot_id INTEGER REFERENCES snapshots(id);

@@ -1,5 +1,20 @@
 package forecast
 
+import "math"
+
+// Default decay rates by road classification (FHWA national averages).
+// Higher k = faster decay. Units: per year.
+var DefaultDecayRates = map[string]float64{
+	"motorway":    0.015,
+	"trunk":       0.020,
+	"primary":     0.025,
+	"secondary":   0.030,
+	"tertiary":    0.035,
+	"residential": 0.040,
+	"service":     0.045,
+	"default":     0.035,
+}
+
 type StubPCIForecaster struct{}
 
 func (s *StubPCIForecaster) Forecast(currentPCI float64, years int) []float64 {
@@ -8,4 +23,34 @@ func (s *StubPCIForecaster) Forecast(currentPCI float64, years int) []float64 {
 		result[i] = currentPCI
 	}
 	return result
+}
+
+// ExponentialPCIForecaster models PCI decay as PCI(t) = PCI_0 * exp(-k * t).
+type ExponentialPCIForecaster struct {
+	DecayRate float64 // k value; if 0, uses DefaultDecayRates["default"]
+}
+
+func (f *ExponentialPCIForecaster) Forecast(currentPCI float64, years int) []float64 {
+	k := f.DecayRate
+	if k <= 0 {
+		k = DefaultDecayRates["default"]
+	}
+	result := make([]float64, years)
+	for i := 0; i < years; i++ {
+		t := float64(i + 1)
+		pci := currentPCI * math.Exp(-k*t)
+		if pci < 0 {
+			pci = 0
+		}
+		result[i] = pci
+	}
+	return result
+}
+
+// DecayRateForClass returns the decay rate for a road classification.
+func DecayRateForClass(highway string) float64 {
+	if k, ok := DefaultDecayRates[highway]; ok {
+		return k
+	}
+	return DefaultDecayRates["default"]
 }

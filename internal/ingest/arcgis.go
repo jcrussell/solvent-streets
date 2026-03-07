@@ -12,13 +12,13 @@ import (
 	"pvmt/internal/resource"
 )
 
-// Alameda County ArcGIS feature service for city boundaries and road centerlines
-const (
-	arcgisBaseURL = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services"
-	arcgisCenterlines = arcgisBaseURL + "/Alameda_County_Street_Centerlines/FeatureServer/0/query"
-)
+// Default Alameda County ArcGIS feature service URL
+const defaultArcGISCenterlines = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Alameda_County_Street_Centerlines/FeatureServer/0/query"
 
-type ArcGISSource struct{}
+type ArcGISSource struct {
+	BBox [4]float64 // [south, west, north, east]
+	URL  string     // custom ArcGIS endpoint; empty uses default
+}
 
 func (s *ArcGISSource) Name() string { return "arcgis" }
 
@@ -28,21 +28,26 @@ func (s *ArcGISSource) Fetch(client *http.Client, rt resource.ResourceType) ([]d
 		return nil, nil
 	}
 
-	bbox := LivermoreBBox
+	endpoint := s.URL
+	if endpoint == "" {
+		endpoint = defaultArcGISCenterlines
+	}
+
+	bbox := s.BBox
 	envelope := fmt.Sprintf("%f,%f,%f,%f", bbox[1], bbox[0], bbox[3], bbox[2])
 
 	params := url.Values{
-		"where":          {"1=1"},
-		"geometry":       {envelope},
-		"geometryType":   {"esriGeometryEnvelope"},
-		"inSR":           {"4326"},
-		"outSR":          {"4326"},
-		"outFields":      {"*"},
-		"f":              {"geojson"},
+		"where":             {"1=1"},
+		"geometry":          {envelope},
+		"geometryType":      {"esriGeometryEnvelope"},
+		"inSR":              {"4326"},
+		"outSR":             {"4326"},
+		"outFields":         {"*"},
+		"f":                 {"geojson"},
 		"resultRecordCount": {"5000"},
 	}
 
-	reqURL := arcgisCenterlines + "?" + params.Encode()
+	reqURL := endpoint + "?" + params.Encode()
 	resp, err := client.Get(reqURL)
 	if err != nil {
 		return nil, fmt.Errorf("arcgis request: %w", err)
@@ -63,7 +68,7 @@ func (s *ArcGISSource) Fetch(client *http.Client, rt resource.ResourceType) ([]d
 
 type arcgisGeoJSON struct {
 	Features []struct {
-		Properties map[string]any `json:"properties"`
+		Properties map[string]any  `json:"properties"`
 		Geometry   json.RawMessage `json:"geometry"`
 	} `json:"features"`
 }

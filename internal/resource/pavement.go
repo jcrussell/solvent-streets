@@ -22,11 +22,11 @@ out body;
 out skel qt;`, bbox[0], bbox[1], bbox[2], bbox[3])
 }
 
-func (p *Pavement) ProcessFeatures(features []Feature) (string, float64, error) {
+func (p *Pavement) ProcessFeatures(features []Feature, proj geo.Projector) (string, float64, error) {
 	var geometries []geom.Geometry
 
 	for _, f := range features {
-		g, gtype, err := geo.GeoJSONToProjectedGeometry(f.GeometryJSON)
+		g, gtype, err := geo.GeoJSONToProjectedGeometry(f.GeometryJSON, proj)
 		if err != nil {
 			continue
 		}
@@ -34,12 +34,12 @@ func (p *Pavement) ProcessFeatures(features []Feature) (string, float64, error) 
 		switch gtype {
 		case "LineString":
 			width := geo.InferWidth(f.Tags)
-			widthFeet := width / geo.USFootToMeter()
+			widthProjected := geo.WidthInProjectedUnits(width, proj)
 			coords := extractLineCoords(g)
 			if len(coords) < 2 {
 				continue
 			}
-			buffered, err := geo.BufferLineString(coords, widthFeet)
+			buffered, err := geo.BufferLineString(coords, widthProjected)
 			if err != nil {
 				continue
 			}
@@ -58,8 +58,9 @@ func (p *Pavement) ProcessFeatures(features []Feature) (string, float64, error) 
 		return "", 0, fmt.Errorf("union: %w", err)
 	}
 
-	areaSqFt := geo.AreaSqFt(union)
-	gjson, err := geo.GeometryToGeoJSON(union)
+	areaProjected := geo.AreaInProjectedUnits(union)
+	areaSqFt := geo.AreaSqFtFromProjected(areaProjected, proj)
+	gjson, err := geo.GeometryToGeoJSON(union, proj)
 	if err != nil {
 		return "", areaSqFt, fmt.Errorf("to geojson: %w", err)
 	}

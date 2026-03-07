@@ -65,10 +65,11 @@ func TestAreaAcres(t *testing.T) {
 }
 
 func TestGeometryToGeoJSON_RoundTrip(t *testing.T) {
-	// Create a projected geometry (in state plane feet) and convert to GeoJSON
-	// The output coordinates should be in WGS84 range
-	rect := makeRect(6000000, 2000000, 6001000, 2001000) // state plane coords
-	gjson, err := GeometryToGeoJSON(rect)
+	// Create a projected geometry (in UTM meters) and convert to GeoJSON
+	// Use UTM zone 10N coords (typical for western US)
+	proj := NewUTMProjector(-121.76, 37.68)
+	rect := makeRect(600000, 4170000, 601000, 4171000) // UTM coords
+	gjson, err := GeometryToGeoJSON(rect, proj)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,8 +92,9 @@ func TestGeometryToGeoJSON_RoundTrip(t *testing.T) {
 }
 
 func TestGeoJSONToProjectedGeometry_LineString(t *testing.T) {
+	proj := NewUTMProjector(-121.76, 37.68)
 	gjson := `{"type":"LineString","coordinates":[[-121.77,37.68],[-121.76,37.69]]}`
-	g, gtype, err := GeoJSONToProjectedGeometry(gjson)
+	g, gtype, err := GeoJSONToProjectedGeometry(gjson, proj)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,8 +107,9 @@ func TestGeoJSONToProjectedGeometry_LineString(t *testing.T) {
 }
 
 func TestGeoJSONToProjectedGeometry_Polygon(t *testing.T) {
+	proj := NewUTMProjector(-121.76, 37.68)
 	gjson := `{"type":"Polygon","coordinates":[[[-121.77,37.68],[-121.76,37.68],[-121.76,37.69],[-121.77,37.69],[-121.77,37.68]]]}`
-	g, gtype, err := GeoJSONToProjectedGeometry(gjson)
+	g, gtype, err := GeoJSONToProjectedGeometry(gjson, proj)
 	if err != nil {
 		t.Fatal(err)
 	}

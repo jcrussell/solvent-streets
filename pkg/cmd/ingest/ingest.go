@@ -44,6 +44,11 @@ func NewCmdIngest(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Optio
 func runIngest(opts *Options) error {
 	ios := opts.Factory.IOStreams
 
+	cfg, err := opts.Factory.Config()
+	if err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
+
 	client, err := opts.Factory.HttpClient()
 	if err != nil {
 		return fmt.Errorf("http client: %w", err)
@@ -54,11 +59,14 @@ func runIngest(opts *Options) error {
 		return fmt.Errorf("database: %w", err)
 	}
 
+	bbox := cfg.Area.BBox
+	arcgisURL := cfg.Sources.ArcGISURL
+
 	var sources []ingestpkg.Source
 	if opts.Source == "all" {
-		sources = ingestpkg.AllSources()
+		sources = ingestpkg.AllSources(bbox, arcgisURL)
 	} else {
-		src, err := ingestpkg.SourceByName(opts.Source)
+		src, err := ingestpkg.SourceByName(opts.Source, bbox, arcgisURL)
 		if err != nil {
 			return &cmdutil.FlagError{Err: err}
 		}

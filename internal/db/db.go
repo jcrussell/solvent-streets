@@ -25,13 +25,14 @@ type Feature struct {
 }
 
 type ComputeResult struct {
-	ID           int64
-	ResourceType string
-	TotalAreaSqFt float64
+	ID             int64
+	ResourceType   string
+	TotalAreaSqFt  float64
 	TotalAreaAcres float64
-	FeatureCount  int
-	GeometryJSON  string // Union GeoJSON for visualization
-	ComputedAt    time.Time
+	FeatureCount   int
+	GeometryJSON   string // Union GeoJSON for visualization
+	ComputedAt     time.Time
+	SnapshotID     *int64
 }
 
 type StatusInfo struct {
@@ -43,11 +44,44 @@ type StatusInfo struct {
 	TotalAreaAcres   float64
 }
 
+type HexStat struct {
+	HexID        string
+	ResourceType string
+	AreaSqFt     float64
+	PctCovered   float64
+	ComputedAt   time.Time
+	SnapshotID   *int64
+}
+
+type Snapshot struct {
+	ID         int64
+	ComputedAt time.Time
+	ConfigHash string
+}
+
+type ForecastResult struct {
+	ID            int64
+	ResourceType  string
+	Year          int
+	PCI           float64
+	AreaSqFt      float64
+	TreatmentCost float64
+	TreatmentTier string
+	SnapshotID    *int64
+	ComputedAt    time.Time
+}
+
 type Store interface {
 	UpsertFeatures(resourceType string, features []Feature) error
 	ListFeatures(resourceType string) ([]Feature, error)
 	SaveComputeResult(result ComputeResult) error
 	LatestComputeResult(resourceType string) (*ComputeResult, error)
+	SaveHexStats(stats []HexStat) error
+	ListHexStats(resourceType string) ([]HexStat, error)
+	CreateSnapshot(configHash string) (*Snapshot, error)
+	ListSnapshots() ([]Snapshot, error)
+	SaveForecastResults(results []ForecastResult) error
+	ListForecastResults(resourceType string) ([]ForecastResult, error)
 	Stats(resourceType string) (*StatusInfo, error)
 	ResourceTypes() ([]string, error)
 	Close() error

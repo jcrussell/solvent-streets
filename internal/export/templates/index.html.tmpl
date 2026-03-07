@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PVMT - {{.ProjectName}}</title>
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css">
+    <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        #map { width: 100vw; height: 100vh; }
+        #panel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            max-width: 360px;
+            font-size: 14px;
+            z-index: 1;
+            max-height: calc(100vh - 20px);
+            overflow-y: auto;
+        }
+        #panel h1 { font-size: 20px; margin-bottom: 4px; }
+        #panel .subtitle { color: #666; margin-bottom: 16px; font-size: 12px; }
+        .stat-card { background: #f9fafb; border-radius: 6px; padding: 12px; margin-bottom: 8px; }
+        .stat-card h3 { font-size: 14px; text-transform: capitalize; margin-bottom: 8px; }
+        .stat-row { display: flex; justify-content: space-between; padding: 2px 0; }
+        .stat-label { color: #666; font-size: 13px; }
+        .stat-value { font-weight: 600; font-size: 13px; }
+        .layer-toggle { margin-top: 12px; border-top: 1px solid #eee; padding-top: 12px; }
+        .layer-toggle label { display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 4px 0; font-size: 13px; }
+        .legend-dot { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
+        .legend-gradient { width: 100px; height: 12px; border-radius: 2px; display: inline-block; }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div id="panel">
+        <h1>{{.ProjectName}}</h1>
+        <div class="subtitle">Pavement & Parking Analysis | {{.SnapshotDate}}</div>
+        <div id="stats">
+        {{range .Stats}}
+            <div class="stat-card">
+                <h3>{{.Type}}</h3>
+                <div class="stat-row">
+                    <span class="stat-label">Features</span>
+                    <span class="stat-value" id="count-{{.Type}}">{{.FeatureCount}}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Area (acres)</span>
+                    <span class="stat-value">{{printf "%.1f" .TotalAreaAcres}}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Area (sq mi)</span>
+                    <span class="stat-value">{{printf "%.2f" (divf .TotalAreaAcres 640)}}</span>
+                </div>
+            </div>
+        {{end}}
+        </div>
+        <div class="layer-toggle" id="toggles"></div>
+    </div>
+    <script>
+        const CENTER = [{{.CenterLon}}, {{.CenterLat}}];
+        const layerColors = { pavements: '#6b7280', parking: '#3b82f6' };
+
+        const map = new maplibregl.Map({
+            container: 'map',
+            style: {
+                version: 8,
+                sources: { 'osm': { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256, attribution: '&copy; OpenStreetMap' } },
+                layers: [{ id: 'osm', type: 'raster', source: 'osm', minzoom: 0, maxzoom: 19 }]
+            },
+            center: CENTER,
+            zoom: 13
+        });
+
+        map.on('load', async () => {
+            let toggles = '';
+
+            // Load resource layers
+            for (const type of Object.keys(layerColors)) {
+                try {
+                    const resp = await fetch('data/' + type + '.geojson');
+                    if (!resp.ok) continue;
+                    const data = await resp.json();
+                    map.addSource(type, { type: 'geojson', data });
+                    map.addLayer({
+                        id: type + '-fill', type: 'fill', source: type,
+                        paint: { 'fill-color': layerColors[type], 'fill-opacity': 0.4, 'fill-outline-color': layerColors[type] }
+                    });
+                    toggles += '<label><input type="checkbox" checked data-layers="' + type + '-fill"><span class="legend-dot" style="background:' + layerColors[type] + '"></span>' + type + '</label>';
+                } catch(e) {}
+            }
+
+            // Load hex grid
+            try {
+                const resp = await fetch('data/hexgrid.geojson');
+                if (resp.ok) {
+                    const data = await resp.json();
+                    if (data.features && data.features.length > 0) {
+                        map.addSource('hexgrid', { type: 'geojson', data });
+                        map.addLayer({
+                            id: 'hex-fill', type: 'fill', source: 'hexgrid',
+                            paint: {
+                                'fill-color': ['interpolate', ['linear'], ['get', 'pct_covered'],
+                                    0, '#f7fbff', 10, '#c6dbef', 25, '#6baed6', 50, '#2171b5', 75, '#08519c', 100, '#08306b'],
+                                'fill-opacity': 0.6
+                            }
+                        });
+                        map.addLayer({
+                            id: 'hex-outline', type: 'line', source: 'hexgrid',
+                            paint: { 'line-color': '#333', 'line-width': 0.5, 'line-opacity': 0.3 }
+                        });
+                        toggles += '<label><input type="checkbox" checked data-layers="hex-fill,hex-outline"><span class="legend-gradient" style="background:linear-gradient(90deg,#c6dbef,#08306b)"></span>hex grid</label>';
+                    }
+                }
+            } catch(e) {}
+
+            document.getElementById('toggles').innerHTML = toggles;
+            document.querySelectorAll('#toggles input').forEach(cb => {
+                cb.addEventListener('change', e => {
+                    const vis = e.target.checked ? 'visible' : 'none';
+                    e.target.dataset.layers.split(',').forEach(id => map.setLayoutProperty(id, 'visibility', vis));
+                });
+            });
+        });
+    </script>
+</body>
+</html>

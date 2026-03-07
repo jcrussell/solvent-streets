@@ -93,6 +93,24 @@ func runStatus(opts *Options) error {
 		}
 	}
 
+	// Show snapshot history
+	snapshots, err := store.ListSnapshots()
+	if err == nil && len(snapshots) > 0 {
+		if isTTY {
+			fmt.Fprintf(ios.Out, "\n=== Snapshots ===\n")
+			limit := len(snapshots)
+			if limit > 5 {
+				limit = 5
+			}
+			for _, s := range snapshots[:limit] {
+				fmt.Fprintf(ios.Out, "  #%d  %s  (%s)\n", s.ID, s.ComputedAt.Format(time.RFC3339), relativeTime(s.ComputedAt))
+			}
+			if len(snapshots) > 5 {
+				fmt.Fprintf(ios.Out, "  ... and %d more\n", len(snapshots)-5)
+			}
+		}
+	}
+
 	return nil
 }
 

@@ -34,11 +34,16 @@ func NewCmdServe(f *cmdutil.Factory) *cobra.Command {
 }
 
 func runServe(opts *Options) error {
+	cfg, err := opts.Factory.Config()
+	if err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
+
 	store, err := opts.Factory.DB()
 	if err != nil {
 		return fmt.Errorf("database: %w", err)
 	}
 
-	srv := server.New(store, opts.Port)
+	srv := server.New(store, cfg, opts.Port)
 	return srv.ListenAndServe()
 }

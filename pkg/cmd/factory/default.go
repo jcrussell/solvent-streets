@@ -2,11 +2,13 @@ package factory
 
 import (
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
 	"pvmt/internal/build"
 	"pvmt/internal/cache"
+	"pvmt/internal/config"
 	"pvmt/internal/db"
 	"pvmt/internal/ingest"
 	"pvmt/pkg/cmdutil"
@@ -24,6 +26,10 @@ func New() *cmdutil.Factory {
 		dbOnce  sync.Once
 		dbStore db.Store
 		dbErr   error
+
+		cfgOnce sync.Once
+		cfg     *config.Config
+		cfgErr  error
 	)
 
 	return &cmdutil.Factory{
@@ -57,6 +63,17 @@ func New() *cmdutil.Factory {
 				dbStore, dbErr = db.Open("")
 			})
 			return dbStore, dbErr
+		},
+		Config: func() (*config.Config, error) {
+			cfgOnce.Do(func() {
+				wd, err := os.Getwd()
+				if err != nil {
+					cfgErr = err
+					return
+				}
+				cfg, cfgErr = config.FindAndLoad(wd)
+			})
+			return cfg, cfgErr
 		},
 	}
 }
