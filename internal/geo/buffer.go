@@ -27,6 +27,15 @@ func BufferLineString(coords [][2]float64, widthProjected float64) (geom.Geometr
 	return buffered, nil
 }
 
+// ValidatePolygon cleans a polygon using Buffer(0) to resolve precision artifacts.
+// This rebuilds topology and eliminates edge cases that cause "side location conflict".
+func ValidatePolygon(g geom.Geometry) (geom.Geometry, error) {
+	if g.IsEmpty() {
+		return g, nil
+	}
+	return geom.Buffer(g, 0)
+}
+
 // UnionAll computes the unary union of all geometries, removing overlaps.
 func UnionAll(geometries []geom.Geometry) (geom.Geometry, error) {
 	if len(geometries) == 0 {
@@ -35,7 +44,6 @@ func UnionAll(geometries []geom.Geometry) (geom.Geometry, error) {
 	if len(geometries) == 1 {
 		return geometries[0], nil
 	}
-
 	return geom.UnionMany(geometries)
 }
 
@@ -218,7 +226,11 @@ func GeoJSONToProjectedGeometry(gjson string, proj Projector) (geom.Geometry, st
 			if err != nil {
 				continue
 			}
-			geometries = append(geometries, g)
+			cleaned, err := ValidatePolygon(g)
+			if err != nil {
+				continue
+			}
+			geometries = append(geometries, cleaned)
 		}
 		if len(geometries) == 0 {
 			return geom.Geometry{}, obj.Type, fmt.Errorf("no valid polygons in MultiPolygon")
@@ -245,7 +257,11 @@ func GeoJSONToProjectedGeometry(gjson string, proj Projector) (geom.Geometry, st
 			if err != nil {
 				continue
 			}
-			geometries = append(geometries, g)
+			cleaned, err := ValidatePolygon(g)
+			if err != nil {
+				continue
+			}
+			geometries = append(geometries, cleaned)
 		}
 		if len(geometries) == 0 {
 			return geom.Geometry{}, obj.Type, fmt.Errorf("no valid geometries in collection")

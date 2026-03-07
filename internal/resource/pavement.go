@@ -43,9 +43,17 @@ func (p *Pavement) ProcessFeatures(features []Feature, proj geo.Projector) (stri
 			if err != nil {
 				continue
 			}
-			geometries = append(geometries, buffered)
+			cleaned, err := geo.ValidatePolygon(buffered)
+			if err != nil {
+				continue
+			}
+			geometries = append(geometries, cleaned)
 		case "Polygon":
-			geometries = append(geometries, g)
+			cleaned, err := geo.ValidatePolygon(g)
+			if err != nil {
+				continue
+			}
+			geometries = append(geometries, cleaned)
 		}
 	}
 

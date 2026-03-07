@@ -2,7 +2,6 @@ package compute
 
 import (
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 
 	"pvmt/internal/db"
@@ -132,7 +131,7 @@ func runCompute(opts *Options) error {
 	// Re-parse the union geometry for intersection
 	unionGeom, err := parseGeoJSONGeometry(gjson, proj)
 	if err != nil {
-		return fmt.Errorf("hex grid computation failed (compute result saved, but hex stats not): %w", err)
+		return fmt.Errorf("parse union geometry for hex grid: %w", err)
 	}
 
 	geoStats := geo.ComputeHexStats(hexes, unionGeom, opts.ResourceType.Name(), proj)
@@ -157,14 +156,6 @@ func runCompute(opts *Options) error {
 }
 
 func parseGeoJSONGeometry(gjson string, proj *geo.UTMProjector) (geom.Geometry, error) {
-	// The GeoJSON is in WGS84, we need to project it back to UTM
-	var obj struct {
-		Type string `json:"type"`
-	}
-	if err := json.Unmarshal([]byte(gjson), &obj); err != nil {
-		return geom.Geometry{}, fmt.Errorf("parse geojson type: %w", err)
-	}
-
 	g, _, err := geo.GeoJSONToProjectedGeometry(gjson, proj)
 	if err != nil {
 		return geom.Geometry{}, err

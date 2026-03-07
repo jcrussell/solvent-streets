@@ -34,7 +34,11 @@ func (p *Parking) ProcessFeatures(features []Feature, proj geo.Projector) (strin
 		}
 
 		if gtype == "Polygon" {
-			geometries = append(geometries, g)
+			cleaned, err := geo.ValidatePolygon(g)
+			if err != nil {
+				continue
+			}
+			geometries = append(geometries, cleaned)
 		}
 	}
 
