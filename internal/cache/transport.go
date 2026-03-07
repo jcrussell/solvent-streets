@@ -65,7 +65,7 @@ func (t *CachingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 100*1024*1024)) // 100MB limit
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if err != nil {
 		return nil, fmt.Errorf("read response body: %w", err)
 	}

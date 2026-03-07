@@ -38,7 +38,9 @@ func TestParseOverpassResponse_BasicWayWithGeometry(t *testing.T) {
 	}
 	// Should be LineString since first != last
 	var geojson struct{ Type string }
-	json.Unmarshal([]byte(f.GeometryJSON), &geojson)
+	if err := json.Unmarshal([]byte(f.GeometryJSON), &geojson); err != nil {
+		t.Fatal(err)
+	}
 	if geojson.Type != "LineString" {
 		t.Errorf("expected LineString, got %s", geojson.Type)
 	}
@@ -94,7 +96,9 @@ func TestParseOverpassResponse_ClosedPolygon(t *testing.T) {
 		t.Fatalf("expected 1 feature, got %d", len(features))
 	}
 	var geojson struct{ Type string }
-	json.Unmarshal([]byte(features[0].GeometryJSON), &geojson)
+	if err := json.Unmarshal([]byte(features[0].GeometryJSON), &geojson); err != nil {
+		t.Fatal(err)
+	}
 	if geojson.Type != "Polygon" {
 		t.Errorf("expected Polygon, got %s", geojson.Type)
 	}
@@ -185,7 +189,9 @@ func TestParseOverpassResponse_GeometryPriorityOverNodes(t *testing.T) {
 	var geojson struct {
 		Coordinates [][2]float64 `json:"coordinates"`
 	}
-	json.Unmarshal([]byte(features[0].GeometryJSON), &geojson)
+	if err := json.Unmarshal([]byte(features[0].GeometryJSON), &geojson); err != nil {
+		t.Fatal(err)
+	}
 	if len(geojson.Coordinates) != 2 {
 		t.Fatalf("expected 2 coords, got %d", len(geojson.Coordinates))
 	}

@@ -5,9 +5,9 @@ import (
 	"fmt"
 )
 
-// SilentError is returned when the error message has already been printed
+// ErrSilent is returned when the error message has already been printed
 // and the command should exit with a non-zero exit code without printing anything else.
-var SilentError = errors.New("SilentError")
+var ErrSilent = errors.New("silent error")
 
 // FlagError indicates a user error with command flags.
 type FlagError struct {

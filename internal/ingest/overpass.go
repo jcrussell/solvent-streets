@@ -29,7 +29,7 @@ func (s *OverpassSource) Fetch(client *http.Client, rt resource.ResourceType) ([
 	if err != nil {
 		return nil, fmt.Errorf("overpass request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 100*1024*1024))
 	if err != nil {

@@ -132,7 +132,9 @@ func (s *Server) handleHexStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(fc)
+	if err := json.NewEncoder(w).Encode(fc); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
@@ -143,5 +145,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	resp.CenterLon, resp.CenterLat = s.cfg.Center()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }

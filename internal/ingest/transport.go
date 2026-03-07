@@ -49,7 +49,7 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 
 		if resp != nil && resp.Body != nil && (err != nil || attempt < t.maxRetries) {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 	}
 

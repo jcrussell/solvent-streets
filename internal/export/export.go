@@ -166,7 +166,7 @@ func (e *Exporter) buildHexGeoJSON(proj *geo.UTMProjector) map[string]any {
 	}
 }
 
-func (e *Exporter) renderHTML(meta metaJSON) error {
+func (e *Exporter) renderHTML(meta metaJSON) (err error) {
 	tmplData, err := templatesFS.ReadFile("templates/index.html.tmpl")
 	if err != nil {
 		return fmt.Errorf("read template: %w", err)
@@ -185,7 +185,11 @@ func (e *Exporter) renderHTML(meta metaJSON) error {
 	if err != nil {
 		return fmt.Errorf("create index.html: %w", err)
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close index.html: %w", cerr)
+		}
+	}()
 
 	return tmpl.Execute(f, meta)
 }

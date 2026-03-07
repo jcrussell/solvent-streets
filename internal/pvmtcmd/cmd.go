@@ -20,7 +20,7 @@ func Main() int {
 			fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 			return 2
 		}
-		if errors.Is(err, cmdutil.SilentError) {
+		if errors.Is(err, cmdutil.ErrSilent) {
 			return 1
 		}
 		fmt.Fprintf(os.Stderr, "Error: %s\n", err)

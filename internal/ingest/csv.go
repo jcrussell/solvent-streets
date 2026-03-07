@@ -26,7 +26,7 @@ func (s *CSVSource) Load() ([]db.Feature, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open csv %s: %w", s.Path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	reader := csv.NewReader(f)
 	header, err := reader.Read()

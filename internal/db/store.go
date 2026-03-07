@@ -11,7 +11,7 @@ func (s *sqliteStore) UpsertFeatures(resourceType string, features []Feature) er
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	stmt, err := tx.Prepare(`
 		INSERT INTO features (id, resource_type, name, tags, geometry_json, source_api, fetched_at)
@@ -26,7 +26,7 @@ func (s *sqliteStore) UpsertFeatures(resourceType string, features []Feature) er
 	if err != nil {
 		return fmt.Errorf("prepare upsert: %w", err)
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	for _, f := range features {
 		tagsJSON, err := json.Marshal(f.Tags)
@@ -54,7 +54,7 @@ func (s *sqliteStore) ListFeatures(resourceType string) ([]Feature, error) {
 	if err != nil {
 		return nil, fmt.Errorf("query features: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var features []Feature
 	for rows.Next() {
@@ -102,7 +102,7 @@ func (s *sqliteStore) SaveHexStats(stats []HexStat) error {
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	// Delete existing stats for the resource type(s) being updated
 	types := make(map[string]bool)
@@ -122,7 +122,7 @@ func (s *sqliteStore) SaveHexStats(stats []HexStat) error {
 	if err != nil {
 		return fmt.Errorf("prepare hex stats insert: %w", err)
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	now := time.Now()
 	for _, st := range stats {
@@ -142,7 +142,7 @@ func (s *sqliteStore) ListHexStats(resourceType string) ([]HexStat, error) {
 	if err != nil {
 		return nil, fmt.Errorf("query hex stats: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var stats []HexStat
 	for rows.Next() {
@@ -176,7 +176,7 @@ func (s *sqliteStore) ListSnapshots() ([]Snapshot, error) {
 	if err != nil {
 		return nil, fmt.Errorf("query snapshots: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var snapshots []Snapshot
 	for rows.Next() {
@@ -194,7 +194,7 @@ func (s *sqliteStore) SaveForecastResults(results []ForecastResult) error {
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	// Delete existing forecasts for the resource type(s)
 	types := make(map[string]bool)
@@ -214,7 +214,7 @@ func (s *sqliteStore) SaveForecastResults(results []ForecastResult) error {
 	if err != nil {
 		return fmt.Errorf("prepare forecast insert: %w", err)
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	now := time.Now()
 	for _, r := range results {
@@ -234,7 +234,7 @@ func (s *sqliteStore) ListForecastResults(resourceType string) ([]ForecastResult
 	if err != nil {
 		return nil, fmt.Errorf("query forecasts: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var results []ForecastResult
 	for rows.Next() {
@@ -278,7 +278,7 @@ func (s *sqliteStore) ResourceTypes() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var types []string
 	for rows.Next() {
 		var t string

@@ -10,7 +10,7 @@ func TestStoreRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	features := []Feature{
 		{ID: "osm:way:1", ResourceType: "pavements", Name: "Main St", Tags: map[string]string{"highway": "primary"}, GeometryJSON: `{"type":"LineString","coordinates":[[-121.76,37.68],[-121.75,37.68]]}`, SourceAPI: "overpass", FetchedAt: time.Now()},
@@ -47,7 +47,7 @@ func TestStoreComputeResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	result := ComputeResult{
 		ResourceType:   "pavements",
@@ -77,12 +77,14 @@ func TestStoreStats(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	features := []Feature{
 		{ID: "1", Name: "test", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()},
 	}
-	store.UpsertFeatures("parking", features)
+	if err := store.UpsertFeatures("parking", features); err != nil {
+		t.Fatal(err)
+	}
 
 	info, err := store.Stats("parking")
 	if err != nil {
@@ -98,10 +100,14 @@ func TestStoreResourceTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
-	store.UpsertFeatures("pavements", []Feature{{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()}})
-	store.UpsertFeatures("parking", []Feature{{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()}})
+	if err := store.UpsertFeatures("pavements", []Feature{{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertFeatures("parking", []Feature{{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()}}); err != nil {
+		t.Fatal(err)
+	}
 
 	types, err := store.ResourceTypes()
 	if err != nil {

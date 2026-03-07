@@ -52,7 +52,7 @@ func (s *ArcGISSource) Fetch(client *http.Client, rt resource.ResourceType) ([]d
 	if err != nil {
 		return nil, fmt.Errorf("arcgis request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 100*1024*1024))
 	if err != nil {
