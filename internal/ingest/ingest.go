@@ -14,10 +14,13 @@ type Source interface {
 }
 
 func AllSources(bbox [4]float64, arcgisURL string) []Source {
-	return []Source{
+	sources := []Source{
 		&OverpassSource{BBox: bbox},
-		&ArcGISSource{BBox: bbox, URL: arcgisURL},
 	}
+	if arcgisURL != "" {
+		sources = append(sources, &ArcGISSource{BBox: bbox, URL: arcgisURL})
+	}
+	return sources
 }
 
 func SourceByName(name string, bbox [4]float64, arcgisURL string) (Source, error) {

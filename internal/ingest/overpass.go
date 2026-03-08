@@ -86,9 +86,12 @@ func parseOverpassResponse(data []byte, resourceType string) ([]db.Feature, erro
 		}
 
 		geojsonType := "LineString"
-		// If first and last nodes are the same, it's a polygon
+		// If first and last nodes are the same, it's a polygon — but highway
+		// ways are linear (roads) even when closed, unless explicitly area=yes.
 		if len(coords) >= 4 && coords[0] == coords[len(coords)-1] {
-			geojsonType = "Polygon"
+			if e.Tags["highway"] == "" || e.Tags["area"] == "yes" {
+				geojsonType = "Polygon"
+			}
 		}
 
 		var geojson string
