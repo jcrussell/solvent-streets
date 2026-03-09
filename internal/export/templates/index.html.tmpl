@@ -6,10 +6,37 @@
     <title>PVMT - {{.ProjectName}}</title>
     <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css">
     <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-        #map { width: 100vw; height: 100vh; }
+        #map { width: 100%; height: 100%; }
+        .tab-bar {
+            display: flex;
+            background: #1a1a2e;
+            padding: 0 16px;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            height: 48px;
+        }
+        .tab-bar h1 { color: #fff; font-size: 16px; line-height: 48px; margin-right: 32px; }
+        .tab-btn {
+            background: none;
+            border: none;
+            color: #8888aa;
+            font-size: 14px;
+            padding: 0 16px;
+            cursor: pointer;
+            line-height: 48px;
+            border-bottom: 2px solid transparent;
+        }
+        .tab-btn.active { color: #fff; border-bottom-color: #3b82f6; }
+        .tab-content { display: none; position: absolute; top: 48px; left: 0; right: 0; bottom: 0; z-index: 1; }
+        .tab-content.active { display: block; }
+        #map-tab { overflow: hidden; }
         #panel {
             position: absolute;
             top: 10px;
@@ -21,10 +48,10 @@
             max-width: 360px;
             font-size: 14px;
             z-index: 1;
-            max-height: calc(100vh - 20px);
+            max-height: calc(100% - 20px);
             overflow-y: auto;
         }
-        #panel h1 { font-size: 20px; margin-bottom: 4px; }
+        #panel h2 { font-size: 18px; margin-bottom: 4px; }
         #panel .subtitle { color: #666; margin-bottom: 16px; font-size: 12px; }
         .stat-card { background: #f9fafb; border-radius: 6px; padding: 12px; margin-bottom: 8px; }
         .stat-card h3 { font-size: 14px; text-transform: capitalize; margin-bottom: 8px; }
@@ -35,35 +62,88 @@
         .layer-toggle label { display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 4px 0; font-size: 13px; }
         .legend-dot { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
         .legend-gradient { width: 100px; height: 12px; border-radius: 2px; display: inline-block; }
+
+        /* Financials tab */
+        .financials { padding: 24px; max-width: 1200px; margin: 0 auto; overflow-y: auto; height: 100%; }
+        .headlines { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 32px; }
+        .headline-card {
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 20px;
+        }
+        .headline-card .label { font-size: 13px; color: #666; margin-bottom: 4px; }
+        .headline-card .value { font-size: 28px; font-weight: 700; color: #1a1a2e; }
+        .headline-card .sub { font-size: 12px; color: #999; margin-top: 4px; }
+        .chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(500px, 1fr)); gap: 24px; }
+        .chart-card {
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 20px;
+        }
+        .chart-card h3 { font-size: 15px; margin-bottom: 12px; color: #333; }
+        .chart-card canvas { width: 100% !important; }
+        .no-data { text-align: center; padding: 60px; color: #999; }
     </style>
 </head>
 <body>
-    <div id="map"></div>
-    <div id="panel">
-        <h1>{{.ProjectName}}</h1>
-        <div class="subtitle">Pavement & Parking Analysis | {{.SnapshotDate}}</div>
-        <div id="stats">
-        {{range .Stats}}
-            <div class="stat-card">
-                <h3>{{.Type}}</h3>
-                <div class="stat-row">
-                    <span class="stat-label">Features</span>
-                    <span class="stat-value" id="count-{{.Type}}">{{.FeatureCount}}</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Area (acres)</span>
-                    <span class="stat-value">{{printf "%.1f" .TotalAreaAcres}}</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Area (sq mi)</span>
-                    <span class="stat-value">{{printf "%.2f" (divf .TotalAreaAcres 640)}}</span>
-                </div>
-            </div>
-        {{end}}
-        </div>
-        <div class="layer-toggle" id="toggles"></div>
+    <div class="tab-bar">
+        <h1>PVMT</h1>
+        <button class="tab-btn active" data-tab="map-tab">Map</button>
+        <button class="tab-btn" data-tab="financials-tab">Financials</button>
     </div>
+
+    <div id="map-tab" class="tab-content active">
+        <div id="map"></div>
+        <div id="panel">
+            <h2>{{.ProjectName}}</h2>
+            <div class="subtitle">Pavement & Parking Analysis | {{.SnapshotDate}}</div>
+            <div id="stats">
+            {{range .Stats}}
+                <div class="stat-card">
+                    <h3>{{.Type}}</h3>
+                    <div class="stat-row">
+                        <span class="stat-label">Features</span>
+                        <span class="stat-value" id="count-{{.Type}}">{{.FeatureCount}}</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Area (acres)</span>
+                        <span class="stat-value">{{printf "%.1f" .TotalAreaAcres}}</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Area (sq mi)</span>
+                        <span class="stat-value">{{printf "%.2f" (divf .TotalAreaAcres 640)}}</span>
+                    </div>
+                </div>
+            {{end}}
+            </div>
+            <div class="layer-toggle" id="toggles"></div>
+        </div>
+    </div>
+
+    <div id="financials-tab" class="tab-content">
+        <div class="financials">
+            <div class="headlines" id="headlines">
+                <div class="no-data">Loading financial analysis...</div>
+            </div>
+            <div class="chart-grid" id="charts"></div>
+        </div>
+    </div>
+
     <script>
+        // Tab switching
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                btn.classList.add('active');
+                document.getElementById(btn.dataset.tab).classList.add('active');
+                if (btn.dataset.tab === 'map-tab' && window._map) window._map.resize();
+            });
+        });
+
+        // Map
         const CENTER = [{{.CenterLon}}, {{.CenterLat}}];
         const layerColors = { pavements: '#6b7280', parking: '#3b82f6' };
 
@@ -77,6 +157,7 @@
             center: CENTER,
             zoom: 13
         });
+        window._map = map;
 
         map.on('load', async () => {
             let toggles = '';
@@ -128,6 +209,221 @@
                 });
             });
         });
+
+        // Financials
+        const COLORS = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899'];
+
+        function fmt$(n) {
+            if (n >= 1e9) return '$' + (n/1e9).toFixed(1) + 'B';
+            if (n >= 1e6) return '$' + (n/1e6).toFixed(1) + 'M';
+            if (n >= 1e3) return '$' + (n/1e3).toFixed(0) + 'K';
+            return '$' + n.toFixed(0);
+        }
+
+        async function loadFinancials() {
+            let scenarios;
+            try {
+                const resp = await fetch('data/scenarios.json');
+                if (!resp.ok) throw new Error('not found');
+                scenarios = await resp.json();
+            } catch(e) {
+                document.getElementById('headlines').innerHTML = '<div class="no-data">No financial data available. Run <code>pvmt forecast</code> and <code>pvmt export</code> first.</div>';
+                return;
+            }
+            if (!scenarios || scenarios.length === 0) {
+                document.getElementById('headlines').innerHTML = '<div class="no-data">No scenario data found.</div>';
+                return;
+            }
+
+            // Find baseline (do-nothing)
+            const baseline = scenarios.find(s => s.scenario.strategy === 0 || s.scenario.name === 'do-nothing' || s.scenario.name === 'baseline');
+            if (!baseline) return;
+
+            const lastYear = baseline.years[baseline.years.length - 1];
+            const totalDoNothingCost = baseline.years.reduce((s, y) => s + y.annual_need, 0);
+
+            // Find full-funding scenario
+            const fullFunding = scenarios.find(s => s.scenario.name === 'fund-100pct');
+            const fullFundingCost = fullFunding ? fullFunding.years.reduce((s, y) => s + y.annual_spend, 0) : 0;
+            const costMultiplier = fullFundingCost > 0 ? (totalDoNothingCost / fullFundingCost).toFixed(1) : 'N/A';
+
+            // Headlines
+            document.getElementById('headlines').innerHTML = `
+                <div class="headline-card">
+                    <div class="label">Year 1 Treatment Need</div>
+                    <div class="value">${fmt$(baseline.years[0].annual_need)}</div>
+                    <div class="sub">Annual cost to maintain current condition</div>
+                </div>
+                <div class="headline-card">
+                    <div class="label">${baseline.years.length}-Year Do-Nothing Backlog</div>
+                    <div class="value">${fmt$(lastYear.deferred_backlog)}</div>
+                    <div class="sub">Cumulative deferred maintenance</div>
+                </div>
+                <div class="headline-card">
+                    <div class="label">End PCI (Do Nothing)</div>
+                    <div class="value">${lastYear.pci.toFixed(0)}</div>
+                    <div class="sub">Projected condition after ${baseline.years.length} years</div>
+                </div>
+                <div class="headline-card">
+                    <div class="label">Cost Multiplier of Neglect</div>
+                    <div class="value">${costMultiplier}x</div>
+                    <div class="sub">Do-nothing total vs proactive maintenance</div>
+                </div>
+            `;
+
+            // Charts
+            const chartsDiv = document.getElementById('charts');
+            chartsDiv.innerHTML = '';
+
+            // Get funding-level scenarios
+            const fundingScenarios = scenarios.filter(s =>
+                ['baseline', 'fund-25pct', 'fund-50pct', 'fund-100pct'].includes(s.scenario.name)
+            );
+
+            // 1. PCI over time
+            if (fundingScenarios.length > 0) {
+                const card = makeChartCard('PCI Over Time by Funding Level');
+                chartsDiv.appendChild(card);
+                const ctx = card.querySelector('canvas').getContext('2d');
+                new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: fundingScenarios[0].years.map(y => 'Year ' + y.year),
+                        datasets: fundingScenarios.map((s, i) => ({
+                            label: s.scenario.label,
+                            data: s.years.map(y => y.pci),
+                            borderColor: COLORS[i % COLORS.length],
+                            backgroundColor: 'transparent',
+                            tension: 0.3,
+                            pointRadius: 0
+                        }))
+                    },
+                    options: { responsive: true, scales: { y: { min: 0, max: 100, title: { display: true, text: 'PCI' } } }, plugins: { legend: { position: 'bottom' } } }
+                });
+            }
+
+            // 2. Deferred backlog growth
+            if (fundingScenarios.length > 0) {
+                const card = makeChartCard('Deferred Maintenance Backlog');
+                chartsDiv.appendChild(card);
+                const ctx = card.querySelector('canvas').getContext('2d');
+                new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: fundingScenarios[0].years.map(y => 'Year ' + y.year),
+                        datasets: fundingScenarios.map((s, i) => ({
+                            label: s.scenario.label,
+                            data: s.years.map(y => y.deferred_backlog),
+                            borderColor: COLORS[i % COLORS.length],
+                            backgroundColor: COLORS[i % COLORS.length] + '20',
+                            fill: s.scenario.name === 'baseline',
+                            tension: 0.3,
+                            pointRadius: 0
+                        }))
+                    },
+                    options: { responsive: true, scales: { y: { title: { display: true, text: 'Dollars ($)' }, ticks: { callback: v => fmt$(v) } } }, plugins: { legend: { position: 'bottom' } } }
+                });
+            }
+
+            // 3. Cumulative cost (exclude baseline — zero spend is a flat line)
+            const fundedScenarios = fundingScenarios.filter(s => s.scenario.name !== 'baseline');
+            if (fundedScenarios.length > 0) {
+                const card = makeChartCard('Cumulative Spending');
+                chartsDiv.appendChild(card);
+                const ctx = card.querySelector('canvas').getContext('2d');
+                new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: fundedScenarios[0].years.map(y => 'Year ' + y.year),
+                        datasets: fundedScenarios.map((s, i) => {
+                            let cum = 0;
+                            return {
+                                label: s.scenario.label,
+                                data: s.years.map(y => { cum += y.annual_spend; return cum; }),
+                                borderColor: COLORS[(i + 1) % COLORS.length],
+                                backgroundColor: 'transparent',
+                                tension: 0.3,
+                                pointRadius: 0
+                            };
+                        })
+                    },
+                    options: { responsive: true, scales: { y: { title: { display: true, text: 'Dollars ($)' }, ticks: { callback: v => fmt$(v) } } }, plugins: { legend: { position: 'bottom' } } }
+                });
+            }
+
+            // 4. Strategy comparison
+            const strategyScenarios = scenarios.filter(s =>
+                ['worst-first-50', 'preventive-first-50'].includes(s.scenario.name)
+            );
+            if (strategyScenarios.length > 0) {
+                const card = makeChartCard('Strategy Comparison: PCI at 50% Budget');
+                chartsDiv.appendChild(card);
+                const ctx = card.querySelector('canvas').getContext('2d');
+                new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: strategyScenarios[0].years.map(y => 'Year ' + y.year),
+                        datasets: strategyScenarios.map((s, i) => ({
+                            label: s.scenario.label,
+                            data: s.years.map(y => y.pci),
+                            borderColor: COLORS[i + 3],
+                            backgroundColor: 'transparent',
+                            tension: 0.3,
+                            pointRadius: 0
+                        }))
+                    },
+                    options: { responsive: true, scales: { y: { min: 0, max: 100, title: { display: true, text: 'PCI' } } }, plugins: { legend: { position: 'bottom' } } }
+                });
+            }
+
+            // 5. Annual cost by tier (baseline)
+            if (baseline) {
+                const card = makeChartCard('Annual Treatment Need by Condition Tier');
+                chartsDiv.appendChild(card);
+                const ctx = card.querySelector('canvas').getContext('2d');
+                const tierColors = { preventive: '#22c55e', rehab: '#f59e0b', reconstruction: '#ef4444' };
+                const bgColors = baseline.years.map(y => tierColors[y.cost_tier] || '#9ca3af');
+                new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: baseline.years.map(y => 'Year ' + y.year),
+                        datasets: [{
+                            label: 'Annual Need',
+                            data: baseline.years.map(y => y.annual_need),
+                            backgroundColor: bgColors
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: { y: { title: { display: true, text: 'Dollars ($)' }, ticks: { callback: v => fmt$(v) } } },
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'bottom',
+                                labels: {
+                                    generateLabels: function() {
+                                        return [
+                                            { text: 'Preventive', fillStyle: '#22c55e', strokeStyle: '#22c55e' },
+                                            { text: 'Rehab', fillStyle: '#f59e0b', strokeStyle: '#f59e0b' },
+                                            { text: 'Reconstruction', fillStyle: '#ef4444', strokeStyle: '#ef4444' }
+                                        ];
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        function makeChartCard(title) {
+            const div = document.createElement('div');
+            div.className = 'chart-card';
+            div.innerHTML = '<h3>' + title + '</h3><canvas></canvas>';
+            return div;
+        }
+
+        loadFinancials();
     </script>
 </body>
 </html>

@@ -11,6 +11,7 @@ import (
 
 	"pvmt/internal/config"
 	"pvmt/internal/db"
+	"pvmt/internal/forecast"
 	"pvmt/internal/geo"
 	"pvmt/internal/resource"
 )
@@ -107,6 +108,11 @@ func (e *Exporter) Run() error {
 		return fmt.Errorf("write meta: %w", err)
 	}
 
+	// Export forecast and scenario data
+	if err := e.exportScenarios(dataDir); err != nil {
+		return fmt.Errorf("export scenarios: %w", err)
+	}
+
 	// Render HTML template
 	return e.renderHTML(meta)
 }
@@ -192,6 +198,92 @@ func (e *Exporter) renderHTML(meta metaJSON) (err error) {
 	}()
 
 	return tmpl.Execute(f, meta)
+}
+
+func (e *Exporter) exportScenarios(dataDir string) error {
+	// Build forecasting params from config
+	var costTiers []forecast.CostTier
+	for _, t := range e.cfg.Forecast.CostTiers {
+		costTiers = append(costTiers, forecast.CostTier{
+			MinPCI:      t.MinPCI,
+			MaxPCI:      t.MaxPCI,
+			CostPerSqFt: t.CostPerSqFt,
+			Label:       t.Label,
+		})
+	}
+	params := forecast.NewParams(e.cfg.Forecast.DecayRate, e.cfg.Forecast.GrowthRate, costTiers)
+	years := e.cfg.ForecastYears()
+
+	type forecastExport struct {
+		ResourceType string                    `json:"resource_type"`
+		Baseline     forecast.ScenarioResult   `json:"baseline"`
+		Comparisons  []forecast.Comparison     `json:"comparisons"`
+	}
+
+	var allForecasts []forecastExport
+
+	// Aggregate total area across all resource types for combined scenarios
+	var totalAreaSqFt float64
+	for _, rt := range resource.All {
+		result, err := e.store.LatestComputeResult(rt.Name())
+		if err != nil || result == nil {
+			continue
+		}
+		totalAreaSqFt += result.TotalAreaSqFt
+	}
+
+	// Per-resource-type forecasts for forecast.json
+	for _, rt := range resource.All {
+		result, err := e.store.LatestComputeResult(rt.Name())
+		if err != nil || result == nil {
+			continue
+		}
+
+		areaSqFt := result.TotalAreaSqFt
+		currentPCI := 85.0
+
+		baseline := forecast.Simulate(
+			forecast.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: forecast.StrategyDoNothing},
+			areaSqFt, currentPCI, years, params.PCI, params.Cost, params.Growth,
+		)
+
+		year1Need := baseline.Years[0].AnnualNeed
+		comparisons := forecast.GroupedComparisons(year1Need, areaSqFt, currentPCI, years,
+			params.PCI, params.Cost, params.Growth)
+
+		allForecasts = append(allForecasts, forecastExport{
+			ResourceType: rt.Name(),
+			Baseline:     baseline,
+			Comparisons:  comparisons,
+		})
+	}
+
+	if len(allForecasts) > 0 {
+		if err := writeJSON(filepath.Join(dataDir, "forecast.json"), allForecasts); err != nil {
+			return fmt.Errorf("write forecast.json: %w", err)
+		}
+
+		// Build combined scenarios.json using aggregated area
+		currentPCI := 85.0
+		baseline := forecast.Simulate(
+			forecast.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: forecast.StrategyDoNothing},
+			totalAreaSqFt, currentPCI, years, params.PCI, params.Cost, params.Growth,
+		)
+
+		year1Need := baseline.Years[0].AnnualNeed
+		comparisons := forecast.GroupedComparisons(year1Need, totalAreaSqFt, currentPCI, years,
+			params.PCI, params.Cost, params.Growth)
+
+		allScenarios := []forecast.ScenarioResult{baseline}
+		for _, comp := range comparisons {
+			allScenarios = append(allScenarios, comp.Scenarios...)
+		}
+		if err := writeJSON(filepath.Join(dataDir, "scenarios.json"), allScenarios); err != nil {
+			return fmt.Errorf("write scenarios.json: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func writeJSON(path string, v any) error {

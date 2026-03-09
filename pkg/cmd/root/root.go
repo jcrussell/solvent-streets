@@ -47,7 +47,7 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 
 	// Analysis commands
 	cmd.AddGroup(&cobra.Group{ID: "analysis", Title: "Analysis commands:"})
-	fcCmd := forecastcmd.NewCmdForecast(f)
+	fcCmd := forecastcmd.NewCmdForecast(f, nil)
 	fcCmd.GroupID = "analysis"
 	cmd.AddCommand(fcCmd)
 
