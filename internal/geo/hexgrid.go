@@ -9,9 +9,9 @@ import (
 
 // Hex represents a single hexagon in a flat-top hex grid.
 type Hex struct {
-	ID      string       // "hex:{col}:{row}"
-	CenterX float64      // projected X
-	CenterY float64      // projected Y
+	ID      string  // "hex:{col}:{row}"
+	CenterX float64 // projected X
+	CenterY float64 // projected Y
 	Col     int
 	Row     int
 	Geom    geom.Geometry
@@ -22,10 +22,10 @@ type Hex struct {
 // Returns hexes that intersect the bounding box.
 func HexGrid(minX, minY, maxX, maxY, edge float64) []Hex {
 	// Flat-top hex dimensions
-	w := 2 * edge                        // width of hex
-	h := math.Sqrt(3) * edge             // height of hex
-	colSpacing := w * 3 / 4              // horizontal distance between hex centers
-	rowSpacing := h                      // vertical distance between hex centers
+	w := 2 * edge            // width of hex
+	h := math.Sqrt(3) * edge // height of hex
+	colSpacing := w * 3 / 4  // horizontal distance between hex centers
+	rowSpacing := h          // vertical distance between hex centers
 
 	// Determine grid bounds with some margin
 	startCol := int(math.Floor((minX - edge) / colSpacing))

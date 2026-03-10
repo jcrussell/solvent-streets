@@ -9,10 +9,10 @@ import (
 )
 
 type Config struct {
-	Project ProjectConfig `toml:"project"`
-	Area    AreaConfig    `toml:"area"`
-	Sources SourcesConfig `toml:"sources"`
-	Grid    GridConfig    `toml:"grid"`
+	Project  ProjectConfig  `toml:"project"`
+	Area     AreaConfig     `toml:"area"`
+	Sources  SourcesConfig  `toml:"sources"`
+	Grid     GridConfig     `toml:"grid"`
 	Layers   []LayerConfig  `toml:"layers"`
 	Export   ExportConfig   `toml:"export"`
 	Forecast ForecastConfig `toml:"forecast"`
@@ -25,10 +25,10 @@ type ExportConfig struct {
 }
 
 type ForecastConfig struct {
-	DecayRate        float64       `toml:"decay_rate"`         // PCI decay k-value, 0 = use class defaults
-	GrowthRate       float64       `toml:"growth_rate"`        // annual pavement growth rate (0.01 = 1%)
-	Years            int           `toml:"years"`              // forecast horizon, default 20
-	CostTiers        []CostTierCfg `toml:"cost_tiers"`         // custom cost tiers
+	DecayRate  float64       `toml:"decay_rate"`  // PCI decay k-value, 0 = use class defaults
+	GrowthRate float64       `toml:"growth_rate"` // annual pavement growth rate (0.01 = 1%)
+	Years      int           `toml:"years"`       // forecast horizon, default 20
+	CostTiers  []CostTierCfg `toml:"cost_tiers"`  // custom cost tiers
 }
 
 type CostTierCfg struct {
@@ -48,8 +48,8 @@ func (c *Config) ForecastYears() int {
 
 type LayerConfig struct {
 	Name   string `toml:"name"`
-	Type   string `toml:"type"`   // "csv" or "geojson"
-	Path   string `toml:"path"`   // file path
+	Type   string `toml:"type"`    // "csv" or "geojson"
+	Path   string `toml:"path"`    // file path
 	IDProp string `toml:"id_prop"` // property/column for ID
 }
 

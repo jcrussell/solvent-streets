@@ -10,7 +10,7 @@ import (
 )
 
 type Options struct {
-	Factory  *cmdutil.Factory
+	Factory   *cmdutil.Factory
 	OutputDir string
 }
 

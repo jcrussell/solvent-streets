@@ -11,7 +11,7 @@ import (
 type Jurisdiction int
 
 const (
-	JurisdictionCity    Jurisdiction = iota
+	JurisdictionCity Jurisdiction = iota
 	JurisdictionCounty
 	JurisdictionState
 	JurisdictionFederal

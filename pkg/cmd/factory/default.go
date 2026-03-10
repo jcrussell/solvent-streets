@@ -35,7 +35,7 @@ func New() *cmdutil.Factory {
 	return &cmdutil.Factory{
 		AppVersion:     build.Version,
 		ExecutableName: "pvmt",
-		IOStreams:       ios,
+		IOStreams:      ios,
 		HttpClient: func() (*http.Client, error) {
 			httpOnce.Do(func() {
 				cacheDir, err := cache.DefaultDir()

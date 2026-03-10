@@ -15,18 +15,18 @@ type mockStore struct {
 	stats map[string]*db.StatusInfo
 }
 
-func (m *mockStore) UpsertFeatures(string, []db.Feature) error              { return nil }
-func (m *mockStore) ListFeatures(string) ([]db.Feature, error)              { return nil, nil }
-func (m *mockStore) SaveComputeResult(db.ComputeResult) error               { return nil }
-func (m *mockStore) LatestComputeResult(string) (*db.ComputeResult, error)  { return nil, nil }
-func (m *mockStore) SaveHexStats([]db.HexStat) error                       { return nil }
-func (m *mockStore) ListHexStats(string) ([]db.HexStat, error)             { return nil, nil }
-func (m *mockStore) CreateSnapshot(string) (*db.Snapshot, error)           { return &db.Snapshot{ID: 1}, nil }
-func (m *mockStore) ListSnapshots() ([]db.Snapshot, error)                 { return nil, nil }
-func (m *mockStore) SaveForecastResults([]db.ForecastResult) error         { return nil }
+func (m *mockStore) UpsertFeatures(string, []db.Feature) error               { return nil }
+func (m *mockStore) ListFeatures(string) ([]db.Feature, error)               { return nil, nil }
+func (m *mockStore) SaveComputeResult(db.ComputeResult) error                { return nil }
+func (m *mockStore) LatestComputeResult(string) (*db.ComputeResult, error)   { return nil, nil }
+func (m *mockStore) SaveHexStats([]db.HexStat) error                         { return nil }
+func (m *mockStore) ListHexStats(string) ([]db.HexStat, error)               { return nil, nil }
+func (m *mockStore) CreateSnapshot(string) (*db.Snapshot, error)             { return &db.Snapshot{ID: 1}, nil }
+func (m *mockStore) ListSnapshots() ([]db.Snapshot, error)                   { return nil, nil }
+func (m *mockStore) SaveForecastResults([]db.ForecastResult) error           { return nil }
 func (m *mockStore) ListForecastResults(string) ([]db.ForecastResult, error) { return nil, nil }
-func (m *mockStore) ResourceTypes() ([]string, error)                       { return nil, nil }
-func (m *mockStore) Close() error                                           { return nil }
+func (m *mockStore) ResourceTypes() ([]string, error)                        { return nil, nil }
+func (m *mockStore) Close() error                                            { return nil }
 
 func (m *mockStore) Stats(rt string) (*db.StatusInfo, error) {
 	if info, ok := m.stats[rt]; ok {

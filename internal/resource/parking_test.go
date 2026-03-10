@@ -23,9 +23,9 @@ func TestParking_OverpassQuery(t *testing.T) {
 func TestParking_ProcessFeatures_Polygon(t *testing.T) {
 	features := []Feature{
 		{
-			ID:   "p1",
-			Name: "Lot A",
-			Tags: map[string]string{},
+			ID:           "p1",
+			Name:         "Lot A",
+			Tags:         map[string]string{},
 			GeometryJSON: `{"type":"Polygon","coordinates":[[[-121.7700,37.6800],[-121.7690,37.6800],[-121.7690,37.6810],[-121.7700,37.6810],[-121.7700,37.6800]]]}`,
 		},
 	}

@@ -15,9 +15,9 @@ import (
 
 func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "pvmt",
-		Short: "Pavement data ingestion & forecasting tool",
-		Long:  "PVMT ingests pavement data (roads, parking lots) from OSM and ArcGIS APIs,\ncomputes paved area via geometry operations, and serves a MapLibre visualization.",
+		Use:           "pvmt",
+		Short:         "Pavement data ingestion & forecasting tool",
+		Long:          "PVMT ingests pavement data (roads, parking lots) from OSM and ArcGIS APIs,\ncomputes paved area via geometry operations, and serves a MapLibre visualization.",
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	}

@@ -205,7 +205,7 @@ func TestCoordsToLineStringGeoJSON(t *testing.T) {
 	coords := [][2]float64{{-121.77, 37.68}, {-121.76, 37.69}}
 	result := coordsToLineStringGeoJSON(coords)
 	var obj struct {
-		Type        string      `json:"type"`
+		Type        string       `json:"type"`
 		Coordinates [][2]float64 `json:"coordinates"`
 	}
 	if err := json.Unmarshal([]byte(result), &obj); err != nil {
@@ -227,7 +227,7 @@ func TestCoordsToPolygonGeoJSON(t *testing.T) {
 	}
 	result := coordsToPolygonGeoJSON(coords)
 	var obj struct {
-		Type        string        `json:"type"`
+		Type        string         `json:"type"`
 		Coordinates [][][2]float64 `json:"coordinates"`
 	}
 	if err := json.Unmarshal([]byte(result), &obj); err != nil {

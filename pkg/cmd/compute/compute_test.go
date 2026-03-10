@@ -13,24 +13,24 @@ import (
 )
 
 type mockStore struct {
-	features      []db.Feature
-	savedResult   *db.ComputeResult
-	listErr       error
+	features    []db.Feature
+	savedResult *db.ComputeResult
+	listErr     error
 }
 
-func (m *mockStore) UpsertFeatures(string, []db.Feature) error              { return nil }
-func (m *mockStore) ListFeatures(string) ([]db.Feature, error)              { return m.features, m.listErr }
-func (m *mockStore) SaveComputeResult(r db.ComputeResult) error             { m.savedResult = &r; return nil }
-func (m *mockStore) LatestComputeResult(string) (*db.ComputeResult, error)  { return nil, nil }
-func (m *mockStore) SaveHexStats([]db.HexStat) error                       { return nil }
-func (m *mockStore) ListHexStats(string) ([]db.HexStat, error)             { return nil, nil }
-func (m *mockStore) CreateSnapshot(string) (*db.Snapshot, error)           { return &db.Snapshot{ID: 1}, nil }
-func (m *mockStore) ListSnapshots() ([]db.Snapshot, error)                 { return nil, nil }
-func (m *mockStore) SaveForecastResults([]db.ForecastResult) error         { return nil }
+func (m *mockStore) UpsertFeatures(string, []db.Feature) error               { return nil }
+func (m *mockStore) ListFeatures(string) ([]db.Feature, error)               { return m.features, m.listErr }
+func (m *mockStore) SaveComputeResult(r db.ComputeResult) error              { m.savedResult = &r; return nil }
+func (m *mockStore) LatestComputeResult(string) (*db.ComputeResult, error)   { return nil, nil }
+func (m *mockStore) SaveHexStats([]db.HexStat) error                         { return nil }
+func (m *mockStore) ListHexStats(string) ([]db.HexStat, error)               { return nil, nil }
+func (m *mockStore) CreateSnapshot(string) (*db.Snapshot, error)             { return &db.Snapshot{ID: 1}, nil }
+func (m *mockStore) ListSnapshots() ([]db.Snapshot, error)                   { return nil, nil }
+func (m *mockStore) SaveForecastResults([]db.ForecastResult) error           { return nil }
 func (m *mockStore) ListForecastResults(string) ([]db.ForecastResult, error) { return nil, nil }
-func (m *mockStore) Stats(string) (*db.StatusInfo, error)                   { return &db.StatusInfo{}, nil }
-func (m *mockStore) ResourceTypes() ([]string, error)                       { return nil, nil }
-func (m *mockStore) Close() error                                           { return nil }
+func (m *mockStore) Stats(string) (*db.StatusInfo, error)                    { return &db.StatusInfo{}, nil }
+func (m *mockStore) ResourceTypes() ([]string, error)                        { return nil, nil }
+func (m *mockStore) Close() error                                            { return nil }
 
 var testCfg = &config.Config{
 	Project: config.ProjectConfig{Name: "Test City"},

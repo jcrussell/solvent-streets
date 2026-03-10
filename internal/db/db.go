@@ -36,12 +36,12 @@ type ComputeResult struct {
 }
 
 type StatusInfo struct {
-	ResourceType     string
-	FeatureCount     int
-	LastIngestAt     *time.Time
-	LastComputeAt    *time.Time
-	TotalAreaSqFt    float64
-	TotalAreaAcres   float64
+	ResourceType   string
+	FeatureCount   int
+	LastIngestAt   *time.Time
+	LastComputeAt  *time.Time
+	TotalAreaSqFt  float64
+	TotalAreaAcres float64
 }
 
 type HexStat struct {
