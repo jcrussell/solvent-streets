@@ -12,7 +12,7 @@ func TestCORSMiddleware_Options(t *testing.T) {
 	})
 	handler := corsMiddleware(inner)
 
-	req := httptest.NewRequest("OPTIONS", "/api/stats", nil)
+	req := httptest.NewRequest("OPTIONS", "/data/meta.json", nil)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
@@ -33,7 +33,7 @@ func TestCORSMiddleware_GET(t *testing.T) {
 	})
 	handler := corsMiddleware(inner)
 
-	req := httptest.NewRequest("GET", "/api/stats", nil)
+	req := httptest.NewRequest("GET", "/data/meta.json", nil)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 

@@ -10,24 +10,25 @@ import (
 
 	"pvmt/internal/config"
 	"pvmt/internal/db"
+	"pvmt/internal/export"
 )
 
 type mockStore struct {
 	computeResults map[string]*db.ComputeResult
 }
 
-func (m *mockStore) UpsertFeatures(string, []db.Feature) error              { return nil }
-func (m *mockStore) ListFeatures(string) ([]db.Feature, error)              { return nil, nil }
-func (m *mockStore) SaveComputeResult(db.ComputeResult) error               { return nil }
-func (m *mockStore) SaveHexStats([]db.HexStat) error                       { return nil }
-func (m *mockStore) ListHexStats(string) ([]db.HexStat, error)             { return nil, nil }
-func (m *mockStore) CreateSnapshot(string) (*db.Snapshot, error)           { return &db.Snapshot{ID: 1}, nil }
-func (m *mockStore) ListSnapshots() ([]db.Snapshot, error)                 { return nil, nil }
-func (m *mockStore) SaveForecastResults([]db.ForecastResult) error         { return nil }
+func (m *mockStore) UpsertFeatures(string, []db.Feature) error               { return nil }
+func (m *mockStore) ListFeatures(string) ([]db.Feature, error)               { return nil, nil }
+func (m *mockStore) SaveComputeResult(db.ComputeResult) error                { return nil }
+func (m *mockStore) SaveHexStats([]db.HexStat) error                         { return nil }
+func (m *mockStore) ListHexStats(string) ([]db.HexStat, error)               { return nil, nil }
+func (m *mockStore) CreateSnapshot(string) (*db.Snapshot, error)             { return &db.Snapshot{ID: 1}, nil }
+func (m *mockStore) ListSnapshots() ([]db.Snapshot, error)                   { return nil, nil }
+func (m *mockStore) SaveForecastResults([]db.ForecastResult) error           { return nil }
 func (m *mockStore) ListForecastResults(string) ([]db.ForecastResult, error) { return nil, nil }
-func (m *mockStore) Stats(string) (*db.StatusInfo, error)                   { return &db.StatusInfo{}, nil }
-func (m *mockStore) ResourceTypes() ([]string, error)                       { return nil, nil }
-func (m *mockStore) Close() error                                           { return nil }
+func (m *mockStore) Stats(string) (*db.StatusInfo, error)                    { return &db.StatusInfo{}, nil }
+func (m *mockStore) ResourceTypes() ([]string, error)                        { return nil, nil }
+func (m *mockStore) Close() error                                            { return nil }
 
 func (m *mockStore) LatestComputeResult(rt string) (*db.ComputeResult, error) {
 	if r, ok := m.computeResults[rt]; ok {
@@ -36,7 +37,7 @@ func (m *mockStore) LatestComputeResult(rt string) (*db.ComputeResult, error) {
 	return nil, fmt.Errorf("not found")
 }
 
-func TestHandleStats(t *testing.T) {
+func TestHandleDataMetaJSON(t *testing.T) {
 	store := &mockStore{
 		computeResults: map[string]*db.ComputeResult{
 			"pavements": {
@@ -56,9 +57,9 @@ func TestHandleStats(t *testing.T) {
 	}
 	srv := New(store, cfg, 0)
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/stats", srv.handleStats)
+	mux.HandleFunc("GET /data/{file}", srv.handleDataFile)
 
-	req := httptest.NewRequest("GET", "/api/stats?type=pavements", nil)
+	req := httptest.NewRequest("GET", "/data/meta.json", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
@@ -66,14 +67,17 @@ func TestHandleStats(t *testing.T) {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
 
-	var results []statsResponse
-	if err := json.NewDecoder(w.Body).Decode(&results); err != nil {
+	var meta export.MetaJSON
+	if err := json.NewDecoder(w.Body).Decode(&meta); err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(results))
+	if len(meta.Stats) != 1 {
+		t.Fatalf("expected 1 stat, got %d", len(meta.Stats))
 	}
-	if results[0].TotalAreaSqFt != 500000 {
-		t.Errorf("expected 500000 sqft, got %f", results[0].TotalAreaSqFt)
+	if meta.Stats[0].TotalAreaSqFt != 500000 {
+		t.Errorf("expected 500000 sqft, got %f", meta.Stats[0].TotalAreaSqFt)
+	}
+	if meta.ProjectName != "Test City" {
+		t.Errorf("expected project name 'Test City', got %q", meta.ProjectName)
 	}
 }

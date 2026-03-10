@@ -63,6 +63,51 @@
         .legend-dot { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
         .legend-gradient { width: 100px; height: 12px; border-radius: 2px; display: inline-block; }
 
+        /* Color legend */
+        #legend {
+            position: absolute;
+            bottom: 24px;
+            right: 10px;
+            background: rgba(255,255,255,0.92);
+            padding: 10px 14px;
+            border-radius: 6px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+            z-index: 2;
+            font-size: 12px;
+        }
+        #legend .legend-title { font-weight: 600; margin-bottom: 4px; }
+        #legend .legend-bar {
+            width: 180px; height: 12px; border-radius: 3px;
+            background: linear-gradient(90deg, #f7fbff, #c6dbef, #6baed6, #2171b5, #08519c, #08306b);
+        }
+        #legend .legend-labels { display: flex; justify-content: space-between; margin-top: 2px; color: #666; }
+
+        /* Hex tooltip */
+        #hex-tooltip {
+            position: absolute;
+            pointer-events: none;
+            z-index: 10;
+            background: rgba(26,26,46,0.92);
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            line-height: 1.5;
+            display: none;
+            white-space: nowrap;
+        }
+
+        /* Hex detail panel */
+        .hex-detail { font-size: 13px; }
+        .hex-detail h3 { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .hex-detail .close-btn {
+            background: none; border: none; font-size: 18px; cursor: pointer; color: #666; padding: 0 4px; line-height: 1;
+        }
+        .hex-detail table { width: 100%; border-collapse: collapse; }
+        .hex-detail th, .hex-detail td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #eee; }
+        .hex-detail th { color: #666; font-weight: 500; }
+        .hex-detail .total-row { font-weight: 600; border-top: 2px solid #ccc; }
+
         /* Financials tab */
         .financials { padding: 24px; max-width: 1200px; margin: 0 auto; overflow-y: auto; height: 100%; }
         .jurisdiction-toggle {
@@ -147,6 +192,14 @@
             </div>
             <div class="layer-toggle" id="toggles"></div>
         </div>
+        <div id="legend">
+            <div class="legend-title">Coverage %</div>
+            <div class="legend-bar"></div>
+            <div class="legend-labels">
+                <span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span>
+            </div>
+        </div>
+        <div id="hex-tooltip"></div>
     </div>
 
     <div id="financials-tab" class="tab-content">
@@ -191,6 +244,73 @@
         });
         window._map = map;
 
+        // Hex interactivity state
+        let hexDataByType = {};   // { pavements: [...features], parking: [...features] }
+        let costSummary = {};     // { pavements: {year1_cost, total_area_sqft}, ... }
+        let activeTypes = new Set(Object.keys(layerColors));
+        let savedPanelHTML = '';
+
+        function fmtNum(n) {
+            return Math.round(n).toLocaleString();
+        }
+
+        function fmtCost(n) {
+            if (n >= 1e6) return '$' + (n/1e6).toFixed(1) + 'M';
+            if (n >= 1e3) return '$' + (n/1e3).toFixed(0) + 'K';
+            return '$' + Math.round(n).toLocaleString();
+        }
+
+        // Build blended hex FeatureCollection from active types
+        function buildBlendedHexFC(hexDataByType, activeTypes, costSummary) {
+            // Group all features by hex_id, only from active types
+            const byHex = {};
+            for (const type of activeTypes) {
+                const features = hexDataByType[type] || [];
+                for (const f of features) {
+                    const hid = f.properties.hex_id;
+                    if (!byHex[hid]) {
+                        byHex[hid] = { geometry: f.geometry, area_sqft: 0, pct_covered: 0, est_cost: 0 };
+                    }
+                    byHex[hid].area_sqft += f.properties.area_sqft || 0;
+                    byHex[hid].pct_covered += f.properties.pct_covered || 0;
+                }
+            }
+
+            // Compute est_cost per hex
+            for (const type of activeTypes) {
+                const cs = costSummary[type];
+                if (!cs || !cs.total_area_sqft) continue;
+                const features = hexDataByType[type] || [];
+                for (const f of features) {
+                    const hid = f.properties.hex_id;
+                    if (!byHex[hid]) continue;
+                    byHex[hid].est_cost += ((f.properties.area_sqft || 0) / cs.total_area_sqft) * cs.year1_cost;
+                }
+            }
+
+            const features = [];
+            for (const [hid, data] of Object.entries(byHex)) {
+                features.push({
+                    type: 'Feature',
+                    geometry: data.geometry,
+                    properties: {
+                        hex_id: hid,
+                        area_sqft: data.area_sqft,
+                        pct_covered: Math.min(data.pct_covered, 100),
+                        est_cost: data.est_cost
+                    }
+                });
+            }
+            return { type: 'FeatureCollection', features };
+        }
+
+        function updateHexGrid() {
+            const src = map.getSource('hexgrid');
+            if (!src) return;
+            const fc = buildBlendedHexFC(hexDataByType, activeTypes, costSummary);
+            src.setData(fc);
+        }
+
         map.on('load', async () => {
             let toggles = '';
 
@@ -205,9 +325,15 @@
                         id: type + '-fill', type: 'fill', source: type,
                         paint: { 'fill-color': layerColors[type], 'fill-opacity': 0.4, 'fill-outline-color': layerColors[type] }
                     });
-                    toggles += '<label><input type="checkbox" checked data-layers="' + type + '-fill"><span class="legend-dot" style="background:' + layerColors[type] + '"></span>' + type + '</label>';
+                    toggles += '<label><input type="checkbox" checked data-layers="' + type + '-fill" data-type="' + type + '"><span class="legend-dot" style="background:' + layerColors[type] + '"></span>' + type + '</label>';
                 } catch(e) {}
             }
+
+            // Load hex cost summary
+            try {
+                const resp = await fetch('data/hex-cost-summary.json');
+                if (resp.ok) costSummary = await resp.json();
+            } catch(e) {}
 
             // Load hex grid
             try {
@@ -215,7 +341,17 @@
                 if (resp.ok) {
                     const data = await resp.json();
                     if (data.features && data.features.length > 0) {
-                        map.addSource('hexgrid', { type: 'geojson', data });
+                        // Parse into per-type buckets
+                        for (const f of data.features) {
+                            const rt = f.properties.resource_type || 'unknown';
+                            if (!hexDataByType[rt]) hexDataByType[rt] = [];
+                            hexDataByType[rt].push(f);
+                        }
+
+                        // Build initial blended FC
+                        const blended = buildBlendedHexFC(hexDataByType, activeTypes, costSummary);
+
+                        map.addSource('hexgrid', { type: 'geojson', data: blended });
                         map.addLayer({
                             id: 'hex-fill', type: 'fill', source: 'hexgrid',
                             paint: {
@@ -229,6 +365,71 @@
                             paint: { 'line-color': '#333', 'line-width': 0.5, 'line-opacity': 0.3 }
                         });
                         toggles += '<label><input type="checkbox" checked data-layers="hex-fill,hex-outline"><span class="legend-gradient" style="background:linear-gradient(90deg,#c6dbef,#08306b)"></span>hex grid</label>';
+
+                        // Hover tooltip
+                        const tooltip = document.getElementById('hex-tooltip');
+                        map.on('mousemove', 'hex-fill', e => {
+                            map.getCanvas().style.cursor = 'pointer';
+                            if (e.features && e.features.length > 0) {
+                                const p = e.features[0].properties;
+                                tooltip.innerHTML =
+                                    '<strong>Coverage:</strong> ' + (p.pct_covered != null ? Math.round(p.pct_covered) : 0) + '%<br>' +
+                                    '<strong>Area:</strong> ' + fmtNum(p.area_sqft || 0) + ' sq ft<br>' +
+                                    '<strong>Est. Cost:</strong> ' + fmtCost(p.est_cost || 0);
+                                tooltip.style.display = 'block';
+                                tooltip.style.left = (e.point.x + 12) + 'px';
+                                tooltip.style.top = (e.point.y - 12) + 'px';
+                            }
+                        });
+                        map.on('mouseleave', 'hex-fill', () => {
+                            map.getCanvas().style.cursor = '';
+                            tooltip.style.display = 'none';
+                        });
+
+                        // Click detail panel
+                        map.on('click', 'hex-fill', e => {
+                            if (!e.features || e.features.length === 0) return;
+                            const p = e.features[0].properties;
+                            const hexId = p.hex_id;
+
+                            // Save current stats panel
+                            const statsEl = document.getElementById('stats');
+                            if (!statsEl.querySelector('.hex-detail')) {
+                                savedPanelHTML = statsEl.innerHTML;
+                            }
+
+                            // Build per-type breakdown
+                            let rows = '';
+                            let totalArea = 0, totalPct = 0, totalCost = 0;
+                            for (const type of Object.keys(layerColors)) {
+                                const features = hexDataByType[type] || [];
+                                const match = features.find(f => f.properties.hex_id === hexId);
+                                if (!match) continue;
+                                const area = match.properties.area_sqft || 0;
+                                const pct = match.properties.pct_covered || 0;
+                                let cost = 0;
+                                const cs = costSummary[type];
+                                if (cs && cs.total_area_sqft) {
+                                    cost = (area / cs.total_area_sqft) * cs.year1_cost;
+                                }
+                                totalArea += area;
+                                totalPct += pct;
+                                totalCost += cost;
+                                rows += '<tr><td style="text-transform:capitalize">' + type + '</td><td>' + fmtNum(area) + '</td><td>' + Math.round(pct) + '%</td><td>' + fmtCost(cost) + '</td></tr>';
+                            }
+
+                            statsEl.innerHTML =
+                                '<div class="hex-detail">' +
+                                '<h3>Hex ' + hexId + '<button class="close-btn" id="close-hex">&times;</button></h3>' +
+                                '<table><tr><th>Type</th><th>Area (sqft)</th><th>Coverage</th><th>Est. Cost</th></tr>' +
+                                rows +
+                                '<tr class="total-row"><td>Total</td><td>' + fmtNum(totalArea) + '</td><td>' + Math.min(Math.round(totalPct), 100) + '%</td><td>' + fmtCost(totalCost) + '</td></tr>' +
+                                '</table></div>';
+
+                            document.getElementById('close-hex').addEventListener('click', () => {
+                                statsEl.innerHTML = savedPanelHTML;
+                            });
+                        });
                     }
                 }
             } catch(e) {}
@@ -238,6 +439,17 @@
                 cb.addEventListener('change', e => {
                     const vis = e.target.checked ? 'visible' : 'none';
                     e.target.dataset.layers.split(',').forEach(id => map.setLayoutProperty(id, 'visibility', vis));
+
+                    // Update activeTypes and reblend hex grid
+                    const type = e.target.dataset.type;
+                    if (type) {
+                        if (e.target.checked) {
+                            activeTypes.add(type);
+                        } else {
+                            activeTypes.delete(type);
+                        }
+                        updateHexGrid();
+                    }
                 });
             });
         });
@@ -369,7 +581,7 @@
                 }));
             }
 
-            // 3. Cumulative cost (exclude baseline — zero spend is a flat line)
+            // 3. Cumulative cost (exclude baseline)
             const fundedScenarios = fundingScenarios.filter(s => s.scenario.name !== 'baseline');
             if (fundedScenarios.length > 0) {
                 const card = makeChartCard('Cumulative Spending');
@@ -473,12 +685,10 @@
             // Handle both old (array) and new (object with all/city keys) formats
             let scenarios;
             if (Array.isArray(scenarioData)) {
-                // Legacy format: plain array of scenarios
                 scenarios = scenarioData;
                 scenarioData = { all: scenarios };
             } else {
                 scenarios = scenarioData.all;
-                // Show toggle if city data exists
                 if (scenarioData.city) {
                     document.getElementById('scope-toggle').style.display = 'flex';
                 }

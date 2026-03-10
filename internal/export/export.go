@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -19,16 +20,21 @@ import (
 //go:embed templates
 var templatesFS embed.FS
 
-type metaJSON struct {
-	ProjectName  string    `json:"project_name"`
-	BBox         [4]float64 `json:"bbox"`
-	CenterLon    float64   `json:"center_lon"`
-	CenterLat    float64   `json:"center_lat"`
-	SnapshotDate string    `json:"snapshot_date"`
-	Stats        []statJSON `json:"stats"`
+// TemplateFS returns the embedded template filesystem for use by the server.
+func TemplateFS() fs.ReadFileFS {
+	return templatesFS
 }
 
-type statJSON struct {
+type MetaJSON struct {
+	ProjectName  string     `json:"project_name"`
+	BBox         [4]float64 `json:"bbox"`
+	CenterLon    float64    `json:"center_lon"`
+	CenterLat    float64    `json:"center_lat"`
+	SnapshotDate string     `json:"snapshot_date"`
+	Stats        []StatJSON `json:"stats"`
+}
+
+type StatJSON struct {
 	Type           string  `json:"type"`
 	TotalAreaSqFt  float64 `json:"total_area_sqft"`
 	TotalAreaAcres float64 `json:"total_area_acres"`
@@ -54,7 +60,7 @@ func (e *Exporter) Run() error {
 	lon, lat := e.cfg.Center()
 	proj := geo.NewUTMProjector(lon, lat)
 
-	meta := metaJSON{
+	meta := MetaJSON{
 		ProjectName:  e.cfg.Project.Name,
 		BBox:         e.cfg.Area.BBox,
 		CenterLon:    lon,
@@ -69,7 +75,7 @@ func (e *Exporter) Run() error {
 			continue
 		}
 
-		meta.Stats = append(meta.Stats, statJSON{
+		meta.Stats = append(meta.Stats, StatJSON{
 			Type:           result.ResourceType,
 			TotalAreaSqFt:  result.TotalAreaSqFt,
 			TotalAreaAcres: result.TotalAreaAcres,
@@ -172,7 +178,7 @@ func (e *Exporter) buildHexGeoJSON(proj *geo.UTMProjector) map[string]any {
 	}
 }
 
-func (e *Exporter) renderHTML(meta metaJSON) (err error) {
+func (e *Exporter) renderHTML(meta MetaJSON) (err error) {
 	tmplData, err := templatesFS.ReadFile("templates/index.html.tmpl")
 	if err != nil {
 		return fmt.Errorf("read template: %w", err)
@@ -215,9 +221,9 @@ func (e *Exporter) exportScenarios(dataDir string) error {
 	years := e.cfg.ForecastYears()
 
 	type forecastExport struct {
-		ResourceType string                    `json:"resource_type"`
-		Baseline     forecast.ScenarioResult   `json:"baseline"`
-		Comparisons  []forecast.Comparison     `json:"comparisons"`
+		ResourceType string                  `json:"resource_type"`
+		Baseline     forecast.ScenarioResult `json:"baseline"`
+		Comparisons  []forecast.Comparison   `json:"comparisons"`
 	}
 
 	var allForecasts []forecastExport
@@ -275,15 +281,35 @@ func (e *Exporter) exportScenarios(dataDir string) error {
 			return fmt.Errorf("write forecast.json: %w", err)
 		}
 
+		// Export hex-cost-summary.json
+		hexCostSummary := make(map[string]map[string]float64)
+		for _, fe := range allForecasts {
+			var year1Cost float64
+			if len(fe.Baseline.Years) > 0 {
+				year1Cost = fe.Baseline.Years[0].AnnualNeed
+			}
+			result, err := e.store.LatestComputeResult(fe.ResourceType)
+			if err != nil || result == nil {
+				continue
+			}
+			hexCostSummary[fe.ResourceType] = map[string]float64{
+				"year1_cost":      year1Cost,
+				"total_area_sqft": result.TotalAreaSqFt,
+			}
+		}
+		if err := writeJSON(filepath.Join(dataDir, "hex-cost-summary.json"), hexCostSummary); err != nil {
+			return fmt.Errorf("write hex-cost-summary.json: %w", err)
+		}
+
 		currentPCI := 85.0
 
 		// Build "all" scenarios
-		allScenarios := buildScenarios(totalAreaSqFt, currentPCI, years, params)
+		allScenarios := BuildScenarios(totalAreaSqFt, currentPCI, years, params)
 
 		// Build "city" scenarios if city data exists
 		var cityScenarios []forecast.ScenarioResult
 		if cityAreaSqFt > 0 {
-			cityScenarios = buildScenarios(cityAreaSqFt, currentPCI, years, params)
+			cityScenarios = BuildScenarios(cityAreaSqFt, currentPCI, years, params)
 		}
 
 		// Compute jurisdiction summary
@@ -314,7 +340,9 @@ func (e *Exporter) exportScenarios(dataDir string) error {
 	return nil
 }
 
-func buildScenarios(areaSqFt, currentPCI float64, years int, params *forecast.Params) []forecast.ScenarioResult {
+// BuildScenarios generates scenario results for a given area.
+// Exported for use by the server package.
+func BuildScenarios(areaSqFt, currentPCI float64, years int, params *forecast.Params) []forecast.ScenarioResult {
 	baseline := forecast.Simulate(
 		forecast.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: forecast.StrategyDoNothing},
 		areaSqFt, currentPCI, years, params.PCI, params.Cost, params.Growth,

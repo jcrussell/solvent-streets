@@ -2,9 +2,7 @@ package server
 
 import (
 	"context"
-	"embed"
 	"fmt"
-	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -15,9 +13,6 @@ import (
 	"pvmt/internal/config"
 	"pvmt/internal/db"
 )
-
-//go:embed frontend
-var frontendFS embed.FS
 
 type Server struct {
 	store db.Store
@@ -32,17 +27,11 @@ func New(store db.Store, cfg *config.Config, port int) *Server {
 func (s *Server) ListenAndServe() error {
 	mux := http.NewServeMux()
 
-	// API routes
-	mux.HandleFunc("GET /api/stats", s.handleStats)
-	mux.HandleFunc("GET /api/config", s.handleConfig)
-	mux.HandleFunc("GET /api/hexstats", s.handleHexStats)
+	// Data endpoints matching export layout
+	mux.HandleFunc("GET /data/{file}", s.handleDataFile)
 
-	// Frontend
-	frontendContent, err := fs.Sub(frontendFS, "frontend")
-	if err != nil {
-		return fmt.Errorf("frontend fs: %w", err)
-	}
-	mux.Handle("GET /", http.FileServer(http.FS(frontendContent)))
+	// Serve rendered template on /
+	mux.HandleFunc("GET /", s.handleIndex)
 
 	handler := corsMiddleware(recoveryMiddleware(mux))
 
