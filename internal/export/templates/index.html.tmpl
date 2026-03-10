@@ -65,6 +65,33 @@
 
         /* Financials tab */
         .financials { padding: 24px; max-width: 1200px; margin: 0 auto; overflow-y: auto; height: 100%; }
+        .jurisdiction-toggle {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+        .jurisdiction-toggle button {
+            padding: 8px 20px;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            background: #fff;
+            cursor: pointer;
+            font-size: 14px;
+            color: #666;
+            transition: all 0.15s;
+        }
+        .jurisdiction-toggle button.active {
+            background: #1a1a2e;
+            color: #fff;
+            border-color: #1a1a2e;
+        }
+        .scope-annotation {
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 16px;
+            display: none;
+        }
+        .scope-annotation.visible { display: block; }
         .headlines { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 32px; }
         .headline-card {
             background: #fff;
@@ -124,6 +151,11 @@
 
     <div id="financials-tab" class="tab-content">
         <div class="financials">
+            <div class="jurisdiction-toggle" id="scope-toggle" style="display:none">
+                <button class="active" data-scope="all">All Roads</button>
+                <button data-scope="city">City Roads Only</button>
+            </div>
+            <div class="scope-annotation" id="scope-annotation"></div>
             <div class="headlines" id="headlines">
                 <div class="no-data">Loading financial analysis...</div>
             </div>
@@ -220,19 +252,31 @@
             return '$' + n.toFixed(0);
         }
 
-        async function loadFinancials() {
-            let scenarios;
-            try {
-                const resp = await fetch('data/scenarios.json');
-                if (!resp.ok) throw new Error('not found');
-                scenarios = await resp.json();
-            } catch(e) {
-                document.getElementById('headlines').innerHTML = '<div class="no-data">No financial data available. Run <code>pvmt forecast</code> and <code>pvmt export</code> first.</div>';
-                return;
-            }
+        let scenarioData = null;
+        let currentCharts = [];
+
+        function destroyCharts() {
+            currentCharts.forEach(c => c.destroy());
+            currentCharts = [];
+        }
+
+        function renderFinancials(scenarios, scope) {
             if (!scenarios || scenarios.length === 0) {
                 document.getElementById('headlines').innerHTML = '<div class="no-data">No scenario data found.</div>';
+                document.getElementById('charts').innerHTML = '';
                 return;
+            }
+
+            destroyCharts();
+
+            // Update annotation
+            const annotation = document.getElementById('scope-annotation');
+            if (scope === 'city' && scenarioData.summary && scenarioData.summary.city_pct) {
+                const pct = (scenarioData.summary.city_pct * 100).toFixed(0);
+                annotation.textContent = 'City roads: ' + pct + '% of total pavement area';
+                annotation.classList.add('visible');
+            } else {
+                annotation.classList.remove('visible');
             }
 
             // Find baseline (do-nothing)
@@ -285,7 +329,7 @@
                 const card = makeChartCard('PCI Over Time by Funding Level');
                 chartsDiv.appendChild(card);
                 const ctx = card.querySelector('canvas').getContext('2d');
-                new Chart(ctx, {
+                currentCharts.push(new Chart(ctx, {
                     type: 'line',
                     data: {
                         labels: fundingScenarios[0].years.map(y => 'Year ' + y.year),
@@ -299,7 +343,7 @@
                         }))
                     },
                     options: { responsive: true, scales: { y: { min: 0, max: 100, title: { display: true, text: 'PCI' } } }, plugins: { legend: { position: 'bottom' } } }
-                });
+                }));
             }
 
             // 2. Deferred backlog growth
@@ -307,7 +351,7 @@
                 const card = makeChartCard('Deferred Maintenance Backlog');
                 chartsDiv.appendChild(card);
                 const ctx = card.querySelector('canvas').getContext('2d');
-                new Chart(ctx, {
+                currentCharts.push(new Chart(ctx, {
                     type: 'line',
                     data: {
                         labels: fundingScenarios[0].years.map(y => 'Year ' + y.year),
@@ -322,7 +366,7 @@
                         }))
                     },
                     options: { responsive: true, scales: { y: { title: { display: true, text: 'Dollars ($)' }, ticks: { callback: v => fmt$(v) } } }, plugins: { legend: { position: 'bottom' } } }
-                });
+                }));
             }
 
             // 3. Cumulative cost (exclude baseline — zero spend is a flat line)
@@ -331,7 +375,7 @@
                 const card = makeChartCard('Cumulative Spending');
                 chartsDiv.appendChild(card);
                 const ctx = card.querySelector('canvas').getContext('2d');
-                new Chart(ctx, {
+                currentCharts.push(new Chart(ctx, {
                     type: 'line',
                     data: {
                         labels: fundedScenarios[0].years.map(y => 'Year ' + y.year),
@@ -348,7 +392,7 @@
                         })
                     },
                     options: { responsive: true, scales: { y: { title: { display: true, text: 'Dollars ($)' }, ticks: { callback: v => fmt$(v) } } }, plugins: { legend: { position: 'bottom' } } }
-                });
+                }));
             }
 
             // 4. Strategy comparison
@@ -359,7 +403,7 @@
                 const card = makeChartCard('Strategy Comparison: PCI at 50% Budget');
                 chartsDiv.appendChild(card);
                 const ctx = card.querySelector('canvas').getContext('2d');
-                new Chart(ctx, {
+                currentCharts.push(new Chart(ctx, {
                     type: 'line',
                     data: {
                         labels: strategyScenarios[0].years.map(y => 'Year ' + y.year),
@@ -373,7 +417,7 @@
                         }))
                     },
                     options: { responsive: true, scales: { y: { min: 0, max: 100, title: { display: true, text: 'PCI' } } }, plugins: { legend: { position: 'bottom' } } }
-                });
+                }));
             }
 
             // 5. Annual cost by tier (baseline)
@@ -383,7 +427,7 @@
                 const ctx = card.querySelector('canvas').getContext('2d');
                 const tierColors = { preventive: '#22c55e', rehab: '#f59e0b', reconstruction: '#ef4444' };
                 const bgColors = baseline.years.map(y => tierColors[y.cost_tier] || '#9ca3af');
-                new Chart(ctx, {
+                currentCharts.push(new Chart(ctx, {
                     type: 'bar',
                     data: {
                         labels: baseline.years.map(y => 'Year ' + y.year),
@@ -412,9 +456,52 @@
                             }
                         }
                     }
-                });
+                }));
             }
         }
+
+        async function loadFinancials() {
+            try {
+                const resp = await fetch('data/scenarios.json');
+                if (!resp.ok) throw new Error('not found');
+                scenarioData = await resp.json();
+            } catch(e) {
+                document.getElementById('headlines').innerHTML = '<div class="no-data">No financial data available. Run <code>pvmt forecast</code> and <code>pvmt export</code> first.</div>';
+                return;
+            }
+
+            // Handle both old (array) and new (object with all/city keys) formats
+            let scenarios;
+            if (Array.isArray(scenarioData)) {
+                // Legacy format: plain array of scenarios
+                scenarios = scenarioData;
+                scenarioData = { all: scenarios };
+            } else {
+                scenarios = scenarioData.all;
+                // Show toggle if city data exists
+                if (scenarioData.city) {
+                    document.getElementById('scope-toggle').style.display = 'flex';
+                }
+            }
+
+            if (!scenarios || scenarios.length === 0) {
+                document.getElementById('headlines').innerHTML = '<div class="no-data">No scenario data found.</div>';
+                return;
+            }
+
+            renderFinancials(scenarios, 'all');
+        }
+
+        // Scope toggle handler
+        document.querySelectorAll('#scope-toggle button').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('#scope-toggle button').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                const scope = btn.dataset.scope;
+                const scenarios = scenarioData[scope] || scenarioData.all;
+                renderFinancials(scenarios, scope);
+            });
+        });
 
         function makeChartCard(title) {
             const div = document.createElement('div');

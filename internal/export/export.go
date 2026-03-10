@@ -224,12 +224,24 @@ func (e *Exporter) exportScenarios(dataDir string) error {
 
 	// Aggregate total area across all resource types for combined scenarios
 	var totalAreaSqFt float64
+	var cityAreaSqFt float64
+	var cityFeatureCount int
+	var allFeatureCount int
+
 	for _, rt := range resource.All {
 		result, err := e.store.LatestComputeResult(rt.Name())
 		if err != nil || result == nil {
 			continue
 		}
 		totalAreaSqFt += result.TotalAreaSqFt
+		allFeatureCount += result.FeatureCount
+
+		// Check for city variant
+		cityResult, err := e.store.LatestComputeResult(rt.Name() + ":city")
+		if err == nil && cityResult != nil {
+			cityAreaSqFt += cityResult.TotalAreaSqFt
+			cityFeatureCount += cityResult.FeatureCount
+		}
 	}
 
 	// Per-resource-type forecasts for forecast.json
@@ -263,27 +275,60 @@ func (e *Exporter) exportScenarios(dataDir string) error {
 			return fmt.Errorf("write forecast.json: %w", err)
 		}
 
-		// Build combined scenarios.json using aggregated area
 		currentPCI := 85.0
-		baseline := forecast.Simulate(
-			forecast.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: forecast.StrategyDoNothing},
-			totalAreaSqFt, currentPCI, years, params.PCI, params.Cost, params.Growth,
-		)
 
-		year1Need := baseline.Years[0].AnnualNeed
-		comparisons := forecast.GroupedComparisons(year1Need, totalAreaSqFt, currentPCI, years,
-			params.PCI, params.Cost, params.Growth)
+		// Build "all" scenarios
+		allScenarios := buildScenarios(totalAreaSqFt, currentPCI, years, params)
 
-		allScenarios := []forecast.ScenarioResult{baseline}
-		for _, comp := range comparisons {
-			allScenarios = append(allScenarios, comp.Scenarios...)
+		// Build "city" scenarios if city data exists
+		var cityScenarios []forecast.ScenarioResult
+		if cityAreaSqFt > 0 {
+			cityScenarios = buildScenarios(cityAreaSqFt, currentPCI, years, params)
 		}
-		if err := writeJSON(filepath.Join(dataDir, "scenarios.json"), allScenarios); err != nil {
+
+		// Compute jurisdiction summary
+		summary := map[string]any{
+			"city_count":    cityFeatureCount,
+			"all_count":     allFeatureCount,
+			"state_count":   0,
+			"county_count":  0,
+			"federal_count": 0,
+		}
+		if totalAreaSqFt > 0 && cityAreaSqFt > 0 {
+			summary["city_pct"] = cityAreaSqFt / totalAreaSqFt
+		}
+
+		scenariosOut := map[string]any{
+			"all":     allScenarios,
+			"summary": summary,
+		}
+		if cityScenarios != nil {
+			scenariosOut["city"] = cityScenarios
+		}
+
+		if err := writeJSON(filepath.Join(dataDir, "scenarios.json"), scenariosOut); err != nil {
 			return fmt.Errorf("write scenarios.json: %w", err)
 		}
 	}
 
 	return nil
+}
+
+func buildScenarios(areaSqFt, currentPCI float64, years int, params *forecast.Params) []forecast.ScenarioResult {
+	baseline := forecast.Simulate(
+		forecast.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: forecast.StrategyDoNothing},
+		areaSqFt, currentPCI, years, params.PCI, params.Cost, params.Growth,
+	)
+
+	year1Need := baseline.Years[0].AnnualNeed
+	comparisons := forecast.GroupedComparisons(year1Need, areaSqFt, currentPCI, years,
+		params.PCI, params.Cost, params.Growth)
+
+	scenarios := []forecast.ScenarioResult{baseline}
+	for _, comp := range comparisons {
+		scenarios = append(scenarios, comp.Scenarios...)
+	}
+	return scenarios
 }
 
 func writeJSON(path string, v any) error {

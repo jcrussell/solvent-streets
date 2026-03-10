@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"pvmt/internal/db"
+	"pvmt/internal/filter"
 	"pvmt/internal/geo"
 	"pvmt/internal/resource"
 	"pvmt/pkg/cmdutil"
@@ -16,6 +17,7 @@ import (
 type Options struct {
 	Factory      *cmdutil.Factory
 	ResourceType resource.ResourceType
+	CityOnly     bool
 }
 
 func NewCmdCompute(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Options) error) *cobra.Command {
@@ -34,6 +36,8 @@ func NewCmdCompute(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Opti
 			return runCompute(opts)
 		},
 	}
+
+	cmd.Flags().BoolVar(&opts.CityOnly, "city-only", false, "Only show city-maintained road results")
 
 	return cmd
 }
@@ -79,6 +83,17 @@ func runCompute(opts *Options) error {
 		}
 	}
 
+	// Partition by jurisdiction and log summary
+	parts := filter.Partition(resFeatures)
+	fmt.Fprintf(ios.Out, "  Total: %d features (%d city, %d county, %d state, %d federal)\n",
+		len(resFeatures),
+		len(parts[filter.JurisdictionCity]),
+		len(parts[filter.JurisdictionCounty]),
+		len(parts[filter.JurisdictionState]),
+		len(parts[filter.JurisdictionFederal]),
+	)
+
+	// Process all features
 	gjson, areaSqFt, err := opts.ResourceType.ProcessFeatures(resFeatures, proj)
 	if err != nil {
 		return fmt.Errorf("process features: %w", err)
@@ -111,13 +126,43 @@ func runCompute(opts *Options) error {
 		return fmt.Errorf("save result: %w", err)
 	}
 
-	fmt.Fprintf(ios.Out, "\n%s Results:\n", opts.ResourceType.Name())
-	fmt.Fprintf(ios.Out, "  Features:  %d\n", len(dbFeatures))
-	fmt.Fprintf(ios.Out, "  Area:      %.0f sq ft\n", areaSqFt)
-	fmt.Fprintf(ios.Out, "  Area:      %.1f acres\n", areaAcres)
-	fmt.Fprintf(ios.Out, "  Area:      %.2f sq mi\n", areaAcres/640)
+	if !opts.CityOnly {
+		fmt.Fprintf(ios.Out, "\n%s Results (all):\n", opts.ResourceType.Name())
+		fmt.Fprintf(ios.Out, "  Features:  %d\n", len(dbFeatures))
+		fmt.Fprintf(ios.Out, "  Area:      %.0f sq ft\n", areaSqFt)
+		fmt.Fprintf(ios.Out, "  Area:      %.1f acres\n", areaAcres)
+		fmt.Fprintf(ios.Out, "  Area:      %.2f sq mi\n", areaAcres/640)
+	}
 
-	// Compute hex grid stats
+	// Process city-only features
+	cityFeatures := parts[filter.JurisdictionCity]
+	if len(cityFeatures) > 0 {
+		cityGjson, cityAreaSqFt, err := opts.ResourceType.ProcessFeatures(cityFeatures, proj)
+		if err != nil {
+			fmt.Fprintf(ios.ErrOut, "Warning: failed to process city features: %v\n", err)
+		} else {
+			cityAreaAcres := geo.AreaAcres(cityAreaSqFt)
+			cityResult := db.ComputeResult{
+				ResourceType:   opts.ResourceType.Name() + ":city",
+				TotalAreaSqFt:  cityAreaSqFt,
+				TotalAreaAcres: cityAreaAcres,
+				FeatureCount:   len(cityFeatures),
+				GeometryJSON:   cityGjson,
+				SnapshotID:     snapshotID,
+			}
+			if err := store.SaveComputeResult(cityResult); err != nil {
+				fmt.Fprintf(ios.ErrOut, "Warning: failed to save city result: %v\n", err)
+			}
+
+			fmt.Fprintf(ios.Out, "\n%s Results (city only):\n", opts.ResourceType.Name())
+			fmt.Fprintf(ios.Out, "  Features:  %d\n", len(cityFeatures))
+			fmt.Fprintf(ios.Out, "  Area:      %.0f sq ft\n", cityAreaSqFt)
+			fmt.Fprintf(ios.Out, "  Area:      %.1f acres\n", cityAreaAcres)
+			fmt.Fprintf(ios.Out, "  Area:      %.2f sq mi\n", cityAreaAcres/640)
+		}
+	}
+
+	// Compute hex grid stats (using all features)
 	hexEdge := cfg.HexEdge()
 	bbox := cfg.Area.BBox
 	// Project bbox corners to UTM
