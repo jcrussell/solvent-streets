@@ -84,7 +84,7 @@ func Simulate(s Scenario, areaSqFt, initialPCI float64, years int,
 	var deferredBacklog float64
 	currentPCI := initialPCI
 
-	for i := 0; i < years; i++ {
+	for i := range years {
 		// Decay from current (possibly recovered) PCI — one year of decay
 		decayed := pci.Forecast(currentPCI, 1)
 		decayedPCI := decayed[0]

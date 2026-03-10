@@ -22,7 +22,7 @@ func (g *LinearGrowthEstimator) EstimateGrowth(currentAreaSqFt float64, years in
 	}
 	result := make([]float64, years)
 	area := currentAreaSqFt
-	for i := 0; i < years; i++ {
+	for i := range years {
 		area *= (1 + rate)
 		result[i] = area
 	}

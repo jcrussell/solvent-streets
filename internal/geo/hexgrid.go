@@ -66,7 +66,7 @@ func HexGrid(minX, minY, maxX, maxY, edge float64) []Hex {
 func hexPolygon(cx, cy, edge float64) geom.Geometry {
 	// Flat-top hex vertices at angles 0, 60, 120, 180, 240, 300 degrees
 	coords := make([]float64, 14) // 7 points * 2 coords (close the ring)
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		angle := float64(i) * math.Pi / 3
 		coords[i*2] = cx + edge*math.Cos(angle)
 		coords[i*2+1] = cy + edge*math.Sin(angle)

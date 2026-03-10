@@ -36,7 +36,7 @@ func (f *ExponentialPCIForecaster) Forecast(currentPCI float64, years int) []flo
 		k = DefaultDecayRates["default"]
 	}
 	result := make([]float64, years)
-	for i := 0; i < years; i++ {
+	for i := range years {
 		t := float64(i + 1)
 		pci := currentPCI * math.Exp(-k*t)
 		if pci < 0 {

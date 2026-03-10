@@ -102,7 +102,7 @@ func runCompute(opts *Options) error {
 	areaAcres := geo.AreaAcres(areaSqFt)
 
 	// Create snapshot
-	configHash := fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%v", cfg))))
+	configHash := fmt.Sprintf("%x", sha256.Sum256(fmt.Appendf(nil, "%v", cfg)))
 	snapshot, err := store.CreateSnapshot(configHash[:16])
 	if err != nil {
 		fmt.Fprintf(ios.ErrOut, "Warning: failed to create snapshot: %v\n", err)
