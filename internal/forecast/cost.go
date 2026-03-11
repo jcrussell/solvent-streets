@@ -3,7 +3,8 @@ package forecast
 import "sort"
 
 // Default cost tiers ($/sq ft) based on PCI ranges.
-// Based on FHWA treatment selection guidelines.
+// FHWA treatment selection guidelines quote costs in $/sq yd;
+// values below are converted to $/sq ft (÷9).
 type CostTier struct {
 	MinPCI      float64 // inclusive
 	MaxPCI      float64 // exclusive; last tier uses 101 as sentinel so PCI=100 matches via pci < 101
@@ -12,9 +13,9 @@ type CostTier struct {
 }
 
 var DefaultCostTiers = []CostTier{
-	{MinPCI: 70, MaxPCI: 101, CostPerSqFt: 3.5, Label: "preventive"},    // $2-5/sqft
-	{MinPCI: 40, MaxPCI: 70, CostPerSqFt: 11.5, Label: "rehab"},         // $8-15/sqft
-	{MinPCI: 0, MaxPCI: 40, CostPerSqFt: 30.0, Label: "reconstruction"}, // $20-40/sqft
+	{MinPCI: 70, MaxPCI: 101, CostPerSqFt: 0.39, Label: "preventive"},    // FHWA $2-5/sq yd → ~$0.39/sq ft
+	{MinPCI: 40, MaxPCI: 70, CostPerSqFt: 1.28, Label: "rehab"},          // FHWA $8-15/sq yd → ~$1.28/sq ft
+	{MinPCI: 0, MaxPCI: 40, CostPerSqFt: 3.33, Label: "reconstruction"},  // FHWA $20-40/sq yd → ~$3.33/sq ft
 }
 
 type StubCostProjector struct{}
