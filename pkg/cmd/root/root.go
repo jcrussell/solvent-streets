@@ -7,6 +7,7 @@ import (
 	"pvmt/pkg/cmd/parking"
 	"pvmt/pkg/cmd/roads"
 	"pvmt/pkg/cmd/serve"
+	"pvmt/pkg/cmd/sidewalks"
 	"pvmt/pkg/cmd/status"
 	"pvmt/pkg/cmdutil"
 
@@ -28,11 +29,14 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 	roadsCmd.GroupID = "resource"
 	parkingCmd := parking.NewCmdParking(f)
 	parkingCmd.GroupID = "resource"
+	sidewalksCmd := sidewalks.NewCmdSidewalks(f)
+	sidewalksCmd.GroupID = "resource"
 	allCmd := all.NewCmdAll(f)
 	allCmd.GroupID = "resource"
 
 	cmd.AddCommand(roadsCmd)
 	cmd.AddCommand(parkingCmd)
+	cmd.AddCommand(sidewalksCmd)
 	cmd.AddCommand(allCmd)
 
 	// Server commands

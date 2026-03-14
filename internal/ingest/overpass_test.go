@@ -19,7 +19,7 @@ func TestParseOverpassResponse_BasicWayWithGeometry(t *testing.T) {
 			}
 		]
 	}`
-	features, err := parseOverpassResponse([]byte(data), "pavements")
+	features, err := parseOverpassResponse([]byte(data), "roads")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestParseOverpassResponse_BasicWayWithGeometry(t *testing.T) {
 	if f.Name != "Main St" {
 		t.Errorf("expected name Main St, got %s", f.Name)
 	}
-	if f.ResourceType != "pavements" {
+	if f.ResourceType != "roads" {
 		t.Errorf("expected resource type pavements, got %s", f.ResourceType)
 	}
 	// Should be LineString since first != last
@@ -59,7 +59,7 @@ func TestParseOverpassResponse_WayResolvedViaNodeIndex(t *testing.T) {
 			}
 		]
 	}`
-	features, err := parseOverpassResponse([]byte(data), "pavements")
+	features, err := parseOverpassResponse([]byte(data), "roads")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestParseOverpassResponse_WayLessThan2Coords(t *testing.T) {
 			}
 		]
 	}`
-	features, err := parseOverpassResponse([]byte(data), "pavements")
+	features, err := parseOverpassResponse([]byte(data), "roads")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestParseOverpassResponse_WayLessThan2Coords(t *testing.T) {
 
 func TestParseOverpassResponse_EmptyResponse(t *testing.T) {
 	data := `{"elements": []}`
-	features, err := parseOverpassResponse([]byte(data), "pavements")
+	features, err := parseOverpassResponse([]byte(data), "roads")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestParseOverpassResponse_NameFallbackToHighway(t *testing.T) {
 			}
 		]
 	}`
-	features, err := parseOverpassResponse([]byte(data), "pavements")
+	features, err := parseOverpassResponse([]byte(data), "roads")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestParseOverpassResponse_GeometryPriorityOverNodes(t *testing.T) {
 			}
 		]
 	}`
-	features, err := parseOverpassResponse([]byte(data), "pavements")
+	features, err := parseOverpassResponse([]byte(data), "roads")
 	if err != nil {
 		t.Fatal(err)
 	}

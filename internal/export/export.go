@@ -36,9 +36,17 @@ type MetaJSON struct {
 
 type StatJSON struct {
 	Type           string  `json:"type"`
+	Color          string  `json:"color"`
 	TotalAreaSqFt  float64 `json:"total_area_sqft"`
 	TotalAreaAcres float64 `json:"total_area_acres"`
 	FeatureCount   int     `json:"feature_count"`
+}
+
+// ResourceColors maps resource type names to their display colors.
+var ResourceColors = map[string]string{
+	"roads": "#6b7280",
+	"parking":   "#3b82f6",
+	"sidewalks": "#f59e0b",
 }
 
 type Exporter struct {
@@ -77,6 +85,7 @@ func (e *Exporter) Run() error {
 
 		meta.Stats = append(meta.Stats, StatJSON{
 			Type:           result.ResourceType,
+			Color:          ResourceColors[result.ResourceType],
 			TotalAreaSqFt:  result.TotalAreaSqFt,
 			TotalAreaAcres: result.TotalAreaAcres,
 			FeatureCount:   result.FeatureCount,

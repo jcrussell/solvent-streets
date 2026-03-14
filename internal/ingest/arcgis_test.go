@@ -13,7 +13,7 @@ func TestParseArcGISGeoJSON_BasicFeature(t *testing.T) {
 			}
 		]
 	}`
-	features, err := parseArcGISGeoJSON([]byte(data), "pavements")
+	features, err := parseArcGISGeoJSON([]byte(data), "roads")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +27,7 @@ func TestParseArcGISGeoJSON_BasicFeature(t *testing.T) {
 	if f.Name != "First St" {
 		t.Errorf("expected name First St, got %s", f.Name)
 	}
-	if f.ResourceType != "pavements" {
+	if f.ResourceType != "roads" {
 		t.Errorf("expected resource type pavements, got %s", f.ResourceType)
 	}
 }
@@ -41,7 +41,7 @@ func TestParseArcGISGeoJSON_NoOBJECTID(t *testing.T) {
 			}
 		]
 	}`
-	features, err := parseArcGISGeoJSON([]byte(data), "pavements")
+	features, err := parseArcGISGeoJSON([]byte(data), "roads")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestParseArcGISGeoJSON_NoOBJECTID(t *testing.T) {
 func TestParseArcGISGeoJSON_FULLNAMEExtraction(t *testing.T) {
 	for _, key := range []string{"FULLNAME", "FullName", "fullname"} {
 		data := `{"features": [{"properties": {"` + key + `": "Third Ave"}, "geometry": {"type":"Point","coordinates":[-121.77,37.68]}}]}`
-		features, err := parseArcGISGeoJSON([]byte(data), "pavements")
+		features, err := parseArcGISGeoJSON([]byte(data), "roads")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -76,7 +76,7 @@ func TestParseArcGISGeoJSON_NullGeometry(t *testing.T) {
 			}
 		]
 	}`
-	features, err := parseArcGISGeoJSON([]byte(data), "pavements")
+	features, err := parseArcGISGeoJSON([]byte(data), "roads")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestParseArcGISGeoJSON_NullGeometry(t *testing.T) {
 
 func TestParseArcGISGeoJSON_EmptyFeatures(t *testing.T) {
 	data := `{"features": []}`
-	features, err := parseArcGISGeoJSON([]byte(data), "pavements")
+	features, err := parseArcGISGeoJSON([]byte(data), "roads")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestParseArcGISGeoJSON_NumericPropertyValues(t *testing.T) {
 			}
 		]
 	}`
-	features, err := parseArcGISGeoJSON([]byte(data), "pavements")
+	features, err := parseArcGISGeoJSON([]byte(data), "roads")
 	if err != nil {
 		t.Fatal(err)
 	}

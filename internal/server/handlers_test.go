@@ -40,8 +40,8 @@ func (m *mockStore) LatestComputeResult(rt string) (*db.ComputeResult, error) {
 func TestHandleDataMetaJSON(t *testing.T) {
 	store := &mockStore{
 		computeResults: map[string]*db.ComputeResult{
-			"pavements": {
-				ResourceType:   "pavements",
+			"roads": {
+				ResourceType:   "roads",
 				TotalAreaSqFt:  500000,
 				TotalAreaAcres: 11.48,
 				FeatureCount:   100,

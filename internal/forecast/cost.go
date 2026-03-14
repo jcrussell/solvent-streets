@@ -18,6 +18,12 @@ var DefaultCostTiers = []CostTier{
 	{MinPCI: 0, MaxPCI: 40, CostPerSqFt: 3.33, Label: "reconstruction"},  // FHWA $20-40/sq yd → ~$3.33/sq ft
 }
 
+var DefaultSidewalkCostTiers = []CostTier{
+	{MinPCI: 70, MaxPCI: 101, CostPerSqFt: 0.22, Label: "preventive"},      // crack sealing
+	{MinPCI: 40, MaxPCI: 70, CostPerSqFt: 0.78, Label: "rehab"},            // panel replacement
+	{MinPCI: 0, MaxPCI: 40, CostPerSqFt: 2.00, Label: "reconstruction"},    // full replacement
+}
+
 type StubCostProjector struct{}
 
 func (s *StubCostProjector) ProjectCost(areaSqFt float64, pci float64) float64 {

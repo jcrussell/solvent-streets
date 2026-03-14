@@ -19,6 +19,7 @@ type ResourceType interface {
 var All = []ResourceType{
 	&Pavement{},
 	&Parking{},
+	&Sidewalk{},
 }
 
 func ByName(name string) ResourceType {

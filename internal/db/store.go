@@ -13,15 +13,15 @@ func (s *sqliteStore) UpsertFeatures(resourceType string, features []Feature) er
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	// Delete existing features for this resource type so stale entries
+	// (e.g. from a narrowed query) don't persist across re-ingests.
+	if _, err := tx.Exec(`DELETE FROM features WHERE resource_type = ?`, resourceType); err != nil {
+		return fmt.Errorf("delete old features: %w", err)
+	}
+
 	stmt, err := tx.Prepare(`
 		INSERT INTO features (id, resource_type, name, tags, geometry_json, source_api, fetched_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(id, resource_type) DO UPDATE SET
-			name = excluded.name,
-			tags = excluded.tags,
-			geometry_json = excluded.geometry_json,
-			source_api = excluded.source_api,
-			fetched_at = excluded.fetched_at
 	`)
 	if err != nil {
 		return fmt.Errorf("prepare upsert: %w", err)

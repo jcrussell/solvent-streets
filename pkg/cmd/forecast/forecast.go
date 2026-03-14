@@ -52,7 +52,7 @@ func runForecast(opts *Options) error {
 
 	years := cfg.ForecastYears()
 
-	// Build shared forecasting params from config (DRY)
+	// Build config cost tiers (shared across resources unless overridden)
 	var costTiers []fcpkg.CostTier
 	for _, t := range cfg.Forecast.CostTiers {
 		costTiers = append(costTiers, fcpkg.CostTier{
@@ -62,11 +62,11 @@ func runForecast(opts *Options) error {
 			Label:       t.Label,
 		})
 	}
-	params := fcpkg.NewParams(cfg.Forecast.DecayRate, cfg.Forecast.GrowthRate, costTiers)
 
 	fmt.Fprintf(ios.Out, "Running %d-year forecast...\n\n", years)
 
 	for _, rt := range resource.All {
+		params := fcpkg.NewParamsForResource(rt.Name(), cfg.Forecast.DecayRate, cfg.Forecast.GrowthRate, costTiers)
 		result, err := store.LatestComputeResult(rt.Name())
 		if err != nil || result == nil {
 			fmt.Fprintf(ios.ErrOut, "Warning: no compute results for %s, skipping\n", rt.Name())

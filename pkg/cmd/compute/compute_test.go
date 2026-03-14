@@ -45,7 +45,7 @@ func TestNewCmdCompute_RunFInjection(t *testing.T) {
 	called := false
 	cmd := NewCmdCompute(f, rt, func(opts *Options) error {
 		called = true
-		if opts.ResourceType.Name() != "pavements" {
+		if opts.ResourceType.Name() != "roads" {
 			t.Errorf("expected pavements, got %s", opts.ResourceType.Name())
 		}
 		return nil
@@ -92,7 +92,7 @@ func TestRunCompute_Success(t *testing.T) {
 		features: []db.Feature{
 			{
 				ID:           "test1",
-				ResourceType: "pavements",
+				ResourceType: "roads",
 				Name:         "Test Rd",
 				Tags:         map[string]string{"highway": "residential"},
 				GeometryJSON: `{"type":"LineString","coordinates":[[-121.7700,37.6800],[-121.7690,37.6810]]}`,

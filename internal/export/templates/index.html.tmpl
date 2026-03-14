@@ -230,7 +230,7 @@
 
         // Map
         const CENTER = [{{.CenterLon}}, {{.CenterLat}}];
-        const layerColors = { pavements: '#6b7280', parking: '#3b82f6' };
+        const layerColors = { {{range .Stats}}'{{.Type}}': '{{.Color}}', {{end}} };
 
         const map = new maplibregl.Map({
             container: 'map',
@@ -245,8 +245,8 @@
         window._map = map;
 
         // Hex interactivity state
-        let hexDataByType = {};   // { pavements: [...features], parking: [...features] }
-        let costSummary = {};     // { pavements: {year1_cost, total_area_sqft}, ... }
+        let hexDataByType = {};   // { roads: [...features], parking: [...features] }
+        let costSummary = {};     // { roads: {year1_cost, total_area_sqft}, ... }
         let activeTypes = new Set(Object.keys(layerColors));
         let savedPanelHTML = '';
 

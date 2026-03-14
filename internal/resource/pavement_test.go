@@ -11,7 +11,7 @@ var testProj = geo.NewUTMProjector(-121.76, 37.68)
 
 func TestPavement_Name(t *testing.T) {
 	p := &Pavement{}
-	if p.Name() != "pavements" {
+	if p.Name() != "roads" {
 		t.Errorf("expected pavements, got %s", p.Name())
 	}
 }

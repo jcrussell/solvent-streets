@@ -59,8 +59,8 @@ func TestRunStatus_SingleResource(t *testing.T) {
 	now := time.Now()
 	store := &mockStore{
 		stats: map[string]*db.StatusInfo{
-			"pavements": {
-				ResourceType: "pavements",
+			"roads": {
+				ResourceType: "roads",
 				FeatureCount: 42,
 				LastIngestAt: &now,
 			},
@@ -82,8 +82,8 @@ func TestRunStatus_SingleResource(t *testing.T) {
 	}
 	output := stdout.String()
 	// Non-TTY output uses tab-separated format
-	if !strings.Contains(output, "pavements") {
-		t.Errorf("expected pavements in output, got: %s", output)
+	if !strings.Contains(output, "roads") {
+		t.Errorf("expected roads in output, got: %s", output)
 	}
 	if !strings.Contains(output, "42") {
 		t.Errorf("expected feature count 42 in output, got: %s", output)
@@ -93,7 +93,7 @@ func TestRunStatus_SingleResource(t *testing.T) {
 func TestRunStatus_AllResources(t *testing.T) {
 	store := &mockStore{
 		stats: map[string]*db.StatusInfo{
-			"pavements": {ResourceType: "pavements", FeatureCount: 10},
+			"roads": {ResourceType: "roads", FeatureCount: 10},
 			"parking":   {ResourceType: "parking", FeatureCount: 5},
 		},
 	}
@@ -112,7 +112,7 @@ func TestRunStatus_AllResources(t *testing.T) {
 		t.Fatal(err)
 	}
 	output := stdout.String()
-	if !strings.Contains(output, "pavements") || !strings.Contains(output, "parking") {
+	if !strings.Contains(output, "roads") || !strings.Contains(output, "parking") {
 		t.Errorf("expected both resource types in output, got: %s", output)
 	}
 }
@@ -120,7 +120,7 @@ func TestRunStatus_AllResources(t *testing.T) {
 func TestRunStatus_NonTTY_TabSeparated(t *testing.T) {
 	store := &mockStore{
 		stats: map[string]*db.StatusInfo{
-			"pavements": {ResourceType: "pavements", FeatureCount: 7},
+			"roads": {ResourceType: "roads", FeatureCount: 7},
 		},
 	}
 	ios, stdout, _ := iostreams.Test()
@@ -142,7 +142,7 @@ func TestRunStatus_NonTTY_TabSeparated(t *testing.T) {
 	if !strings.Contains(output, "\t") {
 		t.Errorf("expected tab-separated output for non-TTY, got: %s", output)
 	}
-	if !strings.Contains(output, "resource_type\tpavements") {
-		t.Errorf("expected 'resource_type\\tpavements' in output, got: %s", output)
+	if !strings.Contains(output, "resource_type\troads") {
+		t.Errorf("expected 'resource_type\\troads' in output, got: %s", output)
 	}
 }

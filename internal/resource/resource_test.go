@@ -4,14 +4,14 @@ import (
 	"testing"
 )
 
-func TestAllContainsTwoTypes(t *testing.T) {
-	if len(All) != 2 {
-		t.Fatalf("expected 2 resource types, got %d", len(All))
+func TestAllContainsThreeTypes(t *testing.T) {
+	if len(All) != 3 {
+		t.Fatalf("expected 3 resource types, got %d", len(All))
 	}
 }
 
 func TestByName_Pavements(t *testing.T) {
-	rt := ByName("pavements")
+	rt := ByName("roads")
 	if rt == nil {
 		t.Fatal("expected non-nil for pavements")
 	}

@@ -210,7 +210,7 @@ func parseGeoJSONGeometry(gjson string, proj *geo.UTMProjector) (geom.Geometry, 
 
 func cmdName(rt resource.ResourceType) string {
 	switch rt.Name() {
-	case "pavements":
+	case "roads":
 		return "roads"
 	case "parking":
 		return "parking"

@@ -44,7 +44,7 @@ func TestComputeHexStats_NoIntersection(t *testing.T) {
 	// Union geometry far away
 	rect := makeRect(10000, 10000, 10100, 10100)
 	proj := &UTMProjector{Zone: 10, Northern: true}
-	stats := ComputeHexStats(hexes, rect, "pavements", proj)
+	stats := ComputeHexStats(hexes, rect, "roads", proj)
 	if len(stats) != 0 {
 		t.Errorf("expected 0 stats for non-intersecting, got %d", len(stats))
 	}
@@ -55,7 +55,7 @@ func TestComputeHexStats_PartialIntersection(t *testing.T) {
 	// Small rect that should intersect a few hexes
 	rect := makeRect(100, 100, 200, 200)
 	proj := &UTMProjector{Zone: 10, Northern: true}
-	stats := ComputeHexStats(hexes, rect, "pavements", proj)
+	stats := ComputeHexStats(hexes, rect, "roads", proj)
 	if len(stats) == 0 {
 		t.Error("expected some hex stats for intersecting geometry")
 	}

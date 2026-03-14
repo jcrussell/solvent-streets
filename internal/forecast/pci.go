@@ -13,6 +13,7 @@ var DefaultDecayRates = map[string]float64{
 	"residential": 0.040,
 	"service":     0.045,
 	"default":     0.035,
+	"sidewalk":    0.025,
 }
 
 type StubPCIForecaster struct{}

@@ -82,6 +82,7 @@ func (s *Server) buildMeta() export.MetaJSON {
 		}
 		meta.Stats = append(meta.Stats, export.StatJSON{
 			Type:           result.ResourceType,
+			Color:          export.ResourceColors[result.ResourceType],
 			TotalAreaSqFt:  result.TotalAreaSqFt,
 			TotalAreaAcres: result.TotalAreaAcres,
 			FeatureCount:   result.FeatureCount,

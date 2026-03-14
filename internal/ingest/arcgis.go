@@ -23,8 +23,8 @@ type ArcGISSource struct {
 func (s *ArcGISSource) Name() string { return "arcgis" }
 
 func (s *ArcGISSource) Fetch(client *http.Client, rt resource.ResourceType) ([]db.Feature, error) {
-	// Only fetch centerlines for pavement type
-	if rt.Name() != "pavements" {
+	// Only fetch centerlines for road type
+	if rt.Name() != "roads" {
 		return nil, nil
 	}
 

@@ -113,7 +113,7 @@ func TestNewCmdIngest_RunFInjection(t *testing.T) {
 	called := false
 	cmd := NewCmdIngest(f, rt, func(opts *Options) error {
 		called = true
-		if opts.ResourceType.Name() != "pavements" {
+		if opts.ResourceType.Name() != "roads" {
 			t.Errorf("expected pavements, got %s", opts.ResourceType.Name())
 		}
 		return nil

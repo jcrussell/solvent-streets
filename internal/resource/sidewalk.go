@@ -8,21 +8,21 @@ import (
 	"github.com/peterstace/simplefeatures/geom"
 )
 
-type Pavement struct{}
+type Sidewalk struct{}
 
-func (p *Pavement) Name() string { return "roads" }
+func (s *Sidewalk) Name() string { return "sidewalks" }
 
-func (p *Pavement) OverpassQuery(bbox [4]float64) string {
+func (s *Sidewalk) OverpassQuery(bbox [4]float64) string {
 	return fmt.Sprintf(`[out:json][timeout:120];
 (
-  way["highway"]["highway"!~"^(proposed|construction|bridleway|steps|footway|cycleway|path|track|pedestrian|corridor)$"](%f,%f,%f,%f);
+  way["footway"="sidewalk"](%f,%f,%f,%f);
 );
 out body;
 >;
 out skel qt;`, bbox[0], bbox[1], bbox[2], bbox[3])
 }
 
-func (p *Pavement) ProcessFeatures(features []Feature, proj geo.Projector) (string, float64, error) {
+func (s *Sidewalk) ProcessFeatures(features []Feature, proj geo.Projector) (string, float64, error) {
 	var geometries []geom.Geometry
 
 	for _, f := range features {
@@ -33,7 +33,7 @@ func (p *Pavement) ProcessFeatures(features []Feature, proj geo.Projector) (stri
 
 		switch gtype {
 		case "LineString":
-			width := geo.InferWidth(f.Tags)
+			width := geo.InferSidewalkWidth(f.Tags)
 			widthProjected := geo.WidthInProjectedUnits(width, proj)
 			coords := extractLineCoords(g)
 			if len(coords) < 2 {
@@ -74,19 +74,4 @@ func (p *Pavement) ProcessFeatures(features []Feature, proj geo.Projector) (stri
 	}
 
 	return gjson, areaSqFt, nil
-}
-
-func extractLineCoords(g geom.Geometry) [][2]float64 {
-	ls, ok := g.AsLineString()
-	if !ok {
-		return nil
-	}
-	seq := ls.Coordinates()
-	n := seq.Length()
-	coords := make([][2]float64, n)
-	for i := range n {
-		c := seq.Get(i)
-		coords[i] = [2]float64{c.X, c.Y}
-	}
-	return coords
 }
