@@ -113,9 +113,10 @@ func Simulate(s Scenario, areaSqFt, initialPCI float64, years int,
 			} else {
 				spendRatio := spend / annualNeed
 				efficiency := 1.0
-				if s.Strategy == StrategyPreventiveFirst {
+				switch s.Strategy {
+				case StrategyPreventiveFirst:
 					efficiency = 1.2
-				} else if s.Strategy == StrategyWorstFirst {
+				case StrategyWorstFirst:
 					efficiency = 0.8
 				}
 				recovery := (initialPCI - decayedPCI) * spendRatio * efficiency

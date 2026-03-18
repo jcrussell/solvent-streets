@@ -2,17 +2,23 @@ package ingest
 
 import (
 	"fmt"
+	"net/http"
 
+	"pvmt/internal/config"
 	"pvmt/internal/db"
 	ingestpkg "pvmt/internal/ingest"
 	"pvmt/internal/resource"
 	"pvmt/pkg/cmdutil"
+	"pvmt/pkg/iostreams"
 
 	"github.com/spf13/cobra"
 )
 
 type Options struct {
-	Factory      *cmdutil.Factory
+	IO           *iostreams.IOStreams
+	DB           func() (db.Store, error)
+	Config       func() (*config.Config, error)
+	HttpClient   func() (*http.Client, error)
 	ResourceType resource.ResourceType
 	Source       string
 	Force        bool
@@ -20,7 +26,10 @@ type Options struct {
 
 func NewCmdIngest(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Options) error) *cobra.Command {
 	opts := &Options{
-		Factory:      f,
+		IO:           f.IOStreams,
+		DB:           f.DB,
+		Config:       f.Config,
+		HttpClient:   f.HttpClient,
 		ResourceType: rt,
 	}
 
@@ -42,19 +51,19 @@ func NewCmdIngest(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Optio
 }
 
 func runIngest(opts *Options) error {
-	ios := opts.Factory.IOStreams
+	ios := opts.IO
 
-	cfg, err := opts.Factory.Config()
+	cfg, err := opts.Config()
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
 	}
 
-	client, err := opts.Factory.HttpClient()
+	client, err := opts.HttpClient()
 	if err != nil {
 		return fmt.Errorf("http client: %w", err)
 	}
 
-	store, err := opts.Factory.DB()
+	store, err := opts.DB()
 	if err != nil {
 		return fmt.Errorf("database: %w", err)
 	}
@@ -87,7 +96,7 @@ func runIngest(opts *Options) error {
 
 	if len(allFeatures) == 0 {
 		fmt.Fprintf(ios.ErrOut, "No features fetched for %s\n", opts.ResourceType.Name())
-		return nil
+		return cmdutil.ErrNoResults
 	}
 
 	fmt.Fprintf(ios.Out, "Saving %d features to database...\n", len(allFeatures))

@@ -93,7 +93,10 @@ func (s *Server) buildMeta() export.MetaJSON {
 
 func (s *Server) serveMetaJSON(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.buildMeta())
+	if err := json.NewEncoder(w).Encode(s.buildMeta()); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 func (s *Server) serveHexGridGeoJSON(w http.ResponseWriter) {
@@ -111,7 +114,10 @@ func (s *Server) serveHexGridGeoJSON(w http.ResponseWriter) {
 
 	fc := buildHexFC(allStats, s.cfg, proj)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(fc)
+	if err := json.NewEncoder(w).Encode(fc); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 func (s *Server) serveTypeGeoJSON(w http.ResponseWriter, typeName string) {
@@ -135,7 +141,10 @@ func (s *Server) serveTypeGeoJSON(w http.ResponseWriter, typeName string) {
 		},
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(fc)
+	if err := json.NewEncoder(w).Encode(fc); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 func (s *Server) serveScenariosJSON(w http.ResponseWriter) {
@@ -197,7 +206,10 @@ func (s *Server) serveScenariosJSON(w http.ResponseWriter) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(out)
+	if err := json.NewEncoder(w).Encode(out); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 func (s *Server) serveHexCostSummary(w http.ResponseWriter) {
@@ -236,7 +248,10 @@ func (s *Server) serveHexCostSummary(w http.ResponseWriter) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	if err := json.NewEncoder(w).Encode(result); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 // buildHexFC builds a GeoJSON FeatureCollection from hex stats.

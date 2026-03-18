@@ -7,34 +7,11 @@ import (
 
 	"pvmt/internal/config"
 	"pvmt/internal/db"
+	"pvmt/internal/db/dbtest"
 	"pvmt/internal/resource"
 	"pvmt/pkg/cmdutil"
 	"pvmt/pkg/iostreams"
 )
-
-type mockStore struct {
-	features      []db.Feature
-	upsertedType  string
-	upsertedFeats []db.Feature
-}
-
-func (m *mockStore) UpsertFeatures(rt string, features []db.Feature) error {
-	m.upsertedType = rt
-	m.upsertedFeats = features
-	return nil
-}
-func (m *mockStore) ListFeatures(string) ([]db.Feature, error)               { return m.features, nil }
-func (m *mockStore) SaveComputeResult(db.ComputeResult) error                { return nil }
-func (m *mockStore) LatestComputeResult(string) (*db.ComputeResult, error)   { return nil, nil }
-func (m *mockStore) SaveHexStats([]db.HexStat) error                         { return nil }
-func (m *mockStore) ListHexStats(string) ([]db.HexStat, error)               { return nil, nil }
-func (m *mockStore) CreateSnapshot(string) (*db.Snapshot, error)             { return &db.Snapshot{ID: 1}, nil }
-func (m *mockStore) ListSnapshots() ([]db.Snapshot, error)                   { return nil, nil }
-func (m *mockStore) SaveForecastResults([]db.ForecastResult) error           { return nil }
-func (m *mockStore) ListForecastResults(string) ([]db.ForecastResult, error) { return nil, nil }
-func (m *mockStore) Stats(string) (*db.StatusInfo, error)                    { return &db.StatusInfo{}, nil }
-func (m *mockStore) ResourceTypes() ([]string, error)                        { return nil, nil }
-func (m *mockStore) Close() error                                            { return nil }
 
 var testCfg = &config.Config{
 	Project: config.ProjectConfig{Name: "Test City"},
@@ -43,7 +20,7 @@ var testCfg = &config.Config{
 }
 
 func TestNewCmdIngest_DefaultFlags(t *testing.T) {
-	ios, _, _ := iostreams.Test()
+	ios, _, _, _ := iostreams.Test()
 	f := &cmdutil.Factory{IOStreams: ios}
 	rt := &resource.Pavement{}
 
@@ -66,7 +43,7 @@ func TestNewCmdIngest_DefaultFlags(t *testing.T) {
 }
 
 func TestNewCmdIngest_SourceFlag(t *testing.T) {
-	ios, _, _ := iostreams.Test()
+	ios, _, _, _ := iostreams.Test()
 	f := &cmdutil.Factory{IOStreams: ios}
 	rt := &resource.Pavement{}
 
@@ -86,7 +63,7 @@ func TestNewCmdIngest_SourceFlag(t *testing.T) {
 }
 
 func TestNewCmdIngest_ForceFlag(t *testing.T) {
-	ios, _, _ := iostreams.Test()
+	ios, _, _, _ := iostreams.Test()
 	f := &cmdutil.Factory{IOStreams: ios}
 	rt := &resource.Pavement{}
 
@@ -106,7 +83,7 @@ func TestNewCmdIngest_ForceFlag(t *testing.T) {
 }
 
 func TestNewCmdIngest_RunFInjection(t *testing.T) {
-	ios, _, _ := iostreams.Test()
+	ios, _, _, _ := iostreams.Test()
 	f := &cmdutil.Factory{IOStreams: ios}
 	rt := &resource.Pavement{}
 
@@ -129,8 +106,8 @@ func TestNewCmdIngest_RunFInjection(t *testing.T) {
 }
 
 func TestNewCmdIngest_InvalidSource(t *testing.T) {
-	store := &mockStore{}
-	ios, _, _ := iostreams.Test()
+	store := &dbtest.MockStore{}
+	ios, _, _, _ := iostreams.Test()
 	f := &cmdutil.Factory{
 		IOStreams: ios,
 		HttpClient: func() (*http.Client, error) {

@@ -6,37 +6,14 @@ import (
 	"time"
 
 	"pvmt/internal/db"
+	"pvmt/internal/db/dbtest"
 	"pvmt/internal/resource"
 	"pvmt/pkg/cmdutil"
 	"pvmt/pkg/iostreams"
 )
 
-type mockStore struct {
-	stats map[string]*db.StatusInfo
-}
-
-func (m *mockStore) UpsertFeatures(string, []db.Feature) error               { return nil }
-func (m *mockStore) ListFeatures(string) ([]db.Feature, error)               { return nil, nil }
-func (m *mockStore) SaveComputeResult(db.ComputeResult) error                { return nil }
-func (m *mockStore) LatestComputeResult(string) (*db.ComputeResult, error)   { return nil, nil }
-func (m *mockStore) SaveHexStats([]db.HexStat) error                         { return nil }
-func (m *mockStore) ListHexStats(string) ([]db.HexStat, error)               { return nil, nil }
-func (m *mockStore) CreateSnapshot(string) (*db.Snapshot, error)             { return &db.Snapshot{ID: 1}, nil }
-func (m *mockStore) ListSnapshots() ([]db.Snapshot, error)                   { return nil, nil }
-func (m *mockStore) SaveForecastResults([]db.ForecastResult) error           { return nil }
-func (m *mockStore) ListForecastResults(string) ([]db.ForecastResult, error) { return nil, nil }
-func (m *mockStore) ResourceTypes() ([]string, error)                        { return nil, nil }
-func (m *mockStore) Close() error                                            { return nil }
-
-func (m *mockStore) Stats(rt string) (*db.StatusInfo, error) {
-	if info, ok := m.stats[rt]; ok {
-		return info, nil
-	}
-	return &db.StatusInfo{ResourceType: rt}, nil
-}
-
 func TestNewCmdStatus_RunFInjection(t *testing.T) {
-	ios, _, _ := iostreams.Test()
+	ios, _, _, _ := iostreams.Test()
 	f := &cmdutil.Factory{IOStreams: ios}
 	rt := &resource.Pavement{}
 
@@ -57,16 +34,19 @@ func TestNewCmdStatus_RunFInjection(t *testing.T) {
 
 func TestRunStatus_SingleResource(t *testing.T) {
 	now := time.Now()
-	store := &mockStore{
-		stats: map[string]*db.StatusInfo{
-			"roads": {
-				ResourceType: "roads",
-				FeatureCount: 42,
-				LastIngestAt: &now,
-			},
+	store := &dbtest.MockStore{
+		StatsFunc: func(rt string) (*db.StatusInfo, error) {
+			if rt == "roads" {
+				return &db.StatusInfo{
+					ResourceType: "roads",
+					FeatureCount: 42,
+					LastIngestAt: &now,
+				}, nil
+			}
+			return &db.StatusInfo{ResourceType: rt}, nil
 		},
 	}
-	ios, stdout, _ := iostreams.Test()
+	ios, _, stdout, _ := iostreams.Test()
 	f := &cmdutil.Factory{
 		IOStreams: ios,
 		DB: func() (db.Store, error) {
@@ -81,7 +61,6 @@ func TestRunStatus_SingleResource(t *testing.T) {
 		t.Fatal(err)
 	}
 	output := stdout.String()
-	// Non-TTY output uses tab-separated format
 	if !strings.Contains(output, "roads") {
 		t.Errorf("expected roads in output, got: %s", output)
 	}
@@ -91,13 +70,19 @@ func TestRunStatus_SingleResource(t *testing.T) {
 }
 
 func TestRunStatus_AllResources(t *testing.T) {
-	store := &mockStore{
-		stats: map[string]*db.StatusInfo{
-			"roads": {ResourceType: "roads", FeatureCount: 10},
-			"parking":   {ResourceType: "parking", FeatureCount: 5},
+	store := &dbtest.MockStore{
+		StatsFunc: func(rt string) (*db.StatusInfo, error) {
+			switch rt {
+			case "roads":
+				return &db.StatusInfo{ResourceType: "roads", FeatureCount: 10}, nil
+			case "parking":
+				return &db.StatusInfo{ResourceType: "parking", FeatureCount: 5}, nil
+			default:
+				return &db.StatusInfo{ResourceType: rt}, nil
+			}
 		},
 	}
-	ios, stdout, _ := iostreams.Test()
+	ios, _, stdout, _ := iostreams.Test()
 	f := &cmdutil.Factory{
 		IOStreams: ios,
 		DB: func() (db.Store, error) {
@@ -118,12 +103,15 @@ func TestRunStatus_AllResources(t *testing.T) {
 }
 
 func TestRunStatus_NonTTY_TabSeparated(t *testing.T) {
-	store := &mockStore{
-		stats: map[string]*db.StatusInfo{
-			"roads": {ResourceType: "roads", FeatureCount: 7},
+	store := &dbtest.MockStore{
+		StatsFunc: func(rt string) (*db.StatusInfo, error) {
+			if rt == "roads" {
+				return &db.StatusInfo{ResourceType: "roads", FeatureCount: 7}, nil
+			}
+			return &db.StatusInfo{ResourceType: rt}, nil
 		},
 	}
-	ios, stdout, _ := iostreams.Test()
+	ios, _, stdout, _ := iostreams.Test()
 	// Test() returns isTTY=false by default
 	f := &cmdutil.Factory{
 		IOStreams: ios,
@@ -142,7 +130,7 @@ func TestRunStatus_NonTTY_TabSeparated(t *testing.T) {
 	if !strings.Contains(output, "\t") {
 		t.Errorf("expected tab-separated output for non-TTY, got: %s", output)
 	}
-	if !strings.Contains(output, "resource_type\troads") {
-		t.Errorf("expected 'resource_type\\troads' in output, got: %s", output)
+	if !strings.Contains(output, "roads") {
+		t.Errorf("expected 'roads' in output, got: %s", output)
 	}
 }

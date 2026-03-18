@@ -10,44 +10,24 @@ import (
 
 	"pvmt/internal/config"
 	"pvmt/internal/db"
+	"pvmt/internal/db/dbtest"
 	"pvmt/internal/export"
 )
 
-type mockStore struct {
-	computeResults map[string]*db.ComputeResult
-}
-
-func (m *mockStore) UpsertFeatures(string, []db.Feature) error               { return nil }
-func (m *mockStore) ListFeatures(string) ([]db.Feature, error)               { return nil, nil }
-func (m *mockStore) SaveComputeResult(db.ComputeResult) error                { return nil }
-func (m *mockStore) SaveHexStats([]db.HexStat) error                         { return nil }
-func (m *mockStore) ListHexStats(string) ([]db.HexStat, error)               { return nil, nil }
-func (m *mockStore) CreateSnapshot(string) (*db.Snapshot, error)             { return &db.Snapshot{ID: 1}, nil }
-func (m *mockStore) ListSnapshots() ([]db.Snapshot, error)                   { return nil, nil }
-func (m *mockStore) SaveForecastResults([]db.ForecastResult) error           { return nil }
-func (m *mockStore) ListForecastResults(string) ([]db.ForecastResult, error) { return nil, nil }
-func (m *mockStore) Stats(string) (*db.StatusInfo, error)                    { return &db.StatusInfo{}, nil }
-func (m *mockStore) ResourceTypes() ([]string, error)                        { return nil, nil }
-func (m *mockStore) Close() error                                            { return nil }
-
-func (m *mockStore) LatestComputeResult(rt string) (*db.ComputeResult, error) {
-	if r, ok := m.computeResults[rt]; ok {
-		return r, nil
-	}
-	return nil, fmt.Errorf("not found")
-}
-
 func TestHandleDataMetaJSON(t *testing.T) {
-	store := &mockStore{
-		computeResults: map[string]*db.ComputeResult{
-			"roads": {
-				ResourceType:   "roads",
-				TotalAreaSqFt:  500000,
-				TotalAreaAcres: 11.48,
-				FeatureCount:   100,
-				GeometryJSON:   `{"type":"Polygon","coordinates":[]}`,
-				ComputedAt:     time.Now(),
-			},
+	store := &dbtest.MockStore{
+		LatestComputeResultFunc: func(rt string) (*db.ComputeResult, error) {
+			if rt == "roads" {
+				return &db.ComputeResult{
+					ResourceType:   "roads",
+					TotalAreaSqFt:  500000,
+					TotalAreaAcres: 11.48,
+					FeatureCount:   100,
+					GeometryJSON:   `{"type":"Polygon","coordinates":[]}`,
+					ComputedAt:     time.Now(),
+				}, nil
+			}
+			return nil, fmt.Errorf("not found")
 		},
 	}
 

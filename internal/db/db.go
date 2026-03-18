@@ -60,15 +60,15 @@ type Snapshot struct {
 }
 
 type ForecastResult struct {
-	ID            int64
-	ResourceType  string
-	Year          int
-	PCI           float64
-	AreaSqFt      float64
-	TreatmentCost float64
-	TreatmentTier string
-	SnapshotID    *int64
-	ComputedAt    time.Time
+	ID            int64      `json:"-"`
+	ResourceType  string     `json:"resourceType"`
+	Year          int        `json:"year"`
+	PCI           float64    `json:"pci"`
+	AreaSqFt      float64    `json:"areaSqFt"`
+	TreatmentCost float64    `json:"treatmentCost"`
+	TreatmentTier string     `json:"treatmentTier"`
+	SnapshotID    *int64     `json:"-"`
+	ComputedAt    time.Time  `json:"-"`
 }
 
 type Store interface {

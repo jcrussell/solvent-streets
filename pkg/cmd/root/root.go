@@ -41,11 +41,11 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 
 	// Server commands
 	cmd.AddGroup(&cobra.Group{ID: "server", Title: "Server commands:"})
-	serveCmd := serve.NewCmdServe(f)
+	serveCmd := serve.NewCmdServe(f, nil)
 	serveCmd.GroupID = "server"
 	cmd.AddCommand(serveCmd)
 
-	exportCmd := export.NewCmdExport(f)
+	exportCmd := export.NewCmdExport(f, nil)
 	exportCmd.GroupID = "server"
 	cmd.AddCommand(exportCmd)
 

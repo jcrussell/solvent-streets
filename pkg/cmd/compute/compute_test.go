@@ -1,36 +1,18 @@
 package compute
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 
 	"pvmt/internal/config"
 	"pvmt/internal/db"
+	"pvmt/internal/db/dbtest"
 	"pvmt/internal/resource"
 	"pvmt/pkg/cmdutil"
 	"pvmt/pkg/iostreams"
 )
-
-type mockStore struct {
-	features    []db.Feature
-	savedResult *db.ComputeResult
-	listErr     error
-}
-
-func (m *mockStore) UpsertFeatures(string, []db.Feature) error               { return nil }
-func (m *mockStore) ListFeatures(string) ([]db.Feature, error)               { return m.features, m.listErr }
-func (m *mockStore) SaveComputeResult(r db.ComputeResult) error              { m.savedResult = &r; return nil }
-func (m *mockStore) LatestComputeResult(string) (*db.ComputeResult, error)   { return nil, nil }
-func (m *mockStore) SaveHexStats([]db.HexStat) error                         { return nil }
-func (m *mockStore) ListHexStats(string) ([]db.HexStat, error)               { return nil, nil }
-func (m *mockStore) CreateSnapshot(string) (*db.Snapshot, error)             { return &db.Snapshot{ID: 1}, nil }
-func (m *mockStore) ListSnapshots() ([]db.Snapshot, error)                   { return nil, nil }
-func (m *mockStore) SaveForecastResults([]db.ForecastResult) error           { return nil }
-func (m *mockStore) ListForecastResults(string) ([]db.ForecastResult, error) { return nil, nil }
-func (m *mockStore) Stats(string) (*db.StatusInfo, error)                    { return &db.StatusInfo{}, nil }
-func (m *mockStore) ResourceTypes() ([]string, error)                        { return nil, nil }
-func (m *mockStore) Close() error                                            { return nil }
 
 var testCfg = &config.Config{
 	Project: config.ProjectConfig{Name: "Test City"},
@@ -38,7 +20,7 @@ var testCfg = &config.Config{
 }
 
 func TestNewCmdCompute_RunFInjection(t *testing.T) {
-	ios, _, _ := iostreams.Test()
+	ios, _, _, _ := iostreams.Test()
 	f := &cmdutil.Factory{IOStreams: ios}
 	rt := &resource.Pavement{}
 
@@ -61,8 +43,8 @@ func TestNewCmdCompute_RunFInjection(t *testing.T) {
 }
 
 func TestRunCompute_NoFeatures(t *testing.T) {
-	store := &mockStore{features: nil}
-	ios, _, _ := iostreams.Test()
+	store := &dbtest.MockStore{}
+	ios, _, _, errBuf := iostreams.Test()
 	f := &cmdutil.Factory{
 		IOStreams: ios,
 		DB: func() (db.Store, error) {
@@ -79,27 +61,34 @@ func TestRunCompute_NoFeatures(t *testing.T) {
 	cmd.SilenceUsage = true
 	cmd.SetArgs([]string{})
 	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected error for no features")
+	if !errors.Is(err, cmdutil.ErrNoResults) {
+		t.Fatalf("expected ErrNoResults, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "ingest") {
-		t.Errorf("error should suggest running ingest, got: %s", err.Error())
+	if !strings.Contains(errBuf.String(), "ingest") {
+		t.Errorf("stderr should suggest running ingest, got: %s", errBuf.String())
 	}
 }
 
 func TestRunCompute_Success(t *testing.T) {
-	store := &mockStore{
-		features: []db.Feature{
-			{
-				ID:           "test1",
-				ResourceType: "roads",
-				Name:         "Test Rd",
-				Tags:         map[string]string{"highway": "residential"},
-				GeometryJSON: `{"type":"LineString","coordinates":[[-121.7700,37.6800],[-121.7690,37.6810]]}`,
-			},
+	var savedResult *db.ComputeResult
+	store := &dbtest.MockStore{
+		ListFeaturesFunc: func(string) ([]db.Feature, error) {
+			return []db.Feature{
+				{
+					ID:           "test1",
+					ResourceType: "roads",
+					Name:         "Test Rd",
+					Tags:         map[string]string{"highway": "residential"},
+					GeometryJSON: `{"type":"LineString","coordinates":[[-121.7700,37.6800],[-121.7690,37.6810]]}`,
+				},
+			}, nil
+		},
+		SaveComputeResultFunc: func(r db.ComputeResult) error {
+			savedResult = &r
+			return nil
 		},
 	}
-	ios, stdout, _ := iostreams.Test()
+	ios, _, stdout, _ := iostreams.Test()
 	f := &cmdutil.Factory{
 		IOStreams: ios,
 		DB: func() (db.Store, error) {
@@ -123,13 +112,13 @@ func TestRunCompute_Success(t *testing.T) {
 	if !strings.Contains(output, "sq ft") {
 		t.Errorf("expected area output, got: %s", output)
 	}
-	if store.savedResult == nil {
+	if savedResult == nil {
 		t.Error("expected SaveComputeResult to be called")
 	}
 }
 
 func TestRunCompute_DBError(t *testing.T) {
-	ios, _, _ := iostreams.Test()
+	ios, _, _, _ := iostreams.Test()
 	f := &cmdutil.Factory{
 		IOStreams: ios,
 		Config: func() (*config.Config, error) {

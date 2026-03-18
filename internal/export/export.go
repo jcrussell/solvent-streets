@@ -44,7 +44,7 @@ type StatJSON struct {
 
 // ResourceColors maps resource type names to their display colors.
 var ResourceColors = map[string]string{
-	"roads": "#6b7280",
+	"roads":     "#6b7280",
 	"parking":   "#3b82f6",
 	"sidewalks": "#f59e0b",
 }

@@ -4,25 +4,31 @@ import (
 	"crypto/sha256"
 	"fmt"
 
+	"pvmt/internal/config"
 	"pvmt/internal/db"
 	"pvmt/internal/filter"
 	"pvmt/internal/geo"
 	"pvmt/internal/resource"
 	"pvmt/pkg/cmdutil"
+	"pvmt/pkg/iostreams"
 
 	"github.com/peterstace/simplefeatures/geom"
 	"github.com/spf13/cobra"
 )
 
 type Options struct {
-	Factory      *cmdutil.Factory
+	IO           *iostreams.IOStreams
+	DB           func() (db.Store, error)
+	Config       func() (*config.Config, error)
 	ResourceType resource.ResourceType
 	CityOnly     bool
 }
 
 func NewCmdCompute(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Options) error) *cobra.Command {
 	opts := &Options{
-		Factory:      f,
+		IO:           f.IOStreams,
+		DB:           f.DB,
+		Config:       f.Config,
 		ResourceType: rt,
 	}
 
@@ -43,14 +49,14 @@ func NewCmdCompute(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Opti
 }
 
 func runCompute(opts *Options) error {
-	ios := opts.Factory.IOStreams
+	ios := opts.IO
 
-	cfg, err := opts.Factory.Config()
+	cfg, err := opts.Config()
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
 	}
 
-	store, err := opts.Factory.DB()
+	store, err := opts.DB()
 	if err != nil {
 		return fmt.Errorf("database: %w", err)
 	}
@@ -66,7 +72,8 @@ func runCompute(opts *Options) error {
 	}
 
 	if len(dbFeatures) == 0 {
-		return fmt.Errorf("no %s features in database. Run 'pvmt %s ingest' first", opts.ResourceType.Name(), cmdName(opts.ResourceType))
+		fmt.Fprintf(ios.ErrOut, "No %s features in database. Run 'pvmt %s ingest' first.\n", opts.ResourceType.Name(), opts.ResourceType.Name())
+		return cmdutil.ErrNoResults
 	}
 
 	fmt.Fprintf(ios.Out, "Processing %d features (UTM zone %d)...\n", len(dbFeatures), proj.Zone)
@@ -208,13 +215,3 @@ func parseGeoJSONGeometry(gjson string, proj *geo.UTMProjector) (geom.Geometry, 
 	return g, nil
 }
 
-func cmdName(rt resource.ResourceType) string {
-	switch rt.Name() {
-	case "roads":
-		return "roads"
-	case "parking":
-		return "parking"
-	default:
-		return "all"
-	}
-}
