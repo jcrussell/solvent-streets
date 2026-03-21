@@ -16,6 +16,10 @@ type Config struct {
 	Layers   []LayerConfig  `toml:"layers"`
 	Export   ExportConfig   `toml:"export"`
 	Forecast ForecastConfig `toml:"forecast"`
+
+	// SourcePath is the filesystem path of the loaded pvmt.toml file.
+	// Set programmatically by Load/FindAndLoad, not a TOML field.
+	SourcePath string `toml:"-"`
 }
 
 type ExportConfig struct {
@@ -99,6 +103,7 @@ func Load(path string) (*Config, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
+	cfg.SourcePath = path
 	return &cfg, nil
 }
 

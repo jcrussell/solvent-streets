@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"html/template"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -39,9 +40,18 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 	meta := s.buildMeta()
 
+	var rawTOML string
+	if s.cfg.SourcePath != "" {
+		if data, err := os.ReadFile(s.cfg.SourcePath); err == nil {
+			rawTOML = string(data)
+		}
+	}
+
 	td := export.TemplateData{
 		MetaJSON:     meta,
 		ForecastSeed: export.BuildForecastSeed(s.cfg, s.store),
+		RawTOML:      rawTOML,
+		ResolvedTOML: export.ResolvedTOML(s.cfg),
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

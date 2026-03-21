@@ -1,6 +1,7 @@
 package export
 
 import (
+	"bytes"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/BurntSushi/toml"
 
 	"pvmt/internal/config"
 	"pvmt/internal/db"
@@ -41,6 +44,8 @@ func WasmExecJS() []byte { return wasmExecJS }
 type TemplateData struct {
 	MetaJSON
 	ForecastSeed template.JS
+	RawTOML      string // original pvmt.toml contents
+	ResolvedTOML string // config with all defaults filled in
 }
 
 type MetaJSON struct {
@@ -154,9 +159,17 @@ func (e *Exporter) Run() error {
 		return fmt.Errorf("write wasm_exec.js: %w", err)
 	}
 
-	// Render HTML template with forecast seed
+	// Read raw TOML and build resolved version for Config tab
+	var rawTOML string
+	if e.cfg.SourcePath != "" {
+		if data, err := os.ReadFile(e.cfg.SourcePath); err == nil {
+			rawTOML = string(data)
+		}
+	}
+
+	// Render HTML template with forecast seed and config
 	seed := e.buildForecastSeed()
-	return e.renderHTML(meta, seed)
+	return e.renderHTML(meta, seed, rawTOML, ResolvedTOML(e.cfg))
 }
 
 func (e *Exporter) buildHexGeoJSON(proj *geo.UTMProjector) map[string]any {
@@ -324,7 +337,7 @@ func BuildForecastSeed(cfg *config.Config, store db.Store) template.JS {
 	return e.buildForecastSeed()
 }
 
-func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS) (err error) {
+func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolvedTOML string) (err error) {
 	tmplData, err := templatesFS.ReadFile("templates/index.html.tmpl")
 	if err != nil {
 		return fmt.Errorf("read template: %w", err)
@@ -352,6 +365,8 @@ func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS) (err error) {
 	td := TemplateData{
 		MetaJSON:     meta,
 		ForecastSeed: seed,
+		RawTOML:      rawTOML,
+		ResolvedTOML: resolvedTOML,
 	}
 	return tmpl.Execute(f, td)
 }
@@ -571,6 +586,40 @@ func BuildScenarios(cohorts []forecast.Cohort, years int, params *forecast.Param
 		scenarios = append(scenarios, comp.Scenarios...)
 	}
 	return scenarios
+}
+
+// ResolvedTOML returns the config serialized as TOML with all defaults filled in.
+// Exported for use by the server package.
+func ResolvedTOML(cfg *config.Config) string {
+	// Build a resolved copy with defaults applied
+	resolved := *cfg
+
+	if resolved.Grid.HexEdgeM <= 0 {
+		resolved.Grid.HexEdgeM = 100
+	}
+	if resolved.Forecast.Years <= 0 {
+		resolved.Forecast.Years = 20
+	}
+	if resolved.Forecast.DecayRate <= 0 {
+		resolved.Forecast.DecayRate = forecast.DefaultDecayRates["default"]
+	}
+	if len(resolved.Forecast.CostTiers) == 0 {
+		for _, t := range forecast.DefaultCostTiers {
+			resolved.Forecast.CostTiers = append(resolved.Forecast.CostTiers, config.CostTierCfg{
+				MinPCI:      t.MinPCI,
+				MaxPCI:      t.MaxPCI,
+				CostPerSqFt: t.CostPerSqFt,
+				Label:       t.Label,
+			})
+		}
+	}
+
+	var buf bytes.Buffer
+	enc := toml.NewEncoder(&buf)
+	if err := enc.Encode(resolved); err != nil {
+		return "# error encoding config"
+	}
+	return buf.String()
 }
 
 func writeJSON(path string, v any) error {
