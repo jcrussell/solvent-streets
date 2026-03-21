@@ -158,6 +158,30 @@
         .chart-card canvas { width: 100% !important; }
         .no-data { text-align: center; padding: 60px; color: #999; }
 
+        /* Cohort breakdown */
+        .cohort-section { margin-bottom: 32px; }
+        .cohort-section > h3 { font-size: 15px; margin-bottom: 12px; color: #333; }
+        .cohort-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px; }
+        .cohort-table th { text-align: left; padding: 8px 12px; border-bottom: 2px solid #e5e7eb; color: #666; font-weight: 600; cursor: pointer; user-select: none; }
+        .cohort-table th:hover { color: #333; }
+        .cohort-table th .sort-arrow { font-size: 11px; margin-left: 4px; color: #999; }
+        .cohort-table td { padding: 8px 12px; border-bottom: 1px solid #f3f4f6; }
+        .cohort-table tr:hover { background: #f9fafb; }
+        .cohort-table .total-row { font-weight: 600; border-top: 2px solid #ccc; }
+        .cohort-table .total-row td { border-bottom: none; }
+        .cohort-table td.number { text-align: right; }
+        .cohort-table th.number { text-align: right; }
+        .pci-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 13px;
+        }
+        .pci-good { background: #dcfce7; color: #166534; }
+        .pci-fair { background: #fef3c7; color: #92400e; }
+        .pci-poor { background: #fee2e2; color: #991b1b; }
+
         /* Interactive forecast controls */
         .forecast-controls {
             background: #f9fafb;
@@ -284,8 +308,22 @@
                 <button data-scope="city">City Roads Only</button>
             </div>
             <div class="scope-annotation" id="scope-annotation"></div>
-            <div class="headlines" id="headlines">
-                <div class="no-data">Loading financial analysis...</div>
+            <div class="headlines" id="headlines" style="display:none">
+                <div class="headline-card">
+                    <div class="label">Blended End PCI</div>
+                    <div class="value" id="hl-end-pci">—</div>
+                    <div class="sub">Area-weighted condition after forecast</div>
+                </div>
+                <div class="headline-card">
+                    <div class="label">20-Year Spend</div>
+                    <div class="value" id="hl-total-spend">—</div>
+                    <div class="sub">Total budget allocated</div>
+                </div>
+                <div class="headline-card">
+                    <div class="label">20-Year Deficit</div>
+                    <div class="value" id="hl-total-deficit">—</div>
+                    <div class="sub">Accumulated unfunded need</div>
+                </div>
             </div>
 
             <div class="forecast-controls" id="forecast-controls">
@@ -317,6 +355,22 @@
                     </div>
                     <div id="tier-inputs"></div>
                 </div>
+            </div>
+
+            <div class="cohort-section" id="cohort-section" style="display:none">
+                <h3>Road Classification Breakdown</h3>
+                <table class="cohort-table" id="cohort-table">
+                    <thead><tr>
+                        <th>Classification</th>
+                        <th class="number">Area (acres)</th>
+                        <th class="number">Area %</th>
+                        <th class="number">Decay Rate</th>
+                        <th class="number">End PCI</th>
+                        <th class="number">20yr Spend</th>
+                        <th class="number">20yr Deficit</th>
+                    </tr></thead>
+                    <tbody></tbody>
+                </table>
             </div>
 
             <div class="chart-grid" id="charts"></div>
@@ -581,7 +635,6 @@
 
         function renderFinancials(scenarios, scope) {
             if (!scenarios || scenarios.length === 0) {
-                document.getElementById('headlines').innerHTML = '<div class="no-data">No scenario data found.</div>';
                 document.getElementById('charts').innerHTML = '';
                 return;
             }
@@ -601,38 +654,6 @@
             // Find baseline (do-nothing)
             const baseline = scenarios.find(s => s.scenario.strategy === 0 || s.scenario.name === 'do-nothing' || s.scenario.name === 'baseline');
             if (!baseline) return;
-
-            const lastYear = baseline.years[baseline.years.length - 1];
-            const totalDoNothingCost = baseline.years.reduce((s, y) => s + y.annual_need, 0);
-
-            // Find full-funding scenario
-            const fullFunding = scenarios.find(s => s.scenario.name === 'fund-100pct');
-            const fullFundingCost = fullFunding ? fullFunding.years.reduce((s, y) => s + y.annual_spend, 0) : 0;
-            const costMultiplier = fullFundingCost > 0 ? (totalDoNothingCost / fullFundingCost).toFixed(1) : 'N/A';
-
-            // Headlines
-            document.getElementById('headlines').innerHTML = `
-                <div class="headline-card">
-                    <div class="label">Year 1 Treatment Need</div>
-                    <div class="value">${fmt$(baseline.years[0].annual_need)}</div>
-                    <div class="sub">Annual cost to maintain current condition</div>
-                </div>
-                <div class="headline-card">
-                    <div class="label">${baseline.years.length}-Year Do-Nothing Backlog</div>
-                    <div class="value">${fmt$(lastYear.deferred_backlog)}</div>
-                    <div class="sub">Cumulative deferred maintenance</div>
-                </div>
-                <div class="headline-card">
-                    <div class="label">End PCI (Do Nothing)</div>
-                    <div class="value">${lastYear.pci.toFixed(0)}</div>
-                    <div class="sub">Projected condition after ${baseline.years.length} years</div>
-                </div>
-                <div class="headline-card">
-                    <div class="label">Cost Multiplier of Neglect</div>
-                    <div class="value">${costMultiplier}x</div>
-                    <div class="sub">Do-nothing total vs proactive maintenance</div>
-                </div>
-            `;
 
             // Charts
             const chartsDiv = document.getElementById('charts');
@@ -754,13 +775,119 @@
             }
         }
 
+        var forecastData = null;
+        var lastCohorts = null;
+        var cohortSortCol = 1; // default: area descending
+        var cohortSortAsc = false;
+
+        // Column definitions for sorting: [key, type]
+        var cohortColumns = [
+            ['classification', 'string'],
+            ['area_sqft', 'number'],
+            ['area_pct', 'number'],
+            ['decay_rate', 'number'],
+            ['end_pci', 'number'],
+            ['total_spend', 'number'],
+            ['total_deficit', 'number']
+        ];
+
+        function renderCohortBreakdown(cohorts, keepSort) {
+            lastCohorts = cohorts;
+            const totalArea = cohorts.reduce((s, c) => s + c.area_sqft, 0);
+
+            // Enrich with computed fields for sorting
+            const enriched = cohorts.map(c => ({
+                ...c,
+                area_pct: totalArea > 0 ? c.area_sqft / totalArea * 100 : 0,
+                total_spend: c.total_spend || 0,
+                total_deficit: c.total_deficit || 0
+            }));
+
+            // Sort
+            if (!keepSort) { cohortSortCol = 1; cohortSortAsc = false; }
+            const key = cohortColumns[cohortSortCol][0];
+            const isStr = cohortColumns[cohortSortCol][1] === 'string';
+            const sorted = [...enriched].sort((a, b) => {
+                const av = a[key], bv = b[key];
+                const cmp = isStr ? String(av).localeCompare(String(bv)) : av - bv;
+                return cohortSortAsc ? cmp : -cmp;
+            });
+
+            function fmtCurrency(v) {
+                return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+            }
+
+            // Update header sort arrows
+            document.querySelectorAll('#cohort-table thead th').forEach((th, i) => {
+                var arrow = th.querySelector('.sort-arrow');
+                if (!arrow) { arrow = document.createElement('span'); arrow.className = 'sort-arrow'; th.appendChild(arrow); }
+                arrow.textContent = i === cohortSortCol ? (cohortSortAsc ? '\u25B2' : '\u25BC') : '';
+            });
+
+            const tbody = document.querySelector('#cohort-table tbody');
+            tbody.innerHTML = '';
+            let totalSpend = 0;
+            let totalDeficit = 0;
+
+            sorted.forEach(c => {
+                const acres = c.area_sqft / 43560;
+                const pci = c.end_pci;
+                let cls = 'pci-good';
+                if (pci < 40) cls = 'pci-poor';
+                else if (pci < 60) cls = 'pci-fair';
+
+                totalSpend += c.total_spend;
+                totalDeficit += c.total_deficit;
+
+                const tr = document.createElement('tr');
+                tr.innerHTML =
+                    '<td style="text-transform:capitalize">' + c.classification + '</td>' +
+                    '<td class="number">' + acres.toFixed(1) + '</td>' +
+                    '<td class="number">' + c.area_pct.toFixed(1) + '%</td>' +
+                    '<td class="number">' + c.decay_rate.toFixed(4) + '</td>' +
+                    '<td class="number"><span class="pci-badge ' + cls + '">' + pci.toFixed(0) + '</span></td>' +
+                    '<td class="number">' + fmtCurrency(c.total_spend) + '</td>' +
+                    '<td class="number">' + fmtCurrency(c.total_deficit) + '</td>';
+                tbody.appendChild(tr);
+            });
+
+            // Totals row
+            const totalAcres = totalArea / 43560;
+            const totTr = document.createElement('tr');
+            totTr.className = 'total-row';
+            totTr.innerHTML =
+                '<td>Total</td>' +
+                '<td class="number">' + totalAcres.toFixed(1) + '</td>' +
+                '<td class="number">100%</td>' +
+                '<td></td><td></td>' +
+                '<td class="number">' + fmtCurrency(totalSpend) + '</td>' +
+                '<td class="number">' + fmtCurrency(totalDeficit) + '</td>';
+            tbody.appendChild(totTr);
+
+            document.getElementById('cohort-section').style.display = 'block';
+        }
+
+        // Bind sort click handlers
+        document.querySelectorAll('#cohort-table thead th').forEach((th, i) => {
+            th.addEventListener('click', () => {
+                if (!lastCohorts) return;
+                if (cohortSortCol === i) {
+                    cohortSortAsc = !cohortSortAsc;
+                } else {
+                    cohortSortCol = i;
+                    cohortSortAsc = cohortColumns[i][1] === 'string'; // strings default asc, numbers desc
+                }
+                renderCohortBreakdown(lastCohorts, true);
+            });
+        });
+
         async function loadFinancials() {
             try {
                 const resp = await fetch('data/scenarios.json');
                 if (!resp.ok) throw new Error('not found');
                 scenarioData = await resp.json();
             } catch(e) {
-                document.getElementById('headlines').innerHTML = '<div class="no-data">No financial data available. Run <code>pvmt forecast</code> and <code>pvmt export</code> first.</div>';
+                document.getElementById('charts').innerHTML = '<div class="no-data">No financial data available. Run <code>pvmt forecast</code> and <code>pvmt export</code> first.</div>';
                 return;
             }
 
@@ -777,11 +904,19 @@
             }
 
             if (!scenarios || scenarios.length === 0) {
-                document.getElementById('headlines').innerHTML = '<div class="no-data">No scenario data found.</div>';
+                document.getElementById('charts').innerHTML = '<div class="no-data">No scenario data found.</div>';
                 return;
             }
 
             renderFinancials(scenarios, 'all');
+
+            // Fetch forecast.json (used by scope toggle for static fallback)
+            try {
+                const fResp = await fetch('data/forecast.json');
+                if (fResp.ok) {
+                    forecastData = await fResp.json();
+                }
+            } catch(e) { /* forecast data optional */ }
         }
 
         // Scope toggle handler
@@ -792,6 +927,17 @@
                 const scope = btn.dataset.scope;
                 const scenarios = scenarioData[scope] || scenarioData.all;
                 renderFinancials(scenarios, scope);
+                if (wasmReady) {
+                    runCustomScenario();
+                } else if (forecastData) {
+                    const roads = forecastData.find(f => f.resource_type === 'roads');
+                    const src = (scope === 'city' && roads && roads.city_baseline) ? roads.city_baseline : (roads && roads.baseline);
+                    if (src && src.final_cohorts && src.final_cohorts.length > 1) {
+                        renderCohortBreakdown(src.final_cohorts);
+                    } else {
+                        document.getElementById('cohort-section').style.display = 'none';
+                    }
+                }
             });
         });
 
@@ -815,6 +961,8 @@
         function onWasmReady() {
             wasmReady = true;
             document.getElementById('forecast-controls').classList.add('visible');
+            // Run initial simulation to populate cohort table
+            runCustomScenario();
             // Populate tier inputs from seed
             const tierDiv = document.getElementById('tier-inputs');
             tierDiv.innerHTML = '';
@@ -851,12 +999,15 @@
                 };
             });
 
-            // Determine area from current scope
+            // Determine area and cohorts from current scope
             const activeScope = document.querySelector('#scope-toggle button.active');
             const scope = activeScope ? activeScope.dataset.scope : 'all';
             const area = (scope === 'city' && FORECAST_SEED.city_area_sqft > 0)
                 ? FORECAST_SEED.city_area_sqft
                 : FORECAST_SEED.total_area_sqft;
+            const seedCohorts = (scope === 'city' && FORECAST_SEED.city_cohorts && FORECAST_SEED.city_cohorts.length > 0)
+                ? FORECAST_SEED.city_cohorts
+                : (FORECAST_SEED.cohorts || []);
 
             // Compute baseline year-1 need to derive budget
             const baselineInput = {
@@ -867,7 +1018,8 @@
                 years: FORECAST_SEED.years,
                 cost_tiers: tiers,
                 annual_budget: 0,
-                strategy: 'do-nothing'
+                strategy: 'do-nothing',
+                cohorts: seedCohorts
             };
             const baselineRaw = window.simulateForecast(JSON.stringify(baselineInput));
             const baseline = JSON.parse(baselineRaw);
@@ -884,7 +1036,8 @@
                 years: FORECAST_SEED.years,
                 cost_tiers: tiers,
                 annual_budget: annualBudget,
-                strategy: currentStrategy
+                strategy: currentStrategy,
+                cohorts: seedCohorts
             };
         }
 
@@ -899,6 +1052,26 @@
 
             customActive = true;
             updateCustomScenario(result);
+            updateSummaryCards(result);
+
+            // Update cohort breakdown from WASM result
+            if (result.final_cohorts && result.final_cohorts.length > 1) {
+                renderCohortBreakdown(result.final_cohorts);
+            } else {
+                document.getElementById('cohort-section').style.display = 'none';
+            }
+        }
+
+        function updateSummaryCards(result) {
+            const years = result.years || [];
+            const lastPCI = years.length > 0 ? years[years.length - 1].pci : 0;
+            const totalSpend = years.reduce((s, y) => s + y.annual_spend, 0);
+            const totalDeficit = years.length > 0 ? years[years.length - 1].deferred_backlog : 0;
+
+            document.getElementById('hl-end-pci').textContent = lastPCI.toFixed(0);
+            document.getElementById('hl-total-spend').textContent = fmt$(totalSpend);
+            document.getElementById('hl-total-deficit').textContent = fmt$(totalDeficit);
+            document.getElementById('headlines').style.display = '';
         }
 
         function updateCustomScenario(result) {

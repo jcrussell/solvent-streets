@@ -19,15 +19,14 @@ func DefaultComparisons(year1Need float64) []Scenario {
 }
 
 // GroupedComparisons returns scenarios organized into comparison groups.
-func GroupedComparisons(year1Need float64, areaSqFt, initialPCI float64, years int,
-	pci *ExponentialPCIForecaster, cost *TieredCostProjector,
-	growth *LinearGrowthEstimator) []Comparison {
+func GroupedComparisons(year1Need float64, cohorts []Cohort, years int,
+	cost *TieredCostProjector, growth *LinearGrowthEstimator) []Comparison {
 
 	scenarios := DefaultComparisons(year1Need)
 
 	fundingResults := make([]ScenarioResult, len(scenarios))
 	for i, s := range scenarios {
-		fundingResults[i] = Simulate(s, areaSqFt, initialPCI, years, pci, cost, growth)
+		fundingResults[i] = Simulate(s, cohorts, years, cost, growth)
 	}
 
 	return []Comparison{

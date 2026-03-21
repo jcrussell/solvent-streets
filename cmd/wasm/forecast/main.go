@@ -23,6 +23,13 @@ type wasmInput struct {
 	CostTiers    []wasmCostTier  `json:"cost_tiers"`
 	AnnualBudget float64         `json:"annual_budget"`
 	Strategy     string          `json:"strategy"`
+	Cohorts      []wasmCohort    `json:"cohorts,omitempty"`
+}
+
+type wasmCohort struct {
+	Classification string  `json:"classification"`
+	AreaSqFt       float64 `json:"area_sqft"`
+	DecayRate      float64 `json:"decay_rate"`
 }
 
 type wasmCostTier struct {
@@ -55,7 +62,7 @@ func simulateForecast(_ js.Value, args []js.Value) any {
 		})
 	}
 
-	params := forecast.NewParams(input.DecayRate, input.GrowthRate, tiers)
+	params := forecast.NewParams(input.GrowthRate, tiers)
 
 	// Parse strategy
 	strategy, err := forecast.ParseStrategy(input.Strategy)
@@ -70,12 +77,34 @@ func simulateForecast(_ js.Value, args []js.Value) any {
 		Strategy:     strategy,
 	}
 
+	// Build cohorts from input or create a single cohort
+	var cohorts []forecast.Cohort
+	if len(input.Cohorts) > 0 {
+		for _, c := range input.Cohorts {
+			cohorts = append(cohorts, forecast.Cohort{
+				Classification: c.Classification,
+				AreaSqFt:       c.AreaSqFt,
+				DecayRate:      c.DecayRate,
+				InitialPCI:     input.InitialPCI,
+			})
+		}
+	} else {
+		decayRate := input.DecayRate
+		if decayRate <= 0 {
+			decayRate = forecast.DefaultDecayRates["default"]
+		}
+		cohorts = []forecast.Cohort{{
+			Classification: "default",
+			AreaSqFt:       input.AreaSqFt,
+			DecayRate:      decayRate,
+			InitialPCI:     input.InitialPCI,
+		}}
+	}
+
 	result := forecast.Simulate(
 		scenario,
-		input.AreaSqFt,
-		input.InitialPCI,
+		cohorts,
 		input.Years,
-		params.PCI,
 		params.Cost,
 		params.Growth,
 	)

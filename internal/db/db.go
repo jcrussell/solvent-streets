@@ -71,6 +71,16 @@ type ForecastResult struct {
 	ComputedAt    time.Time  `json:"-"`
 }
 
+type CohortStat struct {
+	ID             int64
+	ResourceType   string
+	Classification string
+	AreaSqFt       float64
+	FeatureCount   int
+	SnapshotID     *int64
+	ComputedAt     time.Time
+}
+
 type Store interface {
 	UpsertFeatures(resourceType string, features []Feature) error
 	ListFeatures(resourceType string) ([]Feature, error)
@@ -82,6 +92,8 @@ type Store interface {
 	ListSnapshots() ([]Snapshot, error)
 	SaveForecastResults(results []ForecastResult) error
 	ListForecastResults(resourceType string) ([]ForecastResult, error)
+	SaveCohortStats(stats []CohortStat) error
+	ListCohortStats(resourceType string) ([]CohortStat, error)
 	Stats(resourceType string) (*StatusInfo, error)
 	ResourceTypes() ([]string, error)
 	Close() error

@@ -16,6 +16,8 @@ type MockStore struct {
 	ListSnapshotsFunc       func() ([]db.Snapshot, error)
 	SaveForecastResultsFunc func([]db.ForecastResult) error
 	ListForecastResultsFunc func(string) ([]db.ForecastResult, error)
+	SaveCohortStatsFunc     func([]db.CohortStat) error
+	ListCohortStatsFunc     func(string) ([]db.CohortStat, error)
 	StatsFunc               func(string) (*db.StatusInfo, error)
 	ResourceTypesFunc       func() ([]string, error)
 	CloseFunc               func() error
@@ -87,6 +89,20 @@ func (m *MockStore) SaveForecastResults(results []db.ForecastResult) error {
 func (m *MockStore) ListForecastResults(rt string) ([]db.ForecastResult, error) {
 	if m.ListForecastResultsFunc != nil {
 		return m.ListForecastResultsFunc(rt)
+	}
+	return nil, nil
+}
+
+func (m *MockStore) SaveCohortStats(stats []db.CohortStat) error {
+	if m.SaveCohortStatsFunc != nil {
+		return m.SaveCohortStatsFunc(stats)
+	}
+	return nil
+}
+
+func (m *MockStore) ListCohortStats(rt string) ([]db.CohortStat, error) {
+	if m.ListCohortStatsFunc != nil {
+		return m.ListCohortStatsFunc(rt)
 	}
 	return nil, nil
 }

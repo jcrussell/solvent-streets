@@ -4,14 +4,25 @@ import (
 	"testing"
 )
 
-func defaultParams() *Params {
-	return NewParams(0.035, 0.01, nil)
+func defaultTestParams() (*TieredCostProjector, *LinearGrowthEstimator) {
+	p := NewParams(0.01, nil)
+	return p.Cost, p.Growth
+}
+
+func singleCohort(areaSqFt, initialPCI, decayRate float64) []Cohort {
+	return []Cohort{{
+		Classification: "default",
+		AreaSqFt:       areaSqFt,
+		DecayRate:      decayRate,
+		InitialPCI:     initialPCI,
+	}}
 }
 
 func TestSimulate_DoNothing_DecreasingPCI(t *testing.T) {
-	p := defaultParams()
+	cost, growth := defaultTestParams()
+	cohorts := singleCohort(100000, 85.0, 0.035)
 	s := Scenario{Name: "test-dn", Label: "Test", Strategy: StrategyDoNothing}
-	result := Simulate(s, 100000, 85.0, 20, p.PCI, p.Cost, p.Growth)
+	result := Simulate(s, cohorts, 20, cost, growth)
 
 	if len(result.Years) != 20 {
 		t.Fatalf("expected 20 years, got %d", len(result.Years))
@@ -41,9 +52,10 @@ func TestSimulate_DoNothing_DecreasingPCI(t *testing.T) {
 }
 
 func TestSimulate_Unconstrained_PCIRecovery(t *testing.T) {
-	p := defaultParams()
+	cost, growth := defaultTestParams()
+	cohorts := singleCohort(100000, 85.0, 0.035)
 	s := Scenario{Name: "full", Label: "Full", FullFunding: true, Strategy: StrategyWorstFirst}
-	result := Simulate(s, 100000, 85.0, 10, p.PCI, p.Cost, p.Growth)
+	result := Simulate(s, cohorts, 10, cost, growth)
 
 	// With full funding, PCI should fully recover to initial value each year
 	for _, y := range result.Years {
@@ -61,22 +73,24 @@ func TestSimulate_Unconstrained_PCIRecovery(t *testing.T) {
 }
 
 func TestSimulate_BudgetConstrained_Intermediate(t *testing.T) {
-	p := defaultParams()
+	cost, growth := defaultTestParams()
+	cohorts := singleCohort(100000, 85.0, 0.035)
+
 	// Get year-1 need to set budget at 50%
 	doNothing := Simulate(
 		Scenario{Name: "dn", Label: "DN", Strategy: StrategyDoNothing},
-		100000, 85.0, 1, p.PCI, p.Cost, p.Growth,
+		cohorts, 1, cost, growth,
 	)
 	year1Need := doNothing.Years[0].AnnualNeed
 
 	constrained := Simulate(
 		Scenario{Name: "half", Label: "Half", AnnualBudget: year1Need * 0.5, Strategy: StrategyWorstFirst},
-		100000, 85.0, 20, p.PCI, p.Cost, p.Growth,
+		cohorts, 20, cost, growth,
 	)
 
 	full := Simulate(
 		Scenario{Name: "full", Label: "Full", FullFunding: true, Strategy: StrategyWorstFirst},
-		100000, 85.0, 20, p.PCI, p.Cost, p.Growth,
+		cohorts, 20, cost, growth,
 	)
 
 	lastConstrained := constrained.Years[19]
@@ -95,21 +109,23 @@ func TestSimulate_BudgetConstrained_Intermediate(t *testing.T) {
 }
 
 func TestSimulate_PreventiveOutperformsWorstFirst(t *testing.T) {
-	p := defaultParams()
+	cost, growth := defaultTestParams()
+	cohorts := singleCohort(100000, 85.0, 0.035)
+
 	doNothing := Simulate(
 		Scenario{Name: "dn", Label: "DN", Strategy: StrategyDoNothing},
-		100000, 85.0, 1, p.PCI, p.Cost, p.Growth,
+		cohorts, 1, cost, growth,
 	)
 	budget := doNothing.Years[0].AnnualNeed * 0.5
 
 	worst := Simulate(
 		Scenario{Name: "worst", Label: "Worst", AnnualBudget: budget, Strategy: StrategyWorstFirst},
-		100000, 85.0, 20, p.PCI, p.Cost, p.Growth,
+		cohorts, 20, cost, growth,
 	)
 
 	preventive := Simulate(
 		Scenario{Name: "prev", Label: "Prev", AnnualBudget: budget, Strategy: StrategyPreventiveFirst},
-		100000, 85.0, 20, p.PCI, p.Cost, p.Growth,
+		cohorts, 20, cost, growth,
 	)
 
 	lastWorst := worst.Years[19]
@@ -144,23 +160,24 @@ func TestParseStrategy_Invalid(t *testing.T) {
 }
 
 func TestSimulate_Overfunding_SpendExceedsFullFunding(t *testing.T) {
-	p := defaultParams()
+	cost, growth := defaultTestParams()
+	cohorts := singleCohort(100000, 85.0, 0.035)
 
 	// Get year-1 need to calibrate budget
 	doNothing := Simulate(
 		Scenario{Name: "dn", Label: "DN", Strategy: StrategyDoNothing},
-		100000, 85.0, 1, p.PCI, p.Cost, p.Growth,
+		cohorts, 1, cost, growth,
 	)
 	year1Need := doNothing.Years[0].AnnualNeed
 
 	full := Simulate(
 		Scenario{Name: "full", Label: "Full", FullFunding: true, Strategy: StrategyWorstFirst},
-		100000, 85.0, 20, p.PCI, p.Cost, p.Growth,
+		cohorts, 20, cost, growth,
 	)
 
 	over := Simulate(
 		Scenario{Name: "over", Label: "150%", AnnualBudget: year1Need * 1.5, Strategy: StrategyWorstFirst},
-		100000, 85.0, 20, p.PCI, p.Cost, p.Growth,
+		cohorts, 20, cost, growth,
 	)
 
 	// Cumulative spend for overfunding should exceed full funding
@@ -200,5 +217,150 @@ func TestDefaultComparisons(t *testing.T) {
 	// Check budget levels
 	if scenarios[0].AnnualBudget != 250000 {
 		t.Errorf("25%% funding should be 250000, got %.0f", scenarios[0].AnnualBudget)
+	}
+}
+
+func TestSimulate_TwoCohorts_BlendedPCI(t *testing.T) {
+	cost, growth := defaultTestParams()
+	cohorts := []Cohort{
+		{Classification: "primary", AreaSqFt: 50000, DecayRate: 0.025, InitialPCI: 85.0},
+		{Classification: "residential", AreaSqFt: 50000, DecayRate: 0.040, InitialPCI: 85.0},
+	}
+
+	result := Simulate(
+		Scenario{Name: "dn", Label: "DN", Strategy: StrategyDoNothing},
+		cohorts, 20, cost, growth,
+	)
+
+	// Blended PCI should be between the two individual decay trajectories
+	// Primary decays slower, residential faster
+	primaryOnly := Simulate(
+		Scenario{Name: "dn", Label: "DN", Strategy: StrategyDoNothing},
+		singleCohort(50000, 85.0, 0.025), 20, cost, growth,
+	)
+	residentialOnly := Simulate(
+		Scenario{Name: "dn", Label: "DN", Strategy: StrategyDoNothing},
+		singleCohort(50000, 85.0, 0.040), 20, cost, growth,
+	)
+
+	lastBlended := result.Years[19].PCI
+	lastPrimary := primaryOnly.Years[19].PCI
+	lastResidential := residentialOnly.Years[19].PCI
+
+	if lastBlended >= lastPrimary || lastBlended <= lastResidential {
+		t.Errorf("blended PCI (%.2f) should be between primary (%.2f) and residential (%.2f)",
+			lastBlended, lastPrimary, lastResidential)
+	}
+
+	// FinalCohorts should be populated
+	if len(result.FinalCohorts) != 2 {
+		t.Fatalf("expected 2 final cohorts, got %d", len(result.FinalCohorts))
+	}
+	if result.FinalCohorts[0].Classification != "primary" {
+		t.Errorf("expected first cohort to be primary, got %s", result.FinalCohorts[0].Classification)
+	}
+	// Primary should have higher end PCI than residential
+	if result.FinalCohorts[0].EndPCI <= result.FinalCohorts[1].EndPCI {
+		t.Errorf("primary end PCI (%.2f) should exceed residential (%.2f)",
+			result.FinalCohorts[0].EndPCI, result.FinalCohorts[1].EndPCI)
+	}
+}
+
+func TestSimulate_TwoCohorts_BudgetProportionalToNeed(t *testing.T) {
+	cost, growth := defaultTestParams()
+	// Residential decays faster → higher need → gets more budget
+	cohorts := []Cohort{
+		{Classification: "primary", AreaSqFt: 50000, DecayRate: 0.025, InitialPCI: 85.0},
+		{Classification: "residential", AreaSqFt: 50000, DecayRate: 0.040, InitialPCI: 85.0},
+	}
+
+	doNothing := Simulate(
+		Scenario{Name: "dn", Label: "DN", Strategy: StrategyDoNothing},
+		cohorts, 1, cost, growth,
+	)
+	budget := doNothing.Years[0].AnnualNeed * 0.5
+
+	constrained := Simulate(
+		Scenario{Name: "half", Label: "Half", AnnualBudget: budget, Strategy: StrategyWorstFirst},
+		cohorts, 20, cost, growth,
+	)
+
+	// Should not crash and should produce valid results
+	if len(constrained.Years) != 20 {
+		t.Fatalf("expected 20 years, got %d", len(constrained.Years))
+	}
+	// PCI should be between 0 and 100
+	for _, y := range constrained.Years {
+		if y.PCI < 0 || y.PCI > 100 {
+			t.Errorf("year %d: PCI (%.2f) out of range", y.Year, y.PCI)
+		}
+	}
+}
+
+func TestNormalizeClass(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"motorway", "motorway"},
+		{"motorway_link", "motorway"},
+		{"primary_link", "primary"},
+		{"residential", "residential"},
+		{"living_street", "residential"},
+		{"unclassified", "residential"},
+		{"something_unknown", "residential"},
+		{"trunk", "trunk"},
+		{"service", "service"},
+	}
+	for _, tt := range tests {
+		got := NormalizeClass(tt.input)
+		if got != tt.want {
+			t.Errorf("NormalizeClass(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestBuildCohorts_WithOverride(t *testing.T) {
+	stats := []CohortInput{
+		{Classification: "primary", AreaSqFt: 50000},
+		{Classification: "residential", AreaSqFt: 30000},
+	}
+
+	cohorts := BuildCohorts(stats, 85.0, 0.05)
+	if len(cohorts) != 2 {
+		t.Fatalf("expected 2 cohorts, got %d", len(cohorts))
+	}
+	for _, c := range cohorts {
+		if c.DecayRate != 0.05 {
+			t.Errorf("cohort %s: expected decay rate 0.05, got %f", c.Classification, c.DecayRate)
+		}
+		if c.InitialPCI != 85.0 {
+			t.Errorf("cohort %s: expected initial PCI 85.0, got %f", c.Classification, c.InitialPCI)
+		}
+	}
+}
+
+func TestBuildCohorts_WithoutOverride(t *testing.T) {
+	stats := []CohortInput{
+		{Classification: "primary", AreaSqFt: 50000},
+		{Classification: "residential", AreaSqFt: 30000},
+	}
+
+	cohorts := BuildCohorts(stats, 85.0, 0)
+	if len(cohorts) != 2 {
+		t.Fatalf("expected 2 cohorts, got %d", len(cohorts))
+	}
+	if cohorts[0].DecayRate != DefaultDecayRates["primary"] {
+		t.Errorf("primary: expected decay rate %f, got %f", DefaultDecayRates["primary"], cohorts[0].DecayRate)
+	}
+	if cohorts[1].DecayRate != DefaultDecayRates["residential"] {
+		t.Errorf("residential: expected decay rate %f, got %f", DefaultDecayRates["residential"], cohorts[1].DecayRate)
+	}
+}
+
+func TestBuildCohorts_Empty(t *testing.T) {
+	cohorts := BuildCohorts(nil, 85.0, 0)
+	if cohorts != nil {
+		t.Errorf("expected nil for empty stats, got %v", cohorts)
 	}
 }

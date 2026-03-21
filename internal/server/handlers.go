@@ -71,6 +71,8 @@ func (s *Server) handleDataFile(w http.ResponseWriter, r *http.Request) {
 		s.serveHexGridGeoJSON(w)
 	case file == "scenarios.json":
 		s.serveScenariosJSON(w)
+	case file == "forecast.json":
+		s.serveForecastJSON(w)
 	case file == "hex-cost-summary.json":
 		s.serveHexCostSummary(w)
 	case strings.HasSuffix(file, ".geojson"):
@@ -172,7 +174,7 @@ func (s *Server) serveScenariosJSON(w http.ResponseWriter) {
 			Label:       t.Label,
 		})
 	}
-	params := forecast.NewParams(s.cfg.Forecast.DecayRate, s.cfg.Forecast.GrowthRate, costTiers)
+	params := forecast.NewParams(s.cfg.Forecast.GrowthRate, costTiers)
 	years := s.cfg.ForecastYears()
 
 	var totalAreaSqFt, cityAreaSqFt float64
@@ -194,11 +196,27 @@ func (s *Server) serveScenariosJSON(w http.ResponseWriter) {
 	}
 
 	currentPCI := 85.0
-	allScenarios := export.BuildScenarios(totalAreaSqFt, currentPCI, years, params)
+	defaultRate := forecast.DefaultDecayRates["default"]
+	if s.cfg.Forecast.DecayRate > 0 {
+		defaultRate = s.cfg.Forecast.DecayRate
+	}
+	allCohorts := []forecast.Cohort{{
+		Classification: "all",
+		AreaSqFt:       totalAreaSqFt,
+		DecayRate:      defaultRate,
+		InitialPCI:     currentPCI,
+	}}
+	allScenarios := export.BuildScenarios(allCohorts, years, params)
 
 	var cityScenarios []forecast.ScenarioResult
 	if cityAreaSqFt > 0 {
-		cityScenarios = export.BuildScenarios(cityAreaSqFt, currentPCI, years, params)
+		cityCohorts := []forecast.Cohort{{
+			Classification: "city",
+			AreaSqFt:       cityAreaSqFt,
+			DecayRate:      defaultRate,
+			InitialPCI:     currentPCI,
+		}}
+		cityScenarios = export.BuildScenarios(cityCohorts, years, params)
 	}
 
 	summary := map[string]any{
@@ -227,6 +245,105 @@ func (s *Server) serveScenariosJSON(w http.ResponseWriter) {
 	}
 }
 
+func (s *Server) serveForecastJSON(w http.ResponseWriter) {
+	var costTiers []forecast.CostTier
+	for _, t := range s.cfg.Forecast.CostTiers {
+		costTiers = append(costTiers, forecast.CostTier{
+			MinPCI:      t.MinPCI,
+			MaxPCI:      t.MaxPCI,
+			CostPerSqFt: t.CostPerSqFt,
+			Label:       t.Label,
+		})
+	}
+	years := s.cfg.ForecastYears()
+
+	type forecastExport struct {
+		ResourceType string                   `json:"resource_type"`
+		Baseline     forecast.ScenarioResult  `json:"baseline"`
+		CityBaseline *forecast.ScenarioResult `json:"city_baseline,omitempty"`
+		Comparisons  []forecast.Comparison    `json:"comparisons"`
+	}
+
+	var allForecasts []forecastExport
+
+	for _, rt := range resource.All {
+		result, err := s.store.LatestComputeResult(rt.Name())
+		if err != nil || result == nil {
+			continue
+		}
+
+		areaSqFt := result.TotalAreaSqFt
+		currentPCI := 85.0
+
+		stats, _ := s.store.ListCohortStats(rt.Name())
+		var inputs []forecast.CohortInput
+		for _, st := range stats {
+			inputs = append(inputs, forecast.CohortInput{
+				Classification: st.Classification,
+				AreaSqFt:       st.AreaSqFt,
+			})
+		}
+		cohorts := forecast.BuildCohorts(inputs, currentPCI, s.cfg.Forecast.DecayRate)
+		if cohorts == nil {
+			defaultRate := forecast.DecayRateForClass(rt.Name())
+			if s.cfg.Forecast.DecayRate > 0 {
+				defaultRate = s.cfg.Forecast.DecayRate
+			}
+			cohorts = []forecast.Cohort{{
+				Classification: rt.Name(),
+				AreaSqFt:       areaSqFt,
+				DecayRate:      defaultRate,
+				InitialPCI:     currentPCI,
+			}}
+		}
+
+		rtParams := forecast.NewParamsForResource(rt.Name(), s.cfg.Forecast.GrowthRate, costTiers)
+
+		baseline := forecast.Simulate(
+			forecast.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: forecast.StrategyDoNothing},
+			cohorts, years, rtParams.Cost, rtParams.Growth,
+		)
+
+		year1Need := baseline.Years[0].AnnualNeed
+		comparisons := forecast.GroupedComparisons(year1Need, cohorts, years,
+			rtParams.Cost, rtParams.Growth)
+
+		fe := forecastExport{
+			ResourceType: rt.Name(),
+			Baseline:     baseline,
+			Comparisons:  comparisons,
+		}
+
+		// Build city baseline if city cohort stats exist
+		cityStats, _ := s.store.ListCohortStats(rt.Name() + ":city")
+		if len(cityStats) > 0 {
+			var cityInputs []forecast.CohortInput
+			for _, st := range cityStats {
+				cityInputs = append(cityInputs, forecast.CohortInput{
+					Classification: st.Classification,
+					AreaSqFt:       st.AreaSqFt,
+				})
+			}
+			cityCohorts := forecast.BuildCohorts(cityInputs, currentPCI, s.cfg.Forecast.DecayRate)
+			if cityCohorts != nil {
+				cityBaseline := forecast.Simulate(
+					forecast.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: forecast.StrategyDoNothing},
+					cityCohorts, years, rtParams.Cost, rtParams.Growth,
+				)
+				fe.CityBaseline = &cityBaseline
+			}
+		}
+
+		allForecasts = append(allForecasts, fe)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(allForecasts); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
 func (s *Server) serveHexCostSummary(w http.ResponseWriter) {
 	var costTiers []forecast.CostTier
 	for _, t := range s.cfg.Forecast.CostTiers {
@@ -237,7 +354,6 @@ func (s *Server) serveHexCostSummary(w http.ResponseWriter) {
 			Label:       t.Label,
 		})
 	}
-	params := forecast.NewParams(s.cfg.Forecast.DecayRate, s.cfg.Forecast.GrowthRate, costTiers)
 	years := s.cfg.ForecastYears()
 
 	result := make(map[string]map[string]float64)
@@ -248,9 +364,34 @@ func (s *Server) serveHexCostSummary(w http.ResponseWriter) {
 		}
 		areaSqFt := cr.TotalAreaSqFt
 		currentPCI := 85.0
+
+		// Build cohorts for this resource type
+		stats, _ := s.store.ListCohortStats(rt.Name())
+		var inputs []forecast.CohortInput
+		for _, st := range stats {
+			inputs = append(inputs, forecast.CohortInput{
+				Classification: st.Classification,
+				AreaSqFt:       st.AreaSqFt,
+			})
+		}
+		cohorts := forecast.BuildCohorts(inputs, currentPCI, s.cfg.Forecast.DecayRate)
+		if cohorts == nil {
+			defaultRate := forecast.DecayRateForClass(rt.Name())
+			if s.cfg.Forecast.DecayRate > 0 {
+				defaultRate = s.cfg.Forecast.DecayRate
+			}
+			cohorts = []forecast.Cohort{{
+				Classification: rt.Name(),
+				AreaSqFt:       areaSqFt,
+				DecayRate:      defaultRate,
+				InitialPCI:     currentPCI,
+			}}
+		}
+
+		rtParams := forecast.NewParamsForResource(rt.Name(), s.cfg.Forecast.GrowthRate, costTiers)
 		baseline := forecast.Simulate(
 			forecast.Scenario{Name: "baseline", Label: "Baseline", Strategy: forecast.StrategyDoNothing},
-			areaSqFt, currentPCI, years, params.PCI, params.Cost, params.Growth,
+			cohorts, years, rtParams.Cost, rtParams.Growth,
 		)
 		var year1Cost float64
 		if len(baseline.Years) > 0 {

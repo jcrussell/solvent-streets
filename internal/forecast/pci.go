@@ -1,6 +1,9 @@
 package forecast
 
-import "math"
+import (
+	"math"
+	"strings"
+)
 
 // Default decay rates by road classification (FHWA national averages).
 // Higher k = faster decay. Units: per year.
@@ -46,6 +49,24 @@ func (f *ExponentialPCIForecaster) Forecast(currentPCI float64, years int) []flo
 		result[i] = pci
 	}
 	return result
+}
+
+// NormalizeClass maps a highway tag value to a canonical classification.
+// It strips _link suffixes and maps uncommon values to their parent class.
+func NormalizeClass(highway string) string {
+	// Strip _link suffix (e.g. "motorway_link" → "motorway")
+	if strings.HasSuffix(highway, "_link") {
+		highway = strings.TrimSuffix(highway, "_link")
+	}
+
+	switch highway {
+	case "motorway", "trunk", "primary", "secondary", "tertiary", "residential", "service":
+		return highway
+	case "living_street", "unclassified":
+		return "residential"
+	default:
+		return "residential"
+	}
 }
 
 // DecayRateForClass returns the decay rate for a road classification.

@@ -214,15 +214,24 @@ func (e *Exporter) buildHexGeoJSON(proj *geo.UTMProjector) map[string]any {
 	}
 }
 
+// CohortSeed holds per-cohort data for interactive controls.
+type CohortSeed struct {
+	Classification string  `json:"classification"`
+	AreaSqFt       float64 `json:"area_sqft"`
+	DecayRate      float64 `json:"decay_rate"`
+}
+
 // ForecastSeedJSON holds the data needed by the browser to initialize interactive controls.
 type ForecastSeedJSON struct {
-	InitialPCI   float64            `json:"initial_pci"`
-	DecayRate    float64            `json:"decay_rate"`
-	GrowthRate   float64            `json:"growth_rate"`
-	Years        int                `json:"years"`
-	TotalAreaSqFt float64           `json:"total_area_sqft"`
-	CityAreaSqFt float64            `json:"city_area_sqft"`
-	CostTiers    []forecast.CostTier `json:"cost_tiers"`
+	InitialPCI    float64             `json:"initial_pci"`
+	DecayRate     float64             `json:"decay_rate"`
+	GrowthRate    float64             `json:"growth_rate"`
+	Years         int                 `json:"years"`
+	TotalAreaSqFt float64             `json:"total_area_sqft"`
+	CityAreaSqFt  float64             `json:"city_area_sqft"`
+	CostTiers     []forecast.CostTier `json:"cost_tiers"`
+	Cohorts       []CohortSeed        `json:"cohorts,omitempty"`
+	CityCohorts   []CohortSeed        `json:"city_cohorts,omitempty"`
 }
 
 func (e *Exporter) buildForecastSeed() template.JS {
@@ -257,6 +266,42 @@ func (e *Exporter) buildForecastSeed() template.JS {
 		decayRate = forecast.DefaultDecayRates["default"]
 	}
 
+	// Collect cohort stats
+	var cohortSeeds []CohortSeed
+	var cityCohortSeeds []CohortSeed
+	for _, rt := range resource.All {
+		stats, err := e.store.ListCohortStats(rt.Name())
+		if err != nil {
+			continue
+		}
+		for _, st := range stats {
+			rate := forecast.DecayRateForClass(st.Classification)
+			if e.cfg.Forecast.DecayRate > 0 {
+				rate = e.cfg.Forecast.DecayRate
+			}
+			cohortSeeds = append(cohortSeeds, CohortSeed{
+				Classification: st.Classification,
+				AreaSqFt:       st.AreaSqFt,
+				DecayRate:      rate,
+			})
+		}
+		cityStats, err := e.store.ListCohortStats(rt.Name() + ":city")
+		if err != nil {
+			continue
+		}
+		for _, st := range cityStats {
+			rate := forecast.DecayRateForClass(st.Classification)
+			if e.cfg.Forecast.DecayRate > 0 {
+				rate = e.cfg.Forecast.DecayRate
+			}
+			cityCohortSeeds = append(cityCohortSeeds, CohortSeed{
+				Classification: st.Classification,
+				AreaSqFt:       st.AreaSqFt,
+				DecayRate:      rate,
+			})
+		}
+	}
+
 	seed := ForecastSeedJSON{
 		InitialPCI:    85.0,
 		DecayRate:     decayRate,
@@ -265,6 +310,8 @@ func (e *Exporter) buildForecastSeed() template.JS {
 		TotalAreaSqFt: totalArea,
 		CityAreaSqFt:  cityArea,
 		CostTiers:     costTiers,
+		Cohorts:       cohortSeeds,
+		CityCohorts:   cityCohortSeeds,
 	}
 	data, _ := json.Marshal(seed)
 	return template.JS(data)
@@ -320,13 +367,14 @@ func (e *Exporter) exportScenarios(dataDir string) error {
 			Label:       t.Label,
 		})
 	}
-	params := forecast.NewParams(e.cfg.Forecast.DecayRate, e.cfg.Forecast.GrowthRate, costTiers)
+	params := forecast.NewParams(e.cfg.Forecast.GrowthRate, costTiers)
 	years := e.cfg.ForecastYears()
 
 	type forecastExport struct {
-		ResourceType string                  `json:"resource_type"`
-		Baseline     forecast.ScenarioResult `json:"baseline"`
-		Comparisons  []forecast.Comparison   `json:"comparisons"`
+		ResourceType string                   `json:"resource_type"`
+		Baseline     forecast.ScenarioResult  `json:"baseline"`
+		CityBaseline *forecast.ScenarioResult `json:"city_baseline,omitempty"`
+		Comparisons  []forecast.Comparison    `json:"comparisons"`
 	}
 
 	var allForecasts []forecastExport
@@ -363,20 +411,67 @@ func (e *Exporter) exportScenarios(dataDir string) error {
 		areaSqFt := result.TotalAreaSqFt
 		currentPCI := 85.0
 
+		// Build cohorts from stored cohort stats
+		stats, _ := e.store.ListCohortStats(rt.Name())
+		var inputs []forecast.CohortInput
+		for _, st := range stats {
+			inputs = append(inputs, forecast.CohortInput{
+				Classification: st.Classification,
+				AreaSqFt:       st.AreaSqFt,
+			})
+		}
+		cohorts := forecast.BuildCohorts(inputs, currentPCI, e.cfg.Forecast.DecayRate)
+		if cohorts == nil {
+			defaultRate := forecast.DecayRateForClass(rt.Name())
+			if e.cfg.Forecast.DecayRate > 0 {
+				defaultRate = e.cfg.Forecast.DecayRate
+			}
+			cohorts = []forecast.Cohort{{
+				Classification: rt.Name(),
+				AreaSqFt:       areaSqFt,
+				DecayRate:      defaultRate,
+				InitialPCI:     currentPCI,
+			}}
+		}
+
+		rtParams := forecast.NewParamsForResource(rt.Name(), e.cfg.Forecast.GrowthRate, costTiers)
+
 		baseline := forecast.Simulate(
 			forecast.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: forecast.StrategyDoNothing},
-			areaSqFt, currentPCI, years, params.PCI, params.Cost, params.Growth,
+			cohorts, years, rtParams.Cost, rtParams.Growth,
 		)
 
 		year1Need := baseline.Years[0].AnnualNeed
-		comparisons := forecast.GroupedComparisons(year1Need, areaSqFt, currentPCI, years,
-			params.PCI, params.Cost, params.Growth)
+		comparisons := forecast.GroupedComparisons(year1Need, cohorts, years,
+			rtParams.Cost, rtParams.Growth)
 
-		allForecasts = append(allForecasts, forecastExport{
+		fe := forecastExport{
 			ResourceType: rt.Name(),
 			Baseline:     baseline,
 			Comparisons:  comparisons,
-		})
+		}
+
+		// Build city baseline if city cohort stats exist
+		cityStats, _ := e.store.ListCohortStats(rt.Name() + ":city")
+		if len(cityStats) > 0 {
+			var cityInputs []forecast.CohortInput
+			for _, st := range cityStats {
+				cityInputs = append(cityInputs, forecast.CohortInput{
+					Classification: st.Classification,
+					AreaSqFt:       st.AreaSqFt,
+				})
+			}
+			cityCohorts := forecast.BuildCohorts(cityInputs, currentPCI, e.cfg.Forecast.DecayRate)
+			if cityCohorts != nil {
+				cityBaseline := forecast.Simulate(
+					forecast.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: forecast.StrategyDoNothing},
+					cityCohorts, years, rtParams.Cost, rtParams.Growth,
+				)
+				fe.CityBaseline = &cityBaseline
+			}
+		}
+
+		allForecasts = append(allForecasts, fe)
 	}
 
 	if len(allForecasts) > 0 {
@@ -405,14 +500,30 @@ func (e *Exporter) exportScenarios(dataDir string) error {
 		}
 
 		currentPCI := 85.0
+		defaultRate := forecast.DefaultDecayRates["default"]
+		if e.cfg.Forecast.DecayRate > 0 {
+			defaultRate = e.cfg.Forecast.DecayRate
+		}
 
-		// Build "all" scenarios
-		allScenarios := BuildScenarios(totalAreaSqFt, currentPCI, years, params)
+		// Build "all" scenarios (single cohort for aggregates)
+		allCohorts := []forecast.Cohort{{
+			Classification: "all",
+			AreaSqFt:       totalAreaSqFt,
+			DecayRate:      defaultRate,
+			InitialPCI:     currentPCI,
+		}}
+		allScenarios := BuildScenarios(allCohorts, years, params)
 
 		// Build "city" scenarios if city data exists
 		var cityScenarios []forecast.ScenarioResult
 		if cityAreaSqFt > 0 {
-			cityScenarios = BuildScenarios(cityAreaSqFt, currentPCI, years, params)
+			cityCohorts := []forecast.Cohort{{
+				Classification: "city",
+				AreaSqFt:       cityAreaSqFt,
+				DecayRate:      defaultRate,
+				InitialPCI:     currentPCI,
+			}}
+			cityScenarios = BuildScenarios(cityCohorts, years, params)
 		}
 
 		// Compute jurisdiction summary
@@ -444,16 +555,16 @@ func (e *Exporter) exportScenarios(dataDir string) error {
 }
 
 // BuildScenarios generates scenario results for a given area.
-// Exported for use by the server package.
-func BuildScenarios(areaSqFt, currentPCI float64, years int, params *forecast.Params) []forecast.ScenarioResult {
+// Exported for use by the server package. Uses a single cohort (for aggregates).
+func BuildScenarios(cohorts []forecast.Cohort, years int, params *forecast.Params) []forecast.ScenarioResult {
 	baseline := forecast.Simulate(
 		forecast.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: forecast.StrategyDoNothing},
-		areaSqFt, currentPCI, years, params.PCI, params.Cost, params.Growth,
+		cohorts, years, params.Cost, params.Growth,
 	)
 
 	year1Need := baseline.Years[0].AnnualNeed
-	comparisons := forecast.GroupedComparisons(year1Need, areaSqFt, currentPCI, years,
-		params.PCI, params.Cost, params.Growth)
+	comparisons := forecast.GroupedComparisons(year1Need, cohorts, years,
+		params.Cost, params.Growth)
 
 	scenarios := []forecast.ScenarioResult{baseline}
 	for _, comp := range comparisons {

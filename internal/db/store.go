@@ -247,6 +247,63 @@ func (s *sqliteStore) ListForecastResults(resourceType string) ([]ForecastResult
 	return results, rows.Err()
 }
 
+func (s *sqliteStore) SaveCohortStats(stats []CohortStat) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	types := make(map[string]bool)
+	for _, st := range stats {
+		types[st.ResourceType] = true
+	}
+	for rt := range types {
+		if _, err := tx.Exec(`DELETE FROM cohort_stats WHERE resource_type = ?`, rt); err != nil {
+			return fmt.Errorf("delete old cohort stats: %w", err)
+		}
+	}
+
+	stmt, err := tx.Prepare(`
+		INSERT INTO cohort_stats (resource_type, classification, area_sqft, feature_count, snapshot_id, computed_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return fmt.Errorf("prepare cohort stats insert: %w", err)
+	}
+	defer func() { _ = stmt.Close() }()
+
+	now := time.Now()
+	for _, st := range stats {
+		if _, err := stmt.Exec(st.ResourceType, st.Classification, st.AreaSqFt, st.FeatureCount, st.SnapshotID, now); err != nil {
+			return fmt.Errorf("insert cohort stat %s/%s: %w", st.ResourceType, st.Classification, err)
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (s *sqliteStore) ListCohortStats(resourceType string) ([]CohortStat, error) {
+	rows, err := s.db.Query(`
+		SELECT id, resource_type, classification, area_sqft, feature_count, snapshot_id, computed_at
+		FROM cohort_stats WHERE resource_type = ?
+	`, resourceType)
+	if err != nil {
+		return nil, fmt.Errorf("query cohort stats: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var stats []CohortStat
+	for rows.Next() {
+		var st CohortStat
+		if err := rows.Scan(&st.ID, &st.ResourceType, &st.Classification, &st.AreaSqFt, &st.FeatureCount, &st.SnapshotID, &st.ComputedAt); err != nil {
+			return nil, fmt.Errorf("scan cohort stat: %w", err)
+		}
+		stats = append(stats, st)
+	}
+	return stats, rows.Err()
+}
+
 func (s *sqliteStore) Stats(resourceType string) (*StatusInfo, error) {
 	info := &StatusInfo{ResourceType: resourceType}
 

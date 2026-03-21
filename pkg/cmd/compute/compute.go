@@ -7,6 +7,7 @@ import (
 	"pvmt/internal/config"
 	"pvmt/internal/db"
 	"pvmt/internal/filter"
+	"pvmt/internal/forecast"
 	"pvmt/internal/geo"
 	"pvmt/internal/resource"
 	"pvmt/pkg/cmdutil"
@@ -133,6 +134,61 @@ func runCompute(opts *Options) error {
 		return fmt.Errorf("save result: %w", err)
 	}
 
+	// Save cohort stats
+	if opts.ResourceType.Name() == "roads" {
+		rawAreas := resource.ComputeRoadCohortAreas(resFeatures, proj)
+		var rawTotal float64
+		for _, a := range rawAreas {
+			rawTotal += a
+		}
+		var cohortStats []db.CohortStat
+		counts := make(map[string]int)
+		for _, f := range resFeatures {
+			class := forecast.NormalizeClass(f.Tags["highway"])
+			counts[class]++
+		}
+		for class, rawArea := range rawAreas {
+			proportion := 0.0
+			if rawTotal > 0 {
+				proportion = rawArea / rawTotal
+			}
+			cohortStats = append(cohortStats, db.CohortStat{
+				ResourceType:   opts.ResourceType.Name(),
+				Classification: class,
+				AreaSqFt:       areaSqFt * proportion,
+				FeatureCount:   counts[class],
+				SnapshotID:     snapshotID,
+			})
+		}
+		if len(cohortStats) > 0 {
+			if err := store.SaveCohortStats(cohortStats); err != nil {
+				fmt.Fprintf(ios.ErrOut, "Warning: failed to save cohort stats: %v\n", err)
+			} else {
+				fmt.Fprintf(ios.Out, "\nCohort breakdown:\n")
+				for _, cs := range cohortStats {
+					pct := 0.0
+					if areaSqFt > 0 {
+						pct = cs.AreaSqFt / areaSqFt * 100
+					}
+					fmt.Fprintf(ios.Out, "  %-12s %6.1f%% (%.0f sq ft, %d features)\n",
+						cs.Classification, pct, cs.AreaSqFt, cs.FeatureCount)
+				}
+			}
+		}
+	} else {
+		// Non-road resource types: save a single cohort stat
+		cohortStats := []db.CohortStat{{
+			ResourceType:   opts.ResourceType.Name(),
+			Classification: opts.ResourceType.Name(),
+			AreaSqFt:       areaSqFt,
+			FeatureCount:   len(dbFeatures),
+			SnapshotID:     snapshotID,
+		}}
+		if err := store.SaveCohortStats(cohortStats); err != nil {
+			fmt.Fprintf(ios.ErrOut, "Warning: failed to save cohort stats: %v\n", err)
+		}
+	}
+
 	if !opts.CityOnly {
 		fmt.Fprintf(ios.Out, "\n%s Results (all):\n", opts.ResourceType.Name())
 		fmt.Fprintf(ios.Out, "  Features:  %d\n", len(dbFeatures))
@@ -159,6 +215,49 @@ func runCompute(opts *Options) error {
 			}
 			if err := store.SaveComputeResult(cityResult); err != nil {
 				fmt.Fprintf(ios.ErrOut, "Warning: failed to save city result: %v\n", err)
+			}
+
+			// Save city cohort stats (same pattern as all-roads cohorts)
+			if opts.ResourceType.Name() == "roads" {
+				cityRawAreas := resource.ComputeRoadCohortAreas(cityFeatures, proj)
+				var cityRawTotal float64
+				for _, a := range cityRawAreas {
+					cityRawTotal += a
+				}
+				var cityCohortStats []db.CohortStat
+				cityCounts := make(map[string]int)
+				for _, f := range cityFeatures {
+					class := forecast.NormalizeClass(f.Tags["highway"])
+					cityCounts[class]++
+				}
+				for class, rawArea := range cityRawAreas {
+					proportion := 0.0
+					if cityRawTotal > 0 {
+						proportion = rawArea / cityRawTotal
+					}
+					cityCohortStats = append(cityCohortStats, db.CohortStat{
+						ResourceType:   opts.ResourceType.Name() + ":city",
+						Classification: class,
+						AreaSqFt:       cityAreaSqFt * proportion,
+						FeatureCount:   cityCounts[class],
+						SnapshotID:     snapshotID,
+					})
+				}
+				if len(cityCohortStats) > 0 {
+					if err := store.SaveCohortStats(cityCohortStats); err != nil {
+						fmt.Fprintf(ios.ErrOut, "Warning: failed to save city cohort stats: %v\n", err)
+					} else {
+						fmt.Fprintf(ios.Out, "\nCity cohort breakdown:\n")
+						for _, cs := range cityCohortStats {
+							pct := 0.0
+							if cityAreaSqFt > 0 {
+								pct = cs.AreaSqFt / cityAreaSqFt * 100
+							}
+							fmt.Fprintf(ios.Out, "  %-12s %6.1f%% (%.0f sq ft, %d features)\n",
+								cs.Classification, pct, cs.AreaSqFt, cs.FeatureCount)
+						}
+					}
+				}
 			}
 
 			fmt.Fprintf(ios.Out, "\n%s Results (city only):\n", opts.ResourceType.Name())
