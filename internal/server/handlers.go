@@ -39,10 +39,25 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 	meta := s.buildMeta()
 
+	td := export.TemplateData{
+		MetaJSON:     meta,
+		ForecastSeed: export.BuildForecastSeed(s.cfg, s.store),
+	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := tmpl.Execute(w, meta); err != nil {
+	if err := tmpl.Execute(w, td); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+func (s *Server) handleWasmExecJS(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/javascript")
+	w.Write(export.WasmExecJS())
+}
+
+func (s *Server) handleForecastWasm(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/wasm")
+	w.Write(export.ForecastWasm())
 }
 
 // handleDataFile serves /data/{file} endpoints dynamically.

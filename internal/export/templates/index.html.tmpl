@@ -157,6 +157,81 @@
         .chart-card h3 { font-size: 15px; margin-bottom: 12px; color: #333; }
         .chart-card canvas { width: 100% !important; }
         .no-data { text-align: center; padding: 60px; color: #999; }
+
+        /* Interactive forecast controls */
+        .forecast-controls {
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 24px;
+            display: none;
+        }
+        .forecast-controls.visible { display: block; }
+        .forecast-controls h3 { font-size: 15px; margin-bottom: 16px; color: #333; }
+        .controls-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 16px;
+        }
+        .control-group { display: flex; flex-direction: column; gap: 4px; }
+        .control-group label { font-size: 13px; color: #666; font-weight: 500; }
+        .control-group .control-value { font-size: 13px; color: #1a1a2e; font-weight: 600; }
+        .control-group input[type="range"] {
+            width: 100%;
+            accent-color: #3b82f6;
+        }
+        .strategy-buttons {
+            display: flex;
+            gap: 6px;
+        }
+        .strategy-buttons button {
+            padding: 6px 14px;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            background: #fff;
+            cursor: pointer;
+            font-size: 13px;
+            color: #666;
+            transition: all 0.15s;
+        }
+        .strategy-buttons button.active {
+            background: #1a1a2e;
+            color: #fff;
+            border-color: #1a1a2e;
+        }
+        .advanced-toggle {
+            background: none;
+            border: none;
+            color: #3b82f6;
+            font-size: 13px;
+            cursor: pointer;
+            padding: 4px 0;
+            margin-top: 12px;
+        }
+        .advanced-controls {
+            display: none;
+            margin-top: 16px;
+            border-top: 1px solid #e5e7eb;
+            padding-top: 16px;
+        }
+        .advanced-controls.visible { display: block; }
+        .tier-row {
+            display: grid;
+            grid-template-columns: 1fr 80px 80px 100px;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+        .tier-row.header { font-weight: 600; color: #666; }
+        .tier-row input {
+            width: 100%;
+            padding: 4px 6px;
+            border: 1px solid #e5e7eb;
+            border-radius: 4px;
+            font-size: 13px;
+        }
     </style>
 </head>
 <body>
@@ -212,6 +287,38 @@
             <div class="headlines" id="headlines">
                 <div class="no-data">Loading financial analysis...</div>
             </div>
+
+            <div class="forecast-controls" id="forecast-controls">
+                <h3>Interactive Forecast</h3>
+                <div class="controls-grid">
+                    <div class="control-group">
+                        <label>Budget Level: <span class="control-value" id="budget-value">50%</span></label>
+                        <input type="range" id="budget-slider" min="0" max="150" value="50" step="5">
+                    </div>
+                    <div class="control-group">
+                        <label>Initial PCI: <span class="control-value" id="pci-value">85</span></label>
+                        <input type="range" id="pci-slider" min="50" max="100" value="85" step="1">
+                    </div>
+                    <div class="control-group">
+                        <label>Strategy</label>
+                        <div class="strategy-buttons" id="strategy-buttons">
+                            <button class="active" data-strategy="worst-first">Worst First</button>
+                            <button data-strategy="preventive-first">Preventive First</button>
+                        </div>
+                    </div>
+                </div>
+                <button class="advanced-toggle" id="advanced-toggle">Advanced options</button>
+                <div class="advanced-controls" id="advanced-controls">
+                    <div class="tier-row header">
+                        <span>Tier</span>
+                        <span>Min PCI</span>
+                        <span>Max PCI</span>
+                        <span>$/sq ft</span>
+                    </div>
+                    <div id="tier-inputs"></div>
+                </div>
+            </div>
+
             <div class="chart-grid" id="charts"></div>
         </div>
     </div>
@@ -607,32 +714,7 @@
                 }));
             }
 
-            // 4. Strategy comparison
-            const strategyScenarios = scenarios.filter(s =>
-                ['worst-first-50', 'preventive-first-50'].includes(s.scenario.name)
-            );
-            if (strategyScenarios.length > 0) {
-                const card = makeChartCard('Strategy Comparison: PCI at 50% Budget');
-                chartsDiv.appendChild(card);
-                const ctx = card.querySelector('canvas').getContext('2d');
-                currentCharts.push(new Chart(ctx, {
-                    type: 'line',
-                    data: {
-                        labels: strategyScenarios[0].years.map(y => 'Year ' + y.year),
-                        datasets: strategyScenarios.map((s, i) => ({
-                            label: s.scenario.label,
-                            data: s.years.map(y => y.pci),
-                            borderColor: COLORS[i + 3],
-                            backgroundColor: 'transparent',
-                            tension: 0.3,
-                            pointRadius: 0
-                        }))
-                    },
-                    options: { responsive: true, scales: { y: { min: 0, max: 100, title: { display: true, text: 'PCI' } } }, plugins: { legend: { position: 'bottom' } } }
-                }));
-            }
-
-            // 5. Annual cost by tier (baseline)
+            // 4. Annual cost by tier (baseline)
             if (baseline) {
                 const card = makeChartCard('Annual Treatment Need by Condition Tier');
                 chartsDiv.appendChild(card);
@@ -721,6 +803,215 @@
         }
 
         loadFinancials();
+
+        // WASM forecast seed & interactive controls
+        const FORECAST_SEED = {{.ForecastSeed}};
+
+        let wasmReady = false;
+        let chartRefs = { pci: null, backlog: null, spending: null };
+        let customActive = false;
+        let currentStrategy = 'worst-first';
+
+        function onWasmReady() {
+            wasmReady = true;
+            document.getElementById('forecast-controls').classList.add('visible');
+            // Populate tier inputs from seed
+            const tierDiv = document.getElementById('tier-inputs');
+            tierDiv.innerHTML = '';
+            (FORECAST_SEED.cost_tiers || []).forEach((t, i) => {
+                const row = document.createElement('div');
+                row.className = 'tier-row';
+                row.innerHTML =
+                    '<span>' + (t.label || 'Tier ' + (i+1)) + '</span>' +
+                    '<input type="number" data-tier="' + i + '" data-field="min_pci" value="' + t.min_pci + '" step="1">' +
+                    '<input type="number" data-tier="' + i + '" data-field="max_pci" value="' + t.max_pci + '" step="1">' +
+                    '<input type="number" data-tier="' + i + '" data-field="cost_per_sqft" value="' + t.cost_per_sqft + '" step="0.01">';
+                tierDiv.appendChild(row);
+            });
+            // Bind tier input events
+            tierDiv.querySelectorAll('input').forEach(inp => {
+                inp.addEventListener('input', runCustomScenario);
+            });
+        }
+
+        function getControlValues() {
+            const budgetPct = parseInt(document.getElementById('budget-slider').value) / 100;
+            const initialPCI = parseInt(document.getElementById('pci-slider').value);
+
+            // Read tier values from inputs (advanced), fallback to seed
+            const tiers = (FORECAST_SEED.cost_tiers || []).map((t, i) => {
+                const minInput = document.querySelector('[data-tier="' + i + '"][data-field="min_pci"]');
+                const maxInput = document.querySelector('[data-tier="' + i + '"][data-field="max_pci"]');
+                const costInput = document.querySelector('[data-tier="' + i + '"][data-field="cost_per_sqft"]');
+                return {
+                    min_pci: minInput ? parseFloat(minInput.value) : t.min_pci,
+                    max_pci: maxInput ? parseFloat(maxInput.value) : t.max_pci,
+                    cost_per_sqft: costInput ? parseFloat(costInput.value) : t.cost_per_sqft,
+                    label: t.label
+                };
+            });
+
+            // Determine area from current scope
+            const activeScope = document.querySelector('#scope-toggle button.active');
+            const scope = activeScope ? activeScope.dataset.scope : 'all';
+            const area = (scope === 'city' && FORECAST_SEED.city_area_sqft > 0)
+                ? FORECAST_SEED.city_area_sqft
+                : FORECAST_SEED.total_area_sqft;
+
+            // Compute baseline year-1 need to derive budget
+            const baselineInput = {
+                area_sqft: area,
+                initial_pci: initialPCI,
+                decay_rate: FORECAST_SEED.decay_rate,
+                growth_rate: FORECAST_SEED.growth_rate,
+                years: FORECAST_SEED.years,
+                cost_tiers: tiers,
+                annual_budget: 0,
+                strategy: 'do-nothing'
+            };
+            const baselineRaw = window.simulateForecast(JSON.stringify(baselineInput));
+            const baseline = JSON.parse(baselineRaw);
+            if (baseline.error) return null;
+
+            const year1Need = baseline.years && baseline.years.length > 0 ? baseline.years[0].annual_need : 0;
+            const annualBudget = budgetPct > 0 ? year1Need * budgetPct : 0;
+
+            return {
+                area_sqft: area,
+                initial_pci: initialPCI,
+                decay_rate: FORECAST_SEED.decay_rate,
+                growth_rate: FORECAST_SEED.growth_rate,
+                years: FORECAST_SEED.years,
+                cost_tiers: tiers,
+                annual_budget: annualBudget,
+                strategy: currentStrategy
+            };
+        }
+
+        function runCustomScenario() {
+            if (!wasmReady) return;
+            const input = getControlValues();
+            if (!input) return;
+
+            const raw = window.simulateForecast(JSON.stringify(input));
+            const result = JSON.parse(raw);
+            if (result.error) return;
+
+            customActive = true;
+            updateCustomScenario(result);
+        }
+
+        function updateCustomScenario(result) {
+            const customColor = '#10b981';
+            const years = result.years || [];
+
+            // Update PCI chart
+            if (chartRefs.pci) {
+                updateChartDataset(chartRefs.pci, 'Custom Scenario', years.map(y => y.pci), customColor);
+            }
+            // Update backlog chart
+            if (chartRefs.backlog) {
+                updateChartDataset(chartRefs.backlog, 'Custom Scenario', years.map(y => y.deferred_backlog), customColor);
+            }
+            // Update spending chart
+            if (chartRefs.spending) {
+                let cum = 0;
+                const cumData = years.map(y => { cum += y.annual_spend; return cum; });
+                updateChartDataset(chartRefs.spending, 'Custom Scenario', cumData, customColor);
+            }
+            // Update tier chart
+            if (chartRefs.tier) {
+                const tierColors = { preventive: '#22c55e', rehab: '#f59e0b', reconstruction: '#ef4444' };
+                const idx = chartRefs.tier.data.datasets.findIndex(ds => ds.label === 'Custom Need');
+                const ds = {
+                    label: 'Custom Need',
+                    data: years.map(y => y.annual_need),
+                    backgroundColor: years.map(y => (tierColors[y.cost_tier] || '#9ca3af') + '80'),
+                    borderColor: customColor,
+                    borderWidth: 1
+                };
+                if (idx >= 0) {
+                    chartRefs.tier.data.datasets[idx] = ds;
+                } else {
+                    chartRefs.tier.data.datasets.push(ds);
+                }
+                chartRefs.tier.update('none');
+            }
+        }
+
+        function updateChartDataset(chart, label, data, color) {
+            const idx = chart.data.datasets.findIndex(ds => ds.label === label);
+            const ds = {
+                label: label,
+                data: data,
+                borderColor: color,
+                backgroundColor: 'transparent',
+                borderDash: [6, 3],
+                tension: 0.3,
+                pointRadius: 0
+            };
+            if (idx >= 0) {
+                chart.data.datasets[idx] = ds;
+            } else {
+                chart.data.datasets.push(ds);
+            }
+            chart.update('none');
+        }
+
+        // Override renderFinancials to capture chart refs
+        const _origRenderFinancials = renderFinancials;
+        renderFinancials = function(scenarios, scope) {
+            chartRefs = { pci: null, backlog: null, spending: null, tier: null };
+            _origRenderFinancials(scenarios, scope);
+
+            // Capture chart refs from currentCharts (order: pci, backlog, spending, tier)
+            if (currentCharts.length >= 1) chartRefs.pci = currentCharts[0];
+            if (currentCharts.length >= 2) chartRefs.backlog = currentCharts[1];
+            if (currentCharts.length >= 3) chartRefs.spending = currentCharts[2];
+            if (currentCharts.length >= 4) chartRefs.tier = currentCharts[3];
+
+            // Re-apply custom scenario if active
+            if (customActive && wasmReady) {
+                runCustomScenario();
+            }
+        };
+
+        // Control event bindings
+        document.getElementById('budget-slider').addEventListener('input', e => {
+            document.getElementById('budget-value').textContent = e.target.value + '%';
+            runCustomScenario();
+        });
+        document.getElementById('pci-slider').addEventListener('input', e => {
+            document.getElementById('pci-value').textContent = e.target.value;
+            runCustomScenario();
+        });
+        document.querySelectorAll('#strategy-buttons button').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('#strategy-buttons button').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentStrategy = btn.dataset.strategy;
+                runCustomScenario();
+            });
+        });
+        document.getElementById('advanced-toggle').addEventListener('click', () => {
+            const adv = document.getElementById('advanced-controls');
+            adv.classList.toggle('visible');
+            document.getElementById('advanced-toggle').textContent =
+                adv.classList.contains('visible') ? 'Hide advanced options' : 'Advanced options';
+        });
+
+        // Load WASM
+        if (typeof WebAssembly !== 'undefined') {
+            const script = document.createElement('script');
+            script.src = 'wasm_exec.js';
+            script.onload = function() {
+                const go = new Go();
+                WebAssembly.instantiateStreaming(fetch('forecast.wasm'), go.importObject)
+                    .then(result => { go.run(result.instance); onWasmReady(); })
+                    .catch(err => console.warn('WASM load failed:', err));
+            };
+            document.head.appendChild(script);
+        }
     </script>
 </body>
 </html>

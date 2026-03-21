@@ -6,10 +6,10 @@ import "sort"
 // FHWA treatment selection guidelines quote costs in $/sq yd;
 // values below are converted to $/sq ft (÷9).
 type CostTier struct {
-	MinPCI      float64 // inclusive
-	MaxPCI      float64 // exclusive; last tier uses 101 as sentinel so PCI=100 matches via pci < 101
-	CostPerSqFt float64
-	Label       string
+	MinPCI      float64 `json:"min_pci"`      // inclusive
+	MaxPCI      float64 `json:"max_pci"`      // exclusive; last tier uses 101 as sentinel so PCI=100 matches via pci < 101
+	CostPerSqFt float64 `json:"cost_per_sqft"`
+	Label       string  `json:"label"`
 }
 
 var DefaultCostTiers = []CostTier{

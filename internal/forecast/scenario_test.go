@@ -42,7 +42,7 @@ func TestSimulate_DoNothing_DecreasingPCI(t *testing.T) {
 
 func TestSimulate_Unconstrained_PCIRecovery(t *testing.T) {
 	p := defaultParams()
-	s := Scenario{Name: "full", Label: "Full", AnnualBudget: 0, Strategy: StrategyWorstFirst}
+	s := Scenario{Name: "full", Label: "Full", FullFunding: true, Strategy: StrategyWorstFirst}
 	result := Simulate(s, 100000, 85.0, 10, p.PCI, p.Cost, p.Growth)
 
 	// With full funding, PCI should fully recover to initial value each year
@@ -75,7 +75,7 @@ func TestSimulate_BudgetConstrained_Intermediate(t *testing.T) {
 	)
 
 	full := Simulate(
-		Scenario{Name: "full", Label: "Full", AnnualBudget: 0, Strategy: StrategyWorstFirst},
+		Scenario{Name: "full", Label: "Full", FullFunding: true, Strategy: StrategyWorstFirst},
 		100000, 85.0, 20, p.PCI, p.Cost, p.Growth,
 	)
 
@@ -143,10 +143,53 @@ func TestParseStrategy_Invalid(t *testing.T) {
 	}
 }
 
+func TestSimulate_Overfunding_SpendExceedsFullFunding(t *testing.T) {
+	p := defaultParams()
+
+	// Get year-1 need to calibrate budget
+	doNothing := Simulate(
+		Scenario{Name: "dn", Label: "DN", Strategy: StrategyDoNothing},
+		100000, 85.0, 1, p.PCI, p.Cost, p.Growth,
+	)
+	year1Need := doNothing.Years[0].AnnualNeed
+
+	full := Simulate(
+		Scenario{Name: "full", Label: "Full", FullFunding: true, Strategy: StrategyWorstFirst},
+		100000, 85.0, 20, p.PCI, p.Cost, p.Growth,
+	)
+
+	over := Simulate(
+		Scenario{Name: "over", Label: "150%", AnnualBudget: year1Need * 1.5, Strategy: StrategyWorstFirst},
+		100000, 85.0, 20, p.PCI, p.Cost, p.Growth,
+	)
+
+	// Cumulative spend for overfunding should exceed full funding
+	var cumFull, cumOver float64
+	for i := range full.Years {
+		cumFull += full.Years[i].AnnualSpend
+		cumOver += over.Years[i].AnnualSpend
+	}
+	if cumOver <= cumFull {
+		t.Errorf("150%% cumulative spend (%.2f) should exceed full funding (%.2f)", cumOver, cumFull)
+	}
+
+	// Overfunding should improve PCI above full funding's stable level
+	if over.Years[19].PCI <= full.Years[19].PCI {
+		t.Errorf("150%% PCI (%.2f) should exceed full funding PCI (%.2f)", over.Years[19].PCI, full.Years[19].PCI)
+	}
+
+	// Deferred backlog should be zero (no unmet need)
+	for _, y := range over.Years {
+		if y.DeferredBacklog > 0.01 {
+			t.Errorf("year %d: overfunding should have ~0 backlog, got %.2f", y.Year, y.DeferredBacklog)
+		}
+	}
+}
+
 func TestDefaultComparisons(t *testing.T) {
 	scenarios := DefaultComparisons(1000000)
-	if len(scenarios) != 5 {
-		t.Fatalf("expected 5 default scenarios, got %d", len(scenarios))
+	if len(scenarios) != 3 {
+		t.Fatalf("expected 3 default scenarios, got %d", len(scenarios))
 	}
 
 	// First should be 25% funding (do-nothing is created separately as baseline)

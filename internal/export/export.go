@@ -20,9 +20,27 @@ import (
 //go:embed templates
 var templatesFS embed.FS
 
+//go:embed wasm/forecast.wasm
+var forecastWasm []byte
+
+//go:embed wasm/wasm_exec.js
+var wasmExecJS []byte
+
 // TemplateFS returns the embedded template filesystem for use by the server.
 func TemplateFS() fs.ReadFileFS {
 	return templatesFS
+}
+
+// ForecastWasm returns the embedded WASM binary for the forecast simulator.
+func ForecastWasm() []byte { return forecastWasm }
+
+// WasmExecJS returns the embedded Go WASM support JavaScript.
+func WasmExecJS() []byte { return wasmExecJS }
+
+// TemplateData wraps MetaJSON with the forecast seed for the interactive controls.
+type TemplateData struct {
+	MetaJSON
+	ForecastSeed template.JS
 }
 
 type MetaJSON struct {
@@ -128,8 +146,17 @@ func (e *Exporter) Run() error {
 		return fmt.Errorf("export scenarios: %w", err)
 	}
 
-	// Render HTML template
-	return e.renderHTML(meta)
+	// Write WASM assets
+	if err := os.WriteFile(filepath.Join(e.outputDir, "forecast.wasm"), forecastWasm, 0o644); err != nil {
+		return fmt.Errorf("write forecast.wasm: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(e.outputDir, "wasm_exec.js"), wasmExecJS, 0o644); err != nil {
+		return fmt.Errorf("write wasm_exec.js: %w", err)
+	}
+
+	// Render HTML template with forecast seed
+	seed := e.buildForecastSeed()
+	return e.renderHTML(meta, seed)
 }
 
 func (e *Exporter) buildHexGeoJSON(proj *geo.UTMProjector) map[string]any {
@@ -187,7 +214,70 @@ func (e *Exporter) buildHexGeoJSON(proj *geo.UTMProjector) map[string]any {
 	}
 }
 
-func (e *Exporter) renderHTML(meta MetaJSON) (err error) {
+// ForecastSeedJSON holds the data needed by the browser to initialize interactive controls.
+type ForecastSeedJSON struct {
+	InitialPCI   float64            `json:"initial_pci"`
+	DecayRate    float64            `json:"decay_rate"`
+	GrowthRate   float64            `json:"growth_rate"`
+	Years        int                `json:"years"`
+	TotalAreaSqFt float64           `json:"total_area_sqft"`
+	CityAreaSqFt float64            `json:"city_area_sqft"`
+	CostTiers    []forecast.CostTier `json:"cost_tiers"`
+}
+
+func (e *Exporter) buildForecastSeed() template.JS {
+	var costTiers []forecast.CostTier
+	for _, t := range e.cfg.Forecast.CostTiers {
+		costTiers = append(costTiers, forecast.CostTier{
+			MinPCI:      t.MinPCI,
+			MaxPCI:      t.MaxPCI,
+			CostPerSqFt: t.CostPerSqFt,
+			Label:       t.Label,
+		})
+	}
+	if len(costTiers) == 0 {
+		costTiers = forecast.DefaultCostTiers
+	}
+
+	var totalArea, cityArea float64
+	for _, rt := range resource.All {
+		result, err := e.store.LatestComputeResult(rt.Name())
+		if err != nil || result == nil {
+			continue
+		}
+		totalArea += result.TotalAreaSqFt
+		cityResult, err := e.store.LatestComputeResult(rt.Name() + ":city")
+		if err == nil && cityResult != nil {
+			cityArea += cityResult.TotalAreaSqFt
+		}
+	}
+
+	decayRate := e.cfg.Forecast.DecayRate
+	if decayRate <= 0 {
+		decayRate = forecast.DefaultDecayRates["default"]
+	}
+
+	seed := ForecastSeedJSON{
+		InitialPCI:    85.0,
+		DecayRate:     decayRate,
+		GrowthRate:    e.cfg.Forecast.GrowthRate,
+		Years:         e.cfg.ForecastYears(),
+		TotalAreaSqFt: totalArea,
+		CityAreaSqFt:  cityArea,
+		CostTiers:     costTiers,
+	}
+	data, _ := json.Marshal(seed)
+	return template.JS(data)
+}
+
+// BuildForecastSeed constructs a ForecastSeedJSON for the given config and store.
+// Exported for use by the server package.
+func BuildForecastSeed(cfg *config.Config, store db.Store) template.JS {
+	e := &Exporter{store: store, cfg: cfg}
+	return e.buildForecastSeed()
+}
+
+func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS) (err error) {
 	tmplData, err := templatesFS.ReadFile("templates/index.html.tmpl")
 	if err != nil {
 		return fmt.Errorf("read template: %w", err)
@@ -212,7 +302,11 @@ func (e *Exporter) renderHTML(meta MetaJSON) (err error) {
 		}
 	}()
 
-	return tmpl.Execute(f, meta)
+	td := TemplateData{
+		MetaJSON:     meta,
+		ForecastSeed: seed,
+	}
+	return tmpl.Execute(f, td)
 }
 
 func (e *Exporter) exportScenarios(dataDir string) error {

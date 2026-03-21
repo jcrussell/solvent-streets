@@ -30,6 +30,10 @@ func (s *Server) ListenAndServe() error {
 	// Data endpoints matching export layout
 	mux.HandleFunc("GET /data/{file}", s.handleDataFile)
 
+	// WASM assets for interactive forecast
+	mux.HandleFunc("GET /wasm_exec.js", s.handleWasmExecJS)
+	mux.HandleFunc("GET /forecast.wasm", s.handleForecastWasm)
+
 	// Serve rendered template on /
 	mux.HandleFunc("GET /", s.handleIndex)
 

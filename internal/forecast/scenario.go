@@ -47,6 +47,7 @@ type Scenario struct {
 	Name         string   `json:"name"`
 	Label        string   `json:"label"`
 	AnnualBudget float64  `json:"annual_budget"`
+	FullFunding  bool     `json:"full_funding,omitempty"`
 	Strategy     Strategy `json:"strategy"`
 }
 
@@ -98,18 +99,30 @@ func Simulate(s Scenario, areaSqFt, initialPCI float64, years int,
 		case StrategyDoNothing:
 			spend = 0
 		default:
-			if s.AnnualBudget <= 0 {
+			if s.FullFunding {
 				spend = annualNeed
 			} else {
 				spend = math.Min(s.AnnualBudget, annualNeed)
 			}
 		}
 
-		// PCI recovery proportional to spend, with strategy-dependent efficiency
+		// PCI recovery proportional to spend, with strategy-dependent efficiency.
+		// Recovery ceiling is 100 (like-new), not initialPCI, so overfunding
+		// can improve pavement above its starting condition.
+		const maxPCI = 100.0
 		if spend > 0 && annualNeed > 0 {
 			if spend >= annualNeed {
-				// Full funding: recover fully regardless of strategy
-				currentPCI = initialPCI
+				// Full funding: restore PCI to pre-decay level (currentPCI).
+				// Surplus budget improves from there toward 100, compounding
+				// each year so sustained overfunding converges on like-new.
+				surplus := s.AnnualBudget - annualNeed
+				if surplus > 0 {
+					usableSurplus := math.Min(surplus, annualNeed)
+					improveFraction := usableSurplus / annualNeed
+					currentPCI = math.Min(maxPCI, currentPCI+(maxPCI-currentPCI)*improveFraction)
+					spend += usableSurplus
+				}
+				// else: currentPCI unchanged — maintained at pre-decay level
 			} else {
 				spendRatio := spend / annualNeed
 				efficiency := 1.0
@@ -119,14 +132,14 @@ func Simulate(s Scenario, areaSqFt, initialPCI float64, years int,
 				case StrategyWorstFirst:
 					efficiency = 0.8
 				}
-				recovery := (initialPCI - decayedPCI) * spendRatio * efficiency
-				currentPCI = math.Min(initialPCI, decayedPCI+recovery)
+				recovery := (currentPCI - decayedPCI) * spendRatio * efficiency
+				currentPCI = decayedPCI + recovery
 			}
 		} else {
 			currentPCI = decayedPCI
 		}
 
-		deferredBacklog += annualNeed - spend
+		deferredBacklog += math.Max(0, annualNeed-spend)
 
 		result.Years[i] = ScenarioYear{
 			Year:            i + 1,
