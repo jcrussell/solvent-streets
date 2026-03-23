@@ -60,15 +60,15 @@ type Snapshot struct {
 }
 
 type ForecastResult struct {
-	ID            int64      `json:"-"`
-	ResourceType  string     `json:"resourceType"`
-	Year          int        `json:"year"`
-	PCI           float64    `json:"pci"`
-	AreaSqFt      float64    `json:"areaSqFt"`
-	TreatmentCost float64    `json:"treatmentCost"`
-	TreatmentTier string     `json:"treatmentTier"`
-	SnapshotID    *int64     `json:"-"`
-	ComputedAt    time.Time  `json:"-"`
+	ID            int64     `json:"-"`
+	ResourceType  string    `json:"resourceType"`
+	Year          int       `json:"year"`
+	PCI           float64   `json:"pci"`
+	AreaSqFt      float64   `json:"areaSqFt"`
+	TreatmentCost float64   `json:"treatmentCost"`
+	TreatmentTier string    `json:"treatmentTier"`
+	SnapshotID    *int64    `json:"-"`
+	ComputedAt    time.Time `json:"-"`
 }
 
 type CohortStat struct {
@@ -79,6 +79,12 @@ type CohortStat struct {
 	FeatureCount   int
 	SnapshotID     *int64
 	ComputedAt     time.Time
+}
+
+type City struct {
+	ID   int64
+	Slug string
+	Name string
 }
 
 type Store interface {
@@ -94,12 +100,28 @@ type Store interface {
 	ListForecastResults(resourceType string) ([]ForecastResult, error)
 	SaveCohortStats(stats []CohortStat) error
 	ListCohortStats(resourceType string) ([]CohortStat, error)
+	SaveBoundary(geometryJSON, source string) error
+	GetBoundary() (string, error)
 	Stats(resourceType string) (*StatusInfo, error)
 	ResourceTypes() ([]string, error)
 	Close() error
 }
 
 type sqliteStore struct {
+	db     *sql.DB
+	cityID int64
+}
+
+// RootStorer is the interface for managing cities and providing city-scoped stores.
+type RootStorer interface {
+	EnsureCity(slug, name string) (int64, error)
+	ListCities() ([]City, error)
+	ForCity(id int64) Store
+	Close() error
+}
+
+// RootStore manages the shared database and provides city-scoped stores.
+type RootStore struct {
 	db *sql.DB
 }
 
@@ -115,7 +137,7 @@ func DefaultPath() (string, error) {
 	return filepath.Join(dir, "pvmt.db"), nil
 }
 
-func Open(path string) (Store, error) {
+func Open(path string) (*RootStore, error) {
 	if path == "" {
 		var err error
 		path, err = DefaultPath()
@@ -139,5 +161,50 @@ func Open(path string) (Store, error) {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 
-	return &sqliteStore{db: db}, nil
+	return &RootStore{db: db}, nil
+}
+
+// EnsureCity inserts or retrieves a city by slug, returning its ID.
+func (r *RootStore) EnsureCity(slug, name string) (int64, error) {
+	_, err := r.db.Exec(`INSERT OR IGNORE INTO cities (slug, name) VALUES (?, ?)`, slug, name)
+	if err != nil {
+		return 0, fmt.Errorf("ensure city: %w", err)
+	}
+	var id int64
+	err = r.db.QueryRow(`SELECT id FROM cities WHERE slug = ?`, slug).Scan(&id)
+	if err != nil {
+		return 0, fmt.Errorf("get city id: %w", err)
+	}
+	return id, nil
+}
+
+// ListCities returns all cities in the database.
+func (r *RootStore) ListCities() ([]City, error) {
+	rows, err := r.db.Query(`SELECT id, slug, name FROM cities ORDER BY name`)
+	if err != nil {
+		return nil, fmt.Errorf("list cities: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var cities []City
+	for rows.Next() {
+		var c City
+		if err := rows.Scan(&c.ID, &c.Slug, &c.Name); err != nil {
+			return nil, fmt.Errorf("scan city: %w", err)
+		}
+		cities = append(cities, c)
+	}
+	return cities, rows.Err()
+}
+
+// ForCity returns a city-scoped Store. The returned store shares the
+// underlying *sql.DB connection pool, which is safe for concurrent use.
+// WAL mode (set at open time) allows concurrent readers.
+func (r *RootStore) ForCity(id int64) Store {
+	return &sqliteStore{db: r.db, cityID: id}
+}
+
+// Close closes the underlying database connection.
+func (r *RootStore) Close() error {
+	return r.db.Close()
 }

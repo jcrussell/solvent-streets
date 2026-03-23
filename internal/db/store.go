@@ -1,7 +1,9 @@
 package db
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -13,15 +15,14 @@ func (s *sqliteStore) UpsertFeatures(resourceType string, features []Feature) er
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	// Delete existing features for this resource type so stale entries
-	// (e.g. from a narrowed query) don't persist across re-ingests.
-	if _, err := tx.Exec(`DELETE FROM features WHERE resource_type = ?`, resourceType); err != nil {
+	// Delete existing features for this resource type and city
+	if _, err := tx.Exec(`DELETE FROM features WHERE resource_type = ? AND city_id = ?`, resourceType, s.cityID); err != nil {
 		return fmt.Errorf("delete old features: %w", err)
 	}
 
 	stmt, err := tx.Prepare(`
-		INSERT INTO features (id, resource_type, name, tags, geometry_json, source_api, fetched_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO features (id, resource_type, city_id, name, tags, geometry_json, source_api, fetched_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return fmt.Errorf("prepare upsert: %w", err)
@@ -37,7 +38,7 @@ func (s *sqliteStore) UpsertFeatures(resourceType string, features []Feature) er
 		if fetchedAt.IsZero() {
 			fetchedAt = time.Now()
 		}
-		_, err = stmt.Exec(f.ID, resourceType, f.Name, string(tagsJSON), f.GeometryJSON, f.SourceAPI, fetchedAt)
+		_, err = stmt.Exec(f.ID, resourceType, s.cityID, f.Name, string(tagsJSON), f.GeometryJSON, f.SourceAPI, fetchedAt)
 		if err != nil {
 			return fmt.Errorf("exec upsert feature %s: %w", f.ID, err)
 		}
@@ -49,8 +50,8 @@ func (s *sqliteStore) UpsertFeatures(resourceType string, features []Feature) er
 func (s *sqliteStore) ListFeatures(resourceType string) ([]Feature, error) {
 	rows, err := s.db.Query(`
 		SELECT id, resource_type, name, tags, geometry_json, source_api, fetched_at
-		FROM features WHERE resource_type = ?
-	`, resourceType)
+		FROM features WHERE resource_type = ? AND city_id = ?
+	`, resourceType, s.cityID)
 	if err != nil {
 		return nil, fmt.Errorf("query features: %w", err)
 	}
@@ -73,9 +74,9 @@ func (s *sqliteStore) ListFeatures(resourceType string) ([]Feature, error) {
 
 func (s *sqliteStore) SaveComputeResult(result ComputeResult) error {
 	_, err := s.db.Exec(`
-		INSERT INTO compute_results (resource_type, total_area_sqft, total_area_acres, feature_count, geometry_json, computed_at, snapshot_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, result.ResourceType, result.TotalAreaSqFt, result.TotalAreaAcres, result.FeatureCount, result.GeometryJSON, time.Now(), result.SnapshotID)
+		INSERT INTO compute_results (resource_type, city_id, total_area_sqft, total_area_acres, feature_count, geometry_json, computed_at, snapshot_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, result.ResourceType, s.cityID, result.TotalAreaSqFt, result.TotalAreaAcres, result.FeatureCount, result.GeometryJSON, time.Now(), result.SnapshotID)
 	if err != nil {
 		return fmt.Errorf("insert compute result: %w", err)
 	}
@@ -87,10 +88,10 @@ func (s *sqliteStore) LatestComputeResult(resourceType string) (*ComputeResult, 
 	err := s.db.QueryRow(`
 		SELECT id, resource_type, total_area_sqft, total_area_acres, feature_count, geometry_json, computed_at, snapshot_id
 		FROM compute_results
-		WHERE resource_type = ?
+		WHERE resource_type = ? AND city_id = ?
 		ORDER BY computed_at DESC
 		LIMIT 1
-	`, resourceType).Scan(&r.ID, &r.ResourceType, &r.TotalAreaSqFt, &r.TotalAreaAcres, &r.FeatureCount, &r.GeometryJSON, &r.ComputedAt, &r.SnapshotID)
+	`, resourceType, s.cityID).Scan(&r.ID, &r.ResourceType, &r.TotalAreaSqFt, &r.TotalAreaAcres, &r.FeatureCount, &r.GeometryJSON, &r.ComputedAt, &r.SnapshotID)
 	if err != nil {
 		return nil, err
 	}
@@ -110,14 +111,14 @@ func (s *sqliteStore) SaveHexStats(stats []HexStat) error {
 		types[st.ResourceType] = true
 	}
 	for rt := range types {
-		if _, err := tx.Exec(`DELETE FROM hex_stats WHERE resource_type = ?`, rt); err != nil {
+		if _, err := tx.Exec(`DELETE FROM hex_stats WHERE resource_type = ? AND city_id = ?`, rt, s.cityID); err != nil {
 			return fmt.Errorf("delete old hex stats: %w", err)
 		}
 	}
 
 	stmt, err := tx.Prepare(`
-		INSERT INTO hex_stats (hex_id, resource_type, area_sqft, pct_covered, computed_at)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO hex_stats (hex_id, resource_type, city_id, area_sqft, pct_covered, computed_at)
+		VALUES (?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return fmt.Errorf("prepare hex stats insert: %w", err)
@@ -126,7 +127,7 @@ func (s *sqliteStore) SaveHexStats(stats []HexStat) error {
 
 	now := time.Now()
 	for _, st := range stats {
-		if _, err := stmt.Exec(st.HexID, st.ResourceType, st.AreaSqFt, st.PctCovered, now); err != nil {
+		if _, err := stmt.Exec(st.HexID, st.ResourceType, s.cityID, st.AreaSqFt, st.PctCovered, now); err != nil {
 			return fmt.Errorf("insert hex stat %s: %w", st.HexID, err)
 		}
 	}
@@ -137,8 +138,8 @@ func (s *sqliteStore) SaveHexStats(stats []HexStat) error {
 func (s *sqliteStore) ListHexStats(resourceType string) ([]HexStat, error) {
 	rows, err := s.db.Query(`
 		SELECT hex_id, resource_type, area_sqft, pct_covered, computed_at
-		FROM hex_stats WHERE resource_type = ?
-	`, resourceType)
+		FROM hex_stats WHERE resource_type = ? AND city_id = ?
+	`, resourceType, s.cityID)
 	if err != nil {
 		return nil, fmt.Errorf("query hex stats: %w", err)
 	}
@@ -156,7 +157,7 @@ func (s *sqliteStore) ListHexStats(resourceType string) ([]HexStat, error) {
 }
 
 func (s *sqliteStore) CreateSnapshot(configHash string) (*Snapshot, error) {
-	result, err := s.db.Exec(`INSERT INTO snapshots (config_hash) VALUES (?)`, configHash)
+	result, err := s.db.Exec(`INSERT INTO snapshots (city_id, config_hash) VALUES (?, ?)`, s.cityID, configHash)
 	if err != nil {
 		return nil, fmt.Errorf("create snapshot: %w", err)
 	}
@@ -172,7 +173,7 @@ func (s *sqliteStore) CreateSnapshot(configHash string) (*Snapshot, error) {
 }
 
 func (s *sqliteStore) ListSnapshots() ([]Snapshot, error) {
-	rows, err := s.db.Query(`SELECT id, computed_at, config_hash FROM snapshots ORDER BY computed_at DESC`)
+	rows, err := s.db.Query(`SELECT id, computed_at, config_hash FROM snapshots WHERE city_id = ? ORDER BY computed_at DESC`, s.cityID)
 	if err != nil {
 		return nil, fmt.Errorf("query snapshots: %w", err)
 	}
@@ -202,14 +203,14 @@ func (s *sqliteStore) SaveForecastResults(results []ForecastResult) error {
 		types[r.ResourceType] = true
 	}
 	for rt := range types {
-		if _, err := tx.Exec(`DELETE FROM forecast_results WHERE resource_type = ?`, rt); err != nil {
+		if _, err := tx.Exec(`DELETE FROM forecast_results WHERE resource_type = ? AND city_id = ?`, rt, s.cityID); err != nil {
 			return fmt.Errorf("delete old forecasts: %w", err)
 		}
 	}
 
 	stmt, err := tx.Prepare(`
-		INSERT INTO forecast_results (resource_type, year, pci, area_sqft, treatment_cost, treatment_tier, snapshot_id, computed_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO forecast_results (resource_type, city_id, year, pci, area_sqft, treatment_cost, treatment_tier, snapshot_id, computed_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return fmt.Errorf("prepare forecast insert: %w", err)
@@ -218,7 +219,7 @@ func (s *sqliteStore) SaveForecastResults(results []ForecastResult) error {
 
 	now := time.Now()
 	for _, r := range results {
-		if _, err := stmt.Exec(r.ResourceType, r.Year, r.PCI, r.AreaSqFt, r.TreatmentCost, r.TreatmentTier, r.SnapshotID, now); err != nil {
+		if _, err := stmt.Exec(r.ResourceType, s.cityID, r.Year, r.PCI, r.AreaSqFt, r.TreatmentCost, r.TreatmentTier, r.SnapshotID, now); err != nil {
 			return fmt.Errorf("insert forecast year %d: %w", r.Year, err)
 		}
 	}
@@ -229,8 +230,8 @@ func (s *sqliteStore) SaveForecastResults(results []ForecastResult) error {
 func (s *sqliteStore) ListForecastResults(resourceType string) ([]ForecastResult, error) {
 	rows, err := s.db.Query(`
 		SELECT id, resource_type, year, pci, area_sqft, treatment_cost, treatment_tier, snapshot_id, computed_at
-		FROM forecast_results WHERE resource_type = ? ORDER BY year
-	`, resourceType)
+		FROM forecast_results WHERE resource_type = ? AND city_id = ? ORDER BY year
+	`, resourceType, s.cityID)
 	if err != nil {
 		return nil, fmt.Errorf("query forecasts: %w", err)
 	}
@@ -259,14 +260,14 @@ func (s *sqliteStore) SaveCohortStats(stats []CohortStat) error {
 		types[st.ResourceType] = true
 	}
 	for rt := range types {
-		if _, err := tx.Exec(`DELETE FROM cohort_stats WHERE resource_type = ?`, rt); err != nil {
+		if _, err := tx.Exec(`DELETE FROM cohort_stats WHERE resource_type = ? AND city_id = ?`, rt, s.cityID); err != nil {
 			return fmt.Errorf("delete old cohort stats: %w", err)
 		}
 	}
 
 	stmt, err := tx.Prepare(`
-		INSERT INTO cohort_stats (resource_type, classification, area_sqft, feature_count, snapshot_id, computed_at)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO cohort_stats (resource_type, city_id, classification, area_sqft, feature_count, snapshot_id, computed_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return fmt.Errorf("prepare cohort stats insert: %w", err)
@@ -275,7 +276,7 @@ func (s *sqliteStore) SaveCohortStats(stats []CohortStat) error {
 
 	now := time.Now()
 	for _, st := range stats {
-		if _, err := stmt.Exec(st.ResourceType, st.Classification, st.AreaSqFt, st.FeatureCount, st.SnapshotID, now); err != nil {
+		if _, err := stmt.Exec(st.ResourceType, s.cityID, st.Classification, st.AreaSqFt, st.FeatureCount, st.SnapshotID, now); err != nil {
 			return fmt.Errorf("insert cohort stat %s/%s: %w", st.ResourceType, st.Classification, err)
 		}
 	}
@@ -286,8 +287,8 @@ func (s *sqliteStore) SaveCohortStats(stats []CohortStat) error {
 func (s *sqliteStore) ListCohortStats(resourceType string) ([]CohortStat, error) {
 	rows, err := s.db.Query(`
 		SELECT id, resource_type, classification, area_sqft, feature_count, snapshot_id, computed_at
-		FROM cohort_stats WHERE resource_type = ?
-	`, resourceType)
+		FROM cohort_stats WHERE resource_type = ? AND city_id = ?
+	`, resourceType, s.cityID)
 	if err != nil {
 		return nil, fmt.Errorf("query cohort stats: %w", err)
 	}
@@ -304,17 +305,40 @@ func (s *sqliteStore) ListCohortStats(resourceType string) ([]CohortStat, error)
 	return stats, rows.Err()
 }
 
+func (s *sqliteStore) SaveBoundary(geometryJSON, source string) error {
+	_, err := s.db.Exec(`
+		INSERT OR REPLACE INTO city_boundaries (city_id, geometry_json, source, fetched_at)
+		VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+	`, s.cityID, geometryJSON, source)
+	if err != nil {
+		return fmt.Errorf("save boundary: %w", err)
+	}
+	return nil
+}
+
+func (s *sqliteStore) GetBoundary() (string, error) {
+	var gj string
+	err := s.db.QueryRow(`SELECT geometry_json FROM city_boundaries WHERE city_id = ?`, s.cityID).Scan(&gj)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil
+		}
+		return "", fmt.Errorf("get boundary: %w", err)
+	}
+	return gj, nil
+}
+
 func (s *sqliteStore) Stats(resourceType string) (*StatusInfo, error) {
 	info := &StatusInfo{ResourceType: resourceType}
 
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM features WHERE resource_type = ?`, resourceType).Scan(&info.FeatureCount)
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM features WHERE resource_type = ? AND city_id = ?`, resourceType, s.cityID).Scan(&info.FeatureCount)
 	if err != nil {
 		return nil, fmt.Errorf("count features: %w", err)
 	}
 
 	var lastIngest *time.Time
 	var t time.Time
-	err = s.db.QueryRow(`SELECT MAX(fetched_at) FROM features WHERE resource_type = ?`, resourceType).Scan(&t)
+	err = s.db.QueryRow(`SELECT MAX(fetched_at) FROM features WHERE resource_type = ? AND city_id = ?`, resourceType, s.cityID).Scan(&t)
 	if err == nil && !t.IsZero() {
 		lastIngest = &t
 	}
@@ -331,7 +355,7 @@ func (s *sqliteStore) Stats(resourceType string) (*StatusInfo, error) {
 }
 
 func (s *sqliteStore) ResourceTypes() ([]string, error) {
-	rows, err := s.db.Query(`SELECT DISTINCT resource_type FROM features ORDER BY resource_type`)
+	rows, err := s.db.Query(`SELECT DISTINCT resource_type FROM features WHERE city_id = ? ORDER BY resource_type`, s.cityID)
 	if err != nil {
 		return nil, err
 	}

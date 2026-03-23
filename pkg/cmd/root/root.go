@@ -23,6 +23,9 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 		SilenceUsage:  true,
 	}
 
+	// Register --city/-c flag on root, overriding CurrentCity
+	cmdutil.AddCityOverride(cmd, f)
+
 	// Resource commands
 	cmd.AddGroup(&cobra.Group{ID: "resource", Title: "Resource commands:"})
 	roadsCmd := roads.NewCmdRoads(f)

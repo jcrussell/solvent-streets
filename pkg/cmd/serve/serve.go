@@ -5,6 +5,7 @@ import (
 
 	"pvmt/internal/config"
 	"pvmt/internal/db"
+	exportpkg "pvmt/internal/export"
 	"pvmt/internal/server"
 	"pvmt/pkg/cmdutil"
 	"pvmt/pkg/iostreams"
@@ -14,7 +15,7 @@ import (
 
 type Options struct {
 	IO     *iostreams.IOStreams
-	DB     func() (db.Store, error)
+	RootDB func() (*db.RootStore, error)
 	Config func() (*config.Config, error)
 	Port   int
 }
@@ -22,7 +23,7 @@ type Options struct {
 func NewCmdServe(f *cmdutil.Factory, runF func(*Options) error) *cobra.Command {
 	opts := &Options{
 		IO:     f.IOStreams,
-		DB:     f.DB,
+		RootDB: f.RootDB,
 		Config: f.Config,
 	}
 
@@ -49,11 +50,16 @@ func runServe(opts *Options) error {
 		return fmt.Errorf("config: %w", err)
 	}
 
-	store, err := opts.DB()
+	rootDB, err := opts.RootDB()
 	if err != nil {
 		return fmt.Errorf("database: %w", err)
 	}
 
-	srv := server.New(store, cfg, opts.Port)
+	entries, err := exportpkg.BuildCityEntries(rootDB, cfg)
+	if err != nil {
+		return err
+	}
+
+	srv := server.New(entries, opts.Port)
 	return srv.ListenAndServe()
 }

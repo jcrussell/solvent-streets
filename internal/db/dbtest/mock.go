@@ -2,6 +2,8 @@ package dbtest
 
 import "pvmt/internal/db"
 
+var _ db.RootStorer = (*MockRootStore)(nil)
+
 // MockStore is a func-field based mock implementing db.Store.
 // Each method delegates to its corresponding func field if set,
 // otherwise returns a zero-value success.
@@ -18,6 +20,8 @@ type MockStore struct {
 	ListForecastResultsFunc func(string) ([]db.ForecastResult, error)
 	SaveCohortStatsFunc     func([]db.CohortStat) error
 	ListCohortStatsFunc     func(string) ([]db.CohortStat, error)
+	SaveBoundaryFunc        func(string, string) error
+	GetBoundaryFunc         func() (string, error)
 	StatsFunc               func(string) (*db.StatusInfo, error)
 	ResourceTypesFunc       func() ([]string, error)
 	CloseFunc               func() error
@@ -107,6 +111,20 @@ func (m *MockStore) ListCohortStats(rt string) ([]db.CohortStat, error) {
 	return nil, nil
 }
 
+func (m *MockStore) SaveBoundary(geometryJSON, source string) error {
+	if m.SaveBoundaryFunc != nil {
+		return m.SaveBoundaryFunc(geometryJSON, source)
+	}
+	return nil
+}
+
+func (m *MockStore) GetBoundary() (string, error) {
+	if m.GetBoundaryFunc != nil {
+		return m.GetBoundaryFunc()
+	}
+	return "", nil
+}
+
 func (m *MockStore) Stats(rt string) (*db.StatusInfo, error) {
 	if m.StatsFunc != nil {
 		return m.StatsFunc(rt)
@@ -122,6 +140,43 @@ func (m *MockStore) ResourceTypes() ([]string, error) {
 }
 
 func (m *MockStore) Close() error {
+	if m.CloseFunc != nil {
+		return m.CloseFunc()
+	}
+	return nil
+}
+
+// MockRootStore mocks the RootStore for testing multi-city commands.
+// It implements db.RootStorer.
+type MockRootStore struct {
+	EnsureCityFunc func(slug, name string) (int64, error)
+	ListCitiesFunc func() ([]db.City, error)
+	ForCityFunc    func(id int64) db.Store
+	CloseFunc      func() error
+}
+
+func (m *MockRootStore) EnsureCity(slug, name string) (int64, error) {
+	if m.EnsureCityFunc != nil {
+		return m.EnsureCityFunc(slug, name)
+	}
+	return 1, nil
+}
+
+func (m *MockRootStore) ListCities() ([]db.City, error) {
+	if m.ListCitiesFunc != nil {
+		return m.ListCitiesFunc()
+	}
+	return nil, nil
+}
+
+func (m *MockRootStore) ForCity(id int64) db.Store {
+	if m.ForCityFunc != nil {
+		return m.ForCityFunc(id)
+	}
+	return &MockStore{}
+}
+
+func (m *MockRootStore) Close() error {
 	if m.CloseFunc != nil {
 		return m.CloseFunc()
 	}

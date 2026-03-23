@@ -49,7 +49,7 @@ func TestRunStatus_SingleResource(t *testing.T) {
 	ios, _, stdout, _ := iostreams.Test()
 	f := &cmdutil.Factory{
 		IOStreams: ios,
-		DB: func() (db.Store, error) {
+		CityDB: func() (db.Store, error) {
 			return store, nil
 		},
 	}
@@ -85,7 +85,7 @@ func TestRunStatus_AllResources(t *testing.T) {
 	ios, _, stdout, _ := iostreams.Test()
 	f := &cmdutil.Factory{
 		IOStreams: ios,
-		DB: func() (db.Store, error) {
+		CityDB: func() (db.Store, error) {
 			return store, nil
 		},
 	}
@@ -115,7 +115,7 @@ func TestRunStatus_NonTTY_TabSeparated(t *testing.T) {
 	// Test() returns isTTY=false by default
 	f := &cmdutil.Factory{
 		IOStreams: ios,
-		DB: func() (db.Store, error) {
+		CityDB: func() (db.Store, error) {
 			return store, nil
 		},
 	}

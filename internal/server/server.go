@@ -10,32 +10,36 @@ import (
 	"syscall"
 	"time"
 
-	"pvmt/internal/config"
-	"pvmt/internal/db"
+	"pvmt/internal/export"
 )
 
 type Server struct {
-	store db.Store
-	cfg   *config.Config
-	port  int
+	cities []export.CityEntry
+	port   int
 }
 
-func New(store db.Store, cfg *config.Config, port int) *Server {
-	return &Server{store: store, cfg: cfg, port: port}
+func New(cities []export.CityEntry, port int) *Server {
+	return &Server{cities: cities, port: port}
 }
 
 func (s *Server) ListenAndServe() error {
 	mux := http.NewServeMux()
 
-	// Data endpoints matching export layout
-	mux.HandleFunc("GET /data/{file}", s.handleDataFile)
+	if len(s.cities) == 1 {
+		// Single-city mode: serve data at /data/{file} (backward compatible)
+		entry := s.cities[0]
+		mux.HandleFunc("GET /data/{file}", s.handleDataFile(entry))
+		mux.HandleFunc("GET /", s.handleIndex)
+	} else {
+		// Multi-city mode
+		mux.HandleFunc("GET /api/cities", s.handleCitiesList)
+		mux.HandleFunc("GET /cities/{slug}/data/{file}", s.handleCityDataFile)
+		mux.HandleFunc("GET /", s.handleIndex)
+	}
 
-	// WASM assets for interactive forecast
+	// WASM assets (shared)
 	mux.HandleFunc("GET /wasm_exec.js", s.handleWasmExecJS)
 	mux.HandleFunc("GET /forecast.wasm", s.handleForecastWasm)
-
-	// Serve rendered template on /
-	mux.HandleFunc("GET /", s.handleIndex)
 
 	handler := corsMiddleware(recoveryMiddleware(mux))
 
@@ -72,6 +76,15 @@ func (s *Server) ListenAndServe() error {
 	case err := <-done:
 		return err
 	}
+}
+
+func (s *Server) cityBySlug(slug string) *export.CityEntry {
+	for i := range s.cities {
+		if s.cities[i].Slug == slug {
+			return &s.cities[i]
+		}
+	}
+	return nil
 }
 
 func corsMiddleware(next http.Handler) http.Handler {

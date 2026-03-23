@@ -13,15 +13,34 @@ import (
 	"pvmt/pkg/iostreams"
 )
 
+var testCity = &config.CityConfig{
+	Name:     "Test City",
+	Overpass: true,
+}
+
 var testCfg = &config.Config{
-	Project: config.ProjectConfig{Name: "Test City"},
-	Area:    config.AreaConfig{BBox: [4]float64{37.64, -121.84, 37.72, -121.68}},
-	Sources: config.SourcesConfig{Overpass: true},
+	Cities: []config.CityConfig{*testCity},
+}
+
+func testFactory(ios *iostreams.IOStreams) *cmdutil.Factory {
+	store := &dbtest.MockStore{}
+	return &cmdutil.Factory{
+		IOStreams: ios,
+		CityDB: func() (db.Store, error) {
+			return store, nil
+		},
+		CurrentCity: func() (*config.CityConfig, error) {
+			return testCity, nil
+		},
+		Config: func() (*config.Config, error) {
+			return testCfg, nil
+		},
+	}
 }
 
 func TestNewCmdIngest_DefaultFlags(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
-	f := &cmdutil.Factory{IOStreams: ios}
+	f := testFactory(ios)
 	rt := &resource.Pavement{}
 
 	var gotOpts *Options
@@ -44,7 +63,7 @@ func TestNewCmdIngest_DefaultFlags(t *testing.T) {
 
 func TestNewCmdIngest_SourceFlag(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
-	f := &cmdutil.Factory{IOStreams: ios}
+	f := testFactory(ios)
 	rt := &resource.Pavement{}
 
 	var gotOpts *Options
@@ -64,7 +83,7 @@ func TestNewCmdIngest_SourceFlag(t *testing.T) {
 
 func TestNewCmdIngest_ForceFlag(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
-	f := &cmdutil.Factory{IOStreams: ios}
+	f := testFactory(ios)
 	rt := &resource.Pavement{}
 
 	var gotOpts *Options
@@ -84,14 +103,14 @@ func TestNewCmdIngest_ForceFlag(t *testing.T) {
 
 func TestNewCmdIngest_RunFInjection(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
-	f := &cmdutil.Factory{IOStreams: ios}
+	f := testFactory(ios)
 	rt := &resource.Pavement{}
 
 	called := false
 	cmd := NewCmdIngest(f, rt, func(opts *Options) error {
 		called = true
 		if opts.ResourceType.Name() != "roads" {
-			t.Errorf("expected pavements, got %s", opts.ResourceType.Name())
+			t.Errorf("expected roads, got %s", opts.ResourceType.Name())
 		}
 		return nil
 	})
@@ -113,8 +132,11 @@ func TestNewCmdIngest_InvalidSource(t *testing.T) {
 		HttpClient: func() (*http.Client, error) {
 			return &http.Client{}, nil
 		},
-		DB: func() (db.Store, error) {
+		CityDB: func() (db.Store, error) {
 			return store, nil
+		},
+		CurrentCity: func() (*config.CityConfig, error) {
+			return testCity, nil
 		},
 		Config: func() (*config.Config, error) {
 			return testCfg, nil

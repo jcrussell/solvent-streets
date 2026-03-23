@@ -2,6 +2,7 @@ package export
 
 import (
 	"fmt"
+	"os"
 
 	"pvmt/internal/config"
 	"pvmt/internal/db"
@@ -14,15 +15,16 @@ import (
 
 type Options struct {
 	IO        *iostreams.IOStreams
-	DB        func() (db.Store, error)
+	RootDB    func() (*db.RootStore, error)
 	Config    func() (*config.Config, error)
 	OutputDir string
+	Clean     bool
 }
 
 func NewCmdExport(f *cmdutil.Factory, runF func(*Options) error) *cobra.Command {
 	opts := &Options{
 		IO:     f.IOStreams,
-		DB:     f.DB,
+		RootDB: f.RootDB,
 		Config: f.Config,
 	}
 
@@ -39,6 +41,7 @@ func NewCmdExport(f *cmdutil.Factory, runF func(*Options) error) *cobra.Command 
 	}
 
 	cmd.Flags().StringVarP(&opts.OutputDir, "output", "o", "dist", "Output directory")
+	cmd.Flags().BoolVar(&opts.Clean, "clean", false, "Remove output directory before exporting")
 
 	return cmd
 }
@@ -46,19 +49,33 @@ func NewCmdExport(f *cmdutil.Factory, runF func(*Options) error) *cobra.Command 
 func runExport(opts *Options) error {
 	ios := opts.IO
 
+	if info, err := os.Stat(opts.OutputDir); err == nil && info.IsDir() {
+		if !opts.Clean {
+			return fmt.Errorf("output directory %q already exists; use --clean to remove it first", opts.OutputDir)
+		}
+		if err := os.RemoveAll(opts.OutputDir); err != nil {
+			return fmt.Errorf("clean output directory: %w", err)
+		}
+	}
+
 	cfg, err := opts.Config()
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
 	}
 
-	store, err := opts.DB()
+	rootDB, err := opts.RootDB()
 	if err != nil {
 		return fmt.Errorf("database: %w", err)
 	}
 
+	entries, err := exportpkg.BuildCityEntries(rootDB, cfg)
+	if err != nil {
+		return err
+	}
+
 	fmt.Fprintf(ios.Out, "Exporting static site to %s/...\n", opts.OutputDir)
 
-	exporter := exportpkg.New(store, cfg, opts.OutputDir)
+	exporter := exportpkg.New(entries, cfg, opts.OutputDir)
 	if err := exporter.Run(); err != nil {
 		return fmt.Errorf("export: %w", err)
 	}

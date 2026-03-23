@@ -1,6 +1,7 @@
 package factory
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"sync"
@@ -23,16 +24,16 @@ func New() *cmdutil.Factory {
 		httpClient *http.Client
 		httpErr    error
 
-		dbOnce  sync.Once
-		dbStore db.Store
-		dbErr   error
+		dbOnce    sync.Once
+		rootStore *db.RootStore
+		dbErr     error
 
 		cfgOnce sync.Once
 		cfg     *config.Config
 		cfgErr  error
 	)
 
-	return &cmdutil.Factory{
+	f := &cmdutil.Factory{
 		AppVersion:     build.Version,
 		ExecutableName: "pvmt",
 		IOStreams:      ios,
@@ -58,12 +59,6 @@ func New() *cmdutil.Factory {
 			})
 			return httpClient, httpErr
 		},
-		DB: func() (db.Store, error) {
-			dbOnce.Do(func() {
-				dbStore, dbErr = db.Open("")
-			})
-			return dbStore, dbErr
-		},
 		Config: func() (*config.Config, error) {
 			cfgOnce.Do(func() {
 				wd, err := os.Getwd()
@@ -76,6 +71,48 @@ func New() *cmdutil.Factory {
 			return cfg, cfgErr
 		},
 	}
+
+	f.RootDB = func() (*db.RootStore, error) {
+		dbOnce.Do(func() {
+			rootStore, dbErr = db.Open("")
+		})
+		return rootStore, dbErr
+	}
+
+	f.CurrentCity = func() (*config.CityConfig, error) {
+		c, err := f.Config()
+		if err != nil {
+			return nil, err
+		}
+		if len(c.Cities) == 0 {
+			return nil, fmt.Errorf("no cities configured")
+		}
+		return &c.Cities[0], nil
+	}
+
+	f.CityDB = buildCityDB(f)
+
+	return f
+}
+
+// buildCityDB returns a CityDB closure that resolves the current city and
+// returns a city-scoped Store. Shared between New and NewWithOptions.
+func buildCityDB(f *cmdutil.Factory) func() (db.Store, error) {
+	return func() (db.Store, error) {
+		city, err := f.CurrentCity()
+		if err != nil {
+			return nil, err
+		}
+		root, err := f.RootDB()
+		if err != nil {
+			return nil, err
+		}
+		id, err := root.EnsureCity(city.Slug(), city.Name)
+		if err != nil {
+			return nil, err
+		}
+		return root.ForCity(id), nil
+	}
 }
 
 // NewWithOptions creates a factory with custom cache TTL (0 = force bypass).
@@ -87,9 +124,9 @@ func NewWithOptions(cacheTTL time.Duration, dbPath string) *cmdutil.Factory {
 		httpClient *http.Client
 		httpErr    error
 
-		dbOnce  sync.Once
-		dbStore db.Store
-		dbErr   error
+		dbOnce    sync.Once
+		rootStore *db.RootStore
+		dbErr     error
 	)
 
 	f.HttpClient = func() (*http.Client, error) {
@@ -116,12 +153,14 @@ func NewWithOptions(cacheTTL time.Duration, dbPath string) *cmdutil.Factory {
 	}
 
 	if dbPath != "" {
-		f.DB = func() (db.Store, error) {
+		f.RootDB = func() (*db.RootStore, error) {
 			dbOnce.Do(func() {
-				dbStore, dbErr = db.Open(dbPath)
+				rootStore, dbErr = db.Open(dbPath)
 			})
-			return dbStore, dbErr
+			return rootStore, dbErr
 		}
+		// Rebuild CityDB to use updated RootDB
+		f.CityDB = buildCityDB(f)
 	}
 
 	return f

@@ -264,6 +264,12 @@
         <button class="tab-btn active" data-tab="map-tab">Map</button>
         <button class="tab-btn" data-tab="financials-tab">Financials</button>
         <button class="tab-btn" data-tab="config-tab">Config</button>
+        {{if .Cities}}
+        <select id="city-select" style="margin-left:auto;margin-right:16px;align-self:center;background:#2a2a4e;color:#fff;border:1px solid #555;border-radius:4px;padding:4px 8px;font-size:14px;cursor:pointer;">
+            {{range .Cities}}<option value="{{.Slug}}" data-bbox="{{index .BBox 0}},{{index .BBox 1}},{{index .BBox 2}},{{index .BBox 3}}" data-lon="{{.CenterLon}}" data-lat="{{.CenterLat}}">{{.Name}}</option>
+            {{end}}
+        </select>
+        {{end}}
     </div>
 
     <div id="map-tab" class="tab-content active">
@@ -391,6 +397,10 @@
     </div>
 
     <script>
+        // Multi-city data prefix
+        var CITIES = [{{range .Cities}}{ slug: '{{.Slug}}', name: '{{.Name}}', bbox: [{{index .BBox 0}},{{index .BBox 1}},{{index .BBox 2}},{{index .BBox 3}}], lon: {{.CenterLon}}, lat: {{.CenterLat}} },{{end}}];
+        var DATA_PREFIX = CITIES.length > 0 ? 'cities/' + CITIES[0].slug + '/' : '';
+
         // Tab switching
         document.querySelectorAll('.tab-btn').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -404,7 +414,7 @@
 
         // Map
         const CENTER = [{{.CenterLon}}, {{.CenterLat}}];
-        const layerColors = { {{range .Stats}}'{{.Type}}': '{{.Color}}', {{end}} };
+        const layerColors = {{.LayerColors}};
 
         const map = new maplibregl.Map({
             container: 'map',
@@ -485,13 +495,72 @@
             src.setData(fc);
         }
 
-        map.on('load', async () => {
+        async function loadCityData() {
+            const prefix = DATA_PREFIX; // snapshot to avoid mid-await mutation
+            // Remove existing layers and sources
+            ['hex-outline', 'hex-fill', 'boundary-line'].concat(Object.keys(layerColors).map(t => t + '-fill')).forEach(id => {
+                if (map.getLayer(id)) map.removeLayer(id);
+            });
+            ['hexgrid', 'boundary'].concat(Object.keys(layerColors)).forEach(id => {
+                if (map.getSource(id)) map.removeSource(id);
+            });
+            hexDataByType = {};
+            costSummary = {};
+            activeTypes = new Set(Object.keys(layerColors));
+
+            // Reload meta.json for stats panel
+            try {
+                const metaResp = await fetch(prefix + 'data/meta.json');
+                if (metaResp.ok) {
+                    const meta = await metaResp.json();
+                    document.querySelector('#panel h2').textContent = meta.project_name;
+                    const statsEl = document.getElementById('stats');
+                    let statsHTML = '';
+                    (meta.stats || []).forEach(s => {
+                        const acres = s.total_area_acres;
+                        statsHTML +=
+                            '<div class="stat-card"><h3>' + s.type + '</h3>' +
+                            '<div class="stat-row"><span class="stat-label">Features</span><span class="stat-value">' + s.feature_count + '</span></div>' +
+                            '<div class="stat-row"><span class="stat-label">Area (acres)</span><span class="stat-value">' + acres.toFixed(1) + '</span></div>' +
+                            '<div class="stat-row"><span class="stat-label">Area (sq mi)</span><span class="stat-value">' + (acres / 640).toFixed(2) + '</span></div>' +
+                            '</div>';
+                    });
+                    statsEl.innerHTML = statsHTML;
+                    savedPanelHTML = statsHTML;
+                }
+            } catch(e) { console.warn('failed to load meta.json:', e); }
+
+            // Load and render boundary polygon
+            try {
+                const resp = await fetch(prefix + 'data/boundary.geojson');
+                if (resp.ok) {
+                    const data = await resp.json();
+                    map.addSource('boundary', { type: 'geojson', data });
+                    map.addLayer({
+                        id: 'boundary-line', type: 'line', source: 'boundary',
+                        paint: { 'line-color': '#333', 'line-width': 2, 'line-opacity': 0.8, 'line-dasharray': [3, 2] }
+                    });
+                    // Fit map to boundary bbox
+                    const coords = data.features.flatMap(f => {
+                        const g = f.geometry;
+                        if (g.type === 'Polygon') return g.coordinates[0];
+                        if (g.type === 'MultiPolygon') return g.coordinates.flat(2).length ? g.coordinates.flatMap(p => p[0]) : [];
+                        return [];
+                    });
+                    if (coords.length > 0) {
+                        const lngs = coords.map(c => c[0]);
+                        const lats = coords.map(c => c[1]);
+                        map.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: 40 });
+                    }
+                }
+            } catch(e) { console.warn('failed to load boundary:', e); }
+
             let toggles = '';
 
             // Load resource layers
             for (const type of Object.keys(layerColors)) {
                 try {
-                    const resp = await fetch('data/' + type + '.geojson');
+                    const resp = await fetch(prefix + 'data/' + type + '.geojson');
                     if (!resp.ok) continue;
                     const data = await resp.json();
                     map.addSource(type, { type: 'geojson', data });
@@ -500,18 +569,18 @@
                         paint: { 'fill-color': layerColors[type], 'fill-opacity': 0.4, 'fill-outline-color': layerColors[type] }
                     });
                     toggles += '<label><input type="checkbox" checked data-layers="' + type + '-fill" data-type="' + type + '"><span class="legend-dot" style="background:' + layerColors[type] + '"></span>' + type + '</label>';
-                } catch(e) {}
+                } catch(e) { console.warn('failed to load ' + type + ':', e); }
             }
 
             // Load hex cost summary
             try {
-                const resp = await fetch('data/hex-cost-summary.json');
+                const resp = await fetch(prefix + 'data/hex-cost-summary.json');
                 if (resp.ok) costSummary = await resp.json();
-            } catch(e) {}
+            } catch(e) { console.warn('failed to load hex-cost-summary:', e); }
 
             // Load hex grid
             try {
-                const resp = await fetch('data/hexgrid.geojson');
+                const resp = await fetch(prefix + 'data/hexgrid.geojson');
                 if (resp.ok) {
                     const data = await resp.json();
                     if (data.features && data.features.length > 0) {
@@ -606,7 +675,7 @@
                         });
                     }
                 }
-            } catch(e) {}
+            } catch(e) { console.warn('failed to load hexgrid:', e); }
 
             document.getElementById('toggles').innerHTML = toggles;
             document.querySelectorAll('#toggles input').forEach(cb => {
@@ -626,7 +695,25 @@
                     }
                 });
             });
-        });
+        }
+
+        map.on('load', () => loadCityData());
+
+        // City switcher
+        const citySelect = document.getElementById('city-select');
+        if (citySelect) {
+            citySelect.addEventListener('change', () => {
+                const slug = citySelect.value;
+                const opt = citySelect.selectedOptions[0];
+                DATA_PREFIX = 'cities/' + slug + '/';
+                const bboxParts = opt.dataset.bbox.split(',').map(Number);
+                map.fitBounds([[bboxParts[1], bboxParts[0]], [bboxParts[3], bboxParts[2]]], { padding: 40 });
+                // Update panel title
+                document.querySelector('#panel h2').textContent = opt.textContent.trim();
+                loadCityData();
+                loadFinancials();
+            });
+        }
 
         // Financials
         const COLORS = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899'];
@@ -895,8 +982,9 @@
         });
 
         async function loadFinancials() {
+            const prefix = DATA_PREFIX; // snapshot to avoid mid-await mutation
             try {
-                const resp = await fetch('data/scenarios.json');
+                const resp = await fetch(prefix + 'data/scenarios.json');
                 if (!resp.ok) throw new Error('not found');
                 scenarioData = await resp.json();
             } catch(e) {
@@ -923,13 +1011,31 @@
 
             renderFinancials(scenarios, 'all');
 
+            // Update headline tiles from baseline scenario (works without WASM)
+            const baseline = scenarios.find(s =>
+                s.scenario.strategy === 0 || s.scenario.name === 'do-nothing' || s.scenario.name === 'baseline'
+            );
+            if (baseline) {
+                updateSummaryCards(baseline);
+            }
+
+            // Fetch per-city forecast seed for WASM interactive controls
+            try {
+                const seedResp = await fetch(prefix + 'data/forecast_seed.json');
+                if (seedResp.ok) {
+                    FORECAST_SEED = await seedResp.json();
+                    rebuildTierInputs();
+                    if (wasmReady) runCustomScenario();
+                }
+            } catch(e) { console.warn('failed to load forecast_seed.json:', e); }
+
             // Fetch forecast.json (used by scope toggle for static fallback)
             try {
-                const fResp = await fetch('data/forecast.json');
+                const fResp = await fetch(prefix + 'data/forecast.json');
                 if (fResp.ok) {
                     forecastData = await fResp.json();
                 }
-            } catch(e) { /* forecast data optional */ }
+            } catch(e) { console.warn('failed to load forecast.json:', e); }
         }
 
         // Scope toggle handler
@@ -964,19 +1070,14 @@
         loadFinancials();
 
         // WASM forecast seed & interactive controls
-        const FORECAST_SEED = {{.ForecastSeed}};
+        let FORECAST_SEED = {{.ForecastSeed}};
 
         let wasmReady = false;
         let chartRefs = { pci: null, backlog: null, spending: null };
         let customActive = false;
         let currentStrategy = 'worst-first';
 
-        function onWasmReady() {
-            wasmReady = true;
-            document.getElementById('forecast-controls').classList.add('visible');
-            // Run initial simulation to populate cohort table
-            runCustomScenario();
-            // Populate tier inputs from seed
+        function rebuildTierInputs() {
             const tierDiv = document.getElementById('tier-inputs');
             tierDiv.innerHTML = '';
             (FORECAST_SEED.cost_tiers || []).forEach((t, i) => {
@@ -989,10 +1090,18 @@
                     '<input type="number" data-tier="' + i + '" data-field="cost_per_sqft" value="' + t.cost_per_sqft + '" step="0.01">';
                 tierDiv.appendChild(row);
             });
-            // Bind tier input events
             tierDiv.querySelectorAll('input').forEach(inp => {
                 inp.addEventListener('input', runCustomScenario);
             });
+        }
+
+        function onWasmReady() {
+            wasmReady = true;
+            document.getElementById('forecast-controls').classList.add('visible');
+            // Run initial simulation to populate cohort table
+            runCustomScenario();
+            // Populate tier inputs from seed
+            rebuildTierInputs();
         }
 
         function getControlValues() {

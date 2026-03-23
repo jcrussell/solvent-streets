@@ -15,20 +15,22 @@ import (
 )
 
 type Options struct {
-	IO        *iostreams.IOStreams
-	DB        func() (db.Store, error)
-	Config    func() (*config.Config, error)
-	Scenarios bool
-	Exporter  cmdutil.Exporter
+	IO          *iostreams.IOStreams
+	CityDB      func() (db.Store, error)
+	Config      func() (*config.Config, error)
+	CurrentCity func() (*config.CityConfig, error)
+	Scenarios   bool
+	Exporter    cmdutil.Exporter
 }
 
 var forecastFields = []string{"resourceType", "year", "pci", "areaSqFt", "treatmentCost", "treatmentTier"}
 
 func NewCmdForecast(f *cmdutil.Factory, runF func(*Options) error) *cobra.Command {
 	opts := &Options{
-		IO:     f.IOStreams,
-		DB:     f.DB,
-		Config: f.Config,
+		IO:          f.IOStreams,
+		CityDB:      f.CityDB,
+		Config:      f.Config,
+		CurrentCity: f.CurrentCity,
 	}
 
 	cmd := &cobra.Command{
@@ -83,15 +85,21 @@ func runForecast(opts *Options) error {
 		return fmt.Errorf("config: %w", err)
 	}
 
-	store, err := opts.DB()
+	city, err := opts.CurrentCity()
+	if err != nil {
+		return fmt.Errorf("city: %w", err)
+	}
+
+	store, err := opts.CityDB()
 	if err != nil {
 		return fmt.Errorf("database: %w", err)
 	}
 
-	years := cfg.ForecastYears()
+	fc := cfg.ResolvedForecast(city)
+	years := fc.ResolvedYears()
 
 	var costTiers []fcpkg.CostTier
-	for _, t := range cfg.Forecast.CostTiers {
+	for _, t := range fc.CostTiers {
 		costTiers = append(costTiers, fcpkg.CostTier{
 			MinPCI:      t.MinPCI,
 			MaxPCI:      t.MaxPCI,
@@ -102,10 +110,10 @@ func runForecast(opts *Options) error {
 
 	var allResults []db.ForecastResult
 
-	fmt.Fprintf(ios.Out, "Running %d-year forecast...\n\n", years)
+	fmt.Fprintf(ios.Out, "Running %d-year forecast for %s...\n\n", years, city.Name)
 
 	for _, rt := range resource.All {
-		params := fcpkg.NewParamsForResource(rt.Name(), cfg.Forecast.GrowthRate, costTiers)
+		params := fcpkg.NewParamsForResource(rt.Name(), fc.GrowthRate, costTiers)
 		result, err := store.LatestComputeResult(rt.Name())
 		if err != nil || result == nil {
 			fmt.Fprintf(ios.ErrOut, "Warning: no compute results for %s, skipping\n", rt.Name())
@@ -124,11 +132,11 @@ func runForecast(opts *Options) error {
 				AreaSqFt:       st.AreaSqFt,
 			})
 		}
-		cohorts := fcpkg.BuildCohorts(inputs, currentPCI, cfg.Forecast.DecayRate)
+		cohorts := fcpkg.BuildCohorts(inputs, currentPCI, fc.DecayRate)
 		if cohorts == nil {
 			defaultRate := fcpkg.DecayRateForClass(rt.Name())
-			if cfg.Forecast.DecayRate > 0 {
-				defaultRate = cfg.Forecast.DecayRate
+			if fc.DecayRate > 0 {
+				defaultRate = fc.DecayRate
 			}
 			cohorts = []fcpkg.Cohort{{
 				Classification: rt.Name(),
@@ -195,7 +203,7 @@ func runForecast(opts *Options) error {
 		}
 
 		// Scenario comparisons (table mode only)
-		if opts.Scenarios && opts.Exporter == nil {
+		if opts.Scenarios && opts.Exporter == nil && len(baseline.Years) > 0 {
 			year1Need := baseline.Years[0].AnnualNeed
 			comparisons := fcpkg.GroupedComparisons(year1Need, cohorts, years,
 				params.Cost, params.Growth)

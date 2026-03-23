@@ -10,7 +10,8 @@ import (
 
 type Sidewalk struct{}
 
-func (s *Sidewalk) Name() string { return "sidewalks" }
+func (s *Sidewalk) Name() string    { return "sidewalks" }
+func (s *Sidewalk) HasCohorts() bool { return false }
 
 func (s *Sidewalk) OverpassQuery(bbox [4]float64) string {
 	return fmt.Sprintf(`[out:json][timeout:120];

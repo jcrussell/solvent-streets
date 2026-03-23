@@ -19,8 +19,9 @@ import (
 
 type Options struct {
 	IO           *iostreams.IOStreams
-	DB           func() (db.Store, error)
+	CityDB       func() (db.Store, error)
 	Config       func() (*config.Config, error)
+	CurrentCity  func() (*config.CityConfig, error)
 	ResourceType resource.ResourceType
 	CityOnly     bool
 }
@@ -28,8 +29,9 @@ type Options struct {
 func NewCmdCompute(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Options) error) *cobra.Command {
 	opts := &Options{
 		IO:           f.IOStreams,
-		DB:           f.DB,
+		CityDB:       f.CityDB,
 		Config:       f.Config,
+		CurrentCity:  f.CurrentCity,
 		ResourceType: rt,
 	}
 
@@ -57,13 +59,29 @@ func runCompute(opts *Options) error {
 		return fmt.Errorf("config: %w", err)
 	}
 
-	store, err := opts.DB()
+	city, err := opts.CurrentCity()
+	if err != nil {
+		return fmt.Errorf("city: %w", err)
+	}
+
+	store, err := opts.CityDB()
 	if err != nil {
 		return fmt.Errorf("database: %w", err)
 	}
 
-	// Create projector from config bbox center
-	lon, lat := cfg.Center()
+	// Load boundary from DB and derive bbox/center
+	boundaryGJSON, err := store.GetBoundary()
+	if err != nil {
+		return fmt.Errorf("get boundary: %w", err)
+	}
+	if boundaryGJSON == "" {
+		return fmt.Errorf("no boundary stored for city %s — run 'pvmt ingest' first", city.Name)
+	}
+	bbox, err := geo.BBoxFromGeoJSON(boundaryGJSON)
+	if err != nil {
+		return fmt.Errorf("derive bbox: %w", err)
+	}
+	lon, lat := geo.CenterFromBBox(bbox)
 	proj := geo.NewUTMProjector(lon, lat)
 
 	fmt.Fprintf(ios.Out, "Loading %s features from database...\n", opts.ResourceType.Name())
@@ -135,57 +153,20 @@ func runCompute(opts *Options) error {
 	}
 
 	// Save cohort stats
-	if opts.ResourceType.Name() == "roads" {
-		rawAreas := resource.ComputeRoadCohortAreas(resFeatures, proj)
-		var rawTotal float64
-		for _, a := range rawAreas {
-			rawTotal += a
-		}
-		var cohortStats []db.CohortStat
-		counts := make(map[string]int)
-		for _, f := range resFeatures {
-			class := forecast.NormalizeClass(f.Tags["highway"])
-			counts[class]++
-		}
-		for class, rawArea := range rawAreas {
-			proportion := 0.0
-			if rawTotal > 0 {
-				proportion = rawArea / rawTotal
-			}
-			cohortStats = append(cohortStats, db.CohortStat{
-				ResourceType:   opts.ResourceType.Name(),
-				Classification: class,
-				AreaSqFt:       areaSqFt * proportion,
-				FeatureCount:   counts[class],
-				SnapshotID:     snapshotID,
-			})
-		}
-		if len(cohortStats) > 0 {
-			if err := store.SaveCohortStats(cohortStats); err != nil {
-				fmt.Fprintf(ios.ErrOut, "Warning: failed to save cohort stats: %v\n", err)
-			} else {
-				fmt.Fprintf(ios.Out, "\nCohort breakdown:\n")
-				for _, cs := range cohortStats {
-					pct := 0.0
-					if areaSqFt > 0 {
-						pct = cs.AreaSqFt / areaSqFt * 100
-					}
-					fmt.Fprintf(ios.Out, "  %-12s %6.1f%% (%.0f sq ft, %d features)\n",
-						cs.Classification, pct, cs.AreaSqFt, cs.FeatureCount)
-				}
-			}
-		}
-	} else {
-		// Non-road resource types: save a single cohort stat
-		cohortStats := []db.CohortStat{{
-			ResourceType:   opts.ResourceType.Name(),
-			Classification: opts.ResourceType.Name(),
-			AreaSqFt:       areaSqFt,
-			FeatureCount:   len(dbFeatures),
-			SnapshotID:     snapshotID,
-		}}
+	cohortStats := buildCohortStats(opts.ResourceType, resFeatures, areaSqFt, snapshotID, proj)
+	if len(cohortStats) > 0 {
 		if err := store.SaveCohortStats(cohortStats); err != nil {
 			fmt.Fprintf(ios.ErrOut, "Warning: failed to save cohort stats: %v\n", err)
+		} else if opts.ResourceType.HasCohorts() {
+			fmt.Fprintf(ios.Out, "\nCohort breakdown:\n")
+			for _, cs := range cohortStats {
+				pct := 0.0
+				if areaSqFt > 0 {
+					pct = cs.AreaSqFt / areaSqFt * 100
+				}
+				fmt.Fprintf(ios.Out, "  %-12s %6.1f%% (%.0f sq ft, %d features)\n",
+					cs.Classification, pct, cs.AreaSqFt, cs.FeatureCount)
+			}
 		}
 	}
 
@@ -217,45 +198,21 @@ func runCompute(opts *Options) error {
 				fmt.Fprintf(ios.ErrOut, "Warning: failed to save city result: %v\n", err)
 			}
 
-			// Save city cohort stats (same pattern as all-roads cohorts)
-			if opts.ResourceType.Name() == "roads" {
-				cityRawAreas := resource.ComputeRoadCohortAreas(cityFeatures, proj)
-				var cityRawTotal float64
-				for _, a := range cityRawAreas {
-					cityRawTotal += a
-				}
-				var cityCohortStats []db.CohortStat
-				cityCounts := make(map[string]int)
-				for _, f := range cityFeatures {
-					class := forecast.NormalizeClass(f.Tags["highway"])
-					cityCounts[class]++
-				}
-				for class, rawArea := range cityRawAreas {
-					proportion := 0.0
-					if cityRawTotal > 0 {
-						proportion = rawArea / cityRawTotal
-					}
-					cityCohortStats = append(cityCohortStats, db.CohortStat{
-						ResourceType:   opts.ResourceType.Name() + ":city",
-						Classification: class,
-						AreaSqFt:       cityAreaSqFt * proportion,
-						FeatureCount:   cityCounts[class],
-						SnapshotID:     snapshotID,
-					})
-				}
-				if len(cityCohortStats) > 0 {
-					if err := store.SaveCohortStats(cityCohortStats); err != nil {
-						fmt.Fprintf(ios.ErrOut, "Warning: failed to save city cohort stats: %v\n", err)
-					} else {
-						fmt.Fprintf(ios.Out, "\nCity cohort breakdown:\n")
-						for _, cs := range cityCohortStats {
-							pct := 0.0
-							if cityAreaSqFt > 0 {
-								pct = cs.AreaSqFt / cityAreaSqFt * 100
-							}
-							fmt.Fprintf(ios.Out, "  %-12s %6.1f%% (%.0f sq ft, %d features)\n",
-								cs.Classification, pct, cs.AreaSqFt, cs.FeatureCount)
+			// Save city cohort stats
+			cityRT := &cityResourceType{ResourceType: opts.ResourceType}
+			cityCohortStats := buildCohortStats(cityRT, cityFeatures, cityAreaSqFt, snapshotID, proj)
+			if len(cityCohortStats) > 0 {
+				if err := store.SaveCohortStats(cityCohortStats); err != nil {
+					fmt.Fprintf(ios.ErrOut, "Warning: failed to save city cohort stats: %v\n", err)
+				} else if opts.ResourceType.HasCohorts() {
+					fmt.Fprintf(ios.Out, "\nCity cohort breakdown:\n")
+					for _, cs := range cityCohortStats {
+						pct := 0.0
+						if cityAreaSqFt > 0 {
+							pct = cs.AreaSqFt / cityAreaSqFt * 100
 						}
+						fmt.Fprintf(ios.Out, "  %-12s %6.1f%% (%.0f sq ft, %d features)\n",
+							cs.Classification, pct, cs.AreaSqFt, cs.FeatureCount)
 					}
 				}
 			}
@@ -269,8 +226,7 @@ func runCompute(opts *Options) error {
 	}
 
 	// Compute hex grid stats (using all features)
-	hexEdge := cfg.HexEdge()
-	bbox := cfg.Area.BBox
+	hexEdge := cfg.ResolvedHexEdge(city)
 	// Project bbox corners to UTM
 	minX, minY, _ := proj.ToProjected(bbox[1], bbox[0]) // west, south
 	maxX, maxY, _ := proj.ToProjected(bbox[3], bbox[2]) // east, north
@@ -278,6 +234,21 @@ func runCompute(opts *Options) error {
 	fmt.Fprintf(ios.Out, "\nComputing hex grid (edge=%.0fm)...\n", hexEdge)
 	hexes := geo.HexGrid(minX, minY, maxX, maxY, hexEdge)
 	fmt.Fprintf(ios.Out, "  Generated %d hexes\n", len(hexes))
+
+	// Clip hex grid to city boundary
+	boundaryGeom, err := parseGeoJSONGeometry(boundaryGJSON, proj)
+	if err == nil && !boundaryGeom.IsEmpty() {
+		filtered := make([]geo.Hex, 0, len(hexes))
+		for _, h := range hexes {
+			inter, err := geom.Intersection(h.Geom, boundaryGeom)
+			if err == nil && !inter.IsEmpty() {
+				h.Geom = inter
+				filtered = append(filtered, h)
+			}
+		}
+		fmt.Fprintf(ios.Out, "  Clipped to boundary: %d hexes\n", len(filtered))
+		hexes = filtered
+	}
 
 	// Re-parse the union geometry for intersection
 	unionGeom, err := parseGeoJSONGeometry(gjson, proj)
@@ -314,3 +285,52 @@ func parseGeoJSONGeometry(gjson string, proj *geo.UTMProjector) (geom.Geometry, 
 	return g, nil
 }
 
+// buildCohortStats builds cohort stats for a resource type. For types with
+// HasCohorts()=true (e.g. roads), it computes per-classification areas.
+// Otherwise it creates a single cohort stat.
+func buildCohortStats(rt resource.ResourceType, features []resource.Feature, totalAreaSqFt float64, snapshotID *int64, proj geo.Projector) []db.CohortStat {
+	if !rt.HasCohorts() {
+		return []db.CohortStat{{
+			ResourceType:   rt.Name(),
+			Classification: rt.Name(),
+			AreaSqFt:       totalAreaSqFt,
+			FeatureCount:   len(features),
+			SnapshotID:     snapshotID,
+		}}
+	}
+
+	rawAreas := resource.ComputeRoadCohortAreas(features, proj)
+	var rawTotal float64
+	for _, a := range rawAreas {
+		rawTotal += a
+	}
+	counts := make(map[string]int)
+	for _, f := range features {
+		class := forecast.NormalizeClass(f.Tags["highway"])
+		counts[class]++
+	}
+	var stats []db.CohortStat
+	for class, rawArea := range rawAreas {
+		proportion := 0.0
+		if rawTotal > 0 {
+			proportion = rawArea / rawTotal
+		}
+		stats = append(stats, db.CohortStat{
+			ResourceType:   rt.Name(),
+			Classification: class,
+			AreaSqFt:       totalAreaSqFt * proportion,
+			FeatureCount:   counts[class],
+			SnapshotID:     snapshotID,
+		})
+	}
+	return stats
+}
+
+// cityResourceType wraps a ResourceType to produce ":city" suffixed names.
+type cityResourceType struct {
+	resource.ResourceType
+}
+
+func (c *cityResourceType) Name() string {
+	return c.ResourceType.Name() + ":city"
+}

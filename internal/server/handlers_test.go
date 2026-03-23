@@ -15,7 +15,9 @@ import (
 )
 
 func TestHandleDataMetaJSON(t *testing.T) {
+	testBoundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
 	store := &dbtest.MockStore{
+		GetBoundaryFunc: func() (string, error) { return testBoundary, nil },
 		LatestComputeResultFunc: func(rt string) (*db.ComputeResult, error) {
 			if rt == "roads" {
 				return &db.ComputeResult{
@@ -32,12 +34,19 @@ func TestHandleDataMetaJSON(t *testing.T) {
 	}
 
 	cfg := &config.Config{
-		Project: config.ProjectConfig{Name: "Test City"},
-		Area:    config.AreaConfig{BBox: [4]float64{37.64, -121.84, 37.72, -121.68}},
+		Cities: []config.CityConfig{{
+			Name: "Test City",
+		}},
 	}
-	srv := New(store, cfg, 0)
+	entry := export.CityEntry{
+		Config: cfg,
+		City:   cfg.Cities[0],
+		Store:  store,
+		Slug:   cfg.Cities[0].Slug(),
+	}
+	srv := New([]export.CityEntry{entry}, 0)
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /data/{file}", srv.handleDataFile)
+	mux.HandleFunc("GET /data/{file}", srv.handleDataFile(entry))
 
 	req := httptest.NewRequest("GET", "/data/meta.json", nil)
 	w := httptest.NewRecorder()

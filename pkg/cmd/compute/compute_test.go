@@ -14,13 +14,19 @@ import (
 	"pvmt/pkg/iostreams"
 )
 
-var testCfg = &config.Config{
-	Project: config.ProjectConfig{Name: "Test City"},
-	Area:    config.AreaConfig{BBox: [4]float64{37.64, -121.84, 37.72, -121.68}},
+var testCity = &config.CityConfig{
+	Name: "Test City",
 }
+
+var testCfg = &config.Config{
+	Cities: []config.CityConfig{*testCity},
+}
+
+var testBoundary = `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
 
 func TestNewCmdCompute_RunFInjection(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
+	// Only IOStreams is needed: runF short-circuits before any other Factory field is accessed.
 	f := &cmdutil.Factory{IOStreams: ios}
 	rt := &resource.Pavement{}
 
@@ -28,7 +34,7 @@ func TestNewCmdCompute_RunFInjection(t *testing.T) {
 	cmd := NewCmdCompute(f, rt, func(opts *Options) error {
 		called = true
 		if opts.ResourceType.Name() != "roads" {
-			t.Errorf("expected pavements, got %s", opts.ResourceType.Name())
+			t.Errorf("expected roads, got %s", opts.ResourceType.Name())
 		}
 		return nil
 	})
@@ -43,12 +49,17 @@ func TestNewCmdCompute_RunFInjection(t *testing.T) {
 }
 
 func TestRunCompute_NoFeatures(t *testing.T) {
-	store := &dbtest.MockStore{}
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func() (string, error) { return testBoundary, nil },
+	}
 	ios, _, _, errBuf := iostreams.Test()
 	f := &cmdutil.Factory{
 		IOStreams: ios,
-		DB: func() (db.Store, error) {
+		CityDB: func() (db.Store, error) {
 			return store, nil
+		},
+		CurrentCity: func() (*config.CityConfig, error) {
+			return testCity, nil
 		},
 		Config: func() (*config.Config, error) {
 			return testCfg, nil
@@ -72,6 +83,7 @@ func TestRunCompute_NoFeatures(t *testing.T) {
 func TestRunCompute_Success(t *testing.T) {
 	var savedResult *db.ComputeResult
 	store := &dbtest.MockStore{
+		GetBoundaryFunc: func() (string, error) { return testBoundary, nil },
 		ListFeaturesFunc: func(string) ([]db.Feature, error) {
 			return []db.Feature{
 				{
@@ -91,8 +103,11 @@ func TestRunCompute_Success(t *testing.T) {
 	ios, _, stdout, _ := iostreams.Test()
 	f := &cmdutil.Factory{
 		IOStreams: ios,
-		DB: func() (db.Store, error) {
+		CityDB: func() (db.Store, error) {
 			return store, nil
+		},
+		CurrentCity: func() (*config.CityConfig, error) {
+			return testCity, nil
 		},
 		Config: func() (*config.Config, error) {
 			return testCfg, nil
@@ -124,7 +139,10 @@ func TestRunCompute_DBError(t *testing.T) {
 		Config: func() (*config.Config, error) {
 			return testCfg, nil
 		},
-		DB: func() (db.Store, error) {
+		CurrentCity: func() (*config.CityConfig, error) {
+			return testCity, nil
+		},
+		CityDB: func() (db.Store, error) {
 			return nil, fmt.Errorf("db connection failed")
 		},
 	}

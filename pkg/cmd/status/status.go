@@ -14,7 +14,7 @@ import (
 
 type Options struct {
 	IO           *iostreams.IOStreams
-	DB           func() (db.Store, error)
+	CityDB       func() (db.Store, error)
 	ResourceType resource.ResourceType // nil for global status
 	Exporter     cmdutil.Exporter
 }
@@ -33,7 +33,7 @@ var statusFields = []string{"resourceType", "featureCount", "lastIngest", "lastC
 func NewCmdStatus(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Options) error) *cobra.Command {
 	opts := &Options{
 		IO:           f.IOStreams,
-		DB:           f.DB,
+		CityDB:       f.CityDB,
 		ResourceType: rt,
 	}
 
@@ -62,7 +62,7 @@ func NewCmdStatus(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Optio
 func runStatus(opts *Options) error {
 	ios := opts.IO
 
-	store, err := opts.DB()
+	store, err := opts.CityDB()
 	if err != nil {
 		return fmt.Errorf("database: %w", err)
 	}
@@ -146,4 +146,3 @@ func formatTimestamp(raw string, isTTY bool) string {
 	}
 	return raw
 }
-

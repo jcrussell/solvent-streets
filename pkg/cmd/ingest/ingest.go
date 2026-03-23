@@ -6,6 +6,7 @@ import (
 
 	"pvmt/internal/config"
 	"pvmt/internal/db"
+	"pvmt/internal/geo"
 	ingestpkg "pvmt/internal/ingest"
 	"pvmt/internal/resource"
 	"pvmt/pkg/cmdutil"
@@ -16,8 +17,8 @@ import (
 
 type Options struct {
 	IO           *iostreams.IOStreams
-	DB           func() (db.Store, error)
-	Config       func() (*config.Config, error)
+	CityDB       func() (db.Store, error)
+	CurrentCity  func() (*config.CityConfig, error)
 	HttpClient   func() (*http.Client, error)
 	ResourceType resource.ResourceType
 	Source       string
@@ -27,8 +28,8 @@ type Options struct {
 func NewCmdIngest(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Options) error) *cobra.Command {
 	opts := &Options{
 		IO:           f.IOStreams,
-		DB:           f.DB,
-		Config:       f.Config,
+		CityDB:       f.CityDB,
+		CurrentCity:  f.CurrentCity,
 		HttpClient:   f.HttpClient,
 		ResourceType: rt,
 	}
@@ -53,9 +54,9 @@ func NewCmdIngest(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Optio
 func runIngest(opts *Options) error {
 	ios := opts.IO
 
-	cfg, err := opts.Config()
+	city, err := opts.CurrentCity()
 	if err != nil {
-		return fmt.Errorf("config: %w", err)
+		return fmt.Errorf("city: %w", err)
 	}
 
 	client, err := opts.HttpClient()
@@ -63,28 +64,52 @@ func runIngest(opts *Options) error {
 		return fmt.Errorf("http client: %w", err)
 	}
 
-	store, err := opts.DB()
+	// Validate --source flag early (name only — bbox filled in after boundary fetch)
+	validSourceNames := map[string]bool{"all": true, "overpass": true, "arcgis": true}
+	if !validSourceNames[opts.Source] {
+		return &cmdutil.FlagError{Err: fmt.Errorf("unknown source %q, valid sources: overpass, arcgis, all", opts.Source)}
+	}
+
+	store, err := opts.CityDB()
 	if err != nil {
 		return fmt.Errorf("database: %w", err)
 	}
 
-	bbox := cfg.Area.BBox
-	arcgisURL := cfg.Sources.ArcGISURL
+	// Fetch city boundary from Nominatim (cached: skip if already stored)
+	boundaryGJSON, _ := store.GetBoundary()
+	if boundaryGJSON == "" || opts.Force {
+		fmt.Fprintf(ios.Out, "Fetching boundary for %s from Nominatim...\n", city.Name)
+		boundaryGJSON, err = ingestpkg.FetchCityBoundary(client, city.Name)
+		if err != nil {
+			return fmt.Errorf("fetch boundary: %w", err)
+		}
+		if err := store.SaveBoundary(boundaryGJSON, "nominatim"); err != nil {
+			return fmt.Errorf("save boundary: %w", err)
+		}
+		fmt.Fprintf(ios.Out, "  Boundary saved.\n")
+	} else {
+		fmt.Fprintf(ios.Out, "Using cached boundary for %s (use --force to refresh).\n", city.Name)
+	}
+
+	// Derive bbox from boundary polygon
+	bbox, err := geo.BBoxFromGeoJSON(boundaryGJSON)
+	if err != nil {
+		return fmt.Errorf("derive bbox: %w", err)
+	}
+
+	arcgisURL := city.ArcGISURL
 
 	var sources []ingestpkg.Source
 	if opts.Source == "all" {
 		sources = ingestpkg.AllSources(bbox, arcgisURL)
 	} else {
-		src, err := ingestpkg.SourceByName(opts.Source, bbox, arcgisURL)
-		if err != nil {
-			return &cmdutil.FlagError{Err: err}
-		}
+		src, _ := ingestpkg.SourceByName(opts.Source, bbox, arcgisURL)
 		sources = []ingestpkg.Source{src}
 	}
 
 	var allFeatures []db.Feature
 	for _, src := range sources {
-		fmt.Fprintf(ios.Out, "Fetching %s data from %s...\n", opts.ResourceType.Name(), src.Name())
+		fmt.Fprintf(ios.Out, "Fetching %s data from %s for %s...\n", opts.ResourceType.Name(), src.Name(), city.Name)
 		features, err := src.Fetch(client, opts.ResourceType)
 		if err != nil {
 			fmt.Fprintf(ios.ErrOut, "Warning: %s fetch failed: %v\n", src.Name(), err)
