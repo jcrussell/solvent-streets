@@ -45,16 +45,16 @@ func New() *cmdutil.Factory {
 					return
 				}
 				transport := cache.NewTransport(
-					ingest.RetryTransport(
+					ingest.RetryTransportWithConfig(
 						ingest.UserAgentTransport(http.DefaultTransport),
-						3,
+						ingest.DefaultRetryConfig(),
 					),
 					cacheDir,
 					24*time.Hour,
 				)
 				httpClient = &http.Client{
 					Transport: transport,
-					Timeout:   120 * time.Second,
+					Timeout:   300 * time.Second,
 				}
 			})
 			return httpClient, httpErr
@@ -78,6 +78,8 @@ func New() *cmdutil.Factory {
 		})
 		return rootStore, dbErr
 	}
+
+	f.CityFlagSet = func() bool { return false }
 
 	f.CurrentCity = func() (*config.CityConfig, error) {
 		c, err := f.Config()
@@ -137,16 +139,16 @@ func NewWithOptions(cacheTTL time.Duration, dbPath string) *cmdutil.Factory {
 				return
 			}
 			transport := cache.NewTransport(
-				ingest.RetryTransport(
+				ingest.RetryTransportWithConfig(
 					ingest.UserAgentTransport(http.DefaultTransport),
-					3,
+					ingest.DefaultRetryConfig(),
 				),
 				cacheDir,
 				cacheTTL,
 			)
 			httpClient = &http.Client{
 				Transport: transport,
-				Timeout:   120 * time.Second,
+				Timeout:   300 * time.Second,
 			}
 		})
 		return httpClient, httpErr

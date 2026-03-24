@@ -41,7 +41,7 @@ func NewCmdIngest(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Optio
 			if runF != nil {
 				return runF(opts)
 			}
-			return runIngest(opts)
+			return runIngestAllCities(f, opts)
 		},
 	}
 
@@ -49,6 +49,15 @@ func NewCmdIngest(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Optio
 	cmd.Flags().BoolVar(&opts.Force, "force", false, "Bypass HTTP cache")
 
 	return cmd
+}
+
+func runIngestAllCities(f *cmdutil.Factory, opts *Options) error {
+	return cmdutil.ForEachCity(f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
+		cityOpts := *opts
+		cityOpts.CurrentCity = cf.CurrentCity
+		cityOpts.CityDB = cf.CityDB
+		return runIngest(&cityOpts)
+	})
 }
 
 func runIngest(opts *Options) error {

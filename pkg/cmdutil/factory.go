@@ -1,6 +1,7 @@
 package cmdutil
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -21,6 +22,7 @@ type Factory struct {
 	Config         func() (*config.Config, error)
 	CurrentCity    func() (*config.CityConfig, error)
 	CityDB         func() (db.Store, error)
+	CityFlagSet    func() bool
 }
 
 // AddCityOverride registers a --city/-c flag on the command and wraps
@@ -29,6 +31,10 @@ type Factory struct {
 func AddCityOverride(cmd *cobra.Command, f *Factory) {
 	cmd.PersistentFlags().StringP("city", "c", "", "Target city name or slug")
 	f.CurrentCity = cityOverrideFunc(cmd, f, f.CurrentCity)
+	f.CityFlagSet = func() bool {
+		fl := cmd.PersistentFlags().Lookup("city")
+		return fl != nil && fl.Changed
+	}
 }
 
 func cityOverrideFunc(cmd *cobra.Command, f *Factory, fallback func() (*config.CityConfig, error)) func() (*config.CityConfig, error) {
@@ -50,4 +56,66 @@ func cityOverrideFunc(cmd *cobra.Command, f *Factory, fallback func() (*config.C
 		}
 		return nil, fmt.Errorf("city %q not found in config", val)
 	}
+}
+
+// ForEachCity resolves cities from config (all if no --city flag, one if set)
+// and calls fn for each. Prints a city header when iterating multiple cities.
+// Collects and joins all errors; ErrNoResults is silently skipped.
+func ForEachCity(f *Factory, fn func(cf *Factory, city *config.CityConfig) error) error {
+	cities, err := resolveCities(f)
+	if err != nil {
+		return err
+	}
+
+	if len(cities) == 1 {
+		return fn(f, &cities[0])
+	}
+
+	var errs []error
+	for _, city := range cities {
+		fmt.Fprintf(f.IOStreams.Out, "\n=== %s ===\n", city.Name)
+		if err := fn(withCity(f, &city), &city); err != nil {
+			if errors.Is(err, ErrNoResults) {
+				continue
+			}
+			errs = append(errs, fmt.Errorf("%s: %w", city.Name, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func resolveCities(f *Factory) ([]config.CityConfig, error) {
+	if f.CityFlagSet != nil && f.CityFlagSet() {
+		city, err := f.CurrentCity()
+		if err != nil {
+			return nil, err
+		}
+		return []config.CityConfig{*city}, nil
+	}
+	cfg, err := f.Config()
+	if err != nil {
+		return nil, err
+	}
+	if len(cfg.Cities) == 0 {
+		return nil, fmt.Errorf("no cities configured")
+	}
+	return cfg.Cities, nil
+}
+
+func withCity(f *Factory, city *config.CityConfig) *Factory {
+	cp := *f
+	c := *city
+	cp.CurrentCity = func() (*config.CityConfig, error) { return &c, nil }
+	cp.CityDB = func() (db.Store, error) {
+		root, err := f.RootDB()
+		if err != nil {
+			return nil, err
+		}
+		id, err := root.EnsureCity(c.Slug(), c.Name)
+		if err != nil {
+			return nil, err
+		}
+		return root.ForCity(id), nil
+	}
+	return &cp
 }

@@ -42,13 +42,22 @@ func NewCmdCompute(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Opti
 			if runF != nil {
 				return runF(opts)
 			}
-			return runCompute(opts)
+			return runComputeAllCities(f, opts)
 		},
 	}
 
 	cmd.Flags().BoolVar(&opts.CityOnly, "city-only", false, "Only show city-maintained road results")
 
 	return cmd
+}
+
+func runComputeAllCities(f *cmdutil.Factory, opts *Options) error {
+	return cmdutil.ForEachCity(f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
+		cityOpts := *opts
+		cityOpts.CurrentCity = cf.CurrentCity
+		cityOpts.CityDB = cf.CityDB
+		return runCompute(&cityOpts)
+	})
 }
 
 func runCompute(opts *Options) error {
