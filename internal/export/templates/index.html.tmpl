@@ -256,6 +256,70 @@
             border-radius: 4px;
             font-size: 13px;
         }
+
+        /* Compare tab */
+        .compare { padding: 24px; max-width: 1200px; margin: 0 auto; }
+        .compare-header { text-align: center; margin-bottom: 32px; }
+        .compare-header h2 { font-size: 28px; color: #1a1a2e; margin-bottom: 4px; }
+        .compare-header .compare-sub { font-size: 14px; color: #888; }
+        .score-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 40px; }
+        .score-card {
+            background: #fff;
+            border: 2px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 24px;
+            text-align: center;
+            position: relative;
+            transition: transform 0.15s, box-shadow 0.15s;
+        }
+        .score-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        .score-card.rank-1 { border-color: #fbbf24; background: linear-gradient(135deg, #fffbeb 0%, #fff 50%); }
+        .score-card.rank-2 { border-color: #9ca3af; background: linear-gradient(135deg, #f9fafb 0%, #fff 50%); }
+        .score-card.rank-3 { border-color: #d97706; background: linear-gradient(135deg, #fffbeb 0%, #fff 50%); }
+        .rank-medal { font-size: 32px; margin-bottom: 8px; }
+        .score-card .city-name { font-size: 18px; font-weight: 700; color: #1a1a2e; margin-bottom: 12px; }
+        .score-card .score-value { font-size: 48px; font-weight: 800; color: #1a1a2e; line-height: 1; }
+        .score-card .score-label { font-size: 13px; color: #888; margin-top: 4px; }
+        .score-card .score-breakdown { margin-top: 16px; text-align: left; border-top: 1px solid #eee; padding-top: 12px; }
+        .score-card .score-breakdown .sb-row { display: flex; justify-content: space-between; font-size: 12px; color: #666; padding: 2px 0; }
+        .leaderboards { margin-bottom: 40px; }
+        .leaderboards h3 { font-size: 18px; color: #1a1a2e; margin-bottom: 16px; }
+        .lb-category {
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin-bottom: 12px;
+        }
+        .lb-category .lb-title {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .lb-category .lb-title h4 { font-size: 14px; color: #333; font-weight: 600; }
+        .lb-category .lb-award { font-size: 12px; color: #888; font-style: italic; }
+        .lb-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 6px;
+        }
+        .lb-row .lb-medal { width: 24px; text-align: center; font-size: 16px; }
+        .lb-row .lb-name { width: 140px; font-size: 13px; font-weight: 500; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .lb-row .lb-bar-wrap { flex: 1; height: 24px; background: #f3f4f6; border-radius: 4px; overflow: hidden; position: relative; }
+        .lb-row .lb-bar { height: 100%; border-radius: 4px; transition: width 0.4s ease; min-width: 2px; }
+        .lb-row .lb-val { width: 100px; text-align: right; font-size: 13px; font-weight: 600; color: #1a1a2e; }
+        .compare-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 24px; margin-bottom: 32px; }
+        .compare-chart-card {
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 20px;
+        }
+        .compare-chart-card h3 { font-size: 15px; margin-bottom: 12px; color: #333; }
+        .compare-chart-card canvas { width: 100% !important; }
+        .compare-loading { text-align: center; padding: 80px; color: #888; font-size: 16px; }
     </style>
 </head>
 <body>
@@ -263,6 +327,9 @@
         <h1>PVMT</h1>
         <button class="tab-btn active" data-tab="map-tab">Map</button>
         <button class="tab-btn" data-tab="financials-tab">Financials</button>
+        {{if .Cities}}
+        <button class="tab-btn" data-tab="compare-tab">Compare</button>
+        {{end}}
         <button class="tab-btn" data-tab="config-tab">Config</button>
         {{if .Cities}}
         <select id="city-select" style="margin-left:auto;margin-right:16px;align-self:center;background:#2a2a4e;color:#fff;border:1px solid #555;border-radius:4px;padding:4px 8px;font-size:14px;cursor:pointer;">
@@ -396,6 +463,43 @@
         </div>
     </div>
 
+    {{if .Cities}}
+    <div id="compare-tab" class="tab-content" style="overflow-y:auto;">
+        <div class="compare">
+            <div class="compare-header">
+                <h2>City Showdown</h2>
+                <div class="compare-sub">How does your city's pavement stack up?</div>
+            </div>
+            <div class="compare-loading" id="compare-loading">Loading city data...</div>
+            <div id="compare-content" style="display:none;">
+                <div class="score-cards" id="score-cards"></div>
+                <div class="leaderboards">
+                    <h3>Category Leaderboards</h3>
+                    <div id="leaderboard-list"></div>
+                </div>
+                <div class="compare-charts">
+                    <div class="compare-chart-card">
+                        <h3>Infrastructure Breakdown (acres)</h3>
+                        <canvas id="compare-area-chart"></canvas>
+                    </div>
+                    <div class="compare-chart-card">
+                        <h3>Road Network Composition</h3>
+                        <canvas id="compare-mix-chart"></canvas>
+                    </div>
+                    <div class="compare-chart-card">
+                        <h3>20-Year Cost Trajectory</h3>
+                        <canvas id="compare-cost-chart"></canvas>
+                    </div>
+                    <div class="compare-chart-card">
+                        <h3>Year 1 vs Year 20 Maintenance Need</h3>
+                        <canvas id="compare-need-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {{end}}
+
     <script>
         // Multi-city data prefix
         var CITIES = [{{range .Cities}}{ slug: '{{.Slug}}', name: '{{.Name}}', bbox: [{{index .BBox 0}},{{index .BBox 1}},{{index .BBox 2}},{{index .BBox 3}}], lon: {{.CenterLon}}, lat: {{.CenterLat}} },{{end}}];
@@ -409,6 +513,7 @@
                 btn.classList.add('active');
                 document.getElementById(btn.dataset.tab).classList.add('active');
                 if (btn.dataset.tab === 'map-tab' && window._map) window._map.resize();
+                if (btn.dataset.tab === 'compare-tab') loadCompareData();
             });
         });
 
@@ -1294,6 +1399,346 @@
             document.getElementById('advanced-toggle').textContent =
                 adv.classList.contains('visible') ? 'Hide advanced options' : 'Advanced options';
         });
+
+        // ── Compare tab ──
+        var compareLoaded = false;
+        var compareCharts = [];
+
+        async function loadCompareData() {
+            if (compareLoaded || CITIES.length === 0) return;
+            compareLoaded = true;
+
+            try {
+                const cityData = await Promise.all(CITIES.map(async function(city) {
+                    var prefix = 'cities/' + city.slug + '/';
+                    var [metaResp, scenResp, seedResp] = await Promise.all([
+                        fetch(prefix + 'data/meta.json'),
+                        fetch(prefix + 'data/scenarios.json'),
+                        fetch(prefix + 'data/forecast_seed.json')
+                    ]);
+                    return {
+                        slug: city.slug,
+                        name: city.name,
+                        meta: metaResp.ok ? await metaResp.json() : null,
+                        scenarios: scenResp.ok ? await scenResp.json() : null,
+                        seed: seedResp.ok ? await seedResp.json() : null
+                    };
+                }));
+                renderCompare(cityData);
+            } catch (err) {
+                console.error('Compare load error:', err);
+                document.getElementById('compare-loading').textContent = 'Failed to load comparison data.';
+            }
+        }
+
+        function extractMetrics(city) {
+            var m = { name: city.name, slug: city.slug };
+
+            // Per-type area from meta
+            var statByType = {};
+            if (city.meta && city.meta.stats) {
+                city.meta.stats.forEach(function(st) { statByType[st.type] = st; });
+                m.totalAcres = city.meta.stats.reduce(function(s, st) { return s + (st.total_area_acres || 0); }, 0);
+                m.totalSqFt = city.meta.stats.reduce(function(s, st) { return s + (st.total_area_sqft || 0); }, 0);
+                m.featureCount = city.meta.stats.reduce(function(s, st) { return s + (st.feature_count || 0); }, 0);
+            } else {
+                m.totalAcres = 0; m.totalSqFt = 0; m.featureCount = 0;
+            }
+            m.roadsAcres = statByType.roads ? statByType.roads.total_area_acres : 0;
+            m.parkingAcres = statByType.parking ? statByType.parking.total_area_acres : 0;
+            m.sidewalksAcres = statByType.sidewalks ? statByType.sidewalks.total_area_acres : 0;
+            m.roadsSqFt = statByType.roads ? statByType.roads.total_area_sqft : 0;
+            m.parkingSqFt = statByType.parking ? statByType.parking.total_area_sqft : 0;
+            m.sidewalksSqFt = statByType.sidewalks ? statByType.sidewalks.total_area_sqft : 0;
+            m.roadsFeatures = statByType.roads ? statByType.roads.feature_count : 0;
+            m.parkingFeatures = statByType.parking ? statByType.parking.feature_count : 0;
+            m.sidewalksFeatures = statByType.sidewalks ? statByType.sidewalks.feature_count : 0;
+
+            // Ratios
+            m.sidewalkToRoadPct = m.roadsSqFt > 0 ? (m.sidewalksSqFt / m.roadsSqFt * 100) : 0;
+            m.parkingToRoadPct = m.roadsSqFt > 0 ? (m.parkingSqFt / m.roadsSqFt * 100) : 0;
+            m.cityPct = 0;
+
+            // Road cohorts from seed
+            m.cohorts = {};
+            m.cityRoadsSqFt = 0;
+            if (city.seed && city.seed.cohorts) {
+                city.seed.cohorts.forEach(function(c) {
+                    if (c.classification !== 'parking' && c.classification !== 'sidewalks') {
+                        m.cohorts[c.classification] = c.area_sqft;
+                    }
+                });
+            }
+            if (city.seed && city.seed.city_area_sqft && city.seed.total_area_sqft) {
+                m.cityPct = city.seed.city_area_sqft / city.seed.total_area_sqft * 100;
+            }
+
+            // Blended decay from cohorts (area-weighted)
+            m.blendedDecay = 0;
+            if (city.seed && city.seed.cohorts) {
+                var totalArea = 0, weightedDecay = 0;
+                city.seed.cohorts.forEach(function(c) {
+                    totalArea += c.area_sqft;
+                    weightedDecay += c.area_sqft * c.decay_rate;
+                });
+                m.blendedDecay = totalArea > 0 ? weightedDecay / totalArea : 0;
+            }
+
+            // Scenarios baseline
+            m.baselineYears = [];
+            var scenarios = null;
+            if (city.scenarios) {
+                scenarios = Array.isArray(city.scenarios) ? city.scenarios : (city.scenarios.all || null);
+            }
+            if (scenarios && scenarios.length > 0) {
+                var baseline = scenarios[0];
+                var years = baseline.years || [];
+                m.baselineYears = years;
+                m.year1Need = years.length > 0 ? years[0].annual_need : 0;
+                m.year20Need = years.length > 0 ? years[years.length - 1].annual_need : 0;
+                m.endBacklog = years.length > 0 ? years[years.length - 1].deferred_backlog : 0;
+                m.hasForecasts = true;
+            } else {
+                m.year1Need = 0; m.year20Need = 0; m.endBacklog = 0;
+                m.hasForecasts = false;
+            }
+            m.year1PerAcre = m.totalAcres > 0 ? m.year1Need / m.totalAcres : 0;
+
+            return m;
+        }
+
+        function renderCompare(cityData) {
+            var allMetrics = cityData.map(extractMetrics);
+            var medals = ['\u{1F947}', '\u{1F948}', '\u{1F949}'];
+            var rankClasses = ['rank-1', 'rank-2', 'rank-3'];
+
+            // Score = composite of data-driven metrics
+            // Walkability (sidewalk/road ratio), city ownership %, network size, cost efficiency
+            function normalize(arr, key, higherBetter) {
+                var vals = arr.map(function(m) { return m[key]; });
+                var mn = Math.min.apply(null, vals), mx = Math.max.apply(null, vals);
+                if (mx === mn) return arr.map(function() { return 1; });
+                return arr.map(function(m) {
+                    var n = (m[key] - mn) / (mx - mn);
+                    return higherBetter ? n : (1 - n);
+                });
+            }
+
+            var walkN = normalize(allMetrics, 'sidewalkToRoadPct', true);
+            var sizeN = normalize(allMetrics, 'totalAcres', true);
+            var cityN = normalize(allMetrics, 'cityPct', true);
+            var costN = normalize(allMetrics, 'year1PerAcre', false);
+            var decayN = normalize(allMetrics, 'blendedDecay', false);
+
+            allMetrics.forEach(function(m, i) {
+                m.score = Math.round((walkN[i] * 0.2 + sizeN[i] * 0.15 + cityN[i] * 0.2 + costN[i] * 0.2 + decayN[i] * 0.25) * 100);
+            });
+
+            // Sort by score descending
+            var ranked = allMetrics.slice().sort(function(a, b) { return b.score - a.score; });
+            var currentRank = 1;
+            ranked.forEach(function(m, i) {
+                if (i > 0 && m.score === ranked[i-1].score) {
+                    m.rank = ranked[i-1].rank;
+                } else {
+                    m.rank = currentRank;
+                }
+                currentRank = i + 2;
+            });
+
+            // Score cards
+            var cardsHtml = ranked.map(function(m) {
+                var medal = m.rank <= 3 ? medals[m.rank - 1] : '';
+                var cls = m.rank <= 3 ? rankClasses[m.rank - 1] : '';
+                return '<div class="score-card ' + cls + '">' +
+                    '<div class="rank-medal">' + medal + '</div>' +
+                    '<div class="city-name">' + m.name + '</div>' +
+                    '<div class="score-value">' + m.score + '</div>' +
+                    '<div class="score-label">Infrastructure Score</div>' +
+                    '<div class="score-breakdown">' +
+                        '<div class="sb-row"><span>Total Network</span><span>' + m.totalAcres.toFixed(0) + ' acres</span></div>' +
+                        '<div class="sb-row"><span>Roads</span><span>' + m.roadsAcres.toFixed(0) + ' acres</span></div>' +
+                        '<div class="sb-row"><span>Parking</span><span>' + m.parkingAcres.toFixed(0) + ' acres</span></div>' +
+                        '<div class="sb-row"><span>Sidewalks</span><span>' + m.sidewalksAcres.toFixed(1) + ' acres</span></div>' +
+                        '<div class="sb-row"><span>Sidewalk/Road</span><span>' + m.sidewalkToRoadPct.toFixed(1) + '%</span></div>' +
+                        '<div class="sb-row"><span>City-Owned</span><span>' + m.cityPct.toFixed(0) + '%</span></div>' +
+                        '<div class="sb-row"><span>Blended Decay</span><span>' + (m.blendedDecay * 100).toFixed(2) + '%/yr</span></div>' +
+                    '</div>' +
+                '</div>';
+            }).join('');
+            document.getElementById('score-cards').innerHTML = cardsHtml;
+
+            // Leaderboards — data-driven categories
+            var categories = [
+                { key: 'totalAcres', label: 'Total Managed Area', award: 'Biggest Network', higher: true, fmt: function(v) { return v.toFixed(0) + ' acres'; }, color: '#6366f1' },
+                { key: 'sidewalkToRoadPct', label: 'Walkability (Sidewalk-to-Road Ratio)', award: 'Most Walkable', higher: true, fmt: function(v) { return v.toFixed(1) + '%'; }, color: '#10b981' },
+                { key: 'parkingAcres', label: 'Parking Infrastructure', award: 'Most Parking', higher: true, fmt: function(v) { return v.toFixed(0) + ' acres'; }, color: '#3b82f6' },
+                { key: 'cityPct', label: 'City Ownership Share', award: 'Most City-Owned', higher: true, fmt: function(v) { return v.toFixed(0) + '%'; }, color: '#8b5cf6' },
+                { key: 'featureCount', label: 'Total Features Tracked', award: 'Most Detailed', higher: true, fmt: function(v) { return v.toLocaleString(); }, color: '#f59e0b' },
+                { key: 'blendedDecay', label: 'Blended Decay Rate (lower is better)', award: 'Slowest Decay', higher: false, fmt: function(v) { return (v * 100).toFixed(2) + '%/yr'; }, color: '#ef4444' },
+                { key: 'year1PerAcre', label: 'Year 1 Maintenance Cost per Acre', award: 'Most Efficient', higher: false, fmt: function(v) { return '$' + (v >= 1e3 ? (v/1e3).toFixed(1) + 'K' : v.toFixed(0)); }, color: '#ec4899' },
+                { key: 'endBacklog', label: '20-Year Deferred Backlog', award: 'Least Deferred', higher: false, fmt: function(v) { return '$' + (v >= 1e9 ? (v/1e9).toFixed(2) + 'B' : (v/1e6).toFixed(1) + 'M'); }, color: '#d946ef' }
+            ];
+
+            var lbHtml = categories.map(function(cat) {
+                var sorted = allMetrics.slice().sort(function(a, b) {
+                    return cat.higher ? (b[cat.key] - a[cat.key]) : (a[cat.key] - b[cat.key]);
+                });
+                var vals = sorted.map(function(m) { return m[cat.key]; });
+                var maxVal = Math.max.apply(null, vals);
+                if (maxVal === 0) maxVal = 1;
+
+                var rows = sorted.map(function(m, i) {
+                    var pct = (m[cat.key] / maxVal * 100).toFixed(1);
+                    var medalIcon = i < 3 && i < medals.length ? medals[i] : (i + 1) + '.';
+                    return '<div class="lb-row">' +
+                        '<span class="lb-medal">' + medalIcon + '</span>' +
+                        '<span class="lb-name">' + m.name + '</span>' +
+                        '<div class="lb-bar-wrap"><div class="lb-bar" style="width:' + pct + '%;background:' + cat.color + ';"></div></div>' +
+                        '<span class="lb-val">' + cat.fmt(m[cat.key]) + '</span>' +
+                    '</div>';
+                }).join('');
+
+                return '<div class="lb-category">' +
+                    '<div class="lb-title"><h4>' + cat.label + '</h4><span class="lb-award">' + medals[0] + ' ' + cat.award + ': ' + sorted[0].name + '</span></div>' +
+                    rows +
+                '</div>';
+            }).join('');
+            document.getElementById('leaderboard-list').innerHTML = lbHtml;
+
+            // Charts
+            compareCharts.forEach(function(c) { c.destroy(); });
+            compareCharts = [];
+            var cityColors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
+
+            // 1. Stacked area breakdown
+            compareCharts.push(new Chart(document.getElementById('compare-area-chart').getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: allMetrics.map(function(m) { return m.name; }),
+                    datasets: [
+                        { label: 'Roads', data: allMetrics.map(function(m) { return m.roadsAcres; }), backgroundColor: '#6b7280' },
+                        { label: 'Parking', data: allMetrics.map(function(m) { return m.parkingAcres; }), backgroundColor: '#3b82f6' },
+                        { label: 'Sidewalks', data: allMetrics.map(function(m) { return m.sidewalksAcres; }), backgroundColor: '#f59e0b' }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    scales: { x: { stacked: true }, y: { stacked: true, title: { display: true, text: 'Acres' } } },
+                    plugins: { legend: { position: 'top' } }
+                }
+            }));
+
+            // 2. Road classification mix (100% stacked)
+            var classNames = {};
+            allMetrics.forEach(function(m) { Object.keys(m.cohorts).forEach(function(k) { classNames[k] = true; }); });
+            var classes = Object.keys(classNames).sort();
+            var classColors = { residential: '#60a5fa', service: '#a78bfa', tertiary: '#34d399', secondary: '#fbbf24', primary: '#f87171', motorway: '#1e3a5f', trunk: '#fb923c' };
+
+            compareCharts.push(new Chart(document.getElementById('compare-mix-chart').getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: allMetrics.map(function(m) { return m.name; }),
+                    datasets: classes.map(function(cls) {
+                        return {
+                            label: cls,
+                            data: allMetrics.map(function(m) {
+                                var total = Object.values(m.cohorts).reduce(function(s, v) { return s + v; }, 0);
+                                return total > 0 ? ((m.cohorts[cls] || 0) / total * 100) : 0;
+                            }),
+                            backgroundColor: classColors[cls] || '#94a3b8'
+                        };
+                    })
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: { stacked: true },
+                        y: { stacked: true, max: 100, title: { display: true, text: '% of Road Network' },
+                             ticks: { callback: function(v) { return v + '%'; } } }
+                    },
+                    plugins: {
+                        legend: { position: 'top' },
+                        tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ' + ctx.raw.toFixed(1) + '%'; } } }
+                    }
+                }
+            }));
+
+            // 3. 20-year cost trajectory (line chart)
+            var maxYears = Math.max.apply(null, allMetrics.map(function(m) { return m.baselineYears.length; }));
+            var yearLabels = [];
+            for (var i = 1; i <= maxYears; i++) yearLabels.push('Year ' + i);
+
+            compareCharts.push(new Chart(document.getElementById('compare-cost-chart').getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels: yearLabels,
+                    datasets: allMetrics.map(function(m, idx) {
+                        return {
+                            label: m.name,
+                            data: m.baselineYears.map(function(y) { return y.deferred_backlog; }),
+                            borderColor: cityColors[idx % cityColors.length],
+                            backgroundColor: cityColors[idx % cityColors.length] + '22',
+                            fill: false,
+                            tension: 0.3,
+                            borderWidth: 2.5
+                        };
+                    })
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: { display: true, text: 'Deferred Backlog ($)' },
+                            ticks: { callback: function(v) { return v >= 1e9 ? '$' + (v/1e9).toFixed(1) + 'B' : '$' + (v/1e6).toFixed(0) + 'M'; } }
+                        }
+                    },
+                    plugins: { legend: { position: 'top' } }
+                }
+            }));
+
+            // 4. Year 1 vs Year 20 need
+            compareCharts.push(new Chart(document.getElementById('compare-need-chart').getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: allMetrics.map(function(m) { return m.name; }),
+                    datasets: [
+                        {
+                            label: 'Year 1 Need',
+                            data: allMetrics.map(function(m) { return m.year1Need; }),
+                            backgroundColor: allMetrics.map(function(_, i) { return cityColors[i % cityColors.length] + 'cc'; }),
+                            borderColor: allMetrics.map(function(_, i) { return cityColors[i % cityColors.length]; }),
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'Year 20 Need',
+                            data: allMetrics.map(function(m) { return m.year20Need; }),
+                            backgroundColor: allMetrics.map(function(_, i) { return cityColors[i % cityColors.length] + '55'; }),
+                            borderColor: allMetrics.map(function(_, i) { return cityColors[i % cityColors.length]; }),
+                            borderWidth: 1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: { display: true, text: 'Annual Need ($)' },
+                            ticks: { callback: function(v) { return '$' + (v/1e6).toFixed(0) + 'M'; } }
+                        }
+                    },
+                    plugins: {
+                        legend: { position: 'top' },
+                        tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': $' + (ctx.raw/1e6).toFixed(1) + 'M'; } } }
+                    }
+                }
+            }));
+
+            document.getElementById('compare-loading').style.display = 'none';
+            document.getElementById('compare-content').style.display = 'block';
+        }
 
         // Load WASM
         if (typeof WebAssembly !== 'undefined') {
