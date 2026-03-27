@@ -19,9 +19,7 @@ func (p *Parking) OverpassQuery(bbox [4]float64) string {
   way["amenity"="parking"](%f,%f,%f,%f);
   relation["amenity"="parking"](%f,%f,%f,%f);
 );
-out body;
->;
-out skel qt;`, bbox[0], bbox[1], bbox[2], bbox[3],
+out geom;`, bbox[0], bbox[1], bbox[2], bbox[3],
 		bbox[0], bbox[1], bbox[2], bbox[3])
 }
 

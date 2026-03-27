@@ -21,7 +21,7 @@ func (s *sqliteStore) UpsertFeatures(resourceType string, features []Feature) er
 	}
 
 	stmt, err := tx.Prepare(`
-		INSERT INTO features (id, resource_type, city_id, name, tags, geometry_json, source_api, fetched_at)
+		INSERT OR REPLACE INTO features (id, resource_type, city_id, name, tags, geometry_json, source_api, fetched_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {

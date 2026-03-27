@@ -68,6 +68,14 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	var err error
 
 	for attempt := 0; attempt <= t.cfg.MaxRetries; attempt++ {
+		// Reset the request body for retries (POST bodies are consumed on first read)
+		if attempt > 0 && req.GetBody != nil {
+			body, bodyErr := req.GetBody()
+			if bodyErr == nil {
+				req.Body = body
+			}
+		}
+
 		resp, err = t.wrapped.RoundTrip(req)
 		if err == nil && resp.StatusCode < 500 && resp.StatusCode != 429 {
 			return resp, nil

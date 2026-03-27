@@ -7,20 +7,25 @@ import (
 	"testing"
 )
 
-func TestFetchCityBoundary_Success(t *testing.T) {
-	geojson := `{"type":"Polygon","coordinates":[[[-121.9,37.6],[-121.8,37.6],[-121.8,37.7],[-121.9,37.7],[-121.9,37.6]]]}`
-	body := `[{"geojson":` + geojson + `}]`
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func nominatimTestServer(t *testing.T, body string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if ua := r.Header.Get("User-Agent"); !strings.Contains(ua, "pvmt") {
 			t.Errorf("expected User-Agent containing 'pvmt', got %q", ua)
 		}
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(body))
 	}))
+}
+
+func TestFetchCityBoundary_Success(t *testing.T) {
+	geojson := `{"type":"Polygon","coordinates":[[[-121.9,37.6],[-121.8,37.6],[-121.8,37.7],[-121.9,37.7],[-121.9,37.6]]]}`
+	body := `[{"addresstype":"city","geojson":` + geojson + `}]`
+
+	srv := nominatimTestServer(t, body)
 	defer srv.Close()
 
-	result, err := fetchFromURL(srv.Client(), srv.URL, "Livermore")
+	result, err := fetchCityBoundary(srv.Client(), srv.URL, "Livermore")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,14 +34,28 @@ func TestFetchCityBoundary_Success(t *testing.T) {
 	}
 }
 
-func TestFetchCityBoundary_EmptyResults(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`[]`))
-	}))
+func TestFetchCityBoundary_PrefersCityOverCounty(t *testing.T) {
+	countyGeo := `{"type":"Polygon","coordinates":[[[-122.3,37.4],[-121.4,37.4],[-121.4,37.9],[-122.3,37.9],[-122.3,37.4]]]}`
+	cityGeo := `{"type":"Polygon","coordinates":[[[-122.3,37.7],[-122.2,37.7],[-122.2,37.8],[-122.3,37.8],[-122.3,37.7]]]}`
+	body := `[{"addresstype":"county","geojson":` + countyGeo + `},{"addresstype":"city","geojson":` + cityGeo + `}]`
+
+	srv := nominatimTestServer(t, body)
 	defer srv.Close()
 
-	_, err := fetchFromURL(srv.Client(), srv.URL, "Nonexistent")
+	result, err := fetchCityBoundary(srv.Client(), srv.URL, "Alameda, CA")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != cityGeo {
+		t.Error("expected city boundary, got county boundary")
+	}
+}
+
+func TestFetchCityBoundary_EmptyResults(t *testing.T) {
+	srv := nominatimTestServer(t, `[]`)
+	defer srv.Close()
+
+	_, err := fetchCityBoundary(srv.Client(), srv.URL, "Nonexistent")
 	if err == nil {
 		t.Fatal("expected error for empty results")
 	}
@@ -51,7 +70,7 @@ func TestFetchCityBoundary_Non200(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := fetchFromURL(srv.Client(), srv.URL, "Test")
+	_, err := fetchCityBoundary(srv.Client(), srv.URL, "Test")
 	if err == nil {
 		t.Fatal("expected error for non-200 status")
 	}
@@ -61,14 +80,11 @@ func TestFetchCityBoundary_Non200(t *testing.T) {
 }
 
 func TestFetchCityBoundary_UnsupportedGeometryType(t *testing.T) {
-	body := `[{"geojson":{"type":"Point","coordinates":[-121.9,37.6]}}]`
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(body))
-	}))
+	body := `[{"addresstype":"city","geojson":{"type":"Point","coordinates":[-121.9,37.6]}}]`
+	srv := nominatimTestServer(t, body)
 	defer srv.Close()
 
-	_, err := fetchFromURL(srv.Client(), srv.URL, "Test")
+	_, err := fetchCityBoundary(srv.Client(), srv.URL, "Test")
 	if err == nil {
 		t.Fatal("expected error for unsupported geometry type")
 	}
@@ -79,15 +95,12 @@ func TestFetchCityBoundary_UnsupportedGeometryType(t *testing.T) {
 
 func TestFetchCityBoundary_MultiPolygon(t *testing.T) {
 	geojson := `{"type":"MultiPolygon","coordinates":[[[[-121.9,37.6],[-121.8,37.6],[-121.8,37.7],[-121.9,37.7],[-121.9,37.6]]]]}`
-	body := `[{"geojson":` + geojson + `}]`
+	body := `[{"addresstype":"city","geojson":` + geojson + `}]`
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(body))
-	}))
+	srv := nominatimTestServer(t, body)
 	defer srv.Close()
 
-	result, err := fetchFromURL(srv.Client(), srv.URL, "Test")
+	result, err := fetchCityBoundary(srv.Client(), srv.URL, "Test")
 	if err != nil {
 		t.Fatal(err)
 	}

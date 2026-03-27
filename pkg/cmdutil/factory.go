@@ -106,6 +106,7 @@ func withCity(f *Factory, city *config.CityConfig) *Factory {
 	cp := *f
 	c := *city
 	cp.CurrentCity = func() (*config.CityConfig, error) { return &c, nil }
+	cp.CityFlagSet = func() bool { return true }
 	cp.CityDB = func() (db.Store, error) {
 		root, err := f.RootDB()
 		if err != nil {

@@ -10,21 +10,31 @@ import (
 
 const nominatimBaseURL = "https://nominatim.openstreetmap.org/search"
 
+// cityAddressTypes are Nominatim addresstype values that represent cities/towns,
+// ordered by preference. Used to filter out county/state results.
+var cityAddressTypes = map[string]bool{
+	"city":    true,
+	"town":    true,
+	"village": true,
+	"municipality": true,
+}
+
 // FetchCityBoundary fetches a city boundary polygon from OSM Nominatim.
 // Returns the GeoJSON geometry string (Polygon or MultiPolygon).
+// Fetches multiple results and picks the first city/town match to avoid
+// returning county or state boundaries (e.g., "Alameda, CA" → City of Alameda, not Alameda County).
 func FetchCityBoundary(client *http.Client, cityName string) (string, error) {
-	u := nominatimBaseURL + "?" + url.Values{
+	return fetchCityBoundary(client, nominatimBaseURL, cityName)
+}
+
+func fetchCityBoundary(client *http.Client, baseURL string, cityName string) (string, error) {
+	u := baseURL + "?" + url.Values{
 		"q":               {cityName},
 		"format":          {"json"},
-		"limit":           {"1"},
+		"limit":           {"5"},
 		"polygon_geojson": {"1"},
 	}.Encode()
 
-	return fetchFromURL(client, u, cityName)
-}
-
-// fetchFromURL performs the HTTP request and parses the Nominatim response.
-func fetchFromURL(client *http.Client, u string, cityName string) (string, error) {
 	req, err := http.NewRequest("GET", u, nil)
 	if err != nil {
 		return "", fmt.Errorf("create nominatim request: %w", err)
@@ -47,7 +57,8 @@ func fetchFromURL(client *http.Client, u string, cityName string) (string, error
 	}
 
 	var results []struct {
-		GeoJSON json.RawMessage `json:"geojson"`
+		AddressType string          `json:"addresstype"`
+		GeoJSON     json.RawMessage `json:"geojson"`
 	}
 	if err := json.Unmarshal(body, &results); err != nil {
 		return "", fmt.Errorf("parse nominatim response: %w", err)
@@ -57,16 +68,25 @@ func fetchFromURL(client *http.Client, u string, cityName string) (string, error
 		return "", fmt.Errorf("nominatim returned no results for %q", cityName)
 	}
 
+	// Pick the first result that is a city/town, falling back to the first result
+	best := 0
+	for i, r := range results {
+		if cityAddressTypes[r.AddressType] {
+			best = i
+			break
+		}
+	}
+
 	// Validate geometry type
 	var geomType struct {
 		Type string `json:"type"`
 	}
-	if err := json.Unmarshal(results[0].GeoJSON, &geomType); err != nil {
+	if err := json.Unmarshal(results[best].GeoJSON, &geomType); err != nil {
 		return "", fmt.Errorf("parse geometry type: %w", err)
 	}
 	if geomType.Type != "Polygon" && geomType.Type != "MultiPolygon" {
 		return "", fmt.Errorf("expected Polygon or MultiPolygon, got %q", geomType.Type)
 	}
 
-	return string(results[0].GeoJSON), nil
+	return string(results[best].GeoJSON), nil
 }

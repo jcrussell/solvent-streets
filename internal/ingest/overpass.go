@@ -22,8 +22,44 @@ type OverpassSource struct {
 
 func (s *OverpassSource) Name() string { return "overpass" }
 
+const maxSplitDepth = 3 // max 4^3 = 64 requests per city/resource
+
 func (s *OverpassSource) Fetch(client *http.Client, rt resource.ResourceType) ([]db.Feature, error) {
-	query := rt.OverpassQuery(s.BBox)
+	seen := make(map[string]bool)
+	return fetchRecursive(client, rt, s.BBox, seen, 0)
+}
+
+func fetchRecursive(client *http.Client, rt resource.ResourceType, bbox [4]float64, seen map[string]bool, depth int) ([]db.Feature, error) {
+	features, err := fetchBBox(client, rt, bbox)
+	if err != nil && isParseError(err) && depth < maxSplitDepth {
+		// Response too large / truncated — split into quadrants and retry
+		var all []db.Feature
+		for _, q := range splitBBox(bbox) {
+			qFeatures, qErr := fetchRecursive(client, rt, q, seen, depth+1)
+			if qErr != nil {
+				return nil, qErr
+			}
+			all = append(all, qFeatures...)
+		}
+		return all, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Deduplicate features at quadrant boundaries
+	var unique []db.Feature
+	for _, f := range features {
+		if !seen[f.ID] {
+			seen[f.ID] = true
+			unique = append(unique, f)
+		}
+	}
+	return unique, nil
+}
+
+func fetchBBox(client *http.Client, rt resource.ResourceType, bbox [4]float64) ([]db.Feature, error) {
+	query := rt.OverpassQuery(bbox)
 
 	resp, err := client.PostForm(overpassAPI, url.Values{"data": {query}})
 	if err != nil {
@@ -41,6 +77,21 @@ func (s *OverpassSource) Fetch(client *http.Client, rt resource.ResourceType) ([
 	}
 
 	return parseOverpassResponse(body, rt.Name())
+}
+
+func isParseError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "parse overpass json")
+}
+
+func splitBBox(bbox [4]float64) [4][4]float64 {
+	midLat := (bbox[0] + bbox[2]) / 2
+	midLon := (bbox[1] + bbox[3]) / 2
+	return [4][4]float64{
+		{bbox[0], bbox[1], midLat, midLon}, // SW
+		{bbox[0], midLon, midLat, bbox[3]}, // SE
+		{midLat, bbox[1], bbox[2], midLon}, // NW
+		{midLat, midLon, bbox[2], bbox[3]}, // NE
+	}
 }
 
 type overpassResponse struct {

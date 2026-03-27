@@ -18,9 +18,7 @@ func (s *Sidewalk) OverpassQuery(bbox [4]float64) string {
 (
   way["footway"="sidewalk"](%f,%f,%f,%f);
 );
-out body;
->;
-out skel qt;`, bbox[0], bbox[1], bbox[2], bbox[3])
+out geom;`, bbox[0], bbox[1], bbox[2], bbox[3])
 }
 
 func (s *Sidewalk) ProcessFeatures(features []Feature, proj geo.Projector) (string, float64, error) {
