@@ -15,23 +15,13 @@ type IOStreams struct {
 
 	isTTY          bool
 	isColorEnabled bool
-	pagerCommand   string
 
 	colorScheme *ColorScheme
-
-	pager *pagerProcess
-	// originalOut is saved so StopPager can restore it.
-	originalOut io.Writer
 }
 
 func System() *IOStreams {
 	tty := isTerminal(os.Stdout)
 	colorEnabled := tty && os.Getenv("NO_COLOR") == ""
-
-	pagerCmd := os.Getenv("PVMT_PAGER")
-	if pagerCmd == "" {
-		pagerCmd = os.Getenv("PAGER")
-	}
 
 	return &IOStreams{
 		In:             os.Stdin,
@@ -39,7 +29,6 @@ func System() *IOStreams {
 		ErrOut:         os.Stderr,
 		isTTY:          tty,
 		isColorEnabled: colorEnabled,
-		pagerCommand:   pagerCmd,
 	}
 }
 
@@ -69,28 +58,6 @@ func (s *IOStreams) ColorScheme() *ColorScheme {
 		s.colorScheme = NewColorScheme(s.isColorEnabled)
 	}
 	return s.colorScheme
-}
-
-func (s *IOStreams) StartPager() {
-	if s.pagerCommand == "" || !s.isTTY {
-		return
-	}
-	p := startPager(s.pagerCommand, s.Out)
-	if p != nil {
-		s.pager = p
-		s.originalOut = s.Out
-		s.Out = p.in
-	}
-}
-
-func (s *IOStreams) StopPager() {
-	if s.pager == nil {
-		return
-	}
-	s.pager.stop()
-	s.Out = s.originalOut
-	s.pager = nil
-	s.originalOut = nil
 }
 
 // RelativeTime formats a time as a human-readable relative duration (e.g., "3 hours ago").

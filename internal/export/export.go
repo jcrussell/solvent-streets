@@ -125,200 +125,10 @@ func BuildCityEntries(rootDB db.RootStorer, cfg *config.Config) ([]CityEntry, er
 	return entries, nil
 }
 
-type Exporter struct {
-	entries   []CityEntry
-	cfg       *config.Config
-	outputDir string
-}
+// --- Shared data-building functions (used by both export and server) ---
 
-func New(entries []CityEntry, cfg *config.Config, outputDir string) *Exporter {
-	return &Exporter{entries: entries, cfg: cfg, outputDir: outputDir}
-}
-
-func (e *Exporter) Run() error {
-	if len(e.entries) == 1 {
-		return e.runSingleCity()
-	}
-	return e.runMultiCity()
-}
-
-func (e *Exporter) runSingleCity() error {
-	entry := e.entries[0]
-	dataDir := filepath.Join(e.outputDir, "data")
-	if err := os.MkdirAll(dataDir, 0o755); err != nil {
-		return fmt.Errorf("create output dir: %w", err)
-	}
-
-	if err := e.exportCityData(entry, dataDir); err != nil {
-		return err
-	}
-
-	// Write WASM assets
-	if err := e.writeWasmAssets(e.outputDir); err != nil {
-		return err
-	}
-
-	// Read raw TOML and build resolved version for Config tab
-	var rawTOML string
-	if e.cfg.SourcePath != "" {
-		if data, err := os.ReadFile(e.cfg.SourcePath); err == nil {
-			rawTOML = string(data)
-		}
-	}
-
-	fc := e.cfg.ResolvedForecast(&entry.City)
-	seed := buildForecastSeedForCity(&fc, entry.Store)
-	meta, err := buildMetaForEntry(entry)
-	if err != nil {
-		return err
-	}
-	return e.renderHTML(meta, seed, rawTOML, ResolvedTOML(e.cfg), nil)
-}
-
-func (e *Exporter) runMultiCity() error {
-	if err := os.MkdirAll(e.outputDir, 0o755); err != nil {
-		return fmt.Errorf("create output dir: %w", err)
-	}
-
-	// Export each city
-	var cities []CityInfo
-	for _, entry := range e.entries {
-		cityDataDir := filepath.Join(e.outputDir, "cities", entry.Slug, "data")
-		if err := os.MkdirAll(cityDataDir, 0o755); err != nil {
-			return fmt.Errorf("create city dir %s: %w", entry.Slug, err)
-		}
-		if err := e.exportCityData(entry, cityDataDir); err != nil {
-			return fmt.Errorf("export %s: %w", entry.Slug, err)
-		}
-		bbox, lon, lat, err := entry.BBoxAndCenter()
-		if err != nil {
-			return fmt.Errorf("city %s bbox: %w", entry.Slug, err)
-		}
-		cities = append(cities, CityInfo{
-			Slug:      entry.Slug,
-			Name:      entry.City.Name,
-			BBox:      bbox,
-			CenterLon: lon,
-			CenterLat: lat,
-		})
-	}
-
-	// Write cities.json
-	if err := writeJSON(filepath.Join(e.outputDir, "cities.json"), cities); err != nil {
-		return fmt.Errorf("write cities.json: %w", err)
-	}
-
-	// Write WASM assets
-	if err := e.writeWasmAssets(e.outputDir); err != nil {
-		return err
-	}
-
-	// Render single top-level index.html with first city data
-	firstEntry := e.entries[0]
-	fc := e.cfg.ResolvedForecast(&firstEntry.City)
-	seed := buildForecastSeedForCity(&fc, firstEntry.Store)
-	meta, err := buildMetaForEntry(firstEntry)
-	if err != nil {
-		return err
-	}
-
-	var rawTOML string
-	if e.cfg.SourcePath != "" {
-		if data, err := os.ReadFile(e.cfg.SourcePath); err == nil {
-			rawTOML = string(data)
-		}
-	}
-
-	return e.renderHTML(meta, seed, rawTOML, ResolvedTOML(e.cfg), cities)
-}
-
-func (e *Exporter) exportCityData(entry CityEntry, dataDir string) error {
-	_, lon, lat, err := entry.BBoxAndCenter()
-	if err != nil {
-		return fmt.Errorf("city bbox: %w", err)
-	}
-	proj := geo.NewUTMProjector(lon, lat)
-
-	meta, err := buildMetaForEntry(entry)
-	if err != nil {
-		return err
-	}
-
-	// Write boundary.geojson if boundary exists
-	if boundaryGJSON, err := entry.Store.GetBoundary(); err == nil && boundaryGJSON != "" {
-		fc := map[string]any{
-			"type": "FeatureCollection",
-			"features": []map[string]any{
-				{
-					"type":       "Feature",
-					"geometry":   json.RawMessage(boundaryGJSON),
-					"properties": map[string]any{"type": "boundary"},
-				},
-			},
-		}
-		if err := writeJSON(filepath.Join(dataDir, "boundary.geojson"), fc); err != nil {
-			return fmt.Errorf("write boundary geojson: %w", err)
-		}
-	}
-
-	// Export each resource type as GeoJSON (prefer city-clipped variant)
-	for _, rt := range resource.All {
-		result, err := entry.Store.LatestComputeResult(rt.Name() + ":city")
-		if err != nil {
-			result, err = entry.Store.LatestComputeResult(rt.Name())
-		}
-		if err != nil {
-			continue
-		}
-
-		// Write GeoJSON file
-		if result.GeometryJSON != "" {
-			geojsonPath := filepath.Join(dataDir, rt.Name()+".geojson")
-			fc := map[string]any{
-				"type": "FeatureCollection",
-				"features": []map[string]any{
-					{
-						"type":       "Feature",
-						"geometry":   json.RawMessage(result.GeometryJSON),
-						"properties": map[string]any{"type": rt.Name()},
-					},
-				},
-			}
-			if err := writeJSON(geojsonPath, fc); err != nil {
-				return fmt.Errorf("write %s geojson: %w", rt.Name(), err)
-			}
-		}
-	}
-
-	// Export hex grid
-	hexFC := buildHexGeoJSONForCity(entry, proj)
-	if hexFC != nil {
-		if err := writeJSON(filepath.Join(dataDir, "hexgrid.geojson"), hexFC); err != nil {
-			return fmt.Errorf("write hexgrid: %w", err)
-		}
-	}
-
-	// Write meta.json
-	if err := writeJSON(filepath.Join(dataDir, "meta.json"), meta); err != nil {
-		return fmt.Errorf("write meta: %w", err)
-	}
-
-	// Export forecast and scenario data
-	if err := exportScenariosForCity(entry, dataDir); err != nil {
-		return fmt.Errorf("export scenarios: %w", err)
-	}
-
-	// Export forecast seed for interactive WASM controls (per-city)
-	fc := entry.Config.ResolvedForecast(&entry.City)
-	seed := buildForecastSeedForCity(&fc, entry.Store)
-	if err := os.WriteFile(filepath.Join(dataDir, "forecast_seed.json"), []byte(seed), 0o644); err != nil {
-		return fmt.Errorf("write forecast_seed.json: %w", err)
-	}
-
-	return nil
-}
-
-func buildMetaForEntry(entry CityEntry) (MetaJSON, error) {
+// BuildMeta builds metadata JSON for a city entry.
+func BuildMeta(entry CityEntry) (MetaJSON, error) {
 	bbox, lon, lat, err := entry.BBoxAndCenter()
 	if err != nil {
 		return MetaJSON{}, fmt.Errorf("city %s: %w", entry.City.Name, err)
@@ -346,7 +156,8 @@ func buildMetaForEntry(entry CityEntry) (MetaJSON, error) {
 	return meta, nil
 }
 
-func buildHexGeoJSONForCity(entry CityEntry, proj *geo.UTMProjector) map[string]any {
+// BuildHexGeoJSON builds a GeoJSON FeatureCollection of hex stats for a city.
+func BuildHexGeoJSON(entry CityEntry, proj *geo.UTMProjector) map[string]any {
 	var allStats []db.HexStat
 	for _, rt := range resource.All {
 		stats, err := entry.Store.ListHexStats(rt.Name())
@@ -415,6 +226,201 @@ func buildHexGeoJSONForCity(entry CityEntry, proj *geo.UTMProjector) map[string]
 	}
 }
 
+// ConvertCostTiers converts config cost tiers to forecast cost tiers.
+func ConvertCostTiers(fc *config.ForecastConfig) []forecast.CostTier {
+	var tiers []forecast.CostTier
+	for _, t := range fc.CostTiers {
+		tiers = append(tiers, forecast.CostTier{
+			MinPCI:      t.MinPCI,
+			MaxPCI:      t.MaxPCI,
+			CostPerSqFt: t.CostPerSqFt,
+			Label:       t.Label,
+		})
+	}
+	return tiers
+}
+
+// BuildCohortsForResource builds forecast cohorts for a resource type from the store.
+// Falls back to a single cohort if no cohort stats exist.
+func BuildCohortsForResource(rt resource.ResourceType, areaSqFt float64, store db.Store, fc *config.ForecastConfig) []forecast.Cohort {
+	currentPCI := 85.0
+	stats, _ := store.ListCohortStats(rt.Name())
+	var inputs []forecast.CohortInput
+	for _, st := range stats {
+		inputs = append(inputs, forecast.CohortInput{
+			Classification: st.Classification,
+			AreaSqFt:       st.AreaSqFt,
+		})
+	}
+	cohorts := forecast.BuildCohorts(inputs, currentPCI, fc.DecayRate)
+	if cohorts == nil {
+		defaultRate := forecast.DecayRateForClass(rt.Name())
+		if fc.DecayRate > 0 {
+			defaultRate = fc.DecayRate
+		}
+		cohorts = []forecast.Cohort{{
+			Classification: rt.Name(),
+			AreaSqFt:       areaSqFt,
+			DecayRate:      defaultRate,
+			InitialPCI:     currentPCI,
+		}}
+	}
+	return cohorts
+}
+
+// ForecastExport holds per-resource forecast results.
+type ForecastExport struct {
+	ResourceType string                   `json:"resource_type"`
+	Baseline     forecast.ScenarioResult  `json:"baseline"`
+	CityBaseline *forecast.ScenarioResult `json:"city_baseline,omitempty"`
+	Comparisons  []forecast.Comparison    `json:"comparisons"`
+}
+
+// BuildForecastsForCity builds per-resource forecast exports for a city.
+func BuildForecastsForCity(entry CityEntry, fc *config.ForecastConfig, costTiers []forecast.CostTier) []ForecastExport {
+	years := fc.ResolvedYears()
+	var forecasts []ForecastExport
+
+	for _, rt := range resource.All {
+		result, err := entry.Store.LatestComputeResult(rt.Name())
+		if err != nil || result == nil {
+			continue
+		}
+
+		cohorts := BuildCohortsForResource(rt, result.TotalAreaSqFt, entry.Store, fc)
+		rtParams := forecast.NewParamsForResource(rt.Name(), fc.GrowthRate, costTiers)
+
+		baseline := forecast.Simulate(
+			forecast.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: forecast.StrategyDoNothing},
+			cohorts, years, rtParams.Cost, rtParams.Growth,
+		)
+
+		year1Need := baseline.Years[0].AnnualNeed
+		comparisons := forecast.GroupedComparisons(year1Need, cohorts, years,
+			rtParams.Cost, rtParams.Growth)
+
+		fe := ForecastExport{
+			ResourceType: rt.Name(),
+			Baseline:     baseline,
+			Comparisons:  comparisons,
+		}
+
+		// Build city baseline if city cohort stats exist
+		cityStats, _ := entry.Store.ListCohortStats(rt.Name() + ":city")
+		if len(cityStats) > 0 {
+			var cityInputs []forecast.CohortInput
+			for _, st := range cityStats {
+				cityInputs = append(cityInputs, forecast.CohortInput{
+					Classification: st.Classification,
+					AreaSqFt:       st.AreaSqFt,
+				})
+			}
+			cityCohorts := forecast.BuildCohorts(cityInputs, 85.0, fc.DecayRate)
+			if cityCohorts != nil {
+				cityBaseline := forecast.Simulate(
+					forecast.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: forecast.StrategyDoNothing},
+					cityCohorts, years, rtParams.Cost, rtParams.Growth,
+				)
+				fe.CityBaseline = &cityBaseline
+			}
+		}
+
+		forecasts = append(forecasts, fe)
+	}
+
+	return forecasts
+}
+
+// BuildScenariosData builds the aggregate scenarios JSON structure for a city.
+func BuildScenariosData(entry CityEntry, fc *config.ForecastConfig) map[string]any {
+	costTiers := ConvertCostTiers(fc)
+	params := forecast.NewParams(fc.GrowthRate, costTiers)
+	years := fc.ResolvedYears()
+
+	var totalAreaSqFt, cityAreaSqFt float64
+	var cityFeatureCount, allFeatureCount int
+
+	for _, rt := range resource.All {
+		result, err := entry.Store.LatestComputeResult(rt.Name())
+		if err != nil || result == nil {
+			continue
+		}
+		totalAreaSqFt += result.TotalAreaSqFt
+		allFeatureCount += result.FeatureCount
+
+		cityResult, err := entry.Store.LatestComputeResult(rt.Name() + ":city")
+		if err == nil && cityResult != nil {
+			cityAreaSqFt += cityResult.TotalAreaSqFt
+			cityFeatureCount += cityResult.FeatureCount
+		}
+	}
+
+	currentPCI := 85.0
+	defaultRate := forecast.DefaultDecayRates["default"]
+	if fc.DecayRate > 0 {
+		defaultRate = fc.DecayRate
+	}
+	allCohorts := []forecast.Cohort{{
+		Classification: "all",
+		AreaSqFt:       totalAreaSqFt,
+		DecayRate:      defaultRate,
+		InitialPCI:     currentPCI,
+	}}
+	allScenarios := BuildScenarios(allCohorts, years, params)
+
+	var cityScenarios []forecast.ScenarioResult
+	if cityAreaSqFt > 0 {
+		cityCohorts := []forecast.Cohort{{
+			Classification: "city",
+			AreaSqFt:       cityAreaSqFt,
+			DecayRate:      defaultRate,
+			InitialPCI:     currentPCI,
+		}}
+		cityScenarios = BuildScenarios(cityCohorts, years, params)
+	}
+
+	summary := map[string]any{
+		"city_count":    cityFeatureCount,
+		"all_count":     allFeatureCount,
+		"state_count":   0,
+		"county_count":  0,
+		"federal_count": 0,
+	}
+	if totalAreaSqFt > 0 && cityAreaSqFt > 0 {
+		summary["city_pct"] = cityAreaSqFt / totalAreaSqFt
+	}
+
+	out := map[string]any{
+		"all":     allScenarios,
+		"summary": summary,
+	}
+	if cityScenarios != nil {
+		out["city"] = cityScenarios
+	}
+
+	return out
+}
+
+// BuildHexCostSummary builds the hex cost summary from forecast results.
+func BuildHexCostSummary(entry CityEntry, forecasts []ForecastExport) map[string]map[string]float64 {
+	result := make(map[string]map[string]float64)
+	for _, fe := range forecasts {
+		var year1Cost float64
+		if len(fe.Baseline.Years) > 0 {
+			year1Cost = fe.Baseline.Years[0].AnnualNeed
+		}
+		cr, err := entry.Store.LatestComputeResult(fe.ResourceType)
+		if err != nil || cr == nil {
+			continue
+		}
+		result[fe.ResourceType] = map[string]float64{
+			"year1_cost":      year1Cost,
+			"total_area_sqft": cr.TotalAreaSqFt,
+		}
+	}
+	return result
+}
+
 // CohortSeed holds per-cohort data for interactive controls.
 type CohortSeed struct {
 	Classification string  `json:"classification"`
@@ -435,16 +441,9 @@ type ForecastSeedJSON struct {
 	CityCohorts   []CohortSeed        `json:"city_cohorts,omitempty"`
 }
 
-func buildForecastSeedForCity(fc *config.ForecastConfig, store db.Store) template.JS {
-	var costTiers []forecast.CostTier
-	for _, t := range fc.CostTiers {
-		costTiers = append(costTiers, forecast.CostTier{
-			MinPCI:      t.MinPCI,
-			MaxPCI:      t.MaxPCI,
-			CostPerSqFt: t.CostPerSqFt,
-			Label:       t.Label,
-		})
-	}
+// BuildForecastSeed constructs a ForecastSeedJSON for the given forecast config and store.
+func BuildForecastSeed(fc *config.ForecastConfig, store db.Store) template.JS {
+	costTiers := ConvertCostTiers(fc)
 	if len(costTiers) == 0 {
 		costTiers = forecast.DefaultCostTiers
 	}
@@ -523,229 +522,218 @@ func buildForecastSeedForCity(fc *config.ForecastConfig, store db.Store) templat
 	return template.JS(data)
 }
 
-// BuildForecastSeedWithForecast constructs a ForecastSeedJSON for the given forecast config and store.
-// Exported for use by the server package.
-func BuildForecastSeedWithForecast(fc *config.ForecastConfig, store db.Store) template.JS {
-	return buildForecastSeedForCity(fc, store)
+// --- Exporter (static site generation) ---
+
+type Exporter struct {
+	entries   []CityEntry
+	cfg       *config.Config
+	outputDir string
 }
 
-func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolvedTOML string, cities []CityInfo) (err error) {
-	tmplData, err := templatesFS.ReadFile("templates/index.html.tmpl")
-	if err != nil {
-		return fmt.Errorf("read template: %w", err)
+func New(entries []CityEntry, cfg *config.Config, outputDir string) *Exporter {
+	return &Exporter{entries: entries, cfg: cfg, outputDir: outputDir}
+}
+
+func (e *Exporter) Run() error {
+	if len(e.entries) == 1 {
+		return e.runSingleCity()
+	}
+	return e.runMultiCity()
+}
+
+func (e *Exporter) runSingleCity() error {
+	entry := e.entries[0]
+	dataDir := filepath.Join(e.outputDir, "data")
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		return fmt.Errorf("create output dir: %w", err)
 	}
 
-	funcMap := template.FuncMap{
-		"divf": func(a, b float64) float64 { return a / b },
-	}
-	tmpl, err := template.New("index").Funcs(funcMap).Parse(string(tmplData))
-	if err != nil {
-		return fmt.Errorf("parse template: %w", err)
+	if err := e.exportCityData(entry, dataDir); err != nil {
+		return err
 	}
 
-	outPath := filepath.Join(e.outputDir, "index.html")
-	f, err := os.Create(outPath)
-	if err != nil {
-		return fmt.Errorf("create index.html: %w", err)
+	// Write WASM assets
+	if err := e.writeWasmAssets(e.outputDir); err != nil {
+		return err
 	}
-	defer func() {
-		if cerr := f.Close(); cerr != nil && err == nil {
-			err = fmt.Errorf("close index.html: %w", cerr)
+
+	// Read raw TOML and build resolved version for Config tab
+	var rawTOML string
+	if e.cfg.SourcePath != "" {
+		if data, err := os.ReadFile(e.cfg.SourcePath); err == nil {
+			rawTOML = string(data)
 		}
-	}()
-
-	td := TemplateData{
-		MetaJSON:     meta,
-		ForecastSeed: seed,
-		LayerColors:  ResourceColorsJS(),
-		RawTOML:      rawTOML,
-		ResolvedTOML: resolvedTOML,
-		Cities:       cities,
 	}
-	return tmpl.Execute(f, td)
+
+	fc := e.cfg.ResolvedForecast(&entry.City)
+	seed := BuildForecastSeed(&fc, entry.Store)
+	meta, err := BuildMeta(entry)
+	if err != nil {
+		return err
+	}
+	return e.renderHTML(meta, seed, rawTOML, ResolvedTOML(e.cfg), nil)
+}
+
+func (e *Exporter) runMultiCity() error {
+	if err := os.MkdirAll(e.outputDir, 0o755); err != nil {
+		return fmt.Errorf("create output dir: %w", err)
+	}
+
+	// Export each city
+	var cities []CityInfo
+	for _, entry := range e.entries {
+		cityDataDir := filepath.Join(e.outputDir, "cities", entry.Slug, "data")
+		if err := os.MkdirAll(cityDataDir, 0o755); err != nil {
+			return fmt.Errorf("create city dir %s: %w", entry.Slug, err)
+		}
+		if err := e.exportCityData(entry, cityDataDir); err != nil {
+			return fmt.Errorf("export %s: %w", entry.Slug, err)
+		}
+		bbox, lon, lat, err := entry.BBoxAndCenter()
+		if err != nil {
+			return fmt.Errorf("city %s bbox: %w", entry.Slug, err)
+		}
+		cities = append(cities, CityInfo{
+			Slug:      entry.Slug,
+			Name:      entry.City.Name,
+			BBox:      bbox,
+			CenterLon: lon,
+			CenterLat: lat,
+		})
+	}
+
+	// Write cities.json
+	if err := writeJSON(filepath.Join(e.outputDir, "cities.json"), cities); err != nil {
+		return fmt.Errorf("write cities.json: %w", err)
+	}
+
+	// Write WASM assets
+	if err := e.writeWasmAssets(e.outputDir); err != nil {
+		return err
+	}
+
+	// Render single top-level index.html with first city data
+	firstEntry := e.entries[0]
+	fc := e.cfg.ResolvedForecast(&firstEntry.City)
+	seed := BuildForecastSeed(&fc, firstEntry.Store)
+	meta, err := BuildMeta(firstEntry)
+	if err != nil {
+		return err
+	}
+
+	var rawTOML string
+	if e.cfg.SourcePath != "" {
+		if data, err := os.ReadFile(e.cfg.SourcePath); err == nil {
+			rawTOML = string(data)
+		}
+	}
+
+	return e.renderHTML(meta, seed, rawTOML, ResolvedTOML(e.cfg), cities)
+}
+
+func (e *Exporter) exportCityData(entry CityEntry, dataDir string) error {
+	_, lon, lat, err := entry.BBoxAndCenter()
+	if err != nil {
+		return fmt.Errorf("city bbox: %w", err)
+	}
+	proj := geo.NewUTMProjector(lon, lat)
+
+	meta, err := BuildMeta(entry)
+	if err != nil {
+		return err
+	}
+
+	// Write boundary.geojson if boundary exists
+	if boundaryGJSON, err := entry.Store.GetBoundary(); err == nil && boundaryGJSON != "" {
+		fc := map[string]any{
+			"type": "FeatureCollection",
+			"features": []map[string]any{
+				{
+					"type":       "Feature",
+					"geometry":   json.RawMessage(boundaryGJSON),
+					"properties": map[string]any{"type": "boundary"},
+				},
+			},
+		}
+		if err := writeJSON(filepath.Join(dataDir, "boundary.geojson"), fc); err != nil {
+			return fmt.Errorf("write boundary geojson: %w", err)
+		}
+	}
+
+	// Export each resource type as GeoJSON (prefer city-clipped variant)
+	for _, rt := range resource.All {
+		result, err := entry.Store.LatestComputeResult(rt.Name() + ":city")
+		if err != nil {
+			result, err = entry.Store.LatestComputeResult(rt.Name())
+		}
+		if err != nil {
+			continue
+		}
+
+		// Write GeoJSON file
+		if result.GeometryJSON != "" {
+			geojsonPath := filepath.Join(dataDir, rt.Name()+".geojson")
+			fc := map[string]any{
+				"type": "FeatureCollection",
+				"features": []map[string]any{
+					{
+						"type":       "Feature",
+						"geometry":   json.RawMessage(result.GeometryJSON),
+						"properties": map[string]any{"type": rt.Name()},
+					},
+				},
+			}
+			if err := writeJSON(geojsonPath, fc); err != nil {
+				return fmt.Errorf("write %s geojson: %w", rt.Name(), err)
+			}
+		}
+	}
+
+	// Export hex grid
+	hexFC := BuildHexGeoJSON(entry, proj)
+	if hexFC != nil {
+		if err := writeJSON(filepath.Join(dataDir, "hexgrid.geojson"), hexFC); err != nil {
+			return fmt.Errorf("write hexgrid: %w", err)
+		}
+	}
+
+	// Write meta.json
+	if err := writeJSON(filepath.Join(dataDir, "meta.json"), meta); err != nil {
+		return fmt.Errorf("write meta: %w", err)
+	}
+
+	// Export forecast and scenario data
+	if err := exportScenariosForCity(entry, dataDir); err != nil {
+		return fmt.Errorf("export scenarios: %w", err)
+	}
+
+	// Export forecast seed for interactive WASM controls (per-city)
+	forecastCfg := entry.Config.ResolvedForecast(&entry.City)
+	seed := BuildForecastSeed(&forecastCfg, entry.Store)
+	if err := os.WriteFile(filepath.Join(dataDir, "forecast_seed.json"), []byte(seed), 0o644); err != nil {
+		return fmt.Errorf("write forecast_seed.json: %w", err)
+	}
+
+	return nil
 }
 
 func exportScenariosForCity(entry CityEntry, dataDir string) error {
 	fc := entry.Config.ResolvedForecast(&entry.City)
-	var costTiers []forecast.CostTier
-	for _, t := range fc.CostTiers {
-		costTiers = append(costTiers, forecast.CostTier{
-			MinPCI:      t.MinPCI,
-			MaxPCI:      t.MaxPCI,
-			CostPerSqFt: t.CostPerSqFt,
-			Label:       t.Label,
-		})
-	}
-	params := forecast.NewParams(fc.GrowthRate, costTiers)
-	years := fc.ResolvedYears()
+	costTiers := ConvertCostTiers(&fc)
 
-	type forecastExport struct {
-		ResourceType string                   `json:"resource_type"`
-		Baseline     forecast.ScenarioResult  `json:"baseline"`
-		CityBaseline *forecast.ScenarioResult `json:"city_baseline,omitempty"`
-		Comparisons  []forecast.Comparison    `json:"comparisons"`
-	}
+	forecasts := BuildForecastsForCity(entry, &fc, costTiers)
 
-	var allForecasts []forecastExport
-
-	var totalAreaSqFt float64
-	var cityAreaSqFt float64
-	var cityFeatureCount int
-	var allFeatureCount int
-
-	for _, rt := range resource.All {
-		result, err := entry.Store.LatestComputeResult(rt.Name())
-		if err != nil || result == nil {
-			continue
-		}
-		totalAreaSqFt += result.TotalAreaSqFt
-		allFeatureCount += result.FeatureCount
-
-		cityResult, err := entry.Store.LatestComputeResult(rt.Name() + ":city")
-		if err == nil && cityResult != nil {
-			cityAreaSqFt += cityResult.TotalAreaSqFt
-			cityFeatureCount += cityResult.FeatureCount
-		}
-	}
-
-	for _, rt := range resource.All {
-		result, err := entry.Store.LatestComputeResult(rt.Name())
-		if err != nil || result == nil {
-			continue
-		}
-
-		areaSqFt := result.TotalAreaSqFt
-		currentPCI := 85.0
-
-		stats, _ := entry.Store.ListCohortStats(rt.Name())
-		var inputs []forecast.CohortInput
-		for _, st := range stats {
-			inputs = append(inputs, forecast.CohortInput{
-				Classification: st.Classification,
-				AreaSqFt:       st.AreaSqFt,
-			})
-		}
-		cohorts := forecast.BuildCohorts(inputs, currentPCI, fc.DecayRate)
-		if cohorts == nil {
-			defaultRate := forecast.DecayRateForClass(rt.Name())
-			if fc.DecayRate > 0 {
-				defaultRate = fc.DecayRate
-			}
-			cohorts = []forecast.Cohort{{
-				Classification: rt.Name(),
-				AreaSqFt:       areaSqFt,
-				DecayRate:      defaultRate,
-				InitialPCI:     currentPCI,
-			}}
-		}
-
-		rtParams := forecast.NewParamsForResource(rt.Name(), fc.GrowthRate, costTiers)
-
-		baseline := forecast.Simulate(
-			forecast.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: forecast.StrategyDoNothing},
-			cohorts, years, rtParams.Cost, rtParams.Growth,
-		)
-
-		year1Need := baseline.Years[0].AnnualNeed
-		comparisons := forecast.GroupedComparisons(year1Need, cohorts, years,
-			rtParams.Cost, rtParams.Growth)
-
-		fe := forecastExport{
-			ResourceType: rt.Name(),
-			Baseline:     baseline,
-			Comparisons:  comparisons,
-		}
-
-		cityStats, _ := entry.Store.ListCohortStats(rt.Name() + ":city")
-		if len(cityStats) > 0 {
-			var cityInputs []forecast.CohortInput
-			for _, st := range cityStats {
-				cityInputs = append(cityInputs, forecast.CohortInput{
-					Classification: st.Classification,
-					AreaSqFt:       st.AreaSqFt,
-				})
-			}
-			cityCohorts := forecast.BuildCohorts(cityInputs, currentPCI, fc.DecayRate)
-			if cityCohorts != nil {
-				cityBaseline := forecast.Simulate(
-					forecast.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: forecast.StrategyDoNothing},
-					cityCohorts, years, rtParams.Cost, rtParams.Growth,
-				)
-				fe.CityBaseline = &cityBaseline
-			}
-		}
-
-		allForecasts = append(allForecasts, fe)
-	}
-
-	if len(allForecasts) > 0 {
-		if err := writeJSON(filepath.Join(dataDir, "forecast.json"), allForecasts); err != nil {
+	if len(forecasts) > 0 {
+		if err := writeJSON(filepath.Join(dataDir, "forecast.json"), forecasts); err != nil {
 			return fmt.Errorf("write forecast.json: %w", err)
 		}
 
-		hexCostSummary := make(map[string]map[string]float64)
-		for _, fe := range allForecasts {
-			var year1Cost float64
-			if len(fe.Baseline.Years) > 0 {
-				year1Cost = fe.Baseline.Years[0].AnnualNeed
-			}
-			result, err := entry.Store.LatestComputeResult(fe.ResourceType)
-			if err != nil || result == nil {
-				continue
-			}
-			hexCostSummary[fe.ResourceType] = map[string]float64{
-				"year1_cost":      year1Cost,
-				"total_area_sqft": result.TotalAreaSqFt,
-			}
-		}
+		hexCostSummary := BuildHexCostSummary(entry, forecasts)
 		if err := writeJSON(filepath.Join(dataDir, "hex-cost-summary.json"), hexCostSummary); err != nil {
 			return fmt.Errorf("write hex-cost-summary.json: %w", err)
 		}
 
-		currentPCI := 85.0
-		defaultRate := forecast.DefaultDecayRates["default"]
-		if fc.DecayRate > 0 {
-			defaultRate = fc.DecayRate
-		}
-
-		allCohorts := []forecast.Cohort{{
-			Classification: "all",
-			AreaSqFt:       totalAreaSqFt,
-			DecayRate:      defaultRate,
-			InitialPCI:     currentPCI,
-		}}
-		allScenarios := BuildScenarios(allCohorts, years, params)
-
-		var cityScenarios []forecast.ScenarioResult
-		if cityAreaSqFt > 0 {
-			cityCohorts := []forecast.Cohort{{
-				Classification: "city",
-				AreaSqFt:       cityAreaSqFt,
-				DecayRate:      defaultRate,
-				InitialPCI:     currentPCI,
-			}}
-			cityScenarios = BuildScenarios(cityCohorts, years, params)
-		}
-
-		summary := map[string]any{
-			"city_count":    cityFeatureCount,
-			"all_count":     allFeatureCount,
-			"state_count":   0,
-			"county_count":  0,
-			"federal_count": 0,
-		}
-		if totalAreaSqFt > 0 && cityAreaSqFt > 0 {
-			summary["city_pct"] = cityAreaSqFt / totalAreaSqFt
-		}
-
-		scenariosOut := map[string]any{
-			"all":     allScenarios,
-			"summary": summary,
-		}
-		if cityScenarios != nil {
-			scenariosOut["city"] = cityScenarios
-		}
-
+		scenariosOut := BuildScenariosData(entry, &fc)
 		if err := writeJSON(filepath.Join(dataDir, "scenarios.json"), scenariosOut); err != nil {
 			return fmt.Errorf("write scenarios.json: %w", err)
 		}
@@ -755,7 +743,6 @@ func exportScenariosForCity(entry CityEntry, dataDir string) error {
 }
 
 // BuildScenarios generates scenario results for a given area.
-// Exported for use by the server package. Uses a single cohort (for aggregates).
 func BuildScenarios(cohorts []forecast.Cohort, years int, params *forecast.Params) []forecast.ScenarioResult {
 	baseline := forecast.Simulate(
 		forecast.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: forecast.StrategyDoNothing},
@@ -774,7 +761,6 @@ func BuildScenarios(cohorts []forecast.Cohort, years int, params *forecast.Param
 }
 
 // ResolvedTOML returns the config serialized as TOML with all defaults filled in.
-// Exported for use by the server package.
 func ResolvedTOML(cfg *config.Config) string {
 	resolved := *cfg
 
@@ -814,6 +800,42 @@ func (e *Exporter) writeWasmAssets(dir string) error {
 		return fmt.Errorf("write wasm_exec.js: %w", err)
 	}
 	return nil
+}
+
+func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolvedTOML string, cities []CityInfo) (err error) {
+	tmplData, err := templatesFS.ReadFile("templates/index.html.tmpl")
+	if err != nil {
+		return fmt.Errorf("read template: %w", err)
+	}
+
+	funcMap := template.FuncMap{
+		"divf": func(a, b float64) float64 { return a / b },
+	}
+	tmpl, err := template.New("index").Funcs(funcMap).Parse(string(tmplData))
+	if err != nil {
+		return fmt.Errorf("parse template: %w", err)
+	}
+
+	outPath := filepath.Join(e.outputDir, "index.html")
+	f, err := os.Create(outPath)
+	if err != nil {
+		return fmt.Errorf("create index.html: %w", err)
+	}
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close index.html: %w", cerr)
+		}
+	}()
+
+	td := TemplateData{
+		MetaJSON:     meta,
+		ForecastSeed: seed,
+		LayerColors:  ResourceColorsJS(),
+		RawTOML:      rawTOML,
+		ResolvedTOML: resolvedTOML,
+		Cities:       cities,
+	}
+	return tmpl.Execute(f, td)
 }
 
 // BBoxAndCenter derives bbox and center from the stored boundary polygon.

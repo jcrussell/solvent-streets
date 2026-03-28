@@ -16,10 +16,7 @@ func ParallelMap[T any, R any](input []T, fn func(int, T) []R, counter *atomic.I
 		return nil
 	}
 
-	numWorkers := runtime.NumCPU()
-	if numWorkers > n {
-		numWorkers = n
-	}
+	numWorkers := min(runtime.NumCPU(), n)
 
 	// Each worker gets a contiguous chunk and writes to its own slice.
 	chunkSize := (n + numWorkers - 1) / numWorkers
@@ -31,10 +28,7 @@ func ParallelMap[T any, R any](input []T, fn func(int, T) []R, counter *atomic.I
 		go func(wIdx int) {
 			defer wg.Done()
 			start := wIdx * chunkSize
-			end := start + chunkSize
-			if end > n {
-				end = n
-			}
+			end := min(start+chunkSize, n)
 			var local []R
 			for i := start; i < end; i++ {
 				local = append(local, fn(i, input[i])...)

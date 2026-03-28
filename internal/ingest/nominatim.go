@@ -13,9 +13,9 @@ const nominatimBaseURL = "https://nominatim.openstreetmap.org/search"
 // cityAddressTypes are Nominatim addresstype values that represent cities/towns,
 // ordered by preference. Used to filter out county/state results.
 var cityAddressTypes = map[string]bool{
-	"city":    true,
-	"town":    true,
-	"village": true,
+	"city":         true,
+	"town":         true,
+	"village":      true,
 	"municipality": true,
 }
 

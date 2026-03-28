@@ -55,8 +55,8 @@ func (f *ExponentialPCIForecaster) Forecast(currentPCI float64, years int) []flo
 // It strips _link suffixes and maps uncommon values to their parent class.
 func NormalizeClass(highway string) string {
 	// Strip _link suffix (e.g. "motorway_link" → "motorway")
-	if strings.HasSuffix(highway, "_link") {
-		highway = strings.TrimSuffix(highway, "_link")
+	if before, ok := strings.CutSuffix(highway, "_link"); ok {
+		highway = before
 	}
 
 	switch highway {

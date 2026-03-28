@@ -90,4 +90,3 @@ func (t *TablePrinter) Render() error {
 
 	return nil
 }
-

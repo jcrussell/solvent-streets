@@ -16,7 +16,7 @@ import (
 type Factory struct {
 	AppVersion     string
 	ExecutableName string
-	IOStreams       *iostreams.IOStreams
+	IOStreams      *iostreams.IOStreams
 	HttpClient     func() (*http.Client, error)
 	RootDB         func() (*db.RootStore, error)
 	Config         func() (*config.Config, error)

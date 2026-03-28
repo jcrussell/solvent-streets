@@ -92,15 +92,13 @@ func TestGeomIndex_ConcurrentSearch(t *testing.T) {
 	// Run concurrent searches
 	var wg sync.WaitGroup
 	for range 100 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			env := makeRect(0, 0, 200, 10).Envelope()
 			results := idx.Search(env)
 			if len(results) == 0 {
 				t.Error("expected results from concurrent search")
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }
