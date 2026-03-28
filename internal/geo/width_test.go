@@ -12,6 +12,7 @@ func TestInferWidth(t *testing.T) {
 		expected float64
 	}{
 		{"explicit width", map[string]string{"width": "12.5"}, 12.5},
+		{"explicit width ignores parking", map[string]string{"width": "12", "parking:left": "lane"}, 12.0},
 		{"lanes based", map[string]string{"lanes": "4"}, 14.8},
 		{"motorway", map[string]string{"highway": "motorway"}, 14.0},
 		{"residential", map[string]string{"highway": "residential"}, 5.5},

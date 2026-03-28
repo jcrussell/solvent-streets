@@ -31,6 +31,21 @@ func TestUTMZoneDetection(t *testing.T) {
 	}
 }
 
+func TestUTMZone_Antimeridian(t *testing.T) {
+	p := NewUTMProjector(180.0, 0)
+	if p.Zone != 60 {
+		t.Errorf("zone at lon=180 = %d, want 60", p.Zone)
+	}
+	p2 := NewUTMProjector(-180.0, 0)
+	if p2.Zone != 1 {
+		t.Errorf("zone at lon=-180 = %d, want 1", p2.Zone)
+	}
+	p3 := NewUTMProjector(-180.01, 0)
+	if p3.Zone != 1 {
+		t.Errorf("zone at lon=-180.01 = %d, want 1", p3.Zone)
+	}
+}
+
 func TestUTMRoundTrip(t *testing.T) {
 	tests := []struct {
 		name string

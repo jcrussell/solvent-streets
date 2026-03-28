@@ -29,6 +29,7 @@ func (s *CSVSource) Load() ([]db.Feature, error) {
 	defer func() { _ = f.Close() }()
 
 	reader := csv.NewReader(f)
+	reader.FieldsPerRecord = -1 // allow variable-length rows; short rows are skipped below
 	header, err := reader.Read()
 	if err != nil {
 		return nil, fmt.Errorf("read csv header: %w", err)
@@ -60,6 +61,10 @@ func (s *CSVSource) Load() ([]db.Feature, error) {
 			if i < len(record) && i != idCol && i != nameCol && i != geomCol {
 				tags[col] = record[i]
 			}
+		}
+
+		if idCol >= len(record) || geomCol >= len(record) {
+			continue // skip malformed row with fewer fields than header
 		}
 
 		name := ""

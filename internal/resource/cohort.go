@@ -3,14 +3,16 @@ package resource
 import (
 	"pvmt/internal/forecast"
 	"pvmt/internal/geo"
+
+	"github.com/peterstace/simplefeatures/geom"
 )
 
-// ComputeRoadCohortAreas computes raw per-classification areas by buffering
-// each LineString feature individually. Returns map[classification]rawAreaSqFt.
-// The caller should distribute proportionally against the union total to avoid
-// overlap double-counting.
+// ComputeRoadCohortAreas computes per-classification union areas by buffering
+// each feature, grouping by classification, and unioning within each class.
+// This avoids inflating class areas due to intra-class overlaps.
+// Returns map[classification]unionAreaSqFt.
 func ComputeRoadCohortAreas(features []Feature, proj geo.Projector) map[string]float64 {
-	areas := make(map[string]float64)
+	classGeoms := make(map[string][]geom.Geometry)
 
 	for _, f := range features {
 		g, gtype, err := geo.GeoJSONToProjectedGeometry(f.GeometryJSON, proj)
@@ -18,7 +20,7 @@ func ComputeRoadCohortAreas(features []Feature, proj geo.Projector) map[string]f
 			continue
 		}
 
-		var area float64
+		var cleaned geom.Geometry
 		switch gtype {
 		case "LineString":
 			width := geo.InferWidth(f.Tags)
@@ -31,24 +33,36 @@ func ComputeRoadCohortAreas(features []Feature, proj geo.Projector) map[string]f
 			if err != nil {
 				continue
 			}
-			cleaned, err := geo.ValidatePolygon(buffered)
+			cleaned, err = geo.ValidatePolygon(buffered)
 			if err != nil {
 				continue
 			}
-			area = geo.AreaSqFtFromProjected(geo.AreaInProjectedUnits(cleaned), proj)
 		case "Polygon":
-			cleaned, err := geo.ValidatePolygon(g)
+			cleaned, err = geo.ValidatePolygon(g)
 			if err != nil {
 				continue
 			}
-			area = geo.AreaSqFtFromProjected(geo.AreaInProjectedUnits(cleaned), proj)
 		default:
 			continue
 		}
 
 		class := forecast.NormalizeClass(f.Tags["highway"])
-		areas[class] += area
+		classGeoms[class] = append(classGeoms[class], cleaned)
 	}
 
+	areas := make(map[string]float64)
+	for class, geoms := range classGeoms {
+		u, err := geo.UnionAll(geoms)
+		if err != nil {
+			// Fallback: sum individual areas if union fails
+			var sum float64
+			for _, g := range geoms {
+				sum += geo.AreaSqFtFromProjected(geo.AreaInProjectedUnits(g), proj)
+			}
+			areas[class] = sum
+			continue
+		}
+		areas[class] = geo.AreaSqFtFromProjected(geo.AreaInProjectedUnits(u), proj)
+	}
 	return areas
 }

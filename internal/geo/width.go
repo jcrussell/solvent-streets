@@ -25,10 +25,11 @@ const laneWidth = 3.7 // meters per lane
 // InferWidth returns the estimated road width in meters based on OSM tags.
 // Priority: explicit width tag > lanes-based > highway classification fallback.
 func InferWidth(tags map[string]string) float64 {
-	// 1. Explicit width tag
+	// 1. Explicit width tag — use as-is (surveyed width includes or
+	// intentionally excludes parking; adding parkingAddon would double-count).
 	if w, ok := tags["width"]; ok {
 		if v, err := strconv.ParseFloat(w, 64); err == nil && v > 0 {
-			return v + parkingAddon(tags)
+			return v
 		}
 	}
 

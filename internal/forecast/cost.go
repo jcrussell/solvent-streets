@@ -75,7 +75,11 @@ func interpolateCost(anchors []costAnchor, pci float64) float64 {
 		hi := anchors[i]
 		lo := anchors[i+1]
 		if pci <= hi.pci && pci >= lo.pci {
-			t := (hi.pci - pci) / (hi.pci - lo.pci)
+			span := hi.pci - lo.pci
+			if span == 0 {
+				return hi.cost
+			}
+			t := (hi.pci - pci) / span
 			return hi.cost + t*(lo.cost-hi.cost)
 		}
 	}

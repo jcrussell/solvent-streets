@@ -157,7 +157,12 @@ func ClipHexesToBoundary(hexes []Hex, boundary geom.Geometry, counter *atomic.In
 				clipped = inter
 			} else {
 				merged, err := geom.Union(clipped, inter)
-				if err == nil {
+				if err != nil {
+					// Fallback: keep whichever has more area
+					if inter.Area() > clipped.Area() {
+						clipped = inter
+					}
+				} else {
 					clipped = merged
 				}
 			}
