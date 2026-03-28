@@ -3,6 +3,7 @@ package geo
 import (
 	"fmt"
 	"math"
+	"sync/atomic"
 
 	"github.com/peterstace/simplefeatures/geom"
 )
@@ -89,53 +90,83 @@ type HexStat struct {
 	PctCovered   float64
 }
 
-// ComputeHexStats intersects each hex with the union geometry and computes coverage.
-func ComputeHexStats(hexes []Hex, union geom.Geometry, resourceType string, proj Projector) []HexStat {
-	unionEnv := union.Envelope()
+// ComputeHexStats intersects each hex with the union geometry and computes
+// coverage using an R-tree spatial index and parallel workers.
+// If counter is non-nil it is incremented after each hex is processed.
+func ComputeHexStats(hexes []Hex, union geom.Geometry, resourceType string, proj Projector, counter *atomic.Int64) []HexStat {
+	idx := NewGeomIndex(union)
 
-	var stats []HexStat
-	for _, h := range hexes {
+	return ParallelMap(hexes, func(_ int, h Hex) []HexStat {
 		hexEnv := h.Geom.Envelope()
-
-		// Fast envelope intersection check
-		if !envelopesIntersect(unionEnv, hexEnv) {
-			continue
+		candidates := idx.Search(hexEnv)
+		if len(candidates) == 0 {
+			return nil
 		}
 
-		intersection, err := geom.Intersection(h.Geom, union)
-		if err != nil || intersection.IsEmpty() {
-			continue
+		var totalArea float64
+		for _, cand := range candidates {
+			inter, err := geom.Intersection(h.Geom, cand)
+			if err != nil || inter.IsEmpty() {
+				continue
+			}
+			totalArea += inter.Area()
+		}
+		if totalArea <= 0 {
+			return nil
 		}
 
-		areaProjected := intersection.Area()
-		if areaProjected <= 0 {
-			continue
-		}
-
-		hexAreaProjected := h.Geom.Area()
+		hexArea := h.Geom.Area()
 		pct := 0.0
-		if hexAreaProjected > 0 {
-			pct = areaProjected / hexAreaProjected * 100
+		if hexArea > 0 {
+			pct = totalArea / hexArea * 100
+		}
+		if pct > 100 {
+			pct = 100
 		}
 
-		areaSqFt := AreaSqFtFromProjected(areaProjected, proj)
-
-		stats = append(stats, HexStat{
+		return []HexStat{{
 			HexID:        h.ID,
 			ResourceType: resourceType,
-			AreaSqFt:     areaSqFt,
+			AreaSqFt:     AreaSqFtFromProjected(totalArea, proj),
 			PctCovered:   pct,
-		})
-	}
-	return stats
+		}}
+	}, counter)
 }
 
-func envelopesIntersect(a, b geom.Envelope) bool {
-	aMin, aMax, aOk := a.MinMaxXYs()
-	bMin, bMax, bOk := b.MinMaxXYs()
-	if !aOk || !bOk {
-		return false
-	}
-	return aMin.X <= bMax.X && aMax.X >= bMin.X &&
-		aMin.Y <= bMax.Y && aMax.Y >= bMin.Y
+// ClipHexesToBoundary intersects each hex with the boundary geometry in
+// parallel using a spatial index. Hexes with no intersection are dropped;
+// hexes partially inside are clipped. If counter is non-nil it is incremented
+// after each hex is processed.
+func ClipHexesToBoundary(hexes []Hex, boundary geom.Geometry, counter *atomic.Int64) []Hex {
+	idx := NewGeomIndex(boundary)
+
+	return ParallelMap(hexes, func(_ int, h Hex) []Hex {
+		hexEnv := h.Geom.Envelope()
+		candidates := idx.Search(hexEnv)
+		if len(candidates) == 0 {
+			return nil
+		}
+
+		var clipped geom.Geometry
+		for _, cand := range candidates {
+			inter, err := geom.Intersection(h.Geom, cand)
+			if err != nil || inter.IsEmpty() {
+				continue
+			}
+			if clipped.IsEmpty() {
+				clipped = inter
+			} else {
+				merged, err := geom.Union(clipped, inter)
+				if err == nil {
+					clipped = merged
+				}
+			}
+		}
+		if clipped.IsEmpty() {
+			return nil
+		}
+
+		h.Geom = clipped
+		return []Hex{h}
+	}, counter)
 }

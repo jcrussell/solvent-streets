@@ -3,6 +3,8 @@ package geo
 import (
 	"math"
 	"testing"
+
+	"github.com/peterstace/simplefeatures/geom"
 )
 
 func TestHexGrid_Count(t *testing.T) {
@@ -44,7 +46,7 @@ func TestComputeHexStats_NoIntersection(t *testing.T) {
 	// Union geometry far away
 	rect := makeRect(10000, 10000, 10100, 10100)
 	proj := &UTMProjector{Zone: 10, Northern: true}
-	stats := ComputeHexStats(hexes, rect, "roads", proj)
+	stats := ComputeHexStats(hexes, rect, "roads", proj, nil)
 	if len(stats) != 0 {
 		t.Errorf("expected 0 stats for non-intersecting, got %d", len(stats))
 	}
@@ -55,7 +57,7 @@ func TestComputeHexStats_PartialIntersection(t *testing.T) {
 	// Small rect that should intersect a few hexes
 	rect := makeRect(100, 100, 200, 200)
 	proj := &UTMProjector{Zone: 10, Northern: true}
-	stats := ComputeHexStats(hexes, rect, "roads", proj)
+	stats := ComputeHexStats(hexes, rect, "roads", proj, nil)
 	if len(stats) == 0 {
 		t.Error("expected some hex stats for intersecting geometry")
 	}
@@ -66,5 +68,39 @@ func TestComputeHexStats_PartialIntersection(t *testing.T) {
 		if s.AreaSqFt <= 0 {
 			t.Errorf("expected positive area, got %f", s.AreaSqFt)
 		}
+	}
+}
+
+func TestClipHexesToBoundary(t *testing.T) {
+	hexes := HexGrid(0, 0, 500, 500, 100)
+	// Boundary covers only part of the hex grid
+	boundary := makeRect(50, 50, 250, 250)
+	clipped := ClipHexesToBoundary(hexes, boundary, nil)
+	if len(clipped) == 0 {
+		t.Error("expected some hexes after clipping")
+	}
+	if len(clipped) >= len(hexes) {
+		t.Error("expected fewer hexes after clipping to smaller boundary")
+	}
+}
+
+func BenchmarkComputeHexStats(b *testing.B) {
+	// Realistic workload: grid of hexes + scattered rectangles as union
+	hexes := HexGrid(0, 0, 10000, 10000, 100) // ~4400 hexes
+	var geoms []geom.Geometry
+	for i := range 100 {
+		x := float64(i%10) * 1000
+		y := float64(i/10) * 1000
+		geoms = append(geoms, makeRect(x, y, x+200, y+50))
+	}
+	union, err := UnionAll(geoms)
+	if err != nil {
+		b.Fatal(err)
+	}
+	proj := &UTMProjector{Zone: 10, Northern: true}
+
+	b.ResetTimer()
+	for range b.N {
+		ComputeHexStats(hexes, union, "roads", proj, nil)
 	}
 }

@@ -3,6 +3,9 @@ package compute
 import (
 	"crypto/sha256"
 	"fmt"
+	"io"
+	"sync/atomic"
+	"time"
 
 	"pvmt/internal/config"
 	"pvmt/internal/db"
@@ -10,6 +13,7 @@ import (
 	"pvmt/internal/forecast"
 	"pvmt/internal/geo"
 	"pvmt/internal/resource"
+	"pvmt/internal/tui"
 	"pvmt/pkg/cmdutil"
 	"pvmt/pkg/iostreams"
 
@@ -60,9 +64,44 @@ func runComputeAllCities(f *cmdutil.Factory, opts *Options) error {
 	})
 }
 
-func runCompute(opts *Options) error {
-	ios := opts.IO
+// Phase indices for the TUI step checklist.
+const (
+	phaseProcess = iota
+	phaseHexGrid
+	phaseClip
+	phaseStats
+	phaseSave
+)
 
+func runCompute(opts *Options) error {
+	if opts.IO.IsTTY() {
+		return runComputeTUI(opts)
+	}
+	return doCompute(opts.IO.Out, opts.IO.ErrOut, tui.NoopNotifier{}, opts)
+}
+
+func runComputeTUI(opts *Options) error {
+	city, err := opts.CurrentCity()
+	if err != nil {
+		return fmt.Errorf("city: %w", err)
+	}
+	label := fmt.Sprintf("Computing %s · %s", opts.ResourceType.Name(), city.Name)
+	steps := []tui.Step{
+		{Name: "Processing features"},
+		{Name: "Generating hex grid"},
+		{Name: "Clipping hexes to boundary"},
+		{Name: "Computing hex stats"},
+		{Name: "Saving results"},
+	}
+	done := tui.DoneConfig{
+		SuccessMsg: fmt.Sprintf("%s compute complete for %s", opts.ResourceType.Name(), city.Name),
+	}
+	return tui.Run(label, steps, done, func(out io.Writer, errOut io.Writer, notify tui.PhaseNotifier) error {
+		return doCompute(out, errOut, notify, opts)
+	})
+}
+
+func doCompute(out, errOut io.Writer, notify tui.PhaseNotifier, opts *Options) error {
 	cfg, err := opts.Config()
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
@@ -93,20 +132,23 @@ func runCompute(opts *Options) error {
 	lon, lat := geo.CenterFromBBox(bbox)
 	proj := geo.NewUTMProjector(lon, lat)
 
-	fmt.Fprintf(ios.Out, "Loading %s features from database...\n", opts.ResourceType.Name())
+	// --- Phase 0: Process features ---
+	notify.PhaseStart(phaseProcess)
+
+	fmt.Fprintf(out, "Loading %s features from database...\n", opts.ResourceType.Name())
 	dbFeatures, err := store.ListFeatures(opts.ResourceType.Name())
 	if err != nil {
+		notify.PhaseDone(phaseProcess, err)
 		return fmt.Errorf("list features: %w", err)
 	}
-
 	if len(dbFeatures) == 0 {
-		fmt.Fprintf(ios.ErrOut, "No %s features in database. Run 'pvmt %s ingest' first.\n", opts.ResourceType.Name(), opts.ResourceType.Name())
+		fmt.Fprintf(errOut, "No %s features in database. Run 'pvmt %s ingest' first.\n", opts.ResourceType.Name(), opts.ResourceType.Name())
+		notify.PhaseDone(phaseProcess, fmt.Errorf("no features"))
 		return cmdutil.ErrNoResults
 	}
 
-	fmt.Fprintf(ios.Out, "Processing %d features (UTM zone %d)...\n", len(dbFeatures), proj.Zone)
+	fmt.Fprintf(out, "Processing %d features (UTM zone %d)...\n", len(dbFeatures), proj.Zone)
 
-	// Convert db.Feature to resource.Feature
 	resFeatures := make([]resource.Feature, len(dbFeatures))
 	for i, f := range dbFeatures {
 		resFeatures[i] = resource.Feature{
@@ -118,9 +160,8 @@ func runCompute(opts *Options) error {
 		}
 	}
 
-	// Partition by jurisdiction and log summary
 	parts := filter.Partition(resFeatures)
-	fmt.Fprintf(ios.Out, "  Total: %d features (%d city, %d county, %d state, %d federal)\n",
+	fmt.Fprintf(out, "  Total: %d features (%d city, %d county, %d state, %d federal)\n",
 		len(resFeatures),
 		len(parts[filter.JurisdictionCity]),
 		len(parts[filter.JurisdictionCounty]),
@@ -128,11 +169,12 @@ func runCompute(opts *Options) error {
 		len(parts[filter.JurisdictionFederal]),
 	)
 
-	// Process all features
 	gjson, areaSqFt, err := opts.ResourceType.ProcessFeatures(resFeatures, proj)
 	if err != nil {
+		notify.PhaseDone(phaseProcess, err)
 		return fmt.Errorf("process features: %w", err)
 	}
+	notify.PhaseDone(phaseProcess, nil)
 
 	areaAcres := geo.AreaAcres(areaSqFt)
 
@@ -140,7 +182,7 @@ func runCompute(opts *Options) error {
 	configHash := fmt.Sprintf("%x", sha256.Sum256(fmt.Appendf(nil, "%v", cfg)))
 	snapshot, err := store.CreateSnapshot(configHash[:16])
 	if err != nil {
-		fmt.Fprintf(ios.ErrOut, "Warning: failed to create snapshot: %v\n", err)
+		fmt.Fprintf(errOut, "Warning: failed to create snapshot: %v\n", err)
 	}
 
 	var snapshotID *int64
@@ -156,7 +198,6 @@ func runCompute(opts *Options) error {
 		GeometryJSON:   gjson,
 		SnapshotID:     snapshotID,
 	}
-
 	if err := store.SaveComputeResult(result); err != nil {
 		return fmt.Errorf("save result: %w", err)
 	}
@@ -165,26 +206,26 @@ func runCompute(opts *Options) error {
 	cohortStats := buildCohortStats(opts.ResourceType, resFeatures, areaSqFt, snapshotID, proj)
 	if len(cohortStats) > 0 {
 		if err := store.SaveCohortStats(cohortStats); err != nil {
-			fmt.Fprintf(ios.ErrOut, "Warning: failed to save cohort stats: %v\n", err)
+			fmt.Fprintf(errOut, "Warning: failed to save cohort stats: %v\n", err)
 		} else if opts.ResourceType.HasCohorts() {
-			fmt.Fprintf(ios.Out, "\nCohort breakdown:\n")
+			fmt.Fprintf(out, "\nCohort breakdown:\n")
 			for _, cs := range cohortStats {
 				pct := 0.0
 				if areaSqFt > 0 {
 					pct = cs.AreaSqFt / areaSqFt * 100
 				}
-				fmt.Fprintf(ios.Out, "  %-12s %6.1f%% (%.0f sq ft, %d features)\n",
+				fmt.Fprintf(out, "  %-12s %6.1f%% (%.0f sq ft, %d features)\n",
 					cs.Classification, pct, cs.AreaSqFt, cs.FeatureCount)
 			}
 		}
 	}
 
 	if !opts.CityOnly {
-		fmt.Fprintf(ios.Out, "\n%s Results (all):\n", opts.ResourceType.Name())
-		fmt.Fprintf(ios.Out, "  Features:  %d\n", len(dbFeatures))
-		fmt.Fprintf(ios.Out, "  Area:      %.0f sq ft\n", areaSqFt)
-		fmt.Fprintf(ios.Out, "  Area:      %.1f acres\n", areaAcres)
-		fmt.Fprintf(ios.Out, "  Area:      %.2f sq mi\n", areaAcres/640)
+		fmt.Fprintf(out, "\n%s Results (all):\n", opts.ResourceType.Name())
+		fmt.Fprintf(out, "  Features:  %d\n", len(dbFeatures))
+		fmt.Fprintf(out, "  Area:      %.0f sq ft\n", areaSqFt)
+		fmt.Fprintf(out, "  Area:      %.1f acres\n", areaAcres)
+		fmt.Fprintf(out, "  Area:      %.2f sq mi\n", areaAcres/640)
 	}
 
 	// Process city-only features
@@ -192,7 +233,7 @@ func runCompute(opts *Options) error {
 	if len(cityFeatures) > 0 {
 		cityGjson, cityAreaSqFt, err := opts.ResourceType.ProcessFeatures(cityFeatures, proj)
 		if err != nil {
-			fmt.Fprintf(ios.ErrOut, "Warning: failed to process city features: %v\n", err)
+			fmt.Fprintf(errOut, "Warning: failed to process city features: %v\n", err)
 		} else {
 			cityAreaAcres := geo.AreaAcres(cityAreaSqFt)
 			cityResult := db.ComputeResult{
@@ -204,71 +245,79 @@ func runCompute(opts *Options) error {
 				SnapshotID:     snapshotID,
 			}
 			if err := store.SaveComputeResult(cityResult); err != nil {
-				fmt.Fprintf(ios.ErrOut, "Warning: failed to save city result: %v\n", err)
+				fmt.Fprintf(errOut, "Warning: failed to save city result: %v\n", err)
 			}
 
-			// Save city cohort stats
 			cityRT := &cityResourceType{ResourceType: opts.ResourceType}
 			cityCohortStats := buildCohortStats(cityRT, cityFeatures, cityAreaSqFt, snapshotID, proj)
 			if len(cityCohortStats) > 0 {
 				if err := store.SaveCohortStats(cityCohortStats); err != nil {
-					fmt.Fprintf(ios.ErrOut, "Warning: failed to save city cohort stats: %v\n", err)
+					fmt.Fprintf(errOut, "Warning: failed to save city cohort stats: %v\n", err)
 				} else if opts.ResourceType.HasCohorts() {
-					fmt.Fprintf(ios.Out, "\nCity cohort breakdown:\n")
+					fmt.Fprintf(out, "\nCity cohort breakdown:\n")
 					for _, cs := range cityCohortStats {
 						pct := 0.0
 						if cityAreaSqFt > 0 {
 							pct = cs.AreaSqFt / cityAreaSqFt * 100
 						}
-						fmt.Fprintf(ios.Out, "  %-12s %6.1f%% (%.0f sq ft, %d features)\n",
+						fmt.Fprintf(out, "  %-12s %6.1f%% (%.0f sq ft, %d features)\n",
 							cs.Classification, pct, cs.AreaSqFt, cs.FeatureCount)
 					}
 				}
 			}
 
-			fmt.Fprintf(ios.Out, "\n%s Results (city only):\n", opts.ResourceType.Name())
-			fmt.Fprintf(ios.Out, "  Features:  %d\n", len(cityFeatures))
-			fmt.Fprintf(ios.Out, "  Area:      %.0f sq ft\n", cityAreaSqFt)
-			fmt.Fprintf(ios.Out, "  Area:      %.1f acres\n", cityAreaAcres)
-			fmt.Fprintf(ios.Out, "  Area:      %.2f sq mi\n", cityAreaAcres/640)
+			fmt.Fprintf(out, "\n%s Results (city only):\n", opts.ResourceType.Name())
+			fmt.Fprintf(out, "  Features:  %d\n", len(cityFeatures))
+			fmt.Fprintf(out, "  Area:      %.0f sq ft\n", cityAreaSqFt)
+			fmt.Fprintf(out, "  Area:      %.1f acres\n", cityAreaAcres)
+			fmt.Fprintf(out, "  Area:      %.2f sq mi\n", cityAreaAcres/640)
 		}
 	}
 
-	// Compute hex grid stats (using all features)
+	// --- Phase 1: Generate hex grid ---
+	notify.PhaseStart(phaseHexGrid)
+
 	hexEdge := cfg.ResolvedHexEdge(city)
-	// Project bbox corners to UTM
 	minX, minY, _ := proj.ToProjected(bbox[1], bbox[0]) // west, south
 	maxX, maxY, _ := proj.ToProjected(bbox[3], bbox[2]) // east, north
 
-	fmt.Fprintf(ios.Out, "\nComputing hex grid (edge=%.0fm)...\n", hexEdge)
+	fmt.Fprintf(out, "\nComputing hex grid (edge=%.0fm)...\n", hexEdge)
 	hexes := geo.HexGrid(minX, minY, maxX, maxY, hexEdge)
-	fmt.Fprintf(ios.Out, "  Generated %d hexes\n", len(hexes))
+	fmt.Fprintf(out, "  Generated %d hexes\n", len(hexes))
+	notify.PhaseDone(phaseHexGrid, nil)
 
-	// Clip hex grid to city boundary
+	// --- Phase 2: Clip hexes to boundary ---
+	notify.PhaseStart(phaseClip)
+
 	boundaryGeom, err := parseGeoJSONGeometry(boundaryGJSON, proj)
 	if err == nil && !boundaryGeom.IsEmpty() {
-		filtered := make([]geo.Hex, 0, len(hexes))
-		for _, h := range hexes {
-			inter, err := geom.Intersection(h.Geom, boundaryGeom)
-			if err == nil && !inter.IsEmpty() {
-				h.Geom = inter
-				filtered = append(filtered, h)
-			}
-		}
-		fmt.Fprintf(ios.Out, "  Clipped to boundary: %d hexes\n", len(filtered))
-		hexes = filtered
+		var clipCounter atomic.Int64
+		stopClipProgress := startProgressTicker(notify, phaseClip, len(hexes), &clipCounter)
+		hexes = geo.ClipHexesToBoundary(hexes, boundaryGeom, &clipCounter)
+		stopClipProgress()
+		fmt.Fprintf(out, "  Clipped to boundary: %d hexes\n", len(hexes))
 	}
+	notify.PhaseDone(phaseClip, nil)
 
-	// Re-parse the union geometry for intersection
+	// --- Phase 3: Compute hex stats ---
+	notify.PhaseStart(phaseStats)
+
 	unionGeom, err := parseGeoJSONGeometry(gjson, proj)
 	if err != nil {
+		notify.PhaseDone(phaseStats, err)
 		return fmt.Errorf("parse union geometry for hex grid: %w", err)
 	}
 
-	geoStats := geo.ComputeHexStats(hexes, unionGeom, opts.ResourceType.Name(), proj)
-	fmt.Fprintf(ios.Out, "  %d hexes with coverage\n", len(geoStats))
+	var statsCounter atomic.Int64
+	stopStatsProgress := startProgressTicker(notify, phaseStats, len(hexes), &statsCounter)
+	geoStats := geo.ComputeHexStats(hexes, unionGeom, opts.ResourceType.Name(), proj, &statsCounter)
+	stopStatsProgress()
+	fmt.Fprintf(out, "  %d hexes with coverage\n", len(geoStats))
+	notify.PhaseDone(phaseStats, nil)
 
-	// Convert to db.HexStat and save
+	// --- Phase 4: Save results ---
+	notify.PhaseStart(phaseSave)
+
 	dbStats := make([]db.HexStat, len(geoStats))
 	for i, s := range geoStats {
 		dbStats[i] = db.HexStat{
@@ -280,10 +329,39 @@ func runCompute(opts *Options) error {
 	}
 
 	if err := store.SaveHexStats(dbStats); err != nil {
-		fmt.Fprintf(ios.ErrOut, "Warning: failed to save hex stats: %v\n", err)
+		fmt.Fprintf(errOut, "Warning: failed to save hex stats: %v\n", err)
 	}
+	notify.PhaseDone(phaseSave, nil)
 
 	return nil
+}
+
+// startProgressTicker launches a goroutine that sends PhaseProgress updates
+// every 200ms based on counter / total. Returns a stop function that must be
+// called when the phase is done.
+func startProgressTicker(notify tui.PhaseNotifier, phase, total int, counter *atomic.Int64) func() {
+	if total == 0 {
+		return func() {}
+	}
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(200 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				n := int(counter.Load())
+				notify.PhaseProgress(phase, float64(n)/float64(total),
+					fmt.Sprintf("%d / %d hexes", n, total))
+			case <-done:
+				return
+			}
+		}
+	}()
+	return func() {
+		close(done)
+		notify.PhaseProgress(phase, 1.0, fmt.Sprintf("%d / %d hexes", total, total))
+	}
 }
 
 func parseGeoJSONGeometry(gjson string, proj *geo.UTMProjector) (geom.Geometry, error) {
