@@ -102,6 +102,55 @@ func TestRunStatus_AllResources(t *testing.T) {
 	}
 }
 
+func TestRunStatus_CitySummary(t *testing.T) {
+	// ~1km x 1km boundary polygon
+	boundaryGJSON := `{"type":"Polygon","coordinates":[[[-97.745,30.265],[-97.7346,30.265],[-97.7346,30.274],[-97.745,30.274],[-97.745,30.265]]]}`
+
+	store := &dbtest.MockStore{
+		StatsFunc: func(rt string) (*db.StatusInfo, error) {
+			if rt == "roads" {
+				return &db.StatusInfo{
+					ResourceType:  "roads",
+					FeatureCount:  100,
+					TotalAreaSqFt: 500000,
+					TotalAreaAcres: 11.48,
+				}, nil
+			}
+			return &db.StatusInfo{ResourceType: rt}, nil
+		},
+		GetBoundaryFunc: func() (string, error) {
+			return boundaryGJSON, nil
+		},
+	}
+	ios, _, stdout, _ := iostreams.Test()
+	ios.SetTTY(true)
+	f := &cmdutil.Factory{
+		IOStreams: ios,
+		CityDB: func() (db.Store, error) {
+			return store, nil
+		},
+	}
+
+	cmd := NewCmdStatus(f, nil, nil)
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "City Summary") {
+		t.Errorf("expected City Summary in output, got: %s", output)
+	}
+	if !strings.Contains(output, "City Area:") {
+		t.Errorf("expected City Area in output, got: %s", output)
+	}
+	if !strings.Contains(output, "Paved Area:") {
+		t.Errorf("expected Paved Area in output, got: %s", output)
+	}
+	if !strings.Contains(output, "% Paved:") {
+		t.Errorf("expected %% Paved in output, got: %s", output)
+	}
+}
+
 func TestRunStatus_NonTTY_TabSeparated(t *testing.T) {
 	store := &dbtest.MockStore{
 		StatsFunc: func(rt string) (*db.StatusInfo, error) {

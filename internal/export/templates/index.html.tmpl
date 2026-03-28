@@ -54,6 +54,7 @@
         #panel h2 { font-size: 18px; margin-bottom: 4px; }
         #panel .subtitle { color: #666; margin-bottom: 16px; font-size: 12px; }
         .stat-card { background: #f9fafb; border-radius: 6px; padding: 12px; margin-bottom: 8px; }
+        .stat-card.summary-card { background: #f0f4ff; border-left: 3px solid #6366f1; }
         .stat-card h3 { font-size: 14px; text-transform: capitalize; margin-bottom: 8px; }
         .stat-row { display: flex; justify-content: space-between; padding: 2px 0; }
         .stat-label { color: #666; font-size: 13px; }
@@ -345,6 +346,27 @@
             <h2>{{.ProjectName}}</h2>
             <div class="subtitle">Pavement & Parking Analysis | {{.SnapshotDate}}</div>
             <div id="stats">
+            {{if gt .CityAreaAcres 0}}
+                <div class="stat-card summary-card">
+                    <h3>City Summary</h3>
+                    <div class="stat-row">
+                        <span class="stat-label">City Area (acres)</span>
+                        <span class="stat-value">{{printf "%.1f" .CityAreaAcres}}</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">City Area (sq mi)</span>
+                        <span class="stat-value">{{printf "%.2f" (divf .CityAreaAcres 640)}}</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Total Paved (acres)</span>
+                        <span class="stat-value">{{printf "%.1f" .TotalPavedAcres}}</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">% Paved</span>
+                        <span class="stat-value">{{printf "%.1f" .PctPaved}}%</span>
+                    </div>
+                </div>
+            {{end}}
             {{range .Stats}}
                 <div class="stat-card">
                     <h3>{{.Type}}</h3>
@@ -621,6 +643,15 @@
                     document.querySelector('#panel h2').textContent = meta.project_name;
                     const statsEl = document.getElementById('stats');
                     let statsHTML = '';
+                    if (meta.city_area_acres && meta.city_area_acres > 0) {
+                        statsHTML +=
+                            '<div class="stat-card summary-card"><h3>City Summary</h3>' +
+                            '<div class="stat-row"><span class="stat-label">City Area (acres)</span><span class="stat-value">' + meta.city_area_acres.toFixed(1) + '</span></div>' +
+                            '<div class="stat-row"><span class="stat-label">City Area (sq mi)</span><span class="stat-value">' + (meta.city_area_acres / 640).toFixed(2) + '</span></div>' +
+                            '<div class="stat-row"><span class="stat-label">Total Paved (acres)</span><span class="stat-value">' + (meta.total_paved_acres || 0).toFixed(1) + '</span></div>' +
+                            '<div class="stat-row"><span class="stat-label">% Paved</span><span class="stat-value">' + (meta.pct_paved || 0).toFixed(1) + '%</span></div>' +
+                            '</div>';
+                    }
                     (meta.stats || []).forEach(s => {
                         const acres = s.total_area_acres;
                         statsHTML +=
@@ -1454,6 +1485,10 @@
             m.parkingFeatures = statByType.parking ? statByType.parking.feature_count : 0;
             m.sidewalksFeatures = statByType.sidewalks ? statByType.sidewalks.feature_count : 0;
 
+            // City area and pct paved from meta
+            m.cityAreaAcres = city.meta && city.meta.city_area_acres ? city.meta.city_area_acres : 0;
+            m.pctPaved = city.meta && city.meta.pct_paved ? city.meta.pct_paved : 0;
+
             // Ratios
             m.sidewalkToRoadPct = m.roadsSqFt > 0 ? (m.sidewalksSqFt / m.roadsSqFt * 100) : 0;
             m.parkingToRoadPct = m.roadsSqFt > 0 ? (m.parkingSqFt / m.roadsSqFt * 100) : 0;
@@ -1556,6 +1591,8 @@
                     '<div class="score-value">' + m.score + '</div>' +
                     '<div class="score-label">Infrastructure Score</div>' +
                     '<div class="score-breakdown">' +
+                        (m.cityAreaAcres > 0 ? '<div class="sb-row"><span>City Area</span><span>' + m.cityAreaAcres.toFixed(0) + ' acres</span></div>' : '') +
+                        (m.pctPaved > 0 ? '<div class="sb-row"><span>% Paved</span><span>' + m.pctPaved.toFixed(1) + '%</span></div>' : '') +
                         '<div class="sb-row"><span>Total Network</span><span>' + m.totalAcres.toFixed(0) + ' acres</span></div>' +
                         '<div class="sb-row"><span>Roads</span><span>' + m.roadsAcres.toFixed(0) + ' acres</span></div>' +
                         '<div class="sb-row"><span>Parking</span><span>' + m.parkingAcres.toFixed(0) + ' acres</span></div>' +
@@ -1570,6 +1607,8 @@
 
             // Leaderboards — data-driven categories
             var categories = [
+                { key: 'cityAreaAcres', label: 'City Area', award: 'Largest City', higher: true, fmt: function(v) { return v.toFixed(0) + ' acres'; }, color: '#059669' },
+                { key: 'pctPaved', label: '% Paved', award: 'Most Paved', higher: true, fmt: function(v) { return v.toFixed(1) + '%'; }, color: '#dc2626' },
                 { key: 'totalAcres', label: 'Total Managed Area', award: 'Biggest Network', higher: true, fmt: function(v) { return v.toFixed(0) + ' acres'; }, color: '#6366f1' },
                 { key: 'sidewalkToRoadPct', label: 'Walkability (Sidewalk-to-Road Ratio)', award: 'Most Walkable', higher: true, fmt: function(v) { return v.toFixed(1) + '%'; }, color: '#10b981' },
                 { key: 'parkingAcres', label: 'Parking Infrastructure', award: 'Most Parking', higher: true, fmt: function(v) { return v.toFixed(0) + ' acres'; }, color: '#3b82f6' },

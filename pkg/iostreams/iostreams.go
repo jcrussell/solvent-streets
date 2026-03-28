@@ -49,6 +49,11 @@ func (s *IOStreams) IsTTY() bool {
 	return s.isTTY
 }
 
+// SetTTY overrides the TTY flag (useful in tests).
+func (s *IOStreams) SetTTY(v bool) {
+	s.isTTY = v
+}
+
 func (s *IOStreams) IsColorEnabled() bool {
 	return s.isColorEnabled
 }

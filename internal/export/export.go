@@ -79,12 +79,17 @@ func ResourceColorsJS() template.JS {
 }
 
 type MetaJSON struct {
-	ProjectName  string     `json:"project_name"`
-	BBox         [4]float64 `json:"bbox"`
-	CenterLon    float64    `json:"center_lon"`
-	CenterLat    float64    `json:"center_lat"`
-	SnapshotDate string     `json:"snapshot_date"`
-	Stats        []StatJSON `json:"stats"`
+	ProjectName     string     `json:"project_name"`
+	BBox            [4]float64 `json:"bbox"`
+	CenterLon       float64    `json:"center_lon"`
+	CenterLat       float64    `json:"center_lat"`
+	SnapshotDate    string     `json:"snapshot_date"`
+	Stats           []StatJSON `json:"stats"`
+	CityAreaSqFt    float64    `json:"city_area_sqft,omitempty"`
+	CityAreaAcres   float64    `json:"city_area_acres,omitempty"`
+	TotalPavedSqFt  float64    `json:"total_paved_sqft,omitempty"`
+	TotalPavedAcres float64    `json:"total_paved_acres,omitempty"`
+	PctPaved        float64    `json:"pct_paved,omitempty"`
 }
 
 type StatJSON struct {
@@ -153,6 +158,26 @@ func BuildMeta(entry CityEntry) (MetaJSON, error) {
 			FeatureCount:   result.FeatureCount,
 		})
 	}
+
+	// Aggregate paved area across all resource types.
+	var totalPavedSqFt float64
+	for _, st := range meta.Stats {
+		totalPavedSqFt += st.TotalAreaSqFt
+	}
+	meta.TotalPavedSqFt = totalPavedSqFt
+	meta.TotalPavedAcres = geo.AreaAcres(totalPavedSqFt)
+
+	// Compute city boundary area and % paved.
+	if boundaryGJSON, err := entry.Store.GetBoundary(); err == nil && boundaryGJSON != "" {
+		if cityAreaSqFt, err := geo.BoundaryAreaSqFt(boundaryGJSON); err == nil && cityAreaSqFt > 0 {
+			meta.CityAreaSqFt = cityAreaSqFt
+			meta.CityAreaAcres = geo.AreaAcres(cityAreaSqFt)
+			if totalPavedSqFt > 0 {
+				meta.PctPaved = totalPavedSqFt / cityAreaSqFt * 100
+			}
+		}
+	}
+
 	return meta, nil
 }
 

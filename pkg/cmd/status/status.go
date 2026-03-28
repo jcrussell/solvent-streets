@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"pvmt/internal/db"
+	"pvmt/internal/geo"
 	"pvmt/internal/resource"
 	"pvmt/pkg/cmdutil"
 	"pvmt/pkg/iostreams"
@@ -118,6 +119,26 @@ func runStatus(opts *Options) error {
 	}
 	if err := tp.Render(); err != nil {
 		return err
+	}
+
+	// Show city summary (TTY only)
+	if ios.IsTTY() {
+		if boundaryGJSON, err := store.GetBoundary(); err == nil && boundaryGJSON != "" {
+			if cityAreaSqFt, err := geo.BoundaryAreaSqFt(boundaryGJSON); err == nil && cityAreaSqFt > 0 {
+				cityAreaAcres := geo.AreaAcres(cityAreaSqFt)
+				var totalPavedSqFt float64
+				for _, r := range rows {
+					totalPavedSqFt += r.AreaSqFt
+				}
+				pavedAcres := geo.AreaAcres(totalPavedSqFt)
+				fmt.Fprintf(ios.Out, "\n=== City Summary ===\n")
+				fmt.Fprintf(ios.Out, "  City Area:    %.1f acres (%.2f sq mi)\n", cityAreaAcres, cityAreaAcres/640)
+				fmt.Fprintf(ios.Out, "  Paved Area:   %.1f acres (%.2f sq mi)\n", pavedAcres, pavedAcres/640)
+				if totalPavedSqFt > 0 {
+					fmt.Fprintf(ios.Out, "  %% Paved:      %.1f%%\n", totalPavedSqFt/cityAreaSqFt*100)
+				}
+			}
+		}
 	}
 
 	// Show snapshot history (TTY only)
