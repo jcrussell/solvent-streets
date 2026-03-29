@@ -1,0 +1,55 @@
+# pvmt
+
+Pure Go CLI for pavement data ingestion, hex-grid coverage analysis, PCI decay forecasting, and MapLibre visualization.
+
+- No CGO — pure Go SQLite and geometry
+- Single SQLite database, multi-city
+- WASM interactive forecast in the browser
+- Static site export or live server
+
+## Install
+
+Download a binary from [GitHub Releases](https://github.com/jcrussell/solvent-streets/releases), or build from source:
+
+```
+make build
+```
+
+## Quickstart
+
+Create `pvmt.toml`:
+
+```toml
+[[cities]]
+name = "Alameda, CA"
+overpass = true
+```
+
+Run the pipeline:
+
+```
+pvmt roads ingest
+pvmt roads compute
+pvmt serve
+```
+
+Open http://localhost:8080.
+
+Use `pvmt --help` and `pvmt <command> --help` for full usage.
+
+## Documentation
+
+- [Architecture](docs/architecture.md) — data pipeline, DI, geometry, schema, design decisions
+- [Configuration](docs/configuration.md) — config discovery, resolution, multi-city, forecast tuning
+
+## Development
+
+```
+make build    # WASM + binary (CGO_ENABLED=0)
+make test     # race detector, no external services
+make lint     # golangci-lint
+```
+
+WASM is embedded via `go:embed` and must be built before the main binary. `make build` handles this automatically.
+
+Release: push a `v*` tag. GoReleaser builds Linux/macOS (amd64/arm64) and publishes to GitHub Releases.
