@@ -18,7 +18,8 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version: "^1"
+          go-version: '1.26'
+          check-latest: true
           cache-dependency-path: go.sum
 
       - name: Build WASM (required for go:embed)
@@ -37,7 +38,8 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version: "^1"
+          go-version: '1.26'
+          check-latest: true
           cache-dependency-path: go.sum
 
       - name: Build WASM (required for go:embed)
@@ -54,7 +56,8 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version: "^1"
+          go-version: '1.26'
+          check-latest: true
           cache-dependency-path: go.sum
 
       - name: Build WASM (required for go:embed)
@@ -81,7 +84,8 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version: "^1"
+          go-version: '1.26'
+          check-latest: true
           cache-dependency-path: go.sum
 
       - name: Build WASM (required for go:embed)
@@ -101,7 +105,8 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version: "^1"
+          go-version: '1.26'
+          check-latest: true
           cache-dependency-path: go.sum
 
       - name: Build WASM (required for go:embed)
@@ -120,7 +125,8 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version: "^1"
+          go-version: '1.26'
+          check-latest: true
           cache-dependency-path: go.sum
 
       - name: Build WASM (required for go:embed)
@@ -137,7 +143,8 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version: "^1"
+          go-version: '1.26'
+          check-latest: true
           cache-dependency-path: go.sum
 
       - name: Build WASM (required for go:embed)
