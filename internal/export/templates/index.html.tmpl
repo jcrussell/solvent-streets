@@ -346,7 +346,7 @@
             <h2>{{.ProjectName}}</h2>
             <div class="subtitle">Pavement & Parking Analysis | {{.SnapshotDate}}</div>
             <div id="stats">
-            {{if gt .CityAreaSqM 0}}
+            {{if gt .CityAreaSqM 0.0}}
                 <div class="stat-card summary-card">
                     <h3>City Summary</h3>
                     <div class="stat-row">
@@ -883,6 +883,75 @@
         // Financials
         const COLORS = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899'];
 
+        // Vertical crosshair plugin: hover line + click-to-pin
+        const verticalCrosshairPlugin = {
+            id: 'verticalCrosshair',
+            afterInit(chart) {
+                chart.$crosshair = { x: null, pinnedX: null, pinnedIndex: null };
+            },
+            afterEvent(chart, args) {
+                if (chart.config.options.plugins?.verticalCrosshair === false) return;
+                const evt = args.event;
+                const area = chart.chartArea;
+                if (!area) return;
+                const inArea = evt.x >= area.left && evt.x <= area.right &&
+                               evt.y >= area.top && evt.y <= area.bottom;
+                if (evt.type === 'mousemove') {
+                    chart.$crosshair.x = inArea ? evt.x : null;
+                    chart.canvas.style.cursor = inArea ? 'crosshair' : 'default';
+                    args.changed = true;
+                }
+                if (evt.type === 'mouseout') {
+                    chart.$crosshair.x = null;
+                    chart.canvas.style.cursor = 'default';
+                    args.changed = true;
+                }
+                if (evt.type === 'click' && inArea) {
+                    const xScale = chart.scales.x;
+                    const idx = xScale.getValueForPixel(evt.x);
+                    const snapped = xScale.getPixelForValue(idx);
+                    if (chart.$crosshair.pinnedIndex === idx) {
+                        chart.$crosshair.pinnedX = null;
+                        chart.$crosshair.pinnedIndex = null;
+                    } else {
+                        chart.$crosshair.pinnedX = snapped;
+                        chart.$crosshair.pinnedIndex = idx;
+                    }
+                    args.changed = true;
+                }
+            },
+            afterDraw(chart) {
+                const cs = chart.$crosshair;
+                if (!cs) return;
+                if (chart.config.options.plugins?.verticalCrosshair === false) return;
+                const area = chart.chartArea;
+                const ctx = chart.ctx;
+                if (cs.pinnedX !== null) {
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.moveTo(cs.pinnedX, area.top);
+                    ctx.lineTo(cs.pinnedX, area.bottom);
+                    ctx.lineWidth = 1.5;
+                    ctx.strokeStyle = 'rgba(100, 100, 100, 0.8)';
+                    ctx.setLineDash([]);
+                    ctx.stroke();
+                    ctx.restore();
+                }
+                if (cs.x !== null && (cs.pinnedX === null || Math.abs(cs.x - cs.pinnedX) > 3)) {
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.moveTo(cs.x, area.top);
+                    ctx.lineTo(cs.x, area.bottom);
+                    ctx.lineWidth = 1;
+                    ctx.strokeStyle = 'rgba(100, 100, 100, 0.4)';
+                    ctx.setLineDash([4, 4]);
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            }
+        };
+        Chart.register(verticalCrosshairPlugin);
+
         function fmt$(n) {
             if (n >= 1e9) return '$' + (n/1e9).toFixed(1) + 'B';
             if (n >= 1e6) return '$' + (n/1e6).toFixed(1) + 'M';
@@ -947,7 +1016,7 @@
                             pointRadius: 0
                         }))
                     },
-                    options: { responsive: true, scales: { y: { min: 0, max: 100, title: { display: true, text: 'PCI' } } }, plugins: { legend: { position: 'bottom' } } }
+                    options: { responsive: true, interaction: { mode: 'index', intersect: false }, scales: { y: { min: 0, max: 100, title: { display: true, text: 'PCI' } } }, plugins: { legend: { position: 'bottom' } } }
                 }));
             }
 
@@ -970,7 +1039,7 @@
                             pointRadius: 0
                         }))
                     },
-                    options: { responsive: true, scales: { y: { title: { display: true, text: 'Dollars ($)' }, ticks: { callback: v => fmt$(v) } } }, plugins: { legend: { position: 'bottom' } } }
+                    options: { responsive: true, interaction: { mode: 'index', intersect: false }, scales: { y: { title: { display: true, text: 'Dollars ($)' }, ticks: { callback: v => fmt$(v) } } }, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + fmt$(ctx.parsed.y) } } } }
                 }));
             }
 
@@ -996,7 +1065,7 @@
                             };
                         })
                     },
-                    options: { responsive: true, scales: { y: { title: { display: true, text: 'Dollars ($)' }, ticks: { callback: v => fmt$(v) } } }, plugins: { legend: { position: 'bottom' } } }
+                    options: { responsive: true, interaction: { mode: 'index', intersect: false }, scales: { y: { title: { display: true, text: 'Dollars ($)' }, ticks: { callback: v => fmt$(v) } } }, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + fmt$(ctx.parsed.y) } } } }
                 }));
             }
 
@@ -1021,6 +1090,7 @@
                         responsive: true,
                         scales: { y: { title: { display: true, text: 'Dollars ($)' }, ticks: { callback: v => fmt$(v) } } },
                         plugins: {
+                            verticalCrosshair: false,
                             legend: {
                                 display: true,
                                 position: 'bottom',
@@ -1693,7 +1763,7 @@
                 options: {
                     responsive: true,
                     scales: { x: { stacked: true }, y: { stacked: true, title: { display: true, text: areaLargeUnit().charAt(0).toUpperCase() + areaLargeUnit().slice(1) } } },
-                    plugins: { legend: { position: 'top' } }
+                    plugins: { verticalCrosshair: false, legend: { position: 'top' } }
                 }
             }));
 
@@ -1726,6 +1796,7 @@
                              ticks: { callback: function(v) { return v + '%'; } } }
                     },
                     plugins: {
+                        verticalCrosshair: false,
                         legend: { position: 'top' },
                         tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ' + ctx.raw.toFixed(1) + '%'; } } }
                     }
@@ -1762,7 +1833,8 @@
                             ticks: { callback: function(v) { return v >= 1e9 ? '$' + (v/1e9).toFixed(1) + 'B' : '$' + (v/1e6).toFixed(0) + 'M'; } }
                         }
                     },
-                    plugins: { legend: { position: 'top' } }
+                    plugins: { legend: { position: 'top' } },
+                    interaction: { mode: 'index', intersect: false }
                 }
             }));
 
@@ -1798,6 +1870,7 @@
                         }
                     },
                     plugins: {
+                        verticalCrosshair: false,
                         legend: { position: 'top' },
                         tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': $' + (ctx.raw/1e6).toFixed(1) + 'M'; } } }
                     }
