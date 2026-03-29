@@ -8,9 +8,6 @@ import (
 	"github.com/peterstace/simplefeatures/geom"
 )
 
-// US survey foot
-const usSurveyFoot = 1200.0 / 3937.0
-
 // BufferLineString buffers a projected linestring by width/2 with flat end caps.
 // Coordinates must already be in the projected coordinate system.
 func BufferLineString(coords [][2]float64, widthProjected float64) (geom.Geometry, error) {
@@ -50,21 +47,6 @@ func UnionAll(geometries []geom.Geometry) (geom.Geometry, error) {
 // AreaInProjectedUnits returns the raw area in the projector's coordinate units squared.
 func AreaInProjectedUnits(g geom.Geometry) float64 {
 	return g.Area()
-}
-
-// AreaAcres converts square feet to acres.
-func AreaAcres(sqft float64) float64 {
-	return sqft / 43560.0
-}
-
-// AreaSqFtFromProjected converts area from projected units to square feet.
-// For UTM (meters), converts sq meters to sq feet. For Lambert (feet), returns as-is.
-func AreaSqFtFromProjected(area float64, proj Projector) float64 {
-	if proj.Unit() == "meters" {
-		// 1 meter = 3.28084 feet, 1 sq meter = 10.7639 sq feet
-		return area * 10.763910417
-	}
-	return area // already in sq feet
 }
 
 // GeometryToGeoJSON converts a geometry to GeoJSON using the given projector.
@@ -307,10 +289,3 @@ func projectCoords(coords [][2]float64, proj Projector) ([][2]float64, error) {
 	return projected, nil
 }
 
-// WidthInProjectedUnits converts a width in meters to the projector's units.
-func WidthInProjectedUnits(widthMeters float64, proj Projector) float64 {
-	if proj.Unit() == "feet" {
-		return widthMeters / usSurveyFoot
-	}
-	return widthMeters // already in meters for UTM
-}

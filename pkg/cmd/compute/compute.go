@@ -14,6 +14,7 @@ import (
 	"pvmt/internal/geo"
 	"pvmt/internal/resource"
 	"pvmt/internal/tui"
+	"pvmt/internal/units"
 	"pvmt/pkg/cmdutil"
 	"pvmt/pkg/iostreams"
 
@@ -26,6 +27,7 @@ type Options struct {
 	CityDB       func() (db.Store, error)
 	Config       func() (*config.Config, error)
 	CurrentCity  func() (*config.CityConfig, error)
+	UnitSystem   func() units.System
 	ResourceType resource.ResourceType
 	CityOnly     bool
 }
@@ -36,6 +38,7 @@ func NewCmdCompute(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Opti
 		CityDB:       f.CityDB,
 		Config:       f.Config,
 		CurrentCity:  f.CurrentCity,
+		UnitSystem:   f.UnitSystem,
 		ResourceType: rt,
 	}
 
@@ -169,14 +172,14 @@ func doCompute(out, errOut io.Writer, notify tui.PhaseNotifier, opts *Options) e
 		len(parts[filter.JurisdictionFederal]),
 	)
 
-	gjson, areaSqFt, err := opts.ResourceType.ProcessFeatures(resFeatures, proj)
+	gjson, areaSqM, err := opts.ResourceType.ProcessFeatures(resFeatures, proj)
 	if err != nil {
 		notify.PhaseDone(phaseProcess, err)
 		return fmt.Errorf("process features: %w", err)
 	}
 	notify.PhaseDone(phaseProcess, nil)
 
-	areaAcres := geo.AreaAcres(areaSqFt)
+	sys := opts.UnitSystem()
 
 	// Create snapshot
 	configHash := fmt.Sprintf("%x", sha256.Sum256(fmt.Appendf(nil, "%v", cfg)))
@@ -191,19 +194,18 @@ func doCompute(out, errOut io.Writer, notify tui.PhaseNotifier, opts *Options) e
 	}
 
 	result := db.ComputeResult{
-		ResourceType:   opts.ResourceType.Name(),
-		TotalAreaSqFt:  areaSqFt,
-		TotalAreaAcres: areaAcres,
-		FeatureCount:   len(dbFeatures),
-		GeometryJSON:   gjson,
-		SnapshotID:     snapshotID,
+		ResourceType: opts.ResourceType.Name(),
+		TotalAreaSqM: areaSqM,
+		FeatureCount: len(dbFeatures),
+		GeometryJSON: gjson,
+		SnapshotID:   snapshotID,
 	}
 	if err := store.SaveComputeResult(result); err != nil {
 		return fmt.Errorf("save result: %w", err)
 	}
 
 	// Save cohort stats
-	cohortStats := buildCohortStats(opts.ResourceType, resFeatures, areaSqFt, snapshotID, proj)
+	cohortStats := buildCohortStats(opts.ResourceType, resFeatures, areaSqM, snapshotID, proj)
 	if len(cohortStats) > 0 {
 		if err := store.SaveCohortStats(cohortStats); err != nil {
 			fmt.Fprintf(errOut, "Warning: failed to save cohort stats: %v\n", err)
@@ -211,11 +213,11 @@ func doCompute(out, errOut io.Writer, notify tui.PhaseNotifier, opts *Options) e
 			fmt.Fprintf(out, "\nCohort breakdown:\n")
 			for _, cs := range cohortStats {
 				pct := 0.0
-				if areaSqFt > 0 {
-					pct = cs.AreaSqFt / areaSqFt * 100
+				if areaSqM > 0 {
+					pct = cs.AreaSqM / areaSqM * 100
 				}
-				fmt.Fprintf(out, "  %-12s %6.1f%% (%.0f sq ft, %d features)\n",
-					cs.Classification, pct, cs.AreaSqFt, cs.FeatureCount)
+				fmt.Fprintf(out, "  %-12s %6.1f%% (%s, %d features)\n",
+					cs.Classification, pct, units.FormatArea(cs.AreaSqM, sys), cs.FeatureCount)
 			}
 		}
 	}
@@ -223,33 +225,31 @@ func doCompute(out, errOut io.Writer, notify tui.PhaseNotifier, opts *Options) e
 	if !opts.CityOnly {
 		fmt.Fprintf(out, "\n%s Results (all):\n", opts.ResourceType.Name())
 		fmt.Fprintf(out, "  Features:  %d\n", len(dbFeatures))
-		fmt.Fprintf(out, "  Area:      %.0f sq ft\n", areaSqFt)
-		fmt.Fprintf(out, "  Area:      %.1f acres\n", areaAcres)
-		fmt.Fprintf(out, "  Area:      %.2f sq mi\n", areaAcres/640)
+		fmt.Fprintf(out, "  Area:      %s\n", units.FormatArea(areaSqM, sys))
+		fmt.Fprintf(out, "  Area:      %s\n", units.FormatAreaLarge(areaSqM, sys))
+		fmt.Fprintf(out, "  Area:      %s\n", units.FormatAreaVeryLarge(areaSqM, sys))
 	}
 
 	// Process city-only features
 	cityFeatures := parts[filter.JurisdictionCity]
 	if len(cityFeatures) > 0 {
-		cityGjson, cityAreaSqFt, err := opts.ResourceType.ProcessFeatures(cityFeatures, proj)
+		cityGjson, cityAreaSqM, err := opts.ResourceType.ProcessFeatures(cityFeatures, proj)
 		if err != nil {
 			fmt.Fprintf(errOut, "Warning: failed to process city features: %v\n", err)
 		} else {
-			cityAreaAcres := geo.AreaAcres(cityAreaSqFt)
 			cityResult := db.ComputeResult{
-				ResourceType:   opts.ResourceType.Name() + ":city",
-				TotalAreaSqFt:  cityAreaSqFt,
-				TotalAreaAcres: cityAreaAcres,
-				FeatureCount:   len(cityFeatures),
-				GeometryJSON:   cityGjson,
-				SnapshotID:     snapshotID,
+				ResourceType: opts.ResourceType.Name() + ":city",
+				TotalAreaSqM: cityAreaSqM,
+				FeatureCount: len(cityFeatures),
+				GeometryJSON: cityGjson,
+				SnapshotID:   snapshotID,
 			}
 			if err := store.SaveComputeResult(cityResult); err != nil {
 				fmt.Fprintf(errOut, "Warning: failed to save city result: %v\n", err)
 			}
 
 			cityRT := &cityResourceType{ResourceType: opts.ResourceType}
-			cityCohortStats := buildCohortStats(cityRT, cityFeatures, cityAreaSqFt, snapshotID, proj)
+			cityCohortStats := buildCohortStats(cityRT, cityFeatures, cityAreaSqM, snapshotID, proj)
 			if len(cityCohortStats) > 0 {
 				if err := store.SaveCohortStats(cityCohortStats); err != nil {
 					fmt.Fprintf(errOut, "Warning: failed to save city cohort stats: %v\n", err)
@@ -257,20 +257,20 @@ func doCompute(out, errOut io.Writer, notify tui.PhaseNotifier, opts *Options) e
 					fmt.Fprintf(out, "\nCity cohort breakdown:\n")
 					for _, cs := range cityCohortStats {
 						pct := 0.0
-						if cityAreaSqFt > 0 {
-							pct = cs.AreaSqFt / cityAreaSqFt * 100
+						if cityAreaSqM > 0 {
+							pct = cs.AreaSqM / cityAreaSqM * 100
 						}
-						fmt.Fprintf(out, "  %-12s %6.1f%% (%.0f sq ft, %d features)\n",
-							cs.Classification, pct, cs.AreaSqFt, cs.FeatureCount)
+						fmt.Fprintf(out, "  %-12s %6.1f%% (%s, %d features)\n",
+							cs.Classification, pct, units.FormatArea(cs.AreaSqM, sys), cs.FeatureCount)
 					}
 				}
 			}
 
 			fmt.Fprintf(out, "\n%s Results (city only):\n", opts.ResourceType.Name())
 			fmt.Fprintf(out, "  Features:  %d\n", len(cityFeatures))
-			fmt.Fprintf(out, "  Area:      %.0f sq ft\n", cityAreaSqFt)
-			fmt.Fprintf(out, "  Area:      %.1f acres\n", cityAreaAcres)
-			fmt.Fprintf(out, "  Area:      %.2f sq mi\n", cityAreaAcres/640)
+			fmt.Fprintf(out, "  Area:      %s\n", units.FormatArea(cityAreaSqM, sys))
+			fmt.Fprintf(out, "  Area:      %s\n", units.FormatAreaLarge(cityAreaSqM, sys))
+			fmt.Fprintf(out, "  Area:      %s\n", units.FormatAreaVeryLarge(cityAreaSqM, sys))
 		}
 	}
 
@@ -310,7 +310,7 @@ func doCompute(out, errOut io.Writer, notify tui.PhaseNotifier, opts *Options) e
 
 	var statsCounter atomic.Int64
 	stopStatsProgress := startProgressTicker(notify, phaseStats, len(hexes), &statsCounter)
-	geoStats := geo.ComputeHexStats(hexes, unionGeom, opts.ResourceType.Name(), proj, &statsCounter)
+	geoStats := geo.ComputeHexStats(hexes, unionGeom, opts.ResourceType.Name(), &statsCounter)
 	stopStatsProgress()
 	fmt.Fprintf(out, "  %d hexes with coverage\n", len(geoStats))
 	notify.PhaseDone(phaseStats, nil)
@@ -323,7 +323,7 @@ func doCompute(out, errOut io.Writer, notify tui.PhaseNotifier, opts *Options) e
 		dbStats[i] = db.HexStat{
 			HexID:        s.HexID,
 			ResourceType: s.ResourceType,
-			AreaSqFt:     s.AreaSqFt,
+			AreaSqM:      s.AreaSqM,
 			PctCovered:   s.PctCovered,
 		}
 	}
@@ -375,12 +375,12 @@ func parseGeoJSONGeometry(gjson string, proj *geo.UTMProjector) (geom.Geometry, 
 // buildCohortStats builds cohort stats for a resource type. For types with
 // HasCohorts()=true (e.g. roads), it computes per-classification areas.
 // Otherwise it creates a single cohort stat.
-func buildCohortStats(rt resource.ResourceType, features []resource.Feature, totalAreaSqFt float64, snapshotID *int64, proj geo.Projector) []db.CohortStat {
+func buildCohortStats(rt resource.ResourceType, features []resource.Feature, totalAreaSqM float64, snapshotID *int64, proj geo.Projector) []db.CohortStat {
 	if !rt.HasCohorts() {
 		return []db.CohortStat{{
 			ResourceType:   rt.Name(),
 			Classification: rt.Name(),
-			AreaSqFt:       totalAreaSqFt,
+			AreaSqM:        totalAreaSqM,
 			FeatureCount:   len(features),
 			SnapshotID:     snapshotID,
 		}}
@@ -405,7 +405,7 @@ func buildCohortStats(rt resource.ResourceType, features []resource.Feature, tot
 		stats = append(stats, db.CohortStat{
 			ResourceType:   rt.Name(),
 			Classification: class,
-			AreaSqFt:       totalAreaSqFt * proportion,
+			AreaSqM:        totalAreaSqM * proportion,
 			FeatureCount:   counts[class],
 			SnapshotID:     snapshotID,
 		})

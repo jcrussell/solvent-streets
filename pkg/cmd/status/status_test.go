@@ -8,13 +8,14 @@ import (
 	"pvmt/internal/db"
 	"pvmt/internal/db/dbtest"
 	"pvmt/internal/resource"
+	"pvmt/internal/units"
 	"pvmt/pkg/cmdutil"
 	"pvmt/pkg/iostreams"
 )
 
 func TestNewCmdStatus_RunFInjection(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
-	f := &cmdutil.Factory{IOStreams: ios}
+	f := &cmdutil.Factory{IOStreams: ios, UnitSystem: func() units.System { return units.Imperial }}
 	rt := &resource.Pavement{}
 
 	called := false
@@ -48,7 +49,8 @@ func TestRunStatus_SingleResource(t *testing.T) {
 	}
 	ios, _, stdout, _ := iostreams.Test()
 	f := &cmdutil.Factory{
-		IOStreams: ios,
+		IOStreams:   ios,
+		UnitSystem: func() units.System { return units.Imperial },
 		CityDB: func() (db.Store, error) {
 			return store, nil
 		},
@@ -84,7 +86,8 @@ func TestRunStatus_AllResources(t *testing.T) {
 	}
 	ios, _, stdout, _ := iostreams.Test()
 	f := &cmdutil.Factory{
-		IOStreams: ios,
+		IOStreams:   ios,
+		UnitSystem: func() units.System { return units.Imperial },
 		CityDB: func() (db.Store, error) {
 			return store, nil
 		},
@@ -110,10 +113,9 @@ func TestRunStatus_CitySummary(t *testing.T) {
 		StatsFunc: func(rt string) (*db.StatusInfo, error) {
 			if rt == "roads" {
 				return &db.StatusInfo{
-					ResourceType:  "roads",
-					FeatureCount:  100,
-					TotalAreaSqFt: 500000,
-					TotalAreaAcres: 11.48,
+					ResourceType: "roads",
+					FeatureCount: 100,
+					TotalAreaSqM: 46452,
 				}, nil
 			}
 			return &db.StatusInfo{ResourceType: rt}, nil
@@ -125,7 +127,8 @@ func TestRunStatus_CitySummary(t *testing.T) {
 	ios, _, stdout, _ := iostreams.Test()
 	ios.SetTTY(true)
 	f := &cmdutil.Factory{
-		IOStreams: ios,
+		IOStreams:   ios,
+		UnitSystem: func() units.System { return units.Imperial },
 		CityDB: func() (db.Store, error) {
 			return store, nil
 		},
@@ -163,7 +166,8 @@ func TestRunStatus_NonTTY_TabSeparated(t *testing.T) {
 	ios, _, stdout, _ := iostreams.Test()
 	// Test() returns isTTY=false by default
 	f := &cmdutil.Factory{
-		IOStreams: ios,
+		IOStreams:   ios,
+		UnitSystem: func() units.System { return units.Imperial },
 		CityDB: func() (db.Store, error) {
 			return store, nil
 		},

@@ -58,12 +58,6 @@ func TestUnionAllRemovesOverlap(t *testing.T) {
 	}
 }
 
-func TestAreaAcres(t *testing.T) {
-	if math.Abs(AreaAcres(43560)-1.0) > 0.001 {
-		t.Error("43560 sqft should be 1 acre")
-	}
-}
-
 func TestGeometryToGeoJSON_RoundTrip(t *testing.T) {
 	// Create a projected geometry (in UTM meters) and convert to GeoJSON
 	// Use UTM zone 10N coords (typical for western US)

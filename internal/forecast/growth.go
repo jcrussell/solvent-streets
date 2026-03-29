@@ -2,10 +2,10 @@ package forecast
 
 type StubGrowthEstimator struct{}
 
-func (s *StubGrowthEstimator) EstimateGrowth(currentAreaSqFt float64, years int) []float64 {
+func (s *StubGrowthEstimator) EstimateGrowth(currentAreaSqM float64, years int) []float64 {
 	result := make([]float64, years)
 	for i := range result {
-		result[i] = currentAreaSqFt
+		result[i] = currentAreaSqM
 	}
 	return result
 }
@@ -15,13 +15,13 @@ type LinearGrowthEstimator struct {
 	AnnualGrowthRate float64 // e.g. 0.01 for 1% annual growth
 }
 
-func (g *LinearGrowthEstimator) EstimateGrowth(currentAreaSqFt float64, years int) []float64 {
+func (g *LinearGrowthEstimator) EstimateGrowth(currentAreaSqM float64, years int) []float64 {
 	rate := g.AnnualGrowthRate
 	if rate <= 0 {
 		rate = 0
 	}
 	result := make([]float64, years)
-	area := currentAreaSqFt
+	area := currentAreaSqM
 	for i := range years {
 		area *= (1 + rate)
 		result[i] = area

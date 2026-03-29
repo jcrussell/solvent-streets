@@ -346,20 +346,20 @@
             <h2>{{.ProjectName}}</h2>
             <div class="subtitle">Pavement & Parking Analysis | {{.SnapshotDate}}</div>
             <div id="stats">
-            {{if gt .CityAreaAcres 0}}
+            {{if gt .CityAreaSqM 0}}
                 <div class="stat-card summary-card">
                     <h3>City Summary</h3>
                     <div class="stat-row">
-                        <span class="stat-label">City Area (acres)</span>
-                        <span class="stat-value">{{printf "%.1f" .CityAreaAcres}}</span>
+                        <span class="stat-label">City Area ({{areaLargeUnit}})</span>
+                        <span class="stat-value">{{printf "%.1f" (areaLarge .CityAreaSqM)}}</span>
                     </div>
                     <div class="stat-row">
-                        <span class="stat-label">City Area (sq mi)</span>
-                        <span class="stat-value">{{printf "%.2f" (divf .CityAreaAcres 640)}}</span>
+                        <span class="stat-label">City Area ({{areaVeryLargeUnit}})</span>
+                        <span class="stat-value">{{printf "%.2f" (areaVeryLarge .CityAreaSqM)}}</span>
                     </div>
                     <div class="stat-row">
-                        <span class="stat-label">Total Paved (acres)</span>
-                        <span class="stat-value">{{printf "%.1f" .TotalPavedAcres}}</span>
+                        <span class="stat-label">Total Paved ({{areaLargeUnit}})</span>
+                        <span class="stat-value">{{printf "%.1f" (areaLarge .TotalPavedSqM)}}</span>
                     </div>
                     <div class="stat-row">
                         <span class="stat-label">% Paved</span>
@@ -375,12 +375,12 @@
                         <span class="stat-value" id="count-{{.Type}}">{{.FeatureCount}}</span>
                     </div>
                     <div class="stat-row">
-                        <span class="stat-label">Area (acres)</span>
-                        <span class="stat-value">{{printf "%.1f" .TotalAreaAcres}}</span>
+                        <span class="stat-label">Area ({{areaLargeUnit}})</span>
+                        <span class="stat-value">{{printf "%.1f" (areaLarge .TotalAreaSqM)}}</span>
                     </div>
                     <div class="stat-row">
-                        <span class="stat-label">Area (sq mi)</span>
-                        <span class="stat-value">{{printf "%.2f" (divf .TotalAreaAcres 640)}}</span>
+                        <span class="stat-label">Area ({{areaVeryLargeUnit}})</span>
+                        <span class="stat-value">{{printf "%.2f" (areaVeryLarge .TotalAreaSqM)}}</span>
                     </div>
                 </div>
             {{end}}
@@ -447,7 +447,7 @@
                         <span>Tier</span>
                         <span>Min PCI</span>
                         <span>Max PCI</span>
-                        <span>$/sq ft</span>
+                        <span>$/unit</span>
                     </div>
                     <div id="tier-inputs"></div>
                 </div>
@@ -458,7 +458,7 @@
                 <table class="cohort-table" id="cohort-table">
                     <thead><tr>
                         <th>Classification</th>
-                        <th class="number">Area (acres)</th>
+                        <th class="number">Area</th>
                         <th class="number">Area %</th>
                         <th class="number">Decay Rate</th>
                         <th class="number">End PCI</th>
@@ -501,7 +501,7 @@
                 </div>
                 <div class="compare-charts">
                     <div class="compare-chart-card">
-                        <h3>Infrastructure Breakdown (acres)</h3>
+                        <h3>Infrastructure Breakdown</h3>
                         <canvas id="compare-area-chart"></canvas>
                     </div>
                     <div class="compare-chart-card">
@@ -542,6 +542,35 @@
         // Map
         const CENTER = [{{.CenterLon}}, {{.CenterLat}}];
         const layerColors = {{.LayerColors}};
+        const UNIT_SYSTEM = '{{.UnitSystem}}';
+
+        // Unit conversion helpers
+        const SQM_TO_SQFT = 10.763910417;
+        const SQM_TO_ACRE = SQM_TO_SQFT / 43560;
+        const SQM_TO_SQMI = SQM_TO_ACRE / 640;
+        const SQM_TO_HA = 1 / 10000;
+        const SQM_TO_SQKM = 1 / 1000000;
+
+        function toAreaLarge(sqm) {
+            return UNIT_SYSTEM === 'metric' ? sqm * SQM_TO_HA : sqm * SQM_TO_ACRE;
+        }
+        function toAreaVeryLarge(sqm) {
+            return UNIT_SYSTEM === 'metric' ? sqm * SQM_TO_SQKM : sqm * SQM_TO_SQMI;
+        }
+        function areaLargeUnit() {
+            return UNIT_SYSTEM === 'metric' ? 'ha' : 'acres';
+        }
+        function areaVeryLargeUnit() {
+            return UNIT_SYSTEM === 'metric' ? 'sq km' : 'sq mi';
+        }
+        function fmtAreaSqM(sqm) {
+            if (UNIT_SYSTEM === 'metric') return fmtNum(sqm) + ' sq m';
+            return fmtNum(sqm * SQM_TO_SQFT) + ' sq ft';
+        }
+        function fmtCostRate(cpsm) {
+            if (UNIT_SYSTEM === 'metric') return '$' + cpsm.toFixed(2) + '/sq m';
+            return '$' + (cpsm / SQM_TO_SQFT).toFixed(2) + '/sq ft';
+        }
 
         const map = new maplibregl.Map({
             container: 'map',
@@ -557,7 +586,7 @@
 
         // Hex interactivity state
         let hexDataByType = {};   // { roads: [...features], parking: [...features] }
-        let costSummary = {};     // { roads: {year1_cost, total_area_sqft}, ... }
+        let costSummary = {};     // { roads: {year1_cost, total_area_sqm}, ... }
         let activeTypes = new Set(Object.keys(layerColors));
         let savedPanelHTML = '';
 
@@ -580,9 +609,9 @@
                 for (const f of features) {
                     const hid = f.properties.hex_id;
                     if (!byHex[hid]) {
-                        byHex[hid] = { geometry: f.geometry, area_sqft: 0, pct_covered: 0, est_cost: 0 };
+                        byHex[hid] = { geometry: f.geometry, area_sqm: 0, pct_covered: 0, est_cost: 0 };
                     }
-                    byHex[hid].area_sqft += f.properties.area_sqft || 0;
+                    byHex[hid].area_sqm += f.properties.area_sqm || 0;
                     byHex[hid].pct_covered += f.properties.pct_covered || 0;
                 }
             }
@@ -590,12 +619,12 @@
             // Compute est_cost per hex
             for (const type of activeTypes) {
                 const cs = costSummary[type];
-                if (!cs || !cs.total_area_sqft) continue;
+                if (!cs || !cs.total_area_sqm) continue;
                 const features = hexDataByType[type] || [];
                 for (const f of features) {
                     const hid = f.properties.hex_id;
                     if (!byHex[hid]) continue;
-                    byHex[hid].est_cost += ((f.properties.area_sqft || 0) / cs.total_area_sqft) * cs.year1_cost;
+                    byHex[hid].est_cost += ((f.properties.area_sqm || 0) / cs.total_area_sqm) * cs.year1_cost;
                 }
             }
 
@@ -606,7 +635,7 @@
                     geometry: data.geometry,
                     properties: {
                         hex_id: hid,
-                        area_sqft: data.area_sqft,
+                        area_sqm: data.area_sqm,
                         pct_covered: Math.min(data.pct_covered, 100),
                         est_cost: data.est_cost
                     }
@@ -643,22 +672,22 @@
                     document.querySelector('#panel h2').textContent = meta.project_name;
                     const statsEl = document.getElementById('stats');
                     let statsHTML = '';
-                    if (meta.city_area_acres && meta.city_area_acres > 0) {
+                    if (meta.city_area_sqm && meta.city_area_sqm > 0) {
                         statsHTML +=
                             '<div class="stat-card summary-card"><h3>City Summary</h3>' +
-                            '<div class="stat-row"><span class="stat-label">City Area (acres)</span><span class="stat-value">' + meta.city_area_acres.toFixed(1) + '</span></div>' +
-                            '<div class="stat-row"><span class="stat-label">City Area (sq mi)</span><span class="stat-value">' + (meta.city_area_acres / 640).toFixed(2) + '</span></div>' +
-                            '<div class="stat-row"><span class="stat-label">Total Paved (acres)</span><span class="stat-value">' + (meta.total_paved_acres || 0).toFixed(1) + '</span></div>' +
+                            '<div class="stat-row"><span class="stat-label">City Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + toAreaLarge(meta.city_area_sqm).toFixed(1) + '</span></div>' +
+                            '<div class="stat-row"><span class="stat-label">City Area (' + areaVeryLargeUnit() + ')</span><span class="stat-value">' + toAreaVeryLarge(meta.city_area_sqm).toFixed(2) + '</span></div>' +
+                            '<div class="stat-row"><span class="stat-label">Total Paved (' + areaLargeUnit() + ')</span><span class="stat-value">' + toAreaLarge(meta.total_paved_sqm || 0).toFixed(1) + '</span></div>' +
                             '<div class="stat-row"><span class="stat-label">% Paved</span><span class="stat-value">' + (meta.pct_paved || 0).toFixed(1) + '%</span></div>' +
                             '</div>';
                     }
                     (meta.stats || []).forEach(s => {
-                        const acres = s.total_area_acres;
+                        const areaLargeVal = toAreaLarge(s.total_area_sqm);
                         statsHTML +=
                             '<div class="stat-card"><h3>' + s.type + '</h3>' +
                             '<div class="stat-row"><span class="stat-label">Features</span><span class="stat-value">' + s.feature_count + '</span></div>' +
-                            '<div class="stat-row"><span class="stat-label">Area (acres)</span><span class="stat-value">' + acres.toFixed(1) + '</span></div>' +
-                            '<div class="stat-row"><span class="stat-label">Area (sq mi)</span><span class="stat-value">' + (acres / 640).toFixed(2) + '</span></div>' +
+                            '<div class="stat-row"><span class="stat-label">Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + areaLargeVal.toFixed(1) + '</span></div>' +
+                            '<div class="stat-row"><span class="stat-label">Area (' + areaVeryLargeUnit() + ')</span><span class="stat-value">' + toAreaVeryLarge(s.total_area_sqm).toFixed(2) + '</span></div>' +
                             '</div>';
                     });
                     statsEl.innerHTML = statsHTML;
@@ -753,7 +782,7 @@
                                 const p = e.features[0].properties;
                                 tooltip.innerHTML =
                                     '<strong>Coverage:</strong> ' + (p.pct_covered != null ? Math.round(p.pct_covered) : 0) + '%<br>' +
-                                    '<strong>Area:</strong> ' + fmtNum(p.area_sqft || 0) + ' sq ft<br>' +
+                                    '<strong>Area:</strong> ' + fmtAreaSqM(p.area_sqm || 0) + '<br>' +
                                     '<strong>Est. Cost:</strong> ' + fmtCost(p.est_cost || 0);
                                 tooltip.style.display = 'block';
                                 tooltip.style.left = (e.point.x + 12) + 'px';
@@ -784,12 +813,12 @@
                                 const features = hexDataByType[type] || [];
                                 const match = features.find(f => f.properties.hex_id === hexId);
                                 if (!match) continue;
-                                const area = match.properties.area_sqft || 0;
+                                const area = match.properties.area_sqm || 0;
                                 const pct = match.properties.pct_covered || 0;
                                 let cost = 0;
                                 const cs = costSummary[type];
-                                if (cs && cs.total_area_sqft) {
-                                    cost = (area / cs.total_area_sqft) * cs.year1_cost;
+                                if (cs && cs.total_area_sqm) {
+                                    cost = (area / cs.total_area_sqm) * cs.year1_cost;
                                 }
                                 totalArea += area;
                                 totalPct += pct;
@@ -800,7 +829,7 @@
                             statsEl.innerHTML =
                                 '<div class="hex-detail">' +
                                 '<h3>Hex ' + hexId + '<button class="close-btn" id="close-hex">&times;</button></h3>' +
-                                '<table><tr><th>Type</th><th>Area (sqft)</th><th>Coverage</th><th>Est. Cost</th></tr>' +
+                                '<table><tr><th>Type</th><th>Area</th><th>Coverage</th><th>Est. Cost</th></tr>' +
                                 rows +
                                 '<tr class="total-row"><td>Total</td><td>' + fmtNum(totalArea) + '</td><td>' + Math.min(Math.round(totalPct), 100) + '%</td><td>' + fmtCost(totalCost) + '</td></tr>' +
                                 '</table></div>';
@@ -1019,7 +1048,7 @@
         // Column definitions for sorting: [key, type]
         var cohortColumns = [
             ['classification', 'string'],
-            ['area_sqft', 'number'],
+            ['area_sqm', 'number'],
             ['area_pct', 'number'],
             ['decay_rate', 'number'],
             ['end_pci', 'number'],
@@ -1029,12 +1058,12 @@
 
         function renderCohortBreakdown(cohorts, keepSort) {
             lastCohorts = cohorts;
-            const totalArea = cohorts.reduce((s, c) => s + c.area_sqft, 0);
+            const totalArea = cohorts.reduce((s, c) => s + c.area_sqm, 0);
 
             // Enrich with computed fields for sorting
             const enriched = cohorts.map(c => ({
                 ...c,
-                area_pct: totalArea > 0 ? c.area_sqft / totalArea * 100 : 0,
+                area_pct: totalArea > 0 ? c.area_sqm / totalArea * 100 : 0,
                 total_spend: c.total_spend || 0,
                 total_deficit: c.total_deficit || 0
             }));
@@ -1066,7 +1095,7 @@
             let totalDeficit = 0;
 
             sorted.forEach(c => {
-                const acres = c.area_sqft / 43560;
+                const areaLargeVal = toAreaLarge(c.area_sqm);
                 const pci = c.end_pci;
                 let cls = 'pci-good';
                 if (pci < 40) cls = 'pci-poor';
@@ -1078,7 +1107,7 @@
                 const tr = document.createElement('tr');
                 tr.innerHTML =
                     '<td style="text-transform:capitalize">' + c.classification + '</td>' +
-                    '<td class="number">' + acres.toFixed(1) + '</td>' +
+                    '<td class="number">' + areaLargeVal.toFixed(1) + '</td>' +
                     '<td class="number">' + c.area_pct.toFixed(1) + '%</td>' +
                     '<td class="number">' + c.decay_rate.toFixed(4) + '</td>' +
                     '<td class="number"><span class="pci-badge ' + cls + '">' + pci.toFixed(0) + '</span></td>' +
@@ -1088,12 +1117,12 @@
             });
 
             // Totals row
-            const totalAcres = totalArea / 43560;
+            const totalAreaLarge = toAreaLarge(totalArea);
             const totTr = document.createElement('tr');
             totTr.className = 'total-row';
             totTr.innerHTML =
                 '<td>Total</td>' +
-                '<td class="number">' + totalAcres.toFixed(1) + '</td>' +
+                '<td class="number">' + totalAreaLarge.toFixed(1) + '</td>' +
                 '<td class="number">100%</td>' +
                 '<td></td><td></td>' +
                 '<td class="number">' + fmtCurrency(totalSpend) + '</td>' +
@@ -1223,7 +1252,7 @@
                     '<span>' + (t.label || 'Tier ' + (i+1)) + '</span>' +
                     '<input type="number" data-tier="' + i + '" data-field="min_pci" value="' + t.min_pci + '" step="1">' +
                     '<input type="number" data-tier="' + i + '" data-field="max_pci" value="' + t.max_pci + '" step="1">' +
-                    '<input type="number" data-tier="' + i + '" data-field="cost_per_sqft" value="' + t.cost_per_sqft + '" step="0.01">';
+                    '<input type="number" data-tier="' + i + '" data-field="cost_per_sqm" value="' + t.cost_per_sqm + '" step="0.01">';
                 tierDiv.appendChild(row);
             });
             tierDiv.querySelectorAll('input').forEach(inp => {
@@ -1248,11 +1277,11 @@
             const tiers = (FORECAST_SEED.cost_tiers || []).map((t, i) => {
                 const minInput = document.querySelector('[data-tier="' + i + '"][data-field="min_pci"]');
                 const maxInput = document.querySelector('[data-tier="' + i + '"][data-field="max_pci"]');
-                const costInput = document.querySelector('[data-tier="' + i + '"][data-field="cost_per_sqft"]');
+                const costInput = document.querySelector('[data-tier="' + i + '"][data-field="cost_per_sqm"]');
                 return {
                     min_pci: minInput ? parseFloat(minInput.value) : t.min_pci,
                     max_pci: maxInput ? parseFloat(maxInput.value) : t.max_pci,
-                    cost_per_sqft: costInput ? parseFloat(costInput.value) : t.cost_per_sqft,
+                    cost_per_sqm: costInput ? parseFloat(costInput.value) : t.cost_per_sqm,
                     label: t.label
                 };
             });
@@ -1260,16 +1289,16 @@
             // Determine area and cohorts from current scope
             const activeScope = document.querySelector('#scope-toggle button.active');
             const scope = activeScope ? activeScope.dataset.scope : 'all';
-            const area = (scope === 'city' && FORECAST_SEED.city_area_sqft > 0)
-                ? FORECAST_SEED.city_area_sqft
-                : FORECAST_SEED.total_area_sqft;
+            const area = (scope === 'city' && FORECAST_SEED.city_area_sqm > 0)
+                ? FORECAST_SEED.city_area_sqm
+                : FORECAST_SEED.total_area_sqm;
             const seedCohorts = (scope === 'city' && FORECAST_SEED.city_cohorts && FORECAST_SEED.city_cohorts.length > 0)
                 ? FORECAST_SEED.city_cohorts
                 : (FORECAST_SEED.cohorts || []);
 
             // Compute baseline year-1 need to derive budget
             const baselineInput = {
-                area_sqft: area,
+                area_sqm: area,
                 initial_pci: initialPCI,
                 decay_rate: FORECAST_SEED.decay_rate,
                 growth_rate: FORECAST_SEED.growth_rate,
@@ -1287,7 +1316,7 @@
             const annualBudget = budgetPct > 0 ? year1Need * budgetPct : 0;
 
             return {
-                area_sqft: area,
+                area_sqm: area,
                 initial_pci: initialPCI,
                 decay_rate: FORECAST_SEED.decay_rate,
                 growth_rate: FORECAST_SEED.growth_rate,
@@ -1469,43 +1498,43 @@
             var statByType = {};
             if (city.meta && city.meta.stats) {
                 city.meta.stats.forEach(function(st) { statByType[st.type] = st; });
-                m.totalAcres = city.meta.stats.reduce(function(s, st) { return s + (st.total_area_acres || 0); }, 0);
-                m.totalSqFt = city.meta.stats.reduce(function(s, st) { return s + (st.total_area_sqft || 0); }, 0);
+                m.totalAreaLarge = city.meta.stats.reduce(function(s, st) { return s + toAreaLarge(st.total_area_sqm || 0); }, 0);
+                m.totalSqM = city.meta.stats.reduce(function(s, st) { return s + (st.total_area_sqm || 0); }, 0);
                 m.featureCount = city.meta.stats.reduce(function(s, st) { return s + (st.feature_count || 0); }, 0);
             } else {
-                m.totalAcres = 0; m.totalSqFt = 0; m.featureCount = 0;
+                m.totalAreaLarge = 0; m.totalSqM = 0; m.featureCount = 0;
             }
-            m.roadsAcres = statByType.roads ? statByType.roads.total_area_acres : 0;
-            m.parkingAcres = statByType.parking ? statByType.parking.total_area_acres : 0;
-            m.sidewalksAcres = statByType.sidewalks ? statByType.sidewalks.total_area_acres : 0;
-            m.roadsSqFt = statByType.roads ? statByType.roads.total_area_sqft : 0;
-            m.parkingSqFt = statByType.parking ? statByType.parking.total_area_sqft : 0;
-            m.sidewalksSqFt = statByType.sidewalks ? statByType.sidewalks.total_area_sqft : 0;
+            m.roadsAreaLarge = toAreaLarge(statByType.roads ? statByType.roads.total_area_sqm || 0 : 0);
+            m.parkingAreaLarge = toAreaLarge(statByType.parking ? statByType.parking.total_area_sqm || 0 : 0);
+            m.sidewalksAreaLarge = toAreaLarge(statByType.sidewalks ? statByType.sidewalks.total_area_sqm || 0 : 0);
+            m.roadsSqM = statByType.roads ? statByType.roads.total_area_sqm : 0;
+            m.parkingSqM = statByType.parking ? statByType.parking.total_area_sqm : 0;
+            m.sidewalksSqM = statByType.sidewalks ? statByType.sidewalks.total_area_sqm : 0;
             m.roadsFeatures = statByType.roads ? statByType.roads.feature_count : 0;
             m.parkingFeatures = statByType.parking ? statByType.parking.feature_count : 0;
             m.sidewalksFeatures = statByType.sidewalks ? statByType.sidewalks.feature_count : 0;
 
             // City area and pct paved from meta
-            m.cityAreaAcres = city.meta && city.meta.city_area_acres ? city.meta.city_area_acres : 0;
+            m.cityAreaLarge = toAreaLarge(city.meta && city.meta.city_area_sqm ? city.meta.city_area_sqm : 0);
             m.pctPaved = city.meta && city.meta.pct_paved ? city.meta.pct_paved : 0;
 
             // Ratios
-            m.sidewalkToRoadPct = m.roadsSqFt > 0 ? (m.sidewalksSqFt / m.roadsSqFt * 100) : 0;
-            m.parkingToRoadPct = m.roadsSqFt > 0 ? (m.parkingSqFt / m.roadsSqFt * 100) : 0;
+            m.sidewalkToRoadPct = m.roadsSqM > 0 ? (m.sidewalksSqM / m.roadsSqM * 100) : 0;
+            m.parkingToRoadPct = m.roadsSqM > 0 ? (m.parkingSqM / m.roadsSqM * 100) : 0;
             m.cityPct = 0;
 
             // Road cohorts from seed
             m.cohorts = {};
-            m.cityRoadsSqFt = 0;
+            m.cityRoadsSqM = 0;
             if (city.seed && city.seed.cohorts) {
                 city.seed.cohorts.forEach(function(c) {
                     if (c.classification !== 'parking' && c.classification !== 'sidewalks') {
-                        m.cohorts[c.classification] = c.area_sqft;
+                        m.cohorts[c.classification] = c.area_sqm;
                     }
                 });
             }
-            if (city.seed && city.seed.city_area_sqft && city.seed.total_area_sqft) {
-                m.cityPct = city.seed.city_area_sqft / city.seed.total_area_sqft * 100;
+            if (city.seed && city.seed.city_area_sqm && city.seed.total_area_sqm) {
+                m.cityPct = city.seed.city_area_sqm / city.seed.total_area_sqm * 100;
             }
 
             // Blended decay from cohorts (area-weighted)
@@ -1513,8 +1542,8 @@
             if (city.seed && city.seed.cohorts) {
                 var totalArea = 0, weightedDecay = 0;
                 city.seed.cohorts.forEach(function(c) {
-                    totalArea += c.area_sqft;
-                    weightedDecay += c.area_sqft * c.decay_rate;
+                    totalArea += c.area_sqm;
+                    weightedDecay += c.area_sqm * c.decay_rate;
                 });
                 m.blendedDecay = totalArea > 0 ? weightedDecay / totalArea : 0;
             }
@@ -1537,7 +1566,7 @@
                 m.year1Need = 0; m.year20Need = 0; m.endBacklog = 0;
                 m.hasForecasts = false;
             }
-            m.year1PerAcre = m.totalAcres > 0 ? m.year1Need / m.totalAcres : 0;
+            m.year1PerAreaUnit = m.totalAreaLarge > 0 ? m.year1Need / m.totalAreaLarge : 0;
 
             return m;
         }
@@ -1560,9 +1589,9 @@
             }
 
             var walkN = normalize(allMetrics, 'sidewalkToRoadPct', true);
-            var sizeN = normalize(allMetrics, 'totalAcres', true);
+            var sizeN = normalize(allMetrics, 'totalAreaLarge', true);
             var cityN = normalize(allMetrics, 'cityPct', true);
-            var costN = normalize(allMetrics, 'year1PerAcre', false);
+            var costN = normalize(allMetrics, 'year1PerAreaUnit', false);
             var decayN = normalize(allMetrics, 'blendedDecay', false);
 
             allMetrics.forEach(function(m, i) {
@@ -1591,12 +1620,12 @@
                     '<div class="score-value">' + m.score + '</div>' +
                     '<div class="score-label">Infrastructure Score</div>' +
                     '<div class="score-breakdown">' +
-                        (m.cityAreaAcres > 0 ? '<div class="sb-row"><span>City Area</span><span>' + m.cityAreaAcres.toFixed(0) + ' acres</span></div>' : '') +
+                        (m.cityAreaLarge > 0 ? '<div class="sb-row"><span>City Area</span><span>' + m.cityAreaLarge.toFixed(0) + ' ' + areaLargeUnit() + '</span></div>' : '') +
                         (m.pctPaved > 0 ? '<div class="sb-row"><span>% Paved</span><span>' + m.pctPaved.toFixed(1) + '%</span></div>' : '') +
-                        '<div class="sb-row"><span>Total Network</span><span>' + m.totalAcres.toFixed(0) + ' acres</span></div>' +
-                        '<div class="sb-row"><span>Roads</span><span>' + m.roadsAcres.toFixed(0) + ' acres</span></div>' +
-                        '<div class="sb-row"><span>Parking</span><span>' + m.parkingAcres.toFixed(0) + ' acres</span></div>' +
-                        '<div class="sb-row"><span>Sidewalks</span><span>' + m.sidewalksAcres.toFixed(1) + ' acres</span></div>' +
+                        '<div class="sb-row"><span>Total Network</span><span>' + m.totalAreaLarge.toFixed(0) + ' ' + areaLargeUnit() + '</span></div>' +
+                        '<div class="sb-row"><span>Roads</span><span>' + m.roadsAreaLarge.toFixed(0) + ' ' + areaLargeUnit() + '</span></div>' +
+                        '<div class="sb-row"><span>Parking</span><span>' + m.parkingAreaLarge.toFixed(0) + ' ' + areaLargeUnit() + '</span></div>' +
+                        '<div class="sb-row"><span>Sidewalks</span><span>' + m.sidewalksAreaLarge.toFixed(1) + ' ' + areaLargeUnit() + '</span></div>' +
                         '<div class="sb-row"><span>Sidewalk/Road</span><span>' + m.sidewalkToRoadPct.toFixed(1) + '%</span></div>' +
                         '<div class="sb-row"><span>City-Owned</span><span>' + m.cityPct.toFixed(0) + '%</span></div>' +
                         '<div class="sb-row"><span>Blended Decay</span><span>' + (m.blendedDecay * 100).toFixed(2) + '%/yr</span></div>' +
@@ -1607,15 +1636,15 @@
 
             // Leaderboards — data-driven categories
             var categories = [
-                { key: 'cityAreaAcres', label: 'City Area', award: 'Largest City', higher: true, fmt: function(v) { return v.toFixed(0) + ' acres'; }, color: '#059669' },
+                { key: 'cityAreaLarge', label: 'City Area', award: 'Largest City', higher: true, fmt: function(v) { return v.toFixed(0) + ' ' + areaLargeUnit(); }, color: '#059669' },
                 { key: 'pctPaved', label: '% Paved', award: 'Most Paved', higher: true, fmt: function(v) { return v.toFixed(1) + '%'; }, color: '#dc2626' },
-                { key: 'totalAcres', label: 'Total Managed Area', award: 'Biggest Network', higher: true, fmt: function(v) { return v.toFixed(0) + ' acres'; }, color: '#6366f1' },
+                { key: 'totalAreaLarge', label: 'Total Managed Area', award: 'Biggest Network', higher: true, fmt: function(v) { return v.toFixed(0) + ' ' + areaLargeUnit(); }, color: '#6366f1' },
                 { key: 'sidewalkToRoadPct', label: 'Walkability (Sidewalk-to-Road Ratio)', award: 'Most Walkable', higher: true, fmt: function(v) { return v.toFixed(1) + '%'; }, color: '#10b981' },
-                { key: 'parkingAcres', label: 'Parking Infrastructure', award: 'Most Parking', higher: true, fmt: function(v) { return v.toFixed(0) + ' acres'; }, color: '#3b82f6' },
+                { key: 'parkingAreaLarge', label: 'Parking Infrastructure', award: 'Most Parking', higher: true, fmt: function(v) { return v.toFixed(0) + ' ' + areaLargeUnit(); }, color: '#3b82f6' },
                 { key: 'cityPct', label: 'City Ownership Share', award: 'Most City-Owned', higher: true, fmt: function(v) { return v.toFixed(0) + '%'; }, color: '#8b5cf6' },
                 { key: 'featureCount', label: 'Total Features Tracked', award: 'Most Detailed', higher: true, fmt: function(v) { return v.toLocaleString(); }, color: '#f59e0b' },
                 { key: 'blendedDecay', label: 'Blended Decay Rate (lower is better)', award: 'Slowest Decay', higher: false, fmt: function(v) { return (v * 100).toFixed(2) + '%/yr'; }, color: '#ef4444' },
-                { key: 'year1PerAcre', label: 'Year 1 Maintenance Cost per Acre', award: 'Most Efficient', higher: false, fmt: function(v) { return '$' + (v >= 1e3 ? (v/1e3).toFixed(1) + 'K' : v.toFixed(0)); }, color: '#ec4899' },
+                { key: 'year1PerAreaUnit', label: 'Year 1 Maintenance Cost per ' + areaLargeUnit().charAt(0).toUpperCase() + areaLargeUnit().slice(1), award: 'Most Efficient', higher: false, fmt: function(v) { return '$' + (v >= 1e3 ? (v/1e3).toFixed(1) + 'K' : v.toFixed(0)); }, color: '#ec4899' },
                 { key: 'endBacklog', label: '20-Year Deferred Backlog', award: 'Least Deferred', higher: false, fmt: function(v) { return '$' + (v >= 1e9 ? (v/1e9).toFixed(2) + 'B' : (v/1e6).toFixed(1) + 'M'); }, color: '#d946ef' }
             ];
 
@@ -1656,14 +1685,14 @@
                 data: {
                     labels: allMetrics.map(function(m) { return m.name; }),
                     datasets: [
-                        { label: 'Roads', data: allMetrics.map(function(m) { return m.roadsAcres; }), backgroundColor: '#6b7280' },
-                        { label: 'Parking', data: allMetrics.map(function(m) { return m.parkingAcres; }), backgroundColor: '#3b82f6' },
-                        { label: 'Sidewalks', data: allMetrics.map(function(m) { return m.sidewalksAcres; }), backgroundColor: '#f59e0b' }
+                        { label: 'Roads', data: allMetrics.map(function(m) { return m.roadsAreaLarge; }), backgroundColor: '#6b7280' },
+                        { label: 'Parking', data: allMetrics.map(function(m) { return m.parkingAreaLarge; }), backgroundColor: '#3b82f6' },
+                        { label: 'Sidewalks', data: allMetrics.map(function(m) { return m.sidewalksAreaLarge; }), backgroundColor: '#f59e0b' }
                     ]
                 },
                 options: {
                     responsive: true,
-                    scales: { x: { stacked: true }, y: { stacked: true, title: { display: true, text: 'Acres' } } },
+                    scales: { x: { stacked: true }, y: { stacked: true, title: { display: true, text: areaLargeUnit().charAt(0).toUpperCase() + areaLargeUnit().slice(1) } } },
                     plugins: { legend: { position: 'top' } }
                 }
             }));

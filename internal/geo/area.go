@@ -1,7 +1,7 @@
 package geo
 
-// BoundaryAreaSqFt computes the area in square feet of a GeoJSON boundary polygon.
-func BoundaryAreaSqFt(boundaryGJSON string) (float64, error) {
+// BoundaryAreaSqM computes the area in square meters of a GeoJSON boundary polygon.
+func BoundaryAreaSqM(boundaryGJSON string) (float64, error) {
 	bbox, err := BBoxFromGeoJSON(boundaryGJSON)
 	if err != nil {
 		return 0, err
@@ -15,5 +15,5 @@ func BoundaryAreaSqFt(boundaryGJSON string) (float64, error) {
 	if g.IsEmpty() {
 		return 0, nil
 	}
-	return AreaSqFtFromProjected(AreaInProjectedUnits(g), proj), nil
+	return AreaInProjectedUnits(g), nil
 }

@@ -8,6 +8,7 @@ import (
 
 	"pvmt/internal/config"
 	"pvmt/internal/db"
+	"pvmt/internal/units"
 	"pvmt/pkg/iostreams"
 
 	"github.com/spf13/cobra"
@@ -23,6 +24,7 @@ type Factory struct {
 	CurrentCity    func() (*config.CityConfig, error)
 	CityDB         func() (db.Store, error)
 	CityFlagSet    func() bool
+	UnitSystem     func() units.System
 }
 
 // AddCityOverride registers a --city/-c flag on the command and wraps

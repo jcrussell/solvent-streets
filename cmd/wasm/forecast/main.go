@@ -15,7 +15,7 @@ import (
 
 // wasmInput mirrors the JSON structure sent from the browser controls.
 type wasmInput struct {
-	AreaSqFt     float64         `json:"area_sqft"`
+	AreaSqM     float64         `json:"area_sqm"`
 	InitialPCI   float64         `json:"initial_pci"`
 	DecayRate    float64         `json:"decay_rate"`
 	GrowthRate   float64         `json:"growth_rate"`
@@ -28,14 +28,14 @@ type wasmInput struct {
 
 type wasmCohort struct {
 	Classification string  `json:"classification"`
-	AreaSqFt       float64 `json:"area_sqft"`
+	AreaSqM       float64 `json:"area_sqm"`
 	DecayRate      float64 `json:"decay_rate"`
 }
 
 type wasmCostTier struct {
 	MinPCI      float64 `json:"min_pci"`
 	MaxPCI      float64 `json:"max_pci"`
-	CostPerSqFt float64 `json:"cost_per_sqft"`
+	CostPerSqM float64 `json:"cost_per_sqm"`
 	Label       string  `json:"label"`
 }
 
@@ -57,7 +57,7 @@ func simulateForecast(_ js.Value, args []js.Value) any {
 		tiers = append(tiers, forecast.CostTier{
 			MinPCI:      t.MinPCI,
 			MaxPCI:      t.MaxPCI,
-			CostPerSqFt: t.CostPerSqFt,
+			CostPerSqM: t.CostPerSqM,
 			Label:       t.Label,
 		})
 	}
@@ -83,7 +83,7 @@ func simulateForecast(_ js.Value, args []js.Value) any {
 		for _, c := range input.Cohorts {
 			cohorts = append(cohorts, forecast.Cohort{
 				Classification: c.Classification,
-				AreaSqFt:       c.AreaSqFt,
+				AreaSqM:       c.AreaSqM,
 				DecayRate:      c.DecayRate,
 				InitialPCI:     input.InitialPCI,
 			})
@@ -95,7 +95,7 @@ func simulateForecast(_ js.Value, args []js.Value) any {
 		}
 		cohorts = []forecast.Cohort{{
 			Classification: "default",
-			AreaSqFt:       input.AreaSqFt,
+			AreaSqM:       input.AreaSqM,
 			DecayRate:      decayRate,
 			InitialPCI:     input.InitialPCI,
 		}}

@@ -13,7 +13,7 @@ type Feature struct {
 type ResourceType interface {
 	Name() string
 	OverpassQuery(bbox [4]float64) string
-	ProcessFeatures(features []Feature, proj geo.Projector) (string, float64, error) // returns (unionGeoJSON, areaSqFt, error)
+	ProcessFeatures(features []Feature, proj geo.Projector) (string, float64, error) // returns (unionGeoJSON, areaSqM, error)
 	HasCohorts() bool                                                                // whether this resource type supports per-classification cohort stats
 }
 

@@ -57,11 +57,10 @@ func TestStoreComputeResult(t *testing.T) {
 	store := openTestStore(t)
 
 	result := ComputeResult{
-		ResourceType:   "roads",
-		TotalAreaSqFt:  1000000,
-		TotalAreaAcres: 22.96,
-		FeatureCount:   500,
-		GeometryJSON:   `{"type":"Polygon","coordinates":[]}`,
+		ResourceType: "roads",
+		TotalAreaSqM: 92903,
+		FeatureCount: 500,
+		GeometryJSON: `{"type":"Polygon","coordinates":[]}`,
 	}
 	if err := store.SaveComputeResult(result); err != nil {
 		t.Fatal(err)
@@ -71,8 +70,8 @@ func TestStoreComputeResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.TotalAreaSqFt != 1000000 {
-		t.Errorf("expected area 1000000, got %f", got.TotalAreaSqFt)
+	if got.TotalAreaSqM != 92903 {
+		t.Errorf("expected area 92903, got %f", got.TotalAreaSqM)
 	}
 	if got.FeatureCount != 500 {
 		t.Errorf("expected 500 features, got %d", got.FeatureCount)

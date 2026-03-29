@@ -123,9 +123,6 @@ func (u *UTMProjector) FromProjected(x, y float64) (float64, float64, error) {
 	return lonRad * 180 / math.Pi, latRad * 180 / math.Pi, nil
 }
 
-// Unit returns the projection unit name.
-func (u *UTMProjector) Unit() string { return "meters" }
-
 // meridionalArc computes the meridional arc length from the equator to latitude phi.
 func meridionalArc(phi float64) float64 {
 	e4 := e2 * e2

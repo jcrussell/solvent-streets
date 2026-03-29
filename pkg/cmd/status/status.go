@@ -7,6 +7,7 @@ import (
 	"pvmt/internal/db"
 	"pvmt/internal/geo"
 	"pvmt/internal/resource"
+	"pvmt/internal/units"
 	"pvmt/pkg/cmdutil"
 	"pvmt/pkg/iostreams"
 
@@ -16,6 +17,7 @@ import (
 type Options struct {
 	IO           *iostreams.IOStreams
 	CityDB       func() (db.Store, error)
+	UnitSystem   func() units.System
 	ResourceType resource.ResourceType // nil for global status
 	Exporter     cmdutil.Exporter
 }
@@ -25,16 +27,16 @@ type statusRow struct {
 	FeatureCount int     `json:"featureCount"`
 	LastIngest   string  `json:"lastIngest,omitempty"`
 	LastCompute  string  `json:"lastCompute,omitempty"`
-	AreaSqFt     float64 `json:"areaSqFt,omitempty"`
-	AreaAcres    float64 `json:"areaAcres,omitempty"`
+	AreaSqM      float64 `json:"areaSqM,omitempty"`
 }
 
-var statusFields = []string{"resourceType", "featureCount", "lastIngest", "lastCompute", "areaSqFt", "areaAcres"}
+var statusFields = []string{"resourceType", "featureCount", "lastIngest", "lastCompute", "areaSqM"}
 
 func NewCmdStatus(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Options) error) *cobra.Command {
 	opts := &Options{
 		IO:           f.IOStreams,
 		CityDB:       f.CityDB,
+		UnitSystem:   f.UnitSystem,
 		ResourceType: rt,
 	}
 
@@ -75,6 +77,8 @@ func runStatus(opts *Options) error {
 		types = resource.All
 	}
 
+	sys := opts.UnitSystem()
+
 	var rows []statusRow
 	for _, rt := range types {
 		info, err := store.Stats(rt.Name())
@@ -85,8 +89,7 @@ func runStatus(opts *Options) error {
 		row := statusRow{
 			ResourceType: rt.Name(),
 			FeatureCount: info.FeatureCount,
-			AreaSqFt:     info.TotalAreaSqFt,
-			AreaAcres:    info.TotalAreaAcres,
+			AreaSqM:      info.TotalAreaSqM,
 		}
 		if info.LastIngestAt != nil {
 			row.LastIngest = info.LastIngestAt.Format(time.RFC3339)
@@ -104,7 +107,7 @@ func runStatus(opts *Options) error {
 
 	// Table output
 	tp := iostreams.NewTablePrinter(ios)
-	tp.AddHeader("Resource", "Features", "Last Ingest", "Last Compute", "Area (sq ft)", "Area (acres)")
+	tp.AddHeader("Resource", "Features", "Last Ingest", "Last Compute", units.AreaLabel(sys), units.AreaLargeLabel(sys))
 	for _, r := range rows {
 		ingestStr := formatTimestamp(r.LastIngest, ios.IsTTY())
 		computeStr := formatTimestamp(r.LastCompute, ios.IsTTY())
@@ -113,8 +116,8 @@ func runStatus(opts *Options) error {
 			fmt.Sprintf("%d", r.FeatureCount),
 			ingestStr,
 			computeStr,
-			fmt.Sprintf("%.0f", r.AreaSqFt),
-			fmt.Sprintf("%.1f", r.AreaAcres),
+			fmt.Sprintf("%.0f", units.AreaValue(r.AreaSqM, sys)),
+			fmt.Sprintf("%.1f", units.AreaLargeValue(r.AreaSqM, sys)),
 		)
 	}
 	if err := tp.Render(); err != nil {
@@ -124,18 +127,16 @@ func runStatus(opts *Options) error {
 	// Show city summary (TTY only)
 	if ios.IsTTY() {
 		if boundaryGJSON, err := store.GetBoundary(); err == nil && boundaryGJSON != "" {
-			if cityAreaSqFt, err := geo.BoundaryAreaSqFt(boundaryGJSON); err == nil && cityAreaSqFt > 0 {
-				cityAreaAcres := geo.AreaAcres(cityAreaSqFt)
-				var totalPavedSqFt float64
+			if cityAreaSqM, err := geo.BoundaryAreaSqM(boundaryGJSON); err == nil && cityAreaSqM > 0 {
+				var totalPavedSqM float64
 				for _, r := range rows {
-					totalPavedSqFt += r.AreaSqFt
+					totalPavedSqM += r.AreaSqM
 				}
-				pavedAcres := geo.AreaAcres(totalPavedSqFt)
 				fmt.Fprintf(ios.Out, "\n=== City Summary ===\n")
-				fmt.Fprintf(ios.Out, "  City Area:    %.1f acres (%.2f sq mi)\n", cityAreaAcres, cityAreaAcres/640)
-				fmt.Fprintf(ios.Out, "  Paved Area:   %.1f acres (%.2f sq mi)\n", pavedAcres, pavedAcres/640)
-				if totalPavedSqFt > 0 {
-					fmt.Fprintf(ios.Out, "  %% Paved:      %.1f%%\n", totalPavedSqFt/cityAreaSqFt*100)
+				fmt.Fprintf(ios.Out, "  City Area:    %s (%s)\n", units.FormatAreaLarge(cityAreaSqM, sys), units.FormatAreaVeryLarge(cityAreaSqM, sys))
+				fmt.Fprintf(ios.Out, "  Paved Area:   %s (%s)\n", units.FormatAreaLarge(totalPavedSqM, sys), units.FormatAreaVeryLarge(totalPavedSqM, sys))
+				if totalPavedSqM > 0 {
+					fmt.Fprintf(ios.Out, "  %% Paved:      %.1f%%\n", totalPavedSqM/cityAreaSqM*100)
 				}
 			}
 		}

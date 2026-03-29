@@ -21,12 +21,11 @@ func TestHandleDataMetaJSON(t *testing.T) {
 		LatestComputeResultFunc: func(rt string) (*db.ComputeResult, error) {
 			if rt == "roads" {
 				return &db.ComputeResult{
-					ResourceType:   "roads",
-					TotalAreaSqFt:  500000,
-					TotalAreaAcres: 11.48,
-					FeatureCount:   100,
-					GeometryJSON:   `{"type":"Polygon","coordinates":[]}`,
-					ComputedAt:     time.Now(),
+					ResourceType: "roads",
+					TotalAreaSqM: 46452,
+					FeatureCount: 100,
+					GeometryJSON: `{"type":"Polygon","coordinates":[]}`,
+					ComputedAt:   time.Now(),
 				}, nil
 			}
 			return nil, fmt.Errorf("not found")
@@ -63,8 +62,8 @@ func TestHandleDataMetaJSON(t *testing.T) {
 	if len(meta.Stats) != 1 {
 		t.Fatalf("expected 1 stat, got %d", len(meta.Stats))
 	}
-	if meta.Stats[0].TotalAreaSqFt != 500000 {
-		t.Errorf("expected 500000 sqft, got %f", meta.Stats[0].TotalAreaSqFt)
+	if meta.Stats[0].TotalAreaSqM != 46452 {
+		t.Errorf("expected 46452 sqm, got %f", meta.Stats[0].TotalAreaSqM)
 	}
 	if meta.ProjectName != "Test City" {
 		t.Errorf("expected project name 'Test City', got %q", meta.ProjectName)

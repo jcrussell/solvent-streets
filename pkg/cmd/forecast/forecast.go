@@ -6,8 +6,8 @@ import (
 	"pvmt/internal/config"
 	"pvmt/internal/db"
 	fcpkg "pvmt/internal/forecast"
-	"pvmt/internal/geo"
 	"pvmt/internal/resource"
+	"pvmt/internal/units"
 	"pvmt/pkg/cmdutil"
 	"pvmt/pkg/iostreams"
 
@@ -19,11 +19,12 @@ type Options struct {
 	CityDB      func() (db.Store, error)
 	Config      func() (*config.Config, error)
 	CurrentCity func() (*config.CityConfig, error)
+	UnitSystem  func() units.System
 	Scenarios   bool
 	Exporter    cmdutil.Exporter
 }
 
-var forecastFields = []string{"resourceType", "year", "pci", "areaSqFt", "treatmentCost", "treatmentTier"}
+var forecastFields = []string{"resourceType", "year", "pci", "areaSqM", "treatmentCost", "treatmentTier"}
 
 func NewCmdForecast(f *cmdutil.Factory, runF func(*Options) error) *cobra.Command {
 	opts := &Options{
@@ -31,6 +32,7 @@ func NewCmdForecast(f *cmdutil.Factory, runF func(*Options) error) *cobra.Comman
 		CityDB:      f.CityDB,
 		Config:      f.Config,
 		CurrentCity: f.CurrentCity,
+		UnitSystem:  f.UnitSystem,
 	}
 
 	cmd := &cobra.Command{
@@ -68,7 +70,7 @@ func simulateResource(rt resource.ResourceType, cohorts []fcpkg.Cohort, years in
 			ResourceType:  rt.Name(),
 			Year:          y.Year,
 			PCI:           y.PCI,
-			AreaSqFt:      y.AreaSqFt,
+			AreaSqM:       y.AreaSqM,
 			TreatmentCost: y.AnnualNeed,
 			TreatmentTier: y.CostTier,
 		})
@@ -101,13 +103,14 @@ func runForecast(opts *Options) error {
 	var costTiers []fcpkg.CostTier
 	for _, t := range fc.CostTiers {
 		costTiers = append(costTiers, fcpkg.CostTier{
-			MinPCI:      t.MinPCI,
-			MaxPCI:      t.MaxPCI,
-			CostPerSqFt: t.CostPerSqFt,
-			Label:       t.Label,
+			MinPCI:     t.MinPCI,
+			MaxPCI:     t.MaxPCI,
+			CostPerSqM: t.CostPerSqM,
+			Label:      t.Label,
 		})
 	}
 
+	sys := opts.UnitSystem()
 	var allResults []db.ForecastResult
 
 	fmt.Fprintf(ios.Out, "Running %d-year forecast for %s...\n\n", years, city.Name)
@@ -120,7 +123,7 @@ func runForecast(opts *Options) error {
 			continue
 		}
 
-		areaSqFt := result.TotalAreaSqFt
+		areaSqM := result.TotalAreaSqM
 		currentPCI := 85.0 // assume good initial condition
 
 		// Build cohorts from stored cohort stats
@@ -129,7 +132,7 @@ func runForecast(opts *Options) error {
 		for _, st := range stats {
 			inputs = append(inputs, fcpkg.CohortInput{
 				Classification: st.Classification,
-				AreaSqFt:       st.AreaSqFt,
+				AreaSqM:        st.AreaSqM,
 			})
 		}
 		cohorts := fcpkg.BuildCohorts(inputs, currentPCI, fc.DecayRate)
@@ -140,7 +143,7 @@ func runForecast(opts *Options) error {
 			}
 			cohorts = []fcpkg.Cohort{{
 				Classification: rt.Name(),
-				AreaSqFt:       areaSqFt,
+				AreaSqM:        areaSqM,
 				DecayRate:      defaultRate,
 				InitialPCI:     currentPCI,
 			}}
@@ -152,17 +155,17 @@ func runForecast(opts *Options) error {
 		// Table output
 		if opts.Exporter == nil {
 			fmt.Fprintf(ios.Out, "=== %s ===\n", rt.Name())
-			fmt.Fprintf(ios.Out, "  Current area: %.0f sq ft (%.1f acres)\n", areaSqFt, geo.AreaAcres(areaSqFt))
+			fmt.Fprintf(ios.Out, "  Current area: %s (%s)\n", units.FormatArea(areaSqM, sys), units.FormatAreaLarge(areaSqM, sys))
 			fmt.Fprintf(ios.Out, "  Initial PCI: %.0f\n\n", currentPCI)
 
 			tp := iostreams.NewTablePrinter(ios)
-			tp.AddHeader("Year", "PCI", "Area (acres)", "Treatment Cost", "Tier")
+			tp.AddHeader("Year", "PCI", units.AreaLargeLabel(sys), "Treatment Cost", "Tier")
 			for _, y := range baseline.Years {
 				if y.Year <= 5 || y.Year%5 == 0 || y.Year == years {
 					tp.AddRow(
 						fmt.Sprintf("%d", y.Year),
 						fmt.Sprintf("%.1f", y.PCI),
-						fmt.Sprintf("%.1f", geo.AreaAcres(y.AreaSqFt)),
+						fmt.Sprintf("%.1f", units.AreaLargeValue(y.AreaSqM, sys)),
 						fmt.Sprintf("$%.0f", y.AnnualNeed),
 						y.CostTier,
 					)
@@ -179,16 +182,16 @@ func runForecast(opts *Options) error {
 				fmt.Fprintf(ios.Out, "  Cohort Breakdown:\n")
 				cp := iostreams.NewTablePrinter(ios)
 				cp.AddHeader("Classification", "Area %", "Decay Rate", "End PCI")
-				for _, fc := range baseline.FinalCohorts {
+				for _, c := range baseline.FinalCohorts {
 					areaPct := 0.0
-					if areaSqFt > 0 {
-						areaPct = fc.AreaSqFt / areaSqFt * 100
+					if areaSqM > 0 {
+						areaPct = c.AreaSqM / areaSqM * 100
 					}
 					cp.AddRow(
-						fc.Classification,
+						c.Classification,
 						fmt.Sprintf("%.1f%%", areaPct),
-						fmt.Sprintf("%.3f", fc.DecayRate),
-						fmt.Sprintf("%.1f", fc.EndPCI),
+						fmt.Sprintf("%.3f", c.DecayRate),
+						fmt.Sprintf("%.1f", c.EndPCI),
 					)
 				}
 				if err := cp.Render(); err != nil {

@@ -6,6 +6,4 @@ type Projector interface {
 	ToProjected(lon, lat float64) (x, y float64, err error)
 	// FromProjected converts projected (x, y) to WGS84 (lon, lat) degrees.
 	FromProjected(x, y float64) (lon, lat float64, err error)
-	// Unit returns the projection unit name (e.g. "feet", "meters").
-	Unit() string
 }

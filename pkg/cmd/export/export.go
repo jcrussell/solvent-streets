@@ -75,7 +75,7 @@ func runExport(opts *Options) error {
 
 	fmt.Fprintf(ios.Out, "Exporting static site to %s/...\n", opts.OutputDir)
 
-	exporter := exportpkg.New(entries, cfg, opts.OutputDir)
+	exporter := exportpkg.New(entries, cfg, opts.OutputDir, cfg.UnitSystem().String())
 	if err := exporter.Run(); err != nil {
 		return fmt.Errorf("export: %w", err)
 	}

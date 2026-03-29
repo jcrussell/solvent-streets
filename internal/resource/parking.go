@@ -50,12 +50,11 @@ func (p *Parking) ProcessFeatures(features []Feature, proj geo.Projector) (strin
 		return "", 0, fmt.Errorf("union: %w", err)
 	}
 
-	areaProjected := geo.AreaInProjectedUnits(union)
-	areaSqFt := geo.AreaSqFtFromProjected(areaProjected, proj)
+	areaSqM := geo.AreaInProjectedUnits(union)
 	gjson, err := geo.GeometryToGeoJSON(union, proj)
 	if err != nil {
-		return "", areaSqFt, fmt.Errorf("to geojson: %w", err)
+		return "", areaSqM, fmt.Errorf("to geojson: %w", err)
 	}
 
-	return gjson, areaSqFt, nil
+	return gjson, areaSqM, nil
 }

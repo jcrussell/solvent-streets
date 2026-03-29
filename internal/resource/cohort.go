@@ -10,7 +10,7 @@ import (
 // ComputeRoadCohortAreas computes per-classification union areas by buffering
 // each feature, grouping by classification, and unioning within each class.
 // This avoids inflating class areas due to intra-class overlaps.
-// Returns map[classification]unionAreaSqFt.
+// Returns map[classification]unionAreaSqM.
 func ComputeRoadCohortAreas(features []Feature, proj geo.Projector) map[string]float64 {
 	classGeoms := make(map[string][]geom.Geometry)
 
@@ -24,12 +24,11 @@ func ComputeRoadCohortAreas(features []Feature, proj geo.Projector) map[string]f
 		switch gtype {
 		case "LineString":
 			width := geo.InferWidth(f.Tags)
-			widthProjected := geo.WidthInProjectedUnits(width, proj)
 			coords := extractLineCoords(g)
 			if len(coords) < 2 {
 				continue
 			}
-			buffered, err := geo.BufferLineString(coords, widthProjected)
+			buffered, err := geo.BufferLineString(coords, width)
 			if err != nil {
 				continue
 			}
@@ -57,12 +56,12 @@ func ComputeRoadCohortAreas(features []Feature, proj geo.Projector) map[string]f
 			// Fallback: sum individual areas if union fails
 			var sum float64
 			for _, g := range geoms {
-				sum += geo.AreaSqFtFromProjected(geo.AreaInProjectedUnits(g), proj)
+				sum += geo.AreaInProjectedUnits(g)
 			}
 			areas[class] = sum
 			continue
 		}
-		areas[class] = geo.AreaSqFtFromProjected(geo.AreaInProjectedUnits(u), proj)
+		areas[class] = geo.AreaInProjectedUnits(u)
 	}
 	return areas
 }

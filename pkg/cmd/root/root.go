@@ -1,6 +1,7 @@
 package root
 
 import (
+	"pvmt/internal/units"
 	"pvmt/pkg/cmd/all"
 	"pvmt/pkg/cmd/export"
 	forecastcmd "pvmt/pkg/cmd/forecast"
@@ -25,6 +26,19 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 
 	// Register --city/-c flag on root, overriding CurrentCity
 	cmdutil.AddCityOverride(cmd, f)
+
+	// Register --units flag on root, overriding display unit system
+	cmd.PersistentFlags().String("units", "", "Display units: metric or imperial (overrides config)")
+	f.UnitSystem = func() units.System {
+		if fl := cmd.PersistentFlags().Lookup("units"); fl != nil && fl.Changed {
+			return units.ParseSystem(fl.Value.String())
+		}
+		cfg, err := f.Config()
+		if err != nil {
+			return units.Imperial
+		}
+		return cfg.UnitSystem()
+	}
 
 	// Resource commands
 	cmd.AddGroup(&cobra.Group{ID: "resource", Title: "Resource commands:"})

@@ -5,9 +5,9 @@ type PCIForecaster interface {
 }
 
 type CostProjector interface {
-	ProjectCost(areaSqFt float64, pci float64) float64
+	ProjectCost(areaSqM float64, pci float64) float64
 }
 
 type GrowthEstimator interface {
-	EstimateGrowth(currentAreaSqFt float64, years int) []float64
+	EstimateGrowth(currentAreaSqM float64, years int) []float64
 }

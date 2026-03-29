@@ -45,8 +45,7 @@ func TestComputeHexStats_NoIntersection(t *testing.T) {
 	hexes := HexGrid(0, 0, 500, 500, 100)
 	// Union geometry far away
 	rect := makeRect(10000, 10000, 10100, 10100)
-	proj := &UTMProjector{Zone: 10, Northern: true}
-	stats := ComputeHexStats(hexes, rect, "roads", proj, nil)
+	stats := ComputeHexStats(hexes, rect, "roads", nil)
 	if len(stats) != 0 {
 		t.Errorf("expected 0 stats for non-intersecting, got %d", len(stats))
 	}
@@ -56,8 +55,7 @@ func TestComputeHexStats_PartialIntersection(t *testing.T) {
 	hexes := HexGrid(0, 0, 500, 500, 100)
 	// Small rect that should intersect a few hexes
 	rect := makeRect(100, 100, 200, 200)
-	proj := &UTMProjector{Zone: 10, Northern: true}
-	stats := ComputeHexStats(hexes, rect, "roads", proj, nil)
+	stats := ComputeHexStats(hexes, rect, "roads", nil)
 	if len(stats) == 0 {
 		t.Error("expected some hex stats for intersecting geometry")
 	}
@@ -65,8 +63,8 @@ func TestComputeHexStats_PartialIntersection(t *testing.T) {
 		if s.PctCovered <= 0 || s.PctCovered > 100 {
 			t.Errorf("invalid pct_covered: %f", s.PctCovered)
 		}
-		if s.AreaSqFt <= 0 {
-			t.Errorf("expected positive area, got %f", s.AreaSqFt)
+		if s.AreaSqM <= 0 {
+			t.Errorf("expected positive area, got %f", s.AreaSqM)
 		}
 	}
 }
@@ -97,10 +95,8 @@ func BenchmarkComputeHexStats(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	proj := &UTMProjector{Zone: 10, Northern: true}
-
 	b.ResetTimer()
 	for range b.N {
-		ComputeHexStats(hexes, union, "roads", proj, nil)
+		ComputeHexStats(hexes, union, "roads", nil)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"pvmt/internal/db"
 	"pvmt/internal/db/dbtest"
 	"pvmt/internal/resource"
+	"pvmt/internal/units"
 	"pvmt/pkg/cmdutil"
 	"pvmt/pkg/iostreams"
 )
@@ -27,7 +28,7 @@ var testBoundary = `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,3
 func TestNewCmdCompute_RunFInjection(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	// Only IOStreams is needed: runF short-circuits before any other Factory field is accessed.
-	f := &cmdutil.Factory{IOStreams: ios}
+	f := &cmdutil.Factory{IOStreams: ios, UnitSystem: func() units.System { return units.Imperial }}
 	rt := &resource.Pavement{}
 
 	called := false
@@ -54,7 +55,8 @@ func TestRunCompute_NoFeatures(t *testing.T) {
 	}
 	ios, _, _, errBuf := iostreams.Test()
 	f := &cmdutil.Factory{
-		IOStreams: ios,
+		IOStreams:   ios,
+		UnitSystem: func() units.System { return units.Imperial },
 		CityDB: func() (db.Store, error) {
 			return store, nil
 		},
@@ -102,7 +104,8 @@ func TestRunCompute_Success(t *testing.T) {
 	}
 	ios, _, stdout, _ := iostreams.Test()
 	f := &cmdutil.Factory{
-		IOStreams: ios,
+		IOStreams:   ios,
+		UnitSystem: func() units.System { return units.Imperial },
 		CityDB: func() (db.Store, error) {
 			return store, nil
 		},
@@ -125,7 +128,7 @@ func TestRunCompute_Success(t *testing.T) {
 	}
 	output := stdout.String()
 	if !strings.Contains(output, "sq ft") {
-		t.Errorf("expected area output, got: %s", output)
+		t.Errorf("expected area output with imperial units, got: %s", output)
 	}
 	if savedResult == nil {
 		t.Error("expected SaveComputeResult to be called")
@@ -135,7 +138,8 @@ func TestRunCompute_Success(t *testing.T) {
 func TestRunCompute_DBError(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	f := &cmdutil.Factory{
-		IOStreams: ios,
+		IOStreams:   ios,
+		UnitSystem: func() units.System { return units.Imperial },
 		Config: func() (*config.Config, error) {
 			return testCfg, nil
 		},

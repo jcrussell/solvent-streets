@@ -9,6 +9,7 @@ import (
 
 	"pvmt/internal/export"
 	"pvmt/internal/geo"
+	"pvmt/internal/units"
 )
 
 // handleIndex renders the export template with live data.
@@ -32,8 +33,23 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sys := entry.Config.UnitSystem()
 	funcMap := template.FuncMap{
-		"divf": func(a, b float64) float64 { return a / b },
+		"divf":          func(a, b float64) float64 { return a / b },
+		"areaLarge":     func(sqm float64) float64 { return units.AreaLargeValue(sqm, sys) },
+		"areaVeryLarge": func(sqm float64) float64 { return units.AreaVeryLargeValue(sqm, sys) },
+		"areaLargeUnit": func() string {
+			if sys == units.Imperial {
+				return "acres"
+			}
+			return "ha"
+		},
+		"areaVeryLargeUnit": func() string {
+			if sys == units.Imperial {
+				return "sq mi"
+			}
+			return "sq km"
+		},
 	}
 	tmpl, err := template.New("index").Funcs(funcMap).Parse(string(tmplData))
 	if err != nil {
@@ -78,6 +94,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		LayerColors:  export.ResourceColorsJS(),
 		RawTOML:      rawTOML,
 		ResolvedTOML: export.ResolvedTOML(entry.Config),
+		UnitSystem:   entry.Config.UnitSystem().String(),
 		Cities:       cities,
 	}
 

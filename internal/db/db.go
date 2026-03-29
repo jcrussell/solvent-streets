@@ -25,29 +25,27 @@ type Feature struct {
 }
 
 type ComputeResult struct {
-	ID             int64
-	ResourceType   string
-	TotalAreaSqFt  float64
-	TotalAreaAcres float64
-	FeatureCount   int
-	GeometryJSON   string // Union GeoJSON for visualization
-	ComputedAt     time.Time
-	SnapshotID     *int64
+	ID           int64
+	ResourceType string
+	TotalAreaSqM float64
+	FeatureCount int
+	GeometryJSON string // Union GeoJSON for visualization
+	ComputedAt   time.Time
+	SnapshotID   *int64
 }
 
 type StatusInfo struct {
-	ResourceType   string
-	FeatureCount   int
-	LastIngestAt   *time.Time
-	LastComputeAt  *time.Time
-	TotalAreaSqFt  float64
-	TotalAreaAcres float64
+	ResourceType  string
+	FeatureCount  int
+	LastIngestAt  *time.Time
+	LastComputeAt *time.Time
+	TotalAreaSqM  float64
 }
 
 type HexStat struct {
 	HexID        string
 	ResourceType string
-	AreaSqFt     float64
+	AreaSqM      float64
 	PctCovered   float64
 	ComputedAt   time.Time
 	SnapshotID   *int64
@@ -64,7 +62,7 @@ type ForecastResult struct {
 	ResourceType  string    `json:"resourceType"`
 	Year          int       `json:"year"`
 	PCI           float64   `json:"pci"`
-	AreaSqFt      float64   `json:"areaSqFt"`
+	AreaSqM       float64   `json:"areaSqM"`
 	TreatmentCost float64   `json:"treatmentCost"`
 	TreatmentTier string    `json:"treatmentTier"`
 	SnapshotID    *int64    `json:"-"`
@@ -75,7 +73,7 @@ type CohortStat struct {
 	ID             int64
 	ResourceType   string
 	Classification string
-	AreaSqFt       float64
+	AreaSqM        float64
 	FeatureCount   int
 	SnapshotID     *int64
 	ComputedAt     time.Time

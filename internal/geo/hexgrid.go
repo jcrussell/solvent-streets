@@ -86,14 +86,14 @@ func hexPolygon(cx, cy, edge float64) geom.Geometry {
 type HexStat struct {
 	HexID        string
 	ResourceType string
-	AreaSqFt     float64
+	AreaSqM      float64
 	PctCovered   float64
 }
 
 // ComputeHexStats intersects each hex with the union geometry and computes
 // coverage using an R-tree spatial index and parallel workers.
 // If counter is non-nil it is incremented after each hex is processed.
-func ComputeHexStats(hexes []Hex, union geom.Geometry, resourceType string, proj Projector, counter *atomic.Int64) []HexStat {
+func ComputeHexStats(hexes []Hex, union geom.Geometry, resourceType string, counter *atomic.Int64) []HexStat {
 	idx := NewGeomIndex(union)
 
 	return ParallelMap(hexes, func(_ int, h Hex) []HexStat {
@@ -127,7 +127,7 @@ func ComputeHexStats(hexes []Hex, union geom.Geometry, resourceType string, proj
 		return []HexStat{{
 			HexID:        h.ID,
 			ResourceType: resourceType,
-			AreaSqFt:     AreaSqFtFromProjected(totalArea, proj),
+			AreaSqM:      totalArea,
 			PctCovered:   pct,
 		}}
 	}, counter)

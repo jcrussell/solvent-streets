@@ -33,12 +33,11 @@ func (p *Pavement) ProcessFeatures(features []Feature, proj geo.Projector) (stri
 		switch gtype {
 		case "LineString":
 			width := geo.InferWidth(f.Tags)
-			widthProjected := geo.WidthInProjectedUnits(width, proj)
 			coords := extractLineCoords(g)
 			if len(coords) < 2 {
 				continue
 			}
-			buffered, err := geo.BufferLineString(coords, widthProjected)
+			buffered, err := geo.BufferLineString(coords, width)
 			if err != nil {
 				continue
 			}
@@ -65,14 +64,13 @@ func (p *Pavement) ProcessFeatures(features []Feature, proj geo.Projector) (stri
 		return "", 0, fmt.Errorf("union: %w", err)
 	}
 
-	areaProjected := geo.AreaInProjectedUnits(union)
-	areaSqFt := geo.AreaSqFtFromProjected(areaProjected, proj)
+	areaSqM := geo.AreaInProjectedUnits(union)
 	gjson, err := geo.GeometryToGeoJSON(union, proj)
 	if err != nil {
-		return "", areaSqFt, fmt.Errorf("to geojson: %w", err)
+		return "", areaSqM, fmt.Errorf("to geojson: %w", err)
 	}
 
-	return gjson, areaSqFt, nil
+	return gjson, areaSqM, nil
 }
 
 func extractLineCoords(g geom.Geometry) [][2]float64 {

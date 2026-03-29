@@ -8,10 +8,13 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"pvmt/internal/units"
 )
 
 type Config struct {
 	Grid     GridConfig     `toml:"grid"`
+	Display  DisplayConfig  `toml:"display"`
 	Layers   []LayerConfig  `toml:"layers"`
 	Export   ExportConfig   `toml:"export"`
 	Forecast ForecastConfig `toml:"forecast"`
@@ -20,6 +23,15 @@ type Config struct {
 	// SourcePath is the filesystem path of the loaded pvmt.toml file.
 	// Set programmatically by Load/FindAndLoad, not a TOML field.
 	SourcePath string `toml:"-"`
+}
+
+type DisplayConfig struct {
+	Units string `toml:"units"` // "metric" or "imperial" (default: "imperial")
+}
+
+// UnitSystem returns the configured display unit system.
+func (c *Config) UnitSystem() units.System {
+	return units.ParseSystem(c.Display.Units)
 }
 
 type ExportConfig struct {
@@ -38,7 +50,7 @@ type ForecastConfig struct {
 type CostTierCfg struct {
 	MinPCI      float64 `toml:"min_pci"`
 	MaxPCI      float64 `toml:"max_pci"`
-	CostPerSqFt float64 `toml:"cost_per_sqft"`
+	CostPerSqM float64 `toml:"cost_per_sqm"`
 	Label       string  `toml:"label"`
 }
 

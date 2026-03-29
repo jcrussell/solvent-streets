@@ -20,6 +20,7 @@ import (
 	"pvmt/internal/forecast"
 	"pvmt/internal/geo"
 	"pvmt/internal/resource"
+	"pvmt/internal/units"
 )
 
 // CityEntry holds the config and store for a single city.
@@ -66,6 +67,7 @@ type TemplateData struct {
 	LayerColors  template.JS // JSON map of resource type → color
 	RawTOML      string      // original pvmt.toml contents
 	ResolvedTOML string      // config with all defaults filled in
+	UnitSystem   string      // "metric" or "imperial"
 	Cities       []CityInfo
 }
 
@@ -79,25 +81,22 @@ func ResourceColorsJS() template.JS {
 }
 
 type MetaJSON struct {
-	ProjectName     string     `json:"project_name"`
-	BBox            [4]float64 `json:"bbox"`
-	CenterLon       float64    `json:"center_lon"`
-	CenterLat       float64    `json:"center_lat"`
-	SnapshotDate    string     `json:"snapshot_date"`
-	Stats           []StatJSON `json:"stats"`
-	CityAreaSqFt    float64    `json:"city_area_sqft,omitempty"`
-	CityAreaAcres   float64    `json:"city_area_acres,omitempty"`
-	TotalPavedSqFt  float64    `json:"total_paved_sqft,omitempty"`
-	TotalPavedAcres float64    `json:"total_paved_acres,omitempty"`
-	PctPaved        float64    `json:"pct_paved,omitempty"`
+	ProjectName   string     `json:"project_name"`
+	BBox          [4]float64 `json:"bbox"`
+	CenterLon     float64    `json:"center_lon"`
+	CenterLat     float64    `json:"center_lat"`
+	SnapshotDate  string     `json:"snapshot_date"`
+	Stats         []StatJSON `json:"stats"`
+	CityAreaSqM   float64    `json:"city_area_sqm,omitempty"`
+	TotalPavedSqM float64    `json:"total_paved_sqm,omitempty"`
+	PctPaved      float64    `json:"pct_paved,omitempty"`
 }
 
 type StatJSON struct {
-	Type           string  `json:"type"`
-	Color          string  `json:"color"`
-	TotalAreaSqFt  float64 `json:"total_area_sqft"`
-	TotalAreaAcres float64 `json:"total_area_acres"`
-	FeatureCount   int     `json:"feature_count"`
+	Type         string  `json:"type"`
+	Color        string  `json:"color"`
+	TotalAreaSqM float64 `json:"total_area_sqm"`
+	FeatureCount int     `json:"feature_count"`
 }
 
 // ResourceColors maps resource type names to their display colors.
@@ -151,29 +150,26 @@ func BuildMeta(entry CityEntry) (MetaJSON, error) {
 			continue
 		}
 		meta.Stats = append(meta.Stats, StatJSON{
-			Type:           result.ResourceType,
-			Color:          ResourceColors[result.ResourceType],
-			TotalAreaSqFt:  result.TotalAreaSqFt,
-			TotalAreaAcres: result.TotalAreaAcres,
-			FeatureCount:   result.FeatureCount,
+			Type:         result.ResourceType,
+			Color:        ResourceColors[result.ResourceType],
+			TotalAreaSqM: result.TotalAreaSqM,
+			FeatureCount: result.FeatureCount,
 		})
 	}
 
 	// Aggregate paved area across all resource types.
-	var totalPavedSqFt float64
+	var totalPavedSqM float64
 	for _, st := range meta.Stats {
-		totalPavedSqFt += st.TotalAreaSqFt
+		totalPavedSqM += st.TotalAreaSqM
 	}
-	meta.TotalPavedSqFt = totalPavedSqFt
-	meta.TotalPavedAcres = geo.AreaAcres(totalPavedSqFt)
+	meta.TotalPavedSqM = totalPavedSqM
 
 	// Compute city boundary area and % paved.
 	if boundaryGJSON, err := entry.Store.GetBoundary(); err == nil && boundaryGJSON != "" {
-		if cityAreaSqFt, err := geo.BoundaryAreaSqFt(boundaryGJSON); err == nil && cityAreaSqFt > 0 {
-			meta.CityAreaSqFt = cityAreaSqFt
-			meta.CityAreaAcres = geo.AreaAcres(cityAreaSqFt)
-			if totalPavedSqFt > 0 {
-				meta.PctPaved = totalPavedSqFt / cityAreaSqFt * 100
+		if cityAreaSqM, err := geo.BoundaryAreaSqM(boundaryGJSON); err == nil && cityAreaSqM > 0 {
+			meta.CityAreaSqM = cityAreaSqM
+			if totalPavedSqM > 0 {
+				meta.PctPaved = totalPavedSqM / cityAreaSqM * 100
 			}
 		}
 	}
@@ -239,7 +235,7 @@ func BuildHexGeoJSON(entry CityEntry, proj *geo.UTMProjector) map[string]any {
 			"properties": map[string]any{
 				"hex_id":        st.HexID,
 				"resource_type": st.ResourceType,
-				"area_sqft":     st.AreaSqFt,
+				"area_sqm":      st.AreaSqM,
 				"pct_covered":   st.PctCovered,
 			},
 		})
@@ -256,10 +252,10 @@ func ConvertCostTiers(fc *config.ForecastConfig) []forecast.CostTier {
 	var tiers []forecast.CostTier
 	for _, t := range fc.CostTiers {
 		tiers = append(tiers, forecast.CostTier{
-			MinPCI:      t.MinPCI,
-			MaxPCI:      t.MaxPCI,
-			CostPerSqFt: t.CostPerSqFt,
-			Label:       t.Label,
+			MinPCI:     t.MinPCI,
+			MaxPCI:     t.MaxPCI,
+			CostPerSqM: t.CostPerSqM,
+			Label:      t.Label,
 		})
 	}
 	return tiers
@@ -267,14 +263,14 @@ func ConvertCostTiers(fc *config.ForecastConfig) []forecast.CostTier {
 
 // BuildCohortsForResource builds forecast cohorts for a resource type from the store.
 // Falls back to a single cohort if no cohort stats exist.
-func BuildCohortsForResource(rt resource.ResourceType, areaSqFt float64, store db.Store, fc *config.ForecastConfig) []forecast.Cohort {
+func BuildCohortsForResource(rt resource.ResourceType, areaSqM float64, store db.Store, fc *config.ForecastConfig) []forecast.Cohort {
 	currentPCI := 85.0
 	stats, _ := store.ListCohortStats(rt.Name())
 	var inputs []forecast.CohortInput
 	for _, st := range stats {
 		inputs = append(inputs, forecast.CohortInput{
 			Classification: st.Classification,
-			AreaSqFt:       st.AreaSqFt,
+			AreaSqM:        st.AreaSqM,
 		})
 	}
 	cohorts := forecast.BuildCohorts(inputs, currentPCI, fc.DecayRate)
@@ -285,7 +281,7 @@ func BuildCohortsForResource(rt resource.ResourceType, areaSqFt float64, store d
 		}
 		cohorts = []forecast.Cohort{{
 			Classification: rt.Name(),
-			AreaSqFt:       areaSqFt,
+			AreaSqM:        areaSqM,
 			DecayRate:      defaultRate,
 			InitialPCI:     currentPCI,
 		}}
@@ -312,7 +308,7 @@ func BuildForecastsForCity(entry CityEntry, fc *config.ForecastConfig, costTiers
 			continue
 		}
 
-		cohorts := BuildCohortsForResource(rt, result.TotalAreaSqFt, entry.Store, fc)
+		cohorts := BuildCohortsForResource(rt, result.TotalAreaSqM, entry.Store, fc)
 		rtParams := forecast.NewParamsForResource(rt.Name(), fc.GrowthRate, costTiers)
 
 		baseline := forecast.Simulate(
@@ -337,7 +333,7 @@ func BuildForecastsForCity(entry CityEntry, fc *config.ForecastConfig, costTiers
 			for _, st := range cityStats {
 				cityInputs = append(cityInputs, forecast.CohortInput{
 					Classification: st.Classification,
-					AreaSqFt:       st.AreaSqFt,
+					AreaSqM:        st.AreaSqM,
 				})
 			}
 			cityCohorts := forecast.BuildCohorts(cityInputs, 85.0, fc.DecayRate)
@@ -362,7 +358,7 @@ func BuildScenariosData(entry CityEntry, fc *config.ForecastConfig) map[string]a
 	params := forecast.NewParams(fc.GrowthRate, costTiers)
 	years := fc.ResolvedYears()
 
-	var totalAreaSqFt, cityAreaSqFt float64
+	var totalAreaSqM, cityAreaSqM float64
 	var cityFeatureCount, allFeatureCount int
 
 	for _, rt := range resource.All {
@@ -370,12 +366,12 @@ func BuildScenariosData(entry CityEntry, fc *config.ForecastConfig) map[string]a
 		if err != nil || result == nil {
 			continue
 		}
-		totalAreaSqFt += result.TotalAreaSqFt
+		totalAreaSqM += result.TotalAreaSqM
 		allFeatureCount += result.FeatureCount
 
 		cityResult, err := entry.Store.LatestComputeResult(rt.Name() + ":city")
 		if err == nil && cityResult != nil {
-			cityAreaSqFt += cityResult.TotalAreaSqFt
+			cityAreaSqM += cityResult.TotalAreaSqM
 			cityFeatureCount += cityResult.FeatureCount
 		}
 	}
@@ -387,17 +383,17 @@ func BuildScenariosData(entry CityEntry, fc *config.ForecastConfig) map[string]a
 	}
 	allCohorts := []forecast.Cohort{{
 		Classification: "all",
-		AreaSqFt:       totalAreaSqFt,
+		AreaSqM:        totalAreaSqM,
 		DecayRate:      defaultRate,
 		InitialPCI:     currentPCI,
 	}}
 	allScenarios := BuildScenarios(allCohorts, years, params)
 
 	var cityScenarios []forecast.ScenarioResult
-	if cityAreaSqFt > 0 {
+	if cityAreaSqM > 0 {
 		cityCohorts := []forecast.Cohort{{
 			Classification: "city",
-			AreaSqFt:       cityAreaSqFt,
+			AreaSqM:        cityAreaSqM,
 			DecayRate:      defaultRate,
 			InitialPCI:     currentPCI,
 		}}
@@ -411,8 +407,8 @@ func BuildScenariosData(entry CityEntry, fc *config.ForecastConfig) map[string]a
 		"county_count":  0,
 		"federal_count": 0,
 	}
-	if totalAreaSqFt > 0 && cityAreaSqFt > 0 {
-		summary["city_pct"] = cityAreaSqFt / totalAreaSqFt
+	if totalAreaSqM > 0 && cityAreaSqM > 0 {
+		summary["city_pct"] = cityAreaSqM / totalAreaSqM
 	}
 
 	out := map[string]any{
@@ -439,8 +435,8 @@ func BuildHexCostSummary(entry CityEntry, forecasts []ForecastExport) map[string
 			continue
 		}
 		result[fe.ResourceType] = map[string]float64{
-			"year1_cost":      year1Cost,
-			"total_area_sqft": cr.TotalAreaSqFt,
+			"year1_cost":     year1Cost,
+			"total_area_sqm": cr.TotalAreaSqM,
 		}
 	}
 	return result
@@ -449,21 +445,21 @@ func BuildHexCostSummary(entry CityEntry, forecasts []ForecastExport) map[string
 // CohortSeed holds per-cohort data for interactive controls.
 type CohortSeed struct {
 	Classification string  `json:"classification"`
-	AreaSqFt       float64 `json:"area_sqft"`
+	AreaSqM        float64 `json:"area_sqm"`
 	DecayRate      float64 `json:"decay_rate"`
 }
 
 // ForecastSeedJSON holds the data needed by the browser to initialize interactive controls.
 type ForecastSeedJSON struct {
-	InitialPCI    float64             `json:"initial_pci"`
-	DecayRate     float64             `json:"decay_rate"`
-	GrowthRate    float64             `json:"growth_rate"`
-	Years         int                 `json:"years"`
-	TotalAreaSqFt float64             `json:"total_area_sqft"`
-	CityAreaSqFt  float64             `json:"city_area_sqft"`
-	CostTiers     []forecast.CostTier `json:"cost_tiers"`
-	Cohorts       []CohortSeed        `json:"cohorts,omitempty"`
-	CityCohorts   []CohortSeed        `json:"city_cohorts,omitempty"`
+	InitialPCI   float64             `json:"initial_pci"`
+	DecayRate    float64             `json:"decay_rate"`
+	GrowthRate   float64             `json:"growth_rate"`
+	Years        int                 `json:"years"`
+	TotalAreaSqM float64             `json:"total_area_sqm"`
+	CityAreaSqM  float64             `json:"city_area_sqm"`
+	CostTiers    []forecast.CostTier `json:"cost_tiers"`
+	Cohorts      []CohortSeed        `json:"cohorts,omitempty"`
+	CityCohorts  []CohortSeed        `json:"city_cohorts,omitempty"`
 }
 
 // BuildForecastSeed constructs a ForecastSeedJSON for the given forecast config and store.
@@ -479,10 +475,10 @@ func BuildForecastSeed(fc *config.ForecastConfig, store db.Store) template.JS {
 		if err != nil || result == nil {
 			continue
 		}
-		totalArea += result.TotalAreaSqFt
+		totalArea += result.TotalAreaSqM
 		cityResult, err := store.LatestComputeResult(rt.Name() + ":city")
 		if err == nil && cityResult != nil {
-			cityArea += cityResult.TotalAreaSqFt
+			cityArea += cityResult.TotalAreaSqM
 		}
 	}
 
@@ -508,7 +504,7 @@ func BuildForecastSeed(fc *config.ForecastConfig, store db.Store) template.JS {
 			}
 			cohortSeeds = append(cohortSeeds, CohortSeed{
 				Classification: st.Classification,
-				AreaSqFt:       st.AreaSqFt,
+				AreaSqM:        st.AreaSqM,
 				DecayRate:      rate,
 			})
 		}
@@ -523,22 +519,22 @@ func BuildForecastSeed(fc *config.ForecastConfig, store db.Store) template.JS {
 			}
 			cityCohortSeeds = append(cityCohortSeeds, CohortSeed{
 				Classification: st.Classification,
-				AreaSqFt:       st.AreaSqFt,
+				AreaSqM:        st.AreaSqM,
 				DecayRate:      rate,
 			})
 		}
 	}
 
 	seed := ForecastSeedJSON{
-		InitialPCI:    85.0,
-		DecayRate:     decayRate,
-		GrowthRate:    fc.GrowthRate,
-		Years:         years,
-		TotalAreaSqFt: totalArea,
-		CityAreaSqFt:  cityArea,
-		CostTiers:     costTiers,
-		Cohorts:       cohortSeeds,
-		CityCohorts:   cityCohortSeeds,
+		InitialPCI:   85.0,
+		DecayRate:    decayRate,
+		GrowthRate:   fc.GrowthRate,
+		Years:        years,
+		TotalAreaSqM: totalArea,
+		CityAreaSqM:  cityArea,
+		CostTiers:    costTiers,
+		Cohorts:      cohortSeeds,
+		CityCohorts:  cityCohortSeeds,
 	}
 	data, err := json.Marshal(seed)
 	if err != nil {
@@ -550,13 +546,14 @@ func BuildForecastSeed(fc *config.ForecastConfig, store db.Store) template.JS {
 // --- Exporter (static site generation) ---
 
 type Exporter struct {
-	entries   []CityEntry
-	cfg       *config.Config
-	outputDir string
+	entries    []CityEntry
+	cfg        *config.Config
+	outputDir  string
+	unitSystem string
 }
 
-func New(entries []CityEntry, cfg *config.Config, outputDir string) *Exporter {
-	return &Exporter{entries: entries, cfg: cfg, outputDir: outputDir}
+func New(entries []CityEntry, cfg *config.Config, outputDir, unitSystem string) *Exporter {
+	return &Exporter{entries: entries, cfg: cfg, outputDir: outputDir, unitSystem: unitSystem}
 }
 
 func (e *Exporter) Run() error {
@@ -596,7 +593,7 @@ func (e *Exporter) runSingleCity() error {
 	if err != nil {
 		return err
 	}
-	return e.renderHTML(meta, seed, rawTOML, ResolvedTOML(e.cfg), nil)
+	return e.renderHTML(meta, seed, rawTOML, ResolvedTOML(e.cfg), e.unitSystem, nil)
 }
 
 func (e *Exporter) runMultiCity() error {
@@ -653,7 +650,7 @@ func (e *Exporter) runMultiCity() error {
 		}
 	}
 
-	return e.renderHTML(meta, seed, rawTOML, ResolvedTOML(e.cfg), cities)
+	return e.renderHTML(meta, seed, rawTOML, ResolvedTOML(e.cfg), e.unitSystem, cities)
 }
 
 func (e *Exporter) exportCityData(entry CityEntry, dataDir string) error {
@@ -801,10 +798,10 @@ func ResolvedTOML(cfg *config.Config) string {
 	if len(resolved.Forecast.CostTiers) == 0 {
 		for _, t := range forecast.DefaultCostTiers {
 			resolved.Forecast.CostTiers = append(resolved.Forecast.CostTiers, config.CostTierCfg{
-				MinPCI:      t.MinPCI,
-				MaxPCI:      t.MaxPCI,
-				CostPerSqFt: t.CostPerSqFt,
-				Label:       t.Label,
+				MinPCI:     t.MinPCI,
+				MaxPCI:     t.MaxPCI,
+				CostPerSqM: t.CostPerSqM,
+				Label:      t.Label,
 			})
 		}
 	}
@@ -827,14 +824,29 @@ func (e *Exporter) writeWasmAssets(dir string) error {
 	return nil
 }
 
-func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolvedTOML string, cities []CityInfo) (err error) {
+func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolvedTOML, unitSystem string, cities []CityInfo) (err error) {
 	tmplData, err := templatesFS.ReadFile("templates/index.html.tmpl")
 	if err != nil {
 		return fmt.Errorf("read template: %w", err)
 	}
 
+	sys := units.ParseSystem(unitSystem)
 	funcMap := template.FuncMap{
-		"divf": func(a, b float64) float64 { return a / b },
+		"divf":          func(a, b float64) float64 { return a / b },
+		"areaLarge":     func(sqm float64) float64 { return units.AreaLargeValue(sqm, sys) },
+		"areaVeryLarge": func(sqm float64) float64 { return units.AreaVeryLargeValue(sqm, sys) },
+		"areaLargeUnit": func() string {
+			if sys == units.Imperial {
+				return "acres"
+			}
+			return "ha"
+		},
+		"areaVeryLargeUnit": func() string {
+			if sys == units.Imperial {
+				return "sq mi"
+			}
+			return "sq km"
+		},
 	}
 	tmpl, err := template.New("index").Funcs(funcMap).Parse(string(tmplData))
 	if err != nil {
@@ -858,6 +870,7 @@ func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolved
 		LayerColors:  ResourceColorsJS(),
 		RawTOML:      rawTOML,
 		ResolvedTOML: resolvedTOML,
+		UnitSystem:   unitSystem,
 		Cities:       cities,
 	}
 	return tmpl.Execute(f, td)

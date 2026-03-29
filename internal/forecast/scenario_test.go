@@ -9,10 +9,10 @@ func defaultTestParams() (*TieredCostProjector, *LinearGrowthEstimator) {
 	return p.Cost, p.Growth
 }
 
-func singleCohort(areaSqFt, initialPCI, decayRate float64) []Cohort {
+func singleCohort(areaSqM, initialPCI, decayRate float64) []Cohort {
 	return []Cohort{{
 		Classification: "default",
-		AreaSqFt:       areaSqFt,
+		AreaSqM:       areaSqM,
 		DecayRate:      decayRate,
 		InitialPCI:     initialPCI,
 	}}
@@ -223,8 +223,8 @@ func TestDefaultComparisons(t *testing.T) {
 func TestSimulate_TwoCohorts_BlendedPCI(t *testing.T) {
 	cost, growth := defaultTestParams()
 	cohorts := []Cohort{
-		{Classification: "primary", AreaSqFt: 50000, DecayRate: 0.025, InitialPCI: 85.0},
-		{Classification: "residential", AreaSqFt: 50000, DecayRate: 0.040, InitialPCI: 85.0},
+		{Classification: "primary", AreaSqM: 50000, DecayRate: 0.025, InitialPCI: 85.0},
+		{Classification: "residential", AreaSqM: 50000, DecayRate: 0.040, InitialPCI: 85.0},
 	}
 
 	result := Simulate(
@@ -270,8 +270,8 @@ func TestSimulate_TwoCohorts_BudgetProportionalToNeed(t *testing.T) {
 	cost, growth := defaultTestParams()
 	// Residential decays faster → higher need → gets more budget
 	cohorts := []Cohort{
-		{Classification: "primary", AreaSqFt: 50000, DecayRate: 0.025, InitialPCI: 85.0},
-		{Classification: "residential", AreaSqFt: 50000, DecayRate: 0.040, InitialPCI: 85.0},
+		{Classification: "primary", AreaSqM: 50000, DecayRate: 0.025, InitialPCI: 85.0},
+		{Classification: "residential", AreaSqM: 50000, DecayRate: 0.040, InitialPCI: 85.0},
 	}
 
 	doNothing := Simulate(
@@ -322,8 +322,8 @@ func TestNormalizeClass(t *testing.T) {
 
 func TestBuildCohorts_WithOverride(t *testing.T) {
 	stats := []CohortInput{
-		{Classification: "primary", AreaSqFt: 50000},
-		{Classification: "residential", AreaSqFt: 30000},
+		{Classification: "primary", AreaSqM: 50000},
+		{Classification: "residential", AreaSqM: 30000},
 	}
 
 	cohorts := BuildCohorts(stats, 85.0, 0.05)
@@ -342,8 +342,8 @@ func TestBuildCohorts_WithOverride(t *testing.T) {
 
 func TestBuildCohorts_WithoutOverride(t *testing.T) {
 	stats := []CohortInput{
-		{Classification: "primary", AreaSqFt: 50000},
-		{Classification: "residential", AreaSqFt: 30000},
+		{Classification: "primary", AreaSqM: 50000},
+		{Classification: "residential", AreaSqM: 30000},
 	}
 
 	cohorts := BuildCohorts(stats, 85.0, 0)
