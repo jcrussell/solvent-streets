@@ -10,6 +10,7 @@ import (
 	"pvmt/pkg/cmd/serve"
 	"pvmt/pkg/cmd/sidewalks"
 	"pvmt/pkg/cmd/status"
+	"pvmt/pkg/cmd/version"
 	"pvmt/pkg/cmdutil"
 
 	"github.com/spf13/cobra"
@@ -77,6 +78,10 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 	statusCmd := status.NewCmdStatus(f, nil, nil)
 	statusCmd.GroupID = "info"
 	cmd.AddCommand(statusCmd)
+
+	versionCmd := version.NewCmdVersion(f, nil)
+	versionCmd.GroupID = "info"
+	cmd.AddCommand(versionCmd)
 
 	return cmd
 }

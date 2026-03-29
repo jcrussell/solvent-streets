@@ -1,9 +1,54 @@
 version: "2"
 
+run:
+  timeout: 5m
+
 linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+    - unconvert
+    - unparam
   settings:
     errcheck:
       exclude-functions:
+        # Close on defers - errors rarely actionable
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (net.Conn).Close
+        - (*compress/gzip.Writer).Close
+        - (*archive/tar.Writer).Close
+        - (*compress/gzip.Reader).Close
+        # Print functions - rarely fail
+        - fmt.Fprint
         - fmt.Fprintf
         - fmt.Fprintln
-        - fmt.Fprint
+        - fmt.Print
+        - fmt.Printf
+        - fmt.Println
+        # Tabwriter flush
+        - (*text/tabwriter.Writer).Flush
+        # Cleanup operations - best effort
+        - os.Remove
+        - os.RemoveAll
+        # HTTP response writes - errors rarely actionable
+        - (net/http.ResponseWriter).Write
+  exclusions:
+    presets: []
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - pvmt
+
+output:
+  show-stats: true

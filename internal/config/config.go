@@ -48,10 +48,10 @@ type ForecastConfig struct {
 }
 
 type CostTierCfg struct {
-	MinPCI      float64 `toml:"min_pci"`
-	MaxPCI      float64 `toml:"max_pci"`
+	MinPCI     float64 `toml:"min_pci"`
+	MaxPCI     float64 `toml:"max_pci"`
 	CostPerSqM float64 `toml:"cost_per_sqm"`
-	Label       string  `toml:"label"`
+	Label      string  `toml:"label"`
 }
 
 // ForecastYears returns the configured forecast horizon, defaulting to 20.

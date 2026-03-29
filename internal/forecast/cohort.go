@@ -3,7 +3,7 @@ package forecast
 // Cohort represents a group of road segments sharing the same classification.
 type Cohort struct {
 	Classification string  `json:"classification"`
-	AreaSqM       float64 `json:"area_sqm"`
+	AreaSqM        float64 `json:"area_sqm"`
 	DecayRate      float64 `json:"decay_rate"`
 	InitialPCI     float64 `json:"initial_pci"`
 }
@@ -12,7 +12,7 @@ type Cohort struct {
 type CohortSummary struct {
 	Classification string  `json:"classification"`
 	EndPCI         float64 `json:"end_pci"`
-	AreaSqM       float64 `json:"area_sqm"`
+	AreaSqM        float64 `json:"area_sqm"`
 	DecayRate      float64 `json:"decay_rate"`
 	TotalSpend     float64 `json:"total_spend"`
 	TotalDeficit   float64 `json:"total_deficit"`
@@ -21,7 +21,7 @@ type CohortSummary struct {
 // CohortInput is a minimal struct for building cohorts without importing db.
 type CohortInput struct {
 	Classification string
-	AreaSqM       float64
+	AreaSqM        float64
 }
 
 // BuildCohorts converts CohortInputs into Cohorts with appropriate decay rates.
@@ -40,7 +40,7 @@ func BuildCohorts(inputs []CohortInput, initialPCI, overrideDecayRate float64) [
 		}
 		cohorts[i] = Cohort{
 			Classification: in.Classification,
-			AreaSqM:       in.AreaSqM,
+			AreaSqM:        in.AreaSqM,
 			DecayRate:      rate,
 			InitialPCI:     initialPCI,
 		}

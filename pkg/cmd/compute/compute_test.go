@@ -55,7 +55,7 @@ func TestRunCompute_NoFeatures(t *testing.T) {
 	}
 	ios, _, _, errBuf := iostreams.Test()
 	f := &cmdutil.Factory{
-		IOStreams:   ios,
+		IOStreams:  ios,
 		UnitSystem: func() units.System { return units.Imperial },
 		CityDB: func() (db.Store, error) {
 			return store, nil
@@ -104,7 +104,7 @@ func TestRunCompute_Success(t *testing.T) {
 	}
 	ios, _, stdout, _ := iostreams.Test()
 	f := &cmdutil.Factory{
-		IOStreams:   ios,
+		IOStreams:  ios,
 		UnitSystem: func() units.System { return units.Imperial },
 		CityDB: func() (db.Store, error) {
 			return store, nil
@@ -138,7 +138,7 @@ func TestRunCompute_Success(t *testing.T) {
 func TestRunCompute_DBError(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	f := &cmdutil.Factory{
-		IOStreams:   ios,
+		IOStreams:  ios,
 		UnitSystem: func() units.System { return units.Imperial },
 		Config: func() (*config.Config, error) {
 			return testCfg, nil

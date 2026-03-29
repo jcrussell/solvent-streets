@@ -49,7 +49,7 @@ func TestRunStatus_SingleResource(t *testing.T) {
 	}
 	ios, _, stdout, _ := iostreams.Test()
 	f := &cmdutil.Factory{
-		IOStreams:   ios,
+		IOStreams:  ios,
 		UnitSystem: func() units.System { return units.Imperial },
 		CityDB: func() (db.Store, error) {
 			return store, nil
@@ -86,7 +86,7 @@ func TestRunStatus_AllResources(t *testing.T) {
 	}
 	ios, _, stdout, _ := iostreams.Test()
 	f := &cmdutil.Factory{
-		IOStreams:   ios,
+		IOStreams:  ios,
 		UnitSystem: func() units.System { return units.Imperial },
 		CityDB: func() (db.Store, error) {
 			return store, nil
@@ -127,7 +127,7 @@ func TestRunStatus_CitySummary(t *testing.T) {
 	ios, _, stdout, _ := iostreams.Test()
 	ios.SetTTY(true)
 	f := &cmdutil.Factory{
-		IOStreams:   ios,
+		IOStreams:  ios,
 		UnitSystem: func() units.System { return units.Imperial },
 		CityDB: func() (db.Store, error) {
 			return store, nil
@@ -166,7 +166,7 @@ func TestRunStatus_NonTTY_TabSeparated(t *testing.T) {
 	ios, _, stdout, _ := iostreams.Test()
 	// Test() returns isTTY=false by default
 	f := &cmdutil.Factory{
-		IOStreams:   ios,
+		IOStreams:  ios,
 		UnitSystem: func() units.System { return units.Imperial },
 		CityDB: func() (db.Store, error) {
 			return store, nil

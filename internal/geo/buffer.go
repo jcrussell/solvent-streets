@@ -288,4 +288,3 @@ func projectCoords(coords [][2]float64, proj Projector) ([][2]float64, error) {
 	}
 	return projected, nil
 }
-

@@ -9,18 +9,18 @@ func defaultTestParams() (*TieredCostProjector, *LinearGrowthEstimator) {
 	return p.Cost, p.Growth
 }
 
-func singleCohort(areaSqM, initialPCI, decayRate float64) []Cohort {
+func singleCohort(areaSqM, decayRate float64) []Cohort {
 	return []Cohort{{
 		Classification: "default",
-		AreaSqM:       areaSqM,
+		AreaSqM:        areaSqM,
 		DecayRate:      decayRate,
-		InitialPCI:     initialPCI,
+		InitialPCI:     85.0,
 	}}
 }
 
 func TestSimulate_DoNothing_DecreasingPCI(t *testing.T) {
 	cost, growth := defaultTestParams()
-	cohorts := singleCohort(100000, 85.0, 0.035)
+	cohorts := singleCohort(100000, 0.035)
 	s := Scenario{Name: "test-dn", Label: "Test", Strategy: StrategyDoNothing}
 	result := Simulate(s, cohorts, 20, cost, growth)
 
@@ -53,7 +53,7 @@ func TestSimulate_DoNothing_DecreasingPCI(t *testing.T) {
 
 func TestSimulate_Unconstrained_PCIRecovery(t *testing.T) {
 	cost, growth := defaultTestParams()
-	cohorts := singleCohort(100000, 85.0, 0.035)
+	cohorts := singleCohort(100000, 0.035)
 	s := Scenario{Name: "full", Label: "Full", FullFunding: true, Strategy: StrategyWorstFirst}
 	result := Simulate(s, cohorts, 10, cost, growth)
 
@@ -74,7 +74,7 @@ func TestSimulate_Unconstrained_PCIRecovery(t *testing.T) {
 
 func TestSimulate_BudgetConstrained_Intermediate(t *testing.T) {
 	cost, growth := defaultTestParams()
-	cohorts := singleCohort(100000, 85.0, 0.035)
+	cohorts := singleCohort(100000, 0.035)
 
 	// Get year-1 need to set budget at 50%
 	doNothing := Simulate(
@@ -110,7 +110,7 @@ func TestSimulate_BudgetConstrained_Intermediate(t *testing.T) {
 
 func TestSimulate_PreventiveOutperformsWorstFirst(t *testing.T) {
 	cost, growth := defaultTestParams()
-	cohorts := singleCohort(100000, 85.0, 0.035)
+	cohorts := singleCohort(100000, 0.035)
 
 	doNothing := Simulate(
 		Scenario{Name: "dn", Label: "DN", Strategy: StrategyDoNothing},
@@ -161,7 +161,7 @@ func TestParseStrategy_Invalid(t *testing.T) {
 
 func TestSimulate_Overfunding_SpendExceedsFullFunding(t *testing.T) {
 	cost, growth := defaultTestParams()
-	cohorts := singleCohort(100000, 85.0, 0.035)
+	cohorts := singleCohort(100000, 0.035)
 
 	// Get year-1 need to calibrate budget
 	doNothing := Simulate(
@@ -236,11 +236,11 @@ func TestSimulate_TwoCohorts_BlendedPCI(t *testing.T) {
 	// Primary decays slower, residential faster
 	primaryOnly := Simulate(
 		Scenario{Name: "dn", Label: "DN", Strategy: StrategyDoNothing},
-		singleCohort(50000, 85.0, 0.025), 20, cost, growth,
+		singleCohort(50000, 0.025), 20, cost, growth,
 	)
 	residentialOnly := Simulate(
 		Scenario{Name: "dn", Label: "DN", Strategy: StrategyDoNothing},
-		singleCohort(50000, 85.0, 0.040), 20, cost, growth,
+		singleCohort(50000, 0.040), 20, cost, growth,
 	)
 
 	lastBlended := result.Years[19].PCI

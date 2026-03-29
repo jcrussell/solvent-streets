@@ -13,14 +13,14 @@ type CostTier struct {
 }
 
 var DefaultCostTiers = []CostTier{
-	{MinPCI: 70, MaxPCI: 101, CostPerSqM: 4.20, Label: "preventive"},   // FHWA $2-5/sq yd → ~$4.20/sq m
-	{MinPCI: 40, MaxPCI: 70, CostPerSqM: 13.78, Label: "rehab"},        // FHWA $8-15/sq yd → ~$13.78/sq m
+	{MinPCI: 70, MaxPCI: 101, CostPerSqM: 4.20, Label: "preventive"},    // FHWA $2-5/sq yd → ~$4.20/sq m
+	{MinPCI: 40, MaxPCI: 70, CostPerSqM: 13.78, Label: "rehab"},         // FHWA $8-15/sq yd → ~$13.78/sq m
 	{MinPCI: 0, MaxPCI: 40, CostPerSqM: 35.84, Label: "reconstruction"}, // FHWA $20-40/sq yd → ~$35.84/sq m
 }
 
 var DefaultSidewalkCostTiers = []CostTier{
-	{MinPCI: 70, MaxPCI: 101, CostPerSqM: 2.37, Label: "preventive"},   // crack sealing
-	{MinPCI: 40, MaxPCI: 70, CostPerSqM: 8.40, Label: "rehab"},         // panel replacement
+	{MinPCI: 70, MaxPCI: 101, CostPerSqM: 2.37, Label: "preventive"},    // crack sealing
+	{MinPCI: 40, MaxPCI: 70, CostPerSqM: 8.40, Label: "rehab"},          // panel replacement
 	{MinPCI: 0, MaxPCI: 40, CostPerSqM: 21.53, Label: "reconstruction"}, // full replacement
 }
 

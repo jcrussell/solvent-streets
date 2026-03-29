@@ -55,7 +55,7 @@ type Scenario struct {
 type ScenarioYear struct {
 	Year            int     `json:"year"`
 	PCI             float64 `json:"pci"`
-	AreaSqM        float64 `json:"area_sqm"`
+	AreaSqM         float64 `json:"area_sqm"`
 	AnnualNeed      float64 `json:"annual_need"`
 	AnnualSpend     float64 `json:"annual_spend"`
 	DeferredBacklog float64 `json:"deferred_backlog"`
@@ -199,7 +199,7 @@ func Simulate(s Scenario, cohorts []Cohort, years int,
 		result.Years[i] = ScenarioYear{
 			Year:            i + 1,
 			PCI:             blendedPCI,
-			AreaSqM:        area,
+			AreaSqM:         area,
 			AnnualNeed:      totalNeed,
 			AnnualSpend:     totalSpend,
 			DeferredBacklog: deferredBacklog,
@@ -213,7 +213,7 @@ func Simulate(s Scenario, cohorts []Cohort, years int,
 		result.FinalCohorts[j] = CohortSummary{
 			Classification: c.Classification,
 			EndPCI:         states[j].currentPCI,
-			AreaSqM:       c.AreaSqM,
+			AreaSqM:        c.AreaSqM,
 			DecayRate:      c.DecayRate,
 			TotalSpend:     cohortSpendAcc[j],
 			TotalDeficit:   cohortDeficitAcc[j],

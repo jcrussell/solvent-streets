@@ -21,16 +21,16 @@ const (
 
 // --- Area conversions (from internal sq m) ---
 
-func SqMToSqFt(sqm float64) float64   { return sqm * SqFtPerSqM }
-func SqMToAcres(sqm float64) float64   { return SqMToSqFt(sqm) / SqFtPerAcre }
-func SqMToSqMi(sqm float64) float64    { return SqMToAcres(sqm) / AcresPerSqMi }
+func SqMToSqFt(sqm float64) float64     { return sqm * SqFtPerSqM }
+func SqMToAcres(sqm float64) float64    { return SqMToSqFt(sqm) / SqFtPerAcre }
+func SqMToSqMi(sqm float64) float64     { return SqMToAcres(sqm) / AcresPerSqMi }
 func SqMToHectares(sqm float64) float64 { return sqm / SqMPerHa }
-func SqMToSqKm(sqm float64) float64    { return sqm / SqMPerSqKm }
+func SqMToSqKm(sqm float64) float64     { return sqm / SqMPerSqKm }
 
 // --- Cost conversions ---
 
 func CostPerSqMToPerSqFt(cpsm float64) float64 { return cpsm / SqFtPerSqM }
-func CostPerSqFtToPerSqM(cpsf float64) float64  { return cpsf * SqFtPerSqM }
+func CostPerSqFtToPerSqM(cpsf float64) float64 { return cpsf * SqFtPerSqM }
 
 // --- Display formatting ---
 

@@ -42,7 +42,7 @@ func (idx *GeomIndex) Search(env geom.Envelope) []geom.Geometry {
 	}
 	box := rtree.Box{MinX: min.X, MinY: min.Y, MaxX: max.X, MaxY: max.Y}
 	var results []geom.Geometry
-	idx.tree.RangeSearch(box, func(id int) error {
+	_ = idx.tree.RangeSearch(box, func(id int) error {
 		results = append(results, idx.parts[id])
 		return nil
 	})
