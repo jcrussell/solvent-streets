@@ -55,7 +55,7 @@ func runServe(opts *Options) error {
 		return fmt.Errorf("database: %w", err)
 	}
 
-	entries, err := exportpkg.BuildCityEntries(rootDB, cfg)
+	entries, err := exportpkg.BuildCityEntries(rootDB, cfg, cfg.Cities)
 	if err != nil {
 		return err
 	}

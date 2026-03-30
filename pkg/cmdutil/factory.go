@@ -64,7 +64,7 @@ func cityOverrideFunc(cmd *cobra.Command, f *Factory, fallback func() (*config.C
 // and calls fn for each. Prints a city header when iterating multiple cities.
 // Collects and joins all errors; ErrNoResults is silently skipped.
 func ForEachCity(f *Factory, fn func(cf *Factory, city *config.CityConfig) error) error {
-	cities, err := resolveCities(f)
+	cities, err := ResolveCities(f)
 	if err != nil {
 		return err
 	}
@@ -86,7 +86,10 @@ func ForEachCity(f *Factory, fn func(cf *Factory, city *config.CityConfig) error
 	return errors.Join(errs...)
 }
 
-func resolveCities(f *Factory) ([]config.CityConfig, error) {
+// ResolveCities returns the single city selected by --city, or all configured
+// cities when no flag is set. Callers that need the filtered list without the
+// ForEachCity loop (e.g. export, serve) use this directly.
+func ResolveCities(f *Factory) ([]config.CityConfig, error) {
 	if f.CityFlagSet != nil && f.CityFlagSet() {
 		city, err := f.CurrentCity()
 		if err != nil {

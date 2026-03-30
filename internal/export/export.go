@@ -106,11 +106,11 @@ var ResourceColors = map[string]string{
 	"sidewalks": "#f59e0b",
 }
 
-// BuildCityEntries creates CityEntry values for all configured cities.
-func BuildCityEntries(rootDB db.RootStorer, cfg *config.Config) ([]CityEntry, error) {
+// BuildCityEntries creates CityEntry values for the given cities.
+func BuildCityEntries(rootDB db.RootStorer, cfg *config.Config, cities []config.CityConfig) ([]CityEntry, error) {
 	var entries []CityEntry
 	var errs []string
-	for _, city := range cfg.Cities {
+	for _, city := range cities {
 		id, err := rootDB.EnsureCity(city.Slug(), city.Name)
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", city.Name, err))

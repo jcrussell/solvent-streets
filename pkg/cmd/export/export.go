@@ -17,6 +17,7 @@ type Options struct {
 	IO        *iostreams.IOStreams
 	RootDB    func() (*db.RootStore, error)
 	Config    func() (*config.Config, error)
+	Cities    func() ([]config.CityConfig, error)
 	OutputDir string
 	Clean     bool
 }
@@ -26,6 +27,7 @@ func NewCmdExport(f *cmdutil.Factory, runF func(*Options) error) *cobra.Command 
 		IO:     f.IOStreams,
 		RootDB: f.RootDB,
 		Config: f.Config,
+		Cities: func() ([]config.CityConfig, error) { return cmdutil.ResolveCities(f) },
 	}
 
 	cmd := &cobra.Command{
@@ -68,7 +70,12 @@ func runExport(opts *Options) error {
 		return fmt.Errorf("database: %w", err)
 	}
 
-	entries, err := exportpkg.BuildCityEntries(rootDB, cfg)
+	cities, err := opts.Cities()
+	if err != nil {
+		return fmt.Errorf("cities: %w", err)
+	}
+
+	entries, err := exportpkg.BuildCityEntries(rootDB, cfg, cities)
 	if err != nil {
 		return err
 	}
