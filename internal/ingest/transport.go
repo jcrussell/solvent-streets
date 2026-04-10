@@ -96,12 +96,12 @@ func (t *retryTransport) shouldRetry(resp *http.Response, err error) bool {
 	if err != nil {
 		return true
 	}
-	return resp.StatusCode >= 500 || resp.StatusCode == 429
+	return resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests
 }
 
 func (t *retryTransport) backoffWait(attempt int, resp *http.Response) time.Duration {
 	backoff := time.Duration(math.Pow(2, float64(attempt))) * time.Second
-	jitter := time.Duration(rand.Int63n(int64(time.Second)))
+	jitter := time.Duration(rand.Int63n(int64(time.Second))) //nolint:gosec // G404: jitter does not need crypto rand
 	wait := backoff + jitter
 
 	if t.cfg.UseRetryAfter && resp != nil {

@@ -3,6 +3,7 @@ package ingest
 import (
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -40,10 +41,10 @@ func (s *CSVSource) Load() ([]db.Feature, error) {
 	geomCol := colIndex(header, s.GeomColumn, "geometry_json")
 
 	if idCol < 0 {
-		return nil, fmt.Errorf("id column not found in CSV")
+		return nil, errors.New("id column not found in CSV")
 	}
 	if geomCol < 0 {
-		return nil, fmt.Errorf("geometry column not found in CSV")
+		return nil, errors.New("geometry column not found in CSV")
 	}
 
 	var features []db.Feature

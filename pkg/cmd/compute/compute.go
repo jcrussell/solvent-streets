@@ -3,6 +3,7 @@ package compute
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"sync/atomic"
@@ -147,7 +148,7 @@ func doCompute(ctx context.Context, out, errOut io.Writer, notify tui.PhaseNotif
 	}
 	if len(dbFeatures) == 0 {
 		fmt.Fprintf(errOut, "No %s features in database. Run 'pvmt %s ingest' first.\n", opts.ResourceType.Name(), opts.ResourceType.Name())
-		notify.PhaseDone(phaseProcess, fmt.Errorf("no features"))
+		notify.PhaseDone(phaseProcess, errors.New("no features"))
 		return cmdutil.ErrNoResults
 	}
 
@@ -227,7 +228,6 @@ func doCompute(ctx context.Context, out, errOut io.Writer, notify tui.PhaseNotif
 func processCityResults(ctx context.Context, out, errOut io.Writer, opts *Options,
 	store db.Store, proj geo.Projector, parts map[filter.Jurisdiction][]resource.Feature,
 	snapshotID *int64, sys units.System) {
-
 	cityFeatures := parts[filter.JurisdictionCity]
 	if len(cityFeatures) == 0 {
 		return
@@ -286,7 +286,6 @@ func printCohortBreakdown(out io.Writer, title string, stats []db.CohortStat, to
 func computeHexPipeline(ctx context.Context, out, errOut io.Writer, notify tui.PhaseNotifier,
 	opts *Options, cfg *config.Config, city *config.CityConfig, store db.Store,
 	bbox [4]float64, proj *geo.UTMProjector, gjson, boundaryGJSON string) error {
-
 	// --- Phase 1: Generate hex grid ---
 	notify.PhaseStart(phaseHexGrid)
 

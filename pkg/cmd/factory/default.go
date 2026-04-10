@@ -2,7 +2,7 @@ package factory
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"net/http"
 	"os"
 	"sync"
@@ -97,7 +97,7 @@ func New() *cmdutil.Factory {
 			return nil, err
 		}
 		if len(c.Cities) == 0 {
-			return nil, fmt.Errorf("no cities configured")
+			return nil, errors.New("no cities configured")
 		}
 		return &c.Cities[0], nil
 	}

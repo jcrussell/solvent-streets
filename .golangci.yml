@@ -2,30 +2,61 @@ version: "2"
 
 run:
   concurrency: 4
-  build-cache: true
   timeout: 5m
 
 linters:
   default: none
   enable:
+    - asciicheck
+    - bidichk
     - bodyclose
+    - copyloopvar
     - dupl
+    - dupword
+    - durationcheck
     - errcheck
+    - errorlint
+    - exhaustive
+    - exptostd
+    - fatcontext
+    - forcetypeassert
+    - gocheckcompilerdirectives
     - gocognit
     - goconst
     - gocritic
     - gocyclo
+    - gosec
     - govet
     - ineffassign
+    - intrange
+    - makezero
+    - mirror
     - misspell
+    - modernize
+    - nakedret
     - nestif
+    - nilerr
     - nilnil
     - noctx
+    - nolintlint
+    - nosprintfhostport
+    - perfsprint
+    - predeclared
+    - reassign
+    - recvcheck
     - revive
+    - rowserrcheck
+    - sqlclosecheck
     - staticcheck
+    - thelper
+    - tparallel
     - unconvert
     - unparam
     - unused
+    - usestdlibvars
+    - usetesting
+    - wastedassign
+    - whitespace
   settings:
     errcheck:
       exclude-functions:
@@ -53,6 +84,11 @@ linters:
         - (net/http.ResponseWriter).Write
     gocognit:
       min-complexity: 20
+    nestif:
+      min-complexity: 7
+    nolintlint:
+      require-explanation: true
+      require-specific: true
     revive:
       rules:
         - name: indent-error-flow
@@ -61,6 +97,39 @@ linters:
         - name: error-naming
         - name: error-return
         - name: increment-decrement
+  exclusions:
+    presets: []
+    rules:
+      # Test files: relax noisy linters
+      - linters: [bodyclose, gocognit, nestif, dupl, goconst, noctx, usestdlibvars, fatcontext, forcetypeassert, gosec, perfsprint, wastedassign, nakedret, tparallel]
+        path: "_test\\.go$"
+      # DB migrations run at startup before context is available
+      - linters: [noctx]
+        path: "internal/db/"
+      # exec.Command is fundamental to CLI tools
+      - linters: [gosec]
+        text: "G204:"
+      # Unhandled errors: errcheck already covers what we care about
+      - linters: [gosec]
+        text: "G104:"
+      # File open by variable path is fundamental to CLI tools
+      - linters: [gosec]
+        text: "G304:"
+      # CLI tool directories are user-local; 0755 is appropriate
+      - linters: [gosec]
+        text: "G301:"
+      # Cache and data files are user-local; 0644 is appropriate
+      - linters: [gosec]
+        text: "G306:"
+      # template.JS is intentional for embedding JSON in HTML templates
+      - linters: [gosec]
+        text: "G203:"
+      # Path traversal via taint: cache paths are derived from request hashes, not user input
+      - linters: [gosec]
+        text: "G703:"
+      # bubbletea-style TUI models use mixed receivers by design
+      - linters: [recvcheck]
+        path: "internal/tui/"
 
 formatters:
   enable:

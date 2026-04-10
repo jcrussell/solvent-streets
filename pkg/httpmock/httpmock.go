@@ -66,7 +66,7 @@ func (r *Registry) RoundTrip(req *http.Request) (*http.Response, error) {
 		}, nil
 	}
 	return &http.Response{
-		StatusCode: 404,
+		StatusCode: http.StatusNotFound,
 		Header:     http.Header{},
 		Body:       io.NopCloser(bytes.NewReader([]byte("not found"))),
 		Request:    req,
@@ -88,13 +88,13 @@ func (r *Registry) LastRequest() *http.Request {
 }
 
 // Verify errors on any registered-but-uncalled endpoints.
-func (r *Registry) Verify(t testing.TB) {
-	t.Helper()
+func (r *Registry) Verify(tb testing.TB) {
+	tb.Helper()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for key := range r.entries {
 		if r.calls[key] == 0 {
-			t.Errorf("httpmock: registered but never called: %s", key)
+			tb.Errorf("httpmock: registered but never called: %s", key)
 		}
 	}
 }

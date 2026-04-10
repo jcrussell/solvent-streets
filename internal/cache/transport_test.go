@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 )
@@ -18,11 +17,7 @@ func TestCachingTransport_HitAndMiss(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	dir, err := os.MkdirTemp("", "pvmt-cache-test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = os.RemoveAll(dir) }()
+	dir := t.TempDir()
 
 	ct := NewTransport(http.DefaultTransport, dir, time.Hour)
 	client := &http.Client{Transport: ct}
@@ -69,11 +64,7 @@ func TestCachingTransport_ForceBypass(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	dir, err := os.MkdirTemp("", "pvmt-cache-force")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = os.RemoveAll(dir) }()
+	dir := t.TempDir()
 
 	// TTL=0 means always bypass
 	ct := NewTransport(http.DefaultTransport, dir, 0)

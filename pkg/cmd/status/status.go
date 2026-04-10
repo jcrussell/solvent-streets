@@ -3,6 +3,7 @@ package status
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"pvmt/internal/db"
@@ -114,7 +115,7 @@ func runStatus(ctx context.Context, opts *Options) error {
 		computeStr := formatTimestamp(r.LastCompute, ios.IsTTY())
 		tp.AddRow(
 			r.ResourceType,
-			fmt.Sprintf("%d", r.FeatureCount),
+			strconv.Itoa(r.FeatureCount),
 			ingestStr,
 			computeStr,
 			fmt.Sprintf("%.0f", units.AreaValue(r.AreaSqM, sys)),

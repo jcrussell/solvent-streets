@@ -745,7 +745,7 @@ func exportResourceGeoJSON(ctx context.Context, store db.Store, rt resource.Reso
 		result, err = store.LatestComputeResult(ctx, rt.Name())
 	}
 	if err != nil {
-		return nil
+		return nil //nolint:nilerr // silently skip when no data is available
 	}
 	if result.GeometryJSON == "" {
 		return nil

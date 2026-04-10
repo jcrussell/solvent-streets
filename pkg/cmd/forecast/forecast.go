@@ -3,6 +3,7 @@ package forecast
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"pvmt/internal/config"
 	"pvmt/internal/db"
@@ -108,7 +109,6 @@ func buildForecastCohorts(ctx context.Context, rt resource.ResourceType, areaSqM
 
 func renderBaselineTable(ios *iostreams.IOStreams, rt resource.ResourceType, areaSqM, currentPCI float64,
 	baseline fcpkg.ScenarioResult, totalDeferredCost float64, years int, sys units.System) error {
-
 	fmt.Fprintf(ios.Out, "=== %s ===\n", rt.Name())
 	fmt.Fprintf(ios.Out, "  Current area: %s (%s)\n", units.FormatArea(areaSqM, sys), units.FormatAreaLarge(areaSqM, sys))
 	fmt.Fprintf(ios.Out, "  Initial PCI: %.0f\n\n", currentPCI)
@@ -118,7 +118,7 @@ func renderBaselineTable(ios *iostreams.IOStreams, rt resource.ResourceType, are
 	for _, y := range baseline.Years {
 		if y.Year <= 5 || y.Year%5 == 0 || y.Year == years {
 			tp.AddRow(
-				fmt.Sprintf("%d", y.Year),
+				strconv.Itoa(y.Year),
 				fmt.Sprintf("%.1f", y.PCI),
 				fmt.Sprintf("%.1f", units.AreaLargeValue(y.AreaSqM, sys)),
 				fmt.Sprintf("$%.0f", y.AnnualNeed),
@@ -157,7 +157,6 @@ func renderBaselineTable(ios *iostreams.IOStreams, rt resource.ResourceType, are
 
 func renderScenarioComparisons(ios *iostreams.IOStreams, baseline fcpkg.ScenarioResult,
 	cohorts []fcpkg.Cohort, years int, params *fcpkg.Params) error {
-
 	if len(baseline.Years) == 0 {
 		return nil
 	}
@@ -241,7 +240,6 @@ func convertCostTiers(fc *config.ForecastConfig) []fcpkg.CostTier {
 
 func forecastAllResources(ctx context.Context, opts *Options, store db.Store,
 	fc *config.ForecastConfig, years int, costTiers []fcpkg.CostTier, sys units.System) ([]db.ForecastResult, error) {
-
 	ios := opts.IO
 	currentPCI := 85.0
 	var allResults []db.ForecastResult

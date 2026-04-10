@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"errors"
 	"fmt"
 
 	"pvmt/internal/geo"
@@ -90,7 +91,7 @@ func processFeatures(features []Feature, proj geo.Projector, inferWidth widthFun
 	}
 
 	if len(geometries) == 0 {
-		return "", 0, fmt.Errorf("no valid geometries to process")
+		return "", 0, errors.New("no valid geometries to process")
 	}
 
 	union, err := geo.UnionAll(geometries)

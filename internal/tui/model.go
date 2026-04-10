@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -158,7 +159,7 @@ func (m StepModel) handleKeyPress(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
 		m.finished = true
-		m.err = fmt.Errorf("interrupted")
+		m.err = errors.New("interrupted")
 		return m, tea.Quit
 	case "v":
 		m.logExpanded = !m.logExpanded
@@ -268,7 +269,7 @@ func (m StepModel) renderSteps(sb *strings.Builder, w int) {
 		case StepActive:
 			frame := spinnerFrames[m.tick%len(spinnerFrames)]
 			sb.WriteString(activeStyle.Render(frame))
-		default: // pending
+		case StepPending:
 			sb.WriteString(pendingStyle.Render("○"))
 		}
 		sb.WriteString(" ")

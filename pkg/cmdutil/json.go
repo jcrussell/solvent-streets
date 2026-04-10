@@ -2,6 +2,7 @@ package cmdutil
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -169,7 +170,7 @@ func (e *templateExporter) Write(ios *iostreams.IOStreams, data any) error {
 		}
 		fmt.Fprintln(ios.Out)
 	default:
-		return fmt.Errorf("template: unsupported data type")
+		return errors.New("template: unsupported data type")
 	}
 	return nil
 }

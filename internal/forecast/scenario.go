@@ -106,7 +106,6 @@ const maxPCI = 100.0
 func distributeBudget(states []cohortState, cohortDecayed, cohortNeed []float64,
 	totalNeed, totalSpend float64, strategy Strategy,
 	cohortSpendAcc, cohortDeficitAcc []float64) float64 {
-
 	actualSpend := 0.0
 	for j := range states {
 		decayedPCI := cohortDecayed[j]
@@ -142,6 +141,8 @@ func applyCohortSpend(st *cohortState, decayedPCI, spend, need float64, strategy
 	spendRatio := spend / need
 	efficiency := 1.0
 	switch strategy {
+	case StrategyDoNothing:
+		// efficiency stays 1.0; spend will be 0 for do-nothing scenarios
 	case StrategyPreventiveFirst:
 		efficiency = 1.2
 	case StrategyWorstFirst:
@@ -165,7 +166,6 @@ func blendedPCI(states []cohortState) float64 {
 // proportional to need; PCI is area-weighted blended.
 func Simulate(s Scenario, cohorts []Cohort, years int,
 	cost *TieredCostProjector, growth *LinearGrowthEstimator) ScenarioResult {
-
 	states, totalArea := initCohortStates(cohorts)
 	n := len(cohorts)
 	areaValues := growth.EstimateGrowth(totalArea, years)
@@ -198,7 +198,7 @@ func Simulate(s Scenario, cohorts []Cohort, years int,
 		switch s.Strategy {
 		case StrategyDoNothing:
 			totalSpend = 0
-		default:
+		case StrategyWorstFirst, StrategyPreventiveFirst:
 			if s.FullFunding {
 				totalSpend = totalNeed
 			} else {

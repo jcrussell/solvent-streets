@@ -2,6 +2,7 @@ package geo
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 
@@ -12,7 +13,7 @@ import (
 // Coordinates must already be in the projected coordinate system.
 func BufferLineString(coords [][2]float64, widthProjected float64) (geom.Geometry, error) {
 	if len(coords) < 2 {
-		return geom.Geometry{}, fmt.Errorf("need at least 2 coordinates")
+		return geom.Geometry{}, errors.New("need at least 2 coordinates")
 	}
 	seq := coordsToSequence(coords)
 	ls := geom.NewLineString(seq)
@@ -36,7 +37,7 @@ func ValidatePolygon(g geom.Geometry) (geom.Geometry, error) {
 // UnionAll computes the unary union of all geometries, removing overlaps.
 func UnionAll(geometries []geom.Geometry) (geom.Geometry, error) {
 	if len(geometries) == 0 {
-		return geom.Geometry{}, fmt.Errorf("no geometries to union")
+		return geom.Geometry{}, errors.New("no geometries to union")
 	}
 	if len(geometries) == 1 {
 		return geometries[0], nil
@@ -257,7 +258,7 @@ func buildProjectedMultiPolygon(coordsRaw json.RawMessage, proj Projector) (geom
 		geometries = append(geometries, cleaned)
 	}
 	if len(geometries) == 0 {
-		return geom.Geometry{}, fmt.Errorf("no valid polygons in MultiPolygon")
+		return geom.Geometry{}, errors.New("no valid polygons in MultiPolygon")
 	}
 	if len(geometries) == 1 {
 		return geometries[0], nil
@@ -285,7 +286,7 @@ func buildProjectedGeometryCollection(gjson string, proj Projector) (geom.Geomet
 		geometries = append(geometries, cleaned)
 	}
 	if len(geometries) == 0 {
-		return geom.Geometry{}, fmt.Errorf("no valid geometries in collection")
+		return geom.Geometry{}, errors.New("no valid geometries in collection")
 	}
 	return UnionAll(geometries)
 }

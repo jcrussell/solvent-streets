@@ -12,12 +12,8 @@ type UTMProjector struct {
 // NewUTMProjector creates a UTM projector for the given lon/lat center point.
 func NewUTMProjector(lon, lat float64) *UTMProjector {
 	zone := int(math.Floor((lon+180)/6)) + 1
-	if zone < 1 {
-		zone = 1
-	}
-	if zone > 60 {
-		zone = 60
-	}
+	zone = max(zone, 1)
+	zone = min(zone, 60)
 	return &UTMProjector{
 		Zone:     zone,
 		Northern: lat >= 0,

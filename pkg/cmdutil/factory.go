@@ -103,7 +103,7 @@ func ResolveCities(f *Factory) ([]config.CityConfig, error) {
 		return nil, err
 	}
 	if len(cfg.Cities) == 0 {
-		return nil, fmt.Errorf("no cities configured")
+		return nil, errors.New("no cities configured")
 	}
 	return cfg.Cities, nil
 }

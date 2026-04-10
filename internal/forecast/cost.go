@@ -71,7 +71,7 @@ func interpolateCost(anchors []costAnchor, pci float64) float64 {
 		return last.cost
 	}
 	// Find the two anchors that bracket this PCI (anchors sorted descending)
-	for i := 0; i < len(anchors)-1; i++ {
+	for i := range len(anchors) - 1 {
 		hi := anchors[i]
 		lo := anchors[i+1]
 		if pci <= hi.pci && pci >= lo.pci {

@@ -3,6 +3,7 @@ package cache
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -80,7 +81,7 @@ func (t *CachingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 
 func cacheKey(url string) string {
 	h := sha256.Sum256([]byte(url))
-	return fmt.Sprintf("%x", h)
+	return hex.EncodeToString(h[:])
 }
 
 func (t *CachingTransport) readCache(metaPath, bodyPath string) (*entryMeta, []byte, bool) {

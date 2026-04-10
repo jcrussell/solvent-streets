@@ -21,7 +21,6 @@ func DefaultComparisons(year1Need float64) []Scenario {
 // GroupedComparisons returns scenarios organized into comparison groups.
 func GroupedComparisons(year1Need float64, cohorts []Cohort, years int,
 	cost *TieredCostProjector, growth *LinearGrowthEstimator) []Comparison {
-
 	scenarios := DefaultComparisons(year1Need)
 
 	fundingResults := make([]ScenarioResult, len(scenarios))

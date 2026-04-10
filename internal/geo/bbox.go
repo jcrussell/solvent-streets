@@ -2,6 +2,7 @@ package geo
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 )
@@ -42,7 +43,7 @@ func (a *bboxAccumulator) addCoord(lon, lat float64) {
 
 func (a *bboxAccumulator) validate() ([4]float64, error) {
 	if a.minLon == math.MaxFloat64 {
-		return [4]float64{}, fmt.Errorf("no coordinates found")
+		return [4]float64{}, errors.New("no coordinates found")
 	}
 	if a.minLat < -90 || a.maxLat > 90 {
 		return [4]float64{}, fmt.Errorf("latitude out of range [-90, 90]: got [%f, %f]", a.minLat, a.maxLat)
@@ -69,7 +70,7 @@ func visitCoords(v json.RawMessage, depth int, acc *bboxAccumulator) error {
 			return err
 		}
 		if len(coord) < 2 {
-			return fmt.Errorf("coordinate has fewer than 2 values")
+			return errors.New("coordinate has fewer than 2 values")
 		}
 		acc.addCoord(coord[0], coord[1])
 		return nil

@@ -19,12 +19,12 @@ func NewGeomIndex(g geom.Geometry) *GeomIndex {
 	items := make([]rtree.BulkItem, 0, len(parts))
 	for i, p := range parts {
 		env := p.Envelope()
-		min, max, ok := env.MinMaxXYs()
+		lo, hi, ok := env.MinMaxXYs()
 		if !ok {
 			continue
 		}
 		items = append(items, rtree.BulkItem{
-			Box:      rtree.Box{MinX: min.X, MinY: min.Y, MaxX: max.X, MaxY: max.Y},
+			Box:      rtree.Box{MinX: lo.X, MinY: lo.Y, MaxX: hi.X, MaxY: hi.Y},
 			RecordID: i,
 		})
 	}
@@ -36,11 +36,11 @@ func NewGeomIndex(g geom.Geometry) *GeomIndex {
 
 // Search returns all sub-geometries whose bounding boxes intersect env.
 func (idx *GeomIndex) Search(env geom.Envelope) []geom.Geometry {
-	min, max, ok := env.MinMaxXYs()
+	lo, hi, ok := env.MinMaxXYs()
 	if !ok {
 		return nil
 	}
-	box := rtree.Box{MinX: min.X, MinY: min.Y, MaxX: max.X, MaxY: max.Y}
+	box := rtree.Box{MinX: lo.X, MinY: lo.Y, MaxX: hi.X, MaxY: hi.Y}
 	var results []geom.Geometry
 	_ = idx.tree.RangeSearch(box, func(id int) error {
 		results = append(results, idx.parts[id])

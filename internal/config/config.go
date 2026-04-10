@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -168,12 +169,12 @@ func FindAndLoad(dir string) (*Config, error) {
 		}
 		dir = parent
 	}
-	return nil, fmt.Errorf("pvmt.toml not found (searched from working directory to root)")
+	return nil, errors.New("pvmt.toml not found (searched from working directory to root)")
 }
 
 func (c *Config) validate() error {
 	if len(c.Cities) == 0 {
-		return fmt.Errorf("at least one [[cities]] entry is required")
+		return errors.New("at least one [[cities]] entry is required")
 	}
 	seen := make(map[string]bool)
 	for i, city := range c.Cities {

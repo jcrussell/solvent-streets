@@ -15,7 +15,7 @@ import (
 	"pvmt/internal/resource"
 )
 
-const overpassAPI = "https://overpass-api.de/api/interpreter"
+const overpassAPI = "https://overpass-api.de/api/interpreter" //nolint:gosec // G101: not a credential
 
 const (
 	geomLineString   = "LineString"
