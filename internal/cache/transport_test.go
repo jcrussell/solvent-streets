@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -27,7 +28,8 @@ func TestCachingTransport_HitAndMiss(t *testing.T) {
 	client := &http.Client{Transport: ct}
 
 	// First request — cache miss
-	resp, err := client.Get(srv.URL + "/test")
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/test", nil)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +43,8 @@ func TestCachingTransport_HitAndMiss(t *testing.T) {
 	}
 
 	// Second request — cache hit
-	resp, err = client.Get(srv.URL + "/test")
+	req2, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/test", nil)
+	resp, err = client.Do(req2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,8 +79,16 @@ func TestCachingTransport_ForceBypass(t *testing.T) {
 	ct := NewTransport(http.DefaultTransport, dir, 0)
 	client := &http.Client{Transport: ct}
 
-	_, _ = client.Get(srv.URL + "/test")
-	_, _ = client.Get(srv.URL + "/test")
+	req1, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/test", nil)
+	resp1, _ := client.Do(req1)
+	if resp1 != nil && resp1.Body != nil {
+		resp1.Body.Close()
+	}
+	req2, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/test", nil)
+	resp2, _ := client.Do(req2)
+	if resp2 != nil && resp2.Body != nil {
+		resp2.Body.Close()
+	}
 	if callCount != 2 {
 		t.Errorf("expected 2 calls with TTL=0, got %d", callCount)
 	}

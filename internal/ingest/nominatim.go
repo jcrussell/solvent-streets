@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,11 +24,11 @@ var cityAddressTypes = map[string]bool{
 // Returns the GeoJSON geometry string (Polygon or MultiPolygon).
 // Fetches multiple results and picks the first city/town match to avoid
 // returning county or state boundaries (e.g., "Alameda, CA" → City of Alameda, not Alameda County).
-func FetchCityBoundary(client *http.Client, cityName string) (string, error) {
-	return fetchCityBoundary(client, nominatimBaseURL, cityName)
+func FetchCityBoundary(ctx context.Context, client *http.Client, cityName string) (string, error) {
+	return fetchCityBoundary(ctx, client, nominatimBaseURL, cityName)
 }
 
-func fetchCityBoundary(client *http.Client, baseURL string, cityName string) (string, error) {
+func fetchCityBoundary(ctx context.Context, client *http.Client, baseURL string, cityName string) (string, error) {
 	u := baseURL + "?" + url.Values{
 		"q":               {cityName},
 		"format":          {"json"},
@@ -35,7 +36,7 @@ func fetchCityBoundary(client *http.Client, baseURL string, cityName string) (st
 		"polygon_geojson": {"1"},
 	}.Encode()
 
-	req, err := http.NewRequest("GET", u, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return "", fmt.Errorf("create nominatim request: %w", err)
 	}
@@ -84,7 +85,7 @@ func fetchCityBoundary(client *http.Client, baseURL string, cityName string) (st
 	if err := json.Unmarshal(results[best].GeoJSON, &geomType); err != nil {
 		return "", fmt.Errorf("parse geometry type: %w", err)
 	}
-	if geomType.Type != "Polygon" && geomType.Type != "MultiPolygon" {
+	if geomType.Type != geomPolygon && geomType.Type != geomMultiPolygon {
 		return "", fmt.Errorf("expected Polygon or MultiPolygon, got %q", geomType.Type)
 	}
 

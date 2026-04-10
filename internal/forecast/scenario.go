@@ -72,25 +72,19 @@ type ScenarioResult struct {
 // Simulate runs one scenario over the given number of years with per-cohort
 // decay rates. Each cohort decays independently; budget is distributed
 // proportional to need; PCI is area-weighted blended.
-func Simulate(s Scenario, cohorts []Cohort, years int,
-	cost *TieredCostProjector, growth *LinearGrowthEstimator) ScenarioResult {
+// cohortState tracks per-cohort PCI during simulation.
+type cohortState struct {
+	forecaster *ExponentialPCIForecaster
+	currentPCI float64
+	areaFrac   float64 // fraction of total area
+}
 
-	n := len(cohorts)
-
-	// Total area for growth estimation
+func initCohortStates(cohorts []Cohort) ([]cohortState, float64) {
 	var totalArea float64
 	for _, c := range cohorts {
 		totalArea += c.AreaSqM
 	}
-	areaValues := growth.EstimateGrowth(totalArea, years)
-
-	// Per-cohort state
-	type cohortState struct {
-		forecaster *ExponentialPCIForecaster
-		currentPCI float64
-		areaFrac   float64 // fraction of total area
-	}
-	states := make([]cohortState, n)
+	states := make([]cohortState, len(cohorts))
 	for i, c := range cohorts {
 		frac := 0.0
 		if totalArea > 0 {
@@ -102,6 +96,79 @@ func Simulate(s Scenario, cohorts []Cohort, years int,
 			areaFrac:   frac,
 		}
 	}
+	return states, totalArea
+}
+
+const maxPCI = 100.0
+
+// distributeBudget distributes totalSpend across cohorts proportional to need,
+// applies PCI recovery, and returns the actual total spend.
+func distributeBudget(states []cohortState, cohortDecayed, cohortNeed []float64,
+	totalNeed, totalSpend float64, strategy Strategy,
+	cohortSpendAcc, cohortDeficitAcc []float64) float64 {
+
+	actualSpend := 0.0
+	for j := range states {
+		decayedPCI := cohortDecayed[j]
+		cohortSpend := 0.0
+		if totalNeed > 0 {
+			cohortSpend = totalSpend * (cohortNeed[j] / totalNeed)
+		}
+
+		actual := applyCohortSpend(&states[j], decayedPCI, cohortSpend, cohortNeed[j], strategy)
+		actualSpend += actual
+		cohortSpendAcc[j] += actual
+		cohortDeficitAcc[j] += math.Max(0, cohortNeed[j]-actual)
+	}
+	return actualSpend
+}
+
+func applyCohortSpend(st *cohortState, decayedPCI, spend, need float64, strategy Strategy) float64 {
+	if spend <= 0 || need <= 0 {
+		st.currentPCI = decayedPCI
+		return 0
+	}
+	if spend >= need {
+		actual := need
+		surplus := spend - need
+		if surplus > 0 {
+			usableSurplus := math.Min(surplus, need)
+			improveFraction := usableSurplus / need
+			st.currentPCI = math.Min(maxPCI, st.currentPCI+(maxPCI-st.currentPCI)*improveFraction)
+			actual += usableSurplus
+		}
+		return actual
+	}
+	spendRatio := spend / need
+	efficiency := 1.0
+	switch strategy {
+	case StrategyPreventiveFirst:
+		efficiency = 1.2
+	case StrategyWorstFirst:
+		efficiency = 0.8
+	}
+	recovery := (st.currentPCI - decayedPCI) * spendRatio * efficiency
+	st.currentPCI = math.Min(maxPCI, decayedPCI+recovery)
+	return spend
+}
+
+func blendedPCI(states []cohortState) float64 {
+	var pci float64
+	for j := range states {
+		pci += states[j].currentPCI * states[j].areaFrac
+	}
+	return pci
+}
+
+// Simulate runs one scenario over the given number of years with per-cohort
+// decay rates. Each cohort decays independently; budget is distributed
+// proportional to need; PCI is area-weighted blended.
+func Simulate(s Scenario, cohorts []Cohort, years int,
+	cost *TieredCostProjector, growth *LinearGrowthEstimator) ScenarioResult {
+
+	states, totalArea := initCohortStates(cohorts)
+	n := len(cohorts)
+	areaValues := growth.EstimateGrowth(totalArea, years)
 
 	result := ScenarioResult{
 		Scenario: s,
@@ -115,7 +182,6 @@ func Simulate(s Scenario, cohorts []Cohort, years int,
 	for i := range years {
 		area := areaValues[i]
 
-		// Per-cohort decay and need
 		cohortDecayed := make([]float64, n)
 		cohortNeed := make([]float64, n)
 		var totalNeed float64
@@ -123,13 +189,11 @@ func Simulate(s Scenario, cohorts []Cohort, years int,
 		for j := range states {
 			decayed := states[j].forecaster.Forecast(states[j].currentPCI, 1)
 			cohortDecayed[j] = decayed[0]
-			cohortArea := area * states[j].areaFrac
-			need := cost.ProjectCost(cohortArea, cohortDecayed[j])
+			need := cost.ProjectCost(area*states[j].areaFrac, cohortDecayed[j])
 			cohortNeed[j] = need
 			totalNeed += need
 		}
 
-		// Determine total spend
 		var totalSpend float64
 		switch s.Strategy {
 		case StrategyDoNothing:
@@ -138,76 +202,26 @@ func Simulate(s Scenario, cohorts []Cohort, years int,
 			if s.FullFunding {
 				totalSpend = totalNeed
 			} else {
-				// Allow spend to exceed need (surplus used for improvement)
 				totalSpend = s.AnnualBudget
 			}
 		}
 
-		// Distribute budget proportional to need and apply recovery per cohort
-		const maxPCI = 100.0
-		actualSpend := 0.0
-		for j := range states {
-			decayedPCI := cohortDecayed[j]
-			cohortSpend := 0.0
-			if totalNeed > 0 {
-				cohortSpend = totalSpend * (cohortNeed[j] / totalNeed)
-			}
-
-			var actualCohortSpend float64
-			if cohortSpend > 0 && cohortNeed[j] > 0 {
-				if cohortSpend >= cohortNeed[j] {
-					// Full funding for this cohort: restore PCI to pre-decay level.
-					// Surplus improves toward 100.
-					actualCohortSpend = cohortNeed[j]
-					surplus := cohortSpend - cohortNeed[j]
-					if surplus > 0 {
-						usableSurplus := math.Min(surplus, cohortNeed[j])
-						improveFraction := usableSurplus / cohortNeed[j]
-						states[j].currentPCI = math.Min(maxPCI, states[j].currentPCI+(maxPCI-states[j].currentPCI)*improveFraction)
-						actualCohortSpend += usableSurplus
-					}
-				} else {
-					spendRatio := cohortSpend / cohortNeed[j]
-					efficiency := 1.0
-					switch s.Strategy {
-					case StrategyPreventiveFirst:
-						efficiency = 1.2
-					case StrategyWorstFirst:
-						efficiency = 0.8
-					}
-					recovery := (states[j].currentPCI - decayedPCI) * spendRatio * efficiency
-					states[j].currentPCI = math.Min(maxPCI, decayedPCI+recovery)
-					actualCohortSpend = cohortSpend
-				}
-			} else {
-				states[j].currentPCI = decayedPCI
-			}
-			actualSpend += actualCohortSpend
-			cohortSpendAcc[j] += actualCohortSpend
-			cohortDeficitAcc[j] += math.Max(0, cohortNeed[j]-actualCohortSpend)
-		}
-		totalSpend = actualSpend
-
-		// Blended area-weighted PCI
-		var blendedPCI float64
-		for j := range states {
-			blendedPCI += states[j].currentPCI * states[j].areaFrac
-		}
+		totalSpend = distributeBudget(states, cohortDecayed, cohortNeed,
+			totalNeed, totalSpend, s.Strategy, cohortSpendAcc, cohortDeficitAcc)
 
 		deferredBacklog += math.Max(0, totalNeed-totalSpend)
 
 		result.Years[i] = ScenarioYear{
 			Year:            i + 1,
-			PCI:             blendedPCI,
+			PCI:             blendedPCI(states),
 			AreaSqM:         area,
 			AnnualNeed:      totalNeed,
 			AnnualSpend:     totalSpend,
 			DeferredBacklog: deferredBacklog,
-			CostTier:        TierForPCI(blendedPCI),
+			CostTier:        TierForPCI(blendedPCI(states)),
 		}
 	}
 
-	// Build final cohort summaries
 	result.FinalCohorts = make([]CohortSummary, n)
 	for j, c := range cohorts {
 		result.FinalCohorts[j] = CohortSummary{

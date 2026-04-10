@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"fmt"
@@ -86,22 +87,22 @@ type City struct {
 }
 
 type Store interface {
-	UpsertFeatures(resourceType string, features []Feature) error
-	ListFeatures(resourceType string) ([]Feature, error)
-	SaveComputeResult(result ComputeResult) error
-	LatestComputeResult(resourceType string) (*ComputeResult, error)
-	SaveHexStats(stats []HexStat) error
-	ListHexStats(resourceType string) ([]HexStat, error)
-	CreateSnapshot(configHash string) (*Snapshot, error)
-	ListSnapshots() ([]Snapshot, error)
-	SaveForecastResults(results []ForecastResult) error
-	ListForecastResults(resourceType string) ([]ForecastResult, error)
-	SaveCohortStats(stats []CohortStat) error
-	ListCohortStats(resourceType string) ([]CohortStat, error)
-	SaveBoundary(geometryJSON, source string) error
-	GetBoundary() (string, error)
-	Stats(resourceType string) (*StatusInfo, error)
-	ResourceTypes() ([]string, error)
+	UpsertFeatures(ctx context.Context, resourceType string, features []Feature) error
+	ListFeatures(ctx context.Context, resourceType string) ([]Feature, error)
+	SaveComputeResult(ctx context.Context, result ComputeResult) error
+	LatestComputeResult(ctx context.Context, resourceType string) (*ComputeResult, error)
+	SaveHexStats(ctx context.Context, stats []HexStat) error
+	ListHexStats(ctx context.Context, resourceType string) ([]HexStat, error)
+	CreateSnapshot(ctx context.Context, configHash string) (*Snapshot, error)
+	ListSnapshots(ctx context.Context) ([]Snapshot, error)
+	SaveForecastResults(ctx context.Context, results []ForecastResult) error
+	ListForecastResults(ctx context.Context, resourceType string) ([]ForecastResult, error)
+	SaveCohortStats(ctx context.Context, stats []CohortStat) error
+	ListCohortStats(ctx context.Context, resourceType string) ([]CohortStat, error)
+	SaveBoundary(ctx context.Context, geometryJSON, source string) error
+	GetBoundary(ctx context.Context) (string, error)
+	Stats(ctx context.Context, resourceType string) (*StatusInfo, error)
+	ResourceTypes(ctx context.Context) ([]string, error)
 	Close() error
 }
 
@@ -112,8 +113,8 @@ type sqliteStore struct {
 
 // RootStorer is the interface for managing cities and providing city-scoped stores.
 type RootStorer interface {
-	EnsureCity(slug, name string) (int64, error)
-	ListCities() ([]City, error)
+	EnsureCity(ctx context.Context, slug, name string) (int64, error)
+	ListCities(ctx context.Context) ([]City, error)
 	ForCity(id int64) Store
 	Close() error
 }
@@ -154,7 +155,7 @@ func Open(path string) (*RootStore, error) {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 
-	if err := migrate(db); err != nil {
+	if err := migrate(context.Background(), db); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
@@ -163,13 +164,13 @@ func Open(path string) (*RootStore, error) {
 }
 
 // EnsureCity inserts or retrieves a city by slug, returning its ID.
-func (r *RootStore) EnsureCity(slug, name string) (int64, error) {
-	_, err := r.db.Exec(`INSERT OR IGNORE INTO cities (slug, name) VALUES (?, ?)`, slug, name)
+func (r *RootStore) EnsureCity(ctx context.Context, slug, name string) (int64, error) {
+	_, err := r.db.ExecContext(ctx, `INSERT OR IGNORE INTO cities (slug, name) VALUES (?, ?)`, slug, name)
 	if err != nil {
 		return 0, fmt.Errorf("ensure city: %w", err)
 	}
 	var id int64
-	err = r.db.QueryRow(`SELECT id FROM cities WHERE slug = ?`, slug).Scan(&id)
+	err = r.db.QueryRowContext(ctx, `SELECT id FROM cities WHERE slug = ?`, slug).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("get city id: %w", err)
 	}
@@ -177,8 +178,8 @@ func (r *RootStore) EnsureCity(slug, name string) (int64, error) {
 }
 
 // ListCities returns all cities in the database.
-func (r *RootStore) ListCities() ([]City, error) {
-	rows, err := r.db.Query(`SELECT id, slug, name FROM cities ORDER BY name`)
+func (r *RootStore) ListCities(ctx context.Context) ([]City, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id, slug, name FROM cities ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("list cities: %w", err)
 	}

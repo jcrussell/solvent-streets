@@ -5,6 +5,12 @@ import (
 	"testing"
 )
 
+const (
+	testGeomLineString = "LineString"
+	testGeomPolygon    = "Polygon"
+	testResourceRoads  = "roads"
+)
+
 func TestParseOverpassResponse_BasicWayWithGeometry(t *testing.T) {
 	data := `{
 		"elements": [
@@ -19,7 +25,7 @@ func TestParseOverpassResponse_BasicWayWithGeometry(t *testing.T) {
 			}
 		]
 	}`
-	features, err := parseOverpassResponse([]byte(data), "roads")
+	features, err := parseOverpassResponse([]byte(data), testResourceRoads)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +39,7 @@ func TestParseOverpassResponse_BasicWayWithGeometry(t *testing.T) {
 	if f.Name != "Main St" {
 		t.Errorf("expected name Main St, got %s", f.Name)
 	}
-	if f.ResourceType != "roads" {
+	if f.ResourceType != testResourceRoads {
 		t.Errorf("expected resource type pavements, got %s", f.ResourceType)
 	}
 	// Should be LineString since first != last
@@ -41,7 +47,7 @@ func TestParseOverpassResponse_BasicWayWithGeometry(t *testing.T) {
 	if err := json.Unmarshal([]byte(f.GeometryJSON), &geojson); err != nil {
 		t.Fatal(err)
 	}
-	if geojson.Type != "LineString" {
+	if geojson.Type != testGeomLineString {
 		t.Errorf("expected LineString, got %s", geojson.Type)
 	}
 }
@@ -59,7 +65,7 @@ func TestParseOverpassResponse_WayResolvedViaNodeIndex(t *testing.T) {
 			}
 		]
 	}`
-	features, err := parseOverpassResponse([]byte(data), "roads")
+	features, err := parseOverpassResponse([]byte(data), testResourceRoads)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +105,7 @@ func TestParseOverpassResponse_ClosedPolygon(t *testing.T) {
 	if err := json.Unmarshal([]byte(features[0].GeometryJSON), &geojson); err != nil {
 		t.Fatal(err)
 	}
-	if geojson.Type != "Polygon" {
+	if geojson.Type != testGeomPolygon {
 		t.Errorf("expected Polygon, got %s", geojson.Type)
 	}
 }
@@ -115,7 +121,7 @@ func TestParseOverpassResponse_WayLessThan2Coords(t *testing.T) {
 			}
 		]
 	}`
-	features, err := parseOverpassResponse([]byte(data), "roads")
+	features, err := parseOverpassResponse([]byte(data), testResourceRoads)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +132,7 @@ func TestParseOverpassResponse_WayLessThan2Coords(t *testing.T) {
 
 func TestParseOverpassResponse_EmptyResponse(t *testing.T) {
 	data := `{"elements": []}`
-	features, err := parseOverpassResponse([]byte(data), "roads")
+	features, err := parseOverpassResponse([]byte(data), testResourceRoads)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +155,7 @@ func TestParseOverpassResponse_NameFallbackToHighway(t *testing.T) {
 			}
 		]
 	}`
-	features, err := parseOverpassResponse([]byte(data), "roads")
+	features, err := parseOverpassResponse([]byte(data), testResourceRoads)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +184,7 @@ func TestParseOverpassResponse_GeometryPriorityOverNodes(t *testing.T) {
 			}
 		]
 	}`
-	features, err := parseOverpassResponse([]byte(data), "roads")
+	features, err := parseOverpassResponse([]byte(data), testResourceRoads)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +217,7 @@ func TestCoordsToLineStringGeoJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(result), &obj); err != nil {
 		t.Fatal(err)
 	}
-	if obj.Type != "LineString" {
+	if obj.Type != testGeomLineString {
 		t.Errorf("expected type LineString, got %s", obj.Type)
 	}
 	if len(obj.Coordinates) != 2 {
@@ -233,7 +239,7 @@ func TestCoordsToPolygonGeoJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(result), &obj); err != nil {
 		t.Fatal(err)
 	}
-	if obj.Type != "Polygon" {
+	if obj.Type != testGeomPolygon {
 		t.Errorf("expected type Polygon, got %s", obj.Type)
 	}
 	if len(obj.Coordinates) != 1 {

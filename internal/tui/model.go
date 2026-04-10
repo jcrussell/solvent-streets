@@ -125,81 +125,101 @@ func (m StepModel) Init() tea.Cmd {
 func (m StepModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
-		switch msg.String() {
-		case "ctrl+c":
-			m.finished = true
-			m.err = fmt.Errorf("interrupted")
-			return m, tea.Quit
-		case "v":
-			m.logExpanded = !m.logExpanded
-			return m, nil
-		}
-
+		return m.handleKeyPress(msg)
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		return m, nil
-
 	case tickMsg:
-		if m.finished {
-			return m, nil
-		}
-		m.tick++
-		return m, tickCmd()
-
+		return m.handleTick()
 	case PhaseStartMsg:
-		if msg.Phase >= 0 && msg.Phase < len(m.steps) {
-			// Only activate if still pending (idempotent).
-			if m.steps[msg.Phase].Status == StepPending {
-				m.steps[msg.Phase].Status = StepActive
-			}
-		}
+		m.handlePhaseStart(msg)
 		return m, nil
-
 	case PhaseDoneMsg:
-		if msg.Phase >= 0 && msg.Phase < len(m.steps) {
-			if msg.Err != nil {
-				m.steps[msg.Phase].Status = StepFailed
-				m.steps[msg.Phase].Detail = msg.Err.Error()
-			} else {
-				m.steps[msg.Phase].Status = StepDone
-				m.steps[msg.Phase].Progress = 0 // clear bar on completion
-			}
-		}
+		m.handlePhaseDone(msg)
 		return m, nil
-
 	case PhaseProgressMsg:
-		if msg.Phase >= 0 && msg.Phase < len(m.steps) {
-			m.steps[msg.Phase].Progress = msg.Percent
-			m.steps[msg.Phase].Detail = msg.Detail
-		}
+		m.handlePhaseProgress(msg)
 		return m, nil
-
 	case ProgressMsg:
-		// Append to log ring buffer. The re-slice doesn't shrink the
-		// backing array, but with maxLogLines=1000 and short-lived CLI
-		// sessions the memory overhead is negligible.
-		m.logLines = append(m.logLines, msg.Line)
-		if len(m.logLines) > maxLogLines {
-			excess := len(m.logLines) - maxLogLines
-			m.logLines = m.logLines[excess:]
-		}
+		m.handleProgress(msg)
 		return m, nil
-
 	case WarnMsg:
-		m.warnLines = append(m.warnLines, msg.Line)
-		if len(m.warnLines) > maxWarnLines {
-			excess := len(m.warnLines) - maxWarnLines
-			m.warnLines = m.warnLines[excess:]
-		}
+		m.handleWarn(msg)
 		return m, nil
-
 	case allDoneMsg:
 		m.finished = true
 		m.err = msg.err
 		return m, tea.Quit
 	}
-
 	return m, nil
+}
+
+func (m StepModel) handleKeyPress(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		m.finished = true
+		m.err = fmt.Errorf("interrupted")
+		return m, tea.Quit
+	case "v":
+		m.logExpanded = !m.logExpanded
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m StepModel) handleTick() (tea.Model, tea.Cmd) {
+	if m.finished {
+		return m, nil
+	}
+	m.tick++
+	return m, tickCmd()
+}
+
+func (m *StepModel) handlePhaseStart(msg PhaseStartMsg) {
+	if msg.Phase >= 0 && msg.Phase < len(m.steps) {
+		// Only activate if still pending (idempotent).
+		if m.steps[msg.Phase].Status == StepPending {
+			m.steps[msg.Phase].Status = StepActive
+		}
+	}
+}
+
+func (m *StepModel) handlePhaseDone(msg PhaseDoneMsg) {
+	if msg.Phase >= 0 && msg.Phase < len(m.steps) {
+		if msg.Err != nil {
+			m.steps[msg.Phase].Status = StepFailed
+			m.steps[msg.Phase].Detail = msg.Err.Error()
+		} else {
+			m.steps[msg.Phase].Status = StepDone
+			m.steps[msg.Phase].Progress = 0 // clear bar on completion
+		}
+	}
+}
+
+func (m *StepModel) handlePhaseProgress(msg PhaseProgressMsg) {
+	if msg.Phase >= 0 && msg.Phase < len(m.steps) {
+		m.steps[msg.Phase].Progress = msg.Percent
+		m.steps[msg.Phase].Detail = msg.Detail
+	}
+}
+
+func (m *StepModel) handleProgress(msg ProgressMsg) {
+	// Append to log ring buffer. The re-slice doesn't shrink the
+	// backing array, but with maxLogLines=1000 and short-lived CLI
+	// sessions the memory overhead is negligible.
+	m.logLines = append(m.logLines, msg.Line)
+	if len(m.logLines) > maxLogLines {
+		excess := len(m.logLines) - maxLogLines
+		m.logLines = m.logLines[excess:]
+	}
+}
+
+func (m *StepModel) handleWarn(msg WarnMsg) {
+	m.warnLines = append(m.warnLines, msg.Line)
+	if len(m.warnLines) > maxWarnLines {
+		excess := len(m.warnLines) - maxWarnLines
+		m.warnLines = m.warnLines[excess:]
+	}
 }
 
 func (m StepModel) View() tea.View {
@@ -214,7 +234,27 @@ func (m StepModel) View() tea.View {
 	sb.WriteString(headerStyle.Render(m.label))
 	sb.WriteString("\n\n")
 
-	// Steps
+	m.renderSteps(&sb, w)
+
+	// Log tail area (show when there are log lines, but hide on success)
+	if len(m.logLines) > 0 && (!m.finished || m.err != nil) {
+		m.renderLogPanel(&sb, w)
+	}
+
+	// Warnings panel (always visible when there are warnings, even on success)
+	if len(m.warnLines) > 0 {
+		m.renderWarnPanel(&sb, w)
+	}
+
+	// Final message
+	if m.finished {
+		m.renderFinalMessage(&sb)
+	}
+
+	return tea.NewView(sb.String())
+}
+
+func (m StepModel) renderSteps(sb *strings.Builder, w int) {
 	for _, s := range m.steps {
 		// Indentation: 2 spaces per indent level + base 2
 		indent := strings.Repeat("  ", s.Indent+1)
@@ -245,93 +285,90 @@ func (m StepModel) View() tea.View {
 			sb.WriteString("\n")
 		}
 	}
+}
 
-	// Log tail area (show when there are log lines, but hide on success)
-	if len(m.logLines) > 0 && (!m.finished || m.err != nil) {
-		sb.WriteString("\n")
+func (m StepModel) renderLogPanel(sb *strings.Builder, w int) {
+	sb.WriteString("\n")
 
-		// Build header line with toggle hint
-		hint := "[v] expand"
-		if m.logExpanded {
-			hint = "[v] collapse"
+	// Build header line with toggle hint
+	hint := "[v] expand"
+	if m.logExpanded {
+		hint = "[v] collapse"
+	}
+	lineWidth := max(w-4, 20)
+
+	label := " output "
+	hintStr := " " + hint + " "
+	dashCount := max(lineWidth-len(label)-len(hintStr), 2)
+	leftDashes := 3
+	rightDashes := max(dashCount-leftDashes, 1)
+
+	headerLine := "  " + borderStyle.Render(strings.Repeat("─", leftDashes)+label) +
+		borderStyle.Render(strings.Repeat("─", rightDashes)+hintStr)
+	sb.WriteString(headerLine)
+	sb.WriteString("\n")
+
+	// Determine how many lines to show
+	visibleLines := compactLogLines
+	if m.logExpanded {
+		visibleLines = expandedLogLines
+	}
+
+	// Get the tail of log lines
+	start := 0
+	if len(m.logLines) > visibleLines {
+		start = len(m.logLines) - visibleLines
+	}
+	tail := m.logLines[start:]
+
+	for _, line := range tail {
+		// Truncate long lines to terminal width
+		display := line
+		if len(display) > lineWidth {
+			display = display[:lineWidth-1] + "…"
 		}
-		lineWidth := max(
-			// account for side padding
-			w-4, 20)
-
-		label := " output "
-		hintStr := " " + hint + " "
-		dashCount := max(lineWidth-len(label)-len(hintStr), 2)
-		leftDashes := 3
-		rightDashes := max(dashCount-leftDashes, 1)
-
-		headerLine := "  " + borderStyle.Render(strings.Repeat("─", leftDashes)+label) +
-			borderStyle.Render(strings.Repeat("─", rightDashes)+hintStr)
-		sb.WriteString(headerLine)
-		sb.WriteString("\n")
-
-		// Determine how many lines to show
-		visibleLines := compactLogLines
-		if m.logExpanded {
-			visibleLines = expandedLogLines
-		}
-
-		// Get the tail of log lines
-		start := 0
-		if len(m.logLines) > visibleLines {
-			start = len(m.logLines) - visibleLines
-		}
-		tail := m.logLines[start:]
-
-		for _, line := range tail {
-			// Truncate long lines to terminal width
-			display := line
-			if len(display) > lineWidth {
-				display = display[:lineWidth-1] + "…"
-			}
-			sb.WriteString("  ")
-			sb.WriteString(display)
-			sb.WriteString("\n")
-		}
-
-		footerLine := "  " + borderStyle.Render(strings.Repeat("─", lineWidth))
-		sb.WriteString(footerLine)
+		sb.WriteString("  ")
+		sb.WriteString(display)
 		sb.WriteString("\n")
 	}
 
-	// Warnings panel (always visible when there are warnings, even on success)
-	if len(m.warnLines) > 0 {
-		sb.WriteString("\n")
+	footerLine := "  " + borderStyle.Render(strings.Repeat("─", lineWidth))
+	sb.WriteString(footerLine)
+	sb.WriteString("\n")
+}
 
-		lineWidth := max(w-4, 20)
+func (m StepModel) renderWarnPanel(sb *strings.Builder, w int) {
+	sb.WriteString("\n")
 
-		warnLabel := " warnings "
-		warnDashCount := max(lineWidth-len(warnLabel), 2)
-		warnLeftDashes := 3
-		warnRightDashes := max(warnDashCount-warnLeftDashes, 1)
+	lineWidth := max(w-4, 20)
 
-		warnHeaderLine := "  " + warnBorderStyle.Render(strings.Repeat("─", warnLeftDashes)+warnLabel) +
-			warnBorderStyle.Render(strings.Repeat("─", warnRightDashes))
-		sb.WriteString(warnHeaderLine)
-		sb.WriteString("\n")
+	warnLabel := " warnings "
+	warnDashCount := max(lineWidth-len(warnLabel), 2)
+	warnLeftDashes := 3
+	warnRightDashes := max(warnDashCount-warnLeftDashes, 1)
 
-		for _, line := range m.warnLines {
-			display := line
-			if len(display) > lineWidth {
-				display = display[:lineWidth-1] + "…"
-			}
-			sb.WriteString("  ")
-			sb.WriteString(warnBorderStyle.Render(display))
-			sb.WriteString("\n")
+	warnHeaderLine := "  " + warnBorderStyle.Render(strings.Repeat("─", warnLeftDashes)+warnLabel) +
+		warnBorderStyle.Render(strings.Repeat("─", warnRightDashes))
+	sb.WriteString(warnHeaderLine)
+	sb.WriteString("\n")
+
+	for _, line := range m.warnLines {
+		display := line
+		if len(display) > lineWidth {
+			display = display[:lineWidth-1] + "…"
 		}
-
-		warnFooterLine := "  " + warnBorderStyle.Render(strings.Repeat("─", lineWidth))
-		sb.WriteString(warnFooterLine)
+		sb.WriteString("  ")
+		sb.WriteString(warnBorderStyle.Render(display))
 		sb.WriteString("\n")
 	}
 
-	// Final message
-	if m.finished && m.err == nil {
+	warnFooterLine := "  " + warnBorderStyle.Render(strings.Repeat("─", lineWidth))
+	sb.WriteString(warnFooterLine)
+	sb.WriteString("\n")
+}
+
+func (m StepModel) renderFinalMessage(sb *strings.Builder) {
+	if m.err == nil {
 		sb.WriteString("\n")
 		sb.WriteString(doneStyle.Render(m.done.SuccessMsg))
 		sb.WriteString("\n")
@@ -339,13 +376,11 @@ func (m StepModel) View() tea.View {
 			sb.WriteString(line)
 			sb.WriteString("\n")
 		}
-	} else if m.finished && m.err != nil {
+	} else {
 		sb.WriteString("\n")
 		sb.WriteString(failStyle.Render(fmt.Sprintf("Error: %v", m.err)))
 		sb.WriteString("\n")
 	}
-
-	return tea.NewView(sb.String())
 }
 
 // renderProgressBar renders a lipgloss progress bar line.

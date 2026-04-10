@@ -81,27 +81,42 @@ func reprojectGeoJSON(obj map[string]any, proj Projector) {
 	}
 }
 
-func reprojectCoords(v any, proj Projector) any {
-	switch c := v.(type) {
-	case []any:
-		if len(c) >= 2 {
-			if x, ok := c[0].(float64); ok {
-				if y, ok := c[1].(float64); ok {
-					if !isLonLat(x, y) {
-						lon, lat, _ := proj.FromProjected(x, y)
-						return []any{roundTo(lon, 7), roundTo(lat, 7)}
-					}
-					return c
-				}
-			}
-		}
-		result := make([]any, len(c))
-		for i, item := range c {
-			result[i] = reprojectCoords(item, proj)
-		}
-		return result
+// tryReprojectCoord checks if c is a coordinate pair [lon, lat] (both float64)
+// and reprojects it if it is not already in lon/lat range. Returns the
+// reprojected slice and true if c was a coordinate pair, or nil and false
+// otherwise.
+func tryReprojectCoord(c []any, proj Projector) ([]any, bool) {
+	if len(c) < 2 {
+		return nil, false
 	}
-	return v
+	x, ok := c[0].(float64)
+	if !ok {
+		return nil, false
+	}
+	y, ok := c[1].(float64)
+	if !ok {
+		return nil, false
+	}
+	if !isLonLat(x, y) {
+		lon, lat, _ := proj.FromProjected(x, y)
+		return []any{roundTo(lon, 7), roundTo(lat, 7)}, true
+	}
+	return c, true
+}
+
+func reprojectCoords(v any, proj Projector) any {
+	c, ok := v.([]any)
+	if !ok {
+		return v
+	}
+	if reprojected, isCoord := tryReprojectCoord(c, proj); isCoord {
+		return reprojected
+	}
+	result := make([]any, len(c))
+	for i, item := range c {
+		result[i] = reprojectCoords(item, proj)
+	}
+	return result
 }
 
 func isLonLat(x, y float64) bool {
@@ -177,17 +192,11 @@ func GeoJSONToProjectedGeometry(gjson string, proj Projector) (geom.Geometry, st
 
 	switch obj.Type {
 	case "LineString":
-		var coords [][2]float64
-		if err := json.Unmarshal(obj.Coordinates, &coords); err != nil {
-			return geom.Geometry{}, "", err
-		}
-		projected, err := projectCoords(coords, proj)
+		g, err := buildProjectedLineString(obj.Coordinates, proj)
 		if err != nil {
 			return geom.Geometry{}, "", err
 		}
-		seq := coordsToSequence(projected)
-		ls := geom.NewLineString(seq)
-		return ls.AsGeometry(), obj.Type, nil
+		return g, obj.Type, nil
 
 	case "Polygon":
 		g, err := buildProjectedPolygon(obj.Coordinates, proj)
@@ -197,66 +206,88 @@ func GeoJSONToProjectedGeometry(gjson string, proj Projector) (geom.Geometry, st
 		return g, obj.Type, nil
 
 	case "MultiPolygon":
-		var polys [][][][2]float64
-		if err := json.Unmarshal(obj.Coordinates, &polys); err != nil {
-			return geom.Geometry{}, "", err
-		}
-		var geometries []geom.Geometry
-		for _, polyCoords := range polys {
-			raw, _ := json.Marshal(polyCoords)
-			g, err := buildProjectedPolygon(raw, proj)
-			if err != nil {
-				continue
-			}
-			cleaned, err := ValidatePolygon(g)
-			if err != nil {
-				continue
-			}
-			geometries = append(geometries, cleaned)
-		}
-		if len(geometries) == 0 {
-			return geom.Geometry{}, obj.Type, fmt.Errorf("no valid polygons in MultiPolygon")
-		}
-		if len(geometries) == 1 {
-			return geometries[0], obj.Type, nil
-		}
-		union, err := UnionAll(geometries)
+		g, err := buildProjectedMultiPolygon(obj.Coordinates, proj)
 		if err != nil {
 			return geom.Geometry{}, obj.Type, err
 		}
-		return union, obj.Type, nil
+		return g, obj.Type, nil
 
 	case "GeometryCollection":
-		var raw struct {
-			Geometries []json.RawMessage `json:"geometries"`
-		}
-		if err := json.Unmarshal([]byte(gjson), &raw); err != nil {
-			return geom.Geometry{}, obj.Type, err
-		}
-		var geometries []geom.Geometry
-		for _, gRaw := range raw.Geometries {
-			g, _, err := GeoJSONToProjectedGeometry(string(gRaw), proj)
-			if err != nil {
-				continue
-			}
-			cleaned, err := ValidatePolygon(g)
-			if err != nil {
-				continue
-			}
-			geometries = append(geometries, cleaned)
-		}
-		if len(geometries) == 0 {
-			return geom.Geometry{}, obj.Type, fmt.Errorf("no valid geometries in collection")
-		}
-		union, err := UnionAll(geometries)
+		g, err := buildProjectedGeometryCollection(gjson, proj)
 		if err != nil {
 			return geom.Geometry{}, obj.Type, err
 		}
-		return union, obj.Type, nil
+		return g, obj.Type, nil
 
 	default:
 		return geom.Geometry{}, obj.Type, fmt.Errorf("unsupported geometry type: %s", obj.Type)
 	}
+}
+
+func buildProjectedLineString(coordsRaw json.RawMessage, proj Projector) (geom.Geometry, error) {
+	var coords [][2]float64
+	if err := json.Unmarshal(coordsRaw, &coords); err != nil {
+		return geom.Geometry{}, err
+	}
+	projected, err := projectCoords(coords, proj)
+	if err != nil {
+		return geom.Geometry{}, err
+	}
+	seq := coordsToSequence(projected)
+	ls := geom.NewLineString(seq)
+	return ls.AsGeometry(), nil
+}
+
+func buildProjectedMultiPolygon(coordsRaw json.RawMessage, proj Projector) (geom.Geometry, error) {
+	var polys [][][][2]float64
+	if err := json.Unmarshal(coordsRaw, &polys); err != nil {
+		return geom.Geometry{}, err
+	}
+	var geometries []geom.Geometry
+	for _, polyCoords := range polys {
+		raw, _ := json.Marshal(polyCoords)
+		g, err := buildProjectedPolygon(raw, proj)
+		if err != nil {
+			continue
+		}
+		cleaned, err := ValidatePolygon(g)
+		if err != nil {
+			continue
+		}
+		geometries = append(geometries, cleaned)
+	}
+	if len(geometries) == 0 {
+		return geom.Geometry{}, fmt.Errorf("no valid polygons in MultiPolygon")
+	}
+	if len(geometries) == 1 {
+		return geometries[0], nil
+	}
+	return UnionAll(geometries)
+}
+
+func buildProjectedGeometryCollection(gjson string, proj Projector) (geom.Geometry, error) {
+	var raw struct {
+		Geometries []json.RawMessage `json:"geometries"`
+	}
+	if err := json.Unmarshal([]byte(gjson), &raw); err != nil {
+		return geom.Geometry{}, err
+	}
+	var geometries []geom.Geometry
+	for _, gRaw := range raw.Geometries {
+		g, _, err := GeoJSONToProjectedGeometry(string(gRaw), proj)
+		if err != nil {
+			continue
+		}
+		cleaned, err := ValidatePolygon(g)
+		if err != nil {
+			continue
+		}
+		geometries = append(geometries, cleaned)
+	}
+	if len(geometries) == 0 {
+		return geom.Geometry{}, fmt.Errorf("no valid geometries in collection")
+	}
+	return UnionAll(geometries)
 }
 
 func buildProjectedPolygon(coordsRaw json.RawMessage, proj Projector) (geom.Geometry, error) {

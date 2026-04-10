@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
@@ -41,7 +42,7 @@ func NewCmdIngest(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Optio
 			if runF != nil {
 				return runF(opts)
 			}
-			return runIngestAllCities(f, opts)
+			return runIngestAllCities(cmd.Context(), f, opts)
 		},
 	}
 
@@ -51,16 +52,16 @@ func NewCmdIngest(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Optio
 	return cmd
 }
 
-func runIngestAllCities(f *cmdutil.Factory, opts *Options) error {
-	return cmdutil.ForEachCity(f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
+func runIngestAllCities(ctx context.Context, f *cmdutil.Factory, opts *Options) error {
+	return cmdutil.ForEachCity(ctx, f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
 		cityOpts := *opts
 		cityOpts.CurrentCity = cf.CurrentCity
 		cityOpts.CityDB = cf.CityDB
-		return runIngest(&cityOpts)
+		return runIngest(ctx, &cityOpts)
 	})
 }
 
-func runIngest(opts *Options) error {
+func runIngest(ctx context.Context, opts *Options) error {
 	ios := opts.IO
 
 	city, err := opts.CurrentCity()
@@ -85,14 +86,14 @@ func runIngest(opts *Options) error {
 	}
 
 	// Fetch city boundary from Nominatim (cached: skip if already stored)
-	boundaryGJSON, _ := store.GetBoundary()
+	boundaryGJSON, _ := store.GetBoundary(ctx)
 	if boundaryGJSON == "" || opts.Force {
 		fmt.Fprintf(ios.Out, "Fetching boundary for %s from Nominatim...\n", city.Name)
-		boundaryGJSON, err = ingestpkg.FetchCityBoundary(client, city.Name)
+		boundaryGJSON, err = ingestpkg.FetchCityBoundary(ctx, client, city.Name)
 		if err != nil {
 			return fmt.Errorf("fetch boundary: %w", err)
 		}
-		if err := store.SaveBoundary(boundaryGJSON, "nominatim"); err != nil {
+		if err := store.SaveBoundary(ctx, boundaryGJSON, "nominatim"); err != nil {
 			return fmt.Errorf("save boundary: %w", err)
 		}
 		fmt.Fprintf(ios.Out, "  Boundary saved.\n")
@@ -119,7 +120,7 @@ func runIngest(opts *Options) error {
 	var allFeatures []db.Feature
 	for _, src := range sources {
 		fmt.Fprintf(ios.Out, "Fetching %s data from %s for %s...\n", opts.ResourceType.Name(), src.Name(), city.Name)
-		features, err := src.Fetch(client, opts.ResourceType)
+		features, err := src.Fetch(ctx, client, opts.ResourceType)
 		if err != nil {
 			fmt.Fprintf(ios.ErrOut, "Warning: %s fetch failed: %v\n", src.Name(), err)
 			continue
@@ -134,7 +135,7 @@ func runIngest(opts *Options) error {
 	}
 
 	fmt.Fprintf(ios.Out, "Saving %d features to database...\n", len(allFeatures))
-	if err := store.UpsertFeatures(opts.ResourceType.Name(), allFeatures); err != nil {
+	if err := store.UpsertFeatures(ctx, opts.ResourceType.Name(), allFeatures); err != nil {
 		return fmt.Errorf("save features: %w", err)
 	}
 

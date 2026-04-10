@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"context"
 	"net/http"
 	"testing"
 
@@ -14,10 +15,13 @@ func TestUserAgentTransport_SetsHeader(t *testing.T) {
 
 	transport := UserAgentTransport(reg)
 
-	req, _ := http.NewRequest("GET", "http://example.com", nil)
-	_, err := transport.RoundTrip(req)
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", "http://example.com", nil)
+	resp, err := transport.RoundTrip(req)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if resp != nil && resp.Body != nil {
+		resp.Body.Close()
 	}
 	if reg.LastRequest().Header.Get("User-Agent") != userAgentString {
 		t.Errorf("expected User-Agent %q, got %q", userAgentString, reg.LastRequest().Header.Get("User-Agent"))
@@ -31,10 +35,13 @@ func TestUserAgentTransport_ClonesRequest(t *testing.T) {
 
 	transport := UserAgentTransport(reg)
 
-	req, _ := http.NewRequest("GET", "http://example.com", nil)
-	_, err := transport.RoundTrip(req)
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", "http://example.com", nil)
+	resp, err := transport.RoundTrip(req)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if resp != nil && resp.Body != nil {
+		resp.Body.Close()
 	}
 	// Original request should not have User-Agent set
 	if req.Header.Get("User-Agent") != "" {
@@ -49,11 +56,12 @@ func TestRetryTransport_NoRetryOn200(t *testing.T) {
 
 	transport := RetryTransport(reg, 2)
 
-	req, _ := http.NewRequest("GET", "http://example.com", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", "http://example.com", nil)
 	resp, err := transport.RoundTrip(req)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		t.Errorf("expected 200, got %d", resp.StatusCode)
 	}
@@ -73,11 +81,12 @@ func TestRetryTransport_RetriesOn500(t *testing.T) {
 	// maxRetries=1 means 2 total attempts (initial + 1 retry)
 	transport := RetryTransport(reg, 1)
 
-	req, _ := http.NewRequest("GET", "http://example.com", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", "http://example.com", nil)
 	resp, err := transport.RoundTrip(req)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		t.Errorf("expected 200 after retry, got %d", resp.StatusCode)
 	}
@@ -96,11 +105,12 @@ func TestRetryTransport_RetriesOn429(t *testing.T) {
 
 	transport := RetryTransport(reg, 1)
 
-	req, _ := http.NewRequest("GET", "http://example.com", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", "http://example.com", nil)
 	resp, err := transport.RoundTrip(req)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		t.Errorf("expected 200 after retry, got %d", resp.StatusCode)
 	}
@@ -116,11 +126,12 @@ func TestRetryTransport_NoRetryOn400(t *testing.T) {
 
 	transport := RetryTransport(reg, 2)
 
-	req, _ := http.NewRequest("GET", "http://example.com", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", "http://example.com", nil)
 	resp, err := transport.RoundTrip(req)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != 400 {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
 	}
@@ -139,11 +150,12 @@ func TestRetryTransport_ReturnsLastResponseOnExhaustion(t *testing.T) {
 
 	transport := RetryTransport(reg, 1)
 
-	req, _ := http.NewRequest("GET", "http://example.com", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", "http://example.com", nil)
 	resp, err := transport.RoundTrip(req)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != 500 {
 		t.Errorf("expected 500 on exhaustion, got %d", resp.StatusCode)
 	}

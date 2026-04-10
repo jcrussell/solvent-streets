@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -17,8 +18,8 @@ import (
 func TestHandleDataMetaJSON(t *testing.T) {
 	testBoundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
 	store := &dbtest.MockStore{
-		GetBoundaryFunc: func() (string, error) { return testBoundary, nil },
-		LatestComputeResultFunc: func(rt string) (*db.ComputeResult, error) {
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
+		LatestComputeResultFunc: func(_ context.Context, rt string) (*db.ComputeResult, error) {
 			if rt == "roads" {
 				return &db.ComputeResult{
 					ResourceType: "roads",
@@ -47,7 +48,7 @@ func TestHandleDataMetaJSON(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /data/{file}", srv.handleDataFile(entry))
 
-	req := httptest.NewRequest("GET", "/data/meta.json", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", "/data/meta.json", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 

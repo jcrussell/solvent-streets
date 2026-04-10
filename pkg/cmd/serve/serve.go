@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"context"
 	"fmt"
 
 	"pvmt/internal/config"
@@ -35,7 +36,7 @@ func NewCmdServe(f *cmdutil.Factory, runF func(*Options) error) *cobra.Command {
 			if runF != nil {
 				return runF(opts)
 			}
-			return runServe(opts)
+			return runServe(cmd.Context(), opts)
 		},
 	}
 
@@ -44,7 +45,7 @@ func NewCmdServe(f *cmdutil.Factory, runF func(*Options) error) *cobra.Command {
 	return cmd
 }
 
-func runServe(opts *Options) error {
+func runServe(ctx context.Context, opts *Options) error {
 	cfg, err := opts.Config()
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
@@ -55,7 +56,7 @@ func runServe(opts *Options) error {
 		return fmt.Errorf("database: %w", err)
 	}
 
-	entries, err := exportpkg.BuildCityEntries(rootDB, cfg, cfg.Cities)
+	entries, err := exportpkg.BuildCityEntries(ctx, rootDB, cfg, cfg.Cities)
 	if err != nil {
 		return err
 	}

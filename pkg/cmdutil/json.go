@@ -38,34 +38,41 @@ func AddJSONFlags(cmd *cobra.Command, exporter *Exporter, validFields []string) 
 				return err
 			}
 		}
-		if jqExpr != "" && tmplStr != "" {
-			return MutuallyExclusive("--jq", "--template")
-		}
-		if jqExpr != "" && jsonFields == "" {
-			return FlagErrorf("--jq requires --json")
-		}
-		if tmplStr != "" && jsonFields == "" {
-			return FlagErrorf("--template requires --json")
-		}
-		if jsonFields != "" {
-			fields := strings.Split(jsonFields, ",")
-			for _, f := range fields {
-				f = strings.TrimSpace(f)
-				if !slices.Contains(validFields, f) {
-					return FlagErrorf("unknown JSON field %q; available: %s", f, strings.Join(validFields, ", "))
-				}
-			}
-			base := baseExporter{fields: fields}
-			var exp Exporter = &jsonExporter{baseExporter: base}
-			if jqExpr != "" {
-				exp = &jqFilterExporter{baseExporter: base, expr: jqExpr}
-			} else if tmplStr != "" {
-				exp = &templateExporter{baseExporter: base, tmpl: tmplStr}
-			}
-			*exporter = exp
-		}
+		return buildExporter(jsonFields, jqExpr, tmplStr, validFields, exporter)
+	}
+}
+
+func buildExporter(jsonFields, jqExpr, tmplStr string, validFields []string, out *Exporter) error {
+	if jqExpr != "" && tmplStr != "" {
+		return MutuallyExclusive("--jq", "--template")
+	}
+	if jqExpr != "" && jsonFields == "" {
+		return FlagErrorf("--jq requires --json")
+	}
+	if tmplStr != "" && jsonFields == "" {
+		return FlagErrorf("--template requires --json")
+	}
+	if jsonFields == "" {
 		return nil
 	}
+
+	fields := strings.Split(jsonFields, ",")
+	for _, f := range fields {
+		f = strings.TrimSpace(f)
+		if !slices.Contains(validFields, f) {
+			return FlagErrorf("unknown JSON field %q; available: %s", f, strings.Join(validFields, ", "))
+		}
+	}
+	base := baseExporter{fields: fields}
+	switch {
+	case jqExpr != "":
+		*out = &jqFilterExporter{baseExporter: base, expr: jqExpr}
+	case tmplStr != "":
+		*out = &templateExporter{baseExporter: base, tmpl: tmplStr}
+	default:
+		*out = &jsonExporter{baseExporter: base}
+	}
+	return nil
 }
 
 // baseExporter holds the shared fields slice for all exporter types.

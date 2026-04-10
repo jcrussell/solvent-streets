@@ -7,6 +7,8 @@ import (
 	"github.com/peterstace/simplefeatures/geom"
 )
 
+const geomTypeLineString = "LineString"
+
 func TestBufferLineString(t *testing.T) {
 	// A simple horizontal line, 100 feet long, buffered by 10 feet (width=20)
 	// Expected area: 100 * 20 = 2000 sq ft (flat end caps, no round ends)
@@ -92,7 +94,7 @@ func TestGeoJSONToProjectedGeometry_LineString(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gtype != "LineString" {
+	if gtype != geomTypeLineString {
 		t.Errorf("expected LineString, got %s", gtype)
 	}
 	if g.IsEmpty() {
@@ -107,7 +109,7 @@ func TestGeoJSONToProjectedGeometry_Polygon(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gtype != "Polygon" {
+	if gtype != geomTypePolygon {
 		t.Errorf("expected Polygon, got %s", gtype)
 	}
 	if g.Area() <= 0 {

@@ -1,6 +1,7 @@
 package factory
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -118,7 +119,7 @@ func buildCityDB(f *cmdutil.Factory) func() (db.Store, error) {
 		if err != nil {
 			return nil, err
 		}
-		id, err := root.EnsureCity(city.Slug(), city.Name)
+		id, err := root.EnsureCity(context.Background(), city.Slug(), city.Name)
 		if err != nil {
 			return nil, err
 		}

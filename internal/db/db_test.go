@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -13,7 +14,7 @@ func openTestStore(t *testing.T) Store {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = root.Close() })
-	id, err := root.EnsureCity("test-city", "Test City")
+	id, err := root.EnsureCity(context.Background(), "test-city", "Test City")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21,6 +22,7 @@ func openTestStore(t *testing.T) Store {
 }
 
 func TestStoreRoundTrip(t *testing.T) {
+	ctx := context.Background()
 	store := openTestStore(t)
 
 	features := []Feature{
@@ -28,11 +30,11 @@ func TestStoreRoundTrip(t *testing.T) {
 		{ID: "osm:way:2", ResourceType: "roads", Name: "Oak Ave", Tags: map[string]string{"highway": "residential"}, GeometryJSON: `{"type":"LineString","coordinates":[[-121.76,37.69],[-121.75,37.69]]}`, SourceAPI: "overpass", FetchedAt: time.Now()},
 	}
 
-	if err := store.UpsertFeatures("roads", features); err != nil {
+	if err := store.UpsertFeatures(ctx, "roads", features); err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := store.ListFeatures("roads")
+	got, err := store.ListFeatures(ctx, "roads")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,10 +43,10 @@ func TestStoreRoundTrip(t *testing.T) {
 	}
 
 	// Upsert same features — should update, not duplicate
-	if err := store.UpsertFeatures("roads", features); err != nil {
+	if err := store.UpsertFeatures(ctx, "roads", features); err != nil {
 		t.Fatal(err)
 	}
-	got, err = store.ListFeatures("roads")
+	got, err = store.ListFeatures(ctx, "roads")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,6 +56,7 @@ func TestStoreRoundTrip(t *testing.T) {
 }
 
 func TestStoreComputeResult(t *testing.T) {
+	ctx := context.Background()
 	store := openTestStore(t)
 
 	result := ComputeResult{
@@ -62,11 +65,11 @@ func TestStoreComputeResult(t *testing.T) {
 		FeatureCount: 500,
 		GeometryJSON: `{"type":"Polygon","coordinates":[]}`,
 	}
-	if err := store.SaveComputeResult(result); err != nil {
+	if err := store.SaveComputeResult(ctx, result); err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := store.LatestComputeResult("roads")
+	got, err := store.LatestComputeResult(ctx, "roads")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,16 +82,17 @@ func TestStoreComputeResult(t *testing.T) {
 }
 
 func TestStoreStats(t *testing.T) {
+	ctx := context.Background()
 	store := openTestStore(t)
 
 	features := []Feature{
 		{ID: "1", Name: "test", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()},
 	}
-	if err := store.UpsertFeatures("parking", features); err != nil {
+	if err := store.UpsertFeatures(ctx, "parking", features); err != nil {
 		t.Fatal(err)
 	}
 
-	info, err := store.Stats("parking")
+	info, err := store.Stats(ctx, "parking")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,16 +102,17 @@ func TestStoreStats(t *testing.T) {
 }
 
 func TestStoreResourceTypes(t *testing.T) {
+	ctx := context.Background()
 	store := openTestStore(t)
 
-	if err := store.UpsertFeatures("roads", []Feature{{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()}}); err != nil {
+	if err := store.UpsertFeatures(ctx, "roads", []Feature{{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpsertFeatures("parking", []Feature{{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()}}); err != nil {
+	if err := store.UpsertFeatures(ctx, "parking", []Feature{{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()}}); err != nil {
 		t.Fatal(err)
 	}
 
-	types, err := store.ResourceTypes()
+	types, err := store.ResourceTypes(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,10 +122,11 @@ func TestStoreResourceTypes(t *testing.T) {
 }
 
 func TestBoundaryRoundTrip(t *testing.T) {
+	ctx := context.Background()
 	store := openTestStore(t)
 
 	// No boundary initially
-	got, err := store.GetBoundary()
+	got, err := store.GetBoundary(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,12 +136,12 @@ func TestBoundaryRoundTrip(t *testing.T) {
 
 	// Save boundary
 	gj := `{"type":"Polygon","coordinates":[[[-121.9,37.6],[-121.8,37.6],[-121.8,37.7],[-121.9,37.7],[-121.9,37.6]]]}`
-	if err := store.SaveBoundary(gj, "nominatim"); err != nil {
+	if err := store.SaveBoundary(ctx, gj, "nominatim"); err != nil {
 		t.Fatal(err)
 	}
 
 	// Read back
-	got, err = store.GetBoundary()
+	got, err = store.GetBoundary(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,10 +151,10 @@ func TestBoundaryRoundTrip(t *testing.T) {
 
 	// Upsert replaces
 	gj2 := `{"type":"Polygon","coordinates":[[[-122.0,37.5],[-121.7,37.5],[-121.7,37.8],[-122.0,37.8],[-122.0,37.5]]]}`
-	if err := store.SaveBoundary(gj2, "nominatim"); err != nil {
+	if err := store.SaveBoundary(ctx, gj2, "nominatim"); err != nil {
 		t.Fatal(err)
 	}
-	got, err = store.GetBoundary()
+	got, err = store.GetBoundary(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,17 +164,18 @@ func TestBoundaryRoundTrip(t *testing.T) {
 }
 
 func TestCityIsolation(t *testing.T) {
+	ctx := context.Background()
 	root, err := Open(":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = root.Close() }()
 
-	id1, err := root.EnsureCity("city-a", "City A")
+	id1, err := root.EnsureCity(ctx, "city-a", "City A")
 	if err != nil {
 		t.Fatal(err)
 	}
-	id2, err := root.EnsureCity("city-b", "City B")
+	id2, err := root.EnsureCity(ctx, "city-b", "City B")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,12 +184,12 @@ func TestCityIsolation(t *testing.T) {
 	storeB := root.ForCity(id2)
 
 	// Insert features into city A
-	if err := storeA.UpsertFeatures("roads", []Feature{{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()}}); err != nil {
+	if err := storeA.UpsertFeatures(ctx, "roads", []Feature{{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()}}); err != nil {
 		t.Fatal(err)
 	}
 
 	// City B should see nothing
-	got, err := storeB.ListFeatures("roads")
+	got, err := storeB.ListFeatures(ctx, "roads")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +198,7 @@ func TestCityIsolation(t *testing.T) {
 	}
 
 	// City A should see its feature
-	got, err = storeA.ListFeatures("roads")
+	got, err = storeA.ListFeatures(ctx, "roads")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,17 +208,18 @@ func TestCityIsolation(t *testing.T) {
 }
 
 func TestEnsureCityIdempotent(t *testing.T) {
+	ctx := context.Background()
 	root, err := Open(":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = root.Close() }()
 
-	id1, err := root.EnsureCity("livermore-ca", "Livermore, CA")
+	id1, err := root.EnsureCity(ctx, "livermore-ca", "Livermore, CA")
 	if err != nil {
 		t.Fatal(err)
 	}
-	id2, err := root.EnsureCity("livermore-ca", "Livermore, CA")
+	id2, err := root.EnsureCity(ctx, "livermore-ca", "Livermore, CA")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,6 +229,7 @@ func TestEnsureCityIdempotent(t *testing.T) {
 }
 
 func TestListCities(t *testing.T) {
+	ctx := context.Background()
 	root, err := Open(":memory:")
 	if err != nil {
 		t.Fatal(err)
@@ -228,19 +237,19 @@ func TestListCities(t *testing.T) {
 	defer func() { _ = root.Close() }()
 
 	// Migration seeds a "default" city, so start by counting baseline.
-	baseline, err := root.ListCities()
+	baseline, err := root.ListCities(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := root.EnsureCity("a", "A"); err != nil {
+	if _, err := root.EnsureCity(ctx, "a", "A"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := root.EnsureCity("b", "B"); err != nil {
+	if _, err := root.EnsureCity(ctx, "b", "B"); err != nil {
 		t.Fatal(err)
 	}
 
-	cities, err := root.ListCities()
+	cities, err := root.ListCities(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}

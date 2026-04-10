@@ -1,6 +1,7 @@
 package export
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -38,7 +39,7 @@ func NewCmdExport(f *cmdutil.Factory, runF func(*Options) error) *cobra.Command 
 			if runF != nil {
 				return runF(opts)
 			}
-			return runExport(opts)
+			return runExport(cmd.Context(), opts)
 		},
 	}
 
@@ -48,7 +49,7 @@ func NewCmdExport(f *cmdutil.Factory, runF func(*Options) error) *cobra.Command 
 	return cmd
 }
 
-func runExport(opts *Options) error {
+func runExport(ctx context.Context, opts *Options) error {
 	ios := opts.IO
 
 	if info, err := os.Stat(opts.OutputDir); err == nil && info.IsDir() {
@@ -75,7 +76,7 @@ func runExport(opts *Options) error {
 		return fmt.Errorf("cities: %w", err)
 	}
 
-	entries, err := exportpkg.BuildCityEntries(rootDB, cfg, cities)
+	entries, err := exportpkg.BuildCityEntries(ctx, rootDB, cfg, cities)
 	if err != nil {
 		return err
 	}
@@ -83,7 +84,7 @@ func runExport(opts *Options) error {
 	fmt.Fprintf(ios.Out, "Exporting static site to %s/...\n", opts.OutputDir)
 
 	exporter := exportpkg.New(entries, cfg, opts.OutputDir, cfg.UnitSystem().String())
-	if err := exporter.Run(); err != nil {
+	if err := exporter.Run(ctx); err != nil {
 		return fmt.Errorf("export: %w", err)
 	}
 

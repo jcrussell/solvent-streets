@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,6 +17,12 @@ import (
 
 const overpassAPI = "https://overpass-api.de/api/interpreter"
 
+const (
+	geomLineString   = "LineString"
+	geomPolygon      = "Polygon"
+	geomMultiPolygon = "MultiPolygon"
+)
+
 type OverpassSource struct {
 	BBox [4]float64 // [south, west, north, east]
 }
@@ -24,18 +31,18 @@ func (s *OverpassSource) Name() string { return "overpass" }
 
 const maxSplitDepth = 3 // max 4^3 = 64 requests per city/resource
 
-func (s *OverpassSource) Fetch(client *http.Client, rt resource.ResourceType) ([]db.Feature, error) {
+func (s *OverpassSource) Fetch(ctx context.Context, client *http.Client, rt resource.ResourceType) ([]db.Feature, error) {
 	seen := make(map[string]bool)
-	return fetchRecursive(client, rt, s.BBox, seen, 0)
+	return fetchRecursive(ctx, client, rt, s.BBox, seen, 0)
 }
 
-func fetchRecursive(client *http.Client, rt resource.ResourceType, bbox [4]float64, seen map[string]bool, depth int) ([]db.Feature, error) {
-	features, err := fetchBBox(client, rt, bbox)
+func fetchRecursive(ctx context.Context, client *http.Client, rt resource.ResourceType, bbox [4]float64, seen map[string]bool, depth int) ([]db.Feature, error) {
+	features, err := fetchBBox(ctx, client, rt, bbox)
 	if err != nil && isParseError(err) && depth < maxSplitDepth {
 		// Response too large / truncated — split into quadrants and retry
 		var all []db.Feature
 		for _, q := range splitBBox(bbox) {
-			qFeatures, qErr := fetchRecursive(client, rt, q, seen, depth+1)
+			qFeatures, qErr := fetchRecursive(ctx, client, rt, q, seen, depth+1)
 			if qErr != nil {
 				return nil, qErr
 			}
@@ -58,10 +65,16 @@ func fetchRecursive(client *http.Client, rt resource.ResourceType, bbox [4]float
 	return unique, nil
 }
 
-func fetchBBox(client *http.Client, rt resource.ResourceType, bbox [4]float64) ([]db.Feature, error) {
+func fetchBBox(ctx context.Context, client *http.Client, rt resource.ResourceType, bbox [4]float64) ([]db.Feature, error) {
 	query := rt.OverpassQuery(bbox)
 
-	resp, err := client.PostForm(overpassAPI, url.Values{"data": {query}})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, overpassAPI, strings.NewReader(url.Values{"data": {query}}.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("create overpass request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("overpass request: %w", err)
 	}
@@ -130,45 +143,48 @@ func parseOverpassResponse(data []byte, resourceType string) ([]db.Feature, erro
 		if e.Type != "way" {
 			continue
 		}
-
-		coords := resolveWayCoords(e, nodes)
-		if len(coords) < 2 {
-			continue
+		if f, ok := buildFeatureFromWay(e, nodes, resourceType); ok {
+			features = append(features, f)
 		}
-
-		geojsonType := "LineString"
-		// If first and last nodes are the same, it's a polygon — but highway
-		// ways are linear (roads) even when closed, unless explicitly area=yes.
-		if len(coords) >= 4 && coords[0] == coords[len(coords)-1] {
-			if e.Tags["highway"] == "" || e.Tags["area"] == "yes" {
-				geojsonType = "Polygon"
-			}
-		}
-
-		var geojson string
-		if geojsonType == "Polygon" {
-			geojson = coordsToPolygonGeoJSON(coords)
-		} else {
-			geojson = coordsToLineStringGeoJSON(coords)
-		}
-
-		name := e.Tags["name"]
-		if name == "" {
-			name = e.Tags["highway"]
-		}
-
-		features = append(features, db.Feature{
-			ID:           fmt.Sprintf("osm:way:%d", e.ID),
-			ResourceType: resourceType,
-			Name:         name,
-			Tags:         e.Tags,
-			GeometryJSON: geojson,
-			SourceAPI:    "overpass",
-			FetchedAt:    time.Now(),
-		})
 	}
 
 	return features, nil
+}
+
+func buildFeatureFromWay(e overpassElement, nodes map[int64][2]float64, resourceType string) (db.Feature, bool) {
+	coords := resolveWayCoords(e, nodes)
+	if len(coords) < 2 {
+		return db.Feature{}, false
+	}
+
+	geojsonType := geomLineString
+	if len(coords) >= 4 && coords[0] == coords[len(coords)-1] {
+		if e.Tags["highway"] == "" || e.Tags["area"] == "yes" {
+			geojsonType = geomPolygon
+		}
+	}
+
+	var geojson string
+	if geojsonType == geomPolygon {
+		geojson = coordsToPolygonGeoJSON(coords)
+	} else {
+		geojson = coordsToLineStringGeoJSON(coords)
+	}
+
+	name := e.Tags["name"]
+	if name == "" {
+		name = e.Tags["highway"]
+	}
+
+	return db.Feature{
+		ID:           fmt.Sprintf("osm:way:%d", e.ID),
+		ResourceType: resourceType,
+		Name:         name,
+		Tags:         e.Tags,
+		GeometryJSON: geojson,
+		SourceAPI:    "overpass",
+		FetchedAt:    time.Now(),
+	}, true
 }
 
 func resolveWayCoords(e overpassElement, nodes map[int64][2]float64) [][2]float64 {

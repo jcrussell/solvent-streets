@@ -5,6 +5,8 @@ import (
 	"strings"
 )
 
+const ClassResidential = "residential"
+
 // Default decay rates by road classification (FHWA national averages).
 // Higher k = faster decay. Units: per year.
 var DefaultDecayRates = map[string]float64{
@@ -60,12 +62,12 @@ func NormalizeClass(highway string) string {
 	}
 
 	switch highway {
-	case "motorway", "trunk", "primary", "secondary", "tertiary", "residential", "service":
+	case "motorway", "trunk", "primary", "secondary", "tertiary", ClassResidential, "service":
 		return highway
 	case "living_street", "unclassified":
-		return "residential"
+		return ClassResidential
 	default:
-		return "residential"
+		return ClassResidential
 	}
 }
 

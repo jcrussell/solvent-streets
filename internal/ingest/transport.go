@@ -68,7 +68,6 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	var err error
 
 	for attempt := 0; attempt <= t.cfg.MaxRetries; attempt++ {
-		// Reset the request body for retries (POST bodies are consumed on first read)
 		if attempt > 0 && req.GetBody != nil {
 			body, bodyErr := req.GetBody()
 			if bodyErr == nil {
@@ -77,34 +76,44 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 
 		resp, err = t.wrapped.RoundTrip(req)
-		if err == nil && resp.StatusCode < 500 && resp.StatusCode != 429 {
-			return resp, nil
+		if !t.shouldRetry(resp, err) {
+			return resp, err
 		}
 
 		if attempt < t.cfg.MaxRetries {
-			backoff := time.Duration(math.Pow(2, float64(attempt))) * time.Second
-			jitter := time.Duration(rand.Int63n(int64(time.Second)))
-			wait := backoff + jitter
-
-			if t.cfg.UseRetryAfter && resp != nil {
-				if ra := parseRetryAfter(resp); ra > 0 && ra > wait {
-					wait = ra
-				}
-			}
-
-			if wait > t.cfg.MaxBackoff {
-				wait = t.cfg.MaxBackoff
-			}
-
-			time.Sleep(wait)
+			time.Sleep(t.backoffWait(attempt, resp))
 		}
 
-		if resp != nil && resp.Body != nil && (err != nil || attempt < t.cfg.MaxRetries) {
+		if resp != nil && resp.Body != nil {
 			_ = resp.Body.Close()
 		}
 	}
 
 	return resp, err
+}
+
+func (t *retryTransport) shouldRetry(resp *http.Response, err error) bool {
+	if err != nil {
+		return true
+	}
+	return resp.StatusCode >= 500 || resp.StatusCode == 429
+}
+
+func (t *retryTransport) backoffWait(attempt int, resp *http.Response) time.Duration {
+	backoff := time.Duration(math.Pow(2, float64(attempt))) * time.Second
+	jitter := time.Duration(rand.Int63n(int64(time.Second)))
+	wait := backoff + jitter
+
+	if t.cfg.UseRetryAfter && resp != nil {
+		if ra := parseRetryAfter(resp); ra > 0 && ra > wait {
+			wait = ra
+		}
+	}
+
+	if wait > t.cfg.MaxBackoff {
+		wait = t.cfg.MaxBackoff
+	}
+	return wait
 }
 
 // parseRetryAfter reads the Retry-After header as an integer number of seconds.

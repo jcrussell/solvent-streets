@@ -1,6 +1,7 @@
 package status
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,8 @@ import (
 	"pvmt/pkg/cmdutil"
 	"pvmt/pkg/iostreams"
 )
+
+const testResourceRoads = "roads"
 
 func TestNewCmdStatus_RunFInjection(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
@@ -36,10 +39,10 @@ func TestNewCmdStatus_RunFInjection(t *testing.T) {
 func TestRunStatus_SingleResource(t *testing.T) {
 	now := time.Now()
 	store := &dbtest.MockStore{
-		StatsFunc: func(rt string) (*db.StatusInfo, error) {
-			if rt == "roads" {
+		StatsFunc: func(_ context.Context, rt string) (*db.StatusInfo, error) {
+			if rt == testResourceRoads {
 				return &db.StatusInfo{
-					ResourceType: "roads",
+					ResourceType: testResourceRoads,
 					FeatureCount: 42,
 					LastIngestAt: &now,
 				}, nil
@@ -63,7 +66,7 @@ func TestRunStatus_SingleResource(t *testing.T) {
 		t.Fatal(err)
 	}
 	output := stdout.String()
-	if !strings.Contains(output, "roads") {
+	if !strings.Contains(output, testResourceRoads) {
 		t.Errorf("expected roads in output, got: %s", output)
 	}
 	if !strings.Contains(output, "42") {
@@ -73,10 +76,10 @@ func TestRunStatus_SingleResource(t *testing.T) {
 
 func TestRunStatus_AllResources(t *testing.T) {
 	store := &dbtest.MockStore{
-		StatsFunc: func(rt string) (*db.StatusInfo, error) {
+		StatsFunc: func(_ context.Context, rt string) (*db.StatusInfo, error) {
 			switch rt {
-			case "roads":
-				return &db.StatusInfo{ResourceType: "roads", FeatureCount: 10}, nil
+			case testResourceRoads:
+				return &db.StatusInfo{ResourceType: testResourceRoads, FeatureCount: 10}, nil
 			case "parking":
 				return &db.StatusInfo{ResourceType: "parking", FeatureCount: 5}, nil
 			default:
@@ -100,7 +103,7 @@ func TestRunStatus_AllResources(t *testing.T) {
 		t.Fatal(err)
 	}
 	output := stdout.String()
-	if !strings.Contains(output, "roads") || !strings.Contains(output, "parking") {
+	if !strings.Contains(output, testResourceRoads) || !strings.Contains(output, "parking") {
 		t.Errorf("expected both resource types in output, got: %s", output)
 	}
 }
@@ -110,17 +113,17 @@ func TestRunStatus_CitySummary(t *testing.T) {
 	boundaryGJSON := `{"type":"Polygon","coordinates":[[[-97.745,30.265],[-97.7346,30.265],[-97.7346,30.274],[-97.745,30.274],[-97.745,30.265]]]}`
 
 	store := &dbtest.MockStore{
-		StatsFunc: func(rt string) (*db.StatusInfo, error) {
-			if rt == "roads" {
+		StatsFunc: func(_ context.Context, rt string) (*db.StatusInfo, error) {
+			if rt == testResourceRoads {
 				return &db.StatusInfo{
-					ResourceType: "roads",
+					ResourceType: testResourceRoads,
 					FeatureCount: 100,
 					TotalAreaSqM: 46452,
 				}, nil
 			}
 			return &db.StatusInfo{ResourceType: rt}, nil
 		},
-		GetBoundaryFunc: func() (string, error) {
+		GetBoundaryFunc: func(_ context.Context) (string, error) {
 			return boundaryGJSON, nil
 		},
 	}
@@ -156,9 +159,9 @@ func TestRunStatus_CitySummary(t *testing.T) {
 
 func TestRunStatus_NonTTY_TabSeparated(t *testing.T) {
 	store := &dbtest.MockStore{
-		StatsFunc: func(rt string) (*db.StatusInfo, error) {
-			if rt == "roads" {
-				return &db.StatusInfo{ResourceType: "roads", FeatureCount: 7}, nil
+		StatsFunc: func(_ context.Context, rt string) (*db.StatusInfo, error) {
+			if rt == testResourceRoads {
+				return &db.StatusInfo{ResourceType: testResourceRoads, FeatureCount: 7}, nil
 			}
 			return &db.StatusInfo{ResourceType: rt}, nil
 		},
@@ -183,7 +186,7 @@ func TestRunStatus_NonTTY_TabSeparated(t *testing.T) {
 	if !strings.Contains(output, "\t") {
 		t.Errorf("expected tab-separated output for non-TTY, got: %s", output)
 	}
-	if !strings.Contains(output, "roads") {
+	if !strings.Contains(output, testResourceRoads) {
 		t.Errorf("expected 'roads' in output, got: %s", output)
 	}
 }

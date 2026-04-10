@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
@@ -10,7 +11,7 @@ import (
 
 type Source interface {
 	Name() string
-	Fetch(client *http.Client, rt resource.ResourceType) ([]db.Feature, error)
+	Fetch(ctx context.Context, client *http.Client, rt resource.ResourceType) ([]db.Feature, error)
 }
 
 func AllSources(bbox [4]float64, arcgisURL string) []Source {

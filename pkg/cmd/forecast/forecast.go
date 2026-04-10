@@ -1,6 +1,7 @@
 package forecast
 
 import (
+	"context"
 	"fmt"
 
 	"pvmt/internal/config"
@@ -43,7 +44,7 @@ func NewCmdForecast(f *cmdutil.Factory, runF func(*Options) error) *cobra.Comman
 			if runF != nil {
 				return runF(opts)
 			}
-			return runForecast(opts)
+			return runForecast(cmd.Context(), opts)
 		},
 	}
 
@@ -79,7 +80,117 @@ func simulateResource(rt resource.ResourceType, cohorts []fcpkg.Cohort, years in
 	return results, totalDeferredCost, baseline
 }
 
-func runForecast(opts *Options) error {
+func buildForecastCohorts(ctx context.Context, rt resource.ResourceType, areaSqM float64, store db.Store, fc *config.ForecastConfig) []fcpkg.Cohort {
+	currentPCI := 85.0
+	stats, _ := store.ListCohortStats(ctx, rt.Name())
+	var inputs []fcpkg.CohortInput
+	for _, st := range stats {
+		inputs = append(inputs, fcpkg.CohortInput{
+			Classification: st.Classification,
+			AreaSqM:        st.AreaSqM,
+		})
+	}
+	cohorts := fcpkg.BuildCohorts(inputs, currentPCI, fc.DecayRate)
+	if cohorts == nil {
+		defaultRate := fcpkg.DecayRateForClass(rt.Name())
+		if fc.DecayRate > 0 {
+			defaultRate = fc.DecayRate
+		}
+		cohorts = []fcpkg.Cohort{{
+			Classification: rt.Name(),
+			AreaSqM:        areaSqM,
+			DecayRate:      defaultRate,
+			InitialPCI:     currentPCI,
+		}}
+	}
+	return cohorts
+}
+
+func renderBaselineTable(ios *iostreams.IOStreams, rt resource.ResourceType, areaSqM, currentPCI float64,
+	baseline fcpkg.ScenarioResult, totalDeferredCost float64, years int, sys units.System) error {
+
+	fmt.Fprintf(ios.Out, "=== %s ===\n", rt.Name())
+	fmt.Fprintf(ios.Out, "  Current area: %s (%s)\n", units.FormatArea(areaSqM, sys), units.FormatAreaLarge(areaSqM, sys))
+	fmt.Fprintf(ios.Out, "  Initial PCI: %.0f\n\n", currentPCI)
+
+	tp := iostreams.NewTablePrinter(ios)
+	tp.AddHeader("Year", "PCI", units.AreaLargeLabel(sys), "Treatment Cost", "Tier")
+	for _, y := range baseline.Years {
+		if y.Year <= 5 || y.Year%5 == 0 || y.Year == years {
+			tp.AddRow(
+				fmt.Sprintf("%d", y.Year),
+				fmt.Sprintf("%.1f", y.PCI),
+				fmt.Sprintf("%.1f", units.AreaLargeValue(y.AreaSqM, sys)),
+				fmt.Sprintf("$%.0f", y.AnnualNeed),
+				y.CostTier,
+			)
+		}
+	}
+	if err := tp.Render(); err != nil {
+		return err
+	}
+	fmt.Fprintf(ios.Out, "\n  Total %d-year deferred maintenance: $%.0f\n\n", years, totalDeferredCost)
+
+	if len(baseline.FinalCohorts) > 1 {
+		fmt.Fprintf(ios.Out, "  Cohort Breakdown:\n")
+		cp := iostreams.NewTablePrinter(ios)
+		cp.AddHeader("Classification", "Area %", "Decay Rate", "End PCI")
+		for _, c := range baseline.FinalCohorts {
+			areaPct := 0.0
+			if areaSqM > 0 {
+				areaPct = c.AreaSqM / areaSqM * 100
+			}
+			cp.AddRow(
+				c.Classification,
+				fmt.Sprintf("%.1f%%", areaPct),
+				fmt.Sprintf("%.3f", c.DecayRate),
+				fmt.Sprintf("%.1f", c.EndPCI),
+			)
+		}
+		if err := cp.Render(); err != nil {
+			return err
+		}
+		fmt.Fprintln(ios.Out)
+	}
+	return nil
+}
+
+func renderScenarioComparisons(ios *iostreams.IOStreams, baseline fcpkg.ScenarioResult,
+	cohorts []fcpkg.Cohort, years int, params *fcpkg.Params) error {
+
+	if len(baseline.Years) == 0 {
+		return nil
+	}
+	year1Need := baseline.Years[0].AnnualNeed
+	comparisons := fcpkg.GroupedComparisons(year1Need, cohorts, years,
+		params.Cost, params.Growth)
+
+	for _, comp := range comparisons {
+		fmt.Fprintf(ios.Out, "  --- %s ---\n", comp.Title)
+		tp := iostreams.NewTablePrinter(ios)
+		tp.AddHeader("Scenario", "End PCI", "Annual Budget", "20yr Backlog")
+		for _, sr := range comp.Scenarios {
+			last := sr.Years[len(sr.Years)-1]
+			budgetStr := "unconstrained"
+			if sr.Scenario.AnnualBudget > 0 {
+				budgetStr = fmt.Sprintf("$%.0f", sr.Scenario.AnnualBudget)
+			}
+			tp.AddRow(
+				sr.Scenario.Label,
+				fmt.Sprintf("%.1f", last.PCI),
+				budgetStr,
+				fmt.Sprintf("$%.0f", last.DeferredBacklog),
+			)
+		}
+		if err := tp.Render(); err != nil {
+			return err
+		}
+		fmt.Fprintln(ios.Out)
+	}
+	return nil
+}
+
+func runForecast(ctx context.Context, opts *Options) error {
 	ios := opts.IO
 
 	cfg, err := opts.Config()
@@ -99,148 +210,71 @@ func runForecast(opts *Options) error {
 
 	fc := cfg.ResolvedForecast(city)
 	years := fc.ResolvedYears()
+	costTiers := convertCostTiers(&fc)
+	sys := opts.UnitSystem()
 
-	var costTiers []fcpkg.CostTier
+	fmt.Fprintf(ios.Out, "Running %d-year forecast for %s...\n\n", years, city.Name)
+
+	allResults, err := forecastAllResources(ctx, opts, store, &fc, years, costTiers, sys)
+	if err != nil {
+		return err
+	}
+
+	if opts.Exporter != nil {
+		return opts.Exporter.Write(ios, allResults)
+	}
+	return nil
+}
+
+func convertCostTiers(fc *config.ForecastConfig) []fcpkg.CostTier {
+	var tiers []fcpkg.CostTier
 	for _, t := range fc.CostTiers {
-		costTiers = append(costTiers, fcpkg.CostTier{
+		tiers = append(tiers, fcpkg.CostTier{
 			MinPCI:     t.MinPCI,
 			MaxPCI:     t.MaxPCI,
 			CostPerSqM: t.CostPerSqM,
 			Label:      t.Label,
 		})
 	}
+	return tiers
+}
 
-	sys := opts.UnitSystem()
+func forecastAllResources(ctx context.Context, opts *Options, store db.Store,
+	fc *config.ForecastConfig, years int, costTiers []fcpkg.CostTier, sys units.System) ([]db.ForecastResult, error) {
+
+	ios := opts.IO
+	currentPCI := 85.0
 	var allResults []db.ForecastResult
-
-	fmt.Fprintf(ios.Out, "Running %d-year forecast for %s...\n\n", years, city.Name)
 
 	for _, rt := range resource.All {
 		params := fcpkg.NewParamsForResource(rt.Name(), fc.GrowthRate, costTiers)
-		result, err := store.LatestComputeResult(rt.Name())
+		result, err := store.LatestComputeResult(ctx, rt.Name())
 		if err != nil || result == nil {
 			fmt.Fprintf(ios.ErrOut, "Warning: no compute results for %s, skipping\n", rt.Name())
 			continue
 		}
 
 		areaSqM := result.TotalAreaSqM
-		currentPCI := 85.0 // assume good initial condition
-
-		// Build cohorts from stored cohort stats
-		stats, _ := store.ListCohortStats(rt.Name())
-		var inputs []fcpkg.CohortInput
-		for _, st := range stats {
-			inputs = append(inputs, fcpkg.CohortInput{
-				Classification: st.Classification,
-				AreaSqM:        st.AreaSqM,
-			})
-		}
-		cohorts := fcpkg.BuildCohorts(inputs, currentPCI, fc.DecayRate)
-		if cohorts == nil {
-			defaultRate := fcpkg.DecayRateForClass(rt.Name())
-			if fc.DecayRate > 0 {
-				defaultRate = fc.DecayRate
-			}
-			cohorts = []fcpkg.Cohort{{
-				Classification: rt.Name(),
-				AreaSqM:        areaSqM,
-				DecayRate:      defaultRate,
-				InitialPCI:     currentPCI,
-			}}
-		}
-
+		cohorts := buildForecastCohorts(ctx, rt, areaSqM, store, fc)
 		dbResults, totalDeferredCost, baseline := simulateResource(rt, cohorts, years, params)
 		allResults = append(allResults, dbResults...)
 
-		// Table output
 		if opts.Exporter == nil {
-			fmt.Fprintf(ios.Out, "=== %s ===\n", rt.Name())
-			fmt.Fprintf(ios.Out, "  Current area: %s (%s)\n", units.FormatArea(areaSqM, sys), units.FormatAreaLarge(areaSqM, sys))
-			fmt.Fprintf(ios.Out, "  Initial PCI: %.0f\n\n", currentPCI)
-
-			tp := iostreams.NewTablePrinter(ios)
-			tp.AddHeader("Year", "PCI", units.AreaLargeLabel(sys), "Treatment Cost", "Tier")
-			for _, y := range baseline.Years {
-				if y.Year <= 5 || y.Year%5 == 0 || y.Year == years {
-					tp.AddRow(
-						fmt.Sprintf("%d", y.Year),
-						fmt.Sprintf("%.1f", y.PCI),
-						fmt.Sprintf("%.1f", units.AreaLargeValue(y.AreaSqM, sys)),
-						fmt.Sprintf("$%.0f", y.AnnualNeed),
-						y.CostTier,
-					)
-				}
-			}
-			if err := tp.Render(); err != nil {
-				return err
-			}
-
-			fmt.Fprintf(ios.Out, "\n  Total %d-year deferred maintenance: $%.0f\n\n", years, totalDeferredCost)
-
-			// Print per-cohort breakdown
-			if len(baseline.FinalCohorts) > 1 {
-				fmt.Fprintf(ios.Out, "  Cohort Breakdown:\n")
-				cp := iostreams.NewTablePrinter(ios)
-				cp.AddHeader("Classification", "Area %", "Decay Rate", "End PCI")
-				for _, c := range baseline.FinalCohorts {
-					areaPct := 0.0
-					if areaSqM > 0 {
-						areaPct = c.AreaSqM / areaSqM * 100
-					}
-					cp.AddRow(
-						c.Classification,
-						fmt.Sprintf("%.1f%%", areaPct),
-						fmt.Sprintf("%.3f", c.DecayRate),
-						fmt.Sprintf("%.1f", c.EndPCI),
-					)
-				}
-				if err := cp.Render(); err != nil {
-					return err
-				}
-				fmt.Fprintln(ios.Out)
+			if err := renderBaselineTable(ios, rt, areaSqM, currentPCI, baseline, totalDeferredCost, years, sys); err != nil {
+				return nil, err
 			}
 		}
 
-		if err := store.SaveForecastResults(dbResults); err != nil {
+		if err := store.SaveForecastResults(ctx, dbResults); err != nil {
 			fmt.Fprintf(ios.ErrOut, "Warning: failed to save forecast results: %v\n", err)
 		}
 
-		// Scenario comparisons (table mode only)
-		if opts.Scenarios && opts.Exporter == nil && len(baseline.Years) > 0 {
-			year1Need := baseline.Years[0].AnnualNeed
-			comparisons := fcpkg.GroupedComparisons(year1Need, cohorts, years,
-				params.Cost, params.Growth)
-
-			for _, comp := range comparisons {
-				fmt.Fprintf(ios.Out, "  --- %s ---\n", comp.Title)
-
-				tp := iostreams.NewTablePrinter(ios)
-				tp.AddHeader("Scenario", "End PCI", "Annual Budget", "20yr Backlog")
-				for _, sr := range comp.Scenarios {
-					last := sr.Years[len(sr.Years)-1]
-					budgetStr := "unconstrained"
-					if sr.Scenario.AnnualBudget > 0 {
-						budgetStr = fmt.Sprintf("$%.0f", sr.Scenario.AnnualBudget)
-					}
-					tp.AddRow(
-						sr.Scenario.Label,
-						fmt.Sprintf("%.1f", last.PCI),
-						budgetStr,
-						fmt.Sprintf("$%.0f", last.DeferredBacklog),
-					)
-				}
-				if err := tp.Render(); err != nil {
-					return err
-				}
-				fmt.Fprintln(ios.Out)
+		if opts.Scenarios && opts.Exporter == nil {
+			if err := renderScenarioComparisons(ios, baseline, cohorts, years, params); err != nil {
+				return nil, err
 			}
 		}
 	}
 
-	// JSON output
-	if opts.Exporter != nil {
-		return opts.Exporter.Write(ios, allResults)
-	}
-
-	return nil
+	return allResults, nil
 }

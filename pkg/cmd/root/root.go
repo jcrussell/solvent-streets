@@ -42,15 +42,16 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 	}
 
 	// Resource commands
-	cmd.AddGroup(&cobra.Group{ID: "resource", Title: "Resource commands:"})
+	const groupResource = "resource"
+	cmd.AddGroup(&cobra.Group{ID: groupResource, Title: "Resource commands:"})
 	roadsCmd := roads.NewCmdRoads(f)
-	roadsCmd.GroupID = "resource"
+	roadsCmd.GroupID = groupResource
 	parkingCmd := parking.NewCmdParking(f)
-	parkingCmd.GroupID = "resource"
+	parkingCmd.GroupID = groupResource
 	sidewalksCmd := sidewalks.NewCmdSidewalks(f)
-	sidewalksCmd.GroupID = "resource"
+	sidewalksCmd.GroupID = groupResource
 	allCmd := all.NewCmdAll(f)
-	allCmd.GroupID = "resource"
+	allCmd.GroupID = groupResource
 
 	cmd.AddCommand(roadsCmd)
 	cmd.AddCommand(parkingCmd)

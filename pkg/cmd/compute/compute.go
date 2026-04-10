@@ -1,6 +1,7 @@
 package compute
 
 import (
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"io"
@@ -49,7 +50,7 @@ func NewCmdCompute(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Opti
 			if runF != nil {
 				return runF(opts)
 			}
-			return runComputeAllCities(f, opts)
+			return runComputeAllCities(cmd.Context(), f, opts)
 		},
 	}
 
@@ -58,12 +59,12 @@ func NewCmdCompute(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Opti
 	return cmd
 }
 
-func runComputeAllCities(f *cmdutil.Factory, opts *Options) error {
-	return cmdutil.ForEachCity(f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
+func runComputeAllCities(ctx context.Context, f *cmdutil.Factory, opts *Options) error {
+	return cmdutil.ForEachCity(ctx, f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
 		cityOpts := *opts
 		cityOpts.CurrentCity = cf.CurrentCity
 		cityOpts.CityDB = cf.CityDB
-		return runCompute(&cityOpts)
+		return runCompute(ctx, &cityOpts)
 	})
 }
 
@@ -76,14 +77,14 @@ const (
 	phaseSave
 )
 
-func runCompute(opts *Options) error {
+func runCompute(ctx context.Context, opts *Options) error {
 	if opts.IO.IsTTY() {
-		return runComputeTUI(opts)
+		return runComputeTUI(ctx, opts)
 	}
-	return doCompute(opts.IO.Out, opts.IO.ErrOut, tui.NoopNotifier{}, opts)
+	return doCompute(ctx, opts.IO.Out, opts.IO.ErrOut, tui.NoopNotifier{}, opts)
 }
 
-func runComputeTUI(opts *Options) error {
+func runComputeTUI(ctx context.Context, opts *Options) error {
 	city, err := opts.CurrentCity()
 	if err != nil {
 		return fmt.Errorf("city: %w", err)
@@ -100,11 +101,11 @@ func runComputeTUI(opts *Options) error {
 		SuccessMsg: fmt.Sprintf("%s compute complete for %s", opts.ResourceType.Name(), city.Name),
 	}
 	return tui.Run(label, steps, done, func(out io.Writer, errOut io.Writer, notify tui.PhaseNotifier) error {
-		return doCompute(out, errOut, notify, opts)
+		return doCompute(ctx, out, errOut, notify, opts)
 	})
 }
 
-func doCompute(out, errOut io.Writer, notify tui.PhaseNotifier, opts *Options) error {
+func doCompute(ctx context.Context, out, errOut io.Writer, notify tui.PhaseNotifier, opts *Options) error {
 	cfg, err := opts.Config()
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
@@ -121,7 +122,7 @@ func doCompute(out, errOut io.Writer, notify tui.PhaseNotifier, opts *Options) e
 	}
 
 	// Load boundary from DB and derive bbox/center
-	boundaryGJSON, err := store.GetBoundary()
+	boundaryGJSON, err := store.GetBoundary(ctx)
 	if err != nil {
 		return fmt.Errorf("get boundary: %w", err)
 	}
@@ -139,7 +140,7 @@ func doCompute(out, errOut io.Writer, notify tui.PhaseNotifier, opts *Options) e
 	notify.PhaseStart(phaseProcess)
 
 	fmt.Fprintf(out, "Loading %s features from database...\n", opts.ResourceType.Name())
-	dbFeatures, err := store.ListFeatures(opts.ResourceType.Name())
+	dbFeatures, err := store.ListFeatures(ctx, opts.ResourceType.Name())
 	if err != nil {
 		notify.PhaseDone(phaseProcess, err)
 		return fmt.Errorf("list features: %w", err)
@@ -183,7 +184,7 @@ func doCompute(out, errOut io.Writer, notify tui.PhaseNotifier, opts *Options) e
 
 	// Create snapshot
 	configHash := fmt.Sprintf("%x", sha256.Sum256(fmt.Appendf(nil, "%v", cfg)))
-	snapshot, err := store.CreateSnapshot(configHash[:16])
+	snapshot, err := store.CreateSnapshot(ctx, configHash[:16])
 	if err != nil {
 		fmt.Fprintf(errOut, "Warning: failed to create snapshot: %v\n", err)
 	}
@@ -200,86 +201,98 @@ func doCompute(out, errOut io.Writer, notify tui.PhaseNotifier, opts *Options) e
 		GeometryJSON: gjson,
 		SnapshotID:   snapshotID,
 	}
-	if err := store.SaveComputeResult(result); err != nil {
+	if err := store.SaveComputeResult(ctx, result); err != nil {
 		return fmt.Errorf("save result: %w", err)
 	}
 
 	// Save cohort stats
 	cohortStats := buildCohortStats(opts.ResourceType, resFeatures, areaSqM, snapshotID, proj)
 	if len(cohortStats) > 0 {
-		if err := store.SaveCohortStats(cohortStats); err != nil {
+		if err := store.SaveCohortStats(ctx, cohortStats); err != nil {
 			fmt.Fprintf(errOut, "Warning: failed to save cohort stats: %v\n", err)
 		} else if opts.ResourceType.HasCohorts() {
-			fmt.Fprintf(out, "\nCohort breakdown:\n")
-			for _, cs := range cohortStats {
-				pct := 0.0
-				if areaSqM > 0 {
-					pct = cs.AreaSqM / areaSqM * 100
-				}
-				fmt.Fprintf(out, "  %-12s %6.1f%% (%s, %d features)\n",
-					cs.Classification, pct, units.FormatArea(cs.AreaSqM, sys), cs.FeatureCount)
-			}
+			printCohortBreakdown(out, "Cohort breakdown", cohortStats, areaSqM, sys)
 		}
 	}
 
 	if !opts.CityOnly {
-		fmt.Fprintf(out, "\n%s Results (all):\n", opts.ResourceType.Name())
-		fmt.Fprintf(out, "  Features:  %d\n", len(dbFeatures))
-		fmt.Fprintf(out, "  Area:      %s\n", units.FormatArea(areaSqM, sys))
-		fmt.Fprintf(out, "  Area:      %s\n", units.FormatAreaLarge(areaSqM, sys))
-		fmt.Fprintf(out, "  Area:      %s\n", units.FormatAreaVeryLarge(areaSqM, sys))
+		printResults(out, opts.ResourceType.Name()+" Results (all)", len(dbFeatures), areaSqM, sys)
 	}
 
-	// Process city-only features
+	processCityResults(ctx, out, errOut, opts, store, proj, parts, snapshotID, sys)
+
+	return computeHexPipeline(ctx, out, errOut, notify, opts, cfg, city, store, bbox, proj, gjson, boundaryGJSON)
+}
+
+func processCityResults(ctx context.Context, out, errOut io.Writer, opts *Options,
+	store db.Store, proj geo.Projector, parts map[filter.Jurisdiction][]resource.Feature,
+	snapshotID *int64, sys units.System) {
+
 	cityFeatures := parts[filter.JurisdictionCity]
-	if len(cityFeatures) > 0 {
-		cityGjson, cityAreaSqM, err := opts.ResourceType.ProcessFeatures(cityFeatures, proj)
-		if err != nil {
-			fmt.Fprintf(errOut, "Warning: failed to process city features: %v\n", err)
-		} else {
-			cityResult := db.ComputeResult{
-				ResourceType: opts.ResourceType.Name() + ":city",
-				TotalAreaSqM: cityAreaSqM,
-				FeatureCount: len(cityFeatures),
-				GeometryJSON: cityGjson,
-				SnapshotID:   snapshotID,
-			}
-			if err := store.SaveComputeResult(cityResult); err != nil {
-				fmt.Fprintf(errOut, "Warning: failed to save city result: %v\n", err)
-			}
+	if len(cityFeatures) == 0 {
+		return
+	}
 
-			cityRT := &cityResourceType{ResourceType: opts.ResourceType}
-			cityCohortStats := buildCohortStats(cityRT, cityFeatures, cityAreaSqM, snapshotID, proj)
-			if len(cityCohortStats) > 0 {
-				if err := store.SaveCohortStats(cityCohortStats); err != nil {
-					fmt.Fprintf(errOut, "Warning: failed to save city cohort stats: %v\n", err)
-				} else if opts.ResourceType.HasCohorts() {
-					fmt.Fprintf(out, "\nCity cohort breakdown:\n")
-					for _, cs := range cityCohortStats {
-						pct := 0.0
-						if cityAreaSqM > 0 {
-							pct = cs.AreaSqM / cityAreaSqM * 100
-						}
-						fmt.Fprintf(out, "  %-12s %6.1f%% (%s, %d features)\n",
-							cs.Classification, pct, units.FormatArea(cs.AreaSqM, sys), cs.FeatureCount)
-					}
-				}
-			}
+	cityGjson, cityAreaSqM, err := opts.ResourceType.ProcessFeatures(cityFeatures, proj)
+	if err != nil {
+		fmt.Fprintf(errOut, "Warning: failed to process city features: %v\n", err)
+		return
+	}
 
-			fmt.Fprintf(out, "\n%s Results (city only):\n", opts.ResourceType.Name())
-			fmt.Fprintf(out, "  Features:  %d\n", len(cityFeatures))
-			fmt.Fprintf(out, "  Area:      %s\n", units.FormatArea(cityAreaSqM, sys))
-			fmt.Fprintf(out, "  Area:      %s\n", units.FormatAreaLarge(cityAreaSqM, sys))
-			fmt.Fprintf(out, "  Area:      %s\n", units.FormatAreaVeryLarge(cityAreaSqM, sys))
+	cityResult := db.ComputeResult{
+		ResourceType: opts.ResourceType.Name() + ":city",
+		TotalAreaSqM: cityAreaSqM,
+		FeatureCount: len(cityFeatures),
+		GeometryJSON: cityGjson,
+		SnapshotID:   snapshotID,
+	}
+	if err := store.SaveComputeResult(ctx, cityResult); err != nil {
+		fmt.Fprintf(errOut, "Warning: failed to save city result: %v\n", err)
+	}
+
+	cityRT := &cityResourceType{ResourceType: opts.ResourceType}
+	cityCohortStats := buildCohortStats(cityRT, cityFeatures, cityAreaSqM, snapshotID, proj)
+	if len(cityCohortStats) > 0 {
+		if err := store.SaveCohortStats(ctx, cityCohortStats); err != nil {
+			fmt.Fprintf(errOut, "Warning: failed to save city cohort stats: %v\n", err)
+		} else if opts.ResourceType.HasCohorts() {
+			printCohortBreakdown(out, "City cohort breakdown", cityCohortStats, cityAreaSqM, sys)
 		}
 	}
+
+	printResults(out, opts.ResourceType.Name()+" Results (city only)", len(cityFeatures), cityAreaSqM, sys)
+}
+
+func printResults(out io.Writer, label string, featureCount int, areaSqM float64, sys units.System) {
+	fmt.Fprintf(out, "\n%s:\n", label)
+	fmt.Fprintf(out, "  Features:  %d\n", featureCount)
+	fmt.Fprintf(out, "  Area:      %s\n", units.FormatArea(areaSqM, sys))
+	fmt.Fprintf(out, "  Area:      %s\n", units.FormatAreaLarge(areaSqM, sys))
+	fmt.Fprintf(out, "  Area:      %s\n", units.FormatAreaVeryLarge(areaSqM, sys))
+}
+
+func printCohortBreakdown(out io.Writer, title string, stats []db.CohortStat, totalAreaSqM float64, sys units.System) {
+	fmt.Fprintf(out, "\n%s:\n", title)
+	for _, cs := range stats {
+		pct := 0.0
+		if totalAreaSqM > 0 {
+			pct = cs.AreaSqM / totalAreaSqM * 100
+		}
+		fmt.Fprintf(out, "  %-12s %6.1f%% (%s, %d features)\n",
+			cs.Classification, pct, units.FormatArea(cs.AreaSqM, sys), cs.FeatureCount)
+	}
+}
+
+func computeHexPipeline(ctx context.Context, out, errOut io.Writer, notify tui.PhaseNotifier,
+	opts *Options, cfg *config.Config, city *config.CityConfig, store db.Store,
+	bbox [4]float64, proj *geo.UTMProjector, gjson, boundaryGJSON string) error {
 
 	// --- Phase 1: Generate hex grid ---
 	notify.PhaseStart(phaseHexGrid)
 
 	hexEdge := cfg.ResolvedHexEdge(city)
-	minX, minY, _ := proj.ToProjected(bbox[1], bbox[0]) // west, south
-	maxX, maxY, _ := proj.ToProjected(bbox[3], bbox[2]) // east, north
+	minX, minY, _ := proj.ToProjected(bbox[1], bbox[0])
+	maxX, maxY, _ := proj.ToProjected(bbox[3], bbox[2])
 
 	fmt.Fprintf(out, "\nComputing hex grid (edge=%.0fm)...\n", hexEdge)
 	hexes := geo.HexGrid(minX, minY, maxX, maxY, hexEdge)
@@ -328,7 +341,7 @@ func doCompute(out, errOut io.Writer, notify tui.PhaseNotifier, opts *Options) e
 		}
 	}
 
-	if err := store.SaveHexStats(dbStats); err != nil {
+	if err := store.SaveHexStats(ctx, dbStats); err != nil {
 		fmt.Fprintf(errOut, "Warning: failed to save hex stats: %v\n", err)
 	}
 	notify.PhaseDone(phaseSave, nil)

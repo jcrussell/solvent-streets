@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,7 +13,7 @@ func TestCORSMiddleware_Options(t *testing.T) {
 	})
 	handler := corsMiddleware(inner)
 
-	req := httptest.NewRequest("OPTIONS", "/data/meta.json", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), "OPTIONS", "/data/meta.json", nil)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
@@ -33,7 +34,7 @@ func TestCORSMiddleware_GET(t *testing.T) {
 	})
 	handler := corsMiddleware(inner)
 
-	req := httptest.NewRequest("GET", "/data/meta.json", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", "/data/meta.json", nil)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
@@ -51,7 +52,7 @@ func TestRecoveryMiddleware_Panic(t *testing.T) {
 	})
 	handler := recoveryMiddleware(inner)
 
-	req := httptest.NewRequest("GET", "/", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", "/", nil)
 	w := httptest.NewRecorder()
 
 	// Should not panic

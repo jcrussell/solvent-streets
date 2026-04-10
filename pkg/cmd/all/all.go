@@ -31,7 +31,7 @@ func newAllIngest(f *cmdutil.Factory) *cobra.Command {
 		Use:   "ingest",
 		Short: "Ingest data for all resource types",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return cmdutil.ForEachCity(f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
+			return cmdutil.ForEachCity(cmd.Context(), f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
 				return forEachResource(f.IOStreams, func(rt resource.ResourceType) error {
 					return execSub(ingest.NewCmdIngest(cf, rt, nil), "--source", "all")
 				})
@@ -45,7 +45,7 @@ func newAllCompute(f *cmdutil.Factory) *cobra.Command {
 		Use:   "compute",
 		Short: "Compute stats for all resource types",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return cmdutil.ForEachCity(f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
+			return cmdutil.ForEachCity(cmd.Context(), f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
 				return forEachResource(f.IOStreams, func(rt resource.ResourceType) error {
 					return execSub(compute.NewCmdCompute(cf, rt, nil))
 				})

@@ -51,7 +51,7 @@ func (s *Server) ListenAndServe() error {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	ln, err := net.Listen("tcp", srv.Addr)
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", srv.Addr)
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}

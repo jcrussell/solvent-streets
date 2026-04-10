@@ -35,37 +35,44 @@ func (t *TablePrinter) AddRow(columns ...string) {
 // Non-TTY: tab-separated, no headers.
 func (t *TablePrinter) Render() error {
 	if !t.isTTY {
-		for _, row := range t.rows {
-			_, err := fmt.Fprintln(t.out, strings.Join(row, "\t"))
-			if err != nil {
-				return err
-			}
+		return t.renderPlain()
+	}
+	return t.renderTTY()
+}
+
+func (t *TablePrinter) renderPlain() error {
+	for _, row := range t.rows {
+		if _, err := fmt.Fprintln(t.out, strings.Join(row, "\t")); err != nil {
+			return err
 		}
-		return nil
 	}
+	return nil
+}
 
-	// Calculate column widths from headers and all rows
-	allRows := t.rows
+func (t *TablePrinter) columnWidths() ([]int, int) {
 	ncols := len(t.headers)
-	if ncols == 0 && len(allRows) > 0 {
-		ncols = len(allRows[0])
+	if ncols == 0 && len(t.rows) > 0 {
+		ncols = len(t.rows[0])
 	}
-
 	widths := make([]int, ncols)
 	for i, h := range t.headers {
 		if len(h) > widths[i] {
 			widths[i] = len(h)
 		}
 	}
-	for _, row := range allRows {
+	for _, row := range t.rows {
 		for i, col := range row {
 			if i < ncols && len(col) > widths[i] {
 				widths[i] = len(col)
 			}
 		}
 	}
+	return widths, ncols
+}
 
-	// Print headers
+func (t *TablePrinter) renderTTY() error {
+	widths, ncols := t.columnWidths()
+
 	if len(t.headers) > 0 {
 		parts := make([]string, len(t.headers))
 		for i, h := range t.headers {
@@ -75,8 +82,7 @@ func (t *TablePrinter) Render() error {
 		fmt.Fprintln(t.out, strings.Join(parts, "  "))
 	}
 
-	// Print rows
-	for _, row := range allRows {
+	for _, row := range t.rows {
 		parts := make([]string, len(row))
 		for i, col := range row {
 			if i < ncols {

@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"io/fs"
@@ -9,16 +10,16 @@ import (
 	"strings"
 )
 
-func migrate(d *sql.DB) error {
+func migrate(ctx context.Context, d *sql.DB) error {
 	// Create schema_version table if not exists
-	_, err := d.Exec(`CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)`)
+	_, err := d.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)`)
 	if err != nil {
 		return fmt.Errorf("create schema_version: %w", err)
 	}
 
 	// Get current version
 	var currentVersion int
-	err = d.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&currentVersion)
+	err = d.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&currentVersion)
 	if err != nil {
 		return fmt.Errorf("get schema version: %w", err)
 	}
@@ -57,11 +58,11 @@ func migrate(d *sql.DB) error {
 			return fmt.Errorf("read migration %s: %w", entry.Name(), err)
 		}
 
-		if _, err := d.Exec(string(data)); err != nil {
+		if _, err := d.ExecContext(ctx, string(data)); err != nil {
 			return fmt.Errorf("exec migration %s: %w", entry.Name(), err)
 		}
 
-		if _, err := d.Exec(`INSERT INTO schema_version (version) VALUES (?)`, version); err != nil {
+		if _, err := d.ExecContext(ctx, `INSERT INTO schema_version (version) VALUES (?)`, version); err != nil {
 			return fmt.Errorf("record migration %s: %w", entry.Name(), err)
 		}
 	}

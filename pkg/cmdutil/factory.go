@@ -1,6 +1,7 @@
 package cmdutil
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -63,7 +64,7 @@ func cityOverrideFunc(cmd *cobra.Command, f *Factory, fallback func() (*config.C
 // ForEachCity resolves cities from config (all if no --city flag, one if set)
 // and calls fn for each. Prints a city header when iterating multiple cities.
 // Collects and joins all errors; ErrNoResults is silently skipped.
-func ForEachCity(f *Factory, fn func(cf *Factory, city *config.CityConfig) error) error {
+func ForEachCity(ctx context.Context, f *Factory, fn func(cf *Factory, city *config.CityConfig) error) error {
 	cities, err := ResolveCities(f)
 	if err != nil {
 		return err
@@ -76,7 +77,7 @@ func ForEachCity(f *Factory, fn func(cf *Factory, city *config.CityConfig) error
 	var errs []error
 	for _, city := range cities {
 		fmt.Fprintf(f.IOStreams.Out, "\n=== %s ===\n", city.Name)
-		if err := fn(withCity(f, &city), &city); err != nil {
+		if err := fn(withCity(ctx, f, &city), &city); err != nil {
 			if errors.Is(err, ErrNoResults) {
 				continue
 			}
@@ -107,7 +108,7 @@ func ResolveCities(f *Factory) ([]config.CityConfig, error) {
 	return cfg.Cities, nil
 }
 
-func withCity(f *Factory, city *config.CityConfig) *Factory {
+func withCity(ctx context.Context, f *Factory, city *config.CityConfig) *Factory {
 	cp := *f
 	c := *city
 	cp.CurrentCity = func() (*config.CityConfig, error) { return &c, nil }
@@ -117,7 +118,7 @@ func withCity(f *Factory, city *config.CityConfig) *Factory {
 		if err != nil {
 			return nil, err
 		}
-		id, err := root.EnsureCity(c.Slug(), c.Name)
+		id, err := root.EnsureCity(ctx, c.Slug(), c.Name)
 		if err != nil {
 			return nil, err
 		}

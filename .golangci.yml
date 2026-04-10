@@ -1,19 +1,31 @@
 version: "2"
 
 run:
+  concurrency: 4
+  build-cache: true
   timeout: 5m
 
 linters:
   default: none
   enable:
+    - bodyclose
+    - dupl
     - errcheck
+    - gocognit
+    - goconst
+    - gocritic
+    - gocyclo
     - govet
     - ineffassign
-    - staticcheck
-    - unused
     - misspell
+    - nestif
+    - nilnil
+    - noctx
+    - revive
+    - staticcheck
     - unconvert
     - unparam
+    - unused
   settings:
     errcheck:
       exclude-functions:
@@ -36,10 +48,19 @@ linters:
         # Cleanup operations - best effort
         - os.Remove
         - os.RemoveAll
+        - os.Unsetenv
         # HTTP response writes - errors rarely actionable
         - (net/http.ResponseWriter).Write
-  exclusions:
-    presets: []
+    gocognit:
+      min-complexity: 20
+    revive:
+      rules:
+        - name: indent-error-flow
+        - name: if-return
+        - name: receiver-naming
+        - name: error-naming
+        - name: error-return
+        - name: increment-decrement
 
 formatters:
   enable:
@@ -48,7 +69,7 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - pvmt
+        - github.com/jcrussell/solvent-streets
 
 output:
   show-stats: true

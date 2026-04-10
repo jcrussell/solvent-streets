@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -25,7 +26,7 @@ func TestFetchCityBoundary_Success(t *testing.T) {
 	srv := nominatimTestServer(t, body)
 	defer srv.Close()
 
-	result, err := fetchCityBoundary(srv.Client(), srv.URL, "Livermore")
+	result, err := fetchCityBoundary(context.Background(), srv.Client(), srv.URL, "Livermore")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +43,7 @@ func TestFetchCityBoundary_PrefersCityOverCounty(t *testing.T) {
 	srv := nominatimTestServer(t, body)
 	defer srv.Close()
 
-	result, err := fetchCityBoundary(srv.Client(), srv.URL, "Alameda, CA")
+	result, err := fetchCityBoundary(context.Background(), srv.Client(), srv.URL, "Alameda, CA")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +56,7 @@ func TestFetchCityBoundary_EmptyResults(t *testing.T) {
 	srv := nominatimTestServer(t, `[]`)
 	defer srv.Close()
 
-	_, err := fetchCityBoundary(srv.Client(), srv.URL, "Nonexistent")
+	_, err := fetchCityBoundary(context.Background(), srv.Client(), srv.URL, "Nonexistent")
 	if err == nil {
 		t.Fatal("expected error for empty results")
 	}
@@ -70,7 +71,7 @@ func TestFetchCityBoundary_Non200(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := fetchCityBoundary(srv.Client(), srv.URL, "Test")
+	_, err := fetchCityBoundary(context.Background(), srv.Client(), srv.URL, "Test")
 	if err == nil {
 		t.Fatal("expected error for non-200 status")
 	}
@@ -84,7 +85,7 @@ func TestFetchCityBoundary_UnsupportedGeometryType(t *testing.T) {
 	srv := nominatimTestServer(t, body)
 	defer srv.Close()
 
-	_, err := fetchCityBoundary(srv.Client(), srv.URL, "Test")
+	_, err := fetchCityBoundary(context.Background(), srv.Client(), srv.URL, "Test")
 	if err == nil {
 		t.Fatal("expected error for unsupported geometry type")
 	}
@@ -100,7 +101,7 @@ func TestFetchCityBoundary_MultiPolygon(t *testing.T) {
 	srv := nominatimTestServer(t, body)
 	defer srv.Close()
 
-	result, err := fetchCityBoundary(srv.Client(), srv.URL, "Test")
+	result, err := fetchCityBoundary(context.Background(), srv.Client(), srv.URL, "Test")
 	if err != nil {
 		t.Fatal(err)
 	}

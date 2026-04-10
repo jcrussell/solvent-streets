@@ -56,33 +56,39 @@ func (s *CSVSource) Load() ([]db.Feature, error) {
 			return nil, fmt.Errorf("read csv row: %w", err)
 		}
 
-		tags := make(map[string]string)
-		for i, col := range header {
-			if i < len(record) && i != idCol && i != nameCol && i != geomCol {
-				tags[col] = record[i]
-			}
+		if feat, ok := s.parseRow(header, record, idCol, nameCol, geomCol); ok {
+			features = append(features, feat)
 		}
-
-		if idCol >= len(record) || geomCol >= len(record) {
-			continue // skip malformed row with fewer fields than header
-		}
-
-		name := ""
-		if nameCol >= 0 && nameCol < len(record) {
-			name = record[nameCol]
-		}
-
-		features = append(features, db.Feature{
-			ID:           record[idCol],
-			ResourceType: s.ResourceType,
-			Name:         name,
-			Tags:         tags,
-			GeometryJSON: record[geomCol],
-			SourceAPI:    "csv:" + s.Path,
-			FetchedAt:    time.Now(),
-		})
 	}
 	return features, nil
+}
+
+func (s *CSVSource) parseRow(header, record []string, idCol, nameCol, geomCol int) (db.Feature, bool) {
+	if idCol >= len(record) || geomCol >= len(record) {
+		return db.Feature{}, false
+	}
+
+	tags := make(map[string]string)
+	for i, col := range header {
+		if i < len(record) && i != idCol && i != nameCol && i != geomCol {
+			tags[col] = record[i]
+		}
+	}
+
+	name := ""
+	if nameCol >= 0 && nameCol < len(record) {
+		name = record[nameCol]
+	}
+
+	return db.Feature{
+		ID:           record[idCol],
+		ResourceType: s.ResourceType,
+		Name:         name,
+		Tags:         tags,
+		GeometryJSON: record[geomCol],
+		SourceAPI:    "csv:" + s.Path,
+		FetchedAt:    time.Now(),
+	}, true
 }
 
 // GeoJSONFileSource ingests features from a local GeoJSON file.

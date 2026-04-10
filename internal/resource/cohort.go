@@ -15,36 +15,10 @@ func ComputeRoadCohortAreas(features []Feature, proj geo.Projector) map[string]f
 	classGeoms := make(map[string][]geom.Geometry)
 
 	for _, f := range features {
-		g, gtype, err := geo.GeoJSONToProjectedGeometry(f.GeometryJSON, proj)
-		if err != nil {
+		cleaned, ok := cleanFeatureGeometry(f, proj, geo.InferWidth)
+		if !ok {
 			continue
 		}
-
-		var cleaned geom.Geometry
-		switch gtype {
-		case "LineString":
-			width := geo.InferWidth(f.Tags)
-			coords := extractLineCoords(g)
-			if len(coords) < 2 {
-				continue
-			}
-			buffered, err := geo.BufferLineString(coords, width)
-			if err != nil {
-				continue
-			}
-			cleaned, err = geo.ValidatePolygon(buffered)
-			if err != nil {
-				continue
-			}
-		case "Polygon":
-			cleaned, err = geo.ValidatePolygon(g)
-			if err != nil {
-				continue
-			}
-		default:
-			continue
-		}
-
 		class := forecast.NormalizeClass(f.Tags["highway"])
 		classGeoms[class] = append(classGeoms[class], cleaned)
 	}

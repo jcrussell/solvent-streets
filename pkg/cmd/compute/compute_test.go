@@ -1,6 +1,7 @@
 package compute
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -51,7 +52,7 @@ func TestNewCmdCompute_RunFInjection(t *testing.T) {
 
 func TestRunCompute_NoFeatures(t *testing.T) {
 	store := &dbtest.MockStore{
-		GetBoundaryFunc: func() (string, error) { return testBoundary, nil },
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
 	}
 	ios, _, _, errBuf := iostreams.Test()
 	f := &cmdutil.Factory{
@@ -85,8 +86,8 @@ func TestRunCompute_NoFeatures(t *testing.T) {
 func TestRunCompute_Success(t *testing.T) {
 	var savedResult *db.ComputeResult
 	store := &dbtest.MockStore{
-		GetBoundaryFunc: func() (string, error) { return testBoundary, nil },
-		ListFeaturesFunc: func(string) ([]db.Feature, error) {
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
+		ListFeaturesFunc: func(_ context.Context, _ string) ([]db.Feature, error) {
 			return []db.Feature{
 				{
 					ID:           "test1",
@@ -97,7 +98,7 @@ func TestRunCompute_Success(t *testing.T) {
 				},
 			}, nil
 		},
-		SaveComputeResultFunc: func(r db.ComputeResult) error {
+		SaveComputeResultFunc: func(_ context.Context, r db.ComputeResult) error {
 			savedResult = &r
 			return nil
 		},

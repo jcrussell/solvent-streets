@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,10 +23,10 @@ type ArcGISSource struct {
 
 func (s *ArcGISSource) Name() string { return "arcgis" }
 
-func (s *ArcGISSource) Fetch(client *http.Client, rt resource.ResourceType) ([]db.Feature, error) {
+func (s *ArcGISSource) Fetch(ctx context.Context, client *http.Client, rt resource.ResourceType) ([]db.Feature, error) {
 	// Only fetch centerlines for road type
 	if rt.Name() != "roads" {
-		return nil, nil
+		return []db.Feature{}, nil
 	}
 
 	endpoint := s.URL
@@ -48,7 +49,12 @@ func (s *ArcGISSource) Fetch(client *http.Client, rt resource.ResourceType) ([]d
 	}
 
 	reqURL := endpoint + "?" + params.Encode()
-	resp, err := client.Get(reqURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create arcgis request: %w", err)
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("arcgis request: %w", err)
 	}

@@ -24,6 +24,8 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx := r.Context()
+
 	// Use first city for template rendering
 	entry := s.cities[0]
 
@@ -57,7 +59,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	meta, err := export.BuildMeta(entry)
+	meta, err := export.BuildMeta(ctx, entry)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -75,7 +77,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	// Build city info for template
 	var cities []export.CityInfo
 	for _, e := range s.cities {
-		bbox, lon, lat, err := e.BBoxAndCenter()
+		bbox, lon, lat, err := e.BBoxAndCenter(ctx)
 		if err != nil {
 			continue
 		}
@@ -90,7 +92,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 	td := export.TemplateData{
 		MetaJSON:     meta,
-		ForecastSeed: export.BuildForecastSeed(&fc, entry.Store),
+		ForecastSeed: export.BuildForecastSeed(ctx, &fc, entry.Store),
 		LayerColors:  export.ResourceColorsJS(),
 		RawTOML:      rawTOML,
 		ResolvedTOML: export.ResolvedTOML(entry.Config),
@@ -135,10 +137,11 @@ func (s *Server) handleCityDataFile(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleCitiesList returns JSON list of all cities.
-func (s *Server) handleCitiesList(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleCitiesList(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	var cities []export.CityInfo
 	for _, e := range s.cities {
-		bbox, lon, lat, err := e.BBoxAndCenter()
+		bbox, lon, lat, err := e.BBoxAndCenter(ctx)
 		if err != nil {
 			continue
 		}
@@ -156,19 +159,19 @@ func (s *Server) handleCitiesList(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) serveDataFile(w http.ResponseWriter, r *http.Request, file string, entry export.CityEntry) {
 	switch {
 	case file == "meta.json":
-		serveMetaJSON(w, entry)
+		serveMetaJSON(w, r, entry)
 	case file == "hexgrid.geojson":
-		serveHexGridGeoJSON(w, entry)
+		serveHexGridGeoJSON(w, r, entry)
 	case file == "scenarios.json":
-		serveScenariosJSON(w, entry)
+		serveScenariosJSON(w, r, entry)
 	case file == "forecast.json":
-		serveForecastJSON(w, entry)
+		serveForecastJSON(w, r, entry)
 	case file == "forecast_seed.json":
-		serveForecastSeed(w, entry)
+		serveForecastSeed(w, r, entry)
 	case file == "hex-cost-summary.json":
-		serveHexCostSummary(w, entry)
+		serveHexCostSummary(w, r, entry)
 	case file == "boundary.geojson":
-		serveBoundaryGeoJSON(w, entry)
+		serveBoundaryGeoJSON(w, r, entry)
 	case strings.HasSuffix(file, ".geojson"):
 		typeName := strings.TrimSuffix(file, ".geojson")
 		serveTypeGeoJSON(w, r, entry, typeName)
@@ -185,8 +188,8 @@ func writeJSON(w http.ResponseWriter, v any) {
 	}
 }
 
-func serveMetaJSON(w http.ResponseWriter, entry export.CityEntry) {
-	meta, err := export.BuildMeta(entry)
+func serveMetaJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
+	meta, err := export.BuildMeta(r.Context(), entry)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -194,15 +197,16 @@ func serveMetaJSON(w http.ResponseWriter, entry export.CityEntry) {
 	writeJSON(w, meta)
 }
 
-func serveHexGridGeoJSON(w http.ResponseWriter, entry export.CityEntry) {
-	_, lon0, lat0, err := entry.BBoxAndCenter()
+func serveHexGridGeoJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
+	ctx := r.Context()
+	_, lon0, lat0, err := entry.BBoxAndCenter(ctx)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	proj := geo.NewUTMProjector(lon0, lat0)
 
-	fc := export.BuildHexGeoJSON(entry, proj)
+	fc := export.BuildHexGeoJSON(ctx, entry, proj)
 	if fc == nil {
 		fc = map[string]any{"type": "FeatureCollection", "features": []any{}}
 	}
@@ -210,9 +214,10 @@ func serveHexGridGeoJSON(w http.ResponseWriter, entry export.CityEntry) {
 }
 
 func serveTypeGeoJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry, typeName string) {
-	result, err := entry.Store.LatestComputeResult(typeName + ":city")
+	ctx := r.Context()
+	result, err := entry.Store.LatestComputeResult(ctx, typeName+":city")
 	if err != nil {
-		result, err = entry.Store.LatestComputeResult(typeName)
+		result, err = entry.Store.LatestComputeResult(ctx, typeName)
 	}
 	if err != nil {
 		http.NotFound(w, r)
@@ -234,26 +239,28 @@ func serveTypeGeoJSON(w http.ResponseWriter, r *http.Request, entry export.CityE
 	})
 }
 
-func serveScenariosJSON(w http.ResponseWriter, entry export.CityEntry) {
+func serveScenariosJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
 	fc := entry.Config.ResolvedForecast(&entry.City)
-	writeJSON(w, export.BuildScenariosData(entry, &fc))
+	writeJSON(w, export.BuildScenariosData(r.Context(), entry, &fc))
 }
 
-func serveForecastJSON(w http.ResponseWriter, entry export.CityEntry) {
-	fc := entry.Config.ResolvedForecast(&entry.City)
-	costTiers := export.ConvertCostTiers(&fc)
-	writeJSON(w, export.BuildForecastsForCity(entry, &fc, costTiers))
-}
-
-func serveHexCostSummary(w http.ResponseWriter, entry export.CityEntry) {
+func serveForecastJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
+	ctx := r.Context()
 	fc := entry.Config.ResolvedForecast(&entry.City)
 	costTiers := export.ConvertCostTiers(&fc)
-	forecasts := export.BuildForecastsForCity(entry, &fc, costTiers)
-	writeJSON(w, export.BuildHexCostSummary(entry, forecasts))
+	writeJSON(w, export.BuildForecastsForCity(ctx, entry, &fc, costTiers))
 }
 
-func serveBoundaryGeoJSON(w http.ResponseWriter, entry export.CityEntry) {
-	gj, err := entry.Store.GetBoundary()
+func serveHexCostSummary(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
+	ctx := r.Context()
+	fc := entry.Config.ResolvedForecast(&entry.City)
+	costTiers := export.ConvertCostTiers(&fc)
+	forecasts := export.BuildForecastsForCity(ctx, entry, &fc, costTiers)
+	writeJSON(w, export.BuildHexCostSummary(ctx, entry, forecasts))
+}
+
+func serveBoundaryGeoJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
+	gj, err := entry.Store.GetBoundary(r.Context())
 	if err != nil || gj == "" {
 		writeJSON(w, map[string]any{"type": "FeatureCollection", "features": []any{}})
 		return
@@ -270,9 +277,9 @@ func serveBoundaryGeoJSON(w http.ResponseWriter, entry export.CityEntry) {
 	})
 }
 
-func serveForecastSeed(w http.ResponseWriter, entry export.CityEntry) {
+func serveForecastSeed(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
 	fc := entry.Config.ResolvedForecast(&entry.City)
-	seed := export.BuildForecastSeed(&fc, entry.Store)
+	seed := export.BuildForecastSeed(r.Context(), &fc, entry.Store)
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(seed))
 }

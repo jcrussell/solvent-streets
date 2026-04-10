@@ -2,6 +2,7 @@ package export
 
 import (
 	"bytes"
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -107,11 +108,11 @@ var ResourceColors = map[string]string{
 }
 
 // BuildCityEntries creates CityEntry values for the given cities.
-func BuildCityEntries(rootDB db.RootStorer, cfg *config.Config, cities []config.CityConfig) ([]CityEntry, error) {
+func BuildCityEntries(ctx context.Context, rootDB db.RootStorer, cfg *config.Config, cities []config.CityConfig) ([]CityEntry, error) {
 	var entries []CityEntry
 	var errs []string
 	for _, city := range cities {
-		id, err := rootDB.EnsureCity(city.Slug(), city.Name)
+		id, err := rootDB.EnsureCity(ctx, city.Slug(), city.Name)
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", city.Name, err))
 			continue
@@ -132,8 +133,8 @@ func BuildCityEntries(rootDB db.RootStorer, cfg *config.Config, cities []config.
 // --- Shared data-building functions (used by both export and server) ---
 
 // BuildMeta builds metadata JSON for a city entry.
-func BuildMeta(entry CityEntry) (MetaJSON, error) {
-	bbox, lon, lat, err := entry.BBoxAndCenter()
+func BuildMeta(ctx context.Context, entry CityEntry) (MetaJSON, error) {
+	bbox, lon, lat, err := entry.BBoxAndCenter(ctx)
 	if err != nil {
 		return MetaJSON{}, fmt.Errorf("city %s: %w", entry.City.Name, err)
 	}
@@ -145,7 +146,7 @@ func BuildMeta(entry CityEntry) (MetaJSON, error) {
 		SnapshotDate: time.Now().Format("2006-01-02"),
 	}
 	for _, rt := range resource.All {
-		result, err := entry.Store.LatestComputeResult(rt.Name())
+		result, err := entry.Store.LatestComputeResult(ctx, rt.Name())
 		if err != nil {
 			continue
 		}
@@ -165,7 +166,7 @@ func BuildMeta(entry CityEntry) (MetaJSON, error) {
 	meta.TotalPavedSqM = totalPavedSqM
 
 	// Compute city boundary area and % paved.
-	if boundaryGJSON, err := entry.Store.GetBoundary(); err == nil && boundaryGJSON != "" {
+	if boundaryGJSON, err := entry.Store.GetBoundary(ctx); err == nil && boundaryGJSON != "" {
 		if cityAreaSqM, err := geo.BoundaryAreaSqM(boundaryGJSON); err == nil && cityAreaSqM > 0 {
 			meta.CityAreaSqM = cityAreaSqM
 			if totalPavedSqM > 0 {
@@ -178,10 +179,10 @@ func BuildMeta(entry CityEntry) (MetaJSON, error) {
 }
 
 // BuildHexGeoJSON builds a GeoJSON FeatureCollection of hex stats for a city.
-func BuildHexGeoJSON(entry CityEntry, proj *geo.UTMProjector) map[string]any {
+func BuildHexGeoJSON(ctx context.Context, entry CityEntry, proj *geo.UTMProjector) map[string]any {
 	var allStats []db.HexStat
 	for _, rt := range resource.All {
-		stats, err := entry.Store.ListHexStats(rt.Name())
+		stats, err := entry.Store.ListHexStats(ctx, rt.Name())
 		if err != nil {
 			continue
 		}
@@ -192,27 +193,13 @@ func BuildHexGeoJSON(entry CityEntry, proj *geo.UTMProjector) map[string]any {
 		return nil
 	}
 
-	bbox, _, _, _ := entry.BBoxAndCenter()
+	bbox, _, _, _ := entry.BBoxAndCenter(ctx)
 	hexEdge := entry.Config.ResolvedHexEdge(&entry.City)
 	minX, minY, _ := proj.ToProjected(bbox[1], bbox[0])
 	maxX, maxY, _ := proj.ToProjected(bbox[3], bbox[2])
 	hexes := geo.HexGrid(minX, minY, maxX, maxY, hexEdge)
 
-	// Clip hex grid to city boundary
-	if boundaryGJSON, err := entry.Store.GetBoundary(); err == nil && boundaryGJSON != "" {
-		boundaryGeom, _, gErr := geo.GeoJSONToProjectedGeometry(boundaryGJSON, proj)
-		if gErr == nil && !boundaryGeom.IsEmpty() {
-			filtered := make([]geo.Hex, 0, len(hexes))
-			for _, h := range hexes {
-				inter, iErr := geom.Intersection(h.Geom, boundaryGeom)
-				if iErr == nil && !inter.IsEmpty() {
-					h.Geom = inter
-					filtered = append(filtered, h)
-				}
-			}
-			hexes = filtered
-		}
-	}
+	hexes = clipHexGridToBoundary(ctx, hexes, entry, proj)
 
 	hexMap := make(map[string]*geo.Hex, len(hexes))
 	for i := range hexes {
@@ -221,30 +208,58 @@ func BuildHexGeoJSON(entry CityEntry, proj *geo.UTMProjector) map[string]any {
 
 	var features []map[string]any
 	for _, st := range allStats {
-		h, ok := hexMap[st.HexID]
-		if !ok {
-			continue
+		if feat, ok := buildHexFeature(st, hexMap, proj); ok {
+			features = append(features, feat)
 		}
-		gjson, err := geo.GeometryToGeoJSON(h.Geom, proj)
-		if err != nil {
-			continue
-		}
-		features = append(features, map[string]any{
-			"type":     "Feature",
-			"geometry": json.RawMessage(gjson),
-			"properties": map[string]any{
-				"hex_id":        st.HexID,
-				"resource_type": st.ResourceType,
-				"area_sqm":      st.AreaSqM,
-				"pct_covered":   st.PctCovered,
-			},
-		})
 	}
 
 	return map[string]any{
 		"type":     "FeatureCollection",
 		"features": features,
 	}
+}
+
+func clipHexGridToBoundary(ctx context.Context, hexes []geo.Hex, entry CityEntry, proj *geo.UTMProjector) []geo.Hex {
+	boundaryGJSON, err := entry.Store.GetBoundary(ctx)
+	if err != nil || boundaryGJSON == "" {
+		return hexes
+	}
+	boundaryGeom, _, gErr := geo.GeoJSONToProjectedGeometry(boundaryGJSON, proj)
+	if gErr != nil || boundaryGeom.IsEmpty() {
+		return hexes
+	}
+	filtered := make([]geo.Hex, 0, len(hexes))
+	for _, h := range hexes {
+		inter, iErr := geom.Intersection(h.Geom, boundaryGeom)
+		if iErr == nil && !inter.IsEmpty() {
+			h.Geom = inter
+			filtered = append(filtered, h)
+		}
+	}
+	return filtered
+}
+
+// buildHexFeature builds a single GeoJSON feature from a hex stat entry.
+// Returns the feature map and true if successful, or nil and false otherwise.
+func buildHexFeature(st db.HexStat, hexMap map[string]*geo.Hex, proj *geo.UTMProjector) (map[string]any, bool) {
+	h, ok := hexMap[st.HexID]
+	if !ok {
+		return nil, false
+	}
+	gjson, err := geo.GeometryToGeoJSON(h.Geom, proj)
+	if err != nil {
+		return nil, false
+	}
+	return map[string]any{
+		"type":     "Feature",
+		"geometry": json.RawMessage(gjson),
+		"properties": map[string]any{
+			"hex_id":        st.HexID,
+			"resource_type": st.ResourceType,
+			"area_sqm":      st.AreaSqM,
+			"pct_covered":   st.PctCovered,
+		},
+	}, true
 }
 
 // ConvertCostTiers converts config cost tiers to forecast cost tiers.
@@ -263,9 +278,9 @@ func ConvertCostTiers(fc *config.ForecastConfig) []forecast.CostTier {
 
 // BuildCohortsForResource builds forecast cohorts for a resource type from the store.
 // Falls back to a single cohort if no cohort stats exist.
-func BuildCohortsForResource(rt resource.ResourceType, areaSqM float64, store db.Store, fc *config.ForecastConfig) []forecast.Cohort {
+func BuildCohortsForResource(ctx context.Context, rt resource.ResourceType, areaSqM float64, store db.Store, fc *config.ForecastConfig) []forecast.Cohort {
 	currentPCI := 85.0
-	stats, _ := store.ListCohortStats(rt.Name())
+	stats, _ := store.ListCohortStats(ctx, rt.Name())
 	var inputs []forecast.CohortInput
 	for _, st := range stats {
 		inputs = append(inputs, forecast.CohortInput{
@@ -298,17 +313,17 @@ type ForecastExport struct {
 }
 
 // BuildForecastsForCity builds per-resource forecast exports for a city.
-func BuildForecastsForCity(entry CityEntry, fc *config.ForecastConfig, costTiers []forecast.CostTier) []ForecastExport {
+func BuildForecastsForCity(ctx context.Context, entry CityEntry, fc *config.ForecastConfig, costTiers []forecast.CostTier) []ForecastExport {
 	years := fc.ResolvedYears()
 	var forecasts []ForecastExport
 
 	for _, rt := range resource.All {
-		result, err := entry.Store.LatestComputeResult(rt.Name())
+		result, err := entry.Store.LatestComputeResult(ctx, rt.Name())
 		if err != nil || result == nil {
 			continue
 		}
 
-		cohorts := BuildCohortsForResource(rt, result.TotalAreaSqM, entry.Store, fc)
+		cohorts := BuildCohortsForResource(ctx, rt, result.TotalAreaSqM, entry.Store, fc)
 		rtParams := forecast.NewParamsForResource(rt.Name(), fc.GrowthRate, costTiers)
 
 		baseline := forecast.Simulate(
@@ -327,7 +342,7 @@ func BuildForecastsForCity(entry CityEntry, fc *config.ForecastConfig, costTiers
 		}
 
 		// Build city baseline if city cohort stats exist
-		cityStats, _ := entry.Store.ListCohortStats(rt.Name() + ":city")
+		cityStats, _ := entry.Store.ListCohortStats(ctx, rt.Name()+":city")
 		if len(cityStats) > 0 {
 			var cityInputs []forecast.CohortInput
 			for _, st := range cityStats {
@@ -353,7 +368,7 @@ func BuildForecastsForCity(entry CityEntry, fc *config.ForecastConfig, costTiers
 }
 
 // BuildScenariosData builds the aggregate scenarios JSON structure for a city.
-func BuildScenariosData(entry CityEntry, fc *config.ForecastConfig) map[string]any {
+func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.ForecastConfig) map[string]any {
 	costTiers := ConvertCostTiers(fc)
 	params := forecast.NewParams(fc.GrowthRate, costTiers)
 	years := fc.ResolvedYears()
@@ -362,14 +377,14 @@ func BuildScenariosData(entry CityEntry, fc *config.ForecastConfig) map[string]a
 	var cityFeatureCount, allFeatureCount int
 
 	for _, rt := range resource.All {
-		result, err := entry.Store.LatestComputeResult(rt.Name())
+		result, err := entry.Store.LatestComputeResult(ctx, rt.Name())
 		if err != nil || result == nil {
 			continue
 		}
 		totalAreaSqM += result.TotalAreaSqM
 		allFeatureCount += result.FeatureCount
 
-		cityResult, err := entry.Store.LatestComputeResult(rt.Name() + ":city")
+		cityResult, err := entry.Store.LatestComputeResult(ctx, rt.Name()+":city")
 		if err == nil && cityResult != nil {
 			cityAreaSqM += cityResult.TotalAreaSqM
 			cityFeatureCount += cityResult.FeatureCount
@@ -423,14 +438,14 @@ func BuildScenariosData(entry CityEntry, fc *config.ForecastConfig) map[string]a
 }
 
 // BuildHexCostSummary builds the hex cost summary from forecast results.
-func BuildHexCostSummary(entry CityEntry, forecasts []ForecastExport) map[string]map[string]float64 {
+func BuildHexCostSummary(ctx context.Context, entry CityEntry, forecasts []ForecastExport) map[string]map[string]float64 {
 	result := make(map[string]map[string]float64)
 	for _, fe := range forecasts {
 		var year1Cost float64
 		if len(fe.Baseline.Years) > 0 {
 			year1Cost = fe.Baseline.Years[0].AnnualNeed
 		}
-		cr, err := entry.Store.LatestComputeResult(fe.ResourceType)
+		cr, err := entry.Store.LatestComputeResult(ctx, fe.ResourceType)
 		if err != nil || cr == nil {
 			continue
 		}
@@ -463,7 +478,7 @@ type ForecastSeedJSON struct {
 }
 
 // BuildForecastSeed constructs a ForecastSeedJSON for the given forecast config and store.
-func BuildForecastSeed(fc *config.ForecastConfig, store db.Store) template.JS {
+func BuildForecastSeed(ctx context.Context, fc *config.ForecastConfig, store db.Store) template.JS {
 	costTiers := ConvertCostTiers(fc)
 	if len(costTiers) == 0 {
 		costTiers = forecast.DefaultCostTiers
@@ -471,12 +486,12 @@ func BuildForecastSeed(fc *config.ForecastConfig, store db.Store) template.JS {
 
 	var totalArea, cityArea float64
 	for _, rt := range resource.All {
-		result, err := store.LatestComputeResult(rt.Name())
+		result, err := store.LatestComputeResult(ctx, rt.Name())
 		if err != nil || result == nil {
 			continue
 		}
 		totalArea += result.TotalAreaSqM
-		cityResult, err := store.LatestComputeResult(rt.Name() + ":city")
+		cityResult, err := store.LatestComputeResult(ctx, rt.Name()+":city")
 		if err == nil && cityResult != nil {
 			cityArea += cityResult.TotalAreaSqM
 		}
@@ -490,40 +505,7 @@ func BuildForecastSeed(fc *config.ForecastConfig, store db.Store) template.JS {
 	years := fc.ResolvedYears()
 
 	// Collect cohort stats
-	var cohortSeeds []CohortSeed
-	var cityCohortSeeds []CohortSeed
-	for _, rt := range resource.All {
-		stats, err := store.ListCohortStats(rt.Name())
-		if err != nil {
-			continue
-		}
-		for _, st := range stats {
-			rate := forecast.DecayRateForClass(st.Classification)
-			if fc.DecayRate > 0 {
-				rate = fc.DecayRate
-			}
-			cohortSeeds = append(cohortSeeds, CohortSeed{
-				Classification: st.Classification,
-				AreaSqM:        st.AreaSqM,
-				DecayRate:      rate,
-			})
-		}
-		cityStats, err := store.ListCohortStats(rt.Name() + ":city")
-		if err != nil {
-			continue
-		}
-		for _, st := range cityStats {
-			rate := forecast.DecayRateForClass(st.Classification)
-			if fc.DecayRate > 0 {
-				rate = fc.DecayRate
-			}
-			cityCohortSeeds = append(cityCohortSeeds, CohortSeed{
-				Classification: st.Classification,
-				AreaSqM:        st.AreaSqM,
-				DecayRate:      rate,
-			})
-		}
-	}
+	cohortSeeds, cityCohortSeeds := collectCohortSeeds(ctx, store, fc)
 
 	seed := ForecastSeedJSON{
 		InitialPCI:   85.0,
@@ -543,6 +525,44 @@ func BuildForecastSeed(fc *config.ForecastConfig, store db.Store) template.JS {
 	return template.JS(data)
 }
 
+// collectCohortSeeds iterates over all resource types and collects cohort seed
+// data for both the main and city-scoped cohort stats.
+func collectCohortSeeds(ctx context.Context, store db.Store, fc *config.ForecastConfig) ([]CohortSeed, []CohortSeed) {
+	var cohortSeeds []CohortSeed
+	var cityCohortSeeds []CohortSeed
+	for _, rt := range resource.All {
+		stats, err := store.ListCohortStats(ctx, rt.Name())
+		if err == nil {
+			for _, st := range stats {
+				rate := forecast.DecayRateForClass(st.Classification)
+				if fc.DecayRate > 0 {
+					rate = fc.DecayRate
+				}
+				cohortSeeds = append(cohortSeeds, CohortSeed{
+					Classification: st.Classification,
+					AreaSqM:        st.AreaSqM,
+					DecayRate:      rate,
+				})
+			}
+		}
+		cityStats, err := store.ListCohortStats(ctx, rt.Name()+":city")
+		if err == nil {
+			for _, st := range cityStats {
+				rate := forecast.DecayRateForClass(st.Classification)
+				if fc.DecayRate > 0 {
+					rate = fc.DecayRate
+				}
+				cityCohortSeeds = append(cityCohortSeeds, CohortSeed{
+					Classification: st.Classification,
+					AreaSqM:        st.AreaSqM,
+					DecayRate:      rate,
+				})
+			}
+		}
+	}
+	return cohortSeeds, cityCohortSeeds
+}
+
 // --- Exporter (static site generation) ---
 
 type Exporter struct {
@@ -556,21 +576,21 @@ func New(entries []CityEntry, cfg *config.Config, outputDir, unitSystem string) 
 	return &Exporter{entries: entries, cfg: cfg, outputDir: outputDir, unitSystem: unitSystem}
 }
 
-func (e *Exporter) Run() error {
+func (e *Exporter) Run(ctx context.Context) error {
 	if len(e.entries) == 1 {
-		return e.runSingleCity()
+		return e.runSingleCity(ctx)
 	}
-	return e.runMultiCity()
+	return e.runMultiCity(ctx)
 }
 
-func (e *Exporter) runSingleCity() error {
+func (e *Exporter) runSingleCity(ctx context.Context) error {
 	entry := e.entries[0]
 	dataDir := filepath.Join(e.outputDir, "data")
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
 	}
 
-	if err := e.exportCityData(entry, dataDir); err != nil {
+	if err := e.exportCityData(ctx, entry, dataDir); err != nil {
 		return err
 	}
 
@@ -588,15 +608,15 @@ func (e *Exporter) runSingleCity() error {
 	}
 
 	fc := e.cfg.ResolvedForecast(&entry.City)
-	seed := BuildForecastSeed(&fc, entry.Store)
-	meta, err := BuildMeta(entry)
+	seed := BuildForecastSeed(ctx, &fc, entry.Store)
+	meta, err := BuildMeta(ctx, entry)
 	if err != nil {
 		return err
 	}
 	return e.renderHTML(meta, seed, rawTOML, ResolvedTOML(e.cfg), e.unitSystem, nil)
 }
 
-func (e *Exporter) runMultiCity() error {
+func (e *Exporter) runMultiCity(ctx context.Context) error {
 	if err := os.MkdirAll(e.outputDir, 0o755); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
 	}
@@ -608,10 +628,10 @@ func (e *Exporter) runMultiCity() error {
 		if err := os.MkdirAll(cityDataDir, 0o755); err != nil {
 			return fmt.Errorf("create city dir %s: %w", entry.Slug, err)
 		}
-		if err := e.exportCityData(entry, cityDataDir); err != nil {
+		if err := e.exportCityData(ctx, entry, cityDataDir); err != nil {
 			return fmt.Errorf("export %s: %w", entry.Slug, err)
 		}
-		bbox, lon, lat, err := entry.BBoxAndCenter()
+		bbox, lon, lat, err := entry.BBoxAndCenter(ctx)
 		if err != nil {
 			return fmt.Errorf("city %s bbox: %w", entry.Slug, err)
 		}
@@ -637,8 +657,8 @@ func (e *Exporter) runMultiCity() error {
 	// Render single top-level index.html with first city data
 	firstEntry := e.entries[0]
 	fc := e.cfg.ResolvedForecast(&firstEntry.City)
-	seed := BuildForecastSeed(&fc, firstEntry.Store)
-	meta, err := BuildMeta(firstEntry)
+	seed := BuildForecastSeed(ctx, &fc, firstEntry.Store)
+	meta, err := BuildMeta(ctx, firstEntry)
 	if err != nil {
 		return err
 	}
@@ -653,20 +673,20 @@ func (e *Exporter) runMultiCity() error {
 	return e.renderHTML(meta, seed, rawTOML, ResolvedTOML(e.cfg), e.unitSystem, cities)
 }
 
-func (e *Exporter) exportCityData(entry CityEntry, dataDir string) error {
-	_, lon, lat, err := entry.BBoxAndCenter()
+func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir string) error {
+	_, lon, lat, err := entry.BBoxAndCenter(ctx)
 	if err != nil {
 		return fmt.Errorf("city bbox: %w", err)
 	}
 	proj := geo.NewUTMProjector(lon, lat)
 
-	meta, err := BuildMeta(entry)
+	meta, err := BuildMeta(ctx, entry)
 	if err != nil {
 		return err
 	}
 
 	// Write boundary.geojson if boundary exists
-	if boundaryGJSON, err := entry.Store.GetBoundary(); err == nil && boundaryGJSON != "" {
+	if boundaryGJSON, err := entry.Store.GetBoundary(ctx); err == nil && boundaryGJSON != "" {
 		fc := map[string]any{
 			"type": "FeatureCollection",
 			"features": []map[string]any{
@@ -684,35 +704,13 @@ func (e *Exporter) exportCityData(entry CityEntry, dataDir string) error {
 
 	// Export each resource type as GeoJSON (prefer city-clipped variant)
 	for _, rt := range resource.All {
-		result, err := entry.Store.LatestComputeResult(rt.Name() + ":city")
-		if err != nil {
-			result, err = entry.Store.LatestComputeResult(rt.Name())
-		}
-		if err != nil {
-			continue
-		}
-
-		// Write GeoJSON file
-		if result.GeometryJSON != "" {
-			geojsonPath := filepath.Join(dataDir, rt.Name()+".geojson")
-			fc := map[string]any{
-				"type": "FeatureCollection",
-				"features": []map[string]any{
-					{
-						"type":       "Feature",
-						"geometry":   json.RawMessage(result.GeometryJSON),
-						"properties": map[string]any{"type": rt.Name()},
-					},
-				},
-			}
-			if err := writeJSON(geojsonPath, fc); err != nil {
-				return fmt.Errorf("write %s geojson: %w", rt.Name(), err)
-			}
+		if err := exportResourceGeoJSON(ctx, entry.Store, rt, dataDir); err != nil {
+			return err
 		}
 	}
 
 	// Export hex grid
-	hexFC := BuildHexGeoJSON(entry, proj)
+	hexFC := BuildHexGeoJSON(ctx, entry, proj)
 	if hexFC != nil {
 		if err := writeJSON(filepath.Join(dataDir, "hexgrid.geojson"), hexFC); err != nil {
 			return fmt.Errorf("write hexgrid: %w", err)
@@ -725,13 +723,13 @@ func (e *Exporter) exportCityData(entry CityEntry, dataDir string) error {
 	}
 
 	// Export forecast and scenario data
-	if err := exportScenariosForCity(entry, dataDir); err != nil {
+	if err := exportScenariosForCity(ctx, entry, dataDir); err != nil {
 		return fmt.Errorf("export scenarios: %w", err)
 	}
 
 	// Export forecast seed for interactive WASM controls (per-city)
 	forecastCfg := entry.Config.ResolvedForecast(&entry.City)
-	seed := BuildForecastSeed(&forecastCfg, entry.Store)
+	seed := BuildForecastSeed(ctx, &forecastCfg, entry.Store)
 	if err := os.WriteFile(filepath.Join(dataDir, "forecast_seed.json"), []byte(seed), 0o644); err != nil {
 		return fmt.Errorf("write forecast_seed.json: %w", err)
 	}
@@ -739,23 +737,53 @@ func (e *Exporter) exportCityData(entry CityEntry, dataDir string) error {
 	return nil
 }
 
-func exportScenariosForCity(entry CityEntry, dataDir string) error {
+// exportResourceGeoJSON writes a single resource type's GeoJSON file to dataDir.
+// It prefers the city-clipped variant and silently skips if no data is available.
+func exportResourceGeoJSON(ctx context.Context, store db.Store, rt resource.ResourceType, dataDir string) error {
+	result, err := store.LatestComputeResult(ctx, rt.Name()+":city")
+	if err != nil {
+		result, err = store.LatestComputeResult(ctx, rt.Name())
+	}
+	if err != nil {
+		return nil
+	}
+	if result.GeometryJSON == "" {
+		return nil
+	}
+	geojsonPath := filepath.Join(dataDir, rt.Name()+".geojson")
+	fc := map[string]any{
+		"type": "FeatureCollection",
+		"features": []map[string]any{
+			{
+				"type":       "Feature",
+				"geometry":   json.RawMessage(result.GeometryJSON),
+				"properties": map[string]any{"type": rt.Name()},
+			},
+		},
+	}
+	if err := writeJSON(geojsonPath, fc); err != nil {
+		return fmt.Errorf("write %s geojson: %w", rt.Name(), err)
+	}
+	return nil
+}
+
+func exportScenariosForCity(ctx context.Context, entry CityEntry, dataDir string) error {
 	fc := entry.Config.ResolvedForecast(&entry.City)
 	costTiers := ConvertCostTiers(&fc)
 
-	forecasts := BuildForecastsForCity(entry, &fc, costTiers)
+	forecasts := BuildForecastsForCity(ctx, entry, &fc, costTiers)
 
 	if len(forecasts) > 0 {
 		if err := writeJSON(filepath.Join(dataDir, "forecast.json"), forecasts); err != nil {
 			return fmt.Errorf("write forecast.json: %w", err)
 		}
 
-		hexCostSummary := BuildHexCostSummary(entry, forecasts)
+		hexCostSummary := BuildHexCostSummary(ctx, entry, forecasts)
 		if err := writeJSON(filepath.Join(dataDir, "hex-cost-summary.json"), hexCostSummary); err != nil {
 			return fmt.Errorf("write hex-cost-summary.json: %w", err)
 		}
 
-		scenariosOut := BuildScenariosData(entry, &fc)
+		scenariosOut := BuildScenariosData(ctx, entry, &fc)
 		if err := writeJSON(filepath.Join(dataDir, "scenarios.json"), scenariosOut); err != nil {
 			return fmt.Errorf("write scenarios.json: %w", err)
 		}
@@ -877,8 +905,8 @@ func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolved
 }
 
 // BBoxAndCenter derives bbox and center from the stored boundary polygon.
-func (entry CityEntry) BBoxAndCenter() ([4]float64, float64, float64, error) {
-	boundaryGJSON, err := entry.Store.GetBoundary()
+func (entry CityEntry) BBoxAndCenter(ctx context.Context) ([4]float64, float64, float64, error) {
+	boundaryGJSON, err := entry.Store.GetBoundary(ctx)
 	if err != nil || boundaryGJSON == "" {
 		return [4]float64{}, 0, 0, fmt.Errorf("no boundary stored for %s — run 'pvmt ingest' first", entry.City.Name)
 	}

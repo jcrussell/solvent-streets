@@ -133,6 +133,39 @@ func ComputeHexStats(hexes []Hex, union geom.Geometry, resourceType string, coun
 	}, counter)
 }
 
+// clipHexToCandidates intersects a hex with candidate boundary fragments and
+// returns the clipped hex. The second return value is false if the hex has no
+// intersection with any candidate.
+func clipHexToCandidates(h Hex, candidates []geom.Geometry) (Hex, bool) {
+	var clipped geom.Geometry
+	for _, cand := range candidates {
+		inter, err := geom.Intersection(h.Geom, cand)
+		if err != nil || inter.IsEmpty() {
+			continue
+		}
+		clipped = mergeClipped(clipped, inter)
+	}
+	if clipped.IsEmpty() {
+		return h, false
+	}
+	h.Geom = clipped
+	return h, true
+}
+
+func mergeClipped(existing, addition geom.Geometry) geom.Geometry {
+	if existing.IsEmpty() {
+		return addition
+	}
+	merged, err := geom.Union(existing, addition)
+	if err != nil {
+		if addition.Area() > existing.Area() {
+			return addition
+		}
+		return existing
+	}
+	return merged
+}
+
 // ClipHexesToBoundary intersects each hex with the boundary geometry in
 // parallel using a spatial index. Hexes with no intersection are dropped;
 // hexes partially inside are clipped. If counter is non-nil it is incremented
@@ -147,31 +180,10 @@ func ClipHexesToBoundary(hexes []Hex, boundary geom.Geometry, counter *atomic.In
 			return nil
 		}
 
-		var clipped geom.Geometry
-		for _, cand := range candidates {
-			inter, err := geom.Intersection(h.Geom, cand)
-			if err != nil || inter.IsEmpty() {
-				continue
-			}
-			if clipped.IsEmpty() {
-				clipped = inter
-			} else {
-				merged, err := geom.Union(clipped, inter)
-				if err != nil {
-					// Fallback: keep whichever has more area
-					if inter.Area() > clipped.Area() {
-						clipped = inter
-					}
-				} else {
-					clipped = merged
-				}
-			}
-		}
-		if clipped.IsEmpty() {
+		clipped, ok := clipHexToCandidates(h, candidates)
+		if !ok {
 			return nil
 		}
-
-		h.Geom = clipped
-		return []Hex{h}
+		return []Hex{clipped}
 	}, counter)
 }

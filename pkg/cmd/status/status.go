@@ -1,6 +1,7 @@
 package status
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -53,7 +54,7 @@ func NewCmdStatus(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Optio
 			if runF != nil {
 				return runF(opts)
 			}
-			return runStatus(opts)
+			return runStatus(cmd.Context(), opts)
 		},
 	}
 
@@ -62,7 +63,7 @@ func NewCmdStatus(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Optio
 	return cmd
 }
 
-func runStatus(opts *Options) error {
+func runStatus(ctx context.Context, opts *Options) error {
 	ios := opts.IO
 
 	store, err := opts.CityDB()
@@ -81,7 +82,7 @@ func runStatus(opts *Options) error {
 
 	var rows []statusRow
 	for _, rt := range types {
-		info, err := store.Stats(rt.Name())
+		info, err := store.Stats(ctx, rt.Name())
 		if err != nil {
 			fmt.Fprintf(ios.ErrOut, "Warning: could not get stats for %s: %v\n", rt.Name(), err)
 			continue
@@ -124,38 +125,48 @@ func runStatus(opts *Options) error {
 		return err
 	}
 
-	// Show city summary (TTY only)
 	if ios.IsTTY() {
-		if boundaryGJSON, err := store.GetBoundary(); err == nil && boundaryGJSON != "" {
-			if cityAreaSqM, err := geo.BoundaryAreaSqM(boundaryGJSON); err == nil && cityAreaSqM > 0 {
-				var totalPavedSqM float64
-				for _, r := range rows {
-					totalPavedSqM += r.AreaSqM
-				}
-				fmt.Fprintf(ios.Out, "\n=== City Summary ===\n")
-				fmt.Fprintf(ios.Out, "  City Area:    %s (%s)\n", units.FormatAreaLarge(cityAreaSqM, sys), units.FormatAreaVeryLarge(cityAreaSqM, sys))
-				fmt.Fprintf(ios.Out, "  Paved Area:   %s (%s)\n", units.FormatAreaLarge(totalPavedSqM, sys), units.FormatAreaVeryLarge(totalPavedSqM, sys))
-				if totalPavedSqM > 0 {
-					fmt.Fprintf(ios.Out, "  %% Paved:      %.1f%%\n", totalPavedSqM/cityAreaSqM*100)
-				}
-			}
-		}
-	}
-
-	// Show snapshot history (TTY only)
-	snapshots, err := store.ListSnapshots()
-	if err == nil && len(snapshots) > 0 && ios.IsTTY() {
-		fmt.Fprintf(ios.Out, "\n=== Snapshots ===\n")
-		limit := min(len(snapshots), 5)
-		for _, s := range snapshots[:limit] {
-			fmt.Fprintf(ios.Out, "  #%d  %s  (%s)\n", s.ID, s.ComputedAt.Format(time.RFC3339), iostreams.RelativeTime(s.ComputedAt))
-		}
-		if len(snapshots) > 5 {
-			fmt.Fprintf(ios.Out, "  ... and %d more\n", len(snapshots)-5)
-		}
+		printCitySummary(ctx, ios, store, rows, sys)
+		printSnapshotHistory(ctx, ios, store)
 	}
 
 	return nil
+}
+
+func printCitySummary(ctx context.Context, ios *iostreams.IOStreams, store db.Store, rows []statusRow, sys units.System) {
+	boundaryGJSON, err := store.GetBoundary(ctx)
+	if err != nil || boundaryGJSON == "" {
+		return
+	}
+	cityAreaSqM, err := geo.BoundaryAreaSqM(boundaryGJSON)
+	if err != nil || cityAreaSqM <= 0 {
+		return
+	}
+	var totalPavedSqM float64
+	for _, r := range rows {
+		totalPavedSqM += r.AreaSqM
+	}
+	fmt.Fprintf(ios.Out, "\n=== City Summary ===\n")
+	fmt.Fprintf(ios.Out, "  City Area:    %s (%s)\n", units.FormatAreaLarge(cityAreaSqM, sys), units.FormatAreaVeryLarge(cityAreaSqM, sys))
+	fmt.Fprintf(ios.Out, "  Paved Area:   %s (%s)\n", units.FormatAreaLarge(totalPavedSqM, sys), units.FormatAreaVeryLarge(totalPavedSqM, sys))
+	if totalPavedSqM > 0 {
+		fmt.Fprintf(ios.Out, "  %% Paved:      %.1f%%\n", totalPavedSqM/cityAreaSqM*100)
+	}
+}
+
+func printSnapshotHistory(ctx context.Context, ios *iostreams.IOStreams, store db.Store) {
+	snapshots, err := store.ListSnapshots(ctx)
+	if err != nil || len(snapshots) == 0 {
+		return
+	}
+	fmt.Fprintf(ios.Out, "\n=== Snapshots ===\n")
+	limit := min(len(snapshots), 5)
+	for _, s := range snapshots[:limit] {
+		fmt.Fprintf(ios.Out, "  #%d  %s  (%s)\n", s.ID, s.ComputedAt.Format(time.RFC3339), iostreams.RelativeTime(s.ComputedAt))
+	}
+	if len(snapshots) > 5 {
+		fmt.Fprintf(ios.Out, "  ... and %d more\n", len(snapshots)-5)
+	}
 }
 
 func formatTimestamp(raw string, isTTY bool) string {
