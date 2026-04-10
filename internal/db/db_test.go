@@ -228,6 +228,24 @@ func TestEnsureCityIdempotent(t *testing.T) {
 	}
 }
 
+func TestForeignKeyEnforcement(t *testing.T) {
+	ctx := context.Background()
+	root, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+
+	// Use a city_id that doesn't exist in the cities table.
+	bogus := root.ForCity(9999)
+	err = bogus.UpsertFeatures(ctx, "roads", []Feature{
+		{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()},
+	})
+	if err == nil {
+		t.Fatal("expected FK violation error when inserting feature with nonexistent city_id")
+	}
+}
+
 func TestListCities(t *testing.T) {
 	ctx := context.Background()
 	root, err := Open(":memory:")

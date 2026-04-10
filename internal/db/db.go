@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -136,7 +137,7 @@ func DefaultPath() (string, error) {
 	return filepath.Join(dir, "pvmt.db"), nil
 }
 
-func Open(path string) (*RootStore, error) {
+func Open(path string) (retStore *RootStore, retErr error) {
 	if path == "" {
 		var err error
 		path, err = DefaultPath()
@@ -150,13 +151,19 @@ func Open(path string) (*RootStore, error) {
 		}
 	}
 
-	db, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
+	db, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)")
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
+	db.SetMaxOpenConns(1)
+
+	defer func() {
+		if retErr != nil {
+			retErr = errors.Join(retErr, db.Close())
+		}
+	}()
 
 	if err := migrate(context.Background(), db); err != nil {
-		_ = db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 
