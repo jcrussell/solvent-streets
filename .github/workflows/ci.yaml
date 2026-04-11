@@ -18,7 +18,7 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.26'
+          go-version: "^1"
           check-latest: true
           cache-dependency-path: go.sum
 
@@ -38,7 +38,7 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.26'
+          go-version: "^1"
           check-latest: true
           cache-dependency-path: go.sum
 
@@ -56,7 +56,7 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.26'
+          go-version: "^1"
           check-latest: true
           cache-dependency-path: go.sum
 
@@ -84,7 +84,7 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.26'
+          go-version: "^1"
           check-latest: true
           cache-dependency-path: go.sum
 
@@ -105,7 +105,7 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.26'
+          go-version: "^1"
           check-latest: true
           cache-dependency-path: go.sum
 
@@ -125,7 +125,7 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.26'
+          go-version: "^1"
           check-latest: true
           cache-dependency-path: go.sum
 
@@ -143,7 +143,7 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.26'
+          go-version: "^1"
           check-latest: true
           cache-dependency-path: go.sum
 
