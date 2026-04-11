@@ -1,0 +1,14 @@
+# Portland, OR — metric units example
+#
+# Portland has excellent OSM coverage. This example demonstrates
+# metric display units.
+
+[display]
+units = "metric"
+
+[grid]
+hex_edge_m = 80
+
+[[cities]]
+name = "Portland, OR"
+overpass = true

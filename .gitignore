@@ -13,8 +13,9 @@
 *.test
 *.out
 
-# Project-specific config
+# Project-specific config (but allow examples)
 pvmt.toml
+!examples/**/pvmt.toml
 
 # Generated export site
 site/

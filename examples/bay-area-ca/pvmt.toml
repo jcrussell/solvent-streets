@@ -1,0 +1,38 @@
+# Bay Area, CA — multi-city example
+#
+# Demonstrates per-city overrides, ArcGIS for Alameda County cities,
+# and export configuration for a regional analysis.
+
+[forecast]
+years = 25
+growth_rate = 0.005
+
+[export]
+output_dir = "./reports"
+title = "Bay Area Pavement Analysis"
+description = "Multi-city pavement condition and forecast for the San Francisco Bay Area"
+
+[[cities]]
+name = "Oakland, CA"
+overpass = true
+arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Alameda_County_Street_Centerlines/FeatureServer/0/query"
+
+[[cities]]
+name = "Berkeley, CA"
+overpass = true
+arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Alameda_County_Street_Centerlines/FeatureServer/0/query"
+hex_edge_m = 75
+
+[[cities]]
+name = "San Francisco, CA"
+overpass = true
+
+# Per-city forecast override for San Francisco.
+[cities.forecast]
+decay_rate = 0.04
+years = 30
+
+[[cities]]
+name = "San Jose, CA"
+overpass = true
+hex_edge_m = 150

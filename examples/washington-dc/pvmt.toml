@@ -1,0 +1,14 @@
+# Washington, DC — compact city with fine detail
+#
+# DC is geographically compact, so a smaller hex edge gives
+# higher-resolution analysis without excessive computation.
+
+[grid]
+hex_edge_m = 60
+
+[forecast]
+years = 25
+
+[[cities]]
+name = "Washington, DC"
+overpass = true

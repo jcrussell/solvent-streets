@@ -1,0 +1,14 @@
+# Chicago, IL — large city example
+#
+# For large cities, a bigger hex edge reduces computation time.
+# Chicago's harsh winters also warrant a higher decay rate.
+
+[grid]
+hex_edge_m = 200
+
+[forecast]
+decay_rate = 0.06
+
+[[cities]]
+name = "Chicago, IL"
+overpass = true

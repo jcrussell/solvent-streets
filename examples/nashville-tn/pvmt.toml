@@ -1,0 +1,11 @@
+# Nashville, TN — fast-growing city example
+#
+# Nashville is one of the fastest-growing US cities. A higher growth
+# rate models the expanding road network in forecast projections.
+
+[forecast]
+growth_rate = 0.02
+
+[[cities]]
+name = "Nashville, TN"
+overpass = true

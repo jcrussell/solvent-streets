@@ -37,6 +37,8 @@ Open http://localhost:8080.
 
 Use `pvmt --help` and `pvmt <command> --help` for full usage.
 
+See [`examples/`](examples/) for ready-to-use configs covering single-city, multi-city, and various US locations.
+
 ## Documentation
 
 - [Architecture](docs/architecture.md) — data pipeline, DI, geometry, schema, design decisions

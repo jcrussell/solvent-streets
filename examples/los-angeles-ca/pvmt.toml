@@ -1,0 +1,48 @@
+# Los Angeles area, CA — multi-city with custom cost tiers
+#
+# Demonstrates custom forecast cost tiers for a regional analysis
+# across several LA-area cities. Overpass-only (no ArcGIS).
+
+[grid]
+hex_edge_m = 125
+
+[forecast]
+years = 20
+decay_rate = 0.03
+
+[[forecast.cost_tiers]]
+min_pci = 0
+max_pci = 25
+cost_per_sqm = 200.0
+label = "Failed"
+
+[[forecast.cost_tiers]]
+min_pci = 25
+max_pci = 50
+cost_per_sqm = 120.0
+label = "Poor"
+
+[[forecast.cost_tiers]]
+min_pci = 50
+max_pci = 70
+cost_per_sqm = 60.0
+label = "Fair"
+
+[[forecast.cost_tiers]]
+min_pci = 70
+max_pci = 100
+cost_per_sqm = 15.0
+label = "Good"
+
+[[cities]]
+name = "Los Angeles, CA"
+overpass = true
+hex_edge_m = 300  # LA proper is very large (~1300 km²); use coarse hexes
+
+[[cities]]
+name = "Santa Monica, CA"
+overpass = true
+
+[[cities]]
+name = "Pasadena, CA"
+overpass = true

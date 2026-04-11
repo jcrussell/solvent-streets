@@ -1,0 +1,10 @@
+# Livermore, CA — simple single-city example
+#
+# Livermore is in Alameda County, so both OpenStreetMap (Overpass) and the
+# Alameda County ArcGIS FeatureServer are available as data sources.
+# This is a good starting point for new users.
+
+[[cities]]
+name = "Livermore, CA"
+overpass = true
+arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Alameda_County_Street_Centerlines/FeatureServer/0/query"

@@ -1,0 +1,12 @@
+# Denver, CO — custom forecast for cold climate
+#
+# Denver's freeze/thaw cycles accelerate pavement deterioration.
+# This example uses a higher decay rate to reflect harsher conditions.
+
+[forecast]
+decay_rate = 0.06
+years = 15
+
+[[cities]]
+name = "Denver, CO"
+overpass = true
