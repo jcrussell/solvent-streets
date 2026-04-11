@@ -201,7 +201,7 @@ func (s *Server) serveCached(w http.ResponseWriter, key string) bool {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "public, max-age=300")
-	w.Write(data)
+	w.Write(data) //nolint:gosec // data originates from json.Marshal in writeJSONCached
 	return true
 }
 

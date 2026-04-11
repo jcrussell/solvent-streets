@@ -17,7 +17,7 @@ import (
 type Server struct {
 	cities []export.CityEntry
 	port   int
-	cache sync.Map // key → cached JSON bytes; never invalidated — restart server after data changes
+	cache  sync.Map // key → cached JSON bytes; never invalidated — restart server after data changes
 }
 
 func New(cities []export.CityEntry, port int) *Server {
