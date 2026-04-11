@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 type Server struct {
 	cities []export.CityEntry
 	port   int
+	cache sync.Map // key → cached JSON bytes; never invalidated — restart server after data changes
 }
 
 func New(cities []export.CityEntry, port int) *Server {

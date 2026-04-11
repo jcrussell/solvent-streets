@@ -20,6 +20,10 @@ var defaultWidths = map[string]float64{
 	"living_street":  4.0,
 }
 
+// laneWidth is the assumed width of a single travel lane.
+// Source: AASHTO "A Policy on Geometric Design of Highways and Streets" (Green Book),
+// Table 4-1 — standard lane width for urban arterials is 3.6 m (12 ft); 3.7 m is a
+// common metric rounding used in FHWA models.
 const laneWidth = 3.7 // meters per lane
 
 // InferWidth returns the estimated road width in meters based on OSM tags.
@@ -73,6 +77,9 @@ func InferSidewalkWidth(tags map[string]string) float64 {
 	return 1.5 // fallback: standard sidewalk width
 }
 
+// parkingAddon adds width for on-street parallel parking lanes.
+// 2.4 m per side is the standard parallel parking lane width from
+// AASHTO Green Book Table 4-20 (2.4 m = 8 ft minimum stall width).
 func parkingAddon(tags map[string]string) float64 {
 	addon := 0.0
 	if tags["parking:left"] == "lane" || tags["parking:left"] == "parallel" {

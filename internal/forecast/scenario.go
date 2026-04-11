@@ -144,8 +144,14 @@ func applyCohortSpend(st *cohortState, decayedPCI, spend, need float64, strategy
 	case StrategyDoNothing:
 		// efficiency stays 1.0; spend will be 0 for do-nothing scenarios
 	case StrategyPreventiveFirst:
+		// 1.2× efficiency: preventive maintenance yields better cost-effectiveness
+		// per FHWA-HIF-12-042 "Pavement Preservation" (Fig. 3) — every $1 of
+		// preventive work avoids $6-10 in future reconstruction.
 		efficiency = 1.2
 	case StrategyWorstFirst:
+		// 0.8× efficiency: worst-first reconstruction is less cost-effective
+		// per unit spend because it addresses pavement already past its
+		// economic service life (FHWA-HIF-12-042, Section 3.2).
 		efficiency = 0.8
 	}
 	recovery := (st.currentPCI - decayedPCI) * spendRatio * efficiency

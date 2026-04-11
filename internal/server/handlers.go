@@ -159,22 +159,22 @@ func (s *Server) handleCitiesList(w http.ResponseWriter, r *http.Request) {
 func (s *Server) serveDataFile(w http.ResponseWriter, r *http.Request, file string, entry export.CityEntry) {
 	switch {
 	case file == "meta.json":
-		serveMetaJSON(w, r, entry)
+		s.serveMetaJSON(w, r, entry)
 	case file == "hexgrid.geojson":
-		serveHexGridGeoJSON(w, r, entry)
+		s.serveHexGridGeoJSON(w, r, entry)
 	case file == "scenarios.json":
-		serveScenariosJSON(w, r, entry)
+		s.serveScenariosJSON(w, r, entry)
 	case file == "forecast.json":
-		serveForecastJSON(w, r, entry)
+		s.serveForecastJSON(w, r, entry)
 	case file == "forecast_seed.json":
-		serveForecastSeed(w, r, entry)
+		s.serveForecastSeed(w, r, entry)
 	case file == "hex-cost-summary.json":
-		serveHexCostSummary(w, r, entry)
+		s.serveHexCostSummary(w, r, entry)
 	case file == "boundary.geojson":
-		serveBoundaryGeoJSON(w, r, entry)
+		s.serveBoundaryGeoJSON(w, r, entry)
 	case strings.HasSuffix(file, ".geojson"):
 		typeName := strings.TrimSuffix(file, ".geojson")
-		serveTypeGeoJSON(w, r, entry, typeName)
+		s.serveTypeGeoJSON(w, r, entry, typeName)
 	default:
 		http.NotFound(w, r)
 	}
@@ -188,16 +188,56 @@ func writeJSON(w http.ResponseWriter, v any) {
 	}
 }
 
-func serveMetaJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
+// serveCached writes a previously cached response if available. Returns true
+// if the cache was hit and the response was written.
+func (s *Server) serveCached(w http.ResponseWriter, key string) bool {
+	cached, ok := s.cache.Load(key)
+	if !ok {
+		return false
+	}
+	data, ok := cached.([]byte)
+	if !ok {
+		return false
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	w.Write(data)
+	return true
+}
+
+// writeJSONCached is like writeJSON but caches the serialized response in
+// the server's in-memory cache. Data endpoints don't change while the server
+// is running, so this avoids redundant DB queries and JSON serialization.
+func (s *Server) writeJSONCached(w http.ResponseWriter, key string, v any) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.cache.Store(key, data)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	w.Write(data)
+}
+
+func (s *Server) serveMetaJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
+	key := "meta:" + entry.Slug
+	if s.serveCached(w, key) {
+		return
+	}
 	meta, err := export.BuildMeta(r.Context(), entry)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, meta)
+	s.writeJSONCached(w, key, meta)
 }
 
-func serveHexGridGeoJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
+func (s *Server) serveHexGridGeoJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
+	key := "hexgrid:" + entry.Slug
+	if s.serveCached(w, key) {
+		return
+	}
 	ctx := r.Context()
 	_, lon0, lat0, err := entry.BBoxAndCenter(ctx)
 	if err != nil {
@@ -210,10 +250,14 @@ func serveHexGridGeoJSON(w http.ResponseWriter, r *http.Request, entry export.Ci
 	if fc == nil {
 		fc = map[string]any{"type": "FeatureCollection", "features": []any{}}
 	}
-	writeJSON(w, fc)
+	s.writeJSONCached(w, key, fc)
 }
 
-func serveTypeGeoJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry, typeName string) {
+func (s *Server) serveTypeGeoJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry, typeName string) {
+	key := typeName + ":" + entry.Slug
+	if s.serveCached(w, key) {
+		return
+	}
 	ctx := r.Context()
 	result, err := entry.Store.LatestComputeResult(ctx, typeName+":city")
 	if err != nil {
@@ -227,7 +271,7 @@ func serveTypeGeoJSON(w http.ResponseWriter, r *http.Request, entry export.CityE
 		http.NotFound(w, r)
 		return
 	}
-	writeJSON(w, map[string]any{
+	s.writeJSONCached(w, key, map[string]any{
 		"type": "FeatureCollection",
 		"features": []map[string]any{
 			{
@@ -239,33 +283,49 @@ func serveTypeGeoJSON(w http.ResponseWriter, r *http.Request, entry export.CityE
 	})
 }
 
-func serveScenariosJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
+func (s *Server) serveScenariosJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
+	key := "scenarios:" + entry.Slug
+	if s.serveCached(w, key) {
+		return
+	}
 	fc := entry.Config.ResolvedForecast(&entry.City)
-	writeJSON(w, export.BuildScenariosData(r.Context(), entry, &fc))
+	s.writeJSONCached(w, key, export.BuildScenariosData(r.Context(), entry, &fc))
 }
 
-func serveForecastJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
+func (s *Server) serveForecastJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
+	key := "forecast:" + entry.Slug
+	if s.serveCached(w, key) {
+		return
+	}
 	ctx := r.Context()
 	fc := entry.Config.ResolvedForecast(&entry.City)
 	costTiers := export.ConvertCostTiers(&fc)
-	writeJSON(w, export.BuildForecastsForCity(ctx, entry, &fc, costTiers))
+	s.writeJSONCached(w, key, export.BuildForecastsForCity(ctx, entry, &fc, costTiers))
 }
 
-func serveHexCostSummary(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
+func (s *Server) serveHexCostSummary(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
+	key := "hexcost:" + entry.Slug
+	if s.serveCached(w, key) {
+		return
+	}
 	ctx := r.Context()
 	fc := entry.Config.ResolvedForecast(&entry.City)
 	costTiers := export.ConvertCostTiers(&fc)
 	forecasts := export.BuildForecastsForCity(ctx, entry, &fc, costTiers)
-	writeJSON(w, export.BuildHexCostSummary(ctx, entry, forecasts))
+	s.writeJSONCached(w, key, export.BuildHexCostSummary(ctx, entry, forecasts))
 }
 
-func serveBoundaryGeoJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
+func (s *Server) serveBoundaryGeoJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
+	key := "boundary:" + entry.Slug
+	if s.serveCached(w, key) {
+		return
+	}
 	gj, err := entry.Store.GetBoundary(r.Context())
 	if err != nil || gj == "" {
 		writeJSON(w, map[string]any{"type": "FeatureCollection", "features": []any{}})
 		return
 	}
-	writeJSON(w, map[string]any{
+	s.writeJSONCached(w, key, map[string]any{
 		"type": "FeatureCollection",
 		"features": []map[string]any{
 			{
@@ -277,9 +337,12 @@ func serveBoundaryGeoJSON(w http.ResponseWriter, r *http.Request, entry export.C
 	})
 }
 
-func serveForecastSeed(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
+func (s *Server) serveForecastSeed(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
+	key := "seed:" + entry.Slug
+	if s.serveCached(w, key) {
+		return
+	}
 	fc := entry.Config.ResolvedForecast(&entry.City)
 	seed := export.BuildForecastSeed(r.Context(), &fc, entry.Store)
-	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(seed))
+	s.writeJSONCached(w, key, json.RawMessage(seed))
 }

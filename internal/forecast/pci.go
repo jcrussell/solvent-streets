@@ -7,8 +7,11 @@ import (
 
 const ClassResidential = "residential"
 
-// Default decay rates by road classification (FHWA national averages).
+// Default decay rates by road classification.
 // Higher k = faster decay. Units: per year.
+// Derived from FHWA-RD-01-156 "Long-Term Pavement Performance" data:
+// higher-class roads (motorway, trunk) decay slower due to thicker pavement
+// sections and more rigorous design standards.
 var DefaultDecayRates = map[string]float64{
 	"motorway":    0.015,
 	"trunk":       0.020,

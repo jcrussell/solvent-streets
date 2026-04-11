@@ -140,6 +140,13 @@ func coordsToSequence(coords [][2]float64) geom.Sequence {
 }
 
 // ParseGeoJSONCoords extracts coordinate arrays from a GeoJSON geometry string.
+// Supported types: LineString, Polygon, MultiLineString.
+// Limitations:
+//   - Polygon: only the exterior ring (index 0) is returned; interior rings
+//     (holes/islands) are discarded. This is acceptable for road/sidewalk width
+//     buffering where polygons represent simple surface areas.
+//   - MultiPolygon: not supported (returns an error). Use GeoJSONToProjectedGeometry
+//     for full MultiPolygon handling.
 func ParseGeoJSONCoords(gjson string) ([][2]float64, string, error) {
 	var obj struct {
 		Type        string          `json:"type"`

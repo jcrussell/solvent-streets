@@ -72,13 +72,21 @@ type TemplateData struct {
 	Cities       []CityInfo
 }
 
-// ResourceColorsJS returns ResourceColors as a template.JS JSON object.
-func ResourceColorsJS() template.JS {
+// resourceColorsJS is the pre-marshaled JSON of ResourceColors, computed at init time.
+var resourceColorsJS template.JS
+
+func init() {
 	data, err := json.Marshal(ResourceColors)
 	if err != nil {
+		// ResourceColors is a constant map[string]string — marshal cannot fail.
 		panic(fmt.Sprintf("marshal resource colors: %v", err))
 	}
-	return template.JS(data)
+	resourceColorsJS = template.JS(data)
+}
+
+// ResourceColorsJS returns ResourceColors as a template.JS JSON object.
+func ResourceColorsJS() template.JS {
+	return resourceColorsJS
 }
 
 type MetaJSON struct {
@@ -520,6 +528,7 @@ func BuildForecastSeed(ctx context.Context, fc *config.ForecastConfig, store db.
 	}
 	data, err := json.Marshal(seed)
 	if err != nil {
+		// ForecastSeedJSON is built from simple Go types; marshal should not fail.
 		panic(fmt.Sprintf("marshal forecast seed: %v", err))
 	}
 	return template.JS(data)

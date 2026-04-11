@@ -7,11 +7,16 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
 	"time"
 
 	"pvmt/internal/db"
 	"pvmt/internal/resource"
 )
+
+const arcgisMaxRecords = 5000
+const arcgisMaxPages = 200 // safety limit: 200 pages × 5000 = 1M features max
 
 // Default Alameda County ArcGIS feature service URL
 const defaultArcGISCenterlines = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Alameda_County_Street_Centerlines/FeatureServer/0/query"
@@ -37,6 +42,30 @@ func (s *ArcGISSource) Fetch(ctx context.Context, client *http.Client, rt resour
 	bbox := s.BBox
 	envelope := fmt.Sprintf("%f,%f,%f,%f", bbox[1], bbox[0], bbox[3], bbox[2])
 
+	var allFeatures []db.Feature
+	offset := 0
+
+	for page := 0; ; page++ {
+		if page >= arcgisMaxPages {
+			return nil, fmt.Errorf("arcgis: exceeded %d pages (%d features), aborting", arcgisMaxPages, len(allFeatures))
+		}
+		features, err := fetchArcGISPage(ctx, client, endpoint, envelope, rt.Name(), offset)
+		if err != nil {
+			return nil, err
+		}
+		allFeatures = append(allFeatures, features...)
+
+		if len(features) < arcgisMaxRecords {
+			break // last page
+		}
+		offset += len(features)
+		fmt.Fprintf(os.Stderr, "ArcGIS: fetched %d features so far, requesting next page at offset %d...\n", len(allFeatures), offset)
+	}
+
+	return allFeatures, nil
+}
+
+func fetchArcGISPage(ctx context.Context, client *http.Client, endpoint, envelope, resourceType string, offset int) ([]db.Feature, error) {
 	params := url.Values{
 		"where":             {"1=1"},
 		"geometry":          {envelope},
@@ -45,7 +74,8 @@ func (s *ArcGISSource) Fetch(ctx context.Context, client *http.Client, rt resour
 		"outSR":             {"4326"},
 		"outFields":         {"*"},
 		"f":                 {"geojson"},
-		"resultRecordCount": {"5000"},
+		"resultRecordCount": {strconv.Itoa(arcgisMaxRecords)},
+		"resultOffset":      {strconv.Itoa(offset)},
 	}
 
 	reqURL := endpoint + "?" + params.Encode()
@@ -69,7 +99,7 @@ func (s *ArcGISSource) Fetch(ctx context.Context, client *http.Client, rt resour
 		return nil, fmt.Errorf("arcgis returned %d: %s", resp.StatusCode, truncate(string(body), 200))
 	}
 
-	return parseArcGISGeoJSON(body, rt.Name())
+	return parseArcGISGeoJSON(body, resourceType, offset)
 }
 
 type arcgisGeoJSON struct {
@@ -79,7 +109,7 @@ type arcgisGeoJSON struct {
 	} `json:"features"`
 }
 
-func parseArcGISGeoJSON(data []byte, resourceType string) ([]db.Feature, error) {
+func parseArcGISGeoJSON(data []byte, resourceType string, baseIndex int) ([]db.Feature, error) {
 	var resp arcgisGeoJSON
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return nil, fmt.Errorf("parse arcgis json: %w", err)
@@ -102,7 +132,7 @@ func parseArcGISGeoJSON(data []byte, resourceType string) ([]db.Feature, error) 
 			}
 		}
 
-		id := fmt.Sprintf("arcgis:%d", i)
+		id := fmt.Sprintf("arcgis:%d", baseIndex+i)
 		if oid, ok := f.Properties["OBJECTID"]; ok {
 			id = fmt.Sprintf("arcgis:%v", oid)
 		}
