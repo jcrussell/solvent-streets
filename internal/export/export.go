@@ -71,7 +71,7 @@ type TemplateData struct {
 	ResolvedTOML string      // config with all defaults filled in
 	UnitSystem   string      // "metric" or "imperial"
 	Cities       []CityInfo
-	WasmPrefix   string      // path prefix for WASM assets (e.g. "../"); empty = same directory
+	WasmPrefix   string // path prefix for WASM assets (e.g. "../"); empty = same directory
 }
 
 // resourceColorsJS is the pre-marshaled JSON of ResourceColors, computed at init time.

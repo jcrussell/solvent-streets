@@ -35,7 +35,7 @@ func main() {
 	}
 }
 
-func run() error {
+func run() (err error) {
 	examplesDir := flag.String("examples", "examples", "directory containing example pvmt.toml configs")
 	outputDir := flag.String("o", "site", "output directory for generated site")
 	flag.Parse()
@@ -58,7 +58,11 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
-	defer rootDB.Close()
+	defer func() {
+		if cerr := rootDB.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close database: %w", cerr)
+		}
+	}()
 
 	// Clean and create output directory (refuse to wipe directories that
 	// don't look like a previously generated site).
@@ -67,55 +71,12 @@ func run() error {
 	}
 
 	var examples []exampleInfo
-
 	for _, cfgPath := range matches {
-		slug := filepath.Base(filepath.Dir(cfgPath))
-		fmt.Printf("=== Exporting %s ===\n", slug)
-
-		cfg, err := config.Load(cfgPath)
+		info, err := exportExample(ctx, rootDB, cfgPath, *outputDir)
 		if err != nil {
-			return fmt.Errorf("load config %s: %w", cfgPath, err)
+			return err
 		}
-
-		entries, err := export.LookupCityEntries(ctx, rootDB, cfg, cfg.Cities)
-		if err != nil {
-			return fmt.Errorf("build entries for %s: %w", slug, err)
-		}
-		if len(entries) == 0 {
-			return fmt.Errorf("no city data for %s — run 'pvmt ingest' first", slug)
-		}
-
-		outDir := filepath.Join(*outputDir, slug)
-		exporter := export.New(entries, cfg, outDir, cfg.UnitSystem().String())
-		if err := exporter.SetWasmPrefix("../"); err != nil {
-			return fmt.Errorf("set WASM prefix: %w", err)
-		}
-		exporter.SetSkipWasm(true)
-
-		if err := exporter.Run(ctx); err != nil {
-			return fmt.Errorf("export %s: %w", slug, err)
-		}
-
-		// Collect metadata for landing page
-		var cityNames []string
-		for _, c := range cfg.Cities {
-			cityNames = append(cityNames, c.Name)
-		}
-
-		hexEdge := int(cfg.HexEdge())
-		unitSys := "imperial"
-		if cfg.UnitSystem().String() == "metric" {
-			unitSys = "metric"
-		}
-
-		examples = append(examples, exampleInfo{
-			Slug:       slug,
-			Title:      formatTitle(slug),
-			CityNames:  strings.Join(cityNames, ", "),
-			CityCount:  len(cfg.Cities),
-			HexEdgeM:   hexEdge,
-			UnitSystem: unitSys,
-		})
+		examples = append(examples, info)
 	}
 
 	// Write shared WASM assets at site root
@@ -130,6 +91,56 @@ func run() error {
 
 	fmt.Printf("Site exported to %s/ (%d examples)\n", *outputDir, len(examples))
 	return nil
+}
+
+// exportExample runs the export pipeline for a single example config and
+// returns metadata for the landing page.
+func exportExample(ctx context.Context, rootDB *db.RootStore, cfgPath, outputDir string) (exampleInfo, error) {
+	slug := filepath.Base(filepath.Dir(cfgPath))
+	fmt.Printf("=== Exporting %s ===\n", slug)
+
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return exampleInfo{}, fmt.Errorf("load config %s: %w", cfgPath, err)
+	}
+
+	entries, err := export.LookupCityEntries(ctx, rootDB, cfg, cfg.Cities)
+	if err != nil {
+		return exampleInfo{}, fmt.Errorf("build entries for %s: %w", slug, err)
+	}
+	if len(entries) == 0 {
+		return exampleInfo{}, fmt.Errorf("no city data for %s — run 'pvmt ingest' first", slug)
+	}
+
+	outDir := filepath.Join(outputDir, slug)
+	exporter := export.New(entries, cfg, outDir, cfg.UnitSystem().String())
+	if err := exporter.SetWasmPrefix("../"); err != nil {
+		return exampleInfo{}, fmt.Errorf("set WASM prefix: %w", err)
+	}
+	exporter.SetSkipWasm(true)
+
+	if err := exporter.Run(ctx); err != nil {
+		return exampleInfo{}, fmt.Errorf("export %s: %w", slug, err)
+	}
+
+	cityNames := make([]string, 0, len(cfg.Cities))
+	for _, c := range cfg.Cities {
+		cityNames = append(cityNames, c.Name)
+	}
+
+	unitSys := "imperial"
+	if cfg.UnitSystem().String() == "metric" {
+		unitSys = "metric"
+	}
+
+	return exampleInfo{
+		Slug:       slug,
+		Title:      formatTitle(slug),
+		CityNames:  strings.Join(cityNames, ", "),
+		CityCount:  len(cfg.Cities),
+		HexEdgeM:   int(cfg.HexEdge()),
+		UnitSystem: unitSys,
+	}, nil
 }
 
 func renderLanding(outputDir string, examples []exampleInfo) (err error) {
