@@ -1884,10 +1884,10 @@
         // Load WASM
         if (typeof WebAssembly !== 'undefined') {
             const script = document.createElement('script');
-            script.src = 'wasm_exec.js';
+            script.src = '{{.WasmPrefix}}wasm_exec.js';
             script.onload = function() {
                 const go = new Go();
-                WebAssembly.instantiateStreaming(fetch('forecast.wasm'), go.importObject)
+                WebAssembly.instantiateStreaming(fetch('{{.WasmPrefix}}forecast.wasm'), go.importObject)
                     .then(result => { go.run(result.instance); onWasmReady(); })
                     .catch(err => console.warn('WASM load failed:', err));
             };

@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -70,6 +71,7 @@ type TemplateData struct {
 	ResolvedTOML string      // config with all defaults filled in
 	UnitSystem   string      // "metric" or "imperial"
 	Cities       []CityInfo
+	WasmPrefix   string      // path prefix for WASM assets (e.g. "../"); empty = same directory
 }
 
 // resourceColorsJS is the pre-marshaled JSON of ResourceColors, computed at init time.
@@ -134,6 +136,31 @@ func BuildCityEntries(ctx context.Context, rootDB db.RootStorer, cfg *config.Con
 	}
 	if len(entries) == 0 && len(errs) > 0 {
 		return nil, fmt.Errorf("no cities loaded: %s", errs[0])
+	}
+	return entries, nil
+}
+
+// LookupCityEntries creates CityEntry values for cities that already exist in
+// the database. Unlike BuildCityEntries it never creates city rows, making it
+// safe for read-only tools like site generators.
+func LookupCityEntries(ctx context.Context, rootDB db.RootStorer, cfg *config.Config, cities []config.CityConfig) ([]CityEntry, error) {
+	var entries []CityEntry
+	var errs []string
+	for _, city := range cities {
+		c, err := rootDB.LookupCity(ctx, city.Slug())
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", city.Name, err))
+			continue
+		}
+		entries = append(entries, CityEntry{
+			Config: cfg,
+			City:   city,
+			Store:  rootDB.ForCity(c.ID),
+			Slug:   city.Slug(),
+		})
+	}
+	if len(entries) == 0 && len(errs) > 0 {
+		return nil, fmt.Errorf("no cities found (run 'pvmt ingest' first): %s", errs[0])
 	}
 	return entries, nil
 }
@@ -579,7 +606,27 @@ type Exporter struct {
 	cfg        *config.Config
 	outputDir  string
 	unitSystem string
+	wasmPrefix string // relative path prefix for WASM assets in generated HTML
+	skipWasm   bool   // skip writing WASM files (caller handles shared copy)
 }
+
+// validWasmPrefix matches safe relative path prefixes (alphanumeric, dots, slashes, hyphens, underscores).
+var validWasmPrefix = regexp.MustCompile(`^[a-zA-Z0-9_./-]*$`)
+
+// SetWasmPrefix sets the relative path prefix for WASM asset references in
+// generated HTML (e.g. "../" when WASM is served from a parent directory).
+// The prefix must contain only safe path characters.
+func (e *Exporter) SetWasmPrefix(prefix string) error {
+	if !validWasmPrefix.MatchString(prefix) {
+		return fmt.Errorf("invalid WASM prefix %q: must match %s", prefix, validWasmPrefix)
+	}
+	e.wasmPrefix = prefix
+	return nil
+}
+
+// SetSkipWasm controls whether the exporter writes WASM files. Set to true
+// when the caller writes a single shared copy at a parent directory.
+func (e *Exporter) SetSkipWasm(skip bool) { e.skipWasm = skip }
 
 func New(entries []CityEntry, cfg *config.Config, outputDir, unitSystem string) *Exporter {
 	return &Exporter{entries: entries, cfg: cfg, outputDir: outputDir, unitSystem: unitSystem}
@@ -603,9 +650,11 @@ func (e *Exporter) runSingleCity(ctx context.Context) error {
 		return err
 	}
 
-	// Write WASM assets
-	if err := e.writeWasmAssets(e.outputDir); err != nil {
-		return err
+	// Write WASM assets (skip when caller provides a shared copy)
+	if !e.skipWasm {
+		if err := e.writeWasmAssets(e.outputDir); err != nil {
+			return err
+		}
 	}
 
 	// Read raw TOML and build resolved version for Config tab
@@ -658,9 +707,11 @@ func (e *Exporter) runMultiCity(ctx context.Context) error {
 		return fmt.Errorf("write cities.json: %w", err)
 	}
 
-	// Write WASM assets
-	if err := e.writeWasmAssets(e.outputDir); err != nil {
-		return err
+	// Write WASM assets (skip when caller provides a shared copy)
+	if !e.skipWasm {
+		if err := e.writeWasmAssets(e.outputDir); err != nil {
+			return err
+		}
 	}
 
 	// Render single top-level index.html with first city data
@@ -852,6 +903,12 @@ func ResolvedTOML(cfg *config.Config) string {
 }
 
 func (e *Exporter) writeWasmAssets(dir string) error {
+	return WriteSharedWasmAssets(dir)
+}
+
+// WriteSharedWasmAssets writes the embedded WASM files to dir. Use this when
+// writing a single shared copy at a site root instead of per-export copies.
+func WriteSharedWasmAssets(dir string) error {
 	if err := os.WriteFile(filepath.Join(dir, "forecast.wasm"), forecastWasm, 0o644); err != nil {
 		return fmt.Errorf("write forecast.wasm: %w", err)
 	}
@@ -909,6 +966,7 @@ func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolved
 		ResolvedTOML: resolvedTOML,
 		UnitSystem:   unitSystem,
 		Cities:       cities,
+		WasmPrefix:   e.wasmPrefix,
 	}
 	return tmpl.Execute(f, td)
 }

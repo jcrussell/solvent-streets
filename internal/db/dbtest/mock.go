@@ -155,6 +155,7 @@ func (m *MockStore) Close() error {
 // It implements db.RootStorer.
 type MockRootStore struct {
 	EnsureCityFunc func(context.Context, string, string) (int64, error)
+	LookupCityFunc func(context.Context, string) (db.City, error)
 	ListCitiesFunc func(context.Context) ([]db.City, error)
 	ForCityFunc    func(id int64) db.Store
 	CloseFunc      func() error
@@ -165,6 +166,13 @@ func (m *MockRootStore) EnsureCity(ctx context.Context, slug, name string) (int6
 		return m.EnsureCityFunc(ctx, slug, name)
 	}
 	return 1, nil
+}
+
+func (m *MockRootStore) LookupCity(ctx context.Context, slug string) (db.City, error) {
+	if m.LookupCityFunc != nil {
+		return m.LookupCityFunc(ctx, slug)
+	}
+	return db.City{ID: 1, Slug: slug, Name: slug}, nil
 }
 
 func (m *MockRootStore) ListCities(ctx context.Context) ([]db.City, error) {
