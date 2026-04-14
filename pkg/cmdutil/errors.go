@@ -29,11 +29,6 @@ func FlagErrorf(format string, args ...any) error {
 	return &FlagError{Err: fmt.Errorf(format, args...)}
 }
 
-// MutuallyExclusive returns a FlagError indicating two flags cannot be used together.
-func MutuallyExclusive(flag1, flag2 string) error {
-	return FlagErrorf("cannot use %s and %s simultaneously", flag1, flag2)
-}
-
 // ErrNoResults is returned when a command produces no results.
 // The command should print a contextual message to stderr before returning this.
 var ErrNoResults = errors.New("no results")

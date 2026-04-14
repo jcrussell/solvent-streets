@@ -31,6 +31,7 @@ func AddJSONFlags(cmd *cobra.Command, exporter *Exporter, validFields []string) 
 	cmd.Flags().StringVar(&jsonFields, "json", "", fmt.Sprintf("Output JSON with specified fields (available: %s)", strings.Join(validFields, ",")))
 	cmd.Flags().StringVar(&jqExpr, "jq", "", "Filter JSON output using a jq expression (requires --json)")
 	cmd.Flags().StringVar(&tmplStr, "template", "", "Format JSON output using a Go template (requires --json)")
+	cmd.MarkFlagsMutuallyExclusive("jq", "template")
 
 	oldPreRun := cmd.PreRunE
 	cmd.PreRunE = func(cmd *cobra.Command, args []string) error {
@@ -44,9 +45,6 @@ func AddJSONFlags(cmd *cobra.Command, exporter *Exporter, validFields []string) 
 }
 
 func buildExporter(jsonFields, jqExpr, tmplStr string, validFields []string, out *Exporter) error {
-	if jqExpr != "" && tmplStr != "" {
-		return MutuallyExclusive("--jq", "--template")
-	}
 	if jqExpr != "" && jsonFields == "" {
 		return FlagErrorf("--jq requires --json")
 	}

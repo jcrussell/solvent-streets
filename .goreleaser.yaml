@@ -36,6 +36,8 @@ archives:
     files:
       - README.md
       - LICENSE*
+      - completions/*
+      - manpages/*.gz
 
 checksum:
   name_template: "checksums.txt"
