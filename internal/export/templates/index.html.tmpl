@@ -321,7 +321,22 @@
         .compare-chart-card h3 { font-size: 15px; margin-bottom: 12px; color: #333; }
         .compare-chart-card canvas { width: 100% !important; }
         .compare-loading { text-align: center; padding: 80px; color: #888; font-size: 16px; }
+
+        #about-tab {
+            overflow-y: auto; background: #f9fafb;
+            --meth-fg: #1f2937;
+            --meth-heading: #111827;
+            --meth-rule: #e5e7eb;
+            --meth-code-bg: #eef2ff;
+            --meth-code-fg: #3730a3;
+            --meth-link: #2563eb;
+            --meth-strong: #111827;
+        }
+        #about-tab .methodology {
+            max-width: 720px; margin: 0 auto; padding: 40px 24px 64px;
+        }
     </style>
+    {{template "methodology_styles" .}}
 </head>
 <body>
     <div class="tab-bar">
@@ -332,6 +347,7 @@
         <button class="tab-btn" data-tab="compare-tab">Compare</button>
         {{end}}
         <button class="tab-btn" data-tab="config-tab">Config</button>
+        <button class="tab-btn" data-tab="about-tab">About</button>
         {{if .Cities}}
         <select id="city-select" style="margin-left:auto;margin-right:16px;align-self:center;background:#2a2a4e;color:#fff;border:1px solid #555;border-radius:4px;padding:4px 8px;font-size:14px;cursor:pointer;">
             {{range .Cities}}<option value="{{.Slug}}" data-bbox="{{index .BBox 0}},{{index .BBox 1}},{{index .BBox 2}},{{index .BBox 3}}" data-lon="{{.CenterLon}}" data-lat="{{.CenterLat}}">{{.Name}}</option>
@@ -471,6 +487,10 @@
 
             <div class="chart-grid" id="charts"></div>
         </div>
+    </div>
+
+    <div id="about-tab" class="tab-content">
+        {{template "methodology" .MethodologyHTML}}
     </div>
 
     <div id="config-tab" class="tab-content">

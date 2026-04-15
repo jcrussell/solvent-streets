@@ -9,6 +9,7 @@ require (
 	github.com/itchyny/gojq v0.12.18
 	github.com/peterstace/simplefeatures v0.58.0
 	github.com/spf13/cobra v1.10.2
+	github.com/yuin/goldmark v1.8.2
 	modernc.org/sqlite v1.46.1
 )
 

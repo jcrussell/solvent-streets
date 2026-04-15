@@ -11,9 +11,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/yuin/goldmark"
 
 	"github.com/peterstace/simplefeatures/geom"
 
@@ -35,6 +37,35 @@ type CityEntry struct {
 
 //go:embed templates
 var templatesFS embed.FS
+
+// methodologyMarkdown is the prose source of truth for the methodology
+// section. It is embedded at compile time from an in-repo file. Goldmark's
+// default HTML renderer escapes raw HTML blocks (no html.WithUnsafe), so a
+// stray <script> in this file becomes escaped text rather than live markup
+// — but the template.HTML wrapper still bypasses Go's escaper on the rendered
+// output, so do NOT reuse this pattern for markdown sourced from user input,
+// config, or the network without also adding a sanitizer.
+//
+//go:embed docs/methodology.md
+var methodologyMarkdown []byte
+
+// methodologyHTMLOnce lazily renders the embedded methodology markdown.
+// Lazy so that programs which import internal/export but never render
+// methodology (pvmt serve, pvmt forecast, most tests) don't pay the parse
+// cost and don't crash at init time if goldmark ever rejects the source.
+var methodologyHTMLOnce = sync.OnceValue(func() template.HTML {
+	var buf bytes.Buffer
+	if err := goldmark.New().Convert(methodologyMarkdown, &buf); err != nil {
+		panic(fmt.Errorf("render methodology markdown: %w", err))
+	}
+	return template.HTML(buf.String())
+})
+
+// MethodologyHTML returns the rendered methodology prose. The source lives
+// in internal/export/docs/methodology.md; numeric model parameters (decay
+// rates, cost tiers) deliberately do not live there — they remain in the
+// forecast package and surface wherever they are actually used.
+func MethodologyHTML() template.HTML { return methodologyHTMLOnce() }
 
 //go:embed wasm/forecast.wasm
 var forecastWasm []byte
@@ -65,13 +96,14 @@ type CityInfo struct {
 // TemplateData wraps MetaJSON with the forecast seed for the interactive controls.
 type TemplateData struct {
 	MetaJSON
-	ForecastSeed template.JS
-	LayerColors  template.JS // JSON map of resource type → color
-	RawTOML      string      // original pvmt.toml contents
-	ResolvedTOML string      // config with all defaults filled in
-	UnitSystem   string      // "metric" or "imperial"
-	Cities       []CityInfo
-	WasmPrefix   string // path prefix for WASM assets (e.g. "../"); empty = same directory
+	ForecastSeed    template.JS
+	LayerColors     template.JS // JSON map of resource type → color
+	RawTOML         string      // original pvmt.toml contents
+	ResolvedTOML    string      // config with all defaults filled in
+	UnitSystem      string      // "metric" or "imperial"
+	Cities          []CityInfo
+	WasmPrefix      string // path prefix for WASM assets (e.g. "../"); empty = same directory
+	MethodologyHTML template.HTML
 }
 
 // resourceColorsJS is the pre-marshaled JSON of ResourceColors, computed at init time.
@@ -906,6 +938,58 @@ func (e *Exporter) writeWasmAssets(dir string) error {
 	return WriteSharedWasmAssets(dir)
 }
 
+// ExampleInfo describes one example card on the landing page. Defined in
+// this package so gensite and the landing-page tests reference the same
+// shape; drift between the two used to be invisible until runtime.
+type ExampleInfo struct {
+	Slug       string
+	Title      string
+	CityNames  string
+	CityCount  int
+	HexEdgeM   int
+	UnitSystem string
+}
+
+// RenderLandingPage writes index.html into outputDir using the embedded
+// landing and methodology templates. Centralizing the wiring here means
+// both gensite and the internal template tests exercise the same code path.
+func RenderLandingPage(outputDir string, examples []ExampleInfo) (err error) {
+	landingData, err := templatesFS.ReadFile("templates/landing.html.tmpl")
+	if err != nil {
+		return fmt.Errorf("read landing template: %w", err)
+	}
+	methData, err := templatesFS.ReadFile("templates/methodology.html.tmpl")
+	if err != nil {
+		return fmt.Errorf("read methodology template: %w", err)
+	}
+
+	tmpl := template.New("landing")
+	if _, err := tmpl.Parse(string(landingData)); err != nil {
+		return fmt.Errorf("parse landing template: %w", err)
+	}
+	if _, err := tmpl.Parse(string(methData)); err != nil {
+		return fmt.Errorf("parse methodology template: %w", err)
+	}
+
+	f, err := os.Create(filepath.Join(outputDir, "index.html"))
+	if err != nil {
+		return fmt.Errorf("create index.html: %w", err)
+	}
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close index.html: %w", cerr)
+		}
+	}()
+
+	return tmpl.Execute(f, struct {
+		Examples        []ExampleInfo
+		MethodologyHTML template.HTML
+	}{
+		Examples:        examples,
+		MethodologyHTML: MethodologyHTML(),
+	})
+}
+
 // WriteSharedWasmAssets writes the embedded WASM files to dir. Use this when
 // writing a single shared copy at a site root instead of per-export copies.
 func WriteSharedWasmAssets(dir string) error {
@@ -918,14 +1002,8 @@ func WriteSharedWasmAssets(dir string) error {
 	return nil
 }
 
-func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolvedTOML, unitSystem string, cities []CityInfo) (err error) {
-	tmplData, err := templatesFS.ReadFile("templates/index.html.tmpl")
-	if err != nil {
-		return fmt.Errorf("read template: %w", err)
-	}
-
-	sys := units.ParseSystem(unitSystem)
-	funcMap := template.FuncMap{
+func indexFuncMap(sys units.System) template.FuncMap {
+	return template.FuncMap{
 		"divf":          func(a, b float64) float64 { return a / b },
 		"areaLarge":     func(sqm float64) float64 { return units.AreaLargeValue(sqm, sys) },
 		"areaVeryLarge": func(sqm float64) float64 { return units.AreaVeryLargeValue(sqm, sys) },
@@ -942,9 +1020,24 @@ func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolved
 			return "sq km"
 		},
 	}
-	tmpl, err := template.New("index").Funcs(funcMap).Parse(string(tmplData))
+}
+
+func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolvedTOML, unitSystem string, cities []CityInfo) (err error) {
+	sys := units.ParseSystem(unitSystem)
+	indexData, err := templatesFS.ReadFile("templates/index.html.tmpl")
+	if err != nil {
+		return fmt.Errorf("read template: %w", err)
+	}
+	tmpl, err := template.New("index").Funcs(indexFuncMap(sys)).Parse(string(indexData))
 	if err != nil {
 		return fmt.Errorf("parse template: %w", err)
+	}
+	methData, err := templatesFS.ReadFile("templates/methodology.html.tmpl")
+	if err != nil {
+		return fmt.Errorf("read methodology template: %w", err)
+	}
+	if _, err := tmpl.Parse(string(methData)); err != nil {
+		return fmt.Errorf("parse methodology template: %w", err)
 	}
 
 	outPath := filepath.Join(e.outputDir, "index.html")
@@ -959,14 +1052,15 @@ func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolved
 	}()
 
 	td := TemplateData{
-		MetaJSON:     meta,
-		ForecastSeed: seed,
-		LayerColors:  ResourceColorsJS(),
-		RawTOML:      rawTOML,
-		ResolvedTOML: resolvedTOML,
-		UnitSystem:   unitSystem,
-		Cities:       cities,
-		WasmPrefix:   e.wasmPrefix,
+		MetaJSON:        meta,
+		ForecastSeed:    seed,
+		LayerColors:     ResourceColorsJS(),
+		RawTOML:         rawTOML,
+		ResolvedTOML:    resolvedTOML,
+		UnitSystem:      unitSystem,
+		Cities:          cities,
+		WasmPrefix:      e.wasmPrefix,
+		MethodologyHTML: MethodologyHTML(),
 	}
 	return tmpl.Execute(f, td)
 }

@@ -8,7 +8,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"html/template"
 	"os"
 	"path/filepath"
 	"sort"
@@ -18,15 +17,6 @@ import (
 	"pvmt/internal/db"
 	"pvmt/internal/export"
 )
-
-type exampleInfo struct {
-	Slug       string
-	Title      string
-	CityNames  string
-	CityCount  int
-	HexEdgeM   int
-	UnitSystem string
-}
 
 func main() {
 	if err := run(); err != nil {
@@ -70,7 +60,7 @@ func run() (err error) {
 		return err
 	}
 
-	var examples []exampleInfo
+	var examples []export.ExampleInfo
 	for _, cfgPath := range matches {
 		info, err := exportExample(ctx, rootDB, cfgPath, *outputDir)
 		if err != nil {
@@ -85,7 +75,7 @@ func run() (err error) {
 	}
 
 	// Generate landing page
-	if err := renderLanding(*outputDir, examples); err != nil {
+	if err := export.RenderLandingPage(*outputDir, examples); err != nil {
 		return fmt.Errorf("render landing page: %w", err)
 	}
 
@@ -95,32 +85,32 @@ func run() (err error) {
 
 // exportExample runs the export pipeline for a single example config and
 // returns metadata for the landing page.
-func exportExample(ctx context.Context, rootDB *db.RootStore, cfgPath, outputDir string) (exampleInfo, error) {
+func exportExample(ctx context.Context, rootDB *db.RootStore, cfgPath, outputDir string) (export.ExampleInfo, error) {
 	slug := filepath.Base(filepath.Dir(cfgPath))
 	fmt.Printf("=== Exporting %s ===\n", slug)
 
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
-		return exampleInfo{}, fmt.Errorf("load config %s: %w", cfgPath, err)
+		return export.ExampleInfo{}, fmt.Errorf("load config %s: %w", cfgPath, err)
 	}
 
 	entries, err := export.LookupCityEntries(ctx, rootDB, cfg, cfg.Cities)
 	if err != nil {
-		return exampleInfo{}, fmt.Errorf("build entries for %s: %w", slug, err)
+		return export.ExampleInfo{}, fmt.Errorf("build entries for %s: %w", slug, err)
 	}
 	if len(entries) == 0 {
-		return exampleInfo{}, fmt.Errorf("no city data for %s — run 'pvmt ingest' first", slug)
+		return export.ExampleInfo{}, fmt.Errorf("no city data for %s — run 'pvmt ingest' first", slug)
 	}
 
 	outDir := filepath.Join(outputDir, slug)
 	exporter := export.New(entries, cfg, outDir, cfg.UnitSystem().String())
 	if err := exporter.SetWasmPrefix("../"); err != nil {
-		return exampleInfo{}, fmt.Errorf("set WASM prefix: %w", err)
+		return export.ExampleInfo{}, fmt.Errorf("set WASM prefix: %w", err)
 	}
 	exporter.SetSkipWasm(true)
 
 	if err := exporter.Run(ctx); err != nil {
-		return exampleInfo{}, fmt.Errorf("export %s: %w", slug, err)
+		return export.ExampleInfo{}, fmt.Errorf("export %s: %w", slug, err)
 	}
 
 	cityNames := make([]string, 0, len(cfg.Cities))
@@ -133,7 +123,7 @@ func exportExample(ctx context.Context, rootDB *db.RootStore, cfgPath, outputDir
 		unitSys = "metric"
 	}
 
-	return exampleInfo{
+	return export.ExampleInfo{
 		Slug:       slug,
 		Title:      formatTitle(slug),
 		CityNames:  strings.Join(cityNames, ", "),
@@ -141,34 +131,6 @@ func exportExample(ctx context.Context, rootDB *db.RootStore, cfgPath, outputDir
 		HexEdgeM:   int(cfg.HexEdge()),
 		UnitSystem: unitSys,
 	}, nil
-}
-
-func renderLanding(outputDir string, examples []exampleInfo) (err error) {
-	tmplData, err := export.TemplateFS().ReadFile("templates/landing.html.tmpl")
-	if err != nil {
-		return fmt.Errorf("read landing template: %w", err)
-	}
-
-	tmpl, err := template.New("landing").Parse(string(tmplData))
-	if err != nil {
-		return fmt.Errorf("parse landing template: %w", err)
-	}
-
-	f, err := os.Create(filepath.Join(outputDir, "index.html"))
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if cerr := f.Close(); cerr != nil && err == nil {
-			err = fmt.Errorf("close landing page: %w", cerr)
-		}
-	}()
-
-	return tmpl.Execute(f, struct {
-		Examples []exampleInfo
-	}{
-		Examples: examples,
-	})
 }
 
 // safeCleanDir removes outputDir only if it is empty or looks like a

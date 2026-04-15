@@ -1,0 +1,35 @@
+{{define "methodology"}}
+<div class="methodology">{{.}}</div>
+{{end}}
+
+{{define "methodology_styles"}}
+<style>
+.methodology { color: var(--meth-fg); font-size: 14px; line-height: 1.65; }
+.methodology h1 {
+    font-size: 22px; color: var(--meth-heading); margin-top: 0; margin-bottom: 14px;
+}
+.methodology h2 {
+    font-size: 18px; color: var(--meth-heading); margin-top: 28px; margin-bottom: 10px;
+    border-bottom: 1px solid var(--meth-rule); padding-bottom: 6px;
+}
+.methodology h3 {
+    font-size: 14px; color: var(--meth-heading); margin-top: 16px; margin-bottom: 6px;
+}
+.methodology p { margin-bottom: 10px; }
+.methodology ul { margin: 6px 0 10px 20px; }
+.methodology li { margin-bottom: 4px; }
+.methodology code {
+    background: var(--meth-code-bg); color: var(--meth-code-fg); padding: 1px 5px;
+    border-radius: 3px; font-size: 13px;
+}
+.methodology pre {
+    background: var(--meth-code-bg); color: var(--meth-code-fg); padding: 10px 14px;
+    border-radius: 6px; overflow-x: auto; margin: 10px 0;
+    font-size: 13px; line-height: 1.5;
+}
+.methodology pre code { background: transparent; padding: 0; }
+.methodology a { color: var(--meth-link); text-decoration: none; }
+.methodology a:hover { text-decoration: underline; }
+.methodology strong { color: var(--meth-strong); }
+</style>
+{{end}}
