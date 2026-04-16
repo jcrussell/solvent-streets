@@ -3,22 +3,32 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    {{template "theme_boot" .}}
     <title>PVMT - Example Cities</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #0f0f23;
-            color: #e0e0e0;
+            background: var(--bg);
+            color: var(--text);
             min-height: 100vh;
         }
         header {
-            background: #1a1a2e;
+            background: var(--header-bg);
             padding: 24px 32px;
-            border-bottom: 1px solid #2a2a4a;
+            border-bottom: 1px solid var(--header-border);
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
         }
-        header h1 { font-size: 24px; color: #fff; margin-bottom: 8px; }
-        header p { color: #8888aa; font-size: 14px; max-width: 640px; line-height: 1.5; }
+        header h1 { font-size: 24px; color: var(--header-fg); margin-bottom: 8px; }
+        header p { color: var(--header-muted); font-size: 14px; max-width: 640px; line-height: 1.5; }
+        .theme-toggle {
+            background: none; border: 1px solid var(--header-muted); color: var(--header-fg);
+            font-size: 18px; width: 36px; height: 36px; border-radius: 6px; cursor: pointer;
+            flex-shrink: 0; margin-left: 16px; margin-top: 2px;
+        }
+        .theme-toggle:hover { border-color: var(--header-fg); }
         main { max-width: 1200px; margin: 0 auto; padding: 32px; }
         .grid {
             display: grid;
@@ -26,70 +36,78 @@
             gap: 20px;
         }
         .card {
-            background: #1a1a2e;
-            border: 1px solid #2a2a4a;
+            background: var(--panel);
+            border: 1px solid var(--border);
             border-radius: 8px;
             padding: 20px;
             text-decoration: none;
             color: inherit;
-            transition: border-color 0.15s, transform 0.15s;
+            transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
         }
-        .card:hover { border-color: #5555cc; transform: translateY(-2px); }
-        .card h2 { font-size: 18px; color: #fff; margin-bottom: 8px; }
-        .card .cities { color: #8888aa; font-size: 13px; margin-bottom: 12px; }
+        .card:hover { border-color: var(--card-hover); transform: translateY(-2px); box-shadow: var(--shadow-hover); }
+        .card h2 { font-size: 18px; color: var(--text-strong); margin-bottom: 8px; }
+        .card .cities { color: var(--text-muted); font-size: 13px; margin-bottom: 12px; }
         .card .meta {
             display: flex;
             gap: 16px;
             font-size: 12px;
-            color: #6666aa;
+            color: var(--text-muted);
         }
         .card .meta span { white-space: nowrap; }
         footer {
             text-align: center;
             padding: 32px;
-            color: #555;
+            color: var(--text-muted);
             font-size: 12px;
         }
-        footer a { color: #6666aa; text-decoration: none; }
+        footer a { color: var(--accent); text-decoration: none; }
         footer a:hover { text-decoration: underline; }
 
-        :root {
-            --meth-fg: #c8c8e0;
-            --meth-heading: #fff;
-            --meth-rule: #2a2a4a;
-            --meth-code-bg: #22223e;
-            --meth-code-fg: #9fb4ff;
-            --meth-link: #8aa8ff;
-            --meth-strong: #e8e8f8;
-        }
-        main .methodology { margin-top: 48px; }
+        main > section { margin-bottom: 48px; font-size: 14px; line-height: 1.65; }
+        main > section h2 { font-size: 18px; margin-bottom: 12px; color: var(--text-strong); }
+        main > section > p { margin-bottom: 10px; }
     </style>
+    {{template "theme_vars" .}}
     {{template "methodology_styles" .}}
 </head>
 <body>
     <header>
-        <h1>PVMT - Pavement Management Viewer</h1>
-        <p>Interactive dashboards for pavement condition analysis and infrastructure cost forecasting across US cities. Each example below uses a different configuration to demonstrate various analysis scenarios.</p>
+        <div>
+            <h1>PVMT - Pavement Management Viewer</h1>
+            <p>Pavement condition analysis and cost forecasting for US cities.</p>
+        </div>
+        <button class="theme-toggle" role="switch" aria-label="Toggle dark mode" onclick="toggleTheme()"></button>
     </header>
     <main>
-        <div class="grid">
-            {{range .Examples}}
-            <a class="card" href="./{{.Slug}}/">
-                <h2>{{.Title}}</h2>
-                <div class="cities">{{.CityNames}}</div>
-                <div class="meta">
-                    <span>{{.CityCount}} {{if eq .CityCount 1}}city{{else}}cities{{end}}</span>
-                    <span>hex {{.HexEdgeM}}m</span>
-                    <span>{{.UnitSystem}}</span>
-                </div>
-            </a>
-            {{end}}
-        </div>
+        <section>
+            <h2>What is PVMT?</h2>
+            <p>PVMT is a planning-grade pavement estimator. It aggregates OpenStreetMap pavement geometry into a hex grid, applies an exponential Pavement Condition Index (PCI) decay model per road classification, projects treatment costs from PCI-banded cost tiers, and simulates multi-year maintenance budget scenarios.</p>
+            <p>It is not a substitute for field-measured pavement surveys or a formal asset-management system &mdash; its outputs should be read as order-of-magnitude planning inputs rather than engineering specifications.</p>
+        </section>
+
+        <section>
+            <h2>Examples</h2>
+            <p>Each example uses a different configuration. Select one to explore an interactive dashboard with maps, forecasts, and cost projections.</p>
+            <div class="grid">
+                {{range .Examples}}
+                <a class="card" href="./{{.Slug}}/">
+                    <h2>{{.Title}}</h2>
+                    <div class="cities">{{.CityNames}}</div>
+                    <div class="meta">
+                        <span>{{.CityCount}} {{if eq .CityCount 1}}city{{else}}cities{{end}}</span>
+                        <span>hex {{.HexEdgeM}}m</span>
+                        <span>{{.UnitSystem}}</span>
+                    </div>
+                </a>
+                {{end}}
+            </div>
+        </section>
 
         {{template "methodology" .MethodologyHTML}}
     </main>
     <footer>
-        Generated by <a href="https://github.com/jcrussell/solvent-streets">pvmt</a>
+        Generated by <a href="https://github.com/jcrussell/solvent-streets">pvmt</a>.
     </footer>
+    {{template "theme_toggle" .}}
 </body>
 </html>

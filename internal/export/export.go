@@ -962,6 +962,10 @@ func RenderLandingPage(outputDir string, examples []ExampleInfo) (err error) {
 	if err != nil {
 		return fmt.Errorf("read methodology template: %w", err)
 	}
+	themeData, err := templatesFS.ReadFile("templates/theme.html.tmpl")
+	if err != nil {
+		return fmt.Errorf("read theme template: %w", err)
+	}
 
 	tmpl := template.New("landing")
 	if _, err := tmpl.Parse(string(landingData)); err != nil {
@@ -969,6 +973,9 @@ func RenderLandingPage(outputDir string, examples []ExampleInfo) (err error) {
 	}
 	if _, err := tmpl.Parse(string(methData)); err != nil {
 		return fmt.Errorf("parse methodology template: %w", err)
+	}
+	if _, err := tmpl.Parse(string(themeData)); err != nil {
+		return fmt.Errorf("parse theme template: %w", err)
 	}
 
 	f, err := os.Create(filepath.Join(outputDir, "index.html"))
@@ -1038,6 +1045,13 @@ func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolved
 	}
 	if _, err := tmpl.Parse(string(methData)); err != nil {
 		return fmt.Errorf("parse methodology template: %w", err)
+	}
+	themeData, err := templatesFS.ReadFile("templates/theme.html.tmpl")
+	if err != nil {
+		return fmt.Errorf("read theme template: %w", err)
+	}
+	if _, err := tmpl.Parse(string(themeData)); err != nil {
+		return fmt.Errorf("parse theme template: %w", err)
 	}
 
 	outPath := filepath.Join(e.outputDir, "index.html")

@@ -1,12 +1,7 @@
 # Methodology
 
-PVMT is a **planning-grade pavement estimator**. It aggregates OpenStreetMap
-pavement geometry into a hex grid, applies an exponential Pavement Condition
-Index (PCI) decay model per road classification, projects treatment costs
-from PCI-banded cost tiers, and simulates multi-year maintenance budget
-scenarios. It is not a substitute for field-measured pavement surveys or a
-formal asset-management system, and its outputs should be read as
-order-of-magnitude planning inputs rather than engineering specifications.
+This section describes the data sources, models, and assumptions behind the
+analysis presented in each dashboard.
 
 ## Data sources
 
