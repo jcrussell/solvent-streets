@@ -1,18 +1,19 @@
 package forecast
 
 import (
+	"maps"
 	"math"
 	"strings"
 )
 
 const ClassResidential = "residential"
 
-// Default decay rates by road classification.
+// RoadDecayRates holds per-class decay rates for road types.
 // Higher k = faster decay. Units: per year.
 // Derived from FHWA-RD-01-156 "Long-Term Pavement Performance" data:
 // higher-class roads (motorway, trunk) decay slower due to thicker pavement
 // sections and more rigorous design standards.
-var DefaultDecayRates = map[string]float64{
+var RoadDecayRates = map[string]float64{
 	"motorway":    0.015,
 	"trunk":       0.020,
 	"primary":     0.025,
@@ -20,9 +21,17 @@ var DefaultDecayRates = map[string]float64{
 	"tertiary":    0.035,
 	"residential": 0.040,
 	"service":     0.045,
-	"default":     0.035,
-	"sidewalk":    0.025,
+	"roads":       0.035, // aggregate resource type, uses default road rate
 }
+
+// DefaultDecayRates is the full lookup table (roads + non-road + fallback).
+var DefaultDecayRates = func() map[string]float64 {
+	m := make(map[string]float64, len(RoadDecayRates)+2)
+	maps.Copy(m, RoadDecayRates)
+	m["sidewalk"] = 0.025
+	m["default"] = 0.035
+	return m
+}()
 
 type StubPCIForecaster struct{}
 

@@ -82,7 +82,7 @@ func simulateResource(rt resource.ResourceType, cohorts []fcpkg.Cohort, years in
 }
 
 func buildForecastCohorts(ctx context.Context, rt resource.ResourceType, areaSqM float64, store db.Store, fc *config.ForecastConfig) []fcpkg.Cohort {
-	currentPCI := 85.0
+	currentPCI := fc.ResolvedInitialPCI()
 	stats, _ := store.ListCohortStats(ctx, rt.Name())
 	var inputs []fcpkg.CohortInput
 	for _, st := range stats {
@@ -94,7 +94,7 @@ func buildForecastCohorts(ctx context.Context, rt resource.ResourceType, areaSqM
 	cohorts := fcpkg.BuildCohorts(inputs, currentPCI, fc.DecayRate)
 	if cohorts == nil {
 		defaultRate := fcpkg.DecayRateForClass(rt.Name())
-		if fc.DecayRate > 0 {
+		if fc.DecayRate > 0 && fcpkg.IsRoadClass(rt.Name()) {
 			defaultRate = fc.DecayRate
 		}
 		cohorts = []fcpkg.Cohort{{
@@ -241,7 +241,7 @@ func convertCostTiers(fc *config.ForecastConfig) []fcpkg.CostTier {
 func forecastAllResources(ctx context.Context, opts *Options, store db.Store,
 	fc *config.ForecastConfig, years int, costTiers []fcpkg.CostTier, sys units.System) ([]db.ForecastResult, error) {
 	ios := opts.IO
-	currentPCI := 85.0
+	currentPCI := fc.ResolvedInitialPCI()
 	var allResults []db.ForecastResult
 
 	for _, rt := range resource.All {

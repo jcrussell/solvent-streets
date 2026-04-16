@@ -24,8 +24,16 @@ type CohortInput struct {
 	AreaSqM        float64
 }
 
+// IsRoadClass returns true if the classification is a road type (not parking or sidewalks).
+func IsRoadClass(classification string) bool {
+	_, ok := RoadDecayRates[classification]
+	return ok
+}
+
 // BuildCohorts converts CohortInputs into Cohorts with appropriate decay rates.
-// If overrideDecayRate > 0, all cohorts use that rate.
+// If overrideDecayRate > 0, road cohorts use that rate; non-road cohorts (parking,
+// sidewalks) retain their class-specific defaults since they have different
+// deterioration characteristics.
 // Returns nil if inputs is empty (caller should create a single-cohort fallback).
 func BuildCohorts(inputs []CohortInput, initialPCI, overrideDecayRate float64) []Cohort {
 	if len(inputs) == 0 {
@@ -35,7 +43,7 @@ func BuildCohorts(inputs []CohortInput, initialPCI, overrideDecayRate float64) [
 	cohorts := make([]Cohort, len(inputs))
 	for i, in := range inputs {
 		rate := DecayRateForClass(in.Classification)
-		if overrideDecayRate > 0 {
+		if overrideDecayRate > 0 && IsRoadClass(in.Classification) {
 			rate = overrideDecayRate
 		}
 		cohorts[i] = Cohort{

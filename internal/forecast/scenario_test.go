@@ -364,3 +364,36 @@ func TestBuildCohorts_Empty(t *testing.T) {
 		t.Errorf("expected nil for empty stats, got %v", cohorts)
 	}
 }
+
+func TestIsRoadClass(t *testing.T) {
+	roads := []string{"motorway", "trunk", "primary", "secondary", "tertiary", "residential", "service", "roads"}
+	for _, c := range roads {
+		if !IsRoadClass(c) {
+			t.Errorf("IsRoadClass(%q) = false, want true", c)
+		}
+	}
+	nonRoads := []string{"parking", "sidewalks", "sidewalk", "unknown", ""}
+	for _, c := range nonRoads {
+		if IsRoadClass(c) {
+			t.Errorf("IsRoadClass(%q) = true, want false", c)
+		}
+	}
+}
+
+func TestBuildCohorts_MixedOverride(t *testing.T) {
+	stats := []CohortInput{
+		{Classification: "primary", AreaSqM: 50000},
+		{Classification: "sidewalk", AreaSqM: 10000},
+	}
+
+	cohorts := BuildCohorts(stats, 85.0, 0.05)
+	if len(cohorts) != 2 {
+		t.Fatalf("expected 2 cohorts, got %d", len(cohorts))
+	}
+	if cohorts[0].DecayRate != 0.05 {
+		t.Errorf("primary: expected override rate 0.05, got %f", cohorts[0].DecayRate)
+	}
+	if cohorts[1].DecayRate != DefaultDecayRates["sidewalk"] {
+		t.Errorf("sidewalk: expected default rate %f, got %f", DefaultDecayRates["sidewalk"], cohorts[1].DecayRate)
+	}
+}

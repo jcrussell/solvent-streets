@@ -346,7 +346,7 @@ func ConvertCostTiers(fc *config.ForecastConfig) []forecast.CostTier {
 // BuildCohortsForResource builds forecast cohorts for a resource type from the store.
 // Falls back to a single cohort if no cohort stats exist.
 func BuildCohortsForResource(ctx context.Context, rt resource.ResourceType, areaSqM float64, store db.Store, fc *config.ForecastConfig) []forecast.Cohort {
-	currentPCI := 85.0
+	currentPCI := fc.ResolvedInitialPCI()
 	stats, _ := store.ListCohortStats(ctx, rt.Name())
 	var inputs []forecast.CohortInput
 	for _, st := range stats {
@@ -358,7 +358,7 @@ func BuildCohortsForResource(ctx context.Context, rt resource.ResourceType, area
 	cohorts := forecast.BuildCohorts(inputs, currentPCI, fc.DecayRate)
 	if cohorts == nil {
 		defaultRate := forecast.DecayRateForClass(rt.Name())
-		if fc.DecayRate > 0 {
+		if fc.DecayRate > 0 && forecast.IsRoadClass(rt.Name()) {
 			defaultRate = fc.DecayRate
 		}
 		cohorts = []forecast.Cohort{{
@@ -375,13 +375,17 @@ func BuildCohortsForResource(ctx context.Context, rt resource.ResourceType, area
 type ForecastExport struct {
 	ResourceType string                   `json:"resource_type"`
 	Baseline     forecast.ScenarioResult  `json:"baseline"`
-	CityBaseline *forecast.ScenarioResult `json:"city_baseline,omitempty"`
+	BboxBaseline *forecast.ScenarioResult `json:"bbox_baseline,omitempty"` // full-bbox scope (shown when "All Roads" is toggled)
 	Comparisons  []forecast.Comparison    `json:"comparisons"`
 }
 
 // BuildForecastsForCity builds per-resource forecast exports for a city.
+// Prefers city-scoped data (excluding state/federal roads) as the primary
+// baseline since that matches what a city budget covers. The full-bbox
+// baseline is stored as BboxBaseline for the "All Roads" toggle.
 func BuildForecastsForCity(ctx context.Context, entry CityEntry, fc *config.ForecastConfig, costTiers []forecast.CostTier) []ForecastExport {
 	years := fc.ResolvedYears()
+	doNothing := forecast.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: forecast.StrategyDoNothing}
 	var forecasts []ForecastExport
 
 	for _, rt := range resource.All {
@@ -389,26 +393,15 @@ func BuildForecastsForCity(ctx context.Context, entry CityEntry, fc *config.Fore
 		if err != nil || result == nil {
 			continue
 		}
-
-		cohorts := BuildCohortsForResource(ctx, rt, result.TotalAreaSqM, entry.Store, fc)
 		rtParams := forecast.NewParamsForResource(rt.Name(), fc.GrowthRate, costTiers)
 
-		baseline := forecast.Simulate(
-			forecast.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: forecast.StrategyDoNothing},
-			cohorts, years, rtParams.Cost, rtParams.Growth,
-		)
+		// Build full-bbox cohorts (always available)
+		bboxCohorts := BuildCohortsForResource(ctx, rt, result.TotalAreaSqM, entry.Store, fc)
+		bboxBaseline := forecast.Simulate(doNothing, bboxCohorts, years, rtParams.Cost, rtParams.Growth)
 
-		year1Need := baseline.Years[0].AnnualNeed
-		comparisons := forecast.GroupedComparisons(year1Need, cohorts, years,
-			rtParams.Cost, rtParams.Growth)
-
-		fe := ForecastExport{
-			ResourceType: rt.Name(),
-			Baseline:     baseline,
-			Comparisons:  comparisons,
-		}
-
-		// Build city baseline if city cohort stats exist
+		// Try city-scoped cohorts — use as primary if available
+		var primaryCohorts []forecast.Cohort
+		var hasCityScope bool
 		cityStats, _ := entry.Store.ListCohortStats(ctx, rt.Name()+":city")
 		if len(cityStats) > 0 {
 			var cityInputs []forecast.CohortInput
@@ -418,14 +411,27 @@ func BuildForecastsForCity(ctx context.Context, entry CityEntry, fc *config.Fore
 					AreaSqM:        st.AreaSqM,
 				})
 			}
-			cityCohorts := forecast.BuildCohorts(cityInputs, 85.0, fc.DecayRate)
-			if cityCohorts != nil {
-				cityBaseline := forecast.Simulate(
-					forecast.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: forecast.StrategyDoNothing},
-					cityCohorts, years, rtParams.Cost, rtParams.Growth,
-				)
-				fe.CityBaseline = &cityBaseline
+			if cityCohorts := forecast.BuildCohorts(cityInputs, fc.ResolvedInitialPCI(), fc.DecayRate); cityCohorts != nil {
+				primaryCohorts = cityCohorts
+				hasCityScope = true
 			}
+		}
+		if primaryCohorts == nil {
+			primaryCohorts = bboxCohorts
+		}
+
+		baseline := forecast.Simulate(doNothing, primaryCohorts, years, rtParams.Cost, rtParams.Growth)
+		year1Need := baseline.Years[0].AnnualNeed
+		comparisons := forecast.GroupedComparisons(year1Need, primaryCohorts, years,
+			rtParams.Cost, rtParams.Growth)
+
+		fe := ForecastExport{
+			ResourceType: rt.Name(),
+			Baseline:     baseline,
+			Comparisons:  comparisons,
+		}
+		if hasCityScope {
+			fe.BboxBaseline = &bboxBaseline
 		}
 
 		forecasts = append(forecasts, fe)
@@ -435,6 +441,8 @@ func BuildForecastsForCity(ctx context.Context, entry CityEntry, fc *config.Fore
 }
 
 // BuildScenariosData builds the aggregate scenarios JSON structure for a city.
+// Prefers city-scoped data as the primary ("all") output since that matches
+// what a city budget covers. Full-bbox data is available as "bbox".
 func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.ForecastConfig) map[string]any {
 	costTiers := ConvertCostTiers(fc)
 	params := forecast.NewParams(fc.GrowthRate, costTiers)
@@ -458,20 +466,22 @@ func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.Forecas
 		}
 	}
 
-	currentPCI := 85.0
+	currentPCI := fc.ResolvedInitialPCI()
 	defaultRate := forecast.DefaultDecayRates["default"]
 	if fc.DecayRate > 0 {
 		defaultRate = fc.DecayRate
 	}
-	allCohorts := []forecast.Cohort{{
+
+	bboxCohorts := []forecast.Cohort{{
 		Classification: "all",
 		AreaSqM:        totalAreaSqM,
 		DecayRate:      defaultRate,
 		InitialPCI:     currentPCI,
 	}}
-	allScenarios := BuildScenarios(allCohorts, years, params)
+	bboxScenarios := BuildScenarios(bboxCohorts, years, params)
 
-	var cityScenarios []forecast.ScenarioResult
+	// Use city-scoped data as primary when available
+	primaryScenarios := bboxScenarios
 	if cityAreaSqM > 0 {
 		cityCohorts := []forecast.Cohort{{
 			Classification: "city",
@@ -479,7 +489,7 @@ func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.Forecas
 			DecayRate:      defaultRate,
 			InitialPCI:     currentPCI,
 		}}
-		cityScenarios = BuildScenarios(cityCohorts, years, params)
+		primaryScenarios = BuildScenarios(cityCohorts, years, params)
 	}
 
 	summary := map[string]any{
@@ -494,17 +504,18 @@ func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.Forecas
 	}
 
 	out := map[string]any{
-		"all":     allScenarios,
+		"all":     primaryScenarios,
 		"summary": summary,
 	}
-	if cityScenarios != nil {
-		out["city"] = cityScenarios
+	if cityAreaSqM > 0 {
+		out["bbox"] = bboxScenarios
 	}
 
 	return out
 }
 
 // BuildHexCostSummary builds the hex cost summary from forecast results.
+// Prefers city-scoped area to match the city-scoped baseline costs.
 func BuildHexCostSummary(ctx context.Context, entry CityEntry, forecasts []ForecastExport) map[string]map[string]float64 {
 	result := make(map[string]map[string]float64)
 	for _, fe := range forecasts {
@@ -512,9 +523,13 @@ func BuildHexCostSummary(ctx context.Context, entry CityEntry, forecasts []Forec
 		if len(fe.Baseline.Years) > 0 {
 			year1Cost = fe.Baseline.Years[0].AnnualNeed
 		}
-		cr, err := entry.Store.LatestComputeResult(ctx, fe.ResourceType)
+		// Prefer city-scoped area to match the baseline scope
+		cr, err := entry.Store.LatestComputeResult(ctx, fe.ResourceType+":city")
 		if err != nil || cr == nil {
-			continue
+			cr, err = entry.Store.LatestComputeResult(ctx, fe.ResourceType)
+			if err != nil || cr == nil {
+				continue
+			}
 		}
 		result[fe.ResourceType] = map[string]float64{
 			"year1_cost":     year1Cost,
@@ -575,7 +590,7 @@ func BuildForecastSeed(ctx context.Context, fc *config.ForecastConfig, store db.
 	cohortSeeds, cityCohortSeeds := collectCohortSeeds(ctx, store, fc)
 
 	seed := ForecastSeedJSON{
-		InitialPCI:   85.0,
+		InitialPCI:   fc.ResolvedInitialPCI(),
 		DecayRate:    decayRate,
 		GrowthRate:   fc.GrowthRate,
 		Years:        years,
@@ -593,6 +608,16 @@ func BuildForecastSeed(ctx context.Context, fc *config.ForecastConfig, store db.
 	return template.JS(data)
 }
 
+// resolvedDecayRate returns the decay rate for a classification, applying the
+// config override only to road classes.
+func resolvedDecayRate(classification string, overrideRate float64) float64 {
+	rate := forecast.DecayRateForClass(classification)
+	if overrideRate > 0 && forecast.IsRoadClass(classification) {
+		rate = overrideRate
+	}
+	return rate
+}
+
 // collectCohortSeeds iterates over all resource types and collects cohort seed
 // data for both the main and city-scoped cohort stats.
 func collectCohortSeeds(ctx context.Context, store db.Store, fc *config.ForecastConfig) ([]CohortSeed, []CohortSeed) {
@@ -602,28 +627,20 @@ func collectCohortSeeds(ctx context.Context, store db.Store, fc *config.Forecast
 		stats, err := store.ListCohortStats(ctx, rt.Name())
 		if err == nil {
 			for _, st := range stats {
-				rate := forecast.DecayRateForClass(st.Classification)
-				if fc.DecayRate > 0 {
-					rate = fc.DecayRate
-				}
 				cohortSeeds = append(cohortSeeds, CohortSeed{
 					Classification: st.Classification,
 					AreaSqM:        st.AreaSqM,
-					DecayRate:      rate,
+					DecayRate:      resolvedDecayRate(st.Classification, fc.DecayRate),
 				})
 			}
 		}
 		cityStats, err := store.ListCohortStats(ctx, rt.Name()+":city")
 		if err == nil {
 			for _, st := range cityStats {
-				rate := forecast.DecayRateForClass(st.Classification)
-				if fc.DecayRate > 0 {
-					rate = fc.DecayRate
-				}
 				cityCohortSeeds = append(cityCohortSeeds, CohortSeed{
 					Classification: st.Classification,
 					AreaSqM:        st.AreaSqM,
-					DecayRate:      rate,
+					DecayRate:      resolvedDecayRate(st.Classification, fc.DecayRate),
 				})
 			}
 		}
@@ -911,6 +928,9 @@ func ResolvedTOML(cfg *config.Config) string {
 	}
 	if resolved.Forecast.Years <= 0 {
 		resolved.Forecast.Years = 20
+	}
+	if resolved.Forecast.InitialPCI <= 0 {
+		resolved.Forecast.InitialPCI = 85.0
 	}
 	if resolved.Forecast.DecayRate <= 0 {
 		resolved.Forecast.DecayRate = forecast.DefaultDecayRates["default"]

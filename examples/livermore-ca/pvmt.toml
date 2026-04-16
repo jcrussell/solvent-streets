@@ -4,6 +4,9 @@
 # Alameda County ArcGIS FeatureServer are available as data sources.
 # This is a good starting point for new users.
 
+[forecast]
+initial_pci = 77  # MTC 2023 pavement condition index (3-year moving average)
+
 [[cities]]
 name = "Livermore, CA"
 overpass = true

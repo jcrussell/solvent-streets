@@ -42,6 +42,7 @@ type ExportConfig struct {
 }
 
 type ForecastConfig struct {
+	InitialPCI float64       `toml:"initial_pci"` // starting PCI (1-100); 0 means "use default 85"
 	DecayRate  float64       `toml:"decay_rate"`  // PCI decay k-value, 0 = use class defaults
 	GrowthRate float64       `toml:"growth_rate"` // annual pavement growth rate (0.01 = 1%)
 	Years      int           `toml:"years"`       // forecast horizon, default 20
@@ -58,6 +59,14 @@ type CostTierCfg struct {
 // ForecastYears returns the configured forecast horizon, defaulting to 20.
 func (c *Config) ForecastYears() int {
 	return c.Forecast.ResolvedYears()
+}
+
+// ResolvedInitialPCI returns the initial PCI, defaulting to 85 if not set.
+func (fc *ForecastConfig) ResolvedInitialPCI() float64 {
+	if fc.InitialPCI > 0 && fc.InitialPCI <= 100 {
+		return fc.InitialPCI
+	}
+	return 85.0
 }
 
 // ResolvedYears returns the forecast horizon, defaulting to 20 if not set.
@@ -109,6 +118,9 @@ func (c *Config) ResolvedForecast(city *CityConfig) ForecastConfig {
 		return c.Forecast
 	}
 	fc := c.Forecast
+	if city.Forecast.InitialPCI > 0 && city.Forecast.InitialPCI <= 100 {
+		fc.InitialPCI = city.Forecast.InitialPCI
+	}
 	if city.Forecast.DecayRate > 0 {
 		fc.DecayRate = city.Forecast.DecayRate
 	}

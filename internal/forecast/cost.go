@@ -3,8 +3,9 @@ package forecast
 import "sort"
 
 // Default cost tiers ($/sq m) based on PCI ranges.
-// FHWA treatment selection guidelines quote costs in $/sq yd;
-// values below are converted to $/sq m (÷9, then ×10.7639).
+// Updated to 2024 median urban municipal bid prices. Previous FHWA guidance
+// midpoints ($4.20/$13.78/$35.84) were 3-5x below current urban costs for
+// rehab and reconstruction. Preventive costs remain close to the FHWA range.
 type CostTier struct {
 	MinPCI     float64 `json:"min_pci"` // inclusive
 	MaxPCI     float64 `json:"max_pci"` // exclusive; last tier uses 101 as sentinel so PCI=100 matches via pci < 101
@@ -13,15 +14,15 @@ type CostTier struct {
 }
 
 var DefaultCostTiers = []CostTier{
-	{MinPCI: 70, MaxPCI: 101, CostPerSqM: 4.20, Label: "preventive"},    // FHWA $2-5/sq yd → ~$4.20/sq m
-	{MinPCI: 40, MaxPCI: 70, CostPerSqM: 13.78, Label: "rehab"},         // FHWA $8-15/sq yd → ~$13.78/sq m
-	{MinPCI: 0, MaxPCI: 40, CostPerSqM: 35.84, Label: "reconstruction"}, // FHWA $20-40/sq yd → ~$35.84/sq m
+	{MinPCI: 70, MaxPCI: 101, CostPerSqM: 5.00, Label: "preventive"},     // microsurfacing + crack seal (~$3-5/sq m)
+	{MinPCI: 40, MaxPCI: 70, CostPerSqM: 50.00, Label: "rehab"},          // mill & overlay ($30-72/sq m median)
+	{MinPCI: 0, MaxPCI: 40, CostPerSqM: 150.00, Label: "reconstruction"}, // full-depth reconstruction ($96-239/sq m median)
 }
 
 var DefaultSidewalkCostTiers = []CostTier{
-	{MinPCI: 70, MaxPCI: 101, CostPerSqM: 2.37, Label: "preventive"},    // crack sealing
-	{MinPCI: 40, MaxPCI: 70, CostPerSqM: 8.40, Label: "rehab"},          // panel replacement
-	{MinPCI: 0, MaxPCI: 40, CostPerSqM: 21.53, Label: "reconstruction"}, // full replacement
+	{MinPCI: 70, MaxPCI: 101, CostPerSqM: 3.00, Label: "preventive"},    // crack sealing, joint repair
+	{MinPCI: 40, MaxPCI: 70, CostPerSqM: 30.00, Label: "rehab"},         // panel replacement
+	{MinPCI: 0, MaxPCI: 40, CostPerSqM: 90.00, Label: "reconstruction"}, // full replacement
 }
 
 type StubCostProjector struct{}

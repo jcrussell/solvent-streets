@@ -73,48 +73,48 @@ func TestTieredCostProjector(t *testing.T) {
 	p := &TieredCostProjector{}
 
 	// At tier midpoints, cost equals the tier's exact rate
-	// Preventive midpoint: (70+100)/2 = 85 → $4.20/sqm
+	// Preventive midpoint: (70+100)/2 = 85 → $5.00/sqm
 	cost := p.ProjectCost(10000, 85)
-	if math.Abs(cost-42000) > 10 {
-		t.Errorf("PCI 85 (preventive midpoint): expected $42000, got %f", cost)
+	if math.Abs(cost-50000) > 10 {
+		t.Errorf("PCI 85 (preventive midpoint): expected $50000, got %f", cost)
 	}
-	// Rehab midpoint: (40+70)/2 = 55 → $13.78/sqm
+	// Rehab midpoint: (40+70)/2 = 55 → $50.00/sqm
 	cost = p.ProjectCost(10000, 55)
-	if math.Abs(cost-137800) > 10 {
-		t.Errorf("PCI 55 (rehab midpoint): expected $137800, got %f", cost)
+	if math.Abs(cost-500000) > 10 {
+		t.Errorf("PCI 55 (rehab midpoint): expected $500000, got %f", cost)
 	}
-	// Reconstruction midpoint: (0+40)/2 = 20 → $35.84/sqm
+	// Reconstruction midpoint: (0+40)/2 = 20 → $150.00/sqm
 	cost = p.ProjectCost(10000, 20)
-	if math.Abs(cost-358400) > 10 {
-		t.Errorf("PCI 20 (reconstruction midpoint): expected $358400, got %f", cost)
+	if math.Abs(cost-1500000) > 10 {
+		t.Errorf("PCI 20 (reconstruction midpoint): expected $1500000, got %f", cost)
 	}
 
 	// Between midpoints, cost is interpolated (no step-function jump)
-	// PCI 80: between anchors 85→$4.20 and 55→$13.78
-	// t = (85-80)/(85-55) = 5/30; cost = 4.20 + (5/30)*9.58 = ~$5.797/sqm → ~$57967
+	// PCI 80: between anchors 85→$5.00 and 55→$50.00
+	// t = (85-80)/(85-55) = 5/30; cost = 5.00 + (5/30)*45.00 = ~$12.50/sqm → ~$125000
 	cost = p.ProjectCost(10000, 80)
-	if math.Abs(cost-57967) > 1000 {
-		t.Errorf("PCI 80 (interpolated): expected ~$57967, got %f", cost)
+	if math.Abs(cost-125000) > 1000 {
+		t.Errorf("PCI 80 (interpolated): expected ~$125000, got %f", cost)
 	}
 
 	// At tier boundary (PCI 70), cost transitions smoothly
-	// Between anchors 85→$4.20 and 55→$13.78
-	// t = (85-70)/(85-55) = 15/30 = 0.5; cost = 4.20 + 0.5*9.58 = $8.99/sqm
+	// Between anchors 85→$5.00 and 55→$50.00
+	// t = (85-70)/(85-55) = 15/30 = 0.5; cost = 5.00 + 0.5*45.00 = $27.50/sqm
 	cost = p.ProjectCost(10000, 70)
-	if math.Abs(cost-89900) > 1000 {
-		t.Errorf("PCI 70 (boundary): expected ~$89900, got %f", cost)
+	if math.Abs(cost-275000) > 1000 {
+		t.Errorf("PCI 70 (boundary): expected ~$275000, got %f", cost)
 	}
 
 	// Above highest midpoint, clamped to preventive rate
 	cost = p.ProjectCost(10000, 100)
-	if math.Abs(cost-42000) > 10 {
-		t.Errorf("PCI 100 (clamped): expected $42000, got %f", cost)
+	if math.Abs(cost-50000) > 10 {
+		t.Errorf("PCI 100 (clamped): expected $50000, got %f", cost)
 	}
 
 	// Below lowest midpoint, clamped to reconstruction rate
 	cost = p.ProjectCost(10000, 5)
-	if math.Abs(cost-358400) > 10 {
-		t.Errorf("PCI 5 (clamped): expected $358400, got %f", cost)
+	if math.Abs(cost-1500000) > 10 {
+		t.Errorf("PCI 5 (clamped): expected $1500000, got %f", cost)
 	}
 }
 

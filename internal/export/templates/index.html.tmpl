@@ -438,8 +438,8 @@
     <div id="financials-tab" class="tab-content">
         <div class="financials">
             <div class="jurisdiction-toggle" id="scope-toggle" style="display:none">
-                <button class="active" data-scope="all">All Roads</button>
-                <button data-scope="city">City Roads Only</button>
+                <button class="active" data-scope="all">City Roads Only</button>
+                <button data-scope="bbox">All Roads</button>
             </div>
             <div class="scope-annotation" id="scope-annotation"></div>
             <div class="headlines" id="headlines" style="display:none">
@@ -1033,9 +1033,9 @@
 
             // Update annotation
             const annotation = document.getElementById('scope-annotation');
-            if (scope === 'city' && scenarioData.summary && scenarioData.summary.city_pct) {
+            if (scope === 'bbox' && scenarioData.summary && scenarioData.summary.city_pct) {
                 const pct = (scenarioData.summary.city_pct * 100).toFixed(0);
-                annotation.textContent = 'City roads: ' + pct + '% of total pavement area';
+                annotation.textContent = 'Includes state/federal roads — city roads are ' + pct + '% of total area';
                 annotation.classList.add('visible');
             } else {
                 annotation.classList.remove('visible');
@@ -1290,7 +1290,7 @@
                 scenarioData = { all: scenarios };
             } else {
                 scenarios = scenarioData.all;
-                if (scenarioData.city) {
+                if (scenarioData.bbox) {
                     document.getElementById('scope-toggle').style.display = 'flex';
                 }
             }
@@ -1341,7 +1341,7 @@
                     runCustomScenario();
                 } else if (forecastData) {
                     const roads = forecastData.find(f => f.resource_type === 'roads');
-                    const src = (scope === 'city' && roads && roads.city_baseline) ? roads.city_baseline : (roads && roads.baseline);
+                    const src = (scope === 'bbox' && roads && roads.bbox_baseline) ? roads.bbox_baseline : (roads && roads.baseline);
                     if (src && src.final_cohorts && src.final_cohorts.length > 1) {
                         renderCohortBreakdown(src.final_cohorts);
                     } else {
@@ -1413,14 +1413,15 @@
             });
 
             // Determine area and cohorts from current scope
+            // Default ("all") uses city-scoped data; "bbox" uses full bounding-box data
             const activeScope = document.querySelector('#scope-toggle button.active');
             const scope = activeScope ? activeScope.dataset.scope : 'all';
-            const area = (scope === 'city' && FORECAST_SEED.city_area_sqm > 0)
-                ? FORECAST_SEED.city_area_sqm
-                : FORECAST_SEED.total_area_sqm;
-            const seedCohorts = (scope === 'city' && FORECAST_SEED.city_cohorts && FORECAST_SEED.city_cohorts.length > 0)
-                ? FORECAST_SEED.city_cohorts
-                : (FORECAST_SEED.cohorts || []);
+            const area = (scope === 'bbox' || !FORECAST_SEED.city_area_sqm)
+                ? FORECAST_SEED.total_area_sqm
+                : FORECAST_SEED.city_area_sqm;
+            const seedCohorts = (scope === 'bbox' || !FORECAST_SEED.city_cohorts || FORECAST_SEED.city_cohorts.length === 0)
+                ? (FORECAST_SEED.cohorts || [])
+                : FORECAST_SEED.city_cohorts;
 
             // Compute baseline year-1 need to derive budget
             const baselineInput = {

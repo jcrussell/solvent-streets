@@ -141,6 +141,56 @@ func TestResolvedForecast(t *testing.T) {
 	}
 }
 
+func TestResolvedInitialPCI(t *testing.T) {
+	tests := []struct {
+		input float64
+		want  float64
+	}{
+		{0, 85.0},    // default
+		{77, 77.0},   // explicit
+		{-10, 85.0},  // negative → default
+		{150, 85.0},  // over 100 → default
+		{100, 100.0}, // boundary
+		{0.5, 0.5},   // small positive
+	}
+	for _, tt := range tests {
+		fc := &ForecastConfig{InitialPCI: tt.input}
+		got := fc.ResolvedInitialPCI()
+		if got != tt.want {
+			t.Errorf("ResolvedInitialPCI(%v) = %v, want %v", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestResolvedForecast_InitialPCI(t *testing.T) {
+	cfg := &Config{
+		Forecast: ForecastConfig{
+			InitialPCI: 85,
+			DecayRate:  0.05,
+		},
+	}
+
+	// Per-city override
+	city := &CityConfig{
+		Name:     "Test",
+		Forecast: &ForecastConfig{InitialPCI: 77},
+	}
+	fc := cfg.ResolvedForecast(city)
+	if fc.InitialPCI != 77 {
+		t.Errorf("expected InitialPCI 77, got %f", fc.InitialPCI)
+	}
+	if fc.DecayRate != 0.05 {
+		t.Errorf("expected inherited DecayRate 0.05, got %f", fc.DecayRate)
+	}
+
+	// No override — inherits top-level
+	cityNoOverride := &CityConfig{Name: "Default"}
+	fc2 := cfg.ResolvedForecast(cityNoOverride)
+	if fc2.InitialPCI != 85 {
+		t.Errorf("expected inherited InitialPCI 85, got %f", fc2.InitialPCI)
+	}
+}
+
 func TestResolvedHexEdge(t *testing.T) {
 	cfg := &Config{Grid: GridConfig{HexEdgeM: 100}}
 	city := &CityConfig{Name: "A"}
