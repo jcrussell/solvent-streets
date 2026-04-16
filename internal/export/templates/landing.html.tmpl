@@ -45,7 +45,7 @@
             transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
         }
         .card:hover { border-color: var(--card-hover); transform: translateY(-2px); box-shadow: var(--shadow-hover); }
-        .card h2 { font-size: 18px; color: var(--text-strong); margin-bottom: 8px; }
+        .card h3 { font-size: 18px; color: var(--text-strong); margin-bottom: 8px; }
         .card .cities { color: var(--text-muted); font-size: 13px; margin-bottom: 12px; }
         .card .meta {
             display: flex;
@@ -91,7 +91,7 @@
             <div class="grid">
                 {{range .Examples}}
                 <a class="card" href="./{{.Slug}}/">
-                    <h2>{{.Title}}</h2>
+                    <h3>{{.Title}}</h3>
                     <div class="cities">{{.CityNames}}</div>
                     <div class="meta">
                         <span>{{.CityCount}} {{if eq .CityCount 1}}city{{else}}cities{{end}}</span>

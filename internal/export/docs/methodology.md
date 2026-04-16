@@ -1,9 +1,9 @@
-# Methodology
+## Methodology
 
 This section describes the data sources, models, and assumptions behind the
 analysis presented in each dashboard.
 
-## Data sources
+### Data sources
 
 - **Road, parking, and sidewalk geometry.** OpenStreetMap via the Overpass
   API, under the Open Database License
@@ -20,7 +20,7 @@ analysis presented in each dashboard.
 The exact sources and endpoints used for a given example are listed in
 that example's **Config** tab.
 
-## Decay model
+### Decay model
 
 Each road classification decays independently via
 
@@ -39,7 +39,7 @@ averages and do not account for local climate, traffic, or
 construction quality. Sidewalks
 decay on a separate, slower track and are not treated as a highway class.
 
-## Cost model
+### Cost model
 
 Treatment costs are banded by PCI: each band has a representative
 `$/sq m` value, and costs between bands are linearly interpolated at the
@@ -53,7 +53,7 @@ measurements, and local bid prices will differ. Roads and sidewalks use
 independent cost tiers because the treatment economics differ
 substantially.
 
-## Scenario comparisons
+### Scenario comparisons
 
 PVMT ships with three comparison runs driven by annual funding level, all
 using the **worst-first** allocation strategy (budget is spent on the
@@ -78,7 +78,7 @@ that $1 of preventive maintenance is reported to avoid $6–$10 of future
 reconstruction — not to reproduce that benefit-cost ratio as a
 single-year spending efficiency.
 
-## Area growth
+### Area growth
 
 Optional **compound annual growth** applies to pavement area each year:
 
@@ -90,7 +90,7 @@ where `g` is configured per city (default zero). This lets an example
 model a city that is still expanding its street network; it does not
 model demolition or removal.
 
-## Assumptions and limitations
+### Assumptions and limitations
 
 - Initial PCI is a user-chosen stand-in, not a field measurement.
 - Decay-rate defaults are continental-US averages; local climate,
@@ -106,7 +106,7 @@ model demolition or removal.
   spend, not as a deterministic post-treatment PCI bump.
 - Output is a planning-grade estimate, not an engineering specification.
 
-## References
+### References
 
 - **FHWA-RD-01-156** — *Long-Term Pavement Performance*, Federal Highway
   Administration. Source for per-class decay-rate defaults.
