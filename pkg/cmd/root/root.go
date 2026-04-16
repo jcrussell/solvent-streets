@@ -42,52 +42,47 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 		return cfg.UnitSystem()
 	}
 
-	// Resource commands
-	const groupResource = "resource"
-	cmd.AddGroup(&cobra.Group{ID: groupResource, Title: "Resource commands:"})
-	roadsCmd := roads.NewCmdRoads(f)
-	roadsCmd.GroupID = groupResource
-	parkingCmd := parking.NewCmdParking(f)
-	parkingCmd.GroupID = groupResource
-	sidewalksCmd := sidewalks.NewCmdSidewalks(f)
-	sidewalksCmd.GroupID = groupResource
-	allCmd := all.NewCmdAll(f)
-	allCmd.GroupID = groupResource
-
-	cmd.AddCommand(roadsCmd)
-	cmd.AddCommand(parkingCmd)
-	cmd.AddCommand(sidewalksCmd)
-	cmd.AddCommand(allCmd)
-
-	// Server commands
-	cmd.AddGroup(&cobra.Group{ID: "server", Title: "Server commands:"})
-	serveCmd := serve.NewCmdServe(f, nil)
-	serveCmd.GroupID = "server"
-	cmd.AddCommand(serveCmd)
-
-	exportCmd := export.NewCmdExport(f, nil)
-	exportCmd.GroupID = "server"
-	cmd.AddCommand(exportCmd)
-
-	// Analysis commands
-	cmd.AddGroup(&cobra.Group{ID: "analysis", Title: "Analysis commands:"})
-	fcCmd := forecastcmd.NewCmdForecast(f, nil)
-	fcCmd.GroupID = "analysis"
-	cmd.AddCommand(fcCmd)
-
-	// Info commands
-	cmd.AddGroup(&cobra.Group{ID: "info", Title: "Info commands:"})
-	statusCmd := status.NewCmdStatus(f, nil, nil)
-	statusCmd.GroupID = "info"
-	cmd.AddCommand(statusCmd)
-
-	citiesCmd := cities.NewCmdCities(f, nil)
-	citiesCmd.GroupID = "info"
-	cmd.AddCommand(citiesCmd)
-
-	versionCmd := version.NewCmdVersion(f, nil)
-	versionCmd.GroupID = "info"
-	cmd.AddCommand(versionCmd)
+	addCommandGroups(cmd)
+	addSubcommands(cmd, f)
 
 	return cmd
+}
+
+const (
+	groupResource = "resource"
+	groupServer   = "server"
+	groupAnalysis = "analysis"
+	groupInfo     = "info"
+)
+
+func addCommandGroups(cmd *cobra.Command) {
+	cmd.AddGroup(&cobra.Group{ID: groupResource, Title: "Resource commands:"})
+	cmd.AddGroup(&cobra.Group{ID: groupServer, Title: "Server commands:"})
+	cmd.AddGroup(&cobra.Group{ID: groupAnalysis, Title: "Analysis commands:"})
+	cmd.AddGroup(&cobra.Group{ID: groupInfo, Title: "Info commands:"})
+}
+
+func addGroupedCommand(cmd *cobra.Command, sub *cobra.Command, group string) {
+	sub.GroupID = group
+	cmd.AddCommand(sub)
+}
+
+func addSubcommands(cmd *cobra.Command, f *cmdutil.Factory) {
+	// Resource commands
+	addGroupedCommand(cmd, roads.NewCmdRoads(f), groupResource)
+	addGroupedCommand(cmd, parking.NewCmdParking(f), groupResource)
+	addGroupedCommand(cmd, sidewalks.NewCmdSidewalks(f), groupResource)
+	addGroupedCommand(cmd, all.NewCmdAll(f), groupResource)
+
+	// Server commands
+	addGroupedCommand(cmd, serve.NewCmdServe(f, nil), groupServer)
+	addGroupedCommand(cmd, export.NewCmdExport(f, nil), groupServer)
+
+	// Analysis commands
+	addGroupedCommand(cmd, forecastcmd.NewCmdForecast(f, nil), groupAnalysis)
+
+	// Info commands
+	addGroupedCommand(cmd, status.NewCmdStatus(f, nil, nil), groupInfo)
+	addGroupedCommand(cmd, cities.NewCmdCities(f, nil), groupInfo)
+	addGroupedCommand(cmd, version.NewCmdVersion(f, nil), groupInfo)
 }

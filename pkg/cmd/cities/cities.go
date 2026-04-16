@@ -74,35 +74,7 @@ func runCities(ctx context.Context, opts *Options) error {
 
 	rows := make([]cityRow, 0, len(list))
 	for _, c := range list {
-		store := root.ForCity(c.ID)
-		row := cityRow{
-			Slug:     c.Slug,
-			Name:     c.Name,
-			Features: make(map[string]int, len(resource.All)),
-		}
-		var latestIngest, latestCompute time.Time
-		for _, rt := range resource.All {
-			info, err := store.Stats(ctx, rt.Name())
-			if err != nil {
-				fmt.Fprintf(ios.ErrOut, "Warning: %s/%s: %v\n", c.Slug, rt.Name(), err)
-				continue
-			}
-			row.Features[rt.Name()] = info.FeatureCount
-			row.TotalAreaSqM += info.TotalAreaSqM
-			if info.LastIngestAt != nil && info.LastIngestAt.After(latestIngest) {
-				latestIngest = *info.LastIngestAt
-			}
-			if info.LastComputeAt != nil && info.LastComputeAt.After(latestCompute) {
-				latestCompute = *info.LastComputeAt
-			}
-		}
-		if !latestIngest.IsZero() {
-			row.LastIngest = latestIngest.Format(time.RFC3339)
-		}
-		if !latestCompute.IsZero() {
-			row.LastCompute = latestCompute.Format(time.RFC3339)
-		}
-		rows = append(rows, row)
+		rows = append(rows, buildCityRow(ctx, root.ForCity(c.ID), c, ios))
 	}
 
 	if opts.Exporter != nil {
@@ -130,6 +102,37 @@ func runCities(ctx context.Context, opts *Options) error {
 		)
 	}
 	return tp.Render()
+}
+
+func buildCityRow(ctx context.Context, store db.Store, c db.City, ios *iostreams.IOStreams) cityRow {
+	row := cityRow{
+		Slug:     c.Slug,
+		Name:     c.Name,
+		Features: make(map[string]int, len(resource.All)),
+	}
+	var latestIngest, latestCompute time.Time
+	for _, rt := range resource.All {
+		info, err := store.Stats(ctx, rt.Name())
+		if err != nil {
+			fmt.Fprintf(ios.ErrOut, "Warning: %s/%s: %v\n", c.Slug, rt.Name(), err)
+			continue
+		}
+		row.Features[rt.Name()] = info.FeatureCount
+		row.TotalAreaSqM += info.TotalAreaSqM
+		if info.LastIngestAt != nil && info.LastIngestAt.After(latestIngest) {
+			latestIngest = *info.LastIngestAt
+		}
+		if info.LastComputeAt != nil && info.LastComputeAt.After(latestCompute) {
+			latestCompute = *info.LastComputeAt
+		}
+	}
+	if !latestIngest.IsZero() {
+		row.LastIngest = latestIngest.Format(time.RFC3339)
+	}
+	if !latestCompute.IsZero() {
+		row.LastCompute = latestCompute.Format(time.RFC3339)
+	}
+	return row
 }
 
 func formatTimestamp(raw string, isTTY bool) string {
