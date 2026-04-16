@@ -3,6 +3,7 @@ package root
 import (
 	"pvmt/internal/units"
 	"pvmt/pkg/cmd/all"
+	"pvmt/pkg/cmd/cities"
 	"pvmt/pkg/cmd/export"
 	forecastcmd "pvmt/pkg/cmd/forecast"
 	"pvmt/pkg/cmd/parking"
@@ -79,6 +80,10 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 	statusCmd := status.NewCmdStatus(f, nil, nil)
 	statusCmd.GroupID = "info"
 	cmd.AddCommand(statusCmd)
+
+	citiesCmd := cities.NewCmdCities(f, nil)
+	citiesCmd.GroupID = "info"
+	cmd.AddCommand(citiesCmd)
 
 	versionCmd := version.NewCmdVersion(f, nil)
 	versionCmd.GroupID = "info"
