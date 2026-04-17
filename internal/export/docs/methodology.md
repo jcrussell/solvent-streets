@@ -7,7 +7,10 @@ analysis presented in each dashboard.
 
 - **Road, parking, and sidewalk geometry.** OpenStreetMap via the Overpass
   API, under the Open Database License
-  ([ODbL](https://www.openstreetmap.org/copyright)).
+  ([ODbL](https://www.openstreetmap.org/copyright)). When a city has no
+  ArcGIS or local-layer source configured, OSM is the sole source and
+  coverage inherits OSM's gaps — most notably uneven sidewalk tagging and
+  inconsistent classification of alleys and unpaved service roads.
 - **Jurisdictional layers.** Optional ArcGIS FeatureService endpoints
   configured per city in `pvmt.toml`.
 - **City boundaries.** Nominatim lookups or user-supplied GeoJSON,

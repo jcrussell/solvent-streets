@@ -60,6 +60,8 @@ cost_per_sqm = 150.0
 label = "Critical"
 ```
 
+Cost values are calibration inputs, not measurements — the shipped defaults come from FHWA treatment-selection guidance and are continental-US averages. Start with the defaults and only override per city when local bid tabs differ materially. Because tiers interpolate linearly at tier midpoints (not step-wise), the forecast is less sensitive to any single tier's value than it looks; bulk shifts across tiers matter more than boundary tweaks.
+
 ## Database location
 
 `~/.local/share/pvmt/pvmt.db`. Single file for all cities. WAL mode for concurrent readers.

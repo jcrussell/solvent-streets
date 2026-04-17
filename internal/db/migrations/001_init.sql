@@ -31,7 +31,7 @@ CREATE INDEX IF NOT EXISTS idx_features_city ON features(city_id);
 
 CREATE TABLE IF NOT EXISTS snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    city_id INTEGER NOT NULL DEFAULT 1 REFERENCES cities(id),
+    city_id INTEGER NOT NULL REFERENCES cities(id),
     computed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     config_hash TEXT NOT NULL DEFAULT ''
 );

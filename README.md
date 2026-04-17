@@ -25,7 +25,7 @@ name = "Alameda, CA"
 overpass = true
 ```
 
-Run the pipeline:
+Live view of a single resource:
 
 ```
 pvmt roads ingest
@@ -34,6 +34,17 @@ pvmt serve
 ```
 
 Open http://localhost:8080.
+
+Full pipeline — all resources, forecast, and a deployable static site:
+
+```
+pvmt all ingest
+pvmt all compute
+pvmt forecast
+pvmt export ./site
+```
+
+`./site` is a self-contained folder you can deploy to GitHub Pages or any static host.
 
 Use `pvmt --help` and `pvmt <command> --help` for full usage.
 
