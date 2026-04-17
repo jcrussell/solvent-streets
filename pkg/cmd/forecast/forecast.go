@@ -109,9 +109,9 @@ func buildForecastCohorts(ctx context.Context, rt resource.ResourceType, areaSqM
 
 func renderBaselineTable(ios *iostreams.IOStreams, rt resource.ResourceType, areaSqM, currentPCI float64,
 	baseline fcpkg.ScenarioResult, totalDeferredCost float64, years int, sys units.System) error {
-	fmt.Fprintf(ios.Out, "=== %s ===\n", rt.Name())
-	fmt.Fprintf(ios.Out, "  Current area: %s (%s)\n", units.FormatArea(areaSqM, sys), units.FormatAreaLarge(areaSqM, sys))
-	fmt.Fprintf(ios.Out, "  Initial PCI: %.0f\n\n", currentPCI)
+	fmt.Fprintf(ios.ErrOut, "=== %s ===\n", rt.Name())
+	fmt.Fprintf(ios.ErrOut, "  Current area: %s (%s)\n", units.FormatArea(areaSqM, sys), units.FormatAreaLarge(areaSqM, sys))
+	fmt.Fprintf(ios.ErrOut, "  Initial PCI: %.0f\n\n", currentPCI)
 
 	tp := iostreams.NewTablePrinter(ios)
 	tp.AddHeader("Year", "PCI", units.AreaLargeLabel(sys), "Treatment Cost", "Tier")
@@ -129,10 +129,10 @@ func renderBaselineTable(ios *iostreams.IOStreams, rt resource.ResourceType, are
 	if err := tp.Render(); err != nil {
 		return err
 	}
-	fmt.Fprintf(ios.Out, "\n  Total %d-year deferred maintenance: $%.0f\n\n", years, totalDeferredCost)
+	fmt.Fprintf(ios.ErrOut, "\n  Total %d-year deferred maintenance: $%.0f\n\n", years, totalDeferredCost)
 
 	if len(baseline.FinalCohorts) > 1 {
-		fmt.Fprintf(ios.Out, "  Cohort Breakdown:\n")
+		fmt.Fprintf(ios.ErrOut, "  Cohort Breakdown:\n")
 		cp := iostreams.NewTablePrinter(ios)
 		cp.AddHeader("Classification", "Area %", "Decay Rate", "End PCI")
 		for _, c := range baseline.FinalCohorts {
@@ -150,7 +150,7 @@ func renderBaselineTable(ios *iostreams.IOStreams, rt resource.ResourceType, are
 		if err := cp.Render(); err != nil {
 			return err
 		}
-		fmt.Fprintln(ios.Out)
+		fmt.Fprintln(ios.ErrOut)
 	}
 	return nil
 }
@@ -165,7 +165,7 @@ func renderScenarioComparisons(ios *iostreams.IOStreams, baseline fcpkg.Scenario
 		params.Cost, params.Growth)
 
 	for _, comp := range comparisons {
-		fmt.Fprintf(ios.Out, "  --- %s ---\n", comp.Title)
+		fmt.Fprintf(ios.ErrOut, "  --- %s ---\n", comp.Title)
 		tp := iostreams.NewTablePrinter(ios)
 		tp.AddHeader("Scenario", "End PCI", "Annual Budget", "20yr Backlog")
 		for _, sr := range comp.Scenarios {
@@ -184,7 +184,7 @@ func renderScenarioComparisons(ios *iostreams.IOStreams, baseline fcpkg.Scenario
 		if err := tp.Render(); err != nil {
 			return err
 		}
-		fmt.Fprintln(ios.Out)
+		fmt.Fprintln(ios.ErrOut)
 	}
 	return nil
 }
@@ -212,7 +212,7 @@ func runForecast(ctx context.Context, opts *Options) error {
 	costTiers := convertCostTiers(&fc)
 	sys := opts.UnitSystem()
 
-	fmt.Fprintf(ios.Out, "Running %d-year forecast for %s...\n\n", years, city.Name)
+	fmt.Fprintf(ios.ErrOut, "Running %d-year forecast for %s...\n\n", years, city.Name)
 
 	allResults, err := forecastAllResources(ctx, opts, store, &fc, years, costTiers, sys)
 	if err != nil {

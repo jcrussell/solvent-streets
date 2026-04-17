@@ -9,6 +9,8 @@ type UTMProjector struct {
 	Northern bool // true for northern hemisphere
 }
 
+var _ Projector = (*UTMProjector)(nil)
+
 // NewUTMProjector creates a UTM projector for the given lon/lat center point.
 func NewUTMProjector(lon, lat float64) *UTMProjector {
 	zone := int(math.Floor((lon+180)/6)) + 1

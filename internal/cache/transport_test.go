@@ -15,7 +15,7 @@ func TestCachingTransport_HitAndMiss(t *testing.T) {
 		callCount++
 		_, _ = w.Write([]byte(`{"data":"hello"}`))
 	}))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 
 	dir := t.TempDir()
 
@@ -62,7 +62,7 @@ func TestCachingTransport_ForceBypass(t *testing.T) {
 		callCount++
 		_, _ = w.Write([]byte(`{"n":` + string(rune('0'+callCount)) + `}`))
 	}))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 
 	dir := t.TempDir()
 

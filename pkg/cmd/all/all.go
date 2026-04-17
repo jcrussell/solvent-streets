@@ -56,7 +56,7 @@ func newAllCompute(f *cmdutil.Factory) *cobra.Command {
 
 func forEachResource(ios *iostreams.IOStreams, fn func(resource.ResourceType) error) error {
 	for _, rt := range resource.All {
-		fmt.Fprintf(ios.Out, "\n--- %s ---\n", rt.Name())
+		fmt.Fprintf(ios.ErrOut, "\n--- %s ---\n", rt.Name())
 		if err := fn(rt); err != nil {
 			if errors.Is(err, cmdutil.ErrNoResults) {
 				continue

@@ -147,11 +147,11 @@ func printCitySummary(ctx context.Context, ios *iostreams.IOStreams, store db.St
 	for _, r := range rows {
 		totalPavedSqM += r.AreaSqM
 	}
-	fmt.Fprintf(ios.Out, "\n=== City Summary ===\n")
-	fmt.Fprintf(ios.Out, "  City Area:    %s (%s)\n", units.FormatAreaLarge(cityAreaSqM, sys), units.FormatAreaVeryLarge(cityAreaSqM, sys))
-	fmt.Fprintf(ios.Out, "  Paved Area:   %s (%s)\n", units.FormatAreaLarge(totalPavedSqM, sys), units.FormatAreaVeryLarge(totalPavedSqM, sys))
+	fmt.Fprintf(ios.ErrOut, "\n=== City Summary ===\n")
+	fmt.Fprintf(ios.ErrOut, "  City Area:    %s (%s)\n", units.FormatAreaLarge(cityAreaSqM, sys), units.FormatAreaVeryLarge(cityAreaSqM, sys))
+	fmt.Fprintf(ios.ErrOut, "  Paved Area:   %s (%s)\n", units.FormatAreaLarge(totalPavedSqM, sys), units.FormatAreaVeryLarge(totalPavedSqM, sys))
 	if totalPavedSqM > 0 {
-		fmt.Fprintf(ios.Out, "  %% Paved:      %.1f%%\n", totalPavedSqM/cityAreaSqM*100)
+		fmt.Fprintf(ios.ErrOut, "  %% Paved:      %.1f%%\n", totalPavedSqM/cityAreaSqM*100)
 	}
 }
 
@@ -160,13 +160,13 @@ func printSnapshotHistory(ctx context.Context, ios *iostreams.IOStreams, store d
 	if err != nil || len(snapshots) == 0 {
 		return
 	}
-	fmt.Fprintf(ios.Out, "\n=== Snapshots ===\n")
+	fmt.Fprintf(ios.ErrOut, "\n=== Snapshots ===\n")
 	limit := min(len(snapshots), 5)
 	for _, s := range snapshots[:limit] {
-		fmt.Fprintf(ios.Out, "  #%d  %s  (%s)\n", s.ID, s.ComputedAt.Format(time.RFC3339), iostreams.RelativeTime(s.ComputedAt))
+		fmt.Fprintf(ios.ErrOut, "  #%d  %s  (%s)\n", s.ID, s.ComputedAt.Format(time.RFC3339), iostreams.RelativeTime(s.ComputedAt))
 	}
 	if len(snapshots) > 5 {
-		fmt.Fprintf(ios.Out, "  ... and %d more\n", len(snapshots)-5)
+		fmt.Fprintf(ios.ErrOut, "  ... and %d more\n", len(snapshots)-5)
 	}
 }
 

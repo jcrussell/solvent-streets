@@ -88,7 +88,7 @@ func runIngest(ctx context.Context, opts *Options) error {
 	// Fetch city boundary from Nominatim (cached: skip if already stored)
 	boundaryGJSON, _ := store.GetBoundary(ctx)
 	if boundaryGJSON == "" || opts.Force {
-		fmt.Fprintf(ios.Out, "Fetching boundary for %s from Nominatim...\n", city.Name)
+		fmt.Fprintf(ios.ErrOut, "Fetching boundary for %s from Nominatim...\n", city.Name)
 		boundaryGJSON, err = ingestpkg.FetchCityBoundary(ctx, client, city.Name)
 		if err != nil {
 			return fmt.Errorf("fetch boundary: %w", err)
@@ -96,9 +96,9 @@ func runIngest(ctx context.Context, opts *Options) error {
 		if err := store.SaveBoundary(ctx, boundaryGJSON, "nominatim"); err != nil {
 			return fmt.Errorf("save boundary: %w", err)
 		}
-		fmt.Fprintf(ios.Out, "  Boundary saved.\n")
+		fmt.Fprintf(ios.ErrOut, "  Boundary saved.\n")
 	} else {
-		fmt.Fprintf(ios.Out, "Using cached boundary for %s (use --force to refresh).\n", city.Name)
+		fmt.Fprintf(ios.ErrOut, "Using cached boundary for %s (use --force to refresh).\n", city.Name)
 	}
 
 	// Derive bbox from boundary polygon
@@ -109,23 +109,24 @@ func runIngest(ctx context.Context, opts *Options) error {
 
 	arcgisURL := city.ArcGISURL
 
+	srcOpts := ingestpkg.Options{Progress: ios.ErrOut}
 	var sources []ingestpkg.Source
 	if opts.Source == "all" {
-		sources = ingestpkg.AllSources(bbox, arcgisURL)
+		sources = ingestpkg.AllSources(bbox, arcgisURL, srcOpts)
 	} else {
-		src, _ := ingestpkg.SourceByName(opts.Source, bbox, arcgisURL)
+		src, _ := ingestpkg.SourceByName(opts.Source, bbox, arcgisURL, srcOpts)
 		sources = []ingestpkg.Source{src}
 	}
 
 	var allFeatures []db.Feature
 	for _, src := range sources {
-		fmt.Fprintf(ios.Out, "Fetching %s data from %s for %s...\n", opts.ResourceType.Name(), src.Name(), city.Name)
+		fmt.Fprintf(ios.ErrOut, "Fetching %s data from %s for %s...\n", opts.ResourceType.Name(), src.Name(), city.Name)
 		features, err := src.Fetch(ctx, client, opts.ResourceType)
 		if err != nil {
 			fmt.Fprintf(ios.ErrOut, "Warning: %s fetch failed: %v\n", src.Name(), err)
 			continue
 		}
-		fmt.Fprintf(ios.Out, "  Got %d features from %s\n", len(features), src.Name())
+		fmt.Fprintf(ios.ErrOut, "  Got %d features from %s\n", len(features), src.Name())
 		allFeatures = append(allFeatures, features...)
 	}
 
@@ -134,11 +135,11 @@ func runIngest(ctx context.Context, opts *Options) error {
 		return cmdutil.ErrNoResults
 	}
 
-	fmt.Fprintf(ios.Out, "Saving %d features to database...\n", len(allFeatures))
+	fmt.Fprintf(ios.ErrOut, "Saving %d features to database...\n", len(allFeatures))
 	if err := store.UpsertFeatures(ctx, opts.ResourceType.Name(), allFeatures); err != nil {
 		return fmt.Errorf("save features: %w", err)
 	}
 
-	fmt.Fprintf(ios.Out, "Done. Ingested %d %s features.\n", len(allFeatures), opts.ResourceType.Name())
+	fmt.Fprintf(ios.ErrOut, "Done. Ingested %d %s features.\n", len(allFeatures), opts.ResourceType.Name())
 	return nil
 }

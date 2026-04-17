@@ -27,6 +27,11 @@ var DefaultSidewalkCostTiers = []CostTier{
 
 type StubCostProjector struct{}
 
+var (
+	_ CostProjector = (*StubCostProjector)(nil)
+	_ CostProjector = (*TieredCostProjector)(nil)
+)
+
 func (s *StubCostProjector) ProjectCost(areaSqM float64, pci float64) float64 {
 	return 0
 }

@@ -9,18 +9,18 @@ import (
 var testBBox = [4]float64{37.64, -121.84, 37.72, -121.68}
 
 func TestAllSources(t *testing.T) {
-	sources := AllSources(testBBox, "")
+	sources := AllSources(testBBox, "", Options{})
 	if len(sources) != 1 {
 		t.Fatalf("expected 1 source without arcgis URL, got %d", len(sources))
 	}
-	sources = AllSources(testBBox, "https://example.com/arcgis")
+	sources = AllSources(testBBox, "https://example.com/arcgis", Options{})
 	if len(sources) != 2 {
 		t.Fatalf("expected 2 sources with arcgis URL, got %d", len(sources))
 	}
 }
 
 func TestSourceByName_Overpass(t *testing.T) {
-	src, err := SourceByName("overpass", testBBox, "")
+	src, err := SourceByName("overpass", testBBox, "", Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +30,7 @@ func TestSourceByName_Overpass(t *testing.T) {
 }
 
 func TestSourceByName_Unknown(t *testing.T) {
-	_, err := SourceByName("bogus", testBBox, "")
+	_, err := SourceByName("bogus", testBBox, "", Options{})
 	if err == nil {
 		t.Error("expected error for unknown source")
 	}

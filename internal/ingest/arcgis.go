@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strconv"
 	"time"
 
@@ -22,8 +21,18 @@ const arcgisMaxPages = 200 // safety limit: 200 pages × 5000 = 1M features max
 const defaultArcGISCenterlines = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Alameda_County_Street_Centerlines/FeatureServer/0/query"
 
 type ArcGISSource struct {
-	BBox [4]float64 // [south, west, north, east]
-	URL  string     // custom ArcGIS endpoint; empty uses default
+	BBox     [4]float64 // [south, west, north, east]
+	URL      string     // custom ArcGIS endpoint; empty uses default
+	Progress io.Writer  // pagination progress sink; nil discards
+}
+
+var _ Source = (*ArcGISSource)(nil)
+
+func (s *ArcGISSource) progress() io.Writer {
+	if s.Progress == nil {
+		return io.Discard
+	}
+	return s.Progress
 }
 
 func (s *ArcGISSource) Name() string { return "arcgis" }
@@ -59,7 +68,7 @@ func (s *ArcGISSource) Fetch(ctx context.Context, client *http.Client, rt resour
 			break // last page
 		}
 		offset += len(features)
-		fmt.Fprintf(os.Stderr, "ArcGIS: fetched %d features so far, requesting next page at offset %d...\n", len(allFeatures), offset)
+		fmt.Fprintf(s.progress(), "ArcGIS: fetched %d features so far, requesting next page at offset %d...\n", len(allFeatures), offset)
 	}
 
 	return allFeatures, nil

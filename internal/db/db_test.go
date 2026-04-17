@@ -169,7 +169,7 @@ func TestCityIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = root.Close() }()
+	t.Cleanup(func() { _ = root.Close() })
 
 	id1, err := root.EnsureCity(ctx, "city-a", "City A")
 	if err != nil {
@@ -213,7 +213,7 @@ func TestEnsureCityIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = root.Close() }()
+	t.Cleanup(func() { _ = root.Close() })
 
 	id1, err := root.EnsureCity(ctx, "livermore-ca", "Livermore, CA")
 	if err != nil {
@@ -234,7 +234,7 @@ func TestForeignKeyEnforcement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = root.Close() }()
+	t.Cleanup(func() { _ = root.Close() })
 
 	// Use a city_id that doesn't exist in the cities table.
 	bogus := root.ForCity(9999)
@@ -252,7 +252,7 @@ func TestListCities(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = root.Close() }()
+	t.Cleanup(func() { _ = root.Close() })
 
 	// Migration seeds a "default" city, so start by counting baseline.
 	baseline, err := root.ListCities(ctx)

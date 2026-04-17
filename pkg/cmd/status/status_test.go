@@ -127,7 +127,7 @@ func TestRunStatus_CitySummary(t *testing.T) {
 			return boundaryGJSON, nil
 		},
 	}
-	ios, _, stdout, _ := iostreams.Test()
+	ios, _, _, stderr := iostreams.Test()
 	ios.SetTTY(true)
 	f := &cmdutil.Factory{
 		IOStreams:  ios,
@@ -142,18 +142,18 @@ func TestRunStatus_CitySummary(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	output := stdout.String()
+	output := stderr.String()
 	if !strings.Contains(output, "City Summary") {
-		t.Errorf("expected City Summary in output, got: %s", output)
+		t.Errorf("expected City Summary in stderr, got: %s", output)
 	}
 	if !strings.Contains(output, "City Area:") {
-		t.Errorf("expected City Area in output, got: %s", output)
+		t.Errorf("expected City Area in stderr, got: %s", output)
 	}
 	if !strings.Contains(output, "Paved Area:") {
-		t.Errorf("expected Paved Area in output, got: %s", output)
+		t.Errorf("expected Paved Area in stderr, got: %s", output)
 	}
 	if !strings.Contains(output, "% Paved:") {
-		t.Errorf("expected %% Paved in output, got: %s", output)
+		t.Errorf("expected %% Paved in stderr, got: %s", output)
 	}
 }
 

@@ -2,29 +2,30 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
-	"os"
-	"os/signal"
 	"sync"
-	"syscall"
 	"time"
 
 	"pvmt/internal/export"
+	"pvmt/pkg/iostreams"
 )
 
 type Server struct {
 	cities []export.CityEntry
 	port   int
+	ios    *iostreams.IOStreams
 	cache  sync.Map // key → cached JSON bytes; never invalidated — restart server after data changes
 }
 
-func New(cities []export.CityEntry, port int) *Server {
-	return &Server{cities: cities, port: port}
+func New(cities []export.CityEntry, port int, ios *iostreams.IOStreams) *Server {
+	return &Server{cities: cities, port: port, ios: ios}
 }
 
-func (s *Server) ListenAndServe() error {
+func (s *Server) ListenAndServe(ctx context.Context) error {
 	mux := http.NewServeMux()
 
 	if len(s.cities) == 1 {
@@ -43,7 +44,7 @@ func (s *Server) ListenAndServe() error {
 	mux.HandleFunc("GET /wasm_exec.js", s.handleWasmExecJS)
 	mux.HandleFunc("GET /forecast.wasm", s.handleForecastWasm)
 
-	handler := corsMiddleware(recoveryMiddleware(mux))
+	handler := corsMiddleware(recoveryMiddleware(mux, s.ios.ErrOut))
 
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", s.port),
@@ -53,30 +54,31 @@ func (s *Server) ListenAndServe() error {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", srv.Addr)
+	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", srv.Addr)
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "Serving on http://localhost:%d\n", s.port)
+	fmt.Fprintf(s.ios.ErrOut, "Serving on http://localhost:%d\n", s.port)
 
-	// Graceful shutdown
+	// Graceful shutdown: Serve runs in a goroutine; whichever of ctx
+	// cancellation or Serve returning first wins.
 	done := make(chan error, 1)
 	go func() {
 		done <- srv.Serve(ln)
 	}()
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-
 	select {
-	case sig := <-quit:
-		fmt.Fprintf(os.Stderr, "\nReceived %s, shutting down...\n", sig)
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	case <-ctx.Done():
+		fmt.Fprintln(s.ios.ErrOut, "\nshutting down...")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		return srv.Shutdown(ctx)
+		return srv.Shutdown(shutdownCtx)
 	case err := <-done:
-		return err
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		return nil
 	}
 }
 
@@ -102,11 +104,11 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func recoveryMiddleware(next http.Handler) http.Handler {
+func recoveryMiddleware(next http.Handler, errOut io.Writer) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if err := recover(); err != nil {
-				fmt.Fprintf(os.Stderr, "panic: %v\n", err)
+				fmt.Fprintf(errOut, "panic: %v\n", err)
 				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			}
 		}()

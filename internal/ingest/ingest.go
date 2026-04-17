@@ -3,6 +3,7 @@ package ingest
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 
 	"pvmt/internal/db"
@@ -14,18 +15,25 @@ type Source interface {
 	Fetch(ctx context.Context, client *http.Client, rt resource.ResourceType) ([]db.Feature, error)
 }
 
-func AllSources(bbox [4]float64, arcgisURL string) []Source {
+// Options configures optional behavior applied to the sources returned by
+// AllSources / SourceByName. Zero value is valid — progress writes are
+// discarded when Progress is nil.
+type Options struct {
+	Progress io.Writer
+}
+
+func AllSources(bbox [4]float64, arcgisURL string, opts Options) []Source {
 	sources := []Source{
 		&OverpassSource{BBox: bbox},
 	}
 	if arcgisURL != "" {
-		sources = append(sources, &ArcGISSource{BBox: bbox, URL: arcgisURL})
+		sources = append(sources, &ArcGISSource{BBox: bbox, URL: arcgisURL, Progress: opts.Progress})
 	}
 	return sources
 }
 
-func SourceByName(name string, bbox [4]float64, arcgisURL string) (Source, error) {
-	for _, s := range AllSources(bbox, arcgisURL) {
+func SourceByName(name string, bbox [4]float64, arcgisURL string, opts Options) (Source, error) {
+	for _, s := range AllSources(bbox, arcgisURL, opts) {
 		if s.Name() == name {
 			return s, nil
 		}

@@ -68,6 +68,6 @@ func runServe(ctx context.Context, opts *Options) error {
 		return err
 	}
 
-	srv := server.New(entries, opts.Port)
-	return srv.ListenAndServe()
+	srv := server.New(entries, opts.Port, opts.IO)
+	return srv.ListenAndServe(ctx)
 }

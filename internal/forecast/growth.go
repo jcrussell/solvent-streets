@@ -2,6 +2,11 @@ package forecast
 
 type StubGrowthEstimator struct{}
 
+var (
+	_ GrowthEstimator = (*StubGrowthEstimator)(nil)
+	_ GrowthEstimator = (*LinearGrowthEstimator)(nil)
+)
+
 func (s *StubGrowthEstimator) EstimateGrowth(currentAreaSqM float64, years int) []float64 {
 	result := make([]float64, years)
 	for i := range result {

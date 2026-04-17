@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -50,7 +51,7 @@ func TestRecoveryMiddleware_Panic(t *testing.T) {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		panic("test panic")
 	})
-	handler := recoveryMiddleware(inner)
+	handler := recoveryMiddleware(inner, io.Discard)
 
 	req, _ := http.NewRequestWithContext(context.Background(), "GET", "/", nil)
 	w := httptest.NewRecorder()

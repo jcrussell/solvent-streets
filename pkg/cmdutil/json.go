@@ -83,6 +83,12 @@ func (e *baseExporter) Fields() []string {
 	return e.fields
 }
 
+var (
+	_ Exporter = (*jsonExporter)(nil)
+	_ Exporter = (*jqFilterExporter)(nil)
+	_ Exporter = (*templateExporter)(nil)
+)
+
 type jsonExporter struct {
 	baseExporter
 }

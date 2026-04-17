@@ -13,6 +13,15 @@ import (
 	"pvmt/internal/units"
 )
 
+// Sentinels for failure modes that warrant a remediation hint at the call
+// site. Declared here (not in cmdutil) to avoid an import cycle: cmdutil
+// imports config. Callers detect these with errors.Is and wrap with
+// cmdutil.Hintf before returning to the runner.
+var (
+	ErrConfigNotFound = errors.New("pvmt.toml not found (searched from working directory to root)")
+	ErrNoCities       = errors.New("at least one [[cities]] entry is required")
+)
+
 type Config struct {
 	Grid     GridConfig     `toml:"grid"`
 	Display  DisplayConfig  `toml:"display"`
@@ -181,12 +190,12 @@ func FindAndLoad(dir string) (*Config, error) {
 		}
 		dir = parent
 	}
-	return nil, errors.New("pvmt.toml not found (searched from working directory to root)")
+	return nil, ErrConfigNotFound
 }
 
 func (c *Config) validate() error {
 	if len(c.Cities) == 0 {
-		return errors.New("at least one [[cities]] entry is required")
+		return ErrNoCities
 	}
 	seen := make(map[string]bool)
 	for i, city := range c.Cities {

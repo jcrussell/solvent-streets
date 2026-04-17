@@ -188,7 +188,7 @@ func TestFetch_Pagination(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(body)
 	}))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 
 	src := &ArcGISSource{
 		BBox: [4]float64{37.0, -122.0, 38.0, -121.0},
@@ -222,7 +222,7 @@ func TestFetch_SinglePage(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(makeArcGISFeatures(10, 1))
 	}))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 
 	src := &ArcGISSource{
 		BBox: [4]float64{37.0, -122.0, 38.0, -121.0},
@@ -245,7 +245,7 @@ func TestFetch_EmptyResponse(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"features": []}`))
 	}))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 
 	src := &ArcGISSource{
 		BBox: [4]float64{37.0, -122.0, 38.0, -121.0},

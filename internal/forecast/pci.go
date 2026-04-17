@@ -35,6 +35,11 @@ var DefaultDecayRates = func() map[string]float64 {
 
 type StubPCIForecaster struct{}
 
+var (
+	_ PCIForecaster = (*StubPCIForecaster)(nil)
+	_ PCIForecaster = (*ExponentialPCIForecaster)(nil)
+)
+
 func (s *StubPCIForecaster) Forecast(currentPCI float64, years int) []float64 {
 	result := make([]float64, years)
 	for i := range result {

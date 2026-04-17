@@ -10,7 +10,7 @@ import (
 
 func TestUserAgentTransport_SetsHeader(t *testing.T) {
 	reg := httpmock.NewRegistry()
-	defer reg.Verify(t)
+	t.Cleanup(func() { reg.Verify(t) })
 	reg.Register("GET", "http://example.com", 200, "ok")
 
 	transport := UserAgentTransport(reg)
@@ -30,7 +30,7 @@ func TestUserAgentTransport_SetsHeader(t *testing.T) {
 
 func TestUserAgentTransport_ClonesRequest(t *testing.T) {
 	reg := httpmock.NewRegistry()
-	defer reg.Verify(t)
+	t.Cleanup(func() { reg.Verify(t) })
 	reg.Register("GET", "http://example.com", 200, "ok")
 
 	transport := UserAgentTransport(reg)
@@ -51,7 +51,7 @@ func TestUserAgentTransport_ClonesRequest(t *testing.T) {
 
 func TestRetryTransport_NoRetryOn200(t *testing.T) {
 	reg := httpmock.NewRegistry()
-	defer reg.Verify(t)
+	t.Cleanup(func() { reg.Verify(t) })
 	reg.Register("GET", "http://example.com", 200, "ok")
 
 	transport := RetryTransport(reg, 2)
@@ -72,7 +72,7 @@ func TestRetryTransport_NoRetryOn200(t *testing.T) {
 
 func TestRetryTransport_RetriesOn500(t *testing.T) {
 	reg := httpmock.NewRegistry()
-	defer reg.Verify(t)
+	t.Cleanup(func() { reg.Verify(t) })
 	reg.RegisterSequence("GET", "http://example.com",
 		httpmock.Stub{Status: 500, Body: "error"},
 		httpmock.Stub{Status: 200, Body: "ok"},
@@ -97,7 +97,7 @@ func TestRetryTransport_RetriesOn500(t *testing.T) {
 
 func TestRetryTransport_RetriesOn429(t *testing.T) {
 	reg := httpmock.NewRegistry()
-	defer reg.Verify(t)
+	t.Cleanup(func() { reg.Verify(t) })
 	reg.RegisterSequence("GET", "http://example.com",
 		httpmock.Stub{Status: 429, Body: "rate limited"},
 		httpmock.Stub{Status: 200, Body: "ok"},
@@ -121,7 +121,7 @@ func TestRetryTransport_RetriesOn429(t *testing.T) {
 
 func TestRetryTransport_NoRetryOn400(t *testing.T) {
 	reg := httpmock.NewRegistry()
-	defer reg.Verify(t)
+	t.Cleanup(func() { reg.Verify(t) })
 	reg.Register("GET", "http://example.com", 400, "bad request")
 
 	transport := RetryTransport(reg, 2)
@@ -142,7 +142,7 @@ func TestRetryTransport_NoRetryOn400(t *testing.T) {
 
 func TestRetryTransport_ReturnsLastResponseOnExhaustion(t *testing.T) {
 	reg := httpmock.NewRegistry()
-	defer reg.Verify(t)
+	t.Cleanup(func() { reg.Verify(t) })
 	reg.RegisterSequence("GET", "http://example.com",
 		httpmock.Stub{Status: 500, Body: "error"},
 		httpmock.Stub{Status: 500, Body: "error"},

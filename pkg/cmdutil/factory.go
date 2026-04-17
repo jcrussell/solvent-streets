@@ -76,7 +76,7 @@ func ForEachCity(ctx context.Context, f *Factory, fn func(cf *Factory, city *con
 
 	var errs []error
 	for _, city := range cities {
-		fmt.Fprintf(f.IOStreams.Out, "\n=== %s ===\n", city.Name)
+		fmt.Fprintf(f.IOStreams.ErrOut, "\n=== %s ===\n", city.Name)
 		if err := fn(withCity(ctx, f, &city), &city); err != nil {
 			if errors.Is(err, ErrNoResults) {
 				continue

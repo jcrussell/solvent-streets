@@ -81,14 +81,14 @@ func runExport(ctx context.Context, opts *Options) error {
 		return err
 	}
 
-	fmt.Fprintf(ios.Out, "Exporting static site to %s/...\n", opts.OutputDir)
+	fmt.Fprintf(ios.ErrOut, "Exporting static site to %s/...\n", opts.OutputDir)
 
 	exporter := exportpkg.New(entries, cfg, opts.OutputDir, cfg.UnitSystem().String())
 	if err := exporter.Run(ctx); err != nil {
 		return fmt.Errorf("export: %w", err)
 	}
 
-	fmt.Fprintf(ios.Out, "Done. Static site exported to %s/\n", opts.OutputDir)
-	fmt.Fprintf(ios.Out, "Serve locally: cd %s && python3 -m http.server\n", opts.OutputDir)
+	fmt.Fprintf(ios.ErrOut, "Done. Static site exported to %s/\n", opts.OutputDir)
+	fmt.Fprintf(ios.ErrOut, "Serve locally: cd %s && python3 -m http.server\n", opts.OutputDir)
 	return nil
 }

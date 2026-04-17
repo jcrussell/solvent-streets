@@ -112,6 +112,8 @@ type sqliteStore struct {
 	cityID int64
 }
 
+var _ Store = (*sqliteStore)(nil)
+
 // RootStorer is the interface for managing cities and providing city-scoped stores.
 type RootStorer interface {
 	EnsureCity(ctx context.Context, slug, name string) (int64, error)
@@ -125,6 +127,8 @@ type RootStorer interface {
 type RootStore struct {
 	db *sql.DB
 }
+
+var _ RootStorer = (*RootStore)(nil)
 
 func DefaultPath() (string, error) {
 	home, err := os.UserHomeDir()

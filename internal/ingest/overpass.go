@@ -27,6 +27,8 @@ type OverpassSource struct {
 	BBox [4]float64 // [south, west, north, east]
 }
 
+var _ Source = (*OverpassSource)(nil)
+
 func (s *OverpassSource) Name() string { return "overpass" }
 
 const maxSplitDepth = 3 // max 4^3 = 64 requests per city/resource

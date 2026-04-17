@@ -13,6 +13,7 @@ import (
 	"pvmt/internal/db"
 	"pvmt/internal/db/dbtest"
 	"pvmt/internal/export"
+	"pvmt/pkg/iostreams"
 )
 
 func TestHandleDataMetaJSON(t *testing.T) {
@@ -44,7 +45,8 @@ func TestHandleDataMetaJSON(t *testing.T) {
 		Store:  store,
 		Slug:   cfg.Cities[0].Slug(),
 	}
-	srv := New([]export.CityEntry{entry}, 0)
+	ios, _, _, _ := iostreams.Test()
+	srv := New([]export.CityEntry{entry}, 0, ios)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /data/{file}", srv.handleDataFile(entry))
 
