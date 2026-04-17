@@ -146,7 +146,6 @@ func TestNewCmdIngest_InvalidSource(t *testing.T) {
 
 	cmd := NewCmdIngest(f, rt, nil)
 	cmd.SetArgs([]string{"--source=bogus"})
-	// Cobra wraps RunE errors, so we need SilenceErrors
 	cmd.SilenceErrors = true
 	cmd.SilenceUsage = true
 	err := cmd.Execute()
@@ -155,6 +154,6 @@ func TestNewCmdIngest_InvalidSource(t *testing.T) {
 	}
 	var flagErr *cmdutil.FlagError
 	if !errors.As(err, &flagErr) {
-		t.Errorf("expected FlagError, got %T: %v", err, err)
+		t.Errorf("expected FlagError through pflag wrapping, got %T: %v", err, err)
 	}
 }

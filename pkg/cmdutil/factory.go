@@ -33,6 +33,7 @@ type Factory struct {
 // during command construction (not per-request), so the mutation is safe.
 func AddCityOverride(cmd *cobra.Command, f *Factory) {
 	cmd.PersistentFlags().StringP("city", "c", "", "Target city name or slug")
+	_ = cmd.RegisterFlagCompletionFunc("city", CitySlugCompletion(f))
 	f.CurrentCity = cityOverrideFunc(cmd, f, f.CurrentCity)
 	f.CityFlagSet = func() bool {
 		fl := cmd.PersistentFlags().Lookup("city")

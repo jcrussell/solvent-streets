@@ -22,7 +22,7 @@ type Options struct {
 	CurrentCity  func() (*config.CityConfig, error)
 	HttpClient   func() (*http.Client, error)
 	ResourceType resource.ResourceType
-	Source       string
+	Source       cmdutil.Source
 	Force        bool
 }
 
@@ -33,6 +33,7 @@ func NewCmdIngest(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Optio
 		CurrentCity:  f.CurrentCity,
 		HttpClient:   f.HttpClient,
 		ResourceType: rt,
+		Source:       cmdutil.SourceAll,
 	}
 
 	cmd := &cobra.Command{
@@ -46,7 +47,8 @@ func NewCmdIngest(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Optio
 		},
 	}
 
-	cmd.Flags().StringVar(&opts.Source, "source", "all", "Data source (overpass|arcgis|all)")
+	cmd.Flags().Var(&opts.Source, "source", "Data source (overpass|arcgis|all)")
+	_ = cmd.RegisterFlagCompletionFunc("source", cmdutil.SourceCompletion())
 	cmd.Flags().BoolVar(&opts.Force, "force", false, "Bypass HTTP cache")
 
 	return cmd
@@ -72,12 +74,6 @@ func runIngest(ctx context.Context, opts *Options) error {
 	client, err := opts.HttpClient()
 	if err != nil {
 		return fmt.Errorf("http client: %w", err)
-	}
-
-	// Validate --source flag early (name only — bbox filled in after boundary fetch)
-	validSourceNames := map[string]bool{"all": true, "overpass": true, "arcgis": true}
-	if !validSourceNames[opts.Source] {
-		return &cmdutil.FlagError{Err: fmt.Errorf("unknown source %q, valid sources: overpass, arcgis, all", opts.Source)}
 	}
 
 	store, err := opts.CityDB()
@@ -111,10 +107,10 @@ func runIngest(ctx context.Context, opts *Options) error {
 
 	srcOpts := ingestpkg.Options{Progress: ios.ErrOut}
 	var sources []ingestpkg.Source
-	if opts.Source == "all" {
+	if opts.Source == cmdutil.SourceAll {
 		sources = ingestpkg.AllSources(bbox, arcgisURL, srcOpts)
 	} else {
-		src, _ := ingestpkg.SourceByName(opts.Source, bbox, arcgisURL, srcOpts)
+		src, _ := ingestpkg.SourceByName(string(opts.Source), bbox, arcgisURL, srcOpts)
 		sources = []ingestpkg.Source{src}
 	}
 

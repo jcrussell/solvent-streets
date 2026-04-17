@@ -38,7 +38,9 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 	}
 
 	cmdutil.AddCityOverride(cmd, f)
-	cmd.PersistentFlags().String("units", "", "Display units: metric or imperial (overrides config)")
+	var unitSystem cmdutil.UnitSystem
+	cmd.PersistentFlags().Var(&unitSystem, "units", "Display units: metric or imperial (overrides config)")
+	_ = cmd.RegisterFlagCompletionFunc("units", cmdutil.UnitSystemCompletion())
 
 	// Must run before addSubcommands: subcommands snapshot f.UnitSystem
 	// into their Options structs at construction time, and Go function
