@@ -1,6 +1,10 @@
 package root
 
 import (
+	"errors"
+	"fmt"
+	"os"
+	"strconv"
 	"strings"
 
 	"pvmt/internal/units"
@@ -26,7 +30,57 @@ import (
 // addSubcommands runs (see wireUnitSystem).
 type middleware func(root *cobra.Command, f *cmdutil.Factory) error
 
-var middlewares = []middleware{}
+var middlewares = []middleware{
+	warnInvalidEnv,
+}
+
+// warnInvalidEnv emits a one-line stderr warning for any PVMT_* env var
+// set to an unparseable or out-of-range value. The config resolvers
+// (UnitSystem, HexEdge, ResolvedForecast) silently fall through on
+// invalid input, which is safe but gives the user no signal their env
+// was ignored; this middleware is the signal. Range checks mirror the
+// validation inside those resolvers so a warning implies the env will
+// be ignored and silence implies it will be honored.
+func warnInvalidEnv(_ *cobra.Command, f *cmdutil.Factory) error {
+	ios := f.IOStreams
+	if ios == nil {
+		return errors.New("warnInvalidEnv: factory has nil IOStreams")
+	}
+	warnf := func(format string, args ...any) {
+		fmt.Fprintf(ios.ErrOut, "warning: "+format+"; falling back to config/default\n", args...)
+	}
+	if v, ok := os.LookupEnv("PVMT_UNITS"); ok && v != "" && !units.IsKnown(v) {
+		warnf("PVMT_UNITS=%q is not a known unit system", v)
+	}
+	if v, ok := os.LookupEnv("PVMT_FORECAST_YEARS"); ok && v != "" {
+		n, err := strconv.Atoi(v)
+		switch {
+		case err != nil:
+			warnf("PVMT_FORECAST_YEARS=%q is not a valid integer", v)
+		case n <= 0:
+			warnf("PVMT_FORECAST_YEARS=%q must be > 0", v)
+		}
+	}
+	if v, ok := os.LookupEnv("PVMT_HEX_EDGE_M"); ok && v != "" {
+		n, err := strconv.ParseFloat(v, 64)
+		switch {
+		case err != nil:
+			warnf("PVMT_HEX_EDGE_M=%q is not a valid number", v)
+		case n <= 0:
+			warnf("PVMT_HEX_EDGE_M=%q must be > 0", v)
+		}
+	}
+	if v, ok := os.LookupEnv("PVMT_FORECAST_INITIAL_PCI"); ok && v != "" {
+		n, err := strconv.ParseFloat(v, 64)
+		switch {
+		case err != nil:
+			warnf("PVMT_FORECAST_INITIAL_PCI=%q is not a valid number", v)
+		case n <= 0 || n > 100:
+			warnf("PVMT_FORECAST_INITIAL_PCI=%q must be in (0, 100]", v)
+		}
+	}
+	return nil
+}
 
 func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 	cmd := &cobra.Command{

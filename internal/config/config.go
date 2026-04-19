@@ -3,14 +3,27 @@ package config
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/BurntSushi/toml"
 
 	"pvmt/internal/units"
+)
+
+// Default values applied by ResolvedForecast / NormalizeForecast / HexEdge
+// when the corresponding field is unset (zero) or out of range. Exported so
+// callers that build config views outside ResolvedForecast (e.g.
+// export.ResolvedTOML) can apply the same rules without re-hardcoding
+// the numbers.
+const (
+	DefaultHexEdgeM      = 100.0
+	DefaultInitialPCI    = 85.0
+	DefaultForecastYears = 20
 )
 
 // Sentinels for failure modes that warrant a remediation hint at the call
@@ -39,9 +52,16 @@ type DisplayConfig struct {
 	Units string `toml:"units"` // "metric" or "imperial" (default: "imperial")
 }
 
-// UnitSystem returns the configured display unit system.
+// UnitSystem returns the resolved display unit system. Precedence:
+// PVMT_UNITS env > Display.Units file > imperial.
 func (c *Config) UnitSystem() units.System {
-	return units.ParseSystem(c.Display.Units)
+	if v, ok := os.LookupEnv("PVMT_UNITS"); ok && v != "" {
+		return units.ParseSystem(v)
+	}
+	if c.Display.Units != "" {
+		return units.ParseSystem(c.Display.Units)
+	}
+	return units.Imperial
 }
 
 type ExportConfig struct {
@@ -65,27 +85,6 @@ type CostTierCfg struct {
 	Label      string  `toml:"label"`
 }
 
-// ForecastYears returns the configured forecast horizon, defaulting to 20.
-func (c *Config) ForecastYears() int {
-	return c.Forecast.ResolvedYears()
-}
-
-// ResolvedInitialPCI returns the initial PCI, defaulting to 85 if not set.
-func (fc *ForecastConfig) ResolvedInitialPCI() float64 {
-	if fc.InitialPCI > 0 && fc.InitialPCI <= 100 {
-		return fc.InitialPCI
-	}
-	return 85.0
-}
-
-// ResolvedYears returns the forecast horizon, defaulting to 20 if not set.
-func (fc *ForecastConfig) ResolvedYears() int {
-	if fc.Years > 0 {
-		return fc.Years
-	}
-	return 20
-}
-
 type LayerConfig struct {
 	Name   string `toml:"name"`
 	Type   string `toml:"type"`    // "csv" or "geojson"
@@ -105,15 +104,24 @@ type GridConfig struct {
 	HexEdgeM float64 `toml:"hex_edge_m"`
 }
 
-// HexEdge returns the configured hex edge length in meters, defaulting to 100.
+// HexEdge returns the top-level grid hex-edge length in meters.
+// Precedence: PVMT_HEX_EDGE_M env > Grid.HexEdgeM file > DefaultHexEdgeM.
+// Invalid or non-positive env values are ignored; the warnInvalidEnv
+// middleware surfaces them to the user.
 func (c *Config) HexEdge() float64 {
+	if v, ok := os.LookupEnv("PVMT_HEX_EDGE_M"); ok && v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+			return f
+		}
+	}
 	if c.Grid.HexEdgeM > 0 {
 		return c.Grid.HexEdgeM
 	}
-	return 100
+	return DefaultHexEdgeM
 }
 
-// ResolvedHexEdge returns the hex edge for a city, using per-city override if set.
+// ResolvedHexEdge returns the hex edge for a city: per-city override if
+// set, else the top-level resolution.
 func (c *Config) ResolvedHexEdge(city *CityConfig) float64 {
 	if city.HexEdgeM > 0 {
 		return city.HexEdgeM
@@ -121,28 +129,100 @@ func (c *Config) ResolvedHexEdge(city *CityConfig) float64 {
 	return c.HexEdge()
 }
 
-// ResolvedForecast merges top-level forecast defaults with per-city overrides.
+// ResolvedForecast returns the forecast config for city with all layers
+// merged (env > per-city > top-level) and defaults applied. Every field
+// that NormalizeForecast owns (InitialPCI, Years) is guaranteed valid on
+// the returned value — callers read them directly. A nil city is treated
+// as "no per-city overrides."
+//
+// Invalid or out-of-range env values are silently ignored so the merged
+// config still reflects the next layer down; the warnInvalidEnv
+// middleware at the CLI boundary surfaces these to the user.
 func (c *Config) ResolvedForecast(city *CityConfig) ForecastConfig {
-	if city.Forecast == nil {
-		return c.Forecast
-	}
 	fc := c.Forecast
-	if city.Forecast.InitialPCI > 0 && city.Forecast.InitialPCI <= 100 {
-		fc.InitialPCI = city.Forecast.InitialPCI
+	if city != nil {
+		applyCityForecast(&fc, city.Forecast)
 	}
-	if city.Forecast.DecayRate > 0 {
-		fc.DecayRate = city.Forecast.DecayRate
-	}
-	if city.Forecast.GrowthRate > 0 {
-		fc.GrowthRate = city.Forecast.GrowthRate
-	}
-	if city.Forecast.Years > 0 {
-		fc.Years = city.Forecast.Years
-	}
-	if len(city.Forecast.CostTiers) > 0 {
-		fc.CostTiers = city.Forecast.CostTiers
-	}
+	applyForecastEnv(&fc)
+	NormalizeForecast(&fc)
 	return fc
+}
+
+// NormalizeForecast fills unset or out-of-range InitialPCI and Years with
+// their package defaults. DecayRate, GrowthRate, and CostTiers carry
+// forecast-package defaults that config can't know about and are left to
+// the caller. Idempotent.
+func NormalizeForecast(fc *ForecastConfig) {
+	if fc.InitialPCI <= 0 || fc.InitialPCI > 100 {
+		fc.InitialPCI = DefaultInitialPCI
+	}
+	if fc.Years <= 0 {
+		fc.Years = DefaultForecastYears
+	}
+}
+
+// applyCityForecast overlays a per-city forecast block onto fc in place.
+// Each non-zero field wins over the top-level value. A nil override is a
+// no-op.
+func applyCityForecast(fc, override *ForecastConfig) {
+	if override == nil {
+		return
+	}
+	if override.InitialPCI > 0 && override.InitialPCI <= 100 {
+		fc.InitialPCI = override.InitialPCI
+	}
+	if override.DecayRate > 0 {
+		fc.DecayRate = override.DecayRate
+	}
+	if override.GrowthRate > 0 {
+		fc.GrowthRate = override.GrowthRate
+	}
+	if override.Years > 0 {
+		fc.Years = override.Years
+	}
+	if len(override.CostTiers) > 0 {
+		fc.CostTiers = override.CostTiers
+	}
+}
+
+// applyForecastEnv overlays PVMT_FORECAST_* env overrides onto fc in
+// place. Invalid or out-of-range values are ignored here; the
+// warnInvalidEnv middleware surfaces them to the user instead.
+func applyForecastEnv(fc *ForecastConfig) {
+	if n, ok := parsePositiveIntEnv("PVMT_FORECAST_YEARS"); ok {
+		fc.Years = n
+	}
+	if f, ok := parsePCIEnv("PVMT_FORECAST_INITIAL_PCI"); ok {
+		fc.InitialPCI = f
+	}
+}
+
+// parsePositiveIntEnv returns the int value of envKey if it is set to a
+// string that parses as a positive integer, else (0, false).
+func parsePositiveIntEnv(envKey string) (int, bool) {
+	s, ok := os.LookupEnv(envKey)
+	if !ok || s == "" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n <= 0 {
+		return 0, false
+	}
+	return n, true
+}
+
+// parsePCIEnv returns the float value of envKey if it is set to a
+// string that parses as a float in (0, 100], else (0, false).
+func parsePCIEnv(envKey string) (float64, bool) {
+	s, ok := os.LookupEnv(envKey)
+	if !ok || s == "" {
+		return 0, false
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil || f <= 0 || f > 100 {
+		return 0, false
+	}
+	return f, true
 }
 
 // Slug returns a URL-safe slug for the city name.
@@ -160,12 +240,47 @@ func Slugify(name string) string {
 	return s
 }
 
-// Load reads a pvmt.toml config file from the given path.
+// LoadFS reads a pvmt.toml config from fsys at the given name. This is
+// the fs.FS-oriented entrypoint for hermetic tests; production callers
+// that want an absolute-path SourcePath should use Load. SourcePath is
+// set to name (the fs-relative name) by default.
+func LoadFS(fsys fs.FS, name string) (*Config, error) {
+	data, err := fs.ReadFile(fsys, name)
+	if err != nil {
+		return nil, fmt.Errorf("read config: %w", err)
+	}
+	cfg, err := parseConfig(data)
+	if err != nil {
+		return nil, err
+	}
+	cfg.SourcePath = name
+	return cfg, nil
+}
+
+// Load reads a pvmt.toml config from the given filesystem path.
+// SourcePath on the returned Config is set to path (the absolute/relative
+// filesystem path the caller passed). For hermetic fs.FS-based loading,
+// use LoadFS.
+//
+// Load uses os.ReadFile directly (rather than delegating to LoadFS) so
+// the read error carries the full path the caller supplied — users who
+// mistype --config want to see which path failed, not just the basename.
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
+	cfg, err := parseConfig(data)
+	if err != nil {
+		return nil, err
+	}
+	cfg.SourcePath = path
+	return cfg, nil
+}
+
+// parseConfig decodes and validates TOML bytes into a Config. Shared
+// between Load and LoadFS.
+func parseConfig(data []byte) (*Config, error) {
 	var cfg Config
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
@@ -173,7 +288,6 @@ func Load(path string) (*Config, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
-	cfg.SourcePath = path
 	return &cfg, nil
 }
 

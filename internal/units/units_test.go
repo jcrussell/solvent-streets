@@ -75,10 +75,8 @@ func TestFormatAreaLarge(t *testing.T) {
 	}
 }
 
-const testSystemMetric = "metric"
-
 func TestParseSystem(t *testing.T) {
-	if ParseSystem(testSystemMetric) != Metric {
+	if ParseSystem(metricName) != Metric {
 		t.Error("ParseSystem(metric) should be Metric")
 	}
 	if ParseSystem("imperial") != Imperial {
@@ -90,10 +88,30 @@ func TestParseSystem(t *testing.T) {
 }
 
 func TestSystemString(t *testing.T) {
-	if Metric.String() != testSystemMetric {
+	if Metric.String() != metricName {
 		t.Error("Metric.String() should be 'metric'")
 	}
 	if Imperial.String() != "imperial" {
 		t.Error("Imperial.String() should be 'imperial'")
+	}
+}
+
+// TestIsKnown covers the divergence from ParseSystem: IsKnown returns
+// false for the empty string and for unrecognized values, even though
+// ParseSystem treats both as Imperial by default. Consumers like the
+// warnInvalidEnv middleware rely on this to distinguish "user set a
+// typo" from "user set nothing."
+func TestIsKnown(t *testing.T) {
+	known := []string{"metric", "Metric", "METRIC", "imperial", "Imperial", "IMPERIAL"}
+	for _, s := range known {
+		if !IsKnown(s) {
+			t.Errorf("IsKnown(%q) = false, want true", s)
+		}
+	}
+	unknown := []string{"", "furlongs", "SI", " metric"}
+	for _, s := range unknown {
+		if IsKnown(s) {
+			t.Errorf("IsKnown(%q) = true, want false", s)
+		}
 	}
 }

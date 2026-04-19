@@ -157,6 +157,45 @@ func TestRunStatus_CitySummary(t *testing.T) {
 	}
 }
 
+// TestStatusRow_ExportData_AllFieldsPopulated guards S2: with reflection
+// removed, a typo in statusRow.ExportData's switch silently drops that
+// field. This asserts the full statusFields list round-trips.
+func TestStatusRow_ExportData_AllFieldsPopulated(t *testing.T) {
+	r := statusRow{
+		ResourceType: "roads",
+		FeatureCount: 42,
+		LastIngest:   "2026-04-18T00:00:00Z",
+		LastCompute:  "2026-04-18T01:00:00Z",
+		AreaSqM:      123.4,
+	}
+	out := r.ExportData(statusFields)
+	if len(out) != len(statusFields) {
+		t.Fatalf("want %d keys, got %d: %v", len(statusFields), len(out), out)
+	}
+	for _, f := range statusFields {
+		if _, ok := out[f]; !ok {
+			t.Errorf("missing field %q", f)
+		}
+	}
+	if out["resourceType"] != "roads" || out["featureCount"] != 42 || out["areaSqM"] != 123.4 {
+		t.Errorf("unexpected values: %+v", out)
+	}
+}
+
+// TestStatusRow_ExportData_SubsetFields verifies that requesting a
+// subset returns only those keys — the field-filter contract the --json
+// flag depends on.
+func TestStatusRow_ExportData_SubsetFields(t *testing.T) {
+	r := statusRow{ResourceType: "roads", FeatureCount: 42, AreaSqM: 1}
+	out := r.ExportData([]string{"resourceType"})
+	if len(out) != 1 {
+		t.Fatalf("want 1 key, got %d: %v", len(out), out)
+	}
+	if out["resourceType"] != "roads" {
+		t.Errorf("unexpected: %+v", out)
+	}
+}
+
 func TestRunStatus_NonTTY_TabSeparated(t *testing.T) {
 	store := &dbtest.MockStore{
 		StatsFunc: func(_ context.Context, rt string) (*db.StatusInfo, error) {

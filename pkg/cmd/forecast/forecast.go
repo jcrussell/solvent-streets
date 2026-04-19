@@ -28,6 +28,35 @@ type Options struct {
 
 var forecastFields = []string{"resourceType", "year", "pci", "areaSqM", "treatmentCost", "treatmentTier"}
 
+// forecastRow wraps db.ForecastResult to attach the CLI JSON export
+// contract without pulling cmdutil into the db package.
+type forecastRow struct {
+	db.ForecastResult
+}
+
+var _ cmdutil.RowExporter = forecastRow{}
+
+func (r forecastRow) ExportData(fields []string) map[string]any {
+	out := make(map[string]any, len(fields))
+	for _, f := range fields {
+		switch f {
+		case "resourceType":
+			out[f] = r.ResourceType
+		case "year":
+			out[f] = r.Year
+		case "pci":
+			out[f] = r.PCI
+		case "areaSqM":
+			out[f] = r.AreaSqM
+		case "treatmentCost":
+			out[f] = r.TreatmentCost
+		case "treatmentTier":
+			out[f] = r.TreatmentTier
+		}
+	}
+	return out
+}
+
 func NewCmdForecast(f *cmdutil.Factory, runF func(*Options) error) *cobra.Command {
 	opts := &Options{
 		IO:          f.IOStreams,
@@ -82,7 +111,7 @@ func simulateResource(rt resource.ResourceType, cohorts []fcpkg.Cohort, years in
 }
 
 func buildForecastCohorts(ctx context.Context, rt resource.ResourceType, areaSqM float64, store db.Store, fc *config.ForecastConfig) []fcpkg.Cohort {
-	currentPCI := fc.ResolvedInitialPCI()
+	currentPCI := fc.InitialPCI
 	stats, _ := store.ListCohortStats(ctx, rt.Name())
 	var inputs []fcpkg.CohortInput
 	for _, st := range stats {
@@ -208,7 +237,7 @@ func runForecast(ctx context.Context, opts *Options) error {
 	}
 
 	fc := cfg.ResolvedForecast(city)
-	years := fc.ResolvedYears()
+	years := fc.Years
 	costTiers := convertCostTiers(&fc)
 	sys := opts.UnitSystem()
 
@@ -220,7 +249,11 @@ func runForecast(ctx context.Context, opts *Options) error {
 	}
 
 	if opts.Exporter != nil {
-		return opts.Exporter.Write(ios, allResults)
+		rows := make([]forecastRow, len(allResults))
+		for i, r := range allResults {
+			rows[i] = forecastRow{r}
+		}
+		return cmdutil.WriteRows(ios, opts.Exporter, rows)
 	}
 	return nil
 }
@@ -241,7 +274,7 @@ func convertCostTiers(fc *config.ForecastConfig) []fcpkg.CostTier {
 func forecastAllResources(ctx context.Context, opts *Options, store db.Store,
 	fc *config.ForecastConfig, years int, costTiers []fcpkg.CostTier, sys units.System) ([]db.ForecastResult, error) {
 	ios := opts.IO
-	currentPCI := fc.ResolvedInitialPCI()
+	currentPCI := fc.InitialPCI
 	var allResults []db.ForecastResult
 
 	for _, rt := range resource.All {

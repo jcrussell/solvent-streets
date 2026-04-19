@@ -346,7 +346,7 @@ func ConvertCostTiers(fc *config.ForecastConfig) []forecast.CostTier {
 // BuildCohortsForResource builds forecast cohorts for a resource type from the store.
 // Falls back to a single cohort if no cohort stats exist.
 func BuildCohortsForResource(ctx context.Context, rt resource.ResourceType, areaSqM float64, store db.Store, fc *config.ForecastConfig) []forecast.Cohort {
-	currentPCI := fc.ResolvedInitialPCI()
+	currentPCI := fc.InitialPCI
 	stats, _ := store.ListCohortStats(ctx, rt.Name())
 	var inputs []forecast.CohortInput
 	for _, st := range stats {
@@ -384,7 +384,7 @@ type ForecastExport struct {
 // baseline since that matches what a city budget covers. The full-bbox
 // baseline is stored as BboxBaseline for the "All Roads" toggle.
 func BuildForecastsForCity(ctx context.Context, entry CityEntry, fc *config.ForecastConfig, costTiers []forecast.CostTier) []ForecastExport {
-	years := fc.ResolvedYears()
+	years := fc.Years
 	doNothing := forecast.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: forecast.StrategyDoNothing}
 	var forecasts []ForecastExport
 
@@ -411,7 +411,7 @@ func BuildForecastsForCity(ctx context.Context, entry CityEntry, fc *config.Fore
 					AreaSqM:        st.AreaSqM,
 				})
 			}
-			if cityCohorts := forecast.BuildCohorts(cityInputs, fc.ResolvedInitialPCI(), fc.DecayRate); cityCohorts != nil {
+			if cityCohorts := forecast.BuildCohorts(cityInputs, fc.InitialPCI, fc.DecayRate); cityCohorts != nil {
 				primaryCohorts = cityCohorts
 				hasCityScope = true
 			}
@@ -446,7 +446,7 @@ func BuildForecastsForCity(ctx context.Context, entry CityEntry, fc *config.Fore
 func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.ForecastConfig) map[string]any {
 	costTiers := ConvertCostTiers(fc)
 	params := forecast.NewParams(fc.GrowthRate, costTiers)
-	years := fc.ResolvedYears()
+	years := fc.Years
 
 	var totalAreaSqM, cityAreaSqM float64
 	var cityFeatureCount, allFeatureCount int
@@ -466,7 +466,7 @@ func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.Forecas
 		}
 	}
 
-	currentPCI := fc.ResolvedInitialPCI()
+	currentPCI := fc.InitialPCI
 	defaultRate := forecast.DefaultDecayRates["default"]
 	if fc.DecayRate > 0 {
 		defaultRate = fc.DecayRate
@@ -584,13 +584,13 @@ func BuildForecastSeed(ctx context.Context, fc *config.ForecastConfig, store db.
 		decayRate = forecast.DefaultDecayRates["default"]
 	}
 
-	years := fc.ResolvedYears()
+	years := fc.Years
 
 	// Collect cohort stats
 	cohortSeeds, cityCohortSeeds := collectCohortSeeds(ctx, store, fc)
 
 	seed := ForecastSeedJSON{
-		InitialPCI:   fc.ResolvedInitialPCI(),
+		InitialPCI:   fc.InitialPCI,
 		DecayRate:    decayRate,
 		GrowthRate:   fc.GrowthRate,
 		Years:        years,
@@ -924,14 +924,9 @@ func ResolvedTOML(cfg *config.Config) string {
 	resolved := *cfg
 
 	if resolved.Grid.HexEdgeM <= 0 {
-		resolved.Grid.HexEdgeM = 100
+		resolved.Grid.HexEdgeM = config.DefaultHexEdgeM
 	}
-	if resolved.Forecast.Years <= 0 {
-		resolved.Forecast.Years = 20
-	}
-	if resolved.Forecast.InitialPCI <= 0 {
-		resolved.Forecast.InitialPCI = 85.0
-	}
+	config.NormalizeForecast(&resolved.Forecast)
 	if resolved.Forecast.DecayRate <= 0 {
 		resolved.Forecast.DecayRate = forecast.DefaultDecayRates["default"]
 	}

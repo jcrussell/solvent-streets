@@ -1,21 +1,25 @@
 package ingest
 
 import (
+	"bytes"
 	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"os"
+	"io/fs"
 	"time"
 
 	"pvmt/internal/db"
 )
 
-// CSVSource ingests features from a local CSV file.
-// Expects columns: id, name, geometry_json, and any additional columns become tags.
+// CSVSource ingests features from a CSV file accessed via fs.FS. In production,
+// pass os.DirFS(dir). In tests, pass fstest.MapFS for hermetic fixtures.
+// Label is used as the SourceAPI provenance tag; if empty, Name is used.
 type CSVSource struct {
-	Path         string
+	FS           fs.FS
+	Name         string // path within FS
+	Label        string // provenance tag on emitted features; defaults to Name
 	ResourceType string
 	IDColumn     string // column name for feature ID, default "id"
 	NameColumn   string // column name for feature name, default "name"
@@ -23,13 +27,12 @@ type CSVSource struct {
 }
 
 func (s *CSVSource) Load() ([]db.Feature, error) {
-	f, err := os.Open(s.Path)
+	data, err := fs.ReadFile(s.FS, s.Name)
 	if err != nil {
-		return nil, fmt.Errorf("open csv %s: %w", s.Path, err)
+		return nil, fmt.Errorf("read csv %s: %w", s.Name, err)
 	}
-	defer func() { _ = f.Close() }()
 
-	reader := csv.NewReader(f)
+	reader := csv.NewReader(bytes.NewReader(data))
 	reader.FieldsPerRecord = -1 // allow variable-length rows; short rows are skipped below
 	header, err := reader.Read()
 	if err != nil {
@@ -81,28 +84,36 @@ func (s *CSVSource) parseRow(header, record []string, idCol, nameCol, geomCol in
 		name = record[nameCol]
 	}
 
+	label := s.Label
+	if label == "" {
+		label = s.Name
+	}
+
 	return db.Feature{
 		ID:           record[idCol],
 		ResourceType: s.ResourceType,
 		Name:         name,
 		Tags:         tags,
 		GeometryJSON: record[geomCol],
-		SourceAPI:    "csv:" + s.Path,
+		SourceAPI:    "csv:" + label,
 		FetchedAt:    time.Now(),
 	}, true
 }
 
-// GeoJSONFileSource ingests features from a local GeoJSON file.
+// GeoJSONFileSource ingests features from a GeoJSON file accessed via fs.FS.
+// Label is used as the SourceAPI provenance tag; if empty, Name is used.
 type GeoJSONFileSource struct {
-	Path         string
+	FS           fs.FS
+	Name         string // path within FS
+	Label        string // provenance tag on emitted features; defaults to Name
 	ResourceType string
 	IDProperty   string // property name for feature ID, default "id"
 }
 
 func (s *GeoJSONFileSource) Load() ([]db.Feature, error) {
-	data, err := os.ReadFile(s.Path)
+	data, err := fs.ReadFile(s.FS, s.Name)
 	if err != nil {
-		return nil, fmt.Errorf("read geojson %s: %w", s.Path, err)
+		return nil, fmt.Errorf("read geojson %s: %w", s.Name, err)
 	}
 
 	var fc struct {
@@ -118,6 +129,11 @@ func (s *GeoJSONFileSource) Load() ([]db.Feature, error) {
 	idProp := s.IDProperty
 	if idProp == "" {
 		idProp = "id"
+	}
+
+	label := s.Label
+	if label == "" {
+		label = s.Name
 	}
 
 	var features []db.Feature
@@ -147,7 +163,7 @@ func (s *GeoJSONFileSource) Load() ([]db.Feature, error) {
 			Name:         name,
 			Tags:         tags,
 			GeometryJSON: string(f.Geometry),
-			SourceAPI:    "geojson:" + s.Path,
+			SourceAPI:    "geojson:" + label,
 			FetchedAt:    time.Now(),
 		})
 	}

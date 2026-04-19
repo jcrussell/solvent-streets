@@ -31,6 +31,29 @@ type cityRow struct {
 	LastCompute  string         `json:"lastCompute,omitempty"`
 }
 
+var _ cmdutil.RowExporter = cityRow{}
+
+func (r cityRow) ExportData(fields []string) map[string]any {
+	out := make(map[string]any, len(fields))
+	for _, f := range fields {
+		switch f {
+		case "slug":
+			out[f] = r.Slug
+		case "name":
+			out[f] = r.Name
+		case "features":
+			out[f] = r.Features
+		case "totalAreaSqM":
+			out[f] = r.TotalAreaSqM
+		case "lastIngest":
+			out[f] = r.LastIngest
+		case "lastCompute":
+			out[f] = r.LastCompute
+		}
+	}
+	return out
+}
+
 var citiesFields = []string{"slug", "name", "features", "totalAreaSqM", "lastIngest", "lastCompute"}
 
 func NewCmdCities(f *cmdutil.Factory, runF func(*Options) error) *cobra.Command {
@@ -78,7 +101,7 @@ func runCities(ctx context.Context, opts *Options) error {
 	}
 
 	if opts.Exporter != nil {
-		return opts.Exporter.Write(ios, rows)
+		return cmdutil.WriteRows(ios, opts.Exporter, rows)
 	}
 
 	if len(rows) == 0 {

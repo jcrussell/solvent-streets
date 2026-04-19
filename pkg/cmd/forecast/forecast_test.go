@@ -3,9 +3,36 @@ package forecast
 import (
 	"testing"
 
+	"pvmt/internal/db"
 	"pvmt/pkg/cmdutil"
 	"pvmt/pkg/iostreams"
 )
+
+// TestForecastRow_ExportData_AllFieldsPopulated guards S2: the handwritten
+// switch in forecastRow.ExportData is now the JSON contract — a typo
+// silently drops a field.
+func TestForecastRow_ExportData_AllFieldsPopulated(t *testing.T) {
+	r := forecastRow{db.ForecastResult{
+		ResourceType:  "roads",
+		Year:          2030,
+		PCI:           72.5,
+		AreaSqM:       1500.0,
+		TreatmentCost: 42000.0,
+		TreatmentTier: "mill-and-overlay",
+	}}
+	out := r.ExportData(forecastFields)
+	if len(out) != len(forecastFields) {
+		t.Fatalf("want %d keys, got %d: %v", len(forecastFields), len(out), out)
+	}
+	for _, f := range forecastFields {
+		if _, ok := out[f]; !ok {
+			t.Errorf("missing field %q", f)
+		}
+	}
+	if out["resourceType"] != "roads" || out["year"] != 2030 {
+		t.Errorf("unexpected values: %+v", out)
+	}
+}
 
 func TestNewCmdForecast_RunFInjection(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()

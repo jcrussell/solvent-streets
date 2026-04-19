@@ -10,6 +10,15 @@ const (
 	Imperial               // sq ft, acres, sq mi, $/sq ft
 )
 
+// Canonical lowercase spellings of the two unit systems. Kept as named
+// constants so goconst doesn't complain about repeated literals in
+// ParseSystem / IsKnown / String, and so the user-facing spelling lives
+// in exactly one place.
+const (
+	metricName   = "metric"
+	imperialName = "imperial"
+)
+
 // Conversion constants.
 const (
 	SqFtPerSqM   = 10.763910417
@@ -123,16 +132,28 @@ func AreaVeryLargeValue(sqm float64, sys System) float64 {
 // ParseSystem converts a string to a System. Returns Imperial for unrecognized values.
 func ParseSystem(s string) System {
 	switch s {
-	case "metric", "Metric", "METRIC":
+	case metricName, "Metric", "METRIC":
 		return Metric
 	default:
 		return Imperial
 	}
 }
 
+// IsKnown reports whether s names a recognized unit system. The empty string
+// is not known (it maps to Imperial by default in ParseSystem, but callers
+// that want to distinguish "unset" from "explicitly imperial" need this).
+func IsKnown(s string) bool {
+	switch s {
+	case metricName, "Metric", "METRIC", imperialName, "Imperial", "IMPERIAL":
+		return true
+	default:
+		return false
+	}
+}
+
 func (s System) String() string {
 	if s == Metric {
-		return "metric"
+		return metricName
 	}
-	return "imperial"
+	return imperialName
 }

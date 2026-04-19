@@ -76,6 +76,28 @@ func TestRunCities_ListsCitiesWithStats(t *testing.T) {
 	}
 }
 
+// TestCityRow_ExportData_AllFieldsPopulated guards S2: typo-catching
+// coverage for the handwritten switch in cityRow.ExportData.
+func TestCityRow_ExportData_AllFieldsPopulated(t *testing.T) {
+	r := cityRow{
+		Slug:         "austin-tx",
+		Name:         "Austin, TX",
+		Features:     map[string]int{"roads": 42},
+		TotalAreaSqM: 1000,
+		LastIngest:   "2026-04-18T00:00:00Z",
+		LastCompute:  "2026-04-18T01:00:00Z",
+	}
+	out := r.ExportData(citiesFields)
+	if len(out) != len(citiesFields) {
+		t.Fatalf("want %d keys, got %d: %v", len(citiesFields), len(out), out)
+	}
+	for _, f := range citiesFields {
+		if _, ok := out[f]; !ok {
+			t.Errorf("missing field %q", f)
+		}
+	}
+}
+
 func TestRunCities_EmptyDatabase(t *testing.T) {
 	root := &dbtest.MockRootStore{
 		ListCitiesFunc: func(_ context.Context) ([]db.City, error) {

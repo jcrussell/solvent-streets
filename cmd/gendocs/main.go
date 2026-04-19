@@ -49,6 +49,15 @@ func run() error {
 		}
 	}
 
+	// Generate Markdown reference docs
+	mdDir := "docs/reference"
+	if err := os.MkdirAll(mdDir, 0o755); err != nil {
+		return fmt.Errorf("create markdown dir: %w", err)
+	}
+	if err := cobradoc.GenMarkdownTree(cmd, mdDir); err != nil {
+		return fmt.Errorf("generate markdown docs: %w", err)
+	}
+
 	// Generate shell completions
 	compDir := "completions"
 	if err := os.MkdirAll(compDir, 0o755); err != nil {

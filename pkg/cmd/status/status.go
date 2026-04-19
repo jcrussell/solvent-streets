@@ -32,6 +32,27 @@ type statusRow struct {
 	AreaSqM      float64 `json:"areaSqM,omitempty"`
 }
 
+var _ cmdutil.RowExporter = statusRow{}
+
+func (r statusRow) ExportData(fields []string) map[string]any {
+	out := make(map[string]any, len(fields))
+	for _, f := range fields {
+		switch f {
+		case "resourceType":
+			out[f] = r.ResourceType
+		case "featureCount":
+			out[f] = r.FeatureCount
+		case "lastIngest":
+			out[f] = r.LastIngest
+		case "lastCompute":
+			out[f] = r.LastCompute
+		case "areaSqM":
+			out[f] = r.AreaSqM
+		}
+	}
+	return out
+}
+
 var statusFields = []string{"resourceType", "featureCount", "lastIngest", "lastCompute", "areaSqM"}
 
 func NewCmdStatus(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Options) error) *cobra.Command {
@@ -104,7 +125,7 @@ func runStatus(ctx context.Context, opts *Options) error {
 
 	// JSON output
 	if opts.Exporter != nil {
-		return opts.Exporter.Write(ios, rows)
+		return cmdutil.WriteRows(ios, opts.Exporter, rows)
 	}
 
 	// Table output

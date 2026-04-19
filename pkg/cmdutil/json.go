@@ -2,7 +2,6 @@ package cmdutil
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -14,10 +13,33 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Exporter writes structured data to an IOStreams output.
+// Exporter writes pre-shaped rows to an IOStreams output. The rows
+// argument must already be filtered to the requested JSON fields —
+// callers should reach Exporter through WriteRows, which delegates the
+// per-row filtering to RowExporter.ExportData. Taking []map[string]any
+// rather than any keeps that contract visible at compile time instead
+// of deferring it to runtime checks inside each implementation.
 type Exporter interface {
 	Fields() []string
-	Write(ios *iostreams.IOStreams, data any) error
+	Write(ios *iostreams.IOStreams, rows []map[string]any) error
+}
+
+// RowExporter emits a filtered map[string]any for the requested JSON
+// fields. Each resource row type implements this to define its JSON
+// contract explicitly, rather than relying on json.Marshal reflection.
+type RowExporter interface {
+	ExportData(fields []string) map[string]any
+}
+
+// WriteRows shapes rows into the []map[string]any form Exporter expects
+// and delegates to the exporter's Write. Factored out so the three
+// subcommands that call --json don't each repeat the same loop.
+func WriteRows[T RowExporter](ios *iostreams.IOStreams, e Exporter, rows []T) error {
+	out := make([]map[string]any, len(rows))
+	for i, r := range rows {
+		out[i] = r.ExportData(e.Fields())
+	}
+	return e.Write(ios, out)
 }
 
 // AddJSONFlags adds --json, --jq, and --template flags to the command.
@@ -93,12 +115,8 @@ type jsonExporter struct {
 	baseExporter
 }
 
-func (e *jsonExporter) Write(ios *iostreams.IOStreams, data any) error {
-	filtered, err := filterFields(data, e.fields)
-	if err != nil {
-		return err
-	}
-	out, err := json.MarshalIndent(filtered, "", "  ")
+func (e *jsonExporter) Write(ios *iostreams.IOStreams, rows []map[string]any) error {
+	out, err := json.MarshalIndent(rows, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal JSON: %w", err)
 	}
@@ -112,19 +130,21 @@ type jqFilterExporter struct {
 	expr string
 }
 
-func (e *jqFilterExporter) Write(ios *iostreams.IOStreams, data any) error {
-	// filterFields returns generic map types already suitable for gojq
-	filtered, err := filterFields(data, e.fields)
-	if err != nil {
-		return err
-	}
-
+func (e *jqFilterExporter) Write(ios *iostreams.IOStreams, rows []map[string]any) error {
 	query, err := gojq.Parse(e.expr)
 	if err != nil {
 		return fmt.Errorf("invalid jq expression: %w", err)
 	}
 
-	iter := query.Run(filtered)
+	// gojq evaluates .[] on []any, not []map[string]any — rebuild the
+	// slice with the wider element type so jq expressions work as users
+	// expect on multi-row output.
+	generic := make([]any, len(rows))
+	for i, r := range rows {
+		generic[i] = r
+	}
+
+	iter := query.Run(generic)
 	for {
 		v, ok := iter.Next()
 		if !ok {
@@ -148,74 +168,16 @@ type templateExporter struct {
 	tmpl string
 }
 
-func (e *templateExporter) Write(ios *iostreams.IOStreams, data any) error {
-	filtered, err := filterFields(data, e.fields)
-	if err != nil {
-		return err
-	}
-
+func (e *templateExporter) Write(ios *iostreams.IOStreams, rows []map[string]any) error {
 	tmpl, err := template.New("").Parse(e.tmpl)
 	if err != nil {
 		return fmt.Errorf("invalid template: %w", err)
 	}
-
-	// filterFields already returns []map[string]any or map[string]any
-	switch v := filtered.(type) {
-	case []map[string]any:
-		for _, item := range v {
-			if err := tmpl.Execute(ios.Out, item); err != nil {
-				return fmt.Errorf("template error: %w", err)
-			}
-			fmt.Fprintln(ios.Out)
-		}
-	case map[string]any:
-		if err := tmpl.Execute(ios.Out, v); err != nil {
+	for _, item := range rows {
+		if err := tmpl.Execute(ios.Out, item); err != nil {
 			return fmt.Errorf("template error: %w", err)
 		}
 		fmt.Fprintln(ios.Out)
-	default:
-		return errors.New("template: unsupported data type")
 	}
 	return nil
-}
-
-// filterFields takes data (struct, slice, or map) and returns only the requested fields
-// as generic map types ([]map[string]any or map[string]any).
-func filterFields(data any, fields []string) (any, error) {
-	// Marshal to JSON then unmarshal to generic structure
-	raw, err := json.Marshal(data)
-	if err != nil {
-		return nil, err
-	}
-
-	// Try as array first
-	var arr []map[string]any
-	if err := json.Unmarshal(raw, &arr); err == nil {
-		result := make([]map[string]any, len(arr))
-		for i, item := range arr {
-			filtered := make(map[string]any)
-			for _, f := range fields {
-				if v, ok := item[f]; ok {
-					filtered[f] = v
-				}
-			}
-			result[i] = filtered
-		}
-		return result, nil
-	}
-
-	// Try as single object
-	var obj map[string]any
-	if err := json.Unmarshal(raw, &obj); err == nil {
-		filtered := make(map[string]any)
-		for _, f := range fields {
-			if v, ok := obj[f]; ok {
-				filtered[f] = v
-			}
-		}
-		return filtered, nil
-	}
-
-	// Pass through as-is
-	return data, nil
 }
