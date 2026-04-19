@@ -11,16 +11,30 @@ If no file is found, pvmt exits with an error.
 ```mermaid
 flowchart TD
     CLI["CLI flags (--city, --units)"]
+    Env["Environment variables (PVMT_*)"]
     City["Per-city config ([[cities]])"]
     Top["Top-level config ([grid], [forecast], [display])"]
     Default["Built-in defaults"]
 
-    CLI -->|overrides| City -->|overrides| Top -->|overrides| Default
+    CLI -->|overrides| Env -->|overrides| City -->|overrides| Top -->|overrides| Default
 ```
 
 Fields that support per-city override: `hex_edge_m`, all `[forecast]` fields (`decay_rate`, `growth_rate`, `years`, `cost_tiers`). Per-city forecast merges field-by-field — set only the fields you want to override.
 
 Built-in defaults: hex edge 100m, forecast horizon 20 years, imperial display units.
+
+To inspect what value won and where it came from, run `pvmt config show --sources`. It annotates each resolved value with its origin (`flag`, `env`, `file`, or `default`); `--json` emits the same data structured for scripts.
+
+## Environment variables
+
+Env vars override the file but lose to CLI flags. Unparseable or out-of-range values are ignored with a stderr warning and the next layer wins.
+
+| Variable | Overrides |
+|---|---|
+| `PVMT_UNITS` | `[display].units` (`metric` or `imperial`) |
+| `PVMT_HEX_EDGE_M` | `[grid].hex_edge_m` (positive float, meters) |
+| `PVMT_FORECAST_YEARS` | `[forecast].years` (positive integer) |
+| `PVMT_FORECAST_INITIAL_PCI` | `[forecast].initial_pci` (clamped to 0–100) |
 
 ## Multi-city
 
@@ -38,13 +52,13 @@ The web UI and export provide a city switcher when multiple cities are configure
 
 - `overpass = true` — enables OpenStreetMap Overpass API queries
 - `arcgis_url = "https://..."` — enables ArcGIS FeatureServer queries (roads only)
-- `[[layers]]` — local CSV or GeoJSON file ingest
+- `[[layers]]` — local CSV or GeoJSON file ingest. Each entry takes `name`, `type` (`csv` or `geojson`), `path`, and `id_prop` (the property used as the feature ID). See [`examples/`](../examples/) for working configs.
 
 Multiple sources can be enabled for the same city. Features are deduplicated by ID.
 
 ## Forecast tuning
 
-**`decay_rate`** — the exponential decay coefficient *k* in `PCI(t) = PCI_0 * exp(-k*t)`. Higher values mean faster degradation. When set to 0 (default), per-classification rates are used (ranging from ~0.015 for motorways to ~0.045 for service roads).
+**`decay_rate`** — the exponential decay coefficient (see [Architecture › Design decisions › Forecast model](architecture.md#design-decisions) for the equation). Higher values mean faster degradation. When set to 0 (default), per-classification rates are used (ranging from ~0.015 for motorways to ~0.045 for service roads).
 
 **`growth_rate`** — annual linear growth of paved area. `0.01` = 1% per year.
 
@@ -61,7 +75,3 @@ label = "Critical"
 ```
 
 Cost values are calibration inputs, not measurements — the shipped defaults come from FHWA treatment-selection guidance and are continental-US averages. Start with the defaults and only override per city when local bid tabs differ materially. Because tiers interpolate linearly at tier midpoints (not step-wise), the forecast is less sensitive to any single tier's value than it looks; bulk shifts across tiers matter more than boundary tweaks.
-
-## Database location
-
-`~/.local/share/pvmt/pvmt.db`. Single file for all cities. WAL mode for concurrent readers.

@@ -53,7 +53,12 @@ See [`examples/`](examples/) for ready-to-use configs covering single-city, mult
 ## Documentation
 
 - [Architecture](docs/architecture.md) — data pipeline, DI, geometry, schema, design decisions
-- [Configuration](docs/configuration.md) — config discovery, resolution, multi-city, forecast tuning
+- [Configuration](docs/configuration.md) — config discovery, resolution, env vars, multi-city, forecast tuning
+- [Examples](examples/) — ready-to-use configs for single-city, multi-city, and several US locations
+
+## License
+
+BSD-3-Clause. See [LICENSE](LICENSE).
 
 ## Development
 
@@ -62,7 +67,5 @@ make build    # WASM + binary (CGO_ENABLED=0)
 make test     # race detector, no external services
 make lint     # golangci-lint
 ```
-
-WASM is embedded via `go:embed` and must be built before the main binary. `make build` handles this automatically.
 
 Release: push a `v*` tag. GoReleaser builds Linux/macOS (amd64/arm64) and publishes to GitHub Releases.

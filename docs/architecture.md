@@ -150,8 +150,6 @@ erDiagram
 
 ## Design decisions
 
-**Config discovery.** `pvmt.toml` is found by walking from the working directory upward to `/`. First match wins. Works from any subdirectory, like `.git`.
-
 **Metric internals.** All areas are stored in square meters. The `--units` flag and `[display].units` config control presentation only.
 
 **Snapshots.** Each compute run creates a snapshot with a hash of the resolved config. Results link back to their snapshot for reproducibility.
