@@ -41,7 +41,7 @@ Full pipeline — all resources, forecast, and a deployable static site:
 pvmt all ingest
 pvmt all compute
 pvmt forecast
-pvmt export ./site
+pvmt export -o ./site
 ```
 
 `./site` is a self-contained folder you can deploy to GitHub Pages or any static host.
