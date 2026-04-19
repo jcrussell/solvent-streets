@@ -53,15 +53,12 @@ type DisplayConfig struct {
 }
 
 // UnitSystem returns the resolved display unit system. Precedence:
-// PVMT_UNITS env > Display.Units file > imperial.
+// PVMT_UNITS env > Display.Units file > imperial. Callers that need the
+// source label (including --units flag support) use resolveUnits
+// directly via Config.Resolve.
 func (c *Config) UnitSystem() units.System {
-	if v, ok := os.LookupEnv("PVMT_UNITS"); ok && v != "" {
-		return units.ParseSystem(v)
-	}
-	if c.Display.Units != "" {
-		return units.ParseSystem(c.Display.Units)
-	}
-	return units.Imperial
+	v, _ := c.resolveUnits("")
+	return v
 }
 
 type ExportConfig struct {
@@ -109,24 +106,15 @@ type GridConfig struct {
 // Invalid or non-positive env values are ignored; the warnInvalidEnv
 // middleware surfaces them to the user.
 func (c *Config) HexEdge() float64 {
-	if v, ok := os.LookupEnv("PVMT_HEX_EDGE_M"); ok && v != "" {
-		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
-			return f
-		}
-	}
-	if c.Grid.HexEdgeM > 0 {
-		return c.Grid.HexEdgeM
-	}
-	return DefaultHexEdgeM
+	v, _ := c.resolveHexEdge()
+	return v
 }
 
 // ResolvedHexEdge returns the hex edge for a city: per-city override if
 // set, else the top-level resolution.
 func (c *Config) ResolvedHexEdge(city *CityConfig) float64 {
-	if city.HexEdgeM > 0 {
-		return city.HexEdgeM
-	}
-	return c.HexEdge()
+	v, _ := c.resolveHexEdgeForCity(city)
+	return v
 }
 
 // ResolvedForecast returns the forecast config for city with all layers
@@ -139,12 +127,7 @@ func (c *Config) ResolvedHexEdge(city *CityConfig) float64 {
 // config still reflects the next layer down; the warnInvalidEnv
 // middleware at the CLI boundary surfaces these to the user.
 func (c *Config) ResolvedForecast(city *CityConfig) ForecastConfig {
-	fc := c.Forecast
-	if city != nil {
-		applyCityForecast(&fc, city.Forecast)
-	}
-	applyForecastEnv(&fc)
-	NormalizeForecast(&fc)
+	fc, _ := c.resolveForecast(city)
 	return fc
 }
 
@@ -158,42 +141,6 @@ func NormalizeForecast(fc *ForecastConfig) {
 	}
 	if fc.Years <= 0 {
 		fc.Years = DefaultForecastYears
-	}
-}
-
-// applyCityForecast overlays a per-city forecast block onto fc in place.
-// Each non-zero field wins over the top-level value. A nil override is a
-// no-op.
-func applyCityForecast(fc, override *ForecastConfig) {
-	if override == nil {
-		return
-	}
-	if override.InitialPCI > 0 && override.InitialPCI <= 100 {
-		fc.InitialPCI = override.InitialPCI
-	}
-	if override.DecayRate > 0 {
-		fc.DecayRate = override.DecayRate
-	}
-	if override.GrowthRate > 0 {
-		fc.GrowthRate = override.GrowthRate
-	}
-	if override.Years > 0 {
-		fc.Years = override.Years
-	}
-	if len(override.CostTiers) > 0 {
-		fc.CostTiers = override.CostTiers
-	}
-}
-
-// applyForecastEnv overlays PVMT_FORECAST_* env overrides onto fc in
-// place. Invalid or out-of-range values are ignored here; the
-// warnInvalidEnv middleware surfaces them to the user instead.
-func applyForecastEnv(fc *ForecastConfig) {
-	if n, ok := parsePositiveIntEnv("PVMT_FORECAST_YEARS"); ok {
-		fc.Years = n
-	}
-	if f, ok := parsePCIEnv("PVMT_FORECAST_INITIAL_PCI"); ok {
-		fc.InitialPCI = f
 	}
 }
 

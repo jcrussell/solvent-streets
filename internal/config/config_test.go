@@ -378,7 +378,7 @@ func TestLoad_MissingFileReportsFullPath(t *testing.T) {
 
 // TestResolvedForecast_NilCity guards the B3 fix: ResolvedForecast must
 // tolerate a nil *CityConfig and return fully-normalized defaults,
-// rather than panicking on the nil deref inside applyCityForecast.
+// rather than panicking on a nil city deref inside the merge.
 func TestResolvedForecast_NilCity(t *testing.T) {
 	cfg := &Config{Forecast: ForecastConfig{Years: 15, InitialPCI: 70}}
 	fc := cfg.ResolvedForecast(nil)

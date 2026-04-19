@@ -10,6 +10,7 @@ import (
 	"pvmt/internal/units"
 	"pvmt/pkg/cmd/all"
 	"pvmt/pkg/cmd/cities"
+	configcmd "pvmt/pkg/cmd/config"
 	"pvmt/pkg/cmd/export"
 	forecastcmd "pvmt/pkg/cmd/forecast"
 	"pvmt/pkg/cmd/parking"
@@ -179,5 +180,6 @@ func addSubcommands(cmd *cobra.Command, f *cmdutil.Factory) {
 
 	addGroupedCommand(cmd, status.NewCmdStatus(f, nil, nil), groupInfo)
 	addGroupedCommand(cmd, cities.NewCmdCities(f, nil), groupInfo)
+	addGroupedCommand(cmd, configcmd.NewCmdConfig(f), groupInfo)
 	addGroupedCommand(cmd, version.NewCmdVersion(f, nil), groupInfo)
 }
