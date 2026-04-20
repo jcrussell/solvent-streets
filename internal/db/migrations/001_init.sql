@@ -36,13 +36,14 @@ CREATE TABLE IF NOT EXISTS snapshots (
     config_hash TEXT NOT NULL DEFAULT ''
 );
 
+CREATE INDEX IF NOT EXISTS idx_snapshots_city ON snapshots(city_id);
+
 CREATE TABLE IF NOT EXISTS compute_results (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     resource_type TEXT NOT NULL,
     city_id INTEGER NOT NULL REFERENCES cities(id),
     total_area_sqm REAL NOT NULL DEFAULT 0,
     feature_count INTEGER NOT NULL DEFAULT 0,
-    geometry_json TEXT NOT NULL DEFAULT '',
     snapshot_id INTEGER REFERENCES snapshots(id),
     computed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -91,3 +92,6 @@ CREATE TABLE IF NOT EXISTS cohort_stats (
     snapshot_id INTEGER,
     computed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX IF NOT EXISTS idx_cohort_stats_city ON cohort_stats(city_id);
+CREATE INDEX IF NOT EXISTS idx_cohort_stats_resource_type ON cohort_stats(resource_type);
