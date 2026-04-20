@@ -26,7 +26,6 @@ func TestHandleDataMetaJSON(t *testing.T) {
 					ResourceType: "roads",
 					TotalAreaSqM: 46452,
 					FeatureCount: 100,
-					GeometryJSON: `{"type":"Polygon","coordinates":[]}`,
 					ComputedAt:   time.Now(),
 				}, nil
 			}
@@ -70,5 +69,39 @@ func TestHandleDataMetaJSON(t *testing.T) {
 	}
 	if meta.ProjectName != "Test City" {
 		t.Errorf("expected project name 'Test City', got %q", meta.ProjectName)
+	}
+}
+
+func TestHandleIndex(t *testing.T) {
+	testBoundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
+		LatestComputeResultFunc: func(_ context.Context, _ string) (*db.ComputeResult, error) {
+			return nil, fmt.Errorf("not found")
+		},
+	}
+	cfg := &config.Config{
+		Cities: []config.CityConfig{{Name: "Test City"}},
+	}
+	entry := export.CityEntry{
+		Config: cfg,
+		City:   cfg.Cities[0],
+		Store:  store,
+		Slug:   cfg.Cities[0].Slug(),
+	}
+	ios, _, _, _ := iostreams.Test()
+	srv := New([]export.CityEntry{entry}, 0, ios)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /", srv.handleIndex)
+
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", "/", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if w.Body.Len() == 0 {
+		t.Fatal("empty body")
 	}
 }

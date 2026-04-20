@@ -90,12 +90,12 @@ type HexStat struct {
 	PctCovered   float64
 }
 
-// ComputeHexStats intersects each hex with the union geometry and computes
-// coverage using an R-tree spatial index and parallel workers.
+// ComputeHexStats intersects each hex with the geometries indexed by idx and
+// computes coverage using parallel workers. Candidates returned from the
+// R-tree may overlap (e.g. when idx holds buffered feature polygons directly),
+// so we union them per-hex before intersecting to avoid double-counting.
 // If counter is non-nil it is incremented after each hex is processed.
-func ComputeHexStats(hexes []Hex, union geom.Geometry, resourceType string, counter *atomic.Int64) []HexStat {
-	idx := NewGeomIndex(union)
-
+func ComputeHexStats(hexes []Hex, idx *GeomIndex, resourceType string, counter *atomic.Int64) []HexStat {
 	return ParallelMap(hexes, func(_ int, h Hex) []HexStat {
 		hexEnv := h.Geom.Envelope()
 		candidates := idx.Search(hexEnv)
@@ -111,21 +111,11 @@ func ComputeHexStats(hexes []Hex, union geom.Geometry, resourceType string, coun
 			return nil
 		}
 
-		var totalArea float64
-		for _, cand := range candidates {
-			inter, err := geom.Intersection(h.Geom, cand)
-			if err != nil || inter.IsEmpty() {
-				continue
-			}
-			totalArea += inter.Area()
-		}
-		if totalArea <= 0 {
+		totalArea, ok := hexCoverageArea(h.Geom, candidates)
+		if !ok || totalArea <= 0 {
 			return nil
 		}
-		pct := 0.0
-		if hexArea > 0 {
-			pct = totalArea / hexArea * 100
-		}
+		pct := totalArea / hexArea * 100
 		if pct > 100 {
 			pct = 100
 		}
@@ -137,6 +127,31 @@ func ComputeHexStats(hexes []Hex, union geom.Geometry, resourceType string, coun
 			PctCovered:   pct,
 		}}
 	}, counter)
+}
+
+// hexCoverageArea returns the area of intersection between h and the union of
+// candidates. Unioning locally (tens-to-hundreds of polygons per hex) dedupes
+// overlap between adjacent buffered features — two roads crossing at a
+// junction share a width² patch that must be counted once, not twice.
+func hexCoverageArea(h geom.Geometry, candidates []geom.Geometry) (float64, bool) {
+	if len(candidates) == 0 {
+		return 0, false
+	}
+	var unioned geom.Geometry
+	if len(candidates) == 1 {
+		unioned = candidates[0]
+	} else {
+		u, err := geom.UnionMany(candidates)
+		if err != nil {
+			return 0, false
+		}
+		unioned = u
+	}
+	inter, err := geom.Intersection(h, unioned)
+	if err != nil || inter.IsEmpty() {
+		return 0, false
+	}
+	return inter.Area(), true
 }
 
 // clipHexToCandidates intersects a hex with candidate boundary fragments and

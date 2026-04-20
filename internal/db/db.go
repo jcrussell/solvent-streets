@@ -31,7 +31,6 @@ type ComputeResult struct {
 	ResourceType string
 	TotalAreaSqM float64
 	FeatureCount int
-	GeometryJSON string // Union GeoJSON for visualization
 	ComputedAt   time.Time
 	SnapshotID   *int64
 }

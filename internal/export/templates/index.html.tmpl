@@ -764,19 +764,13 @@
 
             let toggles = '';
 
-            // Load resource layers
+            // Resource toggles — filter the blended hex grid by type. There is
+            // no separate per-resource fill layer anymore (it was a cosmetic
+            // overlay duplicating the hex grid); empty data-layers skips the
+            // visibility-setter while data-type still drives activeTypes and
+            // updateHexGrid().
             for (const type of Object.keys(layerColors)) {
-                try {
-                    const resp = await fetch(prefix + 'data/' + type + '.geojson');
-                    if (!resp.ok) continue;
-                    const data = await resp.json();
-                    map.addSource(type, { type: 'geojson', data });
-                    map.addLayer({
-                        id: type + '-fill', type: 'fill', source: type,
-                        paint: { 'fill-color': layerColors[type], 'fill-opacity': 0.4, 'fill-outline-color': layerColors[type] }
-                    });
-                    toggles += '<label><input type="checkbox" checked data-layers="' + type + '-fill" data-type="' + type + '"><span class="legend-dot" style="background:' + layerColors[type] + '"></span>' + type + '</label>';
-                } catch(e) { console.warn('failed to load ' + type + ':', e); }
+                toggles += '<label><input type="checkbox" checked data-layers="" data-type="' + type + '"><span class="legend-dot" style="background:' + layerColors[type] + '"></span>' + type + '</label>';
             }
 
             // Load hex cost summary
@@ -888,7 +882,8 @@
             document.querySelectorAll('#toggles input').forEach(cb => {
                 cb.addEventListener('change', e => {
                     const vis = e.target.checked ? 'visible' : 'none';
-                    e.target.dataset.layers.split(',').forEach(id => map.setLayoutProperty(id, 'visibility', vis));
+                    const layers = e.target.dataset.layers ? e.target.dataset.layers.split(',') : [];
+                    layers.forEach(id => map.setLayoutProperty(id, 'visibility', vis));
 
                     // Update activeTypes and reblend hex grid
                     const type = e.target.dataset.type;

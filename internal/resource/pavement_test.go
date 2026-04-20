@@ -30,7 +30,7 @@ func TestPavement_OverpassQuery(t *testing.T) {
 	}
 }
 
-func TestPavement_ProcessFeatures_LineString(t *testing.T) {
+func TestPavement_BufferFeatures_LineString(t *testing.T) {
 	features := []Feature{
 		{
 			ID:           "test1",
@@ -40,16 +40,19 @@ func TestPavement_ProcessFeatures_LineString(t *testing.T) {
 		},
 	}
 	p := &Pavement{}
-	_, area, err := p.ProcessFeatures(features, testProj)
+	geoms, err := p.BufferFeatures(features, testProj)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if area <= 0 {
-		t.Errorf("expected positive area, got %f", area)
+	if len(geoms) != 1 {
+		t.Fatalf("expected 1 buffered geometry, got %d", len(geoms))
+	}
+	if geoms[0].Area() <= 0 {
+		t.Errorf("expected positive area, got %f", geoms[0].Area())
 	}
 }
 
-func TestPavement_ProcessFeatures_Polygon(t *testing.T) {
+func TestPavement_BufferFeatures_Polygon(t *testing.T) {
 	features := []Feature{
 		{
 			ID:           "test2",
@@ -59,24 +62,27 @@ func TestPavement_ProcessFeatures_Polygon(t *testing.T) {
 		},
 	}
 	p := &Pavement{}
-	_, area, err := p.ProcessFeatures(features, testProj)
+	geoms, err := p.BufferFeatures(features, testProj)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if area <= 0 {
-		t.Errorf("expected positive area, got %f", area)
+	if len(geoms) != 1 {
+		t.Fatalf("expected 1 buffered geometry, got %d", len(geoms))
+	}
+	if geoms[0].Area() <= 0 {
+		t.Errorf("expected positive area, got %f", geoms[0].Area())
 	}
 }
 
-func TestPavement_ProcessFeatures_Empty(t *testing.T) {
+func TestPavement_BufferFeatures_Empty(t *testing.T) {
 	p := &Pavement{}
-	_, _, err := p.ProcessFeatures(nil, testProj)
+	_, err := p.BufferFeatures(nil, testProj)
 	if err == nil {
 		t.Error("expected error for empty features")
 	}
 }
 
-func TestPavement_ProcessFeatures_InvalidSkipped(t *testing.T) {
+func TestPavement_BufferFeatures_InvalidSkipped(t *testing.T) {
 	features := []Feature{
 		{
 			ID:           "bad",
@@ -90,11 +96,11 @@ func TestPavement_ProcessFeatures_InvalidSkipped(t *testing.T) {
 		},
 	}
 	p := &Pavement{}
-	_, area, err := p.ProcessFeatures(features, testProj)
+	geoms, err := p.BufferFeatures(features, testProj)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if area <= 0 {
-		t.Errorf("expected positive area from valid feature, got %f", area)
+	if len(geoms) != 1 {
+		t.Errorf("expected 1 valid buffered geometry, got %d", len(geoms))
 	}
 }

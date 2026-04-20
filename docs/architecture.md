@@ -12,9 +12,9 @@ flowchart LR
 
     subgraph Compute ["internal/geo + internal/resource"]
         Project["WGS84 → UTM"]
-        Buffer["Buffer & union"]
+        Buffer["Buffer features"]
         HexGrid["Hex grid"]
-        RTree["R-tree intersect"]
+        RTree["R-tree + per-hex union"]
     end
 
     subgraph Forecast ["internal/forecast"]
@@ -65,15 +65,18 @@ flowchart TD
     Width["Infer width from OSM tags"]
     Buf["Buffer LineStrings → Polygons"]
     Val["Validate via Buffer(0)"]
-    Union["UnionAll"]
+    RTIdx["R-tree index over buffered geoms"]
     Hex["HexGrid (flat-top, configurable edge)"]
     Clip["Clip hexes to city boundary"]
-    RT["R-tree indexed intersection"]
-    Stats["Per-hex area & % coverage"]
-    Back["Reproject → WGS84 GeoJSON"]
+    PerHex["Per-hex: spatial query → local union → clip to hex"]
+    Stats["Per-hex area & % coverage → hex_stats"]
+    Back["Reproject hex polygons → WGS84 GeoJSON"]
 
-    GeoJSON --> UTM --> Width --> Buf --> Val --> Union
-    Union --> Hex --> Clip --> RT --> Stats --> Back
+    GeoJSON --> UTM --> Width --> Buf --> Val --> RTIdx
+    Hex --> Clip
+    RTIdx --> PerHex
+    Clip --> PerHex
+    PerHex --> Stats --> Back
 ```
 
 Roads: width inferred from `width` tag, `lanes` count, or classification defaults, plus parking lane addon.
@@ -122,7 +125,6 @@ erDiagram
         text resource_type
         real total_area_sqm
         int feature_count
-        text geometry_json
     }
     hex_stats {
         text hex_id PK

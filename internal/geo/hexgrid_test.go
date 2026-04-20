@@ -43,9 +43,9 @@ func TestHexGrid_UniqueIDs(t *testing.T) {
 
 func TestComputeHexStats_NoIntersection(t *testing.T) {
 	hexes := HexGrid(0, 0, 500, 500, 100)
-	// Union geometry far away
-	rect := makeRect(10000, 10000, 10100, 10100)
-	stats := ComputeHexStats(hexes, rect, "roads", nil)
+	// Index a geometry far away
+	idx := NewGeomIndexFromGeoms([]geom.Geometry{makeRect(10000, 10000, 10100, 10100)})
+	stats := ComputeHexStats(hexes, idx, "roads", nil)
 	if len(stats) != 0 {
 		t.Errorf("expected 0 stats for non-intersecting, got %d", len(stats))
 	}
@@ -54,8 +54,8 @@ func TestComputeHexStats_NoIntersection(t *testing.T) {
 func TestComputeHexStats_PartialIntersection(t *testing.T) {
 	hexes := HexGrid(0, 0, 500, 500, 100)
 	// Small rect that should intersect a few hexes
-	rect := makeRect(100, 100, 200, 200)
-	stats := ComputeHexStats(hexes, rect, "roads", nil)
+	idx := NewGeomIndexFromGeoms([]geom.Geometry{makeRect(100, 100, 200, 200)})
+	stats := ComputeHexStats(hexes, idx, "roads", nil)
 	if len(stats) == 0 {
 		t.Error("expected some hex stats for intersecting geometry")
 	}
@@ -65,6 +65,33 @@ func TestComputeHexStats_PartialIntersection(t *testing.T) {
 		}
 		if s.AreaSqM <= 0 {
 			t.Errorf("expected positive area, got %f", s.AreaSqM)
+		}
+	}
+}
+
+func TestComputeHexStats_DedupesOverlappingCandidates(t *testing.T) {
+	// Two buffered "roads" overlap heavily at a crossing point inside one hex.
+	// A sum-of-intersections approach would double-count the overlap and
+	// report area greater than the hex area; the per-hex local union must
+	// collapse the overlap so area stays bounded by hex area.
+	hexes := HexGrid(0, 0, 100, 100, 50)
+	horizontal := makeRect(0, 40, 100, 60)
+	vertical := makeRect(40, 0, 60, 100)
+	idx := NewGeomIndexFromGeoms([]geom.Geometry{horizontal, vertical})
+	stats := ComputeHexStats(hexes, idx, "roads", nil)
+	if len(stats) == 0 {
+		t.Fatal("expected at least one stat")
+	}
+	for _, s := range stats {
+		if s.PctCovered > 100 {
+			t.Errorf("pct_covered exceeded 100 despite clamp: %f", s.PctCovered)
+		}
+		// Overlap at the crossing is a 20x20 patch; summing intersections
+		// naively would inflate area by ~400 sqm per hex that contains
+		// both arms. Confirm we stay close to the true unioned area.
+		hexArea := 3 * math.Sqrt(3) / 2 * 50 * 50
+		if s.AreaSqM > hexArea {
+			t.Errorf("area %f exceeds hex area %f — overlap not deduped", s.AreaSqM, hexArea)
 		}
 	}
 }
@@ -83,7 +110,7 @@ func TestClipHexesToBoundary(t *testing.T) {
 }
 
 func BenchmarkComputeHexStats(b *testing.B) {
-	// Realistic workload: grid of hexes + scattered rectangles as union
+	// Realistic workload: grid of hexes + scattered rectangles as candidates.
 	hexes := HexGrid(0, 0, 10000, 10000, 100) // ~4400 hexes
 	var geoms []geom.Geometry
 	for i := range 100 {
@@ -91,12 +118,9 @@ func BenchmarkComputeHexStats(b *testing.B) {
 		y := float64(i/10) * 1000
 		geoms = append(geoms, makeRect(x, y, x+200, y+50))
 	}
-	union, err := UnionAll(geoms)
-	if err != nil {
-		b.Fatal(err)
-	}
+	idx := NewGeomIndexFromGeoms(geoms)
 	b.ResetTimer()
 	for range b.N {
-		ComputeHexStats(hexes, union, "roads", nil)
+		ComputeHexStats(hexes, idx, "roads", nil)
 	}
 }

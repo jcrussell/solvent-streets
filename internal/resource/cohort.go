@@ -7,11 +7,14 @@ import (
 	"github.com/peterstace/simplefeatures/geom"
 )
 
-// ComputeRoadCohortAreas computes per-classification union areas by buffering
-// each feature, grouping by classification, and unioning within each class.
-// This avoids inflating class areas due to intra-class overlaps.
-// Returns map[classification]unionAreaSqM.
-func ComputeRoadCohortAreas(features []Feature, proj geo.Projector) map[string]float64 {
+// ComputeRoadCohortAreas computes per-classification coverage areas by
+// buffering each feature, grouping by classification, and running the same
+// R-tree + per-hex local-union pipeline that ComputeHexStats uses against
+// the supplied clipped hex grid. This matches the main compute pipeline —
+// intra-class overlaps are dedup'd per-hex rather than via one big UnionAll,
+// and per-class totals are clipped to the same hex grid as the "all" total
+// so they sum consistently. Returns map[classification]coverageAreaSqM.
+func ComputeRoadCohortAreas(features []Feature, proj geo.Projector, hexes []geo.Hex) map[string]float64 {
 	classGeoms := make(map[string][]geom.Geometry)
 
 	for _, f := range features {
@@ -25,17 +28,13 @@ func ComputeRoadCohortAreas(features []Feature, proj geo.Projector) map[string]f
 
 	areas := make(map[string]float64)
 	for class, geoms := range classGeoms {
-		u, err := geo.UnionAll(geoms)
-		if err != nil {
-			// Fallback: sum individual areas if union fails
-			var sum float64
-			for _, g := range geoms {
-				sum += geo.AreaInProjectedUnits(g)
-			}
-			areas[class] = sum
-			continue
+		idx := geo.NewGeomIndexFromGeoms(geoms)
+		stats := geo.ComputeHexStats(hexes, idx, class, nil)
+		var sum float64
+		for _, s := range stats {
+			sum += s.AreaSqM
 		}
-		areas[class] = geo.AreaInProjectedUnits(u)
+		areas[class] = sum
 	}
 	return areas
 }

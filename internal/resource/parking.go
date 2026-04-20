@@ -24,38 +24,24 @@ out geom;`, bbox[0], bbox[1], bbox[2], bbox[3],
 		bbox[0], bbox[1], bbox[2], bbox[3])
 }
 
-func (p *Parking) ProcessFeatures(features []Feature, proj geo.Projector) (string, float64, error) {
-	var geometries []geom.Geometry
-
+func (p *Parking) BufferFeatures(features []Feature, proj geo.Projector) ([]geom.Geometry, error) {
+	geometries := make([]geom.Geometry, 0, len(features))
 	for _, f := range features {
 		g, gtype, err := geo.GeoJSONToProjectedGeometry(f.GeometryJSON, proj)
 		if err != nil {
 			continue
 		}
-
-		if gtype == "Polygon" {
-			cleaned, err := geo.ValidatePolygon(g)
-			if err != nil {
-				continue
-			}
-			geometries = append(geometries, cleaned)
+		if gtype != GeomPolygon {
+			continue
 		}
+		cleaned, err := geo.ValidatePolygon(g)
+		if err != nil {
+			continue
+		}
+		geometries = append(geometries, cleaned)
 	}
-
 	if len(geometries) == 0 {
-		return "", 0, errors.New("no valid polygon geometries to process")
+		return nil, errors.New("no valid polygon geometries to process")
 	}
-
-	union, err := geo.UnionAll(geometries)
-	if err != nil {
-		return "", 0, fmt.Errorf("union: %w", err)
-	}
-
-	areaSqM := geo.AreaInProjectedUnits(union)
-	gjson, err := geo.GeometryToGeoJSON(union, proj)
-	if err != nil {
-		return "", areaSqM, fmt.Errorf("to geojson: %w", err)
-	}
-
-	return gjson, areaSqM, nil
+	return geometries, nil
 }

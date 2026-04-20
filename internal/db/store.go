@@ -75,9 +75,9 @@ func (s *sqliteStore) ListFeatures(ctx context.Context, resourceType string) ([]
 
 func (s *sqliteStore) SaveComputeResult(ctx context.Context, result ComputeResult) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO compute_results (resource_type, city_id, total_area_sqm, feature_count, geometry_json, computed_at, snapshot_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, result.ResourceType, s.cityID, result.TotalAreaSqM, result.FeatureCount, result.GeometryJSON, time.Now(), result.SnapshotID)
+		INSERT INTO compute_results (resource_type, city_id, total_area_sqm, feature_count, computed_at, snapshot_id)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, result.ResourceType, s.cityID, result.TotalAreaSqM, result.FeatureCount, time.Now(), result.SnapshotID)
 	if err != nil {
 		return fmt.Errorf("insert compute result: %w", err)
 	}
@@ -87,12 +87,12 @@ func (s *sqliteStore) SaveComputeResult(ctx context.Context, result ComputeResul
 func (s *sqliteStore) LatestComputeResult(ctx context.Context, resourceType string) (*ComputeResult, error) {
 	var r ComputeResult
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, resource_type, total_area_sqm, feature_count, geometry_json, computed_at, snapshot_id
+		SELECT id, resource_type, total_area_sqm, feature_count, computed_at, snapshot_id
 		FROM compute_results
 		WHERE resource_type = ? AND city_id = ?
 		ORDER BY computed_at DESC
 		LIMIT 1
-	`, resourceType, s.cityID).Scan(&r.ID, &r.ResourceType, &r.TotalAreaSqM, &r.FeatureCount, &r.GeometryJSON, &r.ComputedAt, &r.SnapshotID)
+	`, resourceType, s.cityID).Scan(&r.ID, &r.ResourceType, &r.TotalAreaSqM, &r.FeatureCount, &r.ComputedAt, &r.SnapshotID)
 	if err != nil {
 		return nil, err
 	}

@@ -2,7 +2,6 @@ package resource
 
 import (
 	"errors"
-	"fmt"
 
 	"pvmt/internal/geo"
 
@@ -25,8 +24,12 @@ type Feature struct {
 type ResourceType interface {
 	Name() string
 	OverpassQuery(bbox [4]float64) string
-	ProcessFeatures(features []Feature, proj geo.Projector) (string, float64, error) // returns (unionGeoJSON, areaSqM, error)
-	HasCohorts() bool                                                                // whether this resource type supports per-classification cohort stats
+	// BufferFeatures parses and buffers each feature into a cleaned projected
+	// polygon, returning the slice of polygons. No union or area is computed
+	// here — downstream code builds a spatial index and computes coverage
+	// per-hex, avoiding a city-wide UnionMany call that OOMs on large cities.
+	BufferFeatures(features []Feature, proj geo.Projector) ([]geom.Geometry, error)
+	HasCohorts() bool // whether this resource type supports per-classification cohort stats
 }
 
 var All = []ResourceType{
@@ -81,29 +84,15 @@ func cleanFeatureGeometry(f Feature, proj geo.Projector, inferWidth widthFunc) (
 	}
 }
 
-func processFeatures(features []Feature, proj geo.Projector, inferWidth widthFunc) (string, float64, error) {
-	var geometries []geom.Geometry
-
+func bufferFeatures(features []Feature, proj geo.Projector, inferWidth widthFunc) ([]geom.Geometry, error) {
+	geometries := make([]geom.Geometry, 0, len(features))
 	for _, f := range features {
 		if g, ok := cleanFeatureGeometry(f, proj, inferWidth); ok {
 			geometries = append(geometries, g)
 		}
 	}
-
 	if len(geometries) == 0 {
-		return "", 0, errors.New("no valid geometries to process")
+		return nil, errors.New("no valid geometries to process")
 	}
-
-	union, err := geo.UnionAll(geometries)
-	if err != nil {
-		return "", 0, fmt.Errorf("union: %w", err)
-	}
-
-	areaSqM := geo.AreaInProjectedUnits(union)
-	gjson, err := geo.GeometryToGeoJSON(union, proj)
-	if err != nil {
-		return "", areaSqM, fmt.Errorf("to geojson: %w", err)
-	}
-
-	return gjson, areaSqM, nil
+	return geometries, nil
 }

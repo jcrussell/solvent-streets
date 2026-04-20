@@ -811,13 +811,6 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 		}
 	}
 
-	// Export each resource type as GeoJSON (prefer city-clipped variant)
-	for _, rt := range resource.All {
-		if err := exportResourceGeoJSON(ctx, entry.Store, rt, dataDir); err != nil {
-			return err
-		}
-	}
-
 	// Export hex grid
 	hexFC := BuildHexGeoJSON(ctx, entry, proj)
 	if hexFC != nil {
@@ -843,36 +836,6 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 		return fmt.Errorf("write forecast_seed.json: %w", err)
 	}
 
-	return nil
-}
-
-// exportResourceGeoJSON writes a single resource type's GeoJSON file to dataDir.
-// It prefers the city-clipped variant and silently skips if no data is available.
-func exportResourceGeoJSON(ctx context.Context, store db.Store, rt resource.ResourceType, dataDir string) error {
-	result, err := store.LatestComputeResult(ctx, rt.Name()+":city")
-	if err != nil {
-		result, err = store.LatestComputeResult(ctx, rt.Name())
-	}
-	if err != nil {
-		return nil //nolint:nilerr // silently skip when no data is available
-	}
-	if result.GeometryJSON == "" {
-		return nil
-	}
-	geojsonPath := filepath.Join(dataDir, rt.Name()+".geojson")
-	fc := map[string]any{
-		"type": "FeatureCollection",
-		"features": []map[string]any{
-			{
-				"type":       "Feature",
-				"geometry":   json.RawMessage(result.GeometryJSON),
-				"properties": map[string]any{"type": rt.Name()},
-			},
-		},
-	}
-	if err := writeJSON(geojsonPath, fc); err != nil {
-		return fmt.Errorf("write %s geojson: %w", rt.Name(), err)
-	}
 	return nil
 }
 
@@ -1044,29 +1007,39 @@ func indexFuncMap(sys units.System) template.FuncMap {
 	}
 }
 
+// ParseIndexTemplate returns the parsed template tree for the index page,
+// including the methodology and theme partials that index.html.tmpl references
+// via {{template ...}}. Shared between the static exporter and the live server
+// so they can't drift.
+func ParseIndexTemplate(sys units.System) (*template.Template, error) {
+	files := []string{
+		"templates/index.html.tmpl",
+		"templates/methodology.html.tmpl",
+		"templates/theme.html.tmpl",
+	}
+	var tmpl *template.Template
+	for _, name := range files {
+		data, err := templatesFS.ReadFile(name)
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", name, err)
+		}
+		if tmpl == nil {
+			tmpl, err = template.New("index").Funcs(indexFuncMap(sys)).Parse(string(data))
+		} else {
+			_, err = tmpl.Parse(string(data))
+		}
+		if err != nil {
+			return nil, fmt.Errorf("parse %s: %w", name, err)
+		}
+	}
+	return tmpl, nil
+}
+
 func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolvedTOML, unitSystem string, cities []CityInfo) (err error) {
 	sys := units.ParseSystem(unitSystem)
-	indexData, err := templatesFS.ReadFile("templates/index.html.tmpl")
+	tmpl, err := ParseIndexTemplate(sys)
 	if err != nil {
-		return fmt.Errorf("read template: %w", err)
-	}
-	tmpl, err := template.New("index").Funcs(indexFuncMap(sys)).Parse(string(indexData))
-	if err != nil {
-		return fmt.Errorf("parse template: %w", err)
-	}
-	methData, err := templatesFS.ReadFile("templates/methodology.html.tmpl")
-	if err != nil {
-		return fmt.Errorf("read methodology template: %w", err)
-	}
-	if _, err := tmpl.Parse(string(methData)); err != nil {
-		return fmt.Errorf("parse methodology template: %w", err)
-	}
-	themeData, err := templatesFS.ReadFile("templates/theme.html.tmpl")
-	if err != nil {
-		return fmt.Errorf("read theme template: %w", err)
-	}
-	if _, err := tmpl.Parse(string(themeData)); err != nil {
-		return fmt.Errorf("parse theme template: %w", err)
+		return err
 	}
 
 	outPath := filepath.Join(e.outputDir, "index.html")

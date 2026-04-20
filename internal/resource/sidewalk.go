@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"pvmt/internal/geo"
+
+	"github.com/peterstace/simplefeatures/geom"
 )
 
 type Sidewalk struct{}
@@ -19,6 +21,6 @@ func (s *Sidewalk) OverpassQuery(bbox [4]float64) string {
 out geom;`, bbox[0], bbox[1], bbox[2], bbox[3])
 }
 
-func (s *Sidewalk) ProcessFeatures(features []Feature, proj geo.Projector) (string, float64, error) {
-	return processFeatures(features, proj, geo.InferSidewalkWidth)
+func (s *Sidewalk) BufferFeatures(features []Feature, proj geo.Projector) ([]geom.Geometry, error) {
+	return bufferFeatures(features, proj, geo.InferSidewalkWidth)
 }

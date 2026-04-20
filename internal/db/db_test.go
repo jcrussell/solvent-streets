@@ -63,7 +63,6 @@ func TestStoreComputeResult(t *testing.T) {
 		ResourceType: "roads",
 		TotalAreaSqM: 92903,
 		FeatureCount: 500,
-		GeometryJSON: `{"type":"Polygon","coordinates":[]}`,
 	}
 	if err := store.SaveComputeResult(ctx, result); err != nil {
 		t.Fatal(err)

@@ -20,7 +20,7 @@ func TestParking_OverpassQuery(t *testing.T) {
 	}
 }
 
-func TestParking_ProcessFeatures_Polygon(t *testing.T) {
+func TestParking_BufferFeatures_Polygon(t *testing.T) {
 	features := []Feature{
 		{
 			ID:           "p1",
@@ -30,16 +30,19 @@ func TestParking_ProcessFeatures_Polygon(t *testing.T) {
 		},
 	}
 	p := &Parking{}
-	_, area, err := p.ProcessFeatures(features, testProj)
+	geoms, err := p.BufferFeatures(features, testProj)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if area <= 0 {
-		t.Errorf("expected positive area, got %f", area)
+	if len(geoms) != 1 {
+		t.Errorf("expected 1 buffered geometry, got %d", len(geoms))
+	}
+	if geoms[0].Area() <= 0 {
+		t.Errorf("expected positive area, got %f", geoms[0].Area())
 	}
 }
 
-func TestParking_ProcessFeatures_LineStringSkipped(t *testing.T) {
+func TestParking_BufferFeatures_LineStringSkipped(t *testing.T) {
 	features := []Feature{
 		{
 			ID:           "ls1",
@@ -48,15 +51,15 @@ func TestParking_ProcessFeatures_LineStringSkipped(t *testing.T) {
 		},
 	}
 	p := &Parking{}
-	_, _, err := p.ProcessFeatures(features, testProj)
+	_, err := p.BufferFeatures(features, testProj)
 	if err == nil {
 		t.Error("expected error when only LineString features (no polygons)")
 	}
 }
 
-func TestParking_ProcessFeatures_Empty(t *testing.T) {
+func TestParking_BufferFeatures_Empty(t *testing.T) {
 	p := &Parking{}
-	_, _, err := p.ProcessFeatures(nil, testProj)
+	_, err := p.BufferFeatures(nil, testProj)
 	if err == nil {
 		t.Error("expected error for empty features")
 	}

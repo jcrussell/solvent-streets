@@ -15,7 +15,13 @@ type GeomIndex struct {
 // NewGeomIndex decomposes g into leaf geometries via Dump() and indexes each
 // by its bounding box in an R-tree built with BulkLoad.
 func NewGeomIndex(g geom.Geometry) *GeomIndex {
-	parts := g.Dump()
+	return NewGeomIndexFromGeoms(g.Dump())
+}
+
+// NewGeomIndexFromGeoms builds an R-tree over the supplied geometries directly,
+// without an intermediate Dump(). Use this when the caller already has the
+// individual parts — e.g. buffered features before any union pass.
+func NewGeomIndexFromGeoms(parts []geom.Geometry) *GeomIndex {
 	items := make([]rtree.BulkItem, 0, len(parts))
 	for i, p := range parts {
 		env := p.Envelope()

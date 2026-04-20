@@ -2,14 +2,11 @@ package server
 
 import (
 	"encoding/json"
-	"html/template"
 	"net/http"
 	"os"
-	"strings"
 
 	"pvmt/internal/export"
 	"pvmt/internal/geo"
-	"pvmt/internal/units"
 )
 
 // handleIndex renders the export template with live data.
@@ -29,31 +26,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	// Use first city for template rendering
 	entry := s.cities[0]
 
-	tmplData, err := export.TemplateFS().ReadFile("templates/index.html.tmpl")
-	if err != nil {
-		http.Error(w, "template not found", http.StatusInternalServerError)
-		return
-	}
-
-	sys := entry.Config.UnitSystem()
-	funcMap := template.FuncMap{
-		"divf":          func(a, b float64) float64 { return a / b },
-		"areaLarge":     func(sqm float64) float64 { return units.AreaLargeValue(sqm, sys) },
-		"areaVeryLarge": func(sqm float64) float64 { return units.AreaVeryLargeValue(sqm, sys) },
-		"areaLargeUnit": func() string {
-			if sys == units.Imperial {
-				return "acres"
-			}
-			return "ha"
-		},
-		"areaVeryLargeUnit": func() string {
-			if sys == units.Imperial {
-				return "sq mi"
-			}
-			return "sq km"
-		},
-	}
-	tmpl, err := template.New("index").Funcs(funcMap).Parse(string(tmplData))
+	tmpl, err := export.ParseIndexTemplate(entry.Config.UnitSystem())
 	if err != nil {
 		http.Error(w, "template parse error", http.StatusInternalServerError)
 		return
@@ -157,24 +130,21 @@ func (s *Server) handleCitiesList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) serveDataFile(w http.ResponseWriter, r *http.Request, file string, entry export.CityEntry) {
-	switch {
-	case file == "meta.json":
+	switch file {
+	case "meta.json":
 		s.serveMetaJSON(w, r, entry)
-	case file == "hexgrid.geojson":
+	case "hexgrid.geojson":
 		s.serveHexGridGeoJSON(w, r, entry)
-	case file == "scenarios.json":
+	case "scenarios.json":
 		s.serveScenariosJSON(w, r, entry)
-	case file == "forecast.json":
+	case "forecast.json":
 		s.serveForecastJSON(w, r, entry)
-	case file == "forecast_seed.json":
+	case "forecast_seed.json":
 		s.serveForecastSeed(w, r, entry)
-	case file == "hex-cost-summary.json":
+	case "hex-cost-summary.json":
 		s.serveHexCostSummary(w, r, entry)
-	case file == "boundary.geojson":
+	case "boundary.geojson":
 		s.serveBoundaryGeoJSON(w, r, entry)
-	case strings.HasSuffix(file, ".geojson"):
-		typeName := strings.TrimSuffix(file, ".geojson")
-		s.serveTypeGeoJSON(w, r, entry, typeName)
 	default:
 		http.NotFound(w, r)
 	}
@@ -201,7 +171,7 @@ func (s *Server) serveCached(w http.ResponseWriter, key string) bool {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "public, max-age=300")
-	w.Write(data) //nolint:gosec // data originates from json.Marshal in writeJSONCached
+	w.Write(data)
 	return true
 }
 
@@ -251,36 +221,6 @@ func (s *Server) serveHexGridGeoJSON(w http.ResponseWriter, r *http.Request, ent
 		fc = map[string]any{"type": "FeatureCollection", "features": []any{}}
 	}
 	s.writeJSONCached(w, key, fc)
-}
-
-func (s *Server) serveTypeGeoJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry, typeName string) {
-	key := typeName + ":" + entry.Slug
-	if s.serveCached(w, key) {
-		return
-	}
-	ctx := r.Context()
-	result, err := entry.Store.LatestComputeResult(ctx, typeName+":city")
-	if err != nil {
-		result, err = entry.Store.LatestComputeResult(ctx, typeName)
-	}
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	if result.GeometryJSON == "" {
-		http.NotFound(w, r)
-		return
-	}
-	s.writeJSONCached(w, key, map[string]any{
-		"type": "FeatureCollection",
-		"features": []map[string]any{
-			{
-				"type":       "Feature",
-				"geometry":   json.RawMessage(result.GeometryJSON),
-				"properties": map[string]any{"type": typeName},
-			},
-		},
-	})
 }
 
 func (s *Server) serveScenariosJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
