@@ -738,17 +738,11 @@ func (e *Exporter) runMultiCity(ctx context.Context) error {
 		if err := e.exportCityData(ctx, entry, cityDataDir); err != nil {
 			return fmt.Errorf("export %s: %w", entry.Slug, err)
 		}
-		bbox, lon, lat, err := entry.BBoxAndCenter(ctx)
+		info, err := entry.Info(ctx)
 		if err != nil {
 			return fmt.Errorf("city %s bbox: %w", entry.Slug, err)
 		}
-		cities = append(cities, CityInfo{
-			Slug:      entry.Slug,
-			Name:      entry.City.Name,
-			BBox:      bbox,
-			CenterLon: lon,
-			CenterLat: lat,
-		})
+		cities = append(cities, info)
 	}
 
 	// Write cities.json
@@ -1079,6 +1073,22 @@ func (entry CityEntry) BBoxAndCenter(ctx context.Context) ([4]float64, float64, 
 	}
 	lon, lat := geo.CenterFromBBox(bbox)
 	return bbox, lon, lat, nil
+}
+
+// Info returns the frontend-facing metadata for this city. Callers decide
+// whether to skip or fail when the boundary is missing.
+func (entry CityEntry) Info(ctx context.Context) (CityInfo, error) {
+	bbox, lon, lat, err := entry.BBoxAndCenter(ctx)
+	if err != nil {
+		return CityInfo{}, err
+	}
+	return CityInfo{
+		Slug:      entry.Slug,
+		Name:      entry.City.Name,
+		BBox:      bbox,
+		CenterLon: lon,
+		CenterLat: lat,
+	}, nil
 }
 
 func writeJSON(path string, v any) error {

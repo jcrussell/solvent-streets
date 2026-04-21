@@ -47,30 +47,29 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 	fc := entry.Config.ResolvedForecast(&entry.City)
 
-	// Build city info for template
+	// Build city info for template. Only populate in multi-city mode so the
+	// frontend's DATA_PREFIX stays empty and matches the /data/{file} routes
+	// registered by the single-city server branch (mirrors the static exporter).
 	var cities []export.CityInfo
-	for _, e := range s.cities {
-		bbox, lon, lat, err := e.BBoxAndCenter(ctx)
-		if err != nil {
-			continue
+	if len(s.cities) > 1 {
+		for _, e := range s.cities {
+			info, err := e.Info(ctx)
+			if err != nil {
+				continue
+			}
+			cities = append(cities, info)
 		}
-		cities = append(cities, export.CityInfo{
-			Slug:      e.Slug,
-			Name:      e.City.Name,
-			BBox:      bbox,
-			CenterLon: lon,
-			CenterLat: lat,
-		})
 	}
 
 	td := export.TemplateData{
-		MetaJSON:     meta,
-		ForecastSeed: export.BuildForecastSeed(ctx, &fc, entry.Store),
-		LayerColors:  export.ResourceColorsJS(),
-		RawTOML:      rawTOML,
-		ResolvedTOML: export.ResolvedTOML(entry.Config),
-		UnitSystem:   entry.Config.UnitSystem().String(),
-		Cities:       cities,
+		MetaJSON:        meta,
+		ForecastSeed:    export.BuildForecastSeed(ctx, &fc, entry.Store),
+		LayerColors:     export.ResourceColorsJS(),
+		RawTOML:         rawTOML,
+		ResolvedTOML:    export.ResolvedTOML(entry.Config),
+		UnitSystem:      entry.Config.UnitSystem().String(),
+		Cities:          cities,
+		MethodologyHTML: export.MethodologyHTML(),
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -114,17 +113,11 @@ func (s *Server) handleCitiesList(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var cities []export.CityInfo
 	for _, e := range s.cities {
-		bbox, lon, lat, err := e.BBoxAndCenter(ctx)
+		info, err := e.Info(ctx)
 		if err != nil {
 			continue
 		}
-		cities = append(cities, export.CityInfo{
-			Slug:      e.Slug,
-			Name:      e.City.Name,
-			BBox:      bbox,
-			CenterLon: lon,
-			CenterLat: lat,
-		})
+		cities = append(cities, info)
 	}
 	writeJSON(w, cities)
 }
