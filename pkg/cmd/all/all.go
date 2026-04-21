@@ -68,6 +68,10 @@ func forEachResource(ios *iostreams.IOStreams, fn func(resource.ResourceType) er
 }
 
 func execSub(cmd *cobra.Command, args ...string) error {
+	// cobra.Command.SetArgs(nil) falls back to os.Args[1:]; force empty.
+	if args == nil {
+		args = []string{}
+	}
 	cmd.SetArgs(args)
 	cmd.SilenceErrors = true
 	cmd.SilenceUsage = true
