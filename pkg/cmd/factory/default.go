@@ -48,7 +48,7 @@ func httpClientFactory(cacheTTL time.Duration) func() (*http.Client, error) {
 			return nil, err
 		}
 		transport := cache.NewTransport(
-			ingest.RetryTransportWithConfig(
+			ingest.RetryTransport(
 				ingest.UserAgentTransport(http.DefaultTransport),
 				ingest.DefaultRetryConfig(),
 			),

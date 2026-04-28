@@ -4,9 +4,14 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	"pvmt/pkg/httpmock"
 )
+
+func testRetryConfig(maxRetries int) RetryConfig {
+	return RetryConfig{MaxRetries: maxRetries, MaxBackoff: 30 * time.Second}
+}
 
 func TestUserAgentTransport_SetsHeader(t *testing.T) {
 	reg := httpmock.NewRegistry()
@@ -54,7 +59,7 @@ func TestRetryTransport_NoRetryOn200(t *testing.T) {
 	t.Cleanup(func() { reg.Verify(t) })
 	reg.Register("GET", "http://example.com", 200, "ok")
 
-	transport := RetryTransport(reg, 2)
+	transport := RetryTransport(reg, testRetryConfig(2))
 
 	req, _ := http.NewRequestWithContext(context.Background(), "GET", "http://example.com", nil)
 	resp, err := transport.RoundTrip(req)
@@ -79,7 +84,7 @@ func TestRetryTransport_RetriesOn500(t *testing.T) {
 	)
 
 	// maxRetries=1 means 2 total attempts (initial + 1 retry)
-	transport := RetryTransport(reg, 1)
+	transport := RetryTransport(reg, testRetryConfig(1))
 
 	req, _ := http.NewRequestWithContext(context.Background(), "GET", "http://example.com", nil)
 	resp, err := transport.RoundTrip(req)
@@ -103,7 +108,7 @@ func TestRetryTransport_RetriesOn429(t *testing.T) {
 		httpmock.Stub{Status: 200, Body: "ok"},
 	)
 
-	transport := RetryTransport(reg, 1)
+	transport := RetryTransport(reg, testRetryConfig(1))
 
 	req, _ := http.NewRequestWithContext(context.Background(), "GET", "http://example.com", nil)
 	resp, err := transport.RoundTrip(req)
@@ -124,7 +129,7 @@ func TestRetryTransport_NoRetryOn400(t *testing.T) {
 	t.Cleanup(func() { reg.Verify(t) })
 	reg.Register("GET", "http://example.com", 400, "bad request")
 
-	transport := RetryTransport(reg, 2)
+	transport := RetryTransport(reg, testRetryConfig(2))
 
 	req, _ := http.NewRequestWithContext(context.Background(), "GET", "http://example.com", nil)
 	resp, err := transport.RoundTrip(req)
@@ -148,7 +153,7 @@ func TestRetryTransport_ReturnsLastResponseOnExhaustion(t *testing.T) {
 		httpmock.Stub{Status: 500, Body: "error"},
 	)
 
-	transport := RetryTransport(reg, 1)
+	transport := RetryTransport(reg, testRetryConfig(1))
 
 	req, _ := http.NewRequestWithContext(context.Background(), "GET", "http://example.com", nil)
 	resp, err := transport.RoundTrip(req)

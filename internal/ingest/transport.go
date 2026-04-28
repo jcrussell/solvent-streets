@@ -45,21 +45,8 @@ type retryTransport struct {
 	cfg     RetryConfig
 }
 
-// RetryTransport wraps a transport with simple retry logic.
-// Kept for backward compatibility; prefer RetryTransportWithConfig.
-func RetryTransport(wrapped http.RoundTripper, maxRetries int) http.RoundTripper {
-	return &retryTransport{
-		wrapped: wrapped,
-		cfg: RetryConfig{
-			MaxRetries:    maxRetries,
-			MaxBackoff:    30 * time.Second,
-			UseRetryAfter: false,
-		},
-	}
-}
-
-// RetryTransportWithConfig wraps a transport with configurable retry/backoff.
-func RetryTransportWithConfig(wrapped http.RoundTripper, cfg RetryConfig) http.RoundTripper {
+// RetryTransport wraps a transport with configurable retry/backoff.
+func RetryTransport(wrapped http.RoundTripper, cfg RetryConfig) http.RoundTripper {
 	return &retryTransport{wrapped: wrapped, cfg: cfg}
 }
 
