@@ -21,7 +21,7 @@ func (p *Pavement) OverpassQuery(bbox [4]float64) string {
 out geom;`, bbox[0], bbox[1], bbox[2], bbox[3])
 }
 
-func (p *Pavement) BufferFeatures(features []Feature, proj geo.Projector) ([]geom.Geometry, error) {
+func (p *Pavement) BufferFeatures(features []Feature, proj *geo.UTMProjector) ([]geom.Geometry, error) {
 	return bufferFeatures(features, proj, geo.InferWidth)
 }
 

@@ -14,7 +14,7 @@ import (
 // intra-class overlaps are dedup'd per-hex rather than via one big UnionAll,
 // and per-class totals are clipped to the same hex grid as the "all" total
 // so they sum consistently. Returns map[classification]coverageAreaSqM.
-func ComputeRoadCohortAreas(features []Feature, proj geo.Projector, hexes []geo.Hex) map[string]float64 {
+func ComputeRoadCohortAreas(features []Feature, proj *geo.UTMProjector, hexes []geo.Hex) map[string]float64 {
 	classGeoms := make(map[string][]geom.Geometry)
 
 	for _, f := range features {

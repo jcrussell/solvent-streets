@@ -46,7 +46,7 @@ func UnionAll(geometries []geom.Geometry) (geom.Geometry, error) {
 }
 
 // GeometryToGeoJSON converts a geometry to GeoJSON using the given projector.
-func GeometryToGeoJSON(g geom.Geometry, proj Projector) (string, error) {
+func GeometryToGeoJSON(g geom.Geometry, proj *UTMProjector) (string, error) {
 	raw, err := g.MarshalJSON()
 	if err != nil {
 		return "", fmt.Errorf("marshal geojson: %w", err)
@@ -64,7 +64,7 @@ func GeometryToGeoJSON(g geom.Geometry, proj Projector) (string, error) {
 	return string(result), nil
 }
 
-func reprojectGeoJSON(obj map[string]any, proj Projector) {
+func reprojectGeoJSON(obj map[string]any, proj *UTMProjector) {
 	if coords, ok := obj["coordinates"]; ok {
 		obj["coordinates"] = reprojectCoords(coords, proj)
 	}
@@ -81,7 +81,7 @@ func reprojectGeoJSON(obj map[string]any, proj Projector) {
 // and reprojects it if it is not already in lon/lat range. Returns the
 // reprojected slice and true if c was a coordinate pair, or nil and false
 // otherwise.
-func tryReprojectCoord(c []any, proj Projector) ([]any, bool) {
+func tryReprojectCoord(c []any, proj *UTMProjector) ([]any, bool) {
 	if len(c) < 2 {
 		return nil, false
 	}
@@ -100,7 +100,7 @@ func tryReprojectCoord(c []any, proj Projector) ([]any, bool) {
 	return c, true
 }
 
-func reprojectCoords(v any, proj Projector) any {
+func reprojectCoords(v any, proj *UTMProjector) any {
 	c, ok := v.([]any)
 	if !ok {
 		return v
@@ -184,7 +184,7 @@ func ParseGeoJSONCoords(gjson string) ([][2]float64, string, error) {
 
 // GeoJSONToProjectedGeometry converts a GeoJSON geometry to a
 // simplefeatures Geometry using the given projector.
-func GeoJSONToProjectedGeometry(gjson string, proj Projector) (geom.Geometry, string, error) {
+func GeoJSONToProjectedGeometry(gjson string, proj *UTMProjector) (geom.Geometry, string, error) {
 	var obj struct {
 		Type        string          `json:"type"`
 		Coordinates json.RawMessage `json:"coordinates"`
@@ -227,7 +227,7 @@ func GeoJSONToProjectedGeometry(gjson string, proj Projector) (geom.Geometry, st
 	}
 }
 
-func buildProjectedLineString(coordsRaw json.RawMessage, proj Projector) (geom.Geometry, error) {
+func buildProjectedLineString(coordsRaw json.RawMessage, proj *UTMProjector) (geom.Geometry, error) {
 	var coords [][2]float64
 	if err := json.Unmarshal(coordsRaw, &coords); err != nil {
 		return geom.Geometry{}, err
@@ -241,7 +241,7 @@ func buildProjectedLineString(coordsRaw json.RawMessage, proj Projector) (geom.G
 	return ls.AsGeometry(), nil
 }
 
-func buildProjectedMultiPolygon(coordsRaw json.RawMessage, proj Projector) (geom.Geometry, error) {
+func buildProjectedMultiPolygon(coordsRaw json.RawMessage, proj *UTMProjector) (geom.Geometry, error) {
 	var polys [][][][2]float64
 	if err := json.Unmarshal(coordsRaw, &polys); err != nil {
 		return geom.Geometry{}, err
@@ -268,7 +268,7 @@ func buildProjectedMultiPolygon(coordsRaw json.RawMessage, proj Projector) (geom
 	return UnionAll(geometries)
 }
 
-func buildProjectedGeometryCollection(gjson string, proj Projector) (geom.Geometry, error) {
+func buildProjectedGeometryCollection(gjson string, proj *UTMProjector) (geom.Geometry, error) {
 	var raw struct {
 		Geometries []json.RawMessage `json:"geometries"`
 	}
@@ -293,7 +293,7 @@ func buildProjectedGeometryCollection(gjson string, proj Projector) (geom.Geomet
 	return UnionAll(geometries)
 }
 
-func buildProjectedPolygon(coordsRaw json.RawMessage, proj Projector) (geom.Geometry, error) {
+func buildProjectedPolygon(coordsRaw json.RawMessage, proj *UTMProjector) (geom.Geometry, error) {
 	var rings [][][2]float64
 	if err := json.Unmarshal(coordsRaw, &rings); err != nil {
 		return geom.Geometry{}, err
@@ -311,7 +311,7 @@ func buildProjectedPolygon(coordsRaw json.RawMessage, proj Projector) (geom.Geom
 	return poly.AsGeometry(), nil
 }
 
-func projectCoords(coords [][2]float64, proj Projector) ([][2]float64, error) {
+func projectCoords(coords [][2]float64, proj *UTMProjector) ([][2]float64, error) {
 	projected := make([][2]float64, len(coords))
 	for i, c := range coords {
 		x, y, err := proj.ToProjected(c[0], c[1])

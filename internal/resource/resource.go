@@ -28,7 +28,7 @@ type ResourceType interface {
 	// polygon, returning the slice of polygons. No union or area is computed
 	// here — downstream code builds a spatial index and computes coverage
 	// per-hex, avoiding a city-wide UnionMany call that OOMs on large cities.
-	BufferFeatures(features []Feature, proj geo.Projector) ([]geom.Geometry, error)
+	BufferFeatures(features []Feature, proj *geo.UTMProjector) ([]geom.Geometry, error)
 	HasCohorts() bool // whether this resource type supports per-classification cohort stats
 }
 
@@ -51,7 +51,7 @@ type widthFunc func(tags map[string]string) float64
 
 // cleanFeatureGeometry converts a single feature to a cleaned projected geometry.
 // For LineStrings, it buffers by the inferred width. Returns (geometry, ok).
-func cleanFeatureGeometry(f Feature, proj geo.Projector, inferWidth widthFunc) (geom.Geometry, bool) {
+func cleanFeatureGeometry(f Feature, proj *geo.UTMProjector, inferWidth widthFunc) (geom.Geometry, bool) {
 	g, gtype, err := geo.GeoJSONToProjectedGeometry(f.GeometryJSON, proj)
 	if err != nil {
 		return geom.Geometry{}, false
@@ -84,7 +84,7 @@ func cleanFeatureGeometry(f Feature, proj geo.Projector, inferWidth widthFunc) (
 	}
 }
 
-func bufferFeatures(features []Feature, proj geo.Projector, inferWidth widthFunc) ([]geom.Geometry, error) {
+func bufferFeatures(features []Feature, proj *geo.UTMProjector, inferWidth widthFunc) ([]geom.Geometry, error) {
 	geometries := make([]geom.Geometry, 0, len(features))
 	for _, f := range features {
 		if g, ok := cleanFeatureGeometry(f, proj, inferWidth); ok {

@@ -449,7 +449,7 @@ func parseGeoJSONGeometry(gjson string, proj *geo.UTMProjector) (geom.Geometry, 
 // hex-clipped pipeline used for the resource total. Otherwise it returns
 // a single cohort stat. resourceTypeName is the row label, which may include
 // a ":city" suffix when computing city-only stats.
-func buildCohortStats(resourceTypeName string, hasCohorts bool, features []resource.Feature, totalAreaSqM float64, snapshotID *int64, proj geo.Projector, hexes []geo.Hex) []db.CohortStat {
+func buildCohortStats(resourceTypeName string, hasCohorts bool, features []resource.Feature, totalAreaSqM float64, snapshotID *int64, proj *geo.UTMProjector, hexes []geo.Hex) []db.CohortStat {
 	if !hasCohorts {
 		return []db.CohortStat{{
 			ResourceType:   resourceTypeName,

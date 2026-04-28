@@ -2,14 +2,13 @@ package geo
 
 import "math"
 
-// UTMProjector implements the Projector interface using UTM Transverse Mercator.
-// Zone is auto-detected from longitude. Works anywhere with ~1m accuracy.
+// UTMProjector converts between WGS84 (lon/lat degrees) and UTM Transverse
+// Mercator (meters). Zone is auto-detected from longitude. Works anywhere
+// with ~1m accuracy.
 type UTMProjector struct {
 	Zone     int
 	Northern bool // true for northern hemisphere
 }
-
-var _ Projector = (*UTMProjector)(nil)
 
 // NewUTMProjector creates a UTM projector for the given lon/lat center point.
 func NewUTMProjector(lon, lat float64) *UTMProjector {
