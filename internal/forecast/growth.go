@@ -1,20 +1,5 @@
 package forecast
 
-type StubGrowthEstimator struct{}
-
-var (
-	_ GrowthEstimator = (*StubGrowthEstimator)(nil)
-	_ GrowthEstimator = (*LinearGrowthEstimator)(nil)
-)
-
-func (s *StubGrowthEstimator) EstimateGrowth(currentAreaSqM float64, years int) []float64 {
-	result := make([]float64, years)
-	for i := range result {
-		result[i] = currentAreaSqM
-	}
-	return result
-}
-
 // LinearGrowthEstimator models pavement growth as a fixed annual percentage.
 type LinearGrowthEstimator struct {
 	AnnualGrowthRate float64 // e.g. 0.01 for 1% annual growth

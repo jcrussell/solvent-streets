@@ -15,5 +15,5 @@ func BoundaryAreaSqM(boundaryGJSON string) (float64, error) {
 	if g.IsEmpty() {
 		return 0, nil
 	}
-	return AreaInProjectedUnits(g), nil
+	return g.Area(), nil
 }

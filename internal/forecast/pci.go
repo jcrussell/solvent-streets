@@ -33,21 +33,6 @@ var DefaultDecayRates = func() map[string]float64 {
 	return m
 }()
 
-type StubPCIForecaster struct{}
-
-var (
-	_ PCIForecaster = (*StubPCIForecaster)(nil)
-	_ PCIForecaster = (*ExponentialPCIForecaster)(nil)
-)
-
-func (s *StubPCIForecaster) Forecast(currentPCI float64, years int) []float64 {
-	result := make([]float64, years)
-	for i := range result {
-		result[i] = currentPCI
-	}
-	return result
-}
-
 // ExponentialPCIForecaster models PCI decay as PCI(t) = PCI_0 * exp(-k * t).
 type ExponentialPCIForecaster struct {
 	DecayRate float64 // k value; if 0, uses DefaultDecayRates["default"]

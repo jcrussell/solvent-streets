@@ -45,11 +45,6 @@ func UnionAll(geometries []geom.Geometry) (geom.Geometry, error) {
 	return geom.UnionMany(geometries)
 }
 
-// AreaInProjectedUnits returns the raw area in the projector's coordinate units squared.
-func AreaInProjectedUnits(g geom.Geometry) float64 {
-	return g.Area()
-}
-
 // GeometryToGeoJSON converts a geometry to GeoJSON using the given projector.
 func GeometryToGeoJSON(g geom.Geometry, proj Projector) (string, error) {
 	raw, err := g.MarshalJSON()

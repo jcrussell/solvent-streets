@@ -39,12 +39,6 @@ func exitCode(err error, errOut io.Writer) int {
 	if errors.Is(err, cmdutil.ErrNoResults) {
 		return 3
 	}
-	if errors.Is(err, cmdutil.ErrPending) {
-		return 4
-	}
-	if errors.Is(err, cmdutil.ErrSilent) {
-		return 1
-	}
 	printError(errOut, err)
 	return 1
 }

@@ -25,17 +25,6 @@ var DefaultSidewalkCostTiers = []CostTier{
 	{MinPCI: 0, MaxPCI: 40, CostPerSqM: 90.00, Label: "reconstruction"}, // full replacement
 }
 
-type StubCostProjector struct{}
-
-var (
-	_ CostProjector = (*StubCostProjector)(nil)
-	_ CostProjector = (*TieredCostProjector)(nil)
-)
-
-func (s *StubCostProjector) ProjectCost(areaSqM float64, pci float64) float64 {
-	return 0
-}
-
 // costAnchor is a PCI→cost anchor point derived from a tier's midpoint.
 type costAnchor struct {
 	pci  float64

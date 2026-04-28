@@ -26,10 +26,6 @@ func Hintf(err error, format string, a ...any) error {
 	return &ErrHint{Err: err, Hint: fmt.Sprintf(format, a...)}
 }
 
-// ErrSilent is returned when the error message has already been printed
-// and the command should exit with a non-zero exit code without printing anything else.
-var ErrSilent = errors.New("silent error")
-
 // ErrCancel is returned when the user cancels an operation.
 var ErrCancel = errors.New("cancel")
 
@@ -53,6 +49,3 @@ func FlagErrorf(format string, args ...any) error {
 // ErrNoResults is returned when a command produces no results.
 // The command should print a contextual message to stderr before returning this.
 var ErrNoResults = errors.New("no results")
-
-// ErrPending is returned when a command completes without error but work is still pending.
-var ErrPending = errors.New("pending")
