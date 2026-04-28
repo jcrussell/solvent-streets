@@ -190,31 +190,28 @@ func renderScenarioComparisons(ios *iostreams.IOStreams, baseline fcpkg.Scenario
 		return nil
 	}
 	year1Need := baseline.Years[0].AnnualNeed
-	comparisons := fcpkg.GroupedComparisons(year1Need, cohorts, years,
+	scenarios := fcpkg.SimulateDefaults(year1Need, cohorts, years,
 		params.Cost, params.Growth)
 
-	for _, comp := range comparisons {
-		fmt.Fprintf(ios.ErrOut, "  --- %s ---\n", comp.Title)
-		tp := iostreams.NewTablePrinter(ios)
-		tp.AddHeader("Scenario", "End PCI", "Annual Budget", "20yr Backlog")
-		for _, sr := range comp.Scenarios {
-			last := sr.Years[len(sr.Years)-1]
-			budgetStr := "unconstrained"
-			if sr.Scenario.AnnualBudget > 0 {
-				budgetStr = fmt.Sprintf("$%.0f", sr.Scenario.AnnualBudget)
-			}
-			tp.AddRow(
-				sr.Scenario.Label,
-				fmt.Sprintf("%.1f", last.PCI),
-				budgetStr,
-				fmt.Sprintf("$%.0f", last.DeferredBacklog),
-			)
+	tp := iostreams.NewTablePrinter(ios)
+	tp.AddHeader("Scenario", "End PCI", "Annual Budget", "20yr Backlog")
+	for _, sr := range scenarios {
+		last := sr.Years[len(sr.Years)-1]
+		budgetStr := "unconstrained"
+		if sr.Scenario.AnnualBudget > 0 {
+			budgetStr = fmt.Sprintf("$%.0f", sr.Scenario.AnnualBudget)
 		}
-		if err := tp.Render(); err != nil {
-			return err
-		}
-		fmt.Fprintln(ios.ErrOut)
+		tp.AddRow(
+			sr.Scenario.Label,
+			fmt.Sprintf("%.1f", last.PCI),
+			budgetStr,
+			fmt.Sprintf("$%.0f", last.DeferredBacklog),
+		)
 	}
+	if err := tp.Render(); err != nil {
+		return err
+	}
+	fmt.Fprintln(ios.ErrOut)
 	return nil
 }
 

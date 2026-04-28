@@ -373,10 +373,10 @@ func BuildCohortsForResource(ctx context.Context, rt resource.ResourceType, area
 
 // ForecastExport holds per-resource forecast results.
 type ForecastExport struct {
-	ResourceType string                   `json:"resource_type"`
-	Baseline     forecast.ScenarioResult  `json:"baseline"`
-	BboxBaseline *forecast.ScenarioResult `json:"bbox_baseline,omitempty"` // full-bbox scope (shown when "All Roads" is toggled)
-	Comparisons  []forecast.Comparison    `json:"comparisons"`
+	ResourceType string                    `json:"resource_type"`
+	Baseline     forecast.ScenarioResult   `json:"baseline"`
+	BboxBaseline *forecast.ScenarioResult  `json:"bbox_baseline,omitempty"` // full-bbox scope (shown when "All Roads" is toggled)
+	Scenarios    []forecast.ScenarioResult `json:"scenarios"`
 }
 
 // BuildForecastsForCity builds per-resource forecast exports for a city.
@@ -422,13 +422,13 @@ func BuildForecastsForCity(ctx context.Context, entry CityEntry, fc *config.Fore
 
 		baseline := forecast.Simulate(doNothing, primaryCohorts, years, rtParams.Cost, rtParams.Growth)
 		year1Need := baseline.Years[0].AnnualNeed
-		comparisons := forecast.GroupedComparisons(year1Need, primaryCohorts, years,
+		scenarios := forecast.SimulateDefaults(year1Need, primaryCohorts, years,
 			rtParams.Cost, rtParams.Growth)
 
 		fe := ForecastExport{
 			ResourceType: rt.Name(),
 			Baseline:     baseline,
-			Comparisons:  comparisons,
+			Scenarios:    scenarios,
 		}
 		if hasCityScope {
 			fe.BboxBaseline = &bboxBaseline
@@ -866,14 +866,9 @@ func BuildScenarios(cohorts []forecast.Cohort, years int, params *forecast.Param
 	)
 
 	year1Need := baseline.Years[0].AnnualNeed
-	comparisons := forecast.GroupedComparisons(year1Need, cohorts, years,
+	scenarios := forecast.SimulateDefaults(year1Need, cohorts, years,
 		params.Cost, params.Growth)
-
-	scenarios := []forecast.ScenarioResult{baseline}
-	for _, comp := range comparisons {
-		scenarios = append(scenarios, comp.Scenarios...)
-	}
-	return scenarios
+	return append([]forecast.ScenarioResult{baseline}, scenarios...)
 }
 
 // ResolvedTOML returns the config serialized as TOML with all defaults filled in.

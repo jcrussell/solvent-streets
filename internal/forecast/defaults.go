@@ -1,12 +1,6 @@
 package forecast
 
-// Comparison groups multiple scenarios for side-by-side analysis.
-type Comparison struct {
-	Title     string           `json:"title"`
-	Scenarios []ScenarioResult `json:"scenarios"`
-}
-
-// DefaultComparisons returns three scenario comparison groups.
+// DefaultComparisons returns three default funding-level scenarios.
 // year1Need is the estimated annual treatment cost in year 1, used to
 // set budget levels for constrained scenarios.
 func DefaultComparisons(year1Need float64) []Scenario {
@@ -18,17 +12,14 @@ func DefaultComparisons(year1Need float64) []Scenario {
 	}
 }
 
-// GroupedComparisons returns scenarios organized into comparison groups.
-func GroupedComparisons(year1Need float64, cohorts []Cohort, years int,
-	cost *TieredCostProjector, growth *LinearGrowthEstimator) []Comparison {
+// SimulateDefaults runs the default funding-level scenarios against the
+// supplied cohorts and returns the resulting ScenarioResults.
+func SimulateDefaults(year1Need float64, cohorts []Cohort, years int,
+	cost *TieredCostProjector, growth *LinearGrowthEstimator) []ScenarioResult {
 	scenarios := DefaultComparisons(year1Need)
-
-	fundingResults := make([]ScenarioResult, len(scenarios))
+	results := make([]ScenarioResult, len(scenarios))
 	for i, s := range scenarios {
-		fundingResults[i] = Simulate(s, cohorts, years, cost, growth)
+		results[i] = Simulate(s, cohorts, years, cost, growth)
 	}
-
-	return []Comparison{
-		{Title: "Funding Levels", Scenarios: fundingResults},
-	}
+	return results
 }
