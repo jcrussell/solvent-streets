@@ -268,7 +268,8 @@ func (c *computer) runAllFeaturesPass(ctx context.Context, resFeatures []resourc
 		return nil, nil, fmt.Errorf("save result: %w", err)
 	}
 
-	cohortStats := buildCohortStats(c.opts.ResourceType, resFeatures, areaSqM, c.snapshotID, c.proj, clippedHexes)
+	rt := c.opts.ResourceType
+	cohortStats := buildCohortStats(rt.Name(), rt.HasCohorts(), resFeatures, areaSqM, c.snapshotID, c.proj, clippedHexes)
 	if len(cohortStats) > 0 {
 		if err := c.store.SaveCohortStats(ctx, cohortStats); err != nil {
 			fmt.Fprintf(c.errOut, "Warning: failed to save cohort stats: %v\n", err)
@@ -330,8 +331,8 @@ func (c *computer) processCityResults(ctx context.Context, parts map[filter.Juri
 		fmt.Fprintf(c.errOut, "Warning: failed to save city result: %v\n", err)
 	}
 
-	cityRT := &cityResourceType{ResourceType: c.opts.ResourceType}
-	cityCohortStats := buildCohortStats(cityRT, cityFeatures, cityAreaSqM, c.snapshotID, c.proj, clippedHexes)
+	rt := c.opts.ResourceType
+	cityCohortStats := buildCohortStats(rt.Name()+":city", rt.HasCohorts(), cityFeatures, cityAreaSqM, c.snapshotID, c.proj, clippedHexes)
 	if len(cityCohortStats) > 0 {
 		if err := c.store.SaveCohortStats(ctx, cityCohortStats); err != nil {
 			fmt.Fprintf(c.errOut, "Warning: failed to save city cohort stats: %v\n", err)
@@ -443,15 +444,16 @@ func parseGeoJSONGeometry(gjson string, proj *geo.UTMProjector) (geom.Geometry, 
 	return g, nil
 }
 
-// buildCohortStats builds cohort stats for a resource type. For types with
-// HasCohorts()=true (e.g. roads), it computes per-classification areas via
-// the same hex-clipped pipeline used for the resource total.
-// Otherwise it creates a single cohort stat.
-func buildCohortStats(rt resource.ResourceType, features []resource.Feature, totalAreaSqM float64, snapshotID *int64, proj geo.Projector, hexes []geo.Hex) []db.CohortStat {
-	if !rt.HasCohorts() {
+// buildCohortStats builds cohort stats for a resource type. When hasCohorts
+// is true (e.g. roads), it computes per-classification areas via the same
+// hex-clipped pipeline used for the resource total. Otherwise it returns
+// a single cohort stat. resourceTypeName is the row label, which may include
+// a ":city" suffix when computing city-only stats.
+func buildCohortStats(resourceTypeName string, hasCohorts bool, features []resource.Feature, totalAreaSqM float64, snapshotID *int64, proj geo.Projector, hexes []geo.Hex) []db.CohortStat {
+	if !hasCohorts {
 		return []db.CohortStat{{
-			ResourceType:   rt.Name(),
-			Classification: rt.Name(),
+			ResourceType:   resourceTypeName,
+			Classification: resourceTypeName,
 			AreaSqM:        totalAreaSqM,
 			FeatureCount:   len(features),
 			SnapshotID:     snapshotID,
@@ -475,7 +477,7 @@ func buildCohortStats(rt resource.ResourceType, features []resource.Feature, tot
 			proportion = rawArea / rawTotal
 		}
 		stats = append(stats, db.CohortStat{
-			ResourceType:   rt.Name(),
+			ResourceType:   resourceTypeName,
 			Classification: class,
 			AreaSqM:        totalAreaSqM * proportion,
 			FeatureCount:   counts[class],
@@ -483,13 +485,4 @@ func buildCohortStats(rt resource.ResourceType, features []resource.Feature, tot
 		})
 	}
 	return stats
-}
-
-// cityResourceType wraps a ResourceType to produce ":city" suffixed names.
-type cityResourceType struct {
-	resource.ResourceType
-}
-
-func (c *cityResourceType) Name() string {
-	return c.ResourceType.Name() + ":city"
 }

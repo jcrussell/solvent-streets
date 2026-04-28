@@ -15,10 +15,11 @@ import (
 )
 
 type Server struct {
-	cities []export.CityEntry
-	port   int
-	ios    *iostreams.IOStreams
-	cache  sync.Map // key → cached JSON bytes; never invalidated — restart server after data changes
+	cities    []export.CityEntry
+	port      int
+	ios       *iostreams.IOStreams
+	cache     sync.Map // key → cached JSON bytes; never invalidated — restart server after data changes
+	forecasts sync.Map // city slug → []export.ForecastExport, shared by serveForecastJSON and serveHexCostSummary
 }
 
 func New(cities []export.CityEntry, port int, ios *iostreams.IOStreams) *Server {

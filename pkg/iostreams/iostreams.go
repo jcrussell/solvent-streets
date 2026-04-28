@@ -80,6 +80,20 @@ func RelativeTime(t time.Time) string {
 	}
 }
 
+// FormatTimestamp renders an RFC3339 timestamp string for display. On a TTY
+// it appends a relative-time suffix; otherwise it returns the raw value.
+// Empty input renders as "never".
+func FormatTimestamp(raw string, isTTY bool) string {
+	if raw == "" {
+		return "never"
+	}
+	if isTTY {
+		t, _ := time.Parse(time.RFC3339, raw)
+		return fmt.Sprintf("%s (%s)", raw, RelativeTime(t))
+	}
+	return raw
+}
+
 func isTerminal(w io.Writer) bool {
 	if f, ok := w.(*os.File); ok {
 		fi, err := f.Stat()

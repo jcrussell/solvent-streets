@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -183,69 +184,75 @@ func (s *Server) writeJSONCached(w http.ResponseWriter, key string, v any) {
 	w.Write(data)
 }
 
-func (s *Server) serveMetaJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
-	key := "meta:" + entry.Slug
+// serveJSONCached short-circuits on a cache hit; otherwise it invokes build
+// and caches the resulting value. build returns nil to signal "no error but
+// no value" — callers that need a different empty-shape can write their own
+// handler.
+func (s *Server) serveJSONCached(w http.ResponseWriter, key string, build func() (any, error)) {
 	if s.serveCached(w, key) {
 		return
 	}
-	meta, err := export.BuildMeta(r.Context(), entry)
+	v, err := build()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	s.writeJSONCached(w, key, meta)
+	s.writeJSONCached(w, key, v)
+}
+
+func (s *Server) serveMetaJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
+	s.serveJSONCached(w, "meta:"+entry.Slug, func() (any, error) {
+		return export.BuildMeta(r.Context(), entry)
+	})
 }
 
 func (s *Server) serveHexGridGeoJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
-	key := "hexgrid:" + entry.Slug
-	if s.serveCached(w, key) {
-		return
-	}
-	ctx := r.Context()
-	_, lon0, lat0, err := entry.BBoxAndCenter(ctx)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	proj := geo.NewUTMProjector(lon0, lat0)
-
-	fc := export.BuildHexGeoJSON(ctx, entry, proj)
-	if fc == nil {
-		fc = map[string]any{"type": "FeatureCollection", "features": []any{}}
-	}
-	s.writeJSONCached(w, key, fc)
+	s.serveJSONCached(w, "hexgrid:"+entry.Slug, func() (any, error) {
+		ctx := r.Context()
+		_, lon0, lat0, err := entry.BBoxAndCenter(ctx)
+		if err != nil {
+			return nil, err
+		}
+		fc := export.BuildHexGeoJSON(ctx, entry, geo.NewUTMProjector(lon0, lat0))
+		if fc == nil {
+			fc = map[string]any{"type": "FeatureCollection", "features": []any{}}
+		}
+		return fc, nil
+	})
 }
 
 func (s *Server) serveScenariosJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
-	key := "scenarios:" + entry.Slug
-	if s.serveCached(w, key) {
-		return
+	s.serveJSONCached(w, "scenarios:"+entry.Slug, func() (any, error) {
+		fc := entry.Config.ResolvedForecast(&entry.City)
+		return export.BuildScenariosData(r.Context(), entry, &fc), nil
+	})
+}
+
+// buildForecasts returns the per-city forecast list, memoized so that
+// serveForecastJSON and serveHexCostSummary share a single computation.
+func (s *Server) buildForecasts(ctx context.Context, entry export.CityEntry) []export.ForecastExport {
+	if cached, ok := s.forecasts.Load(entry.Slug); ok {
+		if forecasts, ok := cached.([]export.ForecastExport); ok {
+			return forecasts
+		}
 	}
 	fc := entry.Config.ResolvedForecast(&entry.City)
-	s.writeJSONCached(w, key, export.BuildScenariosData(r.Context(), entry, &fc))
+	forecasts := export.BuildForecastsForCity(ctx, entry, &fc, export.ConvertCostTiers(&fc))
+	s.forecasts.Store(entry.Slug, forecasts)
+	return forecasts
 }
 
 func (s *Server) serveForecastJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
-	key := "forecast:" + entry.Slug
-	if s.serveCached(w, key) {
-		return
-	}
-	ctx := r.Context()
-	fc := entry.Config.ResolvedForecast(&entry.City)
-	costTiers := export.ConvertCostTiers(&fc)
-	s.writeJSONCached(w, key, export.BuildForecastsForCity(ctx, entry, &fc, costTiers))
+	s.serveJSONCached(w, "forecast:"+entry.Slug, func() (any, error) {
+		return s.buildForecasts(r.Context(), entry), nil
+	})
 }
 
 func (s *Server) serveHexCostSummary(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
-	key := "hexcost:" + entry.Slug
-	if s.serveCached(w, key) {
-		return
-	}
-	ctx := r.Context()
-	fc := entry.Config.ResolvedForecast(&entry.City)
-	costTiers := export.ConvertCostTiers(&fc)
-	forecasts := export.BuildForecastsForCity(ctx, entry, &fc, costTiers)
-	s.writeJSONCached(w, key, export.BuildHexCostSummary(ctx, entry, forecasts))
+	s.serveJSONCached(w, "hexcost:"+entry.Slug, func() (any, error) {
+		ctx := r.Context()
+		return export.BuildHexCostSummary(ctx, entry, s.buildForecasts(ctx, entry)), nil
+	})
 }
 
 func (s *Server) serveBoundaryGeoJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
@@ -271,11 +278,8 @@ func (s *Server) serveBoundaryGeoJSON(w http.ResponseWriter, r *http.Request, en
 }
 
 func (s *Server) serveForecastSeed(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
-	key := "seed:" + entry.Slug
-	if s.serveCached(w, key) {
-		return
-	}
-	fc := entry.Config.ResolvedForecast(&entry.City)
-	seed := export.BuildForecastSeed(r.Context(), &fc, entry.Store)
-	s.writeJSONCached(w, key, json.RawMessage(seed))
+	s.serveJSONCached(w, "seed:"+entry.Slug, func() (any, error) {
+		fc := entry.Config.ResolvedForecast(&entry.City)
+		return json.RawMessage(export.BuildForecastSeed(r.Context(), &fc, entry.Store)), nil
+	})
 }

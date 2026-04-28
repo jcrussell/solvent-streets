@@ -132,8 +132,8 @@ func runStatus(ctx context.Context, opts *Options) error {
 	tp := iostreams.NewTablePrinter(ios)
 	tp.AddHeader("Resource", "Features", "Last Ingest", "Last Compute", units.AreaLabel(sys), units.AreaLargeLabel(sys))
 	for _, r := range rows {
-		ingestStr := formatTimestamp(r.LastIngest, ios.IsTTY())
-		computeStr := formatTimestamp(r.LastCompute, ios.IsTTY())
+		ingestStr := iostreams.FormatTimestamp(r.LastIngest, ios.IsTTY())
+		computeStr := iostreams.FormatTimestamp(r.LastCompute, ios.IsTTY())
 		tp.AddRow(
 			r.ResourceType,
 			strconv.Itoa(r.FeatureCount),
@@ -189,15 +189,4 @@ func printSnapshotHistory(ctx context.Context, ios *iostreams.IOStreams, store d
 	if len(snapshots) > 5 {
 		fmt.Fprintf(ios.ErrOut, "  ... and %d more\n", len(snapshots)-5)
 	}
-}
-
-func formatTimestamp(raw string, isTTY bool) string {
-	if raw == "" {
-		return "never"
-	}
-	if isTTY {
-		t, _ := time.Parse(time.RFC3339, raw)
-		return fmt.Sprintf("%s (%s)", raw, iostreams.RelativeTime(t))
-	}
-	return raw
 }

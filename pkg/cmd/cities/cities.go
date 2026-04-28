@@ -120,8 +120,8 @@ func runCities(ctx context.Context, opts *Options) error {
 			strconv.Itoa(r.Features["parking"]),
 			strconv.Itoa(r.Features["sidewalks"]),
 			fmt.Sprintf("%.1f", units.AreaLargeValue(r.TotalAreaSqM, sys)),
-			formatTimestamp(r.LastIngest, ios.IsTTY()),
-			formatTimestamp(r.LastCompute, ios.IsTTY()),
+			iostreams.FormatTimestamp(r.LastIngest, ios.IsTTY()),
+			iostreams.FormatTimestamp(r.LastCompute, ios.IsTTY()),
 		)
 	}
 	return tp.Render()
@@ -156,15 +156,4 @@ func buildCityRow(ctx context.Context, store db.Store, c db.City, ios *iostreams
 		row.LastCompute = latestCompute.Format(time.RFC3339)
 	}
 	return row
-}
-
-func formatTimestamp(raw string, isTTY bool) string {
-	if raw == "" {
-		return "never"
-	}
-	if isTTY {
-		t, _ := time.Parse(time.RFC3339, raw)
-		return fmt.Sprintf("%s (%s)", raw, iostreams.RelativeTime(t))
-	}
-	return raw
 }
