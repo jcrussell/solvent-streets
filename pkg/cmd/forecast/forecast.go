@@ -193,6 +193,7 @@ func renderScenarioComparisons(ios *iostreams.IOStreams, baseline fcpkg.Scenario
 	scenarios := fcpkg.SimulateDefaults(year1Need, cohorts, years,
 		params.Cost, params.Growth)
 
+	fmt.Fprintf(ios.ErrOut, "  Funding Levels:\n")
 	tp := iostreams.NewTablePrinter(ios)
 	tp.AddHeader("Scenario", "End PCI", "Annual Budget", "20yr Backlog")
 	for _, sr := range scenarios {

@@ -18,8 +18,8 @@ type Server struct {
 	cities    []export.CityEntry
 	port      int
 	ios       *iostreams.IOStreams
-	cache     sync.Map // key → cached JSON bytes; never invalidated — restart server after data changes
-	forecasts sync.Map // city slug → []export.ForecastExport, shared by serveForecastJSON and serveHexCostSummary
+	cache     sync.Map // key → *jsonThunk (sync.OnceValues wrapper); single-flight, never invalidated — restart server after data changes
+	forecasts sync.Map // city slug → *forecastThunk (sync.OnceValue wrapper); shared by serveForecastJSON and serveHexCostSummary
 }
 
 func New(cities []export.CityEntry, port int, ios *iostreams.IOStreams) *Server {
@@ -109,7 +109,7 @@ func recoveryMiddleware(next http.Handler, errOut io.Writer) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if err := recover(); err != nil {
-				fmt.Fprintf(errOut, "panic: %v\n", err)
+				fmt.Fprintf(errOut, "panic: %s %s: %v\n", r.Method, r.URL.RequestURI(), err)
 				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			}
 		}()

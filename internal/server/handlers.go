@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"sync"
 
 	"pvmt/internal/export"
 	"pvmt/internal/geo"
@@ -152,68 +153,79 @@ func writeJSON(w http.ResponseWriter, v any) {
 	}
 }
 
-// serveCached writes a previously cached response if available. Returns true
-// if the cache was hit and the response was written.
-func (s *Server) serveCached(w http.ResponseWriter, key string) bool {
-	cached, ok := s.cache.Load(key)
-	if !ok {
-		return false
-	}
-	data, ok := cached.([]byte)
-	if !ok {
-		return false
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "public, max-age=300")
-	w.Write(data)
-	return true
+// jsonThunk wraps a sync.OnceValues thunk so s.cache stores pointer-comparable
+// values — sync.Map.CompareAndDelete uses == internally, which panics on
+// uncomparable types like raw function values.
+type jsonThunk struct {
+	once func() ([]byte, error)
 }
 
-// writeJSONCached is like writeJSON but caches the serialized response in
-// the server's in-memory cache. Data endpoints don't change while the server
-// is running, so this avoids redundant DB queries and JSON serialization.
-func (s *Server) writeJSONCached(w http.ResponseWriter, key string, v any) {
-	data, err := json.Marshal(v)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	s.cache.Store(key, data)
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "public, max-age=300")
-	w.Write(data)
+// forecastThunk is the equivalent wrapper for s.forecasts. See jsonThunk.
+type forecastThunk struct {
+	once func() []export.ForecastExport
 }
 
-// serveJSONCached short-circuits on a cache hit; otherwise it invokes build
-// and caches the resulting value. build returns nil to signal "no error but
-// no value" — callers that need a different empty-shape can write their own
-// handler.
+// serveJSONCached runs build at most once per key — concurrent first callers
+// single-flight via sync.OnceValues against s.cache. Build closures must use
+// context.Background(), not the request context: the first arriver's build
+// outlives their request, and any later arriver waiting on the OnceValues
+// thunk gets that same result. Tying the build to a request ctx would let
+// the first arriver's disconnect cancel the build for everyone — and for
+// builds that swallow ctx errors (e.g. BuildForecastsForCity skips per-
+// resource errors silently) it would even let a dropped client poison the
+// cache with a partial slice. Successful results stay cached for the
+// server's lifetime ("never invalidated" — restart for fresh data); errors
+// and panics are evicted so the next request retries.
 func (s *Server) serveJSONCached(w http.ResponseWriter, key string, build func() (any, error)) {
-	if s.serveCached(w, key) {
-		return
+	var entry *jsonThunk
+	if v, ok := s.cache.Load(key); ok {
+		entry = v.(*jsonThunk) //nolint:forcetypeassert // type invariant: only this site Stores into s.cache
+	} else {
+		fresh := &jsonThunk{once: sync.OnceValues(func() ([]byte, error) {
+			v, err := build()
+			if err != nil {
+				return nil, err
+			}
+			return json.Marshal(v)
+		})}
+		actual, _ := s.cache.LoadOrStore(key, fresh)
+		entry = actual.(*jsonThunk) //nolint:forcetypeassert // type invariant: only this site Stores into s.cache
 	}
-	v, err := build()
+
+	// sync.OnceValues re-panics on every call after the first panic, so a
+	// panicking build would otherwise poison this key forever. Evict on
+	// panic and re-raise so recoveryMiddleware logs and writes the 500.
+	defer func() {
+		if r := recover(); r != nil {
+			s.cache.CompareAndDelete(key, entry)
+			panic(r)
+		}
+	}()
+
+	data, err := entry.once()
 	if err != nil {
+		s.cache.CompareAndDelete(key, entry)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	s.writeJSONCached(w, key, v)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	w.Write(data)
 }
 
-func (s *Server) serveMetaJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
+func (s *Server) serveMetaJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry) {
 	s.serveJSONCached(w, "meta:"+entry.Slug, func() (any, error) {
-		return export.BuildMeta(r.Context(), entry)
+		return export.BuildMeta(context.Background(), entry)
 	})
 }
 
-func (s *Server) serveHexGridGeoJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
+func (s *Server) serveHexGridGeoJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry) {
 	s.serveJSONCached(w, "hexgrid:"+entry.Slug, func() (any, error) {
-		ctx := r.Context()
-		_, lon0, lat0, err := entry.BBoxAndCenter(ctx)
+		_, lon0, lat0, err := entry.BBoxAndCenter(context.Background())
 		if err != nil {
 			return nil, err
 		}
-		fc := export.BuildHexGeoJSON(ctx, entry, geo.NewUTMProjector(lon0, lat0))
+		fc := export.BuildHexGeoJSON(context.Background(), entry, geo.NewUTMProjector(lon0, lat0))
 		if fc == nil {
 			fc = map[string]any{"type": "FeatureCollection", "features": []any{}}
 		}
@@ -221,65 +233,87 @@ func (s *Server) serveHexGridGeoJSON(w http.ResponseWriter, r *http.Request, ent
 	})
 }
 
-func (s *Server) serveScenariosJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
+func (s *Server) serveScenariosJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry) {
 	s.serveJSONCached(w, "scenarios:"+entry.Slug, func() (any, error) {
 		fc := entry.Config.ResolvedForecast(&entry.City)
-		return export.BuildScenariosData(r.Context(), entry, &fc), nil
+		return export.BuildScenariosData(context.Background(), entry, &fc), nil
 	})
 }
 
-// buildForecasts returns the per-city forecast list, memoized so that
-// serveForecastJSON and serveHexCostSummary share a single computation.
-func (s *Server) buildForecasts(ctx context.Context, entry export.CityEntry) []export.ForecastExport {
-	if cached, ok := s.forecasts.Load(entry.Slug); ok {
-		if forecasts, ok := cached.([]export.ForecastExport); ok {
-			return forecasts
+// buildForecasts returns the per-city forecast list, single-flighted via
+// sync.OnceValue and shared by serveForecastJSON and serveHexCostSummary.
+// See serveJSONCached for why builds run against context.Background().
+//
+// A panic here evicts both this thunk and (after re-panic propagates up
+// through serveJSONCached's OnceValues) the outer s.cache thunk — that
+// stacked eviction is intentional so the next request rebuilds both
+// layers instead of one rebuilding atop a cached panic in the other.
+func (s *Server) buildForecasts(entry export.CityEntry) []export.ForecastExport {
+	var ft *forecastThunk
+	if v, ok := s.forecasts.Load(entry.Slug); ok {
+		ft = v.(*forecastThunk) //nolint:forcetypeassert // type invariant: only this site Stores into s.forecasts
+	} else {
+		fresh := &forecastThunk{once: sync.OnceValue(func() []export.ForecastExport {
+			fc := entry.Config.ResolvedForecast(&entry.City)
+			return export.BuildForecastsForCity(context.Background(), entry, &fc, export.ConvertCostTiers(&fc))
+		})}
+		actual, _ := s.forecasts.LoadOrStore(entry.Slug, fresh)
+		ft = actual.(*forecastThunk) //nolint:forcetypeassert // type invariant: only this site Stores into s.forecasts
+	}
+
+	// Match serveJSONCached's panic-evict semantics so a panicking forecast
+	// build doesn't permanently poison the city's forecast cache.
+	defer func() {
+		if r := recover(); r != nil {
+			s.forecasts.CompareAndDelete(entry.Slug, ft)
+			panic(r)
 		}
-	}
-	fc := entry.Config.ResolvedForecast(&entry.City)
-	forecasts := export.BuildForecastsForCity(ctx, entry, &fc, export.ConvertCostTiers(&fc))
-	s.forecasts.Store(entry.Slug, forecasts)
-	return forecasts
+	}()
+	return ft.once()
 }
 
-func (s *Server) serveForecastJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
+func (s *Server) serveForecastJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry) {
 	s.serveJSONCached(w, "forecast:"+entry.Slug, func() (any, error) {
-		return s.buildForecasts(r.Context(), entry), nil
+		return s.buildForecasts(entry), nil
 	})
 }
 
-func (s *Server) serveHexCostSummary(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
+func (s *Server) serveHexCostSummary(w http.ResponseWriter, _ *http.Request, entry export.CityEntry) {
 	s.serveJSONCached(w, "hexcost:"+entry.Slug, func() (any, error) {
-		ctx := r.Context()
-		return export.BuildHexCostSummary(ctx, entry, s.buildForecasts(ctx, entry)), nil
+		return export.BuildHexCostSummary(context.Background(), entry, s.buildForecasts(entry)), nil
 	})
 }
 
-func (s *Server) serveBoundaryGeoJSON(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
-	key := "boundary:" + entry.Slug
-	if s.serveCached(w, key) {
-		return
-	}
-	gj, err := entry.Store.GetBoundary(r.Context())
-	if err != nil || gj == "" {
-		writeJSON(w, map[string]any{"type": "FeatureCollection", "features": []any{}})
-		return
-	}
-	s.writeJSONCached(w, key, map[string]any{
-		"type": "FeatureCollection",
-		"features": []map[string]any{
-			{
-				"type":       "Feature",
-				"geometry":   json.RawMessage(gj),
-				"properties": map[string]any{"type": "boundary"},
+func (s *Server) serveBoundaryGeoJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry) {
+	s.serveJSONCached(w, "boundary:"+entry.Slug, func() (any, error) {
+		// GetBoundary distinguishes "no row" (returns "", nil — genuinely
+		// unconfigured, cache the empty FC) from real DB errors (returns
+		// "", err — surface so serveJSONCached evicts and the next request
+		// retries instead of locking in an empty boundary for the server's
+		// lifetime).
+		gj, err := entry.Store.GetBoundary(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		if gj == "" {
+			return map[string]any{"type": "FeatureCollection", "features": []any{}}, nil
+		}
+		return map[string]any{
+			"type": "FeatureCollection",
+			"features": []map[string]any{
+				{
+					"type":       "Feature",
+					"geometry":   json.RawMessage(gj),
+					"properties": map[string]any{"type": "boundary"},
+				},
 			},
-		},
+		}, nil
 	})
 }
 
-func (s *Server) serveForecastSeed(w http.ResponseWriter, r *http.Request, entry export.CityEntry) {
+func (s *Server) serveForecastSeed(w http.ResponseWriter, _ *http.Request, entry export.CityEntry) {
 	s.serveJSONCached(w, "seed:"+entry.Slug, func() (any, error) {
 		fc := entry.Config.ResolvedForecast(&entry.City)
-		return json.RawMessage(export.BuildForecastSeed(r.Context(), &fc, entry.Store)), nil
+		return json.RawMessage(export.BuildForecastSeed(context.Background(), &fc, entry.Store)), nil
 	})
 }

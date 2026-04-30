@@ -3,9 +3,12 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -103,5 +106,109 @@ func TestHandleIndex(t *testing.T) {
 	}
 	if w.Body.Len() == 0 {
 		t.Fatal("empty body")
+	}
+}
+
+func TestServeJSONCached_SingleFlight(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	srv := New(nil, 0, ios)
+
+	const goroutines = 32
+	var calls atomic.Int32
+	start := make(chan struct{})
+
+	build := func() (any, error) { //nolint:unparam // signature must match serveJSONCached parameter
+		calls.Add(1)
+		// Hold long enough that all goroutines can pile up on the same thunk.
+		time.Sleep(20 * time.Millisecond)
+		return map[string]string{"hello": "world"}, nil
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for range goroutines {
+		go func() {
+			defer wg.Done()
+			<-start
+			w := httptest.NewRecorder()
+			srv.serveJSONCached(w, "test", build)
+			if w.Code != http.StatusOK {
+				t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	if got := calls.Load(); got != 1 {
+		t.Errorf("expected build to run exactly once, ran %d times", got)
+	}
+}
+
+func TestServeJSONCached_ErrorEvicts(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	srv := New(nil, 0, ios)
+
+	var calls atomic.Int32
+	build := func() (any, error) {
+		n := calls.Add(1)
+		if n == 1 {
+			return nil, errors.New("boom")
+		}
+		return map[string]string{"ok": "yes"}, nil
+	}
+
+	// First call: error → cache evicts the failed thunk.
+	w1 := httptest.NewRecorder()
+	srv.serveJSONCached(w1, "test", build)
+	if w1.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 on first call, got %d", w1.Code)
+	}
+
+	// Second call: build runs again and succeeds.
+	w2 := httptest.NewRecorder()
+	srv.serveJSONCached(w2, "test", build)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("expected 200 on retry, got %d: %s", w2.Code, w2.Body.String())
+	}
+	if got := calls.Load(); got != 2 {
+		t.Errorf("expected build to run twice (error + retry), ran %d times", got)
+	}
+}
+
+func TestServeJSONCached_PanicEvicts(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	srv := New(nil, 0, ios)
+
+	var calls atomic.Int32
+	build := func() (any, error) { //nolint:unparam // signature must match serveJSONCached parameter
+		n := calls.Add(1)
+		if n == 1 {
+			panic("kaboom")
+		}
+		return map[string]string{"ok": "yes"}, nil
+	}
+
+	// First call: panic propagates up to recoveryMiddleware and evicts.
+	handler := recoveryMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		srv.serveJSONCached(w, "test", build)
+	}), ios.ErrOut)
+
+	req1, _ := http.NewRequestWithContext(context.Background(), "GET", "/", nil)
+	w1 := httptest.NewRecorder()
+	handler.ServeHTTP(w1, req1)
+	if w1.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 on panic, got %d", w1.Code)
+	}
+
+	// Second call: build runs again and succeeds.
+	req2, _ := http.NewRequestWithContext(context.Background(), "GET", "/", nil)
+	w2 := httptest.NewRecorder()
+	handler.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("expected 200 on retry, got %d: %s", w2.Code, w2.Body.String())
+	}
+	if got := calls.Load(); got != 2 {
+		t.Errorf("expected build to run twice (panic + retry), ran %d times", got)
 	}
 }
