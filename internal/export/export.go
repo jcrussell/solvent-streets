@@ -3,6 +3,7 @@ package export
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -370,10 +371,15 @@ func ConvertCostTiers(fc *config.ForecastConfig) []forecast.CostTier {
 }
 
 // BuildCohortsForResource builds forecast cohorts for a resource type from the store.
-// Falls back to a single cohort if no cohort stats exist.
-func BuildCohortsForResource(ctx context.Context, rt resource.ResourceType, areaSqM float64, store db.Store, fc *config.ForecastConfig) []forecast.Cohort {
+// Falls back to a single cohort if no cohort stats exist. A non-nil error is a
+// real DB failure, not "no rows" — ListCohortStats returns an empty slice with
+// nil error when there are no matching rows.
+func BuildCohortsForResource(ctx context.Context, rt resource.ResourceType, areaSqM float64, store db.Store, fc *config.ForecastConfig) ([]forecast.Cohort, error) {
 	currentPCI := fc.InitialPCI
-	stats, _ := store.ListCohortStats(ctx, rt.Name())
+	stats, err := store.ListCohortStats(ctx, rt.Name())
+	if err != nil {
+		return nil, fmt.Errorf("listing cohort stats for %s: %w", rt.Name(), err)
+	}
 	var inputs []forecast.CohortInput
 	for _, st := range stats {
 		inputs = append(inputs, forecast.CohortInput{
@@ -394,7 +400,7 @@ func BuildCohortsForResource(ctx context.Context, rt resource.ResourceType, area
 			InitialPCI:     currentPCI,
 		}}
 	}
-	return cohorts
+	return cohorts, nil
 }
 
 // ForecastExport holds per-resource forecast results.
@@ -405,65 +411,115 @@ type ForecastExport struct {
 	Scenarios    []forecast.ScenarioResult `json:"scenarios"`
 }
 
+// errSkipResource sentinel: a resource has no compute run yet (or returned
+// a nil row), and the caller should silently skip it rather than treat it
+// as a real failure. Distinguishes "legitimate empty for this resource"
+// from "real DB error" in the buildResourceForecast tristate.
+var errSkipResource = errors.New("no compute result for resource")
+
 // BuildForecastsForCity builds per-resource forecast exports for a city.
 // Prefers city-scoped data (excluding state/federal roads) as the primary
 // baseline since that matches what a city budget covers. The full-bbox
 // baseline is stored as BboxBaseline for the "All Roads" toggle.
-func BuildForecastsForCity(ctx context.Context, entry CityEntry, fc *config.ForecastConfig, costTiers []forecast.CostTier) []ForecastExport {
-	years := fc.Years
+//
+// Returns (forecasts, nil) on success, (nil, err) on any real DB failure.
+// sql.ErrNoRows from LatestComputeResult is treated as "no compute run yet
+// for this resource" and silently skipped — that's a legitimate empty state
+// for a freshly-bootstrapped city. Real errors across resources are
+// aggregated via errors.Join so callers (e.g. server cache thunks) get the
+// full picture in one return; any non-nil error discards the partial slice
+// so the cache evicts and retries instead of memoizing a partial result.
+func BuildForecastsForCity(ctx context.Context, entry CityEntry, fc *config.ForecastConfig, costTiers []forecast.CostTier) ([]ForecastExport, error) {
 	doNothing := forecast.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: forecast.StrategyDoNothing}
 	var forecasts []ForecastExport
+	var errs []error
 
 	for _, rt := range resource.All {
-		result, err := entry.Store.LatestComputeResult(ctx, rt.Name())
-		if err != nil || result == nil {
+		fe, err := buildResourceForecast(ctx, rt, entry, fc, costTiers, doNothing)
+		if errors.Is(err, errSkipResource) {
 			continue
 		}
-		rtParams := forecast.NewParamsForResource(rt.Name(), fc.GrowthRate, costTiers)
-
-		// Build full-bbox cohorts (always available)
-		bboxCohorts := BuildCohortsForResource(ctx, rt, result.TotalAreaSqM, entry.Store, fc)
-		bboxBaseline := forecast.Simulate(doNothing, bboxCohorts, years, rtParams.Cost, rtParams.Growth)
-
-		// Try city-scoped cohorts — use as primary if available
-		var primaryCohorts []forecast.Cohort
-		var hasCityScope bool
-		cityStats, _ := entry.Store.ListCohortStats(ctx, rt.Name()+":city")
-		if len(cityStats) > 0 {
-			var cityInputs []forecast.CohortInput
-			for _, st := range cityStats {
-				cityInputs = append(cityInputs, forecast.CohortInput{
-					Classification: st.Classification,
-					AreaSqM:        st.AreaSqM,
-				})
-			}
-			if cityCohorts := forecast.BuildCohorts(cityInputs, fc.InitialPCI, fc.DecayRate); cityCohorts != nil {
-				primaryCohorts = cityCohorts
-				hasCityScope = true
-			}
+		if err != nil {
+			errs = append(errs, err)
+			continue
 		}
-		if primaryCohorts == nil {
-			primaryCohorts = bboxCohorts
-		}
-
-		baseline := forecast.Simulate(doNothing, primaryCohorts, years, rtParams.Cost, rtParams.Growth)
-		year1Need := baseline.Years[0].AnnualNeed
-		scenarios := forecast.SimulateDefaults(year1Need, primaryCohorts, years,
-			rtParams.Cost, rtParams.Growth)
-
-		fe := ForecastExport{
-			ResourceType: rt.Name(),
-			Baseline:     baseline,
-			Scenarios:    scenarios,
-		}
-		if hasCityScope {
-			fe.BboxBaseline = &bboxBaseline
-		}
-
 		forecasts = append(forecasts, fe)
 	}
 
-	return forecasts
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
+	}
+	return forecasts, nil
+}
+
+// buildResourceForecast builds the forecast for a single resource. Returns
+// errSkipResource when the resource has no compute run yet — a legitimate
+// skip on a fresh DB. Any other non-nil error is a real DB failure that
+// should aggregate up to the caller and trigger cache eviction.
+func buildResourceForecast(ctx context.Context, rt resource.ResourceType, entry CityEntry, fc *config.ForecastConfig, costTiers []forecast.CostTier, doNothing forecast.Scenario) (ForecastExport, error) {
+	result, err := entry.Store.LatestComputeResult(ctx, rt.Name())
+	if errors.Is(err, sql.ErrNoRows) {
+		return ForecastExport{}, errSkipResource
+	}
+	if err != nil {
+		return ForecastExport{}, fmt.Errorf("loading compute result for %s: %w", rt.Name(), err)
+	}
+
+	years := fc.Years
+	rtParams := forecast.NewParamsForResource(rt.Name(), fc.GrowthRate, costTiers)
+
+	bboxCohorts, err := BuildCohortsForResource(ctx, rt, result.TotalAreaSqM, entry.Store, fc)
+	if err != nil {
+		return ForecastExport{}, err
+	}
+	bboxBaseline := forecast.Simulate(doNothing, bboxCohorts, years, rtParams.Cost, rtParams.Growth)
+
+	// Try city-scoped cohorts — use as primary if available. Empty result is
+	// legitimate (not all cities have city-scope data); only a real DB error
+	// surfaces.
+	cityStats, err := entry.Store.ListCohortStats(ctx, rt.Name()+":city")
+	if err != nil {
+		return ForecastExport{}, fmt.Errorf("listing city cohort stats for %s: %w", rt.Name(), err)
+	}
+	primaryCohorts, hasCityScope := cityScopeCohorts(cityStats, fc)
+	if !hasCityScope {
+		primaryCohorts = bboxCohorts
+	}
+
+	baseline := forecast.Simulate(doNothing, primaryCohorts, years, rtParams.Cost, rtParams.Growth)
+	year1Need := baseline.Years[0].AnnualNeed
+	scenarios := forecast.SimulateDefaults(year1Need, primaryCohorts, years, rtParams.Cost, rtParams.Growth)
+
+	fe := ForecastExport{
+		ResourceType: rt.Name(),
+		Baseline:     baseline,
+		Scenarios:    scenarios,
+	}
+	if hasCityScope {
+		fe.BboxBaseline = &bboxBaseline
+	}
+	return fe, nil
+}
+
+// cityScopeCohorts converts city-scope cohort stats to forecast cohorts.
+// Returns (nil, false) if the stats are empty or BuildCohorts rejects them,
+// signalling the caller should fall back to bbox-scope cohorts.
+func cityScopeCohorts(cityStats []db.CohortStat, fc *config.ForecastConfig) ([]forecast.Cohort, bool) {
+	if len(cityStats) == 0 {
+		return nil, false
+	}
+	cityInputs := make([]forecast.CohortInput, 0, len(cityStats))
+	for _, st := range cityStats {
+		cityInputs = append(cityInputs, forecast.CohortInput{
+			Classification: st.Classification,
+			AreaSqM:        st.AreaSqM,
+		})
+	}
+	cohorts := forecast.BuildCohorts(cityInputs, fc.InitialPCI, fc.DecayRate)
+	if cohorts == nil {
+		return nil, false
+	}
+	return cohorts, true
 }
 
 // BuildScenariosData builds the aggregate scenarios JSON structure for a city.
@@ -1123,7 +1179,10 @@ func exportScenariosForCity(ctx context.Context, entry CityEntry, dataDir string
 	fc := entry.Config.ResolvedForecast(&entry.City)
 	costTiers := ConvertCostTiers(&fc)
 
-	forecasts := BuildForecastsForCity(ctx, entry, &fc, costTiers)
+	forecasts, err := BuildForecastsForCity(ctx, entry, &fc, costTiers)
+	if err != nil {
+		return fmt.Errorf("build forecasts: %w", err)
+	}
 
 	if len(forecasts) > 0 {
 		if err := writeJSON(filepath.Join(dataDir, "forecast.json"), forecasts); err != nil {

@@ -16,6 +16,7 @@ import (
 	"pvmt/internal/db"
 	"pvmt/internal/db/dbtest"
 	"pvmt/internal/export"
+	"pvmt/internal/resource"
 	"pvmt/pkg/iostreams"
 )
 
@@ -173,6 +174,54 @@ func TestServeJSONCached_ErrorEvicts(t *testing.T) {
 	}
 	if got := calls.Load(); got != 2 {
 		t.Errorf("expected build to run twice (error + retry), ran %d times", got)
+	}
+}
+
+// TestBuildForecasts_DBErrorEvicts verifies that a real DB error during the
+// forecast build evicts both cache layers (s.cache forecast:slug and
+// s.forecasts slug) so the next request retries against a recovered store
+// rather than memoizing a partial/empty slice for the server's lifetime.
+func TestBuildForecasts_DBErrorEvicts(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	var calls atomic.Int32
+	failingStore := &dbtest.MockStore{
+		LatestComputeResultFunc: func(_ context.Context, rt string) (*db.ComputeResult, error) {
+			n := calls.Add(1)
+			if n <= int32(len(resource.All)) {
+				return nil, errors.New("DB unavailable")
+			}
+			return &db.ComputeResult{
+				ResourceType: rt,
+				TotalAreaSqM: 10000,
+				FeatureCount: 100,
+				ComputedAt:   time.Now(),
+			}, nil
+		},
+	}
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Test City"}}}
+	entry := export.CityEntry{
+		Config: cfg,
+		City:   cfg.Cities[0],
+		Store:  failingStore,
+		Slug:   cfg.Cities[0].Slug(),
+	}
+	srv := New([]export.CityEntry{entry}, 0, ios)
+
+	w1 := httptest.NewRecorder()
+	srv.serveForecastJSON(w1, nil, entry)
+	if w1.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 on first call, got %d: %s", w1.Code, w1.Body.String())
+	}
+
+	w2 := httptest.NewRecorder()
+	srv.serveForecastJSON(w2, nil, entry)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("expected 200 on retry, got %d: %s", w2.Code, w2.Body.String())
+	}
+
+	want := int32(2 * len(resource.All))
+	if got := calls.Load(); got != want {
+		t.Errorf("expected LatestComputeResult to run %d times (build twice), ran %d", want, got)
 	}
 }
 

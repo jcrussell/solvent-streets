@@ -162,7 +162,7 @@ type jsonThunk struct {
 
 // forecastThunk is the equivalent wrapper for s.forecasts. See jsonThunk.
 type forecastThunk struct {
-	once func() []export.ForecastExport
+	once func() ([]export.ForecastExport, error)
 }
 
 // serveJSONCached runs build at most once per key — concurrent first callers
@@ -241,19 +241,22 @@ func (s *Server) serveScenariosJSON(w http.ResponseWriter, _ *http.Request, entr
 }
 
 // buildForecasts returns the per-city forecast list, single-flighted via
-// sync.OnceValue and shared by serveForecastJSON and serveHexCostSummary.
+// sync.OnceValues and shared by serveForecastJSON and serveHexCostSummary.
 // See serveJSONCached for why builds run against context.Background().
 //
-// A panic here evicts both this thunk and (after re-panic propagates up
-// through serveJSONCached's OnceValues) the outer s.cache thunk — that
-// stacked eviction is intentional so the next request rebuilds both
-// layers instead of one rebuilding atop a cached panic in the other.
-func (s *Server) buildForecasts(entry export.CityEntry) []export.ForecastExport {
+// An error here evicts the thunk so the next request retries — sync.OnceValues
+// makes errors sticky for the thunk's lifetime, so without eviction a transient
+// DB hiccup would surface as a permanent 500 until the server restarted.
+// A panic evicts both this thunk and (after re-panic propagates up through
+// serveJSONCached's OnceValues) the outer s.cache thunk — that stacked
+// eviction is intentional so the next request rebuilds both layers instead
+// of one rebuilding atop a cached panic in the other.
+func (s *Server) buildForecasts(entry export.CityEntry) ([]export.ForecastExport, error) {
 	var ft *forecastThunk
 	if v, ok := s.forecasts.Load(entry.Slug); ok {
 		ft = v.(*forecastThunk) //nolint:forcetypeassert // type invariant: only this site Stores into s.forecasts
 	} else {
-		fresh := &forecastThunk{once: sync.OnceValue(func() []export.ForecastExport {
+		fresh := &forecastThunk{once: sync.OnceValues(func() ([]export.ForecastExport, error) {
 			fc := entry.Config.ResolvedForecast(&entry.City)
 			return export.BuildForecastsForCity(context.Background(), entry, &fc, export.ConvertCostTiers(&fc))
 		})}
@@ -269,18 +272,27 @@ func (s *Server) buildForecasts(entry export.CityEntry) []export.ForecastExport 
 			panic(r)
 		}
 	}()
-	return ft.once()
+	forecasts, err := ft.once()
+	if err != nil {
+		s.forecasts.CompareAndDelete(entry.Slug, ft)
+		return nil, err
+	}
+	return forecasts, nil
 }
 
 func (s *Server) serveForecastJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry) {
 	s.serveJSONCached(w, "forecast:"+entry.Slug, func() (any, error) {
-		return s.buildForecasts(entry), nil
+		return s.buildForecasts(entry)
 	})
 }
 
 func (s *Server) serveHexCostSummary(w http.ResponseWriter, _ *http.Request, entry export.CityEntry) {
 	s.serveJSONCached(w, "hexcost:"+entry.Slug, func() (any, error) {
-		return export.BuildHexCostSummary(context.Background(), entry, s.buildForecasts(entry)), nil
+		forecasts, err := s.buildForecasts(entry)
+		if err != nil {
+			return nil, err
+		}
+		return export.BuildHexCostSummary(context.Background(), entry, forecasts), nil
 	})
 }
 
