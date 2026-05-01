@@ -13,6 +13,16 @@ const (
 	GeomPolygon    = "Polygon"
 )
 
+// CombinedAll and CombinedCity are the resource_type row labels for the
+// cross-resource union written by `pvmt all compute`'s combined pass.
+// Producer: pkg/cmd/compute. Consumers: internal/export, anything that
+// reads ComputeResult rows. Kept here (not in pkg/cmd/compute) so the
+// label is reachable without an internal → pkg/cmd dependency.
+const (
+	CombinedAll  = "combined"
+	CombinedCity = "combined:city"
+)
+
 type Feature struct {
 	ID           string
 	Name         string

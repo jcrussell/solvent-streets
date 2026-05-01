@@ -96,6 +96,22 @@ func TestComputeHexStats_DedupesOverlappingCandidates(t *testing.T) {
 	}
 }
 
+func TestComputeHexStats_KeepsSubHundredSqMHexes(t *testing.T) {
+	// A clipped boundary sliver hex (<100 sqm) used to be silently dropped,
+	// causing the pct_paved numerator to under-count while the denominator
+	// stayed full. The filter now lives in the display layer; aggregate
+	// stats include slivers so numerator/denominator scope matches.
+	tinyHex := Hex{ID: "tiny", Geom: makeRect(0, 0, 9, 9)} // 81 sqm
+	idx := NewGeomIndexFromGeoms([]geom.Geometry{makeRect(0, 0, 5, 5)})
+	stats := ComputeHexStats([]Hex{tinyHex}, idx, "roads", nil)
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 stat for sub-100sqm hex, got %d", len(stats))
+	}
+	if stats[0].AreaSqM <= 0 {
+		t.Errorf("expected positive area for sliver coverage, got %f", stats[0].AreaSqM)
+	}
+}
+
 func TestClipHexesToBoundary(t *testing.T) {
 	hexes := HexGrid(0, 0, 500, 500, 100)
 	// Boundary covers only part of the hex grid

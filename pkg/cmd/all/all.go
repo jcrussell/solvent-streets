@@ -46,9 +46,15 @@ func newAllCompute(f *cmdutil.Factory) *cobra.Command {
 		Short: "Compute stats for all resource types",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmdutil.ForEachCity(cmd.Context(), f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
-				return forEachResource(f.IOStreams, func(rt resource.ResourceType) error {
+				if err := forEachResource(f.IOStreams, func(rt resource.ResourceType) error {
 					return execSub(compute.NewCmdCompute(cf, rt, nil))
-				})
+				}); err != nil {
+					return err
+				}
+				if err := compute.RunCombined(cmd.Context(), cf); err != nil {
+					fmt.Fprintf(f.IOStreams.ErrOut, "Warning: combined pass failed: %v\n", err)
+				}
+				return nil
 			})
 		},
 	}

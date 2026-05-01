@@ -103,14 +103,7 @@ func ComputeHexStats(hexes []Hex, idx *GeomIndex, resourceType string, counter *
 			return nil
 		}
 
-		// Skip boundary slivers — hexes clipped to tiny fragments at the
-		// city boundary edge produce misleading 100% coverage stats.
-		const minHexAreaSqM = 100.0
 		hexArea := h.Geom.Area()
-		if hexArea < minHexAreaSqM {
-			return nil
-		}
-
 		totalArea, ok := hexCoverageArea(h.Geom, candidates)
 		if !ok || totalArea <= 0 {
 			return nil
