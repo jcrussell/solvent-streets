@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
@@ -53,16 +55,13 @@ func TestBuildMeta_PrefersCombinedOverSum(t *testing.T) {
 	if meta.TotalPavedSqM != 1500 {
 		t.Errorf("total_paved_sqm = %v; want 1500 (from combined row, not 1800 sum)", meta.TotalPavedSqM)
 	}
-	// Per-resource cards still report per-resource totals.
-	if len(meta.Stats) != 3 {
-		t.Fatalf("expected 3 per-resource stats, got %d", len(meta.Stats))
-	}
 	statByType := map[string]float64{}
 	for _, s := range meta.Stats {
 		statByType[s.Type] = s.TotalAreaSqM
 	}
-	if statByType["roads"] != 1000 || statByType["parking"] != 500 || statByType["sidewalks"] != 300 {
-		t.Errorf("per-resource cards changed: %+v", statByType)
+	want := map[string]float64{"roads": 1000, "parking": 500, "sidewalks": 300}
+	if diff := cmp.Diff(want, statByType); diff != "" {
+		t.Errorf("per-resource cards (-want +got):\n%s", diff)
 	}
 }
 

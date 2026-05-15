@@ -6,6 +6,7 @@ require (
 	charm.land/bubbletea/v2 v2.0.2
 	charm.land/lipgloss/v2 v2.0.2
 	github.com/BurntSushi/toml v1.6.0
+	github.com/google/go-cmp v0.7.0
 	github.com/itchyny/gojq v0.12.18
 	github.com/peterstace/simplefeatures v0.58.0
 	github.com/spf13/cobra v1.10.2

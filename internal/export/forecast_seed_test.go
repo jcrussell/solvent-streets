@@ -4,6 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
+
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
@@ -54,27 +57,15 @@ func TestMergeCohortSeeds_KeysOnResourceAndClassification(t *testing.T) {
 	got := mergeCohortSeeds(context.Background(), []CityEntry{cityA, cityB}, fc, false)
 
 	// Three distinct (resource, classification) pairs across both cities:
-	// roads/primary, roads/default, parking/default. With the pre-fix bucket
-	// keyed on classification only, the two "default" entries collapsed into
-	// one and len(got) was 2.
-	if len(got) != 3 {
-		t.Fatalf("len(cohorts) = %d; want 3 (roads/primary, roads/default, parking/default — got %+v)", len(got), got)
+	// roads/primary, roads/default, parking/default. Pre-fix bucket keyed on
+	// classification only collapsed the two "default" entries into one.
+	want := []CohortSeed{
+		{Classification: "primary", AreaSqM: 1200}, // roads: 1000 + 200
+		{Classification: "default", AreaSqM: 500},  // roads "default" only
+		{Classification: "default", AreaSqM: 400},  // parking "default": 300 + 100
 	}
-
-	type want struct {
-		Class string
-		Area  float64
-	}
-	wants := []want{
-		{Class: "primary", Area: 1200}, // roads: 1000 + 200
-		{Class: "default", Area: 500},  // roads "default" only
-		{Class: "default", Area: 400},  // parking "default": 300 + 100
-	}
-	for i, w := range wants {
-		if got[i].Classification != w.Class || got[i].AreaSqM != w.Area {
-			t.Errorf("got[%d] = {class=%q, area=%v}; want {class=%q, area=%v}",
-				i, got[i].Classification, got[i].AreaSqM, w.Class, w.Area)
-		}
+	if diff := cmp.Diff(want, got, cmpopts.IgnoreFields(CohortSeed{}, "DecayRate")); diff != "" {
+		t.Errorf("mergeCohortSeeds (-want +got):\n%s", diff)
 	}
 }
 
