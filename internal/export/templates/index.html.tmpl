@@ -1310,6 +1310,7 @@
                 const seedResp = await fetch(prefix + 'data/forecast_seed.json');
                 if (seedResp.ok) {
                     FORECAST_SEED = await seedResp.json();
+                    syncPCISliderFromSeed();
                     rebuildTierInputs();
                     if (wasmReady) runCustomScenario();
                 }
@@ -1362,6 +1363,18 @@
         let chartRefs = { pci: null, backlog: null, spending: null };
         let customActive = false;
         let currentStrategy = 'worst-first';
+
+        function syncPCISliderFromSeed() {
+            if (!FORECAST_SEED || typeof FORECAST_SEED.initial_pci !== 'number') return;
+            const slider = document.getElementById('pci-slider');
+            if (!slider) return;
+            const min = parseInt(slider.min);
+            const max = parseInt(slider.max);
+            const v = Math.max(min, Math.min(max, Math.round(FORECAST_SEED.initial_pci)));
+            slider.value = v;
+            document.getElementById('pci-value').textContent = v;
+        }
+        syncPCISliderFromSeed();
 
         function rebuildTierInputs() {
             const tierDiv = document.getElementById('tier-inputs');

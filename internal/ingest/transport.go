@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const userAgentString = "pvmt/1.0 (pavement-data-tool; https://github.com/solvent-streets/pvmt)"
+const userAgentString = "pvmt/1.0 (pavement-data-tool; https://github.com/jcrussell/solvent-streets)"
 
 type userAgentTransport struct {
 	wrapped http.RoundTripper
