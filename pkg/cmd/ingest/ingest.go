@@ -54,6 +54,11 @@ func NewCmdIngest(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Optio
 	cmd.Flags().BoolVar(&opts.Force, "force", false, "Bypass HTTP cache")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Resolve sources and print plan without fetching or writing")
 
+	// --dry-run never fetches, so --force (bypass cache) is meaningless
+	// in that combination. Reject the typo with cobra's flag-group helper
+	// rather than silently ignoring one (byob-command-shape.6).
+	cmd.MarkFlagsMutuallyExclusive("force", "dry-run")
+
 	return cmd
 }
 

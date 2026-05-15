@@ -103,6 +103,22 @@ func TestNewCmdIngest_ForceFlag(t *testing.T) {
 	}
 }
 
+// TestNewCmdIngest_ForceAndDryRunMutuallyExclusive covers byob-command-shape.6:
+// --force (bypass HTTP cache) and --dry-run (no fetch) are nonsense together,
+// so cobra's MarkFlagsMutuallyExclusive helper rejects the combination at
+// flag-parse time rather than each command silently ignoring one.
+func TestNewCmdIngest_ForceAndDryRunMutuallyExclusive(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	f := testFactory(ios)
+	rt := &resource.Pavement{}
+
+	cmd := NewCmdIngest(f, rt, func(opts *Options) error { return nil })
+	cmd.SetArgs([]string{"--force", "--dry-run"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected --force and --dry-run to be mutually exclusive")
+	}
+}
+
 func TestNewCmdIngest_RunFInjection(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	f := testFactory(ios)
