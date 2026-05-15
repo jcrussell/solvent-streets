@@ -101,6 +101,9 @@ func simulateForecast(_ js.Value, args []js.Value) any {
 		}}
 	}
 
+	// Load-bearing call: shared with the CLI forecast path. Output is
+	// locked down by internal/forecast/parity_test.go — any drift here
+	// or in Simulate breaks both surfaces at once.
 	result := forecast.Simulate(
 		scenario,
 		cohorts,
