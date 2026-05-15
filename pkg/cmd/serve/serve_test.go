@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
@@ -46,5 +47,43 @@ func TestNewCmdServe_DefaultPort(t *testing.T) {
 	}
 	if gotOpts.Port != 8080 {
 		t.Errorf("expected default port 8080, got %d", gotOpts.Port)
+	}
+}
+
+// TestOptions_Validate_Port covers byob-input-validation.5: bad --port
+// surfaces as FlagError before any listener bind or DB open. Port 0 is
+// rejected even though net/http accepts it (means "pick free") so the
+// served address stays predictable.
+func TestOptions_Validate_Port(t *testing.T) {
+	cases := map[string]int{
+		"zero":         0,
+		"negative":     -1,
+		"above range":  65536,
+		"way too high": 99999,
+	}
+	for name, port := range cases {
+		t.Run(name, func(t *testing.T) {
+			opts := &Options{Port: port}
+			err := opts.Validate()
+			if err == nil {
+				t.Fatalf("expected FlagError for port=%d, got nil", port)
+			}
+			var flag *cmdutil.FlagError
+			if !errors.As(err, &flag) {
+				t.Errorf("error %v is not *FlagError", err)
+			}
+		})
+	}
+	for name, port := range map[string]int{
+		"low end":  1,
+		"default":  8080,
+		"high end": 65535,
+	} {
+		t.Run("accepts "+name, func(t *testing.T) {
+			opts := &Options{Port: port}
+			if err := opts.Validate(); err != nil {
+				t.Errorf("port=%d unexpectedly rejected: %v", port, err)
+			}
+		})
 	}
 }
