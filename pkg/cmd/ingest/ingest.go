@@ -24,6 +24,7 @@ type Options struct {
 	ResourceType resource.ResourceType
 	Source       cmdutil.Source
 	Force        bool
+	DryRun       bool
 }
 
 func NewCmdIngest(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Options) error) *cobra.Command {
@@ -50,6 +51,7 @@ func NewCmdIngest(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Optio
 	cmd.Flags().Var(&opts.Source, "source", "Data source (overpass|arcgis|all)")
 	_ = cmd.RegisterFlagCompletionFunc("source", cmdutil.SourceCompletion())
 	cmd.Flags().BoolVar(&opts.Force, "force", false, "Bypass HTTP cache")
+	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Resolve sources and print plan without fetching or writing")
 
 	return cmd
 }
@@ -79,6 +81,10 @@ func runIngest(ctx context.Context, opts *Options) error {
 	store, err := opts.CityDB()
 	if err != nil {
 		return fmt.Errorf("database: %w", err)
+	}
+
+	if opts.DryRun {
+		return printDryRunPlan(ctx, opts, store, city)
 	}
 
 	boundaryGJSON, err := resolveBoundary(ctx, opts, store, client, city)
@@ -112,6 +118,44 @@ func runIngest(ctx context.Context, opts *Options) error {
 
 	fmt.Fprintf(ios.ErrOut, "Done. Ingested %d %s features.\n", len(allFeatures), opts.ResourceType.Name())
 	return nil
+}
+
+// printDryRunPlan reports what runIngest would do without making any
+// network calls or writing to the DB. Reachability probing is
+// intentionally omitted: a dry-run that hits the network is slow and
+// can fail for reasons unrelated to the config the user is validating
+// (transient outages, rate limits). For reachability checks, run the
+// real ingest with --source <single-source>.
+func printDryRunPlan(ctx context.Context, opts *Options, store db.Store, city *config.CityConfig) error {
+	out := opts.IO.Out
+	fmt.Fprintf(out, "[dry-run] ingest %s for %s\n", opts.ResourceType.Name(), city.Name)
+	boundary, err := store.GetBoundary(ctx)
+	if err != nil {
+		return fmt.Errorf("reading cached boundary: %w", err)
+	}
+	if boundary == "" || opts.Force {
+		fmt.Fprintf(out, "[dry-run]   would fetch boundary from Nominatim for %q\n", city.Name)
+	} else {
+		fmt.Fprintln(out, "[dry-run]   boundary cached, would skip Nominatim")
+	}
+	if opts.Source == cmdutil.SourceAll {
+		fmt.Fprintln(out, "[dry-run]   would resolve sources: overpass (always)"+
+			fmtArcgis(city.ArcGISURL))
+		fmt.Fprintln(out, "[dry-run]   would fetch + dedupe across all sources")
+	} else {
+		fmt.Fprintf(out, "[dry-run]   would fetch from source: %s\n", opts.Source)
+		if string(opts.Source) == "arcgis" && city.ArcGISURL == "" {
+			fmt.Fprintln(out, "[dry-run]   WARNING: arcgis selected but city.arcgis_url is empty")
+		}
+	}
+	return nil
+}
+
+func fmtArcgis(url string) string {
+	if url == "" {
+		return " (arcgis: skipped — no arcgis_url for this city)"
+	}
+	return ", arcgis (" + url + ")"
 }
 
 // resolveBoundary returns the cached city boundary or fetches it from
