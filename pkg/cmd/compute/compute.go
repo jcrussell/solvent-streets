@@ -32,7 +32,43 @@ type Options struct {
 	UnitSystem   func() units.System
 	ResourceType resource.ResourceType
 	CityOnly     bool
+	Exporter     cmdutil.Exporter
+	rows         *[]computeRow // multi-city accumulator; nil for single-pass JSON
 }
+
+type computeRow struct {
+	City         string  `json:"city"`
+	ResourceType string  `json:"resourceType"`
+	Jurisdiction string  `json:"jurisdiction"` // "all" or "city"
+	FeatureCount int     `json:"featureCount"`
+	AreaSqM      float64 `json:"areaSqM"`
+	SnapshotID   int64   `json:"snapshotId,omitempty"`
+}
+
+var _ cmdutil.RowExporter = computeRow{}
+
+func (r computeRow) ExportData(fields []string) map[string]any {
+	out := make(map[string]any, len(fields))
+	for _, f := range fields {
+		switch f {
+		case "city":
+			out[f] = r.City
+		case "resourceType":
+			out[f] = r.ResourceType
+		case "jurisdiction":
+			out[f] = r.Jurisdiction
+		case "featureCount":
+			out[f] = r.FeatureCount
+		case "areaSqM":
+			out[f] = r.AreaSqM
+		case "snapshotId":
+			out[f] = r.SnapshotID
+		}
+	}
+	return out
+}
+
+var computeFields = []string{"city", "resourceType", "jurisdiction", "featureCount", "areaSqM", "snapshotId"}
 
 func NewCmdCompute(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Options) error) *cobra.Command {
 	opts := &Options{
@@ -56,17 +92,29 @@ func NewCmdCompute(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Opti
 	}
 
 	cmd.Flags().BoolVar(&opts.CityOnly, "city-only", false, "Only show city-maintained road results")
+	cmdutil.AddJSONFlags(cmd, &opts.Exporter, computeFields)
 
 	return cmd
 }
 
 func runComputeAllCities(ctx context.Context, f *cmdutil.Factory, opts *Options) error {
-	return cmdutil.ForEachCity(ctx, f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
+	var accumulator []computeRow
+	if opts.Exporter != nil {
+		opts.rows = &accumulator
+	}
+	err := cmdutil.ForEachCity(ctx, f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
 		cityOpts := *opts
 		cityOpts.CurrentCity = cf.CurrentCity
 		cityOpts.CityDB = cf.CityDB
 		return runCompute(ctx, &cityOpts)
 	})
+	if err != nil {
+		return err
+	}
+	if opts.Exporter != nil {
+		return cmdutil.WriteRows(opts.IO, opts.Exporter, accumulator)
+	}
+	return nil
 }
 
 // Phase indices for the TUI step checklist.
@@ -79,6 +127,12 @@ const (
 )
 
 func runCompute(ctx context.Context, opts *Options) error {
+	// JSON mode (--json set) routes prose to discard and disables TUI so
+	// only the final JSON payload reaches stdout (byob-iostreams.3: data
+	// to Out, chatter to ErrOut).
+	if opts.Exporter != nil {
+		return doCompute(ctx, io.Discard, opts.IO.ErrOut, tui.NoopNotifier{}, opts)
+	}
 	if opts.IO.IsTTY() {
 		return runComputeTUI(ctx, opts)
 	}
@@ -267,6 +321,7 @@ func (c *computer) runAllFeaturesPass(ctx context.Context, resFeatures []resourc
 	if err := c.store.SaveComputeResult(ctx, result); err != nil {
 		return nil, nil, fmt.Errorf("save result: %w", err)
 	}
+	c.recordRow("all", len(resFeatures), areaSqM)
 
 	rt := c.opts.ResourceType
 	cohortStats := buildCohortStats(rt.Name(), rt.HasCohorts(), resFeatures, areaSqM, c.snapshotID, c.proj, clippedHexes)
@@ -330,6 +385,7 @@ func (c *computer) processCityResults(ctx context.Context, parts map[filter.Juri
 	if err := c.store.SaveComputeResult(ctx, cityResult); err != nil {
 		fmt.Fprintf(c.errOut, "Warning: failed to save city result: %v\n", err)
 	}
+	c.recordRow("city", len(cityFeatures), cityAreaSqM)
 
 	rt := c.opts.ResourceType
 	cityCohortStats := buildCohortStats(rt.Name()+":city", rt.HasCohorts(), cityFeatures, cityAreaSqM, c.snapshotID, c.proj, clippedHexes)
@@ -342,6 +398,25 @@ func (c *computer) processCityResults(ctx context.Context, parts map[filter.Juri
 	}
 
 	printResults(c.out, c.opts.ResourceType.Name()+" Results (city only)", len(cityFeatures), cityAreaSqM, c.sys)
+}
+
+// recordRow appends a computeRow to the multi-city accumulator if the
+// caller set one up. No-op when --json is not active.
+func (c *computer) recordRow(jurisdiction string, featureCount int, areaSqM float64) {
+	if c.opts.rows == nil {
+		return
+	}
+	row := computeRow{
+		City:         c.city.Name,
+		ResourceType: c.opts.ResourceType.Name(),
+		Jurisdiction: jurisdiction,
+		FeatureCount: featureCount,
+		AreaSqM:      areaSqM,
+	}
+	if c.snapshotID != nil {
+		row.SnapshotID = *c.snapshotID
+	}
+	*c.opts.rows = append(*c.opts.rows, row)
 }
 
 func printResults(out io.Writer, label string, featureCount int, areaSqM float64, sys units.System) {
