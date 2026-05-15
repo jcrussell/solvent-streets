@@ -303,7 +303,7 @@ func (c *computer) runAllFeaturesPass(ctx context.Context, resFeatures []resourc
 	}
 	c.notify.PhaseDone(phaseProcess, nil)
 
-	hexStats, clippedHexes := c.computeHexPipeline(buffered, boundaryGJSON)
+	hexStats, clippedHexes := c.computeHexPipeline(ctx, buffered, boundaryGJSON)
 
 	// Per-hex coverage is dedup'd by the local union inside ComputeHexStats,
 	// so summing does not double-count crossing-road overlaps.
@@ -324,7 +324,7 @@ func (c *computer) runAllFeaturesPass(ctx context.Context, resFeatures []resourc
 	c.recordRow("all", len(resFeatures), areaSqM)
 
 	rt := c.opts.ResourceType
-	cohortStats := buildCohortStats(rt.Name(), rt.HasCohorts(), resFeatures, areaSqM, c.snapshotID, c.proj, clippedHexes)
+	cohortStats := buildCohortStats(ctx, rt.Name(), rt.HasCohorts(), resFeatures, areaSqM, c.snapshotID, c.proj, clippedHexes)
 	if len(cohortStats) > 0 {
 		if err := c.store.SaveCohortStats(ctx, cohortStats); err != nil {
 			fmt.Fprintf(c.errOut, "Warning: failed to save cohort stats: %v\n", err)
@@ -369,7 +369,7 @@ func (c *computer) processCityResults(ctx context.Context, parts map[filter.Juri
 	}
 
 	cityIdx := geo.NewGeomIndexFromGeoms(cityBuffered)
-	cityStats := geo.ComputeHexStats(clippedHexes, cityIdx, c.opts.ResourceType.Name()+":city", nil)
+	cityStats := geo.ComputeHexStats(ctx, clippedHexes, cityIdx, c.opts.ResourceType.Name()+":city", nil)
 
 	var cityAreaSqM float64
 	for _, s := range cityStats {
@@ -388,7 +388,7 @@ func (c *computer) processCityResults(ctx context.Context, parts map[filter.Juri
 	c.recordRow("city", len(cityFeatures), cityAreaSqM)
 
 	rt := c.opts.ResourceType
-	cityCohortStats := buildCohortStats(rt.Name()+":city", rt.HasCohorts(), cityFeatures, cityAreaSqM, c.snapshotID, c.proj, clippedHexes)
+	cityCohortStats := buildCohortStats(ctx, rt.Name()+":city", rt.HasCohorts(), cityFeatures, cityAreaSqM, c.snapshotID, c.proj, clippedHexes)
 	if len(cityCohortStats) > 0 {
 		if err := c.store.SaveCohortStats(ctx, cityCohortStats); err != nil {
 			fmt.Fprintf(c.errOut, "Warning: failed to save city cohort stats: %v\n", err)
@@ -442,7 +442,7 @@ func printCohortBreakdown(out io.Writer, title string, stats []db.CohortStat, to
 // computeHexPipeline runs the hex-grid stages (generate, clip, stats) and
 // returns the per-hex stats plus the clipped hex slice. The caller owns
 // persistence and can reuse clippedHexes for a second pass (e.g. city-only).
-func (c *computer) computeHexPipeline(buffered []geom.Geometry, boundaryGJSON string) ([]geo.HexStat, []geo.Hex) {
+func (c *computer) computeHexPipeline(ctx context.Context, buffered []geom.Geometry, boundaryGJSON string) ([]geo.HexStat, []geo.Hex) {
 	// --- Phase 1: Generate hex grid ---
 	c.notify.PhaseStart(phaseHexGrid)
 
@@ -462,7 +462,7 @@ func (c *computer) computeHexPipeline(buffered []geom.Geometry, boundaryGJSON st
 	if err == nil && !boundaryGeom.IsEmpty() {
 		var clipCounter atomic.Int64
 		stopClipProgress := startProgressTicker(c.notify, phaseClip, len(hexes), &clipCounter)
-		hexes = geo.ClipHexesToBoundary(hexes, boundaryGeom, &clipCounter)
+		hexes = geo.ClipHexesToBoundary(ctx, hexes, boundaryGeom, &clipCounter)
 		stopClipProgress()
 		fmt.Fprintf(c.out, "  Clipped to boundary: %d hexes\n", len(hexes))
 	}
@@ -475,7 +475,7 @@ func (c *computer) computeHexPipeline(buffered []geom.Geometry, boundaryGJSON st
 
 	var statsCounter atomic.Int64
 	stopStatsProgress := startProgressTicker(c.notify, phaseStats, len(hexes), &statsCounter)
-	geoStats := geo.ComputeHexStats(hexes, idx, c.opts.ResourceType.Name(), &statsCounter)
+	geoStats := geo.ComputeHexStats(ctx, hexes, idx, c.opts.ResourceType.Name(), &statsCounter)
 	stopStatsProgress()
 	fmt.Fprintf(c.out, "  %d hexes with coverage\n", len(geoStats))
 	c.notify.PhaseDone(phaseStats, nil)
@@ -524,7 +524,7 @@ func parseGeoJSONGeometry(gjson string, proj *geo.UTMProjector) (geom.Geometry, 
 // hex-clipped pipeline used for the resource total. Otherwise it returns
 // a single cohort stat. resourceTypeName is the row label, which may include
 // a ":city" suffix when computing city-only stats.
-func buildCohortStats(resourceTypeName string, hasCohorts bool, features []resource.Feature, totalAreaSqM float64, snapshotID *int64, proj *geo.UTMProjector, hexes []geo.Hex) []db.CohortStat {
+func buildCohortStats(ctx context.Context, resourceTypeName string, hasCohorts bool, features []resource.Feature, totalAreaSqM float64, snapshotID *int64, proj *geo.UTMProjector, hexes []geo.Hex) []db.CohortStat {
 	if !hasCohorts {
 		return []db.CohortStat{{
 			ResourceType:   resourceTypeName,
@@ -535,7 +535,7 @@ func buildCohortStats(resourceTypeName string, hasCohorts bool, features []resou
 		}}
 	}
 
-	rawAreas := resource.ComputeRoadCohortAreas(features, proj, hexes)
+	rawAreas := resource.ComputeRoadCohortAreas(ctx, features, proj, hexes)
 	var rawTotal float64
 	for _, a := range rawAreas {
 		rawTotal += a

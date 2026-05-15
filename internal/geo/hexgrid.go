@@ -1,6 +1,7 @@
 package geo
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"sync/atomic"
@@ -95,8 +96,9 @@ type HexStat struct {
 // R-tree may overlap (e.g. when idx holds buffered feature polygons directly),
 // so we union them per-hex before intersecting to avoid double-counting.
 // If counter is non-nil it is incremented after each hex is processed.
-func ComputeHexStats(hexes []Hex, idx *GeomIndex, resourceType string, counter *atomic.Int64) []HexStat {
-	return ParallelMap(hexes, func(_ int, h Hex) []HexStat {
+// ctx cancellation stops dispatching further hexes; in-flight hexes complete.
+func ComputeHexStats(ctx context.Context, hexes []Hex, idx *GeomIndex, resourceType string, counter *atomic.Int64) []HexStat {
+	return ParallelMap(ctx, hexes, func(_ int, h Hex) []HexStat {
 		hexEnv := h.Geom.Envelope()
 		candidates := idx.Search(hexEnv)
 		if len(candidates) == 0 {
@@ -183,11 +185,12 @@ func mergeClipped(existing, addition geom.Geometry) geom.Geometry {
 // ClipHexesToBoundary intersects each hex with the boundary geometry in
 // parallel using a spatial index. Hexes with no intersection are dropped;
 // hexes partially inside are clipped. If counter is non-nil it is incremented
-// after each hex is processed.
-func ClipHexesToBoundary(hexes []Hex, boundary geom.Geometry, counter *atomic.Int64) []Hex {
+// after each hex is processed. ctx cancellation stops dispatching further
+// hexes; in-flight hexes complete.
+func ClipHexesToBoundary(ctx context.Context, hexes []Hex, boundary geom.Geometry, counter *atomic.Int64) []Hex {
 	idx := NewGeomIndex(boundary)
 
-	return ParallelMap(hexes, func(_ int, h Hex) []Hex {
+	return ParallelMap(ctx, hexes, func(_ int, h Hex) []Hex {
 		hexEnv := h.Geom.Envelope()
 		candidates := idx.Search(hexEnv)
 		if len(candidates) == 0 {

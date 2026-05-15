@@ -1,6 +1,7 @@
 package geo
 
 import (
+	"context"
 	"math"
 	"testing"
 
@@ -45,7 +46,7 @@ func TestComputeHexStats_NoIntersection(t *testing.T) {
 	hexes := HexGrid(0, 0, 500, 500, 100)
 	// Index a geometry far away
 	idx := NewGeomIndexFromGeoms([]geom.Geometry{makeRect(10000, 10000, 10100, 10100)})
-	stats := ComputeHexStats(hexes, idx, "roads", nil)
+	stats := ComputeHexStats(context.Background(), hexes, idx, "roads", nil)
 	if len(stats) != 0 {
 		t.Errorf("expected 0 stats for non-intersecting, got %d", len(stats))
 	}
@@ -55,7 +56,7 @@ func TestComputeHexStats_PartialIntersection(t *testing.T) {
 	hexes := HexGrid(0, 0, 500, 500, 100)
 	// Small rect that should intersect a few hexes
 	idx := NewGeomIndexFromGeoms([]geom.Geometry{makeRect(100, 100, 200, 200)})
-	stats := ComputeHexStats(hexes, idx, "roads", nil)
+	stats := ComputeHexStats(context.Background(), hexes, idx, "roads", nil)
 	if len(stats) == 0 {
 		t.Error("expected some hex stats for intersecting geometry")
 	}
@@ -78,7 +79,7 @@ func TestComputeHexStats_DedupesOverlappingCandidates(t *testing.T) {
 	horizontal := makeRect(0, 40, 100, 60)
 	vertical := makeRect(40, 0, 60, 100)
 	idx := NewGeomIndexFromGeoms([]geom.Geometry{horizontal, vertical})
-	stats := ComputeHexStats(hexes, idx, "roads", nil)
+	stats := ComputeHexStats(context.Background(), hexes, idx, "roads", nil)
 	if len(stats) == 0 {
 		t.Fatal("expected at least one stat")
 	}
@@ -103,7 +104,7 @@ func TestComputeHexStats_KeepsSubHundredSqMHexes(t *testing.T) {
 	// stats include slivers so numerator/denominator scope matches.
 	tinyHex := Hex{ID: "tiny", Geom: makeRect(0, 0, 9, 9)} // 81 sqm
 	idx := NewGeomIndexFromGeoms([]geom.Geometry{makeRect(0, 0, 5, 5)})
-	stats := ComputeHexStats([]Hex{tinyHex}, idx, "roads", nil)
+	stats := ComputeHexStats(context.Background(), []Hex{tinyHex}, idx, "roads", nil)
 	if len(stats) != 1 {
 		t.Fatalf("expected 1 stat for sub-100sqm hex, got %d", len(stats))
 	}
@@ -116,7 +117,7 @@ func TestClipHexesToBoundary(t *testing.T) {
 	hexes := HexGrid(0, 0, 500, 500, 100)
 	// Boundary covers only part of the hex grid
 	boundary := makeRect(50, 50, 250, 250)
-	clipped := ClipHexesToBoundary(hexes, boundary, nil)
+	clipped := ClipHexesToBoundary(context.Background(), hexes, boundary, nil)
 	if len(clipped) == 0 {
 		t.Error("expected some hexes after clipping")
 	}
@@ -137,6 +138,6 @@ func BenchmarkComputeHexStats(b *testing.B) {
 	idx := NewGeomIndexFromGeoms(geoms)
 	b.ResetTimer()
 	for range b.N {
-		ComputeHexStats(hexes, idx, "roads", nil)
+		ComputeHexStats(context.Background(), hexes, idx, "roads", nil)
 	}
 }

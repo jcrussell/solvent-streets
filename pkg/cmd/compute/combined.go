@@ -51,7 +51,7 @@ func RunCombined(ctx context.Context, f *cmdutil.Factory) error {
 		return nil
 	}
 
-	hexes := buildClippedHexGrid(cfg, city, proj, bbox, boundaryGJSON)
+	hexes := buildClippedHexGrid(ctx, cfg, city, proj, bbox, boundaryGJSON)
 	snapshotID := createSnapshot(ctx, ios.ErrOut, store, cfg)
 	sys := f.UnitSystem()
 
@@ -140,13 +140,13 @@ func loadFeaturesForCombined(ctx context.Context, store db.Store, rt resource.Re
 	return out, true
 }
 
-func buildClippedHexGrid(cfg *config.Config, city *config.CityConfig, proj *geo.UTMProjector, bbox [4]float64, boundaryGJSON string) []geo.Hex {
+func buildClippedHexGrid(ctx context.Context, cfg *config.Config, city *config.CityConfig, proj *geo.UTMProjector, bbox [4]float64, boundaryGJSON string) []geo.Hex {
 	hexEdge := cfg.ResolvedHexEdge(city)
 	minX, minY, _ := proj.ToProjected(bbox[1], bbox[0])
 	maxX, maxY, _ := proj.ToProjected(bbox[3], bbox[2])
 	hexes := geo.HexGrid(minX, minY, maxX, maxY, hexEdge)
 	if boundaryGeom, err := parseGeoJSONGeometry(boundaryGJSON, proj); err == nil && !boundaryGeom.IsEmpty() {
-		hexes = geo.ClipHexesToBoundary(hexes, boundaryGeom, nil)
+		hexes = geo.ClipHexesToBoundary(ctx, hexes, boundaryGeom, nil)
 	}
 	return hexes
 }
@@ -155,7 +155,7 @@ func saveCombinedResult(ctx context.Context, store db.Store, hexes []geo.Hex, bu
 	var area float64
 	if err := cmdutil.GuardPanic(errOut, func() error {
 		idx := geo.NewGeomIndexFromGeoms(buffered)
-		hexStats := geo.ComputeHexStats(hexes, idx, label, nil)
+		hexStats := geo.ComputeHexStats(ctx, hexes, idx, label, nil)
 		for _, s := range hexStats {
 			area += s.AreaSqM
 		}

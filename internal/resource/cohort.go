@@ -1,6 +1,8 @@
 package resource
 
 import (
+	"context"
+
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 
@@ -14,7 +16,8 @@ import (
 // intra-class overlaps are dedup'd per-hex rather than via one big UnionAll,
 // and per-class totals are clipped to the same hex grid as the "all" total
 // so they sum consistently. Returns map[classification]coverageAreaSqM.
-func ComputeRoadCohortAreas(features []Feature, proj *geo.UTMProjector, hexes []geo.Hex) map[string]float64 {
+// ctx cancellation aborts the underlying ParallelMap calls cleanly.
+func ComputeRoadCohortAreas(ctx context.Context, features []Feature, proj *geo.UTMProjector, hexes []geo.Hex) map[string]float64 {
 	classGeoms := make(map[string][]geom.Geometry)
 
 	for _, f := range features {
@@ -29,7 +32,7 @@ func ComputeRoadCohortAreas(features []Feature, proj *geo.UTMProjector, hexes []
 	areas := make(map[string]float64)
 	for class, geoms := range classGeoms {
 		idx := geo.NewGeomIndexFromGeoms(geoms)
-		stats := geo.ComputeHexStats(hexes, idx, class, nil)
+		stats := geo.ComputeHexStats(ctx, hexes, idx, class, nil)
 		var sum float64
 		for _, s := range stats {
 			sum += s.AreaSqM

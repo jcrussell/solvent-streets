@@ -100,7 +100,7 @@ func TestRunCombined_DedupesCrossResourceOverlap(t *testing.T) {
 	maxX, maxY, _ := proj.ToProjected(bbox[3], bbox[2])
 	hexes := geo.HexGrid(minX, minY, maxX, maxY, hexEdge)
 	if bg, _, err := geo.GeoJSONToProjectedGeometry(boundary, proj); err == nil && !bg.IsEmpty() {
-		hexes = geo.ClipHexesToBoundary(hexes, bg, nil)
+		hexes = geo.ClipHexesToBoundary(t.Context(), hexes, bg, nil)
 	}
 
 	areaForResource := func(t *testing.T, rt resource.ResourceType, feat db.Feature) float64 {
@@ -113,7 +113,7 @@ func TestRunCombined_DedupesCrossResourceOverlap(t *testing.T) {
 		if err != nil {
 			t.Fatalf("buffer %s: %v", rt.Name(), err)
 		}
-		stats := geo.ComputeHexStats(hexes, geo.NewGeomIndexFromGeoms(bufs), rt.Name(), nil)
+		stats := geo.ComputeHexStats(t.Context(), hexes, geo.NewGeomIndexFromGeoms(bufs), rt.Name(), nil)
 		var sum float64
 		for _, s := range stats {
 			sum += s.AreaSqM
