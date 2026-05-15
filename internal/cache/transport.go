@@ -26,15 +26,6 @@ type CachingTransport struct {
 	TTL     time.Duration
 }
 
-func DefaultDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	dir := filepath.Join(home, ".cache", "pvmt", "http")
-	return dir, os.MkdirAll(dir, 0o755)
-}
-
 func NewTransport(wrapped http.RoundTripper, dir string, ttl time.Duration) *CachingTransport {
 	return &CachingTransport{
 		Wrapped: wrapped,

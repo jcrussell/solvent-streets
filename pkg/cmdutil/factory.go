@@ -9,6 +9,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/paths"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 
@@ -26,6 +27,7 @@ type Factory struct {
 	CityDB         func() (db.Store, error)
 	CityFlagSet    func() bool
 	UnitSystem     func() units.System
+	Paths          func() (*paths.Paths, error)
 }
 
 // AddCityOverride registers a --city/-c flag on the command and wraps

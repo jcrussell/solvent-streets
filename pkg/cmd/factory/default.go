@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/ingest"
+	"github.com/jcrussell/solvent-streets/internal/paths"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
@@ -38,12 +40,16 @@ func hintForConfigError(err error) error {
 	}
 }
 
-func httpClientFactory(cacheTTL time.Duration) func() (*http.Client, error) {
+func httpClientFactory(f *cmdutil.Factory, cacheTTL time.Duration) func() (*http.Client, error) {
 	return sync.OnceValues(func() (*http.Client, error) {
-		cacheDir, err := cache.DefaultDir()
+		p, err := f.Paths()
 		if err != nil {
+			return nil, err
+		}
+		cacheDir := filepath.Join(p.Cache, "http")
+		if err := paths.EnsureDir(cacheDir); err != nil {
 			if errors.Is(err, fs.ErrPermission) {
-				return nil, cmdutil.Hintf(err, "check filesystem permissions on the pvmt cache path (default: ~/.cache/pvmt)")
+				return nil, cmdutil.Hintf(err, "check filesystem permissions on %s", p.Cache)
 			}
 			return nil, err
 		}
@@ -73,11 +79,25 @@ func configFactory() func() (*config.Config, error) {
 	})
 }
 
-func rootDBFactory(path string) func() (*db.RootStore, error) {
+func rootDBFactory(f *cmdutil.Factory, path string) func() (*db.RootStore, error) {
 	return sync.OnceValues(func() (*db.RootStore, error) {
-		store, err := db.Open(path)
+		resolved := path
+		if resolved == "" {
+			p, err := f.Paths()
+			if err != nil {
+				return nil, err
+			}
+			if err := paths.EnsureDir(p.Data); err != nil {
+				if errors.Is(err, fs.ErrPermission) {
+					return nil, cmdutil.Hintf(err, "check filesystem permissions on %s", p.Data)
+				}
+				return nil, err
+			}
+			resolved = filepath.Join(p.Data, "pvmt.db")
+		}
+		store, err := db.Open(resolved)
 		if err != nil && errors.Is(err, fs.ErrPermission) {
-			return nil, cmdutil.Hintf(err, "check filesystem permissions on the pvmt database path (default: ~/.local/share/pvmt/pvmt.db)")
+			return nil, cmdutil.Hintf(err, "check filesystem permissions on %s", resolved)
 		}
 		return store, err
 	})
@@ -90,11 +110,14 @@ func New() *cmdutil.Factory {
 		AppVersion:     build.Version,
 		ExecutableName: "pvmt",
 		IOStreams:      ios,
-		HttpClient:     httpClientFactory(24 * time.Hour),
 		Config:         configFactory(),
+		Paths: sync.OnceValues(func() (*paths.Paths, error) {
+			return paths.Resolve("pvmt")
+		}),
 	}
 
-	f.RootDB = rootDBFactory("")
+	f.HttpClient = httpClientFactory(f, 24*time.Hour)
+	f.RootDB = rootDBFactory(f, "")
 
 	f.CityFlagSet = func() bool { return false }
 
@@ -145,9 +168,9 @@ func buildCityDB(f *cmdutil.Factory) func() (db.Store, error) {
 // NewWithOptions creates a factory with custom cache TTL (0 = force bypass).
 func NewWithOptions(cacheTTL time.Duration, dbPath string) *cmdutil.Factory {
 	f := New()
-	f.HttpClient = httpClientFactory(cacheTTL)
+	f.HttpClient = httpClientFactory(f, cacheTTL)
 	if dbPath != "" {
-		f.RootDB = rootDBFactory(dbPath)
+		f.RootDB = rootDBFactory(f, dbPath)
 		// Rebuild CityDB to use updated RootDB
 		f.CityDB = buildCityDB(f)
 	}
