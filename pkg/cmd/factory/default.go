@@ -22,8 +22,9 @@ import (
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
 
-// hintForConfigError attaches remediation text to known config-load failures.
-// Returns err unchanged when no hint applies.
+// hintForConfigError attaches remediation text to known config-load failures
+// and wraps validation errors as FlagError so the runner returns exit
+// code 2. Returns err unchanged when no hint or wrap applies.
 func hintForConfigError(err error) error {
 	switch {
 	case err == nil:
@@ -32,8 +33,10 @@ func hintForConfigError(err error) error {
 		return cmdutil.Hintf(err,
 			"create a pvmt.toml in your project root, or cd into a directory that contains one.\nminimal example:\n  [[cities]]\n  name = \"Oakland\"")
 	case errors.Is(err, config.ErrNoCities):
-		return cmdutil.Hintf(err,
+		return cmdutil.Hintf(cmdutil.FlagErrorf("%w", err),
 			"add a [[cities]] section to pvmt.toml, e.g.:\n  [[cities]]\n  name = \"Oakland\"")
+	case errors.Is(err, config.ErrInvalidConfig):
+		return cmdutil.FlagErrorf("%w", err)
 	case errors.Is(err, fs.ErrPermission):
 		return cmdutil.Hintf(err, "check filesystem permissions on the pvmt.toml path")
 	default:

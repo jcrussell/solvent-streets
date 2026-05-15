@@ -33,6 +33,11 @@ const (
 var (
 	ErrConfigNotFound = errors.New("pvmt.toml not found (searched from working directory to root)")
 	ErrNoCities       = errors.New("at least one [[cities]] entry is required")
+	// ErrInvalidConfig marks the chain returned by Config.Validate. The
+	// runner detects it (via errors.Is) and maps the failure to exit
+	// code 2 by wrapping in cmdutil.FlagError at the cmdutil/factory
+	// boundary -- internal/config cannot import cmdutil without a cycle.
+	ErrInvalidConfig = errors.New("invalid config")
 )
 
 type Config struct {
@@ -253,8 +258,8 @@ func parseConfig(data []byte) (*Config, error) {
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
-	if err := cfg.validate(); err != nil {
-		return nil, fmt.Errorf("invalid config: %w", err)
+	if err := cfg.Validate(); err != nil {
+		return nil, err
 	}
 	return &cfg, nil
 }
@@ -275,28 +280,44 @@ func FindAndLoad(dir string) (*Config, error) {
 	return nil, ErrConfigNotFound
 }
 
-func (c *Config) validate() error {
+// Validate rejects a parsed Config that violates a shape invariant before
+// any consumer trusts its values. Errors are joined under ErrInvalidConfig
+// so the cmdutil boundary can wrap them in FlagError (exit code 2).
+// Note: hex-edge values of 0 are explicitly allowed; HexEdge() falls back
+// to DefaultHexEdgeM. Only negative values are rejected.
+func (c *Config) Validate() error {
 	if len(c.Cities) == 0 {
-		return ErrNoCities
+		return errors.Join(ErrInvalidConfig, ErrNoCities)
+	}
+	if c.Grid.HexEdgeM < 0 {
+		return errors.Join(ErrInvalidConfig,
+			fmt.Errorf("grid.hex_edge_m %g must be non-negative", c.Grid.HexEdgeM))
 	}
 	if err := c.Forecast.Validate(); err != nil {
-		return err
+		return errors.Join(ErrInvalidConfig, err)
 	}
 	seen := make(map[string]bool)
 	for i, city := range c.Cities {
 		if city.Name == "" {
-			return fmt.Errorf("cities[%d].name is required", i)
+			return errors.Join(ErrInvalidConfig, fmt.Errorf("cities[%d].name is required", i))
 		}
 		slug := city.Slug()
 		if slug == "" {
-			return fmt.Errorf("cities[%d].name %q produces empty slug", i, city.Name)
+			return errors.Join(ErrInvalidConfig,
+				fmt.Errorf("cities[%d].name %q produces empty slug", i, city.Name))
 		}
 		if seen[slug] {
-			return fmt.Errorf("duplicate city name %q (slug: %s)", city.Name, slug)
+			return errors.Join(ErrInvalidConfig,
+				fmt.Errorf("duplicate city name %q (slug: %s)", city.Name, slug))
+		}
+		if city.HexEdgeM < 0 {
+			return errors.Join(ErrInvalidConfig,
+				fmt.Errorf("cities[%d] (%s): hex_edge_m %g must be non-negative", i, city.Name, city.HexEdgeM))
 		}
 		if city.Forecast != nil {
 			if err := city.Forecast.Validate(); err != nil {
-				return fmt.Errorf("cities[%d] (%s): %w", i, city.Name, err)
+				return errors.Join(ErrInvalidConfig,
+					fmt.Errorf("cities[%d] (%s): %w", i, city.Name, err))
 			}
 		}
 		seen[slug] = true
