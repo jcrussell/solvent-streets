@@ -3,11 +3,13 @@ package root
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
 
 	"github.com/jcrussell/solvent-streets/internal/build"
+	"github.com/jcrussell/solvent-streets/internal/logs"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/all"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/cities"
@@ -100,6 +102,11 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 	cmd.PersistentFlags().Var(&unitSystem, "units", "Display units: metric or imperial (overrides config)")
 	_ = cmd.RegisterFlagCompletionFunc("units", cmdutil.UnitSystemCompletion())
 
+	var verbose int
+	var logLevel string
+	cmd.PersistentFlags().CountVarP(&verbose, "verbose", "v", "increase log verbosity (-v=info, -vv=debug)")
+	cmd.PersistentFlags().StringVar(&logLevel, "log-level", "", "explicit log level (warn|info|debug); overrides -v")
+
 	// Must run before addSubcommands: subcommands snapshot f.UnitSystem
 	// into their Options structs at construction time, and Go function
 	// values are copied, not reference-tracked — so the flag-aware
@@ -110,6 +117,8 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 		if skipMiddleware(c) {
 			return nil
 		}
+		applyLogLevel(f, verbose, logLevel)
+		c.SetContext(logs.WithLogger(c.Context(), f.Logger.With("cmd", c.CommandPath())))
 		for _, m := range middlewares {
 			if err := m(cmd, f); err != nil {
 				return err
@@ -122,6 +131,45 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 	addSubcommands(cmd, f)
 
 	return cmd
+}
+
+// applyLogLevel implements byob-logging.3's precedence ladder:
+//
+//	--log-level   (explicit; wins when set)
+//	-v / -vv      (Info / Debug; loses to --log-level)
+//	PVMT_LOG=...  (env var; loses to both flags, beats the default)
+//	default       (Warn)
+//
+// Direction is deliberately opposite to byob-config.2's env > file > default:
+// logging verbosity is per-invocation, so a -vv on the command line must
+// not be silenced by a stale PVMT_LOG=warn in the environment.
+func applyLogLevel(f *cmdutil.Factory, verbose int, logLevel string) {
+	if f == nil || f.LogLevel == nil {
+		return
+	}
+	switch {
+	case logLevel != "":
+		f.LogLevel.Set(parseLogLevel(logLevel))
+	case verbose >= 2:
+		f.LogLevel.Set(slog.LevelDebug)
+	case verbose == 1:
+		f.LogLevel.Set(slog.LevelInfo)
+	case os.Getenv("PVMT_LOG") != "":
+		f.LogLevel.Set(parseLogLevel(os.Getenv("PVMT_LOG")))
+	}
+}
+
+func parseLogLevel(s string) slog.Level {
+	switch strings.ToLower(s) {
+	case "debug":
+		return slog.LevelDebug
+	case "info":
+		return slog.LevelInfo
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelWarn
+	}
 }
 
 func skipMiddleware(c *cobra.Command) bool {

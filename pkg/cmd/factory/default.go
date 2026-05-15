@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -106,11 +107,20 @@ func rootDBFactory(f *cmdutil.Factory, path string) func() (*db.RootStore, error
 func New() *cmdutil.Factory {
 	ios := iostreams.System()
 
+	// LogLevel defaults to Warn (byob-logging.3: quiet by default).
+	// PersistentPreRunE on root mutates it after parsing -v / --log-level.
+	lvl := new(slog.LevelVar)
+	lvl.Set(slog.LevelWarn)
+	logger := slog.New(slog.NewTextHandler(ios.ErrOut, &slog.HandlerOptions{Level: lvl}))
+	slog.SetDefault(logger)
+
 	f := &cmdutil.Factory{
 		AppVersion:     build.Version,
 		ExecutableName: "pvmt",
 		IOStreams:      ios,
 		Config:         configFactory(),
+		Logger:         logger,
+		LogLevel:       lvl,
 		Paths: sync.OnceValues(func() (*paths.Paths, error) {
 			return paths.Resolve("pvmt")
 		}),

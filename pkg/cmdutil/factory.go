@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -28,6 +29,19 @@ type Factory struct {
 	CityFlagSet    func() bool
 	UnitSystem     func() units.System
 	Paths          func() (*paths.Paths, error)
+
+	// Logger is the base slog.Logger wired to IOStreams.ErrOut. Per
+	// byob-logging.2 it is eager (cheap to construct) rather than lazy.
+	// The root command's PersistentPreRunE clones it with per-run
+	// attributes and attaches the result to cmd.Context() via
+	// internal/logs.WithLogger; command bodies pull it back out via
+	// logs.From(ctx) or use slog.InfoContext/slog.Default.
+	Logger *slog.Logger
+
+	// LogLevel is the handler's level knob. PersistentPreRunE sets it
+	// from --log-level / -v / PVMT_LOG so existing Logger instances
+	// (snapshotted into Options) see the updated level.
+	LogLevel *slog.LevelVar
 }
 
 // AddCityOverride registers a --city/-c flag on the command and wraps

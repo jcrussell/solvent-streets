@@ -8,6 +8,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	exportpkg "github.com/jcrussell/solvent-streets/internal/export"
+	"github.com/jcrussell/solvent-streets/internal/logs"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 
@@ -102,14 +103,16 @@ func runExport(ctx context.Context, opts *Options) error {
 		return err
 	}
 
-	fmt.Fprintf(ios.ErrOut, "Exporting static site to %s/...\n", opts.OutputDir)
+	logs.From(ctx).Info("exporting static site", "output_dir", opts.OutputDir)
 
 	exporter := exportpkg.New(entries, cfg, opts.OutputDir, cfg.UnitSystem().String())
 	if err := exporter.Run(ctx); err != nil {
 		return fmt.Errorf("export: %w", err)
 	}
 
-	fmt.Fprintf(ios.ErrOut, "Done. Static site exported to %s/\n", opts.OutputDir)
-	fmt.Fprintf(ios.ErrOut, "Serve locally: cd %s && python3 -m http.server\n", opts.OutputDir)
+	logs.From(ctx).Info("export complete", "output_dir", opts.OutputDir)
+	// The "serve locally" hint is a user-facing tip, not a log line --
+	// keep it on stdout regardless of --log-level.
+	fmt.Fprintf(ios.Out, "Serve locally: cd %s && python3 -m http.server\n", opts.OutputDir)
 	return nil
 }

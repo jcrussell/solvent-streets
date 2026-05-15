@@ -9,6 +9,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	ingestpkg "github.com/jcrussell/solvent-streets/internal/ingest"
+	"github.com/jcrussell/solvent-streets/internal/logs"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
@@ -107,16 +108,16 @@ func runIngest(ctx context.Context, opts *Options) error {
 		return err
 	}
 	if len(allFeatures) == 0 {
-		fmt.Fprintf(ios.ErrOut, "No features fetched for %s\n", opts.ResourceType.Name())
+		logs.From(ctx).Warn("no features fetched", "resource", opts.ResourceType.Name())
 		return cmdutil.ErrNoResults
 	}
 
-	fmt.Fprintf(ios.ErrOut, "Saving %d features to database...\n", len(allFeatures))
+	logs.From(ctx).Info("saving features to database", "count", len(allFeatures), "resource", opts.ResourceType.Name())
 	if err := store.UpsertFeatures(ctx, opts.ResourceType.Name(), allFeatures); err != nil {
 		return fmt.Errorf("save features: %w", err)
 	}
 
-	fmt.Fprintf(ios.ErrOut, "Done. Ingested %d %s features.\n", len(allFeatures), opts.ResourceType.Name())
+	logs.From(ctx).Info("ingest complete", "count", len(allFeatures), "resource", opts.ResourceType.Name())
 	return nil
 }
 
