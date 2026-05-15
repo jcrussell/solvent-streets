@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 )
 
 type entryMeta struct {
@@ -106,10 +108,10 @@ func (t *CachingTransport) writeCache(metaPath, bodyPath string, resp *http.Resp
 	if err != nil {
 		return
 	}
-	if err := os.WriteFile(metaPath, metaData, 0o644); err != nil {
+	if err := cmdutil.WriteFile(metaPath, metaData, 0o644); err != nil {
 		return
 	}
-	_ = os.WriteFile(bodyPath, body, 0o644) // best-effort cache write
+	_ = cmdutil.WriteFile(bodyPath, body, 0o644) // best-effort cache write
 }
 
 func buildResponse(req *http.Request, meta *entryMeta, body []byte) *http.Response {
