@@ -25,10 +25,14 @@ jobs:
       - name: Build WASM (required for go:embed)
         run: make wasm
 
+      - name: Read golangci-lint floor
+        id: lint-version
+        run: echo "version=$(cat .golangci-version)" >> "$GITHUB_OUTPUT"
+
       - name: golangci-lint
         uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9
         with:
-          version: latest
+          version: ${{ steps.lint-version.outputs.version }}
 
   format:
     name: Format

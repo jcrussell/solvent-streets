@@ -1,3 +1,7 @@
+# Schema version (golangci-lint v2 introduced its v2 config schema).
+# The tool-version floor is pinned in .golangci-version and is read
+# by .github/workflows/ci.yaml + the Makefile `lint` target so all
+# three stay in sync.
 version: "2"
 
 run:

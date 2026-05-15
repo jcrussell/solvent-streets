@@ -20,7 +20,13 @@ build: wasm
 test:
 	go test -race ./...
 
+# Pinned floor lives in .golangci-version; CI pins the action to that same
+# version. Local installs that drift warn but do not fail (CI is the gate).
 lint:
+	@floor=$$(cat .golangci-version); installed=$$(golangci-lint --version 2>/dev/null | awk '{print $$4}'); \
+		if [ -n "$$installed" ] && [ "v$$installed" != "$$floor" ]; then \
+			echo "warning: golangci-lint v$$installed installed, floor is $$floor (.golangci-version)"; \
+		fi
 	golangci-lint run
 
 gendocs:
