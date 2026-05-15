@@ -355,11 +355,32 @@
         :root[data-theme="dark"] .maplibregl-ctrl-group button span { filter: invert(1) hue-rotate(180deg); }
         :root[data-theme="dark"] .maplibregl-ctrl-attrib { background: var(--panel) !important; color: var(--text-muted); }
         :root[data-theme="dark"] .maplibregl-ctrl-attrib a { color: var(--link); }
+
+        .error-banner {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 9999;
+            background: #c53030;
+            color: #fff;
+            padding: 8px 16px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-size: 13px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        .error-banner ul { margin: 4px 0 0 16px; padding: 0; }
+        .error-banner button { float: right; background: transparent; color: #fff; border: 1px solid #fff; cursor: pointer; padding: 2px 8px; border-radius: 2px; }
     </style>
     {{template "theme_vars" .}}
     {{template "methodology_styles" .}}
 </head>
 <body>
+    <div id="error-banner" class="error-banner" hidden>
+        <button type="button" onclick="document.getElementById('error-banner').hidden=true">Dismiss</button>
+        <strong>Failed to load data:</strong>
+        <ul id="error-banner-list"></ul>
+    </div>
     <div class="tab-bar">
         <h1>PVMT</h1>
         <button class="tab-btn active" data-tab="map-tab">Map</button>
@@ -382,7 +403,7 @@
         <div id="map"></div>
         <div id="panel">
             <h2>{{.ProjectName}}</h2>
-            <div class="subtitle">Pavement & Parking Analysis | {{.SnapshotDate}}</div>
+            <div class="subtitle">Pavement & Parking Analysis | Last computed {{.SnapshotDate}}</div>
             <div id="stats">
             {{if gt .CityAreaSqM 0.0}}
                 <div class="stat-card summary-card">
@@ -569,6 +590,34 @@
         var CITIES = [{{range .Cities}}{ slug: '{{.Slug}}', name: '{{.Name}}', bbox: [{{index .BBox 0}},{{index .BBox 1}},{{index .BBox 2}},{{index .BBox 3}}], lon: {{.CenterLon}}, lat: {{.CenterLat}} },{{end}}];
         var DATA_PREFIX = CITIES.length > 0 ? 'cities/' + CITIES[0].slug + '/' : '';
 
+        // Single fetch wrapper: reports network/HTTP failures via the visible
+        // error banner and console.error so a silent empty-chart never looks
+        // like "still loading" (solvent-streets-y68). Returns parsed JSON on
+        // success, or null on failure — callers fall back gracefully.
+        async function loadJSON(url) {
+            try {
+                const resp = await fetch(url);
+                if (!resp.ok) {
+                    showLoadError(url, 'HTTP ' + resp.status);
+                    return null;
+                }
+                return await resp.json();
+            } catch (err) {
+                showLoadError(url, err.message || String(err));
+                return null;
+            }
+        }
+        function showLoadError(url, detail) {
+            console.error('failed to load', url, detail);
+            const banner = document.getElementById('error-banner');
+            const list = document.getElementById('error-banner-list');
+            if (!banner || !list) return;
+            const li = document.createElement('li');
+            li.textContent = url + ' (' + detail + ')';
+            list.appendChild(li);
+            banner.hidden = false;
+        }
+
         // Tab switching
         document.querySelectorAll('.tab-btn').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -707,11 +756,14 @@
             activeTypes = new Set(Object.keys(layerColors));
 
             // Reload meta.json for stats panel
-            try {
-                const metaResp = await fetch(prefix + 'data/meta.json');
-                if (metaResp.ok) {
-                    const meta = await metaResp.json();
+            {
+                const meta = await loadJSON(prefix + 'data/meta.json');
+                if (meta) {
                     document.querySelector('#panel h2').textContent = meta.project_name;
+                    const subtitleEl = document.querySelector('#panel .subtitle');
+                    if (subtitleEl && meta.snapshot_date) {
+                        subtitleEl.textContent = 'Pavement & Parking Analysis | Last computed ' + meta.snapshot_date;
+                    }
                     const statsEl = document.getElementById('stats');
                     let statsHTML = '';
                     if (meta.city_area_sqm && meta.city_area_sqm > 0) {
@@ -735,13 +787,12 @@
                     statsEl.innerHTML = statsHTML;
                     savedPanelHTML = statsHTML;
                 }
-            } catch(e) { console.warn('failed to load meta.json:', e); }
+            }
 
             // Load and render boundary polygon
-            try {
-                const resp = await fetch(prefix + 'data/boundary.geojson');
-                if (resp.ok) {
-                    const data = await resp.json();
+            {
+                const data = await loadJSON(prefix + 'data/boundary.geojson');
+                if (data) {
                     map.addSource('boundary', { type: 'geojson', data });
                     map.addLayer({
                         id: 'boundary-line', type: 'line', source: 'boundary',
@@ -760,7 +811,7 @@
                         map.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: 40 });
                     }
                 }
-            } catch(e) { console.warn('failed to load boundary:', e); }
+            }
 
             let toggles = '';
 
@@ -774,16 +825,15 @@
             }
 
             // Load hex cost summary
-            try {
-                const resp = await fetch(prefix + 'data/hex-cost-summary.json');
-                if (resp.ok) costSummary = await resp.json();
-            } catch(e) { console.warn('failed to load hex-cost-summary:', e); }
+            {
+                const cs = await loadJSON(prefix + 'data/hex-cost-summary.json');
+                if (cs) costSummary = cs;
+            }
 
             // Load hex grid
-            try {
-                const resp = await fetch(prefix + 'data/hexgrid.geojson');
-                if (resp.ok) {
-                    const data = await resp.json();
+            {
+                const data = await loadJSON(prefix + 'data/hexgrid.geojson');
+                if (data) {
                     if (data.features && data.features.length > 0) {
                         // Parse into per-type buckets
                         for (const f of data.features) {
@@ -876,7 +926,7 @@
                         });
                     }
                 }
-            } catch(e) { console.warn('failed to load hexgrid:', e); }
+            }
 
             document.getElementById('toggles').innerHTML = toggles;
             document.querySelectorAll('#toggles input').forEach(cb => {
@@ -1269,11 +1319,8 @@
 
         async function loadFinancials() {
             const prefix = DATA_PREFIX; // snapshot to avoid mid-await mutation
-            try {
-                const resp = await fetch(prefix + 'data/scenarios.json');
-                if (!resp.ok) throw new Error('not found');
-                scenarioData = await resp.json();
-            } catch(e) {
+            scenarioData = await loadJSON(prefix + 'data/scenarios.json');
+            if (!scenarioData) {
                 document.getElementById('charts').innerHTML = '<div class="no-data">No financial data available. Run <code>pvmt forecast</code> and <code>pvmt export</code> first.</div>';
                 return;
             }
@@ -1306,23 +1353,21 @@
             }
 
             // Fetch per-city forecast seed for WASM interactive controls
-            try {
-                const seedResp = await fetch(prefix + 'data/forecast_seed.json');
-                if (seedResp.ok) {
-                    FORECAST_SEED = await seedResp.json();
+            {
+                const seed = await loadJSON(prefix + 'data/forecast_seed.json');
+                if (seed) {
+                    FORECAST_SEED = seed;
                     syncPCISliderFromSeed();
                     rebuildTierInputs();
                     if (wasmReady) runCustomScenario();
                 }
-            } catch(e) { console.warn('failed to load forecast_seed.json:', e); }
+            }
 
             // Fetch forecast.json (used by scope toggle for static fallback)
-            try {
-                const fResp = await fetch(prefix + 'data/forecast.json');
-                if (fResp.ok) {
-                    forecastData = await fResp.json();
-                }
-            } catch(e) { console.warn('failed to load forecast.json:', e); }
+            {
+                const f = await loadJSON(prefix + 'data/forecast.json');
+                if (f) forecastData = f;
+            }
         }
 
         // Scope toggle handler
@@ -1603,27 +1648,16 @@
             if (compareLoaded || CITIES.length === 0) return;
             compareLoaded = true;
 
-            try {
-                const cityData = await Promise.all(CITIES.map(async function(city) {
-                    var prefix = 'cities/' + city.slug + '/';
-                    var [metaResp, scenResp, seedResp] = await Promise.all([
-                        fetch(prefix + 'data/meta.json'),
-                        fetch(prefix + 'data/scenarios.json'),
-                        fetch(prefix + 'data/forecast_seed.json')
-                    ]);
-                    return {
-                        slug: city.slug,
-                        name: city.name,
-                        meta: metaResp.ok ? await metaResp.json() : null,
-                        scenarios: scenResp.ok ? await scenResp.json() : null,
-                        seed: seedResp.ok ? await seedResp.json() : null
-                    };
-                }));
-                renderCompare(cityData);
-            } catch (err) {
-                console.error('Compare load error:', err);
-                document.getElementById('compare-loading').textContent = 'Failed to load comparison data.';
-            }
+            const cityData = await Promise.all(CITIES.map(async function(city) {
+                var prefix = 'cities/' + city.slug + '/';
+                const [meta, scenarios, seed] = await Promise.all([
+                    loadJSON(prefix + 'data/meta.json'),
+                    loadJSON(prefix + 'data/scenarios.json'),
+                    loadJSON(prefix + 'data/forecast_seed.json')
+                ]);
+                return { slug: city.slug, name: city.name, meta, scenarios, seed };
+            }));
+            renderCompare(cityData);
         }
 
         function extractMetrics(city) {
