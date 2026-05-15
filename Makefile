@@ -3,8 +3,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 DATE    ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-LDFLAGS := -s -w \
-	-X pvmt/internal/build.Version=$(VERSION) \
+LDFLAGS := -X pvmt/internal/build.Version=$(VERSION) \
 	-X pvmt/internal/build.Commit=$(COMMIT) \
 	-X pvmt/internal/build.Date=$(DATE)
 
@@ -16,7 +15,7 @@ wasm:
 	cp "$$(go env GOROOT)/lib/wasm/wasm_exec.js" internal/export/wasm/wasm_exec.js
 
 build: wasm
-	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/pvmt
+	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/pvmt
 
 test:
 	go test -race ./...

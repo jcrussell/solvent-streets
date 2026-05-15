@@ -15,28 +15,28 @@ import (
 
 // wasmInput mirrors the JSON structure sent from the browser controls.
 type wasmInput struct {
-	AreaSqM     float64         `json:"area_sqm"`
-	InitialPCI   float64         `json:"initial_pci"`
-	DecayRate    float64         `json:"decay_rate"`
-	GrowthRate   float64         `json:"growth_rate"`
-	Years        int             `json:"years"`
-	CostTiers    []wasmCostTier  `json:"cost_tiers"`
-	AnnualBudget float64         `json:"annual_budget"`
-	Strategy     string          `json:"strategy"`
-	Cohorts      []wasmCohort    `json:"cohorts,omitempty"`
+	AreaSqM      float64        `json:"area_sqm"`
+	InitialPCI   float64        `json:"initial_pci"`
+	DecayRate    float64        `json:"decay_rate"`
+	GrowthRate   float64        `json:"growth_rate"`
+	Years        int            `json:"years"`
+	CostTiers    []wasmCostTier `json:"cost_tiers"`
+	AnnualBudget float64        `json:"annual_budget"`
+	Strategy     string         `json:"strategy"`
+	Cohorts      []wasmCohort   `json:"cohorts,omitempty"`
 }
 
 type wasmCohort struct {
 	Classification string  `json:"classification"`
-	AreaSqM       float64 `json:"area_sqm"`
+	AreaSqM        float64 `json:"area_sqm"`
 	DecayRate      float64 `json:"decay_rate"`
 }
 
 type wasmCostTier struct {
-	MinPCI      float64 `json:"min_pci"`
-	MaxPCI      float64 `json:"max_pci"`
+	MinPCI     float64 `json:"min_pci"`
+	MaxPCI     float64 `json:"max_pci"`
 	CostPerSqM float64 `json:"cost_per_sqm"`
-	Label       string  `json:"label"`
+	Label      string  `json:"label"`
 }
 
 func simulateForecast(_ js.Value, args []js.Value) any {
@@ -55,10 +55,10 @@ func simulateForecast(_ js.Value, args []js.Value) any {
 	var tiers []forecast.CostTier
 	for _, t := range input.CostTiers {
 		tiers = append(tiers, forecast.CostTier{
-			MinPCI:      t.MinPCI,
-			MaxPCI:      t.MaxPCI,
+			MinPCI:     t.MinPCI,
+			MaxPCI:     t.MaxPCI,
 			CostPerSqM: t.CostPerSqM,
-			Label:       t.Label,
+			Label:      t.Label,
 		})
 	}
 
@@ -83,7 +83,7 @@ func simulateForecast(_ js.Value, args []js.Value) any {
 		for _, c := range input.Cohorts {
 			cohorts = append(cohorts, forecast.Cohort{
 				Classification: c.Classification,
-				AreaSqM:       c.AreaSqM,
+				AreaSqM:        c.AreaSqM,
 				DecayRate:      c.DecayRate,
 				InitialPCI:     input.InitialPCI,
 			})
@@ -95,7 +95,7 @@ func simulateForecast(_ js.Value, args []js.Value) any {
 		}
 		cohorts = []forecast.Cohort{{
 			Classification: "default",
-			AreaSqM:       input.AreaSqM,
+			AreaSqM:        input.AreaSqM,
 			DecayRate:      decayRate,
 			InitialPCI:     input.InitialPCI,
 		}}
