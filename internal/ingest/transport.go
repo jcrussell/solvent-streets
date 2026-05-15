@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"pvmt/internal/build"
+	"github.com/jcrussell/solvent-streets/internal/build"
 )
 
 // UserAgent returns the outbound User-Agent string, in the format prescribed

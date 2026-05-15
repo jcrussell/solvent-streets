@@ -13,10 +13,10 @@ import (
 	"sort"
 	"strings"
 
-	"pvmt/internal/config"
-	"pvmt/internal/db"
-	"pvmt/internal/export"
-	"pvmt/pkg/cmdutil"
+	"github.com/jcrussell/solvent-streets/internal/config"
+	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/export"
+	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 )
 
 func main() {

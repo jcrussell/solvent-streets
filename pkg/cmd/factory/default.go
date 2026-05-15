@@ -9,14 +9,14 @@ import (
 	"sync"
 	"time"
 
-	"pvmt/internal/build"
-	"pvmt/internal/cache"
-	"pvmt/internal/config"
-	"pvmt/internal/db"
-	"pvmt/internal/ingest"
-	"pvmt/internal/units"
-	"pvmt/pkg/cmdutil"
-	"pvmt/pkg/iostreams"
+	"github.com/jcrussell/solvent-streets/internal/build"
+	"github.com/jcrussell/solvent-streets/internal/cache"
+	"github.com/jcrussell/solvent-streets/internal/config"
+	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/ingest"
+	"github.com/jcrussell/solvent-streets/internal/units"
+	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
+	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
 
 // hintForConfigError attaches remediation text to known config-load failures.

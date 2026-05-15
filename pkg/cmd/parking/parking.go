@@ -1,11 +1,11 @@
 package parking
 
 import (
-	"pvmt/internal/resource"
-	"pvmt/pkg/cmd/compute"
-	"pvmt/pkg/cmd/ingest"
-	"pvmt/pkg/cmd/status"
-	"pvmt/pkg/cmdutil"
+	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/pkg/cmd/compute"
+	"github.com/jcrussell/solvent-streets/pkg/cmd/ingest"
+	"github.com/jcrussell/solvent-streets/pkg/cmd/status"
+	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 
 	"github.com/spf13/cobra"
 )

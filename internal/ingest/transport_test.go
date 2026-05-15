@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"pvmt/pkg/httpmock"
+	"github.com/jcrussell/solvent-streets/pkg/httpmock"
 )
 
 func testRetryConfig(maxRetries int) RetryConfig {

@@ -4,14 +4,14 @@ import (
 	"context"
 	"testing"
 
-	"pvmt/internal/config"
-	"pvmt/internal/db"
-	"pvmt/internal/db/dbtest"
-	"pvmt/internal/geo"
-	"pvmt/internal/resource"
-	"pvmt/internal/units"
-	"pvmt/pkg/cmdutil"
-	"pvmt/pkg/iostreams"
+	"github.com/jcrussell/solvent-streets/internal/config"
+	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/geo"
+	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/units"
+	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
+	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
 
 // TestRunCombined_DedupesCrossResourceOverlap exercises the cx2 fix end-to-end:

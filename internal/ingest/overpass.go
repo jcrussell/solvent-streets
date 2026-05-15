@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"pvmt/internal/db"
-	"pvmt/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
 const overpassAPI = "https://overpass-api.de/api/interpreter" //nolint:gosec // G101: not a credential

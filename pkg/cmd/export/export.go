@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"os"
 
-	"pvmt/internal/config"
-	"pvmt/internal/db"
-	exportpkg "pvmt/internal/export"
-	"pvmt/pkg/cmdutil"
-	"pvmt/pkg/iostreams"
+	"github.com/jcrussell/solvent-streets/internal/config"
+	"github.com/jcrussell/solvent-streets/internal/db"
+	exportpkg "github.com/jcrussell/solvent-streets/internal/export"
+	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
+	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 
 	"github.com/spf13/cobra"
 )

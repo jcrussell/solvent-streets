@@ -1,7 +1,7 @@
 package config
 
 import (
-	"pvmt/pkg/cmdutil"
+	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 
 	"github.com/spf13/cobra"
 )

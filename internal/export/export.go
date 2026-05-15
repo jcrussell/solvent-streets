@@ -21,12 +21,12 @@ import (
 
 	"github.com/peterstace/simplefeatures/geom"
 
-	"pvmt/internal/config"
-	"pvmt/internal/db"
-	"pvmt/internal/forecast"
-	"pvmt/internal/geo"
-	"pvmt/internal/resource"
-	"pvmt/internal/units"
+	"github.com/jcrussell/solvent-streets/internal/config"
+	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/forecast"
+	"github.com/jcrussell/solvent-streets/internal/geo"
+	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/units"
 )
 
 // CityEntry holds the config and store for a single city.

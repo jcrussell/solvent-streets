@@ -3,8 +3,8 @@ package export
 import (
 	"testing"
 
-	"pvmt/pkg/cmdutil"
-	"pvmt/pkg/iostreams"
+	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
+	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
 
 func TestNewCmdExport_RunFInjection(t *testing.T) {

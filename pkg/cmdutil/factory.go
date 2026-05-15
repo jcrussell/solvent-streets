@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"strings"
 
-	"pvmt/internal/config"
-	"pvmt/internal/db"
-	"pvmt/internal/units"
-	"pvmt/pkg/iostreams"
+	"github.com/jcrussell/solvent-streets/internal/config"
+	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/units"
+	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 
 	"github.com/spf13/cobra"
 )

@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"strconv"
 
-	"pvmt/internal/config"
-	"pvmt/internal/db"
-	fcpkg "pvmt/internal/forecast"
-	"pvmt/internal/resource"
-	"pvmt/internal/units"
-	"pvmt/pkg/cmdutil"
-	"pvmt/pkg/iostreams"
+	"github.com/jcrussell/solvent-streets/internal/config"
+	"github.com/jcrussell/solvent-streets/internal/db"
+	fcpkg "github.com/jcrussell/solvent-streets/internal/forecast"
+	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/units"
+	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
+	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 
 	"github.com/spf13/cobra"
 )

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"pvmt/internal/forecast"
+	"github.com/jcrussell/solvent-streets/internal/forecast"
 )
 
 // TestSimulateParity locks down the output of forecast.Simulate against a

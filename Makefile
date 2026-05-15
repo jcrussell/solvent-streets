@@ -3,9 +3,9 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 DATE    ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-LDFLAGS := -X pvmt/internal/build.Version=$(VERSION) \
-	-X pvmt/internal/build.Commit=$(COMMIT) \
-	-X pvmt/internal/build.Date=$(DATE)
+LDFLAGS := -X github.com/jcrussell/solvent-streets/internal/build.Version=$(VERSION) \
+	-X github.com/jcrussell/solvent-streets/internal/build.Commit=$(COMMIT) \
+	-X github.com/jcrussell/solvent-streets/internal/build.Date=$(DATE)
 
 .PHONY: build test clean wasm lint gendocs release-dry-run site site-clean deploy
 

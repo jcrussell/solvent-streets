@@ -24,9 +24,9 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
-      - -X pvmt/internal/build.Version={{.Version}}
-      - -X pvmt/internal/build.Commit={{.Commit}}
-      - -X pvmt/internal/build.Date={{.Date}}
+      - -X github.com/jcrussell/solvent-streets/internal/build.Version={{.Version}}
+      - -X github.com/jcrussell/solvent-streets/internal/build.Commit={{.Commit}}
+      - -X github.com/jcrussell/solvent-streets/internal/build.Date={{.Date}}
 
 archives:
   - id: pvmt

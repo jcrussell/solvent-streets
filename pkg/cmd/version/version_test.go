@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"pvmt/pkg/cmdutil"
-	"pvmt/pkg/iostreams"
+	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
+	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
 
 func TestNewCmdVersion_RunFInjection(t *testing.T) {

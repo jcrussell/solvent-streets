@@ -12,12 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"pvmt/internal/config"
-	"pvmt/internal/db"
-	"pvmt/internal/db/dbtest"
-	"pvmt/internal/export"
-	"pvmt/internal/resource"
-	"pvmt/pkg/iostreams"
+	"github.com/jcrussell/solvent-streets/internal/config"
+	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/export"
+	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
 
 func TestHandleDataMetaJSON(t *testing.T) {

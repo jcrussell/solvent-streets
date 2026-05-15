@@ -6,7 +6,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"pvmt/internal/units"
+	"github.com/jcrussell/solvent-streets/internal/units"
 )
 
 func TestSlugify(t *testing.T) {

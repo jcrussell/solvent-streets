@@ -12,7 +12,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"pvmt/internal/units"
+	"github.com/jcrussell/solvent-streets/internal/units"
 )
 
 // Default values applied by ResolvedForecast / NormalizeForecast / HexEdge

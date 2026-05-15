@@ -10,9 +10,9 @@ import (
 	"strings"
 	"syscall"
 
-	"pvmt/pkg/cmd/factory"
-	"pvmt/pkg/cmd/root"
-	"pvmt/pkg/cmdutil"
+	"github.com/jcrussell/solvent-streets/pkg/cmd/factory"
+	"github.com/jcrussell/solvent-streets/pkg/cmd/root"
+	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 )
 
 func Main() int {

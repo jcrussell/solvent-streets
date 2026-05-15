@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"testing"
 
-	"pvmt/internal/config"
-	"pvmt/internal/db"
-	"pvmt/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/config"
+	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 )
 
 // boundaryGeoJSON is a small square polygon (~111km × 111km in degrees, but

@@ -3,7 +3,7 @@ package filter
 import (
 	"testing"
 
-	"pvmt/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
 func TestClassifyJurisdiction(t *testing.T) {

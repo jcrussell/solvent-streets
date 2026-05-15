@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"pvmt/internal/config"
-	"pvmt/internal/db"
-	exportpkg "pvmt/internal/export"
-	"pvmt/internal/server"
-	"pvmt/pkg/cmdutil"
-	"pvmt/pkg/iostreams"
+	"github.com/jcrussell/solvent-streets/internal/config"
+	"github.com/jcrussell/solvent-streets/internal/db"
+	exportpkg "github.com/jcrussell/solvent-streets/internal/export"
+	"github.com/jcrussell/solvent-streets/internal/server"
+	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
+	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 
 	"github.com/spf13/cobra"
 )

@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"pvmt/internal/db"
-	"pvmt/internal/db/dbtest"
-	"pvmt/internal/resource"
-	"pvmt/internal/units"
-	"pvmt/pkg/cmdutil"
-	"pvmt/pkg/iostreams"
+	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/units"
+	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
+	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
 
 const testResourceRoads = "roads"

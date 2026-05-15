@@ -7,7 +7,7 @@ import (
 	"strings"
 	"text/template"
 
-	"pvmt/pkg/iostreams"
+	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 
 	"github.com/itchyny/gojq"
 	"github.com/spf13/cobra"

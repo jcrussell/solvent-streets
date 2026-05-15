@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"net/http"
 
-	"pvmt/internal/config"
-	"pvmt/internal/db"
-	"pvmt/internal/geo"
-	ingestpkg "pvmt/internal/ingest"
-	"pvmt/internal/resource"
-	"pvmt/pkg/cmdutil"
-	"pvmt/pkg/iostreams"
+	"github.com/jcrussell/solvent-streets/internal/config"
+	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/geo"
+	ingestpkg "github.com/jcrussell/solvent-streets/internal/ingest"
+	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
+	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 
 	"github.com/spf13/cobra"
 )

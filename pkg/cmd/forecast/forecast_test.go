@@ -3,9 +3,9 @@ package forecast
 import (
 	"testing"
 
-	"pvmt/internal/db"
-	"pvmt/pkg/cmdutil"
-	"pvmt/pkg/iostreams"
+	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
+	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
 
 // TestForecastRow_ExportData_AllFieldsPopulated guards S2: the handwritten

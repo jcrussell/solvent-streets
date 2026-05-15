@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 
-	"pvmt/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/db"
 )
 
 var _ db.RootStorer = (*MockRootStore)(nil)

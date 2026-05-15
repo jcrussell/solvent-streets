@@ -12,8 +12,8 @@ import (
 
 	cobradoc "github.com/spf13/cobra/doc"
 
-	"pvmt/pkg/cmd/factory"
-	"pvmt/pkg/cmd/root"
+	"github.com/jcrussell/solvent-streets/pkg/cmd/factory"
+	"github.com/jcrussell/solvent-streets/pkg/cmd/root"
 )
 
 func main() {

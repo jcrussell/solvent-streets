@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"pvmt/internal/units"
+	"github.com/jcrussell/solvent-streets/internal/units"
 )
 
 func TestResolveUnits_Precedence(t *testing.T) {

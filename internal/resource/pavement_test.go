@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"pvmt/internal/geo"
+	"github.com/jcrussell/solvent-streets/internal/geo"
 )
 
 var testProj = geo.NewUTMProjector(-121.76, 37.68)

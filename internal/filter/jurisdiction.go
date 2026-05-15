@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"pvmt/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
 // Jurisdiction classifies road ownership/maintenance responsibility.

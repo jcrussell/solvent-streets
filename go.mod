@@ -1,4 +1,4 @@
-module pvmt
+module github.com/jcrussell/solvent-streets
 
 go 1.26.0
 

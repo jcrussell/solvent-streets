@@ -6,13 +6,13 @@ import (
 	"net/http"
 	"testing"
 
-	"pvmt/internal/config"
-	"pvmt/internal/db"
-	"pvmt/internal/db/dbtest"
-	ingestpkg "pvmt/internal/ingest"
-	"pvmt/internal/resource"
-	"pvmt/pkg/cmdutil"
-	"pvmt/pkg/iostreams"
+	"github.com/jcrussell/solvent-streets/internal/config"
+	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	ingestpkg "github.com/jcrussell/solvent-streets/internal/ingest"
+	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
+	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
 
 var testCity = &config.CityConfig{

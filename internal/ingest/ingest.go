@@ -6,8 +6,8 @@ import (
 	"io"
 	"net/http"
 
-	"pvmt/internal/db"
-	"pvmt/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
 type Source interface {

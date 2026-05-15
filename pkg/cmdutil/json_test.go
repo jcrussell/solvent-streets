@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"pvmt/pkg/iostreams"
+	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
 
 // fakeRow is a minimal RowExporter used by WriteRows tests.

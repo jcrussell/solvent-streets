@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"pvmt/internal/config"
-	"pvmt/internal/units"
-	"pvmt/pkg/cmdutil"
-	"pvmt/pkg/iostreams"
+	"github.com/jcrussell/solvent-streets/internal/config"
+	"github.com/jcrussell/solvent-streets/internal/units"
+	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
+	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
 
 // TestUnitsFlag_Override asserts that --units on the root flips f.UnitSystem

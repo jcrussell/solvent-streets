@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"pvmt/internal/pvmtcmd"
+	"github.com/jcrussell/solvent-streets/internal/pvmtcmd"
 )
 
 func main() {

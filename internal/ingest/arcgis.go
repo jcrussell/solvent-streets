@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"time"
 
-	"pvmt/internal/db"
-	"pvmt/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
 const arcgisMaxRecords = 5000

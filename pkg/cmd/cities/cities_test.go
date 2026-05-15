@@ -5,11 +5,11 @@ import (
 	"strings"
 	"testing"
 
-	"pvmt/internal/db"
-	"pvmt/internal/db/dbtest"
-	"pvmt/internal/units"
-	"pvmt/pkg/cmdutil"
-	"pvmt/pkg/iostreams"
+	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/units"
+	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
+	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
 
 func TestNewCmdCities_RunFInjection(t *testing.T) {

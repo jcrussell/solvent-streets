@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"pvmt/internal/units"
+	"github.com/jcrussell/solvent-streets/internal/units"
 )
 
 // methodologyMarkers are prose markers unique to the methodology source of

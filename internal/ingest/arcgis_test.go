@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"testing"
 
-	"pvmt/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
 func TestParseArcGISGeoJSON_BasicFeature(t *testing.T) {

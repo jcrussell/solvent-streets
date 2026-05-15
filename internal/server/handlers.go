@@ -7,8 +7,8 @@ import (
 	"os"
 	"sync"
 
-	"pvmt/internal/export"
-	"pvmt/internal/geo"
+	"github.com/jcrussell/solvent-streets/internal/export"
+	"github.com/jcrussell/solvent-streets/internal/geo"
 )
 
 // handleIndex renders the export template with live data.

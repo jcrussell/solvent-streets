@@ -10,7 +10,7 @@ import (
 	"encoding/json"
 	"syscall/js"
 
-	"pvmt/internal/forecast"
+	"github.com/jcrussell/solvent-streets/internal/forecast"
 )
 
 // wasmInput mirrors the JSON structure sent from the browser controls.

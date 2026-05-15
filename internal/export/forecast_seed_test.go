@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"pvmt/internal/config"
-	"pvmt/internal/db"
-	"pvmt/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/config"
+	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 )
 
 // TestMergeCohortSeeds_KeysOnResourceAndClassification pins the invariant

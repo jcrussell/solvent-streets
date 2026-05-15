@@ -3,7 +3,7 @@ package resource
 import (
 	"errors"
 
-	"pvmt/internal/geo"
+	"github.com/jcrussell/solvent-streets/internal/geo"
 
 	"github.com/peterstace/simplefeatures/geom"
 )

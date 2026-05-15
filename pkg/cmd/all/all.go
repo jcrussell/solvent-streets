@@ -4,12 +4,12 @@ import (
 	"errors"
 	"fmt"
 
-	"pvmt/internal/config"
-	"pvmt/internal/resource"
-	"pvmt/pkg/cmd/compute"
-	"pvmt/pkg/cmd/ingest"
-	"pvmt/pkg/cmdutil"
-	"pvmt/pkg/iostreams"
+	"github.com/jcrussell/solvent-streets/internal/config"
+	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/pkg/cmd/compute"
+	"github.com/jcrussell/solvent-streets/pkg/cmd/ingest"
+	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
+	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 
 	"github.com/spf13/cobra"
 )
