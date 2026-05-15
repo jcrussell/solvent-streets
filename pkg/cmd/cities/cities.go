@@ -69,6 +69,11 @@ func NewCmdCities(f *cmdutil.Factory, runF func(*Options) error) *cobra.Command 
 		Use:   "cities",
 		Short: "List cities in the database",
 		Long:  "List all cities stored in the shared pvmt database with per-resource feature counts.",
+		Example: `  # Table of cities with per-resource feature counts
+  pvmt cities
+
+  # Same data as JSON
+  pvmt cities --json name,slug,roads,parking,sidewalks`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
 				return runF(opts)

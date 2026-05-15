@@ -18,6 +18,11 @@ func NewCmdAll(f *cmdutil.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "all",
 		Short: "Operate on all resource types",
+		Example: `  # Ingest roads, parking, and sidewalks from all configured sources
+  pvmt all ingest
+
+  # Compute coverage for each resource and the combined paved area
+  pvmt all compute`,
 	}
 
 	cmd.AddCommand(newAllIngest(f))
@@ -30,6 +35,8 @@ func newAllIngest(f *cmdutil.Factory) *cobra.Command {
 	return &cobra.Command{
 		Use:   "ingest",
 		Short: "Ingest data for all resource types",
+		Example: `  # Pull roads, parking, sidewalks across every configured [[cities]]
+  pvmt all ingest`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmdutil.ForEachCity(cmd.Context(), f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
 				return forEachResource(f.IOStreams, func(rt resource.ResourceType) error {
@@ -44,6 +51,8 @@ func newAllCompute(f *cmdutil.Factory) *cobra.Command {
 	return &cobra.Command{
 		Use:   "compute",
 		Short: "Compute stats for all resource types",
+		Example: `  # Compute every resource and then the combined paved-area pass
+  pvmt all compute`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmdutil.ForEachCity(cmd.Context(), f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
 				if err := forEachResource(f.IOStreams, func(rt resource.ResourceType) error {

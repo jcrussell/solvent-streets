@@ -70,6 +70,14 @@ func NewCmdForecast(f *cmdutil.Factory, runF func(*Options) error) *cobra.Comman
 		Use:   "forecast",
 		Short: "Project pavement deterioration and maintenance costs",
 		Long:  "Run PCI decay and cost projections over a configurable time horizon.\nShows projected deterioration and deferred maintenance costs.",
+		Example: `  # Run baseline + scenario comparisons for every configured city
+  pvmt forecast
+
+  # Skip scenario comparisons (baseline only)
+  pvmt forecast --scenarios=false
+
+  # Emit machine-readable JSON instead of the formatted table
+  pvmt forecast --json year,pci,treatmentCost`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
 				return runF(opts)

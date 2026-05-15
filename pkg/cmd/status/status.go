@@ -65,13 +65,21 @@ func NewCmdStatus(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Optio
 
 	use := "status"
 	short := "Show overall status"
+	example := `  # Show feature + result counts across every resource
+  pvmt status
+
+  # Emit a single status row as JSON
+  pvmt status --json`
 	if rt != nil {
 		short = fmt.Sprintf("Show %s status", rt.Name())
+		example = fmt.Sprintf(`  # Show feature + result counts for %s
+  pvmt %s status`, rt.Name(), rt.Name())
 	}
 
 	cmd := &cobra.Command{
-		Use:   use,
-		Short: short,
+		Use:     use,
+		Short:   short,
+		Example: example,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
 				return runF(opts)

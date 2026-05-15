@@ -17,6 +17,14 @@ func NewCmdRoads(f *cmdutil.Factory) *cobra.Command {
 		Use:   "roads",
 		Short: "Manage road/pavement data",
 		Long:  "Ingest, compute, and view status for road and pavement features.",
+		Example: `  # Pull OSM road geometries for the configured cities
+  pvmt roads ingest --source overpass
+
+  # Compute paved-area coverage per hex
+  pvmt roads compute
+
+  # Print current row counts and last-compute timestamp
+  pvmt roads status`,
 	}
 
 	cmd.AddCommand(ingest.NewCmdIngest(f, rt, nil))

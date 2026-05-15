@@ -17,6 +17,14 @@ func NewCmdParking(f *cmdutil.Factory) *cobra.Command {
 		Use:   "parking",
 		Short: "Manage parking lot data",
 		Long:  "Ingest, compute, and view status for parking lot features.",
+		Example: `  # Pull OSM parking polygons
+  pvmt parking ingest --source overpass
+
+  # Compute coverage from buffered parking polygons
+  pvmt parking compute
+
+  # Show last-ingested / last-computed timestamps
+  pvmt parking status`,
 	}
 
 	cmd.AddCommand(ingest.NewCmdIngest(f, rt, nil))

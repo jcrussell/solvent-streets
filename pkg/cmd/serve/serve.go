@@ -34,6 +34,11 @@ func NewCmdServe(f *cmdutil.Factory, runF func(*Options) error) *cobra.Command {
 		Use:   "serve",
 		Short: "Start the web server",
 		Long:  "Start the MapLibre visualization server with API endpoints.",
+		Example: `  # Serve on the default :8080
+  pvmt serve
+
+  # Serve on an alternate port
+  pvmt serve --port 9000`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
 				return runF(opts)

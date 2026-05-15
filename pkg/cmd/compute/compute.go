@@ -83,6 +83,14 @@ func NewCmdCompute(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Opti
 	cmd := &cobra.Command{
 		Use:   "compute",
 		Short: fmt.Sprintf("Compute %s area statistics", rt.Name()),
+		Example: fmt.Sprintf(`  # Compute per-hex coverage for %s across every configured city
+  pvmt %s compute
+
+  # Restrict to city-maintained features only (when the resource has cohorts)
+  pvmt %s compute --city-only
+
+  # Scope to a single city
+  pvmt --city oakland %s compute`, rt.Name(), rt.Name(), rt.Name(), rt.Name()),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
 				return runF(opts)

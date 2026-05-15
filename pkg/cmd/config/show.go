@@ -34,6 +34,14 @@ Without flags, emits TOML ready to paste back into pvmt.toml.
 With --sources, emits 'key = value (source)' lines so you can answer
 "why is this value X?". With --json, emits a JSON array (follows the
 standard --json <fields> pattern with --jq and --template).`,
+		Example: `  # TOML view, ready to paste back into pvmt.toml
+  pvmt config show
+
+  # Annotated view explaining where each value came from
+  pvmt config show --sources
+
+  # JSON for scripting
+  pvmt config show --json key,value,source`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if fl := cmd.Root().PersistentFlags().Lookup("units"); fl != nil && fl.Changed {
 				opts.FlagUnits = fl.Value.String()

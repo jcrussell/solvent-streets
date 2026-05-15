@@ -13,6 +13,11 @@ func NewCmdConfig(f *cmdutil.Factory) *cobra.Command {
 		Use:   "config",
 		Short: "Inspect resolved configuration",
 		Long:  "Commands for inspecting the layered pvmt configuration after env, file, and flag resolution.",
+		Example: `  # Print the merged configuration as TOML
+  pvmt config show
+
+  # Annotate each line with where it came from (env, file, flag, default)
+  pvmt config show --sources`,
 	}
 
 	cmd.AddCommand(NewCmdShow(f, nil))

@@ -41,6 +41,14 @@ func NewCmdIngest(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Optio
 	cmd := &cobra.Command{
 		Use:   "ingest",
 		Short: fmt.Sprintf("Ingest %s data from APIs", rt.Name()),
+		Example: fmt.Sprintf(`  # Pull %s from the OpenStreetMap Overpass API
+  pvmt %s ingest --source overpass
+
+  # Bypass the 24h HTTP cache and re-fetch
+  pvmt %s ingest --force
+
+  # Show what would be fetched without making any requests
+  pvmt %s ingest --dry-run`, rt.Name(), rt.Name(), rt.Name(), rt.Name()),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
 				return runF(opts)

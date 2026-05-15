@@ -36,6 +36,11 @@ func NewCmdExport(f *cmdutil.Factory, runF func(*Options) error) *cobra.Command 
 		Use:   "export",
 		Short: "Export a static HTML site with map and stats",
 		Long:  "Generate a self-contained HTML site with MapLibre dashboard, hex heatmap, and summary stats.\nDeploy to GitHub Pages or any static host.",
+		Example: `  # Export the default static site to ./dist
+  pvmt export
+
+  # Pick an output directory and overwrite an existing one
+  pvmt export --output build --clean`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
 				return runF(opts)
