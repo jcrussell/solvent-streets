@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"pvmt/internal/export"
+	"pvmt/pkg/cmdutil"
 	"pvmt/pkg/iostreams"
 )
 
@@ -107,12 +108,13 @@ func corsMiddleware(next http.Handler) http.Handler {
 
 func recoveryMiddleware(next http.Handler, errOut io.Writer) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer func() {
-			if err := recover(); err != nil {
-				fmt.Fprintf(errOut, "panic: %s %s: %v\n", r.Method, r.URL.RequestURI(), err)
-				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			}
-		}()
-		next.ServeHTTP(w, r)
+		err := cmdutil.GuardPanic(errOut, func() error {
+			next.ServeHTTP(w, r)
+			return nil
+		})
+		if err != nil {
+			fmt.Fprintf(errOut, "panic context: %s %s\n", r.Method, r.URL.RequestURI())
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		}
 	})
 }

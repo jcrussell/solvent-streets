@@ -55,11 +55,11 @@ func RunCombined(ctx context.Context, f *cmdutil.Factory) error {
 	snapshotID := createSnapshot(ctx, ios.ErrOut, store, cfg)
 	sys := f.UnitSystem()
 
-	if err := saveCombinedResult(ctx, store, hexes, bufs.all, resource.CombinedAll, bufs.allCount, snapshotID, ios.Out, sys); err != nil {
+	if err := saveCombinedResult(ctx, store, hexes, bufs.all, resource.CombinedAll, bufs.allCount, snapshotID, ios.Out, ios.ErrOut, sys); err != nil {
 		return err
 	}
 	if len(bufs.city) > 0 {
-		if err := saveCombinedResult(ctx, store, hexes, bufs.city, resource.CombinedCity, bufs.cityCount, snapshotID, ios.Out, sys); err != nil {
+		if err := saveCombinedResult(ctx, store, hexes, bufs.city, resource.CombinedCity, bufs.cityCount, snapshotID, ios.Out, ios.ErrOut, sys); err != nil {
 			return err
 		}
 	}
@@ -75,7 +75,10 @@ type combinedBuffers struct {
 
 // bufferAllResources loads features for each resource type and buffers them,
 // returning two slices: every-jurisdiction and city-only. Resources with
-// missing or unbufferable data are warned about and skipped.
+// missing or unbufferable data are warned about and skipped. Geometry
+// panics on one resource are caught (with stack to errOut) and turned
+// into per-resource warnings, so a single malformed feature can't crash
+// the whole compute run.
 func bufferAllResources(ctx context.Context, store db.Store, proj *geo.UTMProjector, errOut io.Writer) combinedBuffers {
 	var bufs combinedBuffers
 	for _, rt := range resource.All {
@@ -83,8 +86,12 @@ func bufferAllResources(ctx context.Context, store db.Store, proj *geo.UTMProjec
 		if !ok {
 			continue
 		}
-		buffered, err := rt.BufferFeatures(resFeatures, proj)
-		if err != nil {
+		var buffered []geom.Geometry
+		if err := cmdutil.GuardPanic(errOut, func() error {
+			var berr error
+			buffered, berr = rt.BufferFeatures(resFeatures, proj)
+			return berr
+		}); err != nil {
 			fmt.Fprintf(errOut, "combined: buffer %s: %v\n", rt.Name(), err)
 			continue
 		}
@@ -95,8 +102,12 @@ func bufferAllResources(ctx context.Context, store db.Store, proj *geo.UTMProjec
 		if len(cityFeats) == 0 {
 			continue
 		}
-		cityBuf, err := rt.BufferFeatures(cityFeats, proj)
-		if err != nil {
+		var cityBuf []geom.Geometry
+		if err := cmdutil.GuardPanic(errOut, func() error {
+			var berr error
+			cityBuf, berr = rt.BufferFeatures(cityFeats, proj)
+			return berr
+		}); err != nil {
 			fmt.Fprintf(errOut, "combined:city: buffer %s: %v\n", rt.Name(), err)
 			// Keeps the all-jurisdiction contribution already appended above.
 			continue
@@ -140,12 +151,17 @@ func buildClippedHexGrid(cfg *config.Config, city *config.CityConfig, proj *geo.
 	return hexes
 }
 
-func saveCombinedResult(ctx context.Context, store db.Store, hexes []geo.Hex, buffered []geom.Geometry, label string, featureCount int, snapshotID *int64, out io.Writer, sys units.System) error {
-	idx := geo.NewGeomIndexFromGeoms(buffered)
-	hexStats := geo.ComputeHexStats(hexes, idx, label, nil)
+func saveCombinedResult(ctx context.Context, store db.Store, hexes []geo.Hex, buffered []geom.Geometry, label string, featureCount int, snapshotID *int64, out io.Writer, errOut io.Writer, sys units.System) error {
 	var area float64
-	for _, s := range hexStats {
-		area += s.AreaSqM
+	if err := cmdutil.GuardPanic(errOut, func() error {
+		idx := geo.NewGeomIndexFromGeoms(buffered)
+		hexStats := geo.ComputeHexStats(hexes, idx, label, nil)
+		for _, s := range hexStats {
+			area += s.AreaSqM
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("compute %s hex stats: %w", label, err)
 	}
 	if err := store.SaveComputeResult(ctx, db.ComputeResult{
 		ResourceType: label,
