@@ -590,6 +590,87 @@
         var CITIES = [{{range .Cities}}{ slug: '{{.Slug}}', name: '{{.Name}}', bbox: [{{index .BBox 0}},{{index .BBox 1}},{{index .BBox 2}},{{index .BBox 3}}], lon: {{.CenterLon}}, lat: {{.CenterLat}} },{{end}}];
         var DATA_PREFIX = CITIES.length > 0 ? 'cities/' + CITIES[0].slug + '/' : '';
 
+        // URL state router: city, tab, scope, snapshot. DOM is the source of
+        // truth; the router serializes DOM → URL and applies URL → DOM via
+        // the same selectX helpers the event handlers use. The snapshot slot
+        // is reserved for the snapshot-picker (solvent-streets-pv8).
+        const Router = {
+            read() {
+                const p = new URLSearchParams(location.search);
+                return {
+                    city:     p.get('city'),
+                    tab:      p.get('tab'),
+                    scope:    p.get('scope'),
+                    snapshot: p.get('snapshot'),
+                };
+            },
+            current() {
+                const tabBtn   = document.querySelector('.tab-btn.active');
+                const scopeBtn = document.querySelector('#scope-toggle button.active');
+                const scopeEl  = document.getElementById('scope-toggle');
+                const scopeVis = scopeEl && scopeEl.style.display !== 'none';
+                const snapEl   = document.getElementById('snapshot-picker');
+                const sel      = document.getElementById('city-select');
+                return {
+                    city:     sel ? sel.value : null,
+                    tab:      tabBtn ? tabBtn.dataset.tab : null,
+                    scope:    (scopeVis && scopeBtn) ? scopeBtn.dataset.scope : null,
+                    snapshot: snapEl ? snapEl.value : null,
+                };
+            },
+            push() {
+                const s = this.current();
+                const p = new URLSearchParams();
+                for (const k of ['city', 'tab', 'scope', 'snapshot']) {
+                    if (s[k]) p.set(k, s[k]);
+                }
+                const qs = p.toString();
+                history.pushState(s, '', location.pathname + (qs ? '?' + qs : ''));
+            },
+        };
+
+        // Pending scope from URL — applied once loadFinancials reveals the
+        // scope toggle (the toggle is data-driven, hidden until scenarios.json
+        // has both 'all' and 'bbox' keys).
+        let _pendingScope = null;
+
+        // Apply URL state synchronously, before first render, to avoid flicker.
+        (function applyInitialState() {
+            const init = Router.read();
+            if (init.city && CITIES.some(c => c.slug === init.city)) {
+                DATA_PREFIX = 'cities/' + init.city + '/';
+                const sel = document.getElementById('city-select');
+                if (sel) sel.value = init.city;
+            }
+            if (init.tab && document.getElementById(init.tab)) {
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === init.tab));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === init.tab));
+            }
+            if (init.scope === 'all' || init.scope === 'bbox') {
+                _pendingScope = init.scope;
+            }
+            history.replaceState(Router.current(), '');
+        })();
+
+        window.addEventListener('popstate', (e) => {
+            const s = e.state || Router.read();
+            const sel = document.getElementById('city-select');
+            const cityChanged = !!(s.city && sel && sel.value !== s.city);
+            if (s.scope === 'all' || s.scope === 'bbox') _pendingScope = s.scope;
+            if (s.city) selectCity(s.city, { push: false });
+            if (s.tab)  selectTab(s.tab,   { push: false });
+            // City change re-runs loadFinancials which consumes _pendingScope.
+            // No city change → apply directly if the toggle is visible.
+            if (!cityChanged && _pendingScope) {
+                const scopeEl = document.getElementById('scope-toggle');
+                if (scopeEl && scopeEl.style.display !== 'none') {
+                    const pending = _pendingScope;
+                    _pendingScope = null;
+                    selectScope(pending, { push: false });
+                }
+            }
+        });
+
         // Single fetch wrapper: reports network/HTTP failures via the visible
         // error banner and console.error so a silent empty-chart never looks
         // like "still loading" (solvent-streets-y68). Returns parsed JSON on
@@ -619,15 +700,20 @@
         }
 
         // Tab switching
+        function selectTab(tabId, opts) {
+            const btn = document.querySelector('.tab-btn[data-tab="' + tabId + '"]');
+            const content = document.getElementById(tabId);
+            if (!btn || !content) return;
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            btn.classList.add('active');
+            content.classList.add('active');
+            if (tabId === 'map-tab' && window._map) window._map.resize();
+            if (tabId === 'compare-tab') loadCompareData();
+            if (!opts || opts.push !== false) Router.push();
+        }
         document.querySelectorAll('.tab-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-                btn.classList.add('active');
-                document.getElementById(btn.dataset.tab).classList.add('active');
-                if (btn.dataset.tab === 'map-tab' && window._map) window._map.resize();
-                if (btn.dataset.tab === 'compare-tab') loadCompareData();
-            });
+            btn.addEventListener('click', () => selectTab(btn.dataset.tab));
         });
 
         // Map
@@ -952,19 +1038,23 @@
         map.on('load', () => loadCityData());
 
         // City switcher
+        function selectCity(slug, opts) {
+            const sel = document.getElementById('city-select');
+            if (!sel) return;
+            if (sel.value !== slug) sel.value = slug;
+            const opt = sel.selectedOptions[0];
+            if (!opt) return;
+            DATA_PREFIX = 'cities/' + slug + '/';
+            const bboxParts = opt.dataset.bbox.split(',').map(Number);
+            map.fitBounds([[bboxParts[1], bboxParts[0]], [bboxParts[3], bboxParts[2]]], { padding: 40 });
+            document.querySelector('#panel h2').textContent = opt.textContent.trim();
+            loadCityData();
+            loadFinancials();
+            if (!opts || opts.push !== false) Router.push();
+        }
         const citySelect = document.getElementById('city-select');
         if (citySelect) {
-            citySelect.addEventListener('change', () => {
-                const slug = citySelect.value;
-                const opt = citySelect.selectedOptions[0];
-                DATA_PREFIX = 'cities/' + slug + '/';
-                const bboxParts = opt.dataset.bbox.split(',').map(Number);
-                map.fitBounds([[bboxParts[1], bboxParts[0]], [bboxParts[3], bboxParts[2]]], { padding: 40 });
-                // Update panel title
-                document.querySelector('#panel h2').textContent = opt.textContent.trim();
-                loadCityData();
-                loadFinancials();
-            });
+            citySelect.addEventListener('change', () => selectCity(citySelect.value));
         }
 
         // Financials
@@ -1326,23 +1416,31 @@
             }
 
             // Handle both old (array) and new (object with all/city keys) formats
-            let scenarios;
             if (Array.isArray(scenarioData)) {
-                scenarios = scenarioData;
-                scenarioData = { all: scenarios };
-            } else {
-                scenarios = scenarioData.all;
-                if (scenarioData.bbox) {
-                    document.getElementById('scope-toggle').style.display = 'flex';
-                }
+                scenarioData = { all: scenarioData };
+            } else if (scenarioData.bbox) {
+                document.getElementById('scope-toggle').style.display = 'flex';
             }
+
+            // Consume any URL-derived pending scope now that the toggle's
+            // visibility is settled. Falls back to 'all' if the pending value
+            // isn't supported by this city's scenarios.
+            let initialScope = 'all';
+            if (_pendingScope === 'all' || (_pendingScope === 'bbox' && scenarioData.bbox)) {
+                initialScope = _pendingScope;
+            }
+            _pendingScope = null;
+            if (initialScope !== 'all') {
+                document.querySelectorAll('#scope-toggle button').forEach(b => b.classList.toggle('active', b.dataset.scope === initialScope));
+            }
+            const scenarios = scenarioData[initialScope] || scenarioData.all;
 
             if (!scenarios || scenarios.length === 0) {
                 document.getElementById('charts').innerHTML = '<div class="no-data">No scenario data found.</div>';
                 return;
             }
 
-            renderFinancials(scenarios, 'all');
+            renderFinancials(scenarios, initialScope);
 
             // Update headline tiles from baseline scenario (works without WASM)
             const baseline = scenarios.find(s =>
@@ -1371,25 +1469,28 @@
         }
 
         // Scope toggle handler
-        document.querySelectorAll('#scope-toggle button').forEach(btn => {
-            btn.addEventListener('click', () => {
-                document.querySelectorAll('#scope-toggle button').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                const scope = btn.dataset.scope;
-                const scenarios = scenarioData[scope] || scenarioData.all;
-                renderFinancials(scenarios, scope);
-                if (wasmReady) {
-                    runCustomScenario();
-                } else if (forecastData) {
-                    const roads = forecastData.find(f => f.resource_type === 'roads');
-                    const src = (scope === 'bbox' && roads && roads.bbox_baseline) ? roads.bbox_baseline : (roads && roads.baseline);
-                    if (src && src.final_cohorts && src.final_cohorts.length > 1) {
-                        renderCohortBreakdown(src.final_cohorts);
-                    } else {
-                        document.getElementById('cohort-section').style.display = 'none';
-                    }
+        function selectScope(scope, opts) {
+            const btn = document.querySelector('#scope-toggle button[data-scope="' + scope + '"]');
+            if (!btn) return;
+            document.querySelectorAll('#scope-toggle button').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            const scenarios = scenarioData[scope] || scenarioData.all;
+            renderFinancials(scenarios, scope);
+            if (wasmReady) {
+                runCustomScenario();
+            } else if (forecastData) {
+                const roads = forecastData.find(f => f.resource_type === 'roads');
+                const src = (scope === 'bbox' && roads && roads.bbox_baseline) ? roads.bbox_baseline : (roads && roads.baseline);
+                if (src && src.final_cohorts && src.final_cohorts.length > 1) {
+                    renderCohortBreakdown(src.final_cohorts);
+                } else {
+                    document.getElementById('cohort-section').style.display = 'none';
                 }
-            });
+            }
+            if (!opts || opts.push !== false) Router.push();
+        }
+        document.querySelectorAll('#scope-toggle button').forEach(btn => {
+            btn.addEventListener('click', () => selectScope(btn.dataset.scope));
         });
 
         function makeChartCard(title) {
