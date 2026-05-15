@@ -110,9 +110,12 @@ func simulateResource(rt resource.ResourceType, cohorts []fcpkg.Cohort, years in
 	return results, totalDeferredCost, baseline
 }
 
-func buildForecastCohorts(ctx context.Context, rt resource.ResourceType, areaSqM float64, store db.Store, fc *config.ForecastConfig) []fcpkg.Cohort {
+func buildForecastCohorts(ctx context.Context, rt resource.ResourceType, areaSqM float64, store db.Store, fc *config.ForecastConfig) ([]fcpkg.Cohort, error) {
 	currentPCI := fc.InitialPCI
-	stats, _ := store.ListCohortStats(ctx, rt.Name())
+	stats, err := store.ListCohortStats(ctx, rt.Name())
+	if err != nil {
+		return nil, fmt.Errorf("list cohort stats for %s: %w", rt.Name(), err)
+	}
 	var inputs []fcpkg.CohortInput
 	for _, st := range stats {
 		inputs = append(inputs, fcpkg.CohortInput{
@@ -133,7 +136,7 @@ func buildForecastCohorts(ctx context.Context, rt resource.ResourceType, areaSqM
 			InitialPCI:     currentPCI,
 		}}
 	}
-	return cohorts
+	return cohorts, nil
 }
 
 func renderBaselineTable(ios *iostreams.IOStreams, rt resource.ResourceType, areaSqM, currentPCI float64,
@@ -284,7 +287,10 @@ func forecastAllResources(ctx context.Context, opts *Options, store db.Store,
 		}
 
 		areaSqM := result.TotalAreaSqM
-		cohorts := buildForecastCohorts(ctx, rt, areaSqM, store, fc)
+		cohorts, err := buildForecastCohorts(ctx, rt, areaSqM, store, fc)
+		if err != nil {
+			return nil, err
+		}
 		dbResults, totalDeferredCost, baseline := simulateResource(rt, cohorts, years, params)
 		allResults = append(allResults, dbResults...)
 
@@ -295,7 +301,7 @@ func forecastAllResources(ctx context.Context, opts *Options, store db.Store,
 		}
 
 		if err := store.SaveForecastResults(ctx, dbResults); err != nil {
-			fmt.Fprintf(ios.ErrOut, "Warning: failed to save forecast results: %v\n", err)
+			return nil, fmt.Errorf("saving forecast results for %s: %w", rt.Name(), err)
 		}
 
 		if opts.Scenarios && opts.Exporter == nil {

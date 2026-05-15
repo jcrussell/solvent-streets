@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"testing"
@@ -8,6 +9,7 @@ import (
 	"pvmt/internal/config"
 	"pvmt/internal/db"
 	"pvmt/internal/db/dbtest"
+	ingestpkg "pvmt/internal/ingest"
 	"pvmt/internal/resource"
 	"pvmt/pkg/cmdutil"
 	"pvmt/pkg/iostreams"
@@ -121,6 +123,43 @@ func TestNewCmdIngest_RunFInjection(t *testing.T) {
 	}
 	if !called {
 		t.Error("runF was not called")
+	}
+}
+
+type failingSource struct{ name string }
+
+func (s *failingSource) Name() string { return s.name }
+func (s *failingSource) Fetch(ctx context.Context, _ *http.Client, _ resource.ResourceType) ([]db.Feature, error) {
+	return nil, errors.New("upstream offline")
+}
+
+type emptySource struct{ name string }
+
+func (s *emptySource) Name() string { return s.name }
+func (s *emptySource) Fetch(ctx context.Context, _ *http.Client, _ resource.ResourceType) ([]db.Feature, error) {
+	return nil, nil
+}
+
+func TestFetchFromSources_AllFailedReturnsErrAllSourcesFailed(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	opts := &Options{IO: ios, ResourceType: &resource.Pavement{}}
+	sources := []ingestpkg.Source{&failingSource{name: "a"}, &failingSource{name: "b"}}
+	_, err := fetchFromSources(context.Background(), sources, &http.Client{}, opts, "Test City")
+	if !errors.Is(err, cmdutil.ErrAllSourcesFailed) {
+		t.Errorf("expected ErrAllSourcesFailed, got %v", err)
+	}
+}
+
+func TestFetchFromSources_PartialSuccessNoError(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	opts := &Options{IO: ios, ResourceType: &resource.Pavement{}}
+	sources := []ingestpkg.Source{&failingSource{name: "a"}, &emptySource{name: "b"}}
+	features, err := fetchFromSources(context.Background(), sources, &http.Client{}, opts, "Test City")
+	if err != nil {
+		t.Errorf("expected nil error when at least one source returns cleanly, got %v", err)
+	}
+	if len(features) != 0 {
+		t.Errorf("expected 0 features, got %d", len(features))
 	}
 }
 

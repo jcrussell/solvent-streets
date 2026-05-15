@@ -49,3 +49,9 @@ func FlagErrorf(format string, args ...any) error {
 // ErrNoResults is returned when a command produces no results.
 // The command should print a contextual message to stderr before returning this.
 var ErrNoResults = errors.New("no results")
+
+// ErrAllSourcesFailed signals that every upstream source for a resource
+// errored — distinct from ErrNoResults (sources succeeded but returned
+// zero features). Used by ingest to surface deployment-wide outages
+// that would otherwise look like a silent no-op via `pvmt all`.
+var ErrAllSourcesFailed = errors.New("all sources failed")

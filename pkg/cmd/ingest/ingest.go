@@ -81,51 +81,25 @@ func runIngest(ctx context.Context, opts *Options) error {
 		return fmt.Errorf("database: %w", err)
 	}
 
-	// Fetch city boundary from Nominatim (cached: skip if already stored)
-	boundaryGJSON, _ := store.GetBoundary(ctx)
-	if boundaryGJSON == "" || opts.Force {
-		fmt.Fprintf(ios.ErrOut, "Fetching boundary for %s from Nominatim...\n", city.Name)
-		boundaryGJSON, err = ingestpkg.FetchCityBoundary(ctx, client, city.Name)
-		if err != nil {
-			return fmt.Errorf("fetch boundary: %w", err)
-		}
-		if err := store.SaveBoundary(ctx, boundaryGJSON, "nominatim"); err != nil {
-			return fmt.Errorf("save boundary: %w", err)
-		}
-		fmt.Fprintf(ios.ErrOut, "  Boundary saved.\n")
-	} else {
-		fmt.Fprintf(ios.ErrOut, "Using cached boundary for %s (use --force to refresh).\n", city.Name)
+	boundaryGJSON, err := resolveBoundary(ctx, opts, store, client, city)
+	if err != nil {
+		return err
 	}
 
-	// Derive bbox from boundary polygon
 	bbox, err := geo.BBoxFromGeoJSON(boundaryGJSON)
 	if err != nil {
 		return fmt.Errorf("derive bbox: %w", err)
 	}
 
-	arcgisURL := city.ArcGISURL
-
-	srcOpts := ingestpkg.Options{Progress: ios.ErrOut}
-	var sources []ingestpkg.Source
-	if opts.Source == cmdutil.SourceAll {
-		sources = ingestpkg.AllSources(bbox, arcgisURL, srcOpts)
-	} else {
-		src, _ := ingestpkg.SourceByName(string(opts.Source), bbox, arcgisURL, srcOpts)
-		sources = []ingestpkg.Source{src}
+	sources, err := resolveSources(opts, bbox, city.ArcGISURL, ios)
+	if err != nil {
+		return err
 	}
 
-	var allFeatures []db.Feature
-	for _, src := range sources {
-		fmt.Fprintf(ios.ErrOut, "Fetching %s data from %s for %s...\n", opts.ResourceType.Name(), src.Name(), city.Name)
-		features, err := src.Fetch(ctx, client, opts.ResourceType)
-		if err != nil {
-			fmt.Fprintf(ios.ErrOut, "Warning: %s fetch failed: %v\n", src.Name(), err)
-			continue
-		}
-		fmt.Fprintf(ios.ErrOut, "  Got %d features from %s\n", len(features), src.Name())
-		allFeatures = append(allFeatures, features...)
+	allFeatures, err := fetchFromSources(ctx, sources, client, opts, city.Name)
+	if err != nil {
+		return err
 	}
-
 	if len(allFeatures) == 0 {
 		fmt.Fprintf(ios.ErrOut, "No features fetched for %s\n", opts.ResourceType.Name())
 		return cmdutil.ErrNoResults
@@ -138,4 +112,60 @@ func runIngest(ctx context.Context, opts *Options) error {
 
 	fmt.Fprintf(ios.ErrOut, "Done. Ingested %d %s features.\n", len(allFeatures), opts.ResourceType.Name())
 	return nil
+}
+
+// resolveBoundary returns the cached city boundary or fetches it from
+// Nominatim. GetBoundary returns ("", nil) on sql.ErrNoRows — any
+// returned error is a real DB problem and must surface.
+func resolveBoundary(ctx context.Context, opts *Options, store db.Store, client *http.Client, city *config.CityConfig) (string, error) {
+	boundaryGJSON, err := store.GetBoundary(ctx)
+	if err != nil {
+		return "", fmt.Errorf("reading cached boundary: %w", err)
+	}
+	if boundaryGJSON != "" && !opts.Force {
+		fmt.Fprintf(opts.IO.ErrOut, "Using cached boundary for %s (use --force to refresh).\n", city.Name)
+		return boundaryGJSON, nil
+	}
+	fmt.Fprintf(opts.IO.ErrOut, "Fetching boundary for %s from Nominatim...\n", city.Name)
+	boundaryGJSON, err = ingestpkg.FetchCityBoundary(ctx, client, city.Name)
+	if err != nil {
+		return "", fmt.Errorf("fetch boundary: %w", err)
+	}
+	if err := store.SaveBoundary(ctx, boundaryGJSON, "nominatim"); err != nil {
+		return "", fmt.Errorf("save boundary: %w", err)
+	}
+	fmt.Fprintf(opts.IO.ErrOut, "  Boundary saved.\n")
+	return boundaryGJSON, nil
+}
+
+func resolveSources(opts *Options, bbox [4]float64, arcgisURL string, ios *iostreams.IOStreams) ([]ingestpkg.Source, error) {
+	srcOpts := ingestpkg.Options{Progress: ios.ErrOut}
+	if opts.Source == cmdutil.SourceAll {
+		return ingestpkg.AllSources(bbox, arcgisURL, srcOpts), nil
+	}
+	src, err := ingestpkg.SourceByName(string(opts.Source), bbox, arcgisURL, srcOpts)
+	if err != nil {
+		return nil, fmt.Errorf("resolving source %q: %w", opts.Source, err)
+	}
+	return []ingestpkg.Source{src}, nil
+}
+
+func fetchFromSources(ctx context.Context, sources []ingestpkg.Source, client *http.Client, opts *Options, cityName string) ([]db.Feature, error) {
+	var allFeatures []db.Feature
+	failures := 0
+	for _, src := range sources {
+		fmt.Fprintf(opts.IO.ErrOut, "Fetching %s data from %s for %s...\n", opts.ResourceType.Name(), src.Name(), cityName)
+		features, err := src.Fetch(ctx, client, opts.ResourceType)
+		if err != nil {
+			fmt.Fprintf(opts.IO.ErrOut, "Warning: %s fetch failed: %v\n", src.Name(), err)
+			failures++
+			continue
+		}
+		fmt.Fprintf(opts.IO.ErrOut, "  Got %d features from %s\n", len(features), src.Name())
+		allFeatures = append(allFeatures, features...)
+	}
+	if len(sources) > 0 && failures == len(sources) {
+		return nil, fmt.Errorf("%s: %w", opts.ResourceType.Name(), cmdutil.ErrAllSourcesFailed)
+	}
+	return allFeatures, nil
 }

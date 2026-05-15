@@ -4,13 +4,13 @@ import "testing"
 
 func TestForecastConfig_Validate_RejectsBad(t *testing.T) {
 	cases := map[string]ForecastConfig{
-		"initial too high":     {InitialPCI: 200},
-		"initial negative":     {InitialPCI: -5},
-		"decay negative":       {DecayRate: -0.1},
-		"decay too high":       {DecayRate: 1.5},
-		"growth too high":      {GrowthRate: 1.5},
-		"growth too negative":  {GrowthRate: -1.0},
-		"years negative":       {Years: -1},
+		"initial too high":    {InitialPCI: 200},
+		"initial negative":    {InitialPCI: -5},
+		"decay negative":      {DecayRate: -0.1},
+		"decay too high":      {DecayRate: 1.5},
+		"growth too high":     {GrowthRate: 1.5},
+		"growth too negative": {GrowthRate: -1.0},
+		"years negative":      {Years: -1},
 	}
 	for name, fc := range cases {
 		t.Run(name, func(t *testing.T) {

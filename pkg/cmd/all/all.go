@@ -67,6 +67,9 @@ func forEachResource(ios *iostreams.IOStreams, fn func(resource.ResourceType) er
 			if errors.Is(err, cmdutil.ErrNoResults) {
 				continue
 			}
+			if errors.Is(err, cmdutil.ErrAllSourcesFailed) {
+				return err
+			}
 			fmt.Fprintf(ios.ErrOut, "Warning: %s failed: %v\n", rt.Name(), err)
 		}
 	}
