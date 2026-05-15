@@ -75,6 +75,27 @@ type ForecastConfig struct {
 	CostTiers  []CostTierCfg `toml:"cost_tiers"`  // custom cost tiers
 }
 
+// Validate rejects obviously-wrong forecast inputs at config-load time
+// per byob-input-validation.2. Zero values are allowed for fields whose
+// comment says "0 means default" (InitialPCI, DecayRate, Years);
+// NormalizeForecast fills those in. GrowthRate has no default sentinel
+// so 0 is a legitimate "no growth" value.
+func (fc *ForecastConfig) Validate() error {
+	if fc.InitialPCI < 0 || fc.InitialPCI > 100 {
+		return fmt.Errorf("forecast.initial_pci %g out of range (0-100)", fc.InitialPCI)
+	}
+	if fc.DecayRate < 0 || fc.DecayRate > 1 {
+		return fmt.Errorf("forecast.decay_rate %g out of range (0-1)", fc.DecayRate)
+	}
+	if fc.GrowthRate < -0.5 || fc.GrowthRate > 0.5 {
+		return fmt.Errorf("forecast.growth_rate %g out of range (-0.5 to 0.5)", fc.GrowthRate)
+	}
+	if fc.Years < 0 {
+		return fmt.Errorf("forecast.years %d must be non-negative", fc.Years)
+	}
+	return nil
+}
+
 type CostTierCfg struct {
 	MinPCI     float64 `toml:"min_pci"`
 	MaxPCI     float64 `toml:"max_pci"`
@@ -258,6 +279,9 @@ func (c *Config) validate() error {
 	if len(c.Cities) == 0 {
 		return ErrNoCities
 	}
+	if err := c.Forecast.Validate(); err != nil {
+		return err
+	}
 	seen := make(map[string]bool)
 	for i, city := range c.Cities {
 		if city.Name == "" {
@@ -269,6 +293,11 @@ func (c *Config) validate() error {
 		}
 		if seen[slug] {
 			return fmt.Errorf("duplicate city name %q (slug: %s)", city.Name, slug)
+		}
+		if city.Forecast != nil {
+			if err := city.Forecast.Validate(); err != nil {
+				return fmt.Errorf("cities[%d] (%s): %w", i, city.Name, err)
+			}
 		}
 		seen[slug] = true
 	}

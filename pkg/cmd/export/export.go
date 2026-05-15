@@ -49,13 +49,34 @@ func NewCmdExport(f *cmdutil.Factory, runF func(*Options) error) *cobra.Command 
 	return cmd
 }
 
+// Validate runs at the Options boundary per byob-input-validation.5:
+// resolve the user-supplied path, reject sensitive locations, probe
+// writability — all before the multi-minute export work begins. Errors
+// are returned as FlagError so the runner maps them to exit code 2.
+func (opts *Options) Validate() error {
+	resolved, err := cmdutil.ResolveOutputDir(opts.OutputDir)
+	if err != nil {
+		return cmdutil.FlagErrorf("%s", err)
+	}
+	opts.OutputDir = resolved
+
+	if info, err := os.Stat(opts.OutputDir); err == nil && info.IsDir() && !opts.Clean {
+		return cmdutil.FlagErrorf("output directory %q already exists; use --clean to remove it first", opts.OutputDir)
+	}
+	if err := cmdutil.WritableDir(opts.OutputDir); err != nil {
+		return cmdutil.FlagErrorf("%s", err)
+	}
+	return nil
+}
+
 func runExport(ctx context.Context, opts *Options) error {
 	ios := opts.IO
 
+	if err := opts.Validate(); err != nil {
+		return err
+	}
+
 	if info, err := os.Stat(opts.OutputDir); err == nil && info.IsDir() {
-		if !opts.Clean {
-			return fmt.Errorf("output directory %q already exists; use --clean to remove it first", opts.OutputDir)
-		}
 		if err := os.RemoveAll(opts.OutputDir); err != nil {
 			return fmt.Errorf("clean output directory: %w", err)
 		}

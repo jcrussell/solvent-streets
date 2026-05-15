@@ -16,6 +16,7 @@ import (
 	"pvmt/internal/config"
 	"pvmt/internal/db"
 	"pvmt/internal/export"
+	"pvmt/pkg/cmdutil"
 )
 
 func main() {
@@ -136,16 +137,8 @@ func exportExample(ctx context.Context, rootDB *db.RootStore, cfgPath, outputDir
 // safeCleanDir removes outputDir only if it is empty or looks like a
 // previously generated site (contains index.html). It then re-creates it.
 func safeCleanDir(outputDir string) error {
-	abs, err := filepath.Abs(outputDir)
-	if err != nil {
-		return fmt.Errorf("resolve output dir: %w", err)
-	}
-	// Never wipe the filesystem root or home directory.
-	if abs == "/" {
-		return fmt.Errorf("refusing to use %q as output directory", abs)
-	}
-	if home, err := os.UserHomeDir(); err == nil && abs == home {
-		return fmt.Errorf("refusing to use %q as output directory", abs)
+	if _, err := cmdutil.ResolveOutputDir(outputDir); err != nil {
+		return err
 	}
 
 	info, err := os.Stat(outputDir)
