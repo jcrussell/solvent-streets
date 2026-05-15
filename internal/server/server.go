@@ -34,10 +34,12 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		// Single-city mode: serve data at /data/{file} (backward compatible)
 		entry := s.cities[0]
 		mux.HandleFunc("GET /data/{file}", s.handleDataFile(entry))
+		mux.HandleFunc("GET /api/snapshots", s.handleSnapshotsList(entry))
 		mux.HandleFunc("GET /", s.handleIndex)
 	} else {
 		// Multi-city mode
 		mux.HandleFunc("GET /api/cities", s.handleCitiesList)
+		mux.HandleFunc("GET /api/cities/{slug}/snapshots", s.handleCitySnapshotsList)
 		mux.HandleFunc("GET /cities/{slug}/data/{file}", s.handleCityDataFile)
 		mux.HandleFunc("GET /", s.handleIndex)
 	}

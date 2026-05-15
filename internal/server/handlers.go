@@ -3,10 +3,12 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"sync"
 
+	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/export"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 )
@@ -122,6 +124,24 @@ func (s *Server) handleCitiesList(w http.ResponseWriter, r *http.Request) {
 		cities = append(cities, info)
 	}
 	writeJSON(w, cities)
+}
+
+// handleSnapshotsList returns a handler for the single-city /api/snapshots route.
+func (s *Server) handleSnapshotsList(entry export.CityEntry) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		s.serveSnapshotsJSON(w, r, entry)
+	}
+}
+
+// handleCitySnapshotsList handles /api/cities/{slug}/snapshots
+func (s *Server) handleCitySnapshotsList(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	entry := s.cityBySlug(slug)
+	if entry == nil {
+		http.NotFound(w, r)
+		return
+	}
+	s.serveSnapshotsJSON(w, r, *entry)
 }
 
 func (s *Server) serveDataFile(w http.ResponseWriter, r *http.Request, file string, entry export.CityEntry) {
@@ -327,5 +347,22 @@ func (s *Server) serveForecastSeed(w http.ResponseWriter, _ *http.Request, entry
 	s.serveJSONCached(w, "seed:"+entry.Slug, func() (any, error) {
 		fc := entry.Config.ResolvedForecast(&entry.City)
 		return json.RawMessage(export.BuildForecastSeed(context.Background(), &fc, entry.Store)), nil
+	})
+}
+
+// serveSnapshotsJSON serves the per-city snapshot list. Snapshots are
+// append-only at the data layer, so the cache is never invalidated —
+// new snapshots written while the server is running won't appear until
+// restart. Acceptable for the time-travel UI, which targets historic data.
+func (s *Server) serveSnapshotsJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry) {
+	s.serveJSONCached(w, "snapshots:"+entry.Slug, func() (any, error) {
+		snaps, err := entry.Store.ListSnapshots(context.Background())
+		if err != nil {
+			return nil, fmt.Errorf("listing snapshots: %w", err)
+		}
+		if snaps == nil {
+			snaps = []db.Snapshot{}
+		}
+		return snaps, nil
 	})
 }

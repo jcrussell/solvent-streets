@@ -53,9 +53,9 @@ type HexStat struct {
 }
 
 type Snapshot struct {
-	ID         int64
-	ComputedAt time.Time
-	ConfigHash string
+	ID         int64     `json:"id"`
+	ComputedAt time.Time `json:"computed_at"`
+	ConfigHash string    `json:"config_hash"`
 }
 
 type ForecastResult struct {

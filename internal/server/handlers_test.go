@@ -110,6 +110,105 @@ func TestHandleIndex(t *testing.T) {
 	}
 }
 
+// TestHandleSnapshots_SingleCity exercises /api/snapshots in single-city mode
+// and asserts the JSON shape matches the {id, computed_at, config_hash}
+// contract documented on solvent-streets-56w.
+func TestHandleSnapshots_SingleCity(t *testing.T) {
+	t1 := time.Date(2026, 5, 14, 10, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 5, 15, 12, 30, 0, 0, time.UTC)
+	store := &dbtest.MockStore{
+		ListSnapshotsFunc: func(_ context.Context) ([]db.Snapshot, error) {
+			// Mirrors ListSnapshots' real ORDER BY computed_at DESC.
+			return []db.Snapshot{
+				{ID: 2, ComputedAt: t2, ConfigHash: "deadbeef"},
+				{ID: 1, ComputedAt: t1, ConfigHash: "cafebabe"},
+			}, nil
+		},
+	}
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Test City"}}}
+	entry := export.CityEntry{
+		Config: cfg, City: cfg.Cities[0], Store: store, Slug: cfg.Cities[0].Slug(),
+	}
+	ios, _, _, _ := iostreams.Test()
+	srv := New([]export.CityEntry{entry}, 0, ios)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/snapshots", srv.handleSnapshotsList(entry))
+
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", "/api/snapshots", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var got []map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 snapshots, got %d", len(got))
+	}
+	if got[0]["id"] != float64(2) || got[1]["id"] != float64(1) {
+		t.Errorf("expected DESC order id=2,1, got %v,%v", got[0]["id"], got[1]["id"])
+	}
+	for _, k := range []string{"id", "computed_at", "config_hash"} {
+		if _, ok := got[0][k]; !ok {
+			t.Errorf("missing key %q in response", k)
+		}
+	}
+}
+
+// TestHandleSnapshots_MultiCity exercises /api/cities/{slug}/snapshots and
+// verifies city-slug routing + 404 on unknown slug.
+func TestHandleSnapshots_MultiCity(t *testing.T) {
+	storeA := &dbtest.MockStore{
+		ListSnapshotsFunc: func(_ context.Context) ([]db.Snapshot, error) {
+			return []db.Snapshot{{ID: 7}}, nil
+		},
+	}
+	storeB := &dbtest.MockStore{
+		ListSnapshotsFunc: func(_ context.Context) ([]db.Snapshot, error) {
+			return []db.Snapshot{{ID: 9}}, nil
+		},
+	}
+	cfg := &config.Config{Cities: []config.CityConfig{
+		{Name: "City A"}, {Name: "City B"},
+	}}
+	entries := []export.CityEntry{
+		{Config: cfg, City: cfg.Cities[0], Store: storeA, Slug: cfg.Cities[0].Slug()},
+		{Config: cfg, City: cfg.Cities[1], Store: storeB, Slug: cfg.Cities[1].Slug()},
+	}
+	ios, _, _, _ := iostreams.Test()
+	srv := New(entries, 0, ios)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/cities/{slug}/snapshots", srv.handleCitySnapshotsList)
+
+	// Known slug returns its store's snapshots.
+	req, _ := http.NewRequestWithContext(context.Background(), "GET",
+		"/api/cities/"+entries[1].Slug+"/snapshots", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 on known slug, got %d: %s", w.Code, w.Body.String())
+	}
+	var got []db.Snapshot
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != 9 {
+		t.Errorf("expected snapshot id 9 for City B, got %+v", got)
+	}
+
+	// Unknown slug 404s, doesn't 500.
+	req2, _ := http.NewRequestWithContext(context.Background(), "GET",
+		"/api/cities/no-such-city/snapshots", nil)
+	w2 := httptest.NewRecorder()
+	mux.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusNotFound {
+		t.Errorf("expected 404 on unknown slug, got %d", w2.Code)
+	}
+}
+
 func TestServeJSONCached_SingleFlight(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	srv := New(nil, 0, ios)
