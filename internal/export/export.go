@@ -629,13 +629,16 @@ type CohortSeed struct {
 }
 
 // ForecastSeedJSON holds the data needed by the browser to initialize interactive controls.
+// CityPavedSqM is the city-jurisdiction paved area, NOT the city boundary area
+// (that's MetaJSON.CityAreaSqM). The fields used to share the json tag
+// "city_area_sqm" with 14x divergence; never reintroduce that name here.
 type ForecastSeedJSON struct {
 	InitialPCI   float64             `json:"initial_pci"`
 	DecayRate    float64             `json:"decay_rate"`
 	GrowthRate   float64             `json:"growth_rate"`
 	Years        int                 `json:"years"`
 	TotalAreaSqM float64             `json:"total_area_sqm"`
-	CityAreaSqM  float64             `json:"city_area_sqm"`
+	CityPavedSqM float64             `json:"city_paved_sqm"`
 	CostTiers    []forecast.CostTier `json:"cost_tiers"`
 	Cohorts      []CohortSeed        `json:"cohorts,omitempty"`
 	CityCohorts  []CohortSeed        `json:"city_cohorts,omitempty"`
@@ -689,7 +692,7 @@ func BuildForecastSeed(ctx context.Context, fc *config.ForecastConfig, store db.
 		GrowthRate:   fc.GrowthRate,
 		Years:        years,
 		TotalAreaSqM: totalArea,
-		CityAreaSqM:  cityArea,
+		CityPavedSqM: cityArea,
 		CostTiers:    costTiers,
 		Cohorts:      cohortSeeds,
 		CityCohorts:  cityCohortSeeds,
@@ -834,7 +837,7 @@ func regionBBox(ctx context.Context, entries []CityEntry) ([4]float64, bool) {
 }
 
 // BuildMultiCityForecastSeed aggregates per-city forecast seeds into one
-// regional ForecastSeedJSON. TotalAreaSqM and CityAreaSqM sum the "combined"
+// regional ForecastSeedJSON. TotalAreaSqM and CityPavedSqM sum the "combined"
 // and "combined:city" rows across entries (with per-resource fallback).
 // Cohort areas are summed across cities for each (resource_type, classification)
 // pair — cross-resource collisions stay as separate cohorts to match the
@@ -861,7 +864,7 @@ func BuildMultiCityForecastSeed(ctx context.Context, fc *config.ForecastConfig, 
 		GrowthRate:   fc.GrowthRate,
 		Years:        fc.Years,
 		TotalAreaSqM: totalArea,
-		CityAreaSqM:  cityArea,
+		CityPavedSqM: cityArea,
 		CostTiers:    costTiers,
 		Cohorts:      mergeCohortSeeds(ctx, entries, fc, false),
 		CityCohorts:  mergeCohortSeeds(ctx, entries, fc, true),

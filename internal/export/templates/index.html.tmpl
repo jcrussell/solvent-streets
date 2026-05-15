@@ -1424,9 +1424,9 @@
             // Default ("all") uses city-scoped data; "bbox" uses full bounding-box data
             const activeScope = document.querySelector('#scope-toggle button.active');
             const scope = activeScope ? activeScope.dataset.scope : 'all';
-            const area = (scope === 'bbox' || !FORECAST_SEED.city_area_sqm)
+            const area = (scope === 'bbox' || !FORECAST_SEED.city_paved_sqm)
                 ? FORECAST_SEED.total_area_sqm
-                : FORECAST_SEED.city_area_sqm;
+                : FORECAST_SEED.city_paved_sqm;
             const seedCohorts = (scope === 'bbox' || !FORECAST_SEED.city_cohorts || FORECAST_SEED.city_cohorts.length === 0)
                 ? (FORECAST_SEED.cohorts || [])
                 : FORECAST_SEED.city_cohorts;
@@ -1668,8 +1668,8 @@
                     }
                 });
             }
-            if (city.seed && city.seed.city_area_sqm && city.seed.total_area_sqm) {
-                m.cityPct = city.seed.city_area_sqm / city.seed.total_area_sqm * 100;
+            if (city.seed && city.seed.city_paved_sqm && city.seed.total_area_sqm) {
+                m.cityPct = city.seed.city_paved_sqm / city.seed.total_area_sqm * 100;
             }
 
             // Blended decay from cohorts (area-weighted)

@@ -11,7 +11,7 @@ func TestGuardPanic_NoPanicReturnsFnErr(t *testing.T) {
 	want := errors.New("boom")
 	var buf bytes.Buffer
 	got := GuardPanic(&buf, func() error { return want })
-	if got != want {
+	if !errors.Is(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	if buf.Len() != 0 {
