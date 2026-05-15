@@ -1,14 +1,24 @@
 package ingest
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
+
+	"pvmt/internal/build"
 )
 
-const userAgentString = "pvmt/1.0 (pavement-data-tool; https://github.com/jcrussell/solvent-streets)"
+// UserAgent returns the outbound User-Agent string, in the format prescribed
+// by byob-http-client.5: <tool>/<version> (<os>; <arch>). Computed once at
+// first call and cached for the process lifetime.
+var UserAgent = sync.OnceValue(func() string {
+	i := build.Current()
+	return fmt.Sprintf("pvmt/%s (%s; %s)", i.Version, i.OS, i.Arch)
+})
 
 type userAgentTransport struct {
 	wrapped http.RoundTripper
@@ -20,7 +30,7 @@ func UserAgentTransport(wrapped http.RoundTripper) http.RoundTripper {
 
 func (t *userAgentTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
-	req.Header.Set("User-Agent", userAgentString)
+	req.Header.Set("User-Agent", UserAgent())
 	return t.wrapped.RoundTrip(req)
 }
 

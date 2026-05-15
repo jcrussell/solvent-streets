@@ -3,6 +3,8 @@ package ingest
 import (
 	"context"
 	"net/http"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,8 +30,12 @@ func TestUserAgentTransport_SetsHeader(t *testing.T) {
 	if resp != nil && resp.Body != nil {
 		resp.Body.Close()
 	}
-	if reg.LastRequest().Header.Get("User-Agent") != userAgentString {
-		t.Errorf("expected User-Agent %q, got %q", userAgentString, reg.LastRequest().Header.Get("User-Agent"))
+	ua := reg.LastRequest().Header.Get("User-Agent")
+	if !strings.HasPrefix(ua, "pvmt/") {
+		t.Errorf("expected User-Agent to start with 'pvmt/', got %q", ua)
+	}
+	if !strings.Contains(ua, runtime.GOOS) || !strings.Contains(ua, runtime.GOARCH) {
+		t.Errorf("expected User-Agent to contain os/arch (%s/%s), got %q", runtime.GOOS, runtime.GOARCH, ua)
 	}
 }
 

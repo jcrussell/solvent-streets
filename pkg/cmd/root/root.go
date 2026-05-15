@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"pvmt/internal/build"
 	"pvmt/internal/units"
 	"pvmt/pkg/cmd/all"
 	"pvmt/pkg/cmd/cities"
@@ -90,7 +91,9 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 		Long:          "PVMT ingests pavement data (roads, parking lots) from OSM and ArcGIS APIs,\ncomputes paved area via geometry operations, and serves a MapLibre visualization.",
 		SilenceErrors: true,
 		SilenceUsage:  true,
+		Version:       build.Current().Short(),
 	}
+	cmd.SetVersionTemplate("pvmt {{.Version}}\n")
 
 	cmdutil.AddCityOverride(cmd, f)
 	var unitSystem cmdutil.UnitSystem

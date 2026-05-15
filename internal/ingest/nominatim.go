@@ -40,7 +40,7 @@ func fetchCityBoundary(ctx context.Context, client *http.Client, baseURL string,
 	if err != nil {
 		return "", fmt.Errorf("create nominatim request: %w", err)
 	}
-	req.Header.Set("User-Agent", "pvmt/1.0 (https://github.com/jcrussell/solvent-streets)")
+	req.Header.Set("User-Agent", UserAgent())
 
 	resp, err := client.Do(req)
 	if err != nil {
