@@ -61,7 +61,7 @@ func newAllCompute(f *cmdutil.Factory) *cobra.Command {
 					return err
 				}
 				if err := compute.RunCombined(cmd.Context(), cf); err != nil {
-					fmt.Fprintf(f.IOStreams.ErrOut, "Warning: combined pass failed: %v\n", err)
+					cmdutil.Warnf(f.IOStreams, "combined pass failed: %v", err)
 				}
 				return nil
 			})
@@ -79,7 +79,7 @@ func forEachResource(ios *iostreams.IOStreams, fn func(resource.ResourceType) er
 			if errors.Is(err, cmdutil.ErrAllSourcesFailed) {
 				return err
 			}
-			fmt.Fprintf(ios.ErrOut, "Warning: %s failed: %v\n", rt.Name(), err)
+			cmdutil.Warnf(ios, "%s failed: %v", rt.Name(), err)
 		}
 	}
 	return nil

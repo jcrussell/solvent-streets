@@ -319,9 +319,6 @@ func buildHexGeoJSONForSuffix(ctx context.Context, entry CityEntry, proj *geo.UT
 
 	var features []map[string]any
 	for _, st := range allStats {
-		if _, ok := hexMap[st.HexID]; !ok {
-			continue
-		}
 		if feat, ok := buildHexFeature(st, hexMap, proj); ok {
 			features = append(features, feat)
 		}
@@ -821,6 +818,9 @@ func BuildMultiCityMeta(ctx context.Context, entries []CityEntry, regionName str
 // aggregatePerResourceStats sums TotalAreaSqM and FeatureCount per resource
 // type across all entries, returning the per-resource cards in resource.All
 // order. Resources with no rows in any entry are omitted.
+//
+// Reads only rt.Name() (no ":city" variants): the per-resource cards on the
+// landing page surface all-jurisdiction totals, matching single-city BuildMeta.
 func aggregatePerResourceStats(ctx context.Context, entries []CityEntry) []StatJSON {
 	statByType := make(map[string]*StatJSON)
 	for _, entry := range entries {

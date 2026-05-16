@@ -434,7 +434,7 @@ func TestBuildForecasts_DBErrorEvicts(t *testing.T) {
 		LatestComputeResultFunc: func(_ context.Context, rt string) (*db.ComputeResult, error) {
 			n := calls.Add(1)
 			if n <= int32(len(resource.All)) {
-				return nil, errors.New("DB unavailable")
+				return nil, errors.New("db unavailable")
 			}
 			return &db.ComputeResult{
 				ResourceType: rt,
