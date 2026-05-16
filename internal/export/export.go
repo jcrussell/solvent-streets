@@ -115,6 +115,10 @@ type TemplateData struct {
 	Cities          []CityInfo
 	WasmPrefix      string // path prefix for WASM assets (e.g. "../"); empty = same directory
 	MethodologyHTML template.HTML
+	// IsLiveServer is true when rendered by pvmt serve; false for static
+	// export. Gates server-only UI (e.g. the snapshot picker) that depends
+	// on live /api endpoints absent from the static output.
+	IsLiveServer bool
 }
 
 // resourceColorsJS is the pre-marshaled JSON of ResourceColors, computed at init time.

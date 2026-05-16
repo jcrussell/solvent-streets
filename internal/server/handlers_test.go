@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -8,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -18,6 +20,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/export"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
 
@@ -108,6 +111,33 @@ func TestHandleIndex(t *testing.T) {
 	}
 	if w.Body.Len() == 0 {
 		t.Fatal("empty body")
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `id="snapshot-picker"`) {
+		t.Errorf("live server response should include the snapshot-picker element")
+	}
+}
+
+// TestParseIndexTemplate_StaticExport ensures the static-export render
+// (IsLiveServer=false) omits server-only UI. Without the gate, the picker
+// would call /api endpoints that don't exist in static output.
+func TestParseIndexTemplate_StaticExport(t *testing.T) {
+	tmpl, err := export.ParseIndexTemplate(units.Metric)
+	if err != nil {
+		t.Fatal(err)
+	}
+	td := export.TemplateData{
+		MetaJSON:    export.MetaJSON{ProjectName: "Test"},
+		UnitSystem:  "metric",
+		LayerColors: export.ResourceColorsJS(),
+		// IsLiveServer left zero → static export
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, td); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(buf.String(), `id="snapshot-picker"`) {
+		t.Errorf("static export must not include the snapshot-picker element")
 	}
 }
 

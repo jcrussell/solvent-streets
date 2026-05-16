@@ -77,6 +77,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		UnitSystem:      entry.Config.UnitSystem().String(),
 		Cities:          cities,
 		MethodologyHTML: export.MethodologyHTML(),
+		IsLiveServer:    true,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

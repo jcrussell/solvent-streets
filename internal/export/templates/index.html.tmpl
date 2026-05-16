@@ -396,7 +396,12 @@
             {{end}}
         </select>
         {{end}}
-        <button class="theme-toggle" role="switch" aria-label="Toggle dark mode" onclick="toggleTheme()" style="{{if not .Cities}}margin-left:auto;{{end}}margin-right:16px;"></button>
+        {{if .IsLiveServer}}
+        <select id="snapshot-picker" title="Historical compute snapshot" style="{{if not .Cities}}margin-left:auto;{{end}}margin-right:16px;align-self:center;background:var(--header-bg);color:var(--header-fg);border:1px solid var(--header-muted);border-radius:4px;padding:4px 8px;font-size:14px;cursor:pointer;">
+            <option value="">Latest</option>
+        </select>
+        {{end}}
+        <button class="theme-toggle" role="switch" aria-label="Toggle dark mode" onclick="toggleTheme()" style="{{if and (not .Cities) (not .IsLiveServer)}}margin-left:auto;{{end}}margin-right:16px;"></button>
     </div>
 
     <div id="map-tab" class="tab-content active">
@@ -657,8 +662,20 @@
             const sel = document.getElementById('city-select');
             const cityChanged = !!(s.city && sel && sel.value !== s.city);
             if (s.scope === 'all' || s.scope === 'bbox') _pendingScope = s.scope;
+            // Set the snapshot picker value BEFORE selectCity so its data
+            // fetches use the right snapshot. dataURL reads the picker live.
+            const snapEl = document.getElementById('snapshot-picker');
+            const targetSnap = s.snapshot == null ? '' : String(s.snapshot);
+            const snapshotChanged = !!(snapEl && snapEl.value !== targetSnap);
+            if (snapEl) snapEl.value = targetSnap;
             if (s.city) selectCity(s.city, { push: false });
             if (s.tab)  selectTab(s.tab,   { push: false });
+            // Snapshot-only change (no city change) needs an explicit reload —
+            // selectCity didn't fire so loadCityData/loadFinancials weren't called.
+            if (!cityChanged && snapshotChanged) {
+                loadCityData();
+                loadFinancials();
+            }
             // City change re-runs loadFinancials which consumes _pendingScope.
             // No city change → apply directly if the toggle is visible.
             if (!cityChanged && _pendingScope) {
@@ -670,6 +687,15 @@
                 }
             }
         });
+
+        // dataURL builds a /data/{file} request URL, appending ?snapshot=<id>
+        // if the snapshot-picker has a non-empty value. The picker only exists
+        // in live-server mode; in static export this returns the bare URL.
+        function dataURL(prefix, file) {
+            const sel = document.getElementById('snapshot-picker');
+            const snap = sel && sel.value ? sel.value : '';
+            return prefix + 'data/' + file + (snap ? '?snapshot=' + encodeURIComponent(snap) : '');
+        }
 
         // Single fetch wrapper: reports network/HTTP failures via the visible
         // error banner and console.error so a silent empty-chart never looks
@@ -843,7 +869,7 @@
 
             // Reload meta.json for stats panel
             {
-                const meta = await loadJSON(prefix + 'data/meta.json');
+                const meta = await loadJSON(dataURL(prefix, 'meta.json'));
                 if (meta) {
                     document.querySelector('#panel h2').textContent = meta.project_name;
                     const subtitleEl = document.querySelector('#panel .subtitle');
@@ -877,7 +903,7 @@
 
             // Load and render boundary polygon
             {
-                const data = await loadJSON(prefix + 'data/boundary.geojson');
+                const data = await loadJSON(dataURL(prefix, 'boundary.geojson'));
                 if (data) {
                     map.addSource('boundary', { type: 'geojson', data });
                     map.addLayer({
@@ -912,13 +938,13 @@
 
             // Load hex cost summary
             {
-                const cs = await loadJSON(prefix + 'data/hex-cost-summary.json');
+                const cs = await loadJSON(dataURL(prefix, 'hex-cost-summary.json'));
                 if (cs) costSummary = cs;
             }
 
             // Load hex grid
             {
-                const data = await loadJSON(prefix + 'data/hexgrid.geojson');
+                const data = await loadJSON(dataURL(prefix, 'hexgrid.geojson'));
                 if (data) {
                     if (data.features && data.features.length > 0) {
                         // Parse into per-type buckets
@@ -1048,6 +1074,11 @@
             const bboxParts = opt.dataset.bbox.split(',').map(Number);
             map.fitBounds([[bboxParts[1], bboxParts[0]], [bboxParts[3], bboxParts[2]]], { padding: 40 });
             document.querySelector('#panel h2').textContent = opt.textContent.trim();
+            // Snapshot ids are per-city. Reset the picker on city change so a
+            // stale id can't be sent against the new city's data endpoints.
+            const snapEl = document.getElementById('snapshot-picker');
+            if (snapEl) snapEl.value = '';
+            loadSnapshots(slug);
             loadCityData();
             loadFinancials();
             if (!opts || opts.push !== false) Router.push();
@@ -1055,6 +1086,51 @@
         const citySelect = document.getElementById('city-select');
         if (citySelect) {
             citySelect.addEventListener('change', () => selectCity(citySelect.value));
+        }
+
+        // Snapshot picker (live server only). loadSnapshots fetches the list
+        // for the current city and populates options; selectSnapshot is the
+        // counterpart of selectCity / selectTab / selectScope.
+        async function loadSnapshots(slug) {
+            const sel = document.getElementById('snapshot-picker');
+            if (!sel) return; // static export
+            const url = slug ? 'api/cities/' + slug + '/snapshots' : 'api/snapshots';
+            const list = await loadJSON(url);
+            if (!list || list.length === 0) {
+                sel.innerHTML = '<option value="">Latest (no snapshots)</option>';
+                return;
+            }
+            const fmt = (ts) => {
+                try { return new Date(ts).toISOString().slice(0, 16).replace('T', ' '); }
+                catch (e) { return ts; }
+            };
+            sel.innerHTML = '<option value="">Latest</option>' +
+                list.map(s => '<option value="' + s.id + '" title="' + (s.config_hash || '').slice(0, 12) + '">' + fmt(s.computed_at) + '</option>').join('');
+            // Restore from URL (covers initial load and bfcache restores).
+            const want = Router.read().snapshot;
+            if (want && list.some(s => String(s.id) === String(want))) {
+                sel.value = want;
+            }
+        }
+
+        function selectSnapshot(id, opts) {
+            const sel = document.getElementById('snapshot-picker');
+            if (!sel) return;
+            const target = id == null ? '' : String(id);
+            if (sel.value !== target) sel.value = target;
+            loadCityData();
+            loadFinancials();
+            if (!opts || opts.push !== false) Router.push();
+        }
+        const snapshotPicker = document.getElementById('snapshot-picker');
+        if (snapshotPicker) {
+            snapshotPicker.addEventListener('change', () => selectSnapshot(snapshotPicker.value));
+            // Initial fetch — uses the city already reflected in DATA_PREFIX,
+            // which the applyInitialState IIFE has already set from URL.
+            const initSlug = (typeof CITIES !== 'undefined' && CITIES.length > 0)
+                ? (document.getElementById('city-select')?.value || CITIES[0].slug)
+                : '';
+            loadSnapshots(initSlug);
         }
 
         // Financials
@@ -1409,7 +1485,7 @@
 
         async function loadFinancials() {
             const prefix = DATA_PREFIX; // snapshot to avoid mid-await mutation
-            scenarioData = await loadJSON(prefix + 'data/scenarios.json');
+            scenarioData = await loadJSON(dataURL(prefix, 'scenarios.json'));
             if (!scenarioData) {
                 document.getElementById('charts').innerHTML = '<div class="no-data">No financial data available. Run <code>pvmt forecast</code> and <code>pvmt export</code> first.</div>';
                 return;
@@ -1452,7 +1528,7 @@
 
             // Fetch per-city forecast seed for WASM interactive controls
             {
-                const seed = await loadJSON(prefix + 'data/forecast_seed.json');
+                const seed = await loadJSON(dataURL(prefix, 'forecast_seed.json'));
                 if (seed) {
                     FORECAST_SEED = seed;
                     syncPCISliderFromSeed();
@@ -1463,7 +1539,7 @@
 
             // Fetch forecast.json (used by scope toggle for static fallback)
             {
-                const f = await loadJSON(prefix + 'data/forecast.json');
+                const f = await loadJSON(dataURL(prefix, 'forecast.json'));
                 if (f) forecastData = f;
             }
         }
