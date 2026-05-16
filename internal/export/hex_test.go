@@ -7,12 +7,76 @@ import (
 	"testing"
 	"time"
 
+	"github.com/peterstace/simplefeatures/geom"
+
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 )
+
+// squareHex builds a geo.Hex whose Geom is an axis-aligned square of the
+// given side length anchored at the origin. Area == side*side, so tests can
+// hand-pick areas relative to the sliver threshold.
+func squareHex(t *testing.T, id string, side float64) geo.Hex {
+	t.Helper()
+	ring := geom.NewLineString(geom.NewSequence([]float64{
+		0, 0,
+		side, 0,
+		side, side,
+		0, side,
+		0, 0,
+	}, geom.DimXY))
+	poly := geom.NewPolygon([]geom.LineString{ring})
+	return geo.Hex{ID: id, Geom: poly.AsGeometry()}
+}
+
+// TestFilterHexSlivers_DropsBelowThreshold pins the heatmap contract: hexes
+// whose clipped area falls under minHexAreaSqM (100) are omitted from
+// hex.geojson; hexes ≥ the threshold are kept. The check is strict-less-than,
+// so a hex at exactly the threshold survives.
+//
+// Regression caught: flipping the comparator (< → <=), moving the threshold,
+// or skipping the filter entirely produces tile-edge slivers that render as
+// 100% coverage in the UI.
+func TestFilterHexSlivers_DropsBelowThreshold(t *testing.T) {
+	cases := []struct {
+		name string
+		side float64
+		keep bool
+	}{
+		{"sliver_below_threshold", 9, false}, // 81 sqm
+		{"at_threshold", 10, true},           // 100 sqm — boundary inclusive (< is strict)
+		{"above_threshold", 11, true},        // 121 sqm
+	}
+
+	var input []geo.Hex
+	wantIDs := map[string]bool{}
+	for _, tc := range cases {
+		input = append(input, squareHex(t, tc.name, tc.side))
+		if tc.keep {
+			wantIDs[tc.name] = true
+		}
+	}
+
+	got := filterHexSlivers(input, minHexAreaSqM)
+
+	gotIDs := map[string]bool{}
+	for _, h := range got {
+		gotIDs[h.ID] = true
+	}
+	for id := range wantIDs {
+		if !gotIDs[id] {
+			t.Errorf("hex %q was dropped; want kept", id)
+		}
+	}
+	for id := range gotIDs {
+		if !wantIDs[id] {
+			t.Errorf("hex %q was kept; want dropped", id)
+		}
+	}
+}
 
 // hexEntry builds a CityEntry whose ListHexStats returns rows from the given
 // map (keyed by full resource label, e.g. "roads" or "roads:city").

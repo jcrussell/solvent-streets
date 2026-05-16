@@ -310,21 +310,16 @@ func buildHexGeoJSONForSuffix(ctx context.Context, entry CityEntry, proj *geo.UT
 	hexes := geo.HexGrid(minX, minY, maxX, maxY, hexEdge)
 
 	hexes = clipHexGridToBoundary(ctx, hexes, entry, proj)
+	hexes = filterHexSlivers(hexes, minHexAreaSqM)
 
 	hexMap := make(map[string]*geo.Hex, len(hexes))
 	for i := range hexes {
 		hexMap[hexes[i].ID] = &hexes[i]
 	}
 
-	// Drop boundary slivers from the heatmap: a single feature inside a tiny
-	// clipped hex would render as 100% coverage and visually misrepresent the
-	// edge. Aggregate stats are unaffected — the filter sits here, not in
-	// ComputeHexStats, so pct_paved's numerator/denominator scope matches.
-	const minHexAreaSqM = 100.0
 	var features []map[string]any
 	for _, st := range allStats {
-		h, ok := hexMap[st.HexID]
-		if !ok || h.Geom.Area() < minHexAreaSqM {
+		if _, ok := hexMap[st.HexID]; !ok {
 			continue
 		}
 		if feat, ok := buildHexFeature(st, hexMap, proj); ok {
@@ -336,6 +331,26 @@ func buildHexGeoJSONForSuffix(ctx context.Context, entry CityEntry, proj *geo.UT
 		"type":     "FeatureCollection",
 		"features": features,
 	}
+}
+
+// minHexAreaSqM drops boundary slivers from the heatmap: a single feature
+// inside a tiny clipped hex would render as 100% coverage and visually
+// misrepresent the edge. The filter sits in BuildHexGeoJSONs, not in
+// ComputeHexStats, so pct_paved's numerator/denominator scope matches.
+const minHexAreaSqM = 100.0
+
+// filterHexSlivers drops hexes whose geometry area is below minArea sqm.
+// Used after clipHexGridToBoundary to skip the visual misrepresentation
+// that a fully-covered sliver hex would produce on the heatmap.
+func filterHexSlivers(hexes []geo.Hex, minArea float64) []geo.Hex {
+	kept := make([]geo.Hex, 0, len(hexes))
+	for _, h := range hexes {
+		if h.Geom.Area() < minArea {
+			continue
+		}
+		kept = append(kept, h)
+	}
+	return kept
 }
 
 func clipHexGridToBoundary(ctx context.Context, hexes []geo.Hex, entry CityEntry, proj *geo.UTMProjector) []geo.Hex {
