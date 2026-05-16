@@ -64,20 +64,22 @@ var methodologyMarkdown []byte
 // methodologyHTMLOnce lazily renders the embedded methodology markdown.
 // Lazy so that programs which import internal/export but never render
 // methodology (pvmt serve, pvmt forecast, most tests) don't pay the parse
-// cost and don't crash at init time if goldmark ever rejects the source.
-var methodologyHTMLOnce = sync.OnceValue(func() template.HTML {
+// cost. Returns an error instead of panicking so a malformed asset
+// surfaces through the caller's render pipeline rather than killing the
+// binary.
+var methodologyHTMLOnce = sync.OnceValues(func() (template.HTML, error) {
 	var buf bytes.Buffer
 	if err := goldmark.New().Convert(methodologyMarkdown, &buf); err != nil {
-		panic(fmt.Errorf("render methodology markdown: %w", err))
+		return "", fmt.Errorf("render methodology markdown: %w", err)
 	}
-	return template.HTML(buf.String())
+	return template.HTML(buf.String()), nil
 })
 
 // MethodologyHTML returns the rendered methodology prose. The source lives
 // in internal/export/docs/methodology.md; numeric model parameters (decay
 // rates, cost tiers) deliberately do not live there — they remain in the
 // forecast package and surface wherever they are actually used.
-func MethodologyHTML() template.HTML { return methodologyHTMLOnce() }
+func MethodologyHTML() (template.HTML, error) { return methodologyHTMLOnce() }
 
 //go:embed wasm/forecast.wasm
 var forecastWasm []byte
@@ -122,22 +124,19 @@ type TemplateData struct {
 	IsLiveServer bool
 }
 
-// resourceColorsJS is the pre-marshaled JSON of ResourceColors, computed at init time.
-var resourceColorsJS template.JS
-
-func init() {
-	data, err := json.Marshal(ResourceColors)
-	if err != nil {
-		// ResourceColors is a constant map[string]string — marshal cannot fail.
-		panic(fmt.Sprintf("marshal resource colors: %v", err))
-	}
-	resourceColorsJS = template.JS(data)
-}
+// resourceColorsJSOnce lazily marshals ResourceColors. Lazy so a binary
+// like `pvmt --version` that never touches the exporter doesn't pay
+// the marshal cost at import time. ResourceColors is a constant
+// map[string]string so the marshal cannot realistically fail; the
+// closure swallows the error for the same reason fmt.Sprintf does not
+// — the inputs are statically known.
+var resourceColorsJSOnce = sync.OnceValue(func() template.JS {
+	data, _ := json.Marshal(ResourceColors)
+	return template.JS(data)
+})
 
 // ResourceColorsJS returns ResourceColors as a template.JS JSON object.
-func ResourceColorsJS() template.JS {
-	return resourceColorsJS
-}
+func ResourceColorsJS() template.JS { return resourceColorsJSOnce() }
 
 type MetaJSON struct {
 	ProjectName   string     `json:"project_name"`
@@ -698,7 +697,7 @@ type ForecastSeedJSON struct {
 }
 
 // BuildForecastSeed constructs a ForecastSeedJSON for the given forecast config and store.
-func BuildForecastSeed(ctx context.Context, fc *config.ForecastConfig, store db.Store) template.JS {
+func BuildForecastSeed(ctx context.Context, fc *config.ForecastConfig, store db.Store) (template.JS, error) {
 	costTiers := ConvertCostTiers(fc)
 	if len(costTiers) == 0 {
 		costTiers = forecast.DefaultCostTiers
@@ -752,10 +751,9 @@ func BuildForecastSeed(ctx context.Context, fc *config.ForecastConfig, store db.
 	}
 	data, err := json.Marshal(seed)
 	if err != nil {
-		// ForecastSeedJSON is built from simple Go types; marshal should not fail.
-		panic(fmt.Sprintf("marshal forecast seed: %v", err))
+		return "", fmt.Errorf("marshal forecast seed: %w", err)
 	}
-	return template.JS(data)
+	return template.JS(data), nil
 }
 
 // BuildMultiCityMeta aggregates each sub-city's per-resource compute results
@@ -898,7 +896,7 @@ func regionBBox(ctx context.Context, entries []CityEntry) ([4]float64, bool) {
 // Cohort areas are summed across cities for each (resource_type, classification)
 // pair — cross-resource collisions stay as separate cohorts to match the
 // single-city collectCohortSeeds shape.
-func BuildMultiCityForecastSeed(ctx context.Context, fc *config.ForecastConfig, entries []CityEntry) template.JS {
+func BuildMultiCityForecastSeed(ctx context.Context, fc *config.ForecastConfig, entries []CityEntry) (template.JS, error) {
 	costTiers := ConvertCostTiers(fc)
 	if len(costTiers) == 0 {
 		costTiers = forecast.DefaultCostTiers
@@ -927,9 +925,9 @@ func BuildMultiCityForecastSeed(ctx context.Context, fc *config.ForecastConfig, 
 	}
 	data, err := json.Marshal(seed)
 	if err != nil {
-		panic(fmt.Sprintf("marshal multi-city forecast seed: %v", err))
+		return "", fmt.Errorf("marshal multi-city forecast seed: %w", err)
 	}
-	return template.JS(data)
+	return template.JS(data), nil
 }
 
 // entryAreaWithFallback reads the combined row for a single entry; if absent,
@@ -1111,7 +1109,10 @@ func (e *Exporter) runSingleCity(ctx context.Context) error {
 	}
 
 	fc := e.cfg.ResolvedForecast(&entry.City)
-	seed := BuildForecastSeed(ctx, &fc, entry.Store)
+	seed, err := BuildForecastSeed(ctx, &fc, entry.Store)
+	if err != nil {
+		return err
+	}
 	meta, err := BuildMeta(ctx, entry)
 	if err != nil {
 		return err
@@ -1165,7 +1166,10 @@ func (e *Exporter) runMultiCity(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	seed := BuildMultiCityForecastSeed(ctx, &fc, e.entries)
+	seed, err := BuildMultiCityForecastSeed(ctx, &fc, e.entries)
+	if err != nil {
+		return err
+	}
 
 	var rawTOML string
 	if e.cfg.SourcePath != "" {
@@ -1232,7 +1236,10 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 
 	// Export forecast seed for interactive WASM controls (per-city)
 	forecastCfg := entry.Config.ResolvedForecast(&entry.City)
-	seed := BuildForecastSeed(ctx, &forecastCfg, entry.Store)
+	seed, err := BuildForecastSeed(ctx, &forecastCfg, entry.Store)
+	if err != nil {
+		return fmt.Errorf("build forecast seed: %w", err)
+	}
 	if err := os.WriteFile(filepath.Join(dataDir, "forecast_seed.json"), []byte(seed), 0o644); err != nil {
 		return fmt.Errorf("write forecast_seed.json: %w", err)
 	}
@@ -1365,12 +1372,16 @@ func RenderLandingPage(outputDir string, examples []ExampleInfo) (err error) {
 		}
 	}()
 
+	methodology, err := MethodologyHTML()
+	if err != nil {
+		return fmt.Errorf("render methodology: %w", err)
+	}
 	return tmpl.Execute(f, struct {
 		Examples        []ExampleInfo
 		MethodologyHTML template.HTML
 	}{
 		Examples:        examples,
-		MethodologyHTML: MethodologyHTML(),
+		MethodologyHTML: methodology,
 	})
 }
 
@@ -1452,6 +1463,10 @@ func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolved
 		}
 	}()
 
+	methodology, err := MethodologyHTML()
+	if err != nil {
+		return fmt.Errorf("render methodology: %w", err)
+	}
 	td := TemplateData{
 		MetaJSON:        meta,
 		ForecastSeed:    seed,
@@ -1461,7 +1476,7 @@ func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolved
 		UnitSystem:      unitSystem,
 		Cities:          cities,
 		WasmPrefix:      e.wasmPrefix,
-		MethodologyHTML: MethodologyHTML(),
+		MethodologyHTML: methodology,
 	}
 	return tmpl.Execute(f, td)
 }

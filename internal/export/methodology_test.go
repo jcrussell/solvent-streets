@@ -34,7 +34,11 @@ var forbiddenHTML = []string{
 }
 
 func TestMethodologyHasNoRawHTML(t *testing.T) {
-	rendered := strings.ToLower(string(MethodologyHTML()))
+	html, err := MethodologyHTML()
+	if err != nil {
+		t.Fatalf("MethodologyHTML: %v", err)
+	}
+	rendered := strings.ToLower(string(html))
 	for _, s := range forbiddenHTML {
 		if strings.Contains(rendered, s) {
 			t.Errorf("rendered methodology contains forbidden substring %q", s)
@@ -45,12 +49,16 @@ func TestMethodologyHasNoRawHTML(t *testing.T) {
 func TestLandingMethodologyRenders(t *testing.T) {
 	tmpl := parseLandingTemplates(t)
 
+	methodology, err := MethodologyHTML()
+	if err != nil {
+		t.Fatalf("MethodologyHTML: %v", err)
+	}
 	var buf bytes.Buffer
 	data := struct {
 		Examples        []ExampleInfo
 		MethodologyHTML template.HTML
 	}{
-		MethodologyHTML: MethodologyHTML(),
+		MethodologyHTML: methodology,
 	}
 	if err := tmpl.Execute(&buf, data); err != nil {
 		t.Fatalf("execute landing: %v", err)
@@ -69,8 +77,12 @@ func TestLandingMethodologyRenders(t *testing.T) {
 func TestDashboardMethodologyRenders(t *testing.T) {
 	tmpl := parseDashboardTemplates(t)
 
+	methodology, err := MethodologyHTML()
+	if err != nil {
+		t.Fatalf("MethodologyHTML: %v", err)
+	}
 	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, TemplateData{MethodologyHTML: MethodologyHTML()}); err != nil {
+	if err := tmpl.Execute(&buf, TemplateData{MethodologyHTML: methodology}); err != nil {
 		t.Fatalf("execute index: %v", err)
 	}
 	out := buf.String()

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"slices"
 	"testing"
+	"testing/fstest"
 )
 
 // TestColdMigration_SchemaShape pins the deployment-correctness contract: a
@@ -212,4 +213,46 @@ func listIndexes(t *testing.T, ctx context.Context, d *sql.DB, table string) []s
 		t.Fatalf("iterate indexes: %v", err)
 	}
 	return names
+}
+
+// TestMigrateFS_AcceptsCustomFS verifies the byob-interfaces.3 seam:
+// migrateFS reads SQL from any fs.FS, so tests can drive migration
+// scenarios via fstest.MapFS without touching disk or the embedded
+// production migrations. The production migrate() wraps migrateFS
+// with the embedded set; this test pins that the seam works.
+func TestMigrateFS_AcceptsCustomFS(t *testing.T) {
+	ctx := context.Background()
+
+	mapFS := fstest.MapFS{
+		"mig/001_init.sql": &fstest.MapFile{
+			Data: []byte(`CREATE TABLE t (id INTEGER PRIMARY KEY);`),
+		},
+		"mig/002_add.sql": &fstest.MapFile{
+			Data: []byte(`ALTER TABLE t ADD COLUMN name TEXT;`),
+		},
+		"mig/notes.txt": &fstest.MapFile{Data: []byte("ignored")},
+	}
+
+	d, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Close() })
+
+	if err := migrateFS(ctx, d, mapFS, "mig"); err != nil {
+		t.Fatalf("migrateFS: %v", err)
+	}
+
+	var version int
+	if err := d.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
+		t.Fatalf("schema_version: %v", err)
+	}
+	if version != 2 {
+		t.Errorf("schema_version = %d, want 2 (notes.txt should be skipped)", version)
+	}
+
+	// Idempotent: a second run with the same FS is a no-op.
+	if err := migrateFS(ctx, d, mapFS, "mig"); err != nil {
+		t.Fatalf("migrateFS idempotent run: %v", err)
+	}
 }

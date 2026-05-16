@@ -68,15 +68,25 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	seed, err := export.BuildForecastSeed(ctx, &fc, entry.Store)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	methodology, err := export.MethodologyHTML()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	td := export.TemplateData{
 		MetaJSON:        meta,
-		ForecastSeed:    export.BuildForecastSeed(ctx, &fc, entry.Store),
+		ForecastSeed:    seed,
 		LayerColors:     export.ResourceColorsJS(),
 		RawTOML:         rawTOML,
 		ResolvedTOML:    export.ResolvedTOML(entry.Config),
 		UnitSystem:      entry.Config.UnitSystem().String(),
 		Cities:          cities,
-		MethodologyHTML: export.MethodologyHTML(),
+		MethodologyHTML: methodology,
 		IsLiveServer:    true,
 	}
 
@@ -404,7 +414,11 @@ func (s *Server) serveBoundaryGeoJSON(w http.ResponseWriter, _ *http.Request, en
 func (s *Server) serveForecastSeed(w http.ResponseWriter, _ *http.Request, entry export.CityEntry, snapshotID int64) {
 	s.serveJSONCached(w, cacheKey("seed", entry.Slug, snapshotID), func() (any, error) {
 		fc := entry.Config.ResolvedForecast(&entry.City)
-		return json.RawMessage(export.BuildForecastSeed(context.Background(), &fc, entry.Store)), nil
+		seed, err := export.BuildForecastSeed(context.Background(), &fc, entry.Store)
+		if err != nil {
+			return nil, err
+		}
+		return json.RawMessage(seed), nil
 	})
 }
 
