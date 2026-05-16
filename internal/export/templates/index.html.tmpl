@@ -118,19 +118,23 @@
 
         /* Financials tab */
         .financials { padding: 24px; max-width: 1200px; margin: 0 auto; overflow-y: auto; height: 100%; }
+        /* Lives in the header bar so the active scope is visible from every
+           tab (map, financials, compare, config). Tight padding + smaller
+           font to fit alongside city-select and snapshot-picker. */
         .jurisdiction-toggle {
             display: flex;
-            gap: 8px;
-            margin-bottom: 20px;
+            gap: 4px;
+            align-self: center;
+            margin-right: 16px;
         }
         .jurisdiction-toggle button {
-            padding: 8px 20px;
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            background: var(--panel);
+            padding: 4px 10px;
+            border: 1px solid var(--header-muted);
+            border-radius: 4px;
+            background: var(--header-bg);
             cursor: pointer;
-            font-size: 14px;
-            color: var(--text-muted);
+            font-size: 13px;
+            color: var(--header-fg);
             transition: all 0.15s;
         }
         .jurisdiction-toggle button.active {
@@ -396,6 +400,10 @@
             {{end}}
         </select>
         {{end}}
+        <div class="jurisdiction-toggle" id="scope-toggle" style="display:none">
+            <button class="active" data-scope="city">City Roads Only</button>
+            <button data-scope="bbox">All Roads</button>
+        </div>
         {{if .IsLiveServer}}
         <select id="snapshot-picker" title="Historical compute snapshot" style="{{if not .Cities}}margin-left:auto;{{end}}margin-right:16px;align-self:center;background:var(--header-bg);color:var(--header-fg);border:1px solid var(--header-muted);border-radius:4px;padding:4px 8px;font-size:14px;cursor:pointer;">
             <option value="">Latest</option>
@@ -463,10 +471,6 @@
 
     <div id="financials-tab" class="tab-content">
         <div class="financials">
-            <div class="jurisdiction-toggle" id="scope-toggle" style="display:none">
-                <button class="active" data-scope="all">City Roads Only</button>
-                <button data-scope="bbox">All Roads</button>
-            </div>
             <div class="scope-annotation" id="scope-annotation"></div>
             <div class="headlines" id="headlines" style="display:none">
                 <div class="headline-card">
@@ -602,10 +606,15 @@
         const Router = {
             read() {
                 const p = new URLSearchParams(location.search);
+                // Legacy: the internal scope key was renamed from "all" to "city"
+                // so the internal noun matches the "City Roads Only" toggle label.
+                // Old bookmarks (?scope=all) still resolve correctly.
+                let scope = p.get('scope');
+                if (scope === 'all') scope = 'city';
                 return {
                     city:     p.get('city'),
                     tab:      p.get('tab'),
-                    scope:    p.get('scope'),
+                    scope:    scope,
                     snapshot: p.get('snapshot'),
                 };
             },
@@ -634,12 +643,13 @@
             },
         };
 
-        // Pending scope from URL — applied once loadFinancials reveals the
-        // scope toggle (the toggle is data-driven, hidden until scenarios.json
-        // has both 'all' and 'bbox' keys).
-        let _pendingScope = null;
+        // Scope state. Declared above applyInitialState so the URL-state IIFE
+        // can read/write it before the map state block runs.
+        let currentScope = 'city';
 
         // Apply URL state synchronously, before first render, to avoid flicker.
+        // currentScope is set here (default 'city') and is the sole source of
+        // truth thereafter — selectScope is the only function that changes it.
         (function applyInitialState() {
             const init = Router.read();
             if (init.city && CITIES.some(c => c.slug === init.city)) {
@@ -651,23 +661,31 @@
                 document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === init.tab));
                 document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === init.tab));
             }
-            if (init.scope === 'all' || init.scope === 'bbox') {
-                _pendingScope = init.scope;
+            if (init.scope === 'city' || init.scope === 'bbox') {
+                currentScope = init.scope;
+                document.querySelectorAll('#scope-toggle button').forEach(b =>
+                    b.classList.toggle('active', b.dataset.scope === currentScope));
             }
             history.replaceState(Router.current(), '');
         })();
 
         window.addEventListener('popstate', (e) => {
             const s = e.state || Router.read();
+            // Legacy bookmark / persisted state may still carry "all".
+            if (s.scope === 'all') s.scope = 'city';
             const sel = document.getElementById('city-select');
             const cityChanged = !!(s.city && sel && sel.value !== s.city);
-            if (s.scope === 'all' || s.scope === 'bbox') _pendingScope = s.scope;
             // Set the snapshot picker value BEFORE selectCity so its data
             // fetches use the right snapshot. dataURL reads the picker live.
             const snapEl = document.getElementById('snapshot-picker');
             const targetSnap = s.snapshot == null ? '' : String(s.snapshot);
             const snapshotChanged = !!(snapEl && snapEl.value !== targetSnap);
             if (snapEl) snapEl.value = targetSnap;
+            // Update currentScope from URL state before kicking off reloads
+            // (selectCity → loadCityData → buildBlendedHexFC reads currentScope).
+            if (s.scope === 'city' || s.scope === 'bbox') currentScope = s.scope;
+            document.querySelectorAll('#scope-toggle button').forEach(b =>
+                b.classList.toggle('active', b.dataset.scope === currentScope));
             if (s.city) selectCity(s.city, { push: false });
             if (s.tab)  selectTab(s.tab,   { push: false });
             // Snapshot-only change (no city change) needs an explicit reload —
@@ -676,15 +694,10 @@
                 loadCityData();
                 loadFinancials();
             }
-            // City change re-runs loadFinancials which consumes _pendingScope.
-            // No city change → apply directly if the toggle is visible.
-            if (!cityChanged && _pendingScope) {
-                const scopeEl = document.getElementById('scope-toggle');
-                if (scopeEl && scopeEl.style.display !== 'none') {
-                    const pending = _pendingScope;
-                    _pendingScope = null;
-                    selectScope(pending, { push: false });
-                }
+            // No city or snapshot change → the underlying data didn't reload,
+            // but currentScope did change. Repaint via selectScope.
+            if (!cityChanged && !snapshotChanged) {
+                selectScope(currentScope, { push: false });
             }
         });
 
@@ -701,11 +714,16 @@
         // error banner and console.error so a silent empty-chart never looks
         // like "still loading" (solvent-streets-y68). Returns parsed JSON on
         // success, or null on failure — callers fall back gracefully.
-        async function loadJSON(url) {
+        // opts.silent404 swallows a 404 without surfacing — used for the
+        // hexgrid-city file, which is legitimately absent for cities that
+        // haven't been recomputed since :city-scope hex tracking landed.
+        async function loadJSON(url, opts) {
             try {
                 const resp = await fetch(url);
                 if (!resp.ok) {
-                    showLoadError(url, 'HTTP ' + resp.status);
+                    if (!(opts && opts.silent404 && resp.status === 404)) {
+                        showLoadError(url, 'HTTP ' + resp.status);
+                    }
                     return null;
                 }
                 return await resp.json();
@@ -787,9 +805,13 @@
         });
         window._map = map;
 
-        // Hex interactivity state
-        let hexDataByType = {};   // { roads: [...features], parking: [...features] }
-        let costSummary = {};     // { roads: {year1_cost, total_area_sqm}, ... }
+        // Hex interactivity state. Scope-keyed so the same map view can
+        // repaint between city-only and full-bbox without re-fetching;
+        // currentScope (declared above applyInitialState) is the single
+        // source of truth for which bucket buildBlendedHexFC / the click
+        // handler read from.
+        let hexDataByScope = { city: {}, bbox: {} };       // { scope: { type: [features] } }
+        let costSummaryByScope = { city: {}, bbox: {} };   // { scope: { type: {year1_cost,total_area_sqm} } }
         let activeTypes = new Set(Object.keys(layerColors));
         let savedPanelHTML = '';
 
@@ -803,9 +825,14 @@
             return '$' + Math.round(n).toLocaleString();
         }
 
-        // Build blended hex FeatureCollection from active types
-        function buildBlendedHexFC(hexDataByType, activeTypes, costSummary) {
-            // Group all features by hex_id, only from active types
+        // Build a blended hex FeatureCollection from the active resource
+        // types under the current scope. Reads module state (currentScope,
+        // hexDataByScope, costSummaryByScope, activeTypes) — no params, so
+        // the scope-swap path (selectScope → updateHexGrid) and the
+        // type-toggle path (checkbox → updateHexGrid) share one call site.
+        function buildBlendedHexFC() {
+            const hexDataByType = hexDataByScope[currentScope] || {};
+            const costSummary = costSummaryByScope[currentScope] || {};
             const byHex = {};
             for (const type of activeTypes) {
                 const features = hexDataByType[type] || [];
@@ -819,7 +846,6 @@
                 }
             }
 
-            // Compute est_cost per hex
             for (const type of activeTypes) {
                 const cs = costSummary[type];
                 if (!cs || !cs.total_area_sqm) continue;
@@ -850,8 +876,7 @@
         function updateHexGrid() {
             const src = map.getSource('hexgrid');
             if (!src) return;
-            const fc = buildBlendedHexFC(hexDataByType, activeTypes, costSummary);
-            src.setData(fc);
+            src.setData(buildBlendedHexFC());
         }
 
         async function loadCityData() {
@@ -863,8 +888,8 @@
             ['hexgrid', 'boundary'].concat(Object.keys(layerColors)).forEach(id => {
                 if (map.getSource(id)) map.removeSource(id);
             });
-            hexDataByType = {};
-            costSummary = {};
+            hexDataByScope = { city: {}, bbox: {} };
+            costSummaryByScope = { city: {}, bbox: {} };
             activeTypes = new Set(Object.keys(layerColors));
 
             // Reload meta.json for stats panel
@@ -936,27 +961,70 @@
                 toggles += '<label><input type="checkbox" checked data-layers="" data-type="' + type + '"><span class="legend-dot" style="background:' + layerColors[type] + '"></span>' + type + '</label>';
             }
 
-            // Load hex cost summary
+            // Load hex cost summary. Server emits map[scope]map[resource]{...};
+            // an older server may still emit the flat map[resource]{...}, in
+            // which case treat the whole object as the bbox-scope view so the
+            // map still paints.
             {
                 const cs = await loadJSON(dataURL(prefix, 'hex-cost-summary.json'));
-                if (cs) costSummary = cs;
+                if (cs) {
+                    if (cs.city || cs.bbox) {
+                        costSummaryByScope.city = cs.city || {};
+                        costSummaryByScope.bbox = cs.bbox || {};
+                    } else {
+                        costSummaryByScope.bbox = cs;
+                    }
+                }
             }
 
-            // Load hex grid
+            // Load hex grid — one file per scope. The bbox file is always
+            // present when any hex_stats rows exist; the city file is absent
+            // for legacy projects without :city compute rows (the absence
+            // gates the scope-toggle's visibility).
+            // hexgrid-bbox is required when any hex data exists. hexgrid-city
+            // is legitimately absent for legacy cities — pass silent404 so a
+            // missing file is treated as "no city-scope data" rather than an
+            // error surfaced to the user.
+            const hexFiles = [
+                ['bbox', 'hexgrid-bbox.geojson', false],
+                ['city', 'hexgrid-city.geojson', true],
+            ];
+            const hexResponses = await Promise.all(
+                hexFiles.map(([, file, silent]) => loadJSON(dataURL(prefix, file), { silent404: silent }))
+            );
+            for (let i = 0; i < hexFiles.length; i++) {
+                const [scope] = hexFiles[i];
+                const data = hexResponses[i];
+                if (!data || !data.features) continue;
+                for (const f of data.features) {
+                    const rt = f.properties.resource_type || 'unknown';
+                    if (!hexDataByScope[scope][rt]) hexDataByScope[scope][rt] = [];
+                    hexDataByScope[scope][rt].push(f);
+                }
+            }
+
+            // Fall back if currentScope's data is empty. The button state
+            // and URL are kept in sync via selectScope (don't push, this is
+            // an internal repair, not a user action).
+            const cityEmpty = Object.keys(hexDataByScope.city).length === 0;
+            const bboxEmpty = Object.keys(hexDataByScope.bbox).length === 0;
+            if (currentScope === 'city' && cityEmpty && !bboxEmpty) {
+                currentScope = 'bbox';
+                document.querySelectorAll('#scope-toggle button').forEach(b =>
+                    b.classList.toggle('active', b.dataset.scope === currentScope));
+            } else if (currentScope === 'bbox' && bboxEmpty && !cityEmpty) {
+                currentScope = 'city';
+                document.querySelectorAll('#scope-toggle button').forEach(b =>
+                    b.classList.toggle('active', b.dataset.scope === currentScope));
+            }
+            maybeRevealScopeToggle();
+
             {
-                const data = await loadJSON(dataURL(prefix, 'hexgrid.geojson'));
-                if (data) {
-                    if (data.features && data.features.length > 0) {
-                        // Parse into per-type buckets
-                        for (const f of data.features) {
-                            const rt = f.properties.resource_type || 'unknown';
-                            if (!hexDataByType[rt]) hexDataByType[rt] = [];
-                            hexDataByType[rt].push(f);
-                        }
-
-                        // Build initial blended FC
-                        const blended = buildBlendedHexFC(hexDataByType, activeTypes, costSummary);
-
+                const haveAnyHex = Object.keys(hexDataByScope.city).length > 0 ||
+                                    Object.keys(hexDataByScope.bbox).length > 0;
+                if (haveAnyHex) {
+                    {
+                        const blended = buildBlendedHexFC();
                         map.addSource('hexgrid', { type: 'geojson', data: blended });
                         map.addLayer({
                             id: 'hex-fill', type: 'fill', source: 'hexgrid',
@@ -1004,7 +1072,11 @@
                                 savedPanelHTML = statsEl.innerHTML;
                             }
 
-                            // Build per-type breakdown
+                            // Build per-type breakdown — read from the active
+                            // scope's buckets so the click panel matches what
+                            // the user just saw on the heatmap.
+                            const hexDataByType = hexDataByScope[currentScope] || {};
+                            const costSummary = costSummaryByScope[currentScope] || {};
                             let rows = '';
                             let totalArea = 0, totalPct = 0, totalCost = 0;
                             for (const type of Object.keys(layerColors)) {
@@ -1491,32 +1563,34 @@
                 return;
             }
 
-            // Handle both old (array) and new (object with all/city keys) formats
+            // Normalize legacy formats so the rest of the function only
+            // sees {city, bbox, summary?}: an array → single-scope bbox;
+            // an object with the old "all" key → rename to "city".
             if (Array.isArray(scenarioData)) {
-                scenarioData = { all: scenarioData };
-            } else if (scenarioData.bbox) {
-                document.getElementById('scope-toggle').style.display = 'flex';
+                scenarioData = { bbox: scenarioData };
+            } else if (scenarioData.all && !scenarioData.city) {
+                scenarioData.city = scenarioData.all;
+                delete scenarioData.all;
             }
-
-            // Consume any URL-derived pending scope now that the toggle's
-            // visibility is settled. Falls back to 'all' if the pending value
-            // isn't supported by this city's scenarios.
-            let initialScope = 'all';
-            if (_pendingScope === 'all' || (_pendingScope === 'bbox' && scenarioData.bbox)) {
-                initialScope = _pendingScope;
+            // Fall back if currentScope is unsupported by the loaded
+            // scenarios (e.g. URL said scope=city but this city only has
+            // bbox data). Mirrors the same repair in loadCityData.
+            if (currentScope === 'city' && !scenarioData.city && scenarioData.bbox) {
+                currentScope = 'bbox';
+            } else if (currentScope === 'bbox' && !scenarioData.bbox && scenarioData.city) {
+                currentScope = 'city';
             }
-            _pendingScope = null;
-            if (initialScope !== 'all') {
-                document.querySelectorAll('#scope-toggle button').forEach(b => b.classList.toggle('active', b.dataset.scope === initialScope));
-            }
-            const scenarios = scenarioData[initialScope] || scenarioData.all;
+            document.querySelectorAll('#scope-toggle button').forEach(b =>
+                b.classList.toggle('active', b.dataset.scope === currentScope));
+            maybeRevealScopeToggle();
+            const scenarios = scenarioData[currentScope] || scenarioData.city || scenarioData.bbox;
 
             if (!scenarios || scenarios.length === 0) {
                 document.getElementById('charts').innerHTML = '<div class="no-data">No scenario data found.</div>';
                 return;
             }
 
-            renderFinancials(scenarios, initialScope);
+            renderFinancials(scenarios, currentScope);
 
             // Update headline tiles from baseline scenario (works without WASM)
             const baseline = scenarios.find(s =>
@@ -1544,25 +1618,57 @@
             }
         }
 
-        // Scope toggle handler
+        // Reveal the scope toggle only when BOTH city and bbox data are
+        // detectable in at least one data source (hex grid or scenarios).
+        // Idempotent — both loaders call this after their fetches settle.
+        function maybeRevealScopeToggle() {
+            const haveHexCity = hexDataByScope.city && Object.keys(hexDataByScope.city).length > 0;
+            const haveHexBbox = hexDataByScope.bbox && Object.keys(hexDataByScope.bbox).length > 0;
+            const haveScenCity = !!(scenarioData && scenarioData.city);
+            const haveScenBbox = !!(scenarioData && scenarioData.bbox);
+            const haveCity = haveHexCity || haveScenCity;
+            const haveBbox = haveHexBbox || haveScenBbox;
+            document.getElementById('scope-toggle').style.display =
+                (haveCity && haveBbox) ? 'flex' : 'none';
+        }
+
+        // Render the cohort breakdown from the scope-appropriate forecast
+        // baseline. Extracted so selectScope can call it without duplicating
+        // the bbox/city baseline-picking logic.
+        function renderCohortFromForecast(scope) {
+            if (!forecastData) return;
+            const roads = forecastData.find(f => f.resource_type === 'roads');
+            const src = (scope === 'bbox' && roads && roads.bbox_baseline) ? roads.bbox_baseline : (roads && roads.baseline);
+            if (src && src.final_cohorts && src.final_cohorts.length > 1) {
+                renderCohortBreakdown(src.final_cohorts);
+            } else {
+                document.getElementById('cohort-section').style.display = 'none';
+            }
+        }
+
+        // Single fan-out for a scope change. Updates currentScope, the
+        // toggle DOM state, the map heatmap, the financials view, and the
+        // URL — every other code path (button click, popstate, internal
+        // fallback) goes through here so the four views never drift apart.
         function selectScope(scope, opts) {
             const btn = document.querySelector('#scope-toggle button[data-scope="' + scope + '"]');
             if (!btn) return;
-            document.querySelectorAll('#scope-toggle button').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            const scenarios = scenarioData[scope] || scenarioData.all;
-            renderFinancials(scenarios, scope);
-            if (wasmReady) {
-                runCustomScenario();
-            } else if (forecastData) {
-                const roads = forecastData.find(f => f.resource_type === 'roads');
-                const src = (scope === 'bbox' && roads && roads.bbox_baseline) ? roads.bbox_baseline : (roads && roads.baseline);
-                if (src && src.final_cohorts && src.final_cohorts.length > 1) {
-                    renderCohortBreakdown(src.final_cohorts);
+            currentScope = scope;
+            document.querySelectorAll('#scope-toggle button').forEach(b =>
+                b.classList.toggle('active', b.dataset.scope === scope));
+
+            updateHexGrid();
+
+            if (scenarioData) {
+                const scenarios = scenarioData[scope] || scenarioData.city || scenarioData.bbox;
+                if (scenarios) renderFinancials(scenarios, scope);
+                if (wasmReady) {
+                    runCustomScenario();
                 } else {
-                    document.getElementById('cohort-section').style.display = 'none';
+                    renderCohortFromForecast(scope);
                 }
             }
+
             if (!opts || opts.push !== false) Router.push();
         }
         document.querySelectorAll('#scope-toggle button').forEach(btn => {

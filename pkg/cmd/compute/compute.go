@@ -381,8 +381,19 @@ func (c *computer) processCityResults(ctx context.Context, parts map[filter.Juri
 	cityStats := geo.ComputeHexStats(ctx, clippedHexes, cityIdx, c.opts.ResourceType.Name()+":city", nil)
 
 	var cityAreaSqM float64
-	for _, s := range cityStats {
+	cityDBStats := make([]db.HexStat, len(cityStats))
+	for i, s := range cityStats {
 		cityAreaSqM += s.AreaSqM
+		cityDBStats[i] = db.HexStat{
+			HexID:        s.HexID,
+			ResourceType: s.ResourceType,
+			AreaSqM:      s.AreaSqM,
+			PctCovered:   s.PctCovered,
+			SnapshotID:   c.snapshotID,
+		}
+	}
+	if err := c.store.SaveHexStats(ctx, cityDBStats); err != nil {
+		fmt.Fprintf(c.errOut, "Warning: failed to save city hex stats: %v\n", err)
 	}
 
 	cityResult := db.ComputeResult{
