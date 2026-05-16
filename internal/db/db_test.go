@@ -55,6 +55,132 @@ func TestStoreRoundTrip(t *testing.T) {
 	}
 }
 
+// TestSnapshotPinningAcrossResultTables exercises the append-only Save methods
+// + WithSnapshot read filtering across compute_results, hex_stats, cohort_stats,
+// and forecast_results. Two distinct snapshots coexist; reads pinned to each
+// id see only that snapshot's rows.
+func TestSnapshotPinningAcrossResultTables(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+
+	snap1, err := store.CreateSnapshot(ctx, "hash-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap2, err := store.CreateSnapshot(ctx, "hash-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, snap := range []*Snapshot{snap1, snap2} {
+		id := snap.ID
+		if err := store.SaveComputeResult(ctx, ComputeResult{
+			ResourceType: "roads", TotalAreaSqM: float64(id * 100), FeatureCount: int(id), SnapshotID: &id,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.SaveHexStats(ctx, []HexStat{
+			{HexID: "h1", ResourceType: "roads", AreaSqM: float64(id * 10), PctCovered: 0.5, SnapshotID: &id},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.SaveCohortStats(ctx, []CohortStat{
+			{ResourceType: "roads", Classification: "primary", AreaSqM: float64(id * 1000), FeatureCount: 1, SnapshotID: &id},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.SaveForecastResults(ctx, []ForecastResult{
+			{ResourceType: "roads", Year: 2026, PCI: float64(id * 10), AreaSqM: 100, TreatmentCost: 200, TreatmentTier: "preventive", SnapshotID: &id},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Unpinned: latest overall wins for the single-row reads, and the list
+	// reads return rows from both snapshots.
+	latest, err := store.LatestComputeResult(ctx, "roads")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest.TotalAreaSqM != float64(snap2.ID*100) {
+		t.Errorf("unpinned latest: expected snap2 area, got %v", latest.TotalAreaSqM)
+	}
+	hexAll, _ := store.ListHexStats(ctx, "roads")
+	if len(hexAll) != 2 {
+		t.Errorf("unpinned hex_stats: expected 2 rows across snapshots, got %d", len(hexAll))
+	}
+
+	// Pinned to snap1.
+	pinned1 := store.WithSnapshot(snap1.ID)
+	cr1, err := pinned1.LatestComputeResult(ctx, "roads")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cr1.TotalAreaSqM != float64(snap1.ID*100) {
+		t.Errorf("pinned snap1: expected %v area, got %v", snap1.ID*100, cr1.TotalAreaSqM)
+	}
+	hex1, _ := pinned1.ListHexStats(ctx, "roads")
+	if len(hex1) != 1 || hex1[0].AreaSqM != float64(snap1.ID*10) {
+		t.Errorf("pinned snap1 hex: want 1 row with area %v, got %+v", snap1.ID*10, hex1)
+	}
+	cohort1, _ := pinned1.ListCohortStats(ctx, "roads")
+	if len(cohort1) != 1 || cohort1[0].AreaSqM != float64(snap1.ID*1000) {
+		t.Errorf("pinned snap1 cohort: want 1 row with area %v, got %+v", snap1.ID*1000, cohort1)
+	}
+	fc1, _ := pinned1.ListForecastResults(ctx, "roads")
+	if len(fc1) != 1 || fc1[0].PCI != float64(snap1.ID*10) {
+		t.Errorf("pinned snap1 forecast: want 1 row with pci %v, got %+v", snap1.ID*10, fc1)
+	}
+
+	// Pinned to snap2 sees only snap2's row.
+	pinned2 := store.WithSnapshot(snap2.ID)
+	cr2, err := pinned2.LatestComputeResult(ctx, "roads")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cr2.TotalAreaSqM != float64(snap2.ID*100) {
+		t.Errorf("pinned snap2: expected %v area, got %v", snap2.ID*100, cr2.TotalAreaSqM)
+	}
+}
+
+// TestResolveSnapshot verifies city-scoped existence checks and the error
+// shape the server handler relies on for 404 mapping.
+func TestResolveSnapshot(t *testing.T) {
+	ctx := context.Background()
+	root, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+
+	idA, _ := root.EnsureCity(ctx, "a", "A")
+	idB, _ := root.EnsureCity(ctx, "b", "B")
+	storeA := root.ForCity(idA)
+	storeB := root.ForCity(idB)
+
+	snapA, err := storeA.CreateSnapshot(ctx, "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// City A sees its own snapshot.
+	if err := storeA.ResolveSnapshot(ctx, snapA.ID); err != nil {
+		t.Errorf("ResolveSnapshot on owning city: %v", err)
+	}
+	// City B does not — snapshot belongs to city A.
+	if err := storeB.ResolveSnapshot(ctx, snapA.ID); err == nil {
+		t.Errorf("ResolveSnapshot across cities should fail, got nil")
+	}
+	// Unknown id is not nil error.
+	if err := storeA.ResolveSnapshot(ctx, 99999); err == nil {
+		t.Errorf("ResolveSnapshot on unknown id should fail, got nil")
+	}
+	// Invalid id (<=0) returns a non-nil error too.
+	if err := storeA.ResolveSnapshot(ctx, 0); err == nil {
+		t.Errorf("ResolveSnapshot on 0 should fail, got nil")
+	}
+}
+
 func TestStoreComputeResult(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)

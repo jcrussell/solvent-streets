@@ -2,10 +2,13 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"sync"
 
 	"github.com/jcrussell/solvent-streets/internal/db"
@@ -145,24 +148,64 @@ func (s *Server) handleCitySnapshotsList(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) serveDataFile(w http.ResponseWriter, r *http.Request, file string, entry export.CityEntry) {
+	snapshotID, ok := parseSnapshotParam(r.Context(), w, r, entry.Store)
+	if !ok {
+		return
+	}
+	if snapshotID > 0 {
+		entry = entry.WithSnapshot(snapshotID)
+	}
 	switch file {
 	case "meta.json":
-		s.serveMetaJSON(w, r, entry)
+		s.serveMetaJSON(w, r, entry, snapshotID)
 	case "hexgrid.geojson":
-		s.serveHexGridGeoJSON(w, r, entry)
+		s.serveHexGridGeoJSON(w, r, entry, snapshotID)
 	case "scenarios.json":
-		s.serveScenariosJSON(w, r, entry)
+		s.serveScenariosJSON(w, r, entry, snapshotID)
 	case "forecast.json":
-		s.serveForecastJSON(w, r, entry)
+		s.serveForecastJSON(w, r, entry, snapshotID)
 	case "forecast_seed.json":
-		s.serveForecastSeed(w, r, entry)
+		s.serveForecastSeed(w, r, entry, snapshotID)
 	case "hex-cost-summary.json":
-		s.serveHexCostSummary(w, r, entry)
+		s.serveHexCostSummary(w, r, entry, snapshotID)
 	case "boundary.geojson":
-		s.serveBoundaryGeoJSON(w, r, entry)
+		s.serveBoundaryGeoJSON(w, r, entry, snapshotID)
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// parseSnapshotParam reads ?snapshot=<id> from the request:
+//   - absent → returns (0, true): caller serves latest as before.
+//   - non-integer, ≤0, or unknown for this city → writes 404 and returns
+//     (_, false); the bead spec wants invalid ids to 404, not 500.
+//   - valid id belonging to this city → returns (id, true).
+func parseSnapshotParam(ctx context.Context, w http.ResponseWriter, r *http.Request, store db.Store) (int64, bool) {
+	raw := r.URL.Query().Get("snapshot")
+	if raw == "" {
+		return 0, true
+	}
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || id <= 0 {
+		http.NotFound(w, r)
+		return 0, false
+	}
+	if err := store.ResolveSnapshot(ctx, id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return 0, false
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return 0, false
+	}
+	return id, true
+}
+
+// cacheKey composes the s.cache key for a per-snapshot JSON build. The
+// trailing :%d keeps "latest" (snapshotID=0) separate from any pinned
+// snapshot, and two pinned snapshots cache independently.
+func cacheKey(kind, slug string, snapshotID int64) string {
+	return fmt.Sprintf("%s:%s:%d", kind, slug, snapshotID)
 }
 
 // writeJSON encodes v as JSON and writes it to w with appropriate headers.
@@ -233,14 +276,14 @@ func (s *Server) serveJSONCached(w http.ResponseWriter, key string, build func()
 	w.Write(data)
 }
 
-func (s *Server) serveMetaJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry) {
-	s.serveJSONCached(w, "meta:"+entry.Slug, func() (any, error) {
+func (s *Server) serveMetaJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry, snapshotID int64) {
+	s.serveJSONCached(w, cacheKey("meta", entry.Slug, snapshotID), func() (any, error) {
 		return export.BuildMeta(context.Background(), entry)
 	})
 }
 
-func (s *Server) serveHexGridGeoJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry) {
-	s.serveJSONCached(w, "hexgrid:"+entry.Slug, func() (any, error) {
+func (s *Server) serveHexGridGeoJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry, snapshotID int64) {
+	s.serveJSONCached(w, cacheKey("hexgrid", entry.Slug, snapshotID), func() (any, error) {
 		_, lon0, lat0, err := entry.BBoxAndCenter(context.Background())
 		if err != nil {
 			return nil, err
@@ -253,8 +296,8 @@ func (s *Server) serveHexGridGeoJSON(w http.ResponseWriter, _ *http.Request, ent
 	})
 }
 
-func (s *Server) serveScenariosJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry) {
-	s.serveJSONCached(w, "scenarios:"+entry.Slug, func() (any, error) {
+func (s *Server) serveScenariosJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry, snapshotID int64) {
+	s.serveJSONCached(w, cacheKey("scenarios", entry.Slug, snapshotID), func() (any, error) {
 		fc := entry.Config.ResolvedForecast(&entry.City)
 		return export.BuildScenariosData(context.Background(), entry, &fc), nil
 	})
@@ -271,16 +314,17 @@ func (s *Server) serveScenariosJSON(w http.ResponseWriter, _ *http.Request, entr
 // serveJSONCached's OnceValues) the outer s.cache thunk — that stacked
 // eviction is intentional so the next request rebuilds both layers instead
 // of one rebuilding atop a cached panic in the other.
-func (s *Server) buildForecasts(entry export.CityEntry) ([]export.ForecastExport, error) {
+func (s *Server) buildForecasts(entry export.CityEntry, snapshotID int64) ([]export.ForecastExport, error) {
+	key := fmt.Sprintf("%s:%d", entry.Slug, snapshotID)
 	var ft *forecastThunk
-	if v, ok := s.forecasts.Load(entry.Slug); ok {
+	if v, ok := s.forecasts.Load(key); ok {
 		ft = v.(*forecastThunk) //nolint:forcetypeassert // type invariant: only this site Stores into s.forecasts
 	} else {
 		fresh := &forecastThunk{once: sync.OnceValues(func() ([]export.ForecastExport, error) {
 			fc := entry.Config.ResolvedForecast(&entry.City)
 			return export.BuildForecastsForCity(context.Background(), entry, &fc, export.ConvertCostTiers(&fc))
 		})}
-		actual, _ := s.forecasts.LoadOrStore(entry.Slug, fresh)
+		actual, _ := s.forecasts.LoadOrStore(key, fresh)
 		ft = actual.(*forecastThunk) //nolint:forcetypeassert // type invariant: only this site Stores into s.forecasts
 	}
 
@@ -288,27 +332,27 @@ func (s *Server) buildForecasts(entry export.CityEntry) ([]export.ForecastExport
 	// build doesn't permanently poison the city's forecast cache.
 	defer func() {
 		if r := recover(); r != nil {
-			s.forecasts.CompareAndDelete(entry.Slug, ft)
+			s.forecasts.CompareAndDelete(key, ft)
 			panic(r)
 		}
 	}()
 	forecasts, err := ft.once()
 	if err != nil {
-		s.forecasts.CompareAndDelete(entry.Slug, ft)
+		s.forecasts.CompareAndDelete(key, ft)
 		return nil, err
 	}
 	return forecasts, nil
 }
 
-func (s *Server) serveForecastJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry) {
-	s.serveJSONCached(w, "forecast:"+entry.Slug, func() (any, error) {
-		return s.buildForecasts(entry)
+func (s *Server) serveForecastJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry, snapshotID int64) {
+	s.serveJSONCached(w, cacheKey("forecast", entry.Slug, snapshotID), func() (any, error) {
+		return s.buildForecasts(entry, snapshotID)
 	})
 }
 
-func (s *Server) serveHexCostSummary(w http.ResponseWriter, _ *http.Request, entry export.CityEntry) {
-	s.serveJSONCached(w, "hexcost:"+entry.Slug, func() (any, error) {
-		forecasts, err := s.buildForecasts(entry)
+func (s *Server) serveHexCostSummary(w http.ResponseWriter, _ *http.Request, entry export.CityEntry, snapshotID int64) {
+	s.serveJSONCached(w, cacheKey("hexcost", entry.Slug, snapshotID), func() (any, error) {
+		forecasts, err := s.buildForecasts(entry, snapshotID)
 		if err != nil {
 			return nil, err
 		}
@@ -316,8 +360,8 @@ func (s *Server) serveHexCostSummary(w http.ResponseWriter, _ *http.Request, ent
 	})
 }
 
-func (s *Server) serveBoundaryGeoJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry) {
-	s.serveJSONCached(w, "boundary:"+entry.Slug, func() (any, error) {
+func (s *Server) serveBoundaryGeoJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry, snapshotID int64) {
+	s.serveJSONCached(w, cacheKey("boundary", entry.Slug, snapshotID), func() (any, error) {
 		// GetBoundary distinguishes "no row" (returns "", nil — genuinely
 		// unconfigured, cache the empty FC) from real DB errors (returns
 		// "", err — surface so serveJSONCached evicts and the next request
@@ -343,8 +387,8 @@ func (s *Server) serveBoundaryGeoJSON(w http.ResponseWriter, _ *http.Request, en
 	})
 }
 
-func (s *Server) serveForecastSeed(w http.ResponseWriter, _ *http.Request, entry export.CityEntry) {
-	s.serveJSONCached(w, "seed:"+entry.Slug, func() (any, error) {
+func (s *Server) serveForecastSeed(w http.ResponseWriter, _ *http.Request, entry export.CityEntry, snapshotID int64) {
+	s.serveJSONCached(w, cacheKey("seed", entry.Slug, snapshotID), func() (any, error) {
 		fc := entry.Config.ResolvedForecast(&entry.City)
 		return json.RawMessage(export.BuildForecastSeed(context.Background(), &fc, entry.Store)), nil
 	})

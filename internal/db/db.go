@@ -95,6 +95,8 @@ type Store interface {
 	ListHexStats(ctx context.Context, resourceType string) ([]HexStat, error)
 	CreateSnapshot(ctx context.Context, configHash string) (*Snapshot, error)
 	ListSnapshots(ctx context.Context) ([]Snapshot, error)
+	ResolveSnapshot(ctx context.Context, snapshotID int64) error
+	WithSnapshot(snapshotID int64) Store
 	SaveForecastResults(ctx context.Context, results []ForecastResult) error
 	ListForecastResults(ctx context.Context, resourceType string) ([]ForecastResult, error)
 	SaveCohortStats(ctx context.Context, stats []CohortStat) error
@@ -107,8 +109,9 @@ type Store interface {
 }
 
 type sqliteStore struct {
-	db     *sql.DB
-	cityID int64
+	db         *sql.DB
+	cityID     int64
+	snapshotID int64 // 0 = unpinned (latest overall); >0 = snapshot-scoped reads
 }
 
 var _ Store = (*sqliteStore)(nil)

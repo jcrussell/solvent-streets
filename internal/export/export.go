@@ -37,6 +37,15 @@ type CityEntry struct {
 	Slug   string
 }
 
+// WithSnapshot returns a copy of this CityEntry whose Store is pinned to
+// the given snapshot id. Snapshot-aware reads (compute results, hex stats,
+// cohorts, forecasts) on the returned store will filter to that snapshot;
+// unaware reads (features, boundary, snapshot list) are unchanged.
+func (entry CityEntry) WithSnapshot(snapshotID int64) CityEntry {
+	entry.Store = entry.Store.WithSnapshot(snapshotID)
+	return entry
+}
+
 //go:embed templates
 var templatesFS embed.FS
 

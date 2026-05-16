@@ -241,7 +241,7 @@ func doCompute(ctx context.Context, out, errOut io.Writer, notify tui.PhaseNotif
 
 	c.processCityResults(ctx, jurisdictionParts, clippedHexes)
 
-	return saveHexStats(ctx, errOut, notify, store, hexStats)
+	return saveHexStats(ctx, errOut, notify, store, hexStats, c.snapshotID)
 }
 
 func loadBoundary(ctx context.Context, store db.Store, city *config.CityConfig) (string, [4]float64, *geo.UTMProjector, error) {
@@ -346,7 +346,7 @@ func (c *computer) runAllFeaturesPass(ctx context.Context, resFeatures []resourc
 	return hexStats, clippedHexes, nil
 }
 
-func saveHexStats(ctx context.Context, errOut io.Writer, notify tui.PhaseNotifier, store db.Store, hexStats []geo.HexStat) error {
+func saveHexStats(ctx context.Context, errOut io.Writer, notify tui.PhaseNotifier, store db.Store, hexStats []geo.HexStat, snapshotID *int64) error {
 	notify.PhaseStart(phaseSave)
 	defer notify.PhaseDone(phaseSave, nil)
 	dbStats := make([]db.HexStat, len(hexStats))
@@ -356,6 +356,7 @@ func saveHexStats(ctx context.Context, errOut io.Writer, notify tui.PhaseNotifie
 			ResourceType: s.ResourceType,
 			AreaSqM:      s.AreaSqM,
 			PctCovered:   s.PctCovered,
+			SnapshotID:   snapshotID,
 		}
 	}
 	if err := store.SaveHexStats(ctx, dbStats); err != nil {

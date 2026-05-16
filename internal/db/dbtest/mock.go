@@ -8,6 +8,7 @@ import (
 )
 
 var _ db.RootStorer = (*MockRootStore)(nil)
+var _ db.Store = (*MockStore)(nil)
 
 // MockStore is a func-field based mock implementing db.Store.
 // Each method delegates to its corresponding func field if set,
@@ -21,6 +22,8 @@ type MockStore struct {
 	ListHexStatsFunc        func(context.Context, string) ([]db.HexStat, error)
 	CreateSnapshotFunc      func(context.Context, string) (*db.Snapshot, error)
 	ListSnapshotsFunc       func(context.Context) ([]db.Snapshot, error)
+	ResolveSnapshotFunc     func(context.Context, int64) error
+	WithSnapshotFunc        func(int64) db.Store
 	SaveForecastResultsFunc func(context.Context, []db.ForecastResult) error
 	ListForecastResultsFunc func(context.Context, string) ([]db.ForecastResult, error)
 	SaveCohortStatsFunc     func(context.Context, []db.CohortStat) error
@@ -86,6 +89,23 @@ func (m *MockStore) ListSnapshots(ctx context.Context) ([]db.Snapshot, error) {
 		return m.ListSnapshotsFunc(ctx)
 	}
 	return nil, nil
+}
+
+func (m *MockStore) ResolveSnapshot(ctx context.Context, id int64) error {
+	if m.ResolveSnapshotFunc != nil {
+		return m.ResolveSnapshotFunc(ctx, id)
+	}
+	return nil
+}
+
+// WithSnapshot returns the mock unchanged by default — tests that need to
+// observe pinning should set WithSnapshotFunc, typically to return a child
+// MockStore whose ListX funcs know the pinned id.
+func (m *MockStore) WithSnapshot(snapshotID int64) db.Store {
+	if m.WithSnapshotFunc != nil {
+		return m.WithSnapshotFunc(snapshotID)
+	}
+	return m
 }
 
 func (m *MockStore) SaveForecastResults(ctx context.Context, results []db.ForecastResult) error {

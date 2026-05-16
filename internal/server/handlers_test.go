@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -209,6 +210,122 @@ func TestHandleSnapshots_MultiCity(t *testing.T) {
 	}
 }
 
+// TestDataFile_SnapshotParam exercises the ?snapshot= contract on the
+// /data/* endpoints: absent → latest, valid → snapshot-pinned response,
+// invalid/unknown → 404 (not 500), and two snapshots cache independently.
+func TestDataFile_SnapshotParam(t *testing.T) {
+	testBoundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
+
+	// Track what snapshotID the pinned store was created with.
+	var pinnedSnapshot int64
+	pinnedStore := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
+		LatestComputeResultFunc: func(_ context.Context, rt string) (*db.ComputeResult, error) {
+			if rt != "roads" {
+				return nil, fmt.Errorf("not found")
+			}
+			return &db.ComputeResult{
+				ResourceType: "roads",
+				TotalAreaSqM: float64(pinnedSnapshot * 1000),
+				FeatureCount: int(pinnedSnapshot * 10),
+				ComputedAt:   time.Now(),
+			}, nil
+		},
+	}
+	root := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
+		ResolveSnapshotFunc: func(_ context.Context, id int64) error {
+			if id == 1 || id == 2 {
+				return nil
+			}
+			return sql.ErrNoRows
+		},
+		WithSnapshotFunc: func(id int64) db.Store {
+			cp := *pinnedStore
+			cp.LatestComputeResultFunc = func(_ context.Context, rt string) (*db.ComputeResult, error) {
+				if rt != "roads" {
+					return nil, fmt.Errorf("not found")
+				}
+				return &db.ComputeResult{
+					ResourceType: "roads",
+					TotalAreaSqM: float64(id * 1000),
+					FeatureCount: int(id * 10),
+					ComputedAt:   time.Now(),
+				}, nil
+			}
+			return &cp
+		},
+		LatestComputeResultFunc: func(_ context.Context, rt string) (*db.ComputeResult, error) {
+			if rt != "roads" {
+				return nil, fmt.Errorf("not found")
+			}
+			return &db.ComputeResult{
+				ResourceType: "roads", TotalAreaSqM: 999000, FeatureCount: 999, ComputedAt: time.Now(),
+			}, nil
+		},
+	}
+
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Test City"}}}
+	entry := export.CityEntry{
+		Config: cfg, City: cfg.Cities[0], Store: root, Slug: cfg.Cities[0].Slug(),
+	}
+	ios, _, _, _ := iostreams.Test()
+	srv := New([]export.CityEntry{entry}, 0, ios)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /data/{file}", srv.handleDataFile(entry))
+
+	hit := func(t *testing.T, url string) (*httptest.ResponseRecorder, *export.MetaJSON) {
+		t.Helper()
+		req, _ := http.NewRequestWithContext(context.Background(), "GET", url, nil)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			return w, nil
+		}
+		var m export.MetaJSON
+		if err := json.NewDecoder(w.Body).Decode(&m); err != nil {
+			t.Fatal(err)
+		}
+		return w, &m
+	}
+
+	// Absent param → latest (the root store returns 999000).
+	_, latest := hit(t, "/data/meta.json")
+	if latest == nil || latest.Stats[0].TotalAreaSqM != 999000 {
+		t.Errorf("absent ?snapshot=: expected latest area 999000, got %+v", latest)
+	}
+
+	// snapshot=1 → root.WithSnapshot(1) is invoked; pinned response.
+	_, s1 := hit(t, "/data/meta.json?snapshot=1")
+	if s1 == nil || s1.Stats[0].TotalAreaSqM != 1000 {
+		t.Errorf("snapshot=1: expected area 1000, got %+v", s1)
+	}
+
+	// snapshot=2 → different cached body. Also confirms cache key isolates.
+	_, s2 := hit(t, "/data/meta.json?snapshot=2")
+	if s2 == nil || s2.Stats[0].TotalAreaSqM != 2000 {
+		t.Errorf("snapshot=2: expected area 2000, got %+v", s2)
+	}
+
+	// Unknown id → 404, not 500.
+	w404, _ := hit(t, "/data/meta.json?snapshot=99999")
+	if w404.Code != http.StatusNotFound {
+		t.Errorf("unknown snapshot: expected 404, got %d", w404.Code)
+	}
+
+	// Garbage id → 404.
+	wBad, _ := hit(t, "/data/meta.json?snapshot=abc")
+	if wBad.Code != http.StatusNotFound {
+		t.Errorf("invalid snapshot: expected 404, got %d", wBad.Code)
+	}
+
+	// Negative id → 404.
+	wNeg, _ := hit(t, "/data/meta.json?snapshot=-1")
+	if wNeg.Code != http.StatusNotFound {
+		t.Errorf("negative snapshot: expected 404, got %d", wNeg.Code)
+	}
+}
+
 func TestServeJSONCached_SingleFlight(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	srv := New(nil, 0, ios)
@@ -307,13 +424,13 @@ func TestBuildForecasts_DBErrorEvicts(t *testing.T) {
 	srv := New([]export.CityEntry{entry}, 0, ios)
 
 	w1 := httptest.NewRecorder()
-	srv.serveForecastJSON(w1, nil, entry)
+	srv.serveForecastJSON(w1, nil, entry, 0)
 	if w1.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500 on first call, got %d: %s", w1.Code, w1.Body.String())
 	}
 
 	w2 := httptest.NewRecorder()
-	srv.serveForecastJSON(w2, nil, entry)
+	srv.serveForecastJSON(w2, nil, entry, 0)
 	if w2.Code != http.StatusOK {
 		t.Fatalf("expected 200 on retry, got %d: %s", w2.Code, w2.Body.String())
 	}

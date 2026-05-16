@@ -84,21 +84,30 @@ func (s *sqliteStore) SaveComputeResult(ctx context.Context, result ComputeResul
 	return nil
 }
 
+// LatestComputeResult returns the most recent compute result for a resource.
+// When the store is snapshot-pinned (via WithSnapshot), restricts the result
+// to that snapshot id; the snapshot's own latest run wins on ties. Sentinel
+// snapshotID 0 (the unpinned default) returns latest overall.
 func (s *sqliteStore) LatestComputeResult(ctx context.Context, resourceType string) (*ComputeResult, error) {
 	var r ComputeResult
 	err := s.db.QueryRowContext(ctx, `
 		SELECT id, resource_type, total_area_sqm, feature_count, computed_at, snapshot_id
 		FROM compute_results
-		WHERE resource_type = ? AND city_id = ?
+		WHERE resource_type = ? AND city_id = ? AND (? = 0 OR snapshot_id = ?)
 		ORDER BY computed_at DESC
 		LIMIT 1
-	`, resourceType, s.cityID).Scan(&r.ID, &r.ResourceType, &r.TotalAreaSqM, &r.FeatureCount, &r.ComputedAt, &r.SnapshotID)
+	`, resourceType, s.cityID, s.snapshotID, s.snapshotID).Scan(&r.ID, &r.ResourceType, &r.TotalAreaSqM, &r.FeatureCount, &r.ComputedAt, &r.SnapshotID)
 	if err != nil {
 		return nil, err
 	}
 	return &r, nil
 }
 
+// SaveHexStats appends a batch of hex stats. Each row is tagged with its
+// SnapshotID so historic snapshots remain queryable. Append-only: rows from
+// prior snapshots are never deleted; pvmt re-runs against a new snapshot
+// don't clobber older results. Rows with a nil SnapshotID (legacy data
+// from before migration 002) coexist as "pre-snapshot" history.
 func (s *sqliteStore) SaveHexStats(ctx context.Context, stats []HexStat) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -106,20 +115,9 @@ func (s *sqliteStore) SaveHexStats(ctx context.Context, stats []HexStat) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	// Delete existing stats for the resource type(s) being updated
-	types := make(map[string]bool)
-	for _, st := range stats {
-		types[st.ResourceType] = true
-	}
-	for rt := range types {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM hex_stats WHERE resource_type = ? AND city_id = ?`, rt, s.cityID); err != nil {
-			return fmt.Errorf("delete old hex stats: %w", err)
-		}
-	}
-
 	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO hex_stats (hex_id, resource_type, city_id, area_sqm, pct_covered, computed_at)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO hex_stats (hex_id, resource_type, city_id, snapshot_id, area_sqm, pct_covered, computed_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return fmt.Errorf("prepare hex stats insert: %w", err)
@@ -128,7 +126,7 @@ func (s *sqliteStore) SaveHexStats(ctx context.Context, stats []HexStat) error {
 
 	now := time.Now()
 	for _, st := range stats {
-		if _, err := stmt.ExecContext(ctx, st.HexID, st.ResourceType, s.cityID, st.AreaSqM, st.PctCovered, now); err != nil {
+		if _, err := stmt.ExecContext(ctx, st.HexID, st.ResourceType, s.cityID, st.SnapshotID, st.AreaSqM, st.PctCovered, now); err != nil {
 			return fmt.Errorf("insert hex stat %s: %w", st.HexID, err)
 		}
 	}
@@ -136,11 +134,16 @@ func (s *sqliteStore) SaveHexStats(ctx context.Context, stats []HexStat) error {
 	return tx.Commit()
 }
 
+// ListHexStats returns the per-hex coverage rows for a resource. When
+// snapshot-pinned, only rows from that snapshot. Otherwise: all rows,
+// including legacy pre-snapshot rows with NULL snapshot_id — callers
+// typically expect "the data the user last computed", and a city without
+// any snapshot-tagged rows would otherwise look empty.
 func (s *sqliteStore) ListHexStats(ctx context.Context, resourceType string) ([]HexStat, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT hex_id, resource_type, area_sqm, pct_covered, computed_at
-		FROM hex_stats WHERE resource_type = ? AND city_id = ?
-	`, resourceType, s.cityID)
+		SELECT hex_id, resource_type, area_sqm, pct_covered, computed_at, snapshot_id
+		FROM hex_stats WHERE resource_type = ? AND city_id = ? AND (? = 0 OR snapshot_id = ?)
+	`, resourceType, s.cityID, s.snapshotID, s.snapshotID)
 	if err != nil {
 		return nil, fmt.Errorf("query hex stats: %w", err)
 	}
@@ -149,7 +152,7 @@ func (s *sqliteStore) ListHexStats(ctx context.Context, resourceType string) ([]
 	var stats []HexStat
 	for rows.Next() {
 		var st HexStat
-		if err := rows.Scan(&st.HexID, &st.ResourceType, &st.AreaSqM, &st.PctCovered, &st.ComputedAt); err != nil {
+		if err := rows.Scan(&st.HexID, &st.ResourceType, &st.AreaSqM, &st.PctCovered, &st.ComputedAt, &st.SnapshotID); err != nil {
 			return nil, fmt.Errorf("scan hex stat: %w", err)
 		}
 		stats = append(stats, st)
@@ -191,23 +194,14 @@ func (s *sqliteStore) ListSnapshots(ctx context.Context) ([]Snapshot, error) {
 	return snapshots, rows.Err()
 }
 
+// SaveForecastResults appends forecast rows tagged with their SnapshotID.
+// Append-only — see SaveHexStats for the rationale.
 func (s *sqliteStore) SaveForecastResults(ctx context.Context, results []ForecastResult) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-
-	// Delete existing forecasts for the resource type(s)
-	types := make(map[string]bool)
-	for _, r := range results {
-		types[r.ResourceType] = true
-	}
-	for rt := range types {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM forecast_results WHERE resource_type = ? AND city_id = ?`, rt, s.cityID); err != nil {
-			return fmt.Errorf("delete old forecasts: %w", err)
-		}
-	}
 
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO forecast_results (resource_type, city_id, year, pci, area_sqm, treatment_cost, treatment_tier, snapshot_id, computed_at)
@@ -231,8 +225,8 @@ func (s *sqliteStore) SaveForecastResults(ctx context.Context, results []Forecas
 func (s *sqliteStore) ListForecastResults(ctx context.Context, resourceType string) ([]ForecastResult, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, resource_type, year, pci, area_sqm, treatment_cost, treatment_tier, snapshot_id, computed_at
-		FROM forecast_results WHERE resource_type = ? AND city_id = ? ORDER BY year
-	`, resourceType, s.cityID)
+		FROM forecast_results WHERE resource_type = ? AND city_id = ? AND (? = 0 OR snapshot_id = ?) ORDER BY year
+	`, resourceType, s.cityID, s.snapshotID, s.snapshotID)
 	if err != nil {
 		return nil, fmt.Errorf("query forecasts: %w", err)
 	}
@@ -249,22 +243,14 @@ func (s *sqliteStore) ListForecastResults(ctx context.Context, resourceType stri
 	return results, rows.Err()
 }
 
+// SaveCohortStats appends cohort rows tagged with their SnapshotID.
+// Append-only — see SaveHexStats for the rationale.
 func (s *sqliteStore) SaveCohortStats(ctx context.Context, stats []CohortStat) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-
-	types := make(map[string]bool)
-	for _, st := range stats {
-		types[st.ResourceType] = true
-	}
-	for rt := range types {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM cohort_stats WHERE resource_type = ? AND city_id = ?`, rt, s.cityID); err != nil {
-			return fmt.Errorf("delete old cohort stats: %w", err)
-		}
-	}
 
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO cohort_stats (resource_type, city_id, classification, area_sqm, feature_count, snapshot_id, computed_at)
@@ -288,8 +274,8 @@ func (s *sqliteStore) SaveCohortStats(ctx context.Context, stats []CohortStat) e
 func (s *sqliteStore) ListCohortStats(ctx context.Context, resourceType string) ([]CohortStat, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, resource_type, classification, area_sqm, feature_count, snapshot_id, computed_at
-		FROM cohort_stats WHERE resource_type = ? AND city_id = ?
-	`, resourceType, s.cityID)
+		FROM cohort_stats WHERE resource_type = ? AND city_id = ? AND (? = 0 OR snapshot_id = ?)
+	`, resourceType, s.cityID, s.snapshotID, s.snapshotID)
 	if err != nil {
 		return nil, fmt.Errorf("query cohort stats: %w", err)
 	}
@@ -373,4 +359,33 @@ func (s *sqliteStore) ResourceTypes(ctx context.Context) ([]string, error) {
 
 func (s *sqliteStore) Close() error {
 	return s.db.Close()
+}
+
+// WithSnapshot returns a Store that filters snapshot-aware reads
+// (LatestComputeResult, ListHexStats, ListCohortStats, ListForecastResults)
+// to the given snapshot id. A snapshotID of 0 returns an unpinned view
+// (latest overall — same as the original ForCity store). The underlying
+// DB connection is shared.
+func (s *sqliteStore) WithSnapshot(snapshotID int64) Store {
+	cp := *s
+	cp.snapshotID = snapshotID
+	return &cp
+}
+
+// ResolveSnapshot returns nil iff the given snapshot id exists and belongs
+// to this city. Returns sql.ErrNoRows for unknown or wrong-city ids. The
+// server handler uses this to translate ?snapshot=<id> into a 404 instead
+// of letting a non-matching filter silently return empty data.
+func (s *sqliteStore) ResolveSnapshot(ctx context.Context, snapshotID int64) error {
+	if snapshotID <= 0 {
+		return fmt.Errorf("invalid snapshot id %d", snapshotID)
+	}
+	var n int64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id FROM snapshots WHERE city_id = ? AND id = ?`,
+		s.cityID, snapshotID).Scan(&n)
+	if err != nil {
+		return err
+	}
+	return nil
 }
