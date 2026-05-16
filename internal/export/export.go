@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -276,11 +277,22 @@ func totalPavedFromStore(ctx context.Context, store db.Store, perResource []Stat
 	return sum
 }
 
-// BuildHexGeoJSON builds a GeoJSON FeatureCollection of hex stats for a city.
-func BuildHexGeoJSON(ctx context.Context, entry CityEntry, proj *geo.UTMProjector) map[string]any {
+// BuildHexGeoJSONs builds GeoJSON FeatureCollections for both scopes — city
+// (rows tagged ":city" by compute) and bbox (bare-label rows). city is nil
+// when no ":city" rows exist; that signal hides the scope toggle in the UI.
+// bbox is nil when no rows of any kind exist.
+func BuildHexGeoJSONs(ctx context.Context, entry CityEntry, proj *geo.UTMProjector) (city, bbox map[string]any) {
+	return buildHexGeoJSONForSuffix(ctx, entry, proj, ":city"),
+		buildHexGeoJSONForSuffix(ctx, entry, proj, "")
+}
+
+// buildHexGeoJSONForSuffix builds one scope's FeatureCollection. suffix is
+// either "" (bbox-scope rows) or ":city" (city-scope rows). Returns nil when
+// no matching hex_stats rows exist for that scope.
+func buildHexGeoJSONForSuffix(ctx context.Context, entry CityEntry, proj *geo.UTMProjector, suffix string) map[string]any {
 	var allStats []db.HexStat
 	for _, rt := range resource.All {
-		stats, err := entry.Store.ListHexStats(ctx, rt.Name())
+		stats, err := entry.Store.ListHexStats(ctx, rt.Name()+suffix)
 		if err != nil {
 			continue
 		}
@@ -347,6 +359,10 @@ func clipHexGridToBoundary(ctx context.Context, hexes []geo.Hex, entry CityEntry
 }
 
 // buildHexFeature builds a single GeoJSON feature from a hex stat entry.
+// The ":city" scope suffix on st.ResourceType is stripped from the emitted
+// resource_type property — the scope dimension is carried by the enclosing
+// FeatureCollection's file name (hexgrid-city vs hexgrid-bbox), not by
+// per-feature labels the client would otherwise have to split.
 // Returns the feature map and true if successful, or nil and false otherwise.
 func buildHexFeature(st db.HexStat, hexMap map[string]*geo.Hex, proj *geo.UTMProjector) (map[string]any, bool) {
 	h, ok := hexMap[st.HexID]
@@ -362,7 +378,7 @@ func buildHexFeature(st db.HexStat, hexMap map[string]*geo.Hex, proj *geo.UTMPro
 		"geometry": json.RawMessage(gjson),
 		"properties": map[string]any{
 			"hex_id":        st.HexID,
-			"resource_type": st.ResourceType,
+			"resource_type": strings.TrimSuffix(st.ResourceType, ":city"),
 			"area_sqm":      st.AreaSqM,
 			"pct_covered":   st.PctCovered,
 		},
@@ -599,39 +615,76 @@ func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.Forecas
 	}
 
 	out := map[string]any{
-		"all":     primaryScenarios,
 		"summary": summary,
 	}
 	if cityAreaSqM > 0 {
+		out["city"] = primaryScenarios
 		out["bbox"] = bboxScenarios
+	} else {
+		out["bbox"] = primaryScenarios
 	}
 
 	return out
 }
 
-// BuildHexCostSummary builds the hex cost summary from forecast results.
-// Prefers city-scoped area to match the city-scoped baseline costs.
-func BuildHexCostSummary(ctx context.Context, entry CityEntry, forecasts []ForecastExport) map[string]map[string]float64 {
-	result := make(map[string]map[string]float64)
+// BuildHexCostSummary builds the per-scope, per-resource hex cost summary
+// from forecast results. The outer key is the scope ("city" or "bbox"), the
+// inner key is the resource type. The "city" sub-map is omitted entirely
+// when no ":city" compute rows exist — matching the toggle-visibility gate
+// used by the client.
+func BuildHexCostSummary(ctx context.Context, entry CityEntry, forecasts []ForecastExport) map[string]map[string]map[string]float64 {
+	out := map[string]map[string]map[string]float64{
+		"bbox": {},
+	}
 	for _, fe := range forecasts {
-		var year1Cost float64
-		if len(fe.Baseline.Years) > 0 {
-			year1Cost = fe.Baseline.Years[0].AnnualNeed
-		}
-		// Prefer city-scoped area to match the baseline scope
-		cr, err := entry.Store.LatestComputeResult(ctx, fe.ResourceType+":city")
-		if err != nil || cr == nil {
-			cr, err = entry.Store.LatestComputeResult(ctx, fe.ResourceType)
-			if err != nil || cr == nil {
-				continue
-			}
-		}
-		result[fe.ResourceType] = map[string]float64{
-			"year1_cost":     year1Cost,
-			"total_area_sqm": cr.TotalAreaSqM,
+		cityYear1, bboxYear1, hasCity := scopeYear1Costs(fe)
+		addScopeRow(ctx, entry, out, "bbox", fe.ResourceType, "", bboxYear1)
+		if hasCity {
+			addScopeRow(ctx, entry, out, "city", fe.ResourceType, ":city", cityYear1)
 		}
 	}
-	return result
+	if len(out["bbox"]) == 0 {
+		delete(out, "bbox")
+	}
+	return out
+}
+
+// scopeYear1Costs reads the year-1 annual need for each scope out of a
+// ForecastExport. The convention is set in BuildForecastForResource: when
+// BboxBaseline is non-nil, Baseline is the city-scoped run; when nil,
+// Baseline carries the bbox-scope run alone.
+func scopeYear1Costs(fe ForecastExport) (city, bbox float64, hasCity bool) {
+	hasCity = fe.BboxBaseline != nil
+	if hasCity {
+		if len(fe.Baseline.Years) > 0 {
+			city = fe.Baseline.Years[0].AnnualNeed
+		}
+		if len(fe.BboxBaseline.Years) > 0 {
+			bbox = fe.BboxBaseline.Years[0].AnnualNeed
+		}
+		return city, bbox, true
+	}
+	if len(fe.Baseline.Years) > 0 {
+		bbox = fe.Baseline.Years[0].AnnualNeed
+	}
+	return 0, bbox, false
+}
+
+// addScopeRow looks up the area for (resourceType + suffix) and writes the
+// {year1_cost, total_area_sqm} pair under out[scope][resourceType]. Missing
+// compute rows are skipped silently — same as the pre-rename behavior.
+func addScopeRow(ctx context.Context, entry CityEntry, out map[string]map[string]map[string]float64, scope, resourceType, suffix string, year1Cost float64) {
+	r, err := entry.Store.LatestComputeResult(ctx, resourceType+suffix)
+	if err != nil || r == nil {
+		return
+	}
+	if out[scope] == nil {
+		out[scope] = make(map[string]map[string]float64)
+	}
+	out[scope][resourceType] = map[string]float64{
+		"year1_cost":     year1Cost,
+		"total_area_sqm": r.TotalAreaSqM,
+	}
 }
 
 // CohortSeed holds per-cohort data for interactive controls.
@@ -1163,11 +1216,17 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 		}
 	}
 
-	// Export hex grid
-	hexFC := BuildHexGeoJSON(ctx, entry, proj)
-	if hexFC != nil {
-		if err := writeJSON(filepath.Join(dataDir, "hexgrid.geojson"), hexFC); err != nil {
-			return fmt.Errorf("write hexgrid: %w", err)
+	// Export hex grid — one file per scope. city is omitted when no ":city"
+	// rows exist (signals "hide the scope toggle" to the client).
+	cityFC, bboxFC := BuildHexGeoJSONs(ctx, entry, proj)
+	if bboxFC != nil {
+		if err := writeJSON(filepath.Join(dataDir, "hexgrid-bbox.geojson"), bboxFC); err != nil {
+			return fmt.Errorf("write hexgrid-bbox: %w", err)
+		}
+	}
+	if cityFC != nil {
+		if err := writeJSON(filepath.Join(dataDir, "hexgrid-city.geojson"), cityFC); err != nil {
+			return fmt.Errorf("write hexgrid-city: %w", err)
 		}
 	}
 
