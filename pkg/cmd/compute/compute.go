@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -481,7 +482,7 @@ func (c *computer) computeHexPipeline(ctx context.Context, buffered []geom.Geome
 	boundaryGeom, err := parseGeoJSONGeometry(boundaryGJSON, c.proj)
 	if err == nil && !boundaryGeom.IsEmpty() {
 		var clipCounter atomic.Int64
-		stopClipProgress := startProgressTicker(c.notify, phaseClip, len(hexes), &clipCounter)
+		stopClipProgress := startProgressTicker(ctx, c.notify, phaseClip, len(hexes), &clipCounter)
 		hexes = geo.ClipHexesToBoundary(ctx, hexes, boundaryGeom, &clipCounter)
 		stopClipProgress()
 		fmt.Fprintf(c.out, "  Clipped to boundary: %d hexes\n", len(hexes))
@@ -494,7 +495,7 @@ func (c *computer) computeHexPipeline(ctx context.Context, buffered []geom.Geome
 	idx := geo.NewGeomIndexFromGeoms(buffered)
 
 	var statsCounter atomic.Int64
-	stopStatsProgress := startProgressTicker(c.notify, phaseStats, len(hexes), &statsCounter)
+	stopStatsProgress := startProgressTicker(ctx, c.notify, phaseStats, len(hexes), &statsCounter)
 	geoStats := geo.ComputeHexStats(ctx, hexes, idx, c.opts.ResourceType.Name(), &statsCounter)
 	stopStatsProgress()
 	fmt.Fprintf(c.out, "  %d hexes with coverage\n", len(geoStats))
@@ -505,8 +506,10 @@ func (c *computer) computeHexPipeline(ctx context.Context, buffered []geom.Geome
 
 // startProgressTicker launches a goroutine that sends PhaseProgress updates
 // every 200ms based on counter / total. Returns a stop function that must be
-// called when the phase is done.
-func startProgressTicker(notify tui.PhaseNotifier, phase, total int, counter *atomic.Int64) func() {
+// called when the phase is done. The goroutine also exits when ctx is cancelled,
+// so a parent context teardown won't leak the goroutine even if the caller's
+// stop is skipped (panic, early return).
+func startProgressTicker(ctx context.Context, notify tui.PhaseNotifier, phase, total int, counter *atomic.Int64) func() {
 	if total == 0 {
 		return func() {}
 	}
@@ -522,11 +525,14 @@ func startProgressTicker(notify tui.PhaseNotifier, phase, total int, counter *at
 					fmt.Sprintf("%d / %d hexes", n, total))
 			case <-done:
 				return
+			case <-ctx.Done():
+				return
 			}
 		}
 	}()
+	var once sync.Once
 	return func() {
-		close(done)
+		once.Do(func() { close(done) })
 		notify.PhaseProgress(phase, 1.0, fmt.Sprintf("%d / %d hexes", total, total))
 	}
 }

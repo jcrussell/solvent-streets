@@ -95,12 +95,12 @@ func exportExample(ctx context.Context, rootDB *db.RootStore, cfgPath, outputDir
 		return export.ExampleInfo{}, fmt.Errorf("load config %s: %w", cfgPath, err)
 	}
 
-	entries, err := export.LookupCityEntries(ctx, rootDB, cfg, cfg.Cities)
+	entries, err := export.BuildCityEntries(ctx, rootDB, cfg, cfg.Cities)
 	if err != nil {
 		return export.ExampleInfo{}, fmt.Errorf("build entries for %s: %w", slug, err)
 	}
 	if len(entries) == 0 {
-		return export.ExampleInfo{}, fmt.Errorf("no city data for %s — run 'pvmt ingest' first", slug)
+		return export.ExampleInfo{}, fmt.Errorf("no cities defined in %s", cfgPath)
 	}
 
 	outDir := filepath.Join(outputDir, slug)

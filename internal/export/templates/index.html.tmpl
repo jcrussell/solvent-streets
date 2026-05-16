@@ -742,6 +742,31 @@
             list.appendChild(li);
             banner.hidden = false;
         }
+        // safeSimulate wraps window.simulateForecast so a WASM-side panic
+        // surfaces in the error banner instead of silently freezing the
+        // chart. Returns null when the simulation throws or reports an
+        // error; callers must check for null and bail.
+        function safeSimulate(input) {
+            let raw;
+            try {
+                raw = window.simulateForecast(JSON.stringify(input));
+            } catch (err) {
+                showLoadError('forecast simulator', err.message || String(err));
+                return null;
+            }
+            let parsed;
+            try {
+                parsed = JSON.parse(raw);
+            } catch (err) {
+                showLoadError('forecast simulator', 'invalid response: ' + (err.message || String(err)));
+                return null;
+            }
+            if (parsed && parsed.error) {
+                showLoadError('forecast simulator', parsed.error);
+                return null;
+            }
+            return parsed;
+        }
 
         // Tab switching
         function selectTab(tabId, opts) {
@@ -1771,9 +1796,8 @@
                 strategy: 'do-nothing',
                 cohorts: seedCohorts
             };
-            const baselineRaw = window.simulateForecast(JSON.stringify(baselineInput));
-            const baseline = JSON.parse(baselineRaw);
-            if (baseline.error) return null;
+            const baseline = safeSimulate(baselineInput);
+            if (!baseline) return null;
 
             const year1Need = baseline.years && baseline.years.length > 0 ? baseline.years[0].annual_need : 0;
             const annualBudget = budgetPct > 0 ? year1Need * budgetPct : 0;
@@ -1796,9 +1820,8 @@
             const input = getControlValues();
             if (!input) return;
 
-            const raw = window.simulateForecast(JSON.stringify(input));
-            const result = JSON.parse(raw);
-            if (result.error) return;
+            const result = safeSimulate(input);
+            if (!result) return;
 
             customActive = true;
             updateCustomScenario(result);
@@ -2271,7 +2294,10 @@
                 const go = new Go();
                 WebAssembly.instantiateStreaming(fetch('{{.WasmPrefix}}forecast.wasm'), go.importObject)
                     .then(result => { go.run(result.instance); onWasmReady(); })
-                    .catch(err => console.warn('WASM load failed:', err));
+                    .catch(err => {
+                        console.warn('WASM load failed:', err);
+                        showLoadError('forecast WASM', err.message || String(err));
+                    });
             };
             document.head.appendChild(script);
         }

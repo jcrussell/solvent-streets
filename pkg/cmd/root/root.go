@@ -36,6 +36,7 @@ type middleware func(root *cobra.Command, f *cmdutil.Factory) error
 
 var middlewares = []middleware{
 	warnInvalidEnv,
+	warnInvalidConfig,
 }
 
 // warnInvalidEnv emits a one-line stderr warning for any PVMT_* env var
@@ -82,6 +83,24 @@ func warnInvalidEnv(_ *cobra.Command, f *cmdutil.Factory) error {
 		case n <= 0 || n > 100:
 			warnf("PVMT_FORECAST_INITIAL_PCI=%q must be in (0, 100]", v)
 		}
+	}
+	return nil
+}
+
+// warnInvalidConfig mirrors warnInvalidEnv for values loaded from
+// pvmt.toml. resolveUnits silently falls through on unknown
+// display.units (e.g. "metres" instead of "metric"); without this
+// warning the user sees no signal their config string was ignored.
+// Skipped when no config file is present (so `pvmt --help` works in
+// any directory) and when config can't be loaded (the command path
+// will surface that error). Discarding the error here is deliberate.
+func warnInvalidConfig(_ *cobra.Command, f *cmdutil.Factory) error {
+	cfg, _ := f.Config()
+	if cfg == nil {
+		return nil
+	}
+	if v := cfg.Display.Units; v != "" && !units.IsKnown(v) {
+		cmdutil.Warnf(f.IOStreams, "display.units=%q is not a known unit system; falling back to default", v)
 	}
 	return nil
 }

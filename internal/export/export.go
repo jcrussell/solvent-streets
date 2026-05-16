@@ -188,31 +188,6 @@ func BuildCityEntries(ctx context.Context, rootDB db.RootStorer, cfg *config.Con
 	return entries, nil
 }
 
-// LookupCityEntries creates CityEntry values for cities that already exist in
-// the database. Unlike BuildCityEntries it never creates city rows, making it
-// safe for read-only tools like site generators.
-func LookupCityEntries(ctx context.Context, rootDB db.RootStorer, cfg *config.Config, cities []config.CityConfig) ([]CityEntry, error) {
-	var entries []CityEntry
-	var errs []string
-	for _, city := range cities {
-		c, err := rootDB.LookupCity(ctx, city.Slug())
-		if err != nil {
-			errs = append(errs, fmt.Sprintf("%s: %v", city.Name, err))
-			continue
-		}
-		entries = append(entries, CityEntry{
-			Config: cfg,
-			City:   city,
-			Store:  rootDB.ForCity(c.ID),
-			Slug:   city.Slug(),
-		})
-	}
-	if len(entries) == 0 && len(errs) > 0 {
-		return nil, fmt.Errorf("no cities found (run 'pvmt ingest' first): %s", errs[0])
-	}
-	return entries, nil
-}
-
 // --- Shared data-building functions (used by both export and server) ---
 
 // BuildMeta builds metadata JSON for a city entry.

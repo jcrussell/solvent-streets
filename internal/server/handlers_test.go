@@ -507,3 +507,52 @@ func TestServeJSONCached_PanicEvicts(t *testing.T) {
 		t.Errorf("expected build to run twice (panic + retry), ran %d times", got)
 	}
 }
+
+// TestHandleCitiesList_SchemaParity pins the JSON contract emitted by
+// /api/cities against the CityInfo shape that internal/export writes to
+// cities.json. The two surfaces must serialize the same fields so a
+// frontend can switch between live and static modes without branching.
+// If this fails after adding a CityInfo field, update both call sites
+// (server here + Exporter.runMultiCity writing cities.json) together.
+func TestHandleCitiesList_SchemaParity(t *testing.T) {
+	boundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return boundary, nil },
+	}
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Pleasanton"}}}
+	entries := []export.CityEntry{
+		{Config: cfg, City: cfg.Cities[0], Store: store, Slug: cfg.Cities[0].Slug()},
+	}
+	ios, _, _, _ := iostreams.Test()
+	srv := New(entries, 0, ios)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/cities", srv.handleCitiesList)
+
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", "/api/cities", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var got []map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 city, got %d", len(got))
+	}
+	wantKeys := map[string]bool{
+		"slug": true, "name": true, "bbox": true,
+		"center_lon": true, "center_lat": true,
+	}
+	for k := range got[0] {
+		if !wantKeys[k] {
+			t.Errorf("unexpected key %q in /api/cities response — would diverge from static cities.json", k)
+		}
+		delete(wantKeys, k)
+	}
+	for k := range wantKeys {
+		t.Errorf("missing key %q in /api/cities response", k)
+	}
+}

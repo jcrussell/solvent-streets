@@ -119,7 +119,6 @@ var _ Store = (*sqliteStore)(nil)
 // RootStorer is the interface for managing cities and providing city-scoped stores.
 type RootStorer interface {
 	EnsureCity(ctx context.Context, slug, name string) (int64, error)
-	LookupCity(ctx context.Context, slug string) (City, error)
 	ListCities(ctx context.Context) ([]City, error)
 	ForCity(id int64) Store
 	Close() error
@@ -189,17 +188,6 @@ func (r *RootStore) EnsureCity(ctx context.Context, slug, name string) (int64, e
 		return 0, fmt.Errorf("get city id: %w", err)
 	}
 	return id, nil
-}
-
-// LookupCity retrieves a city by slug without creating it. Returns
-// sql.ErrNoRows (wrapped) if the city does not exist.
-func (r *RootStore) LookupCity(ctx context.Context, slug string) (City, error) {
-	var c City
-	err := r.db.QueryRowContext(ctx, `SELECT id, slug, name FROM cities WHERE slug = ?`, slug).Scan(&c.ID, &c.Slug, &c.Name)
-	if err != nil {
-		return City{}, fmt.Errorf("lookup city %q: %w", slug, err)
-	}
-	return c, nil
 }
 
 // ListCities returns all cities in the database.
