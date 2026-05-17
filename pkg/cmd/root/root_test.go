@@ -1,11 +1,13 @@
 package root
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
 	"log/slog"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -467,6 +469,73 @@ func TestSkipMiddleware_ExemptCommands(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := skipMiddleware(tt.cmd); got != tt.skip {
 				t.Errorf("skipMiddleware(%q) = %v, want %v", tt.cmd.Name(), got, tt.skip)
+			}
+		})
+	}
+}
+
+// TestCompletion_DefaultSubcommandEnabled guards byob-command-shape.4: the
+// auto-generated `completion <shell>` subcommand must stay wired so users
+// can `eval "$(pvmt completion bash)"` without us hand-writing scripts.
+// A future change that flips CompletionOptions.DisableDefaultCmd would
+// silently remove the subcommand; this test catches that immediately.
+func TestCompletion_DefaultSubcommandEnabled(t *testing.T) {
+	f := testFactory()
+	cmd := NewCmdRoot(f)
+	if cmd.CompletionOptions.DisableDefaultCmd {
+		t.Fatal("CompletionOptions.DisableDefaultCmd is true; the `completion` subcommand will not be created")
+	}
+}
+
+// TestCompletion_GeneratesScriptForEveryShell drives `pvmt completion <shell>`
+// end-to-end for every shell cobra ships and asserts each returns no error
+// and prints something. This proves the contract works under Execute()
+// rather than only inspecting the command tree.
+func TestCompletion_GeneratesScriptForEveryShell(t *testing.T) {
+	for _, shell := range []string{"bash", "zsh", "fish", "powershell"} {
+		t.Run(shell, func(t *testing.T) {
+			f := testFactory()
+			cmd := NewCmdRoot(f)
+			var out bytes.Buffer
+			cmd.SetOut(&out)
+			cmd.SetErr(io.Discard)
+			cmd.SetArgs([]string{"completion", shell})
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("completion %s: %v", shell, err)
+			}
+			if out.Len() == 0 {
+				t.Errorf("completion %s emitted no output", shell)
+			}
+		})
+	}
+}
+
+// TestCompletion_FlagsHaveCompletions checks that root's enum-typed flags
+// register a completion func, so tab-completing `pvmt --units <TAB>`
+// offers metric/imperial instead of filenames. Without these registrations
+// the completion script still ships but flag values aren't suggested,
+// which is the user-facing half of the contract byob-command-shape.4
+// promises.
+func TestCompletion_FlagsHaveCompletions(t *testing.T) {
+	f := testFactory()
+	cmd := NewCmdRoot(f)
+
+	tests := []struct {
+		flag string
+		want []string
+	}{
+		{"units", []string{"metric", "imperial"}},
+		{"log-level", []string{"debug", "info", "warn", "error"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.flag, func(t *testing.T) {
+			comp, ok := cmd.GetFlagCompletionFunc(tt.flag)
+			if !ok {
+				t.Fatalf("no completion func registered for --%s", tt.flag)
+			}
+			got, _ := comp(cmd, nil, "")
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("--%s completions = %v, want %v", tt.flag, got, tt.want)
 			}
 		})
 	}
