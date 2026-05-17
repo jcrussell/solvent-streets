@@ -39,6 +39,41 @@ func executeShow(t *testing.T, f *cmdutil.Factory, args ...string) error {
 	return root.Execute()
 }
 
+func TestNewCmdShow_RunFInjection(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Test"}}}
+	f := &cmdutil.Factory{
+		IOStreams: ios,
+		Config:    func() (*config.Config, error) { return cfg, nil },
+	}
+
+	var gotOpts *Options
+	showCmd := NewCmdShow(f, func(opts *Options) error {
+		gotOpts = opts
+		return nil
+	})
+
+	root := &cobra.Command{Use: "pvmt"}
+	root.PersistentFlags().String("units", "", "")
+	root.AddCommand(showCmd)
+	root.SetArgs([]string{"show", "--sources", "--units=metric"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotOpts == nil {
+		t.Fatal("runF was not invoked")
+	}
+	if gotOpts.IO != ios {
+		t.Errorf("opts.IO not propagated from factory")
+	}
+	if !gotOpts.Sources {
+		t.Errorf("opts.Sources should reflect --sources flag")
+	}
+	if gotOpts.FlagUnits != "metric" {
+		t.Errorf("opts.FlagUnits = %q, want %q", gotOpts.FlagUnits, "metric")
+	}
+}
+
 func TestShow_DefaultEmitsTOML(t *testing.T) {
 	cfg := &config.Config{
 		Grid:     config.GridConfig{HexEdgeM: 100},
