@@ -81,10 +81,10 @@ func NewCmdCompute(f *cmdutil.Factory, rt resource.Source, runF func(*Options) e
 		ResourceType: rt,
 	}
 
-	kind := rt.Kind()
+	t := rt.Type()
 	cmd := &cobra.Command{
 		Use:   "compute",
-		Short: fmt.Sprintf("Compute %s area statistics", kind),
+		Short: fmt.Sprintf("Compute %s area statistics", t),
 		Example: fmt.Sprintf(`  # Compute per-hex coverage for %s across every configured city
   pvmt %s compute
 
@@ -92,7 +92,7 @@ func NewCmdCompute(f *cmdutil.Factory, rt resource.Source, runF func(*Options) e
   pvmt %s compute --city-only
 
   # Scope to a single city
-  pvmt --city oakland %s compute`, kind, kind, kind, kind),
+  pvmt --city oakland %s compute`, t, t, t, t),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
 				return runF(opts)
@@ -154,7 +154,7 @@ func runComputeTUI(ctx context.Context, opts *Options) error {
 	if err != nil {
 		return fmt.Errorf("city: %w", err)
 	}
-	label := fmt.Sprintf("Computing %s · %s", opts.ResourceType.Kind(), city.Name)
+	label := fmt.Sprintf("Computing %s · %s", opts.ResourceType.Type(), city.Name)
 	steps := []tui.Step{
 		{Name: "Processing features"},
 		{Name: "Generating hex grid"},
@@ -163,7 +163,7 @@ func runComputeTUI(ctx context.Context, opts *Options) error {
 		{Name: "Saving results"},
 	}
 	done := tui.DoneConfig{
-		SuccessMsg: fmt.Sprintf("%s compute complete for %s", opts.ResourceType.Kind(), city.Name),
+		SuccessMsg: fmt.Sprintf("%s compute complete for %s", opts.ResourceType.Type(), city.Name),
 	}
 	return tui.Run(label, steps, done, func(out io.Writer, errOut io.Writer, notify tui.PhaseNotifier) error {
 		return doCompute(ctx, out, errOut, notify, opts)
@@ -243,7 +243,7 @@ func doCompute(ctx context.Context, out, errOut io.Writer, notify tui.PhaseNotif
 
 	c.processCityResults(ctx, jurisdictionParts, clippedHexes)
 
-	return saveHexStats(ctx, errOut, notify, store, hexStats, opts.ResourceType.Kind().WithScope(resource.ScopeAll), c.snapshotID)
+	return saveHexStats(ctx, errOut, notify, store, hexStats, opts.ResourceType.Type(), c.snapshotID)
 }
 
 func loadBoundary(ctx context.Context, store db.Store, city *config.CityConfig) (string, [4]float64, *geo.UTMProjector, error) {
@@ -264,15 +264,15 @@ func loadBoundary(ctx context.Context, store db.Store, city *config.CityConfig) 
 
 func loadResourceFeatures(ctx context.Context, out, errOut io.Writer, notify tui.PhaseNotifier, opts *Options, store db.Store, proj *geo.UTMProjector) ([]resource.Feature, error) {
 	notify.PhaseStart(phaseProcess)
-	kind := opts.ResourceType.Kind()
-	fmt.Fprintf(out, "Loading %s features from database...\n", kind)
-	dbFeatures, err := store.ListFeatures(ctx, kind.WithScope(resource.ScopeAll))
+	t := opts.ResourceType.Type()
+	fmt.Fprintf(out, "Loading %s features from database...\n", t)
+	dbFeatures, err := store.ListFeatures(ctx, t)
 	if err != nil {
 		notify.PhaseDone(phaseProcess, err)
 		return nil, fmt.Errorf("list features: %w", err)
 	}
 	if len(dbFeatures) == 0 {
-		fmt.Fprintf(errOut, "No %s features in database. Run 'pvmt %s ingest' first.\n", kind, kind)
+		fmt.Fprintf(errOut, "No %s features in database. Run 'pvmt %s ingest' first.\n", t, t)
 		notify.PhaseDone(phaseProcess, errors.New("no features"))
 		return nil, cmdutil.ErrNoResults
 	}
@@ -323,7 +323,7 @@ func (c *computer) runAllFeaturesPass(ctx context.Context, resFeatures []resourc
 		areaSqM += s.AreaSqM
 	}
 
-	rtAll := c.opts.ResourceType.Kind().WithScope(resource.ScopeAll)
+	rtAll := c.opts.ResourceType.Type()
 	result := db.ComputeResult{
 		ResourceType: rtAll,
 		TotalAreaSqM: areaSqM,
@@ -345,12 +345,12 @@ func (c *computer) runAllFeaturesPass(ctx context.Context, resFeatures []resourc
 		}
 	}
 	if !c.opts.CityOnly {
-		printResults(c.out, fmt.Sprintf("%s Results (all)", rtAll.Kind), len(resFeatures), areaSqM, c.sys)
+		printResults(c.out, fmt.Sprintf("%s Results (all)", rtAll.Bare()), len(resFeatures), areaSqM, c.sys)
 	}
 	return hexStats, clippedHexes, nil
 }
 
-func saveHexStats(ctx context.Context, errOut io.Writer, notify tui.PhaseNotifier, store db.Store, hexStats []geo.HexStat, rt resource.ResourceType, snapshotID *int64) error {
+func saveHexStats(ctx context.Context, errOut io.Writer, notify tui.PhaseNotifier, store db.Store, hexStats []geo.HexStat, rt resource.Type, snapshotID *int64) error {
 	notify.PhaseStart(phaseSave)
 	defer notify.PhaseDone(phaseSave, nil)
 	dbStats := make([]db.HexStat, len(hexStats))
@@ -381,9 +381,9 @@ func (c *computer) processCityResults(ctx context.Context, parts map[filter.Juri
 		return
 	}
 
-	rtCity := c.opts.ResourceType.Kind().WithScope(resource.ScopeCity)
+	rtCity := c.opts.ResourceType.Type().With(resource.ScopeCity)
 	cityIdx := geo.NewGeomIndexFromGeoms(cityBuffered)
-	cityStats := geo.ComputeHexStats(ctx, clippedHexes, cityIdx, rtCity.String(), nil)
+	cityStats := geo.ComputeHexStats(ctx, clippedHexes, cityIdx, string(rtCity), nil)
 
 	var cityAreaSqM float64
 	cityDBStats := make([]db.HexStat, len(cityStats))
@@ -422,7 +422,7 @@ func (c *computer) processCityResults(ctx context.Context, parts map[filter.Juri
 		}
 	}
 
-	printResults(c.out, fmt.Sprintf("%s Results (city only)", rt.Kind()), len(cityFeatures), cityAreaSqM, c.sys)
+	printResults(c.out, fmt.Sprintf("%s Results (city only)", rt.Type()), len(cityFeatures), cityAreaSqM, c.sys)
 }
 
 // recordRow appends a computeRow to the multi-city accumulator if the
@@ -433,7 +433,7 @@ func (c *computer) recordRow(jurisdiction string, featureCount int, areaSqM floa
 	}
 	row := computeRow{
 		City:         c.city.Name,
-		ResourceType: c.opts.ResourceType.Kind().String(),
+		ResourceType: string(c.opts.ResourceType.Type()),
 		Jurisdiction: jurisdiction,
 		FeatureCount: featureCount,
 		AreaSqM:      areaSqM,
@@ -500,7 +500,7 @@ func (c *computer) computeHexPipeline(ctx context.Context, buffered []geom.Geome
 
 	var statsCounter atomic.Int64
 	stopStatsProgress := startProgressTicker(ctx, c.notify, phaseStats, len(hexes), &statsCounter)
-	geoStats := geo.ComputeHexStats(ctx, hexes, idx, c.opts.ResourceType.Kind().String(), &statsCounter)
+	geoStats := geo.ComputeHexStats(ctx, hexes, idx, string(c.opts.ResourceType.Type()), &statsCounter)
 	stopStatsProgress()
 	fmt.Fprintf(c.out, "  %d hexes with coverage\n", len(geoStats))
 	c.notify.PhaseDone(phaseStats, nil)
@@ -554,11 +554,11 @@ func parseGeoJSONGeometry(gjson string, proj *geo.UTMProjector) (geom.Geometry, 
 // hex-clipped pipeline used for the resource total. Otherwise it returns
 // a single cohort stat. resourceTypeName is the row label, which may include
 // a ":city" suffix when computing city-only stats.
-func buildCohortStats(ctx context.Context, rt resource.ResourceType, hasCohorts bool, features []resource.Feature, totalAreaSqM float64, snapshotID *int64, proj *geo.UTMProjector, hexes []geo.Hex) []db.CohortStat {
+func buildCohortStats(ctx context.Context, rt resource.Type, hasCohorts bool, features []resource.Feature, totalAreaSqM float64, snapshotID *int64, proj *geo.UTMProjector, hexes []geo.Hex) []db.CohortStat {
 	if !hasCohorts {
 		return []db.CohortStat{{
 			ResourceType:   rt,
-			Classification: rt.Kind.String(),
+			Classification: string(rt.Bare()),
 			AreaSqM:        totalAreaSqM,
 			FeatureCount:   len(features),
 			SnapshotID:     snapshotID,

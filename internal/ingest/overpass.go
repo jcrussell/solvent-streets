@@ -91,7 +91,7 @@ func fetchBBox(ctx context.Context, client *http.Client, rt resource.Source, bbo
 		return nil, fmt.Errorf("overpass returned %d: %s", resp.StatusCode, truncate(string(body), 200))
 	}
 
-	return parseOverpassResponse(body, rt.Kind().WithScope(resource.ScopeAll))
+	return parseOverpassResponse(body, rt.Type())
 }
 
 func isParseError(err error) bool {
@@ -126,7 +126,7 @@ type overpassElement struct {
 	} `json:"geometry,omitempty"`
 }
 
-func parseOverpassResponse(data []byte, resourceType resource.ResourceType) ([]db.Feature, error) {
+func parseOverpassResponse(data []byte, resourceType resource.Type) ([]db.Feature, error) {
 	var resp overpassResponse
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return nil, fmt.Errorf("parse overpass json: %w", err)
@@ -153,7 +153,7 @@ func parseOverpassResponse(data []byte, resourceType resource.ResourceType) ([]d
 	return features, nil
 }
 
-func buildFeatureFromWay(e overpassElement, nodes map[int64][2]float64, resourceType resource.ResourceType) (db.Feature, bool) {
+func buildFeatureFromWay(e overpassElement, nodes map[int64][2]float64, resourceType resource.Type) (db.Feature, bool) {
 	coords := resolveWayCoords(e, nodes)
 	if len(coords) < 2 {
 		return db.Feature{}, false

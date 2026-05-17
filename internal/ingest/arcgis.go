@@ -39,7 +39,7 @@ func (s *ArcGISSource) Name() string { return "arcgis" }
 
 func (s *ArcGISSource) Fetch(ctx context.Context, client *http.Client, rt resource.Source) ([]db.Feature, error) {
 	// Only fetch centerlines for road type
-	if rt.Kind() != resource.KindRoads {
+	if rt.Type() != resource.TypeRoads {
 		return []db.Feature{}, nil
 	}
 
@@ -54,7 +54,7 @@ func (s *ArcGISSource) Fetch(ctx context.Context, client *http.Client, rt resour
 	var allFeatures []db.Feature
 	offset := 0
 
-	rtVal := rt.Kind().WithScope(resource.ScopeAll)
+	rtVal := rt.Type()
 	for page := 0; ; page++ {
 		if page >= arcgisMaxPages {
 			return nil, fmt.Errorf("arcgis: exceeded %d pages (%d features), aborting", arcgisMaxPages, len(allFeatures))
@@ -75,7 +75,7 @@ func (s *ArcGISSource) Fetch(ctx context.Context, client *http.Client, rt resour
 	return allFeatures, nil
 }
 
-func fetchArcGISPage(ctx context.Context, client *http.Client, endpoint, envelope string, resourceType resource.ResourceType, offset int) ([]db.Feature, error) {
+func fetchArcGISPage(ctx context.Context, client *http.Client, endpoint, envelope string, resourceType resource.Type, offset int) ([]db.Feature, error) {
 	params := url.Values{
 		"where":             {"1=1"},
 		"geometry":          {envelope},
@@ -119,7 +119,7 @@ type arcgisGeoJSON struct {
 	} `json:"features"`
 }
 
-func parseArcGISGeoJSON(data []byte, resourceType resource.ResourceType, baseIndex int) ([]db.Feature, error) {
+func parseArcGISGeoJSON(data []byte, resourceType resource.Type, baseIndex int) ([]db.Feature, error) {
 	var resp arcgisGeoJSON
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return nil, fmt.Errorf("parse arcgis json: %w", err)

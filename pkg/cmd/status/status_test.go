@@ -14,7 +14,7 @@ import (
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
 
-var rtRoads = resource.KindRoads.WithScope(resource.ScopeAll)
+var rtRoads = resource.TypeRoads
 
 func TestNewCmdStatus_RunFInjection(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
@@ -39,7 +39,7 @@ func TestNewCmdStatus_RunFInjection(t *testing.T) {
 func TestRunStatus_SingleResource(t *testing.T) {
 	now := time.Now()
 	store := &dbtest.MockStore{
-		StatsFunc: func(_ context.Context, rt resource.ResourceType) (*db.StatusInfo, error) {
+		StatsFunc: func(_ context.Context, rt resource.Type) (*db.StatusInfo, error) {
 			if rt == rtRoads {
 				return &db.StatusInfo{
 					ResourceType: rtRoads,
@@ -75,10 +75,10 @@ func TestRunStatus_SingleResource(t *testing.T) {
 }
 
 func TestRunStatus_AllResources(t *testing.T) {
-	rtParking := resource.KindParking.WithScope(resource.ScopeAll)
+	rtParking := resource.TypeParking
 	store := &dbtest.MockStore{
-		StatsFunc: func(_ context.Context, rt resource.ResourceType) (*db.StatusInfo, error) {
-			switch rt {
+		StatsFunc: func(_ context.Context, rt resource.Type) (*db.StatusInfo, error) {
+			switch rt { //nolint:exhaustive // test fixture: only roads/parking matter; default covers the rest
 			case rtRoads:
 				return &db.StatusInfo{ResourceType: rtRoads, FeatureCount: 10}, nil
 			case rtParking:
@@ -114,7 +114,7 @@ func TestRunStatus_CitySummary(t *testing.T) {
 	boundaryGJSON := `{"type":"Polygon","coordinates":[[[-97.745,30.265],[-97.7346,30.265],[-97.7346,30.274],[-97.745,30.274],[-97.745,30.265]]]}`
 
 	store := &dbtest.MockStore{
-		StatsFunc: func(_ context.Context, rt resource.ResourceType) (*db.StatusInfo, error) {
+		StatsFunc: func(_ context.Context, rt resource.Type) (*db.StatusInfo, error) {
 			if rt == rtRoads {
 				return &db.StatusInfo{
 					ResourceType: rtRoads,
@@ -199,7 +199,7 @@ func TestStatusRow_ExportData_SubsetFields(t *testing.T) {
 
 func TestRunStatus_NonTTY_TabSeparated(t *testing.T) {
 	store := &dbtest.MockStore{
-		StatsFunc: func(_ context.Context, rt resource.ResourceType) (*db.StatusInfo, error) {
+		StatsFunc: func(_ context.Context, rt resource.Type) (*db.StatusInfo, error) {
 			if rt == rtRoads {
 				return &db.StatusInfo{ResourceType: rtRoads, FeatureCount: 7}, nil
 			}

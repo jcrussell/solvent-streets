@@ -40,7 +40,7 @@ func NewCmdIngest(f *cmdutil.Factory, rt resource.Source, runF func(*Options) er
 
 	cmd := &cobra.Command{
 		Use:   "ingest",
-		Short: fmt.Sprintf("Ingest %s data from APIs", rt.Kind()),
+		Short: fmt.Sprintf("Ingest %s data from APIs", rt.Type()),
 		Example: fmt.Sprintf(`  # Pull %s from the OpenStreetMap Overpass API
   pvmt %s ingest --source overpass
 
@@ -48,7 +48,7 @@ func NewCmdIngest(f *cmdutil.Factory, rt resource.Source, runF func(*Options) er
   pvmt %s ingest --force
 
   # Show what would be fetched without making any requests
-  pvmt %s ingest --dry-run`, rt.Kind(), rt.Kind(), rt.Kind(), rt.Kind()),
+  pvmt %s ingest --dry-run`, rt.Type(), rt.Type(), rt.Type(), rt.Type()),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
 				return runF(opts)
@@ -121,16 +121,16 @@ func runIngest(ctx context.Context, opts *Options) error {
 		return err
 	}
 	if len(allFeatures) == 0 {
-		logs.From(ctx).Warn("no features fetched", "resource", opts.ResourceType.Kind())
+		logs.From(ctx).Warn("no features fetched", "resource", opts.ResourceType.Type())
 		return cmdutil.ErrNoResults
 	}
 
-	logs.From(ctx).Info("saving features to database", "count", len(allFeatures), "resource", opts.ResourceType.Kind())
-	if err := store.UpsertFeatures(ctx, opts.ResourceType.Kind().WithScope(resource.ScopeAll), allFeatures); err != nil {
+	logs.From(ctx).Info("saving features to database", "count", len(allFeatures), "resource", opts.ResourceType.Type())
+	if err := store.UpsertFeatures(ctx, opts.ResourceType.Type(), allFeatures); err != nil {
 		return fmt.Errorf("save features: %w", err)
 	}
 
-	logs.From(ctx).Info("ingest complete", "count", len(allFeatures), "resource", opts.ResourceType.Kind())
+	logs.From(ctx).Info("ingest complete", "count", len(allFeatures), "resource", opts.ResourceType.Type())
 	return nil
 }
 
@@ -142,7 +142,7 @@ func runIngest(ctx context.Context, opts *Options) error {
 // real ingest with --source <single-source>.
 func printDryRunPlan(ctx context.Context, opts *Options, store db.Store, city *config.CityConfig) error {
 	out := opts.IO.Out
-	fmt.Fprintf(out, "[dry-run] ingest %s for %s\n", opts.ResourceType.Kind(), city.Name)
+	fmt.Fprintf(out, "[dry-run] ingest %s for %s\n", opts.ResourceType.Type(), city.Name)
 	boundary, err := store.GetBoundary(ctx)
 	if err != nil {
 		return fmt.Errorf("reading cached boundary: %w", err)
@@ -212,7 +212,7 @@ func fetchFromSources(ctx context.Context, sources []ingestpkg.Source, client *h
 	var allFeatures []db.Feature
 	failures := 0
 	for _, src := range sources {
-		fmt.Fprintf(opts.IO.ErrOut, "Fetching %s data from %s for %s...\n", opts.ResourceType.Kind(), src.Name(), cityName)
+		fmt.Fprintf(opts.IO.ErrOut, "Fetching %s data from %s for %s...\n", opts.ResourceType.Type(), src.Name(), cityName)
 		features, err := src.Fetch(ctx, client, opts.ResourceType)
 		if err != nil {
 			fmt.Fprintf(opts.IO.ErrOut, "Warning: %s fetch failed: %v\n", src.Name(), err)
@@ -223,7 +223,7 @@ func fetchFromSources(ctx context.Context, sources []ingestpkg.Source, client *h
 		allFeatures = append(allFeatures, features...)
 	}
 	if len(sources) > 0 && failures == len(sources) {
-		return nil, fmt.Errorf("%s: %w", opts.ResourceType.Kind(), cmdutil.ErrAllSourcesFailed)
+		return nil, fmt.Errorf("%s: %w", opts.ResourceType.Type(), cmdutil.ErrAllSourcesFailed)
 	}
 	return allFeatures, nil
 }

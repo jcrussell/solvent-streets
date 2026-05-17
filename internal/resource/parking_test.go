@@ -5,10 +5,10 @@ import (
 	"testing"
 )
 
-func TestParking_Kind(t *testing.T) {
+func TestParking_Type(t *testing.T) {
 	p := &Parking{}
-	if p.Kind() != KindParking {
-		t.Errorf("expected KindParking, got %v", p.Kind())
+	if p.Type() != TypeParking {
+		t.Errorf("expected TypeParking, got %v", p.Type())
 	}
 }
 

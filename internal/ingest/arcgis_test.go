@@ -12,7 +12,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
-var rtRoads = resource.KindRoads.WithScope(resource.ScopeAll)
+var rtRoads = resource.TypeRoads
 
 func TestParseArcGISGeoJSON_BasicFeature(t *testing.T) {
 	data := `{
@@ -196,7 +196,7 @@ func TestFetch_Pagination(t *testing.T) {
 		BBox: [4]float64{37.0, -122.0, 38.0, -121.0},
 		URL:  srv.URL,
 	}
-	rt := resource.ByKind(resource.KindRoads)
+	rt := resource.ByType(resource.TypeRoads)
 	features, err := src.Fetch(context.Background(), srv.Client(), rt)
 	if err != nil {
 		t.Fatal(err)
@@ -230,7 +230,7 @@ func TestFetch_SinglePage(t *testing.T) {
 		BBox: [4]float64{37.0, -122.0, 38.0, -121.0},
 		URL:  srv.URL,
 	}
-	features, err := src.Fetch(context.Background(), srv.Client(), resource.ByKind(resource.KindRoads))
+	features, err := src.Fetch(context.Background(), srv.Client(), resource.ByType(resource.TypeRoads))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,7 +253,7 @@ func TestFetch_EmptyResponse(t *testing.T) {
 		BBox: [4]float64{37.0, -122.0, 38.0, -121.0},
 		URL:  srv.URL,
 	}
-	features, err := src.Fetch(context.Background(), srv.Client(), resource.ByKind(resource.KindRoads))
+	features, err := src.Fetch(context.Background(), srv.Client(), resource.ByType(resource.TypeRoads))
 	if err != nil {
 		t.Fatal(err)
 	}

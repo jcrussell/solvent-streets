@@ -13,7 +13,7 @@ import (
 // switch in forecastRow.ExportData is now the JSON contract — a typo
 // silently drops a field.
 func TestForecastRow_ExportData_AllFieldsPopulated(t *testing.T) {
-	rtRoads := resource.KindRoads.WithScope(resource.ScopeAll)
+	rtRoads := resource.TypeRoads
 	r := forecastRow{db.ForecastResult{
 		ResourceType:  rtRoads,
 		Year:          2030,

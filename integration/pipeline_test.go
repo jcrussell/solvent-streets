@@ -74,7 +74,7 @@ func TestPipeline_ComputeForecastExport(t *testing.T) {
 		cmd.SilenceErrors, cmd.SilenceUsage = true, true
 		cmd.SetArgs(nil)
 		if err := cmd.ExecuteContext(ctx); err != nil {
-			t.Fatalf("compute %s: %v", rt.Kind(), err)
+			t.Fatalf("compute %s: %v", rt.Type(), err)
 		}
 	}
 
@@ -182,8 +182,8 @@ func loadFixtures(t *testing.T, ctx context.Context, store db.Store) {
 	if err := store.SaveBoundary(ctx, boundary, "fixture"); err != nil {
 		t.Fatalf("SaveBoundary: %v", err)
 	}
-	rtRoads := resource.KindRoads.WithScope(resource.ScopeAll)
-	rtParking := resource.KindParking.WithScope(resource.ScopeAll)
+	rtRoads := resource.TypeRoads
+	rtParking := resource.TypeParking
 	if err := store.UpsertFeatures(ctx, rtRoads, []db.Feature{{
 		ID:           "fixture:road:1",
 		ResourceType: rtRoads,

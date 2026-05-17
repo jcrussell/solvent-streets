@@ -9,10 +9,10 @@ import (
 
 var testProj = geo.NewUTMProjector(-121.76, 37.68)
 
-func TestPavement_Kind(t *testing.T) {
+func TestPavement_Type(t *testing.T) {
 	p := &Pavement{}
-	if p.Kind() != KindRoads {
-		t.Errorf("expected KindRoads, got %v", p.Kind())
+	if p.Type() != TypeRoads {
+		t.Errorf("expected TypeRoads, got %v", p.Type())
 	}
 }
 

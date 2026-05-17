@@ -26,7 +26,7 @@ import (
 func TestExportScenariosForCity_PropagatesDBError(t *testing.T) {
 	sentinel := errors.New("db unavailable")
 	store := &dbtest.MockStore{
-		LatestComputeResultFunc: func(_ context.Context, _ resource.ResourceType) (*db.ComputeResult, error) {
+		LatestComputeResultFunc: func(_ context.Context, _ resource.Type) (*db.ComputeResult, error) {
 			return nil, sentinel
 		},
 	}

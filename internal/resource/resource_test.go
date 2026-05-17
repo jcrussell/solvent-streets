@@ -10,18 +10,34 @@ func TestAllContainsThreeTypes(t *testing.T) {
 	}
 }
 
-func TestByKind_Pavements(t *testing.T) {
-	rt := ByKind(KindRoads)
+func TestByType_Pavement(t *testing.T) {
+	rt := ByType(TypeRoads)
 	if rt == nil {
-		t.Fatal("expected non-nil for pavements")
+		t.Fatal("expected non-nil for TypeRoads")
 	}
 	if _, ok := rt.(*Pavement); !ok {
 		t.Errorf("expected *Pavement, got %T", rt)
 	}
 }
 
-func TestByKind_Unknown(t *testing.T) {
-	if rt := ByKind(KindUnknown); rt != nil {
-		t.Errorf("expected nil for KindUnknown, got %v", rt)
+func TestByType_Unknown(t *testing.T) {
+	if rt := ByType("nonexistent"); rt != nil {
+		t.Errorf("expected nil for unknown type, got %v", rt)
+	}
+}
+
+func TestType_WithAndBare(t *testing.T) {
+	city := TypeRoads.With(ScopeCity)
+	if city != "roads:city" {
+		t.Errorf("TypeRoads.With(ScopeCity) = %q; want roads:city", city)
+	}
+	if city.Bare() != TypeRoads {
+		t.Errorf("city.Bare() = %q; want %q", city.Bare(), TypeRoads)
+	}
+	if city.Scope() != ScopeCity {
+		t.Errorf("city.Scope() = %q; want %q", city.Scope(), ScopeCity)
+	}
+	if TypeRoads.Scope() != ScopeAll {
+		t.Errorf("bare TypeRoads.Scope() = %q; want ScopeAll", TypeRoads.Scope())
 	}
 }

@@ -9,8 +9,8 @@ import (
 )
 
 var (
-	rtRoads   = resource.KindRoads.WithScope(resource.ScopeAll)
-	rtParking = resource.KindParking.WithScope(resource.ScopeAll)
+	rtRoads   = resource.TypeRoads
+	rtParking = resource.TypeParking
 )
 
 // openTestStore opens an in-memory DB and returns a Store scoped to a test city.

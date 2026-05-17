@@ -127,8 +127,8 @@ func TestNewCmdIngest_RunFInjection(t *testing.T) {
 	called := false
 	cmd := NewCmdIngest(f, rt, func(opts *Options) error {
 		called = true
-		if opts.ResourceType.Kind() != resource.KindRoads {
-			t.Errorf("expected KindRoads, got %v", opts.ResourceType.Kind())
+		if opts.ResourceType.Type() != resource.TypeRoads {
+			t.Errorf("expected KindRoads, got %v", opts.ResourceType.Type())
 		}
 		return nil
 	})

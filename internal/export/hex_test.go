@@ -18,10 +18,10 @@ import (
 )
 
 var (
-	rtRoads       = resource.KindRoads.WithScope(resource.ScopeAll)
-	rtRoadsCity   = resource.KindRoads.WithScope(resource.ScopeCity)
-	rtParkingAll  = resource.KindParking.WithScope(resource.ScopeAll)
-	rtSidewalkAll = resource.KindSidewalks.WithScope(resource.ScopeAll)
+	rtRoads       = resource.TypeRoads
+	rtRoadsCity   = resource.TypeRoads.With(resource.ScopeCity)
+	rtParkingAll  = resource.TypeParking
+	rtSidewalkAll = resource.TypeSidewalks
 )
 
 // squareHex builds a geo.Hex whose Geom is an axis-aligned square of the
@@ -89,13 +89,13 @@ func TestFilterHexSlivers_DropsBelowThreshold(t *testing.T) {
 // hexEntry builds a CityEntry whose ListHexStats returns rows from the given
 // map (keyed by full resource label, e.g. roads or roads:city).
 // LatestComputeResult is similarly keyed.
-func hexEntry(t *testing.T, hexStats map[resource.ResourceType][]db.HexStat, results map[resource.ResourceType]db.ComputeResult) CityEntry {
+func hexEntry(t *testing.T, hexStats map[resource.Type][]db.HexStat, results map[resource.Type]db.ComputeResult) CityEntry {
 	t.Helper()
 	store := &dbtest.MockStore{
-		ListHexStatsFunc: func(_ context.Context, rt resource.ResourceType) ([]db.HexStat, error) {
+		ListHexStatsFunc: func(_ context.Context, rt resource.Type) ([]db.HexStat, error) {
 			return hexStats[rt], nil
 		},
-		LatestComputeResultFunc: func(_ context.Context, rt resource.ResourceType) (*db.ComputeResult, error) {
+		LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
 			r, ok := results[rt]
 			if !ok {
 				return nil, sql.ErrNoRows
@@ -128,7 +128,7 @@ func TestBuildHexGeoJSONs_BothScopesEmitted(t *testing.T) {
 	now := time.Now()
 	cityRows := []db.HexStat{{HexID: "0,0", ResourceType: rtRoadsCity, AreaSqM: 100, PctCovered: 50, ComputedAt: now}}
 	bboxRows := []db.HexStat{{HexID: "0,0", ResourceType: rtRoads, AreaSqM: 200, PctCovered: 75, ComputedAt: now}}
-	entry := hexEntry(t, map[resource.ResourceType][]db.HexStat{
+	entry := hexEntry(t, map[resource.Type][]db.HexStat{
 		rtRoads:       bboxRows,
 		rtRoadsCity:   cityRows,
 		rtParkingAll:  nil,
@@ -167,7 +167,7 @@ func TestBuildHexGeoJSONs_BothScopesEmitted(t *testing.T) {
 // the absence of hexgrid-city.geojson as the "hide the scope toggle" signal.
 func TestBuildHexGeoJSONs_NoCityRowsReturnsNilCity(t *testing.T) {
 	bboxRows := []db.HexStat{{HexID: "0,0", ResourceType: rtRoads, AreaSqM: 100, PctCovered: 50}}
-	entry := hexEntry(t, map[resource.ResourceType][]db.HexStat{
+	entry := hexEntry(t, map[resource.Type][]db.HexStat{
 		rtRoads:       bboxRows,
 		rtParkingAll:  nil,
 		rtSidewalkAll: nil,
@@ -189,7 +189,7 @@ func TestBuildHexGeoJSONs_NoCityRowsReturnsNilCity(t *testing.T) {
 // export (the marker that compute produced both scopes).
 func TestBuildHexCostSummary_NestedByScope(t *testing.T) {
 	now := time.Now()
-	results := map[resource.ResourceType]db.ComputeResult{
+	results := map[resource.Type]db.ComputeResult{
 		rtRoads:     {ResourceType: rtRoads, TotalAreaSqM: 2000, ComputedAt: now},
 		rtRoadsCity: {ResourceType: rtRoadsCity, TotalAreaSqM: 1000, ComputedAt: now},
 	}
@@ -232,7 +232,7 @@ func TestBuildHexCostSummary_NestedByScope(t *testing.T) {
 // (legacy single-scope compute), the output has only the "bbox" key and
 // Baseline carries the bbox numbers.
 func TestBuildHexCostSummary_BboxOnlyWhenNoCity(t *testing.T) {
-	results := map[resource.ResourceType]db.ComputeResult{
+	results := map[resource.Type]db.ComputeResult{
 		rtRoads: {ResourceType: rtRoads, TotalAreaSqM: 2000},
 	}
 	entry := hexEntry(t, nil, results)
@@ -257,7 +257,7 @@ func TestBuildHexCostSummary_BboxOnlyWhenNoCity(t *testing.T) {
 // held the city-scope primary) is renamed to "city". When no :city compute
 // rows exist, the only scope key is "bbox".
 func TestBuildScenariosData_RenamedKeys(t *testing.T) {
-	results := map[resource.ResourceType]db.ComputeResult{
+	results := map[resource.Type]db.ComputeResult{
 		rtRoads:     {ResourceType: rtRoads, TotalAreaSqM: 2000, FeatureCount: 100},
 		rtRoadsCity: {ResourceType: rtRoadsCity, TotalAreaSqM: 1000, FeatureCount: 60},
 	}
@@ -279,7 +279,7 @@ func TestBuildScenariosData_RenamedKeys(t *testing.T) {
 // TestBuildScenariosData_BboxOnlyKey: when only bbox compute rows exist,
 // the output has just the "bbox" key — no "city", no legacy "all".
 func TestBuildScenariosData_BboxOnlyKey(t *testing.T) {
-	results := map[resource.ResourceType]db.ComputeResult{
+	results := map[resource.Type]db.ComputeResult{
 		rtRoads: {ResourceType: rtRoads, TotalAreaSqM: 2000, FeatureCount: 100},
 	}
 	entry := hexEntry(t, nil, results)

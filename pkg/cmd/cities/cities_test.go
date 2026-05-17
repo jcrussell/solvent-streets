@@ -33,9 +33,9 @@ func TestNewCmdCities_RunFInjection(t *testing.T) {
 }
 
 func TestRunCities_ListsCitiesWithStats(t *testing.T) {
-	rtRoads := resource.KindRoads.WithScope(resource.ScopeAll)
-	statsFor := func(slug string) func(context.Context, resource.ResourceType) (*db.StatusInfo, error) {
-		return func(_ context.Context, rt resource.ResourceType) (*db.StatusInfo, error) {
+	rtRoads := resource.TypeRoads
+	statsFor := func(slug string) func(context.Context, resource.Type) (*db.StatusInfo, error) {
+		return func(_ context.Context, rt resource.Type) (*db.StatusInfo, error) {
 			if slug == "austin-tx" && rt == rtRoads {
 				return &db.StatusInfo{ResourceType: rt, FeatureCount: 42, TotalAreaSqM: 1000}, nil
 			}

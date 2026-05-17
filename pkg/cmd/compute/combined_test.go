@@ -28,8 +28,8 @@ func TestRunCombined_DedupesCrossResourceOverlap(t *testing.T) {
 
 	// Horizontal road, ~440m long; explicit width=20m so the buffer is a
 	// 440m × 20m rectangle (~8800 sqm before clipping).
-	rtRoads := resource.KindRoads.WithScope(resource.ScopeAll)
-	rtParking := resource.KindParking.WithScope(resource.ScopeAll)
+	rtRoads := resource.TypeRoads
+	rtParking := resource.TypeParking
 	roadFeature := db.Feature{
 		ID:           "road1",
 		ResourceType: rtRoads,
@@ -47,11 +47,11 @@ func TestRunCombined_DedupesCrossResourceOverlap(t *testing.T) {
 		GeometryJSON: `{"type":"Polygon","coordinates":[[[-120.000285,37.99996],[-119.999715,37.99996],[-119.999715,38.00004],[-120.000285,38.00004],[-120.000285,37.99996]]]}`,
 	}
 
-	saved := map[resource.ResourceType]db.ComputeResult{}
+	saved := map[resource.Type]db.ComputeResult{}
 	store := &dbtest.MockStore{
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return boundary, nil },
-		ListFeaturesFunc: func(_ context.Context, rt resource.ResourceType) ([]db.Feature, error) {
-			switch rt {
+		ListFeaturesFunc: func(_ context.Context, rt resource.Type) ([]db.Feature, error) {
+			switch rt { //nolint:exhaustive // test fixture: other resource types are intentionally empty
 			case rtRoads:
 				return []db.Feature{roadFeature}, nil
 			case rtParking:
@@ -113,9 +113,9 @@ func TestRunCombined_DedupesCrossResourceOverlap(t *testing.T) {
 			GeometryJSON: feat.GeometryJSON,
 		}}, proj)
 		if err != nil {
-			t.Fatalf("buffer %s: %v", rt.Kind(), err)
+			t.Fatalf("buffer %s: %v", rt.Type(), err)
 		}
-		stats := geo.ComputeHexStats(t.Context(), hexes, geo.NewGeomIndexFromGeoms(bufs), rt.Kind().String(), nil)
+		stats := geo.ComputeHexStats(t.Context(), hexes, geo.NewGeomIndexFromGeoms(bufs), string(rt.Type()), nil)
 		var sum float64
 		for _, s := range stats {
 			sum += s.AreaSqM
@@ -148,7 +148,7 @@ func TestRunCombined_NoFeaturesSkipsSave(t *testing.T) {
 	saveCalled := false
 	store := &dbtest.MockStore{
 		GetBoundaryFunc:  func(_ context.Context) (string, error) { return boundary, nil },
-		ListFeaturesFunc: func(_ context.Context, _ resource.ResourceType) ([]db.Feature, error) { return nil, nil },
+		ListFeaturesFunc: func(_ context.Context, _ resource.Type) ([]db.Feature, error) { return nil, nil },
 		SaveComputeResultFunc: func(_ context.Context, _ db.ComputeResult) error {
 			saveCalled = true
 			return nil

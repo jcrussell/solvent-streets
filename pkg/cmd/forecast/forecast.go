@@ -103,7 +103,7 @@ func simulateResource(rt resource.Source, cohorts []fcpkg.Cohort, years int, par
 	var results []db.ForecastResult
 	var totalDeferredCost float64
 
-	rtVal := rt.Kind().WithScope(resource.ScopeAll)
+	rtVal := rt.Type()
 	for _, y := range baseline.Years {
 		totalDeferredCost += y.AnnualNeed
 		results = append(results, db.ForecastResult{
@@ -121,10 +121,10 @@ func simulateResource(rt resource.Source, cohorts []fcpkg.Cohort, years int, par
 
 func buildForecastCohorts(ctx context.Context, rt resource.Source, areaSqM float64, store db.Store, fc *config.ForecastConfig) ([]fcpkg.Cohort, error) {
 	currentPCI := fc.InitialPCI
-	kind := rt.Kind()
-	stats, err := store.ListCohortStats(ctx, kind.WithScope(resource.ScopeAll))
+	t := rt.Type()
+	stats, err := store.ListCohortStats(ctx, t)
 	if err != nil {
-		return nil, fmt.Errorf("list cohort stats for %s: %w", kind, err)
+		return nil, fmt.Errorf("list cohort stats for %s: %w", t, err)
 	}
 	var inputs []fcpkg.CohortInput
 	for _, st := range stats {
@@ -135,13 +135,13 @@ func buildForecastCohorts(ctx context.Context, rt resource.Source, areaSqM float
 	}
 	cohorts := fcpkg.BuildCohorts(inputs, currentPCI, fc.DecayRate)
 	if cohorts == nil {
-		kindName := kind.String()
-		defaultRate := fcpkg.DecayRateForClass(kindName)
-		if fc.DecayRate > 0 && fcpkg.IsRoadClass(kindName) {
+		tName := string(t)
+		defaultRate := fcpkg.DecayRateForClass(tName)
+		if fc.DecayRate > 0 && fcpkg.IsRoadClass(tName) {
 			defaultRate = fc.DecayRate
 		}
 		cohorts = []fcpkg.Cohort{{
-			Classification: kindName,
+			Classification: tName,
 			AreaSqM:        areaSqM,
 			DecayRate:      defaultRate,
 			InitialPCI:     currentPCI,
@@ -152,7 +152,7 @@ func buildForecastCohorts(ctx context.Context, rt resource.Source, areaSqM float
 
 func renderBaselineTable(ios *iostreams.IOStreams, rt resource.Source, areaSqM, currentPCI float64,
 	baseline fcpkg.ScenarioResult, totalDeferredCost float64, years int, sys units.System) error {
-	fmt.Fprintf(ios.ErrOut, "=== %s ===\n", rt.Kind())
+	fmt.Fprintf(ios.ErrOut, "=== %s ===\n", rt.Type())
 	fmt.Fprintf(ios.ErrOut, "  Current area: %s (%s)\n", units.FormatArea(areaSqM, sys), units.FormatAreaLarge(areaSqM, sys))
 	fmt.Fprintf(ios.ErrOut, "  Initial PCI: %.0f\n\n", currentPCI)
 
@@ -290,12 +290,12 @@ func forecastAllResources(ctx context.Context, opts *Options, store db.Store,
 	var allResults []db.ForecastResult
 
 	for _, rt := range resource.All {
-		kind := rt.Kind()
-		kindName := kind.String()
-		params := fcpkg.NewParamsForResource(kindName, fc.GrowthRate, costTiers)
-		result, err := store.LatestComputeResult(ctx, kind.WithScope(resource.ScopeAll))
+		t := rt.Type()
+		tName := string(t)
+		params := fcpkg.NewParamsForResource(tName, fc.GrowthRate, costTiers)
+		result, err := store.LatestComputeResult(ctx, t)
 		if err != nil || result == nil {
-			fmt.Fprintf(ios.ErrOut, "Warning: no compute results for %s, skipping\n", kind)
+			fmt.Fprintf(ios.ErrOut, "Warning: no compute results for %s, skipping\n", t)
 			continue
 		}
 
@@ -314,7 +314,7 @@ func forecastAllResources(ctx context.Context, opts *Options, store db.Store,
 		}
 
 		if err := store.SaveForecastResults(ctx, dbResults); err != nil {
-			return nil, fmt.Errorf("saving forecast results for %s: %w", kind, err)
+			return nil, fmt.Errorf("saving forecast results for %s: %w", t, err)
 		}
 
 		if opts.Scenarios && opts.Exporter == nil {

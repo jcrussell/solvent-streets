@@ -69,17 +69,16 @@ func TestScenariosJSON_Golden(t *testing.T) {
 // exercises the dual-scope branch (out["city"] and out["bbox"] both set).
 func goldenFixtureEntry(t *testing.T) CityEntry {
 	t.Helper()
-	rt := func(k resource.Kind, s resource.Scope) resource.ResourceType { return k.WithScope(s) }
-	results := map[resource.ResourceType]db.ComputeResult{
-		rt(resource.KindRoads, resource.ScopeAll):      {ResourceType: rt(resource.KindRoads, resource.ScopeAll), TotalAreaSqM: 1_500_000, FeatureCount: 800},
-		rt(resource.KindRoads, resource.ScopeCity):     {ResourceType: rt(resource.KindRoads, resource.ScopeCity), TotalAreaSqM: 900_000, FeatureCount: 480},
-		rt(resource.KindParking, resource.ScopeAll):    {ResourceType: rt(resource.KindParking, resource.ScopeAll), TotalAreaSqM: 200_000, FeatureCount: 120},
-		rt(resource.KindParking, resource.ScopeCity):   {ResourceType: rt(resource.KindParking, resource.ScopeCity), TotalAreaSqM: 150_000, FeatureCount: 90},
-		rt(resource.KindSidewalks, resource.ScopeAll):  {ResourceType: rt(resource.KindSidewalks, resource.ScopeAll), TotalAreaSqM: 100_000, FeatureCount: 250},
-		rt(resource.KindSidewalks, resource.ScopeCity): {ResourceType: rt(resource.KindSidewalks, resource.ScopeCity), TotalAreaSqM: 80_000, FeatureCount: 200},
+	results := map[resource.Type]db.ComputeResult{
+		resource.TypeRoads:                              {ResourceType: resource.TypeRoads, TotalAreaSqM: 1_500_000, FeatureCount: 800},
+		resource.TypeRoads.With(resource.ScopeCity):     {ResourceType: resource.TypeRoads.With(resource.ScopeCity), TotalAreaSqM: 900_000, FeatureCount: 480},
+		resource.TypeParking:                            {ResourceType: resource.TypeParking, TotalAreaSqM: 200_000, FeatureCount: 120},
+		resource.TypeParking.With(resource.ScopeCity):   {ResourceType: resource.TypeParking.With(resource.ScopeCity), TotalAreaSqM: 150_000, FeatureCount: 90},
+		resource.TypeSidewalks:                          {ResourceType: resource.TypeSidewalks, TotalAreaSqM: 100_000, FeatureCount: 250},
+		resource.TypeSidewalks.With(resource.ScopeCity): {ResourceType: resource.TypeSidewalks.With(resource.ScopeCity), TotalAreaSqM: 80_000, FeatureCount: 200},
 	}
 	store := &dbtest.MockStore{
-		LatestComputeResultFunc: func(_ context.Context, key resource.ResourceType) (*db.ComputeResult, error) {
+		LatestComputeResultFunc: func(_ context.Context, key resource.Type) (*db.ComputeResult, error) {
 			r, ok := results[key]
 			if !ok {
 				return nil, sql.ErrNoRows

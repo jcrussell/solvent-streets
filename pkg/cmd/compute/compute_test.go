@@ -35,8 +35,8 @@ func TestNewCmdCompute_RunFInjection(t *testing.T) {
 	called := false
 	cmd := NewCmdCompute(f, rt, func(opts *Options) error {
 		called = true
-		if opts.ResourceType.Kind() != resource.KindRoads {
-			t.Errorf("expected KindRoads, got %v", opts.ResourceType.Kind())
+		if opts.ResourceType.Type() != resource.TypeRoads {
+			t.Errorf("expected KindRoads, got %v", opts.ResourceType.Type())
 		}
 		return nil
 	})
@@ -87,11 +87,11 @@ func TestRunCompute_Success(t *testing.T) {
 	var savedResult *db.ComputeResult
 	store := &dbtest.MockStore{
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
-		ListFeaturesFunc: func(_ context.Context, _ resource.ResourceType) ([]db.Feature, error) {
+		ListFeaturesFunc: func(_ context.Context, _ resource.Type) ([]db.Feature, error) {
 			return []db.Feature{
 				{
 					ID:           "test1",
-					ResourceType: resource.KindRoads.WithScope(resource.ScopeAll),
+					ResourceType: resource.TypeRoads,
 					Name:         "Test Rd",
 					Tags:         map[string]string{"highway": "residential"},
 					GeometryJSON: `{"type":"LineString","coordinates":[[-121.7700,37.6800],[-121.7690,37.6810]]}`,

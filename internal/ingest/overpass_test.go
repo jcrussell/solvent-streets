@@ -13,8 +13,8 @@ const (
 )
 
 var (
-	testResourceRoads   = resource.KindRoads.WithScope(resource.ScopeAll)
-	testResourceParking = resource.KindParking.WithScope(resource.ScopeAll)
+	testResourceRoads   = resource.TypeRoads
+	testResourceParking = resource.TypeParking
 )
 
 func TestParseOverpassResponse_BasicWayWithGeometry(t *testing.T) {

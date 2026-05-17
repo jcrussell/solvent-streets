@@ -18,20 +18,20 @@ import (
 // (matching collectCohortSeeds' single-city shape). Pre-fix, "default"
 // roads and "default" parking collapsed into one summed cohort.
 func TestMergeCohortSeeds_KeysOnResourceAndClassification(t *testing.T) {
-	cohortsByLabel := func(m map[resource.ResourceType][]db.CohortStat) func(context.Context, resource.ResourceType) ([]db.CohortStat, error) {
-		return func(_ context.Context, rt resource.ResourceType) ([]db.CohortStat, error) {
+	cohortsByLabel := func(m map[resource.Type][]db.CohortStat) func(context.Context, resource.Type) ([]db.CohortStat, error) {
+		return func(_ context.Context, rt resource.Type) ([]db.CohortStat, error) {
 			return m[rt], nil
 		}
 	}
 
-	rtRoads := resource.KindRoads.WithScope(resource.ScopeAll)
-	rtParking := resource.KindParking.WithScope(resource.ScopeAll)
+	rtRoads := resource.TypeRoads
+	rtParking := resource.TypeParking
 
 	cityA := CityEntry{
 		Config: &config.Config{},
 		Slug:   "city-a",
 		Store: &dbtest.MockStore{
-			ListCohortStatsFunc: cohortsByLabel(map[resource.ResourceType][]db.CohortStat{
+			ListCohortStatsFunc: cohortsByLabel(map[resource.Type][]db.CohortStat{
 				rtRoads: {
 					{Classification: "primary", AreaSqM: 1000},
 					{Classification: "default", AreaSqM: 500},
@@ -46,7 +46,7 @@ func TestMergeCohortSeeds_KeysOnResourceAndClassification(t *testing.T) {
 		Config: &config.Config{},
 		Slug:   "city-b",
 		Store: &dbtest.MockStore{
-			ListCohortStatsFunc: cohortsByLabel(map[resource.ResourceType][]db.CohortStat{
+			ListCohortStatsFunc: cohortsByLabel(map[resource.Type][]db.CohortStat{
 				rtRoads: {
 					{Classification: "primary", AreaSqM: 200},
 				},
@@ -76,12 +76,12 @@ func TestMergeCohortSeeds_KeysOnResourceAndClassification(t *testing.T) {
 // TestMergeCohortSeeds_CityScopeReadsCityLabels verifies cityScope=true
 // drives the ":city"-suffixed cohort label, not the bbox label.
 func TestMergeCohortSeeds_CityScopeReadsCityLabels(t *testing.T) {
-	var seenLabels []resource.ResourceType
+	var seenLabels []resource.Type
 	entry := CityEntry{
 		Config: &config.Config{},
 		Slug:   "city-a",
 		Store: &dbtest.MockStore{
-			ListCohortStatsFunc: func(_ context.Context, rt resource.ResourceType) ([]db.CohortStat, error) {
+			ListCohortStatsFunc: func(_ context.Context, rt resource.Type) ([]db.CohortStat, error) {
 				seenLabels = append(seenLabels, rt)
 				return nil, nil
 			},
@@ -90,7 +90,7 @@ func TestMergeCohortSeeds_CityScopeReadsCityLabels(t *testing.T) {
 	mergeCohortSeeds(context.Background(), []CityEntry{entry}, &config.ForecastConfig{}, true)
 
 	for _, label := range seenLabels {
-		if label.Scope != resource.ScopeCity {
+		if label.Scope() != resource.ScopeCity {
 			t.Errorf("cityScope=true read label %q; want all labels to be ScopeCity", label)
 		}
 	}

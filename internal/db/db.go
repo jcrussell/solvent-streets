@@ -20,7 +20,7 @@ var migrationsFS embed.FS
 
 type Feature struct {
 	ID           string
-	ResourceType resource.ResourceType
+	ResourceType resource.Type
 	Name         string
 	Tags         map[string]string
 	GeometryJSON string // GeoJSON geometry
@@ -30,7 +30,7 @@ type Feature struct {
 
 type ComputeResult struct {
 	ID           int64
-	ResourceType resource.ResourceType
+	ResourceType resource.Type
 	TotalAreaSqM float64
 	FeatureCount int
 	ComputedAt   time.Time
@@ -38,7 +38,7 @@ type ComputeResult struct {
 }
 
 type StatusInfo struct {
-	ResourceType  resource.ResourceType
+	ResourceType  resource.Type
 	FeatureCount  int
 	LastIngestAt  *time.Time
 	LastComputeAt *time.Time
@@ -47,7 +47,7 @@ type StatusInfo struct {
 
 type HexStat struct {
 	HexID        string
-	ResourceType resource.ResourceType
+	ResourceType resource.Type
 	AreaSqM      float64
 	PctCovered   float64
 	ComputedAt   time.Time
@@ -61,20 +61,20 @@ type Snapshot struct {
 }
 
 type ForecastResult struct {
-	ID            int64                 `json:"-"`
-	ResourceType  resource.ResourceType `json:"resourceType"`
-	Year          int                   `json:"year"`
-	PCI           float64               `json:"pci"`
-	AreaSqM       float64               `json:"areaSqM"`
-	TreatmentCost float64               `json:"treatmentCost"`
-	TreatmentTier string                `json:"treatmentTier"`
-	SnapshotID    *int64                `json:"-"`
-	ComputedAt    time.Time             `json:"-"`
+	ID            int64         `json:"-"`
+	ResourceType  resource.Type `json:"resourceType"`
+	Year          int           `json:"year"`
+	PCI           float64       `json:"pci"`
+	AreaSqM       float64       `json:"areaSqM"`
+	TreatmentCost float64       `json:"treatmentCost"`
+	TreatmentTier string        `json:"treatmentTier"`
+	SnapshotID    *int64        `json:"-"`
+	ComputedAt    time.Time     `json:"-"`
 }
 
 type CohortStat struct {
 	ID             int64
-	ResourceType   resource.ResourceType
+	ResourceType   resource.Type
 	Classification string
 	AreaSqM        float64
 	FeatureCount   int
@@ -89,24 +89,24 @@ type City struct {
 }
 
 type Store interface {
-	UpsertFeatures(ctx context.Context, resourceType resource.ResourceType, features []Feature) error
-	ListFeatures(ctx context.Context, resourceType resource.ResourceType) ([]Feature, error)
+	UpsertFeatures(ctx context.Context, resourceType resource.Type, features []Feature) error
+	ListFeatures(ctx context.Context, resourceType resource.Type) ([]Feature, error)
 	SaveComputeResult(ctx context.Context, result ComputeResult) error
-	LatestComputeResult(ctx context.Context, resourceType resource.ResourceType) (*ComputeResult, error)
+	LatestComputeResult(ctx context.Context, resourceType resource.Type) (*ComputeResult, error)
 	SaveHexStats(ctx context.Context, stats []HexStat) error
-	ListHexStats(ctx context.Context, resourceType resource.ResourceType) ([]HexStat, error)
+	ListHexStats(ctx context.Context, resourceType resource.Type) ([]HexStat, error)
 	CreateSnapshot(ctx context.Context, configHash string) (*Snapshot, error)
 	ListSnapshots(ctx context.Context) ([]Snapshot, error)
 	ResolveSnapshot(ctx context.Context, snapshotID int64) error
 	WithSnapshot(snapshotID int64) Store
 	SaveForecastResults(ctx context.Context, results []ForecastResult) error
-	ListForecastResults(ctx context.Context, resourceType resource.ResourceType) ([]ForecastResult, error)
+	ListForecastResults(ctx context.Context, resourceType resource.Type) ([]ForecastResult, error)
 	SaveCohortStats(ctx context.Context, stats []CohortStat) error
-	ListCohortStats(ctx context.Context, resourceType resource.ResourceType) ([]CohortStat, error)
+	ListCohortStats(ctx context.Context, resourceType resource.Type) ([]CohortStat, error)
 	SaveBoundary(ctx context.Context, geometryJSON, source string) error
 	GetBoundary(ctx context.Context) (string, error)
-	Stats(ctx context.Context, resourceType resource.ResourceType) (*StatusInfo, error)
-	ResourceTypes(ctx context.Context) ([]resource.ResourceType, error)
+	Stats(ctx context.Context, resourceType resource.Type) (*StatusInfo, error)
+	ResourceTypes(ctx context.Context) ([]resource.Type, error)
 	Close() error
 }
 

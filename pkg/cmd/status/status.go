@@ -71,9 +71,9 @@ func NewCmdStatus(f *cmdutil.Factory, rt resource.Source, runF func(*Options) er
   # Emit a single status row as JSON
   pvmt status --json`
 	if rt != nil {
-		short = fmt.Sprintf("Show %s status", rt.Kind())
+		short = fmt.Sprintf("Show %s status", rt.Type())
 		example = fmt.Sprintf(`  # Show feature + result counts for %s
-  pvmt %s status`, rt.Kind(), rt.Kind())
+  pvmt %s status`, rt.Type(), rt.Type())
 	}
 
 	cmd := &cobra.Command{
@@ -112,14 +112,14 @@ func runStatus(ctx context.Context, opts *Options) error {
 
 	var rows []statusRow
 	for _, rt := range sources {
-		rtVal := rt.Kind().WithScope(resource.ScopeAll)
+		rtVal := rt.Type()
 		info, err := store.Stats(ctx, rtVal)
 		if err != nil {
-			fmt.Fprintf(ios.ErrOut, "Warning: could not get stats for %s: %v\n", rt.Kind(), err)
+			fmt.Fprintf(ios.ErrOut, "Warning: could not get stats for %s: %v\n", rt.Type(), err)
 			continue
 		}
 		row := statusRow{
-			ResourceType: rt.Kind().String(),
+			ResourceType: string(rt.Type()),
 			FeatureCount: info.FeatureCount,
 			AreaSqM:      info.TotalAreaSqM,
 		}

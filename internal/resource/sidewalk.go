@@ -10,7 +10,7 @@ import (
 
 type Sidewalk struct{}
 
-func (s *Sidewalk) Kind() Kind       { return KindSidewalks }
+func (s *Sidewalk) Type() Type       { return TypeSidewalks }
 func (s *Sidewalk) HasCohorts() bool { return false }
 
 func (s *Sidewalk) OverpassQuery(bbox [4]float64) string {

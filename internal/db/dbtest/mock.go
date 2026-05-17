@@ -15,35 +15,35 @@ var _ db.Store = (*MockStore)(nil)
 // Each method delegates to its corresponding func field if set,
 // otherwise returns a zero-value success.
 type MockStore struct {
-	UpsertFeaturesFunc      func(context.Context, resource.ResourceType, []db.Feature) error
-	ListFeaturesFunc        func(context.Context, resource.ResourceType) ([]db.Feature, error)
+	UpsertFeaturesFunc      func(context.Context, resource.Type, []db.Feature) error
+	ListFeaturesFunc        func(context.Context, resource.Type) ([]db.Feature, error)
 	SaveComputeResultFunc   func(context.Context, db.ComputeResult) error
-	LatestComputeResultFunc func(context.Context, resource.ResourceType) (*db.ComputeResult, error)
+	LatestComputeResultFunc func(context.Context, resource.Type) (*db.ComputeResult, error)
 	SaveHexStatsFunc        func(context.Context, []db.HexStat) error
-	ListHexStatsFunc        func(context.Context, resource.ResourceType) ([]db.HexStat, error)
+	ListHexStatsFunc        func(context.Context, resource.Type) ([]db.HexStat, error)
 	CreateSnapshotFunc      func(context.Context, string) (*db.Snapshot, error)
 	ListSnapshotsFunc       func(context.Context) ([]db.Snapshot, error)
 	ResolveSnapshotFunc     func(context.Context, int64) error
 	WithSnapshotFunc        func(int64) db.Store
 	SaveForecastResultsFunc func(context.Context, []db.ForecastResult) error
-	ListForecastResultsFunc func(context.Context, resource.ResourceType) ([]db.ForecastResult, error)
+	ListForecastResultsFunc func(context.Context, resource.Type) ([]db.ForecastResult, error)
 	SaveCohortStatsFunc     func(context.Context, []db.CohortStat) error
-	ListCohortStatsFunc     func(context.Context, resource.ResourceType) ([]db.CohortStat, error)
+	ListCohortStatsFunc     func(context.Context, resource.Type) ([]db.CohortStat, error)
 	SaveBoundaryFunc        func(context.Context, string, string) error
 	GetBoundaryFunc         func(context.Context) (string, error)
-	StatsFunc               func(context.Context, resource.ResourceType) (*db.StatusInfo, error)
-	ResourceTypesFunc       func(context.Context) ([]resource.ResourceType, error)
+	StatsFunc               func(context.Context, resource.Type) (*db.StatusInfo, error)
+	ResourceTypesFunc       func(context.Context) ([]resource.Type, error)
 	CloseFunc               func() error
 }
 
-func (m *MockStore) UpsertFeatures(ctx context.Context, rt resource.ResourceType, f []db.Feature) error {
+func (m *MockStore) UpsertFeatures(ctx context.Context, rt resource.Type, f []db.Feature) error {
 	if m.UpsertFeaturesFunc != nil {
 		return m.UpsertFeaturesFunc(ctx, rt, f)
 	}
 	return nil
 }
 
-func (m *MockStore) ListFeatures(ctx context.Context, rt resource.ResourceType) ([]db.Feature, error) {
+func (m *MockStore) ListFeatures(ctx context.Context, rt resource.Type) ([]db.Feature, error) {
 	if m.ListFeaturesFunc != nil {
 		return m.ListFeaturesFunc(ctx, rt)
 	}
@@ -57,7 +57,7 @@ func (m *MockStore) SaveComputeResult(ctx context.Context, r db.ComputeResult) e
 	return nil
 }
 
-func (m *MockStore) LatestComputeResult(ctx context.Context, rt resource.ResourceType) (*db.ComputeResult, error) {
+func (m *MockStore) LatestComputeResult(ctx context.Context, rt resource.Type) (*db.ComputeResult, error) {
 	if m.LatestComputeResultFunc != nil {
 		return m.LatestComputeResultFunc(ctx, rt)
 	}
@@ -71,7 +71,7 @@ func (m *MockStore) SaveHexStats(ctx context.Context, stats []db.HexStat) error 
 	return nil
 }
 
-func (m *MockStore) ListHexStats(ctx context.Context, rt resource.ResourceType) ([]db.HexStat, error) {
+func (m *MockStore) ListHexStats(ctx context.Context, rt resource.Type) ([]db.HexStat, error) {
 	if m.ListHexStatsFunc != nil {
 		return m.ListHexStatsFunc(ctx, rt)
 	}
@@ -116,7 +116,7 @@ func (m *MockStore) SaveForecastResults(ctx context.Context, results []db.Foreca
 	return nil
 }
 
-func (m *MockStore) ListForecastResults(ctx context.Context, rt resource.ResourceType) ([]db.ForecastResult, error) {
+func (m *MockStore) ListForecastResults(ctx context.Context, rt resource.Type) ([]db.ForecastResult, error) {
 	if m.ListForecastResultsFunc != nil {
 		return m.ListForecastResultsFunc(ctx, rt)
 	}
@@ -130,7 +130,7 @@ func (m *MockStore) SaveCohortStats(ctx context.Context, stats []db.CohortStat) 
 	return nil
 }
 
-func (m *MockStore) ListCohortStats(ctx context.Context, rt resource.ResourceType) ([]db.CohortStat, error) {
+func (m *MockStore) ListCohortStats(ctx context.Context, rt resource.Type) ([]db.CohortStat, error) {
 	if m.ListCohortStatsFunc != nil {
 		return m.ListCohortStatsFunc(ctx, rt)
 	}
@@ -151,14 +151,14 @@ func (m *MockStore) GetBoundary(ctx context.Context) (string, error) {
 	return "", nil
 }
 
-func (m *MockStore) Stats(ctx context.Context, rt resource.ResourceType) (*db.StatusInfo, error) {
+func (m *MockStore) Stats(ctx context.Context, rt resource.Type) (*db.StatusInfo, error) {
 	if m.StatsFunc != nil {
 		return m.StatsFunc(ctx, rt)
 	}
 	return &db.StatusInfo{ResourceType: rt}, nil
 }
 
-func (m *MockStore) ResourceTypes(ctx context.Context) ([]resource.ResourceType, error) {
+func (m *MockStore) ResourceTypes(ctx context.Context) ([]resource.Type, error) {
 	if m.ResourceTypesFunc != nil {
 		return m.ResourceTypesFunc(ctx)
 	}
