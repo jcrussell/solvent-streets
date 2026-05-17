@@ -41,7 +41,7 @@ func squareHex(t *testing.T, id string, side float64) geo.Hex {
 }
 
 // TestFilterHexSlivers_DropsBelowThreshold pins the heatmap contract: hexes
-// whose clipped area falls under minHexAreaSqM (100) are omitted from
+// whose clipped area falls under config.DefaultMinHexAreaSqM (100) are omitted from
 // hex.geojson; hexes ≥ the threshold are kept. The check is strict-less-than,
 // so a hex at exactly the threshold survives.
 //
@@ -68,7 +68,7 @@ func TestFilterHexSlivers_DropsBelowThreshold(t *testing.T) {
 		}
 	}
 
-	got := filterHexSlivers(input, minHexAreaSqM)
+	got := filterHexSlivers(input, config.DefaultMinHexAreaSqM)
 
 	gotIDs := map[string]bool{}
 	for _, h := range got {

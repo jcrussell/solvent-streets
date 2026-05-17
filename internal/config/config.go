@@ -24,6 +24,12 @@ const (
 	DefaultHexEdgeM      = 100.0
 	DefaultInitialPCI    = 85.0
 	DefaultForecastYears = 20
+	// DefaultMinHexAreaSqM is the minimum projected hex area (in square
+	// meters) below which a clipped boundary sliver is dropped from the
+	// heatmap. A single feature inside a tiny clipped hex would render as
+	// 100%-covered and visually misrepresent the edge. Cities with smaller
+	// hex_edge_m may want to tune this via display.min_hex_area_sqm.
+	DefaultMinHexAreaSqM = 100.0
 )
 
 // Sentinels for failure modes that warrant a remediation hint at the call
@@ -55,6 +61,20 @@ type Config struct {
 
 type DisplayConfig struct {
 	Units string `toml:"units"` // "metric" or "imperial" (default: "imperial")
+	// MinHexAreaSqM drops boundary-sliver hexes from the heatmap (see
+	// DefaultMinHexAreaSqM). Resolve via Config.MinHexAreaSqM(); a zero
+	// or unset value falls back to the default, which is what most cities
+	// want. Negative values are rejected at config load.
+	MinHexAreaSqM float64 `toml:"min_hex_area_sqm"`
+}
+
+// MinHexAreaSqM returns the effective heatmap sliver threshold in square
+// meters: the configured value if positive, else DefaultMinHexAreaSqM.
+func (c *Config) MinHexAreaSqM() float64 {
+	if c.Display.MinHexAreaSqM > 0 {
+		return c.Display.MinHexAreaSqM
+	}
+	return DefaultMinHexAreaSqM
 }
 
 // UnitSystem returns the resolved display unit system. Precedence:
@@ -292,6 +312,10 @@ func (c *Config) Validate() error {
 	if c.Grid.HexEdgeM < 0 {
 		return errors.Join(ErrInvalidConfig,
 			fmt.Errorf("grid.hex_edge_m %g must be non-negative", c.Grid.HexEdgeM))
+	}
+	if c.Display.MinHexAreaSqM < 0 {
+		return errors.Join(ErrInvalidConfig,
+			fmt.Errorf("display.min_hex_area_sqm %g must be non-negative", c.Display.MinHexAreaSqM))
 	}
 	if err := c.Forecast.Validate(); err != nil {
 		return errors.Join(ErrInvalidConfig, err)

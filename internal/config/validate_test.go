@@ -62,6 +62,45 @@ func TestConfig_Validate_HexEdgeNonNegative(t *testing.T) {
 	}
 }
 
+// TestConfig_MinHexAreaSqM_FallsBackToDefault pins the resolved-value
+// contract: an unset (zero) or negative DisplayConfig.MinHexAreaSqM uses
+// DefaultMinHexAreaSqM at read time, while a positive override wins. The
+// validator rejects strictly-negative values up front, so the runtime
+// only sees zero (= default) or positive overrides.
+func TestConfig_MinHexAreaSqM_FallsBackToDefault(t *testing.T) {
+	cases := map[string]struct {
+		set  float64
+		want float64
+	}{
+		"unset":         {0, DefaultMinHexAreaSqM},
+		"override 500":  {500, 500},
+		"override 50":   {50, 50},
+		"override tiny": {0.01, 0.01},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := &Config{Display: DisplayConfig{MinHexAreaSqM: tc.set}}
+			if got := c.MinHexAreaSqM(); got != tc.want {
+				t.Errorf("MinHexAreaSqM() = %v; want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestConfig_Validate_MinHexAreaSqM_RejectsNegative(t *testing.T) {
+	cfg := Config{
+		Display: DisplayConfig{MinHexAreaSqM: -1},
+		Cities:  []CityConfig{{Name: "Oakland"}},
+	}
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for negative min_hex_area_sqm, got nil")
+	}
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Errorf("error %v does not chain to ErrInvalidConfig", err)
+	}
+}
+
 func TestConfig_Validate_ErrChainsErrInvalidConfig(t *testing.T) {
 	cfg := Config{} // no cities
 	err := cfg.Validate()
