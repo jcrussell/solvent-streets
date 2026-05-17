@@ -1,7 +1,9 @@
 package config
 
 import (
+	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -401,5 +403,95 @@ func TestResolvedForecast_NilCityAppliesDefaults(t *testing.T) {
 	}
 	if fc.Years != DefaultForecastYears {
 		t.Errorf("Years = %d, want %d", fc.Years, DefaultForecastYears)
+	}
+}
+
+// TestFindAndLoad_StartDir is the base case for the walk-up search:
+// pvmt.toml in the starting directory must be picked up directly.
+func TestFindAndLoad_StartDir(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pvmt.toml")
+	if err := os.WriteFile(path, []byte(`[[cities]]
+name = "Here"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := FindAndLoad(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SourcePath != path {
+		t.Errorf("SourcePath = %q, want %q", cfg.SourcePath, path)
+	}
+	if len(cfg.Cities) != 1 || cfg.Cities[0].Name != "Here" {
+		t.Errorf("unexpected cities: %+v", cfg.Cities)
+	}
+}
+
+// TestFindAndLoad_WalksUp guards the central walk-up invariant: starting
+// from a deep subdirectory must climb to an ancestor pvmt.toml. This is
+// what lets `pvmt` work from anywhere inside a project tree.
+func TestFindAndLoad_WalksUp(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "pvmt.toml")
+	if err := os.WriteFile(path, []byte(`[[cities]]
+name = "Up"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	deep := filepath.Join(root, "a", "b", "c")
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := FindAndLoad(deep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SourcePath != path {
+		t.Errorf("SourcePath = %q, want %q", cfg.SourcePath, path)
+	}
+}
+
+// TestFindAndLoad_FirstMatchWins covers the precedence rule: when both
+// the start dir and an ancestor have pvmt.toml, the closer one wins.
+// Without this guard, a future refactor could invert the walk order.
+func TestFindAndLoad_FirstMatchWins(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "pvmt.toml"), []byte(`[[cities]]
+name = "Ancestor"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	child := filepath.Join(root, "child")
+	if err := os.MkdirAll(child, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	childPath := filepath.Join(child, "pvmt.toml")
+	if err := os.WriteFile(childPath, []byte(`[[cities]]
+name = "Child"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := FindAndLoad(child)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SourcePath != childPath {
+		t.Errorf("SourcePath = %q, want %q (closer wins)", cfg.SourcePath, childPath)
+	}
+	if cfg.Cities[0].Name != "Child" {
+		t.Errorf("expected Child to win, got %q", cfg.Cities[0].Name)
+	}
+}
+
+// TestFindAndLoad_NotFound locks in the typed-sentinel contract:
+// callers (the factory boundary) check errors.Is(err, ErrConfigNotFound)
+// to attach the cmdutil.Hintf remediation hint. A plain wrapped error
+// would silently break that hint.
+func TestFindAndLoad_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	_, err := FindAndLoad(dir)
+	if !errors.Is(err, ErrConfigNotFound) {
+		t.Fatalf("expected ErrConfigNotFound, got %v", err)
 	}
 }
