@@ -1,6 +1,7 @@
 package root
 
 import (
+	"context"
 	"errors"
 	"io"
 	"log/slog"
@@ -12,6 +13,8 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
+
+	"github.com/spf13/cobra"
 )
 
 // TestFlagParseErrorWrappedAsFlagError guards byob-errors.4: pflag's
@@ -338,5 +341,169 @@ func TestWarnInvalidEnv_BadValuesEmitWarning(t *testing.T) {
 				t.Errorf("expected warning containing %q, got %q", tt.expect, got)
 			}
 		})
+	}
+}
+
+// testFactory builds a Factory wired with the minimum dependencies required
+// to drive root.PersistentPreRunE: LogLevel + Logger (consumed by applyLogLevel
+// and the structured-log context binding) and a stub Config so middlewares
+// like warnInvalidConfig don't blow up.
+func testFactory() *cmdutil.Factory {
+	ios, _, _, _ := iostreams.Test()
+	return &cmdutil.Factory{
+		IOStreams: ios,
+		LogLevel:  new(slog.LevelVar),
+		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Config: func() (*config.Config, error) {
+			return &config.Config{Display: config.DisplayConfig{Units: "metric"}}, nil
+		},
+	}
+}
+
+// withMiddlewares swaps the package-level middlewares slice for the duration
+// of a test and restores it via t.Cleanup. Tests that mutate this global must
+// not run in parallel.
+func withMiddlewares(t *testing.T, ms ...middleware) {
+	t.Helper()
+	prev := middlewares
+	t.Cleanup(func() { middlewares = prev })
+	middlewares = ms
+}
+
+// TestPersistentPreRunE_Wired guards byob-command-shape.5: the root command
+// must install a PersistentPreRunE so the documented cobra execution order
+// (root.PersistentPreRunE → cmd.RunE) holds. Subcommands rely on this to
+// receive a logger bound to their command path and to inherit any cross-
+// cutting setup the middlewares slice performs.
+func TestPersistentPreRunE_Wired(t *testing.T) {
+	f := testFactory()
+	cmd := NewCmdRoot(f)
+	if cmd.PersistentPreRunE == nil {
+		t.Fatal("root.PersistentPreRunE is nil; middleware chain will not run")
+	}
+}
+
+// TestPersistentPreRunE_RunsMiddlewareForLeafCommand locks in that the
+// middleware chain actually fires for ordinary subcommands. Without this,
+// a future refactor that drops the for-range over middlewares (or moves
+// setup into a per-command PreRunE) would compile and pass the existing
+// warnInvalidEnv test (which calls the middleware directly) while silently
+// breaking the application-wide guarantee.
+func TestPersistentPreRunE_RunsMiddlewareForLeafCommand(t *testing.T) {
+	var calls int
+	withMiddlewares(t, func(_ *cobra.Command, _ *cmdutil.Factory) error {
+		calls++
+		return nil
+	})
+
+	f := testFactory()
+	cmd := NewCmdRoot(f)
+
+	leaf := &cobra.Command{Use: "status"}
+	leaf.SetContext(context.Background())
+	if err := cmd.PersistentPreRunE(leaf, nil); err != nil {
+		t.Fatalf("PersistentPreRunE: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("middleware call count: got %d, want 1", calls)
+	}
+}
+
+// TestPersistentPreRunE_PropagatesMiddlewareError locks in that a middleware
+// returning an error short-circuits the chain and surfaces to the caller —
+// the documented "fail fast before subcommand RunE" contract. Subsequent
+// middlewares must not run.
+func TestPersistentPreRunE_PropagatesMiddlewareError(t *testing.T) {
+	sentinel := errors.New("middleware refused")
+	var laterCalled bool
+	withMiddlewares(t,
+		func(_ *cobra.Command, _ *cmdutil.Factory) error { return sentinel },
+		func(_ *cobra.Command, _ *cmdutil.Factory) error {
+			laterCalled = true
+			return nil
+		},
+	)
+
+	f := testFactory()
+	cmd := NewCmdRoot(f)
+
+	leaf := &cobra.Command{Use: "status"}
+	leaf.SetContext(context.Background())
+	err := cmd.PersistentPreRunE(leaf, nil)
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("expected sentinel error, got %v", err)
+	}
+	if laterCalled {
+		t.Error("middleware after a failing one must not run")
+	}
+}
+
+// TestSkipMiddleware_ExemptCommands locks in the exemption set: cobra-owned
+// help/completion plumbing and the version subcommand must not trigger
+// application middleware. The exemption matters because shell-completion
+// scripts call `pvmt __complete ...` on every keystroke; running config
+// loads or stderr warnings on that path would be a usability disaster.
+func TestSkipMiddleware_ExemptCommands(t *testing.T) {
+	completion := &cobra.Command{Use: "completion"}
+	completionBash := &cobra.Command{Use: "bash"}
+	completion.AddCommand(completionBash)
+
+	tests := []struct {
+		name string
+		cmd  *cobra.Command
+		skip bool
+	}{
+		{"help", &cobra.Command{Use: "help"}, true},
+		{"completion", completion, true},
+		{"version", &cobra.Command{Use: "version"}, true},
+		{"__complete", &cobra.Command{Use: "__complete"}, true},
+		{"__completeNoDesc", &cobra.Command{Use: "__completeNoDesc"}, true},
+		{"completion child (bash)", completionBash, true},
+		{"status", &cobra.Command{Use: "status"}, false},
+		{"forecast", &cobra.Command{Use: "forecast"}, false},
+		{"roads", &cobra.Command{Use: "roads"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := skipMiddleware(tt.cmd); got != tt.skip {
+				t.Errorf("skipMiddleware(%q) = %v, want %v", tt.cmd.Name(), got, tt.skip)
+			}
+		})
+	}
+}
+
+// TestPersistentPreRunE_SkipsExemptCommands locks in the wiring half of the
+// exemption: when skipMiddleware classifies a command as exempt, the
+// PersistentPreRunE closure short-circuits *before* iterating middlewares.
+// A sentinel middleware that records its invocations must stay at zero
+// across every exempt command.
+func TestPersistentPreRunE_SkipsExemptCommands(t *testing.T) {
+	var calls int
+	withMiddlewares(t, func(_ *cobra.Command, _ *cmdutil.Factory) error {
+		calls++
+		return nil
+	})
+
+	f := testFactory()
+	cmd := NewCmdRoot(f)
+
+	completion := &cobra.Command{Use: "completion"}
+	bash := &cobra.Command{Use: "bash"}
+	completion.AddCommand(bash)
+
+	exempt := []*cobra.Command{
+		{Use: "help"},
+		{Use: "completion"},
+		{Use: "version"},
+		{Use: "__complete"},
+		bash,
+	}
+	for _, c := range exempt {
+		if err := cmd.PersistentPreRunE(c, nil); err != nil {
+			t.Fatalf("PersistentPreRunE(%q): %v", c.Name(), err)
+		}
+	}
+	if calls != 0 {
+		t.Fatalf("middleware ran %d time(s) for exempt commands; expected 0", calls)
 	}
 }
