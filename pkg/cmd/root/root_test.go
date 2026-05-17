@@ -218,6 +218,64 @@ func TestApplyLogLevel_Precedence(t *testing.T) {
 	}
 }
 
+// TestCommandGroups_AllSubcommandsGrouped locks in byob-command-shape.3:
+// every leaf subcommand the root owns must have a GroupID that matches one
+// of root's declared groups, so `pvmt --help` keeps grouping commands
+// semantically instead of listing them under "Additional Commands". Cobra's
+// own `help` and `completion` commands ship without a GroupID and are
+// expected under "Additional Commands"; the test exempts them by name.
+func TestCommandGroups_AllSubcommandsGrouped(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	f := &cmdutil.Factory{
+		IOStreams: ios,
+		LogLevel:  new(slog.LevelVar),
+		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Config: func() (*config.Config, error) {
+			return &config.Config{Display: config.DisplayConfig{Units: "metric"}}, nil
+		},
+	}
+	cmd := NewCmdRoot(f)
+
+	wantGroups := map[string]bool{
+		groupResource: false,
+		groupServer:   false,
+		groupAnalysis: false,
+		groupInfo:     false,
+	}
+	for _, g := range cmd.Groups() {
+		if _, ok := wantGroups[g.ID]; !ok {
+			t.Errorf("unexpected group %q (%q) on root", g.ID, g.Title)
+			continue
+		}
+		wantGroups[g.ID] = true
+	}
+	for id, present := range wantGroups {
+		if !present {
+			t.Errorf("group %q missing from root", id)
+		}
+	}
+
+	// Cobra's auto-injected help/completion commands carry no GroupID and
+	// surface under "Additional Commands" — that's the intended cobra
+	// behaviour, not a regression.
+	exempt := map[string]bool{"help": true, "completion": true}
+	for _, sub := range cmd.Commands() {
+		if exempt[sub.Name()] {
+			if sub.GroupID != "" {
+				t.Errorf("%q: expected no GroupID (cobra-owned), got %q", sub.Name(), sub.GroupID)
+			}
+			continue
+		}
+		if sub.GroupID == "" {
+			t.Errorf("%q: missing GroupID — wire it through addGroupedCommand", sub.Name())
+			continue
+		}
+		if _, ok := wantGroups[sub.GroupID]; !ok {
+			t.Errorf("%q: GroupID=%q is not one of the declared root groups", sub.Name(), sub.GroupID)
+		}
+	}
+}
+
 // TestWarnInvalidEnv_BadValuesEmitWarning guards S1: every invalid input
 // must surface a stderr warning so the user knows their env was ignored,
 // and every valid input must stay silent so the warning means what it
