@@ -1,6 +1,8 @@
 package root
 
 import (
+	"errors"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -10,6 +12,34 @@ import (
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
+
+// TestFlagParseErrorWrappedAsFlagError guards byob-errors.4: pflag's
+// flag-parse errors must come back through cobra as *cmdutil.FlagError so
+// the top-level runner can map them to exit code 2 rather than the
+// generic exit 1. Without SetFlagErrorFunc on root, an unknown flag is
+// indistinguishable from a runtime failure.
+func TestFlagParseErrorWrappedAsFlagError(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	f := &cmdutil.Factory{
+		IOStreams: ios,
+		Config: func() (*config.Config, error) {
+			return &config.Config{Display: config.DisplayConfig{Units: "metric"}}, nil
+		},
+	}
+	cmd := NewCmdRoot(f)
+	cmd.SetArgs([]string{"--no-such-flag"})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected flag-parse error, got nil")
+	}
+	var flagErr *cmdutil.FlagError
+	if !errors.As(err, &flagErr) {
+		t.Fatalf("expected *cmdutil.FlagError, got %T: %v", err, err)
+	}
+}
 
 // TestUnitsFlag_Override asserts that --units on the root flips f.UnitSystem
 // to the imperial reading, overriding the config default. Regression guard:

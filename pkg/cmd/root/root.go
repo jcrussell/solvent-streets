@@ -116,6 +116,15 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 	}
 	cmd.SetVersionTemplate("pvmt {{.Version}}\n")
 
+	// Wrap pflag's flag-parse errors as *FlagError so the top-level runner
+	// maps them to exit code 2. Without this, "unknown flag" / "missing
+	// argument" come back as plain errors and exit 1, indistinguishable
+	// from runtime failures. Pairs with SilenceErrors=true above: the
+	// runner owns formatting. (byob-errors.4)
+	cmd.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
+		return &cmdutil.FlagError{Err: err}
+	})
+
 	cmdutil.AddCityOverride(cmd, f)
 	var unitSystem cmdutil.UnitSystem
 	cmd.PersistentFlags().Var(&unitSystem, "units", "Display units: metric or imperial (overrides config)")
