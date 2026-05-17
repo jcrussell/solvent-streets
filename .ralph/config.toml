@@ -1,0 +1,52 @@
+# .ralph/config.toml — repo-level overrides for ralph.
+#
+# Layering (later wins): built-in defaults < ~/.config/ralph/config.toml
+# < <repo>/.ralph/config.toml. Any key you omit falls through to the
+# layer below; an empty file = use all defaults.
+#
+# The values below are the built-in defaults from
+# internal/config.Defaults(). Uncomment a line to override it for
+# this repo.
+
+[loop]
+# Cap on iterations. 0 = unlimited (not recommended; pair with budget).
+# max_iterations = 30
+# Per-iteration runner timeout (sec); ralph kills the runner if exceeded.
+# session_timeout_secs = 3600
+# systemd-run memory cap. K/M/G/T suffixes use 1024 multipliers.
+# memory_limit_bytes = "7G"
+# Sleep between iterations (sec).
+# sleep_between_secs = 5
+
+[runner]
+# command = "claude"
+# args = ["--dangerously-skip-permissions", "--output-format=json"]
+# model = "opus"
+
+[gate]
+# Gate hook timeout (sec).
+# timeout_secs = 600
+# soft_fail = true logs gate failures but doesn't change FSM routing.
+# soft_fail = true
+# When to run gate hooks: "every" | "commits-only" | "never".
+# run_when = "commits-only"
+
+[backoff]
+# Auto-revert after this many consecutive dirty iterations.
+# dirty_revert_threshold = 3
+# Fail{runner_terminal} after this many consecutive dead-session iterations.
+# dead_session_threshold = 3
+# Per-mode backoff (sec) before retrying.
+# unknown_secs = 30
+# oom_secs = 120
+# timeout_secs = 60
+# rate_limit_default = 900
+
+[budget]
+# Caps for fail{budget}; 0 = unlimited.
+# max_cost_usd = 0
+# max_wallclock_secs = 0
+
+[review]
+# Base branch for review-mode merge filing.
+# base_branch = "main"
