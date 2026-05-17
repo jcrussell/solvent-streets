@@ -14,6 +14,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
 // update refreshes the golden files when set. Run intentionally after a
@@ -68,17 +69,18 @@ func TestScenariosJSON_Golden(t *testing.T) {
 // exercises the dual-scope branch (out["city"] and out["bbox"] both set).
 func goldenFixtureEntry(t *testing.T) CityEntry {
 	t.Helper()
-	results := map[string]db.ComputeResult{
-		"roads":          {ResourceType: "roads", TotalAreaSqM: 1_500_000, FeatureCount: 800},
-		"roads:city":     {ResourceType: "roads:city", TotalAreaSqM: 900_000, FeatureCount: 480},
-		"parking":        {ResourceType: "parking", TotalAreaSqM: 200_000, FeatureCount: 120},
-		"parking:city":   {ResourceType: "parking:city", TotalAreaSqM: 150_000, FeatureCount: 90},
-		"sidewalks":      {ResourceType: "sidewalks", TotalAreaSqM: 100_000, FeatureCount: 250},
-		"sidewalks:city": {ResourceType: "sidewalks:city", TotalAreaSqM: 80_000, FeatureCount: 200},
+	rt := func(k resource.Kind, s resource.Scope) resource.ResourceType { return k.WithScope(s) }
+	results := map[resource.ResourceType]db.ComputeResult{
+		rt(resource.KindRoads, resource.ScopeAll):      {ResourceType: rt(resource.KindRoads, resource.ScopeAll), TotalAreaSqM: 1_500_000, FeatureCount: 800},
+		rt(resource.KindRoads, resource.ScopeCity):     {ResourceType: rt(resource.KindRoads, resource.ScopeCity), TotalAreaSqM: 900_000, FeatureCount: 480},
+		rt(resource.KindParking, resource.ScopeAll):    {ResourceType: rt(resource.KindParking, resource.ScopeAll), TotalAreaSqM: 200_000, FeatureCount: 120},
+		rt(resource.KindParking, resource.ScopeCity):   {ResourceType: rt(resource.KindParking, resource.ScopeCity), TotalAreaSqM: 150_000, FeatureCount: 90},
+		rt(resource.KindSidewalks, resource.ScopeAll):  {ResourceType: rt(resource.KindSidewalks, resource.ScopeAll), TotalAreaSqM: 100_000, FeatureCount: 250},
+		rt(resource.KindSidewalks, resource.ScopeCity): {ResourceType: rt(resource.KindSidewalks, resource.ScopeCity), TotalAreaSqM: 80_000, FeatureCount: 200},
 	}
 	store := &dbtest.MockStore{
-		LatestComputeResultFunc: func(_ context.Context, rt string) (*db.ComputeResult, error) {
-			r, ok := results[rt]
+		LatestComputeResultFunc: func(_ context.Context, key resource.ResourceType) (*db.ComputeResult, error) {
+			r, ok := results[key]
 			if !ok {
 				return nil, sql.ErrNoRows
 			}

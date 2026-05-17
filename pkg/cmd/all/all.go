@@ -39,7 +39,7 @@ func newAllIngest(f *cmdutil.Factory) *cobra.Command {
   pvmt all ingest`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmdutil.ForEachCity(cmd.Context(), f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
-				return forEachResource(f.IOStreams, func(rt resource.ResourceType) error {
+				return forEachResource(f.IOStreams, func(rt resource.Source) error {
 					return execSub(ingest.NewCmdIngest(cf, rt, nil), "--source", "all")
 				})
 			})
@@ -55,7 +55,7 @@ func newAllCompute(f *cmdutil.Factory) *cobra.Command {
   pvmt all compute`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmdutil.ForEachCity(cmd.Context(), f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
-				if err := forEachResource(f.IOStreams, func(rt resource.ResourceType) error {
+				if err := forEachResource(f.IOStreams, func(rt resource.Source) error {
 					return execSub(compute.NewCmdCompute(cf, rt, nil))
 				}); err != nil {
 					return err
@@ -69,9 +69,9 @@ func newAllCompute(f *cmdutil.Factory) *cobra.Command {
 	}
 }
 
-func forEachResource(ios *iostreams.IOStreams, fn func(resource.ResourceType) error) error {
+func forEachResource(ios *iostreams.IOStreams, fn func(resource.Source) error) error {
 	for _, rt := range resource.All {
-		fmt.Fprintf(ios.ErrOut, "\n--- %s ---\n", rt.Name())
+		fmt.Fprintf(ios.ErrOut, "\n--- %s ---\n", rt.Kind())
 		if err := fn(rt); err != nil {
 			if errors.Is(err, cmdutil.ErrNoResults) {
 				continue
@@ -79,7 +79,7 @@ func forEachResource(ios *iostreams.IOStreams, fn func(resource.ResourceType) er
 			if errors.Is(err, cmdutil.ErrAllSourcesFailed) {
 				return err
 			}
-			cmdutil.Warnf(ios, "%s failed: %v", rt.Name(), err)
+			cmdutil.Warnf(ios, "%s failed: %v", rt.Kind(), err)
 		}
 	}
 	return nil

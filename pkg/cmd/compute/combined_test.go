@@ -28,9 +28,11 @@ func TestRunCombined_DedupesCrossResourceOverlap(t *testing.T) {
 
 	// Horizontal road, ~440m long; explicit width=20m so the buffer is a
 	// 440m × 20m rectangle (~8800 sqm before clipping).
+	rtRoads := resource.KindRoads.WithScope(resource.ScopeAll)
+	rtParking := resource.KindParking.WithScope(resource.ScopeAll)
 	roadFeature := db.Feature{
 		ID:           "road1",
-		ResourceType: "roads",
+		ResourceType: rtRoads,
 		Tags:         map[string]string{"highway": "residential", "width": "20"},
 		GeometryJSON: `{"type":"LineString","coordinates":[[-120.0025,38.0],[-119.9975,38.0]]}`,
 	}
@@ -40,19 +42,19 @@ func TestRunCombined_DedupesCrossResourceOverlap(t *testing.T) {
 	// road buffer alone — parking adds zero net area, so combined < sum.
 	parkingFeature := db.Feature{
 		ID:           "park1",
-		ResourceType: "parking",
+		ResourceType: rtParking,
 		Tags:         map[string]string{"amenity": "parking"},
 		GeometryJSON: `{"type":"Polygon","coordinates":[[[-120.000285,37.99996],[-119.999715,37.99996],[-119.999715,38.00004],[-120.000285,38.00004],[-120.000285,37.99996]]]}`,
 	}
 
-	saved := map[string]db.ComputeResult{}
+	saved := map[resource.ResourceType]db.ComputeResult{}
 	store := &dbtest.MockStore{
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return boundary, nil },
-		ListFeaturesFunc: func(_ context.Context, rt string) ([]db.Feature, error) {
+		ListFeaturesFunc: func(_ context.Context, rt resource.ResourceType) ([]db.Feature, error) {
 			switch rt {
-			case "roads":
+			case rtRoads:
 				return []db.Feature{roadFeature}, nil
-			case "parking":
+			case rtParking:
 				return []db.Feature{parkingFeature}, nil
 			default:
 				return nil, nil
@@ -103,7 +105,7 @@ func TestRunCombined_DedupesCrossResourceOverlap(t *testing.T) {
 		hexes = geo.ClipHexesToBoundary(t.Context(), hexes, bg, nil)
 	}
 
-	areaForResource := func(t *testing.T, rt resource.ResourceType, feat db.Feature) float64 {
+	areaForResource := func(t *testing.T, rt resource.Source, feat db.Feature) float64 {
 		t.Helper()
 		bufs, err := rt.BufferFeatures([]resource.Feature{{
 			ID:           feat.ID,
@@ -111,9 +113,9 @@ func TestRunCombined_DedupesCrossResourceOverlap(t *testing.T) {
 			GeometryJSON: feat.GeometryJSON,
 		}}, proj)
 		if err != nil {
-			t.Fatalf("buffer %s: %v", rt.Name(), err)
+			t.Fatalf("buffer %s: %v", rt.Kind(), err)
 		}
-		stats := geo.ComputeHexStats(t.Context(), hexes, geo.NewGeomIndexFromGeoms(bufs), rt.Name(), nil)
+		stats := geo.ComputeHexStats(t.Context(), hexes, geo.NewGeomIndexFromGeoms(bufs), rt.Kind().String(), nil)
 		var sum float64
 		for _, s := range stats {
 			sum += s.AreaSqM
@@ -146,7 +148,7 @@ func TestRunCombined_NoFeaturesSkipsSave(t *testing.T) {
 	saveCalled := false
 	store := &dbtest.MockStore{
 		GetBoundaryFunc:  func(_ context.Context) (string, error) { return boundary, nil },
-		ListFeaturesFunc: func(_ context.Context, _ string) ([]db.Feature, error) { return nil, nil },
+		ListFeaturesFunc: func(_ context.Context, _ resource.ResourceType) ([]db.Feature, error) { return nil, nil },
 		SaveComputeResultFunc: func(_ context.Context, _ db.ComputeResult) error {
 			saveCalled = true
 			return nil

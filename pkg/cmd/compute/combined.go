@@ -92,7 +92,7 @@ func bufferAllResources(ctx context.Context, store db.Store, proj *geo.UTMProjec
 			buffered, berr = rt.BufferFeatures(resFeatures, proj)
 			return berr
 		}); err != nil {
-			fmt.Fprintf(errOut, "combined: buffer %s: %v\n", rt.Name(), err)
+			fmt.Fprintf(errOut, "combined: buffer %s: %v\n", rt.Kind(), err)
 			continue
 		}
 		bufs.all = append(bufs.all, buffered...)
@@ -108,7 +108,7 @@ func bufferAllResources(ctx context.Context, store db.Store, proj *geo.UTMProjec
 			cityBuf, berr = rt.BufferFeatures(cityFeats, proj)
 			return berr
 		}); err != nil {
-			fmt.Fprintf(errOut, "combined:city: buffer %s: %v\n", rt.Name(), err)
+			fmt.Fprintf(errOut, "combined:city: buffer %s: %v\n", rt.Kind(), err)
 			// Keeps the all-jurisdiction contribution already appended above.
 			continue
 		}
@@ -118,10 +118,10 @@ func bufferAllResources(ctx context.Context, store db.Store, proj *geo.UTMProjec
 	return bufs
 }
 
-func loadFeaturesForCombined(ctx context.Context, store db.Store, rt resource.ResourceType, errOut io.Writer) ([]resource.Feature, bool) {
-	dbFeatures, err := store.ListFeatures(ctx, rt.Name())
+func loadFeaturesForCombined(ctx context.Context, store db.Store, rt resource.Source, errOut io.Writer) ([]resource.Feature, bool) {
+	dbFeatures, err := store.ListFeatures(ctx, rt.Kind().WithScope(resource.ScopeAll))
 	if err != nil {
-		fmt.Fprintf(errOut, "combined: skip %s: %v\n", rt.Name(), err)
+		fmt.Fprintf(errOut, "combined: skip %s: %v\n", rt.Kind(), err)
 		return nil, false
 	}
 	if len(dbFeatures) == 0 {
@@ -151,11 +151,11 @@ func buildClippedHexGrid(ctx context.Context, cfg *config.Config, city *config.C
 	return hexes
 }
 
-func saveCombinedResult(ctx context.Context, store db.Store, hexes []geo.Hex, buffered []geom.Geometry, label string, featureCount int, snapshotID *int64, out io.Writer, errOut io.Writer, sys units.System) error {
+func saveCombinedResult(ctx context.Context, store db.Store, hexes []geo.Hex, buffered []geom.Geometry, label resource.ResourceType, featureCount int, snapshotID *int64, out io.Writer, errOut io.Writer, sys units.System) error {
 	var area float64
 	if err := cmdutil.GuardPanic(errOut, func() error {
 		idx := geo.NewGeomIndexFromGeoms(buffered)
-		hexStats := geo.ComputeHexStats(ctx, hexes, idx, label, nil)
+		hexStats := geo.ComputeHexStats(ctx, hexes, idx, label.String(), nil)
 		for _, s := range hexStats {
 			area += s.AreaSqM
 		}

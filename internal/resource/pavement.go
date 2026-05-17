@@ -10,7 +10,7 @@ import (
 
 type Pavement struct{}
 
-func (p *Pavement) Name() string     { return "roads" }
+func (p *Pavement) Kind() Kind       { return KindRoads }
 func (p *Pavement) HasCohorts() bool { return true }
 
 func (p *Pavement) OverpassQuery(bbox [4]float64) string {

@@ -20,7 +20,7 @@ type Options struct {
 	IO           *iostreams.IOStreams
 	CityDB       func() (db.Store, error)
 	UnitSystem   func() units.System
-	ResourceType resource.ResourceType // nil for global status
+	ResourceType resource.Source // nil for global status
 	Exporter     cmdutil.Exporter
 }
 
@@ -55,7 +55,7 @@ func (r statusRow) ExportData(fields []string) map[string]any {
 
 var statusFields = []string{"resourceType", "featureCount", "lastIngest", "lastCompute", "areaSqM"}
 
-func NewCmdStatus(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Options) error) *cobra.Command {
+func NewCmdStatus(f *cmdutil.Factory, rt resource.Source, runF func(*Options) error) *cobra.Command {
 	opts := &Options{
 		IO:           f.IOStreams,
 		CityDB:       f.CityDB,
@@ -71,9 +71,9 @@ func NewCmdStatus(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Optio
   # Emit a single status row as JSON
   pvmt status --json`
 	if rt != nil {
-		short = fmt.Sprintf("Show %s status", rt.Name())
+		short = fmt.Sprintf("Show %s status", rt.Kind())
 		example = fmt.Sprintf(`  # Show feature + result counts for %s
-  pvmt %s status`, rt.Name(), rt.Name())
+  pvmt %s status`, rt.Kind(), rt.Kind())
 	}
 
 	cmd := &cobra.Command{
@@ -101,24 +101,25 @@ func runStatus(ctx context.Context, opts *Options) error {
 		return fmt.Errorf("database: %w", err)
 	}
 
-	var types []resource.ResourceType
+	var sources []resource.Source
 	if opts.ResourceType != nil {
-		types = []resource.ResourceType{opts.ResourceType}
+		sources = []resource.Source{opts.ResourceType}
 	} else {
-		types = resource.All
+		sources = resource.All
 	}
 
 	sys := opts.UnitSystem()
 
 	var rows []statusRow
-	for _, rt := range types {
-		info, err := store.Stats(ctx, rt.Name())
+	for _, rt := range sources {
+		rtVal := rt.Kind().WithScope(resource.ScopeAll)
+		info, err := store.Stats(ctx, rtVal)
 		if err != nil {
-			fmt.Fprintf(ios.ErrOut, "Warning: could not get stats for %s: %v\n", rt.Name(), err)
+			fmt.Fprintf(ios.ErrOut, "Warning: could not get stats for %s: %v\n", rt.Kind(), err)
 			continue
 		}
 		row := statusRow{
-			ResourceType: rt.Name(),
+			ResourceType: rt.Kind().String(),
 			FeatureCount: info.FeatureCount,
 			AreaSqM:      info.TotalAreaSqM,
 		}

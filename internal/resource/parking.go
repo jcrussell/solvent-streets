@@ -11,7 +11,7 @@ import (
 
 type Parking struct{}
 
-func (p *Parking) Name() string     { return "parking" }
+func (p *Parking) Kind() Kind       { return KindParking }
 func (p *Parking) HasCohorts() bool { return false }
 
 func (p *Parking) OverpassQuery(bbox [4]float64) string {

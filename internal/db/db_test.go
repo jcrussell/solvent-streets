@@ -4,6 +4,13 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/jcrussell/solvent-streets/internal/resource"
+)
+
+var (
+	rtRoads   = resource.KindRoads.WithScope(resource.ScopeAll)
+	rtParking = resource.KindParking.WithScope(resource.ScopeAll)
 )
 
 // openTestStore opens an in-memory DB and returns a Store scoped to a test city.
@@ -26,15 +33,15 @@ func TestStoreRoundTrip(t *testing.T) {
 	store := openTestStore(t)
 
 	features := []Feature{
-		{ID: "osm:way:1", ResourceType: "roads", Name: "Main St", Tags: map[string]string{"highway": "primary"}, GeometryJSON: `{"type":"LineString","coordinates":[[-121.76,37.68],[-121.75,37.68]]}`, SourceAPI: "overpass", FetchedAt: time.Now()},
-		{ID: "osm:way:2", ResourceType: "roads", Name: "Oak Ave", Tags: map[string]string{"highway": "residential"}, GeometryJSON: `{"type":"LineString","coordinates":[[-121.76,37.69],[-121.75,37.69]]}`, SourceAPI: "overpass", FetchedAt: time.Now()},
+		{ID: "osm:way:1", ResourceType: rtRoads, Name: "Main St", Tags: map[string]string{"highway": "primary"}, GeometryJSON: `{"type":"LineString","coordinates":[[-121.76,37.68],[-121.75,37.68]]}`, SourceAPI: "overpass", FetchedAt: time.Now()},
+		{ID: "osm:way:2", ResourceType: rtRoads, Name: "Oak Ave", Tags: map[string]string{"highway": "residential"}, GeometryJSON: `{"type":"LineString","coordinates":[[-121.76,37.69],[-121.75,37.69]]}`, SourceAPI: "overpass", FetchedAt: time.Now()},
 	}
 
-	if err := store.UpsertFeatures(ctx, "roads", features); err != nil {
+	if err := store.UpsertFeatures(ctx, rtRoads, features); err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := store.ListFeatures(ctx, "roads")
+	got, err := store.ListFeatures(ctx, rtRoads)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,10 +50,10 @@ func TestStoreRoundTrip(t *testing.T) {
 	}
 
 	// Upsert same features — should update, not duplicate
-	if err := store.UpsertFeatures(ctx, "roads", features); err != nil {
+	if err := store.UpsertFeatures(ctx, rtRoads, features); err != nil {
 		t.Fatal(err)
 	}
-	got, err = store.ListFeatures(ctx, "roads")
+	got, err = store.ListFeatures(ctx, rtRoads)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,22 +82,22 @@ func TestSnapshotPinningAcrossResultTables(t *testing.T) {
 	for _, snap := range []*Snapshot{snap1, snap2} {
 		id := snap.ID
 		if err := store.SaveComputeResult(ctx, ComputeResult{
-			ResourceType: "roads", TotalAreaSqM: float64(id * 100), FeatureCount: int(id), SnapshotID: &id,
+			ResourceType: rtRoads, TotalAreaSqM: float64(id * 100), FeatureCount: int(id), SnapshotID: &id,
 		}); err != nil {
 			t.Fatal(err)
 		}
 		if err := store.SaveHexStats(ctx, []HexStat{
-			{HexID: "h1", ResourceType: "roads", AreaSqM: float64(id * 10), PctCovered: 0.5, SnapshotID: &id},
+			{HexID: "h1", ResourceType: rtRoads, AreaSqM: float64(id * 10), PctCovered: 0.5, SnapshotID: &id},
 		}); err != nil {
 			t.Fatal(err)
 		}
 		if err := store.SaveCohortStats(ctx, []CohortStat{
-			{ResourceType: "roads", Classification: "primary", AreaSqM: float64(id * 1000), FeatureCount: 1, SnapshotID: &id},
+			{ResourceType: rtRoads, Classification: "primary", AreaSqM: float64(id * 1000), FeatureCount: 1, SnapshotID: &id},
 		}); err != nil {
 			t.Fatal(err)
 		}
 		if err := store.SaveForecastResults(ctx, []ForecastResult{
-			{ResourceType: "roads", Year: 2026, PCI: float64(id * 10), AreaSqM: 100, TreatmentCost: 200, TreatmentTier: "preventive", SnapshotID: &id},
+			{ResourceType: rtRoads, Year: 2026, PCI: float64(id * 10), AreaSqM: 100, TreatmentCost: 200, TreatmentTier: "preventive", SnapshotID: &id},
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -98,43 +105,43 @@ func TestSnapshotPinningAcrossResultTables(t *testing.T) {
 
 	// Unpinned: latest overall wins for the single-row reads, and the list
 	// reads return rows from both snapshots.
-	latest, err := store.LatestComputeResult(ctx, "roads")
+	latest, err := store.LatestComputeResult(ctx, rtRoads)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if latest.TotalAreaSqM != float64(snap2.ID*100) {
 		t.Errorf("unpinned latest: expected snap2 area, got %v", latest.TotalAreaSqM)
 	}
-	hexAll, _ := store.ListHexStats(ctx, "roads")
+	hexAll, _ := store.ListHexStats(ctx, rtRoads)
 	if len(hexAll) != 2 {
 		t.Errorf("unpinned hex_stats: expected 2 rows across snapshots, got %d", len(hexAll))
 	}
 
 	// Pinned to snap1.
 	pinned1 := store.WithSnapshot(snap1.ID)
-	cr1, err := pinned1.LatestComputeResult(ctx, "roads")
+	cr1, err := pinned1.LatestComputeResult(ctx, rtRoads)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cr1.TotalAreaSqM != float64(snap1.ID*100) {
 		t.Errorf("pinned snap1: expected %v area, got %v", snap1.ID*100, cr1.TotalAreaSqM)
 	}
-	hex1, _ := pinned1.ListHexStats(ctx, "roads")
+	hex1, _ := pinned1.ListHexStats(ctx, rtRoads)
 	if len(hex1) != 1 || hex1[0].AreaSqM != float64(snap1.ID*10) {
 		t.Errorf("pinned snap1 hex: want 1 row with area %v, got %+v", snap1.ID*10, hex1)
 	}
-	cohort1, _ := pinned1.ListCohortStats(ctx, "roads")
+	cohort1, _ := pinned1.ListCohortStats(ctx, rtRoads)
 	if len(cohort1) != 1 || cohort1[0].AreaSqM != float64(snap1.ID*1000) {
 		t.Errorf("pinned snap1 cohort: want 1 row with area %v, got %+v", snap1.ID*1000, cohort1)
 	}
-	fc1, _ := pinned1.ListForecastResults(ctx, "roads")
+	fc1, _ := pinned1.ListForecastResults(ctx, rtRoads)
 	if len(fc1) != 1 || fc1[0].PCI != float64(snap1.ID*10) {
 		t.Errorf("pinned snap1 forecast: want 1 row with pci %v, got %+v", snap1.ID*10, fc1)
 	}
 
 	// Pinned to snap2 sees only snap2's row.
 	pinned2 := store.WithSnapshot(snap2.ID)
-	cr2, err := pinned2.LatestComputeResult(ctx, "roads")
+	cr2, err := pinned2.LatestComputeResult(ctx, rtRoads)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +193,7 @@ func TestStoreComputeResult(t *testing.T) {
 	store := openTestStore(t)
 
 	result := ComputeResult{
-		ResourceType: "roads",
+		ResourceType: rtRoads,
 		TotalAreaSqM: 92903,
 		FeatureCount: 500,
 	}
@@ -194,7 +201,7 @@ func TestStoreComputeResult(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := store.LatestComputeResult(ctx, "roads")
+	got, err := store.LatestComputeResult(ctx, rtRoads)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,11 +220,11 @@ func TestStoreStats(t *testing.T) {
 	features := []Feature{
 		{ID: "1", Name: "test", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()},
 	}
-	if err := store.UpsertFeatures(ctx, "parking", features); err != nil {
+	if err := store.UpsertFeatures(ctx, rtParking, features); err != nil {
 		t.Fatal(err)
 	}
 
-	info, err := store.Stats(ctx, "parking")
+	info, err := store.Stats(ctx, rtParking)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,10 +237,10 @@ func TestStoreResourceTypes(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 
-	if err := store.UpsertFeatures(ctx, "roads", []Feature{{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()}}); err != nil {
+	if err := store.UpsertFeatures(ctx, rtRoads, []Feature{{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpsertFeatures(ctx, "parking", []Feature{{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()}}); err != nil {
+	if err := store.UpsertFeatures(ctx, rtParking, []Feature{{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -309,12 +316,12 @@ func TestCityIsolation(t *testing.T) {
 	storeB := root.ForCity(id2)
 
 	// Insert features into city A
-	if err := storeA.UpsertFeatures(ctx, "roads", []Feature{{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()}}); err != nil {
+	if err := storeA.UpsertFeatures(ctx, rtRoads, []Feature{{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()}}); err != nil {
 		t.Fatal(err)
 	}
 
 	// City B should see nothing
-	got, err := storeB.ListFeatures(ctx, "roads")
+	got, err := storeB.ListFeatures(ctx, rtRoads)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,7 +330,7 @@ func TestCityIsolation(t *testing.T) {
 	}
 
 	// City A should see its feature
-	got, err = storeA.ListFeatures(ctx, "roads")
+	got, err = storeA.ListFeatures(ctx, rtRoads)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,7 +370,7 @@ func TestForeignKeyEnforcement(t *testing.T) {
 
 	// Use a city_id that doesn't exist in the cities table.
 	bogus := root.ForCity(9999)
-	err = bogus.UpsertFeatures(ctx, "roads", []Feature{
+	err = bogus.UpsertFeatures(ctx, rtRoads, []Feature{
 		{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()},
 	})
 	if err == nil {

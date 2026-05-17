@@ -69,12 +69,12 @@ func TestPipeline_ComputeForecastExport(t *testing.T) {
 	// below, but running both proves the per-resource scoping in hex_stats
 	// (city_id, resource_type) works across two writes against the same
 	// store.
-	for _, rt := range []resource.ResourceType{&resource.Pavement{}, &resource.Parking{}} {
+	for _, rt := range []resource.Source{&resource.Pavement{}, &resource.Parking{}} {
 		cmd := compute.NewCmdCompute(f, rt, nil)
 		cmd.SilenceErrors, cmd.SilenceUsage = true, true
 		cmd.SetArgs(nil)
 		if err := cmd.ExecuteContext(ctx); err != nil {
-			t.Fatalf("compute %s: %v", rt.Name(), err)
+			t.Fatalf("compute %s: %v", rt.Kind(), err)
 		}
 	}
 
@@ -182,9 +182,11 @@ func loadFixtures(t *testing.T, ctx context.Context, store db.Store) {
 	if err := store.SaveBoundary(ctx, boundary, "fixture"); err != nil {
 		t.Fatalf("SaveBoundary: %v", err)
 	}
-	if err := store.UpsertFeatures(ctx, "roads", []db.Feature{{
+	rtRoads := resource.KindRoads.WithScope(resource.ScopeAll)
+	rtParking := resource.KindParking.WithScope(resource.ScopeAll)
+	if err := store.UpsertFeatures(ctx, rtRoads, []db.Feature{{
 		ID:           "fixture:road:1",
-		ResourceType: "roads",
+		ResourceType: rtRoads,
 		Name:         "Fixture Rd",
 		Tags:         map[string]string{"highway": "residential"},
 		GeometryJSON: `{"type":"LineString","coordinates":[[-121.768,37.682],[-121.762,37.688]]}`,
@@ -193,9 +195,9 @@ func loadFixtures(t *testing.T, ctx context.Context, store db.Store) {
 	}}); err != nil {
 		t.Fatalf("UpsertFeatures roads: %v", err)
 	}
-	if err := store.UpsertFeatures(ctx, "parking", []db.Feature{{
+	if err := store.UpsertFeatures(ctx, rtParking, []db.Feature{{
 		ID:           "fixture:parking:1",
-		ResourceType: "parking",
+		ResourceType: rtParking,
 		Name:         "Fixture Lot",
 		Tags:         map[string]string{"amenity": "parking"},
 		GeometryJSON: `{"type":"Polygon","coordinates":[[[-121.766,37.684],[-121.765,37.684],[-121.765,37.685],[-121.766,37.685],[-121.766,37.684]]]}`,

@@ -12,7 +12,7 @@ import (
 
 type Source interface {
 	Name() string
-	Fetch(ctx context.Context, client *http.Client, rt resource.ResourceType) ([]db.Feature, error)
+	Fetch(ctx context.Context, client *http.Client, rt resource.Source) ([]db.Feature, error)
 }
 
 // Options configures optional behavior applied to the sources returned by

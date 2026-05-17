@@ -10,6 +10,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
 // TestExportScenariosForCity_PropagatesDBError pins the deployment-correctness
@@ -25,7 +26,7 @@ import (
 func TestExportScenariosForCity_PropagatesDBError(t *testing.T) {
 	sentinel := errors.New("db unavailable")
 	store := &dbtest.MockStore{
-		LatestComputeResultFunc: func(_ context.Context, _ string) (*db.ComputeResult, error) {
+		LatestComputeResultFunc: func(_ context.Context, _ resource.ResourceType) (*db.ComputeResult, error) {
 			return nil, sentinel
 		},
 	}

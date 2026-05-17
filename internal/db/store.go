@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
-func (s *sqliteStore) UpsertFeatures(ctx context.Context, resourceType string, features []Feature) error {
+func (s *sqliteStore) UpsertFeatures(ctx context.Context, resourceType resource.ResourceType, features []Feature) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -48,7 +50,7 @@ func (s *sqliteStore) UpsertFeatures(ctx context.Context, resourceType string, f
 	return tx.Commit()
 }
 
-func (s *sqliteStore) ListFeatures(ctx context.Context, resourceType string) ([]Feature, error) {
+func (s *sqliteStore) ListFeatures(ctx context.Context, resourceType resource.ResourceType) ([]Feature, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, resource_type, name, tags, geometry_json, source_api, fetched_at
 		FROM features WHERE resource_type = ? AND city_id = ?
@@ -88,7 +90,7 @@ func (s *sqliteStore) SaveComputeResult(ctx context.Context, result ComputeResul
 // When the store is snapshot-pinned (via WithSnapshot), restricts the result
 // to that snapshot id; the snapshot's own latest run wins on ties. Sentinel
 // snapshotID 0 (the unpinned default) returns latest overall.
-func (s *sqliteStore) LatestComputeResult(ctx context.Context, resourceType string) (*ComputeResult, error) {
+func (s *sqliteStore) LatestComputeResult(ctx context.Context, resourceType resource.ResourceType) (*ComputeResult, error) {
 	var r ComputeResult
 	err := s.db.QueryRowContext(ctx, `
 		SELECT id, resource_type, total_area_sqm, feature_count, computed_at, snapshot_id
@@ -139,7 +141,7 @@ func (s *sqliteStore) SaveHexStats(ctx context.Context, stats []HexStat) error {
 // including legacy pre-snapshot rows with NULL snapshot_id — callers
 // typically expect "the data the user last computed", and a city without
 // any snapshot-tagged rows would otherwise look empty.
-func (s *sqliteStore) ListHexStats(ctx context.Context, resourceType string) ([]HexStat, error) {
+func (s *sqliteStore) ListHexStats(ctx context.Context, resourceType resource.ResourceType) ([]HexStat, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT hex_id, resource_type, area_sqm, pct_covered, computed_at, snapshot_id
 		FROM hex_stats WHERE resource_type = ? AND city_id = ? AND (? = 0 OR snapshot_id = ?)
@@ -222,7 +224,7 @@ func (s *sqliteStore) SaveForecastResults(ctx context.Context, results []Forecas
 	return tx.Commit()
 }
 
-func (s *sqliteStore) ListForecastResults(ctx context.Context, resourceType string) ([]ForecastResult, error) {
+func (s *sqliteStore) ListForecastResults(ctx context.Context, resourceType resource.ResourceType) ([]ForecastResult, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, resource_type, year, pci, area_sqm, treatment_cost, treatment_tier, snapshot_id, computed_at
 		FROM forecast_results WHERE resource_type = ? AND city_id = ? AND (? = 0 OR snapshot_id = ?) ORDER BY year
@@ -271,7 +273,7 @@ func (s *sqliteStore) SaveCohortStats(ctx context.Context, stats []CohortStat) e
 	return tx.Commit()
 }
 
-func (s *sqliteStore) ListCohortStats(ctx context.Context, resourceType string) ([]CohortStat, error) {
+func (s *sqliteStore) ListCohortStats(ctx context.Context, resourceType resource.ResourceType) ([]CohortStat, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, resource_type, classification, area_sqm, feature_count, snapshot_id, computed_at
 		FROM cohort_stats WHERE resource_type = ? AND city_id = ? AND (? = 0 OR snapshot_id = ?)
@@ -315,7 +317,7 @@ func (s *sqliteStore) GetBoundary(ctx context.Context) (string, error) {
 	return gj, nil
 }
 
-func (s *sqliteStore) Stats(ctx context.Context, resourceType string) (*StatusInfo, error) {
+func (s *sqliteStore) Stats(ctx context.Context, resourceType resource.ResourceType) (*StatusInfo, error) {
 	info := &StatusInfo{ResourceType: resourceType}
 
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM features WHERE resource_type = ? AND city_id = ?`, resourceType, s.cityID).Scan(&info.FeatureCount)
@@ -340,19 +342,19 @@ func (s *sqliteStore) Stats(ctx context.Context, resourceType string) (*StatusIn
 	return info, nil
 }
 
-func (s *sqliteStore) ResourceTypes(ctx context.Context) ([]string, error) {
+func (s *sqliteStore) ResourceTypes(ctx context.Context) ([]resource.ResourceType, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT resource_type FROM features WHERE city_id = ? ORDER BY resource_type`, s.cityID)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
-	var types []string
+	var types []resource.ResourceType
 	for rows.Next() {
-		var t string
-		if err := rows.Scan(&t); err != nil {
+		var rt resource.ResourceType
+		if err := rows.Scan(&rt); err != nil {
 			return nil, err
 		}
-		types = append(types, t)
+		types = append(types, rt)
 	}
 	return types, rows.Err()
 }

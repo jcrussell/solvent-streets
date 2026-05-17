@@ -31,7 +31,7 @@ type Options struct {
 	Config       func() (*config.Config, error)
 	CurrentCity  func() (*config.CityConfig, error)
 	UnitSystem   func() units.System
-	ResourceType resource.ResourceType
+	ResourceType resource.Source
 	CityOnly     bool
 	Exporter     cmdutil.Exporter
 	rows         *[]computeRow // multi-city accumulator; nil for single-pass JSON
@@ -71,7 +71,7 @@ func (r computeRow) ExportData(fields []string) map[string]any {
 
 var computeFields = []string{"city", "resourceType", "jurisdiction", "featureCount", "areaSqM", "snapshotId"}
 
-func NewCmdCompute(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Options) error) *cobra.Command {
+func NewCmdCompute(f *cmdutil.Factory, rt resource.Source, runF func(*Options) error) *cobra.Command {
 	opts := &Options{
 		IO:           f.IOStreams,
 		CityDB:       f.CityDB,
@@ -81,9 +81,10 @@ func NewCmdCompute(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Opti
 		ResourceType: rt,
 	}
 
+	kind := rt.Kind()
 	cmd := &cobra.Command{
 		Use:   "compute",
-		Short: fmt.Sprintf("Compute %s area statistics", rt.Name()),
+		Short: fmt.Sprintf("Compute %s area statistics", kind),
 		Example: fmt.Sprintf(`  # Compute per-hex coverage for %s across every configured city
   pvmt %s compute
 
@@ -91,7 +92,7 @@ func NewCmdCompute(f *cmdutil.Factory, rt resource.ResourceType, runF func(*Opti
   pvmt %s compute --city-only
 
   # Scope to a single city
-  pvmt --city oakland %s compute`, rt.Name(), rt.Name(), rt.Name(), rt.Name()),
+  pvmt --city oakland %s compute`, kind, kind, kind, kind),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
 				return runF(opts)
@@ -153,7 +154,7 @@ func runComputeTUI(ctx context.Context, opts *Options) error {
 	if err != nil {
 		return fmt.Errorf("city: %w", err)
 	}
-	label := fmt.Sprintf("Computing %s · %s", opts.ResourceType.Name(), city.Name)
+	label := fmt.Sprintf("Computing %s · %s", opts.ResourceType.Kind(), city.Name)
 	steps := []tui.Step{
 		{Name: "Processing features"},
 		{Name: "Generating hex grid"},
@@ -162,7 +163,7 @@ func runComputeTUI(ctx context.Context, opts *Options) error {
 		{Name: "Saving results"},
 	}
 	done := tui.DoneConfig{
-		SuccessMsg: fmt.Sprintf("%s compute complete for %s", opts.ResourceType.Name(), city.Name),
+		SuccessMsg: fmt.Sprintf("%s compute complete for %s", opts.ResourceType.Kind(), city.Name),
 	}
 	return tui.Run(label, steps, done, func(out io.Writer, errOut io.Writer, notify tui.PhaseNotifier) error {
 		return doCompute(ctx, out, errOut, notify, opts)
@@ -242,7 +243,7 @@ func doCompute(ctx context.Context, out, errOut io.Writer, notify tui.PhaseNotif
 
 	c.processCityResults(ctx, jurisdictionParts, clippedHexes)
 
-	return saveHexStats(ctx, errOut, notify, store, hexStats, c.snapshotID)
+	return saveHexStats(ctx, errOut, notify, store, hexStats, opts.ResourceType.Kind().WithScope(resource.ScopeAll), c.snapshotID)
 }
 
 func loadBoundary(ctx context.Context, store db.Store, city *config.CityConfig) (string, [4]float64, *geo.UTMProjector, error) {
@@ -263,14 +264,15 @@ func loadBoundary(ctx context.Context, store db.Store, city *config.CityConfig) 
 
 func loadResourceFeatures(ctx context.Context, out, errOut io.Writer, notify tui.PhaseNotifier, opts *Options, store db.Store, proj *geo.UTMProjector) ([]resource.Feature, error) {
 	notify.PhaseStart(phaseProcess)
-	fmt.Fprintf(out, "Loading %s features from database...\n", opts.ResourceType.Name())
-	dbFeatures, err := store.ListFeatures(ctx, opts.ResourceType.Name())
+	kind := opts.ResourceType.Kind()
+	fmt.Fprintf(out, "Loading %s features from database...\n", kind)
+	dbFeatures, err := store.ListFeatures(ctx, kind.WithScope(resource.ScopeAll))
 	if err != nil {
 		notify.PhaseDone(phaseProcess, err)
 		return nil, fmt.Errorf("list features: %w", err)
 	}
 	if len(dbFeatures) == 0 {
-		fmt.Fprintf(errOut, "No %s features in database. Run 'pvmt %s ingest' first.\n", opts.ResourceType.Name(), opts.ResourceType.Name())
+		fmt.Fprintf(errOut, "No %s features in database. Run 'pvmt %s ingest' first.\n", kind, kind)
 		notify.PhaseDone(phaseProcess, errors.New("no features"))
 		return nil, cmdutil.ErrNoResults
 	}
@@ -321,8 +323,9 @@ func (c *computer) runAllFeaturesPass(ctx context.Context, resFeatures []resourc
 		areaSqM += s.AreaSqM
 	}
 
+	rtAll := c.opts.ResourceType.Kind().WithScope(resource.ScopeAll)
 	result := db.ComputeResult{
-		ResourceType: c.opts.ResourceType.Name(),
+		ResourceType: rtAll,
 		TotalAreaSqM: areaSqM,
 		FeatureCount: len(resFeatures),
 		SnapshotID:   c.snapshotID,
@@ -333,7 +336,7 @@ func (c *computer) runAllFeaturesPass(ctx context.Context, resFeatures []resourc
 	c.recordRow("all", len(resFeatures), areaSqM)
 
 	rt := c.opts.ResourceType
-	cohortStats := buildCohortStats(ctx, rt.Name(), rt.HasCohorts(), resFeatures, areaSqM, c.snapshotID, c.proj, clippedHexes)
+	cohortStats := buildCohortStats(ctx, rtAll, rt.HasCohorts(), resFeatures, areaSqM, c.snapshotID, c.proj, clippedHexes)
 	if len(cohortStats) > 0 {
 		if err := c.store.SaveCohortStats(ctx, cohortStats); err != nil {
 			fmt.Fprintf(c.errOut, "Warning: failed to save cohort stats: %v\n", err)
@@ -342,19 +345,19 @@ func (c *computer) runAllFeaturesPass(ctx context.Context, resFeatures []resourc
 		}
 	}
 	if !c.opts.CityOnly {
-		printResults(c.out, c.opts.ResourceType.Name()+" Results (all)", len(resFeatures), areaSqM, c.sys)
+		printResults(c.out, fmt.Sprintf("%s Results (all)", rtAll.Kind), len(resFeatures), areaSqM, c.sys)
 	}
 	return hexStats, clippedHexes, nil
 }
 
-func saveHexStats(ctx context.Context, errOut io.Writer, notify tui.PhaseNotifier, store db.Store, hexStats []geo.HexStat, snapshotID *int64) error {
+func saveHexStats(ctx context.Context, errOut io.Writer, notify tui.PhaseNotifier, store db.Store, hexStats []geo.HexStat, rt resource.ResourceType, snapshotID *int64) error {
 	notify.PhaseStart(phaseSave)
 	defer notify.PhaseDone(phaseSave, nil)
 	dbStats := make([]db.HexStat, len(hexStats))
 	for i, s := range hexStats {
 		dbStats[i] = db.HexStat{
 			HexID:        s.HexID,
-			ResourceType: s.ResourceType,
+			ResourceType: rt,
 			AreaSqM:      s.AreaSqM,
 			PctCovered:   s.PctCovered,
 			SnapshotID:   snapshotID,
@@ -378,8 +381,9 @@ func (c *computer) processCityResults(ctx context.Context, parts map[filter.Juri
 		return
 	}
 
+	rtCity := c.opts.ResourceType.Kind().WithScope(resource.ScopeCity)
 	cityIdx := geo.NewGeomIndexFromGeoms(cityBuffered)
-	cityStats := geo.ComputeHexStats(ctx, clippedHexes, cityIdx, c.opts.ResourceType.Name()+":city", nil)
+	cityStats := geo.ComputeHexStats(ctx, clippedHexes, cityIdx, rtCity.String(), nil)
 
 	var cityAreaSqM float64
 	cityDBStats := make([]db.HexStat, len(cityStats))
@@ -387,7 +391,7 @@ func (c *computer) processCityResults(ctx context.Context, parts map[filter.Juri
 		cityAreaSqM += s.AreaSqM
 		cityDBStats[i] = db.HexStat{
 			HexID:        s.HexID,
-			ResourceType: s.ResourceType,
+			ResourceType: rtCity,
 			AreaSqM:      s.AreaSqM,
 			PctCovered:   s.PctCovered,
 			SnapshotID:   c.snapshotID,
@@ -398,7 +402,7 @@ func (c *computer) processCityResults(ctx context.Context, parts map[filter.Juri
 	}
 
 	cityResult := db.ComputeResult{
-		ResourceType: c.opts.ResourceType.Name() + ":city",
+		ResourceType: rtCity,
 		TotalAreaSqM: cityAreaSqM,
 		FeatureCount: len(cityFeatures),
 		SnapshotID:   c.snapshotID,
@@ -409,7 +413,7 @@ func (c *computer) processCityResults(ctx context.Context, parts map[filter.Juri
 	c.recordRow("city", len(cityFeatures), cityAreaSqM)
 
 	rt := c.opts.ResourceType
-	cityCohortStats := buildCohortStats(ctx, rt.Name()+":city", rt.HasCohorts(), cityFeatures, cityAreaSqM, c.snapshotID, c.proj, clippedHexes)
+	cityCohortStats := buildCohortStats(ctx, rtCity, rt.HasCohorts(), cityFeatures, cityAreaSqM, c.snapshotID, c.proj, clippedHexes)
 	if len(cityCohortStats) > 0 {
 		if err := c.store.SaveCohortStats(ctx, cityCohortStats); err != nil {
 			fmt.Fprintf(c.errOut, "Warning: failed to save city cohort stats: %v\n", err)
@@ -418,7 +422,7 @@ func (c *computer) processCityResults(ctx context.Context, parts map[filter.Juri
 		}
 	}
 
-	printResults(c.out, c.opts.ResourceType.Name()+" Results (city only)", len(cityFeatures), cityAreaSqM, c.sys)
+	printResults(c.out, fmt.Sprintf("%s Results (city only)", rt.Kind()), len(cityFeatures), cityAreaSqM, c.sys)
 }
 
 // recordRow appends a computeRow to the multi-city accumulator if the
@@ -429,7 +433,7 @@ func (c *computer) recordRow(jurisdiction string, featureCount int, areaSqM floa
 	}
 	row := computeRow{
 		City:         c.city.Name,
-		ResourceType: c.opts.ResourceType.Name(),
+		ResourceType: c.opts.ResourceType.Kind().String(),
 		Jurisdiction: jurisdiction,
 		FeatureCount: featureCount,
 		AreaSqM:      areaSqM,
@@ -496,7 +500,7 @@ func (c *computer) computeHexPipeline(ctx context.Context, buffered []geom.Geome
 
 	var statsCounter atomic.Int64
 	stopStatsProgress := startProgressTicker(ctx, c.notify, phaseStats, len(hexes), &statsCounter)
-	geoStats := geo.ComputeHexStats(ctx, hexes, idx, c.opts.ResourceType.Name(), &statsCounter)
+	geoStats := geo.ComputeHexStats(ctx, hexes, idx, c.opts.ResourceType.Kind().String(), &statsCounter)
 	stopStatsProgress()
 	fmt.Fprintf(c.out, "  %d hexes with coverage\n", len(geoStats))
 	c.notify.PhaseDone(phaseStats, nil)
@@ -550,11 +554,11 @@ func parseGeoJSONGeometry(gjson string, proj *geo.UTMProjector) (geom.Geometry, 
 // hex-clipped pipeline used for the resource total. Otherwise it returns
 // a single cohort stat. resourceTypeName is the row label, which may include
 // a ":city" suffix when computing city-only stats.
-func buildCohortStats(ctx context.Context, resourceTypeName string, hasCohorts bool, features []resource.Feature, totalAreaSqM float64, snapshotID *int64, proj *geo.UTMProjector, hexes []geo.Hex) []db.CohortStat {
+func buildCohortStats(ctx context.Context, rt resource.ResourceType, hasCohorts bool, features []resource.Feature, totalAreaSqM float64, snapshotID *int64, proj *geo.UTMProjector, hexes []geo.Hex) []db.CohortStat {
 	if !hasCohorts {
 		return []db.CohortStat{{
-			ResourceType:   resourceTypeName,
-			Classification: resourceTypeName,
+			ResourceType:   rt,
+			Classification: rt.Kind.String(),
 			AreaSqM:        totalAreaSqM,
 			FeatureCount:   len(features),
 			SnapshotID:     snapshotID,
@@ -578,7 +582,7 @@ func buildCohortStats(ctx context.Context, resourceTypeName string, hasCohorts b
 			proportion = rawArea / rawTotal
 		}
 		stats = append(stats, db.CohortStat{
-			ResourceType:   resourceTypeName,
+			ResourceType:   rt,
 			Classification: class,
 			AreaSqM:        totalAreaSqM * proportion,
 			FeatureCount:   counts[class],

@@ -10,6 +10,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
 // TestMergeCohortSeeds_KeysOnResourceAndClassification pins the invariant
@@ -17,22 +18,25 @@ import (
 // (matching collectCohortSeeds' single-city shape). Pre-fix, "default"
 // roads and "default" parking collapsed into one summed cohort.
 func TestMergeCohortSeeds_KeysOnResourceAndClassification(t *testing.T) {
-	cohortsByLabel := func(m map[string][]db.CohortStat) func(context.Context, string) ([]db.CohortStat, error) {
-		return func(_ context.Context, rt string) ([]db.CohortStat, error) {
+	cohortsByLabel := func(m map[resource.ResourceType][]db.CohortStat) func(context.Context, resource.ResourceType) ([]db.CohortStat, error) {
+		return func(_ context.Context, rt resource.ResourceType) ([]db.CohortStat, error) {
 			return m[rt], nil
 		}
 	}
+
+	rtRoads := resource.KindRoads.WithScope(resource.ScopeAll)
+	rtParking := resource.KindParking.WithScope(resource.ScopeAll)
 
 	cityA := CityEntry{
 		Config: &config.Config{},
 		Slug:   "city-a",
 		Store: &dbtest.MockStore{
-			ListCohortStatsFunc: cohortsByLabel(map[string][]db.CohortStat{
-				"roads": {
+			ListCohortStatsFunc: cohortsByLabel(map[resource.ResourceType][]db.CohortStat{
+				rtRoads: {
 					{Classification: "primary", AreaSqM: 1000},
 					{Classification: "default", AreaSqM: 500},
 				},
-				"parking": {
+				rtParking: {
 					{Classification: "default", AreaSqM: 300},
 				},
 			}),
@@ -42,11 +46,11 @@ func TestMergeCohortSeeds_KeysOnResourceAndClassification(t *testing.T) {
 		Config: &config.Config{},
 		Slug:   "city-b",
 		Store: &dbtest.MockStore{
-			ListCohortStatsFunc: cohortsByLabel(map[string][]db.CohortStat{
-				"roads": {
+			ListCohortStatsFunc: cohortsByLabel(map[resource.ResourceType][]db.CohortStat{
+				rtRoads: {
 					{Classification: "primary", AreaSqM: 200},
 				},
-				"parking": {
+				rtParking: {
 					{Classification: "default", AreaSqM: 100},
 				},
 			}),
@@ -72,12 +76,12 @@ func TestMergeCohortSeeds_KeysOnResourceAndClassification(t *testing.T) {
 // TestMergeCohortSeeds_CityScopeReadsCityLabels verifies cityScope=true
 // drives the ":city"-suffixed cohort label, not the bbox label.
 func TestMergeCohortSeeds_CityScopeReadsCityLabels(t *testing.T) {
-	var seenLabels []string
+	var seenLabels []resource.ResourceType
 	entry := CityEntry{
 		Config: &config.Config{},
 		Slug:   "city-a",
 		Store: &dbtest.MockStore{
-			ListCohortStatsFunc: func(_ context.Context, rt string) ([]db.CohortStat, error) {
+			ListCohortStatsFunc: func(_ context.Context, rt resource.ResourceType) ([]db.CohortStat, error) {
 				seenLabels = append(seenLabels, rt)
 				return nil, nil
 			},
@@ -86,8 +90,8 @@ func TestMergeCohortSeeds_CityScopeReadsCityLabels(t *testing.T) {
 	mergeCohortSeeds(context.Background(), []CityEntry{entry}, &config.ForecastConfig{}, true)
 
 	for _, label := range seenLabels {
-		if len(label) < len(":city") || label[len(label)-len(":city"):] != ":city" {
-			t.Errorf("cityScope=true read label %q; want all labels to end in :city", label)
+		if label.Scope != resource.ScopeCity {
+			t.Errorf("cityScope=true read label %q; want all labels to be ScopeCity", label)
 		}
 	}
 	if len(seenLabels) == 0 {

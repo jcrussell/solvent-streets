@@ -10,15 +10,23 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/resource"
+)
+
+var (
+	mtRoads     = resource.KindRoads.WithScope(resource.ScopeAll)
+	mtParking   = resource.KindParking.WithScope(resource.ScopeAll)
+	mtSidewalks = resource.KindSidewalks.WithScope(resource.ScopeAll)
+	mtCombined  = resource.CombinedAll
 )
 
 // boundaryGeoJSON is a small square polygon (~111km × 111km in degrees, but
 // area is computed in projected meters; the actual number isn't asserted on).
 const boundaryGeoJSON = `{"type":"Polygon","coordinates":[[[-122.5,37.5],[-122.4,37.5],[-122.4,37.6],[-122.5,37.6],[-122.5,37.5]]]}`
 
-func newMockEntry(results map[string]db.ComputeResult) CityEntry {
+func newMockEntry(results map[resource.ResourceType]db.ComputeResult) CityEntry {
 	store := &dbtest.MockStore{
-		LatestComputeResultFunc: func(_ context.Context, rt string) (*db.ComputeResult, error) {
+		LatestComputeResultFunc: func(_ context.Context, rt resource.ResourceType) (*db.ComputeResult, error) {
 			r, ok := results[rt]
 			if !ok {
 				return nil, sql.ErrNoRows
@@ -41,11 +49,11 @@ func newMockEntry(results map[string]db.ComputeResult) CityEntry {
 // "combined" ComputeResult exists, BuildMeta must use it for total_paved_sqm
 // instead of the (overcounted) sum of per-resource rows.
 func TestBuildMeta_PrefersCombinedOverSum(t *testing.T) {
-	results := map[string]db.ComputeResult{
-		"roads":     {ResourceType: "roads", TotalAreaSqM: 1000},
-		"parking":   {ResourceType: "parking", TotalAreaSqM: 500},
-		"sidewalks": {ResourceType: "sidewalks", TotalAreaSqM: 300},
-		"combined":  {ResourceType: "combined", TotalAreaSqM: 1500}, // less than 1800 sum because of buffer overlap
+	results := map[resource.ResourceType]db.ComputeResult{
+		mtRoads:     {ResourceType: mtRoads, TotalAreaSqM: 1000},
+		mtParking:   {ResourceType: mtParking, TotalAreaSqM: 500},
+		mtSidewalks: {ResourceType: mtSidewalks, TotalAreaSqM: 300},
+		mtCombined:  {ResourceType: mtCombined, TotalAreaSqM: 1500}, // less than 1800 sum because of buffer overlap
 	}
 	entry := newMockEntry(results)
 	meta, err := BuildMeta(context.Background(), entry)
@@ -73,16 +81,16 @@ func TestBuildMultiCityMeta_AggregatesAcrossEntries(t *testing.T) {
 	// Two non-overlapping sub-cities with distinct boundaries and different
 	// per-resource totals. Use boundaries far apart enough that the union
 	// area is approximately the sum.
-	cityA := newMockEntryWithBoundary(map[string]db.ComputeResult{
-		"roads":    {ResourceType: "roads", TotalAreaSqM: 1000, FeatureCount: 10},
-		"combined": {ResourceType: "combined", TotalAreaSqM: 800},
+	cityA := newMockEntryWithBoundary(map[resource.ResourceType]db.ComputeResult{
+		mtRoads:    {ResourceType: mtRoads, TotalAreaSqM: 1000, FeatureCount: 10},
+		mtCombined: {ResourceType: mtCombined, TotalAreaSqM: 800},
 	}, `{"type":"Polygon","coordinates":[[[-122.5,37.5],[-122.4,37.5],[-122.4,37.6],[-122.5,37.6],[-122.5,37.5]]]}`)
 	cityA.City.Name = "City A"
 	cityA.Slug = "city-a"
 
-	cityB := newMockEntryWithBoundary(map[string]db.ComputeResult{
-		"roads":    {ResourceType: "roads", TotalAreaSqM: 2000, FeatureCount: 20},
-		"combined": {ResourceType: "combined", TotalAreaSqM: 1700},
+	cityB := newMockEntryWithBoundary(map[resource.ResourceType]db.ComputeResult{
+		mtRoads:    {ResourceType: mtRoads, TotalAreaSqM: 2000, FeatureCount: 20},
+		mtCombined: {ResourceType: mtCombined, TotalAreaSqM: 1700},
 	}, `{"type":"Polygon","coordinates":[[[-121.5,37.5],[-121.4,37.5],[-121.4,37.6],[-121.5,37.6],[-121.5,37.5]]]}`)
 	cityB.City.Name = "City B"
 	cityB.Slug = "city-b"
@@ -119,9 +127,9 @@ func TestBuildMultiCityMeta_AggregatesAcrossEntries(t *testing.T) {
 	}
 }
 
-func newMockEntryWithBoundary(results map[string]db.ComputeResult, boundary string) CityEntry {
+func newMockEntryWithBoundary(results map[resource.ResourceType]db.ComputeResult, boundary string) CityEntry {
 	store := &dbtest.MockStore{
-		LatestComputeResultFunc: func(_ context.Context, rt string) (*db.ComputeResult, error) {
+		LatestComputeResultFunc: func(_ context.Context, rt resource.ResourceType) (*db.ComputeResult, error) {
 			r, ok := results[rt]
 			if !ok {
 				return nil, sql.ErrNoRows
@@ -146,10 +154,10 @@ func newMockEntryWithBoundary(results map[string]db.ComputeResult, boundary stri
 // per-resource rows. The sum overcounts buffer overlap (the original bug),
 // but reporting zero would be worse.
 func TestBuildMeta_FallsBackToSumWhenCombinedMissing(t *testing.T) {
-	results := map[string]db.ComputeResult{
-		"roads":     {ResourceType: "roads", TotalAreaSqM: 1000},
-		"parking":   {ResourceType: "parking", TotalAreaSqM: 500},
-		"sidewalks": {ResourceType: "sidewalks", TotalAreaSqM: 300},
+	results := map[resource.ResourceType]db.ComputeResult{
+		mtRoads:     {ResourceType: mtRoads, TotalAreaSqM: 1000},
+		mtParking:   {ResourceType: mtParking, TotalAreaSqM: 500},
+		mtSidewalks: {ResourceType: mtSidewalks, TotalAreaSqM: 300},
 	}
 	entry := newMockEntry(results)
 	meta, err := BuildMeta(context.Background(), entry)
@@ -168,16 +176,16 @@ func TestBuildMeta_FallsBackToSumWhenCombinedMissing(t *testing.T) {
 // entries still contribute. Sum overcounts B's buffer overlap, but a missing
 // city is worse than an overcounted one.
 func TestBuildMultiCityMeta_MixedCombinedRollout(t *testing.T) {
-	cityA := newMockEntryWithBoundary(map[string]db.ComputeResult{
-		"roads":    {ResourceType: "roads", TotalAreaSqM: 1000},
-		"combined": {ResourceType: "combined", TotalAreaSqM: 800},
+	cityA := newMockEntryWithBoundary(map[resource.ResourceType]db.ComputeResult{
+		mtRoads:    {ResourceType: mtRoads, TotalAreaSqM: 1000},
+		mtCombined: {ResourceType: mtCombined, TotalAreaSqM: 800},
 	}, `{"type":"Polygon","coordinates":[[[-122.5,37.5],[-122.4,37.5],[-122.4,37.6],[-122.5,37.6],[-122.5,37.5]]]}`)
 	cityA.City.Name = "City A"
 	cityA.Slug = "city-a"
 
 	// City B has no combined row — partial-rollout state.
-	cityB := newMockEntryWithBoundary(map[string]db.ComputeResult{
-		"roads": {ResourceType: "roads", TotalAreaSqM: 2000},
+	cityB := newMockEntryWithBoundary(map[resource.ResourceType]db.ComputeResult{
+		mtRoads: {ResourceType: mtRoads, TotalAreaSqM: 2000},
 	}, `{"type":"Polygon","coordinates":[[[-121.5,37.5],[-121.4,37.5],[-121.4,37.6],[-121.5,37.6],[-121.5,37.5]]]}`)
 	cityB.City.Name = "City B"
 	cityB.Slug = "city-b"

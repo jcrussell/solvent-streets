@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
@@ -12,8 +13,9 @@ import (
 // switch in forecastRow.ExportData is now the JSON contract — a typo
 // silently drops a field.
 func TestForecastRow_ExportData_AllFieldsPopulated(t *testing.T) {
+	rtRoads := resource.KindRoads.WithScope(resource.ScopeAll)
 	r := forecastRow{db.ForecastResult{
-		ResourceType:  "roads",
+		ResourceType:  rtRoads,
 		Year:          2030,
 		PCI:           72.5,
 		AreaSqM:       1500.0,
@@ -29,7 +31,7 @@ func TestForecastRow_ExportData_AllFieldsPopulated(t *testing.T) {
 			t.Errorf("missing field %q", f)
 		}
 	}
-	if out["resourceType"] != "roads" || out["year"] != 2030 {
+	if out["resourceType"] != rtRoads || out["year"] != 2030 {
 		t.Errorf("unexpected values: %+v", out)
 	}
 }

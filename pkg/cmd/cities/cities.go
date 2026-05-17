@@ -140,12 +140,13 @@ func buildCityRow(ctx context.Context, store db.Store, c db.City, ios *iostreams
 	}
 	var latestIngest, latestCompute time.Time
 	for _, rt := range resource.All {
-		info, err := store.Stats(ctx, rt.Name())
+		kind := rt.Kind()
+		info, err := store.Stats(ctx, kind.WithScope(resource.ScopeAll))
 		if err != nil {
-			fmt.Fprintf(ios.ErrOut, "Warning: %s/%s: %v\n", c.Slug, rt.Name(), err)
+			fmt.Fprintf(ios.ErrOut, "Warning: %s/%s: %v\n", c.Slug, kind, err)
 			continue
 		}
-		row.Features[rt.Name()] = info.FeatureCount
+		row.Features[kind.String()] = info.FeatureCount
 		row.TotalAreaSqM += info.TotalAreaSqM
 		if info.LastIngestAt != nil && info.LastIngestAt.After(latestIngest) {
 			latestIngest = *info.LastIngestAt

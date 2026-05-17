@@ -33,12 +33,12 @@ func (s *OverpassSource) Name() string { return "overpass" }
 
 const maxSplitDepth = 3 // max 4^3 = 64 requests per city/resource
 
-func (s *OverpassSource) Fetch(ctx context.Context, client *http.Client, rt resource.ResourceType) ([]db.Feature, error) {
+func (s *OverpassSource) Fetch(ctx context.Context, client *http.Client, rt resource.Source) ([]db.Feature, error) {
 	seen := make(map[string]bool)
 	return fetchRecursive(ctx, client, rt, s.BBox, seen, 0)
 }
 
-func fetchRecursive(ctx context.Context, client *http.Client, rt resource.ResourceType, bbox [4]float64, seen map[string]bool, depth int) ([]db.Feature, error) {
+func fetchRecursive(ctx context.Context, client *http.Client, rt resource.Source, bbox [4]float64, seen map[string]bool, depth int) ([]db.Feature, error) {
 	features, err := fetchBBox(ctx, client, rt, bbox)
 	if err != nil && isParseError(err) && depth < maxSplitDepth {
 		// Response too large / truncated — split into quadrants and retry
@@ -67,7 +67,7 @@ func fetchRecursive(ctx context.Context, client *http.Client, rt resource.Resour
 	return unique, nil
 }
 
-func fetchBBox(ctx context.Context, client *http.Client, rt resource.ResourceType, bbox [4]float64) ([]db.Feature, error) {
+func fetchBBox(ctx context.Context, client *http.Client, rt resource.Source, bbox [4]float64) ([]db.Feature, error) {
 	query := rt.OverpassQuery(bbox)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, overpassAPI, strings.NewReader(url.Values{"data": {query}}.Encode()))
@@ -91,7 +91,7 @@ func fetchBBox(ctx context.Context, client *http.Client, rt resource.ResourceTyp
 		return nil, fmt.Errorf("overpass returned %d: %s", resp.StatusCode, truncate(string(body), 200))
 	}
 
-	return parseOverpassResponse(body, rt.Name())
+	return parseOverpassResponse(body, rt.Kind().WithScope(resource.ScopeAll))
 }
 
 func isParseError(err error) bool {
@@ -126,7 +126,7 @@ type overpassElement struct {
 	} `json:"geometry,omitempty"`
 }
 
-func parseOverpassResponse(data []byte, resourceType string) ([]db.Feature, error) {
+func parseOverpassResponse(data []byte, resourceType resource.ResourceType) ([]db.Feature, error) {
 	var resp overpassResponse
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return nil, fmt.Errorf("parse overpass json: %w", err)
@@ -153,7 +153,7 @@ func parseOverpassResponse(data []byte, resourceType string) ([]db.Feature, erro
 	return features, nil
 }
 
-func buildFeatureFromWay(e overpassElement, nodes map[int64][2]float64, resourceType string) (db.Feature, bool) {
+func buildFeatureFromWay(e overpassElement, nodes map[int64][2]float64, resourceType resource.ResourceType) (db.Feature, bool) {
 	coords := resolveWayCoords(e, nodes)
 	if len(coords) < 2 {
 		return db.Feature{}, false

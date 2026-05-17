@@ -3,12 +3,18 @@ package ingest
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
 const (
 	testGeomLineString = "LineString"
 	testGeomPolygon    = "Polygon"
-	testResourceRoads  = "roads"
+)
+
+var (
+	testResourceRoads   = resource.KindRoads.WithScope(resource.ScopeAll)
+	testResourceParking = resource.KindParking.WithScope(resource.ScopeAll)
 )
 
 func TestParseOverpassResponse_BasicWayWithGeometry(t *testing.T) {
@@ -94,7 +100,7 @@ func TestParseOverpassResponse_ClosedPolygon(t *testing.T) {
 			}
 		]
 	}`
-	features, err := parseOverpassResponse([]byte(data), "parking")
+	features, err := parseOverpassResponse([]byte(data), testResourceParking)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -10,8 +10,8 @@ func TestAllContainsThreeTypes(t *testing.T) {
 	}
 }
 
-func TestByName_Pavements(t *testing.T) {
-	rt := ByName("roads")
+func TestByKind_Pavements(t *testing.T) {
+	rt := ByKind(KindRoads)
 	if rt == nil {
 		t.Fatal("expected non-nil for pavements")
 	}
@@ -20,9 +20,8 @@ func TestByName_Pavements(t *testing.T) {
 	}
 }
 
-func TestByName_Unknown(t *testing.T) {
-	rt := ByName("unknown")
-	if rt != nil {
-		t.Errorf("expected nil for unknown, got %v", rt)
+func TestByKind_Unknown(t *testing.T) {
+	if rt := ByKind(KindUnknown); rt != nil {
+		t.Errorf("expected nil for KindUnknown, got %v", rt)
 	}
 }

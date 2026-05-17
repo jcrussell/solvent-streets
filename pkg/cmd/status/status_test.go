@@ -14,7 +14,7 @@ import (
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
 
-const testResourceRoads = "roads"
+var rtRoads = resource.KindRoads.WithScope(resource.ScopeAll)
 
 func TestNewCmdStatus_RunFInjection(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
@@ -39,10 +39,10 @@ func TestNewCmdStatus_RunFInjection(t *testing.T) {
 func TestRunStatus_SingleResource(t *testing.T) {
 	now := time.Now()
 	store := &dbtest.MockStore{
-		StatsFunc: func(_ context.Context, rt string) (*db.StatusInfo, error) {
-			if rt == testResourceRoads {
+		StatsFunc: func(_ context.Context, rt resource.ResourceType) (*db.StatusInfo, error) {
+			if rt == rtRoads {
 				return &db.StatusInfo{
-					ResourceType: testResourceRoads,
+					ResourceType: rtRoads,
 					FeatureCount: 42,
 					LastIngestAt: &now,
 				}, nil
@@ -66,7 +66,7 @@ func TestRunStatus_SingleResource(t *testing.T) {
 		t.Fatal(err)
 	}
 	output := stdout.String()
-	if !strings.Contains(output, testResourceRoads) {
+	if !strings.Contains(output, "roads") {
 		t.Errorf("expected roads in output, got: %s", output)
 	}
 	if !strings.Contains(output, "42") {
@@ -75,13 +75,14 @@ func TestRunStatus_SingleResource(t *testing.T) {
 }
 
 func TestRunStatus_AllResources(t *testing.T) {
+	rtParking := resource.KindParking.WithScope(resource.ScopeAll)
 	store := &dbtest.MockStore{
-		StatsFunc: func(_ context.Context, rt string) (*db.StatusInfo, error) {
+		StatsFunc: func(_ context.Context, rt resource.ResourceType) (*db.StatusInfo, error) {
 			switch rt {
-			case testResourceRoads:
-				return &db.StatusInfo{ResourceType: testResourceRoads, FeatureCount: 10}, nil
-			case "parking":
-				return &db.StatusInfo{ResourceType: "parking", FeatureCount: 5}, nil
+			case rtRoads:
+				return &db.StatusInfo{ResourceType: rtRoads, FeatureCount: 10}, nil
+			case rtParking:
+				return &db.StatusInfo{ResourceType: rtParking, FeatureCount: 5}, nil
 			default:
 				return &db.StatusInfo{ResourceType: rt}, nil
 			}
@@ -103,7 +104,7 @@ func TestRunStatus_AllResources(t *testing.T) {
 		t.Fatal(err)
 	}
 	output := stdout.String()
-	if !strings.Contains(output, testResourceRoads) || !strings.Contains(output, "parking") {
+	if !strings.Contains(output, "roads") || !strings.Contains(output, "parking") {
 		t.Errorf("expected both resource types in output, got: %s", output)
 	}
 }
@@ -113,10 +114,10 @@ func TestRunStatus_CitySummary(t *testing.T) {
 	boundaryGJSON := `{"type":"Polygon","coordinates":[[[-97.745,30.265],[-97.7346,30.265],[-97.7346,30.274],[-97.745,30.274],[-97.745,30.265]]]}`
 
 	store := &dbtest.MockStore{
-		StatsFunc: func(_ context.Context, rt string) (*db.StatusInfo, error) {
-			if rt == testResourceRoads {
+		StatsFunc: func(_ context.Context, rt resource.ResourceType) (*db.StatusInfo, error) {
+			if rt == rtRoads {
 				return &db.StatusInfo{
-					ResourceType: testResourceRoads,
+					ResourceType: rtRoads,
 					FeatureCount: 100,
 					TotalAreaSqM: 46452,
 				}, nil
@@ -198,9 +199,9 @@ func TestStatusRow_ExportData_SubsetFields(t *testing.T) {
 
 func TestRunStatus_NonTTY_TabSeparated(t *testing.T) {
 	store := &dbtest.MockStore{
-		StatsFunc: func(_ context.Context, rt string) (*db.StatusInfo, error) {
-			if rt == testResourceRoads {
-				return &db.StatusInfo{ResourceType: testResourceRoads, FeatureCount: 7}, nil
+		StatsFunc: func(_ context.Context, rt resource.ResourceType) (*db.StatusInfo, error) {
+			if rt == rtRoads {
+				return &db.StatusInfo{ResourceType: rtRoads, FeatureCount: 7}, nil
 			}
 			return &db.StatusInfo{ResourceType: rt}, nil
 		},
@@ -225,7 +226,7 @@ func TestRunStatus_NonTTY_TabSeparated(t *testing.T) {
 	if !strings.Contains(output, "\t") {
 		t.Errorf("expected tab-separated output for non-TTY, got: %s", output)
 	}
-	if !strings.Contains(output, testResourceRoads) {
+	if !strings.Contains(output, "roads") {
 		t.Errorf("expected 'roads' in output, got: %s", output)
 	}
 }

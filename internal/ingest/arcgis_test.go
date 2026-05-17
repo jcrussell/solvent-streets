@@ -12,6 +12,8 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
+var rtRoads = resource.KindRoads.WithScope(resource.ScopeAll)
+
 func TestParseArcGISGeoJSON_BasicFeature(t *testing.T) {
 	data := `{
 		"features": [
@@ -21,7 +23,7 @@ func TestParseArcGISGeoJSON_BasicFeature(t *testing.T) {
 			}
 		]
 	}`
-	features, err := parseArcGISGeoJSON([]byte(data), "roads", 0)
+	features, err := parseArcGISGeoJSON([]byte(data), rtRoads, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +37,7 @@ func TestParseArcGISGeoJSON_BasicFeature(t *testing.T) {
 	if f.Name != "First St" {
 		t.Errorf("expected name First St, got %s", f.Name)
 	}
-	if f.ResourceType != "roads" {
+	if f.ResourceType != rtRoads {
 		t.Errorf("expected resource type pavements, got %s", f.ResourceType)
 	}
 }
@@ -49,7 +51,7 @@ func TestParseArcGISGeoJSON_NoOBJECTID(t *testing.T) {
 			}
 		]
 	}`
-	features, err := parseArcGISGeoJSON([]byte(data), "roads", 0)
+	features, err := parseArcGISGeoJSON([]byte(data), rtRoads, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +66,7 @@ func TestParseArcGISGeoJSON_NoOBJECTID(t *testing.T) {
 func TestParseArcGISGeoJSON_FULLNAMEExtraction(t *testing.T) {
 	for _, key := range []string{"FULLNAME", "FullName", "fullname"} {
 		data := `{"features": [{"properties": {"` + key + `": "Third Ave"}, "geometry": {"type":"Point","coordinates":[-121.77,37.68]}}]}`
-		features, err := parseArcGISGeoJSON([]byte(data), "roads", 0)
+		features, err := parseArcGISGeoJSON([]byte(data), rtRoads, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -84,7 +86,7 @@ func TestParseArcGISGeoJSON_NullGeometry(t *testing.T) {
 			}
 		]
 	}`
-	features, err := parseArcGISGeoJSON([]byte(data), "roads", 0)
+	features, err := parseArcGISGeoJSON([]byte(data), rtRoads, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +97,7 @@ func TestParseArcGISGeoJSON_NullGeometry(t *testing.T) {
 
 func TestParseArcGISGeoJSON_EmptyFeatures(t *testing.T) {
 	data := `{"features": []}`
-	features, err := parseArcGISGeoJSON([]byte(data), "roads", 0)
+	features, err := parseArcGISGeoJSON([]byte(data), rtRoads, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +115,7 @@ func TestParseArcGISGeoJSON_NumericPropertyValues(t *testing.T) {
 			}
 		]
 	}`
-	features, err := parseArcGISGeoJSON([]byte(data), "roads", 0)
+	features, err := parseArcGISGeoJSON([]byte(data), rtRoads, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +133,7 @@ func TestParseArcGISGeoJSON_BaseIndexOffset(t *testing.T) {
 		{"properties": {"FULLNAME": "A St"}, "geometry": {"type":"Point","coordinates":[-121.77,37.68]}},
 		{"properties": {"FULLNAME": "B St"}, "geometry": {"type":"Point","coordinates":[-121.76,37.69]}}
 	]}`
-	features, err := parseArcGISGeoJSON([]byte(data), "roads", 5000)
+	features, err := parseArcGISGeoJSON([]byte(data), rtRoads, 5000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +196,7 @@ func TestFetch_Pagination(t *testing.T) {
 		BBox: [4]float64{37.0, -122.0, 38.0, -121.0},
 		URL:  srv.URL,
 	}
-	rt := resource.ByName("roads")
+	rt := resource.ByKind(resource.KindRoads)
 	features, err := src.Fetch(context.Background(), srv.Client(), rt)
 	if err != nil {
 		t.Fatal(err)
@@ -228,7 +230,7 @@ func TestFetch_SinglePage(t *testing.T) {
 		BBox: [4]float64{37.0, -122.0, 38.0, -121.0},
 		URL:  srv.URL,
 	}
-	features, err := src.Fetch(context.Background(), srv.Client(), resource.ByName("roads"))
+	features, err := src.Fetch(context.Background(), srv.Client(), resource.ByKind(resource.KindRoads))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +253,7 @@ func TestFetch_EmptyResponse(t *testing.T) {
 		BBox: [4]float64{37.0, -122.0, 38.0, -121.0},
 		URL:  srv.URL,
 	}
-	features, err := src.Fetch(context.Background(), srv.Client(), resource.ByName("roads"))
+	features, err := src.Fetch(context.Background(), srv.Client(), resource.ByKind(resource.KindRoads))
 	if err != nil {
 		t.Fatal(err)
 	}

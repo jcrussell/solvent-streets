@@ -7,6 +7,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
@@ -32,9 +33,10 @@ func TestNewCmdCities_RunFInjection(t *testing.T) {
 }
 
 func TestRunCities_ListsCitiesWithStats(t *testing.T) {
-	statsFor := func(slug string) func(context.Context, string) (*db.StatusInfo, error) {
-		return func(_ context.Context, rt string) (*db.StatusInfo, error) {
-			if slug == "austin-tx" && rt == "roads" {
+	rtRoads := resource.KindRoads.WithScope(resource.ScopeAll)
+	statsFor := func(slug string) func(context.Context, resource.ResourceType) (*db.StatusInfo, error) {
+		return func(_ context.Context, rt resource.ResourceType) (*db.StatusInfo, error) {
+			if slug == "austin-tx" && rt == rtRoads {
 				return &db.StatusInfo{ResourceType: rt, FeatureCount: 42, TotalAreaSqM: 1000}, nil
 			}
 			return &db.StatusInfo{ResourceType: rt}, nil

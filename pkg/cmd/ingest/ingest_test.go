@@ -127,8 +127,8 @@ func TestNewCmdIngest_RunFInjection(t *testing.T) {
 	called := false
 	cmd := NewCmdIngest(f, rt, func(opts *Options) error {
 		called = true
-		if opts.ResourceType.Name() != "roads" {
-			t.Errorf("expected roads, got %s", opts.ResourceType.Name())
+		if opts.ResourceType.Kind() != resource.KindRoads {
+			t.Errorf("expected KindRoads, got %v", opts.ResourceType.Kind())
 		}
 		return nil
 	})
@@ -145,14 +145,14 @@ func TestNewCmdIngest_RunFInjection(t *testing.T) {
 type failingSource struct{ name string }
 
 func (s *failingSource) Name() string { return s.name }
-func (s *failingSource) Fetch(ctx context.Context, _ *http.Client, _ resource.ResourceType) ([]db.Feature, error) {
+func (s *failingSource) Fetch(ctx context.Context, _ *http.Client, _ resource.Source) ([]db.Feature, error) {
 	return nil, errors.New("upstream offline")
 }
 
 type emptySource struct{ name string }
 
 func (s *emptySource) Name() string { return s.name }
-func (s *emptySource) Fetch(ctx context.Context, _ *http.Client, _ resource.ResourceType) ([]db.Feature, error) {
+func (s *emptySource) Fetch(ctx context.Context, _ *http.Client, _ resource.Source) ([]db.Feature, error) {
 	return nil, nil
 }
 

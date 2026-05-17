@@ -14,6 +14,14 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/geo"
+	"github.com/jcrussell/solvent-streets/internal/resource"
+)
+
+var (
+	rtRoads       = resource.KindRoads.WithScope(resource.ScopeAll)
+	rtRoadsCity   = resource.KindRoads.WithScope(resource.ScopeCity)
+	rtParkingAll  = resource.KindParking.WithScope(resource.ScopeAll)
+	rtSidewalkAll = resource.KindSidewalks.WithScope(resource.ScopeAll)
 )
 
 // squareHex builds a geo.Hex whose Geom is an axis-aligned square of the
@@ -79,15 +87,15 @@ func TestFilterHexSlivers_DropsBelowThreshold(t *testing.T) {
 }
 
 // hexEntry builds a CityEntry whose ListHexStats returns rows from the given
-// map (keyed by full resource label, e.g. "roads" or "roads:city").
+// map (keyed by full resource label, e.g. roads or roads:city).
 // LatestComputeResult is similarly keyed.
-func hexEntry(t *testing.T, hexStats map[string][]db.HexStat, results map[string]db.ComputeResult) CityEntry {
+func hexEntry(t *testing.T, hexStats map[resource.ResourceType][]db.HexStat, results map[resource.ResourceType]db.ComputeResult) CityEntry {
 	t.Helper()
 	store := &dbtest.MockStore{
-		ListHexStatsFunc: func(_ context.Context, rt string) ([]db.HexStat, error) {
+		ListHexStatsFunc: func(_ context.Context, rt resource.ResourceType) ([]db.HexStat, error) {
 			return hexStats[rt], nil
 		},
-		LatestComputeResultFunc: func(_ context.Context, rt string) (*db.ComputeResult, error) {
+		LatestComputeResultFunc: func(_ context.Context, rt resource.ResourceType) (*db.ComputeResult, error) {
 			r, ok := results[rt]
 			if !ok {
 				return nil, sql.ErrNoRows
@@ -118,13 +126,13 @@ func TestBuildHexGeoJSONs_BothScopesEmitted(t *testing.T) {
 	// one generated hex. We rely on the city-area projection producing many
 	// hexes; pass empty hex_id and check the count behavior at the FC level.
 	now := time.Now()
-	cityRows := []db.HexStat{{HexID: "0,0", ResourceType: "roads:city", AreaSqM: 100, PctCovered: 50, ComputedAt: now}}
-	bboxRows := []db.HexStat{{HexID: "0,0", ResourceType: "roads", AreaSqM: 200, PctCovered: 75, ComputedAt: now}}
-	entry := hexEntry(t, map[string][]db.HexStat{
-		"roads":      bboxRows,
-		"roads:city": cityRows,
-		"parking":    nil,
-		"sidewalks":  nil,
+	cityRows := []db.HexStat{{HexID: "0,0", ResourceType: rtRoadsCity, AreaSqM: 100, PctCovered: 50, ComputedAt: now}}
+	bboxRows := []db.HexStat{{HexID: "0,0", ResourceType: rtRoads, AreaSqM: 200, PctCovered: 75, ComputedAt: now}}
+	entry := hexEntry(t, map[resource.ResourceType][]db.HexStat{
+		rtRoads:       bboxRows,
+		rtRoadsCity:   cityRows,
+		rtParkingAll:  nil,
+		rtSidewalkAll: nil,
 	}, nil)
 
 	_, lon, lat, err := entry.BBoxAndCenter(t.Context())
@@ -158,11 +166,11 @@ func TestBuildHexGeoJSONs_BothScopesEmitted(t *testing.T) {
 // ":city"-suffixed hex_stats rows must yield a nil city FC. The client uses
 // the absence of hexgrid-city.geojson as the "hide the scope toggle" signal.
 func TestBuildHexGeoJSONs_NoCityRowsReturnsNilCity(t *testing.T) {
-	bboxRows := []db.HexStat{{HexID: "0,0", ResourceType: "roads", AreaSqM: 100, PctCovered: 50}}
-	entry := hexEntry(t, map[string][]db.HexStat{
-		"roads":     bboxRows,
-		"parking":   nil,
-		"sidewalks": nil,
+	bboxRows := []db.HexStat{{HexID: "0,0", ResourceType: rtRoads, AreaSqM: 100, PctCovered: 50}}
+	entry := hexEntry(t, map[resource.ResourceType][]db.HexStat{
+		rtRoads:       bboxRows,
+		rtParkingAll:  nil,
+		rtSidewalkAll: nil,
 	}, nil)
 
 	_, lon, lat, _ := entry.BBoxAndCenter(t.Context())
@@ -181,9 +189,9 @@ func TestBuildHexGeoJSONs_NoCityRowsReturnsNilCity(t *testing.T) {
 // export (the marker that compute produced both scopes).
 func TestBuildHexCostSummary_NestedByScope(t *testing.T) {
 	now := time.Now()
-	results := map[string]db.ComputeResult{
-		"roads":      {ResourceType: "roads", TotalAreaSqM: 2000, ComputedAt: now},
-		"roads:city": {ResourceType: "roads:city", TotalAreaSqM: 1000, ComputedAt: now},
+	results := map[resource.ResourceType]db.ComputeResult{
+		rtRoads:     {ResourceType: rtRoads, TotalAreaSqM: 2000, ComputedAt: now},
+		rtRoadsCity: {ResourceType: rtRoadsCity, TotalAreaSqM: 1000, ComputedAt: now},
 	}
 	entry := hexEntry(t, nil, results)
 
@@ -224,8 +232,8 @@ func TestBuildHexCostSummary_NestedByScope(t *testing.T) {
 // (legacy single-scope compute), the output has only the "bbox" key and
 // Baseline carries the bbox numbers.
 func TestBuildHexCostSummary_BboxOnlyWhenNoCity(t *testing.T) {
-	results := map[string]db.ComputeResult{
-		"roads": {ResourceType: "roads", TotalAreaSqM: 2000},
+	results := map[resource.ResourceType]db.ComputeResult{
+		rtRoads: {ResourceType: rtRoads, TotalAreaSqM: 2000},
 	}
 	entry := hexEntry(t, nil, results)
 
@@ -249,9 +257,9 @@ func TestBuildHexCostSummary_BboxOnlyWhenNoCity(t *testing.T) {
 // held the city-scope primary) is renamed to "city". When no :city compute
 // rows exist, the only scope key is "bbox".
 func TestBuildScenariosData_RenamedKeys(t *testing.T) {
-	results := map[string]db.ComputeResult{
-		"roads":      {ResourceType: "roads", TotalAreaSqM: 2000, FeatureCount: 100},
-		"roads:city": {ResourceType: "roads:city", TotalAreaSqM: 1000, FeatureCount: 60},
+	results := map[resource.ResourceType]db.ComputeResult{
+		rtRoads:     {ResourceType: rtRoads, TotalAreaSqM: 2000, FeatureCount: 100},
+		rtRoadsCity: {ResourceType: rtRoadsCity, TotalAreaSqM: 1000, FeatureCount: 60},
 	}
 	entry := hexEntry(t, nil, results)
 	fc := &config.ForecastConfig{Years: 5, InitialPCI: 85, DecayRate: 1.5}
@@ -271,8 +279,8 @@ func TestBuildScenariosData_RenamedKeys(t *testing.T) {
 // TestBuildScenariosData_BboxOnlyKey: when only bbox compute rows exist,
 // the output has just the "bbox" key — no "city", no legacy "all".
 func TestBuildScenariosData_BboxOnlyKey(t *testing.T) {
-	results := map[string]db.ComputeResult{
-		"roads": {ResourceType: "roads", TotalAreaSqM: 2000, FeatureCount: 100},
+	results := map[resource.ResourceType]db.ComputeResult{
+		rtRoads: {ResourceType: rtRoads, TotalAreaSqM: 2000, FeatureCount: 100},
 	}
 	entry := hexEntry(t, nil, results)
 	fc := &config.ForecastConfig{Years: 5, InitialPCI: 85, DecayRate: 1.5}

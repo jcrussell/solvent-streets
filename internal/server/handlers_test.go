@@ -24,14 +24,16 @@ import (
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
 
+var srvRtRoads = resource.KindRoads.WithScope(resource.ScopeAll)
+
 func TestHandleDataMetaJSON(t *testing.T) {
 	testBoundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
 	store := &dbtest.MockStore{
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
-		LatestComputeResultFunc: func(_ context.Context, rt string) (*db.ComputeResult, error) {
-			if rt == "roads" {
+		LatestComputeResultFunc: func(_ context.Context, rt resource.ResourceType) (*db.ComputeResult, error) {
+			if rt == srvRtRoads {
 				return &db.ComputeResult{
-					ResourceType: "roads",
+					ResourceType: srvRtRoads,
 					TotalAreaSqM: 46452,
 					FeatureCount: 100,
 					ComputedAt:   time.Now(),
@@ -84,7 +86,7 @@ func TestHandleIndex(t *testing.T) {
 	testBoundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
 	store := &dbtest.MockStore{
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
-		LatestComputeResultFunc: func(_ context.Context, _ string) (*db.ComputeResult, error) {
+		LatestComputeResultFunc: func(_ context.Context, _ resource.ResourceType) (*db.ComputeResult, error) {
 			return nil, fmt.Errorf("not found")
 		},
 	}
@@ -250,12 +252,12 @@ func TestDataFile_SnapshotParam(t *testing.T) {
 	var pinnedSnapshot int64
 	pinnedStore := &dbtest.MockStore{
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
-		LatestComputeResultFunc: func(_ context.Context, rt string) (*db.ComputeResult, error) {
-			if rt != "roads" {
+		LatestComputeResultFunc: func(_ context.Context, rt resource.ResourceType) (*db.ComputeResult, error) {
+			if rt != srvRtRoads {
 				return nil, fmt.Errorf("not found")
 			}
 			return &db.ComputeResult{
-				ResourceType: "roads",
+				ResourceType: srvRtRoads,
 				TotalAreaSqM: float64(pinnedSnapshot * 1000),
 				FeatureCount: int(pinnedSnapshot * 10),
 				ComputedAt:   time.Now(),
@@ -272,12 +274,12 @@ func TestDataFile_SnapshotParam(t *testing.T) {
 		},
 		WithSnapshotFunc: func(id int64) db.Store {
 			cp := *pinnedStore
-			cp.LatestComputeResultFunc = func(_ context.Context, rt string) (*db.ComputeResult, error) {
-				if rt != "roads" {
+			cp.LatestComputeResultFunc = func(_ context.Context, rt resource.ResourceType) (*db.ComputeResult, error) {
+				if rt != srvRtRoads {
 					return nil, fmt.Errorf("not found")
 				}
 				return &db.ComputeResult{
-					ResourceType: "roads",
+					ResourceType: srvRtRoads,
 					TotalAreaSqM: float64(id * 1000),
 					FeatureCount: int(id * 10),
 					ComputedAt:   time.Now(),
@@ -285,12 +287,12 @@ func TestDataFile_SnapshotParam(t *testing.T) {
 			}
 			return &cp
 		},
-		LatestComputeResultFunc: func(_ context.Context, rt string) (*db.ComputeResult, error) {
-			if rt != "roads" {
+		LatestComputeResultFunc: func(_ context.Context, rt resource.ResourceType) (*db.ComputeResult, error) {
+			if rt != srvRtRoads {
 				return nil, fmt.Errorf("not found")
 			}
 			return &db.ComputeResult{
-				ResourceType: "roads", TotalAreaSqM: 999000, FeatureCount: 999, ComputedAt: time.Now(),
+				ResourceType: srvRtRoads, TotalAreaSqM: 999000, FeatureCount: 999, ComputedAt: time.Now(),
 			}, nil
 		},
 	}
@@ -431,7 +433,7 @@ func TestBuildForecasts_DBErrorEvicts(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	var calls atomic.Int32
 	failingStore := &dbtest.MockStore{
-		LatestComputeResultFunc: func(_ context.Context, rt string) (*db.ComputeResult, error) {
+		LatestComputeResultFunc: func(_ context.Context, rt resource.ResourceType) (*db.ComputeResult, error) {
 			n := calls.Add(1)
 			if n <= int32(len(resource.All)) {
 				return nil, errors.New("db unavailable")

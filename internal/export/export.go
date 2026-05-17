@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
 	"sync"
 	"time"
 
@@ -203,13 +202,14 @@ func BuildMeta(ctx context.Context, entry CityEntry) (MetaJSON, error) {
 		SnapshotDate: time.Now().Format("2006-01-02"),
 	}
 	for _, rt := range resource.All {
-		result, err := entry.Store.LatestComputeResult(ctx, rt.Name())
+		result, err := entry.Store.LatestComputeResult(ctx, rt.Kind().WithScope(resource.ScopeAll))
 		if err != nil {
 			continue
 		}
+		typeName := result.ResourceType.Kind.String()
 		meta.Stats = append(meta.Stats, StatJSON{
-			Type:         result.ResourceType,
-			Color:        ResourceColors[result.ResourceType],
+			Type:         typeName,
+			Color:        ResourceColors[typeName],
 			TotalAreaSqM: result.TotalAreaSqM,
 			FeatureCount: result.FeatureCount,
 		})
@@ -256,17 +256,16 @@ func totalPavedFromStore(ctx context.Context, store db.Store, perResource []Stat
 // when no ":city" rows exist; that signal hides the scope toggle in the UI.
 // bbox is nil when no rows of any kind exist.
 func BuildHexGeoJSONs(ctx context.Context, entry CityEntry, proj *geo.UTMProjector) (city, bbox map[string]any) {
-	return buildHexGeoJSONForSuffix(ctx, entry, proj, ":city"),
-		buildHexGeoJSONForSuffix(ctx, entry, proj, "")
+	return buildHexGeoJSONForScope(ctx, entry, proj, resource.ScopeCity),
+		buildHexGeoJSONForScope(ctx, entry, proj, resource.ScopeAll)
 }
 
-// buildHexGeoJSONForSuffix builds one scope's FeatureCollection. suffix is
-// either "" (bbox-scope rows) or ":city" (city-scope rows). Returns nil when
-// no matching hex_stats rows exist for that scope.
-func buildHexGeoJSONForSuffix(ctx context.Context, entry CityEntry, proj *geo.UTMProjector, suffix string) map[string]any {
+// buildHexGeoJSONForScope builds one scope's FeatureCollection. Returns nil
+// when no matching hex_stats rows exist for that scope.
+func buildHexGeoJSONForScope(ctx context.Context, entry CityEntry, proj *geo.UTMProjector, scope resource.Scope) map[string]any {
 	var allStats []db.HexStat
 	for _, rt := range resource.All {
-		stats, err := entry.Store.ListHexStats(ctx, rt.Name()+suffix)
+		stats, err := entry.Store.ListHexStats(ctx, rt.Kind().WithScope(scope))
 		if err != nil {
 			continue
 		}
@@ -364,7 +363,7 @@ func buildHexFeature(st db.HexStat, hexMap map[string]*geo.Hex, proj *geo.UTMPro
 		"geometry": json.RawMessage(gjson),
 		"properties": map[string]any{
 			"hex_id":        st.HexID,
-			"resource_type": strings.TrimSuffix(st.ResourceType, ":city"),
+			"resource_type": st.ResourceType.Kind.String(),
 			"area_sqm":      st.AreaSqM,
 			"pct_covered":   st.PctCovered,
 		},
@@ -389,11 +388,12 @@ func ConvertCostTiers(fc *config.ForecastConfig) []forecast.CostTier {
 // Falls back to a single cohort if no cohort stats exist. A non-nil error is a
 // real DB failure, not "no rows" — ListCohortStats returns an empty slice with
 // nil error when there are no matching rows.
-func BuildCohortsForResource(ctx context.Context, rt resource.ResourceType, areaSqM float64, store db.Store, fc *config.ForecastConfig) ([]forecast.Cohort, error) {
+func BuildCohortsForResource(ctx context.Context, rt resource.Source, areaSqM float64, store db.Store, fc *config.ForecastConfig) ([]forecast.Cohort, error) {
 	currentPCI := fc.InitialPCI
-	stats, err := store.ListCohortStats(ctx, rt.Name())
+	kind := rt.Kind()
+	stats, err := store.ListCohortStats(ctx, kind.WithScope(resource.ScopeAll))
 	if err != nil {
-		return nil, fmt.Errorf("listing cohort stats for %s: %w", rt.Name(), err)
+		return nil, fmt.Errorf("listing cohort stats for %s: %w", kind, err)
 	}
 	var inputs []forecast.CohortInput
 	for _, st := range stats {
@@ -404,12 +404,13 @@ func BuildCohortsForResource(ctx context.Context, rt resource.ResourceType, area
 	}
 	cohorts := forecast.BuildCohorts(inputs, currentPCI, fc.DecayRate)
 	if cohorts == nil {
-		defaultRate := forecast.DecayRateForClass(rt.Name())
-		if fc.DecayRate > 0 && forecast.IsRoadClass(rt.Name()) {
+		kindName := kind.String()
+		defaultRate := forecast.DecayRateForClass(kindName)
+		if fc.DecayRate > 0 && forecast.IsRoadClass(kindName) {
 			defaultRate = fc.DecayRate
 		}
 		cohorts = []forecast.Cohort{{
-			Classification: rt.Name(),
+			Classification: kindName,
 			AreaSqM:        areaSqM,
 			DecayRate:      defaultRate,
 			InitialPCI:     currentPCI,
@@ -471,17 +472,19 @@ func BuildForecastsForCity(ctx context.Context, entry CityEntry, fc *config.Fore
 // errSkipResource when the resource has no compute run yet — a legitimate
 // skip on a fresh DB. Any other non-nil error is a real DB failure that
 // should aggregate up to the caller and trigger cache eviction.
-func buildResourceForecast(ctx context.Context, rt resource.ResourceType, entry CityEntry, fc *config.ForecastConfig, costTiers []forecast.CostTier, doNothing forecast.Scenario) (ForecastExport, error) {
-	result, err := entry.Store.LatestComputeResult(ctx, rt.Name())
+func buildResourceForecast(ctx context.Context, rt resource.Source, entry CityEntry, fc *config.ForecastConfig, costTiers []forecast.CostTier, doNothing forecast.Scenario) (ForecastExport, error) {
+	kind := rt.Kind()
+	kindName := kind.String()
+	result, err := entry.Store.LatestComputeResult(ctx, kind.WithScope(resource.ScopeAll))
 	if errors.Is(err, sql.ErrNoRows) {
 		return ForecastExport{}, errSkipResource
 	}
 	if err != nil {
-		return ForecastExport{}, fmt.Errorf("loading compute result for %s: %w", rt.Name(), err)
+		return ForecastExport{}, fmt.Errorf("loading compute result for %s: %w", kind, err)
 	}
 
 	years := fc.Years
-	rtParams := forecast.NewParamsForResource(rt.Name(), fc.GrowthRate, costTiers)
+	rtParams := forecast.NewParamsForResource(kindName, fc.GrowthRate, costTiers)
 
 	bboxCohorts, err := BuildCohortsForResource(ctx, rt, result.TotalAreaSqM, entry.Store, fc)
 	if err != nil {
@@ -492,9 +495,9 @@ func buildResourceForecast(ctx context.Context, rt resource.ResourceType, entry 
 	// Try city-scoped cohorts — use as primary if available. Empty result is
 	// legitimate (not all cities have city-scope data); only a real DB error
 	// surfaces.
-	cityStats, err := entry.Store.ListCohortStats(ctx, rt.Name()+":city")
+	cityStats, err := entry.Store.ListCohortStats(ctx, kind.WithScope(resource.ScopeCity))
 	if err != nil {
-		return ForecastExport{}, fmt.Errorf("listing city cohort stats for %s: %w", rt.Name(), err)
+		return ForecastExport{}, fmt.Errorf("listing city cohort stats for %s: %w", kind, err)
 	}
 	primaryCohorts, hasCityScope := cityScopeCohorts(cityStats, fc)
 	if !hasCityScope {
@@ -506,7 +509,7 @@ func buildResourceForecast(ctx context.Context, rt resource.ResourceType, entry 
 	scenarios := forecast.SimulateDefaults(year1Need, primaryCohorts, years, rtParams.Cost, rtParams.Growth)
 
 	fe := ForecastExport{
-		ResourceType: rt.Name(),
+		ResourceType: kindName,
 		Baseline:     baseline,
 		Scenarios:    scenarios,
 	}
@@ -549,14 +552,15 @@ func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.Forecas
 	var cityFeatureCount, allFeatureCount int
 
 	for _, rt := range resource.All {
-		result, err := entry.Store.LatestComputeResult(ctx, rt.Name())
+		kind := rt.Kind()
+		result, err := entry.Store.LatestComputeResult(ctx, kind.WithScope(resource.ScopeAll))
 		if err != nil || result == nil {
 			continue
 		}
 		totalAreaSqM += result.TotalAreaSqM
 		allFeatureCount += result.FeatureCount
 
-		cityResult, err := entry.Store.LatestComputeResult(ctx, rt.Name()+":city")
+		cityResult, err := entry.Store.LatestComputeResult(ctx, kind.WithScope(resource.ScopeCity))
 		if err == nil && cityResult != nil {
 			cityAreaSqM += cityResult.TotalAreaSqM
 			cityFeatureCount += cityResult.FeatureCount
@@ -624,9 +628,13 @@ func BuildHexCostSummary(ctx context.Context, entry CityEntry, forecasts []Forec
 	}
 	for _, fe := range forecasts {
 		cityYear1, bboxYear1, hasCity := scopeYear1Costs(fe)
-		addScopeRow(ctx, entry, out, "bbox", fe.ResourceType, "", bboxYear1)
+		kind, perr := resource.ParseKind(fe.ResourceType)
+		if perr != nil {
+			continue
+		}
+		addScopeRow(ctx, entry, out, "bbox", kind.WithScope(resource.ScopeAll), fe.ResourceType, bboxYear1)
 		if hasCity {
-			addScopeRow(ctx, entry, out, "city", fe.ResourceType, ":city", cityYear1)
+			addScopeRow(ctx, entry, out, "city", kind.WithScope(resource.ScopeCity), fe.ResourceType, cityYear1)
 		}
 	}
 	if len(out["bbox"]) == 0 {
@@ -656,11 +664,11 @@ func scopeYear1Costs(fe ForecastExport) (city, bbox float64, hasCity bool) {
 	return 0, bbox, false
 }
 
-// addScopeRow looks up the area for (resourceType + suffix) and writes the
+// addScopeRow looks up the compute row for rt and writes the
 // {year1_cost, total_area_sqm} pair under out[scope][resourceType]. Missing
 // compute rows are skipped silently — same as the pre-rename behavior.
-func addScopeRow(ctx context.Context, entry CityEntry, out map[string]map[string]map[string]float64, scope, resourceType, suffix string, year1Cost float64) {
-	r, err := entry.Store.LatestComputeResult(ctx, resourceType+suffix)
+func addScopeRow(ctx context.Context, entry CityEntry, out map[string]map[string]map[string]float64, scope string, rt resource.ResourceType, resourceType string, year1Cost float64) {
+	r, err := entry.Store.LatestComputeResult(ctx, rt)
 	if err != nil || r == nil {
 		return
 	}
@@ -710,7 +718,7 @@ func BuildForecastSeed(ctx context.Context, fc *config.ForecastConfig, store db.
 		totalArea = r.TotalAreaSqM
 	} else {
 		for _, rt := range resource.All {
-			result, err := store.LatestComputeResult(ctx, rt.Name())
+			result, err := store.LatestComputeResult(ctx, rt.Kind().WithScope(resource.ScopeAll))
 			if err != nil || result == nil {
 				continue
 			}
@@ -721,7 +729,7 @@ func BuildForecastSeed(ctx context.Context, fc *config.ForecastConfig, store db.
 		cityArea = r.TotalAreaSqM
 	} else {
 		for _, rt := range resource.All {
-			cityResult, err := store.LatestComputeResult(ctx, rt.Name()+":city")
+			cityResult, err := store.LatestComputeResult(ctx, rt.Kind().WithScope(resource.ScopeCity))
 			if err == nil && cityResult != nil {
 				cityArea += cityResult.TotalAreaSqM
 			}
@@ -798,14 +806,15 @@ func aggregatePerResourceStats(ctx context.Context, entries []CityEntry) []StatJ
 	statByType := make(map[string]*StatJSON)
 	for _, entry := range entries {
 		for _, rt := range resource.All {
-			result, err := entry.Store.LatestComputeResult(ctx, rt.Name())
+			kindName := rt.Kind().String()
+			result, err := entry.Store.LatestComputeResult(ctx, rt.Kind().WithScope(resource.ScopeAll))
 			if err != nil || result == nil {
 				continue
 			}
-			st, ok := statByType[rt.Name()]
+			st, ok := statByType[kindName]
 			if !ok {
-				st = &StatJSON{Type: rt.Name(), Color: ResourceColors[rt.Name()]}
-				statByType[rt.Name()] = st
+				st = &StatJSON{Type: kindName, Color: ResourceColors[kindName]}
+				statByType[kindName] = st
 			}
 			st.TotalAreaSqM += result.TotalAreaSqM
 			st.FeatureCount += result.FeatureCount
@@ -813,7 +822,7 @@ func aggregatePerResourceStats(ctx context.Context, entries []CityEntry) []StatJ
 	}
 	var out []StatJSON
 	for _, rt := range resource.All {
-		if st, ok := statByType[rt.Name()]; ok {
+		if st, ok := statByType[rt.Kind().String()]; ok {
 			out = append(out, *st)
 		}
 	}
@@ -829,7 +838,7 @@ func aggregatePerResourceStats(ctx context.Context, entries []CityEntry) []StatJ
 func aggregateTotalPaved(ctx context.Context, entries []CityEntry) float64 {
 	var sum float64
 	for _, entry := range entries {
-		sum += entryAreaWithFallback(ctx, entry.Store, resource.CombinedAll, "")
+		sum += entryAreaWithFallback(ctx, entry.Store, resource.CombinedAll, resource.ScopeAll)
 	}
 	return sum
 }
@@ -904,8 +913,8 @@ func BuildMultiCityForecastSeed(ctx context.Context, fc *config.ForecastConfig, 
 
 	var totalArea, cityArea float64
 	for _, entry := range entries {
-		totalArea += entryAreaWithFallback(ctx, entry.Store, resource.CombinedAll, "")
-		cityArea += entryAreaWithFallback(ctx, entry.Store, resource.CombinedCity, ":city")
+		totalArea += entryAreaWithFallback(ctx, entry.Store, resource.CombinedAll, resource.ScopeAll)
+		cityArea += entryAreaWithFallback(ctx, entry.Store, resource.CombinedCity, resource.ScopeCity)
 	}
 
 	decayRate := fc.DecayRate
@@ -931,15 +940,14 @@ func BuildMultiCityForecastSeed(ctx context.Context, fc *config.ForecastConfig, 
 }
 
 // entryAreaWithFallback reads the combined row for a single entry; if absent,
-// sums the per-resource rows with the matching suffix ("" for all, ":city"
-// for city-jurisdiction).
-func entryAreaWithFallback(ctx context.Context, store db.Store, combinedLabel, perResourceSuffix string) float64 {
+// sums the per-resource rows in the matching scope.
+func entryAreaWithFallback(ctx context.Context, store db.Store, combinedLabel resource.ResourceType, scope resource.Scope) float64 {
 	if r, err := store.LatestComputeResult(ctx, combinedLabel); err == nil && r != nil {
 		return r.TotalAreaSqM
 	}
 	var sum float64
 	for _, rt := range resource.All {
-		r, err := store.LatestComputeResult(ctx, rt.Name()+perResourceSuffix)
+		r, err := store.LatestComputeResult(ctx, rt.Kind().WithScope(scope))
 		if err == nil && r != nil {
 			sum += r.TotalAreaSqM
 		}
@@ -964,18 +972,19 @@ func mergeCohortSeeds(ctx context.Context, entries []CityEntry, fc *config.Forec
 	}
 	buckets := make(map[key]*bucket)
 	nextOrder := 0
+	scope := resource.ScopeAll
+	if cityScope {
+		scope = resource.ScopeCity
+	}
 	for _, entry := range entries {
 		for _, rt := range resource.All {
-			label := rt.Name()
-			if cityScope {
-				label += ":city"
-			}
-			stats, err := entry.Store.ListCohortStats(ctx, label)
+			kind := rt.Kind()
+			stats, err := entry.Store.ListCohortStats(ctx, kind.WithScope(scope))
 			if err != nil {
 				continue
 			}
 			for _, st := range stats {
-				k := key{Resource: rt.Name(), Classification: st.Classification}
+				k := key{Resource: kind.String(), Classification: st.Classification}
 				b, ok := buckets[k]
 				if !ok {
 					b = &bucket{
@@ -1018,7 +1027,8 @@ func collectCohortSeeds(ctx context.Context, store db.Store, fc *config.Forecast
 	var cohortSeeds []CohortSeed
 	var cityCohortSeeds []CohortSeed
 	for _, rt := range resource.All {
-		stats, err := store.ListCohortStats(ctx, rt.Name())
+		kind := rt.Kind()
+		stats, err := store.ListCohortStats(ctx, kind.WithScope(resource.ScopeAll))
 		if err == nil {
 			for _, st := range stats {
 				cohortSeeds = append(cohortSeeds, CohortSeed{
@@ -1028,7 +1038,7 @@ func collectCohortSeeds(ctx context.Context, store db.Store, fc *config.Forecast
 				})
 			}
 		}
-		cityStats, err := store.ListCohortStats(ctx, rt.Name()+":city")
+		cityStats, err := store.ListCohortStats(ctx, kind.WithScope(resource.ScopeCity))
 		if err == nil {
 			for _, st := range cityStats {
 				cityCohortSeeds = append(cityCohortSeeds, CohortSeed{
