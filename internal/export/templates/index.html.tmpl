@@ -311,6 +311,7 @@
         }
         .lb-category .lb-title h4 { font-size: 14px; color: var(--text); font-weight: 600; }
         .lb-category .lb-award { font-size: 12px; color: var(--text-muted); font-style: italic; }
+        .lb-note, .sb-note { color: var(--text-muted); cursor: help; font-size: 0.85em; margin-left: 2px; }
         .lb-row {
             display: flex;
             align-items: center;
@@ -2096,7 +2097,7 @@
                     '<div class="score-label">Infrastructure Score</div>' +
                     '<div class="score-breakdown">' +
                         (m.cityAreaLarge > 0 ? '<div class="sb-row"><span>City Area</span><span>' + m.cityAreaLarge.toFixed(0) + ' ' + areaLargeUnit() + '</span></div>' : '') +
-                        (m.pctPaved > 0 ? '<div class="sb-row"><span>% Paved</span><span>' + m.pctPaved.toFixed(1) + '%</span></div>' : '') +
+                        (m.pctPaved > 0 ? '<div class="sb-row"><span title="% Paved divides paved area by the Nominatim boundary polygon. Boundary scope varies across cities, so cross-city comparison is approximate.">% Paved <span class="sb-note">ⓘ</span></span><span>' + m.pctPaved.toFixed(1) + '%</span></div>' : '') +
                         '<div class="sb-row"><span>Total Network</span><span>' + m.totalAreaLarge.toFixed(0) + ' ' + areaLargeUnit() + '</span></div>' +
                         '<div class="sb-row"><span>Roads</span><span>' + m.roadsAreaLarge.toFixed(0) + ' ' + areaLargeUnit() + '</span></div>' +
                         '<div class="sb-row"><span>Parking</span><span>' + m.parkingAreaLarge.toFixed(0) + ' ' + areaLargeUnit() + '</span></div>' +
@@ -2111,8 +2112,8 @@
 
             // Leaderboards — data-driven categories
             var categories = [
-                { key: 'cityAreaLarge', label: 'City Area', award: 'Largest City', higher: true, fmt: function(v) { return v.toFixed(0) + ' ' + areaLargeUnit(); }, color: '#059669' },
-                { key: 'pctPaved', label: '% Paved', award: 'Most Paved', higher: true, fmt: function(v) { return v.toFixed(1) + '%'; }, color: '#dc2626' },
+                { key: 'cityAreaLarge', label: 'City Area', award: 'Largest City', higher: true, fmt: function(v) { return v.toFixed(0) + ' ' + areaLargeUnit(); }, color: '#059669', note: 'City Area is the Nominatim admin polygon. Polygon scope varies (e.g. Boston includes harbor water; Nashville is consolidated Davidson County), so cross-city comparison is approximate.' },
+                { key: 'pctPaved', label: '% Paved', award: 'Most Paved', higher: true, fmt: function(v) { return v.toFixed(1) + '%'; }, color: '#dc2626', note: '% Paved divides paved area by the Nominatim boundary polygon for each city. Polygon scope varies across cities (Boston includes harbor water; Nashville is consolidated Davidson County), so cross-city comparison is approximate.' },
                 { key: 'totalAreaLarge', label: 'Total Managed Area', award: 'Biggest Network', higher: true, fmt: function(v) { return v.toFixed(0) + ' ' + areaLargeUnit(); }, color: '#6366f1' },
                 { key: 'sidewalkToRoadPct', label: 'Walkability (Sidewalk-to-Road Ratio)', award: 'Most Walkable', higher: true, fmt: function(v) { return v.toFixed(1) + '%'; }, color: '#10b981' },
                 { key: 'parkingAreaLarge', label: 'Parking Infrastructure', award: 'Most Parking', higher: true, fmt: function(v) { return v.toFixed(0) + ' ' + areaLargeUnit(); }, color: '#3b82f6' },
@@ -2142,8 +2143,9 @@
                     '</div>';
                 }).join('');
 
+                var noteIcon = cat.note ? ' <span class="lb-note" title="' + cat.note.replace(/"/g, '&quot;') + '">ⓘ</span>' : '';
                 return '<div class="lb-category">' +
-                    '<div class="lb-title"><h4>' + cat.label + '</h4><span class="lb-award">' + medals[0] + ' ' + cat.award + ': ' + sorted[0].name + '</span></div>' +
+                    '<div class="lb-title"><h4>' + cat.label + noteIcon + '</h4><span class="lb-award">' + medals[0] + ' ' + cat.award + ': ' + sorted[0].name + '</span></div>' +
                     rows +
                 '</div>';
             }).join('');
