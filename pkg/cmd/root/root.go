@@ -131,9 +131,10 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 	_ = cmd.RegisterFlagCompletionFunc("units", cmdutil.UnitSystemCompletion())
 
 	var verbose int
-	var logLevel string
+	var logLevel cmdutil.LogLevel
 	cmd.PersistentFlags().CountVarP(&verbose, "verbose", "v", "increase log verbosity (-v=info, -vv=debug)")
-	cmd.PersistentFlags().StringVar(&logLevel, "log-level", "", "explicit log level (warn|info|debug); overrides -v")
+	cmd.PersistentFlags().Var(&logLevel, "log-level", "explicit log level (debug|info|warn|error); overrides -v")
+	_ = cmd.RegisterFlagCompletionFunc("log-level", cmdutil.LogLevelCompletion())
 
 	// Must run before addSubcommands: subcommands snapshot f.UnitSystem
 	// into their Options structs at construction time, and Go function
@@ -145,7 +146,7 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 		if skipMiddleware(c) {
 			return nil
 		}
-		applyLogLevel(f, verbose, logLevel)
+		applyLogLevel(f, verbose, &logLevel)
 		c.SetContext(logs.WithLogger(c.Context(), f.Logger.With("cmd", c.CommandPath())))
 		for _, m := range middlewares {
 			if err := m(cmd, f); err != nil {
@@ -171,32 +172,24 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 // Direction is deliberately opposite to byob-config.2's env > file > default:
 // logging verbosity is per-invocation, so a -vv on the command line must
 // not be silenced by a stale PVMT_LOG=warn in the environment.
-func applyLogLevel(f *cmdutil.Factory, verbose int, logLevel string) {
+//
+// The flag path is strict (validated at parse time by cmdutil.LogLevel), but
+// the env path is lenient: an unparseable PVMT_LOG silently lands on Warn
+// rather than failing the invocation, matching the other PVMT_ env vars.
+func applyLogLevel(f *cmdutil.Factory, verbose int, logLevel *cmdutil.LogLevel) {
 	if f == nil || f.LogLevel == nil {
 		return
 	}
 	switch {
-	case logLevel != "":
-		f.LogLevel.Set(parseLogLevel(logLevel))
+	case logLevel.IsSet():
+		f.LogLevel.Set(logLevel.Level())
 	case verbose >= 2:
 		f.LogLevel.Set(slog.LevelDebug)
 	case verbose == 1:
 		f.LogLevel.Set(slog.LevelInfo)
 	case os.Getenv("PVMT_LOG") != "":
-		f.LogLevel.Set(parseLogLevel(os.Getenv("PVMT_LOG")))
-	}
-}
-
-func parseLogLevel(s string) slog.Level {
-	switch strings.ToLower(s) {
-	case "debug":
-		return slog.LevelDebug
-	case "info":
-		return slog.LevelInfo
-	case "error":
-		return slog.LevelError
-	default:
-		return slog.LevelWarn
+		level, _ := cmdutil.ParseLogLevel(os.Getenv("PVMT_LOG"))
+		f.LogLevel.Set(level)
 	}
 }
 

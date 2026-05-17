@@ -3,6 +3,7 @@ package root
 import (
 	"errors"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
 	"testing"
@@ -137,6 +138,83 @@ func TestUnitsPrecedence_FlagBeatsEnvBeatsFile(t *testing.T) {
 	}
 	if got := f.UnitSystem(); got != units.Imperial {
 		t.Errorf("flag-beats-env: want Imperial, got %v", got)
+	}
+}
+
+// TestLogLevelFlag_RejectsBadValueAtParseTime guards byob-command-shape.7:
+// because --log-level is now a pflag.Value, an unknown level fails at flag
+// parse with a *cmdutil.FlagError (mapped to exit 2 by the top-level
+// runner) instead of silently degrading to Warn inside applyLogLevel.
+func TestLogLevelFlag_RejectsBadValueAtParseTime(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	f := &cmdutil.Factory{
+		IOStreams: ios,
+		LogLevel:  new(slog.LevelVar),
+		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Config: func() (*config.Config, error) {
+			return &config.Config{Display: config.DisplayConfig{Units: "metric"}}, nil
+		},
+	}
+	cmd := NewCmdRoot(f)
+	cmd.SetArgs([]string{"--log-level", "fatal", "status"})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected flag-parse error for --log-level=fatal, got nil")
+	}
+	var flagErr *cmdutil.FlagError
+	if !errors.As(err, &flagErr) {
+		t.Fatalf("expected *cmdutil.FlagError, got %T: %v", err, err)
+	}
+}
+
+// TestApplyLogLevel_Precedence locks in the precedence ladder documented
+// on applyLogLevel: flag > -v/-vv > PVMT_LOG > default. Tests the helper
+// directly so we don't have to plumb through Execute() for every case.
+func TestApplyLogLevel_Precedence(t *testing.T) {
+	mustSet := func(t *testing.T, v string) cmdutil.LogLevel {
+		t.Helper()
+		var l cmdutil.LogLevel
+		if err := l.Set(v); err != nil {
+			t.Fatalf("Set(%q): %v", v, err)
+		}
+		return l
+	}
+
+	tests := []struct {
+		name    string
+		verbose int
+		flag    cmdutil.LogLevel
+		env     string
+		want    slog.Level
+	}{
+		{"default warn", 0, cmdutil.LogLevel{}, "", slog.LevelWarn},
+		{"verbose info", 1, cmdutil.LogLevel{}, "", slog.LevelInfo},
+		{"verbose debug", 2, cmdutil.LogLevel{}, "", slog.LevelDebug},
+		{"env info", 0, cmdutil.LogLevel{}, "info", slog.LevelInfo},
+		{"env beats default", 0, cmdutil.LogLevel{}, "debug", slog.LevelDebug},
+		{"env bogus lands warn", 0, cmdutil.LogLevel{}, "trace", slog.LevelWarn},
+		{"-v beats env", 1, cmdutil.LogLevel{}, "error", slog.LevelInfo},
+		{"flag beats -vv", 2, mustSet(t, "error"), "", slog.LevelError},
+		{"flag beats env", 0, mustSet(t, "info"), "debug", slog.LevelInfo},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("PVMT_LOG", tt.env)
+			if tt.env == "" {
+				os.Unsetenv("PVMT_LOG")
+			}
+			lv := new(slog.LevelVar)
+			lv.Set(slog.LevelWarn)
+			f := &cmdutil.Factory{LogLevel: lv}
+			flag := tt.flag
+			applyLogLevel(f, tt.verbose, &flag)
+			if got := lv.Level(); got != tt.want {
+				t.Errorf("got %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 
