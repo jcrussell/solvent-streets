@@ -189,3 +189,46 @@ jobs:
         with:
           version: latest
           args: check
+
+  reproducible-build:
+    name: Reproducible Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: "1.26"
+          check-latest: true
+          cache-dependency-path: go.sum
+
+      - name: Pin build DATE to commit timestamp
+        id: build-date
+        run: |
+          ts=$(git show -s --format=%ct HEAD)
+          iso=$(date -u -d "@$ts" +"%Y-%m-%dT%H:%M:%SZ")
+          echo "iso=$iso" >> "$GITHUB_OUTPUT"
+
+      - name: Build #1
+        run: |
+          GOCACHE=$(mktemp -d) make build \
+            BINARY=pvmt-1 \
+            DATE='${{ steps.build-date.outputs.iso }}'
+
+      - name: Build #2 (fresh cache)
+        run: |
+          rm -rf internal/export/wasm
+          GOCACHE=$(mktemp -d) make build \
+            BINARY=pvmt-2 \
+            DATE='${{ steps.build-date.outputs.iso }}'
+
+      - name: Compare binaries
+        run: |
+          if ! cmp pvmt-1 pvmt-2; then
+            echo "::error::pvmt-1 and pvmt-2 differ — build is non-deterministic"
+            sha256sum pvmt-1 pvmt-2
+            exit 1
+          fi
+          echo "Binaries are byte-identical: $(sha256sum pvmt-1 | awk '{print $1}')"
