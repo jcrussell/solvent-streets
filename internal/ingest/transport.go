@@ -12,18 +12,41 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/build"
 )
 
-// UserAgent returns the outbound User-Agent string, in the format prescribed
-// by byob-http-client.5: <tool>/<version> (<os>; <arch>). Computed once at
-// first call and cached for the process lifetime.
+// UserAgent returns the outbound User-Agent string in the format prescribed
+// by byob-http-client.5:
+//
+//	pvmt/<version> (<goos>; <goarch>)[ commit=<short>]
+//
+// The commit suffix is appended only when build.Commit holds a real value
+// (not build.CommitNone and not empty). The result is computed once at first
+// call from build.Current() and cached for the process lifetime via
+// sync.OnceValue, so every outbound request sees the same string.
 var UserAgent = sync.OnceValue(func() string {
-	i := build.Current()
-	return fmt.Sprintf("pvmt/%s (%s; %s)", i.Version, i.OS, i.Arch)
+	return formatUserAgent(build.Current())
 })
+
+// formatUserAgent renders the User-Agent contract for an arbitrary build.Info.
+// Split out from UserAgent so tests can pin the exact format without racing
+// the sync.OnceValue cache or mutating build.* package vars.
+func formatUserAgent(i build.Info) string {
+	ua := fmt.Sprintf("pvmt/%s (%s; %s)", i.Version, i.OS, i.Arch)
+	if i.Commit != "" && i.Commit != build.CommitNone {
+		commit := i.Commit
+		if len(commit) > 7 {
+			commit = commit[:7]
+		}
+		ua += " commit=" + commit
+	}
+	return ua
+}
 
 type userAgentTransport struct {
 	wrapped http.RoundTripper
 }
 
+// UserAgentTransport wraps a RoundTripper so every outbound request carries
+// the byob-http-client.5 User-Agent header. The inbound request is cloned
+// before mutation so callers' http.Request values are never modified.
 func UserAgentTransport(wrapped http.RoundTripper) http.RoundTripper {
 	return &userAgentTransport{wrapped: wrapped}
 }
