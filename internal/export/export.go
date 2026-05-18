@@ -1429,6 +1429,15 @@ func indexFuncMap(sys units.System) template.FuncMap {
 // via {{template ...}}. Shared between the static exporter and the live server
 // so they can't drift.
 func ParseIndexTemplate(sys units.System) (*template.Template, error) {
+	return ParseIndexTemplateFS(templatesFS, sys)
+}
+
+// ParseIndexTemplateFS is the fs.FS-parametrized form of ParseIndexTemplate
+// (byob-interfaces.3). Production callers use ParseIndexTemplate, which feeds
+// the embedded templatesFS; tests can pass an fstest.MapFS with synthetic
+// template content to exercise the parse + funcMap wiring without touching
+// disk or the embed.
+func ParseIndexTemplateFS(source fs.FS, sys units.System) (*template.Template, error) {
 	files := []string{
 		"templates/index.html.tmpl",
 		"templates/methodology.html.tmpl",
@@ -1436,7 +1445,7 @@ func ParseIndexTemplate(sys units.System) (*template.Template, error) {
 	}
 	var tmpl *template.Template
 	for _, name := range files {
-		data, err := templatesFS.ReadFile(name)
+		data, err := fs.ReadFile(source, name)
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", name, err)
 		}
