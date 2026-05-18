@@ -67,10 +67,29 @@ BSD-3-Clause. See [LICENSE](LICENSE).
 
 ## Development
 
+### Prerequisites
+
+- **Go 1.26+** (floor declared in [`go.mod`](go.mod); CI pins the same minor).
+- **golangci-lint** at the version in [`.golangci-version`](.golangci-version) for `make lint`.
+
+macOS:
+
+```
+brew install go golangci-lint
+```
+
+Linux: install Go from your distro or via [asdf](https://asdf-vm.com) / [mise](https://mise.jdx.dev). Install `golangci-lint` via the [install script](https://golangci-lint.run/welcome/install/#local-installation).
+
+### Build
+
 ```
 make build    # WASM + binary (CGO_ENABLED=0)
 make test     # race detector, no external services
 make lint     # golangci-lint
 ```
 
-Release: push a `v*` tag. GoReleaser builds Linux/macOS (amd64/arm64) and publishes to GitHub Releases.
+**Always use `make build`, not `go build ./cmd/pvmt` directly.** The forecast WASM at `internal/export/wasm/forecast.wasm` is `go:embed`ed into the main binary. `make build` rebuilds the WASM first; a bare `go build` silently embeds whatever stale binary is on disk.
+
+### Release
+
+Push a `v*` tag. GoReleaser builds Linux/macOS (amd64/arm64) and publishes to GitHub Releases.
