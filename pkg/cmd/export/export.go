@@ -116,8 +116,9 @@ func runExport(ctx context.Context, opts *Options) error {
 	}
 
 	logs.From(ctx).Info("export complete", "output_dir", opts.OutputDir)
-	// The "serve locally" hint is a user-facing tip, not a log line --
-	// keep it on stdout regardless of --log-level.
-	fmt.Fprintf(ios.Out, "Serve locally: cd %s && python3 -m http.server\n", opts.OutputDir)
+	// The "serve locally" hint is chatter, not data: route to ErrOut so
+	// stdout stays empty and pipelines (`pvmt export > log`) capture only
+	// the data path — none here — and never this hint (byob-iostreams.3).
+	fmt.Fprintf(ios.ErrOut, "Serve locally: cd %s && python3 -m http.server\n", opts.OutputDir)
 	return nil
 }

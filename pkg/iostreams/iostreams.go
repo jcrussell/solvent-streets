@@ -16,9 +16,31 @@ import (
 // else accepts an *IOStreams and writes through it. Each stream carries
 // its own TTY flag because they can independently be a terminal, a file,
 // or a pipe (e.g. `pvmt list | less` has stdout=pipe but stderr=tty).
+//
+// Stream-routing contract (byob-iostreams.3):
+//
+//   - Out  — command DATA: the rows, table, JSON, or value a user might
+//     pipe into jq/awk/wc. If removing the print would change the meaning
+//     of `cmd | wc -l`, it belongs on Out.
+//   - ErrOut — chatter: status lines ("Fetching..."), progress, warnings,
+//     non-fatal errors, prompts, and any human-readable hint that is not
+//     itself the command's data. Prompts always go to ErrOut because they
+//     pair with reads from In, and In is usually the pipe.
+//
+// Rule of thumb: scripting consumers run `cmd | …` and expect Out to
+// contain only data. Humans see ErrOut interleaved on their terminal
+// regardless. When in doubt, route to ErrOut — that strictly preserves
+// pipe semantics. Empty-state messages ("No cities in database") also
+// go to ErrOut so `cmd | wc -l` is 0 when there is nothing to emit.
 type IOStreams struct {
-	In     io.ReadCloser
-	Out    io.Writer
+	In io.ReadCloser
+	// Out carries command DATA only — see the IOStreams type comment for
+	// the Out vs ErrOut routing contract (byob-iostreams.3). Chatter,
+	// warnings, progress, and prompts go to ErrOut.
+	Out io.Writer
+	// ErrOut carries chatter: status, progress, warnings, hints, prompts.
+	// Anything whose absence would not change the meaning of `cmd | wc -l`
+	// belongs here. See the IOStreams type comment (byob-iostreams.3).
 	ErrOut io.Writer
 
 	stdinIsTTY     bool

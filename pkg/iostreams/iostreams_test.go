@@ -1,6 +1,12 @@
 package iostreams
 
-import "testing"
+import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"strings"
+	"testing"
+)
 
 // TestShouldEnableColor pins the (isTTY, NO_COLOR) decision matrix for
 // byob-iostreams.2. NO_COLOR must disable color whenever it is present —
@@ -85,6 +91,90 @@ func TestTest_PerStreamTTYFlagsDefaultFalse(t *testing.T) {
 	if ios.IsTTY() != ios.IsStdoutTTY() {
 		t.Errorf("IsTTY() = %v, want IsStdoutTTY() = %v (alias contract)",
 			ios.IsTTY(), ios.IsStdoutTTY())
+	}
+}
+
+// TestStreamRoutingContractDocumented locks in byob-iostreams.3: the
+// IOStreams type and its Out/ErrOut field doc comments must spell out the
+// data-vs-chatter routing rule. The rule is what makes the rest of the
+// codebase auditable — a future author who deletes the comment loses the
+// only place where "where does this print go?" is answered. We parse the
+// source instead of grepping so we can match on the actual declared
+// fields rather than incidental text in code or strings.
+func TestStreamRoutingContractDocumented(t *testing.T) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "iostreams.go", nil, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("parse iostreams.go: %v", err)
+	}
+
+	var (
+		typeDoc string
+		outDoc  string
+		errDoc  string
+	)
+	ast.Inspect(file, func(n ast.Node) bool {
+		ts, ok := n.(*ast.TypeSpec)
+		if !ok || ts.Name == nil || ts.Name.Name != "IOStreams" {
+			return true
+		}
+		if gd, ok := n.(*ast.GenDecl); ok && gd.Doc != nil {
+			typeDoc = gd.Doc.Text()
+		}
+		st, ok := ts.Type.(*ast.StructType)
+		if !ok || st.Fields == nil {
+			return false
+		}
+		for _, f := range st.Fields.List {
+			if f.Doc == nil {
+				continue
+			}
+			for _, name := range f.Names {
+				switch name.Name {
+				case "Out":
+					outDoc = f.Doc.Text()
+				case "ErrOut":
+					errDoc = f.Doc.Text()
+				}
+			}
+		}
+		return false
+	})
+
+	// The TypeSpec's GenDecl carries the doc when it's the only spec, so
+	// walk the file's Decls directly to retrieve it if needed.
+	if typeDoc == "" {
+		for _, decl := range file.Decls {
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok || gd.Doc == nil {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				if ts, ok := spec.(*ast.TypeSpec); ok && ts.Name.Name == "IOStreams" {
+					typeDoc = gd.Doc.Text()
+				}
+			}
+		}
+	}
+
+	if !strings.Contains(typeDoc, "byob-iostreams.3") {
+		t.Errorf("IOStreams doc comment should reference byob-iostreams.3 to anchor the routing contract; got:\n%s", typeDoc)
+	}
+	for _, kw := range []string{"DATA", "chatter"} {
+		if !strings.Contains(typeDoc, kw) {
+			t.Errorf("IOStreams doc comment missing %q; the routing rule must be stated on the type", kw)
+		}
+	}
+
+	if outDoc == "" {
+		t.Error("IOStreams.Out has no doc comment; byob-iostreams.3 requires a routing note on the field")
+	} else if !strings.Contains(outDoc, "DATA") {
+		t.Errorf("IOStreams.Out doc must call out DATA; got:\n%s", outDoc)
+	}
+	if errDoc == "" {
+		t.Error("IOStreams.ErrOut has no doc comment; byob-iostreams.3 requires a routing note on the field")
+	} else if !strings.Contains(errDoc, "chatter") {
+		t.Errorf("IOStreams.ErrOut doc must call out chatter; got:\n%s", errDoc)
 	}
 }
 

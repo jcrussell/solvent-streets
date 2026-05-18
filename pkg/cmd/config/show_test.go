@@ -74,6 +74,10 @@ func TestNewCmdShow_RunFInjection(t *testing.T) {
 	}
 }
 
+// TestShow_DefaultEmitsTOML locks in byob-iostreams.3 routing for a pure-
+// data command: the rendered TOML is the command's DATA and must land on
+// Out alone. ErrOut stays silent so `pvmt config show > pvmt.toml`
+// produces a valid file with no chatter mixed in.
 func TestShow_DefaultEmitsTOML(t *testing.T) {
 	cfg := &config.Config{
 		Grid:     config.GridConfig{HexEdgeM: 100},
@@ -90,6 +94,9 @@ func TestShow_DefaultEmitsTOML(t *testing.T) {
 	}
 	if !strings.Contains(got, "[[cities]]") {
 		t.Errorf("TOML output missing [[cities]] array: %q", got)
+	}
+	if errs := bufs.errOut.String(); errs != "" {
+		t.Errorf("stderr should be empty for pure-data command (byob-iostreams.3); got: %q", errs)
 	}
 }
 

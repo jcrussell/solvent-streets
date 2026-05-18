@@ -100,6 +100,11 @@ func TestCityRow_ExportData_AllFieldsPopulated(t *testing.T) {
 	}
 }
 
+// TestRunCities_EmptyDatabase locks in byob-iostreams.3 routing for an
+// empty-state message: the "No cities" hint is chatter, not data, so it
+// must land on ErrOut. The contract is what makes `pvmt cities | wc -l`
+// return 0 instead of 1 when the database is empty — scripted consumers
+// rely on Out being silent in that case.
 func TestRunCities_EmptyDatabase(t *testing.T) {
 	root := &dbtest.MockRootStore{
 		ListCitiesFunc: func(_ context.Context) ([]db.City, error) {
@@ -107,7 +112,7 @@ func TestRunCities_EmptyDatabase(t *testing.T) {
 		},
 	}
 
-	ios, _, stdout, _ := iostreams.Test()
+	ios, _, stdout, stderr := iostreams.Test()
 	opts := &Options{
 		IO:         ios,
 		RootDB:     func() (db.RootStorer, error) { return root, nil },
@@ -117,7 +122,10 @@ func TestRunCities_EmptyDatabase(t *testing.T) {
 	if err := runCities(context.Background(), opts); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stdout.String(), "No cities") {
-		t.Errorf("expected empty-db hint, got: %s", stdout.String())
+	if got := stdout.String(); got != "" {
+		t.Errorf("stdout should be empty for empty-state (byob-iostreams.3); got: %q", got)
+	}
+	if !strings.Contains(stderr.String(), "No cities") {
+		t.Errorf("expected empty-db hint on stderr, got: %s", stderr.String())
 	}
 }

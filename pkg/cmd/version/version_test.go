@@ -29,8 +29,12 @@ func TestNewCmdVersion_RunFInjection(t *testing.T) {
 	}
 }
 
+// TestNewCmdVersion_DefaultPrintsVersion locks in byob-iostreams.3 routing
+// for a pure-data command: the version string is the command's DATA and
+// must land on Out alone. ErrOut stays silent so `pvmt version | cat`
+// captures the string with no chatter contamination.
 func TestNewCmdVersion_DefaultPrintsVersion(t *testing.T) {
-	ios, _, stdout, _ := iostreams.Test()
+	ios, _, stdout, stderr := iostreams.Test()
 	f := &cmdutil.Factory{IOStreams: ios}
 
 	cmd := NewCmdVersion(f, nil)
@@ -41,5 +45,8 @@ func TestNewCmdVersion_DefaultPrintsVersion(t *testing.T) {
 	out := stdout.String()
 	if !strings.HasPrefix(out, "pvmt ") {
 		t.Errorf("expected output to start with 'pvmt ', got: %q", out)
+	}
+	if got := stderr.String(); got != "" {
+		t.Errorf("stderr should be empty for pure-data command (byob-iostreams.3); got: %q", got)
 	}
 }

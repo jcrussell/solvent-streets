@@ -110,7 +110,10 @@ func runCities(ctx context.Context, opts *Options) error {
 	}
 
 	if len(rows) == 0 {
-		fmt.Fprintln(ios.Out, "No cities in database. Run 'pvmt all ingest' to populate.")
+		// Empty-state message is chatter, not data: route to ErrOut so
+		// `pvmt cities | wc -l` is 0 when there are no cities to list
+		// (byob-iostreams.3).
+		fmt.Fprintln(ios.ErrOut, "No cities in database. Run 'pvmt all ingest' to populate.")
 		return nil
 	}
 
