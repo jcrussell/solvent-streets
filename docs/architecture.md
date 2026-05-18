@@ -180,3 +180,5 @@ erDiagram
 **Overpass splitting.** Large Overpass queries auto-split into quadrants (up to depth 3 / 64 requests) and deduplicate at boundaries.
 
 **Forecast model.** Exponential PCI decay: `PCI(t) = PCI_0 * exp(-k*t)`. Per-classification decay rates default to FHWA national averages. Costs are projected via configurable PCI-to-cost tiers. Pavement growth is modeled as linear annual increase.
+
+**TUI progress (deviation from byob-progress.3).** `internal/tui` runs a single bubbletea `StepModel` that renders a phase checklist, log tail, warnings panel, and per-phase progress bar in one view. Spinner frames and the progress bar are inline rendering inside that model — not standalone widgets. The upstream byob recipe prescribes `bubbles/spinner` + `schollz/progressbar` wrapped behind a `Progress` interface; that fits a CLI with isolated, ad-hoc progress events but adds ceremony when the UI is already a unified bubbletea program. The hand-rolled approach is ~10 frames plus one render function with zero extra deps; revisit if the TUI grows beyond the checklist shape.
