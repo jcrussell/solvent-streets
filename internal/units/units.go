@@ -8,6 +8,10 @@ type System int
 const (
 	Metric   System = iota // sq m, hectares, sq km, $/sq m
 	Imperial               // sq ft, acres, sq mi, $/sq ft
+
+	// numSystems is the count of declared System values. Tests use it
+	// to pin the exhaustiveness coverage list — see units_test.go.
+	numSystems
 )
 
 // Canonical lowercase spellings of the two unit systems. Kept as named

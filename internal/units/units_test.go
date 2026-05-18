@@ -96,6 +96,61 @@ func TestSystemString(t *testing.T) {
 	}
 }
 
+// allSystems must include every System value. The completeness check
+// in TestSystemExhaustiveness_AllSystemsListed pins this against
+// numSystems, so adding a System without extending this slice fails
+// loudly instead of leaving a helper silently uncovered.
+var allSystems = []System{Metric, Imperial}
+
+func TestSystemExhaustiveness_AllSystemsListed(t *testing.T) {
+	if len(allSystems) != int(numSystems) {
+		t.Fatalf("allSystems has %d entries, want %d (numSystems sentinel) — add the new System value here so exhaustiveness coverage stays honest",
+			len(allSystems), int(numSystems))
+	}
+}
+
+// TestSystemExhaustiveness_FormatHelpers runs every System value
+// through every format/label/value helper and asserts a non-default
+// result (non-empty string, non-zero numeric for non-zero input). A
+// future enum addition that forgets a branch in any of these helpers
+// either falls through to "" / 0 here (caught directly) or gets
+// caught by TestSystemExhaustiveness_AllSystemsListed for missing
+// from the table.
+func TestSystemExhaustiveness_FormatHelpers(t *testing.T) {
+	const sqm = 12345.6
+	const costPerSqM = 4.20
+	for _, sys := range allSystems {
+		t.Run(sys.String(), func(t *testing.T) {
+			stringHelpers := map[string]string{
+				"FormatArea":          FormatArea(sqm, sys),
+				"FormatAreaLarge":     FormatAreaLarge(sqm, sys),
+				"FormatAreaVeryLarge": FormatAreaVeryLarge(sqm, sys),
+				"FormatCostRate":      FormatCostRate(costPerSqM, sys),
+				"AreaLabel":           AreaLabel(sys),
+				"AreaLargeLabel":      AreaLargeLabel(sys),
+				"AreaVeryLargeLabel":  AreaVeryLargeLabel(sys),
+				"CostRateLabel":       CostRateLabel(sys),
+				"String":              sys.String(),
+			}
+			for name, got := range stringHelpers {
+				if got == "" {
+					t.Errorf("%s(%s) returned empty string", name, sys)
+				}
+			}
+			floatHelpers := map[string]float64{
+				"AreaValue":          AreaValue(sqm, sys),
+				"AreaLargeValue":     AreaLargeValue(sqm, sys),
+				"AreaVeryLargeValue": AreaVeryLargeValue(sqm, sys),
+			}
+			for name, got := range floatHelpers {
+				if got == 0 {
+					t.Errorf("%s(%v, %s) returned zero for non-zero input", name, sqm, sys)
+				}
+			}
+		})
+	}
+}
+
 // TestIsKnown covers the divergence from ParseSystem: IsKnown returns
 // false for the empty string and for unrecognized values, even though
 // ParseSystem treats both as Imperial by default. Consumers like the
