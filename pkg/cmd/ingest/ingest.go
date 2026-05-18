@@ -175,6 +175,12 @@ func fmtArcgis(url string) string {
 // resolveBoundary returns the cached city boundary or fetches it from
 // Nominatim. GetBoundary returns ("", nil) on sql.ErrNoRows — any
 // returned error is a real DB problem and must surface.
+//
+// Fresh fetches also subtract OSM `natural=water` polygons from the
+// Nominatim polygon so cross-city % paved is apples-to-apples (cities
+// like Boston otherwise include harbor water in the denominator). Water
+// fetch failures are warned, not fatal: the unstripped boundary still
+// supports downstream ingest.
 func resolveBoundary(ctx context.Context, opts *Options, store db.Store, client *http.Client, city *config.CityConfig) (string, error) {
 	boundaryGJSON, err := store.GetBoundary(ctx)
 	if err != nil {
@@ -189,11 +195,45 @@ func resolveBoundary(ctx context.Context, opts *Options, store db.Store, client 
 	if err != nil {
 		return "", fmt.Errorf("fetch boundary: %w", err)
 	}
-	if err := store.SaveBoundary(ctx, boundaryGJSON, "nominatim"); err != nil {
+
+	source := "nominatim"
+	stripped, strippedSource, warn := stripWaterFromBoundary(ctx, client, boundaryGJSON)
+	if warn != "" {
+		fmt.Fprintf(opts.IO.ErrOut, "  %s\n", warn)
+	}
+	if stripped != "" {
+		boundaryGJSON = stripped
+		source = strippedSource
+	}
+
+	if err := store.SaveBoundary(ctx, boundaryGJSON, source); err != nil {
 		return "", fmt.Errorf("save boundary: %w", err)
 	}
-	fmt.Fprintf(opts.IO.ErrOut, "  Boundary saved.\n")
+	fmt.Fprintf(opts.IO.ErrOut, "  Boundary saved (source=%s).\n", source)
 	return boundaryGJSON, nil
+}
+
+// stripWaterFromBoundary tries to subtract OSM water polygons from
+// boundaryGJSON. Returns ("", "", warn) on any failure so the caller
+// can fall back to the raw Nominatim boundary, and ("", "", "") when
+// the bbox contains no water at all.
+func stripWaterFromBoundary(ctx context.Context, client *http.Client, boundaryGJSON string) (gjson, source, warn string) {
+	bbox, err := geo.BBoxFromGeoJSON(boundaryGJSON)
+	if err != nil {
+		return "", "", fmt.Sprintf("water strip skipped: bbox: %v", err)
+	}
+	waterGJSON, err := ingestpkg.FetchOSMWater(ctx, client, bbox)
+	if err != nil {
+		return "", "", fmt.Sprintf("water strip skipped: overpass: %v", err)
+	}
+	if waterGJSON == "" {
+		return "", "", ""
+	}
+	stripped, err := geo.SubtractGeoJSON(boundaryGJSON, waterGJSON)
+	if err != nil {
+		return "", "", fmt.Sprintf("water strip skipped: subtract: %v", err)
+	}
+	return stripped, "nominatim+osm-water", ""
 }
 
 func resolveSources(opts *Options, bbox [4]float64, arcgisURL string, ios *iostreams.IOStreams) ([]ingestpkg.Source, error) {
