@@ -3,9 +3,13 @@
 Working tree is clean (HEAD={{.GitHead}}). Drain one ready bead this
 iteration:
 
-1. `bd ready` — pick the highest-priority unblocked issue you can
-   complete in one iteration. Prefer issues whose acceptance criteria
-   are testable.
+1. `bd ready --json | jq -r '.[] | select(.id | startswith("solvent-streets-"))'`
+   — pick the highest-priority unblocked issue scoped to this project's
+   own bead namespace. Prefer issues whose acceptance criteria are
+   testable. Decisions and template references imported from upstream
+   `byob-go-cli` (IDs starting `byob-`) stay browsable via `bd show <id>`
+   or `bd list --type=decision` when you need architectural context, but
+   they're not work items.
 2. `bd show <id>` — read the description, acceptance, design notes,
    and the closure log of its blockers.
 3. `bd update <id> --claim` — claim it before writing code so other
