@@ -8,25 +8,39 @@ import (
 	"time"
 )
 
+// IOStreams wraps the three standard streams plus per-stream TTY flags so
+// commands can be tested with in-memory buffers and so output behavior
+// (colors, progress, prompts) keys off explicit predicates instead of
+// scattered isatty calls. The single allowed entry point that touches
+// os.Stdin/os.Stdout/os.Stderr in this codebase is System(); everything
+// else accepts an *IOStreams and writes through it. Each stream carries
+// its own TTY flag because they can independently be a terminal, a file,
+// or a pipe (e.g. `pvmt list | less` has stdout=pipe but stderr=tty).
 type IOStreams struct {
 	In     io.ReadCloser
 	Out    io.Writer
 	ErrOut io.Writer
 
-	isTTY          bool
+	stdinIsTTY     bool
+	stdoutIsTTY    bool
+	stderrIsTTY    bool
 	isColorEnabled bool
 
 	colorScheme *ColorScheme
 }
 
 func System() *IOStreams {
-	tty := isTerminal(os.Stdout)
+	stdinTTY := isTerminal(os.Stdin)
+	stdoutTTY := isTerminal(os.Stdout)
+	stderrTTY := isTerminal(os.Stderr)
 	return &IOStreams{
 		In:             os.Stdin,
 		Out:            os.Stdout,
 		ErrOut:         os.Stderr,
-		isTTY:          tty,
-		isColorEnabled: shouldEnableColor(tty, os.LookupEnv),
+		stdinIsTTY:     stdinTTY,
+		stdoutIsTTY:    stdoutTTY,
+		stderrIsTTY:    stderrTTY,
+		isColorEnabled: shouldEnableColor(stdoutTTY, os.LookupEnv),
 	}
 }
 
@@ -41,6 +55,10 @@ func shouldEnableColor(isTTY bool, lookupEnv func(string) (string, bool)) bool {
 	return !noColor
 }
 
+// Test returns an IOStreams backed by in-memory buffers with every TTY flag
+// false and color disabled. Use it from tests that compare command output
+// against golden strings; the lack of ANSI escapes is the load-bearing
+// guarantee.
 func Test() (*IOStreams, *bytes.Buffer, *bytes.Buffer, *bytes.Buffer) {
 	in := &bytes.Buffer{}
 	out := &bytes.Buffer{}
@@ -49,18 +67,48 @@ func Test() (*IOStreams, *bytes.Buffer, *bytes.Buffer, *bytes.Buffer) {
 		In:             io.NopCloser(in),
 		Out:            out,
 		ErrOut:         errOut,
-		isTTY:          false,
+		stdinIsTTY:     false,
+		stdoutIsTTY:    false,
+		stderrIsTTY:    false,
 		isColorEnabled: false,
 	}, in, out, errOut
 }
 
+// IsStdinTTY reports whether In is a terminal. The Prompter (byob-prompter)
+// consults this to decide whether to prompt at all — when stdin is a pipe,
+// prompting would block on input that's never coming.
+func (s *IOStreams) IsStdinTTY() bool { return s.stdinIsTTY }
+
+// IsStdoutTTY reports whether Out is a terminal. Drives color and human-vs-
+// machine output formatting decisions.
+func (s *IOStreams) IsStdoutTTY() bool { return s.stdoutIsTTY }
+
+// IsStderrTTY reports whether ErrOut is a terminal. Drives whether progress
+// indicators and prompts should render fancy interactive output.
+func (s *IOStreams) IsStderrTTY() bool { return s.stderrIsTTY }
+
+// IsTTY is shorthand for IsStdoutTTY — kept because most callers' decisions
+// (color, table padding, relative-time suffix) key off stdout specifically.
 func (s *IOStreams) IsTTY() bool {
-	return s.isTTY
+	return s.stdoutIsTTY
 }
 
-// SetTTY overrides the TTY flag (useful in tests).
+// SetTTY overrides the stdout TTY flag (useful in tests that want to
+// exercise the TTY rendering paths). Does not affect stdin or stderr.
 func (s *IOStreams) SetTTY(v bool) {
-	s.isTTY = v
+	s.stdoutIsTTY = v
+}
+
+// SetStdinTTY overrides the stdin TTY flag (useful in tests that exercise
+// prompting behavior).
+func (s *IOStreams) SetStdinTTY(v bool) {
+	s.stdinIsTTY = v
+}
+
+// SetStderrTTY overrides the stderr TTY flag (useful in tests that exercise
+// progress-indicator behavior).
+func (s *IOStreams) SetStderrTTY(v bool) {
+	s.stderrIsTTY = v
 }
 
 func (s *IOStreams) IsColorEnabled() bool {
@@ -103,13 +151,10 @@ func FormatTimestamp(raw string, isTTY bool) string {
 	return raw
 }
 
-func isTerminal(w io.Writer) bool {
-	if f, ok := w.(*os.File); ok {
-		fi, err := f.Stat()
-		if err != nil {
-			return false
-		}
-		return (fi.Mode() & os.ModeCharDevice) != 0
+func isTerminal(f *os.File) bool {
+	fi, err := f.Stat()
+	if err != nil {
+		return false
 	}
-	return false
+	return (fi.Mode() & os.ModeCharDevice) != 0
 }

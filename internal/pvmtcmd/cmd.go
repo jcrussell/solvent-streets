@@ -22,7 +22,7 @@ func Main() int {
 	f := factory.New()
 	rootCmd := root.NewCmdRoot(f)
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
-		return exitCode(err, os.Stderr)
+		return exitCode(err, f.IOStreams.ErrOut)
 	}
 	return 0
 }
