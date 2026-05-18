@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"slices"
 	"strings"
 	"testing"
@@ -488,25 +489,76 @@ func TestCompletion_DefaultSubcommandEnabled(t *testing.T) {
 }
 
 // TestCompletion_GeneratesScriptForEveryShell drives `pvmt completion <shell>`
-// end-to-end for every shell cobra ships and asserts each returns no error
-// and prints something. This proves the contract works under Execute()
-// rather than only inspecting the command tree.
+// end-to-end for every shell cobra ships and asserts each returns no error,
+// emits output, and that the output contains the per-shell markers cobra is
+// expected to generate. The markers guard against a cobra upgrade that
+// silently changes the script shape — a regression that "non-empty" alone
+// wouldn't catch.
 func TestCompletion_GeneratesScriptForEveryShell(t *testing.T) {
-	for _, shell := range []string{"bash", "zsh", "fish", "powershell"} {
-		t.Run(shell, func(t *testing.T) {
+	// Markers are substrings cobra's completion generator has emitted across
+	// every release we've shipped; each is specific enough that a regression
+	// producing the wrong shell's script (or no real completion logic at all)
+	// would fail the check.
+	shells := []struct {
+		shell   string
+		markers []string
+	}{
+		{"bash", []string{"# bash completion", "__start_pvmt", "complete "}},
+		{"zsh", []string{"#compdef pvmt", "compdef _pvmt pvmt"}},
+		{"fish", []string{"# fish completion for pvmt", "complete -c pvmt"}},
+		{"powershell", []string{"Register-ArgumentCompleter", "'pvmt'"}},
+	}
+	for _, tt := range shells {
+		t.Run(tt.shell, func(t *testing.T) {
 			f := testFactory()
 			cmd := NewCmdRoot(f)
 			var out bytes.Buffer
 			cmd.SetOut(&out)
 			cmd.SetErr(io.Discard)
-			cmd.SetArgs([]string{"completion", shell})
+			cmd.SetArgs([]string{"completion", tt.shell})
 			if err := cmd.Execute(); err != nil {
-				t.Fatalf("completion %s: %v", shell, err)
+				t.Fatalf("completion %s: %v", tt.shell, err)
 			}
 			if out.Len() == 0 {
-				t.Errorf("completion %s emitted no output", shell)
+				t.Fatalf("completion %s emitted no output", tt.shell)
+			}
+			got := out.String()
+			for _, m := range tt.markers {
+				if !strings.Contains(got, m) {
+					t.Errorf("completion %s output missing marker %q", tt.shell, m)
+				}
 			}
 		})
+	}
+}
+
+// TestCompletion_BashOutputIsValidShellSyntax pipes `pvmt completion bash`
+// through `bash -n` to verify the generated script is syntactically valid
+// bash — the strongest "parseable" assertion we can make without sourcing
+// the script (which would mutate the shell). Skipped when bash isn't on
+// PATH so the suite still runs on Windows or stripped containers.
+func TestCompletion_BashOutputIsValidShellSyntax(t *testing.T) {
+	bashPath, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skipf("bash not on PATH: %v", err)
+	}
+
+	f := testFactory()
+	cmd := NewCmdRoot(f)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"completion", "bash"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("completion bash: %v", err)
+	}
+
+	check := exec.Command(bashPath, "-n")
+	check.Stdin = &out
+	var stderr bytes.Buffer
+	check.Stderr = &stderr
+	if err := check.Run(); err != nil {
+		t.Fatalf("bash -n rejected completion script: %v\nstderr: %s", err, stderr.String())
 	}
 }
 
