@@ -58,10 +58,7 @@ func httpClientFactory(f *cmdutil.Factory, cacheTTL time.Duration) func() (*http
 			return nil, err
 		}
 		transport := cache.NewTransport(
-			ingest.RetryTransport(
-				ingest.UserAgentTransport(http.DefaultTransport),
-				ingest.DefaultRetryConfig(),
-			),
+			ingest.NewTransport(http.DefaultTransport),
 			cacheDir,
 			cacheTTL,
 		)
