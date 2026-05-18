@@ -300,3 +300,130 @@ func TestResolvedField_ExportData(t *testing.T) {
 		t.Errorf("subset = %v, want only key", m2)
 	}
 }
+
+// TestSourceKind_WireValues locks in the string values of the four
+// SourceKind constants. These leak into `config show --json` output and
+// users' jq/template scripts compare against them — renaming any of
+// them silently breaks downstream tooling.
+func TestSourceKind_WireValues(t *testing.T) {
+	tests := []struct {
+		kind SourceKind
+		want string
+	}{
+		{SourceDefault, "default"},
+		{SourceEnv, "env"},
+		{SourceFile, "file"},
+		{SourceFlag, "flag"},
+	}
+	for _, tt := range tests {
+		if string(tt.kind) != tt.want {
+			t.Errorf("SourceKind %v = %q, want %q (wire format is part of the public contract)", tt.kind, string(tt.kind), tt.want)
+		}
+	}
+}
+
+// TestResolve_AllLayersReachable is the byob-config.2 contract test: a
+// single configuration must reach every layer of the precedence chain
+// (flag / env / file / default) and surface the correct SourceKind for
+// each. A future refactor that collapses or reorders the chain has to
+// argue with this test.
+func TestResolve_AllLayersReachable(t *testing.T) {
+	os.Unsetenv("PVMT_UNITS")
+	os.Unsetenv("PVMT_HEX_EDGE_M")
+	os.Unsetenv("PVMT_FORECAST_YEARS")
+	os.Unsetenv("PVMT_FORECAST_INITIAL_PCI")
+	t.Cleanup(func() {
+		os.Unsetenv("PVMT_UNITS")
+		os.Unsetenv("PVMT_HEX_EDGE_M")
+		os.Unsetenv("PVMT_FORECAST_YEARS")
+		os.Unsetenv("PVMT_FORECAST_INITIAL_PCI")
+	})
+
+	// Env supplies hex_edge_m; file supplies forecast.years; no layer
+	// supplies forecast.initial_pci (→ default); flag supplies units.
+	t.Setenv("PVMT_HEX_EDGE_M", "250")
+	cfg := &Config{
+		Forecast: ForecastConfig{Years: 25},
+		Cities:   []CityConfig{{Name: "Test"}},
+	}
+	fields := cfg.Resolve("metric")
+
+	got := make(map[SourceKind]bool)
+	byKey := make(map[string]ResolvedField)
+	for _, f := range fields {
+		got[f.Source.Kind] = true
+		byKey[f.Key] = f
+	}
+
+	for _, want := range []SourceKind{SourceFlag, SourceEnv, SourceFile, SourceDefault} {
+		if !got[want] {
+			t.Errorf("no field reported source kind %q; layered chain is broken", want)
+		}
+	}
+
+	if byKey["units"].Source.Kind != SourceFlag {
+		t.Errorf("units source = %v, want flag", byKey["units"].Source)
+	}
+	if byKey["grid.hex_edge_m"].Source.Kind != SourceEnv {
+		t.Errorf("grid.hex_edge_m source = %v, want env", byKey["grid.hex_edge_m"].Source)
+	}
+	if byKey["forecast.years"].Source.Kind != SourceFile {
+		t.Errorf("forecast.years source = %v, want file", byKey["forecast.years"].Source)
+	}
+	if byKey["forecast.initial_pci"].Source.Kind != SourceDefault {
+		t.Errorf("forecast.initial_pci source = %v, want default", byKey["forecast.initial_pci"].Source)
+	}
+}
+
+// TestResolve_EveryFieldHasNonEmptySource is the property guard for
+// byob-config.2: no ResolvedField may carry a zero Source. A new field
+// added to Resolve() that forgets to populate Source.Kind would render
+// as "(<empty>)" in `config show --sources` and "" in JSON — neither
+// of which lets a user answer "where did this come from?".
+func TestResolve_EveryFieldHasNonEmptySource(t *testing.T) {
+	os.Unsetenv("PVMT_UNITS")
+	os.Unsetenv("PVMT_HEX_EDGE_M")
+	os.Unsetenv("PVMT_FORECAST_YEARS")
+	os.Unsetenv("PVMT_FORECAST_INITIAL_PCI")
+	t.Cleanup(func() {
+		os.Unsetenv("PVMT_UNITS")
+		os.Unsetenv("PVMT_HEX_EDGE_M")
+		os.Unsetenv("PVMT_FORECAST_YEARS")
+		os.Unsetenv("PVMT_FORECAST_INITIAL_PCI")
+	})
+
+	cfg := &Config{
+		Display:  DisplayConfig{Units: "metric"},
+		Grid:     GridConfig{HexEdgeM: 100},
+		Forecast: ForecastConfig{Years: 25, InitialPCI: 90},
+		Cities: []CityConfig{
+			{Name: "Detroit", HexEdgeM: 75, Forecast: &ForecastConfig{Years: 30, InitialPCI: 95}},
+			{Name: "Chicago"},
+		},
+	}
+	for _, f := range cfg.Resolve("") {
+		if f.Source.Kind == "" {
+			t.Errorf("field %q has empty Source.Kind; every resolved field must declare its layer", f.Key)
+		}
+	}
+}
+
+// TestResolveForecast_InitialPCIEnvSource is the symmetry guard for
+// the InitialPCI env layer: TestResolveForecast_Precedence already
+// asserts that env beats the file layer for Years; this pins the same
+// provenance for the InitialPCI knob so a future refactor that
+// silently drops the env-source label only on InitialPCI fails here.
+func TestResolveForecast_InitialPCIEnvSource(t *testing.T) {
+	os.Unsetenv("PVMT_FORECAST_YEARS")
+	t.Setenv("PVMT_FORECAST_INITIAL_PCI", "72")
+	t.Cleanup(func() { os.Unsetenv("PVMT_FORECAST_INITIAL_PCI") })
+
+	cfg := &Config{Forecast: ForecastConfig{Years: 20, InitialPCI: 85}}
+	fc, prov := cfg.resolveForecast(nil)
+	if fc.InitialPCI != 72 {
+		t.Errorf("InitialPCI = %v, want 72 (env wins)", fc.InitialPCI)
+	}
+	if prov.InitialPCI != (Source{Kind: SourceEnv, Detail: "PVMT_FORECAST_INITIAL_PCI"}) {
+		t.Errorf("InitialPCI source = %v, want env:PVMT_FORECAST_INITIAL_PCI", prov.InitialPCI)
+	}
+}

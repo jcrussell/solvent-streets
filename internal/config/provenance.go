@@ -8,6 +8,29 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/units"
 )
 
+// Layered resolution (byob-config.2).
+//
+// Every multi-layer config field is resolved through a fixed precedence
+// chain and carries a Source describing which layer supplied the value:
+//
+//	flag    (highest, when a CLI flag is available for the field)
+//	env     (PVMT_<UPPER_SNAKE> environment variable)
+//	city    (per-city [[cities]] override inside the file)
+//	file    (top-level pvmt.toml value)
+//	default (built-in fallback, lowest)
+//
+// The SourceKind string values ("flag", "env", "file", "default") are
+// part of the public contract — `config show --json` writes them and
+// downstream jq/template consumers parse them. `Source.Detail` names
+// the specific origin within a kind (`PVMT_UNITS`, `grid.hex_edge_m`,
+// `cities[detroit].forecast.years`, `--units`); the format is
+// `<kind>[:<detail>]` via Source.String, also stable.
+//
+// Invalid or out-of-range env values are ignored at parse time and fall
+// through to the next layer down so the merged config remains
+// well-typed; the warnInvalidEnv middleware at the CLI boundary
+// surfaces the rejection to the user.
+
 type SourceKind string
 
 const (
