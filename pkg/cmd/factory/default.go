@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -44,6 +45,51 @@ func hintForConfigError(err error) error {
 	}
 }
 
+// newPVMTTransport returns the base *http.Transport that backs every
+// outbound pvmt HTTP request, with the byob-http-client.2 timeout contract
+// baked in. http.DefaultTransport covers most of these but lacks
+// ResponseHeaderTimeout, so a server that finishes the TCP/TLS handshake
+// then stalls before sending response headers can pin the connection for
+// the lifetime of the process — ctx alone won't catch it because the
+// transport never gets to a state where it polls ctx.Done().
+//
+// Per-request cancellation continues to flow through req.Context(); these
+// timeouts are the safety net for network-level hangs ctx cannot reach.
+// Dialer.Timeout is intentionally tighter than DefaultTransport's 30s —
+// pvmt only talks to a handful of well-known endpoints (Overpass, ArcGIS,
+// Nominatim) and a 10s connect ceiling fails fast on bad networks.
+func newPVMTTransport() *http.Transport {
+	return &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		ForceAttemptHTTP2:     true,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		IdleConnTimeout:       90 * time.Second,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   10,
+	}
+}
+
+// httpClientFactory builds the lazy closure that backs f.HttpClient per the
+// byob-http-client.2 contract:
+//
+//   - sync.OnceValues caches the constructed *http.Client for the process
+//     lifetime, so commands that never hit the network (e.g. --version,
+//     `pvmt config show`) pay nothing for HTTP setup.
+//   - The transport stack is, outermost → innermost,
+//     cache.NewTransport → ingest.NewTransport (UA → Retry) → newPVMTTransport.
+//     The disk cache wraps the ingest middleware chain so cache hits skip
+//     retries and UA stamping entirely (byob-http-client.1).
+//   - Client.Timeout is deliberately 0. A client-wide timeout kills
+//     streaming bodies mid-transfer (large Overpass exports, ArcGIS pages),
+//     and the retry transport already bounds the per-request work via
+//     MaxBackoff + MaxRetries. Total request lifetime is the caller's
+//     job via req.Context().
 func httpClientFactory(f *cmdutil.Factory, cacheTTL time.Duration) func() (*http.Client, error) {
 	return sync.OnceValues(func() (*http.Client, error) {
 		p, err := f.Paths()
@@ -58,13 +104,13 @@ func httpClientFactory(f *cmdutil.Factory, cacheTTL time.Duration) func() (*http
 			return nil, err
 		}
 		transport := cache.NewTransport(
-			ingest.NewTransport(http.DefaultTransport),
+			ingest.NewTransport(newPVMTTransport()),
 			cacheDir,
 			cacheTTL,
 		)
 		return &http.Client{
 			Transport: transport,
-			Timeout:   300 * time.Second,
+			Timeout:   0,
 		}, nil
 	})
 }
