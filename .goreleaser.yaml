@@ -96,6 +96,35 @@ changelog:
     - title: Other
       order: 999
 
+nfpms:
+  - id: pvmt
+    package_name: pvmt
+    ids:
+      - pvmt
+    vendor: jcrussell
+    homepage: https://github.com/jcrussell/solvent-streets
+    maintainer: Jon Crussell <joncrussell@gmail.com>
+    description: |-
+      Pure Go CLI for pavement data ingestion, hex-grid coverage analysis,
+      PCI decay forecasting, and MapLibre visualization.
+    license: BSD-3-Clause
+    formats:
+      - deb
+    bindir: /usr/bin
+    contents:
+      - src: completions/pvmt.bash
+        dst: /usr/share/bash-completion/completions/pvmt
+      - src: completions/_pvmt
+        dst: /usr/share/zsh/vendor-completions/_pvmt
+      - src: completions/pvmt.fish
+        dst: /usr/share/fish/vendor_completions.d/pvmt.fish
+      - src: manpages/pvmt*.1.gz
+        dst: /usr/share/man/man1/
+    deb:
+      lintian_overrides:
+        - statically-linked-binary
+        - changelog-file-missing-in-native-package
+
 release:
   github:
     owner: jcrussell
