@@ -487,7 +487,6 @@ func buildResourceForecast(ctx context.Context, rt resource.Source, entry CityEn
 	if err != nil {
 		return ForecastExport{}, err
 	}
-	bboxBaseline := forecast.Simulate(doNothing, bboxCohorts, years, rtParams.Cost, rtParams.Growth)
 
 	// Try city-scoped cohorts — use as primary if available. Empty result is
 	// legitimate (not all cities have city-scope data); only a real DB error
@@ -511,6 +510,7 @@ func buildResourceForecast(ctx context.Context, rt resource.Source, entry CityEn
 		Scenarios:    scenarios,
 	}
 	if hasCityScope {
+		bboxBaseline := forecast.Simulate(doNothing, bboxCohorts, years, rtParams.Cost, rtParams.Growth)
 		fe.BboxBaseline = &bboxBaseline
 	}
 	return fe, nil
