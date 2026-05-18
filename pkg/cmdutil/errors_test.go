@@ -60,6 +60,29 @@ func TestHintf_WrapsErrorAndCarriesHint(t *testing.T) {
 	}
 }
 
+// TestHintf_SurvivesFmtErrorfWrap pins the production pattern of
+// callers wrapping a hinted error with `fmt.Errorf("context: %w", err)`
+// for additional context: the runner must still find the *ErrHint via
+// errors.As so the hint is printed. Without %w (a bare %v wrap), the
+// chain breaks and the hint is silently lost — that's the failure mode
+// errors-wrap-w guards against, and this test pins the success case.
+func TestHintf_SurvivesFmtErrorfWrap(t *testing.T) {
+	base := errors.New("disk full")
+	hinted := Hintf(base, "free space in /var")
+	wrapped := fmt.Errorf("compute snapshot: %w", hinted)
+
+	var hint *ErrHint
+	if !errors.As(wrapped, &hint) {
+		t.Fatalf("errors.As(*ErrHint) through fmt.Errorf wrap failed: %T", wrapped)
+	}
+	if got, want := hint.Hint, "free space in /var"; got != want {
+		t.Errorf("Hint after wrap: got %q, want %q", got, want)
+	}
+	if !errors.Is(wrapped, base) {
+		t.Error("errors.Is(wrapped, base) = false; wrap chain broken")
+	}
+}
+
 func TestFlagError_UnwrapAndIs(t *testing.T) {
 	base := errors.New("missing required flag")
 	err := error(&FlagError{Err: base})

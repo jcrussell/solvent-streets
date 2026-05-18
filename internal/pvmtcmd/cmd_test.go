@@ -81,6 +81,20 @@ func TestExitCode_UnknownCommandLooksLikeRealCommand(t *testing.T) {
 	}
 }
 
+// TestPrintError_EmptyHintSuppressed pins the contract that a caller
+// who constructs an *ErrHint with a zero Hint string (or Hintf-ed with
+// an empty format) gets only the Error line — no dangling "hint:" with
+// nothing after it. The runner branch `hint.Hint != ""` enforces this.
+func TestPrintError_EmptyHintSuppressed(t *testing.T) {
+	err := &cmdutil.ErrHint{Err: errors.New("boom"), Hint: ""}
+	var buf bytes.Buffer
+	printError(&buf, err)
+	out := buf.String()
+	if got, want := out, "Error: boom\n"; got != want {
+		t.Fatalf("printError with empty hint: got %q, want %q", got, want)
+	}
+}
+
 // TestPrintError_HintFormatting documents the multi-line indent behavior so
 // a future refactor of printError can't silently regress it.
 func TestPrintError_HintFormatting(t *testing.T) {
