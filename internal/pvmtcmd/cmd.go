@@ -31,7 +31,7 @@ func exitCode(err error, errOut io.Writer) int {
 	if errors.Is(err, cmdutil.ErrCancel) || errors.Is(err, context.Canceled) {
 		return 0
 	}
-	err = classifyUnknownCommand(err)
+	err = classifyUsageError(err)
 	var flagErr *cmdutil.FlagError
 	if errors.As(err, &flagErr) {
 		printError(errOut, err)
@@ -47,11 +47,16 @@ func exitCode(err error, errOut io.Writer) int {
 	return 1
 }
 
-// classifyUnknownCommand wraps cobra's untyped "unknown command" error as
-// *FlagError so it maps to exit code 2 alongside flag-parse errors. Cobra
-// has no public sentinel for this path — string-prefix matching is the
-// documented escape hatch. (byob-errors.4)
-func classifyUnknownCommand(err error) error {
+// classifyUsageError wraps untyped cobra errors we recognize as user
+// errors so they map to exit code 2 alongside flag-parse errors. Cobra
+// has no public sentinels for these paths — string-prefix matching is
+// the documented escape hatch. Covered:
+//   - "unknown command ..." from cobra's command lookup (byob-errors.4).
+//   - "if any flags in the group ..." from MarkFlagsMutuallyExclusive
+//     and MarkFlagsRequiredTogether (byob-command-shape.6).
+//   - "at least one of the flags in the group ..." from
+//     MarkFlagsOneRequired (byob-command-shape.6).
+func classifyUsageError(err error) error {
 	if err == nil {
 		return nil
 	}
@@ -59,7 +64,10 @@ func classifyUnknownCommand(err error) error {
 	if errors.As(err, &flagErr) {
 		return err
 	}
-	if strings.HasPrefix(err.Error(), "unknown command ") {
+	msg := err.Error()
+	if strings.HasPrefix(msg, "unknown command ") ||
+		strings.HasPrefix(msg, "if any flags in the group ") ||
+		strings.HasPrefix(msg, "at least one of the flags in the group ") {
 		return &cmdutil.FlagError{Err: err}
 	}
 	return err

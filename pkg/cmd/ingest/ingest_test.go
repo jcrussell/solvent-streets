@@ -106,16 +106,29 @@ func TestNewCmdIngest_ForceFlag(t *testing.T) {
 // TestNewCmdIngest_ForceAndDryRunMutuallyExclusive covers byob-command-shape.6:
 // --force (bypass HTTP cache) and --dry-run (no fetch) are nonsense together,
 // so cobra's MarkFlagsMutuallyExclusive helper rejects the combination at
-// flag-parse time rather than each command silently ignoring one.
+// flag-parse time rather than each command silently ignoring one. The
+// "RunE not invoked" assertion is the load-bearing half: moving this
+// check into runFunc would still produce an error here, but only after
+// side effects (HTTP cache lookups, DB opens) had already happened.
 func TestNewCmdIngest_ForceAndDryRunMutuallyExclusive(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	f := testFactory(ios)
 	rt := &resource.Pavement{}
 
-	cmd := NewCmdIngest(f, rt, func(opts *Options) error { return nil })
+	runECalled := false
+	cmd := NewCmdIngest(f, rt, func(opts *Options) error {
+		runECalled = true
+		return nil
+	})
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
 	cmd.SetArgs([]string{"--force", "--dry-run"})
-	if err := cmd.Execute(); err == nil {
+	err := cmd.Execute()
+	if err == nil {
 		t.Fatal("expected --force and --dry-run to be mutually exclusive")
+	}
+	if runECalled {
+		t.Error("RunE must not run when cobra rejects the flag combination")
 	}
 }
 

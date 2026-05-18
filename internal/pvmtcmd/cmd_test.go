@@ -9,14 +9,16 @@ import (
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
+
+	"github.com/spf13/cobra"
 )
 
 // TestExitCode covers the mapping from error shape to process exit code.
-// FlagError (and the unknown-command path that classifyUnknownCommand wraps
+// FlagError (and the usage-error paths that classifyUsageError wraps
 // as FlagError) → 2; ErrNoResults → 3; ErrCancel/context.Canceled → 0;
-// everything else → 1. This is the cross-check on byob-errors.4: once the
-// runner classifies "unknown command" as a flag error, a user typo
-// (`pvmt nope`) must exit 2, not 1.
+// everything else → 1. Cross-check on byob-errors.4 and
+// byob-command-shape.6: a `pvmt nope` typo and a cobra flag-group
+// violation must both exit 2, not 1, since both are user errors.
 func TestExitCode(t *testing.T) {
 	// exitCode is only invoked on non-nil errors (Main short-circuits to 0
 	// on success), so the nil case is intentionally absent.
@@ -30,6 +32,12 @@ func TestExitCode(t *testing.T) {
 		{"flag error", &cmdutil.FlagError{Err: errors.New("--port out of range")}, 2},
 		{"flag error wrapped", fmt.Errorf("wrap: %w", &cmdutil.FlagError{Err: errors.New("bad")}), 2},
 		{"unknown command", errors.New(`unknown command "nope" for "pvmt"`), 2},
+		{"flag group mutually exclusive",
+			errors.New("if any flags in the group [a b] are set none of the others can be; [a b] were all set"), 2},
+		{"flag group required together",
+			errors.New("if any flags in the group [a b] are set they must all be set; missing [b]"), 2},
+		{"flag group one required",
+			errors.New("at least one of the flags in the group [a b] is required"), 2},
 		{"no results", cmdutil.ErrNoResults, 3},
 		{"silent sentinel", cmdutil.ErrSilent, 1},
 		{"silent wrapped", fmt.Errorf("after streaming: %w", cmdutil.ErrSilent), 1},
@@ -78,6 +86,86 @@ func TestExitCode_UnknownCommandLooksLikeRealCommand(t *testing.T) {
 	var buf bytes.Buffer
 	if got := exitCode(err, &buf); got != 1 {
 		t.Fatalf("exit code = %d, want 1 (substring should not match prefix)", got)
+	}
+}
+
+// TestExitCode_FlagGroupPrefixIsAnchored guards classifyUsageError
+// against substring matches on the flag-group prefixes. A runtime error
+// quoting cobra's wording mid-message must still exit 1 — only a
+// leading match (i.e., the error cobra actually emits) is classified
+// as a usage error.
+func TestExitCode_FlagGroupPrefixIsAnchored(t *testing.T) {
+	for _, msg := range []string{
+		"upstream said: if any flags in the group are weird, fail",
+		"docs warn: at least one of the flags in the group should match",
+	} {
+		var buf bytes.Buffer
+		if got := exitCode(errors.New(msg), &buf); got != 1 {
+			t.Errorf("exit code for %q = %d, want 1", msg, got)
+		}
+	}
+}
+
+// TestClassifyUsageError_WrapsLiveCobraFlagGroupErrors locks in the
+// integration end of byob-command-shape.6: when a real cobra command
+// raises a flag-group violation via Execute(), the classifier matches
+// the error string cobra emits today and wraps it as *FlagError. If a
+// cobra upgrade ever rewords these messages, this test fails next to
+// the prefix list in classifyUsageError, pointing the fix at the right
+// half of the contract.
+func TestClassifyUsageError_WrapsLiveCobraFlagGroupErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(*cobra.Command)
+		args  []string
+	}{
+		{
+			name: "mutually exclusive",
+			setup: func(c *cobra.Command) {
+				c.Flags().Bool("a", false, "")
+				c.Flags().Bool("b", false, "")
+				c.MarkFlagsMutuallyExclusive("a", "b")
+			},
+			args: []string{"--a", "--b"},
+		},
+		{
+			name: "required together",
+			setup: func(c *cobra.Command) {
+				c.Flags().String("key", "", "")
+				c.Flags().String("secret", "", "")
+				c.MarkFlagsRequiredTogether("key", "secret")
+			},
+			args: []string{"--key=k"},
+		},
+		{
+			name: "one required",
+			setup: func(c *cobra.Command) {
+				c.Flags().String("file", "", "")
+				c.Flags().String("url", "", "")
+				c.MarkFlagsOneRequired("file", "url")
+			},
+			args: []string{},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := &cobra.Command{
+				Use:           "x",
+				SilenceErrors: true,
+				SilenceUsage:  true,
+				RunE:          func(*cobra.Command, []string) error { return nil },
+			}
+			tc.setup(cmd)
+			cmd.SetArgs(tc.args)
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatal("expected cobra to raise a flag-group violation")
+			}
+			classified := classifyUsageError(err)
+			var flagErr *cmdutil.FlagError
+			if !errors.As(classified, &flagErr) {
+				t.Fatalf("classifyUsageError(%v) is not *FlagError: %T", err, classified)
+			}
+		})
 	}
 }
 
