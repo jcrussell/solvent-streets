@@ -36,7 +36,7 @@ flowchart LR
 
 ## Factory DI
 
-All dependencies are lazy-initialized behind `sync.Once` closures in the `Factory` struct.
+Most dependencies are lazy-initialized behind `sync.OnceValues` closures in the `Factory` struct. The exception is `Logger`, which is constructed eagerly because its handler is cheap and the level is mutated through a shared `LogLevel *slog.LevelVar`.
 
 ```mermaid
 graph TD
@@ -44,6 +44,8 @@ graph TD
     Factory --> HttpClient
     Factory --> RootDB
     Factory --> UnitSystem
+    Factory --> Paths
+    Factory --> Logger
 
     Config --> CurrentCity
     RootDB --> CityDB
@@ -52,7 +54,7 @@ graph TD
     style Factory fill:#f5f5f5,stroke:#333
 ```
 
-Commands receive a `*Factory` and call only the accessors they need. `--city` flag overrides `CurrentCity`. Multi-city commands use `ForEachCity` which creates a city-scoped factory per iteration.
+Commands receive a `*Factory` and call only the accessors they need. The root command's `PersistentPreRunE` wires the `--city/-c` and `--units` flags into `CurrentCity` and `UnitSystem` before subcommands are added, so flag-aware overrides take precedence over per-city and top-level config. Multi-city commands use `cmdutil.ForEachCity`, which builds a city-scoped factory per iteration and silently skips cities with no results.
 
 ## Geometry pipeline
 
@@ -107,6 +109,12 @@ erDiagram
         text slug UK
         text name
     }
+    city_boundaries {
+        int city_id FK
+        text geometry_json
+        text source
+        datetime fetched_at
+    }
     snapshots {
         int id PK
         int city_id FK
@@ -122,31 +130,40 @@ erDiagram
     }
     compute_results {
         int id PK
+        int city_id FK
         text resource_type
         real total_area_sqm
         int feature_count
+        int snapshot_id FK
     }
     hex_stats {
-        text hex_id PK
-        text resource_type PK
-        int city_id PK
+        int id PK
+        text hex_id
+        text resource_type
+        int city_id FK
+        int snapshot_id FK
         real area_sqm
         real pct_covered
     }
     forecast_results {
         int id PK
+        int city_id FK
         text resource_type
         int year
         real pci
+        real area_sqm
         real treatment_cost
         text treatment_tier
+        int snapshot_id FK
     }
     cohort_stats {
         int id PK
+        int city_id FK
         text resource_type
         text classification
         real area_sqm
         int feature_count
+        int snapshot_id FK
     }
 ```
 
@@ -154,7 +171,7 @@ erDiagram
 
 **Metric internals.** All areas are stored in square meters. The `--units` flag and `[display].units` config control presentation only.
 
-**Snapshots.** Each compute run creates a snapshot with a hash of the resolved config. Results link back to their snapshot for reproducibility.
+**Snapshots.** Each compute run creates a snapshot with a hash of the resolved config. Per-row `snapshot_id` columns on `hex_stats`, `compute_results`, `forecast_results`, and `cohort_stats` preserve every run's results — saves append rather than DELETE-then-INSERT, so historical snapshots stay queryable for reproducibility.
 
 **WASM build order.** The forecast WASM binary is embedded via `go:embed`. It must be compiled (`make wasm`) before building the main binary. The Makefile enforces this dependency.
 
