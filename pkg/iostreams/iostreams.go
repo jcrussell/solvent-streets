@@ -21,15 +21,24 @@ type IOStreams struct {
 
 func System() *IOStreams {
 	tty := isTerminal(os.Stdout)
-	colorEnabled := tty && os.Getenv("NO_COLOR") == ""
-
 	return &IOStreams{
 		In:             os.Stdin,
 		Out:            os.Stdout,
 		ErrOut:         os.Stderr,
 		isTTY:          tty,
-		isColorEnabled: colorEnabled,
+		isColorEnabled: shouldEnableColor(tty, os.LookupEnv),
 	}
+}
+
+// shouldEnableColor returns true when ANSI color should be emitted: stdout
+// must be a TTY and NO_COLOR must be unset. Presence of NO_COLOR (regardless
+// of value, including empty string) disables color per https://no-color.org.
+func shouldEnableColor(isTTY bool, lookupEnv func(string) (string, bool)) bool {
+	if !isTTY {
+		return false
+	}
+	_, noColor := lookupEnv("NO_COLOR")
+	return !noColor
 }
 
 func Test() (*IOStreams, *bytes.Buffer, *bytes.Buffer, *bytes.Buffer) {
