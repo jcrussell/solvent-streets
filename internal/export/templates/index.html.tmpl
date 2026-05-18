@@ -376,25 +376,47 @@
         }
         .error-banner ul { margin: 4px 0 0 16px; padding: 0; }
         .error-banner button { float: right; background: transparent; color: #fff; border: 1px solid #fff; cursor: pointer; padding: 2px 8px; border-radius: 2px; }
+
+        /* Honor the user's OS-level reduced-motion preference: disable
+           transitions and animations across the page. Chart.js animation is
+           disabled separately at chart-construction time. */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.001ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.001ms !important;
+                scroll-behavior: auto !important;
+            }
+        }
+
+        /* Visible focus indicator for keyboard nav (browser default is
+           often suppressed once we touch :hover styles). */
+        .tab-btn:focus-visible,
+        .theme-toggle:focus-visible,
+        .strategy-buttons button:focus-visible,
+        .jurisdiction-toggle button:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+        }
     </style>
     {{template "theme_vars" .}}
     {{template "methodology_styles" .}}
 </head>
 <body>
-    <div id="error-banner" class="error-banner" hidden>
+    <div id="error-banner" class="error-banner" hidden role="alert" aria-live="assertive">
         <button type="button" onclick="document.getElementById('error-banner').hidden=true">Dismiss</button>
         <strong>Failed to load data:</strong>
         <ul id="error-banner-list"></ul>
     </div>
-    <div class="tab-bar">
+    <div class="tab-bar" role="tablist" aria-label="Sections">
         <h1>PVMT</h1>
-        <button class="tab-btn active" data-tab="map-tab">Map</button>
-        <button class="tab-btn" data-tab="financials-tab">Financials</button>
+        <button class="tab-btn active" data-tab="map-tab" id="map-tab-btn" role="tab" aria-selected="true" aria-controls="map-tab" tabindex="0">Map</button>
+        <button class="tab-btn" data-tab="financials-tab" id="financials-tab-btn" role="tab" aria-selected="false" aria-controls="financials-tab" tabindex="-1">Financials</button>
         {{if .Cities}}
-        <button class="tab-btn" data-tab="compare-tab">Compare</button>
+        <button class="tab-btn" data-tab="compare-tab" id="compare-tab-btn" role="tab" aria-selected="false" aria-controls="compare-tab" tabindex="-1">Compare</button>
         {{end}}
-        <button class="tab-btn" data-tab="config-tab">Config</button>
-        <button class="tab-btn" data-tab="about-tab">About</button>
+        <button class="tab-btn" data-tab="config-tab" id="config-tab-btn" role="tab" aria-selected="false" aria-controls="config-tab" tabindex="-1">Config</button>
+        <button class="tab-btn" data-tab="about-tab" id="about-tab-btn" role="tab" aria-selected="false" aria-controls="about-tab" tabindex="-1">About</button>
         {{if .Cities}}
         <select id="city-select" style="margin-left:auto;margin-right:16px;align-self:center;background:var(--header-bg);color:var(--header-fg);border:1px solid var(--header-muted);border-radius:4px;padding:4px 8px;font-size:14px;cursor:pointer;">
             {{range .Cities}}<option value="{{.Slug}}" data-bbox="{{index .BBox 0}},{{index .BBox 1}},{{index .BBox 2}},{{index .BBox 3}}" data-lon="{{.CenterLon}}" data-lat="{{.CenterLat}}">{{.Name}}</option>
@@ -413,7 +435,7 @@
         <button class="theme-toggle" role="switch" aria-label="Toggle dark mode" onclick="toggleTheme()" style="{{if and (not .Cities) (not .IsLiveServer)}}margin-left:auto;{{end}}margin-right:16px;"></button>
     </div>
 
-    <div id="map-tab" class="tab-content active">
+    <div id="map-tab" class="tab-content active" role="tabpanel" aria-labelledby="map-tab-btn">
         <div id="map"></div>
         <div id="panel">
             <h2>{{.ProjectName}}</h2>
@@ -470,7 +492,7 @@
         <div id="hex-tooltip"></div>
     </div>
 
-    <div id="financials-tab" class="tab-content">
+    <div id="financials-tab" class="tab-content" role="tabpanel" aria-labelledby="financials-tab-btn">
         <div class="financials">
             <div class="scope-annotation" id="scope-annotation"></div>
             <div class="headlines" id="headlines" style="display:none">
@@ -495,12 +517,12 @@
                 <h3>Interactive Forecast</h3>
                 <div class="controls-grid">
                     <div class="control-group">
-                        <label>Budget Level: <span class="control-value" id="budget-value">50%</span></label>
-                        <input type="range" id="budget-slider" min="0" max="150" value="50" step="5">
+                        <label for="budget-slider">Budget Level: <span class="control-value" id="budget-value">50%</span></label>
+                        <input type="range" id="budget-slider" min="0" max="150" value="50" step="5" aria-valuemin="0" aria-valuemax="150" aria-valuenow="50">
                     </div>
                     <div class="control-group">
-                        <label>Initial PCI: <span class="control-value" id="pci-value">85</span></label>
-                        <input type="range" id="pci-slider" min="50" max="100" value="85" step="1">
+                        <label for="pci-slider">Initial PCI: <span class="control-value" id="pci-value">85</span></label>
+                        <input type="range" id="pci-slider" min="50" max="100" value="85" step="1" aria-valuemin="50" aria-valuemax="100" aria-valuenow="85">
                     </div>
                     <div class="control-group">
                         <label>Strategy</label>
@@ -542,11 +564,11 @@
         </div>
     </div>
 
-    <div id="about-tab" class="tab-content">
+    <div id="about-tab" class="tab-content" role="tabpanel" aria-labelledby="about-tab-btn">
         {{template "methodology" .MethodologyHTML}}
     </div>
 
-    <div id="config-tab" class="tab-content">
+    <div id="config-tab" class="tab-content" role="tabpanel" aria-labelledby="config-tab-btn">
         <div class="config-tab">
             <h2>Project Configuration</h2>
             {{if .RawTOML}}
@@ -559,7 +581,7 @@
     </div>
 
     {{if .Cities}}
-    <div id="compare-tab" class="tab-content" style="overflow-y:auto;">
+    <div id="compare-tab" class="tab-content" role="tabpanel" aria-labelledby="compare-tab-btn" style="overflow-y:auto;">
         <div class="compare">
             <div class="compare-header">
                 <h2>City Showdown</h2>
@@ -575,19 +597,19 @@
                 <div class="compare-charts">
                     <div class="compare-chart-card">
                         <h3>Infrastructure Breakdown</h3>
-                        <canvas id="compare-area-chart"></canvas>
+                        <canvas id="compare-area-chart" role="img" aria-label="Infrastructure Breakdown chart"></canvas>
                     </div>
                     <div class="compare-chart-card">
                         <h3>Road Network Composition</h3>
-                        <canvas id="compare-mix-chart"></canvas>
+                        <canvas id="compare-mix-chart" role="img" aria-label="Road Network Composition chart"></canvas>
                     </div>
                     <div class="compare-chart-card">
                         <h3>20-Year Cost Trajectory</h3>
-                        <canvas id="compare-cost-chart"></canvas>
+                        <canvas id="compare-cost-chart" role="img" aria-label="20-Year Cost Trajectory chart"></canvas>
                     </div>
                     <div class="compare-chart-card">
                         <h3>Year 1 vs Year 20 Maintenance Need</h3>
-                        <canvas id="compare-need-chart"></canvas>
+                        <canvas id="compare-need-chart" role="img" aria-label="Year 1 vs Year 20 Maintenance Need chart"></canvas>
                     </div>
                 </div>
             </div>
@@ -661,6 +683,7 @@
             if (init.tab && document.getElementById(init.tab)) {
                 document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === init.tab));
                 document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === init.tab));
+                syncTabAria();
             }
             if (init.scope === 'city' || init.scope === 'bbox') {
                 currentScope = init.scope;
@@ -769,7 +792,16 @@
             return parsed;
         }
 
-        // Tab switching
+        // Tab switching. Keeps .active class, aria-selected, and roving
+        // tabindex in lockstep so screen readers and keyboard users see the
+        // same selection state as sighted users.
+        function syncTabAria() {
+            document.querySelectorAll('.tab-btn').forEach(b => {
+                const active = b.classList.contains('active');
+                b.setAttribute('aria-selected', active ? 'true' : 'false');
+                b.setAttribute('tabindex', active ? '0' : '-1');
+            });
+        }
         function selectTab(tabId, opts) {
             const btn = document.querySelector('.tab-btn[data-tab="' + tabId + '"]');
             const content = document.getElementById(tabId);
@@ -778,6 +810,8 @@
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
             btn.classList.add('active');
             content.classList.add('active');
+            syncTabAria();
+            if (opts && opts.focus) btn.focus();
             if (tabId === 'map-tab' && window._map) window._map.resize();
             if (tabId === 'compare-tab') loadCompareData();
             if (!opts || opts.push !== false) Router.push();
@@ -785,6 +819,30 @@
         document.querySelectorAll('.tab-btn').forEach(btn => {
             btn.addEventListener('click', () => selectTab(btn.dataset.tab));
         });
+        // WAI-ARIA tablist keyboard pattern: arrows move focus & selection,
+        // Home/End jump to first/last.
+        (function bindTabKeyboardNav() {
+            const tabs = Array.from(document.querySelectorAll('.tab-btn'));
+            if (tabs.length === 0) return;
+            tabs.forEach((tab, idx) => {
+                tab.addEventListener('keydown', (e) => {
+                    let target = null;
+                    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                        target = tabs[(idx + 1) % tabs.length];
+                    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                        target = tabs[(idx - 1 + tabs.length) % tabs.length];
+                    } else if (e.key === 'Home') {
+                        target = tabs[0];
+                    } else if (e.key === 'End') {
+                        target = tabs[tabs.length - 1];
+                    }
+                    if (target) {
+                        e.preventDefault();
+                        selectTab(target.dataset.tab, { focus: true });
+                    }
+                });
+            });
+        })();
 
         // Map
         const CENTER = [{{.CenterLon}}, {{.CenterLat}}];
@@ -1124,7 +1182,7 @@
 
                             statsEl.innerHTML =
                                 '<div class="hex-detail">' +
-                                '<h3>Hex ' + hexId + '<button class="close-btn" id="close-hex">&times;</button></h3>' +
+                                '<h3>Hex ' + hexId + '<button class="close-btn" id="close-hex" type="button" aria-label="Close hex details">&times;</button></h3>' +
                                 '<table><tr><th>Type</th><th>Area</th><th>Coverage</th><th>Est. Cost</th></tr>' +
                                 rows +
                                 '<tr class="total-row"><td>Total</td><td>' + fmtNum(totalArea) + '</td><td>' + Math.min(Math.round(totalPct), 100) + '%</td><td>' + fmtCost(totalCost) + '</td></tr>' +
@@ -1704,7 +1762,8 @@
         function makeChartCard(title) {
             const div = document.createElement('div');
             div.className = 'chart-card';
-            div.innerHTML = '<h3>' + title + '</h3><canvas></canvas>';
+            const safeTitle = String(title).replace(/"/g, '&quot;');
+            div.innerHTML = '<h3>' + title + '</h3><canvas role="img" aria-label="' + safeTitle + ' chart"></canvas>';
             return div;
         }
 
