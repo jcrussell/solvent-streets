@@ -273,10 +273,25 @@ func Load(path string) (*Config, error) {
 
 // parseConfig decodes and validates TOML bytes into a Config. Shared
 // between Load and LoadFS.
+//
+// Unknown TOML keys are rejected per byob-input-validation.2: a typo
+// in a key name would otherwise unmarshal as the zero value and
+// silently produce a degenerate config. Using toml.Decode lets us
+// inspect MetaData.Undecoded() to surface the typo at load time
+// instead of hours later in production.
 func parseConfig(data []byte) (*Config, error) {
 	var cfg Config
-	if err := toml.Unmarshal(data, &cfg); err != nil {
+	md, err := toml.Decode(string(data), &cfg)
+	if err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
+	}
+	if undecoded := md.Undecoded(); len(undecoded) > 0 {
+		keys := make([]string, len(undecoded))
+		for i, k := range undecoded {
+			keys[i] = k.String()
+		}
+		return nil, errors.Join(ErrInvalidConfig,
+			fmt.Errorf("unknown config key(s): %s", strings.Join(keys, ", ")))
 	}
 	if err := cfg.Validate(); err != nil {
 		return nil, err

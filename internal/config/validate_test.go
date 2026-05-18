@@ -2,7 +2,9 @@ package config
 
 import (
 	"errors"
+	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 func TestForecastConfig_Validate_RejectsBad(t *testing.T) {
@@ -98,6 +100,71 @@ func TestConfig_Validate_MinHexAreaSqM_RejectsNegative(t *testing.T) {
 	}
 	if !errors.Is(err, ErrInvalidConfig) {
 		t.Errorf("error %v does not chain to ErrInvalidConfig", err)
+	}
+}
+
+// TestParseConfig_RejectsUnknownKeys locks in byob-input-validation.2:
+// a typo in a top-level table, scalar field, per-city override, or
+// cost tier must fail at load time rather than silently unmarshal to
+// the zero value. The error chains to ErrInvalidConfig so the cmdutil
+// boundary maps it to a FlagError (exit code 2).
+func TestParseConfig_RejectsUnknownKeys(t *testing.T) {
+	cases := map[string]struct {
+		toml    string
+		wantKey string
+	}{
+		"typo in top-level table": {
+			toml: `[forcast]
+years = 10
+
+[[cities]]
+name = "Oakland, CA"
+`,
+			wantKey: "forcast",
+		},
+		"typo in forecast field": {
+			toml: `[forecast]
+initialpci = 85
+
+[[cities]]
+name = "Oakland, CA"
+`,
+			wantKey: "forecast.initialpci",
+		},
+		"typo in city field": {
+			toml: `[[cities]]
+name = "Oakland, CA"
+overpas = true
+`,
+			wantKey: "cities.overpas",
+		},
+		"typo in cost tier": {
+			toml: `[[forecast.cost_tiers]]
+min_pci = 0
+max_pci = 40
+cost_per_smq = 100
+label = "Reconstruct"
+
+[[cities]]
+name = "Oakland, CA"
+`,
+			wantKey: "forecast.cost_tiers.cost_per_smq",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			fsys := fstest.MapFS{"pvmt.toml": &fstest.MapFile{Data: []byte(tc.toml)}}
+			_, err := LoadFS(fsys, "pvmt.toml")
+			if err == nil {
+				t.Fatal("expected error for unknown key, got nil")
+			}
+			if !errors.Is(err, ErrInvalidConfig) {
+				t.Errorf("error %v does not chain to ErrInvalidConfig", err)
+			}
+			if !strings.Contains(err.Error(), tc.wantKey) {
+				t.Errorf("error %q should name the offending key %q", err.Error(), tc.wantKey)
+			}
+		})
 	}
 }
 
