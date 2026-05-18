@@ -2,6 +2,7 @@ package compute
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -74,11 +75,12 @@ type combinedBuffers struct {
 }
 
 // bufferAllResources loads features for each resource type and buffers them,
-// returning two slices: every-jurisdiction and city-only. Resources with
-// missing or unbufferable data are warned about and skipped. Geometry
-// panics on one resource are caught (with stack to errOut) and turned
-// into per-resource warnings, so a single malformed feature can't crash
-// the whole compute run.
+// returning two slices: every-jurisdiction and city-only. Each feature is
+// buffered exactly once — the city slice is derived by filtering the
+// already-buffered set on jurisdiction. Resources with missing or
+// unbufferable data are warned about and skipped. Geometry panics on one
+// resource are caught (with stack to errOut) and turned into per-resource
+// warnings, so a single malformed feature can't crash the whole compute run.
 func bufferAllResources(ctx context.Context, store db.Store, proj *geo.UTMProjector, errOut io.Writer) combinedBuffers {
 	var bufs combinedBuffers
 	for _, rt := range resource.All {
@@ -86,37 +88,41 @@ func bufferAllResources(ctx context.Context, store db.Store, proj *geo.UTMProjec
 		if !ok {
 			continue
 		}
-		var buffered []geom.Geometry
+		var paired []resource.BufferedFeature
 		if err := cmdutil.GuardPanic(errOut, func() error {
-			var berr error
-			buffered, berr = rt.BufferFeatures(resFeatures, proj)
-			return berr
+			paired = rt.BufferFeaturesPaired(resFeatures, proj)
+			if len(paired) == 0 {
+				return errNoValidGeoms
+			}
+			return nil
 		}); err != nil {
 			fmt.Fprintf(errOut, "combined: buffer %s: %v\n", rt.Type(), err)
 			continue
 		}
-		bufs.all = append(bufs.all, buffered...)
+		// Preserve pre-refactor count semantics: bufs counts reflect input
+		// feature counts per jurisdiction, not the post-buffer survivor count.
+		cityInputs := 0
+		for _, f := range resFeatures {
+			if filter.ClassifyJurisdiction(f.Tags) == filter.JurisdictionCity {
+				cityInputs++
+			}
+		}
+		for _, bf := range paired {
+			bufs.all = append(bufs.all, bf.Geom)
+			if filter.ClassifyJurisdiction(bf.Feature.Tags) == filter.JurisdictionCity {
+				bufs.city = append(bufs.city, bf.Geom)
+			}
+		}
 		bufs.allCount += len(resFeatures)
-
-		cityFeats := filter.Partition(resFeatures)[filter.JurisdictionCity]
-		if len(cityFeats) == 0 {
-			continue
-		}
-		var cityBuf []geom.Geometry
-		if err := cmdutil.GuardPanic(errOut, func() error {
-			var berr error
-			cityBuf, berr = rt.BufferFeatures(cityFeats, proj)
-			return berr
-		}); err != nil {
-			fmt.Fprintf(errOut, "combined:city: buffer %s: %v\n", rt.Type(), err)
-			// Keeps the all-jurisdiction contribution already appended above.
-			continue
-		}
-		bufs.city = append(bufs.city, cityBuf...)
-		bufs.cityCount += len(cityFeats)
+		bufs.cityCount += cityInputs
 	}
 	return bufs
 }
+
+// errNoValidGeoms surfaces inside the panic-guarded buffer closure when a
+// resource yields zero valid geometries — handled the same way as an
+// underlying buffer error so callers log and skip the resource.
+var errNoValidGeoms = errors.New("no valid geometries to process")
 
 func loadFeaturesForCombined(ctx context.Context, store db.Store, rt resource.Source, errOut io.Writer) ([]resource.Feature, bool) {
 	dbFeatures, err := store.ListFeatures(ctx, rt.Type())

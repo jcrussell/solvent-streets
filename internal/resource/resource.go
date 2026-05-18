@@ -86,7 +86,33 @@ type Source interface {
 	// here — downstream code builds a spatial index and computes coverage
 	// per-hex, avoiding a city-wide UnionMany call that OOMs on large cities.
 	BufferFeatures(features []Feature, proj *geo.UTMProjector) ([]geom.Geometry, error)
+	// BufferFeaturesPaired is BufferFeatures but keeps each input Feature
+	// paired with its buffered polygon. Callers that need to slice the
+	// buffered set later (e.g. city-only subset, per-classification cohorts)
+	// can filter on Feature.Tags without re-buffering. Invalid features are
+	// dropped; an empty result means no inputs survived buffering.
+	BufferFeaturesPaired(features []Feature, proj *geo.UTMProjector) []BufferedFeature
 	HasCohorts() bool
+}
+
+// BufferedFeature pairs a source Feature with its cleaned, projected polygon
+// produced by BufferFeaturesPaired. Downstream code reuses the geom for
+// index/coverage work and the Feature for jurisdiction or classification
+// filtering — buffering each feature exactly once per compute run.
+type BufferedFeature struct {
+	Feature Feature
+	Geom    geom.Geometry
+}
+
+// Geoms extracts the geom slice from a buffered-feature slice in order.
+// Useful for building a GeomIndex without an extra allocation on the
+// caller side.
+func Geoms(bufs []BufferedFeature) []geom.Geometry {
+	out := make([]geom.Geometry, len(bufs))
+	for i, b := range bufs {
+		out[i] = b.Geom
+	}
+	return out
 }
 
 var All = []Source{
@@ -162,4 +188,14 @@ func bufferFeatures(features []Feature, proj *geo.UTMProjector, inferWidth width
 		return nil, errors.New("no valid geometries to process")
 	}
 	return geometries, nil
+}
+
+func bufferFeaturesPaired(features []Feature, proj *geo.UTMProjector, inferWidth widthFunc) []BufferedFeature {
+	out := make([]BufferedFeature, 0, len(features))
+	for _, f := range features {
+		if g, ok := cleanFeatureGeometry(f, proj, inferWidth); ok {
+			out = append(out, BufferedFeature{Feature: f, Geom: g})
+		}
+	}
+	return out
 }

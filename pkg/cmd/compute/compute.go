@@ -220,6 +220,18 @@ func doCompute(ctx context.Context, out, errOut io.Writer, notify tui.PhaseNotif
 		len(jurisdictionParts[filter.JurisdictionFederal]),
 	)
 
+	// Buffer every feature exactly once. The "all" and "city" passes share
+	// this slice; the city pass filters on jurisdiction without invoking
+	// BufferFeatures again, and cohort stats re-use the same polygons.
+	allBuffered := opts.ResourceType.BufferFeaturesPaired(resFeatures, proj)
+	if len(allBuffered) == 0 {
+		err := errors.New("buffer features: no valid geometries to process")
+		notify.PhaseDone(phaseProcess, err)
+		return err
+	}
+	notify.PhaseDone(phaseProcess, nil)
+	cityBuffered := filterBufferedByJurisdiction(allBuffered, filter.JurisdictionCity)
+
 	c := &computer{
 		opts:       opts,
 		cfg:        cfg,
@@ -234,16 +246,27 @@ func doCompute(ctx context.Context, out, errOut io.Writer, notify tui.PhaseNotif
 		errOut:     errOut,
 	}
 
-	// runAllFeaturesPass keeps the buffered slice in its own scope so it's
-	// collected before processCityResults buffers the city subset.
-	hexStats, clippedHexes, err := c.runAllFeaturesPass(ctx, resFeatures, boundaryGJSON)
-	if err != nil {
+	hexStats, clippedHexes := c.runAllFeaturesPass(ctx, allBuffered, boundaryGJSON)
+	if err := c.saveAllJurisdictionsResult(ctx, allBuffered, len(resFeatures), hexStats, clippedHexes); err != nil {
 		return err
 	}
 
-	c.processCityResults(ctx, jurisdictionParts, clippedHexes)
+	c.processCityResults(ctx, cityBuffered, len(jurisdictionParts[filter.JurisdictionCity]), clippedHexes)
 
 	return saveHexStats(ctx, errOut, notify, store, hexStats, opts.ResourceType.Type(), c.snapshotID)
+}
+
+// filterBufferedByJurisdiction returns the subset of buffered features whose
+// source feature tags classify as j. Avoids re-buffering by sharing the same
+// geom values.
+func filterBufferedByJurisdiction(bufs []resource.BufferedFeature, j filter.Jurisdiction) []resource.BufferedFeature {
+	out := make([]resource.BufferedFeature, 0, len(bufs))
+	for _, b := range bufs {
+		if filter.ClassifyJurisdiction(b.Feature.Tags) == j {
+			out = append(out, b)
+		}
+	}
+	return out
 }
 
 func loadBoundary(ctx context.Context, store db.Store, city *config.CityConfig) (string, [4]float64, *geo.UTMProjector, error) {
@@ -302,20 +325,20 @@ func createSnapshot(ctx context.Context, errOut io.Writer, store db.Store, cfg *
 	return nil
 }
 
-// runAllFeaturesPass buffers every feature (all jurisdictions), runs the hex
-// pipeline, and persists the full-resource ComputeResult + cohort stats. The
-// buffered slice is scoped to this method so it can be GC'd before the
-// city pass allocates its own.
-func (c *computer) runAllFeaturesPass(ctx context.Context, resFeatures []resource.Feature, boundaryGJSON string) ([]geo.HexStat, []geo.Hex, error) {
-	buffered, err := c.opts.ResourceType.BufferFeatures(resFeatures, c.proj)
-	if err != nil {
-		c.notify.PhaseDone(phaseProcess, err)
-		return nil, nil, fmt.Errorf("buffer features: %w", err)
-	}
-	c.notify.PhaseDone(phaseProcess, nil)
+// runAllFeaturesPass runs the hex pipeline against every-jurisdiction
+// buffered features and returns the per-hex coverage plus the clipped hex
+// grid for downstream passes to share.
+func (c *computer) runAllFeaturesPass(ctx context.Context, allBuffered []resource.BufferedFeature, boundaryGJSON string) ([]geo.HexStat, []geo.Hex) {
+	return c.computeHexPipeline(ctx, resource.Geoms(allBuffered), boundaryGJSON)
+}
 
-	hexStats, clippedHexes := c.computeHexPipeline(ctx, buffered, boundaryGJSON)
-
+// saveAllJurisdictionsResult persists the every-jurisdiction ComputeResult,
+// cohort stats, and prose summary derived from the pre-buffered features.
+// Splits out from runAllFeaturesPass so the hex pipeline output is reusable
+// for the city-only pass before any per-jurisdiction persistence happens.
+// featureCount is the count of input features (including any dropped by the
+// buffer step), preserved so DB rows match the pre-refactor semantics.
+func (c *computer) saveAllJurisdictionsResult(ctx context.Context, allBuffered []resource.BufferedFeature, featureCount int, hexStats []geo.HexStat, clippedHexes []geo.Hex) error {
 	// Per-hex coverage is dedup'd by the local union inside ComputeHexStats,
 	// so summing does not double-count crossing-road overlaps.
 	var areaSqM float64
@@ -327,16 +350,16 @@ func (c *computer) runAllFeaturesPass(ctx context.Context, resFeatures []resourc
 	result := db.ComputeResult{
 		ResourceType: rtAll,
 		TotalAreaSqM: areaSqM,
-		FeatureCount: len(resFeatures),
+		FeatureCount: featureCount,
 		SnapshotID:   c.snapshotID,
 	}
 	if err := c.store.SaveComputeResult(ctx, result); err != nil {
-		return nil, nil, fmt.Errorf("save result: %w", err)
+		return fmt.Errorf("save result: %w", err)
 	}
-	c.recordRow("all", len(resFeatures), areaSqM)
+	c.recordRow("all", featureCount, areaSqM)
 
 	rt := c.opts.ResourceType
-	cohortStats := buildCohortStats(ctx, rtAll, rt.HasCohorts(), resFeatures, areaSqM, c.snapshotID, c.proj, clippedHexes)
+	cohortStats := buildCohortStats(ctx, rtAll, rt.HasCohorts(), allBuffered, areaSqM, c.snapshotID, clippedHexes)
 	if len(cohortStats) > 0 {
 		if err := c.store.SaveCohortStats(ctx, cohortStats); err != nil {
 			fmt.Fprintf(c.errOut, "Warning: failed to save cohort stats: %v\n", err)
@@ -345,9 +368,9 @@ func (c *computer) runAllFeaturesPass(ctx context.Context, resFeatures []resourc
 		}
 	}
 	if !c.opts.CityOnly {
-		printResults(c.out, fmt.Sprintf("%s Results (all)", rtAll.Bare()), len(resFeatures), areaSqM, c.sys)
+		printResults(c.out, fmt.Sprintf("%s Results (all)", rtAll.Bare()), featureCount, areaSqM, c.sys)
 	}
-	return hexStats, clippedHexes, nil
+	return nil
 }
 
 func saveHexStats(ctx context.Context, errOut io.Writer, notify tui.PhaseNotifier, store db.Store, hexStats []geo.HexStat, rt resource.Type, snapshotID *int64) error {
@@ -369,20 +392,17 @@ func saveHexStats(ctx context.Context, errOut io.Writer, notify tui.PhaseNotifie
 	return nil
 }
 
-func (c *computer) processCityResults(ctx context.Context, parts map[filter.Jurisdiction][]resource.Feature, clippedHexes []geo.Hex) {
-	cityFeatures := parts[filter.JurisdictionCity]
-	if len(cityFeatures) == 0 {
-		return
-	}
-
-	cityBuffered, err := c.opts.ResourceType.BufferFeatures(cityFeatures, c.proj)
-	if err != nil {
-		fmt.Fprintf(c.errOut, "Warning: failed to buffer city features: %v\n", err)
+// processCityResults runs the city-jurisdiction hex pipeline over the
+// pre-buffered city subset and persists the :city ComputeResult, cohort
+// stats, and prose summary. featureCount is the input city-feature count
+// (including any later dropped by the buffer step).
+func (c *computer) processCityResults(ctx context.Context, cityBuffered []resource.BufferedFeature, featureCount int, clippedHexes []geo.Hex) {
+	if len(cityBuffered) == 0 {
 		return
 	}
 
 	rtCity := c.opts.ResourceType.Type().With(resource.ScopeCity)
-	cityIdx := geo.NewGeomIndexFromGeoms(cityBuffered)
+	cityIdx := geo.NewGeomIndexFromGeoms(resource.Geoms(cityBuffered))
 	cityStats := geo.ComputeHexStats(ctx, clippedHexes, cityIdx, string(rtCity), nil)
 
 	var cityAreaSqM float64
@@ -404,16 +424,16 @@ func (c *computer) processCityResults(ctx context.Context, parts map[filter.Juri
 	cityResult := db.ComputeResult{
 		ResourceType: rtCity,
 		TotalAreaSqM: cityAreaSqM,
-		FeatureCount: len(cityFeatures),
+		FeatureCount: featureCount,
 		SnapshotID:   c.snapshotID,
 	}
 	if err := c.store.SaveComputeResult(ctx, cityResult); err != nil {
 		fmt.Fprintf(c.errOut, "Warning: failed to save city result: %v\n", err)
 	}
-	c.recordRow("city", len(cityFeatures), cityAreaSqM)
+	c.recordRow("city", featureCount, cityAreaSqM)
 
 	rt := c.opts.ResourceType
-	cityCohortStats := buildCohortStats(ctx, rtCity, rt.HasCohorts(), cityFeatures, cityAreaSqM, c.snapshotID, c.proj, clippedHexes)
+	cityCohortStats := buildCohortStats(ctx, rtCity, rt.HasCohorts(), cityBuffered, cityAreaSqM, c.snapshotID, clippedHexes)
 	if len(cityCohortStats) > 0 {
 		if err := c.store.SaveCohortStats(ctx, cityCohortStats); err != nil {
 			fmt.Fprintf(c.errOut, "Warning: failed to save city cohort stats: %v\n", err)
@@ -422,7 +442,7 @@ func (c *computer) processCityResults(ctx context.Context, parts map[filter.Juri
 		}
 	}
 
-	printResults(c.out, fmt.Sprintf("%s Results (city only)", rt.Type()), len(cityFeatures), cityAreaSqM, c.sys)
+	printResults(c.out, fmt.Sprintf("%s Results (city only)", rt.Type()), featureCount, cityAreaSqM, c.sys)
 }
 
 // recordRow appends a computeRow to the multi-city accumulator if the
@@ -553,26 +573,28 @@ func parseGeoJSONGeometry(gjson string, proj *geo.UTMProjector) (geom.Geometry, 
 // is true (e.g. roads), it computes per-classification areas via the same
 // hex-clipped pipeline used for the resource total. Otherwise it returns
 // a single cohort stat. resourceTypeName is the row label, which may include
-// a ":city" suffix when computing city-only stats.
-func buildCohortStats(ctx context.Context, rt resource.Type, hasCohorts bool, features []resource.Feature, totalAreaSqM float64, snapshotID *int64, proj *geo.UTMProjector, hexes []geo.Hex) []db.CohortStat {
+// a ":city" suffix when computing city-only stats. buffered carries each
+// feature paired with its pre-buffered polygon so cohort computation reuses
+// the same polygons rather than re-buffering.
+func buildCohortStats(ctx context.Context, rt resource.Type, hasCohorts bool, buffered []resource.BufferedFeature, totalAreaSqM float64, snapshotID *int64, hexes []geo.Hex) []db.CohortStat {
 	if !hasCohorts {
 		return []db.CohortStat{{
 			ResourceType:   rt,
 			Classification: string(rt.Bare()),
 			AreaSqM:        totalAreaSqM,
-			FeatureCount:   len(features),
+			FeatureCount:   len(buffered),
 			SnapshotID:     snapshotID,
 		}}
 	}
 
-	rawAreas := resource.ComputeRoadCohortAreas(ctx, features, proj, hexes)
+	rawAreas := resource.ComputeRoadCohortAreas(ctx, buffered, hexes)
 	var rawTotal float64
 	for _, a := range rawAreas {
 		rawTotal += a
 	}
 	counts := make(map[string]int)
-	for _, f := range features {
-		class := forecast.NormalizeClass(f.Tags["highway"])
+	for _, bf := range buffered {
+		class := forecast.NormalizeClass(bf.Feature.Tags["highway"])
 		counts[class]++
 	}
 	var stats []db.CohortStat

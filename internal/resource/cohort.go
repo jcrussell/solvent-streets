@@ -9,24 +9,22 @@ import (
 	"github.com/peterstace/simplefeatures/geom"
 )
 
-// ComputeRoadCohortAreas computes per-classification coverage areas by
-// buffering each feature, grouping by classification, and running the same
-// R-tree + per-hex local-union pipeline that ComputeHexStats uses against
-// the supplied clipped hex grid. This matches the main compute pipeline —
-// intra-class overlaps are dedup'd per-hex rather than via one big UnionAll,
-// and per-class totals are clipped to the same hex grid as the "all" total
-// so they sum consistently. Returns map[classification]coverageAreaSqM.
-// ctx cancellation aborts the underlying ParallelMap calls cleanly.
-func ComputeRoadCohortAreas(ctx context.Context, features []Feature, proj *geo.UTMProjector, hexes []geo.Hex) map[string]float64 {
+// ComputeRoadCohortAreas computes per-classification coverage areas from
+// already-buffered features by grouping each feature's polygon by highway
+// class and running the same R-tree + per-hex local-union pipeline that
+// ComputeHexStats uses against the supplied clipped hex grid. Buffering
+// happens once at the caller; this function only indexes and intersects.
+// Intra-class overlaps are dedup'd per-hex rather than via one big
+// UnionAll, and per-class totals are clipped to the same hex grid as the
+// "all" total so they sum consistently. Returns
+// map[classification]coverageAreaSqM. ctx cancellation aborts the
+// underlying ParallelMap calls cleanly.
+func ComputeRoadCohortAreas(ctx context.Context, buffered []BufferedFeature, hexes []geo.Hex) map[string]float64 {
 	classGeoms := make(map[string][]geom.Geometry)
 
-	for _, f := range features {
-		cleaned, ok := cleanFeatureGeometry(f, proj, geo.InferWidth)
-		if !ok {
-			continue
-		}
-		class := forecast.NormalizeClass(f.Tags["highway"])
-		classGeoms[class] = append(classGeoms[class], cleaned)
+	for _, bf := range buffered {
+		class := forecast.NormalizeClass(bf.Feature.Tags["highway"])
+		classGeoms[class] = append(classGeoms[class], bf.Geom)
 	}
 
 	areas := make(map[string]float64)

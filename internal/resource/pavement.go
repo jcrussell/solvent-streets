@@ -25,6 +25,10 @@ func (p *Pavement) BufferFeatures(features []Feature, proj *geo.UTMProjector) ([
 	return bufferFeatures(features, proj, geo.InferWidth)
 }
 
+func (p *Pavement) BufferFeaturesPaired(features []Feature, proj *geo.UTMProjector) []BufferedFeature {
+	return bufferFeaturesPaired(features, proj, geo.InferWidth)
+}
+
 func extractLineCoords(g geom.Geometry) [][2]float64 {
 	ls, ok := g.AsLineString()
 	if !ok {
