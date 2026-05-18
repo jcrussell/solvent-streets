@@ -3,6 +3,7 @@ package export
 import (
 	"context"
 	"database/sql"
+	"math"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -10,6 +11,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
@@ -198,5 +200,71 @@ func TestBuildMultiCityMeta_MixedCombinedRollout(t *testing.T) {
 	// Pre-fix bug returned 800 (B silently dropped).
 	if meta.TotalPavedSqM != 2800 {
 		t.Errorf("total_paved_sqm = %v; want 2800 (combined_A + sum_B)", meta.TotalPavedSqM)
+	}
+}
+
+// TestBuildMultiCityMeta_FarApartCitiesUsePerCityUTMZones is the s1e
+// regression: two sub-cities in different UTM zones (Boston ~71°W zone 19N,
+// San Francisco ~122°W zone 10N) must each be projected through their own
+// UTM zone for accurate area. The pre-fix code picked one zone from the
+// regional bbox center and projected both polygons through it, inflating
+// the area of whichever city was further from the central meridian.
+func TestBuildMultiCityMeta_FarApartCitiesUsePerCityUTMZones(t *testing.T) {
+	// ~1 km² square near downtown Boston (42.35°N, -71.06°W).
+	const bostonBoundary = `{"type":"Polygon","coordinates":[[[-71.065,42.345],[-71.0546,42.345],[-71.0546,42.354],[-71.065,42.354],[-71.065,42.345]]]}`
+	// ~1 km² square near downtown San Francisco (37.77°N, -122.42°W).
+	const sfBoundary = `{"type":"Polygon","coordinates":[[[-122.425,37.765],[-122.4137,37.765],[-122.4137,37.774],[-122.425,37.774],[-122.425,37.765]]]}`
+
+	cityA := newMockEntryWithBoundary(map[resource.Type]db.ComputeResult{
+		mtRoads: {ResourceType: mtRoads, TotalAreaSqM: 1},
+	}, bostonBoundary)
+	cityA.City.Name = "Boston"
+	cityA.Slug = "boston"
+
+	cityB := newMockEntryWithBoundary(map[resource.Type]db.ComputeResult{
+		mtRoads: {ResourceType: mtRoads, TotalAreaSqM: 1},
+	}, sfBoundary)
+	cityB.City.Name = "San Francisco"
+	cityB.Slug = "san-francisco"
+
+	meta, err := BuildMultiCityMeta(context.Background(), []CityEntry{cityA, cityB}, "Far-Apart Region")
+	if err != nil {
+		t.Fatalf("BuildMultiCityMeta: %v", err)
+	}
+
+	// Reference: each city's accurate area computed in its own UTM zone.
+	areaA, err := geo.BoundaryAreaSqM(bostonBoundary)
+	if err != nil {
+		t.Fatalf("BoundaryAreaSqM(boston): %v", err)
+	}
+	areaB, err := geo.BoundaryAreaSqM(sfBoundary)
+	if err != nil {
+		t.Fatalf("BoundaryAreaSqM(sf): %v", err)
+	}
+	want := areaA + areaB
+	if rel := math.Abs(meta.CityAreaSqM-want) / want; rel > 1e-9 {
+		t.Errorf("city_area_sqm = %v; want %v (sum of per-city UTM areas, rel diff %.3g)",
+			meta.CityAreaSqM, want, rel)
+	}
+
+	// Regression check: the pre-fix code projected both polygons through
+	// one UTM zone derived from the regional bbox center (~96°W, zone 15N).
+	// Both Boston and SF are >20° from that meridian, so the single-zone
+	// result is inflated. Compute what that buggy value would be and assert
+	// the new result is materially smaller.
+	centerLon, centerLat := geo.CenterFromBBox(meta.BBox)
+	sharedProj := geo.NewUTMProjector(centerLon, centerLat)
+	gA, _, err := geo.GeoJSONToProjectedGeometry(bostonBoundary, sharedProj)
+	if err != nil {
+		t.Fatalf("project boston through shared zone: %v", err)
+	}
+	gB, _, err := geo.GeoJSONToProjectedGeometry(sfBoundary, sharedProj)
+	if err != nil {
+		t.Fatalf("project sf through shared zone: %v", err)
+	}
+	buggy := gA.Area() + gB.Area()
+	if meta.CityAreaSqM >= buggy*0.9 {
+		t.Errorf("city_area_sqm = %v; want noticeably smaller than the shared-zone result %v (>=10%% reduction)",
+			meta.CityAreaSqM, buggy)
 	}
 }

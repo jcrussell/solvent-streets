@@ -8,8 +8,6 @@ import (
 	"html/template"
 	"time"
 
-	"github.com/peterstace/simplefeatures/geom"
-
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
@@ -18,11 +16,12 @@ import (
 )
 
 // BuildMultiCityMeta aggregates each sub-city's per-resource compute results
-// and unioned boundary into a single regional MetaJSON for the multi-city
+// and boundary areas into a single regional MetaJSON for the multi-city
 // landing page. Per-resource Stats sum across entries; CityAreaSqM is the
-// area of the union of sub-city boundaries (projected through one shared
-// UTM zone derived from the regional bbox). TotalPavedSqM prefers the
-// summed "combined" rows with a fallback to summed per-resource rows.
+// sum of per-city boundary areas, each computed in its own UTM zone so that
+// far-apart sub-cities (different UTM zones) are not biased by a single
+// shared projection. TotalPavedSqM prefers the summed "combined" rows with
+// a fallback to summed per-resource rows.
 func BuildMultiCityMeta(ctx context.Context, entries []CityEntry, regionName string) (MetaJSON, error) {
 	if len(entries) == 0 {
 		return MetaJSON{}, errors.New("no entries to aggregate")
@@ -42,7 +41,7 @@ func BuildMultiCityMeta(ctx context.Context, entries []CityEntry, regionName str
 		Stats:        aggregatePerResourceStats(ctx, entries),
 	}
 	meta.TotalPavedSqM = aggregateTotalPaved(ctx, entries)
-	meta.CityAreaSqM = unionedBoundaryArea(ctx, entries, geo.NewUTMProjector(centerLon, centerLat))
+	meta.CityAreaSqM = summedBoundaryArea(ctx, entries)
 	if meta.CityAreaSqM > 0 && meta.TotalPavedSqM > 0 {
 		meta.PctPaved = meta.TotalPavedSqM / meta.CityAreaSqM * 100
 	}
@@ -96,30 +95,29 @@ func aggregateTotalPaved(ctx context.Context, entries []CityEntry) float64 {
 	return sum
 }
 
-// unionedBoundaryArea projects each sub-city boundary through the shared UTM
-// projector and unions them, returning the resulting area in sqm. Returns 0
-// when no usable boundaries are available.
-func unionedBoundaryArea(ctx context.Context, entries []CityEntry, sharedProj *geo.UTMProjector) float64 {
-	var boundaries []geom.Geometry
+// summedBoundaryArea computes each sub-city's boundary area in its own UTM
+// zone (so far-apart sub-cities are not biased by a single shared projection)
+// and sums them. Returns 0 when no usable boundaries are available.
+//
+// Sub-city boundaries are assumed to be disjoint, which holds for the typical
+// multi-metro config (Bay Area, statewide rollups). Overlapping sub-city
+// boundaries (e.g. a parent jurisdiction plus its child) would be double-
+// counted; the recommended workaround for that case is to configure a single
+// boundary that already contains the children.
+func summedBoundaryArea(ctx context.Context, entries []CityEntry) float64 {
+	var total float64
 	for _, entry := range entries {
 		gjson, err := entry.Store.GetBoundary(ctx)
 		if err != nil || gjson == "" {
 			continue
 		}
-		g, _, err := geo.GeoJSONToProjectedGeometry(gjson, sharedProj)
-		if err != nil || g.IsEmpty() {
+		a, err := geo.BoundaryAreaSqM(gjson)
+		if err != nil {
 			continue
 		}
-		boundaries = append(boundaries, g)
+		total += a
 	}
-	if len(boundaries) == 0 {
-		return 0
-	}
-	unioned, err := geo.UnionAll(boundaries)
-	if err != nil || unioned.IsEmpty() {
-		return 0
-	}
-	return unioned.Area()
+	return total
 }
 
 // regionBBox returns the union of sub-city bboxes ([south, west, north, east]).
