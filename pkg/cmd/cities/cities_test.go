@@ -18,7 +18,7 @@ func TestNewCmdCities_RunFInjection(t *testing.T) {
 	f := &cmdutil.Factory{IOStreams: ios, UnitSystem: func() units.System { return units.Imperial }}
 
 	called := false
-	cmd := NewCmdCities(f, func(opts *Options) error {
+	cmd := NewCmdCities(f, func(_ context.Context, opts *Options) error {
 		called = true
 		return nil
 	})

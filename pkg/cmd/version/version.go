@@ -1,6 +1,7 @@
 package version
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/jcrussell/solvent-streets/internal/build"
@@ -14,7 +15,7 @@ type Options struct {
 	IO *iostreams.IOStreams
 }
 
-func NewCmdVersion(f *cmdutil.Factory, runF func(*Options) error) *cobra.Command {
+func NewCmdVersion(f *cmdutil.Factory, runF func(context.Context, *Options) error) *cobra.Command {
 	opts := &Options{IO: f.IOStreams}
 
 	return &cobra.Command{
@@ -25,7 +26,7 @@ func NewCmdVersion(f *cmdutil.Factory, runF func(*Options) error) *cobra.Command
   pvmt version`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
-				return runF(opts)
+				return runF(cmd.Context(), opts)
 			}
 			fmt.Fprint(opts.IO.Out, build.Current().Full())
 			return nil

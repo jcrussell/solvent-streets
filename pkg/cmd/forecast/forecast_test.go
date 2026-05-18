@@ -1,6 +1,7 @@
 package forecast
 
 import (
+	"context"
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/db"
@@ -41,7 +42,7 @@ func TestNewCmdForecast_RunFInjection(t *testing.T) {
 	f := &cmdutil.Factory{IOStreams: ios}
 
 	var gotOpts *Options
-	cmd := NewCmdForecast(f, func(opts *Options) error {
+	cmd := NewCmdForecast(f, func(_ context.Context, opts *Options) error {
 		gotOpts = opts
 		return nil
 	})
@@ -65,7 +66,7 @@ func TestNewCmdForecast_DefaultScenariosTrue(t *testing.T) {
 	f := &cmdutil.Factory{IOStreams: ios}
 
 	var gotOpts *Options
-	cmd := NewCmdForecast(f, func(opts *Options) error {
+	cmd := NewCmdForecast(f, func(_ context.Context, opts *Options) error {
 		gotOpts = opts
 		return nil
 	})
@@ -82,7 +83,7 @@ func TestNewCmdForecast_JqAndTemplateMutuallyExclusive(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	f := &cmdutil.Factory{IOStreams: ios}
 
-	cmd := NewCmdForecast(f, func(opts *Options) error { return nil })
+	cmd := NewCmdForecast(f, func(_ context.Context, _ *Options) error { return nil })
 	cmd.SetArgs([]string{"--json", "year", "--jq", ".", "--template", "{{.}}"})
 	cmd.SilenceErrors = true
 	cmd.SilenceUsage = true

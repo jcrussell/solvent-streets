@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"strings"
@@ -48,7 +49,7 @@ func TestNewCmdShow_RunFInjection(t *testing.T) {
 	}
 
 	var gotOpts *Options
-	showCmd := NewCmdShow(f, func(opts *Options) error {
+	showCmd := NewCmdShow(f, func(_ context.Context, opts *Options) error {
 		gotOpts = opts
 		return nil
 	})

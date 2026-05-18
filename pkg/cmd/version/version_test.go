@@ -1,6 +1,7 @@
 package version
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -13,7 +14,7 @@ func TestNewCmdVersion_RunFInjection(t *testing.T) {
 	f := &cmdutil.Factory{IOStreams: ios}
 
 	called := false
-	cmd := NewCmdVersion(f, func(opts *Options) error {
+	cmd := NewCmdVersion(f, func(_ context.Context, opts *Options) error {
 		called = true
 		if opts.IO != ios {
 			t.Errorf("opts.IO not propagated from factory")

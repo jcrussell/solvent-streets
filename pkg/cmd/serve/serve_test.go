@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -13,7 +14,7 @@ func TestNewCmdServe_RunFInjection(t *testing.T) {
 	f := &cmdutil.Factory{IOStreams: ios}
 
 	var gotOpts *Options
-	cmd := NewCmdServe(f, func(opts *Options) error {
+	cmd := NewCmdServe(f, func(_ context.Context, opts *Options) error {
 		gotOpts = opts
 		return nil
 	})
@@ -37,7 +38,7 @@ func TestNewCmdServe_DefaultPort(t *testing.T) {
 	f := &cmdutil.Factory{IOStreams: ios}
 
 	var gotOpts *Options
-	cmd := NewCmdServe(f, func(opts *Options) error {
+	cmd := NewCmdServe(f, func(_ context.Context, opts *Options) error {
 		gotOpts = opts
 		return nil
 	})

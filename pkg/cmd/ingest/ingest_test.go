@@ -46,7 +46,7 @@ func TestNewCmdIngest_DefaultFlags(t *testing.T) {
 	rt := &resource.Pavement{}
 
 	var gotOpts *Options
-	cmd := NewCmdIngest(f, rt, func(opts *Options) error {
+	cmd := NewCmdIngest(f, rt, func(_ context.Context, opts *Options) error {
 		gotOpts = opts
 		return nil
 	})
@@ -69,7 +69,7 @@ func TestNewCmdIngest_SourceFlag(t *testing.T) {
 	rt := &resource.Pavement{}
 
 	var gotOpts *Options
-	cmd := NewCmdIngest(f, rt, func(opts *Options) error {
+	cmd := NewCmdIngest(f, rt, func(_ context.Context, opts *Options) error {
 		gotOpts = opts
 		return nil
 	})
@@ -89,7 +89,7 @@ func TestNewCmdIngest_ForceFlag(t *testing.T) {
 	rt := &resource.Pavement{}
 
 	var gotOpts *Options
-	cmd := NewCmdIngest(f, rt, func(opts *Options) error {
+	cmd := NewCmdIngest(f, rt, func(_ context.Context, opts *Options) error {
 		gotOpts = opts
 		return nil
 	})
@@ -116,7 +116,7 @@ func TestNewCmdIngest_ForceAndDryRunMutuallyExclusive(t *testing.T) {
 	rt := &resource.Pavement{}
 
 	runECalled := false
-	cmd := NewCmdIngest(f, rt, func(opts *Options) error {
+	cmd := NewCmdIngest(f, rt, func(_ context.Context, opts *Options) error {
 		runECalled = true
 		return nil
 	})
@@ -138,7 +138,7 @@ func TestNewCmdIngest_RunFInjection(t *testing.T) {
 	rt := &resource.Pavement{}
 
 	called := false
-	cmd := NewCmdIngest(f, rt, func(opts *Options) error {
+	cmd := NewCmdIngest(f, rt, func(_ context.Context, opts *Options) error {
 		called = true
 		if opts.ResourceType.Type() != resource.TypeRoads {
 			t.Errorf("expected KindRoads, got %v", opts.ResourceType.Type())

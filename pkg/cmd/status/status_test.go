@@ -22,7 +22,7 @@ func TestNewCmdStatus_RunFInjection(t *testing.T) {
 	rt := &resource.Pavement{}
 
 	called := false
-	cmd := NewCmdStatus(f, rt, func(opts *Options) error {
+	cmd := NewCmdStatus(f, rt, func(_ context.Context, opts *Options) error {
 		called = true
 		return nil
 	})

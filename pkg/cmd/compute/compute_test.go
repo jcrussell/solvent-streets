@@ -33,7 +33,7 @@ func TestNewCmdCompute_RunFInjection(t *testing.T) {
 	rt := &resource.Pavement{}
 
 	called := false
-	cmd := NewCmdCompute(f, rt, func(opts *Options) error {
+	cmd := NewCmdCompute(f, rt, func(_ context.Context, opts *Options) error {
 		called = true
 		if opts.ResourceType.Type() != resource.TypeRoads {
 			t.Errorf("expected KindRoads, got %v", opts.ResourceType.Type())

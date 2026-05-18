@@ -71,7 +71,7 @@ func (r computeRow) ExportData(fields []string) map[string]any {
 
 var computeFields = []string{"city", "resourceType", "jurisdiction", "featureCount", "areaSqM", "snapshotId"}
 
-func NewCmdCompute(f *cmdutil.Factory, rt resource.Source, runF func(*Options) error) *cobra.Command {
+func NewCmdCompute(f *cmdutil.Factory, rt resource.Source, runF func(context.Context, *Options) error) *cobra.Command {
 	opts := &Options{
 		IO:           f.IOStreams,
 		CityDB:       f.CityDB,
@@ -95,7 +95,7 @@ func NewCmdCompute(f *cmdutil.Factory, rt resource.Source, runF func(*Options) e
   pvmt --city oakland %s compute`, t, t, t, t),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
-				return runF(opts)
+				return runF(cmd.Context(), opts)
 			}
 			return runComputeAllCities(cmd.Context(), f, opts)
 		},

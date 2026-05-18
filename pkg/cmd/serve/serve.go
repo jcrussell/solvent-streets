@@ -22,7 +22,7 @@ type Options struct {
 	Port   int
 }
 
-func NewCmdServe(f *cmdutil.Factory, runF func(*Options) error) *cobra.Command {
+func NewCmdServe(f *cmdutil.Factory, runF func(context.Context, *Options) error) *cobra.Command {
 	opts := &Options{
 		IO:     f.IOStreams,
 		RootDB: f.RootDB,
@@ -41,7 +41,7 @@ func NewCmdServe(f *cmdutil.Factory, runF func(*Options) error) *cobra.Command {
   pvmt serve --port 9000`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
-				return runF(opts)
+				return runF(cmd.Context(), opts)
 			}
 			return runServe(cmd.Context(), opts)
 		},

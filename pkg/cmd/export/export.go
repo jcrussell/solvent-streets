@@ -24,7 +24,7 @@ type Options struct {
 	Clean     bool
 }
 
-func NewCmdExport(f *cmdutil.Factory, runF func(*Options) error) *cobra.Command {
+func NewCmdExport(f *cmdutil.Factory, runF func(context.Context, *Options) error) *cobra.Command {
 	opts := &Options{
 		IO:     f.IOStreams,
 		RootDB: f.RootDB,
@@ -43,7 +43,7 @@ func NewCmdExport(f *cmdutil.Factory, runF func(*Options) error) *cobra.Command 
   pvmt export --output build --clean`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
-				return runF(opts)
+				return runF(cmd.Context(), opts)
 			}
 			return runExport(cmd.Context(), opts)
 		},

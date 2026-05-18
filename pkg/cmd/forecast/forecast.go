@@ -57,7 +57,7 @@ func (r forecastRow) ExportData(fields []string) map[string]any {
 	return out
 }
 
-func NewCmdForecast(f *cmdutil.Factory, runF func(*Options) error) *cobra.Command {
+func NewCmdForecast(f *cmdutil.Factory, runF func(context.Context, *Options) error) *cobra.Command {
 	opts := &Options{
 		IO:          f.IOStreams,
 		CityDB:      f.CityDB,
@@ -80,7 +80,7 @@ func NewCmdForecast(f *cmdutil.Factory, runF func(*Options) error) *cobra.Comman
   pvmt forecast --json year,pci,treatmentCost`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
-				return runF(opts)
+				return runF(cmd.Context(), opts)
 			}
 			return runForecast(cmd.Context(), opts)
 		},

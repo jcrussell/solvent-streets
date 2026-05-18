@@ -1,6 +1,7 @@
 package export
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -15,7 +16,7 @@ func TestNewCmdExport_RunFInjection(t *testing.T) {
 	f := &cmdutil.Factory{IOStreams: ios}
 
 	var gotOpts *Options
-	cmd := NewCmdExport(f, func(opts *Options) error {
+	cmd := NewCmdExport(f, func(_ context.Context, opts *Options) error {
 		gotOpts = opts
 		return nil
 	})
@@ -39,7 +40,7 @@ func TestNewCmdExport_Defaults(t *testing.T) {
 	f := &cmdutil.Factory{IOStreams: ios}
 
 	var gotOpts *Options
-	cmd := NewCmdExport(f, func(opts *Options) error {
+	cmd := NewCmdExport(f, func(_ context.Context, opts *Options) error {
 		gotOpts = opts
 		return nil
 	})

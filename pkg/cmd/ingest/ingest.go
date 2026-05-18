@@ -28,7 +28,7 @@ type Options struct {
 	DryRun       bool
 }
 
-func NewCmdIngest(f *cmdutil.Factory, rt resource.Source, runF func(*Options) error) *cobra.Command {
+func NewCmdIngest(f *cmdutil.Factory, rt resource.Source, runF func(context.Context, *Options) error) *cobra.Command {
 	opts := &Options{
 		IO:           f.IOStreams,
 		CityDB:       f.CityDB,
@@ -51,7 +51,7 @@ func NewCmdIngest(f *cmdutil.Factory, rt resource.Source, runF func(*Options) er
   pvmt %s ingest --dry-run`, rt.Type(), rt.Type(), rt.Type(), rt.Type()),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
-				return runF(opts)
+				return runF(cmd.Context(), opts)
 			}
 			return runIngestAllCities(cmd.Context(), f, opts)
 		},

@@ -56,7 +56,7 @@ func (r cityRow) ExportData(fields []string) map[string]any {
 
 var citiesFields = []string{"slug", "name", "features", "totalAreaSqM", "lastIngest", "lastCompute"}
 
-func NewCmdCities(f *cmdutil.Factory, runF func(*Options) error) *cobra.Command {
+func NewCmdCities(f *cmdutil.Factory, runF func(context.Context, *Options) error) *cobra.Command {
 	opts := &Options{
 		IO: f.IOStreams,
 		RootDB: func() (db.RootStorer, error) {
@@ -76,7 +76,7 @@ func NewCmdCities(f *cmdutil.Factory, runF func(*Options) error) *cobra.Command 
   pvmt cities --json name,slug,roads,parking,sidewalks`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
-				return runF(opts)
+				return runF(cmd.Context(), opts)
 			}
 			return runCities(cmd.Context(), opts)
 		},

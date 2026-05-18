@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
@@ -19,7 +20,7 @@ type Options struct {
 	Exporter  cmdutil.Exporter
 }
 
-func NewCmdShow(f *cmdutil.Factory, runF func(*Options) error) *cobra.Command {
+func NewCmdShow(f *cmdutil.Factory, runF func(context.Context, *Options) error) *cobra.Command {
 	opts := &Options{
 		IO:     f.IOStreams,
 		Config: f.Config,
@@ -47,7 +48,7 @@ standard --json <fields> pattern with --jq and --template).`,
 				opts.FlagUnits = fl.Value.String()
 			}
 			if runF != nil {
-				return runF(opts)
+				return runF(cmd.Context(), opts)
 			}
 			return runShow(opts)
 		},
