@@ -1,5 +1,10 @@
 # pvmt
 
+[![CI](https://github.com/jcrussell/solvent-streets/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/jcrussell/solvent-streets/actions/workflows/ci.yaml)
+[![Release](https://img.shields.io/github/v/release/jcrussell/solvent-streets?logo=github)](https://github.com/jcrussell/solvent-streets/releases)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/jcrussell/solvent-streets)](go.mod)
+[![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
+
 Pure Go CLI for pavement data ingestion, hex-grid coverage analysis, PCI decay forecasting, and MapLibre visualization.
 
 - No CGO — pure Go SQLite and geometry
