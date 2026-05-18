@@ -64,6 +64,7 @@ See [`examples/`](examples/) for ready-to-use configs covering single-city, mult
 | [Troubleshooting](docs/troubleshooting.md) | Common errors and remediation hints |
 | [CLI Reference](docs/reference/pvmt.md) | Per-subcommand reference generated from `pvmt --help` |
 | [Examples](examples/README.md) | Ready-to-use configs for single-city, multi-city, and ten US locations |
+| [Contributing](CONTRIBUTING.md) | Prerequisites, build/test loop, commit-message style, issue tracking |
 
 ## License
 
