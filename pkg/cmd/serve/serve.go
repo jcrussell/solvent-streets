@@ -15,11 +15,12 @@ import (
 )
 
 type Options struct {
-	IO     *iostreams.IOStreams
-	RootDB func() (*db.RootStore, error)
-	Config func() (*config.Config, error)
-	Cities func() ([]config.CityConfig, error)
-	Port   int
+	IO        *iostreams.IOStreams
+	RootDB    func() (*db.RootStore, error)
+	Config    func() (*config.Config, error)
+	Cities    func() ([]config.CityConfig, error)
+	Port      int
+	ReadyFile string
 }
 
 func NewCmdServe(f *cmdutil.Factory, runF func(context.Context, *Options) error) *cobra.Command {
@@ -48,6 +49,8 @@ func NewCmdServe(f *cmdutil.Factory, runF func(context.Context, *Options) error)
 	}
 
 	cmd.Flags().IntVar(&opts.Port, "port", 8080, "Port to listen on")
+	cmd.Flags().StringVar(&opts.ReadyFile, "ready-file", "",
+		"Write the listening URL to this file once the listener is bound (for orchestration)")
 
 	return cmd
 }
@@ -89,5 +92,6 @@ func runServe(ctx context.Context, opts *Options) error {
 	}
 
 	srv := server.New(entries, opts.Port, opts.IO)
+	srv.ReadyFile = opts.ReadyFile
 	return srv.ListenAndServe(ctx)
 }

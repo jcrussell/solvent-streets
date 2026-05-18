@@ -21,6 +21,11 @@ type Server struct {
 	ios       *iostreams.IOStreams
 	cache     sync.Map // key → *jsonThunk (sync.OnceValues wrapper); single-flight, never invalidated — restart server after data changes
 	forecasts sync.Map // city slug → *forecastThunk (sync.OnceValue wrapper); shared by serveForecastJSON and serveHexCostSummary
+
+	// ReadyFile, if non-empty, receives the listening URL atomically
+	// once the TCP listener is bound. Container/test orchestration polls
+	// for the file's existence instead of parsing log lines or sleeping.
+	ReadyFile string
 }
 
 func New(cities []export.CityEntry, port int, ios *iostreams.IOStreams) *Server {
@@ -63,7 +68,15 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		return fmt.Errorf("listen: %w", err)
 	}
 
-	fmt.Fprintf(s.ios.ErrOut, "Serving on http://localhost:%d\n", s.port)
+	url := readyURL(ln.Addr())
+	if s.ReadyFile != "" {
+		if err := cmdutil.WriteFile(s.ReadyFile, []byte(url+"\n"), 0o644); err != nil {
+			_ = ln.Close()
+			return fmt.Errorf("write ready file: %w", err)
+		}
+	}
+
+	fmt.Fprintf(s.ios.ErrOut, "Serving on %s\n", url)
 
 	// Graceful shutdown: Serve runs in a goroutine; whichever of ctx
 	// cancellation or Serve returning first wins.
@@ -84,6 +97,21 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		}
 		return nil
 	}
+}
+
+// readyURL formats the listener address as a URL suitable for the
+// human banner and the --ready-file payload. For wildcard binds
+// (0.0.0.0 / [::]) we substitute localhost so the value is directly
+// usable by a client on the same host.
+func readyURL(addr net.Addr) string {
+	host, port, err := net.SplitHostPort(addr.String())
+	if err != nil {
+		return "http://" + addr.String()
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "localhost"
+	}
+	return "http://" + net.JoinHostPort(host, port)
 }
 
 func (s *Server) cityBySlug(slug string) *export.CityEntry {
