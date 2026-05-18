@@ -374,6 +374,65 @@ func (s *sqliteStore) WithSnapshot(snapshotID int64) Store {
 	return &cp
 }
 
+// DeleteSnapshot removes the snapshot and every FK-linked result row in a
+// single transaction. Scoped to this city: a snapshot owned by a different
+// city is treated as not found (returns false, nil) so the city scope
+// guards against cross-city deletes. Returns true if a row was deleted.
+//
+// The schema declares snapshot_id columns without ON DELETE CASCADE, so
+// the dependent deletes are explicit. Order doesn't matter once we're
+// inside a tx — foreign_keys=on enforces at commit time — but we delete
+// children first to keep intent obvious.
+func (s *sqliteStore) DeleteSnapshot(ctx context.Context, snapshotID int64) (bool, error) {
+	if snapshotID <= 0 {
+		return false, fmt.Errorf("invalid snapshot id %d", snapshotID)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var owned int64
+	err = tx.QueryRowContext(ctx,
+		`SELECT id FROM snapshots WHERE id = ? AND city_id = ?`,
+		snapshotID, s.cityID).Scan(&owned)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("lookup snapshot: %w", err)
+	}
+
+	// Statements are static literals (gosec G202): table names are not
+	// derived from user input, but listing the four deletes explicitly
+	// keeps that fact obvious to readers and to the linter.
+	deletes := []struct {
+		label string
+		sql   string
+	}{
+		{"compute_results", `DELETE FROM compute_results WHERE snapshot_id = ? AND city_id = ?`},
+		{"hex_stats", `DELETE FROM hex_stats WHERE snapshot_id = ? AND city_id = ?`},
+		{"forecast_results", `DELETE FROM forecast_results WHERE snapshot_id = ? AND city_id = ?`},
+		{"cohort_stats", `DELETE FROM cohort_stats WHERE snapshot_id = ? AND city_id = ?`},
+	}
+	for _, d := range deletes {
+		if _, err := tx.ExecContext(ctx, d.sql, snapshotID, s.cityID); err != nil {
+			return false, fmt.Errorf("delete from %s: %w", d.label, err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM snapshots WHERE id = ? AND city_id = ?`,
+		snapshotID, s.cityID); err != nil {
+		return false, fmt.Errorf("delete snapshot: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("commit: %w", err)
+	}
+	return true, nil
+}
+
 // ResolveSnapshot returns nil iff the given snapshot id exists and belongs
 // to this city. Returns sql.ErrNoRows for unknown or wrong-city ids. The
 // server handler uses this to translate ?snapshot=<id> into a 404 instead

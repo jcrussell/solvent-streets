@@ -99,6 +99,7 @@ type Store interface {
 	ListSnapshots(ctx context.Context) ([]Snapshot, error)
 	ResolveSnapshot(ctx context.Context, snapshotID int64) error
 	WithSnapshot(snapshotID int64) Store
+	DeleteSnapshot(ctx context.Context, snapshotID int64) (bool, error)
 	SaveForecastResults(ctx context.Context, results []ForecastResult) error
 	ListForecastResults(ctx context.Context, resourceType resource.Type) ([]ForecastResult, error)
 	SaveCohortStats(ctx context.Context, stats []CohortStat) error

@@ -20,6 +20,7 @@ import (
 	"github.com/jcrussell/solvent-streets/pkg/cmd/roads"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/serve"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/sidewalks"
+	"github.com/jcrussell/solvent-streets/pkg/cmd/snapshots"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/status"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/version"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
@@ -252,6 +253,7 @@ func addSubcommands(cmd *cobra.Command, f *cmdutil.Factory) {
 
 	addGroupedCommand(cmd, status.NewCmdStatus(f, nil, nil), groupInfo)
 	addGroupedCommand(cmd, cities.NewCmdCities(f, nil), groupInfo)
+	addGroupedCommand(cmd, snapshots.NewCmdSnapshots(f), groupInfo)
 	addGroupedCommand(cmd, configcmd.NewCmdConfig(f), groupInfo)
 	addGroupedCommand(cmd, version.NewCmdVersion(f, nil), groupInfo)
 }

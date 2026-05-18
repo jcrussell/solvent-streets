@@ -25,6 +25,7 @@ type MockStore struct {
 	ListSnapshotsFunc       func(context.Context) ([]db.Snapshot, error)
 	ResolveSnapshotFunc     func(context.Context, int64) error
 	WithSnapshotFunc        func(int64) db.Store
+	DeleteSnapshotFunc      func(context.Context, int64) (bool, error)
 	SaveForecastResultsFunc func(context.Context, []db.ForecastResult) error
 	ListForecastResultsFunc func(context.Context, resource.Type) ([]db.ForecastResult, error)
 	SaveCohortStatsFunc     func(context.Context, []db.CohortStat) error
@@ -97,6 +98,13 @@ func (m *MockStore) ResolveSnapshot(ctx context.Context, id int64) error {
 		return m.ResolveSnapshotFunc(ctx, id)
 	}
 	return nil
+}
+
+func (m *MockStore) DeleteSnapshot(ctx context.Context, id int64) (bool, error) {
+	if m.DeleteSnapshotFunc != nil {
+		return m.DeleteSnapshotFunc(ctx, id)
+	}
+	return false, nil
 }
 
 // WithSnapshot returns the mock unchanged by default — tests that need to

@@ -150,6 +150,101 @@ func TestSnapshotPinningAcrossResultTables(t *testing.T) {
 	}
 }
 
+// TestDeleteSnapshot_CascadesAndCityScoped pins two contracts the
+// snapshots rm/prune CLI relies on: (1) a single-tx delete cascades to
+// every FK-linked result table, and (2) the city scope prevents a
+// caller in city B from deleting a snapshot owned by city A.
+func TestDeleteSnapshot_CascadesAndCityScoped(t *testing.T) {
+	ctx := context.Background()
+	root, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+
+	idA, _ := root.EnsureCity(ctx, "a", "A")
+	idB, _ := root.EnsureCity(ctx, "b", "B")
+	storeA := root.ForCity(idA)
+	storeB := root.ForCity(idB)
+
+	snap, err := storeA.CreateSnapshot(ctx, "h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid := snap.ID
+
+	if err := storeA.SaveComputeResult(ctx, ComputeResult{ResourceType: rtRoads, TotalAreaSqM: 1, SnapshotID: &sid}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storeA.SaveHexStats(ctx, []HexStat{{HexID: "h1", ResourceType: rtRoads, SnapshotID: &sid}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storeA.SaveCohortStats(ctx, []CohortStat{{ResourceType: rtRoads, Classification: "primary", SnapshotID: &sid}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storeA.SaveForecastResults(ctx, []ForecastResult{{ResourceType: rtRoads, Year: 2026, SnapshotID: &sid}}); err != nil {
+		t.Fatal(err)
+	}
+
+	// City B cannot delete city A's snapshot.
+	ok, err := storeB.DeleteSnapshot(ctx, sid)
+	if err != nil {
+		t.Fatalf("DeleteSnapshot across cities: %v", err)
+	}
+	if ok {
+		t.Errorf("DeleteSnapshot from wrong city should return false, got true")
+	}
+	// Sanity: snapshot still exists in city A.
+	snaps, _ := storeA.ListSnapshots(ctx)
+	if len(snaps) != 1 {
+		t.Fatalf("city A should still have 1 snapshot after cross-city delete attempt, got %d", len(snaps))
+	}
+
+	// City A deletes successfully and cascades to every result table.
+	ok, err = storeA.DeleteSnapshot(ctx, sid)
+	if err != nil {
+		t.Fatalf("DeleteSnapshot: %v", err)
+	}
+	if !ok {
+		t.Errorf("DeleteSnapshot expected true, got false")
+	}
+
+	snaps, _ = storeA.ListSnapshots(ctx)
+	if len(snaps) != 0 {
+		t.Errorf("snapshots after delete: got %d, want 0", len(snaps))
+	}
+	pinned := storeA.WithSnapshot(sid)
+	if hs, _ := pinned.ListHexStats(ctx, rtRoads); len(hs) != 0 {
+		t.Errorf("hex_stats after delete: got %d, want 0", len(hs))
+	}
+	if cs, _ := pinned.ListCohortStats(ctx, rtRoads); len(cs) != 0 {
+		t.Errorf("cohort_stats after delete: got %d, want 0", len(cs))
+	}
+	if fc, _ := pinned.ListForecastResults(ctx, rtRoads); len(fc) != 0 {
+		t.Errorf("forecast_results after delete: got %d, want 0", len(fc))
+	}
+	var cr int
+	if err := root.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM compute_results WHERE snapshot_id = ?`, sid).Scan(&cr); err != nil {
+		t.Fatal(err)
+	}
+	if cr != 0 {
+		t.Errorf("compute_results after delete: got %d, want 0", cr)
+	}
+
+	// Idempotent / not-found returns (false, nil).
+	ok, err = storeA.DeleteSnapshot(ctx, sid)
+	if err != nil {
+		t.Errorf("DeleteSnapshot on already-deleted id: %v", err)
+	}
+	if ok {
+		t.Errorf("DeleteSnapshot on already-deleted id: want false, got true")
+	}
+	// Invalid id is a clear error.
+	if _, err := storeA.DeleteSnapshot(ctx, 0); err == nil {
+		t.Errorf("DeleteSnapshot(0) should error")
+	}
+}
+
 // TestResolveSnapshot verifies city-scoped existence checks and the error
 // shape the server handler relies on for 404 mapping.
 func TestResolveSnapshot(t *testing.T) {
