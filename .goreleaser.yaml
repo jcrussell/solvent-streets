@@ -45,6 +45,30 @@ checksum:
   name_template: "checksums.txt"
   algorithm: sha256
 
+sboms:
+  - id: archives
+    artifacts: archive
+    cmd: syft
+    args:
+      - "scan"
+      - "${artifact}"
+      - "--output"
+      - "cyclonedx-json=${document}"
+    documents:
+      - "${artifact}.sbom.cdx.json"
+
+signs:
+  - cmd: cosign
+    artifacts: all
+    signature: "${artifact}.sig"
+    certificate: "${artifact}.pem"
+    args:
+      - "sign-blob"
+      - "--yes"
+      - "--output-signature=${signature}"
+      - "--output-certificate=${certificate}"
+      - "${artifact}"
+
 changelog:
   sort: asc
   use: github
