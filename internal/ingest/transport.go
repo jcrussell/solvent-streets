@@ -29,12 +29,15 @@ package ingest
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"math"
-	"math/rand"
+	"io"
+	"math/rand/v2"
+	"net"
 	"net/http"
 	"strconv"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/jcrussell/solvent-streets/internal/build"
@@ -123,7 +126,64 @@ func RetryTransport(wrapped http.RoundTripper, cfg RetryConfig) http.RoundTrippe
 	return &retryTransport{wrapped: wrapped, cfg: cfg}
 }
 
+// allowRetryKey marks a context as opting non-idempotent requests
+// (POST / PATCH) into the retry transport's backoff loop. Unexported so
+// callers can only set it via AllowRetry; ctx values keyed by an
+// unexported type are unreachable from any other package.
+type allowRetryKey struct{}
+
+// AllowRetry returns a context that opts non-idempotent requests (POST /
+// PATCH) into the retry transport's backoff loop per byob-http-client.3.
+// GET / HEAD / PUT / DELETE / OPTIONS are retried by default — the
+// RFC 9110 idempotent set — and do not need the marker.
+//
+// Use it for POSTs the server treats as idempotent (a POST with an
+// Idempotency-Key header, or a read-only POST like Overpass that uses
+// POST only because the query body is too large for a URL). Setting it
+// on a write that the server is not prepared to deduplicate will silently
+// duplicate the write on every retry — the whole reason non-idempotent
+// methods are off by default.
+func AllowRetry(ctx context.Context) context.Context {
+	return context.WithValue(ctx, allowRetryKey{}, true)
+}
+
+// retryAllowed reports whether ctx has been marked with AllowRetry.
+func retryAllowed(ctx context.Context) bool {
+	v, _ := ctx.Value(allowRetryKey{}).(bool)
+	return v
+}
+
+// methodIsIdempotent reports whether m is in the RFC 9110 idempotent set
+// that the retry transport retries by default: GET, HEAD, PUT, DELETE,
+// OPTIONS. POST / PATCH (and any custom method) require AllowRetry on the
+// request context to be eligible. DELETE is included despite a common
+// misconception that it is not idempotent — re-issuing DELETE on a missing
+// resource is a 404, not a duplicated side effect.
+func methodIsIdempotent(m string) bool {
+	switch m {
+	case http.MethodGet, http.MethodHead, http.MethodPut, http.MethodDelete, http.MethodOptions:
+		return true
+	}
+	return false
+}
+
+// requestRetryable returns whether the request itself is eligible for
+// retry per byob-http-client.3. Two gates: (1) the method is idempotent
+// or the caller opted in via AllowRetry, and (2) the body can be
+// replayed — nil body or a non-nil GetBody. A streaming body with no
+// GetBody is silently downgraded to a single attempt, since the stdlib
+// consumes the body on the first round-trip and there is nothing to
+// rewind on a retry.
+func requestRetryable(req *http.Request) bool {
+	if !methodIsIdempotent(req.Method) && !retryAllowed(req.Context()) {
+		return false
+	}
+	return req.Body == nil || req.GetBody != nil
+}
+
 func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	canRetry := requestRetryable(req)
+
 	var resp *http.Response
 	var err error
 
@@ -134,13 +194,17 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		attemptReq := rewoundClone(req, attempt)
 
 		resp, err = t.wrapped.RoundTrip(attemptReq)
-		if !t.shouldRetry(resp, err) {
+		if !canRetry {
 			return resp, err
 		}
-
+		if !shouldRetry(resp, err) {
+			return resp, err
+		}
 		if attempt >= t.cfg.MaxRetries {
-			closeBody(resp)
-			break
+			// Exhausted — return the last response/error so the caller
+			// can inspect it. Leaving resp.Body open here matches the
+			// RoundTripper contract: the caller owns the body.
+			return resp, err
 		}
 
 		wait := t.backoffWait(attempt, resp)
@@ -195,20 +259,77 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 	}
 }
 
-func (t *retryTransport) shouldRetry(resp *http.Response, err error) bool {
+// shouldRetry classifies a response or transport error per
+// byob-http-client.3. Status allowlist: 408, 429, 500, 502, 503, 504 —
+// chosen because each is either a documented transient condition (server
+// overload, rate limit, request timeout) or a hop in front of one
+// (502/504 from a load balancer). 501 (Not Implemented), 505 (HTTP
+// Version Not Supported), and 425 (Too Early) are deliberately excluded
+// — they describe a state the server will not exit by retrying.
+//
+// Error allowlist: net.Error.Timeout(), syscall.ECONNRESET,
+// syscall.ECONNREFUSED, syscall.EPIPE, io.ErrUnexpectedEOF — each
+// indicates a transport-level disconnect, not a request the server
+// rejected. context.Canceled and context.DeadlineExceeded are
+// surfaced from the caller's ctx and must never be retried.
+func shouldRetry(resp *http.Response, err error) bool {
 	if err != nil {
+		return isRetryableErr(err)
+	}
+	switch resp.StatusCode {
+	case http.StatusRequestTimeout, // 408
+		http.StatusTooManyRequests,     // 429
+		http.StatusInternalServerError, // 500
+		http.StatusBadGateway,          // 502
+		http.StatusServiceUnavailable,  // 503
+		http.StatusGatewayTimeout:      // 504
 		return true
 	}
-	return resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests
+	return false
 }
 
+func isRetryableErr(err error) bool {
+	// Caller-driven cancellation is never retryable — the ctx itself is
+	// the signal to stop.
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	if errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	if errors.Is(err, syscall.ECONNRESET) ||
+		errors.Is(err, syscall.ECONNREFUSED) ||
+		errors.Is(err, syscall.EPIPE) {
+		return true
+	}
+	var ne net.Error
+	if errors.As(err, &ne) && ne.Timeout() {
+		return true
+	}
+	return false
+}
+
+// backoffWait computes the wait before the next attempt per
+// byob-http-client.3: bounded exponential backoff with full jitter.
+// wait ∈ [0, min(base * 2^attempt, MaxBackoff)). Retry-After (if
+// honoured and larger) overrides the jittered value but is still capped
+// by MaxBackoff so a hostile server cannot pin the client.
+//
+// Uses math/rand/v2 — auto-seeded since Go 1.22, so successive process
+// invocations do not share the deterministic sequence math/rand gives
+// without explicit seeding.
 func (t *retryTransport) backoffWait(attempt int, resp *http.Response) time.Duration {
-	backoff := time.Duration(math.Pow(2, float64(attempt))) * time.Second
-	jitter := time.Duration(rand.Int63n(int64(time.Second))) //nolint:gosec // G404: jitter does not need crypto rand
-	wait := backoff + jitter
+	exp := time.Second << attempt
+	if exp <= 0 || exp > t.cfg.MaxBackoff {
+		exp = t.cfg.MaxBackoff
+	}
+	var wait time.Duration
+	if exp > 0 {
+		wait = rand.N(exp) //nolint:gosec // G404: jitter does not need crypto rand
+	}
 
 	if t.cfg.UseRetryAfter && resp != nil {
-		if ra := parseRetryAfter(resp); ra > 0 && ra > wait {
+		if ra := parseRetryAfter(resp, time.Now()); ra > wait {
 			wait = ra
 		}
 	}
@@ -219,15 +340,26 @@ func (t *retryTransport) backoffWait(attempt int, resp *http.Response) time.Dura
 	return wait
 }
 
-// parseRetryAfter reads the Retry-After header as an integer number of seconds.
-func parseRetryAfter(resp *http.Response) time.Duration {
+// parseRetryAfter reads RFC 7231 §7.1.3: either delta-seconds
+// (an unsigned integer, e.g. "120") or an HTTP-date (e.g. "Wed, 21 Oct
+// 2015 07:28:00 GMT"). HTTP-date is converted to a duration relative to
+// now; a date in the past returns 0. now is injected so tests can pin
+// the conversion deterministically.
+func parseRetryAfter(resp *http.Response, now time.Time) time.Duration {
 	v := resp.Header.Get("Retry-After")
 	if v == "" {
 		return 0
 	}
-	secs, err := strconv.Atoi(v)
-	if err != nil || secs <= 0 {
-		return 0
+	if secs, err := strconv.Atoi(v); err == nil {
+		if secs <= 0 {
+			return 0
+		}
+		return time.Duration(secs) * time.Second
 	}
-	return time.Duration(secs) * time.Second
+	if when, err := http.ParseTime(v); err == nil {
+		if d := when.Sub(now); d > 0 {
+			return d
+		}
+	}
+	return 0
 }
