@@ -115,15 +115,40 @@ func httpClientFactory(f *cmdutil.Factory, cacheTTL time.Duration) func() (*http
 	})
 }
 
+// configFactory builds the lazy closure that backs f.Config per the
+// byob-config.3 contract:
+//
+//   - sync.OnceValues caches the loaded *config.Config (and any error)
+//     for the process lifetime, so commands which dereference Config
+//     more than once pay one filesystem walk + parse total.
+//   - The actual load is deferred to first call. Commands that never
+//     touch the config — `pvmt --version`, `pvmt --help`, `pvmt
+//     completion`, the __complete completion path — therefore pay
+//     nothing for config discovery and survive a broken or absent
+//     pvmt.toml. PersistentPreRunE's skipMiddleware list keeps those
+//     commands from going through warnInvalidConfig, which is the
+//     other place the closure would otherwise be triggered.
+//   - Errors are cached too: a broken config file fails once and
+//     returns the same wrapped error on every subsequent call,
+//     instead of re-walking the filesystem on each access.
+//
+// loadConfigFromCwd is split out so tests can inject a counter-aware
+// loader through lazyConfig without bypassing the once/lazy contract.
 func configFactory() func() (*config.Config, error) {
-	return sync.OnceValues(func() (*config.Config, error) {
-		wd, err := os.Getwd()
-		if err != nil {
-			return nil, err
-		}
-		cfg, err := config.FindAndLoad(wd)
-		return cfg, hintForConfigError(err)
-	})
+	return lazyConfig(loadConfigFromCwd)
+}
+
+func loadConfigFromCwd() (*config.Config, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := config.FindAndLoad(wd)
+	return cfg, hintForConfigError(err)
+}
+
+func lazyConfig(load func() (*config.Config, error)) func() (*config.Config, error) {
+	return sync.OnceValues(load)
 }
 
 func rootDBFactory(f *cmdutil.Factory, path string) func() (*db.RootStore, error) {

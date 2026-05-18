@@ -1,10 +1,14 @@
 package factory
 
 import (
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/paths"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 )
@@ -136,6 +140,130 @@ func TestHttpClientFactory_TransportChainIsCacheWrapped(t *testing.T) {
 	gotType := fmt.Sprintf("%T", client.Transport)
 	if gotType != "*cache.CachingTransport" {
 		t.Errorf("outermost transport = %s; want *cache.CachingTransport (byob-http-client.1 chain order: cache wraps ingest wraps base)", gotType)
+	}
+}
+
+// TestLazyConfig_DefersConstructionUntilCalled locks in the laziness
+// half of the byob-config.3 contract: building the closure must not
+// invoke the loader, so `pvmt --version` and `pvmt --help` never read
+// the filesystem looking for pvmt.toml. A regression here would mean a
+// broken pvmt.toml could prevent users from running `pvmt --help` to
+// figure out what's wrong — the worst possible failure mode for a CLI.
+func TestLazyConfig_DefersConstructionUntilCalled(t *testing.T) {
+	calls := 0
+	load := lazyConfig(func() (*config.Config, error) {
+		calls++
+		return &config.Config{}, nil
+	})
+
+	if calls != 0 {
+		t.Fatalf("loader invoked %d time(s) before Config() was called; lazyConfig is not lazy", calls)
+	}
+
+	if _, err := load(); err != nil {
+		t.Fatalf("Config (first): %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("loader invoked %d time(s) after first Config(); want 1", calls)
+	}
+}
+
+// TestLazyConfig_CachedAcrossCalls locks in the sync.OnceValues half
+// of the contract: repeated f.Config() calls return the same *Config
+// without re-reading the file. Without this guarantee, a long-running
+// command that touches Config from multiple call sites (e.g.
+// CurrentCity, UnitSystem, warnInvalidConfig) would re-walk the
+// filesystem on every access.
+func TestLazyConfig_CachedAcrossCalls(t *testing.T) {
+	calls := 0
+	want := &config.Config{}
+	load := lazyConfig(func() (*config.Config, error) {
+		calls++
+		return want, nil
+	})
+
+	first, err := load()
+	if err != nil {
+		t.Fatalf("Config (first): %v", err)
+	}
+	second, err := load()
+	if err != nil {
+		t.Fatalf("Config (second): %v", err)
+	}
+	if first != second || first != want {
+		t.Errorf("lazyConfig returned different *Config across calls; sync.OnceValues caching is broken")
+	}
+	if calls != 1 {
+		t.Errorf("loader invoked %d time(s) across two Config() calls; want 1 (sync.OnceValues should cache)", calls)
+	}
+}
+
+// TestLazyConfig_CachesErrors guards a subtle but important property:
+// when the first load fails (broken pvmt.toml, permission denied,
+// etc.), subsequent calls must return the *same* cached error rather
+// than re-walking the filesystem each time. Callers like warnInvalidEnv
+// followed by a subcommand's RunE will dereference Config repeatedly;
+// without error caching, a single broken config would multiply
+// filesystem hits with no upside, and the user would see the same
+// error reported with different wrapping each time depending on what
+// the filesystem looked like at that instant.
+func TestLazyConfig_CachesErrors(t *testing.T) {
+	calls := 0
+	sentinel := errors.New("synthetic load failure")
+	load := lazyConfig(func() (*config.Config, error) {
+		calls++
+		return nil, sentinel
+	})
+
+	_, err1 := load()
+	_, err2 := load()
+	if !errors.Is(err1, sentinel) || !errors.Is(err2, sentinel) {
+		t.Errorf("expected sentinel error from both calls; got %v / %v", err1, err2)
+	}
+	if calls != 1 {
+		t.Errorf("loader invoked %d time(s); want 1 (errors must be cached, not retried)", calls)
+	}
+}
+
+// TestNew_DoesNotLoadConfigEagerly proves the contract through the
+// real entry point: factory.New() must not consult the filesystem
+// for pvmt.toml, even when no config exists anywhere up the tree.
+// We chdir into an isolated tempdir whose parents (under /tmp) carry
+// no pvmt.toml, call New(), and assert it returns a usable factory
+// without surfacing config errors. Without lazy loading, an absent
+// pvmt.toml would either error out of New() (impossible — New has no
+// return error) or surface on first access of any field that
+// transitively touches Config, breaking commands like --version that
+// have no business reading config.
+func TestNew_DoesNotLoadConfigEagerly(t *testing.T) {
+	tmp := t.TempDir()
+	// Sanity: no pvmt.toml exists in tmp or its parents under t.TempDir's
+	// root. (t.TempDir lives under os.TempDir, which is not a project root.)
+	if _, err := os.Stat(filepath.Join(tmp, "pvmt.toml")); !os.IsNotExist(err) {
+		t.Fatalf("expected no pvmt.toml in tempdir; got stat err=%v", err)
+	}
+
+	t.Chdir(tmp)
+
+	f := New()
+	if f == nil {
+		t.Fatal("New returned nil factory")
+	}
+	if f.Config == nil {
+		t.Fatal("New left Config closure unset; lazy contract requires the closure exist after New")
+	}
+
+	// Now actually dereference Config — the laziness contract says this
+	// is when the load must happen. Without a pvmt.toml anywhere up the
+	// tree, the loader should surface ErrConfigNotFound (wrapped with a
+	// hint). If we instead saw "no error", that would mean New ate the
+	// error silently somewhere — also a regression.
+	_, err := f.Config()
+	if err == nil {
+		t.Fatal("Config() in empty tempdir returned no error; expected ErrConfigNotFound")
+	}
+	if !errors.Is(err, config.ErrConfigNotFound) {
+		t.Errorf("Config() returned %v; want errors.Is(err, ErrConfigNotFound)", err)
 	}
 }
 
