@@ -29,6 +29,14 @@ func Hintf(err error, format string, a ...any) error {
 // ErrCancel is returned when the user cancels an operation.
 var ErrCancel = errors.New("cancel")
 
+// ErrSilent signals that the command already reported its failure to the
+// user (typically a contextual diagnostic on stderr) and the top-level
+// runner should exit non-zero without printing the error itself. Use this
+// when the natural error message would be redundant — e.g. a subcommand
+// has already streamed per-item failure lines and a final "Error: 3 of 5
+// failed" would just repeat what the user saw.
+var ErrSilent = errors.New("silent")
+
 // FlagError indicates a user error with command flags.
 type FlagError struct {
 	Err error

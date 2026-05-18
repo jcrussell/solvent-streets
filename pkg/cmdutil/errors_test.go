@@ -68,6 +68,24 @@ func TestFlagError_UnwrapAndIs(t *testing.T) {
 	}
 }
 
+// TestErrSilent_WrapsAndCompares pins the sentinel-style contract callers
+// rely on: returning `fmt.Errorf("...: %w", ErrSilent)` from a command
+// remains identifiable via errors.Is so the runner can suppress its
+// duplicate "Error:" print.
+func TestErrSilent_WrapsAndCompares(t *testing.T) {
+	if !errors.Is(ErrSilent, ErrSilent) {
+		t.Fatal("ErrSilent must be identity-comparable via errors.Is")
+	}
+	wrapped := fmt.Errorf("after streaming: %w", ErrSilent)
+	if !errors.Is(wrapped, ErrSilent) {
+		t.Fatal("errors.Is(wrapped, ErrSilent) = false; %w chain broken")
+	}
+	// Distinct from the other sentinels so the runner can branch on it.
+	if errors.Is(ErrSilent, ErrCancel) || errors.Is(ErrSilent, ErrNoResults) {
+		t.Fatal("ErrSilent must be distinct from ErrCancel/ErrNoResults")
+	}
+}
+
 // TestTypedNilTrap demonstrates the failure mode that byob-errors.5 forbids.
 // A constructor that returns the concrete pointer type makes `err != nil`
 // true even when the constructor returned a typed nil. The test pins the
