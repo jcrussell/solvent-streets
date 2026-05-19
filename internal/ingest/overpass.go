@@ -23,6 +23,11 @@ const (
 	geomMultiPolygon = "MultiPolygon"
 )
 
+const (
+	elementWay      = "way"
+	elementRelation = "relation"
+)
+
 type OverpassSource struct {
 	BBox [4]float64 // [south, west, north, east]
 }
@@ -118,17 +123,27 @@ type overpassResponse struct {
 	Elements []overpassElement `json:"elements"`
 }
 
+type overpassGeometryPoint struct {
+	Lat float64 `json:"lat"`
+	Lon float64 `json:"lon"`
+}
+
+type overpassRelationMember struct {
+	Type     string                  `json:"type"`
+	Ref      int64                   `json:"ref"`
+	Role     string                  `json:"role"`
+	Geometry []overpassGeometryPoint `json:"geometry,omitempty"`
+}
+
 type overpassElement struct {
-	Type     string            `json:"type"`
-	ID       int64             `json:"id"`
-	Lat      float64           `json:"lat,omitempty"`
-	Lon      float64           `json:"lon,omitempty"`
-	Tags     map[string]string `json:"tags,omitempty"`
-	Nodes    []int64           `json:"nodes,omitempty"`
-	Geometry []struct {
-		Lat float64 `json:"lat"`
-		Lon float64 `json:"lon"`
-	} `json:"geometry,omitempty"`
+	Type     string                   `json:"type"`
+	ID       int64                    `json:"id"`
+	Lat      float64                  `json:"lat,omitempty"`
+	Lon      float64                  `json:"lon,omitempty"`
+	Tags     map[string]string        `json:"tags,omitempty"`
+	Nodes    []int64                  `json:"nodes,omitempty"`
+	Geometry []overpassGeometryPoint  `json:"geometry,omitempty"`
+	Members  []overpassRelationMember `json:"members,omitempty"`
 }
 
 func parseOverpassResponse(data []byte, resourceType resource.Type) ([]db.Feature, error) {
@@ -147,7 +162,7 @@ func parseOverpassResponse(data []byte, resourceType resource.Type) ([]db.Featur
 
 	var features []db.Feature
 	for _, e := range resp.Elements {
-		if e.Type != "way" {
+		if e.Type != elementWay {
 			continue
 		}
 		if f, ok := buildFeatureFromWay(e, nodes, resourceType); ok {
