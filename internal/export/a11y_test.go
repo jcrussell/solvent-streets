@@ -78,6 +78,37 @@ func TestDashboardReducedMotionCSS(t *testing.T) {
 	}
 }
 
+// TestDashboardNarrowViewportCSS asserts the narrow-viewport breakpoint
+// is wired into the rendered dashboard so the legend, tabs, financial
+// cards, and chart grids reflow on a 375px phone viewport rather than
+// overflowing or covering the map (solvent-streets-1vk).
+func TestDashboardNarrowViewportCSS(t *testing.T) {
+	tmpl := parseDashboardTemplates(t)
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, TemplateData{
+		Cities: []CityInfo{{Slug: "x", Name: "X"}},
+	}); err != nil {
+		t.Fatalf("execute index: %v", err)
+	}
+	out := buf.String()
+
+	if !strings.Contains(out, "@media (max-width: 640px)") {
+		t.Fatal("missing narrow-viewport media query")
+	}
+	// Spot-check that the grids the bead calls out (financials cards and
+	// chart grids) actually collapse to a single column inside the block.
+	for _, s := range []string{
+		".headlines { grid-template-columns: 1fr;",
+		".chart-grid { grid-template-columns: 1fr;",
+		".compare-charts { grid-template-columns: 1fr;",
+	} {
+		if !strings.Contains(out, s) {
+			t.Errorf("narrow-viewport block does not collapse expected grid: %q", s)
+		}
+	}
+}
+
 // TestDashboardErrorBannerAlertRole asserts the error banner announces
 // itself to assistive tech the moment it appears.
 func TestDashboardErrorBannerAlertRole(t *testing.T) {

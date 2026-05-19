@@ -398,6 +398,81 @@
             outline: 2px solid var(--accent);
             outline-offset: 2px;
         }
+
+        /* Narrow viewport (phones / small tablets in portrait).
+           The desktop layout assumes ~1200px-wide canvases for the
+           Financials/Compare grids and a fixed top-right map panel; on a
+           375px viewport these overflow or cover the map entirely.
+           Adjust the worst offenders: let the tab bar scroll horizontally,
+           drop the map panel to the bottom, shrink chart-grid minimums so
+           cards reflow to a single column, allow the cohort table to
+           scroll, and reduce the largest typographic accents. */
+        @media (max-width: 640px) {
+            .tab-bar {
+                padding: 0 8px;
+                overflow-x: auto;
+                overflow-y: hidden;
+                -webkit-overflow-scrolling: touch;
+            }
+            .tab-bar h1 { font-size: 14px; margin-right: 12px; }
+            .tab-bar .tab-btn { padding: 0 10px; font-size: 13px; flex-shrink: 0; }
+            .jurisdiction-toggle { margin-right: 8px; }
+            .jurisdiction-toggle button { padding: 4px 8px; font-size: 12px; }
+
+            /* Map panel: stop covering the map; dock at the bottom with a
+               capped height and let the user scroll the stat cards. */
+            #panel {
+                top: auto;
+                left: 8px;
+                right: 8px;
+                bottom: 8px;
+                max-width: none;
+                padding: 12px 14px;
+                max-height: 45%;
+                font-size: 13px;
+            }
+            #panel h2 { font-size: 16px; }
+            /* Legend pinned above the now-bottom panel; shrink the bar so
+               it doesn't run to the screen edge. */
+            #legend {
+                bottom: auto;
+                top: 56px;
+                right: 8px;
+                padding: 6px 10px;
+            }
+            #legend .legend-bar { width: 140px; }
+
+            /* Financials / Compare layouts: collapse multi-column grids to
+               single column by dropping minmax floors below the viewport. */
+            .financials, .compare, .config-tab { padding: 16px 12px; }
+            .headlines { grid-template-columns: 1fr; gap: 12px; margin-bottom: 20px; }
+            .headline-card { padding: 14px; }
+            .headline-card .value { font-size: 22px; }
+            .chart-grid { grid-template-columns: 1fr; gap: 16px; }
+            .chart-card { padding: 14px; }
+            .controls-grid { grid-template-columns: 1fr; gap: 12px; }
+            .compare-charts { grid-template-columns: 1fr; gap: 16px; }
+            .compare-chart-card { padding: 14px; }
+            .compare-header h2 { font-size: 22px; }
+            .score-cards { grid-template-columns: 1fr; gap: 12px; }
+            .score-card { padding: 16px; }
+            .score-card .score-value { font-size: 36px; }
+
+            /* Cohort + tier rows: the 7-col cohort table and the 4-col tier
+               grid both exceed 375px. Let cohort scroll horizontally; keep
+               tier as a single block with reduced gutter. */
+            .cohort-section { overflow-x: auto; }
+            .cohort-table { font-size: 13px; min-width: 560px; }
+            .tier-row { grid-template-columns: 1fr 64px 64px 80px; gap: 6px; font-size: 12px; }
+
+            /* Leaderboard rows: drop the fixed name column so long city
+               names don't truncate to two letters. */
+            .lb-row .lb-name { width: 96px; font-size: 12px; }
+            .lb-row .lb-val { width: 72px; font-size: 12px; }
+
+            /* About methodology: tighten the desktop gutter. */
+            #about-tab .methodology { padding: 24px 16px 48px; }
+        }
     </style>
     {{template "theme_vars" .}}
     {{template "methodology_styles" .}}
