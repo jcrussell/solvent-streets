@@ -5,21 +5,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 )
 
-// FetchOSMWater queries Overpass for OSM `natural=water` polygons inside
-// bbox and returns a single GeoJSON MultiPolygon string. Closed
-// natural=water ways and natural=water multipolygon relations (whose
-// outer/inner member ways are stitched into rings here) are both
-// supported. Empty water responses return ("", nil) — callers must treat
-// this as a benign no-op (no water in the bbox).
-//
-// Open `natural=coastline` linestrings that bound the open sea but only
-// form polygons after closing along the bbox are not yet covered;
-// that work lives in a follow-up bead.
+// FetchOSMWater queries Overpass for OSM water polygons inside bbox and
+// returns a single GeoJSON MultiPolygon string. Three source shapes are
+// supported: closed `natural=water` ways, `natural=water` multipolygon
+// relations (whose outer/inner member ways are stitched into rings
+// here), and `natural=coastline` linestrings (which only enclose the
+// sea once their endpoints are closed along the query bbox). Empty
+// water responses return ("", nil) — callers must treat this as a
+// benign no-op (no water in the bbox).
 func FetchOSMWater(ctx context.Context, client *http.Client, bbox [4]float64) (string, error) {
 	return fetchOSMWater(ctx, client, overpassAPI, bbox)
 }
@@ -48,13 +48,16 @@ func fetchOSMWater(ctx context.Context, client *http.Client, baseURL string, bbo
 		return "", fmt.Errorf("overpass water returned %d: %s", resp.StatusCode, truncate(string(body), 200))
 	}
 
-	return parseWaterResponse(body)
+	return parseWaterResponse(body, bbox)
 }
 
 func buildWaterQuery(bbox [4]float64) string {
 	// bbox is [south, west, north, east] — Overpass expects the same order.
+	// The coastline query is separate from the water query because the
+	// post-processing differs (coastline ways need bbox-edge closing).
 	return fmt.Sprintf(
-		`[out:json][timeout:60];(way["natural"="water"](%f,%f,%f,%f);relation["natural"="water"](%f,%f,%f,%f););out geom;`,
+		`[out:json][timeout:60];(way["natural"="water"](%f,%f,%f,%f);relation["natural"="water"](%f,%f,%f,%f);way["natural"="coastline"](%f,%f,%f,%f););out geom;`,
+		bbox[0], bbox[1], bbox[2], bbox[3],
 		bbox[0], bbox[1], bbox[2], bbox[3],
 		bbox[0], bbox[1], bbox[2], bbox[3],
 	)
@@ -66,23 +69,34 @@ type waterPolygon struct {
 	holes [][][2]float64
 }
 
-func parseWaterResponse(data []byte) (string, error) {
+func parseWaterResponse(data []byte, bbox [4]float64) (string, error) {
 	var resp overpassResponse
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return "", fmt.Errorf("parse overpass water json: %w", err)
 	}
 
 	var polys []waterPolygon
+	var coastWays [][][2]float64
 	for _, e := range resp.Elements {
 		switch e.Type {
 		case elementWay:
 			coords := resolveWayCoords(e, nil)
+			if e.Tags["natural"] == "coastline" {
+				coastWays = append(coastWays, coords)
+				continue
+			}
 			if !isClosedRing(coords) {
 				continue
 			}
 			polys = append(polys, waterPolygon{outer: coords})
 		case elementRelation:
 			polys = append(polys, polygonsFromRelation(e)...)
+		}
+	}
+
+	for _, chain := range stitchCoastlineChains(coastWays) {
+		for _, ring := range closeCoastlineChain(chain, bbox) {
+			polys = append(polys, waterPolygon{outer: ring})
 		}
 	}
 
@@ -233,4 +247,339 @@ func coordRingJSON(coords [][2]float64) string {
 		parts[i] = fmt.Sprintf("[%g,%g]", c[0], c[1])
 	}
 	return "[" + strings.Join(parts, ",") + "]"
+}
+
+// stitchCoastlineChains chains coastline ways head-to-tail preserving
+// orientation. OSM coastline ways have water on the right when walked
+// start→end (the OSM convention), so reversal is forbidden — a reversed
+// way would flip the water side and break the right-hand rule that
+// downstream bbox closing depends on. Result chains may be closed
+// (first == last) or open. Each input way is consumed at most once.
+func stitchCoastlineChains(ways [][][2]float64) [][][2]float64 {
+	// Map each unused way's start vertex to its index for O(1) extension.
+	// A vertex with multiple starts is rare in OSM coastline data but
+	// possible at junction tags; we keep all candidates and pick any
+	// unused one.
+	startsAt := make(map[[2]float64][]int)
+	for i, w := range ways {
+		if len(w) >= 2 {
+			startsAt[w[0]] = append(startsAt[w[0]], i)
+		}
+	}
+	endsAt := make(map[[2]float64][]int)
+	for i, w := range ways {
+		if len(w) >= 2 {
+			endsAt[w[len(w)-1]] = append(endsAt[w[len(w)-1]], i)
+		}
+	}
+
+	used := make([]bool, len(ways))
+	pickUnused := func(idxs []int) (int, bool) {
+		for _, i := range idxs {
+			if !used[i] {
+				return i, true
+			}
+		}
+		return 0, false
+	}
+
+	var chains [][][2]float64
+	for i := range ways {
+		if used[i] || len(ways[i]) < 2 {
+			continue
+		}
+		headIdx := findChainHead(i, ways, endsAt, used)
+		chain := buildChainForward(headIdx, ways, startsAt, used, pickUnused)
+		chains = append(chains, chain)
+	}
+	return chains
+}
+
+// findChainHead walks back from seed through predecessor ways (whose
+// tails match the current head's start vertex) until none remain. The
+// walkback uses a local seen-set so closed loops terminate at the seed
+// rather than running forever, and does not mark `used` so the forward
+// pass can still consume the predecessor ways.
+func findChainHead(seed int, ways [][][2]float64, endsAt map[[2]float64][]int, used []bool) int {
+	headIdx := seed
+	seen := map[int]bool{seed: true}
+	for {
+		next := -1
+		for _, idx := range endsAt[ways[headIdx][0]] {
+			if !used[idx] && !seen[idx] {
+				next = idx
+				break
+			}
+		}
+		if next < 0 {
+			return headIdx
+		}
+		headIdx = next
+		seen[next] = true
+	}
+}
+
+// buildChainForward extends the chain starting at headIdx by repeatedly
+// looking up the unused way whose start vertex matches the chain's
+// current tail. Stops when no successor exists or the chain closes on
+// itself.
+func buildChainForward(
+	headIdx int,
+	ways [][][2]float64,
+	startsAt map[[2]float64][]int,
+	used []bool,
+	pickUnused func([]int) (int, bool),
+) [][2]float64 {
+	chain := append([][2]float64{}, ways[headIdx]...)
+	used[headIdx] = true
+	for {
+		tail := chain[len(chain)-1]
+		next, ok := pickUnused(startsAt[tail])
+		if !ok {
+			return chain
+		}
+		chain = append(chain, ways[next][1:]...)
+		used[next] = true
+		if chain[0] == chain[len(chain)-1] {
+			return chain
+		}
+	}
+}
+
+// closeCoastlineChain clips chain to bbox and closes any open sub-chain
+// along the bbox boundary using the OSM right-hand-water rule.
+// Returns one or more closed rings (already-closed sub-chains pass
+// through unchanged). Sub-chains whose endpoints do not land on the
+// bbox boundary after clipping are dropped — they cannot enclose a
+// water region without one.
+func closeCoastlineChain(chain [][2]float64, bbox [4]float64) [][][2]float64 {
+	var rings [][][2]float64
+	for _, sub := range clipChainToBBox(chain, bbox) {
+		if len(sub) < 2 {
+			continue
+		}
+		if isClosedRing(sub) {
+			rings = append(rings, sub)
+			continue
+		}
+		head := sub[0]
+		tail := sub[len(sub)-1]
+		if !onBBoxEdge(head, bbox) || !onBBoxEdge(tail, bbox) {
+			continue
+		}
+		corners := bboxWalkCW(tail, head, bbox)
+		ring := make([][2]float64, 0, len(sub)+len(corners)+1)
+		ring = append(ring, sub...)
+		ring = append(ring, corners...)
+		ring = append(ring, sub[0])
+		if isClosedRing(ring) {
+			rings = append(rings, ring)
+		}
+	}
+	return rings
+}
+
+// clipChainToBBox clips a polyline to bbox, returning one or more
+// sub-chains that lie inside (or on the boundary of) bbox. Segments
+// are clipped per-edge via Liang-Barsky so the both-endpoints-outside
+// case where the segment still crosses the bbox is handled.
+func clipChainToBBox(chain [][2]float64, bbox [4]float64) [][][2]float64 {
+	if len(chain) < 2 {
+		return nil
+	}
+	var result [][][2]float64
+	var current [][2]float64
+
+	flush := func() {
+		if len(current) >= 2 {
+			result = append(result, current)
+		}
+		current = nil
+	}
+
+	for i := 1; i < len(chain); i++ {
+		p, q, ok := liangBarsky(chain[i-1], chain[i], bbox)
+		if !ok {
+			flush()
+			continue
+		}
+		// Start the sub-chain if we just entered the bbox or are at the
+		// first segment.
+		if len(current) == 0 {
+			current = append(current, p)
+		} else if p != current[len(current)-1] {
+			// Clip cut off something at the previous segment's tail —
+			// emit the existing run and begin a new one.
+			flush()
+			current = append(current, p)
+		}
+		current = append(current, q)
+		// If the clipped segment ended at a bbox edge that the original
+		// `chain[i]` does not equal, then chain[i] is outside bbox: the
+		// next segment will reopen.
+		if q != chain[i] {
+			flush()
+		}
+	}
+	flush()
+	return result
+}
+
+// liangBarsky clips segment a→b to bbox, returning the in-bbox portion
+// (p, q) with ok=true. If the segment lies entirely outside bbox,
+// returns ok=false.
+func liangBarsky(a, b [2]float64, bbox [4]float64) (p, q [2]float64, ok bool) {
+	south, west, north, east := bbox[0], bbox[1], bbox[2], bbox[3]
+	dx := b[0] - a[0]
+	dy := b[1] - a[1]
+	t0, t1 := 0.0, 1.0
+	for _, c := range [4]struct {
+		num, denom float64
+	}{
+		{west - a[0], dx},   // left edge: x ≥ west
+		{a[0] - east, -dx},  // right edge: x ≤ east
+		{south - a[1], dy},  // bottom: y ≥ south
+		{a[1] - north, -dy}, // top: y ≤ north
+	} {
+		if !clipEdge(c.num, c.denom, &t0, &t1) {
+			return p, q, false
+		}
+	}
+	// Preserve the original endpoints when the parametric bounds are
+	// untouched — otherwise float multiplication drifts and the
+	// clipped endpoint stops exactly equalling the input point, which
+	// breaks downstream identity checks (chain continuation, ring
+	// closure).
+	if t0 == 0 {
+		p = a
+	} else {
+		p = [2]float64{a[0] + t0*dx, a[1] + t0*dy}
+	}
+	if t1 == 1 {
+		q = b
+	} else {
+		q = [2]float64{a[0] + t1*dx, a[1] + t1*dy}
+	}
+	return p, q, true
+}
+
+// clipEdge updates the [t0, t1] parametric window against one bbox
+// half-plane constraint expressed as denom*t ≥ num. Returns false when
+// the constraint shrinks the window to empty (segment outside).
+func clipEdge(num, denom float64, t0, t1 *float64) bool {
+	if denom == 0 {
+		return num <= 0
+	}
+	t := num / denom
+	if denom > 0 {
+		if t > *t1 {
+			return false
+		}
+		if t > *t0 {
+			*t0 = t
+		}
+		return true
+	}
+	if t < *t0 {
+		return false
+	}
+	if t < *t1 {
+		*t1 = t
+	}
+	return true
+}
+
+// onBBoxEdge reports whether p lies on (within float epsilon of) any
+// bbox edge.
+func onBBoxEdge(p [2]float64, bbox [4]float64) bool {
+	return bboxPerimeterPos(p, bbox) >= 0
+}
+
+// bboxPerimeterPos returns the arc-length position of p along the bbox
+// boundary, parametrized CW from the NE corner (pos 0). Returns -1 if
+// p is not on the boundary. The CW cycle is:
+//
+//	NE (pos 0) → SE (height) → SW (height+width) → NW (2h+w) → NE (perim).
+func bboxPerimeterPos(p [2]float64, bbox [4]float64) float64 {
+	south, west, north, east := bbox[0], bbox[1], bbox[2], bbox[3]
+	height := north - south
+	width := east - west
+	const eps = 1e-9
+	switch {
+	case math.Abs(p[0]-east) < eps && p[1] >= south-eps && p[1] <= north+eps:
+		return north - p[1]
+	case math.Abs(p[1]-south) < eps && p[0] >= west-eps && p[0] <= east+eps:
+		return height + (east - p[0])
+	case math.Abs(p[0]-west) < eps && p[1] >= south-eps && p[1] <= north+eps:
+		return height + width + (p[1] - south)
+	case math.Abs(p[1]-north) < eps && p[0] >= west-eps && p[0] <= east+eps:
+		return 2*height + width + (p[0] - west)
+	}
+	return -1
+}
+
+// bboxWalkCW returns the bbox corner points encountered when walking
+// CW from `from` to `to` along the bbox boundary. Both points must lie
+// on the boundary; if either does not, nil is returned. Corners are
+// listed in CW order of encounter. When from and to share the same
+// edge and the CW-shortest path goes directly to `to`, no corners are
+// emitted.
+func bboxWalkCW(from, to [2]float64, bbox [4]float64) [][2]float64 {
+	south, west, north, east := bbox[0], bbox[1], bbox[2], bbox[3]
+	height := north - south
+	width := east - west
+	perim := 2 * (height + width)
+
+	posFrom := bboxPerimeterPos(from, bbox)
+	posTo := bboxPerimeterPos(to, bbox)
+	if posFrom < 0 || posTo < 0 {
+		return nil
+	}
+
+	corners := [4]struct {
+		pos float64
+		pt  [2]float64
+	}{
+		{0, [2]float64{east, north}},                // NE
+		{height, [2]float64{east, south}},           // SE
+		{height + width, [2]float64{west, south}},   // SW
+		{2*height + width, [2]float64{west, north}}, // NW
+	}
+
+	target := cwArc(posFrom, posTo, perim)
+	type withDist struct {
+		d  float64
+		pt [2]float64
+	}
+	visited := make([]withDist, 0, 4)
+	for _, c := range corners {
+		d := cwArc(posFrom, c.pos, perim)
+		// Strict inequality skips the case where from or to is a corner
+		// (no spurious self-visit).
+		if d > 0 && d < target {
+			visited = append(visited, withDist{d, c.pt})
+		}
+	}
+	if len(visited) == 0 {
+		return nil
+	}
+	sort.Slice(visited, func(i, j int) bool { return visited[i].d < visited[j].d })
+	out := make([][2]float64, len(visited))
+	for i, v := range visited {
+		out[i] = v.pt
+	}
+	return out
+}
+
+// cwArc returns the CW arc-length from a to b on a cycle of length
+// perim. Result is in [0, perim).
+func cwArc(a, b, perim float64) float64 {
+	d := b - a
+	for d < 0 {
+		d += perim
+	}
+	for d >= perim {
+		d -= perim
+	}
+	return d
 }

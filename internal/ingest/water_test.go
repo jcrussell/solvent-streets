@@ -3,6 +3,7 @@ package ingest
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -69,8 +70,9 @@ func TestFetchOSMWater_NoWaterReturnsEmpty(t *testing.T) {
 }
 
 func TestFetchOSMWater_SkipsOpenWays(t *testing.T) {
-	// First way is open (a coastline-style polyline); second is a closed
-	// water polygon. Only the closed one should make it into the output.
+	// First way is a coastline polyline lying entirely outside the query
+	// bbox (clipping discards it); second is a closed water polygon. Only
+	// the closed polygon should make it into the output.
 	body := `{"elements":[
 		{"type":"way","id":1,"tags":{"natural":"coastline"},"geometry":[
 			{"lat":42.36,"lon":-71.06},
@@ -146,7 +148,7 @@ func TestParseWaterResponse_RelationStitchedOuter(t *testing.T) {
 		]
 	}]}`
 
-	result, err := parseWaterResponse([]byte(body))
+	result, err := parseWaterResponse([]byte(body), [4]float64{0, 0, 1, 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +184,7 @@ func TestParseWaterResponse_RelationWithInnerHole(t *testing.T) {
 		]
 	}]}`
 
-	result, err := parseWaterResponse([]byte(body))
+	result, err := parseWaterResponse([]byte(body), [4]float64{0, 0, 10, 10})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +215,7 @@ func TestParseWaterResponse_RelationDropsOpenChain(t *testing.T) {
 		]
 	}]}`
 
-	result, err := parseWaterResponse([]byte(body))
+	result, err := parseWaterResponse([]byte(body), [4]float64{0, 0, 10, 10})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,6 +297,230 @@ func TestPointInRing(t *testing.T) {
 		if got := pointInRing(c.p, ring); got != c.want {
 			t.Errorf("pointInRing(%v) = %v, want %v", c.p, got, c.want)
 		}
+	}
+}
+
+func TestStitchCoastlineChains_PreservesDirection(t *testing.T) {
+	// Three ways meeting head-to-tail. Reversal is forbidden so they
+	// must already be oriented to chain forward.
+	ways := [][][2]float64{
+		{{0, 0}, {1, 0}},
+		{{1, 0}, {1, 1}},
+		{{1, 1}, {0, 1}},
+	}
+	chains := stitchCoastlineChains(ways)
+	if len(chains) != 1 {
+		t.Fatalf("expected 1 chain, got %d", len(chains))
+	}
+	want := [][2]float64{{0, 0}, {1, 0}, {1, 1}, {0, 1}}
+	if !reflect.DeepEqual(chains[0], want) {
+		t.Errorf("chain = %v, want %v", chains[0], want)
+	}
+}
+
+func TestStitchCoastlineChains_FindsHeadBeforeBuilding(t *testing.T) {
+	// Given the middle way first, stitching should walk back to the
+	// chain head and then forward through every way.
+	ways := [][][2]float64{
+		{{1, 0}, {1, 1}}, // middle
+		{{0, 0}, {1, 0}}, // head
+		{{1, 1}, {0, 1}}, // tail
+	}
+	chains := stitchCoastlineChains(ways)
+	if len(chains) != 1 {
+		t.Fatalf("expected 1 chain, got %d", len(chains))
+	}
+	want := [][2]float64{{0, 0}, {1, 0}, {1, 1}, {0, 1}}
+	if !reflect.DeepEqual(chains[0], want) {
+		t.Errorf("chain = %v, want %v", chains[0], want)
+	}
+}
+
+func TestStitchCoastlineChains_DoesNotReverseWays(t *testing.T) {
+	// Two ways that would chain only if the second were reversed; since
+	// coastline orientation is sacred, they must be emitted as two
+	// separate chains rather than fused.
+	ways := [][][2]float64{
+		{{0, 0}, {1, 0}, {1, 1}},
+		{{0, 0}, {0, 1}, {1, 1}}, // ends where ways[0] ends — would need reversal to chain
+	}
+	chains := stitchCoastlineChains(ways)
+	if len(chains) != 2 {
+		t.Fatalf("expected 2 chains (no reversal allowed), got %d: %v", len(chains), chains)
+	}
+}
+
+func TestStitchCoastlineChains_ClosedLoop(t *testing.T) {
+	// A coastline that loops back to itself entirely inside the bbox.
+	ways := [][][2]float64{
+		{{0, 0}, {1, 0}},
+		{{1, 0}, {1, 1}},
+		{{1, 1}, {0, 1}},
+		{{0, 1}, {0, 0}},
+	}
+	chains := stitchCoastlineChains(ways)
+	if len(chains) != 1 {
+		t.Fatalf("expected 1 chain, got %d", len(chains))
+	}
+	if !isClosedRing(chains[0]) {
+		t.Errorf("expected closed ring, got %v", chains[0])
+	}
+}
+
+func TestBBoxPerimeterPos_Corners(t *testing.T) {
+	bbox := [4]float64{0, 0, 1, 1} // south,west,north,east
+	// height = width = 1, perim = 4
+	cases := []struct {
+		p    [2]float64
+		want float64
+	}{
+		{[2]float64{1, 1}, 0},      // NE
+		{[2]float64{1, 0}, 1},      // SE
+		{[2]float64{0, 0}, 2},      // SW
+		{[2]float64{0, 1}, 3},      // NW
+		{[2]float64{1, 0.5}, 0.5},  // mid east edge
+		{[2]float64{0.5, 0}, 1.5},  // mid south edge
+		{[2]float64{0, 0.5}, 2.5},  // mid west edge
+		{[2]float64{0.5, 1}, 3.5},  // mid north edge
+		{[2]float64{0.5, 0.5}, -1}, // interior
+	}
+	for _, c := range cases {
+		got := bboxPerimeterPos(c.p, bbox)
+		if math.Abs(got-c.want) > 1e-9 {
+			t.Errorf("bboxPerimeterPos(%v) = %v, want %v", c.p, got, c.want)
+		}
+	}
+}
+
+func TestBBoxWalkCW(t *testing.T) {
+	bbox := [4]float64{0, 0, 1, 1}
+	cases := []struct {
+		name string
+		from [2]float64
+		to   [2]float64
+		want [][2]float64
+	}{
+		{
+			name: "east edge to west edge, water south",
+			from: [2]float64{1, 0.5},
+			to:   [2]float64{0, 0.5},
+			want: [][2]float64{{1, 0}, {0, 0}}, // SE, SW
+		},
+		{
+			name: "west edge to east edge, water north",
+			from: [2]float64{0, 0.5},
+			to:   [2]float64{1, 0.5},
+			want: [][2]float64{{0, 1}, {1, 1}}, // NW, NE
+		},
+		{
+			name: "same edge, short CW step",
+			from: [2]float64{1, 0.7},
+			to:   [2]float64{1, 0.3},
+			want: nil, // no corner needed
+		},
+		{
+			name: "north to east across NE corner",
+			from: [2]float64{0.5, 1},
+			to:   [2]float64{1, 0.5},
+			want: [][2]float64{{1, 1}}, // NE only
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := bboxWalkCW(c.from, c.to, bbox)
+			if !reflect.DeepEqual(got, c.want) {
+				t.Errorf("bboxWalkCW(%v, %v) = %v, want %v", c.from, c.to, got, c.want)
+			}
+		})
+	}
+}
+
+func TestCloseCoastlineChain_NorthFacingCoast(t *testing.T) {
+	// Coastline crosses the bbox west-to-east at y=0.5. By OSM
+	// convention water is on the right of start→end direction, so
+	// water is south. The closed polygon should enclose the southern
+	// half of the bbox.
+	bbox := [4]float64{0, 0, 1, 1}
+	chain := [][2]float64{{0, 0.5}, {1, 0.5}}
+	rings := closeCoastlineChain(chain, bbox)
+	if len(rings) != 1 {
+		t.Fatalf("expected 1 ring, got %d", len(rings))
+	}
+	want := [][2]float64{{0, 0.5}, {1, 0.5}, {1, 0}, {0, 0}, {0, 0.5}}
+	if !reflect.DeepEqual(rings[0], want) {
+		t.Errorf("ring = %v, want %v", rings[0], want)
+	}
+}
+
+func TestCloseCoastlineChain_ClipsAndCloses(t *testing.T) {
+	// Coastline extends beyond bbox at both ends. After clipping the
+	// in-bbox segment runs from (0, 0.5) to (1, 0.5); closing should
+	// then add the southern corners.
+	bbox := [4]float64{0, 0, 1, 1}
+	chain := [][2]float64{{-0.5, 0.5}, {1.5, 0.5}}
+	rings := closeCoastlineChain(chain, bbox)
+	if len(rings) != 1 {
+		t.Fatalf("expected 1 ring, got %d", len(rings))
+	}
+	got := rings[0]
+	want := [][2]float64{{0, 0.5}, {1, 0.5}, {1, 0}, {0, 0}, {0, 0.5}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ring = %v, want %v", got, want)
+	}
+}
+
+func TestCloseCoastlineChain_DropsInteriorChain(t *testing.T) {
+	// A chain entirely inside the bbox with endpoints away from any
+	// edge can't be closed using bbox-edge rules. Should be dropped.
+	bbox := [4]float64{0, 0, 1, 1}
+	chain := [][2]float64{{0.2, 0.5}, {0.8, 0.5}}
+	rings := closeCoastlineChain(chain, bbox)
+	if len(rings) != 0 {
+		t.Errorf("expected interior chain to be dropped, got %d rings: %v", len(rings), rings)
+	}
+}
+
+func TestCloseCoastlineChain_PassesThroughClosed(t *testing.T) {
+	bbox := [4]float64{0, 0, 1, 1}
+	chain := [][2]float64{{0.2, 0.2}, {0.8, 0.2}, {0.8, 0.8}, {0.2, 0.8}, {0.2, 0.2}}
+	rings := closeCoastlineChain(chain, bbox)
+	if len(rings) != 1 {
+		t.Fatalf("expected 1 ring, got %d", len(rings))
+	}
+	if !reflect.DeepEqual(rings[0], chain) {
+		t.Errorf("closed chain should pass through unchanged: got %v", rings[0])
+	}
+}
+
+// TestParseWaterResponse_CoastlineClosedAtBBox is the integration test
+// for the coastline pipeline: an open coastline way that exits the
+// bbox at two points becomes a water polygon whose extra vertices walk
+// the bbox boundary CW from the tail to the head.
+func TestParseWaterResponse_CoastlineClosedAtBBox(t *testing.T) {
+	body := `{"elements":[
+		{"type":"way","id":1,"tags":{"natural":"coastline"},"geometry":[
+			{"lat":0.5,"lon":0},
+			{"lat":0.5,"lon":1}
+		]}
+	]}`
+	result, err := parseWaterResponse([]byte(body), [4]float64{0, 0, 1, 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed struct {
+		Type        string           `json:"type"`
+		Coordinates [][][][2]float64 `json:"coordinates"`
+	}
+	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
+		t.Fatalf("parse: %v: %s", err, result)
+	}
+	if len(parsed.Coordinates) != 1 {
+		t.Fatalf("expected 1 polygon, got %d: %s", len(parsed.Coordinates), result)
+	}
+	got := parsed.Coordinates[0][0]
+	want := [][2]float64{{0, 0.5}, {1, 0.5}, {1, 0}, {0, 0}, {0, 0.5}}
+	if !ringsEquivalent(got, want) {
+		t.Errorf("coastline ring not equivalent to expected south-strip: got %v want %v", got, want)
 	}
 }
 
