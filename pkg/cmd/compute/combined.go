@@ -13,6 +13,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
+	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 
 	"github.com/peterstace/simplefeatures/geom"
 )
@@ -53,14 +54,18 @@ func RunCombined(ctx context.Context, f *cmdutil.Factory) error {
 	}
 
 	hexes := buildClippedHexGrid(ctx, cfg, city, proj, bbox, boundaryGJSON)
-	snapshotID := createSnapshot(ctx, ios.ErrOut, store, cfg)
-	sys := f.UnitSystem()
+	cr := &combinedRunner{
+		store:      store,
+		io:         ios,
+		sys:        f.UnitSystem(),
+		snapshotID: createSnapshot(ctx, ios.ErrOut, store, cfg),
+	}
 
-	if err := saveCombinedResult(ctx, store, hexes, bufs.all, resource.CombinedAll, bufs.allCount, snapshotID, ios.Out, ios.ErrOut, sys); err != nil {
+	if err := cr.save(ctx, combinedPass{hexes: hexes, buffered: bufs.all, label: resource.CombinedAll, featureCount: bufs.allCount}); err != nil {
 		return err
 	}
 	if len(bufs.city) > 0 {
-		if err := saveCombinedResult(ctx, store, hexes, bufs.city, resource.CombinedCity, bufs.cityCount, snapshotID, ios.Out, ios.ErrOut, sys); err != nil {
+		if err := cr.save(ctx, combinedPass{hexes: hexes, buffered: bufs.city, label: resource.CombinedCity, featureCount: bufs.cityCount}); err != nil {
 			return err
 		}
 	}
@@ -157,30 +162,50 @@ func buildClippedHexGrid(ctx context.Context, cfg *config.Config, city *config.C
 	return hexes
 }
 
-func saveCombinedResult(ctx context.Context, store db.Store, hexes []geo.Hex, buffered []geom.Geometry, label resource.Type, featureCount int, snapshotID *int64, out io.Writer, errOut io.Writer, sys units.System) error {
+// combinedRunner bundles the cross-pass dependencies (DB, IO, units, snapshot)
+// so each combinedPass save() invocation carries only its varying payload.
+// Mirrors the `computer` struct in compute.go.
+type combinedRunner struct {
+	store      db.Store
+	io         *iostreams.IOStreams
+	sys        units.System
+	snapshotID *int64
+}
+
+// combinedPass is one cross-resource union pass: the buffered geometries to
+// index, the hex grid to clip them against, the row label, and the input
+// feature count to persist on the ComputeResult row.
+type combinedPass struct {
+	hexes        []geo.Hex
+	buffered     []geom.Geometry
+	label        resource.Type
+	featureCount int
+}
+
+func (cr *combinedRunner) save(ctx context.Context, p combinedPass) error {
 	var area float64
-	if err := cmdutil.GuardPanic(errOut, func() error {
-		idx := geo.NewGeomIndexFromGeoms(buffered)
-		hexStats := geo.ComputeHexStats(ctx, hexes, idx, string(label), nil)
+	if err := cmdutil.GuardPanic(cr.io.ErrOut, func() error {
+		idx := geo.NewGeomIndexFromGeoms(p.buffered)
+		hexStats := geo.ComputeHexStats(ctx, p.hexes, idx, string(p.label), nil)
 		for _, s := range hexStats {
 			area += s.AreaSqM
 		}
 		return nil
 	}); err != nil {
-		return fmt.Errorf("compute %s hex stats: %w", label, err)
+		return fmt.Errorf("compute %s hex stats: %w", p.label, err)
 	}
-	if err := store.SaveComputeResult(ctx, db.ComputeResult{
-		ResourceType: label,
+	if err := cr.store.SaveComputeResult(ctx, db.ComputeResult{
+		ResourceType: p.label,
 		TotalAreaSqM: area,
-		FeatureCount: featureCount,
-		SnapshotID:   snapshotID,
+		FeatureCount: p.featureCount,
+		SnapshotID:   cr.snapshotID,
 	}); err != nil {
-		return fmt.Errorf("save %s result: %w", label, err)
+		return fmt.Errorf("save %s result: %w", p.label, err)
 	}
 	suffix := "Results (all)"
-	if label == resource.CombinedCity {
+	if p.label == resource.CombinedCity {
 		suffix = "Results (city only)"
 	}
-	printResults(out, "combined "+suffix, featureCount, area, sys)
+	printResults(cr.io.Out, "combined "+suffix, p.featureCount, area, cr.sys)
 	return nil
 }
