@@ -207,7 +207,21 @@ func doCompute(ctx context.Context, out, errOut io.Writer, notify tui.PhaseNotif
 		return err
 	}
 
-	resFeatures, err := loadResourceFeatures(ctx, out, errOut, notify, opts, store, proj)
+	c := &computer{
+		opts:       opts,
+		cfg:        cfg,
+		city:       city,
+		store:      store,
+		proj:       proj,
+		bbox:       bbox,
+		snapshotID: createSnapshot(ctx, errOut, store, cfg),
+		sys:        opts.UnitSystem(),
+		notify:     notify,
+		out:        out,
+		errOut:     errOut,
+	}
+
+	resFeatures, err := c.loadResourceFeatures(ctx)
 	if err != nil {
 		return err
 	}
@@ -232,20 +246,6 @@ func doCompute(ctx context.Context, out, errOut io.Writer, notify tui.PhaseNotif
 	notify.PhaseDone(phaseProcess, nil)
 	cityBuffered := filterBufferedByJurisdiction(allBuffered, filter.JurisdictionCity)
 
-	c := &computer{
-		opts:       opts,
-		cfg:        cfg,
-		city:       city,
-		store:      store,
-		proj:       proj,
-		bbox:       bbox,
-		snapshotID: createSnapshot(ctx, errOut, store, cfg),
-		sys:        opts.UnitSystem(),
-		notify:     notify,
-		out:        out,
-		errOut:     errOut,
-	}
-
 	hexStats, clippedHexes := c.runAllFeaturesPass(ctx, allBuffered, boundaryGJSON)
 	if err := c.saveAllJurisdictionsResult(ctx, allBuffered, len(resFeatures), hexStats, clippedHexes); err != nil {
 		return err
@@ -253,7 +253,7 @@ func doCompute(ctx context.Context, out, errOut io.Writer, notify tui.PhaseNotif
 
 	c.processCityResults(ctx, cityBuffered, len(jurisdictionParts[filter.JurisdictionCity]), clippedHexes)
 
-	return saveHexStats(ctx, errOut, notify, store, hexStats, opts.ResourceType.Type(), c.snapshotID)
+	return c.saveHexStats(ctx, hexStats)
 }
 
 // filterBufferedByJurisdiction returns the subset of buffered features whose
@@ -285,21 +285,24 @@ func loadBoundary(ctx context.Context, store db.Store, city *config.CityConfig) 
 	return boundaryGJSON, bbox, geo.NewUTMProjector(lon, lat), nil
 }
 
-func loadResourceFeatures(ctx context.Context, out, errOut io.Writer, notify tui.PhaseNotifier, opts *Options, store db.Store, proj *geo.UTMProjector) ([]resource.Feature, error) {
-	notify.PhaseStart(phaseProcess)
-	t := opts.ResourceType.Type()
-	fmt.Fprintf(out, "Loading %s features from database...\n", t)
-	dbFeatures, err := store.ListFeatures(ctx, t)
+// loadResourceFeatures reads features for opts.ResourceType from store and
+// returns them in resource.Feature form. out/errOut come from the computer
+// so prose honors the JSON/TTY routing chosen by doCompute's caller.
+func (c *computer) loadResourceFeatures(ctx context.Context) ([]resource.Feature, error) {
+	c.notify.PhaseStart(phaseProcess)
+	t := c.opts.ResourceType.Type()
+	fmt.Fprintf(c.out, "Loading %s features from database...\n", t)
+	dbFeatures, err := c.store.ListFeatures(ctx, t)
 	if err != nil {
-		notify.PhaseDone(phaseProcess, err)
+		c.notify.PhaseDone(phaseProcess, err)
 		return nil, fmt.Errorf("list features: %w", err)
 	}
 	if len(dbFeatures) == 0 {
-		fmt.Fprintf(errOut, "No %s features in database. Run 'pvmt %s ingest' first.\n", t, t)
-		notify.PhaseDone(phaseProcess, errors.New("no features"))
+		fmt.Fprintf(c.errOut, "No %s features in database. Run 'pvmt %s ingest' first.\n", t, t)
+		c.notify.PhaseDone(phaseProcess, errors.New("no features"))
 		return nil, cmdutil.ErrNoResults
 	}
-	fmt.Fprintf(out, "Processing %d features (UTM zone %d)...\n", len(dbFeatures), proj.Zone)
+	fmt.Fprintf(c.out, "Processing %d features (UTM zone %d)...\n", len(dbFeatures), c.proj.Zone)
 	resFeatures := make([]resource.Feature, len(dbFeatures))
 	for i, f := range dbFeatures {
 		resFeatures[i] = resource.Feature{
@@ -358,8 +361,7 @@ func (c *computer) saveAllJurisdictionsResult(ctx context.Context, allBuffered [
 	}
 	c.recordRow("all", featureCount, areaSqM)
 
-	rt := c.opts.ResourceType
-	cohortStats := buildCohortStats(ctx, rtAll, rt.HasCohorts(), allBuffered, areaSqM, c.snapshotID, clippedHexes)
+	cohortStats := c.buildCohortStats(ctx, rtAll, allBuffered, areaSqM, clippedHexes)
 	if len(cohortStats) > 0 {
 		if err := c.store.SaveCohortStats(ctx, cohortStats); err != nil {
 			fmt.Fprintf(c.errOut, "Warning: failed to save cohort stats: %v\n", err)
@@ -373,9 +375,10 @@ func (c *computer) saveAllJurisdictionsResult(ctx context.Context, allBuffered [
 	return nil
 }
 
-func saveHexStats(ctx context.Context, errOut io.Writer, notify tui.PhaseNotifier, store db.Store, hexStats []geo.HexStat, rt resource.Type, snapshotID *int64) error {
-	notify.PhaseStart(phaseSave)
-	defer notify.PhaseDone(phaseSave, nil)
+func (c *computer) saveHexStats(ctx context.Context, hexStats []geo.HexStat) error {
+	c.notify.PhaseStart(phaseSave)
+	defer c.notify.PhaseDone(phaseSave, nil)
+	rt := c.opts.ResourceType.Type()
 	dbStats := make([]db.HexStat, len(hexStats))
 	for i, s := range hexStats {
 		dbStats[i] = db.HexStat{
@@ -383,11 +386,11 @@ func saveHexStats(ctx context.Context, errOut io.Writer, notify tui.PhaseNotifie
 			ResourceType: rt,
 			AreaSqM:      s.AreaSqM,
 			PctCovered:   s.PctCovered,
-			SnapshotID:   snapshotID,
+			SnapshotID:   c.snapshotID,
 		}
 	}
-	if err := store.SaveHexStats(ctx, dbStats); err != nil {
-		fmt.Fprintf(errOut, "Warning: failed to save hex stats: %v\n", err)
+	if err := c.store.SaveHexStats(ctx, dbStats); err != nil {
+		fmt.Fprintf(c.errOut, "Warning: failed to save hex stats: %v\n", err)
 	}
 	return nil
 }
@@ -432,8 +435,7 @@ func (c *computer) processCityResults(ctx context.Context, cityBuffered []resour
 	}
 	c.recordRow("city", featureCount, cityAreaSqM)
 
-	rt := c.opts.ResourceType
-	cityCohortStats := buildCohortStats(ctx, rtCity, rt.HasCohorts(), cityBuffered, cityAreaSqM, c.snapshotID, clippedHexes)
+	cityCohortStats := c.buildCohortStats(ctx, rtCity, cityBuffered, cityAreaSqM, clippedHexes)
 	if len(cityCohortStats) > 0 {
 		if err := c.store.SaveCohortStats(ctx, cityCohortStats); err != nil {
 			fmt.Fprintf(c.errOut, "Warning: failed to save city cohort stats: %v\n", err)
@@ -442,7 +444,7 @@ func (c *computer) processCityResults(ctx context.Context, cityBuffered []resour
 		}
 	}
 
-	printResults(c.out, fmt.Sprintf("%s Results (city only)", rt.Type()), featureCount, cityAreaSqM, c.sys)
+	printResults(c.out, fmt.Sprintf("%s Results (city only)", c.opts.ResourceType.Type()), featureCount, cityAreaSqM, c.sys)
 }
 
 // recordRow appends a computeRow to the multi-city accumulator if the
@@ -569,21 +571,20 @@ func parseGeoJSONGeometry(gjson string, proj *geo.UTMProjector) (geom.Geometry, 
 	return g, nil
 }
 
-// buildCohortStats builds cohort stats for a resource type. When hasCohorts
-// is true (e.g. roads), it computes per-classification areas via the same
-// hex-clipped pipeline used for the resource total. Otherwise it returns
-// a single cohort stat. resourceTypeName is the row label, which may include
-// a ":city" suffix when computing city-only stats. buffered carries each
-// feature paired with its pre-buffered polygon so cohort computation reuses
-// the same polygons rather than re-buffering.
-func buildCohortStats(ctx context.Context, rt resource.Type, hasCohorts bool, buffered []resource.BufferedFeature, totalAreaSqM float64, snapshotID *int64, hexes []geo.Hex) []db.CohortStat {
-	if !hasCohorts {
+// buildCohortStats builds cohort stats for the resource type variant rt
+// (e.g. "roads" or "roads:city"). When the resource has cohorts it computes
+// per-classification areas via the same hex-clipped pipeline used for the
+// resource total; otherwise it returns a single cohort stat. buffered carries
+// each feature paired with its pre-buffered polygon so cohort computation
+// reuses those polygons rather than re-buffering.
+func (c *computer) buildCohortStats(ctx context.Context, rt resource.Type, buffered []resource.BufferedFeature, totalAreaSqM float64, hexes []geo.Hex) []db.CohortStat {
+	if !c.opts.ResourceType.HasCohorts() {
 		return []db.CohortStat{{
 			ResourceType:   rt,
 			Classification: string(rt.Bare()),
 			AreaSqM:        totalAreaSqM,
 			FeatureCount:   len(buffered),
-			SnapshotID:     snapshotID,
+			SnapshotID:     c.snapshotID,
 		}}
 	}
 
@@ -608,7 +609,7 @@ func buildCohortStats(ctx context.Context, rt resource.Type, hasCohorts bool, bu
 			Classification: class,
 			AreaSqM:        totalAreaSqM * proportion,
 			FeatureCount:   counts[class],
-			SnapshotID:     snapshotID,
+			SnapshotID:     c.snapshotID,
 		})
 	}
 	return stats
