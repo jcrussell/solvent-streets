@@ -28,9 +28,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := r.Context()
-
-	// Use first city for template rendering
+	// Use first city for template rendering.
 	entry := s.cities[0]
 
 	tmpl, err := export.ParseIndexTemplate(entry.Config.UnitSystem())
@@ -39,10 +37,25 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	td, err := s.buildIndexData(r.Context(), entry)
+	if err != nil {
+		httpErr(w, err, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := tmpl.Execute(w, td); err != nil {
+		httpErr(w, err, http.StatusInternalServerError)
+	}
+}
+
+// buildIndexData assembles the TemplateData for handleIndex. Multi-city
+// cities list is populated only when len(s.cities) > 1 so the static
+// single-city DATA_PREFIX wiring keeps matching the /data/{file} routes.
+func (s *Server) buildIndexData(ctx context.Context, entry export.CityEntry) (export.TemplateData, error) {
 	meta, err := export.BuildMeta(ctx, entry)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return export.TemplateData{}, err
 	}
 
 	var rawTOML string
@@ -54,9 +67,6 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 	fc := entry.Config.ResolvedForecast(&entry.City)
 
-	// Build city info for template. Only populate in multi-city mode so the
-	// frontend's DATA_PREFIX stays empty and matches the /data/{file} routes
-	// registered by the single-city server branch (mirrors the static exporter).
 	var cities []export.CityInfo
 	if len(s.cities) > 1 {
 		for _, e := range s.cities {
@@ -70,15 +80,13 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 	seed, err := export.BuildForecastSeed(ctx, &fc, entry.Store)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return export.TemplateData{}, err
 	}
 	methodology, err := export.MethodologyHTML()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return export.TemplateData{}, err
 	}
-	td := export.TemplateData{
+	return export.TemplateData{
 		MetaJSON:        meta,
 		ForecastSeed:    seed,
 		LayerColors:     export.ResourceColorsJS(),
@@ -88,12 +96,14 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		Cities:          cities,
 		MethodologyHTML: methodology,
 		IsLiveServer:    true,
-	}
+	}, nil
+}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := tmpl.Execute(w, td); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+// httpErr writes err's message as an HTTP error response. Centralizing the
+// http.Error(w, err.Error(), code) pattern keeps a single seam in case the
+// error-rendering policy ever changes (e.g. hiding internal messages).
+func httpErr(w http.ResponseWriter, err error, code int) {
+	http.Error(w, err.Error(), code)
 }
 
 func (s *Server) handleWasmExecJS(w http.ResponseWriter, _ *http.Request) {
@@ -208,7 +218,7 @@ func parseSnapshotParam(ctx context.Context, w http.ResponseWriter, r *http.Requ
 			http.NotFound(w, r)
 			return 0, false
 		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httpErr(w, err, http.StatusInternalServerError)
 		return 0, false
 	}
 	return id, true
@@ -225,7 +235,7 @@ func cacheKey(kind, slug string, snapshotID int64) string {
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(v); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httpErr(w, err, http.StatusInternalServerError)
 	}
 }
 
@@ -281,7 +291,7 @@ func (s *Server) serveJSONCached(w http.ResponseWriter, key string, build func()
 	data, err := entry.once()
 	if err != nil {
 		s.cache.CompareAndDelete(key, entry)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httpErr(w, err, http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
