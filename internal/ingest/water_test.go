@@ -522,7 +522,7 @@ func TestCloseCoastlineChain_NorthFacingCoast(t *testing.T) {
 	// half of the bbox.
 	bbox := [4]float64{0, 0, 1, 1}
 	chain := [][2]float64{{0, 0.5}, {1, 0.5}}
-	rings := closeCoastlineChain(chain, bbox)
+	rings := closeCoastlineChain(context.Background(), chain, bbox)
 	if len(rings) != 1 {
 		t.Fatalf("expected 1 ring, got %d", len(rings))
 	}
@@ -538,7 +538,7 @@ func TestCloseCoastlineChain_ClipsAndCloses(t *testing.T) {
 	// then add the southern corners.
 	bbox := [4]float64{0, 0, 1, 1}
 	chain := [][2]float64{{-0.5, 0.5}, {1.5, 0.5}}
-	rings := closeCoastlineChain(chain, bbox)
+	rings := closeCoastlineChain(context.Background(), chain, bbox)
 	if len(rings) != 1 {
 		t.Fatalf("expected 1 ring, got %d", len(rings))
 	}
@@ -554,21 +554,103 @@ func TestCloseCoastlineChain_DropsInteriorChain(t *testing.T) {
 	// edge can't be closed using bbox-edge rules. Should be dropped.
 	bbox := [4]float64{0, 0, 1, 1}
 	chain := [][2]float64{{0.2, 0.5}, {0.8, 0.5}}
-	rings := closeCoastlineChain(chain, bbox)
+	rings := closeCoastlineChain(context.Background(), chain, bbox)
 	if len(rings) != 0 {
 		t.Errorf("expected interior chain to be dropped, got %d rings: %v", len(rings), rings)
 	}
 }
 
-func TestCloseCoastlineChain_PassesThroughClosed(t *testing.T) {
+func TestCloseCoastlineChain_PassesThroughCWClosed(t *testing.T) {
+	// CW closed coastline: walk goes north → east → south → west.
+	// By the OSM right-hand-water rule, water is on the right of the
+	// walk direction, which is the inside of the ring — a lake.
+	// Should pass through unchanged.
 	bbox := [4]float64{0, 0, 1, 1}
-	chain := [][2]float64{{0.2, 0.2}, {0.8, 0.2}, {0.8, 0.8}, {0.2, 0.8}, {0.2, 0.2}}
-	rings := closeCoastlineChain(chain, bbox)
+	chain := [][2]float64{{0.2, 0.2}, {0.2, 0.8}, {0.8, 0.8}, {0.8, 0.2}, {0.2, 0.2}}
+	rings := closeCoastlineChain(context.Background(), chain, bbox)
 	if len(rings) != 1 {
 		t.Fatalf("expected 1 ring, got %d", len(rings))
 	}
 	if !reflect.DeepEqual(rings[0], chain) {
-		t.Errorf("closed chain should pass through unchanged: got %v", rings[0])
+		t.Errorf("CW closed chain should pass through unchanged: got %v", rings[0])
+	}
+}
+
+func TestCloseCoastlineChain_DropsCCWClosedRingAsIsland(t *testing.T) {
+	// CCW closed coastline: walk goes east → north → west → south.
+	// Water on the right places water OUTSIDE the ring, so this is
+	// an island (land inside), not a water polygon. Must be dropped
+	// with a warning naming the right-hand rule violation, otherwise
+	// the island's land area would be subtracted from the city
+	// boundary as if it were water.
+	bbox := [4]float64{0, 0, 1, 1}
+	chain := [][2]float64{{0.2, 0.2}, {0.8, 0.2}, {0.8, 0.8}, {0.2, 0.8}, {0.2, 0.2}}
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	ctx := logs.WithLogger(context.Background(), logger)
+
+	rings := closeCoastlineChain(ctx, chain, bbox)
+	if len(rings) != 0 {
+		t.Fatalf("expected CCW closed chain to be dropped, got %d rings: %v", len(rings), rings)
+	}
+
+	line := bytes.TrimSpace(buf.Bytes())
+	if len(line) == 0 {
+		t.Fatal("expected warn log line; got nothing")
+	}
+	var record struct {
+		Msg      string `json:"msg"`
+		Level    string `json:"level"`
+		Vertices int    `json:"vertices"`
+	}
+	if err := json.Unmarshal(line, &record); err != nil {
+		t.Fatalf("parse log line: %v: %s", err, line)
+	}
+	if record.Level != "WARN" {
+		t.Errorf("level = %q, want WARN", record.Level)
+	}
+	if !strings.Contains(record.Msg, "CCW") {
+		t.Errorf("msg = %q, want it to mention CCW orientation", record.Msg)
+	}
+	if record.Vertices != len(chain) {
+		t.Errorf("vertices = %d, want %d", record.Vertices, len(chain))
+	}
+}
+
+func TestRingIsCW(t *testing.T) {
+	cases := []struct {
+		name string
+		ring [][2]float64
+		want bool
+	}{
+		{
+			name: "CW unit square (north→east→south→west)",
+			ring: [][2]float64{{0, 0}, {0, 1}, {1, 1}, {1, 0}, {0, 0}},
+			want: true,
+		},
+		{
+			name: "CCW unit square (east→north→west→south)",
+			ring: [][2]float64{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}},
+			want: false,
+		},
+		{
+			name: "south-strip bbox closure (CW)",
+			ring: [][2]float64{{0, 0.5}, {1, 0.5}, {1, 0}, {0, 0}, {0, 0.5}},
+			want: true,
+		},
+		{
+			name: "degenerate triangle below ring-vertex threshold",
+			ring: [][2]float64{{0, 0}, {1, 0}, {0, 0}},
+			want: false,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := ringIsCW(c.ring); got != c.want {
+				t.Errorf("ringIsCW(%v) = %v, want %v", c.ring, got, c.want)
+			}
+		})
 	}
 }
 

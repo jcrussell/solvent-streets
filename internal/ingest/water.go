@@ -97,7 +97,7 @@ func parseWaterResponse(ctx context.Context, data []byte, bbox [4]float64) (stri
 	}
 
 	for _, chain := range stitchCoastlineChains(coastWays) {
-		for _, ring := range closeCoastlineChain(chain, bbox) {
+		for _, ring := range closeCoastlineChain(ctx, chain, bbox) {
 			polys = append(polys, waterPolygon{outer: ring})
 		}
 	}
@@ -377,17 +377,25 @@ func buildChainForward(
 
 // closeCoastlineChain clips chain to bbox and closes any open sub-chain
 // along the bbox boundary using the OSM right-hand-water rule.
-// Returns one or more closed rings (already-closed sub-chains pass
-// through unchanged). Sub-chains whose endpoints do not land on the
-// bbox boundary after clipping are dropped — they cannot enclose a
-// water region without one.
-func closeCoastlineChain(chain [][2]float64, bbox [4]float64) [][][2]float64 {
+// Returns one or more closed rings. Sub-chains whose endpoints do not
+// land on the bbox boundary after clipping are dropped — they cannot
+// enclose a water region without one. Already-closed sub-chains pass
+// through only when their orientation places water inside the ring
+// (see ringIsCW); CCW closed rings are dropped because they represent
+// islands (land inside, water outside) rather than water polygons.
+func closeCoastlineChain(ctx context.Context, chain [][2]float64, bbox [4]float64) [][][2]float64 {
 	var rings [][][2]float64
 	for _, sub := range clipChainToBBox(chain, bbox) {
 		if len(sub) < 2 {
 			continue
 		}
 		if isClosedRing(sub) {
+			if !ringIsCW(sub) {
+				logs.From(ctx).Warn("water coastline: dropped CCW closed ring (island, not water polygon)",
+					"vertices", len(sub),
+				)
+				continue
+			}
 			rings = append(rings, sub)
 			continue
 		}
@@ -401,11 +409,37 @@ func closeCoastlineChain(chain [][2]float64, bbox [4]float64) [][][2]float64 {
 		ring = append(ring, sub...)
 		ring = append(ring, corners...)
 		ring = append(ring, sub[0])
-		if isClosedRing(ring) {
-			rings = append(rings, ring)
+		if !isClosedRing(ring) {
+			continue
 		}
+		rings = append(rings, ring)
 	}
 	return rings
+}
+
+// ringSignedArea returns twice the signed area of ring in lon/lat
+// coordinates (x=lon east-positive, y=lat north-positive). Only the
+// sign matters for orientation, so the divide-by-two is skipped.
+// Positive = CCW, negative = CW. A degenerate ring (fewer than 4
+// vertices) returns 0.
+func ringSignedArea(ring [][2]float64) float64 {
+	if len(ring) < 4 {
+		return 0
+	}
+	var sum float64
+	for i := range len(ring) - 1 {
+		sum += ring[i][0]*ring[i+1][1] - ring[i+1][0]*ring[i][1]
+	}
+	return sum
+}
+
+// ringIsCW reports whether ring is clockwise in lon/lat with y=lat
+// north-positive. OSM coastline rule places water on the right of
+// forward walk, so a closed coastline ring is CW when water lies
+// inside (a lake — the case our pipeline treats as a water polygon)
+// and CCW when water lies outside (an island, with land inside).
+func ringIsCW(ring [][2]float64) bool {
+	return ringSignedArea(ring) < 0
 }
 
 // clipChainToBBox clips a polyline to bbox, returning one or more
