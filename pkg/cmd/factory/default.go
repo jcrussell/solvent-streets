@@ -19,6 +19,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/ingest"
 	"github.com/jcrussell/solvent-streets/internal/paths"
 	"github.com/jcrussell/solvent-streets/internal/units"
+	"github.com/jcrussell/solvent-streets/pkg/cmd/prompt"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
@@ -192,6 +193,7 @@ func New() *cmdutil.Factory {
 		Config:         configFactory(),
 		Logger:         logger,
 		LogLevel:       lvl,
+		Prompter:       prompt.NewLive(ios),
 		Paths: sync.OnceValues(func() (*paths.Paths, error) {
 			return paths.Resolve("pvmt")
 		}),

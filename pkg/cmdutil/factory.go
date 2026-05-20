@@ -12,6 +12,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/paths"
 	"github.com/jcrussell/solvent-streets/internal/units"
+	"github.com/jcrussell/solvent-streets/pkg/cmd/prompt"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 
 	"github.com/spf13/cobra"
@@ -29,6 +30,15 @@ type Factory struct {
 	CityFlagSet    func() bool
 	UnitSystem     func() units.System
 	Paths          func() (*paths.Paths, error)
+
+	// Prompter is the interactive-input surface for destructive or
+	// otherwise-prompting commands (byob-prompter.1). Eager like
+	// IOStreams: construction is cheap, and a per-call closure adds
+	// nothing here. Tests replace it with prompt.Stub; production uses
+	// prompt.NewLive(IOStreams). Commands that prompt should also
+	// accept a --yes flag (byob-prompter.5) and short-circuit before
+	// calling Prompter when the flag is set.
+	Prompter prompt.Prompter
 
 	// Logger is the base slog.Logger wired to IOStreams.ErrOut. Per
 	// byob-logging.2 it is eager (cheap to construct) rather than lazy.
