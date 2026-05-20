@@ -686,6 +686,182 @@ func TestParseWaterResponse_CoastlineClosedAtBBox(t *testing.T) {
 	}
 }
 
+// TestParseWaterResponse_DegenerateRingDoesNotCrash exercises a closed
+// way whose four coordinates are collinear (zero geometric area). The
+// length+endpoint check in isClosedRing accepts it and the ring is
+// emitted into the GeoJSON; downstream simplefeatures parsing may
+// reject zero-area polygons in some operations. This test pins only
+// that the parse layer doesn't crash and emits valid JSON — assertion
+// of *what* is emitted is intentionally absent so a future degeneracy
+// filter at this layer doesn't have to be coordinated with the test.
+func TestParseWaterResponse_DegenerateRingDoesNotCrash(t *testing.T) {
+	body := `{"elements":[
+		{"type":"way","id":1,"tags":{"natural":"water"},"geometry":[
+			{"lat":0,"lon":0},
+			{"lat":0,"lon":1},
+			{"lat":0,"lon":2},
+			{"lat":0,"lon":0}
+		]}
+	]}`
+	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{0, 0, 1, 1})
+	if err != nil {
+		t.Fatalf("parseWaterResponse: %v", err)
+	}
+	if result == "" {
+		return // filtered at parse layer is acceptable
+	}
+	var parsed struct {
+		Type        string           `json:"type"`
+		Coordinates [][][][2]float64 `json:"coordinates"`
+	}
+	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
+		t.Errorf("output not parseable JSON: %v: %s", err, result)
+	}
+	if parsed.Type != "MultiPolygon" {
+		t.Errorf("type = %q, want MultiPolygon", parsed.Type)
+	}
+}
+
+// TestCloseCoastlineChain_SameEdgeEndpointsDropped pins the current
+// behavior for a coastline whose endpoints both lie on the same bbox
+// edge with no corner between them in the CW direction. The walk
+// returns no corners, the ring degenerates to three vertices, and the
+// chain is silently dropped. This is correct when water-on-right
+// points outside the bbox; it is wrong when water points inside (the
+// long CCW arc would be needed). The current pipeline does not
+// distinguish these cases — see solvent-streets-85nn for the gap.
+func TestCloseCoastlineChain_SameEdgeEndpointsDropped(t *testing.T) {
+	bbox := [4]float64{0, 0, 1, 1}
+	chain := [][2]float64{{0.2, 0}, {0.8, 0}} // both on south edge
+	rings := closeCoastlineChain(context.Background(), chain, bbox)
+	if len(rings) != 0 {
+		t.Errorf("expected same-edge coastline to be dropped, got %d rings: %v", len(rings), rings)
+	}
+}
+
+// TestCloseCoastlineChain_EndpointAtBBoxCorner verifies that a
+// coastline ending exactly at a bbox corner closes correctly. The
+// corner sits on two edges; bboxPerimeterPos resolves it to a single
+// canonical perimeter position (the east-edge case fires first), and
+// bboxWalkCW emits only the corners strictly between (so the touched
+// corner is never duplicated).
+func TestCloseCoastlineChain_EndpointAtBBoxCorner(t *testing.T) {
+	bbox := [4]float64{0, 0, 1, 1}
+	// West edge → NE corner. Water-on-right of west→east is south.
+	chain := [][2]float64{{0, 0.5}, {1, 1}}
+	rings := closeCoastlineChain(context.Background(), chain, bbox)
+	if len(rings) != 1 {
+		t.Fatalf("expected 1 ring, got %d: %v", len(rings), rings)
+	}
+	want := [][2]float64{{0, 0.5}, {1, 1}, {1, 0}, {0, 0}, {0, 0.5}}
+	if !reflect.DeepEqual(rings[0], want) {
+		t.Errorf("ring = %v, want %v", rings[0], want)
+	}
+}
+
+// TestPolygonsFromRelation_NestedOuterFirstMatchWins pins the
+// first-match-wins inner-to-outer assignment. When a relation has
+// nested outers (outer B fully inside outer A) and an inner ring lying
+// inside both, the inner attaches to whichever outer appears first in
+// the relation members — outer A here. OSM convention prefers the
+// smallest containing outer, but this pipeline does not implement that
+// because real natural=water relations very rarely nest outers; the
+// brittleness is documented in solvent-streets-85nn.
+func TestPolygonsFromRelation_NestedOuterFirstMatchWins(t *testing.T) {
+	// Outer A: 0..10 square. Outer B: 2..6 square, fully inside A.
+	// Inner I: 3..5 square, fully inside B (and inside A).
+	body := `{"elements":[{
+		"type":"relation","id":99,"tags":{"natural":"water","type":"multipolygon"},
+		"members":[
+			{"type":"way","ref":1,"role":"outer","geometry":[
+				{"lat":0,"lon":0},{"lat":0,"lon":10},{"lat":10,"lon":10},{"lat":10,"lon":0},{"lat":0,"lon":0}
+			]},
+			{"type":"way","ref":2,"role":"outer","geometry":[
+				{"lat":2,"lon":2},{"lat":2,"lon":6},{"lat":6,"lon":6},{"lat":6,"lon":2},{"lat":2,"lon":2}
+			]},
+			{"type":"way","ref":3,"role":"inner","geometry":[
+				{"lat":3,"lon":3},{"lat":3,"lon":5},{"lat":5,"lon":5},{"lat":5,"lon":3},{"lat":3,"lon":3}
+			]}
+		]
+	}]}`
+	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{0, 0, 10, 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed struct {
+		Type        string           `json:"type"`
+		Coordinates [][][][2]float64 `json:"coordinates"`
+	}
+	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
+		t.Fatalf("parse: %v: %s", err, result)
+	}
+	if len(parsed.Coordinates) != 2 {
+		t.Fatalf("expected 2 polygons, got %d", len(parsed.Coordinates))
+	}
+	// Outer A is listed first → it receives the inner.
+	if got := len(parsed.Coordinates[0]); got != 2 {
+		t.Errorf("outer A: rings = %d, want 2 (outer + inner)", got)
+	}
+	// Outer B receives no inner because first-match-wins consumed it.
+	if got := len(parsed.Coordinates[1]); got != 1 {
+		t.Errorf("outer B: rings = %d, want 1 (outer only)", got)
+	}
+}
+
+// TestStitchRings_ManySegments verifies stitchRings handles a
+// real-OSM-scale relation whose outer boundary is fragmented across
+// many short member ways and presented out of order. Real Boston
+// harbor relations have 20+ outer members per ring; the synthetic
+// 3-segment tests don't exercise the O(n²) extension loop or scaled
+// chain construction.
+func TestStitchRings_ManySegments(t *testing.T) {
+	const n = 24
+	// Walk a unit-square perimeter in n equal steps so vertices are
+	// rationals that compare with exact float equality.
+	verts := make([][2]float64, n+1)
+	for i := 0; i <= n; i++ {
+		f := float64(i) / float64(n)
+		switch {
+		case f < 0.25:
+			verts[i] = [2]float64{4 * f, 0}
+		case f < 0.5:
+			verts[i] = [2]float64{1, 4 * (f - 0.25)}
+		case f < 0.75:
+			verts[i] = [2]float64{1 - 4*(f-0.5), 1}
+		default:
+			verts[i] = [2]float64{0, 1 - 4*(f-0.75)}
+		}
+	}
+	verts[n] = verts[0]
+	ordered := make([]stitchInput, n)
+	for i := range n {
+		ordered[i] = stitchInput{id: int64(100 + i), coords: [][2]float64{verts[i], verts[i+1]}}
+	}
+	// Permute via (i*7+3) mod n — coprime with n so it's a bijection,
+	// and 7 is far enough from n that adjacent segments never end up
+	// adjacent in the permutation.
+	ways := make([]stitchInput, n)
+	for i := range n {
+		ways[i] = ordered[(i*7+3)%n]
+	}
+	rings, dropped := stitchRings(ways)
+	if len(dropped) != 0 {
+		t.Errorf("dropped = %v, want empty", dropped)
+	}
+	if len(rings) != 1 {
+		t.Fatalf("rings = %d, want 1", len(rings))
+	}
+	if len(rings[0]) != n+1 {
+		t.Errorf("ring length = %d, want %d", len(rings[0]), n+1)
+	}
+	if !isClosedRing(rings[0]) {
+		t.Errorf("ring not closed: first=%v last=%v", rings[0][0], rings[0][len(rings[0])-1])
+	}
+	if !ringsEquivalent(rings[0], verts) {
+		t.Errorf("stitched ring not equivalent to source square: got %v", rings[0])
+	}
+}
+
 // ringsEquivalent compares two closed rings ignoring start-point offset
 // and direction (CW vs CCW). Stitching may emit a ring starting at any
 // member-way endpoint depending on traversal order; the geometry is the
