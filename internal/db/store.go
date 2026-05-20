@@ -12,42 +12,36 @@ import (
 )
 
 func (s *sqliteStore) UpsertFeatures(ctx context.Context, resourceType resource.Type, features []Feature) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
+	return s.withTx(ctx, func(tx *sql.Tx) error {
+		// Delete existing features for this resource type and city
+		if _, err := tx.ExecContext(ctx, `DELETE FROM features WHERE resource_type = ? AND city_id = ?`, resourceType, s.cityID); err != nil {
+			return fmt.Errorf("delete old features: %w", err)
+		}
 
-	// Delete existing features for this resource type and city
-	if _, err := tx.ExecContext(ctx, `DELETE FROM features WHERE resource_type = ? AND city_id = ?`, resourceType, s.cityID); err != nil {
-		return fmt.Errorf("delete old features: %w", err)
-	}
-
-	stmt, err := tx.PrepareContext(ctx, `
-		INSERT OR REPLACE INTO features (id, resource_type, city_id, name, tags, geometry_json, source_api, fetched_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		return fmt.Errorf("prepare upsert: %w", err)
-	}
-	defer func() { _ = stmt.Close() }()
-
-	for _, f := range features {
-		tagsJSON, err := json.Marshal(f.Tags)
+		stmt, err := tx.PrepareContext(ctx, `
+			INSERT OR REPLACE INTO features (id, resource_type, city_id, name, tags, geometry_json, source_api, fetched_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`)
 		if err != nil {
-			return fmt.Errorf("marshal tags: %w", err)
+			return fmt.Errorf("prepare upsert: %w", err)
 		}
-		fetchedAt := f.FetchedAt
-		if fetchedAt.IsZero() {
-			fetchedAt = time.Now()
-		}
-		_, err = stmt.ExecContext(ctx, f.ID, resourceType, s.cityID, f.Name, string(tagsJSON), f.GeometryJSON, f.SourceAPI, fetchedAt)
-		if err != nil {
-			return fmt.Errorf("exec upsert feature %s: %w", f.ID, err)
-		}
-	}
+		defer func() { _ = stmt.Close() }()
 
-	return tx.Commit()
+		for _, f := range features {
+			tagsJSON, err := json.Marshal(f.Tags)
+			if err != nil {
+				return fmt.Errorf("marshal tags: %w", err)
+			}
+			fetchedAt := f.FetchedAt
+			if fetchedAt.IsZero() {
+				fetchedAt = time.Now()
+			}
+			if _, err := stmt.ExecContext(ctx, f.ID, resourceType, s.cityID, f.Name, string(tagsJSON), f.GeometryJSON, f.SourceAPI, fetchedAt); err != nil {
+				return fmt.Errorf("exec upsert feature %s: %w", f.ID, err)
+			}
+		}
+		return nil
+	})
 }
 
 func (s *sqliteStore) ListFeatures(ctx context.Context, resourceType resource.Type) ([]Feature, error) {
@@ -111,29 +105,24 @@ func (s *sqliteStore) LatestComputeResult(ctx context.Context, resourceType reso
 // don't clobber older results. Rows with a nil SnapshotID (legacy data
 // from before migration 002) coexist as "pre-snapshot" history.
 func (s *sqliteStore) SaveHexStats(ctx context.Context, stats []HexStat) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO hex_stats (hex_id, resource_type, city_id, snapshot_id, area_sqm, pct_covered, computed_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		return fmt.Errorf("prepare hex stats insert: %w", err)
-	}
-	defer func() { _ = stmt.Close() }()
-
-	now := time.Now()
-	for _, st := range stats {
-		if _, err := stmt.ExecContext(ctx, st.HexID, st.ResourceType, s.cityID, st.SnapshotID, st.AreaSqM, st.PctCovered, now); err != nil {
-			return fmt.Errorf("insert hex stat %s: %w", st.HexID, err)
+	return s.withTx(ctx, func(tx *sql.Tx) error {
+		stmt, err := tx.PrepareContext(ctx, `
+			INSERT INTO hex_stats (hex_id, resource_type, city_id, snapshot_id, area_sqm, pct_covered, computed_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+		`)
+		if err != nil {
+			return fmt.Errorf("prepare hex stats insert: %w", err)
 		}
-	}
+		defer func() { _ = stmt.Close() }()
 
-	return tx.Commit()
+		now := time.Now()
+		for _, st := range stats {
+			if _, err := stmt.ExecContext(ctx, st.HexID, st.ResourceType, s.cityID, st.SnapshotID, st.AreaSqM, st.PctCovered, now); err != nil {
+				return fmt.Errorf("insert hex stat %s: %w", st.HexID, err)
+			}
+		}
+		return nil
+	})
 }
 
 // ListHexStats returns the per-hex coverage rows for a resource. When
@@ -199,29 +188,24 @@ func (s *sqliteStore) ListSnapshots(ctx context.Context) ([]Snapshot, error) {
 // SaveForecastResults appends forecast rows tagged with their SnapshotID.
 // Append-only — see SaveHexStats for the rationale.
 func (s *sqliteStore) SaveForecastResults(ctx context.Context, results []ForecastResult) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO forecast_results (resource_type, city_id, year, pci, area_sqm, treatment_cost, treatment_tier, snapshot_id, computed_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		return fmt.Errorf("prepare forecast insert: %w", err)
-	}
-	defer func() { _ = stmt.Close() }()
-
-	now := time.Now()
-	for _, r := range results {
-		if _, err := stmt.ExecContext(ctx, r.ResourceType, s.cityID, r.Year, r.PCI, r.AreaSqM, r.TreatmentCost, r.TreatmentTier, r.SnapshotID, now); err != nil {
-			return fmt.Errorf("insert forecast year %d: %w", r.Year, err)
+	return s.withTx(ctx, func(tx *sql.Tx) error {
+		stmt, err := tx.PrepareContext(ctx, `
+			INSERT INTO forecast_results (resource_type, city_id, year, pci, area_sqm, treatment_cost, treatment_tier, snapshot_id, computed_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`)
+		if err != nil {
+			return fmt.Errorf("prepare forecast insert: %w", err)
 		}
-	}
+		defer func() { _ = stmt.Close() }()
 
-	return tx.Commit()
+		now := time.Now()
+		for _, r := range results {
+			if _, err := stmt.ExecContext(ctx, r.ResourceType, s.cityID, r.Year, r.PCI, r.AreaSqM, r.TreatmentCost, r.TreatmentTier, r.SnapshotID, now); err != nil {
+				return fmt.Errorf("insert forecast year %d: %w", r.Year, err)
+			}
+		}
+		return nil
+	})
 }
 
 func (s *sqliteStore) ListForecastResults(ctx context.Context, resourceType resource.Type) ([]ForecastResult, error) {
@@ -248,29 +232,24 @@ func (s *sqliteStore) ListForecastResults(ctx context.Context, resourceType reso
 // SaveCohortStats appends cohort rows tagged with their SnapshotID.
 // Append-only — see SaveHexStats for the rationale.
 func (s *sqliteStore) SaveCohortStats(ctx context.Context, stats []CohortStat) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO cohort_stats (resource_type, city_id, classification, area_sqm, feature_count, snapshot_id, computed_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		return fmt.Errorf("prepare cohort stats insert: %w", err)
-	}
-	defer func() { _ = stmt.Close() }()
-
-	now := time.Now()
-	for _, st := range stats {
-		if _, err := stmt.ExecContext(ctx, st.ResourceType, s.cityID, st.Classification, st.AreaSqM, st.FeatureCount, st.SnapshotID, now); err != nil {
-			return fmt.Errorf("insert cohort stat %s/%s: %w", st.ResourceType, st.Classification, err)
+	return s.withTx(ctx, func(tx *sql.Tx) error {
+		stmt, err := tx.PrepareContext(ctx, `
+			INSERT INTO cohort_stats (resource_type, city_id, classification, area_sqm, feature_count, snapshot_id, computed_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+		`)
+		if err != nil {
+			return fmt.Errorf("prepare cohort stats insert: %w", err)
 		}
-	}
+		defer func() { _ = stmt.Close() }()
 
-	return tx.Commit()
+		now := time.Now()
+		for _, st := range stats {
+			if _, err := stmt.ExecContext(ctx, st.ResourceType, s.cityID, st.Classification, st.AreaSqM, st.FeatureCount, st.SnapshotID, now); err != nil {
+				return fmt.Errorf("insert cohort stat %s/%s: %w", st.ResourceType, st.Classification, err)
+			}
+		}
+		return nil
+	})
 }
 
 func (s *sqliteStore) ListCohortStats(ctx context.Context, resourceType resource.Type) ([]CohortStat, error) {
@@ -363,6 +342,25 @@ func (s *sqliteStore) Close() error {
 	return s.db.Close()
 }
 
+// withTx runs fn inside a write transaction. If fn returns an error the
+// tx is rolled back and that error is returned unwrapped (so callers wrap
+// per-operation context inside fn). On success the tx is committed; a
+// Begin or Commit failure is wrapped with a short prefix.
+func (s *sqliteStore) withTx(ctx context.Context, fn func(*sql.Tx) error) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := fn(tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
 // WithSnapshot returns a Store that filters snapshot-aware reads
 // (LatestComputeResult, ListHexStats, ListCohortStats, ListForecastResults)
 // to the given snapshot id. A snapshotID of 0 returns an unpinned view
@@ -387,50 +385,45 @@ func (s *sqliteStore) DeleteSnapshot(ctx context.Context, snapshotID int64) (boo
 	if snapshotID <= 0 {
 		return false, fmt.Errorf("invalid snapshot id %d", snapshotID)
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return false, fmt.Errorf("begin tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	var owned int64
-	err = tx.QueryRowContext(ctx,
-		`SELECT id FROM snapshots WHERE id = ? AND city_id = ?`,
-		snapshotID, s.cityID).Scan(&owned)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return false, nil
+	var deleted bool
+	err := s.withTx(ctx, func(tx *sql.Tx) error {
+		var owned int64
+		err := tx.QueryRowContext(ctx,
+			`SELECT id FROM snapshots WHERE id = ? AND city_id = ?`,
+			snapshotID, s.cityID).Scan(&owned)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil
+			}
+			return fmt.Errorf("lookup snapshot: %w", err)
 		}
-		return false, fmt.Errorf("lookup snapshot: %w", err)
-	}
 
-	// Statements are static literals (gosec G202): table names are not
-	// derived from user input, but listing the four deletes explicitly
-	// keeps that fact obvious to readers and to the linter.
-	deletes := []struct {
-		label string
-		sql   string
-	}{
-		{"compute_results", `DELETE FROM compute_results WHERE snapshot_id = ? AND city_id = ?`},
-		{"hex_stats", `DELETE FROM hex_stats WHERE snapshot_id = ? AND city_id = ?`},
-		{"forecast_results", `DELETE FROM forecast_results WHERE snapshot_id = ? AND city_id = ?`},
-		{"cohort_stats", `DELETE FROM cohort_stats WHERE snapshot_id = ? AND city_id = ?`},
-	}
-	for _, d := range deletes {
-		if _, err := tx.ExecContext(ctx, d.sql, snapshotID, s.cityID); err != nil {
-			return false, fmt.Errorf("delete from %s: %w", d.label, err)
+		// Statements are static literals (gosec G202): table names are not
+		// derived from user input, but listing the four deletes explicitly
+		// keeps that fact obvious to readers and to the linter.
+		deletes := []struct {
+			label string
+			sql   string
+		}{
+			{"compute_results", `DELETE FROM compute_results WHERE snapshot_id = ? AND city_id = ?`},
+			{"hex_stats", `DELETE FROM hex_stats WHERE snapshot_id = ? AND city_id = ?`},
+			{"forecast_results", `DELETE FROM forecast_results WHERE snapshot_id = ? AND city_id = ?`},
+			{"cohort_stats", `DELETE FROM cohort_stats WHERE snapshot_id = ? AND city_id = ?`},
 		}
-	}
-	if _, err := tx.ExecContext(ctx,
-		`DELETE FROM snapshots WHERE id = ? AND city_id = ?`,
-		snapshotID, s.cityID); err != nil {
-		return false, fmt.Errorf("delete snapshot: %w", err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return false, fmt.Errorf("commit: %w", err)
-	}
-	return true, nil
+		for _, d := range deletes {
+			if _, err := tx.ExecContext(ctx, d.sql, snapshotID, s.cityID); err != nil {
+				return fmt.Errorf("delete from %s: %w", d.label, err)
+			}
+		}
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM snapshots WHERE id = ? AND city_id = ?`,
+			snapshotID, s.cityID); err != nil {
+			return fmt.Errorf("delete snapshot: %w", err)
+		}
+		deleted = true
+		return nil
+	})
+	return deleted, err
 }
 
 // ResolveSnapshot returns nil iff the given snapshot id exists and belongs

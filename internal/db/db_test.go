@@ -2,6 +2,9 @@ package db
 
 import (
 	"context"
+	"database/sql"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -453,6 +456,96 @@ func TestEnsureCityIdempotent(t *testing.T) {
 	if id1 != id2 {
 		t.Errorf("expected same id, got %d and %d", id1, id2)
 	}
+}
+
+// TestWithTx pins the three contracts of the withTx helper used by every
+// transactional Save method in store.go: success commits, fn-returned
+// errors roll back and are returned unwrapped, and a begin-tx failure is
+// wrapped with the "begin tx" prefix that callers rely on.
+func TestWithTx(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("success commits", func(t *testing.T) {
+		root, err := Open(":memory:")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = root.Close() })
+		cityID, err := root.EnsureCity(ctx, "c", "C")
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := root.ForCity(cityID).(*sqliteStore)
+
+		err = s.withTx(ctx, func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, `INSERT INTO city_boundaries (city_id, geometry_json, source, fetched_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)`, cityID, `{"x":1}`, "test")
+			return err
+		})
+		if err != nil {
+			t.Fatalf("withTx success path: %v", err)
+		}
+		got, err := s.GetBoundary(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != `{"x":1}` {
+			t.Errorf("commit did not persist row: got %q", got)
+		}
+	})
+
+	t.Run("fn error rolls back and returns unwrapped", func(t *testing.T) {
+		root, err := Open(":memory:")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = root.Close() })
+		cityID, err := root.EnsureCity(ctx, "c", "C")
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := root.ForCity(cityID).(*sqliteStore)
+
+		sentinel := errors.New("fn failed")
+		err = s.withTx(ctx, func(tx *sql.Tx) error {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO city_boundaries (city_id, geometry_json, source, fetched_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)`, cityID, `{"x":1}`, "test"); err != nil {
+				t.Fatal(err)
+			}
+			return sentinel
+		})
+		if !errors.Is(err, sentinel) {
+			t.Errorf("withTx should return fn error unwrapped: got %v, want %v", err, sentinel)
+		}
+		got, err := s.GetBoundary(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != "" {
+			t.Errorf("rollback failed: row persisted as %q", got)
+		}
+	})
+
+	t.Run("begin tx error wrapped", func(t *testing.T) {
+		root, err := Open(":memory:")
+		if err != nil {
+			t.Fatal(err)
+		}
+		cityID, err := root.EnsureCity(ctx, "c", "C")
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := root.ForCity(cityID).(*sqliteStore)
+		if err := root.Close(); err != nil {
+			t.Fatal(err)
+		}
+
+		err = s.withTx(ctx, func(tx *sql.Tx) error { return nil })
+		if err == nil {
+			t.Fatal("expected error after Close, got nil")
+		}
+		if !strings.HasPrefix(err.Error(), "begin tx:") {
+			t.Errorf("expected 'begin tx:' prefix, got %q", err.Error())
+		}
+	})
 }
 
 func TestForeignKeyEnforcement(t *testing.T) {
