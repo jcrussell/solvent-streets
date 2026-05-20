@@ -2,6 +2,7 @@ package snapshots
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/pkg/cmd/prompt"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
@@ -145,13 +147,14 @@ func TestSnapshotRow_ExportData_AllFieldsPopulated(t *testing.T) {
 	}
 }
 
-// TestRunRm_DeletesFromOwningCity verifies the cross-city lookup loop:
-// the rm subcommand tries every configured city's DeleteSnapshot, and
-// when one returns (true, nil) it stops without trying the rest. This
-// is the contract that lets the user pass an id without --city.
+// TestRunRm_DeletesFromOwningCity verifies the cross-city discovery loop:
+// the rm subcommand calls ResolveSnapshot on each configured city until
+// one claims the id, then deletes from that city only. This is the
+// contract that lets the user pass an id without --city, and that lets
+// the confirmation prompt name the owning city before any DB mutation.
 func TestRunRm_DeletesFromOwningCity(t *testing.T) {
 	cities := twoCityConfig()
-	var calls []string
+	var resolveCalls, deleteCalls []string
 	root := &dbtest.MockRootStore{
 		EnsureCityFunc: func(_ context.Context, slug, _ string) (int64, error) {
 			if slug == "alpha" {
@@ -160,11 +163,20 @@ func TestRunRm_DeletesFromOwningCity(t *testing.T) {
 			return 2, nil
 		},
 		ForCityFunc: func(id int64) db.Store {
-			return &dbtest.MockStore{DeleteSnapshotFunc: func(_ context.Context, sid int64) (bool, error) {
-				calls = append(calls, slugFor(id))
-				// Only beta (id=2) owns snapshot 42.
-				return id == 2 && sid == 42, nil
-			}}
+			return &dbtest.MockStore{
+				ResolveSnapshotFunc: func(_ context.Context, sid int64) error {
+					resolveCalls = append(resolveCalls, slugFor(id))
+					// Only beta (id=2) owns snapshot 42.
+					if id == 2 && sid == 42 {
+						return nil
+					}
+					return sql.ErrNoRows
+				},
+				DeleteSnapshotFunc: func(_ context.Context, sid int64) (bool, error) {
+					deleteCalls = append(deleteCalls, slugFor(id))
+					return id == 2 && sid == 42, nil
+				},
+			}
 		},
 	}
 	ios, _, _, stderr := iostreams.Test()
@@ -173,16 +185,144 @@ func TestRunRm_DeletesFromOwningCity(t *testing.T) {
 		RootDB:        rootDBFunc(root),
 		ResolveCities: resolveCitiesFunc(cities),
 		SnapshotID:    42,
+		Yes:           true,
 	}
 	if err := runRm(context.Background(), opts); err != nil {
 		t.Fatalf("runRm: %v", err)
 	}
-	// Both cities should have been tried until the owner was found.
-	if len(calls) != 2 || calls[0] != "alpha" || calls[1] != "beta" {
-		t.Errorf("call order: got %v, want [alpha beta]", calls)
+	if len(resolveCalls) != 2 || resolveCalls[0] != "alpha" || resolveCalls[1] != "beta" {
+		t.Errorf("resolve order: got %v, want [alpha beta]", resolveCalls)
+	}
+	// Delete must hit only the owning city — never the non-owners.
+	if len(deleteCalls) != 1 || deleteCalls[0] != "beta" {
+		t.Errorf("delete calls: got %v, want [beta]", deleteCalls)
 	}
 	if !strings.Contains(stderr.String(), "Deleted snapshot 42 from beta") {
 		t.Errorf("expected confirmation on stderr, got: %s", stderr.String())
+	}
+}
+
+// TestRunRm_PromptsOnTTY pins the interactive contract: when stdin is a
+// TTY and --yes is absent, the command must call Prompter.Confirm with
+// a message that names the snapshot id and the owning city slug.
+func TestRunRm_PromptsOnTTY(t *testing.T) {
+	cities := twoCityConfig()
+	root := &dbtest.MockRootStore{
+		EnsureCityFunc: func(_ context.Context, slug, _ string) (int64, error) {
+			if slug == "alpha" {
+				return 1, nil
+			}
+			return 2, nil
+		},
+		ForCityFunc: func(id int64) db.Store {
+			return &dbtest.MockStore{
+				ResolveSnapshotFunc: func(_ context.Context, sid int64) error {
+					if id == 2 && sid == 42 {
+						return nil
+					}
+					return sql.ErrNoRows
+				},
+				DeleteSnapshotFunc: func(_ context.Context, _ int64) (bool, error) { return true, nil },
+			}
+		},
+	}
+	ios, _, _, stderr := iostreams.Test()
+	ios.SetStdinTTY(true)
+	stub := &prompt.Stub{Confirms: []bool{true}}
+	opts := &RmOptions{
+		IO:            ios,
+		Prompter:      stub,
+		RootDB:        rootDBFunc(root),
+		ResolveCities: resolveCitiesFunc(cities),
+		SnapshotID:    42,
+	}
+	if err := runRm(context.Background(), opts); err != nil {
+		t.Fatalf("runRm: %v", err)
+	}
+	if len(stub.Confirms) != 0 {
+		t.Errorf("Prompter.Confirm was not consumed; remaining=%v", stub.Confirms)
+	}
+	if !strings.Contains(stderr.String(), "Deleted snapshot 42 from beta") {
+		t.Errorf("expected delete confirmation on stderr, got: %s", stderr.String())
+	}
+}
+
+// TestRunRm_CancelOnPromptNo pins the "no" branch of the confirmation
+// prompt: when the user declines, the command returns ErrCancel (exit
+// code 0 at the runner) and must NOT call DeleteSnapshot.
+func TestRunRm_CancelOnPromptNo(t *testing.T) {
+	cities := twoCityConfig()
+	var deleted bool
+	root := &dbtest.MockRootStore{
+		EnsureCityFunc: func(context.Context, string, string) (int64, error) { return 1, nil },
+		ForCityFunc: func(int64) db.Store {
+			return &dbtest.MockStore{
+				ResolveSnapshotFunc: func(context.Context, int64) error { return nil },
+				DeleteSnapshotFunc: func(context.Context, int64) (bool, error) {
+					deleted = true
+					return true, nil
+				},
+			}
+		},
+	}
+	ios, _, _, stderr := iostreams.Test()
+	ios.SetStdinTTY(true)
+	stub := &prompt.Stub{Confirms: []bool{false}}
+	opts := &RmOptions{
+		IO:            ios,
+		Prompter:      stub,
+		RootDB:        rootDBFunc(root),
+		ResolveCities: resolveCitiesFunc(cities),
+		SnapshotID:    42,
+	}
+	err := runRm(context.Background(), opts)
+	if !errors.Is(err, cmdutil.ErrCancel) {
+		t.Errorf("want ErrCancel, got: %v", err)
+	}
+	if deleted {
+		t.Error("DeleteSnapshot was called after the user declined")
+	}
+	if !strings.Contains(stderr.String(), "Canceled.") {
+		t.Errorf("expected 'Canceled.' on stderr, got: %s", stderr.String())
+	}
+}
+
+// TestRunRm_NoTTYWithoutYesIsFlagError pins byob-prompter.3: refusing to
+// silently confirm in non-interactive environments. Stdin not a TTY plus
+// no --yes must return a FlagError with a hint pointing at --yes.
+func TestRunRm_NoTTYWithoutYesIsFlagError(t *testing.T) {
+	cities := twoCityConfig()
+	var deleted bool
+	root := &dbtest.MockRootStore{
+		EnsureCityFunc: func(context.Context, string, string) (int64, error) { return 1, nil },
+		ForCityFunc: func(int64) db.Store {
+			return &dbtest.MockStore{
+				ResolveSnapshotFunc: func(context.Context, int64) error { return nil },
+				DeleteSnapshotFunc: func(context.Context, int64) (bool, error) {
+					deleted = true
+					return true, nil
+				},
+			}
+		},
+	}
+	ios, _, _, _ := iostreams.Test() // stdin TTY defaults to false
+	opts := &RmOptions{
+		IO:            ios,
+		RootDB:        rootDBFunc(root),
+		ResolveCities: resolveCitiesFunc(cities),
+		SnapshotID:    42,
+	}
+	err := runRm(context.Background(), opts)
+	var fe *cmdutil.FlagError
+	if !errors.As(err, &fe) {
+		t.Fatalf("want *cmdutil.FlagError, got %T: %v", err, err)
+	}
+	var hint *cmdutil.ErrHint
+	if !errors.As(err, &hint) || !strings.Contains(hint.Hint, "--yes") {
+		t.Errorf("expected --yes hint, got: %v", err)
+	}
+	if deleted {
+		t.Error("DeleteSnapshot was called despite refusal")
 	}
 }
 
@@ -193,7 +333,11 @@ func TestRunRm_NotFoundReturnsHint(t *testing.T) {
 	cities := twoCityConfig()
 	root := &dbtest.MockRootStore{
 		EnsureCityFunc: func(context.Context, string, string) (int64, error) { return 1, nil },
-		ForCityFunc:    func(int64) db.Store { return &dbtest.MockStore{} }, // returns (false, nil)
+		ForCityFunc: func(int64) db.Store {
+			return &dbtest.MockStore{
+				ResolveSnapshotFunc: func(context.Context, int64) error { return sql.ErrNoRows },
+			}
+		},
 	}
 	ios, _, _, _ := iostreams.Test()
 	opts := &RmOptions{
@@ -201,6 +345,7 @@ func TestRunRm_NotFoundReturnsHint(t *testing.T) {
 		RootDB:        rootDBFunc(root),
 		ResolveCities: resolveCitiesFunc(cities),
 		SnapshotID:    999,
+		Yes:           true,
 	}
 	err := runRm(context.Background(), opts)
 	if err == nil {
@@ -256,6 +401,7 @@ func TestRunPrune_KeepsNMostRecentPerCity(t *testing.T) {
 		RootDB:        rootDBFunc(root),
 		ResolveCities: resolveCitiesFunc(cities),
 		Keep:          2,
+		Yes:           true,
 	}
 	if err := runPrune(context.Background(), opts); err != nil {
 		t.Fatal(err)
@@ -274,7 +420,8 @@ func TestRunPrune_KeepsNMostRecentPerCity(t *testing.T) {
 
 // TestRunPrune_NothingToDo verifies the no-op path when every city is
 // already at or below the keep window. The "Nothing to prune." hint on
-// stderr makes the no-op visible to humans without writing to stdout.
+// stderr makes the no-op visible to humans without writing to stdout,
+// and the command must NOT prompt — nothing destructive is happening.
 func TestRunPrune_NothingToDo(t *testing.T) {
 	cities := twoCityConfig()
 	root := &dbtest.MockRootStore{
@@ -286,8 +433,11 @@ func TestRunPrune_NothingToDo(t *testing.T) {
 		},
 	}
 	ios, _, stdout, stderr := iostreams.Test()
+	ios.SetStdinTTY(true) // would normally prompt — must not, because no victims
+	// Stub with zero Confirms queued: any unexpected Confirm call panics.
 	opts := &PruneOptions{
 		IO:            ios,
+		Prompter:      &prompt.Stub{},
 		RootDB:        rootDBFunc(root),
 		ResolveCities: resolveCitiesFunc(cities),
 		Keep:          5,
@@ -300,6 +450,139 @@ func TestRunPrune_NothingToDo(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "Nothing to prune.") {
 		t.Errorf("expected no-op hint on stderr, got: %s", stderr.String())
+	}
+}
+
+// TestRunPrune_PromptsOnTTY pins the interactive contract for prune:
+// confirmation runs once after the discovery pass and quotes the total
+// snapshot+city counts.
+func TestRunPrune_PromptsOnTTY(t *testing.T) {
+	cities := twoCityConfig()
+	var deleted []int64
+	root := &dbtest.MockRootStore{
+		EnsureCityFunc: func(_ context.Context, slug, _ string) (int64, error) {
+			if slug == "alpha" {
+				return 1, nil
+			}
+			return 2, nil
+		},
+		ForCityFunc: func(id int64) db.Store {
+			snaps := []db.Snapshot{{ID: 4}, {ID: 3}, {ID: 2}, {ID: 1}}
+			if id == 2 {
+				snaps = []db.Snapshot{{ID: 8}, {ID: 7}, {ID: 6}}
+			}
+			return &dbtest.MockStore{
+				ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) { return snaps, nil },
+				DeleteSnapshotFunc: func(_ context.Context, sid int64) (bool, error) {
+					deleted = append(deleted, sid)
+					return true, nil
+				},
+			}
+		},
+	}
+	ios, _, _, _ := iostreams.Test()
+	ios.SetStdinTTY(true)
+	stub := &prompt.Stub{Confirms: []bool{true}}
+	opts := &PruneOptions{
+		IO:            ios,
+		Prompter:      stub,
+		RootDB:        rootDBFunc(root),
+		ResolveCities: resolveCitiesFunc(cities),
+		Keep:          1,
+	}
+	if err := runPrune(context.Background(), opts); err != nil {
+		t.Fatal(err)
+	}
+	if len(stub.Confirms) != 0 {
+		t.Errorf("Prompter.Confirm was not consumed; remaining=%v", stub.Confirms)
+	}
+	// Alpha: 4 snapshots keep 1 → delete 3, 2, 1.
+	// Beta: 3 snapshots keep 1 → delete 7, 6.
+	if len(deleted) != 5 {
+		t.Errorf("deleted = %v; want 5 ids", deleted)
+	}
+}
+
+// TestRunPrune_CancelOnPromptNo: declining the prompt aborts before any
+// DeleteSnapshot. ErrCancel maps to exit 0 at the runner, so a "no"
+// answer is not an error from the user's perspective.
+func TestRunPrune_CancelOnPromptNo(t *testing.T) {
+	cities := twoCityConfig()
+	var deleted bool
+	root := &dbtest.MockRootStore{
+		EnsureCityFunc: func(context.Context, string, string) (int64, error) { return 1, nil },
+		ForCityFunc: func(int64) db.Store {
+			return &dbtest.MockStore{
+				ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
+					return []db.Snapshot{{ID: 3}, {ID: 2}, {ID: 1}}, nil
+				},
+				DeleteSnapshotFunc: func(context.Context, int64) (bool, error) {
+					deleted = true
+					return true, nil
+				},
+			}
+		},
+	}
+	ios, _, _, stderr := iostreams.Test()
+	ios.SetStdinTTY(true)
+	stub := &prompt.Stub{Confirms: []bool{false}}
+	opts := &PruneOptions{
+		IO:            ios,
+		Prompter:      stub,
+		RootDB:        rootDBFunc(root),
+		ResolveCities: resolveCitiesFunc(cities),
+		Keep:          1,
+	}
+	err := runPrune(context.Background(), opts)
+	if !errors.Is(err, cmdutil.ErrCancel) {
+		t.Errorf("want ErrCancel, got: %v", err)
+	}
+	if deleted {
+		t.Error("DeleteSnapshot was called after the user declined")
+	}
+	if !strings.Contains(stderr.String(), "Canceled.") {
+		t.Errorf("expected 'Canceled.' on stderr, got: %s", stderr.String())
+	}
+}
+
+// TestRunPrune_NoTTYWithoutYesIsFlagError pins the same byob-prompter.3
+// contract for prune: refusing to silently confirm in non-interactive
+// environments without --yes.
+func TestRunPrune_NoTTYWithoutYesIsFlagError(t *testing.T) {
+	cities := twoCityConfig()
+	var deleted bool
+	root := &dbtest.MockRootStore{
+		EnsureCityFunc: func(context.Context, string, string) (int64, error) { return 1, nil },
+		ForCityFunc: func(int64) db.Store {
+			return &dbtest.MockStore{
+				ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
+					return []db.Snapshot{{ID: 3}, {ID: 2}, {ID: 1}}, nil
+				},
+				DeleteSnapshotFunc: func(context.Context, int64) (bool, error) {
+					deleted = true
+					return true, nil
+				},
+			}
+		},
+	}
+	ios, _, _, _ := iostreams.Test() // stdin TTY false
+	opts := &PruneOptions{
+		IO:            ios,
+		RootDB:        rootDBFunc(root),
+		ResolveCities: resolveCitiesFunc(cities),
+		Keep:          1,
+	}
+	err := runPrune(context.Background(), opts)
+	var fe *cmdutil.FlagError
+	if !errors.As(err, &fe) {
+		t.Fatalf("want *cmdutil.FlagError, got %T: %v", err, err)
+	}
+	var hint *cmdutil.ErrHint
+	if !errors.As(err, &hint) || !strings.Contains(hint.Hint, "--yes") {
+		t.Errorf("expected --yes hint, got: %v", err)
+	}
+	if deleted {
+		t.Error("DeleteSnapshot was called despite refusal")
 	}
 }
 
