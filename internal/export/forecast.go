@@ -274,9 +274,9 @@ func BuildHexCostSummary(ctx context.Context, entry CityEntry, forecasts []Forec
 		if resource.ByType(t) == nil {
 			continue
 		}
-		addScopeRow(ctx, entry, out, "bbox", t, fe.ResourceType, bboxYear1)
+		addScopeRow(ctx, entry, out, "bbox", t, bboxYear1)
 		if hasCity {
-			addScopeRow(ctx, entry, out, "city", t.With(resource.ScopeCity), fe.ResourceType, cityYear1)
+			addScopeRow(ctx, entry, out, "city", t.With(resource.ScopeCity), cityYear1)
 		}
 	}
 	if len(out["bbox"]) == 0 {
@@ -307,9 +307,9 @@ func scopeYear1Costs(fe ForecastExport) (city, bbox float64, hasCity bool) {
 }
 
 // addScopeRow looks up the compute row for rt and writes the
-// {year1_cost, total_area_sqm} pair under out[scope][resourceType]. Missing
+// {year1_cost, total_area_sqm} pair under out[scope][rt.Bare()]. Missing
 // compute rows are skipped silently — same as the pre-rename behavior.
-func addScopeRow(ctx context.Context, entry CityEntry, out map[string]map[string]map[string]float64, scope string, rt resource.Type, resourceType string, year1Cost float64) {
+func addScopeRow(ctx context.Context, entry CityEntry, out map[string]map[string]map[string]float64, scope string, rt resource.Type, year1Cost float64) {
 	r, err := entry.Store.LatestComputeResult(ctx, rt)
 	if err != nil || r == nil {
 		return
@@ -317,7 +317,7 @@ func addScopeRow(ctx context.Context, entry CityEntry, out map[string]map[string
 	if out[scope] == nil {
 		out[scope] = make(map[string]map[string]float64)
 	}
-	out[scope][resourceType] = map[string]float64{
+	out[scope][string(rt.Bare())] = map[string]float64{
 		"year1_cost":     year1Cost,
 		"total_area_sqm": r.TotalAreaSqM,
 	}
