@@ -188,75 +188,80 @@ func cityScopeCohorts(cityStats []db.CohortStat, fc *config.ForecastConfig) ([]f
 func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.ForecastConfig) map[string]any {
 	costTiers := ConvertCostTiers(fc)
 	params := forecast.NewParams(fc.GrowthRate, costTiers)
-	years := fc.Years
+	defaultRate := forecast.DefaultDecayRates["default"]
+	if fc.DecayRate > 0 {
+		defaultRate = fc.DecayRate
+	}
 
-	var totalAreaSqM, cityAreaSqM float64
-	var cityFeatureCount, allFeatureCount int
+	areas := aggregateScenarioAreas(ctx, entry)
 
+	bboxScenarios := singleCohortScenarios("all", areas.bboxArea, fc.InitialPCI, defaultRate, fc.Years, params)
+	primaryScenarios := bboxScenarios
+	if areas.cityArea > 0 {
+		primaryScenarios = singleCohortScenarios("city", areas.cityArea, fc.InitialPCI, defaultRate, fc.Years, params)
+	}
+
+	summary := map[string]any{
+		"city_count":    areas.cityFeatures,
+		"all_count":     areas.bboxFeatures,
+		"state_count":   0,
+		"county_count":  0,
+		"federal_count": 0,
+	}
+	if areas.bboxArea > 0 && areas.cityArea > 0 {
+		summary["city_pct"] = areas.cityArea / areas.bboxArea
+	}
+
+	out := map[string]any{"summary": summary}
+	if areas.cityArea > 0 {
+		out["city"] = primaryScenarios
+		out["bbox"] = bboxScenarios
+	} else {
+		out["bbox"] = primaryScenarios
+	}
+	return out
+}
+
+// scenarioAreas pairs bbox-scope and city-scope aggregate areas and feature
+// counts across all resources for a single CityEntry.
+type scenarioAreas struct {
+	bboxArea, cityArea         float64
+	bboxFeatures, cityFeatures int
+}
+
+// aggregateScenarioAreas sums TotalAreaSqM and FeatureCount across all
+// resources for both bbox and city scopes. The city-scope lookup is gated
+// on bbox-row existence for the same resource — a resource with no bbox
+// row contributes to neither total, matching the pre-refactor behavior.
+func aggregateScenarioAreas(ctx context.Context, entry CityEntry) scenarioAreas {
+	var agg scenarioAreas
 	for _, rt := range resource.All {
 		t := rt.Type()
 		result, err := entry.Store.LatestComputeResult(ctx, t)
 		if err != nil || result == nil {
 			continue
 		}
-		totalAreaSqM += result.TotalAreaSqM
-		allFeatureCount += result.FeatureCount
+		agg.bboxArea += result.TotalAreaSqM
+		agg.bboxFeatures += result.FeatureCount
 
 		cityResult, err := entry.Store.LatestComputeResult(ctx, t.With(resource.ScopeCity))
 		if err == nil && cityResult != nil {
-			cityAreaSqM += cityResult.TotalAreaSqM
-			cityFeatureCount += cityResult.FeatureCount
+			agg.cityArea += cityResult.TotalAreaSqM
+			agg.cityFeatures += cityResult.FeatureCount
 		}
 	}
+	return agg
+}
 
-	currentPCI := fc.InitialPCI
-	defaultRate := forecast.DefaultDecayRates["default"]
-	if fc.DecayRate > 0 {
-		defaultRate = fc.DecayRate
-	}
-
-	bboxCohorts := []forecast.Cohort{{
-		Classification: "all",
-		AreaSqM:        totalAreaSqM,
-		DecayRate:      defaultRate,
-		InitialPCI:     currentPCI,
-	}}
-	bboxScenarios := BuildScenarios(bboxCohorts, years, params)
-
-	// Use city-scoped data as primary when available
-	primaryScenarios := bboxScenarios
-	if cityAreaSqM > 0 {
-		cityCohorts := []forecast.Cohort{{
-			Classification: "city",
-			AreaSqM:        cityAreaSqM,
-			DecayRate:      defaultRate,
-			InitialPCI:     currentPCI,
-		}}
-		primaryScenarios = BuildScenarios(cityCohorts, years, params)
-	}
-
-	summary := map[string]any{
-		"city_count":    cityFeatureCount,
-		"all_count":     allFeatureCount,
-		"state_count":   0,
-		"county_count":  0,
-		"federal_count": 0,
-	}
-	if totalAreaSqM > 0 && cityAreaSqM > 0 {
-		summary["city_pct"] = cityAreaSqM / totalAreaSqM
-	}
-
-	out := map[string]any{
-		"summary": summary,
-	}
-	if cityAreaSqM > 0 {
-		out["city"] = primaryScenarios
-		out["bbox"] = bboxScenarios
-	} else {
-		out["bbox"] = primaryScenarios
-	}
-
-	return out
+// singleCohortScenarios builds a scenario set from one synthetic cohort —
+// the aggregate-area shortcut used for the top-level "all"/"city" rollup.
+func singleCohortScenarios(classification string, areaSqM, initialPCI, decayRate float64, years int, params *forecast.Params) []forecast.ScenarioResult {
+	return BuildScenarios([]forecast.Cohort{{
+		Classification: classification,
+		AreaSqM:        areaSqM,
+		DecayRate:      decayRate,
+		InitialPCI:     initialPCI,
+	}}, years, params)
 }
 
 // BuildHexCostSummary builds the per-scope, per-resource hex cost summary
