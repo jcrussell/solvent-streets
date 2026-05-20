@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+
+	"github.com/jcrussell/solvent-streets/internal/logs"
 )
 
 // FetchOSMWater queries Overpass for OSM water polygons inside bbox and
@@ -48,7 +50,7 @@ func fetchOSMWater(ctx context.Context, client *http.Client, baseURL string, bbo
 		return "", fmt.Errorf("overpass water returned %d: %s", resp.StatusCode, truncate(string(body), 200))
 	}
 
-	return parseWaterResponse(body, bbox)
+	return parseWaterResponse(ctx, body, bbox)
 }
 
 func buildWaterQuery(bbox [4]float64) string {
@@ -69,7 +71,7 @@ type waterPolygon struct {
 	holes [][][2]float64
 }
 
-func parseWaterResponse(data []byte, bbox [4]float64) (string, error) {
+func parseWaterResponse(ctx context.Context, data []byte, bbox [4]float64) (string, error) {
 	var resp overpassResponse
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return "", fmt.Errorf("parse overpass water json: %w", err)
@@ -90,7 +92,7 @@ func parseWaterResponse(data []byte, bbox [4]float64) (string, error) {
 			}
 			polys = append(polys, waterPolygon{outer: coords})
 		case elementRelation:
-			polys = append(polys, polygonsFromRelation(e)...)
+			polys = append(polys, polygonsFromRelation(ctx, e)...)
 		}
 	}
 
@@ -106,8 +108,8 @@ func parseWaterResponse(data []byte, bbox [4]float64) (string, error) {
 	return polysToMultiPolygonGeoJSON(polys), nil
 }
 
-func polygonsFromRelation(e overpassElement) []waterPolygon {
-	var outerWays, innerWays [][][2]float64
+func polygonsFromRelation(ctx context.Context, e overpassElement) []waterPolygon {
+	var outerWays, innerWays []stitchInput
 	for _, m := range e.Members {
 		if m.Type != elementWay || len(m.Geometry) < 2 {
 			continue
@@ -116,19 +118,32 @@ func polygonsFromRelation(e overpassElement) []waterPolygon {
 		for i, g := range m.Geometry {
 			coords[i] = [2]float64{g.Lon, g.Lat}
 		}
+		in := stitchInput{id: m.Ref, coords: coords}
 		switch m.Role {
 		case "outer", "":
 			// Per the OSM multipolygon spec the role should always be
 			// "outer" or "inner", but very old relations sometimes have
 			// blank roles — treat those as outer (the spec's default).
-			outerWays = append(outerWays, coords)
+			outerWays = append(outerWays, in)
 		case "inner":
-			innerWays = append(innerWays, coords)
+			innerWays = append(innerWays, in)
 		}
 	}
 
-	outerRings := stitchRings(outerWays)
-	innerRings := stitchRings(innerWays)
+	outerRings, droppedOuter := stitchRings(outerWays)
+	innerRings, droppedInner := stitchRings(innerWays)
+	if len(droppedOuter) > 0 || len(droppedInner) > 0 {
+		// Real OSM relations fragment outer/inner boundaries across many
+		// member ways; when the chain has a gap, stitchRings cannot close
+		// the ring and discards the partial chain. Surface the missing
+		// member ids so a human can investigate which OSM data needs
+		// fixing — silent drops mask coastline data loss.
+		logs.From(ctx).Warn("water relation: dropped unclosed member ways",
+			"relation", e.ID,
+			"dropped_outer", droppedOuter,
+			"dropped_inner", droppedInner,
+		)
+	}
 
 	polys := make([]waterPolygon, 0, len(outerRings))
 	for _, o := range outerRings {
@@ -149,46 +164,60 @@ func polygonsFromRelation(e overpassElement) []waterPolygon {
 	return polys
 }
 
+// stitchInput pairs an OSM way's ref id with its coordinate sequence.
+// stitchRings consumes these so it can report the ids of member ways
+// whose partial chains had to be dropped.
+type stitchInput struct {
+	id     int64
+	coords [][2]float64
+}
+
 // stitchRings chains open ways into closed rings by matching endpoints.
-// Ways that cannot be closed are dropped. Each input way is consumed at
-// most once. Time complexity is O(n²) in the number of ways, which is
-// fine for the dozens-of-segments-per-relation scale of OSM water.
-func stitchRings(ways [][][2]float64) [][][2]float64 {
+// Ways that cannot be closed are dropped and their ids returned in
+// dropped. Each input way is consumed at most once. Time complexity is
+// O(n²) in the number of ways, which is fine for the dozens-of-segments-
+// per-relation scale of OSM water.
+func stitchRings(ways []stitchInput) (rings [][][2]float64, dropped []int64) {
 	used := make([]bool, len(ways))
-	var rings [][][2]float64
 
 	for i := range ways {
-		if used[i] || len(ways[i]) < 2 {
+		if used[i] || len(ways[i].coords) < 2 {
 			continue
 		}
 		used[i] = true
-		ring := append([][2]float64{}, ways[i]...)
+		ring := append([][2]float64{}, ways[i].coords...)
+		consumed := []int{i}
 
 		for ring[0] != ring[len(ring)-1] {
-			extended, next := extendRing(ring, ways, used)
+			extended, next, nextIdx := extendRing(ring, ways, used)
 			if !extended {
 				break
 			}
 			ring = next
+			consumed = append(consumed, nextIdx)
 		}
 
 		if isClosedRing(ring) {
 			rings = append(rings, ring)
+		} else {
+			for _, c := range consumed {
+				dropped = append(dropped, ways[c].id)
+			}
 		}
 	}
-	return rings
+	return rings, dropped
 }
 
 // extendRing finds an unused way whose endpoint matches ring's tail and
 // appends it to ring (reversing the way if needed). The matched way is
-// marked used. Returns (false, ring) when no way matches.
-func extendRing(ring [][2]float64, ways [][][2]float64, used []bool) (bool, [][2]float64) {
+// marked used. Returns (false, ring, -1) when no way matches.
+func extendRing(ring [][2]float64, ways []stitchInput, used []bool) (bool, [][2]float64, int) {
 	tail := ring[len(ring)-1]
 	for j := range ways {
-		if used[j] || len(ways[j]) < 2 {
+		if used[j] || len(ways[j].coords) < 2 {
 			continue
 		}
-		w := ways[j]
+		w := ways[j].coords
 		switch {
 		case tail == w[0]:
 			ring = append(ring, w[1:]...)
@@ -200,9 +229,9 @@ func extendRing(ring [][2]float64, ways [][][2]float64, used []bool) (bool, [][2
 			continue
 		}
 		used[j] = true
-		return true, ring
+		return true, ring, j
 	}
-	return false, ring
+	return false, ring, -1
 }
 
 func isClosedRing(coords [][2]float64) bool {

@@ -1,14 +1,18 @@
 package ingest
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/jcrussell/solvent-streets/internal/logs"
 )
 
 func TestFetchOSMWater_Success(t *testing.T) {
@@ -148,7 +152,7 @@ func TestParseWaterResponse_RelationStitchedOuter(t *testing.T) {
 		]
 	}]}`
 
-	result, err := parseWaterResponse([]byte(body), [4]float64{0, 0, 1, 1})
+	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{0, 0, 1, 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +188,7 @@ func TestParseWaterResponse_RelationWithInnerHole(t *testing.T) {
 		]
 	}]}`
 
-	result, err := parseWaterResponse([]byte(body), [4]float64{0, 0, 10, 10})
+	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{0, 0, 10, 10})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +219,7 @@ func TestParseWaterResponse_RelationDropsOpenChain(t *testing.T) {
 		]
 	}]}`
 
-	result, err := parseWaterResponse([]byte(body), [4]float64{0, 0, 10, 10})
+	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{0, 0, 10, 10})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,27 +228,92 @@ func TestParseWaterResponse_RelationDropsOpenChain(t *testing.T) {
 	}
 }
 
-func TestStitchRings_AlreadyClosed(t *testing.T) {
-	ways := [][][2]float64{
-		{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}},
+// TestParseWaterResponse_LogsDroppedMemberWays verifies that when a
+// water relation has unstitchable member ways, parseWaterResponse logs
+// a warning naming the relation id and the dropped member-way ids.
+// This is the observability hook for real-world OSM data losing chunks
+// of water area to fragmented relations.
+func TestParseWaterResponse_LogsDroppedMemberWays(t *testing.T) {
+	body := `{"elements":[{
+		"type":"relation","id":4242,"tags":{"natural":"water"},
+		"members":[
+			{"type":"way","ref":101,"role":"outer","geometry":[{"lat":0,"lon":0},{"lat":0,"lon":1}]},
+			{"type":"way","ref":202,"role":"outer","geometry":[{"lat":5,"lon":5},{"lat":6,"lon":6}]}
+		]
+	}]}`
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	ctx := logs.WithLogger(context.Background(), logger)
+
+	if _, err := parseWaterResponse(ctx, []byte(body), [4]float64{0, 0, 10, 10}); err != nil {
+		t.Fatal(err)
 	}
-	rings := stitchRings(ways)
+
+	var record struct {
+		Msg          string  `json:"msg"`
+		Level        string  `json:"level"`
+		Relation     int64   `json:"relation"`
+		DroppedOuter []int64 `json:"dropped_outer"`
+		DroppedInner []int64 `json:"dropped_inner"`
+	}
+	line := bytes.TrimSpace(buf.Bytes())
+	if len(line) == 0 {
+		t.Fatal("expected warn log line; got nothing")
+	}
+	if err := json.Unmarshal(line, &record); err != nil {
+		t.Fatalf("parse log line: %v: %s", err, line)
+	}
+	if record.Level != "WARN" {
+		t.Errorf("level = %q, want WARN", record.Level)
+	}
+	if !strings.Contains(record.Msg, "dropped") {
+		t.Errorf("msg = %q, want it to mention dropping", record.Msg)
+	}
+	if record.Relation != 4242 {
+		t.Errorf("relation = %d, want 4242", record.Relation)
+	}
+	wantDropped := map[int64]bool{101: true, 202: true}
+	if len(record.DroppedOuter) != len(wantDropped) {
+		t.Fatalf("dropped_outer = %v, want ids %v", record.DroppedOuter, wantDropped)
+	}
+	for _, id := range record.DroppedOuter {
+		if !wantDropped[id] {
+			t.Errorf("unexpected dropped outer id %d (want %v)", id, wantDropped)
+		}
+	}
+	if len(record.DroppedInner) != 0 {
+		t.Errorf("dropped_inner = %v, want empty", record.DroppedInner)
+	}
+}
+
+func TestStitchRings_AlreadyClosed(t *testing.T) {
+	ways := []stitchInput{
+		{id: 1, coords: [][2]float64{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}}},
+	}
+	rings, dropped := stitchRings(ways)
 	if len(rings) != 1 {
 		t.Fatalf("expected 1 ring, got %d", len(rings))
 	}
-	if !ringsEquivalent(rings[0], ways[0]) {
+	if len(dropped) != 0 {
+		t.Errorf("expected no dropped ids, got %v", dropped)
+	}
+	if !ringsEquivalent(rings[0], ways[0].coords) {
 		t.Errorf("ring changed unexpectedly: got %v", rings[0])
 	}
 }
 
 func TestStitchRings_TwoWaysChainForward(t *testing.T) {
-	ways := [][][2]float64{
-		{{0, 0}, {1, 0}, {1, 1}},
-		{{1, 1}, {0, 1}, {0, 0}},
+	ways := []stitchInput{
+		{id: 1, coords: [][2]float64{{0, 0}, {1, 0}, {1, 1}}},
+		{id: 2, coords: [][2]float64{{1, 1}, {0, 1}, {0, 0}}},
 	}
-	rings := stitchRings(ways)
+	rings, dropped := stitchRings(ways)
 	if len(rings) != 1 {
 		t.Fatalf("expected 1 ring, got %d", len(rings))
+	}
+	if len(dropped) != 0 {
+		t.Errorf("expected no dropped ids, got %v", dropped)
 	}
 	want := [][2]float64{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}}
 	if !ringsEquivalent(rings[0], want) {
@@ -255,11 +324,11 @@ func TestStitchRings_TwoWaysChainForward(t *testing.T) {
 func TestStitchRings_ReversedWayChained(t *testing.T) {
 	// Same square but the second way is written in reverse — the stitcher
 	// must walk it tail-to-head to extend the ring.
-	ways := [][][2]float64{
-		{{0, 0}, {1, 0}, {1, 1}},
-		{{0, 0}, {0, 1}, {1, 1}}, // reversed: ends where ring1 ends
+	ways := []stitchInput{
+		{id: 1, coords: [][2]float64{{0, 0}, {1, 0}, {1, 1}}},
+		{id: 2, coords: [][2]float64{{0, 0}, {0, 1}, {1, 1}}}, // reversed: ends where ring1 ends
 	}
-	rings := stitchRings(ways)
+	rings, _ := stitchRings(ways)
 	if len(rings) != 1 {
 		t.Fatalf("expected 1 ring, got %d", len(rings))
 	}
@@ -270,14 +339,25 @@ func TestStitchRings_ReversedWayChained(t *testing.T) {
 }
 
 func TestStitchRings_OpenChainDropped(t *testing.T) {
-	// Two ways that form a chain but never close back to the start.
-	ways := [][][2]float64{
-		{{0, 0}, {1, 0}},
-		{{1, 0}, {2, 0}},
+	// Two ways that form a chain but never close back to the start. The
+	// ids of the partial chain must surface in `dropped` so callers can
+	// log which OSM ways were lost.
+	ways := []stitchInput{
+		{id: 11, coords: [][2]float64{{0, 0}, {1, 0}}},
+		{id: 22, coords: [][2]float64{{1, 0}, {2, 0}}},
 	}
-	rings := stitchRings(ways)
+	rings, dropped := stitchRings(ways)
 	if len(rings) != 0 {
 		t.Errorf("expected open chain to be dropped, got %d rings: %v", len(rings), rings)
+	}
+	want := map[int64]bool{11: true, 22: true}
+	if len(dropped) != len(want) {
+		t.Fatalf("expected dropped ids %v, got %v", want, dropped)
+	}
+	for _, id := range dropped {
+		if !want[id] {
+			t.Errorf("unexpected dropped id %d (want %v)", id, want)
+		}
 	}
 }
 
@@ -503,7 +583,7 @@ func TestParseWaterResponse_CoastlineClosedAtBBox(t *testing.T) {
 			{"lat":0.5,"lon":1}
 		]}
 	]}`
-	result, err := parseWaterResponse([]byte(body), [4]float64{0, 0, 1, 1})
+	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{0, 0, 1, 1})
 	if err != nil {
 		t.Fatal(err)
 	}
