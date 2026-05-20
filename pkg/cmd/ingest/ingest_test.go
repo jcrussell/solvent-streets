@@ -11,18 +11,18 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	ingestpkg "github.com/jcrussell/solvent-streets/internal/ingest"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/pkg/cmd/cmdtest"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
 
-var testCity = &config.CityConfig{
-	Name:     "Test City",
-	Overpass: true,
-}
+var testCity = func() *config.CityConfig {
+	c := cmdtest.NewTestCity()
+	c.Overpass = true
+	return c
+}()
 
-var testCfg = &config.Config{
-	Cities: []config.CityConfig{*testCity},
-}
+var testCfg = cmdtest.NewTestConfig(testCity)
 
 func testFactory(ios *iostreams.IOStreams) *cmdutil.Factory {
 	store := &dbtest.MockStore{}

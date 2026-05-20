@@ -13,19 +13,16 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/units"
+	"github.com/jcrussell/solvent-streets/pkg/cmd/cmdtest"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 
 	"github.com/peterstace/simplefeatures/geom"
 )
 
-var testCity = &config.CityConfig{
-	Name: "Test City",
-}
+var testCity = cmdtest.NewTestCity()
 
-var testCfg = &config.Config{
-	Cities: []config.CityConfig{*testCity},
-}
+var testCfg = cmdtest.NewTestConfig(testCity)
 
 var testBoundary = `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
 
