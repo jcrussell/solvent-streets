@@ -55,6 +55,12 @@ dolt-server.activity
 # Backup data (auto-exported JSONL, local-only)
 backup/
 
+# Issue export (auto-written by the pre-commit hook). Project policy is that
+# the user controls remote sync (see no-git-ops / backup.git-push in
+# config.yaml), so this stays untracked instead of producing a diff on every
+# bd close.
+issues.jsonl
+
 # Per-project environment file (Dolt connection config, GH#2520)
 .env
 
