@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io/fs"
 	"sort"
@@ -20,6 +21,13 @@ func migrate(ctx context.Context, d *sql.DB) error {
 
 // migrateFS is the fs.FS-parametrized form of migrate. Exposes the
 // filesystem seam for tests; production code calls migrate.
+//
+// Each migration's data exec + schema_version insert runs inside a single
+// BeginTx so a partial failure (e.g. statement N of a multi-statement
+// migration errors after statement N-1 has executed) rolls back cleanly
+// instead of leaving the schema half-applied. modernc.org/sqlite runs each
+// statement in its own implicit txn otherwise, which is unsafe for the
+// kind of CREATE/INSERT/DROP/RENAME sequences migrations contain.
 func migrateFS(ctx context.Context, d *sql.DB, source fs.FS, root string) error {
 	if _, err := d.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)`); err != nil {
 		return fmt.Errorf("create schema_version: %w", err)
@@ -61,14 +69,36 @@ func migrateFS(ctx context.Context, d *sql.DB, source fs.FS, root string) error 
 			return fmt.Errorf("read migration %s: %w", entry.Name(), err)
 		}
 
-		if _, err := d.ExecContext(ctx, string(data)); err != nil {
-			return fmt.Errorf("exec migration %s: %w", entry.Name(), err)
-		}
-
-		if _, err := d.ExecContext(ctx, `INSERT INTO schema_version (version) VALUES (?)`, version); err != nil {
-			return fmt.Errorf("record migration %s: %w", entry.Name(), err)
+		if err := applyMigration(ctx, d, entry.Name(), version, string(data)); err != nil {
+			return err
 		}
 	}
 
+	return nil
+}
+
+func applyMigration(ctx context.Context, d *sql.DB, name string, version int, data string) (retErr error) {
+	tx, err := d.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin migration %s: %w", name, err)
+	}
+	defer func() {
+		if retErr != nil {
+			if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
+				retErr = errors.Join(retErr, fmt.Errorf("rollback migration %s: %w", name, rbErr))
+			}
+		}
+	}()
+
+	if _, err := tx.ExecContext(ctx, data); err != nil {
+		return fmt.Errorf("exec migration %s: %w", name, err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO schema_version (version) VALUES (?)`, version); err != nil {
+		return fmt.Errorf("record migration %s: %w", name, err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit migration %s: %w", name, err)
+	}
 	return nil
 }

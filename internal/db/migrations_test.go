@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"slices"
+	"strings"
 	"testing"
 	"testing/fstest"
 )
@@ -254,5 +255,60 @@ func TestMigrateFS_AcceptsCustomFS(t *testing.T) {
 	// Idempotent: a second run with the same FS is a no-op.
 	if err := migrateFS(ctx, d, mapFS, "mig"); err != nil {
 		t.Fatalf("migrateFS idempotent run: %v", err)
+	}
+}
+
+// TestMigrateFS_PartialFailureRollsBack pins the per-migration BeginTx
+// contract: a multi-statement migration whose later statement fails must
+// leave the database exactly as it was before the migration started — no
+// orphan tables from the successful prefix, no schema_version row, and
+// the prior migration's effects intact. modernc.org/sqlite otherwise runs
+// each statement in its own implicit txn, so without the wrap the CREATE
+// from a failing migration would persist.
+func TestMigrateFS_PartialFailureRollsBack(t *testing.T) {
+	ctx := context.Background()
+
+	mapFS := fstest.MapFS{
+		"mig/001_init.sql": &fstest.MapFile{
+			Data: []byte(`CREATE TABLE keepers (id INTEGER PRIMARY KEY);`),
+		},
+		// CREATE succeeds, then INSERT into a non-existent table fails.
+		// Without the tx wrap, "orphan" would survive the failure.
+		"mig/002_bad.sql": &fstest.MapFile{
+			Data: []byte(`
+CREATE TABLE orphan (id INTEGER PRIMARY KEY);
+INSERT INTO does_not_exist (id) VALUES (1);
+`),
+		},
+	}
+
+	d, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Close() })
+
+	err = migrateFS(ctx, d, mapFS, "mig")
+	if err == nil {
+		t.Fatal("migrateFS: want error from migration 002, got nil")
+	}
+	if !strings.Contains(err.Error(), "002_bad.sql") {
+		t.Errorf("migrateFS error = %v, want it to name the failing migration", err)
+	}
+
+	tables := listTables(t, ctx, d)
+	if !slices.Contains(tables, "keepers") {
+		t.Errorf("migration 001 effects lost; tables = %v", tables)
+	}
+	if slices.Contains(tables, "orphan") {
+		t.Errorf("partial migration 002 leaked the orphan table; tables = %v", tables)
+	}
+
+	var version int
+	if err := d.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&version); err != nil {
+		t.Fatalf("schema_version: %v", err)
+	}
+	if version != 1 {
+		t.Errorf("schema_version = %d, want 1 (migration 002 rolled back)", version)
 	}
 }
