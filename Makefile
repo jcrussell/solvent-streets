@@ -13,7 +13,7 @@ LDFLAGS := -X github.com/jcrussell/solvent-streets/internal/build.Version=$(VERS
 	-X github.com/jcrussell/solvent-streets/internal/build.Commit=$(COMMIT) \
 	-X github.com/jcrussell/solvent-streets/internal/build.Date=$(DATE)
 
-.PHONY: build test clean wasm lint gendocs release-dry-run site site-clean deploy \
+.PHONY: build test e2e clean wasm lint gendocs release-dry-run site site-clean deploy \
 	fmt vet tidy cover help install pre-commit
 
 wasm:
@@ -36,6 +36,12 @@ install: build
 
 test:
 	go test -race ./...
+
+# Real-network e2e. Gated by PVMT_E2E_NETWORK=1 so `make test` stays
+# hermetic. Hits Overpass + ArcGIS; 429/504 from upstream is flakiness,
+# not a code bug.
+e2e:
+	PVMT_E2E_NETWORK=1 go test -race -timeout=10m -run TestE2ENetwork ./integration/...
 
 # Pinned floor lives in .golangci-version; CI pins the action to that same
 # version. Local installs that drift warn but do not fail (CI is the gate).
