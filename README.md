@@ -14,11 +14,38 @@ Pure Go CLI for pavement data ingestion, hex-grid coverage analysis, PCI decay f
 
 ## Install
 
-Download a binary from [GitHub Releases](https://github.com/jcrussell/solvent-streets/releases), or build from source:
+pvmt is not in any Linux distribution's package repositories. Pick one of the three options below.
+
+### Debian/Ubuntu package
+
+Download the `.deb` for your architecture from the [latest release](https://github.com/jcrussell/solvent-streets/releases/latest), then install it:
 
 ```
+sudo apt install ./pvmt_<version>_linux_amd64.deb
+```
+
+The package installs `pvmt` to `/usr/bin` and ships shell completions and manpages.
+
+### Pre-built binary (any Linux)
+
+Download the tarball for your architecture from the [latest release](https://github.com/jcrussell/solvent-streets/releases/latest), extract it, and move the binary onto your `PATH`:
+
+```
+tar -xzf pvmt_<version>_linux_amd64.tar.gz
+sudo mv pvmt /usr/local/bin/
+```
+
+### Build from source
+
+Requires Go 1.26+ (see [Development](#development) for prerequisites).
+
+```
+git clone https://github.com/jcrussell/solvent-streets
+cd solvent-streets
 make build
 ```
+
+The binary is written to the repo root; copy it onto your `PATH` as above.
 
 ## Quickstart
 
@@ -77,7 +104,7 @@ BSD-3-Clause. See [LICENSE](LICENSE).
 - **Go 1.26+** (floor declared in [`go.mod`](go.mod); CI pins the same minor).
 - **golangci-lint** at the version in [`.golangci-version`](.golangci-version) for `make lint`.
 
-Linux: install Go from your distro or via [asdf](https://asdf-vm.com) / [mise](https://mise.jdx.dev). Install `golangci-lint` via the [install script](https://golangci-lint.run/welcome/install/#local-installation).
+Linux: install Go from your distro's package manager (e.g. `sudo apt install golang-go` on Debian/Ubuntu, `sudo dnf install golang` on Fedora). If your distro's Go is older than 1.26, download a release from [go.dev/dl](https://go.dev/dl/). Install `golangci-lint` via the [install script](https://golangci-lint.run/welcome/install/#local-installation).
 
 macOS:
 

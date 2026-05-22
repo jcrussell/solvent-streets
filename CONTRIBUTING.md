@@ -10,8 +10,10 @@ loop, commit-message style, and how this project tracks work.
 - **golangci-lint** at the version pinned in [`.golangci-version`](.golangci-version).
 - A POSIX shell (`make`, `awk`, `sed`).
 
-Linux: install Go from your distro or via [asdf](https://asdf-vm.com) /
-[mise](https://mise.jdx.dev). Install `golangci-lint` via the
+Linux: install Go from your distro's package manager (e.g.
+`sudo apt install golang-go` on Debian/Ubuntu, `sudo dnf install golang`
+on Fedora). If your distro's Go is older than 1.26, download a release
+from [go.dev/dl](https://go.dev/dl/). Install `golangci-lint` via the
 [install script](https://golangci-lint.run/welcome/install/#local-installation).
 
 macOS:
