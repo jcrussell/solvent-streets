@@ -15,12 +15,12 @@ description = "Multi-city pavement condition and forecast for the San Francisco 
 [[cities]]
 name = "Oakland, CA"
 overpass = true
-arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Alameda_County_Street_Centerlines/FeatureServer/0/query"
+arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
 
 [[cities]]
 name = "Berkeley, CA"
 overpass = true
-arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Alameda_County_Street_Centerlines/FeatureServer/0/query"
+arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
 hex_edge_m = 75
 
 [[cities]]

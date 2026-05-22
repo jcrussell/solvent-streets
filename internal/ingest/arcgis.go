@@ -18,7 +18,7 @@ const arcgisMaxRecords = 5000
 const arcgisMaxPages = 200 // safety limit: 200 pages × 5000 = 1M features max
 
 // Default Alameda County ArcGIS feature service URL
-const defaultArcGISCenterlines = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Alameda_County_Street_Centerlines/FeatureServer/0/query"
+const defaultArcGISCenterlines = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
 
 type ArcGISSource struct {
 	BBox     [4]float64 // [south, west, north, east]
@@ -106,10 +106,43 @@ func fetchArcGISPage(ctx context.Context, client *http.Client, endpoint, envelop
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("arcgis returned %d: %s", resp.StatusCode, truncate(string(body), 200))
+		return nil, fmt.Errorf("arcgis %s returned %d: %s", endpoint, resp.StatusCode, truncate(string(body), 200))
+	}
+
+	// ArcGIS sometimes returns service-level errors as HTTP 200 with a JSON
+	// error envelope (e.g. stale layer path, retired service). Detect those
+	// up front so the caller sees the underlying message + endpoint instead
+	// of an empty feature list.
+	if msg, ok := arcgisErrorMessage(body); ok {
+		return nil, fmt.Errorf("arcgis %s: %s", endpoint, msg)
 	}
 
 	return parseArcGISGeoJSON(body, resourceType, offset)
+}
+
+// arcgisErrorMessage reports whether body is an ArcGIS error envelope of the
+// form {"error":{"code":N,"message":"..."}} and returns a human-readable
+// summary. Returns ok=false for any non-error response (including valid
+// GeoJSON FeatureCollections, which have no "error" key).
+func arcgisErrorMessage(body []byte) (string, bool) {
+	var env struct {
+		Error *struct {
+			Code    int      `json:"code"`
+			Message string   `json:"message"`
+			Details []string `json:"details"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &env); err != nil || env.Error == nil {
+		return "", false
+	}
+	msg := env.Error.Message
+	if msg == "" {
+		msg = "unknown error"
+	}
+	if len(env.Error.Details) > 0 && env.Error.Details[0] != msg {
+		msg = fmt.Sprintf("%s (%s)", msg, env.Error.Details[0])
+	}
+	return fmt.Sprintf("code %d: %s", env.Error.Code, msg), true
 }
 
 type arcgisGeoJSON struct {

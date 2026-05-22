@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/resource"
@@ -239,6 +240,101 @@ func TestFetch_SinglePage(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Errorf("expected 1 server call, got %d", calls)
+	}
+}
+
+func TestFetch_ArcGISErrorEnvelope(t *testing.T) {
+	// ArcGIS returns service-level errors as HTTP 200 with a JSON error
+	// envelope. The fetcher should surface the message and endpoint URL
+	// rather than silently treating the response as an empty feature list.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"error":{"code":400,"message":"Invalid URL","details":["Invalid URL"]}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	src := &ArcGISSource{
+		BBox: [4]float64{37.0, -122.0, 38.0, -121.0},
+		URL:  srv.URL,
+	}
+	_, err := src.Fetch(context.Background(), srv.Client(), resource.ByType(resource.TypeRoads))
+	if err == nil {
+		t.Fatal("expected error for ArcGIS error envelope, got nil")
+	}
+	msg := err.Error()
+	for _, want := range []string{srv.URL, "code 400", "Invalid URL"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error %q missing expected substring %q", msg, want)
+		}
+	}
+}
+
+func TestFetch_NonOKStatusIncludesEndpoint(t *testing.T) {
+	// HTTP 400/500 responses must include the endpoint URL so a stale or
+	// misconfigured service is debuggable from the error alone.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+	}))
+	t.Cleanup(srv.Close)
+
+	src := &ArcGISSource{
+		BBox: [4]float64{37.0, -122.0, 38.0, -121.0},
+		URL:  srv.URL,
+	}
+	_, err := src.Fetch(context.Background(), srv.Client(), resource.ByType(resource.TypeRoads))
+	if err == nil {
+		t.Fatal("expected error for HTTP 400, got nil")
+	}
+	if !strings.Contains(err.Error(), srv.URL) {
+		t.Errorf("error %q does not include endpoint %q", err.Error(), srv.URL)
+	}
+}
+
+func TestArcGISErrorMessage(t *testing.T) {
+	cases := []struct {
+		name   string
+		body   string
+		wantOK bool
+		want   string
+	}{
+		{
+			name:   "error envelope with details",
+			body:   `{"error":{"code":400,"message":"Invalid URL","details":["Invalid URL"]}}`,
+			wantOK: true,
+			want:   "code 400: Invalid URL",
+		},
+		{
+			name:   "error envelope with distinct detail",
+			body:   `{"error":{"code":498,"message":"Invalid Token","details":["Token expired"]}}`,
+			wantOK: true,
+			want:   "code 498: Invalid Token (Token expired)",
+		},
+		{
+			name:   "valid feature collection",
+			body:   `{"features":[{"properties":{"OBJECTID":1},"geometry":{"type":"Point","coordinates":[0,0]}}]}`,
+			wantOK: false,
+		},
+		{
+			name:   "empty features",
+			body:   `{"features":[]}`,
+			wantOK: false,
+		},
+		{
+			name:   "invalid json",
+			body:   `not json`,
+			wantOK: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := arcgisErrorMessage([]byte(tc.body))
+			if ok != tc.wantOK {
+				t.Fatalf("ok=%v, want %v (got=%q)", ok, tc.wantOK, got)
+			}
+			if ok && got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 
