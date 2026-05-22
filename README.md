@@ -1,4 +1,4 @@
-# pvmt
+# solvent-streets
 
 [![CI](https://github.com/jcrussell/solvent-streets/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/jcrussell/solvent-streets/actions/workflows/ci.yaml)
 [![Release](https://img.shields.io/github/v/release/jcrussell/solvent-streets?logo=github)](https://github.com/jcrussell/solvent-streets/releases)
@@ -77,13 +77,13 @@ BSD-3-Clause. See [LICENSE](LICENSE).
 - **Go 1.26+** (floor declared in [`go.mod`](go.mod); CI pins the same minor).
 - **golangci-lint** at the version in [`.golangci-version`](.golangci-version) for `make lint`.
 
+Linux: install Go from your distro or via [asdf](https://asdf-vm.com) / [mise](https://mise.jdx.dev). Install `golangci-lint` via the [install script](https://golangci-lint.run/welcome/install/#local-installation).
+
 macOS:
 
 ```
 brew install go golangci-lint
 ```
-
-Linux: install Go from your distro or via [asdf](https://asdf-vm.com) / [mise](https://mise.jdx.dev). Install `golangci-lint` via the [install script](https://golangci-lint.run/welcome/install/#local-installation).
 
 ### Build
 
