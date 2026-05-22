@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+const noTimestamp = "never"
+
 // IOStreams wraps the three standard streams plus per-stream TTY flags so
 // commands can be tested with in-memory buffers and so output behavior
 // (colors, progress, prompts) keys off explicit predicates instead of
@@ -161,10 +163,10 @@ func RelativeTime(t time.Time) string {
 
 // FormatTimestamp renders an RFC3339 timestamp string for display. On a TTY
 // it appends a relative-time suffix; otherwise it returns the raw value.
-// Empty input renders as "never".
+// Empty input renders as noTimestamp.
 func FormatTimestamp(raw string, isTTY bool) string {
 	if raw == "" {
-		return "never"
+		return noTimestamp
 	}
 	if isTTY {
 		t, _ := time.Parse(time.RFC3339, raw)
