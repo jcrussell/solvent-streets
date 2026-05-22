@@ -1,4 +1,4 @@
-# Contributing to pvmt
+# Contributing to solvent-streets
 
 Thanks for your interest. This guide covers prerequisites, the build/test
 loop, commit-message style, and how this project tracks work.
@@ -10,15 +10,15 @@ loop, commit-message style, and how this project tracks work.
 - **golangci-lint** at the version pinned in [`.golangci-version`](.golangci-version).
 - A POSIX shell (`make`, `awk`, `sed`).
 
+Linux: install Go from your distro or via [asdf](https://asdf-vm.com) /
+[mise](https://mise.jdx.dev). Install `golangci-lint` via the
+[install script](https://golangci-lint.run/welcome/install/#local-installation).
+
 macOS:
 
 ```
 brew install go golangci-lint
 ```
-
-Linux: install Go from your distro or via [asdf](https://asdf-vm.com) /
-[mise](https://mise.jdx.dev). Install `golangci-lint` via the
-[install script](https://golangci-lint.run/welcome/install/#local-installation).
 
 No CGO is required — `pvmt` builds with `CGO_ENABLED=0`. Don't introduce
 CGO-backed dependencies.
