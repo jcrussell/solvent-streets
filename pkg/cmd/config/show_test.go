@@ -80,6 +80,10 @@ func TestNewCmdShow_RunFInjection(t *testing.T) {
 // Out alone. ErrOut stays silent so `pvmt config show > pvmt.toml`
 // produces a valid file with no chatter mixed in.
 func TestShow_DefaultEmitsTOML(t *testing.T) {
+	// `units = "imperial"` assertion below depends on the default
+	// resolution chain, so guarantee PVMT_UNITS isn't carried over from
+	// another test in this package.
+	os.Unsetenv("PVMT_UNITS")
 	cfg := &config.Config{
 		Grid:     config.GridConfig{HexEdgeM: 100},
 		Forecast: config.ForecastConfig{Years: 20, InitialPCI: 85},
@@ -95,6 +99,18 @@ func TestShow_DefaultEmitsTOML(t *testing.T) {
 	}
 	if !strings.Contains(got, "[[cities]]") {
 		t.Errorf("TOML output missing [[cities]] array: %q", got)
+	}
+	// `config show` without --sources prints the *resolved* config, so
+	// Display fields the user omitted from pvmt.toml must surface as
+	// their applied defaults rather than zero values (`units = ""`,
+	// `min_hex_area_sqm = 0.0`). See solvent-streets eyeball-test
+	// feedback: an empty units field made the effective configuration
+	// look broken even though UnitSystem() resolves correctly.
+	if !strings.Contains(got, `units = "imperial"`) {
+		t.Errorf("TOML output missing resolved default units = \"imperial\": %q", got)
+	}
+	if !strings.Contains(got, "min_hex_area_sqm = 100") {
+		t.Errorf("TOML output missing resolved default min_hex_area_sqm = 100: %q", got)
 	}
 	if errs := bufs.errOut.String(); errs != "" {
 		t.Errorf("stderr should be empty for pure-data command (byob-iostreams.3); got: %q", errs)

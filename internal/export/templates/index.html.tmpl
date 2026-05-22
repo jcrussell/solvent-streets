@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     {{template "theme_boot" .}}
-    <title>PVMT - {{.ProjectName}}</title>
+    <title>Solvent Streets &mdash; {{.ProjectName}}</title>
     <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css">
     <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
@@ -41,8 +41,24 @@
             align-self: center; margin-left: 8px; flex-shrink: 0;
         }
         .tab-bar .theme-toggle:hover { border-color: var(--header-fg); }
-        .tab-content { display: none; position: absolute; top: 48px; left: 0; right: 0; bottom: 0; z-index: 1; }
+        .tab-content { display: none; position: absolute; top: 48px; left: 0; right: 0; bottom: 28px; z-index: 1; }
         .tab-content.active { display: block; }
+        .site-footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 28px;
+            line-height: 28px;
+            background: var(--bg);
+            color: var(--text-muted);
+            text-align: center;
+            font-size: 11px;
+            border-top: 1px solid var(--border);
+            z-index: 999;
+        }
+        .site-footer a { color: var(--accent); text-decoration: none; }
+        .site-footer a:hover { text-decoration: underline; }
         #map-tab { overflow: hidden; }
         #panel {
             position: absolute;
@@ -118,23 +134,20 @@
 
         /* Financials tab */
         .financials { padding: 24px; max-width: 1200px; margin: 0 auto; overflow-y: auto; height: 100%; }
-        /* Lives in the header bar so the active scope is visible from every
-           tab (map, financials, compare, config). Tight padding + smaller
-           font to fit alongside city-select and snapshot-picker. */
+        /* Lives inside the gear-menu popover (panel-coloured surface), so
+           buttons use panel/border tokens rather than header tokens. */
         .jurisdiction-toggle {
             display: flex;
             gap: 4px;
-            align-self: center;
-            margin-right: 16px;
         }
         .jurisdiction-toggle button {
             padding: 4px 10px;
-            border: 1px solid var(--header-muted);
+            border: 1px solid var(--border);
             border-radius: 4px;
-            background: var(--header-bg);
+            background: var(--bg);
             cursor: pointer;
             font-size: 13px;
-            color: var(--header-fg);
+            color: var(--text);
             transition: all 0.15s;
         }
         .jurisdiction-toggle button.active {
@@ -142,13 +155,69 @@
             color: var(--accent-fg);
             border-color: var(--accent);
         }
-        .scope-annotation {
-            font-size: 13px;
-            color: var(--text-muted);
-            margin-bottom: 16px;
-            display: none;
+        /* Gear-icon settings popover holding snapshot picker, scope
+           toggle, and theme toggle. Anchored to the gear button in the
+           tab-bar; positioned just below the bar, right-aligned. */
+        .gear-toggle {
+            background: none;
+            border: 1px solid var(--header-muted);
+            color: var(--header-fg);
+            font-size: 16px;
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
+            cursor: pointer;
+            align-self: center;
+            flex-shrink: 0;
+            line-height: 1;
+            padding: 0;
         }
-        .scope-annotation.visible { display: block; }
+        .gear-toggle:hover { border-color: var(--header-fg); }
+        .gear-menu {
+            position: fixed;
+            top: 52px;
+            right: 8px;
+            background: var(--panel);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            padding: 12px;
+            min-width: 240px;
+            z-index: 1100;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .gear-menu[hidden] { display: none; }
+        .gear-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+        .gear-row[hidden] { display: none; }
+        .gear-label { font-size: 13px; color: var(--text-muted); font-weight: 500; }
+        .gear-menu select {
+            background: var(--bg);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+        /* Theme toggle inside the popover: same visual treatment as
+           the header-bar version, just with panel-context borders. */
+        .gear-menu .theme-toggle {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--text);
+            font-size: 16px;
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin: 0;
+            padding: 0;
+            line-height: 1;
+        }
+        .gear-menu .theme-toggle:hover { border-color: var(--text); }
         .headlines { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 32px; }
         .headline-card {
             background: var(--panel);
@@ -416,7 +485,6 @@
             }
             .tab-bar h1 { font-size: 14px; margin-right: 12px; }
             .tab-bar .tab-btn { padding: 0 10px; font-size: 13px; flex-shrink: 0; }
-            .jurisdiction-toggle { margin-right: 8px; }
             .jurisdiction-toggle button { padding: 4px 8px; font-size: 12px; }
 
             /* Map panel: stop covering the map; dock at the bottom with a
@@ -484,7 +552,7 @@
         <ul id="error-banner-list"></ul>
     </div>
     <div class="tab-bar" role="tablist" aria-label="Sections">
-        <h1>PVMT</h1>
+        <h1>Solvent Streets</h1>
         <button class="tab-btn active" data-tab="map-tab" id="map-tab-btn" role="tab" aria-selected="true" aria-controls="map-tab" tabindex="0">Map</button>
         <button class="tab-btn" data-tab="financials-tab" id="financials-tab-btn" role="tab" aria-selected="false" aria-controls="financials-tab" tabindex="-1">Financials</button>
         {{if .Cities}}
@@ -498,16 +566,33 @@
             {{end}}
         </select>
         {{end}}
-        <div class="jurisdiction-toggle" id="scope-toggle" style="display:none">
-            <button class="active" data-scope="city">City Roads Only</button>
-            <button data-scope="bbox">All Roads</button>
+        <button class="gear-toggle" id="gear-btn"
+                aria-label="Settings"
+                aria-haspopup="true"
+                aria-expanded="false"
+                aria-controls="gear-menu"
+                style="{{if not .Cities}}margin-left:auto;{{end}}margin-right:8px;">&#9881;</button>
+    </div>
+    <div class="gear-menu" id="gear-menu" role="menu" hidden>
+        <div class="gear-row" id="gear-scope-row" hidden>
+            <span class="gear-label">Roads</span>
+            <div class="jurisdiction-toggle" id="scope-toggle">
+                <button class="active" data-scope="city">City Only</button>
+                <button data-scope="bbox">All</button>
+            </div>
         </div>
         {{if .IsLiveServer}}
-        <select id="snapshot-picker" title="Historical compute snapshot" style="{{if not .Cities}}margin-left:auto;{{end}}margin-right:16px;align-self:center;background:var(--header-bg);color:var(--header-fg);border:1px solid var(--header-muted);border-radius:4px;padding:4px 8px;font-size:14px;cursor:pointer;">
-            <option value="">Latest</option>
-        </select>
+        <div class="gear-row">
+            <span class="gear-label">Snapshot</span>
+            <select id="snapshot-picker" title="Historical compute snapshot">
+                <option value="">Latest</option>
+            </select>
+        </div>
         {{end}}
-        <button class="theme-toggle" role="switch" aria-label="Toggle dark mode" onclick="toggleTheme()" style="{{if and (not .Cities) (not .IsLiveServer)}}margin-left:auto;{{end}}margin-right:16px;"></button>
+        <div class="gear-row">
+            <span class="gear-label">Theme</span>
+            <button class="theme-toggle" role="switch" aria-label="Toggle dark mode" onclick="toggleTheme()"></button>
+        </div>
     </div>
 
     <div id="map-tab" class="tab-content active" role="tabpanel" aria-labelledby="map-tab-btn">
@@ -569,7 +654,6 @@
 
     <div id="financials-tab" class="tab-content" role="tabpanel" aria-labelledby="financials-tab-btn">
         <div class="financials">
-            <div class="scope-annotation" id="scope-annotation"></div>
             <div class="headlines" id="headlines" style="display:none">
                 <div class="headline-card">
                     <div class="label">Blended End PCI</div>
@@ -1473,16 +1557,6 @@
 
             destroyCharts();
 
-            // Update annotation
-            const annotation = document.getElementById('scope-annotation');
-            if (scope === 'bbox' && scenarioData.summary && scenarioData.summary.city_pct) {
-                const pct = (scenarioData.summary.city_pct * 100).toFixed(0);
-                annotation.textContent = 'Includes state/federal roads — city roads are ' + pct + '% of total area';
-                annotation.classList.add('visible');
-            } else {
-                annotation.classList.remove('visible');
-            }
-
             // Find baseline (do-nothing)
             const baseline = scenarios.find(s => s.scenario.strategy === 0 || s.scenario.name === 'do-nothing' || s.scenario.name === 'baseline');
             if (!baseline) return;
@@ -1787,8 +1861,7 @@
             const haveScenBbox = !!(scenarioData && scenarioData.bbox);
             const haveCity = haveHexCity || haveScenCity;
             const haveBbox = haveHexBbox || haveScenBbox;
-            document.getElementById('scope-toggle').style.display =
-                (haveCity && haveBbox) ? 'flex' : 'none';
+            document.getElementById('gear-scope-row').hidden = !(haveCity && haveBbox);
         }
 
         // Render the cohort breakdown from the scope-appropriate forecast
@@ -1833,6 +1906,34 @@
         document.querySelectorAll('#scope-toggle button').forEach(btn => {
             btn.addEventListener('click', () => selectScope(btn.dataset.scope));
         });
+
+        // Gear popover: groups snapshot picker, scope toggle, and theme
+        // toggle behind a single settings affordance. Closes on outside
+        // click or Escape.
+        (function initGearMenu() {
+            const btn = document.getElementById('gear-btn');
+            const menu = document.getElementById('gear-menu');
+            if (!btn || !menu) return;
+            function setOpen(open) {
+                menu.hidden = !open;
+                btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+            }
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                setOpen(menu.hidden);
+            });
+            document.addEventListener('click', (e) => {
+                if (menu.hidden) return;
+                if (menu.contains(e.target) || btn.contains(e.target)) return;
+                setOpen(false);
+            });
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && !menu.hidden) {
+                    setOpen(false);
+                    btn.focus();
+                }
+            });
+        })();
 
         function makeChartCard(title) {
             const div = document.createElement('div');
@@ -2438,6 +2539,9 @@
             document.head.appendChild(script);
         }
     </script>
+    <footer class="site-footer">
+        Generated by <a href="https://github.com/jcrussell/solvent-streets">solvent-streets</a>.
+    </footer>
     {{template "theme_toggle" .}}
 </body>
 </html>

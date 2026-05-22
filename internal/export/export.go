@@ -258,6 +258,12 @@ func ResolvedTOML(cfg *config.Config) string {
 	if resolved.Grid.HexEdgeM <= 0 {
 		resolved.Grid.HexEdgeM = config.DefaultHexEdgeM
 	}
+	// Display defaults: resolve via UnitSystem() so PVMT_UNITS env wins
+	// over an empty file value (same precedence config show --sources uses).
+	resolved.Display.Units = cfg.UnitSystem().String()
+	if resolved.Display.MinHexAreaSqM <= 0 {
+		resolved.Display.MinHexAreaSqM = config.DefaultMinHexAreaSqM
+	}
 	config.NormalizeForecast(&resolved.Forecast)
 	if resolved.Forecast.DecayRate <= 0 {
 		resolved.Forecast.DecayRate = forecast.DefaultDecayRates["default"]
