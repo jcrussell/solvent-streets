@@ -80,6 +80,13 @@ func run() (err error) {
 		return fmt.Errorf("render landing page: %w", err)
 	}
 
+	// Tell GitHub Pages to skip Jekyll processing. Without this, a 200+ MB
+	// tree gets pushed through Jekyll on every publish (slow), and any file
+	// or directory whose name starts with "_" is silently dropped.
+	if err := os.WriteFile(filepath.Join(*outputDir, ".nojekyll"), nil, 0o644); err != nil {
+		return fmt.Errorf("write .nojekyll: %w", err)
+	}
+
 	fmt.Printf("Site exported to %s/ (%d examples)\n", *outputDir, len(examples))
 	return nil
 }
