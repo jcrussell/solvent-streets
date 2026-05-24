@@ -77,6 +77,7 @@ func parseWaterResponse(ctx context.Context, data []byte, bbox [4]float64) (stri
 		return "", fmt.Errorf("parse overpass water json: %w", err)
 	}
 
+	bboxArea := bboxLonLatArea(bbox)
 	var polys []waterPolygon
 	var coastWays [][][2]float64
 	for _, e := range resp.Elements {
@@ -90,14 +91,26 @@ func parseWaterResponse(ctx context.Context, data []byte, bbox [4]float64) (stri
 			if !isClosedRing(coords) {
 				continue
 			}
+			if ok, reason := acceptWaterPolygon(coords, bboxArea); !ok {
+				logs.From(ctx).Warn("water way: rejected polygon",
+					"way", e.ID, "reason", reason, "vertices", len(coords),
+				)
+				continue
+			}
 			polys = append(polys, waterPolygon{outer: coords})
 		case elementRelation:
-			polys = append(polys, polygonsFromRelation(ctx, e)...)
+			polys = append(polys, polygonsFromRelation(ctx, e, bboxArea)...)
 		}
 	}
 
 	for _, chain := range stitchCoastlineChains(coastWays) {
 		for _, ring := range closeCoastlineChain(ctx, chain, bbox) {
+			if ok, reason := acceptWaterPolygon(ring, bboxArea); !ok {
+				logs.From(ctx).Warn("water coastline: rejected closed ring",
+					"reason", reason, "vertices", len(ring),
+				)
+				continue
+			}
 			polys = append(polys, waterPolygon{outer: ring})
 		}
 	}
@@ -108,7 +121,58 @@ func parseWaterResponse(ctx context.Context, data []byte, bbox [4]float64) (stri
 	return polysToMultiPolygonGeoJSON(polys), nil
 }
 
-func polygonsFromRelation(ctx context.Context, e overpassElement) []waterPolygon {
+// maxOuterBboxAreaFraction caps the planar lon/lat area of any single
+// water outer ring at this fraction of the query bbox area. A larger
+// outer almost always indicates a stitching error (e.g. inverted
+// outer/inner roles producing a continent-sized polygon, or a coastline
+// closure that captured the land side). Real water polygons inside a
+// city bbox — even the Pacific off SF or Boston Harbor — sit well
+// under this threshold because the query bbox is at city scale. Tune
+// alongside waterStripMinAreaRatio (pkg/cmd/ingest/ingest.go) since
+// both gate the same failure class.
+const maxOuterBboxAreaFraction = 0.8
+
+// acceptWaterPolygon decides whether outer is a plausible water-polygon
+// outer ring inside the query bbox. Returns (true, "") on accept,
+// (false, reason) on reject so the caller can log with whatever
+// context it has (OSM way id, relation id, source). Pure: no logging
+// or I/O — Single Responsibility, testable in isolation.
+//
+// Orientation is intentionally NOT checked here. For `natural=water`
+// ways and relation outer rings, OSM does not strictly enforce CW vs
+// CCW — orientation is a convention. Callers normalize to CW for
+// downstream consistency. The CW=water/CCW=island distinction is
+// semantic only for *coastline*-derived rings and lives in
+// closeCoastlineChain (solvent-streets-b0v9), which drops CCW closed
+// rings outright rather than reversing them.
+//
+// Rejection rules compose: adding a new check appends another clause
+// without disturbing the existing ones.
+func acceptWaterPolygon(outer [][2]float64, bboxArea float64) (bool, string) {
+	if !isClosedRing(outer) {
+		return false, "ring not closed"
+	}
+	if bboxArea > 0 {
+		area := math.Abs(ringSignedArea(outer)) / 2
+		if frac := area / bboxArea; frac > maxOuterBboxAreaFraction {
+			return false, fmt.Sprintf("outer covers %.1f%% of bbox (max %.0f%%)",
+				100*frac, 100*maxOuterBboxAreaFraction)
+		}
+	}
+	return true, ""
+}
+
+
+// bboxLonLatArea returns the planar lon/lat area of bbox. Used as the
+// denominator for the per-polygon area fraction check — both numerator
+// (ringSignedArea/2) and denominator are in the same lon/lat units, so
+// the ratio is meaningful even though neither value is in m².
+func bboxLonLatArea(bbox [4]float64) float64 {
+	south, west, north, east := bbox[0], bbox[1], bbox[2], bbox[3]
+	return (north - south) * (east - west)
+}
+
+func polygonsFromRelation(ctx context.Context, e overpassElement, bboxArea float64) []waterPolygon {
 	var outerWays, innerWays []stitchInput
 	for _, m := range e.Members {
 		if m.Type != elementWay || len(m.Geometry) < 2 {
@@ -147,6 +211,12 @@ func polygonsFromRelation(ctx context.Context, e overpassElement) []waterPolygon
 
 	polys := make([]waterPolygon, 0, len(outerRings))
 	for _, o := range outerRings {
+		if ok, reason := acceptWaterPolygon(o, bboxArea); !ok {
+			logs.From(ctx).Warn("water relation: rejected outer ring",
+				"relation", e.ID, "reason", reason, "vertices", len(o),
+			)
+			continue
+		}
 		polys = append(polys, waterPolygon{outer: o})
 	}
 	for _, h := range innerRings {
@@ -375,6 +445,13 @@ func buildChainForward(
 	}
 }
 
+// probeEpsDeg is the offset (in lon/lat degrees) used to place a probe
+// point ε to the right of a coastline segment's midpoint. At equator
+// scale 1e-7° ≈ 1.1 cm — small enough to stay inside any real water
+// region adjacent to the chain, large enough to escape float noise on
+// the chain itself.
+const probeEpsDeg = 1e-7
+
 // closeCoastlineChain clips chain to bbox and closes any open sub-chain
 // along the bbox boundary using the OSM right-hand-water rule.
 // Returns one or more closed rings. Sub-chains whose endpoints do not
@@ -383,6 +460,14 @@ func buildChainForward(
 // through only when their orientation places water inside the ring
 // (see ringIsCW); CCW closed rings are dropped because they represent
 // islands (land inside, water outside) rather than water polygons.
+//
+// Open sub-chains used to close blindly CW around the bbox, which
+// captured the *land* side when the chain entered/exited the bbox in
+// an order the CW walk didn't anticipate (closed beads
+// solvent-streets-vtcs). The closing direction is now derived from the
+// right-hand-water rule: build both CW and CCW candidate rings, then
+// pick the one whose interior contains a probe point placed ε to the
+// right of the chain's midpoint. The probe IS the rule made local.
 func closeCoastlineChain(ctx context.Context, chain [][2]float64, bbox [4]float64) [][][2]float64 {
 	var rings [][][2]float64
 	for _, sub := range clipChainToBBox(chain, bbox) {
@@ -399,22 +484,112 @@ func closeCoastlineChain(ctx context.Context, chain [][2]float64, bbox [4]float6
 			rings = append(rings, sub)
 			continue
 		}
-		head := sub[0]
-		tail := sub[len(sub)-1]
-		if !onBBoxEdge(head, bbox) || !onBBoxEdge(tail, bbox) {
-			continue
-		}
-		corners := bboxWalkCW(tail, head, bbox)
-		ring := make([][2]float64, 0, len(sub)+len(corners)+1)
-		ring = append(ring, sub...)
-		ring = append(ring, corners...)
-		ring = append(ring, sub[0])
-		if !isClosedRing(ring) {
+		ring, ok := closeOpenSubChain(sub, bbox)
+		if !ok {
 			continue
 		}
 		rings = append(rings, ring)
 	}
 	return rings
+}
+
+// closeOpenSubChain closes one open clipped sub-chain into a water-side
+// ring by picking between CW and CCW bbox-edge walks based on which
+// candidate's interior contains a right-of-chain probe point. Returns
+// (nil, false) when the chain endpoints aren't on the bbox boundary,
+// when neither candidate ring is well-formed, or when the probe lies
+// outside both (water is outside the bbox — nothing to enclose).
+func closeOpenSubChain(sub [][2]float64, bbox [4]float64) ([][2]float64, bool) {
+	head := sub[0]
+	tail := sub[len(sub)-1]
+	if !onBBoxEdge(head, bbox) || !onBBoxEdge(tail, bbox) {
+		return nil, false
+	}
+	probe, ok := rightSideProbe(sub, probeEpsDeg)
+	if !ok {
+		return nil, false
+	}
+	ringCW, okCW := assembleClosedRing(sub, bboxWalkCW(tail, head, bbox))
+	ringCCW, okCCW := assembleClosedRing(sub, bboxWalkCCW(tail, head, bbox))
+	cwHit := okCW && pointInRing(probe, ringCW)
+	ccwHit := okCCW && pointInRing(probe, ringCCW)
+	switch {
+	case cwHit && !ccwHit:
+		return ringCW, true
+	case ccwHit && !cwHit:
+		return ringCCW, true
+	case cwHit && ccwHit:
+		// Both contain the probe — degenerate chain (e.g. infinitesimal
+		// span). Pick the smaller ring; the larger would over-claim water.
+		if math.Abs(ringSignedArea(ringCW)) <= math.Abs(ringSignedArea(ringCCW)) {
+			return ringCW, true
+		}
+		return ringCCW, true
+	default:
+		// Probe in neither: water is outside the bbox for this chain.
+		return nil, false
+	}
+}
+
+// assembleClosedRing joins sub with the corner sequence and a closing
+// vertex, returning the result iff isClosedRing accepts it. Empty
+// corners with same-edge endpoints produce a 3-vertex degenerate ring
+// that fails the check and is rejected here.
+func assembleClosedRing(sub, corners [][2]float64) ([][2]float64, bool) {
+	ring := make([][2]float64, 0, len(sub)+len(corners)+1)
+	ring = append(ring, sub...)
+	ring = append(ring, corners...)
+	ring = append(ring, sub[0])
+	if !isClosedRing(ring) {
+		return nil, false
+	}
+	return ring, true
+}
+
+// rightSideProbe returns a point eps to the right of the chain's
+// midpoint, where "right" is the unit normal to the forward direction
+// at the segment containing the midpoint. The OSM coastline convention
+// places water on the right of the walking direction, so this probe
+// lands in water iff the chain is correctly oriented. Returns (_, false)
+// when the chain is too short to have a well-defined midpoint segment.
+func rightSideProbe(chain [][2]float64, eps float64) ([2]float64, bool) {
+	if len(chain) < 2 {
+		return [2]float64{}, false
+	}
+	// Total polyline length, then find the segment containing the
+	// half-length mark. Walking arc-length (rather than indexing the
+	// middle segment) means the probe is robust to uneven segment sizes.
+	var total float64
+	segLens := make([]float64, len(chain)-1)
+	for i := range segLens {
+		segLens[i] = segLen(chain[i], chain[i+1])
+		total += segLens[i]
+	}
+	if total == 0 {
+		return [2]float64{}, false
+	}
+	half := total / 2
+	var acc float64
+	var i int
+	for i = 0; i < len(segLens); i++ {
+		if acc+segLens[i] >= half {
+			break
+		}
+		acc += segLens[i]
+	}
+	a, b := chain[i], chain[i+1]
+	t := (half - acc) / segLens[i]
+	mid := [2]float64{a[0] + t*(b[0]-a[0]), a[1] + t*(b[1]-a[1])}
+	// Forward direction (b - a), normalized; right normal is (dy, -dx).
+	dx := (b[0] - a[0]) / segLens[i]
+	dy := (b[1] - a[1]) / segLens[i]
+	return [2]float64{mid[0] + eps*dy, mid[1] - eps*dx}, true
+}
+
+func segLen(a, b [2]float64) float64 {
+	dx := b[0] - a[0]
+	dy := b[1] - a[1]
+	return math.Sqrt(dx*dx + dy*dy)
 }
 
 // ringSignedArea returns twice the signed area of ring in lon/lat
@@ -588,6 +763,18 @@ func bboxPerimeterPos(p [2]float64, bbox [4]float64) float64 {
 // edge and the CW-shortest path goes directly to `to`, no corners are
 // emitted.
 func bboxWalkCW(from, to [2]float64, bbox [4]float64) [][2]float64 {
+	return bboxWalk(from, to, bbox, true)
+}
+
+// bboxWalkCCW is the CCW mirror of bboxWalkCW. Returned corners are in
+// CCW order of encounter.
+func bboxWalkCCW(from, to [2]float64, bbox [4]float64) [][2]float64 {
+	return bboxWalk(from, to, bbox, false)
+}
+
+// bboxWalk is the shared CW/CCW corner walker. Direction is a parameter
+// so the two public wrappers don't fork parallel implementations.
+func bboxWalk(from, to [2]float64, bbox [4]float64, cw bool) [][2]float64 {
 	south, west, north, east := bbox[0], bbox[1], bbox[2], bbox[3]
 	height := north - south
 	width := east - west
@@ -609,14 +796,18 @@ func bboxWalkCW(from, to [2]float64, bbox [4]float64) [][2]float64 {
 		{2*height + width, [2]float64{west, north}}, // NW
 	}
 
-	target := cwArc(posFrom, posTo, perim)
+	arc := cwArc
+	if !cw {
+		arc = ccwArc
+	}
+	target := arc(posFrom, posTo, perim)
 	type withDist struct {
 		d  float64
 		pt [2]float64
 	}
 	visited := make([]withDist, 0, 4)
 	for _, c := range corners {
-		d := cwArc(posFrom, c.pos, perim)
+		d := arc(posFrom, c.pos, perim)
 		// Strict inequality skips the case where from or to is a corner
 		// (no spurious self-visit).
 		if d > 0 && d < target {
@@ -645,4 +836,11 @@ func cwArc(a, b, perim float64) float64 {
 		d -= perim
 	}
 	return d
+}
+
+// ccwArc returns the CCW arc-length from a to b on a cycle of length
+// perim. Equivalent to cwArc with a and b swapped: walking CCW from a
+// to b covers the same distance as walking CW from b to a.
+func ccwArc(a, b, perim float64) float64 {
+	return cwArc(b, a, perim)
 }

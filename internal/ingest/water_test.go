@@ -152,7 +152,10 @@ func TestParseWaterResponse_RelationStitchedOuter(t *testing.T) {
 		]
 	}]}`
 
-	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{0, 0, 1, 1})
+	// bbox strictly contains the polygon so the per-outer 80%-of-bbox
+	// area guard (acceptWaterPolygon) doesn't trip. Same pattern applies
+	// to other parseWaterResponse tests below.
+	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{-1, -1, 2, 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +191,7 @@ func TestParseWaterResponse_RelationWithInnerHole(t *testing.T) {
 		]
 	}]}`
 
-	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{0, 0, 10, 10})
+	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{-5, -5, 15, 15})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -784,7 +787,7 @@ func TestPolygonsFromRelation_NestedOuterFirstMatchWins(t *testing.T) {
 			]}
 		]
 	}]}`
-	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{0, 0, 10, 10})
+	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{-5, -5, 15, 15})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -859,6 +862,227 @@ func TestStitchRings_ManySegments(t *testing.T) {
 	}
 	if !ringsEquivalent(rings[0], verts) {
 		t.Errorf("stitched ring not equivalent to source square: got %v", rings[0])
+	}
+}
+
+// TestCloseCoastlineChain_EastToWestPicksNorthSide is the regression
+// test for the closing-direction bug. A coastline running east→west at
+// y=0.5 places water on the right of forward direction = NORTH. Today's
+// pre-fix code blindly walked CW from tail to head and produced the
+// south strip (the LAND side), which then got subtracted from the city
+// boundary and erased real city area. After the right-hand-rule probe
+// fix, the closing direction is derived from the coastline orientation
+// and the result is the north strip (the water side).
+func TestCloseCoastlineChain_EastToWestPicksNorthSide(t *testing.T) {
+	bbox := [4]float64{0, 0, 1, 1}
+	chain := [][2]float64{{1, 0.5}, {0, 0.5}}
+	rings := closeCoastlineChain(context.Background(), chain, bbox)
+	if len(rings) != 1 {
+		t.Fatalf("expected 1 ring, got %d", len(rings))
+	}
+	// CCW from (0, 0.5) back to (1, 0.5) visits NW (0,1), NE (1,1).
+	want := [][2]float64{{1, 0.5}, {0, 0.5}, {0, 1}, {1, 1}, {1, 0.5}}
+	if !reflect.DeepEqual(rings[0], want) {
+		t.Errorf("ring = %v, want %v", rings[0], want)
+	}
+}
+
+// TestRightSideProbe_Cardinal pins the probe direction for the four
+// cardinal coastline orientations. The OSM rule is "water on the right
+// of forward direction"; the probe must land in that half-plane.
+func TestRightSideProbe_Cardinal(t *testing.T) {
+	const eps = 0.01
+	cases := []struct {
+		name   string
+		chain  [][2]float64
+		wantDx float64 // sign of expected dx from midpoint
+		wantDy float64
+	}{
+		{"west to east → water south", [][2]float64{{0, 0}, {1, 0}}, 0, -1},
+		{"east to west → water north", [][2]float64{{1, 0}, {0, 0}}, 0, +1},
+		{"south to north → water east", [][2]float64{{0, 0}, {0, 1}}, +1, 0},
+		{"north to south → water west", [][2]float64{{0, 1}, {0, 0}}, -1, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			p, ok := rightSideProbe(c.chain, eps)
+			if !ok {
+				t.Fatal("expected probe to be defined")
+			}
+			midX := (c.chain[0][0] + c.chain[1][0]) / 2
+			midY := (c.chain[0][1] + c.chain[1][1]) / 2
+			gotDx := p[0] - midX
+			gotDy := p[1] - midY
+			if c.wantDx != 0 && (gotDx*c.wantDx <= 0 || math.Abs(gotDx) < eps*0.99) {
+				t.Errorf("dx = %v, want sign %v with magnitude ~%v", gotDx, c.wantDx, eps)
+			}
+			if c.wantDy != 0 && (gotDy*c.wantDy <= 0 || math.Abs(gotDy) < eps*0.99) {
+				t.Errorf("dy = %v, want sign %v with magnitude ~%v", gotDy, c.wantDy, eps)
+			}
+		})
+	}
+}
+
+func TestRightSideProbe_DegenerateRejected(t *testing.T) {
+	cases := []struct {
+		name  string
+		chain [][2]float64
+	}{
+		{"empty", nil},
+		{"single point", [][2]float64{{0, 0}}},
+		{"zero-length", [][2]float64{{0, 0}, {0, 0}}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if _, ok := rightSideProbe(c.chain, 0.01); ok {
+				t.Errorf("expected probe to reject %s chain", c.name)
+			}
+		})
+	}
+}
+
+func TestAcceptWaterPolygon(t *testing.T) {
+	// Use bbox area = 100 so a fraction = area/100.
+	const bboxArea = 100.0
+	cases := []struct {
+		name      string
+		outer     [][2]float64
+		wantOK    bool
+		wantInMsg string // substring of reason when wantOK is false
+	}{
+		{
+			name:   "small CW polygon",
+			outer:  [][2]float64{{0, 0}, {0, 1}, {1, 1}, {1, 0}, {0, 0}},
+			wantOK: true,
+		},
+		{
+			name:   "small CCW polygon accepted (orientation not enforced here)",
+			outer:  [][2]float64{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}},
+			wantOK: true,
+		},
+		{
+			name:      "ring not closed",
+			outer:     [][2]float64{{0, 0}, {1, 0}, {1, 1}, {0, 1}},
+			wantOK:    false,
+			wantInMsg: "not closed",
+		},
+		{
+			name:      "outer covers entire bbox (100%)",
+			outer:     [][2]float64{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}},
+			wantOK:    false,
+			wantInMsg: "covers",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ok, reason := acceptWaterPolygon(c.outer, bboxArea)
+			if ok != c.wantOK {
+				t.Errorf("ok = %v, want %v (reason=%q)", ok, c.wantOK, reason)
+			}
+			if !c.wantOK && !strings.Contains(reason, c.wantInMsg) {
+				t.Errorf("reason = %q, want substring %q", reason, c.wantInMsg)
+			}
+		})
+	}
+}
+
+func TestAcceptWaterPolygon_ZeroBboxAreaSkipsSizeCheck(t *testing.T) {
+	// Defensive: if a caller passes bboxArea=0 (degenerate bbox or
+	// missing-data sentinel), the area-fraction check is skipped rather
+	// than dividing by zero.
+	outer := [][2]float64{{0, 0}, {0, 100}, {100, 100}, {100, 0}, {0, 0}}
+	ok, reason := acceptWaterPolygon(outer, 0)
+	if !ok {
+		t.Errorf("expected accept when bboxArea is 0; got reject reason=%q", reason)
+	}
+}
+
+func TestBBoxWalkCCW(t *testing.T) {
+	bbox := [4]float64{0, 0, 1, 1}
+	cases := []struct {
+		name string
+		from [2]float64
+		to   [2]float64
+		want [][2]float64
+	}{
+		{
+			name: "east edge to west edge CCW visits NE then NW",
+			from: [2]float64{1, 0.5},
+			to:   [2]float64{0, 0.5},
+			want: [][2]float64{{1, 1}, {0, 1}},
+		},
+		{
+			name: "west edge to east edge CCW visits SW then SE",
+			from: [2]float64{0, 0.5},
+			to:   [2]float64{1, 0.5},
+			want: [][2]float64{{0, 0}, {1, 0}},
+		},
+		{
+			name: "same edge short CCW step no corners",
+			from: [2]float64{1, 0.3},
+			to:   [2]float64{1, 0.7},
+			want: nil,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := bboxWalkCCW(c.from, c.to, bbox)
+			if !reflect.DeepEqual(got, c.want) {
+				t.Errorf("bboxWalkCCW(%v, %v) = %v, want %v", c.from, c.to, got, c.want)
+			}
+		})
+	}
+}
+
+// TestParseWaterResponse_RejectsOversizedRelation pins the
+// per-polygon area guard at the relation construction site: an outer
+// ring covering most of the bbox is rejected with a warn naming the
+// relation id. Without this guard a single mis-stitched relation could
+// reduce a city's pct_paved denominator to a sliver.
+func TestParseWaterResponse_RejectsOversizedRelation(t *testing.T) {
+	body := `{"elements":[{
+		"type":"relation","id":777,"tags":{"natural":"water","type":"multipolygon"},
+		"members":[
+			{"type":"way","ref":1,"role":"outer","geometry":[
+				{"lat":0,"lon":0},{"lat":0,"lon":1},{"lat":1,"lon":1},{"lat":1,"lon":0},{"lat":0,"lon":0}
+			]}
+		]
+	}]}`
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	ctx := logs.WithLogger(context.Background(), logger)
+
+	// bbox is the same as the outer → 100% coverage, well over 80% limit.
+	result, err := parseWaterResponse(ctx, []byte(body), [4]float64{0, 0, 1, 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "" {
+		t.Errorf("expected empty result when only outer is rejected; got %q", result)
+	}
+
+	line := bytes.TrimSpace(buf.Bytes())
+	if len(line) == 0 {
+		t.Fatal("expected warn log line; got nothing")
+	}
+	var record struct {
+		Msg      string `json:"msg"`
+		Level    string `json:"level"`
+		Relation int64  `json:"relation"`
+		Reason   string `json:"reason"`
+	}
+	if err := json.Unmarshal(line, &record); err != nil {
+		t.Fatalf("parse log line: %v: %s", err, line)
+	}
+	if record.Level != "WARN" {
+		t.Errorf("level = %q, want WARN", record.Level)
+	}
+	if record.Relation != 777 {
+		t.Errorf("relation = %d, want 777", record.Relation)
+	}
+	if !strings.Contains(record.Reason, "covers") {
+		t.Errorf("reason = %q, want it to mention coverage", record.Reason)
 	}
 }
 
