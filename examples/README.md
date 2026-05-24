@@ -15,18 +15,26 @@ Simple single-city setup with both OpenStreetMap (Overpass) and Alameda
 County's ArcGIS FeatureServer. **Start here** if you're new — it's the
 smallest config that exercises the full pipeline.
 
+## National sample: [city-nerd](city-nerd/)
+
+The 50 largest US cities by 2025 Census population — a CityNerd-flavored
+rollup that demonstrates a large multi-city config (with per-city
+`hex_edge_m` overrides for geographically enormous jurisdictions). See
+the example's [README](city-nerd/README.md) for the metros-vs-cities
+caveat and the Census source.
+
 ## Other examples
 
 Grouped by what they demonstrate. Some examples appear under more than
 one heading because their configs combine techniques.
 
-- **Multi-city configs:** [bay-area-ca](bay-area-ca/) (5 cities, mixed
-  data sources), [los-angeles-ca](los-angeles-ca/) (3 cities,
-  Overpass-only).
-- **Per-city overrides:** [bay-area-ca](bay-area-ca/) (San Francisco
-  gets a custom `[cities.forecast]` block; Berkeley and San Jose
-  override `hex_edge_m`), [los-angeles-ca](los-angeles-ca/) (LA proper
-  uses a coarser hex than its neighbors).
+- **Multi-city configs:** [bay-area-ca](bay-area-ca/) (all 98
+  incorporated cities across the 9-county region, with the Alameda
+  County ArcGIS feed mixed in), [los-angeles-ca](los-angeles-ca/)
+  (3 cities, Overpass-only).
+- **Per-city overrides:** [bay-area-ca](bay-area-ca/) (Berkeley and
+  San Jose override `hex_edge_m`), [los-angeles-ca](los-angeles-ca/)
+  (LA proper uses a coarser hex than its neighbors).
 - **Custom cost tiers:** [los-angeles-ca](los-angeles-ca/) (four tiers),
   [boston-ma](boston-ma/) (three-tier reconstruct/rehab/preventive).
 - **Display units:** [portland-or](portland-or/) shows metric output via

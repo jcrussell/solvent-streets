@@ -1,0 +1,339 @@
+# City Nerd — the 50 largest US cities by 2025 population.
+#
+# A CityNerd-flavored sample inspired by Ray Delahanty's countdowns of
+# American urbanism. CityNerd typically ranks metropolitan areas; this
+# config ranks *jurisdictional cities* — the entities that actually own
+# the pavement maintenance liability — because that is what
+# solvent-streets ingests (one Nominatim boundary per [[cities]] entry).
+# A few CityNerd staples (Boston metro, Atlanta metro, the Twin Cities,
+# the DFW combo) therefore appear smaller here than on a metro list.
+#
+# Source: US Census Bureau, "Annual Estimates of the Resident Population
+# for Incorporated Places of 20,000 or More, Ranked by July 1, 2025
+# Population" (Vintage 2025, file SUB-IP-EST2025-ANNRNK.xlsx). Retrieved
+# 2026-05-24 from:
+#   https://www2.census.gov/programs-surveys/popest/tables/2020-2025/cities/totals/SUB-IP-EST2025-ANNRNK.xlsx
+#
+# Consolidated city-counties (Nashville-Davidson, Indianapolis,
+# Louisville/Jefferson) are listed under their common short name so
+# Nominatim resolves the city boundary rather than the merged county.
+#
+# To run:
+#   cd examples/city-nerd
+#   pvmt all ingest      # 50 Nominatim + 50 Overpass pulls; takes hours
+#   pvmt all compute
+#   pvmt serve           # or `make site` from the repo root to publish
+
+[grid]
+hex_edge_m = 150
+
+[forecast]
+years = 20
+growth_rate = 0.005  # modest national-average pavement growth
+
+[export]
+title = "City Nerd — 50 Largest US Cities"
+description = "Pavement condition and forecast across the 50 most populous US cities (Census 2025)."
+
+# Top 50 US cities by population, generated from Census SUB-IP-EST2025-ANNRNK.
+# Sorted by 2025 population (descending). Numbers in trailing comment are 2025 pop.
+
+#  1.
+[[cities]]
+name = "New York, NY"
+overpass = true
+hex_edge_m = 250  # ~8,584,629 residents; large land area
+
+#  2.
+[[cities]]
+name = "Los Angeles, CA"
+overpass = true
+hex_edge_m = 300  # ~3,869,089 residents; large land area
+
+#  3.
+[[cities]]
+name = "Chicago, IL"
+overpass = true
+# 2,731,585 residents
+
+#  4.
+[[cities]]
+name = "Houston, TX"
+overpass = true
+hex_edge_m = 300  # ~2,397,315 residents; large land area
+
+#  5.
+[[cities]]
+name = "Phoenix, AZ"
+overpass = true
+hex_edge_m = 300  # ~1,665,481 residents; large land area
+
+#  6.
+[[cities]]
+name = "Philadelphia, PA"
+overpass = true
+# 1,574,281 residents
+
+#  7.
+[[cities]]
+name = "San Antonio, TX"
+overpass = true
+hex_edge_m = 300  # ~1,548,422 residents; large land area
+
+#  8.
+[[cities]]
+name = "San Diego, CA"
+overpass = true
+# 1,406,106 residents
+
+#  9.
+[[cities]]
+name = "Dallas, TX"
+overpass = true
+# 1,329,491 residents
+
+# 10.
+[[cities]]
+name = "Fort Worth, TX"
+overpass = true
+# 1,028,117 residents
+
+# 11.
+[[cities]]
+name = "Jacksonville, FL"
+overpass = true
+hex_edge_m = 300  # ~1,017,689 residents; large land area
+
+# 12.
+[[cities]]
+name = "Austin, TX"
+overpass = true
+# 1,002,632 residents
+
+# 13.
+[[cities]]
+name = "San Jose, CA"
+overpass = true
+# 989,814 residents
+
+# 14.
+[[cities]]
+name = "Charlotte, NC"
+overpass = true
+# 964,784 residents
+
+# 15.
+[[cities]]
+name = "Columbus, OH"
+overpass = true
+# 938,396 residents
+
+# 16.
+[[cities]]
+name = "Indianapolis, IN"
+overpass = true
+hex_edge_m = 250  # ~901,116 residents; large land area
+
+# 17.
+[[cities]]
+name = "San Francisco, CA"
+overpass = true
+# 826,079 residents
+
+# 18.
+[[cities]]
+name = "Seattle, WA"
+overpass = true
+# 784,777 residents
+
+# 19.
+[[cities]]
+name = "Denver, CO"
+overpass = true
+# 740,613 residents
+
+# 20.
+[[cities]]
+name = "Nashville, TN"
+overpass = true
+hex_edge_m = 300  # ~721,074 residents; large land area
+
+# 21.
+[[cities]]
+name = "Oklahoma City, OK"
+overpass = true
+hex_edge_m = 300  # ~719,849 residents; large land area
+
+# 22.
+[[cities]]
+name = "Washington, DC"
+overpass = true
+# 693,645 residents
+
+# 23.
+[[cities]]
+name = "El Paso, TX"
+overpass = true
+# 683,012 residents
+
+# 24.
+[[cities]]
+name = "Las Vegas, NV"
+overpass = true
+# 679,817 residents
+
+# 25.
+[[cities]]
+name = "Boston, MA"
+overpass = true
+# 672,973 residents
+
+# 26.
+[[cities]]
+name = "Detroit, MI"
+overpass = true
+# 649,095 residents
+
+# 27.
+[[cities]]
+name = "Louisville, KY"
+overpass = true
+hex_edge_m = 300  # ~641,962 residents; large land area
+
+# 28.
+[[cities]]
+name = "Portland, OR"
+overpass = true
+# 635,109 residents
+
+# 29.
+[[cities]]
+name = "Memphis, TN"
+overpass = true
+# 609,647 residents
+
+# 30.
+[[cities]]
+name = "Baltimore, MD"
+overpass = true
+# 569,997 residents
+
+# 31.
+[[cities]]
+name = "Milwaukee, WI"
+overpass = true
+# 562,407 residents
+
+# 32.
+[[cities]]
+name = "Albuquerque, NM"
+overpass = true
+# 556,588 residents
+
+# 33.
+[[cities]]
+name = "Fresno, CA"
+overpass = true
+# 555,549 residents
+
+# 34.
+[[cities]]
+name = "Tucson, AZ"
+overpass = true
+# 548,371 residents
+
+# 35.
+[[cities]]
+name = "Sacramento, CA"
+overpass = true
+# 536,449 residents
+
+# 36.
+[[cities]]
+name = "Atlanta, GA"
+overpass = true
+# 529,110 residents
+
+# 37.
+[[cities]]
+name = "Kansas City, MO"
+overpass = true
+# 521,220 residents
+
+# 38.
+[[cities]]
+name = "Mesa, AZ"
+overpass = true
+# 513,656 residents
+
+# 39.
+[[cities]]
+name = "Raleigh, NC"
+overpass = true
+# 506,306 residents
+
+# 40.
+[[cities]]
+name = "Colorado Springs, CO"
+overpass = true
+# 494,743 residents
+
+# 41.
+[[cities]]
+name = "Miami, FL"
+overpass = true
+# 489,812 residents
+
+# 42.
+[[cities]]
+name = "Omaha, NE"
+overpass = true
+# 488,797 residents
+
+# 43.
+[[cities]]
+name = "Virginia Beach, VA"
+overpass = true
+# 453,737 residents
+
+# 44.
+[[cities]]
+name = "Long Beach, CA"
+overpass = true
+# 450,469 residents
+
+# 45.
+[[cities]]
+name = "Oakland, CA"
+overpass = true
+# 440,838 residents
+
+# 46.
+[[cities]]
+name = "Minneapolis, MN"
+overpass = true
+# 430,324 residents
+
+# 47.
+[[cities]]
+name = "Bakersfield, CA"
+overpass = true
+# 422,165 residents
+
+# 48.
+[[cities]]
+name = "Tulsa, OK"
+overpass = true
+# 416,209 residents
+
+# 49.
+[[cities]]
+name = "Tampa, FL"
+overpass = true
+# 413,554 residents
+
+# 50.
+[[cities]]
+name = "Aurora, CO"
+overpass = true
+# 410,053 residents

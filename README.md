@@ -12,7 +12,7 @@ Pure Go CLI for pavement data ingestion, hex-grid coverage analysis, PCI decay f
 - WASM interactive forecast in the browser
 - Static site export or live server
 
-**Live showcase:** <https://joncrussell.com/solvent-streets/> — ten US cities rendered from the configs in [`examples/`](examples/).
+**Live showcase:** <https://joncrussell.com/solvent-streets/> — example cities rendered from the configs in [`examples/`](examples/), including a CityNerd-flavored [50-largest-US-cities](examples/city-nerd/) rollup.
 
 ## Install
 

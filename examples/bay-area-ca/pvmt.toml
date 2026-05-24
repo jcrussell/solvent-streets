@@ -1,7 +1,26 @@
-# Bay Area, CA — multi-city example
+# Bay Area, CA — all 98 incorporated cities across the 9-county region.
 #
-# Demonstrates per-city overrides, ArcGIS for Alameda County cities,
-# and export configuration for a regional analysis.
+# 9 counties: Alameda, Contra Costa, Marin, Napa, San Francisco, San
+# Mateo, Santa Clara, Solano, Sonoma. Organized by county, then
+# alphabetically within county.
+#
+# Source: Wikipedia, "List of cities and towns in the San Francisco Bay
+# Area" (retrieved 2026-05-24).
+# https://en.wikipedia.org/wiki/List_of_cities_and_towns_in_the_San_Francisco_Bay_Area
+#
+# Techniques demonstrated:
+#   - All 14 Alameda County cities use the county-wide ArcGIS street
+#     centerlines feed for richer-than-Overpass road data. Other counties
+#     have no equivalent verified public service, so Overpass-only.
+#   - Berkeley uses hex_edge_m = 75 (finer grid for a compact city).
+#   - San Jose uses hex_edge_m = 150 (sprawls to ~466 km²).
+#
+# Heads up: 98 Nominatim + 98 Overpass + 14 ArcGIS pulls — expect hours
+# for `pvmt all ingest`. The committed file ships the config only;
+# pre-computed dist/ artifacts are produced locally before `make site`.
+
+[grid]
+hex_edge_m = 100
 
 [forecast]
 years = 25
@@ -10,10 +29,17 @@ growth_rate = 0.005
 [export]
 output_dir = "./reports"
 title = "Bay Area Pavement Analysis"
-description = "Multi-city pavement condition and forecast for the San Francisco Bay Area"
+description = "Pavement condition and forecast for all 98 incorporated cities in the 9-county San Francisco Bay Area"
+
+# --- Alameda County ---
 
 [[cities]]
-name = "Oakland, CA"
+name = "Alameda, CA"
+overpass = true
+arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
+
+[[cities]]
+name = "Albany, CA"
 overpass = true
 arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
 
@@ -24,15 +50,409 @@ arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services
 hex_edge_m = 75
 
 [[cities]]
+name = "Dublin, CA"
+overpass = true
+arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
+
+[[cities]]
+name = "Emeryville, CA"
+overpass = true
+arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
+
+[[cities]]
+name = "Fremont, CA"
+overpass = true
+arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
+
+[[cities]]
+name = "Hayward, CA"
+overpass = true
+arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
+
+[[cities]]
+name = "Livermore, CA"
+overpass = true
+arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
+
+[[cities]]
+name = "Newark, CA"
+overpass = true
+arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
+
+[[cities]]
+name = "Oakland, CA"
+overpass = true
+arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
+
+[[cities]]
+name = "Piedmont, CA"
+overpass = true
+arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
+
+[[cities]]
+name = "Pleasanton, CA"
+overpass = true
+arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
+
+[[cities]]
+name = "San Leandro, CA"
+overpass = true
+arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
+
+[[cities]]
+name = "Union City, CA"
+overpass = true
+arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
+
+# --- Contra Costa County ---
+
+[[cities]]
+name = "Antioch, CA"
+overpass = true
+
+[[cities]]
+name = "Brentwood, CA"
+overpass = true
+
+[[cities]]
+name = "Clayton, CA"
+overpass = true
+
+[[cities]]
+name = "Concord, CA"
+overpass = true
+
+[[cities]]
+name = "El Cerrito, CA"
+overpass = true
+
+[[cities]]
+name = "Hercules, CA"
+overpass = true
+
+[[cities]]
+name = "Lafayette, CA"
+overpass = true
+
+[[cities]]
+name = "Martinez, CA"
+overpass = true
+
+[[cities]]
+name = "Moraga, CA"
+overpass = true
+
+[[cities]]
+name = "Oakley, CA"
+overpass = true
+
+[[cities]]
+name = "Orinda, CA"
+overpass = true
+
+[[cities]]
+name = "Pinole, CA"
+overpass = true
+
+[[cities]]
+name = "Pittsburg, CA"
+overpass = true
+
+[[cities]]
+name = "Pleasant Hill, CA"
+overpass = true
+
+[[cities]]
+name = "Richmond, CA"
+overpass = true
+
+[[cities]]
+name = "San Pablo, CA"
+overpass = true
+
+[[cities]]
+name = "San Ramon, CA"
+overpass = true
+
+[[cities]]
+name = "Walnut Creek, CA"
+overpass = true
+
+# --- Marin County ---
+
+[[cities]]
+name = "Belvedere, CA"
+overpass = true
+
+[[cities]]
+name = "Corte Madera, CA"
+overpass = true
+
+[[cities]]
+name = "Fairfax, CA"
+overpass = true
+
+[[cities]]
+name = "Larkspur, CA"
+overpass = true
+
+[[cities]]
+name = "Mill Valley, CA"
+overpass = true
+
+[[cities]]
+name = "Novato, CA"
+overpass = true
+
+[[cities]]
+name = "Ross, CA"
+overpass = true
+
+[[cities]]
+name = "San Anselmo, CA"
+overpass = true
+
+[[cities]]
+name = "San Rafael, CA"
+overpass = true
+
+[[cities]]
+name = "Sausalito, CA"
+overpass = true
+
+[[cities]]
+name = "Tiburon, CA"
+overpass = true
+
+# --- Napa County ---
+
+[[cities]]
+name = "American Canyon, CA"
+overpass = true
+
+[[cities]]
+name = "Calistoga, CA"
+overpass = true
+
+[[cities]]
+name = "Napa, CA"
+overpass = true
+
+[[cities]]
+name = "St. Helena, CA"
+overpass = true
+
+[[cities]]
+name = "Yountville, CA"
+overpass = true
+
+# --- San Francisco County ---
+
+[[cities]]
 name = "San Francisco, CA"
 overpass = true
 
-# Per-city forecast override for San Francisco.
-[cities.forecast]
-decay_rate = 0.04
-years = 30
+# --- San Mateo County ---
+
+[[cities]]
+name = "Belmont, CA"
+overpass = true
+
+[[cities]]
+name = "Brisbane, CA"
+overpass = true
+
+[[cities]]
+name = "Burlingame, CA"
+overpass = true
+
+[[cities]]
+name = "Colma, CA"
+overpass = true
+
+[[cities]]
+name = "Daly City, CA"
+overpass = true
+
+[[cities]]
+name = "East Palo Alto, CA"
+overpass = true
+
+[[cities]]
+name = "Foster City, CA"
+overpass = true
+
+[[cities]]
+name = "Half Moon Bay, CA"
+overpass = true
+
+[[cities]]
+name = "Hillsborough, CA"
+overpass = true
+
+[[cities]]
+name = "Menlo Park, CA"
+overpass = true
+
+[[cities]]
+name = "Millbrae, CA"
+overpass = true
+
+[[cities]]
+name = "Pacifica, CA"
+overpass = true
+
+[[cities]]
+name = "Portola Valley, CA"
+overpass = true
+
+[[cities]]
+name = "Redwood City, CA"
+overpass = true
+
+[[cities]]
+name = "San Bruno, CA"
+overpass = true
+
+[[cities]]
+name = "San Carlos, CA"
+overpass = true
+
+[[cities]]
+name = "San Mateo, CA"
+overpass = true
+
+[[cities]]
+name = "South San Francisco, CA"
+overpass = true
+
+[[cities]]
+name = "Woodside, CA"
+overpass = true
+
+# --- Santa Clara County ---
+
+[[cities]]
+name = "Campbell, CA"
+overpass = true
+
+[[cities]]
+name = "Cupertino, CA"
+overpass = true
+
+[[cities]]
+name = "Gilroy, CA"
+overpass = true
+
+[[cities]]
+name = "Los Altos, CA"
+overpass = true
+
+[[cities]]
+name = "Los Altos Hills, CA"
+overpass = true
+
+[[cities]]
+name = "Los Gatos, CA"
+overpass = true
+
+[[cities]]
+name = "Milpitas, CA"
+overpass = true
+
+[[cities]]
+name = "Monte Sereno, CA"
+overpass = true
+
+[[cities]]
+name = "Morgan Hill, CA"
+overpass = true
+
+[[cities]]
+name = "Mountain View, CA"
+overpass = true
+
+[[cities]]
+name = "Palo Alto, CA"
+overpass = true
 
 [[cities]]
 name = "San Jose, CA"
 overpass = true
 hex_edge_m = 150
+
+[[cities]]
+name = "Santa Clara, CA"
+overpass = true
+
+[[cities]]
+name = "Saratoga, CA"
+overpass = true
+
+[[cities]]
+name = "Sunnyvale, CA"
+overpass = true
+
+# --- Solano County ---
+
+[[cities]]
+name = "Benicia, CA"
+overpass = true
+
+[[cities]]
+name = "Dixon, CA"
+overpass = true
+
+[[cities]]
+name = "Fairfield, CA"
+overpass = true
+
+[[cities]]
+name = "Rio Vista, CA"
+overpass = true
+
+[[cities]]
+name = "Suisun City, CA"
+overpass = true
+
+[[cities]]
+name = "Vacaville, CA"
+overpass = true
+
+[[cities]]
+name = "Vallejo, CA"
+overpass = true
+
+# --- Sonoma County ---
+
+[[cities]]
+name = "Cloverdale, CA"
+overpass = true
+
+[[cities]]
+name = "Cotati, CA"
+overpass = true
+
+[[cities]]
+name = "Healdsburg, CA"
+overpass = true
+
+[[cities]]
+name = "Petaluma, CA"
+overpass = true
+
+[[cities]]
+name = "Rohnert Park, CA"
+overpass = true
+
+[[cities]]
+name = "Sebastopol, CA"
+overpass = true
+
+[[cities]]
+name = "Sonoma, CA"
+overpass = true
+
+[[cities]]
+name = "Windsor, CA"
+overpass = true
