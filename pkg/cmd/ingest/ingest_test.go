@@ -276,9 +276,10 @@ func TestStripWaterFromBoundary_RejectsOverSubtractedStrip(t *testing.T) {
 	// ~0.01° × 0.01° square at Boston latitude → ~0.9 km².
 	boundary := `{"type":"Polygon","coordinates":[[[-71.06,42.36],[-71.05,42.36],[-71.05,42.37],[-71.06,42.37],[-71.06,42.36]]]}`
 
-	// Water = MultiPolygon covering ~80% of boundary; stripped result
-	// lands well under the 0.5 threshold.
-	water := `{"type":"MultiPolygon","coordinates":[[[[-71.0595,42.3605],[-71.0505,42.3605],[-71.0505,42.3695],[-71.0595,42.3695],[-71.0595,42.3605]]]]}`
+	// Water = MultiPolygon covering ~98% of boundary; stripped result
+	// lands well under the 0.1 threshold. Inset of only 1% of each side
+	// so the remaining strip is too small to pass the backstop guard.
+	water := `{"type":"MultiPolygon","coordinates":[[[[-71.05999,42.36001],[-71.05001,42.36001],[-71.05001,42.36999],[-71.05999,42.36999],[-71.05999,42.36001]]]]}`
 
 	gjson, source, warn, err := stripWaterFromBoundary(
 		context.Background(), &http.Client{}, fakeWaterFetcher(water), boundary,

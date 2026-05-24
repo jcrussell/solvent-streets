@@ -226,18 +226,24 @@ func resolveBoundary(ctx context.Context, opts *Options, store db.Store, client 
 }
 
 // waterStripMinAreaRatio is the lower bound on stripped-to-original
-// boundary area that we accept from the OSM water subtraction. Real US
-// city boundaries are mostly land — even waterfront cities like Miami
-// Beach lose well under half their area to within-boundary water. A
-// stripped result smaller than this fraction means the OSM water data
-// (or our stitching of it) covers far more than the actual water.
+// boundary area that we accept from the OSM water subtraction. This is
+// the BACKSTOP guard — the per-polygon validation in
+// internal/ingest/water.go (acceptWaterPolygon) plus the clip-to-
+// boundary intersection in internal/geo/subtract.go are the primary
+// defenses against mis-stitched water polygons. The aggregate guard
+// only fires when the stripped boundary is reduced to a sliver despite
+// those primary defenses passing — almost always a sign the entire
+// pipeline is producing garbage rather than a single rogue polygon.
 //
-// Tune alongside maxOuterBboxAreaFraction in internal/ingest/water.go
-// — both gate the same failure class (mis-stitched water polygons),
-// just at different scales. The per-polygon guard catches a single
-// rogue ring; this aggregate guard catches the case where many small
-// errors compose into a bad strip the per-polygon guard wouldn't see.
-const waterStripMinAreaRatio = 0.5
+// Calibrated against Boston: Boston's Nominatim boundary legitimately
+// contains ~50% harbor water (Boston has municipal jurisdiction over
+// Boston Harbor, the Inner Harbor, parts of Massachusetts Bay, etc.),
+// so a correct strip leaves ~50% of original area as land. A threshold
+// of 0.1 means we abort only when 90%+ of the boundary was subtracted,
+// well past any plausible real city. Tune up if a future city
+// genuinely strips below 10% (it shouldn't); tune down if false
+// positives appear on cities with extreme water ratios.
+const waterStripMinAreaRatio = 0.1
 
 // ErrWaterStripOverSubtracted signals that the post-subtraction
 // boundary is too small relative to the original, which almost always
