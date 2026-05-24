@@ -51,7 +51,25 @@ func SubtractGeoJSON(boundaryGJSON, otherGJSON string) (string, error) {
 		return "", fmt.Errorf("clean subtrahend: %w", err)
 	}
 
-	diff, err := geom.Difference(boundary, other)
+	// Clip the subtrahend to the boundary before subtracting. Any
+	// subtrahend area outside the boundary cannot affect the difference
+	// mathematically, but a malformed subtrahend (e.g. a mis-stitched
+	// OSM water polygon covering most of the bbox by accident) only gets
+	// to delete what it actually intersects — never phantom area outside
+	// the city. This is the last defense behind per-polygon validation
+	// in internal/ingest/water.go: even if a bad polygon leaks through
+	// every upstream check, it can only carve out city interior, not
+	// reduce the boundary to a sliver. Part of solvent-streets-vtcs.
+	otherClipped, err := geom.Intersection(other, boundary)
+	if err != nil {
+		return "", fmt.Errorf("clip subtrahend to boundary: %w", err)
+	}
+	if otherClipped.IsEmpty() {
+		// Subtrahend lies entirely outside the boundary; nothing to do.
+		return GeometryToGeoJSON(boundary, proj)
+	}
+
+	diff, err := geom.Difference(boundary, otherClipped)
 	if err != nil {
 		return "", fmt.Errorf("difference: %w", err)
 	}
