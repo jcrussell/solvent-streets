@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
@@ -223,5 +224,140 @@ func TestNewCmdIngest_InvalidSource(t *testing.T) {
 	var flagErr *cmdutil.FlagError
 	if !errors.As(err, &flagErr) {
 		t.Errorf("expected FlagError through pflag wrapping, got %T: %v", err, err)
+	}
+}
+
+// TestAcceptStripRatio pins the pure ratio-decision helper. The
+// extraction means the over-subtraction guard can be unit-tested
+// without httptest, geometry, or network plumbing — keeping the
+// end-to-end stripWaterFromBoundary tests focused on plumbing,
+// not arithmetic.
+func TestAcceptStripRatio(t *testing.T) {
+	cases := []struct {
+		name                      string
+		orig, stripped, threshold float64
+		want                      bool
+	}{
+		{"clear pass: full boundary preserved", 100, 100, 0.5, true},
+		{"clear pass: 75% preserved", 100, 75, 0.5, true},
+		{"boundary case: exactly at threshold", 100, 50, 0.5, true},
+		{"reject: just under threshold", 100, 49, 0.5, false},
+		{"reject: clear over-subtraction", 100, 5, 0.5, false},
+		{"reject: empty strip", 100, 0, 0.5, false},
+		{"degenerate: zero orig accepted", 0, 0, 0.5, true},
+		{"degenerate: negative orig accepted", -1, 5, 0.5, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := acceptStripRatio(c.orig, c.stripped, c.threshold); got != c.want {
+				t.Errorf("acceptStripRatio(%v, %v, %v) = %v, want %v",
+					c.orig, c.stripped, c.threshold, got, c.want)
+			}
+		})
+	}
+}
+
+// fakeWaterFetcher returns the same body for every call. Lets tests
+// of stripWaterFromBoundary control what "the Overpass API" returns
+// without standing up an httptest server.
+func fakeWaterFetcher(body string) waterFetcher {
+	return func(_ context.Context, _ *http.Client, _ [4]float64) (string, error) {
+		return body, nil
+	}
+}
+
+// TestStripWaterFromBoundary_RejectsOverSubtractedStrip pins the
+// over-subtraction guard at the function level: when the OSM water
+// polygon covers most of the boundary, stripWaterFromBoundary returns
+// ErrWaterStripOverSubtracted so the caller aborts loudly rather than
+// silently falling back. The fallback would hide regressions in the
+// water-stitching pipeline.
+func TestStripWaterFromBoundary_RejectsOverSubtractedStrip(t *testing.T) {
+	// ~0.01° × 0.01° square at Boston latitude → ~0.9 km².
+	boundary := `{"type":"Polygon","coordinates":[[[-71.06,42.36],[-71.05,42.36],[-71.05,42.37],[-71.06,42.37],[-71.06,42.36]]]}`
+
+	// Water = MultiPolygon covering ~80% of boundary; stripped result
+	// lands well under the 0.5 threshold.
+	water := `{"type":"MultiPolygon","coordinates":[[[[-71.0595,42.3605],[-71.0505,42.3605],[-71.0505,42.3695],[-71.0595,42.3695],[-71.0595,42.3605]]]]}`
+
+	gjson, source, warn, err := stripWaterFromBoundary(
+		context.Background(), &http.Client{}, fakeWaterFetcher(water), boundary,
+	)
+	if !errors.Is(err, ErrWaterStripOverSubtracted) {
+		t.Fatalf("err = %v, want errors.Is ErrWaterStripOverSubtracted", err)
+	}
+	if !strings.Contains(err.Error(), "% of original") {
+		t.Errorf("err message %q should describe the area ratio", err.Error())
+	}
+	if gjson != "" || source != "" || warn != "" {
+		t.Errorf("on hard failure all soft returns should be empty; got gjson=%d source=%q warn=%q",
+			len(gjson), source, warn)
+	}
+}
+
+// TestStripWaterFromBoundary_AcceptsModestStrip pins the happy path:
+// when the water polygon represents a small fraction of the boundary,
+// the stripped result is returned with the OSM water source tag and
+// no error/warn.
+func TestStripWaterFromBoundary_AcceptsModestStrip(t *testing.T) {
+	boundary := `{"type":"Polygon","coordinates":[[[-71.06,42.36],[-71.05,42.36],[-71.05,42.37],[-71.06,42.37],[-71.06,42.36]]]}`
+
+	// Water covering only the NE quadrant → ~25% of boundary → ratio
+	// ~0.75, well above the 0.5 threshold.
+	water := `{"type":"MultiPolygon","coordinates":[[[[-71.055,42.365],[-71.050,42.365],[-71.050,42.370],[-71.055,42.370],[-71.055,42.365]]]]}`
+
+	gjson, source, warn, err := stripWaterFromBoundary(
+		context.Background(), &http.Client{}, fakeWaterFetcher(water), boundary,
+	)
+	if err != nil {
+		t.Fatalf("err = %v, want nil", err)
+	}
+	if warn != "" {
+		t.Errorf("warn = %q, want empty on success", warn)
+	}
+	if source != "nominatim+osm-water" {
+		t.Errorf("source = %q, want nominatim+osm-water", source)
+	}
+	if gjson == "" {
+		t.Errorf("expected non-empty stripped gjson")
+	}
+}
+
+// TestStripWaterFromBoundary_SoftFailureFallsBack pins that a Overpass
+// fetch error returns a warn (not an err), so the caller falls back to
+// the unstripped boundary. Network outages must not break ingest.
+func TestStripWaterFromBoundary_SoftFailureFallsBack(t *testing.T) {
+	boundary := `{"type":"Polygon","coordinates":[[[-71.06,42.36],[-71.05,42.36],[-71.05,42.37],[-71.06,42.37],[-71.06,42.36]]]}`
+	failingFetcher := func(_ context.Context, _ *http.Client, _ [4]float64) (string, error) {
+		return "", errors.New("simulated overpass outage")
+	}
+
+	gjson, source, warn, err := stripWaterFromBoundary(
+		context.Background(), &http.Client{}, failingFetcher, boundary,
+	)
+	if err != nil {
+		t.Fatalf("err = %v, want nil (soft failure should not abort)", err)
+	}
+	if !strings.Contains(warn, "overpass") {
+		t.Errorf("warn = %q, want it to mention the overpass failure", warn)
+	}
+	if gjson != "" || source != "" {
+		t.Errorf("on soft failure gjson and source should be empty; got gjson=%d source=%q",
+			len(gjson), source)
+	}
+}
+
+// TestStripWaterFromBoundary_NoWaterIsNoOp pins that an empty fetcher
+// response (no water in the bbox) returns all empty + nil — neither
+// success nor failure, just "nothing to do".
+func TestStripWaterFromBoundary_NoWaterIsNoOp(t *testing.T) {
+	boundary := `{"type":"Polygon","coordinates":[[[-71.06,42.36],[-71.05,42.36],[-71.05,42.37],[-71.06,42.37],[-71.06,42.36]]]}`
+
+	gjson, source, warn, err := stripWaterFromBoundary(
+		context.Background(), &http.Client{}, fakeWaterFetcher(""), boundary,
+	)
+	if err != nil || gjson != "" || source != "" || warn != "" {
+		t.Errorf("no-water path should return all zero; got gjson=%d source=%q warn=%q err=%v",
+			len(gjson), source, warn, err)
 	}
 }

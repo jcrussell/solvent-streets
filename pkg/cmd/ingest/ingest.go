@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -178,9 +179,12 @@ func fmtArcgis(url string) string {
 //
 // Fresh fetches also subtract OSM `natural=water` polygons from the
 // Nominatim polygon so cross-city % paved is apples-to-apples (cities
-// like Boston otherwise include harbor water in the denominator). Water
-// fetch failures are warned, not fatal: the unstripped boundary still
-// supports downstream ingest.
+// like Boston otherwise include harbor water in the denominator).
+// Soft water-strip failures (network outage, Overpass timeout,
+// geometry library error) are warned and fall back to the unstripped
+// boundary. Over-subtraction (the post-strip area-ratio guard) is a
+// HARD error — falling back silently would hide regressions in the
+// water-stitching pipeline.
 func resolveBoundary(ctx context.Context, opts *Options, store db.Store, client *http.Client, city *config.CityConfig) (string, error) {
 	boundaryGJSON, err := store.GetBoundary(ctx)
 	if err != nil {
@@ -197,7 +201,15 @@ func resolveBoundary(ctx context.Context, opts *Options, store db.Store, client 
 	}
 
 	source := "nominatim"
-	stripped, strippedSource, warn := stripWaterFromBoundary(ctx, client, boundaryGJSON)
+	stripped, strippedSource, warn, stripErr := stripWaterFromBoundary(ctx, client, ingestpkg.FetchOSMWater, boundaryGJSON)
+	if stripErr != nil {
+		return "", cmdutil.Hintf(fmt.Errorf("water strip for %s: %w", city.Name, stripErr),
+			"This usually means the OSM water-stitching pipeline produced a polygon "+
+				"covering more than the city boundary. Re-run with verbose logging "+
+				"(check stderr for 'water way:', 'water relation:', or 'water coastline:' "+
+				"rejection warnings) to find the offending OSM way or relation id, then "+
+				"open an issue with the city name, bbox, and the warning text.")
+	}
 	if warn != "" {
 		fmt.Fprintf(opts.IO.ErrOut, "  %s\n", warn)
 	}
@@ -213,27 +225,85 @@ func resolveBoundary(ctx context.Context, opts *Options, store db.Store, client 
 	return boundaryGJSON, nil
 }
 
-// stripWaterFromBoundary tries to subtract OSM water polygons from
-// boundaryGJSON. Returns ("", "", warn) on any failure so the caller
-// can fall back to the raw Nominatim boundary, and ("", "", "") when
-// the bbox contains no water at all.
-func stripWaterFromBoundary(ctx context.Context, client *http.Client, boundaryGJSON string) (gjson, source, warn string) {
+// waterStripMinAreaRatio is the lower bound on stripped-to-original
+// boundary area that we accept from the OSM water subtraction. Real US
+// city boundaries are mostly land — even waterfront cities like Miami
+// Beach lose well under half their area to within-boundary water. A
+// stripped result smaller than this fraction means the OSM water data
+// (or our stitching of it) covers far more than the actual water.
+//
+// Tune alongside maxOuterBboxAreaFraction in internal/ingest/water.go
+// — both gate the same failure class (mis-stitched water polygons),
+// just at different scales. The per-polygon guard catches a single
+// rogue ring; this aggregate guard catches the case where many small
+// errors compose into a bad strip the per-polygon guard wouldn't see.
+const waterStripMinAreaRatio = 0.5
+
+// ErrWaterStripOverSubtracted signals that the post-subtraction
+// boundary is too small relative to the original, which almost always
+// indicates a mis-stitched OSM water polygon (or the union of several)
+// covering far more area than actual water. Sentinel so callers can
+// errors.Is and so tests can pin the failure mode.
+var ErrWaterStripOverSubtracted = errors.New("water strip over-subtracted")
+
+// waterFetcher abstracts the OSM water fetch so tests can inject a
+// fake response without spinning up an httptest server inside the
+// internal/ingest package. The interface is intentionally narrow per
+// byob-interfaces.1 (define in consumer, not in internal/ingest).
+type waterFetcher func(ctx context.Context, client *http.Client, bbox [4]float64) (string, error)
+
+// stripWaterFromBoundary tries to subtract OSM water from boundaryGJSON.
+//
+// Returns:
+//   - (gjson, source, "", nil)  - success; use stripped boundary
+//   - ("", "", "", nil)         - no water in bbox; use unstripped boundary
+//   - ("", "", warn, nil)       - soft failure (network/geometry); log warn and fall back
+//   - ("", "", "", err)         - HARD failure (over-subtraction guard); abort
+//
+// The err return wraps ErrWaterStripOverSubtracted with diagnostic
+// detail (areas + ratio); callers should attach the city name via
+// ErrHint so the operator can identify which city is affected.
+func stripWaterFromBoundary(
+	ctx context.Context,
+	client *http.Client,
+	fetchWater waterFetcher,
+	boundaryGJSON string,
+) (gjson, source, warn string, err error) {
 	bbox, err := geo.BBoxFromGeoJSON(boundaryGJSON)
 	if err != nil {
-		return "", "", fmt.Sprintf("water strip skipped: bbox: %v", err)
+		return "", "", fmt.Sprintf("water strip skipped: bbox: %v", err), nil
 	}
-	waterGJSON, err := ingestpkg.FetchOSMWater(ctx, client, bbox)
+	waterGJSON, err := fetchWater(ctx, client, bbox)
 	if err != nil {
-		return "", "", fmt.Sprintf("water strip skipped: overpass: %v", err)
+		return "", "", fmt.Sprintf("water strip skipped: overpass: %v", err), nil
 	}
 	if waterGJSON == "" {
-		return "", "", ""
+		return "", "", "", nil
 	}
 	stripped, err := geo.SubtractGeoJSON(boundaryGJSON, waterGJSON)
 	if err != nil {
-		return "", "", fmt.Sprintf("water strip skipped: subtract: %v", err)
+		return "", "", fmt.Sprintf("water strip skipped: subtract: %v", err), nil
 	}
-	return stripped, "nominatim+osm-water", ""
+	origArea, errOrig := geo.BoundaryAreaSqM(boundaryGJSON)
+	stripArea, errStrip := geo.BoundaryAreaSqM(stripped)
+	if errOrig == nil && errStrip == nil && !acceptStripRatio(origArea, stripArea, waterStripMinAreaRatio) {
+		return "", "", "", fmt.Errorf("%w: stripped %.0f sq m is %.1f%% of original %.0f sq m",
+			ErrWaterStripOverSubtracted, stripArea, 100*stripArea/origArea, origArea)
+	}
+	return stripped, "nominatim+osm-water", "", nil
+}
+
+// acceptStripRatio returns true iff the stripped boundary is at least
+// `threshold` fraction of the original. Extracted as a pure helper so
+// the ratio guard can be unit-tested without httptest, geometry, or
+// network plumbing. A zero or negative original area is treated as a
+// degenerate input that can't be ratio-checked — accept it and let
+// downstream surface the real problem.
+func acceptStripRatio(orig, stripped, threshold float64) bool {
+	if orig <= 0 {
+		return true
+	}
+	return stripped/orig >= threshold
 }
 
 func resolveSources(opts *Options, bbox [4]float64, arcgisURL string, ios *iostreams.IOStreams) ([]ingestpkg.Source, error) {

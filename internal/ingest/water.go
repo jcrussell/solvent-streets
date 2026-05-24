@@ -162,7 +162,6 @@ func acceptWaterPolygon(outer [][2]float64, bboxArea float64) (bool, string) {
 	return true, ""
 }
 
-
 // bboxLonLatArea returns the planar lon/lat area of bbox. Used as the
 // denominator for the per-polygon area fraction check — both numerator
 // (ringSignedArea/2) and denominator are in the same lon/lat units, so
@@ -570,12 +569,13 @@ func rightSideProbe(chain [][2]float64, eps float64) ([2]float64, bool) {
 	}
 	half := total / 2
 	var acc float64
-	var i int
-	for i = 0; i < len(segLens); i++ {
-		if acc+segLens[i] >= half {
+	i := 0
+	for j := range segLens {
+		i = j
+		if acc+segLens[j] >= half {
 			break
 		}
-		acc += segLens[i]
+		acc += segLens[j]
 	}
 	a, b := chain[i], chain[i+1]
 	t := (half - acc) / segLens[i]
