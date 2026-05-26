@@ -3,6 +3,7 @@ package ingest
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -441,6 +442,75 @@ func TestResolveBoundary_FetcherErrorWrappedWithHint(t *testing.T) {
 	// can find it.
 	if !strings.Contains(err.Error(), "synthetic nominatim failure") {
 		t.Errorf("expected wrapped underlying error, got: %v", err)
+	}
+}
+
+// TestResolveBoundary_RelationErrorHintsAreClassSpecific pins the
+// solvent-streets-90ev fix: relation-path failures should NOT emit the
+// Nominatim-only hint ("set boundary_relation_id"). Instead, the hint
+// branches on errors.Is against the sentinels in internal/ingest/boundary.go.
+func TestResolveBoundary_RelationErrorHintsAreClassSpecific(t *testing.T) {
+	const relationID int64 = 9999
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return "", nil },
+	}
+
+	cases := []struct {
+		name            string
+		fetchErr        error
+		wantHintHas     []string
+		wantHintMissing []string
+	}{
+		{
+			name:            "relation not found",
+			fetchErr:        fmt.Errorf("%w: id=%d", ingestpkg.ErrBoundaryRelationNotFound, relationID),
+			wantHintHas:     []string{"OSM relation not found", "admin_level=8"},
+			wantHintMissing: []string{"set [[cities]].boundary_relation_id"},
+		},
+		{
+			name:            "relation too large",
+			fetchErr:        fmt.Errorf("%w: id=%d span=12.3°", ingestpkg.ErrBoundaryRelationTooLarge, relationID),
+			wantHintHas:     []string{"spans >5", "county or state"},
+			wantHintMissing: []string{"set [[cities]].boundary_relation_id"},
+		},
+		{
+			name:        "generic nominatim error keeps the original hint",
+			fetchErr:    errors.New("nominatim returned a Point"),
+			wantHintHas: []string{"set [[cities]].boundary_relation_id"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			city := &config.CityConfig{Name: "Test", BoundaryRelationID: relationID}
+			// Both branches will use tc.fetchErr; only the relevant one fires
+			// because BoundaryRelationID routes to the relation fetcher.
+			failing := func(_ context.Context, _ *http.Client, _ int64) (string, error) {
+				return "", tc.fetchErr
+			}
+			opts := resolveBoundaryHarness(t)
+			_, err := resolveBoundary(
+				context.Background(), opts, store, &http.Client{}, city,
+				recordingNominatim("", nil), failing,
+			)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			var hint *cmdutil.ErrHint
+			if !errors.As(err, &hint) {
+				t.Fatalf("expected *cmdutil.ErrHint wrap, got %T: %v", err, err)
+			}
+			for _, want := range tc.wantHintHas {
+				if !strings.Contains(hint.Hint, want) {
+					t.Errorf("hint %q missing substring %q", hint.Hint, want)
+				}
+			}
+			for _, missing := range tc.wantHintMissing {
+				if strings.Contains(hint.Hint, missing) {
+					t.Errorf("hint %q should NOT contain %q (Nominatim-only wording on relation path)", hint.Hint, missing)
+				}
+			}
+		})
 	}
 }
 

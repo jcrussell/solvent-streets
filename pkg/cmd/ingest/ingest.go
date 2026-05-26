@@ -228,10 +228,7 @@ func resolveBoundary(
 	}
 	if err != nil {
 		return "", cmdutil.Hintf(fmt.Errorf("fetch boundary: %w", err),
-			"If Nominatim returned a non-Polygon result, set [[cities]].boundary_relation_id "+
-				"to the OSM admin_level=8 relation for this city. Find it with: "+
-				"https://overpass-turbo.eu/ → "+
-				`relation["name"="<city>"]["boundary"="administrative"]["admin_level"="8"];out;`)
+			"%s", boundaryFetchHint(err))
 	}
 
 	stripped, warn, stripErr := stripWaterFromBoundary(ctx, client, ingestpkg.FetchOSMWater, boundaryGJSON)
@@ -256,6 +253,27 @@ func resolveBoundary(
 	}
 	fmt.Fprintf(opts.IO.ErrOut, "  Boundary saved (source=%s).\n", source)
 	return boundaryGJSON, nil
+}
+
+// boundaryFetchHint picks a remediation message tailored to the failure
+// mode. The Nominatim-only "set boundary_relation_id" hint is misleading
+// when the failure came from the relation path itself.
+func boundaryFetchHint(err error) string {
+	switch {
+	case errors.Is(err, ingestpkg.ErrBoundaryRelationNotFound):
+		return "OSM relation not found or has no closed outer rings. Verify the " +
+			"relation id is an admin_level=8 boundary at https://overpass-turbo.eu/ " +
+			`with: relation(<id>);out;`
+	case errors.Is(err, ingestpkg.ErrBoundaryRelationTooLarge):
+		return "OSM relation spans >5° — usually a county or state relation id by " +
+			"mistake. Find the correct admin_level=8 city relation at " +
+			"https://overpass-turbo.eu/."
+	default:
+		return "If Nominatim returned a non-Polygon result, set [[cities]].boundary_relation_id " +
+			"to the OSM admin_level=8 relation for this city. Find it with: " +
+			"https://overpass-turbo.eu/ → " +
+			`relation["name"="<city>"]["boundary"="administrative"]["admin_level"="8"];out;`
+	}
 }
 
 // waterStripMinAreaRatio is the lower bound on stripped-to-original
