@@ -4,8 +4,8 @@ CREATE TABLE IF NOT EXISTS cities (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     slug TEXT NOT NULL,
     name TEXT NOT NULL,
-    config_source_path TEXT NOT NULL DEFAULT '',
-    UNIQUE(slug, config_source_path)
+    config_id TEXT NOT NULL,
+    UNIQUE(slug, config_id)
 );
 
 CREATE TABLE IF NOT EXISTS city_boundaries (

@@ -362,6 +362,94 @@ name = "Testville"
 	}
 }
 
+// TestLoad_ConfigIDDefault verifies that Load fills ConfigID with a
+// deterministic 16-hex sha256 prefix of the absolute path when the TOML
+// did not set config_id explicitly.
+func TestLoad_ConfigIDDefault(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pvmt.toml")
+	if err := os.WriteFile(path, []byte(`[[cities]]
+name = "Hashville"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.ConfigID) != 16 {
+		t.Errorf("ConfigID = %q, want 16-char hex", cfg.ConfigID)
+	}
+	for _, r := range cfg.ConfigID {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			t.Errorf("ConfigID = %q contains non-hex character %q", cfg.ConfigID, r)
+			break
+		}
+	}
+
+	// Determinism: a second load of the same absolute path produces
+	// the same ConfigID.
+	cfg2, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg2.ConfigID != cfg.ConfigID {
+		t.Errorf("ConfigID not deterministic: first=%q second=%q", cfg.ConfigID, cfg2.ConfigID)
+	}
+}
+
+// TestLoad_ConfigIDExplicit verifies that a user-supplied config_id in
+// the TOML wins over the auto-computed default. This is the escape
+// hatch for power users who want a key stable across repo moves /
+// renames / cross-machine sharing.
+func TestLoad_ConfigIDExplicit(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pvmt.toml")
+	if err := os.WriteFile(path, []byte(`config_id = "my-stable-id"
+[[cities]]
+name = "Explictville"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ConfigID != "my-stable-id" {
+		t.Errorf("ConfigID = %q, want %q (user override should win)", cfg.ConfigID, "my-stable-id")
+	}
+}
+
+// TestLoad_ConfigIDStableAcrossPathSpellings is the kevc regression
+// guard: the same file loaded via an absolute path and via a relative
+// path (different cwd) must produce the same ConfigID, since both
+// callers should reach the same cities row.
+func TestLoad_ConfigIDStableAcrossPathSpellings(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pvmt.toml")
+	if err := os.WriteFile(path, []byte(`[[cities]]
+name = "Stableville"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfgAbs, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	cfgRel, err := Load("pvmt.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfgAbs.ConfigID != cfgRel.ConfigID {
+		t.Errorf("ConfigID mismatch: abs=%q rel=%q", cfgAbs.ConfigID, cfgRel.ConfigID)
+	}
+}
+
 // TestLoad_MissingFileReportsFullPath locks in the B2 fix: a bad
 // --config path must surface in the error so the user can see which
 // path they mistyped. The old LoadFS-delegating Load leaked only the

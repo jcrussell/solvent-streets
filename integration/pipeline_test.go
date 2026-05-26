@@ -52,7 +52,7 @@ func TestPipeline_ComputeForecastExport(t *testing.T) {
 	t.Cleanup(func() { _ = root.Close() })
 
 	city := config.CityConfig{Name: "Pipeline City"}
-	cityID, err := root.EnsureCity(ctx, city.Slug(), city.Name, "")
+	cityID, err := root.EnsureCity(ctx, city.Slug(), city.Name, "test")
 	if err != nil {
 		t.Fatalf("EnsureCity: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestPipeline_ComputeForecastExport(t *testing.T) {
 
 	loadFixtures(t, ctx, store)
 
-	cfg := &config.Config{Cities: []config.CityConfig{city}}
+	cfg := &config.Config{ConfigID: "test", Cities: []config.CityConfig{city}}
 	outDir := filepath.Join(t.TempDir(), "dist")
 
 	f := factoryFor(cfg, &city, store, root)

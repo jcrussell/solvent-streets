@@ -204,9 +204,9 @@ type MockRootStore struct {
 	CloseFunc      func() error
 }
 
-func (m *MockRootStore) EnsureCity(ctx context.Context, slug, name, configSourcePath string) (int64, error) {
+func (m *MockRootStore) EnsureCity(ctx context.Context, slug, name, configID string) (int64, error) {
 	if m.EnsureCityFunc != nil {
-		return m.EnsureCityFunc(ctx, slug, name, configSourcePath)
+		return m.EnsureCityFunc(ctx, slug, name, configID)
 	}
 	return 1, nil
 }

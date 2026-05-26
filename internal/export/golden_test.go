@@ -7,6 +7,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -108,5 +109,24 @@ func goldenForecastConfig() config.ForecastConfig {
 			{MinPCI: 50, MaxPCI: 70, CostPerSqM: 12.0, Label: "rehab"},
 			{MinPCI: 0, MaxPCI: 50, CostPerSqM: 60.0, Label: "reconstruct"},
 		},
+	}
+}
+
+// TestResolvedTOML_StripsConfigID guards against config_id leaking into
+// the published static site. ResolvedTOML powers the Config tab visible
+// to anyone who loads the rendered index.html, so an auto-computed
+// host-path-derived ConfigID hash (or even a user-set value treated as
+// internal plumbing) must not appear there.
+func TestResolvedTOML_StripsConfigID(t *testing.T) {
+	cfg := &config.Config{
+		ConfigID: "secret-host-hash",
+		Cities:   []config.CityConfig{{Name: "Test"}},
+	}
+	out := ResolvedTOML(cfg)
+	if strings.Contains(out, "config_id") {
+		t.Errorf("ResolvedTOML output contains config_id; must be stripped.\nOutput:\n%s", out)
+	}
+	if strings.Contains(out, "secret-host-hash") {
+		t.Errorf("ResolvedTOML output leaked ConfigID value.\nOutput:\n%s", out)
 	}
 }

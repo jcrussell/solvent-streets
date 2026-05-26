@@ -19,6 +19,8 @@
 # for `pvmt all ingest`. The committed file ships the config only;
 # pre-computed dist/ artifacts are produced locally before `make site`.
 
+config_id = "bay-area-ca"
+
 [grid]
 hex_edge_m = 100
 

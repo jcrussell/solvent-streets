@@ -3,6 +3,8 @@
 # For large cities, a bigger hex edge reduces computation time.
 # Chicago's harsh winters also warrant a higher decay rate.
 
+config_id = "chicago-il"
+
 [grid]
 hex_edge_m = 200
 

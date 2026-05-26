@@ -3,6 +3,8 @@
 # DC is geographically compact, so a smaller hex edge gives
 # higher-resolution analysis without excessive computation.
 
+config_id = "washington-dc"
+
 [grid]
 hex_edge_m = 60
 

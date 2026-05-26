@@ -61,8 +61,21 @@ type Config struct {
 	Forecast ForecastConfig `toml:"forecast"`
 	Cities   []CityConfig   `toml:"cities"`
 
+	// ConfigID is the opaque identifier used as part of the cities
+	// table key (UNIQUE(slug, config_id)). Optional in TOML; when
+	// absent it is filled at load time with the 16-char sha256 prefix
+	// of the absolute path the config was loaded from (Load) or of
+	// the fs.FS-relative name (LoadFS). Users who want a key that is
+	// stable across repo moves, renames, or cross-machine sharing set
+	// it explicitly. Distinct values disambiguate two configs that
+	// happen to define the same city slug (the original solvent-streets-zqul
+	// case: two examples both defining "Austin").
+	ConfigID string `toml:"config_id,omitempty"`
+
 	// SourcePath is the filesystem path of the loaded pvmt.toml file.
 	// Set programmatically by Load/FindAndLoad, not a TOML field.
+	// Used by export/server to read the raw TOML back for the "Config"
+	// tab; not used as a database key (see ConfigID).
 	SourcePath string `toml:"-"`
 
 	// contentHash is the SHA-256 prefix of the raw TOML bytes the
@@ -272,8 +285,12 @@ func Slugify(name string) string {
 
 // LoadFS reads a pvmt.toml config from fsys at the given name. This is
 // the fs.FS-oriented entrypoint for hermetic tests; production callers
-// that want an absolute-path SourcePath should use Load. SourcePath is
-// set to name (the fs-relative name) by default.
+// should use Load.
+//
+// SourcePath is set to name (the fs-relative name). ConfigID is filled
+// from a hash of name when the TOML did not set it explicitly — this
+// is deterministic but not meaningful, since LoadFS is test-only and
+// the fs-relative name is not a real filesystem path.
 func LoadFS(fsys fs.FS, name string) (*Config, error) {
 	data, err := fs.ReadFile(fsys, name)
 	if err != nil {
@@ -284,13 +301,23 @@ func LoadFS(fsys fs.FS, name string) (*Config, error) {
 		return nil, err
 	}
 	cfg.SourcePath = name
+	if cfg.ConfigID == "" {
+		cfg.ConfigID = hashBytes([]byte(name))
+	}
 	return cfg, nil
 }
 
 // Load reads a pvmt.toml config from the given filesystem path.
-// SourcePath on the returned Config is set to path (the absolute/relative
-// filesystem path the caller passed). For hermetic fs.FS-based loading,
-// use LoadFS.
+//
+// SourcePath is the caller-supplied path verbatim (used by export/server
+// to read the raw TOML back).
+//
+// ConfigID is filled from the 16-char sha256 prefix of the absolute form
+// of path when the TOML did not set it explicitly. Absolutizing the path
+// before hashing means two callers that point at the same file with
+// different spellings (gensite's relative-path glob and `pvmt all`'s
+// absolute-path FindAndLoad) produce the same ConfigID, so they reach
+// the same cities row.
 //
 // Load uses os.ReadFile directly (rather than delegating to LoadFS) so
 // the read error carries the full path the caller supplied — users who
@@ -305,6 +332,13 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 	cfg.SourcePath = path
+	if cfg.ConfigID == "" {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return nil, fmt.Errorf("resolve config path %q: %w", path, err)
+		}
+		cfg.ConfigID = hashBytes([]byte(abs))
+	}
 	return cfg, nil
 }
 

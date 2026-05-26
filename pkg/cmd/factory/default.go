@@ -246,8 +246,8 @@ func buildCityDB(f *cmdutil.Factory) func() (db.Store, error) {
 		if err != nil {
 			return nil, err
 		}
-		sourcePath := cmdutil.ResolveSourcePath(f.Config)
-		id, err := root.EnsureCity(context.Background(), city.Slug(), city.Name, sourcePath)
+		configID := cmdutil.ResolveConfigID(f.Config)
+		id, err := root.EnsureCity(context.Background(), city.Slug(), city.Name, configID)
 		if err != nil {
 			return nil, err
 		}

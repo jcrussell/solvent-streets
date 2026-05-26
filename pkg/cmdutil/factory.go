@@ -114,14 +114,13 @@ func ForEachCity(ctx context.Context, f *Factory, fn func(cf *Factory, city *con
 	return errors.Join(errs...)
 }
 
-// ResolveCities returns the single city selected by --city, or all configured
-// cities when no flag is set. Callers that need the filtered list without the
-// ForEachCity loop (e.g. export, serve) use this directly.
-// ResolveSourcePath returns cfg.SourcePath via the given resolver, or ""
+// ResolveConfigID returns cfg.ConfigID via the given resolver, or ""
 // if the resolver is nil, errors, or returns a nil config. Used as the
-// EnsureCity config_source_path argument across commands that need to
-// scope city ids to a specific pvmt.toml — see solvent-streets-zqul.
-func ResolveSourcePath(resolveConfig func() (*config.Config, error)) string {
+// EnsureCity config_id argument across commands that scope city ids
+// to a specific pvmt.toml. An empty return is intentional and surfaces
+// at the EnsureCity boundary as "config_id is required" — a clear
+// failure mode beats silently writing a row keyed on "".
+func ResolveConfigID(resolveConfig func() (*config.Config, error)) string {
 	if resolveConfig == nil {
 		return ""
 	}
@@ -129,9 +128,12 @@ func ResolveSourcePath(resolveConfig func() (*config.Config, error)) string {
 	if err != nil || cfg == nil {
 		return ""
 	}
-	return cfg.SourcePath
+	return cfg.ConfigID
 }
 
+// ResolveCities returns the single city selected by --city, or all configured
+// cities when no flag is set. Callers that need the filtered list without the
+// ForEachCity loop (e.g. export, serve) use this directly.
 func ResolveCities(f *Factory) ([]config.CityConfig, error) {
 	if f.CityFlagSet != nil && f.CityFlagSet() {
 		city, err := f.CurrentCity()
@@ -160,8 +162,8 @@ func withCity(ctx context.Context, f *Factory, city *config.CityConfig) *Factory
 		if err != nil {
 			return nil, err
 		}
-		sourcePath := ResolveSourcePath(f.Config)
-		id, err := root.EnsureCity(ctx, c.Slug(), c.Name, sourcePath)
+		configID := ResolveConfigID(f.Config)
+		id, err := root.EnsureCity(ctx, c.Slug(), c.Name, configID)
 		if err != nil {
 			return nil, err
 		}

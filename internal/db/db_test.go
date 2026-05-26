@@ -4,10 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
@@ -24,7 +27,7 @@ func openTestStore(t *testing.T) Store {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = root.Close() })
-	id, err := root.EnsureCity(context.Background(), "test-city", "Test City", "")
+	id, err := root.EnsureCity(context.Background(), "test-city", "Test City", "test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,8 +374,8 @@ func TestDeleteSnapshot_CascadesAndCityScoped(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = root.Close() })
 
-	idA, _ := root.EnsureCity(ctx, "a", "A", "")
-	idB, _ := root.EnsureCity(ctx, "b", "B", "")
+	idA, _ := root.EnsureCity(ctx, "a", "A", "test")
+	idB, _ := root.EnsureCity(ctx, "b", "B", "test")
 	storeA := root.ForCity(idA)
 	storeB := root.ForCity(idB)
 
@@ -464,8 +467,8 @@ func TestResolveSnapshot(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = root.Close() })
 
-	idA, _ := root.EnsureCity(ctx, "a", "A", "")
-	idB, _ := root.EnsureCity(ctx, "b", "B", "")
+	idA, _ := root.EnsureCity(ctx, "a", "A", "test")
+	idB, _ := root.EnsureCity(ctx, "b", "B", "test")
 	storeA := root.ForCity(idA)
 	storeB := root.ForCity(idB)
 
@@ -607,11 +610,11 @@ func TestCityIsolation(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = root.Close() })
 
-	id1, err := root.EnsureCity(ctx, "city-a", "City A", "")
+	id1, err := root.EnsureCity(ctx, "city-a", "City A", "test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	id2, err := root.EnsureCity(ctx, "city-b", "City B", "")
+	id2, err := root.EnsureCity(ctx, "city-b", "City B", "test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -651,11 +654,11 @@ func TestEnsureCityIdempotent(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = root.Close() })
 
-	id1, err := root.EnsureCity(ctx, "livermore-ca", "Livermore, CA", "")
+	id1, err := root.EnsureCity(ctx, "livermore-ca", "Livermore, CA", "test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	id2, err := root.EnsureCity(ctx, "livermore-ca", "Livermore, CA", "")
+	id2, err := root.EnsureCity(ctx, "livermore-ca", "Livermore, CA", "test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -664,12 +667,12 @@ func TestEnsureCityIdempotent(t *testing.T) {
 	}
 }
 
-// TestEnsureCityDistinctByConfigSourcePath pins the solvent-streets-zqul
-// fix: two examples that share a city slug (e.g. "Austin, TX" in both
-// examples/austin-tx and examples/city-nerd) must resolve to distinct
-// city ids when they have distinct config source paths, so re-ingest in
-// one example does not clobber features in the other.
-func TestEnsureCityDistinctByConfigSourcePath(t *testing.T) {
+// TestEnsureCityDistinctByConfigID pins the solvent-streets-zqul fix:
+// two configs that share a city slug (e.g. both define "Austin, TX")
+// must resolve to distinct city ids when they have distinct config_ids,
+// so re-ingest under one config does not clobber features written under
+// the other.
+func TestEnsureCityDistinctByConfigID(t *testing.T) {
 	ctx := context.Background()
 	root, err := Open(":memory:")
 	if err != nil {
@@ -677,25 +680,94 @@ func TestEnsureCityDistinctByConfigSourcePath(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = root.Close() })
 
-	idA, err := root.EnsureCity(ctx, "austin-tx", "Austin, TX", "examples/austin-tx/pvmt.toml")
+	idA, err := root.EnsureCity(ctx, "austin-tx", "Austin, TX", "cfg-a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	idB, err := root.EnsureCity(ctx, "austin-tx", "Austin, TX", "examples/city-nerd/pvmt.toml")
+	idB, err := root.EnsureCity(ctx, "austin-tx", "Austin, TX", "cfg-b")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if idA == idB {
-		t.Errorf("expected distinct ids for same slug under different config_source_path; got %d for both", idA)
+		t.Errorf("expected distinct ids for same slug under different config_id; got %d for both", idA)
 	}
 
-	// Same (slug, source_path) is still idempotent.
-	idA2, err := root.EnsureCity(ctx, "austin-tx", "Austin, TX", "examples/austin-tx/pvmt.toml")
+	// Same (slug, config_id) is still idempotent.
+	idA2, err := root.EnsureCity(ctx, "austin-tx", "Austin, TX", "cfg-a")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if idA != idA2 {
-		t.Errorf("expected idempotent id for same (slug, source_path); got %d then %d", idA, idA2)
+		t.Errorf("expected idempotent id for same (slug, config_id); got %d then %d", idA, idA2)
+	}
+}
+
+// TestEnsureCityRejectsEmptyConfigID guards against a programmatic caller
+// that bypasses config.Load (which auto-populates ConfigID). The empty
+// string was the legacy "no config" sentinel; it is now a load-bearing
+// error so we surface the bug at the call site instead of producing a
+// row that collides with any other empty-config_id row.
+func TestEnsureCityRejectsEmptyConfigID(t *testing.T) {
+	ctx := context.Background()
+	root, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+
+	_, err = root.EnsureCity(ctx, "austin-tx", "Austin, TX", "")
+	if err == nil {
+		t.Fatal("expected error for empty config_id, got nil")
+	}
+	if !strings.Contains(err.Error(), "config_id is required") {
+		t.Errorf("error %q does not mention config_id requirement", err)
+	}
+}
+
+// TestEnsureCityCollapsesPathSpellings is the end-to-end intent: load
+// the same pvmt.toml from two cwd / path-spelling combinations (the
+// gensite-vs-pvmt-all scenario from solvent-streets-kevc) and confirm
+// both reach the same cities row.
+func TestEnsureCityCollapsesPathSpellings(t *testing.T) {
+	ctx := context.Background()
+	root, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pvmt.toml")
+	if err := os.WriteFile(path, []byte(`[[cities]]
+name = "Pathville"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfgAbs, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	cfgRel, err := config.Load("pvmt.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfgAbs.ConfigID != cfgRel.ConfigID {
+		t.Fatalf("ConfigID mismatch: abs=%q rel=%q", cfgAbs.ConfigID, cfgRel.ConfigID)
+	}
+
+	idAbs, err := root.EnsureCity(ctx, "pathville", "Pathville", cfgAbs.ConfigID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idRel, err := root.EnsureCity(ctx, "pathville", "Pathville", cfgRel.ConfigID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if idAbs != idRel {
+		t.Errorf("expected same city_id for abs and relative path spellings; got %d and %d", idAbs, idRel)
 	}
 }
 
@@ -712,7 +784,7 @@ func TestWithTx(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = root.Close() })
-		cityID, err := root.EnsureCity(ctx, "c", "C", "")
+		cityID, err := root.EnsureCity(ctx, "c", "C", "test")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -740,7 +812,7 @@ func TestWithTx(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = root.Close() })
-		cityID, err := root.EnsureCity(ctx, "c", "C", "")
+		cityID, err := root.EnsureCity(ctx, "c", "C", "test")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -770,7 +842,7 @@ func TestWithTx(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		cityID, err := root.EnsureCity(ctx, "c", "C", "")
+		cityID, err := root.EnsureCity(ctx, "c", "C", "test")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -821,10 +893,10 @@ func TestListCities(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := root.EnsureCity(ctx, "a", "A", ""); err != nil {
+	if _, err := root.EnsureCity(ctx, "a", "A", "test"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := root.EnsureCity(ctx, "b", "B", ""); err != nil {
+	if _, err := root.EnsureCity(ctx, "b", "B", "test"); err != nil {
 		t.Fatal(err)
 	}
 

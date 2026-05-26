@@ -88,14 +88,14 @@ func runPrune(ctx context.Context, opts *PruneOptions) error {
 	if err != nil {
 		return fmt.Errorf("database: %w", err)
 	}
-	sourcePath := cmdutil.ResolveSourcePath(opts.Config)
+	configID := cmdutil.ResolveConfigID(opts.Config)
 
 	// Discovery: collect every city's victims first so we can quote the
 	// total in the prompt and bail without touching the DB on "no".
 	var plan []pruneVictims
 	var totalVictims int
 	for _, city := range cities {
-		id, err := root.EnsureCity(ctx, city.Slug(), city.Name, sourcePath)
+		id, err := root.EnsureCity(ctx, city.Slug(), city.Name, configID)
 		if err != nil {
 			return fmt.Errorf("ensure city %s: %w", city.Slug(), err)
 		}

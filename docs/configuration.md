@@ -50,6 +50,29 @@ Without `--city`, commands run against all cities. With `--city "Berkeley, CA"` 
 
 The web UI and export provide a city switcher when multiple cities are configured.
 
+## Config identity (`config_id`)
+
+`cities` rows in the local database are keyed by `(slug, config_id)`. This separates two configs that happen to define the same city — e.g. `examples/austin-tx/pvmt.toml` and `examples/city-nerd/pvmt.toml` both defining "Austin" — so features, snapshots, and forecasts written under one don't clobber the other.
+
+`config_id` is optional. When omitted, it defaults to the 16-character sha256 prefix of the config's absolute filesystem path. That default works out of the box for single-config users and disambiguates multi-example setups on a single machine.
+
+Set `config_id` explicitly at the top of `pvmt.toml` if you need a stable key:
+
+```toml
+config_id = "austin-tx"
+
+[[cities]]
+name = "Austin, TX"
+```
+
+A user-set `config_id` is stable across:
+
+- Renaming or moving the config file (the default hash would change and orphan the old row).
+- Sharing the local database (`~/.local/share/pvmt/pvmt.db`) with a collaborator (the default hash encodes the source machine's `$HOME` indirectly).
+- Symlinks and case-insensitive filesystems that would produce different absolute paths for the same file.
+
+Two configs that both set `config_id = "same"` while defining a city with the same slug will collide — that is the keying-collision the field is designed to prevent, so pick distinct values.
+
 ## Data sources
 
 - `overpass = true` — enables OpenStreetMap Overpass API queries

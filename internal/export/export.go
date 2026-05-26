@@ -281,6 +281,12 @@ func exportScenariosForCity(ctx context.Context, entry CityEntry, dataDir string
 func ResolvedTOML(cfg *config.Config) string {
 	resolved := *cfg
 
+	// ConfigID is internal plumbing for cities-table keying — not a
+	// user-visible setting. Strip it so the published site's Config tab
+	// doesn't expose either the user's explicit ID or the auto-computed
+	// host-path-derived hash.
+	resolved.ConfigID = ""
+
 	if resolved.Grid.HexEdgeM <= 0 {
 		resolved.Grid.HexEdgeM = config.DefaultHexEdgeM
 	}

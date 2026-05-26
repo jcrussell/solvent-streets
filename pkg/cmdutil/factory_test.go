@@ -141,3 +141,37 @@ func TestForEachCity(t *testing.T) {
 		}
 	})
 }
+
+// TestResolveConfigID pins the contract that the helper returns
+// cfg.ConfigID, not cfg.SourcePath. This is load-bearing because every
+// `pvmt all|status|snapshots` subcommand uses ResolveConfigID to key
+// the cities table; before solvent-streets-kevc's redesign the helper
+// returned SourcePath, which leaked $HOME paths into the DB and broke
+// gensite/pvmt-all collation. A regression to SourcePath would
+// reintroduce the kevc symptom without breaking any other test.
+func TestResolveConfigID(t *testing.T) {
+	t.Run("returns ConfigID not SourcePath", func(t *testing.T) {
+		cfg := &config.Config{
+			ConfigID:   "expected-id",
+			SourcePath: "/home/someone/secret/path.toml",
+		}
+		got := cmdutil.ResolveConfigID(func() (*config.Config, error) { return cfg, nil })
+		if got != "expected-id" {
+			t.Errorf("ResolveConfigID = %q, want %q (must be ConfigID, not SourcePath)", got, "expected-id")
+		}
+	})
+
+	t.Run("nil resolver returns empty string", func(t *testing.T) {
+		got := cmdutil.ResolveConfigID(nil)
+		if got != "" {
+			t.Errorf("ResolveConfigID(nil) = %q, want empty string", got)
+		}
+	})
+
+	t.Run("resolver error returns empty string", func(t *testing.T) {
+		got := cmdutil.ResolveConfigID(func() (*config.Config, error) { return nil, errors.New("boom") })
+		if got != "" {
+			t.Errorf("ResolveConfigID on error = %q, want empty string", got)
+		}
+	})
+}

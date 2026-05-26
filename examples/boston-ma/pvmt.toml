@@ -4,6 +4,8 @@
 # deterioration. Higher decay rate and custom cost tiers reflect
 # the more aggressive maintenance cycle needed.
 
+config_id = "boston-ma"
+
 [forecast]
 decay_rate = 0.065
 years = 15

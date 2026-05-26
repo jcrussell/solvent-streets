@@ -123,7 +123,7 @@ var _ Store = (*sqliteStore)(nil)
 
 // RootStorer is the interface for managing cities and providing city-scoped stores.
 type RootStorer interface {
-	EnsureCity(ctx context.Context, slug, name, configSourcePath string) (int64, error)
+	EnsureCity(ctx context.Context, slug, name, configID string) (int64, error)
 	ListCities(ctx context.Context) ([]City, error)
 	ForCity(id int64) Store
 	Close() error
@@ -181,22 +181,29 @@ func Open(path string) (retStore *RootStore, retErr error) {
 	return &RootStore{db: db}, nil
 }
 
-// EnsureCity inserts or retrieves a city by (slug, configSourcePath),
-// returning its ID. Two examples that share a slug (e.g. "austin-tx" in
-// both examples/austin-tx and examples/city-nerd) get distinct city_ids
-// when they have distinct config source paths, so per-city feature/snapshot
-// data does not collide across examples.
-func (r *RootStore) EnsureCity(ctx context.Context, slug, name, configSourcePath string) (int64, error) {
+// EnsureCity inserts or retrieves a city by (slug, configID), returning
+// its ID. Two configs that share a slug (e.g. both define a city named
+// "Austin") get distinct city_ids when they have distinct config IDs,
+// so per-city feature/snapshot data does not collide.
+//
+// configID is the opaque config identifier from config.Config.ConfigID.
+// Callers must not pass an empty value; the field is auto-populated at
+// load time from a hash of the config's absolute path when the user
+// did not set config_id explicitly.
+func (r *RootStore) EnsureCity(ctx context.Context, slug, name, configID string) (int64, error) {
+	if configID == "" {
+		return 0, errors.New("ensure city: config_id is required")
+	}
 	_, err := r.db.ExecContext(ctx,
-		`INSERT OR IGNORE INTO cities (slug, name, config_source_path) VALUES (?, ?, ?)`,
-		slug, name, configSourcePath)
+		`INSERT OR IGNORE INTO cities (slug, name, config_id) VALUES (?, ?, ?)`,
+		slug, name, configID)
 	if err != nil {
 		return 0, fmt.Errorf("ensure city: %w", err)
 	}
 	var id int64
 	err = r.db.QueryRowContext(ctx,
-		`SELECT id FROM cities WHERE slug = ? AND config_source_path = ?`,
-		slug, configSourcePath).Scan(&id)
+		`SELECT id FROM cities WHERE slug = ? AND config_id = ?`,
+		slug, configID).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("get city id: %w", err)
 	}
