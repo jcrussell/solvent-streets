@@ -89,6 +89,31 @@ func TestConfig_MinHexAreaSqM_FallsBackToDefault(t *testing.T) {
 	}
 }
 
+// TestConfig_CoordinateDecimals_FallsBackToDefault pins the resolved-value
+// contract for the hex GeoJSON precision knob: an unset (zero) or negative
+// Export.CoordinateDecimals uses DefaultCoordinateDecimals at read time,
+// while a positive override wins. Mirrors MinHexAreaSqM's accessor shape so
+// every "config knob with a default" follows one pattern.
+func TestConfig_CoordinateDecimals_FallsBackToDefault(t *testing.T) {
+	cases := map[string]struct {
+		set  int
+		want int
+	}{
+		"unset":       {0, DefaultCoordinateDecimals},
+		"override 7":  {7, 7},
+		"override 5":  {5, 5},
+		"override 10": {10, 10},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := &Config{Export: ExportConfig{CoordinateDecimals: tc.set}}
+			if got := c.CoordinateDecimals(); got != tc.want {
+				t.Errorf("CoordinateDecimals() = %v; want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestConfig_Validate_BoundaryRelationID_RejectsNegative(t *testing.T) {
 	cfg := Config{
 		Cities: []CityConfig{{Name: "Oakland", BoundaryRelationID: -1}},

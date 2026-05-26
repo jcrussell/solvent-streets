@@ -16,13 +16,14 @@ import (
 // when no ":city" rows exist; that signal hides the scope toggle in the UI.
 // bbox is nil when no rows of any kind exist.
 func BuildHexGeoJSONs(ctx context.Context, entry CityEntry, proj *geo.UTMProjector) (city, bbox map[string]any) {
-	return buildHexGeoJSONForScope(ctx, entry, proj, resource.ScopeCity),
-		buildHexGeoJSONForScope(ctx, entry, proj, resource.ScopeAll)
+	decimals := entry.Config.CoordinateDecimals()
+	return buildHexGeoJSONForScope(ctx, entry, proj, resource.ScopeCity, decimals),
+		buildHexGeoJSONForScope(ctx, entry, proj, resource.ScopeAll, decimals)
 }
 
 // buildHexGeoJSONForScope builds one scope's FeatureCollection. Returns nil
 // when no matching hex_stats rows exist for that scope.
-func buildHexGeoJSONForScope(ctx context.Context, entry CityEntry, proj *geo.UTMProjector, scope resource.Scope) map[string]any {
+func buildHexGeoJSONForScope(ctx context.Context, entry CityEntry, proj *geo.UTMProjector, scope resource.Scope, decimals int) map[string]any {
 	var allStats []db.HexStat
 	for _, rt := range resource.All {
 		stats, err := entry.Store.ListHexStats(ctx, rt.Type().With(scope))
@@ -52,7 +53,7 @@ func buildHexGeoJSONForScope(ctx context.Context, entry CityEntry, proj *geo.UTM
 
 	var features []map[string]any
 	for _, st := range allStats {
-		if feat, ok := buildHexFeature(st, hexMap, proj); ok {
+		if feat, ok := buildHexFeature(st, hexMap, proj, decimals); ok {
 			features = append(features, feat)
 		}
 	}
@@ -106,12 +107,12 @@ func clipHexGridToBoundary(ctx context.Context, hexes []geo.Hex, entry CityEntry
 // FeatureCollection's file name (hexgrid-city vs hexgrid-bbox), not by
 // per-feature labels the client would otherwise have to split.
 // Returns the feature map and true if successful, or nil and false otherwise.
-func buildHexFeature(st db.HexStat, hexMap map[string]*geo.Hex, proj *geo.UTMProjector) (map[string]any, bool) {
+func buildHexFeature(st db.HexStat, hexMap map[string]*geo.Hex, proj *geo.UTMProjector, decimals int) (map[string]any, bool) {
 	h, ok := hexMap[st.HexID]
 	if !ok {
 		return nil, false
 	}
-	gjson, err := geo.GeometryToGeoJSON(h.Geom, proj)
+	gjson, err := geo.GeometryToGeoJSONWithPrecision(h.Geom, proj, decimals)
 	if err != nil {
 		return nil, false
 	}

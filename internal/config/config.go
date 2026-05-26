@@ -30,6 +30,13 @@ const (
 	// 100%-covered and visually misrepresent the edge. Cities with smaller
 	// hex_edge_m may want to tune this via display.min_hex_area_sqm.
 	DefaultMinHexAreaSqM = 100.0
+	// DefaultCoordinateDecimals is the precision of [lon, lat] floats
+	// emitted in hex GeoJSON. 6 decimals ≈ 11 cm, plenty for a
+	// city-scale heatmap; the JTS reproject path used to hardcode 7
+	// (~1 cm). Lower precision shrinks per-city JSON by 30-50%. Cities
+	// or examples that genuinely need finer resolution can override via
+	// export.coordinate_decimals.
+	DefaultCoordinateDecimals = 6
 )
 
 // Sentinels for failure modes that warrant a remediation hint at the call
@@ -90,6 +97,20 @@ type ExportConfig struct {
 	OutputDir   string `toml:"output_dir"`
 	Title       string `toml:"title"`
 	Description string `toml:"description"`
+	// CoordinateDecimals sets the precision of emitted hex GeoJSON
+	// coordinates. Resolve via Config.CoordinateDecimals(); zero or
+	// unset falls back to DefaultCoordinateDecimals.
+	CoordinateDecimals int `toml:"coordinate_decimals"`
+}
+
+// CoordinateDecimals returns the effective hex GeoJSON coordinate
+// precision: the configured value if positive, else
+// DefaultCoordinateDecimals.
+func (c *Config) CoordinateDecimals() int {
+	if c.Export.CoordinateDecimals > 0 {
+		return c.Export.CoordinateDecimals
+	}
+	return DefaultCoordinateDecimals
 }
 
 type ForecastConfig struct {

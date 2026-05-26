@@ -2,6 +2,8 @@ package geo
 
 import (
 	"math"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/peterstace/simplefeatures/geom"
@@ -85,6 +87,58 @@ func TestGeometryToGeoJSON_RoundTrip(t *testing.T) {
 			t.Errorf("latitude out of range: %f", c[1])
 		}
 	}
+}
+
+// TestGeometryToGeoJSONWithPrecision_RoundsCoords pins the precision
+// contract: coordinates in the emitted GeoJSON are rounded to the
+// requested decimal places. Asserts behavior (the decimal-string shape
+// of the output), not internal call counts. Regression caught: hardcoding
+// 7 inside tryReprojectCoord (the bug this knob was introduced to fix).
+func TestGeometryToGeoJSONWithPrecision_RoundsCoords(t *testing.T) {
+	proj := NewUTMProjector(-121.76, 37.68)
+	rect := makeRect(600000, 4170000, 601000, 4171000)
+
+	cases := []struct {
+		name     string
+		decimals int
+		maxFrac  int // max # of digits expected after the decimal point
+	}{
+		{"6_decimals", 6, 6},
+		{"5_decimals", 5, 5},
+		{"3_decimals", 3, 3},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gjson, err := GeometryToGeoJSONWithPrecision(rect, proj, tc.decimals)
+			if err != nil {
+				t.Fatal(err)
+			}
+			coords, _, err := ParseGeoJSONCoords(gjson)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, c := range coords {
+				for axis, v := range []float64{c[0], c[1]} {
+					if frac := fractionalDigits(v); frac > tc.maxFrac {
+						t.Errorf("coord[%d]=%v has %d fractional digits; want ≤ %d",
+							axis, v, frac, tc.maxFrac)
+					}
+				}
+			}
+		})
+	}
+}
+
+// fractionalDigits returns the count of significant digits after the
+// decimal point for v formatted at minimum precision. Trailing zeros
+// produced by binary float roundoff are not counted as significant.
+func fractionalDigits(v float64) int {
+	s := strconv.FormatFloat(v, 'f', -1, 64)
+	dot := strings.IndexByte(s, '.')
+	if dot < 0 {
+		return 0
+	}
+	return len(s) - dot - 1
 }
 
 func TestGeoJSONToProjectedGeometry_LineString(t *testing.T) {

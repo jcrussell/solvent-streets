@@ -3,6 +3,7 @@ package export
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -29,12 +30,20 @@ var (
 // hand-pick areas relative to the sliver threshold.
 func squareHex(t *testing.T, id string, side float64) geo.Hex {
 	t.Helper()
+	return offsetSquareHex(t, id, 0, 0, side)
+}
+
+// offsetSquareHex is squareHex anchored at (ox, oy) instead of the origin —
+// useful for tests that need projected coords outside the lon/lat range so
+// the reprojection path actually runs.
+func offsetSquareHex(t *testing.T, id string, ox, oy, side float64) geo.Hex {
+	t.Helper()
 	ring := geom.NewLineString(geom.NewSequence([]float64{
-		0, 0,
-		side, 0,
-		side, side,
-		0, side,
-		0, 0,
+		ox, oy,
+		ox + side, oy,
+		ox + side, oy + side,
+		ox, oy + side,
+		ox, oy,
 	}, geom.DimXY))
 	poly := geom.NewPolygon([]geom.LineString{ring})
 	return geo.Hex{ID: id, Geom: poly.AsGeometry()}
@@ -159,6 +168,57 @@ func TestBuildHexGeoJSONs_BothScopesEmitted(t *testing.T) {
 				t.Errorf("feature resource_type %q must not carry the :city suffix", rt)
 			}
 		}
+	}
+}
+
+// TestBuildHexFeature_RespectsCoordinatePrecision pins the wiring from
+// the decimals parameter down through buildHexFeature → the
+// precision-aware geo helper. Exercises buildHexFeature directly with a
+// known hex (no dependency on grid-generation ID matching) and asserts
+// the lower-precision pass emits fewer significant fractional digits.
+//
+// Regression caught: dropping the decimals plumb-through (forgetting to
+// thread the value into buildHexFeature, or calling the legacy
+// GeometryToGeoJSON inadvertently).
+func TestBuildHexFeature_RespectsCoordinatePrecision(t *testing.T) {
+	proj := geo.NewUTMProjector(-122.45, 37.55)
+	// Place the hex at realistic UTM coords (zone 10N, ~SF Bay) — values
+	// well outside the [-180..180, -90..90] lon/lat window so the
+	// reprojector actually runs (it's a no-op on already-lon/lat coords).
+	h := offsetSquareHex(t, "0,0", 550000, 4156000, 50)
+	hexMap := map[string]*geo.Hex{"0,0": &h}
+	st := db.HexStat{HexID: "0,0", ResourceType: rtRoads, AreaSqM: 200, PctCovered: 75, ComputedAt: time.Now()}
+
+	maxFrac := func(decimals int) int {
+		feat, ok := buildHexFeature(st, hexMap, proj, decimals)
+		if !ok {
+			t.Fatalf("buildHexFeature returned ok=false at decimals=%d", decimals)
+		}
+		raw, _ := feat["geometry"].(json.RawMessage)
+		maxDigits := 0
+		for tok := range strings.SplitSeq(string(raw), ",") {
+			dot := strings.IndexByte(tok, '.')
+			if dot < 0 {
+				continue
+			}
+			end := len(tok)
+			for end > dot+1 && (tok[end-1] < '0' || tok[end-1] > '9') {
+				end--
+			}
+			if frac := end - dot - 1; frac > maxDigits {
+				maxDigits = frac
+			}
+		}
+		return maxDigits
+	}
+
+	hi := maxFrac(7)
+	lo := maxFrac(4)
+	if hi <= lo {
+		t.Errorf("precision=7 max fractional digits (%d) must exceed precision=4 (%d)", hi, lo)
+	}
+	if lo > 4 {
+		t.Errorf("precision=4 produced coords with %d fractional digits; want ≤ 4", lo)
 	}
 }
 

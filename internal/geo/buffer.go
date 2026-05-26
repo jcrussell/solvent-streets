@@ -45,8 +45,19 @@ func UnionAll(geometries []geom.Geometry) (geom.Geometry, error) {
 	return geom.UnionMany(geometries)
 }
 
-// GeometryToGeoJSON converts a geometry to GeoJSON using the given projector.
+// GeometryToGeoJSON converts a geometry to GeoJSON using the given
+// projector at the default coordinate precision (~1cm). Prefer
+// GeometryToGeoJSONWithPrecision in code paths that read precision from
+// configuration.
 func GeometryToGeoJSON(g geom.Geometry, proj *UTMProjector) (string, error) {
+	return GeometryToGeoJSONWithPrecision(g, proj, 7)
+}
+
+// GeometryToGeoJSONWithPrecision converts a geometry to GeoJSON using
+// the given projector, rounding lon/lat to `decimals` decimal places.
+// Use the exported config.Config.CoordinateDecimals() to source the
+// precision from pvmt.toml.
+func GeometryToGeoJSONWithPrecision(g geom.Geometry, proj *UTMProjector, decimals int) (string, error) {
 	raw, err := g.MarshalJSON()
 	if err != nil {
 		return "", fmt.Errorf("marshal geojson: %w", err)
@@ -56,7 +67,7 @@ func GeometryToGeoJSON(g geom.Geometry, proj *UTMProjector) (string, error) {
 	if err := json.Unmarshal(raw, &gjObj); err != nil {
 		return "", err
 	}
-	reprojectGeoJSON(gjObj, proj)
+	reprojectGeoJSON(gjObj, proj, decimals)
 	result, err := json.Marshal(gjObj)
 	if err != nil {
 		return "", err
@@ -64,14 +75,14 @@ func GeometryToGeoJSON(g geom.Geometry, proj *UTMProjector) (string, error) {
 	return string(result), nil
 }
 
-func reprojectGeoJSON(obj map[string]any, proj *UTMProjector) {
+func reprojectGeoJSON(obj map[string]any, proj *UTMProjector, decimals int) {
 	if coords, ok := obj["coordinates"]; ok {
-		obj["coordinates"] = reprojectCoords(coords, proj)
+		obj["coordinates"] = reprojectCoords(coords, proj, decimals)
 	}
 	if geoms, ok := obj["geometries"].([]any); ok {
 		for _, g := range geoms {
 			if gm, ok := g.(map[string]any); ok {
-				reprojectGeoJSON(gm, proj)
+				reprojectGeoJSON(gm, proj, decimals)
 			}
 		}
 	}
@@ -81,7 +92,7 @@ func reprojectGeoJSON(obj map[string]any, proj *UTMProjector) {
 // and reprojects it if it is not already in lon/lat range. Returns the
 // reprojected slice and true if c was a coordinate pair, or nil and false
 // otherwise.
-func tryReprojectCoord(c []any, proj *UTMProjector) ([]any, bool) {
+func tryReprojectCoord(c []any, proj *UTMProjector, decimals int) ([]any, bool) {
 	if len(c) < 2 {
 		return nil, false
 	}
@@ -95,22 +106,22 @@ func tryReprojectCoord(c []any, proj *UTMProjector) ([]any, bool) {
 	}
 	if !isLonLat(x, y) {
 		lon, lat, _ := proj.FromProjected(x, y)
-		return []any{roundTo(lon, 7), roundTo(lat, 7)}, true
+		return []any{roundTo(lon, decimals), roundTo(lat, decimals)}, true
 	}
 	return c, true
 }
 
-func reprojectCoords(v any, proj *UTMProjector) any {
+func reprojectCoords(v any, proj *UTMProjector, decimals int) any {
 	c, ok := v.([]any)
 	if !ok {
 		return v
 	}
-	if reprojected, isCoord := tryReprojectCoord(c, proj); isCoord {
+	if reprojected, isCoord := tryReprojectCoord(c, proj, decimals); isCoord {
 		return reprojected
 	}
 	result := make([]any, len(c))
 	for i, item := range c {
-		result[i] = reprojectCoords(item, proj)
+		result[i] = reprojectCoords(item, proj, decimals)
 	}
 	return result
 }
