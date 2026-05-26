@@ -18,8 +18,9 @@ import (
 //
 // Don't grow this test into a column-by-column type fingerprint; pin only
 // the invariants that matter: table presence, city_id FK on scoped tables,
-// the hex_stats auto-increment id introduced by 002, and the lookup indexes
-// the query planner depends on.
+// the hex_stats auto-increment id (so multiple snapshots can coexist for
+// the same hex/resource/city), and the lookup indexes the query planner
+// depends on.
 func TestColdMigration_SchemaShape(t *testing.T) {
 	ctx := context.Background()
 
@@ -77,9 +78,9 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 	})
 
 	t.Run("hex_stats has auto-increment id PK", func(t *testing.T) {
-		// 002_snapshot_history.sql rebuilt hex_stats to make multiple
-		// snapshots coexist for the same (hex_id, resource_type, city_id).
-		// Reverting to the original composite PK would silently re-introduce
+		// hex_stats uses an auto-increment id so multiple snapshots can
+		// coexist for the same (hex_id, resource_type, city_id). Reverting
+		// to a composite PK on those three columns would silently re-introduce
 		// the snapshot-overwrite bug.
 		cols := listColumns(t, ctx, root.db, "hex_stats")
 		var id *columnInfo

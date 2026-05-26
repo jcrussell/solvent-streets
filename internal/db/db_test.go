@@ -239,8 +239,8 @@ func TestListReads_NullLegacyFallback(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 
-	// Write rows directly with NULL snapshot_id — simulating data
-	// inserted before migration 002 added the column.
+	// Write rows directly with NULL snapshot_id — simulating legacy
+	// data inserted before snapshot tagging existed.
 	if err := store.SaveHexStats(ctx, []HexStat{
 		{HexID: "legacy", ResourceType: rtRoads, AreaSqM: 42, PctCovered: 100, SnapshotID: nil},
 	}); err != nil {

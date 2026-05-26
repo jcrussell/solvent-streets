@@ -1,4 +1,4 @@
--- Consolidated schema: all tables with multi-city support.
+-- Init schema: all tables with multi-city support.
 
 CREATE TABLE IF NOT EXISTS cities (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS snapshots (
 );
 
 CREATE INDEX IF NOT EXISTS idx_snapshots_city ON snapshots(city_id);
+CREATE INDEX IF NOT EXISTS idx_snapshots_config_hash ON snapshots(config_hash);
 
 CREATE TABLE IF NOT EXISTS compute_results (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,18 +55,20 @@ CREATE INDEX IF NOT EXISTS idx_compute_results_resource_type ON compute_results(
 CREATE INDEX IF NOT EXISTS idx_compute_results_city ON compute_results(city_id);
 
 CREATE TABLE IF NOT EXISTS hex_stats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     hex_id TEXT NOT NULL,
     resource_type TEXT NOT NULL,
     city_id INTEGER NOT NULL REFERENCES cities(id),
+    snapshot_id INTEGER REFERENCES snapshots(id),
     area_sqm REAL NOT NULL DEFAULT 0,
     pct_covered REAL NOT NULL DEFAULT 0,
-    snapshot_id INTEGER REFERENCES snapshots(id),
-    computed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (hex_id, resource_type, city_id)
+    computed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_hex_stats_resource_type ON hex_stats(resource_type);
 CREATE INDEX IF NOT EXISTS idx_hex_stats_city ON hex_stats(city_id);
+CREATE INDEX IF NOT EXISTS idx_hex_stats_snapshot ON hex_stats(snapshot_id);
+CREATE INDEX IF NOT EXISTS idx_hex_stats_lookup ON hex_stats(hex_id, resource_type, city_id, snapshot_id);
 
 CREATE TABLE IF NOT EXISTS forecast_results (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

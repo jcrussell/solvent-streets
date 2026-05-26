@@ -104,7 +104,7 @@ func (s *sqliteStore) LatestComputeResult(ctx context.Context, resourceType reso
 // SnapshotID so historic snapshots remain queryable. Append-only: rows from
 // prior snapshots are never deleted; pvmt re-runs against a new snapshot
 // don't clobber older results. Rows with a nil SnapshotID (legacy data
-// from before migration 002) coexist as "pre-snapshot" history.
+// from before snapshot tagging existed) coexist as "pre-snapshot" history.
 func (s *sqliteStore) SaveHexStats(ctx context.Context, stats []HexStat) error {
 	return s.withTx(ctx, func(tx *sql.Tx) error {
 		stmt, err := tx.PrepareContext(ctx, `
