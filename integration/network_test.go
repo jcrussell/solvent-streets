@@ -165,7 +165,7 @@ func openIsolatedStore(t *testing.T, ctx context.Context, xdgData string) (*db.R
 		t.Fatalf("db.Open(%s): %v", dbPath, err)
 	}
 	city := config.CityConfig{Name: "Livermore, CA"}
-	cityID, err := rootStore.EnsureCity(ctx, city.Slug(), city.Name)
+	cityID, err := rootStore.EnsureCity(ctx, city.Slug(), city.Name, "")
 	if err != nil {
 		t.Fatalf("EnsureCity: %v", err)
 	}

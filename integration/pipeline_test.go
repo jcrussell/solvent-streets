@@ -52,7 +52,7 @@ func TestPipeline_ComputeForecastExport(t *testing.T) {
 	t.Cleanup(func() { _ = root.Close() })
 
 	city := config.CityConfig{Name: "Pipeline City"}
-	cityID, err := root.EnsureCity(ctx, city.Slug(), city.Name)
+	cityID, err := root.EnsureCity(ctx, city.Slug(), city.Name, "")
 	if err != nil {
 		t.Fatalf("EnsureCity: %v", err)
 	}

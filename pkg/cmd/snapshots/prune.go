@@ -18,6 +18,7 @@ type PruneOptions struct {
 	Prompter      prompt.Prompter
 	RootDB        func() (db.RootStorer, error)
 	ResolveCities func() ([]config.CityConfig, error)
+	Config        func() (*config.Config, error)
 	Keep          int
 	Yes           bool
 }
@@ -28,6 +29,7 @@ func NewCmdPrune(f *cmdutil.Factory, runF func(context.Context, *PruneOptions) e
 		Prompter:      f.Prompter,
 		RootDB:        func() (db.RootStorer, error) { return f.RootDB() },
 		ResolveCities: func() ([]config.CityConfig, error) { return cmdutil.ResolveCities(f) },
+		Config:        func() (*config.Config, error) { return f.Config() },
 	}
 
 	cmd := &cobra.Command{
@@ -86,13 +88,14 @@ func runPrune(ctx context.Context, opts *PruneOptions) error {
 	if err != nil {
 		return fmt.Errorf("database: %w", err)
 	}
+	sourcePath := cmdutil.ResolveSourcePath(opts.Config)
 
 	// Discovery: collect every city's victims first so we can quote the
 	// total in the prompt and bail without touching the DB on "no".
 	var plan []pruneVictims
 	var totalVictims int
 	for _, city := range cities {
-		id, err := root.EnsureCity(ctx, city.Slug(), city.Name)
+		id, err := root.EnsureCity(ctx, city.Slug(), city.Name, sourcePath)
 		if err != nil {
 			return fmt.Errorf("ensure city %s: %w", city.Slug(), err)
 		}

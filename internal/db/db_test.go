@@ -24,7 +24,7 @@ func openTestStore(t *testing.T) Store {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = root.Close() })
-	id, err := root.EnsureCity(context.Background(), "test-city", "Test City")
+	id, err := root.EnsureCity(context.Background(), "test-city", "Test City", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,8 +371,8 @@ func TestDeleteSnapshot_CascadesAndCityScoped(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = root.Close() })
 
-	idA, _ := root.EnsureCity(ctx, "a", "A")
-	idB, _ := root.EnsureCity(ctx, "b", "B")
+	idA, _ := root.EnsureCity(ctx, "a", "A", "")
+	idB, _ := root.EnsureCity(ctx, "b", "B", "")
 	storeA := root.ForCity(idA)
 	storeB := root.ForCity(idB)
 
@@ -464,8 +464,8 @@ func TestResolveSnapshot(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = root.Close() })
 
-	idA, _ := root.EnsureCity(ctx, "a", "A")
-	idB, _ := root.EnsureCity(ctx, "b", "B")
+	idA, _ := root.EnsureCity(ctx, "a", "A", "")
+	idB, _ := root.EnsureCity(ctx, "b", "B", "")
 	storeA := root.ForCity(idA)
 	storeB := root.ForCity(idB)
 
@@ -607,11 +607,11 @@ func TestCityIsolation(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = root.Close() })
 
-	id1, err := root.EnsureCity(ctx, "city-a", "City A")
+	id1, err := root.EnsureCity(ctx, "city-a", "City A", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	id2, err := root.EnsureCity(ctx, "city-b", "City B")
+	id2, err := root.EnsureCity(ctx, "city-b", "City B", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -651,16 +651,51 @@ func TestEnsureCityIdempotent(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = root.Close() })
 
-	id1, err := root.EnsureCity(ctx, "livermore-ca", "Livermore, CA")
+	id1, err := root.EnsureCity(ctx, "livermore-ca", "Livermore, CA", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	id2, err := root.EnsureCity(ctx, "livermore-ca", "Livermore, CA")
+	id2, err := root.EnsureCity(ctx, "livermore-ca", "Livermore, CA", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if id1 != id2 {
 		t.Errorf("expected same id, got %d and %d", id1, id2)
+	}
+}
+
+// TestEnsureCityDistinctByConfigSourcePath pins the solvent-streets-zqul
+// fix: two examples that share a city slug (e.g. "Austin, TX" in both
+// examples/austin-tx and examples/city-nerd) must resolve to distinct
+// city ids when they have distinct config source paths, so re-ingest in
+// one example does not clobber features in the other.
+func TestEnsureCityDistinctByConfigSourcePath(t *testing.T) {
+	ctx := context.Background()
+	root, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+
+	idA, err := root.EnsureCity(ctx, "austin-tx", "Austin, TX", "examples/austin-tx/pvmt.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	idB, err := root.EnsureCity(ctx, "austin-tx", "Austin, TX", "examples/city-nerd/pvmt.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if idA == idB {
+		t.Errorf("expected distinct ids for same slug under different config_source_path; got %d for both", idA)
+	}
+
+	// Same (slug, source_path) is still idempotent.
+	idA2, err := root.EnsureCity(ctx, "austin-tx", "Austin, TX", "examples/austin-tx/pvmt.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if idA != idA2 {
+		t.Errorf("expected idempotent id for same (slug, source_path); got %d then %d", idA, idA2)
 	}
 }
 
@@ -677,7 +712,7 @@ func TestWithTx(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = root.Close() })
-		cityID, err := root.EnsureCity(ctx, "c", "C")
+		cityID, err := root.EnsureCity(ctx, "c", "C", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -705,7 +740,7 @@ func TestWithTx(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = root.Close() })
-		cityID, err := root.EnsureCity(ctx, "c", "C")
+		cityID, err := root.EnsureCity(ctx, "c", "C", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -735,7 +770,7 @@ func TestWithTx(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		cityID, err := root.EnsureCity(ctx, "c", "C")
+		cityID, err := root.EnsureCity(ctx, "c", "C", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -786,10 +821,10 @@ func TestListCities(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := root.EnsureCity(ctx, "a", "A"); err != nil {
+	if _, err := root.EnsureCity(ctx, "a", "A", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := root.EnsureCity(ctx, "b", "B"); err != nil {
+	if _, err := root.EnsureCity(ctx, "b", "B", ""); err != nil {
 		t.Fatal(err)
 	}
 

@@ -123,7 +123,7 @@ var _ Store = (*sqliteStore)(nil)
 
 // RootStorer is the interface for managing cities and providing city-scoped stores.
 type RootStorer interface {
-	EnsureCity(ctx context.Context, slug, name string) (int64, error)
+	EnsureCity(ctx context.Context, slug, name, configSourcePath string) (int64, error)
 	ListCities(ctx context.Context) ([]City, error)
 	ForCity(id int64) Store
 	Close() error
@@ -181,14 +181,22 @@ func Open(path string) (retStore *RootStore, retErr error) {
 	return &RootStore{db: db}, nil
 }
 
-// EnsureCity inserts or retrieves a city by slug, returning its ID.
-func (r *RootStore) EnsureCity(ctx context.Context, slug, name string) (int64, error) {
-	_, err := r.db.ExecContext(ctx, `INSERT OR IGNORE INTO cities (slug, name) VALUES (?, ?)`, slug, name)
+// EnsureCity inserts or retrieves a city by (slug, configSourcePath),
+// returning its ID. Two examples that share a slug (e.g. "austin-tx" in
+// both examples/austin-tx and examples/city-nerd) get distinct city_ids
+// when they have distinct config source paths, so per-city feature/snapshot
+// data does not collide across examples.
+func (r *RootStore) EnsureCity(ctx context.Context, slug, name, configSourcePath string) (int64, error) {
+	_, err := r.db.ExecContext(ctx,
+		`INSERT OR IGNORE INTO cities (slug, name, config_source_path) VALUES (?, ?, ?)`,
+		slug, name, configSourcePath)
 	if err != nil {
 		return 0, fmt.Errorf("ensure city: %w", err)
 	}
 	var id int64
-	err = r.db.QueryRowContext(ctx, `SELECT id FROM cities WHERE slug = ?`, slug).Scan(&id)
+	err = r.db.QueryRowContext(ctx,
+		`SELECT id FROM cities WHERE slug = ? AND config_source_path = ?`,
+		slug, configSourcePath).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("get city id: %w", err)
 	}

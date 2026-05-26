@@ -198,15 +198,15 @@ func (m *MockStore) Close() error {
 // MockRootStore mocks the RootStore for testing multi-city commands.
 // It implements db.RootStorer.
 type MockRootStore struct {
-	EnsureCityFunc func(context.Context, string, string) (int64, error)
+	EnsureCityFunc func(context.Context, string, string, string) (int64, error)
 	ListCitiesFunc func(context.Context) ([]db.City, error)
 	ForCityFunc    func(id int64) db.Store
 	CloseFunc      func() error
 }
 
-func (m *MockRootStore) EnsureCity(ctx context.Context, slug, name string) (int64, error) {
+func (m *MockRootStore) EnsureCity(ctx context.Context, slug, name, configSourcePath string) (int64, error) {
 	if m.EnsureCityFunc != nil {
-		return m.EnsureCityFunc(ctx, slug, name)
+		return m.EnsureCityFunc(ctx, slug, name, configSourcePath)
 	}
 	return 1, nil
 }

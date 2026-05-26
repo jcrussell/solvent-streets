@@ -52,7 +52,7 @@ func BuildCityEntries(ctx context.Context, rootDB db.RootStorer, cfg *config.Con
 	var entries []CityEntry
 	var errs []string
 	for _, city := range cities {
-		id, err := rootDB.EnsureCity(ctx, city.Slug(), city.Name)
+		id, err := rootDB.EnsureCity(ctx, city.Slug(), city.Name, cfg.SourcePath)
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", city.Name, err))
 			continue

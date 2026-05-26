@@ -21,6 +21,7 @@ type RmOptions struct {
 	Prompter      prompt.Prompter
 	RootDB        func() (db.RootStorer, error)
 	ResolveCities func() ([]config.CityConfig, error)
+	Config        func() (*config.Config, error)
 	SnapshotID    int64
 	Yes           bool
 }
@@ -31,6 +32,7 @@ func NewCmdRm(f *cmdutil.Factory, runF func(context.Context, *RmOptions) error) 
 		Prompter:      f.Prompter,
 		RootDB:        func() (db.RootStorer, error) { return f.RootDB() },
 		ResolveCities: func() ([]config.CityConfig, error) { return cmdutil.ResolveCities(f) },
+		Config:        func() (*config.Config, error) { return f.Config() },
 	}
 
 	cmd := &cobra.Command{
@@ -85,6 +87,7 @@ func runRm(ctx context.Context, opts *RmOptions) error {
 	if err != nil {
 		return fmt.Errorf("database: %w", err)
 	}
+	sourcePath := cmdutil.ResolveSourcePath(opts.Config)
 
 	// Discovery: find the city that owns the snapshot before deleting,
 	// so the confirmation prompt can name the owner. Splitting discovery
@@ -93,7 +96,7 @@ func runRm(ctx context.Context, opts *RmOptions) error {
 	var ownerStore db.Store
 	for i := range cities {
 		city := &cities[i]
-		id, err := root.EnsureCity(ctx, city.Slug(), city.Name)
+		id, err := root.EnsureCity(ctx, city.Slug(), city.Name, sourcePath)
 		if err != nil {
 			return fmt.Errorf("ensure city %s: %w", city.Slug(), err)
 		}

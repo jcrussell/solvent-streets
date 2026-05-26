@@ -64,7 +64,7 @@ func TestRunLs_ListsAcrossCities(t *testing.T) {
 	cities := twoCityConfig()
 
 	root := &dbtest.MockRootStore{
-		EnsureCityFunc: func(_ context.Context, slug, _ string) (int64, error) {
+		EnsureCityFunc: func(_ context.Context, slug, _, _ string) (int64, error) {
 			if slug == "alpha" {
 				return 1, nil
 			}
@@ -111,7 +111,7 @@ func TestRunLs_ListsAcrossCities(t *testing.T) {
 func TestRunLs_EmptyDatabase(t *testing.T) {
 	cities := twoCityConfig()
 	root := &dbtest.MockRootStore{
-		EnsureCityFunc: func(context.Context, string, string) (int64, error) { return 1, nil },
+		EnsureCityFunc: func(context.Context, string, string, string) (int64, error) { return 1, nil },
 		ForCityFunc:    func(int64) db.Store { return &dbtest.MockStore{} },
 	}
 	ios, _, stdout, stderr := iostreams.Test()
@@ -156,7 +156,7 @@ func TestRunRm_DeletesFromOwningCity(t *testing.T) {
 	cities := twoCityConfig()
 	var resolveCalls, deleteCalls []string
 	root := &dbtest.MockRootStore{
-		EnsureCityFunc: func(_ context.Context, slug, _ string) (int64, error) {
+		EnsureCityFunc: func(_ context.Context, slug, _, _ string) (int64, error) {
 			if slug == "alpha" {
 				return 1, nil
 			}
@@ -208,7 +208,7 @@ func TestRunRm_DeletesFromOwningCity(t *testing.T) {
 func TestRunRm_PromptsOnTTY(t *testing.T) {
 	cities := twoCityConfig()
 	root := &dbtest.MockRootStore{
-		EnsureCityFunc: func(_ context.Context, slug, _ string) (int64, error) {
+		EnsureCityFunc: func(_ context.Context, slug, _, _ string) (int64, error) {
 			if slug == "alpha" {
 				return 1, nil
 			}
@@ -254,7 +254,7 @@ func TestRunRm_CancelOnPromptNo(t *testing.T) {
 	cities := twoCityConfig()
 	var deleted bool
 	root := &dbtest.MockRootStore{
-		EnsureCityFunc: func(context.Context, string, string) (int64, error) { return 1, nil },
+		EnsureCityFunc: func(context.Context, string, string, string) (int64, error) { return 1, nil },
 		ForCityFunc: func(int64) db.Store {
 			return &dbtest.MockStore{
 				ResolveSnapshotFunc: func(context.Context, int64) error { return nil },
@@ -294,7 +294,7 @@ func TestRunRm_NoTTYWithoutYesIsFlagError(t *testing.T) {
 	cities := twoCityConfig()
 	var deleted bool
 	root := &dbtest.MockRootStore{
-		EnsureCityFunc: func(context.Context, string, string) (int64, error) { return 1, nil },
+		EnsureCityFunc: func(context.Context, string, string, string) (int64, error) { return 1, nil },
 		ForCityFunc: func(int64) db.Store {
 			return &dbtest.MockStore{
 				ResolveSnapshotFunc: func(context.Context, int64) error { return nil },
@@ -332,7 +332,7 @@ func TestRunRm_NoTTYWithoutYesIsFlagError(t *testing.T) {
 func TestRunRm_NotFoundReturnsHint(t *testing.T) {
 	cities := twoCityConfig()
 	root := &dbtest.MockRootStore{
-		EnsureCityFunc: func(context.Context, string, string) (int64, error) { return 1, nil },
+		EnsureCityFunc: func(context.Context, string, string, string) (int64, error) { return 1, nil },
 		ForCityFunc: func(int64) db.Store {
 			return &dbtest.MockStore{
 				ResolveSnapshotFunc: func(context.Context, int64) error { return sql.ErrNoRows },
@@ -375,7 +375,7 @@ func TestRunPrune_KeepsNMostRecentPerCity(t *testing.T) {
 
 	var deleted []int64
 	root := &dbtest.MockRootStore{
-		EnsureCityFunc: func(_ context.Context, slug, _ string) (int64, error) {
+		EnsureCityFunc: func(_ context.Context, slug, _, _ string) (int64, error) {
 			if slug == "alpha" {
 				return 1, nil
 			}
@@ -425,7 +425,7 @@ func TestRunPrune_KeepsNMostRecentPerCity(t *testing.T) {
 func TestRunPrune_NothingToDo(t *testing.T) {
 	cities := twoCityConfig()
 	root := &dbtest.MockRootStore{
-		EnsureCityFunc: func(context.Context, string, string) (int64, error) { return 1, nil },
+		EnsureCityFunc: func(context.Context, string, string, string) (int64, error) { return 1, nil },
 		ForCityFunc: func(int64) db.Store {
 			return &dbtest.MockStore{ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
 				return []db.Snapshot{{ID: 1}}, nil
@@ -460,7 +460,7 @@ func TestRunPrune_PromptsOnTTY(t *testing.T) {
 	cities := twoCityConfig()
 	var deleted []int64
 	root := &dbtest.MockRootStore{
-		EnsureCityFunc: func(_ context.Context, slug, _ string) (int64, error) {
+		EnsureCityFunc: func(_ context.Context, slug, _, _ string) (int64, error) {
 			if slug == "alpha" {
 				return 1, nil
 			}
@@ -510,7 +510,7 @@ func TestRunPrune_CancelOnPromptNo(t *testing.T) {
 	cities := twoCityConfig()
 	var deleted bool
 	root := &dbtest.MockRootStore{
-		EnsureCityFunc: func(context.Context, string, string) (int64, error) { return 1, nil },
+		EnsureCityFunc: func(context.Context, string, string, string) (int64, error) { return 1, nil },
 		ForCityFunc: func(int64) db.Store {
 			return &dbtest.MockStore{
 				ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
@@ -552,7 +552,7 @@ func TestRunPrune_NoTTYWithoutYesIsFlagError(t *testing.T) {
 	cities := twoCityConfig()
 	var deleted bool
 	root := &dbtest.MockRootStore{
-		EnsureCityFunc: func(context.Context, string, string) (int64, error) { return 1, nil },
+		EnsureCityFunc: func(context.Context, string, string, string) (int64, error) { return 1, nil },
 		ForCityFunc: func(int64) db.Store {
 			return &dbtest.MockStore{
 				ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {

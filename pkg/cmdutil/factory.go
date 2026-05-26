@@ -117,6 +117,21 @@ func ForEachCity(ctx context.Context, f *Factory, fn func(cf *Factory, city *con
 // ResolveCities returns the single city selected by --city, or all configured
 // cities when no flag is set. Callers that need the filtered list without the
 // ForEachCity loop (e.g. export, serve) use this directly.
+// ResolveSourcePath returns cfg.SourcePath via the given resolver, or ""
+// if the resolver is nil, errors, or returns a nil config. Used as the
+// EnsureCity config_source_path argument across commands that need to
+// scope city ids to a specific pvmt.toml — see solvent-streets-zqul.
+func ResolveSourcePath(resolveConfig func() (*config.Config, error)) string {
+	if resolveConfig == nil {
+		return ""
+	}
+	cfg, err := resolveConfig()
+	if err != nil || cfg == nil {
+		return ""
+	}
+	return cfg.SourcePath
+}
+
 func ResolveCities(f *Factory) ([]config.CityConfig, error) {
 	if f.CityFlagSet != nil && f.CityFlagSet() {
 		city, err := f.CurrentCity()
@@ -145,7 +160,8 @@ func withCity(ctx context.Context, f *Factory, city *config.CityConfig) *Factory
 		if err != nil {
 			return nil, err
 		}
-		id, err := root.EnsureCity(ctx, c.Slug(), c.Name)
+		sourcePath := ResolveSourcePath(f.Config)
+		id, err := root.EnsureCity(ctx, c.Slug(), c.Name, sourcePath)
 		if err != nil {
 			return nil, err
 		}

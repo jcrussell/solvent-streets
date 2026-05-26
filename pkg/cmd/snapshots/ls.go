@@ -18,6 +18,7 @@ type LsOptions struct {
 	IO            *iostreams.IOStreams
 	RootDB        func() (db.RootStorer, error)
 	ResolveCities func() ([]config.CityConfig, error)
+	Config        func() (*config.Config, error)
 	Exporter      cmdutil.Exporter
 }
 
@@ -54,6 +55,7 @@ func NewCmdLs(f *cmdutil.Factory, runF func(context.Context, *LsOptions) error) 
 		IO:            f.IOStreams,
 		RootDB:        func() (db.RootStorer, error) { return f.RootDB() },
 		ResolveCities: func() ([]config.CityConfig, error) { return cmdutil.ResolveCities(f) },
+		Config:        func() (*config.Config, error) { return f.Config() },
 	}
 
 	cmd := &cobra.Command{
@@ -81,7 +83,7 @@ func NewCmdLs(f *cmdutil.Factory, runF func(context.Context, *LsOptions) error) 
 }
 
 func runLs(ctx context.Context, opts *LsOptions) error {
-	rows, err := collectSnapshotRows(ctx, opts.RootDB, opts.ResolveCities)
+	rows, err := collectSnapshotRows(ctx, opts.RootDB, opts.ResolveCities, opts.Config)
 	if err != nil {
 		return err
 	}
@@ -116,6 +118,7 @@ func collectSnapshotRows(
 	ctx context.Context,
 	rootDB func() (db.RootStorer, error),
 	resolveCities func() ([]config.CityConfig, error),
+	resolveConfig func() (*config.Config, error),
 ) ([]snapshotRow, error) {
 	cities, err := resolveCities()
 	if err != nil {
@@ -125,10 +128,11 @@ func collectSnapshotRows(
 	if err != nil {
 		return nil, fmt.Errorf("database: %w", err)
 	}
+	sourcePath := cmdutil.ResolveSourcePath(resolveConfig)
 
 	var rows []snapshotRow
 	for _, city := range cities {
-		id, err := root.EnsureCity(ctx, city.Slug(), city.Name)
+		id, err := root.EnsureCity(ctx, city.Slug(), city.Name, sourcePath)
 		if err != nil {
 			return nil, fmt.Errorf("ensure city %s: %w", city.Slug(), err)
 		}
