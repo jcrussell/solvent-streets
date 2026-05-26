@@ -189,15 +189,17 @@ func bboxLonLatArea(bbox [4]float64) float64 {
 
 // relationToPolygons walks one OSM relation's member ways, stitches
 // outer/inner rings, assigns each inner to its containing outer, and
-// returns the raw polygons. Callers apply their own rejection rules
-// (water uses acceptWaterPolygon; admin-boundary fetches accept any
-// closed ring). Dropped unclosed member ways are logged with the
-// relation id so operators can fix OSM data.
+// returns the raw polygons. The optional acceptOuter filter rejects
+// outers before inner-ring assignment, so an inner ring contained by a
+// rejected outer falls through to the next surviving outer instead of
+// being silently dropped. Water passes acceptWaterPolygon; admin-boundary
+// fetches pass nil (accept any closed ring). Dropped unclosed member
+// ways are logged with the relation id so operators can fix OSM data.
 //
 // The returned slice uses waterPolygon as a shared shape; the name is
 // a historical artifact of where the type was first defined. The
 // fields (outer + holes) are equally accurate for any OSM polygon.
-func relationToPolygons(ctx context.Context, e overpassElement) []waterPolygon {
+func relationToPolygons(ctx context.Context, e overpassElement, acceptOuter func([][2]float64) bool) []waterPolygon {
 	var outerWays, innerWays []stitchInput
 	for _, m := range e.Members {
 		if m.Type != elementWay || len(m.Geometry) < 2 {
@@ -229,8 +231,14 @@ func relationToPolygons(ctx context.Context, e overpassElement) []waterPolygon {
 		)
 	}
 
+	// Filter outers BEFORE inner-ring assignment so an inner contained
+	// by a rejected outer can still fall through to the next surviving
+	// outer (deep harbors, multi-island archipelagos).
 	polys := make([]waterPolygon, 0, len(outerRings))
 	for _, o := range outerRings {
+		if acceptOuter != nil && !acceptOuter(o) {
+			continue
+		}
 		polys = append(polys, waterPolygon{outer: o})
 	}
 	for _, h := range innerRings {
@@ -249,18 +257,15 @@ func relationToPolygons(ctx context.Context, e overpassElement) []waterPolygon {
 }
 
 func polygonsFromRelation(ctx context.Context, e overpassElement, bboxArea float64) []waterPolygon {
-	polys := relationToPolygons(ctx, e)
-	kept := polys[:0]
-	for _, p := range polys {
-		if ok, reason := acceptWaterPolygon(p.outer, bboxArea); !ok {
+	return relationToPolygons(ctx, e, func(outer [][2]float64) bool {
+		ok, reason := acceptWaterPolygon(outer, bboxArea)
+		if !ok {
 			logs.From(ctx).Warn("water relation: rejected outer ring",
-				"relation", e.ID, "reason", reason, "vertices", len(p.outer),
+				"relation", e.ID, "reason", reason, "vertices", len(outer),
 			)
-			continue
 		}
-		kept = append(kept, p)
-	}
-	return kept
+		return ok
+	})
 }
 
 func polysToMultiPolygonGeoJSON(polys []waterPolygon) string {

@@ -1117,3 +1117,57 @@ func ringsEquivalent(a, b [][2]float64) bool {
 	// Final sanity check against deep equality on the closed forms.
 	return reflect.DeepEqual(a, b)
 }
+
+// TestPolygonsFromRelation_InnerFallsThroughRejectedOuter pins the
+// solvent-streets-sqlo fix. Before the fix, an inner ring contained by
+// a rejected outer was silently dropped along with the outer because
+// the filter ran after inner-ring assignment. Now the outer-ring filter
+// runs inside relationToPolygons before inner assignment, so the inner
+// falls through to the next accepted outer that contains its first
+// vertex.
+//
+// Geometry: bboxArea=100. Outer A is a 9×9 ring (area 81 > 80% bbox →
+// REJECTED). Outer B is a 2×2 ring fully inside A (area 4 → ACCEPTED).
+// Inner I sits inside B (and therefore inside A too). Old behavior: I
+// is assigned to A first, A is rejected, I is lost. New behavior: A is
+// rejected at filter time, B survives, I is assigned to B's holes.
+func TestPolygonsFromRelation_InnerFallsThroughRejectedOuter(t *testing.T) {
+	bbox := [4]float64{0, 0, 10, 10}
+	bboxArea := bboxLonLatArea(bbox)
+	ring := func(pts ...[2]float64) []overpassGeometryPoint {
+		out := make([]overpassGeometryPoint, len(pts))
+		for i, p := range pts {
+			out[i] = overpassGeometryPoint{Lon: p[0], Lat: p[1]}
+		}
+		return out
+	}
+	outerA := ring(
+		[2]float64{0.5, 0.5}, [2]float64{9.5, 0.5}, [2]float64{9.5, 9.5}, [2]float64{0.5, 9.5}, [2]float64{0.5, 0.5},
+	)
+	outerB := ring(
+		[2]float64{2, 2}, [2]float64{4, 2}, [2]float64{4, 4}, [2]float64{2, 4}, [2]float64{2, 2},
+	)
+	innerI := ring(
+		[2]float64{2.5, 2.5}, [2]float64{3, 2.5}, [2]float64{3, 3}, [2]float64{2.5, 3}, [2]float64{2.5, 2.5},
+	)
+	rel := overpassElement{
+		Type: elementRelation, ID: 42,
+		Members: []overpassRelationMember{
+			{Type: elementWay, Ref: 1, Role: "outer", Geometry: outerA},
+			{Type: elementWay, Ref: 2, Role: "outer", Geometry: outerB},
+			{Type: elementWay, Ref: 3, Role: "inner", Geometry: innerI},
+		},
+	}
+
+	polys := polygonsFromRelation(context.Background(), rel, bboxArea)
+	if len(polys) != 1 {
+		t.Fatalf("polys count: got %d, want 1 (outer B accepted)", len(polys))
+	}
+	if len(polys[0].holes) != 1 {
+		t.Fatalf("holes on accepted outer: got %d, want 1 (inner I should fall through from rejected A to B)", len(polys[0].holes))
+	}
+	// Sanity: holes[0] starts at inner I's first vertex.
+	if got := polys[0].holes[0][0]; got != [2]float64{2.5, 2.5} {
+		t.Errorf("hole first vertex: got %v, want [2.5 2.5]", got)
+	}
+}

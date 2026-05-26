@@ -75,7 +75,7 @@ func fetchCityBoundaryFromRelation(ctx context.Context, client *http.Client, bas
 	// — admin boundaries can legitimately cover the full query bbox.
 	// The returned waterPolygon type is a shared shape (outer +
 	// holes); the name is a historical artifact, not water-specific.
-	polys := relationToPolygons(ctx, *rel)
+	polys := relationToPolygons(ctx, *rel, nil)
 	if len(polys) == 0 {
 		return "", fmt.Errorf("%w: id=%d", ErrBoundaryRelationNotFound, relationID)
 	}
