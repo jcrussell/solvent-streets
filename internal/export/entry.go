@@ -8,12 +8,19 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/geo"
+	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 )
 
 // ErrNoBoundary signals that a city has no boundary stored. Callers that
 // iterate over multiple cities (e.g. gensite, the multi-city exporter)
 // use errors.Is to skip the city rather than failing the whole export.
 var ErrNoBoundary = errors.New("no boundary stored")
+
+// ErrNoMatchingSnapshot signals that no snapshot for this city was written
+// by the current config — typically because `pvmt compute` was skipped or
+// run with a different config. The exporter fails loud rather than emitting
+// silent empty hex_stats / zero meta totals.
+var ErrNoMatchingSnapshot = errors.New("no snapshot matches current config hash")
 
 // CityEntry holds the config and store for a single city.
 type CityEntry struct {
@@ -61,6 +68,36 @@ func BuildCityEntries(ctx context.Context, rootDB db.RootStorer, cfg *config.Con
 		return nil, fmt.Errorf("no cities loaded: %s", errs[0])
 	}
 	return entries, nil
+}
+
+// RequireMatchingSnapshot returns ErrNoMatchingSnapshot when the city's
+// snapshots include none with the current config's hash. This is the
+// fail-loud signal that `pvmt compute` was skipped (or run with a
+// different config) for this city — exporting would otherwise produce
+// silent empty hex_stats and zero totals.
+//
+// A city with snapshots matching the current hash but with empty
+// hex_stats (e.g. tiny city, all features below the sliver threshold)
+// passes — that's a legitimate empty result, not a setup error.
+func (entry CityEntry) RequireMatchingSnapshot(ctx context.Context) error {
+	if entry.Config == nil {
+		return nil
+	}
+	configHash := entry.Config.Hash()
+	snaps, err := entry.Store.ListSnapshots(ctx)
+	if err != nil {
+		return fmt.Errorf("list snapshots for %s: %w", entry.City.Name, err)
+	}
+	for _, s := range snaps {
+		if s.ConfigHash == configHash {
+			return nil
+		}
+	}
+	return cmdutil.Hintf(fmt.Errorf("%w for %s", ErrNoMatchingSnapshot, entry.City.Name),
+		"Run `pvmt all compute` (or `pvmt compute --city %s`) to produce a snapshot "+
+			"matching the current config hash %s. If snapshots exist with other hashes "+
+			"(e.g. after editing hex_edge_m or a forecast knob), `pvmt snapshots ls --city %s` "+
+			"will show them.", entry.Slug, configHash, entry.Slug)
 }
 
 // BBoxAndCenter derives bbox and center from the stored boundary polygon.

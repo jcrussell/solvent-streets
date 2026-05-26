@@ -181,6 +181,9 @@ func (e *Exporter) runMultiCity(ctx context.Context) error {
 }
 
 func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir string) error {
+	if err := entry.RequireMatchingSnapshot(ctx); err != nil {
+		return err
+	}
 	_, lon, lat, err := entry.BBoxAndCenter(ctx)
 	if err != nil {
 		return fmt.Errorf("city bbox: %w", err)
