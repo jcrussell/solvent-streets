@@ -27,30 +27,46 @@ func FetchOSMWater(ctx context.Context, client *http.Client, bbox [4]float64) (s
 }
 
 func fetchOSMWater(ctx context.Context, client *http.Client, baseURL string, bbox [4]float64) (string, error) {
-	query := buildWaterQuery(bbox)
+	body, err := postOverpass(ctx, client, baseURL, buildWaterQuery(bbox))
+	if err != nil {
+		return "", err
+	}
+	return parseWaterResponse(ctx, body, bbox)
+}
 
+// overpassMaxResponseBytes caps Overpass responses to defend against
+// runaway queries (e.g., the global water shape if a bbox arg is
+// botched). Hit by reading via io.LimitReader; we never fail just for
+// hitting the cap, but truncation is logged so an operator can notice
+// missing trailing JSON if a real query genuinely exceeds it.
+const overpassMaxResponseBytes = 100 * 1024 * 1024
+
+// postOverpass issues the project-standard Overpass query POST and
+// returns the raw response body. Used by all Overpass call sites so
+// the HTTP shape (UA, retry, response-size cap, status check) lives
+// in one place.
+func postOverpass(ctx context.Context, client *http.Client, baseURL, query string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(AllowRetry(ctx), http.MethodPost, baseURL, strings.NewReader(url.Values{"data": {query}}.Encode()))
 	if err != nil {
-		return "", fmt.Errorf("create overpass water request: %w", err)
+		return nil, fmt.Errorf("create overpass request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("User-Agent", UserAgent())
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("overpass water request: %w", err)
+		return nil, fmt.Errorf("overpass request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 100*1024*1024))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, overpassMaxResponseBytes))
 	if err != nil {
-		return "", fmt.Errorf("read overpass water response: %w", err)
+		return nil, fmt.Errorf("read overpass response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("overpass water returned %d: %s", resp.StatusCode, truncate(string(body), 200))
+		return nil, fmt.Errorf("overpass returned %d: %s", resp.StatusCode, truncate(string(body), 200))
 	}
-
-	return parseWaterResponse(ctx, body, bbox)
+	return body, nil
 }
 
 func buildWaterQuery(bbox [4]float64) string {
@@ -171,7 +187,17 @@ func bboxLonLatArea(bbox [4]float64) float64 {
 	return (north - south) * (east - west)
 }
 
-func polygonsFromRelation(ctx context.Context, e overpassElement, bboxArea float64) []waterPolygon {
+// relationToPolygons walks one OSM relation's member ways, stitches
+// outer/inner rings, assigns each inner to its containing outer, and
+// returns the raw polygons. Callers apply their own rejection rules
+// (water uses acceptWaterPolygon; admin-boundary fetches accept any
+// closed ring). Dropped unclosed member ways are logged with the
+// relation id so operators can fix OSM data.
+//
+// The returned slice uses waterPolygon as a shared shape; the name is
+// a historical artifact of where the type was first defined. The
+// fields (outer + holes) are equally accurate for any OSM polygon.
+func relationToPolygons(ctx context.Context, e overpassElement) []waterPolygon {
 	var outerWays, innerWays []stitchInput
 	for _, m := range e.Members {
 		if m.Type != elementWay || len(m.Geometry) < 2 {
@@ -196,12 +222,7 @@ func polygonsFromRelation(ctx context.Context, e overpassElement, bboxArea float
 	outerRings, droppedOuter := stitchRings(outerWays)
 	innerRings, droppedInner := stitchRings(innerWays)
 	if len(droppedOuter) > 0 || len(droppedInner) > 0 {
-		// Real OSM relations fragment outer/inner boundaries across many
-		// member ways; when the chain has a gap, stitchRings cannot close
-		// the ring and discards the partial chain. Surface the missing
-		// member ids so a human can investigate which OSM data needs
-		// fixing — silent drops mask coastline data loss.
-		logs.From(ctx).Warn("water relation: dropped unclosed member ways",
+		logs.From(ctx).Warn("relation: dropped unclosed member ways",
 			"relation", e.ID,
 			"dropped_outer", droppedOuter,
 			"dropped_inner", droppedInner,
@@ -210,19 +231,13 @@ func polygonsFromRelation(ctx context.Context, e overpassElement, bboxArea float
 
 	polys := make([]waterPolygon, 0, len(outerRings))
 	for _, o := range outerRings {
-		if ok, reason := acceptWaterPolygon(o, bboxArea); !ok {
-			logs.From(ctx).Warn("water relation: rejected outer ring",
-				"relation", e.ID, "reason", reason, "vertices", len(o),
-			)
-			continue
-		}
 		polys = append(polys, waterPolygon{outer: o})
 	}
 	for _, h := range innerRings {
 		// Assign each inner ring to the first outer ring that contains
-		// its first vertex. For our use (subtracting the union from a
-		// city boundary), any containing outer gives the right union, so
-		// the first-match is sufficient.
+		// its first vertex. For the consumers' use (subtracting/clipping),
+		// any containing outer gives the right union, so first-match is
+		// sufficient.
 		for i, p := range polys {
 			if pointInRing(h[0], p.outer) {
 				polys[i].holes = append(polys[i].holes, h)
@@ -233,97 +248,19 @@ func polygonsFromRelation(ctx context.Context, e overpassElement, bboxArea float
 	return polys
 }
 
-// stitchInput pairs an OSM way's ref id with its coordinate sequence.
-// stitchRings consumes these so it can report the ids of member ways
-// whose partial chains had to be dropped.
-type stitchInput struct {
-	id     int64
-	coords [][2]float64
-}
-
-// stitchRings chains open ways into closed rings by matching endpoints.
-// Ways that cannot be closed are dropped and their ids returned in
-// dropped. Each input way is consumed at most once. Time complexity is
-// O(n²) in the number of ways, which is fine for the dozens-of-segments-
-// per-relation scale of OSM water.
-func stitchRings(ways []stitchInput) (rings [][][2]float64, dropped []int64) {
-	used := make([]bool, len(ways))
-
-	for i := range ways {
-		if used[i] || len(ways[i].coords) < 2 {
+func polygonsFromRelation(ctx context.Context, e overpassElement, bboxArea float64) []waterPolygon {
+	polys := relationToPolygons(ctx, e)
+	kept := polys[:0]
+	for _, p := range polys {
+		if ok, reason := acceptWaterPolygon(p.outer, bboxArea); !ok {
+			logs.From(ctx).Warn("water relation: rejected outer ring",
+				"relation", e.ID, "reason", reason, "vertices", len(p.outer),
+			)
 			continue
 		}
-		used[i] = true
-		ring := append([][2]float64{}, ways[i].coords...)
-		consumed := []int{i}
-
-		for ring[0] != ring[len(ring)-1] {
-			extended, next, nextIdx := extendRing(ring, ways, used)
-			if !extended {
-				break
-			}
-			ring = next
-			consumed = append(consumed, nextIdx)
-		}
-
-		if isClosedRing(ring) {
-			rings = append(rings, ring)
-		} else {
-			for _, c := range consumed {
-				dropped = append(dropped, ways[c].id)
-			}
-		}
+		kept = append(kept, p)
 	}
-	return rings, dropped
-}
-
-// extendRing finds an unused way whose endpoint matches ring's tail and
-// appends it to ring (reversing the way if needed). The matched way is
-// marked used. Returns (false, ring, -1) when no way matches.
-func extendRing(ring [][2]float64, ways []stitchInput, used []bool) (bool, [][2]float64, int) {
-	tail := ring[len(ring)-1]
-	for j := range ways {
-		if used[j] || len(ways[j].coords) < 2 {
-			continue
-		}
-		w := ways[j].coords
-		switch {
-		case tail == w[0]:
-			ring = append(ring, w[1:]...)
-		case tail == w[len(w)-1]:
-			for k := len(w) - 2; k >= 0; k-- {
-				ring = append(ring, w[k])
-			}
-		default:
-			continue
-		}
-		used[j] = true
-		return true, ring, j
-	}
-	return false, ring, -1
-}
-
-func isClosedRing(coords [][2]float64) bool {
-	return len(coords) >= 4 && coords[0] == coords[len(coords)-1]
-}
-
-// pointInRing returns true if p is strictly inside ring using ray casting.
-// The ring is in lon/lat order; that's fine because point-in-polygon is
-// topological — it does not require an equal-area projection.
-func pointInRing(p [2]float64, ring [][2]float64) bool {
-	if len(ring) < 4 {
-		return false
-	}
-	x, y := p[0], p[1]
-	inside := false
-	for i, j := 0, len(ring)-1; i < len(ring); j, i = i, i+1 {
-		xi, yi := ring[i][0], ring[i][1]
-		xj, yj := ring[j][0], ring[j][1]
-		if (yi > y) != (yj > y) && x < (xj-xi)*(y-yi)/(yj-yi)+xi {
-			inside = !inside
-		}
-	}
-	return inside
+	return kept
 }
 
 func polysToMultiPolygonGeoJSON(polys []waterPolygon) string {
@@ -590,31 +527,6 @@ func segLen(a, b [2]float64) float64 {
 	dx := b[0] - a[0]
 	dy := b[1] - a[1]
 	return math.Sqrt(dx*dx + dy*dy)
-}
-
-// ringSignedArea returns twice the signed area of ring in lon/lat
-// coordinates (x=lon east-positive, y=lat north-positive). Only the
-// sign matters for orientation, so the divide-by-two is skipped.
-// Positive = CCW, negative = CW. A degenerate ring (fewer than 4
-// vertices) returns 0.
-func ringSignedArea(ring [][2]float64) float64 {
-	if len(ring) < 4 {
-		return 0
-	}
-	var sum float64
-	for i := range len(ring) - 1 {
-		sum += ring[i][0]*ring[i+1][1] - ring[i+1][0]*ring[i][1]
-	}
-	return sum
-}
-
-// ringIsCW reports whether ring is clockwise in lon/lat with y=lat
-// north-positive. OSM coastline rule places water on the right of
-// forward walk, so a closed coastline ring is CW when water lies
-// inside (a lake — the case our pipeline treats as a water polygon)
-// and CCW when water lies outside (an island, with land inside).
-func ringIsCW(ring [][2]float64) bool {
-	return ringSignedArea(ring) < 0
 }
 
 // clipChainToBBox clips a polyline to bbox, returning one or more

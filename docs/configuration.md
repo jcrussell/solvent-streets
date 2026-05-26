@@ -19,7 +19,9 @@ flowchart TD
     CLI -->|overrides| Env -->|overrides| City -->|overrides| Top -->|overrides| Default
 ```
 
-Fields that support per-city override: `hex_edge_m`, all `[forecast]` fields (`decay_rate`, `growth_rate`, `years`, `cost_tiers`). Per-city forecast merges field-by-field — set only the fields you want to override.
+Fields that support per-city override: `hex_edge_m`, `boundary_relation_id`, all `[forecast]` fields (`decay_rate`, `growth_rate`, `years`, `cost_tiers`). Per-city forecast merges field-by-field — set only the fields you want to override.
+
+`boundary_relation_id` (default unset) names an OSM admin_level=8 relation to fetch from Overpass instead of the usual Nominatim search by name. Set it when ingest fails with `expected Polygon or MultiPolygon, got "Point"` — that means Nominatim has the city as a node rather than a relation, and the boundary is reachable only via Overpass. Find the relation ID with [Overpass Turbo](https://overpass-turbo.eu/): `relation["name"="<city>"]["boundary"="administrative"]["admin_level"="8"];out;`. A relation whose bbox spans more than 5° is rejected as a likely county/state typo.
 
 Built-in defaults: hex edge 100m, forecast horizon 20 years, imperial display units.
 

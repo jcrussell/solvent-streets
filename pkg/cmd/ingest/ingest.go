@@ -102,7 +102,7 @@ func runIngest(ctx context.Context, opts *Options) error {
 		return printDryRunPlan(ctx, opts, store, city)
 	}
 
-	boundaryGJSON, err := resolveBoundary(ctx, opts, store, client, city)
+	boundaryGJSON, err := resolveBoundary(ctx, opts, store, client, city, ingestpkg.FetchCityBoundary, ingestpkg.FetchCityBoundaryFromRelation)
 	if err != nil {
 		return err
 	}
@@ -173,19 +173,38 @@ func fmtArcgis(url string) string {
 	return ", arcgis (" + url + ")"
 }
 
-// resolveBoundary returns the cached city boundary or fetches it from
-// Nominatim. GetBoundary returns ("", nil) on sql.ErrNoRows — any
-// returned error is a real DB problem and must surface.
+// nominatimFetcher abstracts the by-name Nominatim search so tests
+// can inject canned responses without spinning up an httptest server
+// inside the consumer test file. Narrow per byob-interfaces.1
+// (define in consumer, not in internal/ingest).
+type nominatimFetcher func(ctx context.Context, client *http.Client, cityName string) (string, error)
+
+// relationFetcher abstracts the Overpass-relation-by-id fetch with
+// the same shape and rationale as nominatimFetcher.
+type relationFetcher func(ctx context.Context, client *http.Client, relationID int64) (string, error)
+
+// resolveBoundary returns the cached city boundary or fetches a fresh
+// one. GetBoundary returns ("", nil) on sql.ErrNoRows — any returned
+// error is a real DB problem and must surface.
 //
-// Fresh fetches also subtract OSM `natural=water` polygons from the
-// Nominatim polygon so cross-city % paved is apples-to-apples (cities
-// like Boston otherwise include harbor water in the denominator).
-// Soft water-strip failures (network outage, Overpass timeout,
-// geometry library error) are warned and fall back to the unstripped
-// boundary. Over-subtraction (the post-strip area-ratio guard) is a
-// HARD error — falling back silently would hide regressions in the
-// water-stitching pipeline.
-func resolveBoundary(ctx context.Context, opts *Options, store db.Store, client *http.Client, city *config.CityConfig) (string, error) {
+// Fetch source selection: if city.BoundaryRelationID is set, fetch
+// the admin boundary by relation ID via Overpass (the escape hatch
+// for cities like Albuquerque whose boundary lives only in OSM, not
+// in Nominatim's index). Otherwise, do the usual Nominatim search by
+// city name.
+//
+// Fresh fetches subtract OSM `natural=water` polygons from the
+// boundary so cross-city % paved is apples-to-apples. Soft water-strip
+// failures are warned + fallback; over-subtraction is a HARD error.
+func resolveBoundary(
+	ctx context.Context,
+	opts *Options,
+	store db.Store,
+	client *http.Client,
+	city *config.CityConfig,
+	fetchByName nominatimFetcher,
+	fetchByRelation relationFetcher,
+) (string, error) {
 	boundaryGJSON, err := store.GetBoundary(ctx)
 	if err != nil {
 		return "", fmt.Errorf("reading cached boundary: %w", err)
@@ -194,14 +213,28 @@ func resolveBoundary(ctx context.Context, opts *Options, store db.Store, client 
 		fmt.Fprintf(opts.IO.ErrOut, "Using cached boundary for %s (use --force to refresh).\n", city.Name)
 		return boundaryGJSON, nil
 	}
-	fmt.Fprintf(opts.IO.ErrOut, "Fetching boundary for %s from Nominatim...\n", city.Name)
-	boundaryGJSON, err = ingestpkg.FetchCityBoundary(ctx, client, city.Name)
+
+	var source string
+	switch {
+	case city.BoundaryRelationID > 0:
+		fmt.Fprintf(opts.IO.ErrOut, "Fetching boundary for %s from OSM relation %d via Overpass...\n",
+			city.Name, city.BoundaryRelationID)
+		boundaryGJSON, err = fetchByRelation(ctx, client, city.BoundaryRelationID)
+		source = "overpass-relation"
+	default:
+		fmt.Fprintf(opts.IO.ErrOut, "Fetching boundary for %s from Nominatim...\n", city.Name)
+		boundaryGJSON, err = fetchByName(ctx, client, city.Name)
+		source = "nominatim"
+	}
 	if err != nil {
-		return "", fmt.Errorf("fetch boundary: %w", err)
+		return "", cmdutil.Hintf(fmt.Errorf("fetch boundary: %w", err),
+			"If Nominatim returned a non-Polygon result, set [[cities]].boundary_relation_id "+
+				"to the OSM admin_level=8 relation for this city. Find it with: "+
+				"https://overpass-turbo.eu/ → "+
+				`relation["name"="<city>"]["boundary"="administrative"]["admin_level"="8"];out;`)
 	}
 
-	source := "nominatim"
-	stripped, strippedSource, warn, stripErr := stripWaterFromBoundary(ctx, client, ingestpkg.FetchOSMWater, boundaryGJSON)
+	stripped, warn, stripErr := stripWaterFromBoundary(ctx, client, ingestpkg.FetchOSMWater, boundaryGJSON)
 	if stripErr != nil {
 		return "", cmdutil.Hintf(fmt.Errorf("water strip for %s: %w", city.Name, stripErr),
 			"This usually means the OSM water-stitching pipeline produced a polygon "+
@@ -215,7 +248,7 @@ func resolveBoundary(ctx context.Context, opts *Options, store db.Store, client 
 	}
 	if stripped != "" {
 		boundaryGJSON = stripped
-		source = strippedSource
+		source += "+osm-water"
 	}
 
 	if err := store.SaveBoundary(ctx, boundaryGJSON, source); err != nil {
@@ -261,42 +294,47 @@ type waterFetcher func(ctx context.Context, client *http.Client, bbox [4]float64
 // stripWaterFromBoundary tries to subtract OSM water from boundaryGJSON.
 //
 // Returns:
-//   - (gjson, source, "", nil)  - success; use stripped boundary
-//   - ("", "", "", nil)         - no water in bbox; use unstripped boundary
-//   - ("", "", warn, nil)       - soft failure (network/geometry); log warn and fall back
-//   - ("", "", "", err)         - HARD failure (over-subtraction guard); abort
+//   - (gjson, "", nil)  - success; use stripped boundary, caller appends
+//     "+osm-water" to its existing source label
+//   - ("", "", nil)     - no water in bbox; use unstripped boundary
+//   - ("", warn, nil)   - soft failure (network/geometry); log warn and fall back
+//   - ("", "", err)     - HARD failure (over-subtraction guard); abort
 //
 // The err return wraps ErrWaterStripOverSubtracted with diagnostic
 // detail (areas + ratio); callers should attach the city name via
 // ErrHint so the operator can identify which city is affected.
+//
+// The source label is composed by the caller (resolveBoundary) so the
+// upstream fetch (nominatim vs overpass-relation) is preserved in the
+// final label — e.g., "nominatim+osm-water" or "overpass-relation+osm-water".
 func stripWaterFromBoundary(
 	ctx context.Context,
 	client *http.Client,
 	fetchWater waterFetcher,
 	boundaryGJSON string,
-) (gjson, source, warn string, err error) {
+) (gjson, warn string, err error) {
 	bbox, err := geo.BBoxFromGeoJSON(boundaryGJSON)
 	if err != nil {
-		return "", "", fmt.Sprintf("water strip skipped: bbox: %v", err), nil
+		return "", fmt.Sprintf("water strip skipped: bbox: %v", err), nil
 	}
 	waterGJSON, err := fetchWater(ctx, client, bbox)
 	if err != nil {
-		return "", "", fmt.Sprintf("water strip skipped: overpass: %v", err), nil
+		return "", fmt.Sprintf("water strip skipped: overpass: %v", err), nil
 	}
 	if waterGJSON == "" {
-		return "", "", "", nil
+		return "", "", nil
 	}
 	stripped, err := geo.SubtractGeoJSON(boundaryGJSON, waterGJSON)
 	if err != nil {
-		return "", "", fmt.Sprintf("water strip skipped: subtract: %v", err), nil
+		return "", fmt.Sprintf("water strip skipped: subtract: %v", err), nil
 	}
 	origArea, errOrig := geo.BoundaryAreaSqM(boundaryGJSON)
 	stripArea, errStrip := geo.BoundaryAreaSqM(stripped)
 	if errOrig == nil && errStrip == nil && !acceptStripRatio(origArea, stripArea, waterStripMinAreaRatio) {
-		return "", "", "", fmt.Errorf("%w: stripped %.0f sq m is %.1f%% of original %.0f sq m",
+		return "", "", fmt.Errorf("%w: stripped %.0f sq m is %.1f%% of original %.0f sq m",
 			ErrWaterStripOverSubtracted, stripArea, 100*stripArea/origArea, origArea)
 	}
-	return stripped, "nominatim+osm-water", "", nil
+	return stripped, "", nil
 }
 
 // acceptStripRatio returns true iff the stripped boundary is at least

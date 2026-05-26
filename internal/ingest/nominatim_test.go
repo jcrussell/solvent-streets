@@ -80,17 +80,69 @@ func TestFetchCityBoundary_Non200(t *testing.T) {
 	}
 }
 
-func TestFetchCityBoundary_UnsupportedGeometryType(t *testing.T) {
-	body := `[{"addresstype":"city","geojson":{"type":"Point","coordinates":[-121.9,37.6]}}]`
+// TestFetchCityBoundary_AllPointResults_ErrorsWithHint pins the
+// Albuquerque-class failure mode: when every Nominatim result has a
+// non-polygon geometry (here a place=city node returns a Point), the
+// fetch returns a clear error suggesting the boundary_relation_id
+// escape hatch. Regression caught: the legacy code picked results[0]
+// regardless of geometry, then errored confusingly with "got Point"
+// after silently accepting the wrong-shaped result.
+func TestFetchCityBoundary_AllPointResults_ErrorsWithHint(t *testing.T) {
+	body := `[{"addresstype":"city","geojson":{"type":"Point","coordinates":[-106.6,35.1]}}]`
 	srv := nominatimTestServer(t, body)
 	t.Cleanup(srv.Close)
 
-	_, err := fetchCityBoundary(context.Background(), srv.Client(), srv.URL, "Test")
+	_, err := fetchCityBoundary(context.Background(), srv.Client(), srv.URL, "Albuquerque, NM")
 	if err == nil {
-		t.Fatal("expected error for unsupported geometry type")
+		t.Fatal("expected error when no polygon-typed result exists")
 	}
-	if !strings.Contains(err.Error(), "Point") {
-		t.Errorf("expected 'Point' in error, got: %v", err)
+	if !strings.Contains(err.Error(), "no Polygon/MultiPolygon") {
+		t.Errorf("expected 'no Polygon/MultiPolygon' in error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "boundary_relation_id") {
+		t.Errorf("expected hint to mention boundary_relation_id, got: %v", err)
+	}
+}
+
+// TestFetchCityBoundary_SkipsCityTypedPointForLaterPolygon pins the
+// selection contract: a city-typed Point result is skipped in favor
+// of a later Polygon-typed result (city or otherwise). The selection
+// loop now requires both addresstype AND polygon geometry.
+func TestFetchCityBoundary_SkipsCityTypedPointForLaterPolygon(t *testing.T) {
+	cityPoint := `{"type":"Point","coordinates":[-106.6,35.1]}`
+	townPoly := `{"type":"Polygon","coordinates":[[[-106.7,35.0],[-106.5,35.0],[-106.5,35.2],[-106.7,35.2],[-106.7,35.0]]]}`
+	body := `[{"addresstype":"city","geojson":` + cityPoint + `},{"addresstype":"town","geojson":` + townPoly + `}]`
+
+	srv := nominatimTestServer(t, body)
+	t.Cleanup(srv.Close)
+
+	result, err := fetchCityBoundary(context.Background(), srv.Client(), srv.URL, "Test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != townPoly {
+		t.Errorf("expected the town-typed polygon, got: %s", result)
+	}
+}
+
+// TestFetchCityBoundary_FallsBackToNonCityTypedPolygon pins the
+// fallback rule: when no addresstype ∈ {city,town,village,municipality}
+// has a polygon, any polygon-typed result wins over erroring out.
+// Keeps existing well-formed lookups working even if Nominatim's
+// addresstype tagging shifts.
+func TestFetchCityBoundary_FallsBackToNonCityTypedPolygon(t *testing.T) {
+	adminPoly := `{"type":"Polygon","coordinates":[[[-106.7,35.0],[-106.5,35.0],[-106.5,35.2],[-106.7,35.2],[-106.7,35.0]]]}`
+	body := `[{"addresstype":"administrative","geojson":` + adminPoly + `}]`
+
+	srv := nominatimTestServer(t, body)
+	t.Cleanup(srv.Close)
+
+	result, err := fetchCityBoundary(context.Background(), srv.Client(), srv.URL, "Test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != adminPoly {
+		t.Errorf("expected admin polygon as fallback, got: %s", result)
 	}
 }
 

@@ -89,6 +89,31 @@ func TestConfig_MinHexAreaSqM_FallsBackToDefault(t *testing.T) {
 	}
 }
 
+func TestConfig_Validate_BoundaryRelationID_RejectsNegative(t *testing.T) {
+	cfg := Config{
+		Cities: []CityConfig{{Name: "Oakland", BoundaryRelationID: -1}},
+	}
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for negative boundary_relation_id, got nil")
+	}
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Errorf("error %v does not chain to ErrInvalidConfig", err)
+	}
+}
+
+func TestConfig_Validate_BoundaryRelationID_AcceptsZeroAndPositive(t *testing.T) {
+	cases := []int64{0, 1, 171262, 4108817}
+	for _, id := range cases {
+		cfg := Config{
+			Cities: []CityConfig{{Name: "Oakland", BoundaryRelationID: id}},
+		}
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Validate() rejected id=%d: %v", id, err)
+		}
+	}
+}
+
 func TestConfig_Validate_MinHexAreaSqM_RejectsNegative(t *testing.T) {
 	cfg := Config{
 		Display: DisplayConfig{MinHexAreaSqM: -1},

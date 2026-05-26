@@ -228,6 +228,10 @@ overpass = true
 [[cities]]
 name = "Albuquerque, NM"
 overpass = true
+# Nominatim returns a place=city node (Point geometry) for ABQ; the
+# admin_level=8 boundary lives only as an OSM relation. See
+# solvent-streets-95i8.
+boundary_relation_id = 171262
 # 556,588 residents
 
 # 33.

@@ -69,25 +69,38 @@ func fetchCityBoundary(ctx context.Context, client *http.Client, baseURL string,
 		return "", fmt.Errorf("nominatim returned no results for %q", cityName)
 	}
 
-	// Pick the first result that is a city/town, falling back to the first result
-	best := 0
-	for i, r := range results {
-		if cityAddressTypes[r.AddressType] {
-			best = i
-			break
+	// Pick the first result that is BOTH a city/town addresstype AND has
+	// Polygon/MultiPolygon geometry — Nominatim sometimes returns a
+	// place=city node (Point geometry) tagged with addresstype=city for
+	// cities like Albuquerque, NM, where the admin boundary lives only
+	// in OSM as a relation. Fall back to "first polygon of any
+	// addresstype" if no city-typed polygon exists, else error cleanly.
+	for _, r := range results {
+		if !cityAddressTypes[r.AddressType] {
+			continue
+		}
+		if isPolygonGeometry(r.GeoJSON) {
+			return string(r.GeoJSON), nil
 		}
 	}
+	for _, r := range results {
+		if isPolygonGeometry(r.GeoJSON) {
+			return string(r.GeoJSON), nil
+		}
+	}
+	return "", fmt.Errorf("nominatim returned no Polygon/MultiPolygon result for %q "+
+		"(set [[cities]].boundary_relation_id to fetch the admin boundary from Overpass)", cityName)
+}
 
-	// Validate geometry type
-	var geomType struct {
+// isPolygonGeometry reports whether the raw GeoJSON geometry is a Polygon
+// or MultiPolygon. Returns false on parse error so callers can skip
+// malformed results without failing the whole fetch.
+func isPolygonGeometry(raw json.RawMessage) bool {
+	var t struct {
 		Type string `json:"type"`
 	}
-	if err := json.Unmarshal(results[best].GeoJSON, &geomType); err != nil {
-		return "", fmt.Errorf("parse geometry type: %w", err)
+	if err := json.Unmarshal(raw, &t); err != nil {
+		return false
 	}
-	if geomType.Type != geomPolygon && geomType.Type != geomMultiPolygon {
-		return "", fmt.Errorf("expected Polygon or MultiPolygon, got %q", geomType.Type)
-	}
-
-	return string(results[best].GeoJSON), nil
+	return t.Type == geomPolygon || t.Type == geomMultiPolygon
 }

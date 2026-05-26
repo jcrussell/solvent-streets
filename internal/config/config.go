@@ -141,6 +141,15 @@ type CityConfig struct {
 	ArcGISURL string          `toml:"arcgis_url"`
 	HexEdgeM  float64         `toml:"hex_edge_m"`
 	Forecast  *ForecastConfig `toml:"forecast,omitempty"`
+	// BoundaryRelationID is the OSM relation ID for the city's admin
+	// boundary (admin_level typically 8). Set this for cities whose
+	// boundary is reachable only via Overpass — e.g. Albuquerque, NM
+	// (relation 171262), where OSM models the city as a place=city
+	// node and Nominatim's index doesn't surface the admin boundary.
+	// When unset (the common case), the ingest path uses Nominatim
+	// search by Name. See solvent-streets-95i8 for the diagnosis
+	// pattern.
+	BoundaryRelationID int64 `toml:"boundary_relation_id"`
 }
 
 type GridConfig struct {
@@ -352,6 +361,10 @@ func (c *Config) Validate() error {
 		if city.HexEdgeM < 0 {
 			return errors.Join(ErrInvalidConfig,
 				fmt.Errorf("cities[%d] (%s): hex_edge_m %g must be non-negative", i, city.Name, city.HexEdgeM))
+		}
+		if city.BoundaryRelationID < 0 {
+			return errors.Join(ErrInvalidConfig,
+				fmt.Errorf("cities[%d] (%s): boundary_relation_id %d must be non-negative", i, city.Name, city.BoundaryRelationID))
 		}
 		if city.Forecast != nil {
 			if err := city.Forecast.Validate(); err != nil {

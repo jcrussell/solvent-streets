@@ -266,6 +266,184 @@ func fakeWaterFetcher(body string) waterFetcher {
 	}
 }
 
+// recordingNominatim returns a nominatimFetcher that returns the given
+// body and records the city name it was asked for. Lets tests assert
+// "the Nominatim branch was used with name X" without httptest.
+func recordingNominatim(body string, gotName *string) nominatimFetcher {
+	return func(_ context.Context, _ *http.Client, name string) (string, error) {
+		if gotName != nil {
+			*gotName = name
+		}
+		return body, nil
+	}
+}
+
+// recordingRelation returns a relationFetcher that returns the given
+// body and records the relation id it was asked for. Symmetric with
+// recordingNominatim.
+func recordingRelation(body string, gotID *int64) relationFetcher {
+	return func(_ context.Context, _ *http.Client, id int64) (string, error) {
+		if gotID != nil {
+			*gotID = id
+		}
+		return body, nil
+	}
+}
+
+// resolveBoundaryHarness wires a minimal Options for resolveBoundary
+// tests. The store and city are passed by callers directly so this
+// just builds the iostreams + opts shell.
+func resolveBoundaryHarness(t *testing.T) *Options {
+	t.Helper()
+	ios, _, _, _ := iostreams.Test()
+	return &Options{IO: ios}
+}
+
+// TestResolveBoundary_NominatimWhenNoRelationID pins the default
+// branch: a city without BoundaryRelationID set goes through the
+// nominatim fetcher and the boundary saved to the store matches what
+// the fetcher returned (with the "nominatim+osm-water" source tag if
+// a water polygon is present, "nominatim" otherwise).
+func TestResolveBoundary_NominatimWhenNoRelationID(t *testing.T) {
+	boundary := `{"type":"Polygon","coordinates":[[[-122.5,37.5],[-122.4,37.5],[-122.4,37.6],[-122.5,37.6],[-122.5,37.5]]]}`
+
+	savedSource := ""
+	store := &dbtest.MockStore{
+		GetBoundaryFunc:  func(_ context.Context) (string, error) { return "", nil },
+		SaveBoundaryFunc: func(_ context.Context, _, source string) error { savedSource = source; return nil },
+	}
+	city := &config.CityConfig{Name: "Oakland, CA"} // BoundaryRelationID==0
+
+	var nomName string
+	var relID int64
+	opts := resolveBoundaryHarness(t)
+
+	got, err := resolveBoundary(
+		context.Background(), opts, store, &http.Client{}, city,
+		recordingNominatim(boundary, &nomName),
+		recordingRelation("", &relID),
+	)
+	if err != nil {
+		t.Fatalf("resolveBoundary returned err: %v", err)
+	}
+	if got == "" {
+		t.Error("expected non-empty boundary")
+	}
+	if nomName != "Oakland, CA" {
+		t.Errorf("nominatim fetcher called with %q, want %q", nomName, "Oakland, CA")
+	}
+	if relID != 0 {
+		t.Errorf("relation fetcher called with id=%d; want 0 (not called)", relID)
+	}
+	if savedSource == "" {
+		t.Error("expected source to be saved")
+	}
+}
+
+// TestResolveBoundary_RelationWhenIDSet pins the override branch:
+// when BoundaryRelationID > 0, the relation fetcher is invoked with
+// that ID and the nominatim fetcher is NOT called.
+func TestResolveBoundary_RelationWhenIDSet(t *testing.T) {
+	boundary := `{"type":"MultiPolygon","coordinates":[[[[-106.7,35.0],[-106.5,35.0],[-106.5,35.2],[-106.7,35.2],[-106.7,35.0]]]]}`
+
+	store := &dbtest.MockStore{
+		GetBoundaryFunc:  func(_ context.Context) (string, error) { return "", nil },
+		SaveBoundaryFunc: func(_ context.Context, _, _ string) error { return nil },
+	}
+	city := &config.CityConfig{Name: "Albuquerque, NM", BoundaryRelationID: 171262}
+
+	var nomName string
+	var relID int64
+	opts := resolveBoundaryHarness(t)
+
+	got, err := resolveBoundary(
+		context.Background(), opts, store, &http.Client{}, city,
+		recordingNominatim("", &nomName),
+		recordingRelation(boundary, &relID),
+	)
+	if err != nil {
+		t.Fatalf("resolveBoundary returned err: %v", err)
+	}
+	if got == "" {
+		t.Error("expected non-empty boundary")
+	}
+	if relID != 171262 {
+		t.Errorf("relation fetcher called with id=%d, want 171262", relID)
+	}
+	if nomName != "" {
+		t.Errorf("nominatim fetcher called with %q; want empty (not called)", nomName)
+	}
+}
+
+// TestResolveBoundary_CachedShortCircuitsBothFetchers pins that the
+// DB-cached boundary path runs BEFORE either fetcher is consulted —
+// the BoundaryRelationID branch addition must not have moved the
+// cache check.
+func TestResolveBoundary_CachedShortCircuitsBothFetchers(t *testing.T) {
+	cached := `{"type":"Polygon","coordinates":[[[-122.5,37.5],[-122.4,37.5],[-122.4,37.6],[-122.5,37.6],[-122.5,37.5]]]}`
+
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return cached, nil },
+		SaveBoundaryFunc: func(_ context.Context, _, _ string) error {
+			t.Error("SaveBoundary called on cache-hit path")
+			return nil
+		},
+	}
+	city := &config.CityConfig{Name: "Oakland, CA", BoundaryRelationID: 171262}
+
+	var nomName string
+	var relID int64
+	opts := resolveBoundaryHarness(t)
+
+	got, err := resolveBoundary(
+		context.Background(), opts, store, &http.Client{}, city,
+		recordingNominatim("nope", &nomName),
+		recordingRelation("nope", &relID),
+	)
+	if err != nil {
+		t.Fatalf("resolveBoundary returned err: %v", err)
+	}
+	if got != cached {
+		t.Errorf("expected cached boundary returned verbatim, got: %s", got)
+	}
+	if nomName != "" || relID != 0 {
+		t.Errorf("cache hit should bypass both fetchers; got nomName=%q relID=%d", nomName, relID)
+	}
+}
+
+// TestResolveBoundary_FetcherErrorWrappedWithHint pins that a failure
+// from either fetcher returns an error with the overpass-turbo hint
+// attached, so operators can find the relation ID for the override.
+func TestResolveBoundary_FetcherErrorWrappedWithHint(t *testing.T) {
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return "", nil },
+	}
+	city := &config.CityConfig{Name: "Oakland, CA"}
+
+	opts := resolveBoundaryHarness(t)
+
+	failingNominatim := nominatimFetcher(func(_ context.Context, _ *http.Client, _ string) (string, error) {
+		return "", errors.New("synthetic nominatim failure")
+	})
+	failingRelation := relationFetcher(func(_ context.Context, _ *http.Client, _ int64) (string, error) {
+		return "", errors.New("synthetic relation failure")
+	})
+
+	_, err := resolveBoundary(
+		context.Background(), opts, store, &http.Client{}, city,
+		failingNominatim, failingRelation,
+	)
+	if err == nil {
+		t.Fatal("expected error from failing fetcher")
+	}
+	// cmdutil.Hintf wraps the error with the remediation hint; check
+	// that the hint payload mentions the new config knob so operators
+	// can find it.
+	if !strings.Contains(err.Error(), "synthetic nominatim failure") {
+		t.Errorf("expected wrapped underlying error, got: %v", err)
+	}
+}
+
 // TestStripWaterFromBoundary_RejectsOverSubtractedStrip pins the
 // over-subtraction guard at the function level: when the OSM water
 // polygon covers most of the boundary, stripWaterFromBoundary returns
@@ -281,7 +459,7 @@ func TestStripWaterFromBoundary_RejectsOverSubtractedStrip(t *testing.T) {
 	// so the remaining strip is too small to pass the backstop guard.
 	water := `{"type":"MultiPolygon","coordinates":[[[[-71.05999,42.36001],[-71.05001,42.36001],[-71.05001,42.36999],[-71.05999,42.36999],[-71.05999,42.36001]]]]}`
 
-	gjson, source, warn, err := stripWaterFromBoundary(
+	gjson, warn, err := stripWaterFromBoundary(
 		context.Background(), &http.Client{}, fakeWaterFetcher(water), boundary,
 	)
 	if !errors.Is(err, ErrWaterStripOverSubtracted) {
@@ -290,9 +468,9 @@ func TestStripWaterFromBoundary_RejectsOverSubtractedStrip(t *testing.T) {
 	if !strings.Contains(err.Error(), "% of original") {
 		t.Errorf("err message %q should describe the area ratio", err.Error())
 	}
-	if gjson != "" || source != "" || warn != "" {
-		t.Errorf("on hard failure all soft returns should be empty; got gjson=%d source=%q warn=%q",
-			len(gjson), source, warn)
+	if gjson != "" || warn != "" {
+		t.Errorf("on hard failure all soft returns should be empty; got gjson=%d warn=%q",
+			len(gjson), warn)
 	}
 }
 
@@ -307,7 +485,7 @@ func TestStripWaterFromBoundary_AcceptsModestStrip(t *testing.T) {
 	// ~0.75, well above the 0.5 threshold.
 	water := `{"type":"MultiPolygon","coordinates":[[[[-71.055,42.365],[-71.050,42.365],[-71.050,42.370],[-71.055,42.370],[-71.055,42.365]]]]}`
 
-	gjson, source, warn, err := stripWaterFromBoundary(
+	gjson, warn, err := stripWaterFromBoundary(
 		context.Background(), &http.Client{}, fakeWaterFetcher(water), boundary,
 	)
 	if err != nil {
@@ -315,9 +493,6 @@ func TestStripWaterFromBoundary_AcceptsModestStrip(t *testing.T) {
 	}
 	if warn != "" {
 		t.Errorf("warn = %q, want empty on success", warn)
-	}
-	if source != "nominatim+osm-water" {
-		t.Errorf("source = %q, want nominatim+osm-water", source)
 	}
 	if gjson == "" {
 		t.Errorf("expected non-empty stripped gjson")
@@ -333,7 +508,7 @@ func TestStripWaterFromBoundary_SoftFailureFallsBack(t *testing.T) {
 		return "", errors.New("simulated overpass outage")
 	}
 
-	gjson, source, warn, err := stripWaterFromBoundary(
+	gjson, warn, err := stripWaterFromBoundary(
 		context.Background(), &http.Client{}, failingFetcher, boundary,
 	)
 	if err != nil {
@@ -342,9 +517,8 @@ func TestStripWaterFromBoundary_SoftFailureFallsBack(t *testing.T) {
 	if !strings.Contains(warn, "overpass") {
 		t.Errorf("warn = %q, want it to mention the overpass failure", warn)
 	}
-	if gjson != "" || source != "" {
-		t.Errorf("on soft failure gjson and source should be empty; got gjson=%d source=%q",
-			len(gjson), source)
+	if gjson != "" {
+		t.Errorf("on soft failure gjson should be empty; got gjson=%d", len(gjson))
 	}
 }
 
@@ -354,11 +528,11 @@ func TestStripWaterFromBoundary_SoftFailureFallsBack(t *testing.T) {
 func TestStripWaterFromBoundary_NoWaterIsNoOp(t *testing.T) {
 	boundary := `{"type":"Polygon","coordinates":[[[-71.06,42.36],[-71.05,42.36],[-71.05,42.37],[-71.06,42.37],[-71.06,42.36]]]}`
 
-	gjson, source, warn, err := stripWaterFromBoundary(
+	gjson, warn, err := stripWaterFromBoundary(
 		context.Background(), &http.Client{}, fakeWaterFetcher(""), boundary,
 	)
-	if err != nil || gjson != "" || source != "" || warn != "" {
-		t.Errorf("no-water path should return all zero; got gjson=%d source=%q warn=%q err=%v",
-			len(gjson), source, warn, err)
+	if err != nil || gjson != "" || warn != "" {
+		t.Errorf("no-water path should return all zero; got gjson=%d warn=%q err=%v",
+			len(gjson), warn, err)
 	}
 }
