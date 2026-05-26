@@ -2,7 +2,6 @@ package compute
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -317,8 +316,7 @@ func (c *computer) loadResourceFeatures(ctx context.Context) ([]resource.Feature
 }
 
 func createSnapshot(ctx context.Context, errOut io.Writer, store db.Store, cfg *config.Config) *int64 {
-	configHash := fmt.Sprintf("%x", sha256.Sum256(fmt.Appendf(nil, "%v", cfg)))
-	snapshot, err := store.CreateSnapshot(ctx, configHash[:16])
+	snapshot, err := store.CreateSnapshot(ctx, cfg.Hash())
 	if err != nil {
 		fmt.Fprintf(errOut, "Warning: failed to create snapshot: %v\n", err)
 	}

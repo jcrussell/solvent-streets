@@ -99,6 +99,7 @@ type Store interface {
 	ListSnapshots(ctx context.Context) ([]Snapshot, error)
 	ResolveSnapshot(ctx context.Context, snapshotID int64) error
 	WithSnapshot(snapshotID int64) Store
+	WithConfigHash(configHash string) Store
 	DeleteSnapshot(ctx context.Context, snapshotID int64) (bool, error)
 	SaveForecastResults(ctx context.Context, results []ForecastResult) error
 	ListForecastResults(ctx context.Context, resourceType resource.Type) ([]ForecastResult, error)
@@ -114,7 +115,8 @@ type Store interface {
 type sqliteStore struct {
 	db         *sql.DB
 	cityID     int64
-	snapshotID int64 // 0 = unpinned (latest overall); >0 = snapshot-scoped reads
+	snapshotID int64  // 0 = unpinned; >0 = snapshot-scoped reads (wins over configHash)
+	configHash string // "" = unpinned; non-empty = filter unpinned reads to snapshots with this hash
 }
 
 var _ Store = (*sqliteStore)(nil)

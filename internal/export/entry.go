@@ -2,12 +2,18 @@ package export
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 )
+
+// ErrNoBoundary signals that a city has no boundary stored. Callers that
+// iterate over multiple cities (e.g. gensite, the multi-city exporter)
+// use errors.Is to skip the city rather than failing the whole export.
+var ErrNoBoundary = errors.New("no boundary stored")
 
 // CityEntry holds the config and store for a single city.
 type CityEntry struct {
@@ -26,8 +32,16 @@ func (entry CityEntry) WithSnapshot(snapshotID int64) CityEntry {
 	return entry
 }
 
-// BuildCityEntries creates CityEntry values for the given cities.
+// BuildCityEntries creates CityEntry values for the given cities. The
+// returned stores are auto-pinned to cfg.Hash() so unpinned reads
+// (ListHexStats, ListCohortStats, ListForecastResults,
+// LatestComputeResult) only see snapshots written by this same config
+// — preventing slug-sharing examples (e.g. austin in both single-city
+// and city-nerd) from reading each other's incompatible hex_id
+// namespace. Callers that legitimately need cross-config reads can
+// call entry.Store.WithConfigHash("") to clear the pin.
 func BuildCityEntries(ctx context.Context, rootDB db.RootStorer, cfg *config.Config, cities []config.CityConfig) ([]CityEntry, error) {
+	configHash := cfg.Hash()
 	var entries []CityEntry
 	var errs []string
 	for _, city := range cities {
@@ -39,7 +53,7 @@ func BuildCityEntries(ctx context.Context, rootDB db.RootStorer, cfg *config.Con
 		entries = append(entries, CityEntry{
 			Config: cfg,
 			City:   city,
-			Store:  rootDB.ForCity(id),
+			Store:  rootDB.ForCity(id).WithConfigHash(configHash),
 			Slug:   city.Slug(),
 		})
 	}
@@ -53,7 +67,7 @@ func BuildCityEntries(ctx context.Context, rootDB db.RootStorer, cfg *config.Con
 func (entry CityEntry) BBoxAndCenter(ctx context.Context) ([4]float64, float64, float64, error) {
 	boundaryGJSON, err := entry.Store.GetBoundary(ctx)
 	if err != nil || boundaryGJSON == "" {
-		return [4]float64{}, 0, 0, fmt.Errorf("no boundary stored for %s — run 'pvmt ingest' first", entry.City.Name)
+		return [4]float64{}, 0, 0, fmt.Errorf("%w for %s — run 'pvmt ingest' first", ErrNoBoundary, entry.City.Name)
 	}
 	bbox, err := geo.BBoxFromGeoJSON(boundaryGJSON)
 	if err != nil {

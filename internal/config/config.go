@@ -64,6 +64,13 @@ type Config struct {
 	// SourcePath is the filesystem path of the loaded pvmt.toml file.
 	// Set programmatically by Load/FindAndLoad, not a TOML field.
 	SourcePath string `toml:"-"`
+
+	// contentHash is the SHA-256 prefix of the raw TOML bytes the
+	// config was loaded from. Set by parseConfig; empty when the
+	// Config is constructed in-memory (tests). Read via Hash() — see
+	// internal/config/hash.go for the rationale (path-independent,
+	// stable across Config struct evolution).
+	contentHash string `toml:"-"`
 }
 
 type DisplayConfig struct {
@@ -326,6 +333,7 @@ func parseConfig(data []byte) (*Config, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
+	cfg.contentHash = hashBytes(data)
 	return &cfg, nil
 }
 

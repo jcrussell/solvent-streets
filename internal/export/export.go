@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"os"
@@ -96,26 +97,48 @@ func (e *Exporter) runSingleCity(ctx context.Context) error {
 	return e.renderHTML(meta, seed, rawTOML, ResolvedTOML(e.cfg), e.unitSystem, nil)
 }
 
+// exportOneCity writes one sub-city's data directory and returns its
+// CityInfo. Skips (kept=false, no error) when the city has no boundary
+// stored — typically because ingest tripped a hard error like NYC's
+// water-strip backstop or Nominatim returning a Point. The regional
+// aggregation helpers (regionBBox, summedBoundaryArea, etc.) already
+// tolerate missing boundaries via continue-on-error.
+func (e *Exporter) exportOneCity(ctx context.Context, entry CityEntry) (CityInfo, bool, error) {
+	cityDataDir := filepath.Join(e.outputDir, "cities", entry.Slug, "data")
+	if err := os.MkdirAll(cityDataDir, 0o755); err != nil {
+		return CityInfo{}, false, fmt.Errorf("create city dir %s: %w", entry.Slug, err)
+	}
+	if err := e.exportCityData(ctx, entry, cityDataDir); err != nil {
+		if errors.Is(err, ErrNoBoundary) {
+			fmt.Fprintf(os.Stderr, "  skipping %s: no boundary stored (ingest failed earlier)\n", entry.Slug)
+			return CityInfo{}, false, nil
+		}
+		return CityInfo{}, false, fmt.Errorf("export %s: %w", entry.Slug, err)
+	}
+	info, err := entry.Info(ctx)
+	if err != nil {
+		if errors.Is(err, ErrNoBoundary) {
+			return CityInfo{}, false, nil
+		}
+		return CityInfo{}, false, fmt.Errorf("city %s bbox: %w", entry.Slug, err)
+	}
+	return info, true, nil
+}
+
 func (e *Exporter) runMultiCity(ctx context.Context) error {
 	if err := os.MkdirAll(e.outputDir, 0o755); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
 	}
 
-	// Export each city
 	var cities []CityInfo
 	for _, entry := range e.entries {
-		cityDataDir := filepath.Join(e.outputDir, "cities", entry.Slug, "data")
-		if err := os.MkdirAll(cityDataDir, 0o755); err != nil {
-			return fmt.Errorf("create city dir %s: %w", entry.Slug, err)
-		}
-		if err := e.exportCityData(ctx, entry, cityDataDir); err != nil {
-			return fmt.Errorf("export %s: %w", entry.Slug, err)
-		}
-		info, err := entry.Info(ctx)
+		info, kept, err := e.exportOneCity(ctx, entry)
 		if err != nil {
-			return fmt.Errorf("city %s bbox: %w", entry.Slug, err)
+			return err
 		}
-		cities = append(cities, info)
+		if kept {
+			cities = append(cities, info)
+		}
 	}
 
 	// Write cities.json

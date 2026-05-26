@@ -25,6 +25,7 @@ type MockStore struct {
 	ListSnapshotsFunc       func(context.Context) ([]db.Snapshot, error)
 	ResolveSnapshotFunc     func(context.Context, int64) error
 	WithSnapshotFunc        func(int64) db.Store
+	WithConfigHashFunc      func(string) db.Store
 	DeleteSnapshotFunc      func(context.Context, int64) (bool, error)
 	SaveForecastResultsFunc func(context.Context, []db.ForecastResult) error
 	ListForecastResultsFunc func(context.Context, resource.Type) ([]db.ForecastResult, error)
@@ -113,6 +114,20 @@ func (m *MockStore) DeleteSnapshot(ctx context.Context, id int64) (bool, error) 
 func (m *MockStore) WithSnapshot(snapshotID int64) db.Store {
 	if m.WithSnapshotFunc != nil {
 		return m.WithSnapshotFunc(snapshotID)
+	}
+	return m
+}
+
+// WithConfigHash returns the mock unchanged by default. NOTE: this
+// silently bypasses the production config_hash filtering that
+// sqliteStore.WithConfigHash applies, so a test that mocks the store
+// will exercise "no filtering" even when its production caller pins
+// via WithConfigHash. Tests that need to observe the pin should set
+// WithConfigHashFunc; tests that need to exercise the actual filter
+// should use a real sqlite store via openTestStore.
+func (m *MockStore) WithConfigHash(configHash string) db.Store {
+	if m.WithConfigHashFunc != nil {
+		return m.WithConfigHashFunc(configHash)
 	}
 	return m
 }

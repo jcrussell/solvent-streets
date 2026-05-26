@@ -80,19 +80,20 @@ func (s *sqliteStore) SaveComputeResult(ctx context.Context, result ComputeResul
 	return nil
 }
 
-// LatestComputeResult returns the most recent compute result for a resource.
-// When the store is snapshot-pinned (via WithSnapshot), restricts the result
-// to that snapshot id; the snapshot's own latest run wins on ties. Sentinel
-// snapshotID 0 (the unpinned default) returns latest overall.
+// LatestComputeResult returns the most recent compute result for a
+// resource. Snapshot/config-hash filtering follows the three-arm
+// semantic documented on snapshotFilter; ORDER BY computed_at DESC
+// disambiguates within the chosen snapshot (LIMIT 1 because this is
+// the single-row read).
 func (s *sqliteStore) LatestComputeResult(ctx context.Context, resourceType resource.Type) (*ComputeResult, error) {
+	q, bind := snapshotQuery(
+		`SELECT id, resource_type, total_area_sqm, feature_count, computed_at, snapshot_id FROM compute_results`,
+		"compute_results",
+		` ORDER BY computed_at DESC LIMIT 1`,
+		s.snapshotID, s.configHash, resourceType, s.cityID,
+	)
 	var r ComputeResult
-	err := s.db.QueryRowContext(ctx, `
-		SELECT id, resource_type, total_area_sqm, feature_count, computed_at, snapshot_id
-		FROM compute_results
-		WHERE resource_type = ? AND city_id = ? AND (? = 0 OR snapshot_id = ?)
-		ORDER BY computed_at DESC
-		LIMIT 1
-	`, resourceType, s.cityID, s.snapshotID, s.snapshotID).Scan(&r.ID, &r.ResourceType, &r.TotalAreaSqM, &r.FeatureCount, &r.ComputedAt, &r.SnapshotID)
+	err := s.db.QueryRowContext(ctx, q, bind...).Scan(&r.ID, &r.ResourceType, &r.TotalAreaSqM, &r.FeatureCount, &r.ComputedAt, &r.SnapshotID)
 	if err != nil {
 		return nil, err
 	}
@@ -125,16 +126,20 @@ func (s *sqliteStore) SaveHexStats(ctx context.Context, stats []HexStat) error {
 	})
 }
 
-// ListHexStats returns the per-hex coverage rows for a resource. When
-// snapshot-pinned, only rows from that snapshot. Otherwise: all rows,
-// including legacy pre-snapshot rows with NULL snapshot_id — callers
-// typically expect "the data the user last computed", and a city without
-// any snapshot-tagged rows would otherwise look empty.
+// ListHexStats returns the per-hex coverage rows for a resource.
+// Snapshot/config-hash filtering follows the three-arm semantic on
+// snapshotFilter — see there for the why and the legacy NULL fallback.
+// Filtering rather than "return every snapshot's rows" matters because
+// every `pvmt compute` appends a fresh snapshot_id, so the previous
+// behavior duplicated output for every caller that didn't pin.
 func (s *sqliteStore) ListHexStats(ctx context.Context, resourceType resource.Type) ([]HexStat, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT hex_id, resource_type, area_sqm, pct_covered, computed_at, snapshot_id
-		FROM hex_stats WHERE resource_type = ? AND city_id = ? AND (? = 0 OR snapshot_id = ?)
-	`, resourceType, s.cityID, s.snapshotID, s.snapshotID)
+	q, bind := snapshotQuery(
+		`SELECT hex_id, resource_type, area_sqm, pct_covered, computed_at, snapshot_id FROM hex_stats`,
+		"hex_stats",
+		"",
+		s.snapshotID, s.configHash, resourceType, s.cityID,
+	)
+	rows, err := s.db.QueryContext(ctx, q, bind...)
 	if err != nil {
 		return nil, fmt.Errorf("query hex stats: %w", err)
 	}
@@ -208,11 +213,17 @@ func (s *sqliteStore) SaveForecastResults(ctx context.Context, results []Forecas
 	})
 }
 
+// ListForecastResults: snapshot/config-hash filtering via snapshotFilter
+// — see that helper for the three-arm semantic. ORDER BY year keeps
+// the per-snapshot rows in display order.
 func (s *sqliteStore) ListForecastResults(ctx context.Context, resourceType resource.Type) ([]ForecastResult, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, resource_type, year, pci, area_sqm, treatment_cost, treatment_tier, snapshot_id, computed_at
-		FROM forecast_results WHERE resource_type = ? AND city_id = ? AND (? = 0 OR snapshot_id = ?) ORDER BY year
-	`, resourceType, s.cityID, s.snapshotID, s.snapshotID)
+	q, bind := snapshotQuery(
+		`SELECT id, resource_type, year, pci, area_sqm, treatment_cost, treatment_tier, snapshot_id, computed_at FROM forecast_results`,
+		"forecast_results",
+		` ORDER BY year`,
+		s.snapshotID, s.configHash, resourceType, s.cityID,
+	)
+	rows, err := s.db.QueryContext(ctx, q, bind...)
 	if err != nil {
 		return nil, fmt.Errorf("query forecasts: %w", err)
 	}
@@ -252,11 +263,16 @@ func (s *sqliteStore) SaveCohortStats(ctx context.Context, stats []CohortStat) e
 	})
 }
 
+// ListCohortStats: snapshot/config-hash filtering via snapshotFilter —
+// see that helper for the three-arm semantic.
 func (s *sqliteStore) ListCohortStats(ctx context.Context, resourceType resource.Type) ([]CohortStat, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, resource_type, classification, area_sqm, feature_count, snapshot_id, computed_at
-		FROM cohort_stats WHERE resource_type = ? AND city_id = ? AND (? = 0 OR snapshot_id = ?)
-	`, resourceType, s.cityID, s.snapshotID, s.snapshotID)
+	q, bind := snapshotQuery(
+		`SELECT id, resource_type, classification, area_sqm, feature_count, snapshot_id, computed_at FROM cohort_stats`,
+		"cohort_stats",
+		"",
+		s.snapshotID, s.configHash, resourceType, s.cityID,
+	)
+	rows, err := s.db.QueryContext(ctx, q, bind...)
 	if err != nil {
 		return nil, fmt.Errorf("query cohort stats: %w", err)
 	}
@@ -363,13 +379,82 @@ func (s *sqliteStore) withTx(ctx context.Context, fn func(*sql.Tx) error) error 
 
 // WithSnapshot returns a Store that filters snapshot-aware reads
 // (LatestComputeResult, ListHexStats, ListCohortStats, ListForecastResults)
-// to the given snapshot id. A snapshotID of 0 returns an unpinned view
-// (latest overall — same as the original ForCity store). The underlying
-// DB connection is shared.
+// to the given snapshot id. A snapshotID of 0 returns an unpinned view.
+// When combined with WithConfigHash, the snapshot pin wins (it's the
+// more specific request, matching how the server handles ?snapshot=N).
+// The underlying DB connection is shared.
 func (s *sqliteStore) WithSnapshot(snapshotID int64) Store {
 	cp := *s
 	cp.snapshotID = snapshotID
 	return &cp
+}
+
+// WithConfigHash returns a Store that scopes unpinned snapshot-aware
+// reads to snapshots whose config_hash matches the given value. Used
+// by the export and serve paths to pick the snapshot written by the
+// same Config the caller has loaded, so two examples sharing a city
+// slug at different hex_edge_m values don't read each other's
+// (incompatible) hex_id namespace.
+//
+// An empty hash is the unpinned default and preserves the
+// "latest snapshot per (city, resource_type)" fallback.
+//
+// The underlying DB connection is shared.
+func (s *sqliteStore) WithConfigHash(configHash string) Store {
+	cp := *s
+	cp.configHash = configHash
+	return &cp
+}
+
+// snapshotQuery composes a full SQL query whose WHERE clause carries
+// the three-arm snapshot/config-hash filter, and returns the bind
+// values in positional order. The caller supplies the SELECT preamble
+// (everything before `WHERE resource_type = ? AND city_id = ?`), the
+// table name (also used inside the filter's subqueries), and the
+// optional suffix (e.g. `ORDER BY computed_at DESC LIMIT 1`).
+//
+// Behavior of the three arms:
+//
+//   - arm 1: pinned (snapshotID > 0) — exact match. Wins over configHash.
+//   - arm 2: unpinned + configHash set — latest snapshot for this
+//     (city, resource_type) whose snapshots.config_hash matches.
+//   - arm 3: unpinned + no configHash — latest snapshot overall for
+//     this (city, resource_type). Preserves the back-compat path for
+//     tests and any caller that constructs a store without a config.
+//
+// SQLite's NULL-aware `IS` operator makes both arm-2 and arm-3
+// gracefully surface pre-migration-002 legacy rows: MAX over an empty
+// set returns NULL, and `snapshot_id IS NULL` then matches the legacy
+// rows.
+//
+// The table name is interpolated into the SQL but it always comes from
+// a string literal at the call site (never from user input), so the
+// G202 concatenation pattern that gosec normally flags is safe here.
+// gosec doesn't fire because the concatenation sits inside this
+// helper rather than at the QueryContext call site — kept centralized
+// for that reason.
+func snapshotQuery(selectClause, table, suffix string, snapshotID int64, configHash string, resourceType resource.Type, cityID int64) (string, []any) {
+	q := selectClause + `
+	  WHERE resource_type = ? AND city_id = ?
+	  AND (
+	    (? > 0 AND snapshot_id = ?)
+	    OR (? = 0 AND ? != '' AND snapshot_id IS (
+	      SELECT MAX(hs.snapshot_id) FROM ` + table + ` hs
+	      JOIN snapshots s ON s.id = hs.snapshot_id
+	      WHERE hs.resource_type = ? AND hs.city_id = ?
+	        AND s.config_hash = ?
+	    ))
+	    OR (? = 0 AND ? = '' AND snapshot_id IS (
+	      SELECT MAX(snapshot_id) FROM ` + table + `
+	      WHERE resource_type = ? AND city_id = ?
+	    ))
+	  )` + suffix
+	return q, []any{
+		resourceType, cityID, // outer WHERE
+		snapshotID, snapshotID, // arm 1
+		snapshotID, configHash, resourceType, cityID, configHash, // arm 2
+		snapshotID, configHash, resourceType, cityID, // arm 3
+	}
 }
 
 // DeleteSnapshot removes the snapshot and every FK-linked result row in a
