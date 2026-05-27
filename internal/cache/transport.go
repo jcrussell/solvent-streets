@@ -45,10 +45,27 @@ func (t *CachingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	bodyPath := filepath.Join(t.Dir, key+".json")
 	metaPath := filepath.Join(t.Dir, key+".meta")
 
-	if t.TTL > 0 {
-		if meta, body, ok := t.readCache(metaPath, bodyPath); ok {
-			if time.Since(meta.Timestamp) < t.TTL {
-				return buildResponse(req, meta, body), nil
+	meta, cachedBody, haveCache := t.readCache(metaPath, bodyPath)
+	if t.TTL > 0 && haveCache && time.Since(meta.Timestamp) < t.TTL {
+		return buildResponse(req, meta, cachedBody), nil
+	}
+
+	// Past TTL (or no entry). If validators are stored on the cached
+	// meta, send a conditional request — a 304 lets us refresh the
+	// timestamp without re-downloading the body, which is the cheap
+	// path against Overpass and ArcGIS on repeat runs. Per the
+	// RoundTripper contract, RoundTrip shouldn't mutate the caller's
+	// request, so we clone before stamping headers.
+	if haveCache {
+		etag := meta.Headers["Etag"]
+		lastMod := meta.Headers["Last-Modified"]
+		if etag != "" || lastMod != "" {
+			req = req.Clone(req.Context())
+			if etag != "" {
+				req.Header.Set("If-None-Match", etag)
+			}
+			if lastMod != "" {
+				req.Header.Set("If-Modified-Since", lastMod)
 			}
 		}
 	}
@@ -56,6 +73,13 @@ func (t *CachingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	resp, err := t.Wrapped.RoundTrip(req)
 	if err != nil {
 		return nil, err
+	}
+
+	if resp.StatusCode == http.StatusNotModified && haveCache {
+		_ = resp.Body.Close()
+		meta.Timestamp = time.Now()
+		t.writeCacheMeta(metaPath, *meta)
+		return buildResponse(req, meta, cachedBody), nil
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 100*1024*1024)) // 100MB limit
@@ -91,6 +115,16 @@ func (t *CachingTransport) readCache(metaPath, bodyPath string) (*entryMeta, []b
 		return nil, nil, false
 	}
 	return &meta, body, true
+}
+
+// writeCacheMeta replaces the .meta file in place — used by the 304
+// revalidation path to bump Timestamp without touching the body.
+func (t *CachingTransport) writeCacheMeta(metaPath string, meta entryMeta) {
+	data, err := json.Marshal(meta)
+	if err != nil {
+		return
+	}
+	_ = cmdutil.WriteFile(metaPath, data, 0o644) // best-effort cache write
 }
 
 func (t *CachingTransport) writeCache(metaPath, bodyPath string, resp *http.Response, body []byte, url string) {

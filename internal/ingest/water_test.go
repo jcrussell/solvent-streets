@@ -658,7 +658,7 @@ func TestCloseCoastlineChain_NorthFacingCoast(t *testing.T) {
 	chain := [][2]float64{{0, 0.5}, {1, 0.5}}
 	// Water is south; land is north. landProbe must be on the land side
 	// so the water-side ring (south) is the one selected.
-	rings := closeCoastlineChain(context.Background(), chain, bbox, [][2]float64{{0.5, 0.75}})
+	rings := closeCoastlineChain(context.Background(), chain, bbox, newLandProbeIndex([][2]float64{{0.5, 0.75}}))
 	if len(rings) != 1 {
 		t.Fatalf("expected 1 ring, got %d", len(rings))
 	}
@@ -674,7 +674,7 @@ func TestCloseCoastlineChain_ClipsAndCloses(t *testing.T) {
 	// then add the southern corners.
 	bbox := [4]float64{0, 0, 1, 1}
 	chain := [][2]float64{{-0.5, 0.5}, {1.5, 0.5}}
-	rings := closeCoastlineChain(context.Background(), chain, bbox, [][2]float64{{0.5, 0.75}})
+	rings := closeCoastlineChain(context.Background(), chain, bbox, newLandProbeIndex([][2]float64{{0.5, 0.75}}))
 	if len(rings) != 1 {
 		t.Fatalf("expected 1 ring, got %d", len(rings))
 	}
@@ -690,7 +690,7 @@ func TestCloseCoastlineChain_DropsInteriorChain(t *testing.T) {
 	// edge can't be closed using bbox-edge rules. Should be dropped.
 	bbox := [4]float64{0, 0, 1, 1}
 	chain := [][2]float64{{0.2, 0.5}, {0.8, 0.5}}
-	rings := closeCoastlineChain(context.Background(), chain, bbox, [][2]float64{{0.5, 0.5}})
+	rings := closeCoastlineChain(context.Background(), chain, bbox, newLandProbeIndex([][2]float64{{0.5, 0.5}}))
 	if len(rings) != 0 {
 		t.Errorf("expected interior chain to be dropped, got %d rings: %v", len(rings), rings)
 	}
@@ -706,7 +706,7 @@ func TestCloseCoastlineChain_PassesThroughCWClosed(t *testing.T) {
 	// Lake at (0.2-0.8); land is OUTSIDE the lake (e.g. near the bbox
 	// corner). landProbe must be outside the ring or the new closed-ring
 	// land-probe check would drop the lake as a wrongly-traced ring.
-	rings := closeCoastlineChain(context.Background(), chain, bbox, [][2]float64{{0.9, 0.9}})
+	rings := closeCoastlineChain(context.Background(), chain, bbox, newLandProbeIndex([][2]float64{{0.9, 0.9}}))
 	if len(rings) != 1 {
 		t.Fatalf("expected 1 ring, got %d", len(rings))
 	}
@@ -732,7 +732,7 @@ func TestCloseCoastlineChain_DropsCWClosedRingContainingLandProbe(t *testing.T) 
 	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	ctx := logs.WithLogger(context.Background(), logger)
 
-	rings := closeCoastlineChain(ctx, chain, bbox, [][2]float64{{0.5, 0.5}})
+	rings := closeCoastlineChain(ctx, chain, bbox, newLandProbeIndex([][2]float64{{0.5, 0.5}}))
 	if len(rings) != 0 {
 		t.Fatalf("expected ring containing land probe to be dropped, got %d rings: %v", len(rings), rings)
 	}
@@ -771,7 +771,7 @@ func TestCloseCoastlineChain_DropsCCWClosedRingAsIsland(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	ctx := logs.WithLogger(context.Background(), logger)
 
-	rings := closeCoastlineChain(ctx, chain, bbox, [][2]float64{{0.9, 0.9}})
+	rings := closeCoastlineChain(ctx, chain, bbox, newLandProbeIndex([][2]float64{{0.9, 0.9}}))
 	if len(rings) != 0 {
 		t.Fatalf("expected CCW closed chain to be dropped, got %d rings: %v", len(rings), rings)
 	}
@@ -914,7 +914,7 @@ func TestParseWaterResponse_DegenerateRingDoesNotCrash(t *testing.T) {
 func TestCloseCoastlineChain_SameEdgeEndpointsDropped(t *testing.T) {
 	bbox := [4]float64{0, 0, 1, 1}
 	chain := [][2]float64{{0.2, 0}, {0.8, 0}} // both on south edge
-	rings := closeCoastlineChain(context.Background(), chain, bbox, [][2]float64{{0.5, 0.5}})
+	rings := closeCoastlineChain(context.Background(), chain, bbox, newLandProbeIndex([][2]float64{{0.5, 0.5}}))
 	if len(rings) != 0 {
 		t.Errorf("expected same-edge coastline to be dropped, got %d rings: %v", len(rings), rings)
 	}
@@ -931,7 +931,7 @@ func TestCloseCoastlineChain_EndpointAtBBoxCorner(t *testing.T) {
 	// West edge → NE corner. Water-on-right of west→east is south.
 	// Land is north of the diagonal chain; pick a probe well above it.
 	chain := [][2]float64{{0, 0.5}, {1, 1}}
-	rings := closeCoastlineChain(context.Background(), chain, bbox, [][2]float64{{0.2, 0.95}})
+	rings := closeCoastlineChain(context.Background(), chain, bbox, newLandProbeIndex([][2]float64{{0.2, 0.95}}))
 	if len(rings) != 1 {
 		t.Fatalf("expected 1 ring, got %d: %v", len(rings), rings)
 	}
@@ -1059,7 +1059,7 @@ func TestCloseCoastlineChain_EastToWestPicksNorthSide(t *testing.T) {
 	bbox := [4]float64{0, 0, 1, 1}
 	chain := [][2]float64{{1, 0.5}, {0, 0.5}}
 	// East-to-west → water-on-right is north. Land is south; probe south.
-	rings := closeCoastlineChain(context.Background(), chain, bbox, [][2]float64{{0.5, 0.25}})
+	rings := closeCoastlineChain(context.Background(), chain, bbox, newLandProbeIndex([][2]float64{{0.5, 0.25}}))
 	if len(rings) != 1 {
 		t.Fatalf("expected 1 ring, got %d", len(rings))
 	}

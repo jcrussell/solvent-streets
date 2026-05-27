@@ -3,6 +3,7 @@ package dbtest
 import (
 	"context"
 	"database/sql"
+	"errors"
 
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/resource"
@@ -18,27 +19,29 @@ var _ db.Store = (*MockStore)(nil)
 // rows" from "not mocked" via len, matching the rows-iteration
 // contract of the real sqliteStore.
 type MockStore struct {
-	UpsertFeaturesFunc      func(context.Context, resource.Type, []db.Feature) error
-	ListFeaturesFunc        func(context.Context, resource.Type) ([]db.Feature, error)
-	SaveComputeResultFunc   func(context.Context, db.ComputeResult) error
-	LatestComputeResultFunc func(context.Context, resource.Type) (*db.ComputeResult, error)
-	SaveHexStatsFunc        func(context.Context, []db.HexStat) error
-	ListHexStatsFunc        func(context.Context, resource.Type) ([]db.HexStat, error)
-	CreateSnapshotFunc      func(context.Context, string) (*db.Snapshot, error)
-	ListSnapshotsFunc       func(context.Context) ([]db.Snapshot, error)
-	ResolveSnapshotFunc     func(context.Context, int64) error
-	WithSnapshotFunc        func(int64) db.Store
-	WithConfigHashFunc      func(string) db.Store
-	DeleteSnapshotFunc      func(context.Context, int64) (bool, error)
-	SaveForecastResultsFunc func(context.Context, []db.ForecastResult) error
-	ListForecastResultsFunc func(context.Context, resource.Type) ([]db.ForecastResult, error)
-	SaveCohortStatsFunc     func(context.Context, []db.CohortStat) error
-	ListCohortStatsFunc     func(context.Context, resource.Type) ([]db.CohortStat, error)
-	SaveBoundaryFunc        func(context.Context, string, string) error
-	GetBoundaryFunc         func(context.Context) (string, error)
-	StatsFunc               func(context.Context, resource.Type) (*db.StatusInfo, error)
-	ResourceTypesFunc       func(context.Context) ([]resource.Type, error)
-	CloseFunc               func() error
+	UpsertFeaturesFunc          func(context.Context, resource.Type, []db.Feature) error
+	ListFeaturesFunc            func(context.Context, resource.Type) ([]db.Feature, error)
+	SaveComputeResultFunc       func(context.Context, db.ComputeResult) error
+	LatestComputeResultFunc     func(context.Context, resource.Type) (*db.ComputeResult, error)
+	LatestComputeResultsFunc    func(context.Context, []resource.Type) (map[resource.Type]*db.ComputeResult, error)
+	ListCohortStatsForTypesFunc func(context.Context, []resource.Type) (map[resource.Type][]db.CohortStat, error)
+	SaveHexStatsFunc            func(context.Context, []db.HexStat) error
+	ListHexStatsFunc            func(context.Context, resource.Type) ([]db.HexStat, error)
+	CreateSnapshotFunc          func(context.Context, string) (*db.Snapshot, error)
+	ListSnapshotsFunc           func(context.Context) ([]db.Snapshot, error)
+	ResolveSnapshotFunc         func(context.Context, int64) error
+	WithSnapshotFunc            func(int64) db.Store
+	WithConfigHashFunc          func(string) db.Store
+	DeleteSnapshotFunc          func(context.Context, int64) (bool, error)
+	SaveForecastResultsFunc     func(context.Context, []db.ForecastResult) error
+	ListForecastResultsFunc     func(context.Context, resource.Type) ([]db.ForecastResult, error)
+	SaveCohortStatsFunc         func(context.Context, []db.CohortStat) error
+	ListCohortStatsFunc         func(context.Context, resource.Type) ([]db.CohortStat, error)
+	SaveBoundaryFunc            func(context.Context, string, string) error
+	GetBoundaryFunc             func(context.Context) (string, error)
+	StatsFunc                   func(context.Context, resource.Type) (*db.StatusInfo, error)
+	ResourceTypesFunc           func(context.Context) ([]resource.Type, error)
+	CloseFunc                   func() error
 }
 
 func (m *MockStore) UpsertFeatures(ctx context.Context, rt resource.Type, f []db.Feature) error {
@@ -67,6 +70,33 @@ func (m *MockStore) LatestComputeResult(ctx context.Context, rt resource.Type) (
 		return m.LatestComputeResultFunc(ctx, rt)
 	}
 	return nil, sql.ErrNoRows
+}
+
+// LatestComputeResults delegates to LatestComputeResultsFunc if set,
+// otherwise routes each requested type through LatestComputeResultFunc
+// so existing tests that stub the singular method keep working without
+// having to set both fields. sql.ErrNoRows from the singular path is
+// treated as "no row for that type" and simply omitted from the map;
+// any other error propagates so error-path tests behave the same as
+// they did before batching.
+func (m *MockStore) LatestComputeResults(ctx context.Context, types []resource.Type) (map[resource.Type]*db.ComputeResult, error) {
+	if m.LatestComputeResultsFunc != nil {
+		return m.LatestComputeResultsFunc(ctx, types)
+	}
+	out := make(map[resource.Type]*db.ComputeResult, len(types))
+	for _, t := range types {
+		r, err := m.LatestComputeResult(ctx, t)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if r != nil {
+			out[t] = r
+		}
+	}
+	return out, nil
 }
 
 func (m *MockStore) SaveHexStats(ctx context.Context, stats []db.HexStat) error {
@@ -161,6 +191,26 @@ func (m *MockStore) ListCohortStats(ctx context.Context, rt resource.Type) ([]db
 		return m.ListCohortStatsFunc(ctx, rt)
 	}
 	return []db.CohortStat{}, nil
+}
+
+// ListCohortStatsForTypes delegates to ListCohortStatsForTypesFunc if
+// set, otherwise routes each requested type through ListCohortStatsFunc
+// so existing tests that stub the singular method keep working.
+func (m *MockStore) ListCohortStatsForTypes(ctx context.Context, types []resource.Type) (map[resource.Type][]db.CohortStat, error) {
+	if m.ListCohortStatsForTypesFunc != nil {
+		return m.ListCohortStatsForTypesFunc(ctx, types)
+	}
+	out := make(map[resource.Type][]db.CohortStat, len(types))
+	for _, t := range types {
+		stats, err := m.ListCohortStats(ctx, t)
+		if err != nil {
+			return nil, err
+		}
+		if len(stats) > 0 {
+			out[t] = stats
+		}
+	}
+	return out, nil
 }
 
 func (m *MockStore) SaveBoundary(ctx context.Context, geometryJSON, source string) error {

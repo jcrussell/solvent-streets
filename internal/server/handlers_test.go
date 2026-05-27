@@ -431,19 +431,23 @@ func TestServeJSONCached_ErrorEvicts(t *testing.T) {
 // rather than memoizing a partial/empty slice for the server's lifetime.
 func TestBuildForecasts_DBErrorEvicts(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
-	var calls atomic.Int32
+	var builds atomic.Int32
 	failingStore := &dbtest.MockStore{
-		LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
-			n := calls.Add(1)
-			if n <= int32(len(resource.All)) {
+		LatestComputeResultsFunc: func(_ context.Context, types []resource.Type) (map[resource.Type]*db.ComputeResult, error) {
+			n := builds.Add(1)
+			if n == 1 {
 				return nil, errors.New("db unavailable")
 			}
-			return &db.ComputeResult{
-				ResourceType: rt,
-				TotalAreaSqM: 10000,
-				FeatureCount: 100,
-				ComputedAt:   time.Now(),
-			}, nil
+			out := make(map[resource.Type]*db.ComputeResult, len(types))
+			for _, t := range types {
+				out[t] = &db.ComputeResult{
+					ResourceType: t,
+					TotalAreaSqM: 10000,
+					FeatureCount: 100,
+					ComputedAt:   time.Now(),
+				}
+			}
+			return out, nil
 		},
 	}
 	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Test City"}}}
@@ -467,9 +471,9 @@ func TestBuildForecasts_DBErrorEvicts(t *testing.T) {
 		t.Fatalf("expected 200 on retry, got %d: %s", w2.Code, w2.Body.String())
 	}
 
-	want := int32(2 * len(resource.All))
-	if got := calls.Load(); got != want {
-		t.Errorf("expected LatestComputeResult to run %d times (build twice), ran %d", want, got)
+	// Build retried after eviction; LatestComputeResults ran twice total.
+	if got := builds.Load(); got != 2 {
+		t.Errorf("expected LatestComputeResults to run 2 times (build twice), ran %d", got)
 	}
 }
 

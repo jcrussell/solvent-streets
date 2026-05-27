@@ -93,6 +93,11 @@ type Store interface {
 	ListFeatures(ctx context.Context, resourceType resource.Type) ([]Feature, error)
 	SaveComputeResult(ctx context.Context, result ComputeResult) error
 	LatestComputeResult(ctx context.Context, resourceType resource.Type) (*ComputeResult, error)
+	// LatestComputeResults returns the latest compute result for each
+	// requested resource type in one round trip. Missing types are
+	// simply absent from the returned map (no sql.ErrNoRows). Honors
+	// the same snapshot / config_hash filtering as LatestComputeResult.
+	LatestComputeResults(ctx context.Context, types []resource.Type) (map[resource.Type]*ComputeResult, error)
 	SaveHexStats(ctx context.Context, stats []HexStat) error
 	ListHexStats(ctx context.Context, resourceType resource.Type) ([]HexStat, error)
 	CreateSnapshot(ctx context.Context, configHash string) (*Snapshot, error)
@@ -105,6 +110,10 @@ type Store interface {
 	ListForecastResults(ctx context.Context, resourceType resource.Type) ([]ForecastResult, error)
 	SaveCohortStats(ctx context.Context, stats []CohortStat) error
 	ListCohortStats(ctx context.Context, resourceType resource.Type) ([]CohortStat, error)
+	// ListCohortStatsForTypes returns cohort stats grouped by resource
+	// type for each requested type in one round trip. Same snapshot /
+	// config_hash semantics as ListCohortStats.
+	ListCohortStatsForTypes(ctx context.Context, types []resource.Type) (map[resource.Type][]CohortStat, error)
 	SaveBoundary(ctx context.Context, geometryJSON, source string) error
 	GetBoundary(ctx context.Context) (string, error)
 	Stats(ctx context.Context, resourceType resource.Type) (*StatusInfo, error)

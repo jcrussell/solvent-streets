@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jcrussell/solvent-streets/internal/resource"
@@ -105,6 +106,41 @@ func (s *sqliteStore) LatestComputeResult(ctx context.Context, resourceType reso
 		return nil, err
 	}
 	return &r, nil
+}
+
+// LatestComputeResults batches the per-type LatestComputeResult lookup
+// into a single query. Each resource_type partition keeps its own
+// "latest computed_at" winner via ROW_NUMBER, and the three-arm snapshot
+// filter (pinned id / config-hash / unpinned) is applied per-row via
+// correlated subqueries that reference cr.resource_type. Honors the
+// same snapshot / configHash filters as LatestComputeResult.
+func (s *sqliteStore) LatestComputeResults(ctx context.Context, types []resource.Type) (map[resource.Type]*ComputeResult, error) {
+	out := make(map[resource.Type]*ComputeResult, len(types))
+	if len(types) == 0 {
+		return out, nil
+	}
+	q, bind := snapshotBatchQuery(
+		`SELECT id, resource_type, total_area_sqm, feature_count, computed_at, snapshot_id,
+		        ROW_NUMBER() OVER (PARTITION BY resource_type ORDER BY computed_at DESC) AS rn`,
+		"compute_results",
+		"",
+		s.snapshotID, s.configHash, types, s.cityID,
+	)
+	q = `SELECT id, resource_type, total_area_sqm, feature_count, computed_at, snapshot_id FROM (` + q + `) WHERE rn = 1`
+	rows, err := s.db.QueryContext(ctx, q, bind...)
+	if err != nil {
+		return nil, fmt.Errorf("query latest compute results: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var r ComputeResult
+		if err := rows.Scan(&r.ID, &r.ResourceType, &r.TotalAreaSqM, &r.FeatureCount, &r.ComputedAt, &r.SnapshotID); err != nil {
+			return nil, fmt.Errorf("scan compute result: %w", err)
+		}
+		row := r
+		out[r.ResourceType] = &row
+	}
+	return out, rows.Err()
 }
 
 // SaveHexStats appends a batch of hex stats. Each row is tagged with its
@@ -268,6 +304,36 @@ func (s *sqliteStore) SaveCohortStats(ctx context.Context, stats []CohortStat) e
 		}
 		return nil
 	})
+}
+
+// ListCohortStatsForTypes batches the per-type cohort-stats lookup into
+// one query. Same three-arm snapshot filter as ListCohortStats, applied
+// per-row via correlated subqueries on cr.resource_type. Missing types
+// are absent from the returned map (zero-row result is not an error).
+func (s *sqliteStore) ListCohortStatsForTypes(ctx context.Context, types []resource.Type) (map[resource.Type][]CohortStat, error) {
+	out := make(map[resource.Type][]CohortStat, len(types))
+	if len(types) == 0 {
+		return out, nil
+	}
+	q, bind := snapshotBatchQuery(
+		`SELECT id, resource_type, classification, area_sqm, feature_count, snapshot_id, computed_at`,
+		"cohort_stats",
+		"",
+		s.snapshotID, s.configHash, types, s.cityID,
+	)
+	rows, err := s.db.QueryContext(ctx, q, bind...)
+	if err != nil {
+		return nil, fmt.Errorf("query cohort stats: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var st CohortStat
+		if err := rows.Scan(&st.ID, &st.ResourceType, &st.Classification, &st.AreaSqM, &st.FeatureCount, &st.SnapshotID, &st.ComputedAt); err != nil {
+			return nil, fmt.Errorf("scan cohort stat: %w", err)
+		}
+		out[st.ResourceType] = append(out[st.ResourceType], st)
+	}
+	return out, rows.Err()
 }
 
 // ListCohortStats: snapshot/config-hash filtering via snapshotFilter —
@@ -449,6 +515,44 @@ func (s *sqliteStore) WithConfigHash(configHash string) Store {
 // gosec doesn't fire because the concatenation sits inside this
 // helper rather than at the QueryContext call site — kept centralized
 // for that reason.
+// snapshotBatchQuery is the multi-resource_type variant of snapshotQuery.
+// Same three-arm semantic, but resource_type is filtered via IN(...) and
+// the inner correlated subqueries that resolve "latest snapshot for this
+// resource type" reference the outer alias `cr.resource_type` so each row
+// gets its own per-type latest. Used by LatestComputeResults and
+// ListCohortStatsForTypes — collapsing the per-resource loop into one
+// round trip.
+func snapshotBatchQuery(selectClause, table, suffix string, snapshotID int64, configHash string, types []resource.Type, cityID int64) (string, []any) {
+	placeholders := strings.Repeat("?,", len(types))
+	placeholders = placeholders[:len(placeholders)-1]
+	q := selectClause + ` FROM ` + table + ` cr
+	  WHERE cr.city_id = ? AND cr.resource_type IN (` + placeholders + `)
+	  AND (
+	    (? > 0 AND cr.snapshot_id = ?)
+	    OR (? = 0 AND ? != '' AND cr.snapshot_id IS (
+	      SELECT MAX(hs.snapshot_id) FROM ` + table + ` hs
+	      JOIN snapshots s ON s.id = hs.snapshot_id
+	      WHERE hs.resource_type = cr.resource_type AND hs.city_id = ?
+	        AND s.config_hash = ?
+	    ))
+	    OR (? = 0 AND ? = '' AND cr.snapshot_id IS (
+	      SELECT MAX(snapshot_id) FROM ` + table + `
+	      WHERE resource_type = cr.resource_type AND city_id = ?
+	    ))
+	  )` + suffix
+	args := make([]any, 0, 2+len(types)+10)
+	args = append(args, cityID)
+	for _, t := range types {
+		args = append(args, t)
+	}
+	args = append(args,
+		snapshotID, snapshotID, // arm 1
+		snapshotID, configHash, cityID, configHash, // arm 2
+		snapshotID, configHash, cityID, // arm 3
+	)
+	return q, args
+}
+
 func snapshotQuery(selectClause, table, suffix string, snapshotID int64, configHash string, resourceType resource.Type, cityID int64) (string, []any) {
 	q := selectClause + `
 	  WHERE resource_type = ? AND city_id = ?
