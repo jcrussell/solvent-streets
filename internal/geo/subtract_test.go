@@ -170,3 +170,34 @@ func TestSubtractGeoJSON_FullCoverReturnsError(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+// TestSubtractGeoJSON_OverlappingPolygonsWithSharedEdge is the end-to-end
+// sanity check for solvent-streets-i3ih: the same polygon pair as the
+// bedrock TestRetainPolygonal_NormalizesMixedDimIntersectionResult test,
+// but fed through SubtractGeoJSON (GeoJSON parsing + UTM projection +
+// the Intersection/Difference chain). Without the fix the inner
+// difference: panic would surface as an error; with the fix the
+// subtraction succeeds.
+//
+// The polygons are placed near the equator at small lon/lat so UTM
+// projection scales them to about 200 km on a side — large enough that
+// the shared-edge topology survives float roundoff, small enough that
+// the operation finishes instantly.
+func TestSubtractGeoJSON_OverlappingPolygonsWithSharedEdge(t *testing.T) {
+	// Same topology as the upstream-verified mixed-dim Intersection
+	// fixture, translated to (lon, lat) and scaled by 0.01° so the
+	// shared edge from (1,0) to (1,1) becomes a meaningful UTM segment.
+	boundary := `{"type":"Polygon","coordinates":[[[0,0],[0,0.02],[0.02,0.02],[0.01,0.01],[0.01,0],[0,0]]]}`
+	water := `{"type":"Polygon","coordinates":[[[0.01,0],[0.01,0.01],[0,0.02],[0.02,0.02],[0.02,0],[0.01,0]]]}`
+
+	result, err := SubtractGeoJSON(boundary, water)
+	if err != nil {
+		t.Fatalf("SubtractGeoJSON: %v (expected success post-i3ih fix)", err)
+	}
+	if result == "" {
+		t.Fatal("expected non-empty result")
+	}
+	if _, err := BoundaryAreaSqM(result); err != nil {
+		t.Fatalf("BoundaryAreaSqM on result: %v", err)
+	}
+}

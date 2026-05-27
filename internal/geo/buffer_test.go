@@ -189,3 +189,125 @@ func makeRect(x1, y1, x2, y2 float64) geom.Geometry {
 	poly := geom.NewPolygon([]geom.LineString{ring})
 	return poly.AsGeometry()
 }
+
+func mustWKT(t *testing.T, wkt string) geom.Geometry {
+	t.Helper()
+	g, err := geom.UnmarshalWKT(wkt)
+	if err != nil {
+		t.Fatalf("UnmarshalWKT(%q): %v", wkt, err)
+	}
+	return g
+}
+
+// TestRetainPolygonal exercises the helper directly: drop lower-dim
+// children of a GeometryCollection, return polygonal-only input
+// unchanged, and yield an empty Geometry for purely lower-dim input.
+func TestRetainPolygonal(t *testing.T) {
+	t.Run("mixed_dim_GC_keeps_polygon", func(t *testing.T) {
+		gc := mustWKT(t, "GEOMETRYCOLLECTION(POLYGON((0 0,4 0,4 4,0 4,0 0)),LINESTRING(5 5,6 6),POINT(7 7))")
+		got, err := RetainPolygonal(gc)
+		if err != nil {
+			t.Fatalf("RetainPolygonal: %v", err)
+		}
+		if !got.IsPolygon() && !got.IsMultiPolygon() {
+			t.Fatalf("expected polygonal result, got %s", got.Type())
+		}
+		if math.Abs(got.Area()-16) > 1e-9 {
+			t.Errorf("expected area 16, got %f", got.Area())
+		}
+	})
+
+	t.Run("nested_GC_flattens", func(t *testing.T) {
+		gc := mustWKT(t, "GEOMETRYCOLLECTION(GEOMETRYCOLLECTION(POLYGON((0 0,2 0,2 2,0 2,0 0))),LINESTRING(3 3,4 4))")
+		got, err := RetainPolygonal(gc)
+		if err != nil {
+			t.Fatalf("RetainPolygonal: %v", err)
+		}
+		if !got.IsPolygon() && !got.IsMultiPolygon() {
+			t.Fatalf("expected polygonal result, got %s", got.Type())
+		}
+		if math.Abs(got.Area()-4) > 1e-9 {
+			t.Errorf("expected area 4, got %f", got.Area())
+		}
+	})
+
+	t.Run("pure_linestring_empty", func(t *testing.T) {
+		ls := mustWKT(t, "LINESTRING(0 0,1 1,2 2)")
+		got, err := RetainPolygonal(ls)
+		if err != nil {
+			t.Fatalf("RetainPolygonal: %v", err)
+		}
+		if !got.IsEmpty() {
+			t.Errorf("expected empty, got %s with area %f", got.Type(), got.Area())
+		}
+	})
+
+	t.Run("pure_polygon_unchanged", func(t *testing.T) {
+		p := mustWKT(t, "POLYGON((0 0,3 0,3 3,0 3,0 0))")
+		got, err := RetainPolygonal(p)
+		if err != nil {
+			t.Fatalf("RetainPolygonal: %v", err)
+		}
+		if !got.IsPolygon() {
+			t.Errorf("expected Polygon, got %s", got.Type())
+		}
+		if math.Abs(got.Area()-9) > 1e-9 {
+			t.Errorf("expected area 9, got %f", got.Area())
+		}
+	})
+}
+
+// TestRetainPolygonal_NormalizesMixedDimIntersectionResult pins the
+// transform RetainPolygonal must do for the solvent-streets-i3ih fix:
+// Intersection of two polygons that share a boundary segment outside
+// their 2-D overlap can return a mixed-dimension GeometryCollection
+// (a polygon for the overlap plus a LineString for the shared edge —
+// documented behavior of JTS OverlayNG default mode). The helper
+// must extract the polygonal part and discard the 1-D shared-edge
+// artifact, so the result is safe to hand back to the binary
+// overlay operations.
+//
+// This uses the polygon pair verified to produce mixed-dim
+// Intersection by simplefeatures' own test suite (alg_overlay_test.go
+// near line 1216). We do NOT assert that pre-fix
+// `geom.Difference(polyA, inter)` panics — for simple synthetic
+// inputs the first FLOAT-noder attempt succeeds and the snap-retry
+// path (where the `addGeometryCollection` mixed-dim check actually
+// lives) is not exercised. The production failure for Austin TX
+// only fires through snap retry on complex high-precision OSM
+// coordinates; the synthetic case can't reproduce that triggering
+// condition, but the FIX is the same either way: strip the 1-D
+// parts before any subsequent overlay.
+func TestRetainPolygonal_NormalizesMixedDimIntersectionResult(t *testing.T) {
+	polyA := mustWKT(t, "POLYGON((0 0,0 2,2 2,1 1,1 0,0 0))")
+	polyB := mustWKT(t, "POLYGON((1 0,1 1,0 2,2 2,2 0,1 0))")
+
+	inter, err := geom.Intersection(polyA, polyB)
+	if err != nil {
+		t.Fatalf("Intersection: %v", err)
+	}
+	if !inter.IsGeometryCollection() {
+		t.Fatalf("expected GeometryCollection from Intersection (upstream-verified shape); got %s — simplefeatures upstream behavior changed and this test no longer covers the bug class", inter.Type())
+	}
+	gc, _ := inter.AsGeometryCollection()
+	sawLine := false
+	for i := range gc.NumGeometries() {
+		if gc.GeometryN(i).Dimension() == 1 {
+			sawLine = true
+		}
+	}
+	if !sawLine {
+		t.Fatalf("expected mixed-dim GC (a 1-D LineString from the shared boundary edge); got %s", inter.AsText())
+	}
+
+	cleaned, err := RetainPolygonal(inter)
+	if err != nil {
+		t.Fatalf("RetainPolygonal: %v", err)
+	}
+	if !cleaned.IsPolygon() && !cleaned.IsMultiPolygon() {
+		t.Fatalf("expected polygonal result, got %s with WKT %s", cleaned.Type(), cleaned.AsText())
+	}
+	if _, err := geom.Difference(polyA, cleaned); err != nil {
+		t.Fatalf("Difference(polyA, cleaned): %v — Difference should accept polygonal input", err)
+	}
+}

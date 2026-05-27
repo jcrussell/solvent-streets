@@ -64,6 +64,17 @@ func SubtractGeoJSON(boundaryGJSON, otherGJSON string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("clip subtrahend to boundary: %w", err)
 	}
+	// JTS OverlayNG's default-mode Intersection can return a
+	// GeometryCollection mixing polygons and linestrings when the operands
+	// share boundary segments outside the 2-D overlap. Feeding that GC into
+	// the next Difference panics inside JTS with "Overlay input is
+	// mixed-dimension". Strip back to 2-D before the subtraction — the 1-D
+	// shared-edge artifacts aren't part of the water area we want to
+	// subtract. Closes solvent-streets-i3ih.
+	otherClipped, err = RetainPolygonal(otherClipped)
+	if err != nil {
+		return "", fmt.Errorf("clean clipped subtrahend (polygonal-only): %w", err)
+	}
 	if otherClipped.IsEmpty() {
 		// Subtrahend lies entirely outside the boundary; nothing to do.
 		return GeometryToGeoJSON(boundary, proj)

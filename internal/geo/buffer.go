@@ -34,6 +34,54 @@ func ValidatePolygon(g geom.Geometry) (geom.Geometry, error) {
 	return geom.Buffer(g, 0)
 }
 
+// RetainPolygonal reduces g to its 2-D parts. LineString, Point, and
+// lower-dimension members of GeometryCollections are dropped; remaining
+// polygons are merged via UnaryUnion so the result is safe to hand to
+// geom.Intersection / geom.Difference.
+//
+// The JTS port underneath simplefeatures panics with "Overlay input is
+// mixed-dimension" on a GeometryCollection containing geometries of
+// differing dimensions, and simplefeatures' self-defense for GC operands
+// (alg_overlay.go::prepareOverlayInputParts) routes through UnaryUnion,
+// which inherits the same restriction. Critically, the documented JTS
+// OverlayNG default-mode behavior is that Intersection of two polygons
+// CAN return a mixed-dim GC when the polygons share boundary segments
+// outside their 2-D overlap (very common for OSM water polygons whose
+// edges follow city boundaries along a river/coast). Feeding that GC
+// directly into Difference triggers the panic; calling RetainPolygonal
+// in between filters out the 1-D shared-edge artifacts and leaves only
+// the 2-D overlap, which is what "subtract water area" wants anyway.
+// Closes solvent-streets-i3ih.
+func RetainPolygonal(g geom.Geometry) (geom.Geometry, error) {
+	if g.IsEmpty() {
+		return g, nil
+	}
+	if g.IsPolygon() || g.IsMultiPolygon() {
+		return g, nil
+	}
+	if !g.IsGeometryCollection() {
+		return geom.Geometry{}, nil
+	}
+	gc, _ := g.AsGeometryCollection()
+	var polys []geom.Geometry
+	for i := range gc.NumGeometries() {
+		child, err := RetainPolygonal(gc.GeometryN(i))
+		if err != nil {
+			return geom.Geometry{}, err
+		}
+		if !child.IsEmpty() {
+			polys = append(polys, child)
+		}
+	}
+	if len(polys) == 0 {
+		return geom.Geometry{}, nil
+	}
+	if len(polys) == 1 {
+		return polys[0], nil
+	}
+	return geom.UnaryUnion(geom.NewGeometryCollection(polys).AsGeometry())
+}
+
 // UnionAll computes the unary union of all geometries, removing overlaps.
 func UnionAll(geometries []geom.Geometry) (geom.Geometry, error) {
 	if len(geometries) == 0 {
