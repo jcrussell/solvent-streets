@@ -52,7 +52,7 @@ func fetchCityBoundary(ctx context.Context, client *http.Client, baseURL string,
 		return "", fmt.Errorf("nominatim returned status %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyBytes))
 	if err != nil {
 		return "", fmt.Errorf("read nominatim response: %w", err)
 	}

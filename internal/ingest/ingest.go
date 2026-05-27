@@ -20,6 +20,11 @@ type Source interface {
 // discarded when Progress is nil.
 type Options struct {
 	Progress io.Writer
+
+	// AllowPrivateArcGIS opts the ArcGIS source out of the SSRF guard
+	// that rejects loopback / link-local / private destinations. Set
+	// only for staging or self-hosted endpoints on internal networks.
+	AllowPrivateArcGIS bool
 }
 
 func AllSources(bbox [4]float64, arcgisURL string, opts Options) []Source {
@@ -27,7 +32,12 @@ func AllSources(bbox [4]float64, arcgisURL string, opts Options) []Source {
 		&OverpassSource{BBox: bbox},
 	}
 	if arcgisURL != "" {
-		sources = append(sources, &ArcGISSource{BBox: bbox, URL: arcgisURL, Progress: opts.Progress})
+		sources = append(sources, &ArcGISSource{
+			BBox:         bbox,
+			URL:          arcgisURL,
+			Progress:     opts.Progress,
+			AllowPrivate: opts.AllowPrivateArcGIS,
+		})
 	}
 	return sources
 }

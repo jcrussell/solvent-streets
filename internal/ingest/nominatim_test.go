@@ -146,6 +146,32 @@ func TestFetchCityBoundary_FallsBackToNonCityTypedPolygon(t *testing.T) {
 	}
 }
 
+// TestFetchCityBoundary_OversizedBodyTruncated pins the LimitReader
+// guard on the Nominatim response. Regression for solvent-streets-675b:
+// the read was unbounded and a hostile or buggy Nominatim response
+// could drive the process OOM. With the cap, an oversized body is
+// truncated to the limit; the truncated JSON fails to parse and the
+// caller sees an error instead of an allocation.
+func TestFetchCityBoundary_OversizedBodyTruncated(t *testing.T) {
+	prev := maxResponseBodyBytes
+	maxResponseBodyBytes = 32
+	t.Cleanup(func() { maxResponseBodyBytes = prev })
+
+	// A body that parses fine in full but is invalid JSON when cut at 32 bytes.
+	geojson := `{"type":"Polygon","coordinates":[[[-121.9,37.6],[-121.8,37.6],[-121.8,37.7],[-121.9,37.7],[-121.9,37.6]]]}`
+	body := `[{"addresstype":"city","geojson":` + geojson + `}]`
+	srv := nominatimTestServer(t, body)
+	t.Cleanup(srv.Close)
+
+	_, err := fetchCityBoundary(context.Background(), srv.Client(), srv.URL, "Test")
+	if err == nil {
+		t.Fatal("expected parse error on truncated oversized response")
+	}
+	if !strings.Contains(err.Error(), "parse nominatim response") {
+		t.Errorf("expected parse-error message, got: %v", err)
+	}
+}
+
 func TestFetchCityBoundary_MultiPolygon(t *testing.T) {
 	geojson := `{"type":"MultiPolygon","coordinates":[[[[-121.9,37.6],[-121.8,37.6],[-121.8,37.7],[-121.9,37.7],[-121.9,37.6]]]]}`
 	body := `[{"addresstype":"city","geojson":` + geojson + `}]`

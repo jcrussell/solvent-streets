@@ -21,9 +21,10 @@ const arcgisMaxPages = 200 // safety limit: 200 pages × 5000 = 1M features max
 const defaultArcGISCenterlines = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
 
 type ArcGISSource struct {
-	BBox     [4]float64 // [south, west, north, east]
-	URL      string     // custom ArcGIS endpoint; empty uses default
-	Progress io.Writer  // pagination progress sink; nil discards
+	BBox         [4]float64 // [south, west, north, east]
+	URL          string     // custom ArcGIS endpoint; empty uses default
+	Progress     io.Writer  // pagination progress sink; nil discards
+	AllowPrivate bool       // skip the SSRF guard; required for self-hosted staging endpoints on internal networks
 }
 
 var _ Source = (*ArcGISSource)(nil)
@@ -46,6 +47,12 @@ func (s *ArcGISSource) Fetch(ctx context.Context, client *http.Client, rt resour
 	endpoint := s.URL
 	if endpoint == "" {
 		endpoint = defaultArcGISCenterlines
+	}
+
+	if !s.AllowPrivate {
+		if err := validatePublicHTTPURL(ctx, endpoint); err != nil {
+			return nil, fmt.Errorf("arcgis endpoint: %w", err)
+		}
 	}
 
 	bbox := s.BBox
@@ -100,7 +107,7 @@ func fetchArcGISPage(ctx context.Context, client *http.Client, endpoint, envelop
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 100*1024*1024))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyBytes))
 	if err != nil {
 		return nil, fmt.Errorf("read arcgis response: %w", err)
 	}

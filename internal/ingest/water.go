@@ -45,12 +45,13 @@ func fetchOSMWater(ctx context.Context, client *http.Client, baseURL string, bbo
 	return parseWaterResponse(ctx, body, bbox, landProbes)
 }
 
-// overpassMaxResponseBytes caps Overpass responses to defend against
-// runaway queries (e.g., the global water shape if a bbox arg is
-// botched). Hit by reading via io.LimitReader; we never fail just for
-// hitting the cap, but truncation is logged so an operator can notice
-// missing trailing JSON if a real query genuinely exceeds it.
-const overpassMaxResponseBytes = 100 * 1024 * 1024
+// maxResponseBodyBytes caps every external API response (Overpass,
+// ArcGIS, Nominatim) at 100 MB. Defends against runaway queries (e.g.,
+// the global water shape if a bbox arg is botched) or hostile/buggy
+// servers that try to drive the process OOM via an unbounded body.
+// A var (not const) so tests can shrink it without round-tripping
+// 100 MB through an httptest.Server.
+var maxResponseBodyBytes int64 = 100 * 1024 * 1024
 
 // postOverpass issues the project-standard Overpass query POST and
 // returns the raw response body. Used by all Overpass call sites so
@@ -70,7 +71,7 @@ func postOverpass(ctx context.Context, client *http.Client, baseURL, query strin
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, overpassMaxResponseBytes))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyBytes))
 	if err != nil {
 		return nil, fmt.Errorf("read overpass response: %w", err)
 	}

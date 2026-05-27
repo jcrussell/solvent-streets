@@ -92,7 +92,7 @@ func fetchBBox(ctx context.Context, client *http.Client, rt resource.Source, bbo
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 100*1024*1024))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyBytes))
 	if err != nil {
 		return nil, fmt.Errorf("read overpass response: %w", err)
 	}

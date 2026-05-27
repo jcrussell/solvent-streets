@@ -112,7 +112,7 @@ func runIngest(ctx context.Context, opts *Options) error {
 		return fmt.Errorf("derive bbox: %w", err)
 	}
 
-	sources, err := resolveSources(opts, bbox, city.ArcGISURL, ios)
+	sources, err := resolveSources(opts, bbox, city.ArcGISURL, city.AllowPrivateArcGIS, ios)
 	if err != nil {
 		return err
 	}
@@ -376,8 +376,8 @@ func acceptStripRatio(orig, stripped, threshold float64) bool {
 	return stripped/orig >= threshold
 }
 
-func resolveSources(opts *Options, bbox [4]float64, arcgisURL string, ios *iostreams.IOStreams) ([]ingestpkg.Source, error) {
-	srcOpts := ingestpkg.Options{Progress: ios.ErrOut}
+func resolveSources(opts *Options, bbox [4]float64, arcgisURL string, allowPrivateArcGIS bool, ios *iostreams.IOStreams) ([]ingestpkg.Source, error) {
+	srcOpts := ingestpkg.Options{Progress: ios.ErrOut, AllowPrivateArcGIS: allowPrivateArcGIS}
 	if opts.Source == cmdutil.SourceAll {
 		return ingestpkg.AllSources(bbox, arcgisURL, srcOpts), nil
 	}

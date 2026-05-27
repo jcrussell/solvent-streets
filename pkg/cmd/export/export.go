@@ -92,10 +92,12 @@ func runExport(ctx context.Context, opts *Options) error {
 		return err
 	}
 
-	if info, err := os.Stat(opts.OutputDir); err == nil && info.IsDir() {
-		if err := os.RemoveAll(opts.OutputDir); err != nil {
-			return fmt.Errorf("clean output directory: %w", err)
-		}
+	// RemoveAll is a no-op on missing paths and removes the directory if
+	// it exists. The previous Stat-then-RemoveAll pattern opened a window
+	// where a symlink swap between the two calls could redirect the
+	// removal outside the intended directory.
+	if err := os.RemoveAll(opts.OutputDir); err != nil {
+		return fmt.Errorf("clean output directory: %w", err)
 	}
 
 	cfg, err := opts.Config()

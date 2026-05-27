@@ -39,13 +39,13 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 	td, err := s.buildIndexData(r.Context(), entry)
 	if err != nil {
-		httpErr(w, err, http.StatusInternalServerError)
+		s.httpErr(w, err, http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := tmpl.Execute(w, td); err != nil {
-		httpErr(w, err, http.StatusInternalServerError)
+		s.httpErr(w, err, http.StatusInternalServerError)
 	}
 }
 
@@ -99,11 +99,15 @@ func (s *Server) buildIndexData(ctx context.Context, entry export.CityEntry) (ex
 	}, nil
 }
 
-// httpErr writes err's message as an HTTP error response. Centralizing the
-// http.Error(w, err.Error(), code) pattern keeps a single seam in case the
-// error-rendering policy ever changes (e.g. hiding internal messages).
-func httpErr(w http.ResponseWriter, err error, code int) {
-	http.Error(w, err.Error(), code)
+// httpErr logs the full err server-side and writes a generic status-matched
+// message to the client. The split exists so DB paths, file paths, and
+// wrapped error chains stay out of the response body while operators still
+// see the real cause in the server log.
+//
+//nolint:unparam // every current caller is 500, but the helper is the seam for any 4xx/5xx surface.
+func (s *Server) httpErr(w http.ResponseWriter, err error, code int) {
+	fmt.Fprintf(s.ios.ErrOut, "server: %d %s: %v\n", code, http.StatusText(code), err)
+	http.Error(w, http.StatusText(code), code)
 }
 
 func (s *Server) handleWasmExecJS(w http.ResponseWriter, _ *http.Request) {
@@ -147,7 +151,7 @@ func (s *Server) handleCitiesList(w http.ResponseWriter, r *http.Request) {
 		}
 		cities = append(cities, info)
 	}
-	writeJSON(w, cities)
+	s.writeJSON(w, cities)
 }
 
 // handleSnapshotsList returns a handler for the single-city /api/snapshots route.
@@ -169,7 +173,7 @@ func (s *Server) handleCitySnapshotsList(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) serveDataFile(w http.ResponseWriter, r *http.Request, file string, entry export.CityEntry) {
-	snapshotID, ok := parseSnapshotParam(r.Context(), w, r, entry.Store)
+	snapshotID, ok := s.parseSnapshotParam(r.Context(), w, r, entry.Store)
 	if !ok {
 		return
 	}
@@ -203,7 +207,7 @@ func (s *Server) serveDataFile(w http.ResponseWriter, r *http.Request, file stri
 //   - non-integer, ≤0, or unknown for this city → writes 404 and returns
 //     (_, false); the bead spec wants invalid ids to 404, not 500.
 //   - valid id belonging to this city → returns (id, true).
-func parseSnapshotParam(ctx context.Context, w http.ResponseWriter, r *http.Request, store db.Store) (int64, bool) {
+func (s *Server) parseSnapshotParam(ctx context.Context, w http.ResponseWriter, r *http.Request, store db.Store) (int64, bool) {
 	raw := r.URL.Query().Get("snapshot")
 	if raw == "" {
 		return 0, true
@@ -218,7 +222,7 @@ func parseSnapshotParam(ctx context.Context, w http.ResponseWriter, r *http.Requ
 			http.NotFound(w, r)
 			return 0, false
 		}
-		httpErr(w, err, http.StatusInternalServerError)
+		s.httpErr(w, err, http.StatusInternalServerError)
 		return 0, false
 	}
 	return id, true
@@ -232,10 +236,10 @@ func cacheKey(kind, slug string, snapshotID int64) string {
 }
 
 // writeJSON encodes v as JSON and writes it to w with appropriate headers.
-func writeJSON(w http.ResponseWriter, v any) {
+func (s *Server) writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(v); err != nil {
-		httpErr(w, err, http.StatusInternalServerError)
+		s.httpErr(w, err, http.StatusInternalServerError)
 	}
 }
 
@@ -291,7 +295,7 @@ func (s *Server) serveJSONCached(w http.ResponseWriter, key string, build func()
 	data, err := entry.once()
 	if err != nil {
 		s.cache.CompareAndDelete(key, entry)
-		httpErr(w, err, http.StatusInternalServerError)
+		s.httpErr(w, err, http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

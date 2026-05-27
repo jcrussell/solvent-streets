@@ -558,3 +558,29 @@ func TestHandleCitiesList_SchemaParity(t *testing.T) {
 		t.Errorf("missing key %q in /api/cities response", k)
 	}
 }
+
+// TestHttpErr_HidesInternalMessage pins the policy that internal error
+// strings (DB paths, file paths, wrapped chains) never reach the HTTP
+// response body — they are logged to ErrOut and the client sees only the
+// generic status text. Regression guard for solvent-streets-fvzj.
+func TestHttpErr_HidesInternalMessage(t *testing.T) {
+	ios, _, _, errOut := iostreams.Test()
+	srv := New(nil, 0, ios)
+
+	internal := errors.New("sqlite: failed to open /var/lib/pvmt/pvmt.db: locked")
+	w := httptest.NewRecorder()
+	srv.httpErr(w, internal, http.StatusInternalServerError)
+
+	body := strings.TrimSpace(w.Body.String())
+	if body != http.StatusText(http.StatusInternalServerError) {
+		t.Errorf("response body leaked internal detail: %q", body)
+	}
+	if strings.Contains(body, "sqlite") || strings.Contains(body, "/var/lib") {
+		t.Errorf("response body contains DB/path detail: %q", body)
+	}
+
+	logged := errOut.String()
+	if !strings.Contains(logged, "sqlite") || !strings.Contains(logged, "/var/lib/pvmt/pvmt.db") {
+		t.Errorf("server log missing internal detail; got %q", logged)
+	}
+}

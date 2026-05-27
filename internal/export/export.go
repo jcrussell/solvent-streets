@@ -17,6 +17,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/units"
+	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 )
 
 // --- Exporter (static site generation) ---
@@ -323,23 +324,12 @@ func (e *Exporter) writeWasmAssets(dir string) error {
 	return WriteSharedWasmAssets(dir)
 }
 
-func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolvedTOML, unitSystem string, cities []CityInfo) (err error) {
+func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolvedTOML, unitSystem string, cities []CityInfo) error {
 	sys := units.ParseSystem(unitSystem)
 	tmpl, err := ParseIndexTemplate(sys)
 	if err != nil {
 		return err
 	}
-
-	outPath := filepath.Join(e.outputDir, "index.html")
-	f, err := os.Create(outPath)
-	if err != nil {
-		return fmt.Errorf("create index.html: %w", err)
-	}
-	defer func() {
-		if cerr := f.Close(); cerr != nil && err == nil {
-			err = fmt.Errorf("close index.html: %w", cerr)
-		}
-	}()
 
 	methodology, err := MethodologyHTML()
 	if err != nil {
@@ -356,7 +346,17 @@ func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolved
 		WasmPrefix:      e.wasmPrefix,
 		MethodologyHTML: methodology,
 	}
-	return tmpl.Execute(f, td)
+
+	// Render to a buffer first so an interrupted Execute (template error,
+	// process kill) cannot leave a partially-written index.html visible at
+	// the target path. cmdutil.WriteFile then does temp+rename in the same
+	// directory for an atomic replacement.
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, td); err != nil {
+		return err
+	}
+	outPath := filepath.Join(e.outputDir, "index.html")
+	return cmdutil.WriteFile(outPath, buf.Bytes(), 0o644)
 }
 
 func writeJSON(path string, v any) error {

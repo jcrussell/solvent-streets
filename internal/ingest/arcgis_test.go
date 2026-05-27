@@ -194,8 +194,9 @@ func TestFetch_Pagination(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	src := &ArcGISSource{
-		BBox: [4]float64{37.0, -122.0, 38.0, -121.0},
-		URL:  srv.URL,
+		BBox:         [4]float64{37.0, -122.0, 38.0, -121.0},
+		URL:          srv.URL,
+		AllowPrivate: true, // httptest.Server binds 127.0.0.1; the SSRF guard would otherwise refuse it.
 	}
 	rt := resource.ByType(resource.TypeRoads)
 	features, err := src.Fetch(context.Background(), srv.Client(), rt)
@@ -228,8 +229,9 @@ func TestFetch_SinglePage(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	src := &ArcGISSource{
-		BBox: [4]float64{37.0, -122.0, 38.0, -121.0},
-		URL:  srv.URL,
+		BBox:         [4]float64{37.0, -122.0, 38.0, -121.0},
+		URL:          srv.URL,
+		AllowPrivate: true, // httptest.Server binds 127.0.0.1; the SSRF guard would otherwise refuse it.
 	}
 	features, err := src.Fetch(context.Background(), srv.Client(), resource.ByType(resource.TypeRoads))
 	if err != nil {
@@ -254,8 +256,9 @@ func TestFetch_ArcGISErrorEnvelope(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	src := &ArcGISSource{
-		BBox: [4]float64{37.0, -122.0, 38.0, -121.0},
-		URL:  srv.URL,
+		BBox:         [4]float64{37.0, -122.0, 38.0, -121.0},
+		URL:          srv.URL,
+		AllowPrivate: true, // httptest.Server binds 127.0.0.1; the SSRF guard would otherwise refuse it.
 	}
 	_, err := src.Fetch(context.Background(), srv.Client(), resource.ByType(resource.TypeRoads))
 	if err == nil {
@@ -278,8 +281,9 @@ func TestFetch_NonOKStatusIncludesEndpoint(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	src := &ArcGISSource{
-		BBox: [4]float64{37.0, -122.0, 38.0, -121.0},
-		URL:  srv.URL,
+		BBox:         [4]float64{37.0, -122.0, 38.0, -121.0},
+		URL:          srv.URL,
+		AllowPrivate: true, // httptest.Server binds 127.0.0.1; the SSRF guard would otherwise refuse it.
 	}
 	_, err := src.Fetch(context.Background(), srv.Client(), resource.ByType(resource.TypeRoads))
 	if err == nil {
@@ -338,6 +342,60 @@ func TestArcGISErrorMessage(t *testing.T) {
 	}
 }
 
+// TestFetch_RefusesLoopback pins the SSRF guard: a hostile pvmt.toml
+// pointing arcgis_url at localhost / 169.254.169.254 / RFC1918 must be
+// refused with a clear error referencing the override flag. Regression
+// for solvent-streets-di49.
+func TestFetch_RefusesLoopback(t *testing.T) {
+	cases := []struct {
+		name string
+		url  string
+	}{
+		{"loopback IPv4", "http://127.0.0.1/arcgis/rest/services/x/FeatureServer/0/query"},
+		{"loopback IPv6", "http://[::1]/arcgis/rest/services/x/FeatureServer/0/query"},
+		{"link-local imds", "http://169.254.169.254/latest/meta-data/"},
+		{"rfc1918 10/8", "http://10.0.0.1/arcgis/rest/services/x/FeatureServer/0/query"},
+		{"rfc1918 192.168/16", "http://192.168.1.1/arcgis/rest/services/x/FeatureServer/0/query"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := &ArcGISSource{
+				BBox: [4]float64{37.0, -122.0, 38.0, -121.0},
+				URL:  tc.url,
+			}
+			_, err := src.Fetch(context.Background(), http.DefaultClient, resource.ByType(resource.TypeRoads))
+			if err == nil {
+				t.Fatalf("expected SSRF refusal for %s, got nil", tc.url)
+			}
+			if !strings.Contains(err.Error(), "allow_private_arcgis") {
+				t.Errorf("expected override hint in error, got: %v", err)
+			}
+		})
+	}
+}
+
+// TestFetch_AllowPrivateOptIn confirms the override path: with
+// AllowPrivate=true, a loopback URL is no longer refused at the SSRF
+// layer (and reaches the real fetch, which here returns a valid empty
+// FeatureCollection).
+func TestFetch_AllowPrivateOptIn(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"features": []}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	src := &ArcGISSource{
+		BBox:         [4]float64{37.0, -122.0, 38.0, -121.0},
+		URL:          srv.URL,
+		AllowPrivate: true,
+	}
+	_, err := src.Fetch(context.Background(), srv.Client(), resource.ByType(resource.TypeRoads))
+	if err != nil {
+		t.Fatalf("expected loopback override to permit fetch, got: %v", err)
+	}
+}
+
 func TestFetch_EmptyResponse(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -346,8 +404,9 @@ func TestFetch_EmptyResponse(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	src := &ArcGISSource{
-		BBox: [4]float64{37.0, -122.0, 38.0, -121.0},
-		URL:  srv.URL,
+		BBox:         [4]float64{37.0, -122.0, 38.0, -121.0},
+		URL:          srv.URL,
+		AllowPrivate: true, // httptest.Server binds 127.0.0.1; the SSRF guard would otherwise refuse it.
 	}
 	features, err := src.Fetch(context.Background(), srv.Client(), resource.ByType(resource.TypeRoads))
 	if err != nil {

@@ -191,6 +191,12 @@ type CityConfig struct {
 	// search by Name. See solvent-streets-95i8 for the diagnosis
 	// pattern.
 	BoundaryRelationID int64 `toml:"boundary_relation_id"`
+
+	// AllowPrivateArcGIS opts this city's ArcGISURL out of the
+	// loopback / link-local / private-IP defense (solvent-streets-di49).
+	// Required only for staging or self-hosted ArcGIS endpoints on
+	// internal networks; public ArcGIS endpoints work without it.
+	AllowPrivateArcGIS bool `toml:"allow_private_arcgis"`
 }
 
 type GridConfig struct {
