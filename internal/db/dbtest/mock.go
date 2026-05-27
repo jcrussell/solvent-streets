@@ -13,7 +13,10 @@ var _ db.Store = (*MockStore)(nil)
 
 // MockStore is a func-field based mock implementing db.Store.
 // Each method delegates to its corresponding func field if set,
-// otherwise returns a zero-value success.
+// otherwise returns a zero-value success. List* methods return a
+// non-nil empty slice rather than nil so tests can distinguish "no
+// rows" from "not mocked" via len, matching the rows-iteration
+// contract of the real sqliteStore.
 type MockStore struct {
 	UpsertFeaturesFunc      func(context.Context, resource.Type, []db.Feature) error
 	ListFeaturesFunc        func(context.Context, resource.Type) ([]db.Feature, error)
@@ -49,7 +52,7 @@ func (m *MockStore) ListFeatures(ctx context.Context, rt resource.Type) ([]db.Fe
 	if m.ListFeaturesFunc != nil {
 		return m.ListFeaturesFunc(ctx, rt)
 	}
-	return nil, nil
+	return []db.Feature{}, nil
 }
 
 func (m *MockStore) SaveComputeResult(ctx context.Context, r db.ComputeResult) error {
@@ -77,7 +80,7 @@ func (m *MockStore) ListHexStats(ctx context.Context, rt resource.Type) ([]db.He
 	if m.ListHexStatsFunc != nil {
 		return m.ListHexStatsFunc(ctx, rt)
 	}
-	return nil, nil
+	return []db.HexStat{}, nil
 }
 
 func (m *MockStore) CreateSnapshot(ctx context.Context, hash string) (*db.Snapshot, error) {
@@ -91,7 +94,7 @@ func (m *MockStore) ListSnapshots(ctx context.Context) ([]db.Snapshot, error) {
 	if m.ListSnapshotsFunc != nil {
 		return m.ListSnapshotsFunc(ctx)
 	}
-	return nil, nil
+	return []db.Snapshot{}, nil
 }
 
 func (m *MockStore) ResolveSnapshot(ctx context.Context, id int64) error {
@@ -143,7 +146,7 @@ func (m *MockStore) ListForecastResults(ctx context.Context, rt resource.Type) (
 	if m.ListForecastResultsFunc != nil {
 		return m.ListForecastResultsFunc(ctx, rt)
 	}
-	return nil, nil
+	return []db.ForecastResult{}, nil
 }
 
 func (m *MockStore) SaveCohortStats(ctx context.Context, stats []db.CohortStat) error {
@@ -157,7 +160,7 @@ func (m *MockStore) ListCohortStats(ctx context.Context, rt resource.Type) ([]db
 	if m.ListCohortStatsFunc != nil {
 		return m.ListCohortStatsFunc(ctx, rt)
 	}
-	return nil, nil
+	return []db.CohortStat{}, nil
 }
 
 func (m *MockStore) SaveBoundary(ctx context.Context, geometryJSON, source string) error {
@@ -185,7 +188,7 @@ func (m *MockStore) ResourceTypes(ctx context.Context) ([]resource.Type, error) 
 	if m.ResourceTypesFunc != nil {
 		return m.ResourceTypesFunc(ctx)
 	}
-	return nil, nil
+	return []resource.Type{}, nil
 }
 
 func (m *MockStore) Close() error {
@@ -215,7 +218,7 @@ func (m *MockRootStore) ListCities(ctx context.Context) ([]db.City, error) {
 	if m.ListCitiesFunc != nil {
 		return m.ListCitiesFunc(ctx)
 	}
-	return nil, nil
+	return []db.City{}, nil
 }
 
 func (m *MockRootStore) ForCity(id int64) db.Store {

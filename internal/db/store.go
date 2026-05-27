@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/jcrussell/solvent-streets/internal/resource"
@@ -62,6 +63,12 @@ func (s *sqliteStore) ListFeatures(ctx context.Context, resourceType resource.Ty
 			return nil, fmt.Errorf("scan feature: %w", err)
 		}
 		if err := json.Unmarshal([]byte(tagsJSON), &f.Tags); err != nil {
+			// Surface the parse failure so a corrupt tags row is not
+			// indistinguishable from a legitimately empty one. We
+			// still fall through to an empty map so the rest of the
+			// pipeline can keep running on the unaffected features.
+			slog.WarnContext(ctx, "feature tags JSON unmarshal failed",
+				"feature_id", f.ID, "resource_type", f.ResourceType, "err", err)
 			f.Tags = make(map[string]string)
 		}
 		features = append(features, f)
@@ -166,7 +173,7 @@ func (s *sqliteStore) CreateSnapshot(ctx context.Context, configHash string) (*S
 		return nil, fmt.Errorf("get snapshot id: %w", err)
 	}
 	snap := &Snapshot{ID: id, ConfigHash: configHash}
-	if err := s.db.QueryRowContext(ctx, `SELECT computed_at FROM snapshots WHERE id = ?`, id).Scan(&snap.ComputedAt); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT computed_at FROM snapshots WHERE id = ? AND city_id = ?`, id, s.cityID).Scan(&snap.ComputedAt); err != nil {
 		return nil, fmt.Errorf("get snapshot timestamp: %w", err)
 	}
 	return snap, nil
@@ -320,13 +327,22 @@ func (s *sqliteStore) Stats(ctx context.Context, resourceType resource.Type) (*S
 		return nil, fmt.Errorf("count features: %w", err)
 	}
 
-	var lastIngest *time.Time
+	// ORDER BY ... LIMIT 1 + sql.ErrNoRows cleanly distinguishes "no
+	// features yet" (leave LastIngestAt nil) from a real query failure
+	// (locked DB, transient I/O) which previously folded indistinguishably
+	// into the same "no features" branch. modernc.org/sqlite scans the
+	// TEXT-stored timestamp into *time.Time directly; sql.NullTime would
+	// route through stdlib's convertAssign and fail to parse the format.
 	var t time.Time
-	err = s.db.QueryRowContext(ctx, `SELECT MAX(fetched_at) FROM features WHERE resource_type = ? AND city_id = ?`, resourceType, s.cityID).Scan(&t)
-	if err == nil && !t.IsZero() {
-		lastIngest = &t
+	err = s.db.QueryRowContext(ctx, `SELECT fetched_at FROM features WHERE resource_type = ? AND city_id = ? ORDER BY fetched_at DESC LIMIT 1`, resourceType, s.cityID).Scan(&t)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		// no features yet
+	case err != nil:
+		return nil, fmt.Errorf("latest fetched_at: %w", err)
+	default:
+		info.LastIngestAt = &t
 	}
-	info.LastIngestAt = lastIngest
 
 	result, err := s.LatestComputeResult(ctx, resourceType)
 	if err == nil && result != nil {
