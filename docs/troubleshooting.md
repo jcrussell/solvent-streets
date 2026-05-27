@@ -67,3 +67,42 @@ Common causes:
 - SELinux / AppArmor denies writes to your home directory's hidden dirs. Check audit logs and adjust the policy.
 
 If reseating permissions doesn't help, run `pvmt status` to print every resolved path — that often surfaces a typo or a stray override env var.
+
+## `#water-strip-skipped`
+
+**Hint:** *one-line warning emitted by `pvmt ingest`; the boundary is still saved but without OSM water subtracted.*
+
+`stripWaterFromBoundary` (`pkg/cmd/ingest/ingest.go`) is best-effort: it fetches `natural=water` and `natural=coastline` features from Overpass and subtracts them from the Nominatim boundary so cross-city `% paved` is apples-to-apples. When it can't, it logs a `water strip skipped: …` warning and continues with the unstripped boundary. Downstream area numbers are inflated by the un-subtracted water area; roads/parking/sidewalks ingest is unaffected.
+
+Variants you'll see in logs:
+
+- `water strip skipped: bbox: …` — the Nominatim boundary's bbox couldn't be computed. Almost always a malformed cached boundary; `--force` re-fetches.
+- `water strip skipped: interior points: …` — `geo.InteriorPoints` failed (boundary GeoJSON is neither Polygon nor MultiPolygon, or is empty). Same fix: `--force`.
+- `water strip skipped: overpass: …` — the Overpass POST failed. Network, rate limit, or response > 100 MB. Retry; the HTTP cache will reuse a successful response within 24 h.
+- `water strip skipped: subtract: …` — `simplefeatures.Difference` errored. Most often this is the `Overlay input is mixed-dimension` panic affecting a small set of cities (Austin, Fort Worth, …); tracked in bead `solvent-streets-i3ih`.
+Per-polygon land-probe drops (not skips — the strip still runs; specific polygons are filtered out):
+
+- `water way: dropped polygon containing city land` (`internal/ingest/water.go`, debug log fields `way`, `land_hits`, `land_probes`) — a closed `natural=water` way whose outer ring contains one or more of the `PointOnSurface` samples from the Nominatim boundary. Caused by an OSM tagging error where land was tagged as water. The way is excluded from the subtraction; legitimate water polygons in the same response still strip normally.
+- `water relation: dropped polygon containing city land` — the relation analogue. The hole-aware check exempts probes that fall inside an inner ring (a non-water "island" within the polygon); only probes inside the polygon's set-theoretic interior count as hits.
+- `water coastline: dropped chain — both candidates overlap city land` — both CW and CCW bbox-edge closures of an open coastline chain contain at least one land probe (the chain weaves through multiple landmasses; NYC chain=8774). Refusing to close is the correct posture for ambiguous chains; the chain's water is simply not subtracted.
+- `water coastline: dropped CW closed ring containing city land` — a closed CW coastline ring (would normally pass through as a lake) that wraps around the city's land instead. Dropped to prevent over-subtraction.
+
+Hard failure (no `skipped` prefix — pvmt exits non-zero):
+
+- `water strip for <City>: water strip over-subtracted: stripped … sq m is …% of original … sq m` — the 0.1 aggregate area-ratio backstop at `pkg/cmd/ingest/ingest.go` rejected the result. This is the LAST line of defense, reachable only when every prior per-polygon filter (`acceptWaterPolygon`'s bbox-area cap, the per-polygon land-probe filter, `closeOpenSubChain`'s coastline disambiguation) accepted polygons that collectively still over-subtract. If you hit it, run the diagnostic:
+
+  ```
+  pvmt --city '<City>' --force -vv roads ingest 2>&1 \
+    | grep -E 'water (way|relation|coastline):'
+  ```
+
+  That surfaces every accepted/rejected polygon by OSM id and bbox-area fraction. To inspect the cached Nominatim boundary for the offending city:
+
+  ```
+  sqlite3 ~/.local/share/pvmt/pvmt.db \
+    "SELECT source, length(geometry_json)
+       FROM city_boundaries
+       WHERE city_id = (SELECT id FROM cities WHERE slug = 'new-york-ny')"
+  ```
+
+  If the boundary has fewer sub-polygons than the city visibly has landmasses (e.g., NYC with <5), `geo.InteriorPoints` is producing too few probes for the per-polygon filter to be a complete defense; consider whether the city needs a `BoundaryRelationID` override (memory `osm-place-city-node-fallback`).

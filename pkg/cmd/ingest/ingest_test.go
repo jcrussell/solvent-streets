@@ -262,7 +262,7 @@ func TestAcceptStripRatio(t *testing.T) {
 // of stripWaterFromBoundary control what "the Overpass API" returns
 // without standing up an httptest server.
 func fakeWaterFetcher(body string) waterFetcher {
-	return func(_ context.Context, _ *http.Client, _ [4]float64) (string, error) {
+	return func(_ context.Context, _ *http.Client, _ [4]float64, _ [][2]float64) (string, error) {
 		return body, nil
 	}
 }
@@ -514,20 +514,32 @@ func TestResolveBoundary_RelationErrorHintsAreClassSpecific(t *testing.T) {
 	}
 }
 
-// TestStripWaterFromBoundary_RejectsOverSubtractedStrip pins the
-// over-subtraction guard at the function level: when the OSM water
-// polygon covers most of the boundary, stripWaterFromBoundary returns
-// ErrWaterStripOverSubtracted so the caller aborts loudly rather than
-// silently falling back. The fallback would hide regressions in the
-// water-stitching pipeline.
-func TestStripWaterFromBoundary_RejectsOverSubtractedStrip(t *testing.T) {
+// TestStripWaterFromBoundary_BackstopTripsOnDonutHole pins the
+// area-ratio backstop: even after the upstream per-polygon land-probe
+// filter (in parseWaterResponse) has dropped any individual polygon
+// that overlaps city land, the assembled water can still
+// collectively over-subtract if it has a hole containing the only
+// land remaining. This test constructs that pathological case
+// directly via fakeWaterFetcher (bypassing parseWaterResponse) to
+// confirm the backstop still catches it as a HARD error.
+//
+// The 0.1-ratio guard is the last line of defense — every prior
+// defense (acceptWaterPolygon's bbox-area cap, the per-polygon land-
+// probe filter, closeOpenSubChain's coastline disambiguation) is
+// per-polygon; only the backstop measures the collective effect.
+func TestStripWaterFromBoundary_BackstopTripsOnDonutHole(t *testing.T) {
 	// ~0.01° × 0.01° square at Boston latitude → ~0.9 km².
 	boundary := `{"type":"Polygon","coordinates":[[[-71.06,42.36],[-71.05,42.36],[-71.05,42.37],[-71.06,42.37],[-71.06,42.36]]]}`
 
-	// Water = MultiPolygon covering ~98% of boundary; stripped result
-	// lands well under the 0.1 threshold. Inset of only 1% of each side
-	// so the remaining strip is too small to pass the backstop guard.
-	water := `{"type":"MultiPolygon","coordinates":[[[[-71.05999,42.36001],[-71.05001,42.36001],[-71.05001,42.36999],[-71.05999,42.36999],[-71.05999,42.36001]]]]}`
+	// Donut MultiPolygon: outer = full boundary, hole = small region
+	// containing the boundary's PointOnSurface (~ -71.055, 42.365).
+	// The probe lies in the hole, so the per-polygon land-probe check
+	// (if it ran here) would NOT drop the polygon; but subtraction
+	// leaves only the ~1% hole area, well under the 10% backstop.
+	water := `{"type":"MultiPolygon","coordinates":[[` +
+		`[[-71.06,42.36],[-71.05,42.36],[-71.05,42.37],[-71.06,42.37],[-71.06,42.36]],` +
+		`[[-71.0555,42.3645],[-71.0545,42.3645],[-71.0545,42.3655],[-71.0555,42.3655],[-71.0555,42.3645]]` +
+		`]]}`
 
 	gjson, warn, err := stripWaterFromBoundary(
 		context.Background(), &http.Client{}, fakeWaterFetcher(water), boundary,
@@ -574,7 +586,7 @@ func TestStripWaterFromBoundary_AcceptsModestStrip(t *testing.T) {
 // the unstripped boundary. Network outages must not break ingest.
 func TestStripWaterFromBoundary_SoftFailureFallsBack(t *testing.T) {
 	boundary := `{"type":"Polygon","coordinates":[[[-71.06,42.36],[-71.05,42.36],[-71.05,42.37],[-71.06,42.37],[-71.06,42.36]]]}`
-	failingFetcher := func(_ context.Context, _ *http.Client, _ [4]float64) (string, error) {
+	failingFetcher := func(_ context.Context, _ *http.Client, _ [4]float64, _ [][2]float64) (string, error) {
 		return "", errors.New("simulated overpass outage")
 	}
 

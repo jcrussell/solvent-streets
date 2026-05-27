@@ -45,7 +45,7 @@ func TestFetchOSMWater_Success(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	result, err := fetchOSMWater(context.Background(), srv.Client(), srv.URL, [4]float64{42.0, -72.0, 43.0, -71.0})
+	result, err := fetchOSMWater(context.Background(), srv.Client(), srv.URL, [4]float64{42.0, -72.0, 43.0, -71.0}, [][2]float64{{-71.5, 42.5}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestFetchOSMWater_NoWaterReturnsEmpty(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	result, err := fetchOSMWater(context.Background(), srv.Client(), srv.URL, [4]float64{0, 0, 1, 1})
+	result, err := fetchOSMWater(context.Background(), srv.Client(), srv.URL, [4]float64{0, 0, 1, 1}, [][2]float64{{0.5, 0.5}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestFetchOSMWater_SkipsOpenWays(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	result, err := fetchOSMWater(context.Background(), srv.Client(), srv.URL, [4]float64{0, 0, 1, 1})
+	result, err := fetchOSMWater(context.Background(), srv.Client(), srv.URL, [4]float64{0, 0, 1, 1}, [][2]float64{{0.5, 0.5}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestFetchOSMWater_Non200(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, err := fetchOSMWater(context.Background(), srv.Client(), srv.URL, [4]float64{0, 0, 1, 1})
+	_, err := fetchOSMWater(context.Background(), srv.Client(), srv.URL, [4]float64{0, 0, 1, 1}, [][2]float64{{0.5, 0.5}})
 	if err == nil {
 		t.Fatal("expected error on non-200")
 	}
@@ -154,8 +154,10 @@ func TestParseWaterResponse_RelationStitchedOuter(t *testing.T) {
 
 	// bbox strictly contains the polygon so the per-outer 80%-of-bbox
 	// area guard (acceptWaterPolygon) doesn't trip. Same pattern applies
-	// to other parseWaterResponse tests below.
-	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{-1, -1, 2, 2})
+	// to other parseWaterResponse tests below. landProbe is placed
+	// OUTSIDE the unit-square water polygon so the new per-polygon land-
+	// probe filter doesn't drop it.
+	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{-1, -1, 2, 2}, [][2]float64{{-0.5, -0.5}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +193,7 @@ func TestParseWaterResponse_RelationWithInnerHole(t *testing.T) {
 		]
 	}]}`
 
-	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{-5, -5, 15, 15})
+	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{-5, -5, 15, 15}, [][2]float64{{5, 5}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,12 +224,141 @@ func TestParseWaterResponse_RelationDropsOpenChain(t *testing.T) {
 		]
 	}]}`
 
-	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{0, 0, 10, 10})
+	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{0, 0, 10, 10}, [][2]float64{{5, 5}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result != "" {
 		t.Errorf("expected empty result when relation cannot be stitched; got %q", result)
+	}
+}
+
+// TestParseWaterResponse_DropsWayContainingLandProbe pins the per-
+// polygon land-probe filter for closed `natural=water` ways: a way
+// whose outer ring wrongly traces around city land (probe inside) is
+// dropped with a structured WARN naming the way id and hit count.
+// This is the root-cause defense against single-way coastline-style
+// errors that the prior pipeline accepted as legitimate water.
+func TestParseWaterResponse_DropsWayContainingLandProbe(t *testing.T) {
+	// One closed natural=water way at unit-square (0..1, 0..1).
+	body := `{"elements":[{
+		"type":"way","id":101,"tags":{"natural":"water"},
+		"geometry":[
+			{"lat":0,"lon":0},{"lat":0,"lon":1},{"lat":1,"lon":1},{"lat":1,"lon":0},{"lat":0,"lon":0}
+		]
+	}]}`
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	ctx := logs.WithLogger(context.Background(), logger)
+
+	// landProbe at (0.5, 0.5) is INSIDE the way's outer ring.
+	result, err := parseWaterResponse(ctx, []byte(body), [4]float64{-1, -1, 2, 2}, [][2]float64{{0.5, 0.5}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "" {
+		t.Errorf("expected empty result (way dropped); got %q", result)
+	}
+	var rec struct {
+		Msg      string `json:"msg"`
+		Way      int64  `json:"way"`
+		LandHits int    `json:"land_hits"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &rec); err != nil {
+		t.Fatalf("parse log line: %v: %s", err, buf.String())
+	}
+	if !strings.Contains(rec.Msg, "containing city land") {
+		t.Errorf("log msg %q should mention land containment", rec.Msg)
+	}
+	if rec.Way != 101 || rec.LandHits != 1 {
+		t.Errorf("log fields way=%d hits=%d; want 101 and 1", rec.Way, rec.LandHits)
+	}
+}
+
+// TestParseWaterResponse_DropsRelationContainingLandProbe pins the
+// per-polygon land-probe filter for `natural=water` relations: a
+// relation whose stitched outer ring contains a city-land probe is
+// dropped with the relation id and hit count. Symmetrical to the
+// way case above but exercises the relation path of
+// classifyWaterElement.
+func TestParseWaterResponse_DropsRelationContainingLandProbe(t *testing.T) {
+	// One natural=water relation with a single closed outer ring at
+	// unit-square (0..1, 0..1) — no holes.
+	body := `{"elements":[{
+		"type":"relation","id":7777,"tags":{"natural":"water","type":"multipolygon"},
+		"members":[
+			{"type":"way","ref":1,"role":"outer","geometry":[
+				{"lat":0,"lon":0},{"lat":0,"lon":1},{"lat":1,"lon":1},{"lat":1,"lon":0},{"lat":0,"lon":0}
+			]}
+		]
+	}]}`
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	ctx := logs.WithLogger(context.Background(), logger)
+
+	result, err := parseWaterResponse(ctx, []byte(body), [4]float64{-1, -1, 2, 2}, [][2]float64{{0.5, 0.5}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "" {
+		t.Errorf("expected empty result (relation dropped); got %q", result)
+	}
+	var rec struct {
+		Msg      string `json:"msg"`
+		Relation int64  `json:"relation"`
+		LandHits int    `json:"land_hits"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &rec); err != nil {
+		t.Fatalf("parse log line: %v: %s", err, buf.String())
+	}
+	if !strings.Contains(rec.Msg, "containing city land") {
+		t.Errorf("log msg %q should mention land containment", rec.Msg)
+	}
+	if rec.Relation != 7777 || rec.LandHits != 1 {
+		t.Errorf("log fields relation=%d hits=%d; want 7777 and 1", rec.Relation, rec.LandHits)
+	}
+}
+
+// TestParseWaterResponse_RelationHoleContainingProbeKeepsPolygon
+// verifies the hole-awareness of the per-polygon land-probe filter:
+// a probe that lies inside the polygon's OUTER ring but inside a
+// hole is geometrically NOT in the water polygon (the hole is a
+// non-water island), so the polygon must NOT be dropped. This pins
+// countPolygonLandProbeHits's hole exclusion.
+func TestParseWaterResponse_RelationHoleContainingProbeKeepsPolygon(t *testing.T) {
+	// Outer at (0..10, 0..10) with a hole at (4..6, 4..6).
+	body := `{"elements":[{
+		"type":"relation","id":31,"tags":{"natural":"water","type":"multipolygon"},
+		"members":[
+			{"type":"way","ref":1,"role":"outer","geometry":[
+				{"lat":0,"lon":0},{"lat":0,"lon":10},{"lat":10,"lon":10},{"lat":10,"lon":0},{"lat":0,"lon":0}
+			]},
+			{"type":"way","ref":2,"role":"inner","geometry":[
+				{"lat":4,"lon":4},{"lat":4,"lon":6},{"lat":6,"lon":6},{"lat":6,"lon":4},{"lat":4,"lon":4}
+			]}
+		]
+	}]}`
+
+	// Probe at (5, 5) lies in the hole — not in the water polygon's
+	// set-theoretic interior. Polygon must survive.
+	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{-5, -5, 15, 15}, [][2]float64{{5, 5}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result == "" {
+		t.Fatal("polygon with probe-in-hole should survive the land-probe filter")
+	}
+	var parsed struct {
+		Coordinates [][][][2]float64 `json:"coordinates"`
+	}
+	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
+		t.Fatalf("parse result: %v: %s", err, result)
+	}
+	if len(parsed.Coordinates) != 1 || len(parsed.Coordinates[0]) != 2 {
+		t.Errorf("expected 1 polygon with outer+hole; got polygons=%d rings[0]=%d",
+			len(parsed.Coordinates), len(parsed.Coordinates[0]))
 	}
 }
 
@@ -249,7 +380,7 @@ func TestParseWaterResponse_LogsDroppedMemberWays(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	ctx := logs.WithLogger(context.Background(), logger)
 
-	if _, err := parseWaterResponse(ctx, []byte(body), [4]float64{0, 0, 10, 10}); err != nil {
+	if _, err := parseWaterResponse(ctx, []byte(body), [4]float64{0, 0, 10, 10}, [][2]float64{{5, 5}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -525,7 +656,9 @@ func TestCloseCoastlineChain_NorthFacingCoast(t *testing.T) {
 	// half of the bbox.
 	bbox := [4]float64{0, 0, 1, 1}
 	chain := [][2]float64{{0, 0.5}, {1, 0.5}}
-	rings := closeCoastlineChain(context.Background(), chain, bbox)
+	// Water is south; land is north. landProbe must be on the land side
+	// so the water-side ring (south) is the one selected.
+	rings := closeCoastlineChain(context.Background(), chain, bbox, [][2]float64{{0.5, 0.75}})
 	if len(rings) != 1 {
 		t.Fatalf("expected 1 ring, got %d", len(rings))
 	}
@@ -541,7 +674,7 @@ func TestCloseCoastlineChain_ClipsAndCloses(t *testing.T) {
 	// then add the southern corners.
 	bbox := [4]float64{0, 0, 1, 1}
 	chain := [][2]float64{{-0.5, 0.5}, {1.5, 0.5}}
-	rings := closeCoastlineChain(context.Background(), chain, bbox)
+	rings := closeCoastlineChain(context.Background(), chain, bbox, [][2]float64{{0.5, 0.75}})
 	if len(rings) != 1 {
 		t.Fatalf("expected 1 ring, got %d", len(rings))
 	}
@@ -557,7 +690,7 @@ func TestCloseCoastlineChain_DropsInteriorChain(t *testing.T) {
 	// edge can't be closed using bbox-edge rules. Should be dropped.
 	bbox := [4]float64{0, 0, 1, 1}
 	chain := [][2]float64{{0.2, 0.5}, {0.8, 0.5}}
-	rings := closeCoastlineChain(context.Background(), chain, bbox)
+	rings := closeCoastlineChain(context.Background(), chain, bbox, [][2]float64{{0.5, 0.5}})
 	if len(rings) != 0 {
 		t.Errorf("expected interior chain to be dropped, got %d rings: %v", len(rings), rings)
 	}
@@ -570,12 +703,57 @@ func TestCloseCoastlineChain_PassesThroughCWClosed(t *testing.T) {
 	// Should pass through unchanged.
 	bbox := [4]float64{0, 0, 1, 1}
 	chain := [][2]float64{{0.2, 0.2}, {0.2, 0.8}, {0.8, 0.8}, {0.8, 0.2}, {0.2, 0.2}}
-	rings := closeCoastlineChain(context.Background(), chain, bbox)
+	// Lake at (0.2-0.8); land is OUTSIDE the lake (e.g. near the bbox
+	// corner). landProbe must be outside the ring or the new closed-ring
+	// land-probe check would drop the lake as a wrongly-traced ring.
+	rings := closeCoastlineChain(context.Background(), chain, bbox, [][2]float64{{0.9, 0.9}})
 	if len(rings) != 1 {
 		t.Fatalf("expected 1 ring, got %d", len(rings))
 	}
 	if !reflect.DeepEqual(rings[0], chain) {
 		t.Errorf("CW closed chain should pass through unchanged: got %v", rings[0])
+	}
+}
+
+// TestCloseCoastlineChain_DropsCWClosedRingContainingLandProbe pins
+// the closed-ring land-probe guard: a CW closed coastline ring that
+// nevertheless encloses a known-land point is a wrongly-traced ring
+// (OSM data error where land was enclosed instead of water) and must
+// be dropped, otherwise its area would be subtracted as water and
+// strip the city's land.
+func TestCloseCoastlineChain_DropsCWClosedRingContainingLandProbe(t *testing.T) {
+	bbox := [4]float64{0, 0, 1, 1}
+	// Same CW ring as the PassesThrough test (so the ringIsCW guard
+	// doesn't trip), but the probe is placed INSIDE the ring at
+	// (0.5, 0.5). The land-probe check must drop it.
+	chain := [][2]float64{{0.2, 0.2}, {0.2, 0.8}, {0.8, 0.8}, {0.8, 0.2}, {0.2, 0.2}}
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	ctx := logs.WithLogger(context.Background(), logger)
+
+	rings := closeCoastlineChain(ctx, chain, bbox, [][2]float64{{0.5, 0.5}})
+	if len(rings) != 0 {
+		t.Fatalf("expected ring containing land probe to be dropped, got %d rings: %v", len(rings), rings)
+	}
+	line := bytes.TrimSpace(buf.Bytes())
+	if len(line) == 0 {
+		t.Fatal("expected warn log line; got nothing")
+	}
+	var rec struct {
+		Msg       string `json:"msg"`
+		LandHits  int    `json:"land_hits"`
+		NumProbes int    `json:"land_probes"`
+	}
+	if err := json.Unmarshal(line, &rec); err != nil {
+		t.Fatalf("parse log line: %v: %s", err, line)
+	}
+	if !strings.Contains(rec.Msg, "containing city land") {
+		t.Errorf("log message %q should mention land containment", rec.Msg)
+	}
+	if rec.LandHits != 1 || rec.NumProbes != 1 {
+		t.Errorf("log fields: land_hits=%d land_probes=%d, want 1 and 1",
+			rec.LandHits, rec.NumProbes)
 	}
 }
 
@@ -593,7 +771,7 @@ func TestCloseCoastlineChain_DropsCCWClosedRingAsIsland(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	ctx := logs.WithLogger(context.Background(), logger)
 
-	rings := closeCoastlineChain(ctx, chain, bbox)
+	rings := closeCoastlineChain(ctx, chain, bbox, [][2]float64{{0.9, 0.9}})
 	if len(rings) != 0 {
 		t.Fatalf("expected CCW closed chain to be dropped, got %d rings: %v", len(rings), rings)
 	}
@@ -668,7 +846,7 @@ func TestParseWaterResponse_CoastlineClosedAtBBox(t *testing.T) {
 			{"lat":0.5,"lon":1}
 		]}
 	]}`
-	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{0, 0, 1, 1})
+	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{0, 0, 1, 1}, [][2]float64{{0.5, 0.5}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -706,7 +884,7 @@ func TestParseWaterResponse_DegenerateRingDoesNotCrash(t *testing.T) {
 			{"lat":0,"lon":0}
 		]}
 	]}`
-	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{0, 0, 1, 1})
+	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{0, 0, 1, 1}, [][2]float64{{0.5, 0.5}})
 	if err != nil {
 		t.Fatalf("parseWaterResponse: %v", err)
 	}
@@ -736,7 +914,7 @@ func TestParseWaterResponse_DegenerateRingDoesNotCrash(t *testing.T) {
 func TestCloseCoastlineChain_SameEdgeEndpointsDropped(t *testing.T) {
 	bbox := [4]float64{0, 0, 1, 1}
 	chain := [][2]float64{{0.2, 0}, {0.8, 0}} // both on south edge
-	rings := closeCoastlineChain(context.Background(), chain, bbox)
+	rings := closeCoastlineChain(context.Background(), chain, bbox, [][2]float64{{0.5, 0.5}})
 	if len(rings) != 0 {
 		t.Errorf("expected same-edge coastline to be dropped, got %d rings: %v", len(rings), rings)
 	}
@@ -751,8 +929,9 @@ func TestCloseCoastlineChain_SameEdgeEndpointsDropped(t *testing.T) {
 func TestCloseCoastlineChain_EndpointAtBBoxCorner(t *testing.T) {
 	bbox := [4]float64{0, 0, 1, 1}
 	// West edge → NE corner. Water-on-right of west→east is south.
+	// Land is north of the diagonal chain; pick a probe well above it.
 	chain := [][2]float64{{0, 0.5}, {1, 1}}
-	rings := closeCoastlineChain(context.Background(), chain, bbox)
+	rings := closeCoastlineChain(context.Background(), chain, bbox, [][2]float64{{0.2, 0.95}})
 	if len(rings) != 1 {
 		t.Fatalf("expected 1 ring, got %d: %v", len(rings), rings)
 	}
@@ -787,7 +966,10 @@ func TestPolygonsFromRelation_NestedOuterFirstMatchWins(t *testing.T) {
 			]}
 		]
 	}]}`
-	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{-5, -5, 15, 15})
+	// landProbe placed OUTSIDE both outer rings (in the bbox's NW
+	// corner) so the per-polygon land-probe filter doesn't drop them —
+	// this test pins inner-ring assignment, not the land filter.
+	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{-5, -5, 15, 15}, [][2]float64{{-3, -3}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -876,7 +1058,8 @@ func TestStitchRings_ManySegments(t *testing.T) {
 func TestCloseCoastlineChain_EastToWestPicksNorthSide(t *testing.T) {
 	bbox := [4]float64{0, 0, 1, 1}
 	chain := [][2]float64{{1, 0.5}, {0, 0.5}}
-	rings := closeCoastlineChain(context.Background(), chain, bbox)
+	// East-to-west → water-on-right is north. Land is south; probe south.
+	rings := closeCoastlineChain(context.Background(), chain, bbox, [][2]float64{{0.5, 0.25}})
 	if len(rings) != 1 {
 		t.Fatalf("expected 1 ring, got %d", len(rings))
 	}
@@ -884,60 +1067,6 @@ func TestCloseCoastlineChain_EastToWestPicksNorthSide(t *testing.T) {
 	want := [][2]float64{{1, 0.5}, {0, 0.5}, {0, 1}, {1, 1}, {1, 0.5}}
 	if !reflect.DeepEqual(rings[0], want) {
 		t.Errorf("ring = %v, want %v", rings[0], want)
-	}
-}
-
-// TestRightSideProbe_Cardinal pins the probe direction for the four
-// cardinal coastline orientations. The OSM rule is "water on the right
-// of forward direction"; the probe must land in that half-plane.
-func TestRightSideProbe_Cardinal(t *testing.T) {
-	const eps = 0.01
-	cases := []struct {
-		name   string
-		chain  [][2]float64
-		wantDx float64 // sign of expected dx from midpoint
-		wantDy float64
-	}{
-		{"west to east → water south", [][2]float64{{0, 0}, {1, 0}}, 0, -1},
-		{"east to west → water north", [][2]float64{{1, 0}, {0, 0}}, 0, +1},
-		{"south to north → water east", [][2]float64{{0, 0}, {0, 1}}, +1, 0},
-		{"north to south → water west", [][2]float64{{0, 1}, {0, 0}}, -1, 0},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			p, ok := rightSideProbe(c.chain, eps)
-			if !ok {
-				t.Fatal("expected probe to be defined")
-			}
-			midX := (c.chain[0][0] + c.chain[1][0]) / 2
-			midY := (c.chain[0][1] + c.chain[1][1]) / 2
-			gotDx := p[0] - midX
-			gotDy := p[1] - midY
-			if c.wantDx != 0 && (gotDx*c.wantDx <= 0 || math.Abs(gotDx) < eps*0.99) {
-				t.Errorf("dx = %v, want sign %v with magnitude ~%v", gotDx, c.wantDx, eps)
-			}
-			if c.wantDy != 0 && (gotDy*c.wantDy <= 0 || math.Abs(gotDy) < eps*0.99) {
-				t.Errorf("dy = %v, want sign %v with magnitude ~%v", gotDy, c.wantDy, eps)
-			}
-		})
-	}
-}
-
-func TestRightSideProbe_DegenerateRejected(t *testing.T) {
-	cases := []struct {
-		name  string
-		chain [][2]float64
-	}{
-		{"empty", nil},
-		{"single point", [][2]float64{{0, 0}}},
-		{"zero-length", [][2]float64{{0, 0}, {0, 0}}},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if _, ok := rightSideProbe(c.chain, 0.01); ok {
-				t.Errorf("expected probe to reject %s chain", c.name)
-			}
-		})
 	}
 }
 
@@ -1054,7 +1183,7 @@ func TestParseWaterResponse_RejectsOversizedRelation(t *testing.T) {
 	ctx := logs.WithLogger(context.Background(), logger)
 
 	// bbox is the same as the outer → 100% coverage, well over 80% limit.
-	result, err := parseWaterResponse(ctx, []byte(body), [4]float64{0, 0, 1, 1})
+	result, err := parseWaterResponse(ctx, []byte(body), [4]float64{0, 0, 1, 1}, [][2]float64{{0.5, 0.5}})
 	if err != nil {
 		t.Fatal(err)
 	}

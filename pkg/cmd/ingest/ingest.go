@@ -307,7 +307,11 @@ var ErrWaterStripOverSubtracted = errors.New("water strip over-subtracted")
 // fake response without spinning up an httptest server inside the
 // internal/ingest package. The interface is intentionally narrow per
 // byob-interfaces.1 (define in consumer, not in internal/ingest).
-type waterFetcher func(ctx context.Context, client *http.Client, bbox [4]float64) (string, error)
+// landProbes are lon/lat points inside the city's land — typically
+// PointOnSurface samples, one per sub-polygon of the city boundary;
+// the water-stitching pipeline uses them to disambiguate coastline
+// closures.
+type waterFetcher func(ctx context.Context, client *http.Client, bbox [4]float64, landProbes [][2]float64) (string, error)
 
 // stripWaterFromBoundary tries to subtract OSM water from boundaryGJSON.
 //
@@ -335,7 +339,11 @@ func stripWaterFromBoundary(
 	if err != nil {
 		return "", fmt.Sprintf("water strip skipped: bbox: %v", err), nil
 	}
-	waterGJSON, err := fetchWater(ctx, client, bbox)
+	landProbes, err := geo.InteriorPoints(boundaryGJSON)
+	if err != nil {
+		return "", fmt.Sprintf("water strip skipped: interior points: %v", err), nil
+	}
+	waterGJSON, err := fetchWater(ctx, client, bbox, landProbes)
 	if err != nil {
 		return "", fmt.Sprintf("water strip skipped: overpass: %v", err), nil
 	}
