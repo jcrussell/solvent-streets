@@ -365,11 +365,16 @@ func TestServeJSONCached_SingleFlight(t *testing.T) {
 	const goroutines = 32
 	var calls atomic.Int32
 	start := make(chan struct{})
+	release := make(chan struct{})
 
 	build := func() (any, error) { //nolint:unparam // signature must match serveJSONCached parameter
 		calls.Add(1)
-		// Hold long enough that all goroutines can pile up on the same thunk.
-		time.Sleep(20 * time.Millisecond)
+		// Block until the test releases us; with sync.OnceValues only
+		// one build runs at a time, so all 32 goroutines pile up on
+		// the same thunk regardless of how close(start) interleaves
+		// with goroutine scheduling. Replaces a fixed-duration sleep
+		// that could expire under CI load.
+		<-release
 		return map[string]string{"hello": "world"}, nil
 	}
 
@@ -387,6 +392,7 @@ func TestServeJSONCached_SingleFlight(t *testing.T) {
 		}()
 	}
 	close(start)
+	close(release)
 	wg.Wait()
 
 	if got := calls.Load(); got != 1 {

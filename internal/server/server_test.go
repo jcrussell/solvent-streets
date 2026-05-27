@@ -106,26 +106,27 @@ func TestServer_ReadyFile(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	srv := New(nil, port, ios)
 	srv.ReadyFile = readyPath
+	srv.Ready = make(chan struct{})
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe(ctx) }()
 
-	deadline := time.Now().Add(3 * time.Second)
-	var content []byte
-	for time.Now().Before(deadline) {
-		if data, err := os.ReadFile(readyPath); err == nil {
-			content = data
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
+	// Wait for the listener to bind via the deterministic Ready channel
+	// instead of a poll-and-sleep loop that could expire under CI load.
+	select {
+	case <-srv.Ready:
+	case <-ctx.Done():
+		<-errCh
+		t.Fatalf("server did not become ready within deadline")
 	}
-	if content == nil {
+	content, err := os.ReadFile(readyPath)
+	if err != nil {
 		cancel()
 		<-errCh
-		t.Fatalf("ready file %q not written within deadline", readyPath)
+		t.Fatalf("ready file %q not readable after Ready: %v", readyPath, err)
 	}
 
 	got := strings.TrimSpace(string(content))
@@ -154,14 +155,16 @@ func TestServer_ReadyFile_Empty(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	srv := New(nil, port, ios)
 	// Leave ReadyFile zero-valued.
+	srv.Ready = make(chan struct{})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe(ctx) }()
 
-	// Give the server a beat to bind, then shut it down.
-	time.Sleep(100 * time.Millisecond)
+	// Wait for the listener to bind via the deterministic Ready channel
+	// (replaces a fixed-duration sleep), then shut it down.
+	<-srv.Ready
 	cancel()
 	if err := <-errCh; err != nil {
 		t.Fatalf("ListenAndServe returned error: %v", err)

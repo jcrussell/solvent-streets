@@ -26,6 +26,12 @@ type Server struct {
 	// once the TCP listener is bound. Container/test orchestration polls
 	// for the file's existence instead of parsing log lines or sleeping.
 	ReadyFile string
+
+	// Ready, if non-nil, is closed once the TCP listener is bound and
+	// (when set) ReadyFile has been written. In-process callers — chiefly
+	// tests — can `<-srv.Ready` instead of polling the filesystem or
+	// sleeping; assign before ListenAndServe.
+	Ready chan struct{}
 }
 
 func New(cities []export.CityEntry, port int, ios *iostreams.IOStreams) *Server {
@@ -74,6 +80,9 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 			_ = ln.Close()
 			return fmt.Errorf("write ready file: %w", err)
 		}
+	}
+	if s.Ready != nil {
+		close(s.Ready)
 	}
 
 	fmt.Fprintf(s.ios.ErrOut, "Serving on %s\n", url)
