@@ -102,7 +102,7 @@ func runIngest(ctx context.Context, opts *Options) error {
 		return printDryRunPlan(ctx, opts, store, city)
 	}
 
-	boundaryGJSON, err := resolveBoundary(ctx, opts, store, client, city, ingestpkg.FetchCityBoundary, ingestpkg.FetchCityBoundaryFromRelation)
+	boundaryGJSON, fresh, err := resolveBoundary(ctx, opts, store, client, city, ingestpkg.FetchCityBoundary, ingestpkg.FetchCityBoundaryFromRelation)
 	if err != nil {
 		return err
 	}
@@ -129,6 +129,20 @@ func runIngest(ctx context.Context, opts *Options) error {
 	logs.From(ctx).Info("saving features to database", "count", len(allFeatures), "resource", opts.ResourceType.Type())
 	if err := store.UpsertFeatures(ctx, opts.ResourceType.Type(), allFeatures); err != nil {
 		return fmt.Errorf("save features: %w", err)
+	}
+
+	// Post-strip road-coverage gate. Runs only on a fresh fetch (cache
+	// hits skip it). The gate detects inverted boundaries by checking
+	// whether most of the city's road features actually land inside the
+	// stored boundary — an evidence-based defense independent of the
+	// water-strip's own geometry heuristics. solvent-streets-e5mk.
+	if fresh != nil {
+		roads, ok := roadsForCoverageGate(ctx, store, opts, allFeatures)
+		if ok {
+			if err := applyRoadCoverageGate(ctx, store, city.Name, boundaryGJSON, fresh, roads, opts.IO.ErrOut); err != nil {
+				return err
+			}
+		}
 	}
 
 	logs.From(ctx).Info("ingest complete", "count", len(allFeatures), "resource", opts.ResourceType.Type())
@@ -183,9 +197,29 @@ type nominatimFetcher func(ctx context.Context, client *http.Client, cityName st
 // the same shape and rationale as nominatimFetcher.
 type relationFetcher func(ctx context.Context, client *http.Client, relationID int64) (string, error)
 
+// freshBoundary carries the metadata the post-strip road-coverage
+// gate needs to roll back a freshly-stored boundary if the strip turns
+// out to be inverted. resolveBoundary returns *freshBoundary == nil on
+// a cache hit (gate is skipped) and non-nil on a fresh fetch.
+//
+// SavedSource is the source label written to the DB at fresh-fetch
+// time (e.g. "nominatim+osm-water"); UnstrippedSource is what to write
+// on rollback (e.g. "nominatim"). The two differ only when a water
+// strip actually happened.
+type freshBoundary struct {
+	Nominatim        string
+	SavedSource      string
+	UnstrippedSource string
+}
+
 // resolveBoundary returns the cached city boundary or fetches a fresh
 // one. GetBoundary returns ("", nil) on sql.ErrNoRows — any returned
 // error is a real DB problem and must surface.
+//
+// The second return is non-nil exactly when a fresh fetch happened
+// (cache miss or --force). The caller passes it to
+// applyRoadCoverageGate after features are ingested; the gate either
+// confirms the strip or rolls back to the unstripped Nominatim.
 //
 // Fetch source selection: if city.BoundaryRelationID is set, fetch
 // the admin boundary by relation ID via Overpass (the escape hatch
@@ -196,6 +230,8 @@ type relationFetcher func(ctx context.Context, client *http.Client, relationID i
 // Fresh fetches subtract OSM `natural=water` polygons from the
 // boundary so cross-city % paved is apples-to-apples. Soft water-strip
 // failures are warned + fallback; over-subtraction is a HARD error.
+// Silent inversions are caught downstream by the road-coverage gate
+// (solvent-streets-e5mk).
 func resolveBoundary(
 	ctx context.Context,
 	opts *Options,
@@ -204,36 +240,40 @@ func resolveBoundary(
 	city *config.CityConfig,
 	fetchByName nominatimFetcher,
 	fetchByRelation relationFetcher,
-) (string, error) {
+) (string, *freshBoundary, error) {
 	boundaryGJSON, err := store.GetBoundary(ctx)
 	if err != nil {
-		return "", fmt.Errorf("reading cached boundary: %w", err)
+		return "", nil, fmt.Errorf("reading cached boundary: %w", err)
 	}
 	if boundaryGJSON != "" && !opts.Force {
 		fmt.Fprintf(opts.IO.ErrOut, "Using cached boundary for %s (use --force to refresh).\n", city.Name)
-		return boundaryGJSON, nil
+		return boundaryGJSON, nil, nil
 	}
 
-	var source string
+	var unstrippedSource string
 	switch {
 	case city.BoundaryRelationID > 0:
 		fmt.Fprintf(opts.IO.ErrOut, "Fetching boundary for %s from OSM relation %d via Overpass...\n",
 			city.Name, city.BoundaryRelationID)
 		boundaryGJSON, err = fetchByRelation(ctx, client, city.BoundaryRelationID)
-		source = "overpass-relation"
+		unstrippedSource = "overpass-relation"
 	default:
 		fmt.Fprintf(opts.IO.ErrOut, "Fetching boundary for %s from Nominatim...\n", city.Name)
 		boundaryGJSON, err = fetchByName(ctx, client, city.Name)
-		source = "nominatim"
+		unstrippedSource = "nominatim"
 	}
 	if err != nil {
-		return "", cmdutil.Hintf(fmt.Errorf("fetch boundary: %w", err),
+		return "", nil, cmdutil.Hintf(fmt.Errorf("fetch boundary: %w", err),
 			"%s", boundaryFetchHint(err))
 	}
 
+	// Preserve the unstripped Nominatim for the gate's rollback path
+	// before stripWaterFromBoundary potentially produces a sliver.
+	nominatim := boundaryGJSON
+
 	stripped, warn, stripErr := stripWaterFromBoundary(ctx, client, ingestpkg.FetchOSMWater, boundaryGJSON)
 	if stripErr != nil {
-		return "", cmdutil.Hintf(fmt.Errorf("water strip for %s: %w", city.Name, stripErr),
+		return "", nil, cmdutil.Hintf(fmt.Errorf("water strip for %s: %w", city.Name, stripErr),
 			"This usually means the OSM water-stitching pipeline produced a polygon "+
 				"covering more than the city boundary. Re-run with verbose logging "+
 				"(check stderr for 'water way:', 'water relation:', or 'water coastline:' "+
@@ -243,16 +283,22 @@ func resolveBoundary(
 	if warn != "" {
 		fmt.Fprintf(opts.IO.ErrOut, "  %s\n", warn)
 	}
+
+	savedSource := unstrippedSource
 	if stripped != "" {
 		boundaryGJSON = stripped
-		source += "+osm-water"
+		savedSource += "+osm-water"
 	}
 
-	if err := store.SaveBoundary(ctx, boundaryGJSON, source); err != nil {
-		return "", fmt.Errorf("save boundary: %w", err)
+	if err := store.SaveBoundary(ctx, boundaryGJSON, savedSource); err != nil {
+		return "", nil, fmt.Errorf("save boundary: %w", err)
 	}
-	fmt.Fprintf(opts.IO.ErrOut, "  Boundary saved (source=%s).\n", source)
-	return boundaryGJSON, nil
+	fmt.Fprintf(opts.IO.ErrOut, "  Boundary saved (source=%s).\n", savedSource)
+	return boundaryGJSON, &freshBoundary{
+		Nominatim:        nominatim,
+		SavedSource:      savedSource,
+		UnstrippedSource: unstrippedSource,
+	}, nil
 }
 
 // boundaryFetchHint picks a remediation message tailored to the failure
@@ -315,12 +361,19 @@ type waterFetcher func(ctx context.Context, client *http.Client, bbox [4]float64
 
 // stripWaterFromBoundary tries to subtract OSM water from boundaryGJSON.
 //
-// Returns:
+// Returns (stripped, warn, err):
 //   - (gjson, "", nil)  - success; use stripped boundary, caller appends
 //     "+osm-water" to its existing source label
 //   - ("", "", nil)     - no water in bbox; use unstripped boundary
 //   - ("", warn, nil)   - soft failure (network/geometry); log warn and fall back
 //   - ("", "", err)     - HARD failure (over-subtraction guard); abort
+//
+// boundaryGJSON itself is preserved verbatim — callers pass it in and
+// hold onto it for the rollback path of the post-strip road-coverage
+// gate (validateBoundaryAgainstRoads). This function intentionally
+// does not return the original because the caller already owns it; the
+// 2026-05-28 inversion fix (solvent-streets-e5mk) only changed the
+// caller's responsibility, not this function's contract.
 //
 // The err return wraps ErrWaterStripOverSubtracted with diagnostic
 // detail (areas + ratio); callers should attach the city name via

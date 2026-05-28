@@ -319,7 +319,7 @@ func TestResolveBoundary_NominatimWhenNoRelationID(t *testing.T) {
 	var relID int64
 	opts := resolveBoundaryHarness(t)
 
-	got, err := resolveBoundary(
+	got, _, err := resolveBoundary(
 		context.Background(), opts, store, &http.Client{}, city,
 		recordingNominatim(boundary, &nomName),
 		recordingRelation("", &relID),
@@ -357,7 +357,7 @@ func TestResolveBoundary_RelationWhenIDSet(t *testing.T) {
 	var relID int64
 	opts := resolveBoundaryHarness(t)
 
-	got, err := resolveBoundary(
+	got, _, err := resolveBoundary(
 		context.Background(), opts, store, &http.Client{}, city,
 		recordingNominatim("", &nomName),
 		recordingRelation(boundary, &relID),
@@ -396,7 +396,7 @@ func TestResolveBoundary_CachedShortCircuitsBothFetchers(t *testing.T) {
 	var relID int64
 	opts := resolveBoundaryHarness(t)
 
-	got, err := resolveBoundary(
+	got, _, err := resolveBoundary(
 		context.Background(), opts, store, &http.Client{}, city,
 		recordingNominatim("nope", &nomName),
 		recordingRelation("nope", &relID),
@@ -430,7 +430,7 @@ func TestResolveBoundary_FetcherErrorWrappedWithHint(t *testing.T) {
 		return "", errors.New("synthetic relation failure")
 	})
 
-	_, err := resolveBoundary(
+	_, _, err := resolveBoundary(
 		context.Background(), opts, store, &http.Client{}, city,
 		failingNominatim, failingRelation,
 	)
@@ -489,7 +489,7 @@ func TestResolveBoundary_RelationErrorHintsAreClassSpecific(t *testing.T) {
 				return "", tc.fetchErr
 			}
 			opts := resolveBoundaryHarness(t)
-			_, err := resolveBoundary(
+			_, _, err := resolveBoundary(
 				context.Background(), opts, store, &http.Client{}, city,
 				recordingNominatim("", nil), failing,
 			)
