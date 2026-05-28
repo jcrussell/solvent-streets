@@ -65,6 +65,11 @@ func NewCmdStatus(f *cmdutil.Factory, rt resource.Source, runF func(context.Cont
 
 	use := "status"
 	short := "Show overall status"
+	long := `Report ingest and compute progress for the current city across every
+resource type: feature counts, last-ingest and last-compute timestamps,
+and paved area totals in the active unit system. On a TTY the output is
+followed by a city-area summary (paved-vs-total %) and the five most
+recent compute snapshots. Use --json to emit a single row per resource.`
 	example := `  # Show feature + result counts across every resource
   pvmt status
 
@@ -72,6 +77,9 @@ func NewCmdStatus(f *cmdutil.Factory, rt resource.Source, runF func(context.Cont
   pvmt status --json`
 	if rt != nil {
 		short = fmt.Sprintf("Show %s status", rt.Type())
+		long = fmt.Sprintf(`Report ingest and compute progress for the %s resource in the
+current city: feature count, last-ingest and last-compute timestamps,
+and paved area in the active unit system. Use --json for a single row.`, rt.Type())
 		example = fmt.Sprintf(`  # Show feature + result counts for %s
   pvmt %s status`, rt.Type(), rt.Type())
 	}
@@ -79,6 +87,7 @@ func NewCmdStatus(f *cmdutil.Factory, rt resource.Source, runF func(context.Cont
 	cmd := &cobra.Command{
 		Use:     use,
 		Short:   short,
+		Long:    long,
 		Example: example,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {

@@ -41,7 +41,19 @@ jobs:
             exit 1
           fi
           echo "Smoke-testing $bin"
-          "$bin" --version
+          version_out="$("$bin" --version)"
+          echo "$version_out"
+          # pvmt's --version template is "pvmt {{.Version}}\n" (pkg/cmd/root/root.go).
+          # When ldflags inject internal/build.Version, the output is a semver
+          # (snapshot template: {{incpatch .Version}}-SNAPSHOT-{{.ShortCommit}};
+          # real release: {{.Version}}). If the ldflags symbol path ever drifts
+          # away from internal/build.Version, the binary falls back to the
+          # VersionDev sentinel ("dev") — catch that here so the release fails
+          # before publish instead of shipping a binary that reports "dev".
+          if ! echo "$version_out" | grep -qE '^pvmt [0-9]+\.[0-9]+\.[0-9]+'; then
+            echo "::error::--version output '$version_out' is missing a semver — ldflags injection broken?"
+            exit 1
+          fi
           "$bin" --help > /dev/null
           workdir="$(mktemp -d)"
           cat > "$workdir/pvmt.toml" <<'EOF'

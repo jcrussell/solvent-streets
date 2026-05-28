@@ -18,6 +18,10 @@ func NewCmdAll(f *cmdutil.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "all",
 		Short: "Operate on all resource types",
+		Long: `Fan out the ingest or compute pipeline across every resource type
+(roads, parking, sidewalks) for every [[cities]] entry in pvmt.toml.
+'all compute' additionally runs the combined paved-area pass that
+unions the per-resource geometries to avoid double-counting overlap.`,
 		Example: `  # Ingest roads, parking, and sidewalks from all configured sources
   pvmt all ingest
 
