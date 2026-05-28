@@ -8,6 +8,7 @@ import (
 	"io"
 
 	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 )
@@ -251,15 +252,27 @@ func roadsForCoverageGate(ctx context.Context, store db.Store, opts *Options, ju
 
 // applyRoadCoverageGate runs the post-strip road-coverage check
 // described in solvent-streets-e5mk. It does nothing when the stripped
-// boundary already passes; otherwise it rewrites the saved boundary
-// back to the unstripped Nominatim shape (and source label). When even
-// the unstripped Nominatim fails the gate, returns
+// boundary already passes. When the strip is inverted it tries, in
+// order: (1) the geometric complement of the stripped shape, which
+// recovers the land when the water polygon came back covering land
+// instead of water; (2) failing that, the unstripped Nominatim shape.
+// When even the unstripped Nominatim fails the gate, returns
 // ErrBoundaryInvertedVsRoads wrapped with an operator-actionable hint.
+//
+// Why the complement is preferred over the unstripped rollback: when
+// the stitched OSM water polygon is inverted (covers land, not water —
+// e.g. SF, where two coastline land-probes can't disambiguate the
+// bay), B-water yields the WATER part, so B-(B-water) = B∩water_poly
+// recovers the land. That fixes both the paved-area numerator AND the
+// pct_paved denominator (a land-only boundary), whereas the unstripped
+// rollback leaves the bay/ocean in the boundary and understates
+// pct_paved for coastal cities. Validated on SF: B-water=481 km² at
+// 0.6% road coverage; B-(B-water)=119.5 km² (≈SF land) at 43%.
 //
 // Caller is responsible for already having saved the stripped boundary
 // (resolveBoundary does this); this function only overwrites it via
-// SaveBoundary on rollback. Logs go to errOut so prose stays out of
-// stdout per byob-iostreams.3.
+// SaveBoundary. Logs go to errOut so prose stays out of stdout per
+// byob-iostreams.3.
 func applyRoadCoverageGate(
 	ctx context.Context,
 	store db.Store,
@@ -277,7 +290,30 @@ func applyRoadCoverageGate(
 		return nil
 	}
 
-	// Strip is broken. Try rolling back to unstripped Nominatim.
+	// Strip is inverted. First try the complement B-(B-water), which
+	// recovers a land-only boundary when the water polygon covered land.
+	// Only attempt when a water strip actually happened (SavedSource
+	// differs from UnstrippedSource); otherwise currentBoundary == B and
+	// the complement is empty.
+	if fresh.SavedSource != fresh.UnstrippedSource {
+		if inverted, err := geo.SubtractGeoJSON(fresh.Nominatim, currentBoundary); err == nil && inverted != "" {
+			if ratioInv, ok := validateBoundaryAgainstRoads(inverted, roads); ok && ratioInv >= stripCoverageMinRatio {
+				invSource := fresh.SavedSource + "-inverted"
+				if err := store.SaveBoundary(ctx, inverted, invSource); err != nil {
+					return fmt.Errorf("save complement boundary: %w", err)
+				}
+				fmt.Fprintf(errOut,
+					"  Water-strip inversion recovered for %s: stripped boundary contained %.1f%% of road centroids (< %.0f%% threshold); restored land via complement (%.1f%% coverage, source=%s).\n",
+					cityName, 100*ratioStripped, 100*stripCoverageMinRatio, 100*ratioInv, invSource,
+				)
+				return nil
+			}
+		}
+	}
+
+	// Complement didn't recover the land either. Roll back to unstripped
+	// Nominatim — safe for the paved-area numerator, but leaves any water
+	// in the pct_paved denominator.
 	ratioOriginal, ok := validateBoundaryAgainstRoads(fresh.Nominatim, roads)
 	if !ok || ratioOriginal < stripCoverageMinRatio {
 		return cmdutil.Hintf(

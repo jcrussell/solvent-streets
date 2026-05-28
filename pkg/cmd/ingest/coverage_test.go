@@ -30,6 +30,14 @@ const unitSquareBoundary = `{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],
 // the unit square so a road set built for [0,1]² lands entirely outside.
 const shiftedSquareBoundary = `{"type":"Polygon","coordinates":[[[10,10],[11,10],[11,11],[10,11],[10,10]]]}`
 
+// Fixtures for the inversion-recovery path. bigSquareBoundary is the
+// [0,2]² Nominatim shape (B). rightHalfBoundary is the [1,2]×[0,2]
+// subset that models an inverted strip (B-water came back as the
+// water/right half), so its complement B-rightHalf = the [0,1]×[0,2]
+// left half recovers the land where the roads live.
+const bigSquareBoundary = `{"type":"Polygon","coordinates":[[[0,0],[2,0],[2,2],[0,2],[0,0]]]}`
+const rightHalfBoundary = `{"type":"Polygon","coordinates":[[[1,0],[2,0],[2,2],[1,2],[1,0]]]}`
+
 func TestValidateBoundaryAgainstRoads_AllInside(t *testing.T) {
 	roads := []db.Feature{
 		road("a", 0.2, 0.2),
@@ -149,9 +157,12 @@ func TestApplyRoadCoverageGate_StripPasses_KeepsBoundary(t *testing.T) {
 	}
 }
 
-func TestApplyRoadCoverageGate_StripFails_RollsBackToNominatim(t *testing.T) {
-	// Stripped boundary is shifted (no road inside); Nominatim is the
-	// unit square (all roads inside). Gate rolls back.
+func TestApplyRoadCoverageGate_StripInverted_RecoversViaComplement(t *testing.T) {
+	// Inverted strip: the stored boundary is the [1,2]×[0,2] right half
+	// (the "water" the inversion left behind) and contains no roads. The
+	// complement B-(right half) = the left half recovers the land where
+	// the roads live, so the gate saves the complement — NOT the
+	// water-inclusive unstripped Nominatim. solvent-streets-e5mk.
 	var saveCalls []saveCall
 	store := &dbtest.MockStore{
 		SaveBoundaryFunc: func(_ context.Context, gjson, src string) error {
@@ -159,14 +170,59 @@ func TestApplyRoadCoverageGate_StripFails_RollsBackToNominatim(t *testing.T) {
 			return nil
 		},
 	}
-	roads := buildRoadsInUnitSquare(10)
+	// Roads in the left half [0,1]×[0,2]: outside the inverted strip,
+	// inside the complement.
+	roads := []db.Feature{road("a", 0.3, 0.3), road("b", 0.5, 1.0), road("c", 0.2, 1.7)}
 	fresh := &freshBoundary{
-		Nominatim:        unitSquareBoundary, // good fallback
+		Nominatim:        bigSquareBoundary,
 		SavedSource:      "nominatim+osm-water",
 		UnstrippedSource: "nominatim",
 	}
 	var stderr bytes.Buffer
-	err := applyRoadCoverageGate(context.Background(), store, "Brisbane, CA", shiftedSquareBoundary, fresh, roads, &stderr)
+	err := applyRoadCoverageGate(context.Background(), store, "San Francisco, CA", rightHalfBoundary, fresh, roads, &stderr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(saveCalls) != 1 {
+		t.Fatalf("expected one SaveBoundary call (complement), got %d", len(saveCalls))
+	}
+	if saveCalls[0].source != "nominatim+osm-water-inverted" {
+		t.Errorf("expected complement source %q, got %q", "nominatim+osm-water-inverted", saveCalls[0].source)
+	}
+	// The saved complement must actually contain the roads (it's the land).
+	if ratio, ok := validateBoundaryAgainstRoads(saveCalls[0].gjson, roads); !ok || ratio < stripCoverageMinRatio {
+		t.Errorf("expected saved complement to cover the roads, got ratio=%.3f ok=%v", ratio, ok)
+	}
+	if !strings.Contains(stderr.String(), "San Francisco, CA") || !strings.Contains(stderr.String(), "complement") {
+		t.Errorf("expected recovery notice naming the city and complement, got: %q", stderr.String())
+	}
+}
+
+func TestApplyRoadCoverageGate_ComplementAlsoFails_RollsBackToNominatim(t *testing.T) {
+	// Only 2 of 10 bbox roads are in-city (the other 8 are neighbors).
+	// The inverted strip (left cell) holds 1, its complement (right cell)
+	// holds the other 1 — both below 15% — but the full Nominatim holds
+	// both (20% ≥ 15%), so the gate falls back to the unstripped shape.
+	var saveCalls []saveCall
+	store := &dbtest.MockStore{
+		SaveBoundaryFunc: func(_ context.Context, gjson, src string) error {
+			saveCalls = append(saveCalls, saveCall{gjson: gjson, source: src})
+			return nil
+		},
+	}
+	wideBoundary := `{"type":"Polygon","coordinates":[[[0,0],[2,0],[2,1],[0,1],[0,0]]]}`
+	leftCell := `{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,1],[0,0]]]}`
+	roads := []db.Feature{road("in1", 0.5, 0.5), road("in2", 1.5, 0.5)}
+	for i := range 8 {
+		roads = append(roads, road(fmt.Sprintf("out%d", i), float64(100+i), 100))
+	}
+	fresh := &freshBoundary{
+		Nominatim:        wideBoundary,
+		SavedSource:      "nominatim+osm-water",
+		UnstrippedSource: "nominatim",
+	}
+	var stderr bytes.Buffer
+	err := applyRoadCoverageGate(context.Background(), store, "Brisbane, CA", leftCell, fresh, roads, &stderr)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -176,7 +232,7 @@ func TestApplyRoadCoverageGate_StripFails_RollsBackToNominatim(t *testing.T) {
 	if saveCalls[0].source != "nominatim" {
 		t.Errorf("expected rollback source %q, got %q", "nominatim", saveCalls[0].source)
 	}
-	if saveCalls[0].gjson != unitSquareBoundary {
+	if saveCalls[0].gjson != wideBoundary {
 		t.Errorf("expected rollback boundary to be the unstripped Nominatim")
 	}
 	if !strings.Contains(stderr.String(), "Brisbane, CA") {
