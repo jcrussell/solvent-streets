@@ -70,6 +70,19 @@ func fetchCityBoundaryFromRelation(ctx context.Context, client *http.Client, bas
 		return "", fmt.Errorf("%w: id=%d", ErrBoundaryRelationNotFound, relationID)
 	}
 
+	// Span-gate the raw member geometry BEFORE stitching: stitchRings is
+	// O(n²) on member count, so an operator who pastes a county or state
+	// relation id otherwise pays the full stitching cost before the
+	// post-stitch gate trips. The pre-check sees the entire member-way
+	// envelope (including unstitchable fragments) while the post-stitch
+	// gate only sees accepted outer rings, so this check is a strict
+	// superset on the DoS path. The post-stitch outerBBoxSpanDeg call
+	// below is retained as the source-of-truth gate on the final
+	// accepted geometry.
+	if span := memberBBoxSpanDeg(rel.Members); span > boundaryRelationMaxSpanDeg {
+		return "", fmt.Errorf("%w: id=%d span=%.2f°", ErrBoundaryRelationTooLarge, relationID, span)
+	}
+
 	// relationToPolygons reuses the same stitching pipeline as water
 	// (water.go), minus the water-specific acceptWaterPolygon filter
 	// — admin boundaries can legitimately cover the full query bbox.
@@ -88,6 +101,42 @@ func fetchCityBoundaryFromRelation(ctx context.Context, client *http.Client, bas
 		"relation", relationID, "polygons", len(polys),
 	)
 	return polysToMultiPolygonGeoJSON(polys), nil
+}
+
+// memberBBoxSpanDeg returns the larger of the lon/lat dimensions of
+// the bbox enclosing every way member's raw geometry, in degrees. It
+// is the pre-stitch counterpart to outerBBoxSpanDeg: cheap to compute
+// (one pass over members) and operates on the unstitched coordinate
+// stream, so it can short-circuit the O(n²) stitchRings call when the
+// operator pasted a parent admin relation. Returns 0 for relations
+// with no way members or no geometry — those cases are handled
+// downstream by the stitching pipeline.
+func memberBBoxSpanDeg(members []overpassRelationMember) float64 {
+	minX, minY := math.Inf(1), math.Inf(1)
+	maxX, maxY := math.Inf(-1), math.Inf(-1)
+	for _, m := range members {
+		if m.Type != elementWay {
+			continue
+		}
+		for _, g := range m.Geometry {
+			if g.Lon < minX {
+				minX = g.Lon
+			}
+			if g.Lon > maxX {
+				maxX = g.Lon
+			}
+			if g.Lat < minY {
+				minY = g.Lat
+			}
+			if g.Lat > maxY {
+				maxY = g.Lat
+			}
+		}
+	}
+	if math.IsInf(minX, 1) {
+		return 0
+	}
+	return math.Max(maxX-minX, maxY-minY)
 }
 
 // outerBBoxSpanDeg returns the larger of the lon/lat dimensions of

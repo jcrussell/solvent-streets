@@ -100,6 +100,103 @@ func TestFetchCityBoundaryFromRelation_NoWayMembers(t *testing.T) {
 	}
 }
 
+// TestMemberBBoxSpanDeg pins the pre-stitch span helper that gates
+// oversized boundary relations before the O(n²) stitchRings call. The
+// helper sees raw member-way coordinates (including fragments that
+// wouldn't survive stitching), so it's the spy point for the early
+// reject path.
+func TestMemberBBoxSpanDeg(t *testing.T) {
+	tests := []struct {
+		name    string
+		members []overpassRelationMember
+		want    float64
+	}{
+		{
+			name:    "no members",
+			members: nil,
+			want:    0,
+		},
+		{
+			name: "node members ignored",
+			members: []overpassRelationMember{
+				{Type: "node", Ref: 1},
+			},
+			want: 0,
+		},
+		{
+			name: "way with no geometry",
+			members: []overpassRelationMember{
+				{Type: "way", Ref: 1},
+			},
+			want: 0,
+		},
+		{
+			name: "10 degrees of longitude",
+			members: []overpassRelationMember{
+				{Type: "way", Ref: 1, Geometry: []overpassGeometryPoint{
+					{Lon: -110, Lat: 40}, {Lon: -100, Lat: 40},
+				}},
+			},
+			want: 10,
+		},
+		{
+			name: "lat span beats lon span",
+			members: []overpassRelationMember{
+				{Type: "way", Ref: 1, Geometry: []overpassGeometryPoint{
+					{Lon: -100, Lat: 30}, {Lon: -99, Lat: 38},
+				}},
+			},
+			want: 8,
+		},
+		{
+			name: "span aggregates across multiple ways",
+			members: []overpassRelationMember{
+				{Type: "way", Ref: 1, Geometry: []overpassGeometryPoint{{Lon: -110, Lat: 40}}},
+				{Type: "way", Ref: 2, Geometry: []overpassGeometryPoint{{Lon: -103, Lat: 40}}},
+				{Type: "way", Ref: 3, Geometry: []overpassGeometryPoint{{Lon: -106, Lat: 40}}},
+			},
+			want: 7,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := memberBBoxSpanDeg(tc.members); got != tc.want {
+				t.Errorf("memberBBoxSpanDeg = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestFetchCityBoundaryFromRelation_TooLargeShortCircuitsStitching
+// asserts the pre-stitch span gate fires before stitchRings — the
+// proof point is a relation whose member ways are individually
+// unstitchable (open rings) and span >5°. Without the pre-gate, the
+// stitcher would run, find no closed outer rings, and return
+// ErrBoundaryRelationNotFound. With the pre-gate, the operator-DoS
+// signal (ErrBoundaryRelationTooLarge) wins.
+func TestFetchCityBoundaryFromRelation_TooLargeShortCircuitsStitching(t *testing.T) {
+	// Two open ways, each at far ends of an ~8° span. Neither can be
+	// closed into a ring on its own, so the stitcher would yield zero
+	// outer rings if it ran.
+	body := `{"elements":[{"type":"relation","id":9,"members":[
+		{"type":"way","ref":1,"role":"outer","geometry":[
+			{"lon":-110.0,"lat":30.0},
+			{"lon":-109.0,"lat":30.5}
+		]},
+		{"type":"way","ref":2,"role":"outer","geometry":[
+			{"lon":-102.0,"lat":35.0},
+			{"lon":-101.0,"lat":36.0}
+		]}
+	]}]}`
+	srv := overpassTestServer(t, body)
+	t.Cleanup(srv.Close)
+
+	_, err := fetchCityBoundaryFromRelation(context.Background(), srv.Client(), srv.URL, 9)
+	if !errors.Is(err, ErrBoundaryRelationTooLarge) {
+		t.Fatalf("expected ErrBoundaryRelationTooLarge (pre-stitch gate), got: %v", err)
+	}
+}
+
 // TestFetchCityBoundaryFromRelation_TooLarge catches the
 // wrong-relation-ID footgun — a relation whose bbox spans more than
 // 5° is almost certainly a county or state, not a city.

@@ -9,6 +9,29 @@ import (
 	"net/url"
 )
 
+// SSRF-guard rule for outbound URLs in package ingest
+// =====================================================
+//
+// Any outbound URL whose host is even partially operator- or
+// user-controlled MUST pass through validatePublicHTTPURL before the
+// HTTP client touches it. The guard rejects loopback, link-local,
+// private (RFC1918), unspecified, and multicast addresses so a hostile
+// pvmt.toml cannot steer ingest at internal services
+// (localhost, 169.254.169.254, RFC1918 ranges) — solvent-streets-di49.
+//
+// Today this is wired only into arcgis.go, because Overpass
+// (overpass.go) and Nominatim (nominatim.go) use hardcoded endpoints
+// that aren't operator-controlled. If those endpoints — or any new
+// source — become configurable, route them through this guard at the
+// same layer (post-config-load, pre-fetch) so the policy is not
+// silently lost.
+//
+// A transport-level enforcement (Dial check on the shared http.Client)
+// would make the rule mechanically unforgettable but would also force
+// the policy on the currently-hardcoded sources where it's a no-op
+// overhead; the deliberate placement is per-call to keep that overhead
+// off the fixed-endpoint paths.
+
 // validatePublicHTTPURL rejects URLs whose resolved host is loopback,
 // link-local, private, unspecified, or multicast. Defense-in-depth
 // against a shared hostile pvmt.toml steering ingest at internal
