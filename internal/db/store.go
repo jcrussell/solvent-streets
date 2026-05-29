@@ -79,9 +79,9 @@ func (s *sqliteStore) ListFeatures(ctx context.Context, resourceType resource.Ty
 
 func (s *sqliteStore) SaveComputeResult(ctx context.Context, result ComputeResult) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO compute_results (resource_type, city_id, total_area_sqm, feature_count, computed_at, snapshot_id)
+		INSERT INTO compute_results (resource_type, city_id, total_area, feature_count, computed_at, snapshot_id)
 		VALUES (?, ?, ?, ?, ?, ?)
-	`, result.ResourceType, s.cityID, result.TotalAreaSqM, result.FeatureCount, time.Now(), result.SnapshotID)
+	`, result.ResourceType, s.cityID, result.TotalArea, result.FeatureCount, time.Now(), result.SnapshotID)
 	if err != nil {
 		return fmt.Errorf("insert compute result: %w", err)
 	}
@@ -95,13 +95,13 @@ func (s *sqliteStore) SaveComputeResult(ctx context.Context, result ComputeResul
 // the single-row read).
 func (s *sqliteStore) LatestComputeResult(ctx context.Context, resourceType resource.Type) (*ComputeResult, error) {
 	q, bind := snapshotQuery(
-		`SELECT id, resource_type, total_area_sqm, feature_count, computed_at, snapshot_id FROM compute_results`,
+		`SELECT id, resource_type, total_area, feature_count, computed_at, snapshot_id FROM compute_results`,
 		"compute_results",
 		` ORDER BY computed_at DESC LIMIT 1`,
 		s.snapshotID, s.configHash, resourceType, s.cityID,
 	)
 	var r ComputeResult
-	err := s.db.QueryRowContext(ctx, q, bind...).Scan(&r.ID, &r.ResourceType, &r.TotalAreaSqM, &r.FeatureCount, &r.ComputedAt, &r.SnapshotID)
+	err := s.db.QueryRowContext(ctx, q, bind...).Scan(&r.ID, &r.ResourceType, &r.TotalArea, &r.FeatureCount, &r.ComputedAt, &r.SnapshotID)
 	if err != nil {
 		return nil, err
 	}
@@ -120,13 +120,13 @@ func (s *sqliteStore) LatestComputeResults(ctx context.Context, types []resource
 		return out, nil
 	}
 	q, bind := snapshotBatchQuery(
-		`SELECT id, resource_type, total_area_sqm, feature_count, computed_at, snapshot_id,
+		`SELECT id, resource_type, total_area, feature_count, computed_at, snapshot_id,
 		        ROW_NUMBER() OVER (PARTITION BY resource_type ORDER BY computed_at DESC) AS rn`,
 		"compute_results",
 		"",
 		s.snapshotID, s.configHash, types, s.cityID,
 	)
-	q = `SELECT id, resource_type, total_area_sqm, feature_count, computed_at, snapshot_id FROM (` + q + `) WHERE rn = 1`
+	q = `SELECT id, resource_type, total_area, feature_count, computed_at, snapshot_id FROM (` + q + `) WHERE rn = 1`
 	rows, err := s.db.QueryContext(ctx, q, bind...)
 	if err != nil {
 		return nil, fmt.Errorf("query latest compute results: %w", err)
@@ -134,7 +134,7 @@ func (s *sqliteStore) LatestComputeResults(ctx context.Context, types []resource
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var r ComputeResult
-		if err := rows.Scan(&r.ID, &r.ResourceType, &r.TotalAreaSqM, &r.FeatureCount, &r.ComputedAt, &r.SnapshotID); err != nil {
+		if err := rows.Scan(&r.ID, &r.ResourceType, &r.TotalArea, &r.FeatureCount, &r.ComputedAt, &r.SnapshotID); err != nil {
 			return nil, fmt.Errorf("scan compute result: %w", err)
 		}
 		row := r
@@ -151,7 +151,7 @@ func (s *sqliteStore) LatestComputeResults(ctx context.Context, types []resource
 func (s *sqliteStore) SaveHexStats(ctx context.Context, stats []HexStat) error {
 	return s.withTx(ctx, func(tx *sql.Tx) error {
 		stmt, err := tx.PrepareContext(ctx, `
-			INSERT INTO hex_stats (hex_id, resource_type, city_id, snapshot_id, area_sqm, pct_covered, computed_at)
+			INSERT INTO hex_stats (hex_id, resource_type, city_id, snapshot_id, area, pct_covered, computed_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?)
 		`)
 		if err != nil {
@@ -161,7 +161,7 @@ func (s *sqliteStore) SaveHexStats(ctx context.Context, stats []HexStat) error {
 
 		now := time.Now()
 		for _, st := range stats {
-			if _, err := stmt.ExecContext(ctx, st.HexID, st.ResourceType, s.cityID, st.SnapshotID, st.AreaSqM, st.PctCovered, now); err != nil {
+			if _, err := stmt.ExecContext(ctx, st.HexID, st.ResourceType, s.cityID, st.SnapshotID, st.Area, st.PctCovered, now); err != nil {
 				return fmt.Errorf("insert hex stat %s: %w", st.HexID, err)
 			}
 		}
@@ -177,7 +177,7 @@ func (s *sqliteStore) SaveHexStats(ctx context.Context, stats []HexStat) error {
 // behavior duplicated output for every caller that didn't pin.
 func (s *sqliteStore) ListHexStats(ctx context.Context, resourceType resource.Type) ([]HexStat, error) {
 	q, bind := snapshotQuery(
-		`SELECT hex_id, resource_type, area_sqm, pct_covered, computed_at, snapshot_id FROM hex_stats`,
+		`SELECT hex_id, resource_type, area, pct_covered, computed_at, snapshot_id FROM hex_stats`,
 		"hex_stats",
 		"",
 		s.snapshotID, s.configHash, resourceType, s.cityID,
@@ -191,7 +191,7 @@ func (s *sqliteStore) ListHexStats(ctx context.Context, resourceType resource.Ty
 	var stats []HexStat
 	for rows.Next() {
 		var st HexStat
-		if err := rows.Scan(&st.HexID, &st.ResourceType, &st.AreaSqM, &st.PctCovered, &st.ComputedAt, &st.SnapshotID); err != nil {
+		if err := rows.Scan(&st.HexID, &st.ResourceType, &st.Area, &st.PctCovered, &st.ComputedAt, &st.SnapshotID); err != nil {
 			return nil, fmt.Errorf("scan hex stat: %w", err)
 		}
 		stats = append(stats, st)
@@ -238,7 +238,7 @@ func (s *sqliteStore) ListSnapshots(ctx context.Context) ([]Snapshot, error) {
 func (s *sqliteStore) SaveForecastResults(ctx context.Context, results []ForecastResult) error {
 	return s.withTx(ctx, func(tx *sql.Tx) error {
 		stmt, err := tx.PrepareContext(ctx, `
-			INSERT INTO forecast_results (resource_type, city_id, year, pci, area_sqm, treatment_cost, treatment_tier, snapshot_id, computed_at)
+			INSERT INTO forecast_results (resource_type, city_id, year, pci, area, treatment_cost, treatment_tier, snapshot_id, computed_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`)
 		if err != nil {
@@ -248,7 +248,7 @@ func (s *sqliteStore) SaveForecastResults(ctx context.Context, results []Forecas
 
 		now := time.Now()
 		for _, r := range results {
-			if _, err := stmt.ExecContext(ctx, r.ResourceType, s.cityID, r.Year, r.PCI, r.AreaSqM, r.TreatmentCost, r.TreatmentTier, r.SnapshotID, now); err != nil {
+			if _, err := stmt.ExecContext(ctx, r.ResourceType, s.cityID, r.Year, r.PCI, r.Area, r.TreatmentCost, r.TreatmentTier, r.SnapshotID, now); err != nil {
 				return fmt.Errorf("insert forecast year %d: %w", r.Year, err)
 			}
 		}
@@ -261,7 +261,7 @@ func (s *sqliteStore) SaveForecastResults(ctx context.Context, results []Forecas
 // the per-snapshot rows in display order.
 func (s *sqliteStore) ListForecastResults(ctx context.Context, resourceType resource.Type) ([]ForecastResult, error) {
 	q, bind := snapshotQuery(
-		`SELECT id, resource_type, year, pci, area_sqm, treatment_cost, treatment_tier, snapshot_id, computed_at FROM forecast_results`,
+		`SELECT id, resource_type, year, pci, area, treatment_cost, treatment_tier, snapshot_id, computed_at FROM forecast_results`,
 		"forecast_results",
 		` ORDER BY year`,
 		s.snapshotID, s.configHash, resourceType, s.cityID,
@@ -275,7 +275,7 @@ func (s *sqliteStore) ListForecastResults(ctx context.Context, resourceType reso
 	var results []ForecastResult
 	for rows.Next() {
 		var r ForecastResult
-		if err := rows.Scan(&r.ID, &r.ResourceType, &r.Year, &r.PCI, &r.AreaSqM, &r.TreatmentCost, &r.TreatmentTier, &r.SnapshotID, &r.ComputedAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.ResourceType, &r.Year, &r.PCI, &r.Area, &r.TreatmentCost, &r.TreatmentTier, &r.SnapshotID, &r.ComputedAt); err != nil {
 			return nil, fmt.Errorf("scan forecast: %w", err)
 		}
 		results = append(results, r)
@@ -288,7 +288,7 @@ func (s *sqliteStore) ListForecastResults(ctx context.Context, resourceType reso
 func (s *sqliteStore) SaveCohortStats(ctx context.Context, stats []CohortStat) error {
 	return s.withTx(ctx, func(tx *sql.Tx) error {
 		stmt, err := tx.PrepareContext(ctx, `
-			INSERT INTO cohort_stats (resource_type, city_id, classification, area_sqm, feature_count, snapshot_id, computed_at)
+			INSERT INTO cohort_stats (resource_type, city_id, classification, area, feature_count, snapshot_id, computed_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?)
 		`)
 		if err != nil {
@@ -298,7 +298,7 @@ func (s *sqliteStore) SaveCohortStats(ctx context.Context, stats []CohortStat) e
 
 		now := time.Now()
 		for _, st := range stats {
-			if _, err := stmt.ExecContext(ctx, st.ResourceType, s.cityID, st.Classification, st.AreaSqM, st.FeatureCount, st.SnapshotID, now); err != nil {
+			if _, err := stmt.ExecContext(ctx, st.ResourceType, s.cityID, st.Classification, st.Area, st.FeatureCount, st.SnapshotID, now); err != nil {
 				return fmt.Errorf("insert cohort stat %s/%s: %w", st.ResourceType, st.Classification, err)
 			}
 		}
@@ -316,7 +316,7 @@ func (s *sqliteStore) ListCohortStatsForTypes(ctx context.Context, types []resou
 		return out, nil
 	}
 	q, bind := snapshotBatchQuery(
-		`SELECT id, resource_type, classification, area_sqm, feature_count, snapshot_id, computed_at`,
+		`SELECT id, resource_type, classification, area, feature_count, snapshot_id, computed_at`,
 		"cohort_stats",
 		"",
 		s.snapshotID, s.configHash, types, s.cityID,
@@ -328,7 +328,7 @@ func (s *sqliteStore) ListCohortStatsForTypes(ctx context.Context, types []resou
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var st CohortStat
-		if err := rows.Scan(&st.ID, &st.ResourceType, &st.Classification, &st.AreaSqM, &st.FeatureCount, &st.SnapshotID, &st.ComputedAt); err != nil {
+		if err := rows.Scan(&st.ID, &st.ResourceType, &st.Classification, &st.Area, &st.FeatureCount, &st.SnapshotID, &st.ComputedAt); err != nil {
 			return nil, fmt.Errorf("scan cohort stat: %w", err)
 		}
 		out[st.ResourceType] = append(out[st.ResourceType], st)
@@ -340,7 +340,7 @@ func (s *sqliteStore) ListCohortStatsForTypes(ctx context.Context, types []resou
 // see that helper for the three-arm semantic.
 func (s *sqliteStore) ListCohortStats(ctx context.Context, resourceType resource.Type) ([]CohortStat, error) {
 	q, bind := snapshotQuery(
-		`SELECT id, resource_type, classification, area_sqm, feature_count, snapshot_id, computed_at FROM cohort_stats`,
+		`SELECT id, resource_type, classification, area, feature_count, snapshot_id, computed_at FROM cohort_stats`,
 		"cohort_stats",
 		"",
 		s.snapshotID, s.configHash, resourceType, s.cityID,
@@ -354,7 +354,7 @@ func (s *sqliteStore) ListCohortStats(ctx context.Context, resourceType resource
 	var stats []CohortStat
 	for rows.Next() {
 		var st CohortStat
-		if err := rows.Scan(&st.ID, &st.ResourceType, &st.Classification, &st.AreaSqM, &st.FeatureCount, &st.SnapshotID, &st.ComputedAt); err != nil {
+		if err := rows.Scan(&st.ID, &st.ResourceType, &st.Classification, &st.Area, &st.FeatureCount, &st.SnapshotID, &st.ComputedAt); err != nil {
 			return nil, fmt.Errorf("scan cohort stat: %w", err)
 		}
 		stats = append(stats, st)
@@ -413,7 +413,7 @@ func (s *sqliteStore) Stats(ctx context.Context, resourceType resource.Type) (*S
 	result, err := s.LatestComputeResult(ctx, resourceType)
 	if err == nil && result != nil {
 		info.LastComputeAt = &result.ComputedAt
-		info.TotalAreaSqM = result.TotalAreaSqM
+		info.TotalArea = result.TotalArea
 	}
 
 	return info, nil

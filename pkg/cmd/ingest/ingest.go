@@ -407,8 +407,8 @@ func stripWaterFromBoundary(
 	if err != nil {
 		return "", fmt.Sprintf("water strip skipped: subtract: %v", err), nil
 	}
-	origArea, errOrig := geo.BoundaryAreaSqM(boundaryGJSON)
-	stripArea, errStrip := geo.BoundaryAreaSqM(stripped)
+	origArea, errOrig := geo.BoundaryArea(boundaryGJSON)
+	stripArea, errStrip := geo.BoundaryArea(stripped)
 	if errOrig == nil && errStrip == nil && !acceptStripRatio(origArea, stripArea, waterStripMinAreaRatio) {
 		return "", "", fmt.Errorf("%w: stripped %.0f sq m is %.1f%% of original %.0f sq m",
 			ErrWaterStripOverSubtracted, stripArea, 100*stripArea/origArea, origArea)

@@ -17,10 +17,10 @@ import (
 
 // BuildMultiCityMeta aggregates each sub-city's per-resource compute results
 // and boundary areas into a single regional MetaJSON for the multi-city
-// landing page. Per-resource Stats sum across entries; CityAreaSqM is the
+// landing page. Per-resource Stats sum across entries; CityArea is the
 // sum of per-city boundary areas, each computed in its own UTM zone so that
 // far-apart sub-cities (different UTM zones) are not biased by a single
-// shared projection. TotalPavedSqM prefers the summed "combined" rows with
+// shared projection. TotalPaved prefers the summed "combined" rows with
 // a fallback to summed per-resource rows.
 func BuildMultiCityMeta(ctx context.Context, entries []CityEntry, regionName string) (MetaJSON, error) {
 	if len(entries) == 0 {
@@ -40,15 +40,15 @@ func BuildMultiCityMeta(ctx context.Context, entries []CityEntry, regionName str
 		SnapshotDate: time.Now().Format("2006-01-02"),
 		Stats:        aggregatePerResourceStats(ctx, entries),
 	}
-	meta.TotalPavedSqM = aggregateTotalPaved(ctx, entries)
-	meta.CityAreaSqM = summedBoundaryArea(ctx, entries)
-	if meta.CityAreaSqM > 0 && meta.TotalPavedSqM > 0 {
-		meta.PctPaved = meta.TotalPavedSqM / meta.CityAreaSqM * 100
+	meta.TotalPaved = aggregateTotalPaved(ctx, entries)
+	meta.CityArea = summedBoundaryArea(ctx, entries)
+	if meta.CityArea > 0 && meta.TotalPaved > 0 {
+		meta.PctPaved = meta.TotalPaved / meta.CityArea * 100
 	}
 	return meta, nil
 }
 
-// aggregatePerResourceStats sums TotalAreaSqM and FeatureCount per resource
+// aggregatePerResourceStats sums TotalArea and FeatureCount per resource
 // type across all entries, returning the per-resource cards in resource.All
 // order. Resources with no rows in any entry are omitted.
 //
@@ -68,7 +68,7 @@ func aggregatePerResourceStats(ctx context.Context, entries []CityEntry) []StatJ
 				st = &StatJSON{Type: kindName, Color: ResourceColors[kindName]}
 				statByType[kindName] = st
 			}
-			st.TotalAreaSqM += result.TotalAreaSqM
+			st.TotalArea += result.TotalArea
 			st.FeatureCount += result.FeatureCount
 		}
 	}
@@ -111,7 +111,7 @@ func summedBoundaryArea(ctx context.Context, entries []CityEntry) float64 {
 		if err != nil || gjson == "" {
 			continue
 		}
-		a, err := geo.BoundaryAreaSqM(gjson)
+		a, err := geo.BoundaryArea(gjson)
 		if err != nil {
 			continue
 		}
@@ -151,7 +151,7 @@ func regionBBox(ctx context.Context, entries []CityEntry) ([4]float64, bool) {
 }
 
 // BuildMultiCityForecastSeed aggregates per-city forecast seeds into one
-// regional ForecastSeedJSON. TotalAreaSqM and CityPavedSqM sum the "combined"
+// regional ForecastSeedJSON. TotalArea and CityPaved sum the "combined"
 // and "combined:city" rows across entries (with per-resource fallback).
 // Cohort areas are summed across cities for each (resource_type, classification)
 // pair — cross-resource collisions stay as separate cohorts to match the
@@ -173,15 +173,15 @@ func BuildMultiCityForecastSeed(ctx context.Context, fc *config.ForecastConfig, 
 		decayRate = forecast.DefaultDecayRates["default"]
 	}
 	seed := ForecastSeedJSON{
-		InitialPCI:   fc.InitialPCI,
-		DecayRate:    decayRate,
-		GrowthRate:   fc.GrowthRate,
-		Years:        fc.Years,
-		TotalAreaSqM: totalArea,
-		CityPavedSqM: cityArea,
-		CostTiers:    costTiers,
-		Cohorts:      mergeCohortSeeds(ctx, entries, fc, false),
-		CityCohorts:  mergeCohortSeeds(ctx, entries, fc, true),
+		InitialPCI:  fc.InitialPCI,
+		DecayRate:   decayRate,
+		GrowthRate:  fc.GrowthRate,
+		Years:       fc.Years,
+		TotalArea:   totalArea,
+		CityPaved:   cityArea,
+		CostTiers:   costTiers,
+		Cohorts:     mergeCohortSeeds(ctx, entries, fc, false),
+		CityCohorts: mergeCohortSeeds(ctx, entries, fc, true),
 	}
 	data, err := json.Marshal(seed)
 	if err != nil {
@@ -194,13 +194,13 @@ func BuildMultiCityForecastSeed(ctx context.Context, fc *config.ForecastConfig, 
 // sums the per-resource rows in the matching scope.
 func entryAreaWithFallback(ctx context.Context, store db.Store, combinedLabel resource.Type, scope resource.Scope) float64 {
 	if r, err := store.LatestComputeResult(ctx, combinedLabel); err == nil && r != nil {
-		return r.TotalAreaSqM
+		return r.TotalArea
 	}
 	var sum float64
 	for _, rt := range resource.All {
 		r, err := store.LatestComputeResult(ctx, rt.Type().With(scope))
 		if err == nil && r != nil {
-			sum += r.TotalAreaSqM
+			sum += r.TotalArea
 		}
 	}
 	return sum
@@ -248,7 +248,7 @@ func mergeCohortSeeds(ctx context.Context, entries []CityEntry, fc *config.Forec
 					buckets[k] = b
 					nextOrder++
 				}
-				b.Seed.AreaSqM += st.AreaSqM
+				b.Seed.Area += st.Area
 			}
 		}
 	}

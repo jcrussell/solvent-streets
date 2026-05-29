@@ -601,20 +601,20 @@
             <h2>{{.ProjectName}}</h2>
             <div class="subtitle">Pavement & Parking Analysis | Last computed {{.SnapshotDate}}</div>
             <div id="stats">
-            {{if gt .CityAreaSqM 0.0}}
+            {{if gt .CityArea 0.0}}
                 <div class="stat-card summary-card">
                     <h3>City Summary</h3>
                     <div class="stat-row">
                         <span class="stat-label">City Area ({{areaLargeUnit}})</span>
-                        <span class="stat-value">{{printf "%.1f" (areaLarge .CityAreaSqM)}}</span>
+                        <span class="stat-value">{{printf "%.1f" (areaLarge .CityArea)}}</span>
                     </div>
                     <div class="stat-row">
                         <span class="stat-label">City Area ({{areaVeryLargeUnit}})</span>
-                        <span class="stat-value">{{printf "%.2f" (areaVeryLarge .CityAreaSqM)}}</span>
+                        <span class="stat-value">{{printf "%.2f" (areaVeryLarge .CityArea)}}</span>
                     </div>
                     <div class="stat-row">
                         <span class="stat-label">Total Paved ({{areaLargeUnit}})</span>
-                        <span class="stat-value">{{printf "%.1f" (areaLarge .TotalPavedSqM)}}</span>
+                        <span class="stat-value">{{printf "%.1f" (areaLarge .TotalPaved)}}</span>
                     </div>
                     <div class="stat-row">
                         <span class="stat-label">% Paved</span>
@@ -631,11 +631,11 @@
                     </div>
                     <div class="stat-row">
                         <span class="stat-label">Area ({{areaLargeUnit}})</span>
-                        <span class="stat-value">{{printf "%.1f" (areaLarge .TotalAreaSqM)}}</span>
+                        <span class="stat-value">{{printf "%.1f" (areaLarge .TotalArea)}}</span>
                     </div>
                     <div class="stat-row">
                         <span class="stat-label">Area ({{areaVeryLargeUnit}})</span>
-                        <span class="stat-value">{{printf "%.2f" (areaVeryLarge .TotalAreaSqM)}}</span>
+                        <span class="stat-value">{{printf "%.2f" (areaVeryLarge .TotalArea)}}</span>
                     </div>
                 </div>
             {{end}}
@@ -1027,7 +1027,7 @@
         function areaVeryLargeUnit() {
             return UNIT_SYSTEM === 'metric' ? 'sq km' : 'sq mi';
         }
-        function fmtAreaSqM(sqm) {
+        function fmtArea(sqm) {
             if (UNIT_SYSTEM === 'metric') return fmtNum(sqm) + ' sq m';
             return fmtNum(sqm * SQM_TO_SQFT) + ' sq ft';
         }
@@ -1054,7 +1054,7 @@
         // source of truth for which bucket buildBlendedHexFC / the click
         // handler read from.
         let hexDataByScope = { city: {}, bbox: {} };       // { scope: { type: [features] } }
-        let costSummaryByScope = { city: {}, bbox: {} };   // { scope: { type: {year1_cost,total_area_sqm} } }
+        let costSummaryByScope = { city: {}, bbox: {} };   // { scope: { type: {year1_cost,total_area} } }
         let activeTypes = new Set(Object.keys(layerColors));
         let savedPanelHTML = '';
 
@@ -1082,21 +1082,21 @@
                 for (const f of features) {
                     const hid = f.properties.hex_id;
                     if (!byHex[hid]) {
-                        byHex[hid] = { geometry: f.geometry, area_sqm: 0, pct_covered: 0, est_cost: 0 };
+                        byHex[hid] = { geometry: f.geometry, area: 0, pct_covered: 0, est_cost: 0 };
                     }
-                    byHex[hid].area_sqm += f.properties.area_sqm || 0;
+                    byHex[hid].area += f.properties.area || 0;
                     byHex[hid].pct_covered += f.properties.pct_covered || 0;
                 }
             }
 
             for (const type of activeTypes) {
                 const cs = costSummary[type];
-                if (!cs || !cs.total_area_sqm) continue;
+                if (!cs || !cs.total_area) continue;
                 const features = hexDataByType[type] || [];
                 for (const f of features) {
                     const hid = f.properties.hex_id;
                     if (!byHex[hid]) continue;
-                    byHex[hid].est_cost += ((f.properties.area_sqm || 0) / cs.total_area_sqm) * cs.year1_cost;
+                    byHex[hid].est_cost += ((f.properties.area || 0) / cs.total_area) * cs.year1_cost;
                 }
             }
 
@@ -1107,7 +1107,7 @@
                     geometry: data.geometry,
                     properties: {
                         hex_id: hid,
-                        area_sqm: data.area_sqm,
+                        area: data.area,
                         pct_covered: Math.min(data.pct_covered, 100),
                         est_cost: data.est_cost
                     }
@@ -1146,22 +1146,22 @@
                     }
                     const statsEl = document.getElementById('stats');
                     let statsHTML = '';
-                    if (meta.city_area_sqm && meta.city_area_sqm > 0) {
+                    if (meta.city_area && meta.city_area > 0) {
                         statsHTML +=
                             '<div class="stat-card summary-card"><h3>City Summary</h3>' +
-                            '<div class="stat-row"><span class="stat-label">City Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + toAreaLarge(meta.city_area_sqm).toFixed(1) + '</span></div>' +
-                            '<div class="stat-row"><span class="stat-label">City Area (' + areaVeryLargeUnit() + ')</span><span class="stat-value">' + toAreaVeryLarge(meta.city_area_sqm).toFixed(2) + '</span></div>' +
-                            '<div class="stat-row"><span class="stat-label">Total Paved (' + areaLargeUnit() + ')</span><span class="stat-value">' + toAreaLarge(meta.total_paved_sqm || 0).toFixed(1) + '</span></div>' +
+                            '<div class="stat-row"><span class="stat-label">City Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + toAreaLarge(meta.city_area).toFixed(1) + '</span></div>' +
+                            '<div class="stat-row"><span class="stat-label">City Area (' + areaVeryLargeUnit() + ')</span><span class="stat-value">' + toAreaVeryLarge(meta.city_area).toFixed(2) + '</span></div>' +
+                            '<div class="stat-row"><span class="stat-label">Total Paved (' + areaLargeUnit() + ')</span><span class="stat-value">' + toAreaLarge(meta.total_paved || 0).toFixed(1) + '</span></div>' +
                             '<div class="stat-row"><span class="stat-label">% Paved</span><span class="stat-value">' + (meta.pct_paved || 0).toFixed(1) + '%</span></div>' +
                             '</div>';
                     }
                     (meta.stats || []).forEach(s => {
-                        const areaLargeVal = toAreaLarge(s.total_area_sqm);
+                        const areaLargeVal = toAreaLarge(s.total_area);
                         statsHTML +=
                             '<div class="stat-card"><h3>' + s.type + '</h3>' +
                             '<div class="stat-row"><span class="stat-label">Features</span><span class="stat-value">' + s.feature_count + '</span></div>' +
                             '<div class="stat-row"><span class="stat-label">Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + areaLargeVal.toFixed(1) + '</span></div>' +
-                            '<div class="stat-row"><span class="stat-label">Area (' + areaVeryLargeUnit() + ')</span><span class="stat-value">' + toAreaVeryLarge(s.total_area_sqm).toFixed(2) + '</span></div>' +
+                            '<div class="stat-row"><span class="stat-label">Area (' + areaVeryLargeUnit() + ')</span><span class="stat-value">' + toAreaVeryLarge(s.total_area).toFixed(2) + '</span></div>' +
                             '</div>';
                     });
                     statsEl.innerHTML = statsHTML;
@@ -1241,7 +1241,7 @@
                                 properties: {
                                     hex_id: hid,
                                     resource_type: rt,
-                                    area_sqm: m.area,
+                                    area: m.area,
                                     pct_covered: m.pct,
                                 },
                             });
@@ -1295,7 +1295,7 @@
                                 const p = e.features[0].properties;
                                 tooltip.innerHTML =
                                     '<strong>Coverage:</strong> ' + (p.pct_covered != null ? Math.round(p.pct_covered) : 0) + '%<br>' +
-                                    '<strong>Area:</strong> ' + fmtAreaSqM(p.area_sqm || 0) + '<br>' +
+                                    '<strong>Area:</strong> ' + fmtArea(p.area || 0) + '<br>' +
                                     '<strong>Est. Cost:</strong> ' + fmtCost(p.est_cost || 0);
                                 tooltip.style.display = 'block';
                                 tooltip.style.left = (e.point.x + 12) + 'px';
@@ -1330,12 +1330,12 @@
                                 const features = hexDataByType[type] || [];
                                 const match = features.find(f => f.properties.hex_id === hexId);
                                 if (!match) continue;
-                                const area = match.properties.area_sqm || 0;
+                                const area = match.properties.area || 0;
                                 const pct = match.properties.pct_covered || 0;
                                 let cost = 0;
                                 const cs = costSummary[type];
-                                if (cs && cs.total_area_sqm) {
-                                    cost = (area / cs.total_area_sqm) * cs.year1_cost;
+                                if (cs && cs.total_area) {
+                                    cost = (area / cs.total_area) * cs.year1_cost;
                                 }
                                 totalArea += area;
                                 totalPct += pct;
@@ -1694,7 +1694,7 @@
         // Column definitions for sorting: [key, type]
         var cohortColumns = [
             ['classification', 'string'],
-            ['area_sqm', 'number'],
+            ['area', 'number'],
             ['area_pct', 'number'],
             ['decay_rate', 'number'],
             ['end_pci', 'number'],
@@ -1704,12 +1704,12 @@
 
         function renderCohortBreakdown(cohorts, keepSort) {
             lastCohorts = cohorts;
-            const totalArea = cohorts.reduce((s, c) => s + c.area_sqm, 0);
+            const totalArea = cohorts.reduce((s, c) => s + c.area, 0);
 
             // Enrich with computed fields for sorting
             const enriched = cohorts.map(c => ({
                 ...c,
-                area_pct: totalArea > 0 ? c.area_sqm / totalArea * 100 : 0,
+                area_pct: totalArea > 0 ? c.area / totalArea * 100 : 0,
                 total_spend: c.total_spend || 0,
                 total_deficit: c.total_deficit || 0
             }));
@@ -1741,7 +1741,7 @@
             let totalDeficit = 0;
 
             sorted.forEach(c => {
-                const areaLargeVal = toAreaLarge(c.area_sqm);
+                const areaLargeVal = toAreaLarge(c.area);
                 const pci = c.end_pci;
                 let cls = 'pci-good';
                 if (pci < 40) cls = 'pci-poor';
@@ -2017,16 +2017,16 @@
             // Default ("all") uses city-scoped data; "bbox" uses full bounding-box data
             const activeScope = document.querySelector('#scope-toggle button.active');
             const scope = activeScope ? activeScope.dataset.scope : 'all';
-            const area = (scope === 'bbox' || !FORECAST_SEED.city_paved_sqm)
-                ? FORECAST_SEED.total_area_sqm
-                : FORECAST_SEED.city_paved_sqm;
+            const area = (scope === 'bbox' || !FORECAST_SEED.city_paved)
+                ? FORECAST_SEED.total_area
+                : FORECAST_SEED.city_paved;
             const seedCohorts = (scope === 'bbox' || !FORECAST_SEED.city_cohorts || FORECAST_SEED.city_cohorts.length === 0)
                 ? (FORECAST_SEED.cohorts || [])
                 : FORECAST_SEED.city_cohorts;
 
             // Compute baseline year-1 need to derive budget
             const baselineInput = {
-                area_sqm: area,
+                area: area,
                 initial_pci: initialPCI,
                 decay_rate: FORECAST_SEED.decay_rate,
                 growth_rate: FORECAST_SEED.growth_rate,
@@ -2043,7 +2043,7 @@
             const annualBudget = budgetPct > 0 ? year1Need * budgetPct : 0;
 
             return {
-                area_sqm: area,
+                area: area,
                 initial_pci: initialPCI,
                 decay_rate: FORECAST_SEED.decay_rate,
                 growth_rate: FORECAST_SEED.growth_rate,
@@ -2213,24 +2213,24 @@
             var statByType = {};
             if (city.meta && city.meta.stats) {
                 city.meta.stats.forEach(function(st) { statByType[st.type] = st; });
-                m.totalAreaLarge = city.meta.stats.reduce(function(s, st) { return s + toAreaLarge(st.total_area_sqm || 0); }, 0);
-                m.totalSqM = city.meta.stats.reduce(function(s, st) { return s + (st.total_area_sqm || 0); }, 0);
+                m.totalAreaLarge = city.meta.stats.reduce(function(s, st) { return s + toAreaLarge(st.total_area || 0); }, 0);
+                m.totalSqM = city.meta.stats.reduce(function(s, st) { return s + (st.total_area || 0); }, 0);
                 m.featureCount = city.meta.stats.reduce(function(s, st) { return s + (st.feature_count || 0); }, 0);
             } else {
                 m.totalAreaLarge = 0; m.totalSqM = 0; m.featureCount = 0;
             }
-            m.roadsAreaLarge = toAreaLarge(statByType.roads ? statByType.roads.total_area_sqm || 0 : 0);
-            m.parkingAreaLarge = toAreaLarge(statByType.parking ? statByType.parking.total_area_sqm || 0 : 0);
-            m.sidewalksAreaLarge = toAreaLarge(statByType.sidewalks ? statByType.sidewalks.total_area_sqm || 0 : 0);
-            m.roadsSqM = statByType.roads ? statByType.roads.total_area_sqm : 0;
-            m.parkingSqM = statByType.parking ? statByType.parking.total_area_sqm : 0;
-            m.sidewalksSqM = statByType.sidewalks ? statByType.sidewalks.total_area_sqm : 0;
+            m.roadsAreaLarge = toAreaLarge(statByType.roads ? statByType.roads.total_area || 0 : 0);
+            m.parkingAreaLarge = toAreaLarge(statByType.parking ? statByType.parking.total_area || 0 : 0);
+            m.sidewalksAreaLarge = toAreaLarge(statByType.sidewalks ? statByType.sidewalks.total_area || 0 : 0);
+            m.roadsSqM = statByType.roads ? statByType.roads.total_area : 0;
+            m.parkingSqM = statByType.parking ? statByType.parking.total_area : 0;
+            m.sidewalksSqM = statByType.sidewalks ? statByType.sidewalks.total_area : 0;
             m.roadsFeatures = statByType.roads ? statByType.roads.feature_count : 0;
             m.parkingFeatures = statByType.parking ? statByType.parking.feature_count : 0;
             m.sidewalksFeatures = statByType.sidewalks ? statByType.sidewalks.feature_count : 0;
 
             // City area and pct paved from meta
-            m.cityAreaLarge = toAreaLarge(city.meta && city.meta.city_area_sqm ? city.meta.city_area_sqm : 0);
+            m.cityAreaLarge = toAreaLarge(city.meta && city.meta.city_area ? city.meta.city_area : 0);
             m.pctPaved = city.meta && city.meta.pct_paved ? city.meta.pct_paved : 0;
 
             // Ratios
@@ -2244,12 +2244,12 @@
             if (city.seed && city.seed.cohorts) {
                 city.seed.cohorts.forEach(function(c) {
                     if (c.classification !== 'parking' && c.classification !== 'sidewalks') {
-                        m.cohorts[c.classification] = c.area_sqm;
+                        m.cohorts[c.classification] = c.area;
                     }
                 });
             }
-            if (city.seed && city.seed.city_paved_sqm && city.seed.total_area_sqm) {
-                m.cityPct = city.seed.city_paved_sqm / city.seed.total_area_sqm * 100;
+            if (city.seed && city.seed.city_paved && city.seed.total_area) {
+                m.cityPct = city.seed.city_paved / city.seed.total_area * 100;
             }
 
             // Blended decay from cohorts (area-weighted)
@@ -2257,8 +2257,8 @@
             if (city.seed && city.seed.cohorts) {
                 var totalArea = 0, weightedDecay = 0;
                 city.seed.cohorts.forEach(function(c) {
-                    totalArea += c.area_sqm;
-                    weightedDecay += c.area_sqm * c.decay_rate;
+                    totalArea += c.area;
+                    weightedDecay += c.area * c.decay_rate;
                 });
                 m.blendedDecay = totalArea > 0 ? weightedDecay / totalArea : 0;
             }

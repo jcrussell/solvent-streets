@@ -37,7 +37,7 @@ func TestRunCities_ListsCitiesWithStats(t *testing.T) {
 	statsFor := func(slug string) func(context.Context, resource.Type) (*db.StatusInfo, error) {
 		return func(_ context.Context, rt resource.Type) (*db.StatusInfo, error) {
 			if slug == "austin-tx" && rt == rtRoads {
-				return &db.StatusInfo{ResourceType: rt, FeatureCount: 42, TotalAreaSqM: 1000}, nil
+				return &db.StatusInfo{ResourceType: rt, FeatureCount: 42, TotalArea: 1000}, nil
 			}
 			return &db.StatusInfo{ResourceType: rt}, nil
 		}
@@ -82,12 +82,12 @@ func TestRunCities_ListsCitiesWithStats(t *testing.T) {
 // coverage for the handwritten switch in cityRow.ExportData.
 func TestCityRow_ExportData_AllFieldsPopulated(t *testing.T) {
 	r := cityRow{
-		Slug:         "austin-tx",
-		Name:         "Austin, TX",
-		Features:     map[string]int{"roads": 42},
-		TotalAreaSqM: 1000,
-		LastIngest:   "2026-04-18T00:00:00Z",
-		LastCompute:  "2026-04-18T01:00:00Z",
+		Slug:        "austin-tx",
+		Name:        "Austin, TX",
+		Features:    map[string]int{"roads": 42},
+		TotalArea:   1000,
+		LastIngest:  "2026-04-18T00:00:00Z",
+		LastCompute: "2026-04-18T01:00:00Z",
 	}
 	out := r.ExportData(citiesFields)
 	if len(out) != len(citiesFields) {

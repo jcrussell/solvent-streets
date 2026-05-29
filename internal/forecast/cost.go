@@ -88,13 +88,13 @@ type TieredCostProjector struct {
 	Tiers []CostTier // if nil, uses DefaultCostTiers
 }
 
-func (p *TieredCostProjector) ProjectCost(areaSqM float64, pci float64) float64 {
+func (p *TieredCostProjector) ProjectCost(area float64, pci float64) float64 {
 	tiers := p.Tiers
 	if len(tiers) == 0 {
 		tiers = DefaultCostTiers
 	}
 	anchors := buildAnchors(tiers)
-	return areaSqM * interpolateCost(anchors, pci)
+	return area * interpolateCost(anchors, pci)
 }
 
 // TierForPCI returns the cost tier label for a given PCI value.

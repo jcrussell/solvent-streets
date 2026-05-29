@@ -24,12 +24,12 @@ const (
 	DefaultHexEdgeM      = 100.0
 	DefaultInitialPCI    = 85.0
 	DefaultForecastYears = 20
-	// DefaultMinHexAreaSqM is the minimum projected hex area (in square
+	// DefaultMinHexArea is the minimum projected hex area (in square
 	// meters) below which a clipped boundary sliver is dropped from the
 	// heatmap. A single feature inside a tiny clipped hex would render as
 	// 100%-covered and visually misrepresent the edge. Cities with smaller
-	// hex_edge_m may want to tune this via display.min_hex_area_sqm.
-	DefaultMinHexAreaSqM = 100.0
+	// hex_edge_m may want to tune this via display.min_hex_area.
+	DefaultMinHexArea = 100.0
 	// DefaultCoordinateDecimals is the precision of [lon, lat] floats
 	// emitted in hex GeoJSON. 6 decimals ≈ 11 cm, plenty for a
 	// city-scale heatmap; the JTS reproject path used to hardcode 7
@@ -88,20 +88,20 @@ type Config struct {
 
 type DisplayConfig struct {
 	Units string `toml:"units"` // "metric" or "imperial" (default: "imperial")
-	// MinHexAreaSqM drops boundary-sliver hexes from the heatmap (see
-	// DefaultMinHexAreaSqM). Resolve via Config.MinHexAreaSqM(); a zero
+	// MinHexArea drops boundary-sliver hexes from the heatmap (see
+	// DefaultMinHexArea). Resolve via Config.MinHexArea(); a zero
 	// or unset value falls back to the default, which is what most cities
 	// want. Negative values are rejected at config load.
-	MinHexAreaSqM float64 `toml:"min_hex_area_sqm"`
+	MinHexArea float64 `toml:"min_hex_area"`
 }
 
-// MinHexAreaSqM returns the effective heatmap sliver threshold in square
-// meters: the configured value if positive, else DefaultMinHexAreaSqM.
-func (c *Config) MinHexAreaSqM() float64 {
-	if c.Display.MinHexAreaSqM > 0 {
-		return c.Display.MinHexAreaSqM
+// MinHexArea returns the effective heatmap sliver threshold in square
+// meters: the configured value if positive, else DefaultMinHexArea.
+func (c *Config) MinHexArea() float64 {
+	if c.Display.MinHexArea > 0 {
+		return c.Display.MinHexArea
 	}
-	return DefaultMinHexAreaSqM
+	return DefaultMinHexArea
 }
 
 // UnitSystem returns the resolved display unit system. Precedence:
@@ -406,9 +406,9 @@ func (c *Config) Validate() error {
 		return errors.Join(ErrInvalidConfig,
 			fmt.Errorf("grid.hex_edge_m %g must be non-negative", c.Grid.HexEdgeM))
 	}
-	if c.Display.MinHexAreaSqM < 0 {
+	if c.Display.MinHexArea < 0 {
 		return errors.Join(ErrInvalidConfig,
-			fmt.Errorf("display.min_hex_area_sqm %g must be non-negative", c.Display.MinHexAreaSqM))
+			fmt.Errorf("display.min_hex_area %g must be non-negative", c.Display.MinHexArea))
 	}
 	if err := c.Forecast.Validate(); err != nil {
 		return errors.Join(ErrInvalidConfig, err)

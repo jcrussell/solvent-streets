@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestBoundaryAreaSqM(t *testing.T) {
+func TestBoundaryArea(t *testing.T) {
 	// ~1km x 1km square near Austin, TX (30.27°N, -97.74°W)
 	// 0.009° lat ≈ 1 km, 0.0104° lon ≈ 1 km at this latitude
 	gjson := `{
@@ -19,7 +19,7 @@ func TestBoundaryAreaSqM(t *testing.T) {
 		]]
 	}`
 
-	sqm, err := BoundaryAreaSqM(gjson)
+	sqm, err := BoundaryArea(gjson)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -32,14 +32,14 @@ func TestBoundaryAreaSqM(t *testing.T) {
 	}
 }
 
-func TestBoundaryAreaSqM_InvalidGeoJSON(t *testing.T) {
-	_, err := BoundaryAreaSqM("not json")
+func TestBoundaryArea_InvalidGeoJSON(t *testing.T) {
+	_, err := BoundaryArea("not json")
 	if err == nil {
 		t.Error("expected error for invalid GeoJSON")
 	}
 }
 
-func TestBoundaryAreaSqM_EmptyPolygon(t *testing.T) {
+func TestBoundaryArea_EmptyPolygon(t *testing.T) {
 	// Degenerate polygon (all same point)
 	gjson := `{
 		"type": "Polygon",
@@ -51,7 +51,7 @@ func TestBoundaryAreaSqM_EmptyPolygon(t *testing.T) {
 		]]
 	}`
 
-	sqm, err := BoundaryAreaSqM(gjson)
+	sqm, err := BoundaryArea(gjson)
 	if err != nil {
 		// Some implementations may error on degenerate polygons, that's fine
 		return

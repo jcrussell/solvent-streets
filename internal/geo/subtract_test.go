@@ -12,7 +12,7 @@ func TestSubtractGeoJSON_RemovesInnerPolygon(t *testing.T) {
 	// Inner square covering the western half.
 	inner := `{"type":"Polygon","coordinates":[[[-122.0,37.7],[-121.95,37.7],[-121.95,37.8],[-122.0,37.8],[-122.0,37.7]]]}`
 
-	outerArea, err := BoundaryAreaSqM(outer)
+	outerArea, err := BoundaryArea(outer)
 	if err != nil {
 		t.Fatalf("outer area: %v", err)
 	}
@@ -25,7 +25,7 @@ func TestSubtractGeoJSON_RemovesInnerPolygon(t *testing.T) {
 		t.Fatal("expected non-empty result")
 	}
 
-	resultArea, err := BoundaryAreaSqM(result)
+	resultArea, err := BoundaryArea(result)
 	if err != nil {
 		t.Fatalf("result area: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestSubtractGeoJSON_DisjointSubtrahendUnchanged(t *testing.T) {
 	// Subtrahend nearby but not overlapping (slight offset east).
 	disjoint := `{"type":"Polygon","coordinates":[[[-122.39,37.7],[-122.38,37.7],[-122.38,37.8],[-122.39,37.8],[-122.39,37.7]]]}`
 
-	boundaryArea, err := BoundaryAreaSqM(boundary)
+	boundaryArea, err := BoundaryArea(boundary)
 	if err != nil {
 		t.Fatalf("boundary area: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestSubtractGeoJSON_DisjointSubtrahendUnchanged(t *testing.T) {
 		t.Fatalf("SubtractGeoJSON: %v", err)
 	}
 
-	resultArea, err := BoundaryAreaSqM(result)
+	resultArea, err := BoundaryArea(result)
 	if err != nil {
 		t.Fatalf("result area: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestSubtractGeoJSON_DisjointSubtrahendUnchanged(t *testing.T) {
 func TestSubtractGeoJSON_OversizedSubtrahendClippedToBoundary(t *testing.T) {
 	// Boundary is a small SF square.
 	boundary := `{"type":"Polygon","coordinates":[[[-122.5,37.7],[-122.4,37.7],[-122.4,37.8],[-122.5,37.8],[-122.5,37.7]]]}`
-	boundaryArea, err := BoundaryAreaSqM(boundary)
+	boundaryArea, err := BoundaryArea(boundary)
 	if err != nil {
 		t.Fatalf("boundary area: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestSubtractGeoJSON_OversizedSubtrahendClippedToBoundary(t *testing.T) {
 		t.Fatal("expected non-empty result")
 	}
 
-	resultArea, err := BoundaryAreaSqM(result)
+	resultArea, err := BoundaryArea(result)
 	if err != nil {
 		t.Fatalf("result area: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestSubtractGeoJSON_FullyDisjointSubtrahendReturnsBoundary(t *testing.T) {
 	// Subtrahend in the Atlantic, nowhere near SF.
 	subtrahend := `{"type":"Polygon","coordinates":[[[-30.0,40.0],[-29.0,40.0],[-29.0,41.0],[-30.0,41.0],[-30.0,40.0]]]}`
 
-	boundaryArea, err := BoundaryAreaSqM(boundary)
+	boundaryArea, err := BoundaryArea(boundary)
 	if err != nil {
 		t.Fatalf("boundary area: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestSubtractGeoJSON_FullyDisjointSubtrahendReturnsBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SubtractGeoJSON: %v", err)
 	}
-	resultArea, err := BoundaryAreaSqM(result)
+	resultArea, err := BoundaryArea(result)
 	if err != nil {
 		t.Fatalf("result area: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestSubtractGeoJSON_OverlappingPolygonsWithSharedEdge(t *testing.T) {
 	if result == "" {
 		t.Fatal("expected non-empty result")
 	}
-	if _, err := BoundaryAreaSqM(result); err != nil {
-		t.Fatalf("BoundaryAreaSqM on result: %v", err)
+	if _, err := BoundaryArea(result); err != nil {
+		t.Fatalf("BoundaryArea on result: %v", err)
 	}
 }

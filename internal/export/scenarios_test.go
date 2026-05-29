@@ -85,7 +85,7 @@ func TestBuildResourceForecast_BboxBaselineGatedOnCityScope(t *testing.T) {
 			Slug:   "test-city",
 		}
 		latest := map[resource.Type]*db.ComputeResult{
-			tBbox: {ResourceType: tBbox, TotalAreaSqM: 1000, ComputedAt: now},
+			tBbox: {ResourceType: tBbox, TotalArea: 1000, ComputedAt: now},
 		}
 		// Empty maps for both bbox and city scopes — no cohort stats stored.
 		cohorts := map[resource.Type][]db.CohortStat{}
@@ -110,10 +110,10 @@ func TestBuildResourceForecast_BboxBaselineGatedOnCityScope(t *testing.T) {
 			Slug:   "test-city",
 		}
 		latest := map[resource.Type]*db.ComputeResult{
-			tBbox: {ResourceType: tBbox, TotalAreaSqM: 2000, ComputedAt: now},
+			tBbox: {ResourceType: tBbox, TotalArea: 2000, ComputedAt: now},
 		}
 		cohorts := map[resource.Type][]db.CohortStat{
-			tCity: {{ResourceType: tCity, Classification: "residential", AreaSqM: 500}},
+			tCity: {{ResourceType: tCity, Classification: "residential", Area: 500}},
 		}
 
 		fe, err := buildResourceForecast(pavement, entry, fc, costTiers, doNothing, latest, cohorts)

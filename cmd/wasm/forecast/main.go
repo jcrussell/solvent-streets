@@ -15,7 +15,7 @@ import (
 
 // wasmInput mirrors the JSON structure sent from the browser controls.
 type wasmInput struct {
-	AreaSqM      float64        `json:"area_sqm"`
+	Area         float64        `json:"area"`
 	InitialPCI   float64        `json:"initial_pci"`
 	DecayRate    float64        `json:"decay_rate"`
 	GrowthRate   float64        `json:"growth_rate"`
@@ -28,7 +28,7 @@ type wasmInput struct {
 
 type wasmCohort struct {
 	Classification string  `json:"classification"`
-	AreaSqM        float64 `json:"area_sqm"`
+	Area           float64 `json:"area"`
 	DecayRate      float64 `json:"decay_rate"`
 }
 
@@ -83,7 +83,7 @@ func simulateForecast(_ js.Value, args []js.Value) any {
 		for _, c := range input.Cohorts {
 			cohorts = append(cohorts, forecast.Cohort{
 				Classification: c.Classification,
-				AreaSqM:        c.AreaSqM,
+				Area:           c.Area,
 				DecayRate:      c.DecayRate,
 				InitialPCI:     input.InitialPCI,
 			})
@@ -95,7 +95,7 @@ func simulateForecast(_ js.Value, args []js.Value) any {
 		}
 		cohorts = []forecast.Cohort{{
 			Classification: "default",
-			AreaSqM:        input.AreaSqM,
+			Area:           input.Area,
 			DecayRate:      decayRate,
 			InitialPCI:     input.InitialPCI,
 		}}

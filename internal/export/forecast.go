@@ -29,25 +29,25 @@ func ConvertCostTiers(fc *config.ForecastConfig) []forecast.CostTier {
 // Falls back to a single cohort if no cohort stats exist. A non-nil error is a
 // real DB failure, not "no rows" — ListCohortStats returns an empty slice with
 // nil error when there are no matching rows.
-func BuildCohortsForResource(ctx context.Context, rt resource.Source, areaSqM float64, store db.Store, fc *config.ForecastConfig) ([]forecast.Cohort, error) {
+func BuildCohortsForResource(ctx context.Context, rt resource.Source, area float64, store db.Store, fc *config.ForecastConfig) ([]forecast.Cohort, error) {
 	t := rt.Type()
 	stats, err := store.ListCohortStats(ctx, t)
 	if err != nil {
 		return nil, fmt.Errorf("listing cohort stats for %s: %w", t, err)
 	}
-	return buildCohortsFromStats(t, areaSqM, stats, fc), nil
+	return buildCohortsFromStats(t, area, stats, fc), nil
 }
 
 // buildCohortsFromStats is the pure shaping kernel of
 // BuildCohortsForResource — takes pre-fetched stats instead of a Store
 // so callers that batched the DB lookup don't refetch per resource type.
-func buildCohortsFromStats(t resource.Type, areaSqM float64, stats []db.CohortStat, fc *config.ForecastConfig) []forecast.Cohort {
+func buildCohortsFromStats(t resource.Type, area float64, stats []db.CohortStat, fc *config.ForecastConfig) []forecast.Cohort {
 	currentPCI := fc.InitialPCI
 	var inputs []forecast.CohortInput
 	for _, st := range stats {
 		inputs = append(inputs, forecast.CohortInput{
 			Classification: st.Classification,
-			AreaSqM:        st.AreaSqM,
+			Area:           st.Area,
 		})
 	}
 	cohorts := forecast.BuildCohorts(inputs, currentPCI, fc.DecayRate)
@@ -61,7 +61,7 @@ func buildCohortsFromStats(t resource.Type, areaSqM float64, stats []db.CohortSt
 	}
 	return []forecast.Cohort{{
 		Classification: tName,
-		AreaSqM:        areaSqM,
+		Area:           area,
 		DecayRate:      defaultRate,
 		InitialPCI:     currentPCI,
 	}}
@@ -150,7 +150,7 @@ func buildResourceForecast(rt resource.Source, entry CityEntry, fc *config.Forec
 	years := fc.Years
 	rtParams := forecast.NewParamsForResource(tName, fc.GrowthRate, costTiers)
 
-	bboxCohorts := buildCohortsFromStats(t, result.TotalAreaSqM, cohortStats[t], fc)
+	bboxCohorts := buildCohortsFromStats(t, result.TotalArea, cohortStats[t], fc)
 
 	// Try city-scoped cohorts — use as primary if available. Empty result is
 	// legitimate (not all cities have city-scope data).
@@ -186,7 +186,7 @@ func cityScopeCohorts(cityStats []db.CohortStat, fc *config.ForecastConfig) ([]f
 	for _, st := range cityStats {
 		cityInputs = append(cityInputs, forecast.CohortInput{
 			Classification: st.Classification,
-			AreaSqM:        st.AreaSqM,
+			Area:           st.Area,
 		})
 	}
 	cohorts := forecast.BuildCohorts(cityInputs, fc.InitialPCI, fc.DecayRate)
@@ -243,7 +243,7 @@ type scenarioAreas struct {
 	bboxFeatures, cityFeatures int
 }
 
-// aggregateScenarioAreas sums TotalAreaSqM and FeatureCount across all
+// aggregateScenarioAreas sums TotalArea and FeatureCount across all
 // resources for both bbox and city scopes. The city-scope lookup is gated
 // on bbox-row existence for the same resource — a resource with no bbox
 // row contributes to neither total, matching the pre-refactor behavior.
@@ -266,11 +266,11 @@ func aggregateScenarioAreas(ctx context.Context, entry CityEntry) scenarioAreas 
 		if !ok || result == nil {
 			continue
 		}
-		agg.bboxArea += result.TotalAreaSqM
+		agg.bboxArea += result.TotalArea
 		agg.bboxFeatures += result.FeatureCount
 
 		if cityResult, ok := latestByType[t.With(resource.ScopeCity)]; ok && cityResult != nil {
-			agg.cityArea += cityResult.TotalAreaSqM
+			agg.cityArea += cityResult.TotalArea
 			agg.cityFeatures += cityResult.FeatureCount
 		}
 	}
@@ -279,10 +279,10 @@ func aggregateScenarioAreas(ctx context.Context, entry CityEntry) scenarioAreas 
 
 // singleCohortScenarios builds a scenario set from one synthetic cohort —
 // the aggregate-area shortcut used for the top-level "all"/"city" rollup.
-func singleCohortScenarios(classification string, areaSqM, initialPCI, decayRate float64, years int, params *forecast.Params) []forecast.ScenarioResult {
+func singleCohortScenarios(classification string, area, initialPCI, decayRate float64, years int, params *forecast.Params) []forecast.ScenarioResult {
 	return BuildScenarios([]forecast.Cohort{{
 		Classification: classification,
-		AreaSqM:        areaSqM,
+		Area:           area,
 		DecayRate:      decayRate,
 		InitialPCI:     initialPCI,
 	}}, years, params)
@@ -336,7 +336,7 @@ func scopeYear1Costs(fe ForecastExport) (city, bbox float64, hasCity bool) {
 }
 
 // addScopeRow looks up the compute row for rt and writes the
-// {year1_cost, total_area_sqm} pair under out[scope][rt.Bare()]. Missing
+// {year1_cost, total_area} pair under out[scope][rt.Bare()]. Missing
 // compute rows are skipped silently — same as the pre-rename behavior.
 func addScopeRow(ctx context.Context, entry CityEntry, out map[string]map[string]map[string]float64, scope string, rt resource.Type, year1Cost float64) {
 	r, err := entry.Store.LatestComputeResult(ctx, rt)
@@ -347,8 +347,8 @@ func addScopeRow(ctx context.Context, entry CityEntry, out map[string]map[string
 		out[scope] = make(map[string]map[string]float64)
 	}
 	out[scope][string(rt.Bare())] = map[string]float64{
-		"year1_cost":     year1Cost,
-		"total_area_sqm": r.TotalAreaSqM,
+		"year1_cost": year1Cost,
+		"total_area": r.TotalArea,
 	}
 }
 

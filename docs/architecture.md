@@ -132,7 +132,7 @@ erDiagram
         int id PK
         int city_id FK
         text resource_type
-        real total_area_sqm
+        real total_area
         int feature_count
         int snapshot_id FK
     }
@@ -142,7 +142,7 @@ erDiagram
         text resource_type
         int city_id FK
         int snapshot_id FK
-        real area_sqm
+        real area
         real pct_covered
     }
     forecast_results {
@@ -151,7 +151,7 @@ erDiagram
         text resource_type
         int year
         real pci
-        real area_sqm
+        real area
         real treatment_cost
         text treatment_tier
         int snapshot_id FK
@@ -161,7 +161,7 @@ erDiagram
         int city_id FK
         text resource_type
         text classification
-        real area_sqm
+        real area
         int feature_count
         int snapshot_id FK
     }

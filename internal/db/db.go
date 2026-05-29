@@ -31,7 +31,7 @@ type Feature struct {
 type ComputeResult struct {
 	ID           int64
 	ResourceType resource.Type
-	TotalAreaSqM float64
+	TotalArea    float64
 	FeatureCount int
 	ComputedAt   time.Time
 	SnapshotID   *int64
@@ -42,13 +42,13 @@ type StatusInfo struct {
 	FeatureCount  int
 	LastIngestAt  *time.Time
 	LastComputeAt *time.Time
-	TotalAreaSqM  float64
+	TotalArea     float64
 }
 
 type HexStat struct {
 	HexID        string
 	ResourceType resource.Type
-	AreaSqM      float64
+	Area         float64
 	PctCovered   float64
 	ComputedAt   time.Time
 	SnapshotID   *int64
@@ -65,7 +65,7 @@ type ForecastResult struct {
 	ResourceType  resource.Type `json:"resourceType"`
 	Year          int           `json:"year"`
 	PCI           float64       `json:"pci"`
-	AreaSqM       float64       `json:"areaSqM"`
+	Area          float64       `json:"area"`
 	TreatmentCost float64       `json:"treatmentCost"`
 	TreatmentTier string        `json:"treatmentTier"`
 	SnapshotID    *int64        `json:"-"`
@@ -76,7 +76,7 @@ type CohortStat struct {
 	ID             int64
 	ResourceType   resource.Type
 	Classification string
-	AreaSqM        float64
+	Area           float64
 	FeatureCount   int
 	SnapshotID     *int64
 	ComputedAt     time.Time

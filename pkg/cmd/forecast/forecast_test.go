@@ -19,7 +19,7 @@ func TestForecastRow_ExportData_AllFieldsPopulated(t *testing.T) {
 		ResourceType:  rtRoads,
 		Year:          2030,
 		PCI:           72.5,
-		AreaSqM:       1500.0,
+		Area:          1500.0,
 		TreatmentCost: 42000.0,
 		TreatmentTier: "mill-and-overlay",
 	}}

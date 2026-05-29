@@ -188,7 +188,7 @@ func (cr *combinedRunner) save(ctx context.Context, p combinedPass) error {
 		idx := geo.NewGeomIndexFromGeoms(p.buffered)
 		hexStats := geo.ComputeHexStats(ctx, p.hexes, idx, string(p.label), nil)
 		for _, s := range hexStats {
-			area += s.AreaSqM
+			area += s.Area
 		}
 		return nil
 	}); err != nil {
@@ -196,7 +196,7 @@ func (cr *combinedRunner) save(ctx context.Context, p combinedPass) error {
 	}
 	if err := cr.store.SaveComputeResult(ctx, db.ComputeResult{
 		ResourceType: p.label,
-		TotalAreaSqM: area,
+		TotalArea:    area,
 		FeatureCount: p.featureCount,
 		SnapshotID:   cr.snapshotID,
 	}); err != nil {

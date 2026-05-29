@@ -26,7 +26,7 @@ type Options struct {
 	Exporter    cmdutil.Exporter
 }
 
-var forecastFields = []string{"resourceType", "year", "pci", "areaSqM", "treatmentCost", "treatmentTier"}
+var forecastFields = []string{"resourceType", "year", "pci", "area", "treatmentCost", "treatmentTier"}
 
 // forecastRow wraps db.ForecastResult to attach the CLI JSON export
 // contract without pulling cmdutil into the db package.
@@ -46,8 +46,8 @@ func (r forecastRow) ExportData(fields []string) map[string]any {
 			out[f] = r.Year
 		case "pci":
 			out[f] = r.PCI
-		case "areaSqM":
-			out[f] = r.AreaSqM
+		case "area":
+			out[f] = r.Area
 		case "treatmentCost":
 			out[f] = r.TreatmentCost
 		case "treatmentTier":
@@ -110,7 +110,7 @@ func simulateResource(rt resource.Source, cohorts []fcpkg.Cohort, years int, par
 			ResourceType:  rtVal,
 			Year:          y.Year,
 			PCI:           y.PCI,
-			AreaSqM:       y.AreaSqM,
+			Area:          y.Area,
 			TreatmentCost: y.AnnualNeed,
 			TreatmentTier: y.CostTier,
 		})
@@ -119,7 +119,7 @@ func simulateResource(rt resource.Source, cohorts []fcpkg.Cohort, years int, par
 	return results, totalDeferredCost, baseline
 }
 
-func buildForecastCohorts(ctx context.Context, rt resource.Source, areaSqM float64, store db.Store, fc *config.ForecastConfig) ([]fcpkg.Cohort, error) {
+func buildForecastCohorts(ctx context.Context, rt resource.Source, area float64, store db.Store, fc *config.ForecastConfig) ([]fcpkg.Cohort, error) {
 	currentPCI := fc.InitialPCI
 	t := rt.Type()
 	stats, err := store.ListCohortStats(ctx, t)
@@ -130,7 +130,7 @@ func buildForecastCohorts(ctx context.Context, rt resource.Source, areaSqM float
 	for _, st := range stats {
 		inputs = append(inputs, fcpkg.CohortInput{
 			Classification: st.Classification,
-			AreaSqM:        st.AreaSqM,
+			Area:           st.Area,
 		})
 	}
 	cohorts := fcpkg.BuildCohorts(inputs, currentPCI, fc.DecayRate)
@@ -142,7 +142,7 @@ func buildForecastCohorts(ctx context.Context, rt resource.Source, areaSqM float
 		}
 		cohorts = []fcpkg.Cohort{{
 			Classification: tName,
-			AreaSqM:        areaSqM,
+			Area:           area,
 			DecayRate:      defaultRate,
 			InitialPCI:     currentPCI,
 		}}
@@ -150,10 +150,10 @@ func buildForecastCohorts(ctx context.Context, rt resource.Source, areaSqM float
 	return cohorts, nil
 }
 
-func renderBaselineTable(ios *iostreams.IOStreams, rt resource.Source, areaSqM, currentPCI float64,
+func renderBaselineTable(ios *iostreams.IOStreams, rt resource.Source, area, currentPCI float64,
 	baseline fcpkg.ScenarioResult, totalDeferredCost float64, years int, sys units.System) error {
 	fmt.Fprintf(ios.ErrOut, "=== %s ===\n", rt.Type())
-	fmt.Fprintf(ios.ErrOut, "  Current area: %s (%s)\n", units.FormatArea(areaSqM, sys), units.FormatAreaLarge(areaSqM, sys))
+	fmt.Fprintf(ios.ErrOut, "  Current area: %s (%s)\n", units.FormatArea(area, sys), units.FormatAreaLarge(area, sys))
 	fmt.Fprintf(ios.ErrOut, "  Initial PCI: %.0f\n\n", currentPCI)
 
 	tp := iostreams.NewTablePrinter(ios)
@@ -163,7 +163,7 @@ func renderBaselineTable(ios *iostreams.IOStreams, rt resource.Source, areaSqM, 
 			tp.AddRow(
 				strconv.Itoa(y.Year),
 				fmt.Sprintf("%.1f", y.PCI),
-				fmt.Sprintf("%.1f", units.AreaLargeValue(y.AreaSqM, sys)),
+				fmt.Sprintf("%.1f", units.AreaLargeValue(y.Area, sys)),
 				fmt.Sprintf("$%.0f", y.AnnualNeed),
 				y.CostTier,
 			)
@@ -180,8 +180,8 @@ func renderBaselineTable(ios *iostreams.IOStreams, rt resource.Source, areaSqM, 
 		cp.AddHeader("Classification", "Area %", "Decay Rate", "End PCI")
 		for _, c := range baseline.FinalCohorts {
 			areaPct := 0.0
-			if areaSqM > 0 {
-				areaPct = c.AreaSqM / areaSqM * 100
+			if area > 0 {
+				areaPct = c.Area / area * 100
 			}
 			cp.AddRow(
 				c.Classification,
@@ -299,8 +299,8 @@ func forecastAllResources(ctx context.Context, opts *Options, store db.Store,
 			continue
 		}
 
-		areaSqM := result.TotalAreaSqM
-		cohorts, err := buildForecastCohorts(ctx, rt, areaSqM, store, fc)
+		area := result.TotalArea
+		cohorts, err := buildForecastCohorts(ctx, rt, area, store, fc)
 		if err != nil {
 			return nil, err
 		}
@@ -308,7 +308,7 @@ func forecastAllResources(ctx context.Context, opts *Options, store db.Store,
 		allResults = append(allResults, dbResults...)
 
 		if opts.Exporter == nil {
-			if err := renderBaselineTable(ios, rt, areaSqM, currentPCI, baseline, totalDeferredCost, years, sys); err != nil {
+			if err := renderBaselineTable(ios, rt, area, currentPCI, baseline, totalDeferredCost, years, sys); err != nil {
 				return nil, err
 			}
 		}

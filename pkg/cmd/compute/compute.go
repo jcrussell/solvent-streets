@@ -41,7 +41,7 @@ type computeRow struct {
 	ResourceType string  `json:"resourceType"`
 	Jurisdiction string  `json:"jurisdiction"` // "all" or "city"
 	FeatureCount int     `json:"featureCount"`
-	AreaSqM      float64 `json:"areaSqM"`
+	Area         float64 `json:"area"`
 	SnapshotID   int64   `json:"snapshotId,omitempty"`
 }
 
@@ -59,8 +59,8 @@ func (r computeRow) ExportData(fields []string) map[string]any {
 			out[f] = r.Jurisdiction
 		case "featureCount":
 			out[f] = r.FeatureCount
-		case "areaSqM":
-			out[f] = r.AreaSqM
+		case "area":
+			out[f] = r.Area
 		case "snapshotId":
 			out[f] = r.SnapshotID
 		}
@@ -68,7 +68,7 @@ func (r computeRow) ExportData(fields []string) map[string]any {
 	return out
 }
 
-var computeFields = []string{"city", "resourceType", "jurisdiction", "featureCount", "areaSqM", "snapshotId"}
+var computeFields = []string{"city", "resourceType", "jurisdiction", "featureCount", "area", "snapshotId"}
 
 func NewCmdCompute(f *cmdutil.Factory, rt resource.Source, runF func(context.Context, *Options) error) *cobra.Command {
 	opts := &Options{
@@ -342,33 +342,33 @@ func (c *computer) runAllFeaturesPass(ctx context.Context, allBuffered []resourc
 func (c *computer) saveAllJurisdictionsResult(ctx context.Context, allBuffered []resource.BufferedFeature, featureCount int, hexStats []geo.HexStat, clippedHexes []geo.Hex) error {
 	// Per-hex coverage is dedup'd by the local union inside ComputeHexStats,
 	// so summing does not double-count crossing-road overlaps.
-	var areaSqM float64
+	var area float64
 	for _, s := range hexStats {
-		areaSqM += s.AreaSqM
+		area += s.Area
 	}
 
 	rtAll := c.opts.ResourceType.Type()
 	result := db.ComputeResult{
 		ResourceType: rtAll,
-		TotalAreaSqM: areaSqM,
+		TotalArea:    area,
 		FeatureCount: featureCount,
 		SnapshotID:   c.snapshotID,
 	}
 	if err := c.store.SaveComputeResult(ctx, result); err != nil {
 		return fmt.Errorf("save result: %w", err)
 	}
-	c.recordRow("all", featureCount, areaSqM)
+	c.recordRow("all", featureCount, area)
 
-	cohortStats := c.buildCohortStats(ctx, rtAll, allBuffered, areaSqM, clippedHexes)
+	cohortStats := c.buildCohortStats(ctx, rtAll, allBuffered, area, clippedHexes)
 	if len(cohortStats) > 0 {
 		if err := c.store.SaveCohortStats(ctx, cohortStats); err != nil {
 			fmt.Fprintf(c.errOut, "Warning: failed to save cohort stats: %v\n", err)
 		} else if c.opts.ResourceType.HasCohorts() {
-			printCohortBreakdown(c.out, "Cohort breakdown", cohortStats, areaSqM, c.sys)
+			printCohortBreakdown(c.out, "Cohort breakdown", cohortStats, area, c.sys)
 		}
 	}
 	if !c.opts.CityOnly {
-		printResults(c.out, fmt.Sprintf("%s Results (all)", rtAll.Bare()), featureCount, areaSqM, c.sys)
+		printResults(c.out, fmt.Sprintf("%s Results (all)", rtAll.Bare()), featureCount, area, c.sys)
 	}
 	return nil
 }
@@ -382,7 +382,7 @@ func (c *computer) saveHexStats(ctx context.Context, hexStats []geo.HexStat) err
 		dbStats[i] = db.HexStat{
 			HexID:        s.HexID,
 			ResourceType: rt,
-			AreaSqM:      s.AreaSqM,
+			Area:         s.Area,
 			PctCovered:   s.PctCovered,
 			SnapshotID:   c.snapshotID,
 		}
@@ -406,14 +406,14 @@ func (c *computer) processCityResults(ctx context.Context, cityBuffered []resour
 	cityIdx := geo.NewGeomIndexFromGeoms(resource.Geoms(cityBuffered))
 	cityStats := geo.ComputeHexStats(ctx, clippedHexes, cityIdx, string(rtCity), nil)
 
-	var cityAreaSqM float64
+	var cityArea float64
 	cityDBStats := make([]db.HexStat, len(cityStats))
 	for i, s := range cityStats {
-		cityAreaSqM += s.AreaSqM
+		cityArea += s.Area
 		cityDBStats[i] = db.HexStat{
 			HexID:        s.HexID,
 			ResourceType: rtCity,
-			AreaSqM:      s.AreaSqM,
+			Area:         s.Area,
 			PctCovered:   s.PctCovered,
 			SnapshotID:   c.snapshotID,
 		}
@@ -424,30 +424,30 @@ func (c *computer) processCityResults(ctx context.Context, cityBuffered []resour
 
 	cityResult := db.ComputeResult{
 		ResourceType: rtCity,
-		TotalAreaSqM: cityAreaSqM,
+		TotalArea:    cityArea,
 		FeatureCount: featureCount,
 		SnapshotID:   c.snapshotID,
 	}
 	if err := c.store.SaveComputeResult(ctx, cityResult); err != nil {
 		fmt.Fprintf(c.errOut, "Warning: failed to save city result: %v\n", err)
 	}
-	c.recordRow("city", featureCount, cityAreaSqM)
+	c.recordRow("city", featureCount, cityArea)
 
-	cityCohortStats := c.buildCohortStats(ctx, rtCity, cityBuffered, cityAreaSqM, clippedHexes)
+	cityCohortStats := c.buildCohortStats(ctx, rtCity, cityBuffered, cityArea, clippedHexes)
 	if len(cityCohortStats) > 0 {
 		if err := c.store.SaveCohortStats(ctx, cityCohortStats); err != nil {
 			fmt.Fprintf(c.errOut, "Warning: failed to save city cohort stats: %v\n", err)
 		} else if c.opts.ResourceType.HasCohorts() {
-			printCohortBreakdown(c.out, "City cohort breakdown", cityCohortStats, cityAreaSqM, c.sys)
+			printCohortBreakdown(c.out, "City cohort breakdown", cityCohortStats, cityArea, c.sys)
 		}
 	}
 
-	printResults(c.out, fmt.Sprintf("%s Results (city only)", c.opts.ResourceType.Type()), featureCount, cityAreaSqM, c.sys)
+	printResults(c.out, fmt.Sprintf("%s Results (city only)", c.opts.ResourceType.Type()), featureCount, cityArea, c.sys)
 }
 
 // recordRow appends a computeRow to the multi-city accumulator if the
 // caller set one up. No-op when --json is not active.
-func (c *computer) recordRow(jurisdiction string, featureCount int, areaSqM float64) {
+func (c *computer) recordRow(jurisdiction string, featureCount int, area float64) {
 	if c.opts.rows == nil {
 		return
 	}
@@ -456,7 +456,7 @@ func (c *computer) recordRow(jurisdiction string, featureCount int, areaSqM floa
 		ResourceType: string(c.opts.ResourceType.Type()),
 		Jurisdiction: jurisdiction,
 		FeatureCount: featureCount,
-		AreaSqM:      areaSqM,
+		Area:         area,
 	}
 	if c.snapshotID != nil {
 		row.SnapshotID = *c.snapshotID
@@ -464,23 +464,23 @@ func (c *computer) recordRow(jurisdiction string, featureCount int, areaSqM floa
 	*c.opts.rows = append(*c.opts.rows, row)
 }
 
-func printResults(out io.Writer, label string, featureCount int, areaSqM float64, sys units.System) {
+func printResults(out io.Writer, label string, featureCount int, area float64, sys units.System) {
 	fmt.Fprintf(out, "\n%s:\n", label)
 	fmt.Fprintf(out, "  Features:  %d\n", featureCount)
-	fmt.Fprintf(out, "  Area:      %s\n", units.FormatArea(areaSqM, sys))
-	fmt.Fprintf(out, "  Area:      %s\n", units.FormatAreaLarge(areaSqM, sys))
-	fmt.Fprintf(out, "  Area:      %s\n", units.FormatAreaVeryLarge(areaSqM, sys))
+	fmt.Fprintf(out, "  Area:      %s\n", units.FormatArea(area, sys))
+	fmt.Fprintf(out, "  Area:      %s\n", units.FormatAreaLarge(area, sys))
+	fmt.Fprintf(out, "  Area:      %s\n", units.FormatAreaVeryLarge(area, sys))
 }
 
-func printCohortBreakdown(out io.Writer, title string, stats []db.CohortStat, totalAreaSqM float64, sys units.System) {
+func printCohortBreakdown(out io.Writer, title string, stats []db.CohortStat, totalArea float64, sys units.System) {
 	fmt.Fprintf(out, "\n%s:\n", title)
 	for _, cs := range stats {
 		pct := 0.0
-		if totalAreaSqM > 0 {
-			pct = cs.AreaSqM / totalAreaSqM * 100
+		if totalArea > 0 {
+			pct = cs.Area / totalArea * 100
 		}
 		fmt.Fprintf(out, "  %-12s %6.1f%% (%s, %d features)\n",
-			cs.Classification, pct, units.FormatArea(cs.AreaSqM, sys), cs.FeatureCount)
+			cs.Classification, pct, units.FormatArea(cs.Area, sys), cs.FeatureCount)
 	}
 }
 
@@ -575,12 +575,12 @@ func parseGeoJSONGeometry(gjson string, proj *geo.UTMProjector) (geom.Geometry, 
 // resource total; otherwise it returns a single cohort stat. buffered carries
 // each feature paired with its pre-buffered polygon so cohort computation
 // reuses those polygons rather than re-buffering.
-func (c *computer) buildCohortStats(ctx context.Context, rt resource.Type, buffered []resource.BufferedFeature, totalAreaSqM float64, hexes []geo.Hex) []db.CohortStat {
+func (c *computer) buildCohortStats(ctx context.Context, rt resource.Type, buffered []resource.BufferedFeature, totalArea float64, hexes []geo.Hex) []db.CohortStat {
 	if !c.opts.ResourceType.HasCohorts() {
 		return []db.CohortStat{{
 			ResourceType:   rt,
 			Classification: string(rt.Bare()),
-			AreaSqM:        totalAreaSqM,
+			Area:           totalArea,
 			FeatureCount:   len(buffered),
 			SnapshotID:     c.snapshotID,
 		}}
@@ -605,7 +605,7 @@ func (c *computer) buildCohortStats(ctx context.Context, rt resource.Type, buffe
 		stats = append(stats, db.CohortStat{
 			ResourceType:   rt,
 			Classification: class,
-			AreaSqM:        totalAreaSqM * proportion,
+			Area:           totalArea * proportion,
 			FeatureCount:   counts[class],
 			SnapshotID:     c.snapshotID,
 		})

@@ -103,14 +103,14 @@ func TestShow_DefaultEmitsTOML(t *testing.T) {
 	// `config show` without --sources prints the *resolved* config, so
 	// Display fields the user omitted from pvmt.toml must surface as
 	// their applied defaults rather than zero values (`units = ""`,
-	// `min_hex_area_sqm = 0.0`). See solvent-streets eyeball-test
+	// `min_hex_area = 0.0`). See solvent-streets eyeball-test
 	// feedback: an empty units field made the effective configuration
 	// look broken even though UnitSystem() resolves correctly.
 	if !strings.Contains(got, `units = "imperial"`) {
 		t.Errorf("TOML output missing resolved default units = \"imperial\": %q", got)
 	}
-	if !strings.Contains(got, "min_hex_area_sqm = 100") {
-		t.Errorf("TOML output missing resolved default min_hex_area_sqm = 100: %q", got)
+	if !strings.Contains(got, "min_hex_area = 100") {
+		t.Errorf("TOML output missing resolved default min_hex_area = 100: %q", got)
 	}
 	if errs := bufs.errOut.String(); errs != "" {
 		t.Errorf("stderr should be empty for pure-data command (byob-iostreams.3); got: %q", errs)

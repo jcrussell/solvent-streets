@@ -43,7 +43,7 @@ func BuildHexGeoJSON(ctx context.Context, entry CityEntry, proj *geo.UTMProjecto
 	hexes := geo.HexGrid(minX, minY, maxX, maxY, hexEdge)
 
 	hexes = clipHexGridToBoundary(ctx, hexes, entry, proj)
-	hexes = filterHexSlivers(hexes, entry.Config.MinHexAreaSqM())
+	hexes = filterHexSlivers(hexes, entry.Config.MinHexArea())
 
 	hexMap := make(map[string]*geo.Hex, len(hexes))
 	for i := range hexes {
@@ -85,7 +85,7 @@ func aggregateHexStats(ctx context.Context, entry CityEntry) (map[string]*hexAgg
 					aggs[st.HexID] = a
 					order = append(order, st.HexID)
 				}
-				a.set(res, scope, round2(st.AreaSqM), round2(st.PctCovered))
+				a.set(res, scope, round2(st.Area), round2(st.PctCovered))
 			}
 		}
 	}
@@ -111,8 +111,8 @@ func (a *hexAgg) set(res string, scope resource.Scope, area, pct float64) {
 }
 
 // filterHexSlivers drops hexes whose geometry area is below minArea sqm.
-// Threshold lives in config.DisplayConfig.MinHexAreaSqM (resolved via
-// Config.MinHexAreaSqM()); the filter sits in BuildHexGeoJSON rather
+// Threshold lives in config.DisplayConfig.MinHexArea (resolved via
+// Config.MinHexArea()); the filter sits in BuildHexGeoJSON rather
 // than ComputeHexStats so pct_paved's numerator/denominator scope matches.
 // Used after clipHexGridToBoundary to skip the visual misrepresentation
 // that a fully-covered sliver hex would produce on the heatmap.

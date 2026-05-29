@@ -55,7 +55,7 @@ type Scenario struct {
 type ScenarioYear struct {
 	Year            int     `json:"year"`
 	PCI             float64 `json:"pci"`
-	AreaSqM         float64 `json:"area_sqm"`
+	Area            float64 `json:"area"`
 	AnnualNeed      float64 `json:"annual_need"`
 	AnnualSpend     float64 `json:"annual_spend"`
 	DeferredBacklog float64 `json:"deferred_backlog"`
@@ -82,13 +82,13 @@ type cohortState struct {
 func initCohortStates(cohorts []Cohort) ([]cohortState, float64) {
 	var totalArea float64
 	for _, c := range cohorts {
-		totalArea += c.AreaSqM
+		totalArea += c.Area
 	}
 	states := make([]cohortState, len(cohorts))
 	for i, c := range cohorts {
 		frac := 0.0
 		if totalArea > 0 {
-			frac = c.AreaSqM / totalArea
+			frac = c.Area / totalArea
 		}
 		states[i] = cohortState{
 			forecaster: &ExponentialPCIForecaster{DecayRate: c.DecayRate},
@@ -220,7 +220,7 @@ func Simulate(s Scenario, cohorts []Cohort, years int,
 		result.Years[i] = ScenarioYear{
 			Year:            i + 1,
 			PCI:             blendedPCI(states),
-			AreaSqM:         area,
+			Area:            area,
 			AnnualNeed:      totalNeed,
 			AnnualSpend:     totalSpend,
 			DeferredBacklog: deferredBacklog,
@@ -233,7 +233,7 @@ func Simulate(s Scenario, cohorts []Cohort, years int,
 		result.FinalCohorts[j] = CohortSummary{
 			Classification: c.Classification,
 			EndPCI:         states[j].currentPCI,
-			AreaSqM:        c.AreaSqM,
+			Area:           c.Area,
 			DecayRate:      c.DecayRate,
 			TotalSpend:     cohortSpendAcc[j],
 			TotalDeficit:   cohortDeficitAcc[j],

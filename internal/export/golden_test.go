@@ -71,12 +71,12 @@ func TestScenariosJSON_Golden(t *testing.T) {
 func goldenFixtureEntry(t *testing.T) CityEntry {
 	t.Helper()
 	results := map[resource.Type]db.ComputeResult{
-		resource.TypeRoads:                              {ResourceType: resource.TypeRoads, TotalAreaSqM: 1_500_000, FeatureCount: 800},
-		resource.TypeRoads.With(resource.ScopeCity):     {ResourceType: resource.TypeRoads.With(resource.ScopeCity), TotalAreaSqM: 900_000, FeatureCount: 480},
-		resource.TypeParking:                            {ResourceType: resource.TypeParking, TotalAreaSqM: 200_000, FeatureCount: 120},
-		resource.TypeParking.With(resource.ScopeCity):   {ResourceType: resource.TypeParking.With(resource.ScopeCity), TotalAreaSqM: 150_000, FeatureCount: 90},
-		resource.TypeSidewalks:                          {ResourceType: resource.TypeSidewalks, TotalAreaSqM: 100_000, FeatureCount: 250},
-		resource.TypeSidewalks.With(resource.ScopeCity): {ResourceType: resource.TypeSidewalks.With(resource.ScopeCity), TotalAreaSqM: 80_000, FeatureCount: 200},
+		resource.TypeRoads:                              {ResourceType: resource.TypeRoads, TotalArea: 1_500_000, FeatureCount: 800},
+		resource.TypeRoads.With(resource.ScopeCity):     {ResourceType: resource.TypeRoads.With(resource.ScopeCity), TotalArea: 900_000, FeatureCount: 480},
+		resource.TypeParking:                            {ResourceType: resource.TypeParking, TotalArea: 200_000, FeatureCount: 120},
+		resource.TypeParking.With(resource.ScopeCity):   {ResourceType: resource.TypeParking.With(resource.ScopeCity), TotalArea: 150_000, FeatureCount: 90},
+		resource.TypeSidewalks:                          {ResourceType: resource.TypeSidewalks, TotalArea: 100_000, FeatureCount: 250},
+		resource.TypeSidewalks.With(resource.ScopeCity): {ResourceType: resource.TypeSidewalks.With(resource.ScopeCity), TotalArea: 80_000, FeatureCount: 200},
 	}
 	store := &dbtest.MockStore{
 		LatestComputeResultFunc: func(_ context.Context, key resource.Type) (*db.ComputeResult, error) {

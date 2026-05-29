@@ -23,12 +23,12 @@ type Options struct {
 }
 
 type cityRow struct {
-	Slug         string         `json:"slug"`
-	Name         string         `json:"name"`
-	Features     map[string]int `json:"features"`
-	TotalAreaSqM float64        `json:"totalAreaSqM"`
-	LastIngest   string         `json:"lastIngest,omitempty"`
-	LastCompute  string         `json:"lastCompute,omitempty"`
+	Slug        string         `json:"slug"`
+	Name        string         `json:"name"`
+	Features    map[string]int `json:"features"`
+	TotalArea   float64        `json:"totalArea"`
+	LastIngest  string         `json:"lastIngest,omitempty"`
+	LastCompute string         `json:"lastCompute,omitempty"`
 }
 
 var _ cmdutil.RowExporter = cityRow{}
@@ -43,8 +43,8 @@ func (r cityRow) ExportData(fields []string) map[string]any {
 			out[f] = r.Name
 		case "features":
 			out[f] = r.Features
-		case "totalAreaSqM":
-			out[f] = r.TotalAreaSqM
+		case "totalArea":
+			out[f] = r.TotalArea
 		case "lastIngest":
 			out[f] = r.LastIngest
 		case "lastCompute":
@@ -54,7 +54,7 @@ func (r cityRow) ExportData(fields []string) map[string]any {
 	return out
 }
 
-var citiesFields = []string{"slug", "name", "features", "totalAreaSqM", "lastIngest", "lastCompute"}
+var citiesFields = []string{"slug", "name", "features", "totalArea", "lastIngest", "lastCompute"}
 
 func NewCmdCities(f *cmdutil.Factory, runF func(context.Context, *Options) error) *cobra.Command {
 	opts := &Options{
@@ -127,7 +127,7 @@ func runCities(ctx context.Context, opts *Options) error {
 			strconv.Itoa(r.Features["roads"]),
 			strconv.Itoa(r.Features["parking"]),
 			strconv.Itoa(r.Features["sidewalks"]),
-			fmt.Sprintf("%.1f", units.AreaLargeValue(r.TotalAreaSqM, sys)),
+			fmt.Sprintf("%.1f", units.AreaLargeValue(r.TotalArea, sys)),
 			iostreams.FormatTimestamp(r.LastIngest, ios.IsTTY()),
 			iostreams.FormatTimestamp(r.LastCompute, ios.IsTTY()),
 		)
@@ -150,7 +150,7 @@ func buildCityRow(ctx context.Context, store db.Store, c db.City, ios *iostreams
 			continue
 		}
 		row.Features[string(t)] = info.FeatureCount
-		row.TotalAreaSqM += info.TotalAreaSqM
+		row.TotalArea += info.TotalArea
 		if info.LastIngestAt != nil && info.LastIngestAt.After(latestIngest) {
 			latestIngest = *info.LastIngestAt
 		}

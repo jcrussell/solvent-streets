@@ -33,11 +33,11 @@ func TestMergeCohortSeeds_KeysOnResourceAndClassification(t *testing.T) {
 		Store: &dbtest.MockStore{
 			ListCohortStatsFunc: cohortsByLabel(map[resource.Type][]db.CohortStat{
 				rtRoads: {
-					{Classification: "primary", AreaSqM: 1000},
-					{Classification: "default", AreaSqM: 500},
+					{Classification: "primary", Area: 1000},
+					{Classification: "default", Area: 500},
 				},
 				rtParking: {
-					{Classification: "default", AreaSqM: 300},
+					{Classification: "default", Area: 300},
 				},
 			}),
 		},
@@ -48,10 +48,10 @@ func TestMergeCohortSeeds_KeysOnResourceAndClassification(t *testing.T) {
 		Store: &dbtest.MockStore{
 			ListCohortStatsFunc: cohortsByLabel(map[resource.Type][]db.CohortStat{
 				rtRoads: {
-					{Classification: "primary", AreaSqM: 200},
+					{Classification: "primary", Area: 200},
 				},
 				rtParking: {
-					{Classification: "default", AreaSqM: 100},
+					{Classification: "default", Area: 100},
 				},
 			}),
 		},
@@ -64,9 +64,9 @@ func TestMergeCohortSeeds_KeysOnResourceAndClassification(t *testing.T) {
 	// roads/primary, roads/default, parking/default. Pre-fix bucket keyed on
 	// classification only collapsed the two "default" entries into one.
 	want := []CohortSeed{
-		{Classification: "primary", AreaSqM: 1200}, // roads: 1000 + 200
-		{Classification: "default", AreaSqM: 500},  // roads "default" only
-		{Classification: "default", AreaSqM: 400},  // parking "default": 300 + 100
+		{Classification: "primary", Area: 1200}, // roads: 1000 + 200
+		{Classification: "default", Area: 500},  // roads "default" only
+		{Classification: "default", Area: 400},  // parking "default": 300 + 100
 	}
 	if diff := cmp.Diff(want, got, cmpopts.IgnoreFields(CohortSeed{}, "DecayRate")); diff != "" {
 		t.Errorf("mergeCohortSeeds (-want +got):\n%s", diff)

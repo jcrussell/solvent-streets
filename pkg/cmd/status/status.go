@@ -29,7 +29,7 @@ type statusRow struct {
 	FeatureCount int     `json:"featureCount"`
 	LastIngest   string  `json:"lastIngest,omitempty"`
 	LastCompute  string  `json:"lastCompute,omitempty"`
-	AreaSqM      float64 `json:"areaSqM,omitempty"`
+	Area         float64 `json:"area,omitempty"`
 }
 
 var _ cmdutil.RowExporter = statusRow{}
@@ -46,14 +46,14 @@ func (r statusRow) ExportData(fields []string) map[string]any {
 			out[f] = r.LastIngest
 		case "lastCompute":
 			out[f] = r.LastCompute
-		case "areaSqM":
-			out[f] = r.AreaSqM
+		case "area":
+			out[f] = r.Area
 		}
 	}
 	return out
 }
 
-var statusFields = []string{"resourceType", "featureCount", "lastIngest", "lastCompute", "areaSqM"}
+var statusFields = []string{"resourceType", "featureCount", "lastIngest", "lastCompute", "area"}
 
 func NewCmdStatus(f *cmdutil.Factory, rt resource.Source, runF func(context.Context, *Options) error) *cobra.Command {
 	opts := &Options{
@@ -130,7 +130,7 @@ func runStatus(ctx context.Context, opts *Options) error {
 		row := statusRow{
 			ResourceType: string(rt.Type()),
 			FeatureCount: info.FeatureCount,
-			AreaSqM:      info.TotalAreaSqM,
+			Area:         info.TotalArea,
 		}
 		if info.LastIngestAt != nil {
 			row.LastIngest = info.LastIngestAt.Format(time.RFC3339)
@@ -157,8 +157,8 @@ func runStatus(ctx context.Context, opts *Options) error {
 			strconv.Itoa(r.FeatureCount),
 			ingestStr,
 			computeStr,
-			fmt.Sprintf("%.0f", units.AreaValue(r.AreaSqM, sys)),
-			fmt.Sprintf("%.1f", units.AreaLargeValue(r.AreaSqM, sys)),
+			fmt.Sprintf("%.0f", units.AreaValue(r.Area, sys)),
+			fmt.Sprintf("%.1f", units.AreaLargeValue(r.Area, sys)),
 		)
 	}
 	if err := tp.Render(); err != nil {
@@ -178,19 +178,19 @@ func printCitySummary(ctx context.Context, ios *iostreams.IOStreams, store db.St
 	if err != nil || boundaryGJSON == "" {
 		return
 	}
-	cityAreaSqM, err := geo.BoundaryAreaSqM(boundaryGJSON)
-	if err != nil || cityAreaSqM <= 0 {
+	cityArea, err := geo.BoundaryArea(boundaryGJSON)
+	if err != nil || cityArea <= 0 {
 		return
 	}
-	var totalPavedSqM float64
+	var totalPaved float64
 	for _, r := range rows {
-		totalPavedSqM += r.AreaSqM
+		totalPaved += r.Area
 	}
 	fmt.Fprintf(ios.ErrOut, "\n=== City Summary ===\n")
-	fmt.Fprintf(ios.ErrOut, "  City Area:    %s (%s)\n", units.FormatAreaLarge(cityAreaSqM, sys), units.FormatAreaVeryLarge(cityAreaSqM, sys))
-	fmt.Fprintf(ios.ErrOut, "  Paved Area:   %s (%s)\n", units.FormatAreaLarge(totalPavedSqM, sys), units.FormatAreaVeryLarge(totalPavedSqM, sys))
-	if totalPavedSqM > 0 {
-		fmt.Fprintf(ios.ErrOut, "  %% Paved:      %.1f%%\n", totalPavedSqM/cityAreaSqM*100)
+	fmt.Fprintf(ios.ErrOut, "  City Area:    %s (%s)\n", units.FormatAreaLarge(cityArea, sys), units.FormatAreaVeryLarge(cityArea, sys))
+	fmt.Fprintf(ios.ErrOut, "  Paved Area:   %s (%s)\n", units.FormatAreaLarge(totalPaved, sys), units.FormatAreaVeryLarge(totalPaved, sys))
+	if totalPaved > 0 {
+		fmt.Fprintf(ios.ErrOut, "  %% Paved:      %.1f%%\n", totalPaved/cityArea*100)
 	}
 }
 

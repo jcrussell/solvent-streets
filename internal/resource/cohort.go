@@ -17,7 +17,7 @@ import (
 // Intra-class overlaps are dedup'd per-hex rather than via one big
 // UnionAll, and per-class totals are clipped to the same hex grid as the
 // "all" total so they sum consistently. Returns
-// map[classification]coverageAreaSqM. ctx cancellation aborts the
+// map[classification]coverageArea. ctx cancellation aborts the
 // underlying ParallelMap calls cleanly.
 func ComputeRoadCohortAreas(ctx context.Context, buffered []BufferedFeature, hexes []geo.Hex) map[string]float64 {
 	classGeoms := make(map[string][]geom.Geometry)
@@ -33,7 +33,7 @@ func ComputeRoadCohortAreas(ctx context.Context, buffered []BufferedFeature, hex
 		stats := geo.ComputeHexStats(ctx, hexes, idx, class, nil)
 		var sum float64
 		for _, s := range stats {
-			sum += s.AreaSqM
+			sum += s.Area
 		}
 		areas[class] = sum
 	}

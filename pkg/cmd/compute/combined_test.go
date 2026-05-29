@@ -84,8 +84,8 @@ func TestRunCombined_DedupesCrossResourceOverlap(t *testing.T) {
 	if !ok {
 		t.Fatalf("no %q ComputeResult was saved (got: %v)", resource.CombinedAll, saved)
 	}
-	if combined.TotalAreaSqM <= 0 {
-		t.Fatalf("combined.TotalAreaSqM = %v; want > 0", combined.TotalAreaSqM)
+	if combined.TotalArea <= 0 {
+		t.Fatalf("combined.TotalArea = %v; want > 0", combined.TotalArea)
 	}
 
 	// Compute per-resource areas against the same projection and hex grid
@@ -118,7 +118,7 @@ func TestRunCombined_DedupesCrossResourceOverlap(t *testing.T) {
 		stats := geo.ComputeHexStats(t.Context(), hexes, geo.NewGeomIndexFromGeoms(bufs), string(rt.Type()), nil)
 		var sum float64
 		for _, s := range stats {
-			sum += s.AreaSqM
+			sum += s.Area
 		}
 		return sum
 	}
@@ -131,9 +131,9 @@ func TestRunCombined_DedupesCrossResourceOverlap(t *testing.T) {
 	}
 
 	sum := roadsArea + parkingArea
-	if combined.TotalAreaSqM >= sum {
+	if combined.TotalArea >= sum {
 		t.Errorf("combined area %v >= per-resource sum %v (roads=%v, parking=%v) — overlap was not deduped",
-			combined.TotalAreaSqM, sum, roadsArea, parkingArea)
+			combined.TotalArea, sum, roadsArea, parkingArea)
 	}
 }
 

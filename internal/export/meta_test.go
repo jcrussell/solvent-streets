@@ -48,26 +48,26 @@ func newMockEntry(results map[resource.Type]db.ComputeResult) CityEntry {
 }
 
 // TestBuildMeta_PrefersCombinedOverSum is the cx2 regression: when the
-// "combined" ComputeResult exists, BuildMeta must use it for total_paved_sqm
+// "combined" ComputeResult exists, BuildMeta must use it for total_paved
 // instead of the (overcounted) sum of per-resource rows.
 func TestBuildMeta_PrefersCombinedOverSum(t *testing.T) {
 	results := map[resource.Type]db.ComputeResult{
-		mtRoads:     {ResourceType: mtRoads, TotalAreaSqM: 1000},
-		mtParking:   {ResourceType: mtParking, TotalAreaSqM: 500},
-		mtSidewalks: {ResourceType: mtSidewalks, TotalAreaSqM: 300},
-		mtCombined:  {ResourceType: mtCombined, TotalAreaSqM: 1500}, // less than 1800 sum because of buffer overlap
+		mtRoads:     {ResourceType: mtRoads, TotalArea: 1000},
+		mtParking:   {ResourceType: mtParking, TotalArea: 500},
+		mtSidewalks: {ResourceType: mtSidewalks, TotalArea: 300},
+		mtCombined:  {ResourceType: mtCombined, TotalArea: 1500}, // less than 1800 sum because of buffer overlap
 	}
 	entry := newMockEntry(results)
 	meta, err := BuildMeta(context.Background(), entry)
 	if err != nil {
 		t.Fatalf("BuildMeta: %v", err)
 	}
-	if meta.TotalPavedSqM != 1500 {
-		t.Errorf("total_paved_sqm = %v; want 1500 (from combined row, not 1800 sum)", meta.TotalPavedSqM)
+	if meta.TotalPaved != 1500 {
+		t.Errorf("total_paved = %v; want 1500 (from combined row, not 1800 sum)", meta.TotalPaved)
 	}
 	statByType := map[string]float64{}
 	for _, s := range meta.Stats {
-		statByType[s.Type] = s.TotalAreaSqM
+		statByType[s.Type] = s.TotalArea
 	}
 	want := map[string]float64{"roads": 1000, "parking": 500, "sidewalks": 300}
 	if diff := cmp.Diff(want, statByType); diff != "" {
@@ -77,22 +77,22 @@ func TestBuildMeta_PrefersCombinedOverSum(t *testing.T) {
 
 // TestBuildMultiCityMeta_AggregatesAcrossEntries is the dul regression: the
 // multi-city landing must not silently render the first sub-city's totals as
-// the regional headline. Per-resource Stats and TotalPavedSqM must sum across
-// entries; CityAreaSqM must be the union of sub-city boundaries.
+// the regional headline. Per-resource Stats and TotalPaved must sum across
+// entries; CityArea must be the union of sub-city boundaries.
 func TestBuildMultiCityMeta_AggregatesAcrossEntries(t *testing.T) {
 	// Two non-overlapping sub-cities with distinct boundaries and different
 	// per-resource totals. Use boundaries far apart enough that the union
 	// area is approximately the sum.
 	cityA := newMockEntryWithBoundary(map[resource.Type]db.ComputeResult{
-		mtRoads:    {ResourceType: mtRoads, TotalAreaSqM: 1000, FeatureCount: 10},
-		mtCombined: {ResourceType: mtCombined, TotalAreaSqM: 800},
+		mtRoads:    {ResourceType: mtRoads, TotalArea: 1000, FeatureCount: 10},
+		mtCombined: {ResourceType: mtCombined, TotalArea: 800},
 	}, `{"type":"Polygon","coordinates":[[[-122.5,37.5],[-122.4,37.5],[-122.4,37.6],[-122.5,37.6],[-122.5,37.5]]]}`)
 	cityA.City.Name = "City A"
 	cityA.Slug = "city-a"
 
 	cityB := newMockEntryWithBoundary(map[resource.Type]db.ComputeResult{
-		mtRoads:    {ResourceType: mtRoads, TotalAreaSqM: 2000, FeatureCount: 20},
-		mtCombined: {ResourceType: mtCombined, TotalAreaSqM: 1700},
+		mtRoads:    {ResourceType: mtRoads, TotalArea: 2000, FeatureCount: 20},
+		mtCombined: {ResourceType: mtCombined, TotalArea: 1700},
 	}, `{"type":"Polygon","coordinates":[[[-121.5,37.5],[-121.4,37.5],[-121.4,37.6],[-121.5,37.6],[-121.5,37.5]]]}`)
 	cityB.City.Name = "City B"
 	cityB.Slug = "city-b"
@@ -109,13 +109,13 @@ func TestBuildMultiCityMeta_AggregatesAcrossEntries(t *testing.T) {
 	if len(meta.Stats) != 1 {
 		t.Fatalf("expected 1 resource stat, got %d", len(meta.Stats))
 	}
-	if meta.Stats[0].Type != "roads" || meta.Stats[0].TotalAreaSqM != 3000 || meta.Stats[0].FeatureCount != 30 {
+	if meta.Stats[0].Type != "roads" || meta.Stats[0].TotalArea != 3000 || meta.Stats[0].FeatureCount != 30 {
 		t.Errorf("aggregated roads stat = %+v; want type=roads, area=3000, count=30", meta.Stats[0])
 	}
 
 	// total_paved comes from summed combined rows (not per-resource fallback).
-	if meta.TotalPavedSqM != 2500 {
-		t.Errorf("total_paved_sqm = %v; want 2500 (sum of combined rows)", meta.TotalPavedSqM)
+	if meta.TotalPaved != 2500 {
+		t.Errorf("total_paved = %v; want 2500 (sum of combined rows)", meta.TotalPaved)
 	}
 
 	// Regional bbox spans both sub-cities.
@@ -124,8 +124,8 @@ func TestBuildMultiCityMeta_AggregatesAcrossEntries(t *testing.T) {
 	}
 
 	// City area is union — must be larger than either sub-city's area.
-	if meta.CityAreaSqM <= 0 {
-		t.Errorf("city_area_sqm = %v; want positive (union of boundaries)", meta.CityAreaSqM)
+	if meta.CityArea <= 0 {
+		t.Errorf("city_area = %v; want positive (union of boundaries)", meta.CityArea)
 	}
 }
 
@@ -152,22 +152,22 @@ func newMockEntryWithBoundary(results map[resource.Type]db.ComputeResult, bounda
 
 // TestBuildMeta_FallsBackToSumWhenCombinedMissing covers the transitional
 // state where `pvmt all compute` has not yet been re-run after the cx2 fix
-// landed: BuildMeta must still produce a non-zero total_paved_sqm by summing
+// landed: BuildMeta must still produce a non-zero total_paved by summing
 // per-resource rows. The sum overcounts buffer overlap (the original bug),
 // but reporting zero would be worse.
 func TestBuildMeta_FallsBackToSumWhenCombinedMissing(t *testing.T) {
 	results := map[resource.Type]db.ComputeResult{
-		mtRoads:     {ResourceType: mtRoads, TotalAreaSqM: 1000},
-		mtParking:   {ResourceType: mtParking, TotalAreaSqM: 500},
-		mtSidewalks: {ResourceType: mtSidewalks, TotalAreaSqM: 300},
+		mtRoads:     {ResourceType: mtRoads, TotalArea: 1000},
+		mtParking:   {ResourceType: mtParking, TotalArea: 500},
+		mtSidewalks: {ResourceType: mtSidewalks, TotalArea: 300},
 	}
 	entry := newMockEntry(results)
 	meta, err := BuildMeta(context.Background(), entry)
 	if err != nil {
 		t.Fatalf("BuildMeta: %v", err)
 	}
-	if meta.TotalPavedSqM != 1800 {
-		t.Errorf("total_paved_sqm = %v; want 1800 (sum fallback)", meta.TotalPavedSqM)
+	if meta.TotalPaved != 1800 {
+		t.Errorf("total_paved = %v; want 1800 (sum fallback)", meta.TotalPaved)
 	}
 }
 
@@ -179,15 +179,15 @@ func TestBuildMeta_FallsBackToSumWhenCombinedMissing(t *testing.T) {
 // city is worse than an overcounted one.
 func TestBuildMultiCityMeta_MixedCombinedRollout(t *testing.T) {
 	cityA := newMockEntryWithBoundary(map[resource.Type]db.ComputeResult{
-		mtRoads:    {ResourceType: mtRoads, TotalAreaSqM: 1000},
-		mtCombined: {ResourceType: mtCombined, TotalAreaSqM: 800},
+		mtRoads:    {ResourceType: mtRoads, TotalArea: 1000},
+		mtCombined: {ResourceType: mtCombined, TotalArea: 800},
 	}, `{"type":"Polygon","coordinates":[[[-122.5,37.5],[-122.4,37.5],[-122.4,37.6],[-122.5,37.6],[-122.5,37.5]]]}`)
 	cityA.City.Name = "City A"
 	cityA.Slug = "city-a"
 
 	// City B has no combined row — partial-rollout state.
 	cityB := newMockEntryWithBoundary(map[resource.Type]db.ComputeResult{
-		mtRoads: {ResourceType: mtRoads, TotalAreaSqM: 2000},
+		mtRoads: {ResourceType: mtRoads, TotalArea: 2000},
 	}, `{"type":"Polygon","coordinates":[[[-121.5,37.5],[-121.4,37.5],[-121.4,37.6],[-121.5,37.6],[-121.5,37.5]]]}`)
 	cityB.City.Name = "City B"
 	cityB.Slug = "city-b"
@@ -198,8 +198,8 @@ func TestBuildMultiCityMeta_MixedCombinedRollout(t *testing.T) {
 	}
 	// Want: A's combined (800) + B's per-resource fallback (2000) = 2800.
 	// Pre-fix bug returned 800 (B silently dropped).
-	if meta.TotalPavedSqM != 2800 {
-		t.Errorf("total_paved_sqm = %v; want 2800 (combined_A + sum_B)", meta.TotalPavedSqM)
+	if meta.TotalPaved != 2800 {
+		t.Errorf("total_paved = %v; want 2800 (combined_A + sum_B)", meta.TotalPaved)
 	}
 }
 
@@ -216,13 +216,13 @@ func TestBuildMultiCityMeta_FarApartCitiesUsePerCityUTMZones(t *testing.T) {
 	const sfBoundary = `{"type":"Polygon","coordinates":[[[-122.425,37.765],[-122.4137,37.765],[-122.4137,37.774],[-122.425,37.774],[-122.425,37.765]]]}`
 
 	cityA := newMockEntryWithBoundary(map[resource.Type]db.ComputeResult{
-		mtRoads: {ResourceType: mtRoads, TotalAreaSqM: 1},
+		mtRoads: {ResourceType: mtRoads, TotalArea: 1},
 	}, bostonBoundary)
 	cityA.City.Name = "Boston"
 	cityA.Slug = "boston"
 
 	cityB := newMockEntryWithBoundary(map[resource.Type]db.ComputeResult{
-		mtRoads: {ResourceType: mtRoads, TotalAreaSqM: 1},
+		mtRoads: {ResourceType: mtRoads, TotalArea: 1},
 	}, sfBoundary)
 	cityB.City.Name = "San Francisco"
 	cityB.Slug = "san-francisco"
@@ -233,18 +233,18 @@ func TestBuildMultiCityMeta_FarApartCitiesUsePerCityUTMZones(t *testing.T) {
 	}
 
 	// Reference: each city's accurate area computed in its own UTM zone.
-	areaA, err := geo.BoundaryAreaSqM(bostonBoundary)
+	areaA, err := geo.BoundaryArea(bostonBoundary)
 	if err != nil {
-		t.Fatalf("BoundaryAreaSqM(boston): %v", err)
+		t.Fatalf("BoundaryArea(boston): %v", err)
 	}
-	areaB, err := geo.BoundaryAreaSqM(sfBoundary)
+	areaB, err := geo.BoundaryArea(sfBoundary)
 	if err != nil {
-		t.Fatalf("BoundaryAreaSqM(sf): %v", err)
+		t.Fatalf("BoundaryArea(sf): %v", err)
 	}
 	want := areaA + areaB
-	if rel := math.Abs(meta.CityAreaSqM-want) / want; rel > 1e-9 {
-		t.Errorf("city_area_sqm = %v; want %v (sum of per-city UTM areas, rel diff %.3g)",
-			meta.CityAreaSqM, want, rel)
+	if rel := math.Abs(meta.CityArea-want) / want; rel > 1e-9 {
+		t.Errorf("city_area = %v; want %v (sum of per-city UTM areas, rel diff %.3g)",
+			meta.CityArea, want, rel)
 	}
 
 	// Regression check: the pre-fix code projected both polygons through
@@ -263,8 +263,8 @@ func TestBuildMultiCityMeta_FarApartCitiesUsePerCityUTMZones(t *testing.T) {
 		t.Fatalf("project sf through shared zone: %v", err)
 	}
 	buggy := gA.Area() + gB.Area()
-	if meta.CityAreaSqM >= buggy*0.9 {
-		t.Errorf("city_area_sqm = %v; want noticeably smaller than the shared-zone result %v (>=10%% reduction)",
-			meta.CityAreaSqM, buggy)
+	if meta.CityArea >= buggy*0.9 {
+		t.Errorf("city_area = %v; want noticeably smaller than the shared-zone result %v (>=10%% reduction)",
+			meta.CityArea, buggy)
 	}
 }

@@ -64,8 +64,8 @@ func TestComputeHexStats_PartialIntersection(t *testing.T) {
 		if s.PctCovered <= 0 || s.PctCovered > 100 {
 			t.Errorf("invalid pct_covered: %f", s.PctCovered)
 		}
-		if s.AreaSqM <= 0 {
-			t.Errorf("expected positive area, got %f", s.AreaSqM)
+		if s.Area <= 0 {
+			t.Errorf("expected positive area, got %f", s.Area)
 		}
 	}
 }
@@ -91,8 +91,8 @@ func TestComputeHexStats_DedupesOverlappingCandidates(t *testing.T) {
 		// naively would inflate area by ~400 sqm per hex that contains
 		// both arms. Confirm we stay close to the true unioned area.
 		hexArea := 3 * math.Sqrt(3) / 2 * 50 * 50
-		if s.AreaSqM > hexArea {
-			t.Errorf("area %f exceeds hex area %f — overlap not deduped", s.AreaSqM, hexArea)
+		if s.Area > hexArea {
+			t.Errorf("area %f exceeds hex area %f — overlap not deduped", s.Area, hexArea)
 		}
 	}
 }
@@ -108,8 +108,8 @@ func TestComputeHexStats_KeepsSubHundredSqMHexes(t *testing.T) {
 	if len(stats) != 1 {
 		t.Fatalf("expected 1 stat for sub-100sqm hex, got %d", len(stats))
 	}
-	if stats[0].AreaSqM <= 0 {
-		t.Errorf("expected positive area for sliver coverage, got %f", stats[0].AreaSqM)
+	if stats[0].Area <= 0 {
+		t.Errorf("expected positive area for sliver coverage, got %f", stats[0].Area)
 	}
 }
 

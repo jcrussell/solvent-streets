@@ -15,24 +15,24 @@ import (
 // CohortSeed holds per-cohort data for interactive controls.
 type CohortSeed struct {
 	Classification string  `json:"classification"`
-	AreaSqM        float64 `json:"area_sqm"`
+	Area           float64 `json:"area"`
 	DecayRate      float64 `json:"decay_rate"`
 }
 
 // ForecastSeedJSON holds the data needed by the browser to initialize interactive controls.
-// CityPavedSqM is the city-jurisdiction paved area, NOT the city boundary area
-// (that's MetaJSON.CityAreaSqM). The fields used to share the json tag
-// "city_area_sqm" with 14x divergence; never reintroduce that name here.
+// CityPaved is the city-jurisdiction paved area, NOT the city boundary area
+// (that's MetaJSON.CityArea). The fields used to share the json tag
+// "city_area" with 14x divergence; never reintroduce that name here.
 type ForecastSeedJSON struct {
-	InitialPCI   float64             `json:"initial_pci"`
-	DecayRate    float64             `json:"decay_rate"`
-	GrowthRate   float64             `json:"growth_rate"`
-	Years        int                 `json:"years"`
-	TotalAreaSqM float64             `json:"total_area_sqm"`
-	CityPavedSqM float64             `json:"city_paved_sqm"`
-	CostTiers    []forecast.CostTier `json:"cost_tiers"`
-	Cohorts      []CohortSeed        `json:"cohorts,omitempty"`
-	CityCohorts  []CohortSeed        `json:"city_cohorts,omitempty"`
+	InitialPCI  float64             `json:"initial_pci"`
+	DecayRate   float64             `json:"decay_rate"`
+	GrowthRate  float64             `json:"growth_rate"`
+	Years       int                 `json:"years"`
+	TotalArea   float64             `json:"total_area"`
+	CityPaved   float64             `json:"city_paved"`
+	CostTiers   []forecast.CostTier `json:"cost_tiers"`
+	Cohorts     []CohortSeed        `json:"cohorts,omitempty"`
+	CityCohorts []CohortSeed        `json:"city_cohorts,omitempty"`
 }
 
 // BuildForecastSeed constructs a ForecastSeedJSON for the given forecast config and store.
@@ -46,23 +46,23 @@ func BuildForecastSeed(ctx context.Context, fc *config.ForecastConfig, store db.
 	// per-resource rows when missing — same behavior as BuildMeta.
 	var totalArea, cityArea float64
 	if r, err := store.LatestComputeResult(ctx, resource.CombinedAll); err == nil && r != nil {
-		totalArea = r.TotalAreaSqM
+		totalArea = r.TotalArea
 	} else {
 		for _, rt := range resource.All {
 			result, err := store.LatestComputeResult(ctx, rt.Type())
 			if err != nil || result == nil {
 				continue
 			}
-			totalArea += result.TotalAreaSqM
+			totalArea += result.TotalArea
 		}
 	}
 	if r, err := store.LatestComputeResult(ctx, resource.CombinedCity); err == nil && r != nil {
-		cityArea = r.TotalAreaSqM
+		cityArea = r.TotalArea
 	} else {
 		for _, rt := range resource.All {
 			cityResult, err := store.LatestComputeResult(ctx, rt.Type().With(resource.ScopeCity))
 			if err == nil && cityResult != nil {
-				cityArea += cityResult.TotalAreaSqM
+				cityArea += cityResult.TotalArea
 			}
 		}
 	}
@@ -78,15 +78,15 @@ func BuildForecastSeed(ctx context.Context, fc *config.ForecastConfig, store db.
 	cohortSeeds, cityCohortSeeds := collectCohortSeeds(ctx, store, fc)
 
 	seed := ForecastSeedJSON{
-		InitialPCI:   fc.InitialPCI,
-		DecayRate:    decayRate,
-		GrowthRate:   fc.GrowthRate,
-		Years:        years,
-		TotalAreaSqM: totalArea,
-		CityPavedSqM: cityArea,
-		CostTiers:    costTiers,
-		Cohorts:      cohortSeeds,
-		CityCohorts:  cityCohortSeeds,
+		InitialPCI:  fc.InitialPCI,
+		DecayRate:   decayRate,
+		GrowthRate:  fc.GrowthRate,
+		Years:       years,
+		TotalArea:   totalArea,
+		CityPaved:   cityArea,
+		CostTiers:   costTiers,
+		Cohorts:     cohortSeeds,
+		CityCohorts: cityCohortSeeds,
 	}
 	data, err := json.Marshal(seed)
 	if err != nil {
@@ -107,7 +107,7 @@ func collectCohortSeeds(ctx context.Context, store db.Store, fc *config.Forecast
 			for _, st := range stats {
 				cohortSeeds = append(cohortSeeds, CohortSeed{
 					Classification: st.Classification,
-					AreaSqM:        st.AreaSqM,
+					Area:           st.Area,
 					DecayRate:      resolvedDecayRate(st.Classification, fc.DecayRate),
 				})
 			}
@@ -117,7 +117,7 @@ func collectCohortSeeds(ctx context.Context, store db.Store, fc *config.Forecast
 			for _, st := range cityStats {
 				cityCohortSeeds = append(cityCohortSeeds, CohortSeed{
 					Classification: st.Classification,
-					AreaSqM:        st.AreaSqM,
+					Area:           st.Area,
 					DecayRate:      resolvedDecayRate(st.Classification, fc.DecayRate),
 				})
 			}

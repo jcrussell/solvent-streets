@@ -34,7 +34,7 @@ func TestHandleDataMetaJSON(t *testing.T) {
 			if rt == srvRtRoads {
 				return &db.ComputeResult{
 					ResourceType: srvRtRoads,
-					TotalAreaSqM: 46452,
+					TotalArea:    46452,
 					FeatureCount: 100,
 					ComputedAt:   time.Now(),
 				}, nil
@@ -74,8 +74,8 @@ func TestHandleDataMetaJSON(t *testing.T) {
 	if len(meta.Stats) != 1 {
 		t.Fatalf("expected 1 stat, got %d", len(meta.Stats))
 	}
-	if meta.Stats[0].TotalAreaSqM != 46452 {
-		t.Errorf("expected 46452 sqm, got %f", meta.Stats[0].TotalAreaSqM)
+	if meta.Stats[0].TotalArea != 46452 {
+		t.Errorf("expected 46452 sqm, got %f", meta.Stats[0].TotalArea)
 	}
 	if meta.ProjectName != "Test City" {
 		t.Errorf("expected project name 'Test City', got %q", meta.ProjectName)
@@ -258,7 +258,7 @@ func TestDataFile_SnapshotParam(t *testing.T) {
 			}
 			return &db.ComputeResult{
 				ResourceType: srvRtRoads,
-				TotalAreaSqM: float64(pinnedSnapshot * 1000),
+				TotalArea:    float64(pinnedSnapshot * 1000),
 				FeatureCount: int(pinnedSnapshot * 10),
 				ComputedAt:   time.Now(),
 			}, nil
@@ -280,7 +280,7 @@ func TestDataFile_SnapshotParam(t *testing.T) {
 				}
 				return &db.ComputeResult{
 					ResourceType: srvRtRoads,
-					TotalAreaSqM: float64(id * 1000),
+					TotalArea:    float64(id * 1000),
 					FeatureCount: int(id * 10),
 					ComputedAt:   time.Now(),
 				}, nil
@@ -292,7 +292,7 @@ func TestDataFile_SnapshotParam(t *testing.T) {
 				return nil, fmt.Errorf("not found")
 			}
 			return &db.ComputeResult{
-				ResourceType: srvRtRoads, TotalAreaSqM: 999000, FeatureCount: 999, ComputedAt: time.Now(),
+				ResourceType: srvRtRoads, TotalArea: 999000, FeatureCount: 999, ComputedAt: time.Now(),
 			}, nil
 		},
 	}
@@ -323,19 +323,19 @@ func TestDataFile_SnapshotParam(t *testing.T) {
 
 	// Absent param → latest (the root store returns 999000).
 	_, latest := hit(t, "/data/meta.json")
-	if latest == nil || latest.Stats[0].TotalAreaSqM != 999000 {
+	if latest == nil || latest.Stats[0].TotalArea != 999000 {
 		t.Errorf("absent ?snapshot=: expected latest area 999000, got %+v", latest)
 	}
 
 	// snapshot=1 → root.WithSnapshot(1) is invoked; pinned response.
 	_, s1 := hit(t, "/data/meta.json?snapshot=1")
-	if s1 == nil || s1.Stats[0].TotalAreaSqM != 1000 {
+	if s1 == nil || s1.Stats[0].TotalArea != 1000 {
 		t.Errorf("snapshot=1: expected area 1000, got %+v", s1)
 	}
 
 	// snapshot=2 → different cached body. Also confirms cache key isolates.
 	_, s2 := hit(t, "/data/meta.json?snapshot=2")
-	if s2 == nil || s2.Stats[0].TotalAreaSqM != 2000 {
+	if s2 == nil || s2.Stats[0].TotalArea != 2000 {
 		t.Errorf("snapshot=2: expected area 2000, got %+v", s2)
 	}
 
@@ -448,7 +448,7 @@ func TestBuildForecasts_DBErrorEvicts(t *testing.T) {
 			for _, t := range types {
 				out[t] = &db.ComputeResult{
 					ResourceType: t,
-					TotalAreaSqM: 10000,
+					TotalArea:    10000,
 					FeatureCount: 100,
 					ComputedAt:   time.Now(),
 				}

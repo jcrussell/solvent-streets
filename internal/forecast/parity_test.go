@@ -23,9 +23,9 @@ func TestSimulateParity(t *testing.T) {
 		Strategy:     forecast.StrategyWorstFirst,
 	}
 	cohorts := []forecast.Cohort{
-		{Classification: "primary", AreaSqM: 250_000, DecayRate: 0.05, InitialPCI: 85},
-		{Classification: "secondary", AreaSqM: 500_000, DecayRate: 0.04, InitialPCI: 75},
-		{Classification: "residential", AreaSqM: 750_000, DecayRate: 0.03, InitialPCI: 65},
+		{Classification: "primary", Area: 250_000, DecayRate: 0.05, InitialPCI: 85},
+		{Classification: "secondary", Area: 500_000, DecayRate: 0.04, InitialPCI: 75},
+		{Classification: "residential", Area: 750_000, DecayRate: 0.03, InitialPCI: 65},
 	}
 	costTiers := []forecast.CostTier{
 		{MinPCI: 0, MaxPCI: 40, CostPerSqM: 50, Label: "reconstruction"},

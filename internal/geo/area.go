@@ -7,8 +7,8 @@ import (
 	"github.com/peterstace/simplefeatures/geom"
 )
 
-// BoundaryAreaSqM computes the area in square meters of a GeoJSON boundary polygon.
-func BoundaryAreaSqM(boundaryGJSON string) (float64, error) {
+// BoundaryArea computes the area in square meters of a GeoJSON boundary polygon.
+func BoundaryArea(boundaryGJSON string) (float64, error) {
 	bbox, err := BBoxFromGeoJSON(boundaryGJSON)
 	if err != nil {
 		return 0, err

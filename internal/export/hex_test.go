@@ -50,7 +50,7 @@ func offsetSquareHex(t *testing.T, id string, ox, oy, side float64) geo.Hex {
 }
 
 // TestFilterHexSlivers_DropsBelowThreshold pins the heatmap contract: hexes
-// whose clipped area falls under config.DefaultMinHexAreaSqM (100) are omitted from
+// whose clipped area falls under config.DefaultMinHexArea (100) are omitted from
 // hex.geojson; hexes ≥ the threshold are kept. The check is strict-less-than,
 // so a hex at exactly the threshold survives.
 //
@@ -77,7 +77,7 @@ func TestFilterHexSlivers_DropsBelowThreshold(t *testing.T) {
 		}
 	}
 
-	got := filterHexSlivers(input, config.DefaultMinHexAreaSqM)
+	got := filterHexSlivers(input, config.DefaultMinHexArea)
 
 	gotIDs := map[string]bool{}
 	for _, h := range got {
@@ -129,8 +129,8 @@ func hexEntry(t *testing.T, hexStats map[resource.Type][]db.HexStat, results map
 // deterministically in TestBuildHexFeature_NestedScopes.
 func TestBuildHexGeoJSON_EmittedWhenRowsExist(t *testing.T) {
 	now := time.Now()
-	cityRows := []db.HexStat{{HexID: "0,0", ResourceType: rtRoadsCity, AreaSqM: 100, PctCovered: 50, ComputedAt: now}}
-	bboxRows := []db.HexStat{{HexID: "0,0", ResourceType: rtRoads, AreaSqM: 200, PctCovered: 75, ComputedAt: now}}
+	cityRows := []db.HexStat{{HexID: "0,0", ResourceType: rtRoadsCity, Area: 100, PctCovered: 50, ComputedAt: now}}
+	bboxRows := []db.HexStat{{HexID: "0,0", ResourceType: rtRoads, Area: 200, PctCovered: 75, ComputedAt: now}}
 	entry := hexEntry(t, map[resource.Type][]db.HexStat{
 		rtRoads:       bboxRows,
 		rtRoadsCity:   cityRows,
@@ -263,7 +263,7 @@ func TestBuildHexFeature_RespectsCoordinatePrecision(t *testing.T) {
 // hex_stats rows still yield a FeatureCollection, but no feature carries a "city"
 // object. The client uses that absence as the "hide the scope toggle" signal.
 func TestBuildHexGeoJSON_NoCityRowsOmitsCity(t *testing.T) {
-	bboxRows := []db.HexStat{{HexID: "0,0", ResourceType: rtRoads, AreaSqM: 100, PctCovered: 50}}
+	bboxRows := []db.HexStat{{HexID: "0,0", ResourceType: rtRoads, Area: 100, PctCovered: 50}}
 	entry := hexEntry(t, map[resource.Type][]db.HexStat{
 		rtRoads:       bboxRows,
 		rtParkingAll:  nil,
@@ -290,8 +290,8 @@ func TestBuildHexGeoJSON_NoCityRowsOmitsCity(t *testing.T) {
 func TestBuildHexCostSummary_NestedByScope(t *testing.T) {
 	now := time.Now()
 	results := map[resource.Type]db.ComputeResult{
-		rtRoads:     {ResourceType: rtRoads, TotalAreaSqM: 2000, ComputedAt: now},
-		rtRoadsCity: {ResourceType: rtRoadsCity, TotalAreaSqM: 1000, ComputedAt: now},
+		rtRoads:     {ResourceType: rtRoads, TotalArea: 2000, ComputedAt: now},
+		rtRoadsCity: {ResourceType: rtRoadsCity, TotalArea: 1000, ComputedAt: now},
 	}
 	entry := hexEntry(t, nil, results)
 
@@ -317,14 +317,14 @@ func TestBuildHexCostSummary_NestedByScope(t *testing.T) {
 	if city["roads"]["year1_cost"] != 25000 {
 		t.Errorf("city roads year1_cost = %v; want 25000 (from Baseline)", city["roads"]["year1_cost"])
 	}
-	if city["roads"]["total_area_sqm"] != 1000 {
-		t.Errorf("city roads total_area_sqm = %v; want 1000 (city-scope row)", city["roads"]["total_area_sqm"])
+	if city["roads"]["total_area"] != 1000 {
+		t.Errorf("city roads total_area = %v; want 1000 (city-scope row)", city["roads"]["total_area"])
 	}
 	if bbox["roads"]["year1_cost"] != 50000 {
 		t.Errorf("bbox roads year1_cost = %v; want 50000 (from BboxBaseline)", bbox["roads"]["year1_cost"])
 	}
-	if bbox["roads"]["total_area_sqm"] != 2000 {
-		t.Errorf("bbox roads total_area_sqm = %v; want 2000 (bbox-scope row)", bbox["roads"]["total_area_sqm"])
+	if bbox["roads"]["total_area"] != 2000 {
+		t.Errorf("bbox roads total_area = %v; want 2000 (bbox-scope row)", bbox["roads"]["total_area"])
 	}
 }
 
@@ -333,7 +333,7 @@ func TestBuildHexCostSummary_NestedByScope(t *testing.T) {
 // Baseline carries the bbox numbers.
 func TestBuildHexCostSummary_BboxOnlyWhenNoCity(t *testing.T) {
 	results := map[resource.Type]db.ComputeResult{
-		rtRoads: {ResourceType: rtRoads, TotalAreaSqM: 2000},
+		rtRoads: {ResourceType: rtRoads, TotalArea: 2000},
 	}
 	entry := hexEntry(t, nil, results)
 
@@ -358,8 +358,8 @@ func TestBuildHexCostSummary_BboxOnlyWhenNoCity(t *testing.T) {
 // rows exist, the only scope key is "bbox".
 func TestBuildScenariosData_RenamedKeys(t *testing.T) {
 	results := map[resource.Type]db.ComputeResult{
-		rtRoads:     {ResourceType: rtRoads, TotalAreaSqM: 2000, FeatureCount: 100},
-		rtRoadsCity: {ResourceType: rtRoadsCity, TotalAreaSqM: 1000, FeatureCount: 60},
+		rtRoads:     {ResourceType: rtRoads, TotalArea: 2000, FeatureCount: 100},
+		rtRoadsCity: {ResourceType: rtRoadsCity, TotalArea: 1000, FeatureCount: 60},
 	}
 	entry := hexEntry(t, nil, results)
 	fc := &config.ForecastConfig{Years: 5, InitialPCI: 85, DecayRate: 1.5}
@@ -380,7 +380,7 @@ func TestBuildScenariosData_RenamedKeys(t *testing.T) {
 // the output has just the "bbox" key — no "city", no legacy "all".
 func TestBuildScenariosData_BboxOnlyKey(t *testing.T) {
 	results := map[resource.Type]db.ComputeResult{
-		rtRoads: {ResourceType: rtRoads, TotalAreaSqM: 2000, FeatureCount: 100},
+		rtRoads: {ResourceType: rtRoads, TotalArea: 2000, FeatureCount: 100},
 	}
 	entry := hexEntry(t, nil, results)
 	fc := &config.ForecastConfig{Years: 5, InitialPCI: 85, DecayRate: 1.5}

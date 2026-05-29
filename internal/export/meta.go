@@ -54,21 +54,21 @@ var resourceColorsJSOnce = sync.OnceValue(func() template.JS {
 func ResourceColorsJS() template.JS { return resourceColorsJSOnce() }
 
 type MetaJSON struct {
-	ProjectName   string     `json:"project_name"`
-	BBox          [4]float64 `json:"bbox"`
-	CenterLon     float64    `json:"center_lon"`
-	CenterLat     float64    `json:"center_lat"`
-	SnapshotDate  string     `json:"snapshot_date"`
-	Stats         []StatJSON `json:"stats"`
-	CityAreaSqM   float64    `json:"city_area_sqm,omitempty"`
-	TotalPavedSqM float64    `json:"total_paved_sqm,omitempty"`
-	PctPaved      float64    `json:"pct_paved,omitempty"`
+	ProjectName  string     `json:"project_name"`
+	BBox         [4]float64 `json:"bbox"`
+	CenterLon    float64    `json:"center_lon"`
+	CenterLat    float64    `json:"center_lat"`
+	SnapshotDate string     `json:"snapshot_date"`
+	Stats        []StatJSON `json:"stats"`
+	CityArea     float64    `json:"city_area,omitempty"`
+	TotalPaved   float64    `json:"total_paved,omitempty"`
+	PctPaved     float64    `json:"pct_paved,omitempty"`
 }
 
 type StatJSON struct {
 	Type         string  `json:"type"`
 	Color        string  `json:"color"`
-	TotalAreaSqM float64 `json:"total_area_sqm"`
+	TotalArea    float64 `json:"total_area"`
 	FeatureCount int     `json:"feature_count"`
 }
 
@@ -101,7 +101,7 @@ func BuildMeta(ctx context.Context, entry CityEntry) (MetaJSON, error) {
 		meta.Stats = append(meta.Stats, StatJSON{
 			Type:         typeName,
 			Color:        ResourceColors[typeName],
-			TotalAreaSqM: result.TotalAreaSqM,
+			TotalArea:    result.TotalArea,
 			FeatureCount: result.FeatureCount,
 		})
 	}
@@ -111,14 +111,14 @@ func BuildMeta(ctx context.Context, entry CityEntry) (MetaJSON, error) {
 	// summing per-resource rows when the combined row is missing — the sum
 	// inflates pct_paved by the road/sidewalk/parking buffer overlap, but
 	// keeps single-resource workflows usable until `all compute` runs.
-	meta.TotalPavedSqM = totalPavedFromStore(ctx, entry.Store, meta.Stats)
+	meta.TotalPaved = totalPavedFromStore(ctx, entry.Store, meta.Stats)
 
 	// Compute city boundary area and % paved.
 	if boundaryGJSON, err := entry.Store.GetBoundary(ctx); err == nil && boundaryGJSON != "" {
-		if cityAreaSqM, err := geo.BoundaryAreaSqM(boundaryGJSON); err == nil && cityAreaSqM > 0 {
-			meta.CityAreaSqM = cityAreaSqM
-			if meta.TotalPavedSqM > 0 {
-				meta.PctPaved = meta.TotalPavedSqM / cityAreaSqM * 100
+		if cityArea, err := geo.BoundaryArea(boundaryGJSON); err == nil && cityArea > 0 {
+			meta.CityArea = cityArea
+			if meta.TotalPaved > 0 {
+				meta.PctPaved = meta.TotalPaved / cityArea * 100
 			}
 		}
 	}
@@ -133,11 +133,11 @@ func BuildMeta(ctx context.Context, entry CityEntry) (MetaJSON, error) {
 // has populated the combined row.
 func totalPavedFromStore(ctx context.Context, store db.Store, perResource []StatJSON) float64 {
 	if r, err := store.LatestComputeResult(ctx, resource.CombinedAll); err == nil && r != nil {
-		return r.TotalAreaSqM
+		return r.TotalArea
 	}
 	var sum float64
 	for _, st := range perResource {
-		sum += st.TotalAreaSqM
+		sum += st.TotalArea
 	}
 	return sum
 }

@@ -119,7 +119,7 @@ func TestRunStatus_CitySummary(t *testing.T) {
 				return &db.StatusInfo{
 					ResourceType: rtRoads,
 					FeatureCount: 100,
-					TotalAreaSqM: 46452,
+					TotalArea:    46452,
 				}, nil
 			}
 			return &db.StatusInfo{ResourceType: rt}, nil
@@ -167,7 +167,7 @@ func TestStatusRow_ExportData_AllFieldsPopulated(t *testing.T) {
 		FeatureCount: 42,
 		LastIngest:   "2026-04-18T00:00:00Z",
 		LastCompute:  "2026-04-18T01:00:00Z",
-		AreaSqM:      123.4,
+		Area:         123.4,
 	}
 	out := r.ExportData(statusFields)
 	if len(out) != len(statusFields) {
@@ -178,7 +178,7 @@ func TestStatusRow_ExportData_AllFieldsPopulated(t *testing.T) {
 			t.Errorf("missing field %q", f)
 		}
 	}
-	if out["resourceType"] != "roads" || out["featureCount"] != 42 || out["areaSqM"] != 123.4 {
+	if out["resourceType"] != "roads" || out["featureCount"] != 42 || out["area"] != 123.4 {
 		t.Errorf("unexpected values: %+v", out)
 	}
 }
@@ -187,7 +187,7 @@ func TestStatusRow_ExportData_AllFieldsPopulated(t *testing.T) {
 // subset returns only those keys — the field-filter contract the --json
 // flag depends on.
 func TestStatusRow_ExportData_SubsetFields(t *testing.T) {
-	r := statusRow{ResourceType: "roads", FeatureCount: 42, AreaSqM: 1}
+	r := statusRow{ResourceType: "roads", FeatureCount: 42, Area: 1}
 	out := r.ExportData([]string{"resourceType"})
 	if len(out) != 1 {
 		t.Fatalf("want 1 key, got %d: %v", len(out), out)

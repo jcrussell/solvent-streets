@@ -64,26 +64,26 @@ func TestConfig_Validate_HexEdgeNonNegative(t *testing.T) {
 	}
 }
 
-// TestConfig_MinHexAreaSqM_FallsBackToDefault pins the resolved-value
-// contract: an unset (zero) or negative DisplayConfig.MinHexAreaSqM uses
-// DefaultMinHexAreaSqM at read time, while a positive override wins. The
+// TestConfig_MinHexArea_FallsBackToDefault pins the resolved-value
+// contract: an unset (zero) or negative DisplayConfig.MinHexArea uses
+// DefaultMinHexArea at read time, while a positive override wins. The
 // validator rejects strictly-negative values up front, so the runtime
 // only sees zero (= default) or positive overrides.
-func TestConfig_MinHexAreaSqM_FallsBackToDefault(t *testing.T) {
+func TestConfig_MinHexArea_FallsBackToDefault(t *testing.T) {
 	cases := map[string]struct {
 		set  float64
 		want float64
 	}{
-		"unset":         {0, DefaultMinHexAreaSqM},
+		"unset":         {0, DefaultMinHexArea},
 		"override 500":  {500, 500},
 		"override 50":   {50, 50},
 		"override tiny": {0.01, 0.01},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			c := &Config{Display: DisplayConfig{MinHexAreaSqM: tc.set}}
-			if got := c.MinHexAreaSqM(); got != tc.want {
-				t.Errorf("MinHexAreaSqM() = %v; want %v", got, tc.want)
+			c := &Config{Display: DisplayConfig{MinHexArea: tc.set}}
+			if got := c.MinHexArea(); got != tc.want {
+				t.Errorf("MinHexArea() = %v; want %v", got, tc.want)
 			}
 		})
 	}
@@ -92,7 +92,7 @@ func TestConfig_MinHexAreaSqM_FallsBackToDefault(t *testing.T) {
 // TestConfig_CoordinateDecimals_FallsBackToDefault pins the resolved-value
 // contract for the hex GeoJSON precision knob: an unset (zero) or negative
 // Export.CoordinateDecimals uses DefaultCoordinateDecimals at read time,
-// while a positive override wins. Mirrors MinHexAreaSqM's accessor shape so
+// while a positive override wins. Mirrors MinHexArea's accessor shape so
 // every "config knob with a default" follows one pattern.
 func TestConfig_CoordinateDecimals_FallsBackToDefault(t *testing.T) {
 	cases := map[string]struct {
@@ -139,14 +139,14 @@ func TestConfig_Validate_BoundaryRelationID_AcceptsZeroAndPositive(t *testing.T)
 	}
 }
 
-func TestConfig_Validate_MinHexAreaSqM_RejectsNegative(t *testing.T) {
+func TestConfig_Validate_MinHexArea_RejectsNegative(t *testing.T) {
 	cfg := Config{
-		Display: DisplayConfig{MinHexAreaSqM: -1},
+		Display: DisplayConfig{MinHexArea: -1},
 		Cities:  []CityConfig{{Name: "Oakland"}},
 	}
 	err := cfg.Validate()
 	if err == nil {
-		t.Fatal("expected error for negative min_hex_area_sqm, got nil")
+		t.Fatal("expected error for negative min_hex_area, got nil")
 	}
 	if !errors.Is(err, ErrInvalidConfig) {
 		t.Errorf("error %v does not chain to ErrInvalidConfig", err)

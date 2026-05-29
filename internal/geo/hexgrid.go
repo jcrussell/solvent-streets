@@ -87,7 +87,7 @@ func hexPolygon(cx, cy, edge float64) geom.Geometry {
 type HexStat struct {
 	HexID        string
 	ResourceType string
-	AreaSqM      float64
+	Area         float64
 	PctCovered   float64
 }
 
@@ -118,7 +118,7 @@ func ComputeHexStats(ctx context.Context, hexes []Hex, idx *GeomIndex, resourceT
 		return []HexStat{{
 			HexID:        h.ID,
 			ResourceType: resourceType,
-			AreaSqM:      totalArea,
+			Area:         totalArea,
 			PctCovered:   pct,
 		}}
 	}, counter)

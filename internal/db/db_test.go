@@ -88,22 +88,22 @@ func TestSnapshotPinningAcrossResultTables(t *testing.T) {
 	for _, snap := range []*Snapshot{snap1, snap2} {
 		id := snap.ID
 		if err := store.SaveComputeResult(ctx, ComputeResult{
-			ResourceType: rtRoads, TotalAreaSqM: float64(id * 100), FeatureCount: int(id), SnapshotID: &id,
+			ResourceType: rtRoads, TotalArea: float64(id * 100), FeatureCount: int(id), SnapshotID: &id,
 		}); err != nil {
 			t.Fatal(err)
 		}
 		if err := store.SaveHexStats(ctx, []HexStat{
-			{HexID: "h1", ResourceType: rtRoads, AreaSqM: float64(id * 10), PctCovered: 0.5, SnapshotID: &id},
+			{HexID: "h1", ResourceType: rtRoads, Area: float64(id * 10), PctCovered: 0.5, SnapshotID: &id},
 		}); err != nil {
 			t.Fatal(err)
 		}
 		if err := store.SaveCohortStats(ctx, []CohortStat{
-			{ResourceType: rtRoads, Classification: "primary", AreaSqM: float64(id * 1000), FeatureCount: 1, SnapshotID: &id},
+			{ResourceType: rtRoads, Classification: "primary", Area: float64(id * 1000), FeatureCount: 1, SnapshotID: &id},
 		}); err != nil {
 			t.Fatal(err)
 		}
 		if err := store.SaveForecastResults(ctx, []ForecastResult{
-			{ResourceType: rtRoads, Year: 2026, PCI: float64(id * 10), AreaSqM: 100, TreatmentCost: 200, TreatmentTier: "preventive", SnapshotID: &id},
+			{ResourceType: rtRoads, Year: 2026, PCI: float64(id * 10), Area: 100, TreatmentCost: 200, TreatmentTier: "preventive", SnapshotID: &id},
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -116,15 +116,15 @@ func TestSnapshotPinningAcrossResultTables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if latest.TotalAreaSqM != float64(snap2.ID*100) {
-		t.Errorf("unpinned latest: expected snap2 area, got %v", latest.TotalAreaSqM)
+	if latest.TotalArea != float64(snap2.ID*100) {
+		t.Errorf("unpinned latest: expected snap2 area, got %v", latest.TotalArea)
 	}
 	hexAll, _ := store.ListHexStats(ctx, rtRoads)
-	if len(hexAll) != 1 || hexAll[0].AreaSqM != float64(snap2.ID*10) {
+	if len(hexAll) != 1 || hexAll[0].Area != float64(snap2.ID*10) {
 		t.Errorf("unpinned hex_stats: want only snap2's row (area %v), got %+v", snap2.ID*10, hexAll)
 	}
 	cohortAll, _ := store.ListCohortStats(ctx, rtRoads)
-	if len(cohortAll) != 1 || cohortAll[0].AreaSqM != float64(snap2.ID*1000) {
+	if len(cohortAll) != 1 || cohortAll[0].Area != float64(snap2.ID*1000) {
 		t.Errorf("unpinned cohort_stats: want only snap2's row (area %v), got %+v", snap2.ID*1000, cohortAll)
 	}
 	fcAll, _ := store.ListForecastResults(ctx, rtRoads)
@@ -138,15 +138,15 @@ func TestSnapshotPinningAcrossResultTables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cr1.TotalAreaSqM != float64(snap1.ID*100) {
-		t.Errorf("pinned snap1: expected %v area, got %v", snap1.ID*100, cr1.TotalAreaSqM)
+	if cr1.TotalArea != float64(snap1.ID*100) {
+		t.Errorf("pinned snap1: expected %v area, got %v", snap1.ID*100, cr1.TotalArea)
 	}
 	hex1, _ := pinned1.ListHexStats(ctx, rtRoads)
-	if len(hex1) != 1 || hex1[0].AreaSqM != float64(snap1.ID*10) {
+	if len(hex1) != 1 || hex1[0].Area != float64(snap1.ID*10) {
 		t.Errorf("pinned snap1 hex: want 1 row with area %v, got %+v", snap1.ID*10, hex1)
 	}
 	cohort1, _ := pinned1.ListCohortStats(ctx, rtRoads)
-	if len(cohort1) != 1 || cohort1[0].AreaSqM != float64(snap1.ID*1000) {
+	if len(cohort1) != 1 || cohort1[0].Area != float64(snap1.ID*1000) {
 		t.Errorf("pinned snap1 cohort: want 1 row with area %v, got %+v", snap1.ID*1000, cohort1)
 	}
 	fc1, _ := pinned1.ListForecastResults(ctx, rtRoads)
@@ -160,8 +160,8 @@ func TestSnapshotPinningAcrossResultTables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cr2.TotalAreaSqM != float64(snap2.ID*100) {
-		t.Errorf("pinned snap2: expected %v area, got %v", snap2.ID*100, cr2.TotalAreaSqM)
+	if cr2.TotalArea != float64(snap2.ID*100) {
+		t.Errorf("pinned snap2: expected %v area, got %v", snap2.ID*100, cr2.TotalArea)
 	}
 }
 
@@ -189,18 +189,18 @@ func TestListReads_LatestSnapshotPerResource(t *testing.T) {
 	for _, sid := range []int64{snapOld.ID, snapNew.ID} {
 		id := sid
 		if err := store.SaveHexStats(ctx, []HexStat{
-			{HexID: "h1", ResourceType: rtRoads, AreaSqM: float64(id), PctCovered: 50, SnapshotID: &id},
-			{HexID: "h2", ResourceType: rtRoads, AreaSqM: float64(id), PctCovered: 50, SnapshotID: &id},
+			{HexID: "h1", ResourceType: rtRoads, Area: float64(id), PctCovered: 50, SnapshotID: &id},
+			{HexID: "h2", ResourceType: rtRoads, Area: float64(id), PctCovered: 50, SnapshotID: &id},
 		}); err != nil {
 			t.Fatal(err)
 		}
 		if err := store.SaveCohortStats(ctx, []CohortStat{
-			{ResourceType: rtRoads, Classification: "primary", AreaSqM: float64(id), FeatureCount: 1, SnapshotID: &id},
+			{ResourceType: rtRoads, Classification: "primary", Area: float64(id), FeatureCount: 1, SnapshotID: &id},
 		}); err != nil {
 			t.Fatal(err)
 		}
 		if err := store.SaveForecastResults(ctx, []ForecastResult{
-			{ResourceType: rtRoads, Year: 2026, PCI: float64(id), AreaSqM: 1, TreatmentCost: 1, TreatmentTier: "preventive", SnapshotID: &id},
+			{ResourceType: rtRoads, Year: 2026, PCI: float64(id), Area: 1, TreatmentCost: 1, TreatmentTier: "preventive", SnapshotID: &id},
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -211,13 +211,13 @@ func TestListReads_LatestSnapshotPerResource(t *testing.T) {
 		t.Errorf("unpinned ListHexStats: got %d rows, want 2 (latest snapshot only)", len(hex))
 	}
 	for _, h := range hex {
-		if h.AreaSqM != float64(snapNew.ID) {
-			t.Errorf("hex row from wrong snapshot: AreaSqM=%v, want %v", h.AreaSqM, snapNew.ID)
+		if h.Area != float64(snapNew.ID) {
+			t.Errorf("hex row from wrong snapshot: Area=%v, want %v", h.Area, snapNew.ID)
 		}
 	}
 
 	co, _ := store.ListCohortStats(ctx, rtRoads)
-	if len(co) != 1 || co[0].AreaSqM != float64(snapNew.ID) {
+	if len(co) != 1 || co[0].Area != float64(snapNew.ID) {
 		t.Errorf("unpinned ListCohortStats: want 1 row from snapNew (area %v), got %+v", snapNew.ID, co)
 	}
 
@@ -228,7 +228,7 @@ func TestListReads_LatestSnapshotPerResource(t *testing.T) {
 
 	// Pinning to the older snapshot still returns its rows verbatim.
 	old := store.WithSnapshot(snapOld.ID)
-	if hex, _ := old.ListHexStats(ctx, rtRoads); len(hex) != 2 || hex[0].AreaSqM != float64(snapOld.ID) {
+	if hex, _ := old.ListHexStats(ctx, rtRoads); len(hex) != 2 || hex[0].Area != float64(snapOld.ID) {
 		t.Errorf("pinned snapOld ListHexStats: want 2 rows with area %v, got %+v", snapOld.ID, hex)
 	}
 }
@@ -245,25 +245,25 @@ func TestListReads_NullLegacyFallback(t *testing.T) {
 	// Write rows directly with NULL snapshot_id — simulating legacy
 	// data inserted before snapshot tagging existed.
 	if err := store.SaveHexStats(ctx, []HexStat{
-		{HexID: "legacy", ResourceType: rtRoads, AreaSqM: 42, PctCovered: 100, SnapshotID: nil},
+		{HexID: "legacy", ResourceType: rtRoads, Area: 42, PctCovered: 100, SnapshotID: nil},
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.SaveCohortStats(ctx, []CohortStat{
-		{ResourceType: rtRoads, Classification: "primary", AreaSqM: 7, FeatureCount: 1, SnapshotID: nil},
+		{ResourceType: rtRoads, Classification: "primary", Area: 7, FeatureCount: 1, SnapshotID: nil},
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.SaveForecastResults(ctx, []ForecastResult{
-		{ResourceType: rtRoads, Year: 2026, PCI: 99, AreaSqM: 1, TreatmentCost: 1, TreatmentTier: "preventive", SnapshotID: nil},
+		{ResourceType: rtRoads, Year: 2026, PCI: 99, Area: 1, TreatmentCost: 1, TreatmentTier: "preventive", SnapshotID: nil},
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	if hex, _ := store.ListHexStats(ctx, rtRoads); len(hex) != 1 || hex[0].AreaSqM != 42 {
+	if hex, _ := store.ListHexStats(ctx, rtRoads); len(hex) != 1 || hex[0].Area != 42 {
 		t.Errorf("legacy ListHexStats: want 1 NULL-snapshot row (area 42), got %+v", hex)
 	}
-	if co, _ := store.ListCohortStats(ctx, rtRoads); len(co) != 1 || co[0].AreaSqM != 7 {
+	if co, _ := store.ListCohortStats(ctx, rtRoads); len(co) != 1 || co[0].Area != 7 {
 		t.Errorf("legacy ListCohortStats: want 1 NULL-snapshot row (area 7), got %+v", co)
 	}
 	if fc, _ := store.ListForecastResults(ctx, rtRoads); len(fc) != 1 || fc[0].PCI != 99 {
@@ -299,50 +299,50 @@ func TestListReads_ConfigHashScoping(t *testing.T) {
 	for _, snap := range []*Snapshot{snapH1, snapH2} {
 		id := snap.ID
 		if err := store.SaveHexStats(ctx, []HexStat{
-			{HexID: "h1", ResourceType: rtRoads, AreaSqM: float64(id * 10), PctCovered: 50, SnapshotID: &id},
+			{HexID: "h1", ResourceType: rtRoads, Area: float64(id * 10), PctCovered: 50, SnapshotID: &id},
 		}); err != nil {
 			t.Fatal(err)
 		}
 		if err := store.SaveCohortStats(ctx, []CohortStat{
-			{ResourceType: rtRoads, Classification: "primary", AreaSqM: float64(id * 100), FeatureCount: 1, SnapshotID: &id},
+			{ResourceType: rtRoads, Classification: "primary", Area: float64(id * 100), FeatureCount: 1, SnapshotID: &id},
 		}); err != nil {
 			t.Fatal(err)
 		}
 		if err := store.SaveForecastResults(ctx, []ForecastResult{
-			{ResourceType: rtRoads, Year: 2026, PCI: float64(id * 5), AreaSqM: 1, TreatmentCost: 1, TreatmentTier: "preventive", SnapshotID: &id},
+			{ResourceType: rtRoads, Year: 2026, PCI: float64(id * 5), Area: 1, TreatmentCost: 1, TreatmentTier: "preventive", SnapshotID: &id},
 		}); err != nil {
 			t.Fatal(err)
 		}
 		if err := store.SaveComputeResult(ctx, ComputeResult{
-			ResourceType: rtRoads, TotalAreaSqM: float64(id), FeatureCount: int(id), SnapshotID: &id,
+			ResourceType: rtRoads, TotalArea: float64(id), FeatureCount: int(id), SnapshotID: &id,
 		}); err != nil {
 			t.Fatal(err)
 		}
 	}
 
 	// Unpinned + no config hash: arm 3 — latest overall (snapH2's row).
-	if hex, _ := store.ListHexStats(ctx, rtRoads); len(hex) != 1 || hex[0].AreaSqM != float64(snapH2.ID*10) {
+	if hex, _ := store.ListHexStats(ctx, rtRoads); len(hex) != 1 || hex[0].Area != float64(snapH2.ID*10) {
 		t.Errorf("unpinned-no-hash ListHexStats: want snapH2's row (area %v), got %+v", snapH2.ID*10, hex)
 	}
 
 	// Unpinned + WithConfigHash(hash-1): arm 2 — only snapH1's row.
 	h1 := store.WithConfigHash("hash-1")
-	if hex, _ := h1.ListHexStats(ctx, rtRoads); len(hex) != 1 || hex[0].AreaSqM != float64(snapH1.ID*10) {
+	if hex, _ := h1.ListHexStats(ctx, rtRoads); len(hex) != 1 || hex[0].Area != float64(snapH1.ID*10) {
 		t.Errorf("WithConfigHash(hash-1) ListHexStats: want snapH1's row (area %v), got %+v", snapH1.ID*10, hex)
 	}
-	if co, _ := h1.ListCohortStats(ctx, rtRoads); len(co) != 1 || co[0].AreaSqM != float64(snapH1.ID*100) {
+	if co, _ := h1.ListCohortStats(ctx, rtRoads); len(co) != 1 || co[0].Area != float64(snapH1.ID*100) {
 		t.Errorf("WithConfigHash(hash-1) ListCohortStats: want snapH1's row (area %v), got %+v", snapH1.ID*100, co)
 	}
 	if fc, _ := h1.ListForecastResults(ctx, rtRoads); len(fc) != 1 || fc[0].PCI != float64(snapH1.ID*5) {
 		t.Errorf("WithConfigHash(hash-1) ListForecastResults: want snapH1's row (pci %v), got %+v", snapH1.ID*5, fc)
 	}
-	if cr, err := h1.LatestComputeResult(ctx, rtRoads); err != nil || cr.TotalAreaSqM != float64(snapH1.ID) {
+	if cr, err := h1.LatestComputeResult(ctx, rtRoads); err != nil || cr.TotalArea != float64(snapH1.ID) {
 		t.Errorf("WithConfigHash(hash-1) LatestComputeResult: want snapH1's row (area %v), got %+v err=%v", snapH1.ID, cr, err)
 	}
 
 	// Unpinned + WithConfigHash(hash-2): arm 2 — only snapH2's row.
 	h2 := store.WithConfigHash("hash-2")
-	if hex, _ := h2.ListHexStats(ctx, rtRoads); len(hex) != 1 || hex[0].AreaSqM != float64(snapH2.ID*10) {
+	if hex, _ := h2.ListHexStats(ctx, rtRoads); len(hex) != 1 || hex[0].Area != float64(snapH2.ID*10) {
 		t.Errorf("WithConfigHash(hash-2) ListHexStats: want snapH2's row (area %v), got %+v", snapH2.ID*10, hex)
 	}
 
@@ -357,7 +357,7 @@ func TestListReads_ConfigHashScoping(t *testing.T) {
 	// WithSnapshot(snapH1) + WithConfigHash(hash-2): pin precedence —
 	// snapshot wins because it's more specific.
 	mixed := store.WithSnapshot(snapH1.ID).WithConfigHash("hash-2")
-	if hex, _ := mixed.ListHexStats(ctx, rtRoads); len(hex) != 1 || hex[0].AreaSqM != float64(snapH1.ID*10) {
+	if hex, _ := mixed.ListHexStats(ctx, rtRoads); len(hex) != 1 || hex[0].Area != float64(snapH1.ID*10) {
 		t.Errorf("WithSnapshot+WithConfigHash: snapshot pin must win, want snapH1's row, got %+v", hex)
 	}
 }
@@ -385,7 +385,7 @@ func TestDeleteSnapshot_CascadesAndCityScoped(t *testing.T) {
 	}
 	sid := snap.ID
 
-	if err := storeA.SaveComputeResult(ctx, ComputeResult{ResourceType: rtRoads, TotalAreaSqM: 1, SnapshotID: &sid}); err != nil {
+	if err := storeA.SaveComputeResult(ctx, ComputeResult{ResourceType: rtRoads, TotalArea: 1, SnapshotID: &sid}); err != nil {
 		t.Fatal(err)
 	}
 	if err := storeA.SaveHexStats(ctx, []HexStat{{HexID: "h1", ResourceType: rtRoads, SnapshotID: &sid}}); err != nil {
@@ -501,7 +501,7 @@ func TestStoreComputeResult(t *testing.T) {
 
 	result := ComputeResult{
 		ResourceType: rtRoads,
-		TotalAreaSqM: 92903,
+		TotalArea:    92903,
 		FeatureCount: 500,
 	}
 	if err := store.SaveComputeResult(ctx, result); err != nil {
@@ -512,8 +512,8 @@ func TestStoreComputeResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.TotalAreaSqM != 92903 {
-		t.Errorf("expected area 92903, got %f", got.TotalAreaSqM)
+	if got.TotalArea != 92903 {
+		t.Errorf("expected area 92903, got %f", got.TotalArea)
 	}
 	if got.FeatureCount != 500 {
 		t.Errorf("expected 500 features, got %d", got.FeatureCount)
