@@ -37,11 +37,11 @@ Run the binary without install: `go run ./cmd/pvmt <args>`.
 The deep documentation lives under `docs/` — read these before changing
 anything non-trivial:
 
-- [docs/architecture.md](docs/architecture.md) — data pipeline, factory DI, geometry pipeline, database schema, design decisions (metric internals, snapshots, WASM embed, HTTP cache, Overpass splitting, forecast model).
-- [docs/configuration.md](docs/configuration.md) — `pvmt.toml` discovery (walks up from cwd like `.git`), resolution hierarchy (CLI > env > per-city > top-level > default), env vars, multi-city, forecast tuning.
-- [docs/troubleshooting.md](docs/troubleshooting.md) — common errors and the hints they emit.
+- [docs/architecture.md](docs/architecture.md) — pipeline, DI, schema, design decisions.
+- [docs/configuration.md](docs/configuration.md) — `pvmt.toml` resolution and tuning.
+- [docs/troubleshooting.md](docs/troubleshooting.md) — common errors.
 
 ## Gotchas
 
 - **Pure Go only.** `CGO_ENABLED=0` is hard-required. Use `modernc.org/sqlite` for SQL and `peterstace/simplefeatures` for geometry — don't introduce CGO-backed replacements.
-- **`simplefeatures` API.** `NewLineString(seq)` returns 1 value (not 2). `NewPolygon([]LineString)` takes a slice (not a Sequence). `Envelope.MinMaxXYs()` returns `(XY, XY, bool)` — use this instead of `.Min().X`. `Buffer` and `Intersection` both return `(Geometry, error)`.
+- **`simplefeatures` API.** Several constructors have non-obvious signatures (`NewLineString` → 1 value, `Envelope.MinMaxXYs()` → `(XY, XY, bool)`); mirror existing `internal/geo/` call sites rather than guessing.

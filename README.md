@@ -39,7 +39,7 @@ sudo mv pvmt /usr/local/bin/
 
 ### Build from source
 
-Requires Go 1.26+ (see [Development](#development) for prerequisites).
+Requires Go 1.26+ (see [CONTRIBUTING.md](CONTRIBUTING.md) for prerequisites).
 
 ```
 git clone https://github.com/jcrussell/solvent-streets
@@ -101,28 +101,7 @@ BSD-3-Clause. See [LICENSE](LICENSE).
 
 ## Development
 
-### Prerequisites
-
-- **Go 1.26+** (floor declared in [`go.mod`](go.mod); CI pins the same minor).
-- **golangci-lint** at the version in [`.golangci-version`](.golangci-version) for `make lint`.
-
-Linux: install Go from your distro's package manager (e.g. `sudo apt install golang-go` on Debian/Ubuntu, `sudo dnf install golang` on Fedora). If your distro's Go is older than 1.26, download a release from [go.dev/dl](https://go.dev/dl/). Install `golangci-lint` via the [install script](https://golangci-lint.run/welcome/install/#local-installation).
-
-macOS:
-
-```
-brew install go golangci-lint
-```
-
-### Build
-
-```
-make build    # WASM + binary (CGO_ENABLED=0)
-make test     # race detector, no external services
-make lint     # golangci-lint
-```
-
-**Always use `make build`, not `go build ./cmd/pvmt` directly.** The forecast WASM at `internal/export/wasm/forecast.wasm` is `go:embed`ed into the main binary. `make build` rebuilds the WASM first; a bare `go build` silently embeds whatever stale binary is on disk.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for prerequisites, the build/test/lint loop, and commit-message style.
 
 ### Release
 
