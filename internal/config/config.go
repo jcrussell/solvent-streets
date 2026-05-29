@@ -114,9 +114,7 @@ func (c *Config) UnitSystem() units.System {
 }
 
 type ExportConfig struct {
-	OutputDir   string `toml:"output_dir"`
-	Title       string `toml:"title"`
-	Description string `toml:"description"`
+	Title string `toml:"title"`
 	// CoordinateDecimals sets the precision of emitted hex GeoJSON
 	// coordinates. Resolve via Config.CoordinateDecimals(); zero or
 	// unset falls back to DefaultCoordinateDecimals.
