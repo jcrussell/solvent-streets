@@ -362,6 +362,57 @@ func TestParseWaterResponse_RelationHoleContainingProbeKeepsPolygon(t *testing.T
 	}
 }
 
+// TestParseWaterResponse_AcceptsLargeCoastlineRingInWaterDominatedBBox is
+// the bd-86aa regression: a city whose admin boundary extends into open
+// water (Foster City reaching into San Francisco Bay) produces a query
+// bbox that is mostly water, so the legitimate bay ring covers far more
+// than maxOuterBboxAreaFraction (0.8) of the bbox. That cap used to reject
+// the ring on the coastline path, leaving ~40 km² of bay in the pct_paved
+// denominator. Coastline rings are validated by land probes + CW
+// orientation in closeCoastlineChain, so the bbox-fraction cap is not
+// applied to them; the large water ring must now be accepted.
+func TestParseWaterResponse_AcceptsLargeCoastlineRingInWaterDominatedBBox(t *testing.T) {
+	// bbox lon[0,10] lat[0,10] (area 100). A single open coastline way runs
+	// from the south edge (lon=2,lat=0) to the west edge (lon=0,lat=2),
+	// bowing toward the origin. Its two bbox-edge closures partition the
+	// bbox into a small SW land triangle (~2) and the rest as water (~98 =
+	// 98% of bbox, well over the 0.8 cap). The land probe sits in the SW
+	// triangle, so the water-side ring is the large one.
+	body := `{"elements":[
+		{"type":"way","id":1,"tags":{"natural":"coastline"},"geometry":[
+			{"lat":0,"lon":2},
+			{"lat":1,"lon":1},
+			{"lat":2,"lon":0}
+		]}
+	]}`
+
+	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{0, 0, 10, 10}, [][2]float64{{0.5, 0.5}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result == "" {
+		t.Fatal("large coastline water ring was dropped; expected it to be accepted (bd-86aa)")
+	}
+	var parsed struct {
+		Type        string           `json:"type"`
+		Coordinates [][][][2]float64 `json:"coordinates"`
+	}
+	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
+		t.Fatalf("parse result json: %v: %s", err, result)
+	}
+	if len(parsed.Coordinates) != 1 {
+		t.Fatalf("expected exactly 1 water polygon, got %d: %s", len(parsed.Coordinates), result)
+	}
+	// Confirm the accepted ring is the large (water) side, > 0.8 of the
+	// bbox — i.e. exactly the ring the old cap rejected.
+	const bboxArea = 100.0
+	area := math.Abs(ringSignedArea(parsed.Coordinates[0][0])) / 2
+	if frac := area / bboxArea; frac <= maxOuterBboxAreaFraction {
+		t.Errorf("expected the accepted ring to exceed the bbox-fraction cap (frac > %.2f); got frac=%.3f",
+			maxOuterBboxAreaFraction, frac)
+	}
+}
+
 // TestParseWaterResponse_LogsDroppedMemberWays verifies that when a
 // water relation has unstitchable member ways, parseWaterResponse logs
 // a warning naming the relation id and the dropped member-way ids.

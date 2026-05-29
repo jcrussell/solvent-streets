@@ -191,14 +191,25 @@ func classifyWaterElement(ctx context.Context, e overpassElement, bboxArea float
 }
 
 // closeAndAcceptCoastline closes one stitched coastline chain into water-
-// side rings and filters them through acceptWaterPolygon (the per-polygon
-// bbox-area-fraction guard). Returns the surviving rings as waterPolygons
-// plus the sum of their bbox-area fractions for the summary log.
+// side rings. Returns the surviving rings as waterPolygons plus the sum of
+// their bbox-area fractions for the summary log.
+//
+// Unlike the closed-way and relation-outer paths, coastline rings are NOT
+// gated by the maxOuterBboxAreaFraction cap. By the time a ring is returned
+// from closeCoastlineChain it has already passed that path's principled
+// water/land discriminators — closed, CW orientation (CCW islands dropped),
+// and RingHits == 0 (contains none of the city's land probes). The bbox-
+// fraction cap adds nothing here and actively misfires for cities whose
+// admin boundary extends into open water: their query bbox is mostly water,
+// so the legitimate bay ring exceeds the cap and gets wrongly rejected
+// (Foster City's SF Bay ring, 85.6% of a bay-dominated bbox — bd-86aa). The
+// downstream clip-to-boundary (geo.SubtractGeoJSON) and the aggregate
+// waterStripMinAreaRatio backstop guard against any over-subtraction.
 func closeAndAcceptCoastline(ctx context.Context, chainIdx int, chain [][2]float64, bbox [4]float64, bboxArea float64, probes *landProbeIndex) (polys []waterPolygon, fracSum float64) {
 	for _, ring := range closeCoastlineChain(ctx, chain, bbox, probes) {
-		if ok, reason := acceptWaterPolygon(ring, bboxArea); !ok {
-			logs.From(ctx).Warn("water coastline: rejected closed ring",
-				"reason", reason, "vertices", len(ring),
+		if !isClosedRing(ring) {
+			logs.From(ctx).Warn("water coastline: rejected ring",
+				"reason", "ring not closed", "vertices", len(ring),
 			)
 			continue
 		}
@@ -229,13 +240,22 @@ func logAcceptedWaterPolygon(ctx context.Context, msg, idKey string, idVal int64
 
 // maxOuterBboxAreaFraction caps the planar lon/lat area of any single
 // water outer ring at this fraction of the query bbox area. A larger
-// outer almost always indicates a stitching error (e.g. inverted
-// outer/inner roles producing a continent-sized polygon, or a coastline
-// closure that captured the land side). Real water polygons inside a
-// city bbox — even the Pacific off SF or Boston Harbor — sit well
-// under this threshold because the query bbox is at city scale. Tune
-// alongside waterStripMinAreaRatio (pkg/cmd/ingest/ingest.go) since
-// both gate the same failure class.
+// outer almost always indicates a stitching error — e.g. inverted
+// outer/inner roles producing a continent-sized polygon. This guard
+// applies only to closed `natural=water` ways and relation outer rings
+// (classifyWaterElement / polygonsFromRelation), where no other water/
+// land discriminator has run.
+//
+// It is intentionally NOT applied to coastline-closure rings: those are
+// already validated by land probes + CW orientation in closeCoastlineChain
+// (see closeAndAcceptCoastline). The cap would misfire there for cities
+// whose admin boundary extends into open water — Foster City's bbox is
+// ~85% San Francisco Bay, so its legitimate bay ring (85.6% of bbox) was
+// wrongly rejected by this cap until bd-86aa. The lesson: a city's query
+// bbox is NOT always land-scale; a boundary reaching into a bay or ocean
+// produces a legitimate near-bbox-sized water ring. Tune alongside
+// waterStripMinAreaRatio (pkg/cmd/ingest/ingest.go) since both gate the
+// same failure class for the way/relation paths.
 const maxOuterBboxAreaFraction = 0.8
 
 // acceptWaterPolygon decides whether outer is a plausible water-polygon
