@@ -66,14 +66,20 @@ func (s *ArcGISSource) Fetch(ctx context.Context, client *http.Client, rt resour
 		if page >= arcgisMaxPages {
 			return nil, fmt.Errorf("arcgis: exceeded %d pages (%d features), aborting", arcgisMaxPages, len(allFeatures))
 		}
-		features, err := fetchArcGISPage(ctx, client, endpoint, envelope, rtVal, offset)
+		features, exceeded, err := fetchArcGISPage(ctx, client, endpoint, envelope, rtVal, offset)
 		if err != nil {
 			return nil, err
 		}
 		allFeatures = append(allFeatures, features...)
 
-		if len(features) < arcgisMaxRecords {
-			break // last page
+		// Stop when the server reports no more rows. The server clamps each
+		// response to its own maxRecordCount (often below our requested
+		// arcgisMaxRecords), so a short page does NOT mean "last page" —
+		// exceededTransferLimit is the authoritative signal. The page-size
+		// check is a fallback for servers that omit the flag; the empty-page
+		// guard prevents an infinite loop if the flag is set but no rows come.
+		if len(features) == 0 || (!exceeded && len(features) < arcgisMaxRecords) {
+			break
 		}
 		offset += len(features)
 		fmt.Fprintf(s.progress(), "ArcGIS: fetched %d features so far, requesting next page at offset %d...\n", len(allFeatures), offset)
@@ -82,7 +88,9 @@ func (s *ArcGISSource) Fetch(ctx context.Context, client *http.Client, rt resour
 	return allFeatures, nil
 }
 
-func fetchArcGISPage(ctx context.Context, client *http.Client, endpoint, envelope string, resourceType resource.Type, offset int) ([]db.Feature, error) {
+// fetchArcGISPage fetches one page of features and reports whether the server
+// signalled that more rows remain (exceededTransferLimit).
+func fetchArcGISPage(ctx context.Context, client *http.Client, endpoint, envelope string, resourceType resource.Type, offset int) ([]db.Feature, bool, error) {
 	params := url.Values{
 		"where":             {"1=1"},
 		"geometry":          {envelope},
@@ -98,22 +106,22 @@ func fetchArcGISPage(ctx context.Context, client *http.Client, endpoint, envelop
 	reqURL := endpoint + "?" + params.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("create arcgis request: %w", err)
+		return nil, false, fmt.Errorf("create arcgis request: %w", err)
 	}
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("arcgis request: %w", err)
+		return nil, false, fmt.Errorf("arcgis request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyBytes))
 	if err != nil {
-		return nil, fmt.Errorf("read arcgis response: %w", err)
+		return nil, false, fmt.Errorf("read arcgis response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("arcgis %s returned %d: %s", endpoint, resp.StatusCode, truncate(string(body), 200))
+		return nil, false, fmt.Errorf("arcgis %s returned %d: %s", endpoint, resp.StatusCode, truncate(string(body), 200))
 	}
 
 	// ArcGIS sometimes returns service-level errors as HTTP 200 with a JSON
@@ -121,10 +129,32 @@ func fetchArcGISPage(ctx context.Context, client *http.Client, endpoint, envelop
 	// up front so the caller sees the underlying message + endpoint instead
 	// of an empty feature list.
 	if msg, ok := arcgisErrorMessage(body); ok {
-		return nil, fmt.Errorf("arcgis %s: %s", endpoint, msg)
+		return nil, false, fmt.Errorf("arcgis %s: %s", endpoint, msg)
 	}
 
-	return parseArcGISGeoJSON(body, resourceType, offset)
+	features, err := parseArcGISGeoJSON(body, resourceType, offset)
+	if err != nil {
+		return nil, false, err
+	}
+	return features, arcgisExceededLimit(body), nil
+}
+
+// arcgisExceededLimit reports whether the response signals that more rows
+// remain beyond this page. f=geojson responses carry the flag under
+// "properties"; some ArcGIS deployments emit it at the top level. A parse
+// failure here is treated as "no more rows" — the caller's parseArcGISGeoJSON
+// surfaces malformed bodies as real errors.
+func arcgisExceededLimit(body []byte) bool {
+	var env struct {
+		ExceededTransferLimit bool `json:"exceededTransferLimit"`
+		Properties            struct {
+			ExceededTransferLimit bool `json:"exceededTransferLimit"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(body, &env); err != nil {
+		return false
+	}
+	return env.ExceededTransferLimit || env.Properties.ExceededTransferLimit
 }
 
 // arcgisErrorMessage reports whether body is an ArcGIS error envelope of the

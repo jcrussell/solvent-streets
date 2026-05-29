@@ -167,6 +167,76 @@ func makeArcGISFeatures(n, startOID int) []byte {
 	return data
 }
 
+// makeArcGISPage builds a GeoJSON page with n features (OBJECTIDs from
+// startOID) and the exceededTransferLimit flag nested under "properties",
+// matching how f=geojson services (e.g. Alameda County) signal more rows.
+func makeArcGISPage(n, startOID int, exceeded bool) []byte {
+	type feat struct {
+		Properties map[string]any  `json:"properties"`
+		Geometry   json.RawMessage `json:"geometry"`
+	}
+	feats := make([]feat, n)
+	for i := range feats {
+		feats[i] = feat{
+			Properties: map[string]any{"OBJECTID": startOID + i},
+			Geometry:   json.RawMessage(`{"type":"Point","coordinates":[-121.77,37.68]}`),
+		}
+	}
+	data, _ := json.Marshal(map[string]any{
+		"features":   feats,
+		"properties": map[string]any{"exceededTransferLimit": exceeded},
+	})
+	return data
+}
+
+// TestFetch_PaginationExceededTransferLimit pins the fix for the truncation
+// bug: ArcGIS servers clamp each response to their own maxRecordCount, which
+// can be below our requested arcgisMaxRecords. Pages here are far smaller than
+// arcgisMaxRecords, so the old "short page == last page" heuristic would have
+// stopped after page 1. Paging must instead follow exceededTransferLimit.
+func TestFetch_PaginationExceededTransferLimit(t *testing.T) {
+	const pageSize = 100 // well under arcgisMaxRecords
+	const lastPageSize = 50
+
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		offset, _ := strconv.Atoi(r.URL.Query().Get("resultOffset"))
+		var body []byte
+		switch offset {
+		case 0:
+			body = makeArcGISPage(pageSize, 1, true)
+		case pageSize:
+			body = makeArcGISPage(pageSize, pageSize+1, true)
+		case 2 * pageSize:
+			body = makeArcGISPage(lastPageSize, 2*pageSize+1, false)
+		default:
+			t.Errorf("unexpected offset %d", offset)
+			http.Error(w, "bad offset", 400)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(body)
+	}))
+	t.Cleanup(srv.Close)
+
+	src := &ArcGISSource{
+		BBox:         [4]float64{37.0, -122.0, 38.0, -121.0},
+		URL:          srv.URL,
+		AllowPrivate: true, // httptest.Server binds 127.0.0.1; the SSRF guard would otherwise refuse it.
+	}
+	features, err := src.Fetch(context.Background(), srv.Client(), resource.ByType(resource.TypeRoads))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := 2*pageSize + lastPageSize; len(features) != want {
+		t.Fatalf("expected %d features across all pages, got %d", want, len(features))
+	}
+	if calls != 3 {
+		t.Errorf("expected 3 server calls, got %d", calls)
+	}
+}
+
 func TestFetch_Pagination(t *testing.T) {
 	// Simulate a server that returns arcgisMaxRecords on the first page
 	// and a smaller set on the second page.
