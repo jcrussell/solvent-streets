@@ -123,6 +123,7 @@ func runExport(ctx context.Context, opts *Options) error {
 	logs.From(ctx).Info("exporting static site", "output_dir", opts.OutputDir)
 
 	exporter := exportpkg.New(entries, cfg, opts.OutputDir, cfg.UnitSystem().String())
+	exporter.SetErrOut(ios.ErrOut)
 	if err := exporter.Run(ctx); err != nil {
 		return fmt.Errorf("export: %w", err)
 	}

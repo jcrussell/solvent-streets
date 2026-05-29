@@ -34,7 +34,7 @@ func TestSimulateParity(t *testing.T) {
 	}
 	params := forecast.NewParams(0.01, costTiers)
 
-	result := forecast.Simulate(scenario, cohorts, 10, params.Cost, params.Growth)
+	result := forecast.Simulate(scenario, cohorts, 10, params)
 
 	got, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {

@@ -78,19 +78,13 @@ func TestBuildResourceForecast_BboxBaselineGatedOnCityScope(t *testing.T) {
 	tCity := tBbox.With(resource.ScopeCity)
 
 	t.Run("no_city_scope_skips_bbox_baseline", func(t *testing.T) {
-		entry := CityEntry{
-			Config: &config.Config{Cities: []config.CityConfig{{Name: "Test City"}}},
-			City:   config.CityConfig{Name: "Test City"},
-			Store:  &dbtest.MockStore{},
-			Slug:   "test-city",
-		}
 		latest := map[resource.Type]*db.ComputeResult{
 			tBbox: {ResourceType: tBbox, TotalArea: 1000, ComputedAt: now},
 		}
 		// Empty maps for both bbox and city scopes — no cohort stats stored.
 		cohorts := map[resource.Type][]db.CohortStat{}
 
-		fe, err := buildResourceForecast(pavement, entry, fc, costTiers, doNothing, latest, cohorts)
+		fe, err := buildResourceForecast(pavement, fc, costTiers, doNothing, latest, cohorts)
 		if err != nil {
 			t.Fatalf("buildResourceForecast: %v", err)
 		}
@@ -103,12 +97,6 @@ func TestBuildResourceForecast_BboxBaselineGatedOnCityScope(t *testing.T) {
 	})
 
 	t.Run("city_scope_populates_bbox_baseline", func(t *testing.T) {
-		entry := CityEntry{
-			Config: &config.Config{Cities: []config.CityConfig{{Name: "Test City"}}},
-			City:   config.CityConfig{Name: "Test City"},
-			Store:  &dbtest.MockStore{},
-			Slug:   "test-city",
-		}
 		latest := map[resource.Type]*db.ComputeResult{
 			tBbox: {ResourceType: tBbox, TotalArea: 2000, ComputedAt: now},
 		}
@@ -116,7 +104,7 @@ func TestBuildResourceForecast_BboxBaselineGatedOnCityScope(t *testing.T) {
 			tCity: {{ResourceType: tCity, Classification: "residential", Area: 500}},
 		}
 
-		fe, err := buildResourceForecast(pavement, entry, fc, costTiers, doNothing, latest, cohorts)
+		fe, err := buildResourceForecast(pavement, fc, costTiers, doNothing, latest, cohorts)
 		if err != nil {
 			t.Fatalf("buildResourceForecast: %v", err)
 		}

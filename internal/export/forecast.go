@@ -118,7 +118,7 @@ func BuildForecastsForCity(ctx context.Context, entry CityEntry, fc *config.Fore
 	var forecasts []ForecastExport
 	var errs []error
 	for _, rt := range resource.All {
-		fe, err := buildResourceForecast(rt, entry, fc, costTiers, doNothing, latestByType, cohortStats)
+		fe, err := buildResourceForecast(rt, fc, costTiers, doNothing, latestByType, cohortStats)
 		if errors.Is(err, errSkipResource) {
 			continue
 		}
@@ -138,8 +138,7 @@ func BuildForecastsForCity(ctx context.Context, entry CityEntry, fc *config.Fore
 // buildResourceForecast builds the forecast for a single resource from
 // pre-batched DB results. Returns errSkipResource when the resource has
 // no compute run yet — a legitimate skip on a fresh DB.
-func buildResourceForecast(rt resource.Source, entry CityEntry, fc *config.ForecastConfig, costTiers []forecast.CostTier, doNothing forecast.Scenario, latestByType map[resource.Type]*db.ComputeResult, cohortStats map[resource.Type][]db.CohortStat) (ForecastExport, error) {
-	_ = entry // entry kept on the signature for future use; today the batched maps carry everything we need.
+func buildResourceForecast(rt resource.Source, fc *config.ForecastConfig, costTiers []forecast.CostTier, doNothing forecast.Scenario, latestByType map[resource.Type]*db.ComputeResult, cohortStats map[resource.Type][]db.CohortStat) (ForecastExport, error) {
 	t := rt.Type()
 	tName := string(t)
 	result, ok := latestByType[t]
@@ -159,9 +158,9 @@ func buildResourceForecast(rt resource.Source, entry CityEntry, fc *config.Forec
 		primaryCohorts = bboxCohorts
 	}
 
-	baseline := forecast.Simulate(doNothing, primaryCohorts, years, rtParams.Cost, rtParams.Growth)
+	baseline := forecast.Simulate(doNothing, primaryCohorts, years, rtParams)
 	year1Need := baseline.Years[0].AnnualNeed
-	scenarios := forecast.SimulateDefaults(year1Need, primaryCohorts, years, rtParams.Cost, rtParams.Growth)
+	scenarios := forecast.SimulateDefaults(year1Need, primaryCohorts, years, rtParams)
 
 	fe := ForecastExport{
 		ResourceType: tName,
@@ -169,7 +168,7 @@ func buildResourceForecast(rt resource.Source, entry CityEntry, fc *config.Forec
 		Scenarios:    scenarios,
 	}
 	if hasCityScope {
-		bboxBaseline := forecast.Simulate(doNothing, bboxCohorts, years, rtParams.Cost, rtParams.Growth)
+		bboxBaseline := forecast.Simulate(doNothing, bboxCohorts, years, rtParams)
 		fe.BboxBaseline = &bboxBaseline
 	}
 	return fe, nil
@@ -356,11 +355,10 @@ func addScopeRow(ctx context.Context, entry CityEntry, out map[string]map[string
 func BuildScenarios(cohorts []forecast.Cohort, years int, params *forecast.Params) []forecast.ScenarioResult {
 	baseline := forecast.Simulate(
 		forecast.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: forecast.StrategyDoNothing},
-		cohorts, years, params.Cost, params.Growth,
+		cohorts, years, params,
 	)
 
 	year1Need := baseline.Years[0].AnnualNeed
-	scenarios := forecast.SimulateDefaults(year1Need, cohorts, years,
-		params.Cost, params.Growth)
+	scenarios := forecast.SimulateDefaults(year1Need, cohorts, years, params)
 	return append([]forecast.ScenarioResult{baseline}, scenarios...)
 }

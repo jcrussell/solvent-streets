@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -27,8 +28,9 @@ type Exporter struct {
 	cfg        *config.Config
 	outputDir  string
 	unitSystem string
-	wasmPrefix string // relative path prefix for WASM assets in generated HTML
-	skipWasm   bool   // skip writing WASM files (caller handles shared copy)
+	wasmPrefix string    // relative path prefix for WASM assets in generated HTML
+	skipWasm   bool      // skip writing WASM files (caller handles shared copy)
+	errOut     io.Writer // progress/warning sink; nil means discard (byob-iostreams.3)
 }
 
 // validWasmPrefix matches safe relative path prefixes (alphanumeric, dots, slashes, hyphens, underscores).
@@ -48,6 +50,19 @@ func (e *Exporter) SetWasmPrefix(prefix string) error {
 // SetSkipWasm controls whether the exporter writes WASM files. Set to true
 // when the caller writes a single shared copy at a parent directory.
 func (e *Exporter) SetSkipWasm(skip bool) { e.skipWasm = skip }
+
+// SetErrOut routes the exporter's progress and warning output (chatter, not
+// data — byob-iostreams.3). Unset, warnings are discarded.
+func (e *Exporter) SetErrOut(w io.Writer) { e.errOut = w }
+
+// warnOut returns the warning sink, defaulting to io.Discard when unset so
+// build tools and tests stay silent without special-casing.
+func (e *Exporter) warnOut() io.Writer {
+	if e.errOut == nil {
+		return io.Discard
+	}
+	return e.errOut
+}
 
 func New(entries []CityEntry, cfg *config.Config, outputDir, unitSystem string) *Exporter {
 	return &Exporter{entries: entries, cfg: cfg, outputDir: outputDir, unitSystem: unitSystem}
@@ -111,7 +126,7 @@ func (e *Exporter) exportOneCity(ctx context.Context, entry CityEntry) (CityInfo
 	}
 	if err := e.exportCityData(ctx, entry, cityDataDir); err != nil {
 		if errors.Is(err, ErrNoBoundary) {
-			fmt.Fprintf(os.Stderr, "  skipping %s: no boundary stored (ingest failed earlier)\n", entry.Slug)
+			fmt.Fprintf(e.warnOut(), "  skipping %s: no boundary stored (ingest failed earlier)\n", entry.Slug)
 			return CityInfo{}, false, nil
 		}
 		return CityInfo{}, false, fmt.Errorf("export %s: %w", entry.Slug, err)

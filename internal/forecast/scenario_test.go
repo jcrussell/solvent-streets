@@ -4,9 +4,8 @@ import (
 	"testing"
 )
 
-func defaultTestParams() (*TieredCostProjector, *LinearGrowthEstimator) {
-	p := NewParams(0.01, nil)
-	return p.Cost, p.Growth
+func defaultTestParams() *Params {
+	return NewParams(0.01, nil)
 }
 
 func singleCohort(area, decayRate float64) []Cohort {
@@ -19,10 +18,10 @@ func singleCohort(area, decayRate float64) []Cohort {
 }
 
 func TestSimulate_DoNothing_DecreasingPCI(t *testing.T) {
-	cost, growth := defaultTestParams()
+	params := defaultTestParams()
 	cohorts := singleCohort(100000, 0.035)
 	s := Scenario{Name: "test-dn", Label: "Test", Strategy: StrategyDoNothing}
-	result := Simulate(s, cohorts, 20, cost, growth)
+	result := Simulate(s, cohorts, 20, params)
 
 	if len(result.Years) != 20 {
 		t.Fatalf("expected 20 years, got %d", len(result.Years))
@@ -52,10 +51,10 @@ func TestSimulate_DoNothing_DecreasingPCI(t *testing.T) {
 }
 
 func TestSimulate_Unconstrained_PCIRecovery(t *testing.T) {
-	cost, growth := defaultTestParams()
+	params := defaultTestParams()
 	cohorts := singleCohort(100000, 0.035)
 	s := Scenario{Name: "full", Label: "Full", FullFunding: true, Strategy: StrategyWorstFirst}
-	result := Simulate(s, cohorts, 10, cost, growth)
+	result := Simulate(s, cohorts, 10, params)
 
 	// With full funding, PCI should fully recover to initial value each year
 	for _, y := range result.Years {
@@ -73,24 +72,24 @@ func TestSimulate_Unconstrained_PCIRecovery(t *testing.T) {
 }
 
 func TestSimulate_BudgetConstrained_Intermediate(t *testing.T) {
-	cost, growth := defaultTestParams()
+	params := defaultTestParams()
 	cohorts := singleCohort(100000, 0.035)
 
 	// Get year-1 need to set budget at 50%
 	doNothing := Simulate(
 		Scenario{Name: "dn", Label: "DN", Strategy: StrategyDoNothing},
-		cohorts, 1, cost, growth,
+		cohorts, 1, params,
 	)
 	year1Need := doNothing.Years[0].AnnualNeed
 
 	constrained := Simulate(
 		Scenario{Name: "half", Label: "Half", AnnualBudget: year1Need * 0.5, Strategy: StrategyWorstFirst},
-		cohorts, 20, cost, growth,
+		cohorts, 20, params,
 	)
 
 	full := Simulate(
 		Scenario{Name: "full", Label: "Full", FullFunding: true, Strategy: StrategyWorstFirst},
-		cohorts, 20, cost, growth,
+		cohorts, 20, params,
 	)
 
 	lastConstrained := constrained.Years[19]
@@ -109,23 +108,23 @@ func TestSimulate_BudgetConstrained_Intermediate(t *testing.T) {
 }
 
 func TestSimulate_PreventiveOutperformsWorstFirst(t *testing.T) {
-	cost, growth := defaultTestParams()
+	params := defaultTestParams()
 	cohorts := singleCohort(100000, 0.035)
 
 	doNothing := Simulate(
 		Scenario{Name: "dn", Label: "DN", Strategy: StrategyDoNothing},
-		cohorts, 1, cost, growth,
+		cohorts, 1, params,
 	)
 	budget := doNothing.Years[0].AnnualNeed * 0.5
 
 	worst := Simulate(
 		Scenario{Name: "worst", Label: "Worst", AnnualBudget: budget, Strategy: StrategyWorstFirst},
-		cohorts, 20, cost, growth,
+		cohorts, 20, params,
 	)
 
 	preventive := Simulate(
 		Scenario{Name: "prev", Label: "Prev", AnnualBudget: budget, Strategy: StrategyPreventiveFirst},
-		cohorts, 20, cost, growth,
+		cohorts, 20, params,
 	)
 
 	lastWorst := worst.Years[19]
@@ -160,24 +159,24 @@ func TestParseStrategy_Invalid(t *testing.T) {
 }
 
 func TestSimulate_Overfunding_SpendExceedsFullFunding(t *testing.T) {
-	cost, growth := defaultTestParams()
+	params := defaultTestParams()
 	cohorts := singleCohort(100000, 0.035)
 
 	// Get year-1 need to calibrate budget
 	doNothing := Simulate(
 		Scenario{Name: "dn", Label: "DN", Strategy: StrategyDoNothing},
-		cohorts, 1, cost, growth,
+		cohorts, 1, params,
 	)
 	year1Need := doNothing.Years[0].AnnualNeed
 
 	full := Simulate(
 		Scenario{Name: "full", Label: "Full", FullFunding: true, Strategy: StrategyWorstFirst},
-		cohorts, 20, cost, growth,
+		cohorts, 20, params,
 	)
 
 	over := Simulate(
 		Scenario{Name: "over", Label: "150%", AnnualBudget: year1Need * 1.5, Strategy: StrategyWorstFirst},
-		cohorts, 20, cost, growth,
+		cohorts, 20, params,
 	)
 
 	// Cumulative spend for overfunding should exceed full funding
@@ -221,7 +220,7 @@ func TestDefaultComparisons(t *testing.T) {
 }
 
 func TestSimulate_TwoCohorts_BlendedPCI(t *testing.T) {
-	cost, growth := defaultTestParams()
+	params := defaultTestParams()
 	cohorts := []Cohort{
 		{Classification: "primary", Area: 50000, DecayRate: 0.025, InitialPCI: 85.0},
 		{Classification: "residential", Area: 50000, DecayRate: 0.040, InitialPCI: 85.0},
@@ -229,18 +228,18 @@ func TestSimulate_TwoCohorts_BlendedPCI(t *testing.T) {
 
 	result := Simulate(
 		Scenario{Name: "dn", Label: "DN", Strategy: StrategyDoNothing},
-		cohorts, 20, cost, growth,
+		cohorts, 20, params,
 	)
 
 	// Blended PCI should be between the two individual decay trajectories
 	// Primary decays slower, residential faster
 	primaryOnly := Simulate(
 		Scenario{Name: "dn", Label: "DN", Strategy: StrategyDoNothing},
-		singleCohort(50000, 0.025), 20, cost, growth,
+		singleCohort(50000, 0.025), 20, params,
 	)
 	residentialOnly := Simulate(
 		Scenario{Name: "dn", Label: "DN", Strategy: StrategyDoNothing},
-		singleCohort(50000, 0.040), 20, cost, growth,
+		singleCohort(50000, 0.040), 20, params,
 	)
 
 	lastBlended := result.Years[19].PCI
@@ -267,7 +266,7 @@ func TestSimulate_TwoCohorts_BlendedPCI(t *testing.T) {
 }
 
 func TestSimulate_TwoCohorts_BudgetProportionalToNeed(t *testing.T) {
-	cost, growth := defaultTestParams()
+	params := defaultTestParams()
 	// Residential decays faster → higher need → gets more budget
 	cohorts := []Cohort{
 		{Classification: "primary", Area: 50000, DecayRate: 0.025, InitialPCI: 85.0},
@@ -276,13 +275,13 @@ func TestSimulate_TwoCohorts_BudgetProportionalToNeed(t *testing.T) {
 
 	doNothing := Simulate(
 		Scenario{Name: "dn", Label: "DN", Strategy: StrategyDoNothing},
-		cohorts, 1, cost, growth,
+		cohorts, 1, params,
 	)
 	budget := doNothing.Years[0].AnnualNeed * 0.5
 
 	constrained := Simulate(
 		Scenario{Name: "half", Label: "Half", AnnualBudget: budget, Strategy: StrategyWorstFirst},
-		cohorts, 20, cost, growth,
+		cohorts, 20, params,
 	)
 
 	// Should not crash and should produce valid results

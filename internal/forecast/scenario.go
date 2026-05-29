@@ -69,14 +69,22 @@ type ScenarioResult struct {
 	FinalCohorts []CohortSummary `json:"final_cohorts,omitempty"`
 }
 
-// Simulate runs one scenario over the given number of years with per-cohort
-// decay rates. Each cohort decays independently; budget is distributed
-// proportional to need; PCI is area-weighted blended.
 // cohortState tracks per-cohort PCI during simulation.
 type cohortState struct {
 	forecaster *ExponentialPCIForecaster
 	currentPCI float64
 	areaFrac   float64 // fraction of total area
+}
+
+// simulator holds the per-cohort state and scratch/accumulator slices for one
+// scenario run. decayed and need are scratch, overwritten each simulated year;
+// spendAcc and deficitAcc accumulate across years into the final CohortSummary.
+type simulator struct {
+	states     []cohortState
+	decayed    []float64 // per-year scratch: post-decay PCI per cohort
+	need       []float64 // per-year scratch: maintenance need per cohort
+	spendAcc   []float64 // cumulative actual spend per cohort
+	deficitAcc []float64 // cumulative unmet need per cohort
 }
 
 func initCohortStates(cohorts []Cohort) ([]cohortState, float64) {
@@ -101,23 +109,22 @@ func initCohortStates(cohorts []Cohort) ([]cohortState, float64) {
 
 const maxPCI = 100.0
 
-// distributeBudget distributes totalSpend across cohorts proportional to need,
-// applies PCI recovery, and returns the actual total spend.
-func distributeBudget(states []cohortState, cohortDecayed, cohortNeed []float64,
-	totalNeed, totalSpend float64, strategy Strategy,
-	cohortSpendAcc, cohortDeficitAcc []float64) float64 {
+// distribute spreads totalSpend across cohorts proportional to need, applies
+// PCI recovery, accumulates per-cohort spend and deficit, and returns the
+// actual total spend. Reads this year's scratch (decayed, need) and mutates
+// states plus the cumulative accumulators.
+func (sm *simulator) distribute(totalNeed, totalSpend float64, strategy Strategy) float64 {
 	actualSpend := 0.0
-	for j := range states {
-		decayedPCI := cohortDecayed[j]
+	for j := range sm.states {
 		cohortSpend := 0.0
 		if totalNeed > 0 {
-			cohortSpend = totalSpend * (cohortNeed[j] / totalNeed)
+			cohortSpend = totalSpend * (sm.need[j] / totalNeed)
 		}
 
-		actual := applyCohortSpend(&states[j], decayedPCI, cohortSpend, cohortNeed[j], strategy)
+		actual := applyCohortSpend(&sm.states[j], sm.decayed[j], cohortSpend, sm.need[j], strategy)
 		actualSpend += actual
-		cohortSpendAcc[j] += actual
-		cohortDeficitAcc[j] += math.Max(0, cohortNeed[j]-actual)
+		sm.spendAcc[j] += actual
+		sm.deficitAcc[j] += math.Max(0, sm.need[j]-actual)
 	}
 	return actualSpend
 }
@@ -170,11 +177,17 @@ func blendedPCI(states []cohortState) float64 {
 // Simulate runs one scenario over the given number of years with per-cohort
 // decay rates. Each cohort decays independently; budget is distributed
 // proportional to need; PCI is area-weighted blended.
-func Simulate(s Scenario, cohorts []Cohort, years int,
-	cost *TieredCostProjector, growth *LinearGrowthEstimator) ScenarioResult {
+func Simulate(s Scenario, cohorts []Cohort, years int, p *Params) ScenarioResult {
 	states, totalArea := initCohortStates(cohorts)
 	n := len(cohorts)
-	areaValues := growth.EstimateGrowth(totalArea, years)
+	sm := &simulator{
+		states:     states,
+		decayed:    make([]float64, n),
+		need:       make([]float64, n),
+		spendAcc:   make([]float64, n),
+		deficitAcc: make([]float64, n),
+	}
+	areaValues := p.Growth.EstimateGrowth(totalArea, years)
 
 	result := ScenarioResult{
 		Scenario: s,
@@ -182,21 +195,16 @@ func Simulate(s Scenario, cohorts []Cohort, years int,
 	}
 
 	var deferredBacklog float64
-	cohortSpendAcc := make([]float64, n)
-	cohortDeficitAcc := make([]float64, n)
 
 	for i := range years {
 		area := areaValues[i]
 
-		cohortDecayed := make([]float64, n)
-		cohortNeed := make([]float64, n)
 		var totalNeed float64
-
-		for j := range states {
-			decayed := states[j].forecaster.Forecast(states[j].currentPCI, 1)
-			cohortDecayed[j] = decayed[0]
-			need := cost.ProjectCost(area*states[j].areaFrac, cohortDecayed[j])
-			cohortNeed[j] = need
+		for j := range sm.states {
+			decayed := sm.states[j].forecaster.Forecast(sm.states[j].currentPCI, 1)
+			sm.decayed[j] = decayed[0]
+			need := p.Cost.ProjectCost(area*sm.states[j].areaFrac, sm.decayed[j])
+			sm.need[j] = need
 			totalNeed += need
 		}
 
@@ -212,19 +220,18 @@ func Simulate(s Scenario, cohorts []Cohort, years int,
 			}
 		}
 
-		totalSpend = distributeBudget(states, cohortDecayed, cohortNeed,
-			totalNeed, totalSpend, s.Strategy, cohortSpendAcc, cohortDeficitAcc)
+		totalSpend = sm.distribute(totalNeed, totalSpend, s.Strategy)
 
 		deferredBacklog += math.Max(0, totalNeed-totalSpend)
 
 		result.Years[i] = ScenarioYear{
 			Year:            i + 1,
-			PCI:             blendedPCI(states),
+			PCI:             blendedPCI(sm.states),
 			Area:            area,
 			AnnualNeed:      totalNeed,
 			AnnualSpend:     totalSpend,
 			DeferredBacklog: deferredBacklog,
-			CostTier:        TierForPCI(blendedPCI(states)),
+			CostTier:        TierForPCI(blendedPCI(sm.states)),
 		}
 	}
 
@@ -232,11 +239,11 @@ func Simulate(s Scenario, cohorts []Cohort, years int,
 	for j, c := range cohorts {
 		result.FinalCohorts[j] = CohortSummary{
 			Classification: c.Classification,
-			EndPCI:         states[j].currentPCI,
+			EndPCI:         sm.states[j].currentPCI,
 			Area:           c.Area,
 			DecayRate:      c.DecayRate,
-			TotalSpend:     cohortSpendAcc[j],
-			TotalDeficit:   cohortDeficitAcc[j],
+			TotalSpend:     sm.spendAcc[j],
+			TotalDeficit:   sm.deficitAcc[j],
 		}
 	}
 

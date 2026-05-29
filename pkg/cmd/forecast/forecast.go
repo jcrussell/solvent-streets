@@ -97,7 +97,7 @@ func NewCmdForecast(f *cmdutil.Factory, runF func(context.Context, *Options) err
 func simulateResource(rt resource.Source, cohorts []fcpkg.Cohort, years int, params *fcpkg.Params) ([]db.ForecastResult, float64, fcpkg.ScenarioResult) {
 	baseline := fcpkg.Simulate(
 		fcpkg.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: fcpkg.StrategyDoNothing},
-		cohorts, years, params.Cost, params.Growth,
+		cohorts, years, params,
 	)
 
 	var results []db.ForecastResult
@@ -204,8 +204,7 @@ func renderScenarioComparisons(ios *iostreams.IOStreams, baseline fcpkg.Scenario
 		return nil
 	}
 	year1Need := baseline.Years[0].AnnualNeed
-	scenarios := fcpkg.SimulateDefaults(year1Need, cohorts, years,
-		params.Cost, params.Growth)
+	scenarios := fcpkg.SimulateDefaults(year1Need, cohorts, years, params)
 
 	fmt.Fprintf(ios.ErrOut, "  Funding Levels:\n")
 	tp := iostreams.NewTablePrinter(ios)

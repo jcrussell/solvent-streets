@@ -14,12 +14,11 @@ func DefaultComparisons(year1Need float64) []Scenario {
 
 // SimulateDefaults runs the default funding-level scenarios against the
 // supplied cohorts and returns the resulting ScenarioResults.
-func SimulateDefaults(year1Need float64, cohorts []Cohort, years int,
-	cost *TieredCostProjector, growth *LinearGrowthEstimator) []ScenarioResult {
+func SimulateDefaults(year1Need float64, cohorts []Cohort, years int, p *Params) []ScenarioResult {
 	scenarios := DefaultComparisons(year1Need)
 	results := make([]ScenarioResult, len(scenarios))
 	for i, s := range scenarios {
-		results[i] = Simulate(s, cohorts, years, cost, growth)
+		results[i] = Simulate(s, cohorts, years, p)
 	}
 	return results
 }

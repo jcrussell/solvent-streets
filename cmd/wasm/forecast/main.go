@@ -108,8 +108,7 @@ func simulateForecast(_ js.Value, args []js.Value) any {
 		scenario,
 		cohorts,
 		input.Years,
-		params.Cost,
-		params.Growth,
+		params,
 	)
 
 	out, err := json.Marshal(result)
