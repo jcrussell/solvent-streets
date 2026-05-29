@@ -213,17 +213,12 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 		}
 	}
 
-	// Export hex grid — one file per scope. city is omitted when no ":city"
-	// rows exist (signals "hide the scope toggle" to the client).
-	cityFC, bboxFC := BuildHexGeoJSONs(ctx, entry, proj)
-	if bboxFC != nil {
-		if err := writeJSON(filepath.Join(dataDir, "hexgrid-bbox.geojson"), bboxFC); err != nil {
-			return fmt.Errorf("write hexgrid-bbox: %w", err)
-		}
-	}
-	if cityFC != nil {
-		if err := writeJSON(filepath.Join(dataDir, "hexgrid-city.geojson"), cityFC); err != nil {
-			return fmt.Errorf("write hexgrid-city: %w", err)
+	// Export hex grid — a single multi-scope file, one feature per hex with
+	// nested {bbox, city?} coverage. Written minified (it dominates site size);
+	// a feature without "city" signals "hide the scope toggle" to the client.
+	if hexFC := BuildHexGeoJSON(ctx, entry, proj); hexFC != nil {
+		if err := writeJSONCompact(filepath.Join(dataDir, "hexgrid.geojson"), hexFC); err != nil {
+			return fmt.Errorf("write hexgrid: %w", err)
 		}
 	}
 
@@ -361,6 +356,17 @@ func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolved
 
 func writeJSON(path string, v any) error {
 	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
+}
+
+// writeJSONCompact writes minified JSON (no indentation). Used for the hex grid,
+// which dominates site size; the other exported files stay pretty for readable
+// diffs.
+func writeJSONCompact(path string, v any) error {
+	data, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}

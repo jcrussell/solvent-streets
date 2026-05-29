@@ -183,10 +183,8 @@ func (s *Server) serveDataFile(w http.ResponseWriter, r *http.Request, file stri
 	switch file {
 	case "meta.json":
 		s.serveMetaJSON(w, r, entry, snapshotID)
-	case "hexgrid-city.geojson":
-		s.serveHexGridGeoJSON(w, r, entry, snapshotID, "city")
-	case "hexgrid-bbox.geojson":
-		s.serveHexGridGeoJSON(w, r, entry, snapshotID, "bbox")
+	case "hexgrid.geojson":
+		s.serveHexGridGeoJSON(w, r, entry, snapshotID)
 	case "scenarios.json":
 		s.serveScenariosJSON(w, r, entry, snapshotID)
 	case "forecast.json":
@@ -309,24 +307,17 @@ func (s *Server) serveMetaJSON(w http.ResponseWriter, _ *http.Request, entry exp
 	})
 }
 
-// serveHexGridGeoJSON serves the per-scope hex grid. scope is either "city"
-// or "bbox" — the path /data/hexgrid-{scope}.geojson maps onto these. A
-// scope with no rows returns an empty FeatureCollection; the client treats
-// an empty city response as "no city scope, hide the toggle".
-func (s *Server) serveHexGridGeoJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry, snapshotID int64, scope string) {
-	s.serveJSONCached(w, cacheKey("hexgrid-"+scope, entry.Slug, snapshotID), func() (any, error) {
+// serveHexGridGeoJSON serves the single multi-scope hex grid at
+// /data/hexgrid.geojson — one feature per hex with nested {bbox, city?}
+// coverage. A city with no rows returns an empty FeatureCollection; features
+// without a "city" object tell the client to hide the scope toggle.
+func (s *Server) serveHexGridGeoJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry, snapshotID int64) {
+	s.serveJSONCached(w, cacheKey("hexgrid", entry.Slug, snapshotID), func() (any, error) {
 		_, lon0, lat0, err := entry.BBoxAndCenter(context.Background())
 		if err != nil {
 			return nil, err
 		}
-		cityFC, bboxFC := export.BuildHexGeoJSONs(context.Background(), entry, geo.NewUTMProjector(lon0, lat0))
-		var fc map[string]any
-		switch scope {
-		case "city":
-			fc = cityFC
-		case "bbox":
-			fc = bboxFC
-		}
+		fc := export.BuildHexGeoJSON(context.Background(), entry, geo.NewUTMProjector(lon0, lat0))
 		if fc == nil {
 			fc = map[string]any{"type": "FeatureCollection", "features": []any{}}
 		}

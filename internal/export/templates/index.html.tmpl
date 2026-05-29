@@ -898,8 +898,8 @@
         // like "still loading" (solvent-streets-y68). Returns parsed JSON on
         // success, or null on failure — callers fall back gracefully.
         // opts.silent404 swallows a 404 without surfacing — used for the
-        // hexgrid-city file, which is legitimately absent for cities that
-        // haven't been recomputed since :city-scope hex tracking landed.
+        // hexgrid file, which is legitimately absent for cities with no
+        // hex_stats rows at all.
         async function loadJSON(url, opts) {
             try {
                 const resp = await fetch(url);
@@ -1220,29 +1220,33 @@
                 }
             }
 
-            // Load hex grid — one file per scope. The bbox file is always
-            // present when any hex_stats rows exist; the city file is absent
-            // for legacy projects without :city compute rows (the absence
-            // gates the scope-toggle's visibility).
-            // hexgrid-bbox is required when any hex data exists. hexgrid-city
-            // is legitimately absent for legacy cities — pass silent404 so a
-            // missing file is treated as "no city-scope data" rather than an
-            // error surfaced to the user.
-            const hexFiles = [
-                ['bbox', 'hexgrid-bbox.geojson', false],
-                ['city', 'hexgrid-city.geojson', true],
-            ];
-            const hexResponses = await Promise.all(
-                hexFiles.map(([, file, silent]) => loadJSON(dataURL(prefix, file), { silent404: silent }))
-            );
-            for (let i = 0; i < hexFiles.length; i++) {
-                const [scope] = hexFiles[i];
-                const data = hexResponses[i];
-                if (!data || !data.features) continue;
-                for (const f of data.features) {
-                    const rt = f.properties.resource_type || 'unknown';
-                    if (!hexDataByScope[scope][rt]) hexDataByScope[scope][rt] = [];
-                    hexDataByScope[scope][rt].push(f);
+            // Load the hex grid — a single multi-scope file, one feature per
+            // hex with nested {bbox, city?} coverage keyed by resource. Expand
+            // it back into the per-scope/per-resource feature arrays the render
+            // path consumes. A feature whose properties lack "city" carries no
+            // city-scope data, so a city with no such objects leaves
+            // hexDataByScope.city empty and the scope toggle stays hidden.
+            const hexData = await loadJSON(dataURL(prefix, 'hexgrid.geojson'), { silent404: true });
+            if (hexData && hexData.features) {
+                for (const f of hexData.features) {
+                    const hid = f.properties.id;
+                    for (const scope of ['bbox', 'city']) {
+                        const byRes = f.properties[scope];
+                        if (!byRes) continue;
+                        for (const rt of Object.keys(byRes)) {
+                            const m = byRes[rt];
+                            if (!hexDataByScope[scope][rt]) hexDataByScope[scope][rt] = [];
+                            hexDataByScope[scope][rt].push({
+                                geometry: f.geometry,
+                                properties: {
+                                    hex_id: hid,
+                                    resource_type: rt,
+                                    area_sqm: m.area,
+                                    pct_covered: m.pct,
+                                },
+                            });
+                        }
+                    }
                 }
             }
 

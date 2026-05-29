@@ -123,17 +123,11 @@ func hexEntry(t *testing.T, hexStats map[resource.Type][]db.HexStat, results map
 	}
 }
 
-// TestBuildHexGeoJSONs_BothScopesEmitted: when ListHexStats returns rows for
-// both ":city" and bare labels, both FCs are non-nil and the bare resource
-// label is preserved in feature properties (the ":city" suffix is stripped so
-// the client can bucket-by-type without splitting).
-func TestBuildHexGeoJSONs_BothScopesEmitted(t *testing.T) {
-	// Pick a hex in the middle of boundaryGeoJSON's square — projected coords
-	// land inside the generated hex grid. Hex IDs are deterministic ("q,r"),
-	// but the exact id depends on UTM zone + edge; use a row that the grid
-	// will accept by virtue of *any* of the per-suffix rows matching at least
-	// one generated hex. We rely on the city-area projection producing many
-	// hexes; pass empty hex_id and check the count behavior at the FC level.
+// TestBuildHexGeoJSON_EmittedWhenRowsExist: a single FeatureCollection is
+// returned when any hex_stats rows exist (across either scope), and nil only
+// when there are no rows at all. The per-feature {bbox, city?} shape is pinned
+// deterministically in TestBuildHexFeature_NestedScopes.
+func TestBuildHexGeoJSON_EmittedWhenRowsExist(t *testing.T) {
 	now := time.Now()
 	cityRows := []db.HexStat{{HexID: "0,0", ResourceType: rtRoadsCity, AreaSqM: 100, PctCovered: 50, ComputedAt: now}}
 	bboxRows := []db.HexStat{{HexID: "0,0", ResourceType: rtRoads, AreaSqM: 200, PctCovered: 75, ComputedAt: now}}
@@ -150,24 +144,67 @@ func TestBuildHexGeoJSONs_BothScopesEmitted(t *testing.T) {
 	}
 	proj := geo.NewUTMProjector(lon, lat)
 
-	city, bbox := BuildHexGeoJSONs(t.Context(), entry, proj)
-	if city == nil {
-		t.Fatal("BuildHexGeoJSONs returned nil city FC when :city rows exist")
+	fc := BuildHexGeoJSON(t.Context(), entry, proj)
+	if fc == nil {
+		t.Fatal("BuildHexGeoJSON returned nil when rows exist")
 	}
-	if bbox == nil {
-		t.Fatal("BuildHexGeoJSONs returned nil bbox FC when bbox rows exist")
+	if fc["type"] != "FeatureCollection" {
+		t.Errorf("type = %v; want FeatureCollection", fc["type"])
 	}
 
-	// resource_type in feature properties is the bare name, not "roads:city".
-	for _, fc := range []map[string]any{city, bbox} {
-		feats, _ := fc["features"].([]map[string]any)
-		for _, f := range feats {
-			props := f["properties"].(map[string]any)
-			rt := props["resource_type"].(string)
-			if strings.Contains(rt, ":") {
-				t.Errorf("feature resource_type %q must not carry the :city suffix", rt)
+	// Resource keys inside the scope objects are bare names, not "roads:city".
+	feats, _ := fc["features"].([]map[string]any)
+	for _, f := range feats {
+		props := f["properties"].(map[string]any)
+		for _, scope := range []string{"bbox", "city"} {
+			byRes, ok := props[scope].(map[string]map[string]float64)
+			if !ok {
+				continue
+			}
+			for rt := range byRes {
+				if strings.Contains(rt, ":") {
+					t.Errorf("scope %q resource key %q must not carry the :city suffix", scope, rt)
+				}
 			}
 		}
+	}
+}
+
+// TestBuildHexFeature_NestedScopes pins the per-feature shape: "id" plus nested
+// {bbox, city?} objects keyed by bare resource name -> {"area", "pct"}. "city"
+// is present only when the hex has city-scope coverage.
+func TestBuildHexFeature_NestedScopes(t *testing.T) {
+	proj := geo.NewUTMProjector(-122.45, 37.55)
+	h := offsetSquareHex(t, "0,0", 550000, 4156000, 50)
+	hexMap := map[string]*geo.Hex{"0,0": &h}
+
+	// Hex with both scopes.
+	agg := &hexAgg{
+		bbox: map[string]map[string]float64{"roads": {"area": 200, "pct": 75}},
+		city: map[string]map[string]float64{"roads": {"area": 100, "pct": 50}},
+	}
+	feat, ok := buildHexFeature("0,0", agg, hexMap, proj, 6)
+	if !ok {
+		t.Fatal("buildHexFeature returned ok=false")
+	}
+	props := feat["properties"].(map[string]any)
+	if props["id"] != "0,0" {
+		t.Errorf("id = %v; want 0,0", props["id"])
+	}
+	bbox := props["bbox"].(map[string]map[string]float64)
+	if bbox["roads"]["area"] != 200 || bbox["roads"]["pct"] != 75 {
+		t.Errorf("bbox.roads = %v; want {area:200, pct:75}", bbox["roads"])
+	}
+	city := props["city"].(map[string]map[string]float64)
+	if city["roads"]["area"] != 100 || city["roads"]["pct"] != 50 {
+		t.Errorf("city.roads = %v; want {area:100, pct:50}", city["roads"])
+	}
+
+	// Hex with no city coverage omits the "city" key entirely.
+	bboxOnly := &hexAgg{bbox: map[string]map[string]float64{"roads": {"area": 200, "pct": 75}}}
+	feat2, _ := buildHexFeature("0,0", bboxOnly, hexMap, proj, 6)
+	if _, ok := feat2["properties"].(map[string]any)["city"]; ok {
+		t.Error("city key must be absent when the hex has no city coverage")
 	}
 }
 
@@ -187,10 +224,10 @@ func TestBuildHexFeature_RespectsCoordinatePrecision(t *testing.T) {
 	// reprojector actually runs (it's a no-op on already-lon/lat coords).
 	h := offsetSquareHex(t, "0,0", 550000, 4156000, 50)
 	hexMap := map[string]*geo.Hex{"0,0": &h}
-	st := db.HexStat{HexID: "0,0", ResourceType: rtRoads, AreaSqM: 200, PctCovered: 75, ComputedAt: time.Now()}
+	agg := &hexAgg{bbox: map[string]map[string]float64{"roads": {"area": 200, "pct": 75}}}
 
 	maxFrac := func(decimals int) int {
-		feat, ok := buildHexFeature(st, hexMap, proj, decimals)
+		feat, ok := buildHexFeature("0,0", agg, hexMap, proj, decimals)
 		if !ok {
 			t.Fatalf("buildHexFeature returned ok=false at decimals=%d", decimals)
 		}
@@ -222,10 +259,10 @@ func TestBuildHexFeature_RespectsCoordinatePrecision(t *testing.T) {
 	}
 }
 
-// TestBuildHexGeoJSONs_NoCityRowsReturnsNilCity: legacy cities without
-// ":city"-suffixed hex_stats rows must yield a nil city FC. The client uses
-// the absence of hexgrid-city.geojson as the "hide the scope toggle" signal.
-func TestBuildHexGeoJSONs_NoCityRowsReturnsNilCity(t *testing.T) {
+// TestBuildHexGeoJSON_NoCityRowsOmitsCity: legacy cities without ":city"-suffixed
+// hex_stats rows still yield a FeatureCollection, but no feature carries a "city"
+// object. The client uses that absence as the "hide the scope toggle" signal.
+func TestBuildHexGeoJSON_NoCityRowsOmitsCity(t *testing.T) {
 	bboxRows := []db.HexStat{{HexID: "0,0", ResourceType: rtRoads, AreaSqM: 100, PctCovered: 50}}
 	entry := hexEntry(t, map[resource.Type][]db.HexStat{
 		rtRoads:       bboxRows,
@@ -234,12 +271,15 @@ func TestBuildHexGeoJSONs_NoCityRowsReturnsNilCity(t *testing.T) {
 	}, nil)
 
 	_, lon, lat, _ := entry.BBoxAndCenter(t.Context())
-	city, bbox := BuildHexGeoJSONs(t.Context(), entry, geo.NewUTMProjector(lon, lat))
-	if city != nil {
-		t.Errorf("city FC = %v; want nil when no :city rows exist", city)
+	fc := BuildHexGeoJSON(t.Context(), entry, geo.NewUTMProjector(lon, lat))
+	if fc == nil {
+		t.Fatal("FC must be non-nil when bbox rows exist")
 	}
-	if bbox == nil {
-		t.Error("bbox FC must be non-nil when bbox rows exist")
+	feats, _ := fc["features"].([]map[string]any)
+	for _, f := range feats {
+		if _, ok := f["properties"].(map[string]any)["city"]; ok {
+			t.Error("no feature may carry a city object when no :city rows exist")
+		}
 	}
 }
 

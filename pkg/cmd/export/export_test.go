@@ -215,7 +215,7 @@ func TestBuildManifest_SingleCity(t *testing.T) {
 		"wasm_exec.js",
 		"data/meta.json",
 		"data/forecast.json",
-		"data/hexgrid-bbox.geojson",
+		"data/hexgrid.geojson",
 	)
 
 	m, err := buildManifest(dir, []exportpkg.CityEntry{entry("portland-or", "Portland, OR")})
@@ -238,7 +238,7 @@ func TestBuildManifest_SingleCity(t *testing.T) {
 	}
 	wantFiles := []string{
 		"data/forecast.json",
-		"data/hexgrid-bbox.geojson",
+		"data/hexgrid.geojson",
 		"data/meta.json",
 	}
 	if !reflect.DeepEqual(c.Files, wantFiles) {
@@ -267,7 +267,7 @@ func TestBuildManifest_MultiCity(t *testing.T) {
 		"cities/portland-or/data/meta.json",
 		"cities/portland-or/data/forecast.json",
 		"cities/seattle-wa/data/meta.json",
-		"cities/seattle-wa/data/hexgrid-bbox.geojson",
+		"cities/seattle-wa/data/hexgrid.geojson",
 	)
 
 	entries := []exportpkg.CityEntry{
@@ -297,7 +297,7 @@ func TestBuildManifest_MultiCity(t *testing.T) {
 		t.Errorf("Cities[0].Files = %v, want %v", m.Cities[0].Files, wantPortland)
 	}
 	wantSeattle := []string{
-		"cities/seattle-wa/data/hexgrid-bbox.geojson",
+		"cities/seattle-wa/data/hexgrid.geojson",
 		"cities/seattle-wa/data/meta.json",
 	}
 	if !reflect.DeepEqual(m.Cities[1].Files, wantSeattle) {
