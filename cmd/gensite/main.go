@@ -10,8 +10,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"runtime/pprof"
 	"sort"
 	"strings"
+	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
@@ -29,8 +34,17 @@ func main() {
 func run() (err error) {
 	examplesDir := flag.String("examples", "examples", "directory containing example pvmt.toml configs")
 	outputDir := flag.String("o", "site", "output directory for generated site")
+	cpuProfile := flag.String("cpuprofile", "", "write a CPU profile to this path")
+	memProfile := flag.String("memprofile", "", "write a heap profile to this path (after GC)")
 	flag.Parse()
 
+	stop, perr := startProfiling(*cpuProfile, *memProfile, &err)
+	if perr != nil {
+		return perr
+	}
+	defer stop()
+
+	start := time.Now()
 	ctx := context.Background()
 
 	// Discover example configs
@@ -61,13 +75,9 @@ func run() (err error) {
 		return err
 	}
 
-	var examples []export.ExampleInfo
-	for _, cfgPath := range matches {
-		info, err := exportExample(ctx, rootDB, cfgPath, *outputDir)
-		if err != nil {
-			return err
-		}
-		examples = append(examples, info)
+	examples, err := exportAll(ctx, rootDB, matches, *outputDir)
+	if err != nil {
+		return err
 	}
 
 	// Write shared WASM assets at site root
@@ -87,7 +97,93 @@ func run() (err error) {
 		return fmt.Errorf("write .nojekyll: %w", err)
 	}
 
-	fmt.Printf("Site exported to %s/ (%d examples)\n", *outputDir, len(examples))
+	fmt.Printf("Site exported to %s/ (%d examples) in %s\n", *outputDir, len(examples), time.Since(start).Round(time.Millisecond))
+	return nil
+}
+
+// startProfiling begins CPU profiling (if cpuPath is set) and arranges for a
+// heap profile to be written (if memPath is set) by the returned stop func,
+// which the caller should defer. runErr points at the caller's named return so
+// profile-finalization errors surface without masking the primary error.
+func startProfiling(cpuPath, memPath string, runErr *error) (stop func(), err error) {
+	var stops []func()
+	if cpuPath != "" {
+		f, ferr := os.Create(cpuPath)
+		if ferr != nil {
+			return nil, fmt.Errorf("create cpu profile: %w", ferr)
+		}
+		if serr := pprof.StartCPUProfile(f); serr != nil {
+			_ = f.Close()
+			return nil, fmt.Errorf("start cpu profile: %w", serr)
+		}
+		stops = append(stops, func() {
+			pprof.StopCPUProfile()
+			if cerr := f.Close(); cerr != nil && *runErr == nil {
+				*runErr = fmt.Errorf("close cpu profile: %w", cerr)
+			}
+		})
+	}
+	if memPath != "" {
+		// Written by stop() (deferred to run's end) so it reflects live
+		// allocations after the work completes.
+		stops = append(stops, func() {
+			if werr := writeHeapProfile(memPath); werr != nil && *runErr == nil {
+				*runErr = werr
+			}
+		})
+	}
+	return func() {
+		for _, s := range stops {
+			s()
+		}
+	}, nil
+}
+
+// exportAll exports every example config concurrently. Each example is
+// independent — separate output directory, its own projected boundary/geometry,
+// read-only DB access — so they run on a worker pool. The shared rootDB is safe
+// for concurrent reads (WAL mode, single pooled connection), and
+// BuildCityEntries' only write is an idempotent INSERT OR IGNORE keyed by
+// per-example config_id. Results land in a fixed-position slice so the
+// landing-page order stays deterministic regardless of completion order.
+func exportAll(ctx context.Context, rootDB *db.RootStore, matches []string, outputDir string) ([]export.ExampleInfo, error) {
+	examples := make([]export.ExampleInfo, len(matches))
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(min(runtime.NumCPU(), len(matches)))
+	for i, cfgPath := range matches {
+		g.Go(func() error {
+			exStart := time.Now()
+			info, err := exportExample(gctx, rootDB, cfgPath, outputDir)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "  %s exported in %s\n", info.Slug, time.Since(exStart).Round(time.Millisecond))
+			examples[i] = info
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+	return examples, nil
+}
+
+// writeHeapProfile runs a GC then writes a heap profile to path, so the
+// profile reflects live (retained) allocations rather than transient garbage.
+func writeHeapProfile(path string) (err error) {
+	f, ferr := os.Create(path)
+	if ferr != nil {
+		return fmt.Errorf("create mem profile: %w", ferr)
+	}
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close mem profile: %w", cerr)
+		}
+	}()
+	runtime.GC()
+	if werr := pprof.WriteHeapProfile(f); werr != nil {
+		return fmt.Errorf("write heap profile: %w", werr)
+	}
 	return nil
 }
 

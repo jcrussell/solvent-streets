@@ -136,8 +136,30 @@ func clipHexGridToBoundary(ctx context.Context, hexes []geo.Hex, entry CityEntry
 	if gErr != nil || boundaryGeom.IsEmpty() {
 		return hexes
 	}
+
+	// geom.Intersection runs a full OverlayNG per call, rebuilding the
+	// boundary's spatial index from scratch every time — for tens of
+	// thousands of hexes that dominates export. Prepare the boundary once so
+	// its index is cached, then use cheap prepared predicates to clip only the
+	// hexes that actually straddle the boundary edge:
+	//   - not intersecting  -> drop (hex lies entirely outside the city)
+	//   - fully covered     -> keep as-is (hex ∩ boundary == hex, no overlay)
+	//   - otherwise         -> the expensive overlay, but only for the thin
+	//                          perimeter band.
+	// If Prepare fails, fall back to the unconditional per-hex overlay.
+	prep, pErr := geom.Prepare(boundaryGeom)
+
 	filtered := make([]geo.Hex, 0, len(hexes))
 	for _, h := range hexes {
+		if pErr == nil {
+			if intersects, iErr := prep.Intersects(h.Geom); iErr == nil && !intersects {
+				continue
+			}
+			if covers, cErr := prep.Covers(h.Geom); cErr == nil && covers {
+				filtered = append(filtered, h)
+				continue
+			}
+		}
 		inter, iErr := geom.Intersection(h.Geom, boundaryGeom)
 		if iErr == nil && !inter.IsEmpty() {
 			h.Geom = inter

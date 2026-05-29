@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -395,4 +396,118 @@ func TestBuildScenariosData_BboxOnlyKey(t *testing.T) {
 	if _, ok := out["bbox"]; !ok {
 		t.Errorf("'bbox' key missing; got %v", out)
 	}
+}
+
+// projectedLonLatSquare builds a hex whose Geom is the lon/lat square
+// [(lon0,lat0),(lon1,lat1)] projected into proj's coordinate system — i.e. in
+// the same projected space clipHexGridToBoundary operates in. Used to place
+// test hexes at known positions relative to a lon/lat boundary fixture.
+func projectedLonLatSquare(t *testing.T, proj *geo.UTMProjector, id string, lon0, lat0, lon1, lat1 float64) geo.Hex {
+	t.Helper()
+	corners := [][2]float64{{lon0, lat0}, {lon1, lat0}, {lon1, lat1}, {lon0, lat1}, {lon0, lat0}}
+	flat := make([]float64, 0, len(corners)*2)
+	for _, c := range corners {
+		x, y, err := proj.ToProjected(c[0], c[1])
+		if err != nil {
+			t.Fatalf("project (%v,%v): %v", c[0], c[1], err)
+		}
+		flat = append(flat, x, y)
+	}
+	ring := geom.NewLineString(geom.NewSequence(flat, geom.DimXY))
+	return geo.Hex{ID: id, Geom: geom.NewPolygon([]geom.LineString{ring}).AsGeometry()}
+}
+
+// TestClipHexGridToBoundary_MatchesUnconditionalOverlay pins the prepared-
+// geometry fast path against the original behavior: preparing the boundary once
+// and using Intersects/Covers to skip the overlay for outside/interior hexes
+// must produce exactly the same kept set and the same clipped areas as calling
+// geom.Intersection unconditionally on every hex.
+//
+// The boundary is a square with a hole, and the hexes deliberately hit every
+// branch: fully interior (Covers→keep as-is), perimeter-straddling (overlay),
+// fully outside (Intersects=false→drop), straddling the hole (overlay clips the
+// hole out), and fully inside the hole (disjoint→drop).
+//
+// Regression caught: a wrong predicate (e.g. Contains instead of Covers
+// dropping edge-touching hexes), or the keep-shortcut emitting an unclipped
+// hex where the hole/boundary should have trimmed it.
+func TestClipHexGridToBoundary_MatchesUnconditionalOverlay(t *testing.T) {
+	proj := geo.NewUTMProjector(-122.45, 37.55)
+	// Square boundary (-122.5,37.5)-(-122.4,37.6) with a hole
+	// (-122.47,37.53)-(-122.43,37.57).
+	const boundaryWithHole = `{"type":"Polygon","coordinates":[` +
+		`[[-122.5,37.5],[-122.4,37.5],[-122.4,37.6],[-122.5,37.6],[-122.5,37.5]],` +
+		`[[-122.47,37.53],[-122.43,37.53],[-122.43,37.57],[-122.47,37.57],[-122.47,37.53]]]}`
+	entry := CityEntry{
+		Config: &config.Config{Grid: config.GridConfig{HexEdgeM: 200}},
+		City:   config.CityConfig{Name: "Test City"},
+		Slug:   "test-city",
+		Store: &dbtest.MockStore{
+			GetBoundaryFunc: func(_ context.Context) (string, error) { return boundaryWithHole, nil },
+		},
+	}
+
+	hexes := []geo.Hex{
+		projectedLonLatSquare(t, proj, "interior", -122.495, 37.505, -122.49, 37.51),      // Covers → keep
+		projectedLonLatSquare(t, proj, "straddle-edge", -122.405, 37.55, -122.395, 37.56), // overlay
+		projectedLonLatSquare(t, proj, "outside", -122.30, 37.55, -122.29, 37.56),         // drop
+		projectedLonLatSquare(t, proj, "over-hole", -122.46, 37.52, -122.44, 37.54),       // overlay (hole)
+		projectedLonLatSquare(t, proj, "inside-hole", -122.45, 37.55, -122.448, 37.552),   // drop (disjoint)
+	}
+
+	// Reference: the pre-optimization behavior — unconditional overlay per hex.
+	boundaryGeom, _, err := geo.GeoJSONToProjectedGeometry(boundaryWithHole, proj)
+	if err != nil {
+		t.Fatalf("project boundary: %v", err)
+	}
+	wantAreas := map[string]float64{}
+	for _, h := range hexes {
+		inter, iErr := geom.Intersection(h.Geom, boundaryGeom)
+		if iErr == nil && !inter.IsEmpty() {
+			wantAreas[h.ID] = inter.Area()
+		}
+	}
+
+	got := clipHexGridToBoundary(t.Context(), hexes, entry, proj)
+	gotAreas := map[string]float64{}
+	for _, h := range got {
+		gotAreas[h.ID] = h.Geom.Area()
+	}
+
+	if len(gotAreas) != len(wantAreas) {
+		t.Fatalf("kept %d hexes %v; reference kept %d %v", len(gotAreas), keysOf(gotAreas), len(wantAreas), keysOf(wantAreas))
+	}
+	for id, want := range wantAreas {
+		got, ok := gotAreas[id]
+		if !ok {
+			t.Errorf("hex %q dropped by prepared path; reference kept it (area %.2f)", id, want)
+			continue
+		}
+		// Interior hexes keep their original (un-snapped) geometry, so allow a
+		// sub-cm² tolerance against the overlay's precision-modeled area.
+		if diff := got - want; diff > 0.01 || diff < -0.01 {
+			t.Errorf("hex %q area = %.4f; reference overlay = %.4f (diff %.4f)", id, got, want, diff)
+		}
+	}
+
+	// Branch coverage sanity: the fixture must actually exercise keep + drop.
+	for _, id := range []string{"interior", "straddle-edge", "over-hole"} {
+		if _, ok := gotAreas[id]; !ok {
+			t.Errorf("expected hex %q to be kept", id)
+		}
+	}
+	for _, id := range []string{"outside", "inside-hole"} {
+		if _, ok := gotAreas[id]; ok {
+			t.Errorf("expected hex %q to be dropped", id)
+		}
+	}
+}
+
+func keysOf(m map[string]float64) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
