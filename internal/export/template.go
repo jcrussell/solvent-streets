@@ -120,12 +120,17 @@ func RenderLandingPage(outputDir string, examples []ExampleInfo) (err error) {
 	if err != nil {
 		return fmt.Errorf("render methodology: %w", err)
 	}
+	date, ver := FooterInfo()
 	return tmpl.Execute(f, struct {
 		Examples        []ExampleInfo
 		MethodologyHTML template.HTML
+		GeneratedDate   string
+		BuildVersion    string
 	}{
 		Examples:        examples,
 		MethodologyHTML: methodology,
+		GeneratedDate:   date,
+		BuildVersion:    ver,
 	})
 }
 

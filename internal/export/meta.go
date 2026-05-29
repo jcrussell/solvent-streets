@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jcrussell/solvent-streets/internal/build"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/resource"
@@ -37,6 +38,18 @@ type TemplateData struct {
 	// export. Gates server-only UI (e.g. the snapshot picker) that depends
 	// on live /api endpoints absent from the static output.
 	IsLiveServer bool
+	// GeneratedDate is the YYYY-MM-DD date this page was rendered.
+	GeneratedDate string
+	// BuildVersion is "<version> (commit <hash>)", the same string
+	// pvmt --version reports (build.Current().Short()).
+	BuildVersion string
+}
+
+// FooterInfo returns the values shown in the page footer: the generation
+// date (YYYY-MM-DD) and the build version string, which matches
+// `pvmt --version` (build.Current().Short()).
+func FooterInfo() (generatedDate, buildVersion string) {
+	return time.Now().Format("2006-01-02"), build.Current().Short()
 }
 
 // resourceColorsJSOnce lazily marshals ResourceColors. Lazy so a binary

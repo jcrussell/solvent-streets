@@ -86,6 +86,7 @@ func (s *Server) buildIndexData(ctx context.Context, entry export.CityEntry) (ex
 	if err != nil {
 		return export.TemplateData{}, err
 	}
+	date, ver := export.FooterInfo()
 	return export.TemplateData{
 		MetaJSON:        meta,
 		ForecastSeed:    seed,
@@ -96,6 +97,8 @@ func (s *Server) buildIndexData(ctx context.Context, entry export.CityEntry) (ex
 		Cities:          cities,
 		MethodologyHTML: methodology,
 		IsLiveServer:    true,
+		GeneratedDate:   date,
+		BuildVersion:    ver,
 	}, nil
 }
 

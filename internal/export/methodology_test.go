@@ -57,6 +57,8 @@ func TestLandingMethodologyRenders(t *testing.T) {
 	data := struct {
 		Examples        []ExampleInfo
 		MethodologyHTML template.HTML
+		GeneratedDate   string
+		BuildVersion    string
 	}{
 		MethodologyHTML: methodology,
 	}

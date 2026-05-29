@@ -330,6 +330,7 @@ func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolved
 	if err != nil {
 		return fmt.Errorf("render methodology: %w", err)
 	}
+	date, ver := FooterInfo()
 	td := TemplateData{
 		MetaJSON:        meta,
 		ForecastSeed:    seed,
@@ -340,6 +341,8 @@ func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolved
 		Cities:          cities,
 		WasmPrefix:      e.wasmPrefix,
 		MethodologyHTML: methodology,
+		GeneratedDate:   date,
+		BuildVersion:    ver,
 	}
 
 	// Render to a buffer first so an interrupted Execute (template error,
