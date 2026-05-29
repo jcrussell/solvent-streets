@@ -1,12 +1,12 @@
 # city-nerd
 
 The 50 largest US cities by 2025 population, rendered through
-solvent-streets. A CityNerd-flavored homage — Ray Delahanty's
-[CityNerd](https://www.youtube.com/@CityNerd) YouTube channel is famous
-for top-10 countdowns of American urbanism — but with one important
-caveat called out below.
+solvent-streets, inspired by Ray Delahanty's
+[CityNerd](https://www.youtube.com/@CityNerd) YouTube channel of top-10
+countdowns on American urbanism. This example is **not affiliated with
+or endorsed by** CityNerd or Ray Delahanty.
 
-## Cities, not metros
+## Caveat: Cities, not metros
 
 CityNerd usually ranks **metropolitan areas** above a population
 threshold. Solvent-streets ingests at the **city / municipality** level
