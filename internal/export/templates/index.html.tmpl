@@ -808,15 +808,10 @@
         const Router = {
             read() {
                 const p = new URLSearchParams(location.search);
-                // Legacy: the internal scope key was renamed from "all" to "city"
-                // so the internal noun matches the "City Roads Only" toggle label.
-                // Old bookmarks (?scope=all) still resolve correctly.
-                let scope = p.get('scope');
-                if (scope === 'all') scope = 'city';
                 return {
                     city:     p.get('city'),
                     tab:      p.get('tab'),
-                    scope:    scope,
+                    scope:    p.get('scope'),
                     snapshot: p.get('snapshot'),
                 };
             },
@@ -874,8 +869,6 @@
 
         window.addEventListener('popstate', (e) => {
             const s = e.state || Router.read();
-            // Legacy bookmark / persisted state may still carry "all".
-            if (s.scope === 'all') s.scope = 'city';
             const sel = document.getElementById('city-select');
             const cityChanged = !!(s.city && sel && sel.value !== s.city);
             // Set the snapshot picker value BEFORE selectCity so its data
@@ -1224,19 +1217,13 @@
                 toggles += '<label><input type="checkbox" checked data-layers="" data-type="' + type + '"><span class="legend-dot" style="background:' + layerColors[type] + '"></span>' + type + '</label>';
             }
 
-            // Load hex cost summary. Server emits map[scope]map[resource]{...};
-            // an older server may still emit the flat map[resource]{...}, in
-            // which case treat the whole object as the bbox-scope view so the
-            // map still paints.
+            // Load hex cost summary: map[scope]map[resource]{...}, scope in
+            // {city, bbox}. "city" is omitted when the city has no :city rows.
             {
                 const cs = await loadJSON(dataURL(prefix, 'hex-cost-summary.json'));
                 if (cs) {
-                    if (cs.city || cs.bbox) {
-                        costSummaryByScope.city = cs.city || {};
-                        costSummaryByScope.bbox = cs.bbox || {};
-                    } else {
-                        costSummaryByScope.bbox = cs;
-                    }
+                    costSummaryByScope.city = cs.city || {};
+                    costSummaryByScope.bbox = cs.bbox || {};
                 }
             }
 
@@ -1820,15 +1807,6 @@
                 return;
             }
 
-            // Normalize legacy formats so the rest of the function only
-            // sees {city, bbox, summary?}: an array → single-scope bbox;
-            // an object with the old "all" key → rename to "city".
-            if (Array.isArray(scenarioData)) {
-                scenarioData = { bbox: scenarioData };
-            } else if (scenarioData.all && !scenarioData.city) {
-                scenarioData.city = scenarioData.all;
-                delete scenarioData.all;
-            }
             // Fall back if currentScope is unsupported by the loaded
             // scenarios (e.g. URL said scope=city but this city only has
             // bbox data). Mirrors the same repair in loadCityData.
@@ -2033,10 +2011,10 @@
                 };
             });
 
-            // Determine area and cohorts from current scope
-            // Default ("all") uses city-scoped data; "bbox" uses full bounding-box data
+            // Area/cohorts for the active scope: city-scoped data by default,
+            // full bounding-box data when scope === 'bbox'.
             const activeScope = document.querySelector('#scope-toggle button.active');
-            const scope = activeScope ? activeScope.dataset.scope : 'all';
+            const scope = activeScope ? activeScope.dataset.scope : 'city';
             const area = (scope === 'bbox' || !FORECAST_SEED.city_paved)
                 ? FORECAST_SEED.total_area
                 : FORECAST_SEED.city_paved;
@@ -2283,12 +2261,13 @@
                 m.blendedDecay = totalArea > 0 ? weightedDecay / totalArea : 0;
             }
 
-            // Scenarios baseline
+            // Scenarios baseline for the active scope. scenarios.json is
+            // scope-keyed ({city, bbox, summary}); mirror loadFinancials'
+            // selection and honor currentScope (driven by the ?scope= param).
             m.baselineYears = [];
-            var scenarios = null;
-            if (city.scenarios) {
-                scenarios = Array.isArray(city.scenarios) ? city.scenarios : (city.scenarios.all || null);
-            }
+            var scenarios = city.scenarios
+                ? (city.scenarios[currentScope] || city.scenarios.city || city.scenarios.bbox || null)
+                : null;
             if (scenarios && scenarios.length > 0) {
                 var baseline = scenarios[0];
                 var years = baseline.years || [];
