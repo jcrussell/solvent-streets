@@ -421,6 +421,8 @@
         .compare-chart-card h3 { font-size: 15px; margin-bottom: 12px; color: var(--text); }
         .compare-chart-card canvas { width: 100% !important; }
         .compare-loading { text-align: center; padding: 80px; color: var(--text-muted); font-size: 16px; }
+        .agg-note { background: var(--fair-bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; margin-bottom: 24px; font-size: 13px; color: var(--text); }
+        .agg-footnote { font-size: 12px; color: var(--text-muted); margin-top: 24px; line-height: 1.5; }
 
         #about-tab {
             overflow-y: auto; background: var(--bg-alt);
@@ -577,6 +579,7 @@
         <button class="tab-btn" data-tab="financials-tab" id="financials-tab-btn" role="tab" aria-selected="false" aria-controls="financials-tab" tabindex="-1">Financials</button>
         {{if .Cities}}
         <button class="tab-btn" data-tab="compare-tab" id="compare-tab-btn" role="tab" aria-selected="false" aria-controls="compare-tab" tabindex="-1">Compare</button>
+        <button class="tab-btn" data-tab="aggregate-tab" id="aggregate-tab-btn" role="tab" aria-selected="false" aria-controls="aggregate-tab" tabindex="-1">Aggregate</button>
         {{end}}
         <button class="tab-btn" data-tab="config-tab" id="config-tab-btn" role="tab" aria-selected="false" aria-controls="config-tab" tabindex="-1">Config</button>
         <button class="tab-btn" data-tab="about-tab" id="about-tab-btn" role="tab" aria-selected="false" aria-controls="about-tab" tabindex="-1">About</button>
@@ -794,6 +797,48 @@
             </div>
         </div>
     </div>
+    <div id="aggregate-tab" class="tab-content" role="tabpanel" aria-labelledby="aggregate-tab-btn" style="overflow-y:auto;">
+        <div class="compare">
+            <div class="compare-header">
+                <h2>Region Rollup</h2>
+                <div class="compare-sub">The whole network as one fiscal entity — what does it cost to keep solvent?</div>
+            </div>
+            <div class="compare-loading" id="aggregate-loading">Loading region data...</div>
+            <div id="aggregate-content" style="display:none;">
+                <div class="agg-note" id="aggregate-divergence-note" hidden></div>
+                <div class="headlines" id="aggregate-headlines"></div>
+                <div class="compare-charts">
+                    <div class="compare-chart-card">
+                        <h3 id="agg-cost-title">Region Cost Trajectory</h3>
+                        <canvas id="aggregate-cost-chart" role="img" aria-label="Region maintenance cost trajectory chart"></canvas>
+                    </div>
+                    <div class="compare-chart-card">
+                        <h3 id="agg-backlog-title">Region Deferred Backlog</h3>
+                        <canvas id="aggregate-backlog-chart" role="img" aria-label="Region deferred backlog growth chart"></canvas>
+                    </div>
+                    <div class="compare-chart-card">
+                        <h3>Infrastructure Mix</h3>
+                        <canvas id="aggregate-mix-chart" role="img" aria-label="Region infrastructure mix by resource type chart"></canvas>
+                    </div>
+                </div>
+                <div class="cohort-section">
+                    <h3>Per-City Contribution</h3>
+                    <table class="cohort-table" id="aggregate-contrib-table">
+                        <thead><tr>
+                            <th>City</th>
+                            <th class="number">Network Area</th>
+                            <th class="number">Year-1 Need</th>
+                            <th class="number">Year-1 Share</th>
+                            <th class="number" id="agg-contrib-backlog-th">Backlog</th>
+                            <th class="number">Backlog Share</th>
+                        </tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+                <p class="agg-footnote" id="aggregate-footnote"></p>
+            </div>
+        </div>
+    </div>
     {{end}}
 
     <script>
@@ -858,6 +903,11 @@
                 document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === init.tab));
                 document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === init.tab));
                 syncTabAria();
+                // Toggling classes does NOT trigger the per-tab data load that
+                // a selectTab() click would, so a deep-linked ?tab= for a
+                // lazy-loaded tab would otherwise hang on its loading spinner.
+                if (init.tab === 'aggregate-tab') loadAggregateData();
+                else if (init.tab === 'compare-tab') loadCompareData();
             }
             if (init.scope === 'city' || init.scope === 'bbox') {
                 currentScope = init.scope;
@@ -986,6 +1036,10 @@
             if (opts && opts.focus) btn.focus();
             if (tabId === 'map-tab' && window._map) window._map.resize();
             if (tabId === 'compare-tab') loadCompareData();
+            if (tabId === 'aggregate-tab') loadAggregateData();
+            // The aggregate honors the region-wide scope, so re-evaluate the
+            // scope-toggle reveal whenever the active tab changes.
+            maybeRevealScopeToggle();
             if (!opts || opts.push !== false) Router.push();
         }
         document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -1542,6 +1596,7 @@
             applyChartTheme();
             (typeof currentCharts !== 'undefined' ? currentCharts : [])
                 .concat(typeof compareCharts !== 'undefined' ? compareCharts : [])
+                .concat(typeof aggregateCharts !== 'undefined' ? aggregateCharts : [])
                 .forEach(function(c) { c.update('none'); });
         });
 
@@ -1853,9 +1908,15 @@
             }
         }
 
+        // Set by renderAggregate once the region data loads: true when any
+        // city in the config carries both city- and bbox-scoped scenarios.
+        var regionHasBothScopes = false;
+
         // Reveal the scope toggle only when BOTH city and bbox data are
         // detectable in at least one data source (hex grid or scenarios).
         // Idempotent — both loaders call this after their fetches settle.
+        // On the Aggregate tab the toggle is region-wide, so honor whether
+        // ANY city has both scopes rather than just the selected dropdown city.
         function maybeRevealScopeToggle() {
             const haveHexCity = hexDataByScope.city && Object.keys(hexDataByScope.city).length > 0;
             const haveHexBbox = hexDataByScope.bbox && Object.keys(hexDataByScope.bbox).length > 0;
@@ -1863,7 +1924,12 @@
             const haveScenBbox = !!(scenarioData && scenarioData.bbox);
             const haveCity = haveHexCity || haveScenCity;
             const haveBbox = haveHexBbox || haveScenBbox;
-            document.getElementById('gear-scope-row').hidden = !(haveCity && haveBbox);
+            const aggActive = (function() {
+                const el = document.getElementById('aggregate-tab');
+                return el && el.classList.contains('active');
+            })();
+            const reveal = (haveCity && haveBbox) || (aggActive && regionHasBothScopes);
+            document.getElementById('gear-scope-row').hidden = !reveal;
         }
 
         // Render the cohort breakdown from the scope-appropriate forecast
@@ -1901,6 +1967,15 @@
                 } else {
                     renderCohortFromForecast(scope);
                 }
+            }
+
+            // The Aggregate tab freezes nothing — it reflects the live scope.
+            // Compare deliberately does NOT react (it's a one-shot frozen at
+            // first load), so only the aggregate is re-rendered here. Guarded
+            // so it only fires once its data has loaded and the tab is active.
+            if (aggregateLoaded && allCityDataPromise) {
+                const aggEl = document.getElementById('aggregate-tab');
+                if (aggEl && aggEl.classList.contains('active')) loadAggregateData();
             }
 
             if (!opts || opts.push !== false) Router.push();
@@ -2187,21 +2262,43 @@
         // ── Compare tab ──
         var compareLoaded = false;
         var compareCharts = [];
+        var aggregateLoaded = false;
+        var aggregateCharts = [];
+
+        // Shared per-city fetch for the Compare and Aggregate tabs. Cache the
+        // in-flight Promise (not the resolved data) so two near-simultaneous
+        // openings — e.g. a deep-link plus a click — dedupe to one fan-out
+        // instead of both observing an undefined data var and re-fetching.
+        var allCityDataPromise = null;
+        function loadAllCityData() {
+            if (!allCityDataPromise) {
+                allCityDataPromise = Promise.all(CITIES.map(async function(city) {
+                    var prefix = 'cities/' + city.slug + '/';
+                    const [meta, scenarios, seed] = await Promise.all([
+                        loadJSON(prefix + 'data/meta.json'),
+                        loadJSON(prefix + 'data/scenarios.json'),
+                        loadJSON(prefix + 'data/forecast_seed.json')
+                    ]);
+                    return { slug: city.slug, name: city.name, meta, scenarios, seed };
+                }));
+            }
+            return allCityDataPromise;
+        }
 
         async function loadCompareData() {
             if (compareLoaded || CITIES.length === 0) return;
             compareLoaded = true;
+            renderCompare(await loadAllCityData());
+        }
 
-            const cityData = await Promise.all(CITIES.map(async function(city) {
-                var prefix = 'cities/' + city.slug + '/';
-                const [meta, scenarios, seed] = await Promise.all([
-                    loadJSON(prefix + 'data/meta.json'),
-                    loadJSON(prefix + 'data/scenarios.json'),
-                    loadJSON(prefix + 'data/forecast_seed.json')
-                ]);
-                return { slug: city.slug, name: city.name, meta, scenarios, seed };
-            }));
-            renderCompare(cityData);
+        // Aggregate re-renders on every scope toggle, so it is NOT one-shot:
+        // the guard only blocks the initial fetch, while renderAggregate is
+        // free to re-run over the cached data (extractMetrics reads
+        // currentScope live).
+        async function loadAggregateData() {
+            if (CITIES.length === 0) return;
+            aggregateLoaded = true;
+            renderAggregate(await loadAllCityData());
         }
 
         function extractMetrics(city) {
@@ -2524,6 +2621,163 @@
 
             document.getElementById('compare-loading').style.display = 'none';
             document.getElementById('compare-content').style.display = 'block';
+        }
+
+        // Whole-config region rollup: treat every city as one fiscal entity
+        // and sum element-wise over what Compare already fetched. Honors the
+        // active scope (extractMetrics reads currentScope live) and re-runs on
+        // every scope toggle, so it must be free of one-shot side-effects.
+        function renderAggregate(cityData) {
+            var allMetrics = cityData.map(extractMetrics);
+            var fc = allMetrics.filter(function(m) { return m.hasForecasts && m.baselineYears.length > 0; });
+
+            // Does the region as a whole support both scopes? Drives the
+            // region-wide scope-toggle reveal (maybeRevealScopeToggle).
+            regionHasBothScopes = cityData.some(function(city) {
+                return city.scenarios && city.scenarios.city && city.scenarios.bbox;
+            });
+            maybeRevealScopeToggle();
+
+            // Truncate to the shortest horizon so summed years align and the
+            // headline backlog matches the chart's final plotted point.
+            var minLen = fc.length > 0 ? Math.min.apply(null, fc.map(function(m) { return m.baselineYears.length; })) : 0;
+
+            // Region area sums (every city, forecast or not).
+            var totalRoads = 0, totalParking = 0, totalSidewalks = 0, totalNetwork = 0, totalCityArea = 0;
+            allMetrics.forEach(function(m) {
+                totalRoads += m.roadsAreaLarge; totalParking += m.parkingAreaLarge; totalSidewalks += m.sidewalksAreaLarge;
+                totalNetwork += m.totalAreaLarge; totalCityArea += m.cityAreaLarge;
+            });
+
+            // Dollar + PCI sums over forecast cities only, so the weighted PCI
+            // denominator and the trajectories stay honest.
+            var fcArea = 0, pciWeighted = 0, regionYear1 = 0, regionBacklog = 0;
+            fc.forEach(function(m) {
+                fcArea += m.totalAreaLarge;
+                pciWeighted += (m.baselineYears[0].pci || 0) * m.totalAreaLarge;
+                regionYear1 += m.baselineYears[0].annual_need || 0;
+                regionBacklog += m.baselineYears[minLen - 1] ? (m.baselineYears[minLen - 1].deferred_backlog || 0) : 0;
+            });
+            var weightedPCI = fcArea > 0 ? pciWeighted / fcArea : null;
+            var perArea = fcArea > 0 ? regionYear1 / fcArea : null;
+            var unit = areaLargeUnit();
+            // A config with cities but no computed forecasts (e.g. exported
+            // before `forecast`) has no horizon; drop the "N-Year" prefix and
+            // dash out the forecast-dependent figures rather than show "0-Year".
+            var hasFc = fc.length > 0;
+            var horizon = hasFc ? minLen + '-Year ' : '';
+
+            // Headline cards.
+            function aggCard(label, value, sub) {
+                return '<div class="headline-card"><div class="label">' + label + '</div>' +
+                       '<div class="value">' + value + '</div><div class="sub">' + sub + '</div></div>';
+            }
+            document.getElementById('aggregate-headlines').innerHTML = [
+                aggCard('Total Network Area', fmtNum(totalNetwork) + ' ' + unit, 'Roads + parking + sidewalks across ' + allMetrics.length + ' cities'),
+                aggCard('Paved Share', totalCityArea > 0 ? (totalNetwork / totalCityArea * 100).toFixed(1) + '%' : '—', 'Network area vs. municipal area'),
+                aggCard('Area-Weighted PCI', weightedPCI === null ? '—' : weightedPCI.toFixed(0), 'Baseline condition (simplified single-cohort)'),
+                aggCard('Year-1 Maintenance Need', hasFc ? fmt$(regionYear1) : '—', 'To hold the whole network steady'),
+                aggCard(horizon + 'Deferred Backlog', hasFc ? fmt$(regionBacklog) : '—', hasFc ? 'Unfunded need accumulated by year ' + minLen : 'No forecast data in this region'),
+                aggCard('Year-1 Need / ' + unit, perArea === null ? '—' : '$' + fmtNum(perArea), 'Region maintenance intensity')
+            ].join('');
+
+            // Forecast divergence note: per-city [forecast] can override
+            // horizon, initial PCI, decay, and cost tiers — summed dollars
+            // would then mix cost bases. forecast_seed.json carries all four.
+            var sigs = {};
+            cityData.forEach(function(city, idx) {
+                if (!allMetrics[idx].hasForecasts || !city.seed) return;
+                var s = city.seed;
+                sigs[JSON.stringify([s.initial_pci, s.decay_rate, s.years, s.cost_tiers])] = true;
+            });
+            var noteEl = document.getElementById('aggregate-divergence-note');
+            if (Object.keys(sigs).length > 1) {
+                noteEl.hidden = false;
+                noteEl.textContent = 'Heads up: cities in this region use different forecast settings (horizon, initial PCI, decay, or cost tiers). ' +
+                    'Summed dollars may mix cost bases, and trajectories are truncated to the shortest horizon (' + minLen + ' years).';
+            } else {
+                noteEl.hidden = true;
+            }
+
+            // Dynamic, horizon-derived chart + column titles (never hardcode 20).
+            document.getElementById('agg-cost-title').textContent = 'Region ' + horizon + 'Cost Trajectory';
+            document.getElementById('agg-backlog-title').textContent = 'Region ' + horizon + 'Deferred Backlog';
+            document.getElementById('agg-contrib-backlog-th').textContent = hasFc ? minLen + '-Yr Backlog' : 'Backlog';
+
+            // Element-wise summed trajectories over the aligned horizon.
+            var yearLabels = [], costSeries = [], backlogSeries = [];
+            for (var y = 0; y < minLen; y++) {
+                var needSum = 0, backSum = 0;
+                fc.forEach(function(m) {
+                    needSum += m.baselineYears[y].annual_need || 0;
+                    backSum += m.baselineYears[y].deferred_backlog || 0;
+                });
+                yearLabels.push('Year ' + (y + 1));
+                costSeries.push(needSum);
+                backlogSeries.push(backSum);
+            }
+            var dollarTicks = function(v) { return v >= 1e9 ? '$' + (v / 1e9).toFixed(1) + 'B' : '$' + (v / 1e6).toFixed(0) + 'M'; };
+
+            aggregateCharts.forEach(function(c) { c.destroy(); });
+            aggregateCharts = [];
+
+            aggregateCharts.push(new Chart(document.getElementById('aggregate-cost-chart').getContext('2d'), {
+                type: 'line',
+                data: { labels: yearLabels, datasets: [{ label: 'Region Annual Need', data: costSeries, borderColor: '#3b82f6', backgroundColor: '#3b82f622', fill: true, tension: 0.3, borderWidth: 2.5 }] },
+                options: {
+                    responsive: true,
+                    scales: { y: { beginAtZero: true, title: { display: true, text: 'Annual Need ($)' }, ticks: { callback: dollarTicks } } },
+                    plugins: { verticalCrosshair: false, legend: { display: false }, tooltip: { callbacks: { label: function(c) { return fmt$(c.raw); } } } },
+                    interaction: { mode: 'index', intersect: false }
+                }
+            }));
+
+            aggregateCharts.push(new Chart(document.getElementById('aggregate-backlog-chart').getContext('2d'), {
+                type: 'line',
+                data: { labels: yearLabels, datasets: [{ label: 'Region Deferred Backlog', data: backlogSeries, borderColor: '#d946ef', backgroundColor: '#d946ef22', fill: true, tension: 0.3, borderWidth: 2.5 }] },
+                options: {
+                    responsive: true,
+                    scales: { y: { beginAtZero: true, title: { display: true, text: 'Deferred Backlog ($)' }, ticks: { callback: dollarTicks } } },
+                    plugins: { verticalCrosshair: false, legend: { display: false }, tooltip: { callbacks: { label: function(c) { return fmt$(c.raw); } } } },
+                    interaction: { mode: 'index', intersect: false }
+                }
+            }));
+
+            aggregateCharts.push(new Chart(document.getElementById('aggregate-mix-chart').getContext('2d'), {
+                type: 'doughnut',
+                data: { labels: ['Roads', 'Parking', 'Sidewalks'], datasets: [{ data: [totalRoads, totalParking, totalSidewalks], backgroundColor: ['#6b7280', '#3b82f6', '#f59e0b'] }] },
+                options: {
+                    responsive: true,
+                    plugins: { verticalCrosshair: false, legend: { position: 'top' }, tooltip: { callbacks: { label: function(c) { return c.label + ': ' + fmtNum(c.raw) + ' ' + unit; } } } }
+                }
+            }));
+
+            // Per-city contribution table (inverse lens to Compare's ranking),
+            // sorted by Year-1 need.
+            var sorted = allMetrics.slice().sort(function(a, b) { return (b.year1Need || 0) - (a.year1Need || 0); });
+            document.querySelector('#aggregate-contrib-table tbody').innerHTML = sorted.map(function(m) {
+                var y1 = m.hasForecasts ? m.year1Need : 0;
+                var bk = (m.hasForecasts && m.baselineYears[minLen - 1]) ? (m.baselineYears[minLen - 1].deferred_backlog || 0) : 0;
+                var y1Share = regionYear1 > 0 ? (y1 / regionYear1 * 100).toFixed(1) + '%' : '—';
+                var bkShare = regionBacklog > 0 ? (bk / regionBacklog * 100).toFixed(1) + '%' : '—';
+                var name = m.hasForecasts ? m.name : m.name + ' <span class="lb-note" title="No forecast data">(no forecast)</span>';
+                return '<tr><td>' + name + '</td>' +
+                    '<td class="number">' + fmtNum(m.totalAreaLarge) + ' ' + unit + '</td>' +
+                    '<td class="number">' + (m.hasForecasts ? fmt$(y1) : '—') + '</td>' +
+                    '<td class="number">' + (m.hasForecasts ? y1Share : '—') + '</td>' +
+                    '<td class="number">' + (m.hasForecasts ? fmt$(bk) : '—') + '</td>' +
+                    '<td class="number">' + (m.hasForecasts ? bkShare : '—') + '</td></tr>';
+            }).join('');
+
+            var excluded = allMetrics.length - fc.length;
+            document.getElementById('aggregate-footnote').textContent =
+                'Area-weighted PCI uses each city’s simplified single-cohort baseline condition (scenarios.json), not the cohort-blended decay. ' +
+                'Trajectories sum the baseline (no-intervention) scenario across cities with forecast data' +
+                (excluded > 0 ? ' (' + excluded + ' without forecasts excluded)' : '') +
+                '. Dollars are nominal in the config’s cost basis.';
+
+            document.getElementById('aggregate-loading').style.display = 'none';
+            document.getElementById('aggregate-content').style.display = 'block';
         }
 
         // Load WASM

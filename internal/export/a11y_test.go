@@ -37,6 +37,7 @@ func TestDashboardTablistAria(t *testing.T) {
 		{"map-tab-btn", "map-tab", "true", "0"},
 		{"financials-tab-btn", "financials-tab", "false", "-1"},
 		{"compare-tab-btn", "compare-tab", "false", "-1"},
+		{"aggregate-tab-btn", "aggregate-tab", "false", "-1"},
 		{"config-tab-btn", "config-tab", "false", "-1"},
 		{"about-tab-btn", "about-tab", "false", "-1"},
 	}
