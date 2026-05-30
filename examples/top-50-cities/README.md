@@ -1,9 +1,9 @@
-# city-nerd
+# top-50-cities
 
 The 50 largest US cities by 2025 population, rendered through
-solvent-streets, inspired by Ray Delahanty's
+solvent-streets. Inspired by Ray Delahanty's
 [CityNerd](https://www.youtube.com/@CityNerd) YouTube channel of top-10
-countdowns on American urbanism. This example is **not affiliated with
+countdowns on American urbanism — this example is **not affiliated with
 or endorsed by** CityNerd or Ray Delahanty.
 
 ## Caveat: Cities, not metros
@@ -39,14 +39,14 @@ Retrieved 2026-05-24 from:
 ## Running it
 
 ```
-cd examples/city-nerd
+cd examples/top-50-cities
 pvmt all ingest      # 50 Nominatim + 50 Overpass pulls — expect hours
 pvmt all compute
 pvmt serve           # local dashboard; per-city sub-pages at /cities/<slug>/
 ```
 
 Or, from the repo root, `make site` to publish via `gensite`. The
-example appears on the landing page as "City Nerd".
+example appears on the landing page as "Top 50 Cities".
 
 ## Why coarser hexes on big cities
 

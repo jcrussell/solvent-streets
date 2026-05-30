@@ -43,9 +43,9 @@ func (entry CityEntry) WithSnapshot(snapshotID int64) CityEntry {
 // returned stores are auto-pinned to cfg.Hash() so unpinned reads
 // (ListHexStats, ListCohortStats, ListForecastResults,
 // LatestComputeResult) only see snapshots written by this same config
-// — preventing slug-sharing examples (e.g. austin in both single-city
-// and city-nerd) from reading each other's incompatible hex_id
-// namespace. Callers that legitimately need cross-config reads can
+// — preventing slug-sharing examples (e.g. Livermore in both
+// livermore-ca and the bay-area-ca metro) from reading each other's
+// incompatible hex_id namespace. Callers that legitimately need cross-config reads can
 // call entry.Store.WithConfigHash("") to clear the pin.
 func BuildCityEntries(ctx context.Context, rootDB db.RootStorer, cfg *config.Config, cities []config.CityConfig) ([]CityEntry, error) {
 	configHash := cfg.Hash()

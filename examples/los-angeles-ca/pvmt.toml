@@ -1,7 +1,9 @@
 # Los Angeles area, CA — multi-city with custom cost tiers
 #
-# Demonstrates custom forecast cost tiers for a regional analysis
-# across several LA-area cities. Overpass-only (no ArcGIS).
+# A regional analysis across eight LA-area cities, demonstrating a custom
+# four-tier forecast cost schedule and per-city hex_edge_m overrides for the
+# largest jurisdictions (LA proper at 300 m, Long Beach at 200 m).
+# Overpass-only (no ArcGIS).
 
 config_id = "los-angeles-ca"
 
@@ -47,4 +49,25 @@ overpass = true
 
 [[cities]]
 name = "Pasadena, CA"
+overpass = true
+
+[[cities]]
+name = "Long Beach, CA"
+overpass = true
+hex_edge_m = 200  # second-largest LA-area city (~130 km²)
+
+[[cities]]
+name = "Glendale, CA"
+overpass = true
+
+[[cities]]
+name = "Burbank, CA"
+overpass = true
+
+[[cities]]
+name = "Inglewood, CA"
+overpass = true
+
+[[cities]]
+name = "Torrance, CA"
 overpass = true

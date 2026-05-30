@@ -18,9 +18,9 @@ import (
 //     stored hashes for unchanged TOML files;
 //   - distinct per example — two different pvmt.toml files always
 //     hash differently, which is what fixes the slug-collision case
-//     (e.g. Austin in single-city austin-tx vs city-nerd at different
-//     hex_edge_m) — same city slug, different TOML → different
-//     hashes → distinct snapshots.
+//     (e.g. Livermore in single-city livermore-ca vs the bay-area-ca
+//     metro at different hex_edge_m) — same city slug, different TOML →
+//     different hashes → distinct snapshots.
 //
 // In-memory configs (tests, programmatically-constructed Configs)
 // don't have raw bytes — they fall back to hashing the Go struct's

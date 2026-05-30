@@ -1,7 +1,8 @@
-# City Nerd — the 50 largest US cities by 2025 population.
+# Top 50 US Cities — the 50 largest US cities by 2025 population.
 #
-# A CityNerd-flavored sample inspired by Ray Delahanty's countdowns of
-# American urbanism. CityNerd typically ranks metropolitan areas; this
+# A national sample inspired by Ray Delahanty's CityNerd countdowns of
+# American urbanism (not affiliated with or endorsed by CityNerd). CityNerd
+# typically ranks metropolitan areas; this
 # config ranks *jurisdictional cities* — the entities that actually own
 # the pavement maintenance liability — because that is what
 # solvent-streets ingests (one Nominatim boundary per [[cities]] entry).
@@ -19,11 +20,13 @@
 # Nominatim resolves the city boundary rather than the merged county.
 #
 # To run:
-#   cd examples/city-nerd
+#   cd examples/top-50-cities
 #   pvmt all ingest      # 50 Nominatim + 50 Overpass pulls; takes hours
 #   pvmt all compute
 #   pvmt serve           # or `make site` from the repo root to publish
 
+# Internal DB scoping key. Kept stable across the display rename so the
+# already-ingested 50-city dataset is reused rather than re-fetched.
 config_id = "city-nerd"
 
 [grid]

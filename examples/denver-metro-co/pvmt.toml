@@ -1,0 +1,61 @@
+# Denver Metro, CO — fast-growing Front Range with freeze/thaw climate
+#
+# The Denver metro's high-altitude freeze/thaw cycles accelerate pavement
+# deterioration (higher decay_rate), while the region's rapid population
+# growth expands the road network year over year (positive growth_rate).
+#
+# Techniques demonstrated:
+#   - Climate-tuned decay_rate (0.06) for freeze/thaw.
+#   - growth_rate (0.015) models an expanding network in the forecast.
+#   - boundary_relation_id for Denver, whose admin boundary Nominatim
+#     returns only as a place=city node (see the [[cities]] note below).
+#
+# Overpass-only. Expect ~8 Nominatim + Overpass pulls for `pvmt all ingest`.
+
+config_id = "denver-metro-co"
+
+[grid]
+hex_edge_m = 100
+
+[forecast]
+decay_rate = 0.06
+growth_rate = 0.015
+years = 15
+
+[export]
+title = "Denver Metro Pavement Analysis"
+
+[[cities]]
+name = "Denver, CO"
+overpass = true
+# Nominatim returns a place=city node (Point geometry) for Denver; the
+# admin_level=6 City-and-County boundary lives only as an OSM relation.
+boundary_relation_id = 1411339
+
+[[cities]]
+name = "Aurora, CO"
+overpass = true
+
+[[cities]]
+name = "Lakewood, CO"
+overpass = true
+
+[[cities]]
+name = "Arvada, CO"
+overpass = true
+
+[[cities]]
+name = "Westminster, CO"
+overpass = true
+
+[[cities]]
+name = "Centennial, CO"
+overpass = true
+
+[[cities]]
+name = "Boulder, CO"
+overpass = true
+
+[[cities]]
+name = "Thornton, CO"
+overpass = true

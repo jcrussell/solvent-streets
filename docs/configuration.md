@@ -52,7 +52,7 @@ The web UI and export provide a city switcher when multiple cities are configure
 
 ## Config identity (`config_id`)
 
-`cities` rows in the local database are keyed by `(slug, config_id)`. This separates two configs that happen to define the same city — e.g. `examples/austin-tx/pvmt.toml` and `examples/city-nerd/pvmt.toml` both defining "Austin" — so features, snapshots, and forecasts written under one don't clobber the other.
+`cities` rows in the local database are keyed by `(slug, config_id)`. This separates two configs that happen to define the same city — e.g. `examples/livermore-ca/pvmt.toml` and `examples/bay-area-ca/pvmt.toml` both defining "Livermore, CA" — so features, snapshots, and forecasts written under one don't clobber the other.
 
 `config_id` is optional. When omitted, it defaults to the 16-character sha256 prefix of the config's absolute filesystem path. That default works out of the box for single-config users and disambiguates multi-example setups on a single machine.
 

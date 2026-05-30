@@ -275,10 +275,11 @@ func TestListReads_NullLegacyFallback(t *testing.T) {
 // store is unpinned but tagged with WithConfigHash(H), reads return
 // only rows whose snapshot's config_hash matches H. Two configs
 // writing to the same (city, resource_type) must coexist — the bug
-// this guards against is the slug-sharing case in examples/ (austin
-// in single-city pvmt.toml at 100m vs austin in city-nerd at 150m
-// sharing city_id, where unpinned reads were returning whichever
-// snapshot wrote last and producing incompatible hex_id namespaces).
+// this guards against is the slug-sharing case in examples/ (Livermore
+// in single-city livermore-ca vs Livermore in the bay-area-ca metro at
+// a different hex_edge_m, sharing city_id, where unpinned reads were
+// returning whichever snapshot wrote last and producing incompatible
+// hex_id namespaces).
 //
 // Also pins the pin precedence: WithSnapshot(N) wins over
 // WithConfigHash(H) because it's the more specific request — matches

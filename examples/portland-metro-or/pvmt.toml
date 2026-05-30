@@ -1,0 +1,54 @@
+# Portland Metro, OR — metric-units regional analysis
+#
+# Portland and its westside/eastside suburbs have excellent OSM coverage.
+# This config renders all output in metric units and uses a moderately
+# fine hex grid, with a long 25-year forecast horizon.
+#
+# Techniques demonstrated:
+#   - [display].units = "metric" for metric output everywhere.
+#   - hex_edge_m = 80 (a middle-ground grid resolution).
+#   - A 25-year forecast horizon.
+#
+# Overpass-only. Expect ~7 Nominatim + Overpass pulls for `pvmt all ingest`.
+
+config_id = "portland-metro-or"
+
+[display]
+units = "metric"
+
+[grid]
+hex_edge_m = 80
+
+[forecast]
+years = 25
+
+[export]
+title = "Portland Metro Pavement Analysis"
+
+[[cities]]
+name = "Portland, OR"
+overpass = true
+
+[[cities]]
+name = "Beaverton, OR"
+overpass = true
+
+[[cities]]
+name = "Gresham, OR"
+overpass = true
+
+[[cities]]
+name = "Hillsboro, OR"
+overpass = true
+
+[[cities]]
+name = "Tigard, OR"
+overpass = true
+
+[[cities]]
+name = "Lake Oswego, OR"
+overpass = true
+
+[[cities]]
+name = "Milwaukie, OR"
+overpass = true
