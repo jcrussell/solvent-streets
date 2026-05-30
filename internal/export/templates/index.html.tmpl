@@ -2744,11 +2744,16 @@
             }));
 
             aggregateCharts.push(new Chart(document.getElementById('aggregate-mix-chart').getContext('2d'), {
-                type: 'doughnut',
-                data: { labels: ['Roads', 'Parking', 'Sidewalks'], datasets: [{ data: [totalRoads, totalParking, totalSidewalks], backgroundColor: ['#6b7280', '#3b82f6', '#f59e0b'] }] },
+                type: 'bar',
+                data: {
+                    labels: ['Roads', 'Parking', 'Sidewalks'],
+                    datasets: [{ label: 'Network area (' + unit + ')', data: [totalRoads, totalParking, totalSidewalks], backgroundColor: ['#6b7280', '#3b82f6', '#f59e0b'] }]
+                },
                 options: {
+                    indexAxis: 'y',
                     responsive: true,
-                    plugins: { verticalCrosshair: false, legend: { position: 'top' }, tooltip: { callbacks: { label: function(c) { return c.label + ': ' + fmtNum(c.raw) + ' ' + unit; } } } }
+                    scales: { x: { beginAtZero: true, title: { display: true, text: 'Network area (' + unit + ')' }, ticks: { callback: function(v) { return fmtNum(v); } } } },
+                    plugins: { verticalCrosshair: false, legend: { display: false }, tooltip: { callbacks: { label: function(c) { return fmtNum(c.raw) + ' ' + unit; } } } }
                 }
             }));
 
