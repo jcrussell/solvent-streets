@@ -8,11 +8,13 @@ type stitchInput struct {
 	coords [][2]float64
 }
 
-// stitchRings chains open ways into closed rings by matching endpoints.
-// Ways that cannot be closed are dropped and their ids returned in
-// dropped. Each input way is consumed at most once. Time complexity is
-// O(n²) in the number of ways, which is fine for the dozens-of-segments-
-// per-relation scale of OSM water polygons and admin boundaries.
+// stitchRings chains open ways into closed rings by matching endpoints
+// exactly, extending only at the ring's tail. Ways that cannot be closed
+// are dropped and their ids returned in dropped. Each input way is consumed
+// at most once. Time complexity is O(n²) in the number of ways, which is
+// fine for the dozens-of-segments-per-relation scale of OSM water polygons.
+// Water/coastline stitching uses this exact, tail-only variant; admin
+// boundaries use stitchRingsBidi.
 func stitchRings(ways []stitchInput) (rings [][][2]float64, dropped []int64) {
 	used := make([]bool, len(ways))
 
@@ -42,6 +44,100 @@ func stitchRings(ways []stitchInput) (rings [][][2]float64, dropped []int64) {
 		}
 	}
 	return rings, dropped
+}
+
+// stitchRingsBidi chains open ways into closed rings, matching each candidate
+// way against BOTH ends of the growing chain (prepending or appending, with
+// reversal as needed). OSM relations whose member ways are not consistently
+// oriented — e.g. Denver's admin boundary, relation 1411339 — dead-end the
+// tail-only stitchRings and lose the whole ring; a correct ring walk must be
+// able to grow in either direction.
+//
+// It additionally snaps a fully-assembled but not-quite-closed chain shut when
+// its two ends lie within boundaryCloseTolDeg (Euclidean lon/lat degrees): OSM
+// admin boundaries frequently have a sub-~100 m gap where two adjacent member
+// ways fail to share an exact node. Tolerance only ever closes a chain against
+// its OWN endpoints, so distinct rings stay distinct and a chain with a large
+// gap still drops.
+func stitchRingsBidi(ways []stitchInput) (rings [][][2]float64, dropped []int64) {
+	used := make([]bool, len(ways))
+
+	for i := range ways {
+		if used[i] || len(ways[i].coords) < 2 {
+			continue
+		}
+		used[i] = true
+		ring := append([][2]float64{}, ways[i].coords...)
+		consumed := []int{i}
+
+		for ring[0] != ring[len(ring)-1] {
+			grew, next, idx := growRing(ring, ways, used)
+			if !grew {
+				break
+			}
+			ring = next
+			consumed = append(consumed, idx)
+		}
+
+		if !isClosedRing(ring) && len(ring) >= 4 &&
+			sqDistDeg(ring[0], ring[len(ring)-1]) <= boundaryCloseTolDeg*boundaryCloseTolDeg {
+			ring = append(ring, ring[0])
+		}
+
+		if isClosedRing(ring) {
+			rings = append(rings, ring)
+		} else {
+			for _, c := range consumed {
+				dropped = append(dropped, ways[c].id)
+			}
+		}
+	}
+	return rings, dropped
+}
+
+// growRing splices the first unused way that connects to EITHER end of ring
+// onto that end (reversing the way when its orientation requires it), marks it
+// used, and returns the extended ring. Returns (false, ring, -1) when no way
+// connects to either end.
+func growRing(ring [][2]float64, ways []stitchInput, used []bool) (bool, [][2]float64, int) {
+	head, tail := ring[0], ring[len(ring)-1]
+	for j := range ways {
+		if used[j] || len(ways[j].coords) < 2 {
+			continue
+		}
+		w := ways[j].coords
+		last := len(w) - 1
+		switch {
+		case tail == w[0]: // append forward, dropping the shared node
+			ring = append(ring, w[1:]...)
+		case tail == w[last]: // append reversed
+			for k := last - 1; k >= 0; k-- {
+				ring = append(ring, w[k])
+			}
+		case head == w[last]: // prepend forward, dropping the shared node
+			ring = append(append([][2]float64{}, w[:last]...), ring...)
+		case head == w[0]: // prepend reversed
+			rev := make([][2]float64, 0, last)
+			for k := last; k >= 1; k-- {
+				rev = append(rev, w[k])
+			}
+			ring = append(rev, ring...)
+		default:
+			continue
+		}
+		used[j] = true
+		return true, ring, j
+	}
+	return false, ring, -1
+}
+
+// sqDistDeg is the squared Euclidean distance between two lon/lat points in
+// degrees. Used only to test a small closure tolerance, where the planar
+// approximation is more than adequate.
+func sqDistDeg(a, b [2]float64) float64 {
+	dx := a[0] - b[0]
+	dy := a[1] - b[1]
+	return dx*dx + dy*dy
 }
 
 // extendRing finds an unused way whose endpoint matches ring's tail and

@@ -56,6 +56,34 @@ func TestFetchCityBoundaryFromRelation_AlbuquerqueFixture(t *testing.T) {
 	}
 }
 
+// TestFetchCityBoundaryFromRelation_DenverFixture exercises the real
+// Denver (R1411339) Overpass payload. Denver's admin boundary has
+// inconsistently-oriented member ways (which dead-end the exact tail-only
+// stitcher) AND a ~10 m closure gap where two adjacent ways don't share a
+// node — so it requires BOTH the bidirectional walk and tolerant closure.
+// Before that fix this returned ErrBoundaryRelationNotFound; this test
+// locks in the recovery on real OSM data.
+func TestFetchCityBoundaryFromRelation_DenverFixture(t *testing.T) {
+	data, err := os.ReadFile("testdata/denver_relation.json")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	srv := overpassTestServer(t, string(data))
+	t.Cleanup(srv.Close)
+
+	result, err := fetchCityBoundaryFromRelation(context.Background(), srv.Client(), srv.URL, 1411339)
+	if err != nil {
+		t.Fatalf("fetch failed: %v", err)
+	}
+	if !strings.HasPrefix(result, `{"type":"MultiPolygon","coordinates":[[`) {
+		t.Errorf("expected MultiPolygon GeoJSON, got prefix: %.80s", result)
+	}
+	// Denver's bbox is roughly lon -105.11..-104.60, lat 39.61..39.91.
+	if !strings.Contains(result, "-104.") || !strings.Contains(result, "-105.") {
+		t.Errorf("expected Denver-area longitudes in output, got: %.200s", result)
+	}
+}
+
 // TestFetchCityBoundaryFromRelation_InvalidID rejects non-positive
 // relation IDs without an HTTP call.
 func TestFetchCityBoundaryFromRelation_InvalidID(t *testing.T) {

@@ -151,6 +151,9 @@ overpass = true
 [[cities]]
 name = "Denver, CO"
 overpass = true
+# Nominatim returns a place=city node (Point geometry) for Denver; the
+# admin_level=6 City-and-County boundary lives only as an OSM relation.
+boundary_relation_id = 1411339
 # 740,613 residents
 
 # 20.

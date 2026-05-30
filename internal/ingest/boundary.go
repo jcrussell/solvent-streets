@@ -31,6 +31,15 @@ var (
 // passing a parent admin relation's id.
 const boundaryRelationMaxSpanDeg = 5.0
 
+// boundaryCloseTolDeg snaps a near-closed outer/inner ring shut when its
+// two ends fall within this lon/lat distance (~100 m at mid-latitudes).
+// OSM admin boundaries routinely have a sub-100 m gap where two adjacent
+// member ways don't share an exact node (e.g. Denver, relation 1411339,
+// whose ~10 m closure gap otherwise drops the entire ring). Real boundary
+// openings are far larger, and tolerant closure never merges distinct
+// chains, so this only recovers genuine near-misses.
+const boundaryCloseTolDeg = 1e-3
+
 // FetchCityBoundaryFromRelation fetches an OSM admin boundary relation
 // by ID via Overpass and returns its (Multi)Polygon as a GeoJSON
 // string. Use this when Nominatim's search-by-name path fails to
@@ -88,7 +97,10 @@ func fetchCityBoundaryFromRelation(ctx context.Context, client *http.Client, bas
 	// — admin boundaries can legitimately cover the full query bbox.
 	// The returned waterPolygon type is a shared shape (outer +
 	// holes); the name is a historical artifact, not water-specific.
-	polys := relationToPolygons(ctx, *rel, nil)
+	// Admin boundaries use the bidirectional stitcher with tolerant closure:
+	// member ways are often inconsistently oriented and have sub-~100 m
+	// closure gaps (e.g. Denver, relation 1411339).
+	polys := relationToPolygons(ctx, *rel, stitchRingsBidi, nil)
 	if len(polys) == 0 {
 		return "", fmt.Errorf("%w: id=%d", ErrBoundaryRelationNotFound, relationID)
 	}

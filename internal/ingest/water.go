@@ -309,7 +309,7 @@ func bboxLonLatArea(bbox [4]float64) float64 {
 // The returned slice uses waterPolygon as a shared shape; the name is
 // a historical artifact of where the type was first defined. The
 // fields (outer + holes) are equally accurate for any OSM polygon.
-func relationToPolygons(ctx context.Context, e overpassElement, acceptOuter func([][2]float64) bool) []waterPolygon {
+func relationToPolygons(ctx context.Context, e overpassElement, stitch func([]stitchInput) ([][][2]float64, []int64), acceptOuter func([][2]float64) bool) []waterPolygon {
 	var outerWays, innerWays []stitchInput
 	for _, m := range e.Members {
 		if m.Type != elementWay || len(m.Geometry) < 2 {
@@ -331,8 +331,8 @@ func relationToPolygons(ctx context.Context, e overpassElement, acceptOuter func
 		}
 	}
 
-	outerRings, droppedOuter := stitchRings(outerWays)
-	innerRings, droppedInner := stitchRings(innerWays)
+	outerRings, droppedOuter := stitch(outerWays)
+	innerRings, droppedInner := stitch(innerWays)
 	if len(droppedOuter) > 0 || len(droppedInner) > 0 {
 		logs.From(ctx).Warn("relation: dropped unclosed member ways",
 			"relation", e.ID,
@@ -367,7 +367,10 @@ func relationToPolygons(ctx context.Context, e overpassElement, acceptOuter func
 }
 
 func polygonsFromRelation(ctx context.Context, e overpassElement, bboxArea float64) []waterPolygon {
-	return relationToPolygons(ctx, e, func(outer [][2]float64) bool {
+	// Water/coastline stitching uses the exact, tail-only stitcher: its
+	// thresholds are calibrated against real coastlines and a tolerant
+	// snap could merge a near-miss that should stay open.
+	return relationToPolygons(ctx, e, stitchRings, func(outer [][2]float64) bool {
 		ok, reason := acceptWaterPolygon(outer, bboxArea)
 		if !ok {
 			logs.From(ctx).Warn("water relation: rejected outer ring",
