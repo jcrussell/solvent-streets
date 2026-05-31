@@ -97,7 +97,7 @@ help:
 SITE_DIR := site
 
 site: wasm
-	go run ./cmd/gensite -o $(SITE_DIR)
+	go run -ldflags "$(LDFLAGS)" ./cmd/gensite -o $(SITE_DIR)
 
 site-clean:
 	rm -rf $(SITE_DIR)
