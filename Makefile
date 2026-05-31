@@ -91,7 +91,7 @@ help:
 	@echo "  wasm          rebuild forecast WASM (embedded into binary)"
 	@echo "  gendocs       regenerate docs/reference/ from cobra"
 	@echo "  site          render full static site to \$$SITE_DIR"
-	@echo "  deploy        push site to gh-pages branch"
+	@echo "  deploy        push existing \$$SITE_DIR to gh-pages (run 'make site' first)"
 	@echo "  clean         remove build outputs"
 
 SITE_DIR := site
@@ -102,9 +102,12 @@ site: wasm
 site-clean:
 	rm -rf $(SITE_DIR)
 
-deploy: site
+deploy:
 	@if [ "$(SITE_DIR)" = "." ] || [ "$(SITE_DIR)" = ".." ] || [ "$(SITE_DIR)" = "/" ]; then \
 		echo "ERROR: SITE_DIR must not be '.', '..', or '/'"; exit 1; \
+	fi
+	@if [ ! -d "$(SITE_DIR)" ]; then \
+		echo "ERROR: $(SITE_DIR)/ does not exist — run 'make site' first"; exit 1; \
 	fi
 	@cd $(SITE_DIR) && \
 		git init -q && \
