@@ -73,6 +73,16 @@ type ForecastExport struct {
 	Baseline     forecast.ScenarioResult   `json:"baseline"`
 	BboxBaseline *forecast.ScenarioResult  `json:"bbox_baseline,omitempty"` // full-bbox scope (shown when "All Roads" is toggled)
 	Scenarios    []forecast.ScenarioResult `json:"scenarios"`
+
+	// Solvency metrics — populated for the roads resource only (the blended
+	// scenarios mis-price sidewalks at road tiers, so an advocacy headline
+	// must be roads-only). BreakEvenBudget is always computed for roads;
+	// InsolvencyYear and FundingGap require a configured current_budget and
+	// are nil otherwise. See buildResourceForecast and the methodology doc.
+	InsolvencyYear  *int     `json:"insolvency_year"`             // nil = solvent through horizon, or no budget configured
+	BreakEvenBudget float64  `json:"break_even_budget,omitempty"` // smallest constant annual budget that holds the network steady
+	CurrentBudget   float64  `json:"current_budget,omitempty"`    // the configured budget the metrics are measured against (0 = unset)
+	FundingGap      *float64 `json:"funding_gap"`                 // (break_even - current)/current; nil = no budget configured
 }
 
 // errSkipResource sentinel: a resource has no compute run yet (or returned
@@ -170,6 +180,25 @@ func buildResourceForecast(rt resource.Source, fc *config.ForecastConfig, costTi
 	if hasCityScope {
 		bboxBaseline := forecast.Simulate(doNothing, bboxCohorts, years, rtParams)
 		fe.BboxBaseline = &bboxBaseline
+	}
+
+	// Roads-only solvency metrics. Computed on primaryCohorts (city-scope when
+	// available — what a city budget covers). Break-even is budget-independent;
+	// insolvency year and funding gap need a configured current_budget.
+	if t == resource.TypeRoads {
+		fe.BreakEvenBudget = forecast.BreakEvenBudget(primaryCohorts, years, rtParams, forecast.StrategyWorstFirst)
+		if fc.CurrentBudget > 0 {
+			fe.CurrentBudget = fc.CurrentBudget
+			currentRun := forecast.Simulate(
+				forecast.Scenario{Name: "current-budget", Label: "Current Budget", AnnualBudget: fc.CurrentBudget, Strategy: forecast.StrategyWorstFirst},
+				primaryCohorts, years, rtParams,
+			)
+			if yr, ok := forecast.InsolvencyYear(currentRun); ok {
+				fe.InsolvencyYear = &yr
+			}
+			gap := forecast.FundingGap(fe.BreakEvenBudget, fc.CurrentBudget)
+			fe.FundingGap = &gap
+		}
 	}
 	return fe, nil
 }

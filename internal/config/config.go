@@ -137,6 +137,14 @@ type ForecastConfig struct {
 	GrowthRate float64       `toml:"growth_rate"` // annual pavement growth rate (0.01 = 1%)
 	Years      int           `toml:"years"`       // forecast horizon, default 20
 	CostTiers  []CostTierCfg `toml:"cost_tiers"`  // custom cost tiers
+	// CurrentBudget is the city's annual pavement-repair budget in
+	// dollars, used by the solvency export (insolvency year, break-even,
+	// funding gap). A value type, NOT *float64: a pointer breaks the
+	// deterministic Config.Hash() reflection fallback (hash.go). 0 means
+	// "not provided" — no real city budgets a literal $0 — and disables
+	// the budget-dependent metrics for that city. Must be a cited figure
+	// in shipped examples (the site makes dollar claims about named cities).
+	CurrentBudget float64 `toml:"current_budget,omitempty"`
 }
 
 // Validate rejects obviously-wrong forecast inputs at config-load time
@@ -156,6 +164,9 @@ func (fc *ForecastConfig) Validate() error {
 	}
 	if fc.Years < 0 {
 		return fmt.Errorf("forecast.years %d must be non-negative", fc.Years)
+	}
+	if fc.CurrentBudget < 0 {
+		return fmt.Errorf("forecast.current_budget %g must be non-negative", fc.CurrentBudget)
 	}
 	return nil
 }

@@ -93,6 +93,57 @@ where `g` is configured per city (default zero). This lets an example
 model a city that is still expanding its street network; it does not
 model demolition or removal.
 
+### Solvency metrics (streets/roads only)
+
+The dashboard's Financials headline and the cross-city leaderboard report
+three solvency figures. They are computed on the **roads/streets** cohort
+only — the aggregate scenarios blend roads, parking, and sidewalks but
+cost the blend at road tiers, which would mis-price sidewalks, so an
+absolute dollar claim must be roads-only. They are derived from a
+**worst-first** run at the city's configured annual budget.
+
+- **Insolvency year** — the first forecast year in which the cumulative
+  deferred backlog reaches **one full year of network-treatment need**
+  (the year-1 need: the cost to treat the entire network once). Because
+  the deferred backlog is a monotonically non-decreasing accumulator (see
+  below), once a city is a whole network-treatment behind it does not
+  recover within the model, so this is the "unrecoverable" threshold. A
+  city whose backlog never reaches it is reported as *solvent through the
+  horizon*. This is deliberately **not** "the first year need exceeds
+  spend": year-1 need is the cost to treat the entire network, far above
+  any real budget, so that test trips in year 1 for virtually every city
+  and cannot distinguish a slightly-underfunded city from a badly-
+  underfunded one. Reported only when a current budget is configured.
+
+- **Hold-steady (break-even) budget** — the smallest constant annual
+  budget whose **final** deferred backlog is within a small relative
+  tolerance (a fraction of year-1 need) of zero. Found by bisection over
+  budget; the search's upper bound is the peak do-nothing annual need
+  over the horizon, which is sufficient to fully fund every year.
+
+- **Funding gap** — `(break-even − current budget) / current budget`,
+  the primary cross-city ranking metric. Negative when a city already
+  budgets at or above its hold-steady level. Reported only when a current
+  budget is configured.
+
+Three caveats apply to these figures specifically:
+
+- The **deferred backlog is cumulative unmet need, not a recoverable
+  balance.** It only ever grows; spending in a later year reduces *new*
+  need but never pays down backlog already accrued. Read it as "total
+  treatment value foregone to date," not as a debt that can be cleared.
+- In the years **before** the insolvency crossing, the reported
+  `annual_spend` series can **exceed the configured budget**. The
+  allocator routes leftover budget on a fully-funded cohort into extra
+  PCI recovery (a surplus branch), and that extra is counted as spend.
+  So an `annual_spend` above `current_budget` in early years is expected,
+  not an error.
+- Break-even assumes the cost-versus-PCI relationship is **monotone**
+  (true for the default cost tiers: worse pavement costs more to treat).
+  A pathological custom `cost_tiers` curve that violates this could make
+  the bisection **overstate** the break-even budget — a conservative
+  direction (it never understates the gap).
+
 ### Assumptions and limitations
 
 - Initial PCI is a user-chosen stand-in, not a field measurement.

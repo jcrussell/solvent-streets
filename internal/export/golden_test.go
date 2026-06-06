@@ -65,6 +65,49 @@ func TestScenariosJSON_Golden(t *testing.T) {
 	}
 }
 
+// TestForecastJSON_Golden pins the per-resource forecast.json contract,
+// including the roads-only solvency metrics (insolvency_year,
+// break_even_budget, current_budget, funding_gap) consumed by the dashboard's
+// Financials headline and the cross-city leaderboard. forecast.json had no
+// golden before the solvency build; this closes that coverage gap. The fixture
+// is fully deterministic (same hand-picked compute results and frozen
+// ForecastConfig as the scenarios golden), and goldenForecastConfig sets a
+// nonzero CurrentBudget so the budget-dependent fields are exercised.
+func TestForecastJSON_Golden(t *testing.T) {
+	entry := goldenFixtureEntry(t)
+	fc := goldenForecastConfig()
+
+	got, err := BuildForecastsForCity(context.Background(), entry, &fc, ConvertCostTiers(&fc))
+	if err != nil {
+		t.Fatalf("BuildForecastsForCity: %v", err)
+	}
+	gotBytes, err := json.MarshalIndent(got, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	gotBytes = append(gotBytes, '\n')
+
+	goldenPath := filepath.Join("testdata", "golden", "forecast.json")
+	if *update {
+		if err := os.MkdirAll(filepath.Dir(goldenPath), 0o755); err != nil {
+			t.Fatalf("mkdir golden: %v", err)
+		}
+		if err := os.WriteFile(goldenPath, gotBytes, 0o644); err != nil {
+			t.Fatalf("write golden: %v", err)
+		}
+		t.Logf("updated %s", goldenPath)
+		return
+	}
+
+	wantBytes, err := os.ReadFile(goldenPath)
+	if err != nil {
+		t.Fatalf("read golden (run with -update to create): %v", err)
+	}
+	if diff := cmp.Diff(string(wantBytes), string(gotBytes)); diff != "" {
+		t.Errorf("forecast.json mismatch (-want +got):\n%s", diff)
+	}
+}
+
 // goldenFixtureEntry builds a deterministic CityEntry: hand-picked compute
 // results per resource, both bbox and :city scopes, so BuildScenariosData
 // exercises the dual-scope branch (out["city"] and out["bbox"] both set).
@@ -104,6 +147,12 @@ func goldenForecastConfig() config.ForecastConfig {
 		InitialPCI: 85,
 		DecayRate:  1.5,
 		GrowthRate: 0.01,
+		// Nonzero so the roads solvency metrics (insolvency_year,
+		// break_even_budget, current_budget, funding_gap) in forecast.json
+		// serialize to real values — the forecast.json golden covers nothing
+		// otherwise. BuildScenariosData ignores CurrentBudget, so scenarios.json
+		// is unaffected.
+		CurrentBudget: 20_000_000,
 		CostTiers: []config.CostTierCfg{
 			{MinPCI: 70, MaxPCI: 100, CostPerSqM: 2.0, Label: "preventive"},
 			{MinPCI: 50, MaxPCI: 70, CostPerSqM: 12.0, Label: "rehab"},
@@ -128,5 +177,28 @@ func TestResolvedTOML_StripsConfigID(t *testing.T) {
 	}
 	if strings.Contains(out, "secret-host-hash") {
 		t.Errorf("ResolvedTOML output leaked ConfigID value.\nOutput:\n%s", out)
+	}
+}
+
+// TestResolvedTOML_StripsZeroCurrentBudget guards the Config tab against a
+// fabricated `current_budget = 0.0` for uncalibrated cities. current_budget
+// uses 0 as a "not provided" sentinel and BurntSushi emits zero floats
+// (its isEmpty has no float case), so the encoded TOML must be stripped.
+// A configured budget must still survive.
+func TestResolvedTOML_StripsZeroCurrentBudget(t *testing.T) {
+	uncalibrated := &config.Config{
+		Cities: []config.CityConfig{{Name: "Nowhere", Forecast: &config.ForecastConfig{}}},
+	}
+	if out := ResolvedTOML(uncalibrated); strings.Contains(out, "current_budget") {
+		t.Errorf("ResolvedTOML leaked a zero current_budget for an uncalibrated config:\n%s", out)
+	}
+
+	calibrated := &config.Config{
+		Forecast: config.ForecastConfig{CurrentBudget: 4_850_000},
+		Cities:   []config.CityConfig{{Name: "Somewhere"}},
+	}
+	out := ResolvedTOML(calibrated)
+	if !strings.Contains(out, "current_budget") {
+		t.Errorf("ResolvedTOML dropped a configured current_budget:\n%s", out)
 	}
 }

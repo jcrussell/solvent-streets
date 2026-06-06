@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 
@@ -327,7 +329,29 @@ func ResolvedTOML(cfg *config.Config) string {
 	if err := enc.Encode(resolved); err != nil {
 		return "# error encoding config"
 	}
-	return buf.String()
+	return stripZeroCurrentBudget(buf.String())
+}
+
+// stripZeroCurrentBudget removes `current_budget = 0.0` lines from encoded
+// TOML. current_budget uses 0 as a "not provided" sentinel, but BurntSushi's
+// isEmpty (encode.go) has no float case, so the `,omitempty` tag is decorative
+// — a zero value is always emitted. Removing it here keeps the published Config
+// tab from showing a fabricated $0 budget for uncalibrated cities. Operating on
+// the encoded text (rather than zeroing struct fields) also covers the per-city
+// [[cities.forecast]] blocks without mutating the caller's shared *ForecastConfig
+// pointers, which `resolved := *cfg` aliases.
+func stripZeroCurrentBudget(s string) string {
+	lines := strings.Split(s, "\n")
+	out := lines[:0]
+	for _, ln := range lines {
+		if key, val, ok := strings.Cut(ln, "="); ok && strings.TrimSpace(key) == "current_budget" {
+			if f, err := strconv.ParseFloat(strings.TrimSpace(val), 64); err == nil && f == 0 {
+				continue
+			}
+		}
+		out = append(out, ln)
+	}
+	return strings.Join(out, "\n")
 }
 
 func (e *Exporter) writeWasmAssets(dir string) error {

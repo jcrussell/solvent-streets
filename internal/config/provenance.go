@@ -127,11 +127,12 @@ func (c *Config) resolveHexEdgeForCity(city *CityConfig) (float64, Source) {
 // forecastProvenance records a source label for each resolved forecast
 // field. Every field is populated after resolveForecast returns.
 type forecastProvenance struct {
-	InitialPCI Source
-	DecayRate  Source
-	GrowthRate Source
-	Years      Source
-	CostTiers  Source
+	InitialPCI    Source
+	DecayRate     Source
+	GrowthRate    Source
+	Years         Source
+	CostTiers     Source
+	CurrentBudget Source
 }
 
 // resolveForecast returns the merged forecast config (env > city > file >
@@ -167,6 +168,9 @@ func fileForecastProv(fc *ForecastConfig) forecastProvenance {
 	if len(fc.CostTiers) > 0 {
 		p.CostTiers = Source{Kind: SourceFile, Detail: "forecast.cost_tiers"}
 	}
+	if fc.CurrentBudget > 0 {
+		p.CurrentBudget = Source{Kind: SourceFile, Detail: "forecast.current_budget"}
+	}
 	return p
 }
 
@@ -195,6 +199,10 @@ func applyCityForecastProv(fc *ForecastConfig, p *forecastProvenance, city *City
 	if len(ov.CostTiers) > 0 {
 		fc.CostTiers = ov.CostTiers
 		p.CostTiers = Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].forecast.cost_tiers", slug)}
+	}
+	if ov.CurrentBudget > 0 {
+		fc.CurrentBudget = ov.CurrentBudget
+		p.CurrentBudget = Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].forecast.current_budget", slug)}
 	}
 }
 
@@ -227,6 +235,9 @@ func applyDefaultForecastProv(fc *ForecastConfig, p *forecastProvenance) {
 	if (p.CostTiers == Source{}) {
 		p.CostTiers = Source{Kind: SourceDefault}
 	}
+	if (p.CurrentBudget == Source{}) {
+		p.CurrentBudget = Source{Kind: SourceDefault}
+	}
 }
 
 // Resolve returns the layered config fields with their resolved values
@@ -258,6 +269,11 @@ func (c *Config) Resolve(flagUnits string) []ResolvedField {
 		ResolvedField{Key: "forecast.initial_pci", Value: fc.InitialPCI, Source: fprov.InitialPCI},
 		ResolvedField{Key: "forecast.years", Value: fc.Years, Source: fprov.Years},
 	)
+	// current_budget is emitted only when configured (>0); uncalibrated
+	// configs omit it rather than reporting a fabricated $0.
+	if fc.CurrentBudget > 0 {
+		fields = append(fields, ResolvedField{Key: "forecast.current_budget", Value: fc.CurrentBudget, Source: fprov.CurrentBudget})
+	}
 
 	for i := range c.Cities {
 		city := &c.Cities[i]
@@ -284,6 +300,13 @@ func (c *Config) Resolve(flagUnits string) []ResolvedField {
 				Key:    fmt.Sprintf("cities[%s].forecast.years", slug),
 				Value:  city.Forecast.Years,
 				Source: Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].forecast.years", slug)},
+			})
+		}
+		if city.Forecast.CurrentBudget > 0 {
+			fields = append(fields, ResolvedField{
+				Key:    fmt.Sprintf("cities[%s].forecast.current_budget", slug),
+				Value:  city.Forecast.CurrentBudget,
+				Source: Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].forecast.current_budget", slug)},
 			})
 		}
 	}

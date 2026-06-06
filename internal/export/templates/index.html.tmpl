@@ -237,6 +237,17 @@
             line-height: 1;
         }
         .gear-menu .theme-toggle:hover { border-color: var(--text); }
+        .solvency-headline {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-left: 4px solid var(--accent);
+            border-radius: 8px;
+            padding: 20px 24px;
+            margin-bottom: 24px;
+        }
+        .solvency-headline .lead { font-size: 20px; font-weight: 700; color: var(--text-strong); line-height: 1.4; }
+        .solvency-headline .lead .num { color: var(--accent); }
+        .solvency-headline .detail { font-size: 14px; color: var(--text-muted); margin-top: 8px; }
         .headlines { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 32px; }
         .headline-card {
             background: var(--panel);
@@ -677,6 +688,7 @@
 
     <div id="financials-tab" class="tab-content" role="tabpanel" aria-labelledby="financials-tab-btn">
         <div class="financials">
+            <div class="solvency-headline" id="solvency-headline" style="display:none"></div>
             <div class="headlines" id="headlines" style="display:none">
                 <div class="headline-card">
                     <div class="label">Blended End PCI</div>
@@ -1130,6 +1142,7 @@
         }
 
         function fmtCost(n) {
+            if (n >= 1e9) return '$' + (n/1e9).toFixed(2) + 'B';
             if (n >= 1e6) return '$' + (n/1e6).toFixed(1) + 'M';
             if (n >= 1e3) return '$' + (n/1e3).toFixed(0) + 'K';
             return '$' + Math.round(n).toLocaleString();
@@ -1856,6 +1869,13 @@
 
         async function loadFinancials() {
             const prefix = DATA_PREFIX; // snapshot to avoid mid-await mutation
+            // Clear any prior city's solvency headline up front. forecastData is
+            // only reassigned on a successful forecast.json load below, so
+            // without this an early return (no scenarios) or a failed
+            // forecast.json fetch would leave the previous city's metrics on
+            // screen — a wrong dollar claim under the new city's name.
+            forecastData = null;
+            renderSolvencyHeadline();
             scenarioData = await loadJSON(dataURL(prefix, 'scenarios.json'));
             if (!scenarioData) {
                 document.getElementById('charts').innerHTML = '<div class="no-data">No financial data available. Run <code>pvmt forecast</code> and <code>pvmt export</code> first.</div>';
@@ -1905,6 +1925,7 @@
             {
                 const f = await loadJSON(dataURL(prefix, 'forecast.json'));
                 if (f) forecastData = f;
+                renderSolvencyHeadline();
             }
         }
 
@@ -1930,6 +1951,56 @@
             })();
             const reveal = (haveCity && haveBbox) || (aggActive && regionHasBothScopes);
             document.getElementById('gear-scope-row').hidden = !reveal;
+        }
+
+        // Resolve the display name of the city currently in view from
+        // DATA_PREFIX (cities/<slug>/). Falls back gracefully for single-city
+        // exports or an unmatched slug.
+        function currentCityName() {
+            var slug = DATA_PREFIX.replace(/^cities\//, '').replace(/\/$/, '');
+            var c = (typeof CITIES !== 'undefined') ? CITIES.find(function(c) { return c.slug === slug; }) : null;
+            if (c) return c.name;
+            if (typeof CITIES !== 'undefined' && CITIES.length > 0) return CITIES[0].name;
+            return 'This city';
+        }
+
+        // Render the roads-only solvency headline above the Financials charts
+        // from the per-city forecast.json (the selected city's forecastData).
+        // Break-even is always shown; the insolvency year and funding gap are
+        // shown only when a current_budget is configured (cited). Metrics are
+        // roads-only and labeled as such, so they don't read as whole-network.
+        function renderSolvencyHeadline() {
+            var el = document.getElementById('solvency-headline');
+            if (!el) return;
+            var roads = forecastData ? forecastData.find(function(f) { return f.resource_type === 'roads'; }) : null;
+            if (!roads || !(roads.break_even_budget > 0)) {
+                el.style.display = 'none';
+                return;
+            }
+            var name = currentCityName();
+            var breakEven = roads.break_even_budget;
+            var lead, detail;
+            var hasBudget = roads.current_budget > 0;
+            if (hasBudget) {
+                var gapDollars = breakEven - roads.current_budget;
+                if (roads.insolvency_year) {
+                    // Forecast year 1 == the current calendar year.
+                    var crossYear = new Date().getFullYear() + roads.insolvency_year - 1;
+                    lead = 'At current funding, ' + name + '’s street-repair backlog passes one full year of treatment need by <span class="num">' + crossYear + '</span> (year ' + roads.insolvency_year + ').';
+                } else {
+                    lead = 'At current funding, ' + name + '’s streets stay solvent through the forecast horizon.';
+                }
+                if (gapDollars > 0) {
+                    detail = 'Holding the network steady would take <strong>' + fmtCost(breakEven) + '/yr</strong> — <strong>' + fmtCost(gapDollars) + ' more</strong> than today’s ' + fmtCost(roads.current_budget) + ' (streets/roads only).';
+                } else {
+                    detail = 'Today’s ' + fmtCost(roads.current_budget) + '/yr is at or above the ' + fmtCost(breakEven) + '/yr needed to hold the network steady (streets/roads only).';
+                }
+            } else {
+                lead = 'Holding ' + name + '’s streets steady would take <span class="num">' + fmtCost(breakEven) + '/yr</span> (streets/roads only).';
+                detail = 'No current budget configured for this city, so the funding gap and insolvency year aren’t shown. Set <code>forecast.current_budget</code> (cited) to see them.';
+            }
+            el.innerHTML = '<div class="lead">' + lead + '</div><div class="detail">' + detail + '</div>';
+            el.style.display = 'block';
         }
 
         // Render the cohort breakdown from the scope-appropriate forecast
@@ -2274,12 +2345,13 @@
             if (!allCityDataPromise) {
                 allCityDataPromise = Promise.all(CITIES.map(async function(city) {
                     var prefix = 'cities/' + city.slug + '/';
-                    const [meta, scenarios, seed] = await Promise.all([
+                    const [meta, scenarios, seed, forecast] = await Promise.all([
                         loadJSON(prefix + 'data/meta.json'),
                         loadJSON(prefix + 'data/scenarios.json'),
-                        loadJSON(prefix + 'data/forecast_seed.json')
+                        loadJSON(prefix + 'data/forecast_seed.json'),
+                        loadJSON(prefix + 'data/forecast.json')
                     ]);
-                    return { slug: city.slug, name: city.name, meta, scenarios, seed };
+                    return { slug: city.slug, name: city.name, meta, scenarios, seed, forecast };
                 }));
             }
             return allCityDataPromise;
@@ -2379,6 +2451,28 @@
             }
             m.year1PerAreaUnit = m.totalAreaLarge > 0 ? m.year1Need / m.totalAreaLarge : 0;
 
+            // Roads-only solvency metrics from forecast.json (an array of
+            // per-resource ForecastExport — find the roads element). These are
+            // nullable: insolvencyYear/fundingGap are present only for cities
+            // with a configured (cited) current_budget; breakEvenBudget is
+            // present for any city with roads. Leaderboard categories filter on
+            // these so a missing metric never corrupts a sort/bar.
+            m.breakEvenBudget = null; m.insolvencyYear = null; m.fundingGap = null; m.currentBudget = 0;
+            if (city.forecast && city.forecast.find) {
+                var roadsFe = city.forecast.find(function(f) { return f.resource_type === 'roads'; });
+                if (roadsFe) {
+                    if (roadsFe.break_even_budget > 0) m.breakEvenBudget = roadsFe.break_even_budget;
+                    m.currentBudget = roadsFe.current_budget || 0;
+                    if (roadsFe.current_budget > 0) {
+                        // insolvency_year is null when solvent through horizon.
+                        if (roadsFe.insolvency_year) m.insolvencyYear = roadsFe.insolvency_year;
+                        if (roadsFe.funding_gap !== null && roadsFe.funding_gap !== undefined) {
+                            m.fundingGap = roadsFe.funding_gap * 100; // percent
+                        }
+                    }
+                }
+            }
+
             return m;
         }
 
@@ -2456,11 +2550,21 @@
                 { key: 'featureCount', label: 'Total Features Tracked', award: 'Most Detailed', higher: true, fmt: function(v) { return v.toLocaleString(); }, color: '#f59e0b' },
                 { key: 'blendedDecay', label: 'Blended Decay Rate (lower is better)', award: 'Slowest Decay', higher: false, fmt: function(v) { return (v * 100).toFixed(2) + '%/yr'; }, color: '#ef4444' },
                 { key: 'year1PerAreaUnit', label: 'Year 1 Maintenance Cost per ' + areaLargeUnit().charAt(0).toUpperCase() + areaLargeUnit().slice(1), award: 'Most Efficient', higher: false, fmt: function(v) { return '$' + (v >= 1e3 ? (v/1e3).toFixed(1) + 'K' : v.toFixed(0)); }, color: '#ec4899' },
-                { key: 'endBacklog', label: '20-Year Deferred Backlog', award: 'Least Deferred', higher: false, fmt: function(v) { return '$' + (v >= 1e9 ? (v/1e9).toFixed(2) + 'B' : (v/1e6).toFixed(1) + 'M'); }, color: '#d946ef' }
+                { key: 'endBacklog', label: '20-Year Deferred Backlog', award: 'Least Deferred', higher: false, fmt: function(v) { return '$' + (v >= 1e9 ? (v/1e9).toFixed(2) + 'B' : (v/1e6).toFixed(1) + 'M'); }, color: '#d946ef' },
+                // Roads-only solvency metrics. filter excludes cities that lack
+                // the metric (no cited budget / no roads) so a null value never
+                // produces a NaN sort key or a corrupt bar width.
+                { key: 'fundingGap', label: 'Street Funding Gap (roads, lower is better)', award: 'Best Funded', higher: false, filter: function(m) { return m.fundingGap !== null; }, fmt: function(v) { return (v >= 0 ? '+' : '') + v.toFixed(0) + '%'; }, color: '#0ea5e9', note: 'Funding gap = (hold-steady budget − current budget) / current budget, computed on roads/streets only. Shown only for cities with a cited current_budget. Negative means the budget already exceeds the hold-steady level.' },
+                { key: 'insolvencyYear', label: 'Years to Insolvency (roads, higher is better)', award: 'Most Solvent', higher: true, filter: function(m) { return m.insolvencyYear !== null; }, fmt: function(v) { return 'Year ' + v; }, color: '#14b8a6', note: 'Insolvency year = the first forecast year a city’s cumulative roads backlog passes one full year of treatment need (unrecoverable). Computed on roads/streets only at the current budget; shown only for cities with a cited current_budget that go insolvent within the horizon. Cities that stay solvent are omitted.' }
             ];
 
             var lbHtml = categories.map(function(cat) {
-                var sorted = allMetrics.slice().sort(function(a, b) {
+                // Restrict to cities that actually have this metric. Without
+                // this, a null/undefined value yields NaN sort keys and bar
+                // widths that corrupt the whole category.
+                var pool = cat.filter ? allMetrics.filter(cat.filter) : allMetrics;
+                if (pool.length === 0) return '';
+                var sorted = pool.slice().sort(function(a, b) {
                     return cat.higher ? (b[cat.key] - a[cat.key]) : (a[cat.key] - b[cat.key]);
                 });
                 var vals = sorted.map(function(m) { return m[cat.key]; });
@@ -2468,7 +2572,11 @@
                 if (maxVal === 0) maxVal = 1;
 
                 var rows = sorted.map(function(m, i) {
-                    var pct = (m[cat.key] / maxVal * 100).toFixed(1);
+                    // Clamp to [0,100]: the funding-gap metric is signed
+                    // (negative when over-funded) and maxVal can be negative if
+                    // every city is over-funded, either of which would produce
+                    // an invalid/overflowing bar width.
+                    var pct = Math.max(0, Math.min(100, m[cat.key] / maxVal * 100)).toFixed(1);
                     var medalIcon = i < 3 && i < medals.length ? medals[i] : (i + 1) + '.';
                     return '<div class="lb-row">' +
                         '<span class="lb-medal">' + medalIcon + '</span>' +
