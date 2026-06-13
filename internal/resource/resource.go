@@ -172,9 +172,20 @@ func cleanFeatureGeometry(f Feature, proj *geo.UTMProjector, inferWidth widthFun
 	}
 }
 
-// validatePolygonOK cleans a polygonal geometry via Buffer(0), returning ok=false
-// on error so call sites stay a single line.
+// validatePolygonOK returns a topologically valid polygonal geometry, returning
+// ok=false on error so call sites stay a single line. geom.Buffer already emits
+// valid polygons, so already-valid input is returned untouched; only when
+// Validate() reports a defect do we pay for a Buffer(0) clean (geo.ValidatePolygon),
+// the documented defense against "side location conflict" precision artifacts.
+//
+// Skipping the Buffer(0) on already-valid input is safe because the downstream
+// hex-phase overlay ops (hexCoverageArea, clipHexToCandidates) recover JTS
+// topology panics into errors and skip the candidate on failure — so a residual
+// precision artifact can at most drop one candidate's contribution, never crash.
 func validatePolygonOK(g geom.Geometry) (geom.Geometry, bool) {
+	if g.Validate() == nil {
+		return g, true
+	}
 	cleaned, err := geo.ValidatePolygon(g)
 	if err != nil {
 		return geom.Geometry{}, false
