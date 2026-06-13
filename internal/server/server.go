@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 
 type Server struct {
 	cities    []export.CityEntry
+	host      string
 	port      int
 	ios       *iostreams.IOStreams
 	cache     sync.Map // key → *jsonThunk (sync.OnceValues wrapper); single-flight, never invalidated — restart server after data changes
@@ -34,8 +36,8 @@ type Server struct {
 	Ready chan struct{}
 }
 
-func New(cities []export.CityEntry, port int, ios *iostreams.IOStreams) *Server {
-	return &Server{cities: cities, port: port, ios: ios}
+func New(cities []export.CityEntry, host string, port int, ios *iostreams.IOStreams) *Server {
+	return &Server{cities: cities, host: host, port: port, ios: ios}
 }
 
 func (s *Server) ListenAndServe(ctx context.Context) error {
@@ -59,10 +61,10 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	mux.HandleFunc("GET /wasm_exec.js", s.handleWasmExecJS)
 	mux.HandleFunc("GET /forecast.wasm", s.handleForecastWasm)
 
-	handler := corsMiddleware(recoveryMiddleware(mux, s.ios.ErrOut))
+	handler := recoveryMiddleware(mux, s.ios.ErrOut)
 
 	srv := &http.Server{
-		Addr:         fmt.Sprintf(":%d", s.port),
+		Addr:         net.JoinHostPort(s.host, strconv.Itoa(s.port)),
 		Handler:      handler,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 30 * time.Second,
@@ -130,19 +132,6 @@ func (s *Server) cityBySlug(slug string) *export.CityEntry {
 		}
 	}
 	return nil
-}
-
-func corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
 }
 
 func recoveryMiddleware(next http.Handler, errOut io.Writer) http.Handler {

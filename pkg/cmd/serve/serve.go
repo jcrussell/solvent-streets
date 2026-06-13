@@ -19,6 +19,7 @@ type Options struct {
 	RootDB    func() (*db.RootStore, error)
 	Config    func() (*config.Config, error)
 	Cities    func() ([]config.CityConfig, error)
+	Host      string
 	Port      int
 	ReadyFile string
 }
@@ -48,6 +49,7 @@ func NewCmdServe(f *cmdutil.Factory, runF func(context.Context, *Options) error)
 		},
 	}
 
+	cmd.Flags().StringVar(&opts.Host, "host", "127.0.0.1", "Host interface to bind")
 	cmd.Flags().IntVar(&opts.Port, "port", 8080, "Port to listen on")
 	cmd.Flags().StringVar(&opts.ReadyFile, "ready-file", "",
 		"Write the listening URL to this file once the listener is bound (for orchestration)")
@@ -91,7 +93,7 @@ func runServe(ctx context.Context, opts *Options) error {
 		return err
 	}
 
-	srv := server.New(entries, opts.Port, opts.IO)
+	srv := server.New(entries, opts.Host, opts.Port, opts.IO)
 	srv.ReadyFile = opts.ReadyFile
 	return srv.ListenAndServe(ctx)
 }

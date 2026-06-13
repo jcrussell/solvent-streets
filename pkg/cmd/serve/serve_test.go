@@ -72,6 +72,45 @@ func TestNewCmdServe_ReadyFileDefault(t *testing.T) {
 	}
 }
 
+func TestNewCmdServe_HostFlag(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	f := &cmdutil.Factory{IOStreams: ios}
+
+	var gotOpts *Options
+	cmd := NewCmdServe(f, func(_ context.Context, opts *Options) error {
+		gotOpts = opts
+		return nil
+	})
+	cmd.SetArgs([]string{"--host", "0.0.0.0"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotOpts == nil {
+		t.Fatal("runF was not invoked")
+	}
+	if gotOpts.Host != "0.0.0.0" {
+		t.Errorf("expected --host 0.0.0.0, got %q", gotOpts.Host)
+	}
+}
+
+func TestNewCmdServe_DefaultHost(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	f := &cmdutil.Factory{IOStreams: ios}
+
+	var gotOpts *Options
+	cmd := NewCmdServe(f, func(_ context.Context, opts *Options) error {
+		gotOpts = opts
+		return nil
+	})
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotOpts.Host != "127.0.0.1" {
+		t.Errorf("expected default host 127.0.0.1, got %q", gotOpts.Host)
+	}
+}
+
 func TestNewCmdServe_DefaultPort(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	f := &cmdutil.Factory{IOStreams: ios}

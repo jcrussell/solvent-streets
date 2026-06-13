@@ -57,7 +57,7 @@ func TestHandleDataMetaJSON(t *testing.T) {
 		Slug:   cfg.Cities[0].Slug(),
 	}
 	ios, _, _, _ := iostreams.Test()
-	srv := New([]export.CityEntry{entry}, 0, ios)
+	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /data/{file}", srv.handleDataFile(entry))
 
@@ -104,7 +104,7 @@ func TestHandleIndex(t *testing.T) {
 		Slug:   cfg.Cities[0].Slug(),
 	}
 	ios, _, _, _ := iostreams.Test()
-	srv := New([]export.CityEntry{entry}, 0, ios)
+	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", srv.handleIndex)
 
@@ -167,7 +167,7 @@ func TestHandleSnapshots_SingleCity(t *testing.T) {
 		Config: cfg, City: cfg.Cities[0], Store: store, Slug: cfg.Cities[0].Slug(),
 	}
 	ios, _, _, _ := iostreams.Test()
-	srv := New([]export.CityEntry{entry}, 0, ios)
+	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/snapshots", srv.handleSnapshotsList(entry))
 
@@ -216,7 +216,7 @@ func TestHandleSnapshots_MultiCity(t *testing.T) {
 		{Config: cfg, City: cfg.Cities[1], Store: storeB, Slug: cfg.Cities[1].Slug()},
 	}
 	ios, _, _, _ := iostreams.Test()
-	srv := New(entries, 0, ios)
+	srv := New(entries, "127.0.0.1", 0, ios)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/cities/{slug}/snapshots", srv.handleCitySnapshotsList)
 
@@ -306,7 +306,7 @@ func TestDataFile_SnapshotParam(t *testing.T) {
 		Config: cfg, City: cfg.Cities[0], Store: root, Slug: cfg.Cities[0].Slug(),
 	}
 	ios, _, _, _ := iostreams.Test()
-	srv := New([]export.CityEntry{entry}, 0, ios)
+	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /data/{file}", srv.handleDataFile(entry))
 
@@ -364,7 +364,7 @@ func TestDataFile_SnapshotParam(t *testing.T) {
 
 func TestServeJSONCached_SingleFlight(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
-	srv := New(nil, 0, ios)
+	srv := New(nil, "127.0.0.1", 0, ios)
 
 	const goroutines = 32
 	var calls atomic.Int32
@@ -406,7 +406,7 @@ func TestServeJSONCached_SingleFlight(t *testing.T) {
 
 func TestServeJSONCached_ErrorEvicts(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
-	srv := New(nil, 0, ios)
+	srv := New(nil, "127.0.0.1", 0, ios)
 
 	var calls atomic.Int32
 	build := func() (any, error) {
@@ -467,7 +467,7 @@ func TestBuildForecasts_DBErrorEvicts(t *testing.T) {
 		Store:  failingStore,
 		Slug:   cfg.Cities[0].Slug(),
 	}
-	srv := New([]export.CityEntry{entry}, 0, ios)
+	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios)
 
 	w1 := httptest.NewRecorder()
 	srv.serveForecastJSON(w1, nil, entry, 0)
@@ -514,7 +514,7 @@ func TestServeHexGridGeoJSON_DBErrorEvicts(t *testing.T) {
 		Store:  failingStore,
 		Slug:   cfg.Cities[0].Slug(),
 	}
-	srv := New([]export.CityEntry{entry}, 0, ios)
+	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios)
 
 	w1 := httptest.NewRecorder()
 	srv.serveHexGridGeoJSON(w1, nil, entry, 0)
@@ -531,7 +531,7 @@ func TestServeHexGridGeoJSON_DBErrorEvicts(t *testing.T) {
 
 func TestServeJSONCached_PanicEvicts(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
-	srv := New(nil, 0, ios)
+	srv := New(nil, "127.0.0.1", 0, ios)
 
 	var calls atomic.Int32
 	build := func() (any, error) { //nolint:unparam // signature must match serveJSONCached parameter
@@ -582,7 +582,7 @@ func TestHandleCitiesList_SchemaParity(t *testing.T) {
 		{Config: cfg, City: cfg.Cities[0], Store: store, Slug: cfg.Cities[0].Slug()},
 	}
 	ios, _, _, _ := iostreams.Test()
-	srv := New(entries, 0, ios)
+	srv := New(entries, "127.0.0.1", 0, ios)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/cities", srv.handleCitiesList)
 
@@ -621,7 +621,7 @@ func TestHandleCitiesList_SchemaParity(t *testing.T) {
 // generic status text. Regression guard for solvent-streets-fvzj.
 func TestHttpErr_HidesInternalMessage(t *testing.T) {
 	ios, _, _, errOut := iostreams.Test()
-	srv := New(nil, 0, ios)
+	srv := New(nil, "127.0.0.1", 0, ios)
 
 	internal := errors.New("sqlite: failed to open /var/lib/pvmt/pvmt.db: locked")
 	w := httptest.NewRecorder()

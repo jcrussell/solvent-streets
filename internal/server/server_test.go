@@ -16,45 +16,6 @@ import (
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
 
-func TestCORSMiddleware_Options(t *testing.T) {
-	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Error("inner handler should not be called for OPTIONS")
-	})
-	handler := corsMiddleware(inner)
-
-	req, _ := http.NewRequestWithContext(context.Background(), "OPTIONS", "/data/meta.json", nil)
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusNoContent {
-		t.Errorf("expected 204, got %d", w.Code)
-	}
-	if w.Header().Get("Access-Control-Allow-Origin") != "*" {
-		t.Error("expected CORS Allow-Origin header")
-	}
-	if w.Header().Get("Access-Control-Allow-Methods") == "" {
-		t.Error("expected CORS Allow-Methods header")
-	}
-}
-
-func TestCORSMiddleware_GET(t *testing.T) {
-	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-	handler := corsMiddleware(inner)
-
-	req, _ := http.NewRequestWithContext(context.Background(), "GET", "/data/meta.json", nil)
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
-	}
-	if w.Header().Get("Access-Control-Allow-Origin") != "*" {
-		t.Error("expected CORS Allow-Origin header on GET response")
-	}
-}
-
 func TestReadyURL(t *testing.T) {
 	cases := []struct {
 		name string
@@ -104,7 +65,7 @@ func TestServer_ReadyFile(t *testing.T) {
 	readyPath := filepath.Join(dir, "ready.txt")
 
 	ios, _, _, _ := iostreams.Test()
-	srv := New(nil, port, ios)
+	srv := New(nil, "127.0.0.1", port, ios)
 	srv.ReadyFile = readyPath
 	srv.Ready = make(chan struct{})
 
@@ -153,7 +114,7 @@ func TestServer_ReadyFile_Empty(t *testing.T) {
 
 	dir := t.TempDir()
 	ios, _, _, _ := iostreams.Test()
-	srv := New(nil, port, ios)
+	srv := New(nil, "127.0.0.1", port, ios)
 	// Leave ReadyFile zero-valued.
 	srv.Ready = make(chan struct{})
 
