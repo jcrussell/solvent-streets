@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"context"
 	"strings"
 
 	"github.com/jcrussell/solvent-streets/internal/geo"
@@ -90,7 +91,7 @@ type Source interface {
 	// buffered set later (e.g. city-only subset, per-classification cohorts)
 	// can filter on Feature.Tags without re-buffering. Invalid features are
 	// dropped; an empty result means no inputs survived buffering.
-	BufferFeaturesPaired(features []Feature, proj *geo.UTMProjector) []BufferedFeature
+	BufferFeaturesPaired(ctx context.Context, features []Feature, proj *geo.UTMProjector) []BufferedFeature
 	HasCohorts() bool
 }
 
@@ -221,12 +222,17 @@ func lineStringCoords(ls geom.LineString) [][2]float64 {
 	return coords
 }
 
-func bufferFeaturesPaired(features []Feature, proj *geo.UTMProjector, inferWidth widthFunc) []BufferedFeature {
-	out := make([]BufferedFeature, 0, len(features))
-	for _, f := range features {
+// bufferFeaturesPaired buffers every feature through cleanFeatureGeometry in
+// parallel (geo.ParallelMap, capped at NumCPU). Each feature is independent and
+// pure, so this is order-preserving: ParallelMap flattens the per-feature
+// slices in input order, and we emit a one-element slice for each success and an
+// empty slice for each drop — yielding exactly the successes-only ordering the
+// old sequential loop produced. counter is nil: buffering has no TUI phase.
+func bufferFeaturesPaired(ctx context.Context, features []Feature, proj *geo.UTMProjector, inferWidth widthFunc) []BufferedFeature {
+	return geo.ParallelMap(ctx, features, func(_ int, f Feature) []BufferedFeature {
 		if g, ok := cleanFeatureGeometry(f, proj, inferWidth); ok {
-			out = append(out, BufferedFeature{Feature: f, Geom: g})
+			return []BufferedFeature{{Feature: f, Geom: g}}
 		}
-	}
-	return out
+		return nil
+	}, nil)
 }

@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -37,7 +38,7 @@ func TestSidewalk_BufferFeatures_LineString(t *testing.T) {
 		},
 	}
 	s := &Sidewalk{}
-	geoms := Geoms(s.BufferFeaturesPaired(features, testProj))
+	geoms := Geoms(s.BufferFeaturesPaired(context.Background(), features, testProj))
 	if len(geoms) != 1 {
 		t.Fatalf("expected 1 buffered geometry, got %d", len(geoms))
 	}
@@ -48,7 +49,7 @@ func TestSidewalk_BufferFeatures_LineString(t *testing.T) {
 
 func TestSidewalk_BufferFeatures_Empty(t *testing.T) {
 	s := &Sidewalk{}
-	bufs := s.BufferFeaturesPaired(nil, testProj)
+	bufs := s.BufferFeaturesPaired(context.Background(), nil, testProj)
 	if len(bufs) != 0 {
 		t.Errorf("expected no buffered geometries for empty feature slice, got %d", len(bufs))
 	}

@@ -237,7 +237,7 @@ func doCompute(ctx context.Context, out, errOut io.Writer, notify tui.PhaseNotif
 	// Buffer every feature exactly once. The "all" and "city" passes share
 	// this slice; the city pass filters on jurisdiction without invoking
 	// BufferFeatures again, and cohort stats re-use the same polygons.
-	allBuffered := opts.ResourceType.BufferFeaturesPaired(resFeatures, proj)
+	allBuffered := opts.ResourceType.BufferFeaturesPaired(ctx, resFeatures, proj)
 	if len(allBuffered) == 0 {
 		err := errors.New("buffer features: no valid geometries to process")
 		notify.PhaseDone(phaseProcess, err)

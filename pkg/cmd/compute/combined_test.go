@@ -107,7 +107,7 @@ func TestRunCombined_DedupesCrossResourceOverlap(t *testing.T) {
 
 	areaForResource := func(t *testing.T, rt resource.Source, feat db.Feature) float64 {
 		t.Helper()
-		bufs := resource.Geoms(rt.BufferFeaturesPaired([]resource.Feature{{
+		bufs := resource.Geoms(rt.BufferFeaturesPaired(t.Context(), []resource.Feature{{
 			ID:           feat.ID,
 			Tags:         feat.Tags,
 			GeometryJSON: feat.GeometryJSON,

@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -40,7 +41,7 @@ func TestPavement_BufferFeatures_LineString(t *testing.T) {
 		},
 	}
 	p := &Pavement{}
-	geoms := Geoms(p.BufferFeaturesPaired(features, testProj))
+	geoms := Geoms(p.BufferFeaturesPaired(context.Background(), features, testProj))
 	if len(geoms) != 1 {
 		t.Fatalf("expected 1 buffered geometry, got %d", len(geoms))
 	}
@@ -64,7 +65,7 @@ func TestPavement_BufferFeatures_MultiLineString(t *testing.T) {
 		},
 	}
 	p := &Pavement{}
-	geoms := Geoms(p.BufferFeaturesPaired(features, testProj))
+	geoms := Geoms(p.BufferFeaturesPaired(context.Background(), features, testProj))
 	if len(geoms) != 1 {
 		t.Fatalf("expected 1 buffered geometry, got %d", len(geoms))
 	}
@@ -83,7 +84,7 @@ func TestPavement_BufferFeatures_Polygon(t *testing.T) {
 		},
 	}
 	p := &Pavement{}
-	geoms := Geoms(p.BufferFeaturesPaired(features, testProj))
+	geoms := Geoms(p.BufferFeaturesPaired(context.Background(), features, testProj))
 	if len(geoms) != 1 {
 		t.Fatalf("expected 1 buffered geometry, got %d", len(geoms))
 	}
@@ -94,7 +95,7 @@ func TestPavement_BufferFeatures_Polygon(t *testing.T) {
 
 func TestPavement_BufferFeatures_Empty(t *testing.T) {
 	p := &Pavement{}
-	bufs := p.BufferFeaturesPaired(nil, testProj)
+	bufs := p.BufferFeaturesPaired(context.Background(), nil, testProj)
 	if len(bufs) != 0 {
 		t.Errorf("expected no buffered geometries for empty features, got %d", len(bufs))
 	}
@@ -114,7 +115,7 @@ func TestPavement_BufferFeatures_InvalidSkipped(t *testing.T) {
 		},
 	}
 	p := &Pavement{}
-	geoms := Geoms(p.BufferFeaturesPaired(features, testProj))
+	geoms := Geoms(p.BufferFeaturesPaired(context.Background(), features, testProj))
 	if len(geoms) != 1 {
 		t.Errorf("expected 1 valid buffered geometry, got %d", len(geoms))
 	}

@@ -145,9 +145,9 @@ type countingSource struct {
 func (c *countingSource) Type() resource.Type               { return c.inner.Type() }
 func (c *countingSource) OverpassQuery(b [4]float64) string { return c.inner.OverpassQuery(b) }
 func (c *countingSource) HasCohorts() bool                  { return c.inner.HasCohorts() }
-func (c *countingSource) BufferFeaturesPaired(f []resource.Feature, p *geo.UTMProjector) []resource.BufferedFeature {
+func (c *countingSource) BufferFeaturesPaired(ctx context.Context, f []resource.Feature, p *geo.UTMProjector) []resource.BufferedFeature {
 	c.pairedCalls++
-	return c.inner.BufferFeaturesPaired(f, p)
+	return c.inner.BufferFeaturesPaired(ctx, f, p)
 }
 
 // TestRunCompute_BuffersFeaturesOncePerRun pins the solvent-streets-2nc fix:

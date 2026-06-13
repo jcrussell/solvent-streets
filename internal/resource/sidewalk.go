@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/jcrussell/solvent-streets/internal/geo"
@@ -19,6 +20,6 @@ func (s *Sidewalk) OverpassQuery(bbox [4]float64) string {
 out geom;`, bbox[0], bbox[1], bbox[2], bbox[3])
 }
 
-func (s *Sidewalk) BufferFeaturesPaired(features []Feature, proj *geo.UTMProjector) []BufferedFeature {
-	return bufferFeaturesPaired(features, proj, geo.InferSidewalkWidth)
+func (s *Sidewalk) BufferFeaturesPaired(ctx context.Context, features []Feature, proj *geo.UTMProjector) []BufferedFeature {
+	return bufferFeaturesPaired(ctx, features, proj, geo.InferSidewalkWidth)
 }

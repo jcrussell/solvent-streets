@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/jcrussell/solvent-streets/internal/geo"
@@ -21,8 +22,8 @@ func (p *Pavement) OverpassQuery(bbox [4]float64) string {
 out geom;`, bbox[0], bbox[1], bbox[2], bbox[3])
 }
 
-func (p *Pavement) BufferFeaturesPaired(features []Feature, proj *geo.UTMProjector) []BufferedFeature {
-	return bufferFeaturesPaired(features, proj, geo.InferWidth)
+func (p *Pavement) BufferFeaturesPaired(ctx context.Context, features []Feature, proj *geo.UTMProjector) []BufferedFeature {
+	return bufferFeaturesPaired(ctx, features, proj, geo.InferWidth)
 }
 
 func extractLineCoords(g geom.Geometry) [][2]float64 {

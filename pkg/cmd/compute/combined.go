@@ -95,7 +95,7 @@ func bufferAllResources(ctx context.Context, store db.Store, proj *geo.UTMProjec
 		}
 		var paired []resource.BufferedFeature
 		if err := cmdutil.GuardPanic(errOut, func() error {
-			paired = rt.BufferFeaturesPaired(resFeatures, proj)
+			paired = rt.BufferFeaturesPaired(ctx, resFeatures, proj)
 			if len(paired) == 0 {
 				return errNoValidGeoms
 			}

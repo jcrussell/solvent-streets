@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -30,7 +31,7 @@ func TestParking_BufferFeatures_Polygon(t *testing.T) {
 		},
 	}
 	p := &Parking{}
-	geoms := Geoms(p.BufferFeaturesPaired(features, testProj))
+	geoms := Geoms(p.BufferFeaturesPaired(context.Background(), features, testProj))
 	if len(geoms) != 1 {
 		t.Errorf("expected 1 buffered geometry, got %d", len(geoms))
 	}
@@ -48,7 +49,7 @@ func TestParking_BufferFeatures_LineStringSkipped(t *testing.T) {
 		},
 	}
 	p := &Parking{}
-	bufs := p.BufferFeaturesPaired(features, testProj)
+	bufs := p.BufferFeaturesPaired(context.Background(), features, testProj)
 	if len(bufs) != 0 {
 		t.Errorf("expected no buffered geometries when only LineString features (no polygons), got %d", len(bufs))
 	}
@@ -56,7 +57,7 @@ func TestParking_BufferFeatures_LineStringSkipped(t *testing.T) {
 
 func TestParking_BufferFeatures_Empty(t *testing.T) {
 	p := &Parking{}
-	bufs := p.BufferFeaturesPaired(nil, testProj)
+	bufs := p.BufferFeaturesPaired(context.Background(), nil, testProj)
 	if len(bufs) != 0 {
 		t.Errorf("expected no buffered geometries for empty features, got %d", len(bufs))
 	}
