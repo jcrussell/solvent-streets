@@ -124,29 +124,43 @@ func ComputeHexStats(ctx context.Context, hexes []Hex, idx *GeomIndex, resourceT
 	}, counter)
 }
 
-// hexCoverageArea returns the area of intersection between h and the union of
-// candidates. Unioning locally (tens-to-hundreds of polygons per hex) dedupes
-// overlap between adjacent buffered features — two roads crossing at a
-// junction share a width² patch that must be counted once, not twice.
+// hexCoverageArea returns the area covered by the candidate features within h.
+// It clips first: each candidate is intersected with h, reduced to its
+// polygonal parts, and only the small in-hex fragments are unioned. This is
+// exactly area-preserving versus unioning the candidates at full extent and
+// then intersecting (Area(h ∩ ∪cᵢ) == Area(∪(h ∩ cᵢ)) by distributivity), but
+// the union runs on hex-sized inputs instead of re-noding each city-spanning
+// buffered feature in every hex its envelope touches.
+//
+// Unioning the fragments dedupes overlap between adjacent buffered features —
+// two roads crossing at a junction share a width² patch that must be counted
+// once, not twice. RetainPolygonal drops the 1-D shared-edge artifacts that
+// Intersection can emit as mixed-dimension GeometryCollections, which
+// geom.UnionMany would otherwise reject.
 func hexCoverageArea(h geom.Geometry, candidates []geom.Geometry) (float64, bool) {
-	if len(candidates) == 0 {
-		return 0, false
-	}
-	var unioned geom.Geometry
-	if len(candidates) == 1 {
-		unioned = candidates[0]
-	} else {
-		u, err := geom.UnionMany(candidates)
-		if err != nil {
-			return 0, false
+	var clipped []geom.Geometry
+	for _, cand := range candidates {
+		inter, err := geom.Intersection(h, cand)
+		if err != nil || inter.IsEmpty() {
+			continue
 		}
-		unioned = u
+		poly, err := RetainPolygonal(inter)
+		if err != nil || poly.IsEmpty() {
+			continue
+		}
+		clipped = append(clipped, poly)
 	}
-	inter, err := geom.Intersection(h, unioned)
-	if err != nil || inter.IsEmpty() {
+	if len(clipped) == 0 {
 		return 0, false
 	}
-	return inter.Area(), true
+	if len(clipped) == 1 {
+		return clipped[0].Area(), true
+	}
+	unioned, err := geom.UnionMany(clipped)
+	if err != nil {
+		return 0, false
+	}
+	return unioned.Area(), true
 }
 
 // clipHexToCandidates intersects a hex with candidate boundary fragments and
