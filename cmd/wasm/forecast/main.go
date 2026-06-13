@@ -67,7 +67,8 @@ func simulateForecast(_ js.Value, args []js.Value) any {
 	// Parse strategy
 	strategy, err := forecast.ParseStrategy(input.Strategy)
 	if err != nil {
-		strategy = forecast.StrategyDoNothing
+		errJSON, _ := json.Marshal(map[string]string{"error": err.Error()})
+		return js.ValueOf(string(errJSON))
 	}
 
 	scenario := forecast.Scenario{

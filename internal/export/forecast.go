@@ -227,6 +227,20 @@ func cityScopeCohorts(cityStats []db.CohortStat, fc *config.ForecastConfig) ([]f
 // BuildScenariosData builds the aggregate scenarios JSON structure for a city.
 // Prefers city-scoped data as the primary ("all") output since that matches
 // what a city budget covers. Full-bbox data is available as "bbox".
+//
+// The static Baseline/25%/50%/Full lines are built from the SAME multi-cohort
+// seeds (per-class decay rates) that drive the interactive "Custom Scenario"
+// line via WASM Simulate — see collectCohortSeeds and index.html.tmpl's
+// getControlValues. Building both from one cohort source keeps the static and
+// custom lines in agreement on the same chart at equal settings; the previous
+// single-synthetic-cohort path (blended decay over a city-paved area) diverged
+// from the interactive line by ~4.7%.
+//
+// AREA SCOPE: the scenario lines now use the cohort-summed area (sum of
+// per-class cohort areas), not the city-paved/bbox aggregate compute area, so
+// the static and custom lines share an identical area basis. The summary block
+// below still reports the aggregate compute areas/feature counts (city_pct,
+// *_count) — those are informational rollups, not the chart's area basis.
 func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.ForecastConfig) map[string]any {
 	costTiers := ConvertCostTiers(fc)
 	params := forecast.NewParams(fc.GrowthRate, costTiers)
@@ -237,10 +251,22 @@ func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.Forecas
 
 	areas := aggregateScenarioAreas(ctx, entry)
 
-	bboxScenarios := singleCohortScenarios("all", areas.bboxArea, fc.InitialPCI, defaultRate, fc.Years, params)
+	// Same cohort seeds the interactive line uses: bbox-scope and city-scope.
+	bboxSeeds, citySeeds := collectCohortSeeds(ctx, entry.Store, fc)
+
+	// bbox scenarios from bbox cohorts; fall back to a single synthetic cohort
+	// over the aggregate bbox area when no cohort stats exist (fresh DB).
+	bboxScenarios := scenariosFromSeeds(bboxSeeds, fc.InitialPCI, fc.Years, params)
+	if bboxScenarios == nil {
+		bboxScenarios = singleCohortScenarios("all", areas.bboxArea, fc.InitialPCI, defaultRate, fc.Years, params)
+	}
+
 	primaryScenarios := bboxScenarios
 	if areas.cityArea > 0 {
-		primaryScenarios = singleCohortScenarios("city", areas.cityArea, fc.InitialPCI, defaultRate, fc.Years, params)
+		primaryScenarios = scenariosFromSeeds(citySeeds, fc.InitialPCI, fc.Years, params)
+		if primaryScenarios == nil {
+			primaryScenarios = singleCohortScenarios("city", areas.cityArea, fc.InitialPCI, defaultRate, fc.Years, params)
+		}
 	}
 
 	summary := map[string]any{
@@ -305,8 +331,40 @@ func aggregateScenarioAreas(ctx context.Context, entry CityEntry) scenarioAreas 
 	return agg
 }
 
+// cohortsFromSeeds converts the interactive-line CohortSeeds into forecast
+// cohorts. CohortSeed carries no InitialPCI; the interactive path applies the
+// single config InitialPCI to every cohort (see cmd/wasm/forecast/main.go,
+// which sets Cohort.InitialPCI = input.InitialPCI for each seed). Mirror that
+// exactly so the static lines track the custom line.
+func cohortsFromSeeds(seeds []CohortSeed, initialPCI float64) []forecast.Cohort {
+	if len(seeds) == 0 {
+		return nil
+	}
+	cohorts := make([]forecast.Cohort, len(seeds))
+	for i, s := range seeds {
+		cohorts[i] = forecast.Cohort{
+			Classification: s.Classification,
+			Area:           s.Area,
+			DecayRate:      s.DecayRate,
+			InitialPCI:     initialPCI,
+		}
+	}
+	return cohorts
+}
+
+// scenariosFromSeeds builds a scenario set from the multi-cohort seeds shared
+// with the interactive line. Returns nil when there are no seeds so the caller
+// can fall back to the single-synthetic-cohort aggregate shortcut.
+func scenariosFromSeeds(seeds []CohortSeed, initialPCI float64, years int, params *forecast.Params) []forecast.ScenarioResult {
+	cohorts := cohortsFromSeeds(seeds, initialPCI)
+	if cohorts == nil {
+		return nil
+	}
+	return BuildScenarios(cohorts, years, params)
+}
+
 // singleCohortScenarios builds a scenario set from one synthetic cohort —
-// the aggregate-area shortcut used for the top-level "all"/"city" rollup.
+// the aggregate-area fallback used when no per-class cohort stats exist yet.
 func singleCohortScenarios(classification string, area, initialPCI, decayRate float64, years int, params *forecast.Params) []forecast.ScenarioResult {
 	return BuildScenarios([]forecast.Cohort{{
 		Classification: classification,

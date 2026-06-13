@@ -121,6 +121,35 @@ func goldenFixtureEntry(t *testing.T) CityEntry {
 		resource.TypeSidewalks:                          {ResourceType: resource.TypeSidewalks, TotalArea: 100_000, FeatureCount: 250},
 		resource.TypeSidewalks.With(resource.ScopeCity): {ResourceType: resource.TypeSidewalks.With(resource.ScopeCity), TotalArea: 80_000, FeatureCount: 200},
 	}
+	// Per-class cohort stats per resource and scope. BuildScenariosData and
+	// BuildForecastsForCity now build their lines from these multi-cohort seeds
+	// (the same source as the interactive WASM line), so the golden must supply
+	// them to exercise that path rather than the single-synthetic-cohort
+	// fallback. Class areas are split so they roughly sum to the matching
+	// compute TotalArea above; the road classes carry distinct decay rates so
+	// the blended (multi-cohort) curve differs from a single-rate cohort.
+	cohorts := map[resource.Type][]db.CohortStat{
+		resource.TypeRoads: {
+			{ResourceType: resource.TypeRoads, Classification: "primary", Area: 500_000, FeatureCount: 200},
+			{ResourceType: resource.TypeRoads, Classification: "residential", Area: 1_000_000, FeatureCount: 600},
+		},
+		resource.TypeRoads.With(resource.ScopeCity): {
+			{ResourceType: resource.TypeRoads.With(resource.ScopeCity), Classification: "primary", Area: 300_000, FeatureCount: 120},
+			{ResourceType: resource.TypeRoads.With(resource.ScopeCity), Classification: "residential", Area: 600_000, FeatureCount: 360},
+		},
+		resource.TypeParking: {
+			{ResourceType: resource.TypeParking, Classification: "parking", Area: 200_000, FeatureCount: 120},
+		},
+		resource.TypeParking.With(resource.ScopeCity): {
+			{ResourceType: resource.TypeParking.With(resource.ScopeCity), Classification: "parking", Area: 150_000, FeatureCount: 90},
+		},
+		resource.TypeSidewalks: {
+			{ResourceType: resource.TypeSidewalks, Classification: "sidewalks", Area: 100_000, FeatureCount: 250},
+		},
+		resource.TypeSidewalks.With(resource.ScopeCity): {
+			{ResourceType: resource.TypeSidewalks.With(resource.ScopeCity), Classification: "sidewalks", Area: 80_000, FeatureCount: 200},
+		},
+	}
 	store := &dbtest.MockStore{
 		LatestComputeResultFunc: func(_ context.Context, key resource.Type) (*db.ComputeResult, error) {
 			r, ok := results[key]
@@ -128,6 +157,9 @@ func goldenFixtureEntry(t *testing.T) CityEntry {
 				return nil, sql.ErrNoRows
 			}
 			return &r, nil
+		},
+		ListCohortStatsFunc: func(_ context.Context, key resource.Type) ([]db.CohortStat, error) {
+			return cohorts[key], nil
 		},
 	}
 	return CityEntry{
