@@ -207,7 +207,7 @@ func parseArcGISGeoJSON(data []byte, resourceType resource.Type, baseIndex int) 
 			if v != nil {
 				tags[k] = fmt.Sprintf("%v", v)
 			}
-			if k == "FULLNAME" || k == "FullName" || k == "fullname" {
+			if v != nil && (k == "FULLNAME" || k == "FullName" || k == "fullname") {
 				name = fmt.Sprintf("%v", v)
 			}
 		}
