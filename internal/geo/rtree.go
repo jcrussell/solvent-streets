@@ -55,6 +55,25 @@ func (idx *GeomIndex) Search(env geom.Envelope) []geom.Geometry {
 	return results
 }
 
+// SearchIDs returns the record IDs of all sub-geometries whose bounding boxes
+// intersect env. A record ID is the index into the geoms slice passed to
+// NewGeomIndexFromGeoms (or into g.Dump() for NewGeomIndex), so the caller can
+// recover both the geometry (idx.parts[id]) and any parallel per-geom metadata
+// it keeps alongside.
+func (idx *GeomIndex) SearchIDs(env geom.Envelope) []int {
+	lo, hi, ok := env.MinMaxXYs()
+	if !ok {
+		return nil
+	}
+	box := rtree.Box{MinX: lo.X, MinY: lo.Y, MaxX: hi.X, MaxY: hi.Y}
+	var ids []int
+	_ = idx.tree.RangeSearch(box, func(id int) error {
+		ids = append(ids, id)
+		return nil
+	})
+	return ids
+}
+
 // Len returns the number of indexed sub-geometries.
 func (idx *GeomIndex) Len() int {
 	return len(idx.parts)

@@ -124,6 +124,82 @@ func ComputeHexStats(ctx context.Context, hexes []Hex, idx *GeomIndex, resourceT
 	}, counter)
 }
 
+// groupArea is the per-hex, per-group coverage result produced by
+// ComputeHexCoverageByGroup before flattening and summing by label.
+type groupArea struct {
+	label string
+	area  float64
+}
+
+// ComputeHexCoverageByGroup computes per-group coverage area in a SINGLE pass
+// over the hex grid. geoms and labels are parallel slices: geoms[i] belongs to
+// group labels[i] (len(geoms) must equal len(labels)). It builds one combined
+// R-tree over all geoms, and for each hex searches that index once, groups the
+// hex's candidates by label, and computes hexCoverageArea per label for that
+// hex. Per-label areas are summed across all hexes into the returned map.
+//
+// The returned map has exactly ONE KEY PER DISTINCT INPUT LABEL: every label
+// appearing in labels is present, and a label whose geoms cover no clipped hex
+// (e.g. features that fall in the bbox margin but outside the boundary) maps to
+// 0.0 rather than being dropped. This matches the old per-class cohort loop,
+// whose callers persist one row and a feature count per distinct class — a
+// zero-coverage class must still produce that row.
+//
+// This is exactly equivalent to running ComputeHexStats once per group against
+// a per-group index (same hexCoverageArea clip-first dedup), but pays the
+// per-hex envelope + R-tree search ONCE instead of once per group. Each geom
+// belongs to exactly one group, so the heavy per-hex union work is partitioned
+// by label and not duplicated. Per-label areas therefore equal running
+// ComputeHexStats once per label.
+//
+// Per-group areas are clipped to the same hex grid as a whole-grid "all" total
+// would be, so groups sum consistently with that total. Intra-group overlaps
+// are dedup'd per-hex (two same-label features overlapping in a hex count once);
+// different-label overlaps are counted separately per label.
+//
+// If counter is non-nil it is incremented after each hex is processed. ctx
+// cancellation stops dispatching further hexes; in-flight hexes complete.
+func ComputeHexCoverageByGroup(ctx context.Context, hexes []Hex, geoms []geom.Geometry, labels []string, counter *atomic.Int64) map[string]float64 {
+	idx := NewGeomIndexFromGeoms(geoms)
+
+	perHex := ParallelMap(ctx, hexes, func(_ int, h Hex) []groupArea {
+		ids := idx.SearchIDs(h.Geom.Envelope())
+		if len(ids) == 0 {
+			return nil
+		}
+		byLabel := make(map[string][]geom.Geometry)
+		for _, id := range ids {
+			label := labels[id]
+			byLabel[label] = append(byLabel[label], idx.parts[id])
+		}
+		out := make([]groupArea, 0, len(byLabel))
+		for label, groupGeoms := range byLabel {
+			area, ok := hexCoverageArea(h.Geom, groupGeoms)
+			if !ok || area <= 0 {
+				continue
+			}
+			out = append(out, groupArea{label: label, area: area})
+		}
+		return out
+	}, counter)
+
+	// Pre-seed every distinct input label at 0.0 so the key set equals "one key
+	// per distinct label", independent of coverage. A label whose geoms never
+	// cover a clipped hex (e.g. features in the bbox margin but outside the
+	// boundary) thus survives as a 0.0 entry instead of being dropped. This
+	// mirrors the old per-class loop, which keyed off every class regardless of
+	// whether it covered any hex. Seed from labels directly so even empty or
+	// invalid geoms still produce a key.
+	areas := make(map[string]float64)
+	for _, label := range labels {
+		areas[label] = 0
+	}
+	for _, ga := range perHex {
+		areas[ga.label] += ga.area
+	}
+	return areas
+}
+
 // hexCoverageArea returns the area covered by the candidate features within h.
 // It clips first: each candidate is intersected with h, reduced to its
 // polygonal parts, and only the small in-hex fragments are unioned. This is
