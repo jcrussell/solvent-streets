@@ -410,8 +410,17 @@ func (s *sqliteStore) Stats(ctx context.Context, resourceType resource.Type) (*S
 		info.LastIngestAt = &t
 	}
 
+	// Same ErrNoRows-vs-real-failure distinction as fetched_at above:
+	// LatestComputeResult returns raw sql.ErrNoRows when a city has not been
+	// computed yet, but a genuine query failure must propagate rather than
+	// silently report TotalArea=0 / LastComputeAt=nil ("never computed").
 	result, err := s.LatestComputeResult(ctx, resourceType)
-	if err == nil && result != nil {
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		// no compute yet
+	case err != nil:
+		return nil, fmt.Errorf("latest compute result: %w", err)
+	default:
 		info.LastComputeAt = &result.ComputedAt
 		info.TotalArea = result.TotalArea
 	}
