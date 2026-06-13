@@ -578,6 +578,82 @@ func TestStoreComputeResult(t *testing.T) {
 	}
 }
 
+// TestSaveForecastResults_ReplacesOnRerun pins the fix for accumulating
+// forecast rows: re-running with the same (resource_type, snapshot_id) must
+// replace the prior rows, not append duplicates. Covers both the snapshot-
+// tagged path and the legacy NULL-snapshot path.
+func TestSaveForecastResults_ReplacesOnRerun(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+
+	snap, err := store.CreateSnapshot(ctx, "hash-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rows := func(snapshotID *int64, pci float64) []ForecastResult {
+		return []ForecastResult{
+			{ResourceType: rtRoads, Year: 1, PCI: pci, Area: 100, TreatmentCost: 10, SnapshotID: snapshotID},
+			{ResourceType: rtRoads, Year: 2, PCI: pci, Area: 100, TreatmentCost: 10, SnapshotID: snapshotID},
+		}
+	}
+
+	countRows := func() int {
+		t.Helper()
+		var n int
+		if err := store.(*sqliteStore).db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM forecast_results WHERE resource_type = ?`, rtRoads).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	// Tagged: two re-runs for the same snapshot must leave only the second run.
+	if err := store.SaveForecastResults(ctx, rows(&snap.ID, 80)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveForecastResults(ctx, rows(&snap.ID, 70)); err != nil {
+		t.Fatal(err)
+	}
+	if got := countRows(); got != 2 {
+		t.Fatalf("expected 2 forecast rows after re-run, got %d (accumulation regression)", got)
+	}
+	got, err := store.ListForecastResults(ctx, rtRoads)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range got {
+		if r.PCI != 70 {
+			t.Errorf("expected replaced rows with PCI 70, got %f", r.PCI)
+		}
+	}
+
+	// Legacy NULL-snapshot rows must also replace (= ? never matches NULL).
+	if err := store.SaveForecastResults(ctx, rows(nil, 60)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveForecastResults(ctx, rows(nil, 50)); err != nil {
+		t.Fatal(err)
+	}
+	var nullCount int
+	if err := store.(*sqliteStore).db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM forecast_results WHERE resource_type = ? AND snapshot_id IS NULL`, rtRoads).Scan(&nullCount); err != nil {
+		t.Fatal(err)
+	}
+	if nullCount != 2 {
+		t.Fatalf("expected 2 NULL-snapshot rows after re-run, got %d", nullCount)
+	}
+	// The earlier tagged rows must survive the NULL-targeted replace.
+	var taggedCount int
+	if err := store.(*sqliteStore).db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM forecast_results WHERE resource_type = ? AND snapshot_id = ?`, rtRoads, snap.ID).Scan(&taggedCount); err != nil {
+		t.Fatal(err)
+	}
+	if taggedCount != 2 {
+		t.Fatalf("NULL-snapshot replace clobbered tagged rows: got %d tagged, want 2", taggedCount)
+	}
+}
+
 func TestStoreStats(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)

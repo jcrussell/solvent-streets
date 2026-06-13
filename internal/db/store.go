@@ -262,10 +262,18 @@ func (s *sqliteStore) ListSnapshots(ctx context.Context) ([]Snapshot, error) {
 	return snapshots, rows.Err()
 }
 
-// SaveForecastResults appends forecast rows tagged with their SnapshotID.
-// Append-only — see SaveHexStats for the rationale.
+// SaveForecastResults persists forecast rows tagged with their SnapshotID,
+// replacing any prior rows for the same (city_id, resource_type, snapshot_id)
+// inside the transaction. Unlike the append-only hex/cohort stats, forecast is
+// replace-on-rerun: `pvmt forecast` derives rows from the latest compute result
+// every run, so re-running for the same snapshot must overwrite rather than
+// accumulate undeletable duplicates.
 func (s *sqliteStore) SaveForecastResults(ctx context.Context, results []ForecastResult) error {
 	return s.withTx(ctx, func(tx *sql.Tx) error {
+		if err := s.replaceForecastRows(ctx, tx, results); err != nil {
+			return err
+		}
+
 		stmt, err := tx.PrepareContext(ctx, `
 			INSERT INTO forecast_results (resource_type, city_id, year, pci, area, treatment_cost, treatment_tier, snapshot_id, computed_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -283,6 +291,43 @@ func (s *sqliteStore) SaveForecastResults(ctx context.Context, results []Forecas
 		}
 		return nil
 	})
+}
+
+// replaceForecastRows deletes any existing forecast rows for each distinct
+// (resource_type, snapshot_id) present in results so a re-run replaces in
+// place. snapshot_id is nullable; `= ?` never matches NULL, so legacy
+// untagged rows are deleted via a separate IS NULL statement.
+func (s *sqliteStore) replaceForecastRows(ctx context.Context, tx *sql.Tx, results []ForecastResult) error {
+	delTagged, err := tx.PrepareContext(ctx, `DELETE FROM forecast_results WHERE city_id = ? AND resource_type = ? AND snapshot_id = ?`)
+	if err != nil {
+		return fmt.Errorf("prepare forecast delete: %w", err)
+	}
+	defer func() { _ = delTagged.Close() }()
+	delNull, err := tx.PrepareContext(ctx, `DELETE FROM forecast_results WHERE city_id = ? AND resource_type = ? AND snapshot_id IS NULL`)
+	if err != nil {
+		return fmt.Errorf("prepare forecast delete (null snapshot): %w", err)
+	}
+	defer func() { _ = delNull.Close() }()
+
+	seen := make(map[string]struct{}, len(results))
+	for _, r := range results {
+		key := string(r.ResourceType) + ":null"
+		if r.SnapshotID != nil {
+			key = fmt.Sprintf("%s:%d", r.ResourceType, *r.SnapshotID)
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		if r.SnapshotID != nil {
+			if _, err := delTagged.ExecContext(ctx, s.cityID, r.ResourceType, *r.SnapshotID); err != nil {
+				return fmt.Errorf("delete forecast rows for %s: %w", r.ResourceType, err)
+			}
+		} else if _, err := delNull.ExecContext(ctx, s.cityID, r.ResourceType); err != nil {
+			return fmt.Errorf("delete forecast rows for %s (null snapshot): %w", r.ResourceType, err)
+		}
+	}
+	return nil
 }
 
 // ListForecastResults: snapshot/config-hash filtering via snapshotFilter

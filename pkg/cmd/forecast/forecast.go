@@ -24,6 +24,7 @@ type Options struct {
 	UnitSystem  func() units.System
 	Scenarios   bool
 	Exporter    cmdutil.Exporter
+	rows        *[]forecastRow // multi-city accumulator; nil for single-pass JSON
 }
 
 var forecastFields = []string{"resourceType", "year", "pci", "area", "treatmentCost", "treatmentTier"}
@@ -82,7 +83,7 @@ func NewCmdForecast(f *cmdutil.Factory, runF func(context.Context, *Options) err
 			if runF != nil {
 				return runF(cmd.Context(), opts)
 			}
-			return runForecast(cmd.Context(), opts)
+			return runForecastAllCities(cmd.Context(), f, opts)
 		},
 	}
 
@@ -94,7 +95,7 @@ func NewCmdForecast(f *cmdutil.Factory, runF func(context.Context, *Options) err
 
 // simulateResource runs the baseline forecast for a single resource type, returning
 // the collected results, total deferred cost, and scenario result.
-func simulateResource(rt resource.Source, cohorts []fcpkg.Cohort, years int, params *fcpkg.Params) ([]db.ForecastResult, float64, fcpkg.ScenarioResult) {
+func simulateResource(rt resource.Source, cohorts []fcpkg.Cohort, years int, params *fcpkg.Params, snapshotID *int64) ([]db.ForecastResult, float64, fcpkg.ScenarioResult) {
 	baseline := fcpkg.Simulate(
 		fcpkg.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: fcpkg.StrategyDoNothing},
 		cohorts, years, params,
@@ -113,6 +114,9 @@ func simulateResource(rt resource.Source, cohorts []fcpkg.Cohort, years int, par
 			Area:          y.Area,
 			TreatmentCost: y.AnnualNeed,
 			TreatmentTier: y.CostTier,
+			// Tag with the snapshot the forecast is derived from so rows are
+			// FK-clean and replaced (not accumulated) on re-run.
+			SnapshotID: snapshotID,
 		})
 	}
 
@@ -229,6 +233,30 @@ func renderScenarioComparisons(ios *iostreams.IOStreams, baseline fcpkg.Scenario
 	return nil
 }
 
+// runForecastAllCities fans the forecast out across every configured city
+// (or the single --city target), mirroring runComputeAllCities. Because
+// runForecast builds JSON rows, the accumulator is hoisted here so all cities'
+// rows are written once as a single document instead of N concatenated ones.
+func runForecastAllCities(ctx context.Context, f *cmdutil.Factory, opts *Options) error {
+	var accumulator []forecastRow
+	if opts.Exporter != nil {
+		opts.rows = &accumulator
+	}
+	err := cmdutil.ForEachCity(ctx, f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
+		cityOpts := *opts
+		cityOpts.CurrentCity = cf.CurrentCity
+		cityOpts.CityDB = cf.CityDB
+		return runForecast(ctx, &cityOpts)
+	})
+	if err != nil {
+		return err
+	}
+	if opts.Exporter != nil {
+		return cmdutil.WriteRows(opts.IO, opts.Exporter, accumulator)
+	}
+	return nil
+}
+
 func runForecast(ctx context.Context, opts *Options) error {
 	ios := opts.IO
 
@@ -259,14 +287,20 @@ func runForecast(ctx context.Context, opts *Options) error {
 		return err
 	}
 
-	if opts.Exporter != nil {
-		rows := make([]forecastRow, len(allResults))
-		for i, r := range allResults {
-			rows[i] = forecastRow{r}
-		}
-		return cmdutil.WriteRows(ios, opts.Exporter, rows)
+	if opts.Exporter == nil {
+		return nil
 	}
-	return nil
+	rows := make([]forecastRow, len(allResults))
+	for i, r := range allResults {
+		rows[i] = forecastRow{r}
+	}
+	// Multi-city: append to the shared accumulator, written once by the
+	// caller. Single-pass (direct runForecast, no accumulator): write here.
+	if opts.rows != nil {
+		*opts.rows = append(*opts.rows, rows...)
+		return nil
+	}
+	return cmdutil.WriteRows(ios, opts.Exporter, rows)
 }
 
 func convertCostTiers(fc *config.ForecastConfig) []fcpkg.CostTier {
@@ -303,7 +337,7 @@ func forecastAllResources(ctx context.Context, opts *Options, store db.Store,
 		if err != nil {
 			return nil, err
 		}
-		dbResults, totalDeferredCost, baseline := simulateResource(rt, cohorts, years, params)
+		dbResults, totalDeferredCost, baseline := simulateResource(rt, cohorts, years, params, result.SnapshotID)
 		allResults = append(allResults, dbResults...)
 
 		if opts.Exporter == nil {
