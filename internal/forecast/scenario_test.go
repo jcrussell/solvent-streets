@@ -382,7 +382,7 @@ func TestIsRoadClass(t *testing.T) {
 func TestBuildCohorts_MixedOverride(t *testing.T) {
 	stats := []CohortInput{
 		{Classification: "primary", Area: 50000},
-		{Classification: "sidewalk", Area: 10000},
+		{Classification: "sidewalks", Area: 10000},
 	}
 
 	cohorts := BuildCohorts(stats, 85.0, 0.05)
@@ -392,7 +392,10 @@ func TestBuildCohorts_MixedOverride(t *testing.T) {
 	if cohorts[0].DecayRate != 0.05 {
 		t.Errorf("primary: expected override rate 0.05, got %f", cohorts[0].DecayRate)
 	}
-	if cohorts[1].DecayRate != DefaultDecayRates["sidewalk"] {
-		t.Errorf("sidewalk: expected default rate %f, got %f", DefaultDecayRates["sidewalk"], cohorts[1].DecayRate)
+	// The growth-rate override applies only to road classes, so sidewalks keep
+	// their class-specific rate. The decay table is keyed on the plural
+	// resource-type string ("sidewalks"), matching what compute persists.
+	if cohorts[1].DecayRate != DefaultDecayRates["sidewalks"] {
+		t.Errorf("sidewalks: expected class rate %f, got %f", DefaultDecayRates["sidewalks"], cohorts[1].DecayRate)
 	}
 }

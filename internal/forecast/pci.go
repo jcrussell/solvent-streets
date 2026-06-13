@@ -28,7 +28,7 @@ var RoadDecayRates = map[string]float64{
 var DefaultDecayRates = func() map[string]float64 {
 	m := make(map[string]float64, len(RoadDecayRates)+2)
 	maps.Copy(m, RoadDecayRates)
-	m["sidewalk"] = 0.025
+	m["sidewalks"] = 0.025 // key must match resource.TypeSidewalks ("sidewalks")
 	m["default"] = 0.035
 	return m
 }()

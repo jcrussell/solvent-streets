@@ -82,9 +82,13 @@ func TestLinearGrowthEstimator(t *testing.T) {
 	if len(result) != 5 {
 		t.Fatalf("expected 5 values, got %d", len(result))
 	}
-	// Year 1: 100000 * 1.01 = 101000
+	// Linear, not compound: year t area = 100000 * (1 + 0.01*t).
+	// Year 1: 101000; Year 5: 105000 (compound would give ~105101).
 	if math.Abs(result[0]-101000) > 1 {
 		t.Errorf("year 1: expected 101000, got %f", result[0])
+	}
+	if math.Abs(result[4]-105000) > 1 {
+		t.Errorf("year 5: expected 105000 (linear), got %f", result[4])
 	}
 	// Should be increasing
 	for i := 1; i < len(result); i++ {
@@ -101,5 +105,39 @@ func TestLinearGrowthEstimator_ZeroRate(t *testing.T) {
 		if v != 50000 {
 			t.Errorf("expected 50000 with 0 growth, got %f", v)
 		}
+	}
+}
+
+func TestLinearGrowthEstimator_NegativeRate(t *testing.T) {
+	// A shrinking network: -2%/yr of the starting area, linearly.
+	g := &LinearGrowthEstimator{AnnualGrowthRate: -0.02}
+	result := g.EstimateGrowth(100000, 3)
+	want := []float64{98000, 96000, 94000}
+	for i, w := range want {
+		if math.Abs(result[i]-w) > 1 {
+			t.Errorf("year %d: expected %f, got %f", i+1, w, result[i])
+		}
+	}
+}
+
+func TestLinearGrowthEstimator_NegativeRateFlooredAtZero(t *testing.T) {
+	// A steep, long decline must never produce negative area.
+	g := &LinearGrowthEstimator{AnnualGrowthRate: -0.5}
+	result := g.EstimateGrowth(100000, 4)
+	// Year 2 hits zero (1 + (-0.5)*2 = 0); years 3-4 stay clamped at 0.
+	for i := 1; i < len(result); i++ {
+		if result[i] != 0 {
+			t.Errorf("year %d: expected 0 (clamped), got %f", i+1, result[i])
+		}
+	}
+}
+
+// TestDecayRateForClass_Sidewalks pins the decay-table key to the resource-type
+// string ("sidewalks"); a singular "sidewalk" key would silently fall through to
+// the default rate. The literal mirrors resource.TypeSidewalks, which cannot be
+// imported here (resource imports forecast).
+func TestDecayRateForClass_Sidewalks(t *testing.T) {
+	if got := DecayRateForClass("sidewalks"); got != 0.025 {
+		t.Errorf("DecayRateForClass(\"sidewalks\") = %f, want 0.025", got)
 	}
 }
