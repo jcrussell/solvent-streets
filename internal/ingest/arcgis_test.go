@@ -288,6 +288,37 @@ func TestFetch_Pagination(t *testing.T) {
 	}
 }
 
+// TestFetch_PagesOrderedByOBJECTID pins that every paged ArcGIS query
+// carries orderByFields=OBJECTID, so offset-based paging is deterministic
+// across hosted and non-hosted (map-service/enterprise) backends.
+// Regression for solvent-streets-2a7n.26.
+func TestFetch_PagesOrderedByOBJECTID(t *testing.T) {
+	var sawOrderBy []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawOrderBy = append(sawOrderBy, r.URL.Query().Get("orderByFields"))
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(makeArcGISFeatures(10, 1)) // short page → single request
+	}))
+	t.Cleanup(srv.Close)
+
+	src := &ArcGISSource{
+		BBox:         [4]float64{37.0, -122.0, 38.0, -121.0},
+		URL:          srv.URL,
+		AllowPrivate: true, // httptest.Server binds 127.0.0.1; the SSRF guard would otherwise refuse it.
+	}
+	if _, err := src.Fetch(context.Background(), srv.Client(), resource.ByType(resource.TypeRoads)); err != nil {
+		t.Fatal(err)
+	}
+	if len(sawOrderBy) == 0 {
+		t.Fatal("expected at least one request")
+	}
+	for i, got := range sawOrderBy {
+		if got != "OBJECTID" {
+			t.Errorf("request %d: orderByFields=%q, want %q", i, got, "OBJECTID")
+		}
+	}
+}
+
 func TestFetch_SinglePage(t *testing.T) {
 	// When the server returns fewer than arcgisMaxRecords, no second request.
 	calls := 0

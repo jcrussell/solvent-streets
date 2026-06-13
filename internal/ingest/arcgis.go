@@ -107,6 +107,17 @@ func fetchArcGISPage(ctx context.Context, client *http.Client, endpoint, envelop
 		"f":                 {"geojson"},
 		"resultRecordCount": {strconv.Itoa(arcgisMaxRecords)},
 		"resultOffset":      {strconv.Itoa(offset)},
+		// Esri does not guarantee row order across resultOffset pages
+		// without an explicit orderByFields; non-hosted (map-service /
+		// enterprise) layers can otherwise reorder rows between pages,
+		// silently skipping/duplicating features. Order by OBJECTID,
+		// consistent with the OBJECTID assumption in parseArcGISGeoJSON's
+		// id-parsing below. Behavior change: on the rare layer whose OID
+		// field is not literally "OBJECTID" the server rejects this
+		// orderBy — a loud failure (surfaced via arcgisErrorMessage)
+		// rather than today's silent dup/skip, which is acceptable since
+		// such layers already mis-parse ids. (solvent-streets-2a7n.26)
+		"orderByFields": {"OBJECTID"},
 	}
 
 	reqURL := endpoint + "?" + params.Encode()
