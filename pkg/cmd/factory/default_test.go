@@ -1,14 +1,19 @@
 package factory
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
+	"github.com/jcrussell/solvent-streets/internal/ingest"
 	"github.com/jcrussell/solvent-streets/internal/paths"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 )
@@ -264,6 +269,74 @@ func TestNew_DoesNotLoadConfigEagerly(t *testing.T) {
 	}
 	if !errors.Is(err, config.ErrConfigNotFound) {
 		t.Errorf("Config() returned %v; want errors.Is(err, ErrConfigNotFound)", err)
+	}
+}
+
+// TestHttpClient_RejectsRedirectToPrivate pins the redirect-layer SSRF
+// guard (solvent-streets-a2z8.1): the per-call validatePublicHTTPURL only
+// checks the INITIAL URL, so a 302 to a loopback/link-local/RFC1918 host
+// must be blocked by the client's CheckRedirect re-validation. We drive
+// CheckRedirect directly (it is what the stdlib invokes on each hop),
+// asserting the redirect TARGET is rejected, AllowPrivate exempts it, and
+// the 10-hop cap is preserved.
+func TestHttpClient_RejectsRedirectToPrivate(t *testing.T) {
+	f := newTestFactoryForHTTP(t)
+	client, err := f.HttpClient()
+	if err != nil {
+		t.Fatalf("HttpClient: %v", err)
+	}
+
+	// Drive the CheckRedirect hook directly: stdlib calls it with the
+	// pending redirect request. A target resolving to a private/link-local
+	// host must be refused, and the AllowPrivate context must exempt it.
+	target, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://169.254.169.254/latest/meta-data/", nil)
+	if err := client.CheckRedirect(target, nil); err == nil {
+		t.Fatal("expected CheckRedirect to reject redirect to link-local 169.254.169.254")
+	} else if !strings.Contains(err.Error(), "redirect blocked") {
+		t.Errorf("expected 'redirect blocked' error, got: %v", err)
+	}
+
+	// With AllowPrivate on the context, the same target is permitted.
+	allowed := target.WithContext(ingest.WithAllowPrivate(context.Background()))
+	if err := client.CheckRedirect(allowed, nil); err != nil {
+		t.Errorf("AllowPrivate context should permit private redirect, got: %v", err)
+	}
+
+	// The 10-hop cap is preserved even for public targets.
+	pub, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://example.com/", nil)
+	via := make([]*http.Request, 10)
+	if err := client.CheckRedirect(pub, via); err == nil || !strings.Contains(err.Error(), "10 redirects") {
+		t.Errorf("expected 10-hop cap to fire, got: %v", err)
+	}
+}
+
+// TestHttpClient_RedirectToPrivateBlockedEndToEnd exercises the full
+// client.Do path: a public (httptest, 127.0.0.1) endpoint returns a 302
+// to a link-local IMDS address; the request fails because CheckRedirect
+// re-validates the hop. This confirms the stdlib actually invokes our
+// hook across redirects (not just that the hook is correct in isolation).
+func TestHttpClient_RedirectToPrivateBlockedEndToEnd(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Redirect(w, &http.Request{}, "http://169.254.169.254/latest/meta-data/", http.StatusFound)
+	}))
+	t.Cleanup(srv.Close)
+
+	f := newTestFactoryForHTTP(t)
+	client, err := f.HttpClient()
+	if err != nil {
+		t.Fatalf("HttpClient: %v", err)
+	}
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/start", nil)
+	resp, err := client.Do(req)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
+	if err == nil {
+		t.Fatal("expected redirect to link-local to be blocked, got nil error")
+	}
+	if !strings.Contains(err.Error(), "redirect blocked") {
+		t.Errorf("expected 'redirect blocked' in error, got: %v", err)
 	}
 }
 

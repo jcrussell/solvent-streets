@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/jcrussell/solvent-streets/internal/cache"
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/geo"
@@ -100,6 +101,15 @@ func runIngest(ctx context.Context, opts *Options) error {
 
 	if opts.DryRun {
 		return printDryRunPlan(ctx, opts, store, city)
+	}
+
+	// --force is documented as "bypass HTTP cache". Mark the context so
+	// the outermost cache.CachingTransport skips serving/revalidating
+	// cached GET responses (it still writes the fresh ones back). All
+	// fetches below derive from this ctx, and stdlib propagates it across
+	// redirects, so every hop is bypassed too. (solvent-streets-2a7n.20)
+	if opts.Force {
+		ctx = cache.WithBypass(ctx)
 	}
 
 	boundaryGJSON, fresh, err := resolveBoundary(ctx, opts, store, client, city, ingestpkg.FetchCityBoundary, ingestpkg.FetchCityBoundaryFromRelation)

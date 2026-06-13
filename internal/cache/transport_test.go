@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -186,5 +188,90 @@ func TestCachingTransport_ForceBypass(t *testing.T) {
 	}
 	if callCount != 2 {
 		t.Errorf("expected 2 calls with TTL=0, got %d", callCount)
+	}
+}
+
+// TestCachingTransport_WithBypass pins the --force contract: a request
+// whose context carries WithBypass re-fetches from the origin even when a
+// warm (within-TTL) cache entry exists, and the fresh response is written
+// back. Regression for solvent-streets-2a7n.20.
+func TestCachingTransport_WithBypass(t *testing.T) {
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		// Serve an ETag so a naive bypass that only skips the TTL-hit
+		// return (but leaves the conditional/304 path live) would still
+		// re-serve the stale body via 304 — this test would then catch it.
+		w.Header().Set("ETag", `"v`+string(rune('0'+callCount))+`"`)
+		_, _ = w.Write([]byte(`{"n":` + string(rune('0'+callCount)) + `}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	dir := t.TempDir()
+	ct := NewTransport(http.DefaultTransport, dir, time.Hour) // long TTL: cache is warm
+	client := &http.Client{Transport: ct}
+
+	// Prime the warm cache.
+	req1, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/test", nil)
+	resp1, err := client.Do(req1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body1, _ := io.ReadAll(resp1.Body)
+	_ = resp1.Body.Close()
+	if string(body1) != `{"n":1}` {
+		t.Fatalf("first body: %s", body1)
+	}
+
+	// Sanity: a plain request now hits the warm cache (no new server call).
+	reqHit, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/test", nil)
+	respHit, _ := client.Do(reqHit)
+	_ = respHit.Body.Close()
+	if callCount != 1 {
+		t.Fatalf("expected warm cache hit (1 call), got %d", callCount)
+	}
+
+	// Bypass request must re-fetch despite the warm cache and get fresh body.
+	req2, _ := http.NewRequestWithContext(WithBypass(context.Background()), http.MethodGet, srv.URL+"/test", nil)
+	resp2, err := client.Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body2, _ := io.ReadAll(resp2.Body)
+	_ = resp2.Body.Close()
+	if callCount != 2 {
+		t.Errorf("expected bypass to issue a fresh fetch (2 calls), got %d", callCount)
+	}
+	if string(body2) != `{"n":2}` {
+		t.Errorf("expected fresh body {\"n\":2}, got %s", body2)
+	}
+	if resp2.Header.Get("X-Pvmt-Cache") == "hit" {
+		t.Error("bypass response should not be marked a cache hit")
+	}
+}
+
+// TestWriteCache_MetaNotWrittenWhenBodyFails pins the body-first commit
+// ordering: if the body write fails, the meta must NOT be written, so a
+// prior consistent (meta,body) pair is never replaced by new-meta/old-body.
+// Regression for solvent-streets-2a7n.24.
+func TestWriteCache_MetaNotWrittenWhenBodyFails(t *testing.T) {
+	dir := t.TempDir()
+	ct := NewTransport(http.DefaultTransport, dir, time.Hour)
+
+	key := cacheKey("https://example.test/x")
+	bodyPath := filepath.Join(dir, key+".json")
+	metaPath := filepath.Join(dir, key+".meta")
+
+	// Force the body write to fail by making bodyPath an existing
+	// directory — WriteFile's final rename onto it cannot succeed.
+	if err := os.Mkdir(bodyPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{}}
+	ct.writeCache(metaPath, bodyPath, resp, []byte(`fresh-body`), "https://example.test/x")
+
+	if _, err := os.Stat(metaPath); !os.IsNotExist(err) {
+		t.Errorf("meta must not be committed when body write fails (stat err=%v)", err)
 	}
 }

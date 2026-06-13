@@ -2,6 +2,7 @@ package cache
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -14,6 +15,23 @@ import (
 
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 )
+
+// bypassKey is the context key carrying the per-request "skip the read
+// cache" flag set by WithBypass. It is checked at the top of RoundTrip.
+type bypassKey struct{}
+
+// WithBypass marks ctx so the CachingTransport skips serving (and
+// revalidating against) any cached entry for requests derived from it —
+// the fresh response is still written back to the cache. Used by
+// `ingest --force` to honor its documented "bypass HTTP cache" contract.
+func WithBypass(ctx context.Context) context.Context {
+	return context.WithValue(ctx, bypassKey{}, true)
+}
+
+func bypassRequested(ctx context.Context) bool {
+	v, _ := ctx.Value(bypassKey{}).(bool)
+	return v
+}
 
 type entryMeta struct {
 	StatusCode int               `json:"status_code"`
@@ -46,6 +64,13 @@ func (t *CachingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	metaPath := filepath.Join(t.Dir, key+".meta")
 
 	meta, cachedBody, haveCache := t.readCache(metaPath, bodyPath)
+	if bypassRequested(req.Context()) {
+		// --force: ignore any cached entry entirely. Forcing haveCache
+		// false here also disables the conditional-request / 304 path
+		// below (transport.go), which would otherwise re-serve the old
+		// body. The fresh response is still written back to the cache.
+		haveCache = false
+	}
 	if t.TTL > 0 && haveCache && time.Since(meta.Timestamp) < t.TTL {
 		return buildResponse(req, meta, cachedBody), nil
 	}
@@ -142,10 +167,18 @@ func (t *CachingTransport) writeCache(metaPath, bodyPath string, resp *http.Resp
 	if err != nil {
 		return
 	}
-	if err := cmdutil.WriteFile(metaPath, metaData, 0o644); err != nil {
+	// Write the body FIRST and treat the meta write as the commit
+	// record. Each WriteFile is atomic per file (temp+fsync+rename) but
+	// the pair is not transactional; if meta committed before the body,
+	// a failure/kill in between would pair the new meta (fresh
+	// timestamp, new validators) with the OLD body and serve it as a
+	// fresh hit forever. Committing meta only after a successful body
+	// write means a body failure leaves the previous (consistent) pair
+	// intact and the entry simply re-fetches. (solvent-streets-2a7n.24)
+	if err := cmdutil.WriteFile(bodyPath, body, 0o644); err != nil {
 		return
 	}
-	_ = cmdutil.WriteFile(bodyPath, body, 0o644) // best-effort cache write
+	_ = cmdutil.WriteFile(metaPath, metaData, 0o644) // commit; best-effort
 }
 
 func buildResponse(req *http.Request, meta *entryMeta, body []byte) *http.Response {

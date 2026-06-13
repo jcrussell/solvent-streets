@@ -31,6 +31,15 @@ import (
 // the policy on the currently-hardcoded sources where it's a no-op
 // overhead; the deliberate placement is per-call to keep that overhead
 // off the fixed-endpoint paths.
+//
+// Redirect layer: the per-call guard above only validates the INITIAL
+// URL. A 302 to 169.254.169.254/127.0.0.1 from a hostile or MITM'd
+// upstream would otherwise defeat it, since the shared client follows
+// redirects to any host. The factory's client.CheckRedirect re-runs
+// ValidatePublicHTTPURL on every hop's req.URL (skipping the check only
+// when the request context carries the AllowPrivate opt-in, set by
+// ArcGISSource.Fetch and propagated by the stdlib across redirects).
+// solvent-streets-a2z8.1.
 
 // validatePublicHTTPURL rejects URLs whose resolved host is loopback,
 // link-local, private, unspecified, or multicast. Defense-in-depth
@@ -45,6 +54,34 @@ import (
 // arcgis_url path is operator-supplied; Overpass/Nominatim are fixed).
 // Wiring a transport-level dial check would force the same policy on
 // every source.
+// allowPrivateKey carries the AllowPrivate opt-in on a request context so
+// the client-level CheckRedirect can honor self-hosted/staging endpoints
+// across redirect hops. ArcGISSource.Fetch derives the request context
+// with this value; the stdlib propagates it onto each redirect request.
+type allowPrivateKey struct{}
+
+// WithAllowPrivate marks ctx so the redirect-layer SSRF guard
+// (CheckRedirect) skips public-URL validation — the redirect-hop analog
+// of ArcGISSource.AllowPrivate, for self-hosted endpoints on internal
+// networks.
+func WithAllowPrivate(ctx context.Context) context.Context {
+	return context.WithValue(ctx, allowPrivateKey{}, true)
+}
+
+// AllowPrivateFromContext reports whether ctx opted out of the SSRF guard
+// via WithAllowPrivate.
+func AllowPrivateFromContext(ctx context.Context) bool {
+	v, _ := ctx.Value(allowPrivateKey{}).(bool)
+	return v
+}
+
+// ValidatePublicHTTPURL is the exported wrapper around the per-call SSRF
+// guard, used by the factory's client.CheckRedirect to re-validate each
+// redirect hop's destination. See the package design comment above.
+func ValidatePublicHTTPURL(ctx context.Context, urlStr string) error {
+	return validatePublicHTTPURL(ctx, urlStr)
+}
+
 func validatePublicHTTPURL(ctx context.Context, urlStr string) error {
 	u, err := url.Parse(urlStr)
 	if err != nil {

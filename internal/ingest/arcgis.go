@@ -53,6 +53,12 @@ func (s *ArcGISSource) Fetch(ctx context.Context, client *http.Client, rt resour
 		if err := validatePublicHTTPURL(ctx, endpoint); err != nil {
 			return nil, fmt.Errorf("arcgis endpoint: %w", err)
 		}
+	} else {
+		// Carry the opt-out on the context so the client-level
+		// CheckRedirect (which re-validates every redirect hop) also
+		// permits private destinations for self-hosted endpoints. The
+		// stdlib propagates this context onto each redirect request.
+		ctx = WithAllowPrivate(ctx)
 	}
 
 	bbox := s.BBox

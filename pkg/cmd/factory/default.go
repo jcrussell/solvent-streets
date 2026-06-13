@@ -3,6 +3,7 @@ package factory
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net"
@@ -112,6 +113,26 @@ func httpClientFactory(f *cmdutil.Factory, cacheTTL time.Duration) func() (*http
 		return &http.Client{
 			Transport: transport,
 			Timeout:   0,
+			// Re-run the SSRF guard on every redirect hop. The per-call
+			// ingest.validatePublicHTTPURL only checks the INITIAL URL;
+			// without this, a 302 to 169.254.169.254/127.0.0.1 from a
+			// hostile or MITM'd upstream defeats the guard. This custom
+			// hook REPLACES the stdlib default, so we re-add the 10-hop
+			// cap. The AllowPrivate opt-in is carried on the request
+			// context (set by ArcGISSource.Fetch, propagated across
+			// redirects). solvent-streets-a2z8.1.
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 10 {
+					return errors.New("stopped after 10 redirects")
+				}
+				if ingest.AllowPrivateFromContext(req.Context()) {
+					return nil
+				}
+				if err := ingest.ValidatePublicHTTPURL(req.Context(), req.URL.String()); err != nil {
+					return fmt.Errorf("redirect blocked: %w", err)
+				}
+				return nil
+			},
 		}, nil
 	})
 }
