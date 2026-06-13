@@ -156,6 +156,37 @@ func TestGeoJSONToProjectedGeometry_LineString(t *testing.T) {
 	}
 }
 
+func TestGeoJSONToProjectedGeometry_MultiLineString(t *testing.T) {
+	proj := NewUTMProjector(-121.76, 37.68)
+	// Two disjoint parts — must stay separate, not be concatenated.
+	gjson := `{"type":"MultiLineString","coordinates":[` +
+		`[[-121.77,37.68],[-121.76,37.69]],` +
+		`[[-121.74,37.66],[-121.73,37.67]]]}`
+	g, gtype, err := GeoJSONToProjectedGeometry(gjson, proj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gtype != "MultiLineString" {
+		t.Errorf("expected MultiLineString, got %s", gtype)
+	}
+	mls, ok := g.AsMultiLineString()
+	if !ok {
+		t.Fatalf("expected a MultiLineString geometry, got %s", g.Type())
+	}
+	if mls.NumLineStrings() != 2 {
+		t.Errorf("expected 2 parts (no concatenation), got %d", mls.NumLineStrings())
+	}
+}
+
+func TestGeoJSONToProjectedGeometry_MultiLineString_AllPartsInvalid(t *testing.T) {
+	proj := NewUTMProjector(-121.76, 37.68)
+	// Every part has <2 points: no valid linestrings -> error, not empty geom.
+	gjson := `{"type":"MultiLineString","coordinates":[[[-121.77,37.68]],[[-121.74,37.66]]]}`
+	if _, _, err := GeoJSONToProjectedGeometry(gjson, proj); err == nil {
+		t.Error("expected error when all MultiLineString parts are invalid")
+	}
+}
+
 func TestGeoJSONToProjectedGeometry_Polygon(t *testing.T) {
 	proj := NewUTMProjector(-121.76, 37.68)
 	gjson := `{"type":"Polygon","coordinates":[[[-121.77,37.68],[-121.76,37.68],[-121.76,37.69],[-121.77,37.69],[-121.77,37.68]]]}`

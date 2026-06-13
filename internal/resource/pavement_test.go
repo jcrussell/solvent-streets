@@ -52,6 +52,33 @@ func TestPavement_BufferFeatures_LineString(t *testing.T) {
 	}
 }
 
+func TestPavement_BufferFeatures_MultiLineString(t *testing.T) {
+	// ArcGIS f=geojson emits MultiLineString for multi-part centerlines; these
+	// were previously dropped silently. Two disjoint parts buffer to one merged
+	// corridor with positive area.
+	features := []Feature{
+		{
+			ID:   "test-mls",
+			Name: "Split Rd",
+			Tags: map[string]string{"highway": "residential"},
+			GeometryJSON: `{"type":"MultiLineString","coordinates":[` +
+				`[[-121.7700,37.6800],[-121.7690,37.6810]],` +
+				`[[-121.7670,37.6820],[-121.7660,37.6830]]]}`,
+		},
+	}
+	p := &Pavement{}
+	geoms, err := p.BufferFeatures(features, testProj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(geoms) != 1 {
+		t.Fatalf("expected 1 buffered geometry, got %d", len(geoms))
+	}
+	if geoms[0].Area() <= 0 {
+		t.Errorf("expected positive area, got %f", geoms[0].Area())
+	}
+}
+
 func TestPavement_BufferFeatures_Polygon(t *testing.T) {
 	features := []Feature{
 		{

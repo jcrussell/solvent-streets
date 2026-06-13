@@ -260,6 +260,13 @@ func GeoJSONToProjectedGeometry(gjson string, proj *UTMProjector) (geom.Geometry
 		}
 		return g, obj.Type, nil
 
+	case "MultiLineString":
+		g, err := buildProjectedMultiLineString(obj.Coordinates, proj)
+		if err != nil {
+			return geom.Geometry{}, obj.Type, err
+		}
+		return g, obj.Type, nil
+
 	case "Polygon":
 		g, err := buildProjectedPolygon(obj.Coordinates, proj)
 		if err != nil {
@@ -298,6 +305,32 @@ func buildProjectedLineString(coordsRaw json.RawMessage, proj *UTMProjector) (ge
 	seq := coordsToSequence(projected)
 	ls := geom.NewLineString(seq)
 	return ls.AsGeometry(), nil
+}
+
+// buildProjectedMultiLineString projects each part of a GeoJSON MultiLineString
+// into its own LineString and returns a geom.MultiLineString. Parts are kept
+// separate (NOT concatenated) — joining their coordinates would fabricate bridge
+// segments between disjoint polylines. Callers buffer each part individually.
+func buildProjectedMultiLineString(coordsRaw json.RawMessage, proj *UTMProjector) (geom.Geometry, error) {
+	var lines [][][2]float64
+	if err := json.Unmarshal(coordsRaw, &lines); err != nil {
+		return geom.Geometry{}, err
+	}
+	var lss []geom.LineString
+	for _, line := range lines {
+		projected, err := projectCoords(line, proj)
+		if err != nil {
+			continue
+		}
+		if len(projected) < 2 {
+			continue
+		}
+		lss = append(lss, geom.NewLineString(coordsToSequence(projected)))
+	}
+	if len(lss) == 0 {
+		return geom.Geometry{}, errors.New("no valid linestrings in MultiLineString")
+	}
+	return geom.NewMultiLineString(lss).AsGeometry(), nil
 }
 
 func buildProjectedMultiPolygon(coordsRaw json.RawMessage, proj *UTMProjector) (geom.Geometry, error) {

@@ -10,8 +10,10 @@ import (
 )
 
 const (
-	GeomLineString = "LineString"
-	GeomPolygon    = "Polygon"
+	GeomLineString      = "LineString"
+	GeomMultiLineString = "MultiLineString"
+	GeomPolygon         = "Polygon"
+	GeomMultiPolygon    = "MultiPolygon"
 )
 
 // Type is the value stored in the resource_type TEXT column. A bare Type
@@ -152,29 +154,74 @@ func cleanFeatureGeometry(f Feature, proj *geo.UTMProjector, inferWidth widthFun
 
 	switch gtype {
 	case GeomLineString:
-		width := inferWidth(f.Tags)
 		coords := extractLineCoords(g)
 		if len(coords) < 2 {
 			return geom.Geometry{}, false
 		}
-		buffered, err := geo.BufferLineString(coords, width)
+		buffered, err := geo.BufferLineString(coords, inferWidth(f.Tags))
 		if err != nil {
 			return geom.Geometry{}, false
 		}
-		cleaned, err := geo.ValidatePolygon(buffered)
-		if err != nil {
-			return geom.Geometry{}, false
-		}
-		return cleaned, true
-	case GeomPolygon:
-		cleaned, err := geo.ValidatePolygon(g)
-		if err != nil {
-			return geom.Geometry{}, false
-		}
-		return cleaned, true
+		return validatePolygonOK(buffered)
+	case GeomMultiLineString:
+		return bufferMultiLineCorridors(g, inferWidth(f.Tags))
+	case GeomPolygon, GeomMultiPolygon:
+		// ValidatePolygon is a Buffer(0) clean; it is dimension-agnostic and
+		// fixes both Polygon and MultiPolygon (e.g. parking relations).
+		return validatePolygonOK(g)
 	default:
 		return geom.Geometry{}, false
 	}
+}
+
+// validatePolygonOK cleans a polygonal geometry via Buffer(0), returning ok=false
+// on error so call sites stay a single line.
+func validatePolygonOK(g geom.Geometry) (geom.Geometry, bool) {
+	cleaned, err := geo.ValidatePolygon(g)
+	if err != nil {
+		return geom.Geometry{}, false
+	}
+	return cleaned, true
+}
+
+// bufferMultiLineCorridors buffers each part of a MultiLineString separately
+// (concatenating parts first would fabricate bridge segments) and unions the
+// resulting corridors into one cleaned polygon.
+func bufferMultiLineCorridors(g geom.Geometry, width float64) (geom.Geometry, bool) {
+	mls, ok := g.AsMultiLineString()
+	if !ok {
+		return geom.Geometry{}, false
+	}
+	var parts []geom.Geometry
+	for i := range mls.NumLineStrings() {
+		coords := lineStringCoords(mls.LineStringN(i))
+		if len(coords) < 2 {
+			continue
+		}
+		if buffered, err := geo.BufferLineString(coords, width); err == nil {
+			parts = append(parts, buffered)
+		}
+	}
+	if len(parts) == 0 {
+		return geom.Geometry{}, false
+	}
+	merged, err := geom.UnionMany(parts)
+	if err != nil {
+		return geom.Geometry{}, false
+	}
+	return validatePolygonOK(merged)
+}
+
+// lineStringCoords extracts the XY coordinates of a single LineString.
+func lineStringCoords(ls geom.LineString) [][2]float64 {
+	seq := ls.Coordinates()
+	n := seq.Length()
+	coords := make([][2]float64, n)
+	for i := range n {
+		c := seq.Get(i)
+		coords[i] = [2]float64{c.X, c.Y}
+	}
+	return coords
 }
 
 func bufferFeatures(features []Feature, proj *geo.UTMProjector, inferWidth widthFunc) ([]geom.Geometry, error) {

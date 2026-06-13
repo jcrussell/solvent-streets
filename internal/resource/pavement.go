@@ -34,12 +34,5 @@ func extractLineCoords(g geom.Geometry) [][2]float64 {
 	if !ok {
 		return nil
 	}
-	seq := ls.Coordinates()
-	n := seq.Length()
-	coords := make([][2]float64, n)
-	for i := range n {
-		c := seq.Get(i)
-		coords[i] = [2]float64{c.X, c.Y}
-	}
-	return coords
+	return lineStringCoords(ls)
 }
