@@ -23,8 +23,8 @@ func NewUTMProjector(lon, lat float64) *UTMProjector {
 
 // WGS84 ellipsoid constants
 const (
-	a  = 6378137.0         // Semi-major axis (GRS80/WGS84)
-	f  = 1 / 298.257222101 // Flattening
+	a  = 6378137.0         // Semi-major axis (GRS80/WGS84, identical)
+	f  = 1 / 298.257223563 // Flattening (defined WGS84 value)
 	e2 = 2*f - f*f         // Eccentricity squared
 )
 
