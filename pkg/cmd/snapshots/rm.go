@@ -96,11 +96,10 @@ func runRm(ctx context.Context, opts *RmOptions) error {
 	var ownerStore db.Store
 	for i := range cities {
 		city := &cities[i]
-		id, err := root.EnsureCity(ctx, city.Slug(), city.Name, configID)
+		store, err := cmdutil.EnsureCityStore(ctx, root, *city, configID)
 		if err != nil {
-			return fmt.Errorf("ensure city %s: %w", city.Slug(), err)
+			return err
 		}
-		store := root.ForCity(id)
 		if err := store.ResolveSnapshot(ctx, opts.SnapshotID); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				continue

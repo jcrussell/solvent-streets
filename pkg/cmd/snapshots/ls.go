@@ -132,11 +132,10 @@ func collectSnapshotRows(
 
 	var rows []snapshotRow
 	for _, city := range cities {
-		id, err := root.EnsureCity(ctx, city.Slug(), city.Name, configID)
+		store, err := cmdutil.EnsureCityStore(ctx, root, city, configID)
 		if err != nil {
-			return nil, fmt.Errorf("ensure city %s: %w", city.Slug(), err)
+			return nil, err
 		}
-		store := root.ForCity(id)
 		snaps, err := store.ListSnapshots(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("list snapshots for %s: %w", city.Slug(), err)

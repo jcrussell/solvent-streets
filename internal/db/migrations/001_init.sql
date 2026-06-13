@@ -94,7 +94,7 @@ CREATE TABLE IF NOT EXISTS cohort_stats (
     classification TEXT NOT NULL,
     area REAL NOT NULL DEFAULT 0,
     feature_count INTEGER NOT NULL DEFAULT 0,
-    snapshot_id INTEGER,
+    snapshot_id INTEGER REFERENCES snapshots(id),
     computed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

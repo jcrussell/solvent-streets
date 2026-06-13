@@ -95,11 +95,10 @@ func runPrune(ctx context.Context, opts *PruneOptions) error {
 	var plan []pruneVictims
 	var totalVictims int
 	for _, city := range cities {
-		id, err := root.EnsureCity(ctx, city.Slug(), city.Name, configID)
+		store, err := cmdutil.EnsureCityStore(ctx, root, city, configID)
 		if err != nil {
-			return fmt.Errorf("ensure city %s: %w", city.Slug(), err)
+			return err
 		}
-		store := root.ForCity(id)
 		// ListSnapshots already returns newest-first; everything past
 		// the keep window is eligible for deletion.
 		snaps, err := store.ListSnapshots(ctx)

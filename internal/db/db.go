@@ -204,7 +204,8 @@ func (r *RootStore) EnsureCity(ctx context.Context, slug, name, configID string)
 		return 0, errors.New("ensure city: config_id is required")
 	}
 	_, err := r.db.ExecContext(ctx,
-		`INSERT OR IGNORE INTO cities (slug, name, config_id) VALUES (?, ?, ?)`,
+		`INSERT INTO cities (slug, name, config_id) VALUES (?, ?, ?)
+		 ON CONFLICT(slug, config_id) DO UPDATE SET name = excluded.name`,
 		slug, name, configID)
 	if err != nil {
 		return 0, fmt.Errorf("ensure city: %w", err)

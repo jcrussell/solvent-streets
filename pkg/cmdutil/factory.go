@@ -162,6 +162,20 @@ func ResolveCities(f *Factory) ([]config.CityConfig, error) {
 	return cfg.Cities, nil
 }
 
+// EnsureCityStore ensures the city row exists under configID and returns
+// its city-scoped store. It deliberately does NOT apply a config-hash pin:
+// snapshots commands span config hashes (rm searches all cities by id, ls
+// displays the ConfigHash column, prune lists all snapshots), so pinning
+// here would hide rows they need to see. Single-city pinned paths
+// (buildCityDB, withCity) apply WithConfigHash themselves instead.
+func EnsureCityStore(ctx context.Context, root db.RootStorer, city config.CityConfig, configID string) (db.Store, error) {
+	id, err := root.EnsureCity(ctx, city.Slug(), city.Name, configID)
+	if err != nil {
+		return nil, fmt.Errorf("ensure city %s: %w", city.Slug(), err)
+	}
+	return root.ForCity(id), nil
+}
+
 func withCity(ctx context.Context, f *Factory, city *config.CityConfig) *Factory {
 	cp := *f
 	c := *city
@@ -177,7 +191,11 @@ func withCity(ctx context.Context, f *Factory, city *config.CityConfig) *Factory
 		if err != nil {
 			return nil, err
 		}
-		return root.ForCity(id), nil
+		store := root.ForCity(id)
+		if cfg, cfgErr := f.Config(); cfgErr == nil && cfg != nil {
+			store = store.WithConfigHash(cfg.Hash())
+		}
+		return store, nil
 	}
 	return &cp
 }

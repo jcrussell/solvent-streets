@@ -826,6 +826,42 @@ func TestEnsureCityIdempotent(t *testing.T) {
 	}
 }
 
+// TestEnsureCityRefreshesName pins the solvent-streets-a2z8.3 fix: when a
+// display name changes but slugifies to the same value (e.g. a punctuation or
+// capitalization edit), re-running EnsureCity must refresh the stored name in
+// place rather than keeping the stale one, while preserving the row id.
+func TestEnsureCityRefreshesName(t *testing.T) {
+	ctx := context.Background()
+	root, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+
+	id1, err := root.EnsureCity(ctx, "st-louis", "St. Louis", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id2, err := root.EnsureCity(ctx, "st-louis", "St Louis", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id1 != id2 {
+		t.Fatalf("expected same id after name refresh, got %d and %d", id1, id2)
+	}
+
+	cities, err := root.ListCities(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cities) != 1 {
+		t.Fatalf("expected 1 city, got %d", len(cities))
+	}
+	if cities[0].Name != "St Louis" {
+		t.Errorf("expected refreshed name %q, got %q", "St Louis", cities[0].Name)
+	}
+}
+
 // TestEnsureCityDistinctByConfigID pins the solvent-streets-zqul fix:
 // two configs that share a city slug (e.g. both define "Austin, TX")
 // must resolve to distinct city ids when they have distinct config_ids,
