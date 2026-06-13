@@ -19,9 +19,9 @@ flowchart TD
     CLI -->|overrides| Env -->|overrides| City -->|overrides| Top -->|overrides| Default
 ```
 
-Fields that support per-city override: `hex_edge_m`, `boundary_relation_id`, all `[forecast]` fields (`decay_rate`, `growth_rate`, `years`, `cost_tiers`). Per-city forecast merges field-by-field — set only the fields you want to override.
+Fields that support per-city override: `hex_edge_m`, `boundary_relation_id`, all `[forecast]` fields (`initial_pci`, `decay_rate`, `growth_rate`, `years`, `cost_tiers`, `current_budget`). Per-city forecast merges field-by-field — set only the fields you want to override.
 
-`boundary_relation_id` (default unset) names an OSM admin_level=8 relation to fetch from Overpass instead of the usual Nominatim search by name. Set it when ingest fails with `expected Polygon or MultiPolygon, got "Point"` — that means Nominatim has the city as a node rather than a relation, and the boundary is reachable only via Overpass. Find the relation ID with [Overpass Turbo](https://overpass-turbo.eu/): `relation["name"="<city>"]["boundary"="administrative"]["admin_level"="8"];out;`. A relation whose bbox spans more than 5° is rejected as a likely county/state typo.
+`boundary_relation_id` (default unset) names an OSM admin_level=8 relation to fetch from Overpass instead of the usual Nominatim search by name. Set it when ingest fails with `nominatim returned no Polygon/MultiPolygon result for "<city>" (set [[cities]].boundary_relation_id to fetch the admin boundary from Overpass)` — that means Nominatim has the city as a node rather than a relation, and the boundary is reachable only via Overpass. Find the relation ID with [Overpass Turbo](https://overpass-turbo.eu/): `relation["name"="<city>"]["boundary"="administrative"]["admin_level"="8"];out;`. A relation whose bbox spans more than 5° is rejected as a likely county/state typo.
 
 Built-in defaults: hex edge 100m, forecast horizon 20 years, imperial display units.
 
@@ -36,7 +36,7 @@ Env vars override the file but lose to CLI flags. Unparseable or out-of-range va
 | `PVMT_UNITS` | `[display].units` (`metric` or `imperial`) |
 | `PVMT_HEX_EDGE_M` | `[grid].hex_edge_m` (positive float, meters) |
 | `PVMT_FORECAST_YEARS` | `[forecast].years` (positive integer) |
-| `PVMT_FORECAST_INITIAL_PCI` | `[forecast].initial_pci` (clamped to 0–100) |
+| `PVMT_FORECAST_INITIAL_PCI` | `[forecast].initial_pci` (must be in (0, 100]; out-of-range ignored with a stderr warning, next layer wins) |
 
 ## Multi-city
 
@@ -82,6 +82,8 @@ Multiple sources can be enabled for the same city. Features are deduplicated by 
 
 ## Forecast tuning
 
+**`initial_pci`** — the starting Pavement Condition Index (PCI) the forecast assumes for every segment, on a 0–100 scale. Must be in `(0, 100]`; an unset, zero, or out-of-range value falls back to the default `85`. Also settable via the `PVMT_FORECAST_INITIAL_PCI` env var (see [Environment variables](#environment-variables)).
+
 **`decay_rate`** — the exponential decay coefficient (see [Architecture › Design decisions › Forecast model](architecture.md#design-decisions) for the equation). Higher values mean faster degradation. When set to 0 (default), per-classification rates are used (ranging from ~0.015 for motorways to ~0.045 for service roads).
 
 **`growth_rate`** — annual linear growth of paved area. `0.01` = 1% per year. Negative values (shrinking network) are accepted. Note: a per-city `growth_rate` of exactly `0` is indistinguishable from "unset" and is therefore treated as no override — a city cannot use `0` to opt out of a positive top-level rate; omit the top-level rate instead.
@@ -99,6 +101,8 @@ label = "Critical"
 ```
 
 Cost values are calibration inputs, not measurements — the shipped defaults are 2024 median urban municipal bid prices (preventive-treatment costs stay near FHWA ranges). Start with the defaults and only override per city when local bid tabs differ materially. Because tiers interpolate linearly at tier midpoints (not step-wise), the forecast is less sensitive to any single tier's value than it looks; bulk shifts across tiers matter more than boundary tweaks.
+
+**`current_budget`** — the city's annual pavement-repair budget, in dollars. There is no default: when unset (or `0`), the budget-dependent solvency metrics — `insolvency_year` and `funding_gap` — are disabled for that city, and the export omits them rather than reporting figures against a fabricated `$0`. (The `break_even_budget` metric is always computed for roads and does not depend on this field.) Set it to a cited figure to surface the headline solvency numbers.
 
 ## Display
 

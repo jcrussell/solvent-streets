@@ -66,7 +66,7 @@ Common causes:
 - The filesystem is mounted read-only (overlayfs, container snapshot). Fix: pick a writable XDG override via `XDG_CACHE_HOME` / `XDG_DATA_HOME`.
 - SELinux / AppArmor denies writes to your home directory's hidden dirs. Check audit logs and adjust the policy.
 
-If reseating permissions doesn't help, run `pvmt status` to print every resolved path — that often surfaces a typo or a stray override env var.
+The `<path>` in the hint is the exact directory pvmt failed on, so start there. If it's not the one you expected, an `XDG_CACHE_HOME` / `XDG_DATA_HOME` override may be redirecting it — check those env vars and the directory holding your `pvmt.toml`. (Note: `pvmt status` won't help here — it opens the database, so it fails on the same permission error, and it reports per-resource counts rather than paths.)
 
 ## `#water-strip-skipped`
 

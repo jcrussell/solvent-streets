@@ -106,9 +106,11 @@ erDiagram
 
     cities {
         int id PK
-        text slug UK
+        text slug
         text name
+        text config_id
     }
+    %% Unique key is the composite (slug, config_id), not slug alone.
     city_boundaries {
         int city_id FK
         text geometry_json
