@@ -208,6 +208,7 @@ func exportExample(ctx context.Context, rootDB *db.RootStore, cfgPath, outputDir
 
 	outDir := filepath.Join(outputDir, slug)
 	exporter := export.New(entries, cfg, outDir, cfg.UnitSystem().String())
+	exporter.SetErrOut(os.Stderr)
 	if err := exporter.SetWasmPrefix("../"); err != nil {
 		return export.ExampleInfo{}, fmt.Errorf("set WASM prefix: %w", err)
 	}

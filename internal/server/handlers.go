@@ -28,16 +28,18 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use first city for template rendering.
-	entry := s.cities[0]
-
-	tmpl, err := export.ParseIndexTemplate(entry.Config.UnitSystem())
+	// Pick the first city whose template data builds successfully rather than
+	// anchoring on s.cities[0]: a broken first city (e.g. no boundary ingested
+	// yet) would otherwise 500 the whole site and hide every healthy city. The
+	// entry must be chosen before ParseIndexTemplate since the template depends
+	// on entry.Config.UnitSystem(). 500 only when no city renders.
+	entry, td, err := s.firstRenderableCity(r.Context())
 	if err != nil {
-		http.Error(w, "template parse error", http.StatusInternalServerError)
+		s.httpErr(w, err, http.StatusInternalServerError)
 		return
 	}
 
-	td, err := s.buildIndexData(r.Context(), entry)
+	tmpl, err := export.ParseIndexTemplate(entry.Config.UnitSystem())
 	if err != nil {
 		s.httpErr(w, err, http.StatusInternalServerError)
 		return
@@ -47,6 +49,29 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	if err := tmpl.Execute(w, td); err != nil {
 		s.httpErr(w, err, http.StatusInternalServerError)
 	}
+}
+
+// firstRenderableCity returns the first city entry whose buildIndexData
+// succeeds, along with its assembled TemplateData. It mirrors the
+// continue-past-broken-cities tolerance the rest of the multi-city surface
+// already has (buildIndexData's cities loop, handleCitiesList, the static
+// exporter). Returns the last build error only when no city renders, so a
+// single broken city no longer 500s the entire site.
+func (s *Server) firstRenderableCity(ctx context.Context) (export.CityEntry, export.TemplateData, error) {
+	var lastErr error
+	for _, entry := range s.cities {
+		td, err := s.buildIndexData(ctx, entry)
+		if err != nil {
+			lastErr = err
+			fmt.Fprintf(s.ios.ErrOut, "server: skipping city %s for index: %v\n", entry.Slug, err)
+			continue
+		}
+		return entry, td, nil
+	}
+	if lastErr == nil {
+		lastErr = errors.New("no cities configured")
+	}
+	return export.CityEntry{}, export.TemplateData{}, lastErr
 }
 
 // buildIndexData assembles the TemplateData for handleIndex. Multi-city
@@ -150,9 +175,16 @@ func (s *Server) handleCitiesList(w http.ResponseWriter, r *http.Request) {
 	for _, e := range s.cities {
 		info, err := e.Info(ctx)
 		if err != nil {
+			fmt.Fprintf(s.ios.ErrOut, "server: skipping city %s in /api/cities: %v\n", e.Slug, err)
 			continue
 		}
 		cities = append(cities, info)
+	}
+	// Emit [] rather than null when every city skips, matching
+	// serveSnapshotsJSON's nil-guard and the static cities.json path so a
+	// consumer iterating the list never hits a null (server/static parity).
+	if cities == nil {
+		cities = []export.CityInfo{}
 	}
 	s.writeJSON(w, cities)
 }

@@ -159,7 +159,13 @@ func (e *Exporter) runMultiCity(ctx context.Context) error {
 		}
 	}
 
-	// Write cities.json
+	// Write cities.json. Emit [] rather than null when every city skipped,
+	// matching the /api/cities nil-guard so server/static parity holds
+	// (TestHandleCitiesList_SchemaParity) and a consumer iterating the list
+	// never hits a null.
+	if cities == nil {
+		cities = []CityInfo{}
+	}
 	if err := writeJSON(filepath.Join(e.outputDir, "cities.json"), cities); err != nil {
 		return fmt.Errorf("write cities.json: %w", err)
 	}
