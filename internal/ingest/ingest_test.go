@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -62,7 +63,7 @@ func closedWayJSON(tags map[string]string) []byte {
 
 func TestClosedHighwayWay_IsLineString(t *testing.T) {
 	data := closedWayJSON(map[string]string{"highway": "residential"})
-	features, err := parseOverpassResponse(data, testResourceRoads)
+	features, err := parseOverpassResponse(context.Background(), data, testResourceRoads)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +77,7 @@ func TestClosedHighwayWay_IsLineString(t *testing.T) {
 
 func TestClosedHighwayAreaYes_IsPolygon(t *testing.T) {
 	data := closedWayJSON(map[string]string{"highway": "pedestrian", "area": "yes"})
-	features, err := parseOverpassResponse(data, testResourceRoads)
+	features, err := parseOverpassResponse(context.Background(), data, testResourceRoads)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +91,7 @@ func TestClosedHighwayAreaYes_IsPolygon(t *testing.T) {
 
 func TestClosedNonHighwayWay_IsPolygon(t *testing.T) {
 	data := closedWayJSON(map[string]string{"amenity": "parking"})
-	features, err := parseOverpassResponse(data, testResourceParking)
+	features, err := parseOverpassResponse(context.Background(), data, testResourceParking)
 	if err != nil {
 		t.Fatal(err)
 	}

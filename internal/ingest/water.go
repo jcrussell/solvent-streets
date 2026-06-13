@@ -104,6 +104,11 @@ func parseWaterResponse(ctx context.Context, data []byte, bbox [4]float64, landP
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return "", fmt.Errorf("parse overpass water json: %w", err)
 	}
+	if remarkIndicatesTruncation(resp.Remark) {
+		// A truncated water response would under-report water and silently
+		// inflate land area; fail loudly instead of accepting partial data.
+		return "", fmt.Errorf("overpass water remark %q: %w", strings.TrimSpace(resp.Remark), errOverpassTruncated)
+	}
 
 	bboxArea := bboxLonLatArea(bbox)
 	probes := newLandProbeIndex(landProbes)

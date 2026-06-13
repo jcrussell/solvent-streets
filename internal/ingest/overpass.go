@@ -3,6 +3,7 @@ package ingest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -101,11 +102,29 @@ func fetchBBox(ctx context.Context, client *http.Client, rt resource.Source, bbo
 		return nil, fmt.Errorf("overpass returned %d: %s", resp.StatusCode, truncate(string(body), 200))
 	}
 
-	return parseOverpassResponse(body, rt.Type())
+	return parseOverpassResponse(ctx, body, rt.Type())
 }
 
+// errOverpassTruncated marks a 200 response whose top-level "remark" reports a
+// server-side runtime failure (timeout / out of memory). Overpass returns valid
+// JSON with a partial (often empty) elements array in that case, so it parses
+// cleanly; we surface it as a parse-class error so fetchRecursive splits the
+// bbox and retries with smaller queries.
+var errOverpassTruncated = errors.New("overpass result truncated by server remark")
+
 func isParseError(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "parse overpass json")
+	return err != nil && (strings.Contains(err.Error(), "parse overpass json") ||
+		errors.Is(err, errOverpassTruncated))
+}
+
+// remarkIndicatesTruncation reports whether an Overpass top-level remark signals
+// a truncated result (runtime timeout / OOM) rather than a benign note, so a
+// harmless informational remark does not trigger needless quadrant retries.
+func remarkIndicatesTruncation(remark string) bool {
+	r := strings.ToLower(remark)
+	return strings.Contains(r, "runtime error") ||
+		strings.Contains(r, "timed out") ||
+		strings.Contains(r, "out of memory")
 }
 
 func splitBBox(bbox [4]float64) [4][4]float64 {
@@ -121,6 +140,9 @@ func splitBBox(bbox [4]float64) [4][4]float64 {
 
 type overpassResponse struct {
 	Elements []overpassElement `json:"elements"`
+	// Remark carries server-side notices; a runtime timeout/OOM after execution
+	// starts arrives here on an HTTP 200 with partial elements (see A2 fix).
+	Remark string `json:"remark"`
 }
 
 type overpassGeometryPoint struct {
@@ -146,10 +168,13 @@ type overpassElement struct {
 	Members  []overpassRelationMember `json:"members,omitempty"`
 }
 
-func parseOverpassResponse(data []byte, resourceType resource.Type) ([]db.Feature, error) {
+func parseOverpassResponse(ctx context.Context, data []byte, resourceType resource.Type) ([]db.Feature, error) {
 	var resp overpassResponse
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return nil, fmt.Errorf("parse overpass json: %w", err)
+	}
+	if remarkIndicatesTruncation(resp.Remark) {
+		return nil, fmt.Errorf("overpass remark %q: %w", strings.TrimSpace(resp.Remark), errOverpassTruncated)
 	}
 
 	// Build node index for resolving way geometries
@@ -162,11 +187,20 @@ func parseOverpassResponse(data []byte, resourceType resource.Type) ([]db.Featur
 
 	var features []db.Feature
 	for _, e := range resp.Elements {
-		if e.Type != elementWay {
-			continue
-		}
-		if f, ok := buildFeatureFromWay(e, nodes, resourceType); ok {
-			features = append(features, f)
+		switch e.Type {
+		case elementWay:
+			if f, ok := buildFeatureFromWay(e, nodes, resourceType); ok {
+				features = append(features, f)
+			}
+		case elementRelation:
+			// Multipolygon relations (e.g. amenity=parking lots with
+			// landscaping islands) carry the matching tag on the relation, not
+			// the member ways, so the way clause never returns the members
+			// separately — no double counting. Their geometry is inlined by
+			// `out geom`, which relationToPolygons reads from e.Members.
+			if f, ok := buildFeatureFromRelation(ctx, e, resourceType); ok {
+				features = append(features, f)
+			}
 		}
 	}
 
@@ -204,6 +238,33 @@ func buildFeatureFromWay(e overpassElement, nodes map[int64][2]float64, resource
 		Name:         name,
 		Tags:         e.Tags,
 		GeometryJSON: geojson,
+		SourceAPI:    "overpass",
+		FetchedAt:    time.Now(),
+	}, true
+}
+
+// buildFeatureFromRelation converts a multipolygon relation into a single
+// MultiPolygon feature, stitching its member ways (inlined by `out geom`) into
+// outer rings with holes. Returns false when no closed ring can be formed.
+// acceptOuter is nil: the relation already matched the resource's tag filter at
+// the query level, so every closed outer ring belongs to the result.
+func buildFeatureFromRelation(ctx context.Context, e overpassElement, resourceType resource.Type) (db.Feature, bool) {
+	polys := relationToPolygons(ctx, e, stitchRings, nil)
+	if len(polys) == 0 {
+		return db.Feature{}, false
+	}
+
+	name := e.Tags["name"]
+	if name == "" {
+		name = e.Tags["amenity"]
+	}
+
+	return db.Feature{
+		ID:           fmt.Sprintf("osm:relation:%d", e.ID),
+		ResourceType: resourceType,
+		Name:         name,
+		Tags:         e.Tags,
+		GeometryJSON: polysToMultiPolygonGeoJSON(polys),
 		SourceAPI:    "overpass",
 		FetchedAt:    time.Now(),
 	}, true

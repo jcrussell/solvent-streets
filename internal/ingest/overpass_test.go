@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -31,7 +32,7 @@ func TestParseOverpassResponse_BasicWayWithGeometry(t *testing.T) {
 			}
 		]
 	}`
-	features, err := parseOverpassResponse([]byte(data), testResourceRoads)
+	features, err := parseOverpassResponse(context.Background(), []byte(data), testResourceRoads)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +72,7 @@ func TestParseOverpassResponse_WayResolvedViaNodeIndex(t *testing.T) {
 			}
 		]
 	}`
-	features, err := parseOverpassResponse([]byte(data), testResourceRoads)
+	features, err := parseOverpassResponse(context.Background(), []byte(data), testResourceRoads)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +101,7 @@ func TestParseOverpassResponse_ClosedPolygon(t *testing.T) {
 			}
 		]
 	}`
-	features, err := parseOverpassResponse([]byte(data), testResourceParking)
+	features, err := parseOverpassResponse(context.Background(), []byte(data), testResourceParking)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +128,7 @@ func TestParseOverpassResponse_WayLessThan2Coords(t *testing.T) {
 			}
 		]
 	}`
-	features, err := parseOverpassResponse([]byte(data), testResourceRoads)
+	features, err := parseOverpassResponse(context.Background(), []byte(data), testResourceRoads)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +139,7 @@ func TestParseOverpassResponse_WayLessThan2Coords(t *testing.T) {
 
 func TestParseOverpassResponse_EmptyResponse(t *testing.T) {
 	data := `{"elements": []}`
-	features, err := parseOverpassResponse([]byte(data), testResourceRoads)
+	features, err := parseOverpassResponse(context.Background(), []byte(data), testResourceRoads)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +162,7 @@ func TestParseOverpassResponse_NameFallbackToHighway(t *testing.T) {
 			}
 		]
 	}`
-	features, err := parseOverpassResponse([]byte(data), testResourceRoads)
+	features, err := parseOverpassResponse(context.Background(), []byte(data), testResourceRoads)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +191,7 @@ func TestParseOverpassResponse_GeometryPriorityOverNodes(t *testing.T) {
 			}
 		]
 	}`
-	features, err := parseOverpassResponse([]byte(data), testResourceRoads)
+	features, err := parseOverpassResponse(context.Background(), []byte(data), testResourceRoads)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,6 +211,130 @@ func TestParseOverpassResponse_GeometryPriorityOverNodes(t *testing.T) {
 	// First coord lon should be -121.77 (from geometry), not 0.0 (from nodes)
 	if geojson.Coordinates[0][0] != -121.77 {
 		t.Errorf("expected lon -121.77, got %f", geojson.Coordinates[0][0])
+	}
+}
+
+func TestParseOverpassResponse_RelationMultiPolygon(t *testing.T) {
+	// A parking multipolygon: the amenity tag lives on the relation, geometry
+	// is inlined on the member ways by `out geom`. Previously dropped silently.
+	data := `{
+		"elements": [
+			{
+				"type": "relation",
+				"id": 900,
+				"tags": {"amenity": "parking", "name": "Big Lot"},
+				"members": [
+					{"type": "way", "ref": 1, "role": "outer", "geometry": [
+						{"lat": 37.68, "lon": -121.77},
+						{"lat": 37.68, "lon": -121.76},
+						{"lat": 37.69, "lon": -121.76},
+						{"lat": 37.69, "lon": -121.77},
+						{"lat": 37.68, "lon": -121.77}
+					]}
+				]
+			}
+		]
+	}`
+	features, err := parseOverpassResponse(context.Background(), []byte(data), testResourceParking)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(features) != 1 {
+		t.Fatalf("expected 1 feature from relation, got %d", len(features))
+	}
+	f := features[0]
+	if f.ID != "osm:relation:900" {
+		t.Errorf("expected id osm:relation:900, got %s", f.ID)
+	}
+	if f.Name != "Big Lot" {
+		t.Errorf("expected name Big Lot, got %s", f.Name)
+	}
+	var geojson struct{ Type string }
+	if err := json.Unmarshal([]byte(f.GeometryJSON), &geojson); err != nil {
+		t.Fatal(err)
+	}
+	if geojson.Type != "MultiPolygon" {
+		t.Errorf("expected MultiPolygon, got %s", geojson.Type)
+	}
+}
+
+func TestParseOverpassResponse_RelationWithHole(t *testing.T) {
+	// Outer ring with an inner ring (landscaping island) — the hole must be
+	// preserved in the emitted MultiPolygon (first polygon has 2 rings).
+	data := `{
+		"elements": [
+			{
+				"type": "relation",
+				"id": 901,
+				"tags": {"amenity": "parking"},
+				"members": [
+					{"type": "way", "ref": 1, "role": "outer", "geometry": [
+						{"lat": 37.680, "lon": -121.770},
+						{"lat": 37.680, "lon": -121.760},
+						{"lat": 37.690, "lon": -121.760},
+						{"lat": 37.690, "lon": -121.770},
+						{"lat": 37.680, "lon": -121.770}
+					]},
+					{"type": "way", "ref": 2, "role": "inner", "geometry": [
+						{"lat": 37.683, "lon": -121.767},
+						{"lat": 37.683, "lon": -121.763},
+						{"lat": 37.687, "lon": -121.763},
+						{"lat": 37.687, "lon": -121.767},
+						{"lat": 37.683, "lon": -121.767}
+					]}
+				]
+			}
+		]
+	}`
+	features, err := parseOverpassResponse(context.Background(), []byte(data), testResourceParking)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(features) != 1 {
+		t.Fatalf("expected 1 feature, got %d", len(features))
+	}
+	var geojson struct {
+		Type        string           `json:"type"`
+		Coordinates [][][][2]float64 `json:"coordinates"`
+	}
+	if err := json.Unmarshal([]byte(features[0].GeometryJSON), &geojson); err != nil {
+		t.Fatal(err)
+	}
+	if geojson.Type != "MultiPolygon" {
+		t.Fatalf("expected MultiPolygon, got %s", geojson.Type)
+	}
+	if len(geojson.Coordinates) != 1 {
+		t.Fatalf("expected 1 polygon, got %d", len(geojson.Coordinates))
+	}
+	if len(geojson.Coordinates[0]) != 2 {
+		t.Errorf("expected outer ring + 1 hole, got %d rings", len(geojson.Coordinates[0]))
+	}
+}
+
+func TestParseOverpassResponse_TruncationRemark(t *testing.T) {
+	// A server-side timeout yields HTTP 200 + remark + partial elements.
+	data := `{"remark": "runtime error: Query timed out in \"query\" at line 1 after 120 seconds.", "elements": []}`
+	_, err := parseOverpassResponse(context.Background(), []byte(data), testResourceRoads)
+	if err == nil {
+		t.Fatal("expected error for truncation remark")
+	}
+	if !isParseError(err) {
+		t.Errorf("truncation remark should be a parse-class error (to trigger retry): %v", err)
+	}
+}
+
+func TestParseOverpassResponse_BenignRemarkIgnored(t *testing.T) {
+	data := `{"remark": "Note: some informational message", "elements": [
+		{"type": "way", "id": 1, "tags": {"highway": "residential"}, "geometry": [
+			{"lat": 37.68, "lon": -121.77}, {"lat": 37.69, "lon": -121.76}
+		]}
+	]}`
+	features, err := parseOverpassResponse(context.Background(), []byte(data), testResourceRoads)
+	if err != nil {
+		t.Fatalf("benign remark should not error: %v", err)
+	}
+	if len(features) != 1 {
+		t.Errorf("expected 1 feature despite benign remark, got %d", len(features))
 	}
 }
 
