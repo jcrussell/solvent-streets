@@ -108,6 +108,18 @@ func TestResolveHexEdgeForCity(t *testing.T) {
 		}
 	})
 
+	t.Run("env beats per-city override", func(t *testing.T) {
+		t.Setenv("PVMT_HEX_EDGE_M", "300")
+		city := &CityConfig{Name: "Detroit", HexEdgeM: 75}
+		v, s := cfg.resolveHexEdgeForCity(city)
+		if v != 300 {
+			t.Errorf("value = %v, want 300 (env wins)", v)
+		}
+		if s != (Source{Kind: SourceEnv, Detail: "PVMT_HEX_EDGE_M"}) {
+			t.Errorf("source = %v, want env source", s)
+		}
+	})
+
 	t.Run("city inherits top-level when no override", func(t *testing.T) {
 		city := &CityConfig{Name: "Detroit"}
 		v, s := cfg.resolveHexEdgeForCity(city)
@@ -151,6 +163,18 @@ func TestResolveForecast_Precedence(t *testing.T) {
 		}
 		if prov.Years != (Source{Kind: SourceFile, Detail: "cities[test].forecast.years"}) {
 			t.Errorf("Years source = %v, want city file source", prov.Years)
+		}
+	})
+
+	t.Run("negative per-city growth_rate is not dropped", func(t *testing.T) {
+		cfg := &Config{Forecast: ForecastConfig{GrowthRate: 0.015, InitialPCI: 85}}
+		city := &CityConfig{Name: "Test", Forecast: &ForecastConfig{GrowthRate: -0.01}}
+		fc, prov := cfg.resolveForecast(city)
+		if fc.GrowthRate != -0.01 {
+			t.Errorf("GrowthRate = %g, want -0.01 (per-city override applied)", fc.GrowthRate)
+		}
+		if prov.GrowthRate != (Source{Kind: SourceFile, Detail: "cities[test].forecast.growth_rate"}) {
+			t.Errorf("GrowthRate source = %v, want city file source", prov.GrowthRate)
 		}
 	})
 

@@ -85,7 +85,7 @@ Multiple sources can be enabled for the same city. Features are deduplicated by 
 
 **`decay_rate`** — the exponential decay coefficient (see [Architecture › Design decisions › Forecast model](architecture.md#design-decisions) for the equation). Higher values mean faster degradation. When set to 0 (default), per-classification rates are used (ranging from ~0.015 for motorways to ~0.045 for service roads).
 
-**`growth_rate`** — annual linear growth of paved area. `0.01` = 1% per year.
+**`growth_rate`** — annual linear growth of paved area. `0.01` = 1% per year. Negative values (shrinking network) are accepted. Note: a per-city `growth_rate` of exactly `0` is indistinguishable from "unset" and is therefore treated as no override — a city cannot use `0` to opt out of a positive top-level rate; omit the top-level rate instead.
 
 **`years`** — forecast horizon. Default 20.
 

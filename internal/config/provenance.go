@@ -99,12 +99,22 @@ func (c *Config) resolveUnits(flagUnits string) (units.System, Source) {
 	return units.Imperial, Source{Kind: SourceDefault}
 }
 
-// resolveHexEdge returns the top-level hex edge and its source.
-func (c *Config) resolveHexEdge() (float64, Source) {
+// hexEdgeFromEnv reads the PVMT_HEX_EDGE_M override. The bool reports whether
+// a valid positive value was present. Shared by resolveHexEdge and
+// resolveHexEdgeForCity so the env layer is read identically in both.
+func hexEdgeFromEnv() (float64, Source, bool) {
 	if v, ok := os.LookupEnv("PVMT_HEX_EDGE_M"); ok && v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
-			return f, Source{Kind: SourceEnv, Detail: "PVMT_HEX_EDGE_M"}
+			return f, Source{Kind: SourceEnv, Detail: "PVMT_HEX_EDGE_M"}, true
 		}
+	}
+	return 0, Source{}, false
+}
+
+// resolveHexEdge returns the top-level hex edge and its source.
+func (c *Config) resolveHexEdge() (float64, Source) {
+	if f, src, ok := hexEdgeFromEnv(); ok {
+		return f, src
 	}
 	if c.Grid.HexEdgeM > 0 {
 		return c.Grid.HexEdgeM, Source{Kind: SourceFile, Detail: "grid.hex_edge_m"}
@@ -113,8 +123,13 @@ func (c *Config) resolveHexEdge() (float64, Source) {
 }
 
 // resolveHexEdgeForCity returns the hex edge for a city and its source.
-// A per-city override wins over the top-level resolution.
+// Precedence is env > city > file > default, matching the package contract
+// and resolveForecast: PVMT_HEX_EDGE_M beats a per-city override, which in
+// turn beats the top-level grid value.
 func (c *Config) resolveHexEdgeForCity(city *CityConfig) (float64, Source) {
+	if f, src, ok := hexEdgeFromEnv(); ok {
+		return f, src
+	}
 	if city != nil && city.HexEdgeM > 0 {
 		return city.HexEdgeM, Source{
 			Kind:   SourceFile,
@@ -188,7 +203,11 @@ func applyCityForecastProv(fc *ForecastConfig, p *forecastProvenance, city *City
 		fc.DecayRate = ov.DecayRate
 		p.DecayRate = Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].forecast.decay_rate", slug)}
 	}
-	if ov.GrowthRate > 0 {
+	// Match fileForecastProv's `!= 0` sentinel: a negative per-city growth_rate
+	// (shrinking network) is valid per ForecastConfig.Validate and must not be
+	// silently dropped. An explicit per-city 0 remains inexpressible with a
+	// value-type float (see docs/configuration.md caveat).
+	if ov.GrowthRate != 0 {
 		fc.GrowthRate = ov.GrowthRate
 		p.GrowthRate = Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].forecast.growth_rate", slug)}
 	}
