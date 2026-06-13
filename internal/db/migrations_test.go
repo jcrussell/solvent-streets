@@ -105,8 +105,8 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 		// These are the indexes the runtime path depends on. Dropping any
 		// would silently turn a hot read into a table scan.
 		want := map[string][]string{
-			"features":         {"idx_features_resource_type", "idx_features_city"},
-			"hex_stats":        {"idx_hex_stats_lookup", "idx_hex_stats_city"},
+			"features":         {"idx_features_city_type"},
+			"hex_stats":        {"idx_hex_stats_city_type_snap", "idx_hex_stats_snapshot"},
 			"compute_results":  {"idx_compute_results_resource_type", "idx_compute_results_city"},
 			"forecast_results": {"idx_forecast_results_type", "idx_forecast_results_snapshot", "idx_forecast_results_city"},
 			"cohort_stats":     {"idx_cohort_stats_city", "idx_cohort_stats_resource_type"},
@@ -121,6 +121,89 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestQueryPlan_UsesCompositeIndexes is a regression guard for the
+// (city_id, resource_type[, snapshot_id]) composite indexes. The hot read
+// paths — ListHexStats / ListFeatures and the MAX(snapshot_id) subqueries in
+// snapshotQuery — must seek these composites, not fall back to scanning all of
+// a city's rows across every resource type and snapshot. Asserting on the
+// EXPLAIN QUERY PLAN catches a dropped or reordered index that a schema-shape
+// test (which only checks index presence) would miss.
+func TestQueryPlan_UsesCompositeIndexes(t *testing.T) {
+	ctx := context.Background()
+
+	root, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:): %v", err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+
+	cases := []struct {
+		name      string
+		query     string
+		wantIndex string
+	}{
+		{
+			// ListHexStats outer read shape.
+			name:      "hex_stats outer filter",
+			query:     `SELECT hex_id FROM hex_stats WHERE resource_type = ? AND city_id = ?`,
+			wantIndex: "idx_hex_stats_city_type_snap",
+		},
+		{
+			// One of snapshotQuery's MAX(snapshot_id) arms — must be index-only.
+			name:      "hex_stats MAX(snapshot_id) subquery",
+			query:     `SELECT MAX(snapshot_id) FROM hex_stats WHERE resource_type = ? AND city_id = ?`,
+			wantIndex: "idx_hex_stats_city_type_snap",
+		},
+		{
+			// ListFeatures read shape.
+			name:      "features outer filter",
+			query:     `SELECT id FROM features WHERE resource_type = ? AND city_id = ?`,
+			wantIndex: "idx_features_city_type",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			plan := queryPlan(t, ctx, root.db, tc.query)
+			// Accept both "USING INDEX" and "USING COVERING INDEX" — the
+			// latter (an index-only plan) is strictly better and is what the
+			// MAX(snapshot_id) subqueries resolve to.
+			if !strings.Contains(plan, "INDEX "+tc.wantIndex) {
+				t.Errorf("query %q\nplan:\n%s\nwant INDEX %s", tc.query, plan, tc.wantIndex)
+			}
+			if strings.Contains(plan, "SCAN hex_stats\n") || strings.Contains(plan, "SCAN features\n") {
+				t.Errorf("query %q falls back to a full table scan:\n%s", tc.query, plan)
+			}
+		})
+	}
+}
+
+// queryPlan runs EXPLAIN QUERY PLAN and returns the joined detail rows. The
+// query may carry bind placeholders; we bind NULL for each so the planner sees
+// the same shape the runtime does without needing real values.
+func queryPlan(t *testing.T, ctx context.Context, d *sql.DB, query string) string {
+	t.Helper()
+	args := make([]any, strings.Count(query, "?"))
+	rows, err := d.QueryContext(ctx, "EXPLAIN QUERY PLAN "+query, args...)
+	if err != nil {
+		t.Fatalf("EXPLAIN QUERY PLAN %q: %v", query, err)
+	}
+	defer func() { _ = rows.Close() }()
+	var details []string
+	for rows.Next() {
+		var id, parent, notused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &notused, &detail); err != nil {
+			t.Fatalf("scan query plan: %v", err)
+		}
+		details = append(details, detail)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate query plan: %v", err)
+	}
+	return strings.Join(details, "\n") + "\n"
 }
 
 type columnInfo struct {
