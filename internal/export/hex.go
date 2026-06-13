@@ -3,6 +3,7 @@ package export
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"sort"
 
@@ -24,13 +25,25 @@ type hexAgg struct {
 // scopes — one feature per hex, geometry emitted once. Each feature carries
 // nested {bbox, city?} objects keyed by resource name; "city" is omitted when
 // the hex has no ":city" rows (so a city whose features all lack "city" hides
-// the scope toggle in the UI). Returns nil when no hex_stats rows exist.
-func BuildHexGeoJSON(ctx context.Context, entry CityEntry, proj *geo.UTMProjector) map[string]any {
+// the scope toggle in the UI).
+//
+// Returns (nil, nil) when no hex_stats rows exist (a legitimate empty state),
+// but propagates any real ListHexStats DB error so callers can evict and retry
+// instead of caching a blank grid for the server's lifetime — mirroring
+// serveBoundaryGeoJSON's empty-vs-error split.
+func BuildHexGeoJSON(ctx context.Context, entry CityEntry, proj *geo.UTMProjector) (map[string]any, error) {
 	decimals := entry.Config.CoordinateDecimals()
 
-	aggs, order := aggregateHexStats(ctx, entry)
+	aggs, order, err := aggregateHexStats(ctx, entry)
+	if err != nil {
+		return nil, err
+	}
 	if len(order) == 0 {
-		return nil
+		// nil map signals "no hex stats" — a legitimate empty both callers
+		// handle (server returns an empty FC; static export skips the file).
+		// The error slot is reserved for real ListHexStats failures, which
+		// aggregateHexStats already surfaced above.
+		return nil, nil //nolint:nilnil // nil map = legitimate empty, distinct from the propagated DB error above
 	}
 	// ListHexStats has no ORDER BY, so sort hex IDs here for reproducible
 	// output — unchanged data yields a byte-identical file across regens.
@@ -59,7 +72,7 @@ func BuildHexGeoJSON(ctx context.Context, entry CityEntry, proj *geo.UTMProjecto
 	return map[string]any{
 		"type":     "FeatureCollection",
 		"features": features,
-	}
+	}, nil
 }
 
 func round2(v float64) float64 { return math.Round(v*100) / 100 }
@@ -67,7 +80,12 @@ func round2(v float64) float64 { return math.Round(v*100) / 100 }
 // aggregateHexStats collects hex_stats rows across every resource and both
 // scopes into per-hex aggregates. It returns the aggregates keyed by hex ID and
 // the first-seen hex order; the caller sorts this for reproducible output.
-func aggregateHexStats(ctx context.Context, entry CityEntry) (map[string]*hexAgg, []string) {
+//
+// ListHexStats returns a nil slice and no error for an un-computed resource
+// (a legitimate empty), so any non-nil error here is a real DB failure and is
+// propagated — distinguishing "no data" from "the query failed" so the caller
+// doesn't memoize a blank grid on a transient error.
+func aggregateHexStats(ctx context.Context, entry CityEntry) (map[string]*hexAgg, []string, error) {
 	aggs := make(map[string]*hexAgg)
 	var order []string
 	for _, rt := range resource.All {
@@ -75,7 +93,7 @@ func aggregateHexStats(ctx context.Context, entry CityEntry) (map[string]*hexAgg
 		for _, scope := range []resource.Scope{resource.ScopeAll, resource.ScopeCity} {
 			stats, err := entry.Store.ListHexStats(ctx, rt.Type().With(scope))
 			if err != nil {
-				continue
+				return nil, nil, fmt.Errorf("listing hex stats for %s: %w", rt.Type().With(scope), err)
 			}
 			for _, st := range stats {
 				a := aggs[st.HexID]
@@ -88,7 +106,7 @@ func aggregateHexStats(ctx context.Context, entry CityEntry) (map[string]*hexAgg
 			}
 		}
 	}
-	return aggs, order
+	return aggs, order, nil
 }
 
 // set records one resource's coverage for the given scope, lazily allocating

@@ -145,7 +145,10 @@ func TestBuildHexGeoJSON_EmittedWhenRowsExist(t *testing.T) {
 	}
 	proj := geo.NewUTMProjector(lon, lat)
 
-	fc := BuildHexGeoJSON(t.Context(), entry, proj)
+	fc, err := BuildHexGeoJSON(t.Context(), entry, proj)
+	if err != nil {
+		t.Fatalf("BuildHexGeoJSON: %v", err)
+	}
 	if fc == nil {
 		t.Fatal("BuildHexGeoJSON returned nil when rows exist")
 	}
@@ -272,7 +275,10 @@ func TestBuildHexGeoJSON_NoCityRowsOmitsCity(t *testing.T) {
 	}, nil)
 
 	_, lon, lat, _ := entry.BBoxAndCenter(t.Context())
-	fc := BuildHexGeoJSON(t.Context(), entry, geo.NewUTMProjector(lon, lat))
+	fc, err := BuildHexGeoJSON(t.Context(), entry, geo.NewUTMProjector(lon, lat))
+	if err != nil {
+		t.Fatalf("BuildHexGeoJSON: %v", err)
+	}
 	if fc == nil {
 		t.Fatal("FC must be non-nil when bbox rows exist")
 	}

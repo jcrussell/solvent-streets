@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -39,7 +38,10 @@ func TestHandleDataMetaJSON(t *testing.T) {
 					ComputedAt:   time.Now(),
 				}, nil
 			}
-			return nil, fmt.Errorf("not found")
+			// Un-computed resources return sql.ErrNoRows in production
+			// (QueryRow.Scan); BuildMeta skips those and propagates only
+			// real DB errors.
+			return nil, sql.ErrNoRows
 		},
 	}
 
@@ -87,7 +89,9 @@ func TestHandleIndex(t *testing.T) {
 	store := &dbtest.MockStore{
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
 		LatestComputeResultFunc: func(_ context.Context, _ resource.Type) (*db.ComputeResult, error) {
-			return nil, fmt.Errorf("not found")
+			// Un-computed resources return sql.ErrNoRows in production;
+			// BuildMeta skips those (and propagates only real DB errors).
+			return nil, sql.ErrNoRows
 		},
 	}
 	cfg := &config.Config{
@@ -254,7 +258,7 @@ func TestDataFile_SnapshotParam(t *testing.T) {
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
 		LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
 			if rt != srvRtRoads {
-				return nil, fmt.Errorf("not found")
+				return nil, sql.ErrNoRows
 			}
 			return &db.ComputeResult{
 				ResourceType: srvRtRoads,
@@ -276,7 +280,7 @@ func TestDataFile_SnapshotParam(t *testing.T) {
 			cp := *pinnedStore
 			cp.LatestComputeResultFunc = func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
 				if rt != srvRtRoads {
-					return nil, fmt.Errorf("not found")
+					return nil, sql.ErrNoRows
 				}
 				return &db.ComputeResult{
 					ResourceType: srvRtRoads,
@@ -289,7 +293,7 @@ func TestDataFile_SnapshotParam(t *testing.T) {
 		},
 		LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
 			if rt != srvRtRoads {
-				return nil, fmt.Errorf("not found")
+				return nil, sql.ErrNoRows
 			}
 			return &db.ComputeResult{
 				ResourceType: srvRtRoads, TotalArea: 999000, FeatureCount: 999, ComputedAt: time.Now(),
@@ -480,6 +484,48 @@ func TestBuildForecasts_DBErrorEvicts(t *testing.T) {
 	// Build retried after eviction; LatestComputeResults ran twice total.
 	if got := builds.Load(); got != 2 {
 		t.Errorf("expected LatestComputeResults to run 2 times (build twice), ran %d", got)
+	}
+}
+
+// TestServeHexGridGeoJSON_DBErrorEvicts verifies that a real ListHexStats DB
+// error during the hex grid build evicts the s.cache hexgrid:slug thunk so the
+// next request retries against a recovered store rather than memoizing a blank
+// FeatureCollection for the server's lifetime — mirroring serveBoundaryGeoJSON
+// and TestBuildForecasts_DBErrorEvicts.
+func TestServeHexGridGeoJSON_DBErrorEvicts(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	boundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
+	var hexCalls atomic.Int32
+	failingStore := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return boundary, nil },
+		ListHexStatsFunc: func(_ context.Context, _ resource.Type) ([]db.HexStat, error) {
+			// Fail the very first ListHexStats; once the thunk is evicted the
+			// retry returns the legitimate empty (nil slice, no error).
+			if hexCalls.Add(1) == 1 {
+				return nil, errors.New("db unavailable")
+			}
+			return nil, nil
+		},
+	}
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Test City"}}}
+	entry := export.CityEntry{
+		Config: cfg,
+		City:   cfg.Cities[0],
+		Store:  failingStore,
+		Slug:   cfg.Cities[0].Slug(),
+	}
+	srv := New([]export.CityEntry{entry}, 0, ios)
+
+	w1 := httptest.NewRecorder()
+	srv.serveHexGridGeoJSON(w1, nil, entry, 0)
+	if w1.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 on first call, got %d: %s", w1.Code, w1.Body.String())
+	}
+
+	w2 := httptest.NewRecorder()
+	srv.serveHexGridGeoJSON(w2, nil, entry, 0)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("expected 200 on retry, got %d: %s", w2.Code, w2.Body.String())
 	}
 }
 

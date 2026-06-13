@@ -239,7 +239,11 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 	// Export hex grid — a single multi-scope file, one feature per hex with
 	// nested {bbox, city?} coverage. Written minified (it dominates site size);
 	// a feature without "city" signals "hide the scope toggle" to the client.
-	if hexFC := BuildHexGeoJSON(ctx, entry, proj); hexFC != nil {
+	hexFC, err := BuildHexGeoJSON(ctx, entry, proj)
+	if err != nil {
+		return fmt.Errorf("build hexgrid: %w", err)
+	}
+	if hexFC != nil {
 		if err := writeJSONCompact(filepath.Join(dataDir, "hexgrid.geojson"), hexFC); err != nil {
 			return fmt.Errorf("write hexgrid: %w", err)
 		}

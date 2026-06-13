@@ -2,7 +2,9 @@ package export
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"sync"
@@ -108,7 +110,14 @@ func BuildMeta(ctx context.Context, entry CityEntry) (MetaJSON, error) {
 	for _, rt := range resource.All {
 		result, err := entry.Store.LatestComputeResult(ctx, rt.Type())
 		if err != nil {
-			continue
+			// sql.ErrNoRows is the normal "this resource hasn't been computed
+			// yet" state — skip it. Any other error is a real DB failure and
+			// is propagated so serveMetaJSON's cache evicts and retries
+			// instead of memoizing a partial meta for the server's lifetime.
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			return MetaJSON{}, fmt.Errorf("latest compute result for %s: %w", rt.Type(), err)
 		}
 		typeName := string(result.ResourceType.Bare())
 		meta.Stats = append(meta.Stats, StatJSON{

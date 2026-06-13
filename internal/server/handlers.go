@@ -352,7 +352,14 @@ func (s *Server) serveHexGridGeoJSON(w http.ResponseWriter, _ *http.Request, ent
 		if err != nil {
 			return nil, err
 		}
-		fc := export.BuildHexGeoJSON(context.Background(), entry, geo.NewUTMProjector(lon0, lat0))
+		// BuildHexGeoJSON distinguishes "no hex stats" (nil, nil — cache the
+		// empty FC) from a real DB error (nil, err — surface so serveJSONCached
+		// evicts and the next request retries instead of locking in a blank hex
+		// grid for the server's lifetime), mirroring serveBoundaryGeoJSON.
+		fc, err := export.BuildHexGeoJSON(context.Background(), entry, geo.NewUTMProjector(lon0, lat0))
+		if err != nil {
+			return nil, err
+		}
 		if fc == nil {
 			fc = map[string]any{"type": "FeatureCollection", "features": []any{}}
 		}
