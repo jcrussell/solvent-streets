@@ -19,7 +19,7 @@ var _ db.Store = (*MockStore)(nil)
 // rows" from "not mocked" via len, matching the rows-iteration
 // contract of the real sqliteStore.
 type MockStore struct {
-	UpsertFeaturesFunc          func(context.Context, resource.Type, []db.Feature) error
+	UpsertFeaturesFunc          func(context.Context, resource.Type, []db.Feature, []string) error
 	ListFeaturesFunc            func(context.Context, resource.Type) ([]db.Feature, error)
 	SaveComputeResultFunc       func(context.Context, db.ComputeResult) error
 	LatestComputeResultFunc     func(context.Context, resource.Type) (*db.ComputeResult, error)
@@ -44,9 +44,9 @@ type MockStore struct {
 	CloseFunc                   func() error
 }
 
-func (m *MockStore) UpsertFeatures(ctx context.Context, rt resource.Type, f []db.Feature) error {
+func (m *MockStore) UpsertFeatures(ctx context.Context, rt resource.Type, f []db.Feature, sourceAPIs []string) error {
 	if m.UpsertFeaturesFunc != nil {
-		return m.UpsertFeaturesFunc(ctx, rt, f)
+		return m.UpsertFeaturesFunc(ctx, rt, f, sourceAPIs)
 	}
 	return nil
 }

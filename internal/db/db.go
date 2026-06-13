@@ -89,7 +89,7 @@ type City struct {
 }
 
 type Store interface {
-	UpsertFeatures(ctx context.Context, resourceType resource.Type, features []Feature) error
+	UpsertFeatures(ctx context.Context, resourceType resource.Type, features []Feature, sourceAPIs []string) error
 	ListFeatures(ctx context.Context, resourceType resource.Type) ([]Feature, error)
 	SaveComputeResult(ctx context.Context, result ComputeResult) error
 	LatestComputeResult(ctx context.Context, resourceType resource.Type) (*ComputeResult, error)

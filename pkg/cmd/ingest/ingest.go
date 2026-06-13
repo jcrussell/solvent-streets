@@ -117,17 +117,30 @@ func runIngest(ctx context.Context, opts *Options) error {
 		return err
 	}
 
-	allFeatures, err := fetchFromSources(ctx, sources, client, opts, city.Name)
+	allFeatures, succeeded, err := fetchFromSources(ctx, sources, client, opts, city.Name)
 	if err != nil {
 		return err
 	}
 	if len(allFeatures) == 0 {
+		// Nothing fetched: return without touching the DB so a transient
+		// all-empty result never wipes previously-stored rows. (A surviving
+		// source that legitimately emptied out thus keeps its stale rows until
+		// a clean full re-ingest — preferred over destructive deletion.)
 		logs.From(ctx).Warn("no features fetched", "resource", opts.ResourceType.Type())
 		return cmdutil.ErrNoResults
 	}
 
+	// When every resolved source succeeded, replace the whole resource set
+	// (nil scope) — this also clears any legacy/empty source_api rows. When a
+	// source failed, scope the replace to the sources that succeeded so the
+	// down source's previously-stored rows are preserved rather than wiped.
+	var replaceSources []string
+	if len(succeeded) < len(sources) {
+		replaceSources = succeeded
+	}
+
 	logs.From(ctx).Info("saving features to database", "count", len(allFeatures), "resource", opts.ResourceType.Type())
-	if err := store.UpsertFeatures(ctx, opts.ResourceType.Type(), allFeatures); err != nil {
+	if err := store.UpsertFeatures(ctx, opts.ResourceType.Type(), allFeatures, replaceSources); err != nil {
 		return fmt.Errorf("save features: %w", err)
 	}
 
@@ -441,8 +454,13 @@ func resolveSources(opts *Options, bbox [4]float64, arcgisURL string, allowPriva
 	return []ingestpkg.Source{src}, nil
 }
 
-func fetchFromSources(ctx context.Context, sources []ingestpkg.Source, client *http.Client, opts *Options, cityName string) ([]db.Feature, error) {
+// fetchFromSources fetches from each source, tolerating per-source failures as
+// long as one succeeds. It returns the fetched features and the names of the
+// sources that succeeded (which equal the source_api written on their rows), so
+// the caller can scope persistence to the sources that actually returned.
+func fetchFromSources(ctx context.Context, sources []ingestpkg.Source, client *http.Client, opts *Options, cityName string) ([]db.Feature, []string, error) {
 	var allFeatures []db.Feature
+	var succeeded []string
 	failures := 0
 	for _, src := range sources {
 		fmt.Fprintf(opts.IO.ErrOut, "Fetching %s data from %s for %s...\n", opts.ResourceType.Type(), src.Name(), cityName)
@@ -454,9 +472,10 @@ func fetchFromSources(ctx context.Context, sources []ingestpkg.Source, client *h
 		}
 		fmt.Fprintf(opts.IO.ErrOut, "  Got %d features from %s\n", len(features), src.Name())
 		allFeatures = append(allFeatures, features...)
+		succeeded = append(succeeded, src.Name())
 	}
 	if len(sources) > 0 && failures == len(sources) {
-		return nil, fmt.Errorf("%s: %w", opts.ResourceType.Type(), cmdutil.ErrAllSourcesFailed)
+		return nil, nil, fmt.Errorf("%s: %w", opts.ResourceType.Type(), cmdutil.ErrAllSourcesFailed)
 	}
-	return allFeatures, nil
+	return allFeatures, succeeded, nil
 }

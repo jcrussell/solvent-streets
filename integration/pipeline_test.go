@@ -192,7 +192,7 @@ func loadFixtures(t *testing.T, ctx context.Context, store db.Store) {
 		GeometryJSON: `{"type":"LineString","coordinates":[[-121.768,37.682],[-121.762,37.688]]}`,
 		SourceAPI:    "fixture",
 		FetchedAt:    time.Now(),
-	}}); err != nil {
+	}}, nil); err != nil {
 		t.Fatalf("UpsertFeatures roads: %v", err)
 	}
 	if err := store.UpsertFeatures(ctx, rtParking, []db.Feature{{
@@ -203,7 +203,7 @@ func loadFixtures(t *testing.T, ctx context.Context, store db.Store) {
 		GeometryJSON: `{"type":"Polygon","coordinates":[[[-121.766,37.684],[-121.765,37.684],[-121.765,37.685],[-121.766,37.685],[-121.766,37.684]]]}`,
 		SourceAPI:    "fixture",
 		FetchedAt:    time.Now(),
-	}}); err != nil {
+	}}, nil); err != nil {
 		t.Fatalf("UpsertFeatures parking: %v", err)
 	}
 }

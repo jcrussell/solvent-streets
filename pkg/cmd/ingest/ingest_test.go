@@ -175,7 +175,7 @@ func TestFetchFromSources_AllFailedReturnsErrAllSourcesFailed(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	opts := &Options{IO: ios, ResourceType: &resource.Pavement{}}
 	sources := []ingestpkg.Source{&failingSource{name: "a"}, &failingSource{name: "b"}}
-	_, err := fetchFromSources(context.Background(), sources, &http.Client{}, opts, "Test City")
+	_, _, err := fetchFromSources(context.Background(), sources, &http.Client{}, opts, "Test City")
 	if !errors.Is(err, cmdutil.ErrAllSourcesFailed) {
 		t.Errorf("expected ErrAllSourcesFailed, got %v", err)
 	}
@@ -185,12 +185,17 @@ func TestFetchFromSources_PartialSuccessNoError(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	opts := &Options{IO: ios, ResourceType: &resource.Pavement{}}
 	sources := []ingestpkg.Source{&failingSource{name: "a"}, &emptySource{name: "b"}}
-	features, err := fetchFromSources(context.Background(), sources, &http.Client{}, opts, "Test City")
+	features, succeeded, err := fetchFromSources(context.Background(), sources, &http.Client{}, opts, "Test City")
 	if err != nil {
 		t.Errorf("expected nil error when at least one source returns cleanly, got %v", err)
 	}
 	if len(features) != 0 {
 		t.Errorf("expected 0 features, got %d", len(features))
+	}
+	// Only the source that returned cleanly is reported as succeeded, so the
+	// caller scopes the replace and the failed source's rows survive.
+	if len(succeeded) != 1 || succeeded[0] != "b" {
+		t.Errorf("succeeded = %v, want [b] (only the source that did not fail)", succeeded)
 	}
 }
 

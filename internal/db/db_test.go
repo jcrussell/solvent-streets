@@ -43,7 +43,7 @@ func TestStoreRoundTrip(t *testing.T) {
 		{ID: "osm:way:2", ResourceType: rtRoads, Name: "Oak Ave", Tags: map[string]string{"highway": "residential"}, GeometryJSON: `{"type":"LineString","coordinates":[[-121.76,37.69],[-121.75,37.69]]}`, SourceAPI: "overpass", FetchedAt: time.Now()},
 	}
 
-	if err := store.UpsertFeatures(ctx, rtRoads, features); err != nil {
+	if err := store.UpsertFeatures(ctx, rtRoads, features, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -56,7 +56,7 @@ func TestStoreRoundTrip(t *testing.T) {
 	}
 
 	// Upsert same features — should update, not duplicate
-	if err := store.UpsertFeatures(ctx, rtRoads, features); err != nil {
+	if err := store.UpsertFeatures(ctx, rtRoads, features, nil); err != nil {
 		t.Fatal(err)
 	}
 	got, err = store.ListFeatures(ctx, rtRoads)
@@ -65,6 +65,63 @@ func TestStoreRoundTrip(t *testing.T) {
 	}
 	if len(got) != 2 {
 		t.Errorf("expected 2 features after upsert, got %d", len(got))
+	}
+}
+
+// TestUpsertFeatures_ScopedBySourcePreservesOtherSources locks in the
+// partial-source data-loss fix: a re-ingest scoped to one source must replace
+// only that source's rows and leave other sources' rows intact, while a nil
+// scope replaces everything for the resource.
+func TestUpsertFeatures_ScopedBySourcePreservesOtherSources(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+
+	// Initial full ingest: one row from each of two sources.
+	initial := []Feature{
+		{ID: "arc:1", ResourceType: rtRoads, Tags: map[string]string{}, GeometryJSON: `{}`, SourceAPI: "arcgis", FetchedAt: time.Now()},
+		{ID: "osm:1", ResourceType: rtRoads, Tags: map[string]string{}, GeometryJSON: `{}`, SourceAPI: "overpass", FetchedAt: time.Now()},
+	}
+	if err := store.UpsertFeatures(ctx, rtRoads, initial, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// Re-ingest where arcgis was down: only overpass succeeded, so scope the
+	// replace to "overpass". The arcgis row must survive.
+	overpassOnly := []Feature{
+		{ID: "osm:2", ResourceType: rtRoads, Tags: map[string]string{}, GeometryJSON: `{}`, SourceAPI: "overpass", FetchedAt: time.Now()},
+	}
+	if err := store.UpsertFeatures(ctx, rtRoads, overpassOnly, []string{"overpass"}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := store.ListFeatures(ctx, rtRoads)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]bool{}
+	for _, f := range got {
+		ids[f.ID] = true
+	}
+	if !ids["arc:1"] {
+		t.Error("scoped re-ingest wiped the arcgis row that should have survived")
+	}
+	if ids["osm:1"] {
+		t.Error("scoped re-ingest left the old overpass row; it should have been replaced")
+	}
+	if !ids["osm:2"] {
+		t.Error("scoped re-ingest did not store the new overpass row")
+	}
+
+	// A nil-scope upsert replaces the whole resource set.
+	if err := store.UpsertFeatures(ctx, rtRoads, overpassOnly, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err = store.ListFeatures(ctx, rtRoads)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "osm:2" {
+		t.Errorf("nil-scope upsert should replace everything; got %+v", got)
 	}
 }
 
@@ -528,7 +585,7 @@ func TestStoreStats(t *testing.T) {
 	features := []Feature{
 		{ID: "1", Name: "test", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()},
 	}
-	if err := store.UpsertFeatures(ctx, rtParking, features); err != nil {
+	if err := store.UpsertFeatures(ctx, rtParking, features, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -551,7 +608,7 @@ func TestStoreStatsPropagatesComputeError(t *testing.T) {
 	// Feature queries must succeed so Stats reaches the compute-result lookup.
 	if err := store.UpsertFeatures(ctx, rtParking, []Feature{
 		{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()},
-	}); err != nil {
+	}, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -570,10 +627,10 @@ func TestStoreResourceTypes(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 
-	if err := store.UpsertFeatures(ctx, rtRoads, []Feature{{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()}}); err != nil {
+	if err := store.UpsertFeatures(ctx, rtRoads, []Feature{{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()}}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpsertFeatures(ctx, rtParking, []Feature{{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()}}); err != nil {
+	if err := store.UpsertFeatures(ctx, rtParking, []Feature{{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()}}, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -649,7 +706,7 @@ func TestCityIsolation(t *testing.T) {
 	storeB := root.ForCity(id2)
 
 	// Insert features into city A
-	if err := storeA.UpsertFeatures(ctx, rtRoads, []Feature{{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()}}); err != nil {
+	if err := storeA.UpsertFeatures(ctx, rtRoads, []Feature{{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()}}, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -899,7 +956,7 @@ func TestForeignKeyEnforcement(t *testing.T) {
 	bogus := root.ForCity(9999)
 	err = bogus.UpsertFeatures(ctx, rtRoads, []Feature{
 		{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()},
-	})
+	}, nil)
 	if err == nil {
 		t.Fatal("expected FK violation error when inserting feature with nonexistent city_id")
 	}

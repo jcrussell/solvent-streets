@@ -13,11 +13,15 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
-func (s *sqliteStore) UpsertFeatures(ctx context.Context, resourceType resource.Type, features []Feature) error {
+// UpsertFeatures replaces stored features for a resource and re-inserts the
+// given set in one transaction. When sourceAPIs is empty the whole resource is
+// replaced for the city; when it is non-empty the delete is scoped to those
+// source_api values, so a partial-source re-ingest (one source down) preserves
+// the surviving sources' rows instead of wiping them.
+func (s *sqliteStore) UpsertFeatures(ctx context.Context, resourceType resource.Type, features []Feature, sourceAPIs []string) error {
 	return s.withTx(ctx, func(tx *sql.Tx) error {
-		// Delete existing features for this resource type and city
-		if _, err := tx.ExecContext(ctx, `DELETE FROM features WHERE resource_type = ? AND city_id = ?`, resourceType, s.cityID); err != nil {
-			return fmt.Errorf("delete old features: %w", err)
+		if err := s.deleteFeaturesForReplace(ctx, tx, resourceType, sourceAPIs); err != nil {
+			return err
 		}
 
 		stmt, err := tx.PrepareContext(ctx, `
@@ -44,6 +48,31 @@ func (s *sqliteStore) UpsertFeatures(ctx context.Context, resourceType resource.
 		}
 		return nil
 	})
+}
+
+// deleteFeaturesForReplace removes the rows a subsequent UpsertFeatures insert
+// will replace. With no sourceAPIs the whole resource is cleared for the city;
+// otherwise the delete is scoped to the given source_api values so other
+// sources' rows survive a partial-source re-ingest.
+func (s *sqliteStore) deleteFeaturesForReplace(ctx context.Context, tx *sql.Tx, resourceType resource.Type, sourceAPIs []string) error {
+	if len(sourceAPIs) == 0 {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM features WHERE resource_type = ? AND city_id = ?`, resourceType, s.cityID); err != nil {
+			return fmt.Errorf("delete old features: %w", err)
+		}
+		return nil
+	}
+	args := make([]any, 0, len(sourceAPIs)+2)
+	args = append(args, resourceType, s.cityID)
+	for _, sa := range sourceAPIs {
+		args = append(args, sa)
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(sourceAPIs)), ",")
+	// placeholders is only "?,?,..." — every source value is a bound parameter.
+	q := `DELETE FROM features WHERE resource_type = ? AND city_id = ? AND source_api IN (` + placeholders + `)` //nolint:gosec // placeholders are "?" only; values are parameterized via args
+	if _, err := tx.ExecContext(ctx, q, args...); err != nil {
+		return fmt.Errorf("delete old features by source: %w", err)
+	}
+	return nil
 }
 
 func (s *sqliteStore) ListFeatures(ctx context.Context, resourceType resource.Type) ([]Feature, error) {
