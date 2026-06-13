@@ -125,6 +125,42 @@ func TestForEachCity(t *testing.T) {
 		}
 	})
 
+	t.Run("cancelled_context_stops_before_any_city", func(t *testing.T) {
+		f, _ := newFactory([]config.CityConfig{cityA, cityB, cityC}, false, nil)
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		var calls []string
+		err := cmdutil.ForEachCity(ctx, f, func(_ *cmdutil.Factory, city *config.CityConfig) error {
+			calls = append(calls, city.Name)
+			return nil
+		})
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("want context.Canceled, got %v", err)
+		}
+		if len(calls) != 0 {
+			t.Errorf("cancelled context must run no cities; calls = %v", calls)
+		}
+	})
+
+	t.Run("cancelled_context_honored_single_city", func(t *testing.T) {
+		f, _ := newFactory([]config.CityConfig{cityA}, false, nil)
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		called := false
+		err := cmdutil.ForEachCity(ctx, f, func(_ *cmdutil.Factory, _ *config.CityConfig) error {
+			called = true
+			return nil
+		})
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("want context.Canceled, got %v", err)
+		}
+		if called {
+			t.Error("cancelled context must not invoke fn in single-city path")
+		}
+	})
+
 	t.Run("city_flag_runs_only_selected_city", func(t *testing.T) {
 		f, _ := newFactory([]config.CityConfig{cityA, cityB, cityC}, true, &cityB)
 

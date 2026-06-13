@@ -97,12 +97,22 @@ func ForEachCity(ctx context.Context, f *Factory, fn func(cf *Factory, city *con
 		return err
 	}
 
+	// Honor cancellation (Ctrl-C / SIGTERM) before any per-city work, in both
+	// the single-city and multi-city paths.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	if len(cities) == 1 {
 		return fn(f, &cities[0])
 	}
 
 	var errs []error
 	for _, city := range cities {
+		if err := ctx.Err(); err != nil {
+			errs = append(errs, err)
+			break
+		}
 		fmt.Fprintf(f.IOStreams.ErrOut, "\n=== %s ===\n", city.Name)
 		if err := fn(withCity(ctx, f, &city), &city); err != nil {
 			if errors.Is(err, ErrNoResults) {

@@ -1,6 +1,7 @@
 package all
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -44,7 +45,7 @@ func newAllIngest(f *cmdutil.Factory) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmdutil.ForEachCity(cmd.Context(), f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
 				return forEachResource(f.IOStreams, func(rt resource.Source) error {
-					return execSub(ingest.NewCmdIngest(cf, rt, nil), "--source", "all")
+					return execSub(cmd.Context(), ingest.NewCmdIngest(cf, rt, nil), "--source", "all")
 				})
 			})
 		},
@@ -60,7 +61,7 @@ func newAllCompute(f *cmdutil.Factory) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmdutil.ForEachCity(cmd.Context(), f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
 				if err := forEachResource(f.IOStreams, func(rt resource.Source) error {
-					return execSub(compute.NewCmdCompute(cf, rt, nil))
+					return execSub(cmd.Context(), compute.NewCmdCompute(cf, rt, nil))
 				}); err != nil {
 					return err
 				}
@@ -89,7 +90,7 @@ func forEachResource(ios *iostreams.IOStreams, fn func(resource.Source) error) e
 	return nil
 }
 
-func execSub(cmd *cobra.Command, args ...string) error {
+func execSub(ctx context.Context, cmd *cobra.Command, args ...string) error {
 	// cobra.Command.SetArgs(nil) falls back to os.Args[1:]; force empty.
 	if args == nil {
 		args = []string{}
@@ -97,5 +98,8 @@ func execSub(cmd *cobra.Command, args ...string) error {
 	cmd.SetArgs(args)
 	cmd.SilenceErrors = true
 	cmd.SilenceUsage = true
-	return cmd.Execute()
+	// ExecuteContext (not Execute) so the freshly-built child sees the parent's
+	// signal-cancelled context; Execute would fall back to context.Background()
+	// and leave the nested ingest/compute run uninterruptible.
+	return cmd.ExecuteContext(ctx)
 }
