@@ -30,10 +30,7 @@ func TestParking_BufferFeatures_Polygon(t *testing.T) {
 		},
 	}
 	p := &Parking{}
-	geoms, err := p.BufferFeatures(features, testProj)
-	if err != nil {
-		t.Fatal(err)
-	}
+	geoms := Geoms(p.BufferFeaturesPaired(features, testProj))
 	if len(geoms) != 1 {
 		t.Errorf("expected 1 buffered geometry, got %d", len(geoms))
 	}
@@ -51,16 +48,16 @@ func TestParking_BufferFeatures_LineStringSkipped(t *testing.T) {
 		},
 	}
 	p := &Parking{}
-	_, err := p.BufferFeatures(features, testProj)
-	if err == nil {
-		t.Error("expected error when only LineString features (no polygons)")
+	bufs := p.BufferFeaturesPaired(features, testProj)
+	if len(bufs) != 0 {
+		t.Errorf("expected no buffered geometries when only LineString features (no polygons), got %d", len(bufs))
 	}
 }
 
 func TestParking_BufferFeatures_Empty(t *testing.T) {
 	p := &Parking{}
-	_, err := p.BufferFeatures(nil, testProj)
-	if err == nil {
-		t.Error("expected error for empty features")
+	bufs := p.BufferFeaturesPaired(nil, testProj)
+	if len(bufs) != 0 {
+		t.Errorf("expected no buffered geometries for empty features, got %d", len(bufs))
 	}
 }

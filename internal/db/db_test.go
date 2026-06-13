@@ -184,10 +184,6 @@ func TestSnapshotPinningAcrossResultTables(t *testing.T) {
 	if len(cohortAll) != 1 || cohortAll[0].Area != float64(snap2.ID*1000) {
 		t.Errorf("unpinned cohort_stats: want only snap2's row (area %v), got %+v", snap2.ID*1000, cohortAll)
 	}
-	fcAll, _ := store.ListForecastResults(ctx, rtRoads)
-	if len(fcAll) != 1 || fcAll[0].PCI != float64(snap2.ID*10) {
-		t.Errorf("unpinned forecast_results: want only snap2's row (pci %v), got %+v", snap2.ID*10, fcAll)
-	}
 
 	// Pinned to snap1.
 	pinned1 := store.WithSnapshot(snap1.ID)
@@ -205,10 +201,6 @@ func TestSnapshotPinningAcrossResultTables(t *testing.T) {
 	cohort1, _ := pinned1.ListCohortStats(ctx, rtRoads)
 	if len(cohort1) != 1 || cohort1[0].Area != float64(snap1.ID*1000) {
 		t.Errorf("pinned snap1 cohort: want 1 row with area %v, got %+v", snap1.ID*1000, cohort1)
-	}
-	fc1, _ := pinned1.ListForecastResults(ctx, rtRoads)
-	if len(fc1) != 1 || fc1[0].PCI != float64(snap1.ID*10) {
-		t.Errorf("pinned snap1 forecast: want 1 row with pci %v, got %+v", snap1.ID*10, fc1)
 	}
 
 	// Pinned to snap2 sees only snap2's row.
@@ -278,11 +270,6 @@ func TestListReads_LatestSnapshotPerResource(t *testing.T) {
 		t.Errorf("unpinned ListCohortStats: want 1 row from snapNew (area %v), got %+v", snapNew.ID, co)
 	}
 
-	fc, _ := store.ListForecastResults(ctx, rtRoads)
-	if len(fc) != 1 || fc[0].PCI != float64(snapNew.ID) {
-		t.Errorf("unpinned ListForecastResults: want 1 row from snapNew (pci %v), got %+v", snapNew.ID, fc)
-	}
-
 	// Pinning to the older snapshot still returns its rows verbatim.
 	old := store.WithSnapshot(snapOld.ID)
 	if hex, _ := old.ListHexStats(ctx, rtRoads); len(hex) != 2 || hex[0].Area != float64(snapOld.ID) {
@@ -290,9 +277,9 @@ func TestListReads_LatestSnapshotPerResource(t *testing.T) {
 	}
 }
 
-// TestListReads_NullLegacyFallback covers the migration-002 legacy
-// path: when a city has only NULL-snapshot_id rows (pre-snapshot data),
-// unpinned reads still surface them. SQLite's `IS` operator makes
+// TestListReads_NullLegacyFallback covers the NULL-snapshot_id legacy
+// path: when a city has only rows whose snapshot_id IS NULL (no matching
+// snapshot exists), unpinned reads still surface them. SQLite's `IS` operator makes
 // `snapshot_id IS (SELECT MAX(...))` evaluate to true for NULL rows
 // when MAX returns NULL (no snapshot-tagged rows exist).
 func TestListReads_NullLegacyFallback(t *testing.T) {
@@ -322,9 +309,6 @@ func TestListReads_NullLegacyFallback(t *testing.T) {
 	}
 	if co, _ := store.ListCohortStats(ctx, rtRoads); len(co) != 1 || co[0].Area != 7 {
 		t.Errorf("legacy ListCohortStats: want 1 NULL-snapshot row (area 7), got %+v", co)
-	}
-	if fc, _ := store.ListForecastResults(ctx, rtRoads); len(fc) != 1 || fc[0].PCI != 99 {
-		t.Errorf("legacy ListForecastResults: want 1 NULL-snapshot row (pci 99), got %+v", fc)
 	}
 }
 
@@ -390,9 +374,6 @@ func TestListReads_ConfigHashScoping(t *testing.T) {
 	}
 	if co, _ := h1.ListCohortStats(ctx, rtRoads); len(co) != 1 || co[0].Area != float64(snapH1.ID*100) {
 		t.Errorf("WithConfigHash(hash-1) ListCohortStats: want snapH1's row (area %v), got %+v", snapH1.ID*100, co)
-	}
-	if fc, _ := h1.ListForecastResults(ctx, rtRoads); len(fc) != 1 || fc[0].PCI != float64(snapH1.ID*5) {
-		t.Errorf("WithConfigHash(hash-1) ListForecastResults: want snapH1's row (pci %v), got %+v", snapH1.ID*5, fc)
 	}
 	if cr, err := h1.LatestComputeResult(ctx, rtRoads); err != nil || cr.TotalArea != float64(snapH1.ID) {
 		t.Errorf("WithConfigHash(hash-1) LatestComputeResult: want snapH1's row (area %v), got %+v err=%v", snapH1.ID, cr, err)
@@ -490,8 +471,12 @@ func TestDeleteSnapshot_CascadesAndCityScoped(t *testing.T) {
 	if cs, _ := pinned.ListCohortStats(ctx, rtRoads); len(cs) != 0 {
 		t.Errorf("cohort_stats after delete: got %d, want 0", len(cs))
 	}
-	if fc, _ := pinned.ListForecastResults(ctx, rtRoads); len(fc) != 0 {
-		t.Errorf("forecast_results after delete: got %d, want 0", len(fc))
+	var fcCount int
+	if err := root.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM forecast_results WHERE snapshot_id = ?`, sid).Scan(&fcCount); err != nil {
+		t.Fatal(err)
+	}
+	if fcCount != 0 {
+		t.Errorf("forecast_results after delete: got %d, want 0", fcCount)
 	}
 	var cr int
 	if err := root.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM compute_results WHERE snapshot_id = ?`, sid).Scan(&cr); err != nil {
@@ -618,14 +603,13 @@ func TestSaveForecastResults_ReplacesOnRerun(t *testing.T) {
 	if got := countRows(); got != 2 {
 		t.Fatalf("expected 2 forecast rows after re-run, got %d (accumulation regression)", got)
 	}
-	got, err := store.ListForecastResults(ctx, rtRoads)
-	if err != nil {
+	var stalePCI int
+	if err := store.(*sqliteStore).db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM forecast_results WHERE resource_type = ? AND pci != 70`, rtRoads).Scan(&stalePCI); err != nil {
 		t.Fatal(err)
 	}
-	for _, r := range got {
-		if r.PCI != 70 {
-			t.Errorf("expected replaced rows with PCI 70, got %f", r.PCI)
-		}
+	if stalePCI != 0 {
+		t.Errorf("expected all rows replaced with PCI 70, found %d rows with stale PCI", stalePCI)
 	}
 
 	// Legacy NULL-snapshot rows must also replace (= ? never matches NULL).
@@ -696,26 +680,6 @@ func TestStoreStatsPropagatesComputeError(t *testing.T) {
 
 	if _, err := store.Stats(ctx, rtParking); err == nil {
 		t.Fatal("expected Stats to propagate the compute-result query error, got nil")
-	}
-}
-
-func TestStoreResourceTypes(t *testing.T) {
-	ctx := context.Background()
-	store := openTestStore(t)
-
-	if err := store.UpsertFeatures(ctx, rtRoads, []Feature{{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()}}, nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.UpsertFeatures(ctx, rtParking, []Feature{{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()}}, nil); err != nil {
-		t.Fatal(err)
-	}
-
-	types, err := store.ResourceTypes(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(types) != 2 {
-		t.Errorf("expected 2 types, got %d", len(types))
 	}
 }
 

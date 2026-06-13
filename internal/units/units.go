@@ -40,11 +40,6 @@ func SqMToSqMi(sqm float64) float64     { return SqMToAcres(sqm) / AcresPerSqMi 
 func SqMToHectares(sqm float64) float64 { return sqm / SqMPerHa }
 func SqMToSqKm(sqm float64) float64     { return sqm / SqMPerSqKm }
 
-// --- Cost conversions ---
-
-func CostPerSqMToPerSqFt(cpsm float64) float64 { return cpsm / SqFtPerSqM }
-func CostPerSqFtToPerSqM(cpsf float64) float64 { return cpsf * SqFtPerSqM }
-
 // --- Display formatting ---
 
 // FormatArea returns area in the base unit of the given system.
@@ -71,14 +66,6 @@ func FormatAreaVeryLarge(sqm float64, sys System) string {
 	return fmt.Sprintf("%.2f sq km", SqMToSqKm(sqm))
 }
 
-// FormatCostRate returns a formatted cost-per-area string.
-func FormatCostRate(costPerSqM float64, sys System) string {
-	if sys == Imperial {
-		return fmt.Sprintf("$%.2f/sq ft", CostPerSqMToPerSqFt(costPerSqM))
-	}
-	return fmt.Sprintf("$%.2f/sq m", costPerSqM)
-}
-
 // --- Column header labels ---
 
 func AreaLabel(sys System) string {
@@ -93,20 +80,6 @@ func AreaLargeLabel(sys System) string {
 		return "Area (acres)"
 	}
 	return "Area (ha)"
-}
-
-func AreaVeryLargeLabel(sys System) string {
-	if sys == Imperial {
-		return "Area (sq mi)"
-	}
-	return "Area (sq km)"
-}
-
-func CostRateLabel(sys System) string {
-	if sys == Imperial {
-		return "$/sq ft"
-	}
-	return "$/sq m"
 }
 
 // AreaValue returns the area numeric value in the base unit for the system.

@@ -41,7 +41,7 @@ func (entry CityEntry) WithSnapshot(snapshotID int64) CityEntry {
 
 // BuildCityEntries creates CityEntry values for the given cities. The
 // returned stores are auto-pinned to cfg.Hash() so unpinned reads
-// (ListHexStats, ListCohortStats, ListForecastResults,
+// (ListHexStats, ListCohortStats,
 // LatestComputeResult) only see snapshots written by this same config
 // — preventing slug-sharing examples (e.g. Livermore in both
 // livermore-ca and the bay-area-ca metro) from reading each other's

@@ -34,13 +34,11 @@ type MockStore struct {
 	WithConfigHashFunc          func(string) db.Store
 	DeleteSnapshotFunc          func(context.Context, int64) (bool, error)
 	SaveForecastResultsFunc     func(context.Context, []db.ForecastResult) error
-	ListForecastResultsFunc     func(context.Context, resource.Type) ([]db.ForecastResult, error)
 	SaveCohortStatsFunc         func(context.Context, []db.CohortStat) error
 	ListCohortStatsFunc         func(context.Context, resource.Type) ([]db.CohortStat, error)
 	SaveBoundaryFunc            func(context.Context, string, string) error
 	GetBoundaryFunc             func(context.Context) (string, error)
 	StatsFunc                   func(context.Context, resource.Type) (*db.StatusInfo, error)
-	ResourceTypesFunc           func(context.Context) ([]resource.Type, error)
 	CloseFunc                   func() error
 }
 
@@ -172,13 +170,6 @@ func (m *MockStore) SaveForecastResults(ctx context.Context, results []db.Foreca
 	return nil
 }
 
-func (m *MockStore) ListForecastResults(ctx context.Context, rt resource.Type) ([]db.ForecastResult, error) {
-	if m.ListForecastResultsFunc != nil {
-		return m.ListForecastResultsFunc(ctx, rt)
-	}
-	return []db.ForecastResult{}, nil
-}
-
 func (m *MockStore) SaveCohortStats(ctx context.Context, stats []db.CohortStat) error {
 	if m.SaveCohortStatsFunc != nil {
 		return m.SaveCohortStatsFunc(ctx, stats)
@@ -232,13 +223,6 @@ func (m *MockStore) Stats(ctx context.Context, rt resource.Type) (*db.StatusInfo
 		return m.StatsFunc(ctx, rt)
 	}
 	return &db.StatusInfo{ResourceType: rt}, nil
-}
-
-func (m *MockStore) ResourceTypes(ctx context.Context) ([]resource.Type, error) {
-	if m.ResourceTypesFunc != nil {
-		return m.ResourceTypesFunc(ctx)
-	}
-	return []resource.Type{}, nil
 }
 
 func (m *MockStore) Close() error {

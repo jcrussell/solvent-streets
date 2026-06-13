@@ -1,12 +1,9 @@
 package resource
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/jcrussell/solvent-streets/internal/geo"
-
-	"github.com/peterstace/simplefeatures/geom"
 )
 
 type Parking struct{}
@@ -22,14 +19,6 @@ func (p *Parking) OverpassQuery(bbox [4]float64) string {
 );
 out geom;`, bbox[0], bbox[1], bbox[2], bbox[3],
 		bbox[0], bbox[1], bbox[2], bbox[3])
-}
-
-func (p *Parking) BufferFeatures(features []Feature, proj *geo.UTMProjector) ([]geom.Geometry, error) {
-	bufs := p.BufferFeaturesPaired(features, proj)
-	if len(bufs) == 0 {
-		return nil, errors.New("no valid polygon geometries to process")
-	}
-	return Geoms(bufs), nil
 }
 
 func (p *Parking) BufferFeaturesPaired(features []Feature, proj *geo.UTMProjector) []BufferedFeature {

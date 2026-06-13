@@ -47,16 +47,6 @@ func TestSqMToSqKm(t *testing.T) {
 	}
 }
 
-func TestCostConversions(t *testing.T) {
-	// Round-trip: $/sq m → $/sq ft → $/sq m
-	original := 4.20
-	sqft := CostPerSqMToPerSqFt(original)
-	back := CostPerSqFtToPerSqM(sqft)
-	if !approxEqual(back, original, 0.001) {
-		t.Errorf("round-trip cost: got %f, want %f", back, original)
-	}
-}
-
 func TestFormatArea(t *testing.T) {
 	got := FormatArea(100, Imperial)
 	if got != "1076 sq ft" {
@@ -118,18 +108,14 @@ func TestSystemExhaustiveness_AllSystemsListed(t *testing.T) {
 // from the table.
 func TestSystemExhaustiveness_FormatHelpers(t *testing.T) {
 	const sqm = 12345.6
-	const costPerSqM = 4.20
 	for _, sys := range allSystems {
 		t.Run(sys.String(), func(t *testing.T) {
 			stringHelpers := map[string]string{
 				"FormatArea":          FormatArea(sqm, sys),
 				"FormatAreaLarge":     FormatAreaLarge(sqm, sys),
 				"FormatAreaVeryLarge": FormatAreaVeryLarge(sqm, sys),
-				"FormatCostRate":      FormatCostRate(costPerSqM, sys),
 				"AreaLabel":           AreaLabel(sys),
 				"AreaLargeLabel":      AreaLargeLabel(sys),
-				"AreaVeryLargeLabel":  AreaVeryLargeLabel(sys),
-				"CostRateLabel":       CostRateLabel(sys),
 				"String":              sys.String(),
 			}
 			for name, got := range stringHelpers {

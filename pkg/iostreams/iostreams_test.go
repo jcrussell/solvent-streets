@@ -47,9 +47,6 @@ func TestTest_NoColorByDefault(t *testing.T) {
 	if ios.IsTTY() {
 		t.Error("Test() IOStreams reports IsTTY=true; want false")
 	}
-	if ios.IsColorEnabled() {
-		t.Error("Test() IOStreams reports IsColorEnabled=true; want false")
-	}
 	cs := ios.ColorScheme()
 	if cs == nil {
 		t.Fatal("Test() ColorScheme() returned nil")

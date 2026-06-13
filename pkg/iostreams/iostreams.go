@@ -135,10 +135,6 @@ func (s *IOStreams) SetStderrTTY(v bool) {
 	s.stderrIsTTY = v
 }
 
-func (s *IOStreams) IsColorEnabled() bool {
-	return s.isColorEnabled
-}
-
 func (s *IOStreams) ColorScheme() *ColorScheme {
 	if s.colorScheme == nil {
 		s.colorScheme = NewColorScheme(s.isColorEnabled)

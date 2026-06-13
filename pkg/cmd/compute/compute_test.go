@@ -16,8 +16,6 @@ import (
 	"github.com/jcrussell/solvent-streets/pkg/cmd/cmdtest"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
-
-	"github.com/peterstace/simplefeatures/geom"
 )
 
 var testCity = cmdtest.NewTestCity()
@@ -141,17 +139,12 @@ func TestRunCompute_Success(t *testing.T) {
 // classification.
 type countingSource struct {
 	inner       resource.Source
-	bufferCalls int
 	pairedCalls int
 }
 
 func (c *countingSource) Type() resource.Type               { return c.inner.Type() }
 func (c *countingSource) OverpassQuery(b [4]float64) string { return c.inner.OverpassQuery(b) }
 func (c *countingSource) HasCohorts() bool                  { return c.inner.HasCohorts() }
-func (c *countingSource) BufferFeatures(f []resource.Feature, p *geo.UTMProjector) ([]geom.Geometry, error) {
-	c.bufferCalls++
-	return c.inner.BufferFeatures(f, p)
-}
 func (c *countingSource) BufferFeaturesPaired(f []resource.Feature, p *geo.UTMProjector) []resource.BufferedFeature {
 	c.pairedCalls++
 	return c.inner.BufferFeaturesPaired(f, p)
@@ -210,9 +203,6 @@ func TestRunCompute_BuffersFeaturesOncePerRun(t *testing.T) {
 	if counter.pairedCalls != 1 {
 		t.Errorf("BufferFeaturesPaired called %d times; want 1 (all jurisdictions, city subset, and per-class cohorts must share the buffered slice)",
 			counter.pairedCalls)
-	}
-	if counter.bufferCalls != 0 {
-		t.Errorf("BufferFeatures called %d times; legacy path should be unused by the compute pipeline", counter.bufferCalls)
 	}
 }
 

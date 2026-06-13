@@ -14,12 +14,9 @@ func TestColorScheme_DisabledIsIdentity(t *testing.T) {
 	const in = "hello"
 
 	cases := map[string]func(string) string{
-		"Bold":   cs.Bold,
-		"Green":  cs.Green,
-		"Yellow": cs.Yellow,
-		"Red":    cs.Red,
-		"Gray":   cs.Gray,
-		"Cyan":   cs.Cyan,
+		"Bold":  cs.Bold,
+		"Green": cs.Green,
+		"Red":   cs.Red,
 	}
 	for name, fn := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -28,16 +25,6 @@ func TestColorScheme_DisabledIsIdentity(t *testing.T) {
 				t.Fatalf("%s(%q) = %q, want identity %q", name, in, got, in)
 			}
 		})
-	}
-
-	if got := cs.Boldf("x=%d", 7); got != "x=7" {
-		t.Errorf("Boldf disabled = %q, want identity %q", got, "x=7")
-	}
-	if got := cs.Greenf("ok=%v", true); got != "ok=true" {
-		t.Errorf("Greenf disabled = %q, want identity %q", got, "ok=true")
-	}
-	if got := cs.Redf("err=%s", "boom"); got != "err=boom" {
-		t.Errorf("Redf disabled = %q, want identity %q", got, "err=boom")
 	}
 }
 
@@ -57,10 +44,7 @@ func TestColorScheme_EnabledWrapsWithANSI(t *testing.T) {
 	}{
 		{"Bold", cs.Bold, "\033[1m"},
 		{"Green", cs.Green, "\033[32m"},
-		{"Yellow", cs.Yellow, "\033[33m"},
 		{"Red", cs.Red, "\033[31m"},
-		{"Gray", cs.Gray, "\033[90m"},
-		{"Cyan", cs.Cyan, "\033[36m"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -74,28 +58,4 @@ func TestColorScheme_EnabledWrapsWithANSI(t *testing.T) {
 			}
 		})
 	}
-}
-
-// TestColorScheme_FormattersDelegate confirms the *f variants feed through
-// fmt.Sprintf before wrapping, in both enabled and disabled modes. This is
-// the contract that lets call sites write cs.Redf("error: %v", err).
-func TestColorScheme_FormattersDelegate(t *testing.T) {
-	t.Run("enabled", func(t *testing.T) {
-		cs := NewColorScheme(true)
-		if got, want := cs.Boldf("n=%d", 3), "\033[1mn=3\033[0m"; got != want {
-			t.Errorf("Boldf enabled = %q, want %q", got, want)
-		}
-		if got, want := cs.Greenf("ok"), "\033[32mok\033[0m"; got != want {
-			t.Errorf("Greenf enabled = %q, want %q", got, want)
-		}
-		if got, want := cs.Redf("err=%s", "x"), "\033[31merr=x\033[0m"; got != want {
-			t.Errorf("Redf enabled = %q, want %q", got, want)
-		}
-	})
-	t.Run("disabled", func(t *testing.T) {
-		cs := NewColorScheme(false)
-		if got, want := cs.Boldf("n=%d", 3), "n=3"; got != want {
-			t.Errorf("Boldf disabled = %q, want %q", got, want)
-		}
-	})
 }

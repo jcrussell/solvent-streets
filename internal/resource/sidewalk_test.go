@@ -37,10 +37,7 @@ func TestSidewalk_BufferFeatures_LineString(t *testing.T) {
 		},
 	}
 	s := &Sidewalk{}
-	geoms, err := s.BufferFeatures(features, testProj)
-	if err != nil {
-		t.Fatal(err)
-	}
+	geoms := Geoms(s.BufferFeaturesPaired(features, testProj))
 	if len(geoms) != 1 {
 		t.Fatalf("expected 1 buffered geometry, got %d", len(geoms))
 	}
@@ -51,8 +48,8 @@ func TestSidewalk_BufferFeatures_LineString(t *testing.T) {
 
 func TestSidewalk_BufferFeatures_Empty(t *testing.T) {
 	s := &Sidewalk{}
-	_, err := s.BufferFeatures(nil, testProj)
-	if err == nil {
-		t.Error("expected error for empty feature slice")
+	bufs := s.BufferFeaturesPaired(nil, testProj)
+	if len(bufs) != 0 {
+		t.Errorf("expected no buffered geometries for empty feature slice, got %d", len(bufs))
 	}
 }

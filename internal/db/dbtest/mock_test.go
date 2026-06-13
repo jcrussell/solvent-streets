@@ -26,14 +26,8 @@ func TestMockStore_DefaultListReturnsEmptyNotNil(t *testing.T) {
 	if got, err := m.ListSnapshots(ctx); err != nil || got == nil {
 		t.Errorf("ListSnapshots: want non-nil empty slice, got %v / %v", got, err)
 	}
-	if got, err := m.ListForecastResults(ctx, resource.TypeRoads); err != nil || got == nil {
-		t.Errorf("ListForecastResults: want non-nil empty slice, got %v / %v", got, err)
-	}
 	if got, err := m.ListCohortStats(ctx, resource.TypeRoads); err != nil || got == nil {
 		t.Errorf("ListCohortStats: want non-nil empty slice, got %v / %v", got, err)
-	}
-	if got, err := m.ResourceTypes(ctx); err != nil || got == nil {
-		t.Errorf("ResourceTypes: want non-nil empty slice, got %v / %v", got, err)
 	}
 
 	root := &MockRootStore{}

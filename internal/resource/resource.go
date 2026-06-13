@@ -1,7 +1,6 @@
 package resource
 
 import (
-	"errors"
 	"strings"
 
 	"github.com/jcrussell/solvent-streets/internal/geo"
@@ -83,13 +82,11 @@ var (
 type Source interface {
 	Type() Type
 	OverpassQuery(bbox [4]float64) string
-	// BufferFeatures parses and buffers each feature into a cleaned projected
-	// polygon, returning the slice of polygons. No union or area is computed
-	// here — downstream code builds a spatial index and computes coverage
-	// per-hex, avoiding a city-wide UnionMany call that OOMs on large cities.
-	BufferFeatures(features []Feature, proj *geo.UTMProjector) ([]geom.Geometry, error)
-	// BufferFeaturesPaired is BufferFeatures but keeps each input Feature
-	// paired with its buffered polygon. Callers that need to slice the
+	// BufferFeaturesPaired parses and buffers each feature into a cleaned
+	// projected polygon, keeping each input Feature paired with its buffered
+	// polygon. No union or area is computed here — downstream code builds a
+	// spatial index and computes coverage per-hex, avoiding a city-wide
+	// UnionMany call that OOMs on large cities. Callers that need to slice the
 	// buffered set later (e.g. city-only subset, per-classification cohorts)
 	// can filter on Feature.Tags without re-buffering. Invalid features are
 	// dropped; an empty result means no inputs survived buffering.
@@ -222,19 +219,6 @@ func lineStringCoords(ls geom.LineString) [][2]float64 {
 		coords[i] = [2]float64{c.X, c.Y}
 	}
 	return coords
-}
-
-func bufferFeatures(features []Feature, proj *geo.UTMProjector, inferWidth widthFunc) ([]geom.Geometry, error) {
-	geometries := make([]geom.Geometry, 0, len(features))
-	for _, f := range features {
-		if g, ok := cleanFeatureGeometry(f, proj, inferWidth); ok {
-			geometries = append(geometries, g)
-		}
-	}
-	if len(geometries) == 0 {
-		return nil, errors.New("no valid geometries to process")
-	}
-	return geometries, nil
 }
 
 func bufferFeaturesPaired(features []Feature, proj *geo.UTMProjector, inferWidth widthFunc) []BufferedFeature {

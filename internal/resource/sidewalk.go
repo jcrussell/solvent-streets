@@ -4,8 +4,6 @@ import (
 	"fmt"
 
 	"github.com/jcrussell/solvent-streets/internal/geo"
-
-	"github.com/peterstace/simplefeatures/geom"
 )
 
 type Sidewalk struct{}
@@ -19,10 +17,6 @@ func (s *Sidewalk) OverpassQuery(bbox [4]float64) string {
   way["footway"="sidewalk"](%f,%f,%f,%f);
 );
 out geom;`, bbox[0], bbox[1], bbox[2], bbox[3])
-}
-
-func (s *Sidewalk) BufferFeatures(features []Feature, proj *geo.UTMProjector) ([]geom.Geometry, error) {
-	return bufferFeatures(features, proj, geo.InferSidewalkWidth)
 }
 
 func (s *Sidewalk) BufferFeaturesPaired(features []Feature, proj *geo.UTMProjector) []BufferedFeature {

@@ -107,14 +107,11 @@ func TestRunCombined_DedupesCrossResourceOverlap(t *testing.T) {
 
 	areaForResource := func(t *testing.T, rt resource.Source, feat db.Feature) float64 {
 		t.Helper()
-		bufs, err := rt.BufferFeatures([]resource.Feature{{
+		bufs := resource.Geoms(rt.BufferFeaturesPaired([]resource.Feature{{
 			ID:           feat.ID,
 			Tags:         feat.Tags,
 			GeometryJSON: feat.GeometryJSON,
-		}}, proj)
-		if err != nil {
-			t.Fatalf("buffer %s: %v", rt.Type(), err)
-		}
+		}}, proj))
 		stats := geo.ComputeHexStats(t.Context(), hexes, geo.NewGeomIndexFromGeoms(bufs), string(rt.Type()), nil)
 		var sum float64
 		for _, s := range stats {

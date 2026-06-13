@@ -107,7 +107,6 @@ type Store interface {
 	WithConfigHash(configHash string) Store
 	DeleteSnapshot(ctx context.Context, snapshotID int64) (bool, error)
 	SaveForecastResults(ctx context.Context, results []ForecastResult) error
-	ListForecastResults(ctx context.Context, resourceType resource.Type) ([]ForecastResult, error)
 	SaveCohortStats(ctx context.Context, stats []CohortStat) error
 	ListCohortStats(ctx context.Context, resourceType resource.Type) ([]CohortStat, error)
 	// ListCohortStatsForTypes returns cohort stats grouped by resource
@@ -117,7 +116,6 @@ type Store interface {
 	SaveBoundary(ctx context.Context, geometryJSON, source string) error
 	GetBoundary(ctx context.Context) (string, error)
 	Stats(ctx context.Context, resourceType resource.Type) (*StatusInfo, error)
-	ResourceTypes(ctx context.Context) ([]resource.Type, error)
 	Close() error
 }
 
