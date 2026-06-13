@@ -1155,6 +1155,19 @@
             return Math.round(n).toLocaleString();
         }
 
+        // Escape config-sourced strings (city names, cost-tier labels) before
+        // concatenating them into innerHTML. html/template's JS-string escaping at
+        // page-generation time protects only the script literal, not the runtime
+        // DOM insertion, so a name/label containing markup would otherwise execute.
+        function esc(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
         function fmtCost(n) {
             if (n >= 1e9) return '$' + (n/1e9).toFixed(2) + 'B';
             if (n >= 1e6) return '$' + (n/1e6).toFixed(1) + 'M';
@@ -2027,7 +2040,7 @@
                 el.style.display = 'none';
                 return;
             }
-            var name = currentCityName();
+            var name = esc(currentCityName());
             var breakEven = roads.break_even_budget;
             var lead, detail;
             var hasBudget = roads.current_budget > 0;
@@ -2170,7 +2183,7 @@
                 const row = document.createElement('div');
                 row.className = 'tier-row';
                 row.innerHTML =
-                    '<span>' + (t.label || 'Tier ' + (i+1)) + '</span>' +
+                    '<span>' + esc(t.label || 'Tier ' + (i+1)) + '</span>' +
                     '<input type="number" data-tier="' + i + '" data-field="min_pci" value="' + t.min_pci + '" step="1">' +
                     '<input type="number" data-tier="' + i + '" data-field="max_pci" value="' + t.max_pci + '" step="1">' +
                     '<input type="number" data-tier="' + i + '" data-field="cost_per_sqm" value="' + t.cost_per_sqm + '" step="0.01">';
@@ -2588,7 +2601,7 @@
                 var cls = m.rank <= 3 ? rankClasses[m.rank - 1] : '';
                 return '<div class="score-card ' + cls + '">' +
                     '<div class="rank-medal">' + medal + '</div>' +
-                    '<div class="city-name">' + m.name + '</div>' +
+                    '<div class="city-name">' + esc(m.name) + '</div>' +
                     '<div class="score-value">' + m.score + '</div>' +
                     '<div class="score-label">Infrastructure Score</div>' +
                     '<div class="score-breakdown">' +
@@ -2647,7 +2660,7 @@
                     var medalIcon = i < 3 && i < medals.length ? medals[i] : (i + 1) + '.';
                     return '<div class="lb-row">' +
                         '<span class="lb-medal">' + medalIcon + '</span>' +
-                        '<span class="lb-name">' + m.name + '</span>' +
+                        '<span class="lb-name">' + esc(m.name) + '</span>' +
                         '<div class="lb-bar-wrap"><div class="lb-bar" style="width:' + pct + '%;background:' + cat.color + ';"></div></div>' +
                         '<span class="lb-val">' + cat.fmt(m[cat.key]) + '</span>' +
                     '</div>';
@@ -2655,7 +2668,7 @@
 
                 var noteIcon = cat.note ? ' <span class="lb-note" title="' + cat.note.replace(/"/g, '&quot;') + '">ⓘ</span>' : '';
                 return '<div class="lb-category">' +
-                    '<div class="lb-title"><h4>' + cat.label + noteIcon + '</h4><span class="lb-award">' + medals[0] + ' ' + cat.award + ': ' + sorted[0].name + '</span></div>' +
+                    '<div class="lb-title"><h4>' + cat.label + noteIcon + '</h4><span class="lb-award">' + medals[0] + ' ' + cat.award + ': ' + esc(sorted[0].name) + '</span></div>' +
                     rows +
                 '</div>';
             }).join('');
@@ -2944,7 +2957,7 @@
                 var bk = (m.hasForecasts && m.baselineYears[minLen - 1]) ? (m.baselineYears[minLen - 1].deferred_backlog || 0) : 0;
                 var y1Share = regionYear1 > 0 ? (y1 / regionYear1 * 100).toFixed(1) + '%' : '—';
                 var bkShare = regionBacklog > 0 ? (bk / regionBacklog * 100).toFixed(1) + '%' : '—';
-                var name = m.hasForecasts ? m.name : m.name + ' <span class="lb-note" title="No forecast data">(no forecast)</span>';
+                var name = m.hasForecasts ? esc(m.name) : esc(m.name) + ' <span class="lb-note" title="No forecast data">(no forecast)</span>';
                 return '<tr><td>' + name + '</td>' +
                     '<td class="number">' + fmtNum(m.totalAreaLarge) + ' ' + unit + '</td>' +
                     '<td class="number">' + (m.hasForecasts ? fmt$(y1) : '—') + '</td>' +
