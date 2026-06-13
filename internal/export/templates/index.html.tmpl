@@ -696,12 +696,12 @@
                     <div class="sub">Area-weighted condition after forecast</div>
                 </div>
                 <div class="headline-card">
-                    <div class="label">20-Year Spend</div>
+                    <div class="label" id="hl-spend-label">20-Year Spend</div>
                     <div class="value" id="hl-total-spend">—</div>
                     <div class="sub">Total budget allocated</div>
                 </div>
                 <div class="headline-card">
-                    <div class="label">20-Year Deficit</div>
+                    <div class="label" id="hl-deficit-label">20-Year Deficit</div>
                     <div class="value" id="hl-total-deficit">—</div>
                     <div class="sub">Accumulated unfunded need</div>
                 </div>
@@ -747,8 +747,8 @@
                         <th class="number">Area %</th>
                         <th class="number">Decay Rate</th>
                         <th class="number">End PCI</th>
-                        <th class="number">20yr Spend</th>
-                        <th class="number">20yr Deficit</th>
+                        <th class="number" id="cohort-spend-th">20yr Spend</th>
+                        <th class="number" id="cohort-deficit-th">20yr Deficit</th>
                     </tr></thead>
                     <tbody></tbody>
                 </table>
@@ -900,6 +900,20 @@
         // Scope state. Declared above applyInitialState so the URL-state IIFE
         // can read/write it before the map state block runs.
         let currentScope = 'city';
+
+        // Compare/Aggregate tab state. These MUST be initialized above the
+        // applyInitialState IIFE: for a deep link (?tab=aggregate-tab/compare-tab)
+        // the IIFE synchronously calls loadAggregateData()/loadCompareData(), which
+        // set the *Loaded guards and create allCityDataPromise. If their `var ... =`
+        // initializers stayed further down in the script, evaluation would re-run
+        // those initializers in place and wipe the guards + discard the in-flight
+        // promise cache (var hoists the declaration but runs the initializer in
+        // place), defeating the dedupe and leaving stale scope figures.
+        var compareLoaded = false;
+        var compareCharts = [];
+        var aggregateLoaded = false;
+        var aggregateCharts = [];
+        var allCityDataPromise = null;
 
         // Apply URL state synchronously, before first render, to avoid flicker.
         // currentScope is set here (default 'city') and is the sole source of
@@ -1360,75 +1374,12 @@
                             paint: { 'line-color': '#333', 'line-width': 0.5, 'line-opacity': 0.3 }
                         });
                         toggles += '<label><input type="checkbox" checked data-layers="hex-fill,hex-outline"><span class="legend-gradient" style="background:linear-gradient(90deg,#c6dbef,#08306b)"></span>hex grid</label>';
-
-                        // Hover tooltip
-                        const tooltip = document.getElementById('hex-tooltip');
-                        map.on('mousemove', 'hex-fill', e => {
-                            map.getCanvas().style.cursor = 'pointer';
-                            if (e.features && e.features.length > 0) {
-                                const p = e.features[0].properties;
-                                tooltip.innerHTML =
-                                    '<strong>Coverage:</strong> ' + (p.pct_covered != null ? Math.round(p.pct_covered) : 0) + '%<br>' +
-                                    '<strong>Area:</strong> ' + fmtArea(p.area || 0) + '<br>' +
-                                    '<strong>Est. Cost:</strong> ' + fmtCost(p.est_cost || 0);
-                                tooltip.style.display = 'block';
-                                tooltip.style.left = (e.point.x + 12) + 'px';
-                                tooltip.style.top = (e.point.y - 12) + 'px';
-                            }
-                        });
-                        map.on('mouseleave', 'hex-fill', () => {
-                            map.getCanvas().style.cursor = '';
-                            tooltip.style.display = 'none';
-                        });
-
-                        // Click detail panel
-                        map.on('click', 'hex-fill', e => {
-                            if (!e.features || e.features.length === 0) return;
-                            const p = e.features[0].properties;
-                            const hexId = p.hex_id;
-
-                            // Save current stats panel
-                            const statsEl = document.getElementById('stats');
-                            if (!statsEl.querySelector('.hex-detail')) {
-                                savedPanelHTML = statsEl.innerHTML;
-                            }
-
-                            // Build per-type breakdown — read from the active
-                            // scope's buckets so the click panel matches what
-                            // the user just saw on the heatmap.
-                            const hexDataByType = hexDataByScope[currentScope] || {};
-                            const costSummary = costSummaryByScope[currentScope] || {};
-                            let rows = '';
-                            let totalArea = 0, totalPct = 0, totalCost = 0;
-                            for (const type of Object.keys(layerColors)) {
-                                const features = hexDataByType[type] || [];
-                                const match = features.find(f => f.properties.hex_id === hexId);
-                                if (!match) continue;
-                                const area = match.properties.area || 0;
-                                const pct = match.properties.pct_covered || 0;
-                                let cost = 0;
-                                const cs = costSummary[type];
-                                if (cs && cs.total_area) {
-                                    cost = (area / cs.total_area) * cs.year1_cost;
-                                }
-                                totalArea += area;
-                                totalPct += pct;
-                                totalCost += cost;
-                                rows += '<tr><td style="text-transform:capitalize">' + type + '</td><td>' + fmtNum(area) + '</td><td>' + Math.round(pct) + '%</td><td>' + fmtCost(cost) + '</td></tr>';
-                            }
-
-                            statsEl.innerHTML =
-                                '<div class="hex-detail">' +
-                                '<h3>Hex ' + hexId + '<button class="close-btn" id="close-hex" type="button" aria-label="Close hex details">&times;</button></h3>' +
-                                '<table><tr><th>Type</th><th>Area</th><th>Coverage</th><th>Est. Cost</th></tr>' +
-                                rows +
-                                '<tr class="total-row"><td>Total</td><td>' + fmtNum(totalArea) + '</td><td>' + Math.min(Math.round(totalPct), 100) + '%</td><td>' + fmtCost(totalCost) + '</td></tr>' +
-                                '</table></div>';
-
-                            document.getElementById('close-hex').addEventListener('click', () => {
-                                statsEl.innerHTML = savedPanelHTML;
-                            });
-                        });
+                        // Hover/click handlers for the hex-fill layer are registered
+                        // ONCE at startup (registerHexHandlers), not here. MapLibre
+                        // layer-scoped listeners are keyed by layer id and survive
+                        // removeLayer/addLayer, so registering them inside loadCityData
+                        // (which re-runs on every city/snapshot switch) stacked one set
+                        // per switch. The registered handlers read live module state.
                     }
                 }
             }
@@ -1453,6 +1404,79 @@
                 });
             });
         }
+
+        // Register the hex-fill hover/click handlers exactly once. They read live
+        // module state (hexDataByScope/costSummaryByScope/currentScope/savedPanelHTML),
+        // so re-running loadCityData with new data is reflected without re-binding.
+        // Registered before the layer exists is fine: MapLibre layer-scoped listeners
+        // simply don't fire until a layer with that id is present.
+        function registerHexHandlers() {
+            const tooltip = document.getElementById('hex-tooltip');
+            map.on('mousemove', 'hex-fill', e => {
+                map.getCanvas().style.cursor = 'pointer';
+                if (e.features && e.features.length > 0) {
+                    const p = e.features[0].properties;
+                    tooltip.innerHTML =
+                        '<strong>Coverage:</strong> ' + (p.pct_covered != null ? Math.round(p.pct_covered) : 0) + '%<br>' +
+                        '<strong>Area:</strong> ' + fmtArea(p.area || 0) + '<br>' +
+                        '<strong>Est. Cost:</strong> ' + fmtCost(p.est_cost || 0);
+                    tooltip.style.display = 'block';
+                    tooltip.style.left = (e.point.x + 12) + 'px';
+                    tooltip.style.top = (e.point.y - 12) + 'px';
+                }
+            });
+            map.on('mouseleave', 'hex-fill', () => {
+                map.getCanvas().style.cursor = '';
+                tooltip.style.display = 'none';
+            });
+            map.on('click', 'hex-fill', e => {
+                if (!e.features || e.features.length === 0) return;
+                const p = e.features[0].properties;
+                const hexId = p.hex_id;
+
+                // Save current stats panel
+                const statsEl = document.getElementById('stats');
+                if (!statsEl.querySelector('.hex-detail')) {
+                    savedPanelHTML = statsEl.innerHTML;
+                }
+
+                // Build per-type breakdown — read from the active scope's buckets
+                // so the click panel matches what the user just saw on the heatmap.
+                const hexDataByType = hexDataByScope[currentScope] || {};
+                const costSummary = costSummaryByScope[currentScope] || {};
+                let rows = '';
+                let totalArea = 0, totalPct = 0, totalCost = 0;
+                for (const type of Object.keys(layerColors)) {
+                    const features = hexDataByType[type] || [];
+                    const match = features.find(f => f.properties.hex_id === hexId);
+                    if (!match) continue;
+                    const area = match.properties.area || 0;
+                    const pct = match.properties.pct_covered || 0;
+                    let cost = 0;
+                    const cs = costSummary[type];
+                    if (cs && cs.total_area) {
+                        cost = (area / cs.total_area) * cs.year1_cost;
+                    }
+                    totalArea += area;
+                    totalPct += pct;
+                    totalCost += cost;
+                    rows += '<tr><td style="text-transform:capitalize">' + type + '</td><td>' + fmtNum(area) + '</td><td>' + Math.round(pct) + '%</td><td>' + fmtCost(cost) + '</td></tr>';
+                }
+
+                statsEl.innerHTML =
+                    '<div class="hex-detail">' +
+                    '<h3>Hex ' + hexId + '<button class="close-btn" id="close-hex" type="button" aria-label="Close hex details">&times;</button></h3>' +
+                    '<table><tr><th>Type</th><th>Area</th><th>Coverage</th><th>Est. Cost</th></tr>' +
+                    rows +
+                    '<tr class="total-row"><td>Total</td><td>' + fmtNum(totalArea) + '</td><td>' + Math.min(Math.round(totalPct), 100) + '%</td><td>' + fmtCost(totalCost) + '</td></tr>' +
+                    '</table></div>';
+
+                document.getElementById('close-hex').addEventListener('click', () => {
+                    statsEl.innerHTML = savedPanelHTML;
+                });
+            });
+        }
+        registerHexHandlers();
 
         map.on('load', () => loadCityData());
 
@@ -1876,6 +1900,24 @@
             // screen — a wrong dollar claim under the new city's name.
             forecastData = null;
             renderSolvencyHeadline();
+            // Also hide the previous city's headline tiles, cohort table, and
+            // forecast controls up front, mirroring the solvency-headline reset
+            // above: an early return below (no scenarios / failed fetch) must not
+            // leave stale dollar tiles or a cohort table under the new city name.
+            document.getElementById('headlines').style.display = 'none';
+            document.getElementById('cohort-section').style.display = 'none';
+            document.querySelector('#cohort-table tbody').innerHTML = '';
+            document.getElementById('forecast-controls').classList.remove('visible');
+            // Horizon-derived labels (never hardcode 20). FORECAST_SEED.years is
+            // the configured forecast horizon; the headline/cohort values are
+            // summed over it, so the captions must follow it too.
+            {
+                const yrs = (FORECAST_SEED && FORECAST_SEED.years) || 20;
+                document.getElementById('hl-spend-label').textContent = yrs + '-Year Spend';
+                document.getElementById('hl-deficit-label').textContent = yrs + '-Year Deficit';
+                document.getElementById('cohort-spend-th').textContent = yrs + 'yr Spend';
+                document.getElementById('cohort-deficit-th').textContent = yrs + 'yr Deficit';
+            }
             scenarioData = await loadJSON(dataURL(prefix, 'scenarios.json'));
             if (!scenarioData) {
                 document.getElementById('charts').innerHTML = '<div class="no-data">No financial data available. Run <code>pvmt forecast</code> and <code>pvmt export</code> first.</div>';
@@ -1915,6 +1957,14 @@
                 const seed = await loadJSON(dataURL(prefix, 'forecast_seed.json'));
                 if (seed) {
                     FORECAST_SEED = seed;
+                    // Re-apply horizon-derived labels now that this city's seed
+                    // (and its configured years) is loaded.
+                    if (seed.years) {
+                        document.getElementById('hl-spend-label').textContent = seed.years + '-Year Spend';
+                        document.getElementById('hl-deficit-label').textContent = seed.years + '-Year Deficit';
+                        document.getElementById('cohort-spend-th').textContent = seed.years + 'yr Spend';
+                        document.getElementById('cohort-deficit-th').textContent = seed.years + 'yr Deficit';
+                    }
                     syncPCISliderFromSeed();
                     rebuildTierInputs();
                     if (wasmReady) runCustomScenario();
@@ -2331,16 +2381,14 @@
         });
 
         // ── Compare tab ──
-        var compareLoaded = false;
-        var compareCharts = [];
-        var aggregateLoaded = false;
-        var aggregateCharts = [];
+        // State vars (compareLoaded/compareCharts/aggregateLoaded/aggregateCharts/
+        // allCityDataPromise) are declared+initialized above the applyInitialState
+        // IIFE — see the note there — so a deep link does not get its guards wiped.
 
         // Shared per-city fetch for the Compare and Aggregate tabs. Cache the
         // in-flight Promise (not the resolved data) so two near-simultaneous
         // openings — e.g. a deep-link plus a click — dedupe to one fan-out
         // instead of both observing an undefined data var and re-fetching.
-        var allCityDataPromise = null;
         function loadAllCityData() {
             if (!allCityDataPromise) {
                 allCityDataPromise = Promise.all(CITIES.map(async function(city) {
@@ -2399,6 +2447,11 @@
             // City area and pct paved from meta
             m.cityAreaLarge = toAreaLarge(city.meta && city.meta.city_area ? city.meta.city_area : 0);
             m.pctPaved = city.meta && city.meta.pct_paved ? city.meta.pct_paved : 0;
+            // Union-based total paved (sq m). meta.total_paved is the cross-resource
+            // union the Go side maintains precisely so it does NOT double-count
+            // road/sidewalk/parking buffer overlap; the Map and Compare % Paved use
+            // it. Fall back to the per-resource stats sum only when absent.
+            m.totalPavedSqM = (city.meta && city.meta.total_paved) ? city.meta.total_paved : m.totalSqM;
 
             // Ratios
             m.sidewalkToRoadPct = m.roadsSqM > 0 ? (m.sidewalksSqM / m.roadsSqM * 100) : 0;
@@ -2449,7 +2502,21 @@
                 m.year1Need = 0; m.year20Need = 0; m.endBacklog = 0;
                 m.hasForecasts = false;
             }
-            m.year1PerAreaUnit = m.totalAreaLarge > 0 ? m.year1Need / m.totalAreaLarge : 0;
+            // Divide the (scope-selected) year-1 need by an area in the SAME
+            // scope. m.totalAreaLarge sums meta.stats, which BuildMeta populates
+            // from bare full-bbox/all-jurisdiction compute rows, so using it with
+            // a city-scope numerator mixes scopes and understates the ratio for
+            // cities with lots of state/county-owned network. Use seed.city_paved
+            // when the city scope is active, else seed.total_area (both sq m, so
+            // convert to display large-area units to match m.totalAreaLarge).
+            var scopeAreaSqM = 0;
+            if (city.seed) {
+                scopeAreaSqM = (currentScope === 'city' && city.seed.city_paved)
+                    ? city.seed.city_paved
+                    : (city.seed.total_area || 0);
+            }
+            var scopeAreaLarge = scopeAreaSqM > 0 ? toAreaLarge(scopeAreaSqM) : m.totalAreaLarge;
+            m.year1PerAreaUnit = scopeAreaLarge > 0 ? m.year1Need / scopeAreaLarge : 0;
 
             // Roads-only solvency metrics from forecast.json (an array of
             // per-resource ForecastExport — find the roads element). These are
@@ -2751,10 +2818,14 @@
             var minLen = fc.length > 0 ? Math.min.apply(null, fc.map(function(m) { return m.baselineYears.length; })) : 0;
 
             // Region area sums (every city, forecast or not).
-            var totalRoads = 0, totalParking = 0, totalSidewalks = 0, totalNetwork = 0, totalCityArea = 0;
+            var totalRoads = 0, totalParking = 0, totalSidewalks = 0, totalNetwork = 0, totalCityArea = 0, totalPaved = 0;
             allMetrics.forEach(function(m) {
                 totalRoads += m.roadsAreaLarge; totalParking += m.parkingAreaLarge; totalSidewalks += m.sidewalksAreaLarge;
                 totalNetwork += m.totalAreaLarge; totalCityArea += m.cityAreaLarge;
+                // Union-based paved area (large units) for an apples-to-apples
+                // Paved Share that matches the Map/Compare % Paved, instead of the
+                // overlap-double-counting per-resource sum (totalNetwork).
+                totalPaved += toAreaLarge(m.totalPavedSqM || 0);
             });
 
             // Dollar + PCI sums over forecast cities only, so the weighted PCI
@@ -2782,7 +2853,7 @@
             }
             document.getElementById('aggregate-headlines').innerHTML = [
                 aggCard('Total Network Area', fmtNum(totalNetwork) + ' ' + unit, 'Roads + parking + sidewalks across ' + allMetrics.length + ' cities'),
-                aggCard('Paved Share', totalCityArea > 0 ? (totalNetwork / totalCityArea * 100).toFixed(1) + '%' : '—', 'Network area vs. municipal area'),
+                aggCard('Paved Share', totalCityArea > 0 ? (totalPaved / totalCityArea * 100).toFixed(1) + '%' : '—', 'Paved (union) area vs. municipal area'),
                 aggCard('Area-Weighted PCI', weightedPCI === null ? '—' : weightedPCI.toFixed(0), 'Baseline condition (simplified single-cohort)'),
                 aggCard('Year-1 Maintenance Need', hasFc ? fmt$(regionYear1) : '—', 'To hold the whole network steady'),
                 aggCard(horizon + 'Deferred Backlog', hasFc ? fmt$(regionBacklog) : '—', hasFc ? 'Unfunded need accumulated by year ' + minLen : 'No forecast data in this region'),
