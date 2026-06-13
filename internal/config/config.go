@@ -56,7 +56,6 @@ var (
 type Config struct {
 	Grid     GridConfig     `toml:"grid"`
 	Display  DisplayConfig  `toml:"display"`
-	Layers   []LayerConfig  `toml:"layers"`
 	Export   ExportConfig   `toml:"export"`
 	Forecast ForecastConfig `toml:"forecast"`
 	Cities   []CityConfig   `toml:"cities"`
@@ -194,13 +193,6 @@ type CostTierCfg struct {
 	MaxPCI     float64 `toml:"max_pci"`
 	CostPerSqM float64 `toml:"cost_per_sqm"`
 	Label      string  `toml:"label"`
-}
-
-type LayerConfig struct {
-	Name   string `toml:"name"`
-	Type   string `toml:"type"`    // "csv" or "geojson"
-	Path   string `toml:"path"`    // file path
-	IDProp string `toml:"id_prop"` // property/column for ID
 }
 
 type CityConfig struct {

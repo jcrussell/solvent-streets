@@ -213,6 +213,21 @@ func (s *Server) serveDataFile(w http.ResponseWriter, r *http.Request, file stri
 		return
 	}
 	if snapshotID > 0 {
+		// Guard against serving a config-mismatched pinned snapshot: the hex
+		// grid (and every other data file's hex_id namespace) is regenerated
+		// from the CURRENT config, so a snapshot computed under a different
+		// config (e.g. a different hex_edge_m) would have stored hex IDs that
+		// no longer match — buildHexFeature silently drops the rows and the
+		// client gets an empty/mislocated layer with HTTP 200, cached for the
+		// server's lifetime. Fail loud instead. Only an explicitly pinned id
+		// is checked; the default (latest) path is auto-scoped to the current
+		// config hash by BuildCityEntries' WithConfigHash pin, so it can't
+		// mismatch. RequireMatchingSnapshot only asks "does ANY snapshot match
+		// the current hash" and so can't answer "does THIS pinned id match",
+		// hence the dedicated check here.
+		if !s.snapshotMatchesConfig(r.Context(), w, entry, snapshotID) {
+			return
+		}
 		entry = entry.WithSnapshot(snapshotID)
 	}
 	switch file {
@@ -259,6 +274,51 @@ func (s *Server) parseSnapshotParam(ctx context.Context, w http.ResponseWriter, 
 		return 0, false
 	}
 	return id, true
+}
+
+// snapshotMatchesConfig verifies that an explicitly pinned snapshot was
+// computed under the SAME config hash as the one currently serving. On a
+// mismatch it writes 409 Conflict (the pinned snapshot exists but conflicts
+// with the live grid) and returns false; the caller must not proceed. On a
+// match (or when no config is attached, e.g. some tests) it returns true.
+//
+// The single-snapshot lookup filters entry.Store.ListSnapshots by id rather
+// than adding a new Store accessor: ListSnapshots is already on the interface
+// (every mock implements it) and a city's snapshot list is small, so filtering
+// is KISS and avoids rippling a GetSnapshot method through db.Store and every
+// mock. parseSnapshotParam has already confirmed the id resolves for this city,
+// so a missing row here would be a race, not bad input.
+func (s *Server) snapshotMatchesConfig(ctx context.Context, w http.ResponseWriter, entry export.CityEntry, snapshotID int64) bool {
+	if entry.Config == nil {
+		return true
+	}
+	want := entry.Config.Hash()
+	snaps, err := entry.Store.ListSnapshots(ctx)
+	if err != nil {
+		s.httpErr(w, fmt.Errorf("listing snapshots: %w", err), http.StatusInternalServerError)
+		return false
+	}
+	for _, snap := range snaps {
+		if snap.ID != snapshotID {
+			continue
+		}
+		if snap.ConfigHash == want {
+			return true
+		}
+		fmt.Fprintf(s.ios.ErrOut,
+			"server: 409 Conflict: snapshot %d config_hash %q != current %q\n",
+			snapshotID, snap.ConfigHash, want)
+		http.Error(w, fmt.Sprintf(
+			"snapshot %d was computed under a different config (hex_edge_m or other grid "+
+				"setting changed) and cannot be served against the current hex grid; "+
+				"recompute with the current config or pick a snapshot matching it",
+			snapshotID), http.StatusConflict)
+		return false
+	}
+	// Resolved by parseSnapshotParam but absent from the list: treat as a
+	// transient inconsistency rather than silently serving mismatched data.
+	s.httpErr(w, fmt.Errorf("snapshot %d resolved but not found in snapshot list", snapshotID), http.StatusInternalServerError)
+	return false
 }
 
 // cacheKey composes the s.cache key for a per-snapshot JSON build. The

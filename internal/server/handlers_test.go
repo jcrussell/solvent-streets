@@ -268,8 +268,17 @@ func TestDataFile_SnapshotParam(t *testing.T) {
 			}, nil
 		},
 	}
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Test City"}}}
 	root := &dbtest.MockStore{
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
+		// snapshots 1 and 2 carry the current config's hash so the
+		// config-mismatch guard in serveDataFile lets them through.
+		ListSnapshotsFunc: func(_ context.Context) ([]db.Snapshot, error) {
+			return []db.Snapshot{
+				{ID: 2, ConfigHash: cfg.Hash()},
+				{ID: 1, ConfigHash: cfg.Hash()},
+			}, nil
+		},
 		ResolveSnapshotFunc: func(_ context.Context, id int64) error {
 			if id == 1 || id == 2 {
 				return nil
@@ -301,7 +310,6 @@ func TestDataFile_SnapshotParam(t *testing.T) {
 		},
 	}
 
-	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Test City"}}}
 	entry := export.CityEntry{
 		Config: cfg, City: cfg.Cities[0], Store: root, Slug: cfg.Cities[0].Slug(),
 	}
@@ -359,6 +367,72 @@ func TestDataFile_SnapshotParam(t *testing.T) {
 	wNeg, _ := hit(t, "/data/meta.json?snapshot=-1")
 	if wNeg.Code != http.StatusNotFound {
 		t.Errorf("negative snapshot: expected 404, got %d", wNeg.Code)
+	}
+}
+
+// TestDataFile_SnapshotConfigMismatch covers the config-mismatch guard: a
+// pinned snapshot whose config_hash differs from the current config's hash
+// must be refused with 409 (not silently served as an empty/mislocated layer
+// with 200), while a pinned snapshot whose hash matches still serves.
+func TestDataFile_SnapshotConfigMismatch(t *testing.T) {
+	testBoundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
+
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Test City"}}}
+	curHash := cfg.Hash()
+
+	pinnedStore := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
+		LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
+			if rt != srvRtRoads {
+				return nil, sql.ErrNoRows
+			}
+			return &db.ComputeResult{ResourceType: srvRtRoads, TotalArea: 1000, FeatureCount: 10, ComputedAt: time.Now()}, nil
+		},
+	}
+	root := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
+		ListSnapshotsFunc: func(_ context.Context) ([]db.Snapshot, error) {
+			return []db.Snapshot{
+				{ID: 1, ConfigHash: curHash},         // matches current config
+				{ID: 2, ConfigHash: "stale00000000"}, // computed under a different config
+			}, nil
+		},
+		ResolveSnapshotFunc: func(_ context.Context, id int64) error {
+			if id == 1 || id == 2 {
+				return nil
+			}
+			return sql.ErrNoRows
+		},
+		WithSnapshotFunc: func(_ int64) db.Store { return pinnedStore },
+	}
+
+	entry := export.CityEntry{Config: cfg, City: cfg.Cities[0], Store: root, Slug: cfg.Cities[0].Slug()}
+	ios, _, _, _ := iostreams.Test()
+	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /data/{file}", srv.handleDataFile(entry))
+
+	hit := func(url string) *httptest.ResponseRecorder {
+		req, _ := http.NewRequestWithContext(context.Background(), "GET", url, nil)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		return w
+	}
+
+	// Matching hash → served (200).
+	if w := hit("/data/meta.json?snapshot=1"); w.Code != http.StatusOK {
+		t.Errorf("matching snapshot: expected 200, got %d", w.Code)
+	}
+
+	// Mismatched hash → 409 Conflict, not a 200 with empty data.
+	if w := hit("/data/meta.json?snapshot=2"); w.Code != http.StatusConflict {
+		t.Errorf("mismatched snapshot: expected 409, got %d", w.Code)
+	}
+
+	// The guard applies to all data files, not just meta — hexgrid is the
+	// motivating case.
+	if w := hit("/data/hexgrid.geojson?snapshot=2"); w.Code != http.StatusConflict {
+		t.Errorf("mismatched snapshot (hexgrid): expected 409, got %d", w.Code)
 	}
 }
 

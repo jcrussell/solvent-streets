@@ -77,7 +77,6 @@ Two configs that both set `config_id = "same"` while defining a city with the sa
 
 - `overpass = true` — enables OpenStreetMap Overpass API queries
 - `arcgis_url = "https://..."` — enables ArcGIS FeatureServer queries (roads only). Add `allow_private_arcgis = true` alongside it to reach a self-hosted or staging endpoint on a private/loopback address; public endpoints don't need it and shouldn't set it.
-- `[[layers]]` — local CSV or GeoJSON file ingest. Each entry takes `name`, `type` (`csv` or `geojson`), `path`, and `id_prop` (the property used as the feature ID). See [`examples/`](../examples/) for working configs.
 
 Multiple sources can be enabled for the same city. Features are deduplicated by ID.
 

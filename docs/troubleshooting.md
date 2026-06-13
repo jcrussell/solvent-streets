@@ -38,7 +38,7 @@ Fix — add one to `pvmt.toml`:
 name = "Oakland"
 ```
 
-Optional fields — data sources (`overpass`, `arcgis_url`, `[[layers]]`) and per-city overrides — are documented in [configuration.md](configuration.md). With no source set, pvmt resolves the city boundary from OSM Nominatim on first ingest.
+Optional fields — data sources (`overpass`, `arcgis_url`) and per-city overrides — are documented in [configuration.md](configuration.md). With no source set, pvmt resolves the city boundary from OSM Nominatim on first ingest.
 
 ## `#invalid-config`
 

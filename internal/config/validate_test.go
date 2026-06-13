@@ -219,6 +219,20 @@ name = "Oakland, CA"
 `,
 			wantKey: "forecast.cost_tiers.cost_per_smq",
 		},
+		// The removed [[layers]] config (solvent-streets 2a7n.15) must now be
+		// caught by the unknown-key guard instead of silently no-op'ing.
+		"removed layers section": {
+			toml: `[[layers]]
+name = "sidewalks"
+type = "geojson"
+path = "sidewalks.geojson"
+id_prop = "OBJECTID"
+
+[[cities]]
+name = "Oakland, CA"
+`,
+			wantKey: "layers",
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
