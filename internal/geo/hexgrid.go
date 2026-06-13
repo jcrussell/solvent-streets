@@ -166,6 +166,17 @@ func hexCoverageArea(h geom.Geometry, candidates []geom.Geometry) (float64, bool
 // clipHexToCandidates intersects a hex with candidate boundary fragments and
 // returns the clipped hex. The second return value is false if the hex has no
 // intersection with any candidate.
+//
+// Each Intersection result is reduced to its polygonal parts via
+// RetainPolygonal before merging. When a hex edge coincides with a boundary
+// edge, geom.Intersection can emit a mixed-dimension GeometryCollection (a 2-D
+// overlap plus the 1-D shared edge) that geom.Union rejects — returned as an
+// error in simplefeatures v0.59.0 ("Overlay input is mixed-dimension"; this was
+// historically an uncatchable panic in JTS). RetainPolygonal strips the 1-D
+// shared-edge parts so the union sees clean polygons (matching hexCoverageArea),
+// leaving the clipped geometry unchanged for the normal clean-polygon case
+// (where Intersection already returns a pure polygon and RetainPolygonal is a
+// no-op).
 func clipHexToCandidates(h Hex, candidates []geom.Geometry) (Hex, bool) {
 	var clipped geom.Geometry
 	for _, cand := range candidates {
@@ -173,7 +184,11 @@ func clipHexToCandidates(h Hex, candidates []geom.Geometry) (Hex, bool) {
 		if err != nil || inter.IsEmpty() {
 			continue
 		}
-		clipped = mergeClipped(clipped, inter)
+		poly, err := RetainPolygonal(inter)
+		if err != nil || poly.IsEmpty() {
+			continue
+		}
+		clipped = mergeClipped(clipped, poly)
 	}
 	if clipped.IsEmpty() {
 		return h, false
@@ -196,21 +211,85 @@ func mergeClipped(existing, addition geom.Geometry) geom.Geometry {
 	return merged
 }
 
-// ClipHexesToBoundary intersects each hex with the boundary geometry in
-// parallel using a spatial index. Hexes with no intersection are dropped;
-// hexes partially inside are clipped. If counter is non-nil it is incremented
-// after each hex is processed. ctx cancellation stops dispatching further
-// hexes; in-flight hexes complete.
+// boundarySegments decomposes every ring (exterior + interior) of every
+// Polygon in g into 2-point LineStrings, one per consecutive vertex pair.
+// Indexing these instead of whole rings lets a hex-envelope Search return only
+// the boundary edges near that hex (a thin perimeter band) rather than the
+// entire boundary, which is what makes interior-hex pruning possible.
+func boundarySegments(g geom.Geometry) []geom.Geometry {
+	var segs []geom.Geometry
+	for _, part := range g.Dump() {
+		if !part.IsPolygon() {
+			continue
+		}
+		poly, ok := part.AsPolygon()
+		if !ok {
+			continue
+		}
+		for _, ring := range poly.DumpRings() {
+			seq := ring.Coordinates()
+			n := seq.Length()
+			for i := 0; i+1 < n; i++ {
+				a := seq.GetXY(i)
+				b := seq.GetXY(i + 1)
+				coords := []float64{a.X, a.Y, b.X, b.Y}
+				ls := geom.NewLineString(geom.NewSequence(coords, geom.DimXY))
+				segs = append(segs, ls.AsGeometry())
+			}
+		}
+	}
+	return segs
+}
+
+// ClipHexesToBoundary clips each hex against the boundary geometry in parallel.
+// Hexes wholly outside the boundary are dropped, hexes straddling it are
+// clipped, and hexes wholly inside are kept unchanged. If counter is non-nil
+// it is incremented after each hex is processed. ctx cancellation stops
+// dispatching further hexes; in-flight hexes complete.
+//
+// The grid is generated over the boundary's own bbox, so the vast majority of
+// hexes are fully interior and intersecting them returns the hex unchanged.
+// To avoid paying a full overlay against the multi-thousand-vertex boundary
+// for every such hex, we index the boundary's individual EDGE SEGMENTS (not
+// whole rings). A hex whose envelope touches no boundary edge cannot transition
+// in/out of the boundary anywhere inside it — every point of the hex is on the
+// same side — so a single point-in-polygon test of the hex center classifies
+// it: inside keeps it unclipped, outside drops it. Only hexes whose envelope
+// actually contains a boundary edge run the full intersection clip.
+//
+// CORRECTNESS INVARIANT: the center-classification fast path runs ONLY when no
+// boundary edge lies in the hex envelope. A concave notch puts boundary edges
+// into the envelope of any hex near it, so such a hex always falls through to
+// the full-intersection path. The classic "hex center is inside but the
+// envelope straddles a concavity" failure mode therefore CANNOT occur here.
+// Segment-bbox overlap is a conservative superset (a segment whose bbox touches
+// hexEnv may not actually enter the hex) — those hexes merely get the correct
+// but slightly more expensive full intersection; never the reverse.
 func ClipHexesToBoundary(ctx context.Context, hexes []Hex, boundary geom.Geometry, counter *atomic.Int64) []Hex {
-	idx := NewGeomIndex(boundary)
+	// Edge index: 2-point segments of every ring, for proximity pruning.
+	edgeIdx := NewGeomIndexFromGeoms(boundarySegments(boundary))
+	// Polygon-part index: whole boundary parts, for clipping straddling hexes.
+	polyIdx := NewGeomIndex(boundary)
 
 	return ParallelMap(ctx, hexes, func(_ int, h Hex) []Hex {
 		hexEnv := h.Geom.Envelope()
-		candidates := idx.Search(hexEnv)
+
+		if len(edgeIdx.Search(hexEnv)) == 0 {
+			// No boundary edge in the hex envelope: the whole hex is on one
+			// side of the boundary. Classify by the hex center.
+			center := h.Geom.Centroid().AsGeometry()
+			if geom.Intersects(center, boundary) {
+				return []Hex{h} // fully interior, keep unclipped
+			}
+			return nil // fully exterior, drop
+		}
+
+		// Boundary edges straddle the hex envelope: clip against the
+		// overlapping boundary polygon part(s) exactly as before.
+		candidates := polyIdx.Search(hexEnv)
 		if len(candidates) == 0 {
 			return nil
 		}
-
 		clipped, ok := clipHexToCandidates(h, candidates)
 		if !ok {
 			return nil

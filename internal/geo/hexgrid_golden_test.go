@@ -2,6 +2,7 @@ package geo
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"testing"
 
@@ -197,6 +198,191 @@ func TestHexCoverageArea_ClipFirstIdentity(t *testing.T) {
 			clipFirst := clipFirstArea(t, hex, tc.candidates)
 			approx(t, clipFirst, unionFirst, tc.name+": clip-first vs union-first")
 		})
+	}
+}
+
+// clipExhaustiveReference clips every hex against the boundary the OLD,
+// unpruned way: for each hex, intersect with the whole boundary, retain the
+// polygonal parts, and keep the survivor. It is the from-scratch reference the
+// pruned ClipHexesToBoundary must match exactly. Returns survivors keyed by ID
+// and the total kept area.
+func clipExhaustiveReference(t *testing.T, hexes []Hex, boundary geom.Geometry) (map[string]float64, float64) {
+	t.Helper()
+	out := make(map[string]float64)
+	var total float64
+	for _, h := range hexes {
+		inter, err := geom.Intersection(h.Geom, boundary)
+		if err != nil {
+			t.Fatalf("reference intersection for %s: %v", h.ID, err)
+		}
+		if inter.IsEmpty() {
+			continue
+		}
+		poly, err := RetainPolygonal(inter)
+		if err != nil {
+			t.Fatalf("reference retain for %s: %v", h.ID, err)
+		}
+		if poly.IsEmpty() {
+			continue
+		}
+		a := poly.Area()
+		if a <= 0 {
+			continue
+		}
+		out[h.ID] = a
+		total += a
+	}
+	return out, total
+}
+
+// notchedBoundary is a 300x300 square with a 100x100 rectangular bite removed
+// from its top-right, yielding an L-shape (a concave polygon). Built as a
+// single exterior ring so a hex whose envelope spans the notch sees the
+// concave edges in its envelope and must take the full-intersection path.
+//
+//	(0,300)            (200,300)
+//	   +------------------+
+//	   |                  |
+//	   |        notch ->  +-----------+ (300,200)
+//	   |                  (200,200)   |
+//	   |                              |
+//	   +------------------------------+
+//	(0,0)                          (300,0)
+func notchedBoundary() geom.Geometry {
+	coords := []float64{
+		0, 0,
+		300, 0,
+		300, 200,
+		200, 200,
+		200, 300,
+		0, 300,
+		0, 0,
+	}
+	ring := geom.NewLineString(geom.NewSequence(coords, geom.DimXY))
+	return geom.NewPolygon([]geom.LineString{ring}).AsGeometry()
+}
+
+// TestClipHexesToBoundary_ConcaveEqualsExhaustive is the key safety net for the
+// interior-hex pruning optimization: over a concave (L-shaped/notched)
+// boundary, the pruned ClipHexesToBoundary must produce EXACTLY the same
+// survivors and per-hex areas as a from-scratch full-intersection reference.
+//
+// It specifically exercises:
+//   - hexes fully inside the L are kept (fast interior path, unclipped),
+//   - hexes inside the removed notch are dropped (fast exterior path),
+//   - hexes straddling the notch edges are clipped (full-intersection path).
+func TestClipHexesToBoundary_ConcaveEqualsExhaustive(t *testing.T) {
+	boundary := notchedBoundary()
+	// 50-unit grid of rectangles, a few past each edge so some hexes are fully
+	// exterior. The grid origin is at -75 (NOT -50) so that the cells are
+	// OFFSET from the boundary lines by half a cell: the boundary edges at
+	// x/y = 0, 200, 300 fall at the MIDPOINT of a 50-unit cell rather than on a
+	// cell edge. That offset is load-bearing for this test's oracle. With an
+	// origin of -50 the cell edges coincide with every boundary line, so the
+	// clip never bisects a cell and ZERO partial-straddle hexes are produced —
+	// the boundary always cleaves cleanly along shared edges. The test then
+	// only exercises whole-keep / whole-drop and a mutation that disables
+	// clipping entirely (route every hex through center classification) still
+	// passes. Offsetting to -75 forces the boundary through cell interiors,
+	// yielding 24 partial-straddle hexes (areas 625/1250/1875) so the
+	// clip branch's area math is actually pinned. 8x8 = 64 cells over
+	// [-75,275]x[-75,275].
+	var hexes []Hex
+	for cx := -75; cx < 300; cx += 50 {
+		for cy := -75; cy < 300; cy += 50 {
+			x1, y1 := float64(cx), float64(cy)
+			hexes = append(hexes, rectHex(
+				fmt.Sprintf("c:%d:%d", cx, cy), x1, y1, x1+50, y1+50))
+		}
+	}
+
+	wantAreas, wantTotal := clipExhaustiveReference(t, hexes, boundary)
+
+	// Guard the oracle itself: the offset grid MUST produce partially-clipped
+	// hexes, otherwise the clip branch is untested (every survivor would be a
+	// whole 2500-area cell and the reference would agree even if clipping were
+	// disabled). Count survivors whose area is neither 0 nor a full cell.
+	const wholeCell = 50.0 * 50.0 // 2500
+	partials := 0
+	for _, a := range wantAreas {
+		if math.Abs(a-wholeCell) > areaEps {
+			partials++
+		}
+	}
+	if partials == 0 {
+		t.Fatalf("oracle is weak: no partial-straddle hexes in fixture; "+
+			"the clip branch is not exercised (survivors=%d)", len(wantAreas))
+	}
+
+	clipped := ClipHexesToBoundary(context.Background(), hexes, boundary, nil)
+	gotAreas := make(map[string]float64, len(clipped))
+	var gotTotal float64
+	for _, h := range clipped {
+		a := h.Geom.Area()
+		gotAreas[h.ID] = a
+		gotTotal += a
+	}
+
+	if len(gotAreas) != len(wantAreas) {
+		t.Fatalf("survivor count = %d, want %d (pruned set != exhaustive set)",
+			len(gotAreas), len(wantAreas))
+	}
+	for id, want := range wantAreas {
+		got, ok := gotAreas[id]
+		if !ok {
+			t.Errorf("hex %s missing from pruned result (present in exhaustive)", id)
+			continue
+		}
+		approx(t, got, want, "area["+id+"]")
+	}
+	approx(t, gotTotal, wantTotal, "total kept area: pruned vs exhaustive")
+
+	// Sanity, branch by branch (independent of the exhaustive reference so the
+	// clip branch is pinned by hand-derived values, not only by the oracle):
+	//
+	//   interior-keep-whole: c:25:25 is cell [25,75]x[25,75], wholly inside the
+	//     L (below and left of the notch) -> kept unclipped at 2500.
+	if a := gotAreas["c:25:25"]; math.Abs(a-2500) > areaEps {
+		t.Errorf("interior hex c:25:25 area = %f, want 2500 (kept unclipped)", a)
+	}
+	//   exterior-drop: c:-75:-75 is cell [-75,-25]^2, wholly outside -> dropped.
+	if a, ok := gotAreas["c:-75:-75"]; ok {
+		t.Errorf("exterior hex c:-75:-75 should be dropped, got area %f", a)
+	}
+	//   notch-drop: c:225:225 is cell [225,275]^2, wholly inside the removed
+	//     notch [200,300]^2 -> dropped.
+	if a, ok := gotAreas["c:225:225"]; ok {
+		t.Errorf("notch hex c:225:225 should be dropped, got area %f", a)
+	}
+	//   straddle-clip (KNOWN partial, hand-verified): c:-25:25 is cell
+	//     [-25,25]x[25,75]. Its left half (x<0) is outside the boundary; the
+	//     clip keeps [0,25]x[25,75] = 25*50 = 1250. This pins the clip branch's
+	//     area math to an independent value, not just to the reference total.
+	if a := gotAreas["c:-25:25"]; math.Abs(a-1250) > areaEps {
+		t.Errorf("straddle hex c:-25:25 area = %f, want 1250 (clipped to [0,25]x[25,75])", a)
+	}
+}
+
+// TestClipHexesToBoundary_CoincidentEdge guards the Part-1 case: a hex whose
+// edge exactly coincides with a boundary edge. Intersection can then emit a
+// mixed-dimension GeometryCollection (2-D overlap + 1-D shared edge) which
+// geom.Union rejects (an error in simplefeatures v0.59.0; historically an
+// uncatchable JTS panic inside a ParallelMap worker). clipHexToCandidates must
+// RetainPolygonal first; here we assert no panic/error and a correct clip area.
+func TestClipHexesToBoundary_CoincidentEdge(t *testing.T) {
+	// Boundary right edge at x=100. The hex spans [50,150]x[0,100]; its left
+	// portion [50,100]x[0,100] is inside, and its right edge of the overlap
+	// (x=100) coincides with the boundary's right edge.
+	boundary := makeRect(0, 0, 100, 200)
+	hex := rectHex("straddle", 50, 0, 150, 100)
+
+	clipped := ClipHexesToBoundary(context.Background(), []Hex{hex}, boundary, nil)
+	if len(clipped) != 1 {
+		t.Fatalf("expected 1 clipped hex, got %d", len(clipped))
+	}
+	// In-hex area = [50,100]x[0,100] = 50*100 = 5000.
+	if a := clipped[0].Geom.Area(); math.Abs(a-5000) > areaEps {
+		t.Errorf("clipped area = %f, want 5000", a)
 	}
 }
 
