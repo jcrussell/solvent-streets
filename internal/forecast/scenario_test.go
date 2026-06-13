@@ -17,6 +17,52 @@ func singleCohort(area, decayRate float64) []Cohort {
 	}}
 }
 
+// TestSimulate_CostTierLabelHonorsCustomTiers locks in that the per-year
+// CostTier label is derived from the configured tier set, not the hardcoded
+// DefaultCostTiers, so the label never contradicts ProjectCost's dollar math.
+func TestSimulate_CostTierLabelHonorsCustomTiers(t *testing.T) {
+	// Custom labels distinct from the defaults (preventive/rehab/reconstruction),
+	// spanning the full 0-101 range so every blended PCI matches a band.
+	customTiers := []CostTier{
+		{MinPCI: 0, MaxPCI: 25, CostPerSqM: 150, Label: "Failed"},
+		{MinPCI: 25, MaxPCI: 50, CostPerSqM: 90, Label: "Poor"},
+		{MinPCI: 50, MaxPCI: 70, CostPerSqM: 50, Label: "Fair"},
+		{MinPCI: 70, MaxPCI: 101, CostPerSqM: 5, Label: "Good"},
+	}
+	params := NewParams(0.0, customTiers)
+	cohorts := singleCohort(100000, 0.035)
+	result := Simulate(Scenario{Name: "dn", Label: "DN", Strategy: StrategyDoNothing}, cohorts, 20, params)
+
+	customLabels := map[string]bool{"Failed": true, "Poor": true, "Fair": true, "Good": true}
+	for _, y := range result.Years {
+		if !customLabels[y.CostTier] {
+			t.Errorf("year %d: CostTier %q is not from the configured tier set", y.Year, y.CostTier)
+		}
+		// Cross-check the label against the band the PCI actually falls in.
+		if want := TierForPCIIn(customTiers, y.PCI); want != "" && y.CostTier != want {
+			t.Errorf("year %d: PCI %.1f labeled %q, want %q", y.Year, y.PCI, y.CostTier, want)
+		}
+	}
+}
+
+// TestTierForPCI_GapFallback ensures a PCI falling in a coverage gap of a
+// custom tier set is labeled from that set's nearest band, never a hardcoded
+// default-schedule label that may not exist in the operator's configuration.
+func TestTierForPCI_GapFallback(t *testing.T) {
+	// Gap between 40 and 70 — no band covers PCI 55.
+	p := &TieredCostProjector{Tiers: []CostTier{
+		{MinPCI: 0, MaxPCI: 40, CostPerSqM: 150, Label: "Failed"},
+		{MinPCI: 70, MaxPCI: 101, CostPerSqM: 5, Label: "Good"},
+	}}
+	got := p.TierForPCI(55) // 15 below 70 ("Good"), 15 above 40 ("Failed"): tie -> first nearest
+	if got != "Failed" && got != "Good" {
+		t.Errorf("gap PCI labeled %q; want a label from the configured set", got)
+	}
+	if got := p.TierForPCI(68); got != "Good" {
+		t.Errorf("PCI 68 (nearest to [70,101)) labeled %q, want Good", got)
+	}
+}
+
 func TestSimulate_DoNothing_DecreasingPCI(t *testing.T) {
 	params := defaultTestParams()
 	cohorts := singleCohort(100000, 0.035)

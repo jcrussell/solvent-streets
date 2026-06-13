@@ -224,14 +224,17 @@ func Simulate(s Scenario, cohorts []Cohort, years int, p *Params) ScenarioResult
 
 		deferredBacklog += math.Max(0, totalNeed-totalSpend)
 
+		blended := blendedPCI(sm.states)
 		result.Years[i] = ScenarioYear{
 			Year:            i + 1,
-			PCI:             blendedPCI(sm.states),
+			PCI:             blended,
 			Area:            area,
 			AnnualNeed:      totalNeed,
 			AnnualSpend:     totalSpend,
 			DeferredBacklog: deferredBacklog,
-			CostTier:        TierForPCI(blendedPCI(sm.states)),
+			// Label from the active tier set (custom/sidewalk), not the hardcoded
+			// defaults, so the label matches ProjectCost's dollar figures above.
+			CostTier: p.Cost.TierForPCI(blended),
 		}
 	}
 

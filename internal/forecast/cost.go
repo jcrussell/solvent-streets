@@ -1,6 +1,9 @@
 package forecast
 
-import "sort"
+import (
+	"math"
+	"sort"
+)
 
 // Default cost tiers ($/sq m) based on PCI ranges.
 // Updated to 2024 median urban municipal bid prices. Previous FHWA guidance
@@ -97,12 +100,64 @@ func (p *TieredCostProjector) ProjectCost(area float64, pci float64) float64 {
 	return area * interpolateCost(anchors, pci)
 }
 
-// TierForPCI returns the cost tier label for a given PCI value.
-func TierForPCI(pci float64) string {
-	for _, t := range DefaultCostTiers {
+// TierForPCIIn returns the label of the tier whose PCI band contains pci, or
+// "" if none matches. This is the single tier-lookup primitive; callers that
+// need a fallback label supply their own.
+func TierForPCIIn(tiers []CostTier, pci float64) string {
+	for _, t := range tiers {
 		if pci >= t.MinPCI && pci < t.MaxPCI {
 			return t.Label
 		}
 	}
+	return ""
+}
+
+// TierForPCI returns the default-schedule cost tier label for a given PCI value.
+func TierForPCI(pci float64) string {
+	if label := TierForPCIIn(DefaultCostTiers, pci); label != "" {
+		return label
+	}
 	return "reconstruction"
+}
+
+// TierForPCI returns the cost tier label for a PCI value using the projector's
+// configured tiers (falling back to DefaultCostTiers exactly as ProjectCost
+// does), so the per-year label stays consistent with the dollar math.
+func (p *TieredCostProjector) TierForPCI(pci float64) string {
+	tiers := p.Tiers
+	if len(tiers) == 0 {
+		tiers = DefaultCostTiers
+	}
+	if label := TierForPCIIn(tiers, pci); label != "" {
+		return label
+	}
+	// Operators may leave coverage gaps (config.ForecastConfig.Validate
+	// permits them), so a PCI can fall outside every band. Use the nearest
+	// band's label, mirroring how interpolateCost clamps to the nearest
+	// anchor — never a hardcoded default-schedule label that may not exist in
+	// the operator's set.
+	return nearestTierLabel(tiers, pci)
+}
+
+// nearestTierLabel returns the label of the tier whose PCI band is closest to
+// pci. Only used as a coverage-gap fallback.
+func nearestTierLabel(tiers []CostTier, pci float64) string {
+	best := ""
+	bestDist := math.Inf(1)
+	for _, t := range tiers {
+		var d float64
+		switch {
+		case pci < t.MinPCI:
+			d = t.MinPCI - pci
+		case pci >= t.MaxPCI:
+			d = pci - t.MaxPCI
+		default:
+			return t.Label
+		}
+		if d < bestDist {
+			bestDist = d
+			best = t.Label
+		}
+	}
+	return best
 }
