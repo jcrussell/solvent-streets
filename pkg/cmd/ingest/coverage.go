@@ -296,7 +296,7 @@ func applyRoadCoverageGate(
 	// differs from UnstrippedSource); otherwise currentBoundary == B and
 	// the complement is empty.
 	if fresh.SavedSource != fresh.UnstrippedSource {
-		if inverted, err := geo.SubtractGeoJSON(fresh.Nominatim, currentBoundary); err == nil && inverted != "" {
+		if inverted, err := geo.SubtractGeoJSON(ctx, fresh.Nominatim, currentBoundary); err == nil && inverted != "" {
 			if ratioInv, ok := validateBoundaryAgainstRoads(inverted, roads); ok && ratioInv >= stripCoverageMinRatio {
 				invSource := fresh.SavedSource + "-inverted"
 				if err := store.SaveBoundary(ctx, inverted, invSource); err != nil {

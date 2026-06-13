@@ -187,6 +187,40 @@ func TestGeoJSONToProjectedGeometry_MultiLineString_AllPartsInvalid(t *testing.T
 	}
 }
 
+func TestGeoJSONToProjectedGeometryDropped_MultiPolygon(t *testing.T) {
+	proj := NewUTMProjector(-121.76, 37.68)
+	// First sub-polygon is a valid square; the second is a degenerate ring
+	// (a single collapsed point) that survives buildProjectedPolygon but
+	// fails ValidatePolygon's Buffer(0) and must be dropped+counted.
+	good := `[[[-121.77,37.68],[-121.76,37.68],[-121.76,37.69],[-121.77,37.69],[-121.77,37.68]]]`
+	bad := `[[[-121.50,37.50],[-121.50,37.50],[-121.50,37.50],[-121.50,37.50]]]`
+	gjson := `{"type":"MultiPolygon","coordinates":[` + good + `,` + bad + `]}`
+
+	g, gtype, dropped, err := GeoJSONToProjectedGeometryDropped(gjson, proj)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gtype != geomTypeMultiPolygon && gtype != geomTypePolygon {
+		t.Errorf("expected MultiPolygon type, got %s", gtype)
+	}
+	if dropped != 1 {
+		t.Errorf("expected 1 dropped sub-polygon, got %d", dropped)
+	}
+	if g.Area() <= 0 {
+		t.Error("expected positive area from surviving sub-polygon")
+	}
+}
+
+func TestGeoJSONToProjectedGeometryDropped_AllDropFails(t *testing.T) {
+	proj := NewUTMProjector(-121.76, 37.68)
+	// Both sub-polygons degenerate -> zero survivors -> error (not silent).
+	bad := `[[[-121.50,37.50],[-121.50,37.50],[-121.50,37.50],[-121.50,37.50]]]`
+	gjson := `{"type":"MultiPolygon","coordinates":[` + bad + `,` + bad + `]}`
+	if _, _, _, err := GeoJSONToProjectedGeometryDropped(gjson, proj); err == nil {
+		t.Error("expected error when all MultiPolygon parts drop")
+	}
+}
+
 func TestGeoJSONToProjectedGeometry_Polygon(t *testing.T) {
 	proj := NewUTMProjector(-121.76, 37.68)
 	gjson := `{"type":"Polygon","coordinates":[[[-121.77,37.68],[-121.76,37.68],[-121.76,37.69],[-121.77,37.69],[-121.77,37.68]]]}`

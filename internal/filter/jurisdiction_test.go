@@ -20,6 +20,34 @@ func TestClassifyJurisdiction(t *testing.T) {
 		{"caltrans mixed case", map[string]string{"operator": "CalTrans"}, JurisdictionState},
 		{"state route CA ref", map[string]string{"ref": "CA 84", "highway": "primary"}, JurisdictionState},
 		{"state route SR ref", map[string]string{"ref": "SR 84"}, JurisdictionState},
+
+		// E1: generalized multi-state detection (CO/MA/OR refs + DOT operators).
+		{"colorado state route", map[string]string{"ref": "CO 2", "highway": "primary"}, JurisdictionState},
+		{"massachusetts state route", map[string]string{"ref": "MA 9", "highway": "primary"}, JurisdictionState},
+		{"oregon state route", map[string]string{"ref": "OR 99E", "highway": "primary"}, JurisdictionState},
+		{"oregon hyphenated ref", map[string]string{"ref": "OR-99E"}, JurisdictionState},
+		{"colorado dot operator", map[string]string{"operator": "Colorado Department of Transportation", "highway": "primary"}, JurisdictionState},
+		{"massdot operator", map[string]string{"operator": "MassDOT", "highway": "primary"}, JurisdictionState},
+		{"odot operator", map[string]string{"operator": "ODOT", "highway": "primary"}, JurisdictionState},
+		{"state highway operator", map[string]string{"operator": "Oregon State Highway Division"}, JurisdictionState},
+		{"state route worded", map[string]string{"ref": "State Route 26"}, JurisdictionState},
+
+		// E1 regression: county/city DOTs must NOT be classified as state
+		// despite containing "dot"/"department of transportation".
+		{"county dot stays county", map[string]string{"operator": "Los Angeles County DOT", "highway": "secondary"}, JurisdictionCounty},
+		{"county dept of transportation stays county", map[string]string{"operator": "Miami-Dade County Department of Transportation", "highway": "secondary"}, JurisdictionCounty},
+		{"city dot stays city", map[string]string{"operator": "Anytown City DOT", "highway": "residential"}, JurisdictionCity},
+
+		// E1: hyphenated federal refs must stay federal, not state.
+		{"interstate hyphenated", map[string]string{"ref": "I-80"}, JurisdictionFederal},
+		{"us highway hyphenated", map[string]string{"ref": "US-101"}, JurisdictionFederal},
+
+		// E1 hazard: CR/US collision — CR is county, US is federal, neither
+		// may be swallowed by the generic two-letter state-postal match.
+		{"county route CR ref", map[string]string{"ref": "CR 12", "highway": "primary"}, JurisdictionCounty},
+		{"county route CR hyphenated", map[string]string{"ref": "CR-12"}, JurisdictionCounty},
+		{"us highway not state", map[string]string{"ref": "US 50"}, JurisdictionFederal},
+
 		{"trunk highway", map[string]string{"highway": "trunk"}, JurisdictionState},
 		{"trunk link", map[string]string{"highway": "trunk_link"}, JurisdictionState},
 		{"county operator", map[string]string{"operator": "Alameda County", "highway": "secondary"}, JurisdictionCounty},

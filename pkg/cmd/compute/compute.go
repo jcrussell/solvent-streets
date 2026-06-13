@@ -14,6 +14,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/filter"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/geo"
+	"github.com/jcrussell/solvent-streets/internal/logs"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/tui"
 	"github.com/jcrussell/solvent-streets/internal/units"
@@ -281,7 +282,15 @@ func loadBoundary(ctx context.Context, store db.Store, city *config.CityConfig) 
 		return "", [4]float64{}, nil, fmt.Errorf("derive bbox: %w", err)
 	}
 	lon, lat := geo.CenterFromBBox(bbox)
-	return boundaryGJSON, bbox, geo.NewUTMProjector(lon, lat), nil
+	proj := geo.NewUTMProjector(lon, lat)
+	// Surface partial boundary loss: a degenerate sub-polygon that fails
+	// cleaning silently drops a whole landmass from the boundary, shrinking
+	// computed area and hex coverage. Warn so operators can fix the source.
+	if _, _, dropped, gErr := geo.GeoJSONToProjectedGeometryDropped(boundaryGJSON, proj); gErr == nil && dropped > 0 {
+		logs.From(ctx).Warn("boundary: dropped degenerate sub-polygons",
+			"city", city.Name, "dropped", dropped)
+	}
+	return boundaryGJSON, bbox, proj, nil
 }
 
 // loadResourceFeatures reads features for opts.ResourceType from store and

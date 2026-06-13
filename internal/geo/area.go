@@ -1,23 +1,32 @@
 package geo
 
 import (
+	"context"
 	"errors"
 	"fmt"
+
+	"github.com/jcrussell/solvent-streets/internal/logs"
 
 	"github.com/peterstace/simplefeatures/geom"
 )
 
-// BoundaryArea computes the area in square meters of a GeoJSON boundary polygon.
-func BoundaryArea(boundaryGJSON string) (float64, error) {
+// BoundaryArea computes the area in square meters of a GeoJSON boundary
+// polygon. ctx carries the run logger; when a multi-part boundary loses
+// sub-polygons to cleaning failures, a one-line warning is emitted so
+// operators can fix the source data (see GeoJSONToProjectedGeometryDropped).
+func BoundaryArea(ctx context.Context, boundaryGJSON string) (float64, error) {
 	bbox, err := BBoxFromGeoJSON(boundaryGJSON)
 	if err != nil {
 		return 0, err
 	}
 	lon, lat := CenterFromBBox(bbox)
 	proj := NewUTMProjector(lon, lat)
-	g, _, err := GeoJSONToProjectedGeometry(boundaryGJSON, proj)
+	g, _, dropped, err := GeoJSONToProjectedGeometryDropped(boundaryGJSON, proj)
 	if err != nil {
 		return 0, err
+	}
+	if dropped > 0 {
+		logs.From(ctx).Warn("boundary area: dropped degenerate sub-polygons", "dropped", dropped)
 	}
 	if g.IsEmpty() {
 		return 0, nil

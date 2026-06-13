@@ -242,54 +242,69 @@ func ParseGeoJSONCoords(gjson string) ([][2]float64, string, error) {
 }
 
 // GeoJSONToProjectedGeometry converts a GeoJSON geometry to a
-// simplefeatures Geometry using the given projector.
+// simplefeatures Geometry using the given projector. Any sub-parts of a
+// MultiPolygon or GeometryCollection that fail to build or clean are
+// silently dropped; use GeoJSONToProjectedGeometryDropped when the caller
+// needs to surface a warning about partial data loss.
 func GeoJSONToProjectedGeometry(gjson string, proj *UTMProjector) (geom.Geometry, string, error) {
+	g, gtype, _, err := GeoJSONToProjectedGeometryDropped(gjson, proj)
+	return g, gtype, err
+}
+
+// GeoJSONToProjectedGeometryDropped is GeoJSONToProjectedGeometry that also
+// reports how many sub-parts (MultiPolygon members or GeometryCollection
+// children) were dropped because they failed to build or clean. A non-zero
+// count means the returned geometry is missing landmasses present in the
+// input — callers handling whole-city boundaries should warn so operators
+// can fix the source data. The count is always 0 for single-part types
+// (Polygon, LineString, MultiLineString).
+func GeoJSONToProjectedGeometryDropped(gjson string, proj *UTMProjector) (geom.Geometry, string, int, error) {
 	var obj struct {
 		Type        string          `json:"type"`
 		Coordinates json.RawMessage `json:"coordinates"`
 	}
 	if err := json.Unmarshal([]byte(gjson), &obj); err != nil {
-		return geom.Geometry{}, "", fmt.Errorf("parse geojson: %w", err)
+		return geom.Geometry{}, "", 0, fmt.Errorf("parse geojson: %w", err)
 	}
 
 	switch obj.Type {
 	case "LineString":
 		g, err := buildProjectedLineString(obj.Coordinates, proj)
 		if err != nil {
-			return geom.Geometry{}, "", err
+			return geom.Geometry{}, "", 0, err
 		}
-		return g, obj.Type, nil
+		return g, obj.Type, 0, nil
 
 	case "MultiLineString":
 		g, err := buildProjectedMultiLineString(obj.Coordinates, proj)
 		if err != nil {
-			return geom.Geometry{}, obj.Type, err
+			return geom.Geometry{}, obj.Type, 0, err
 		}
-		return g, obj.Type, nil
+		return g, obj.Type, 0, nil
 
 	case "Polygon":
 		g, err := buildProjectedPolygon(obj.Coordinates, proj)
 		if err != nil {
-			return geom.Geometry{}, "", err
+			return geom.Geometry{}, "", 0, err
 		}
-		return g, obj.Type, nil
+		return g, obj.Type, 0, nil
 
 	case "MultiPolygon":
-		g, err := buildProjectedMultiPolygon(obj.Coordinates, proj)
+		g, dropped, err := buildProjectedMultiPolygon(obj.Coordinates, proj)
 		if err != nil {
-			return geom.Geometry{}, obj.Type, err
+			return geom.Geometry{}, obj.Type, dropped, err
 		}
-		return g, obj.Type, nil
+		return g, obj.Type, dropped, nil
 
 	case "GeometryCollection":
-		g, err := buildProjectedGeometryCollection(gjson, proj)
+		g, dropped, err := buildProjectedGeometryCollection(gjson, proj)
 		if err != nil {
-			return geom.Geometry{}, obj.Type, err
+			return geom.Geometry{}, obj.Type, dropped, err
 		}
-		return g, obj.Type, nil
+		return g, obj.Type, dropped, nil
 
 	default:
-		return geom.Geometry{}, obj.Type, fmt.Errorf("unsupported geometry type: %s", obj.Type)
+		return geom.Geometry{}, obj.Type, 0, fmt.Errorf("unsupported geometry type: %s", obj.Type)
 	}
 }
 
@@ -333,56 +348,86 @@ func buildProjectedMultiLineString(coordsRaw json.RawMessage, proj *UTMProjector
 	return geom.NewMultiLineString(lss).AsGeometry(), nil
 }
 
-func buildProjectedMultiPolygon(coordsRaw json.RawMessage, proj *UTMProjector) (geom.Geometry, error) {
+// buildProjectedMultiPolygon projects each member polygon, cleaning it with
+// ValidatePolygon. Members that fail to build or clean are dropped; the
+// second return value reports how many were dropped so callers can warn
+// about partial data loss (a degenerate sub-polygon can otherwise delete a
+// whole landmass undetected). Zero surviving members is an error.
+func buildProjectedMultiPolygon(coordsRaw json.RawMessage, proj *UTMProjector) (geom.Geometry, int, error) {
 	var polys [][][][2]float64
 	if err := json.Unmarshal(coordsRaw, &polys); err != nil {
-		return geom.Geometry{}, err
+		return geom.Geometry{}, 0, err
 	}
 	var geometries []geom.Geometry
+	dropped := 0
 	for _, polyCoords := range polys {
 		raw, _ := json.Marshal(polyCoords)
 		g, err := buildProjectedPolygon(raw, proj)
 		if err != nil {
+			dropped++
 			continue
 		}
 		cleaned, err := ValidatePolygon(g)
 		if err != nil {
+			dropped++
+			continue
+		}
+		// Buffer(0) is robust enough that it rarely returns an error; a
+		// degenerate sub-polygon (collapsed/zero-area ring) instead cleans
+		// to an EMPTY geometry. Appending that would silently contribute
+		// nothing to the union — count it as a drop too.
+		if cleaned.IsEmpty() {
+			dropped++
 			continue
 		}
 		geometries = append(geometries, cleaned)
 	}
 	if len(geometries) == 0 {
-		return geom.Geometry{}, errors.New("no valid polygons in MultiPolygon")
+		return geom.Geometry{}, dropped, errors.New("no valid polygons in MultiPolygon")
 	}
 	if len(geometries) == 1 {
-		return geometries[0], nil
+		return geometries[0], dropped, nil
 	}
-	return UnionAll(geometries)
+	g, err := UnionAll(geometries)
+	return g, dropped, err
 }
 
-func buildProjectedGeometryCollection(gjson string, proj *UTMProjector) (geom.Geometry, error) {
+// buildProjectedGeometryCollection mirrors buildProjectedMultiPolygon's
+// drop-and-count behavior for GeometryCollection children.
+func buildProjectedGeometryCollection(gjson string, proj *UTMProjector) (geom.Geometry, int, error) {
 	var raw struct {
 		Geometries []json.RawMessage `json:"geometries"`
 	}
 	if err := json.Unmarshal([]byte(gjson), &raw); err != nil {
-		return geom.Geometry{}, err
+		return geom.Geometry{}, 0, err
 	}
 	var geometries []geom.Geometry
+	dropped := 0
 	for _, gRaw := range raw.Geometries {
-		g, _, err := GeoJSONToProjectedGeometry(string(gRaw), proj)
+		// Count nested drops too: a child MultiPolygon that loses members
+		// contributes those to this collection's dropped total.
+		g, _, childDropped, err := GeoJSONToProjectedGeometryDropped(string(gRaw), proj)
 		if err != nil {
+			dropped++
 			continue
 		}
+		dropped += childDropped
 		cleaned, err := ValidatePolygon(g)
 		if err != nil {
+			dropped++
+			continue
+		}
+		if cleaned.IsEmpty() {
+			dropped++
 			continue
 		}
 		geometries = append(geometries, cleaned)
 	}
 	if len(geometries) == 0 {
-		return geom.Geometry{}, errors.New("no valid geometries in collection")
+		return geom.Geometry{}, dropped, errors.New("no valid geometries in collection")
 	}
-	return UnionAll(geometries)
+	g, err := UnionAll(geometries)
+	return g, dropped, err
 }
 
 func buildProjectedPolygon(coordsRaw json.RawMessage, proj *UTMProjector) (geom.Geometry, error) {

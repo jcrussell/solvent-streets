@@ -137,7 +137,7 @@ func BuildMeta(ctx context.Context, entry CityEntry) (MetaJSON, error) {
 
 	// Compute city boundary area and % paved.
 	if boundaryGJSON, err := entry.Store.GetBoundary(ctx); err == nil && boundaryGJSON != "" {
-		if cityArea, err := geo.BoundaryArea(boundaryGJSON); err == nil && cityArea > 0 {
+		if cityArea, err := geo.BoundaryArea(ctx, boundaryGJSON); err == nil && cityArea > 0 {
 			meta.CityArea = cityArea
 			if meta.TotalPaved > 0 {
 				meta.PctPaved = meta.TotalPaved / cityArea * 100

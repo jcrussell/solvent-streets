@@ -178,7 +178,7 @@ func printCitySummary(ctx context.Context, ios *iostreams.IOStreams, store db.St
 	if err != nil || boundaryGJSON == "" {
 		return
 	}
-	cityArea, err := geo.BoundaryArea(boundaryGJSON)
+	cityArea, err := geo.BoundaryArea(ctx, boundaryGJSON)
 	if err != nil || cityArea <= 0 {
 		return
 	}

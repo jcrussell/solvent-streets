@@ -1,6 +1,88 @@
 package geo
 
-import "strconv"
+import (
+	"strconv"
+	"strings"
+)
+
+// feetPerMetre / inchesPerMetre convert imperial OSM width notations to metres.
+const (
+	metresPerFoot = 0.3048
+	metresPerInch = 0.0254
+)
+
+// parseOSMWidth parses an OSM width tag value into metres. OSM width values
+// are commonly bare metres ("5", "5.5"), explicitly metres ("5 m", "5m"), or
+// imperial: feet/inches via the apostrophe/quote notation ("12'", "3'6\"") or
+// a unit suffix ("12 ft", "12ft"). It returns (metres, true) on a successful
+// parse of a positive width, or (0, false) when the value is empty, malformed,
+// or non-positive so callers fall through to lower-priority estimates.
+func parseOSMWidth(raw string) (float64, bool) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return 0, false
+	}
+
+	// Feet/inches apostrophe notation: 12', 3'6", 3'6 (the trailing inch
+	// quote is optional). Detect by the foot apostrophe.
+	if i := strings.IndexByte(s, '\''); i >= 0 {
+		return parseFeetInches(s, i)
+	}
+
+	// Unit suffixes. Order matters: check "ft"/"feet"/"in" before the bare
+	// "m" so "12 ft" doesn't accidentally match an "m" trim.
+	lower := strings.ToLower(s)
+	switch {
+	case strings.HasSuffix(lower, "ft"):
+		return parseScaled(s[:len(s)-len("ft")], metresPerFoot)
+	case strings.HasSuffix(lower, "feet"):
+		return parseScaled(s[:len(s)-len("feet")], metresPerFoot)
+	case strings.HasSuffix(lower, "\""): // inches: 16"
+		return parseScaled(s[:len(s)-1], metresPerInch)
+	case strings.HasSuffix(lower, "in"):
+		return parseScaled(s[:len(s)-len("in")], metresPerInch)
+	case strings.HasSuffix(lower, "m"):
+		return parseScaled(s[:len(s)-1], 1.0)
+	default:
+		return parseScaled(s, 1.0) // bare value is metres
+	}
+}
+
+// parseScaled trims surrounding space, parses a float, and multiplies by
+// scale. Returns false on parse failure or non-positive result.
+func parseScaled(s string, scale float64) (float64, bool) {
+	v, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil || v <= 0 {
+		return 0, false
+	}
+	return v * scale, true
+}
+
+// parseFeetInches parses a feet/inches value where apostropheIdx is the index
+// of the foot apostrophe, e.g. "3'6\"" -> 3 ft 6 in. The inches portion (and
+// its closing quote) is optional.
+func parseFeetInches(s string, apostropheIdx int) (float64, bool) {
+	feet, err := strconv.ParseFloat(strings.TrimSpace(s[:apostropheIdx]), 64)
+	if err != nil || feet < 0 {
+		return 0, false
+	}
+	metres := feet * metresPerFoot
+
+	rest := strings.TrimSpace(s[apostropheIdx+1:])
+	rest = strings.TrimSuffix(rest, "\"")
+	rest = strings.TrimSpace(rest)
+	if rest != "" {
+		inches, err := strconv.ParseFloat(rest, 64)
+		if err != nil || inches < 0 {
+			return 0, false
+		}
+		metres += inches * metresPerInch
+	}
+	if metres <= 0 {
+		return 0, false
+	}
+	return metres, true
+}
 
 // Default road widths by highway classification (meters)
 var defaultWidths = map[string]float64{
@@ -32,7 +114,7 @@ func InferWidth(tags map[string]string) float64 {
 	// 1. Explicit width tag — use as-is (surveyed width includes or
 	// intentionally excludes parking; adding parkingAddon would double-count).
 	if w, ok := tags["width"]; ok {
-		if v, err := strconv.ParseFloat(w, 64); err == nil && v > 0 {
+		if v, ok := parseOSMWidth(w); ok {
 			return v
 		}
 	}
@@ -65,7 +147,7 @@ var defaultSidewalkWidths = map[string]float64{
 // Priority: explicit width tag > highway classification fallback.
 func InferSidewalkWidth(tags map[string]string) float64 {
 	if w, ok := tags["width"]; ok {
-		if v, err := strconv.ParseFloat(w, 64); err == nil && v > 0 {
+		if v, ok := parseOSMWidth(w); ok {
 			return v
 		}
 	}

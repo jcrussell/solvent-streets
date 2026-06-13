@@ -233,11 +233,11 @@ func TestBuildMultiCityMeta_FarApartCitiesUsePerCityUTMZones(t *testing.T) {
 	}
 
 	// Reference: each city's accurate area computed in its own UTM zone.
-	areaA, err := geo.BoundaryArea(bostonBoundary)
+	areaA, err := geo.BoundaryArea(context.Background(), bostonBoundary)
 	if err != nil {
 		t.Fatalf("BoundaryArea(boston): %v", err)
 	}
-	areaB, err := geo.BoundaryArea(sfBoundary)
+	areaB, err := geo.BoundaryArea(context.Background(), sfBoundary)
 	if err != nil {
 		t.Fatalf("BoundaryArea(sf): %v", err)
 	}

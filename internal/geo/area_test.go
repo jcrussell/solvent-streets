@@ -1,6 +1,7 @@
 package geo
 
 import (
+	"context"
 	"math"
 	"testing"
 )
@@ -19,7 +20,7 @@ func TestBoundaryArea(t *testing.T) {
 		]]
 	}`
 
-	sqm, err := BoundaryArea(gjson)
+	sqm, err := BoundaryArea(context.Background(), gjson)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -33,7 +34,7 @@ func TestBoundaryArea(t *testing.T) {
 }
 
 func TestBoundaryArea_InvalidGeoJSON(t *testing.T) {
-	_, err := BoundaryArea("not json")
+	_, err := BoundaryArea(context.Background(), "not json")
 	if err == nil {
 		t.Error("expected error for invalid GeoJSON")
 	}
@@ -51,7 +52,7 @@ func TestBoundaryArea_EmptyPolygon(t *testing.T) {
 		]]
 	}`
 
-	sqm, err := BoundaryArea(gjson)
+	sqm, err := BoundaryArea(context.Background(), gjson)
 	if err != nil {
 		// Some implementations may error on degenerate polygons, that's fine
 		return
