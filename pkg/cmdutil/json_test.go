@@ -55,6 +55,48 @@ func TestJSONExporter_Write(t *testing.T) {
 	})
 }
 
+// TestBuildExporter_TrimsSpacedFields verifies that a comma-separated
+// field list with surrounding whitespace (e.g. "name, count") stores the
+// trimmed names, so ExportData's exact-match switches emit every key.
+func TestBuildExporter_TrimsSpacedFields(t *testing.T) {
+	validFields := []string{"name", "count"}
+	tests := []struct {
+		name   string
+		fields string
+		want   []string
+	}{
+		{name: "no spaces", fields: "name,count", want: []string{"name", "count"}},
+		{name: "spaced list", fields: "name, count", want: []string{"name", "count"}},
+		{name: "padded list", fields: " name , count ", want: []string{"name", "count"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var e Exporter
+			if err := buildExporter(tt.fields, "", "", validFields, &e); err != nil {
+				t.Fatalf("buildExporter(%q) returned error: %v", tt.fields, err)
+			}
+			got := e.Fields()
+			if len(got) != len(tt.want) {
+				t.Fatalf("Fields() = %v, want %v", got, tt.want)
+			}
+			for i := range tt.want {
+				if got[i] != tt.want[i] {
+					t.Errorf("Fields()[%d] = %q, want %q", i, got[i], tt.want[i])
+				}
+			}
+
+			// The stored names must round-trip through ExportData so spaced
+			// lists produce both keys, not <no value>.
+			row := fakeRow{Name: "x", Count: 7}.ExportData(got)
+			for _, f := range tt.want {
+				if _, ok := row[f]; !ok {
+					t.Errorf("ExportData output missing key %q (got keys %v)", f, row)
+				}
+			}
+		})
+	}
+}
+
 // TestJQFilterExporter_Write guards the []map[string]any → []any
 // widening (json.go:142-149). gojq's .[] iterator rejects the narrower
 // slice type at runtime, so a regression here would surface only when

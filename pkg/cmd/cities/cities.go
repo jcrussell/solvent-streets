@@ -73,7 +73,7 @@ func NewCmdCities(f *cmdutil.Factory, runF func(context.Context, *Options) error
   pvmt cities
 
   # Same data as JSON
-  pvmt cities --json name,slug,roads,parking,sidewalks`,
+  pvmt cities --json slug,name,features,totalArea`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
 				return runF(cmd.Context(), opts)
