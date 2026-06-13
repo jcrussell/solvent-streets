@@ -74,6 +74,56 @@ func ResolveOutputDir(outputDir string) (string, error) {
 	return resolved, nil
 }
 
+// SafeCleanDir removes outputDir and recreates it empty, but only if the
+// directory is empty or looks like a previously generated site (contains an
+// index.html sentinel). It refuses to delete a non-empty directory lacking the
+// sentinel, so a mistyped --output cannot wipe unrelated user data. The path is
+// canonicalised and screened (root/home rejected) via ResolveOutputDir first.
+//
+// Verifying the sentinel requires reading the directory before removing it, so
+// this performs a stat/read-then-RemoveAll sequence rather than a bare
+// RemoveAll: the data-loss guard is worth the small TOCTOU window for a
+// single-user CLI, and matches the gensite site generator's behavior.
+func SafeCleanDir(outputDir string) error {
+	resolved, err := ResolveOutputDir(outputDir)
+	if err != nil {
+		return err
+	}
+
+	info, err := os.Stat(resolved)
+	if errors.Is(err, os.ErrNotExist) {
+		return os.MkdirAll(resolved, 0o755)
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("output path %q exists but is not a directory", resolved)
+	}
+
+	entries, err := os.ReadDir(resolved)
+	if err != nil {
+		return fmt.Errorf("read output dir: %w", err)
+	}
+	if len(entries) > 0 {
+		hasIndex := false
+		for _, e := range entries {
+			if e.Name() == "index.html" {
+				hasIndex = true
+				break
+			}
+		}
+		if !hasIndex {
+			return fmt.Errorf("output directory %q is non-empty and does not look like a generated site (no index.html); refusing to delete", resolved)
+		}
+	}
+
+	if err := os.RemoveAll(resolved); err != nil {
+		return fmt.Errorf("clean output dir: %w", err)
+	}
+	return os.MkdirAll(resolved, 0o755)
+}
+
 // WritableDir verifies path (or its nearest existing ancestor) is a
 // writable directory by creating and removing a hidden temp directory
 // inside it. Does not create the target path itself.

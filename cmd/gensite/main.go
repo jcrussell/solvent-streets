@@ -71,7 +71,7 @@ func run() (err error) {
 
 	// Clean and create output directory (refuse to wipe directories that
 	// don't look like a previously generated site).
-	if err := safeCleanDir(*outputDir); err != nil {
+	if err := cmdutil.SafeCleanDir(*outputDir); err != nil {
 		return err
 	}
 
@@ -235,48 +235,6 @@ func exportExample(ctx context.Context, rootDB *db.RootStore, cfgPath, outputDir
 		HexEdgeM:   int(cfg.HexEdge()),
 		UnitSystem: unitSys,
 	}, nil
-}
-
-// safeCleanDir removes outputDir only if it is empty or looks like a
-// previously generated site (contains index.html). It then re-creates it.
-func safeCleanDir(outputDir string) error {
-	if _, err := cmdutil.ResolveOutputDir(outputDir); err != nil {
-		return err
-	}
-
-	info, err := os.Stat(outputDir)
-	if os.IsNotExist(err) {
-		return os.MkdirAll(outputDir, 0o755)
-	}
-	if err != nil {
-		return err
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("output path %q exists but is not a directory", outputDir)
-	}
-
-	// Allow removal if the directory contains index.html (our sentinel) or is empty.
-	entries, err := os.ReadDir(outputDir)
-	if err != nil {
-		return fmt.Errorf("read output dir: %w", err)
-	}
-	if len(entries) > 0 {
-		hasIndex := false
-		for _, e := range entries {
-			if e.Name() == "index.html" {
-				hasIndex = true
-				break
-			}
-		}
-		if !hasIndex {
-			return fmt.Errorf("output directory %q is non-empty and does not look like a generated site (no index.html); refusing to delete", outputDir)
-		}
-	}
-
-	if err := os.RemoveAll(outputDir); err != nil {
-		return fmt.Errorf("clean output dir: %w", err)
-	}
-	return os.MkdirAll(outputDir, 0o755)
 }
 
 // formatTitle turns a slug like "bay-area-ca" into "Bay Area, CA".

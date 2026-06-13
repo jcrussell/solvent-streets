@@ -7,6 +7,60 @@ import (
 	"testing"
 )
 
+func TestSafeCleanDir_RefusesNonSiteDir(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "out")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A non-empty dir without the index.html sentinel must be refused.
+	if err := os.WriteFile(filepath.Join(dir, "important.txt"), []byte("keep me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SafeCleanDir(dir); err == nil {
+		t.Fatal("expected refusal to delete non-site directory, got nil")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "important.txt")); err != nil {
+		t.Errorf("refused clean must leave existing files intact: %v", err)
+	}
+}
+
+func TestSafeCleanDir_AllowsSiteAndEmptyAndMissing(t *testing.T) {
+	// Previously-generated site (has index.html) is cleaned and recreated.
+	site := filepath.Join(t.TempDir(), "site")
+	if err := os.MkdirAll(site, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(site, "index.html"), []byte("<html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(site, "stale.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SafeCleanDir(site); err != nil {
+		t.Fatalf("site dir should be cleanable: %v", err)
+	}
+	entries, _ := os.ReadDir(site)
+	if len(entries) != 0 {
+		t.Errorf("cleaned site dir should be empty, has %d entries", len(entries))
+	}
+
+	// Empty dir and a not-yet-existing dir both succeed (and end up present).
+	empty := filepath.Join(t.TempDir(), "empty")
+	if err := os.MkdirAll(empty, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := SafeCleanDir(empty); err != nil {
+		t.Errorf("empty dir should be cleanable: %v", err)
+	}
+	missing := filepath.Join(t.TempDir(), "missing")
+	if err := SafeCleanDir(missing); err != nil {
+		t.Errorf("missing dir should be created: %v", err)
+	}
+	if info, err := os.Stat(missing); err != nil || !info.IsDir() {
+		t.Errorf("missing dir should exist after SafeCleanDir: %v", err)
+	}
+}
+
 func TestSafePath_RejectsParentEscape(t *testing.T) {
 	base := t.TempDir()
 	if _, err := SafePath(base, "../etc/passwd"); err == nil {

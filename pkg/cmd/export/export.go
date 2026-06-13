@@ -92,11 +92,10 @@ func runExport(ctx context.Context, opts *Options) error {
 		return err
 	}
 
-	// RemoveAll is a no-op on missing paths and removes the directory if
-	// it exists. The previous Stat-then-RemoveAll pattern opened a window
-	// where a symlink swap between the two calls could redirect the
-	// removal outside the intended directory.
-	if err := os.RemoveAll(opts.OutputDir); err != nil {
+	// SafeCleanDir refuses to delete a non-empty directory that does not look
+	// like a generated site (no index.html sentinel), so a mistyped --output
+	// can't wipe unrelated user data — the same guard gensite uses.
+	if err := cmdutil.SafeCleanDir(opts.OutputDir); err != nil {
 		return fmt.Errorf("clean output directory: %w", err)
 	}
 
