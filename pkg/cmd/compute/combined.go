@@ -153,8 +153,7 @@ func loadFeaturesForCombined(ctx context.Context, store db.Store, rt resource.So
 
 func buildClippedHexGrid(ctx context.Context, cfg *config.Config, city *config.CityConfig, proj *geo.UTMProjector, bbox [4]float64, boundaryGJSON string) []geo.Hex {
 	hexEdge := cfg.ResolvedHexEdge(city)
-	minX, minY, _ := proj.ToProjected(bbox[1], bbox[0])
-	maxX, maxY, _ := proj.ToProjected(bbox[3], bbox[2])
+	minX, minY, maxX, maxY := geo.ProjectedBBoxExtent(proj, bbox)
 	hexes := geo.HexGrid(minX, minY, maxX, maxY, hexEdge)
 	if boundaryGeom, err := parseGeoJSONGeometry(boundaryGJSON, proj); err == nil && !boundaryGeom.IsEmpty() {
 		hexes = geo.ClipHexesToBoundary(ctx, hexes, boundaryGeom, nil)

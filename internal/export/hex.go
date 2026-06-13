@@ -38,8 +38,7 @@ func BuildHexGeoJSON(ctx context.Context, entry CityEntry, proj *geo.UTMProjecto
 
 	bbox, _, _, _ := entry.BBoxAndCenter(ctx)
 	hexEdge := entry.Config.ResolvedHexEdge(&entry.City)
-	minX, minY, _ := proj.ToProjected(bbox[1], bbox[0])
-	maxX, maxY, _ := proj.ToProjected(bbox[3], bbox[2])
+	minX, minY, maxX, maxY := geo.ProjectedBBoxExtent(proj, bbox)
 	hexes := geo.HexGrid(minX, minY, maxX, maxY, hexEdge)
 
 	hexes = clipHexGridToBoundary(ctx, hexes, entry, proj)

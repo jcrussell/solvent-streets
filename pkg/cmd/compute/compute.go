@@ -492,8 +492,7 @@ func (c *computer) computeHexPipeline(ctx context.Context, buffered []geom.Geome
 	c.notify.PhaseStart(phaseHexGrid)
 
 	hexEdge := c.cfg.ResolvedHexEdge(c.city)
-	minX, minY, _ := c.proj.ToProjected(c.bbox[1], c.bbox[0])
-	maxX, maxY, _ := c.proj.ToProjected(c.bbox[3], c.bbox[2])
+	minX, minY, maxX, maxY := geo.ProjectedBBoxExtent(c.proj, c.bbox)
 
 	fmt.Fprintf(c.out, "\nComputing hex grid (edge=%.0fm)...\n", hexEdge)
 	hexes := geo.HexGrid(minX, minY, maxX, maxY, hexEdge)
