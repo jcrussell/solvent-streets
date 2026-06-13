@@ -168,6 +168,24 @@ func (fc *ForecastConfig) Validate() error {
 	if fc.CurrentBudget < 0 {
 		return fmt.Errorf("forecast.current_budget %g must be non-negative", fc.CurrentBudget)
 	}
+	// Custom cost_tiers feed buildAnchors' midpoint interpolation directly, so
+	// a negative cost, an inverted band, or an out-of-range bound silently
+	// produces wrong dollar figures. Reject the degenerate cases (overlap and
+	// coverage gaps are intentionally left to the operator).
+	for i, t := range fc.CostTiers {
+		if t.CostPerSqM <= 0 {
+			return fmt.Errorf("forecast.cost_tiers[%d] (%s): cost_per_sqm %g must be positive", i, t.Label, t.CostPerSqM)
+		}
+		if t.MinPCI < 0 || t.MaxPCI > 101 {
+			return fmt.Errorf("forecast.cost_tiers[%d] (%s): pci band [%g, %g) out of range (0-101)", i, t.Label, t.MinPCI, t.MaxPCI)
+		}
+		if t.MinPCI >= t.MaxPCI {
+			return fmt.Errorf("forecast.cost_tiers[%d] (%s): min_pci %g must be less than max_pci %g", i, t.Label, t.MinPCI, t.MaxPCI)
+		}
+		if t.Label == "" {
+			return fmt.Errorf("forecast.cost_tiers[%d]: label must not be empty", i)
+		}
+	}
 	return nil
 }
 

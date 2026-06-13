@@ -16,6 +16,12 @@ func TestForecastConfig_Validate_RejectsBad(t *testing.T) {
 		"growth too high":     {GrowthRate: 1.5},
 		"growth too negative": {GrowthRate: -1.0},
 		"years negative":      {Years: -1},
+		"tier negative cost":  {CostTiers: []CostTierCfg{{MinPCI: 0, MaxPCI: 40, CostPerSqM: -5, Label: "x"}}},
+		"tier zero cost":      {CostTiers: []CostTierCfg{{MinPCI: 0, MaxPCI: 40, CostPerSqM: 0, Label: "x"}}},
+		"tier inverted band":  {CostTiers: []CostTierCfg{{MinPCI: 70, MaxPCI: 40, CostPerSqM: 5, Label: "x"}}},
+		"tier min negative":   {CostTiers: []CostTierCfg{{MinPCI: -1, MaxPCI: 40, CostPerSqM: 5, Label: "x"}}},
+		"tier max over 101":   {CostTiers: []CostTierCfg{{MinPCI: 0, MaxPCI: 150, CostPerSqM: 5, Label: "x"}}},
+		"tier empty label":    {CostTiers: []CostTierCfg{{MinPCI: 0, MaxPCI: 40, CostPerSqM: 5, Label: ""}}},
 	}
 	for name, fc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -30,6 +36,19 @@ func TestForecastConfig_Validate_AcceptsOK(t *testing.T) {
 	ok := ForecastConfig{InitialPCI: 85, DecayRate: 0.05, GrowthRate: 0.02, Years: 20}
 	if err := ok.Validate(); err != nil {
 		t.Errorf("unexpected error: %v", err)
+	}
+	// A valid four-tier custom schedule (the los-angeles-ca example shape).
+	customTiers := ForecastConfig{
+		InitialPCI: 80,
+		CostTiers: []CostTierCfg{
+			{MinPCI: 0, MaxPCI: 25, CostPerSqM: 150, Label: "Failed"},
+			{MinPCI: 25, MaxPCI: 50, CostPerSqM: 90, Label: "Poor"},
+			{MinPCI: 50, MaxPCI: 70, CostPerSqM: 50, Label: "Fair"},
+			{MinPCI: 70, MaxPCI: 101, CostPerSqM: 5, Label: "Good"},
+		},
+	}
+	if err := customTiers.Validate(); err != nil {
+		t.Errorf("valid custom cost_tiers rejected: %v", err)
 	}
 	zero := ForecastConfig{}
 	if err := zero.Validate(); err != nil {
