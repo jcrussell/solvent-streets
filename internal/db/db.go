@@ -88,6 +88,39 @@ type City struct {
 	Name string
 }
 
+// GCResultCounts holds per-result-table row counts for a gc sweep
+// (compute_results, hex_stats, forecast_results, cohort_stats).
+type GCResultCounts struct {
+	ComputeResults  int
+	HexStats        int
+	ForecastResults int
+	CohortStats     int
+}
+
+// Total returns the sum of all per-table counts.
+func (c GCResultCounts) Total() int {
+	return c.ComputeResults + c.HexStats + c.ForecastResults + c.CohortStats
+}
+
+// GCReport summarizes the rows a gc scan/sweep found (or deleted), broken
+// out by orphan class so the per-city summary can name each cause.
+type GCReport struct {
+	// StaleFeatures counts features whose source_api is a non-empty value
+	// that is no longer resolvable from the city's configured sources.
+	StaleFeatures int
+	// NullSnapshotResults counts result rows with snapshot_id IS NULL —
+	// undeletable via snapshot prune/rm, which only match a concrete id.
+	NullSnapshotResults GCResultCounts
+	// DanglingResults counts result rows whose non-NULL snapshot_id points
+	// at a snapshot that no longer exists (defensive FK-orphan sweep).
+	DanglingResults GCResultCounts
+}
+
+// Total returns the grand total of every count in the report.
+func (r GCReport) Total() int {
+	return r.StaleFeatures + r.NullSnapshotResults.Total() + r.DanglingResults.Total()
+}
+
 type Store interface {
 	UpsertFeatures(ctx context.Context, resourceType resource.Type, features []Feature, sourceAPIs []string) error
 	ListFeatures(ctx context.Context, resourceType resource.Type) ([]Feature, error)
@@ -106,6 +139,15 @@ type Store interface {
 	WithSnapshot(snapshotID int64) Store
 	WithConfigHash(configHash string) Store
 	DeleteSnapshot(ctx context.Context, snapshotID int64) (bool, error)
+	// GCScan counts orphan rows for this city WITHOUT writing: features
+	// with a stale source_api (non-empty, not in keepSources) and result
+	// rows with a NULL or dangling snapshot_id. An empty keepSources
+	// skips the feature scan entirely (never reports every row as stale).
+	GCScan(ctx context.Context, keepSources []string) (*GCReport, error)
+	// GCSweep deletes the same orphan rows GCScan counts, in one
+	// transaction, and returns the counts of rows actually deleted. An
+	// empty keepSources skips the feature delete (never wipes all rows).
+	GCSweep(ctx context.Context, keepSources []string) (*GCReport, error)
 	SaveForecastResults(ctx context.Context, results []ForecastResult) error
 	SaveCohortStats(ctx context.Context, stats []CohortStat) error
 	ListCohortStats(ctx context.Context, resourceType resource.Type) ([]CohortStat, error)

@@ -36,6 +36,8 @@ type MockStore struct {
 	WithSnapshotFunc            func(int64) db.Store
 	WithConfigHashFunc          func(string) db.Store
 	DeleteSnapshotFunc          func(context.Context, int64) (bool, error)
+	GCScanFunc                  func(context.Context, []string) (*db.GCReport, error)
+	GCSweepFunc                 func(context.Context, []string) (*db.GCReport, error)
 	SaveForecastResultsFunc     func(context.Context, []db.ForecastResult) error
 	SaveCohortStatsFunc         func(context.Context, []db.CohortStat) error
 	ListCohortStatsFunc         func(context.Context, resource.Type) ([]db.CohortStat, error)
@@ -140,6 +142,20 @@ func (m *MockStore) DeleteSnapshot(ctx context.Context, id int64) (bool, error) 
 		return m.DeleteSnapshotFunc(ctx, id)
 	}
 	return false, nil
+}
+
+func (m *MockStore) GCScan(ctx context.Context, keepSources []string) (*db.GCReport, error) {
+	if m.GCScanFunc != nil {
+		return m.GCScanFunc(ctx, keepSources)
+	}
+	return &db.GCReport{}, nil
+}
+
+func (m *MockStore) GCSweep(ctx context.Context, keepSources []string) (*db.GCReport, error) {
+	if m.GCSweepFunc != nil {
+		return m.GCSweepFunc(ctx, keepSources)
+	}
+	return &db.GCReport{}, nil
 }
 
 // WithSnapshot returns the mock unchanged by default — tests that need to

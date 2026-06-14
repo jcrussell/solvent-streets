@@ -117,7 +117,7 @@ func runRm(ctx context.Context, opts *RmOptions) error {
 		)
 	}
 
-	if err := confirmDestructive(ctx, opts.IO, opts.Prompter, opts.Yes,
+	if err := cmdutil.ConfirmDestructive(ctx, opts.IO, opts.Prompter, opts.Yes,
 		fmt.Sprintf("Delete snapshot %d from %s?", opts.SnapshotID, ownerCity.Slug()),
 		fmt.Sprintf("refusing to delete snapshot %d from %s without confirmation",
 			opts.SnapshotID, ownerCity.Slug()),

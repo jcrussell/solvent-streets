@@ -670,6 +670,125 @@ func (s *sqliteStore) DeleteSnapshot(ctx context.Context, snapshotID int64) (boo
 	return deleted, err
 }
 
+// gcResultTables is the set of result tables gc sweeps for NULL-snapshot
+// and dangling-snapshot orphan rows. Each carries a pointer into the
+// GCResultCounts struct so scan/sweep can write counts without a switch.
+func gcResultTables(c *GCResultCounts) []struct {
+	table string
+	count *int
+} {
+	return []struct {
+		table string
+		count *int
+	}{
+		{"compute_results", &c.ComputeResults},
+		{"hex_stats", &c.HexStats},
+		{"forecast_results", &c.ForecastResults},
+		{"cohort_stats", &c.CohortStats},
+	}
+}
+
+// gcKeepPlaceholders builds the parameterized "?,?,..." placeholder list
+// and the matching args slice (city_id first, then each keep source) for
+// the stale-features statements. Source values are bound parameters, never
+// interpolated — same approach as deleteFeaturesForReplace.
+func (s *sqliteStore) gcKeepArgs(keepSources []string) (placeholders string, args []any) {
+	args = make([]any, 0, len(keepSources)+1)
+	args = append(args, s.cityID)
+	for _, src := range keepSources {
+		args = append(args, src)
+	}
+	placeholders = strings.TrimSuffix(strings.Repeat("?,", len(keepSources)), ",")
+	return placeholders, args
+}
+
+// GCScan counts orphan rows for this city without writing anything. See the
+// Store interface for the orphan classes and the empty-keepSources guard.
+func (s *sqliteStore) GCScan(ctx context.Context, keepSources []string) (*GCReport, error) {
+	report := &GCReport{}
+
+	// (a) Stale features: non-empty source_api not in keepSources. Skip
+	// entirely when keepSources is empty so we never count every row as
+	// stale (which a Sweep would then delete — data loss).
+	if len(keepSources) > 0 {
+		placeholders, args := s.gcKeepArgs(keepSources)
+		// placeholders is only "?,?,..."; sources are bound via args.
+		q := `SELECT COUNT(*) FROM features WHERE city_id = ? AND source_api NOT IN (` + placeholders + `) AND source_api != ''`
+		if err := s.db.QueryRowContext(ctx, q, args...).Scan(&report.StaleFeatures); err != nil {
+			return nil, fmt.Errorf("count stale features: %w", err)
+		}
+	}
+
+	// (b) NULL-snapshot result rows. (c) Dangling-snapshot result rows.
+	for _, t := range gcResultTables(&report.NullSnapshotResults) {
+		nullQ := `SELECT COUNT(*) FROM ` + t.table + ` WHERE city_id = ? AND snapshot_id IS NULL`
+		if err := s.db.QueryRowContext(ctx, nullQ, s.cityID).Scan(t.count); err != nil {
+			return nil, fmt.Errorf("count null-snapshot %s: %w", t.table, err)
+		}
+	}
+	for _, t := range gcResultTables(&report.DanglingResults) {
+		dangQ := `SELECT COUNT(*) FROM ` + t.table + ` WHERE city_id = ? AND snapshot_id IS NOT NULL AND snapshot_id NOT IN (SELECT id FROM snapshots)`
+		if err := s.db.QueryRowContext(ctx, dangQ, s.cityID).Scan(t.count); err != nil {
+			return nil, fmt.Errorf("count dangling %s: %w", t.table, err)
+		}
+	}
+	return report, nil
+}
+
+// execDeleteCount runs a DELETE and writes the affected-row count into dst,
+// wrapping both failures with the given label. Keeps GCSweep's three sweeps
+// uniform and flat.
+func execDeleteCount(ctx context.Context, tx *sql.Tx, label, query string, dst *int, args ...any) error {
+	res, err := tx.ExecContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("delete %s: %w", label, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("%s rows affected: %w", label, err)
+	}
+	*dst = int(n)
+	return nil
+}
+
+// GCSweep deletes the orphan rows GCScan counts and returns the counts of
+// rows actually deleted, all inside a single transaction.
+func (s *sqliteStore) GCSweep(ctx context.Context, keepSources []string) (*GCReport, error) {
+	report := &GCReport{}
+	err := s.withTx(ctx, func(tx *sql.Tx) error {
+		// (a) Stale features — skip when keepSources is empty (never wipe all).
+		if len(keepSources) > 0 {
+			placeholders, args := s.gcKeepArgs(keepSources)
+			// placeholders is only "?,?,..."; sources are bound via args.
+			q := `DELETE FROM features WHERE city_id = ? AND source_api NOT IN (` + placeholders + `) AND source_api != ''`
+			if err := execDeleteCount(ctx, tx, "stale features", q, &report.StaleFeatures, args...); err != nil {
+				return err
+			}
+		}
+
+		// (b) NULL-snapshot result rows.
+		for _, t := range gcResultTables(&report.NullSnapshotResults) {
+			nullQ := `DELETE FROM ` + t.table + ` WHERE city_id = ? AND snapshot_id IS NULL`
+			if err := execDeleteCount(ctx, tx, "null-snapshot "+t.table, nullQ, t.count, s.cityID); err != nil {
+				return err
+			}
+		}
+
+		// (c) Dangling-snapshot result rows.
+		for _, t := range gcResultTables(&report.DanglingResults) {
+			dangQ := `DELETE FROM ` + t.table + ` WHERE city_id = ? AND snapshot_id IS NOT NULL AND snapshot_id NOT IN (SELECT id FROM snapshots)`
+			if err := execDeleteCount(ctx, tx, "dangling "+t.table, dangQ, t.count, s.cityID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return report, nil
+}
+
 // ResolveSnapshot returns nil iff the given snapshot id exists and belongs
 // to this city. Returns sql.ErrNoRows for unknown or wrong-city ids. The
 // server handler uses this to translate ?snapshot=<id> into a 404 instead

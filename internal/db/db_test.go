@@ -653,6 +653,220 @@ func TestResolveSnapshot(t *testing.T) {
 	}
 }
 
+// seedGCFeature inserts a feature with an explicit source_api for the gc
+// tests, bypassing UpsertFeatures (which would scope deletes by source).
+func seedGCFeature(t *testing.T, root *RootStore, cityID int64, id, sourceAPI string) {
+	t.Helper()
+	_, err := root.db.ExecContext(context.Background(),
+		`INSERT INTO features (id, resource_type, city_id, name, tags, geometry_json, source_api, fetched_at)
+		 VALUES (?, ?, ?, '', '{}', '{}', ?, CURRENT_TIMESTAMP)`,
+		id, rtRoads, cityID, sourceAPI)
+	if err != nil {
+		t.Fatalf("seed feature %s: %v", id, err)
+	}
+}
+
+// seedGCResult inserts a row into a result table with a chosen snapshot_id
+// (nil for NULL). Used to plant NULL-snapshot and dangling-snapshot orphans.
+func seedGCResult(t *testing.T, root *RootStore, table string, cityID int64, snapshotID *int64) {
+	t.Helper()
+	var q string
+	switch table {
+	case "compute_results":
+		q = `INSERT INTO compute_results (resource_type, city_id, total_area, feature_count, snapshot_id) VALUES (?, ?, 1, 1, ?)`
+	case "hex_stats":
+		q = `INSERT INTO hex_stats (hex_id, resource_type, city_id, snapshot_id, area, pct_covered) VALUES ('h', ?, ?, ?, 1, 1)`
+	case "forecast_results":
+		q = `INSERT INTO forecast_results (resource_type, city_id, year, snapshot_id) VALUES (?, ?, 2026, ?)`
+	case "cohort_stats":
+		q = `INSERT INTO cohort_stats (resource_type, city_id, classification, snapshot_id) VALUES (?, ?, 'primary', ?)`
+	default:
+		t.Fatalf("unknown table %q", table)
+	}
+	// Every variant binds (resource_type, city_id, snapshot_id) in that
+	// order — hex_id/classification/year are inline literals in q.
+	if _, err := root.db.ExecContext(context.Background(), q, rtRoads, cityID, snapshotID); err != nil {
+		t.Fatalf("seed %s: %v", table, err)
+	}
+}
+
+var gcResultTableNames = []string{"compute_results", "hex_stats", "forecast_results", "cohort_stats"}
+
+func countRows(t *testing.T, root *RootStore, query string, args ...any) int {
+	t.Helper()
+	var n int
+	if err := root.db.QueryRowContext(context.Background(), query, args...).Scan(&n); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	return n
+}
+
+// TestGC_ScanAndSweep is the load-bearing integration test for gc: it
+// verifies GCScan counts orphans without mutating the DB, and GCSweep
+// deletes exactly the stale-source features (but never empty source_api),
+// the NULL-snapshot result rows, and the dangling-snapshot result rows —
+// while leaving valid rows and the other city's rows untouched.
+func TestGC_ScanAndSweep(t *testing.T) {
+	ctx := context.Background()
+	root, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+
+	idA, _ := root.EnsureCity(ctx, "a", "A", "test")
+	idB, _ := root.EnsureCity(ctx, "b", "B", "test")
+	storeA := root.ForCity(idA)
+
+	keep := []string{"overpass", "arcgis"}
+
+	// City A features: keepers, one stale, one empty (must survive).
+	seedGCFeature(t, root, idA, "f-overpass", "overpass")
+	seedGCFeature(t, root, idA, "f-arcgis", "arcgis")
+	seedGCFeature(t, root, idA, "f-old", "oldsource") // stale -> swept
+	seedGCFeature(t, root, idA, "f-empty", "")        // empty -> NEVER swept
+	// City B feature with the same stale source — must NOT be touched by A's gc.
+	seedGCFeature(t, root, idB, "f-old-b", "oldsource")
+
+	// A valid snapshot in city A, plus a result row pinned to it (survives).
+	snap, err := storeA.CreateSnapshot(ctx, "h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	validSnap := snap.ID
+	// A second snapshot we pin "dangling" rows to, then delete the snapshot
+	// row directly (bypassing the cascade) so those rows reference a missing
+	// snapshot — the FK is deferred/unenforced for this orphaned reference
+	// only because we remove the parent after the children are inserted.
+	dangSnap, err := storeA.CreateSnapshot(ctx, "to-be-orphaned")
+	if err != nil {
+		t.Fatal(err)
+	}
+	danglingID := dangSnap.ID
+
+	for _, table := range gcResultTableNames {
+		seedGCResult(t, root, table, idA, nil)         // NULL-snapshot orphan
+		seedGCResult(t, root, table, idA, &validSnap)  // valid -> survives
+		seedGCResult(t, root, table, idA, &danglingID) // dangling orphan
+		seedGCResult(t, root, table, idB, nil)         // city B NULL -> untouched
+	}
+	// Orphan the dangling rows: drop the parent snapshot row directly so the
+	// children now point at a non-existent id. (DeleteSnapshot would cascade
+	// and remove the children too, which is not what we want here.) The FK is
+	// briefly disabled so the parent can be removed while children reference
+	// it — this manufactures exactly the FK-orphan state gc defends against.
+	if _, err := root.db.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := root.db.ExecContext(ctx, `DELETE FROM snapshots WHERE id = ?`, danglingID); err != nil {
+		t.Fatalf("orphan dangling snapshot: %v", err)
+	}
+	if _, err := root.db.ExecContext(ctx, `PRAGMA foreign_keys = ON`); err != nil {
+		t.Fatal(err)
+	}
+
+	// --- Scan: correct counts, zero writes. ---
+	featuresBefore := countRows(t, root, `SELECT COUNT(*) FROM features`)
+	report, err := storeA.GCScan(ctx, keep)
+	if err != nil {
+		t.Fatalf("GCScan: %v", err)
+	}
+	if report.StaleFeatures != 1 {
+		t.Errorf("scan StaleFeatures = %d, want 1", report.StaleFeatures)
+	}
+	if report.NullSnapshotResults.Total() != 4 {
+		t.Errorf("scan NullSnapshotResults total = %d, want 4", report.NullSnapshotResults.Total())
+	}
+	if report.DanglingResults.Total() != 4 {
+		t.Errorf("scan DanglingResults total = %d, want 4", report.DanglingResults.Total())
+	}
+	if got := countRows(t, root, `SELECT COUNT(*) FROM features`); got != featuresBefore {
+		t.Errorf("GCScan mutated features: %d -> %d", featuresBefore, got)
+	}
+
+	// --- Sweep: deletes exactly the orphans. ---
+	swept, err := storeA.GCSweep(ctx, keep)
+	if err != nil {
+		t.Fatalf("GCSweep: %v", err)
+	}
+	if swept.StaleFeatures != 1 {
+		t.Errorf("sweep StaleFeatures = %d, want 1", swept.StaleFeatures)
+	}
+	if swept.NullSnapshotResults.Total() != 4 || swept.DanglingResults.Total() != 4 {
+		t.Errorf("sweep result counts: null=%d dangling=%d, want 4/4",
+			swept.NullSnapshotResults.Total(), swept.DanglingResults.Total())
+	}
+
+	// City A: stale "oldsource" gone; "overpass"/"arcgis"/"" remain.
+	if n := countRows(t, root, `SELECT COUNT(*) FROM features WHERE city_id = ? AND source_api = 'oldsource'`, idA); n != 0 {
+		t.Errorf("stale feature survived sweep: %d remain", n)
+	}
+	if n := countRows(t, root, `SELECT COUNT(*) FROM features WHERE city_id = ? AND source_api = ''`, idA); n != 1 {
+		t.Errorf("empty source_api feature was deleted (DATA LOSS): %d remain, want 1", n)
+	}
+	if n := countRows(t, root, `SELECT COUNT(*) FROM features WHERE city_id = ? AND source_api IN ('overpass','arcgis')`, idA); n != 2 {
+		t.Errorf("keeper features were deleted: %d remain, want 2", n)
+	}
+	// City B's stale feature must survive A's sweep.
+	if n := countRows(t, root, `SELECT COUNT(*) FROM features WHERE city_id = ?`, idB); n != 1 {
+		t.Errorf("city B feature touched by city A gc: %d remain, want 1", n)
+	}
+
+	for _, table := range gcResultTableNames {
+		// City A: only the valid-snapshot row survives.
+		remain := countRows(t, root, `SELECT COUNT(*) FROM `+table+` WHERE city_id = ?`, idA)
+		if remain != 1 {
+			t.Errorf("%s city A: %d rows remain, want 1 (valid-snapshot)", table, remain)
+		}
+		nullRemain := countRows(t, root, `SELECT COUNT(*) FROM `+table+` WHERE city_id = ? AND snapshot_id IS NULL`, idA)
+		if nullRemain != 0 {
+			t.Errorf("%s city A: %d NULL-snapshot rows remain, want 0", table, nullRemain)
+		}
+		// City B's NULL-snapshot row must survive.
+		bRemain := countRows(t, root, `SELECT COUNT(*) FROM `+table+` WHERE city_id = ?`, idB)
+		if bRemain != 1 {
+			t.Errorf("%s city B: %d rows remain, want 1 (untouched)", table, bRemain)
+		}
+	}
+}
+
+// TestGC_EmptyKeepSourcesSkipsFeatureSweep pins the data-loss guard: with
+// no resolvable sources, gc must NOT count or delete any feature rows
+// (otherwise every feature would look stale).
+func TestGC_EmptyKeepSourcesSkipsFeatureSweep(t *testing.T) {
+	ctx := context.Background()
+	root, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+
+	idA, _ := root.EnsureCity(ctx, "a", "A", "test")
+	storeA := root.ForCity(idA)
+
+	seedGCFeature(t, root, idA, "f1", "overpass")
+	seedGCFeature(t, root, idA, "f2", "oldsource")
+
+	report, err := storeA.GCScan(ctx, nil)
+	if err != nil {
+		t.Fatalf("GCScan: %v", err)
+	}
+	if report.StaleFeatures != 0 {
+		t.Errorf("empty keepSources scan StaleFeatures = %d, want 0", report.StaleFeatures)
+	}
+
+	swept, err := storeA.GCSweep(ctx, nil)
+	if err != nil {
+		t.Fatalf("GCSweep: %v", err)
+	}
+	if swept.StaleFeatures != 0 {
+		t.Errorf("empty keepSources sweep StaleFeatures = %d, want 0", swept.StaleFeatures)
+	}
+	if n := countRows(t, root, `SELECT COUNT(*) FROM features WHERE city_id = ?`, idA); n != 2 {
+		t.Errorf("empty keepSources deleted features (DATA LOSS): %d remain, want 2", n)
+	}
+}
+
 func TestStoreComputeResult(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)

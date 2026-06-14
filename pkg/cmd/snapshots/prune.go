@@ -118,7 +118,7 @@ func runPrune(ctx context.Context, opts *PruneOptions) error {
 		return nil
 	}
 
-	if err := confirmDestructive(ctx, opts.IO, opts.Prompter, opts.Yes,
+	if err := cmdutil.ConfirmDestructive(ctx, opts.IO, opts.Prompter, opts.Yes,
 		fmt.Sprintf("Delete %d snapshot(s) across %d city(ies)?", totalVictims, len(plan)),
 		fmt.Sprintf("refusing to prune %d snapshot(s) across %d city(ies) without confirmation",
 			totalVictims, len(plan)),
