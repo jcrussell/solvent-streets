@@ -38,11 +38,77 @@ func FetchOSMWater(ctx context.Context, client *http.Client, bbox [4]float64, la
 }
 
 func fetchOSMWater(ctx context.Context, client *http.Client, baseURL string, bbox [4]float64, landProbes [][2]float64) (string, error) {
-	body, err := postOverpass(ctx, client, baseURL, buildWaterQuery(bbox))
+	// Split only the FETCH on truncation — never the ASSEMBLY. Each
+	// quadrant query returns full geometry for every element it
+	// intersects, so the deduped union of quadrant elements equals the
+	// full-bbox element set. assembleWaterGeoJSON then runs ONCE against
+	// the ORIGINAL bbox, so coastline closing and the land-probe logic
+	// (both tied to the query bbox) behave identically to a single big
+	// successful query — quadrant edges never enter the geometry.
+	seen := make(map[string]bool)
+	elements, err := fetchWaterElements(ctx, client, baseURL, bbox, seen, 0)
 	if err != nil {
 		return "", err
 	}
-	return parseWaterResponse(ctx, body, bbox, landProbes)
+	return assembleWaterGeoJSON(ctx, elements, bbox, landProbes)
+}
+
+// fetchWaterElements fetches the raw Overpass water elements for bbox,
+// recursively splitting into quadrants when the server returns a
+// truncation remark (timeout / OOM), exactly like fetchRecursive does for
+// roads/parking. Elements are deduped by type+id via seen because a water
+// body spanning a quadrant boundary is returned in full by every quadrant
+// it touches. A quadrant still truncated at maxSplitDepth propagates the
+// error (fail loud) rather than silently under-reporting water.
+func fetchWaterElements(ctx context.Context, client *http.Client, baseURL string, bbox [4]float64, seen map[string]bool, depth int) ([]overpassElement, error) {
+	body, err := postOverpass(ctx, client, baseURL, buildWaterQuery(bbox))
+	if err != nil {
+		return nil, err
+	}
+	elements, truncated, err := parseWaterElements(body)
+	if err != nil {
+		return nil, err
+	}
+	if truncated {
+		if depth >= maxSplitDepth {
+			return nil, fmt.Errorf("overpass water remark: %w", errOverpassTruncated)
+		}
+		var all []overpassElement
+		for _, q := range splitBBox(bbox) {
+			qElements, qErr := fetchWaterElements(ctx, client, baseURL, q, seen, depth+1)
+			if qErr != nil {
+				return nil, qErr
+			}
+			all = append(all, qElements...)
+		}
+		return all, nil
+	}
+
+	// Dedup by stable element key (type+id), mirroring fetchRecursive's
+	// dedup of db.Feature.ID. A boundary-spanning element appears in
+	// multiple quadrant responses with identical full geometry.
+	unique := make([]overpassElement, 0, len(elements))
+	for _, e := range elements {
+		key := fmt.Sprintf("%s:%d", e.Type, e.ID)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		unique = append(unique, e)
+	}
+	return unique, nil
+}
+
+// parseWaterElements unmarshals an Overpass water response body and
+// reports whether the server truncated the result (runtime timeout / OOM
+// remark). It does NOT error on truncation — the caller decides whether to
+// split-and-retry — but does error on malformed JSON.
+func parseWaterElements(data []byte) (elements []overpassElement, truncated bool, err error) {
+	var resp overpassResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, false, fmt.Errorf("parse overpass water json: %w", err)
+	}
+	return resp.Elements, remarkIndicatesTruncation(resp.Remark), nil
 }
 
 // maxResponseBodyBytes caps every external API response (Overpass,
@@ -99,23 +165,36 @@ type waterPolygon struct {
 	holes [][][2]float64
 }
 
+// parseWaterResponse parses one Overpass water response body and
+// assembles its GeoJSON. It fails loudly on a truncation remark — a
+// truncated water response would under-report water and silently inflate
+// land area. fetchOSMWater no longer routes through this (it splits the
+// fetch and assembles via assembleWaterGeoJSON), but it remains the
+// single-response entry point exercised by the parse-layer tests.
 func parseWaterResponse(ctx context.Context, data []byte, bbox [4]float64, landProbes [][2]float64) (string, error) {
-	var resp overpassResponse
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return "", fmt.Errorf("parse overpass water json: %w", err)
+	elements, truncated, err := parseWaterElements(data)
+	if err != nil {
+		return "", err
 	}
-	if remarkIndicatesTruncation(resp.Remark) {
-		// A truncated water response would under-report water and silently
-		// inflate land area; fail loudly instead of accepting partial data.
-		return "", fmt.Errorf("overpass water remark %q: %w", strings.TrimSpace(resp.Remark), errOverpassTruncated)
+	if truncated {
+		return "", fmt.Errorf("overpass water remark: %w", errOverpassTruncated)
 	}
+	return assembleWaterGeoJSON(ctx, elements, bbox, landProbes)
+}
 
+// assembleWaterGeoJSON builds the water MultiPolygon GeoJSON from a set of
+// raw Overpass elements against bbox: closed water ways, water relations,
+// and coastline ways closed along the bbox edges (see FetchOSMWater). This
+// is the bbox-tied assembly stage — it MUST run once against the original
+// query bbox, never per quadrant, or coastlines would close along quadrant
+// edges and corrupt land area. Returns ("", nil) when no water survives.
+func assembleWaterGeoJSON(ctx context.Context, elements []overpassElement, bbox [4]float64, landProbes [][2]float64) (string, error) {
 	bboxArea := bboxLonLatArea(bbox)
 	probes := newLandProbeIndex(landProbes)
-	polys := make([]waterPolygon, 0, len(resp.Elements))
-	coastWays := make([][][2]float64, 0, len(resp.Elements))
+	polys := make([]waterPolygon, 0, len(elements))
+	coastWays := make([][][2]float64, 0, len(elements))
 	var sumBBoxFrac float64
-	for _, e := range resp.Elements {
+	for _, e := range elements {
 		coastline, addedPolys, addedFrac := classifyWaterElement(ctx, e, bboxArea, probes)
 		if coastline != nil {
 			coastWays = append(coastWays, coastline)

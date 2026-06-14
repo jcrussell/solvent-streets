@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"math"
 	"net/http"
@@ -469,6 +471,291 @@ func TestParseWaterResponse_LogsDroppedMemberWays(t *testing.T) {
 	}
 	if len(record.DroppedInner) != 0 {
 		t.Errorf("dropped_inner = %v, want empty", record.DroppedInner)
+	}
+}
+
+// relWith builds a water relation overpassElement from member ways given
+// as (role, coords) pairs. Mirrors the inline JSON fixtures above but in
+// Go so relationToPolygons can be exercised directly.
+func relWith(id int64, members ...struct {
+	role   string
+	ref    int64
+	coords [][2]float64
+}) overpassElement {
+	e := overpassElement{Type: elementRelation, ID: id}
+	for _, m := range members {
+		geom := make([]overpassGeometryPoint, len(m.coords))
+		for i, c := range m.coords {
+			geom[i] = overpassGeometryPoint{Lon: c[0], Lat: c[1]}
+		}
+		e.Members = append(e.Members, overpassRelationMember{
+			Type: elementWay, Ref: m.ref, Role: m.role, Geometry: geom,
+		})
+	}
+	return e
+}
+
+type relMember = struct {
+	role   string
+	ref    int64
+	coords [][2]float64
+}
+
+// TestRelationToPolygons_MultipleDisjointOuters pins MultiPolygon
+// semantics: a relation with two disjoint outer rings (two separate
+// water bodies under one relation) must yield TWO waterPolygons, not a
+// merged or dropped result. Calls relationToPolygons directly with a
+// nil acceptOuter (accept any closed ring) so the assertion is about
+// ring assembly, not the area/probe filters layered above it.
+func TestRelationToPolygons_MultipleDisjointOuters(t *testing.T) {
+	// Two unit squares far apart so neither contains the other's vertices.
+	outerA := [][2]float64{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}}
+	outerB := [][2]float64{{10, 10}, {11, 10}, {11, 11}, {10, 11}, {10, 10}}
+	rel := relWith(1,
+		relMember{role: "outer", ref: 1, coords: outerA},
+		relMember{role: "outer", ref: 2, coords: outerB},
+	)
+
+	polys := relationToPolygons(context.Background(), rel, stitchRings, nil)
+	if len(polys) != 2 {
+		t.Fatalf("expected 2 disjoint outer polygons, got %d", len(polys))
+	}
+	// Each outer should be one of the two squares, with no holes.
+	for _, p := range polys {
+		if len(p.holes) != 0 {
+			t.Errorf("disjoint outer should have no holes, got %d", len(p.holes))
+		}
+		if !ringsEquivalent(p.outer, outerA) && !ringsEquivalent(p.outer, outerB) {
+			t.Errorf("outer ring %v is neither expected square", p.outer)
+		}
+	}
+}
+
+// TestRelationToPolygons_DroppedWaysNoPolygons pins the skip+warn
+// behavior when a relation's member ways cannot be stitched into any
+// closed ring: relationToPolygons returns NO polygons (so the feature
+// is skipped upstream) AND logs a WARN naming the relation id and the
+// dropped member-way ids. The warning sink is captured exactly as the
+// existing TestParseWaterResponse_LogsDroppedMemberWays does — a
+// bytes.Buffer JSON slog handler at WARN level.
+func TestRelationToPolygons_DroppedWaysNoPolygons(t *testing.T) {
+	// Two outer ways that form a partial chain but never close back to
+	// the start, so stitchRings drops both and returns no ring.
+	rel := relWith(515,
+		relMember{role: "outer", ref: 11, coords: [][2]float64{{0, 0}, {1, 0}}},
+		relMember{role: "outer", ref: 22, coords: [][2]float64{{1, 0}, {2, 0}}},
+	)
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	ctx := logs.WithLogger(context.Background(), logger)
+
+	polys := relationToPolygons(ctx, rel, stitchRings, nil)
+	if len(polys) != 0 {
+		t.Fatalf("expected no polygons for unstitchable relation, got %d", len(polys))
+	}
+
+	line := bytes.TrimSpace(buf.Bytes())
+	if len(line) == 0 {
+		t.Fatal("expected a dropped-ways WARN line; got nothing")
+	}
+	var rec struct {
+		Msg          string  `json:"msg"`
+		Level        string  `json:"level"`
+		Relation     int64   `json:"relation"`
+		DroppedOuter []int64 `json:"dropped_outer"`
+		DroppedInner []int64 `json:"dropped_inner"`
+	}
+	if err := json.Unmarshal(line, &rec); err != nil {
+		t.Fatalf("parse log line: %v: %s", err, line)
+	}
+	if rec.Level != "WARN" {
+		t.Errorf("level = %q, want WARN", rec.Level)
+	}
+	if !strings.Contains(rec.Msg, "dropped") {
+		t.Errorf("msg = %q, want it to mention dropping", rec.Msg)
+	}
+	if rec.Relation != 515 {
+		t.Errorf("relation = %d, want 515", rec.Relation)
+	}
+	wantDropped := map[int64]bool{11: true, 22: true}
+	if len(rec.DroppedOuter) != len(wantDropped) {
+		t.Fatalf("dropped_outer = %v, want ids %v", rec.DroppedOuter, wantDropped)
+	}
+	for _, id := range rec.DroppedOuter {
+		if !wantDropped[id] {
+			t.Errorf("unexpected dropped outer id %d (want %v)", id, wantDropped)
+		}
+	}
+	if len(rec.DroppedInner) != 0 {
+		t.Errorf("dropped_inner = %v, want empty", rec.DroppedInner)
+	}
+}
+
+// bboxTag formats a bbox the way buildWaterQuery embeds it (%f → 6
+// decimals), so a mock Overpass handler can key its response on which
+// (sub-)bbox a query targets.
+func bboxTag(bbox [4]float64) string {
+	return fmt.Sprintf("%f,%f,%f,%f", bbox[0], bbox[1], bbox[2], bbox[3])
+}
+
+// truncatedWaterBody is a well-formed Overpass response carrying a
+// server-side timeout remark — HTTP 200 with partial (here empty)
+// elements, the shape that fetchWaterElements must split-and-retry.
+const truncatedWaterBody = `{"remark":"runtime error: Query timed out in \"query\" at line 1 after 60 seconds.","elements":[]}`
+
+// closedWayBody returns a single closed natural=water way with the given
+// id and ring coords, as an Overpass response body.
+func closedWayBody(id int64, ring [][2]float64) string {
+	pts := make([]string, len(ring))
+	for i, c := range ring {
+		pts[i] = fmt.Sprintf(`{"lat":%g,"lon":%g}`, c[1], c[0])
+	}
+	return fmt.Sprintf(`{"elements":[{"type":"way","id":%d,"tags":{"natural":"water"},"geometry":[%s]}]}`,
+		id, strings.Join(pts, ","))
+}
+
+// TestFetchOSMWater_SplitsOnTruncation is the qus4 regression: the
+// full-bbox water query truncates (timeout remark), so fetchOSMWater
+// must split into quadrants, collect their raw elements, dedup a water
+// body that spans a quadrant boundary, and assemble ONCE against the
+// original bbox. Asserts (a) the result is built from the merged
+// quadrant elements, and (b) the boundary-spanning element is not
+// double-counted.
+func TestFetchOSMWater_SplitsOnTruncation(t *testing.T) {
+	full := [4]float64{0, 0, 2, 2}
+	quads := splitBBox(full) // SW, SE, NW, NE — midLat=1, midLon=1
+
+	// Way 1 straddles the SW/SE quadrant boundary (crosses lon=1), so
+	// both the SW and SE quadrant queries return it with full geometry —
+	// the dedup target. It sits in the lower-left, away from the probe.
+	spanning := [][2]float64{{0.4, 0.4}, {1.6, 0.4}, {1.6, 0.6}, {0.4, 0.6}, {0.4, 0.4}}
+	// Way 2 lives only in the NE quadrant — a distinct second polygon.
+	neOnly := [][2]float64{{1.4, 1.4}, {1.6, 1.4}, {1.6, 1.6}, {1.4, 1.6}, {1.4, 1.4}}
+
+	swTag, seTag, nwTag, neTag := bboxTag(quads[0]), bboxTag(quads[1]), bboxTag(quads[2]), bboxTag(quads[3])
+	fullTag := bboxTag(full)
+
+	var reqCount int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("parse form: %v", err)
+		}
+		q := r.PostForm.Get("data")
+		reqCount++
+		w.WriteHeader(http.StatusOK)
+		switch {
+		case strings.Contains(q, fullTag):
+			_, _ = w.Write([]byte(truncatedWaterBody))
+		case strings.Contains(q, swTag), strings.Contains(q, seTag):
+			// Both SW and SE return the same spanning way (id 1).
+			_, _ = w.Write([]byte(closedWayBody(1, spanning)))
+		case strings.Contains(q, neTag):
+			_, _ = w.Write([]byte(closedWayBody(2, neOnly)))
+		case strings.Contains(q, nwTag):
+			_, _ = w.Write([]byte(`{"elements":[]}`))
+		default:
+			t.Errorf("unexpected query bbox: %q", q)
+			_, _ = w.Write([]byte(`{"elements":[]}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	// Probe well outside both water polygons (NW corner) so neither is
+	// dropped by the land-probe filter.
+	result, err := fetchOSMWater(context.Background(), srv.Client(), srv.URL, full, [][2]float64{{0.1, 1.9}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reqCount != 5 { // 1 full (truncated) + 4 quadrants
+		t.Errorf("expected 5 Overpass requests (1 full + 4 quadrants), got %d", reqCount)
+	}
+
+	var parsed struct {
+		Type        string           `json:"type"`
+		Coordinates [][][][2]float64 `json:"coordinates"`
+	}
+	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
+		t.Fatalf("parse result json: %v: %s", err, result)
+	}
+	if parsed.Type != "MultiPolygon" {
+		t.Errorf("type = %q, want MultiPolygon", parsed.Type)
+	}
+	// Exactly 2 polygons: the spanning way (deduped from 2 quadrant hits
+	// to 1) plus the NE-only way. A dedup failure would yield 3.
+	if got := len(parsed.Coordinates); got != 2 {
+		t.Fatalf("expected 2 polygons after dedup, got %d: %s", got, result)
+	}
+}
+
+// TestFetchOSMWater_RecursesDeeperOnQuadrantTruncation verifies a
+// quadrant that itself truncates is split AGAIN (sub-quadrants) rather
+// than failing, so deeply dense areas recover by descending further.
+func TestFetchOSMWater_RecursesDeeperOnQuadrantTruncation(t *testing.T) {
+	full := [4]float64{0, 0, 2, 2}
+	quads := splitBBox(full)
+	swSubs := splitBBox(quads[0]) // sub-quadrants of the SW quadrant
+
+	fullTag, swTag := bboxTag(full), bboxTag(quads[0])
+
+	var reqCount int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		q := r.PostForm.Get("data")
+		reqCount++
+		w.WriteHeader(http.StatusOK)
+		switch {
+		case strings.Contains(q, fullTag), strings.Contains(q, swTag):
+			// Full bbox AND the SW quadrant both truncate.
+			_, _ = w.Write([]byte(truncatedWaterBody))
+		case strings.Contains(q, bboxTag(swSubs[0])):
+			// One SW sub-quadrant has a small water polygon.
+			_, _ = w.Write([]byte(closedWayBody(7, [][2]float64{
+				{0.1, 0.1}, {0.4, 0.1}, {0.4, 0.4}, {0.1, 0.4}, {0.1, 0.1},
+			})))
+		default:
+			_, _ = w.Write([]byte(`{"elements":[]}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	result, err := fetchOSMWater(context.Background(), srv.Client(), srv.URL, full, [][2]float64{{1.9, 1.9}})
+	if err != nil {
+		t.Fatalf("expected recovery via deeper recursion, got error: %v", err)
+	}
+	// 1 full + 4 quadrants (SW truncates) + 4 SW sub-quadrants = 9.
+	if reqCount != 9 {
+		t.Errorf("expected 9 requests (full + 4 quads + 4 SW sub-quads), got %d", reqCount)
+	}
+	var parsed struct {
+		Coordinates [][][][2]float64 `json:"coordinates"`
+	}
+	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
+		t.Fatalf("parse result: %v: %s", err, result)
+	}
+	if len(parsed.Coordinates) != 1 {
+		t.Errorf("expected 1 polygon from the recovered sub-quadrant, got %d", len(parsed.Coordinates))
+	}
+}
+
+// TestFetchOSMWater_TruncatedAtMaxDepthErrors pins fail-loud behavior: a
+// query that keeps truncating all the way down past maxSplitDepth
+// surfaces errOverpassTruncated rather than silently under-reporting
+// water (which would inflate land area).
+func TestFetchOSMWater_TruncatedAtMaxDepthErrors(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// Every query at every depth truncates.
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(truncatedWaterBody))
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := fetchOSMWater(context.Background(), srv.Client(), srv.URL, [4]float64{0, 0, 2, 2}, [][2]float64{{1, 1}})
+	if err == nil {
+		t.Fatal("expected an error when truncation persists to max depth")
+	}
+	if !errors.Is(err, errOverpassTruncated) {
+		t.Errorf("expected errOverpassTruncated, got: %v", err)
 	}
 }
 
