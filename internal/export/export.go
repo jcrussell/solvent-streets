@@ -228,6 +228,10 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 		return MetaJSON{}, "", err
 	}
 
+	// The per-city data files written below (and in exportScenariosForCity)
+	// are enumerated for the publish-readiness checker by DataFileNames in
+	// checkassets.go — keep the two in sync when adding or removing a file.
+	//
 	// Write boundary.geojson if boundary exists
 	if boundaryGJSON, err := entry.Store.GetBoundary(ctx); err == nil && boundaryGJSON != "" {
 		fc := map[string]any{

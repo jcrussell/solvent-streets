@@ -31,6 +31,7 @@ func TestCobraTree_SubcommandRouting(t *testing.T) {
 		"pvmt all",
 		"pvmt all compute",
 		"pvmt all ingest",
+		"pvmt check-site",
 		"pvmt cities",
 		"pvmt config",
 		"pvmt config show",
