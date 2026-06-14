@@ -12,7 +12,7 @@ import (
 
 // TestSimulateParity locks down the output of forecast.Simulate against a
 // committed golden so a refactor that changes simulation semantics breaks
-// both the CLI and the WASM forecast (cmd/wasm/forecast/main.go:104 calls
+// both the CLI and the WASM forecast (internal/forecast/bridge.Run calls
 // the same Simulate). Regenerate the golden with `-update` if the change
 // is intentional, then read the diff line by line before committing.
 func TestSimulateParity(t *testing.T) {
