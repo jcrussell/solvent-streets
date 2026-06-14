@@ -127,5 +127,6 @@ func (entry CityEntry) Info(ctx context.Context) (CityInfo, error) {
 		BBox:      bbox,
 		CenterLon: lon,
 		CenterLat: lat,
+		Region:    entry.City.Region,
 	}, nil
 }

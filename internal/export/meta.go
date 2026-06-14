@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,17 +25,34 @@ type CityInfo struct {
 	BBox      [4]float64 `json:"bbox"`
 	CenterLon float64    `json:"center_lon"`
 	CenterLat float64    `json:"center_lat"`
+	// Region is an optional grouping label (e.g. "Bay Area"). Omitted from
+	// JSON when empty. Used by the template to build city-selector optgroups.
+	Region string `json:"region,omitempty"`
+}
+
+// CityGroup is a region label with the cities that belong to it. Used by the
+// template to render the city selector as <optgroup>s. A group with an empty
+// Region holds the ungrouped ("Other") cities and is rendered as bare options.
+type CityGroup struct {
+	Region string
+	Cities []CityInfo
 }
 
 // TemplateData wraps MetaJSON with the forecast seed for the interactive controls.
 type TemplateData struct {
 	MetaJSON
-	ForecastSeed    template.JS
-	LayerColors     template.JS // JSON map of resource type → color
-	RawTOML         string      // original pvmt.toml contents
-	ResolvedTOML    string      // config with all defaults filled in
-	UnitSystem      string      // "metric" or "imperial"
-	Cities          []CityInfo
+	ForecastSeed template.JS
+	LayerColors  template.JS // JSON map of resource type → color
+	RawTOML      string      // original pvmt.toml contents
+	ResolvedTOML string      // config with all defaults filled in
+	UnitSystem   string      // "metric" or "imperial"
+	Cities       []CityInfo
+	// CitiesByRegion is the same cities as Cities, grouped for the selector:
+	// non-empty regions first (sorted ascending by label, cities sorted by
+	// name within each), then the empty-region group ("Other") last. Built
+	// alongside Cities; the flat Cities slice is kept for the CITIES JS array
+	// and cities.json.
+	CitiesByRegion  []CityGroup
 	WasmPrefix      string // path prefix for WASM assets (e.g. "../"); empty = same directory
 	MethodologyHTML template.HTML
 	// IsLiveServer is true when rendered by pvmt serve; false for static
@@ -92,6 +111,48 @@ var ResourceColors = map[string]string{
 	"roads":     "#6b7280",
 	"parking":   "#3b82f6",
 	"sidewalks": "#f59e0b",
+}
+
+// GroupCitiesByRegion groups cities for the selector. Non-empty regions come
+// first, sorted ascending by region label, with cities sorted ascending by
+// name within each group. The empty-region cities are collected into a final
+// group (Region == "") rendered as ungrouped ("Other") options. The input
+// slice is not mutated. Returns nil when cities is empty.
+func GroupCitiesByRegion(cities []CityInfo) []CityGroup {
+	if len(cities) == 0 {
+		return nil
+	}
+	byRegion := make(map[string][]CityInfo)
+	for _, c := range cities {
+		byRegion[c.Region] = append(byRegion[c.Region], c)
+	}
+
+	regions := make([]string, 0, len(byRegion))
+	for r := range byRegion {
+		if r != "" {
+			regions = append(regions, r)
+		}
+	}
+	sort.Slice(regions, func(i, j int) bool {
+		return strings.ToLower(regions[i]) < strings.ToLower(regions[j])
+	})
+
+	groups := make([]CityGroup, 0, len(byRegion))
+	appendSortedGroup := func(region string) {
+		group := byRegion[region]
+		sort.SliceStable(group, func(i, j int) bool {
+			return strings.ToLower(group[i].Name) < strings.ToLower(group[j].Name)
+		})
+		groups = append(groups, CityGroup{Region: region, Cities: group})
+	}
+	for _, r := range regions {
+		appendSortedGroup(r)
+	}
+	// Empty-region cities last, only if any exist.
+	if _, ok := byRegion[""]; ok {
+		appendSortedGroup("")
+	}
+	return groups
 }
 
 // BuildMeta builds metadata JSON for a city entry.

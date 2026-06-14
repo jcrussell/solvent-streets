@@ -722,7 +722,9 @@ func TestHandleCitiesList_SchemaParity(t *testing.T) {
 	store := &dbtest.MockStore{
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return boundary, nil },
 	}
-	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Pleasanton"}}}
+	// Region is set so the omitempty "region" key actually serializes here,
+	// pinning it as part of the contract both surfaces emit.
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Pleasanton", Region: "Bay Area"}}}
 	entries := []export.CityEntry{
 		{Config: cfg, City: cfg.Cities[0], Store: store, Slug: cfg.Cities[0].Slug()},
 	}
@@ -747,7 +749,7 @@ func TestHandleCitiesList_SchemaParity(t *testing.T) {
 	}
 	wantKeys := map[string]bool{
 		"slug": true, "name": true, "bbox": true,
-		"center_lon": true, "center_lat": true,
+		"center_lon": true, "center_lat": true, "region": true,
 	}
 	for k := range got[0] {
 		if !wantKeys[k] {

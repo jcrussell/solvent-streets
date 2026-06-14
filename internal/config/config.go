@@ -201,6 +201,11 @@ type CityConfig struct {
 	ArcGISURL string          `toml:"arcgis_url"`
 	HexEdgeM  float64         `toml:"hex_edge_m"`
 	Forecast  *ForecastConfig `toml:"forecast,omitempty"`
+	// Region is an optional grouping label for the city selector. Cities
+	// sharing a Region are rendered together under an <optgroup>; cities
+	// with an empty Region fall into an ungrouped "Other" set. Used to
+	// keep large metros (e.g. the 98-city Bay Area list) navigable.
+	Region string `toml:"region,omitempty"`
 	// BoundaryRelationID is the OSM relation ID for the city's admin
 	// boundary (admin_level typically 8). Set this for cities whose
 	// boundary is reachable only via Overpass — e.g. Albuquerque, NM

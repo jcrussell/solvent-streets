@@ -156,6 +156,42 @@ func TestDashboardCompareChartLabels(t *testing.T) {
 	}
 }
 
+// TestCitySelectorOptgroups asserts the city selector renders <optgroup>s for
+// regioned cities and bare <option>s for un-regioned ("Other") cities when
+// TemplateData.CitiesByRegion is populated.
+func TestCitySelectorOptgroups(t *testing.T) {
+	tmpl := parseDashboardTemplates(t)
+
+	cities := []CityInfo{
+		{Slug: "oakland", Name: "Oakland", Region: "Bay Area"},
+		{Slug: "denver", Name: "Denver"},
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, TemplateData{
+		Cities:         cities,
+		CitiesByRegion: GroupCitiesByRegion(cities),
+	}); err != nil {
+		t.Fatalf("execute index: %v", err)
+	}
+	out := buf.String()
+
+	if !strings.Contains(out, `<optgroup label="Bay Area">`) {
+		t.Error("missing <optgroup label=\"Bay Area\"> for regioned city")
+	}
+	if !strings.Contains(out, `<option value="oakland"`) {
+		t.Error("regioned city option missing")
+	}
+	// The un-regioned city must render as a bare <option> with no optgroup
+	// wrapper. Assert its option exists and that no optgroup mentions it.
+	if !strings.Contains(out, `<option value="denver"`) {
+		t.Error("un-regioned city option missing")
+	}
+	// There is exactly one optgroup (Bay Area); the empty-region group is bare.
+	if n := strings.Count(out, "<optgroup"); n != 1 {
+		t.Errorf("expected exactly 1 optgroup, got %d", n)
+	}
+}
+
 // TestDashboardFormLabelAssociations asserts the financials tab range
 // inputs have <label for=...> associations rather than relying on visual
 // proximity alone.

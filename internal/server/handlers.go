@@ -10,7 +10,9 @@ import (
 	"html/template"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/jcrussell/solvent-streets/internal/db"
@@ -205,6 +207,12 @@ func (s *Server) buildIndexData(ctx context.Context, entry export.CityEntry) (ex
 			}
 			cities = append(cities, info)
 		}
+		// Alphabetise the flat list case-insensitively by Name, matching the
+		// static exporter (export.go runMultiCity) so the CITIES JS array and
+		// /api/cities ordering line up.
+		sort.SliceStable(cities, func(i, j int) bool {
+			return strings.ToLower(cities[i].Name) < strings.ToLower(cities[j].Name)
+		})
 	}
 
 	seed, err := export.BuildForecastSeed(ctx, &fc, entry.Store)
@@ -224,6 +232,7 @@ func (s *Server) buildIndexData(ctx context.Context, entry export.CityEntry) (ex
 		ResolvedTOML:    export.ResolvedTOML(entry.Config),
 		UnitSystem:      entry.Config.UnitSystem().String(),
 		Cities:          cities,
+		CitiesByRegion:  export.GroupCitiesByRegion(cities),
 		MethodologyHTML: methodology,
 		IsLiveServer:    true,
 		GeneratedDate:   date,

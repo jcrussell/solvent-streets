@@ -596,7 +596,7 @@
         <button class="tab-btn" data-tab="about-tab" id="about-tab-btn" role="tab" aria-selected="false" aria-controls="about-tab" tabindex="-1">About</button>
         {{if .Cities}}
         <select id="city-select" style="margin-left:auto;margin-right:16px;align-self:center;background:var(--header-bg);color:var(--header-fg);border:1px solid var(--header-muted);border-radius:4px;padding:4px 8px;font-size:14px;cursor:pointer;">
-            {{range .Cities}}<option value="{{.Slug}}" data-bbox="{{index .BBox 0}},{{index .BBox 1}},{{index .BBox 2}},{{index .BBox 3}}" data-lon="{{.CenterLon}}" data-lat="{{.CenterLat}}">{{.Name}}</option>
+            {{range .CitiesByRegion}}{{if .Region}}<optgroup label="{{.Region}}">{{range .Cities}}<option value="{{.Slug}}" data-bbox="{{index .BBox 0}},{{index .BBox 1}},{{index .BBox 2}},{{index .BBox 3}}" data-lon="{{.CenterLon}}" data-lat="{{.CenterLat}}">{{.Name}}</option>{{end}}</optgroup>{{else}}{{range .Cities}}<option value="{{.Slug}}" data-bbox="{{index .BBox 0}},{{index .BBox 1}},{{index .BBox 2}},{{index .BBox 3}}" data-lon="{{.CenterLon}}" data-lat="{{.CenterLat}}">{{.Name}}</option>{{end}}{{end}}
             {{end}}
         </select>
         {{end}}
