@@ -140,8 +140,31 @@
             white-space: nowrap;
         }
 
+        /* Drag-to-select region control + rubber-band rectangle */
+        #region-select-btn {
+            position: absolute; top: 10px; left: 10px; z-index: 11;
+            background: var(--map-ctrl-bg); color: var(--text);
+            border: 1px solid var(--map-ctrl-border); border-radius: 4px;
+            padding: 6px 10px; font-size: 13px; cursor: pointer;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        }
+        #region-select-btn[aria-pressed="true"] {
+            background: var(--accent, #2563eb); color: #fff; border-color: var(--accent, #2563eb);
+        }
+        #region-select-btn:hover { border-color: var(--text); }
+        #region-rubberband {
+            position: absolute; z-index: 10; pointer-events: none;
+            border: 1.5px dashed var(--accent, #2563eb);
+            background: rgba(37, 99, 235, 0.12);
+        }
+        #region-rubberband[hidden] { display: none; }
+
         /* Hex detail panel */
-        .hex-detail { font-size: 13px; }
+        .hex-detail, .region-detail { font-size: 13px; }
+        .region-detail h3 { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .region-detail .close-btn {
+            background: none; border: none; font-size: 18px; cursor: pointer; color: var(--text-muted); padding: 0 4px; line-height: 1;
+        }
         .hex-detail h3 { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
         .hex-detail .close-btn {
             background: none; border: none; font-size: 18px; cursor: pointer; color: var(--text-muted); padding: 0 4px; line-height: 1;
@@ -640,6 +663,9 @@
 
     <div id="map-tab" class="tab-content active" role="tabpanel" aria-labelledby="map-tab-btn">
         <div id="map"></div>
+        <button id="region-select-btn" type="button" aria-pressed="false" disabled
+                title="Drag a rectangle on the map to total the hexes inside it">Select Region</button>
+        <div id="region-rubberband" hidden></div>
         <div id="panel">
             <h2>{{.ProjectName}}</h2>
             <div class="subtitle">Pavement & Parking Analysis | Last computed {{.SnapshotDate}}</div>
@@ -1158,6 +1184,10 @@
         let costSummaryByScope = { city: {}, bbox: {} };   // { scope: { type: {year1_cost,total_area} } }
         let activeTypes = new Set(Object.keys(layerColors));
         let savedPanelHTML = '';
+        // True while the user is in drag-to-select-region mode. Read by the
+        // hex-click handler (suppressed mid-selection) and the region-select
+        // pointer handlers below.
+        let selecting = false;
 
         function fmtNum(n) {
             return Math.round(n).toLocaleString();
@@ -1424,6 +1454,13 @@
                     }
                 });
             });
+
+            // City data is now loaded; the region-select control can operate on
+            // this city's blended hex FC. Enable it (it starts disabled).
+            {
+                const rsBtn = document.getElementById('region-select-btn');
+                if (rsBtn) rsBtn.disabled = false;
+            }
         }
 
         // Register the hex-fill hover/click handlers exactly once. They read live
@@ -1451,6 +1488,7 @@
                 tooltip.style.display = 'none';
             });
             map.on('click', 'hex-fill', e => {
+                if (selecting) return; // region-select drag in progress; don't open hex panel
                 if (!e.features || e.features.length === 0) return;
                 const p = e.features[0].properties;
                 const hexId = p.hex_id;
@@ -1498,6 +1536,149 @@
             });
         }
         registerHexHandlers();
+
+        // --- Drag-to-select region -> aggregate totals ---------------------
+        // Lets the user drag a rectangle on the map and see aggregate totals
+        // (hex count, area, area-weighted % covered, total est. cost) for the
+        // hexes whose centroid falls inside the rectangle. Operates entirely on
+        // the currently-visible city's blended hex FC (buildBlendedHexFC, which
+        // already respects activeTypes + currentScope); no backend calls.
+        (function setupRegionSelect() {
+            const btn = document.getElementById('region-select-btn');
+            const band = document.getElementById('region-rubberband');
+            if (!btn || !band) return;
+            const mapEl = document.getElementById('map');
+
+            let startPt = null; // { x, y } in map-container pixels at mousedown
+
+            // Centroid of a GeoJSON polygon as the average of its outer-ring
+            // vertices (plain JS, no turf). Documented approximation: hexes whose
+            // centroid straddles the selection edge may be in/excluded.
+            function polyCentroid(geom) {
+                let ring = null;
+                if (geom.type === 'Polygon') ring = geom.coordinates[0];
+                else if (geom.type === 'MultiPolygon') ring = geom.coordinates[0] && geom.coordinates[0][0];
+                if (!ring || ring.length === 0) return null;
+                let sx = 0, sy = 0, n = 0;
+                for (const v of ring) { sx += v[0]; sy += v[1]; n++; }
+                return n ? [sx / n, sy / n] : null;
+            }
+
+            // Convert a mouse event to pixel coords relative to the map element.
+            function relPoint(e) {
+                const r = mapEl.getBoundingClientRect();
+                return { x: e.clientX - r.left, y: e.clientY - r.top };
+            }
+
+            function setBand(a, b) {
+                const left = Math.min(a.x, b.x), top = Math.min(a.y, b.y);
+                band.style.left = left + 'px';
+                band.style.top = top + 'px';
+                band.style.width = Math.abs(a.x - b.x) + 'px';
+                band.style.height = Math.abs(a.y - b.y) + 'px';
+                band.hidden = false;
+            }
+
+            // Tear down selection mode and restore normal map interaction. Safe
+            // to call from any exit path (mouseup, Esc, error). ALWAYS re-enables
+            // dragPan so panning works again afterwards.
+            function stopSelecting() {
+                selecting = false;
+                startPt = null;
+                band.hidden = true;
+                btn.setAttribute('aria-pressed', 'false');
+                map.dragPan.enable();
+                map.getCanvas().style.cursor = '';
+            }
+
+            function startSelecting() {
+                selecting = true;
+                btn.setAttribute('aria-pressed', 'true');
+                map.dragPan.disable();
+                map.getCanvas().style.cursor = 'crosshair';
+            }
+
+            btn.addEventListener('click', () => {
+                if (btn.disabled) return;
+                if (selecting) { stopSelecting(); return; }
+                startSelecting();
+            });
+
+            // Use the MAP's own pointer events so we don't fight dragPan or block
+            // its handlers with a capturing DOM overlay.
+            map.on('mousedown', (e) => {
+                if (!selecting) return;
+                startPt = relPoint(e.originalEvent);
+                setBand(startPt, startPt);
+            });
+            map.on('mousemove', (e) => {
+                if (!selecting || !startPt) return;
+                setBand(startPt, relPoint(e.originalEvent));
+            });
+            map.on('mouseup', (e) => {
+                if (!selecting || !startPt) return;
+                const endPt = relPoint(e.originalEvent);
+                const s = startPt;
+                try {
+                    // Screen pixels -> geographic via map.unproject. map.unproject
+                    // expects coords relative to the map canvas (same origin as our
+                    // relPoint, which measures from the map element).
+                    const p1 = map.unproject([s.x, s.y]);
+                    const p2 = map.unproject([endPt.x, endPt.y]);
+                    const minLng = Math.min(p1.lng, p2.lng), maxLng = Math.max(p1.lng, p2.lng);
+                    const minLat = Math.min(p1.lat, p2.lat), maxLat = Math.max(p1.lat, p2.lat);
+                    aggregateSelection([minLng, minLat, maxLng, maxLat]);
+                } catch (err) {
+                    // unproject (or anything else) failed — still restore the map.
+                    console.error('region select failed', err);
+                } finally {
+                    stopSelecting();
+                }
+            });
+
+            // Esc cancels mid-drag (or while armed) without aggregating.
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && selecting) stopSelecting();
+            });
+
+            // Aggregate the blended hex FC over the selection bbox and render the
+            // result card into #stats. Empty selection shows zeros, not an error.
+            function aggregateSelection(bbox) {
+                const [minLng, minLat, maxLng, maxLat] = bbox;
+                const fc = buildBlendedHexFC();
+                let count = 0, sumArea = 0, sumCost = 0, sumPctArea = 0;
+                for (const f of (fc.features || [])) {
+                    const c = polyCentroid(f.geometry);
+                    if (!c) continue;
+                    if (c[0] < minLng || c[0] > maxLng || c[1] < minLat || c[1] > maxLat) continue;
+                    const area = f.properties.area || 0;
+                    count++;
+                    sumArea += area;
+                    sumCost += f.properties.est_cost || 0;
+                    sumPctArea += (f.properties.pct_covered || 0) * area;
+                }
+                const wPct = sumArea > 0 ? (sumPctArea / sumArea) : 0;
+
+                const statsEl = document.getElementById('stats');
+                // Single-slot savedPanelHTML is shared with the hex-click panel.
+                // Only capture when neither detail panel is already showing, so
+                // closing restores the real stats, not another detail view.
+                if (!statsEl.querySelector('.hex-detail') && !statsEl.querySelector('.region-detail')) {
+                    savedPanelHTML = statsEl.innerHTML;
+                }
+                statsEl.innerHTML =
+                    '<div class="region-detail">' +
+                    '<div class="stat-card summary-card">' +
+                    '<h3>Selected Region<button class="close-btn" id="close-region" type="button" aria-label="Close region selection">&times;</button></h3>' +
+                    '<div class="stat-row"><span class="stat-label">Hexes selected</span><span class="stat-value">' + fmtNum(count) + '</span></div>' +
+                    '<div class="stat-row"><span class="stat-label">Total Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + toAreaLarge(sumArea).toFixed(1) + '</span></div>' +
+                    '<div class="stat-row"><span class="stat-label">% Covered (area-weighted)</span><span class="stat-value">' + wPct.toFixed(1) + '%</span></div>' +
+                    '<div class="stat-row"><span class="stat-label">Est. Cost</span><span class="stat-value">' + fmtCost(sumCost) + '</span></div>' +
+                    '</div></div>';
+                const closeBtn = document.getElementById('close-region');
+                if (closeBtn) closeBtn.addEventListener('click', () => { statsEl.innerHTML = savedPanelHTML; });
+            }
+        })();
 
         map.on('load', () => loadCityData());
 

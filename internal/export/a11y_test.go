@@ -231,6 +231,35 @@ func TestLayerTogglesInGearMenu(t *testing.T) {
 	}
 }
 
+// TestRegionSelectControl asserts the drag-to-select-region control and its
+// supporting markup render and the template parses: the "Select Region"
+// button, the rubber-band overlay div, and the region-result card class the
+// JS injects (.region-detail) all exist.
+func TestRegionSelectControl(t *testing.T) {
+	tmpl := parseDashboardTemplates(t)
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, TemplateData{}); err != nil {
+		t.Fatalf("execute index: %v", err)
+	}
+	out := buf.String()
+
+	if !strings.Contains(out, `id="region-select-btn"`) {
+		t.Error("missing region-select button")
+	}
+	if !strings.Contains(out, `>Select Region<`) {
+		t.Error("region-select button label missing")
+	}
+	if !strings.Contains(out, `id="region-rubberband"`) {
+		t.Error("missing rubber-band overlay div")
+	}
+	// The result-card container class the JS injects must be styled/present
+	// in the rendered output (CSS rule) so the panel renders correctly.
+	if !strings.Contains(out, ".region-detail") {
+		t.Error("missing .region-detail styling/markup for the result card")
+	}
+}
+
 // TestDashboardFormLabelAssociations asserts the financials tab range
 // inputs have <label for=...> associations rather than relying on visual
 // proximity alone.
