@@ -55,14 +55,27 @@ func BuildMultiCityMeta(ctx context.Context, entries []CityEntry, regionName str
 // Reads only rt.Name() (no ":city" variants): the per-resource cards on the
 // landing page surface all-jurisdiction totals, matching single-city BuildMeta.
 func aggregatePerResourceStats(ctx context.Context, entries []CityEntry) []StatJSON {
+	types := make([]resource.Type, 0, len(resource.All))
+	for _, rt := range resource.All {
+		types = append(types, rt.Type())
+	}
 	statByType := make(map[string]*StatJSON)
 	for _, entry := range entries {
+		// One batched lookup per entry replaces the per-resource
+		// LatestComputeResult loop. A type missing from the returned map is
+		// the same skip as the old loop's err/nil result — it contributes
+		// nothing.
+		latestByType, err := entry.Store.LatestComputeResults(ctx, types)
+		if err != nil {
+			continue
+		}
 		for _, rt := range resource.All {
-			kindName := string(rt.Type())
-			result, err := entry.Store.LatestComputeResult(ctx, rt.Type())
-			if err != nil || result == nil {
+			t := rt.Type()
+			result, ok := latestByType[t]
+			if !ok || result == nil {
 				continue
 			}
+			kindName := string(t)
 			st, ok := statByType[kindName]
 			if !ok {
 				st = &StatJSON{Type: kindName, Color: ResourceColors[kindName]}
@@ -227,13 +240,22 @@ func mergeCohortSeeds(ctx context.Context, entries []CityEntry, fc *config.Forec
 	if cityScope {
 		scope = resource.ScopeCity
 	}
+	scopedTypes := make([]resource.Type, 0, len(resource.All))
+	for _, rt := range resource.All {
+		scopedTypes = append(scopedTypes, rt.Type().With(scope))
+	}
 	for _, entry := range entries {
+		// One batched cohort-stats lookup per entry; a scoped type absent
+		// from the map is the same skip as the old per-type err/empty path.
+		// Iterate resource.All (not the map) so first-seen Order stays
+		// deterministic and matches the pre-batch insertion order.
+		statsByType, err := entry.Store.ListCohortStatsForTypes(ctx, scopedTypes)
+		if err != nil {
+			continue
+		}
 		for _, rt := range resource.All {
 			t := rt.Type()
-			stats, err := entry.Store.ListCohortStats(ctx, t.With(scope))
-			if err != nil {
-				continue
-			}
+			stats := statsByType[t.With(scope)]
 			for _, st := range stats {
 				k := key{Resource: string(t), Classification: st.Classification}
 				b, ok := buckets[k]

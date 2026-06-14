@@ -2,6 +2,7 @@ package export
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -84,7 +86,11 @@ func (e *Exporter) runSingleCity(ctx context.Context) error {
 		return fmt.Errorf("create output dir: %w", err)
 	}
 
-	if err := e.exportCityData(ctx, entry, dataDir); err != nil {
+	// exportCityData already builds the MetaJSON and forecast seed it writes to
+	// data/meta.json + data/forecast_seed.json; reuse them for index.html rather
+	// than recomputing both (a second round of DB queries and boundary parses).
+	meta, seed, err := e.exportCityData(ctx, entry, dataDir)
+	if err != nil {
 		return err
 	}
 
@@ -103,15 +109,6 @@ func (e *Exporter) runSingleCity(ctx context.Context) error {
 		}
 	}
 
-	fc := e.cfg.ResolvedForecast(&entry.City)
-	seed, err := BuildForecastSeed(ctx, &fc, entry.Store)
-	if err != nil {
-		return err
-	}
-	meta, err := BuildMeta(ctx, entry)
-	if err != nil {
-		return err
-	}
 	return e.renderHTML(meta, seed, rawTOML, ResolvedTOML(e.cfg), e.unitSystem, nil)
 }
 
@@ -126,7 +123,10 @@ func (e *Exporter) exportOneCity(ctx context.Context, entry CityEntry) (CityInfo
 	if err := os.MkdirAll(cityDataDir, 0o755); err != nil {
 		return CityInfo{}, false, fmt.Errorf("create city dir %s: %w", entry.Slug, err)
 	}
-	if err := e.exportCityData(ctx, entry, cityDataDir); err != nil {
+	// Multi-city discards the per-city meta/seed: the landing page renders
+	// region-wide aggregates (BuildMultiCityMeta / BuildMultiCityForecastSeed),
+	// and exportOneCity only needs the per-city bbox/center via entry.Info.
+	if _, _, err := e.exportCityData(ctx, entry, cityDataDir); err != nil {
 		if errors.Is(err, ErrNoBoundary) {
 			fmt.Fprintf(e.warnOut(), "  skipping %s: no boundary stored (ingest failed earlier)\n", entry.Slug)
 			return CityInfo{}, false, nil
@@ -166,6 +166,11 @@ func (e *Exporter) runMultiCity(ctx context.Context) error {
 	if cities == nil {
 		cities = []CityInfo{}
 	}
+	// Alphabetise the city selector case-insensitively by Name. Stable so
+	// ties (e.g. two same-named cities in different states) keep config order.
+	slices.SortStableFunc(cities, func(a, b CityInfo) int {
+		return cmp.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
+	})
 	if err := writeJSON(filepath.Join(e.outputDir, "cities.json"), cities); err != nil {
 		return fmt.Errorf("write cities.json: %w", err)
 	}
@@ -204,19 +209,23 @@ func (e *Exporter) runMultiCity(ctx context.Context) error {
 	return e.renderHTML(meta, seed, rawTOML, ResolvedTOML(e.cfg), e.unitSystem, cities)
 }
 
-func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir string) error {
+// exportCityData writes a city's data directory and returns the MetaJSON and
+// forecast seed it built along the way, so a caller rendering index.html for
+// the same city (runSingleCity) reuses them instead of recomputing — each
+// rebuild is a fresh round of DB queries plus boundary re-parsing.
+func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir string) (MetaJSON, template.JS, error) {
 	if err := entry.RequireMatchingSnapshot(ctx); err != nil {
-		return err
+		return MetaJSON{}, "", err
 	}
 	_, lon, lat, err := entry.BBoxAndCenter(ctx)
 	if err != nil {
-		return fmt.Errorf("city bbox: %w", err)
+		return MetaJSON{}, "", fmt.Errorf("city bbox: %w", err)
 	}
 	proj := geo.NewUTMProjector(lon, lat)
 
 	meta, err := BuildMeta(ctx, entry)
 	if err != nil {
-		return err
+		return MetaJSON{}, "", err
 	}
 
 	// Write boundary.geojson if boundary exists
@@ -232,7 +241,7 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 			},
 		}
 		if err := writeJSON(filepath.Join(dataDir, "boundary.geojson"), fc); err != nil {
-			return fmt.Errorf("write boundary geojson: %w", err)
+			return MetaJSON{}, "", fmt.Errorf("write boundary geojson: %w", err)
 		}
 	}
 
@@ -241,35 +250,35 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 	// a feature without "city" signals "hide the scope toggle" to the client.
 	hexFC, err := BuildHexGeoJSON(ctx, entry, proj)
 	if err != nil {
-		return fmt.Errorf("build hexgrid: %w", err)
+		return MetaJSON{}, "", fmt.Errorf("build hexgrid: %w", err)
 	}
 	if hexFC != nil {
 		if err := writeJSONCompact(filepath.Join(dataDir, "hexgrid.geojson"), hexFC); err != nil {
-			return fmt.Errorf("write hexgrid: %w", err)
+			return MetaJSON{}, "", fmt.Errorf("write hexgrid: %w", err)
 		}
 	}
 
 	// Write meta.json
 	if err := writeJSON(filepath.Join(dataDir, "meta.json"), meta); err != nil {
-		return fmt.Errorf("write meta: %w", err)
+		return MetaJSON{}, "", fmt.Errorf("write meta: %w", err)
 	}
 
 	// Export forecast and scenario data
 	if err := exportScenariosForCity(ctx, entry, dataDir); err != nil {
-		return fmt.Errorf("export scenarios: %w", err)
+		return MetaJSON{}, "", fmt.Errorf("export scenarios: %w", err)
 	}
 
 	// Export forecast seed for interactive WASM controls (per-city)
 	forecastCfg := entry.Config.ResolvedForecast(&entry.City)
 	seed, err := BuildForecastSeed(ctx, &forecastCfg, entry.Store)
 	if err != nil {
-		return fmt.Errorf("build forecast seed: %w", err)
+		return MetaJSON{}, "", fmt.Errorf("build forecast seed: %w", err)
 	}
 	if err := os.WriteFile(filepath.Join(dataDir, "forecast_seed.json"), []byte(seed), 0o644); err != nil {
-		return fmt.Errorf("write forecast_seed.json: %w", err)
+		return MetaJSON{}, "", fmt.Errorf("write forecast_seed.json: %w", err)
 	}
 
-	return nil
+	return meta, seed, nil
 }
 
 func exportScenariosForCity(ctx context.Context, entry CityEntry, dataDir string) error {
