@@ -214,6 +214,121 @@ func TestSnapshotPinningAcrossResultTables(t *testing.T) {
 	}
 }
 
+// TestSnapshotBatchQuery_PinnedAndConfigHashArms locks the batch read
+// path (LatestComputeResults / ListCohortStatsForTypes), which hand-builds
+// an IN(...) placeholder list plus positional binds in snapshotBatchQuery.
+// The single-row variants (LatestComputeResult / ListCohortStats) are well
+// covered, but the batch arms run against real SQLite only here — handler
+// tests exercise them solely through dbtest.MockStore, bypassing the SQL.
+// We seed two resource types across two snapshots, then assert the batch
+// result equals the single-row result per type for (a) a pinned snapshot
+// id and (b) a config-hash pin. A bind-ordering or placeholder mistake in
+// the batch SQL's arm-1 (pinned) or arm-2 (config hash) fails here.
+func TestSnapshotBatchQuery_PinnedAndConfigHashArms(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+
+	types := []resource.Type{rtRoads, rtParking}
+
+	snap1, err := store.CreateSnapshot(ctx, "hash-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap2, err := store.CreateSnapshot(ctx, "hash-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Seed both resource types under both snapshots so the batch query's
+	// per-type partitioning and IN(...) list are actually exercised.
+	for _, snap := range []*Snapshot{snap1, snap2} {
+		id := snap.ID
+		for ti, rt := range types {
+			if err := store.SaveComputeResult(ctx, ComputeResult{
+				ResourceType: rt, TotalArea: float64(id*100 + int64(ti)), FeatureCount: int(id), SnapshotID: &id,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.SaveCohortStats(ctx, []CohortStat{
+				{ResourceType: rt, Classification: "primary", Area: float64(id*1000 + int64(ti)), FeatureCount: 1, SnapshotID: &id},
+				{ResourceType: rt, Classification: "residential", Area: float64(id*2000 + int64(ti)), FeatureCount: 2, SnapshotID: &id},
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	// assertBatchMatchesSingleRow checks that, for the given scoped store,
+	// LatestComputeResults/ListCohortStatsForTypes return exactly what the
+	// per-type single-row methods return for every seeded type.
+	assertBatchMatchesSingleRow := func(t *testing.T, scoped Store, label string) {
+		t.Helper()
+
+		batchCR, err := scoped.LatestComputeResults(ctx, types)
+		if err != nil {
+			t.Fatalf("%s: LatestComputeResults: %v", label, err)
+		}
+		batchCohort, err := scoped.ListCohortStatsForTypes(ctx, types)
+		if err != nil {
+			t.Fatalf("%s: ListCohortStatsForTypes: %v", label, err)
+		}
+
+		for _, rt := range types {
+			singleCR, err := scoped.LatestComputeResult(ctx, rt)
+			if err != nil {
+				t.Fatalf("%s: LatestComputeResult(%s): %v", label, rt, err)
+			}
+			bCR := batchCR[rt]
+			if bCR == nil {
+				t.Fatalf("%s: batch LatestComputeResults missing type %s", label, rt)
+			}
+			if bCR.TotalArea != singleCR.TotalArea || bCR.SnapshotID == nil || singleCR.SnapshotID == nil || *bCR.SnapshotID != *singleCR.SnapshotID {
+				t.Errorf("%s: batch compute result for %s = %+v; single-row = %+v", label, rt, bCR, singleCR)
+			}
+
+			singleCohort, err := scoped.ListCohortStats(ctx, rt)
+			if err != nil {
+				t.Fatalf("%s: ListCohortStats(%s): %v", label, rt, err)
+			}
+			bCohort := batchCohort[rt]
+			if len(bCohort) != len(singleCohort) {
+				t.Fatalf("%s: batch cohort rows for %s = %d; single-row = %d", label, rt, len(bCohort), len(singleCohort))
+			}
+			// Compare as multisets keyed by classification+area; row order
+			// is not contractual.
+			want := map[string]float64{}
+			for _, c := range singleCohort {
+				want[c.Classification] = c.Area
+			}
+			for _, c := range bCohort {
+				if want[c.Classification] != c.Area {
+					t.Errorf("%s: batch cohort for %s/%s area = %v; single-row = %v", label, rt, c.Classification, c.Area, want[c.Classification])
+				}
+			}
+		}
+	}
+
+	// Arm 1: pinned snapshot id (the ?snapshot=N time-travel path).
+	assertBatchMatchesSingleRow(t, store.WithSnapshot(snap1.ID), "pinned-snap1")
+	assertBatchMatchesSingleRow(t, store.WithSnapshot(snap2.ID), "pinned-snap2")
+
+	// Arm 2: config-hash pin.
+	assertBatchMatchesSingleRow(t, store.WithConfigHash("hash-1"), "config-hash-1")
+	assertBatchMatchesSingleRow(t, store.WithConfigHash("hash-2"), "config-hash-2")
+
+	// Sanity: the pinned arm actually selects the pinned snapshot's data,
+	// not just whatever the single-row method also returns. snap1's roads
+	// area is snap1.ID*100; confirm the batch read reflects that.
+	pinned := store.WithSnapshot(snap1.ID)
+	cr, err := pinned.LatestComputeResults(ctx, types)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cr[rtRoads]; got == nil || got.TotalArea != float64(snap1.ID*100) {
+		t.Errorf("pinned-snap1 batch roads compute result = %+v; want area %v", got, snap1.ID*100)
+	}
+}
+
 // TestListReads_LatestSnapshotPerResource pins the regression: when the
 // same resource type writes hex_stats / cohort_stats / forecast_results
 // rows under two different snapshots (e.g. `pvmt compute roads` ran

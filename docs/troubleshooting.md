@@ -5,7 +5,7 @@ When pvmt exits with an error, it prints two things:
 1. The error itself (e.g., `config file not found`).
 2. A one-line **hint** suggesting a fix.
 
-This page expands the hints into longer guidance. Each section's anchor matches the short label pvmt prints when it has one (e.g., `pvmt config show` references `#config-not-found`).
+This page expands the hints into longer guidance. Each section quotes the hint text verbatim, so you can match the message pvmt printed to its section below.
 
 ## `#config-not-found`
 

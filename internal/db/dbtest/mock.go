@@ -16,8 +16,11 @@ var _ db.Store = (*MockStore)(nil)
 // Each method delegates to its corresponding func field if set,
 // otherwise returns a zero-value success. List* methods return a
 // non-nil empty slice rather than nil so tests can distinguish "no
-// rows" from "not mocked" via len, matching the rows-iteration
-// contract of the real sqliteStore.
+// rows" from "not mocked" via len. This is a DELIBERATE divergence
+// from the real sqliteStore, whose List* methods use `var xs []T` +
+// append and so return NIL on zero rows (see internal/db/store.go).
+// Tests that assert the empty-path JSON shape (nil -> `null` vs
+// `[]`) must therefore use a real in-memory store, not this mock.
 type MockStore struct {
 	UpsertFeaturesFunc          func(context.Context, resource.Type, []db.Feature, []string) error
 	ListFeaturesFunc            func(context.Context, resource.Type) ([]db.Feature, error)

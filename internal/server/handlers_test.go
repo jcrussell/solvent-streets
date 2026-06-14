@@ -225,6 +225,47 @@ func TestHandleSnapshots_SingleCity(t *testing.T) {
 	}
 }
 
+// TestHandleSnapshots_EmptyEmitsArrayNotNull pins the empty-path JSON shape
+// against a REAL in-memory store: a city with zero snapshots must serialize
+// to `[]`, not `null`. This is the contract the serveSnapshotsJSON nil-guard
+// (snaps == nil -> []db.Snapshot{}) exists to uphold. The MockStore can't
+// catch a regression here because its List* default returns a non-nil empty
+// slice (a deliberate divergence from the real store, which returns nil on
+// zero rows) — so this assertion must run through real SQLite.
+func TestHandleSnapshots_EmptyEmitsArrayNotNull(t *testing.T) {
+	ctx := context.Background()
+	root, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	cityID, err := root.EnsureCity(ctx, "test-city", "Test City", "test-cfg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := root.ForCity(cityID)
+
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Test City"}}}
+	entry := export.CityEntry{
+		Config: cfg, City: cfg.Cities[0], Store: store, Slug: cfg.Cities[0].Slug(),
+	}
+	ios, _, _, _ := iostreams.Test()
+	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/snapshots", srv.handleSnapshotsList(entry))
+
+	req, _ := http.NewRequestWithContext(ctx, "GET", "/api/snapshots", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if body := strings.TrimSpace(w.Body.String()); body != "[]" {
+		t.Errorf("empty snapshot list must serialize to %q, got %q", "[]", body)
+	}
+}
+
 // TestHandleSnapshots_MultiCity exercises /api/cities/{slug}/snapshots and
 // verifies city-slug routing + 404 on unknown slug.
 func TestHandleSnapshots_MultiCity(t *testing.T) {

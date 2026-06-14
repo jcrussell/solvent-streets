@@ -9,10 +9,12 @@ import (
 
 // TestMockStore_DefaultListReturnsEmptyNotNil pins the default-return
 // contract for List* methods: when the Func field is unset, each
-// returns a non-nil empty slice and a nil error. The real sqliteStore
-// builds its result by rows-iteration so the slice is never nil; tests
-// that distinguish "no rows" from "method not mocked" would otherwise
-// be silently miscovered. Regression guard for solvent-streets-a66s.
+// returns a non-nil empty slice and a nil error, so tests can
+// distinguish "no rows" from "method not mocked". This is a deliberate
+// divergence from the real sqliteStore, which returns NIL on zero rows
+// (its List* methods use `var xs []T` + append). Empty-path JSON-shape
+// assertions must use a real in-memory store, not this mock.
+// Regression guard for solvent-streets-a66s.
 func TestMockStore_DefaultListReturnsEmptyNotNil(t *testing.T) {
 	ctx := context.Background()
 	m := &MockStore{}

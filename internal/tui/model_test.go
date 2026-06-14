@@ -39,9 +39,8 @@ func TestStepModel_PhaseTransitions(t *testing.T) {
 }
 
 // TestStepModel_PhaseStart_OnlyOnPending pins idempotence: PhaseStart on
-// an already-done step must not reactivate it. The TUINotifier sends
-// PhaseStart for both the parent and the sub-step on a SubPhaseStart, so
-// re-activating a completed parent would visibly flicker the UI.
+// an already-done step must not reactivate it. Re-activating a completed
+// step would visibly flicker the UI.
 func TestStepModel_PhaseStart_OnlyOnPending(t *testing.T) {
 	m := NewStepModel("compute", []Step{{Name: "step-0"}}, DoneConfig{})
 	m.handlePhaseStart(PhaseStartMsg{Phase: 0})
@@ -105,8 +104,6 @@ func TestNoopNotifier_AcceptsAllCalls(t *testing.T) {
 	n.PhaseDone(0, nil)
 	n.PhaseDone(0, errors.New("err"))
 	n.PhaseProgress(0, 0.5, "")
-	n.SubPhaseStart(0, 1)
-	n.SubPhaseDone(0, 1, nil)
 }
 
 // TestProgressMsg_EventShape pins the JSON-free event payloads emitted

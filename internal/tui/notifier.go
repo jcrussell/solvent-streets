@@ -12,8 +12,6 @@ type PhaseNotifier interface {
 	PhaseStart(idx int)
 	PhaseDone(idx int, err error)
 	PhaseProgress(idx int, pct float64, detail string)
-	SubPhaseStart(parentIdx, subIdx int)
-	SubPhaseDone(parentIdx, subIdx int, err error)
 }
 
 // NoopNotifier does nothing. Used for the plain-text code path where
@@ -23,8 +21,6 @@ type NoopNotifier struct{}
 func (NoopNotifier) PhaseStart(int)                     {}
 func (NoopNotifier) PhaseDone(int, error)               {}
 func (NoopNotifier) PhaseProgress(int, float64, string) {}
-func (NoopNotifier) SubPhaseStart(int, int)             {}
-func (NoopNotifier) SubPhaseDone(int, int, error)       {}
 
 // TUINotifier sends tea.Msg values to a running bubbletea program.
 type TUINotifier struct {
@@ -41,17 +37,4 @@ func (n *TUINotifier) PhaseDone(idx int, err error) {
 
 func (n *TUINotifier) PhaseProgress(idx int, pct float64, detail string) {
 	n.Program.Send(PhaseProgressMsg{Phase: idx, Percent: pct, Detail: detail})
-}
-
-func (n *TUINotifier) SubPhaseStart(parentIdx, subIdx int) {
-	// Activate parent (idempotent in the model — active stays active).
-	n.Program.Send(PhaseStartMsg{Phase: parentIdx})
-	// Activate sub-step.
-	n.Program.Send(PhaseStartMsg{Phase: subIdx})
-}
-
-func (n *TUINotifier) SubPhaseDone(parentIdx, subIdx int, err error) {
-	// parentIdx is not marked done here — the caller completes the parent
-	// via PhaseDone after all sub-steps finish (see up.go doProvision).
-	n.Program.Send(PhaseDoneMsg{Phase: subIdx, Err: err})
 }
