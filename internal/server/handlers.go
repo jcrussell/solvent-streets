@@ -1,11 +1,13 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html/template"
 	"net/http"
 	"os"
 	"strconv"
@@ -14,9 +16,14 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/export"
 	"github.com/jcrussell/solvent-streets/internal/geo"
+	"github.com/jcrussell/solvent-streets/internal/units"
 )
 
-// handleIndex renders the export template with live data.
+// handleIndex serves the rendered index page from the lifetime cache. The
+// first request builds it (choose city, build TemplateData, parse template,
+// render to bytes); every later request writes the cached bytes. See
+// renderIndex for the single-flight/caching mechanism and why HTML can't ride
+// serveJSONCached.
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
@@ -28,27 +35,124 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Pick the first city whose template data builds successfully rather than
-	// anchoring on s.cities[0]: a broken first city (e.g. no boundary ingested
-	// yet) would otherwise 500 the whole site and hide every healthy city. The
-	// entry must be chosen before ParseIndexTemplate since the template depends
-	// on entry.Config.UnitSystem(). 500 only when no city renders.
-	entry, td, err := s.firstRenderableCity(r.Context())
-	if err != nil {
-		s.httpErr(w, err, http.StatusInternalServerError)
-		return
-	}
-
-	tmpl, err := export.ParseIndexTemplate(entry.Config.UnitSystem())
+	page, err := s.renderIndex()
 	if err != nil {
 		s.httpErr(w, err, http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := tmpl.Execute(w, td); err != nil {
-		s.httpErr(w, err, http.StatusInternalServerError)
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	w.Write(page)
+}
+
+// indexThunk wraps a sync.OnceValues thunk so s.indexPages stores
+// pointer-comparable values (see jsonThunk).
+type indexThunk struct {
+	once func() ([]byte, error)
+}
+
+// templateThunk caches a parsed *template.Template per unit system (see
+// jsonThunk for why the value is a pointer wrapper).
+type templateThunk struct {
+	once func() (*template.Template, error)
+}
+
+// renderIndex returns the rendered index HTML, building it at most once for
+// the server's lifetime. The render pipeline — firstRenderableCity (which
+// picks the first city whose buildIndexData succeeds), parsedIndexTemplate
+// (cached per unit system), and tmpl.Execute into a buffer — is deterministic
+// under the restart-after-changes invariant: cities iterate in fixed order and
+// the data is immutable, so the first successful render is the canonical page.
+//
+// HTML can't ride serveJSONCached (that marshals JSON and sets
+// application/json), so this uses a parallel sync.OnceValues against
+// s.indexPages. A single fixed key suffices because the chosen slug is
+// deterministic; storing under the chosen slug after the fact would still
+// collapse to one entry. Errors and panics evict so the next request retries
+// rather than serving a stale failure — only a successful render is cached, so
+// a broken first city still falls through to a healthy one (firstRenderableCity
+// handles that), and the all-cities-broken path returns the error to handleIndex
+// for s.httpErr.
+//
+// Caveat: BuildMeta's SnapshotDate uses time.Now() at date granularity, so the
+// cached page freezes that at first-request date — consistent with the
+// restart-after-changes design (restart for a fresh date), same as every other
+// cached endpoint.
+func (s *Server) renderIndex() ([]byte, error) {
+	const key = "index"
+	var entry *indexThunk
+	if v, ok := s.indexPages.Load(key); ok {
+		entry = v.(*indexThunk) //nolint:forcetypeassert // type invariant: only this site Stores into s.indexPages
+	} else {
+		fresh := &indexThunk{once: sync.OnceValues(func() ([]byte, error) {
+			// firstRenderableCity runs against context.Background() (not a
+			// request ctx) for the reason on serveJSONCached: the first
+			// arriver's build outlives their request and is shared.
+			city, td, err := s.firstRenderableCity(context.Background())
+			if err != nil {
+				return nil, err
+			}
+			tmpl, err := s.parsedIndexTemplate(city.Config.UnitSystem())
+			if err != nil {
+				return nil, err
+			}
+			var buf bytes.Buffer
+			if err := tmpl.Execute(&buf, td); err != nil {
+				return nil, err
+			}
+			return buf.Bytes(), nil
+		})}
+		actual, _ := s.indexPages.LoadOrStore(key, fresh)
+		entry = actual.(*indexThunk) //nolint:forcetypeassert // type invariant: only this site Stores into s.indexPages
 	}
+
+	// Evict on panic and re-raise (see serveJSONCached) so a panicking render
+	// doesn't poison the key forever.
+	defer func() {
+		if r := recover(); r != nil {
+			s.indexPages.CompareAndDelete(key, entry)
+			panic(r)
+		}
+	}()
+
+	page, err := entry.once()
+	if err != nil {
+		s.indexPages.CompareAndDelete(key, entry)
+		return nil, err
+	}
+	return page, nil
+}
+
+// parsedIndexTemplate returns the parsed index template for the given unit
+// system, parsing it at most once per system (the 153 KB template tree is
+// otherwise re-parsed on every render). UnitSystem is fixed server-wide, so in
+// practice this caches a single template; keying by System is defensive.
+func (s *Server) parsedIndexTemplate(sys units.System) (*template.Template, error) {
+	var entry *templateThunk
+	if v, ok := s.templates.Load(sys); ok {
+		entry = v.(*templateThunk) //nolint:forcetypeassert // type invariant: only this site Stores into s.templates
+	} else {
+		fresh := &templateThunk{once: sync.OnceValues(func() (*template.Template, error) {
+			return export.ParseIndexTemplate(sys)
+		})}
+		actual, _ := s.templates.LoadOrStore(sys, fresh)
+		entry = actual.(*templateThunk) //nolint:forcetypeassert // type invariant: only this site Stores into s.templates
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			s.templates.CompareAndDelete(sys, entry)
+			panic(r)
+		}
+	}()
+
+	tmpl, err := entry.once()
+	if err != nil {
+		s.templates.CompareAndDelete(sys, entry)
+		return nil, err
+	}
+	return tmpl, nil
 }
 
 // firstRenderableCity returns the first city entry whose buildIndexData
@@ -140,11 +244,19 @@ func (s *Server) httpErr(w http.ResponseWriter, err error, code int) {
 
 func (s *Server) handleWasmExecJS(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/javascript")
+	// Embedded, immutable-per-binary asset: same Cache-Control the JSON
+	// endpoints set (serveJSONCached), so the browser stops re-fetching it
+	// on every page load under the restart-after-changes invariant.
+	w.Header().Set("Cache-Control", "public, max-age=300")
 	w.Write(export.WasmExecJS())
 }
 
 func (s *Server) handleForecastWasm(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/wasm")
+	// Embedded, immutable-per-binary asset (the largest the server serves):
+	// match serveJSONCached's Cache-Control so the 3.4 MB binary isn't
+	// re-downloaded on every page load.
+	w.Header().Set("Cache-Control", "public, max-age=300")
 	w.Write(export.ForecastWasm())
 }
 
@@ -168,25 +280,34 @@ func (s *Server) handleCityDataFile(w http.ResponseWriter, r *http.Request) {
 	s.serveDataFile(w, r, file, *entry)
 }
 
-// handleCitiesList returns JSON list of all cities.
-func (s *Server) handleCitiesList(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	var cities []export.CityInfo
-	for _, e := range s.cities {
-		info, err := e.Info(ctx)
-		if err != nil {
-			fmt.Fprintf(s.ios.ErrOut, "server: skipping city %s in /api/cities: %v\n", e.Slug, err)
-			continue
+// handleCitiesList returns JSON list of all cities. The list is immutable for
+// the server's lifetime (same restart-after-changes invariant as the /data
+// endpoints), and e.Info does a GetBoundary + full-coordinate BBoxFromGeoJSON
+// walk per city, so it routes through serveJSONCached for single-flight,
+// lifetime caching, and the Cache-Control header. The build runs against
+// context.Background() (not r.Context()) for the reason documented on
+// serveJSONCached: the first arriver's build outlives their request.
+func (s *Server) handleCitiesList(w http.ResponseWriter, _ *http.Request) {
+	s.serveJSONCached(w, "cities", func() (any, error) {
+		var cities []export.CityInfo
+		for _, e := range s.cities {
+			info, err := e.Info(context.Background())
+			if err != nil {
+				// Preserve the skip-broken-city tolerance: a city whose
+				// boundary fails to load shouldn't 500 the whole list.
+				fmt.Fprintf(s.ios.ErrOut, "server: skipping city %s in /api/cities: %v\n", e.Slug, err)
+				continue
+			}
+			cities = append(cities, info)
 		}
-		cities = append(cities, info)
-	}
-	// Emit [] rather than null when every city skips, matching
-	// serveSnapshotsJSON's nil-guard and the static cities.json path so a
-	// consumer iterating the list never hits a null (server/static parity).
-	if cities == nil {
-		cities = []export.CityInfo{}
-	}
-	s.writeJSON(w, cities)
+		// Emit [] rather than null when every city skips, matching
+		// serveSnapshotsJSON's nil-guard and the static cities.json path so a
+		// consumer iterating the list never hits a null (server/static parity).
+		if cities == nil {
+			cities = []export.CityInfo{}
+		}
+		return cities, nil
+	})
 }
 
 // handleSnapshotsList returns a handler for the single-city /api/snapshots route.
@@ -326,14 +447,6 @@ func (s *Server) snapshotMatchesConfig(ctx context.Context, w http.ResponseWrite
 // snapshot, and two pinned snapshots cache independently.
 func cacheKey(kind, slug string, snapshotID int64) string {
 	return fmt.Sprintf("%s:%s:%d", kind, slug, snapshotID)
-}
-
-// writeJSON encodes v as JSON and writes it to w with appropriate headers.
-func (s *Server) writeJSON(w http.ResponseWriter, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(v); err != nil {
-		s.httpErr(w, err, http.StatusInternalServerError)
-	}
 }
 
 // jsonThunk wraps a sync.OnceValues thunk so s.cache stores pointer-comparable

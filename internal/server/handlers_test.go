@@ -86,8 +86,15 @@ func TestHandleDataMetaJSON(t *testing.T) {
 
 func TestHandleIndex(t *testing.T) {
 	testBoundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
+	// Count boundary reads so we can assert the index page is built once and
+	// served from cache thereafter (each render does ≥1 GetBoundary via
+	// BuildMeta/firstRenderableCity).
+	var boundaryReads atomic.Int32
 	store := &dbtest.MockStore{
-		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
+		GetBoundaryFunc: func(_ context.Context) (string, error) {
+			boundaryReads.Add(1)
+			return testBoundary, nil
+		},
 		LatestComputeResultFunc: func(_ context.Context, _ resource.Type) (*db.ComputeResult, error) {
 			// Un-computed resources return sql.ErrNoRows in production;
 			// BuildMeta skips those (and propagates only real DB errors).
@@ -108,19 +115,42 @@ func TestHandleIndex(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", srv.handleIndex)
 
-	req, _ := http.NewRequestWithContext(context.Background(), "GET", "/", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	hit := func() *httptest.ResponseRecorder {
+		req, _ := http.NewRequestWithContext(context.Background(), "GET", "/", nil)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		return w
 	}
-	if w.Body.Len() == 0 {
+
+	w1 := hit()
+	if w1.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w1.Code, w1.Body.String())
+	}
+	if w1.Body.Len() == 0 {
 		t.Fatal("empty body")
 	}
-	body := w.Body.String()
+	body := w1.Body.String()
 	if !strings.Contains(body, `id="snapshot-picker"`) {
 		t.Errorf("live server response should include the snapshot-picker element")
+	}
+	if got := w1.Header().Get("Cache-Control"); got != "public, max-age=300" {
+		t.Errorf("index Cache-Control = %q, want %q", got, "public, max-age=300")
+	}
+
+	readsAfterFirst := boundaryReads.Load()
+
+	// Second request must serve identical bytes from the lifetime cache
+	// without re-running the (expensive) data build — boundary reads must
+	// not increase.
+	w2 := hit()
+	if w2.Code != http.StatusOK {
+		t.Fatalf("second request: expected 200, got %d", w2.Code)
+	}
+	if w1.Body.String() != w2.Body.String() {
+		t.Errorf("cached index page bytes differ between requests")
+	}
+	if got := boundaryReads.Load(); got != readsAfterFirst {
+		t.Errorf("index rebuilt on second request: boundary reads went %d → %d (expected cached)", readsAfterFirst, got)
 	}
 }
 
@@ -686,6 +716,98 @@ func TestHandleCitiesList_SchemaParity(t *testing.T) {
 	}
 	for k := range wantKeys {
 		t.Errorf("missing key %q in /api/cities response", k)
+	}
+}
+
+// TestHandleCitiesList_Cached verifies /api/cities is single-flighted through
+// serveJSONCached: the per-city Info build (GetBoundary + boundary parse) runs
+// once, and the second response carries the Cache-Control header the cached
+// endpoints set.
+func TestHandleCitiesList_Cached(t *testing.T) {
+	boundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
+	var boundaryReads atomic.Int32
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) {
+			boundaryReads.Add(1)
+			return boundary, nil
+		},
+	}
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "City A"}, {Name: "City B"}}}
+	entries := []export.CityEntry{
+		{Config: cfg, City: cfg.Cities[0], Store: store, Slug: cfg.Cities[0].Slug()},
+		{Config: cfg, City: cfg.Cities[1], Store: store, Slug: cfg.Cities[1].Slug()},
+	}
+	ios, _, _, _ := iostreams.Test()
+	srv := New(entries, "127.0.0.1", 0, ios)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/cities", srv.handleCitiesList)
+
+	hit := func() *httptest.ResponseRecorder {
+		req, _ := http.NewRequestWithContext(context.Background(), "GET", "/api/cities", nil)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		return w
+	}
+
+	w1 := hit()
+	if w1.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w1.Code, w1.Body.String())
+	}
+	readsAfterFirst := boundaryReads.Load()
+	if readsAfterFirst != 2 {
+		t.Errorf("expected 2 boundary reads (one per city) on first request, got %d", readsAfterFirst)
+	}
+
+	w2 := hit()
+	if w2.Code != http.StatusOK {
+		t.Fatalf("second request: expected 200, got %d", w2.Code)
+	}
+	if got := w2.Header().Get("Cache-Control"); got != "public, max-age=300" {
+		t.Errorf("/api/cities Cache-Control = %q, want %q", got, "public, max-age=300")
+	}
+	if got := boundaryReads.Load(); got != readsAfterFirst {
+		t.Errorf("/api/cities rebuilt on second request: boundary reads went %d → %d (expected cached)", readsAfterFirst, got)
+	}
+	if w1.Body.String() != w2.Body.String() {
+		t.Errorf("cached /api/cities body differs between requests")
+	}
+}
+
+// TestWasmAssets_CacheControl verifies the embedded WASM/JS handlers set the
+// same Cache-Control as the JSON endpoints so browsers stop re-downloading the
+// immutable-per-binary assets on every page load.
+func TestWasmAssets_CacheControl(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	srv := New(nil, "127.0.0.1", 0, ios)
+
+	cases := []struct {
+		name        string
+		handler     http.HandlerFunc
+		wantType    string
+		wantNonZero bool
+	}{
+		{"forecast.wasm", srv.handleForecastWasm, "application/wasm", true},
+		{"wasm_exec.js", srv.handleWasmExecJS, "application/javascript", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req, _ := http.NewRequestWithContext(context.Background(), "GET", "/"+tc.name, nil)
+			w := httptest.NewRecorder()
+			tc.handler(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d", w.Code)
+			}
+			if got := w.Header().Get("Cache-Control"); got != "public, max-age=300" {
+				t.Errorf("Cache-Control = %q, want %q", got, "public, max-age=300")
+			}
+			if got := w.Header().Get("Content-Type"); got != tc.wantType {
+				t.Errorf("Content-Type = %q, want %q", got, tc.wantType)
+			}
+			if tc.wantNonZero && w.Body.Len() == 0 {
+				t.Errorf("expected non-empty body")
+			}
+		})
 	}
 }
 

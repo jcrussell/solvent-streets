@@ -24,6 +24,19 @@ type Server struct {
 	cache     sync.Map // key → *jsonThunk (sync.OnceValues wrapper); single-flight, never invalidated — restart server after data changes
 	forecasts sync.Map // city slug → *forecastThunk (sync.OnceValue wrapper); shared by serveForecastJSON and serveHexCostSummary
 
+	// templates caches the parsed index template keyed by units.System. The
+	// system is fixed at construction (every CityEntry shares one *Config, so
+	// Config.UnitSystem() is server-wide), so this is effectively a single
+	// entry; keying by System is defensive in case multi-config wiring ever
+	// lets unit systems differ across cities. Value: *templateThunk.
+	templates sync.Map // units.System → *templateThunk (sync.OnceValues wrapper)
+
+	// indexPages caches the fully rendered index HTML bytes under a single
+	// fixed key (the chosen city is deterministic, so one entry suffices —
+	// see renderIndex). Same lifetime-cache invariant; HTML, so it can't ride
+	// serveJSONCached (which marshals JSON). Value: *indexThunk.
+	indexPages sync.Map // "index" → *indexThunk (sync.OnceValues wrapper)
+
 	// ReadyFile, if non-empty, receives the listening URL atomically
 	// once the TCP listener is bound. Container/test orchestration polls
 	// for the file's existence instead of parsing log lines or sleeping.
