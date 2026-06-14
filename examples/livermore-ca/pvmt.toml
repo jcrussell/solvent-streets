@@ -7,7 +7,12 @@
 config_id = "livermore-ca"
 
 [forecast]
-initial_pci = 77  # MTC 2023 pavement condition index (3-year moving average)
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-year moving average)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+initial_pci = 75
+#@cite City of Livermore 2021-23 CIP, ~$9.7M street maintenance over FY2021-22 & FY2022-23, annualized
+#@cite     https://stories.opengov.com/livermoreca/published/qebxtbqDg (accessed 2026-06-14)
+current_budget = 4850000.0
 
 [[cities]]
 name = "Livermore, CA"

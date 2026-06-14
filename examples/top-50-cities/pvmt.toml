@@ -51,6 +51,9 @@ hex_edge_m = 250  # ~8,584,629 residents; large land area
 #  2.
 [[cities]]
 name = "Los Angeles, CA"
+#@cite StreetsLA citywide network-average PCI 71
+#@cite     https://data.streetsforall.org/blog/repaving/ (accessed 2026-06-14)
+forecast.initial_pci = 71
 overpass = true
 hex_edge_m = 300  # ~3,869,089 residents; large land area
 
@@ -63,30 +66,51 @@ overpass = true
 #  4.
 [[cities]]
 name = "Houston, TX"
+#@cite Public Works Pavement Conditions, length-weighted network average, ratings through 2023
+#@cite     https://geohub.houstontx.gov/datasets/pavement-conditions (accessed 2026-06-14)
+forecast.initial_pci = 66
+#@cite FY2025 Street & Traffic Control CIP appropriation (broad capital category, not pavement-only)
+#@cite     https://www.houstontx.gov/budget/26budprop/IX_CIP.pdf (accessed 2026-06-14)
+forecast.current_budget = 281071000.0
 overpass = true
 hex_edge_m = 300  # ~2,397,315 residents; large land area
 
 #  5.
 [[cities]]
 name = "Phoenix, AZ"
+#@cite Pavement Maintenance Program ~$90M/yr (gas tax + Transportation 2050)
+#@cite     https://www.phoenix.gov/administration/departments/streets/initiatives/pavement-maintenance.html (accessed 2026-06-14)
+forecast.current_budget = 90000000.0
 overpass = true
 hex_edge_m = 300  # ~1,665,481 residents; large land area
 
 #  6.
 [[cities]]
 name = "Philadelphia, PA"
+#@cite FY2024 ~$30M capital + $30M operating paving; bundles ADA ramp construction
+#@cite     https://www.phila.gov/2023-03-02-mayors-capital-budget-proposes-continued-investments-in-better-safer-streets-2/ (accessed 2026-06-14)
+forecast.current_budget = 60000000.0
 overpass = true
 # 1,574,281 residents
 
 #  7.
 [[cities]]
 name = "San Antonio, TX"
+#@cite length-weighted average of Weighted PCI over IMP program segments (not full network), 2026
+#@cite     https://data.sanantonio.gov/dataset/imp-street (accessed 2026-06-14)
+forecast.initial_pci = 71
 overpass = true
 hex_edge_m = 300  # ~1,548,422 residents; large land area
 
 #  8.
 [[cities]]
 name = "San Diego, CA"
+#@cite San Diego citywide network-average PCI, "Fair" category, 2023 assessment
+#@cite     https://www.sandiego.gov/transportation/programs/pavement-management-plan (accessed 2026-06-14)
+forecast.initial_pci = 63
+#@cite FY2026 road repair $83.1M, 350+ mi resurfacing
+#@cite     https://www.sandiego.gov/sites/default/files/2025-07/2025-07-01-city-of-san-diego-marks-completion-of-500-miles-of-road-resurfacing-in-one-year.pdf (accessed 2026-06-14)
+forecast.current_budget = 83100000.0
 overpass = true
 # 1,406,106 residents
 
@@ -105,6 +129,9 @@ overpass = true
 # 11.
 [[cities]]
 name = "Jacksonville, FL"
+#@cite FY2025 countywide road resurfacing $22.5M (City of Jacksonville CIP; JaxToday)
+#@cite     https://jaxtoday.org/2025/09/26/city-operating-budget/ (accessed 2026-06-14)
+forecast.current_budget = 22500000.0
 overpass = true
 hex_edge_m = 300  # ~1,017,689 residents; large land area
 
@@ -117,12 +144,21 @@ overpass = true
 # 13.
 [[cities]]
 name = "San Jose, CA"
+#@cite ~$87M/yr avg over 10 yr, Measures B/T + SB1 pavement maintenance
+#@cite     https://www.sanjoseca.gov/Home/Components/News/News/471/4699 (accessed 2026-06-14)
+forecast.current_budget = 87000000.0
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 73
 overpass = true
 # 989,814 residents
 
 # 14.
 [[cities]]
 name = "Charlotte, NC"
+#@cite $31M approved resurfacing 200+ roads; bundles asphalt/sidewalk/curb (City of Charlotte; WSOC-TV)
+#@cite     https://www.wsoctv.com/news/local/map-council-voting-31-million-resurface-hundreds-charlottes-roads/5BQF22PXBNH3VNHHP3YSXDVR74/ (accessed 2026-06-14)
+forecast.current_budget = 31000000.0
 overpass = true
 # 964,784 residents
 
@@ -141,18 +177,33 @@ hex_edge_m = 250  # ~901,116 residents; large land area
 # 17.
 [[cities]]
 name = "San Francisco, CA"
+#@cite FY2025-26 roadway repaving program (incl. SB1 state + local bond funds)
+#@cite     https://www.sf.gov/news-mayor-lurie-announces-priority-street-repaving-projects/ (accessed 2026-06-14)
+forecast.current_budget = 90000000.0
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 75
 overpass = true
 # 826,079 residents
 
 # 18.
 [[cities]]
 name = "Seattle, WA"
+#@cite Street Paving & Resurfacing ongoing programs, 2024 SDOT Proposed CIP
+#@cite     https://www.seattle.gov/documents/departments/financedepartment/2429proposedcip/sdotcip.pdf (accessed 2026-06-14)
+forecast.current_budget = 27400000.0
 overpass = true
 # 784,777 residents
 
 # 19.
 [[cities]]
 name = "Denver, CO"
+#@cite CAPA 2025 Transportation Infrastructure Summary
+#@cite     https://capa.memberclicks.net/assets/docs/Transportation%20Infrastructure%20Summary%202025.pdf (accessed 2026-06-14)
+forecast.initial_pci = 76
+#@cite CAPA 2025 annual asphalt program $23,700,000; roads-only
+#@cite     https://capa.memberclicks.net/assets/docs/Transportation%20Infrastructure%20Summary%202025.pdf (accessed 2026-06-14)
+forecast.current_budget = 23700000.0
 overpass = true
 # Nominatim returns a place=city node (Point geometry) for Denver; the
 # admin_level=6 City-and-County boundary lives only as an OSM relation.
@@ -180,6 +231,9 @@ overpass = true
 # 23.
 [[cities]]
 name = "El Paso, TX"
+#@cite ~$35M/yr avg resurfacing + reconstruction, last 3 years (2025)
+#@cite     https://elpasomatters.org/2025/11/15/chris-canales-opinion-el-paso-transportation-user-fee-street-repairs/ (accessed 2026-06-14)
+forecast.current_budget = 35000000.0
 overpass = true
 # 683,012 residents
 
@@ -192,36 +246,57 @@ overpass = true
 # 25.
 [[cities]]
 name = "Boston, MA"
+#@cite Roadway Reconstruction & Resurfacing annual program, FY25-26 planned (capital + grant sources)
+#@cite     https://www.boston.gov/sites/default/files/file/2025/11/Streets%20Cabinet%20Capital.pdf (accessed 2026-06-14)
+forecast.current_budget = 24000000.0
 overpass = true
 # 672,973 residents
 
 # 26.
 [[cities]]
 name = "Detroit, MI"
+#@cite 2023 Infrastructure Improvement Program road paving (81 miles), single-year program
+#@cite     https://detroitmi.gov/news/city-announces-95m-2023-infrastructure-improvement-program-paving-81-miles-roads-and-replacing-70k (accessed 2026-06-14)
+forecast.current_budget = 95000000.0
 overpass = true
 # 649,095 residents
 
 # 27.
 [[cities]]
 name = "Louisville, KY"
+#@cite FY2025 paving budget, Metro Public Works 3-Year Paving Plan 2025-2027
+#@cite     https://louisvilleky.gov/sites/default/files/2024-12/fy-25-3-yr-paving-plan-final-20240415.pdf (accessed 2026-06-14)
+forecast.current_budget = 30000000.0
 overpass = true
 hex_edge_m = 300  # ~641,962 residents; large land area
 
 # 28.
 [[cities]]
 name = "Portland, OR"
+#@cite PBOT citywide network PCI 53, Mar 2024 (down from 76 in 2008)
+#@cite     https://www.portland.gov/transportation/news/2024/3/1/news-release-pbot-launches-two-week-pothole-march-madness-campaign (accessed 2026-06-14)
+forecast.initial_pci = 53
+#@cite Fixing Our Streets gas-tax, $70.5M over FY2024-28 (4-yr program), annualized; dedicated program, not full PBOT budget
+#@cite     https://www.portland.gov/transportation/fixing-our-streets/projects-2024-2028 (accessed 2026-06-14)
+forecast.current_budget = 17625000.0
 overpass = true
 # 635,109 residents
 
 # 29.
 [[cities]]
 name = "Memphis, TN"
+#@cite FY2027 proposed CIP $20M repaving + pothole repair (City of Memphis; Action News 5)
+#@cite     https://www.actionnews5.com/2026/04/22/memphis-mayor-proposes-898-million-budget-with-no-new-tax-increase-2027/ (accessed 2026-06-14)
+forecast.current_budget = 20000000.0
 overpass = true
 # 609,647 residents
 
 # 30.
 [[cities]]
 name = "Baltimore, MD"
+#@cite FY2027 proposed resurfacing $22.4M (Baltimore DOT; The Baltimore Banner)
+#@cite     https://www.thebanner.com/politics-power/local-government/baltimore-brandon-scott-budget-XMWKFU5DRNFUZBCCZXFR66BIY4/ (accessed 2026-06-14)
+forecast.current_budget = 22400000.0
 overpass = true
 # 569,997 residents
 
@@ -244,6 +319,12 @@ boundary_relation_id = 171262
 # 33.
 [[cities]]
 name = "Fresno, CA"
+#@cite City network PCI 64, 2025 Pavement Management Program Update (Fresno COG) [PCI not byte-verified]
+#@cite     https://www.fresnocog.org/wp-content/uploads/2026/05/PMP25_Fresno-City_Final-Report.pdf (accessed 2026-06-14)
+forecast.initial_pci = 64
+#@cite Existing-budget scenario $119.85M/10yr = $11.99M/yr (Fresno COG 2025 PMP, Table 6)
+#@cite     https://www.fresnocog.org/wp-content/uploads/2026/05/PMP25_Fresno-City_Final-Report.pdf (accessed 2026-06-14)
+forecast.current_budget = 11985000.0
 overpass = true
 # 555,549 residents
 
@@ -256,6 +337,12 @@ overpass = true
 # 35.
 [[cities]]
 name = "Sacramento, CA"
+#@cite Citywide avg PCI 59, 2022 Pavement Condition Update
+#@cite     https://www.cityofsacramento.org/public-works/maintenance-services/street-maintenance (accessed 2026-06-14)
+forecast.initial_pci = 59
+#@cite existing annual pavement M&R budget (Scenario 3 total), STA Regional PMP Final Report, June 2024
+#@cite     https://www.sacta.org/files/97648d6b8/STA+Regional+PMP+Final+Report+06182024.pdf (accessed 2026-06-14)
+forecast.current_budget = 15120560.0
 overpass = true
 # 536,449 residents
 
@@ -268,24 +355,36 @@ overpass = true
 # 37.
 [[cities]]
 name = "Kansas City, MO"
+#@cite FY2027 street resurfacing $30.9M + $8.5M amendment = ~$39.4M (KCMO; KCTV5)
+#@cite     https://www.kctv5.com/2026/03/24/kansas-city-finance-committee-adds-8m-road-resurfacing-aiming-300-lane-miles-work/ (accessed 2026-06-14)
+forecast.current_budget = 39400000.0
 overpass = true
 # 521,220 residents
 
 # 38.
 [[cities]]
 name = "Mesa, AZ"
+#@cite Mesa published Streets PCI measure (length-weighted over active segments), surveys through Jan 2025
+#@cite     https://data.mesaaz.gov/Transportation/Streets-Pavement-Condition-Index-PCI-/m9e5-yw55 (accessed 2026-06-14)
+forecast.initial_pci = 81
 overpass = true
 # 513,656 residents
 
 # 39.
 [[cities]]
 name = "Raleigh, NC"
+#@cite dedicated street-resurfacing capital ~$7.8M/yr, FY2026 budget
+#@cite     https://raleighnc.gov/government/news/raleigh-city-council-approves-178b-budget-no-tax-increase-fy-2026 (accessed 2026-06-14)
+forecast.current_budget = 7800000.0
 overpass = true
 # 506,306 residents
 
 # 40.
 [[cities]]
 name = "Colorado Springs, CO"
+#@cite 2C road-improvement program annual revenues; note ~50% funds sidewalks/curbs, not pavement-only (2023)
+#@cite     https://coloradosprings.gov/public-works/page/what-2c (accessed 2026-06-14)
+forecast.current_budget = 50000000.0
 overpass = true
 # 494,743 residents
 
@@ -298,6 +397,9 @@ overpass = true
 # 42.
 [[cities]]
 name = "Omaha, NE"
+#@cite 2025 resurfacing/repair program $28.6M, 41 projects
+#@cite     https://mayors-office.cityofomaha.org/city-news/737-road-repair-projects-planned-in-2025 (accessed 2026-06-14)
+forecast.current_budget = 28600000.0
 overpass = true
 # 488,797 residents
 
@@ -310,12 +412,24 @@ overpass = true
 # 44.
 [[cities]]
 name = "Long Beach, CA"
+#@cite Citywide PCI 61, 2025 City Manager memo (longbeach.gov) [PCI not byte-verified]
+#@cite     https://www.longbeach.gov/globalassets/city-manager/media-library/documents/memos-to-the-mayor-tabbed-file-list-folders/2025/august-1--2025---city-of-long-beach-updated-pavement-condition-index--pci--score (accessed 2026-06-14)
+forecast.initial_pci = 61
+#@cite $27.5M arterial + $18M residential street repairs = $45.5M, FY2025 completed
+#@cite     https://www.longbeach.gov/globalassets/finance/media-library/documents/city-budget-and-finances/budget/budget-documents/fy-25-adopted-budget/32-public-works (accessed 2026-06-14)
+forecast.current_budget = 45500000.0
 overpass = true
 # 450,469 residents
 
 # 45.
 [[cities]]
 name = "Oakland, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 58
+#@cite ~$60M/yr pavement system funding (Measure KK), 2022 5-Year Paving Plan
+#@cite     https://www.oaklandca.gov/projects/20225yp (accessed 2026-06-14)
+forecast.current_budget = 60000000.0
 overpass = true
 # 440,838 residents
 
@@ -334,17 +448,29 @@ overpass = true
 # 48.
 [[cities]]
 name = "Tulsa, OK"
+#@cite assumed arterial street-improvement budget (modeling assumption; arterials only), 2022-2025
+#@cite     https://www.cityoftulsa.org/media/7018/pci_presentation.pdf (accessed 2026-06-14)
+forecast.current_budget = 20000000.0
 overpass = true
 # 416,209 residents
 
 # 49.
 [[cities]]
 name = "Tampa, FL"
+#@cite Resurfacing CIP line $4.14M/yr FY2026-FY2029 (FY25-29 CIP; FY2025 was $11.84M)
+#@cite     https://www.tampa.gov/sites/default/files/document/2024/summary-cip-fy2025_fy2029_full.pdf (accessed 2026-06-14)
+forecast.current_budget = 4140000.0
 overpass = true
 # 413,554 residents
 
 # 50.
 [[cities]]
 name = "Aurora, CO"
+#@cite CAPA 2025 Transportation Infrastructure Summary
+#@cite     https://capa.memberclicks.net/assets/docs/Transportation%20Infrastructure%20Summary%202025.pdf (accessed 2026-06-14)
+forecast.initial_pci = 73
+#@cite CAPA 2025 annual asphalt program $23,000,000; roads-only
+#@cite     https://capa.memberclicks.net/assets/docs/Transportation%20Infrastructure%20Summary%202025.pdf (accessed 2026-06-14)
+forecast.current_budget = 23000000.0
 overpass = true
 # 410,053 residents

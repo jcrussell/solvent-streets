@@ -27,6 +27,12 @@ title = "Portland Metro Pavement Analysis"
 
 [[cities]]
 name = "Portland, OR"
+#@cite PBOT citywide network PCI 53, Mar 2024 (down from 76 in 2008)
+#@cite     https://www.portland.gov/transportation/news/2024/3/1/news-release-pbot-launches-two-week-pothole-march-madness-campaign (accessed 2026-06-14)
+forecast.initial_pci = 53
+#@cite Fixing Our Streets gas-tax, $70.5M over FY2024-28 (4-yr program), annualized; dedicated program, not full PBOT budget
+#@cite     https://www.portland.gov/transportation/fixing-our-streets/projects-2024-2028 (accessed 2026-06-14)
+forecast.current_budget = 17625000.0
 overpass = true
 
 [[cities]]
@@ -39,6 +45,9 @@ overpass = true
 
 [[cities]]
 name = "Hillsboro, OR"
+#@cite city-maintained roadways average PCI 83, Pavement Management Program
+#@cite     https://www.hillsboro-oregon.gov/our-city/departments/public-works/transportation/street-and-road-maintenance/pavement-management (accessed 2026-06-14)
+forecast.initial_pci = 83
 overpass = true
 
 [[cities]]
@@ -47,8 +56,14 @@ overpass = true
 
 [[cities]]
 name = "Lake Oswego, OR"
+#@cite Network PCI 75 (2022), Pavement Mgmt Program statistics 2018-2022
+#@cite     https://www.ci.oswego.or.us/pavement (accessed 2026-06-14)
+forecast.initial_pci = 75
 overpass = true
 
 [[cities]]
 name = "Milwaukie, OR"
+#@cite Street Surface Maintenance Program network-wide PCI 59
+#@cite     https://www.milwaukieoregon.gov/departments/engineering/programs/street_surface_maintenance_program.php (accessed 2026-06-14)
+forecast.initial_pci = 59
 overpass = true

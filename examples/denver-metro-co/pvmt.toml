@@ -27,6 +27,12 @@ title = "Denver Metro Pavement Analysis"
 
 [[cities]]
 name = "Denver, CO"
+#@cite CAPA 2025 Transportation Infrastructure Summary
+#@cite     https://capa.memberclicks.net/assets/docs/Transportation%20Infrastructure%20Summary%202025.pdf (accessed 2026-06-14)
+forecast.initial_pci = 76
+#@cite CAPA 2025 annual asphalt program $23,700,000; roads-only
+#@cite     https://capa.memberclicks.net/assets/docs/Transportation%20Infrastructure%20Summary%202025.pdf (accessed 2026-06-14)
+forecast.current_budget = 23700000.0
 overpass = true
 # Nominatim returns a place=city node (Point geometry) for Denver; the
 # admin_level=6 City-and-County boundary lives only as an OSM relation.
@@ -34,26 +40,59 @@ boundary_relation_id = 1411339
 
 [[cities]]
 name = "Aurora, CO"
+#@cite CAPA 2025 Transportation Infrastructure Summary
+#@cite     https://capa.memberclicks.net/assets/docs/Transportation%20Infrastructure%20Summary%202025.pdf (accessed 2026-06-14)
+forecast.initial_pci = 73
+#@cite CAPA 2025 annual asphalt program $23,000,000; roads-only
+#@cite     https://capa.memberclicks.net/assets/docs/Transportation%20Infrastructure%20Summary%202025.pdf (accessed 2026-06-14)
+forecast.current_budget = 23000000.0
 overpass = true
 
 [[cities]]
 name = "Lakewood, CO"
+#@cite CAPA 2025 Transportation Infrastructure Summary
+#@cite     https://capa.memberclicks.net/assets/docs/Transportation%20Infrastructure%20Summary%202025.pdf (accessed 2026-06-14)
+forecast.initial_pci = 76
+#@cite CAPA 2025 annual asphalt program $7,638,144; roads-only
+#@cite     https://capa.memberclicks.net/assets/docs/Transportation%20Infrastructure%20Summary%202025.pdf (accessed 2026-06-14)
+forecast.current_budget = 7638144.0
 overpass = true
 
 [[cities]]
 name = "Arvada, CO"
+#@cite CAPA 2025 Transportation Infrastructure Summary, PCI 44
+#@cite     https://capa.memberclicks.net/assets/docs/Transportation%20Infrastructure%20Summary%202025.pdf (accessed 2026-06-14)
+forecast.initial_pci = 44
+#@cite CAPA 2025 annual asphalt program $10,000,000; roads-only
+#@cite     https://capa.memberclicks.net/assets/docs/Transportation%20Infrastructure%20Summary%202025.pdf (accessed 2026-06-14)
+forecast.current_budget = 10000000.0
 overpass = true
 
 [[cities]]
 name = "Westminster, CO"
+#@cite CAPA 2025 Transportation Infrastructure Summary, PCI 54
+#@cite     https://capa.memberclicks.net/assets/docs/Transportation%20Infrastructure%20Summary%202025.pdf (accessed 2026-06-14)
+forecast.initial_pci = 54
 overpass = true
 
 [[cities]]
 name = "Centennial, CO"
+#@cite CAPA 2025 Transportation Infrastructure Summary
+#@cite     https://capa.memberclicks.net/assets/docs/Transportation%20Infrastructure%20Summary%202025.pdf (accessed 2026-06-14)
+forecast.initial_pci = 69
+#@cite CAPA 2025 annual asphalt program $8,350,000; roads-only
+#@cite     https://capa.memberclicks.net/assets/docs/Transportation%20Infrastructure%20Summary%202025.pdf (accessed 2026-06-14)
+forecast.current_budget = 8350000.0
 overpass = true
 
 [[cities]]
 name = "Boulder, CO"
+#@cite CAPA 2025 Transportation Infrastructure Summary, 2023 data
+#@cite     https://capa.memberclicks.net/assets/docs/Transportation%20Infrastructure%20Summary%202025.pdf (accessed 2026-06-14)
+forecast.initial_pci = 77
+#@cite CAPA 2025 annual asphalt program $4,000,000; roads-only
+#@cite     https://capa.memberclicks.net/assets/docs/Transportation%20Infrastructure%20Summary%202025.pdf (accessed 2026-06-14)
+forecast.current_budget = 4000000.0
 overpass = true
 
 [[cities]]

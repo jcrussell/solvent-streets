@@ -40,6 +40,9 @@ label = "Good"
 
 [[cities]]
 name = "Los Angeles, CA"
+#@cite StreetsLA citywide network-average PCI 71
+#@cite     https://data.streetsforall.org/blog/repaving/ (accessed 2026-06-14)
+forecast.initial_pci = 71
 overpass = true
 hex_edge_m = 300  # LA proper is very large (~1300 km²); use coarse hexes
 
@@ -49,19 +52,40 @@ overpass = true
 
 [[cities]]
 name = "Pasadena, CA"
+#@cite Citywide avg PCI 57, FY2026 Street Pavement & Maintenance Audit (cityofpasadena.net) [PCI not byte-verified]
+#@cite     https://www.cityofpasadena.net/city-manager/wp-content/uploads/sites/2/2026-04-Street-Pavement-and-Maintenance-Audit.pdf (accessed 2026-06-14)
+forecast.initial_pci = 57
+#@cite $1.1M CDBG street resurfacing & ADA improvements, FY2026
+#@cite     https://pasadenanow.com/main/local-affordable-housing-homeless-services-and-street-repairs-are-set-for-funding-review-funding-for-2026 (accessed 2026-06-14)
+forecast.current_budget = 1100000.0
 overpass = true
 
 [[cities]]
 name = "Long Beach, CA"
+#@cite Citywide PCI 61, 2025 City Manager memo (longbeach.gov) [PCI not byte-verified]
+#@cite     https://www.longbeach.gov/globalassets/city-manager/media-library/documents/memos-to-the-mayor-tabbed-file-list-folders/2025/august-1--2025---city-of-long-beach-updated-pavement-condition-index--pci--score (accessed 2026-06-14)
+forecast.initial_pci = 61
+#@cite $27.5M arterial + $18M residential street repairs = $45.5M, FY2025 completed
+#@cite     https://www.longbeach.gov/globalassets/finance/media-library/documents/city-budget-and-finances/budget/budget-documents/fy-25-adopted-budget/32-public-works (accessed 2026-06-14)
+forecast.current_budget = 45500000.0
 overpass = true
 hex_edge_m = 200  # second-largest LA-area city (~130 km²)
 
 [[cities]]
 name = "Glendale, CA"
+#@cite Citywide PCI 58, Sept 2023 City Council PMP report
+#@cite     https://www.glendalestar.com/news/article_f358ac62-5a5f-11ee-b646-27d066b51a60.html (accessed 2026-06-14)
+forecast.initial_pci = 58
 overpass = true
 
 [[cities]]
 name = "Burbank, CA"
+#@cite Burbank citywide PCI, target 73 by FY2030/31 (2023)
+#@cite     https://myburbank.com/burbank-announces-upcoming-street-repaving-road-repairs-zones/ (accessed 2026-06-14)
+forecast.initial_pci = 67
+#@cite Pavement Management Program annual budget, FY2023/24
+#@cite     https://myburbank.com/burbank-announces-upcoming-street-repaving-road-repairs-zones/ (accessed 2026-06-14)
+forecast.current_budget = 8000000.0
 overpass = true
 
 [[cities]]

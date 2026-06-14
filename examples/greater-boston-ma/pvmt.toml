@@ -45,6 +45,9 @@ label = "Preventive"
 
 [[cities]]
 name = "Boston, MA"
+#@cite Roadway Reconstruction & Resurfacing annual program, FY25-26 planned (capital + grant sources)
+#@cite     https://www.boston.gov/sites/default/files/file/2025/11/Streets%20Cabinet%20Capital.pdf (accessed 2026-06-14)
+forecast.current_budget = 24000000.0
 overpass = true
 
 [[cities]]
@@ -63,6 +66,12 @@ overpass = true
 
 [[cities]]
 name = "Newton, MA"
+#@cite Citywide overall PCI 73.3, Apr 2025 Mayor's Newton Update
+#@cite     https://www.newtonma.gov/home/showpublisheddocument/128379/638799968675100000 (accessed 2026-06-14)
+forecast.initial_pci = 73
+#@cite $95M/10yr Accelerated Pavement Mgmt Program = $9.5M/yr
+#@cite     https://www.apwa.org/resource/newton-ma-accelerated-pavement-management-program-how-public-works-made-it-happen/ (accessed 2026-06-14)
+forecast.current_budget = 9500000.0
 overpass = true
 
 [[cities]]

@@ -35,72 +35,129 @@ title = "Bay Area Pavement Analysis"
 
 [[cities]]
 name = "Alameda, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 65
 overpass = true
 arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
 
 [[cities]]
 name = "Albany, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 59
 overpass = true
 arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
 
 [[cities]]
 name = "Berkeley, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 56
 overpass = true
 arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
 hex_edge_m = 75
 
 [[cities]]
 name = "Dublin, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 78
+#@cite 2025 Annual Street Resurfacing Project construction estimate $3.6-3.8M, midpoint (2025 Annual Resurfacing NIB)
+#@cite     https://dublin.ca.gov/DocumentCenter/View/38951/2025-Annual-Resurfacing-NIB (accessed 2026-06-14)
+forecast.current_budget = 3700000.0
 overpass = true
 arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
 
 [[cities]]
 name = "Emeryville, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 78
 overpass = true
 arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
 
 [[cities]]
 name = "Fremont, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 71
 overpass = true
 arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
 
 [[cities]]
 name = "Hayward, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 73
 overpass = true
 arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
 
 [[cities]]
 name = "Livermore, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 75
+#@cite 2021-23 CIP street maintenance ~$9.7M/2yr (~$4.85M/yr)
+#@cite     https://stories.opengov.com/livermoreca/published/qebxtbqDg (accessed 2026-06-14)
+forecast.current_budget = 4850000.0
 overpass = true
 arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
 
 [[cities]]
 name = "Newark, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 71
+#@cite ~$4M/yr pavement maintenance keeps roads from deteriorating, 2025 city PMP presentation (citizenportal.ai)
+#@cite     https://www.newarkca.gov/departments/public-works/capital-improvement-plan/pavement-maintenance-program (accessed 2026-06-14)
+forecast.current_budget = 4000000.0
 overpass = true
 arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
 
 [[cities]]
 name = "Oakland, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 58
+#@cite ~$60M/yr pavement system funding (Measure KK), 2022 5-Year Paving Plan
+#@cite     https://www.oaklandca.gov/projects/20225yp (accessed 2026-06-14)
+forecast.current_budget = 60000000.0
 overpass = true
 arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
 
 [[cities]]
 name = "Piedmont, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 62
 overpass = true
 arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
 
 [[cities]]
 name = "Pleasanton, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 76
 overpass = true
 arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
 
 [[cities]]
 name = "San Leandro, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 57
 overpass = true
 arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
 
 [[cities]]
 name = "Union City, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 67
+#@cite Citywide Street Pavement Rehab 25-01 estimate $2,500,000
+#@cite     https://www.unioncityca.gov/bids.aspx?bidID=108 (accessed 2026-06-14)
+forecast.current_budget = 2500000.0
 overpass = true
 arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
 
@@ -108,351 +165,660 @@ arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services
 
 [[cities]]
 name = "Antioch, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 63
+#@cite FY2025-26 RMRA (SB1) pavement rehab $2,380,390; SB1 line for the project
+#@cite     https://www.antiochca.gov/AgendaCenter/ViewFile/Item/347?fileID=1783 (accessed 2026-06-14)
+forecast.current_budget = 2380390.0
 overpass = true
 
 [[cities]]
 name = "Brentwood, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 78
+#@cite 2025 Pavement Mgmt Program (asphalt) engineer's estimate $1,989,000
+#@cite     https://www.brentwoodca.gov/Home/Components/RFP/RFP/138/657 (accessed 2026-06-14)
+forecast.current_budget = 1989000.0
 overpass = true
 
 [[cities]]
 name = "Clayton, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 76
 overpass = true
 
 [[cities]]
 name = "Concord, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 55
 overpass = true
 
 [[cities]]
 name = "El Cerrito, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 68
 overpass = true
 
 [[cities]]
 name = "Hercules, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 62
 overpass = true
 
 [[cities]]
 name = "Lafayette, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 75
 overpass = true
 
 [[cities]]
 name = "Martinez, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 69
+#@cite ~$4M/yr pavement rehabilitation & base-failure repairs, Measure D
+#@cite     https://www.cityofmartinez.org/government/measures (accessed 2026-06-14)
+forecast.current_budget = 4000000.0
 overpass = true
 
 [[cities]]
 name = "Moraga, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 74
+#@cite FY2022/23 Annual Pavement Budget $3,271,068, Measure K + SB1 (3/23/22 staff report)
+#@cite     https://moraga.ca.us/DocumentCenter/View/6722/Council-03-23-22-Pavement-Rehab-Report-2022-2024-PDF (accessed 2026-06-14)
+forecast.current_budget = 3271068.0
 overpass = true
 
 [[cities]]
 name = "Oakley, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 70
 overpass = true
 
 [[cities]]
 name = "Orinda, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 83
+#@cite ~$2.3M/yr avg street maintenance since 2013, Measures J/L
+#@cite     https://www.calcities.org/news/post/2023/10/11/a-decade-of-work-means-good-roads-in-orinda (accessed 2026-06-14)
+forecast.current_budget = 2300000.0
 overpass = true
 
 [[cities]]
 name = "Pinole, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 55
+#@cite $400,000/yr Measure I road repair & repaving program
+#@cite     https://www.pinole.gov/pinole-road-repair-repaving-program/ (accessed 2026-06-14)
+forecast.current_budget = 400000.0
 overpass = true
 
 [[cities]]
 name = "Pittsburg, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 59
+#@cite FY2024-25 RMRA (SB1) pavement allocation $1,951,212
+#@cite     https://www.pittsburgca.gov/Home/Components/News/News/3448/ (accessed 2026-06-14)
+forecast.current_budget = 1951212.0
 overpass = true
 
 [[cities]]
 name = "Pleasant Hill, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 72
 overpass = true
 
 [[cities]]
 name = "Richmond, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 59
 overpass = true
 
 [[cities]]
 name = "San Pablo, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 65
 overpass = true
 
 [[cities]]
 name = "San Ramon, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 77
 overpass = true
 
 [[cities]]
 name = "Walnut Creek, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 70
 overpass = true
 
 # --- Marin County ---
 
 [[cities]]
 name = "Belvedere, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 72
 overpass = true
 
 [[cities]]
 name = "Corte Madera, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 67
 overpass = true
 
 [[cities]]
 name = "Fairfax, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 53
 overpass = true
 
 [[cities]]
 name = "Larkspur, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 87
 overpass = true
 
 [[cities]]
 name = "Mill Valley, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 76
 overpass = true
 
 [[cities]]
 name = "Novato, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 63
 overpass = true
 
 [[cities]]
 name = "Ross, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 75
 overpass = true
 
 [[cities]]
 name = "San Anselmo, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 72
 overpass = true
 
 [[cities]]
 name = "San Rafael, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 61
+#@cite $0.8-1.2M/yr construction budget (gas-tax dependent), upper bound
+#@cite     https://www.cityofsanrafael.org/pavement (accessed 2026-06-14)
+forecast.current_budget = 1200000.0
 overpass = true
 
 [[cities]]
 name = "Sausalito, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 57
 overpass = true
 
 [[cities]]
 name = "Tiburon, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 73
 overpass = true
 
 # --- Napa County ---
 
 [[cities]]
 name = "American Canyon, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 58
 overpass = true
 
 [[cities]]
 name = "Calistoga, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 57
 overpass = true
 
 [[cities]]
 name = "Napa, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 63
+#@cite Residential Street Resurfacing Program ~$3.2M/yr (10 mi/yr)
+#@cite     https://www.cityofnapa.org/498/Street-Paving (accessed 2026-06-14)
+forecast.current_budget = 3200000.0
 overpass = true
 
 [[cities]]
 name = "St. Helena, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 54
 overpass = true
 
 [[cities]]
 name = "Yountville, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 79
+#@cite ~$650K/yr from Measure T, SB-1, gas tax for pavement management
+#@cite     https://www.townofyountville.com/318/Pavement-Management (accessed 2026-06-14)
+forecast.current_budget = 650000.0
 overpass = true
 
 # --- San Francisco County ---
 
 [[cities]]
 name = "San Francisco, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 75
 overpass = true
 
 # --- San Mateo County ---
 
 [[cities]]
 name = "Belmont, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 68
 overpass = true
 
 [[cities]]
 name = "Brisbane, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 72
 overpass = true
 
 [[cities]]
 name = "Burlingame, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 76
 overpass = true
 
 [[cities]]
 name = "Colma, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 78
+#@cite annual roadway repair budget $75K-$90K, midpoint
+#@cite     https://stories.opengov.com/colmaca/published/yG7G6ILQ9fB (accessed 2026-06-14)
+forecast.current_budget = 82500.0
 overpass = true
 
 [[cities]]
 name = "Daly City, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 78
 overpass = true
 
 [[cities]]
 name = "East Palo Alto, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 60
 overpass = true
 
 [[cities]]
 name = "Foster City, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 77
 overpass = true
 
 [[cities]]
 name = "Half Moon Bay, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 64
 overpass = true
 
 [[cities]]
 name = "Hillsborough, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 81
 overpass = true
 
 [[cities]]
 name = "Menlo Park, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 76
 overpass = true
 
 [[cities]]
 name = "Millbrae, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 52
+#@cite Street Resurfacing Project 2025 budget $1,130,640
+#@cite     https://www.ci.millbrae.ca.us/AgendaCenter/ViewFile/Agenda/_05272025-416?html=true (accessed 2026-06-14)
+forecast.current_budget = 1130640.0
 overpass = true
 
 [[cities]]
 name = "Pacifica, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 50
 overpass = true
 
 [[cities]]
 name = "Portola Valley, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 76
 overpass = true
 
 [[cities]]
 name = "Redwood City, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 68
 overpass = true
 
 [[cities]]
 name = "San Bruno, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 62
 overpass = true
 
 [[cities]]
 name = "San Carlos, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 57
 overpass = true
 
 [[cities]]
 name = "San Mateo, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 72
 overpass = true
 
 [[cities]]
 name = "South San Francisco, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 76
 overpass = true
 
 [[cities]]
 name = "Woodside, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 74
 overpass = true
 
 # --- Santa Clara County ---
 
 [[cities]]
 name = "Campbell, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 66
 overpass = true
 
 [[cities]]
 name = "Cupertino, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 82
 overpass = true
 
 [[cities]]
 name = "Gilroy, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 63
 overpass = true
 
 [[cities]]
 name = "Los Altos, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 73
 overpass = true
 
 [[cities]]
 name = "Los Altos Hills, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 80
 overpass = true
 
 [[cities]]
 name = "Los Gatos, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 77
 overpass = true
 
 [[cities]]
 name = "Milpitas, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 71
 overpass = true
 
 [[cities]]
 name = "Monte Sereno, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 72
 overpass = true
 
 [[cities]]
 name = "Morgan Hill, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 75
+#@cite 2026 Pavement Rehabilitation Project construction estimate $2.8M, Streets Fund
+#@cite     https://www.morganhill.ca.gov/bids.aspx?bidID=495 (accessed 2026-06-14)
+forecast.current_budget = 2800000.0
 overpass = true
 
 [[cities]]
 name = "Mountain View, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 67
+#@cite CIP $23.7M/5yr pavement = $4.7M/yr average
+#@cite     https://www.mountainview.gov/our-city/departments/public-works/roads-and-transportation/street-maintenance/city-pavement-condition (accessed 2026-06-14)
+forecast.current_budget = 4700000.0
 overpass = true
 
 [[cities]]
 name = "Palo Alto, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 83
 overpass = true
 
 [[cities]]
 name = "San Jose, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 73
 overpass = true
 hex_edge_m = 150
 
 [[cities]]
 name = "Santa Clara, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 74
 overpass = true
 
 [[cities]]
 name = "Saratoga, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 67
+#@cite 2025 Pavement Management Program project engineer's estimate $4.8M, Measure B + SB1
+#@cite     https://www.saratoga.ca.us/bids.aspx?bidID=55 (accessed 2026-06-14)
+forecast.current_budget = 4800000.0
 overpass = true
 
 [[cities]]
 name = "Sunnyvale, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 75
 overpass = true
 
 # --- Solano County ---
 
 [[cities]]
 name = "Benicia, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 53
 overpass = true
 
 [[cities]]
 name = "Dixon, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 65
 overpass = true
 
 [[cities]]
 name = "Fairfield, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 64
 overpass = true
 
 [[cities]]
 name = "Rio Vista, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 60
 overpass = true
 
 [[cities]]
 name = "Suisun City, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 53
 overpass = true
 
 [[cities]]
 name = "Vacaville, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 73
 overpass = true
 
 [[cities]]
 name = "Vallejo, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 44
+#@cite Council approved $11.5M Measure P funds largely for street paving
+#@cite     https://www.vallejosun.com/vallejo-city-council-looks-for-cuts-to-tackle-projected-20m-shortfall/ (accessed 2026-06-14)
+forecast.current_budget = 11500000.0
 overpass = true
 
 # --- Sonoma County ---
 
 [[cities]]
 name = "Cloverdale, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 59
 overpass = true
 
 [[cities]]
 name = "Cotati, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 72
 overpass = true
 
 [[cities]]
 name = "Healdsburg, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 70
 overpass = true
 
 [[cities]]
 name = "Petaluma, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 50
+#@cite $59.4M 5-yr paving plan (2024) = $11.88M/yr
+#@cite     https://www.pressdemocrat.com/2024/11/25/petaluma-plans-to-invest-59-million-in-its-streets-over-the-next-5-years-2/ (accessed 2026-06-14)
+forecast.current_budget = 11880000.0
 overpass = true
 
 [[cities]]
 name = "Rohnert Park, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 65
+#@cite past average annual road-maintenance budget $2.7M
+#@cite     https://www.thecommunityvoice.com/community/rp-discusses-future-of-road-maintenance/article_60df3cc6-f481-11ef-a694-6f226407fa02.html (accessed 2026-06-14)
+forecast.current_budget = 2700000.0
 overpass = true
 
 [[cities]]
 name = "Sebastopol, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 54
+#@cite FY2025-26 CIP $500K citywide pavement digouts/repairs
+#@cite     https://www.cityofsebastopol.gov/wp-content/uploads/2025/01/STAFF-REPORT_CIP-GP-Consistency-FY2025-26-with-attachments.pdf (accessed 2026-06-14)
+forecast.current_budget = 500000.0
 overpass = true
 
 [[cities]]
 name = "Sonoma, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 63
 overpass = true
 
 [[cities]]
 name = "Windsor, CA"
+#@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
+#@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
+forecast.initial_pci = 70
 overpass = true
