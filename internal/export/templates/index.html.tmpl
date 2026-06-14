@@ -212,6 +212,11 @@
         .gear-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
         .gear-row[hidden] { display: none; }
         .gear-label { font-size: 13px; color: var(--text-muted); font-weight: 500; }
+        /* The layer toggles moved from the stats panel into the gear menu;
+           strip the panel-edge spacing and stack the toggle list under its
+           label rather than beside it (the default .gear-row is a row). */
+        #gear-menu .layer-toggle { margin-top: 0; border-top: none; padding-top: 0; }
+        #gear-toggles-row { flex-direction: column; align-items: stretch; }
         .gear-menu select {
             background: var(--bg);
             color: var(--text);
@@ -627,6 +632,10 @@
             <span class="gear-label">Theme</span>
             <button class="theme-toggle" role="switch" aria-label="Toggle dark mode" onclick="toggleTheme()"></button>
         </div>
+        <div class="gear-row" id="gear-toggles-row">
+            <span class="gear-label">Layers</span>
+            <div class="layer-toggle" id="toggles"></div>
+        </div>
     </div>
 
     <div id="map-tab" class="tab-content active" role="tabpanel" aria-labelledby="map-tab-btn">
@@ -674,7 +683,6 @@
                 </div>
             {{end}}
             </div>
-            <div class="layer-toggle" id="toggles"></div>
         </div>
         <div id="legend">
             <div class="legend-title">Coverage %</div>

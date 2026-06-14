@@ -192,6 +192,45 @@ func TestCitySelectorOptgroups(t *testing.T) {
 	}
 }
 
+// TestLayerTogglesInGearMenu asserts the #toggles container now lives inside
+// the #gear-menu popover (under a "Layers" row) and is no longer inside the
+// stats panel. The change-handler selector "#toggles input" still resolves
+// because #toggles exists; this test pins the relocation.
+func TestLayerTogglesInGearMenu(t *testing.T) {
+	tmpl := parseDashboardTemplates(t)
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, TemplateData{}); err != nil {
+		t.Fatalf("execute index: %v", err)
+	}
+	out := buf.String()
+
+	gearStart := strings.Index(out, `id="gear-menu"`)
+	gearEnd := strings.Index(out, `id="map-tab"`)
+	if gearStart < 0 || gearEnd < 0 || gearEnd <= gearStart {
+		t.Fatalf("could not locate gear-menu/map-tab boundaries (start=%d end=%d)", gearStart, gearEnd)
+	}
+	gearMarkup := out[gearStart:gearEnd]
+
+	if !strings.Contains(gearMarkup, `id="toggles"`) {
+		t.Error("#toggles is not inside the gear-menu markup")
+	}
+	if !strings.Contains(gearMarkup, `id="gear-toggles-row"`) {
+		t.Error("gear-toggles-row missing from gear-menu")
+	}
+
+	// The stats panel (after the gear menu) must not contain #toggles anymore.
+	statsMarkup := out[gearEnd:]
+	if strings.Contains(statsMarkup, `id="toggles"`) {
+		t.Error("#toggles still present outside the gear menu (stats panel)")
+	}
+
+	// Exactly one #toggles in the whole document (the moved one).
+	if n := strings.Count(out, `id="toggles"`); n != 1 {
+		t.Errorf("expected exactly one #toggles, got %d", n)
+	}
+}
+
 // TestDashboardFormLabelAssociations asserts the financials tab range
 // inputs have <label for=...> associations rather than relying on visual
 // proximity alone.
