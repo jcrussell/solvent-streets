@@ -375,13 +375,20 @@ func TestBuildCohorts_WithOverride(t *testing.T) {
 	if len(cohorts) != 2 {
 		t.Fatalf("expected 2 cohorts, got %d", len(cohorts))
 	}
+	// The override scales each class's default proportionally (it no longer
+	// flattens every class to one rate), so the per-class ordering is preserved.
 	for _, c := range cohorts {
-		if c.DecayRate != 0.05 {
-			t.Errorf("cohort %s: expected decay rate 0.05, got %f", c.Classification, c.DecayRate)
+		want := ScaleRoadDecay(DefaultDecayRates[c.Classification], 0.05)
+		if c.DecayRate != want {
+			t.Errorf("cohort %s: expected scaled decay rate %f, got %f", c.Classification, want, c.DecayRate)
 		}
 		if c.InitialPCI != 85.0 {
 			t.Errorf("cohort %s: expected initial PCI 85.0, got %f", c.Classification, c.InitialPCI)
 		}
+	}
+	// primary (higher class) must still decay slower than residential.
+	if cohorts[0].DecayRate >= cohorts[1].DecayRate {
+		t.Errorf("expected primary (%f) < residential (%f) after scaling", cohorts[0].DecayRate, cohorts[1].DecayRate)
 	}
 }
 
@@ -410,6 +417,26 @@ func TestBuildCohorts_Empty(t *testing.T) {
 	}
 }
 
+// TestScaleRoadDecay_AnchorAndOrdering pins the override semantics: an override
+// applied to the aggregate-road default yields the override itself (so
+// decay_rate == the typical-road rate), and scaling preserves the per-class
+// ordering the methodology describes (motorway slowest, service fastest).
+func TestScaleRoadDecay_AnchorAndOrdering(t *testing.T) {
+	const override = 0.065 // Boston's climate-tuned rate
+	if got := ScaleRoadDecay(RoadDecayRates["roads"], override); got != override {
+		t.Errorf("aggregate road: ScaleRoadDecay(anchor, %.3f) = %f, want %.3f", override, got, override)
+	}
+	ordered := []string{"motorway", "trunk", "primary", "secondary", "tertiary", "residential", "service"}
+	prev := 0.0
+	for _, cls := range ordered {
+		r := ScaleRoadDecay(RoadDecayRates[cls], override)
+		if r <= prev {
+			t.Errorf("class %s scaled rate %f not strictly greater than previous %f", cls, r, prev)
+		}
+		prev = r
+	}
+}
+
 func TestIsRoadClass(t *testing.T) {
 	roads := []string{"motorway", "trunk", "primary", "secondary", "tertiary", "residential", "service", "roads"}
 	for _, c := range roads {
@@ -435,8 +462,8 @@ func TestBuildCohorts_MixedOverride(t *testing.T) {
 	if len(cohorts) != 2 {
 		t.Fatalf("expected 2 cohorts, got %d", len(cohorts))
 	}
-	if cohorts[0].DecayRate != 0.05 {
-		t.Errorf("primary: expected override rate 0.05, got %f", cohorts[0].DecayRate)
+	if want := ScaleRoadDecay(DefaultDecayRates["primary"], 0.05); cohorts[0].DecayRate != want {
+		t.Errorf("primary: expected scaled override rate %f, got %f", want, cohorts[0].DecayRate)
 	}
 	// The growth-rate override applies only to road classes, so sidewalks keep
 	// their class-specific rate. The decay table is keyed on the plural

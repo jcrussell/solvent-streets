@@ -39,7 +39,11 @@ more frequent maintenance. Default values are derived from LTPP data
 reported in **FHWA-RD-01-156, *Long-Term Pavement Performance*** and
 ship as part of the `forecast` package; they are continental-US
 averages and do not account for local climate, traffic, or
-construction quality. Sidewalks
+construction quality. A config may set a per-city `decay_rate` to tune
+for local conditions (e.g. freeze/thaw or road salt); that override is
+applied as the rate for a *typical* road and scales every road class
+proportionally, so the per-class ordering (higher classes decay slower)
+is preserved rather than flattened. Sidewalks
 decay on a separate, slower track and are not treated as a highway class.
 
 ### Cost model

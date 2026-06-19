@@ -30,10 +30,27 @@ func IsRoadClass(classification string) bool {
 	return ok
 }
 
+// roadDecayAnchor is the aggregate-road decay rate a config decay_rate override
+// is scaled around. Sourced from the table (RoadDecayRates["roads"]) so it can't
+// drift from the per-class defaults. Because an override applied to this anchor
+// yields the override itself, decay_rate reads as "the rate for a typical road".
+var roadDecayAnchor = RoadDecayRates["roads"]
+
+// ScaleRoadDecay returns a road class's decay rate adjusted for a config
+// decay_rate override. The override scales every road class proportionally
+// around roadDecayAnchor, so the per-class ordering (motorway slowest, service
+// fastest) is preserved while the whole curve shifts to the climate-tuned
+// level — rather than flattening every class to a single rate. Non-road
+// classes never reach here (callers gate on IsRoadClass).
+func ScaleRoadDecay(classRate, overrideDecayRate float64) float64 {
+	return classRate * (overrideDecayRate / roadDecayAnchor)
+}
+
 // BuildCohorts converts CohortInputs into Cohorts with appropriate decay rates.
-// If overrideDecayRate > 0, road cohorts use that rate; non-road cohorts (parking,
-// sidewalks) retain their class-specific defaults since they have different
-// deterioration characteristics.
+// If overrideDecayRate > 0, road cohorts scale their class-specific default by
+// the override (see ScaleRoadDecay); non-road cohorts (parking, sidewalks)
+// retain their class-specific defaults since they have different deterioration
+// characteristics.
 // Returns nil if inputs is empty (caller should create a single-cohort fallback).
 func BuildCohorts(inputs []CohortInput, initialPCI, overrideDecayRate float64) []Cohort {
 	if len(inputs) == 0 {
@@ -44,7 +61,7 @@ func BuildCohorts(inputs []CohortInput, initialPCI, overrideDecayRate float64) [
 	for i, in := range inputs {
 		rate := DecayRateForClass(in.Classification)
 		if overrideDecayRate > 0 && IsRoadClass(in.Classification) {
-			rate = overrideDecayRate
+			rate = ScaleRoadDecay(rate, overrideDecayRate)
 		}
 		cohorts[i] = Cohort{
 			Classification: in.Classification,
