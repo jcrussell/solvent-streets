@@ -1,0 +1,2424 @@
+{
+  "bbox": [
+    {
+      "scenario": {
+        "name": "baseline",
+        "label": "Baseline (Do Nothing)",
+        "annual_budget": 0,
+        "strategy": 0
+      },
+      "years": [
+        {
+          "year": 1,
+          "pci": 67.45123970280204,
+          "area": 2633446.0388286687,
+          "annual_need": 82487800.13065797,
+          "annual_spend": 0,
+          "deferred_backlog": 82487800.13065797,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 2,
+          "pci": 64.997798137947,
+          "area": 2646547.760414881,
+          "annual_need": 92637912.61414847,
+          "annual_spend": 0,
+          "deferred_backlog": 175125712.74480644,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 3,
+          "pci": 62.63603366599999,
+          "area": 2659649.482001093,
+          "annual_need": 102518714.62357496,
+          "annual_spend": 0,
+          "deferred_backlog": 277644427.3683814,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 4,
+          "pci": 60.362446153595464,
+          "area": 2672751.2035873057,
+          "annual_need": 112138833.5625737,
+          "annual_spend": 0,
+          "deferred_backlog": 389783260.93095505,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 5,
+          "pci": 58.17367139971173,
+          "area": 2685852.925173518,
+          "annual_need": 121506624.33999294,
+          "annual_spend": 0,
+          "deferred_backlog": 511289885.270948,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 6,
+          "pci": 56.066475783928574,
+          "area": 2698954.6467597303,
+          "annual_need": 131527160.13494349,
+          "annual_spend": 0,
+          "deferred_backlog": 642817045.4058914,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 7,
+          "pci": 54.03775112774508,
+          "area": 2712056.3683459423,
+          "annual_need": 145433427.57658756,
+          "annual_spend": 0,
+          "deferred_backlog": 788250472.982479,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 8,
+          "pci": 52.084509760396394,
+          "area": 2725158.089932155,
+          "annual_need": 160205246.0521876,
+          "annual_spend": 0,
+          "deferred_backlog": 948455719.0346665,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 9,
+          "pci": 50.203879780954864,
+          "area": 2738259.811518367,
+          "annual_need": 174917418.3729998,
+          "annual_spend": 0,
+          "deferred_backlog": 1123373137.4076662,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 10,
+          "pci": 48.3931005088336,
+          "area": 2751361.5331045794,
+          "annual_need": 189506928.53182328,
+          "annual_spend": 0,
+          "deferred_backlog": 1312880065.9394894,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 11,
+          "pci": 46.649518115129155,
+          "area": 2764463.2546907915,
+          "annual_need": 204180660.93876263,
+          "annual_spend": 0,
+          "deferred_backlog": 1517060726.878252,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 12,
+          "pci": 44.97058142754727,
+          "area": 2777564.976277004,
+          "annual_need": 218471909.93083653,
+          "annual_spend": 0,
+          "deferred_backlog": 1735532636.8090885,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 13,
+          "pci": 43.35383790194744,
+          "area": 2790666.697863216,
+          "annual_need": 232392970.71325505,
+          "annual_spend": 0,
+          "deferred_backlog": 1967925607.5223436,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 14,
+          "pci": 41.796929753825424,
+          "area": 2803768.4194494286,
+          "annual_need": 245955746.62275493,
+          "annual_spend": 0,
+          "deferred_backlog": 2213881354.1450987,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 15,
+          "pci": 40.29759024332155,
+          "area": 2816870.1410356406,
+          "annual_need": 259171761.2906845,
+          "annual_spend": 0,
+          "deferred_backlog": 2473053115.4357834,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 16,
+          "pci": 38.85364010760306,
+          "area": 2829971.862621853,
+          "annual_need": 272052170.4488705,
+          "annual_spend": 0,
+          "deferred_backlog": 2745105285.884654,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 17,
+          "pci": 37.46298413471606,
+          "area": 2843073.584208065,
+          "annual_need": 284608040.7887647,
+          "annual_spend": 0,
+          "deferred_backlog": 3029713326.673419,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 18,
+          "pci": 36.12360787324227,
+          "area": 2856175.3057942777,
+          "annual_need": 296849579.73238516,
+          "annual_spend": 0,
+          "deferred_backlog": 3326562906.405804,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 19,
+          "pci": 34.833574472323825,
+          "area": 2869277.0273804897,
+          "annual_need": 308786884.20028365,
+          "annual_spend": 0,
+          "deferred_backlog": 3635349790.6060877,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 20,
+          "pci": 33.591021646839046,
+          "area": 2882378.7489667023,
+          "annual_need": 320429749.56901884,
+          "annual_spend": 0,
+          "deferred_backlog": 3955779540.1751065,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 21,
+          "pci": 32.39415876272275,
+          "area": 2895480.4705529143,
+          "annual_need": 331787657.30752,
+          "annual_spend": 0,
+          "deferred_backlog": 4287567197.4826264,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 22,
+          "pci": 31.241264037626635,
+          "area": 2908582.1921391273,
+          "annual_need": 342869784.8295124,
+          "annual_spend": 0,
+          "deferred_backlog": 4630436982.312139,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 23,
+          "pci": 30.13068185230868,
+          "area": 2921683.913725339,
+          "annual_need": 353685015.0503451,
+          "annual_spend": 0,
+          "deferred_backlog": 4984121997.362484,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 24,
+          "pci": 29.06082016832712,
+          "area": 2934785.635311552,
+          "annual_need": 364241945.656311,
+          "annual_spend": 0,
+          "deferred_backlog": 5348363943.018795,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 25,
+          "pci": 28.03014804779221,
+          "area": 2947887.356897764,
+          "annual_need": 374548898.0943677,
+          "annual_spend": 0,
+          "deferred_backlog": 5722912841.113163,
+          "cost_tier": "reconstruction"
+        }
+      ],
+      "final_cohorts": [
+        {
+          "classification": "primary",
+          "end_pci": 37.468299996329264,
+          "area": 106612.066744186,
+          "decay_rate": 0.025,
+          "total_spend": 0,
+          "total_deficit": 182776400.94166952
+        },
+        {
+          "classification": "trunk",
+          "end_pci": 42.45714617988428,
+          "area": 0,
+          "decay_rate": 0.02,
+          "total_spend": 0,
+          "total_deficit": 0
+        },
+        {
+          "classification": "residential",
+          "end_pci": 25.751560882000945,
+          "area": 1194828.8301403876,
+          "decay_rate": 0.04,
+          "total_spend": 0,
+          "total_deficit": 2744641053.942349
+        },
+        {
+          "classification": "motorway",
+          "end_pci": 48.110249515368025,
+          "area": 240.25650662858476,
+          "decay_rate": 0.015,
+          "total_spend": 0,
+          "total_deficit": 306346.25106007245
+        },
+        {
+          "classification": "service",
+          "end_pci": 22.725672715084514,
+          "area": 410432.0044312562,
+          "decay_rate": 0.045,
+          "total_spend": 0,
+          "total_deficit": 1012389081.1174941
+        },
+        {
+          "classification": "tertiary",
+          "end_pci": 29.18034137749558,
+          "area": 305126.69703412335,
+          "decay_rate": 0.035,
+          "total_spend": 0,
+          "total_deficit": 645526985.4484583
+        },
+        {
+          "classification": "secondary",
+          "end_pci": 33.06565869187101,
+          "area": 154743.34800890624,
+          "decay_rate": 0.03,
+          "total_spend": 0,
+          "total_deficit": 297283278.17691344
+        },
+        {
+          "classification": "parking",
+          "end_pci": 29.18034137749558,
+          "area": 177759.57147946712,
+          "decay_rate": 0.035,
+          "total_spend": 0,
+          "total_deficit": 376068700.0748329
+        },
+        {
+          "classification": "sidewalks",
+          "end_pci": 37.468299996329264,
+          "area": 270601.5428975015,
+          "decay_rate": 0.025,
+          "total_spend": 0,
+          "total_deficit": 463920995.1603844
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "name": "fund-25pct",
+        "label": "25% Funding",
+        "annual_budget": 20621950.032664493,
+        "strategy": 1
+      },
+      "years": [
+        {
+          "year": 1,
+          "pci": 67.96099176224163,
+          "area": 2633446.0388286687,
+          "annual_need": 82487800.13065797,
+          "annual_spend": 20621950.032664493,
+          "deferred_backlog": 61865850.09799348,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 2,
+          "pci": 65.93826392795556,
+          "area": 2646547.760414881,
+          "annual_need": 90689967.53051566,
+          "annual_spend": 20621950.032664496,
+          "deferred_backlog": 131933867.59584464,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 3,
+          "pci": 63.941155989736316,
+          "area": 2659649.482001093,
+          "annual_need": 98906960.82591733,
+          "annual_spend": 20621950.032664496,
+          "deferred_backlog": 210218878.38909748,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 4,
+          "pci": 61.97655546400849,
+          "area": 2672751.2035873057,
+          "annual_need": 107101816.59943809,
+          "annual_spend": 20621950.032664496,
+          "deferred_backlog": 296698744.9558711,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 5,
+          "pci": 60.049500110143114,
+          "area": 2685852.925173518,
+          "annual_need": 115246370.71744123,
+          "annual_spend": 20621950.032664496,
+          "deferred_backlog": 391323165.6406478,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 6,
+          "pci": 58.16362377648466,
+          "area": 2698954.6467597303,
+          "annual_need": 123319144.1753954,
+          "annual_spend": 20621950.032664493,
+          "deferred_backlog": 494020359.7833787,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 7,
+          "pci": 56.31967782474567,
+          "area": 2712056.3683459423,
+          "annual_need": 132207555.23551393,
+          "annual_spend": 20621950.032664493,
+          "deferred_backlog": 605605964.9862281,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 8,
+          "pci": 54.5143760018551,
+          "area": 2725158.089932155,
+          "annual_need": 144387867.98987806,
+          "annual_spend": 20621950.032664493,
+          "deferred_backlog": 729371882.9434416,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 9,
+          "pci": 52.749633282669805,
+          "area": 2738259.811518367,
+          "annual_need": 157648850.50208944,
+          "annual_spend": 20621950.03266449,
+          "deferred_backlog": 866398783.4128666,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 10,
+          "pci": 51.02810115356836,
+          "area": 2751361.5331045794,
+          "annual_need": 170975040.77443022,
+          "annual_spend": 20621950.03266449,
+          "deferred_backlog": 1016751874.1546323,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 11,
+          "pci": 49.351600450794784,
+          "area": 2764463.2546907915,
+          "annual_need": 184202035.3078184,
+          "annual_spend": 20621950.032664485,
+          "deferred_backlog": 1180331959.4297862,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 12,
+          "pci": 47.72079194338779,
+          "area": 2777564.976277004,
+          "annual_need": 197824468.58665234,
+          "annual_spend": 20621950.032664493,
+          "deferred_backlog": 1357534477.9837742,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 13,
+          "pci": 46.13630610098356,
+          "area": 2790666.697863216,
+          "annual_need": 211277957.58141023,
+          "annual_spend": 20621950.032664493,
+          "deferred_backlog": 1548190485.5325198,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 14,
+          "pci": 44.59833306478864,
+          "area": 2803768.4194494286,
+          "annual_need": 224492079.56142563,
+          "annual_spend": 20621950.032664493,
+          "deferred_backlog": 1752060615.061281,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 15,
+          "pci": 43.10669806179466,
+          "area": 2816870.1410356406,
+          "annual_need": 237460339.0918099,
+          "annual_spend": 20621950.032664496,
+          "deferred_backlog": 1968899004.1204264,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 16,
+          "pci": 41.660956552293634,
+          "area": 2829971.862621853,
+          "annual_need": 250179053.53204978,
+          "annual_spend": 20621950.03266449,
+          "deferred_backlog": 2198456107.6198115,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 17,
+          "pci": 40.26046430516868,
+          "area": 2843073.584208065,
+          "annual_need": 262646674.9335966,
+          "annual_spend": 20621950.032664496,
+          "deferred_backlog": 2440480832.520744,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 18,
+          "pci": 38.90442971463878,
+          "area": 2856175.3057942777,
+          "annual_need": 274863288.2791413,
+          "annual_spend": 20621950.03266449,
+          "deferred_backlog": 2694722170.7672205,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 19,
+          "pci": 37.59195325093042,
+          "area": 2869277.0273804897,
+          "annual_need": 286830499.959217,
+          "annual_spend": 20621950.03266449,
+          "deferred_backlog": 2960930720.6937733,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 20,
+          "pci": 36.322057792292355,
+          "area": 2882378.7489667023,
+          "annual_need": 298550364.80489707,
+          "annual_spend": 20621950.032664493,
+          "deferred_backlog": 3238859135.466006,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 21,
+          "pci": 35.09371175969735,
+          "area": 2895480.4705529143,
+          "annual_need": 310025932.1407496,
+          "annual_spend": 20621950.032664493,
+          "deferred_backlog": 3528263117.574091,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 22,
+          "pci": 33.905847125727675,
+          "area": 2908582.1921391273,
+          "annual_need": 321260837.80078876,
+          "annual_spend": 20621950.032664493,
+          "deferred_backlog": 3828902005.342215,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 23,
+          "pci": 32.75737346251864,
+          "area": 2921683.913725339,
+          "annual_need": 332259159.6188169,
+          "annual_spend": 20621950.032664493,
+          "deferred_backlog": 4140539214.9283676,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 24,
+          "pci": 31.64718894500348,
+          "area": 2934785.635311552,
+          "annual_need": 343025310.615671,
+          "annual_spend": 20621950.032664493,
+          "deferred_backlog": 4462942575.511374,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 25,
+          "pci": 30.574188993320462,
+          "area": 2947887.356897764,
+          "annual_need": 353563953.8295172,
+          "annual_spend": 20621950.032664493,
+          "deferred_backlog": 4795884579.308228,
+          "cost_tier": "reconstruction"
+        }
+      ],
+      "final_cohorts": [
+        {
+          "classification": "primary",
+          "end_pci": 39.77595177828794,
+          "area": 106612.066744186,
+          "decay_rate": 0.025,
+          "total_spend": 16932756.108405884,
+          "total_deficit": 153046051.1603566
+        },
+        {
+          "classification": "trunk",
+          "end_pci": 42.45714617988428,
+          "area": 0,
+          "decay_rate": 0.02,
+          "total_spend": 0,
+          "total_deficit": 0
+        },
+        {
+          "classification": "residential",
+          "end_pci": 28.35378663891719,
+          "area": 1194828.8301403876,
+          "decay_rate": 0.04,
+          "total_spend": 245966538.90259498,
+          "total_deficit": 2300373452.4658213
+        },
+        {
+          "classification": "motorway",
+          "end_pci": 49.8589085684651,
+          "area": 240.25650662858476,
+          "decay_rate": 0.015,
+          "total_spend": 30356.9170726998,
+          "total_deficit": 259137.85821053025
+        },
+        {
+          "classification": "service",
+          "end_pci": 25.331131574515304,
+          "area": 410432.0044312562,
+          "decay_rate": 0.045,
+          "total_spend": 90455339.1431436,
+          "total_deficit": 849612832.5676007
+        },
+        {
+          "classification": "tertiary",
+          "end_pci": 31.738832718641856,
+          "area": 305126.69703412335,
+          "decay_rate": 0.035,
+          "total_spend": 58195941.72897871,
+          "total_deficit": 540455873.6348612
+        },
+        {
+          "classification": "secondary",
+          "end_pci": 35.52991359124039,
+          "area": 154743.34800890624,
+          "decay_rate": 0.03,
+          "total_spend": 27085713.46855554,
+          "total_deficit": 248820710.06268454
+        },
+        {
+          "classification": "parking",
+          "end_pci": 31.738832718641856,
+          "area": 177759.57147946712,
+          "decay_rate": 0.035,
+          "total_spend": 33903574.36481669,
+          "total_deficit": 314856764.2055588
+        },
+        {
+          "classification": "sidewalks",
+          "end_pci": 39.77595177828794,
+          "area": 270601.5428975015,
+          "decay_rate": 0.025,
+          "total_spend": 42978530.18304424,
+          "total_deficit": 388459757.3531323
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "name": "fund-50pct",
+        "label": "50% Funding",
+        "annual_budget": 41243900.065328985,
+        "strategy": 1
+      },
+      "years": [
+        {
+          "year": 1,
+          "pci": 68.47074382168122,
+          "area": 2633446.0388286687,
+          "annual_need": 82487800.13065797,
+          "annual_spend": 41243900.065328985,
+          "deferred_backlog": 41243900.065328985,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 2,
+          "pci": 66.90556361455519,
+          "area": 2646547.760414881,
+          "annual_need": 88742022.44688296,
+          "annual_spend": 41243900.06532897,
+          "deferred_backlog": 88742022.44688298,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 3,
+          "pci": 65.3158386664872,
+          "area": 2659649.482001093,
+          "annual_need": 95192178.32502878,
+          "annual_spend": 41243900.06532899,
+          "deferred_backlog": 142690300.70658275,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 4,
+          "pci": 63.71154215200891,
+          "area": 2672751.2035873057,
+          "annual_need": 101796403.14603595,
+          "annual_spend": 41243900.065328985,
+          "deferred_backlog": 203242803.78728974,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 5,
+          "pci": 62.1012844475003,
+          "area": 2685852.925173518,
+          "annual_need": 108517421.86201273,
+          "annual_spend": 41243900.06532898,
+          "deferred_backlog": 270516325.5839735,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 6,
+          "pci": 60.49241255989223,
+          "area": 2698954.6467597303,
+          "annual_need": 115322513.38486196,
+          "annual_spend": 41243900.065328985,
+          "deferred_backlog": 344594938.9035065,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 7,
+          "pci": 58.89113555365915,
+          "area": 2712056.3683459423,
+          "annual_need": 122183250.36653693,
+          "annual_spend": 41243900.065328985,
+          "deferred_backlog": 425534289.2047145,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 8,
+          "pci": 57.300836972891794,
+          "area": 2725158.089932155,
+          "annual_need": 129507218.7424845,
+          "annual_spend": 41243900.065328985,
+          "deferred_backlog": 513797607.88187,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 9,
+          "pci": 55.71909853320291,
+          "area": 2738259.811518367,
+          "annual_need": 138855612.77695906,
+          "annual_spend": 41243900.06532899,
+          "deferred_backlog": 611409320.5935,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 10,
+          "pci": 54.146775044902036,
+          "area": 2751361.5331045794,
+          "annual_need": 149962156.1319091,
+          "annual_spend": 41243900.06532899,
+          "deferred_backlog": 720127576.6600802,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 11,
+          "pci": 52.588724589750335,
+          "area": 2764463.2546907915,
+          "annual_need": 161736250.77232307,
+          "annual_spend": 41243900.06532898,
+          "deferred_backlog": 840619927.3670743,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 12,
+          "pci": 51.04995938182238,
+          "area": 2777564.976277004,
+          "annual_need": 173764206.91169116,
+          "annual_spend": 41243900.06532898,
+          "deferred_backlog": 973140234.2134364,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 13,
+          "pci": 49.53487532964802,
+          "area": 2790666.697863216,
+          "annual_need": 185783524.17454165,
+          "annual_spend": 41243900.065328985,
+          "deferred_backlog": 1117679858.322649,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 14,
+          "pci": 48.04606271972896,
+          "area": 2803768.4194494286,
+          "annual_need": 198277379.7456827,
+          "annual_spend": 41243900.06532899,
+          "deferred_backlog": 1274713338.0030026,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 15,
+          "pci": 46.58625739331137,
+          "area": 2816870.1410356406,
+          "annual_need": 210741384.8512535,
+          "annual_spend": 41243900.065328985,
+          "deferred_backlog": 1444210822.788927,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 16,
+          "pci": 45.157568483350985,
+          "area": 2829971.862621853,
+          "annual_need": 223087197.67643148,
+          "annual_spend": 41243900.06532899,
+          "deferred_backlog": 1626054120.4000297,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 17,
+          "pci": 43.7615154512007,
+          "area": 2843073.584208065,
+          "annual_need": 235295180.9636933,
+          "annual_spend": 41243900.06532898,
+          "deferred_backlog": 1820105401.298394,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 18,
+          "pci": 42.39914742551073,
+          "area": 2856175.3057942777,
+          "annual_need": 247350024.84325916,
+          "annual_spend": 41243900.06532898,
+          "deferred_backlog": 2026211526.0763242,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 19,
+          "pci": 41.07113725734352,
+          "area": 2869277.0273804897,
+          "annual_need": 259239911.54051793,
+          "annual_spend": 41243900.065328985,
+          "deferred_backlog": 2244207537.551513,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 20,
+          "pci": 39.77785603776119,
+          "area": 2882378.7489667023,
+          "annual_need": 270955854.6722696,
+          "annual_spend": 41243900.06532899,
+          "deferred_backlog": 2473919492.158454,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 21,
+          "pci": 38.519432410257615,
+          "area": 2895480.4705529143,
+          "annual_need": 282491267.7123893,
+          "annual_spend": 41243900.065328985,
+          "deferred_backlog": 2715166859.8055143,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 22,
+          "pci": 37.295800170169635,
+          "area": 2908582.1921391273,
+          "annual_need": 293841429.11668324,
+          "annual_spend": 41243900.065328985,
+          "deferred_backlog": 2967764388.8568687,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 23,
+          "pci": 36.10673670358435,
+          "area": 2921683.913725339,
+          "annual_need": 305002924.7543067,
+          "annual_spend": 41243900.06532899,
+          "deferred_backlog": 3231523413.5458465,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 24,
+          "pci": 34.95189389844621,
+          "area": 2934785.635311552,
+          "annual_need": 315973779.19878286,
+          "annual_spend": 41243900.065328985,
+          "deferred_backlog": 3506253292.6793003,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 25,
+          "pci": 33.8308233859981,
+          "area": 2947887.356897764,
+          "annual_need": 326753066.7654979,
+          "annual_spend": 41243900.06532899,
+          "deferred_backlog": 3791762459.3794694,
+          "cost_tier": "reconstruction"
+        }
+      ],
+      "final_cohorts": [
+        {
+          "classification": "primary",
+          "end_pci": 42.63957964925485,
+          "area": 106612.066744186,
+          "decay_rate": 0.025,
+          "total_spend": 34194495.57080414,
+          "total_deficit": 121075058.50549772
+        },
+        {
+          "classification": "trunk",
+          "end_pci": 42.45714617988428,
+          "area": 0,
+          "decay_rate": 0.02,
+          "total_spend": 0,
+          "total_deficit": 0
+        },
+        {
+          "classification": "residential",
+          "end_pci": 31.706777609748592,
+          "area": 1194828.8301403876,
+          "decay_rate": 0.04,
+          "total_spend": 491054358.19618124,
+          "total_deficit": 1818565903.1530528
+        },
+        {
+          "classification": "motorway",
+          "end_pci": 51.97565363909936,
+          "area": 240.25650662858476,
+          "decay_rate": 0.015,
+          "total_spend": 62745.49588502684,
+          "total_deficit": 208454.7573211373
+        },
+        {
+          "classification": "service",
+          "end_pci": 28.73100969071172,
+          "area": 410432.0044312562,
+          "decay_rate": 0.045,
+          "total_spend": 180364013.37319407,
+          "total_deficit": 672506876.813202
+        },
+        {
+          "classification": "tertiary",
+          "end_pci": 34.99421520469733,
+          "area": 305126.69703412335,
+          "decay_rate": 0.035,
+          "total_spend": 116428902.0926486,
+          "total_deficit": 426892391.11651206
+        },
+        {
+          "classification": "secondary",
+          "end_pci": 38.62631089828008,
+          "area": 154743.34800890624,
+          "decay_rate": 0.03,
+          "total_spend": 54372189.79987361,
+          "total_deficit": 196505055.1752864
+        },
+        {
+          "classification": "parking",
+          "end_pci": 34.99421520469734,
+          "area": 177759.57147946712,
+          "decay_rate": 0.035,
+          "total_spend": 67828714.90756346,
+          "total_deficit": 248697374.73096249
+        },
+        {
+          "classification": "sidewalks",
+          "end_pci": 42.63957964925485,
+          "area": 270601.5428975015,
+          "decay_rate": 0.025,
+          "total_spend": 86792082.19707449,
+          "total_deficit": 307311345.12763447
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "name": "fund-100pct",
+        "label": "Full Funding",
+        "annual_budget": 0,
+        "full_funding": true,
+        "strategy": 1
+      },
+      "years": [
+        {
+          "year": 1,
+          "pci": 70,
+          "area": 2633446.0388286687,
+          "annual_need": 82487800.13065797,
+          "annual_spend": 82487800.13065797,
+          "deferred_backlog": 0,
+          "cost_tier": "preventive"
+        },
+        {
+          "year": 2,
+          "pci": 69.96428464025769,
+          "area": 2646547.760414881,
+          "annual_need": 82898187.19598466,
+          "annual_spend": 82898187.19598465,
+          "deferred_backlog": 1.4901161193847656e-8,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 3,
+          "pci": 69.96426558618296,
+          "area": 2659649.482001093,
+          "annual_need": 83447542.53599824,
+          "annual_spend": 83447542.53599824,
+          "deferred_backlog": 1.4901161193847656e-8,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 4,
+          "pci": 69.96426558618296,
+          "area": 2672751.2035873057,
+          "annual_need": 83858689.4270064,
+          "annual_spend": 83858689.4270064,
+          "deferred_backlog": 1.4901161193847656e-8,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 5,
+          "pci": 69.96426558618296,
+          "area": 2685852.925173518,
+          "annual_need": 84269761.4340015,
+          "annual_spend": 84269761.43400152,
+          "deferred_backlog": 1.4901161193847656e-8,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 6,
+          "pci": 69.96426558618296,
+          "area": 2698954.6467597303,
+          "annual_need": 84680833.44099668,
+          "annual_spend": 84680833.44099668,
+          "deferred_backlog": 1.4901161193847656e-8,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 7,
+          "pci": 69.96424658884388,
+          "area": 2712056.3683459423,
+          "annual_need": 85091905.44799179,
+          "annual_spend": 85091905.44799179,
+          "deferred_backlog": 1.4901161193847656e-8,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 8,
+          "pci": 69.96424658884388,
+          "area": 2725158.089932155,
+          "annual_need": 85503053.9549662,
+          "annual_spend": 85503053.9549662,
+          "deferred_backlog": 1.4901161193847656e-8,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 9,
+          "pci": 69.85369155963417,
+          "area": 2738259.811518367,
+          "annual_need": 85914126.32974969,
+          "annual_spend": 85914126.32974969,
+          "deferred_backlog": 1.4901161193847656e-8,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 10,
+          "pci": 69.85369155963417,
+          "area": 2751361.5331045794,
+          "annual_need": 86762508.08491036,
+          "annual_spend": 86762508.08491036,
+          "deferred_backlog": 1.4901161193847656e-8,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 11,
+          "pci": 69.80703157915191,
+          "area": 2764463.2546907915,
+          "annual_need": 87175662.88531469,
+          "annual_spend": 87175662.88531469,
+          "deferred_backlog": 1.4901161193847656e-8,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 12,
+          "pci": 69.80703157915191,
+          "area": 2777564.976277004,
+          "annual_need": 87777098.83050115,
+          "annual_spend": 87777098.83050115,
+          "deferred_backlog": 1.4901161193847656e-8,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 13,
+          "pci": 69.80703157915191,
+          "area": 2790666.697863216,
+          "annual_need": 88191141.74951293,
+          "annual_spend": 88191141.74951293,
+          "deferred_backlog": 1.4901161193847656e-8,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 14,
+          "pci": 69.71137045192779,
+          "area": 2803768.4194494286,
+          "annual_need": 88605184.66852473,
+          "annual_spend": 88605184.66852476,
+          "deferred_backlog": 1.4901161193847656e-8,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 15,
+          "pci": 69.71137045192779,
+          "area": 2816870.1410356406,
+          "annual_need": 89405641.67093512,
+          "annual_spend": 89405641.67093512,
+          "deferred_backlog": 1.4901161193847656e-8,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 16,
+          "pci": 69.61655108051133,
+          "area": 2829971.862621853,
+          "annual_need": 89821481.86475341,
+          "annual_spend": 89821481.86475341,
+          "deferred_backlog": 1.4901161193847656e-8,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 17,
+          "pci": 69.52258488549964,
+          "area": 2843073.584208065,
+          "annual_need": 90623898.8825331,
+          "annual_spend": 90623898.8825331,
+          "deferred_backlog": 1.4901161193847656e-8,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 18,
+          "pci": 69.52256605735587,
+          "area": 2856175.3057942777,
+          "annual_need": 91426382.07217325,
+          "annual_spend": 91426382.07217325,
+          "deferred_backlog": 1.4901161193847656e-8,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 19,
+          "pci": 69.52256605735587,
+          "area": 2869277.0273804897,
+          "annual_need": 91845848.97418925,
+          "annual_spend": 91845848.97418925,
+          "deferred_backlog": 1.4901161193847656e-8,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 20,
+          "pci": 69.52256605735587,
+          "area": 2882378.7489667023,
+          "annual_need": 92265236.41242756,
+          "annual_spend": 92265236.41242756,
+          "deferred_backlog": 1.4901161193847656e-8,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 21,
+          "pci": 69.50864093752645,
+          "area": 2895480.4705529143,
+          "annual_need": 92684623.85066588,
+          "annual_spend": 92684623.85066588,
+          "deferred_backlog": 1.4901161193847656e-8,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 22,
+          "pci": 69.50864093752645,
+          "area": 2908582.1921391273,
+          "annual_need": 93163264.8121604,
+          "annual_spend": 93163264.8121604,
+          "deferred_backlog": 1.4901161193847656e-8,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 23,
+          "pci": 69.4761998856182,
+          "area": 2921683.913725339,
+          "annual_need": 93582919.15816112,
+          "annual_spend": 93582919.1581611,
+          "deferred_backlog": 2.9802322387695312e-8,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 24,
+          "pci": 69.4761998856182,
+          "area": 2934785.635311552,
+          "annual_need": 94140472.86865695,
+          "annual_spend": 94140472.86865695,
+          "deferred_backlog": 2.9802322387695312e-8,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 25,
+          "pci": 69.4761998856182,
+          "area": 2947887.356897764,
+          "annual_need": 94560742.83682059,
+          "annual_spend": 94560742.83682059,
+          "deferred_backlog": 2.9802322387695312e-8,
+          "cost_tier": "rehab"
+        }
+      ],
+      "final_cohorts": [
+        {
+          "classification": "primary",
+          "end_pci": 68.96812852031037,
+          "area": 106612.066744186,
+          "decay_rate": 0.025,
+          "total_spend": 87416056.93142594,
+          "total_deficit": 1.3969838619232178e-9
+        },
+        {
+          "classification": "trunk",
+          "end_pci": 42.45714617988428,
+          "area": 0,
+          "decay_rate": 0.02,
+          "total_spend": 0,
+          "total_deficit": 0
+        },
+        {
+          "classification": "residential",
+          "end_pci": 70,
+          "area": 1194828.8301403876,
+          "decay_rate": 0.04,
+          "total_spend": 1005813509.6495018,
+          "total_deficit": 0
+        },
+        {
+          "classification": "motorway",
+          "end_pci": 68.75867553144231,
+          "area": 240.25650662858476,
+          "decay_rate": 0.015,
+          "total_spend": 193088.79378488922,
+          "total_deficit": 5.4569682106375694e-12
+        },
+        {
+          "classification": "service",
+          "end_pci": 67.56819708057792,
+          "area": 410432.0044312562,
+          "decay_rate": 0.045,
+          "total_spend": 368330486.3860524,
+          "total_deficit": 7.450580596923828e-9
+        },
+        {
+          "classification": "tertiary",
+          "end_pci": 70,
+          "area": 305126.69703412335,
+          "decay_rate": 0.035,
+          "total_spend": 252749215.20002782,
+          "total_deficit": 0
+        },
+        {
+          "classification": "secondary",
+          "end_pci": 70,
+          "area": 154743.34800890624,
+          "decay_rate": 0.03,
+          "total_spend": 126086536.5275121,
+          "total_deficit": 0
+        },
+        {
+          "classification": "parking",
+          "end_pci": 69.04026401990613,
+          "area": 177759.57147946712,
+          "decay_rate": 0.035,
+          "total_spend": 149418340.31879926,
+          "total_deficit": 1.862645149230957e-9
+        },
+        {
+          "classification": "sidewalks",
+          "end_pci": 69.65433876839666,
+          "area": 270601.5428975015,
+          "decay_rate": 0.025,
+          "total_spend": 220176775.7124893,
+          "total_deficit": 9.313225746154785e-10
+        }
+      ]
+    }
+  ],
+  "city": [
+    {
+      "scenario": {
+        "name": "baseline",
+        "label": "Baseline (Do Nothing)",
+        "annual_budget": 0,
+        "strategy": 0
+      },
+      "years": [
+        {
+          "year": 1,
+          "pci": 67.42100955798195,
+          "area": 2482297.6951441932,
+          "annual_need": 77865919.66149577,
+          "annual_spend": 0,
+          "deferred_backlog": 77865919.66149577,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 2,
+          "pci": 64.93948700592514,
+          "area": 2494647.43492103,
+          "annual_need": 87539098.1004084,
+          "annual_spend": 0,
+          "deferred_backlog": 165405017.76190418,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 3,
+          "pci": 62.551675450904405,
+          "area": 2506997.1746978667,
+          "annual_need": 96951815.2054145,
+          "annual_spend": 0,
+          "deferred_backlog": 262356832.96731868,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 4,
+          "pci": 60.25396503719481,
+          "area": 2519346.914474704,
+          "annual_need": 106112504.81591314,
+          "annual_spend": 0,
+          "deferred_backlog": 368469337.78323185,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 5,
+          "pci": 58.04288712181085,
+          "area": 2531696.65425154,
+          "annual_need": 115029331.99424659,
+          "annual_spend": 0,
+          "deferred_backlog": 483498669.77747846,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 6,
+          "pci": 55.915108683029125,
+          "area": 2544046.3940283773,
+          "annual_need": 124608740.04597536,
+          "annual_spend": 0,
+          "deferred_backlog": 608107409.8234538,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 7,
+          "pci": 53.86742695249883,
+          "area": 2556396.133805214,
+          "annual_need": 138089037.5525414,
+          "annual_spend": 0,
+          "deferred_backlog": 746196447.3759952,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 8,
+          "pci": 51.8967642619254,
+          "area": 2568745.8735820507,
+          "annual_need": 152443973.35606924,
+          "annual_spend": 0,
+          "deferred_backlog": 898640420.7320644,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 9,
+          "pci": 50.00016309567878,
+          "area": 2581095.6133588874,
+          "annual_need": 166406012.7416482,
+          "annual_spend": 0,
+          "deferred_backlog": 1065046433.4737126,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 10,
+          "pci": 48.1747813410292,
+          "area": 2593445.3531357246,
+          "annual_need": 180246072.2717664,
+          "annual_spend": 0,
+          "deferred_backlog": 1245292505.7454789,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 11,
+          "pci": 46.41788772804952,
+          "area": 2605795.092912561,
+          "annual_need": 194184686.20298016,
+          "annual_spend": 0,
+          "deferred_backlog": 1439477191.9484591,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 12,
+          "pci": 44.72685745154657,
+          "area": 2618144.832689398,
+          "annual_need": 207754599.0022269,
+          "annual_spend": 0,
+          "deferred_backlog": 1647231790.950686,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 13,
+          "pci": 43.09916796769382,
+          "area": 2630494.5724662347,
+          "annual_need": 220967797.39135095,
+          "annual_spend": 0,
+          "deferred_backlog": 1868199588.342037,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 14,
+          "pci": 41.5323949583343,
+          "area": 2642844.312243072,
+          "annual_need": 233835882.42330307,
+          "annual_spend": 0,
+          "deferred_backlog": 2102035470.76534,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 15,
+          "pci": 40.0242084562084,
+          "area": 2655194.052019908,
+          "annual_need": 246370081.54775405,
+          "annual_spend": 0,
+          "deferred_backlog": 2348405552.313094,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 16,
+          "pci": 38.57236912463393,
+          "area": 2667543.7917967453,
+          "annual_need": 258581260.31986958,
+          "annual_spend": 0,
+          "deferred_backlog": 2606986812.6329637,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 17,
+          "pci": 37.17472468542866,
+          "area": 2679893.531573582,
+          "annual_need": 270479933.7616448,
+          "annual_spend": 0,
+          "deferred_backlog": 2877466746.3946085,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 18,
+          "pci": 35.82920648911656,
+          "area": 2692243.2713504187,
+          "annual_need": 282076277.38501865,
+          "annual_spend": 0,
+          "deferred_backlog": 3159543023.7796273,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 19,
+          "pci": 34.53382622170067,
+          "area": 2704593.0111272554,
+          "annual_need": 293380137.8858035,
+          "annual_spend": 0,
+          "deferred_backlog": 3452923161.665431,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 20,
+          "pci": 33.28667274251665,
+          "area": 2716942.7509040926,
+          "annual_need": 304401043.5172836,
+          "annual_spend": 0,
+          "deferred_backlog": 3757324205.1827145,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 21,
+          "pci": 32.08590904790341,
+          "area": 2729292.490680929,
+          "annual_need": 315148214.1521523,
+          "annual_spend": 0,
+          "deferred_backlog": 4072472419.3348665,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 22,
+          "pci": 30.929769355639877,
+          "area": 2741642.230457766,
+          "annual_need": 325630571.0412779,
+          "annual_spend": 0,
+          "deferred_backlog": 4398102990.376144,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 23,
+          "pci": 29.81655630530154,
+          "area": 2753991.9702346027,
+          "annual_need": 335856746.277601,
+          "annual_spend": 0,
+          "deferred_backlog": 4733959736.653746,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 24,
+          "pci": 28.74463826988611,
+          "area": 2766341.7100114394,
+          "annual_need": 345835091.97329247,
+          "annual_spend": 0,
+          "deferred_backlog": 5079794828.627038,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 25,
+          "pci": 27.7124467742459,
+          "area": 2778691.449788276,
+          "annual_need": 355573689.158115,
+          "annual_spend": 0,
+          "deferred_backlog": 5435368517.785153,
+          "cost_tier": "reconstruction"
+        }
+      ],
+      "final_cohorts": [
+        {
+          "classification": "secondary",
+          "end_pci": 33.06565869187101,
+          "area": 1087.6543243103906,
+          "decay_rate": 0.03,
+          "total_spend": 0,
+          "total_deficit": 2089533.7164068513
+        },
+        {
+          "classification": "residential",
+          "end_pci": 25.751560882000945,
+          "area": 1196901.9138520297,
+          "decay_rate": 0.04,
+          "total_spend": 0,
+          "total_deficit": 2749403134.0995255
+        },
+        {
+          "classification": "service",
+          "end_pci": 22.725672715084514,
+          "area": 411144.1230893096,
+          "decay_rate": 0.045,
+          "total_spend": 0,
+          "total_deficit": 1014145623.3610073
+        },
+        {
+          "classification": "tertiary",
+          "end_pci": 29.18034137749558,
+          "area": 305656.1060755291,
+          "decay_rate": 0.035,
+          "total_spend": 0,
+          "total_deficit": 646647004.8564277
+        },
+        {
+          "classification": "primary",
+          "end_pci": 37.468299996329264,
+          "area": 106797.0436492092,
+          "decay_rate": 0.025,
+          "total_spend": 0,
+          "total_deficit": 183093526.51656896
+        },
+        {
+          "classification": "parking",
+          "end_pci": 29.18034137749558,
+          "area": 177759.57147946712,
+          "decay_rate": 0.035,
+          "total_spend": 0,
+          "total_deficit": 376068700.074833
+        },
+        {
+          "classification": "sidewalks",
+          "end_pci": 37.468299996329264,
+          "area": 270601.5428975015,
+          "decay_rate": 0.025,
+          "total_spend": 0,
+          "total_deficit": 463920995.1603845
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "name": "fund-25pct",
+        "label": "25% Funding",
+        "annual_budget": 19466479.915373944,
+        "strategy": 1
+      },
+      "years": [
+        {
+          "year": 1,
+          "pci": 67.93680764638556,
+          "area": 2482297.6951441932,
+          "annual_need": 77865919.66149577,
+          "annual_spend": 19466479.915373944,
+          "deferred_backlog": 58399439.74612183,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 2,
+          "pci": 65.89036553489585,
+          "area": 2494647.43492103,
+          "annual_need": 85681940.93965222,
+          "annual_spend": 19466479.915373944,
+          "deferred_backlog": 124614900.7704001,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 3,
+          "pci": 63.870285559959214,
+          "area": 2506997.1746978667,
+          "annual_need": 93511084.73450983,
+          "annual_spend": 19466479.915373947,
+          "deferred_backlog": 198659505.58953598,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 4,
+          "pci": 61.88363417654664,
+          "area": 2519346.914474704,
+          "annual_need": 101317507.78648299,
+          "annual_spend": 19466479.915373944,
+          "deferred_backlog": 280510533.460645,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 5,
+          "pci": 59.93556257941654,
+          "area": 2531696.65425154,
+          "annual_need": 109073979.86696309,
+          "annual_spend": 19466479.915373944,
+          "deferred_backlog": 370118033.4122342,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 6,
+          "pci": 58.02977193130212,
+          "area": 2544046.3940283773,
+          "annual_need": 116759797.42834245,
+          "annual_spend": 19466479.915373944,
+          "deferred_backlog": 467411350.9252027,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 7,
+          "pci": 56.166927936178915,
+          "area": 2556396.133805214,
+          "annual_need": 125266734.56017,
+          "annual_spend": 19466479.915373947,
+          "deferred_backlog": 573211605.5699987,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 8,
+          "pci": 54.34345116125475,
+          "area": 2568745.8735820507,
+          "annual_need": 137079434.3511196,
+          "annual_spend": 19466479.91537394,
+          "deferred_backlog": 690824560.0057445,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 9,
+          "pci": 52.561349308893476,
+          "area": 2581095.6133588874,
+          "annual_need": 149975330.5732567,
+          "annual_spend": 19466479.915373944,
+          "deferred_backlog": 821333410.6636271,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 10,
+          "pci": 50.82365770420523,
+          "area": 2593445.3531357246,
+          "annual_need": 162715059.23277956,
+          "annual_spend": 19466479.915373944,
+          "deferred_backlog": 964581989.9810327,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 11,
+          "pci": 49.132272251400956,
+          "area": 2605795.092912561,
+          "annual_need": 175261262.19114918,
+          "annual_spend": 19466479.915373944,
+          "deferred_backlog": 1120376772.256808,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 12,
+          "pci": 47.48776911248607,
+          "area": 2618144.832689398,
+          "annual_need": 188211524.27253008,
+          "annual_spend": 19466479.915373947,
+          "deferred_backlog": 1289121816.613964,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 13,
+          "pci": 45.890730351485296,
+          "area": 2630494.5724662347,
+          "annual_need": 200995348.37056136,
+          "annual_spend": 19466479.915373944,
+          "deferred_backlog": 1470650685.0691514,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 14,
+          "pci": 44.341295612351026,
+          "area": 2642844.312243072,
+          "annual_need": 213546258.8311727,
+          "annual_spend": 19466479.91537394,
+          "deferred_backlog": 1664730463.98495,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 15,
+          "pci": 42.83923900136354,
+          "area": 2655194.052019908,
+          "annual_need": 225858388.28384912,
+          "annual_spend": 19466479.915373944,
+          "deferred_backlog": 1871122372.3534253,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 16,
+          "pci": 41.38406508425164,
+          "area": 2667543.7917967453,
+          "annual_need": 237928531.10049388,
+          "annual_spend": 19466479.915373944,
+          "deferred_backlog": 2089584423.5385451,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 17,
+          "pci": 39.97507952063678,
+          "area": 2679893.531573582,
+          "annual_need": 249755498.30505615,
+          "annual_spend": 19466479.915373947,
+          "deferred_backlog": 2319873441.9282274,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 18,
+          "pci": 38.611441749152135,
+          "area": 2692243.2713504187,
+          "annual_need": 261339640.61645195,
+          "annual_spend": 19466479.915373944,
+          "deferred_backlog": 2561746602.6293054,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 19,
+          "pci": 37.29220475252467,
+          "area": 2704593.0111272554,
+          "annual_need": 272682490.5398949,
+          "annual_spend": 19466479.915373944,
+          "deferred_backlog": 2814962613.253826,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 20,
+          "pci": 36.01634537786808,
+          "area": 2716942.7509040926,
+          "annual_need": 283786490.21301556,
+          "annual_spend": 19466479.915373944,
+          "deferred_backlog": 3079282623.551468,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 21,
+          "pci": 34.78278765487023,
+          "area": 2729292.490680929,
+          "annual_need": 294654782.0058194,
+          "annual_spend": 19466479.915373947,
+          "deferred_backlog": 3354470925.6419134,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 22,
+          "pci": 33.59042085606432,
+          "area": 2741642.230457766,
+          "annual_need": 305291045.7111278,
+          "annual_spend": 19466479.915373944,
+          "deferred_backlog": 3640295491.4376674,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 23,
+          "pci": 32.43811356288387,
+          "area": 2753991.9702346027,
+          "annual_need": 315699370.78630066,
+          "annual_spend": 19466479.91537394,
+          "deferred_backlog": 3936528382.308594,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 24,
+          "pci": 31.324724665478627,
+          "area": 2766341.7100114394,
+          "annual_need": 325884155.286909,
+          "annual_spend": 19466479.915373944,
+          "deferred_backlog": 4242946057.680129,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 25,
+          "pci": 30.249111986258544,
+          "area": 2778691.449788276,
+          "annual_need": 335850025.3539925,
+          "annual_spend": 19466479.915373944,
+          "deferred_backlog": 4559329603.118748,
+          "cost_tier": "reconstruction"
+        }
+      ],
+      "final_cohorts": [
+        {
+          "classification": "secondary",
+          "end_pci": 35.517969488805015,
+          "area": 1087.6543243103906,
+          "decay_rate": 0.03,
+          "total_spend": 189358.68593012157,
+          "total_deficit": 1750485.7938292793
+        },
+        {
+          "classification": "residential",
+          "end_pci": 28.34102594918439,
+          "area": 1196901.9138520297,
+          "decay_rate": 0.04,
+          "total_spend": 245038990.02946994,
+          "total_deficit": 2306444314.5435605
+        },
+        {
+          "classification": "service",
+          "end_pci": 25.318280109006608,
+          "area": 411144.1230893096,
+          "decay_rate": 0.045,
+          "total_spend": 90109973.36058716,
+          "total_deficit": 851851352.5807565
+        },
+        {
+          "classification": "tertiary",
+          "end_pci": 31.726359469260938,
+          "area": 305656.1060755291,
+          "decay_rate": 0.035,
+          "total_spend": 57980062.72597825,
+          "total_deficit": 541883622.6751889
+        },
+        {
+          "classification": "primary",
+          "end_pci": 39.76483148628013,
+          "area": 106797.0436492092,
+          "decay_rate": 0.025,
+          "total_spend": 16872612.103164002,
+          "total_deficit": 153449327.85169497
+        },
+        {
+          "classification": "parking",
+          "end_pci": 31.726359469260938,
+          "area": 177759.57147946712,
+          "decay_rate": 0.035,
+          "total_spend": 33719303.81778706,
+          "total_deficit": 315141751.2813582
+        },
+        {
+          "classification": "sidewalks",
+          "end_pci": 39.76483148628013,
+          "area": 270601.5428975015,
+          "decay_rate": 0.025,
+          "total_spend": 42751697.16143211,
+          "total_deficit": 388808748.3923595
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "name": "fund-50pct",
+        "label": "50% Funding",
+        "annual_budget": 38932959.83074789,
+        "strategy": 1
+      },
+      "years": [
+        {
+          "year": 1,
+          "pci": 68.45260573478917,
+          "area": 2482297.6951441932,
+          "annual_need": 77865919.66149577,
+          "annual_spend": 38932959.83074789,
+          "deferred_backlog": 38932959.83074789,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 2,
+          "pci": 66.86862957964097,
+          "area": 2494647.43492103,
+          "annual_need": 83824783.7788961,
+          "annual_spend": 38932959.830747895,
+          "deferred_backlog": 83824783.7788961,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 3,
+          "pci": 65.25979465642747,
+          "area": 2506997.1746978667,
+          "annual_need": 89971281.89683986,
+          "annual_spend": 38932959.83074788,
+          "deferred_backlog": 134863105.84498808,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 4,
+          "pci": 63.63636042237577,
+          "area": 2519346.914474704,
+          "annual_need": 96264752.97867957,
+          "annual_spend": 38932959.83074789,
+          "deferred_backlog": 192194898.99291974,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 5,
+          "pci": 62.00716935251685,
+          "area": 2531696.65425154,
+          "annual_need": 102669046.21827424,
+          "annual_spend": 38932959.830747895,
+          "deferred_backlog": 255930985.38044608,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 6,
+          "pci": 60.37975239254417,
+          "area": 2544046.3940283773,
+          "annual_need": 109152480.24711423,
+          "annual_spend": 38932959.83074788,
+          "deferred_backlog": 326150505.7968124,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 7,
+          "pci": 58.76046126765141,
+          "area": 2556396.133805214,
+          "annual_need": 115687580.547144,
+          "annual_spend": 38932959.83074789,
+          "deferred_backlog": 402905126.5132085,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 8,
+          "pci": 57.15264825455314,
+          "area": 2568745.8735820507,
+          "annual_need": 122688589.95701936,
+          "annual_spend": 38932959.83074789,
+          "deferred_backlog": 486660756.63948,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 9,
+          "pci": 55.553523080680414,
+          "area": 2581095.6133588874,
+          "annual_need": 131727814.24141097,
+          "annual_spend": 38932959.83074789,
+          "deferred_backlog": 579455611.0501431,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 10,
+          "pci": 53.9639212211442,
+          "area": 2593445.3531357246,
+          "annual_need": 142521688.0629424,
+          "annual_spend": 38932959.83074788,
+          "deferred_backlog": 683044339.2823377,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 11,
+          "pci": 52.38893395883219,
+          "area": 2605795.092912561,
+          "annual_need": 153978247.72730714,
+          "annual_spend": 38932959.83074789,
+          "deferred_backlog": 798089627.1788969,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 12,
+          "pci": 50.834344004704036,
+          "area": 2618144.832689398,
+          "annual_need": 165433193.50464305,
+          "annual_spend": 38932959.83074789,
+          "deferred_backlog": 924589860.852792,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 13,
+          "pci": 49.30459526913606,
+          "area": 2630494.5724662347,
+          "annual_need": 176843801.57897544,
+          "annual_spend": 38932959.83074789,
+          "deferred_backlog": 1062500702.6010196,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 14,
+          "pci": 47.80218605396238,
+          "area": 2642844.312243072,
+          "annual_need": 188734991.6045042,
+          "annual_spend": 38932959.83074789,
+          "deferred_backlog": 1212302734.374776,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 15,
+          "pci": 46.32983538044901,
+          "area": 2655194.052019908,
+          "annual_need": 200587091.03218243,
+          "annual_spend": 38932959.83074788,
+          "deferred_backlog": 1373956865.5762105,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 16,
+          "pci": 44.8896201191579,
+          "area": 2667543.7917967453,
+          "annual_need": 212321031.64620805,
+          "annual_spend": 38932959.83074789,
+          "deferred_backlog": 1547344937.3916707,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 17,
+          "pci": 43.483023350505455,
+          "area": 2679893.531573582,
+          "annual_need": 223918441.48560733,
+          "annual_spend": 38932959.83074789,
+          "deferred_backlog": 1732330419.0465302,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 18,
+          "pci": 42.11105532971015,
+          "area": 2692243.2713504187,
+          "annual_need": 235365060.89514711,
+          "annual_spend": 38932959.83074789,
+          "deferred_backlog": 1928762520.1109295,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 19,
+          "pci": 40.77434868424785,
+          "area": 2704593.0111272554,
+          "annual_need": 246649944.08476374,
+          "annual_spend": 38932959.83074789,
+          "deferred_backlog": 2136479504.3649454,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 20,
+          "pci": 39.47323373963994,
+          "area": 2716942.7509040926,
+          "annual_need": 257764828.47581342,
+          "annual_spend": 38932959.83074789,
+          "deferred_backlog": 2355311373.0100107,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 21,
+          "pci": 38.20779846178402,
+          "area": 2729292.490680929,
+          "annual_need": 268703633.72803867,
+          "annual_spend": 38932959.83074789,
+          "deferred_backlog": 2585082046.9073014,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 22,
+          "pci": 36.97793642949049,
+          "area": 2741642.230457766,
+          "annual_need": 279462061.34746903,
+          "annual_spend": 38932959.83074789,
+          "deferred_backlog": 2825611148.4240227,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 23,
+          "pci": 35.78338543914602,
+          "area": 2753991.9702346027,
+          "annual_need": 290037272.69060653,
+          "annual_spend": 38932959.83074789,
+          "deferred_backlog": 3076715461.283881,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 24,
+          "pci": 34.62375873260086,
+          "area": 2766341.7100114394,
+          "annual_need": 300427628.42541,
+          "annual_spend": 38932959.83074789,
+          "deferred_backlog": 3338210129.8785434,
+          "cost_tier": "reconstruction"
+        },
+        {
+          "year": 25,
+          "pci": 33.498570379722196,
+          "area": 2778691.449788276,
+          "annual_need": 310632476.4681918,
+          "annual_spend": 38932959.83074788,
+          "deferred_backlog": 3609909646.5159874,
+          "cost_tier": "reconstruction"
+        }
+      ],
+      "final_cohorts": [
+        {
+          "classification": "secondary",
+          "end_pci": 38.5983538147975,
+          "area": 1087.6543243103906,
+          "decay_rate": 0.03,
+          "total_spend": 380201.25875778653,
+          "total_deficit": 1384327.0711890643
+        },
+        {
+          "classification": "residential",
+          "end_pci": 31.676086839430372,
+          "area": 1196901.9138520297,
+          "decay_rate": 0.04,
+          "total_spend": 489304374.30865896,
+          "total_deficit": 1825881543.5657384
+        },
+        {
+          "classification": "service",
+          "end_pci": 28.69967595859471,
+          "area": 411144.1230893096,
+          "decay_rate": 0.045,
+          "total_spend": 179711096.02319902,
+          "total_deficit": 675207651.0826819
+        },
+        {
+          "classification": "tertiary",
+          "end_pci": 34.96462103157241,
+          "area": 305656.1060755291,
+          "decay_rate": 0.035,
+          "total_spend": 116022098.28464152,
+          "total_deficit": 428610716.5714948
+        },
+        {
+          "classification": "primary",
+          "end_pci": 42.613900240094196,
+          "area": 106797.0436492092,
+          "decay_rate": 0.025,
+          "total_spend": 34079980.24461295,
+          "total_deficit": 121557638.69992939
+        },
+        {
+          "classification": "parking",
+          "end_pci": 34.96462103157241,
+          "area": 177759.57147946712,
+          "decay_rate": 0.035,
+          "total_spend": 67474649.00351177,
+          "total_deficit": 249265942.3281059
+        },
+        {
+          "classification": "sidewalks",
+          "end_pci": 42.613900240094196,
+          "area": 270601.5428975015,
+          "decay_rate": 0.025,
+          "total_spend": 86351596.64531521,
+          "total_deficit": 308001827.1968477
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "name": "fund-100pct",
+        "label": "Full Funding",
+        "annual_budget": 0,
+        "full_funding": true,
+        "strategy": 1
+      },
+      "years": [
+        {
+          "year": 1,
+          "pci": 70,
+          "area": 2482297.6951441932,
+          "annual_need": 77865919.66149577,
+          "annual_spend": 77865919.66149577,
+          "deferred_backlog": 0,
+          "cost_tier": "preventive"
+        },
+        {
+          "year": 2,
+          "pci": 70,
+          "area": 2494647.43492103,
+          "annual_need": 78253312.29662764,
+          "annual_spend": 78253312.29662764,
+          "deferred_backlog": 0,
+          "cost_tier": "preventive"
+        },
+        {
+          "year": 3,
+          "pci": 70,
+          "area": 2506997.1746978667,
+          "annual_need": 78640704.93175945,
+          "annual_spend": 78640704.93175945,
+          "deferred_backlog": 0,
+          "cost_tier": "preventive"
+        },
+        {
+          "year": 4,
+          "pci": 69.85958581180856,
+          "area": 2519346.914474704,
+          "annual_need": 79028097.56689127,
+          "annual_spend": 79028097.56689127,
+          "deferred_backlog": 0,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 5,
+          "pci": 69.85958581180856,
+          "area": 2531696.65425154,
+          "annual_need": 79928033.33555554,
+          "annual_spend": 79928033.33555554,
+          "deferred_backlog": 0,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 6,
+          "pci": 69.75794387691845,
+          "area": 2544046.3940283773,
+          "annual_need": 80317926.18109486,
+          "annual_spend": 80317926.18109486,
+          "deferred_backlog": 0,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 7,
+          "pci": 69.75794387691845,
+          "area": 2556396.133805214,
+          "annual_need": 81080424.37398343,
+          "annual_spend": 81080424.37398343,
+          "deferred_backlog": 0,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 8,
+          "pci": 69.75794387691845,
+          "area": 2568745.8735820507,
+          "annual_need": 81472117.24535531,
+          "annual_spend": 81472117.24535531,
+          "deferred_backlog": 0,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 9,
+          "pci": 69.75794387691845,
+          "area": 2581095.6133588874,
+          "annual_need": 81863810.1167272,
+          "annual_spend": 81863810.1167272,
+          "deferred_backlog": 0,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 10,
+          "pci": 69.75794387691845,
+          "area": 2593445.3531357246,
+          "annual_need": 82255502.98809914,
+          "annual_spend": 82255502.98809914,
+          "deferred_backlog": 0,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 11,
+          "pci": 69.75794387691845,
+          "area": 2605795.092912561,
+          "annual_need": 82647195.85947101,
+          "annual_spend": 82647195.85947101,
+          "deferred_backlog": 0,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 12,
+          "pci": 69.75794387691845,
+          "area": 2618144.832689398,
+          "annual_need": 83038888.73084293,
+          "annual_spend": 83038888.73084293,
+          "deferred_backlog": 0,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 13,
+          "pci": 69.75794387691845,
+          "area": 2630494.5724662347,
+          "annual_need": 83430581.60221481,
+          "annual_spend": 83430581.60221481,
+          "deferred_backlog": 0,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 14,
+          "pci": 69.75794387691845,
+          "area": 2642844.312243072,
+          "annual_need": 83822274.47358674,
+          "annual_spend": 83822274.47358674,
+          "deferred_backlog": 0,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 15,
+          "pci": 69.75794387691845,
+          "area": 2655194.052019908,
+          "annual_need": 84213967.34495863,
+          "annual_spend": 84213967.34495863,
+          "deferred_backlog": 0,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 16,
+          "pci": 69.65719644224566,
+          "area": 2667543.7917967453,
+          "annual_need": 84605660.21633053,
+          "annual_spend": 84605660.21633053,
+          "deferred_backlog": 0,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 17,
+          "pci": 69.65719644224566,
+          "area": 2679893.531573582,
+          "annual_need": 85384521.16732578,
+          "annual_spend": 85384521.16732578,
+          "deferred_backlog": 0,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 18,
+          "pci": 69.65719644224566,
+          "area": 2692243.2713504187,
+          "annual_need": 85777998.22339639,
+          "annual_spend": 85777998.22339639,
+          "deferred_backlog": 0,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 19,
+          "pci": 69.65719644224566,
+          "area": 2704593.0111272554,
+          "annual_need": 86171475.27946702,
+          "annual_spend": 86171475.27946702,
+          "deferred_backlog": 0,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 20,
+          "pci": 69.64225054123622,
+          "area": 2716942.7509040926,
+          "annual_need": 86564952.33553766,
+          "annual_spend": 86564952.33553766,
+          "deferred_backlog": 0,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 21,
+          "pci": 69.64225054123622,
+          "area": 2729292.490680929,
+          "annual_need": 87018106.26739256,
+          "annual_spend": 87018106.26739256,
+          "deferred_backlog": 0,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 22,
+          "pci": 69.64225054123622,
+          "area": 2741642.230457766,
+          "annual_need": 87411853.35457534,
+          "annual_spend": 87411853.35457534,
+          "deferred_backlog": 0,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 23,
+          "pci": 69.59272365220008,
+          "area": 2753991.9702346027,
+          "annual_need": 87805600.4417581,
+          "annual_spend": 87805600.4417581,
+          "deferred_backlog": 0,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 24,
+          "pci": 69.54350858926824,
+          "area": 2766341.7100114394,
+          "annual_need": 88398390.34561346,
+          "annual_spend": 88398390.34561346,
+          "deferred_backlog": 0,
+          "cost_tier": "rehab"
+        },
+        {
+          "year": 25,
+          "pci": 69.54350858926824,
+          "area": 2778691.449788276,
+          "annual_need": 88991699.44691764,
+          "annual_spend": 88991699.44691764,
+          "deferred_backlog": 0,
+          "cost_tier": "rehab"
+        }
+      ],
+      "final_cohorts": [
+        {
+          "classification": "secondary",
+          "end_pci": 70,
+          "area": 1087.6543243103906,
+          "decay_rate": 0.03,
+          "total_spend": 886232.3870850692,
+          "total_deficit": 0
+        },
+        {
+          "classification": "residential",
+          "end_pci": 70,
+          "area": 1196901.9138520297,
+          "decay_rate": 0.04,
+          "total_spend": 1007558642.9700288,
+          "total_deficit": 0
+        },
+        {
+          "classification": "service",
+          "end_pci": 68.16811078724169,
+          "area": 411144.1230893096,
+          "decay_rate": 0.045,
+          "total_spend": 370746616.499401,
+          "total_deficit": 5.587935447692871e-9
+        },
+        {
+          "classification": "tertiary",
+          "end_pci": 70,
+          "area": 305656.1060755291,
+          "decay_rate": 0.035,
+          "total_spend": 253187746.86912054,
+          "total_deficit": 0
+        },
+        {
+          "classification": "primary",
+          "end_pci": 68.96812852031037,
+          "area": 106797.0436492092,
+          "decay_rate": 0.025,
+          "total_spend": 86048932.19852231,
+          "total_deficit": 1.3969838619232178e-9
+        },
+        {
+          "classification": "parking",
+          "end_pci": 69.04026401990613,
+          "area": 177759.57147946712,
+          "decay_rate": 0.035,
+          "total_spend": 147662537.68718943,
+          "total_deficit": 1.862645149230957e-9
+        },
+        {
+          "classification": "sidewalks",
+          "end_pci": 69.65433876839666,
+          "area": 270601.5428975015,
+          "decay_rate": 0.025,
+          "total_spend": 219898305.17563123,
+          "total_deficit": 9.313225746154785e-10
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "all_count": 4997,
+    "city_count": 4710,
+    "city_pct": 0.9426043513115973,
+    "county_count": 0,
+    "federal_count": 0,
+    "state_count": 0
+  }
+}

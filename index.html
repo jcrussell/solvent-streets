@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    
+<script>
+(function(){
+  try {
+    var t = localStorage.getItem('pvmtTheme');
+    if (!t) t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    document.documentElement.dataset.theme = t;
+  } catch(e) { document.documentElement.dataset.theme = 'light'; }
+})();
+</script>
+
+    <title>Solvent Streets &mdash; Example Cities</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        .wip-banner {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            background: #fef3c7;
+            color: #92400e;
+            text-align: center;
+            font-size: 13px;
+            font-weight: 600;
+            padding: 6px 16px;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+        header {
+            background: var(--header-bg);
+            padding: 24px 32px;
+            border-bottom: 1px solid var(--header-border);
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+        }
+        header h1 { font-size: 24px; color: var(--header-fg); margin-bottom: 8px; }
+        header p { color: var(--header-muted); font-size: 14px; max-width: 640px; line-height: 1.5; }
+        .theme-toggle {
+            background: none; border: 1px solid var(--header-muted); color: var(--header-fg);
+            font-size: 18px; width: 36px; height: 36px; border-radius: 6px; cursor: pointer;
+            flex-shrink: 0; margin-left: 16px; margin-top: 2px;
+        }
+        .theme-toggle:hover { border-color: var(--header-fg); }
+        main { max-width: 1200px; margin: 0 auto; padding: 32px; }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            text-decoration: none;
+            color: inherit;
+            transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+        }
+        .card:hover { border-color: var(--card-hover); transform: translateY(-2px); box-shadow: var(--shadow-hover); }
+        .card h3 { font-size: 18px; color: var(--text-strong); margin-bottom: 8px; }
+        .card .cities { color: var(--text-muted); font-size: 13px; margin-bottom: 12px; }
+        .card .meta {
+            display: flex;
+            gap: 16px;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+        .card .meta span { white-space: nowrap; }
+        footer {
+            text-align: center;
+            padding: 32px;
+            color: var(--text-muted);
+            font-size: 12px;
+        }
+        footer a { color: var(--accent); text-decoration: none; }
+        footer a:hover { text-decoration: underline; }
+
+        main > section { margin-bottom: 48px; font-size: 14px; line-height: 1.65; }
+        main > section h2 { font-size: 18px; margin-bottom: 12px; color: var(--text-strong); }
+        main > section > p { margin-bottom: 10px; }
+    </style>
+    
+<style>
+:root {
+    --bg: #f8fafc;
+    --bg-alt: #f1f5f9;
+    --panel: #ffffff;
+    --panel-2: #f9fafb;
+    --text: #0f172a;
+    --text-muted: #64748b;
+    --text-strong: #020617;
+    --border: #e2e8f0;
+    --border-strong: #cbd5e1;
+    --accent: #2563eb;
+    --accent-hover: #1d4ed8;
+    --accent-fg: #ffffff;
+    --header-bg: #0f172a;
+    --header-fg: #f8fafc;
+    --header-muted: #94a3b8;
+    --header-border: #1e293b;
+    --good: #059669;
+    --good-bg: #dcfce7;
+    --good-fg: #166534;
+    --fair: #d97706;
+    --fair-bg: #fef3c7;
+    --fair-fg: #92400e;
+    --poor: #dc2626;
+    --poor-bg: #fee2e2;
+    --poor-fg: #991b1b;
+    --shadow: 0 1px 3px rgba(15,23,42,0.08);
+    --shadow-hover: 0 4px 12px rgba(0,0,0,0.1);
+    --card-hover: #2563eb;
+    --summary-bg: #eff6ff;
+    --summary-border: #6366f1;
+    --map-ctrl-bg: #ffffff;
+    --map-ctrl-fg: #0f172a;
+    --map-ctrl-border: #e2e8f0;
+    --tooltip-bg: rgba(15,23,42,0.92);
+    --tooltip-fg: #fff;
+    --code-bg: #f1f5f9;
+    --code-fg: #1e40af;
+    --link: #2563eb;
+    --legend-1: #f7fbff;
+    --legend-2: #c6dbef;
+    --legend-3: #6baed6;
+    --legend-4: #2171b5;
+    --legend-5: #08519c;
+    --legend-6: #08306b;
+    --meth-fg: var(--text);
+    --meth-heading: var(--text-strong);
+    --meth-rule: var(--border);
+    --meth-code-bg: var(--code-bg);
+    --meth-code-fg: var(--code-fg);
+    --meth-link: var(--link);
+    --meth-strong: var(--text-strong);
+}
+:root[data-theme="dark"] {
+    --bg: #0b1120;
+    --bg-alt: #111827;
+    --panel: #111827;
+    --panel-2: #1f2937;
+    --text: #e2e8f0;
+    --text-muted: #94a3b8;
+    --text-strong: #f8fafc;
+    --border: #1e293b;
+    --border-strong: #334155;
+    --accent: #60a5fa;
+    --accent-hover: #93c5fd;
+    --accent-fg: #0b1120;
+    --header-bg: #0b1120;
+    --header-fg: #f8fafc;
+    --header-muted: #64748b;
+    --header-border: #1e293b;
+    --good-bg: #064e3b;
+    --good-fg: #6ee7b7;
+    --fair-bg: #78350f;
+    --fair-fg: #fde68a;
+    --poor-bg: #7f1d1d;
+    --poor-fg: #fca5a5;
+    --shadow: 0 1px 3px rgba(0,0,0,0.4);
+    --shadow-hover: 0 4px 12px rgba(0,0,0,0.3);
+    --card-hover: #60a5fa;
+    --summary-bg: #1e293b;
+    --summary-border: #818cf8;
+    --map-ctrl-bg: #1f2937;
+    --map-ctrl-fg: #e2e8f0;
+    --map-ctrl-border: #334155;
+    --tooltip-bg: rgba(30,41,59,0.95);
+    --tooltip-fg: #f8fafc;
+    --code-bg: #1e293b;
+    --code-fg: #93c5fd;
+    --link: #93c5fd;
+    --legend-1: #1e3a5f;
+    --legend-2: #2a5f8f;
+    --legend-3: #3b82b0;
+    --legend-4: #60a5fa;
+    --legend-5: #7dc3fc;
+    --legend-6: #93c5fd;
+}
+</style>
+
+    
+<style>
+.methodology { color: var(--meth-fg); font-size: 14px; line-height: 1.65; }
+.methodology h2 {
+    font-size: 22px; color: var(--meth-heading); margin-top: 0; margin-bottom: 14px;
+}
+.methodology h3 {
+    font-size: 18px; color: var(--meth-heading); margin-top: 28px; margin-bottom: 10px;
+    border-bottom: 1px solid var(--meth-rule); padding-bottom: 6px;
+}
+.methodology h4 {
+    font-size: 14px; color: var(--meth-heading); margin-top: 16px; margin-bottom: 6px;
+}
+.methodology p { margin-bottom: 10px; }
+.methodology ul { margin: 6px 0 10px 20px; }
+.methodology li { margin-bottom: 4px; }
+.methodology code {
+    background: var(--meth-code-bg); color: var(--meth-code-fg); padding: 1px 5px;
+    border-radius: 3px; font-size: 13px;
+}
+.methodology pre {
+    background: var(--meth-code-bg); color: var(--meth-code-fg); padding: 16px 24px;
+    border-radius: 6px; overflow-x: auto; margin: 16px 0;
+    font-size: 16px; line-height: 1.5; text-align: center;
+    font-family: 'Georgia', 'Times New Roman', serif; font-style: italic;
+    letter-spacing: 0.5px;
+}
+.methodology pre code { background: transparent; padding: 0; }
+.methodology a { color: var(--meth-link); text-decoration: none; }
+.methodology a:hover { text-decoration: underline; }
+.methodology strong { color: var(--meth-strong); }
+</style>
+
+</head>
+<body>
+    <div class="wip-banner" role="status">⚠️ Work in progress — data and figures are preliminary.</div>
+    <header>
+        <div>
+            <h1>Solvent Streets &mdash; Pavement Management Viewer</h1>
+            <p>Pavement condition analysis and cost forecasting for US cities.</p>
+        </div>
+        <button class="theme-toggle" role="switch" aria-label="Toggle dark mode" onclick="toggleTheme()"></button>
+    </header>
+    <main>
+        <section>
+            <h2>What is Solvent Streets?</h2>
+            <p>Solvent Streets is a planning-grade pavement estimator. It aggregates OpenStreetMap pavement geometry into a hex grid, applies an exponential Pavement Condition Index (PCI) decay model per road classification, projects treatment costs from PCI-banded cost tiers, and simulates multi-year maintenance budget scenarios.</p>
+            <p>It is not a substitute for field-measured pavement surveys or a formal asset-management system &mdash; its outputs should be read as order-of-magnitude planning inputs rather than engineering specifications.</p>
+        </section>
+
+        <section>
+            <h2>Examples</h2>
+            <p>Each example uses a different configuration. Select one to explore an interactive dashboard with maps, forecasts, and cost projections.</p>
+            <div class="grid">
+                
+                <a class="card" href="./bay-area-ca/">
+                    <h3>Bay Area, CA</h3>
+                    <div class="cities">Alameda, CA, Albany, CA, Berkeley, CA, Dublin, CA, Emeryville, CA, Fremont, CA, Hayward, CA, Livermore, CA, Newark, CA, Oakland, CA, Piedmont, CA, Pleasanton, CA, San Leandro, CA, Union City, CA, Antioch, CA, Brentwood, CA, Clayton, CA, Concord, CA, El Cerrito, CA, Hercules, CA, Lafayette, CA, Martinez, CA, Moraga, CA, Oakley, CA, Orinda, CA, Pinole, CA, Pittsburg, CA, Pleasant Hill, CA, Richmond, CA, San Pablo, CA, San Ramon, CA, Walnut Creek, CA, Belvedere, CA, Corte Madera, CA, Fairfax, CA, Larkspur, CA, Mill Valley, CA, Novato, CA, Ross, CA, San Anselmo, CA, San Rafael, CA, Sausalito, CA, Tiburon, CA, American Canyon, CA, Calistoga, CA, Napa, CA, St. Helena, CA, Yountville, CA, San Francisco, CA, Belmont, CA, Brisbane, CA, Burlingame, CA, Colma, CA, Daly City, CA, East Palo Alto, CA, Foster City, CA, Half Moon Bay, CA, Hillsborough, CA, Menlo Park, CA, Millbrae, CA, Pacifica, CA, Portola Valley, CA, Redwood City, CA, San Bruno, CA, San Carlos, CA, San Mateo, CA, South San Francisco, CA, Woodside, CA, Campbell, CA, Cupertino, CA, Gilroy, CA, Los Altos, CA, Los Altos Hills, CA, Los Gatos, CA, Milpitas, CA, Monte Sereno, CA, Morgan Hill, CA, Mountain View, CA, Palo Alto, CA, San Jose, CA, Santa Clara, CA, Saratoga, CA, Sunnyvale, CA, Benicia, CA, Dixon, CA, Fairfield, CA, Rio Vista, CA, Suisun City, CA, Vacaville, CA, Vallejo, CA, Cloverdale, CA, Cotati, CA, Healdsburg, CA, Petaluma, CA, Rohnert Park, CA, Sebastopol, CA, Sonoma, CA, Windsor, CA</div>
+                    <div class="meta">
+                        <span>98 cities</span>
+                        <span>hex 100m</span>
+                        <span>imperial</span>
+                    </div>
+                </a>
+                
+                <a class="card" href="./denver-metro-co/">
+                    <h3>Denver Metro, CO</h3>
+                    <div class="cities">Denver, CO, Aurora, CO, Lakewood, CO, Arvada, CO, Westminster, CO, Centennial, CO, Boulder, CO, Thornton, CO</div>
+                    <div class="meta">
+                        <span>8 cities</span>
+                        <span>hex 100m</span>
+                        <span>imperial</span>
+                    </div>
+                </a>
+                
+                <a class="card" href="./greater-boston-ma/">
+                    <h3>Greater Boston, MA</h3>
+                    <div class="cities">Boston, MA, Cambridge, MA, Somerville, MA, Quincy, MA, Newton, MA, Medford, MA, Malden, MA, Waltham, MA</div>
+                    <div class="meta">
+                        <span>8 cities</span>
+                        <span>hex 100m</span>
+                        <span>imperial</span>
+                    </div>
+                </a>
+                
+                <a class="card" href="./livermore-ca/">
+                    <h3>Livermore, CA</h3>
+                    <div class="cities">Livermore, CA</div>
+                    <div class="meta">
+                        <span>1 city</span>
+                        <span>hex 100m</span>
+                        <span>imperial</span>
+                    </div>
+                </a>
+                
+                <a class="card" href="./los-angeles-ca/">
+                    <h3>Los Angeles, CA</h3>
+                    <div class="cities">Los Angeles, CA, Santa Monica, CA, Pasadena, CA, Long Beach, CA, Glendale, CA, Burbank, CA, Inglewood, CA, Torrance, CA</div>
+                    <div class="meta">
+                        <span>8 cities</span>
+                        <span>hex 125m</span>
+                        <span>imperial</span>
+                    </div>
+                </a>
+                
+                <a class="card" href="./portland-metro-or/">
+                    <h3>Portland Metro, OR</h3>
+                    <div class="cities">Portland, OR, Beaverton, OR, Gresham, OR, Hillsboro, OR, Tigard, OR, Lake Oswego, OR, Milwaukie, OR</div>
+                    <div class="meta">
+                        <span>7 cities</span>
+                        <span>hex 80m</span>
+                        <span>metric</span>
+                    </div>
+                </a>
+                
+                <a class="card" href="./top-50-cities/">
+                    <h3>Top 50 Cities</h3>
+                    <div class="cities">New York, NY, Los Angeles, CA, Chicago, IL, Houston, TX, Phoenix, AZ, Philadelphia, PA, San Antonio, TX, San Diego, CA, Dallas, TX, Fort Worth, TX, Jacksonville, FL, Austin, TX, San Jose, CA, Charlotte, NC, Columbus, OH, Indianapolis, IN, San Francisco, CA, Seattle, WA, Denver, CO, Nashville, TN, Oklahoma City, OK, Washington, DC, El Paso, TX, Las Vegas, NV, Boston, MA, Detroit, MI, Louisville, KY, Portland, OR, Memphis, TN, Baltimore, MD, Milwaukee, WI, Albuquerque, NM, Fresno, CA, Tucson, AZ, Sacramento, CA, Atlanta, GA, Kansas City, MO, Mesa, AZ, Raleigh, NC, Colorado Springs, CO, Miami, FL, Omaha, NE, Virginia Beach, VA, Long Beach, CA, Oakland, CA, Minneapolis, MN, Bakersfield, CA, Tulsa, OK, Tampa, FL, Aurora, CO</div>
+                    <div class="meta">
+                        <span>50 cities</span>
+                        <span>hex 150m</span>
+                        <span>imperial</span>
+                    </div>
+                </a>
+                
+            </div>
+        </section>
+
+        
+<div class="methodology"><h2>Methodology</h2>
+<p>This section describes the data sources, models, and assumptions behind the
+analysis presented in each dashboard.</p>
+<h3>Data sources</h3>
+<ul>
+<li><strong>Road, parking, and sidewalk geometry.</strong> OpenStreetMap via the Overpass
+API, under the Open Database License
+(<a href="https://www.openstreetmap.org/copyright">ODbL</a>). When a city has no
+ArcGIS or local-layer source configured, OSM is the sole source and
+coverage inherits OSM's gaps — most notably uneven sidewalk tagging and
+inconsistent classification of alleys and unpaved service roads.</li>
+<li><strong>Jurisdictional layers.</strong> Optional ArcGIS FeatureService endpoints
+configured per city in <code>pvmt.toml</code>.</li>
+<li><strong>City boundaries.</strong> Nominatim lookups or user-supplied GeoJSON,
+configurable per city.</li>
+<li><strong>Initial PCI.</strong> A <em>stand-in value</em> supplied through config or the
+interactive slider. PVMT does not ingest field-measured PCI and makes no
+claim that the starting condition matches reality — changing this input
+is the right way to explore sensitivity to unknown starting condition.</li>
+</ul>
+<p>The exact sources and endpoints used for a given example are listed in
+that example's <strong>Config</strong> tab.</p>
+<h3>Decay model</h3>
+<p>Each road classification decays independently via</p>
+<pre><code>PCI(t) = PCI₀ · exp(−k · t)
+</code></pre>
+<p>where <code>k</code> is an annual decay constant that depends on the road
+classification. Higher-class roads (motorway, trunk, primary) decay more
+slowly than lower-class roads (residential, service) because they are
+built to thicker, more rigorous design standards and typically receive
+more frequent maintenance. Default values are derived from LTPP data
+reported in <strong>FHWA-RD-01-156, <em>Long-Term Pavement Performance</em></strong> and
+ship as part of the <code>forecast</code> package; they are continental-US
+averages and do not account for local climate, traffic, or
+construction quality. A config may set a per-city <code>decay_rate</code> to tune
+for local conditions (e.g. freeze/thaw or road salt); that override is
+applied as the rate for a <em>typical</em> road and scales every road class
+proportionally, so the per-class ordering (higher classes decay slower)
+is preserved rather than flattened. Sidewalks
+decay on a separate, slower track and are not treated as a highway class.</p>
+<h3>Cost model</h3>
+<p>Treatment costs are banded by PCI: each band has a representative
+<code>$/sq m</code> value, and costs between bands are linearly interpolated at the
+tier midpoints, so the cost-versus-PCI curve is smooth rather than
+step-shaped. Above the highest anchor (the midpoint of the preventive
+tier) and below the lowest anchor (the midpoint of the reconstruction
+tier), the cost is clamped to that anchor's value rather than
+extrapolated. Default cost tiers are expressed in <code>$/sq m</code> and sourced
+from FHWA treatment-selection guidance; they are calibration inputs, not
+measurements, and local bid prices will differ. Roads and sidewalks use
+independent cost tiers because the treatment economics differ
+substantially.</p>
+<h3>Scenario comparisons</h3>
+<p>PVMT ships with three comparison runs driven by annual funding level, all
+using the <strong>worst-first</strong> allocation strategy (budget is spent on the
+lowest-PCI segments first):</p>
+<ul>
+<li><strong>25% funding</strong> — annual spend = 25% of year-1 worst-first need.</li>
+<li><strong>50% funding</strong> — annual spend = 50% of year-1 worst-first need.</li>
+<li><strong>Full funding</strong> — unconstrained budget; spend whatever it takes to
+treat every segment that falls below the worst-first trigger each year.</li>
+</ul>
+<p>A <strong>do-nothing</strong> baseline (no spend, uncontrolled decay) is shown
+alongside the funded runs for comparison.</p>
+<p>The forecast library also implements a <strong>preventive-first</strong> strategy
+(prioritize highest-PCI segments that are still in the preservation
+window), but the default UI comparisons do not exercise it. Preventive
+vs. worst-first allocation is governed by per-strategy efficiency
+multipliers; those multipliers are <strong>illustrative calibration constants</strong>
+chosen to reflect the direction and sign of the effect reported in
+<strong>FHWA-HIF-12-042, <em>Pavement Preservation: Preserving our Investment</em></strong> —
+that $1 of preventive maintenance is reported to avoid $6–$10 of future
+reconstruction — not to reproduce that benefit-cost ratio as a
+single-year spending efficiency.</p>
+<h3>Area growth</h3>
+<p>Optional <strong>compound annual growth</strong> applies to pavement area each year:</p>
+<pre><code>Area(y) = Area₀ · (1 + g)^y
+</code></pre>
+<p>where <code>g</code> is configured per city (default zero). This lets an example
+model a city that is still expanding its street network; it does not
+model demolition or removal.</p>
+<h3>Solvency metrics (streets/roads only)</h3>
+<p>The dashboard's Financials headline and the cross-city leaderboard report
+three solvency figures. They are computed on the <strong>roads/streets</strong> cohort
+only — the aggregate scenarios blend roads, parking, and sidewalks but
+cost the blend at road tiers, which would mis-price sidewalks, so an
+absolute dollar claim must be roads-only. They are derived from a
+<strong>worst-first</strong> run at the city's configured annual budget.</p>
+<ul>
+<li>
+<p><strong>Insolvency year</strong> — the first forecast year in which the cumulative
+deferred backlog reaches <strong>one full year of network-treatment need</strong>
+(the year-1 need: the cost to treat the entire network once). Because
+the deferred backlog is a monotonically non-decreasing accumulator (see
+below), once a city is a whole network-treatment behind it does not
+recover within the model, so this is the &quot;unrecoverable&quot; threshold. A
+city whose backlog never reaches it is reported as <em>solvent through the
+horizon</em>. This is deliberately <strong>not</strong> &quot;the first year need exceeds
+spend&quot;: year-1 need is the cost to treat the entire network, far above
+any real budget, so that test trips in year 1 for virtually every city
+and cannot distinguish a slightly-underfunded city from a badly-
+underfunded one. Reported only when a current budget is configured.</p>
+</li>
+<li>
+<p><strong>Hold-steady (break-even) budget</strong> — the smallest constant annual
+budget whose <strong>final</strong> deferred backlog is within a small relative
+tolerance (a fraction of year-1 need) of zero. Found by bisection over
+budget; the search's upper bound is the peak do-nothing annual need
+over the horizon, which is sufficient to fully fund every year.</p>
+</li>
+<li>
+<p><strong>Funding gap</strong> — <code>(break-even − current budget) / current budget</code>,
+the primary cross-city ranking metric. Negative when a city already
+budgets at or above its hold-steady level. Reported only when a current
+budget is configured.</p>
+</li>
+</ul>
+<p>Three caveats apply to these figures specifically:</p>
+<ul>
+<li>The <strong>deferred backlog is cumulative unmet need, not a recoverable
+balance.</strong> It only ever grows; spending in a later year reduces <em>new</em>
+need but never pays down backlog already accrued. Read it as &quot;total
+treatment value foregone to date,&quot; not as a debt that can be cleared.</li>
+<li>In the years <strong>before</strong> the insolvency crossing, the reported
+<code>annual_spend</code> series can <strong>exceed the configured budget</strong>. The
+allocator routes leftover budget on a fully-funded cohort into extra
+PCI recovery (a surplus branch), and that extra is counted as spend.
+So an <code>annual_spend</code> above <code>current_budget</code> in early years is expected,
+not an error.</li>
+<li>Break-even assumes the cost-versus-PCI relationship is <strong>monotone</strong>
+(true for the default cost tiers: worse pavement costs more to treat).
+A pathological custom <code>cost_tiers</code> curve that violates this could make
+the bisection <strong>overstate</strong> the break-even budget — a conservative
+direction (it never understates the gap).</li>
+</ul>
+<h3>Assumptions and limitations</h3>
+<ul>
+<li>Initial PCI is a user-chosen stand-in, not a field measurement.</li>
+<li>Decay-rate defaults are continental-US averages; local climate,
+traffic, and construction quality shift the true values.</li>
+<li>Hex aggregation loses sub-hex heterogeneity — a hex with one badly
+deteriorated street and three good ones looks like a moderately
+deteriorated hex.</li>
+<li>No network effects are modeled (detours, closures, access
+externalities, project bundling).</li>
+<li>All costs are in today's dollars. No inflation, discounting, or
+present-value adjustment is applied.</li>
+<li>Treatment effectiveness is modeled as an efficiency multiplier on
+spend, not as a deterministic post-treatment PCI bump.</li>
+<li>Output is a planning-grade estimate, not an engineering specification.</li>
+</ul>
+<h3>References</h3>
+<ul>
+<li><strong>FHWA-RD-01-156</strong> — <em>Long-Term Pavement Performance</em>, Federal Highway
+Administration. Source for per-class decay-rate defaults.</li>
+<li><strong>FHWA-HIF-12-042</strong> — <em>Pavement Preservation: Preserving our
+Investment</em>, Federal Highway Administration. Motivates the direction
+of the preventive-first vs. worst-first efficiency adjustment.</li>
+<li><a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>
+— road, parking, and sidewalk geometry (ODbL).</li>
+<li><a href="https://github.com/jcrussell/solvent-streets">pvmt source</a> —
+implementation reference. See
+<a href="https://github.com/jcrussell/solvent-streets/blob/main/docs/architecture.md"><code>docs/architecture.md</code></a>
+for the ingest and compute pipeline.</li>
+</ul>
+</div>
+
+    </main>
+    <footer>
+        Generated 2026-06-19 · v0.2.0 (commit 60c52d4) · <a href="https://github.com/jcrussell/solvent-streets">solvent-streets</a>
+    </footer>
+    
+<script>
+function toggleTheme(){
+    var cur = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = cur;
+    try { localStorage.setItem('pvmtTheme', cur); } catch(e) {}
+    document.dispatchEvent(new CustomEvent('pvmt:themechange', {detail:{theme:cur}}));
+    document.querySelectorAll('.theme-toggle').forEach(function(btn){
+        btn.textContent = cur === 'dark' ? '\u2600' : '\u263E';
+        btn.setAttribute('aria-checked', cur === 'dark' ? 'true' : 'false');
+    });
+}
+document.querySelectorAll('.theme-toggle').forEach(function(btn){
+    btn.textContent = document.documentElement.dataset.theme === 'dark' ? '\u2600' : '\u263E';
+    btn.setAttribute('aria-checked', document.documentElement.dataset.theme === 'dark' ? 'true' : 'false');
+});
+</script>
+
+</body>
+</html>
