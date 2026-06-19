@@ -42,12 +42,18 @@ var binaryExts = map[string]bool{
 // filesystem paths, the author's email, and common secret tokens. config_id is
 // deliberately NOT matched — it appears verbatim in the Input-Configuration
 // HTML block and is not a secret.
+//
+// The /home/ and /Users/ path patterns require a path-boundary delimiter
+// before the segment — start of text, whitespace, a quote, '=', etc. — and
+// explicitly NOT a URL/domain character ([\w./-]). This distinguishes a real
+// leaked absolute path ("/home/ubuntu/...") from a legitimate URL path segment
+// such as a citation link "https://www.newtonma.gov/home/showpublisheddocument".
 var hygienePatterns = []struct {
 	name string
 	re   *regexp.Regexp
 }{
-	{"host path /home/", regexp.MustCompile(`/home/`)},
-	{"host path /Users/", regexp.MustCompile(`/Users/`)},
+	{"host path /home/", regexp.MustCompile(`(^|[^\w./-])/home/`)},
+	{"host path /Users/", regexp.MustCompile(`(^|[^\w./-])/Users/`)},
 	{"author email", regexp.MustCompile(`(?i)joncrussell|@gmail`)},
 	{"secret token", regexp.MustCompile(`(?i)(api[_-]?key|aws_|password|secret)`)},
 }

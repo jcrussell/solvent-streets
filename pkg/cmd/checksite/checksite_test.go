@@ -92,6 +92,39 @@ func TestCheckSite_HygieneHit(t *testing.T) {
 	assertFails(t, dir, "host path")
 }
 
+// TestScanHygiene_URLPathNotHostPath pins the /home/ and /Users/ patterns
+// against URL path segments. A citation link like
+// "https://www.newtonma.gov/home/showpublisheddocument/..." is NOT a host
+// filesystem path and must not trip the hygiene scan, while a genuine leaked
+// absolute path still must. Regression for the audit false positive that
+// blocked the --strict publish gate on a legitimate Newton, MA citation URL.
+func TestScanHygiene_URLPathNotHostPath(t *testing.T) {
+	dir := t.TempDir()
+	clean := []string{
+		`#@cite https://www.newtonma.gov/home/showpublisheddocument/128379/63 (accessed)`,
+		`see https://example.gov/Users/profile/123 for details`,
+	}
+	for i, content := range clean {
+		p := filepath.Join(dir, "clean.html")
+		writeFile(t, p, content)
+		if hit := scanHygiene(dir, p); hit != "" {
+			t.Errorf("clean[%d] should not match, got: %s (content: %s)", i, hit, content)
+		}
+	}
+	leaks := map[string]string{
+		"quoted":     `{"path":"/home/ubuntu/secret"}`,
+		"start":      "/home/ubuntu/repos",
+		"whitespace": "cwd = /Users/jon/project",
+	}
+	for name, content := range leaks {
+		p := filepath.Join(dir, "leak.json")
+		writeFile(t, p, content)
+		if hit := scanHygiene(dir, p); hit == "" {
+			t.Errorf("leak %q should match host path, got clean (content: %s)", name, content)
+		}
+	}
+}
+
 func TestCheckSite_NearZeroPctPaved(t *testing.T) {
 	dir := buildValidSite(t)
 	writeMeta(t, filepath.Join(dir, "demo-ca", "data", "meta.json"), 0.5, 1000)
