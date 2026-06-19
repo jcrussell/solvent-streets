@@ -29,11 +29,18 @@ func FetchCityBoundary(ctx context.Context, client *http.Client, cityName string
 }
 
 func fetchCityBoundary(ctx context.Context, client *http.Client, baseURL string, cityName string) (string, error) {
+	// countrycodes=us constrains results to the United States. Without it,
+	// Nominatim parses the state suffix in names like "Windsor, CA" or
+	// "Richmond, CA" as the ISO country code CA (Canada) and returns
+	// Windsor, Ontario / Richmond, British Columbia instead of the
+	// California cities. All shipped configs are US cities; for a future
+	// non-US city, pin the boundary via [[cities]].boundary_relation_id.
 	u := baseURL + "?" + url.Values{
 		"q":               {cityName},
 		"format":          {"json"},
 		"limit":           {"5"},
 		"polygon_geojson": {"1"},
+		"countrycodes":    {"us"},
 	}.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)

@@ -35,6 +35,32 @@ func TestFetchCityBoundary_Success(t *testing.T) {
 	}
 }
 
+// TestFetchCityBoundary_ConstrainsToUS pins the country filter on the
+// Nominatim query. Without countrycodes=us, names like "Windsor, CA" and
+// "Richmond, CA" resolve to Windsor, Ontario and Richmond, British
+// Columbia (Nominatim reads "CA" as the ISO country code for Canada),
+// producing wrong-country boundaries. Regression for the geocode audit
+// that found Windsor/Richmond pulling Canadian data.
+func TestFetchCityBoundary_ConstrainsToUS(t *testing.T) {
+	geojson := `{"type":"Polygon","coordinates":[[[-122.8,38.5],[-122.7,38.5],[-122.7,38.6],[-122.8,38.6],[-122.8,38.5]]]}`
+	body := `[{"addresstype":"town","geojson":` + geojson + `}]`
+
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+
+	if _, err := fetchCityBoundary(context.Background(), srv.Client(), srv.URL, "Windsor, CA"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(gotQuery, "countrycodes=us") {
+		t.Errorf("expected query to constrain to US (countrycodes=us), got: %s", gotQuery)
+	}
+}
+
 func TestFetchCityBoundary_PrefersCityOverCounty(t *testing.T) {
 	countyGeo := `{"type":"Polygon","coordinates":[[[-122.3,37.4],[-121.4,37.4],[-121.4,37.9],[-122.3,37.9],[-122.3,37.4]]]}`
 	cityGeo := `{"type":"Polygon","coordinates":[[[-122.3,37.7],[-122.2,37.7],[-122.2,37.8],[-122.3,37.8],[-122.3,37.7]]]}`
