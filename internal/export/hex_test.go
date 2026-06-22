@@ -413,10 +413,7 @@ func projectedLonLatSquare(t *testing.T, proj *geo.UTMProjector, id string, lon0
 	corners := [][2]float64{{lon0, lat0}, {lon1, lat0}, {lon1, lat1}, {lon0, lat1}, {lon0, lat0}}
 	flat := make([]float64, 0, len(corners)*2)
 	for _, c := range corners {
-		x, y, err := proj.ToProjected(c[0], c[1])
-		if err != nil {
-			t.Fatalf("project (%v,%v): %v", c[0], c[1], err)
-		}
+		x, y := proj.ToProjected(c[0], c[1])
 		flat = append(flat, x, y)
 	}
 	ring := geom.NewLineString(geom.NewSequence(flat, geom.DimXY))

@@ -61,14 +61,8 @@ func TestUTMRoundTrip(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p := NewUTMProjector(tt.lon, tt.lat)
-			x, y, err := p.ToProjected(tt.lon, tt.lat)
-			if err != nil {
-				t.Fatal(err)
-			}
-			lon2, lat2, err := p.FromProjected(x, y)
-			if err != nil {
-				t.Fatal(err)
-			}
+			x, y := p.ToProjected(tt.lon, tt.lat)
+			lon2, lat2 := p.FromProjected(x, y)
 			if math.Abs(lon2-tt.lon) > 1e-7 {
 				t.Errorf("lon round-trip: got %f, want %f", lon2, tt.lon)
 			}
@@ -82,8 +76,8 @@ func TestUTMRoundTrip(t *testing.T) {
 func TestUTMDistanceMeters(t *testing.T) {
 	// Two points ~1.77 km apart east-west near Livermore
 	p := NewUTMProjector(-121.76, 37.68)
-	x1, y1, _ := p.ToProjected(-121.76, 37.68)
-	x2, y2, _ := p.ToProjected(-121.74, 37.68)
+	x1, y1 := p.ToProjected(-121.76, 37.68)
+	x2, y2 := p.ToProjected(-121.74, 37.68)
 
 	dx := x2 - x1
 	dy := y2 - y1

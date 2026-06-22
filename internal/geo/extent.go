@@ -33,7 +33,7 @@ func ProjectedBBoxExtent(proj *UTMProjector, bbox [4]float64) (minX, minY, maxX,
 	}
 
 	for i, p := range pts {
-		x, y, _ := proj.ToProjected(p[0], p[1])
+		x, y := proj.ToProjected(p[0], p[1])
 		if i == 0 {
 			minX, maxX, minY, maxY = x, x, y, y
 			continue

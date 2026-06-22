@@ -36,22 +36,25 @@ func ValidatePolygon(g geom.Geometry) (geom.Geometry, error) {
 
 // RetainPolygonal reduces g to its 2-D parts. LineString, Point, and
 // lower-dimension members of GeometryCollections are dropped; remaining
-// polygons are merged via UnaryUnion so the result is safe to hand to
-// geom.Intersection / geom.Difference.
+// polygons are merged via UnaryUnion so the result is a clean polygonal
+// geometry.
 //
-// The JTS port underneath simplefeatures panics with "Overlay input is
-// mixed-dimension" on a GeometryCollection containing geometries of
-// differing dimensions, and simplefeatures' self-defense for GC operands
-// (alg_overlay.go::prepareOverlayInputParts) routes through UnaryUnion,
-// which inherits the same restriction. Critically, the documented JTS
-// OverlayNG default-mode behavior is that Intersection of two polygons
-// CAN return a mixed-dim GC when the polygons share boundary segments
-// outside their 2-D overlap (very common for OSM water polygons whose
-// edges follow city boundaries along a river/coast). Feeding that GC
-// directly into Difference triggers the panic; calling RetainPolygonal
-// in between filters out the 1-D shared-edge artifacts and leaves only
-// the 2-D overlap, which is what "subtract water area" wants anyway.
-// Closes solvent-streets-i3ih.
+// JTS OverlayNG runs in default (non-strict) mode under simplefeatures, where
+// Intersection of two polygons CAN return a mixed-dimension GeometryCollection
+// (the 2-D overlap plus 1-D linestrings along boundary segments the operands
+// share outside that overlap — very common for OSM water polygons whose edges
+// follow city boundaries along a river/coast). RetainPolygonal strips those
+// 1-D artifacts back to the 2-D overlap, which is what callers actually want.
+//
+// As of simplefeatures v0.59.0 the overlay ops (Difference/Union/UnionMany/...)
+// accept a mixed-dimension GC operand without erroring, and Difference's own
+// output is already clean — so this is a NORMALIZATION step, not crash
+// avoidance. It is load-bearing where the result geometry is kept or exported:
+// Union/UnionMany propagate the 1-D parts into their output (a GC with a stray
+// LineString), so a clipped hex stored via clipHexToCandidates would otherwise
+// serialize as a malformed GeometryCollection feature. (Originally added for
+// solvent-streets-i3ih, which manifested as an "Overlay input is
+// mixed-dimension" panic on the pre-v0.59.0 simplefeatures then in use.)
 func RetainPolygonal(g geom.Geometry) (geom.Geometry, error) {
 	if g.IsEmpty() {
 		return g, nil
@@ -153,7 +156,7 @@ func tryReprojectCoord(c []any, proj *UTMProjector, decimals int) ([]any, bool) 
 		return nil, false
 	}
 	if !isLonLat(x, y) {
-		lon, lat, _ := proj.FromProjected(x, y)
+		lon, lat := proj.FromProjected(x, y)
 		return []any{roundTo(lon, decimals), roundTo(lat, decimals)}, true
 	}
 	return c, true
@@ -313,10 +316,7 @@ func buildProjectedLineString(coordsRaw json.RawMessage, proj *UTMProjector) (ge
 	if err := json.Unmarshal(coordsRaw, &coords); err != nil {
 		return geom.Geometry{}, err
 	}
-	projected, err := projectCoords(coords, proj)
-	if err != nil {
-		return geom.Geometry{}, err
-	}
+	projected := projectCoords(coords, proj)
 	seq := coordsToSequence(projected)
 	ls := geom.NewLineString(seq)
 	return ls.AsGeometry(), nil
@@ -333,10 +333,7 @@ func buildProjectedMultiLineString(coordsRaw json.RawMessage, proj *UTMProjector
 	}
 	var lss []geom.LineString
 	for _, line := range lines {
-		projected, err := projectCoords(line, proj)
-		if err != nil {
-			continue
-		}
+		projected := projectCoords(line, proj)
 		if len(projected) < 2 {
 			continue
 		}
@@ -437,10 +434,7 @@ func buildProjectedPolygon(coordsRaw json.RawMessage, proj *UTMProjector) (geom.
 	}
 	lineRings := make([]geom.LineString, len(rings))
 	for i, ring := range rings {
-		projected, err := projectCoords(ring, proj)
-		if err != nil {
-			return geom.Geometry{}, err
-		}
+		projected := projectCoords(ring, proj)
 		seq := coordsToSequence(projected)
 		lineRings[i] = geom.NewLineString(seq)
 	}
@@ -448,14 +442,11 @@ func buildProjectedPolygon(coordsRaw json.RawMessage, proj *UTMProjector) (geom.
 	return poly.AsGeometry(), nil
 }
 
-func projectCoords(coords [][2]float64, proj *UTMProjector) ([][2]float64, error) {
+func projectCoords(coords [][2]float64, proj *UTMProjector) [][2]float64 {
 	projected := make([][2]float64, len(coords))
 	for i, c := range coords {
-		x, y, err := proj.ToProjected(c[0], c[1])
-		if err != nil {
-			return nil, fmt.Errorf("project coordinate %d: %w", i, err)
-		}
+		x, y := proj.ToProjected(c[0], c[1])
 		projected[i] = [2]float64{x, y}
 	}
-	return projected, nil
+	return projected
 }

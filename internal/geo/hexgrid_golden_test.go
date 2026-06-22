@@ -363,12 +363,11 @@ func TestClipHexesToBoundary_ConcaveEqualsExhaustive(t *testing.T) {
 	}
 }
 
-// TestClipHexesToBoundary_CoincidentEdge guards the Part-1 case: a hex whose
-// edge exactly coincides with a boundary edge. Intersection can then emit a
-// mixed-dimension GeometryCollection (2-D overlap + 1-D shared edge) which
-// geom.Union rejects (an error in simplefeatures v0.59.0; historically an
-// uncatchable JTS panic inside a ParallelMap worker). clipHexToCandidates must
-// RetainPolygonal first; here we assert no panic/error and a correct clip area.
+// TestClipHexesToBoundary_CoincidentEdge guards a hex whose edge coincides with
+// a boundary edge along the full extent of their overlap. Here the shared edge
+// (x=100, y 0..100) is entirely the boundary of the 2-D overlap, so Intersection
+// returns a clean Polygon — the mixed-dimension case is exercised separately by
+// TestClipHexesToBoundary_MixedDimRetainsPolygonal.
 func TestClipHexesToBoundary_CoincidentEdge(t *testing.T) {
 	// Boundary right edge at x=100. The hex spans [50,150]x[0,100]; its left
 	// portion [50,100]x[0,100] is inside, and its right edge of the overlap
@@ -383,6 +382,51 @@ func TestClipHexesToBoundary_CoincidentEdge(t *testing.T) {
 	// In-hex area = [50,100]x[0,100] = 50*100 = 5000.
 	if a := clipped[0].Geom.Area(); math.Abs(a-5000) > areaEps {
 		t.Errorf("clipped area = %f, want 5000", a)
+	}
+	if g := clipped[0].Geom; g.IsGeometryCollection() {
+		t.Errorf("clipped geom should be polygonal, got %s: %s", g.Type(), g.AsText())
+	}
+}
+
+// TestClipHexesToBoundary_MixedDimRetainsPolygonal exercises the case where a
+// hex shares a boundary edge segment OUTSIDE the 2-D overlap, so geom.Intersection
+// emits a mixed-dimension GeometryCollection (the 2-D overlap plus a 1-D shared
+// edge). geom.Union/UnionMany propagate that 1-D part into their output, so
+// clipHexToCandidates must RetainPolygonal or the stored hex geometry serializes
+// as a malformed GeometryCollection. We assert the retained geometry is a clean
+// Polygon with the correct area. (On v0.59.0 the overlay ops no longer error on a
+// mixed-dimension operand; this guards the geometry stays polygonal, not against
+// a panic.) Regression guard for the normalization behind solvent-streets-i3ih.
+func TestClipHexesToBoundary_MixedDimRetainsPolygonal(t *testing.T) {
+	// Boundary is the lower rectangle [0,400]x[0,200]. The hex is the upper
+	// rectangle [0,400]x[200,400] with a tab dropping to y=100 over x[200,400].
+	// Overlap = [200,400]x[100,200] (area 20000); the hex's bottom edge over
+	// x[0,200] runs along y=200 with interiors on opposite sides -> a 1-D shared
+	// edge outside the overlap, so Intersection is mixed-dimension.
+	boundary := makeRect(0, 0, 400, 200)
+	hex := Hex{ID: "tab", Geom: mustWKT(t, "POLYGON((0 200,200 200,200 100,400 100,400 400,0 400,0 200))")}
+
+	// Sanity: confirm the raw intersection really is mixed-dimension, so this
+	// test keeps exercising the path it claims to.
+	inter, err := geom.Intersection(hex.Geom, boundary)
+	if err != nil {
+		t.Fatalf("intersection: %v", err)
+	}
+	if !inter.IsGeometryCollection() {
+		t.Fatalf("precondition: expected mixed-dimension GeometryCollection, got %s: %s",
+			inter.Type(), inter.AsText())
+	}
+
+	clipped := ClipHexesToBoundary(context.Background(), []Hex{hex}, boundary, nil)
+	if len(clipped) != 1 {
+		t.Fatalf("expected 1 clipped hex, got %d", len(clipped))
+	}
+	g := clipped[0].Geom
+	if g.IsGeometryCollection() {
+		t.Errorf("clipped geom leaked 1-D artifact (GeometryCollection): %s", g.AsText())
+	}
+	if a := g.Area(); math.Abs(a-20000) > areaEps {
+		t.Errorf("clipped area = %f, want 20000", a)
 	}
 }
 

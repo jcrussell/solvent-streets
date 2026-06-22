@@ -98,8 +98,8 @@ func TestRunCombined_DedupesCrossResourceOverlap(t *testing.T) {
 	lon, lat := geo.CenterFromBBox(bbox)
 	proj := geo.NewUTMProjector(lon, lat)
 	hexEdge := cfg.ResolvedHexEdge(&cfg.Cities[0])
-	minX, minY, _ := proj.ToProjected(bbox[1], bbox[0])
-	maxX, maxY, _ := proj.ToProjected(bbox[3], bbox[2])
+	minX, minY := proj.ToProjected(bbox[1], bbox[0])
+	maxX, maxY := proj.ToProjected(bbox[3], bbox[2])
 	hexes := geo.HexGrid(minX, minY, maxX, maxY, hexEdge)
 	if bg, _, err := geo.GeoJSONToProjectedGeometry(boundary, proj); err == nil && !bg.IsEmpty() {
 		hexes = geo.ClipHexesToBoundary(t.Context(), hexes, bg, nil)

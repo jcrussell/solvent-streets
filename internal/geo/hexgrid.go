@@ -211,8 +211,11 @@ func ComputeHexCoverageByGroup(ctx context.Context, hexes []Hex, geoms []geom.Ge
 // Unioning the fragments dedupes overlap between adjacent buffered features —
 // two roads crossing at a junction share a width² patch that must be counted
 // once, not twice. RetainPolygonal drops the 1-D shared-edge artifacts that
-// Intersection can emit as mixed-dimension GeometryCollections, which
-// geom.UnionMany would otherwise reject.
+// Intersection can emit as mixed-dimension GeometryCollections. UnionMany
+// accepts those collections without error (v0.59.0) and Area() ignores their
+// 1-D parts, so the strip isn't strictly required for the area this function
+// returns; it is kept for parity with clipHexToCandidates, where it IS
+// required because the result geometry is retained.
 func hexCoverageArea(h geom.Geometry, candidates []geom.Geometry) (float64, bool) {
 	var clipped []geom.Geometry
 	for _, cand := range candidates {
@@ -244,15 +247,16 @@ func hexCoverageArea(h geom.Geometry, candidates []geom.Geometry) (float64, bool
 // intersection with any candidate.
 //
 // Each Intersection result is reduced to its polygonal parts via
-// RetainPolygonal before merging. When a hex edge coincides with a boundary
-// edge, geom.Intersection can emit a mixed-dimension GeometryCollection (a 2-D
-// overlap plus the 1-D shared edge) that geom.Union rejects — returned as an
-// error in simplefeatures v0.59.0 ("Overlay input is mixed-dimension"; this was
-// historically an uncatchable panic in JTS). RetainPolygonal strips the 1-D
-// shared-edge parts so the union sees clean polygons (matching hexCoverageArea),
-// leaving the clipped geometry unchanged for the normal clean-polygon case
-// (where Intersection already returns a pure polygon and RetainPolygonal is a
-// no-op).
+// RetainPolygonal before merging. When a hex shares a boundary edge segment
+// that lies outside the 2-D overlap, geom.Intersection emits a mixed-dimension
+// GeometryCollection (the 2-D overlap plus the 1-D shared edge). The strip is
+// REQUIRED here: unlike Difference, geom.Union/UnionMany propagate the 1-D
+// parts into their output, so without it the retained h.Geom becomes a
+// GeometryCollection carrying a stray LineString and serializes as a malformed
+// hex feature. (On v0.59.0 the overlay ops no longer error on a mixed GC — this
+// is about keeping the stored geometry clean, not avoiding a panic.) For the
+// normal clean-polygon case Intersection already returns a pure polygon and
+// RetainPolygonal is a no-op.
 func clipHexToCandidates(h Hex, candidates []geom.Geometry) (Hex, bool) {
 	var clipped geom.Geometry
 	for _, cand := range candidates {
