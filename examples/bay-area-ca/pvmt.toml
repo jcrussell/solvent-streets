@@ -54,6 +54,9 @@ name = "Berkeley, CA"
 #@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
 #@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
 forecast.initial_pci = 56
+#@cite ~$15M/yr current paving budget baseline, 2022 PMP/PTAP-23 Final Report
+#@cite     https://berkeleyca.gov/sites/default/files/documents/City%20of%20Berkeley_2022%20PMP%20Update_PTAP%2023%20Final%20Report.pdf (accessed 2026-06-27)
+forecast.current_budget = 15000000.0
 overpass = true
 arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
 hex_edge_m = 75
@@ -90,6 +93,9 @@ name = "Hayward, CA"
 #@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
 #@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
 forecast.initial_pci = 73
+#@cite FY2026 Pavement Improvement Project base investment ~$10.06M/yr
+#@cite     https://www.hayward-ca.gov/content/fiscal-year-2026-pavement-improvement-project-pip (accessed 2026-06-27)
+forecast.current_budget = 10063947.0
 overpass = true
 arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
 
@@ -139,6 +145,9 @@ name = "Pleasanton, CA"
 #@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
 #@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
 forecast.initial_pci = 76
+#@cite ~$4.8M/yr pavement program: CIP 24503 Annual Street Resurfacing & Reconstruction ~$4.0M + CIP 24504 Annual Slurry Sealing ~$0.8M, FY23/24-26/27 CIP
+#@cite     https://www.cityofpleasantonca.gov/assets/our-government/finance-department/budget-overview/2023-24fy-2026-27fy-cip.pdf (accessed 2026-06-28)
+forecast.current_budget = 4800000.0
 overpass = true
 arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
 
