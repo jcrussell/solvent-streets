@@ -179,6 +179,10 @@ func goldenForecastConfig() config.ForecastConfig {
 		InitialPCI: 85,
 		DecayRate:  1.5,
 		GrowthRate: 0.01,
+		// Pinned explicitly (not left 0-to-default) so a change to
+		// DefaultTreatmentCycleYears doesn't silently rewrite this golden. Gates
+		// annual_need/break_even by 1/12; PCI columns are unchanged.
+		TreatmentCycleYears: 12,
 		// Nonzero so the roads solvency metrics (insolvency_year,
 		// break_even_budget, current_budget, funding_gap) in forecast.json
 		// serialize to real values — the forecast.json golden covers nothing

@@ -12,28 +12,35 @@ const breakEvenEpsilonFraction = 1e-3
 const breakEvenRelTol = 1e-4
 
 // InsolvencyYear reports the first forecast year in which the cumulative
-// DeferredBacklog reaches one full year of network-treatment need (the
-// year-1 need) — i.e. the city has fallen a whole network treatment behind.
-// Because DeferredBacklog is a monotonically non-decreasing accumulator
-// (scenario.go:225), once crossed it never recovers, so this is the civic
-// "unrecoverable" threshold. A do-nothing network crosses in year 1 (it
-// defers the entire year-1 need); a funded network spends down part of each
-// year's need and crosses later or not at all.
+// DeferredBacklog reaches one full treatment cycle of deferred work — i.e. the
+// city has deferred an entire network's worth of treatment. With the
+// treatment-cycle gating in Simulate, AnnualNeed is one cycle-slice (~1/N of the
+// full network), so the threshold is cycleYears * year-1 need, which restores
+// the full-network dollar figure but is now *reachable* because backlog accrues
+// against the small annual slice rather than tripping on the whole network in
+// year 1. Because DeferredBacklog is a monotonically non-decreasing accumulator
+// (scenario.go), once crossed it never recovers, so this is the civic
+// "unrecoverable" threshold.
+//
+// A do-nothing network defers a full slice every year and crosses at ~cycleYears
+// (not year 1, as in the pre-gating model that saturated Finding D). A city
+// funding fraction f of each slice defers (1-f) per year and crosses at
+// ~cycleYears/(1-f), so well-funded cities return ok=false ("solvent through
+// horizon") and the metric discriminates among the genuinely underfunded.
+// Cities near or above break-even rely on funding_gap as the primary metric
+// (FundingGap), by design.
 //
 // year is 1-based (matching ScenarioYear.Year). ok is false when the backlog
-// never reaches the threshold within the horizon ("solvent through horizon")
-// or when the result has no years / a non-positive year-1 need.
-//
-// Deliberately NOT "first year AnnualNeed > AnnualSpend": year-1 need is the
-// cost to treat the entire network — far above any real budget — so that
-// predicate trips in year 1 for virtually every city and cannot discriminate
-// between slightly- and badly-underfunded cities. Callers should run this on
-// a current-budget, worst-first scenario.
-func InsolvencyYear(result ScenarioResult) (year int, ok bool) {
+// never reaches the threshold within the horizon or when the result has no years
+// / a non-positive year-1 need. Note the three-way interaction between cycleYears,
+// f, and the forecast horizon: a long cycle on a short horizon can push every
+// city to ok=false. Callers should run this on a current-budget, worst-first
+// scenario and pass the same cycleYears used to build the run's Params.
+func InsolvencyYear(result ScenarioResult, cycleYears float64) (year int, ok bool) {
 	if len(result.Years) == 0 {
 		return 0, false
 	}
-	threshold := result.Years[0].AnnualNeed
+	threshold := result.Years[0].AnnualNeed * ResolveCycleYears(cycleYears)
 	if threshold <= 0 {
 		return 0, false
 	}
@@ -47,7 +54,12 @@ func InsolvencyYear(result ScenarioResult) (year int, ok bool) {
 
 // BreakEvenBudget returns the smallest constant annual budget whose final
 // DeferredBacklog falls to within breakEvenEpsilonFraction of year-1 need —
-// the "hold the network steady" budget.
+// the "hold the network steady" budget. With Simulate's treatment-cycle gating
+// (annual need = full-network cost / N), this is the budget to fund the network's
+// annually-scheduled treatment slice, i.e. to keep pace with the cycle. Because
+// gating is a pure 1/N rescaling in dollar-space that leaves the PCI trajectory
+// identical, break_even scales exactly: break_even(N) == break_even(1) / N (up to
+// bisection tolerance). A 1-year cycle reproduces the legacy full-network number.
 //
 // Final backlog is monotone non-increasing in budget (more budget -> higher
 // maintained PCI -> lower future need -> less cumulative backlog; the surplus

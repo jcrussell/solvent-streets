@@ -157,7 +157,7 @@ func buildResourceForecast(rt resource.Source, fc *config.ForecastConfig, costTi
 	}
 
 	years := fc.Years
-	rtParams := forecast.NewParamsForResource(tName, fc.GrowthRate, costTiers)
+	rtParams := forecast.NewParamsForResource(tName, fc.GrowthRate, costTiers, fc.TreatmentCycleYears)
 
 	bboxCohorts := buildCohortsFromStats(t, result.TotalArea, cohortStats[t], fc)
 
@@ -193,7 +193,7 @@ func buildResourceForecast(rt resource.Source, fc *config.ForecastConfig, costTi
 				forecast.Scenario{Name: "current-budget", Label: "Current Budget", AnnualBudget: fc.CurrentBudget, Strategy: forecast.StrategyWorstFirst},
 				primaryCohorts, years, rtParams,
 			)
-			if yr, ok := forecast.InsolvencyYear(currentRun); ok {
+			if yr, ok := forecast.InsolvencyYear(currentRun, rtParams.CycleYears); ok {
 				fe.InsolvencyYear = &yr
 			}
 			gap := forecast.FundingGap(fe.BreakEvenBudget, fc.CurrentBudget)
@@ -243,7 +243,7 @@ func cityScopeCohorts(cityStats []db.CohortStat, fc *config.ForecastConfig) ([]f
 // *_count) — those are informational rollups, not the chart's area basis.
 func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.ForecastConfig) map[string]any {
 	costTiers := ConvertCostTiers(fc)
-	params := forecast.NewParams(fc.GrowthRate, costTiers)
+	params := forecast.NewParams(fc.GrowthRate, costTiers, fc.TreatmentCycleYears)
 	defaultRate := forecast.DefaultDecayRates["default"]
 	if fc.DecayRate > 0 {
 		defaultRate = fc.DecayRate

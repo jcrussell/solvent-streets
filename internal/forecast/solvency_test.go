@@ -16,10 +16,10 @@ func solvencyCohorts(area, initialPCI, decay float64) []Cohort {
 
 func TestInsolvencyYear_DoNothingCrossesYearOne(t *testing.T) {
 	cohorts := solvencyCohorts(100_000, 70, 0.08)
-	p := NewParams(0.01, nil)
+	p := NewParams(0.01, nil, 1) // N=1: un-gated baseline (full network priced yearly)
 	res := Simulate(Scenario{Strategy: StrategyDoNothing}, cohorts, 20, p)
 
-	year, ok := InsolvencyYear(res)
+	year, ok := InsolvencyYear(res, 1)
 	if !ok {
 		t.Fatal("do-nothing scenario should be insolvent within the horizon")
 	}
@@ -30,16 +30,16 @@ func TestInsolvencyYear_DoNothingCrossesYearOne(t *testing.T) {
 
 func TestInsolvencyYear_FullFundingNeverInsolvent(t *testing.T) {
 	cohorts := solvencyCohorts(100_000, 70, 0.08)
-	p := NewParams(0.01, nil)
+	p := NewParams(0.01, nil, 1) // N=1: un-gated baseline (full network priced yearly)
 	res := Simulate(Scenario{FullFunding: true, Strategy: StrategyWorstFirst}, cohorts, 20, p)
 
-	if year, ok := InsolvencyYear(res); ok {
+	if year, ok := InsolvencyYear(res, 1); ok {
 		t.Fatalf("a fully funded network should stay solvent through the horizon, got insolvency year %d", year)
 	}
 }
 
 func TestInsolvencyYear_NoYears(t *testing.T) {
-	if _, ok := InsolvencyYear(ScenarioResult{}); ok {
+	if _, ok := InsolvencyYear(ScenarioResult{}, 1); ok {
 		t.Fatal("empty result should report not-ok")
 	}
 }
@@ -47,7 +47,7 @@ func TestInsolvencyYear_NoYears(t *testing.T) {
 func TestBreakEvenBudget_HoldsNetworkSteady(t *testing.T) {
 	cohorts := solvencyCohorts(100_000, 70, 0.08)
 	years := 20
-	p := NewParams(0.01, nil)
+	p := NewParams(0.01, nil, 1) // N=1: un-gated baseline (full network priced yearly)
 
 	be := BreakEvenBudget(cohorts, years, p, StrategyWorstFirst)
 	if be <= 0 {
@@ -82,7 +82,7 @@ func TestBreakEvenBudget_ExceedsYearOneNeedForGrowingNetwork(t *testing.T) {
 	// upper bound would be provably too low here).
 	cohorts := solvencyCohorts(100_000, 60, 0.12)
 	years := 25
-	p := NewParams(0.03, nil) // 3%/yr growth
+	p := NewParams(0.03, nil, 1) // 3%/yr growth; N=1 un-gated baseline
 
 	doNothing := Simulate(Scenario{Strategy: StrategyDoNothing}, cohorts, years, p)
 	year1Need := doNothing.Years[0].AnnualNeed
@@ -95,7 +95,7 @@ func TestBreakEvenBudget_ExceedsYearOneNeedForGrowingNetwork(t *testing.T) {
 
 func TestBreakEvenBudget_ZeroAreaReturnsZero(t *testing.T) {
 	cohorts := solvencyCohorts(0, 70, 0.08)
-	p := NewParams(0.01, nil)
+	p := NewParams(0.01, nil, 1) // N=1: un-gated baseline (full network priced yearly)
 	if be := BreakEvenBudget(cohorts, 20, p, StrategyWorstFirst); be != 0 {
 		t.Fatalf("zero-area network needs no funding, break-even should be 0, got %g", be)
 	}
@@ -103,7 +103,7 @@ func TestBreakEvenBudget_ZeroAreaReturnsZero(t *testing.T) {
 
 func TestBreakEvenBudget_ZeroYearsReturnsZero(t *testing.T) {
 	cohorts := solvencyCohorts(100_000, 70, 0.08)
-	p := NewParams(0.01, nil)
+	p := NewParams(0.01, nil, 1) // N=1: un-gated baseline (full network priced yearly)
 	if be := BreakEvenBudget(cohorts, 0, p, StrategyWorstFirst); be != 0 {
 		t.Fatalf("zero-horizon break-even should be 0, got %g", be)
 	}

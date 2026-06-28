@@ -6,6 +6,16 @@ checked against real cities' published numbers. This report does that check
 **without changing the pipeline** — it sources real published data, drives the
 existing config/forecast/export path, and tabulates tool-vs-reality residuals.
 
+> **Status (resolved).** The two ❌ findings below — the several-fold break-even
+> overstatement and the year-2 insolvency saturation — were **fixed** by the
+> treatment-cycle work (epic `qehh`). `Simulate` now schedules `1/N` of the
+> network per year (`treatment_cycle_years`, default 12), so `break_even` is a
+> realistic hold-steady budget and `insolvency_year` no longer saturates. This
+> report is retained as the point-in-time analysis that motivated that change;
+> the present-tense findings describe the **pre-fix** model. See the "Solvency
+> methodology" section of [architecture.md](architecture.md) and
+> [methodology.md](../internal/export/docs/methodology.md).
+
 It is a lightweight comparison, not a calibration harness. Scope: **8 Alameda
 County cities** (Oakland, Berkeley, Fremont, Hayward, Livermore, San Leandro,
 Pleasanton, Dublin), anchored on the MTC StreetSaver PCI series, with **Berkeley**
@@ -33,8 +43,8 @@ the model implicitly assumes a **1-year treatment cycle** — it prices treating
 | Decay — *rate* (k) | ⚠️ **Unverifiable here** | Public PCI is maintenance-confounded; needs raw field surveys |
 | Cost tiers ($/m²) | ⚠️ **Low** | Match bare bids (Caltrans/FHWA); ~2–3× below *loaded* municipal program cost |
 | Condition distribution | ⚠️ **Low** | One mean PCI under-states cost ~32–37% (convex curve, failed tail) |
-| Break-even / solvency $ | ❌ **Several-× high** | Assumes a 1-yr treatment cycle; real cycles ~10–14 yr |
-| Insolvency year | ❌ **Saturates** | Always year 2; can't discriminate between cities |
+| Break-even / solvency $ | ❌→✅ **Fixed** | Was several-× high (assumed a 1-yr cycle); now gated to an `N`-yr cycle (default 12) |
+| Insolvency year | ❌→✅ **Fixed** | Was always year 2; threshold is now a full `N`-yr cycle of deferred work, so it discriminates |
 
 **Reading guide.** To turn `break_even` into a usable hold-steady budget, divide
 by a realistic **~10–14-year treatment cycle** (and nudge *up* ~2–3× if you want

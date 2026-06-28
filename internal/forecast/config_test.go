@@ -71,8 +71,8 @@ func TestNewParamsForResource_SidewalkEffIsDiscounted(t *testing.T) {
 		{MinPCI: 25, MaxPCI: 50, CostPerSqM: 120.0, Label: "Poor"},
 		{MinPCI: 0, MaxPCI: 25, CostPerSqM: 200.0, Label: "Failed"},
 	}
-	road := NewParams(0.0, custom)
-	side := NewParamsForResource("sidewalks", 0.0, custom)
+	road := NewParams(0.0, custom, 1)
+	side := NewParamsForResource("sidewalks", 0.0, custom, 1)
 	for _, pci := range []float64{20, 45, 62, 85} {
 		r := road.Cost.ProjectCost(1000, pci)
 		s := side.Cost.ProjectCost(1000, pci)

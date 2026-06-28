@@ -109,6 +109,26 @@ func initCohortStates(cohorts []Cohort) ([]cohortState, float64) {
 
 const maxPCI = 100.0
 
+// DefaultTreatmentCycleYears is the assumed pavement treatment cycle N: each
+// simulated year roughly 1/N of the network is scheduled for treatment, so the
+// annual need is the full-network retreatment cost divided by N. ~12 yr is the
+// midpoint of the 10-14 yr band documented in docs/validation.md §5 (Finding B);
+// before this gating the model priced the entire network every year (an implicit
+// 1-year cycle), overstating break_even 3.6x-9.6x.
+const DefaultTreatmentCycleYears = 12.0
+
+// ResolveCycleYears applies DefaultTreatmentCycleYears when the configured value
+// is unset (<= 0). This is the load-bearing guard: Params is built directly via
+// NewParams on the WASM bridge and in tests without passing through config
+// normalization, so resolving here (not in config) guarantees Simulate never
+// divides by zero (1/0 = +Inf would poison every cohort's need).
+func ResolveCycleYears(years float64) float64 {
+	if years <= 0 {
+		return DefaultTreatmentCycleYears
+	}
+	return years
+}
+
 // distribute spreads totalSpend across cohorts proportional to need, applies
 // PCI recovery, accumulates per-cohort spend and deficit, and returns the
 // actual total spend. Reads this year's scratch (decayed, need) and mutates
@@ -196,6 +216,15 @@ func Simulate(s Scenario, cohorts []Cohort, years int, p *Params) ScenarioResult
 
 	var deferredBacklog float64
 
+	// eligibleFrac gates annual need to one treatment-cycle slice: only ~1/N of
+	// the network is scheduled for treatment each year, so the annual need is the
+	// full-network retreatment cost / N. Budget-independent and PCI-independent,
+	// so it is a pure 1/N rescaling in dollar-space that preserves the
+	// PCI trajectory and BreakEvenBudget's monotonicity (solvency.go). MVP uses a
+	// single global cycle; per-class cycles would move this inside the loop keyed
+	// on cohorts[j].Classification.
+	eligibleFrac := 1.0 / ResolveCycleYears(p.CycleYears)
+
 	for i := range years {
 		area := areaValues[i]
 
@@ -203,7 +232,8 @@ func Simulate(s Scenario, cohorts []Cohort, years int, p *Params) ScenarioResult
 		for j := range sm.states {
 			decayed := sm.states[j].forecaster.Forecast(sm.states[j].currentPCI, 1)
 			sm.decayed[j] = decayed[0]
-			need := p.Cost.ProjectCost(area*sm.states[j].areaFrac, sm.decayed[j])
+			fullNeed := p.Cost.ProjectCost(area*sm.states[j].areaFrac, sm.decayed[j])
+			need := fullNeed * eligibleFrac
 			sm.need[j] = need
 			totalNeed += need
 		}

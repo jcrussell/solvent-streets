@@ -1477,7 +1477,7 @@
                     tooltip.innerHTML =
                         '<strong>Coverage:</strong> ' + (p.pct_covered != null ? Math.round(p.pct_covered) : 0) + '%<br>' +
                         '<strong>Area:</strong> ' + fmtArea(p.area || 0) + '<br>' +
-                        '<strong>Est. Cost:</strong> ' + fmtCost(p.est_cost || 0);
+                        '<strong>Est. Annual Cost:</strong> ' + fmtCost(p.est_cost || 0);
                     tooltip.style.display = 'block';
                     tooltip.style.left = (e.point.x + 12) + 'px';
                     tooltip.style.top = (e.point.y - 12) + 'px';
@@ -1673,7 +1673,7 @@
                     '<div class="stat-row"><span class="stat-label">Hexes selected</span><span class="stat-value">' + fmtNum(count) + '</span></div>' +
                     '<div class="stat-row"><span class="stat-label">Total Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + toAreaLarge(sumArea).toFixed(1) + '</span></div>' +
                     '<div class="stat-row"><span class="stat-label">% Covered (area-weighted)</span><span class="stat-value">' + wPct.toFixed(1) + '%</span></div>' +
-                    '<div class="stat-row"><span class="stat-label">Est. Cost</span><span class="stat-value">' + fmtCost(sumCost) + '</span></div>' +
+                    '<div class="stat-row"><span class="stat-label">Est. Annual Cost</span><span class="stat-value">' + fmtCost(sumCost) + '</span></div>' +
                     '</div></div>';
                 const closeBtn = document.getElementById('close-region');
                 if (closeBtn) closeBtn.addEventListener('click', () => { statsEl.innerHTML = savedPanelHTML; });
@@ -2238,7 +2238,7 @@
                 if (roads.insolvency_year) {
                     // Forecast year 1 == the current calendar year.
                     var crossYear = new Date().getFullYear() + roads.insolvency_year - 1;
-                    lead = 'At current funding, ' + name + '’s street-repair backlog passes one full year of treatment need by <span class="num">' + crossYear + '</span> (year ' + roads.insolvency_year + ').';
+                    lead = 'At current funding, ' + name + '’s street-repair backlog grows to an entire treatment cycle of deferred work by <span class="num">' + crossYear + '</span> (year ' + roads.insolvency_year + ').';
                 } else {
                     lead = 'At current funding, ' + name + '’s streets stay solvent through the forecast horizon.';
                 }
@@ -2427,6 +2427,7 @@
                 decay_rate: FORECAST_SEED.decay_rate,
                 growth_rate: FORECAST_SEED.growth_rate,
                 years: FORECAST_SEED.years,
+                treatment_cycle_years: FORECAST_SEED.treatment_cycle_years,
                 cost_tiers: tiers,
                 annual_budget: 0,
                 strategy: 'do-nothing',
@@ -2444,6 +2445,7 @@
                 decay_rate: FORECAST_SEED.decay_rate,
                 growth_rate: FORECAST_SEED.growth_rate,
                 years: FORECAST_SEED.years,
+                treatment_cycle_years: FORECAST_SEED.treatment_cycle_years,
                 cost_tiers: tiers,
                 annual_budget: annualBudget,
                 strategy: currentStrategy,
@@ -2824,7 +2826,7 @@
                 // the metric (no cited budget / no roads) so a null value never
                 // produces a NaN sort key or a corrupt bar width.
                 { key: 'fundingGap', label: 'Street Funding Gap (roads, lower is better)', award: 'Best Funded', higher: false, filter: function(m) { return m.fundingGap !== null; }, fmt: function(v) { return (v >= 0 ? '+' : '') + v.toFixed(0) + '%'; }, color: '#0ea5e9', note: 'Funding gap = (hold-steady budget − current budget) / current budget, computed on roads/streets only. Shown only for cities with a cited current_budget. Negative means the budget already exceeds the hold-steady level.' },
-                { key: 'insolvencyYear', label: 'Years to Insolvency (roads, higher is better)', award: 'Most Solvent', higher: true, filter: function(m) { return m.insolvencyYear !== null; }, fmt: function(v) { return 'Year ' + v; }, color: '#14b8a6', note: 'Insolvency year = the first forecast year a city’s cumulative roads backlog passes one full year of treatment need (unrecoverable). Computed on roads/streets only at the current budget; shown only for cities with a cited current_budget that go insolvent within the horizon. Cities that stay solvent are omitted.' }
+                { key: 'insolvencyYear', label: 'Years to Insolvency (roads, higher is better)', award: 'Most Solvent', higher: true, filter: function(m) { return m.insolvencyYear !== null; }, fmt: function(v) { return 'Year ' + v; }, color: '#14b8a6', note: 'Insolvency year = the first forecast year a city’s cumulative roads backlog grows to an entire treatment cycle of deferred work — a whole network’s worth of treatment, unrecoverable. Computed on roads/streets only at the current budget; shown only for cities with a cited current_budget that go insolvent within the horizon. Cities that stay solvent (most, with realistic budgets) are omitted — funding gap is the primary metric there.' }
             ];
 
             var lbHtml = categories.map(function(cat) {

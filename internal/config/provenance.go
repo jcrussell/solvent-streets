@@ -142,12 +142,13 @@ func (c *Config) resolveHexEdgeForCity(city *CityConfig) (float64, Source) {
 // forecastProvenance records a source label for each resolved forecast
 // field. Every field is populated after resolveForecast returns.
 type forecastProvenance struct {
-	InitialPCI    Source
-	DecayRate     Source
-	GrowthRate    Source
-	Years         Source
-	CostTiers     Source
-	CurrentBudget Source
+	InitialPCI          Source
+	DecayRate           Source
+	GrowthRate          Source
+	Years               Source
+	CostTiers           Source
+	CurrentBudget       Source
+	TreatmentCycleYears Source
 }
 
 // resolveForecast returns the merged forecast config (env > city > file >
@@ -186,6 +187,9 @@ func fileForecastProv(fc *ForecastConfig) forecastProvenance {
 	if fc.CurrentBudget > 0 {
 		p.CurrentBudget = Source{Kind: SourceFile, Detail: "forecast.current_budget"}
 	}
+	if fc.TreatmentCycleYears > 0 {
+		p.TreatmentCycleYears = Source{Kind: SourceFile, Detail: "forecast.treatment_cycle_years"}
+	}
 	return p
 }
 
@@ -223,6 +227,10 @@ func applyCityForecastProv(fc *ForecastConfig, p *forecastProvenance, city *City
 		fc.CurrentBudget = ov.CurrentBudget
 		p.CurrentBudget = Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].forecast.current_budget", slug)}
 	}
+	if ov.TreatmentCycleYears > 0 {
+		fc.TreatmentCycleYears = ov.TreatmentCycleYears
+		p.TreatmentCycleYears = Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].forecast.treatment_cycle_years", slug)}
+	}
 }
 
 func applyEnvForecastProv(fc *ForecastConfig, p *forecastProvenance) {
@@ -256,6 +264,11 @@ func applyDefaultForecastProv(fc *ForecastConfig, p *forecastProvenance) {
 	}
 	if (p.CurrentBudget == Source{}) {
 		p.CurrentBudget = Source{Kind: SourceDefault}
+	}
+	// Resolved to forecast.DefaultTreatmentCycleYears downstream (in the forecast
+	// core, like DecayRate), so config reports SourceDefault when no layer set it.
+	if (p.TreatmentCycleYears == Source{}) {
+		p.TreatmentCycleYears = Source{Kind: SourceDefault}
 	}
 }
 
@@ -292,6 +305,11 @@ func (c *Config) Resolve(flagUnits string) []ResolvedField {
 	// configs omit it rather than reporting a fabricated $0.
 	if fc.CurrentBudget > 0 {
 		fields = append(fields, ResolvedField{Key: "forecast.current_budget", Value: fc.CurrentBudget, Source: fprov.CurrentBudget})
+	}
+	// Emitted only when configured (>0); when unset the effective value is the
+	// forecast-package default, resolved downstream like decay_rate.
+	if fc.TreatmentCycleYears > 0 {
+		fields = append(fields, ResolvedField{Key: "forecast.treatment_cycle_years", Value: fc.TreatmentCycleYears, Source: fprov.TreatmentCycleYears})
 	}
 
 	for i := range c.Cities {

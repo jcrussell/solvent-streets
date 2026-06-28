@@ -60,6 +60,20 @@ measurements, and local bid prices will differ. Roads and sidewalks use
 independent cost tiers because the treatment economics differ
 substantially.
 
+### Treatment cycle
+
+Real pavement is maintained on a multi-year cycle: a city treats roughly
+one slice of its network each year, not the whole network annually. The
+model captures this with a **treatment cycle** of `N` years (default 12,
+the midpoint of a typical 10–14 year municipal cycle, configurable via
+`treatment_cycle_years`). Each forecast year only `1/N` of the network is
+scheduled for treatment, so the **annual treatment need** is the
+full-network retreatment cost divided by `N`. This is what makes the
+break-even budget a realistic *annual* program cost rather than the
+one-off cost of rebuilding the entire network at once. A cycle of `N = 1`
+reproduces the older behavior (the whole network priced every year), which
+overstated the hold-steady budget several-fold.
+
 ### Scenario comparisons
 
 PVMT ships with three comparison runs driven by annual funding level, all
@@ -107,23 +121,25 @@ absolute dollar claim must be roads-only. They are derived from a
 **worst-first** run at the city's configured annual budget.
 
 - **Insolvency year** — the first forecast year in which the cumulative
-  deferred backlog reaches **one full year of network-treatment need**
-  (the year-1 need: the cost to treat the entire network once). Because
-  the deferred backlog is a monotonically non-decreasing accumulator (see
-  below), once a city is a whole network-treatment behind it does not
-  recover within the model, so this is the "unrecoverable" threshold. A
-  city whose backlog never reaches it is reported as *solvent through the
-  horizon*. This is deliberately **not** "the first year need exceeds
-  spend": year-1 need is the cost to treat the entire network, far above
-  any real budget, so that test trips in year 1 for virtually every city
-  and cannot distinguish a slightly-underfunded city from a badly-
-  underfunded one. Reported only when a current budget is configured.
+  deferred backlog reaches **one full treatment cycle of deferred work**
+  (`N ×` the annual scheduled need — a whole network's worth of treatment).
+  Because the deferred backlog is a monotonically non-decreasing
+  accumulator (see below), once a city is an entire cycle behind it does
+  not recover within the model, so this is the "unrecoverable" threshold.
+  A do-nothing network defers a full slice every year and crosses around
+  year `N`; a city funding a fraction `f` of each slice crosses around
+  `N / (1 − f)`, so well-funded cities never reach it and are reported as
+  *solvent through the horizon*. The metric therefore discriminates among
+  the genuinely underfunded; on the funded side, **funding gap is the
+  primary signal**. Reported only when a current budget is configured.
 
 - **Hold-steady (break-even) budget** — the smallest constant annual
   budget whose **final** deferred backlog is within a small relative
-  tolerance (a fraction of year-1 need) of zero. Found by bisection over
-  budget; the search's upper bound is the peak do-nothing annual need
-  over the horizon, which is sufficient to fully fund every year.
+  tolerance (a fraction of the annual need) of zero: the budget that funds
+  the network's annually-scheduled treatment slice and keeps pace with the
+  cycle. Found by bisection over budget; the search's upper bound is the
+  peak do-nothing annual need over the horizon, which is sufficient to
+  fully fund every year.
 
 - **Funding gap** — `(break-even − current budget) / current budget`,
   the primary cross-city ranking metric. Negative when a city already

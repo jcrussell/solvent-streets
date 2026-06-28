@@ -136,6 +136,14 @@ type ForecastConfig struct {
 	GrowthRate float64       `toml:"growth_rate"` // annual pavement growth rate (0.01 = 1%)
 	Years      int           `toml:"years"`       // forecast horizon, default 20
 	CostTiers  []CostTierCfg `toml:"cost_tiers"`  // custom cost tiers
+	// TreatmentCycleYears is the pavement treatment cycle N: the model schedules
+	// ~1/N of the network for treatment each year, so annual need = full-network
+	// cost / N. 0 = use forecast.DefaultTreatmentCycleYears (~12); the default is
+	// resolved in the forecast core (ResolveCycleYears), not here, so every
+	// construction path gets a safe divisor. Scales break_even by 1/N and drives
+	// the insolvency threshold. A value type (not *float64) for the same
+	// Config.Hash() reason as CurrentBudget.
+	TreatmentCycleYears float64 `toml:"treatment_cycle_years"`
 	// CurrentBudget is the city's annual pavement-repair budget in
 	// dollars, used by the solvency export (insolvency year, break-even,
 	// funding gap). A value type, NOT *float64: a pointer breaks the
@@ -167,11 +175,22 @@ func (fc *ForecastConfig) Validate() error {
 	if fc.CurrentBudget < 0 {
 		return fmt.Errorf("forecast.current_budget %g must be non-negative", fc.CurrentBudget)
 	}
-	// Custom cost_tiers feed buildAnchors' midpoint interpolation directly, so
-	// a negative cost, an inverted band, or an out-of-range bound silently
-	// produces wrong dollar figures. Reject the degenerate cases (overlap and
-	// coverage gaps are intentionally left to the operator).
-	for i, t := range fc.CostTiers {
+	// 0 means "use default"; a positive but sub-annual cycle (<1) would make the
+	// 1/N gating exceed the full network, and an implausibly long cycle (>40 yr)
+	// is almost certainly a typo. The forecast core resolves 0 to the default.
+	if fc.TreatmentCycleYears != 0 && (fc.TreatmentCycleYears < 1 || fc.TreatmentCycleYears > 40) {
+		return fmt.Errorf("forecast.treatment_cycle_years %g out of range (1-40, or 0 for default)", fc.TreatmentCycleYears)
+	}
+	return validateCostTiers(fc.CostTiers)
+}
+
+// validateCostTiers rejects degenerate custom cost tiers. They feed buildAnchors'
+// midpoint interpolation directly, so a negative cost, an inverted band, or an
+// out-of-range bound silently produces wrong dollar figures (overlap and coverage
+// gaps are intentionally left to the operator). Split out of Validate to keep its
+// cognitive complexity in check.
+func validateCostTiers(tiers []CostTierCfg) error {
+	for i, t := range tiers {
 		if t.CostPerSqM <= 0 {
 			return fmt.Errorf("forecast.cost_tiers[%d] (%s): cost_per_sqm %g must be positive", i, t.Label, t.CostPerSqM)
 		}

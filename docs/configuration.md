@@ -19,7 +19,7 @@ flowchart TD
     CLI -->|overrides| Env -->|overrides| City -->|overrides| Top -->|overrides| Default
 ```
 
-Fields that support per-city override: `hex_edge_m`, `boundary_relation_id`, all `[forecast]` fields (`initial_pci`, `decay_rate`, `growth_rate`, `years`, `cost_tiers`, `current_budget`). Per-city forecast merges field-by-field — set only the fields you want to override.
+Fields that support per-city override: `hex_edge_m`, `boundary_relation_id`, all `[forecast]` fields (`initial_pci`, `decay_rate`, `growth_rate`, `years`, `cost_tiers`, `current_budget`, `treatment_cycle_years`). Per-city forecast merges field-by-field — set only the fields you want to override.
 
 `boundary_relation_id` (default unset) names an OSM admin_level=8 relation to fetch from Overpass instead of the usual Nominatim search by name. Set it when ingest fails with `nominatim returned no Polygon/MultiPolygon result for "<city>" (set [[cities]].boundary_relation_id to fetch the admin boundary from Overpass)` — that means Nominatim has the city as a node rather than a relation, and the boundary is reachable only via Overpass. Find the relation ID with [Overpass Turbo](https://overpass-turbo.eu/): `relation["name"="<city>"]["boundary"="administrative"]["admin_level"="8"];out;`. A relation whose bbox spans more than 5° is rejected as a likely county/state typo.
 
@@ -103,6 +103,8 @@ label = "Critical"
 Cost values are calibration inputs, not measurements — the shipped defaults are 2024 median urban municipal bid prices (preventive-treatment costs stay near FHWA ranges). Start with the defaults and only override per city when local bid tabs differ materially. Because tiers interpolate linearly at tier midpoints (not step-wise), the forecast is less sensitive to any single tier's value than it looks; bulk shifts across tiers matter more than boundary tweaks.
 
 **`current_budget`** — the city's annual pavement-repair budget, in dollars. There is no default: when unset (or `0`), the budget-dependent solvency metrics — `insolvency_year` and `funding_gap` — are disabled for that city, and the export omits them rather than reporting figures against a fabricated `$0`. (The `break_even_budget` metric is always computed for roads and does not depend on this field.) Set it to a cited figure to surface the headline solvency numbers.
+
+**`treatment_cycle_years`** — the pavement treatment cycle N, in years. The model assumes ~1/N of the network is scheduled for treatment each year, so the annual need is the full-network retreatment cost ÷ N. Default 12 (the midpoint of the typical 10–14 yr municipal cycle). This directly scales `break_even_budget` (∝ 1/N) and sets the `insolvency_year` threshold, so it is the main lever for matching the solvency dollars to a city's actual program. A value of `1` reproduces the legacy behavior (the entire network priced every year, which overstates the hold-steady budget — see [architecture.md](architecture.md) "Solvency methodology" and `docs/validation.md` §5). Allowed range 1–40; `0`/unset uses the default.
 
 ## Display
 

@@ -4,8 +4,11 @@ import (
 	"testing"
 )
 
+// defaultTestParams uses N=1 (un-gated: full network priced every year) so the
+// existing assertions below pin the baseline simulation mechanics. The
+// treatment-cycle (N>1) behavior is covered by cycle_test.go.
 func defaultTestParams() *Params {
-	return NewParams(0.01, nil)
+	return NewParams(0.01, nil, 1)
 }
 
 func singleCohort(area, decayRate float64) []Cohort {
@@ -29,7 +32,7 @@ func TestSimulate_CostTierLabelHonorsCustomTiers(t *testing.T) {
 		{MinPCI: 50, MaxPCI: 70, CostPerSqM: 50, Label: "Fair"},
 		{MinPCI: 70, MaxPCI: 101, CostPerSqM: 5, Label: "Good"},
 	}
-	params := NewParams(0.0, customTiers)
+	params := NewParams(0.0, customTiers, 1)
 	cohorts := singleCohort(100000, 0.035)
 	result := Simulate(Scenario{Name: "dn", Label: "DN", Strategy: StrategyDoNothing}, cohorts, 20, params)
 

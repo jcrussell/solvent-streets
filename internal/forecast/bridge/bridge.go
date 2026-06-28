@@ -27,7 +27,12 @@ type Input struct {
 	CostTiers    []CostTier `json:"cost_tiers"`
 	AnnualBudget float64    `json:"annual_budget"`
 	Strategy     string     `json:"strategy"`
-	Cohorts      []Cohort   `json:"cohorts,omitempty"`
+	// CycleYears is the treatment cycle N (annual need = full-network cost / N).
+	// Must match the value the static export lines use (seeded via
+	// ForecastSeedJSON.TreatmentCycleYears) or the custom line diverges ~N×.
+	// 0 is resolved to forecast.DefaultTreatmentCycleYears in Simulate.
+	CycleYears float64  `json:"treatment_cycle_years"`
+	Cohorts    []Cohort `json:"cohorts,omitempty"`
 }
 
 // Cohort mirrors a single per-classification cohort from the browser payload.
@@ -62,7 +67,7 @@ func Translate(in Input) (forecast.Scenario, []forecast.Cohort, int, *forecast.P
 		})
 	}
 
-	params := forecast.NewParams(in.GrowthRate, tiers)
+	params := forecast.NewParams(in.GrowthRate, tiers, in.CycleYears)
 
 	strategy, err := forecast.ParseStrategy(in.Strategy)
 	if err != nil {

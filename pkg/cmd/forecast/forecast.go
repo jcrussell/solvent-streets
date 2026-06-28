@@ -325,7 +325,7 @@ func forecastAllResources(ctx context.Context, opts *Options, store db.Store,
 	for _, rt := range resource.All {
 		t := rt.Type()
 		tName := string(t)
-		params := fcpkg.NewParamsForResource(tName, fc.GrowthRate, costTiers)
+		params := fcpkg.NewParamsForResource(tName, fc.GrowthRate, costTiers, fc.TreatmentCycleYears)
 		result, err := store.LatestComputeResult(ctx, t)
 		if err != nil || result == nil {
 			fmt.Fprintf(ios.ErrOut, "Warning: no compute results for %s, skipping\n", t)

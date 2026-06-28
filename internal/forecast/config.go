@@ -5,13 +5,20 @@ package forecast
 type Params struct {
 	Cost   *TieredCostProjector
 	Growth *LinearGrowthEstimator
+	// CycleYears is the pavement treatment cycle N: each simulated year ~1/N of
+	// the network is scheduled for treatment (see Simulate). 0 means "use
+	// DefaultTreatmentCycleYears" — resolved in the forecast core via
+	// ResolveCycleYears, NOT in config, so every construction path (export, CLI,
+	// WASM bridge, tests) gets a safe non-zero divisor.
+	CycleYears float64
 }
 
 // NewParams builds forecasting parameters from config values.
-func NewParams(growthRate float64, costTiers []CostTier) *Params {
+func NewParams(growthRate float64, costTiers []CostTier, cycleYears float64) *Params {
 	p := &Params{
-		Cost:   &TieredCostProjector{},
-		Growth: &LinearGrowthEstimator{AnnualGrowthRate: growthRate},
+		Cost:       &TieredCostProjector{},
+		Growth:     &LinearGrowthEstimator{AnnualGrowthRate: growthRate},
+		CycleYears: cycleYears,
 	}
 	if len(costTiers) > 0 {
 		p.Cost.Tiers = costTiers
@@ -46,12 +53,13 @@ func sidewalkCostTiers(costTiers []CostTier) []CostTier {
 
 // NewParamsForResource builds forecasting parameters with resource-specific defaults.
 // Sidewalks get lower cost tiers. Other resource types fall back to NewParams.
-func NewParamsForResource(resourceType string, growthRate float64, costTiers []CostTier) *Params {
+func NewParamsForResource(resourceType string, growthRate float64, costTiers []CostTier, cycleYears float64) *Params {
 	if resourceType == "sidewalks" {
 		return &Params{
-			Cost:   &TieredCostProjector{Tiers: sidewalkCostTiers(costTiers)},
-			Growth: &LinearGrowthEstimator{AnnualGrowthRate: growthRate},
+			Cost:       &TieredCostProjector{Tiers: sidewalkCostTiers(costTiers)},
+			Growth:     &LinearGrowthEstimator{AnnualGrowthRate: growthRate},
+			CycleYears: cycleYears,
 		}
 	}
-	return NewParams(growthRate, costTiers)
+	return NewParams(growthRate, costTiers, cycleYears)
 }

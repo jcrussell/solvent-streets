@@ -24,15 +24,20 @@ type CohortSeed struct {
 // (that's MetaJSON.CityArea). The fields used to share the json tag
 // "city_area" with 14x divergence; never reintroduce that name here.
 type ForecastSeedJSON struct {
-	InitialPCI  float64             `json:"initial_pci"`
-	DecayRate   float64             `json:"decay_rate"`
-	GrowthRate  float64             `json:"growth_rate"`
-	Years       int                 `json:"years"`
-	TotalArea   float64             `json:"total_area"`
-	CityPaved   float64             `json:"city_paved"`
-	CostTiers   []forecast.CostTier `json:"cost_tiers"`
-	Cohorts     []CohortSeed        `json:"cohorts,omitempty"`
-	CityCohorts []CohortSeed        `json:"city_cohorts,omitempty"`
+	InitialPCI float64 `json:"initial_pci"`
+	DecayRate  float64 `json:"decay_rate"`
+	GrowthRate float64 `json:"growth_rate"`
+	Years      int     `json:"years"`
+	// TreatmentCycleYears is shipped resolved (default applied) so the browser's
+	// interactive "Custom Scenario" line uses the same cycle N as the static
+	// export lines; otherwise the custom line runs at a different N and the two
+	// diverge ~N× on the same chart. Key matches bridge.Input.CycleYears.
+	TreatmentCycleYears float64             `json:"treatment_cycle_years"`
+	TotalArea           float64             `json:"total_area"`
+	CityPaved           float64             `json:"city_paved"`
+	CostTiers           []forecast.CostTier `json:"cost_tiers"`
+	Cohorts             []CohortSeed        `json:"cohorts,omitempty"`
+	CityCohorts         []CohortSeed        `json:"city_cohorts,omitempty"`
 }
 
 // BuildForecastSeed constructs a ForecastSeedJSON for the given forecast config and store.
@@ -78,15 +83,16 @@ func BuildForecastSeed(ctx context.Context, fc *config.ForecastConfig, store db.
 	cohortSeeds, cityCohortSeeds := collectCohortSeeds(ctx, store, fc)
 
 	seed := ForecastSeedJSON{
-		InitialPCI:  fc.InitialPCI,
-		DecayRate:   decayRate,
-		GrowthRate:  fc.GrowthRate,
-		Years:       years,
-		TotalArea:   totalArea,
-		CityPaved:   cityArea,
-		CostTiers:   costTiers,
-		Cohorts:     cohortSeeds,
-		CityCohorts: cityCohortSeeds,
+		InitialPCI:          fc.InitialPCI,
+		DecayRate:           decayRate,
+		GrowthRate:          fc.GrowthRate,
+		Years:               years,
+		TreatmentCycleYears: forecast.ResolveCycleYears(fc.TreatmentCycleYears),
+		TotalArea:           totalArea,
+		CityPaved:           cityArea,
+		CostTiers:           costTiers,
+		Cohorts:             cohortSeeds,
+		CityCohorts:         cityCohortSeeds,
 	}
 	data, err := json.Marshal(seed)
 	if err != nil {

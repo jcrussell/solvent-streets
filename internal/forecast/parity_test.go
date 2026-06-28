@@ -32,7 +32,10 @@ func TestSimulateParity(t *testing.T) {
 		{MinPCI: 40, MaxPCI: 70, CostPerSqM: 15, Label: "rehabilitation"},
 		{MinPCI: 70, MaxPCI: 100, CostPerSqM: 2, Label: "preventive"},
 	}
-	params := forecast.NewParams(0.01, costTiers)
+	// N=12 matches the production default an un-customized browser sends (the
+	// seed ships ResolveCycleYears(fc), 12 when unset), so this golden pins the
+	// real WASM/CLI contract under treatment-cycle gating.
+	params := forecast.NewParams(0.01, costTiers, 12)
 
 	result := forecast.Simulate(scenario, cohorts, 10, params)
 
