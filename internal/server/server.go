@@ -37,6 +37,14 @@ type Server struct {
 	// serveJSONCached (which marshals JSON). Value: *indexThunk.
 	indexPages sync.Map // "index" → *indexThunk (sync.OnceValues wrapper)
 
+	// gamePages and gameTemplates are the /play equivalents of indexPages and
+	// templates: the rendered game HTML and the parsed game template, cached
+	// the same way. Kept as separate maps (rather than reusing indexPages /
+	// templates) because the game and index pages are distinct renders that
+	// would otherwise collide on the shared "index" / units.System keys.
+	gamePages     sync.Map // "game" → *indexThunk (sync.OnceValues wrapper)
+	gameTemplates sync.Map // units.System → *templateThunk (sync.OnceValues wrapper)
+
 	// ReadyFile, if non-empty, receives the listening URL atomically
 	// once the TCP listener is bound. Container/test orchestration polls
 	// for the file's existence instead of parsing log lines or sleeping.
@@ -61,6 +69,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		entry := s.cities[0]
 		mux.HandleFunc("GET /data/{file}", s.handleDataFile(entry))
 		mux.HandleFunc("GET /api/snapshots", s.handleSnapshotsList(entry))
+		mux.HandleFunc("GET /play", s.handleGame) // single-city only; see multi-city branch note
 		mux.HandleFunc("GET /", s.handleIndex)
 	} else {
 		// Multi-city mode
@@ -68,6 +77,11 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		mux.HandleFunc("GET /api/cities/{slug}/snapshots", s.handleCitySnapshotsList)
 		mux.HandleFunc("GET /cities/{slug}/data/{file}", s.handleCityDataFile)
 		mux.HandleFunc("GET /", s.handleIndex)
+		// NOTE: /play is intentionally single-city only. The game page hardcodes
+		// DATA_PREFIX='' and fetches /data/<file>, which only exists in the
+		// single-city branch; multi-city serves data under /cities/{slug}/data/.
+		// Multi-city /play needs a city selector + templated prefix — see the
+		// "multi-city /play" follow-up bead.
 	}
 
 	// WASM assets (shared)

@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Pavement Manager</title>
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css">
+    <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f1115; color: #e8eaed; overflow: hidden;
+        }
+        #game-root, #map { position: absolute; inset: 0; }
+        #map { width: 100%; height: 100%; }
+
+        .panel {
+            position: absolute; z-index: 10;
+            background: rgba(20, 24, 31, 0.92);
+            border: 1px solid #2a3140;
+            border-radius: 10px;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+            backdrop-filter: blur(4px);
+        }
+
+        /* HUD — top left */
+        #hud { top: 12px; left: 12px; padding: 14px 18px; min-width: 230px; }
+        #hud h1 { font-size: 15px; font-weight: 700; margin-bottom: 10px; letter-spacing: 0.3px; }
+        .hud-row { display: flex; justify-content: space-between; gap: 18px; padding: 3px 0; font-size: 13px; }
+        .hud-row .k { color: #9aa4b2; }
+        .hud-row .v { font-weight: 600; font-variant-numeric: tabular-nums; }
+        .solvency {
+            margin-top: 10px; padding-top: 10px; border-top: 1px solid #2a3140;
+            font-size: 15px; font-weight: 700; line-height: 1.35;
+        }
+        .solvency.bad { color: #ff7a6b; }
+        .solvency.ok  { color: #6fe08a; }
+        .solvency .num { font-size: 19px; }
+
+        /* Controls — bottom left */
+        #controls { bottom: 12px; left: 12px; padding: 14px 18px; min-width: 260px; }
+        #controls .ctrl-block { margin-bottom: 14px; }
+        #controls .ctrl-block:last-child { margin-bottom: 0; }
+        #controls label { display: block; font-size: 12px; color: #9aa4b2; margin-bottom: 6px; }
+        #controls .ctrl-value { color: #e8eaed; font-weight: 600; }
+        input[type="range"] { width: 100%; accent-color: #4f8cff; cursor: pointer; }
+        .btn {
+            background: #1c2330; color: #e8eaed; border: 1px solid #384152;
+            border-radius: 6px;
+            padding: 7px 14px; font-size: 13px; cursor: pointer; transition: all .12s;
+        }
+        .btn:hover { border-color: #4f8cff; }
+        .tier-buttons, .row-buttons { display: flex; gap: 6px; flex-wrap: wrap; }
+        .tier-buttons .btn { text-transform: capitalize; flex: 1; }
+        .tier-buttons .btn.active, #pause-btn.active {
+            background: #4f8cff; border-color: #4f8cff; color: #fff;
+        }
+        #pause-btn { width: 100%; font-weight: 600; }
+
+        /* Color legend — bottom right */
+        #legend { bottom: 12px; right: 12px; padding: 10px 14px; font-size: 11px; }
+        #legend .legend-title { font-weight: 600; margin-bottom: 6px; color: #9aa4b2; }
+        #legend .legend-bar {
+            width: 170px; height: 12px; border-radius: 3px;
+            background: linear-gradient(90deg,#b2182b,#ef8a62,#fddbc7,#a6d96a,#66bd63,#1a9850);
+        }
+        #legend .legend-labels { display: flex; justify-content: space-between; margin-top: 3px; color: #9aa4b2; }
+        #legend .gravel-key { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+        #legend .gravel-swatch { width: 12px; height: 12px; border-radius: 2px; background: #8d8074; display: inline-block; }
+
+        /* Win/Lose banner */
+        #banner {
+            position: absolute; z-index: 50; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 28px 40px; border-radius: 14px; text-align: center;
+            font-size: 26px; font-weight: 800; display: none;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+        }
+        #banner.won  { background: #123d22; color: #6fe08a; border: 2px solid #6fe08a; display: block; }
+        #banner.lost { background: #3d1212; color: #ff7a6b; border: 2px solid #ff7a6b; display: block; }
+        #banner .sub { font-size: 14px; font-weight: 500; margin-top: 8px; color: #cdd3db; }
+
+        /* Error banner */
+        #error-banner {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
+            background: #c53030; color: #fff; padding: 8px 16px; font-size: 13px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3); display: none;
+        }
+        #error-banner ul { margin: 4px 0 0 18px; }
+        #error-banner button { float: right; background: transparent; color: #fff; border: 1px solid #fff; cursor: pointer; padding: 2px 8px; border-radius: 3px; }
+        #loading {
+            position: absolute; z-index: 40; top: 50%; left: 50%; transform: translate(-50%,-50%);
+            color: #9aa4b2; font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div id="error-banner" role="alert" aria-live="assertive">
+        <button type="button" onclick="document.getElementById('error-banner').style.display='none'">Dismiss</button>
+        <strong>Error:</strong>
+        <ul id="error-banner-list"></ul>
+    </div>
+
+    <!-- game-root doubles as the MapLibre container; a server test asserts this id exists. -->
+    <div id="game-root" data-project="{{.MetaJSON.ProjectName}}" data-units="{{.UnitSystem}}">
+        <div id="map"></div>
+    </div>
+
+    <div id="loading">Loading board&hellip;</div>
+
+    <div class="panel" id="hud" style="display:none">
+        <h1>Pavement Manager &mdash; {{.MetaJSON.ProjectName}}</h1>
+        <div class="hud-row"><span class="k">Year</span><span class="v" id="hud-year">&mdash;</span></div>
+        <div class="hud-row"><span class="k">Treasury</span><span class="v" id="hud-treasury">&mdash;</span></div>
+        <div class="hud-row"><span class="k">Network PCI</span><span class="v" id="hud-pci">&mdash;</span></div>
+        <div class="hud-row"><span class="k">Backlog</span><span class="v" id="hud-backlog">&mdash;</span></div>
+        <div class="solvency" id="hud-solvency">&mdash;</div>
+    </div>
+
+    <div class="panel" id="controls" style="display:none">
+        <div class="ctrl-block">
+            <button class="btn" id="pause-btn" type="button">Pause</button>
+        </div>
+        <div class="ctrl-block">
+            <label>City Council budget: <span class="ctrl-value" id="budget-value"></span>/yr</label>
+            <input type="range" id="budget-slider" min="0" max="100" value="50" step="1">
+        </div>
+        <div class="ctrl-block">
+            <label>Treatment (click a hex to apply)</label>
+            <div class="tier-buttons" id="tier-buttons"></div>
+        </div>
+    </div>
+
+    <div class="panel" id="legend" style="display:none">
+        <div class="legend-title">Pavement condition (PCI)</div>
+        <div class="legend-bar"></div>
+        <div class="legend-labels"><span>worst</span><span>best</span></div>
+        <div class="gravel-key"><span class="gravel-swatch"></span>closed &rarr; gravel</div>
+    </div>
+
+    <div id="banner"></div>
+
+    <!-- Shared with the index page; mounted once on the server (do not duplicate). -->
+    <script src="/wasm_exec.js"></script>
+    <script>
+        // ---- Template-injected payload (same wiring as index.html.tmpl) -------
+        const CENTER = [{{.CenterLon}}, {{.CenterLat}}];
+        const FORECAST_SEED = {{.ForecastSeed}};
+        const LAYER_COLORS = {{.LayerColors}};
+        // Single-city: data files are served at /data/<file>.
+        const DATA_PREFIX = '';
+
+        // ---- Tunables --------------------------------------------------------
+        // Real-time → sim-time conversion: 1 sim-year ~ 3 real seconds.
+        const SIM_YEARS_PER_SEC = 1 / 3;
+        // Throttle WASM ticks to ~10/s regardless of frame rate.
+        const TICK_INTERVAL_MS = 100;
+        // Cap catch-up after the tab is backgrounded (rAF pauses, so the first
+        // frame back reports a huge elapsed). Without this, one giant Tick
+        // over-accrues backlog and can trip the loss ceiling — an instant,
+        // spurious "game over" purely from tabbing away.
+        const MAX_FRAME_MS = 250;
+        // 6-stop red→green PCI ramp, band 0 (worst) … band 5 (best); Go owns
+        // the band assignment, JS only maps band→color here.
+        const BAND_COLORS = ['#b2182b', '#ef8a62', '#fddbc7', '#a6d96a', '#66bd63', '#1a9850'];
+        const GRAVEL_COLOR = '#8d8074';
+        const HEX_SOURCE = 'play-hexes';
+        const HEX_FILL = 'play-fill';
+
+        // ---- Error surfacing -------------------------------------------------
+        function showError(label, detail) {
+            console.error('[play]', label, detail);
+            const banner = document.getElementById('error-banner');
+            const list = document.getElementById('error-banner-list');
+            const li = document.createElement('li');
+            li.textContent = label + (detail ? ' (' + detail + ')' : '');
+            list.appendChild(li);
+            banner.style.display = 'block';
+        }
+
+        // callWasm wraps a window.gameXxx function: stringify-free args in,
+        // parsed state out. Surfaces {error} via the banner and returns null.
+        function callWasm(fnName, ...args) {
+            const fn = window[fnName];
+            if (typeof fn !== 'function') {
+                showError(fnName, 'WASM function not registered');
+                return null;
+            }
+            let raw;
+            try {
+                raw = fn(...args);
+            } catch (err) {
+                showError(fnName, err.message || String(err));
+                return null;
+            }
+            let parsed;
+            try {
+                parsed = JSON.parse(raw);
+            } catch (err) {
+                showError(fnName, 'invalid response: ' + (err.message || String(err)));
+                return null;
+            }
+            if (parsed && parsed.error) {
+                showError(fnName, parsed.error);
+                return null;
+            }
+            return parsed;
+        }
+
+        async function loadJSON(url) {
+            try {
+                const resp = await fetch(url);
+                if (!resp.ok) { showError(url, 'HTTP ' + resp.status); return null; }
+                return await resp.json();
+            } catch (err) {
+                showError(url, err.message || String(err));
+                return null;
+            }
+        }
+
+        // ---- Formatting ------------------------------------------------------
+        function fmtMoney(n) {
+            if (n == null || isNaN(n)) return '$0';
+            const neg = n < 0;
+            const abs = Math.abs(n);
+            let s;
+            if (abs >= 1e9) s = '$' + (abs / 1e9).toFixed(2) + 'B';
+            else if (abs >= 1e6) s = '$' + (abs / 1e6).toFixed(2) + 'M';
+            else if (abs >= 1e3) s = '$' + Math.round(abs).toLocaleString();
+            else s = '$' + Math.round(abs).toLocaleString();
+            return (neg ? '-' : '') + s;
+        }
+
+        // ---- Map setup -------------------------------------------------------
+        const map = new maplibregl.Map({
+            container: 'map',
+            style: {
+                version: 8,
+                sources: { osm: { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256, attribution: '&copy; OpenStreetMap' } },
+                layers: [{ id: 'osm', type: 'raster', source: 'osm', minzoom: 0, maxzoom: 19 }]
+            },
+            center: CENTER,
+            zoom: 13
+        });
+        map.addControl(new maplibregl.NavigationControl(), 'top-right');
+
+        // ---- Game state (JS holds only view/loop state, never rules) ---------
+        let selectedTier = null;
+        let paused = false;
+        let started = false;
+        let gameStatus = 'running';
+        let rafId = null;
+        let lastFrameTs = 0;
+        let tickAccumMs = 0;
+
+        // applyState: O(changed) repaint via setFeatureState + HUD refresh.
+        // Colors come entirely from Go's band output (see BAND_COLORS / paint).
+        function applyState(state) {
+            if (!state) return;
+            if (Array.isArray(state.changed)) {
+                for (const c of state.changed) {
+                    map.setFeatureState(
+                        { source: HEX_SOURCE, id: c.id },
+                        { band: c.band, closed: !!c.closed }
+                    );
+                }
+            }
+            updateHUD(state);
+            if (state.status && state.status !== gameStatus) {
+                gameStatus = state.status;
+                onStatusChange(gameStatus);
+            }
+        }
+
+        function updateHUD(state) {
+            const horizon = (FORECAST_SEED && FORECAST_SEED.years) || 0;
+            document.getElementById('hud-year').textContent =
+                (state.year != null ? state.year.toFixed(1) : '0') + (horizon ? ' / ' + horizon : '');
+            document.getElementById('hud-treasury').textContent = fmtMoney(state.treasury);
+            document.getElementById('hud-pci').textContent =
+                state.network_pci != null ? state.network_pci.toFixed(1) : '—';
+            document.getElementById('hud-backlog').textContent = fmtMoney(state.backlog);
+
+            const sol = document.getElementById('hud-solvency');
+            if (state.insolvency_year == null) {
+                sol.className = 'solvency ok';
+                sol.textContent = 'Solvent through horizon';
+            } else {
+                sol.className = 'solvency bad';
+                // insolvency_year is a static projection from the macro forecast at
+                // the current budget (1-based year from a fresh network), recomputed
+                // only when the budget changes — it is NOT a live countdown, so
+                // label it as a projected year, not "in N yr".
+                sol.innerHTML = 'Insolvent by <span class="num">yr ' + state.insolvency_year + '</span> at this budget';
+            }
+        }
+
+        function onStatusChange(status) {
+            if (status === 'running') return;
+            stopLoop();
+            const banner = document.getElementById('banner');
+            if (status === 'won') {
+                banner.className = 'won';
+                banner.innerHTML = 'You stayed solvent!<div class="sub">The network held through the horizon.</div>';
+            } else {
+                banner.className = 'lost';
+                banner.innerHTML = 'Network insolvent.<div class="sub">Decay outran the budget — game over.</div>';
+            }
+        }
+
+        // ---- Clock -----------------------------------------------------------
+        function frame(ts) {
+            if (!lastFrameTs) lastFrameTs = ts;
+            const elapsedMs = Math.min(ts - lastFrameTs, MAX_FRAME_MS);
+            lastFrameTs = ts;
+            tickAccumMs += elapsedMs;
+            if (tickAccumMs >= TICK_INTERVAL_MS) {
+                const dtYears = (tickAccumMs / 1000) * SIM_YEARS_PER_SEC;
+                tickAccumMs = 0;
+                const state = callWasm('gameTick', dtYears);
+                if (state) applyState(state);
+                if (gameStatus !== 'running') return; // applyState already stopped the loop
+            }
+            rafId = requestAnimationFrame(frame);
+        }
+        function startLoop() {
+            if (rafId != null || gameStatus !== 'running') return;
+            lastFrameTs = 0; tickAccumMs = 0;
+            rafId = requestAnimationFrame(frame);
+        }
+        function stopLoop() {
+            if (rafId != null) { cancelAnimationFrame(rafId); rafId = null; }
+        }
+
+        document.getElementById('pause-btn').addEventListener('click', () => {
+            if (gameStatus !== 'running') return;
+            paused = !paused;
+            const btn = document.getElementById('pause-btn');
+            btn.textContent = paused ? 'Resume' : 'Pause';
+            btn.classList.toggle('active', paused);
+            if (paused) stopLoop(); else startLoop();
+        });
+
+        // ---- Budget slider ("City Council") ----------------------------------
+        function bindBudget(startingBudget) {
+            const slider = document.getElementById('budget-slider');
+            const out = document.getElementById('budget-value');
+            const max = Math.max(1, startingBudget * 2);
+            slider.min = 0;
+            slider.max = max;
+            slider.step = Math.max(1, Math.round(max / 200));
+            slider.value = startingBudget;
+            out.textContent = fmtMoney(startingBudget);
+            // Update the readout on every input for instant feedback, but debounce
+            // the WASM call: gameSetBudget runs a full horizon-long forecast sim, so
+            // firing it on every pixel of a drag would run dozens of sims/sec.
+            let budgetTimer = null;
+            slider.addEventListener('input', () => {
+                const rate = parseFloat(slider.value);
+                out.textContent = fmtMoney(rate);
+                if (budgetTimer) clearTimeout(budgetTimer);
+                budgetTimer = setTimeout(() => {
+                    const state = callWasm('gameSetBudget', rate);
+                    if (state) applyState(state); // insolvency headline follows the budget
+                }, 80);
+            });
+        }
+
+        // ---- Treatment tier selector -----------------------------------------
+        function bindTiers(tiers) {
+            const wrap = document.getElementById('tier-buttons');
+            wrap.innerHTML = '';
+            // Default to the cheapest tier (lowest cost_per_sqm).
+            let cheapest = null;
+            for (const t of tiers) {
+                if (cheapest == null || t.cost_per_sqm < cheapest.cost_per_sqm) cheapest = t;
+            }
+            selectedTier = cheapest ? cheapest.label : (tiers[0] && tiers[0].label);
+            for (const t of tiers) {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'btn' + (t.label === selectedTier ? ' active' : '');
+                b.textContent = t.label;
+                b.dataset.tier = t.label;
+                b.addEventListener('click', () => {
+                    selectedTier = t.label;
+                    wrap.querySelectorAll('.btn').forEach(x => x.classList.toggle('active', x === b));
+                });
+                wrap.appendChild(b);
+            }
+        }
+
+        // ---- Board build + boot ----------------------------------------------
+        function pickStartingBudget(forecast) {
+            // Prefer the ROADS entry's current_budget; else sum across resources;
+            // else a sane default.
+            if (Array.isArray(forecast)) {
+                const roads = forecast.find(f => f.resource_type === 'roads' && f.current_budget);
+                if (roads && roads.current_budget) return roads.current_budget;
+                let sum = 0;
+                for (const f of forecast) if (f.current_budget) sum += f.current_budget;
+                if (sum > 0) return sum;
+            }
+            return 1000000; // fallback: $1M/yr
+        }
+
+        async function boot() {
+            // 1. Fetch board geometry + the authoritative playable-hex set + budget.
+            const [hexgrid, playHexes, forecast] = await Promise.all([
+                loadJSON(DATA_PREFIX + 'data/hexgrid.geojson'),
+                loadJSON(DATA_PREFIX + 'data/play-hexes.json'),
+                loadJSON(DATA_PREFIX + 'data/forecast.json')
+            ]);
+            if (!hexgrid || !hexgrid.features || !playHexes) {
+                showError('board data', 'missing hexgrid or play-hexes');
+                return;
+            }
+
+            // 2. Join: keep hexgrid features whose id is in the play-hex set;
+            //    play-hexes supplies road_area + k for the gameInit config.
+            const playById = new Map();
+            for (const ph of playHexes) playById.set(ph.id, ph);
+            const features = [];
+            for (const f of hexgrid.features) {
+                const id = f.properties && f.properties.id;
+                if (id == null || !playById.has(id)) continue;       // out-of-bounds / non-playable
+                features.push({ type: 'Feature', id: id, geometry: f.geometry, properties: { id: id } });
+            }
+            if (features.length === 0) {
+                showError('board data', 'no playable hexes after join');
+                return;
+            }
+
+            // 3. Add the board source (promoteId so feature ids == properties.id
+            //    for setFeatureState) and a single fill layer driven by Go bands.
+            map.addSource(HEX_SOURCE, {
+                type: 'geojson',
+                data: { type: 'FeatureCollection', features },
+                promoteId: 'id'
+            });
+            map.addLayer({
+                id: HEX_FILL, type: 'fill', source: HEX_SOURCE,
+                paint: {
+                    'fill-color': [
+                        'case',
+                        ['==', ['feature-state', 'closed'], true], GRAVEL_COLOR,
+                        ['match', ['feature-state', 'band'],
+                            0, BAND_COLORS[0],
+                            1, BAND_COLORS[1],
+                            2, BAND_COLORS[2],
+                            3, BAND_COLORS[3],
+                            4, BAND_COLORS[4],
+                            5, BAND_COLORS[5],
+                            '#555c6a' // default before first paint
+                        ]
+                    ],
+                    'fill-opacity': 0.72
+                }
+            });
+            map.addLayer({
+                id: HEX_FILL + '-outline', type: 'line', source: HEX_SOURCE,
+                paint: { 'line-color': '#1a1f29', 'line-width': 0.4, 'line-opacity': 0.45 }
+            });
+
+            // 4. Click a hex → treat with the selected tier.
+            map.on('click', HEX_FILL, e => {
+                if (!e.features || !e.features.length) return;
+                if (!selectedTier) return;
+                const id = e.features[0].id;
+                const state = callWasm('gameTreat', String(id), selectedTier);
+                if (state) applyState(state);
+            });
+            map.on('mouseenter', HEX_FILL, () => { map.getCanvas().style.cursor = 'pointer'; });
+            map.on('mouseleave', HEX_FILL, () => { map.getCanvas().style.cursor = ''; });
+
+            // 5. Build the gameInit config from real data and seed the game.
+            const seed = FORECAST_SEED || {};
+            const startingBudget = pickStartingBudget(forecast);
+            // The game must simulate exactly the hexes it renders: build cfg.hexes
+            // from the joined `features` (those present in BOTH the grid and the
+            // play-hex set), not the raw play-hex list. Otherwise a play-hex
+            // missing from the served grid becomes an invisible, untreatable hex
+            // that still decays, closes, and drives the loss conditions.
+            const gameHexes = features.map(f => {
+                const ph = playById.get(f.id);
+                return { id: ph.id, road_area: ph.road_area, k: ph.k };
+            });
+            // Macro insolvency headline needs cohorts. City-scope cohorts are the
+            // first choice, but `city_cohorts` is omitempty — fall back to the
+            // all-scope cohorts so the headline isn't permanently "solvent" (and
+            // the budget slider isn't inert) for cities lacking city-scope stats.
+            const macroCohorts =
+                (seed.city_cohorts && seed.city_cohorts.length) ? seed.city_cohorts :
+                (seed.cohorts || []);
+            const cfg = {
+                hexes: gameHexes,
+                initial_pci: seed.initial_pci != null ? seed.initial_pci : 85,
+                pci_jitter: 8,
+                cost_tiers: seed.cost_tiers || [],
+                starting_budget: startingBudget,
+                horizon_years: seed.years || 20,
+                treatment_cycle_years: seed.treatment_cycle_years || 0,
+                growth_rate: seed.growth_rate || 0,
+                cohorts: macroCohorts
+            };
+
+            const initState = callWasm('gameInit', JSON.stringify(cfg));
+            if (!initState) return; // error already surfaced
+
+            // 6. Wire controls, paint the full first state, start the clock.
+            bindTiers(seed.cost_tiers || []);
+            bindBudget(startingBudget);
+
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('hud').style.display = 'block';
+            document.getElementById('controls').style.display = 'block';
+            document.getElementById('legend').style.display = 'block';
+
+            applyState(initState); // initState.changed == every hex (full paint)
+            started = true;
+            startLoop();
+        }
+
+        // ---- WASM boot, then board boot --------------------------------------
+        function onWasmReady() {
+            // Wait for the map style to be ready before adding game sources/layers.
+            if (map.isStyleLoaded()) boot();
+            else map.once('load', boot);
+        }
+
+        if (typeof WebAssembly !== 'undefined' && typeof Go !== 'undefined') {
+            const go = new Go();
+            WebAssembly.instantiateStreaming(fetch('/forecast.wasm'), go.importObject)
+                .then(result => { go.run(result.instance); onWasmReady(); })
+                .catch(err => showError('forecast WASM', err.message || String(err)));
+        } else {
+            showError('WASM', 'WebAssembly or Go runtime unavailable');
+        }
+    </script>
+</body>
+</html>

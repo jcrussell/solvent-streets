@@ -154,6 +154,54 @@ func TestHandleIndex(t *testing.T) {
 	}
 }
 
+// TestHandleGame verifies GET /play renders the stub game page (200, HTML,
+// the same Cache-Control as the index) and that it carries the stub marker a
+// later agent replaces with the real board. Uses the same computed-city
+// fixture as TestHandleIndex, since /play reuses the index TemplateData.
+func TestHandleGame(t *testing.T) {
+	testBoundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
+		LatestComputeResultFunc: func(_ context.Context, _ resource.Type) (*db.ComputeResult, error) {
+			return nil, sql.ErrNoRows
+		},
+	}
+	cfg := &config.Config{
+		Cities: []config.CityConfig{{Name: "Test City"}},
+	}
+	entry := export.CityEntry{
+		Config: cfg,
+		City:   cfg.Cities[0],
+		Store:  store,
+		Slug:   cfg.Cities[0].Slug(),
+	}
+	ios, _, _, _ := iostreams.Test()
+	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /play", srv.handleGame)
+
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", "/play", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `id="game-root"`) {
+		t.Errorf("game page should include the game-root stub marker")
+	}
+	if !strings.Contains(body, "Pavement Manager") {
+		t.Errorf("game page should be titled Pavement Manager")
+	}
+	if got := w.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/html") {
+		t.Errorf("game Content-Type = %q, want text/html", got)
+	}
+	if got := w.Header().Get("Cache-Control"); got != "public, max-age=300" {
+		t.Errorf("game Cache-Control = %q, want %q", got, "public, max-age=300")
+	}
+}
+
 // TestParseIndexTemplate_StaticExport ensures the static-export render
 // (IsLiveServer=false) omits server-only UI. Without the gate, the picker
 // would call /api endpoints that don't exist in static output.

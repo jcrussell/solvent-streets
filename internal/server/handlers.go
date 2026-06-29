@@ -82,20 +82,28 @@ type templateThunk struct {
 // restart-after-changes design (restart for a fresh date), same as every other
 // cached endpoint.
 func (s *Server) renderIndex() ([]byte, error) {
-	const key = "index"
+	return s.renderCachedPage("index", &s.indexPages, s.parsedIndexTemplate)
+}
+
+// renderCachedPage is the shared engine behind renderIndex and renderGame: it
+// renders the chosen template against firstRenderableCity's TemplateData and
+// caches the resulting bytes under key in pages, single-flighting via
+// sync.OnceValues and evicting on error/panic so a failed render isn't locked in
+// for the server's lifetime. pages and parse are the only things that differ
+// between the index and game pages. firstRenderableCity runs against
+// context.Background() (not a request ctx) for the reason on serveJSONCached: the
+// first arriver's build outlives their request and is shared.
+func (s *Server) renderCachedPage(key string, pages *sync.Map, parse func(units.System) (*template.Template, error)) ([]byte, error) {
 	var entry *indexThunk
-	if v, ok := s.indexPages.Load(key); ok {
-		entry = v.(*indexThunk) //nolint:forcetypeassert // type invariant: only this site Stores into s.indexPages
+	if v, ok := pages.Load(key); ok {
+		entry = v.(*indexThunk) //nolint:forcetypeassert // type invariant: only render sites Store *indexThunk here
 	} else {
 		fresh := &indexThunk{once: sync.OnceValues(func() ([]byte, error) {
-			// firstRenderableCity runs against context.Background() (not a
-			// request ctx) for the reason on serveJSONCached: the first
-			// arriver's build outlives their request and is shared.
 			city, td, err := s.firstRenderableCity(context.Background())
 			if err != nil {
 				return nil, err
 			}
-			tmpl, err := s.parsedIndexTemplate(city.Config.UnitSystem())
+			tmpl, err := parse(city.Config.UnitSystem())
 			if err != nil {
 				return nil, err
 			}
@@ -105,25 +113,62 @@ func (s *Server) renderIndex() ([]byte, error) {
 			}
 			return buf.Bytes(), nil
 		})}
-		actual, _ := s.indexPages.LoadOrStore(key, fresh)
-		entry = actual.(*indexThunk) //nolint:forcetypeassert // type invariant: only this site Stores into s.indexPages
+		actual, _ := pages.LoadOrStore(key, fresh)
+		entry = actual.(*indexThunk) //nolint:forcetypeassert // type invariant: only render sites Store *indexThunk here
 	}
 
 	// Evict on panic and re-raise (see serveJSONCached) so a panicking render
 	// doesn't poison the key forever.
 	defer func() {
 		if r := recover(); r != nil {
-			s.indexPages.CompareAndDelete(key, entry)
+			pages.CompareAndDelete(key, entry)
 			panic(r)
 		}
 	}()
 
 	page, err := entry.once()
 	if err != nil {
-		s.indexPages.CompareAndDelete(key, entry)
+		pages.CompareAndDelete(key, entry)
 		return nil, err
 	}
 	return page, nil
+}
+
+// handleGame serves the /play game page. It mirrors handleIndex exactly: the
+// page reuses the same TemplateData as the index (so the board, forecast seed,
+// and layer colors are already wired), and rides the same lifetime-cache +
+// shared /forecast.wasm + /data/{file} endpoints — only the template differs.
+func (s *Server) handleGame(w http.ResponseWriter, _ *http.Request) {
+	if len(s.cities) == 0 {
+		http.Error(w, "no cities configured", http.StatusInternalServerError)
+		return
+	}
+
+	page, err := s.renderGame()
+	if err != nil {
+		s.httpErr(w, err, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	w.Write(page)
+}
+
+// renderGame is the /play counterpart to renderIndex: same firstRenderableCity
+// + buildIndexData TemplateData (the game page needs the same data), same
+// single-flight/evict-on-error caching, only the parsed template differs. See
+// renderIndex for the mechanism and the restart-after-changes caveats.
+func (s *Server) renderGame() ([]byte, error) {
+	return s.renderCachedPage("game", &s.gamePages, s.parsedGameTemplate)
+}
+
+// parsedGameTemplate is the /play counterpart to parsedIndexTemplate: it
+// caches the parsed game template per unit system in s.gameTemplates (a
+// separate map so it can't collide with the index template on the shared
+// units.System key).
+func (s *Server) parsedGameTemplate(sys units.System) (*template.Template, error) {
+	return s.parsedTemplateCached(sys, &s.gameTemplates, export.ParseGameTemplate)
 }
 
 // parsedIndexTemplate returns the parsed index template for the given unit
@@ -131,27 +176,35 @@ func (s *Server) renderIndex() ([]byte, error) {
 // otherwise re-parsed on every render). UnitSystem is fixed server-wide, so in
 // practice this caches a single template; keying by System is defensive.
 func (s *Server) parsedIndexTemplate(sys units.System) (*template.Template, error) {
+	return s.parsedTemplateCached(sys, &s.templates, export.ParseIndexTemplate)
+}
+
+// parsedTemplateCached is the shared engine behind parsedIndexTemplate and
+// parsedGameTemplate: it parses the template at most once per unit system,
+// caching the *template.Template in cache and evicting on error/panic. cache and
+// parse are the only things that differ between the index and game templates.
+func (s *Server) parsedTemplateCached(sys units.System, cache *sync.Map, parse func(units.System) (*template.Template, error)) (*template.Template, error) {
 	var entry *templateThunk
-	if v, ok := s.templates.Load(sys); ok {
-		entry = v.(*templateThunk) //nolint:forcetypeassert // type invariant: only this site Stores into s.templates
+	if v, ok := cache.Load(sys); ok {
+		entry = v.(*templateThunk) //nolint:forcetypeassert // type invariant: only parsed-template sites Store *templateThunk here
 	} else {
 		fresh := &templateThunk{once: sync.OnceValues(func() (*template.Template, error) {
-			return export.ParseIndexTemplate(sys)
+			return parse(sys)
 		})}
-		actual, _ := s.templates.LoadOrStore(sys, fresh)
-		entry = actual.(*templateThunk) //nolint:forcetypeassert // type invariant: only this site Stores into s.templates
+		actual, _ := cache.LoadOrStore(sys, fresh)
+		entry = actual.(*templateThunk) //nolint:forcetypeassert // type invariant: only parsed-template sites Store *templateThunk here
 	}
 
 	defer func() {
 		if r := recover(); r != nil {
-			s.templates.CompareAndDelete(sys, entry)
+			cache.CompareAndDelete(sys, entry)
 			panic(r)
 		}
 	}()
 
 	tmpl, err := entry.once()
 	if err != nil {
-		s.templates.CompareAndDelete(sys, entry)
+		cache.CompareAndDelete(sys, entry)
 		return nil, err
 	}
 	return tmpl, nil
@@ -365,6 +418,8 @@ func (s *Server) serveDataFile(w http.ResponseWriter, r *http.Request, file stri
 		s.serveMetaJSON(w, r, entry, snapshotID)
 	case "hexgrid.geojson":
 		s.serveHexGridGeoJSON(w, r, entry, snapshotID)
+	case "play-hexes.json":
+		s.servePlayHexes(w, r, entry, snapshotID)
 	case "scenarios.json":
 		s.serveScenariosJSON(w, r, entry, snapshotID)
 	case "forecast.json":
@@ -546,6 +601,28 @@ func (s *Server) serveHexGridGeoJSON(w http.ResponseWriter, _ *http.Request, ent
 			fc = map[string]any{"type": "FeatureCollection", "features": []any{}}
 		}
 		return fc, nil
+	})
+}
+
+// servePlayHexes serves the /play board's per-hex blended decay rates at
+// /data/play-hexes.json — a JSON array of {id, road_area, k} for the
+// city-jurisdiction, road-bearing hexes. ids match hexgrid.geojson so the
+// front-end joins the two by id. Mirrors serveHexGridGeoJSON's projector setup
+// and rides serveJSONCached for single-flight, lifetime caching.
+func (s *Server) servePlayHexes(w http.ResponseWriter, _ *http.Request, entry export.CityEntry, snapshotID int64) {
+	s.serveJSONCached(w, cacheKey("playhexes", entry.Slug, snapshotID), func() (any, error) {
+		_, lon0, lat0, err := entry.BBoxAndCenter(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		hexes, err := export.BuildPlayHexes(context.Background(), entry, geo.NewUTMProjector(lon0, lat0))
+		if err != nil {
+			return nil, err
+		}
+		if hexes == nil {
+			hexes = []export.PlayHex{}
+		}
+		return hexes, nil
 	})
 }
 
