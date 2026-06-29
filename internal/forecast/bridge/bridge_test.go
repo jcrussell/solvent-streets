@@ -2,6 +2,7 @@ package bridge
 
 import (
 	"encoding/json"
+	"math"
 	"reflect"
 	"strings"
 	"testing"
@@ -42,20 +43,64 @@ func TestTranslateExplicitCohorts(t *testing.T) {
 	if scenario.Strategy != forecast.StrategyWorstFirst {
 		t.Errorf("Strategy = %v, want WorstFirst", scenario.Strategy)
 	}
-	if len(cohorts) != 2 {
-		t.Fatalf("len(cohorts) = %d, want 2", len(cohorts))
+	// Translate now spreads the single InitialPCI into a condition distribution
+	// (ApplyConditionSpread), so each input cohort becomes several per-band
+	// sub-cohorts. Assert the per-class aggregates round-trip: total area is
+	// conserved and the area-weighted mean PCI equals the input InitialPCI (80).
+	if len(cohorts) <= 2 {
+		t.Fatalf("len(cohorts) = %d, expected spread into sub-cohorts", len(cohorts))
 	}
-	for i, c := range cohorts {
-		if c.InitialPCI != 80 {
-			t.Errorf("cohort[%d].InitialPCI = %v, want 80 (propagated from input)", i, c.InitialPCI)
+	agg := aggregateByClass(cohorts)
+	for _, want := range []struct {
+		class     string
+		area      float64
+		decayRate float64
+	}{
+		{"primary", 1000, 0.05},
+		{"residential", 2000, 0.03},
+	} {
+		got, ok := agg[want.class]
+		if !ok {
+			t.Fatalf("class %q missing after spread", want.class)
 		}
-	}
-	if cohorts[0].Classification != "primary" || cohorts[0].Area != 1000 || cohorts[0].DecayRate != 0.05 {
-		t.Errorf("cohort[0] = %+v", cohorts[0])
+		if math.Abs(got.area-want.area) > 1e-6 {
+			t.Errorf("class %q area = %v, want %v", want.class, got.area, want.area)
+		}
+		if got.decayRate != want.decayRate {
+			t.Errorf("class %q decayRate = %v, want %v", want.class, got.decayRate, want.decayRate)
+		}
+		if math.Abs(got.meanPCI-80) > 1e-6 {
+			t.Errorf("class %q mean PCI = %v, want 80 (preserved from input)", want.class, got.meanPCI)
+		}
 	}
 	if params == nil || params.Cost == nil || len(params.Cost.Tiers) != 1 {
 		t.Errorf("params cost tiers not built: %+v", params)
 	}
+}
+
+// classAgg is a small per-classification rollup used to assert that the condition
+// spread preserves area and mean PCI.
+type classAgg struct {
+	area, meanPCI, decayRate float64
+}
+
+func aggregateByClass(cohorts []forecast.Cohort) map[string]classAgg {
+	type acc struct{ area, areaPCI, decay float64 }
+	tmp := make(map[string]*acc)
+	for _, c := range cohorts {
+		a, ok := tmp[c.Classification]
+		if !ok {
+			a = &acc{decay: c.DecayRate}
+			tmp[c.Classification] = a
+		}
+		a.area += c.Area
+		a.areaPCI += c.InitialPCI * c.Area
+	}
+	out := make(map[string]classAgg, len(tmp))
+	for k, a := range tmp {
+		out[k] = classAgg{area: a.area, meanPCI: a.areaPCI / a.area, decayRate: a.decay}
+	}
+	return out
 }
 
 func TestTranslateNoCohortsDefaultFallback(t *testing.T) {
@@ -75,21 +120,24 @@ func TestTranslateNoCohortsDefaultFallback(t *testing.T) {
 	if scenario.Strategy != forecast.StrategyDoNothing {
 		t.Errorf("Strategy = %v, want DoNothing", scenario.Strategy)
 	}
-	if len(cohorts) != 1 {
-		t.Fatalf("len(cohorts) = %d, want 1 default cohort", len(cohorts))
+	// The single default cohort is spread into per-band sub-cohorts; aggregate
+	// back and assert the original contract (class/area/mean-PCI/decay).
+	if len(cohorts) <= 1 {
+		t.Fatalf("len(cohorts) = %d, expected spread into sub-cohorts", len(cohorts))
 	}
-	c := cohorts[0]
-	if c.Classification != "default" {
-		t.Errorf("classification = %q, want default", c.Classification)
+	agg := aggregateByClass(cohorts)
+	c, ok := agg["default"]
+	if !ok {
+		t.Fatalf("classification %q missing after spread (got %v)", "default", agg)
 	}
-	if c.Area != 4242 {
-		t.Errorf("Area = %v, want 4242 (mapped from Input.Area)", c.Area)
+	if math.Abs(c.area-4242) > 1e-6 {
+		t.Errorf("Area = %v, want 4242 (mapped from Input.Area)", c.area)
 	}
-	if c.InitialPCI != 70 {
-		t.Errorf("InitialPCI = %v, want 70", c.InitialPCI)
+	if math.Abs(c.meanPCI-70) > 1e-6 {
+		t.Errorf("mean PCI = %v, want 70", c.meanPCI)
 	}
-	if want := forecast.DefaultDecayRates["default"]; c.DecayRate != want {
-		t.Errorf("DecayRate = %v, want default fallback %v", c.DecayRate, want)
+	if want := forecast.DefaultDecayRates["default"]; c.decayRate != want {
+		t.Errorf("DecayRate = %v, want default fallback %v", c.decayRate, want)
 	}
 }
 
@@ -143,12 +191,15 @@ func TestRunEndToEnd(t *testing.T) {
 		t.Fatal("Run returned empty output")
 	}
 
-	// Run must equal forecast.Simulate over the same translated inputs.
+	// Run must equal forecast.Simulate over the same translated inputs, with the
+	// same post-processing Run applies (FinalCohorts collapsed back by class).
 	scenario, cohorts, years, params, err := Translate(in)
 	if err != nil {
 		t.Fatalf("Translate: %v", err)
 	}
-	want, err := json.Marshal(forecast.Simulate(scenario, cohorts, years, params))
+	sim := forecast.Simulate(scenario, cohorts, years, params)
+	sim.FinalCohorts = forecast.AggregateCohortSummariesByClass(sim.FinalCohorts)
+	want, err := json.Marshal(sim)
 	if err != nil {
 		t.Fatalf("marshal simulate: %v", err)
 	}

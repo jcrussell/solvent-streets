@@ -60,6 +60,22 @@ measurements, and local bid prices will differ. Roads and sidewalks use
 independent cost tiers because the treatment economics differ
 substantially.
 
+### Condition spread
+
+A real network is a *distribution* of conditions — some segments excellent, some
+failed — not a single average. Because the cost-versus-PCI curve is non-linear,
+pricing everything at the network-average PCI under-states the true program cost
+(the failed/poor tail is disproportionately expensive). To correct this without
+requiring per-segment condition data the model does not have, PVMT spreads the
+single configured average PCI into a **distribution around that average** (a Beta
+distribution on the 0–100 scale, with the average preserved exactly) and prices
+each slice separately. The result is a more realistic — and modestly higher —
+cost than pricing the average alone. This is a deliberately conservative
+approximation of the real spread; it is applied automatically and moves the
+solvency dollars in the direction validated against published city data. When
+field-measured per-segment condition becomes available, it will replace this
+assumed spread.
+
 ### Treatment cycle
 
 Real pavement is maintained on a multi-year cycle: a city treats roughly
@@ -73,6 +89,16 @@ break-even budget a realistic *annual* program cost rather than the
 one-off cost of rebuilding the entire network at once. A cycle of `N = 1`
 reproduces the older behavior (the whole network priced every year), which
 overstated the hold-steady budget several-fold.
+
+The cost level and the cycle length are not independent — the break-even
+budget scales as cost ÷ `N`, so a cheaper cost basis and a shorter cycle
+trade off exactly. We anchor the cycle to the **physical** rate at which a
+city actually repaves (lane-miles treated per year, not dollars): for
+Berkeley that hold-steady cadence is ≈ 12 years, which is the default. With
+the cycle fixed there, the default bare-construction cost tiers reproduce
+the city's cited real hold-steady spend (~$5.6 per m² per year), so the
+break-even dollars are calibrated to reality rather than chosen freely. See
+the validation report for the derivation and the limits of this anchor.
 
 ### Scenario comparisons
 

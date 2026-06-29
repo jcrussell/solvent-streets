@@ -51,20 +51,33 @@ func buildCohortsFromStats(t resource.Type, area float64, stats []db.CohortStat,
 		})
 	}
 	cohorts := forecast.BuildCohorts(inputs, currentPCI, fc.DecayRate)
-	if cohorts != nil {
-		return cohorts
+	if cohorts == nil {
+		tName := string(t)
+		defaultRate := forecast.DecayRateForClass(tName)
+		if fc.DecayRate > 0 && forecast.IsRoadClass(tName) {
+			defaultRate = fc.DecayRate
+		}
+		cohorts = []forecast.Cohort{{
+			Classification: tName,
+			Area:           area,
+			DecayRate:      defaultRate,
+			InitialPCI:     currentPCI,
+		}}
 	}
-	tName := string(t)
-	defaultRate := forecast.DecayRateForClass(tName)
-	if fc.DecayRate > 0 && forecast.IsRoadClass(tName) {
-		defaultRate = fc.DecayRate
-	}
-	return []forecast.Cohort{{
-		Classification: tName,
-		Area:           area,
-		DecayRate:      defaultRate,
-		InitialPCI:     currentPCI,
-	}}
+	// Spread the single configured mean PCI into a condition distribution so the
+	// cost figures reflect the failed/poor tail (docs/validation.md §4). Applied
+	// at this chokepoint so every downstream consumer (baseline, scenarios,
+	// break-even, insolvency) sees the same corrected cohorts.
+	return forecast.ApplyConditionSpread(cohorts)
+}
+
+// collapseFinalCohorts aggregates the per-band sub-cohort summaries produced by
+// ApplyConditionSpread back to one row per classification for display. Headline
+// math (Years/AnnualNeed/break-even) already sums across the bands and is
+// unaffected; this only de-duplicates the FinalCohorts table.
+func collapseFinalCohorts(r forecast.ScenarioResult) forecast.ScenarioResult {
+	r.FinalCohorts = forecast.AggregateCohortSummariesByClass(r.FinalCohorts)
+	return r
 }
 
 // ForecastExport holds per-resource forecast results.
@@ -172,13 +185,18 @@ func buildResourceForecast(rt resource.Source, fc *config.ForecastConfig, costTi
 	year1Need := baseline.Years[0].AnnualNeed
 	scenarios := forecast.SimulateDefaults(year1Need, primaryCohorts, years, rtParams)
 
+	baseline = collapseFinalCohorts(baseline)
+	for i := range scenarios {
+		scenarios[i] = collapseFinalCohorts(scenarios[i])
+	}
+
 	fe := ForecastExport{
 		ResourceType: tName,
 		Baseline:     baseline,
 		Scenarios:    scenarios,
 	}
 	if hasCityScope {
-		bboxBaseline := forecast.Simulate(doNothing, bboxCohorts, years, rtParams)
+		bboxBaseline := collapseFinalCohorts(forecast.Simulate(doNothing, bboxCohorts, years, rtParams))
 		fe.BboxBaseline = &bboxBaseline
 	}
 
@@ -221,7 +239,7 @@ func cityScopeCohorts(cityStats []db.CohortStat, fc *config.ForecastConfig) ([]f
 	if cohorts == nil {
 		return nil, false
 	}
-	return cohorts, true
+	return forecast.ApplyConditionSpread(cohorts), true
 }
 
 // BuildScenariosData builds the aggregate scenarios JSON structure for a city.
@@ -349,7 +367,9 @@ func cohortsFromSeeds(seeds []CohortSeed, initialPCI float64) []forecast.Cohort 
 			InitialPCI:     initialPCI,
 		}
 	}
-	return cohorts
+	// Spread to match the static-line cohorts and the WASM custom line (which
+	// also spreads in bridge.Translate), so all three agree at equal settings.
+	return forecast.ApplyConditionSpread(cohorts)
 }
 
 // scenariosFromSeeds builds a scenario set from the multi-cohort seeds shared
@@ -366,12 +386,12 @@ func scenariosFromSeeds(seeds []CohortSeed, initialPCI float64, years int, param
 // singleCohortScenarios builds a scenario set from one synthetic cohort —
 // the aggregate-area fallback used when no per-class cohort stats exist yet.
 func singleCohortScenarios(classification string, area, initialPCI, decayRate float64, years int, params *forecast.Params) []forecast.ScenarioResult {
-	return BuildScenarios([]forecast.Cohort{{
+	return BuildScenarios(forecast.ApplyConditionSpread([]forecast.Cohort{{
 		Classification: classification,
 		Area:           area,
 		DecayRate:      decayRate,
 		InitialPCI:     initialPCI,
-	}}, years, params)
+	}}), years, params)
 }
 
 // BuildHexCostSummary builds the per-scope, per-resource hex cost summary
@@ -447,5 +467,9 @@ func BuildScenarios(cohorts []forecast.Cohort, years int, params *forecast.Param
 
 	year1Need := baseline.Years[0].AnnualNeed
 	scenarios := forecast.SimulateDefaults(year1Need, cohorts, years, params)
-	return append([]forecast.ScenarioResult{baseline}, scenarios...)
+	results := append([]forecast.ScenarioResult{baseline}, scenarios...)
+	for i := range results {
+		results[i] = collapseFinalCohorts(results[i])
+	}
+	return results
 }

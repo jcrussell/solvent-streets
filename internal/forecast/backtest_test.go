@@ -47,12 +47,17 @@ func TestBacktest_TreatmentCycleClosesSec5Gap(t *testing.T) {
 
 	for _, c := range backtestCities {
 		t.Run(c.name, func(t *testing.T) {
-			cohorts := []Cohort{{
+			// Spread the mean PCI exactly as the shipped export/CLI/WASM paths do
+			// (ApplyConditionSpread), so this gate validates the real pipeline.
+			// The 1/N relationship (property 1) factors through the spread
+			// unchanged; the gated dollar figure rises by the §4 condition-spread
+			// uplift, which property 2's band still tolerates.
+			cohorts := ApplyConditionSpread([]Cohort{{
 				Classification: "residential",
 				Area:           c.areaSqM,
 				DecayRate:      c.decay,
 				InitialPCI:     c.initialPCI,
-			}}
+			}})
 
 			ungated := BreakEvenBudget(cohorts, backtestYears, NewParams(0.005, nil, 1), StrategyWorstFirst)
 			gated := BreakEvenBudget(cohorts, backtestYears, NewParams(0.005, nil, cycle), StrategyWorstFirst)
@@ -75,6 +80,27 @@ func TestBacktest_TreatmentCycleClosesSec5Gap(t *testing.T) {
 			}
 			if gatedRatio > 5 {
 				t.Errorf("%s: gated break_even is still %.1f× the budget — §5 gap not closed (expected single-digit, ~1)", c.name, gatedRatio)
+			}
+
+			// Property 3 (cost×cycle calibration gate, epic g98u): break_even per m²
+			// must track the cited real hold-steady spend, pinning the otherwise-
+			// degenerate cost×N balance (break_even(N)==break_even(1)/N exactly, so
+			// cost and cycle trade off freely; only an external anchor fixes them).
+			// Berkeley's StreetSaver PMP implies ~$5.6/m²·yr ($18.3M hold-steady ÷
+			// 3.3M m²). The independent degeneracy-breaker is the *physical* paving
+			// cadence (miles, not dollars): 31.9 of 448.7 lane-mi/yr ≈ 14.1yr at the
+			// current $15M, so the hold-steady cadence is 14.1×15/18.3 ≈ 11.6yr ≈ the
+			// model's N=12. Bare cost tiers × N=12 reproduce $5.6; loaded tiers (§3,
+			// ~2.5×) would need an un-physical N≈29. This bracket trips if a future
+			// cost-regime or cycle change breaks that validated balance. Berkeley is
+			// the only city with a clean {budget, hold-steady $/m²·yr, cycle} triplet
+			// (§5), so the per-m² anchor is asserted for it alone.
+			if c.name == "berkeley" {
+				perM2 := gated / c.areaSqM
+				t.Logf("berkeley: break_even = $%.2f/m²·yr (cited real hold-steady ~$5.6)", perM2)
+				if perM2 < 4.5 || perM2 > 6.5 {
+					t.Errorf("berkeley break_even = $%.2f/m²·yr, outside [$4.5,$6.5] bracketing the cited $5.6/m²·yr reality yardstick — the bare-cost × N=12 calibration drifted", perM2)
+				}
 			}
 		})
 	}

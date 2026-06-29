@@ -104,6 +104,12 @@ func Translate(in Input) (forecast.Scenario, []forecast.Cohort, int, *forecast.P
 		}}
 	}
 
+	// Spread the single mean PCI into a condition distribution, identically to the
+	// server export path (internal/export/forecast.go), so the in-browser custom
+	// line agrees with the static lines at equal settings. Derives purely from
+	// InitialPCI, so nothing new crosses the JS boundary.
+	cohorts = forecast.ApplyConditionSpread(cohorts)
+
 	return scenario, cohorts, in.Years, params, nil
 }
 
@@ -126,6 +132,12 @@ func Run(raw []byte) ([]byte, error) {
 	// locked down by internal/forecast/parity_test.go — any drift here
 	// or in Simulate breaks both surfaces at once.
 	result := forecast.Simulate(scenario, cohorts, years, params)
+
+	// ApplyConditionSpread (in Translate) expands each cohort into per-band
+	// sub-cohorts; collapse the resulting summary rows back to one per
+	// classification so the browser's cohort-breakdown table matches the static
+	// export table instead of showing K duplicate rows per class.
+	result.FinalCohorts = forecast.AggregateCohortSummariesByClass(result.FinalCohorts)
 
 	return json.Marshal(result)
 }

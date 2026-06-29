@@ -82,7 +82,7 @@ Multiple sources can be enabled for the same city. Features are deduplicated by 
 
 ## Forecast tuning
 
-**`initial_pci`** — the starting Pavement Condition Index (PCI) the forecast assumes for every segment, on a 0–100 scale. Must be in `(0, 100]`; an unset, zero, or out-of-range value falls back to the default `85`. Also settable via the `PVMT_FORECAST_INITIAL_PCI` env var (see [Environment variables](#environment-variables)).
+**`initial_pci`** — the starting Pavement Condition Index (PCI) the forecast assumes for every segment, on a 0–100 scale. Must be in `(0, 100]`; an unset, zero, or out-of-range value falls back to the default `85`. Also settable via the `PVMT_FORECAST_INITIAL_PCI` env var (see [Environment variables](#environment-variables)). This is the network *average*: internally the forecast spreads it into a condition **distribution** (a Beta around this mean, preserved exactly) before pricing, so the cost figures reflect the failed/poor tail rather than the average alone (see `docs/validation.md` §4). No configuration is needed — the spread is always on; setting a realistic average for your network is the lever.
 
 **`decay_rate`** — the exponential decay coefficient (see [Architecture › Design decisions › Forecast model](architecture.md#design-decisions) for the equation). Higher values mean faster degradation. When set to 0 (default), per-classification rates are used (ranging from ~0.015 for motorways to ~0.045 for service roads).
 

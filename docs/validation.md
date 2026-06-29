@@ -31,10 +31,11 @@ The tool's **physical estimates are sound; its dollar outputs are not directly
 comparable to municipal budgets.** Pavement *area* and *bare-construction* unit
 costs hold up across all 8 cities. The decay *form* is sound but its *rate* can't
 be pinned from public data. The solvency dollars (break-even, funding gap,
-insolvency year) **overstate a city's hold-steady budget several-fold** because
-the model implicitly assumes a **1-year treatment cycle** — it prices treating the
-*entire* network every year. That overstatement is partially offset by two
-*under*-statements in the per-m² cost basis.
+insolvency year) **were** several-fold high — the model priced treating the
+*entire* network every year — but are **now gated to an `N`-year treatment cycle**
+(default 12), so Berkeley's break-even is **$17.9M ≈ its cited $18.3M hold-steady**.
+What remains open is the cost *regime* (bare vs. loaded, §3) and that this
+match is anchored on one well-documented city (§6).
 
 | Dimension | Verdict | Headline |
 |---|---|---|
@@ -46,11 +47,13 @@ the model implicitly assumes a **1-year treatment cycle** — it prices treating
 | Break-even / solvency $ | ❌→✅ **Fixed** | Was several-× high (assumed a 1-yr cycle); now gated to an `N`-yr cycle (default 12) |
 | Insolvency year | ❌→✅ **Fixed** | Was always year 2; threshold is now a full `N`-yr cycle of deferred work, so it discriminates |
 
-**Reading guide.** To turn `break_even` into a usable hold-steady budget, divide
-by a realistic **~10–14-year treatment cycle** (and nudge *up* ~2–3× if you want
-loaded program costs rather than bare construction). For Berkeley that recovers
-$12.5–17.6M/yr — matching its real $15M current / $18.3M published hold-steady,
-versus the tool's raw $175.5M break-even.
+**Reading guide.** `break_even` is now a *direct* annual hold-steady budget — the
+treatment cycle (default `N=12`) is applied **inside** the model, so no manual
+division is needed. For Berkeley it lands at **$17.9M**, matching the cited $18.3M
+published hold-steady and bracketing the $15M current budget. The cost basis is
+*bare* construction; a city wanting *loaded* program costs sets a per-city
+`[[forecast.cost_tiers]]` schedule (§3). §6 derives how the cost level and the
+cycle are jointly anchored (and the one-city limit of that anchor).
 
 ---
 
@@ -167,7 +170,7 @@ schedule.)
 
 ---
 
-## 4. Condition-distribution (aggregation) bias
+## 4. Condition-distribution (aggregation) bias  ⚠️ partially addressed
 
 **Setup.** The model gives every cohort one network-average `initial_pci`
 (`cohort.go:55`; the only config field is the scalar `ForecastConfig.InitialPCI`).
@@ -201,9 +204,38 @@ the official cases are reported. And differential per-class decay adds *some*
 spread over time, but the network starts at zero spread and never models
 within-class variation — so the bias is largest at t=0 and is a genuine floor.
 
+**Resolution (default-on, partial).** The forecast now spreads the single
+configured mean PCI into a **Beta(α,β) distribution on [0,100]** re-centered on
+`initial_pci`, discretized into equal-probability sub-cohorts before simulation
+(`internal/forecast/condition.go`, `ApplyConditionSpread`). This is **on by
+default with no new config** — the mean is preserved exactly, so each cohort prices
+its cost over a spread rather than at the mean, recovering a large share of the
+Jensen gap. It is a **conservative *partial* correction**: a unimodal Beta cannot
+reproduce a true bimodal *barbell* (so it under-shoots the worst, real-world
+distributions — and §4's figure is itself a lower bound), and Beta is chosen over a
+Gaussian precisely because its variance compresses near the [0,100] bounds, so
+good-condition networks are not over-corrected (a fixed-σ Gaussian inflates them
+absurdly, since `cost(85)` is the curve's floor). The deployed effect is the
+Simulate year-1 / break-even uplift, which **varies with mean and decays over the
+horizon** (decayed PCI slides into the flat $150 clamp), so it is *not* a uniform
++30%. The backtest (`backtest_test.go`) shows it moving Berkeley's break-even from
+~$15M toward MTC's official ~$18M hold-steady. The full fix — real per-segment PCI —
+remains future work (`solvent-streets-mmvv.1`).
+
 ---
 
-## 5. Budget / solvency & the treatment cycle  ❌
+## 5. Budget / solvency & the treatment cycle  ✅ resolved
+
+> **Resolution.** This section is the *derivation* of the fix; its table shows the
+> original **un-gated** model (`break_even = full-network year-1 cost`, insolvency
+> saturating at year 2). The diagnosed missing treatment cycle is now applied **in
+> the model** (annual need ÷ N, default N=12), so the shipped Berkeley `break_even`
+> is **$17.9M ≈ the cited $18.3M hold-steady**, and insolvency discriminates instead
+> of pinning at year 2. (The **$175.5M** in the table below is the *pre-§4-spread,
+> un-gated* figure: the §4 condition spread raises the un-gated network cost to
+> ≈$215M, and N=12 gating divides it — ≈$215M ÷ 12 ≈ **$17.9M**.) §6 shows how the
+> cost regime and N are jointly anchored to the physical paving cadence and pinned
+> by a regression gate.
 
 The full-pipeline test. For each city we compare the tool's `break_even_budget`
 (smallest constant budget that holds the network steady) and `funding_gap` /
@@ -271,20 +303,51 @@ it's a structural floor, not a signal.
 
 ---
 
-## 6. How the biases interact
+## 6. How the biases interact — and how the cost×cycle balance is pinned
 
 The errors run in **opposite directions** on the per-m² cost vs. the time basis:
 
-- per-m² cost is **under**-stated — ~2–3× (§3, bare vs. loaded) and a further
-  ~30–40% (§4, mean vs. distribution);
-- break-even is **over**-stated ~10× (§5, the 1-year cycle).
+- per-m² cost is **under**-stated — ~2–3× (§3, bare vs. loaded) and historically a
+  further ~30–40% (§4, mean vs. distribution), now **partially corrected** by the
+  default-on condition spread (§4 Resolution);
+- the raw "treat the whole network every year" need is **over**-stated ~10× (§5) —
+  now corrected **in the model** by the treatment-cycle gating (annual need =
+  full-network cost ÷ N, default **N = 12**; `scenario.go`), not by a mental
+  division the reader is expected to perform.
 
-They partially offset, and the cycle term dominates → net break-even stays
-several-× high. We **do not** claim they reconcile to an exact factor: a real
-hold-steady program is preventive-heavy (cheap treatments on the good majority),
-not full-cost re-treatment of the whole network, so the cost bases aren't directly
-multipliable. The honest summary is the [reading guide](#executive-summary):
-break-even ÷ a ~10–14-yr cycle ≈ a real hold-steady budget.
+**These no longer merely "partially offset" — the balance is now explicit and
+pinned.** Two facts make it a *validated* calibration rather than an accident:
+
+1. **The cost×cycle degeneracy is exact.** `break_even(N) = break_even(1) / N`
+   (`solvency.go`) is a pure 1/N dollar-space rescale, so the cost regime and the
+   cycle `N` are **multiplicatively confounded** — a 2.5× cost change is
+   indistinguishable from a 2.5× cycle change in `break_even` alone. Neither can be
+   set from the dollar figures; an **external, non-dollar anchor** is required.
+2. **The degeneracy-breaker is the physical paving cadence — miles, not dollars.**
+   Berkeley treats 31.9 of 448.7 lane-mi/yr ≈ a **14.1-yr** cadence at its current
+   $15M; the *hold-steady* budget ($18.3M) buys the shorter cadence
+   14.1 × 15/18.3 ≈ **11.6 yr ≈ the model's N = 12**. With the cycle anchored there,
+   the cost regime is no longer free:
+   - **bare** tiers × the §4 condition spread × N=12 → **$5.4/m²·yr**, matching the
+     cited real hold-steady **$5.6/m²·yr** (Berkeley StreetSaver); *without* the §4
+     spread it is $4.5 (−19%), so the spread is load-bearing for the match. ✅
+   - **loaded** tiers (§3, ~2.5×) → ~$13.5/m²·yr, **2.5× over** reality; matching it
+     would need **N ≈ 29**, contradicting the cited ~12–14-yr cadence. ❌
+
+So the defaults — **bare-construction cost tiers + the §4 condition spread + N = 12**
+— together reproduce Berkeley's cited reality, with the cycle *anchored* to the
+physical hold-steady cadence rather than chosen freely. `break_even` is no longer a
+figure to mentally divide by a cycle (the earlier reading guide); the cycle is in the
+model, and the bare-cost regime lands on reality directly.
+`internal/forecast/backtest_test.go` brackets Berkeley's $/m²·yr against the $5.6
+yardstick (±~18%), guarding the balance against gross drift (a cost-regime or cycle
+change trips it) — though it does not pin the exact figure.
+
+**Limit.** This anchor rests on **Berkeley** — the only city with a clean,
+independent {budget, hold-steady $/m²·yr, cadence} triplet (§5); Dublin cross-checks
+the cadence only. The decay rate (§2, unverifiable here) and the condition spread
+(§4, separately pinned) are **not independently identifiable** from this data.
+Broader confidence needs real per-segment condition (per-segment PCI ingest, §7).
 
 ---
 
@@ -297,16 +360,18 @@ break-even ÷ a ~10–14-yr cycle ≈ a real hold-steady budget.
 - **Cost tiers:** sound as bare-construction $/m². If the solvency dollars are
   meant to mirror municipal budgets, a *loaded* per-city `[[forecast.cost_tiers]]`
   schedule (as LA uses) is the lever.
-- **Solvency $:** interpret `break_even` as an upper-bound
-  "resurface-everything-this-year" figure, not a hold-steady budget. This reading
-  guidance belongs in the methodology doc so the outputs aren't over-claimed.
+- **Solvency $:** `break_even` is now a direct hold-steady budget — the `N`-year
+  treatment cycle (default 12) is applied inside the model, so it no longer needs
+  manual division. The remaining lever is the cost *regime*: the default bare tiers
+  land on Berkeley's cited reality (§6); a city wanting *loaded* program dollars sets
+  a per-city `[[forecast.cost_tiers]]` schedule (§3).
 
 **Future work (the real fixes, out of scope here):** a `pvmt validate`/backtest
-harness; per-segment measured-PCI ingestion; a **distribution-aware initial
-condition** (per-class or histogram `initial_pci`) to remove the §4 bias; and a
-**treatment-cycle / triggering model** in the solvency code to remove the §5
-overstatement. Together these would turn the solvency dollars from
-order-of-magnitude into directly comparable.
+harness; per-segment measured-PCI ingestion (`solvent-streets-mmvv.1`) to replace
+the *assumed* Beta condition spread with the real distribution and fully close §4.
+The default-on Beta spread (§4 Resolution) and the treatment-cycle model (§5,
+shipped) are now in place; together with a loaded per-city cost schedule they turn
+the solvency dollars from order-of-magnitude toward directly comparable.
 
 ---
 

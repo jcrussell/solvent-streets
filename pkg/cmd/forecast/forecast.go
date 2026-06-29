@@ -100,6 +100,9 @@ func simulateResource(rt resource.Source, cohorts []fcpkg.Cohort, years int, par
 		fcpkg.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: fcpkg.StrategyDoNothing},
 		cohorts, years, params,
 	)
+	// Collapse the per-band sub-cohort summaries (from ApplyConditionSpread) back
+	// to one row per classification for the cohort-breakdown table.
+	baseline.FinalCohorts = fcpkg.AggregateCohortSummariesByClass(baseline.FinalCohorts)
 
 	var results []db.ForecastResult
 	var totalDeferredCost float64
@@ -151,7 +154,9 @@ func buildForecastCohorts(ctx context.Context, rt resource.Source, area float64,
 			InitialPCI:     currentPCI,
 		}}
 	}
-	return cohorts, nil
+	// Spread the mean PCI into a condition distribution so the CLI matches the
+	// exported site (docs/validation.md §4); both share fcpkg.ApplyConditionSpread.
+	return fcpkg.ApplyConditionSpread(cohorts), nil
 }
 
 func renderBaselineTable(ios *iostreams.IOStreams, rt resource.Source, area, currentPCI float64,
