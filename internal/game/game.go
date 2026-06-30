@@ -86,6 +86,13 @@ type Config struct {
 
 	// Cohorts feed the macro forecast.Simulate call for the insolvency headline.
 	Cohorts []CohortConfig `json:"cohorts"`
+
+	// Endless suppresses the time-based win: the game never auto-"wins" at the
+	// horizon, so play continues until a loss condition triggers (sandbox mode).
+	// HorizonYears must still be > 0 — it is used only for the insolvency
+	// projection now, not as a finish line. A huge HorizonYears must NOT be used
+	// to fake endless: recomputeInsolvency runs a per-year forecast over it.
+	Endless bool `json:"endless"`
 }
 
 // --- Game state ---
@@ -112,7 +119,12 @@ type Game struct {
 	backlog    float64 // cumulative maintenance need not yet addressed by treatment
 	simYears   float64
 	horizon    float64
+	endless    bool   // when true, never auto-win at the horizon (sandbox)
 	status     string // "running" | "won" | "lost"
+
+	// run totals for the end-of-game summary
+	spent      float64 // cumulative $ debited by treatments
+	treatments int     // count of successful treatments
 
 	cost       *forecast.TieredCostProjector
 	tiers      []forecast.CostTier
@@ -169,6 +181,7 @@ func New(cfg Config) (*Game, error) {
 		treasury:   cfg.StartingBudget,
 		budgetRate: cfg.StartingBudget,
 		horizon:    cfg.HorizonYears,
+		endless:    cfg.Endless,
 		status:     "running",
 		cost:       &forecast.TieredCostProjector{Tiers: tiers},
 		tiers:      tiers,
@@ -213,7 +226,10 @@ func New(cfg Config) (*Game, error) {
 // the tiered cost of the PCI lost, scaled by the fraction of full condition lost
 // (delta/100) — accrues into the backlog. Hexes at or below ClosureEpsilon close.
 func (g *Game) Tick(dt float64) {
-	if dt <= 0 || g.status != "running" {
+	// Reject non-finite or non-positive dt: a bare dt<=0 guard lets NaN and +Inf
+	// through (NaN<=0 and +Inf<=0 are both false), which would poison simYears,
+	// treasury, and every hex's PCI with NaN irrecoverably.
+	if !finite(dt) || dt <= 0 || g.status != "running" {
 		return
 	}
 	g.simYears += dt
@@ -250,15 +266,47 @@ func (g *Game) Tick(dt float64) {
 // cheapest (preventive) gives the smallest lift. Any treatment that lifts a closed
 // hex back above ClosureEpsilon reopens it (reconstruction always does).
 func (g *Game) Treat(hexID, tier string) bool {
-	if g.status != "running" {
-		return false
+	applied := g.treatOne(hexID, tier)
+	if applied {
+		g.recomputeStatus()
 	}
-	ti := g.tierIndex(tier)
-	if ti < 0 {
+	return applied
+}
+
+// TreatBatch treats many hexes with one status recompute, for the paint brush: a
+// single drag-move can cover dozens of hexes, and recomputing status (O(hexes))
+// per hex would be quadratic. It applies treatOne to each id (each affordable hex
+// is treated; the rest are skipped silently, e.g. once the treasury runs dry) and
+// recomputes status once at the end. Returns how many were applied.
+func (g *Game) TreatBatch(hexIDs []string, tier string) int {
+	applied := 0
+	for _, id := range hexIDs {
+		if g.treatOne(id, tier) {
+			applied++
+		}
+	}
+	if applied > 0 {
+		g.recomputeStatus()
+	}
+	return applied
+}
+
+// treatOne applies a single treatment WITHOUT recomputing status (the caller
+// does, once). tier is a cost_tiers label, or the sentinel "auto" to let the
+// engine pick the tier whose [MinPCI, MaxPCI) band contains the hex's current
+// PCI — so the front-end never has to choose preventive/rehab/reconstruction per
+// hex. Returns false (no-op) if the game is over, the tier/hex is unknown, or the
+// treasury can't afford it. Accumulates spent/treatments for the summary.
+func (g *Game) treatOne(hexID, tier string) bool {
+	if g.status != "running" {
 		return false
 	}
 	h := g.hex(hexID)
 	if h == nil {
+		return false
+	}
+	ti := g.resolveTier(tier, h.pci)
+	if ti < 0 {
 		return false
 	}
 
@@ -267,6 +315,8 @@ func (g *Game) Treat(hexID, tier string) bool {
 		return false
 	}
 	g.treasury -= cost
+	g.spent += cost
+	g.treatments++
 
 	// Spending addresses deferred need.
 	g.backlog -= cost
@@ -280,14 +330,22 @@ func (g *Game) Treat(hexID, tier string) bool {
 	if h.closed && h.pci > ClosureEpsilon {
 		h.closed = false
 	}
-
-	g.recomputeStatus()
 	return true
 }
 
 // SetBudget sets the annual funding rate and recomputes the macro insolvency year
 // by running the real forecast engine (worst-first, current cohorts, this rate).
 func (g *Game) SetBudget(rate float64) {
+	// Ignore non-finite rates: a NaN/Inf rate would poison the treasury on the
+	// next Tick (treasury += budgetRate*dt). There is no debt model in the game,
+	// so a negative rate is clamped to 0 rather than bleeding the treasury below
+	// zero over ticks.
+	if !finite(rate) {
+		return
+	}
+	if rate < 0 {
+		rate = 0
+	}
 	g.budgetRate = rate
 	g.recomputeInsolvency()
 }
@@ -339,7 +397,9 @@ func (g *Game) recomputeStatus() {
 		g.status = "lost"
 		return
 	}
-	if g.simYears >= g.horizon {
+	// Endless (sandbox) never wins by reaching the horizon — play continues until
+	// a loss condition above fires.
+	if !g.endless && g.simYears >= g.horizon {
 		g.status = "won"
 	}
 }
@@ -372,14 +432,18 @@ type changedHex struct {
 }
 
 type stateOut struct {
-	Year           float64      `json:"year"`
-	Treasury       float64      `json:"treasury"`
-	BudgetRate     float64      `json:"budget_rate"`
-	NetworkPCI     float64      `json:"network_pci"`
-	Backlog        float64      `json:"backlog"`
-	InsolvencyYear *int         `json:"insolvency_year"`
-	Status         string       `json:"status"`
-	Changed        []changedHex `json:"changed"`
+	Year           float64 `json:"year"`
+	Treasury       float64 `json:"treasury"`
+	BudgetRate     float64 `json:"budget_rate"`
+	NetworkPCI     float64 `json:"network_pci"`
+	Backlog        float64 `json:"backlog"`
+	InsolvencyYear *int    `json:"insolvency_year"`
+	Status         string  `json:"status"`
+	// Run totals for the end-of-game summary (cumulative, not deltas).
+	Spent       float64      `json:"spent"`
+	Treatments  int          `json:"treatments"`
+	ClosedCount int          `json:"closed_count"`
+	Changed     []changedHex `json:"changed"`
 }
 
 // StateJSON marshals the HUD fields plus a delta: only hexes whose quantized
@@ -394,6 +458,8 @@ func (g *Game) StateJSON() ([]byte, error) {
 		NetworkPCI: g.networkPCI(),
 		Backlog:    g.backlog,
 		Status:     g.status,
+		Spent:      g.spent,
+		Treatments: g.treatments,
 		Changed:    []changedHex{},
 	}
 	if g.insolvencyOK {
@@ -403,6 +469,9 @@ func (g *Game) StateJSON() ([]byte, error) {
 
 	for i := range g.hexes {
 		h := &g.hexes[i]
+		if h.closed {
+			out.ClosedCount++
+		}
 		band := BandForPCI(h.pci)
 		if band == h.paintedBand && h.closed == h.paintedClosed {
 			continue
@@ -456,6 +525,29 @@ func (g *Game) tierIndex(label string) int {
 	return -1
 }
 
+// resolveTier maps a treatment request to a tier index. The sentinel "auto"
+// picks the tier whose [MinPCI, MaxPCI) band contains pci (the rule that lets
+// the brush apply the right treatment per hex); any other value is a literal
+// tier label. Returns -1 if nothing matches.
+func (g *Game) resolveTier(tier string, pci float64) int {
+	if tier == "auto" {
+		return g.autoTierIndex(pci)
+	}
+	return g.tierIndex(tier)
+}
+
+// autoTierIndex returns the tier whose [MinPCI, MaxPCI) contains pci, or -1 if
+// the tiers don't cover it. MaxPCI is exclusive with a 101 sentinel on the top
+// tier so PCI == 100 still matches (see forecast.CostTier).
+func (g *Game) autoTierIndex(pci float64) int {
+	for i := range g.tiers {
+		if pci >= g.tiers[i].MinPCI && pci < g.tiers[i].MaxPCI {
+			return i
+		}
+	}
+	return -1
+}
+
 // tierCostRank returns the ascending cost rank of tier i (0 = cheapest).
 func (g *Game) tierCostRank(i int) int {
 	rank := 0
@@ -489,3 +581,8 @@ func clampPCI(pci float64) float64 {
 	}
 	return pci
 }
+
+// finite reports whether f is a real number (not NaN or ±Inf). Used to reject
+// non-finite values at the JS->WASM trust boundary before they can poison sim
+// state (simYears, treasury, per-hex PCI) irrecoverably.
+func finite(f float64) bool { return !math.IsNaN(f) && !math.IsInf(f, 0) }

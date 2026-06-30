@@ -2,6 +2,7 @@ package game
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"testing"
 
@@ -187,6 +188,71 @@ func TestClosureAtZero(t *testing.T) {
 	}
 }
 
+// TestTickNonFiniteIsNoOp asserts that a NaN/+Inf/-Inf dt is rejected (state
+// unchanged and finite), since a bare dt<=0 guard lets them through.
+func TestTickNonFiniteIsNoOp(t *testing.T) {
+	for _, dt := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		t.Run(fmt.Sprintf("dt=%v", dt), func(t *testing.T) {
+			g := newGame(t, baseConfig())
+			yearBefore := g.simYears
+			treasuryBefore := g.treasury
+			pciBefore := make([]float64, len(g.hexes))
+			for i := range g.hexes {
+				pciBefore[i] = g.hexes[i].pci
+			}
+
+			g.Tick(dt)
+
+			if g.simYears != yearBefore {
+				t.Fatalf("simYears changed: got %v want %v", g.simYears, yearBefore)
+			}
+			if g.treasury != treasuryBefore {
+				t.Fatalf("treasury changed: got %v want %v", g.treasury, treasuryBefore)
+			}
+			if math.IsNaN(g.simYears) || math.IsNaN(g.treasury) {
+				t.Fatal("state became NaN")
+			}
+			for i := range g.hexes {
+				if g.hexes[i].pci != pciBefore[i] || math.IsNaN(g.hexes[i].pci) {
+					t.Fatalf("hex %d pci changed/NaN: got %v want %v", i, g.hexes[i].pci, pciBefore[i])
+				}
+			}
+		})
+	}
+}
+
+// TestSetBudgetNonFiniteIgnored asserts a NaN/Inf rate is ignored (budgetRate
+// untouched) so it cannot poison the treasury on the next Tick.
+func TestSetBudgetNonFiniteIgnored(t *testing.T) {
+	for _, rate := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		g := newGame(t, baseConfig())
+		rateBefore := g.budgetRate
+		g.SetBudget(rate)
+		if g.budgetRate != rateBefore {
+			t.Fatalf("non-finite rate %v changed budgetRate to %v", rate, g.budgetRate)
+		}
+		g.Tick(1)
+		if math.IsNaN(g.treasury) || math.IsInf(g.treasury, 0) {
+			t.Fatalf("treasury non-finite after Tick: %v", g.treasury)
+		}
+	}
+}
+
+// TestSetBudgetNegativeClamped asserts a negative rate is clamped to 0 (no debt
+// model), so the treasury does not bleed below zero over ticks.
+func TestSetBudgetNegativeClamped(t *testing.T) {
+	g := newGame(t, baseConfig())
+	g.SetBudget(-1_000_000)
+	if g.budgetRate != 0 {
+		t.Fatalf("negative budget should clamp to 0, got %v", g.budgetRate)
+	}
+	treasuryBefore := g.treasury
+	g.Tick(1)
+	if g.treasury < treasuryBefore {
+		t.Fatalf("treasury bled with clamped budget: %v < %v", g.treasury, treasuryBefore)
+	}
+}
+
 func TestSetBudgetChangesInsolvencyYear(t *testing.T) {
 	g := newGame(t, baseConfig())
 
@@ -338,6 +404,9 @@ type stateView struct {
 	Backlog        float64      `json:"backlog"`
 	InsolvencyYear *int         `json:"insolvency_year"`
 	Status         string       `json:"status"`
+	Spent          float64      `json:"spent"`
+	Treatments     int          `json:"treatments"`
+	ClosedCount    int          `json:"closed_count"`
 	Changed        []changedHex `json:"changed"`
 }
 
@@ -352,4 +421,123 @@ func decodeState(t *testing.T, g *Game) stateView {
 		t.Fatal(err)
 	}
 	return st
+}
+
+// TestAutoTierSelection covers the "auto" rule the paint brush relies on: each
+// PCI maps to the tier whose [MinPCI, MaxPCI) band contains it, including the
+// inclusive-min / exclusive-max boundaries and the PCI=100 sentinel case.
+func TestAutoTierSelection(t *testing.T) {
+	g := newGame(t, baseConfig()) // preventive[70,101) rehab[40,70) recon[0,40)
+	cases := []struct {
+		pci  float64
+		want string
+	}{
+		{100, "preventive"},
+		{70, "preventive"},
+		{69.9, "rehab"},
+		{40, "rehab"},
+		{39.9, "reconstruction"},
+		{0, "reconstruction"},
+	}
+	for _, c := range cases {
+		i := g.autoTierIndex(c.pci)
+		got := "none"
+		if i >= 0 {
+			got = g.tiers[i].Label
+		}
+		if got != c.want {
+			t.Errorf("autoTierIndex(%g) = %s, want %s", c.pci, got, c.want)
+		}
+	}
+}
+
+// TestTreatAutoReopensClosedHex: "auto" on a gravel (closed, PCI 0) hex selects
+// reconstruction and reopens it — the brush rebuilds failed roads with no
+// special-casing.
+func TestTreatAutoReopensClosedHex(t *testing.T) {
+	g := newGame(t, baseConfig())
+	g.hexes[0].pci = 0
+	g.hexes[0].closed = true
+	if !g.Treat("a", "auto") {
+		t.Fatal("auto on a gravel hex should pick reconstruction and apply")
+	}
+	if g.hexes[0].closed {
+		t.Fatal("auto/reconstruction must reopen the closed hex")
+	}
+	if g.hexes[0].pci < 99.999 {
+		t.Fatalf("reconstruction should restore ~100, got %v", g.hexes[0].pci)
+	}
+}
+
+// TestEndlessNeverWins: with Endless set the game never wins at the horizon,
+// while an otherwise-identical finite-horizon game does.
+func TestEndlessNeverWins(t *testing.T) {
+	cfg := baseConfig()
+	cfg.HorizonYears = 2
+	cfg.Hexes = []HexConfig{{ID: "a", RoadArea: 1000, K: 0.0001}} // barely decays
+	cfg.InitialPCI = 95
+	cfg.Cohorts = nil
+
+	cfg.Endless = true
+	g := newGame(t, cfg)
+	g.Tick(5) // well past the horizon
+	if g.status != "running" {
+		t.Fatalf("endless must keep running past the horizon, got %q", g.status)
+	}
+
+	cfg.Endless = false
+	g2 := newGame(t, cfg)
+	g2.Tick(5)
+	if g2.status != "won" {
+		t.Fatalf("finite horizon should win past the horizon, got %q", g2.status)
+	}
+}
+
+// TestSpentAndTreatmentsAccounting: the summary totals accumulate on successful
+// treats and ignore rejected (unaffordable) ones.
+func TestSpentAndTreatmentsAccounting(t *testing.T) {
+	g := newGame(t, baseConfig())
+	if g.spent != 0 || g.treatments != 0 {
+		t.Fatalf("fresh game must start at 0 spent/treatments, got %v/%d", g.spent, g.treatments)
+	}
+	g.Treat("a", "preventive") // 5 * 1000
+	g.Treat("b", "preventive") // 5 * 2000
+	if g.treatments != 2 || math.Abs(g.spent-15000) > 1e-6 {
+		t.Fatalf("after 2 treats: spent=%v treatments=%d, want 15000/2", g.spent, g.treatments)
+	}
+	g.treasury = 0 // make the next treat unaffordable
+	if g.Treat("a", "reconstruction") {
+		t.Fatal("treat should be rejected with empty treasury")
+	}
+	if g.treatments != 2 || math.Abs(g.spent-15000) > 1e-6 {
+		t.Fatalf("rejected treat must not change totals: spent=%v treatments=%d", g.spent, g.treatments)
+	}
+}
+
+// TestTreatBatch applies many hexes with one status recompute, skipping unknown
+// ids, and returns the count applied.
+func TestTreatBatch(t *testing.T) {
+	g := newGame(t, baseConfig())
+	n := g.TreatBatch([]string{"a", "b", "zzz"}, "auto")
+	if n != 2 {
+		t.Fatalf("TreatBatch applied %d, want 2 (unknown id skipped)", n)
+	}
+	if g.treatments != 2 {
+		t.Fatalf("treatments = %d, want 2", g.treatments)
+	}
+}
+
+// TestStateJSONSummaryFields: the state delta carries the cumulative summary
+// totals (spent/treatments) and the live closed_count.
+func TestStateJSONSummaryFields(t *testing.T) {
+	g := newGame(t, baseConfig())
+	g.hexes[0].closed = true // 1 of 2 closed (under the 50% loss threshold)
+	g.Treat("b", "preventive")
+	st := decodeState(t, g)
+	if st.ClosedCount != 1 {
+		t.Fatalf("closed_count = %d, want 1", st.ClosedCount)
+	}
+	if st.Treatments != 1 || st.Spent <= 0 {
+		t.Fatalf("summary fields wrong: spent=%v treatments=%d", st.Spent, st.Treatments)
+	}
 }

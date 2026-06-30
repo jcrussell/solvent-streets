@@ -133,6 +133,9 @@ func TestHandleIndex(t *testing.T) {
 	if !strings.Contains(body, `id="snapshot-picker"`) {
 		t.Errorf("live server response should include the snapshot-picker element")
 	}
+	if !strings.Contains(body, `href="/play"`) {
+		t.Errorf("index should include a nav link to the /play game")
+	}
 	if got := w1.Header().Get("Cache-Control"); got != "public, max-age=300" {
 		t.Errorf("index Cache-Control = %q, want %q", got, "public, max-age=300")
 	}
@@ -206,6 +209,20 @@ func TestHandleGame(t *testing.T) {
 	}
 	if !strings.Contains(body, "const DATA_PREFIX = '';") {
 		t.Errorf("single-city game page should set DATA_PREFIX = ''")
+	}
+	// Play-test feedback controls: nav link back to the map, reset, paint brush,
+	// and the horizon selector must all render.
+	for _, want := range []string{
+		`href="/"`,             // top-bar nav back to the map
+		`id="reset-btn"`,       // reset / play-again
+		`id="brush-btn"`,       // paint-brush toggle
+		`id="brush-size"`,      // brush-size slider
+		`id="horizon-buttons"`, // selectable horizon + endless
+		`data-horizon="endless"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("game page missing expected control markup %q", want)
+		}
 	}
 }
 

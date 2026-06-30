@@ -12,8 +12,20 @@
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: #0f1115; color: #e8eaed; overflow: hidden;
         }
-        #game-root, #map { position: absolute; inset: 0; }
+        :root { --bar-h: 44px; }
+        #game-root, #map { position: absolute; top: var(--bar-h); left: 0; right: 0; bottom: 0; }
         #map { width: 100%; height: 100%; }
+
+        /* Top bar — fixed, spans the width; houses nav + city selector */
+        #topbar {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+            height: var(--bar-h); display: flex; align-items: center; gap: 12px;
+            padding: 0 14px; background: #171b22; border-bottom: 1px solid #2a3140;
+        }
+        #topbar .brand { font-size: 14px; font-weight: 700; letter-spacing: .3px; white-space: nowrap; }
+        #topbar a.navlink { color: #9aa4b2; text-decoration: none; font-size: 13px; padding: 5px 10px; border-radius: 6px; }
+        #topbar a.navlink:hover { color: #e8eaed; background: #1c2330; }
+        #topbar .spacer { flex: 1; }
 
         .panel {
             position: absolute; z-index: 10;
@@ -24,8 +36,8 @@
             backdrop-filter: blur(4px);
         }
 
-        /* HUD — top left */
-        #hud { top: 12px; left: 12px; padding: 14px 18px; min-width: 230px; }
+        /* HUD — top left, below the bar */
+        #hud { top: calc(var(--bar-h) + 12px); left: 12px; padding: 14px 18px; min-width: 230px; }
         #hud h1 { font-size: 15px; font-weight: 700; margin-bottom: 10px; letter-spacing: 0.3px; }
         .hud-row { display: flex; justify-content: space-between; gap: 18px; padding: 3px 0; font-size: 13px; }
         .hud-row .k { color: #9aa4b2; }
@@ -38,17 +50,15 @@
         .solvency.ok  { color: #6fe08a; }
         .solvency .num { font-size: 19px; }
 
-        /* City selector — top center. Its own panel (not inside #hud) so it
-           stays visible during board load and even if a city fails to render. */
-        #city-bar { top: 12px; left: 50%; transform: translateX(-50%); padding: 8px 12px; }
-        #city-bar label { font-size: 12px; color: #9aa4b2; margin-right: 8px; }
+        /* City selector — lives in the top bar */
         #city-select {
             background: #1c2330; color: #e8eaed; border: 1px solid #384152;
             border-radius: 6px; padding: 4px 8px; font-size: 13px; cursor: pointer;
         }
 
         /* Controls — bottom left */
-        #controls { bottom: 12px; left: 12px; padding: 14px 18px; min-width: 260px; }
+        #controls { bottom: 12px; left: 12px; padding: 14px 18px; min-width: 260px; max-height: calc(100vh - var(--bar-h) - 24px); overflow-y: auto; }
+        #controls label .hint { color: #6b7280; font-weight: 400; text-transform: none; }
         #controls .ctrl-block { margin-bottom: 14px; }
         #controls .ctrl-block:last-child { margin-bottom: 0; }
         #controls label { display: block; font-size: 12px; color: #9aa4b2; margin-bottom: 6px; }
@@ -61,11 +71,19 @@
         }
         .btn:hover { border-color: #4f8cff; }
         .tier-buttons, .row-buttons { display: flex; gap: 6px; flex-wrap: wrap; }
-        .tier-buttons .btn { text-transform: capitalize; flex: 1; }
-        .tier-buttons .btn.active, #pause-btn.active {
+        .tier-buttons .btn, .row-buttons .btn { flex: 1; }
+        .tier-buttons .btn { text-transform: capitalize; }
+        .tier-buttons .btn.active, .row-buttons .btn.active, #pause-btn.active, #brush-btn.active {
             background: #4f8cff; border-color: #4f8cff; color: #fff;
         }
-        #pause-btn { width: 100%; font-weight: 600; }
+        #pause-btn { font-weight: 600; }
+
+        /* Paint-brush cursor: a ring that tracks the pointer while brushing */
+        #brush-cursor {
+            position: fixed; z-index: 60; pointer-events: none; display: none;
+            border: 2px solid rgba(79,140,255,0.9); border-radius: 50%;
+            transform: translate(-50%, -50%); box-shadow: 0 0 0 1px rgba(0,0,0,0.4);
+        }
 
         /* Color legend — bottom right */
         #legend { bottom: 12px; right: 12px; padding: 10px 14px; font-size: 11px; }
@@ -78,17 +96,29 @@
         #legend .gravel-key { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
         #legend .gravel-swatch { width: 12px; height: 12px; border-radius: 2px; background: #8d8074; display: inline-block; }
 
-        /* Win/Lose banner */
+        /* Win/Lose summary overlay */
         #banner {
             position: absolute; z-index: 50; top: 50%; left: 50%;
             transform: translate(-50%, -50%);
-            padding: 28px 40px; border-radius: 14px; text-align: center;
-            font-size: 26px; font-weight: 800; display: none;
+            padding: 26px 34px; border-radius: 14px; text-align: center;
+            min-width: 320px; display: none;
             box-shadow: 0 10px 40px rgba(0,0,0,0.6);
         }
-        #banner.won  { background: #123d22; color: #6fe08a; border: 2px solid #6fe08a; display: block; }
-        #banner.lost { background: #3d1212; color: #ff7a6b; border: 2px solid #ff7a6b; display: block; }
-        #banner .sub { font-size: 14px; font-weight: 500; margin-top: 8px; color: #cdd3db; }
+        #banner.won  { background: #123d22; border: 2px solid #6fe08a; display: block; }
+        #banner.lost { background: #3d1212; border: 2px solid #ff7a6b; display: block; }
+        #banner .headline { font-size: 26px; font-weight: 800; }
+        #banner.won  .headline { color: #6fe08a; }
+        #banner.lost .headline { color: #ff7a6b; }
+        #banner .sub { font-size: 14px; font-weight: 500; margin-top: 6px; color: #cdd3db; }
+        #banner .banner-stats {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 6px 22px;
+            margin: 18px 0; text-align: left; font-size: 14px;
+        }
+        #banner .banner-stats .row { display: flex; justify-content: space-between; gap: 16px; }
+        #banner .banner-stats .k { color: #9aa4b2; }
+        #banner .banner-stats .v { font-weight: 700; font-variant-numeric: tabular-nums; color: #e8eaed; }
+        #banner .banner-actions { display: flex; gap: 8px; justify-content: center; }
+        #banner .banner-actions .btn { text-decoration: none; flex: 1; text-align: center; }
 
         /* Error banner */
         #error-banner {
@@ -111,21 +141,25 @@
         <ul id="error-banner-list"></ul>
     </div>
 
+    <div id="topbar">
+        <span class="brand">Pavement Manager</span>
+        <a class="navlink" href="/">&larr; Map</a>
+        <span class="spacer"></span>
+        {{if .Cities}}
+        <label for="city-select" style="font-size:12px;color:#9aa4b2;">City</label>
+        <select id="city-select">
+            {{range .CitiesByRegion}}{{if .Region}}<optgroup label="{{.Region}}">{{range .Cities}}<option value="{{.Slug}}"{{if eq .Slug $.ActiveSlug}} selected{{end}}>{{.Name}}</option>{{end}}</optgroup>{{else}}{{range .Cities}}<option value="{{.Slug}}"{{if eq .Slug $.ActiveSlug}} selected{{end}}>{{.Name}}</option>{{end}}{{end}}{{end}}
+        </select>
+        {{end}}
+    </div>
+
     <!-- game-root doubles as the MapLibre container; a server test asserts this id exists. -->
     <div id="game-root" data-project="{{.MetaJSON.ProjectName}}" data-units="{{.UnitSystem}}">
         <div id="map"></div>
     </div>
 
+    <div id="brush-cursor"></div>
     <div id="loading">Loading board&hellip;</div>
-
-    {{if .Cities}}
-    <div class="panel" id="city-bar">
-        <label for="city-select">City</label>
-        <select id="city-select">
-            {{range .CitiesByRegion}}{{if .Region}}<optgroup label="{{.Region}}">{{range .Cities}}<option value="{{.Slug}}"{{if eq .Slug $.ActiveSlug}} selected{{end}}>{{.Name}}</option>{{end}}</optgroup>{{else}}{{range .Cities}}<option value="{{.Slug}}"{{if eq .Slug $.ActiveSlug}} selected{{end}}>{{.Name}}</option>{{end}}{{end}}{{end}}
-        </select>
-    </div>
-    {{end}}
 
     <div class="panel" id="hud" style="display:none">
         <h1>Pavement Manager &mdash; {{.MetaJSON.ProjectName}}</h1>
@@ -138,15 +172,34 @@
 
     <div class="panel" id="controls" style="display:none">
         <div class="ctrl-block">
-            <button class="btn" id="pause-btn" type="button">Pause</button>
+            <div class="row-buttons">
+                <button class="btn" id="pause-btn" type="button">Pause</button>
+                <button class="btn" id="reset-btn" type="button">Reset</button>
+            </div>
         </div>
         <div class="ctrl-block">
             <label>City Council budget: <span class="ctrl-value" id="budget-value"></span>/yr</label>
             <input type="range" id="budget-slider" min="0" max="100" value="50" step="1">
         </div>
         <div class="ctrl-block">
-            <label>Treatment (click a hex to apply)</label>
+            <label>Treatment <span class="hint">(Auto picks the right fix per road)</span></label>
             <div class="tier-buttons" id="tier-buttons"></div>
+        </div>
+        <div class="ctrl-block">
+            <label>Paint brush <span class="hint">(drag to treat many)</span></label>
+            <div class="row-buttons">
+                <button class="btn" id="brush-btn" type="button">Brush: off</button>
+            </div>
+            <input type="range" id="brush-size" min="0" max="80" value="24" step="2" style="margin-top:8px">
+        </div>
+        <div class="ctrl-block">
+            <label>Horizon</label>
+            <div class="row-buttons" id="horizon-buttons">
+                <button class="btn" type="button" data-horizon="20">20y</button>
+                <button class="btn" type="button" data-horizon="30">30y</button>
+                <button class="btn" type="button" data-horizon="50">50y</button>
+                <button class="btn" type="button" data-horizon="endless">Endless</button>
+            </div>
         </div>
     </div>
 
@@ -278,18 +331,33 @@
         map.addControl(new maplibregl.NavigationControl(), 'top-right');
 
         // ---- Game state (JS holds only view/loop state, never rules) ---------
-        let selectedTier = null;
+        // selectedTier is a cost-tier label, or 'auto' (let the engine pick the
+        // right tier per hex by its condition). Default is 'auto'.
+        let selectedTier = 'auto';
         let paused = false;
         let started = false;
         let gameStatus = 'running';
         let rafId = null;
         let lastFrameTs = 0;
         let tickAccumMs = 0;
+        // gameConfig is the last config handed to gameInit; reset()/horizon reuse
+        // it. lastState/peakBacklog feed the end-of-game summary.
+        let gameConfig = null;
+        let lastState = null;
+        let peakBacklog = 0;
+        // Paint-brush view state. brushActive toggles drag-to-paint (disables map
+        // pan); brushSize is the pixel radius; brushStroke dedupes hexes within one
+        // drag so each is treated at most once.
+        let brushActive = false;
+        let brushSize = 24;
+        let painting = false;
+        let brushStroke = null;
 
         // applyState: O(changed) repaint via setFeatureState + HUD refresh.
         // Colors come entirely from Go's band output (see BAND_COLORS / paint).
         function applyState(state) {
             if (!state) return;
+            lastState = state;
             if (Array.isArray(state.changed)) {
                 for (const c of state.changed) {
                     map.setFeatureState(
@@ -306,9 +374,12 @@
         }
 
         function updateHUD(state) {
-            const horizon = (FORECAST_SEED && FORECAST_SEED.years) || 0;
+            if (state.backlog != null && state.backlog > peakBacklog) peakBacklog = state.backlog;
+            const endless = !!(gameConfig && gameConfig.endless);
+            const horizon = gameConfig ? gameConfig.horizon_years : ((FORECAST_SEED && FORECAST_SEED.years) || 0);
+            const yr = state.year != null ? state.year.toFixed(1) : '0';
             document.getElementById('hud-year').textContent =
-                (state.year != null ? state.year.toFixed(1) : '0') + (horizon ? ' / ' + horizon : '');
+                endless ? (yr + ' (Endless)') : (yr + (horizon ? ' / ' + horizon : ''));
             document.getElementById('hud-treasury').textContent = fmtMoney(state.treasury);
             document.getElementById('hud-pci').textContent =
                 state.network_pci != null ? state.network_pci.toFixed(1) : '—';
@@ -331,14 +402,56 @@
         function onStatusChange(status) {
             if (status === 'running') return;
             stopLoop();
+            const s = lastState || {};
+            const hexCount = (gameConfig && gameConfig.hexes) ? gameConfig.hexes.length : 0;
+            const gravelPct = hexCount ? (100 * (s.closed_count || 0) / hexCount) : 0;
+            const won = status === 'won';
+            const row = (k, v) => '<div class="row"><span class="k">' + k + '</span><span class="v">' + v + '</span></div>';
             const banner = document.getElementById('banner');
-            if (status === 'won') {
-                banner.className = 'won';
-                banner.innerHTML = 'You stayed solvent!<div class="sub">The network held through the horizon.</div>';
-            } else {
-                banner.className = 'lost';
-                banner.innerHTML = 'Network insolvent.<div class="sub">Decay outran the budget — game over.</div>';
+            banner.className = won ? 'won' : 'lost';
+            banner.innerHTML =
+                '<div class="headline">' + (won ? 'You stayed solvent!' : 'Network insolvent.') + '</div>' +
+                '<div class="sub">' + (won ? 'The network held through the horizon.' : 'Decay outran the budget — game over.') + '</div>' +
+                '<div class="banner-stats">' +
+                    row('Years', (s.year != null ? s.year.toFixed(1) : '—')) +
+                    row('Final PCI', (s.network_pci != null ? s.network_pci.toFixed(1) : '—')) +
+                    row('Total spent', fmtMoney(s.spent)) +
+                    row('Treatments', (s.treatments || 0).toLocaleString()) +
+                    row('Gravel', gravelPct.toFixed(0) + '%') +
+                    row('Peak backlog', fmtMoney(peakBacklog)) +
+                '</div>' +
+                '<div class="banner-actions">' +
+                    '<button class="btn" type="button" id="play-again">Play again</button>' +
+                    '<a class="btn" href="/">&larr; Map</a>' +
+                '</div>';
+            document.getElementById('play-again').addEventListener('click', reset);
+        }
+
+        // reset re-seeds the game from gameConfig (gameInit returns every hex, so
+        // the board fully repaints) and clears all view/loop state. No engine reset
+        // export is needed — gameInit replaces the game.
+        function reset() {
+            if (!gameConfig) return;
+            const initState = callWasm('gameInit', JSON.stringify(gameConfig));
+            if (!initState) return;
+            gameStatus = 'running';
+            paused = false;
+            peakBacklog = 0;
+            const pb = document.getElementById('pause-btn');
+            pb.textContent = 'Pause'; pb.classList.remove('active');
+            const banner = document.getElementById('banner');
+            banner.className = ''; banner.innerHTML = '';
+            stopLoop();
+            applyState(initState); // changed == every hex → full repaint
+            // gameInit reset the engine's budget to starting_budget; carry the
+            // player's current slider value back into the fresh game so the slider,
+            // readout, and insolvency headline stay in sync.
+            const slider = document.getElementById('budget-slider');
+            if (slider) {
+                const bs = callWasm('gameSetBudget', parseFloat(slider.value));
+                if (bs) applyState(bs);
             }
+            startLoop();
         }
 
         // ---- Clock -----------------------------------------------------------
@@ -374,6 +487,77 @@
             if (paused) stopLoop(); else startLoop();
         });
 
+        // ---- Paint brush -----------------------------------------------------
+        // When active, dragging paints treatments instead of panning the map. Each
+        // move treats every hex under a screen box of radius brushSize via one
+        // gameTreatBatch call; a per-stroke Set keeps each hex treated at most once.
+        function setBrushActive(on) {
+            brushActive = on;
+            const btn = document.getElementById('brush-btn');
+            btn.textContent = on ? 'Brush: on' : 'Brush: off';
+            btn.classList.toggle('active', on);
+            if (on) {
+                map.dragPan.disable();
+            } else {
+                map.dragPan.enable();
+                painting = false;
+                document.getElementById('brush-cursor').style.display = 'none';
+            }
+        }
+        function brushHexesAt(pt) {
+            const r = brushSize;
+            const box = (r <= 1) ? pt : [[pt.x - r, pt.y - r], [pt.x + r, pt.y + r]];
+            return map.queryRenderedFeatures(box, { layers: [HEX_FILL] }).map(f => f.id);
+        }
+        function brushPaint(pt) {
+            if (gameStatus !== 'running' || !brushStroke) return;
+            const ids = [];
+            for (const id of brushHexesAt(pt)) {
+                const key = String(id);
+                if (id != null && !brushStroke.has(key)) { brushStroke.add(key); ids.push(key); }
+            }
+            if (!ids.length) return; // all hexes under the brush already painted this stroke
+            const state = callWasm('gameTreatBatch', JSON.stringify(ids), selectedTier);
+            if (state) applyState(state);
+        }
+        function brushCursorAt(pt) {
+            const cur = document.getElementById('brush-cursor');
+            if (!brushActive) { cur.style.display = 'none'; return; }
+            const rect = map.getCanvas().getBoundingClientRect();
+            const d = Math.max(10, brushSize * 2);
+            cur.style.width = d + 'px';
+            cur.style.height = d + 'px';
+            cur.style.left = (rect.left + pt.x) + 'px';
+            cur.style.top = (rect.top + pt.y) + 'px';
+            cur.style.display = 'block';
+        }
+
+        // wireControls binds the reset/brush/horizon controls. Called from boot
+        // once gameConfig exists (reset and the horizon buttons mutate it).
+        function wireControls() {
+            document.getElementById('reset-btn').addEventListener('click', reset);
+            document.getElementById('brush-btn').addEventListener('click', () => setBrushActive(!brushActive));
+            const size = document.getElementById('brush-size');
+            brushSize = parseInt(size.value, 10) || 0;
+            size.addEventListener('input', () => { brushSize = parseInt(size.value, 10) || 0; });
+
+            const hwrap = document.getElementById('horizon-buttons');
+            const markActive = () => hwrap.querySelectorAll('.btn').forEach(b => {
+                const h = b.dataset.horizon;
+                const on = (h === 'endless') ? !!gameConfig.endless
+                    : (!gameConfig.endless && Number(h) === gameConfig.horizon_years);
+                b.classList.toggle('active', on);
+            });
+            hwrap.querySelectorAll('.btn').forEach(b => b.addEventListener('click', () => {
+                const h = b.dataset.horizon;
+                if (h === 'endless') gameConfig.endless = true;
+                else { gameConfig.endless = false; gameConfig.horizon_years = Number(h); }
+                markActive();
+                reset(); // horizon feeds the win + insolvency projection → fresh game
+            }));
+            markActive();
+        }
+
         // ---- Budget slider ("City Council") ----------------------------------
         function bindBudget(startingBudget) {
             const slider = document.getElementById('budget-slider');
@@ -400,27 +584,36 @@
         }
 
         // ---- Treatment tier selector -----------------------------------------
+        // "Auto" (default) lets the engine pick the right tier per hex; the named
+        // tiers are an optional manual override. Keys 1/2/3 select named tiers,
+        // 0/a select Auto.
         function bindTiers(tiers) {
             const wrap = document.getElementById('tier-buttons');
             wrap.innerHTML = '';
-            // Default to the cheapest tier (lowest cost_per_sqm).
-            let cheapest = null;
-            for (const t of tiers) {
-                if (cheapest == null || t.cost_per_sqm < cheapest.cost_per_sqm) cheapest = t;
-            }
-            selectedTier = cheapest ? cheapest.label : (tiers[0] && tiers[0].label);
-            for (const t of tiers) {
+            selectedTier = 'auto';
+            // 'auto' first, then the named tiers in config order.
+            const choices = [{ label: 'auto', text: 'Auto' }]
+                .concat(tiers.map(t => ({ label: t.label, text: t.label })));
+            const setActive = (label) => {
+                selectedTier = label;
+                wrap.querySelectorAll('.btn').forEach(x => x.classList.toggle('active', x.dataset.tier === label));
+            };
+            for (const c of choices) {
                 const b = document.createElement('button');
                 b.type = 'button';
-                b.className = 'btn' + (t.label === selectedTier ? ' active' : '');
-                b.textContent = t.label;
-                b.dataset.tier = t.label;
-                b.addEventListener('click', () => {
-                    selectedTier = t.label;
-                    wrap.querySelectorAll('.btn').forEach(x => x.classList.toggle('active', x === b));
-                });
+                b.className = 'btn' + (c.label === selectedTier ? ' active' : '');
+                b.textContent = c.text;
+                b.dataset.tier = c.label;
+                b.addEventListener('click', () => setActive(c.label));
                 wrap.appendChild(b);
             }
+            // Keyboard: 1..N pick named tiers, 0 or 'a' picks Auto.
+            document.addEventListener('keydown', (ev) => {
+                if (ev.target && /^(INPUT|SELECT|TEXTAREA)$/.test(ev.target.tagName)) return;
+                if (ev.key === '0' || ev.key === 'a') { setActive('auto'); return; }
+                const n = parseInt(ev.key, 10);
+                if (n >= 1 && n <= tiers.length) setActive(tiers[n - 1].label);
+            });
         }
 
         // ---- Board build + boot ----------------------------------------------
@@ -495,16 +688,34 @@
                 paint: { 'line-color': '#1a1f29', 'line-width': 0.4, 'line-opacity': 0.45 }
             });
 
-            // 4. Click a hex → treat with the selected tier.
+            // 4. Click a hex → treat it (single). The brush owns drag-painting, so
+            //    when it's active the click is a no-op to avoid double-treating.
             map.on('click', HEX_FILL, e => {
-                if (!e.features || !e.features.length) return;
-                if (!selectedTier) return;
+                if (brushActive) return;
+                if (!e.features || !e.features.length || !selectedTier) return;
                 const id = e.features[0].id;
                 const state = callWasm('gameTreat', String(id), selectedTier);
                 if (state) applyState(state);
             });
-            map.on('mouseenter', HEX_FILL, () => { map.getCanvas().style.cursor = 'pointer'; });
+            map.on('mouseenter', HEX_FILL, () => { if (!brushActive) map.getCanvas().style.cursor = 'pointer'; });
             map.on('mouseleave', HEX_FILL, () => { map.getCanvas().style.cursor = ''; });
+
+            // Brush drag-painting (mouse + touch). startStroke resets the per-stroke
+            // dedupe Set; moveStroke tracks the cursor ring and paints while down.
+            const startStroke = e => { if (!brushActive) return; painting = true; brushStroke = new Set(); brushPaint(e.point); };
+            const moveStroke = e => { brushCursorAt(e.point); if (brushActive && painting) brushPaint(e.point); };
+            const endStroke = () => { painting = false; };
+            map.on('mousedown', startStroke);
+            map.on('mousemove', moveStroke);
+            map.on('touchstart', startStroke);
+            map.on('touchmove', moveStroke);
+            // End the stroke on release ANYWHERE: map.on('mouseup') only fires over
+            // the canvas, so releasing over a panel (HUD/controls overlap the map)
+            // would otherwise leave the brush "stuck on" and keep painting.
+            window.addEventListener('mouseup', endStroke);
+            window.addEventListener('touchend', endStroke);
+            window.addEventListener('touchcancel', endStroke);
+            map.getCanvas().addEventListener('mouseleave', () => { document.getElementById('brush-cursor').style.display = 'none'; });
 
             // 5. Build the gameInit config from real data and seed the game.
             const seed = FORECAST_SEED || {};
@@ -525,24 +736,28 @@
             const macroCohorts =
                 (seed.city_cohorts && seed.city_cohorts.length) ? seed.city_cohorts :
                 (seed.cohorts || []);
-            const cfg = {
+            // Hoisted to module scope so reset() and the horizon buttons can
+            // re-seed the game from the same config.
+            gameConfig = {
                 hexes: gameHexes,
                 initial_pci: seed.initial_pci != null ? seed.initial_pci : 85,
                 pci_jitter: 8,
                 cost_tiers: seed.cost_tiers || [],
                 starting_budget: startingBudget,
                 horizon_years: seed.years || 20,
+                endless: false,
                 treatment_cycle_years: seed.treatment_cycle_years || 0,
                 growth_rate: seed.growth_rate || 0,
                 cohorts: macroCohorts
             };
 
-            const initState = callWasm('gameInit', JSON.stringify(cfg));
+            const initState = callWasm('gameInit', JSON.stringify(gameConfig));
             if (!initState) return; // error already surfaced
 
             // 6. Wire controls, paint the full first state, start the clock.
             bindTiers(seed.cost_tiers || []);
             bindBudget(startingBudget);
+            wireControls();
 
             document.getElementById('loading').style.display = 'none';
             document.getElementById('hud').style.display = 'block';
