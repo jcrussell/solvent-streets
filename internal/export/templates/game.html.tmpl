@@ -172,10 +172,14 @@
 
     <div class="panel" id="controls" style="display:none">
         <div class="ctrl-block">
-            <div class="row-buttons">
-                <button class="btn" id="pause-btn" type="button">Pause</button>
-                <button class="btn" id="reset-btn" type="button">Reset</button>
+            <label>Speed</label>
+            <div class="row-buttons" id="speed-buttons">
+                <button class="btn" id="pause-btn" type="button" data-speed="0">Pause</button>
+                <button class="btn active" type="button" data-speed="1">1&times;</button>
+                <button class="btn" type="button" data-speed="2">2&times;</button>
+                <button class="btn" type="button" data-speed="4">4&times;</button>
             </div>
+            <button class="btn" id="reset-btn" type="button" style="margin-top:8px;width:100%">Reset</button>
         </div>
         <div class="ctrl-block">
             <label>City Council budget: <span class="ctrl-value" id="budget-value"></span>/yr</label>
@@ -340,6 +344,9 @@
         let rafId = null;
         let lastFrameTs = 0;
         let tickAccumMs = 0;
+        // simSpeed multiplies sim-time per tick (1×/2×/4×); a view preference, so
+        // it is NOT part of gameConfig and survives reset/horizon changes.
+        let simSpeed = 1;
         // gameConfig is the last config handed to gameInit; reset()/horizon reuse
         // it. lastState/peakBacklog feed the end-of-game summary.
         let gameConfig = null;
@@ -437,8 +444,9 @@
             gameStatus = 'running';
             paused = false;
             peakBacklog = 0;
-            const pb = document.getElementById('pause-btn');
-            pb.textContent = 'Pause'; pb.classList.remove('active');
+            // Normalize the segmented Speed control to the running speed (clears any
+            // paused highlight, re-marks the active speed).
+            setRate(simSpeed);
             const banner = document.getElementById('banner');
             banner.className = ''; banner.innerHTML = '';
             stopLoop();
@@ -461,7 +469,7 @@
             lastFrameTs = ts;
             tickAccumMs += elapsedMs;
             if (tickAccumMs >= TICK_INTERVAL_MS) {
-                const dtYears = (tickAccumMs / 1000) * SIM_YEARS_PER_SEC;
+                const dtYears = (tickAccumMs / 1000) * SIM_YEARS_PER_SEC * simSpeed;
                 tickAccumMs = 0;
                 const state = callWasm('gameTick', dtYears);
                 if (state) applyState(state);
@@ -478,14 +486,21 @@
             if (rafId != null) { cancelAnimationFrame(rafId); rafId = null; }
         }
 
-        document.getElementById('pause-btn').addEventListener('click', () => {
-            if (gameStatus !== 'running') return;
-            paused = !paused;
-            const btn = document.getElementById('pause-btn');
-            btn.textContent = paused ? 'Resume' : 'Pause';
-            btn.classList.toggle('active', paused);
-            if (paused) stopLoop(); else startLoop();
-        });
+        // setRate drives the segmented Pause/1×/2×/4× control: rate 0 pauses, any
+        // other value sets the sim-speed multiplier and (re)starts the clock. The
+        // four states are mutually exclusive, so exactly one button is highlighted.
+        function setRate(rate) {
+            if (rate === 0) {
+                paused = true;
+                stopLoop();
+            } else {
+                simSpeed = rate;
+                paused = false;
+                startLoop(); // no-op if the game is over or already looping
+            }
+            document.querySelectorAll('#speed-buttons .btn')
+                .forEach(b => b.classList.toggle('active', Number(b.dataset.speed) === rate));
+        }
 
         // ---- Paint brush -----------------------------------------------------
         // When active, dragging paints treatments instead of panning the map. Each
@@ -536,6 +551,9 @@
         // once gameConfig exists (reset and the horizon buttons mutate it).
         function wireControls() {
             document.getElementById('reset-btn').addEventListener('click', reset);
+            // Segmented Pause/1×/2×/4× control.
+            document.querySelectorAll('#speed-buttons .btn').forEach(b =>
+                b.addEventListener('click', () => setRate(Number(b.dataset.speed))));
             document.getElementById('brush-btn').addEventListener('click', () => setBrushActive(!brushActive));
             const size = document.getElementById('brush-size');
             brushSize = parseInt(size.value, 10) || 0;

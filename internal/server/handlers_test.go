@@ -219,6 +219,8 @@ func TestHandleGame(t *testing.T) {
 		`id="brush-size"`,      // brush-size slider
 		`id="horizon-buttons"`, // selectable horizon + endless
 		`data-horizon="endless"`,
+		`id="speed-buttons"`, // segmented Pause / 1× / 2× / 4× control
+		`data-speed="2"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("game page missing expected control markup %q", want)
