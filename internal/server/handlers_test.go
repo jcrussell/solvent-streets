@@ -200,6 +200,124 @@ func TestHandleGame(t *testing.T) {
 	if got := w.Header().Get("Cache-Control"); got != "public, max-age=300" {
 		t.Errorf("game Cache-Control = %q, want %q", got, "public, max-age=300")
 	}
+	// Single-city: no selector and data served from /data/ (empty prefix).
+	if strings.Contains(body, `id="city-select"`) {
+		t.Errorf("single-city game page should not render the city selector")
+	}
+	if !strings.Contains(body, "const DATA_PREFIX = '';") {
+		t.Errorf("single-city game page should set DATA_PREFIX = ''")
+	}
+}
+
+// TestHandleGame_MultiCity verifies /play renders per-city in multi-city mode:
+// the selector is present, ?city=<slug> renders that city's board prefix and
+// project name (so the simulation seeds from the right city, not always the
+// first), and an unknown slug falls back to the first renderable city instead
+// of 404/500.
+func TestHandleGame_MultiCity(t *testing.T) {
+	testBoundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
+	newStore := func() *dbtest.MockStore {
+		return &dbtest.MockStore{
+			GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
+			LatestComputeResultFunc: func(_ context.Context, _ resource.Type) (*db.ComputeResult, error) {
+				return nil, sql.ErrNoRows
+			},
+		}
+	}
+	cfg := &config.Config{Cities: []config.CityConfig{
+		{Name: "City A"}, {Name: "City B"},
+	}}
+	entries := []export.CityEntry{
+		{Config: cfg, City: cfg.Cities[0], Store: newStore(), Slug: cfg.Cities[0].Slug()},
+		{Config: cfg, City: cfg.Cities[1], Store: newStore(), Slug: cfg.Cities[1].Slug()},
+	}
+	slugA, slugB := entries[0].Slug, entries[1].Slug
+	ios, _, _, _ := iostreams.Test()
+	srv := New(entries, "127.0.0.1", 0, ios)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /play", srv.handleGame)
+
+	get := func(target string) (int, string) {
+		req, _ := http.NewRequestWithContext(context.Background(), "GET", target, nil)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		return w.Code, w.Body.String()
+	}
+
+	// Default (no ?city=): first renderable city (config order = A), selector present.
+	code, body := get("/play")
+	if code != http.StatusOK {
+		t.Fatalf("GET /play: expected 200, got %d: %s", code, body)
+	}
+	if !strings.Contains(body, `id="city-select"`) {
+		t.Errorf("multi-city game page should render the city selector")
+	}
+	if !strings.Contains(body, "const DATA_PREFIX = 'cities/"+slugA+"/';") {
+		t.Errorf("default /play should render city A's data prefix %q", slugA)
+	}
+
+	// ?city=B renders city B's prefix AND project name — proving the per-city
+	// scalars (the simulation seed) track the request, not the first city.
+	code, body = get("/play?city=" + slugB)
+	if code != http.StatusOK {
+		t.Fatalf("GET /play?city=%s: expected 200, got %d", slugB, code)
+	}
+	if !strings.Contains(body, "const DATA_PREFIX = 'cities/"+slugB+"/';") {
+		t.Errorf("/play?city=%s should render city B's data prefix", slugB)
+	}
+	if !strings.Contains(body, "City B") {
+		t.Errorf("/play?city=%s should render city B's project name in the HUD", slugB)
+	}
+
+	// Unknown slug falls back to the first renderable city (200, not 404/500).
+	code, body = get("/play?city=no-such-city")
+	if code != http.StatusOK {
+		t.Fatalf("GET /play?city=no-such-city: expected 200 fallback, got %d", code)
+	}
+	if !strings.Contains(body, "const DATA_PREFIX = 'cities/"+slugA+"/';") {
+		t.Errorf("unknown-slug /play should fall back to city A's prefix")
+	}
+}
+
+// TestHandleGame_MultiCity_BrokenCityFallback verifies the per-city render
+// tolerates a configured-but-unbuildable city: requesting that city (a known
+// slug whose buildIndexData fails) falls back to the first renderable city
+// rather than 500ing, matching firstRenderableCity's skip-broken tolerance.
+func TestHandleGame_MultiCity_BrokenCityFallback(t *testing.T) {
+	testBoundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
+	// City A renders; City B is broken (no boundary → buildIndexData errors).
+	storeA := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
+		LatestComputeResultFunc: func(_ context.Context, _ resource.Type) (*db.ComputeResult, error) {
+			return nil, sql.ErrNoRows
+		},
+	}
+	storeB := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return "", errors.New("no boundary stored") },
+	}
+	cfg := &config.Config{Cities: []config.CityConfig{
+		{Name: "City A"}, {Name: "City B"},
+	}}
+	entries := []export.CityEntry{
+		{Config: cfg, City: cfg.Cities[0], Store: storeA, Slug: cfg.Cities[0].Slug()},
+		{Config: cfg, City: cfg.Cities[1], Store: storeB, Slug: cfg.Cities[1].Slug()},
+	}
+	slugA, slugB := entries[0].Slug, entries[1].Slug
+	ios, _, _, _ := iostreams.Test()
+	srv := New(entries, "127.0.0.1", 0, ios)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /play", srv.handleGame)
+
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", "/play?city="+slugB, nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /play?city=%s (broken): expected 200 fallback, got %d", slugB, w.Code)
+	}
+	// Fell back to A — A's data prefix, not B's, and not a 500.
+	if !strings.Contains(w.Body.String(), "const DATA_PREFIX = 'cities/"+slugA+"/';") {
+		t.Errorf("broken-city /play should fall back to city A's prefix, got body without it")
+	}
 }
 
 // TestParseIndexTemplate_StaticExport ensures the static-export render

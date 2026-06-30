@@ -82,24 +82,28 @@ type templateThunk struct {
 // restart-after-changes design (restart for a fresh date), same as every other
 // cached endpoint.
 func (s *Server) renderIndex() ([]byte, error) {
-	return s.renderCachedPage("index", &s.indexPages, s.parsedIndexTemplate)
+	return s.renderCachedPage("index", &s.indexPages, s.parsedIndexTemplate, s.firstRenderableCity)
 }
 
 // renderCachedPage is the shared engine behind renderIndex and renderGame: it
-// renders the chosen template against firstRenderableCity's TemplateData and
-// caches the resulting bytes under key in pages, single-flighting via
-// sync.OnceValues and evicting on error/panic so a failed render isn't locked in
-// for the server's lifetime. pages and parse are the only things that differ
-// between the index and game pages. firstRenderableCity runs against
-// context.Background() (not a request ctx) for the reason on serveJSONCached: the
-// first arriver's build outlives their request and is shared.
-func (s *Server) renderCachedPage(key string, pages *sync.Map, parse func(units.System) (*template.Template, error)) ([]byte, error) {
+// renders the chosen template against the resolver's TemplateData and caches the
+// resulting bytes under key in pages, single-flighting via sync.OnceValues and
+// evicting on error/panic so a failed render isn't locked in for the server's
+// lifetime. pages, parse, and resolve are the only things that differ between
+// the index and game pages.
+//
+// resolve picks the city (and its TemplateData) the page renders against; it is
+// the only thing that differs between the index (always firstRenderableCity)
+// and the game's per-?city= render (a chosen entry with firstRenderableCity
+// fallback). It runs against context.Background() — the first arriver's build
+// outlives their request and is shared.
+func (s *Server) renderCachedPage(key string, pages *sync.Map, parse func(units.System) (*template.Template, error), resolve func(context.Context) (export.CityEntry, export.TemplateData, error)) ([]byte, error) {
 	var entry *indexThunk
 	if v, ok := pages.Load(key); ok {
 		entry = v.(*indexThunk) //nolint:forcetypeassert // type invariant: only render sites Store *indexThunk here
 	} else {
 		fresh := &indexThunk{once: sync.OnceValues(func() ([]byte, error) {
-			city, td, err := s.firstRenderableCity(context.Background())
+			city, td, err := resolve(context.Background())
 			if err != nil {
 				return nil, err
 			}
@@ -134,17 +138,20 @@ func (s *Server) renderCachedPage(key string, pages *sync.Map, parse func(units.
 	return page, nil
 }
 
-// handleGame serves the /play game page. It mirrors handleIndex exactly: the
-// page reuses the same TemplateData as the index (so the board, forecast seed,
-// and layer colors are already wired), and rides the same lifetime-cache +
-// shared /forecast.wasm + /data/{file} endpoints — only the template differs.
-func (s *Server) handleGame(w http.ResponseWriter, _ *http.Request) {
+// handleGame serves the /play game page. Unlike handleIndex (which renders one
+// canonical page and switches cities client-side via DATA_PREFIX), the game
+// renders per-city: the page injects a city's FORECAST_SEED, CENTER, and project
+// name as scalars used to *seed* the simulation, so each city must be rendered
+// against its own TemplateData. The selected city comes from ?city=<slug>; the
+// dropdown navigates there. It rides the same lifetime-cache + shared
+// /forecast.wasm + per-city /data endpoints — only the template differs.
+func (s *Server) handleGame(w http.ResponseWriter, r *http.Request) {
 	if len(s.cities) == 0 {
 		http.Error(w, "no cities configured", http.StatusInternalServerError)
 		return
 	}
 
-	page, err := s.renderGame()
+	page, err := s.renderGame(r.URL.Query().Get("city"))
 	if err != nil {
 		s.httpErr(w, err, http.StatusInternalServerError)
 		return
@@ -152,15 +159,30 @@ func (s *Server) handleGame(w http.ResponseWriter, _ *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=300")
-	w.Write(page)
+	w.Write(page) //nolint:gosec // G705: page is html/template output (auto-escaped); ?city only selects a pre-configured city via cityBySlug, it is never written into the page.
 }
 
-// renderGame is the /play counterpart to renderIndex: same firstRenderableCity
-// + buildIndexData TemplateData (the game page needs the same data), same
-// single-flight/evict-on-error caching, only the parsed template differs. See
-// renderIndex for the mechanism and the restart-after-changes caveats.
-func (s *Server) renderGame() ([]byte, error) {
-	return s.renderCachedPage("game", &s.gamePages, s.parsedGameTemplate)
+// renderGame renders (and caches per slug) the /play page for the requested
+// city. A known slug renders that city; an empty or unknown slug — and any city
+// whose data fails to build — falls back to firstRenderableCity, preserving the
+// skip-broken-city tolerance of the rest of the multi-city surface. Each city's
+// page is cached under its own key so a busy city doesn't re-render per request.
+func (s *Server) renderGame(slug string) ([]byte, error) {
+	key, resolve := "game", s.firstRenderableCity
+	if entry := s.cityBySlug(slug); entry != nil {
+		key = "game:" + slug
+		resolve = func(ctx context.Context) (export.CityEntry, export.TemplateData, error) {
+			td, err := s.buildIndexData(ctx, *entry)
+			if err != nil {
+				// A broken requested city shouldn't 500 the game; fall back to
+				// the first city that does render (matching the index).
+				fmt.Fprintf(s.ios.ErrOut, "server: skipping city %s for /play: %v\n", entry.Slug, err)
+				return s.firstRenderableCity(ctx)
+			}
+			return *entry, td, nil
+		}
+	}
+	return s.renderCachedPage(key, &s.gamePages, s.parsedGameTemplate, resolve)
 }
 
 // parsedGameTemplate is the /play counterpart to parsedIndexTemplate: it
@@ -252,7 +274,9 @@ func (s *Server) buildIndexData(ctx context.Context, entry export.CityEntry) (ex
 	fc := entry.Config.ResolvedForecast(&entry.City)
 
 	var cities []export.CityInfo
+	var activeSlug string
 	if len(s.cities) > 1 {
+		activeSlug = entry.Slug
 		for _, e := range s.cities {
 			info, err := e.Info(ctx)
 			if err != nil {
@@ -286,6 +310,7 @@ func (s *Server) buildIndexData(ctx context.Context, entry export.CityEntry) (ex
 		UnitSystem:      entry.Config.UnitSystem().String(),
 		Cities:          cities,
 		CitiesByRegion:  export.GroupCitiesByRegion(cities),
+		ActiveSlug:      activeSlug,
 		MethodologyHTML: methodology,
 		IsLiveServer:    true,
 		GeneratedDate:   date,

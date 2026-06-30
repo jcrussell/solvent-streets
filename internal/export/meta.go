@@ -52,7 +52,12 @@ type TemplateData struct {
 	// name within each), then the empty-region group ("Other") last. Built
 	// alongside Cities; the flat Cities slice is kept for the CITIES JS array
 	// and cities.json.
-	CitiesByRegion  []CityGroup
+	CitiesByRegion []CityGroup
+	// ActiveSlug is the slug of the city this page was rendered against, set
+	// only in multi-city mode (empty single-city). The game page (/play) renders
+	// per-city and uses it to emit DATA_PREFIX ('cities/<slug>/') and pre-select
+	// the city dropdown; the index ignores it (it switches cities client-side).
+	ActiveSlug      string
 	WasmPrefix      string // path prefix for WASM assets (e.g. "../"); empty = same directory
 	MethodologyHTML template.HTML
 	// IsLiveServer is true when rendered by pvmt serve; false for static

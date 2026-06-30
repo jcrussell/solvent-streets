@@ -69,19 +69,18 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		entry := s.cities[0]
 		mux.HandleFunc("GET /data/{file}", s.handleDataFile(entry))
 		mux.HandleFunc("GET /api/snapshots", s.handleSnapshotsList(entry))
-		mux.HandleFunc("GET /play", s.handleGame) // single-city only; see multi-city branch note
+		mux.HandleFunc("GET /play", s.handleGame) // DATA_PREFIX='' → /data/<file>
 		mux.HandleFunc("GET /", s.handleIndex)
 	} else {
 		// Multi-city mode
 		mux.HandleFunc("GET /api/cities", s.handleCitiesList)
 		mux.HandleFunc("GET /api/cities/{slug}/snapshots", s.handleCitySnapshotsList)
 		mux.HandleFunc("GET /cities/{slug}/data/{file}", s.handleCityDataFile)
+		// /play renders per-city: the city comes from ?city=<slug> (the dropdown
+		// navigates there), defaulting to the first renderable city, and the page
+		// fetches its board under /cities/{slug}/data/. See handleGame.
+		mux.HandleFunc("GET /play", s.handleGame)
 		mux.HandleFunc("GET /", s.handleIndex)
-		// NOTE: /play is intentionally single-city only. The game page hardcodes
-		// DATA_PREFIX='' and fetches /data/<file>, which only exists in the
-		// single-city branch; multi-city serves data under /cities/{slug}/data/.
-		// Multi-city /play needs a city selector + templated prefix — see the
-		// "multi-city /play" follow-up bead.
 	}
 
 	// WASM assets (shared)

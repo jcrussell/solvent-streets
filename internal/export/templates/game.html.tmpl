@@ -38,6 +38,15 @@
         .solvency.ok  { color: #6fe08a; }
         .solvency .num { font-size: 19px; }
 
+        /* City selector — top center. Its own panel (not inside #hud) so it
+           stays visible during board load and even if a city fails to render. */
+        #city-bar { top: 12px; left: 50%; transform: translateX(-50%); padding: 8px 12px; }
+        #city-bar label { font-size: 12px; color: #9aa4b2; margin-right: 8px; }
+        #city-select {
+            background: #1c2330; color: #e8eaed; border: 1px solid #384152;
+            border-radius: 6px; padding: 4px 8px; font-size: 13px; cursor: pointer;
+        }
+
         /* Controls — bottom left */
         #controls { bottom: 12px; left: 12px; padding: 14px 18px; min-width: 260px; }
         #controls .ctrl-block { margin-bottom: 14px; }
@@ -109,6 +118,15 @@
 
     <div id="loading">Loading board&hellip;</div>
 
+    {{if .Cities}}
+    <div class="panel" id="city-bar">
+        <label for="city-select">City</label>
+        <select id="city-select">
+            {{range .CitiesByRegion}}{{if .Region}}<optgroup label="{{.Region}}">{{range .Cities}}<option value="{{.Slug}}"{{if eq .Slug $.ActiveSlug}} selected{{end}}>{{.Name}}</option>{{end}}</optgroup>{{else}}{{range .Cities}}<option value="{{.Slug}}"{{if eq .Slug $.ActiveSlug}} selected{{end}}>{{.Name}}</option>{{end}}{{end}}{{end}}
+        </select>
+    </div>
+    {{end}}
+
     <div class="panel" id="hud" style="display:none">
         <h1>Pavement Manager &mdash; {{.MetaJSON.ProjectName}}</h1>
         <div class="hud-row"><span class="k">Year</span><span class="v" id="hud-year">&mdash;</span></div>
@@ -148,8 +166,22 @@
         const CENTER = [{{.CenterLon}}, {{.CenterLat}}];
         const FORECAST_SEED = {{.ForecastSeed}};
         const LAYER_COLORS = {{.LayerColors}};
-        // Single-city: data files are served at /data/<file>.
-        const DATA_PREFIX = '';
+        // Single-city: data files are served at /data/<file>. Multi-city: the
+        // server renders this page for one city (?city=<slug>, default first)
+        // and injects its slug so the board loads from /cities/<slug>/data/.
+        const DATA_PREFIX = {{if .ActiveSlug}}'cities/{{.ActiveSlug}}/'{{else}}''{{end}};
+
+        // City dropdown (multi-city only): navigate to the chosen city. A full
+        // reload is the clean reset for the stateful board (MapLibre source +
+        // WASM game state + timers) — the server then renders that city's seed.
+        {
+            const sel = document.getElementById('city-select');
+            if (sel) sel.addEventListener('change', () => {
+                const u = new URL(location.href);
+                u.searchParams.set('city', sel.value);
+                location.assign(u);
+            });
+        }
 
         // ---- Tunables --------------------------------------------------------
         // Real-time → sim-time conversion: 1 sim-year ~ 3 real seconds.
