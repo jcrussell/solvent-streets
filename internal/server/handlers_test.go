@@ -207,7 +207,7 @@ func TestHandleGame(t *testing.T) {
 	if strings.Contains(body, `id="city-select"`) {
 		t.Errorf("single-city game page should not render the city selector")
 	}
-	if !strings.Contains(body, "const DATA_PREFIX = '';") {
+	if !strings.Contains(body, "let DATA_PREFIX = '';") {
 		t.Errorf("single-city game page should set DATA_PREFIX = ''")
 	}
 	// Play-test feedback controls: nav link back to the map, reset, the always-on
@@ -280,7 +280,7 @@ func TestHandleGame_MultiCity(t *testing.T) {
 	if !strings.Contains(body, `id="city-select"`) {
 		t.Errorf("multi-city game page should render the city selector")
 	}
-	if !strings.Contains(body, "const DATA_PREFIX = 'cities/"+slugA+"/';") {
+	if !strings.Contains(body, "let DATA_PREFIX = 'cities/"+slugA+"/';") {
 		t.Errorf("default /play should render city A's data prefix %q", slugA)
 	}
 
@@ -290,7 +290,7 @@ func TestHandleGame_MultiCity(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("GET /play?city=%s: expected 200, got %d", slugB, code)
 	}
-	if !strings.Contains(body, "const DATA_PREFIX = 'cities/"+slugB+"/';") {
+	if !strings.Contains(body, "let DATA_PREFIX = 'cities/"+slugB+"/';") {
 		t.Errorf("/play?city=%s should render city B's data prefix", slugB)
 	}
 	if !strings.Contains(body, "City B") {
@@ -302,7 +302,7 @@ func TestHandleGame_MultiCity(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("GET /play?city=no-such-city: expected 200 fallback, got %d", code)
 	}
-	if !strings.Contains(body, "const DATA_PREFIX = 'cities/"+slugA+"/';") {
+	if !strings.Contains(body, "let DATA_PREFIX = 'cities/"+slugA+"/';") {
 		t.Errorf("unknown-slug /play should fall back to city A's prefix")
 	}
 }
@@ -343,7 +343,7 @@ func TestHandleGame_MultiCity_BrokenCityFallback(t *testing.T) {
 		t.Fatalf("GET /play?city=%s (broken): expected 200 fallback, got %d", slugB, w.Code)
 	}
 	// Fell back to A — A's data prefix, not B's, and not a 500.
-	if !strings.Contains(w.Body.String(), "const DATA_PREFIX = 'cities/"+slugA+"/';") {
+	if !strings.Contains(w.Body.String(), "let DATA_PREFIX = 'cities/"+slugA+"/';") {
 		t.Errorf("broken-city /play should fall back to city A's prefix, got body without it")
 	}
 }

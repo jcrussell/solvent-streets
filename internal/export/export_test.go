@@ -153,3 +153,106 @@ func TestRunMultiCity_AlphabetisesCitySelector(t *testing.T) {
 		}
 	}
 }
+
+// boundaryMinLon returns the smallest longitude in a GeoJSON Polygon boundary
+// string. roadEntry uses it to place roads relative to the boundary's western
+// edge, so the same helper drops roads inside exportBoundaryA (-122.5..-122.4)
+// or exportBoundaryB (-121.5..-121.4) — otherwise a fixed -122.x road would
+// clip out of B and leave bravo with no play-hexes.
+func boundaryMinLon(t *testing.T, boundary string) float64 {
+	t.Helper()
+	var poly struct {
+		Coordinates [][][]float64 `json:"coordinates"`
+	}
+	if err := json.Unmarshal([]byte(boundary), &poly); err != nil {
+		t.Fatalf("parse boundary: %v", err)
+	}
+	if len(poly.Coordinates) == 0 || len(poly.Coordinates[0]) == 0 {
+		t.Fatalf("boundary has no ring")
+	}
+	minLon := poly.Coordinates[0][0][0]
+	for _, pt := range poly.Coordinates[0] {
+		if pt[0] < minLon {
+			minLon = pt[0]
+		}
+	}
+	return minLon
+}
+
+// roadEntry augments an exportTestEntry with city-jurisdiction road features so
+// BuildPlayHexes emits a board (and the exporter writes play-hexes.json). The
+// roads sit inside the given boundary (offsets from its western edge) so their
+// buffered footprint clips into hexes.
+func roadEntry(t *testing.T, cfg *config.Config, name, slug, boundary string) CityEntry {
+	t.Helper()
+	lon0 := boundaryMinLon(t, boundary)
+	entry := exportTestEntry(cfg, name, slug, boundary, map[resource.Type]db.ComputeResult{
+		resource.TypeRoads: {ResourceType: resource.TypeRoads, TotalArea: 1000, FeatureCount: 2},
+	})
+	entry.Store.(*dbtest.MockStore).ListFeaturesFunc = func(_ context.Context, rt resource.Type) ([]db.Feature, error) {
+		if rt == resource.TypeRoads {
+			return []db.Feature{
+				lineFeature("primary-1", "primary", lon0+0.015, 37.515, lon0+0.030, 37.515),
+				lineFeature("res-1", "residential", lon0+0.080, 37.585, lon0+0.095, 37.585),
+			}, nil
+		}
+		return nil, nil
+	}
+	return entry
+}
+
+// TestRunSingleCity_WritesPlayPage: the static export must emit a play.html at
+// the site root and the board's data/play-hexes.json, so /play works on a plain
+// static host. Single-city has no city selector and an empty DATA_PREFIX.
+func TestRunSingleCity_WritesPlayPage(t *testing.T) {
+	cfg := &config.Config{}
+	entry := roadEntry(t, cfg, "Solo City", "solo-city", exportBoundaryA)
+
+	dir := t.TempDir()
+	if err := New([]CityEntry{entry}, cfg, dir, "metric").Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	play, err := os.ReadFile(filepath.Join(dir, "play.html"))
+	if err != nil {
+		t.Fatalf("read play.html: %v", err)
+	}
+	if !strings.Contains(string(play), "let DATA_PREFIX = '';") {
+		t.Errorf("single-city play.html should set DATA_PREFIX = ''")
+	}
+	if strings.Contains(string(play), `id="city-select"`) {
+		t.Errorf("single-city play.html should not render a city selector")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "data", "play-hexes.json")); err != nil {
+		t.Errorf("expected data/play-hexes.json: %v", err)
+	}
+}
+
+// TestRunMultiCity_WritesPlayPageAndHexes: multi-city export emits one root
+// play.html (with a city selector) and per-city play-hexes.json under
+// cities/<slug>/data/.
+func TestRunMultiCity_WritesPlayPageAndHexes(t *testing.T) {
+	cfg := &config.Config{}
+	entries := []CityEntry{
+		roadEntry(t, cfg, "Alpha", "alpha", exportBoundaryA),
+		roadEntry(t, cfg, "Bravo", "bravo", exportBoundaryB),
+	}
+
+	dir := t.TempDir()
+	if err := New(entries, cfg, dir, "metric").Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	play, err := os.ReadFile(filepath.Join(dir, "play.html"))
+	if err != nil {
+		t.Fatalf("read play.html: %v", err)
+	}
+	if !strings.Contains(string(play), `id="city-select"`) {
+		t.Errorf("multi-city play.html should render a city selector")
+	}
+	for _, slug := range []string{"alpha", "bravo"} {
+		if _, err := os.Stat(filepath.Join(dir, "cities", slug, "data", "play-hexes.json")); err != nil {
+			t.Errorf("expected cities/%s/data/play-hexes.json: %v", slug, err)
+		}
+	}
+}

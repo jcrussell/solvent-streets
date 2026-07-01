@@ -161,7 +161,7 @@
 
     <div id="topbar">
         <span class="brand">Pavement Manager</span>
-        <a class="navlink" href="/">&larr; Map</a>
+        <a class="navlink" href="{{if .IsLiveServer}}/{{else}}index.html{{end}}">&larr; Map</a>
         <span class="spacer"></span>
         {{if .Cities}}
         <label for="city-select" style="font-size:12px;color:#9aa4b2;">City</label>
@@ -231,27 +231,45 @@
     <div id="banner"></div>
 
     <!-- Shared with the index page; mounted once on the server (do not duplicate). -->
-    <script src="/wasm_exec.js"></script>
+    <script src="{{.WasmPrefix}}wasm_exec.js"></script>
     <script>
         // ---- Template-injected payload (same wiring as index.html.tmpl) -------
         const CENTER = [{{.CenterLon}}, {{.CenterLat}}];
         const FORECAST_SEED = {{.ForecastSeed}};
         const LAYER_COLORS = {{.LayerColors}};
-        // Single-city: data files are served at /data/<file>. Multi-city: the
-        // server renders this page for one city (?city=<slug>, default first)
-        // and injects its slug so the board loads from /cities/<slug>/data/.
-        const DATA_PREFIX = {{if .ActiveSlug}}'cities/{{.ActiveSlug}}/'{{else}}''{{end}};
+        // Single-city: data files are at data/<file> (DATA_PREFIX ''). Multi-city:
+        // the live server injects the active city's slug (it re-renders per
+        // ?city=<slug>); a static host leaves ActiveSlug empty, so the block below
+        // resolves the city client-side from ?city= against the selector options.
+        let DATA_PREFIX = {{if .ActiveSlug}}'cities/{{.ActiveSlug}}/'{{else}}''{{end}};
+        // Back-to-map target: absolute on the live server, relative on a static
+        // host so navigation stays inside a gensite example dir (/<example>/).
+        const MAP_HREF = {{if .IsLiveServer}}'/'{{else}}'index.html'{{end}};
 
-        // City dropdown (multi-city only): navigate to the chosen city. A full
-        // reload is the clean reset for the stateful board (MapLibre source +
-        // WASM game state + timers) — the server then renders that city's seed.
+        // City dropdown (multi-city only). Resolve the active city from ?city= on
+        // boot (validated against the selector's own options), then reload to
+        // <current-path>?city=<slug> on change — a full reload is the clean reset
+        // for the stateful board (MapLibre source + WASM game state + timers), and
+        // using location.href keeps us on play.html (static) or /play (server).
         {
             const sel = document.getElementById('city-select');
-            if (sel) sel.addEventListener('change', () => {
-                const u = new URL(location.href);
-                u.searchParams.set('city', sel.value);
-                location.assign(u);
-            });
+            if (sel) {
+                const valid = new Set(Array.from(sel.options).map(o => o.value));
+                const want = new URLSearchParams(location.search).get('city');
+                if (want && valid.has(want)) {
+                    DATA_PREFIX = 'cities/' + want + '/';
+                    sel.value = want;
+                } else if (!DATA_PREFIX && sel.value) {
+                    // Static multi-city with no valid ?city=: default to the first
+                    // option (a multi-city export has no root data/ dir).
+                    DATA_PREFIX = 'cities/' + sel.value + '/';
+                }
+                sel.addEventListener('change', () => {
+                    const u = new URL(location.href);
+                    u.searchParams.set('city', sel.value);
+                    location.assign(u);
+                });
+            }
         }
 
         // ---- Tunables --------------------------------------------------------
@@ -438,7 +456,7 @@
                 '</div>' +
                 '<div class="banner-actions">' +
                     '<button class="btn" type="button" id="play-again">Play again</button>' +
-                    '<a class="btn" href="/">&larr; Map</a>' +
+                    '<a class="btn" href="' + MAP_HREF + '">&larr; Map</a>' +
                 '</div>';
             document.getElementById('play-again').addEventListener('click', showStartScreen);
         }
@@ -830,7 +848,7 @@
 
         if (typeof WebAssembly !== 'undefined' && typeof Go !== 'undefined') {
             const go = new Go();
-            WebAssembly.instantiateStreaming(fetch('/forecast.wasm'), go.importObject)
+            WebAssembly.instantiateStreaming(fetch('{{.WasmPrefix}}forecast.wasm'), go.importObject)
                 .then(result => { go.run(result.instance); onWasmReady(); })
                 .catch(err => showError('forecast WASM', err.message || String(err)));
         } else {

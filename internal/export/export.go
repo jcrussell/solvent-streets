@@ -399,10 +399,6 @@ func (e *Exporter) writeWasmAssets(dir string) error {
 
 func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolvedTOML, unitSystem string, cities []CityInfo) error {
 	sys := units.ParseSystem(unitSystem)
-	tmpl, err := ParseIndexTemplate(sys)
-	if err != nil {
-		return err
-	}
 
 	methodology, err := MethodologyHTML()
 	if err != nil {
@@ -422,18 +418,29 @@ func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolved
 		MethodologyHTML: methodology,
 		GeneratedDate:   date,
 		BuildVersion:    ver,
+		// IsLiveServer and ActiveSlug stay zero: this is the static export, so
+		// the game page resolves the active city client-side from ?city=.
 	}
 
-	// Render to a buffer first so an interrupted Execute (template error,
-	// process kill) cannot leave a partially-written index.html visible at
-	// the target path. cmdutil.WriteFile then does temp+rename in the same
-	// directory for an atomic replacement.
+	if err := e.renderPage(ParseIndexTemplate, sys, td, "index.html"); err != nil {
+		return err
+	}
+	return e.renderPage(ParseGameTemplate, sys, td, "play.html")
+}
+
+// renderPage parses a page template for the unit system and renders it against
+// td into outputDir/name. Rendering to a buffer first (then cmdutil.WriteFile's
+// temp+rename) keeps an interrupted Execute from leaving a partial file visible.
+func (e *Exporter) renderPage(parse func(units.System) (*template.Template, error), sys units.System, td TemplateData, name string) error {
+	tmpl, err := parse(sys)
+	if err != nil {
+		return err
+	}
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, td); err != nil {
 		return err
 	}
-	outPath := filepath.Join(e.outputDir, "index.html")
-	return cmdutil.WriteFile(outPath, buf.Bytes(), 0o644)
+	return cmdutil.WriteFile(filepath.Join(e.outputDir, name), buf.Bytes(), 0o644)
 }
 
 func writeJSON(path string, v any) error {
