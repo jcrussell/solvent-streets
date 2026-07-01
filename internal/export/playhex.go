@@ -41,7 +41,7 @@ type hexBlend struct {
 // rot first. Only road-bearing hexes are emitted; a hex with no clipped road
 // area is omitted. Output is sorted by hex id for byte-stable serving.
 //
-// Geometry assembly mirrors BuildHexGeoJSON's city-scope path exactly — same
+// Geometry assembly shares the cityHexGrid helper with BuildHexGeoJSON — same
 // grid (HexGrid over the projected boundary bbox), same boundary clip and
 // sliver filter — so the emitted ids are a subset of the served hexgrid.geojson
 // ids. Road features are read through the placeholder-safe ListFeatures store
@@ -127,19 +127,4 @@ func BuildPlayHexes(ctx context.Context, entry CityEntry, proj *geo.UTMProjector
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
-}
-
-// cityHexGrid builds the boundary-clipped, sliver-filtered hex grid for entry,
-// identical to BuildHexGeoJSON's grid so hex ids line up across data files.
-func cityHexGrid(ctx context.Context, entry CityEntry, proj *geo.UTMProjector) ([]geo.Hex, error) {
-	bbox, _, _, err := entry.BBoxAndCenter(ctx)
-	if err != nil {
-		return nil, err
-	}
-	hexEdge := entry.Config.ResolvedHexEdge(&entry.City)
-	minX, minY, maxX, maxY := geo.ProjectedBBoxExtent(proj, bbox)
-	hexes := geo.HexGrid(minX, minY, maxX, maxY, hexEdge)
-	hexes = clipHexGridToBoundary(ctx, hexes, entry, proj)
-	hexes = filterHexSlivers(hexes, entry.Config.MinHexArea())
-	return hexes, nil
 }

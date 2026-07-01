@@ -49,13 +49,10 @@ func BuildHexGeoJSON(ctx context.Context, entry CityEntry, proj *geo.UTMProjecto
 	// output — unchanged data yields a byte-identical file across regens.
 	sort.Strings(order)
 
-	bbox, _, _, _ := entry.BBoxAndCenter(ctx)
-	hexEdge := entry.Config.ResolvedHexEdge(&entry.City)
-	minX, minY, maxX, maxY := geo.ProjectedBBoxExtent(proj, bbox)
-	hexes := geo.HexGrid(minX, minY, maxX, maxY, hexEdge)
-
-	hexes = clipHexGridToBoundary(ctx, hexes, entry, proj)
-	hexes = filterHexSlivers(hexes, entry.Config.MinHexArea())
+	hexes, err := cityHexGrid(ctx, entry, proj)
+	if err != nil {
+		return nil, err
+	}
 
 	hexMap := make(map[string]*geo.Hex, len(hexes))
 	for i := range hexes {
@@ -184,6 +181,23 @@ func clipHexGridToBoundary(ctx context.Context, hexes []geo.Hex, entry CityEntry
 		}
 	}
 	return filtered
+}
+
+// cityHexGrid builds the boundary-clipped, sliver-filtered hex grid for entry.
+// It is the single source of the grid for both BuildHexGeoJSON (the served
+// hexgrid.geojson) and BuildPlayHexes (the /play board); sharing one function
+// keeps their hex ids ("hex:col:row") in lock-step so the front-end join holds.
+func cityHexGrid(ctx context.Context, entry CityEntry, proj *geo.UTMProjector) ([]geo.Hex, error) {
+	bbox, _, _, err := entry.BBoxAndCenter(ctx)
+	if err != nil {
+		return nil, err
+	}
+	hexEdge := entry.Config.ResolvedHexEdge(&entry.City)
+	minX, minY, maxX, maxY := geo.ProjectedBBoxExtent(proj, bbox)
+	hexes := geo.HexGrid(minX, minY, maxX, maxY, hexEdge)
+	hexes = clipHexGridToBoundary(ctx, hexes, entry, proj)
+	hexes = filterHexSlivers(hexes, entry.Config.MinHexArea())
+	return hexes, nil
 }
 
 // buildHexFeature builds one GeoJSON feature for a hex from its aggregated
