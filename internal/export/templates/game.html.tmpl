@@ -42,13 +42,17 @@
         .hud-row { display: flex; justify-content: space-between; gap: 18px; padding: 3px 0; font-size: 13px; }
         .hud-row .k { color: #9aa4b2; }
         .hud-row .v { font-weight: 600; font-variant-numeric: tabular-nums; }
-        .solvency {
-            margin-top: 10px; padding-top: 10px; border-top: 1px solid #2a3140;
-            font-size: 15px; font-weight: 700; line-height: 1.35;
+        /* Pregame budget-difficulty preview on the start overlay. */
+        #start-projection {
+            margin: 12px 0 2px; font-size: 14px; font-weight: 700; line-height: 1.35;
+            min-height: 19px;
         }
-        .solvency.bad { color: #ff7a6b; }
-        .solvency.ok  { color: #6fe08a; }
-        .solvency .num { font-size: 19px; }
+        #start-projection.bad { color: #ff7a6b; }
+        #start-projection.ok  { color: #6fe08a; }
+        #start-projection .num { font-size: 17px; }
+        /* Live "out of funds" warning + red treasury readout. */
+        .funds-warn { display: none; margin-top: 8px; color: #ff7a6b; font-size: 13px; font-weight: 700; }
+        .hud-row .v.broke { color: #ff7a6b; }
 
         /* City selector — lives in the top bar */
         #city-select {
@@ -70,10 +74,9 @@
             padding: 7px 14px; font-size: 13px; cursor: pointer; transition: all .12s;
         }
         .btn:hover { border-color: #4f8cff; }
-        .tier-buttons, .row-buttons { display: flex; gap: 6px; flex-wrap: wrap; }
-        .tier-buttons .btn, .row-buttons .btn { flex: 1; }
-        .tier-buttons .btn { text-transform: capitalize; }
-        .tier-buttons .btn.active, .row-buttons .btn.active, #pause-btn.active, #brush-btn.active {
+        .row-buttons { display: flex; gap: 6px; flex-wrap: wrap; }
+        .row-buttons .btn { flex: 1; }
+        .row-buttons .btn.active, #pause-btn.active {
             background: #4f8cff; border-color: #4f8cff; color: #fff;
         }
         #pause-btn { font-weight: 600; }
@@ -120,6 +123,21 @@
         #banner .banner-actions { display: flex; gap: 8px; justify-content: center; }
         #banner .banner-actions .btn { text-decoration: none; flex: 1; text-align: center; }
 
+        /* Pre-game start screen: pick the horizon once, then play. */
+        #start-overlay {
+            position: absolute; z-index: 55; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 26px 34px; border-radius: 14px; text-align: center;
+            min-width: 340px; display: none;
+            background: #141821; border: 1px solid #2a3140;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+        }
+        #start-overlay .headline { font-size: 24px; font-weight: 800; }
+        #start-overlay .sub { font-size: 14px; font-weight: 500; margin: 6px 0 18px; color: #cdd3db; }
+        #start-overlay label { display: block; font-size: 12px; color: #9aa4b2; margin-bottom: 8px; text-align: left; }
+        #start-overlay .ctrl-value { color: #e8eaed; font-weight: 600; }
+        #start-overlay #start-btn { width: 100%; margin-top: 18px; padding: 10px; font-weight: 700; }
+
         /* Error banner */
         #error-banner {
             position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
@@ -165,9 +183,9 @@
         <h1>Pavement Manager &mdash; {{.MetaJSON.ProjectName}}</h1>
         <div class="hud-row"><span class="k">Year</span><span class="v" id="hud-year">&mdash;</span></div>
         <div class="hud-row"><span class="k">Treasury</span><span class="v" id="hud-treasury">&mdash;</span></div>
+        <div class="funds-warn" id="hud-funds-warn">Out of funds &mdash; waiting on budget</div>
         <div class="hud-row"><span class="k">Network PCI</span><span class="v" id="hud-pci">&mdash;</span></div>
         <div class="hud-row"><span class="k">Backlog</span><span class="v" id="hud-backlog">&mdash;</span></div>
-        <div class="solvency" id="hud-solvency">&mdash;</div>
     </div>
 
     <div class="panel" id="controls" style="display:none">
@@ -182,28 +200,8 @@
             <button class="btn" id="reset-btn" type="button" style="margin-top:8px;width:100%">Reset</button>
         </div>
         <div class="ctrl-block">
-            <label>City Council budget: <span class="ctrl-value" id="budget-value"></span>/yr</label>
-            <input type="range" id="budget-slider" min="0" max="100" value="50" step="1">
-        </div>
-        <div class="ctrl-block">
-            <label>Treatment <span class="hint">(Auto picks the right fix per road)</span></label>
-            <div class="tier-buttons" id="tier-buttons"></div>
-        </div>
-        <div class="ctrl-block">
-            <label>Paint brush <span class="hint">(drag to treat many)</span></label>
-            <div class="row-buttons">
-                <button class="btn" id="brush-btn" type="button">Brush: off</button>
-            </div>
-            <input type="range" id="brush-size" min="0" max="80" value="24" step="2" style="margin-top:8px">
-        </div>
-        <div class="ctrl-block">
-            <label>Horizon</label>
-            <div class="row-buttons" id="horizon-buttons">
-                <button class="btn" type="button" data-horizon="20">20y</button>
-                <button class="btn" type="button" data-horizon="30">30y</button>
-                <button class="btn" type="button" data-horizon="50">50y</button>
-                <button class="btn" type="button" data-horizon="endless">Endless</button>
-            </div>
+            <label>Brush size <span class="hint">(left-drag to treat, right-drag to pan)</span></label>
+            <input type="range" id="brush-size" min="0" max="80" value="24" step="2">
         </div>
     </div>
 
@@ -212,6 +210,22 @@
         <div class="legend-bar"></div>
         <div class="legend-labels"><span>worst</span><span>best</span></div>
         <div class="gravel-key"><span class="gravel-swatch"></span>closed &rarr; gravel</div>
+    </div>
+
+    <div class="panel" id="start-overlay">
+        <div class="headline">Pavement Manager</div>
+        <div class="sub">Keep the network solvent through the horizon.</div>
+        <label>Horizon</label>
+        <div class="row-buttons" id="horizon-buttons">
+            <button class="btn" type="button" data-horizon="20">20y</button>
+            <button class="btn" type="button" data-horizon="30">30y</button>
+            <button class="btn" type="button" data-horizon="50">50y</button>
+            <button class="btn" type="button" data-horizon="endless">Endless</button>
+        </div>
+        <label style="margin-top:16px">Annual budget: <span class="ctrl-value" id="start-budget-value"></span>/yr</label>
+        <input type="range" id="start-budget-slider" min="0" max="100" value="50" step="1" style="width:100%">
+        <div id="start-projection">&mdash;</div>
+        <button class="btn" id="start-btn" type="button">Start</button>
     </div>
 
     <div id="banner"></div>
@@ -335,9 +349,9 @@
         map.addControl(new maplibregl.NavigationControl(), 'top-right');
 
         // ---- Game state (JS holds only view/loop state, never rules) ---------
-        // selectedTier is a cost-tier label, or 'auto' (let the engine pick the
-        // right tier per hex by its condition). Default is 'auto'.
-        let selectedTier = 'auto';
+        // Treatments are always automatic: the engine picks the right tier per hex by
+        // its condition. There is no manual tier selector, so this is fixed at 'auto'.
+        const selectedTier = 'auto';
         let paused = false;
         let started = false;
         let gameStatus = 'running';
@@ -352,13 +366,15 @@
         let gameConfig = null;
         let lastState = null;
         let peakBacklog = 0;
-        // Paint-brush view state. brushActive toggles drag-to-paint (disables map
-        // pan); brushSize is the pixel radius; brushStroke dedupes hexes within one
-        // drag so each is treated at most once.
-        let brushActive = false;
+        // Paint-brush view state. The brush is always on: left-drag paints, so
+        // dragPan is disabled and right-drag pans instead (see boot). brushSize is
+        // the pixel radius; brushStroke dedupes hexes within one drag so each is
+        // treated at most once. panning/panLast track an in-progress right-drag pan.
         let brushSize = 24;
         let painting = false;
         let brushStroke = null;
+        let panning = false;
+        let panLast = null;
 
         // applyState: O(changed) repaint via setFeatureState + HUD refresh.
         // Colors come entirely from Go's band output (see BAND_COLORS / paint).
@@ -387,23 +403,16 @@
             const yr = state.year != null ? state.year.toFixed(1) : '0';
             document.getElementById('hud-year').textContent =
                 endless ? (yr + ' (Endless)') : (yr + (horizon ? ' / ' + horizon : ''));
-            document.getElementById('hud-treasury').textContent = fmtMoney(state.treasury);
+            const treasuryEl = document.getElementById('hud-treasury');
+            treasuryEl.textContent = fmtMoney(state.treasury);
+            // Out of funds: can't afford the cheapest treatment anywhere (Go computes
+            // this). Flag the treasury red and show the standing warning.
+            const broke = !!state.out_of_funds;
+            treasuryEl.classList.toggle('broke', broke);
+            document.getElementById('hud-funds-warn').style.display = broke ? 'block' : 'none';
             document.getElementById('hud-pci').textContent =
                 state.network_pci != null ? state.network_pci.toFixed(1) : '—';
             document.getElementById('hud-backlog').textContent = fmtMoney(state.backlog);
-
-            const sol = document.getElementById('hud-solvency');
-            if (state.insolvency_year == null) {
-                sol.className = 'solvency ok';
-                sol.textContent = 'Solvent through horizon';
-            } else {
-                sol.className = 'solvency bad';
-                // insolvency_year is a static projection from the macro forecast at
-                // the current budget (1-based year from a fresh network), recomputed
-                // only when the budget changes — it is NOT a live countdown, so
-                // label it as a projected year, not "in N yr".
-                sol.innerHTML = 'Insolvent by <span class="num">yr ' + state.insolvency_year + '</span> at this budget';
-            }
         }
 
         function onStatusChange(status) {
@@ -431,35 +440,62 @@
                     '<button class="btn" type="button" id="play-again">Play again</button>' +
                     '<a class="btn" href="/">&larr; Map</a>' +
                 '</div>';
-            document.getElementById('play-again').addEventListener('click', reset);
+            document.getElementById('play-again').addEventListener('click', showStartScreen);
         }
 
-        // reset re-seeds the game from gameConfig (gameInit returns every hex, so
-        // the board fully repaints) and clears all view/loop state. No engine reset
-        // export is needed — gameInit replaces the game.
-        function reset() {
-            if (!gameConfig) return;
+        // seedGame (re)initializes the engine from gameConfig (gameInit returns every
+        // hex, so the board fully repaints) and starts the clock. Shared by reset()
+        // (in-game restart) and startGame() (first run from the start screen). No
+        // engine reset export is needed — gameInit replaces the game. Returns false
+        // if gameInit failed (error already surfaced).
+        function seedGame() {
             const initState = callWasm('gameInit', JSON.stringify(gameConfig));
-            if (!initState) return;
+            if (!initState) return false;
             gameStatus = 'running';
             paused = false;
             peakBacklog = 0;
             // Normalize the segmented Speed control to the running speed (clears any
             // paused highlight, re-marks the active speed).
             setRate(simSpeed);
-            const banner = document.getElementById('banner');
-            banner.className = ''; banner.innerHTML = '';
             stopLoop();
             applyState(initState); // changed == every hex → full repaint
-            // gameInit reset the engine's budget to starting_budget; carry the
-            // player's current slider value back into the fresh game so the slider,
-            // readout, and insolvency headline stay in sync.
-            const slider = document.getElementById('budget-slider');
-            if (slider) {
-                const bs = callWasm('gameSetBudget', parseFloat(slider.value));
-                if (bs) applyState(bs);
-            }
+            // The annual budget is chosen on the start overlay and baked into
+            // gameConfig.starting_budget, so gameInit already seeds the engine at
+            // the right rate — no post-seed budget sync needed.
             startLoop();
+            return true;
+        }
+
+        // reset is the in-game Reset button: a fast same-horizon restart. Clears the
+        // win/lose banner and re-seeds without returning to the start screen.
+        function reset() {
+            if (!gameConfig) return;
+            const banner = document.getElementById('banner');
+            banner.className = ''; banner.innerHTML = '';
+            seedGame();
+        }
+
+        // startGame launches play from the start screen: reveal the HUD/controls and
+        // seed the engine with the chosen horizon.
+        function startGame() {
+            if (!gameConfig) return;
+            document.getElementById('start-overlay').style.display = 'none';
+            document.getElementById('hud').style.display = 'block';
+            document.getElementById('controls').style.display = 'block';
+            document.getElementById('legend').style.display = 'block';
+            seedGame();
+        }
+
+        // showStartScreen returns to the pre-game start overlay (first boot, and
+        // "Play again" after a game ends) so the horizon can be (re)chosen.
+        function showStartScreen() {
+            stopLoop();
+            const banner = document.getElementById('banner');
+            banner.className = ''; banner.innerHTML = '';
+            document.getElementById('hud').style.display = 'none';
+            document.getElementById('controls').style.display = 'none';
+            document.getElementById('legend').style.display = 'none';
+            document.getElementById('start-overlay').style.display = 'block';
         }
 
         // ---- Clock -----------------------------------------------------------
@@ -503,22 +539,10 @@
         }
 
         // ---- Paint brush -----------------------------------------------------
-        // When active, dragging paints treatments instead of panning the map. Each
-        // move treats every hex under a screen box of radius brushSize via one
-        // gameTreatBatch call; a per-stroke Set keeps each hex treated at most once.
-        function setBrushActive(on) {
-            brushActive = on;
-            const btn = document.getElementById('brush-btn');
-            btn.textContent = on ? 'Brush: on' : 'Brush: off';
-            btn.classList.toggle('active', on);
-            if (on) {
-                map.dragPan.disable();
-            } else {
-                map.dragPan.enable();
-                painting = false;
-                document.getElementById('brush-cursor').style.display = 'none';
-            }
-        }
+        // The brush is always on: left-drag paints treatments (dragPan is disabled in
+        // boot, right-drag pans instead). Each move treats every hex under a screen
+        // box of radius brushSize via one gameTreatBatch call; a per-stroke Set keeps
+        // each hex treated at most once.
         function brushHexesAt(pt) {
             const r = brushSize;
             const box = (r <= 1) ? pt : [[pt.x - r, pt.y - r], [pt.x + r, pt.y + r]];
@@ -537,7 +561,6 @@
         }
         function brushCursorAt(pt) {
             const cur = document.getElementById('brush-cursor');
-            if (!brushActive) { cur.style.display = 'none'; return; }
             const rect = map.getCanvas().getBoundingClientRect();
             const d = Math.max(10, brushSize * 2);
             cur.style.width = d + 'px';
@@ -547,18 +570,25 @@
             cur.style.display = 'block';
         }
 
-        // wireControls binds the reset/brush/horizon controls. Called from boot
-        // once gameConfig exists (reset and the horizon buttons mutate it).
+        // wireControls binds the in-game controls (reset, speed, brush size). Called
+        // from boot once gameConfig exists (reset mutates it).
         function wireControls() {
             document.getElementById('reset-btn').addEventListener('click', reset);
             // Segmented Pause/1×/2×/4× control.
             document.querySelectorAll('#speed-buttons .btn').forEach(b =>
                 b.addEventListener('click', () => setRate(Number(b.dataset.speed))));
-            document.getElementById('brush-btn').addEventListener('click', () => setBrushActive(!brushActive));
             const size = document.getElementById('brush-size');
             brushSize = parseInt(size.value, 10) || 0;
             size.addEventListener('input', () => { brushSize = parseInt(size.value, 10) || 0; });
+        }
 
+        // wireStartOverlay binds the pre-game start screen: the horizon buttons and
+        // the annual-budget slider mutate gameConfig (horizon feeds the win
+        // condition; budget is the fixed funding rate baked into starting_budget),
+        // and each change refreshes the projected-insolvency preview. The Start
+        // button launches play. Called from boot once gameConfig exists;
+        // defaultBudget is the forecast-derived rate (pickStartingBudget).
+        function wireStartOverlay(defaultBudget) {
             const hwrap = document.getElementById('horizon-buttons');
             const markActive = () => hwrap.querySelectorAll('.btn').forEach(b => {
                 const h = b.dataset.horizon;
@@ -571,67 +601,67 @@
                 if (h === 'endless') gameConfig.endless = true;
                 else { gameConfig.endless = false; gameConfig.horizon_years = Number(h); }
                 markActive();
-                reset(); // horizon feeds the win + insolvency projection → fresh game
+                refreshProjection(); // horizon changes the projected insolvency year
             }));
-            markActive();
-        }
+            markActive(); // highlight the default horizon on boot
 
-        // ---- Budget slider ("City Council") ----------------------------------
-        function bindBudget(startingBudget) {
-            const slider = document.getElementById('budget-slider');
-            const out = document.getElementById('budget-value');
-            const max = Math.max(1, startingBudget * 2);
+            // Annual-budget slider: 0..2x the forecast-derived default (same range as
+            // the old in-game slider). Sets gameConfig.starting_budget and refreshes
+            // the preview; there is no in-game budget slider anymore.
+            const slider = document.getElementById('start-budget-slider');
+            const out = document.getElementById('start-budget-value');
+            const max = Math.max(1, defaultBudget * 2);
             slider.min = 0;
             slider.max = max;
             slider.step = Math.max(1, Math.round(max / 200));
-            slider.value = startingBudget;
-            out.textContent = fmtMoney(startingBudget);
-            // Update the readout on every input for instant feedback, but debounce
-            // the WASM call: gameSetBudget runs a full horizon-long forecast sim, so
-            // firing it on every pixel of a drag would run dozens of sims/sec.
-            let budgetTimer = null;
+            slider.value = defaultBudget;
+            out.textContent = fmtMoney(defaultBudget);
             slider.addEventListener('input', () => {
                 const rate = parseFloat(slider.value);
+                gameConfig.starting_budget = rate;
                 out.textContent = fmtMoney(rate);
-                if (budgetTimer) clearTimeout(budgetTimer);
-                budgetTimer = setTimeout(() => {
-                    const state = callWasm('gameSetBudget', rate);
-                    if (state) applyState(state); // insolvency headline follows the budget
-                }, 80);
+                refreshProjection();
             });
+
+            refreshProjection(); // initial preview for the default budget + horizon
+            document.getElementById('start-btn').addEventListener('click', startGame);
         }
 
-        // ---- Treatment tier selector -----------------------------------------
-        // "Auto" (default) lets the engine pick the right tier per hex; the named
-        // tiers are an optional manual override. Keys 1/2/3 select named tiers,
-        // 0/a select Auto.
-        function bindTiers(tiers) {
-            const wrap = document.getElementById('tier-buttons');
-            wrap.innerHTML = '';
-            selectedTier = 'auto';
-            // 'auto' first, then the named tiers in config order.
-            const choices = [{ label: 'auto', text: 'Auto' }]
-                .concat(tiers.map(t => ({ label: t.label, text: t.label })));
-            const setActive = (label) => {
-                selectedTier = label;
-                wrap.querySelectorAll('.btn').forEach(x => x.classList.toggle('active', x.dataset.tier === label));
-            };
-            for (const c of choices) {
-                const b = document.createElement('button');
-                b.type = 'button';
-                b.className = 'btn' + (c.label === selectedTier ? ' active' : '');
-                b.textContent = c.text;
-                b.dataset.tier = c.label;
-                b.addEventListener('click', () => setActive(c.label));
-                wrap.appendChild(b);
-            }
-            // Keyboard: 1..N pick named tiers, 0 or 'a' picks Auto.
-            document.addEventListener('keydown', (ev) => {
-                if (ev.target && /^(INPUT|SELECT|TEXTAREA)$/.test(ev.target.tagName)) return;
-                if (ev.key === '0' || ev.key === 'a') { setActive('auto'); return; }
-                const n = parseInt(ev.key, 10);
-                if (n >= 1 && n <= tiers.length) setActive(tiers[n - 1].label);
-            });
+        // ---- Pregame insolvency projection preview ---------------------------
+        // refreshProjection updates the start-overlay "at this budget" line by
+        // running the macro insolvency forecast in WASM for the current budget and
+        // horizon, WITHOUT a board: the slim payload omits hexes so a 5k-hex city
+        // isn't serialized on every slider tick. The forecast is cohort-based and
+        // hex-count-independent, so it is cheap; the short debounce just coalesces
+        // rapid drags. null insolvency_year => solvent through the horizon (mirrors
+        // the old HUD convention).
+        let projectionTimer = null;
+        function refreshProjection() {
+            if (!gameConfig) return;
+            if (projectionTimer) clearTimeout(projectionTimer);
+            projectionTimer = setTimeout(() => {
+                const slim = {
+                    cohorts: gameConfig.cohorts,
+                    initial_pci: gameConfig.initial_pci,
+                    cost_tiers: gameConfig.cost_tiers,
+                    starting_budget: gameConfig.starting_budget,
+                    horizon_years: gameConfig.horizon_years,
+                    treatment_cycle_years: gameConfig.treatment_cycle_years,
+                    growth_rate: gameConfig.growth_rate
+                };
+                const res = callWasm('gameProjectInsolvency', JSON.stringify(slim));
+                const el = document.getElementById('start-projection');
+                if (!el) return;
+                if (!res) { el.className = ''; el.textContent = ''; return; }
+                const yr = res.insolvency_year;
+                if (yr == null) {
+                    el.className = 'ok';
+                    el.textContent = 'Solvent through the horizon at this budget';
+                } else {
+                    el.className = 'bad';
+                    el.innerHTML = 'Projected insolvent by <span class="num">yr ' + yr + '</span> at this budget';
+                }
+            }, 60);
         }
 
         // ---- Board build + boot ----------------------------------------------
@@ -706,30 +736,40 @@
                 paint: { 'line-color': '#1a1f29', 'line-width': 0.4, 'line-opacity': 0.45 }
             });
 
-            // 4. Click a hex → treat it (single). The brush owns drag-painting, so
-            //    when it's active the click is a no-op to avoid double-treating.
-            map.on('click', HEX_FILL, e => {
-                if (brushActive) return;
-                if (!e.features || !e.features.length || !selectedTier) return;
-                const id = e.features[0].id;
-                const state = callWasm('gameTreat', String(id), selectedTier);
-                if (state) applyState(state);
-            });
-            map.on('mouseenter', HEX_FILL, () => { if (!brushActive) map.getCanvas().style.cursor = 'pointer'; });
-            map.on('mouseleave', HEX_FILL, () => { map.getCanvas().style.cursor = ''; });
+            // 4. Interaction: the brush is always on. Disable dragPan/dragRotate so
+            //    left-drag paints (instead of panning) and right-drag pans the map;
+            //    suppress the context menu so the right-drag doesn't pop one. Touch:
+            //    one-finger paints, pinch zooms — one-finger touch-pan is dropped.
+            map.dragPan.disable();
+            map.dragRotate.disable();
+            map.getCanvas().addEventListener('contextmenu', e => e.preventDefault());
 
-            // Brush drag-painting (mouse + touch). startStroke resets the per-stroke
-            // dedupe Set; moveStroke tracks the cursor ring and paints while down.
-            const startStroke = e => { if (!brushActive) return; painting = true; brushStroke = new Set(); brushPaint(e.point); };
-            const moveStroke = e => { brushCursorAt(e.point); if (brushActive && painting) brushPaint(e.point); };
-            const endStroke = () => { painting = false; };
+            // startStroke routes by button: right (2) begins a pan, left (0)/touch
+            // begins a paint stroke (resetting the per-stroke dedupe Set). moveStroke
+            // tracks the cursor ring and either pans by the pixel delta or paints.
+            const startStroke = e => {
+                const btn = (e.originalEvent && typeof e.originalEvent.button === 'number') ? e.originalEvent.button : 0;
+                if (btn === 2) { panning = true; panLast = e.point; return; }
+                if (btn !== 0) return; // ignore the middle button
+                painting = true; brushStroke = new Set(); brushPaint(e.point);
+            };
+            const moveStroke = e => {
+                brushCursorAt(e.point);
+                if (panning && panLast) {
+                    map.panBy([panLast.x - e.point.x, panLast.y - e.point.y], { duration: 0 });
+                    panLast = e.point;
+                    return;
+                }
+                if (painting) brushPaint(e.point);
+            };
+            const endStroke = () => { painting = false; panning = false; panLast = null; };
             map.on('mousedown', startStroke);
             map.on('mousemove', moveStroke);
             map.on('touchstart', startStroke);
             map.on('touchmove', moveStroke);
             // End the stroke on release ANYWHERE: map.on('mouseup') only fires over
             // the canvas, so releasing over a panel (HUD/controls overlap the map)
-            // would otherwise leave the brush "stuck on" and keep painting.
+            // would otherwise leave the brush "stuck on" and keep painting/panning.
             window.addEventListener('mouseup', endStroke);
             window.addEventListener('touchend', endStroke);
             window.addEventListener('touchcancel', endStroke);
@@ -769,22 +809,16 @@
                 cohorts: macroCohorts
             };
 
-            const initState = callWasm('gameInit', JSON.stringify(gameConfig));
-            if (!initState) return; // error already surfaced
-
-            // 6. Wire controls, paint the full first state, start the clock.
-            bindTiers(seed.cost_tiers || []);
-            bindBudget(startingBudget);
+            // 6. Wire the in-game controls and the start screen (horizon + annual
+            //    budget). Do NOT seed the engine or start the clock yet — the player
+            //    picks the horizon and budget on the start overlay and presses Start
+            //    (startGame() seeds). The budget default is the forecast-derived rate.
             wireControls();
+            wireStartOverlay(startingBudget);
 
             document.getElementById('loading').style.display = 'none';
-            document.getElementById('hud').style.display = 'block';
-            document.getElementById('controls').style.display = 'block';
-            document.getElementById('legend').style.display = 'block';
-
-            applyState(initState); // initState.changed == every hex (full paint)
+            document.getElementById('start-overlay').style.display = 'block';
             started = true;
-            startLoop();
         }
 
         // ---- WASM boot, then board boot --------------------------------------

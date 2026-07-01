@@ -274,6 +274,44 @@ func TestSetBudgetChangesInsolvencyYear(t *testing.T) {
 	}
 }
 
+// TestProjectInsolvency asserts the board-free pregame projection agrees with
+// the live (*Game).recomputeInsolvency verdict and moves the right way with
+// budget: a starving budget is insolvent within the horizon, an ample budget is
+// solvent, and it needs no hexes (pregame has cohorts but no board yet).
+func TestProjectInsolvency(t *testing.T) {
+	cfg := baseConfig()
+
+	cfg.StartingBudget = 0
+	year, ok := ProjectInsolvency(cfg)
+	if !ok {
+		t.Fatal("expected insolvency within horizon at budget 0")
+	}
+	if year <= 0 || year > int(cfg.HorizonYears) {
+		t.Fatalf("insolvency year %d out of range (1..%d)", year, int(cfg.HorizonYears))
+	}
+
+	cfg.StartingBudget = 1e12
+	if _, ok := ProjectInsolvency(cfg); ok {
+		t.Fatal("expected solvent-through-horizon at a huge budget")
+	}
+
+	// It must match the live path: a game built at the same starving budget
+	// caches the same verdict recomputeInsolvency produces.
+	cfg.StartingBudget = 0
+	g := newGame(t, cfg)
+	pYear, pOK := ProjectInsolvency(cfg)
+	if pOK != g.insolvencyOK || (pOK && pYear != g.insolvencyYear) {
+		t.Fatalf("ProjectInsolvency (%d,%v) != recomputeInsolvency (%d,%v)",
+			pYear, pOK, g.insolvencyYear, g.insolvencyOK)
+	}
+
+	// No board required: cohorts drive the projection, hexes are ignored.
+	cfg.Hexes = nil
+	if _, ok := ProjectInsolvency(cfg); !ok {
+		t.Fatal("expected insolvency at budget 0 even with no hexes")
+	}
+}
+
 func TestWinTransition(t *testing.T) {
 	cfg := baseConfig()
 	cfg.HorizonYears = 2

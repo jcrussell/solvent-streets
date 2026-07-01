@@ -130,6 +130,11 @@ type Game struct {
 	tiers      []forecast.CostTier
 	initialPCI float64
 
+	// minTierCost is the cheapest tier's $/m^2. Combined with the smallest open
+	// hex's area it gives a lower bound on any single treatment's cost, which is
+	// the "can't afford anything" (out-of-funds) test in StateJSON.
+	minTierCost float64
+
 	// macro-forecast inputs (for SetBudget's insolvency recompute)
 	cohorts    []CohortConfig
 	growthRate float64
@@ -192,11 +197,16 @@ func New(cfg Config) (*Game, error) {
 	}
 
 	maxCost := 0.0
+	minCost := math.Inf(1)
 	for _, t := range tiers {
 		if t.CostPerSqM > maxCost {
 			maxCost = t.CostPerSqM
 		}
+		if t.CostPerSqM < minCost {
+			minCost = t.CostPerSqM
+		}
 	}
+	g.minTierCost = minCost
 
 	g.hexes = make([]hexState, len(cfg.Hexes))
 	var totalArea float64
@@ -353,27 +363,48 @@ func (g *Game) SetBudget(rate float64) {
 // recomputeInsolvency runs forecast.Simulate (worst-first) with the configured
 // cohorts at the current budgetRate and caches InsolvencyYear's verdict.
 func (g *Game) recomputeInsolvency() {
-	if len(g.cohorts) == 0 {
-		g.insolvencyYear, g.insolvencyOK = 0, false
-		return
+	g.insolvencyYear, g.insolvencyOK = insolvencyFromForecast(
+		g.cohorts, g.initialPCI, g.growthRate, g.tiers, g.cycleYears, g.horizon, g.budgetRate)
+}
+
+// ProjectInsolvency runs the same worst-first macro forecast as
+// (*Game).recomputeInsolvency but straight from a Config, without building a
+// board. It backs the pregame budget preview: given the cohorts, cost tiers,
+// horizon, and a candidate annual budget, it returns the projected insolvency
+// year (year, true) or (0, false) when the network stays solvent through the
+// horizon. cfg.Hexes is ignored, so no validation/New is required.
+func ProjectInsolvency(cfg Config) (year int, ok bool) {
+	return insolvencyFromForecast(
+		cfg.Cohorts, cfg.InitialPCI, cfg.GrowthRate, cfg.CostTiers,
+		forecast.ResolveCycleYears(cfg.TreatmentCycleYears), cfg.HorizonYears, cfg.StartingBudget)
+}
+
+// insolvencyFromForecast is the shared forecast core behind recomputeInsolvency
+// (live) and ProjectInsolvency (pregame preview): it builds the cohorts, runs
+// forecast.Simulate worst-first at the given annual budget over the horizon, and
+// returns InsolvencyYear's verdict. An empty cohort set is treated as solvent
+// (0, false) — there is nothing to forecast.
+func insolvencyFromForecast(cohortCfgs []CohortConfig, initialPCI, growthRate float64, tiers []forecast.CostTier, cycleYears, horizon, budget float64) (int, bool) {
+	if len(cohortCfgs) == 0 {
+		return 0, false
 	}
-	cohorts := make([]forecast.Cohort, len(g.cohorts))
-	for i, c := range g.cohorts {
+	cohorts := make([]forecast.Cohort, len(cohortCfgs))
+	for i, c := range cohortCfgs {
 		cohorts[i] = forecast.Cohort{
 			Classification: c.Classification,
 			Area:           c.Area,
 			DecayRate:      c.DecayRate,
-			InitialPCI:     g.initialPCI,
+			InitialPCI:     initialPCI,
 		}
 	}
-	params := forecast.NewParams(g.growthRate, g.tiers, g.cycleYears)
+	params := forecast.NewParams(growthRate, tiers, cycleYears)
 	scenario := forecast.Scenario{
 		Name:         "game",
-		AnnualBudget: g.budgetRate,
+		AnnualBudget: budget,
 		Strategy:     forecast.StrategyWorstFirst,
 	}
-	result := forecast.Simulate(scenario, cohorts, int(g.horizon), params)
-	g.insolvencyYear, g.insolvencyOK = forecast.InsolvencyYear(result, g.cycleYears)
+	result := forecast.Simulate(scenario, cohorts, int(horizon), params)
+	return forecast.InsolvencyYear(result, cycleYears)
 }
 
 // recomputeStatus transitions status. won/lost are terminal. Lose if the network
@@ -439,6 +470,10 @@ type stateOut struct {
 	Backlog        float64 `json:"backlog"`
 	InsolvencyYear *int    `json:"insolvency_year"`
 	Status         string  `json:"status"`
+	// OutOfFunds is true when the treasury can't afford even the cheapest possible
+	// treatment on the board (cheapest tier x smallest open hex). The front-end
+	// surfaces this as the live "out of funds" HUD warning.
+	OutOfFunds bool `json:"out_of_funds"`
 	// Run totals for the end-of-game summary (cumulative, not deltas).
 	Spent       float64      `json:"spent"`
 	Treatments  int          `json:"treatments"`
@@ -467,10 +502,13 @@ func (g *Game) StateJSON() ([]byte, error) {
 		out.InsolvencyYear = &y
 	}
 
+	minOpenArea := math.Inf(1)
 	for i := range g.hexes {
 		h := &g.hexes[i]
 		if h.closed {
 			out.ClosedCount++
+		} else if h.roadArea < minOpenArea {
+			minOpenArea = h.roadArea
 		}
 		band := BandForPCI(h.pci)
 		if band == h.paintedBand && h.closed == h.paintedClosed {
@@ -484,6 +522,13 @@ func (g *Game) StateJSON() ([]byte, error) {
 		})
 		h.paintedBand = band
 		h.paintedClosed = h.closed
+	}
+
+	// Out of funds: at least one open hex remains but the treasury can't cover the
+	// cheapest treatment possible (cheapest tier x smallest open hex). A lower
+	// bound on cost, so a true verdict means no treatment is affordable anywhere.
+	if !math.IsInf(minOpenArea, 1) {
+		out.OutOfFunds = g.treasury < g.minTierCost*minOpenArea
 	}
 
 	return json.Marshal(out)

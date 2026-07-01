@@ -210,20 +210,29 @@ func TestHandleGame(t *testing.T) {
 	if !strings.Contains(body, "const DATA_PREFIX = '';") {
 		t.Errorf("single-city game page should set DATA_PREFIX = ''")
 	}
-	// Play-test feedback controls: nav link back to the map, reset, paint brush,
-	// and the horizon selector must all render.
+	// Play-test feedback controls: nav link back to the map, reset, the always-on
+	// brush size, and the pre-game start screen with its horizon selector.
 	for _, want := range []string{
 		`href="/"`,             // top-bar nav back to the map
 		`id="reset-btn"`,       // reset / play-again
-		`id="brush-btn"`,       // paint-brush toggle
-		`id="brush-size"`,      // brush-size slider
-		`id="horizon-buttons"`, // selectable horizon + endless
+		`id="brush-size"`,      // brush-size slider (brush is always on)
+		`id="start-btn"`,       // pre-game start screen Start button
+		`id="horizon-buttons"`, // selectable horizon + endless (on the start screen)
 		`data-horizon="endless"`,
-		`id="speed-buttons"`, // segmented Pause / 1× / 2× / 4× control
+		`id="start-budget-slider"`, // annual budget chosen on the start screen
+		`id="start-projection"`,    // "at this budget" insolvency preview
+		`id="speed-buttons"`,       // segmented Pause / 1× / 2× / 4× control
 		`data-speed="2"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("game page missing expected control markup %q", want)
+		}
+	}
+	// Budget is now a pre-game choice: the in-game "City Council" budget slider and
+	// the live solvency HUD line were removed.
+	for _, gone := range []string{`id="budget-slider"`, `id="hud-solvency"`} {
+		if strings.Contains(body, gone) {
+			t.Errorf("game page should no longer render %q (budget moved to start screen)", gone)
 		}
 	}
 }

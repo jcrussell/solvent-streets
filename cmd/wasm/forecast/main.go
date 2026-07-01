@@ -131,6 +131,28 @@ func gameTreatBatch(_ js.Value, args []js.Value) any {
 	return stateJSON()
 }
 
+// gameProjectInsolvency computes the macro insolvency projection for a candidate
+// config WITHOUT creating a game (no board), for the pregame budget preview. It
+// takes a config JSON (only cohorts/tiers/horizon/budget matter; hexes may be
+// omitted) and returns {"insolvency_year": N|null} — null meaning solvent
+// through the horizon, mirroring the old HUD's insolvency_year == null convention.
+func gameProjectInsolvency(_ js.Value, args []js.Value) any {
+	if len(args) < 1 || args[0].Type() != js.TypeString {
+		return errJSON("gameProjectInsolvency: missing config JSON argument")
+	}
+	var cfg game.Config
+	if err := json.Unmarshal([]byte(args[0].String()), &cfg); err != nil {
+		return errJSON(err.Error())
+	}
+	year, ok := game.ProjectInsolvency(cfg)
+	out := map[string]any{"insolvency_year": nil}
+	if ok {
+		out["insolvency_year"] = year
+	}
+	b, _ := json.Marshal(out)
+	return js.ValueOf(string(b))
+}
+
 // gameSetBudget sets the funding rate (recomputing the insolvency headline) and
 // returns the new StateJSON delta.
 func gameSetBudget(_ js.Value, args []js.Value) any {
@@ -152,6 +174,7 @@ func main() {
 	js.Global().Set("gameTreat", js.FuncOf(gameTreat))
 	js.Global().Set("gameTreatBatch", js.FuncOf(gameTreatBatch))
 	js.Global().Set("gameSetBudget", js.FuncOf(gameSetBudget))
+	js.Global().Set("gameProjectInsolvency", js.FuncOf(gameProjectInsolvency))
 	// Keep the Go runtime alive.
 	select {}
 }
