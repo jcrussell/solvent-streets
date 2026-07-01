@@ -280,7 +280,7 @@ func writeDataDir(t *testing.T, dataDir string, pctPaved, totalPaved float64) {
 		[]float64{85, 80, 75}, []float64{0, 5, 12})
 	for _, name := range []string{
 		"boundary.geojson", "forecast_seed.json", "hex-cost-summary.json",
-		"hexgrid.geojson", "scenarios.json",
+		"hexgrid.geojson", "play-hexes.json", "scenarios.json",
 	} {
 		writeFile(t, filepath.Join(dataDir, name), "{}")
 	}

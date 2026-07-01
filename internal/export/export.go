@@ -262,6 +262,22 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 		}
 	}
 
+	// Export the /play board's per-hex blended decay rates from real road
+	// geometry — the same data the live server computes on demand. BuildPlayHexes
+	// shares cityHexGrid with BuildHexGeoJSON, so the emitted ids are a subset of
+	// hexgrid.geojson; it returns nil when the city has no road features, so skip
+	// the write then (exactly like hexFC above). Enumerated in DataFileNames
+	// (checkassets.go) so check-site requires it for a publish-ready city.
+	playHexes, err := BuildPlayHexes(ctx, entry, proj)
+	if err != nil {
+		return MetaJSON{}, "", fmt.Errorf("build play hexes: %w", err)
+	}
+	if playHexes != nil {
+		if err := writeJSON(filepath.Join(dataDir, "play-hexes.json"), playHexes); err != nil {
+			return MetaJSON{}, "", fmt.Errorf("write play-hexes: %w", err)
+		}
+	}
+
 	// Write meta.json
 	if err := writeJSON(filepath.Join(dataDir, "meta.json"), meta); err != nil {
 		return MetaJSON{}, "", fmt.Errorf("write meta: %w", err)

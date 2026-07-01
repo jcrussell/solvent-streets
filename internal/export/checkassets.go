@@ -16,6 +16,7 @@ var DataFileNames = []string{
 	"hex-cost-summary.json",
 	"hexgrid.geojson",
 	"meta.json",
+	"play-hexes.json",
 	"scenarios.json",
 }
 
