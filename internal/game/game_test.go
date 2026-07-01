@@ -171,6 +171,53 @@ func TestTreatUnknownTierOrHex(t *testing.T) {
 	}
 }
 
+// TestTierCostRankBreaksTiesStably guards the equal-cost regression: two tiers
+// sharing a CostPerSqM must still get distinct ranks (0..n-1), so the priciest
+// tier reaches frac==1.0 and restores PCI to 100. Before the stable tiebreak,
+// "mid" and "top" below both counted one strictly-cheaper tier -> rank 1 -> the
+// top tier never restored to 100.
+func TestTierCostRankBreaksTiesStably(t *testing.T) {
+	cfg := baseConfig()
+	cfg.CostTiers = []forecast.CostTier{
+		{MinPCI: 70, MaxPCI: 101, CostPerSqM: 5.00, Label: "cheap"},
+		{MinPCI: 40, MaxPCI: 70, CostPerSqM: 150.00, Label: "mid"},
+		{MinPCI: 0, MaxPCI: 40, CostPerSqM: 150.00, Label: "top"}, // duplicate cost
+	}
+	g := newGame(t, cfg)
+
+	// (a) ranks are a permutation of 0..n-1 (unique, no collisions).
+	seen := make(map[int]bool, len(g.tiers))
+	for i := range g.tiers {
+		r := g.tierCostRank(i)
+		if r < 0 || r >= len(g.tiers) {
+			t.Fatalf("rank out of range for tier %d: %d", i, r)
+		}
+		if seen[r] {
+			t.Fatalf("duplicate rank %d — tiebreak failed", r)
+		}
+		seen[r] = true
+	}
+
+	// (b) the highest-index priciest tier ("top") restores a gravel hex to ~100.
+	g.hexes[0].pci = 0
+	g.hexes[0].closed = true
+	if !g.Treat("a", "top") {
+		t.Fatal("top tier should be affordable")
+	}
+	if g.hexes[0].pci < 99.999 {
+		t.Fatalf("priciest tier must restore ~100, got %v", g.hexes[0].pci)
+	}
+
+	// A same-cost lower-index tier ("mid") gets a smaller frac, not a full restore.
+	g.hexes[1].pci = 0
+	if !g.Treat("b", "mid") {
+		t.Fatal("mid tier should be affordable")
+	}
+	if g.hexes[1].pci >= 99.999 {
+		t.Fatalf("mid tier should lift partially, not to 100, got %v", g.hexes[1].pci)
+	}
+}
+
 func TestClosureAtZero(t *testing.T) {
 	cfg := baseConfig()
 	cfg.Hexes = []HexConfig{{ID: "a", RoadArea: 1000, K: 5.0}} // very fast decay

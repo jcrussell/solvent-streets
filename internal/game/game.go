@@ -593,11 +593,17 @@ func (g *Game) autoTierIndex(pci float64) int {
 	return -1
 }
 
-// tierCostRank returns the ascending cost rank of tier i (0 = cheapest).
+// tierCostRank returns the ascending cost rank of tier i (0 = cheapest). Ties on
+// CostPerSqM break by original index, so every tier gets a unique rank 0..n-1 —
+// this is tier i's position in a stable sort by (cost, index). Without the
+// tiebreak, duplicate costs collapse to the same rank and the same PCI lift, and
+// the priciest tier might never reach rank n-1 (frac==1.0, restore to 100). When
+// several tiers tie for the max cost, only the highest-index one restores to 100.
 func (g *Game) tierCostRank(i int) int {
 	rank := 0
 	for j := range g.tiers {
-		if g.tiers[j].CostPerSqM < g.tiers[i].CostPerSqM {
+		if g.tiers[j].CostPerSqM < g.tiers[i].CostPerSqM ||
+			(g.tiers[j].CostPerSqM == g.tiers[i].CostPerSqM && j < i) {
 			rank++
 		}
 	}
