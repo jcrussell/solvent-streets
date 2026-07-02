@@ -282,8 +282,11 @@
         // over-accrues backlog and can trip the loss ceiling — an instant,
         // spurious "game over" purely from tabbing away.
         const MAX_FRAME_MS = 250;
-        // 6-stop red→green PCI ramp, band 0 (worst) … band 5 (best); Go owns
-        // the band assignment, JS only maps band→color here.
+        // Red→green PCI ramp, band 0 (worst) … band N-1 (best); Go owns the
+        // band assignment (game.BandForPCI), JS only maps band→color here. The
+        // palette length must match Go's game.BandCount, injected below —
+        // checked at boot so a Go-side change can't silently gray out bands.
+        const BAND_COUNT = {{.BandCount}};
         const BAND_COLORS = ['#b2182b', '#ef8a62', '#fddbc7', '#a6d96a', '#66bd63', '#1a9850'];
         const GRAVEL_COLOR = '#8d8074';
         const HEX_SOURCE = 'play-hexes';
@@ -348,7 +351,6 @@
             let s;
             if (abs >= 1e9) s = '$' + (abs / 1e9).toFixed(2) + 'B';
             else if (abs >= 1e6) s = '$' + (abs / 1e6).toFixed(2) + 'M';
-            else if (abs >= 1e3) s = '$' + Math.round(abs).toLocaleString();
             else s = '$' + Math.round(abs).toLocaleString();
             return (neg ? '-' : '') + s;
         }
@@ -484,12 +486,25 @@
             return true;
         }
 
+        function clearBanner() {
+            const banner = document.getElementById('banner');
+            banner.className = ''; banner.innerHTML = '';
+        }
+
+        // setInGameUI toggles between the pre-game overlay and the in-game
+        // panels. New panels belong here so startGame/showStartScreen stay in
+        // sync.
+        function setInGameUI(inGame) {
+            document.getElementById('start-overlay').style.display = inGame ? 'none' : 'block';
+            for (const id of ['hud', 'controls', 'legend'])
+                document.getElementById(id).style.display = inGame ? 'block' : 'none';
+        }
+
         // reset is the in-game Reset button: a fast same-horizon restart. Clears the
         // win/lose banner and re-seeds without returning to the start screen.
         function reset() {
             if (!gameConfig) return;
-            const banner = document.getElementById('banner');
-            banner.className = ''; banner.innerHTML = '';
+            clearBanner();
             seedGame();
         }
 
@@ -497,10 +512,7 @@
         // seed the engine with the chosen horizon.
         function startGame() {
             if (!gameConfig) return;
-            document.getElementById('start-overlay').style.display = 'none';
-            document.getElementById('hud').style.display = 'block';
-            document.getElementById('controls').style.display = 'block';
-            document.getElementById('legend').style.display = 'block';
+            setInGameUI(true);
             seedGame();
         }
 
@@ -508,12 +520,8 @@
         // "Play again" after a game ends) so the horizon can be (re)chosen.
         function showStartScreen() {
             stopLoop();
-            const banner = document.getElementById('banner');
-            banner.className = ''; banner.innerHTML = '';
-            document.getElementById('hud').style.display = 'none';
-            document.getElementById('controls').style.display = 'none';
-            document.getElementById('legend').style.display = 'none';
-            document.getElementById('start-overlay').style.display = 'block';
+            clearBanner();
+            setInGameUI(false);
         }
 
         // ---- Clock -----------------------------------------------------------
@@ -697,6 +705,14 @@
         }
 
         async function boot() {
+            // Palette ↔ Go band-count guard (see BAND_COLORS): surface a loud
+            // error instead of silently graying out out-of-range bands.
+            if (BAND_COLORS.length !== BAND_COUNT) {
+                showError('band palette', 'BAND_COLORS has ' + BAND_COLORS.length +
+                    ' entries but Go game.BandCount is ' + BAND_COUNT);
+                return;
+            }
+
             // 1. Fetch board geometry + the authoritative playable-hex set + budget.
             const [hexgrid, playHexes, forecast] = await Promise.all([
                 loadJSON(DATA_PREFIX + 'data/hexgrid.geojson'),
@@ -736,13 +752,10 @@
                     'fill-color': [
                         'case',
                         ['==', ['feature-state', 'closed'], true], GRAVEL_COLOR,
+                        // match arms built from BAND_COLORS so the paint rule
+                        // can't drift from the palette.
                         ['match', ['feature-state', 'band'],
-                            0, BAND_COLORS[0],
-                            1, BAND_COLORS[1],
-                            2, BAND_COLORS[2],
-                            3, BAND_COLORS[3],
-                            4, BAND_COLORS[4],
-                            5, BAND_COLORS[5],
+                            ...BAND_COLORS.flatMap((color, band) => [band, color]),
                             '#555c6a' // default before first paint
                         ]
                     ],
@@ -835,7 +848,7 @@
             wireStartOverlay(startingBudget);
 
             document.getElementById('loading').style.display = 'none';
-            document.getElementById('start-overlay').style.display = 'block';
+            setInGameUI(false);
             started = true;
         }
 

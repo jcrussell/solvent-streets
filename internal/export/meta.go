@@ -14,6 +14,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/build"
 	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/game"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
@@ -70,6 +71,12 @@ type TemplateData struct {
 	// pvmt --version reports (build.Current().Short()).
 	BuildVersion string
 }
+
+// BandCount exposes game.BandCount to the game template, which checks its
+// BAND_COLORS palette against it at boot. A method (not a field) so every
+// TemplateData construction site — static export and live server — gets it
+// without remembering to set it.
+func (TemplateData) BandCount() int { return game.BandCount }
 
 // FooterInfo returns the values shown in the page footer: the generation
 // date (YYYY-MM-DD) and the build version string, which matches

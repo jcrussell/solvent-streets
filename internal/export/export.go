@@ -422,25 +422,35 @@ func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolved
 		// the game page resolves the active city client-side from ?city=.
 	}
 
-	if err := e.renderPage(ParseIndexTemplate, sys, td, "index.html"); err != nil {
-		return err
-	}
-	return e.renderPage(ParseGameTemplate, sys, td, "play.html")
-}
-
-// renderPage parses a page template for the unit system and renders it against
-// td into outputDir/name. Rendering to a buffer first (then cmdutil.WriteFile's
-// temp+rename) keeps an interrupted Execute from leaving a partial file visible.
-func (e *Exporter) renderPage(parse func(units.System) (*template.Template, error), sys units.System, td TemplateData, name string) error {
-	tmpl, err := parse(sys)
+	// Render both pages before writing either, so a game-template failure
+	// can't leave a partial site (index.html present, play.html missing).
+	index, err := renderPage(ParseIndexTemplate, sys, td)
 	if err != nil {
 		return err
 	}
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, td); err != nil {
+	play, err := renderPage(ParseGameTemplate, sys, td)
+	if err != nil {
 		return err
 	}
-	return cmdutil.WriteFile(filepath.Join(e.outputDir, name), buf.Bytes(), 0o644)
+	if err := cmdutil.WriteFile(filepath.Join(e.outputDir, "index.html"), index, 0o644); err != nil {
+		return err
+	}
+	return cmdutil.WriteFile(filepath.Join(e.outputDir, "play.html"), play, 0o644)
+}
+
+// renderPage parses a page template for the unit system and renders it against
+// td into a buffer. Buffering (plus cmdutil.WriteFile's temp+rename at the call
+// site) keeps an interrupted Execute from leaving a partial file visible.
+func renderPage(parse func(units.System) (*template.Template, error), sys units.System, td TemplateData) ([]byte, error) {
+	tmpl, err := parse(sys)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, td); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 func writeJSON(path string, v any) error {

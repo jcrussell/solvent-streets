@@ -113,6 +113,10 @@ type hexState struct {
 // Game holds all sim state. Returned as a concrete *Game (byob-interfaces.2).
 type Game struct {
 	hexes []hexState
+	// hexByID indexes hexes by id for treatOne's per-brush-hex lookup; a linear
+	// scan there is O(hexes) per treated hex per mousemove. Pointers into g.hexes
+	// stay valid because the slice is never grown after New.
+	hexByID map[string]*hexState
 
 	treasury   float64
 	budgetRate float64
@@ -128,6 +132,7 @@ type Game struct {
 
 	cost       *forecast.TieredCostProjector
 	tiers      []forecast.CostTier
+	tierRanks  []int // ascending cost rank per tier (see tierCostRank); fixed at New
 	initialPCI float64
 
 	// minTierCost is the cheapest tier's $/m^2. Combined with the smallest open
@@ -209,6 +214,7 @@ func New(cfg Config) (*Game, error) {
 	g.minTierCost = minCost
 
 	g.hexes = make([]hexState, len(cfg.Hexes))
+	g.hexByID = make(map[string]*hexState, len(cfg.Hexes))
 	var totalArea float64
 	for i, h := range cfg.Hexes {
 		pci := clampPCI(cfg.InitialPCI + jitterOffset(h.ID, cfg.PCIJitter))
@@ -220,9 +226,18 @@ func New(cfg Config) (*Game, error) {
 			closed:      pci <= ClosureEpsilon,
 			paintedBand: -1, // never painted -> first StateJSON emits all hexes
 		}
+		// First-wins on duplicate ids, matching the old linear scan's semantics.
+		if _, ok := g.hexByID[h.ID]; !ok {
+			g.hexByID[h.ID] = &g.hexes[i]
+		}
 		totalArea += h.RoadArea
 	}
 	g.loseBacklogCeiling = totalArea * maxCost
+
+	g.tierRanks = make([]int, len(tiers))
+	for i := range tiers {
+		g.tierRanks[i] = tierCostRank(tiers, i)
+	}
 
 	// Initial macro insolvency headline from the real engine.
 	g.recomputeInsolvency()
@@ -311,7 +326,7 @@ func (g *Game) treatOne(hexID, tier string) bool {
 	if g.status != "running" {
 		return false
 	}
-	h := g.hex(hexID)
+	h := g.hexByID[hexID]
 	if h == nil {
 		return false
 	}
@@ -335,7 +350,7 @@ func (g *Game) treatOne(hexID, tier string) bool {
 	}
 
 	// Lift toward 100 by (rank+1)/n of the remaining headroom; top tier -> 100.
-	frac := float64(g.tierCostRank(ti)+1) / float64(len(g.tiers))
+	frac := float64(g.tierRanks[ti]+1) / float64(len(g.tiers))
 	h.pci = clampPCI(h.pci + (100.0-h.pci)*frac)
 	if h.closed && h.pci > ClosureEpsilon {
 		h.closed = false
@@ -551,15 +566,6 @@ func BandForPCI(pci float64) int {
 
 // --- helpers ---
 
-func (g *Game) hex(id string) *hexState {
-	for i := range g.hexes {
-		if g.hexes[i].id == id {
-			return &g.hexes[i]
-		}
-	}
-	return nil
-}
-
 // tierIndex returns the index of the tier with the given label, or -1.
 func (g *Game) tierIndex(label string) int {
 	for i := range g.tiers {
@@ -599,11 +605,12 @@ func (g *Game) autoTierIndex(pci float64) int {
 // tiebreak, duplicate costs collapse to the same rank and the same PCI lift, and
 // the priciest tier might never reach rank n-1 (frac==1.0, restore to 100). When
 // several tiers tie for the max cost, only the highest-index one restores to 100.
-func (g *Game) tierCostRank(i int) int {
+// Tiers are immutable after New, so ranks are computed once there (g.tierRanks).
+func tierCostRank(tiers []forecast.CostTier, i int) int {
 	rank := 0
-	for j := range g.tiers {
-		if g.tiers[j].CostPerSqM < g.tiers[i].CostPerSqM ||
-			(g.tiers[j].CostPerSqM == g.tiers[i].CostPerSqM && j < i) {
+	for j := range tiers {
+		if tiers[j].CostPerSqM < tiers[i].CostPerSqM ||
+			(tiers[j].CostPerSqM == tiers[i].CostPerSqM && j < i) {
 			rank++
 		}
 	}

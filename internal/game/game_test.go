@@ -9,13 +9,13 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 )
 
+// defaultTiers returns a fresh copy of forecast.DefaultCostTiers so tests
+// exercise the real cost model (and tier tuning shows up here), while mutating
+// tests can't alias the shared package-level slice.
 func defaultTiers() []forecast.CostTier {
-	// Copy of forecast.DefaultCostTiers (preventive/rehab/reconstruction).
-	return []forecast.CostTier{
-		{MinPCI: 70, MaxPCI: 101, CostPerSqM: 5.00, Label: "preventive"},
-		{MinPCI: 40, MaxPCI: 70, CostPerSqM: 50.00, Label: "rehab"},
-		{MinPCI: 0, MaxPCI: 40, CostPerSqM: 150.00, Label: "reconstruction"},
-	}
+	tiers := make([]forecast.CostTier, len(forecast.DefaultCostTiers))
+	copy(tiers, forecast.DefaultCostTiers)
+	return tiers
 }
 
 func baseConfig() Config {
@@ -188,7 +188,7 @@ func TestTierCostRankBreaksTiesStably(t *testing.T) {
 	// (a) ranks are a permutation of 0..n-1 (unique, no collisions).
 	seen := make(map[int]bool, len(g.tiers))
 	for i := range g.tiers {
-		r := g.tierCostRank(i)
+		r := g.tierRanks[i]
 		if r < 0 || r >= len(g.tiers) {
 			t.Fatalf("rank out of range for tier %d: %d", i, r)
 		}
