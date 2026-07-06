@@ -1,0 +1,63 @@
+# Inland Empire, CA — hot, dry, fast-growing SoCal interior, Overpass-only
+#
+# A regional analysis across eight Inland Empire jurisdictions in Riverside
+# and San Bernardino counties. The region's intense summer heat and UV load
+# accelerate pavement aging, while rapid population growth keeps expanding
+# the road network. The Compare tab ranks these neighbors against one another.
+#
+# Techniques demonstrated:
+#   - Climate-tuned decay_rate (0.035) for high heat / UV exposure.
+#   - growth_rate (0.015) models the fast-expanding network.
+#   - Per-city hex_edge_m overrides for the two largest cities.
+#
+# Minimal config: every city runs on the top-level [forecast] defaults (no
+# per-city PCI/budget). Values below are illustrative regional tuning, not
+# cited measurements. Overpass-only. Expect ~8 Nominatim + Overpass pulls
+# for `pvmt all ingest`.
+
+config_id = "inland-empire-ca"
+
+[grid]
+hex_edge_m = 125
+
+[forecast]
+years = 15
+decay_rate = 0.035
+growth_rate = 0.015
+
+[export]
+title = "Inland Empire Pavement Analysis"
+
+[[cities]]
+name = "Riverside, CA"
+overpass = true
+hex_edge_m = 200  # largest jurisdiction (~211 km²)
+
+[[cities]]
+name = "San Bernardino, CA"
+overpass = true
+hex_edge_m = 150  # large jurisdiction (~161 km²)
+
+[[cities]]
+name = "Fontana, CA"
+overpass = true
+
+[[cities]]
+name = "Rancho Cucamonga, CA"
+overpass = true
+
+[[cities]]
+name = "Ontario, CA"
+overpass = true
+
+[[cities]]
+name = "Moreno Valley, CA"
+overpass = true
+
+[[cities]]
+name = "Corona, CA"
+overpass = true
+
+[[cities]]
+name = "Rialto, CA"
+overpass = true

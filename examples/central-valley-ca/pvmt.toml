@@ -1,0 +1,58 @@
+# Central Valley, CA — Highway 99 corridor, Overpass-only
+#
+# A regional analysis across six Central Valley jurisdictions strung along
+# the Highway 99 corridor, from Bakersfield in the south to Stockton in the
+# north. Heavy agricultural truck traffic drives faster-than-average surface
+# wear. The Compare tab ranks these neighbors against one another.
+#
+# Note: these cities span a wide range of longitude, so they fall in
+# different UTM zones (roughly zone 10 for Stockton/Modesto, zone 11 for
+# Fresno/Bakersfield). That is fine — each city's boundary is projected to
+# its own auto-detected zone, so areas and distances stay accurate.
+#
+# Techniques demonstrated:
+#   - Traffic-tuned decay_rate (0.035) for heavy truck loading.
+#   - Per-city hex_edge_m overrides for the two largest cities.
+#
+# Minimal config: every city runs on the top-level [forecast] defaults (no
+# per-city PCI/budget). Values below are illustrative regional tuning, not
+# cited measurements. Overpass-only. Expect ~6 Nominatim + Overpass pulls
+# for `pvmt all ingest`.
+
+config_id = "central-valley-ca"
+
+[grid]
+hex_edge_m = 125
+
+[forecast]
+years = 20
+decay_rate = 0.035
+
+[export]
+title = "Central Valley Pavement Analysis"
+
+[[cities]]
+name = "Fresno, CA"
+overpass = true
+hex_edge_m = 200  # largest jurisdiction (~294 km²)
+
+[[cities]]
+name = "Bakersfield, CA"
+overpass = true
+hex_edge_m = 250  # very large footprint (~390 km²)
+
+[[cities]]
+name = "Stockton, CA"
+overpass = true
+
+[[cities]]
+name = "Modesto, CA"
+overpass = true
+
+[[cities]]
+name = "Visalia, CA"
+overpass = true
+
+[[cities]]
+name = "Clovis, CA"
+overpass = true

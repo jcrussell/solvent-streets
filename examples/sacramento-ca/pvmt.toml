@@ -1,0 +1,62 @@
+# Sacramento area, CA — fast-growing capital region, Overpass-only
+#
+# A regional analysis across eight Sacramento-area jurisdictions, spanning
+# the City of Sacramento and its rapidly expanding suburbs (Elk Grove,
+# Roseville, Folsom). The Compare tab ranks these neighbors against one
+# another.
+#
+# Techniques demonstrated:
+#   - growth_rate (0.01) models the region's expanding road network in the
+#     forecast horizon.
+#   - Per-city hex_edge_m overrides for the two largest cities.
+#
+# Minimal config: every city runs on the top-level [forecast] defaults (no
+# per-city PCI/budget). Values below are illustrative regional tuning, not
+# cited measurements. Overpass-only. Expect ~8 Nominatim + Overpass pulls
+# for `pvmt all ingest`.
+
+config_id = "sacramento-ca"
+
+[grid]
+hex_edge_m = 125
+
+[forecast]
+years = 20
+growth_rate = 0.01
+
+[export]
+title = "Sacramento Area Pavement Analysis"
+
+[[cities]]
+name = "Sacramento, CA"
+overpass = true
+hex_edge_m = 200  # largest jurisdiction (~256 km²)
+
+[[cities]]
+name = "Elk Grove, CA"
+overpass = true
+hex_edge_m = 150  # sprawling suburb (~108 km²)
+
+[[cities]]
+name = "Roseville, CA"
+overpass = true
+
+[[cities]]
+name = "Folsom, CA"
+overpass = true
+
+[[cities]]
+name = "Citrus Heights, CA"
+overpass = true
+
+[[cities]]
+name = "Rancho Cordova, CA"
+overpass = true
+
+[[cities]]
+name = "Davis, CA"
+overpass = true
+
+[[cities]]
+name = "West Sacramento, CA"
+overpass = true

@@ -37,7 +37,13 @@ one heading because their configs combine techniques.
   ArcGIS feed mixed in), [greater-boston-ma](greater-boston-ma/) (~8
   cities), [denver-metro-co](denver-metro-co/) (~8 cities),
   [portland-metro-or](portland-metro-or/) (~7 cities),
-  [los-angeles-ca](los-angeles-ca/) (~8 cities, Overpass-only).
+  [los-angeles-ca](los-angeles-ca/) (87 of the 88 incorporated cities in
+  Los Angeles County — the SoCal analogue to bay-area-ca, Overpass-only).
+- **More California metros** (Overpass-only, minimal configs on the
+  top-level forecast defaults): [san-diego-ca](san-diego-ca/) (~10 cities),
+  [sacramento-ca](sacramento-ca/) (~8 cities), [inland-empire-ca](inland-empire-ca/)
+  (~8 cities, Riverside + San Bernardino counties),
+  [central-valley-ca](central-valley-ca/) (~6 cities along the Hwy-99 corridor).
 - **Per-city overrides:** [bay-area-ca](bay-area-ca/) (Berkeley and
   San Jose override `hex_edge_m`), [greater-boston-ma](greater-boston-ma/)
   (compact Cambridge/Somerville drop to 60 m), [los-angeles-ca](los-angeles-ca/)
@@ -49,12 +55,24 @@ one heading because their configs combine techniques.
 - **Hex grid tuning:** [greater-boston-ma](greater-boston-ma/) drops to 60 m
   for compact cities; [los-angeles-ca](los-angeles-ca/) goes up to 300 m for
   sprawling LA; [portland-metro-or](portland-metro-or/) sits in the middle at
-  80 m; [top-50-cities](top-50-cities/) overrides the largest jurisdictions.
+  80 m; [san-diego-ca](san-diego-ca/) (San Diego at 300 m) and
+  [central-valley-ca](central-valley-ca/) (Bakersfield at 250 m) push their
+  largest cities up; [top-50-cities](top-50-cities/) overrides the largest
+  jurisdictions.
 - **Growth modeling:** [denver-metro-co](denver-metro-co/) sets
-  `[forecast].growth_rate` to model an expanding Front Range road network.
+  `[forecast].growth_rate` to model an expanding Front Range road network;
+  [sacramento-ca](sacramento-ca/) and [inland-empire-ca](inland-empire-ca/)
+  do the same for two fast-growing California regions, and
+  [san-diego-ca](san-diego-ca/) uses a smaller rate for steady coastal
+  build-out.
 - **Climate-tuned decay:** [denver-metro-co](denver-metro-co/) (freeze/thaw)
   and [greater-boston-ma](greater-boston-ma/) (road salt + harsh winters)
-  both raise `[forecast].decay_rate` above the default.
+  both raise `[forecast].decay_rate` above the default;
+  [inland-empire-ca](inland-empire-ca/) (heat + UV) and
+  [central-valley-ca](central-valley-ca/) (heavy truck traffic) do the same
+  for warmer stressors.
 - **OSM admin boundary by relation:** [denver-metro-co](denver-metro-co/)
   sets `boundary_relation_id` for Denver, whose boundary Nominatim returns
-  only as a point.
+  only as a point; [los-angeles-ca](los-angeles-ca/) uses it for several
+  small cities Nominatim mis-types as a suburb or returns as a node
+  (Industry, Rosemead, the Palos Verdes / Rolling Hills enclaves).

@@ -1,9 +1,32 @@
-# Los Angeles area, CA — multi-city with custom cost tiers
+# Los Angeles County, CA — all 88 incorporated cities, Overpass-only
 #
-# A regional analysis across eight LA-area cities, demonstrating a custom
-# four-tier forecast cost schedule and per-city hex_edge_m overrides for the
-# largest jurisdictions (LA proper at 300 m, Long Beach at 200 m).
-# Overpass-only (no ArcGIS).
+# A county-wide analysis across every incorporated city in Los Angeles
+# County, from the City of LA (one of the largest municipal footprints in
+# the country) down to tiny enclaves like Vernon, Bradbury, and Rolling
+# Hills. This is the SoCal analogue to the bay-area-ca example: a big
+# multi-city config whose Compare tab ranks dozens of neighboring
+# jurisdictions against one another.
+#
+# The county has 88 incorporated cities; 87 are listed here. Compton is
+# omitted because OpenStreetMap currently has no boundary polygon for it
+# (see the note where it would otherwise appear, below).
+#
+# Techniques demonstrated:
+#   - A custom four-tier forecast cost schedule (Failed/Poor/Fair/Good).
+#   - Per-city hex_edge_m overrides sized to each jurisdiction: LA proper at
+#     300 m, the Antelope Valley cities (Palmdale, Lancaster) at 250 m, and
+#     the other large cities at 150-200 m; the many compact cities stay on
+#     the 125 m default.
+#   - boundary_relation_id for cities Nominatim mis-types as a suburb or
+#     returns only as a place node (Industry, La Habra Heights, the Palos
+#     Verdes/Rolling Hills enclaves, Rosemead) — the admin boundary is
+#     pinned to a specific OSM relation instead.
+#
+# Mostly a minimal config: most cities run on the top-level [forecast]
+# defaults (no per-city PCI/budget). A handful (Los Angeles, Long Beach,
+# Pasadena, Glendale, Burbank) keep cited PCI/budget values from earlier
+# revisions — see their #@cite comments. Overpass-only. Expect ~87
+# Nominatim + Overpass pulls for `pvmt all ingest`.
 
 config_id = "los-angeles-ca"
 
@@ -39,43 +62,51 @@ cost_per_sqm = 15.0
 label = "Good"
 
 [[cities]]
-name = "Los Angeles, CA"
-#@cite StreetsLA citywide network-average PCI 71
-#@cite     https://data.streetsforall.org/blog/repaving/ (accessed 2026-06-14)
-forecast.initial_pci = 71
-overpass = true
-hex_edge_m = 300  # LA proper is very large (~1300 km²); use coarse hexes
-
-[[cities]]
-name = "Santa Monica, CA"
+name = "Agoura Hills, CA"
 overpass = true
 
 [[cities]]
-name = "Pasadena, CA"
-#@cite Citywide avg PCI 57, FY2026 Street Pavement & Maintenance Audit (cityofpasadena.net) [PCI not byte-verified]
-#@cite     https://www.cityofpasadena.net/city-manager/wp-content/uploads/sites/2/2026-04-Street-Pavement-and-Maintenance-Audit.pdf (accessed 2026-06-14)
-forecast.initial_pci = 57
-#@cite $1.1M CDBG street resurfacing & ADA improvements, FY2026
-#@cite     https://pasadenanow.com/main/local-affordable-housing-homeless-services-and-street-repairs-are-set-for-funding-review-funding-for-2026 (accessed 2026-06-14)
-forecast.current_budget = 1100000.0
+name = "Alhambra, CA"
 overpass = true
 
 [[cities]]
-name = "Long Beach, CA"
-#@cite Citywide PCI 61, 2025 City Manager memo (longbeach.gov) [PCI not byte-verified]
-#@cite     https://www.longbeach.gov/globalassets/city-manager/media-library/documents/memos-to-the-mayor-tabbed-file-list-folders/2025/august-1--2025---city-of-long-beach-updated-pavement-condition-index--pci--score (accessed 2026-06-14)
-forecast.initial_pci = 61
-#@cite $27.5M arterial + $18M residential street repairs = $45.5M, FY2025 completed
-#@cite     https://www.longbeach.gov/globalassets/finance/media-library/documents/city-budget-and-finances/budget/budget-documents/fy-25-adopted-budget/32-public-works (accessed 2026-06-14)
-forecast.current_budget = 45500000.0
+name = "Arcadia, CA"
 overpass = true
-hex_edge_m = 200  # second-largest LA-area city (~130 km²)
 
 [[cities]]
-name = "Glendale, CA"
-#@cite Citywide PCI 58, Sept 2023 City Council PMP report
-#@cite     https://www.glendalestar.com/news/article_f358ac62-5a5f-11ee-b646-27d066b51a60.html (accessed 2026-06-14)
-forecast.initial_pci = 58
+name = "Artesia, CA"
+overpass = true
+
+[[cities]]
+name = "Avalon, CA"
+overpass = true
+
+[[cities]]
+name = "Azusa, CA"
+overpass = true
+
+[[cities]]
+name = "Baldwin Park, CA"
+overpass = true
+
+[[cities]]
+name = "Bell, CA"
+overpass = true
+
+[[cities]]
+name = "Bell Gardens, CA"
+overpass = true
+
+[[cities]]
+name = "Bellflower, CA"
+overpass = true
+
+[[cities]]
+name = "Beverly Hills, CA"
+overpass = true
+
+[[cities]]
+name = "Bradbury, CA"
 overpass = true
 
 [[cities]]
@@ -89,9 +120,348 @@ forecast.current_budget = 8000000.0
 overpass = true
 
 [[cities]]
+name = "Calabasas, CA"
+overpass = true
+hex_edge_m = 150
+
+[[cities]]
+name = "Carson, CA"
+overpass = true
+hex_edge_m = 150
+
+[[cities]]
+name = "Cerritos, CA"
+overpass = true
+
+[[cities]]
+name = "Claremont, CA"
+overpass = true
+
+[[cities]]
+name = "Commerce, CA"
+overpass = true
+
+# Compton is omitted: OpenStreetMap has no administrative boundary polygon
+# for it (it exists only as a place=city node), so neither the Nominatim
+# search nor a boundary_relation_id lookup can supply a footprint. Re-add it
+# here with a boundary_relation_id if OSM gains a boundary=administrative
+# relation for Compton, CA.
+
+[[cities]]
+name = "Covina, CA"
+overpass = true
+
+[[cities]]
+name = "Cudahy, CA"
+overpass = true
+
+[[cities]]
+name = "Culver City, CA"
+overpass = true
+
+[[cities]]
+name = "Diamond Bar, CA"
+overpass = true
+
+[[cities]]
+name = "Downey, CA"
+overpass = true
+
+[[cities]]
+name = "Duarte, CA"
+overpass = true
+
+[[cities]]
+name = "El Monte, CA"
+overpass = true
+
+[[cities]]
+name = "El Segundo, CA"
+overpass = true
+
+[[cities]]
+name = "Gardena, CA"
+overpass = true
+
+[[cities]]
+name = "Glendale, CA"
+#@cite Citywide PCI 58, Sept 2023 City Council PMP report
+#@cite     https://www.glendalestar.com/news/article_f358ac62-5a5f-11ee-b646-27d066b51a60.html (accessed 2026-06-14)
+forecast.initial_pci = 58
+overpass = true
+hex_edge_m = 150
+
+[[cities]]
+name = "Glendora, CA"
+overpass = true
+
+[[cities]]
+name = "Hawaiian Gardens, CA"
+overpass = true
+
+[[cities]]
+name = "Hawthorne, CA"
+overpass = true
+
+[[cities]]
+name = "Hermosa Beach, CA"
+overpass = true
+
+[[cities]]
+name = "Hidden Hills, CA"
+overpass = true
+
+[[cities]]
+name = "Huntington Park, CA"
+overpass = true
+
+[[cities]]
+name = "Industry, CA"
+overpass = true
+# Nominatim types the City of Industry boundary as a suburb, not a city;
+# pin the admin_level=8 relation to get the correct municipal footprint.
+boundary_relation_id = 112088
+
+[[cities]]
 name = "Inglewood, CA"
 overpass = true
 
 [[cities]]
+name = "Irwindale, CA"
+overpass = true
+
+[[cities]]
+name = "La Cañada Flintridge, CA"
+overpass = true
+
+[[cities]]
+name = "La Habra Heights, CA"
+overpass = true
+# Nominatim types this boundary as a suburb; pin the admin_level=8 relation.
+boundary_relation_id = 3523972
+
+[[cities]]
+name = "La Mirada, CA"
+overpass = true
+
+[[cities]]
+name = "La Puente, CA"
+overpass = true
+
+[[cities]]
+name = "La Verne, CA"
+overpass = true
+
+[[cities]]
+name = "Lakewood, CA"
+overpass = true
+
+[[cities]]
+name = "Lancaster, CA"
+overpass = true
+hex_edge_m = 250  # sprawling Antelope Valley city (~245 km²)
+
+[[cities]]
+name = "Lawndale, CA"
+overpass = true
+
+[[cities]]
+name = "Lomita, CA"
+overpass = true
+
+[[cities]]
+name = "Long Beach, CA"
+#@cite Citywide PCI 61, 2025 City Manager memo (longbeach.gov) [PCI not byte-verified]
+#@cite     https://www.longbeach.gov/globalassets/city-manager/media-library/documents/memos-to-the-mayor-tabbed-file-list-folders/2025/august-1--2025---city-of-long-beach-updated-pavement-condition-index--pci--score (accessed 2026-06-14)
+forecast.initial_pci = 61
+#@cite $27.5M arterial + $18M residential street repairs = $45.5M, FY2025 completed
+#@cite     https://www.longbeach.gov/globalassets/finance/media-library/documents/city-budget-and-finances/budget/budget-documents/fy-25-adopted-budget/32-public-works (accessed 2026-06-14)
+forecast.current_budget = 45500000.0
+overpass = true
+hex_edge_m = 200  # second-largest LA-area city (~170 km²)
+
+[[cities]]
+name = "Los Angeles, CA"
+#@cite StreetsLA citywide network-average PCI 71
+#@cite     https://data.streetsforall.org/blog/repaving/ (accessed 2026-06-14)
+forecast.initial_pci = 71
+overpass = true
+hex_edge_m = 300  # LA proper is very large (~1300 km²); use coarse hexes
+
+[[cities]]
+name = "Lynwood, CA"
+overpass = true
+
+[[cities]]
+name = "Malibu, CA"
+overpass = true
+hex_edge_m = 150  # long, thin coastal footprint (~50 km²)
+
+[[cities]]
+name = "Manhattan Beach, CA"
+overpass = true
+
+[[cities]]
+name = "Maywood, CA"
+overpass = true
+
+[[cities]]
+name = "Monrovia, CA"
+overpass = true
+
+[[cities]]
+name = "Montebello, CA"
+overpass = true
+
+[[cities]]
+name = "Monterey Park, CA"
+overpass = true
+
+[[cities]]
+name = "Norwalk, CA"
+overpass = true
+
+[[cities]]
+name = "Palmdale, CA"
+overpass = true
+hex_edge_m = 250  # sprawling Antelope Valley city (~275 km²)
+
+[[cities]]
+name = "Palos Verdes Estates, CA"
+overpass = true
+# Nominatim types this boundary as a suburb; pin the admin_level=8 relation.
+boundary_relation_id = 2314269
+
+[[cities]]
+name = "Paramount, CA"
+overpass = true
+
+[[cities]]
+name = "Pasadena, CA"
+#@cite Citywide avg PCI 57, FY2026 Street Pavement & Maintenance Audit (cityofpasadena.net) [PCI not byte-verified]
+#@cite     https://www.cityofpasadena.net/city-manager/wp-content/uploads/sites/2/2026-04-Street-Pavement-and-Maintenance-Audit.pdf (accessed 2026-06-14)
+forecast.initial_pci = 57
+#@cite $1.1M CDBG street resurfacing & ADA improvements, FY2026
+#@cite     https://pasadenanow.com/main/local-affordable-housing-homeless-services-and-street-repairs-are-set-for-funding-review-funding-for-2026 (accessed 2026-06-14)
+forecast.current_budget = 1100000.0
+overpass = true
+hex_edge_m = 150  # ~60 km²
+
+[[cities]]
+name = "Pico Rivera, CA"
+overpass = true
+
+[[cities]]
+name = "Pomona, CA"
+overpass = true
+hex_edge_m = 150  # ~60 km²
+
+[[cities]]
+name = "Rancho Palos Verdes, CA"
+overpass = true
+
+[[cities]]
+name = "Redondo Beach, CA"
+overpass = true
+
+[[cities]]
+name = "Rolling Hills, CA"
+overpass = true
+# Nominatim types this boundary as a suburb; pin the admin_level=8 relation.
+boundary_relation_id = 2314272
+
+[[cities]]
+name = "Rolling Hills Estates, CA"
+overpass = true
+# Nominatim types this boundary as a suburb; pin the admin_level=8 relation.
+boundary_relation_id = 2314271
+
+[[cities]]
+name = "Rosemead, CA"
+overpass = true
+# Nominatim returns Rosemead only as a place node (no polygon); pin the
+# boundary=administrative relation (which lacks an admin_level tag in OSM).
+boundary_relation_id = 10435737
+
+[[cities]]
+name = "San Dimas, CA"
+overpass = true
+
+[[cities]]
+name = "San Fernando, CA"
+overpass = true
+
+[[cities]]
+name = "San Gabriel, CA"
+overpass = true
+
+[[cities]]
+name = "San Marino, CA"
+overpass = true
+
+[[cities]]
+name = "Santa Clarita, CA"
+overpass = true
+hex_edge_m = 200  # large northern LA County city (~180 km²)
+
+[[cities]]
+name = "Santa Fe Springs, CA"
+overpass = true
+
+[[cities]]
+name = "Santa Monica, CA"
+overpass = true
+
+[[cities]]
+name = "Sierra Madre, CA"
+overpass = true
+
+[[cities]]
+name = "Signal Hill, CA"
+overpass = true
+
+[[cities]]
+name = "South El Monte, CA"
+overpass = true
+
+[[cities]]
+name = "South Gate, CA"
+overpass = true
+
+[[cities]]
+name = "South Pasadena, CA"
+overpass = true
+
+[[cities]]
+name = "Temple City, CA"
+overpass = true
+
+[[cities]]
 name = "Torrance, CA"
+overpass = true
+hex_edge_m = 150  # ~55 km²
+
+[[cities]]
+name = "Vernon, CA"
+overpass = true
+
+[[cities]]
+name = "Walnut, CA"
+overpass = true
+
+[[cities]]
+name = "West Covina, CA"
+overpass = true
+hex_edge_m = 150  # ~42 km²
+
+[[cities]]
+name = "West Hollywood, CA"
+overpass = true
+
+[[cities]]
+name = "Westlake Village, CA"
+overpass = true
+
+[[cities]]
+name = "Whittier, CA"
 overpass = true

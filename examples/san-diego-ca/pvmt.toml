@@ -1,0 +1,70 @@
+# San Diego area, CA — coastal SoCal metro, Overpass-only
+#
+# A regional analysis across ten San Diego County jurisdictions, from the
+# City of San Diego (one of the largest municipal footprints in the state)
+# down to compact inner-ring cities like La Mesa and National City. The
+# Compare tab ranks these neighbors against one another.
+#
+# Techniques demonstrated:
+#   - Per-city hex_edge_m overrides for size: San Diego at 300 m, Chula Vista
+#     at 150 m, everyone else on the 125 m default.
+#   - A modest growth_rate (0.005) for steady coastal build-out.
+#
+# Minimal config: every city runs on the top-level [forecast] defaults (no
+# per-city PCI/budget). Values below are illustrative regional tuning, not
+# cited measurements. Overpass-only. Expect ~10 Nominatim + Overpass pulls
+# for `pvmt all ingest`.
+
+config_id = "san-diego-ca"
+
+[grid]
+hex_edge_m = 125
+
+[forecast]
+years = 20
+growth_rate = 0.005
+
+[export]
+title = "San Diego Area Pavement Analysis"
+
+[[cities]]
+name = "San Diego, CA"
+overpass = true
+hex_edge_m = 300  # very large jurisdiction (~842 km²); coarse hexes
+
+[[cities]]
+name = "Chula Vista, CA"
+overpass = true
+hex_edge_m = 150  # second-largest here (~130 km²)
+
+[[cities]]
+name = "Oceanside, CA"
+overpass = true
+
+[[cities]]
+name = "Escondido, CA"
+overpass = true
+
+[[cities]]
+name = "Carlsbad, CA"
+overpass = true
+
+[[cities]]
+name = "El Cajon, CA"
+overpass = true
+
+[[cities]]
+name = "Vista, CA"
+overpass = true
+
+[[cities]]
+name = "San Marcos, CA"
+overpass = true
+
+[[cities]]
+name = "National City, CA"
+overpass = true
+
+[[cities]]
+name = "La Mesa, CA"
+overpass = true
