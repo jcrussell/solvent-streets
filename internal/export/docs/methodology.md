@@ -190,6 +190,26 @@ Three caveats apply to these figures specifically:
   the bisection **overstate** the break-even budget — a conservative
   direction (it never understates the gap).
 
+### Compare-tab scores
+
+The multi-city Compare view presents two distinct per-city scores:
+
+- **Solvency Score** (primary, the project's headline) — the road-budget
+  **coverage ratio**, `current_budget / break_even_budget`, rendered on a
+  0–100 scale: **100 = funded to hold the network steady**, 50 ≈ needs
+  twice today's budget, 25 ≈ needs four times. Over-funded cities cap at
+  100 for display but keep their uncapped coverage as the ranking key, so
+  the most-surplus city ranks first (a single gold medal); ties break on
+  the later/absent insolvency year. Computed on roads/streets only and
+  **only for cities with a cited `current_budget`** — cities without one
+  cannot be scored and are shown `N/A`, unranked.
+- **Infrastructure Index** (secondary) — a purely *descriptive* composite of
+  asset scale, ownership share, walkability, unit cost and blended decay,
+  min-max normalized across the compared cities. It is **not** a solvency
+  judgment (its "bigger network / more city-owned = higher" weights are
+  descriptive, not normative); it exists to summarize network character and
+  is always computable, so every city places.
+
 ### Assumptions and limitations
 
 - Initial PCI is a user-chosen stand-in, not a field measurement.
