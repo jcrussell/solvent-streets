@@ -128,7 +128,9 @@
         #legend .legend-title { font-weight: 600; margin-bottom: 4px; }
         #legend .legend-bar {
             width: 180px; height: 12px; border-radius: 3px;
-            background: linear-gradient(90deg, var(--legend-1), var(--legend-2), var(--legend-3), var(--legend-4), var(--legend-5), var(--legend-6));
+            /* Stops match the hex-fill paint breakpoints (0/10/25/50/75/100)
+               so a color on the bar sits at its true coverage value. */
+            background: linear-gradient(90deg, var(--legend-1) 0%, var(--legend-2) 10%, var(--legend-3) 25%, var(--legend-4) 50%, var(--legend-5) 75%, var(--legend-6) 100%);
         }
         #legend .legend-labels { display: flex; justify-content: space-between; margin-top: 2px; color: var(--text-muted); }
 
@@ -1432,8 +1434,7 @@
                         map.addLayer({
                             id: 'hex-fill', type: 'fill', source: 'hexgrid',
                             paint: {
-                                'fill-color': ['interpolate', ['linear'], ['get', 'pct_covered'],
-                                    0, '#f7fbff', 10, '#c6dbef', 25, '#6baed6', 50, '#2171b5', 75, '#08519c', 100, '#08306b'],
+                                'fill-color': hexFillColor(),
                                 'fill-opacity': 0.6
                             }
                         });
@@ -1441,7 +1442,7 @@
                             id: 'hex-outline', type: 'line', source: 'hexgrid',
                             paint: { 'line-color': '#333', 'line-width': 0.5, 'line-opacity': 0.3 }
                         });
-                        toggles += '<label><input type="checkbox" checked data-layers="hex-fill,hex-outline"><span class="legend-gradient" style="background:linear-gradient(90deg,#c6dbef,#08306b)"></span>hex grid</label>';
+                        toggles += '<label><input type="checkbox" checked data-layers="hex-fill,hex-outline"><span class="legend-gradient" style="background:linear-gradient(90deg,var(--legend-2),var(--legend-6))"></span>hex grid</label>';
                         // Hover/click handlers for the hex-fill layer are registered
                         // ONCE at startup (registerHexHandlers), not here. MapLibre
                         // layer-scoped listeners are keyed by layer id and survive
@@ -1553,6 +1554,21 @@
             });
         }
         registerHexHandlers();
+
+        // Coverage heatmap colors are read from the --legend-* CSS vars (which
+        // differ per theme) at the same breakpoints as the #legend bar, so the
+        // map and its legend always agree. Rebuilt on theme toggle.
+        function hexFillColor() {
+            const cs = getComputedStyle(document.documentElement);
+            const lg = n => cs.getPropertyValue('--legend-' + n).trim();
+            return ['interpolate', ['linear'], ['get', 'pct_covered'],
+                0, lg(1), 10, lg(2), 25, lg(3), 50, lg(4), 75, lg(5), 100, lg(6)];
+        }
+        document.addEventListener('pvmt:themechange', () => {
+            if (map.getLayer('hex-fill')) {
+                map.setPaintProperty('hex-fill', 'fill-color', hexFillColor());
+            }
+        });
 
         // --- Drag-to-select region -> aggregate totals ---------------------
         // Lets the user drag a rectangle on the map and see aggregate totals
