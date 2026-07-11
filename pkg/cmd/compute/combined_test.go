@@ -76,7 +76,7 @@ func TestRunCombined_DedupesCrossResourceOverlap(t *testing.T) {
 		Config:      func() (*config.Config, error) { return cfg, nil },
 	}
 
-	if err := RunCombined(ctx, f); err != nil {
+	if err := RunCombined(ctx, f, nil); err != nil {
 		t.Fatalf("RunCombined: %v", err)
 	}
 
@@ -162,7 +162,7 @@ func TestRunCombined_NoFeaturesSkipsSave(t *testing.T) {
 		Config:      func() (*config.Config, error) { return cfg, nil },
 	}
 
-	if err := RunCombined(ctx, f); err != nil {
+	if err := RunCombined(ctx, f, nil); err != nil {
 		t.Fatalf("RunCombined: %v", err)
 	}
 	if saveCalled {

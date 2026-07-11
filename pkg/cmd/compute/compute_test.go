@@ -228,6 +228,95 @@ func roadsFeaturesFunc(_ context.Context, _ resource.Type) ([]db.Feature, error)
 	}, nil
 }
 
+// TestRunCompute_PrebuiltGridMatchesInline pins the 7ou7.4 grid-sharing
+// refactor: computing a resource with an injected PrebuiltGrid must produce
+// byte-identical saved hex stats to computing it with the grid built inline.
+// This is the equivalence guardrail for `all compute` reusing one clipped grid
+// across the per-resource passes instead of rebuilding it each time.
+func TestRunCompute_PrebuiltGridMatchesInline(t *testing.T) {
+	ctx := context.Background()
+
+	// Several short roads scattered across testBoundary so multiple hexes get
+	// coverage — the more covered hexes, the more the comparison bites.
+	features := []db.Feature{
+		{ID: "r1", ResourceType: resource.TypeRoads, Tags: map[string]string{"highway": "residential"},
+			GeometryJSON: `{"type":"LineString","coordinates":[[-121.7700,37.6800],[-121.7660,37.6820]]}`},
+		{ID: "r2", ResourceType: resource.TypeRoads, Tags: map[string]string{"highway": "tertiary"},
+			GeometryJSON: `{"type":"LineString","coordinates":[[-121.7500,37.6900],[-121.7450,37.6930]]}`},
+		{ID: "r3", ResourceType: resource.TypeRoads, Tags: map[string]string{"highway": "trunk"},
+			GeometryJSON: `{"type":"LineString","coordinates":[[-121.7800,37.7000],[-121.7750,37.7010]]}`},
+	}
+
+	run := func(grid []geo.Hex) []db.HexStat {
+		t.Helper()
+		var saved []db.HexStat
+		store := &dbtest.MockStore{
+			GetBoundaryFunc:  func(_ context.Context) (string, error) { return testBoundary, nil },
+			ListFeaturesFunc: func(_ context.Context, _ resource.Type) ([]db.Feature, error) { return features, nil },
+			SaveHexStatsFunc: func(_ context.Context, s []db.HexStat) error {
+				saved = append(saved, s...)
+				return nil
+			},
+		}
+		ios, _, _, _ := iostreams.Test()
+		opts := &Options{
+			IO:           ios,
+			UnitSystem:   func() units.System { return units.Metric },
+			CityDB:       func() (db.Store, error) { return store, nil },
+			CurrentCity:  func() (*config.CityConfig, error) { return testCity, nil },
+			Config:       func() (*config.Config, error) { return testCfg, nil },
+			ResourceType: &resource.Pavement{},
+			PrebuiltGrid: grid,
+		}
+		if err := doCompute(ctx, io.Discard, io.Discard, tui.NoopNotifier{}, opts); err != nil {
+			t.Fatalf("doCompute: %v", err)
+		}
+		return saved
+	}
+
+	// Build the shared grid exactly as BuildCityGrid would for this city.
+	bstore := &dbtest.MockStore{GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil }}
+	boundaryGJSON, bbox, proj, err := loadBoundary(ctx, bstore, testCity)
+	if err != nil {
+		t.Fatalf("loadBoundary: %v", err)
+	}
+	grid := buildClippedHexGrid(ctx, testCfg, testCity, proj, bbox, boundaryGJSON, io.Discard)
+	if len(grid) == 0 {
+		t.Fatal("shared grid is empty; fixture would not exercise the comparison")
+	}
+
+	inline := run(nil)
+	shared := run(grid)
+
+	if len(inline) == 0 {
+		t.Fatal("inline run saved no hex stats; fixture produced no coverage")
+	}
+	if len(inline) != len(shared) {
+		t.Fatalf("hex stat count differs: inline=%d shared=%d", len(inline), len(shared))
+	}
+	// Compare keyed by (HexID, ResourceType) so ordering differences don't
+	// matter; assert Area and PctCovered match exactly.
+	type key struct {
+		id string
+		rt resource.Type
+	}
+	inlineByKey := make(map[key]db.HexStat, len(inline))
+	for _, s := range inline {
+		inlineByKey[key{s.HexID, s.ResourceType}] = s
+	}
+	for _, s := range shared {
+		want, ok := inlineByKey[key{s.HexID, s.ResourceType}]
+		if !ok {
+			t.Errorf("shared run produced hex %s (%s) absent from inline run", s.HexID, s.ResourceType)
+			continue
+		}
+		if want.Area != s.Area || want.PctCovered != s.PctCovered {
+			t.Errorf("hex %s (%s): inline {area=%v pct=%v} != shared {area=%v pct=%v}",
+				s.HexID, s.ResourceType, want.Area, want.PctCovered, s.Area, s.PctCovered)
+		}
+	}
+}
+
 // TestRunCompute_SaveHexStatsErrorFatal pins solvent-streets-yvlv.41: per-hex
 // stats are the primary output, so a SaveHexStats failure must make compute
 // exit non-zero rather than warn-and-continue.

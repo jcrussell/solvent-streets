@@ -35,6 +35,14 @@ type Options struct {
 	CityOnly     bool
 	Exporter     cmdutil.Exporter
 	rows         *[]computeRow // multi-city accumulator; nil for single-pass JSON
+	// PrebuiltGrid, when non-nil, is a clipped hex grid built once for the city
+	// and reused as-is (read-only) instead of regenerating + clipping here. Set
+	// by `all compute` via RunResourceForCity so the expensive HexGrid +
+	// ClipHexesToBoundary runs once per city rather than once per resource. nil
+	// means build the grid in this run (the standalone `roads/parking/... compute`
+	// path). The grid depends only on (boundary, hex edge), identical across
+	// resources for a city.
+	PrebuiltGrid []geo.Hex
 }
 
 type computeRow struct {
@@ -105,6 +113,25 @@ func NewCmdCompute(f *cmdutil.Factory, rt resource.Source, runF func(context.Con
 	cmdutil.AddJSONFlags(cmd, &opts.Exporter, computeFields)
 
 	return cmd
+}
+
+// RunResourceForCity computes stats for a single resource type against the
+// already city-scoped factory f, reusing the caller-supplied clipped hex grid
+// (nil = build one for this run). `all compute` calls it in-process — instead
+// of the cobra execSub path — so one clipped grid can be shared across the
+// per-resource passes. It mirrors the Options that NewCmdCompute builds and
+// runs the same single-city path (TTY/JSON routing included).
+func RunResourceForCity(ctx context.Context, f *cmdutil.Factory, rt resource.Source, grid []geo.Hex) error {
+	opts := &Options{
+		IO:           f.IOStreams,
+		CityDB:       f.CityDB,
+		Config:       f.Config,
+		CurrentCity:  f.CurrentCity,
+		UnitSystem:   f.UnitSystem,
+		ResourceType: rt,
+		PrebuiltGrid: grid,
+	}
+	return runCompute(ctx, opts)
 }
 
 func runComputeAllCities(ctx context.Context, f *cmdutil.Factory, opts *Options) error {
@@ -548,6 +575,41 @@ func printCohortBreakdown(out io.Writer, title string, stats []db.CohortStat, to
 // returns the per-hex stats plus the clipped hex slice. The caller owns
 // persistence and can reuse clippedHexes for a second pass (e.g. city-only).
 func (c *computer) computeHexPipeline(ctx context.Context, buffered []geom.Geometry, boundaryGJSON string) ([]geo.HexStat, []geo.Hex) {
+	hexes := c.hexGrid(ctx, boundaryGJSON)
+
+	// --- Phase 3: Compute hex stats ---
+	c.notify.PhaseStart(phaseStats)
+
+	idx := geo.NewGeomIndexFromGeoms(buffered)
+
+	var statsCounter atomic.Int64
+	stopStatsProgress := startProgressTicker(ctx, c.notify, phaseStats, len(hexes), &statsCounter)
+	geoStats := geo.ComputeHexStats(ctx, hexes, idx, string(c.opts.ResourceType.Type()), &statsCounter)
+	stopStatsProgress()
+	fmt.Fprintf(c.out, "  %d hexes with coverage\n", len(geoStats))
+	c.notify.PhaseDone(phaseStats, nil)
+
+	return geoStats, hexes
+}
+
+// hexGrid returns the clipped hex grid for this run. When the caller injected a
+// PrebuiltGrid (all compute sharing one grid across the per-resource passes),
+// it is reused as-is and the generate + clip phases are skipped — the grid is
+// treated read-only, matching how clippedHexes is already shared across the
+// all/city/cohort passes within one run. Otherwise the grid is generated and
+// clipped to the boundary here (the standalone `<resource> compute` path).
+func (c *computer) hexGrid(ctx context.Context, boundaryGJSON string) []geo.Hex {
+	if c.opts.PrebuiltGrid != nil {
+		// Fire the phase notifications so the TUI checklist still advances past
+		// the (skipped) grid + clip steps.
+		c.notify.PhaseStart(phaseHexGrid)
+		c.notify.PhaseDone(phaseHexGrid, nil)
+		c.notify.PhaseStart(phaseClip)
+		c.notify.PhaseDone(phaseClip, nil)
+		fmt.Fprintf(c.out, "\nReusing shared clipped hex grid: %d hexes\n", len(c.opts.PrebuiltGrid))
+		return c.opts.PrebuiltGrid
+	}
+
 	// --- Phase 1: Generate hex grid ---
 	c.notify.PhaseStart(phaseHexGrid)
 
@@ -579,19 +641,7 @@ func (c *computer) computeHexPipeline(ctx context.Context, buffered []geom.Geome
 	}
 	c.notify.PhaseDone(phaseClip, nil)
 
-	// --- Phase 3: Compute hex stats ---
-	c.notify.PhaseStart(phaseStats)
-
-	idx := geo.NewGeomIndexFromGeoms(buffered)
-
-	var statsCounter atomic.Int64
-	stopStatsProgress := startProgressTicker(ctx, c.notify, phaseStats, len(hexes), &statsCounter)
-	geoStats := geo.ComputeHexStats(ctx, hexes, idx, string(c.opts.ResourceType.Type()), &statsCounter)
-	stopStatsProgress()
-	fmt.Fprintf(c.out, "  %d hexes with coverage\n", len(geoStats))
-	c.notify.PhaseDone(phaseStats, nil)
-
-	return geoStats, hexes
+	return hexes
 }
 
 // startProgressTicker launches a goroutine that sends PhaseProgress updates

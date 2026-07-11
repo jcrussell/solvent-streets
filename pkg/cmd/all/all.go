@@ -60,12 +60,23 @@ func newAllCompute(f *cmdutil.Factory) *cobra.Command {
   pvmt all compute`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmdutil.ForEachCity(cmd.Context(), f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
+				// Build the clipped hex grid once per city and share it across the
+				// three per-resource passes and the combined pass — the grid
+				// depends only on (boundary, hex edge) and is identical for all
+				// four, so this replaces the old 4× rebuild/clip. If it can't be
+				// built (missing boundary, DB error, ...) every pass would fail
+				// the same way, so surface it once and skip the city rather than
+				// re-running the identical failure three times.
+				grid, err := compute.BuildCityGrid(cmd.Context(), cf)
+				if err != nil {
+					return err
+				}
 				if err := forEachResource(f.IOStreams, func(rt resource.Source) error {
-					return execSub(cmd.Context(), compute.NewCmdCompute(cf, rt, nil))
+					return compute.RunResourceForCity(cmd.Context(), cf, rt, grid)
 				}); err != nil {
 					return err
 				}
-				if err := compute.RunCombined(cmd.Context(), cf); err != nil {
+				if err := compute.RunCombined(cmd.Context(), cf, grid); err != nil {
 					// A cancelled run must stop the whole fan-out rather than
 					// proceed to the next city with partial data.
 					if errors.Is(err, context.Canceled) {

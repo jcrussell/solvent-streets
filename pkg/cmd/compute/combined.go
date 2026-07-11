@@ -27,7 +27,12 @@ import (
 //
 // Run after `all compute` has populated each resource's features. Safe when
 // some resources have no features — those are skipped.
-func RunCombined(ctx context.Context, f *cmdutil.Factory) (retErr error) {
+//
+// grid is the clipped hex grid to run the union passes against; pass the shared
+// grid `all compute` built once per city (see BuildCityGrid) so the boundary
+// clip isn't repeated here. Pass nil to have RunCombined build its own grid
+// (standalone use).
+func RunCombined(ctx context.Context, f *cmdutil.Factory, grid []geo.Hex) (retErr error) {
 	cfg, err := f.Config()
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
@@ -53,7 +58,12 @@ func RunCombined(ctx context.Context, f *cmdutil.Factory) (retErr error) {
 		return nil
 	}
 
-	hexes := buildClippedHexGrid(ctx, cfg, city, proj, bbox, boundaryGJSON, ios.ErrOut)
+	// Reuse the grid `all compute` already built + clipped for this city; only
+	// build one here when called standalone (grid == nil).
+	hexes := grid
+	if hexes == nil {
+		hexes = buildClippedHexGrid(ctx, cfg, city, proj, bbox, boundaryGJSON, ios.ErrOut)
+	}
 	cr := &combinedRunner{
 		store:      store,
 		io:         ios,
@@ -166,6 +176,36 @@ func loadFeaturesForCombined(ctx context.Context, store db.Store, rt resource.So
 		}
 	}
 	return out, true
+}
+
+// BuildCityGrid loads the city boundary and returns the clipped hex grid keyed
+// on (boundary, hex edge). `all compute` builds it once per city and threads it
+// into each per-resource compute (RunResourceForCity) and RunCombined, so the
+// expensive HexGrid + ClipHexesToBoundary runs once instead of four times.
+//
+// On any failure loading the boundary it returns a nil grid and the error. The
+// grid depends only on (boundary, hex edge), so a boundary failure here means
+// every per-resource pass would fail identically; `all compute` surfaces the
+// error once and skips the city rather than repeating it. A caller may instead
+// pass nil to RunResourceForCity/RunCombined to have each pass build its own.
+func BuildCityGrid(ctx context.Context, f *cmdutil.Factory) ([]geo.Hex, error) {
+	cfg, err := f.Config()
+	if err != nil {
+		return nil, fmt.Errorf("config: %w", err)
+	}
+	city, err := f.CurrentCity()
+	if err != nil {
+		return nil, fmt.Errorf("city: %w", err)
+	}
+	store, err := f.CityDB()
+	if err != nil {
+		return nil, fmt.Errorf("database: %w", err)
+	}
+	boundaryGJSON, bbox, proj, err := loadBoundary(ctx, store, city)
+	if err != nil {
+		return nil, err
+	}
+	return buildClippedHexGrid(ctx, cfg, city, proj, bbox, boundaryGJSON, f.IOStreams.ErrOut), nil
 }
 
 func buildClippedHexGrid(ctx context.Context, cfg *config.Config, city *config.CityConfig, proj *geo.UTMProjector, bbox [4]float64, boundaryGJSON string, errOut io.Writer) []geo.Hex {
