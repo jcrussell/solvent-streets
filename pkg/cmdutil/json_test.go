@@ -1,10 +1,14 @@
 package cmdutil
 
 import (
+	"errors"
 	"strings"
 	"testing"
+	"text/template"
 
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
+
+	"github.com/itchyny/gojq"
 )
 
 // fakeRow is a minimal RowExporter used by WriteRows tests.
@@ -104,9 +108,13 @@ func TestBuildExporter_TrimsSpacedFields(t *testing.T) {
 func TestJQFilterExporter_Write(t *testing.T) {
 	t.Run("selector over rows", func(t *testing.T) {
 		ios, _, out, _ := iostreams.Test()
+		query, err := gojq.Parse(".[].name")
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
 		e := &jqFilterExporter{
 			baseExporter: baseExporter{fields: []string{"name", "count"}},
-			expr:         ".[].name",
+			query:        query,
 		}
 		rows := []map[string]any{{"name": "first", "count": 1}, {"name": "second", "count": 2}}
 		if err := e.Write(ios, rows); err != nil {
@@ -115,16 +123,6 @@ func TestJQFilterExporter_Write(t *testing.T) {
 		got := out.String()
 		if !strings.Contains(got, `"first"`) || !strings.Contains(got, `"second"`) {
 			t.Errorf("jq output missing names: %q", got)
-		}
-	})
-	t.Run("invalid expression surfaces parse error", func(t *testing.T) {
-		ios, _, _, _ := iostreams.Test()
-		e := &jqFilterExporter{
-			baseExporter: baseExporter{fields: []string{"name"}},
-			expr:         "[[[",
-		}
-		if err := e.Write(ios, []map[string]any{{"name": "x"}}); err == nil {
-			t.Error("expected parse error, got nil")
 		}
 	})
 }
@@ -136,9 +134,13 @@ func TestJQFilterExporter_Write(t *testing.T) {
 func TestTemplateExporter_Write(t *testing.T) {
 	t.Run("per-row template execution", func(t *testing.T) {
 		ios, _, out, _ := iostreams.Test()
+		tmpl, err := template.New("").Parse(`{{.name}}={{.count}}`)
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
 		e := &templateExporter{
 			baseExporter: baseExporter{fields: []string{"name", "count"}},
-			tmpl:         `{{.name}}={{.count}}`,
+			tmpl:         tmpl,
 		}
 		rows := []map[string]any{{"name": "a", "count": 1}, {"name": "b", "count": 2}}
 		if err := e.Write(ios, rows); err != nil {
@@ -149,14 +151,66 @@ func TestTemplateExporter_Write(t *testing.T) {
 			t.Errorf("unexpected template output: %q", got)
 		}
 	})
-	t.Run("invalid template surfaces parse error", func(t *testing.T) {
-		ios, _, _, _ := iostreams.Test()
-		e := &templateExporter{
-			baseExporter: baseExporter{fields: []string{"name"}},
-			tmpl:         "{{.name",
+}
+
+// TestBuildExporter_ParsesExpressionsEarly verifies that a malformed --jq
+// or --template expression is rejected by buildExporter (run via PreRunE)
+// as a FlagError — the exit-code-2 class — before the command body runs,
+// and that valid expressions still produce a working exporter.
+func TestBuildExporter_ParsesExpressionsEarly(t *testing.T) {
+	validFields := []string{"name", "count"}
+
+	assertFlagError := func(t *testing.T, err error) {
+		t.Helper()
+		if err == nil {
+			t.Fatal("got nil error, want FlagError")
 		}
-		if err := e.Write(ios, []map[string]any{{"name": "x"}}); err == nil {
-			t.Error("expected template parse error, got nil")
+		var fe *FlagError
+		if !errors.As(err, &fe) {
+			t.Fatalf("got error of type %T (%v), want *FlagError", err, err)
+		}
+	}
+
+	t.Run("bad jq is a FlagError", func(t *testing.T) {
+		var e Exporter
+		err := buildExporter("name", ".foo |", "", validFields, &e)
+		assertFlagError(t, err)
+		if e != nil {
+			t.Errorf("exporter should not be set on parse failure, got %T", e)
+		}
+	})
+	t.Run("bad template is a FlagError", func(t *testing.T) {
+		var e Exporter
+		err := buildExporter("name", "", "{{.name", validFields, &e)
+		assertFlagError(t, err)
+		if e != nil {
+			t.Errorf("exporter should not be set on parse failure, got %T", e)
+		}
+	})
+	t.Run("valid jq builds a working exporter", func(t *testing.T) {
+		var e Exporter
+		if err := buildExporter("name", ".[].name", "", validFields, &e); err != nil {
+			t.Fatalf("buildExporter: %v", err)
+		}
+		ios, _, out, _ := iostreams.Test()
+		if err := e.Write(ios, []map[string]any{{"name": "x"}}); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
+		if !strings.Contains(out.String(), `"x"`) {
+			t.Errorf("jq output missing value: %q", out.String())
+		}
+	})
+	t.Run("valid template builds a working exporter", func(t *testing.T) {
+		var e Exporter
+		if err := buildExporter("name", "", "{{.name}}", validFields, &e); err != nil {
+			t.Fatalf("buildExporter: %v", err)
+		}
+		ios, _, out, _ := iostreams.Test()
+		if err := e.Write(ios, []map[string]any{{"name": "x"}}); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
+		if !strings.Contains(out.String(), "x") {
+			t.Errorf("template output missing value: %q", out.String())
 		}
 	})
 }

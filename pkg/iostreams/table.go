@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode/utf8"
 )
 
 // TablePrinter renders tabular data with TTY-aware formatting.
@@ -56,18 +57,31 @@ func (t *TablePrinter) columnWidths() ([]int, int) {
 	}
 	widths := make([]int, ncols)
 	for i, h := range t.headers {
-		if len(h) > widths[i] {
-			widths[i] = len(h)
+		if w := utf8.RuneCountInString(h); w > widths[i] {
+			widths[i] = w
 		}
 	}
 	for _, row := range t.rows {
 		for i, col := range row {
-			if i < ncols && len(col) > widths[i] {
-				widths[i] = len(col)
+			if i < ncols {
+				if w := utf8.RuneCountInString(col); w > widths[i] {
+					widths[i] = w
+				}
 			}
 		}
 	}
 	return widths, ncols
+}
+
+// pad left-aligns s in a field of width display cells, measured in runes.
+// The fmt "%-*s" verb counts bytes, so multi-byte runes (e.g. "José")
+// would over-pad; appending spaces by rune delta keeps columns aligned.
+func pad(s string, width int) string {
+	gap := width - utf8.RuneCountInString(s)
+	if gap <= 0 {
+		return s
+	}
+	return s + strings.Repeat(" ", gap)
 }
 
 func (t *TablePrinter) renderTTY() error {
@@ -76,8 +90,7 @@ func (t *TablePrinter) renderTTY() error {
 	if len(t.headers) > 0 {
 		parts := make([]string, len(t.headers))
 		for i, h := range t.headers {
-			padded := fmt.Sprintf("%-*s", widths[i], h)
-			parts[i] = t.cs.Bold(padded)
+			parts[i] = t.cs.Bold(pad(h, widths[i]))
 		}
 		fmt.Fprintln(t.out, strings.Join(parts, "  "))
 	}
@@ -86,7 +99,7 @@ func (t *TablePrinter) renderTTY() error {
 		parts := make([]string, len(row))
 		for i, col := range row {
 			if i < ncols {
-				parts[i] = fmt.Sprintf("%-*s", widths[i], col)
+				parts[i] = pad(col, widths[i])
 			} else {
 				parts[i] = col
 			}

@@ -87,9 +87,22 @@ func buildExporter(jsonFields, jqExpr, tmplStr string, validFields []string, out
 	base := baseExporter{fields: fields}
 	switch {
 	case jqExpr != "":
-		*out = &jqFilterExporter{baseExporter: base, expr: jqExpr}
+		// Parse the jq expression at build time (PreRunE) so a syntax
+		// error surfaces as a FlagError (exit 2) before the command body
+		// runs, rather than after the full compute inside Write (exit 1).
+		query, err := gojq.Parse(jqExpr)
+		if err != nil {
+			return FlagErrorf("invalid jq expression: %w", err)
+		}
+		*out = &jqFilterExporter{baseExporter: base, query: query}
 	case tmplStr != "":
-		*out = &templateExporter{baseExporter: base, tmpl: tmplStr}
+		// Parse the template at build time for the same reason; Write
+		// reuses the precompiled *template.Template.
+		tmpl, err := template.New("").Parse(tmplStr)
+		if err != nil {
+			return FlagErrorf("invalid template: %w", err)
+		}
+		*out = &templateExporter{baseExporter: base, tmpl: tmpl}
 	default:
 		*out = &jsonExporter{baseExporter: base}
 	}
@@ -124,18 +137,15 @@ func (e *jsonExporter) Write(ios *iostreams.IOStreams, rows []map[string]any) er
 	return err
 }
 
-// jqFilterExporter applies a jq expression to the JSON output.
+// jqFilterExporter applies a jq expression to the JSON output. The query
+// is precompiled in buildExporter so parse errors surface early as
+// FlagErrors rather than after the command body runs.
 type jqFilterExporter struct {
 	baseExporter
-	expr string
+	query *gojq.Query
 }
 
 func (e *jqFilterExporter) Write(ios *iostreams.IOStreams, rows []map[string]any) error {
-	query, err := gojq.Parse(e.expr)
-	if err != nil {
-		return fmt.Errorf("invalid jq expression: %w", err)
-	}
-
 	// gojq evaluates .[] on []any, not []map[string]any — rebuild the
 	// slice with the wider element type so jq expressions work as users
 	// expect on multi-row output.
@@ -144,7 +154,7 @@ func (e *jqFilterExporter) Write(ios *iostreams.IOStreams, rows []map[string]any
 		generic[i] = r
 	}
 
-	iter := query.Run(generic)
+	iter := e.query.Run(generic)
 	for {
 		v, ok := iter.Next()
 		if !ok {
@@ -162,19 +172,17 @@ func (e *jqFilterExporter) Write(ios *iostreams.IOStreams, rows []map[string]any
 	return nil
 }
 
-// templateExporter applies a Go template to the JSON output.
+// templateExporter applies a Go template to the JSON output. The template
+// is precompiled in buildExporter so parse errors surface early as
+// FlagErrors rather than after the command body runs.
 type templateExporter struct {
 	baseExporter
-	tmpl string
+	tmpl *template.Template
 }
 
 func (e *templateExporter) Write(ios *iostreams.IOStreams, rows []map[string]any) error {
-	tmpl, err := template.New("").Parse(e.tmpl)
-	if err != nil {
-		return fmt.Errorf("invalid template: %w", err)
-	}
 	for _, item := range rows {
-		if err := tmpl.Execute(ios.Out, item); err != nil {
+		if err := e.tmpl.Execute(ios.Out, item); err != nil {
 			return fmt.Errorf("template error: %w", err)
 		}
 		fmt.Fprintln(ios.Out)

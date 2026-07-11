@@ -102,6 +102,51 @@ func TestTablePrinter_NoHeaderInfersWidthFromFirstRow(t *testing.T) {
 	}
 }
 
+// TestTablePrinter_TTYUnicodeAlignment pins that column widths are measured
+// by display width (runes), not bytes. "San José" is 8 runes but 9 bytes;
+// a byte-based measure over-pads its column and shifts the next column
+// right. The test asserts the second column of the accented row starts at
+// the same offset as an ASCII-only row of the same rune length.
+func TestTablePrinter_TTYUnicodeAlignment(t *testing.T) {
+	ios, _, out, _ := Test()
+	ios.SetTTY(true)
+
+	tp := NewTablePrinter(ios)
+	tp.AddHeader("CITY", "PCT")
+	tp.AddRow("San José", "42") // 8 runes / 9 bytes
+	tp.AddRow("San Jose", "7")  // 8 runes / 8 bytes (ASCII control)
+
+	if err := tp.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("want 3 lines (header + 2 rows); got %d: %q", len(lines), lines)
+	}
+
+	// The col0 width is 8 runes ("San José"/"San Jose"), so col1 begins
+	// after 8 display cells + the 2-space separator. Both body rows must
+	// place "PCT" values at the identical offset.
+	// col1 is padded to width 3 (widest of "PCT"/"42"/"7").
+	wantAccented := "San José  42 "
+	wantASCII := "San Jose  7  "
+	if lines[1] != wantAccented {
+		t.Errorf("accented row: got %q, want %q", lines[1], wantAccented)
+	}
+	if lines[2] != wantASCII {
+		t.Errorf("ascii row: got %q, want %q", lines[2], wantASCII)
+	}
+
+	// Guard the invariant directly: the byte index where col1 starts must
+	// match after normalizing for the extra UTF-8 byte in "José".
+	accIdx := strings.Index(lines[1], "42") - (len("San José") - len("San Jose"))
+	asciiIdx := strings.Index(lines[2], "7")
+	if accIdx != asciiIdx {
+		t.Errorf("col1 display offset mismatch: accented=%d ascii=%d", accIdx, asciiIdx)
+	}
+}
+
 // TestRelativeTime walks each bucket of the duration switch. We feed a
 // fixed time.Time anchored to time.Now() rather than freezing a clock —
 // the helper reads time.Since directly, so tests must accept the staleness
