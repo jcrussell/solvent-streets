@@ -1,8 +1,11 @@
 package config
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"fmt"
+
+	"github.com/BurntSushi/toml"
 )
 
 // Hash returns a fingerprint of the config used to scope
@@ -23,9 +26,18 @@ import (
 //     different hashes → distinct snapshots.
 //
 // In-memory configs (tests, programmatically-constructed Configs)
-// don't have raw bytes — they fall back to hashing the Go struct's
-// %v representation. The fallback is unstable across Config field
-// additions, but tests rebuild fresh state each run so that's fine.
+// don't have raw bytes — they fall back to hashing a TOML re-encoding
+// of the struct. TOML is used to mirror parseConfig's own hashing
+// primitive (raw TOML bytes) and because the encoder writes struct
+// fields in declaration order and dereferences pointers (encoding the
+// pointed-to values, not addresses). That determinism matters: a bare
+// fmt "%v" renders *ForecastConfig per-city overrides as pointer
+// addresses, so two identical in-memory configs would hash differently
+// per process. Config has no map fields, so the encoding has no
+// ordering ambiguity. The fallback is still unstable across Config
+// field additions, but tests rebuild fresh state each run so that's
+// fine. The rare "%v" tail below only guards an encoder error (Config
+// is always TOML-encodable in practice).
 //
 // The 16-character truncation matches the existing on-disk format in
 // snapshots.config_hash; widening it desynchronizes write vs read.
@@ -33,7 +45,11 @@ func (c *Config) Hash() string {
 	if c.contentHash != "" {
 		return c.contentHash
 	}
-	return hashBytes(fmt.Appendf(nil, "%v", c))
+	var buf bytes.Buffer
+	if err := toml.NewEncoder(&buf).Encode(c); err != nil {
+		return hashBytes(fmt.Appendf(nil, "%v", c))
+	}
+	return hashBytes(buf.Bytes())
 }
 
 func hashBytes(b []byte) string {

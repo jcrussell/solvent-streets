@@ -224,7 +224,7 @@ func TestResolve_EmitsExpectedFields(t *testing.T) {
 		Grid:     GridConfig{HexEdgeM: 100},
 		Forecast: ForecastConfig{Years: 25},
 		Cities: []CityConfig{
-			{Name: "Detroit", HexEdgeM: 75, Forecast: &ForecastConfig{Years: 30}},
+			{Name: "Detroit", HexEdgeM: 75, Forecast: &ForecastConfig{Years: 30, TreatmentCycleYears: 8}},
 			{Name: "Chicago"}, // no overrides
 		},
 	}
@@ -238,6 +238,7 @@ func TestResolve_EmitsExpectedFields(t *testing.T) {
 		"forecast.years":                 false,
 		"cities[detroit].hex_edge_m":     false,
 		"cities[detroit].forecast.years": false,
+		"cities[detroit].forecast.treatment_cycle_years": false,
 	}
 	for _, f := range fields {
 		if _, ok := want[f.Key]; ok {
@@ -247,6 +248,20 @@ func TestResolve_EmitsExpectedFields(t *testing.T) {
 	for k, saw := range want {
 		if !saw {
 			t.Errorf("expected field %q in output", k)
+		}
+	}
+
+	// The per-city treatment_cycle_years override must carry the city-scoped
+	// source label (mirrors the current_budget contract).
+	for _, f := range fields {
+		if f.Key == "cities[detroit].forecast.treatment_cycle_years" {
+			if got, want := f.Value, 8.0; got != want {
+				t.Errorf("treatment_cycle_years value: got %v, want %v", got, want)
+			}
+			wantSrc := "file:cities[detroit].forecast.treatment_cycle_years"
+			if got := f.Source.String(); got != wantSrc {
+				t.Errorf("treatment_cycle_years source: got %q, want %q", got, wantSrc)
+			}
 		}
 	}
 

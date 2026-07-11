@@ -346,6 +346,13 @@ func (c *Config) Resolve(flagUnits string) []ResolvedField {
 				Source: Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].forecast.current_budget", slug)},
 			})
 		}
+		if city.Forecast.TreatmentCycleYears > 0 {
+			fields = append(fields, ResolvedField{
+				Key:    fmt.Sprintf("cities[%s].forecast.treatment_cycle_years", slug),
+				Value:  city.Forecast.TreatmentCycleYears,
+				Source: Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].forecast.treatment_cycle_years", slug)},
+			})
+		}
 	}
 
 	return fields
