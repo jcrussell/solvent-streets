@@ -143,7 +143,7 @@ func TestTranslateNoCohortsDefaultFallback(t *testing.T) {
 
 func TestTranslateNoCohortsExplicitDecay(t *testing.T) {
 	// A positive DecayRate must be preserved (no fallback).
-	in := Input{Area: 100, DecayRate: 0.07, Strategy: "do-nothing"}
+	in := Input{Area: 100, DecayRate: 0.07, Years: 1, Strategy: "do-nothing"}
 	_, cohorts, _, _, err := Translate(in)
 	if err != nil {
 		t.Fatalf("Translate: %v", err)
@@ -154,12 +154,31 @@ func TestTranslateNoCohortsExplicitDecay(t *testing.T) {
 }
 
 func TestTranslateInvalidStrategy(t *testing.T) {
-	if _, _, _, _, err := Translate(Input{Strategy: "worst-first"}); err != nil {
+	if _, _, _, _, err := Translate(Input{Years: 1, Strategy: "worst-first"}); err != nil {
 		t.Fatalf("valid strategy returned error: %v", err)
 	}
-	_, _, _, _, err := Translate(Input{Strategy: "definitely-not-a-strategy"})
+	_, _, _, _, err := Translate(Input{Years: 1, Strategy: "definitely-not-a-strategy"})
 	if err == nil {
 		t.Fatal("invalid strategy: expected error, got nil")
+	}
+}
+
+// TestTranslateYearsBounds asserts that a non-positive or absurdly large Years
+// is rejected with an error (never a panic/OOM through EstimateGrowth's
+// make([]float64, years)), via both Translate and the Run envelope path.
+func TestTranslateYearsBounds(t *testing.T) {
+	for _, years := range []int{0, -5, 100000} {
+		if _, _, _, _, err := Translate(Input{Years: years, Strategy: "do-nothing"}); err == nil {
+			t.Errorf("Translate(Years=%d): expected error, got nil", years)
+		}
+		raw, _ := json.Marshal(Input{Years: years, Strategy: "do-nothing"})
+		if _, err := Run(raw); err == nil {
+			t.Errorf("Run(Years=%d): expected error envelope, got nil", years)
+		}
+	}
+	// A sane Years still passes.
+	if _, _, _, _, err := Translate(Input{Years: 10, Strategy: "do-nothing"}); err != nil {
+		t.Errorf("Translate(Years=10): unexpected error %v", err)
 	}
 }
 

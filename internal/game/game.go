@@ -40,6 +40,12 @@ const (
 	// LoseClosedFraction: if more than this fraction of hexes have closed, the
 	// game is lost.
 	LoseClosedFraction = 0.5
+
+	// maxForecastHorizon bounds the macro forecast horizon fed to
+	// forecast.Simulate. Beyond this, make([]float64, years) in EstimateGrowth
+	// is an OOM/overflow risk with no analytical value; an out-of-range horizon
+	// is treated as "no result" (see insolvencyFromForecast).
+	maxForecastHorizon = 1000
 )
 
 // --- Config: the JSON contract decoded from the browser at gameInit ---
@@ -187,9 +193,17 @@ func New(cfg Config) (*Game, error) {
 	tiers := make([]forecast.CostTier, len(cfg.CostTiers))
 	copy(tiers, cfg.CostTiers)
 
+	// Clamp a negative StartingBudget to 0, matching SetBudget's no-debt clamp
+	// (there is no debt model — a negative rate must not bleed the treasury below
+	// zero over ticks, and a negative seed treasury is likewise nonsensical).
+	startBudget := cfg.StartingBudget
+	if startBudget < 0 {
+		startBudget = 0
+	}
+
 	g := &Game{
-		treasury:   cfg.StartingBudget,
-		budgetRate: cfg.StartingBudget,
+		treasury:   startBudget,
+		budgetRate: startBudget,
 		horizon:    cfg.HorizonYears,
 		endless:    cfg.Endless,
 		status:     "running",
@@ -403,6 +417,16 @@ func insolvencyFromForecast(cohortCfgs []CohortConfig, initialPCI, growthRate fl
 	if len(cohortCfgs) == 0 {
 		return 0, false
 	}
+	// Bound the horizon BEFORE the int() conversion below. forecast.Simulate ->
+	// EstimateGrowth does make([]float64, years): a non-positive horizon panics
+	// (negative make), and a huge/overflowing finite value OOMs or overflows the
+	// int cast. This is the single chokepoint for both callers (recomputeInsolvency
+	// with a New-validated but possibly huge g.horizon, and ProjectInsolvency with
+	// a fully untrusted cfg.HorizonYears), so an out-of-range horizon returns the
+	// "no result" signal (0, false) rather than crashing the WASM runtime.
+	if !finite(horizon) || horizon <= 0 || horizon > maxForecastHorizon {
+		return 0, false
+	}
 	cohorts := make([]forecast.Cohort, len(cohortCfgs))
 	for i, c := range cohortCfgs {
 		cohorts[i] = forecast.Cohort{
@@ -412,6 +436,14 @@ func insolvencyFromForecast(cohortCfgs []CohortConfig, initialPCI, growthRate fl
 			InitialPCI:     initialPCI,
 		}
 	}
+	// Spread the single mean InitialPCI into a condition distribution, matching
+	// every other cohort-build site (export/forecast.go, bridge.go, CLI). The flat
+	// single-average model understates program cost ~32-37% (condition.go), so
+	// omitting this here diverged the game's insolvency headline from the real
+	// forecast. Applied exactly once at this chokepoint (both callers pass raw
+	// CohortConfigs); ApplyConditionSpread is NOT idempotent, so it must not be
+	// applied again upstream.
+	cohorts = forecast.ApplyConditionSpread(cohorts)
 	params := forecast.NewParams(growthRate, tiers, cycleYears)
 	scenario := forecast.Scenario{
 		Name:         "game",

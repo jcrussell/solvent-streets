@@ -40,6 +40,27 @@ func TestParking_BufferFeatures_Polygon(t *testing.T) {
 	}
 }
 
+func TestParking_BufferFeatures_MultiPolygon(t *testing.T) {
+	// Parking relations (multi-part lots, lots with holes) are emitted as
+	// MultiPolygon; they must not be dropped and must yield a non-zero area.
+	features := []Feature{
+		{
+			ID:           "mp1",
+			Name:         "Lot B",
+			Tags:         map[string]string{},
+			GeometryJSON: `{"type":"MultiPolygon","coordinates":[[[[-121.7700,37.6800],[-121.7690,37.6800],[-121.7690,37.6810],[-121.7700,37.6810],[-121.7700,37.6800]]],[[[-121.7680,37.6800],[-121.7670,37.6800],[-121.7670,37.6810],[-121.7680,37.6810],[-121.7680,37.6800]]]]}`,
+		},
+	}
+	p := &Parking{}
+	geoms := Geoms(p.BufferFeaturesPaired(context.Background(), features, testProj))
+	if len(geoms) != 1 {
+		t.Fatalf("expected 1 buffered geometry, got %d", len(geoms))
+	}
+	if geoms[0].Area() <= 0 {
+		t.Errorf("expected positive area, got %f", geoms[0].Area())
+	}
+}
+
 func TestParking_BufferFeatures_LineStringSkipped(t *testing.T) {
 	features := []Feature{
 		{

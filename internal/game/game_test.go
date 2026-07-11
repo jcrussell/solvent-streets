@@ -359,6 +359,39 @@ func TestProjectInsolvency(t *testing.T) {
 	}
 }
 
+// TestProjectInsolvencyBadHorizon asserts an out-of-range horizon returns the
+// "no result" signal (ok=false) without panicking through
+// forecast.Simulate -> EstimateGrowth's make([]float64, years).
+func TestProjectInsolvencyBadHorizon(t *testing.T) {
+	for name, h := range map[string]float64{
+		"negative": -10,
+		"zero":     0,
+		"huge":     1e18,
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := baseConfig()
+			cfg.HorizonYears = h
+			if _, ok := ProjectInsolvency(cfg); ok {
+				t.Fatalf("expected ok=false for horizon %g", h)
+			}
+		})
+	}
+}
+
+// TestNewNegativeBudgetClamped mirrors TestSetBudgetNegativeClamped: a negative
+// StartingBudget must seed treasury/budgetRate at >= 0 (no debt model).
+func TestNewNegativeBudgetClamped(t *testing.T) {
+	cfg := baseConfig()
+	cfg.StartingBudget = -1_000_000
+	g := newGame(t, cfg)
+	if g.budgetRate < 0 {
+		t.Errorf("budgetRate should clamp to >= 0, got %v", g.budgetRate)
+	}
+	if g.treasury < 0 {
+		t.Errorf("treasury should clamp to >= 0, got %v", g.treasury)
+	}
+}
+
 func TestWinTransition(t *testing.T) {
 	cfg := baseConfig()
 	cfg.HorizonYears = 2

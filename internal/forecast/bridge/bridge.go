@@ -11,9 +11,15 @@ package bridge
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 )
+
+// maxYears bounds Input.Years. forecast.Simulate -> EstimateGrowth does
+// make([]float64, years), so a huge value OOMs the WASM runtime; the shim's
+// contract is "bad input returns a JSON error, never panics".
+const maxYears = 200
 
 // Input mirrors the JSON structure sent from the browser controls.
 // Its json tags are contractually aligned with internal/export/seeds.go's
@@ -65,6 +71,14 @@ func Translate(in Input) (forecast.Scenario, []forecast.Cohort, int, *forecast.P
 			CostPerSqM: t.CostPerSqM,
 			Label:      t.Label,
 		})
+	}
+
+	// Validate Years before it reaches forecast.Simulate -> EstimateGrowth's
+	// make([]float64, years): years <= 0 panics (negative make) and a huge value
+	// OOMs the WASM runtime. Surface both as an error so Run wraps it in the
+	// {"error": ...} envelope instead of crashing.
+	if in.Years <= 0 || in.Years > maxYears {
+		return forecast.Scenario{}, nil, 0, nil, fmt.Errorf("years must be between 1 and %d, got %d", maxYears, in.Years)
 	}
 
 	params := forecast.NewParams(in.GrowthRate, tiers, in.CycleYears)
