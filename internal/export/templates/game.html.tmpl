@@ -682,7 +682,12 @@
                 const yr = res.insolvency_year;
                 if (yr == null) {
                     el.className = 'ok';
-                    el.textContent = 'Solvent through the horizon at this budget';
+                    // Endless play has no fixed horizon, so "solvent through the
+                    // horizon" would misdescribe it — the projection only covers a
+                    // finite preview window (horizon_years). Word it as a floor.
+                    el.textContent = gameConfig.endless
+                        ? 'Solvent for at least ' + gameConfig.horizon_years + ' years at this budget'
+                        : 'Solvent through the horizon at this budget';
                 } else {
                     el.className = 'bad';
                     el.innerHTML = 'Projected insolvent by <span class="num">yr ' + yr + '</span> at this budget';

@@ -851,12 +851,12 @@
                         <canvas id="compare-mix-chart" role="img" aria-label="Road Network Composition chart"></canvas>
                     </div>
                     <div class="compare-chart-card">
-                        <h3>20-Year Cost Trajectory</h3>
-                        <canvas id="compare-cost-chart" role="img" aria-label="20-Year Cost Trajectory chart"></canvas>
+                        <h3 id="compare-cost-title">20-Year Cost Trajectory</h3>
+                        <canvas id="compare-cost-chart" role="img" aria-label="Cost Trajectory chart"></canvas>
                     </div>
                     <div class="compare-chart-card">
-                        <h3>Year 1 vs Year 20 Maintenance Need</h3>
-                        <canvas id="compare-need-chart" role="img" aria-label="Year 1 vs Year 20 Maintenance Need chart"></canvas>
+                        <h3 id="compare-need-title">Year 1 vs Year 20 Maintenance Need</h3>
+                        <canvas id="compare-need-chart" role="img" aria-label="Year 1 vs final-year Maintenance Need chart"></canvas>
                     </div>
                 </div>
             </div>
@@ -928,8 +928,11 @@
             current() {
                 const tabBtn   = document.querySelector('.tab-btn.active');
                 const scopeBtn = document.querySelector('#scope-toggle button.active');
-                const scopeEl  = document.getElementById('scope-toggle');
-                const scopeVis = scopeEl && scopeEl.style.display !== 'none';
+                // Scope visibility is driven by #gear-scope-row.hidden (see the
+                // reveal logic that toggles it), not #scope-toggle's inline
+                // display — so read the row's .hidden to decide serialization.
+                const scopeRow = document.getElementById('gear-scope-row');
+                const scopeVis = scopeRow && !scopeRow.hidden;
                 const snapEl   = document.getElementById('snapshot-picker');
                 const sel      = document.getElementById('city-select');
                 return {
@@ -2376,10 +2379,14 @@
             return div;
         }
 
-        loadFinancials();
-
-        // WASM forecast seed & interactive controls
+        // WASM forecast seed & interactive controls. Declared BEFORE the
+        // top-level loadFinancials()/syncPCISliderFromSeed() calls below: both
+        // read FORECAST_SEED synchronously (loadFinancials at its horizon-label
+        // block, before its first await), so a `let` further down would throw a
+        // temporal-dead-zone ReferenceError and silently reject the promise.
         let FORECAST_SEED = {{.ForecastSeed}};
+
+        loadFinancials();
 
         let wasmReady = false;
         let chartRefs = { pci: null, backlog: null, spending: null };
@@ -2434,10 +2441,16 @@
                 const minInput = document.querySelector('[data-tier="' + i + '"][data-field="min_pci"]');
                 const maxInput = document.querySelector('[data-tier="' + i + '"][data-field="max_pci"]');
                 const costInput = document.querySelector('[data-tier="' + i + '"][data-field="cost_per_sqm"]');
+                // A cleared input yields parseFloat('') === NaN, which serializes
+                // to JSON null and zeroes the tier in the WASM sim. Fall back to
+                // the seed value whenever the parse isn't a finite number.
+                const minV = minInput ? parseFloat(minInput.value) : NaN;
+                const maxV = maxInput ? parseFloat(maxInput.value) : NaN;
+                const costV = costInput ? parseFloat(costInput.value) : NaN;
                 return {
-                    min_pci: minInput ? parseFloat(minInput.value) : t.min_pci,
-                    max_pci: maxInput ? parseFloat(maxInput.value) : t.max_pci,
-                    cost_per_sqm: costInput ? parseFloat(costInput.value) : t.cost_per_sqm,
+                    min_pci: Number.isFinite(minV) ? minV : t.min_pci,
+                    max_pci: Number.isFinite(maxV) ? maxV : t.max_pci,
+                    cost_per_sqm: Number.isFinite(costV) ? costV : t.cost_per_sqm,
                     label: t.label
                 };
             });
@@ -2785,6 +2798,24 @@
             var medals = ['\u{1F947}', '\u{1F948}', '\u{1F949}'];
             var rankClasses = ['rank-1', 'rank-2', 'rank-3'];
 
+            // Horizon-derived labels (never hardcode 20). The Compare tab plots
+            // each city's baselineYears, so the longest horizon is the trajectory
+            // length; the "final year" bars/backlog also use that last plotted
+            // point. Cities may configure different horizons — the leaderboard
+            // then compares each city's own final year, which is a known
+            // cross-city mixed-horizon limitation (the divergence note on the
+            // Aggregate tab flags this). Fall back to 20 only when no city has a
+            // forecast, matching the Financials tab's fallback.
+            var compareMaxYears = 0;
+            allMetrics.forEach(function(m) {
+                if (m.baselineYears.length > compareMaxYears) compareMaxYears = m.baselineYears.length;
+            });
+            var compareHorizon = compareMaxYears > 0 ? compareMaxYears : 20;
+            var costTitleEl = document.getElementById('compare-cost-title');
+            if (costTitleEl) costTitleEl.textContent = compareHorizon + '-Year Cost Trajectory';
+            var needTitleEl = document.getElementById('compare-need-title');
+            if (needTitleEl) needTitleEl.textContent = 'Year 1 vs Year ' + compareHorizon + ' Maintenance Need';
+
             // Two scores: the primary Solvency Score (fiscal — the project's headline
             // question) and a secondary Infrastructure Index (a descriptive asset
             // composite). See methodology.md.
@@ -2892,7 +2923,9 @@
                 { key: 'featureCount', label: 'Total Features Tracked', award: 'Most Detailed', higher: true, fmt: function(v) { return v.toLocaleString(); }, color: '#f59e0b' },
                 { key: 'blendedDecay', label: 'Blended Decay Rate (lower is better)', award: 'Slowest Decay', higher: false, fmt: function(v) { return (v * 100).toFixed(2) + '%/yr'; }, color: '#ef4444' },
                 { key: 'year1PerAreaUnit', label: 'Year 1 Maintenance Cost per ' + areaLargeUnit().charAt(0).toUpperCase() + areaLargeUnit().slice(1), award: 'Most Efficient', higher: false, fmt: function(v) { return '$' + (v >= 1e3 ? (v/1e3).toFixed(1) + 'K' : v.toFixed(0)); }, color: '#ec4899' },
-                { key: 'endBacklog', label: '20-Year Deferred Backlog', award: 'Least Deferred', higher: false, fmt: function(v) { return '$' + (v >= 1e9 ? (v/1e9).toFixed(2) + 'B' : (v/1e6).toFixed(1) + 'M'); }, color: '#d946ef' },
+                // endBacklog is each city's own final-year backlog; with mixed
+                // horizons this compares different end-years (known limitation).
+                { key: 'endBacklog', label: compareHorizon + '-Year Deferred Backlog', award: 'Least Deferred', higher: false, fmt: function(v) { return '$' + (v >= 1e9 ? (v/1e9).toFixed(2) + 'B' : (v/1e6).toFixed(1) + 'M'); }, color: '#d946ef' },
                 // Roads-only solvency metrics. filter excludes cities that lack
                 // the metric (no cited budget / no roads) so a null value never
                 // produces a NaN sort key or a corrupt bar width.
@@ -3044,7 +3077,7 @@
                             borderWidth: 1
                         },
                         {
-                            label: 'Year 20 Need',
+                            label: 'Year ' + compareHorizon + ' Need',
                             data: allMetrics.map(function(m) { return m.year20Need; }),
                             backgroundColor: allMetrics.map(function(_, i) { return cityColors[i % cityColors.length] + '55'; }),
                             borderColor: allMetrics.map(function(_, i) { return cityColors[i % cityColors.length]; }),

@@ -146,8 +146,11 @@ func TestDashboardCompareChartLabels(t *testing.T) {
 	wantChartLabels := []string{
 		`id="compare-area-chart" role="img" aria-label="Infrastructure Breakdown chart"`,
 		`id="compare-mix-chart" role="img" aria-label="Road Network Composition chart"`,
-		`id="compare-cost-chart" role="img" aria-label="20-Year Cost Trajectory chart"`,
-		`id="compare-need-chart" role="img" aria-label="Year 1 vs Year 20 Maintenance Need chart"`,
+		// Canvas aria-labels are static HTML (not updated by JS), so they are
+		// kept horizon-agnostic; the visible <h3> titles carry the dynamic
+		// "N-Year" label set in renderCompare().
+		`id="compare-cost-chart" role="img" aria-label="Cost Trajectory chart"`,
+		`id="compare-need-chart" role="img" aria-label="Year 1 vs final-year Maintenance Need chart"`,
 	}
 	for _, s := range wantChartLabels {
 		if !strings.Contains(out, s) {
