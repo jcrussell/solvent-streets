@@ -206,6 +206,160 @@ func TestRunCompute_BuffersFeaturesOncePerRun(t *testing.T) {
 	}
 }
 
+// roadsFeaturesFunc returns a small set of road features (city + state) that
+// buffer to non-empty geometries inside testBoundary, used by the fixtures
+// below that need real hex stats and cohorts.
+func roadsFeaturesFunc(_ context.Context, _ resource.Type) ([]db.Feature, error) {
+	return []db.Feature{
+		{
+			ID:           "city1",
+			ResourceType: resource.TypeRoads,
+			Tags:         map[string]string{"highway": "residential"},
+			GeometryJSON: `{"type":"LineString","coordinates":[[-121.7700,37.6800],[-121.7690,37.6810]]}`,
+		},
+		{
+			ID:           "state1",
+			ResourceType: resource.TypeRoads,
+			Tags:         map[string]string{"highway": "trunk"},
+			GeometryJSON: `{"type":"LineString","coordinates":[[-121.7700,37.6840],[-121.7690,37.6850]]}`,
+		},
+	}, nil
+}
+
+// TestRunCompute_SaveHexStatsErrorFatal pins solvent-streets-yvlv.41: per-hex
+// stats are the primary output, so a SaveHexStats failure must make compute
+// exit non-zero rather than warn-and-continue.
+func TestRunCompute_SaveHexStatsErrorFatal(t *testing.T) {
+	saveErr := errors.New("disk full")
+	store := &dbtest.MockStore{
+		GetBoundaryFunc:  func(_ context.Context) (string, error) { return testBoundary, nil },
+		ListFeaturesFunc: roadsFeaturesFunc,
+		SaveHexStatsFunc: func(_ context.Context, _ []db.HexStat) error { return saveErr },
+	}
+	ios, _, _, _ := iostreams.Test()
+	f := &cmdutil.Factory{
+		IOStreams:   ios,
+		UnitSystem:  func() units.System { return units.Metric },
+		CityDB:      func() (db.Store, error) { return store, nil },
+		CurrentCity: func() (*config.CityConfig, error) { return testCity, nil },
+		Config:      func() (*config.Config, error) { return testCfg, nil },
+	}
+
+	cmd := NewCmdCompute(f, &resource.Pavement{}, nil)
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	cmd.SetArgs([]string{})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected non-nil error when SaveHexStats fails")
+	}
+	if !errors.Is(err, saveErr) {
+		t.Errorf("expected wrapped SaveHexStats error, got: %v", err)
+	}
+}
+
+// TestRunCompute_CityOnlySuppressesAllCohortBreakdown pins
+// solvent-streets-yvlv.42: with --city-only, the all-jurisdiction "Cohort
+// breakdown" summary must be suppressed to match the gated printResults.
+func TestRunCompute_CityOnlySuppressesAllCohortBreakdown(t *testing.T) {
+	store := &dbtest.MockStore{
+		GetBoundaryFunc:  func(_ context.Context) (string, error) { return testBoundary, nil },
+		ListFeaturesFunc: roadsFeaturesFunc,
+	}
+	ios, _, stdout, _ := iostreams.Test()
+	f := &cmdutil.Factory{
+		IOStreams:   ios,
+		UnitSystem:  func() units.System { return units.Metric },
+		CityDB:      func() (db.Store, error) { return store, nil },
+		CurrentCity: func() (*config.CityConfig, error) { return testCity, nil },
+		Config:      func() (*config.Config, error) { return testCfg, nil },
+	}
+
+	cmd := NewCmdCompute(f, &resource.Pavement{}, nil)
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	cmd.SetArgs([]string{"--city-only"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("compute: %v", err)
+	}
+	out := stdout.String()
+	// "\nCohort breakdown:" is the all-jurisdiction header; "City cohort
+	// breakdown:" is the city one (not prefixed by a bare newline+"Cohort").
+	if strings.Contains(out, "\nCohort breakdown:") {
+		t.Errorf("--city-only should suppress the all-jurisdiction cohort breakdown, got:\n%s", out)
+	}
+}
+
+// TestRunCompute_NoFeaturesSkipsSnapshot pins solvent-streets-yvlv.39: the
+// snapshot must not be created when loadResourceFeatures reports no features,
+// otherwise `snapshots prune` counts an empty run toward --keep.
+func TestRunCompute_NoFeaturesSkipsSnapshot(t *testing.T) {
+	snapshotCreated := false
+	store := &dbtest.MockStore{
+		GetBoundaryFunc:  func(_ context.Context) (string, error) { return testBoundary, nil },
+		ListFeaturesFunc: func(_ context.Context, _ resource.Type) ([]db.Feature, error) { return nil, nil },
+		CreateSnapshotFunc: func(_ context.Context, _ string) (*db.Snapshot, error) {
+			snapshotCreated = true
+			return &db.Snapshot{ID: 1}, nil
+		},
+	}
+	ios, _, _, _ := iostreams.Test()
+	f := &cmdutil.Factory{
+		IOStreams:   ios,
+		UnitSystem:  func() units.System { return units.Metric },
+		CityDB:      func() (db.Store, error) { return store, nil },
+		CurrentCity: func() (*config.CityConfig, error) { return testCity, nil },
+		Config:      func() (*config.Config, error) { return testCfg, nil },
+	}
+
+	cmd := NewCmdCompute(f, &resource.Pavement{}, nil)
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	cmd.SetArgs([]string{})
+	err := cmd.Execute()
+	if !errors.Is(err, cmdutil.ErrNoResults) {
+		t.Fatalf("expected ErrNoResults, got: %v", err)
+	}
+	if snapshotCreated {
+		t.Error("CreateSnapshot was called on the no-features path; expected snapshot creation to be skipped")
+	}
+}
+
+// TestRunCompute_InvalidBoundaryWarns pins solvent-streets-yvlv.40: when the
+// stored boundary fails to parse into a projected geometry, compute must warn
+// (naming the city) instead of silently computing over the full bbox.
+func TestRunCompute_InvalidBoundaryWarns(t *testing.T) {
+	// A GeoJSON whose coordinates span a valid bbox (so BBoxFromGeoJSON
+	// succeeds and loadBoundary passes) but whose only polygon is a
+	// zero-area collinear ring, so GeoJSONToProjectedGeometry yields "no
+	// valid polygons" at the clip stage.
+	const badGeom = `{"type":"MultiPolygon","coordinates":[[[[-121.84,37.64],[-121.68,37.72],[-121.84,37.64]]]]}`
+	store := &dbtest.MockStore{
+		GetBoundaryFunc:  func(_ context.Context) (string, error) { return badGeom, nil },
+		ListFeaturesFunc: roadsFeaturesFunc,
+	}
+	ios, _, _, errBuf := iostreams.Test()
+	f := &cmdutil.Factory{
+		IOStreams:   ios,
+		UnitSystem:  func() units.System { return units.Metric },
+		CityDB:      func() (db.Store, error) { return store, nil },
+		CurrentCity: func() (*config.CityConfig, error) { return testCity, nil },
+		Config:      func() (*config.Config, error) { return testCfg, nil },
+	}
+
+	cmd := NewCmdCompute(f, &resource.Pavement{}, nil)
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("compute: %v", err)
+	}
+	stderr := errBuf.String()
+	if !strings.Contains(stderr, "boundary") || !strings.Contains(stderr, testCity.Name) {
+		t.Errorf("expected a boundary warning naming the city, got stderr:\n%s", stderr)
+	}
+}
+
 func TestRunCompute_DBError(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	f := &cmdutil.Factory{

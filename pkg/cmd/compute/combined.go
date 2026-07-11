@@ -53,7 +53,7 @@ func RunCombined(ctx context.Context, f *cmdutil.Factory) error {
 		return nil
 	}
 
-	hexes := buildClippedHexGrid(ctx, cfg, city, proj, bbox, boundaryGJSON)
+	hexes := buildClippedHexGrid(ctx, cfg, city, proj, bbox, boundaryGJSON, ios.ErrOut)
 	cr := &combinedRunner{
 		store:      store,
 		io:         ios,
@@ -151,11 +151,18 @@ func loadFeaturesForCombined(ctx context.Context, store db.Store, rt resource.So
 	return out, true
 }
 
-func buildClippedHexGrid(ctx context.Context, cfg *config.Config, city *config.CityConfig, proj *geo.UTMProjector, bbox [4]float64, boundaryGJSON string) []geo.Hex {
+func buildClippedHexGrid(ctx context.Context, cfg *config.Config, city *config.CityConfig, proj *geo.UTMProjector, bbox [4]float64, boundaryGJSON string, errOut io.Writer) []geo.Hex {
 	hexEdge := cfg.ResolvedHexEdge(city)
 	minX, minY, maxX, maxY := geo.ProjectedBBoxExtent(proj, bbox)
 	hexes := geo.HexGrid(minX, minY, maxX, maxY, hexEdge)
-	if boundaryGeom, err := parseGeoJSONGeometry(boundaryGJSON, proj); err == nil && !boundaryGeom.IsEmpty() {
+	boundaryGeom, err := parseGeoJSONGeometry(boundaryGJSON, proj)
+	switch {
+	case err != nil:
+		// Skipping the clip runs combined stats over the full bbox grid.
+		fmt.Fprintf(errOut, "combined: boundary parse failed for city %q, computing over full bbox: %v\n", city.Name, err)
+	case boundaryGeom.IsEmpty():
+		fmt.Fprintf(errOut, "combined: boundary empty after cleaning for city %q, computing over full bbox\n", city.Name)
+	default:
 		hexes = geo.ClipHexesToBoundary(ctx, hexes, boundaryGeom, nil)
 	}
 	return hexes

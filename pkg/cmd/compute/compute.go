@@ -208,23 +208,27 @@ func doCompute(ctx context.Context, out, errOut io.Writer, notify tui.PhaseNotif
 	}
 
 	c := &computer{
-		opts:       opts,
-		cfg:        cfg,
-		city:       city,
-		store:      store,
-		proj:       proj,
-		bbox:       bbox,
-		snapshotID: createSnapshot(ctx, errOut, store, cfg),
-		sys:        opts.UnitSystem(),
-		notify:     notify,
-		out:        out,
-		errOut:     errOut,
+		opts:   opts,
+		cfg:    cfg,
+		city:   city,
+		store:  store,
+		proj:   proj,
+		bbox:   bbox,
+		sys:    opts.UnitSystem(),
+		notify: notify,
+		out:    out,
+		errOut: errOut,
 	}
 
+	// Load features before creating the snapshot: loadResourceFeatures
+	// returns ErrNoResults on an empty database, and creating the snapshot
+	// first would leave an empty run that `snapshots prune` counts toward
+	// --keep. Nothing consumes c.snapshotID before this point.
 	resFeatures, err := c.loadResourceFeatures(ctx)
 	if err != nil {
 		return err
 	}
+	c.snapshotID = createSnapshot(ctx, errOut, store, cfg)
 	jurisdictionParts := filter.Partition(resFeatures)
 	fmt.Fprintf(out, "  Total: %d features (%d city, %d county, %d state, %d federal)\n",
 		len(resFeatures),
@@ -251,7 +255,9 @@ func doCompute(ctx context.Context, out, errOut io.Writer, notify tui.PhaseNotif
 		return err
 	}
 
-	c.processCityResults(ctx, cityBuffered, len(jurisdictionParts[filter.JurisdictionCity]), clippedHexes)
+	if err := c.processCityResults(ctx, cityBuffered, len(jurisdictionParts[filter.JurisdictionCity]), clippedHexes); err != nil {
+		return err
+	}
 
 	return c.saveHexStats(ctx, hexStats)
 }
@@ -371,8 +377,9 @@ func (c *computer) saveAllJurisdictionsResult(ctx context.Context, allBuffered [
 	cohortStats := c.buildCohortStats(ctx, rtAll, allBuffered, area, clippedHexes)
 	if len(cohortStats) > 0 {
 		if err := c.store.SaveCohortStats(ctx, cohortStats); err != nil {
-			fmt.Fprintf(c.errOut, "Warning: failed to save cohort stats: %v\n", err)
-		} else if c.opts.ResourceType.HasCohorts() {
+			return fmt.Errorf("save cohort stats: %w", err)
+		}
+		if !c.opts.CityOnly && c.opts.ResourceType.HasCohorts() {
 			printCohortBreakdown(c.out, "Cohort breakdown", cohortStats, area, c.sys)
 		}
 	}
@@ -397,7 +404,7 @@ func (c *computer) saveHexStats(ctx context.Context, hexStats []geo.HexStat) err
 		}
 	}
 	if err := c.store.SaveHexStats(ctx, dbStats); err != nil {
-		fmt.Fprintf(c.errOut, "Warning: failed to save hex stats: %v\n", err)
+		return fmt.Errorf("save hex stats: %w", err)
 	}
 	return nil
 }
@@ -406,9 +413,9 @@ func (c *computer) saveHexStats(ctx context.Context, hexStats []geo.HexStat) err
 // pre-buffered city subset and persists the :city ComputeResult, cohort
 // stats, and prose summary. featureCount is the input city-feature count
 // (including any later dropped by the buffer step).
-func (c *computer) processCityResults(ctx context.Context, cityBuffered []resource.BufferedFeature, featureCount int, clippedHexes []geo.Hex) {
+func (c *computer) processCityResults(ctx context.Context, cityBuffered []resource.BufferedFeature, featureCount int, clippedHexes []geo.Hex) error {
 	if len(cityBuffered) == 0 {
-		return
+		return nil
 	}
 
 	rtCity := c.opts.ResourceType.Type().With(resource.ScopeCity)
@@ -428,7 +435,7 @@ func (c *computer) processCityResults(ctx context.Context, cityBuffered []resour
 		}
 	}
 	if err := c.store.SaveHexStats(ctx, cityDBStats); err != nil {
-		fmt.Fprintf(c.errOut, "Warning: failed to save city hex stats: %v\n", err)
+		return fmt.Errorf("save city hex stats: %w", err)
 	}
 
 	cityResult := db.ComputeResult{
@@ -438,20 +445,22 @@ func (c *computer) processCityResults(ctx context.Context, cityBuffered []resour
 		SnapshotID:   c.snapshotID,
 	}
 	if err := c.store.SaveComputeResult(ctx, cityResult); err != nil {
-		fmt.Fprintf(c.errOut, "Warning: failed to save city result: %v\n", err)
+		return fmt.Errorf("save city result: %w", err)
 	}
 	c.recordRow("city", featureCount, cityArea)
 
 	cityCohortStats := c.buildCohortStats(ctx, rtCity, cityBuffered, cityArea, clippedHexes)
 	if len(cityCohortStats) > 0 {
 		if err := c.store.SaveCohortStats(ctx, cityCohortStats); err != nil {
-			fmt.Fprintf(c.errOut, "Warning: failed to save city cohort stats: %v\n", err)
-		} else if c.opts.ResourceType.HasCohorts() {
+			return fmt.Errorf("save city cohort stats: %w", err)
+		}
+		if c.opts.ResourceType.HasCohorts() {
 			printCohortBreakdown(c.out, "City cohort breakdown", cityCohortStats, cityArea, c.sys)
 		}
 	}
 
 	printResults(c.out, fmt.Sprintf("%s Results (city only)", c.opts.ResourceType.Type()), featureCount, cityArea, c.sys)
+	return nil
 }
 
 // recordRow appends a computeRow to the multi-city accumulator if the
@@ -512,7 +521,14 @@ func (c *computer) computeHexPipeline(ctx context.Context, buffered []geom.Geome
 	c.notify.PhaseStart(phaseClip)
 
 	boundaryGeom, err := parseGeoJSONGeometry(boundaryGJSON, c.proj)
-	if err == nil && !boundaryGeom.IsEmpty() {
+	switch {
+	case err != nil:
+		// Skipping the clip runs stats over the full rectangular bbox grid,
+		// inflating coverage. Warn (as loadBoundary does) so it isn't silent.
+		fmt.Fprintf(c.errOut, "Warning: boundary parse failed for city %q, computing over full bbox: %v\n", c.city.Name, err)
+	case boundaryGeom.IsEmpty():
+		fmt.Fprintf(c.errOut, "Warning: boundary empty after cleaning for city %q, computing over full bbox\n", c.city.Name)
+	default:
 		var clipCounter atomic.Int64
 		stopClipProgress := startProgressTicker(ctx, c.notify, phaseClip, len(hexes), &clipCounter)
 		hexes = geo.ClipHexesToBoundary(ctx, hexes, boundaryGeom, &clipCounter)
