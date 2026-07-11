@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/tui"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/cmdtest"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
@@ -357,6 +359,104 @@ func TestRunCompute_InvalidBoundaryWarns(t *testing.T) {
 	stderr := errBuf.String()
 	if !strings.Contains(stderr, "boundary") || !strings.Contains(stderr, testCity.Name) {
 		t.Errorf("expected a boundary warning naming the city, got stderr:\n%s", stderr)
+	}
+}
+
+// TestRunCompute_CancelledDoesNotSave pins solvent-streets-yvlv.43: a cancelled
+// context must make the compute path return context.Canceled and must NOT
+// persist truncated hex stats / compute results under a complete-looking
+// snapshot. geo.ParallelMap returns partial results with no error on cancel,
+// so the ctx.Err() guard between compute and persistence is the load-bearing
+// fix under test.
+func TestRunCompute_CancelledDoesNotSave(t *testing.T) {
+	var savedHexStats, savedResults bool
+	store := &dbtest.MockStore{
+		GetBoundaryFunc:  func(_ context.Context) (string, error) { return testBoundary, nil },
+		ListFeaturesFunc: roadsFeaturesFunc,
+		SaveHexStatsFunc: func(_ context.Context, _ []db.HexStat) error {
+			savedHexStats = true
+			return nil
+		},
+		SaveComputeResultFunc: func(_ context.Context, _ db.ComputeResult) error {
+			savedResults = true
+			return nil
+		},
+	}
+	ios, _, _, _ := iostreams.Test()
+	opts := &Options{
+		IO:           ios,
+		UnitSystem:   func() units.System { return units.Metric },
+		CityDB:       func() (db.Store, error) { return store, nil },
+		CurrentCity:  func() (*config.CityConfig, error) { return testCity, nil },
+		Config:       func() (*config.Config, error) { return testCfg, nil },
+		ResourceType: &resource.Pavement{},
+	}
+
+	// Pre-cancelled context: ParallelMap dispatches nothing and returns partial
+	// (empty) results, then the ctx.Err() guard must fire before any save.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := doCompute(ctx, io.Discard, io.Discard, tui.NoopNotifier{}, opts)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got: %v", err)
+	}
+	if savedHexStats {
+		t.Error("SaveHexStats was called on a cancelled run; truncated stats must not be persisted")
+	}
+	if savedResults {
+		t.Error("SaveComputeResult was called on a cancelled run; partial results must not be persisted")
+	}
+}
+
+// TestRunCompute_CancelledDeletesSnapshot pins the cancellation-cleanup fix:
+// when a snapshot has already been created and the compute is then cancelled,
+// doCompute must delete that snapshot (so `snapshots prune` doesn't count an
+// empty run toward --keep) while still returning context.Canceled. Deletion
+// must use a fresh (non-cancelled) context so it isn't itself cancelled.
+func TestRunCompute_CancelledDeletesSnapshot(t *testing.T) {
+	const snapID = int64(42)
+	var deletedID int64
+	var deleteCtxErr error
+	store := &dbtest.MockStore{
+		GetBoundaryFunc:  func(_ context.Context) (string, error) { return testBoundary, nil },
+		ListFeaturesFunc: roadsFeaturesFunc,
+		CreateSnapshotFunc: func(_ context.Context, _ string) (*db.Snapshot, error) {
+			return &db.Snapshot{ID: snapID}, nil
+		},
+		DeleteSnapshotFunc: func(ctx context.Context, id int64) (bool, error) {
+			deletedID = id
+			deleteCtxErr = ctx.Err()
+			return true, nil
+		},
+		SaveHexStatsFunc:      func(_ context.Context, _ []db.HexStat) error { return nil },
+		SaveComputeResultFunc: func(_ context.Context, _ db.ComputeResult) error { return nil },
+	}
+	ios, _, _, _ := iostreams.Test()
+	opts := &Options{
+		IO:           ios,
+		UnitSystem:   func() units.System { return units.Metric },
+		CityDB:       func() (db.Store, error) { return store, nil },
+		CurrentCity:  func() (*config.CityConfig, error) { return testCity, nil },
+		Config:       func() (*config.Config, error) { return testCfg, nil },
+		ResourceType: &resource.Pavement{},
+	}
+
+	// Pre-cancelled context: CreateSnapshot (mock ignores ctx) still returns a
+	// snapshot, then the ctx.Err() guard fires before any save, and the
+	// deferred cleanup must delete the snapshot.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := doCompute(ctx, io.Discard, io.Discard, tui.NoopNotifier{}, opts)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got: %v", err)
+	}
+	if deletedID != snapID {
+		t.Errorf("expected DeleteSnapshot(%d) on cancellation, got id %d", snapID, deletedID)
+	}
+	if deleteCtxErr != nil {
+		t.Errorf("DeleteSnapshot must run on a fresh (non-cancelled) context, got ctx.Err() = %v", deleteCtxErr)
 	}
 }
 

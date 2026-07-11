@@ -27,7 +27,7 @@ import (
 //
 // Run after `all compute` has populated each resource's features. Safe when
 // some resources have no features — those are skipped.
-func RunCombined(ctx context.Context, f *cmdutil.Factory) error {
+func RunCombined(ctx context.Context, f *cmdutil.Factory) (retErr error) {
 	cfg, err := f.Config()
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
@@ -59,6 +59,23 @@ func RunCombined(ctx context.Context, f *cmdutil.Factory) error {
 		io:         ios,
 		sys:        f.UnitSystem(),
 		snapshotID: createSnapshot(ctx, ios.ErrOut, store, cfg),
+	}
+	// Same single cleanup chokepoint as doCompute: cr.save's cancel guard (and
+	// any post-snapshot error path) returns without deleting the snapshot row
+	// created above. An empty run from a SIGINT'd combined compute would
+	// otherwise consume a `snapshots prune` --keep slot. Delete it on cancel
+	// via a value-preserving, cancellation-ignoring derived ctx.
+	if cr.snapshotID != nil {
+		id := *cr.snapshotID
+		defer func() {
+			if retErr == nil || !errors.Is(retErr, context.Canceled) {
+				return
+			}
+			cleanupCtx := context.WithoutCancel(ctx)
+			if _, err := store.DeleteSnapshot(cleanupCtx, id); err != nil {
+				fmt.Fprintf(ios.ErrOut, "Warning: failed to delete snapshot %d after cancellation: %v\n", id, err)
+			}
+		}()
 	}
 
 	if err := cr.save(ctx, combinedPass{hexes: hexes, buffered: bufs.all, label: resource.CombinedAll, featureCount: bufs.allCount}); err != nil {
@@ -199,6 +216,12 @@ func (cr *combinedRunner) save(ctx context.Context, p combinedPass) error {
 		return nil
 	}); err != nil {
 		return fmt.Errorf("compute %s hex stats: %w", p.label, err)
+	}
+	// ComputeHexStats (ParallelMap-backed) returns partial results with no
+	// error on cancellation; bail before persisting a truncated combined
+	// result under a complete-looking snapshot.
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("compute %s cancelled: %w", p.label, err)
 	}
 	if err := cr.store.SaveComputeResult(ctx, db.ComputeResult{
 		ResourceType: p.label,

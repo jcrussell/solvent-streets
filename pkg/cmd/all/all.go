@@ -66,6 +66,11 @@ func newAllCompute(f *cmdutil.Factory) *cobra.Command {
 					return err
 				}
 				if err := compute.RunCombined(cmd.Context(), cf); err != nil {
+					// A cancelled run must stop the whole fan-out rather than
+					// proceed to the next city with partial data.
+					if errors.Is(err, context.Canceled) {
+						return err
+					}
 					cmdutil.Warnf(f.IOStreams, "combined pass failed: %v", err)
 				}
 				return nil
@@ -80,6 +85,13 @@ func forEachResource(ios *iostreams.IOStreams, fn func(resource.Source) error) e
 		if err := fn(rt); err != nil {
 			if errors.Is(err, cmdutil.ErrNoResults) {
 				continue
+			}
+			// A cancelled compute (SIGINT / TUI ctrl+c) must abort the
+			// fan-out immediately: warn-and-continue would launch the next
+			// resource's TUI while the interrupted one just refused to save,
+			// and would mask the cancellation as exit 0.
+			if errors.Is(err, context.Canceled) {
+				return err
 			}
 			if errors.Is(err, cmdutil.ErrAllSourcesFailed) {
 				return err

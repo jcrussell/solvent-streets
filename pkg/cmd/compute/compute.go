@@ -165,7 +165,7 @@ func runComputeTUI(ctx context.Context, opts *Options) error {
 	done := tui.DoneConfig{
 		SuccessMsg: fmt.Sprintf("%s compute complete for %s", opts.ResourceType.Type(), city.Name),
 	}
-	return tui.Run(label, steps, done, func(out io.Writer, errOut io.Writer, notify tui.PhaseNotifier) error {
+	return tui.Run(ctx, label, steps, done, func(ctx context.Context, out io.Writer, errOut io.Writer, notify tui.PhaseNotifier) error {
 		return doCompute(ctx, out, errOut, notify, opts)
 	})
 }
@@ -188,7 +188,7 @@ type computer struct {
 	errOut     io.Writer
 }
 
-func doCompute(ctx context.Context, out, errOut io.Writer, notify tui.PhaseNotifier, opts *Options) error {
+func doCompute(ctx context.Context, out, errOut io.Writer, notify tui.PhaseNotifier, opts *Options) (retErr error) {
 	cfg, err := opts.Config()
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
@@ -229,6 +229,27 @@ func doCompute(ctx context.Context, out, errOut io.Writer, notify tui.PhaseNotif
 		return err
 	}
 	c.snapshotID = createSnapshot(ctx, errOut, store, cfg)
+	// Single cleanup chokepoint: the cancel guards below (and any error path
+	// after snapshot creation) return without deleting the snapshot row that
+	// createSnapshot just wrote. `snapshots prune` counts every snapshot toward
+	// --keep with no result-row filter, so an empty run from a SIGINT'd compute
+	// would consume a keep slot and evict a real snapshot. Delete it here on a
+	// cancellation. The request ctx is already cancelled, so use a derived ctx
+	// that preserves values (logger, etc.) but ignores the cancellation.
+	if c.snapshotID != nil {
+		id := *c.snapshotID
+		defer func() {
+			if retErr == nil || !errors.Is(retErr, context.Canceled) {
+				return
+			}
+			cleanupCtx := context.WithoutCancel(ctx)
+			// Don't mask the original context.Canceled: warn on failure but
+			// leave retErr untouched so the caller still sees the cancellation.
+			if _, err := store.DeleteSnapshot(cleanupCtx, id); err != nil {
+				fmt.Fprintf(errOut, "Warning: failed to delete snapshot %d after cancellation: %v\n", id, err)
+			}
+		}()
+	}
 	jurisdictionParts := filter.Partition(resFeatures)
 	fmt.Fprintf(out, "  Total: %d features (%d city, %d county, %d state, %d federal)\n",
 		len(resFeatures),
@@ -242,6 +263,15 @@ func doCompute(ctx context.Context, out, errOut io.Writer, notify tui.PhaseNotif
 	// this slice; the city pass filters on jurisdiction without invoking
 	// BufferFeatures again, and cohort stats re-use the same polygons.
 	allBuffered := opts.ResourceType.BufferFeaturesPaired(ctx, resFeatures, proj)
+	// BufferFeaturesPaired is ParallelMap-backed and returns an empty (partial)
+	// slice with no error on cancellation. Distinguish a real "no valid
+	// geometries" from a SIGINT so a cancelled run reports context.Canceled
+	// rather than a misleading buffer error — and so callers up the chain
+	// (forEachResource, all compute) can special-case cancellation.
+	if err := ctx.Err(); err != nil {
+		notify.PhaseDone(phaseProcess, err)
+		return fmt.Errorf("compute cancelled: %w", err)
+	}
 	if len(allBuffered) == 0 {
 		err := errors.New("buffer features: no valid geometries to process")
 		notify.PhaseDone(phaseProcess, err)
@@ -251,6 +281,13 @@ func doCompute(ctx context.Context, out, errOut io.Writer, notify tui.PhaseNotif
 	cityBuffered := filterBufferedByJurisdiction(allBuffered, filter.JurisdictionCity)
 
 	hexStats, clippedHexes := c.runAllFeaturesPass(ctx, allBuffered, boundaryGJSON)
+	// ParallelMap returns partial results (no error) on cancellation, so a
+	// SIGINT'd run would otherwise persist truncated hex stats under a
+	// complete-looking snapshot. Guard between compute and persistence: bail
+	// on cancellation without saving anything.
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("compute cancelled: %w", err)
+	}
 	if err := c.saveAllJurisdictionsResult(ctx, allBuffered, len(resFeatures), hexStats, clippedHexes); err != nil {
 		return err
 	}
@@ -421,6 +458,11 @@ func (c *computer) processCityResults(ctx context.Context, cityBuffered []resour
 	rtCity := c.opts.ResourceType.Type().With(resource.ScopeCity)
 	cityIdx := geo.NewGeomIndexFromGeoms(resource.Geoms(cityBuffered))
 	cityStats := geo.ComputeHexStats(ctx, clippedHexes, cityIdx, string(rtCity), nil)
+	// ComputeHexStats (ParallelMap-backed) yields partial results on cancel;
+	// bail before persisting truncated city stats.
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("compute cancelled: %w", err)
+	}
 
 	var cityArea float64
 	cityDBStats := make([]db.HexStat, len(cityStats))
