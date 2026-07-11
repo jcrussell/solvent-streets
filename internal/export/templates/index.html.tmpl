@@ -1022,7 +1022,12 @@
             if (s.scope === 'city' || s.scope === 'bbox') currentScope = s.scope;
             document.querySelectorAll('#scope-toggle button').forEach(b =>
                 b.classList.toggle('active', b.dataset.scope === currentScope));
-            if (s.city) selectCity(s.city, { push: false });
+            // Only fire selectCity when the city actually changed. selectCity
+            // resets the snapshot picker (snapshots are per-city), so calling it
+            // on a same-city snapshot-only navigation would clobber targetSnap
+            // (set above) and reload against Latest. The snapshot-only branch
+            // below handles that case explicitly.
+            if (cityChanged) selectCity(s.city, { push: false });
             if (s.tab)  selectTab(s.tab,   { push: false });
             // Snapshot-only change (no city change) needs an explicit reload —
             // selectCity didn't fire so loadCityData/loadFinancials weren't called.
@@ -1214,6 +1219,17 @@
         let costSummaryByScope = { city: {}, bbox: {} };   // { scope: { type: {year1_cost,total_area} } }
         let activeTypes = new Set(Object.keys(layerColors));
         let savedPanelHTML = '';
+        // Monotonic load-generation tokens. loadCityData and loadFinancials each
+        // await several fetches before mutating map sources/layers and module
+        // globals; overlapping invocations (e.g. rapid city/snapshot switches or a
+        // back-to-back popstate) would otherwise both pass their synchronous
+        // teardown and then race their async writes (duplicate addSource throws;
+        // last-writer-wins globals). Each function bumps its own counter at entry
+        // and bails after every await if a newer load has started. Separate
+        // counters — the two are called as a pair, so a shared one would let one
+        // abort the other.
+        let cityLoadGen = 0;
+        let financialsLoadGen = 0;
         // True while the user is in drag-to-select-region mode. Read by the
         // hex-click handler (suppressed mid-selection) and the region-select
         // pointer handlers below.
@@ -1298,6 +1314,7 @@
         }
 
         async function loadCityData() {
+            const gen = ++cityLoadGen; // bail stale loads after each await
             const prefix = DATA_PREFIX; // snapshot to avoid mid-await mutation
             // Remove existing layers and sources
             ['hex-outline', 'hex-fill', 'boundary-line'].concat(Object.keys(layerColors).map(t => t + '-fill')).forEach(id => {
@@ -1313,6 +1330,7 @@
             // Reload meta.json for stats panel
             {
                 const meta = await loadJSON(dataURL(prefix, 'meta.json'));
+                if (gen !== cityLoadGen) return; // a newer load superseded us
                 if (meta) {
                     document.querySelector('#panel h2').textContent = meta.project_name;
                     const subtitleEl = document.querySelector('#panel .subtitle');
@@ -1347,12 +1365,15 @@
             // Load and render boundary polygon
             {
                 const data = await loadJSON(dataURL(prefix, 'boundary.geojson'));
+                if (gen !== cityLoadGen) return; // a newer load superseded us
                 if (data) {
-                    map.addSource('boundary', { type: 'geojson', data });
-                    map.addLayer({
-                        id: 'boundary-line', type: 'line', source: 'boundary',
-                        paint: { 'line-color': '#333', 'line-width': 2, 'line-opacity': 0.8, 'line-dasharray': [3, 2] }
-                    });
+                    if (!map.getSource('boundary')) {
+                        map.addSource('boundary', { type: 'geojson', data });
+                        map.addLayer({
+                            id: 'boundary-line', type: 'line', source: 'boundary',
+                            paint: { 'line-color': '#333', 'line-width': 2, 'line-opacity': 0.8, 'line-dasharray': [3, 2] }
+                        });
+                    }
                     // Fit map to boundary bbox
                     const coords = data.features.flatMap(f => {
                         const g = f.geometry;
@@ -1383,6 +1404,7 @@
             // {city, bbox}. "city" is omitted when the city has no :city rows.
             {
                 const cs = await loadJSON(dataURL(prefix, 'hex-cost-summary.json'));
+                if (gen !== cityLoadGen) return; // a newer load superseded us
                 if (cs) {
                     costSummaryByScope.city = cs.city || {};
                     costSummaryByScope.bbox = cs.bbox || {};
@@ -1396,6 +1418,7 @@
             // city-scope data, so a city with no such objects leaves
             // hexDataByScope.city empty and the scope toggle stays hidden.
             const hexData = await loadJSON(dataURL(prefix, 'hexgrid.geojson'), { silent404: true });
+            if (gen !== cityLoadGen) return; // a newer load superseded us
             if (hexData && hexData.features) {
                 for (const f of hexData.features) {
                     const hid = f.properties.id;
@@ -1441,18 +1464,20 @@
                 if (haveAnyHex) {
                     {
                         const blended = buildBlendedHexFC();
-                        map.addSource('hexgrid', { type: 'geojson', data: blended });
-                        map.addLayer({
-                            id: 'hex-fill', type: 'fill', source: 'hexgrid',
-                            paint: {
-                                'fill-color': hexFillColor(),
-                                'fill-opacity': 0.6
-                            }
-                        });
-                        map.addLayer({
-                            id: 'hex-outline', type: 'line', source: 'hexgrid',
-                            paint: { 'line-color': '#333', 'line-width': 0.5, 'line-opacity': 0.3 }
-                        });
+                        if (!map.getSource('hexgrid')) {
+                            map.addSource('hexgrid', { type: 'geojson', data: blended });
+                            map.addLayer({
+                                id: 'hex-fill', type: 'fill', source: 'hexgrid',
+                                paint: {
+                                    'fill-color': hexFillColor(),
+                                    'fill-opacity': 0.6
+                                }
+                            });
+                            map.addLayer({
+                                id: 'hex-outline', type: 'line', source: 'hexgrid',
+                                paint: { 'line-color': '#333', 'line-width': 0.5, 'line-opacity': 0.3 }
+                            });
+                        }
                         toggles += '<label><input type="checkbox" checked data-layers="hex-fill,hex-outline"><span class="legend-gradient" style="background:linear-gradient(90deg,var(--legend-2),var(--legend-6))"></span>hex grid</label>';
                         // Hover/click handlers for the hex-fill layer are registered
                         // ONCE at startup (registerHexHandlers), not here. MapLibre
@@ -1772,7 +1797,18 @@
             // Restore from URL (covers initial load and bfcache restores).
             const want = Router.read().snapshot;
             if (want && list.some(s => String(s.id) === String(want))) {
-                sel.value = want;
+                const prev = sel.value;
+                sel.value = String(want);
+                // Boot's initial loadCityData/loadFinancials ran with the picker
+                // empty (Latest). If the URL deep-links a real snapshot, reload
+                // once so the board/financials reflect snapshot N. Guard against a
+                // redundant load when the picker already held this value; the
+                // Bug-1 generation guard makes a stray concurrent reload safe, but
+                // avoid an obviously wasteful double-load.
+                if (sel.value !== prev) {
+                    loadCityData();
+                    loadFinancials();
+                }
             }
         }
 
@@ -2138,6 +2174,7 @@
         });
 
         async function loadFinancials() {
+            const gen = ++financialsLoadGen; // bail stale loads after each await
             const prefix = DATA_PREFIX; // snapshot to avoid mid-await mutation
             // Clear any prior city's solvency headline up front. forecastData is
             // only reassigned on a successful forecast.json load below, so
@@ -2164,7 +2201,9 @@
                 document.getElementById('cohort-spend-th').textContent = yrs + 'yr Spend';
                 document.getElementById('cohort-deficit-th').textContent = yrs + 'yr Deficit';
             }
-            scenarioData = await loadJSON(dataURL(prefix, 'scenarios.json'));
+            const loadedScenarios = await loadJSON(dataURL(prefix, 'scenarios.json'));
+            if (gen !== financialsLoadGen) return; // a newer load superseded us
+            scenarioData = loadedScenarios;
             if (!scenarioData) {
                 document.getElementById('charts').innerHTML = '<div class="no-data">No financial data available. Run <code>pvmt forecast</code> and <code>pvmt export</code> first.</div>';
                 return;
@@ -2201,6 +2240,7 @@
             // Fetch per-city forecast seed for WASM interactive controls
             {
                 const seed = await loadJSON(dataURL(prefix, 'forecast_seed.json'));
+                if (gen !== financialsLoadGen) return; // a newer load superseded us
                 if (seed) {
                     FORECAST_SEED = seed;
                     // Re-apply horizon-derived labels now that this city's seed
@@ -2220,6 +2260,7 @@
             // Fetch forecast.json (used by scope toggle for static fallback)
             {
                 const f = await loadJSON(dataURL(prefix, 'forecast.json'));
+                if (gen !== financialsLoadGen) return; // a newer load superseded us
                 if (f) forecastData = f;
                 renderSolvencyHeadline();
             }
