@@ -719,10 +719,15 @@
             }
 
             // 1. Fetch board geometry + the authoritative playable-hex set + budget.
-            const [hexgrid, playHexes, forecast] = await Promise.all([
+            //    Also fetch the PER-CITY forecast seed (cohorts/cost_tiers/etc.) so
+            //    it comes from the SAME city as the board and budget below; the
+            //    template-embedded FORECAST_SEED is a region-wide aggregate in
+            //    multi-city static export and would mismatch the per-city budget.
+            const [hexgrid, playHexes, forecast, fetchedSeed] = await Promise.all([
                 loadJSON(DATA_PREFIX + 'data/hexgrid.geojson'),
                 loadJSON(DATA_PREFIX + 'data/play-hexes.json'),
-                loadJSON(DATA_PREFIX + 'data/forecast.json')
+                loadJSON(DATA_PREFIX + 'data/forecast.json'),
+                loadJSON(DATA_PREFIX + 'data/forecast_seed.json')
             ]);
             if (!hexgrid || !hexgrid.features || !playHexes) {
                 showError('board data', 'missing hexgrid or play-hexes');
@@ -772,6 +777,26 @@
                 paint: { 'line-color': '#1a1f29', 'line-width': 0.4, 'line-opacity': 0.45 }
             });
 
+            // Fit the map to the ACTUAL board rather than the embedded region
+            // CENTER (which, in multi-city static export, is the region centroid —
+            // off-screen for wide configs). The initial center/zoom-13 is just a
+            // pre-fetch placeholder; this overrides it once the real board is known.
+            // features is non-empty here (the empty case returned above).
+            {
+                const coords = features.flatMap(f => {
+                    const g = f.geometry;
+                    if (!g) return [];
+                    if (g.type === 'Polygon') return g.coordinates.flatMap(ring => ring);
+                    if (g.type === 'MultiPolygon') return g.coordinates.flatMap(poly => poly.flatMap(ring => ring));
+                    return [];
+                });
+                if (coords.length > 0) {
+                    const lngs = coords.map(c => c[0]);
+                    const lats = coords.map(c => c[1]);
+                    map.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: 40 });
+                }
+            }
+
             // 4. Interaction: the brush is always on. Disable dragPan/dragRotate so
             //    left-drag paints (instead of panning) and right-drag pans the map;
             //    suppress the context menu so the right-drag doesn't pop one. Touch:
@@ -812,7 +837,13 @@
             map.getCanvas().addEventListener('mouseleave', () => { document.getElementById('brush-cursor').style.display = 'none'; });
 
             // 5. Build the gameInit config from real data and seed the game.
-            const seed = FORECAST_SEED || {};
+            //    Prefer the per-city seed fetched above so cohorts/cost_tiers/
+            //    initial_pci/years/treatment_cycle_years/growth_rate all come from
+            //    the SAME city as starting_budget (pickStartingBudget below). Fall
+            //    back to the embedded scalar (single-city equals it; also covers a
+            //    fetch error). loadJSON returns null on failure, so the || chain
+            //    picks the embedded seed only when the fetch didn't yield one.
+            const seed = fetchedSeed || FORECAST_SEED || {};
             const startingBudget = pickStartingBudget(forecast);
             // The game must simulate exactly the hexes it renders: build cfg.hexes
             // from the joined `features` (those present in BOTH the grid and the

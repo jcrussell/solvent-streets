@@ -269,6 +269,18 @@ func TestHandleGame(t *testing.T) {
 	if !strings.Contains(body, "let DATA_PREFIX = '';") {
 		t.Errorf("single-city game page should set DATA_PREFIX = ''")
 	}
+	// yvlv.16: the board must seed from the PER-CITY forecast_seed.json (fetched
+	// under DATA_PREFIX), preferred over the region-wide embedded FORECAST_SEED,
+	// and fit the map to the actual board instead of the embedded region center.
+	for _, want := range []string{
+		`DATA_PREFIX + 'data/forecast_seed.json'`, // per-city seed fetch
+		`fetchedSeed || FORECAST_SEED`,            // per-city seed preferred over embedded region seed
+		`map.fitBounds(`,                          // fit to the real board, not the region centroid
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("game page missing per-city seed/fitBounds wiring %q", want)
+		}
+	}
 	// Play-test feedback controls: nav link back to the map, reset, the always-on
 	// brush size, and the pre-game start screen with its horizon selector.
 	for _, want := range []string{
