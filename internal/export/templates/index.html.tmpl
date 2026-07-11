@@ -3278,7 +3278,7 @@
             script.src = '{{.WasmPrefix}}wasm_exec.js';
             script.onload = function() {
                 const go = new Go();
-                WebAssembly.instantiateStreaming(fetch('{{.WasmPrefix}}forecast.wasm'), go.importObject)
+                WebAssembly.instantiateStreaming(fetch('{{.WasmPrefix}}pvmt.wasm'), go.importObject)
                     .then(result => { go.run(result.instance); onWasmReady(); })
                     .catch(err => {
                         console.warn('WASM load failed:', err);

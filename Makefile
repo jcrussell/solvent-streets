@@ -6,7 +6,7 @@ DATE    ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 # go.mod declares the floor Go version. WASM builds embedded into the
 # main binary via go:embed must use a matching toolchain or runtime
-# semantics may drift between cmd/wasm/forecast and cmd/pvmt.
+# semantics may drift between cmd/wasm/pvmt and cmd/pvmt.
 GO_MOD_VERSION := $(shell awk '/^go /{print $$2; exit}' go.mod)
 
 LDFLAGS := -X github.com/jcrussell/solvent-streets/internal/build.Version=$(VERSION) \
@@ -23,7 +23,7 @@ wasm:
 	    echo "warning: go.mod declares go $$want; host has go $$host — WASM may drift from main build"; \
 	  fi
 	@mkdir -p internal/export/wasm
-	GOOS=js GOARCH=wasm go build -o internal/export/wasm/forecast.wasm ./cmd/wasm/forecast
+	GOOS=js GOARCH=wasm go build -o internal/export/wasm/pvmt.wasm ./cmd/wasm/pvmt
 	cp "$$(go env GOROOT)/lib/wasm/wasm_exec.js" internal/export/wasm/wasm_exec.js
 
 build: wasm

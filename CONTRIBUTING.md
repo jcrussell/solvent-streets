@@ -34,7 +34,7 @@ make lint     # golangci-lint run, pinned floor
 ```
 
 Always use `make build` rather than `go build ./cmd/pvmt` directly. The
-forecast WASM at `internal/export/wasm/forecast.wasm` is `go:embed`ed
+forecast WASM at `internal/export/wasm/pvmt.wasm` is `go:embed`ed
 into the main binary; `make build` rebuilds the WASM first, while a bare
 `go build` silently embeds whatever stale binary is on disk.
 

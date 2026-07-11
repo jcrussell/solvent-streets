@@ -225,7 +225,7 @@ func assertExportFiles(t *testing.T, outDir string) {
 		"data/scenarios.json",
 		"data/forecast.json",
 		"index.html",
-		"forecast.wasm",
+		"pvmt.wasm",
 		"wasm_exec.js",
 	}
 	for _, name := range want {
@@ -315,7 +315,7 @@ func assertExportManifest(t *testing.T, stdout string) {
 		t.Errorf("manifest cities[0].files is empty: %+v", m.Cities[0])
 	}
 	if len(m.Shared) == 0 {
-		t.Errorf("manifest shared is empty (want forecast.wasm etc.): %+v", m)
+		t.Errorf("manifest shared is empty (want pvmt.wasm etc.): %+v", m)
 	}
 }
 

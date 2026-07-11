@@ -44,10 +44,10 @@ The following checks run over the given directory (default "site"):
   - STRUCTURE: every example carries the expected per-city data files
     (boundary.geojson, hexgrid.geojson, meta.json, forecast_seed.json,
     forecast.json, hex-cost-summary.json, scenarios.json) and the site root
-    has index.html, .nojekyll, forecast.wasm, and wasm_exec.js.
+    has index.html, .nojekyll, pvmt.wasm, and wasm_exec.js.
   - REFERENCES: every local asset referenced by an example index.html
-    (../forecast.wasm, ../wasm_exec.js, local .css/.js) resolves on disk.
-  - WASM FRESHNESS: the site's forecast.wasm and wasm_exec.js match the
+    (../pvmt.wasm, ../wasm_exec.js, local .css/.js) resolves on disk.
+  - WASM FRESHNESS: the site's pvmt.wasm and wasm_exec.js match the
     copies embedded in this binary (a stale site fails).
   - HYGIENE: no text file leaks a host path (/home/, /Users/), an author
     email, or an api-key/password/secret token.

@@ -27,7 +27,7 @@ var DataFileNames = []string{
 // embedded backing arrays — callers must not mutate them.
 func EmbeddedWasmAssets() map[string][]byte {
 	return map[string][]byte{
-		"forecast.wasm": forecastWasm,
-		"wasm_exec.js":  wasmExecJS,
+		"pvmt.wasm":    forecastWasm,
+		"wasm_exec.js": wasmExecJS,
 	}
 }

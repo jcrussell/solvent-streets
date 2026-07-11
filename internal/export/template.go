@@ -49,7 +49,7 @@ var methodologyHTMLOnce = sync.OnceValues(func() (template.HTML, error) {
 // forecast package and surface wherever they are actually used.
 func MethodologyHTML() (template.HTML, error) { return methodologyHTMLOnce() }
 
-//go:embed wasm/forecast.wasm
+//go:embed wasm/pvmt.wasm
 var forecastWasm []byte
 
 //go:embed wasm/wasm_exec.js
@@ -137,8 +137,8 @@ func RenderLandingPage(outputDir string, examples []ExampleInfo) (err error) {
 // WriteSharedWasmAssets writes the embedded WASM files to dir. Use this when
 // writing a single shared copy at a site root instead of per-export copies.
 func WriteSharedWasmAssets(dir string) error {
-	if err := os.WriteFile(filepath.Join(dir, "forecast.wasm"), forecastWasm, 0o644); err != nil {
-		return fmt.Errorf("write forecast.wasm: %w", err)
+	if err := os.WriteFile(filepath.Join(dir, "pvmt.wasm"), forecastWasm, 0o644); err != nil {
+		return fmt.Errorf("write pvmt.wasm: %w", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "wasm_exec.js"), wasmExecJS, 0o644); err != nil {
 		return fmt.Errorf("write wasm_exec.js: %w", err)

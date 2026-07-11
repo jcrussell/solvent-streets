@@ -85,7 +85,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 
 	// WASM assets (shared)
 	mux.HandleFunc("GET /wasm_exec.js", s.handleWasmExecJS)
-	mux.HandleFunc("GET /forecast.wasm", s.handleForecastWasm)
+	mux.HandleFunc("GET /pvmt.wasm", s.handleForecastWasm)
 
 	handler := recoveryMiddleware(mux, s.ios.ErrOut)
 

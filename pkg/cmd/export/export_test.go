@@ -211,7 +211,7 @@ func TestBuildManifest_SingleCity(t *testing.T) {
 	dir := t.TempDir()
 	writeTree(t, dir,
 		"index.html",
-		"forecast.wasm",
+		"pvmt.wasm",
 		"wasm_exec.js",
 		"data/meta.json",
 		"data/forecast.json",
@@ -247,7 +247,7 @@ func TestBuildManifest_SingleCity(t *testing.T) {
 	if c.FileCount != 3 {
 		t.Errorf("FileCount = %d, want 3", c.FileCount)
 	}
-	wantShared := []string{"forecast.wasm", "index.html", "wasm_exec.js"}
+	wantShared := []string{"index.html", "pvmt.wasm", "wasm_exec.js"}
 	if !reflect.DeepEqual(m.Shared, wantShared) {
 		t.Errorf("Shared = %v, want %v", m.Shared, wantShared)
 	}
@@ -261,7 +261,7 @@ func TestBuildManifest_MultiCity(t *testing.T) {
 	dir := t.TempDir()
 	writeTree(t, dir,
 		"index.html",
-		"forecast.wasm",
+		"pvmt.wasm",
 		"wasm_exec.js",
 		"cities.json",
 		"cities/portland-or/data/meta.json",
@@ -305,7 +305,7 @@ func TestBuildManifest_MultiCity(t *testing.T) {
 	}
 
 	// Regional-only assets live in Shared, not on any city.
-	wantShared := []string{"cities.json", "forecast.wasm", "index.html", "wasm_exec.js"}
+	wantShared := []string{"cities.json", "index.html", "pvmt.wasm", "wasm_exec.js"}
 	if !reflect.DeepEqual(m.Shared, wantShared) {
 		t.Errorf("Shared = %v, want %v", m.Shared, wantShared)
 	}

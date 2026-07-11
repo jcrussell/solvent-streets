@@ -11,7 +11,7 @@ import (
 )
 
 // rootAssets are the files every site root must carry alongside the examples.
-var rootAssets = []string{"index.html", ".nojekyll", "forecast.wasm", "wasm_exec.js"}
+var rootAssets = []string{"index.html", ".nojekyll", "pvmt.wasm", "wasm_exec.js"}
 
 // checkStructure verifies the site root carries its shared assets and every
 // example carries the full set of per-city data files.

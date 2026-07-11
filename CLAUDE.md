@@ -30,7 +30,7 @@ make gendocs  # regenerate docs/reference/ from cobra
 Run a single test: `go test -race ./internal/geo -run TestHexGrid`.
 Run the binary without install: `go run ./cmd/pvmt <args>`.
 
-**WASM build order matters.** `cmd/wasm/forecast` compiles to `internal/export/wasm/forecast.wasm` and is embedded into the main binary via `go:embed`. If you edit forecast code used by the WASM, `make build` re-runs wasm automatically; a bare `go build ./cmd/pvmt` will silently embed a stale binary.
+**WASM build order matters.** `cmd/wasm/pvmt` compiles to `internal/export/wasm/pvmt.wasm` and is embedded into the main binary via `go:embed`. If you edit forecast code used by the WASM, `make build` re-runs wasm automatically; a bare `go build ./cmd/pvmt` will silently embed a stale binary.
 
 ## Where to find more
 

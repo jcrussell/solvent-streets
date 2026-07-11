@@ -144,7 +144,7 @@ func (s *Server) renderCachedPage(key string, pages *sync.Map, parse func(units.
 // name as scalars used to *seed* the simulation, so each city must be rendered
 // against its own TemplateData. The selected city comes from ?city=<slug>; the
 // dropdown navigates there. It rides the same lifetime-cache + shared
-// /forecast.wasm + per-city /data endpoints — only the template differs.
+// /pvmt.wasm + per-city /data endpoints — only the template differs.
 func (s *Server) handleGame(w http.ResponseWriter, r *http.Request) {
 	if len(s.cities) == 0 {
 		http.Error(w, "no cities configured", http.StatusInternalServerError)

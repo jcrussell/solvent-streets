@@ -80,7 +80,7 @@ func TestCheckSite_DanglingReference(t *testing.T) {
 
 func TestCheckSite_TamperedWasm(t *testing.T) {
 	dir := buildValidSite(t)
-	writeFile(t, filepath.Join(dir, "forecast.wasm"), "tampered")
+	writeFile(t, filepath.Join(dir, "pvmt.wasm"), "tampered")
 	assertFails(t, dir, "stale")
 }
 
@@ -307,7 +307,7 @@ func buildValidSite(t *testing.T) string {
 	exDir := filepath.Join(dir, "demo-ca")
 	writeFile(t, filepath.Join(exDir, "index.html"),
 		`<html><head><script src="../wasm_exec.js"></script>`+
-			`<script>script.src = '..\/forecast.wasm';</script></head><body>map</body></html>`)
+			`<script>script.src = '..\/pvmt.wasm';</script></head><body>map</body></html>`)
 	writeDataDir(t, filepath.Join(exDir, "data"), 52.5, 50000)
 
 	return dir

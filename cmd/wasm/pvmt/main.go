@@ -1,9 +1,9 @@
 //go:build js && wasm
 
-// Command forecast-wasm is a WASM entry point that exposes the Go forecast
-// simulation to the browser via syscall/js.
+// Command pvmt-wasm is a WASM entry point that exposes the Go forecast
+// simulation and game engine to the browser via syscall/js.
 //
-// Build: GOOS=js GOARCH=wasm go build -o forecast.wasm ./cmd/wasm/forecast
+// Build: GOOS=js GOARCH=wasm go build -o pvmt.wasm ./cmd/wasm/pvmt
 //
 // All translation/simulation logic lives in the build-tag-free packages
 // internal/forecast/bridge and internal/game, which are host-tested. This file

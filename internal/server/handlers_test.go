@@ -1238,7 +1238,7 @@ func TestWasmAssets_CacheControl(t *testing.T) {
 		wantType    string
 		wantNonZero bool
 	}{
-		{"forecast.wasm", srv.handleForecastWasm, "application/wasm", true},
+		{"pvmt.wasm", srv.handleForecastWasm, "application/wasm", true},
 		{"wasm_exec.js", srv.handleWasmExecJS, "application/javascript", true},
 	}
 	for _, tc := range cases {
