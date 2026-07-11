@@ -186,15 +186,16 @@ func BuildMultiCityForecastSeed(ctx context.Context, fc *config.ForecastConfig, 
 		decayRate = forecast.DefaultDecayRates["default"]
 	}
 	seed := ForecastSeedJSON{
-		InitialPCI:  fc.InitialPCI,
-		DecayRate:   decayRate,
-		GrowthRate:  fc.GrowthRate,
-		Years:       fc.Years,
-		TotalArea:   totalArea,
-		CityPaved:   cityArea,
-		CostTiers:   costTiers,
-		Cohorts:     mergeCohortSeeds(ctx, entries, fc, false),
-		CityCohorts: mergeCohortSeeds(ctx, entries, fc, true),
+		InitialPCI:          fc.InitialPCI,
+		DecayRate:           decayRate,
+		GrowthRate:          fc.GrowthRate,
+		Years:               fc.Years,
+		TreatmentCycleYears: forecast.ResolveCycleYears(fc.TreatmentCycleYears),
+		TotalArea:           totalArea,
+		CityPaved:           cityArea,
+		CostTiers:           costTiers,
+		Cohorts:             mergeCohortSeeds(ctx, entries, fc, false),
+		CityCohorts:         mergeCohortSeeds(ctx, entries, fc, true),
 	}
 	data, err := json.Marshal(seed)
 	if err != nil {

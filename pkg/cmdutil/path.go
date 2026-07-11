@@ -74,10 +74,19 @@ func ResolveOutputDir(outputDir string) (string, error) {
 	return resolved, nil
 }
 
+// ExportMarkerName is the sentinel file a pvmt export writes at the very start
+// of a run to mark the output directory as pvmt-managed and therefore safe to
+// clean. index.html is only written last, so a run that fails midway (e.g. a
+// snapshot mismatch on city N of M) would otherwise leave a non-empty tree with
+// no index.html that SafeCleanDir refuses to remove — dead-ending retry. The
+// early marker keeps a partial export recoverable with --clean.
+const ExportMarkerName = ".pvmt-export"
+
 // SafeCleanDir removes outputDir and recreates it empty, but only if the
-// directory is empty or looks like a previously generated site (contains an
-// index.html sentinel). It refuses to delete a non-empty directory lacking the
-// sentinel, so a mistyped --output cannot wipe unrelated user data. The path is
+// directory is empty or looks like a pvmt-managed output dir — one containing
+// either a completed site's index.html or the ExportMarkerName sentinel written
+// at the start of a run. It refuses to delete a non-empty directory lacking
+// both, so a mistyped --output cannot wipe unrelated user data. The path is
 // canonicalised and screened (root/home rejected) via ResolveOutputDir first.
 //
 // Verifying the sentinel requires reading the directory before removing it, so
@@ -106,15 +115,15 @@ func SafeCleanDir(outputDir string) error {
 		return fmt.Errorf("read output dir: %w", err)
 	}
 	if len(entries) > 0 {
-		hasIndex := false
+		managed := false
 		for _, e := range entries {
-			if e.Name() == "index.html" {
-				hasIndex = true
+			if e.Name() == "index.html" || e.Name() == ExportMarkerName {
+				managed = true
 				break
 			}
 		}
-		if !hasIndex {
-			return fmt.Errorf("output directory %q is non-empty and does not look like a generated site (no index.html); refusing to delete", resolved)
+		if !managed {
+			return fmt.Errorf("output directory %q is non-empty and does not look like a generated site (no index.html or %s marker); refusing to delete", resolved, ExportMarkerName)
 		}
 	}
 

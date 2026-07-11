@@ -2,6 +2,7 @@ package export
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -10,6 +11,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
@@ -71,6 +73,50 @@ func TestMergeCohortSeeds_KeysOnResourceAndClassification(t *testing.T) {
 	if diff := cmp.Diff(want, got, cmpopts.IgnoreFields(CohortSeed{}, "DecayRate")); diff != "" {
 		t.Errorf("mergeCohortSeeds (-want +got):\n%s", diff)
 	}
+}
+
+// TestBuildMultiCityForecastSeed_CarriesTreatmentCycleYears pins yvlv.17: the
+// region seed must carry the resolved treatment_cycle_years so the multi-city
+// landing's interactive Custom Scenario line uses the same cycle N as the
+// per-city static lines. Pre-fix the field was omitted, emitting 0, which the
+// WASM bridge silently resolved to the default 12 — discarding a configured
+// non-default value.
+func TestBuildMultiCityForecastSeed_CarriesTreatmentCycleYears(t *testing.T) {
+	entry := CityEntry{
+		Config: &config.Config{},
+		Slug:   "city-a",
+		Store:  &dbtest.MockStore{},
+	}
+
+	t.Run("configured value survives", func(t *testing.T) {
+		fc := &config.ForecastConfig{TreatmentCycleYears: 8}
+		seed := decodeSeed(t, entry, fc)
+		if seed.TreatmentCycleYears != 8 {
+			t.Errorf("TreatmentCycleYears = %v; want 8 (configured value must survive)", seed.TreatmentCycleYears)
+		}
+	})
+
+	t.Run("unset resolves to default", func(t *testing.T) {
+		fc := &config.ForecastConfig{}
+		seed := decodeSeed(t, entry, fc)
+		if seed.TreatmentCycleYears != forecast.DefaultTreatmentCycleYears {
+			t.Errorf("TreatmentCycleYears = %v; want %v (default) when unset", seed.TreatmentCycleYears, forecast.DefaultTreatmentCycleYears)
+		}
+	})
+}
+
+// decodeSeed builds the multi-city seed for a single entry and unmarshals it.
+func decodeSeed(t *testing.T, entry CityEntry, fc *config.ForecastConfig) ForecastSeedJSON {
+	t.Helper()
+	js, err := BuildMultiCityForecastSeed(context.Background(), fc, []CityEntry{entry})
+	if err != nil {
+		t.Fatalf("BuildMultiCityForecastSeed: %v", err)
+	}
+	var seed ForecastSeedJSON
+	if err := json.Unmarshal([]byte(js), &seed); err != nil {
+		t.Fatalf("unmarshal seed: %v", err)
+	}
+	return seed
 }
 
 // TestMergeCohortSeeds_CityScopeReadsCityLabels verifies cityScope=true

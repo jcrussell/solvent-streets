@@ -85,6 +85,9 @@ func (e *Exporter) runSingleCity(ctx context.Context) error {
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
 	}
+	if err := e.writeExportMarker(); err != nil {
+		return err
+	}
 
 	// exportCityData already builds the MetaJSON and forecast seed it writes to
 	// data/meta.json + data/forecast_seed.json; reuse them for index.html rather
@@ -146,6 +149,9 @@ func (e *Exporter) exportOneCity(ctx context.Context, entry CityEntry) (CityInfo
 func (e *Exporter) runMultiCity(ctx context.Context) error {
 	if err := os.MkdirAll(e.outputDir, 0o755); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
+	}
+	if err := e.writeExportMarker(); err != nil {
+		return err
 	}
 
 	var cities []CityInfo
@@ -294,7 +300,7 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 	if err != nil {
 		return MetaJSON{}, "", fmt.Errorf("build forecast seed: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(dataDir, "forecast_seed.json"), []byte(seed), 0o644); err != nil {
+	if err := cmdutil.WriteFile(filepath.Join(dataDir, "forecast_seed.json"), []byte(seed), 0o644); err != nil {
 		return MetaJSON{}, "", fmt.Errorf("write forecast_seed.json: %w", err)
 	}
 
@@ -396,6 +402,19 @@ func stripZeroCurrentBudget(s string) string {
 	return strings.Join(out, "\n")
 }
 
+// writeExportMarker drops a cmdutil.ExportMarkerName sentinel at the top of the
+// output dir at the very start of a run. index.html is only written last, so a
+// run that fails partway (e.g. RequireMatchingSnapshot on city N of M) would
+// otherwise leave a non-empty tree that SafeCleanDir refuses to remove; the
+// early marker keeps such a partial export recoverable via --clean.
+func (e *Exporter) writeExportMarker() error {
+	path := filepath.Join(e.outputDir, cmdutil.ExportMarkerName)
+	if err := cmdutil.WriteFile(path, []byte("pvmt export in progress\n"), 0o644); err != nil {
+		return fmt.Errorf("write export marker: %w", err)
+	}
+	return nil
+}
+
 func (e *Exporter) writeWasmAssets(dir string) error {
 	return WriteSharedWasmAssets(dir)
 }
@@ -461,7 +480,7 @@ func writeJSON(path string, v any) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	return cmdutil.WriteFile(path, data, 0o644)
 }
 
 // writeJSONCompact writes minified JSON (no indentation). Used for the hex grid,
@@ -472,5 +491,5 @@ func writeJSONCompact(path string, v any) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	return cmdutil.WriteFile(path, data, 0o644)
 }

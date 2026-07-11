@@ -61,6 +61,33 @@ func TestSafeCleanDir_AllowsSiteAndEmptyAndMissing(t *testing.T) {
 	}
 }
 
+// TestSafeCleanDir_AllowsPartialExportMarker pins yvlv.19: a partial export —
+// data files present but no index.html, because the run failed before the HTML
+// was written — is recoverable with --clean because the exporter drops the
+// ExportMarkerName sentinel first. Without the marker such a dir dead-ends
+// (SafeCleanDir refuses it, requiring a manual rm -rf).
+func TestSafeCleanDir_AllowsPartialExportMarker(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "partial")
+	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a partial export: marker written first, some data files, but the
+	// run failed before index.html.
+	if err := os.WriteFile(filepath.Join(dir, ExportMarkerName), []byte("in progress\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "data", "meta.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SafeCleanDir(dir); err != nil {
+		t.Fatalf("partial export dir with %s marker should be cleanable: %v", ExportMarkerName, err)
+	}
+	entries, _ := os.ReadDir(dir)
+	if len(entries) != 0 {
+		t.Errorf("cleaned partial dir should be empty, has %d entries", len(entries))
+	}
+}
+
 func TestSafePath_RejectsParentEscape(t *testing.T) {
 	base := t.TempDir()
 	if _, err := SafePath(base, "../etc/passwd"); err == nil {

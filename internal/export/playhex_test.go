@@ -147,6 +147,76 @@ func TestBuildPlayHexes_BlendsRealClasses(t *testing.T) {
 	}
 }
 
+// playHexEntryWithDecay is playHexEntry with a per-config decay_rate override,
+// so the test can assert BuildPlayHexes routes road-class rates through the
+// override (yvlv.18) rather than the class defaults.
+func playHexEntryWithDecay(roads []db.Feature, decayRate float64) CityEntry {
+	entry := playHexEntry(roads)
+	entry.Config.Forecast.DecayRate = decayRate
+	return entry
+}
+
+// TestBuildPlayHexes_HonorsDecayOverride pins yvlv.18: a configured decay_rate
+// override must reshape the per-hex k for road classes, so the game board decays
+// at the same rate as the macro insolvency forecast (which already applies the
+// override via resolvedDecayRate / ScaleRoadDecay). A high override (0.08) must
+// push a residential-only hex above its 0.040 class default.
+func TestBuildPlayHexes_HonorsDecayOverride(t *testing.T) {
+	ctx := context.Background()
+	roads := []db.Feature{
+		lineFeature("res-1", "residential", -122.420, 37.585, -122.405, 37.585),
+	}
+
+	const override = 0.08
+	classDefault := forecast.DecayRateForClass("residential") // 0.040
+	if override <= classDefault {
+		t.Fatalf("test setup: override %v must exceed class default %v", override, classDefault)
+	}
+
+	baseEntry := playHexEntry(roads)
+	overrideEntry := playHexEntryWithDecay(roads, override)
+
+	_, lon0, lat0, err := baseEntry.BBoxAndCenter(ctx)
+	if err != nil {
+		t.Fatalf("BBoxAndCenter: %v", err)
+	}
+	proj := geo.NewUTMProjector(lon0, lat0)
+
+	base, err := BuildPlayHexes(ctx, baseEntry, proj)
+	if err != nil {
+		t.Fatalf("BuildPlayHexes (base): %v", err)
+	}
+	over, err := BuildPlayHexes(ctx, overrideEntry, proj)
+	if err != nil {
+		t.Fatalf("BuildPlayHexes (override): %v", err)
+	}
+	if len(base) == 0 || len(over) == 0 {
+		t.Fatal("BuildPlayHexes returned no hexes; expected a road-bearing hex")
+	}
+
+	baseByID := make(map[string]float64, len(base))
+	for _, ph := range base {
+		baseByID[ph.ID] = ph.K
+	}
+	sawShift := false
+	for _, ph := range over {
+		bk, ok := baseByID[ph.ID]
+		if !ok {
+			continue
+		}
+		// Class-default k stays at 0.040; the override must lift it toward 0.08.
+		if ph.K > bk+1e-9 {
+			sawShift = true
+		}
+		if ph.K < classDefault-1e-9 || ph.K > override+1e-9 {
+			t.Errorf("hex %q k = %v escaped [%v, %v] after override", ph.ID, ph.K, classDefault, override)
+		}
+	}
+	if !sawShift {
+		t.Errorf("decay_rate override %v did not change any per-hex k (base k=%v); BuildPlayHexes ignores the config override", override, classDefault)
+	}
+}
+
 // TestBuildPlayHexes_NoFeatures returns no hexes (and no error) when the city
 // has no road features — a legitimate empty the server turns into [].
 func TestBuildPlayHexes_NoFeatures(t *testing.T) {

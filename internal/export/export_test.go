@@ -13,6 +13,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 )
 
 // exportTestEntry builds a CityEntry whose store satisfies the exporter's
@@ -106,6 +107,48 @@ func TestRunSingleCity_ReusesExportedMetaAndSeed(t *testing.T) {
 	}
 	if !strings.Contains(string(indexHTML), wantMeta.ProjectName) {
 		t.Errorf("index.html does not contain the reused project name %q", wantMeta.ProjectName)
+	}
+}
+
+// TestRunMultiCity_FailureLeavesRecoverableDir pins yvlv.19: when the export
+// fails partway (here, a second city whose stored snapshot hash doesn't match,
+// so RequireMatchingSnapshot fails), the output dir is left non-empty and
+// WITHOUT index.html — but WITH the ExportMarkerName sentinel written up front,
+// so a retry with --clean can recover it instead of dead-ending on a manual
+// rm -rf.
+func TestRunMultiCity_FailureLeavesRecoverableDir(t *testing.T) {
+	cfg := &config.Config{}
+	good := exportTestEntry(cfg, "Good", "good", exportBoundaryA, map[resource.Type]db.ComputeResult{
+		resource.TypeRoads: {ResourceType: resource.TypeRoads, TotalArea: 1000, FeatureCount: 10},
+	})
+	// A city whose only snapshot carries a non-matching config hash: its
+	// RequireMatchingSnapshot returns ErrNoMatchingSnapshot, aborting the run
+	// after the marker (and possibly the good city's data) is written.
+	badStore := &dbtest.MockStore{
+		GetBoundaryFunc: func(context.Context) (string, error) { return exportBoundaryB, nil },
+		ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
+			return []db.Snapshot{{ID: 2, ConfigHash: "mismatch"}}, nil
+		},
+	}
+	bad := CityEntry{Config: cfg, City: config.CityConfig{Name: "Bad"}, Store: badStore, Slug: "bad"}
+
+	dir := t.TempDir()
+	err := New([]CityEntry{good, bad}, cfg, dir, "metric").Run(context.Background())
+	if err == nil {
+		t.Fatal("expected export to fail on the mismatched-snapshot city")
+	}
+
+	// index.html is NOT present (it's written last, after the failing city).
+	if _, statErr := os.Stat(filepath.Join(dir, "index.html")); !os.IsNotExist(statErr) {
+		t.Errorf("index.html should be absent after a mid-run failure (stat err=%v)", statErr)
+	}
+	// The early marker IS present, so the partial dir is recoverable.
+	if _, statErr := os.Stat(filepath.Join(dir, cmdutil.ExportMarkerName)); statErr != nil {
+		t.Errorf("export marker should be present after a mid-run failure: %v", statErr)
+	}
+	// SafeCleanDir must now accept the partial dir (marker, no index.html).
+	if cleanErr := cmdutil.SafeCleanDir(dir); cleanErr != nil {
+		t.Errorf("partial export dir should be recoverable with --clean: %v", cleanErr)
 	}
 }
 
