@@ -2,6 +2,7 @@ package geo
 
 import (
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -57,5 +58,18 @@ func TestCenterFromBBox(t *testing.T) {
 	lon, lat := CenterFromBBox(bbox)
 	if math.Abs(lat-37.65) > 0.001 || math.Abs(lon-(-121.85)) > 0.001 {
 		t.Errorf("unexpected center: lon=%f lat=%f", lon, lat)
+	}
+}
+
+func TestBBoxFromGeoJSON_AntimeridianCrossing(t *testing.T) {
+	// A polygon with points near both ±180° yields a lon span > 180°, which
+	// signals an antimeridian-crossing boundary and must be rejected.
+	gj := `{"type":"Polygon","coordinates":[[[-179.0,-16.5],[178.0,-16.5],[178.0,-16.0],[-179.0,-16.0],[-179.0,-16.5]]]}`
+	_, err := BBoxFromGeoJSON(gj)
+	if err == nil {
+		t.Fatal("expected error for antimeridian-crossing boundary")
+	}
+	if !strings.Contains(err.Error(), "antimeridian-crossing boundaries unsupported") {
+		t.Errorf("got %q, want error mentioning antimeridian-crossing boundaries unsupported", err.Error())
 	}
 }

@@ -57,6 +57,13 @@ func (a *bboxAccumulator) validate() ([4]float64, error) {
 	if a.minLon >= a.maxLon {
 		return [4]float64{}, fmt.Errorf("west (%f) must be less than east (%f)", a.minLon, a.maxLon)
 	}
+	// A longitude span exceeding 180° means the boundary straddles the
+	// antimeridian (±180°): the accumulated min/max lons enclose the wrong,
+	// globe-spanning arc, which averages to a bogus center and picks a
+	// wrong-hemisphere UTM zone. Reject rather than silently produce garbage.
+	if a.maxLon-a.minLon > 180 {
+		return [4]float64{}, fmt.Errorf("longitude span %f exceeds 180: antimeridian-crossing boundaries unsupported", a.maxLon-a.minLon)
+	}
 	return [4]float64{a.minLat, a.minLon, a.maxLat, a.maxLon}, nil
 }
 

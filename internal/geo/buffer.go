@@ -196,54 +196,6 @@ func coordsToSequence(coords [][2]float64) geom.Sequence {
 	return seq
 }
 
-// ParseGeoJSONCoords extracts coordinate arrays from a GeoJSON geometry string.
-// Supported types: LineString, Polygon, MultiLineString.
-// Limitations:
-//   - Polygon: only the exterior ring (index 0) is returned; interior rings
-//     (holes/islands) are discarded. This is acceptable for road/sidewalk width
-//     buffering where polygons represent simple surface areas.
-//   - MultiPolygon: not supported (returns an error). Use GeoJSONToProjectedGeometry
-//     for full MultiPolygon handling.
-func ParseGeoJSONCoords(gjson string) ([][2]float64, string, error) {
-	var obj struct {
-		Type        string          `json:"type"`
-		Coordinates json.RawMessage `json:"coordinates"`
-	}
-	if err := json.Unmarshal([]byte(gjson), &obj); err != nil {
-		return nil, "", fmt.Errorf("parse geojson: %w", err)
-	}
-
-	switch obj.Type {
-	case "LineString":
-		var coords [][2]float64
-		if err := json.Unmarshal(obj.Coordinates, &coords); err != nil {
-			return nil, "", err
-		}
-		return coords, obj.Type, nil
-	case "Polygon":
-		var rings [][][2]float64
-		if err := json.Unmarshal(obj.Coordinates, &rings); err != nil {
-			return nil, "", err
-		}
-		if len(rings) > 0 {
-			return rings[0], obj.Type, nil
-		}
-		return nil, obj.Type, nil
-	case "MultiLineString":
-		var lines [][][2]float64
-		if err := json.Unmarshal(obj.Coordinates, &lines); err != nil {
-			return nil, "", err
-		}
-		var all [][2]float64
-		for _, line := range lines {
-			all = append(all, line...)
-		}
-		return all, obj.Type, nil
-	default:
-		return nil, obj.Type, fmt.Errorf("unsupported geometry type: %s", obj.Type)
-	}
-}
-
 // GeoJSONToProjectedGeometry converts a GeoJSON geometry to a
 // simplefeatures Geometry using the given projector. Any sub-parts of a
 // MultiPolygon or GeometryCollection that fail to build or clean are

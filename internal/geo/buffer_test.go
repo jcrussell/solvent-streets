@@ -1,6 +1,7 @@
 package geo
 
 import (
+	"encoding/json"
 	"math"
 	"strconv"
 	"strings"
@@ -8,6 +9,21 @@ import (
 
 	"github.com/peterstace/simplefeatures/geom"
 )
+
+// polygonExteriorCoords extracts the exterior-ring coordinates of a GeoJSON
+// Polygon string, for tests that inspect the emitted lon/lat values.
+func polygonExteriorCoords(gjson string) ([][2]float64, error) {
+	var obj struct {
+		Coordinates [][][2]float64 `json:"coordinates"`
+	}
+	if err := json.Unmarshal([]byte(gjson), &obj); err != nil {
+		return nil, err
+	}
+	if len(obj.Coordinates) == 0 {
+		return nil, nil
+	}
+	return obj.Coordinates[0], nil
+}
 
 const geomTypeLineString = "LineString"
 
@@ -75,7 +91,7 @@ func TestGeometryToGeoJSON_RoundTrip(t *testing.T) {
 		t.Fatal("expected non-empty GeoJSON")
 	}
 	// Parse and verify coordinates are in WGS84 range
-	coords, _, err := ParseGeoJSONCoords(gjson)
+	coords, err := polygonExteriorCoords(gjson)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +129,7 @@ func TestGeometryToGeoJSONWithPrecision_RoundsCoords(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			coords, _, err := ParseGeoJSONCoords(gjson)
+			coords, err := polygonExteriorCoords(gjson)
 			if err != nil {
 				t.Fatal(err)
 			}

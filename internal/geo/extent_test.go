@@ -1,6 +1,9 @@
 package geo
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 // TestProjectedBBoxExtent_BoundsAllCorners verifies the envelope contains every
 // geographic corner — not just SW/NE. For an LA-shaped box (UTM zone 11, west of
@@ -65,5 +68,49 @@ func TestProjectedBBoxExtent_StraddlesCentralMeridian(t *testing.T) {
 		if y <= cmMinY {
 			t.Errorf("corner northing %.2f should be above CM sample %.2f", y, cmMinY)
 		}
+	}
+}
+
+// TestProjectedBBoxExtent_StraddlesEquator exercises the equator samples: for a
+// box spanning the equator, easting offset (∝ cosφ) peaks at φ = 0, so the true
+// east/west extremes lie on the edges at the equator, beyond every corner.
+func TestProjectedBBoxExtent_StraddlesEquator(t *testing.T) {
+	// Equator-straddling box with a wide-ish lon span west of the CM, so the
+	// equator-edge easting exceeds the corner eastings.
+	bbox := [4]float64{-2.0, 108.0, 8.0, 114.0}
+	proj := NewUTMProjector((bbox[1]+bbox[3])/2, (bbox[0]+bbox[2])/2)
+	if bbox[0] > 0 || bbox[2] < 0 {
+		t.Fatalf("test precondition: bbox must straddle the equator, got lat [%f, %f]", bbox[0], bbox[2])
+	}
+
+	minX, _, maxX, _ := ProjectedBBoxExtent(proj, bbox)
+
+	// The west edge at the equator sets the easting minimum, below all corners.
+	westEqX, _ := proj.ToProjected(bbox[1], 0)
+	if westEqX > minX+1e-6 {
+		t.Errorf("got minX %.2f, want <= west-equator easting %.2f (equator-edge extreme)", minX, westEqX)
+	}
+	// The east edge at the equator sets the easting maximum, above all corners.
+	eastEqX, _ := proj.ToProjected(bbox[3], 0)
+	if eastEqX < maxX-1e-6 {
+		t.Errorf("got maxX %.2f, want >= east-equator easting %.2f (equator-edge extreme)", maxX, eastEqX)
+	}
+
+	// The equator-edge eastings must lie strictly outside the corner-only extent.
+	corners := [][2]float64{
+		{bbox[1], bbox[0]}, {bbox[3], bbox[0]},
+		{bbox[1], bbox[2]}, {bbox[3], bbox[2]},
+	}
+	cornerMinX, cornerMaxX := math.Inf(1), math.Inf(-1)
+	for _, c := range corners {
+		x, _ := proj.ToProjected(c[0], c[1])
+		cornerMinX = min(cornerMinX, x)
+		cornerMaxX = max(cornerMaxX, x)
+	}
+	if westEqX >= cornerMinX {
+		t.Errorf("west-equator easting %.2f not below corner-min easting %.2f", westEqX, cornerMinX)
+	}
+	if eastEqX <= cornerMaxX {
+		t.Errorf("east-equator easting %.2f not above corner-max easting %.2f", eastEqX, cornerMaxX)
 	}
 }
