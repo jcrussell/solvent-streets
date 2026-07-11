@@ -177,7 +177,7 @@ erDiagram
 
 **WASM build order.** The forecast WASM binary is embedded via `go:embed`. It must be compiled (`make wasm`) before building the main binary. The Makefile enforces this dependency.
 
-**HTTP caching.** API responses are disk-cached at `~/.cache/pvmt/http/` with a 24-hour TTL. Use `--force` on ingest to bypass.
+**HTTP caching.** API responses are disk-cached at `~/.cache/pvmt/http/` with a 24-hour TTL. Both GET (Nominatim, ArcGIS) and POST (Overpass) requests are cached — the cache key folds in the request method and body, so Overpass query POSTs are keyed by their `data=` payload rather than colliding on a shared URL. Use `--force` on ingest to bypass. A TTL of 0 disables the cache entirely (no read, no conditional revalidation).
 
 **Overpass splitting.** Large Overpass queries auto-split into quadrants (up to depth 3 / 64 requests) and deduplicate at boundaries.
 

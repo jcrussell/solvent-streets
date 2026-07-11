@@ -55,15 +55,38 @@ func NewTransport(wrapped http.RoundTripper, dir string, ttl time.Duration) *Cac
 }
 
 func (t *CachingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if req.Method != http.MethodGet {
+	// Only GET and POST are cached. Both are read-shaped for this tool:
+	// Overpass fetches POST because their query bodies are too large for
+	// a URL, but are semantically reads. Other methods (PUT/DELETE/…) are
+	// genuinely uncacheable and pass straight through.
+	if req.Method != http.MethodGet && req.Method != http.MethodPost {
 		return t.Wrapped.RoundTrip(req)
 	}
 
-	key := cacheKey(req.URL.String())
+	// Reading req.Body consumes it, so buffer it and restore a fresh
+	// reader (plus GetBody/ContentLength) before handing the request on
+	// to the wrapped RoundTripper on a cache miss. The buffered bytes are
+	// also folded into the cache key so POSTs with different bodies land
+	// in different entries.
+	bodyBytes, err := readAndRestoreBody(req)
+	if err != nil {
+		return nil, err
+	}
+
+	key := cacheKey(req.Method, req.URL.String(), bodyBytes)
 	bodyPath := filepath.Join(t.Dir, key+".json")
 	metaPath := filepath.Join(t.Dir, key+".meta")
 
-	meta, cachedBody, haveCache := t.readCache(metaPath, bodyPath)
+	// TTL=0 is a true bypass: skip reading the cache entirely so no
+	// conditional validators are sent and no cached body is served.
+	var (
+		meta       *entryMeta
+		cachedBody []byte
+		haveCache  bool
+	)
+	if t.TTL > 0 {
+		meta, cachedBody, haveCache = t.readCache(metaPath, bodyPath)
+	}
 	if bypassRequested(req.Context()) {
 		// --force: ignore any cached entry entirely. Forcing haveCache
 		// false here also disables the conditional-request / 304 path
@@ -78,21 +101,9 @@ func (t *CachingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	// Past TTL (or no entry). If validators are stored on the cached
 	// meta, send a conditional request — a 304 lets us refresh the
 	// timestamp without re-downloading the body, which is the cheap
-	// path against Overpass and ArcGIS on repeat runs. Per the
-	// RoundTripper contract, RoundTrip shouldn't mutate the caller's
-	// request, so we clone before stamping headers.
+	// path against Overpass and ArcGIS on repeat runs.
 	if haveCache {
-		etag := meta.Headers["Etag"]
-		lastMod := meta.Headers["Last-Modified"]
-		if etag != "" || lastMod != "" {
-			req = req.Clone(req.Context())
-			if etag != "" {
-				req.Header.Set("If-None-Match", etag)
-			}
-			if lastMod != "" {
-				req.Header.Set("If-Modified-Since", lastMod)
-			}
-		}
+		req = withConditionalValidators(req, meta)
 	}
 
 	resp, err := t.Wrapped.RoundTrip(req)
@@ -121,9 +132,63 @@ func (t *CachingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	return resp, nil
 }
 
-func cacheKey(url string) string {
-	h := sha256.Sum256([]byte(url))
-	return hex.EncodeToString(h[:])
+// withConditionalValidators returns a clone of req stamped with
+// If-None-Match / If-Modified-Since headers from the cached meta's
+// validators, enabling a cheap 304 revalidation. Per the RoundTripper
+// contract, RoundTrip must not mutate the caller's request, so the
+// request is cloned before headers are set. When the meta carries no
+// validators the original request is returned unchanged.
+func withConditionalValidators(req *http.Request, meta *entryMeta) *http.Request {
+	etag := meta.Headers["Etag"]
+	lastMod := meta.Headers["Last-Modified"]
+	if etag == "" && lastMod == "" {
+		return req
+	}
+	req = req.Clone(req.Context())
+	if etag != "" {
+		req.Header.Set("If-None-Match", etag)
+	}
+	if lastMod != "" {
+		req.Header.Set("If-Modified-Since", lastMod)
+	}
+	return req
+}
+
+// cacheKey derives the on-disk cache filename from the request method,
+// URL, and body. Folding the body in lets POSTs with identical URLs but
+// different query bodies (e.g. Overpass quadrant requests) map to
+// distinct entries. The bytes are joined with newlines — unambiguous
+// because method and URL never contain one.
+func cacheKey(method, url string, body []byte) string {
+	h := sha256.New()
+	h.Write([]byte(method))
+	h.Write([]byte{'\n'})
+	h.Write([]byte(url))
+	h.Write([]byte{'\n'})
+	h.Write(body)
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// readAndRestoreBody buffers req.Body and restores it so the wrapped
+// RoundTripper can still send it on a cache miss. A nil body (typical
+// GET) yields nil bytes and leaves the request untouched. GetBody and
+// ContentLength are reset to match the buffered bytes so retries and the
+// underlying transport see a consistent request.
+func readAndRestoreBody(req *http.Request) ([]byte, error) {
+	if req.Body == nil {
+		return nil, nil
+	}
+	bodyBytes, err := io.ReadAll(req.Body)
+	_ = req.Body.Close()
+	if err != nil {
+		return nil, fmt.Errorf("read request body: %w", err)
+	}
+	req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	req.ContentLength = int64(len(bodyBytes))
+	req.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(bodyBytes)), nil
+	}
+	return bodyBytes, nil
 }
 
 func (t *CachingTransport) readCache(metaPath, bodyPath string) (*entryMeta, []byte, bool) {

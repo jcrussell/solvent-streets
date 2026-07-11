@@ -256,7 +256,6 @@ func New() *cmdutil.Factory {
 // same config — preventing slug-sharing examples from reading each
 // other's data. If config load fails the pin is silently skipped,
 // preserving today's behavior for commands that work without a config.
-// Shared between New and NewWithOptions.
 func buildCityDB(f *cmdutil.Factory) func() (db.Store, error) {
 	return func() (db.Store, error) {
 		city, err := f.CurrentCity()
@@ -278,16 +277,4 @@ func buildCityDB(f *cmdutil.Factory) func() (db.Store, error) {
 		}
 		return store, nil
 	}
-}
-
-// NewWithOptions creates a factory with custom cache TTL (0 = force bypass).
-func NewWithOptions(cacheTTL time.Duration, dbPath string) *cmdutil.Factory {
-	f := New()
-	f.HttpClient = httpClientFactory(f, cacheTTL)
-	if dbPath != "" {
-		f.RootDB = rootDBFactory(f, dbPath)
-		// Rebuild CityDB to use updated RootDB
-		f.CityDB = buildCityDB(f)
-	}
-	return f
 }
