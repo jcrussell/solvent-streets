@@ -2,6 +2,8 @@ package forecast
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -326,13 +328,27 @@ func forecastAllResources(ctx context.Context, opts *Options, store db.Store,
 	ios := opts.IO
 	currentPCI := fc.InitialPCI
 	var allResults []db.ForecastResult
+	forecasted := false
 
 	for _, rt := range resource.All {
 		t := rt.Type()
 		tName := string(t)
 		params := fcpkg.NewParamsForResource(tName, fc.GrowthRate, costTiers, fc.TreatmentCycleYears)
+		// LatestComputeResult returns raw sql.ErrNoRows (never a nil result
+		// without an error) when this resource has not been computed for the
+		// city yet — warn and skip only in that case. Any other error (locked
+		// DB, dropped table) must propagate; folding it into the skip path
+		// would silently forecast nothing and exit 0.
 		result, err := store.LatestComputeResult(ctx, t)
-		if err != nil || result == nil {
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			fmt.Fprintf(ios.ErrOut, "Warning: no compute results for %s, skipping\n", t)
+			continue
+		case err != nil:
+			return nil, fmt.Errorf("latest compute result for %s: %w", t, err)
+		case result == nil:
+			// Defensive: the store contract never returns (nil, nil), but a
+			// nil result with no error genuinely means "nothing computed".
 			fmt.Fprintf(ios.ErrOut, "Warning: no compute results for %s, skipping\n", t)
 			continue
 		}
@@ -344,6 +360,7 @@ func forecastAllResources(ctx context.Context, opts *Options, store db.Store,
 		}
 		dbResults, totalDeferredCost, baseline := simulateResource(rt, cohorts, years, params, result.SnapshotID)
 		allResults = append(allResults, dbResults...)
+		forecasted = true
 
 		if opts.Exporter == nil {
 			if err := renderBaselineTable(ios, rt, area, currentPCI, baseline, totalDeferredCost, years, sys); err != nil {
@@ -360,6 +377,12 @@ func forecastAllResources(ctx context.Context, opts *Options, store db.Store,
 				return nil, err
 			}
 		}
+	}
+
+	// Every resource was skipped (none computed) — signal exit 3 rather than
+	// succeeding with an empty forecast.
+	if !forecasted {
+		return nil, cmdutil.ErrNoResults
 	}
 
 	return allResults, nil

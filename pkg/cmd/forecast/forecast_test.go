@@ -2,10 +2,15 @@ package forecast
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"testing"
 
+	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
@@ -34,6 +39,56 @@ func TestForecastRow_ExportData_AllFieldsPopulated(t *testing.T) {
 	}
 	if out["resourceType"] != rtRoads || out["year"] != 2030 {
 		t.Errorf("unexpected values: %+v", out)
+	}
+}
+
+// TestForecastAllResources_PropagatesNonNoRowsError guards yvlv.38: a genuine
+// query failure (locked DB, dropped table) must propagate, not fold into the
+// "no compute results, skipping" path that previously exited 0.
+func TestForecastAllResources_PropagatesNonNoRowsError(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	opts := &Options{IO: ios}
+	fc := &config.ForecastConfig{InitialPCI: 85}
+
+	boom := errors.New("database is locked")
+	store := &dbtest.MockStore{
+		LatestComputeResultFunc: func(_ context.Context, _ resource.Type) (*db.ComputeResult, error) {
+			return nil, boom
+		},
+	}
+
+	_, err := forecastAllResources(context.Background(), opts, store, fc, 5, nil, units.Metric)
+	if err == nil {
+		t.Fatal("expected error to propagate, got nil")
+	}
+	if !errors.Is(err, boom) {
+		t.Fatalf("expected wrapped %v, got: %v", boom, err)
+	}
+	if errors.Is(err, cmdutil.ErrNoResults) {
+		t.Fatalf("real query failure must not be ErrNoResults, got: %v", err)
+	}
+}
+
+// TestForecastAllResources_AllSkippedReturnsNoResults guards yvlv.38: when every
+// resource is un-computed (sql.ErrNoRows) the command returns ErrNoResults
+// (exit 3), not (nil, nil) → exit 0.
+func TestForecastAllResources_AllSkippedReturnsNoResults(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	opts := &Options{IO: ios}
+	fc := &config.ForecastConfig{InitialPCI: 85}
+
+	store := &dbtest.MockStore{
+		LatestComputeResultFunc: func(_ context.Context, _ resource.Type) (*db.ComputeResult, error) {
+			return nil, sql.ErrNoRows
+		},
+	}
+
+	results, err := forecastAllResources(context.Background(), opts, store, fc, 5, nil, units.Metric)
+	if !errors.Is(err, cmdutil.ErrNoResults) {
+		t.Fatalf("expected ErrNoResults, got: %v", err)
+	}
+	if results != nil {
+		t.Fatalf("expected nil results, got: %v", results)
 	}
 }
 
