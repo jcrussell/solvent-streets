@@ -125,6 +125,50 @@ func TestScanHygiene_URLPathNotHostPath(t *testing.T) {
 	}
 }
 
+// TestScanHygiene_HeaderTokenAfterShortRead guards Gap 1: a hygiene-sensitive
+// token sitting within the first maxHygieneRead bytes must still be detected
+// after the io.ReadFull change, even when the underlying file could short-read.
+// A leading run of filler exercises the "read more than one Read returns" path.
+func TestScanHygiene_HeaderTokenAfterShortRead(t *testing.T) {
+	dir := t.TempDir()
+	// A host path a good way into the file, but still under the 4 MiB cap.
+	filler := strings.Repeat("x", 1<<20) // 1 MiB, well within maxHygieneRead
+	p := filepath.Join(dir, "big.json")
+	writeFile(t, p, filler+` "/home/ubuntu/secret" `+"@gmail")
+	hit := scanHygiene(dir, p)
+	if !strings.Contains(hit, "host path") && !strings.Contains(hit, "email") {
+		t.Fatalf("header token within cap should be detected, got %q", hit)
+	}
+
+	// A normal small valid file still scans clean.
+	clean := filepath.Join(dir, "clean.json")
+	writeFile(t, clean, `{"ok":true,"note":"nothing to see"}`)
+	if hit := scanHygiene(dir, clean); hit != "" {
+		t.Errorf("clean small file should not match, got %q", hit)
+	}
+}
+
+// TestCheckSite_ZeroBaselineAreaWarns guards Gap 2: a resource whose baseline
+// carries zero paved area (while pct_paved stays plausible) surfaces a WARN,
+// not a FAIL — a hard failure would collide with legitimately empty resources.
+func TestCheckSite_ZeroBaselineAreaWarns(t *testing.T) {
+	dir := buildValidSite(t)
+	// pct_paved stays plausible (unchanged), but the roads resource is zeroed.
+	writeForecastArea(t, filepath.Join(dir, "demo-ca", "data", "forecast.json"),
+		[]float64{85, 80, 75}, []float64{0, 5, 12}, 0)
+	out, err := run(t, dir, false)
+	if err != nil {
+		t.Fatalf("zero baseline area should warn, not fail (non-strict): %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "WARN") || !strings.Contains(out, "zero paved area") {
+		t.Errorf("expected a WARN about zero paved area:\n%s", out)
+	}
+	// --strict promotes the warning to a failure.
+	if _, err := run(t, dir, true); !errors.Is(err, cmdutil.ErrSilent) {
+		t.Errorf("strict should fail on the zero-area warning, got %v", err)
+	}
+}
+
 func TestCheckSite_NearZeroPctPaved(t *testing.T) {
 	dir := buildValidSite(t)
 	writeMeta(t, filepath.Join(dir, "demo-ca", "data", "meta.json"), 0.5, 1000)
@@ -238,8 +282,16 @@ func writeMeta(t *testing.T, path string, pctPaved, totalPaved float64) {
 }
 
 // writeForecast writes a forecast.json with a single roads resource whose
-// baseline has the given per-year PCI and deferred-backlog series.
+// baseline has the given per-year PCI and deferred-backlog series and a
+// plausible non-zero per-year paved area (so the zero-area WARN does not fire).
 func writeForecast(t *testing.T, path string, pci, backlog []float64) {
+	t.Helper()
+	writeForecastArea(t, path, pci, backlog, 10000)
+}
+
+// writeForecastArea is writeForecast with an explicit per-year baseline area,
+// letting a test drive the zero-area (per-resource geometry drop) warning.
+func writeForecastArea(t *testing.T, path string, pci, backlog []float64, area float64) {
 	t.Helper()
 	if len(pci) != len(backlog) {
 		t.Fatal("pci/backlog length mismatch")
@@ -247,7 +299,7 @@ func writeForecast(t *testing.T, path string, pci, backlog []float64) {
 	var years []map[string]any
 	for i := range pci {
 		years = append(years, map[string]any{
-			"year": i + 1, "pci": pci[i], "deferred_backlog": backlog[i],
+			"year": i + 1, "pci": pci[i], "deferred_backlog": backlog[i], "area": area,
 		})
 	}
 	fc := []map[string]any{{

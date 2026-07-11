@@ -2,6 +2,8 @@ package checksite
 
 import (
 	"crypto/sha256"
+	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -107,8 +109,22 @@ func scanHygiene(root, path string) string {
 	}
 	defer f.Close()
 
+	// Read completely up to the cap. A single f.Read may short-read under the
+	// cap (fewer bytes than requested without EOF), so io.ReadFull over a
+	// LimitReader is used to fill the buffer or exhaust the file. ReadFull
+	// returns ErrUnexpectedEOF when the file is shorter than the buffer (the
+	// normal case for small files) and EOF when zero bytes were read; both mean
+	// "we got the whole (short) file", so treat them as success and scan buf[:n].
+	//
+	// The cap only scans the file's header region. Leaks in these builds (host
+	// paths, emails, secrets) live in the top-of-file properties, not deep inside
+	// coordinate arrays, so capping is an accepted tradeoff that bounds memory
+	// for the ~17 MiB boundary geojsons rather than loading whole files.
 	buf := make([]byte, maxHygieneRead)
-	n, _ := f.Read(buf)
+	n, err := io.ReadFull(io.LimitReader(f, maxHygieneRead), buf)
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return ""
+	}
 	content := buf[:n]
 
 	for _, p := range hygienePatterns {

@@ -69,12 +69,43 @@ func (r *runner) checkForecast(label, path string) {
 		return
 	}
 	for _, fc := range forecasts {
+		// Per-resource zero-area blind spot: a single resource erroneously
+		// zeroed (while other resources keep area) passes both monotonicity and
+		// the whole-city pct_paved check. WARN — not FAIL — because an all-flat/
+		// all-zero baseline is also the legitimate "empty resource" state, and a
+		// hard failure here would collide with those legit-empty resources.
+		//
+		// A stricter check would compare this resource's baseline area against
+		// the city paved total from meta.json to tell a real geometry drop from
+		// a genuinely empty resource; threading meta.json totals in is out of
+		// scope for this fix.
+		if baselineAreaAllZero(fc) {
+			r.warnf("reasonableness: %s [%s]: resource has zero paved area — possible per-resource geometry drop", label, fc.ResourceType)
+		}
 		if msg := baselineViolation(fc); msg != "" {
 			r.failf("reasonableness: %s [%s]: %s", label, fc.ResourceType, msg)
 		} else {
 			r.passf("reasonableness: %s [%s]: baseline PCI non-increasing and backlog non-decreasing", label, fc.ResourceType)
 		}
 	}
+}
+
+// baselineAreaAllZero reports whether fc's baseline carries no paved area:
+// the year-0 area is zero (equivalently, every baseline year's area is zero,
+// since do-nothing area only grows). A baseline with no years is treated as
+// zero-area. Callers use this to surface a per-resource geometry-drop warning
+// without false-failing a legitimately empty resource.
+func baselineAreaAllZero(fc export.ForecastExport) bool {
+	years := fc.Baseline.Years
+	if len(years) == 0 {
+		return true
+	}
+	for _, y := range years {
+		if y.Area != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // baselineViolation returns a non-empty description when fc's baseline years
