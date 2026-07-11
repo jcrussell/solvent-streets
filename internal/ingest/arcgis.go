@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -72,31 +73,39 @@ func (s *ArcGISSource) Fetch(ctx context.Context, client *http.Client, rt resour
 		if page >= arcgisMaxPages {
 			return nil, fmt.Errorf("arcgis: exceeded %d pages (%d features), aborting", arcgisMaxPages, len(allFeatures))
 		}
-		features, exceeded, err := fetchArcGISPage(ctx, client, endpoint, envelope, rtVal, offset)
+		features, rawCount, exceeded, err := fetchArcGISPage(ctx, client, endpoint, envelope, rtVal, offset)
 		if err != nil {
 			return nil, err
 		}
 		allFeatures = append(allFeatures, features...)
 
-		// Stop when the server reports no more rows. The server clamps each
-		// response to its own maxRecordCount (often below our requested
-		// arcgisMaxRecords), so a short page does NOT mean "last page" —
-		// exceededTransferLimit is the authoritative signal. The page-size
-		// check is a fallback for servers that omit the flag; the empty-page
-		// guard prevents an infinite loop if the flag is set but no rows come.
-		if len(features) == 0 || (!exceeded && len(features) < arcgisMaxRecords) {
+		// Pagination is driven off rawCount (the number of rows the server
+		// returned, before geometry filtering) and exceededTransferLimit, NOT
+		// off the filtered feature slice. A page can return rows that are all
+		// dropped by the null-geometry guard; keying off the filtered length
+		// would wrongly terminate the loop AND stall the offset, so we must
+		// use the raw row count here.
+		//
+		// The server clamps each response to its own maxRecordCount (often
+		// below our requested arcgisMaxRecords), so a short page does NOT mean
+		// "last page" — exceededTransferLimit is the authoritative signal. The
+		// page-size check is a fallback for servers that omit the flag; the
+		// empty-page guard prevents an infinite loop if the flag is set but no
+		// rows come.
+		if rawCount == 0 || (!exceeded && rawCount < arcgisMaxRecords) {
 			break
 		}
-		offset += len(features)
+		offset += rawCount
 		fmt.Fprintf(s.progress(), "ArcGIS: fetched %d features so far, requesting next page at offset %d...\n", len(allFeatures), offset)
 	}
 
 	return allFeatures, nil
 }
 
-// fetchArcGISPage fetches one page of features and reports whether the server
+// fetchArcGISPage fetches one page of features and reports the raw number of
+// rows the server returned (before geometry filtering) and whether the server
 // signalled that more rows remain (exceededTransferLimit).
-func fetchArcGISPage(ctx context.Context, client *http.Client, endpoint, envelope string, resourceType resource.Type, offset int) ([]db.Feature, bool, error) {
+func fetchArcGISPage(ctx context.Context, client *http.Client, endpoint, envelope string, resourceType resource.Type, offset int) ([]db.Feature, int, bool, error) {
 	params := url.Values{
 		"where":             {"1=1"},
 		"geometry":          {envelope},
@@ -120,25 +129,40 @@ func fetchArcGISPage(ctx context.Context, client *http.Client, endpoint, envelop
 		"orderByFields": {"OBJECTID"},
 	}
 
-	reqURL := endpoint + "?" + params.Encode()
+	// Merge the pagination/query params into any query string the endpoint
+	// already carries (e.g. an arcgis_url with an appended ?token=...), rather
+	// than blindly appending "?...", which would corrupt an existing query.
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return nil, 0, false, fmt.Errorf("parse arcgis endpoint %q: %w", endpoint, err)
+	}
+	merged := u.Query()
+	for k, vs := range params {
+		for _, v := range vs {
+			merged.Set(k, v)
+		}
+	}
+	u.RawQuery = merged.Encode()
+	reqURL := u.String()
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
-		return nil, false, fmt.Errorf("create arcgis request: %w", err)
+		return nil, 0, false, fmt.Errorf("create arcgis request: %w", err)
 	}
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, false, fmt.Errorf("arcgis request: %w", err)
+		return nil, 0, false, fmt.Errorf("arcgis request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyBytes))
 	if err != nil {
-		return nil, false, fmt.Errorf("read arcgis response: %w", err)
+		return nil, 0, false, fmt.Errorf("read arcgis response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, false, fmt.Errorf("arcgis %s returned %d: %s", endpoint, resp.StatusCode, truncate(string(body), 200))
+		return nil, 0, false, fmt.Errorf("arcgis %s returned %d: %s", endpoint, resp.StatusCode, truncate(string(body), 200))
 	}
 
 	// ArcGIS sometimes returns service-level errors as HTTP 200 with a JSON
@@ -146,14 +170,14 @@ func fetchArcGISPage(ctx context.Context, client *http.Client, endpoint, envelop
 	// up front so the caller sees the underlying message + endpoint instead
 	// of an empty feature list.
 	if msg, ok := arcgisErrorMessage(body); ok {
-		return nil, false, fmt.Errorf("arcgis %s: %s", endpoint, msg)
+		return nil, 0, false, fmt.Errorf("arcgis %s: %s", endpoint, msg)
 	}
 
-	features, err := parseArcGISGeoJSON(body, resourceType, offset)
+	features, rawCount, err := parseArcGISGeoJSON(body, resourceType, offset)
 	if err != nil {
-		return nil, false, err
+		return nil, 0, false, err
 	}
-	return features, arcgisExceededLimit(body), nil
+	return features, rawCount, arcgisExceededLimit(body), nil
 }
 
 // arcgisExceededLimit reports whether the response signals that more rows
@@ -206,15 +230,23 @@ type arcgisGeoJSON struct {
 	} `json:"features"`
 }
 
-func parseArcGISGeoJSON(data []byte, resourceType resource.Type, baseIndex int) ([]db.Feature, error) {
+// parseArcGISGeoJSON parses a GeoJSON page into features, skipping rows with no
+// usable geometry (missing or explicit JSON null). It also returns the raw row
+// count — the number of features in the server response before geometry
+// filtering — which the pagination loop uses to advance the offset and decide
+// termination (a page may return rows that are all skipped here).
+func parseArcGISGeoJSON(data []byte, resourceType resource.Type, baseIndex int) ([]db.Feature, int, error) {
 	var resp arcgisGeoJSON
 	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, fmt.Errorf("parse arcgis json: %w", err)
+		return nil, 0, fmt.Errorf("parse arcgis json: %w", err)
 	}
 
 	var features []db.Feature
 	for i, f := range resp.Features {
-		if f.Geometry == nil {
+		// Skip rows with no usable geometry. A missing "geometry" field
+		// unmarshals to a nil RawMessage; an explicit "geometry": null
+		// unmarshals to a non-nil 4-byte RawMessage("null"), so guard both.
+		if f.Geometry == nil || bytes.Equal(bytes.TrimSpace(f.Geometry), []byte("null")) {
 			continue
 		}
 
@@ -222,16 +254,16 @@ func parseArcGISGeoJSON(data []byte, resourceType resource.Type, baseIndex int) 
 		var name string
 		for k, v := range f.Properties {
 			if v != nil {
-				tags[k] = fmt.Sprintf("%v", v)
+				tags[k] = formatArcGISValue(v)
 			}
 			if v != nil && (k == "FULLNAME" || k == "FullName" || k == "fullname") {
-				name = fmt.Sprintf("%v", v)
+				name = formatArcGISValue(v)
 			}
 		}
 
 		id := fmt.Sprintf("arcgis:%d", baseIndex+i)
 		if oid, ok := f.Properties["OBJECTID"]; ok {
-			id = fmt.Sprintf("arcgis:%v", oid)
+			id = "arcgis:" + formatArcGISValue(oid)
 		}
 
 		features = append(features, db.Feature{
@@ -245,5 +277,17 @@ func parseArcGISGeoJSON(data []byte, resourceType resource.Type, baseIndex int) 
 		})
 	}
 
-	return features, nil
+	return features, len(resp.Features), nil
+}
+
+// formatArcGISValue renders a decoded JSON property value as a string. JSON
+// numbers decode into float64, so fmt's %v would render large integral values
+// in scientific notation (e.g. 1234567 → "1.234567e+06"); FormatFloat with
+// precision -1 yields plain decimal ("1234567"). Non-float values fall through
+// to %v, matching the prior behavior.
+func formatArcGISValue(v any) string {
+	if f, ok := v.(float64); ok {
+		return strconv.FormatFloat(f, 'f', -1, 64)
+	}
+	return fmt.Sprintf("%v", v)
 }

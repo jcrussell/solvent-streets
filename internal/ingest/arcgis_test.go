@@ -24,7 +24,7 @@ func TestParseArcGISGeoJSON_BasicFeature(t *testing.T) {
 			}
 		]
 	}`
-	features, err := parseArcGISGeoJSON([]byte(data), rtRoads, 0)
+	features, _, err := parseArcGISGeoJSON([]byte(data), rtRoads, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestParseArcGISGeoJSON_NoOBJECTID(t *testing.T) {
 			}
 		]
 	}`
-	features, err := parseArcGISGeoJSON([]byte(data), rtRoads, 0)
+	features, _, err := parseArcGISGeoJSON([]byte(data), rtRoads, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestParseArcGISGeoJSON_NoOBJECTID(t *testing.T) {
 func TestParseArcGISGeoJSON_FULLNAMEExtraction(t *testing.T) {
 	for _, key := range []string{"FULLNAME", "FullName", "fullname"} {
 		data := `{"features": [{"properties": {"` + key + `": "Third Ave"}, "geometry": {"type":"Point","coordinates":[-121.77,37.68]}}]}`
-		features, err := parseArcGISGeoJSON([]byte(data), rtRoads, 0)
+		features, _, err := parseArcGISGeoJSON([]byte(data), rtRoads, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -78,27 +78,36 @@ func TestParseArcGISGeoJSON_FULLNAMEExtraction(t *testing.T) {
 }
 
 func TestParseArcGISGeoJSON_NullGeometry(t *testing.T) {
-	// JSON null results in json.RawMessage("null") which is non-nil,
-	// so the feature is included. Missing geometry field results in nil.
+	// Rows with no usable geometry must be skipped. A missing "geometry"
+	// field unmarshals to a nil RawMessage; an explicit "geometry": null
+	// unmarshals to a non-nil RawMessage("null"). Both are skipped, but they
+	// still count toward the raw row count returned for pagination.
 	data := `{
 		"features": [
 			{
 				"properties": {"OBJECTID": 1}
+			},
+			{
+				"properties": {"OBJECTID": 2},
+				"geometry": null
 			}
 		]
 	}`
-	features, err := parseArcGISGeoJSON([]byte(data), rtRoads, 0)
+	features, rawCount, err := parseArcGISGeoJSON([]byte(data), rtRoads, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(features) != 0 {
-		t.Errorf("expected 0 features for missing geometry, got %d", len(features))
+		t.Errorf("expected 0 features (missing + explicit-null geometry), got %d", len(features))
+	}
+	if rawCount != 2 {
+		t.Errorf("expected raw count 2, got %d", rawCount)
 	}
 }
 
 func TestParseArcGISGeoJSON_EmptyFeatures(t *testing.T) {
 	data := `{"features": []}`
-	features, err := parseArcGISGeoJSON([]byte(data), rtRoads, 0)
+	features, _, err := parseArcGISGeoJSON([]byte(data), rtRoads, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +125,7 @@ func TestParseArcGISGeoJSON_NumericPropertyValues(t *testing.T) {
 			}
 		]
 	}`
-	features, err := parseArcGISGeoJSON([]byte(data), rtRoads, 0)
+	features, _, err := parseArcGISGeoJSON([]byte(data), rtRoads, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +143,7 @@ func TestParseArcGISGeoJSON_BaseIndexOffset(t *testing.T) {
 		{"properties": {"FULLNAME": "A St"}, "geometry": {"type":"Point","coordinates":[-121.77,37.68]}},
 		{"properties": {"FULLNAME": "B St"}, "geometry": {"type":"Point","coordinates":[-121.76,37.69]}}
 	]}`
-	features, err := parseArcGISGeoJSON([]byte(data), rtRoads, 5000)
+	features, _, err := parseArcGISGeoJSON([]byte(data), rtRoads, 5000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,6 +196,151 @@ func makeArcGISPage(n, startOID int, exceeded bool) []byte {
 		"properties": map[string]any{"exceededTransferLimit": exceeded},
 	})
 	return data
+}
+
+// makeArcGISNullPage builds a GeoJSON page with n features that all carry an
+// explicit "geometry": null, plus the exceededTransferLimit flag nested under
+// "properties". Every feature here is dropped by the null-geometry guard, so
+// the page contributes zero post-filter features — used to prove pagination is
+// driven off the raw row count, not the filtered slice length.
+func makeArcGISNullPage(n, startOID int, exceeded bool) []byte {
+	type feat struct {
+		Properties map[string]any  `json:"properties"`
+		Geometry   json.RawMessage `json:"geometry"`
+	}
+	feats := make([]feat, n)
+	for i := range feats {
+		feats[i] = feat{
+			Properties: map[string]any{"OBJECTID": startOID + i},
+			Geometry:   json.RawMessage(`null`),
+		}
+	}
+	data, _ := json.Marshal(map[string]any{
+		"features":   feats,
+		"properties": map[string]any{"exceededTransferLimit": exceeded},
+	})
+	return data
+}
+
+// TestFetch_PaginationContinuesPastAllNullPage pins the fix for the pagination
+// bug (yvlv.10): a page whose rows are all dropped by the null-geometry guard
+// contributes zero post-filter features, but exceededTransferLimit is set. The
+// loop must keep paging (off the raw row count) instead of terminating, and the
+// offset must advance by the raw count so page 2 is not re-read.
+func TestFetch_PaginationContinuesPastAllNullPage(t *testing.T) {
+	const nullPageSize = 100 // all skipped, but exceeded=true
+	const realPageSize = 30
+
+	calls := 0
+	var sawOffsets []int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		offset, _ := strconv.Atoi(r.URL.Query().Get("resultOffset"))
+		sawOffsets = append(sawOffsets, offset)
+		var body []byte
+		switch offset {
+		case 0:
+			body = makeArcGISNullPage(nullPageSize, 1, true)
+		case nullPageSize:
+			body = makeArcGISPage(realPageSize, nullPageSize+1, false)
+		default:
+			t.Errorf("unexpected offset %d", offset)
+			http.Error(w, "bad offset", 400)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(body)
+	}))
+	t.Cleanup(srv.Close)
+
+	src := &ArcGISSource{
+		BBox:         [4]float64{37.0, -122.0, 38.0, -121.0},
+		URL:          srv.URL,
+		AllowPrivate: true, // httptest.Server binds 127.0.0.1; the SSRF guard would otherwise refuse it.
+	}
+	features, err := src.Fetch(context.Background(), srv.Client(), resource.ByType(resource.TypeRoads))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(features) != realPageSize {
+		t.Fatalf("expected %d real features (all-null page skipped), got %d", realPageSize, len(features))
+	}
+	if calls != 2 {
+		t.Errorf("expected 2 server calls (paged past all-null page), got %d", calls)
+	}
+	if len(sawOffsets) != 2 || sawOffsets[0] != 0 || sawOffsets[1] != nullPageSize {
+		t.Errorf("expected offsets [0 %d], got %v", nullPageSize, sawOffsets)
+	}
+	// The real features must actually be the page-2 rows.
+	if features[0].ID != fmt.Sprintf("arcgis:%d", nullPageSize+1) {
+		t.Errorf("first feature id: want arcgis:%d, got %s", nullPageSize+1, features[0].ID)
+	}
+}
+
+// TestParseArcGISGeoJSON_LargeNumericFormatting pins the fix for yvlv.11: JSON
+// numbers decode to float64, so a large integral OBJECTID or numeric property
+// must render as plain decimal, not scientific notation.
+func TestParseArcGISGeoJSON_LargeNumericFormatting(t *testing.T) {
+	data := `{
+		"features": [
+			{
+				"properties": {"OBJECTID": 1234567, "LENGTH_FT": 9876543},
+				"geometry": {"type": "Point", "coordinates": [-121.77, 37.68]}
+			}
+		]
+	}`
+	features, _, err := parseArcGISGeoJSON([]byte(data), rtRoads, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(features) != 1 {
+		t.Fatalf("expected 1 feature, got %d", len(features))
+	}
+	if features[0].ID != "arcgis:1234567" {
+		t.Errorf("expected id arcgis:1234567 (plain decimal), got %s", features[0].ID)
+	}
+	if got := features[0].Tags["LENGTH_FT"]; got != "9876543" {
+		t.Errorf("expected LENGTH_FT tag '9876543' (plain decimal), got %q", got)
+	}
+	if got := features[0].Tags["OBJECTID"]; got != "1234567" {
+		t.Errorf("expected OBJECTID tag '1234567' (plain decimal), got %q", got)
+	}
+}
+
+// TestFetch_PreservesEndpointQueryString pins the fix for yvlv.12: an
+// arcgis_url that already carries a query string (e.g. ?token=...) must have
+// its params preserved while the pagination params are merged in.
+func TestFetch_PreservesEndpointQueryString(t *testing.T) {
+	var gotToken string
+	var gotWhere string
+	var gotOffset string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		gotToken = q.Get("token")
+		gotWhere = q.Get("where")
+		gotOffset = q.Get("resultOffset")
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(makeArcGISFeatures(10, 1)) // short page → single request
+	}))
+	t.Cleanup(srv.Close)
+
+	src := &ArcGISSource{
+		BBox:         [4]float64{37.0, -122.0, 38.0, -121.0},
+		URL:          srv.URL + "?token=abc",
+		AllowPrivate: true, // httptest.Server binds 127.0.0.1; the SSRF guard would otherwise refuse it.
+	}
+	if _, err := src.Fetch(context.Background(), srv.Client(), resource.ByType(resource.TypeRoads)); err != nil {
+		t.Fatal(err)
+	}
+	if gotToken != "abc" {
+		t.Errorf("expected token=abc preserved, got %q", gotToken)
+	}
+	if gotWhere != "1=1" {
+		t.Errorf("expected pagination param where=1=1 merged in, got %q", gotWhere)
+	}
+	if gotOffset != "0" {
+		t.Errorf("expected pagination param resultOffset=0 merged in, got %q", gotOffset)
+	}
 }
 
 // TestFetch_PaginationExceededTransferLimit pins the fix for the truncation
