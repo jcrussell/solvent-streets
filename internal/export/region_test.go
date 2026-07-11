@@ -75,6 +75,17 @@ func TestGroupCitiesByRegion(t *testing.T) {
 	if names := cityNames(got[2].Cities); !equalSlice(names, []string{"Aspen", "Zephyr"}) {
 		t.Errorf("empty-region cities = %v; want [Aspen Zephyr]", names)
 	}
+
+	// Why the index DATA_PREFIX alignment matters (bead yvlv.24): the selector's
+	// first DOM <option> — the first city of the first region group here,
+	// "Alameda" — differs from the flat alphabetical first city ("Aspen") that
+	// seeds CITIES[0]/DATA_PREFIX. Without the boot-time realignment the page
+	// would load Aspen's data while the dropdown shows Alameda.
+	flatFirst := cityNames(GroupCitiesByRegion(cities)[2].Cities)[0] // "Aspen"
+	selectorFirst := got[0].Cities[0].Name                           // "Alameda"
+	if selectorFirst == flatFirst {
+		t.Fatalf("expected selector-first %q to differ from flat-first %q", selectorFirst, flatFirst)
+	}
 }
 
 // TestGroupCitiesByRegion_AllEmpty asserts that when no city has a region, a

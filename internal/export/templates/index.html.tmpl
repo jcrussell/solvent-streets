@@ -980,6 +980,14 @@
                 DATA_PREFIX = 'cities/' + init.city + '/';
                 const sel = document.getElementById('city-select');
                 if (sel) sel.value = init.city;
+            } else {
+                // No ?city= deep link: the browser default-selects the first DOM <option>,
+                // which follows CitiesByRegion (region groups first) and can differ from
+                // CITIES[0] (flat alphabetical) that seeded DATA_PREFIX above. Align the
+                // data prefix with the shown selection so we never load one city's data
+                // while the dropdown names another (and replaceState records the truth).
+                const sel = document.getElementById('city-select');
+                if (sel && sel.value) DATA_PREFIX = 'cities/' + sel.value + '/';
             }
             if (init.tab && document.getElementById(init.tab)) {
                 document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === init.tab));

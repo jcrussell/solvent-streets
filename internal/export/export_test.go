@@ -197,6 +197,35 @@ func TestRunMultiCity_AlphabetisesCitySelector(t *testing.T) {
 	}
 }
 
+// TestRunMultiCity_IndexAlignsDataPrefixToSelector: on initial load without a
+// ?city= deep link, the browser default-selects the first DOM <option>, which
+// follows CitiesByRegion (region groups first) and can differ from CITIES[0]
+// (flat alphabetical) that seeds DATA_PREFIX. The rendered index must contain
+// the boot-time alignment that re-derives DATA_PREFIX from the selector's
+// actual default value in the no-?city= (else) branch, so the page never loads
+// one city's data while the dropdown names another. See bead yvlv.24.
+func TestRunMultiCity_IndexAlignsDataPrefixToSelector(t *testing.T) {
+	cfg := &config.Config{}
+	entries := []CityEntry{
+		exportTestEntry(cfg, "Charlie", "charlie", exportBoundaryA, nil),
+		exportTestEntry(cfg, "apple", "apple", exportBoundaryB, nil),
+	}
+
+	dir := t.TempDir()
+	if err := New(entries, cfg, dir, "metric").Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	indexHTML, err := os.ReadFile(filepath.Join(dir, "index.html"))
+	if err != nil {
+		t.Fatalf("read index.html: %v", err)
+	}
+	const want = "DATA_PREFIX = 'cities/' + sel.value + '/'"
+	if !strings.Contains(string(indexHTML), want) {
+		t.Errorf("index.html missing selector-derived DATA_PREFIX alignment %q", want)
+	}
+}
+
 // boundaryMinLon returns the smallest longitude in a GeoJSON Polygon boundary
 // string. roadEntry uses it to place roads relative to the boundary's western
 // edge, so the same helper drops roads inside exportBoundaryA (-122.5..-122.4)
