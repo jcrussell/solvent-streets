@@ -342,6 +342,79 @@ func TestMigrateFS_AcceptsCustomFS(t *testing.T) {
 	}
 }
 
+// TestMigrateFS_NumericVersionOrder pins the yvlv.14 fix: migrations must
+// apply in ascending numeric version order, not lexical filename order.
+// Lexically "10_*.sql" < "2_*.sql", so a lexical sort would run version 10
+// before version 2 and apply dependency-ordered DDL backwards. Here
+// migration 10 ALTERs a column that migration 2 creates the table for; if
+// they run out of numeric order, migration 10 fails. We also assert the
+// recorded schema_version rows are in ascending order.
+func TestMigrateFS_NumericVersionOrder(t *testing.T) {
+	ctx := context.Background()
+
+	mapFS := fstest.MapFS{
+		"mig/1_a.sql": &fstest.MapFile{
+			Data: []byte(`CREATE TABLE base (id INTEGER PRIMARY KEY);`),
+		},
+		// Creates table t. Numerically must run before 10_c.
+		"mig/2_b.sql": &fstest.MapFile{
+			Data: []byte(`CREATE TABLE t (id INTEGER PRIMARY KEY);`),
+		},
+		// Depends on table t existing — only valid if 2_b ran first. Under a
+		// lexical sort ("10_c" < "2_b") this would run first and fail.
+		"mig/10_c.sql": &fstest.MapFile{
+			Data: []byte(`ALTER TABLE t ADD COLUMN name TEXT;`),
+		},
+	}
+
+	d, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Close() })
+
+	if err := migrateFS(ctx, d, mapFS, "mig"); err != nil {
+		t.Fatalf("migrateFS: %v (migrations applied out of numeric order?)", err)
+	}
+
+	// All three applied: table t has the column 10_c added.
+	cols := listColumns(t, ctx, d, "t")
+	var hasName bool
+	for _, c := range cols {
+		if c.name == "name" {
+			hasName = true
+		}
+	}
+	if !hasName {
+		t.Errorf("migration 10 (ADD COLUMN name) did not apply; columns = %+v", cols)
+	}
+	if !slices.Contains(listTables(t, ctx, d), "base") {
+		t.Errorf("migration 1 did not apply; base table missing")
+	}
+
+	// schema_version rows recorded in ascending numeric order.
+	rows, err := d.QueryContext(ctx, `SELECT version FROM schema_version ORDER BY rowid`)
+	if err != nil {
+		t.Fatalf("query schema_version: %v", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var got []int
+	for rows.Next() {
+		var v int
+		if err := rows.Scan(&v); err != nil {
+			t.Fatalf("scan version: %v", err)
+		}
+		got = append(got, v)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate schema_version: %v", err)
+	}
+	want := []int{1, 2, 10}
+	if !slices.Equal(got, want) {
+		t.Errorf("schema_version apply order = %v, want %v (numeric ascending)", got, want)
+	}
+}
+
 // TestMigrateFS_PartialFailureRollsBack pins the per-migration BeginTx
 // contract: a multi-statement migration whose later statement fails must
 // leave the database exactly as it was before the migration started — no

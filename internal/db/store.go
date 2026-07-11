@@ -245,7 +245,13 @@ func (s *sqliteStore) CreateSnapshot(ctx context.Context, configHash string) (*S
 }
 
 func (s *sqliteStore) ListSnapshots(ctx context.Context) ([]Snapshot, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, computed_at, config_hash FROM snapshots WHERE city_id = ? ORDER BY computed_at DESC`, s.cityID)
+	// Tiebreak on id DESC so two snapshots created in the same second
+	// (computed_at is second-granularity CURRENT_TIMESTAMP) sort stably
+	// newest-first. This keeps ListSnapshots consistent with the read
+	// path's MAX(snapshot_id) latest-resolution and prevents `snapshots
+	// prune` (which trusts newest-first and deletes snaps[Keep:]) from
+	// ever deleting the newest snapshot on a same-second tie.
+	rows, err := s.db.QueryContext(ctx, `SELECT id, computed_at, config_hash FROM snapshots WHERE city_id = ? ORDER BY computed_at DESC, id DESC`, s.cityID)
 	if err != nil {
 		return nil, fmt.Errorf("query snapshots: %w", err)
 	}
@@ -475,8 +481,13 @@ func (s *sqliteStore) Stats(ctx context.Context, resourceType resource.Type) (*S
 	return info, nil
 }
 
+// Close is a no-op for a city-scoped store. City stores returned by
+// RootStore.ForCity share the RootStore's single *sql.DB connection pool
+// (see ForCity), so closing one would tear down the RootStore and every
+// sibling city store. Ownership of the pool stays with the RootStore;
+// only RootStore.Close actually closes it.
 func (s *sqliteStore) Close() error {
-	return s.db.Close()
+	return nil
 }
 
 // withTx runs fn inside a write transaction. If fn returns an error the

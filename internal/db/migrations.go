@@ -11,10 +11,11 @@ import (
 	"strings"
 )
 
-// migrate applies SQL migrations from migrationsFS in lexical order,
-// skipping those already recorded in schema_version. Production callers
-// use migrate(); tests can use migrateFS to inject an fstest.MapFS for
-// hermetic migration scenarios without touching disk or the embed.
+// migrate applies SQL migrations from migrationsFS in ascending numeric
+// version order, skipping those already recorded in schema_version.
+// Production callers use migrate(); tests can use migrateFS to inject an
+// fstest.MapFS for hermetic migration scenarios without touching disk or
+// the embed.
 func migrate(ctx context.Context, d *sql.DB) error {
 	return migrateFS(ctx, d, migrationsFS, "migrations")
 }
@@ -43,10 +44,17 @@ func migrateFS(ctx context.Context, d *sql.DB, source fs.FS, root string) error 
 		return fmt.Errorf("read migrations dir: %w", err)
 	}
 
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Name() < entries[j].Name()
-	})
-
+	// Parse the numeric version prefix up front, then sort by the parsed
+	// integer (ascending) rather than lexically. Lexical order would run
+	// "10_*.sql" before "2_*.sql", applying dependency-ordered DDL
+	// backwards. Entries without a ".sql" suffix or a valid numeric
+	// prefix are dropped here — the same filter the old inline gate
+	// applied via SplitN + strconv.Atoi, just hoisted before the sort.
+	type pending struct {
+		version int
+		name    string
+	}
+	var migrations []pending
 	for _, entry := range entries {
 		if !strings.HasSuffix(entry.Name(), ".sql") {
 			continue
@@ -59,17 +67,24 @@ func migrateFS(ctx context.Context, d *sql.DB, source fs.FS, root string) error 
 		if err != nil {
 			continue
 		}
+		migrations = append(migrations, pending{version: version, name: entry.Name()})
+	}
 
-		if version <= currentVersion {
+	sort.Slice(migrations, func(i, j int) bool {
+		return migrations[i].version < migrations[j].version
+	})
+
+	for _, m := range migrations {
+		if m.version <= currentVersion {
 			continue
 		}
 
-		data, err := fs.ReadFile(source, root+"/"+entry.Name())
+		data, err := fs.ReadFile(source, root+"/"+m.name)
 		if err != nil {
-			return fmt.Errorf("read migration %s: %w", entry.Name(), err)
+			return fmt.Errorf("read migration %s: %w", m.name, err)
 		}
 
-		if err := applyMigration(ctx, d, entry.Name(), version, string(data)); err != nil {
+		if err := applyMigration(ctx, d, m.name, m.version, string(data)); err != nil {
 			return err
 		}
 	}

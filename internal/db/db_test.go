@@ -516,6 +516,109 @@ func TestListReads_ConfigHashScoping(t *testing.T) {
 	}
 }
 
+// TestListSnapshots_SameSecondTiebreak pins the yvlv.13 fix: when two
+// snapshots share the same computed_at (CURRENT_TIMESTAMP is
+// second-granularity), ListSnapshots must return them newest-id-first
+// deterministically via the `ORDER BY computed_at DESC, id DESC` tiebreak.
+// Without it, SQLite's order among the tied rows is unstable and `snapshots
+// prune` — which trusts newest-first and drops snaps[Keep:] — could delete
+// the newest snapshot.
+func TestListSnapshots_SameSecondTiebreak(t *testing.T) {
+	ctx := context.Background()
+	root, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+
+	cityID, err := root.EnsureCity(ctx, "c", "C", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := root.ForCity(cityID).(*sqliteStore)
+
+	// Insert two snapshots with an explicit, identical computed_at so the
+	// tie is guaranteed (CreateSnapshot back-to-back may or may not land in
+	// the same second). The DESC, id DESC ordering must surface the larger
+	// id first regardless of insertion order relative to that.
+	const sameTime = "2026-01-01 00:00:00"
+	if _, err := store.db.ExecContext(ctx,
+		`INSERT INTO snapshots (id, city_id, config_hash, computed_at) VALUES (?, ?, ?, ?)`,
+		10, cityID, "older-id", sameTime); err != nil {
+		t.Fatalf("insert snapshot 10: %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx,
+		`INSERT INTO snapshots (id, city_id, config_hash, computed_at) VALUES (?, ?, ?, ?)`,
+		20, cityID, "newer-id", sameTime); err != nil {
+		t.Fatalf("insert snapshot 20: %v", err)
+	}
+
+	snaps, err := store.ListSnapshots(ctx)
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+	if len(snaps) != 2 {
+		t.Fatalf("ListSnapshots returned %d snapshots, want 2", len(snaps))
+	}
+	if snaps[0].ID != 20 || snaps[1].ID != 10 {
+		t.Errorf("ListSnapshots order = [%d, %d], want [20, 10] (id DESC tiebreak)",
+			snaps[0].ID, snaps[1].ID)
+	}
+	// The newest id must also equal MAX(id) — this is what the read path
+	// resolves "latest" to, so ListSnapshots' newest-first must agree.
+	var maxID int64
+	if err := store.db.QueryRowContext(ctx,
+		`SELECT MAX(id) FROM snapshots WHERE city_id = ?`, cityID).Scan(&maxID); err != nil {
+		t.Fatalf("MAX(id): %v", err)
+	}
+	if snaps[0].ID != maxID {
+		t.Errorf("ListSnapshots newest id = %d, but MAX(snapshot_id) = %d", snaps[0].ID, maxID)
+	}
+}
+
+// TestCityStoreClose_KeepsPoolOpen pins the yvlv.15 fix: city-scoped stores
+// returned by ForCity share the RootStore's single *sql.DB pool, so
+// sqliteStore.Close must be a no-op. Closing one city store must leave the
+// other city store and the RootStore fully usable.
+func TestCityStoreClose_KeepsPoolOpen(t *testing.T) {
+	ctx := context.Background()
+	root, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+
+	idA, err := root.EnsureCity(ctx, "a", "A", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	idB, err := root.EnsureCity(ctx, "b", "B", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	storeA := root.ForCity(idA)
+	storeB := root.ForCity(idB)
+
+	// Closing one city store must not tear down the shared pool.
+	if err := storeA.Close(); err != nil {
+		t.Fatalf("city store Close: %v", err)
+	}
+
+	// The sibling city store still works.
+	if _, err := storeB.CreateSnapshot(ctx, "after-sibling-close"); err != nil {
+		t.Errorf("sibling store after other city Close: %v", err)
+	}
+	// The RootStore still works.
+	if _, err := root.EnsureCity(ctx, "c", "C", "test"); err != nil {
+		t.Errorf("RootStore.EnsureCity after city Close: %v", err)
+	}
+	// Even the closed city store still works, since Close is a no-op and the
+	// pool is owned by RootStore.
+	if _, err := storeA.CreateSnapshot(ctx, "reused-after-close"); err != nil {
+		t.Errorf("closed city store still shares live pool: %v", err)
+	}
+}
+
 // TestDeleteSnapshot_CascadesAndCityScoped pins two contracts the
 // snapshots rm/prune CLI relies on: (1) a single-tx delete cascades to
 // every FK-linked result table, and (2) the city scope prevents a
