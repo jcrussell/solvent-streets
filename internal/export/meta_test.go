@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"math"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 
@@ -58,7 +59,7 @@ func TestBuildMeta_PrefersCombinedOverSum(t *testing.T) {
 		mtCombined:  {ResourceType: mtCombined, TotalArea: 1500}, // less than 1800 sum because of buffer overlap
 	}
 	entry := newMockEntry(results)
-	meta, err := BuildMeta(context.Background(), entry)
+	meta, err := BuildMeta(context.Background(), entry, 0)
 	if err != nil {
 		t.Fatalf("BuildMeta: %v", err)
 	}
@@ -162,12 +163,58 @@ func TestBuildMeta_FallsBackToSumWhenCombinedMissing(t *testing.T) {
 		mtSidewalks: {ResourceType: mtSidewalks, TotalArea: 300},
 	}
 	entry := newMockEntry(results)
-	meta, err := BuildMeta(context.Background(), entry)
+	meta, err := BuildMeta(context.Background(), entry, 0)
 	if err != nil {
 		t.Fatalf("BuildMeta: %v", err)
 	}
 	if meta.TotalPaved != 1800 {
 		t.Errorf("total_paved = %v; want 1800 (sum fallback)", meta.TotalPaved)
+	}
+}
+
+// TestBuildMeta_SnapshotDateUsesPinnedComputedAt is the yvlv.30 regression:
+// for a pinned snapshot (snapshotID > 0) the snapshot_date must reflect that
+// snapshot's computed_at, not today — otherwise the time-travel UI shows the
+// render date for a months-old snapshot (and freezes it in the lifetime cache).
+func TestBuildMeta_SnapshotDateUsesPinnedComputedAt(t *testing.T) {
+	computed := time.Date(2025, 11, 3, 9, 30, 0, 0, time.UTC)
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return boundaryGeoJSON, nil },
+		LatestComputeResultFunc: func(_ context.Context, _ resource.Type) (*db.ComputeResult, error) {
+			return nil, sql.ErrNoRows
+		},
+		ListSnapshotsFunc: func(_ context.Context) ([]db.Snapshot, error) {
+			return []db.Snapshot{
+				{ID: 7, ComputedAt: computed},
+				{ID: 6, ComputedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)},
+			}, nil
+		},
+	}
+	entry := CityEntry{
+		Config: &config.Config{},
+		City:   config.CityConfig{Name: "Test City"},
+		Store:  store,
+		Slug:   "test-city",
+	}
+	meta, err := BuildMeta(context.Background(), entry, 7)
+	if err != nil {
+		t.Fatalf("BuildMeta: %v", err)
+	}
+	if want := "2025-11-03"; meta.SnapshotDate != want {
+		t.Errorf("snapshot_date = %q; want %q (pinned snapshot's computed_at, not today)", meta.SnapshotDate, want)
+	}
+}
+
+// TestBuildMeta_SnapshotDateLatestIsToday verifies the unpinned/latest path
+// (snapshotID <= 0) still reports today's date.
+func TestBuildMeta_SnapshotDateLatestIsToday(t *testing.T) {
+	entry := newMockEntry(nil)
+	meta, err := BuildMeta(context.Background(), entry, 0)
+	if err != nil {
+		t.Fatalf("BuildMeta: %v", err)
+	}
+	if want := time.Now().Format("2006-01-02"); meta.SnapshotDate != want {
+		t.Errorf("latest snapshot_date = %q; want today %q", meta.SnapshotDate, want)
 	}
 }
 

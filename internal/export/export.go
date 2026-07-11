@@ -223,7 +223,7 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 	}
 	proj := geo.NewUTMProjector(lon, lat)
 
-	meta, err := BuildMeta(ctx, entry)
+	meta, err := BuildMeta(ctx, entry, 0)
 	if err != nil {
 		return MetaJSON{}, "", err
 	}
@@ -320,7 +320,10 @@ func exportScenariosForCity(ctx context.Context, entry CityEntry, dataDir string
 			return fmt.Errorf("write hex-cost-summary.json: %w", err)
 		}
 
-		scenariosOut := BuildScenariosData(ctx, entry, &fc)
+		scenariosOut, err := BuildScenariosData(ctx, entry, &fc)
+		if err != nil {
+			return fmt.Errorf("build scenarios: %w", err)
+		}
 		if err := writeJSON(filepath.Join(dataDir, "scenarios.json"), scenariosOut); err != nil {
 			return fmt.Errorf("write scenarios.json: %w", err)
 		}

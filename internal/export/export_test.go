@@ -81,7 +81,7 @@ func TestRunSingleCity_ReusesExportedMetaAndSeed(t *testing.T) {
 
 	// Likewise the meta written to disk must equal a fresh BuildMeta — the same
 	// value runSingleCity feeds renderHTML.
-	wantMeta, err := BuildMeta(context.Background(), entry)
+	wantMeta, err := BuildMeta(context.Background(), entry, 0)
 	if err != nil {
 		t.Fatalf("BuildMeta: %v", err)
 	}

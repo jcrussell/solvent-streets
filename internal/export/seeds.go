@@ -2,7 +2,9 @@ package export
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 
@@ -80,7 +82,10 @@ func BuildForecastSeed(ctx context.Context, fc *config.ForecastConfig, store db.
 	years := fc.Years
 
 	// Collect cohort stats
-	cohortSeeds, cityCohortSeeds := collectCohortSeeds(ctx, store, fc)
+	cohortSeeds, cityCohortSeeds, err := collectCohortSeeds(ctx, store, fc)
+	if err != nil {
+		return "", err
+	}
 
 	seed := ForecastSeedJSON{
 		InitialPCI:          fc.InitialPCI,
@@ -102,34 +107,41 @@ func BuildForecastSeed(ctx context.Context, fc *config.ForecastConfig, store db.
 }
 
 // collectCohortSeeds iterates over all resource types and collects cohort seed
-// data for both the main and city-scoped cohort stats.
-func collectCohortSeeds(ctx context.Context, store db.Store, fc *config.ForecastConfig) ([]CohortSeed, []CohortSeed) {
+// data for both the main and city-scoped cohort stats. sql.ErrNoRows for a
+// given type is the normal "no cohorts computed for this resource" state and is
+// tolerated (that type contributes nothing); any other ListCohortStats error is
+// a real DB failure and is returned so the server's scenarios/seed cache evicts
+// and retries instead of locking in a synthetic-cohort payload for the server's
+// lifetime.
+func collectCohortSeeds(ctx context.Context, store db.Store, fc *config.ForecastConfig) ([]CohortSeed, []CohortSeed, error) {
 	var cohortSeeds []CohortSeed
 	var cityCohortSeeds []CohortSeed
 	for _, rt := range resource.All {
 		t := rt.Type()
 		stats, err := store.ListCohortStats(ctx, t)
-		if err == nil {
-			for _, st := range stats {
-				cohortSeeds = append(cohortSeeds, CohortSeed{
-					Classification: st.Classification,
-					Area:           st.Area,
-					DecayRate:      resolvedDecayRate(st.Classification, fc.DecayRate),
-				})
-			}
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, nil, fmt.Errorf("list cohort stats for %s: %w", t, err)
+		}
+		for _, st := range stats {
+			cohortSeeds = append(cohortSeeds, CohortSeed{
+				Classification: st.Classification,
+				Area:           st.Area,
+				DecayRate:      resolvedDecayRate(st.Classification, fc.DecayRate),
+			})
 		}
 		cityStats, err := store.ListCohortStats(ctx, t.With(resource.ScopeCity))
-		if err == nil {
-			for _, st := range cityStats {
-				cityCohortSeeds = append(cityCohortSeeds, CohortSeed{
-					Classification: st.Classification,
-					Area:           st.Area,
-					DecayRate:      resolvedDecayRate(st.Classification, fc.DecayRate),
-				})
-			}
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, nil, fmt.Errorf("list cohort stats for %s: %w", t.With(resource.ScopeCity), err)
+		}
+		for _, st := range cityStats {
+			cityCohortSeeds = append(cityCohortSeeds, CohortSeed{
+				Classification: st.Classification,
+				Area:           st.Area,
+				DecayRate:      resolvedDecayRate(st.Classification, fc.DecayRate),
+			})
 		}
 	}
-	return cohortSeeds, cityCohortSeeds
+	return cohortSeeds, cityCohortSeeds, nil
 }
 
 // resolvedDecayRate returns the decay rate for a classification, applying the

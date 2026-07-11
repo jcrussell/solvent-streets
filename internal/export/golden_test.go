@@ -37,7 +37,10 @@ func TestScenariosJSON_Golden(t *testing.T) {
 	entry := goldenFixtureEntry(t)
 	fc := goldenForecastConfig()
 
-	got := BuildScenariosData(context.Background(), entry, &fc)
+	got, err := BuildScenariosData(context.Background(), entry, &fc)
+	if err != nil {
+		t.Fatalf("BuildScenariosData: %v", err)
+	}
 	gotBytes, err := json.MarshalIndent(got, "", "  ")
 	if err != nil {
 		t.Fatalf("marshal: %v", err)

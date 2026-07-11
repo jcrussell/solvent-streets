@@ -2,6 +2,7 @@ package export
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 
@@ -259,7 +260,7 @@ func cityScopeCohorts(cityStats []db.CohortStat, fc *config.ForecastConfig) ([]f
 // the static and custom lines share an identical area basis. The summary block
 // below still reports the aggregate compute areas/feature counts (city_pct,
 // *_count) — those are informational rollups, not the chart's area basis.
-func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.ForecastConfig) map[string]any {
+func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.ForecastConfig) (map[string]any, error) {
 	costTiers := ConvertCostTiers(fc)
 	params := forecast.NewParams(fc.GrowthRate, costTiers, fc.TreatmentCycleYears)
 	defaultRate := forecast.DefaultDecayRates["default"]
@@ -267,10 +268,16 @@ func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.Forecas
 		defaultRate = fc.DecayRate
 	}
 
-	areas := aggregateScenarioAreas(ctx, entry)
+	areas, err := aggregateScenarioAreas(ctx, entry)
+	if err != nil {
+		return nil, err
+	}
 
 	// Same cohort seeds the interactive line uses: bbox-scope and city-scope.
-	bboxSeeds, citySeeds := collectCohortSeeds(ctx, entry.Store, fc)
+	bboxSeeds, citySeeds, err := collectCohortSeeds(ctx, entry.Store, fc)
+	if err != nil {
+		return nil, err
+	}
 
 	// bbox scenarios from bbox cohorts; fall back to a single synthetic cohort
 	// over the aggregate bbox area when no cohort stats exist (fresh DB).
@@ -305,7 +312,7 @@ func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.Forecas
 	} else {
 		out["bbox"] = primaryScenarios
 	}
-	return out
+	return out, nil
 }
 
 // scenarioAreas pairs bbox-scope and city-scope aggregate areas and feature
@@ -321,7 +328,7 @@ type scenarioAreas struct {
 // row contributes to neither total, matching the pre-refactor behavior.
 // One batched DB call collects both scopes; previously each resource
 // type took two round trips.
-func aggregateScenarioAreas(ctx context.Context, entry CityEntry) scenarioAreas {
+func aggregateScenarioAreas(ctx context.Context, entry CityEntry) (scenarioAreas, error) {
 	types := make([]resource.Type, 0, 2*len(resource.All))
 	for _, rt := range resource.All {
 		t := rt.Type()
@@ -329,7 +336,14 @@ func aggregateScenarioAreas(ctx context.Context, entry CityEntry) scenarioAreas 
 	}
 	latestByType, err := entry.Store.LatestComputeResults(ctx, types)
 	if err != nil {
-		return scenarioAreas{}
+		// sql.ErrNoRows is the normal "nothing computed yet" state — treat it
+		// as empty. Any other error is a real DB failure and is propagated so
+		// serveScenariosJSON's cache evicts and retries instead of locking in
+		// a zero-area payload for the server's lifetime.
+		if errors.Is(err, sql.ErrNoRows) {
+			return scenarioAreas{}, nil
+		}
+		return scenarioAreas{}, fmt.Errorf("latest compute results: %w", err)
 	}
 	var agg scenarioAreas
 	for _, rt := range resource.All {
@@ -346,7 +360,7 @@ func aggregateScenarioAreas(ctx context.Context, entry CityEntry) scenarioAreas 
 			agg.cityFeatures += cityResult.FeatureCount
 		}
 	}
-	return agg
+	return agg, nil
 }
 
 // cohortsFromSeeds converts the interactive-line CohortSeeds into forecast

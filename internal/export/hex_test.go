@@ -371,7 +371,10 @@ func TestBuildScenariosData_RenamedKeys(t *testing.T) {
 	entry := hexEntry(t, nil, results)
 	fc := &config.ForecastConfig{Years: 5, InitialPCI: 85, DecayRate: 1.5}
 
-	out := BuildScenariosData(t.Context(), entry, fc)
+	out, err := BuildScenariosData(t.Context(), entry, fc)
+	if err != nil {
+		t.Fatalf("BuildScenariosData: %v", err)
+	}
 	if _, ok := out["all"]; ok {
 		t.Errorf("legacy 'all' key still present; got %v", out)
 	}
@@ -392,7 +395,10 @@ func TestBuildScenariosData_BboxOnlyKey(t *testing.T) {
 	entry := hexEntry(t, nil, results)
 	fc := &config.ForecastConfig{Years: 5, InitialPCI: 85, DecayRate: 1.5}
 
-	out := BuildScenariosData(t.Context(), entry, fc)
+	out, err := BuildScenariosData(t.Context(), entry, fc)
+	if err != nil {
+		t.Fatalf("BuildScenariosData: %v", err)
+	}
 	if _, ok := out["all"]; ok {
 		t.Errorf("legacy 'all' key still present; got %v", out)
 	}

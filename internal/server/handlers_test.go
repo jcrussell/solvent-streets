@@ -320,8 +320,12 @@ func TestHandleGame_MultiCity_BrokenCityFallback(t *testing.T) {
 			return nil, sql.ErrNoRows
 		},
 	}
+	// City B is genuinely unconfigured: GetBoundary returns ("", nil), which
+	// BBoxAndCenter maps to ErrNoBoundary — the skippable, permanent case. (A
+	// GetBoundary that returns an *error* is a transient DB failure and is
+	// handled by TestHandleGame_MultiCity_TransientRecovers below.)
 	storeB := &dbtest.MockStore{
-		GetBoundaryFunc: func(_ context.Context) (string, error) { return "", errors.New("no boundary stored") },
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return "", nil },
 	}
 	cfg := &config.Config{Cities: []config.CityConfig{
 		{Name: "City A"}, {Name: "City B"},
@@ -521,6 +525,16 @@ func TestDataFile_SnapshotParam(t *testing.T) {
 	var pinnedSnapshot int64
 	pinnedStore := &dbtest.MockStore{
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
+		// WithSnapshot pins snapshot-aware reads but leaves ListSnapshots
+		// snapshot-unaware, so a pinned store still lists all snapshots —
+		// BuildMeta's snapshot-date lookup relies on the pinned id being
+		// present here.
+		ListSnapshotsFunc: func(_ context.Context) ([]db.Snapshot, error) {
+			return []db.Snapshot{
+				{ID: 2, ComputedAt: time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)},
+				{ID: 1, ComputedAt: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)},
+			}, nil
+		},
 		LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
 			if rt != srvRtRoads {
 				return nil, sql.ErrNoRows
@@ -647,6 +661,14 @@ func TestDataFile_SnapshotConfigMismatch(t *testing.T) {
 
 	pinnedStore := &dbtest.MockStore{
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
+		// Snapshot-unaware list survives WithSnapshot; BuildMeta reads the
+		// pinned snapshot's computed_at from here.
+		ListSnapshotsFunc: func(_ context.Context) ([]db.Snapshot, error) {
+			return []db.Snapshot{
+				{ID: 1, ComputedAt: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)},
+				{ID: 2, ComputedAt: time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)},
+			}, nil
+		},
 		LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
 			if rt != srvRtRoads {
 				return nil, sql.ErrNoRows
@@ -865,6 +887,199 @@ func TestServeHexGridGeoJSON_DBErrorEvicts(t *testing.T) {
 	srv.serveHexGridGeoJSON(w2, nil, entry, 0)
 	if w2.Code != http.StatusOK {
 		t.Fatalf("expected 200 on retry, got %d: %s", w2.Code, w2.Body.String())
+	}
+}
+
+// TestServeScenariosJSON_DBErrorEvicts verifies that a real (non-ErrNoRows) DB
+// error inside the scenarios build (LatestComputeResults or ListCohortStats)
+// surfaces so serveJSONCached evicts the scenarios:slug thunk and the next
+// request retries against a recovered store — rather than locking in a
+// zero-area/synthetic payload for the server's lifetime (yvlv.29).
+func TestServeScenariosJSON_DBErrorEvicts(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	boundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
+	var calls atomic.Int32
+	failingStore := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return boundary, nil },
+		LatestComputeResultsFunc: func(_ context.Context, _ []resource.Type) (map[resource.Type]*db.ComputeResult, error) {
+			// Fail the first aggregate lookup; the retry (after eviction)
+			// returns a legitimate empty map.
+			if calls.Add(1) == 1 {
+				return nil, errors.New("db unavailable")
+			}
+			return map[resource.Type]*db.ComputeResult{}, nil
+		},
+	}
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Test City"}}}
+	entry := export.CityEntry{Config: cfg, City: cfg.Cities[0], Store: failingStore, Slug: cfg.Cities[0].Slug()}
+	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios)
+
+	w1 := httptest.NewRecorder()
+	srv.serveScenariosJSON(w1, nil, entry, 0)
+	if w1.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 on first call, got %d: %s", w1.Code, w1.Body.String())
+	}
+
+	w2 := httptest.NewRecorder()
+	srv.serveScenariosJSON(w2, nil, entry, 0)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("expected 200 on retry, got %d: %s", w2.Code, w2.Body.String())
+	}
+	if got := calls.Load(); got != 2 {
+		t.Errorf("expected the aggregate build to run twice (error + retry), ran %d", got)
+	}
+}
+
+// TestServeScenariosJSON_NoRowsIsEmpty verifies that sql.ErrNoRows (the normal
+// "nothing computed yet" state) is tolerated as an empty 200 rather than
+// surfaced as a 500 — the flip side of TestServeScenariosJSON_DBErrorEvicts
+// (yvlv.29).
+func TestServeScenariosJSON_NoRowsIsEmpty(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	boundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return boundary, nil },
+		LatestComputeResultsFunc: func(_ context.Context, _ []resource.Type) (map[resource.Type]*db.ComputeResult, error) {
+			return nil, sql.ErrNoRows
+		},
+		ListCohortStatsFunc: func(_ context.Context, _ resource.Type) ([]db.CohortStat, error) {
+			return nil, sql.ErrNoRows
+		},
+	}
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Test City"}}}
+	entry := export.CityEntry{Config: cfg, City: cfg.Cities[0], Store: store, Slug: cfg.Cities[0].Slug()}
+	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios)
+
+	w := httptest.NewRecorder()
+	srv.serveScenariosJSON(w, nil, entry, 0)
+	if w.Code != http.StatusOK {
+		t.Fatalf("ErrNoRows should yield an empty 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestRenderGame_TransientRecovers is the yvlv.28 regression: a transient DB
+// error building the REQUESTED city must not permanently cache the fallback
+// city under the requested slug's key. Once the store recovers, re-requesting
+// the same slug must return the correct city, not the pinned fallback.
+func TestRenderGame_TransientRecovers(t *testing.T) {
+	boundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
+	// City A always renders. City B fails its FIRST render (transient DB
+	// error) then recovers.
+	storeA := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return boundary, nil },
+	}
+	var bCalls atomic.Int32
+	storeB := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) {
+			if bCalls.Add(1) == 1 {
+				return "", errors.New("db unavailable")
+			}
+			return boundary, nil
+		},
+	}
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "City A"}, {Name: "City B"}}}
+	entries := []export.CityEntry{
+		{Config: cfg, City: cfg.Cities[0], Store: storeA, Slug: cfg.Cities[0].Slug()},
+		{Config: cfg, City: cfg.Cities[1], Store: storeB, Slug: cfg.Cities[1].Slug()},
+	}
+	slugA, slugB := entries[0].Slug, entries[1].Slug
+	ios, _, _, _ := iostreams.Test()
+	srv := New(entries, "127.0.0.1", 0, ios)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /play", srv.handleGame)
+
+	get := func(url string) (int, string) {
+		req, _ := http.NewRequestWithContext(context.Background(), "GET", url, nil)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		return w.Code, w.Body.String()
+	}
+
+	// First request for B fails its build → falls back to A (200, A's prefix)
+	// but must NOT cache A under game:city-b.
+	code, body := get("/play?city=" + slugB)
+	if code != http.StatusOK {
+		t.Fatalf("first /play?city=%s: expected 200 fallback, got %d", slugB, code)
+	}
+	if !strings.Contains(body, "let DATA_PREFIX = 'cities/"+slugA+"/';") {
+		t.Errorf("first request should fall back to city A's prefix")
+	}
+
+	// B's store has recovered; re-requesting B must now render B, proving the
+	// fallback wasn't pinned under game:city-b.
+	code, body = get("/play?city=" + slugB)
+	if code != http.StatusOK {
+		t.Fatalf("recovered /play?city=%s: expected 200, got %d", slugB, code)
+	}
+	if !strings.Contains(body, "let DATA_PREFIX = 'cities/"+slugB+"/';") {
+		t.Errorf("after recovery /play?city=%s must render B's prefix, not the pinned fallback A", slugB)
+	}
+}
+
+// TestBuildIndexData_TransientCityErrorLoggedAndPropagated is the yvlv.31
+// regression: a transient e.Info error for a sibling city in the dropdown loop
+// is (a) logged naming the city and (b) propagated (so renderCachedPage evicts
+// and retries), rather than silently dropped into the lifetime-cached HTML.
+// A genuinely-unconfigured city (ErrNoBoundary) is skipped-with-a-log instead.
+func TestBuildIndexData_TransientCityErrorLoggedAndPropagated(t *testing.T) {
+	boundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
+	storeA := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return boundary, nil },
+	}
+	// City B's GetBoundary errors (transient DB failure, not empty boundary).
+	storeB := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return "", errors.New("db unavailable") },
+	}
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "City A"}, {Name: "City B"}}}
+	entries := []export.CityEntry{
+		{Config: cfg, City: cfg.Cities[0], Store: storeA, Slug: cfg.Cities[0].Slug()},
+		{Config: cfg, City: cfg.Cities[1], Store: storeB, Slug: cfg.Cities[1].Slug()},
+	}
+	ios, _, _, _ := iostreams.Test()
+	srv := New(entries, "127.0.0.1", 0, ios)
+
+	// Rendering A's page runs the dropdown loop, which hits B's transient
+	// error → buildIndexData must return an error (propagated), not silently
+	// drop B.
+	_, err := srv.buildIndexData(context.Background(), entries[0])
+	if err == nil {
+		t.Fatal("expected buildIndexData to propagate the transient sibling-city error")
+	}
+	if !strings.Contains(err.Error(), entries[1].Slug) {
+		t.Errorf("propagated error should name city B (%s), got %v", entries[1].Slug, err)
+	}
+}
+
+// TestBuildIndexData_UnconfiguredCityLogged verifies that a genuinely
+// unconfigured sibling city (ErrNoBoundary) is skipped from the dropdown but
+// LOGGED naming the city, closing the silent-drop gap in yvlv.31.
+func TestBuildIndexData_UnconfiguredCityLogged(t *testing.T) {
+	boundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
+	storeA := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return boundary, nil },
+	}
+	// City B has no boundary ingested → ("", nil) → ErrNoBoundary → skippable.
+	storeB := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return "", nil },
+	}
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "City A"}, {Name: "City B"}}}
+	entries := []export.CityEntry{
+		{Config: cfg, City: cfg.Cities[0], Store: storeA, Slug: cfg.Cities[0].Slug()},
+		{Config: cfg, City: cfg.Cities[1], Store: storeB, Slug: cfg.Cities[1].Slug()},
+	}
+	ios, _, _, errOut := iostreams.Test()
+	srv := New(entries, "127.0.0.1", 0, ios)
+
+	td, err := srv.buildIndexData(context.Background(), entries[0])
+	if err != nil {
+		t.Fatalf("unconfigured sibling should be skipped, not error: %v", err)
+	}
+	// Only A made it into the dropdown.
+	if len(td.Cities) != 1 || td.Cities[0].Slug != entries[0].Slug {
+		t.Errorf("expected only city A in dropdown, got %+v", td.Cities)
+	}
+	if !strings.Contains(errOut.String(), entries[1].Slug) {
+		t.Errorf("skip of city B should be logged naming the city, log was: %q", errOut.String())
 	}
 }
 

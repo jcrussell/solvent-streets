@@ -101,9 +101,19 @@ func (entry CityEntry) RequireMatchingSnapshot(ctx context.Context) error {
 }
 
 // BBoxAndCenter derives bbox and center from the stored boundary polygon.
+//
+// A genuinely-missing boundary (GetBoundary returns "", nil) is reported as
+// ErrNoBoundary so multi-city callers can skip the city. A real GetBoundary
+// error (e.g. a transient SQLITE_BUSY) is propagated as-is rather than being
+// masked as ErrNoBoundary — otherwise a transient DB hiccup at first render
+// would be indistinguishable from an unconfigured city and get baked into the
+// lifetime cache (see buildIndexData's dropdown loop and serveBoundaryGeoJSON).
 func (entry CityEntry) BBoxAndCenter(ctx context.Context) ([4]float64, float64, float64, error) {
 	boundaryGJSON, err := entry.Store.GetBoundary(ctx)
-	if err != nil || boundaryGJSON == "" {
+	if err != nil {
+		return [4]float64{}, 0, 0, fmt.Errorf("boundary for %s: %w", entry.City.Name, err)
+	}
+	if boundaryGJSON == "" {
 		return [4]float64{}, 0, 0, fmt.Errorf("%w for %s — run 'pvmt ingest' first", ErrNoBoundary, entry.City.Name)
 	}
 	bbox, err := geo.BBoxFromGeoJSON(boundaryGJSON)

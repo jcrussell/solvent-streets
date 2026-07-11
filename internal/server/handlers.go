@@ -167,22 +167,43 @@ func (s *Server) handleGame(w http.ResponseWriter, r *http.Request) {
 // whose data fails to build — falls back to firstRenderableCity, preserving the
 // skip-broken-city tolerance of the rest of the multi-city surface. Each city's
 // page is cached under its own key so a busy city doesn't re-render per request.
+//
+// The per-slug key ("game:"+slug) caches ONLY a successful render of THAT city.
+// If the requested city's own build fails, we render the fallback under the
+// shared "game" key instead — never under "game:"+slug. Otherwise a transient
+// DB error at first render would bake the fallback city's HTML (with the wrong
+// city's DATA_PREFIX/FORECAST_SEED) into the requested slug's lifetime cache,
+// pinning city A's /play page to city B until restart. Routing the fallback to
+// the shared key leaves the requested slug's key empty, so once its store
+// recovers the next request re-attempts (and caches) the correct city.
 func (s *Server) renderGame(slug string) ([]byte, error) {
-	key, resolve := "game", s.firstRenderableCity
-	if entry := s.cityBySlug(slug); entry != nil {
-		key = "game:" + slug
-		resolve = func(ctx context.Context) (export.CityEntry, export.TemplateData, error) {
+	entry := s.cityBySlug(slug)
+	if entry == nil {
+		// Empty or unknown slug: render the first renderable city under the
+		// shared key (there is no per-slug identity to cache against).
+		return s.renderCachedPage("game", &s.gamePages, s.parsedGameTemplate, s.firstRenderableCity)
+	}
+
+	// Try the requested city under its own key. resolve returns the requested
+	// city's build error (no in-closure fallback) so a failed build evicts the
+	// per-slug entry rather than caching a fallback under it.
+	page, err := s.renderCachedPage("game:"+slug, &s.gamePages, s.parsedGameTemplate,
+		func(ctx context.Context) (export.CityEntry, export.TemplateData, error) {
 			td, err := s.buildIndexData(ctx, *entry)
 			if err != nil {
-				// A broken requested city shouldn't 500 the game; fall back to
-				// the first city that does render (matching the index).
-				fmt.Fprintf(s.ios.ErrOut, "server: skipping city %s for /play: %v\n", entry.Slug, err)
-				return s.firstRenderableCity(ctx)
+				return export.CityEntry{}, export.TemplateData{}, err
 			}
 			return *entry, td, nil
-		}
+		})
+	if err == nil {
+		return page, nil
 	}
-	return s.renderCachedPage(key, &s.gamePages, s.parsedGameTemplate, resolve)
+
+	// The requested city didn't build. Don't 500 the game — fall back to the
+	// first renderable city, cached under the shared "game" key (never the
+	// requested slug's key).
+	fmt.Fprintf(s.ios.ErrOut, "server: falling back for /play?city=%s: %v\n", slug, err)
+	return s.renderCachedPage("game", &s.gamePages, s.parsedGameTemplate, s.firstRenderableCity)
 }
 
 // parsedGameTemplate is the /play counterpart to parsedIndexTemplate: it
@@ -259,7 +280,10 @@ func (s *Server) firstRenderableCity(ctx context.Context) (export.CityEntry, exp
 // cities list is populated only when len(s.cities) > 1 so the static
 // single-city DATA_PREFIX wiring keeps matching the /data/{file} routes.
 func (s *Server) buildIndexData(ctx context.Context, entry export.CityEntry) (export.TemplateData, error) {
-	meta, err := export.BuildMeta(ctx, entry)
+	// The index/game page always renders the latest snapshot; pinned-snapshot
+	// views are served via /data/meta.json?snapshot=N (serveMetaJSON), so
+	// snapshotID is 0 here.
+	meta, err := export.BuildMeta(ctx, entry, 0)
 	if err != nil {
 		return export.TemplateData{}, err
 	}
@@ -280,7 +304,18 @@ func (s *Server) buildIndexData(ctx context.Context, entry export.CityEntry) (ex
 		for _, e := range s.cities {
 			info, err := e.Info(ctx)
 			if err != nil {
-				continue
+				// A genuinely-unconfigured city (no boundary ingested) is
+				// skipped from the dropdown, matching the rest of the
+				// multi-city surface — but log it so the drop isn't silent
+				// (the rendered HTML is lifetime-cached). A transient DB error
+				// (not ErrNoBoundary) is propagated instead so renderCachedPage
+				// evicts and the next request retries, rather than baking a
+				// missing city into the CITIES array until restart.
+				if errors.Is(err, export.ErrNoBoundary) {
+					fmt.Fprintf(s.ios.ErrOut, "server: skipping city %s in index dropdown: %v\n", e.Slug, err)
+					continue
+				}
+				return export.TemplateData{}, fmt.Errorf("city %s info: %w", e.Slug, err)
 			}
 			cities = append(cities, info)
 		}
@@ -600,7 +635,7 @@ func (s *Server) serveJSONCached(w http.ResponseWriter, key string, build func()
 
 func (s *Server) serveMetaJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry, snapshotID int64) {
 	s.serveJSONCached(w, cacheKey("meta", entry.Slug, snapshotID), func() (any, error) {
-		return export.BuildMeta(context.Background(), entry)
+		return export.BuildMeta(context.Background(), entry, snapshotID)
 	})
 }
 
@@ -654,7 +689,11 @@ func (s *Server) servePlayHexes(w http.ResponseWriter, _ *http.Request, entry ex
 func (s *Server) serveScenariosJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry, snapshotID int64) {
 	s.serveJSONCached(w, cacheKey("scenarios", entry.Slug, snapshotID), func() (any, error) {
 		fc := entry.Config.ResolvedForecast(&entry.City)
-		return export.BuildScenariosData(context.Background(), entry, &fc), nil
+		// BuildScenariosData distinguishes sql.ErrNoRows (tolerated → empty
+		// scenarios) from real DB errors (surfaced so serveJSONCached evicts
+		// and the next request retries instead of locking in a zero-area
+		// payload for the server's lifetime), mirroring serveBoundaryGeoJSON.
+		return export.BuildScenariosData(context.Background(), entry, &fc)
 	})
 }
 

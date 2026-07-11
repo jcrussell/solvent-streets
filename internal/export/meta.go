@@ -167,18 +167,27 @@ func GroupCitiesByRegion(cities []CityInfo) []CityGroup {
 	return groups
 }
 
-// BuildMeta builds metadata JSON for a city entry.
-func BuildMeta(ctx context.Context, entry CityEntry) (MetaJSON, error) {
+// BuildMeta builds metadata JSON for a city entry. snapshotID is the pinned
+// snapshot the entry's Store was scoped to (0 == latest/unpinned). For a
+// pinned snapshot the SnapshotDate reflects that snapshot's computed_at rather
+// than today — a time-travel view of a months-old snapshot must show when it
+// was computed, not the render date (which would freeze at first-request date
+// in the lifetime cache).
+func BuildMeta(ctx context.Context, entry CityEntry, snapshotID int64) (MetaJSON, error) {
 	bbox, lon, lat, err := entry.BBoxAndCenter(ctx)
 	if err != nil {
 		return MetaJSON{}, fmt.Errorf("city %s: %w", entry.City.Name, err)
+	}
+	snapshotDate, err := snapshotDate(ctx, entry.Store, snapshotID)
+	if err != nil {
+		return MetaJSON{}, fmt.Errorf("city %s snapshot date: %w", entry.City.Name, err)
 	}
 	meta := MetaJSON{
 		ProjectName:  entry.City.Name,
 		BBox:         bbox,
 		CenterLon:    lon,
 		CenterLat:    lat,
-		SnapshotDate: time.Now().Format("2006-01-02"),
+		SnapshotDate: snapshotDate,
 	}
 	for _, rt := range resource.All {
 		result, err := entry.Store.LatestComputeResult(ctx, rt.Type())
@@ -219,6 +228,31 @@ func BuildMeta(ctx context.Context, entry CityEntry) (MetaJSON, error) {
 	}
 
 	return meta, nil
+}
+
+// snapshotDate returns the YYYY-MM-DD date to report as snapshot_date. For the
+// unpinned/latest path (snapshotID <= 0) it returns today, matching the
+// restart-for-fresh-data invariant of the rest of the exporter. For a pinned
+// snapshot it looks up that snapshot's computed_at via ListSnapshots (the
+// snapshot-unaware list, which the WithSnapshot-scoped store still exposes) so
+// the time-travel UI shows when the data was actually computed. A pinned id
+// that resolved elsewhere but is absent from the list is treated as a
+// transient inconsistency (error) rather than silently falling back to today,
+// so serveMetaJSON's cache evicts and retries.
+func snapshotDate(ctx context.Context, store db.Store, snapshotID int64) (string, error) {
+	if snapshotID <= 0 {
+		return time.Now().Format("2006-01-02"), nil
+	}
+	snaps, err := store.ListSnapshots(ctx)
+	if err != nil {
+		return "", fmt.Errorf("list snapshots: %w", err)
+	}
+	for _, snap := range snaps {
+		if snap.ID == snapshotID {
+			return snap.ComputedAt.Format("2006-01-02"), nil
+		}
+	}
+	return "", fmt.Errorf("snapshot %d not found", snapshotID)
 }
 
 // totalPavedFromStore returns the cross-resource paved area: the "combined"
