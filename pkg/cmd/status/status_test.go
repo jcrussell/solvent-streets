@@ -2,6 +2,7 @@ package status
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 	"testing"
 	"time"
@@ -150,11 +151,128 @@ func TestRunStatus_CitySummary(t *testing.T) {
 	if !strings.Contains(output, "City Area:") {
 		t.Errorf("expected City Area in stderr, got: %s", output)
 	}
-	if !strings.Contains(output, "Paved Area:") {
-		t.Errorf("expected Paved Area in stderr, got: %s", output)
+	// No combined compute row is stubbed here, so the paved figure is the
+	// per-resource sum and carries the double-count asterisk (yvlv.37).
+	if !strings.Contains(output, "Paved Area*:") {
+		t.Errorf("expected Paved Area (fallback, asterisked) in stderr, got: %s", output)
 	}
-	if !strings.Contains(output, "% Paved:") {
-		t.Errorf("expected %% Paved in stderr, got: %s", output)
+	if !strings.Contains(output, "% Paved*:") {
+		t.Errorf("expected %% Paved (fallback, asterisked) in stderr, got: %s", output)
+	}
+}
+
+// TestRunStatus_CitySummary_PrefersCombined pins yvlv.37: when the combined
+// (de-duplicated) compute row is present, the City Summary paved figure comes
+// from it — NOT the per-resource sum, which double-counts buffer overlap.
+func TestRunStatus_CitySummary_PrefersCombined(t *testing.T) {
+	boundaryGJSON := `{"type":"Polygon","coordinates":[[[-97.745,30.265],[-97.7346,30.265],[-97.7346,30.274],[-97.745,30.274],[-97.745,30.265]]]}`
+	store := &dbtest.MockStore{
+		StatsFunc: func(_ context.Context, rt resource.Type) (*db.StatusInfo, error) {
+			// Per-resource areas sum to 90000; the combined row says 60000.
+			return &db.StatusInfo{ResourceType: rt, TotalArea: 30000}, nil
+		},
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return boundaryGJSON, nil },
+		LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
+			if rt == resource.CombinedAll {
+				return &db.ComputeResult{ResourceType: rt, TotalArea: 60000}, nil
+			}
+			return nil, sql.ErrNoRows
+		},
+	}
+	ios, _, _, stderr := iostreams.Test()
+	ios.SetTTY(true)
+	f := &cmdutil.Factory{
+		IOStreams:  ios,
+		UnitSystem: func() units.System { return units.Metric },
+		CityDB:     func() (db.Store, error) { return store, nil },
+	}
+	cmd := NewCmdStatus(f, nil, nil)
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	out := stderr.String()
+	// The combined figure (60000 m2 = 0.06 km2 = 6 ha) is used, and no
+	// double-count asterisk footnote appears.
+	if strings.Contains(out, "*") {
+		t.Errorf("combined row present: should not emit double-count footnote, got: %s", out)
+	}
+	if !strings.Contains(out, "0.06") {
+		t.Errorf("expected combined paved area (0.06 km2) in output, got: %s", out)
+	}
+}
+
+// TestRunStatus_CitySummary_FallsBackToSum pins the fallback: with no combined
+// row, the paved figure is the per-resource sum and is flagged with an asterisk
+// footnote so it isn't mistaken for the de-duplicated union.
+func TestRunStatus_CitySummary_FallsBackToSum(t *testing.T) {
+	boundaryGJSON := `{"type":"Polygon","coordinates":[[[-97.745,30.265],[-97.7346,30.265],[-97.7346,30.274],[-97.745,30.274],[-97.745,30.265]]]}`
+	store := &dbtest.MockStore{
+		StatsFunc: func(_ context.Context, rt resource.Type) (*db.StatusInfo, error) {
+			return &db.StatusInfo{ResourceType: rt, TotalArea: 30000}, nil
+		},
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return boundaryGJSON, nil },
+		// No LatestComputeResultFunc → mock returns sql.ErrNoRows → fallback.
+	}
+	ios, _, _, stderr := iostreams.Test()
+	ios.SetTTY(true)
+	f := &cmdutil.Factory{
+		IOStreams:  ios,
+		UnitSystem: func() units.System { return units.Metric },
+		CityDB:     func() (db.Store, error) { return store, nil },
+	}
+	cmd := NewCmdStatus(f, nil, nil)
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	out := stderr.String()
+	if !strings.Contains(out, "*") {
+		t.Errorf("no combined row: expected double-count footnote asterisk, got: %s", out)
+	}
+}
+
+// TestRunStatus_CitySummary_SingleResourceIgnoresCombined pins the
+// single-resource path of yvlv.37: `pvmt <res> status` shows only that
+// resource's area (no cross-resource overlap to de-duplicate), so it must NOT
+// pull the combined union row (which would mismatch the single-row table) and
+// must NOT emit the double-count footnote.
+func TestRunStatus_CitySummary_SingleResourceIgnoresCombined(t *testing.T) {
+	boundaryGJSON := `{"type":"Polygon","coordinates":[[[-97.745,30.265],[-97.7346,30.265],[-97.7346,30.274],[-97.745,30.274],[-97.745,30.265]]]}`
+	store := &dbtest.MockStore{
+		StatsFunc: func(_ context.Context, rt resource.Type) (*db.StatusInfo, error) {
+			return &db.StatusInfo{ResourceType: rt, TotalArea: 30000}, nil
+		},
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return boundaryGJSON, nil },
+		LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
+			// A combined row exists but must be ignored in single-resource mode.
+			if rt == resource.CombinedAll {
+				return &db.ComputeResult{ResourceType: rt, TotalArea: 999999}, nil
+			}
+			return nil, sql.ErrNoRows
+		},
+	}
+	ios, _, _, stderr := iostreams.Test()
+	ios.SetTTY(true)
+	f := &cmdutil.Factory{
+		IOStreams:  ios,
+		UnitSystem: func() units.System { return units.Metric },
+		CityDB:     func() (db.Store, error) { return store, nil },
+	}
+	// Non-nil resource source → single-resource status.
+	cmd := NewCmdStatus(f, &resource.Pavement{}, nil)
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	out := stderr.String()
+	if strings.Contains(out, "*") {
+		t.Errorf("single-resource: should not emit double-count footnote, got: %s", out)
+	}
+	// The single resource's own area (30000 m2 = 0.03 km2 = 3 ha), not the
+	// combined 999999 union (which would render ~100 ha / 1 sq km of paved).
+	if !strings.Contains(out, "Paved Area:   3.00 ha") {
+		t.Errorf("expected single-resource paved area (3.00 ha), not the combined union, got: %s", out)
 	}
 }
 

@@ -142,6 +142,7 @@ func buildCityRow(ctx context.Context, store db.Store, c db.City, ios *iostreams
 		Features: make(map[string]int, len(resource.All)),
 	}
 	var latestIngest, latestCompute time.Time
+	var perResourceSum float64
 	for _, rt := range resource.All {
 		t := rt.Type()
 		info, err := store.Stats(ctx, t)
@@ -150,13 +151,21 @@ func buildCityRow(ctx context.Context, store db.Store, c db.City, ios *iostreams
 			continue
 		}
 		row.Features[string(t)] = info.FeatureCount
-		row.TotalArea += info.TotalArea
+		perResourceSum += info.TotalArea
 		if info.LastIngestAt != nil && info.LastIngestAt.After(latestIngest) {
 			latestIngest = *info.LastIngestAt
 		}
 		if info.LastComputeAt != nil && info.LastComputeAt.After(latestCompute) {
 			latestCompute = *info.LastComputeAt
 		}
+	}
+	// Prefer the combined (de-duplicated) compute row from `pvmt all compute`
+	// for TotalArea; fall back to the per-resource sum when it's absent. The
+	// sum double-counts road/parking/sidewalk buffer overlap — mirrors
+	// export.totalPavedFromStore so `pvmt cities` agrees with meta.json.
+	row.TotalArea = perResourceSum
+	if r, err := store.LatestComputeResult(ctx, resource.CombinedAll); err == nil && r != nil {
+		row.TotalArea = r.TotalArea
 	}
 	if !latestIngest.IsZero() {
 		row.LastIngest = latestIngest.Format(time.RFC3339)

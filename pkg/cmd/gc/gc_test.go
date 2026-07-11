@@ -3,6 +3,7 @@ package gc
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -58,10 +59,15 @@ func TestKeepSourcesFor(t *testing.T) {
 		city config.CityConfig
 		want []string
 	}{
-		{"overpass only", config.CityConfig{Overpass: true}, []string{"overpass"}},
+		// "overpass" is ALWAYS kept, mirroring ingest.AllSources' unconditional
+		// OverpassSource (yvlv.36). "arcgis" is gated on ArcGISURL only.
+		{"overpass flag on", config.CityConfig{Overpass: true}, []string{"overpass"}},
 		{"overpass+arcgis", config.CityConfig{Overpass: true, ArcGISURL: "https://x"}, []string{"overpass", "arcgis"}},
-		{"arcgis only", config.CityConfig{ArcGISURL: "https://x"}, []string{"arcgis"}},
-		{"none", config.CityConfig{}, nil},
+		// yvlv.36 regression: Overpass:false + an ArcGIS URL must still keep
+		// "overpass", because ingest writes overpass rows regardless of the
+		// flag. Gating on city.Overpass here swept every valid overpass feature.
+		{"arcgis url, overpass flag off", config.CityConfig{Overpass: false, ArcGISURL: "https://x"}, []string{"overpass", "arcgis"}},
+		{"none configured", config.CityConfig{}, []string{"overpass"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -70,6 +76,44 @@ func TestKeepSourcesFor(t *testing.T) {
 				t.Errorf("keepSourcesFor = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestRunGC_ArcGISOnlyKeepsOverpass is the yvlv.36 regression: a city with
+// Overpass:false and an ArcGIS URL must still pass "overpass" in the keep set
+// handed to GCScan/GCSweep, so valid overpass feature rows are NOT swept.
+func TestRunGC_ArcGISOnlyKeepsOverpass(t *testing.T) {
+	cities := []config.CityConfig{{Name: "Alpha", Overpass: false, ArcGISURL: "https://x"}}
+	var sweptKeep []string
+	root := &dbtest.MockRootStore{
+		EnsureCityFunc: func(context.Context, string, string, string) (int64, error) { return 1, nil },
+		ForCityFunc: func(int64) db.Store {
+			return &dbtest.MockStore{
+				GCScanFunc: func(_ context.Context, keep []string) (*db.GCReport, error) {
+					if !slices.Contains(keep, "overpass") {
+						t.Errorf("GCScan keep = %v, want it to contain overpass", keep)
+					}
+					return reportWithCounts(), nil
+				},
+				GCSweepFunc: func(_ context.Context, keep []string) (*db.GCReport, error) {
+					sweptKeep = keep
+					return reportWithCounts(), nil
+				},
+			}
+		},
+	}
+	ios, _, _, _ := iostreams.Test()
+	opts := &Options{
+		IO:            ios,
+		RootDB:        rootDBFunc(root),
+		ResolveCities: resolveCitiesFunc(cities),
+		Yes:           true,
+	}
+	if err := runGC(context.Background(), opts); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(sweptKeep, "overpass") {
+		t.Errorf("GCSweep keep = %v, want it to contain overpass (else valid overpass rows are deleted)", sweptKeep)
 	}
 }
 

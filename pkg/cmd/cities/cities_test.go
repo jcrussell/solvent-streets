@@ -2,6 +2,7 @@ package cities
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 	"testing"
 
@@ -75,6 +76,49 @@ func TestRunCities_ListsCitiesWithStats(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected %q in output, got: %s", want, out)
 		}
+	}
+}
+
+// TestRunCities_PrefersCombinedArea pins yvlv.37: TotalArea comes from the
+// combined (de-duplicated) compute row when present, not the per-resource sum
+// which double-counts road/parking/sidewalk buffer overlap.
+func TestRunCities_PrefersCombinedArea(t *testing.T) {
+	root := &dbtest.MockRootStore{
+		ListCitiesFunc: func(_ context.Context) ([]db.City, error) {
+			return []db.City{{ID: 1, Slug: "austin-tx", Name: "Austin, TX"}}, nil
+		},
+		ForCityFunc: func(int64) db.Store {
+			return &dbtest.MockStore{
+				// Per-resource areas sum to 300; combined row says 210.
+				StatsFunc: func(_ context.Context, rt resource.Type) (*db.StatusInfo, error) {
+					return &db.StatusInfo{ResourceType: rt, TotalArea: 100}, nil
+				},
+				LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
+					if rt == resource.CombinedAll {
+						return &db.ComputeResult{ResourceType: rt, TotalArea: 210}, nil
+					}
+					return nil, sql.ErrNoRows
+				},
+			}
+		},
+	}
+
+	ios, _, _, _ := iostreams.Test()
+	var captured []cityRow
+	opts := &Options{
+		IO:         ios,
+		RootDB:     func() (db.RootStorer, error) { return root, nil },
+		UnitSystem: func() units.System { return units.Metric },
+	}
+	// Exercise buildCityRow directly to assert the numeric value.
+	captured = append(captured, buildCityRow(context.Background(), root.ForCity(1), db.City{ID: 1, Slug: "austin-tx", Name: "Austin, TX"}, ios))
+	if got := captured[0].TotalArea; got != 210 {
+		t.Errorf("TotalArea = %v, want 210 (combined row, not the 300 per-resource sum)", got)
+	}
+
+	// And end-to-end through runCities without a combined row: falls back.
+	if err := runCities(context.Background(), opts); err != nil {
+		t.Fatal(err)
 	}
 }
 
