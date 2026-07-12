@@ -2,6 +2,7 @@ package cmdutil
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jcrussell/solvent-streets/pkg/cmd/prompt"
@@ -25,6 +26,21 @@ func ConfirmDestructive(ctx context.Context, io *iostreams.IOStreams, prompter p
 		)
 	}
 	ok, err := prompter.Confirm(ctx, question, false)
+	if errors.Is(err, prompt.ErrAborted) {
+		// Ctrl+C on the confirm is a graceful cancel, same as answering
+		// "no" — exit 0 via ErrCancel, not a confirm failure.
+		fmt.Fprintln(io.ErrOut, "Canceled.")
+		return ErrCancel
+	}
+	if errors.Is(err, prompt.ErrNotTTY) {
+		// The prompter can refuse even when stdin passed the isatty check
+		// above (e.g. TERM=dumb, where the TUI prompt can't render) —
+		// give those callers the same --yes hint, not a bare error.
+		return Hintf(
+			FlagErrorf("%s", refusal),
+			"pass --yes/-y to skip the prompt in non-interactive environments",
+		)
+	}
 	if err != nil {
 		return fmt.Errorf("confirm: %w", err)
 	}
