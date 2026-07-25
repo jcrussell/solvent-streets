@@ -364,13 +364,27 @@ func (s *Server) httpErr(w http.ResponseWriter, err error, code int) {
 	http.Error(w, http.StatusText(code), code)
 }
 
-func (s *Server) handleWasmExecJS(w http.ResponseWriter, _ *http.Request) {
+// serveEmbeddedJS writes an embedded, immutable-per-binary JavaScript asset with
+// the same Cache-Control the JSON endpoints use (serveJSONCached), so the browser
+// stops re-fetching it on every page load under the restart-after-changes invariant.
+func (s *Server) serveEmbeddedJS(w http.ResponseWriter, js []byte) {
 	w.Header().Set("Content-Type", "application/javascript")
-	// Embedded, immutable-per-binary asset: same Cache-Control the JSON
-	// endpoints set (serveJSONCached), so the browser stops re-fetching it
-	// on every page load under the restart-after-changes invariant.
 	w.Header().Set("Cache-Control", "public, max-age=300")
-	w.Write(export.WasmExecJS())
+	w.Write(js)
+}
+
+func (s *Server) handleWasmExecJS(w http.ResponseWriter, _ *http.Request) {
+	s.serveEmbeddedJS(w, export.WasmExecJS())
+}
+
+// handleAppJS and handleGameJS serve the application JS extracted from the index
+// and play templates; the pages load them as external <script src>.
+func (s *Server) handleAppJS(w http.ResponseWriter, _ *http.Request) {
+	s.serveEmbeddedJS(w, export.AppJS())
+}
+
+func (s *Server) handleGameJS(w http.ResponseWriter, _ *http.Request) {
+	s.serveEmbeddedJS(w, export.GameJS())
 }
 
 func (s *Server) handleForecastWasm(w http.ResponseWriter, _ *http.Request) {

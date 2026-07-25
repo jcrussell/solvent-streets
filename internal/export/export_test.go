@@ -216,13 +216,15 @@ func TestRunMultiCity_IndexAlignsDataPrefixToSelector(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 
-	indexHTML, err := os.ReadFile(filepath.Join(dir, "index.html"))
+	// The selector-derived DATA_PREFIX alignment lives in the extracted app.js
+	// (written alongside index.html), not inline in the page.
+	appJS, err := os.ReadFile(filepath.Join(dir, "app.js"))
 	if err != nil {
-		t.Fatalf("read index.html: %v", err)
+		t.Fatalf("read app.js: %v", err)
 	}
 	const want = "DATA_PREFIX = 'cities/' + sel.value + '/'"
-	if !strings.Contains(string(indexHTML), want) {
-		t.Errorf("index.html missing selector-derived DATA_PREFIX alignment %q", want)
+	if !strings.Contains(string(appJS), want) {
+		t.Errorf("app.js missing selector-derived DATA_PREFIX alignment %q", want)
 	}
 }
 
@@ -289,8 +291,8 @@ func TestRunSingleCity_WritesPlayPage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read play.html: %v", err)
 	}
-	if !strings.Contains(string(play), "let DATA_PREFIX = '';") {
-		t.Errorf("single-city play.html should set DATA_PREFIX = ''")
+	if !strings.Contains(string(play), `"dataPrefix":""`) {
+		t.Errorf("single-city play.html should set dataPrefix to empty in PVMT_CONFIG")
 	}
 	if strings.Contains(string(play), `id="city-select"`) {
 		t.Errorf("single-city play.html should not render a city selector")

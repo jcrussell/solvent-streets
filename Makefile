@@ -13,7 +13,7 @@ LDFLAGS := -X github.com/jcrussell/solvent-streets/internal/build.Version=$(VERS
 	-X github.com/jcrussell/solvent-streets/internal/build.Commit=$(COMMIT) \
 	-X github.com/jcrussell/solvent-streets/internal/build.Date=$(DATE)
 
-.PHONY: build test e2e clean wasm lint gendocs release-dry-run site site-clean deploy \
+.PHONY: build test e2e clean wasm lint lint-js gendocs release-dry-run site site-clean deploy \
 	fmt vet tidy cover help install pre-commit
 
 wasm:
@@ -52,6 +52,13 @@ lint:
 		fi
 	golangci-lint run
 
+# Lint the browser JS extracted from the export templates (internal/export/
+# templates/app.js, game.js). Installs the pinned devDeps on first run only.
+# `npm run typecheck` (tsc --checkJs) exists too but is advisory — see tsconfig.json.
+lint-js:
+	@test -d node_modules || npm ci
+	npm run lint
+
 fmt:
 	gofmt -w ./cmd ./internal ./pkg
 
@@ -65,7 +72,7 @@ cover:
 	go test -race -coverprofile=coverage.out ./...
 	go tool cover -func=coverage.out
 
-pre-commit: fmt vet lint
+pre-commit: fmt vet lint lint-js
 
 gendocs:
 	go run ./cmd/gendocs
@@ -83,6 +90,7 @@ help:
 	@echo "  install       build and install to \$$PREFIX/bin (default: ~/.local/bin)"
 	@echo "  test          go test -race ./..."
 	@echo "  lint          golangci-lint run (pinned in .golangci-version)"
+	@echo "  lint-js       eslint the export template JS (app.js/game.js)"
 	@echo "  fmt           gofmt -w on cmd/internal/pkg"
 	@echo "  vet           go vet ./..."
 	@echo "  tidy          go mod tidy"

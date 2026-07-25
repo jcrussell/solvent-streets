@@ -99,6 +99,93 @@ var resourceColorsJSOnce = sync.OnceValue(func() template.JS {
 // ResourceColorsJS returns ResourceColors as a template.JS JSON object.
 func ResourceColorsJS() template.JS { return resourceColorsJSOnce() }
 
+// jsCityInfo mirrors the fields the index page's CITIES array historically
+// carried (note lon/lat, not the center_lon/center_lat that CityInfo and
+// cities.json use). Kept as a distinct shape so app.js's CITIES[i] access is
+// byte-for-byte the same contract it had when the array was inlined.
+type jsCityInfo struct {
+	Slug string     `json:"slug"`
+	Name string     `json:"name"`
+	BBox [4]float64 `json:"bbox"`
+	Lon  float64    `json:"lon"`
+	Lat  float64    `json:"lat"`
+}
+
+// rawOrNull adapts a template.JS holding a pre-marshaled JSON fragment (e.g.
+// LayerColors, ForecastSeed) into a json.RawMessage for nesting inside the
+// PVMT_CONFIG object. An empty fragment becomes `null` so the enclosing
+// json.Marshal cannot fail on invalid JSON — a zero TemplateData (rendered by
+// the a11y tests) leaves these fields empty.
+func rawOrNull(js template.JS) json.RawMessage {
+	if js == "" {
+		return json.RawMessage("null")
+	}
+	return json.RawMessage(js)
+}
+
+// IndexConfigJSON is the window.PVMT_CONFIG payload for index.html, consumed by
+// templates/app.js. It is a method (like BandCount) so both the static exporter
+// and the live server emit it without any change to how they build TemplateData.
+// json.Marshal's default HTML escaping renders a city name containing
+// "</script>" as an escaped fragment, so the template.JS blob is safe inside an
+// inline <script> — the same guarantee LayerColors/ForecastSeed already rely on.
+func (d TemplateData) IndexConfigJSON() template.JS {
+	cities := make([]jsCityInfo, len(d.Cities))
+	for i, c := range d.Cities {
+		cities[i] = jsCityInfo{Slug: c.Slug, Name: c.Name, BBox: c.BBox, Lon: c.CenterLon, Lat: c.CenterLat}
+	}
+	cfg := struct {
+		Cities       []jsCityInfo    `json:"cities"`
+		Center       [2]float64      `json:"center"`
+		LayerColors  json.RawMessage `json:"layerColors"`
+		UnitSystem   string          `json:"unitSystem"`
+		ForecastSeed json.RawMessage `json:"forecastSeed"`
+		WasmPrefix   string          `json:"wasmPrefix"`
+	}{
+		Cities:       cities,
+		Center:       [2]float64{d.CenterLon, d.CenterLat},
+		LayerColors:  rawOrNull(d.LayerColors),
+		UnitSystem:   d.UnitSystem,
+		ForecastSeed: rawOrNull(d.ForecastSeed),
+		WasmPrefix:   d.WasmPrefix,
+	}
+	data, _ := json.Marshal(cfg)
+	return template.JS(data)
+}
+
+// GameConfigJSON is the window.PVMT_CONFIG payload for play.html, consumed by
+// templates/game.js. Like IndexConfigJSON it is a method so neither construction
+// site changes. DataPrefix/MapHref reproduce the {{if}} branches the template
+// used to inline (empty ActiveSlug → client-side resolution; static host → a
+// relative back-to-map link).
+func (d TemplateData) GameConfigJSON() template.JS {
+	dataPrefix := ""
+	if d.ActiveSlug != "" {
+		dataPrefix = "cities/" + d.ActiveSlug + "/"
+	}
+	mapHref := "index.html"
+	if d.IsLiveServer {
+		mapHref = "/"
+	}
+	cfg := struct {
+		Center       [2]float64      `json:"center"`
+		ForecastSeed json.RawMessage `json:"forecastSeed"`
+		DataPrefix   string          `json:"dataPrefix"`
+		MapHref      string          `json:"mapHref"`
+		BandCount    int             `json:"bandCount"`
+		WasmPrefix   string          `json:"wasmPrefix"`
+	}{
+		Center:       [2]float64{d.CenterLon, d.CenterLat},
+		ForecastSeed: rawOrNull(d.ForecastSeed),
+		DataPrefix:   dataPrefix,
+		MapHref:      mapHref,
+		BandCount:    d.BandCount(),
+		WasmPrefix:   d.WasmPrefix,
+	}
+	data, _ := json.Marshal(cfg)
+	return template.JS(data)
+}
+
 type MetaJSON struct {
 	ProjectName  string     `json:"project_name"`
 	BBox         [4]float64 `json:"bbox"`

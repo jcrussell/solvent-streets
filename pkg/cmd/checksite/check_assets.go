@@ -16,7 +16,7 @@ import (
 // embedded in this binary. A mismatch means the site was built by a different
 // (older) binary and must be regenerated.
 func (r *runner) checkWasmFreshness(s *site) {
-	for name, embedded := range export.EmbeddedWasmAssets() {
+	for name, embedded := range export.EmbeddedSharedAssets() {
 		path := filepath.Join(s.dir, name)
 		onDisk, err := os.ReadFile(path)
 		if err != nil {

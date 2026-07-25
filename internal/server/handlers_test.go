@@ -189,7 +189,9 @@ func TestHandleIndex_ConcurrencyGuardsAndSnapshotState(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
-	body := w.Body.String()
+	// The index application logic now lives in the external app.js (served at
+	// /app.js), not inline in the page, so assert the guards against its source.
+	appJS := string(export.AppJS())
 
 	wants := []string{
 		// Bug 1: per-function generation-guard tokens (separate counters).
@@ -206,13 +208,13 @@ func TestHandleIndex_ConcurrencyGuardsAndSnapshotState(t *testing.T) {
 		"if (cityChanged) selectCity(s.city, { push: false });",
 	}
 	for _, want := range wants {
-		if !strings.Contains(body, want) {
-			t.Errorf("index script missing %q", want)
+		if !strings.Contains(appJS, want) {
+			t.Errorf("app.js missing %q", want)
 		}
 	}
 	// Bug 2(a) regression guard: the old unconditional gate must be gone.
-	if strings.Contains(body, "if (s.city) selectCity(s.city, { push: false });") {
-		t.Errorf("index script still contains the pre-fix unconditional selectCity gate")
+	if strings.Contains(appJS, "if (s.city) selectCity(s.city, { push: false });") {
+		t.Errorf("app.js still contains the pre-fix unconditional selectCity gate")
 	}
 }
 
@@ -266,19 +268,21 @@ func TestHandleGame(t *testing.T) {
 	if strings.Contains(body, `id="city-select"`) {
 		t.Errorf("single-city game page should not render the city selector")
 	}
-	if !strings.Contains(body, "let DATA_PREFIX = '';") {
-		t.Errorf("single-city game page should set DATA_PREFIX = ''")
+	if !strings.Contains(body, `"dataPrefix":""`) {
+		t.Errorf("single-city game page should set dataPrefix to empty in PVMT_CONFIG")
 	}
 	// yvlv.16: the board must seed from the PER-CITY forecast_seed.json (fetched
 	// under DATA_PREFIX), preferred over the region-wide embedded FORECAST_SEED,
 	// and fit the map to the actual board instead of the embedded region center.
+	// This wiring now lives in the external game.js (served at /game.js).
+	gameJS := string(export.GameJS())
 	for _, want := range []string{
 		`DATA_PREFIX + 'data/forecast_seed.json'`, // per-city seed fetch
 		`fetchedSeed || FORECAST_SEED`,            // per-city seed preferred over embedded region seed
 		`map.fitBounds(`,                          // fit to the real board, not the region centroid
 	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("game page missing per-city seed/fitBounds wiring %q", want)
+		if !strings.Contains(gameJS, want) {
+			t.Errorf("game.js missing per-city seed/fitBounds wiring %q", want)
 		}
 	}
 	// Play-test feedback controls: nav link back to the map, reset, the always-on
@@ -351,7 +355,7 @@ func TestHandleGame_MultiCity(t *testing.T) {
 	if !strings.Contains(body, `id="city-select"`) {
 		t.Errorf("multi-city game page should render the city selector")
 	}
-	if !strings.Contains(body, "let DATA_PREFIX = 'cities/"+slugA+"/';") {
+	if !strings.Contains(body, `"dataPrefix":"cities/`+slugA+`/"`) {
 		t.Errorf("default /play should render city A's data prefix %q", slugA)
 	}
 
@@ -361,7 +365,7 @@ func TestHandleGame_MultiCity(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("GET /play?city=%s: expected 200, got %d", slugB, code)
 	}
-	if !strings.Contains(body, "let DATA_PREFIX = 'cities/"+slugB+"/';") {
+	if !strings.Contains(body, `"dataPrefix":"cities/`+slugB+`/"`) {
 		t.Errorf("/play?city=%s should render city B's data prefix", slugB)
 	}
 	if !strings.Contains(body, "City B") {
@@ -373,7 +377,7 @@ func TestHandleGame_MultiCity(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("GET /play?city=no-such-city: expected 200 fallback, got %d", code)
 	}
-	if !strings.Contains(body, "let DATA_PREFIX = 'cities/"+slugA+"/';") {
+	if !strings.Contains(body, `"dataPrefix":"cities/`+slugA+`/"`) {
 		t.Errorf("unknown-slug /play should fall back to city A's prefix")
 	}
 }
@@ -418,7 +422,7 @@ func TestHandleGame_MultiCity_BrokenCityFallback(t *testing.T) {
 		t.Fatalf("GET /play?city=%s (broken): expected 200 fallback, got %d", slugB, w.Code)
 	}
 	// Fell back to A — A's data prefix, not B's, and not a 500.
-	if !strings.Contains(w.Body.String(), "let DATA_PREFIX = 'cities/"+slugA+"/';") {
+	if !strings.Contains(w.Body.String(), `"dataPrefix":"cities/`+slugA+`/"`) {
 		t.Errorf("broken-city /play should fall back to city A's prefix, got body without it")
 	}
 }
@@ -1072,7 +1076,7 @@ func TestRenderGame_TransientRecovers(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("first /play?city=%s: expected 200 fallback, got %d", slugB, code)
 	}
-	if !strings.Contains(body, "let DATA_PREFIX = 'cities/"+slugA+"/';") {
+	if !strings.Contains(body, `"dataPrefix":"cities/`+slugA+`/"`) {
 		t.Errorf("first request should fall back to city A's prefix")
 	}
 
@@ -1082,7 +1086,7 @@ func TestRenderGame_TransientRecovers(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("recovered /play?city=%s: expected 200, got %d", slugB, code)
 	}
-	if !strings.Contains(body, "let DATA_PREFIX = 'cities/"+slugB+"/';") {
+	if !strings.Contains(body, `"dataPrefix":"cities/`+slugB+`/"`) {
 		t.Errorf("after recovery /play?city=%s must render B's prefix, not the pinned fallback A", slugB)
 	}
 }
@@ -1311,6 +1315,8 @@ func TestWasmAssets_CacheControl(t *testing.T) {
 	}{
 		{"pvmt.wasm", srv.handleForecastWasm, "application/wasm", true},
 		{"wasm_exec.js", srv.handleWasmExecJS, "application/javascript", true},
+		{"app.js", srv.handleAppJS, "application/javascript", true},
+		{"game.js", srv.handleGameJS, "application/javascript", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

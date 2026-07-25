@@ -55,6 +55,20 @@ var forecastWasm []byte
 //go:embed wasm/wasm_exec.js
 var wasmExecJS []byte
 
+// app.js and game.js are the index and play pages' application JavaScript,
+// extracted out of index.html.tmpl / game.html.tmpl so they can be linted
+// (ESLint + tsc --checkJs) as real files. The templates inject their config
+// via window.PVMT_CONFIG (see TemplateData.IndexConfigJSON/GameConfigJSON) and
+// reference these as external <script src>. They live under templates/ (already
+// covered by the //go:embed templates directive above) but get their own embed
+// vars here so the accessors mirror WasmExecJS with no error to handle.
+//
+//go:embed templates/app.js
+var appJS []byte
+
+//go:embed templates/game.js
+var gameJS []byte
+
 // TemplateFS returns the embedded template filesystem for use by the server.
 func TemplateFS() fs.ReadFileFS {
 	return templatesFS
@@ -65,6 +79,14 @@ func ForecastWasm() []byte { return forecastWasm }
 
 // WasmExecJS returns the embedded Go WASM support JavaScript.
 func WasmExecJS() []byte { return wasmExecJS }
+
+// AppJS returns the embedded index-page application JavaScript (templates/app.js),
+// referenced by index.html as an external <script src>.
+func AppJS() []byte { return appJS }
+
+// GameJS returns the embedded play-page application JavaScript (templates/game.js),
+// referenced by play.html as an external <script src>.
+func GameJS() []byte { return gameJS }
 
 // ExampleInfo describes one example card on the landing page. Defined in
 // this package so gensite and the landing-page tests reference the same
@@ -134,14 +156,22 @@ func RenderLandingPage(outputDir string, examples []ExampleInfo) (err error) {
 	})
 }
 
-// WriteSharedWasmAssets writes the embedded WASM files to dir. Use this when
-// writing a single shared copy at a site root instead of per-export copies.
+// WriteSharedWasmAssets writes the embedded shared browser assets — pvmt.wasm,
+// wasm_exec.js, and the extracted app.js/game.js — to dir. Use this when writing
+// a single shared copy at a site root instead of per-export copies. The pages
+// reference these via {{.WasmPrefix}}, so they must all land in the same dir.
 func WriteSharedWasmAssets(dir string) error {
 	if err := os.WriteFile(filepath.Join(dir, "pvmt.wasm"), forecastWasm, 0o644); err != nil {
 		return fmt.Errorf("write pvmt.wasm: %w", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "wasm_exec.js"), wasmExecJS, 0o644); err != nil {
 		return fmt.Errorf("write wasm_exec.js: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "app.js"), appJS, 0o644); err != nil {
+		return fmt.Errorf("write app.js: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "game.js"), gameJS, 0o644); err != nil {
+		return fmt.Errorf("write game.js: %w", err)
 	}
 	return nil
 }

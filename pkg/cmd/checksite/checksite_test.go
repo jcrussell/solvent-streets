@@ -344,8 +344,8 @@ func buildValidSite(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 
-	// Root shared assets: WASM copied from the embedded bytes so sha matches.
-	for name, data := range export.EmbeddedWasmAssets() {
+	// Root shared assets: copied from the embedded bytes so sha matches.
+	for name, data := range export.EmbeddedSharedAssets() {
 		writeFile(t, filepath.Join(dir, name), string(data))
 	}
 	writeFile(t, filepath.Join(dir, "index.html"), `<html><body>landing</body></html>`)

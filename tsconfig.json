@@ -1,0 +1,24 @@
+// Advisory type-check for the extracted template JS: `npm run typecheck`.
+// checkJs currently surfaces DOM-narrowing findings (e.g. .value on a bare
+// HTMLElement) because app.js/game.js carry no JSDoc types yet. It is NOT wired
+// into `npm run lint` or CI — it is the on-ramp for adding JSDoc @type/@param
+// annotations incrementally, at which point it can graduate to a hard gate.
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "types": []
+  },
+  "include": [
+    "internal/export/templates/app.js",
+    "internal/export/templates/game.js",
+    "globals.d.ts"
+  ]
+}

@@ -87,6 +87,10 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	mux.HandleFunc("GET /wasm_exec.js", s.handleWasmExecJS)
 	mux.HandleFunc("GET /pvmt.wasm", s.handleForecastWasm)
 
+	// Application JS extracted from the templates (shared)
+	mux.HandleFunc("GET /app.js", s.handleAppJS)
+	mux.HandleFunc("GET /game.js", s.handleGameJS)
+
 	handler := recoveryMiddleware(mux, s.ios.ErrOut)
 
 	srv := &http.Server{
