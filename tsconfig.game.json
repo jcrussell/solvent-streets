@@ -1,0 +1,6 @@
+// Type-checks the play page script in isolation (see tsconfig.json for why the
+// two page scripts are checked as separate Programs). Run via `npm run typecheck`.
+{
+  "extends": "./tsconfig.json",
+  "include": ["internal/export/templates/game.js", "globals.d.ts"]
+}

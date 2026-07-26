@@ -1,8 +1,10 @@
-// Advisory type-check for the extracted template JS: `npm run typecheck`.
-// checkJs currently surfaces DOM-narrowing findings (e.g. .value on a bare
-// HTMLElement) because app.js/game.js carry no JSDoc types yet. It is NOT wired
-// into `npm run lint` or CI — it is the on-ramp for adding JSDoc @type/@param
-// annotations incrementally, at which point it can graduate to a hard gate.
+// Base type-check config shared by tsconfig.app.json / tsconfig.game.json, run
+// via `npm run typecheck`. Each page loads exactly one of app.js / game.js as
+// its whole application script, and the two never coexist in a page — so they
+// are checked as two separate tsc Programs (see the per-file configs). Checking
+// both in one Program would falsely collide their script-mode globals
+// (PVMT_CONFIG/CENTER/map/…). This base carries only compilerOptions plus the
+// ambient globals; it includes no JS of its own.
 {
   "compilerOptions": {
     "target": "ES2022",
@@ -16,9 +18,5 @@
     "noImplicitAny": false,
     "types": []
   },
-  "include": [
-    "internal/export/templates/app.js",
-    "internal/export/templates/game.js",
-    "globals.d.ts"
-  ]
+  "include": ["globals.d.ts"]
 }

@@ -38,7 +38,8 @@ jobs:
     name: Lint JS
     runs-on: ubuntu-latest
     # ubuntu-latest ships a recent Node, so no setup-node action is needed.
-    # Lints the browser JS extracted from the export templates (app.js/game.js).
+    # Lints + type-checks the browser JS extracted from the export templates
+    # (app.js/game.js).
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -47,6 +48,9 @@ jobs:
 
       - name: ESLint (export template JS)
         run: npm run lint
+
+      - name: Type-check (tsc --checkJs)
+        run: npm run typecheck
 
   format:
     name: Format

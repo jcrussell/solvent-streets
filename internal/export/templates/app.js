@@ -6,6 +6,27 @@
         var CITIES = PVMT_CONFIG.cities;
         var DATA_PREFIX = CITIES.length > 0 ? 'cities/' + CITIES[0].slug + '/' : '';
 
+        // Typed DOM accessors: one audited type-assertion each so the call sites
+        // below read straight (el.value / el.dataset / …) under tsc --checkJs
+        // instead of casting inline at every lookup. Non-null by design — matches
+        // this file's assume-present style; the few genuinely-optional nodes
+        // (e.g. snapshot-picker, absent in static export) keep their own runtime
+        // `if (el)` guards, which stay correct even though the type says non-null.
+        /** @param {string} id @returns {HTMLInputElement} */
+        function inputById(id) { return /** @type {HTMLInputElement} */ (document.getElementById(id)); }
+        /** @param {string} id @returns {HTMLSelectElement} */
+        function selectById(id) { return /** @type {HTMLSelectElement} */ (document.getElementById(id)); }
+        /** @param {string} id @returns {HTMLButtonElement} */
+        function buttonById(id) { return /** @type {HTMLButtonElement} */ (document.getElementById(id)); }
+        /** @param {string} id @returns {HTMLCanvasElement} */
+        function canvasById(id) { return /** @type {HTMLCanvasElement} */ (document.getElementById(id)); }
+        /** @param {string} sel @param {ParentNode} [root] @returns {HTMLElement} */
+        function queryEl(sel, root) { return /** @type {HTMLElement} */ ((root || document).querySelector(sel)); }
+        /** @param {string} sel @param {ParentNode} [root] @returns {HTMLInputElement} */
+        function queryInput(sel, root) { return /** @type {HTMLInputElement} */ ((root || document).querySelector(sel)); }
+        /** @param {string} sel @param {ParentNode} [root] @returns {HTMLElement[]} */
+        function queryAll(sel, root) { return /** @type {HTMLElement[]} */ (Array.from((root || document).querySelectorAll(sel))); }
+
         // URL state router: city, tab, scope, snapshot. DOM is the source of
         // truth; the router serializes DOM → URL and applies URL → DOM via
         // the same selectX helpers the event handlers use. The snapshot slot
@@ -21,15 +42,15 @@
                 };
             },
             current() {
-                const tabBtn   = document.querySelector('.tab-btn.active');
-                const scopeBtn = document.querySelector('#scope-toggle button.active');
+                const tabBtn   = queryEl('.tab-btn.active');
+                const scopeBtn = queryEl('#scope-toggle button.active');
                 // Scope visibility is driven by #gear-scope-row.hidden (see the
                 // reveal logic that toggles it), not #scope-toggle's inline
                 // display — so read the row's .hidden to decide serialization.
                 const scopeRow = document.getElementById('gear-scope-row');
                 const scopeVis = scopeRow && !scopeRow.hidden;
-                const snapEl   = document.getElementById('snapshot-picker');
-                const sel      = document.getElementById('city-select');
+                const snapEl   = selectById('snapshot-picker');
+                const sel      = selectById('city-select');
                 return {
                     city:     sel ? sel.value : null,
                     tab:      tabBtn ? tabBtn.dataset.tab : null,
@@ -73,7 +94,7 @@
             const init = Router.read();
             if (init.city && CITIES.some(c => c.slug === init.city)) {
                 DATA_PREFIX = 'cities/' + init.city + '/';
-                const sel = document.getElementById('city-select');
+                const sel = selectById('city-select');
                 if (sel) sel.value = init.city;
             } else {
                 // No ?city= deep link: the browser default-selects the first DOM <option>,
@@ -81,12 +102,12 @@
                 // CITIES[0] (flat alphabetical) that seeded DATA_PREFIX above. Align the
                 // data prefix with the shown selection so we never load one city's data
                 // while the dropdown names another (and replaceState records the truth).
-                const sel = document.getElementById('city-select');
+                const sel = selectById('city-select');
                 if (sel && sel.value) DATA_PREFIX = 'cities/' + sel.value + '/';
             }
             if (init.tab && document.getElementById(init.tab)) {
-                document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === init.tab));
-                document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === init.tab));
+                queryAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === init.tab));
+                queryAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === init.tab));
                 syncTabAria();
                 // Toggling classes does NOT trigger the per-tab data load that
                 // a selectTab() click would, so a deep-linked ?tab= for a
@@ -96,7 +117,7 @@
             }
             if (init.scope === 'city' || init.scope === 'bbox') {
                 currentScope = init.scope;
-                document.querySelectorAll('#scope-toggle button').forEach(b =>
+                queryAll('#scope-toggle button').forEach(b =>
                     b.classList.toggle('active', b.dataset.scope === currentScope));
             }
             history.replaceState(Router.current(), '');
@@ -104,18 +125,18 @@
 
         window.addEventListener('popstate', (e) => {
             const s = e.state || Router.read();
-            const sel = document.getElementById('city-select');
+            const sel = selectById('city-select');
             const cityChanged = !!(s.city && sel && sel.value !== s.city);
             // Set the snapshot picker value BEFORE selectCity so its data
             // fetches use the right snapshot. dataURL reads the picker live.
-            const snapEl = document.getElementById('snapshot-picker');
+            const snapEl = selectById('snapshot-picker');
             const targetSnap = s.snapshot == null ? '' : String(s.snapshot);
             const snapshotChanged = !!(snapEl && snapEl.value !== targetSnap);
             if (snapEl) snapEl.value = targetSnap;
             // Update currentScope from URL state before kicking off reloads
             // (selectCity → loadCityData → buildBlendedHexFC reads currentScope).
             if (s.scope === 'city' || s.scope === 'bbox') currentScope = s.scope;
-            document.querySelectorAll('#scope-toggle button').forEach(b =>
+            queryAll('#scope-toggle button').forEach(b =>
                 b.classList.toggle('active', b.dataset.scope === currentScope));
             // Only fire selectCity when the city actually changed. selectCity
             // resets the snapshot picker (snapshots are per-city), so calling it
@@ -141,7 +162,7 @@
         // if the snapshot-picker has a non-empty value. The picker only exists
         // in live-server mode; in static export this returns the bare URL.
         function dataURL(prefix, file) {
-            const sel = document.getElementById('snapshot-picker');
+            const sel = selectById('snapshot-picker');
             const snap = sel && sel.value ? sel.value : '';
             return prefix + 'data/' + file + (snap ? '?snapshot=' + encodeURIComponent(snap) : '');
         }
@@ -208,18 +229,18 @@
         // tabindex in lockstep so screen readers and keyboard users see the
         // same selection state as sighted users.
         function syncTabAria() {
-            document.querySelectorAll('.tab-btn').forEach(b => {
+            queryAll('.tab-btn').forEach(b => {
                 const active = b.classList.contains('active');
                 b.setAttribute('aria-selected', active ? 'true' : 'false');
                 b.setAttribute('tabindex', active ? '0' : '-1');
             });
         }
         function selectTab(tabId, opts) {
-            const btn = document.querySelector('.tab-btn[data-tab="' + tabId + '"]');
+            const btn = queryEl('.tab-btn[data-tab="' + tabId + '"]');
             const content = document.getElementById(tabId);
             if (!btn || !content) return;
-            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            queryAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            queryAll('.tab-content').forEach(c => c.classList.remove('active'));
             btn.classList.add('active');
             content.classList.add('active');
             syncTabAria();
@@ -232,13 +253,13 @@
             maybeRevealScopeToggle();
             if (!opts || opts.push !== false) Router.push();
         }
-        document.querySelectorAll('.tab-btn').forEach(btn => {
+        queryAll('.tab-btn').forEach(btn => {
             btn.addEventListener('click', () => selectTab(btn.dataset.tab));
         });
         // WAI-ARIA tablist keyboard pattern: arrows move focus & selection,
         // Home/End jump to first/last.
         (function bindTabKeyboardNav() {
-            const tabs = Array.from(document.querySelectorAll('.tab-btn'));
+            const tabs = queryAll('.tab-btn');
             if (tabs.length === 0) return;
             tabs.forEach((tab, idx) => {
                 tab.addEventListener('keydown', (e) => {
@@ -540,11 +561,11 @@
             const bboxEmpty = Object.keys(hexDataByScope.bbox).length === 0;
             if (currentScope === 'city' && cityEmpty && !bboxEmpty) {
                 currentScope = 'bbox';
-                document.querySelectorAll('#scope-toggle button').forEach(b =>
+                queryAll('#scope-toggle button').forEach(b =>
                     b.classList.toggle('active', b.dataset.scope === currentScope));
             } else if (currentScope === 'bbox' && bboxEmpty && !cityEmpty) {
                 currentScope = 'city';
-                document.querySelectorAll('#scope-toggle button').forEach(b =>
+                queryAll('#scope-toggle button').forEach(b =>
                     b.classList.toggle('active', b.dataset.scope === currentScope));
             }
             maybeRevealScopeToggle();
@@ -581,16 +602,18 @@
             }
 
             document.getElementById('toggles').innerHTML = toggles;
-            document.querySelectorAll('#toggles input').forEach(cb => {
+            queryAll('#toggles input').forEach(cb => {
                 cb.addEventListener('change', e => {
-                    const vis = e.target.checked ? 'visible' : 'none';
-                    const layers = e.target.dataset.layers ? e.target.dataset.layers.split(',') : [];
+                    const input = e.target;
+                    if (!(input instanceof HTMLInputElement)) return;
+                    const vis = input.checked ? 'visible' : 'none';
+                    const layers = input.dataset.layers ? input.dataset.layers.split(',') : [];
                     layers.forEach(id => map.setLayoutProperty(id, 'visibility', vis));
 
                     // Update activeTypes and reblend hex grid
-                    const type = e.target.dataset.type;
+                    const type = input.dataset.type;
                     if (type) {
-                        if (e.target.checked) {
+                        if (input.checked) {
                             activeTypes.add(type);
                         } else {
                             activeTypes.delete(type);
@@ -603,7 +626,7 @@
             // City data is now loaded; the region-select control can operate on
             // this city's blended hex FC. Enable it (it starts disabled).
             {
-                const rsBtn = document.getElementById('region-select-btn');
+                const rsBtn = buttonById('region-select-btn');
                 if (rsBtn) rsBtn.disabled = false;
             }
         }
@@ -704,7 +727,7 @@
         // the currently-visible city's blended hex FC (buildBlendedHexFC, which
         // already respects activeTypes + currentScope); no backend calls.
         (function setupRegionSelect() {
-            const btn = document.getElementById('region-select-btn');
+            const btn = buttonById('region-select-btn');
             const band = document.getElementById('region-rubberband');
             if (!btn || !band) return;
             const mapEl = document.getElementById('map');
@@ -844,7 +867,7 @@
 
         // City switcher
         function selectCity(slug, opts) {
-            const sel = document.getElementById('city-select');
+            const sel = selectById('city-select');
             if (!sel) return;
             if (sel.value !== slug) sel.value = slug;
             const opt = sel.selectedOptions[0];
@@ -855,14 +878,14 @@
             document.querySelector('#panel h2').textContent = opt.textContent.trim();
             // Snapshot ids are per-city. Reset the picker on city change so a
             // stale id can't be sent against the new city's data endpoints.
-            const snapEl = document.getElementById('snapshot-picker');
+            const snapEl = selectById('snapshot-picker');
             if (snapEl) snapEl.value = '';
             loadSnapshots(slug);
             loadCityData();
             loadFinancials();
             if (!opts || opts.push !== false) Router.push();
         }
-        const citySelect = document.getElementById('city-select');
+        const citySelect = selectById('city-select');
         if (citySelect) {
             citySelect.addEventListener('change', () => selectCity(citySelect.value));
         }
@@ -871,7 +894,7 @@
         // for the current city and populates options; selectSnapshot is the
         // counterpart of selectCity / selectTab / selectScope.
         async function loadSnapshots(slug) {
-            const sel = document.getElementById('snapshot-picker');
+            const sel = selectById('snapshot-picker');
             if (!sel) return; // static export
             const url = slug ? 'api/cities/' + slug + '/snapshots' : 'api/snapshots';
             const list = await loadJSON(url);
@@ -904,7 +927,7 @@
         }
 
         function selectSnapshot(id, opts) {
-            const sel = document.getElementById('snapshot-picker');
+            const sel = selectById('snapshot-picker');
             if (!sel) return;
             const target = id == null ? '' : String(id);
             if (sel.value !== target) sel.value = target;
@@ -912,13 +935,13 @@
             loadFinancials();
             if (!opts || opts.push !== false) Router.push();
         }
-        const snapshotPicker = document.getElementById('snapshot-picker');
+        const snapshotPicker = selectById('snapshot-picker');
         if (snapshotPicker) {
             snapshotPicker.addEventListener('change', () => selectSnapshot(snapshotPicker.value));
             // Initial fetch — uses the city already reflected in DATA_PREFIX,
             // which the applyInitialState IIFE has already set from URL.
             const initSlug = (typeof CITIES !== 'undefined' && CITIES.length > 0)
-                ? (document.getElementById('city-select')?.value || CITIES[0].slug)
+                ? (selectById('city-select')?.value || CITIES[0].slug)
                 : '';
             loadSnapshots(initSlug);
         }
@@ -1025,7 +1048,12 @@
             currentCharts = [];
         }
 
-        function renderFinancials(scenarios, scope) {
+        // Declared as a reassignable `let` (not a function declaration) so the
+        // chart-ref-capturing wrapper installed further down — see
+        // _origRenderFinancials — is legal to both ESLint (no-func-assign) and
+        // tsc --checkJs (TS2630). Callers run only after this point, so there is
+        // no temporal-dead-zone hazard (same reason no-use-before-define is off).
+        let renderFinancials = function(scenarios, scope) {
             if (!scenarios || scenarios.length === 0) {
                 document.getElementById('charts').innerHTML = '';
                 return;
@@ -1201,7 +1229,7 @@
             }
 
             // Update header sort arrows
-            document.querySelectorAll('#cohort-table thead th').forEach((th, i) => {
+            queryAll('#cohort-table thead th').forEach((th, i) => {
                 var arrow = th.querySelector('.sort-arrow');
                 if (!arrow) { arrow = document.createElement('span'); arrow.className = 'sort-arrow'; th.appendChild(arrow); }
                 arrow.textContent = i === cohortSortCol ? (cohortSortAsc ? '\u25B2' : '\u25BC') : '';
@@ -1251,7 +1279,7 @@
         }
 
         // Bind sort click handlers
-        document.querySelectorAll('#cohort-table thead th').forEach((th, i) => {
+        queryAll('#cohort-table thead th').forEach((th, i) => {
             th.addEventListener('click', () => {
                 if (!lastCohorts) return;
                 if (cohortSortCol === i) {
@@ -1308,7 +1336,7 @@
             } else if (currentScope === 'bbox' && !scenarioData.bbox && scenarioData.city) {
                 currentScope = 'city';
             }
-            document.querySelectorAll('#scope-toggle button').forEach(b =>
+            queryAll('#scope-toggle button').forEach(b =>
                 b.classList.toggle('active', b.dataset.scope === currentScope));
             maybeRevealScopeToggle();
             const scenarios = scenarioData[currentScope] || scenarioData.city || scenarioData.bbox;
@@ -1453,7 +1481,7 @@
             const btn = document.querySelector('#scope-toggle button[data-scope="' + scope + '"]');
             if (!btn) return;
             currentScope = scope;
-            document.querySelectorAll('#scope-toggle button').forEach(b =>
+            queryAll('#scope-toggle button').forEach(b =>
                 b.classList.toggle('active', b.dataset.scope === scope));
 
             updateHexGrid();
@@ -1479,7 +1507,7 @@
 
             if (!opts || opts.push !== false) Router.push();
         }
-        document.querySelectorAll('#scope-toggle button').forEach(btn => {
+        queryAll('#scope-toggle button').forEach(btn => {
             btn.addEventListener('click', () => selectScope(btn.dataset.scope));
         });
 
@@ -1500,7 +1528,8 @@
             });
             document.addEventListener('click', (e) => {
                 if (menu.hidden) return;
-                if (menu.contains(e.target) || btn.contains(e.target)) return;
+                const t = e.target;
+                if (t instanceof Node && (menu.contains(t) || btn.contains(t))) return;
                 setOpen(false);
             });
             document.addEventListener('keydown', (e) => {
@@ -1535,13 +1564,13 @@
 
         function syncPCISliderFromSeed() {
             if (!FORECAST_SEED || typeof FORECAST_SEED.initial_pci !== 'number') return;
-            const slider = document.getElementById('pci-slider');
+            const slider = inputById('pci-slider');
             if (!slider) return;
             const min = parseInt(slider.min);
             const max = parseInt(slider.max);
             const v = Math.max(min, Math.min(max, Math.round(FORECAST_SEED.initial_pci)));
-            slider.value = v;
-            document.getElementById('pci-value').textContent = v;
+            slider.value = String(v);
+            document.getElementById('pci-value').textContent = String(v);
         }
         syncPCISliderFromSeed();
 
@@ -1573,14 +1602,14 @@
         }
 
         function getControlValues() {
-            const budgetPct = parseInt(document.getElementById('budget-slider').value) / 100;
-            const initialPCI = parseInt(document.getElementById('pci-slider').value);
+            const budgetPct = parseInt(inputById('budget-slider').value) / 100;
+            const initialPCI = parseInt(inputById('pci-slider').value);
 
             // Read tier values from inputs (advanced), fallback to seed
             const tiers = (FORECAST_SEED.cost_tiers || []).map((t, i) => {
-                const minInput = document.querySelector('[data-tier="' + i + '"][data-field="min_pci"]');
-                const maxInput = document.querySelector('[data-tier="' + i + '"][data-field="max_pci"]');
-                const costInput = document.querySelector('[data-tier="' + i + '"][data-field="cost_per_sqm"]');
+                const minInput = queryInput('[data-tier="' + i + '"][data-field="min_pci"]');
+                const maxInput = queryInput('[data-tier="' + i + '"][data-field="max_pci"]');
+                const costInput = queryInput('[data-tier="' + i + '"][data-field="cost_per_sqm"]');
                 // A cleared input yields parseFloat('') === NaN, which serializes
                 // to JSON null and zeroes the tier in the WASM sim. Fall back to
                 // the seed value whenever the parse isn't a finite number.
@@ -1597,7 +1626,7 @@
 
             // Area/cohorts for the active scope: city-scoped data by default,
             // full bounding-box data when scope === 'bbox'.
-            const activeScope = document.querySelector('#scope-toggle button.active');
+            const activeScope = queryEl('#scope-toggle button.active');
             const scope = activeScope ? activeScope.dataset.scope : 'city';
             const area = (scope === 'bbox' || !FORECAST_SEED.city_paved)
                 ? FORECAST_SEED.total_area
@@ -1728,10 +1757,10 @@
             chart.update('none');
         }
 
-        // Override renderFinancials to capture chart refs. Intentional wrap of the
-        // hoisted function declaration, so no-func-assign is expected here.
+        // Override renderFinancials to capture chart refs. renderFinancials is a
+        // reassignable `let` (see its declaration) so this wrap needs no
+        // suppression on either the ESLint or the tsc side.
         const _origRenderFinancials = renderFinancials;
-        // eslint-disable-next-line no-func-assign -- intentional wrapper (see above)
         renderFinancials = function(scenarios, scope) {
             chartRefs = { pci: null, backlog: null, spending: null, tier: null };
             _origRenderFinancials(scenarios, scope);
@@ -1748,18 +1777,21 @@
             }
         };
 
-        // Control event bindings
-        document.getElementById('budget-slider').addEventListener('input', e => {
-            document.getElementById('budget-value').textContent = e.target.value + '%';
+        // Control event bindings. Each listener is bound to its own slider, so it
+        // closes over the typed element rather than narrowing e.target.
+        const budgetSlider = inputById('budget-slider');
+        budgetSlider.addEventListener('input', () => {
+            document.getElementById('budget-value').textContent = budgetSlider.value + '%';
             runCustomScenario();
         });
-        document.getElementById('pci-slider').addEventListener('input', e => {
-            document.getElementById('pci-value').textContent = e.target.value;
+        const pciSlider = inputById('pci-slider');
+        pciSlider.addEventListener('input', () => {
+            document.getElementById('pci-value').textContent = pciSlider.value;
             runCustomScenario();
         });
-        document.querySelectorAll('#strategy-buttons button').forEach(btn => {
+        queryAll('#strategy-buttons button').forEach(btn => {
             btn.addEventListener('click', () => {
-                document.querySelectorAll('#strategy-buttons button').forEach(b => b.classList.remove('active'));
+                queryAll('#strategy-buttons button').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 currentStrategy = btn.dataset.strategy;
                 runCustomScenario();
@@ -2117,7 +2149,7 @@
             var cityColors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
 
             // 1. Stacked area breakdown
-            compareCharts.push(new Chart(document.getElementById('compare-area-chart').getContext('2d'), {
+            compareCharts.push(new Chart(canvasById('compare-area-chart').getContext('2d'), {
                 type: 'bar',
                 data: {
                     labels: allMetrics.map(function(m) { return m.name; }),
@@ -2140,7 +2172,7 @@
             var classes = Object.keys(classNames).sort();
             var classColors = { residential: '#60a5fa', service: '#a78bfa', tertiary: '#34d399', secondary: '#fbbf24', primary: '#f87171', motorway: '#1e3a5f', trunk: '#fb923c' };
 
-            compareCharts.push(new Chart(document.getElementById('compare-mix-chart').getContext('2d'), {
+            compareCharts.push(new Chart(canvasById('compare-mix-chart').getContext('2d'), {
                 type: 'bar',
                 data: {
                     labels: allMetrics.map(function(m) { return m.name; }),
@@ -2175,7 +2207,7 @@
             var yearLabels = [];
             for (var i = 1; i <= maxYears; i++) yearLabels.push('Year ' + i);
 
-            compareCharts.push(new Chart(document.getElementById('compare-cost-chart').getContext('2d'), {
+            compareCharts.push(new Chart(canvasById('compare-cost-chart').getContext('2d'), {
                 type: 'line',
                 data: {
                     labels: yearLabels,
@@ -2206,7 +2238,7 @@
             }));
 
             // 4. Year 1 vs Year 20 need
-            compareCharts.push(new Chart(document.getElementById('compare-need-chart').getContext('2d'), {
+            compareCharts.push(new Chart(canvasById('compare-need-chart').getContext('2d'), {
                 type: 'bar',
                 data: {
                     labels: allMetrics.map(function(m) { return m.name; }),
@@ -2350,7 +2382,7 @@
             aggregateCharts.forEach(function(c) { c.destroy(); });
             aggregateCharts = [];
 
-            aggregateCharts.push(new Chart(document.getElementById('aggregate-cost-chart').getContext('2d'), {
+            aggregateCharts.push(new Chart(canvasById('aggregate-cost-chart').getContext('2d'), {
                 type: 'line',
                 data: { labels: yearLabels, datasets: [{ label: 'Region Annual Need', data: costSeries, borderColor: '#3b82f6', backgroundColor: '#3b82f622', fill: true, tension: 0.3, borderWidth: 2.5 }] },
                 options: {
@@ -2361,7 +2393,7 @@
                 }
             }));
 
-            aggregateCharts.push(new Chart(document.getElementById('aggregate-backlog-chart').getContext('2d'), {
+            aggregateCharts.push(new Chart(canvasById('aggregate-backlog-chart').getContext('2d'), {
                 type: 'line',
                 data: { labels: yearLabels, datasets: [{ label: 'Region Deferred Backlog', data: backlogSeries, borderColor: '#d946ef', backgroundColor: '#d946ef22', fill: true, tension: 0.3, borderWidth: 2.5 }] },
                 options: {
@@ -2372,7 +2404,7 @@
                 }
             }));
 
-            aggregateCharts.push(new Chart(document.getElementById('aggregate-mix-chart').getContext('2d'), {
+            aggregateCharts.push(new Chart(canvasById('aggregate-mix-chart').getContext('2d'), {
                 type: 'bar',
                 data: {
                     labels: ['Roads', 'Parking', 'Sidewalks'],

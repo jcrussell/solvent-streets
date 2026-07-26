@@ -13,13 +13,24 @@
         // host so navigation stays inside a gensite example dir (/<example>/).
         const MAP_HREF = PVMT_CONFIG.mapHref;
 
+        // Typed DOM accessors — same pattern as app.js: one audited type-assertion
+        // each so the call sites below read straight (el.value / el.dataset / …)
+        // under tsc --checkJs instead of casting inline. Non-null by design; the
+        // few optional nodes keep their own runtime `if (el)` guards.
+        /** @param {string} id @returns {HTMLInputElement} */
+        function inputById(id) { return /** @type {HTMLInputElement} */ (document.getElementById(id)); }
+        /** @param {string} id @returns {HTMLSelectElement} */
+        function selectById(id) { return /** @type {HTMLSelectElement} */ (document.getElementById(id)); }
+        /** @param {string} sel @param {ParentNode} [root] @returns {HTMLElement[]} */
+        function queryAll(sel, root) { return /** @type {HTMLElement[]} */ (Array.from((root || document).querySelectorAll(sel))); }
+
         // City dropdown (multi-city only). Resolve the active city from ?city= on
         // boot (validated against the selector's own options), then reload to
         // <current-path>?city=<slug> on change — a full reload is the clean reset
         // for the stateful board (MapLibre source + WASM game state + timers), and
         // using location.href keeps us on play.html (static) or /play (server).
         {
-            const sel = document.getElementById('city-select');
+            const sel = selectById('city-select');
             if (sel) {
                 const valid = new Set(Array.from(sel.options).map(o => o.value));
                 const want = new URLSearchParams(location.search).get('city');
@@ -73,7 +84,11 @@
         // callWasm wraps a window.gameXxx function: stringify-free args in,
         // parsed state out. Surfaces {error} via the banner and returns null.
         function callWasm(fnName, ...args) {
-            const fn = window[fnName];
+            // window is indexed by a runtime string, so one honest `any` hop here;
+            // WasmFn (globals.d.ts) then carries a real call signature through the
+            // rest, and the guard narrows away the undefined case.
+            /** @type {WasmFn|undefined} */
+            const fn = /** @type {any} */ (window)[fnName];
             if (typeof fn !== 'function') {
                 showError(fnName, 'WASM function not registered');
                 return null;
@@ -322,7 +337,7 @@
                 simSpeed = rate;
                 startLoop(); // no-op if the game is over or already looping
             }
-            document.querySelectorAll('#speed-buttons .btn')
+            queryAll('#speed-buttons .btn')
                 .forEach(b => b.classList.toggle('active', Number(b.dataset.speed) === rate));
         }
 
@@ -363,9 +378,9 @@
         function wireControls() {
             document.getElementById('reset-btn').addEventListener('click', reset);
             // Segmented Pause/1×/2×/4× control.
-            document.querySelectorAll('#speed-buttons .btn').forEach(b =>
+            queryAll('#speed-buttons .btn').forEach(b =>
                 b.addEventListener('click', () => setRate(Number(b.dataset.speed))));
-            const size = document.getElementById('brush-size');
+            const size = inputById('brush-size');
             brushSize = parseInt(size.value, 10) || 0;
             size.addEventListener('input', () => { brushSize = parseInt(size.value, 10) || 0; });
         }
@@ -378,13 +393,13 @@
         // defaultBudget is the forecast-derived rate (pickStartingBudget).
         function wireStartOverlay(defaultBudget) {
             const hwrap = document.getElementById('horizon-buttons');
-            const markActive = () => hwrap.querySelectorAll('.btn').forEach(b => {
+            const markActive = () => queryAll('.btn', hwrap).forEach(b => {
                 const h = b.dataset.horizon;
                 const on = (h === 'endless') ? !!gameConfig.endless
                     : (!gameConfig.endless && Number(h) === gameConfig.horizon_years);
                 b.classList.toggle('active', on);
             });
-            hwrap.querySelectorAll('.btn').forEach(b => b.addEventListener('click', () => {
+            queryAll('.btn', hwrap).forEach(b => b.addEventListener('click', () => {
                 const h = b.dataset.horizon;
                 if (h === 'endless') gameConfig.endless = true;
                 else { gameConfig.endless = false; gameConfig.horizon_years = Number(h); }
@@ -396,13 +411,13 @@
             // Annual-budget slider: 0..2x the forecast-derived default (same range as
             // the old in-game slider). Sets gameConfig.starting_budget and refreshes
             // the preview; there is no in-game budget slider anymore.
-            const slider = document.getElementById('start-budget-slider');
+            const slider = inputById('start-budget-slider');
             const out = document.getElementById('start-budget-value');
             const max = Math.max(1, defaultBudget * 2);
-            slider.min = 0;
-            slider.max = max;
-            slider.step = Math.max(1, Math.round(max / 200));
-            slider.value = defaultBudget;
+            slider.min = '0';
+            slider.max = String(max);
+            slider.step = String(Math.max(1, Math.round(max / 200)));
+            slider.value = String(defaultBudget);
             out.textContent = fmtMoney(defaultBudget);
             slider.addEventListener('input', () => {
                 const rate = parseFloat(slider.value);

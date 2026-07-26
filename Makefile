@@ -52,12 +52,14 @@ lint:
 		fi
 	golangci-lint run
 
-# Lint the browser JS extracted from the export templates (internal/export/
-# templates/app.js, game.js). Installs the pinned devDeps on first run only.
-# `npm run typecheck` (tsc --checkJs) exists too but is advisory — see tsconfig.json.
+# Lint + type-check the browser JS extracted from the export templates
+# (internal/export/templates/app.js, game.js). Installs the pinned devDeps on
+# first run only. typecheck is `tsc --checkJs` over the JSDoc-annotated sources
+# (see tsconfig.json); both are hard gates.
 lint-js:
 	@test -d node_modules || npm ci
 	npm run lint
+	npm run typecheck
 
 fmt:
 	gofmt -w ./cmd ./internal ./pkg
@@ -90,12 +92,12 @@ help:
 	@echo "  install       build and install to \$$PREFIX/bin (default: ~/.local/bin)"
 	@echo "  test          go test -race ./..."
 	@echo "  lint          golangci-lint run (pinned in .golangci-version)"
-	@echo "  lint-js       eslint the export template JS (app.js/game.js)"
+	@echo "  lint-js       eslint + tsc --checkJs the export template JS (app.js/game.js)"
 	@echo "  fmt           gofmt -w on cmd/internal/pkg"
 	@echo "  vet           go vet ./..."
 	@echo "  tidy          go mod tidy"
 	@echo "  cover         coverage report (writes coverage.out)"
-	@echo "  pre-commit    fmt + vet + lint (link to .git/hooks/pre-commit)"
+	@echo "  pre-commit    fmt + vet + lint + lint-js (link to .git/hooks/pre-commit)"
 	@echo "  wasm          rebuild forecast WASM (embedded into binary)"
 	@echo "  gendocs       regenerate docs/reference/ from cobra"
 	@echo "  site          render full static site to \$$SITE_DIR"
