@@ -92,7 +92,7 @@ const ExportMarkerName = ".pvmt-export"
 // Verifying the sentinel requires reading the directory before removing it, so
 // this performs a stat/read-then-RemoveAll sequence rather than a bare
 // RemoveAll: the data-loss guard is worth the small TOCTOU window for a
-// single-user CLI, and matches the gensite site generator's behavior.
+// single-user CLI, and matches the static-site generator's behavior.
 func SafeCleanDir(outputDir string) error {
 	resolved, err := ResolveOutputDir(outputDir)
 	if err != nil {

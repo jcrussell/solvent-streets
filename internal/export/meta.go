@@ -26,16 +26,19 @@ type CityInfo struct {
 	BBox      [4]float64 `json:"bbox"`
 	CenterLon float64    `json:"center_lon"`
 	CenterLat float64    `json:"center_lat"`
-	// Region is an optional grouping label (e.g. "Bay Area"). Omitted from
-	// JSON when empty. Used by the template to build city-selector optgroups.
-	Region string `json:"region,omitempty"`
+	// Tags are optional grouping labels (e.g. "Bay Area", "Top 50"). Omitted
+	// from JSON when empty. Used by the template to build city-selector
+	// optgroups (a city appears under each of its tags) and by app.js to scope
+	// compare/aggregate to a tagged subset.
+	Tags []string `json:"tags,omitempty"`
 }
 
-// CityGroup is a region label with the cities that belong to it. Used by the
+// CityGroup is a tag label with the cities that belong to it. Used by the
 // template to render the city selector as <optgroup>s. A group with an empty
-// Region holds the ungrouped ("Other") cities and is rendered as bare options.
+// Tag holds the untagged ("Other") cities and is rendered as bare options.
+// A city with multiple tags appears in multiple groups.
 type CityGroup struct {
-	Region string
+	Tag    string
 	Cities []CityInfo
 }
 
@@ -48,12 +51,12 @@ type TemplateData struct {
 	ResolvedTOML string      // config with all defaults filled in
 	UnitSystem   string      // "metric" or "imperial"
 	Cities       []CityInfo
-	// CitiesByRegion is the same cities as Cities, grouped for the selector:
-	// non-empty regions first (sorted ascending by label, cities sorted by
-	// name within each), then the empty-region group ("Other") last. Built
-	// alongside Cities; the flat Cities slice is kept for the CITIES JS array
-	// and cities.json.
-	CitiesByRegion []CityGroup
+	// CitiesByTag is the same cities as Cities, grouped for the selector:
+	// non-empty tags first (sorted ascending by label, cities sorted by
+	// name within each), then the untagged group ("Other") last. A city with
+	// multiple tags appears in multiple groups. Built alongside Cities; the
+	// flat Cities slice is kept for the CITIES JS array and cities.json.
+	CitiesByTag []CityGroup
 	// ActiveSlug is the slug of the city this page was rendered against, set
 	// only in multi-city mode (empty single-city). The game page (/play) renders
 	// per-city and uses it to emit DATA_PREFIX ('cities/<slug>/') and pre-select
@@ -109,6 +112,10 @@ type jsCityInfo struct {
 	BBox [4]float64 `json:"bbox"`
 	Lon  float64    `json:"lon"`
 	Lat  float64    `json:"lat"`
+	// Tags let app.js filter the flat CITIES array for the compare/aggregate
+	// tag scope. Omitted for untagged cities (omitempty) — app.js guards the
+	// access as (city.tags || []).
+	Tags []string `json:"tags,omitempty"`
 }
 
 // rawOrNull adapts a template.JS holding a pre-marshaled JSON fragment (e.g.
@@ -132,7 +139,7 @@ func rawOrNull(js template.JS) json.RawMessage {
 func (d TemplateData) IndexConfigJSON() template.JS {
 	cities := make([]jsCityInfo, len(d.Cities))
 	for i, c := range d.Cities {
-		cities[i] = jsCityInfo{Slug: c.Slug, Name: c.Name, BBox: c.BBox, Lon: c.CenterLon, Lat: c.CenterLat}
+		cities[i] = jsCityInfo{Slug: c.Slug, Name: c.Name, BBox: c.BBox, Lon: c.CenterLon, Lat: c.CenterLat, Tags: c.Tags}
 	}
 	cfg := struct {
 		Cities       []jsCityInfo    `json:"cities"`
@@ -212,43 +219,52 @@ var ResourceColors = map[string]string{
 	"sidewalks": "#f59e0b",
 }
 
-// GroupCitiesByRegion groups cities for the selector. Non-empty regions come
-// first, sorted ascending by region label, with cities sorted ascending by
-// name within each group. The empty-region cities are collected into a final
-// group (Region == "") rendered as ungrouped ("Other") options. The input
-// slice is not mutated. Returns nil when cities is empty.
-func GroupCitiesByRegion(cities []CityInfo) []CityGroup {
+// GroupCitiesByTag groups cities for the selector. Non-empty tags come first,
+// sorted ascending by tag label, with cities sorted ascending by name within
+// each group. A city with multiple tags appears in every matching group
+// (multi-membership). Cities with no tags are collected into a final group
+// (Tag == "") rendered as ungrouped ("Other") options. The input slice is not
+// mutated. Returns nil when cities is empty.
+func GroupCitiesByTag(cities []CityInfo) []CityGroup {
 	if len(cities) == 0 {
 		return nil
 	}
-	byRegion := make(map[string][]CityInfo)
+	byTag := make(map[string][]CityInfo)
+	var hasUntagged bool
 	for _, c := range cities {
-		byRegion[c.Region] = append(byRegion[c.Region], c)
-	}
-
-	regions := make([]string, 0, len(byRegion))
-	for r := range byRegion {
-		if r != "" {
-			regions = append(regions, r)
+		if len(c.Tags) == 0 {
+			byTag[""] = append(byTag[""], c)
+			hasUntagged = true
+			continue
+		}
+		for _, t := range c.Tags {
+			byTag[t] = append(byTag[t], c)
 		}
 	}
-	sort.Slice(regions, func(i, j int) bool {
-		return strings.ToLower(regions[i]) < strings.ToLower(regions[j])
+
+	tags := make([]string, 0, len(byTag))
+	for t := range byTag {
+		if t != "" {
+			tags = append(tags, t)
+		}
+	}
+	sort.Slice(tags, func(i, j int) bool {
+		return strings.ToLower(tags[i]) < strings.ToLower(tags[j])
 	})
 
-	groups := make([]CityGroup, 0, len(byRegion))
-	appendSortedGroup := func(region string) {
-		group := byRegion[region]
+	groups := make([]CityGroup, 0, len(byTag))
+	appendSortedGroup := func(tag string) {
+		group := byTag[tag]
 		sort.SliceStable(group, func(i, j int) bool {
 			return strings.ToLower(group[i].Name) < strings.ToLower(group[j].Name)
 		})
-		groups = append(groups, CityGroup{Region: region, Cities: group})
+		groups = append(groups, CityGroup{Tag: tag, Cities: group})
 	}
-	for _, r := range regions {
-		appendSortedGroup(r)
+	for _, t := range tags {
+		appendSortedGroup(t)
 	}
-	// Empty-region cities last, only if any exist.
-	if _, ok := byRegion[""]; ok {
+	// Untagged cities last, only if any exist.
+	if hasUntagged {
 		appendSortedGroup("")
 	}
 	return groups

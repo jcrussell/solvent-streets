@@ -29,7 +29,7 @@ type WasmFn = (...args: any[]) => string;
 // they stay `any` — typing them fully is high effort, low payoff under checkJs.
 interface PvmtConfig {
   center: [number, number];
-  cities?: Array<{ slug: string; name: string; bbox: [number, number, number, number]; lon: number; lat: number }>;
+  cities?: Array<{ slug: string; name: string; bbox: [number, number, number, number]; lon: number; lat: number; tags?: string[] }>;
   layerColors?: any;
   unitSystem?: string;
   dataPrefix?: string;

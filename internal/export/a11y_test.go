@@ -159,39 +159,62 @@ func TestDashboardCompareChartLabels(t *testing.T) {
 	}
 }
 
-// TestCitySelectorOptgroups asserts the city selector renders <optgroup>s for
-// regioned cities and bare <option>s for un-regioned ("Other") cities when
-// TemplateData.CitiesByRegion is populated.
+// TestCitySelectorOptgroups asserts the city selector renders one <optgroup>
+// per tag (a multi-tag city appears under each) and bare <option>s for untagged
+// ("Other") cities when TemplateData.CitiesByTag is populated.
 func TestCitySelectorOptgroups(t *testing.T) {
 	tmpl := parseDashboardTemplates(t)
 
 	cities := []CityInfo{
-		{Slug: "oakland", Name: "Oakland", Region: "Bay Area"},
+		{Slug: "san-jose", Name: "San Jose", Tags: []string{"Bay Area", "Top 50"}},
+		{Slug: "oakland", Name: "Oakland", Tags: []string{"Bay Area"}},
 		{Slug: "denver", Name: "Denver"},
 	}
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, TemplateData{
-		Cities:         cities,
-		CitiesByRegion: GroupCitiesByRegion(cities),
+		Cities:      cities,
+		CitiesByTag: GroupCitiesByTag(cities),
 	}); err != nil {
 		t.Fatalf("execute index: %v", err)
 	}
 	out := buf.String()
 
 	if !strings.Contains(out, `<optgroup label="Bay Area">`) {
-		t.Error("missing <optgroup label=\"Bay Area\"> for regioned city")
+		t.Error("missing <optgroup label=\"Bay Area\"> for tagged city")
+	}
+	if !strings.Contains(out, `<optgroup label="Top 50">`) {
+		t.Error("missing <optgroup label=\"Top 50\"> for tagged city")
 	}
 	if !strings.Contains(out, `<option value="oakland"`) {
-		t.Error("regioned city option missing")
+		t.Error("tagged city option missing")
 	}
-	// The un-regioned city must render as a bare <option> with no optgroup
-	// wrapper. Assert its option exists and that no optgroup mentions it.
+	// The untagged city must render as a bare <option> with no optgroup wrapper.
 	if !strings.Contains(out, `<option value="denver"`) {
-		t.Error("un-regioned city option missing")
+		t.Error("untagged city option missing")
 	}
-	// There is exactly one optgroup (Bay Area); the empty-region group is bare.
-	if n := strings.Count(out, "<optgroup"); n != 1 {
-		t.Errorf("expected exactly 1 optgroup, got %d", n)
+	// Two optgroups (Bay Area, Top 50); the untagged group is bare.
+	if n := strings.Count(out, "<optgroup"); n != 2 {
+		t.Errorf("expected exactly 2 optgroups, got %d", n)
+	}
+	// A multi-tag city appears once per group it belongs to: San Jose is in
+	// both Bay Area and Top 50, so its option renders twice.
+	if n := strings.Count(out, `<option value="san-jose"`); n != 2 {
+		t.Errorf("expected San Jose option to render twice (Bay Area + Top 50), got %d", n)
+	}
+
+	// The #tag-scope selector offers "All cities" plus one option per distinct
+	// tag (once each, not once per city), scoping Compare/Aggregate.
+	if !strings.Contains(out, `id="tag-scope"`) {
+		t.Error("missing #tag-scope selector")
+	}
+	if !strings.Contains(out, `<option value="">All cities</option>`) {
+		t.Error("#tag-scope missing 'All cities' default option")
+	}
+	if n := strings.Count(out, `<option value="Bay Area">`); n != 1 {
+		t.Errorf("expected one Bay Area tag-scope option, got %d", n)
+	}
+	if n := strings.Count(out, `<option value="Top 50">`); n != 1 {
+		t.Errorf("expected one Top 50 tag-scope option, got %d", n)
 	}
 }
 

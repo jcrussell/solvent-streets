@@ -86,6 +86,21 @@
         var aggregateLoaded = false;
         var aggregateCharts = [];
         var allCityDataPromise = null;
+        // Tag scope for the Compare/Aggregate tabs: '' means all cities, else a
+        // tag label from #tag-scope. Declared here (alongside the other tab
+        // guards) so a deep link does not re-run the initializer and reset it.
+        var selectedTag = '';
+
+        // updateTagScopeVisibility shows #tag-scope only on the Compare/Aggregate
+        // tabs, and only when there is more than the "All cities" option (i.e.
+        // at least one real tag exists). Called from both selectTab and the
+        // deep-link initializer so a ?tab= link reveals it too.
+        function updateTagScopeVisibility(tabId) {
+            var tagScope = selectById('tag-scope');
+            if (!tagScope) return;
+            var onScopedTab = tabId === 'compare-tab' || tabId === 'aggregate-tab';
+            tagScope.hidden = !(onScopedTab && tagScope.options.length > 1);
+        }
 
         // Apply URL state synchronously, before first render, to avoid flicker.
         // currentScope is set here (default 'city') and is the sole source of
@@ -98,7 +113,7 @@
                 if (sel) sel.value = init.city;
             } else {
                 // No ?city= deep link: the browser default-selects the first DOM <option>,
-                // which follows CitiesByRegion (region groups first) and can differ from
+                // which follows CitiesByTag (tag groups first) and can differ from
                 // CITIES[0] (flat alphabetical) that seeded DATA_PREFIX above. Align the
                 // data prefix with the shown selection so we never load one city's data
                 // while the dropdown names another (and replaceState records the truth).
@@ -114,6 +129,10 @@
                 // lazy-loaded tab would otherwise hang on its loading spinner.
                 if (init.tab === 'aggregate-tab') loadAggregateData();
                 else if (init.tab === 'compare-tab') loadCompareData();
+                // Class-toggling above bypasses selectTab, so reveal #tag-scope
+                // here too — otherwise a deep-linked Compare/Aggregate tab shows
+                // no tag selector until the user clicks a tab.
+                updateTagScopeVisibility(init.tab);
             }
             if (init.scope === 'city' || init.scope === 'bbox') {
                 currentScope = init.scope;
@@ -248,6 +267,7 @@
             if (tabId === 'map-tab' && window._map) window._map.resize();
             if (tabId === 'compare-tab') loadCompareData();
             if (tabId === 'aggregate-tab') loadAggregateData();
+            updateTagScopeVisibility(tabId);
             // The aggregate honors the region-wide scope, so re-evaluate the
             // scope-toggle reveal whenever the active tab changes.
             maybeRevealScopeToggle();
@@ -888,6 +908,11 @@
         const citySelect = selectById('city-select');
         if (citySelect) {
             citySelect.addEventListener('change', () => selectCity(citySelect.value));
+        }
+
+        const tagScopeSelect = selectById('tag-scope');
+        if (tagScopeSelect) {
+            tagScopeSelect.addEventListener('change', () => onTagScopeChange(tagScopeSelect.value));
         }
 
         // Snapshot picker (live server only). loadSnapshots fetches the list
@@ -1829,10 +1854,30 @@
             return allCityDataPromise;
         }
 
+        // cityTagsForSlug maps a slug to its tags. The fetched per-city data
+        // objects carry slug/name/meta but not tags; CITIES (the flat config
+        // array) carries them. Returns [] for an untagged or unknown city.
+        function cityTagsForSlug(slug) {
+            var c = (typeof CITIES !== 'undefined') ? CITIES.find(function(x) { return x.slug === slug; }) : null;
+            return (c && c.tags) || [];
+        }
+
+        // scopeCityData filters fetched per-city data to the selected tag. An
+        // empty selectedTag means "all cities". Filtering happens here at the
+        // render step — NOT inside loadAllCityData, whose single cached promise
+        // must always hold every city so switching tags never serves a stale
+        // subset.
+        function scopeCityData(cityData) {
+            if (!selectedTag) return cityData;
+            return cityData.filter(function(city) {
+                return cityTagsForSlug(city.slug).indexOf(selectedTag) !== -1;
+            });
+        }
+
         async function loadCompareData() {
             if (compareLoaded || CITIES.length === 0) return;
             compareLoaded = true;
-            renderCompare(await loadAllCityData());
+            renderCompare(scopeCityData(await loadAllCityData()));
         }
 
         // Aggregate re-renders on every scope toggle, so it is NOT one-shot:
@@ -1842,7 +1887,22 @@
         async function loadAggregateData() {
             if (CITIES.length === 0) return;
             aggregateLoaded = true;
-            renderAggregate(await loadAllCityData());
+            renderAggregate(scopeCityData(await loadAllCityData()));
+        }
+
+        // onTagScopeChange re-scopes the Compare/Aggregate tabs. Compare is
+        // one-shot (compareLoaded gates its only render), so reset that guard to
+        // force a re-render; Aggregate always re-renders. Only the active tab is
+        // re-run — the other picks up selectedTag when next opened. renderAggregate
+        // recomputes regionHasBothScopes from the filtered set and re-reveals the
+        // city/all-jurisdiction toggle accordingly.
+        function onTagScopeChange(value) {
+            selectedTag = value;
+            compareLoaded = false;
+            var active = document.querySelector('.tab-content.active');
+            var id = active ? active.id : '';
+            if (id === 'compare-tab') loadCompareData();
+            else if (id === 'aggregate-tab') loadAggregateData();
         }
 
         function extractMetrics(city) {

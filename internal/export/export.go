@@ -88,6 +88,9 @@ func (e *Exporter) runSingleCity(ctx context.Context) error {
 	if err := e.writeExportMarker(); err != nil {
 		return err
 	}
+	if err := e.writeNojekyll(); err != nil {
+		return err
+	}
 
 	// exportCityData already builds the MetaJSON and forecast seed it writes to
 	// data/meta.json + data/forecast_seed.json; reuse them for index.html rather
@@ -151,6 +154,9 @@ func (e *Exporter) runMultiCity(ctx context.Context) error {
 		return fmt.Errorf("create output dir: %w", err)
 	}
 	if err := e.writeExportMarker(); err != nil {
+		return err
+	}
+	if err := e.writeNojekyll(); err != nil {
 		return err
 	}
 
@@ -415,6 +421,21 @@ func (e *Exporter) writeExportMarker() error {
 	return nil
 }
 
+// writeNojekyll drops a zero-byte .nojekyll at the output root. GitHub Pages
+// runs the published tree through Jekyll otherwise, which is slow on a large
+// site and silently drops files/dirs whose names start with "_". check-site
+// requires it (checkNojekyll fails on a missing or non-zero-byte file), so the
+// exporter emits a publish-ready tree on its own — this was gensite's job
+// before the site consolidated to a single `pvmt export`. Written next to the
+// export marker (post-MkdirAll) so the output dir already exists.
+func (e *Exporter) writeNojekyll() error {
+	path := filepath.Join(e.outputDir, ".nojekyll")
+	if err := cmdutil.WriteFile(path, nil, 0o644); err != nil {
+		return fmt.Errorf("write .nojekyll: %w", err)
+	}
+	return nil
+}
+
 func (e *Exporter) writeWasmAssets(dir string) error {
 	return WriteSharedWasmAssets(dir)
 }
@@ -435,7 +456,7 @@ func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolved
 		ResolvedTOML:    resolvedTOML,
 		UnitSystem:      unitSystem,
 		Cities:          cities,
-		CitiesByRegion:  GroupCitiesByRegion(cities),
+		CitiesByTag:     GroupCitiesByTag(cities),
 		WasmPrefix:      e.wasmPrefix,
 		MethodologyHTML: methodology,
 		GeneratedDate:   date,

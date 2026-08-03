@@ -365,6 +365,50 @@ func buildValidSite(t *testing.T) string {
 	return dir
 }
 
+// buildValidRootSite builds the single-root layout a lone `pvmt export` emits:
+// index.html, WASM, cities.json and cities/<slug>/data all at the site root
+// (no per-example subdirectory). discoverSite must treat the root itself as the
+// sole example, or the whole audit runs vacuously.
+func buildValidRootSite(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+
+	for name, data := range export.EmbeddedSharedAssets() {
+		writeFile(t, filepath.Join(dir, name), string(data))
+	}
+	// Root index.html references WASM in the same directory (wasmPrefix empty),
+	// exactly as the consolidated dashboard does.
+	writeFile(t, filepath.Join(dir, "index.html"),
+		`<html><head><script src="wasm_exec.js"></script>`+
+			`<script>script.src = 'pvmt.wasm';</script></head><body>map</body></html>`)
+	if err := os.WriteFile(filepath.Join(dir, ".nojekyll"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(dir, "cities.json"), `[{"slug":"demo","name":"Demo"}]`)
+	writeDataDir(t, filepath.Join(dir, "cities", "demo", "data"), 52.5, 50000)
+
+	return dir
+}
+
+// TestCheckSite_SingleRootLayout verifies the single-root `pvmt export` tree is
+// discovered as one example (rooted at the site dir) and passes the full audit.
+func TestCheckSite_SingleRootLayout(t *testing.T) {
+	dir := buildValidRootSite(t)
+	out, err := run(t, dir, false)
+	if err != nil {
+		t.Fatalf("valid single-root site failed: %v\n%s", err, out)
+	}
+	if strings.Contains(out, "FAIL") {
+		t.Errorf("valid single-root site produced a FAIL line:\n%s", out)
+	}
+	if strings.Contains(out, "no examples found") {
+		t.Errorf("single-root site should be discovered as an example, not empty:\n%s", out)
+	}
+	if !strings.Contains(out, "0 failed") {
+		t.Errorf("summary should report 0 failed:\n%s", out)
+	}
+}
+
 // addMultiCityExample appends a multi-city example named exSlug containing one
 // city citySlug, with cities.json and a full data dir using the given paved
 // values. Used to create a cross-example slug collision.

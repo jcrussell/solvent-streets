@@ -94,7 +94,7 @@ func runExport(ctx context.Context, opts *Options) error {
 
 	// SafeCleanDir refuses to delete a non-empty directory that does not look
 	// like a generated site (no index.html sentinel), so a mistyped --output
-	// can't wipe unrelated user data — the same guard gensite uses.
+	// can't wipe unrelated user data.
 	if err := cmdutil.SafeCleanDir(opts.OutputDir); err != nil {
 		return fmt.Errorf("clean output directory: %w", err)
 	}

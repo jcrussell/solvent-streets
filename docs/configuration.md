@@ -50,6 +50,45 @@ Without `--city`, commands run against all cities. With `--city "Berkeley, CA"` 
 
 The web UI and export provide a city switcher when multiple cities are configured.
 
+## Tags (grouping cities)
+
+Give a city one or more `tags` to group it in the city selector and to scope the Compare and Aggregate tabs:
+
+```toml
+[[cities]]
+name = "San Jose, CA"
+tags = ["Bay Area", "Top 50"]
+```
+
+- The city selector renders one `<optgroup>` per tag; a city with several tags appears under each. Cities with no tags fall into an ungrouped "Other" group.
+- The dashboard's `#tag-scope` selector filters the Compare and Aggregate tabs to a single tag ("All cities" restores the global rollup). This is independent of the city-vs-all-jurisdiction scope toggle.
+
+Tags are often assigned at the `[[include]]` site (below) rather than per city, so a city pulled in by several includes accumulates the union of their tags automatically.
+
+## Including other configs (`[[include]]`)
+
+`[[include]]` merges the cities from other `pvmt.toml` files into one config, tagging each pulled-in city at the include site. This is how `examples/all/pvmt.toml` unions every example into a single tagged site without duplicating any `[[cities]]`:
+
+```toml
+[export]
+title = "Solvent Streets"
+
+[[include]]
+path = "../bay-area-ca/pvmt.toml"
+tags = ["Bay Area"]
+
+[[include]]
+path = "../top-50-cities/pvmt.toml"
+tags = ["Top 50"]
+```
+
+- `path` is resolved relative to the including file's directory (absolute paths are used as-is).
+- Cities are merged by slug. A city reached through several includes is merged **once** with the **union** of the includes' (and its own) tags — so San Jose, present in both the Bay Area and Top 50 lists, ends up tagged `["Bay Area", "Top 50"]`.
+- Two **different** city names that slugify to the same value are a hard error (rather than silently dropping one). Cities with the **same** name across includes are the intended overlap; the **first** include to contribute a city wins on calibration (forecast/hex edge), later includes only add tags. Order includes so the more specific (metro) config comes before a broad national list.
+- Each included example's per-metro calibration (decay/growth/cost tiers, hex edge) is flattened into fully self-describing per-city overrides during the merge. Keep the including file's top-level `[grid]`/`[forecast]` **empty** — a value there would re-calibrate any city that had relied on a package default.
+- A file that declares `[[include]]` may omit `[[cities]]` of its own; the "at least one city" requirement is enforced after the merge.
+- Editing any included file changes the merged config's identity hash, so snapshots invalidate and `pvmt compute` reruns as expected.
+
 ## Config identity (`config_id`)
 
 `cities` rows in the local database are keyed by `(slug, config_id)`. This separates two configs that happen to define the same city — e.g. `examples/livermore-ca/pvmt.toml` and `examples/bay-area-ca/pvmt.toml` both defining "Livermore, CA" — so features, snapshots, and forecasts written under one don't clobber the other.

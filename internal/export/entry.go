@@ -12,7 +12,7 @@ import (
 )
 
 // ErrNoBoundary signals that a city has no boundary stored. Callers that
-// iterate over multiple cities (e.g. gensite, the multi-city exporter)
+// iterate over multiple cities (the multi-city exporter and live server)
 // use errors.Is to skip the city rather than failing the whole export.
 var ErrNoBoundary = errors.New("no boundary stored")
 
@@ -137,6 +137,6 @@ func (entry CityEntry) Info(ctx context.Context) (CityInfo, error) {
 		BBox:      bbox,
 		CenterLon: lon,
 		CenterLat: lat,
-		Region:    entry.City.Region,
+		Tags:      entry.City.Tags,
 	}, nil
 }

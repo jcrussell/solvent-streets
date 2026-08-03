@@ -199,7 +199,7 @@ func TestRunMultiCity_AlphabetisesCitySelector(t *testing.T) {
 
 // TestRunMultiCity_IndexAlignsDataPrefixToSelector: on initial load without a
 // ?city= deep link, the browser default-selects the first DOM <option>, which
-// follows CitiesByRegion (region groups first) and can differ from CITIES[0]
+// follows CitiesByTag (tag groups first) and can differ from CITIES[0]
 // (flat alphabetical) that seeds DATA_PREFIX. The rendered index must contain
 // the boot-time alignment that re-derives DATA_PREFIX from the selector's
 // actual default value in the no-?city= (else) branch, so the page never loads
@@ -299,6 +299,13 @@ func TestRunSingleCity_WritesPlayPage(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "data", "play-hexes.json")); err != nil {
 		t.Errorf("expected data/play-hexes.json: %v", err)
+	}
+	// The exporter emits a publish-ready tree: a zero-byte .nojekyll at the root
+	// (required by check-site; this was gensite's job before consolidation).
+	if info, err := os.Stat(filepath.Join(dir, ".nojekyll")); err != nil {
+		t.Errorf("expected .nojekyll at site root: %v", err)
+	} else if info.Size() != 0 {
+		t.Errorf(".nojekyll must be zero-byte, got %d bytes", info.Size())
 	}
 }
 

@@ -100,14 +100,18 @@ help:
 	@echo "  pre-commit    fmt + vet + lint + lint-js (link to .git/hooks/pre-commit)"
 	@echo "  wasm          rebuild forecast WASM (embedded into binary)"
 	@echo "  gendocs       regenerate docs/reference/ from cobra"
-	@echo "  site          render full static site to \$$SITE_DIR"
+	@echo "  site          render the combined tagged static site to \$$SITE_DIR"
 	@echo "  deploy        push existing \$$SITE_DIR to gh-pages (run 'make site' first)"
 	@echo "  clean         remove build outputs"
 
 SITE_DIR := site
+# Directory holding the combined [[include]] config that unions every example
+# into one tagged site (see examples/all/pvmt.toml). `pvmt` resolves its config
+# from the working directory, so `make site` runs the exporter from there.
+SITE_CONFIG_DIR := examples/all
 
 site: wasm
-	go run -ldflags "$(LDFLAGS)" ./cmd/gensite -o $(SITE_DIR)
+	cd $(SITE_CONFIG_DIR) && go run -ldflags "$(LDFLAGS)" $(CURDIR)/cmd/pvmt export -o "$(CURDIR)/$(SITE_DIR)" --clean
 
 site-clean:
 	rm -rf $(SITE_DIR)

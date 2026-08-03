@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -59,6 +60,14 @@ type Config struct {
 	Export   ExportConfig   `toml:"export"`
 	Forecast ForecastConfig `toml:"forecast"`
 	Cities   []CityConfig   `toml:"cities"`
+
+	// Include pulls cities from other pvmt.toml files into this one, tagging
+	// each pulled-in city at the include site. A city present in several
+	// includes is merged once with the union of their tags. Resolved by Load
+	// (relative to this file's directory); see include.go. When Include is
+	// non-empty the file may omit [[cities]] of its own — the ≥1-city
+	// requirement is enforced after the merge.
+	Include []IncludeSpec `toml:"include,omitempty"`
 
 	// ConfigID is the opaque identifier used as part of the cities
 	// table key (UNIQUE(slug, config_id)). Optional in TOML; when
@@ -220,11 +229,14 @@ type CityConfig struct {
 	ArcGISURL string          `toml:"arcgis_url"`
 	HexEdgeM  float64         `toml:"hex_edge_m"`
 	Forecast  *ForecastConfig `toml:"forecast,omitempty"`
-	// Region is an optional grouping label for the city selector. Cities
-	// sharing a Region are rendered together under an <optgroup>; cities
-	// with an empty Region fall into an ungrouped "Other" set. Used to
-	// keep large metros (e.g. the 98-city Bay Area list) navigable.
-	Region string `toml:"region,omitempty"`
+	// Tags are optional grouping labels for the city selector and the
+	// compare/aggregate scope filter. A city is rendered under an <optgroup>
+	// for each of its tags (multi-membership); cities with no tags fall into
+	// an ungrouped "Other" set. Tags are usually assigned at the [[include]]
+	// site so a city pulled in by several includes (e.g. a Bay Area metro that
+	// is also a top-50 city) accumulates the union of their tags. Used to keep
+	// large city lists navigable and to scope compare/aggregate to a subset.
+	Tags []string `toml:"tags,omitempty"`
 	// BoundaryRelationID is the OSM relation ID for the city's admin
 	// boundary (admin_level typically 8). Set this for cities whose
 	// boundary is reachable only via Overpass — e.g. Albuquerque, NM
@@ -349,6 +361,13 @@ func LoadFS(fsys fs.FS, name string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Includes resolve against the real filesystem relative to the including
+	// file's directory, which the fs.FS-relative LoadFS cannot do. Rather than
+	// silently ignore them, reject — include-using configs must go through Load.
+	if len(cfg.Include) > 0 {
+		return nil, errors.Join(ErrInvalidConfig,
+			errors.New("[[include]] is not supported via LoadFS; load the config from a real path with Load"))
+	}
 	cfg.SourcePath = name
 	if cfg.ConfigID == "" {
 		cfg.ConfigID = hashBytes([]byte(name))
@@ -364,7 +383,7 @@ func LoadFS(fsys fs.FS, name string) (*Config, error) {
 // ConfigID is filled from the 16-char sha256 prefix of the absolute form
 // of path when the TOML did not set it explicitly. Absolutizing the path
 // before hashing means two callers that point at the same file with
-// different spellings (gensite's relative-path glob and `pvmt all`'s
+// different spellings (a relative path from `make site` and `pvmt all`'s
 // absolute-path FindAndLoad) produce the same ConfigID, so they reach
 // the same cities row.
 //
@@ -372,22 +391,32 @@ func LoadFS(fsys fs.FS, name string) (*Config, error) {
 // the read error carries the full path the caller supplied — users who
 // mistype --config want to see which path failed, not just the basename.
 func Load(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
+	abs, err := filepath.Abs(path)
 	if err != nil {
-		return nil, fmt.Errorf("read config: %w", err)
+		return nil, fmt.Errorf("resolve config path %q: %w", path, err)
 	}
-	cfg, err := parseConfig(data)
+	cfg, blobs, err := loadResolved(abs, map[string]bool{})
 	if err != nil {
 		return nil, err
 	}
+	// SourcePath keeps the caller's spelling (used by export/server to read the
+	// raw TOML back); ConfigID and contentHash key on the absolute path and the
+	// merged file contents so two spellings of the same file agree.
 	cfg.SourcePath = path
 	if cfg.ConfigID == "" {
-		abs, err := filepath.Abs(path)
-		if err != nil {
-			return nil, fmt.Errorf("resolve config path %q: %w", path, err)
-		}
 		cfg.ConfigID = hashBytes([]byte(abs))
 	}
+	// Post-merge: enforce the full invariants the relaxed per-file parse defers
+	// (≥1 city across the merged set, unique slugs, per-city shape).
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	// Fold every included file's bytes into the content hash (in declaration
+	// order) so editing any included example changes the snapshot hash and
+	// triggers recompute. For a no-include config blobs is a single element, so
+	// this reproduces the pre-include hash exactly (bytes.Join of one blob is
+	// that blob) — existing snapshots stay valid.
+	cfg.contentHash = hashBytes(bytes.Join(blobs, nil))
 	return cfg, nil
 }
 
@@ -413,7 +442,11 @@ func parseConfig(data []byte) (*Config, error) {
 		return nil, errors.Join(ErrInvalidConfig,
 			fmt.Errorf("unknown config key(s): %s", strings.Join(keys, ", ")))
 	}
-	if err := cfg.Validate(); err != nil {
+	// A file that declares [[include]] may legitimately have no [[cities]] of
+	// its own — the cities arrive from the merge in Load. Defer the ≥1-city
+	// requirement to the post-merge Validate then; still validate every other
+	// invariant (grid, forecast, per-city shape) on whatever cities are present.
+	if err := cfg.validate(len(cfg.Include) == 0); err != nil {
 		return nil, err
 	}
 	cfg.contentHash = hashBytes(data)
@@ -442,7 +475,14 @@ func FindAndLoad(dir string) (*Config, error) {
 // Note: hex-edge values of 0 are explicitly allowed; HexEdge() falls back
 // to DefaultHexEdgeM. Only negative values are rejected.
 func (c *Config) Validate() error {
-	if len(c.Cities) == 0 {
+	return c.validate(true)
+}
+
+// validate is Validate with a switch for the ≥1-city requirement. parseConfig
+// passes requireCities=false for an include-bearing file (its cities arrive
+// during the Load merge); Load re-runs the full check post-merge.
+func (c *Config) validate(requireCities bool) error {
+	if requireCities && len(c.Cities) == 0 {
 		return errors.Join(ErrInvalidConfig, ErrNoCities)
 	}
 	if c.Grid.HexEdgeM < 0 {
@@ -456,6 +496,12 @@ func (c *Config) Validate() error {
 	if err := c.Forecast.Validate(); err != nil {
 		return errors.Join(ErrInvalidConfig, err)
 	}
+	return c.validateCities()
+}
+
+// validateCities checks per-city shape invariants and slug uniqueness. Split
+// from validate to keep each function's cognitive complexity in bounds.
+func (c *Config) validateCities() error {
 	seen := make(map[string]bool)
 	for i, city := range c.Cities {
 		if city.Name == "" {

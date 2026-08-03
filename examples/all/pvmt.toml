@@ -1,0 +1,66 @@
+# Combined site — every example unioned into one tagged dashboard.
+#
+# This is the config `make site` builds. It defines NO cities of its own;
+# instead each [[include]] pulls in an existing example's cities and tags them
+# at the include site. A city reached through several includes (e.g. San Jose,
+# in both the Bay Area metro and the national top-50 list) is merged once and
+# accumulates the union of their tags — it appears under every matching group in
+# the city selector and in the tag-scoped Compare/Aggregate.
+#
+# The top-level [grid] and [forecast] are intentionally EMPTY: the include merge
+# flattens each example's per-metro calibration (decay/growth/cost tiers, hex
+# edge) into fully self-describing per-city overrides, so an empty top-level
+# preserves every city's original numbers. Do not add top-level forecast/grid
+# values here — they would silently re-calibrate any city that inherited a
+# package default.
+#
+# Include order matters: metros come before the top-50 list so a city shared
+# between the two keeps the (more local) metro calibration — the first include
+# to contribute a city wins on calibration; later includes only add tags.
+#
+# Ingest/compute for the union is large (hundreds of cities). Run
+# `pvmt all ingest` then `pvmt all compute` from this directory before
+# `make site`; the config ships without pre-computed artifacts.
+
+[export]
+title = "Solvent Streets"
+
+[[include]]
+path = "../bay-area-ca/pvmt.toml"
+tags = ["Bay Area"]
+
+[[include]]
+path = "../los-angeles-ca/pvmt.toml"
+tags = ["Los Angeles"]
+
+[[include]]
+path = "../san-diego-ca/pvmt.toml"
+tags = ["San Diego"]
+
+[[include]]
+path = "../inland-empire-ca/pvmt.toml"
+tags = ["Inland Empire"]
+
+[[include]]
+path = "../sacramento-ca/pvmt.toml"
+tags = ["Sacramento"]
+
+[[include]]
+path = "../central-valley-ca/pvmt.toml"
+tags = ["Central Valley"]
+
+[[include]]
+path = "../portland-metro-or/pvmt.toml"
+tags = ["Portland Metro"]
+
+[[include]]
+path = "../denver-metro-co/pvmt.toml"
+tags = ["Denver Metro"]
+
+[[include]]
+path = "../greater-boston-ma/pvmt.toml"
+tags = ["Greater Boston"]
+
+[[include]]
+path = "../top-50-cities/pvmt.toml"
+tags = ["Top 50"]

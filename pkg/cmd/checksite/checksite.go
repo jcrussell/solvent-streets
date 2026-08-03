@@ -1,5 +1,5 @@
 // Package checksite implements `pvmt check-site`, a read-only validator over a
-// built static-site tree (the output of `make site` / gensite). It performs the
+// built static-site tree (the output of `make site` / `pvmt export`). It performs the
 // publish-readiness audit that once caught a shipped near-zero-paved-area
 // geometry bug: structural inventory, dangling-reference detection, WASM
 // freshness against this binary's embedded copy, publish hygiene (no host paths,

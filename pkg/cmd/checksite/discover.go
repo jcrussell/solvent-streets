@@ -41,6 +41,15 @@ func discoverSite(dir string) (*site, error) {
 		return nil, fmt.Errorf("site directory %q not found — run 'make site' first", dir)
 	}
 
+	// A single `pvmt export` writes one site rooted at dir itself: data/ for a
+	// single-city export, or cities/ + cities.json for multi-city. Treat that
+	// root as the sole example so the audit runs against the real cities. (Older
+	// trees nested one example per subdirectory; the child walk below is the
+	// fallback when the root itself is not an example.)
+	if ex, ok := classifyExample(filepath.Base(dir), dir); ok {
+		return &site{dir: dir, examples: []example{ex}}, nil
+	}
+
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("read site directory %q: %w", dir, err)
