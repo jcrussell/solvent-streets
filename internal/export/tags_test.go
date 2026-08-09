@@ -37,6 +37,39 @@ func TestCityInfoTagsJSONRoundTrip(t *testing.T) {
 	}
 }
 
+// TestIndexConfigJSON_EmitsTags asserts the PVMT_CONFIG.cities payload — the
+// only input to app.js's client-side tag filter — carries each city's tags, and
+// omits the field for untagged cities (solvent-streets-8je6).
+func TestIndexConfigJSON_EmitsTags(t *testing.T) {
+	td := TemplateData{
+		Cities: []CityInfo{
+			{Slug: "san-jose", Name: "San Jose", Tags: []string{"Bay Area", "Top 50"}},
+			{Slug: "reno", Name: "Reno"}, // untagged
+		},
+		UnitSystem: "metric",
+	}
+	var cfg struct {
+		Cities []struct {
+			Slug string   `json:"slug"`
+			Tags []string `json:"tags"`
+		} `json:"cities"`
+	}
+	if err := json.Unmarshal([]byte(td.IndexConfigJSON()), &cfg); err != nil {
+		t.Fatalf("unmarshal IndexConfigJSON: %v", err)
+	}
+	if len(cfg.Cities) != 2 {
+		t.Fatalf("expected 2 cities in payload, got %d", len(cfg.Cities))
+	}
+	if !equalSlice(cfg.Cities[0].Tags, []string{"Bay Area", "Top 50"}) {
+		t.Errorf("San Jose tags = %v; want [Bay Area Top 50]", cfg.Cities[0].Tags)
+	}
+	// Untagged city must omit the field entirely (omitempty), so app.js's
+	// (city.tags || []) guard sees an absent key, not [].
+	if cfg.Cities[1].Tags != nil {
+		t.Errorf("untagged Reno should have no tags key, got %v", cfg.Cities[1].Tags)
+	}
+}
+
 // TestGroupCitiesByTag asserts grouping order: non-empty tags first (ascending
 // by label), cities ascending by name within each, and the untagged group last.
 func TestGroupCitiesByTag(t *testing.T) {

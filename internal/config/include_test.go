@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -231,6 +232,258 @@ func TestInclude_LoadFSRejects(t *testing.T) {
 	writeTOML(t, dir, "all/pvmt.toml", "[[include]]\npath = \"../leaf/pvmt.toml\"\n")
 	if _, err := LoadFS(os.DirFS(dir), "all/pvmt.toml"); err == nil {
 		t.Fatal("LoadFS must reject include-bearing configs")
+	}
+}
+
+// TestInclude_RejectsTopLevelForecast: an including file must keep its top-level
+// [grid]/[forecast] empty, else the flatten would silently re-calibrate included
+// cities (solvent-streets-agwc).
+func TestInclude_RejectsTopLevelForecast(t *testing.T) {
+	dir := t.TempDir()
+	writeTOML(t, dir, "leaf/pvmt.toml", "[[cities]]\nname = \"Reno, NV\"\n")
+
+	forecastTop := writeTOML(t, dir, "fc/pvmt.toml",
+		"[forecast]\ngrowth_rate = 0.01\n[[include]]\npath = \"../leaf/pvmt.toml\"\n")
+	if _, err := Load(forecastTop); err == nil || !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("top-level [forecast] under [[include]] should be ErrInvalidConfig, got %v", err)
+	}
+
+	gridTop := writeTOML(t, dir, "grid/pvmt.toml",
+		"[grid]\nhex_edge_m = 80\n[[include]]\npath = \"../leaf/pvmt.toml\"\n")
+	if _, err := Load(gridTop); err == nil || !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("top-level [grid] under [[include]] should be ErrInvalidConfig, got %v", err)
+	}
+}
+
+// TestInclude_TransitiveNesting: an included file that itself declares
+// [[include]]. Grandchild tags accumulate through both include sites and the
+// grandchild's calibration flattens onto its cities (solvent-streets-8je6).
+func TestInclude_TransitiveNesting(t *testing.T) {
+	dir := t.TempDir()
+	writeTOML(t, dir, "grandchild/pvmt.toml", `
+[forecast]
+decay_rate = 0.06
+[[cities]]
+name = "Reno, NV"
+`)
+	writeTOML(t, dir, "child/pvmt.toml", `
+[[include]]
+path = "../grandchild/pvmt.toml"
+tags = ["Nested"]
+[[cities]]
+name = "Sparks, NV"
+`)
+	top := writeTOML(t, dir, "all/pvmt.toml", `
+[[include]]
+path = "../child/pvmt.toml"
+tags = ["West"]
+`)
+
+	cfg, err := Load(top)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(cfg.Cities) != 2 {
+		t.Fatalf("expected 2 cities (Reno, Sparks), got %d: %+v", len(cfg.Cities), cfg.Cities)
+	}
+	// Reno flows up two include levels: grandchild -> child ([Nested]) -> top
+	// ([West]). Each merge prepends the include-site tag, so the outer "West"
+	// lands before the inner "Nested".
+	reno := cityBySlug(t, cfg, "reno-nv")
+	if !equalStrings(reno.Tags, []string{"West", "Nested"}) {
+		t.Errorf("Reno tags = %v; want [West Nested]", reno.Tags)
+	}
+	// The grandchild's decay calibration survives the two-level flatten.
+	rfc := cfg.ResolvedForecast(&reno)
+	if rfc.DecayRate != 0.06 {
+		t.Errorf("Reno decay = %g; want 0.06 (grandchild calibration)", rfc.DecayRate)
+	}
+	// Sparks came from the child directly and picks up only the top include's tag.
+	sparks := cityBySlug(t, cfg, "sparks-nv")
+	if !equalStrings(sparks.Tags, []string{"West"}) {
+		t.Errorf("Sparks tags = %v; want [West]", sparks.Tags)
+	}
+}
+
+// TestInclude_DiamondReRead: the same leaf reached via two parents is re-read
+// and merged once, with the union of both paths' tags (the case the include.go
+// header comment promises) (solvent-streets-8je6).
+func TestInclude_DiamondReRead(t *testing.T) {
+	dir := t.TempDir()
+	writeTOML(t, dir, "leaf/pvmt.toml", "[[cities]]\nname = \"Reno, NV\"\n")
+	writeTOML(t, dir, "left/pvmt.toml", "[[include]]\npath = \"../leaf/pvmt.toml\"\ntags = [\"Left\"]\n")
+	writeTOML(t, dir, "right/pvmt.toml", "[[include]]\npath = \"../leaf/pvmt.toml\"\ntags = [\"Right\"]\n")
+	top := writeTOML(t, dir, "all/pvmt.toml", `
+[[include]]
+path = "../left/pvmt.toml"
+[[include]]
+path = "../right/pvmt.toml"
+`)
+
+	cfg, err := Load(top)
+	if err != nil {
+		t.Fatalf("diamond include should load, got %v", err)
+	}
+	if len(cfg.Cities) != 1 {
+		t.Fatalf("expected Reno merged once, got %d cities: %+v", len(cfg.Cities), cfg.Cities)
+	}
+	reno := cityBySlug(t, cfg, "reno-nv")
+	if !equalStrings(reno.Tags, []string{"Left", "Right"}) {
+		t.Errorf("Reno tags = %v; want [Left Right]", reno.Tags)
+	}
+}
+
+// TestInclude_ThreeNodeCycle: A -> B -> C -> A is a cycle, caught cleanly rather
+// than recursing forever (solvent-streets-8je6).
+func TestInclude_ThreeNodeCycle(t *testing.T) {
+	dir := t.TempDir()
+	writeTOML(t, dir, "a/pvmt.toml", "[[include]]\npath = \"../b/pvmt.toml\"\n")
+	writeTOML(t, dir, "b/pvmt.toml", "[[include]]\npath = \"../c/pvmt.toml\"\n")
+	writeTOML(t, dir, "c/pvmt.toml", "[[include]]\npath = \"../a/pvmt.toml\"\n")
+	_, err := Load(filepath.Join(dir, "a/pvmt.toml"))
+	if err == nil || !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("3-node cycle should be ErrInvalidConfig, got %v", err)
+	}
+}
+
+// TestInclude_AbsolutePath: an include path given absolutely (not ../relative)
+// resolves (solvent-streets-8je6).
+func TestInclude_AbsolutePath(t *testing.T) {
+	dir := t.TempDir()
+	leaf := writeTOML(t, dir, "leaf/pvmt.toml", "[[cities]]\nname = \"Reno, NV\"\n")
+	top := writeTOML(t, dir, "all/pvmt.toml", "[[include]]\npath = \""+leaf+"\"\ntags = [\"West\"]\n")
+	cfg, err := Load(top)
+	if err != nil {
+		t.Fatalf("absolute include path should load, got %v", err)
+	}
+	if len(cfg.Cities) != 1 {
+		t.Fatalf("expected 1 city, got %d", len(cfg.Cities))
+	}
+}
+
+// TestInclude_FlattensHexEdge: an included example's [grid] hex_edge_m flattens
+// onto its merged cities so it survives the empty-top-level collapse
+// (solvent-streets-8je6, effectiveHexEdge).
+func TestInclude_FlattensHexEdge(t *testing.T) {
+	dir := t.TempDir()
+	writeTOML(t, dir, "leaf/pvmt.toml", `
+[grid]
+hex_edge_m = 80
+[[cities]]
+name = "Reno, NV"
+[[cities]]
+name = "Sparks, NV"
+hex_edge_m = 55
+`)
+	top := writeTOML(t, dir, "all/pvmt.toml", "[[include]]\npath = \"../leaf/pvmt.toml\"\n")
+	cfg, err := Load(top)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	// Reno inherits the leaf's top-level grid; Sparks keeps its per-city override.
+	reno := cityBySlug(t, cfg, "reno-nv")
+	if got := cfg.ResolvedHexEdge(&reno); got != 80 {
+		t.Errorf("Reno hex edge = %g; want 80 (flattened from leaf [grid])", got)
+	}
+	sparks := cityBySlug(t, cfg, "sparks-nv")
+	if got := cfg.ResolvedHexEdge(&sparks); got != 55 {
+		t.Errorf("Sparks hex edge = %g; want 55 (per-city override)", got)
+	}
+}
+
+// TestInclude_ParentOwnCitiesAndIncludes: a parent that declares its own
+// [[cities]] and also includes. A slug present in both keeps the parent's
+// direct city and unions the include's tags in (solvent-streets-8je6).
+func TestInclude_ParentOwnCitiesAndIncludes(t *testing.T) {
+	dir := t.TempDir()
+	writeTOML(t, dir, "leaf/pvmt.toml", `
+[forecast]
+decay_rate = 0.09
+[[cities]]
+name = "Reno, NV"
+[[cities]]
+name = "Sparks, NV"
+`)
+	top := writeTOML(t, dir, "all/pvmt.toml", `
+[[cities]]
+name = "Reno, NV"
+forecast.decay_rate = 0.02
+[[include]]
+path = "../leaf/pvmt.toml"
+tags = ["West"]
+`)
+	cfg, err := Load(top)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(cfg.Cities) != 2 {
+		t.Fatalf("expected 2 cities (Reno, Sparks), got %d: %+v", len(cfg.Cities), cfg.Cities)
+	}
+	// Reno was declared directly first; the include only unions its tag and does
+	// not overwrite the parent's own calibration.
+	reno := cityBySlug(t, cfg, "reno-nv")
+	if !equalStrings(reno.Tags, []string{"West"}) {
+		t.Errorf("Reno tags = %v; want [West]", reno.Tags)
+	}
+	if rfc := cfg.ResolvedForecast(&reno); rfc.DecayRate != 0.02 {
+		t.Errorf("Reno decay = %g; want 0.02 (parent's own city wins)", rfc.DecayRate)
+	}
+}
+
+// TestInclude_MalformedChild: a syntax/unknown-key error in an included file is
+// wrapped with that file's path so the user can locate it (solvent-streets-8je6).
+func TestInclude_MalformedChild(t *testing.T) {
+	dir := t.TempDir()
+	leaf := writeTOML(t, dir, "leaf/pvmt.toml", "[[cities]]\nnaem = \"Reno, NV\"\n") // typo: naem
+	top := writeTOML(t, dir, "all/pvmt.toml", "[[include]]\npath = \"../leaf/pvmt.toml\"\n")
+	_, err := Load(top)
+	if err == nil {
+		t.Fatal("expected error for malformed included file")
+	}
+	if !strings.Contains(err.Error(), leaf) {
+		t.Errorf("error should name the offending file %q; got %v", leaf, err)
+	}
+}
+
+// TestInclude_DepthCap: a directory symlink pointing at its own ancestor makes
+// every include level a distinct path, defeating the string-keyed cycle check;
+// the depth cap stops it cleanly instead of exhausting the stack
+// (solvent-streets-ndit).
+func TestInclude_DepthCap(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "x")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// pvmt.toml includes ./sub/pvmt.toml, and sub is a symlink back to ".", so
+	// the include path grows without bound: x/sub/pvmt.toml, x/sub/sub/..., each
+	// a distinct cleaned absolute path.
+	if err := os.WriteFile(filepath.Join(root, "pvmt.toml"),
+		[]byte("[[include]]\npath = \"./sub/pvmt.toml\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(".", filepath.Join(root, "sub")); err != nil {
+		t.Skipf("symlink unsupported on this platform: %v", err)
+	}
+	_, err := Load(filepath.Join(root, "pvmt.toml"))
+	if err == nil || !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("symlink pseudo-cycle should hit the depth cap as ErrInvalidConfig, got %v", err)
+	}
+}
+
+// TestInclude_NonRegularFile: an include pointing at a directory (a stand-in for
+// any non-regular file, e.g. a FIFO that would otherwise block os.ReadFile) is
+// rejected cleanly (solvent-streets-ndit).
+func TestInclude_NonRegularFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "leaf"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Point the include at the directory itself, not a file inside it.
+	top := writeTOML(t, dir, "all/pvmt.toml", "[[include]]\npath = \"../leaf\"\n")
+	_, err := Load(top)
+	if err == nil || !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("include of a non-regular file should be ErrInvalidConfig, got %v", err)
 	}
 }
 

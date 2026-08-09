@@ -29,6 +29,14 @@ func (r *runner) checkStructure(s *site) {
 		return
 	}
 
+	// The site root classified as the sole example, yet child directories also
+	// look like exports — the audit is only covering the root and silently
+	// skipping those children. Flag it rather than passing vacuously.
+	if len(s.shadowed) > 0 {
+		r.warnf("structure: site root is an export but also has example subdirectories that were skipped: %s",
+			strings.Join(s.shadowed, ", "))
+	}
+
 	for _, ex := range s.examples {
 		r.checkExampleStructure(ex)
 	}

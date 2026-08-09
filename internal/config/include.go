@@ -19,6 +19,17 @@ type IncludeSpec struct {
 	Tags []string `toml:"tags"`
 }
 
+// maxIncludeDepth caps [[include]] recursion. Cycle detection keys on the
+// cleaned absolute path, which a directory symlink pointing at its own ancestor
+// (sub -> ., yielding /x/sub/pvmt.toml, /x/sub/sub/pvmt.toml, …) defeats: every
+// level is a distinct string, so without a depth cap loadResolved recurses to
+// stack exhaustion (an unrecoverable Go fatal, not a clean ErrInvalidConfig).
+// The same bypass exists on case-insensitive filesystems (/x/A.toml vs
+// /x/a.toml), which EvalSymlinks would not catch — so a depth cap, not just
+// symlink resolution, is the robust guard. 32 is far beyond any real include
+// tree (examples/all nests one level).
+const maxIncludeDepth = 32
+
 // loadResolved reads and parses the config at abs, recursively resolving its
 // [[include]] blocks and merging the included cities in. It returns the merged
 // config and the raw bytes of abs plus every file it (transitively) includes,
@@ -27,13 +38,28 @@ type IncludeSpec struct {
 // ancestors holds the files currently being resolved on this branch; a repeat
 // is an include cycle (a diamond — the same file reached via two different
 // parents — is allowed and simply re-read, since the union-by-slug merge
-// dedupes its cities).
-func loadResolved(abs string, ancestors map[string]bool) (*Config, [][]byte, error) {
+// dedupes its cities). depth is the current nesting level, capped at
+// maxIncludeDepth to stop a symlink pseudo-cycle before it exhausts the stack.
+func loadResolved(abs string, ancestors map[string]bool, depth int) (*Config, [][]byte, error) {
+	if depth > maxIncludeDepth {
+		return nil, nil, errors.Join(ErrInvalidConfig, fmt.Errorf(
+			"include nesting too deep (>%d) at %s; likely a symlink cycle", maxIncludeDepth, abs))
+	}
 	if ancestors[abs] {
 		return nil, nil, errors.Join(ErrInvalidConfig, fmt.Errorf("include cycle detected at %s", abs))
 	}
 	ancestors[abs] = true
 	defer delete(ancestors, abs)
+
+	// Reject a non-regular file before reading it: os.ReadFile on a FIFO
+	// (path = "/dev/stdin") blocks forever rather than returning. Stat follows
+	// symlinks, so a symlink to a regular file is still accepted.
+	if info, err := os.Stat(abs); err != nil {
+		return nil, nil, fmt.Errorf("read config: %w", err)
+	} else if !info.Mode().IsRegular() {
+		return nil, nil, errors.Join(ErrInvalidConfig,
+			fmt.Errorf("include %s is not a regular file", abs))
+	}
 
 	data, err := os.ReadFile(abs)
 	if err != nil {
@@ -62,7 +88,7 @@ func loadResolved(abs string, ancestors map[string]bool) (*Config, [][]byte, err
 		if err != nil {
 			return nil, nil, fmt.Errorf("resolve include %q: %w", inc.Path, err)
 		}
-		child, childBlobs, err := loadResolved(incAbs, ancestors)
+		child, childBlobs, err := loadResolved(incAbs, ancestors, depth+1)
 		if err != nil {
 			return nil, nil, fmt.Errorf("include %q: %w", inc.Path, err)
 		}

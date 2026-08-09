@@ -409,6 +409,29 @@ func TestCheckSite_SingleRootLayout(t *testing.T) {
 	}
 }
 
+// TestCheckSite_RootShadowsChildren guards solvent-streets-lof3: when the site
+// root classifies as an export AND child directories also look like exports, the
+// audit only covers the root and silently skips the children — so it must WARN
+// (and --strict must fail) rather than pass vacuously.
+func TestCheckSite_RootShadowsChildren(t *testing.T) {
+	dir := buildValidRootSite(t)
+	// A child directory that itself looks like a single-city export.
+	writeFile(t, filepath.Join(dir, "extra-ca", "index.html"), `<html><body>x</body></html>`)
+	writeDataDir(t, filepath.Join(dir, "extra-ca", "data"), 52.5, 50000)
+
+	out, err := run(t, dir, false)
+	if err != nil {
+		t.Fatalf("shadowing should warn, not fail (non-strict): %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "WARN") || !strings.Contains(out, "extra-ca") {
+		t.Errorf("expected a WARN naming the skipped child example:\n%s", out)
+	}
+	// --strict promotes the warning to a failure.
+	if _, err := run(t, dir, true); !errors.Is(err, cmdutil.ErrSilent) {
+		t.Errorf("strict should fail on the shadowing warning, got %v", err)
+	}
+}
+
 // addMultiCityExample appends a multi-city example named exSlug containing one
 // city citySlug, with cities.json and a full data dir using the given paved
 // values. Used to create a cross-example slug collision.

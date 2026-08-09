@@ -13,6 +13,12 @@ import (
 type site struct {
 	dir      string
 	examples []example
+	// shadowed names child directories that classify as exports but were
+	// skipped because the root itself classified first (see discoverSite's
+	// early return). Populated only in that root-as-sole-example case; a
+	// non-empty value means the audit is covering only the root and silently
+	// ignoring real child exports. checkStructure surfaces it as a WARN.
+	shadowed []string
 }
 
 // example is one exported tree. A current `pvmt export` produces exactly one,
@@ -49,7 +55,7 @@ func discoverSite(dir string) (*site, error) {
 	// trees nested one example per subdirectory; the child walk below is the
 	// fallback when the root itself is not an example.)
 	if ex, ok := classifyExample(filepath.Base(dir), dir); ok {
-		return &site{dir: dir, examples: []example{ex}}, nil
+		return &site{dir: dir, examples: []example{ex}, shadowed: shadowedChildren(dir)}, nil
 	}
 
 	entries, err := os.ReadDir(dir)
@@ -96,6 +102,31 @@ func classifyExample(slug, exDir string) (example, bool) {
 		return ex, true
 	}
 	return example{}, false
+}
+
+// shadowedChildren returns the names of dir's immediate child directories that
+// would themselves classify as exports. It runs only when the root already
+// classified as the sole example, so any hit is a directory the audit is about
+// to skip — a tree with a genuine per-example layout under a root that also
+// looks like an export. Returns nil (the normal single-root case) when no child
+// classifies. A read error is treated as "no children" — checkStructure already
+// FAILs a root with no readable examples.
+func shadowedChildren(dir string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if _, ok := classifyExample(e.Name(), filepath.Join(dir, e.Name())); ok {
+			names = append(names, e.Name())
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 func isDir(p string) bool {

@@ -395,7 +395,7 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve config path %q: %w", path, err)
 	}
-	cfg, blobs, err := loadResolved(abs, map[string]bool{})
+	cfg, blobs, err := loadResolved(abs, map[string]bool{}, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -484,6 +484,20 @@ func (c *Config) Validate() error {
 func (c *Config) validate(requireCities bool) error {
 	if requireCities && len(c.Cities) == 0 {
 		return errors.Join(ErrInvalidConfig, ErrNoCities)
+	}
+	// A config that pulls cities in via [[include]] must keep its own top-level
+	// [grid]/[forecast] empty. The merge flattens each included example's
+	// calibration into per-city overrides only for the fields that example set,
+	// so a non-empty top-level here would silently re-calibrate every city that
+	// inherited a package default — hundreds of forecast numbers changing with no
+	// diagnostic. Reject it (documented invariant; no shipped example violates
+	// it). Runs both per-file (a bad including file, incl. transitive parents)
+	// and post-merge, where Include is still populated and the top-level tables
+	// are unchanged, so it stays satisfied.
+	if len(c.Include) > 0 && (!forecastIsZero(c.Forecast) || c.Grid.HexEdgeM > 0) {
+		return errors.Join(ErrInvalidConfig, errors.New(
+			"a config with [[include]] must keep top-level [grid]/[forecast] empty; "+
+				"they would silently re-calibrate included cities (set per-city or per-example instead)"))
 	}
 	if c.Grid.HexEdgeM < 0 {
 		return errors.Join(ErrInvalidConfig,

@@ -46,6 +46,51 @@ const (
 	exportBoundaryB = `{"type":"Polygon","coordinates":[[[-121.5,37.5],[-121.4,37.5],[-121.4,37.6],[-121.5,37.6],[-121.5,37.5]]]}`
 )
 
+// TestCityEntry_InfoMapsTags: Info() carries the city's Tags into CityInfo — the
+// source of tags for cities.json and the index CITIES array (solvent-streets-8je6).
+func TestCityEntry_InfoMapsTags(t *testing.T) {
+	entry := exportTestEntry(&config.Config{}, "San Jose", "san-jose", exportBoundaryA, nil)
+	entry.City.Tags = []string{"Bay Area", "Top 50"}
+	info, err := entry.Info(context.Background())
+	if err != nil {
+		t.Fatalf("Info: %v", err)
+	}
+	if got := strings.Join(info.Tags, ","); got != "Bay Area,Top 50" {
+		t.Errorf("Info().Tags = %v; want [Bay Area Top 50]", info.Tags)
+	}
+	// An untagged city yields no tags.
+	untagged := exportTestEntry(&config.Config{}, "Reno", "reno", exportBoundaryB, nil)
+	uinfo, err := untagged.Info(context.Background())
+	if err != nil {
+		t.Fatalf("Info (untagged): %v", err)
+	}
+	if len(uinfo.Tags) != 0 {
+		t.Errorf("untagged city Info().Tags = %v; want empty", uinfo.Tags)
+	}
+}
+
+// TestRunMultiCity_WritesNojekyll asserts the multi-city path writes a zero-byte
+// .nojekyll at the site root (export.go:159), which only the single-city path
+// was asserting (solvent-streets-8je6).
+func TestRunMultiCity_WritesNojekyll(t *testing.T) {
+	cfg := &config.Config{}
+	entries := []CityEntry{
+		exportTestEntry(cfg, "Alpha", "alpha", exportBoundaryA, nil),
+		exportTestEntry(cfg, "Beta", "beta", exportBoundaryB, nil),
+	}
+	dir := t.TempDir()
+	if err := New(entries, cfg, dir, "metric").Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	info, err := os.Stat(filepath.Join(dir, ".nojekyll"))
+	if err != nil {
+		t.Fatalf(".nojekyll should exist after multi-city run: %v", err)
+	}
+	if info.Size() != 0 {
+		t.Errorf(".nojekyll should be zero-byte, got %d bytes", info.Size())
+	}
+}
+
 // TestRunSingleCity_ReusesExportedMetaAndSeed is the 7ou7.11 regression:
 // runSingleCity must render index.html from the very MetaJSON + forecast seed
 // that exportCityData already built and wrote, not a second from-scratch
