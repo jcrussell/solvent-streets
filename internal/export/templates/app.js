@@ -1026,6 +1026,37 @@
         // Financials
         const COLORS = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899'];
 
+        // Shared forecast helpers, used by the Financials, Materials, and
+        // interactive-forecast views.
+        //
+        // Cost/material tier → chart color; tierColor() applies the neutral
+        // fallback for an unrecognized tier label.
+        const TIER_COLORS = { preventive: '#22c55e', rehab: '#f59e0b', reconstruction: '#ef4444' };
+        function tierColor(label) { return TIER_COLORS[label] || '#9ca3af'; }
+        // Chart.js legend items for a tier-colored bar chart (Financials +
+        // Materials share this exact legend).
+        function tierLegendLabels() {
+            return [
+                { text: 'Preventive', fillStyle: TIER_COLORS.preventive, strokeStyle: TIER_COLORS.preventive },
+                { text: 'Rehab', fillStyle: TIER_COLORS.rehab, strokeStyle: TIER_COLORS.rehab },
+                { text: 'Reconstruction', fillStyle: TIER_COLORS.reconstruction, strokeStyle: TIER_COLORS.reconstruction }
+            ];
+        }
+        // The funding-level scenarios the charts plot (order matters for COLORS).
+        const FUNDING_SCENARIO_NAMES = ['baseline', 'fund-25pct', 'fund-50pct', 'fund-100pct'];
+        // scenarios.json / city.scenarios is scope-keyed ({city, bbox, summary}).
+        // effectiveScope resolves a preferred scope to one actually present;
+        // scenariosForScope selects the list for a scope with the city→bbox
+        // fallback every caller uses.
+        function effectiveScope(byScope, preferred) {
+            if (preferred === 'city' && !byScope.city && byScope.bbox) return 'bbox';
+            if (preferred === 'bbox' && !byScope.bbox && byScope.city) return 'city';
+            return preferred;
+        }
+        function scenariosForScope(byScope, scope) {
+            return byScope[scope] || byScope.city || byScope.bbox;
+        }
+
         // Vertical crosshair plugin: hover line + click-to-pin
         const verticalCrosshairPlugin = {
             id: 'verticalCrosshair',
@@ -1149,7 +1180,7 @@
 
             // Get funding-level scenarios
             const fundingScenarios = scenarios.filter(s =>
-                ['baseline', 'fund-25pct', 'fund-50pct', 'fund-100pct'].includes(s.scenario.name)
+                FUNDING_SCENARIO_NAMES.includes(s.scenario.name)
             );
 
             // 1. PCI over time
@@ -1228,8 +1259,7 @@
                 const card = makeChartCard('Annual Treatment Need by Condition Tier');
                 chartsDiv.appendChild(card);
                 const ctx = card.querySelector('canvas').getContext('2d');
-                const tierColors = { preventive: '#22c55e', rehab: '#f59e0b', reconstruction: '#ef4444' };
-                const bgColors = baseline.years.map(y => tierColors[y.cost_tier] || '#9ca3af');
+                const bgColors = baseline.years.map(y => tierColor(y.cost_tier));
                 currentCharts.push(new Chart(ctx, {
                     type: 'bar',
                     data: {
@@ -1248,15 +1278,7 @@
                             legend: {
                                 display: true,
                                 position: 'bottom',
-                                labels: {
-                                    generateLabels: function() {
-                                        return [
-                                            { text: 'Preventive', fillStyle: '#22c55e', strokeStyle: '#22c55e' },
-                                            { text: 'Rehab', fillStyle: '#f59e0b', strokeStyle: '#f59e0b' },
-                                            { text: 'Reconstruction', fillStyle: '#ef4444', strokeStyle: '#ef4444' }
-                                        ];
-                                    }
-                                }
+                                labels: { generateLabels: tierLegendLabels }
                             }
                         }
                     }
@@ -1409,15 +1431,11 @@
             // Fall back if currentScope is unsupported by the loaded
             // scenarios (e.g. URL said scope=city but this city only has
             // bbox data). Mirrors the same repair in loadCityData.
-            if (currentScope === 'city' && !scenarioData.city && scenarioData.bbox) {
-                currentScope = 'bbox';
-            } else if (currentScope === 'bbox' && !scenarioData.bbox && scenarioData.city) {
-                currentScope = 'city';
-            }
+            currentScope = effectiveScope(scenarioData, currentScope);
             queryAll('#scope-toggle button').forEach(b =>
                 b.classList.toggle('active', b.dataset.scope === currentScope));
             maybeRevealScopeToggle();
-            const scenarios = scenarioData[currentScope] || scenarioData.city || scenarioData.bbox;
+            const scenarios = scenariosForScope(scenarioData, currentScope);
 
             if (!scenarios || scenarios.length === 0) {
                 document.getElementById('charts').innerHTML = '<div class="no-data">No scenario data found.</div>';
@@ -1478,8 +1496,6 @@
         // figure; the do-nothing baseline's rising reconstruction share shows the
         // deferred-maintenance material blowout.
         var BARRELS_PER_TON_BINDER = 6.23;
-        var MATERIAL_TIER_COLORS = { preventive: '#22c55e', rehab: '#f59e0b', reconstruction: '#ef4444' };
-        var MATERIAL_FUNDING_NAMES = ['baseline', 'fund-25pct', 'fund-50pct', 'fund-100pct'];
 
         function destroyMaterialsCharts() {
             materialsCharts.forEach(function(c) { c.destroy(); });
@@ -1540,7 +1556,7 @@
                 // barrels/1000 m^2 = binderKgSqM * BARRELS_PER_TON_BINDER.
                 var oilPer1000 = binderKgSqM * BARRELS_PER_TON_BINDER;
                 var dot = '<span style="display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;background:' +
-                    (MATERIAL_TIER_COLORS[t.label] || '#9ca3af') + '"></span>';
+                    tierColor(t.label) + '"></span>';
                 return '<tr>' +
                     '<td>' + dot + esc(t.label) + '</td>' +
                     '<td class="number">' + t.mix_kg_per_sqm.toFixed(0) + '</td>' +
@@ -1573,7 +1589,7 @@
             var cycleYears = (seed && seed.treatment_cycle_years) || 12;
 
             var fundingScenarios = scenarios.filter(function(s) {
-                return MATERIAL_FUNDING_NAMES.includes(s.scenario.name);
+                return FUNDING_SCENARIO_NAMES.includes(s.scenario.name);
             });
             if (fundingScenarios.length === 0) fundingScenarios = scenarios.slice(0, 1);
 
@@ -1681,7 +1697,7 @@
                         datasets: [{
                             label: 'Asphalt Mix',
                             data: series.map(function(r) { return r.mixKg; }),
-                            backgroundColor: series.map(function(r) { return MATERIAL_TIER_COLORS[r.tier] || '#9ca3af'; })
+                            backgroundColor: series.map(function(r) { return tierColor(r.tier); })
                         }]
                     },
                     options: {
@@ -1689,11 +1705,7 @@
                         scales: { y: massAxis() },
                         plugins: {
                             verticalCrosshair: false,
-                            legend: { display: true, position: 'bottom', labels: { generateLabels: function() { return [
-                                { text: 'Preventive', fillStyle: MATERIAL_TIER_COLORS.preventive, strokeStyle: MATERIAL_TIER_COLORS.preventive },
-                                { text: 'Rehab', fillStyle: MATERIAL_TIER_COLORS.rehab, strokeStyle: MATERIAL_TIER_COLORS.rehab },
-                                { text: 'Reconstruction', fillStyle: MATERIAL_TIER_COLORS.reconstruction, strokeStyle: MATERIAL_TIER_COLORS.reconstruction }
-                            ]; } } },
+                            legend: { display: true, position: 'bottom', labels: { generateLabels: tierLegendLabels } },
                             tooltip: { callbacks: { label: function(ctx) { return fmtMass(ctx.parsed.y); } } }
                         }
                     }
@@ -1718,10 +1730,8 @@
             }
             // Scope fallback mirrors loadFinancials: honor currentScope but fall
             // back when the loaded scenarios lack it.
-            var scope = currentScope;
-            if (scope === 'city' && !scenarios.city && scenarios.bbox) scope = 'bbox';
-            else if (scope === 'bbox' && !scenarios.bbox && scenarios.city) scope = 'city';
-            var list = scenarios[scope] || scenarios.city || scenarios.bbox;
+            var scope = effectiveScope(scenarios, currentScope);
+            var list = scenariosForScope(scenarios, scope);
             renderMaterials(list, seed, scope);
         }
 
@@ -1827,7 +1837,7 @@
             updateHexGrid();
 
             if (scenarioData) {
-                const scenarios = scenarioData[scope] || scenarioData.city || scenarioData.bbox;
+                const scenarios = scenariosForScope(scenarioData, scope);
                 if (scenarios) renderFinancials(scenarios, scope);
                 if (wasmReady) {
                     runCustomScenario();
@@ -2065,12 +2075,11 @@
             }
             // Update tier chart
             if (chartRefs.tier) {
-                const tierColors = { preventive: '#22c55e', rehab: '#f59e0b', reconstruction: '#ef4444' };
                 const idx = chartRefs.tier.data.datasets.findIndex(ds => ds.label === 'Custom Need');
                 const ds = {
                     label: 'Custom Need',
                     data: years.map(y => y.annual_need),
-                    backgroundColor: years.map(y => (tierColors[y.cost_tier] || '#9ca3af') + '80'),
+                    backgroundColor: years.map(y => tierColor(y.cost_tier) + '80'),
                     borderColor: customColor,
                     borderWidth: 1
                 };
@@ -2302,7 +2311,7 @@
             // selection and honor currentScope (driven by the ?scope= param).
             m.baselineYears = [];
             var scenarios = city.scenarios
-                ? (city.scenarios[currentScope] || city.scenarios.city || city.scenarios.bbox || null)
+                ? (scenariosForScope(city.scenarios, currentScope) || null)
                 : null;
             if (scenarios && scenarios.length > 0) {
                 var baseline = scenarios[0];
