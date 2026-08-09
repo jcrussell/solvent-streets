@@ -353,7 +353,20 @@
         // Map
         const CENTER = PVMT_CONFIG.center;
         const layerColors = PVMT_CONFIG.layerColors;
-        const UNIT_SYSTEM = PVMT_CONFIG.unitSystem;
+        // Display units are a client-side preference. All emitted data is raw
+        // metric and the area/mass helpers below convert on the fly, so the unit
+        // system can change at runtime (see the gear-menu Units toggle) without a
+        // reload. localStorage persists the choice across visits; the config's
+        // [display].units (PVMT_CONFIG.unitSystem) seeds the first visit — so a
+        // standalone example keeps its configured default, and in the combined
+        // site every included city follows the one live preference.
+        let UNIT_SYSTEM = (function () {
+            try {
+                const u = localStorage.getItem('pvmtUnits');
+                if (u === 'metric' || u === 'imperial') return u;
+            } catch (e) { /* storage disabled (private mode): fall through */ }
+            return PVMT_CONFIG.unitSystem;
+        })();
 
         // Unit conversion helpers
         const SQM_TO_SQFT = 10.763910417;
@@ -494,6 +507,41 @@
             src.setData(buildBlendedHexFC());
         }
 
+        // lastCityMeta holds the most recently loaded city's meta.json so a units
+        // toggle can re-render the (always-visible) stats panel from it without
+        // rebuilding the map layers loadCityData otherwise touches.
+        let lastCityMeta = null;
+
+        // renderCityStats paints the side-panel stat cards for one city's meta.
+        // Split from loadCityData so a units switch re-renders them in place; it
+        // also refreshes savedPanelHTML so the hex-detail panel's Close button
+        // restores the panel in the current units.
+        function renderCityStats(meta) {
+            const statsEl = document.getElementById('stats');
+            if (!statsEl || !meta) return;
+            let statsHTML = '';
+            if (meta.city_area && meta.city_area > 0) {
+                statsHTML +=
+                    '<div class="stat-card summary-card"><h3>City Summary</h3>' +
+                    '<div class="stat-row"><span class="stat-label">City Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + toAreaLarge(meta.city_area).toFixed(1) + '</span></div>' +
+                    '<div class="stat-row"><span class="stat-label">City Area (' + areaVeryLargeUnit() + ')</span><span class="stat-value">' + toAreaVeryLarge(meta.city_area).toFixed(2) + '</span></div>' +
+                    '<div class="stat-row"><span class="stat-label">Total Paved (' + areaLargeUnit() + ')</span><span class="stat-value">' + toAreaLarge(meta.total_paved || 0).toFixed(1) + '</span></div>' +
+                    '<div class="stat-row"><span class="stat-label">% Paved</span><span class="stat-value">' + (meta.pct_paved || 0).toFixed(1) + '%</span></div>' +
+                    '</div>';
+            }
+            (meta.stats || []).forEach(s => {
+                const areaLargeVal = toAreaLarge(s.total_area);
+                statsHTML +=
+                    '<div class="stat-card"><h3>' + s.type + '</h3>' +
+                    '<div class="stat-row"><span class="stat-label">Features</span><span class="stat-value">' + s.feature_count + '</span></div>' +
+                    '<div class="stat-row"><span class="stat-label">Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + areaLargeVal.toFixed(1) + '</span></div>' +
+                    '<div class="stat-row"><span class="stat-label">Area (' + areaVeryLargeUnit() + ')</span><span class="stat-value">' + toAreaVeryLarge(s.total_area).toFixed(2) + '</span></div>' +
+                    '</div>';
+            });
+            statsEl.innerHTML = statsHTML;
+            savedPanelHTML = statsHTML;
+        }
+
         async function loadCityData() {
             const gen = ++cityLoadGen; // bail stale loads after each await
             const prefix = DATA_PREFIX; // snapshot to avoid mid-await mutation
@@ -518,28 +566,8 @@
                     if (subtitleEl && meta.snapshot_date) {
                         subtitleEl.textContent = 'Pavement & Parking Analysis | Last computed ' + meta.snapshot_date;
                     }
-                    const statsEl = document.getElementById('stats');
-                    let statsHTML = '';
-                    if (meta.city_area && meta.city_area > 0) {
-                        statsHTML +=
-                            '<div class="stat-card summary-card"><h3>City Summary</h3>' +
-                            '<div class="stat-row"><span class="stat-label">City Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + toAreaLarge(meta.city_area).toFixed(1) + '</span></div>' +
-                            '<div class="stat-row"><span class="stat-label">City Area (' + areaVeryLargeUnit() + ')</span><span class="stat-value">' + toAreaVeryLarge(meta.city_area).toFixed(2) + '</span></div>' +
-                            '<div class="stat-row"><span class="stat-label">Total Paved (' + areaLargeUnit() + ')</span><span class="stat-value">' + toAreaLarge(meta.total_paved || 0).toFixed(1) + '</span></div>' +
-                            '<div class="stat-row"><span class="stat-label">% Paved</span><span class="stat-value">' + (meta.pct_paved || 0).toFixed(1) + '%</span></div>' +
-                            '</div>';
-                    }
-                    (meta.stats || []).forEach(s => {
-                        const areaLargeVal = toAreaLarge(s.total_area);
-                        statsHTML +=
-                            '<div class="stat-card"><h3>' + s.type + '</h3>' +
-                            '<div class="stat-row"><span class="stat-label">Features</span><span class="stat-value">' + s.feature_count + '</span></div>' +
-                            '<div class="stat-row"><span class="stat-label">Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + areaLargeVal.toFixed(1) + '</span></div>' +
-                            '<div class="stat-row"><span class="stat-label">Area (' + areaVeryLargeUnit() + ')</span><span class="stat-value">' + toAreaVeryLarge(s.total_area).toFixed(2) + '</span></div>' +
-                            '</div>';
-                    });
-                    statsEl.innerHTML = statsHTML;
-                    savedPanelHTML = statsHTML;
+                    lastCityMeta = meta;
+                    renderCityStats(meta);
                 }
             }
 
@@ -2260,6 +2288,45 @@
             applyTagScope(value);
             Router.push();
         }
+
+        // --- Units toggle (gear menu) --------------------------------------
+        // Display units are a client-side preference; the data is raw metric, so
+        // a switch only re-runs the unit-dependent render paths. It touches the
+        // map layers as little as possible: the stats panel re-renders from the
+        // cached meta, hex tooltips read UNIT_SYSTEM live on hover, and each
+        // data-tab re-renders through its own path.
+        function syncUnitsToggle() {
+            queryAll('#units-toggle button').forEach(function (b) {
+                b.classList.toggle('active', b.dataset.units === UNIT_SYSTEM);
+            });
+        }
+        function selectUnits(sys) {
+            if ((sys !== 'metric' && sys !== 'imperial') || sys === UNIT_SYSTEM) return;
+            UNIT_SYSTEM = sys;
+            try { localStorage.setItem('pvmtUnits', sys); } catch (e) { /* storage disabled */ }
+            syncUnitsToggle();
+            // Stats panel is always visible — re-render it in place (no map rebuild).
+            renderCityStats(lastCityMeta);
+            // Financials is loaded once per city and is NOT re-triggered by
+            // selectTab, so re-render it now regardless of the active tab.
+            loadFinancials();
+            // Materials reloads unconditionally on tab open, so only the active
+            // tab needs an immediate reload.
+            reloadMaterialsIfActive();
+            // Compare is a one-shot (compareLoaded gates its only render): reset the
+            // guard so a later reopen re-renders in the new units, and re-render now
+            // if Compare/Aggregate is the active tab. Both read the cached all-city
+            // data — no refetch. Mirrors applyTagScope.
+            compareLoaded = false;
+            var active = queryEl('.tab-btn.active');
+            var id = active ? active.dataset.tab : '';
+            if (id === 'compare-tab') loadCompareData();
+            else if (id === 'aggregate-tab') loadAggregateData();
+        }
+        queryAll('#units-toggle button').forEach(function (b) {
+            b.addEventListener('click', function () { selectUnits(b.dataset.units); });
+        });
+        syncUnitsToggle();
 
         function extractMetrics(city) {
             var m = { name: city.name, slug: city.slug };
