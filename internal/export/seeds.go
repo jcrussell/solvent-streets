@@ -43,8 +43,13 @@ type ForecastSeedJSON struct {
 	// each year's treated area (area / treatment_cycle_years) to estimate annual
 	// asphalt/binder/oil demand. Aligned label-for-label with CostTiers.
 	MaterialTiers []forecast.MaterialTier `json:"material_tiers,omitempty"`
-	Cohorts       []CohortSeed            `json:"cohorts,omitempty"`
-	CityCohorts   []CohortSeed            `json:"city_cohorts,omitempty"`
+	// BarrelsPerTonBinder is the crude-oil-equivalent barrels per tonne of
+	// asphalt binder, shipped so the Materials tab's oil figures use the same
+	// factor as the Go model (forecast.BarrelsPerTonBinder) rather than a
+	// duplicated JS constant that could drift.
+	BarrelsPerTonBinder float64      `json:"barrels_per_ton_binder,omitempty"`
+	Cohorts             []CohortSeed `json:"cohorts,omitempty"`
+	CityCohorts         []CohortSeed `json:"city_cohorts,omitempty"`
 }
 
 // BuildForecastSeed constructs a ForecastSeedJSON for the given forecast config and store.
@@ -102,6 +107,7 @@ func BuildForecastSeed(ctx context.Context, fc *config.ForecastConfig, store db.
 		CityPaved:           cityArea,
 		CostTiers:           costTiers,
 		MaterialTiers:       forecast.DefaultMaterialTiers,
+		BarrelsPerTonBinder: forecast.BarrelsPerTonBinder,
 		Cohorts:             cohortSeeds,
 		CityCohorts:         cityCohortSeeds,
 	}

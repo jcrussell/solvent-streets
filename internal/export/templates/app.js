@@ -1495,6 +1495,11 @@
         // best-funded scenario (highest final PCI) as the "network kept in repair"
         // figure; the do-nothing baseline's rising reconstruction share shows the
         // deferred-maintenance material blowout.
+        //
+        // Default binder→oil factor; renderMaterials overrides it from the seed
+        // (barrels_per_ton_binder / forecast.BarrelsPerTonBinder) so Go and the
+        // browser share one source of truth. Read at call time by the render
+        // helpers below, so updating it before they run is sufficient.
         var BARRELS_PER_TON_BINDER = 6.23;
 
         function destroyMaterialsCharts() {
@@ -1568,18 +1573,30 @@
             section.style.display = '';
         }
 
-        function renderMaterials(scenarios, seed, scope) {
+        function renderMaterials(scenarios, seed) {
             var chartsDiv = document.getElementById('materials-charts');
             destroyMaterialsCharts();
             chartsDiv.innerHTML = '';
-            if (!scenarios || scenarios.length === 0) {
+            function showEmpty(msg) {
                 document.getElementById('materials-headlines').style.display = 'none';
                 document.getElementById('materials-tier-section').style.display = 'none';
                 document.getElementById('materials-note').style.display = 'none';
-                chartsDiv.innerHTML = '<div class="no-data">No scenario data found.</div>';
+                chartsDiv.innerHTML = '<div class="no-data">' + msg + '</div>';
+            }
+            if (!scenarios || scenarios.length === 0) {
+                showEmpty('No scenario data found.');
                 return;
             }
             var tiers = (seed && seed.material_tiers) || [];
+            // Without per-tier intensities there is nothing to multiply treated
+            // area by; show a message rather than misleading all-zero charts
+            // (e.g. an older seed, or one that failed to load).
+            if (tiers.length === 0) {
+                showEmpty('No material intensities in the forecast seed. Re-run <code>pvmt export</code> to refresh it.');
+                return;
+            }
+            // Prefer the seed's binder→oil factor; keep the JS default otherwise.
+            if (seed && seed.barrels_per_ton_binder) BARRELS_PER_TON_BINDER = seed.barrels_per_ton_binder;
             var tierByLabel = {};
             tiers.forEach(function(t) { tierByLabel[t.label] = t; });
             // Highest-intensity tier, used as the unmatched-label fallback.
@@ -1732,7 +1749,7 @@
             // back when the loaded scenarios lack it.
             var scope = effectiveScope(scenarios, currentScope);
             var list = scenariosForScope(scenarios, scope);
-            renderMaterials(list, seed, scope);
+            renderMaterials(list, seed);
         }
 
         // Set by renderAggregate once the region data loads: true when any

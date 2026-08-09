@@ -118,6 +118,11 @@ func TestForecastSeeds_CarryMaterialTiers(t *testing.T) {
 		if len(seed.MaterialTiers) == 0 {
 			t.Fatalf("MaterialTiers is empty; want the default asphalt tiers")
 		}
+		// The binder→oil factor must ship so the Materials tab shares the Go
+		// model's constant instead of its own duplicated literal.
+		if seed.BarrelsPerTonBinder != forecast.BarrelsPerTonBinder {
+			t.Errorf("BarrelsPerTonBinder = %v, want %v", seed.BarrelsPerTonBinder, forecast.BarrelsPerTonBinder)
+		}
 		// Every cost tier must have a same-labeled material tier.
 		for _, ct := range seed.CostTiers {
 			found := false

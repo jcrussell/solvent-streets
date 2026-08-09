@@ -195,6 +195,7 @@ func BuildMultiCityForecastSeed(ctx context.Context, fc *config.ForecastConfig, 
 		CityPaved:           cityArea,
 		CostTiers:           costTiers,
 		MaterialTiers:       forecast.DefaultMaterialTiers,
+		BarrelsPerTonBinder: forecast.BarrelsPerTonBinder,
 		Cohorts:             mergeCohortSeeds(ctx, entries, fc, false),
 		CityCohorts:         mergeCohortSeeds(ctx, entries, fc, true),
 	}
