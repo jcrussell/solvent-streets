@@ -230,11 +230,9 @@ func GroupCitiesByTag(cities []CityInfo) []CityGroup {
 		return nil
 	}
 	byTag := make(map[string][]CityInfo)
-	var hasUntagged bool
 	for _, c := range cities {
 		if len(c.Tags) == 0 {
 			byTag[""] = append(byTag[""], c)
-			hasUntagged = true
 			continue
 		}
 		for _, t := range c.Tags {
@@ -263,8 +261,13 @@ func GroupCitiesByTag(cities []CityInfo) []CityGroup {
 	for _, t := range tags {
 		appendSortedGroup(t)
 	}
-	// Untagged cities last, only if any exist.
-	if hasUntagged {
+	// Untagged cities last, only if any exist. Keyed off the map rather than a
+	// flag set in the len(Tags)==0 branch: a city carrying an explicit empty
+	// tag string also lands in byTag[""], and a flag would leave that group
+	// unrendered — dropping the city from the selector entirely while it
+	// stayed in cities.json. config rejects empty tags, so this is belt and
+	// braces for any CityInfo built outside that path.
+	if _, ok := byTag[""]; ok {
 		appendSortedGroup("")
 	}
 	return groups

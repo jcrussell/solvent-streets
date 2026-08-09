@@ -61,9 +61,14 @@ tags = ["Bay Area", "Top 50"]
 ```
 
 - The city selector renders one `<optgroup>` per tag; a city with several tags appears under each. Cities with no tags fall into an ungrouped "Other" group.
-- The dashboard's `#tag-scope` selector filters the Compare and Aggregate tabs to a single tag ("All cities" restores the global rollup). This is independent of the city-vs-all-jurisdiction scope toggle.
+- The dashboard's `#tag-scope` selector filters the Compare and Aggregate tabs to a single tag ("All cities" restores the global rollup). This is independent of the city-vs-all-jurisdiction scope toggle. The active tag is recorded in the URL as `?tag=`, so a filtered view is shareable and survives back/forward.
+- Tag labels must be non-blank; an empty string is rejected at load rather than silently grouping the city as untagged.
 
 Tags are often assigned at the `[[include]]` site (below) rather than per city, so a city pulled in by several includes accumulates the union of their tags automatically.
+
+### Migrating from `region`
+
+`tags` replaces the older single-valued `region` key. Unknown keys are a hard error, so a config still carrying `region = "…"` fails at load with `unknown config key(s): cities.region` — replace it with `tags = ["…"]`. The rename also flips the published `cities.json` and the `/api/cities` response from `region` to `tags`, so any external consumer reading `region` needs the same change.
 
 ## Including other configs (`[[include]]`)
 
@@ -151,7 +156,7 @@ Cost values are calibration inputs, not measurements — the shipped defaults ar
 
 ## Export
 
-`[export].title` sets the region name headlining the multi-city landing page of an exported site; when unset it falls back to the output directory's base name.
+`[export].title` sets the name headlining a multi-city exported dashboard; when unset it falls back to the output directory's base name. Only the top-level config's title is used — a title set in a file pulled in via `[[include]]` is discarded along with the rest of its non-`[[cities]]` settings.
 
 `[export].coordinate_decimals` (default `6`) controls the precision of `[lon, lat]` floats in emitted hex GeoJSON. 6 decimals ≈ 11 cm — plenty for a city-scale heatmap. Set higher (e.g. 7 for ~1 cm) if a downstream consumer genuinely needs finer resolution, or lower (e.g. 5 for ~1 m) to squeeze further. Boundary GeoJSON is unaffected (it's stored raw from Nominatim and embedded as-is).
 

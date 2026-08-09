@@ -129,8 +129,8 @@ func (e *Exporter) exportOneCity(ctx context.Context, entry CityEntry) (CityInfo
 	if err := os.MkdirAll(cityDataDir, 0o755); err != nil {
 		return CityInfo{}, false, fmt.Errorf("create city dir %s: %w", entry.Slug, err)
 	}
-	// Multi-city discards the per-city meta/seed: the landing page renders
-	// region-wide aggregates (BuildMultiCityMeta / BuildMultiCityForecastSeed),
+	// Multi-city discards the per-city meta/seed: the dashboard renders
+	// config-wide aggregates (BuildMultiCityMeta / BuildMultiCityForecastSeed),
 	// and exportOneCity only needs the per-city bbox/center via entry.Info.
 	if _, _, err := e.exportCityData(ctx, entry, cityDataDir); err != nil {
 		if errors.Is(err, ErrNoBoundary) {
@@ -194,15 +194,15 @@ func (e *Exporter) runMultiCity(ctx context.Context) error {
 		}
 	}
 
-	// Render the regional landing page: aggregated meta and forecast seed
-	// across all sub-cities. Without this aggregation the landing silently
-	// presents the first city's totals as the regional headline.
-	regionName := e.cfg.Export.Title
-	if regionName == "" {
-		regionName = filepath.Base(e.outputDir)
+	// Render the dashboard index: aggregated meta and forecast seed across all
+	// sub-cities. Without this aggregation the dashboard silently presents the
+	// first city's totals as the headline for the whole config.
+	title := e.cfg.Export.Title
+	if title == "" {
+		title = filepath.Base(e.outputDir)
 	}
 	fc := e.cfg.ResolvedForecast(nil)
-	meta, err := BuildMultiCityMeta(ctx, e.entries, regionName)
+	meta, err := BuildMultiCityMeta(ctx, e.entries, title)
 	if err != nil {
 		return err
 	}

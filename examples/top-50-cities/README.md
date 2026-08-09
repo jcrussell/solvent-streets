@@ -45,8 +45,11 @@ pvmt all compute
 pvmt serve           # local dashboard; per-city sub-pages at /cities/<slug>/
 ```
 
-Or, from the repo root, `make site` to publish via `gensite`. The
-example appears on the landing page as "Top 50 Cities".
+Or, from the repo root, `make site` to publish the combined dashboard
+(`examples/all/`). These cities carry the "Top 50" tag there: they appear
+under that `<optgroup>` in the city selector, and the Compare and Aggregate
+tabs can be scoped to it. Cities that are also in a metro example — San Jose
+is in both this list and `bay-area-ca` — are merged once and carry both tags.
 
 ## Why coarser hexes on big cities
 

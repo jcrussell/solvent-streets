@@ -499,6 +499,22 @@ func (c *Config) validate(requireCities bool) error {
 	return c.validateCities()
 }
 
+// validateTags rejects blank tag labels on one city. A blank tag is never what
+// the author meant, and it groups the city under the exporter's "untagged"
+// bucket rather than a named optgroup — a silent mis-grouping. unionTags strips
+// empties, but only for cities arriving through [[include]]; a directly
+// declared city bypasses it. Split out of validateCities for the same reason
+// that function was split out of validate: cognitive complexity.
+func validateTags(i int, city CityConfig) error {
+	for j, tag := range city.Tags {
+		if strings.TrimSpace(tag) == "" {
+			return errors.Join(ErrInvalidConfig,
+				fmt.Errorf("cities[%d] (%s): tags[%d] is empty; remove it or give it a label", i, city.Name, j))
+		}
+	}
+	return nil
+}
+
 // validateCities checks per-city shape invariants and slug uniqueness. Split
 // from validate to keep each function's cognitive complexity in bounds.
 func (c *Config) validateCities() error {
@@ -523,6 +539,9 @@ func (c *Config) validateCities() error {
 		if city.BoundaryRelationID < 0 {
 			return errors.Join(ErrInvalidConfig,
 				fmt.Errorf("cities[%d] (%s): boundary_relation_id %d must be non-negative", i, city.Name, city.BoundaryRelationID))
+		}
+		if err := validateTags(i, city); err != nil {
+			return err
 		}
 		if city.Forecast != nil {
 			if err := city.Forecast.Validate(); err != nil {

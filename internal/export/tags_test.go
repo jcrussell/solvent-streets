@@ -136,6 +136,33 @@ func TestGroupCitiesByTag_AllUntagged(t *testing.T) {
 	}
 }
 
+// TestGroupCitiesByTag_EmptyTagString pins the untagged group being keyed off
+// the map rather than a flag set only in the len(Tags)==0 branch. A city
+// carrying an explicit "" tag lands in the same bucket; under the flag the
+// group went unrendered and the city vanished from the selector while still
+// appearing in cities.json. config.validateCities rejects empty tags, so this
+// guards CityInfo built outside that path.
+func TestGroupCitiesByTag_EmptyTagString(t *testing.T) {
+	cities := []CityInfo{
+		{Name: "Oakland", Tags: []string{"Bay Area"}},
+		{Name: "Ghost", Tags: []string{""}},
+	}
+	got := GroupCitiesByTag(cities)
+
+	wantTags := []string{"Bay Area", ""}
+	if len(got) != len(wantTags) {
+		t.Fatalf("expected %d groups, got %d: %+v", len(wantTags), len(got), got)
+	}
+	for i, w := range wantTags {
+		if got[i].Tag != w {
+			t.Errorf("group[%d].Tag = %q; want %q", i, got[i].Tag, w)
+		}
+	}
+	if names := cityNames(got[1].Cities); !equalSlice(names, []string{"Ghost"}) {
+		t.Errorf("untagged cities = %v; want [Ghost]", names)
+	}
+}
+
 // TestGroupCitiesByTag_Empty asserts nil in, nil out.
 func TestGroupCitiesByTag_Empty(t *testing.T) {
 	if got := GroupCitiesByTag(nil); got != nil {

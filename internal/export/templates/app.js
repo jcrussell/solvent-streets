@@ -37,6 +37,7 @@
                 return {
                     city:     p.get('city'),
                     tab:      p.get('tab'),
+                    tag:      p.get('tag'),
                     scope:    p.get('scope'),
                     snapshot: p.get('snapshot'),
                 };
@@ -51,9 +52,15 @@
                 const scopeVis = scopeRow && !scopeRow.hidden;
                 const snapEl   = selectById('snapshot-picker');
                 const sel      = selectById('city-select');
+                // Same visibility rule as scope: #tag-scope is only shown on
+                // the Compare/Aggregate tabs, so serializing it elsewhere would
+                // pin a ?tag= to a tab where it does nothing.
+                const tagEl    = selectById('tag-scope');
+                const tagVis   = tagEl && !tagEl.hidden;
                 return {
                     city:     sel ? sel.value : null,
                     tab:      tabBtn ? tabBtn.dataset.tab : null,
+                    tag:      tagVis ? tagEl.value : null,
                     scope:    (scopeVis && scopeBtn) ? scopeBtn.dataset.scope : null,
                     snapshot: snapEl ? snapEl.value : null,
                 };
@@ -61,7 +68,7 @@
             push() {
                 const s = this.current();
                 const p = new URLSearchParams();
-                for (const k of ['city', 'tab', 'scope', 'snapshot']) {
+                for (const k of ['city', 'tab', 'tag', 'scope', 'snapshot']) {
                     if (s[k]) p.set(k, s[k]);
                 }
                 const qs = p.toString();
@@ -120,6 +127,19 @@
                 const sel = selectById('city-select');
                 if (sel && sel.value) DATA_PREFIX = 'cities/' + sel.value + '/';
             }
+            // Seed the tag filter BEFORE the tab block below: that block calls
+            // loadCompareData()/loadAggregateData(), which read selectedTag via
+            // scopeCityData, so seeding afterwards would render the unfiltered
+            // set on a ?tag= deep link. Unknown labels are ignored rather than
+            // filtering everything away. The else-branch matters too: browsers
+            // that restore form state across reload/bfcache (Firefox) would
+            // otherwise show a tag in #tag-scope while the data shows all cities.
+            const initTagEl = selectById('tag-scope');
+            if (initTagEl) {
+                const known = init.tag && Array.from(initTagEl.options).some(o => o.value === init.tag);
+                selectedTag = known ? init.tag : '';
+                initTagEl.value = selectedTag;
+            }
             if (init.tab && document.getElementById(init.tab)) {
                 queryAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === init.tab));
                 queryAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === init.tab));
@@ -162,8 +182,26 @@
             // on a same-city snapshot-only navigation would clobber targetSnap
             // (set above) and reload against Latest. The snapshot-only branch
             // below handles that case explicitly.
+            // Restore the tag filter before the tab switch below: selectTab
+            // kicks off loadCompareData/loadAggregateData, which read
+            // selectedTag via scopeCityData. Clearing compareLoaded here (not
+            // after) is what lets that one-shot loader re-render; otherwise the
+            // leaderboard keeps the previous filter's rows while the URL claims
+            // otherwise.
+            const tagEl = selectById('tag-scope');
+            const targetTag = s.tag == null ? '' : String(s.tag);
+            const tagChanged = selectedTag !== targetTag;
+            if (tagEl) tagEl.value = targetTag;
+            if (tagChanged) {
+                selectedTag = targetTag;
+                compareLoaded = false;
+            }
             if (cityChanged) selectCity(s.city, { push: false });
             if (s.tab)  selectTab(s.tab,   { push: false });
+            // A hand-edited URL can carry ?tag= with no ?tab=, so selectTab
+            // never fired and nothing re-rendered. Router.push always writes
+            // both, so this only guards that case.
+            if (tagChanged && !s.tab) applyTagScope(targetTag);
             // Snapshot-only change (no city change) needs an explicit reload —
             // selectCity didn't fire so loadCityData/loadFinancials weren't called.
             if (!cityChanged && snapshotChanged) {
@@ -1890,19 +1928,29 @@
             renderAggregate(scopeCityData(await loadAllCityData()));
         }
 
-        // onTagScopeChange re-scopes the Compare/Aggregate tabs. Compare is
-        // one-shot (compareLoaded gates its only render), so reset that guard to
-        // force a re-render; Aggregate always re-renders. Only the active tab is
-        // re-run — the other picks up selectedTag when next opened. renderAggregate
-        // recomputes regionHasBothScopes from the filtered set and re-reveals the
-        // city/all-jurisdiction toggle accordingly.
-        function onTagScopeChange(value) {
+        // applyTagScope re-scopes the Compare/Aggregate tabs to a tag label
+        // ('' = all cities). Compare is one-shot (compareLoaded gates its only
+        // render), so reset that guard to force a re-render; Aggregate always
+        // re-renders. Only the active tab is re-run — the other picks up
+        // selectedTag when next opened. renderAggregate recomputes
+        // regionHasBothScopes from the filtered set and re-reveals the
+        // city/all-jurisdiction toggle accordingly. Shared with popstate, which
+        // needs the same guard reset when a history entry changes the tag.
+        function applyTagScope(value) {
             selectedTag = value;
             compareLoaded = false;
-            var active = document.querySelector('.tab-content.active');
-            var id = active ? active.id : '';
+            var btn = queryEl('.tab-btn.active');
+            var id = btn ? btn.dataset.tab : '';
             if (id === 'compare-tab') loadCompareData();
             else if (id === 'aggregate-tab') loadAggregateData();
+        }
+
+        // onTagScopeChange handles the #tag-scope selector: re-scope, then
+        // record the tag in the URL so a filtered Compare/Aggregate view is
+        // shareable and survives back/forward like every other selector.
+        function onTagScopeChange(value) {
+            applyTagScope(value);
+            Router.push();
         }
 
         function extractMetrics(city) {

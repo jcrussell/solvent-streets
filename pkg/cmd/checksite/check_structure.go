@@ -10,7 +10,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/export"
 )
 
-// rootAssets are the files every site root must carry alongside the examples.
+// rootAssets are the files every site root must carry alongside its city data.
 var rootAssets = []string{"index.html", ".nojekyll", "pvmt.wasm", "wasm_exec.js", "app.js", "game.js"}
 
 // checkStructure verifies the site root carries its shared assets and every

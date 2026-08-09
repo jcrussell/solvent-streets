@@ -253,8 +253,8 @@ func TestBuildManifest_SingleCity(t *testing.T) {
 	}
 }
 
-// TestBuildManifest_MultiCity exercises the regional layout: files
-// under cities/<slug>/ attach to that entry; the regional landing page,
+// TestBuildManifest_MultiCity exercises the multi-city layout: files
+// under cities/<slug>/ attach to that entry; the dashboard index,
 // cities.json, and WASM assets are Shared. Each entry keeps its own
 // (sorted) file list even when the walk order is interleaved.
 func TestBuildManifest_MultiCity(t *testing.T) {

@@ -158,6 +158,35 @@ func TestConfig_Validate_BoundaryRelationID_AcceptsZeroAndPositive(t *testing.T)
 	}
 }
 
+// TestConfig_Validate_Tags_RejectsBlank pins blank tags being caught at the
+// config boundary. A blank tag groups the city under the exporter's "untagged"
+// bucket instead of a named optgroup — a silent mis-grouping the author never
+// asked for. unionTags strips empties, but only for cities arriving through
+// [[include]]; a directly declared city reaches the exporter unfiltered.
+func TestConfig_Validate_Tags_RejectsBlank(t *testing.T) {
+	for _, tag := range []string{"", " ", "\t"} {
+		cfg := Config{
+			Cities: []CityConfig{{Name: "Oakland", Tags: []string{"Bay Area", tag}}},
+		}
+		err := cfg.Validate()
+		if err == nil {
+			t.Fatalf("expected error for blank tag %q, got nil", tag)
+		}
+		if !errors.Is(err, ErrInvalidConfig) {
+			t.Errorf("tag %q: error %v does not chain to ErrInvalidConfig", tag, err)
+		}
+	}
+}
+
+func TestConfig_Validate_Tags_AcceptsLabels(t *testing.T) {
+	cfg := Config{
+		Cities: []CityConfig{{Name: "San Jose", Tags: []string{"Bay Area", "Top 50"}}},
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() rejected valid tags: %v", err)
+	}
+}
+
 func TestConfig_Validate_MinHexArea_RejectsNegative(t *testing.T) {
 	cfg := Config{
 		Display: DisplayConfig{MinHexArea: -1},

@@ -101,6 +101,7 @@ help:
 	@echo "  wasm          rebuild forecast WASM (embedded into binary)"
 	@echo "  gendocs       regenerate docs/reference/ from cobra"
 	@echo "  site          render the combined tagged static site to \$$SITE_DIR"
+	@echo "                (needs examples/all ingested + computed first — see examples/all/pvmt.toml)"
 	@echo "  deploy        push existing \$$SITE_DIR to gh-pages (run 'make site' first)"
 	@echo "  clean         remove build outputs"
 

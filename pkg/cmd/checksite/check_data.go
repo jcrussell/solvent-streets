@@ -134,7 +134,9 @@ func baselineViolation(fc export.ForecastExport) string {
 
 // checkConsistency warns when a city slug appearing in more than one example
 // reports paved areas that diverge by 0.01% or more (relative). A slug seen in
-// only one example has nothing to compare and is skipped silently.
+// only one example has nothing to compare and is skipped silently — which is
+// every slug on a single-root export, where the [[include]] merge already
+// dedupes by slug. This only bites on a nested multi-export tree.
 //
 // This is a WARN, not a FAIL: check-site reads only the built tree and cannot
 // see each example's pvmt.toml, so it can't tell an accidental divergence from

@@ -13,6 +13,19 @@ The showcase is metro-focused: each config covers several jurisdictions so
 the **Compare** tab can rank neighboring cities against each other — the
 question solvent-streets exists to answer.
 
+## The published site: [all](all/)
+
+`all/pvmt.toml` is the config behind <https://joncrussell.com/solvent-streets/>
+and the one `make site` builds. It declares no cities of its own — a
+`[[include]]` block per example unions them all into one tagged config (277
+cities), so a city reached through several includes is merged once and carries
+the union of their tags. See
+[Including other configs](../docs/configuration.md#including-other-configs-include).
+
+It ships without pre-computed artifacts, so it needs every included example's
+data first — `cd examples/all && pvmt all ingest && pvmt all compute` — which
+takes hours. Try a single example below before reaching for this one.
+
 ## Featured: [livermore-ca](livermore-ca/)
 
 Simple single-city setup with both OpenStreetMap (Overpass) and Alameda

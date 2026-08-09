@@ -15,9 +15,11 @@ type site struct {
 	examples []example
 }
 
-// example is one card on the landing page: a subdirectory of the site root.
-// It is single-city (DataDir set, the data/ directory directly under the
-// example) or multi-city (Cities set, one entry per cities/<slug>/).
+// example is one exported tree. A current `pvmt export` produces exactly one,
+// rooted at the site root itself (see discoverSite); the multi-example form
+// survives for older trees that nested one export per subdirectory. Either way
+// it is single-city (dataDir set, the data/ directory directly under the
+// example) or multi-city (cities set, one entry per cities/<slug>/).
 type example struct {
 	slug     string // directory name under the site root
 	dir      string // absolute path to the example directory

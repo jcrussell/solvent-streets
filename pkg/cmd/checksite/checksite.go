@@ -39,14 +39,19 @@ network, or config — that mechanizes the manual publish-readiness review,
 including the check that once caught a shipped near-zero-paved-area geometry
 bug.
 
+A current 'pvmt export' writes one tree rooted at the given directory, so the
+audit normally runs against that single export; trees that nest one export per
+subdirectory (the retired multi-site layout) are still discovered and audited
+per subdirectory.
+
 The following checks run over the given directory (default "site"):
 
-  - STRUCTURE: every example carries the expected per-city data files
+  - STRUCTURE: every city carries the expected data files
     (boundary.geojson, hexgrid.geojson, meta.json, forecast_seed.json,
     forecast.json, hex-cost-summary.json, scenarios.json) and the site root
     has index.html, .nojekyll, pvmt.wasm, and wasm_exec.js.
-  - REFERENCES: every local asset referenced by an example index.html
-    (../pvmt.wasm, ../wasm_exec.js, local .css/.js) resolves on disk.
+  - REFERENCES: every local asset referenced by index.html (pvmt.wasm,
+    wasm_exec.js, local .css/.js) resolves on disk.
   - WASM FRESHNESS: the site's pvmt.wasm and wasm_exec.js match the
     copies embedded in this binary (a stale site fails).
   - HYGIENE: no text file leaks a host path (/home/, /Users/), an author
@@ -57,8 +62,9 @@ The following checks run over the given directory (default "site"):
     between 0 and 1%% signals the near-zero-area bug), and every
     forecast.json baseline has monotonically falling PCI and non-decreasing
     deferred backlog year over year.
-  - CONSISTENCY: a city slug shared across examples reports the same paved
-    area in each.
+  - CONSISTENCY: on a nested multi-export tree, a city slug shared across
+    exports reports the same paved area in each. (A single-root export has
+    one entry per slug, so nothing to cross-check.)
 
 Exits non-zero if any check FAILs. With --strict, warnings fail too.`,
 		Example: `  # Validate the default ./site tree

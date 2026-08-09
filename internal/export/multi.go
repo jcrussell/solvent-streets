@@ -16,13 +16,13 @@ import (
 )
 
 // BuildMultiCityMeta aggregates each sub-city's per-resource compute results
-// and boundary areas into a single regional MetaJSON for the multi-city
-// landing page. Per-resource Stats sum across entries; CityArea is the
+// and boundary areas into a single config-wide MetaJSON for the multi-city
+// dashboard. Per-resource Stats sum across entries; CityArea is the
 // sum of per-city boundary areas, each computed in its own UTM zone so that
 // far-apart sub-cities (different UTM zones) are not biased by a single
 // shared projection. TotalPaved prefers the summed "combined" rows with
 // a fallback to summed per-resource rows.
-func BuildMultiCityMeta(ctx context.Context, entries []CityEntry, regionName string) (MetaJSON, error) {
+func BuildMultiCityMeta(ctx context.Context, entries []CityEntry, title string) (MetaJSON, error) {
 	if len(entries) == 0 {
 		return MetaJSON{}, errors.New("no entries to aggregate")
 	}
@@ -33,7 +33,7 @@ func BuildMultiCityMeta(ctx context.Context, entries []CityEntry, regionName str
 	centerLon, centerLat := geo.CenterFromBBox(bbox)
 
 	meta := MetaJSON{
-		ProjectName:  regionName,
+		ProjectName:  title,
 		BBox:         bbox,
 		CenterLon:    centerLon,
 		CenterLat:    centerLat,
@@ -53,7 +53,7 @@ func BuildMultiCityMeta(ctx context.Context, entries []CityEntry, regionName str
 // order. Resources with no rows in any entry are omitted.
 //
 // Reads only rt.Name() (no ":city" variants): the per-resource cards on the
-// landing page surface all-jurisdiction totals, matching single-city BuildMeta.
+// dashboard surface all-jurisdiction totals, matching single-city BuildMeta.
 func aggregatePerResourceStats(ctx context.Context, entries []CityEntry) []StatJSON {
 	types := make([]resource.Type, 0, len(resource.All))
 	for _, rt := range resource.All {

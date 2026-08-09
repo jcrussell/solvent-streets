@@ -10,7 +10,8 @@
         // resolves the city client-side from ?city= against the selector options.
         let DATA_PREFIX = PVMT_CONFIG.dataPrefix;
         // Back-to-map target: absolute on the live server, relative on a static
-        // host so navigation stays inside a gensite example dir (/<example>/).
+        // host so navigation stays inside the exported tree wherever it is
+        // mounted (e.g. a project subpath like /solvent-streets/).
         const MAP_HREF = PVMT_CONFIG.mapHref;
 
         // Typed DOM accessors — same pattern as app.js: one audited type-assertion
