@@ -38,8 +38,13 @@ type ForecastSeedJSON struct {
 	TotalArea           float64             `json:"total_area"`
 	CityPaved           float64             `json:"city_paved"`
 	CostTiers           []forecast.CostTier `json:"cost_tiers"`
-	Cohorts             []CohortSeed        `json:"cohorts,omitempty"`
-	CityCohorts         []CohortSeed        `json:"city_cohorts,omitempty"`
+	// MaterialTiers ships the per-tier physical material intensities (asphalt
+	// mix mass + binder fraction per m^2) that the Materials tab multiplies by
+	// each year's treated area (area / treatment_cycle_years) to estimate annual
+	// asphalt/binder/oil demand. Aligned label-for-label with CostTiers.
+	MaterialTiers []forecast.MaterialTier `json:"material_tiers,omitempty"`
+	Cohorts       []CohortSeed            `json:"cohorts,omitempty"`
+	CityCohorts   []CohortSeed            `json:"city_cohorts,omitempty"`
 }
 
 // BuildForecastSeed constructs a ForecastSeedJSON for the given forecast config and store.
@@ -96,6 +101,7 @@ func BuildForecastSeed(ctx context.Context, fc *config.ForecastConfig, store db.
 		TotalArea:           totalArea,
 		CityPaved:           cityArea,
 		CostTiers:           costTiers,
+		MaterialTiers:       forecast.DefaultMaterialTiers,
 		Cohorts:             cohortSeeds,
 		CityCohorts:         cityCohortSeeds,
 	}

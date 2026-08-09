@@ -92,6 +92,14 @@
         var compareCharts = [];
         var aggregateLoaded = false;
         var aggregateCharts = [];
+        // Materials tab chart handles + stale-load guard. Declared here (like the
+        // compare/aggregate arrays above) so a boot-time deep link ?tab=materials-tab
+        // — which calls loadMaterials() from the applyInitialState IIFE below,
+        // before the Materials function block executes — sees an initialized
+        // generation counter rather than a hoisted-undefined `var` (++undefined is
+        // NaN, which would make the load bail its own stale-guard).
+        var materialsCharts = [];
+        var materialsLoadGen = 0;
         var allCityDataPromise = null;
         // Tag scope for the Compare/Aggregate tabs: '' means all cities, else a
         // tag label from #tag-scope. Declared here (alongside the other tab
@@ -149,6 +157,7 @@
                 // lazy-loaded tab would otherwise hang on its loading spinner.
                 if (init.tab === 'aggregate-tab') loadAggregateData();
                 else if (init.tab === 'compare-tab') loadCompareData();
+                else if (init.tab === 'materials-tab') loadMaterials();
                 // Class-toggling above bypasses selectTab, so reveal #tag-scope
                 // here too — otherwise a deep-linked Compare/Aggregate tab shows
                 // no tag selector until the user clicks a tab.
@@ -207,6 +216,7 @@
             if (!cityChanged && snapshotChanged) {
                 loadCityData();
                 loadFinancials();
+                reloadMaterialsIfActive();
             }
             // No city or snapshot change → the underlying data didn't reload,
             // but currentScope did change. Repaint via selectScope.
@@ -305,6 +315,7 @@
             if (tabId === 'map-tab' && window._map) window._map.resize();
             if (tabId === 'compare-tab') loadCompareData();
             if (tabId === 'aggregate-tab') loadAggregateData();
+            if (tabId === 'materials-tab') loadMaterials();
             updateTagScopeVisibility(tabId);
             // The aggregate honors the region-wide scope, so re-evaluate the
             // scope-toggle reveal whenever the active tab changes.
@@ -941,6 +952,7 @@
             loadSnapshots(slug);
             loadCityData();
             loadFinancials();
+            reloadMaterialsIfActive();
             if (!opts || opts.push !== false) Router.push();
         }
         const citySelect = selectById('city-select');
@@ -985,6 +997,7 @@
                 if (sel.value !== prev) {
                     loadCityData();
                     loadFinancials();
+                    reloadMaterialsIfActive();
                 }
             }
         }
@@ -996,6 +1009,7 @@
             if (sel.value !== target) sel.value = target;
             loadCityData();
             loadFinancials();
+            reloadMaterialsIfActive();
             if (!opts || opts.push !== false) Router.push();
         }
         const snapshotPicker = selectById('snapshot-picker');
@@ -1093,6 +1107,7 @@
             (typeof currentCharts !== 'undefined' ? currentCharts : [])
                 .concat(typeof compareCharts !== 'undefined' ? compareCharts : [])
                 .concat(typeof aggregateCharts !== 'undefined' ? aggregateCharts : [])
+                .concat(typeof materialsCharts !== 'undefined' ? materialsCharts : [])
                 .forEach(function(c) { c.update('none'); });
         });
 
@@ -1448,6 +1463,268 @@
             }
         }
 
+        // Materials
+        //
+        // Material demand is a linear function of already-computed forecast data:
+        // each simulated year retreats one treatment-cycle slice of the network
+        // (treatedArea = year.area / treatment_cycle_years, the same 1/N slice the
+        // cost model bills as eligibleFrac), and the per-tier material intensity
+        // shipped in the seed (material_tiers) turns that treated area into asphalt
+        // mix, binder, and oil-equivalent barrels. The per-year tier is the
+        // network-blended cost_tier — coarser than the per-cohort interpolated
+        // dollar model, so these figures track the scenario's condition trajectory
+        // rather than reconciling with annual_need. The headline uses the
+        // best-funded scenario (highest final PCI) as the "network kept in repair"
+        // figure; the do-nothing baseline's rising reconstruction share shows the
+        // deferred-maintenance material blowout.
+        var BARRELS_PER_TON_BINDER = 6.23;
+        var MATERIAL_TIER_COLORS = { preventive: '#22c55e', rehab: '#f59e0b', reconstruction: '#ef4444' };
+        var MATERIAL_FUNDING_NAMES = ['baseline', 'fund-25pct', 'fund-50pct', 'fund-100pct'];
+
+        function destroyMaterialsCharts() {
+            materialsCharts.forEach(function(c) { c.destroy(); });
+            materialsCharts = [];
+        }
+
+        // Reactive reload for city/scope/snapshot changes. Unlike Financials —
+        // whose data feeds other views and so always reloads — Materials is
+        // self-contained to its own tab, so only refresh when it's the active
+        // tab. Opening the tab (selectTab / deep link) reloads unconditionally,
+        // so a change made while elsewhere is still reflected on next open.
+        function reloadMaterialsIfActive() {
+            var el = document.getElementById('materials-tab');
+            if (el && el.classList.contains('active')) loadMaterials();
+        }
+
+        // Metric tonnes by default; US short tons under imperial display (barrels
+        // are unit-neutral). Mirrors the UNIT_SYSTEM branch in the area helpers.
+        function fmtMass(kg) {
+            if (UNIT_SYSTEM === 'metric') return fmtNum(kg / 1000) + ' t';
+            return fmtNum(kg / 907.18474) + ' tons';
+        }
+        function fmtBarrels(bbl) {
+            return fmtNum(bbl) + ' bbl';
+        }
+
+        // materialSeries computes per-year material quantities (kg + barrels) for
+        // one scenario given the treatment cycle N, a label->tier lookup, and a
+        // fallback tier used when a year's cost_tier has no matching material tier
+        // (e.g. a custom tier set). fallbackTier is the highest-intensity tier —
+        // mirroring the Go MaterialTierFor fallback — so an unmatched label
+        // over-counts rather than silently reporting zero material.
+        function materialSeries(scenario, cycleYears, tierByLabel, fallbackTier) {
+            var zero = { mix_kg_per_sqm: 0, binder_pct: 0 };
+            return scenario.years.map(function(y) {
+                var treatedArea = cycleYears > 0 ? y.area / cycleYears : 0;
+                var tier = tierByLabel[y.cost_tier] || fallbackTier || zero;
+                var mixKg = treatedArea * tier.mix_kg_per_sqm;
+                var binderKg = mixKg * tier.binder_pct;
+                return {
+                    year: y.year,
+                    tier: y.cost_tier,
+                    mixKg: mixKg,
+                    binderKg: binderKg,
+                    aggregateKg: mixKg - binderKg,
+                    oilBarrels: (binderKg / 1000) * BARRELS_PER_TON_BINDER
+                };
+            });
+        }
+
+        function renderMaterialTierTable(tiers) {
+            var section = document.getElementById('materials-tier-section');
+            var tbody = document.querySelector('#materials-tier-table tbody');
+            if (!tiers || tiers.length === 0) { section.style.display = 'none'; return; }
+            tbody.innerHTML = tiers.map(function(t) {
+                var binderKgSqM = t.mix_kg_per_sqm * t.binder_pct;
+                // Over 1000 m^2 the binder mass in tonnes equals binderKgSqM, so
+                // barrels/1000 m^2 = binderKgSqM * BARRELS_PER_TON_BINDER.
+                var oilPer1000 = binderKgSqM * BARRELS_PER_TON_BINDER;
+                var dot = '<span style="display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;background:' +
+                    (MATERIAL_TIER_COLORS[t.label] || '#9ca3af') + '"></span>';
+                return '<tr>' +
+                    '<td>' + dot + esc(t.label) + '</td>' +
+                    '<td class="number">' + t.mix_kg_per_sqm.toFixed(0) + '</td>' +
+                    '<td class="number">' + (t.binder_pct * 100).toFixed(1) + '%</td>' +
+                    '<td class="number">' + binderKgSqM.toFixed(1) + '</td>' +
+                    '<td class="number">' + oilPer1000.toFixed(1) + '</td>' +
+                    '</tr>';
+            }).join('');
+            section.style.display = '';
+        }
+
+        function renderMaterials(scenarios, seed, scope) {
+            var chartsDiv = document.getElementById('materials-charts');
+            destroyMaterialsCharts();
+            chartsDiv.innerHTML = '';
+            if (!scenarios || scenarios.length === 0) {
+                document.getElementById('materials-headlines').style.display = 'none';
+                document.getElementById('materials-tier-section').style.display = 'none';
+                document.getElementById('materials-note').style.display = 'none';
+                chartsDiv.innerHTML = '<div class="no-data">No scenario data found.</div>';
+                return;
+            }
+            var tiers = (seed && seed.material_tiers) || [];
+            var tierByLabel = {};
+            tiers.forEach(function(t) { tierByLabel[t.label] = t; });
+            // Highest-intensity tier, used as the unmatched-label fallback.
+            var worstTier = tiers.reduce(function(a, b) {
+                return b.mix_kg_per_sqm > a.mix_kg_per_sqm ? b : a;
+            }, tiers[0]);
+            var cycleYears = (seed && seed.treatment_cycle_years) || 12;
+
+            var fundingScenarios = scenarios.filter(function(s) {
+                return MATERIAL_FUNDING_NAMES.includes(s.scenario.name);
+            });
+            if (fundingScenarios.length === 0) fundingScenarios = scenarios.slice(0, 1);
+
+            var seriesByName = {};
+            fundingScenarios.forEach(function(s) {
+                seriesByName[s.scenario.name] = materialSeries(s, cycleYears, tierByLabel, worstTier);
+            });
+
+            // Final-year PCI, tolerant of an empty years array.
+            var finalPci = function(s) {
+                var ys = s.years;
+                return ys && ys.length ? ys[ys.length - 1].pci : 0;
+            };
+            // "Kept in repair" figure = best-funded scenario (highest final PCI).
+            var best = fundingScenarios.reduce(function(a, b) {
+                return finalPci(b) > finalPci(a) ? b : a;
+            });
+            var bestSeries = seriesByName[best.scenario.name];
+            var n = bestSeries.length || 1;
+            var avgMix = bestSeries.reduce(function(acc, r) { return acc + r.mixKg; }, 0) / n;
+            var avgBinder = bestSeries.reduce(function(acc, r) { return acc + r.binderKg; }, 0) / n;
+            var avgOil = bestSeries.reduce(function(acc, r) { return acc + r.oilBarrels; }, 0) / n;
+
+            document.getElementById('hl-mix').textContent = fmtMass(avgMix) + '/yr';
+            document.getElementById('hl-binder').textContent = fmtMass(avgBinder) + '/yr';
+            document.getElementById('hl-oil').textContent = fmtBarrels(avgOil) + '/yr';
+            document.getElementById('hl-mix-sub').textContent = 'Avg/yr under "' + esc(best.scenario.label) + '"';
+            document.getElementById('hl-oil-sub').textContent = '~' + BARRELS_PER_TON_BINDER + ' bbl per tonne binder';
+            document.getElementById('materials-headlines').style.display = '';
+
+            var note = document.getElementById('materials-note');
+            note.textContent = 'Each year ~1/' + Math.round(cycleYears) + ' of the network (area ÷ ' +
+                'treatment cycle) is retreated; material intensity follows the blended condition tier, ' +
+                'so the do-nothing line climbs as pavement decays into reconstruction. Planning-grade estimates.';
+            note.style.display = '';
+
+            renderMaterialTierTable(tiers);
+
+            var labels = bestSeries.map(function(r) { return 'Year ' + r.year; });
+            var massAxis = function() { return { title: { display: true, text: UNIT_SYSTEM === 'metric' ? 'Tonnes' : 'Tons' }, ticks: { callback: function(v) { return fmtMass(v); } } }; };
+
+            // 1. Annual asphalt mix by funding level.
+            (function() {
+                var card = makeChartCard('Annual Asphalt Mix by Funding Level');
+                chartsDiv.appendChild(card);
+                var ctx = card.querySelector('canvas').getContext('2d');
+                materialsCharts.push(new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: fundingScenarios.map(function(s, i) {
+                            return {
+                                label: s.scenario.label,
+                                data: seriesByName[s.scenario.name].map(function(r) { return r.mixKg; }),
+                                borderColor: COLORS[i % COLORS.length],
+                                backgroundColor: 'transparent',
+                                tension: 0.3,
+                                pointRadius: 0
+                            };
+                        })
+                    },
+                    options: { responsive: true, interaction: { mode: 'index', intersect: false }, scales: { y: massAxis() }, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ' + fmtMass(ctx.parsed.y); } } } } }
+                }));
+            })();
+
+            // 2. Annual binder / oil demand by funding level.
+            (function() {
+                var card = makeChartCard('Annual Binder & Oil-Equivalent Demand');
+                chartsDiv.appendChild(card);
+                var ctx = card.querySelector('canvas').getContext('2d');
+                materialsCharts.push(new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: fundingScenarios.map(function(s, i) {
+                            return {
+                                label: s.scenario.label,
+                                data: seriesByName[s.scenario.name].map(function(r) { return r.binderKg; }),
+                                borderColor: COLORS[i % COLORS.length],
+                                backgroundColor: 'transparent',
+                                tension: 0.3,
+                                pointRadius: 0
+                            };
+                        })
+                    },
+                    options: { responsive: true, interaction: { mode: 'index', intersect: false }, scales: { y: massAxis() }, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ' + fmtMass(ctx.parsed.y) + ' · ' + fmtBarrels(ctx.parsed.y / 1000 * BARRELS_PER_TON_BINDER); } } } } }
+                }));
+            })();
+
+            // 3. Annual mix by condition tier for the do-nothing baseline — shows
+            // the deferred-maintenance blowout as the network decays.
+            (function() {
+                var baseline = scenarios.find(function(s) {
+                    return s.scenario.strategy === 0 || s.scenario.name === 'do-nothing' || s.scenario.name === 'baseline';
+                });
+                if (!baseline) return;
+                var series = materialSeries(baseline, cycleYears, tierByLabel, worstTier);
+                var card = makeChartCard('Annual Mix by Condition Tier (Do-Nothing)');
+                chartsDiv.appendChild(card);
+                var ctx = card.querySelector('canvas').getContext('2d');
+                materialsCharts.push(new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: series.map(function(r) { return 'Year ' + r.year; }),
+                        datasets: [{
+                            label: 'Asphalt Mix',
+                            data: series.map(function(r) { return r.mixKg; }),
+                            backgroundColor: series.map(function(r) { return MATERIAL_TIER_COLORS[r.tier] || '#9ca3af'; })
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: { y: massAxis() },
+                        plugins: {
+                            verticalCrosshair: false,
+                            legend: { display: true, position: 'bottom', labels: { generateLabels: function() { return [
+                                { text: 'Preventive', fillStyle: MATERIAL_TIER_COLORS.preventive, strokeStyle: MATERIAL_TIER_COLORS.preventive },
+                                { text: 'Rehab', fillStyle: MATERIAL_TIER_COLORS.rehab, strokeStyle: MATERIAL_TIER_COLORS.rehab },
+                                { text: 'Reconstruction', fillStyle: MATERIAL_TIER_COLORS.reconstruction, strokeStyle: MATERIAL_TIER_COLORS.reconstruction }
+                            ]; } } },
+                            tooltip: { callbacks: { label: function(ctx) { return fmtMass(ctx.parsed.y); } } }
+                        }
+                    }
+                }));
+            })();
+        }
+
+        async function loadMaterials() {
+            var gen = ++materialsLoadGen; // bail stale loads after each await
+            var prefix = DATA_PREFIX;
+            var scenarios = await loadJSON(dataURL(prefix, 'scenarios.json'));
+            if (gen !== materialsLoadGen) return;
+            var seed = await loadJSON(dataURL(prefix, 'forecast_seed.json'));
+            if (gen !== materialsLoadGen) return;
+            var chartsDiv = document.getElementById('materials-charts');
+            if (!scenarios) {
+                document.getElementById('materials-headlines').style.display = 'none';
+                document.getElementById('materials-tier-section').style.display = 'none';
+                document.getElementById('materials-note').style.display = 'none';
+                chartsDiv.innerHTML = '<div class="no-data">No material data available. Run <code>pvmt forecast</code> and <code>pvmt export</code> first.</div>';
+                return;
+            }
+            // Scope fallback mirrors loadFinancials: honor currentScope but fall
+            // back when the loaded scenarios lack it.
+            var scope = currentScope;
+            if (scope === 'city' && !scenarios.city && scenarios.bbox) scope = 'bbox';
+            else if (scope === 'bbox' && !scenarios.bbox && scenarios.city) scope = 'city';
+            var list = scenarios[scope] || scenarios.city || scenarios.bbox;
+            renderMaterials(list, seed, scope);
+        }
+
         // Set by renderAggregate once the region data loads: true when any
         // city in the config carries both city- and bbox-scoped scenarios.
         var regionHasBothScopes = false;
@@ -1567,6 +1844,11 @@
                 const aggEl = document.getElementById('aggregate-tab');
                 if (aggEl && aggEl.classList.contains('active')) loadAggregateData();
             }
+
+            // Materials is per-city like Financials, so it must follow the scope
+            // toggle too — but only when it's the active tab (it re-fetches, unlike
+            // the in-memory renderFinancials re-render above).
+            reloadMaterialsIfActive();
 
             if (!opts || opts.push !== false) Router.push();
         }

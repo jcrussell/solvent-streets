@@ -110,6 +110,43 @@ func TestRunSingleCity_ReusesExportedMetaAndSeed(t *testing.T) {
 	}
 }
 
+// TestRunSingleCity_RendersMaterialsTab pins the Materials tab end-to-end: the
+// exported page must carry the tab button + panel, and the forecast seed the
+// page reads must ship the per-tier material intensities the tab multiplies by
+// treated area. Without material_tiers the tab has nothing to compute from.
+func TestRunSingleCity_RendersMaterialsTab(t *testing.T) {
+	cfg := &config.Config{}
+	entry := exportTestEntry(cfg, "Solo City", "solo-city", exportBoundaryA, map[resource.Type]db.ComputeResult{
+		resource.TypeRoads: {ResourceType: resource.TypeRoads, TotalArea: 1000, FeatureCount: 10},
+	})
+
+	dir := t.TempDir()
+	if err := New([]CityEntry{entry}, cfg, dir, "metric").Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	indexHTML, err := os.ReadFile(filepath.Join(dir, "index.html"))
+	if err != nil {
+		t.Fatalf("read index.html: %v", err)
+	}
+	for _, want := range []string{`data-tab="materials-tab"`, `id="materials-tab"`, `id="materials-charts"`} {
+		if !strings.Contains(string(indexHTML), want) {
+			t.Errorf("index.html missing Materials markup %q", want)
+		}
+	}
+
+	seed, err := os.ReadFile(filepath.Join(dir, "data", "forecast_seed.json"))
+	if err != nil {
+		t.Fatalf("read forecast_seed.json: %v", err)
+	}
+	if !strings.Contains(string(seed), `"material_tiers"`) {
+		t.Errorf("forecast_seed.json missing material_tiers: %s", seed)
+	}
+	if !strings.Contains(string(seed), `"mix_kg_per_sqm"`) {
+		t.Errorf("forecast_seed.json material_tiers missing mix_kg_per_sqm: %s", seed)
+	}
+}
+
 // TestRunMultiCity_FailureLeavesRecoverableDir pins yvlv.19: when the export
 // fails partway (here, a second city whose stored snapshot hash doesn't match,
 // so RequireMatchingSnapshot fails), the output dir is left non-empty and

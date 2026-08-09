@@ -105,6 +105,52 @@ func TestBuildMultiCityForecastSeed_CarriesTreatmentCycleYears(t *testing.T) {
 	})
 }
 
+// TestForecastSeeds_CarryMaterialTiers pins that both the per-city seed
+// (BuildForecastSeed, consumed by the Materials tab) and the region seed
+// (BuildMultiCityForecastSeed) ship the default material tiers, label-aligned
+// with the cost tiers. Without them the Materials tab has no per-tier intensity
+// to multiply treated area by.
+func TestForecastSeeds_CarryMaterialTiers(t *testing.T) {
+	fc := &config.ForecastConfig{}
+
+	assertMaterialTiers := func(t *testing.T, seed ForecastSeedJSON) {
+		t.Helper()
+		if len(seed.MaterialTiers) == 0 {
+			t.Fatalf("MaterialTiers is empty; want the default asphalt tiers")
+		}
+		// Every cost tier must have a same-labeled material tier.
+		for _, ct := range seed.CostTiers {
+			found := false
+			for _, mt := range seed.MaterialTiers {
+				if mt.Label == ct.Label {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("no material tier for cost tier %q", ct.Label)
+			}
+		}
+	}
+
+	t.Run("per-city seed", func(t *testing.T) {
+		js, err := BuildForecastSeed(context.Background(), fc, &dbtest.MockStore{})
+		if err != nil {
+			t.Fatalf("BuildForecastSeed: %v", err)
+		}
+		var seed ForecastSeedJSON
+		if err := json.Unmarshal([]byte(js), &seed); err != nil {
+			t.Fatalf("unmarshal seed: %v", err)
+		}
+		assertMaterialTiers(t, seed)
+	})
+
+	t.Run("region seed", func(t *testing.T) {
+		entry := CityEntry{Config: &config.Config{}, Slug: "city-a", Store: &dbtest.MockStore{}}
+		assertMaterialTiers(t, decodeSeed(t, entry, fc))
+	})
+}
+
 // decodeSeed builds the multi-city seed for a single entry and unmarshals it.
 func decodeSeed(t *testing.T, entry CityEntry, fc *config.ForecastConfig) ForecastSeedJSON {
 	t.Helper()

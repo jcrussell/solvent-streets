@@ -629,6 +629,7 @@
         <h1>Solvent Streets</h1>
         <button class="tab-btn active" data-tab="map-tab" id="map-tab-btn" role="tab" aria-selected="true" aria-controls="map-tab" tabindex="0">Map</button>
         <button class="tab-btn" data-tab="financials-tab" id="financials-tab-btn" role="tab" aria-selected="false" aria-controls="financials-tab" tabindex="-1">Financials</button>
+        <button class="tab-btn" data-tab="materials-tab" id="materials-tab-btn" role="tab" aria-selected="false" aria-controls="materials-tab" tabindex="-1">Materials</button>
         {{if .Cities}}
         <button class="tab-btn" data-tab="compare-tab" id="compare-tab-btn" role="tab" aria-selected="false" aria-controls="compare-tab" tabindex="-1">Compare</button>
         <button class="tab-btn" data-tab="aggregate-tab" id="aggregate-tab-btn" role="tab" aria-selected="false" aria-controls="aggregate-tab" tabindex="-1">Aggregate</button>
@@ -807,6 +808,46 @@
             </div>
 
             <div class="chart-grid" id="charts"></div>
+        </div>
+    </div>
+
+    <div id="materials-tab" class="tab-content" role="tabpanel" aria-labelledby="materials-tab-btn">
+        <div class="financials">
+            <div class="headlines" id="materials-headlines" style="display:none">
+                <div class="headline-card">
+                    <div class="label">Annual Asphalt Mix</div>
+                    <div class="value" id="hl-mix">—</div>
+                    <div class="sub" id="hl-mix-sub">Hot-mix to keep the network in repair</div>
+                </div>
+                <div class="headline-card">
+                    <div class="label">Annual Binder (Oil)</div>
+                    <div class="value" id="hl-binder">—</div>
+                    <div class="sub" id="hl-binder-sub">Asphalt cement / bitumen</div>
+                </div>
+                <div class="headline-card">
+                    <div class="label">Oil-Equivalent</div>
+                    <div class="value" id="hl-oil">—</div>
+                    <div class="sub" id="hl-oil-sub">Crude-oil-equivalent barrels per year</div>
+                </div>
+            </div>
+
+            <p class="materials-note" id="materials-note" style="display:none"></p>
+
+            <div class="cohort-section" id="materials-tier-section" style="display:none">
+                <h3>Material Intensity by Treatment Tier</h3>
+                <table class="cohort-table" id="materials-tier-table">
+                    <thead><tr>
+                        <th>Tier</th>
+                        <th class="number">Mix (kg/m²)</th>
+                        <th class="number">Binder %</th>
+                        <th class="number">Binder (kg/m²)</th>
+                        <th class="number">Oil (bbl/1000 m²)</th>
+                    </tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+
+            <div class="chart-grid" id="materials-charts"></div>
         </div>
     </div>
 
