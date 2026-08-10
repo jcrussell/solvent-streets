@@ -5,8 +5,6 @@ import (
 	"html/template"
 	"strings"
 	"testing"
-
-	"github.com/jcrussell/solvent-streets/internal/units"
 )
 
 // methodologyMarkers are prose markers unique to the methodology source of
@@ -104,7 +102,7 @@ func parseDashboardTemplates(t *testing.T) *template.Template {
 	if err != nil {
 		t.Fatalf("read theme template: %v", err)
 	}
-	tmpl, err := template.New("index").Funcs(indexFuncMap(units.Metric)).Parse(string(indexData))
+	tmpl, err := template.New("index").Parse(string(indexData))
 	if err != nil {
 		t.Fatalf("parse index: %v", err)
 	}

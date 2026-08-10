@@ -124,9 +124,8 @@ func TestSystemExhaustiveness_FormatHelpers(t *testing.T) {
 				}
 			}
 			floatHelpers := map[string]float64{
-				"AreaValue":          AreaValue(sqm, sys),
-				"AreaLargeValue":     AreaLargeValue(sqm, sys),
-				"AreaVeryLargeValue": AreaVeryLargeValue(sqm, sys),
+				"AreaValue":      AreaValue(sqm, sys),
+				"AreaLargeValue": AreaLargeValue(sqm, sys),
 			}
 			for name, got := range floatHelpers {
 				if got == 0 {

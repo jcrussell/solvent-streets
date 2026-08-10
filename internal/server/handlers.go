@@ -18,7 +18,6 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/export"
 	"github.com/jcrussell/solvent-streets/internal/geo"
-	"github.com/jcrussell/solvent-streets/internal/units"
 )
 
 // handleIndex serves the rendered index page from the lifetime cache. The
@@ -54,16 +53,10 @@ type indexThunk struct {
 	once func() ([]byte, error)
 }
 
-// templateThunk caches a parsed *template.Template per unit system (see
-// jsonThunk for why the value is a pointer wrapper).
-type templateThunk struct {
-	once func() (*template.Template, error)
-}
-
 // renderIndex returns the rendered index HTML, building it at most once for
 // the server's lifetime. The render pipeline — firstRenderableCity (which
-// picks the first city whose buildIndexData succeeds), parsedIndexTemplate
-// (cached per unit system), and tmpl.Execute into a buffer — is deterministic
+// picks the first city whose buildIndexData succeeds), s.indexTemplate (the
+// lifetime-cached parse), and tmpl.Execute into a buffer — is deterministic
 // under the restart-after-changes invariant: cities iterate in fixed order and
 // the data is immutable, so the first successful render is the canonical page.
 //
@@ -82,7 +75,7 @@ type templateThunk struct {
 // restart-after-changes design (restart for a fresh date), same as every other
 // cached endpoint.
 func (s *Server) renderIndex() ([]byte, error) {
-	return s.renderCachedPage("index", &s.indexPages, s.parsedIndexTemplate, s.firstRenderableCity)
+	return s.renderCachedPage("index", &s.indexPages, s.indexTemplate, s.firstRenderableCity)
 }
 
 // renderCachedPage is the shared engine behind renderIndex and renderGame: it
@@ -97,17 +90,17 @@ func (s *Server) renderIndex() ([]byte, error) {
 // and the game's per-?city= render (a chosen entry with firstRenderableCity
 // fallback). It runs against context.Background() — the first arriver's build
 // outlives their request and is shared.
-func (s *Server) renderCachedPage(key string, pages *sync.Map, parse func(units.System) (*template.Template, error), resolve func(context.Context) (export.CityEntry, export.TemplateData, error)) ([]byte, error) {
+func (s *Server) renderCachedPage(key string, pages *sync.Map, parse func() (*template.Template, error), resolve func(context.Context) (export.CityEntry, export.TemplateData, error)) ([]byte, error) {
 	var entry *indexThunk
 	if v, ok := pages.Load(key); ok {
 		entry = v.(*indexThunk) //nolint:forcetypeassert // type invariant: only render sites Store *indexThunk here
 	} else {
 		fresh := &indexThunk{once: sync.OnceValues(func() ([]byte, error) {
-			city, td, err := resolve(context.Background())
+			_, td, err := resolve(context.Background())
 			if err != nil {
 				return nil, err
 			}
-			tmpl, err := parse(city.Config.UnitSystem())
+			tmpl, err := parse()
 			if err != nil {
 				return nil, err
 			}
@@ -181,13 +174,13 @@ func (s *Server) renderGame(slug string) ([]byte, error) {
 	if entry == nil {
 		// Empty or unknown slug: render the first renderable city under the
 		// shared key (there is no per-slug identity to cache against).
-		return s.renderCachedPage("game", &s.gamePages, s.parsedGameTemplate, s.firstRenderableCity)
+		return s.renderCachedPage("game", &s.gamePages, s.gameTemplate, s.firstRenderableCity)
 	}
 
 	// Try the requested city under its own key. resolve returns the requested
 	// city's build error (no in-closure fallback) so a failed build evicts the
 	// per-slug entry rather than caching a fallback under it.
-	page, err := s.renderCachedPage("game:"+slug, &s.gamePages, s.parsedGameTemplate,
+	page, err := s.renderCachedPage("game:"+slug, &s.gamePages, s.gameTemplate,
 		func(ctx context.Context) (export.CityEntry, export.TemplateData, error) {
 			td, err := s.buildIndexData(ctx, *entry)
 			if err != nil {
@@ -203,54 +196,7 @@ func (s *Server) renderGame(slug string) ([]byte, error) {
 	// first renderable city, cached under the shared "game" key (never the
 	// requested slug's key).
 	fmt.Fprintf(s.ios.ErrOut, "server: falling back for /play?city=%s: %v\n", slug, err)
-	return s.renderCachedPage("game", &s.gamePages, s.parsedGameTemplate, s.firstRenderableCity)
-}
-
-// parsedGameTemplate is the /play counterpart to parsedIndexTemplate: it
-// caches the parsed game template per unit system in s.gameTemplates (a
-// separate map so it can't collide with the index template on the shared
-// units.System key).
-func (s *Server) parsedGameTemplate(sys units.System) (*template.Template, error) {
-	return s.parsedTemplateCached(sys, &s.gameTemplates, export.ParseGameTemplate)
-}
-
-// parsedIndexTemplate returns the parsed index template for the given unit
-// system, parsing it at most once per system (the 153 KB template tree is
-// otherwise re-parsed on every render). UnitSystem is fixed server-wide, so in
-// practice this caches a single template; keying by System is defensive.
-func (s *Server) parsedIndexTemplate(sys units.System) (*template.Template, error) {
-	return s.parsedTemplateCached(sys, &s.templates, export.ParseIndexTemplate)
-}
-
-// parsedTemplateCached is the shared engine behind parsedIndexTemplate and
-// parsedGameTemplate: it parses the template at most once per unit system,
-// caching the *template.Template in cache and evicting on error/panic. cache and
-// parse are the only things that differ between the index and game templates.
-func (s *Server) parsedTemplateCached(sys units.System, cache *sync.Map, parse func(units.System) (*template.Template, error)) (*template.Template, error) {
-	var entry *templateThunk
-	if v, ok := cache.Load(sys); ok {
-		entry = v.(*templateThunk) //nolint:forcetypeassert // type invariant: only parsed-template sites Store *templateThunk here
-	} else {
-		fresh := &templateThunk{once: sync.OnceValues(func() (*template.Template, error) {
-			return parse(sys)
-		})}
-		actual, _ := cache.LoadOrStore(sys, fresh)
-		entry = actual.(*templateThunk) //nolint:forcetypeassert // type invariant: only parsed-template sites Store *templateThunk here
-	}
-
-	defer func() {
-		if r := recover(); r != nil {
-			cache.CompareAndDelete(sys, entry)
-			panic(r)
-		}
-	}()
-
-	tmpl, err := entry.once()
-	if err != nil {
-		cache.CompareAndDelete(sys, entry)
-		return nil, err
-	}
-	return tmpl, nil
+	return s.renderCachedPage("game", &s.gamePages, s.gameTemplate, s.firstRenderableCity)
 }
 
 // firstRenderableCity returns the first city entry whose buildIndexData

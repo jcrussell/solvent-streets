@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html/template"
 	"io"
 	"net"
 	"net/http"
@@ -24,12 +25,12 @@ type Server struct {
 	cache     sync.Map // key → *jsonThunk (sync.OnceValues wrapper); single-flight, never invalidated — restart server after data changes
 	forecasts sync.Map // city slug → *forecastThunk (sync.OnceValue wrapper); shared by serveForecastJSON and serveHexCostSummary
 
-	// templates caches the parsed index template keyed by units.System. The
-	// system is fixed at construction (every CityEntry shares one *Config, so
-	// Config.UnitSystem() is server-wide), so this is effectively a single
-	// entry; keying by System is defensive in case multi-config wiring ever
-	// lets unit systems differ across cities. Value: *templateThunk.
-	templates sync.Map // units.System → *templateThunk (sync.OnceValues wrapper)
+	// indexTemplate and gameTemplate lazily parse the (embedded, deterministic)
+	// page templates once for the server's lifetime. Templates no longer depend
+	// on the unit system — display units are a client-side preference (frlu) —
+	// so a single cached parse per page replaces the former System-keyed maps.
+	indexTemplate func() (*template.Template, error)
+	gameTemplate  func() (*template.Template, error)
 
 	// indexPages caches the fully rendered index HTML bytes under a single
 	// fixed key (the chosen city is deterministic, so one entry suffices —
@@ -37,13 +38,11 @@ type Server struct {
 	// serveJSONCached (which marshals JSON). Value: *indexThunk.
 	indexPages sync.Map // "index" → *indexThunk (sync.OnceValues wrapper)
 
-	// gamePages and gameTemplates are the /play equivalents of indexPages and
-	// templates: the rendered game HTML and the parsed game template, cached
-	// the same way. Kept as separate maps (rather than reusing indexPages /
-	// templates) because the game and index pages are distinct renders that
-	// would otherwise collide on the shared "index" / units.System keys.
-	gamePages     sync.Map // "game" → *indexThunk (sync.OnceValues wrapper)
-	gameTemplates sync.Map // units.System → *templateThunk (sync.OnceValues wrapper)
+	// gamePages is the /play equivalent of indexPages: the rendered game HTML,
+	// cached the same way. Kept as a separate map (rather than reusing
+	// indexPages) because the game and index pages are distinct renders that
+	// would otherwise collide on the shared "index" key.
+	gamePages sync.Map // "game" → *indexThunk (sync.OnceValues wrapper)
 
 	// ReadyFile, if non-empty, receives the listening URL atomically
 	// once the TCP listener is bound. Container/test orchestration polls
@@ -58,7 +57,14 @@ type Server struct {
 }
 
 func New(cities []export.CityEntry, host string, port int, ios *iostreams.IOStreams) *Server {
-	return &Server{cities: cities, host: host, port: port, ios: ios}
+	return &Server{
+		cities:        cities,
+		host:          host,
+		port:          port,
+		ios:           ios,
+		indexTemplate: sync.OnceValues(export.ParseIndexTemplate),
+		gameTemplate:  sync.OnceValues(export.ParseGameTemplate),
+	}
 }
 
 func (s *Server) ListenAndServe(ctx context.Context) error {

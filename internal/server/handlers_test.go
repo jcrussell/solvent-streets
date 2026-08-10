@@ -19,7 +19,6 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/export"
 	"github.com/jcrussell/solvent-streets/internal/resource"
-	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
 
@@ -431,7 +430,7 @@ func TestHandleGame_MultiCity_BrokenCityFallback(t *testing.T) {
 // (IsLiveServer=false) omits server-only UI. Without the gate, the picker
 // would call /api endpoints that don't exist in static output.
 func TestParseIndexTemplate_StaticExport(t *testing.T) {
-	tmpl, err := export.ParseIndexTemplate(units.Metric)
+	tmpl, err := export.ParseIndexTemplate()
 	if err != nil {
 		t.Fatal(err)
 	}

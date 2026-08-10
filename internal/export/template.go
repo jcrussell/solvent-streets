@@ -11,8 +11,6 @@ import (
 	"sync"
 
 	"github.com/yuin/goldmark"
-
-	"github.com/jcrussell/solvent-streets/internal/units"
 )
 
 //go:embed templates
@@ -108,40 +106,20 @@ func WriteSharedWasmAssets(dir string) error {
 	return nil
 }
 
-func indexFuncMap(sys units.System) template.FuncMap {
-	return template.FuncMap{
-		"divf":          func(a, b float64) float64 { return a / b },
-		"areaLarge":     func(sqm float64) float64 { return units.AreaLargeValue(sqm, sys) },
-		"areaVeryLarge": func(sqm float64) float64 { return units.AreaVeryLargeValue(sqm, sys) },
-		"areaLargeUnit": func() string {
-			if sys == units.Imperial {
-				return "acres"
-			}
-			return "ha"
-		},
-		"areaVeryLargeUnit": func() string {
-			if sys == units.Imperial {
-				return "sq mi"
-			}
-			return "sq km"
-		},
-	}
-}
-
 // ParseIndexTemplate returns the parsed template tree for the index page,
 // including the methodology and theme partials that index.html.tmpl references
 // via {{template ...}}. Shared between the static exporter and the live server
 // so they can't drift.
-func ParseIndexTemplate(sys units.System) (*template.Template, error) {
-	return ParseIndexTemplateFS(templatesFS, sys)
+func ParseIndexTemplate() (*template.Template, error) {
+	return ParseIndexTemplateFS(templatesFS)
 }
 
 // ParseIndexTemplateFS is the fs.FS-parametrized form of ParseIndexTemplate
 // (byob-interfaces.3). Production callers use ParseIndexTemplate, which feeds
 // the embedded templatesFS; tests can pass an fstest.MapFS with synthetic
-// template content to exercise the parse + funcMap wiring without touching
-// disk or the embed.
-func ParseIndexTemplateFS(source fs.FS, sys units.System) (*template.Template, error) {
+// template content to exercise the parse wiring without touching disk or the
+// embed.
+func ParseIndexTemplateFS(source fs.FS) (*template.Template, error) {
 	files := []string{
 		"templates/index.html.tmpl",
 		"templates/methodology.html.tmpl",
@@ -154,7 +132,7 @@ func ParseIndexTemplateFS(source fs.FS, sys units.System) (*template.Template, e
 			return nil, fmt.Errorf("read %s: %w", name, err)
 		}
 		if tmpl == nil {
-			tmpl, err = template.New("index").Funcs(indexFuncMap(sys)).Parse(string(data))
+			tmpl, err = template.New("index").Parse(string(data))
 		} else {
 			_, err = tmpl.Parse(string(data))
 		}

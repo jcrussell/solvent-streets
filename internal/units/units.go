@@ -98,14 +98,6 @@ func AreaLargeValue(sqm float64, sys System) float64 {
 	return SqMToHectares(sqm)
 }
 
-// AreaVeryLargeValue returns the area numeric value in the very large unit for the system.
-func AreaVeryLargeValue(sqm float64, sys System) float64 {
-	if sys == Imperial {
-		return SqMToSqMi(sqm)
-	}
-	return SqMToSqKm(sqm)
-}
-
 // ParseSystem converts a string to a System. Returns Imperial for unrecognized values.
 func ParseSystem(s string) System {
 	switch s {

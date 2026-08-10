@@ -21,7 +21,6 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/geo"
-	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 )
 
@@ -441,8 +440,6 @@ func (e *Exporter) writeWasmAssets(dir string) error {
 }
 
 func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolvedTOML, unitSystem string, cities []CityInfo) error {
-	sys := units.ParseSystem(unitSystem)
-
 	methodology, err := MethodologyHTML()
 	if err != nil {
 		return fmt.Errorf("render methodology: %w", err)
@@ -467,11 +464,11 @@ func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolved
 
 	// Render both pages before writing either, so a game-template failure
 	// can't leave a partial site (index.html present, play.html missing).
-	index, err := renderPage(ParseIndexTemplate, sys, td)
+	index, err := renderPage(ParseIndexTemplate, td)
 	if err != nil {
 		return err
 	}
-	play, err := renderPage(ParseGameTemplate, sys, td)
+	play, err := renderPage(ParseGameTemplate, td)
 	if err != nil {
 		return err
 	}
@@ -481,11 +478,11 @@ func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolved
 	return cmdutil.WriteFile(filepath.Join(e.outputDir, "play.html"), play, 0o644)
 }
 
-// renderPage parses a page template for the unit system and renders it against
-// td into a buffer. Buffering (plus cmdutil.WriteFile's temp+rename at the call
-// site) keeps an interrupted Execute from leaving a partial file visible.
-func renderPage(parse func(units.System) (*template.Template, error), sys units.System, td TemplateData) ([]byte, error) {
-	tmpl, err := parse(sys)
+// renderPage parses a page template and renders it against td into a buffer.
+// Buffering (plus cmdutil.WriteFile's temp+rename at the call site) keeps an
+// interrupted Execute from leaving a partial file visible.
+func renderPage(parse func() (*template.Template, error), td TemplateData) ([]byte, error) {
+	tmpl, err := parse()
 	if err != nil {
 		return nil, err
 	}

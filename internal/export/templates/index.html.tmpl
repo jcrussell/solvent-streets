@@ -695,46 +695,9 @@
         <div id="panel">
             <h2>{{.ProjectName}}</h2>
             <div class="subtitle">Pavement & Parking Analysis | Last computed {{.SnapshotDate}}</div>
-            <div id="stats">
-            {{if gt .CityArea 0.0}}
-                <div class="stat-card summary-card">
-                    <h3>City Summary</h3>
-                    <div class="stat-row">
-                        <span class="stat-label">City Area ({{areaLargeUnit}})</span>
-                        <span class="stat-value">{{printf "%.1f" (areaLarge .CityArea)}}</span>
-                    </div>
-                    <div class="stat-row">
-                        <span class="stat-label">City Area ({{areaVeryLargeUnit}})</span>
-                        <span class="stat-value">{{printf "%.2f" (areaVeryLarge .CityArea)}}</span>
-                    </div>
-                    <div class="stat-row">
-                        <span class="stat-label">Total Paved ({{areaLargeUnit}})</span>
-                        <span class="stat-value">{{printf "%.1f" (areaLarge .TotalPaved)}}</span>
-                    </div>
-                    <div class="stat-row">
-                        <span class="stat-label">% Paved</span>
-                        <span class="stat-value">{{printf "%.1f" .PctPaved}}%</span>
-                    </div>
-                </div>
-            {{end}}
-            {{range .Stats}}
-                <div class="stat-card">
-                    <h3>{{.Type}}</h3>
-                    <div class="stat-row">
-                        <span class="stat-label">Features</span>
-                        <span class="stat-value" id="count-{{.Type}}">{{.FeatureCount}}</span>
-                    </div>
-                    <div class="stat-row">
-                        <span class="stat-label">Area ({{areaLargeUnit}})</span>
-                        <span class="stat-value">{{printf "%.1f" (areaLarge .TotalArea)}}</span>
-                    </div>
-                    <div class="stat-row">
-                        <span class="stat-label">Area ({{areaVeryLargeUnit}})</span>
-                        <span class="stat-value">{{printf "%.2f" (areaVeryLarge .TotalArea)}}</span>
-                    </div>
-                </div>
-            {{end}}
-            </div>
+            <!-- Populated client-side by app.js renderCityStats() from meta.json,
+                 which converts raw-metric values to the live unit system. -->
+            <div id="stats"></div>
         </div>
         <div id="legend">
             <div class="legend-title">Coverage %</div>
