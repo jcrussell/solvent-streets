@@ -75,6 +75,13 @@ func TestParseSystem(t *testing.T) {
 	if ParseSystem("") != Imperial {
 		t.Error("ParseSystem('') should default to Imperial")
 	}
+	// Normalization: case-insensitive and whitespace-trimmed, so these all
+	// resolve to Metric rather than silently falling through to Imperial.
+	for _, s := range []string{"Metric", "METRIC", "MeTrIc", " metric", "metric ", "\tmetric\n"} {
+		if ParseSystem(s) != Metric {
+			t.Errorf("ParseSystem(%q) should normalize to Metric", s)
+		}
+	}
 }
 
 func TestSystemString(t *testing.T) {
@@ -139,16 +146,18 @@ func TestSystemExhaustiveness_FormatHelpers(t *testing.T) {
 // TestIsKnown covers the divergence from ParseSystem: IsKnown returns
 // false for the empty string and for unrecognized values, even though
 // ParseSystem treats both as Imperial by default. Consumers like the
-// warnInvalidEnv middleware rely on this to distinguish "user set a
-// typo" from "user set nothing."
+// warnInvalidEnv middleware and Config.validate rely on this to distinguish
+// "user set a typo" from "user set nothing." Input is normalized
+// (case-insensitive, whitespace-trimmed) so ParseSystem and IsKnown agree.
 func TestIsKnown(t *testing.T) {
-	known := []string{"metric", "Metric", "METRIC", "imperial", "Imperial", "IMPERIAL"}
+	known := []string{"metric", "Metric", "METRIC", "MeTrIc", "imperial", "Imperial", "IMPERIAL", " metric", "imperial\t"}
 	for _, s := range known {
 		if !IsKnown(s) {
 			t.Errorf("IsKnown(%q) = false, want true", s)
 		}
 	}
-	unknown := []string{"", "furlongs", "SI", " metric"}
+	// Empty is unset (not known); typos and unrelated words are rejected.
+	unknown := []string{"", "furlongs", "SI", "metirc", "metres"}
 	for _, s := range unknown {
 		if IsKnown(s) {
 			t.Errorf("IsKnown(%q) = true, want false", s)

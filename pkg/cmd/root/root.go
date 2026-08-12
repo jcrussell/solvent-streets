@@ -39,7 +39,6 @@ type middleware func(root *cobra.Command, f *cmdutil.Factory) error
 
 var middlewares = []middleware{
 	warnInvalidEnv,
-	warnInvalidConfig,
 }
 
 // warnInvalidEnv emits a one-line stderr warning for any PVMT_* env var
@@ -90,23 +89,10 @@ func warnInvalidEnv(_ *cobra.Command, f *cmdutil.Factory) error {
 	return nil
 }
 
-// warnInvalidConfig mirrors warnInvalidEnv for values loaded from
-// pvmt.toml. resolveUnits silently falls through on unknown
-// display.units (e.g. "metres" instead of "metric"); without this
-// warning the user sees no signal their config string was ignored.
-// Skipped when no config file is present (so `pvmt --help` works in
-// any directory) and when config can't be loaded (the command path
-// will surface that error). Discarding the error here is deliberate.
-func warnInvalidConfig(_ *cobra.Command, f *cmdutil.Factory) error {
-	cfg, _ := f.Config()
-	if cfg == nil {
-		return nil
-	}
-	if v := cfg.Display.Units; v != "" && !units.IsKnown(v) {
-		cmdutil.Warnf(f.IOStreams, "display.units=%q is not a known unit system; falling back to default", v)
-	}
-	return nil
-}
+// (An unknown display.units used to be warned about here and silently coerced
+// to imperial; Config.validate now hard-rejects it at load time — solvent-streets-dfm5
+// — so that warning became unreachable and was removed. PVMT_UNITS, which is
+// still soft-defaulted rather than validated, is covered by warnInvalidEnv.)
 
 func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 	cmd := &cobra.Command{

@@ -507,6 +507,15 @@ func (c *Config) validate(requireCities bool) error {
 		return errors.Join(ErrInvalidConfig,
 			fmt.Errorf("display.min_hex_area %g must be non-negative", c.Display.MinHexArea))
 	}
+	// Reject an unknown display.units rather than silently rendering imperial:
+	// units.ParseSystem maps any unrecognized string (incl. typos like "metirc")
+	// to Imperial, so without this a misspelling loads clean and misreports every
+	// area. The PVMT_UNITS env path already gates on IsKnown; this closes the
+	// config-file gap (solvent-streets-dfm5). Empty is allowed (means "default").
+	if c.Display.Units != "" && !units.IsKnown(c.Display.Units) {
+		return errors.Join(ErrInvalidConfig,
+			fmt.Errorf("display.units %q is not a known unit system (want \"metric\" or \"imperial\")", c.Display.Units))
+	}
 	if err := c.Forecast.Validate(); err != nil {
 		return errors.Join(ErrInvalidConfig, err)
 	}

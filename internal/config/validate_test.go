@@ -83,6 +83,41 @@ func TestConfig_Validate_HexEdgeNonNegative(t *testing.T) {
 	}
 }
 
+// TestConfig_Validate_DisplayUnits locks in solvent-streets-dfm5: an unknown
+// display.units is rejected up front (chaining to ErrInvalidConfig) rather than
+// silently resolving to imperial via ParseSystem's default. Empty is allowed
+// (means "use the default"), and the canonical/normalized spellings pass.
+func TestConfig_Validate_DisplayUnits(t *testing.T) {
+	city := []CityConfig{{Name: "Oakland"}}
+
+	bad := map[string]string{
+		"typo":       "metirc",
+		"wrong word": "metres",
+		"nonsense":   "furlongs",
+	}
+	for name, u := range bad {
+		t.Run("reject_"+name, func(t *testing.T) {
+			cfg := Config{Display: DisplayConfig{Units: u}, Cities: city}
+			err := cfg.Validate()
+			if err == nil {
+				t.Fatalf("expected error for display.units=%q, got nil", u)
+			}
+			if !errors.Is(err, ErrInvalidConfig) {
+				t.Errorf("error %v does not chain to ErrInvalidConfig", err)
+			}
+		})
+	}
+
+	for _, u := range []string{"", "metric", "imperial", "Metric", " imperial "} {
+		t.Run("accept_"+u, func(t *testing.T) {
+			cfg := Config{Display: DisplayConfig{Units: u}, Cities: city}
+			if err := cfg.Validate(); err != nil {
+				t.Errorf("display.units=%q should be accepted, got %v", u, err)
+			}
+		})
+	}
+}
+
 // TestConfig_MinHexArea_FallsBackToDefault pins the resolved-value
 // contract: an unset (zero) or negative DisplayConfig.MinHexArea uses
 // DefaultMinHexArea at read time, while a positive override wins. The

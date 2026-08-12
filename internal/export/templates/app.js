@@ -387,9 +387,13 @@
         function areaVeryLargeUnit() {
             return UNIT_SYSTEM === 'metric' ? 'sq km' : 'sq mi';
         }
+        // Base-area unit label (the units fmtArea and the raw $/area figures use).
+        function areaUnit() {
+            return UNIT_SYSTEM === 'metric' ? 'sq m' : 'sq ft';
+        }
         function fmtArea(sqm) {
-            if (UNIT_SYSTEM === 'metric') return fmtNum(sqm) + ' sq m';
-            return fmtNum(sqm * SQM_TO_SQFT) + ' sq ft';
+            const val = UNIT_SYSTEM === 'metric' ? sqm : sqm * SQM_TO_SQFT;
+            return fmtNum(val) + ' ' + areaUnit();
         }
 
         const map = new maplibregl.Map({
@@ -784,7 +788,7 @@
                     totalArea += area;
                     totalPct += pct;
                     totalCost += cost;
-                    rows += '<tr><td style="text-transform:capitalize">' + type + '</td><td>' + fmtNum(area) + '</td><td>' + Math.round(pct) + '%</td><td>' + fmtCost(cost) + '</td></tr>';
+                    rows += '<tr><td style="text-transform:capitalize">' + type + '</td><td>' + fmtArea(area) + '</td><td>' + Math.round(pct) + '%</td><td>' + fmtCost(cost) + '</td></tr>';
                 }
 
                 statsEl.innerHTML =
@@ -792,7 +796,7 @@
                     '<h3>Hex ' + hexId + '<button class="close-btn" id="close-hex" type="button" aria-label="Close hex details">&times;</button></h3>' +
                     '<table><tr><th>Type</th><th>Area</th><th>Coverage</th><th>Est. Cost</th></tr>' +
                     rows +
-                    '<tr class="total-row"><td>Total</td><td>' + fmtNum(totalArea) + '</td><td>' + Math.min(Math.round(totalPct), 100) + '%</td><td>' + fmtCost(totalCost) + '</td></tr>' +
+                    '<tr class="total-row"><td>Total</td><td>' + fmtArea(totalArea) + '</td><td>' + Math.min(Math.round(totalPct), 100) + '%</td><td>' + fmtCost(totalCost) + '</td></tr>' +
                     '</table></div>';
 
                 document.getElementById('close-hex').addEventListener('click', () => {
@@ -1447,6 +1451,9 @@
                 document.getElementById('hl-deficit-label').textContent = yrs + '-Year Deficit';
                 document.getElementById('cohort-spend-th').textContent = yrs + 'yr Spend';
                 document.getElementById('cohort-deficit-th').textContent = yrs + 'yr Deficit';
+                // Cohort Area cells convert to the live large-area unit (ha/acres),
+                // so label the header with it (updated on units toggle via loadFinancials).
+                document.getElementById('cohort-area-th').textContent = 'Area (' + areaLargeUnit() + ')';
             }
             const loadedScenarios = await loadJSON(dataURL(prefix, 'scenarios.json'));
             if (gen !== financialsLoadGen) return; // a newer load superseded us
@@ -1493,6 +1500,7 @@
                         document.getElementById('hl-deficit-label').textContent = seed.years + '-Year Deficit';
                         document.getElementById('cohort-spend-th').textContent = seed.years + 'yr Spend';
                         document.getElementById('cohort-deficit-th').textContent = seed.years + 'yr Deficit';
+                        document.getElementById('cohort-area-th').textContent = 'Area (' + areaLargeUnit() + ')';
                     }
                     syncPCISliderFromSeed();
                     rebuildTierInputs();
@@ -1980,13 +1988,20 @@
             (FORECAST_SEED.cost_tiers || []).forEach((t, i) => {
                 const row = document.createElement('div');
                 row.className = 'tier-row';
+                // cost_per_sqm is stored/simulated in $/sq m (metric internal); show
+                // it in the live unit so the value and its label agree. runCustomScenario
+                // converts the entered value back to $/sq m before it reaches the sim.
+                const costDisplay = UNIT_SYSTEM === 'metric' ? t.cost_per_sqm : t.cost_per_sqm / SQM_TO_SQFT;
                 row.innerHTML =
                     '<span>' + esc(t.label || 'Tier ' + (i+1)) + '</span>' +
                     '<input type="number" data-tier="' + i + '" data-field="min_pci" value="' + t.min_pci + '" step="1">' +
                     '<input type="number" data-tier="' + i + '" data-field="max_pci" value="' + t.max_pci + '" step="1">' +
-                    '<input type="number" data-tier="' + i + '" data-field="cost_per_sqm" value="' + t.cost_per_sqm + '" step="0.01">';
+                    '<input type="number" data-tier="' + i + '" data-field="cost_per_sqm" value="' + costDisplay + '" step="0.01">';
                 tierDiv.appendChild(row);
             });
+            // Label the cost column header with the live unit (the input values are
+            // shown in $/<live area unit>, converted back to $/sq m on read).
+            document.getElementById('tier-cost-th').textContent = '$/' + areaUnit();
             tierDiv.querySelectorAll('input').forEach(inp => {
                 inp.addEventListener('input', runCustomScenario);
             });
@@ -2015,7 +2030,11 @@
                 // the seed value whenever the parse isn't a finite number.
                 const minV = minInput ? parseFloat(minInput.value) : NaN;
                 const maxV = maxInput ? parseFloat(maxInput.value) : NaN;
-                const costV = costInput ? parseFloat(costInput.value) : NaN;
+                // The cost input is displayed in the live unit (see rebuildTierInputs);
+                // convert it back to $/sq m — the unit the sim and the static export
+                // lines use — so the custom line stays comparable after a units toggle.
+                const costRaw = costInput ? parseFloat(costInput.value) : NaN;
+                const costV = UNIT_SYSTEM === 'metric' ? costRaw : costRaw * SQM_TO_SQFT;
                 return {
                     min_pci: Number.isFinite(minV) ? minV : t.min_pci,
                     max_pci: Number.isFinite(maxV) ? maxV : t.max_pci,

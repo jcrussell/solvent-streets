@@ -349,8 +349,8 @@ func TestWarnInvalidEnv_BadValuesEmitWarning(t *testing.T) {
 
 // testFactory builds a Factory wired with the minimum dependencies required
 // to drive root.PersistentPreRunE: LogLevel + Logger (consumed by applyLogLevel
-// and the structured-log context binding) and a stub Config so middlewares
-// like warnInvalidConfig don't blow up.
+// and the structured-log context binding) and a stub Config so the
+// config-reading middlewares (e.g. warnInvalidEnv) don't blow up.
 func testFactory() *cmdutil.Factory {
 	ios, _, _, _ := iostreams.Test()
 	return &cmdutil.Factory{

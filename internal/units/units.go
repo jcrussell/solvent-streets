@@ -1,6 +1,9 @@
 package units
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // System represents a unit system for display.
 type System int
@@ -98,26 +101,34 @@ func AreaLargeValue(sqm float64, sys System) float64 {
 	return SqMToHectares(sqm)
 }
 
-// ParseSystem converts a string to a System. Returns Imperial for unrecognized values.
+// ParseSystem converts a string to a System. Input is normalized
+// (case-insensitive, surrounding whitespace trimmed). Returns Imperial for
+// unrecognized values, so callers that must reject typos should gate on
+// IsKnown first (e.g. "metirc" would otherwise silently render imperial).
 func ParseSystem(s string) System {
-	switch s {
-	case metricName, "Metric", "METRIC":
+	if normalizeSystem(s) == metricName {
 		return Metric
-	default:
-		return Imperial
 	}
+	return Imperial
 }
 
-// IsKnown reports whether s names a recognized unit system. The empty string
-// is not known (it maps to Imperial by default in ParseSystem, but callers
-// that want to distinguish "unset" from "explicitly imperial" need this).
+// IsKnown reports whether s names a recognized unit system, normalized
+// case-insensitively with surrounding whitespace trimmed. The empty string is
+// not known (it maps to Imperial by default in ParseSystem, but callers that
+// want to distinguish "unset" from "explicitly imperial" need this).
 func IsKnown(s string) bool {
-	switch s {
-	case metricName, "Metric", "METRIC", imperialName, "Imperial", "IMPERIAL":
+	switch normalizeSystem(s) {
+	case metricName, imperialName:
 		return true
 	default:
 		return false
 	}
+}
+
+// normalizeSystem lower-cases and trims a unit-system string so ParseSystem and
+// IsKnown agree on exactly which spellings are recognized.
+func normalizeSystem(s string) string {
+	return strings.ToLower(strings.TrimSpace(s))
 }
 
 func (s System) String() string {

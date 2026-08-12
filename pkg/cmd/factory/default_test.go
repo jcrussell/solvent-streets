@@ -177,7 +177,7 @@ func TestLazyConfig_DefersConstructionUntilCalled(t *testing.T) {
 // of the contract: repeated f.Config() calls return the same *Config
 // without re-reading the file. Without this guarantee, a long-running
 // command that touches Config from multiple call sites (e.g.
-// CurrentCity, UnitSystem, warnInvalidConfig) would re-walk the
+// CurrentCity, UnitSystem, warnInvalidEnv) would re-walk the
 // filesystem on every access.
 func TestLazyConfig_CachedAcrossCalls(t *testing.T) {
 	calls := 0
