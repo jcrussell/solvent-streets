@@ -38,6 +38,12 @@ func TestExitCode(t *testing.T) {
 			errors.New("if any flags in the group [a b] are set they must all be set; missing [b]"), 2},
 		{"flag group one required",
 			errors.New("at least one of the flags in the group [a b] is required"), 2},
+		{"required flag not set",
+			errors.New(`required flag(s) "keep" not set`), 2},
+		{"accepts arg count",
+			errors.New("accepts 1 arg(s), received 0"), 2},
+		{"requires at least args",
+			errors.New("requires at least 1 arg(s), only received 0"), 2},
 		{"no results", cmdutil.ErrNoResults, 3},
 		{"silent sentinel", cmdutil.ErrSilent, 1},
 		{"silent wrapped", fmt.Errorf("after streaming: %w", cmdutil.ErrSilent), 1},
@@ -98,6 +104,9 @@ func TestExitCode_FlagGroupPrefixIsAnchored(t *testing.T) {
 	for _, msg := range []string{
 		"upstream said: if any flags in the group are weird, fail",
 		"docs warn: at least one of the flags in the group should match",
+		"error: required flag(s) were mentioned in a log line",
+		"the API accepts 3 arg(s) but this is prose",
+		"note: requires at least a moment of thought",
 	} {
 		var buf bytes.Buffer
 		if got := exitCode(errors.New(msg), &buf); got != 1 {
@@ -145,6 +154,24 @@ func TestClassifyUsageError_WrapsLiveCobraFlagGroupErrors(t *testing.T) {
 				c.MarkFlagsOneRequired("file", "url")
 			},
 			args: []string{},
+		},
+		{
+			name: "required flag",
+			setup: func(c *cobra.Command) {
+				c.Flags().Int("keep", 0, "")
+				_ = c.MarkFlagRequired("keep")
+			},
+			args: []string{},
+		},
+		{
+			name:  "exact args",
+			setup: func(c *cobra.Command) { c.Args = cobra.ExactArgs(1) },
+			args:  []string{},
+		},
+		{
+			name:  "minimum args",
+			setup: func(c *cobra.Command) { c.Args = cobra.MinimumNArgs(1) },
+			args:  []string{},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

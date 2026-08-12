@@ -90,7 +90,11 @@ func cityOverrideFunc(cmd *cobra.Command, f *Factory, fallback func() (*config.C
 
 // ForEachCity resolves cities from config (all if no --city flag, one if set)
 // and calls fn for each. Prints a city header when iterating multiple cities.
-// Collects and joins all errors; ErrNoResults is silently skipped.
+// Collects and joins all errors. A single per-city ErrNoResults is skipped so
+// one empty city doesn't fail a run that produced results elsewhere — but when
+// EVERY city yields ErrNoResults, ForEachCity returns ErrNoResults so the
+// "nothing produced" outcome maps to the same exit code (3) as the single-city
+// path, instead of silently exiting 0 (solvent-streets-9zc2).
 func ForEachCity(ctx context.Context, f *Factory, fn func(cf *Factory, city *config.CityConfig) error) error {
 	cities, err := ResolveCities(f)
 	if err != nil {
@@ -108,18 +112,27 @@ func ForEachCity(ctx context.Context, f *Factory, fn func(cf *Factory, city *con
 	}
 
 	var errs []error
+	sawResult := false    // at least one city returned nil (produced output)
+	skippedEmpty := false // at least one city returned ErrNoResults
 	for _, city := range cities {
 		if err := ctx.Err(); err != nil {
 			errs = append(errs, err)
 			break
 		}
 		fmt.Fprintf(f.IOStreams.ErrOut, "\n=== %s ===\n", city.Name)
-		if err := fn(withCity(ctx, f, &city), &city); err != nil {
-			if errors.Is(err, ErrNoResults) {
-				continue
-			}
+		switch err := fn(withCity(ctx, f, &city), &city); {
+		case err == nil:
+			sawResult = true
+		case errors.Is(err, ErrNoResults):
+			skippedEmpty = true
+		default:
 			errs = append(errs, fmt.Errorf("%s: %w", city.Name, err))
 		}
+	}
+	// Only when there were no real errors and no city produced anything: every
+	// processed city was empty, so surface ErrNoResults (exit 3).
+	if len(errs) == 0 && !sawResult && skippedEmpty {
+		return ErrNoResults
 	}
 	return errors.Join(errs...)
 }

@@ -102,6 +102,32 @@ func TestForEachCity(t *testing.T) {
 		}
 	})
 
+	t.Run("all_cities_empty_returns_err_no_results", func(t *testing.T) {
+		// When EVERY city yields ErrNoResults, the multi-city path must return
+		// ErrNoResults (exit 3), matching the single-city path — not silently
+		// exit 0 (solvent-streets-9zc2).
+		f, _ := newFactory([]config.CityConfig{cityA, cityB}, false, nil)
+
+		err := cmdutil.ForEachCity(context.Background(), f, func(_ *cmdutil.Factory, _ *config.CityConfig) error {
+			return cmdutil.ErrNoResults
+		})
+		if !errors.Is(err, cmdutil.ErrNoResults) {
+			t.Errorf("all-empty multi-city: want ErrNoResults, got %v", err)
+		}
+	})
+
+	t.Run("single_city_err_no_results_propagates", func(t *testing.T) {
+		// The single-city contract ForEachCity's all-empty case now mirrors.
+		f, _ := newFactory([]config.CityConfig{cityA}, false, nil)
+
+		err := cmdutil.ForEachCity(context.Background(), f, func(_ *cmdutil.Factory, _ *config.CityConfig) error {
+			return cmdutil.ErrNoResults
+		})
+		if !errors.Is(err, cmdutil.ErrNoResults) {
+			t.Errorf("single-city ErrNoResults must propagate, got %v", err)
+		}
+	})
+
 	t.Run("real_error_joined_other_cities_still_run", func(t *testing.T) {
 		f, _ := newFactory([]config.CityConfig{cityA, cityB, cityC}, false, nil)
 		sentinel := errors.New("boom")

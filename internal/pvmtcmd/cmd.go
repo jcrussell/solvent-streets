@@ -56,6 +56,14 @@ func exitCode(err error, errOut io.Writer) int {
 //     and MarkFlagsRequiredTogether (byob-command-shape.6).
 //   - "at least one of the flags in the group ..." from
 //     MarkFlagsOneRequired (byob-command-shape.6).
+//   - "required flag(s) ... not set" from MarkFlagRequired.
+//   - "accepts ... arg(s) ..." from ExactArgs/RangeArgs/MaximumNArgs.
+//   - "requires at least ... arg(s)" from MinimumNArgs.
+//
+// Without the arg-count / required-flag prefixes, e.g. `snapshots prune`
+// (missing --keep) and `snapshots rm` (missing id) exited 1 while a bad
+// --keep value exited 2 — inconsistent exit codes for the same class of
+// user error (solvent-streets-8407).
 func classifyUsageError(err error) error {
 	if err == nil {
 		return nil
@@ -67,7 +75,10 @@ func classifyUsageError(err error) error {
 	msg := err.Error()
 	if strings.HasPrefix(msg, "unknown command ") ||
 		strings.HasPrefix(msg, "if any flags in the group ") ||
-		strings.HasPrefix(msg, "at least one of the flags in the group ") {
+		strings.HasPrefix(msg, "at least one of the flags in the group ") ||
+		strings.HasPrefix(msg, "required flag(s) ") ||
+		strings.HasPrefix(msg, "accepts ") ||
+		strings.HasPrefix(msg, "requires at least ") {
 		return &cmdutil.FlagError{Err: err}
 	}
 	return err
