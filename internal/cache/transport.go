@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/jcrussell/solvent-streets/internal/httpio"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 )
 
@@ -118,7 +119,12 @@ func (t *CachingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		return buildResponse(req, meta, cachedBody), nil
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 100*1024*1024)) // 100MB limit
+	// Read with an overflow-detecting limit: a plain io.LimitReader returns a
+	// clean EOF at exactly the cap, so a truncated 200 would be written to the
+	// disk cache and served as a fresh hit until TTL. ReadAllLimit errors
+	// instead, and the error short-circuits before writeCache below — a
+	// truncated body is never persisted.
+	body, err := httpio.ReadAllLimit(resp.Body, httpio.MaxResponseBodyBytes)
 	_ = resp.Body.Close()
 	if err != nil {
 		return nil, fmt.Errorf("read response body: %w", err)

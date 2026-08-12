@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/httpio"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
@@ -73,7 +74,7 @@ func (s *ArcGISSource) Fetch(ctx context.Context, client *http.Client, rt resour
 		if page >= arcgisMaxPages {
 			return nil, fmt.Errorf("arcgis: exceeded %d pages (%d features), aborting", arcgisMaxPages, len(allFeatures))
 		}
-		features, rawCount, exceeded, err := fetchArcGISPage(ctx, client, endpoint, envelope, rtVal, offset)
+		features, rawCount, exceeded, flagPresent, err := fetchArcGISPage(ctx, client, endpoint, envelope, rtVal, offset)
 		if err != nil {
 			return nil, err
 		}
@@ -86,13 +87,23 @@ func (s *ArcGISSource) Fetch(ctx context.Context, client *http.Client, rt resour
 		// would wrongly terminate the loop AND stall the offset, so we must
 		// use the raw row count here.
 		//
-		// The server clamps each response to its own maxRecordCount (often
-		// below our requested arcgisMaxRecords), so a short page does NOT mean
-		// "last page" — exceededTransferLimit is the authoritative signal. The
-		// page-size check is a fallback for servers that omit the flag; the
-		// empty-page guard prevents an infinite loop if the flag is set but no
-		// rows come.
-		if rawCount == 0 || (!exceeded && rawCount < arcgisMaxRecords) {
+		// The server clamps each response to its own maxRecordCount (often below
+		// our requested arcgisMaxRecords), so a short page does NOT mean "last
+		// page". Termination rules, in order:
+		//   1. Empty page  -> definitively past the last record. Stop.
+		//   2. Flag PRESENT and false -> the server authoritatively says no more
+		//      rows remain. Stop (no wasted extra request).
+		//   3. Flag absent -> ambiguous: the server may have clamped below our
+		//      requested page size and silently dropped the rest. The old
+		//      `!exceeded && rawCount < arcgisMaxRecords` short-page break trusted
+		//      absence and once dropped 2000/5780 Livermore rows (solvent-streets-9auy),
+		//      so we no longer trust it — keep paging until an empty page (rule 1).
+		// arcgisMaxPages caps the loop (and errors loudly) so an offset-ignoring
+		// server can't spin forever.
+		if rawCount == 0 {
+			break
+		}
+		if flagPresent && !exceeded {
 			break
 		}
 		offset += rawCount
@@ -105,7 +116,7 @@ func (s *ArcGISSource) Fetch(ctx context.Context, client *http.Client, rt resour
 // fetchArcGISPage fetches one page of features and reports the raw number of
 // rows the server returned (before geometry filtering) and whether the server
 // signalled that more rows remain (exceededTransferLimit).
-func fetchArcGISPage(ctx context.Context, client *http.Client, endpoint, envelope string, resourceType resource.Type, offset int) ([]db.Feature, int, bool, error) {
+func fetchArcGISPage(ctx context.Context, client *http.Client, endpoint, envelope string, resourceType resource.Type, offset int) ([]db.Feature, int, bool, bool, error) {
 	params := url.Values{
 		"where":             {"1=1"},
 		"geometry":          {envelope},
@@ -134,7 +145,7 @@ func fetchArcGISPage(ctx context.Context, client *http.Client, endpoint, envelop
 	// than blindly appending "?...", which would corrupt an existing query.
 	u, err := url.Parse(endpoint)
 	if err != nil {
-		return nil, 0, false, fmt.Errorf("parse arcgis endpoint %q: %w", endpoint, err)
+		return nil, 0, false, false, fmt.Errorf("parse arcgis endpoint %q: %w", endpoint, err)
 	}
 	merged := u.Query()
 	for k, vs := range params {
@@ -147,22 +158,22 @@ func fetchArcGISPage(ctx context.Context, client *http.Client, endpoint, envelop
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
-		return nil, 0, false, fmt.Errorf("create arcgis request: %w", err)
+		return nil, 0, false, false, fmt.Errorf("create arcgis request: %w", err)
 	}
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, 0, false, fmt.Errorf("arcgis request: %w", err)
+		return nil, 0, false, false, fmt.Errorf("arcgis request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyBytes))
+	body, err := httpio.ReadAllLimit(resp.Body, maxResponseBodyBytes)
 	if err != nil {
-		return nil, 0, false, fmt.Errorf("read arcgis response: %w", err)
+		return nil, 0, false, false, fmt.Errorf("read arcgis response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, 0, false, fmt.Errorf("arcgis %s returned %d: %s", endpoint, resp.StatusCode, truncate(string(body), 200))
+		return nil, 0, false, false, fmt.Errorf("arcgis %s returned %d: %s", endpoint, resp.StatusCode, truncate(string(body), 200))
 	}
 
 	// ArcGIS sometimes returns service-level errors as HTTP 200 with a JSON
@@ -170,32 +181,43 @@ func fetchArcGISPage(ctx context.Context, client *http.Client, endpoint, envelop
 	// up front so the caller sees the underlying message + endpoint instead
 	// of an empty feature list.
 	if msg, ok := arcgisErrorMessage(body); ok {
-		return nil, 0, false, fmt.Errorf("arcgis %s: %s", endpoint, msg)
+		return nil, 0, false, false, fmt.Errorf("arcgis %s: %s", endpoint, msg)
 	}
 
 	features, rawCount, err := parseArcGISGeoJSON(body, resourceType, offset)
 	if err != nil {
-		return nil, 0, false, err
+		return nil, 0, false, false, err
 	}
-	return features, rawCount, arcgisExceededLimit(body), nil
+	exceeded, present := arcgisTransferLimit(body)
+	return features, rawCount, exceeded, present, nil
 }
 
-// arcgisExceededLimit reports whether the response signals that more rows
-// remain beyond this page. f=geojson responses carry the flag under
-// "properties"; some ArcGIS deployments emit it at the top level. A parse
-// failure here is treated as "no more rows" — the caller's parseArcGISGeoJSON
-// surfaces malformed bodies as real errors.
-func arcgisExceededLimit(body []byte) bool {
+// arcgisTransferLimit reports whether the response signals that more rows remain
+// beyond this page (exceeded) and whether the exceededTransferLimit flag was
+// actually PRESENT in the body (present). f=geojson responses carry the flag
+// under "properties"; some ArcGIS deployments emit it at the top level. Pointer
+// fields distinguish "flag present and false" from "flag absent" — a critical
+// distinction for pagination: absence is NOT authoritative (see the loop in
+// Fetch), so we must not treat a missing flag as "no more rows". A parse failure
+// here is reported as absent/false — the caller's parseArcGISGeoJSON surfaces
+// malformed bodies as real errors.
+func arcgisTransferLimit(body []byte) (exceeded, present bool) {
 	var env struct {
-		ExceededTransferLimit bool `json:"exceededTransferLimit"`
+		ExceededTransferLimit *bool `json:"exceededTransferLimit"`
 		Properties            struct {
-			ExceededTransferLimit bool `json:"exceededTransferLimit"`
+			ExceededTransferLimit *bool `json:"exceededTransferLimit"`
 		} `json:"properties"`
 	}
 	if err := json.Unmarshal(body, &env); err != nil {
-		return false
+		return false, false
 	}
-	return env.ExceededTransferLimit || env.Properties.ExceededTransferLimit
+	if env.ExceededTransferLimit != nil {
+		return *env.ExceededTransferLimit, true
+	}
+	if env.Properties.ExceededTransferLimit != nil {
+		return *env.Properties.ExceededTransferLimit, true
+	}
+	return false, false
 }
 
 // arcgisErrorMessage reports whether body is an ArcGIS error envelope of the

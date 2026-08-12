@@ -2,10 +2,13 @@ package ingest
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/jcrussell/solvent-streets/internal/httpio"
 )
 
 func nominatimTestServer(t *testing.T, body string) *httptest.Server {
@@ -172,18 +175,17 @@ func TestFetchCityBoundary_FallsBackToNonCityTypedPolygon(t *testing.T) {
 	}
 }
 
-// TestFetchCityBoundary_OversizedBodyTruncated pins the LimitReader
-// guard on the Nominatim response. Regression for solvent-streets-675b:
-// the read was unbounded and a hostile or buggy Nominatim response
-// could drive the process OOM. With the cap, an oversized body is
-// truncated to the limit; the truncated JSON fails to parse and the
-// caller sees an error instead of an allocation.
-func TestFetchCityBoundary_OversizedBodyTruncated(t *testing.T) {
+// TestFetchCityBoundary_OversizedBodyRejected pins the body-size guard on the
+// Nominatim response. Regression for solvent-streets-675b (OOM defense) and
+// solvent-streets-ruk4: an oversized body must now error explicitly at read
+// time (ErrBodyTooLarge) rather than being silently truncated to the cap and
+// surfacing as an opaque downstream JSON parse error.
+func TestFetchCityBoundary_OversizedBodyRejected(t *testing.T) {
 	prev := maxResponseBodyBytes
 	maxResponseBodyBytes = 32
 	t.Cleanup(func() { maxResponseBodyBytes = prev })
 
-	// A body that parses fine in full but is invalid JSON when cut at 32 bytes.
+	// A body that parses fine in full but exceeds the 32-byte cap.
 	geojson := `{"type":"Polygon","coordinates":[[[-121.9,37.6],[-121.8,37.6],[-121.8,37.7],[-121.9,37.7],[-121.9,37.6]]]}`
 	body := `[{"addresstype":"city","geojson":` + geojson + `}]`
 	srv := nominatimTestServer(t, body)
@@ -191,10 +193,10 @@ func TestFetchCityBoundary_OversizedBodyTruncated(t *testing.T) {
 
 	_, err := fetchCityBoundary(context.Background(), srv.Client(), srv.URL, "Test")
 	if err == nil {
-		t.Fatal("expected parse error on truncated oversized response")
+		t.Fatal("expected size-limit error on oversized response")
 	}
-	if !strings.Contains(err.Error(), "parse nominatim response") {
-		t.Errorf("expected parse-error message, got: %v", err)
+	if !errors.Is(err, httpio.ErrBodyTooLarge) {
+		t.Errorf("expected ErrBodyTooLarge, got: %v", err)
 	}
 }
 

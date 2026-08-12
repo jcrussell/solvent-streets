@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,7 +11,59 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jcrussell/solvent-streets/internal/httpio"
 )
+
+// TestCachingTransport_OversizedBodyNotCached pins the cache-path half of the
+// ruk4 fix: an over-limit 200 must error (never silently truncate) and must NOT
+// be written to the disk cache, so it isn't served as a fresh hit until TTL.
+func TestCachingTransport_OversizedBodyNotCached(t *testing.T) {
+	prev := httpio.MaxResponseBodyBytes
+	httpio.MaxResponseBodyBytes = 8
+	t.Cleanup(func() { httpio.MaxResponseBodyBytes = prev })
+
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		callCount++
+		_, _ = w.Write([]byte(`{"data":"way over the tiny limit"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	dir := t.TempDir()
+	client := &http.Client{Transport: NewTransport(http.DefaultTransport, dir, time.Hour)}
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/big", nil)
+	resp, err := client.Do(req)
+	if err == nil {
+		_ = resp.Body.Close()
+		t.Fatal("expected error on oversized body, got nil")
+	}
+	if !errors.Is(err, httpio.ErrBodyTooLarge) {
+		t.Errorf("expected ErrBodyTooLarge, got %v", err)
+	}
+
+	// Nothing must have been persisted to the cache dir.
+	var files int
+	_ = filepath.Walk(dir, func(_ string, info os.FileInfo, _ error) error {
+		if info != nil && !info.IsDir() {
+			files++
+		}
+		return nil
+	})
+	if files != 0 {
+		t.Errorf("oversized 200 must not be cached; found %d cache files", files)
+	}
+
+	// A second request must hit the origin again (proving it wasn't cached).
+	req2, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/big", nil)
+	if resp2, err := client.Do(req2); err == nil {
+		_ = resp2.Body.Close()
+	}
+	if callCount != 2 {
+		t.Errorf("expected 2 origin calls (no cache), got %d", callCount)
+	}
+}
 
 func TestCachingTransport_HitAndMiss(t *testing.T) {
 	callCount := 0

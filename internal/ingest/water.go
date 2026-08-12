@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"math"
 	"net/http"
 	"net/url"
 	"sort"
 	"strings"
 
+	"github.com/jcrussell/solvent-streets/internal/httpio"
 	"github.com/jcrussell/solvent-streets/internal/logs"
 )
 
@@ -112,12 +112,12 @@ func parseWaterElements(data []byte) (elements []overpassElement, truncated bool
 }
 
 // maxResponseBodyBytes caps every external API response (Overpass,
-// ArcGIS, Nominatim) at 100 MB. Defends against runaway queries (e.g.,
-// the global water shape if a bbox arg is botched) or hostile/buggy
-// servers that try to drive the process OOM via an unbounded body.
-// A var (not const) so tests can shrink it without round-tripping
-// 100 MB through an httptest.Server.
-var maxResponseBodyBytes int64 = 100 * 1024 * 1024
+// ArcGIS, Nominatim). It is seeded from the shared httpio limit so the
+// ingest read paths and the cache transport share one default. A var (not
+// const) so tests can shrink it without round-tripping 100 MB through an
+// httptest.Server. Read via httpio.ReadAllLimit, which errors on overflow
+// instead of silently truncating.
+var maxResponseBodyBytes = httpio.MaxResponseBodyBytes
 
 // postOverpass issues the project-standard Overpass query POST and
 // returns the raw response body. Used by all Overpass call sites so
@@ -137,7 +137,7 @@ func postOverpass(ctx context.Context, client *http.Client, baseURL, query strin
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyBytes))
+	body, err := httpio.ReadAllLimit(resp.Body, maxResponseBodyBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read overpass response: %w", err)
 	}

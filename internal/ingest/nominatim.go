@@ -4,9 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
+
+	"github.com/jcrussell/solvent-streets/internal/httpio"
 )
 
 const nominatimBaseURL = "https://nominatim.openstreetmap.org/search"
@@ -59,7 +60,7 @@ func fetchCityBoundary(ctx context.Context, client *http.Client, baseURL string,
 		return "", fmt.Errorf("nominatim returned status %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyBytes))
+	body, err := httpio.ReadAllLimit(resp.Body, maxResponseBodyBytes)
 	if err != nil {
 		return "", fmt.Errorf("read nominatim response: %w", err)
 	}

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/httpio"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
@@ -93,7 +93,7 @@ func fetchBBox(ctx context.Context, client *http.Client, rt resource.Source, bbo
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyBytes))
+	body, err := httpio.ReadAllLimit(resp.Body, maxResponseBodyBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read overpass response: %w", err)
 	}

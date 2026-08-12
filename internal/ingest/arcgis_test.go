@@ -316,11 +316,17 @@ func TestFetch_PreservesEndpointQueryString(t *testing.T) {
 	var gotOffset string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		gotToken = q.Get("token")
-		gotWhere = q.Get("where")
-		gotOffset = q.Get("resultOffset")
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(makeArcGISFeatures(10, 1)) // short page → single request
+		if q.Get("resultOffset") == "0" {
+			// Capture the first page's merged params; the flag is absent, so a
+			// terminating empty page follows at the next offset.
+			gotToken = q.Get("token")
+			gotWhere = q.Get("where")
+			gotOffset = q.Get("resultOffset")
+			w.Write(makeArcGISFeatures(10, 1))
+			return
+		}
+		w.Write(makeArcGISFeatures(0, 1)) // empty page past the last record
 	}))
 	t.Cleanup(srv.Close)
 
@@ -391,6 +397,47 @@ func TestFetch_PaginationExceededTransferLimit(t *testing.T) {
 	}
 }
 
+// TestFetch_PaginationFlagOmittedShortPages pins the fix for solvent-streets-9auy:
+// a server that clamps its page size below arcgisMaxRecords AND omits
+// exceededTransferLimit entirely. The old break condition
+// `!exceeded && rawCount < arcgisMaxRecords` would stop after page 1 (100 < 5000,
+// flag absent -> exceeded=false), silently dropping every later page. The fix
+// paginates until an empty page, so all rows are fetched.
+func TestFetch_PaginationFlagOmittedShortPages(t *testing.T) {
+	const pageSize = 100 // well under arcgisMaxRecords, and the flag is never sent
+	const pages = 3
+
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		offset, _ := strconv.Atoi(r.URL.Query().Get("resultOffset"))
+		w.Header().Set("Content-Type", "application/json")
+		if offset >= pages*pageSize {
+			// Past the last record: an empty page is the only reliable end signal.
+			w.Write(makeArcGISFeatures(0, 1))
+			return
+		}
+		w.Write(makeArcGISFeatures(pageSize, offset+1))
+	}))
+	t.Cleanup(srv.Close)
+
+	src := &ArcGISSource{
+		BBox:         [4]float64{37.0, -122.0, 38.0, -121.0},
+		URL:          srv.URL,
+		AllowPrivate: true, // httptest.Server binds 127.0.0.1; the SSRF guard would otherwise refuse it.
+	}
+	features, err := src.Fetch(context.Background(), srv.Client(), resource.ByType(resource.TypeRoads))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := pages * pageSize; len(features) != want {
+		t.Fatalf("expected %d features across all pages, got %d (short-page heuristic truncated?)", want, len(features))
+	}
+	if want := pages + 1; calls != want { // pages + one terminating empty page
+		t.Errorf("expected %d server calls, got %d", want, calls)
+	}
+}
+
 func TestFetch_Pagination(t *testing.T) {
 	// Simulate a server that returns arcgisMaxRecords on the first page
 	// and a smaller set on the second page.
@@ -408,9 +455,10 @@ func TestFetch_Pagination(t *testing.T) {
 		case pageSize:
 			body = makeArcGISFeatures(page2Size, pageSize+1)
 		default:
-			t.Errorf("unexpected offset %d", offset)
-			http.Error(w, "bad offset", 400)
-			return
+			// Neither page carries exceededTransferLimit, so termination is
+			// confirmed by an empty page past the last record (as a real ArcGIS
+			// service returns for an offset beyond its row count).
+			body = makeArcGISFeatures(0, 1)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(body)
@@ -430,8 +478,8 @@ func TestFetch_Pagination(t *testing.T) {
 	if len(features) != pageSize+page2Size {
 		t.Fatalf("expected %d features, got %d", pageSize+page2Size, len(features))
 	}
-	if calls != 2 {
-		t.Errorf("expected 2 server calls, got %d", calls)
+	if calls != 3 { // page 0, page 1 (short, flag absent), terminating empty page
+		t.Errorf("expected 3 server calls, got %d", calls)
 	}
 	// Verify IDs from both pages are present.
 	if features[0].ID != "arcgis:1" {
@@ -450,8 +498,13 @@ func TestFetch_PagesOrderedByOBJECTID(t *testing.T) {
 	var sawOrderBy []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		sawOrderBy = append(sawOrderBy, r.URL.Query().Get("orderByFields"))
+		offset, _ := strconv.Atoi(r.URL.Query().Get("resultOffset"))
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(makeArcGISFeatures(10, 1)) // short page → single request
+		if offset == 0 {
+			w.Write(makeArcGISFeatures(10, 1)) // short page, no exceededTransferLimit flag
+			return
+		}
+		w.Write(makeArcGISFeatures(0, 1)) // empty page past the last record
 	}))
 	t.Cleanup(srv.Close)
 
@@ -474,12 +527,20 @@ func TestFetch_PagesOrderedByOBJECTID(t *testing.T) {
 }
 
 func TestFetch_SinglePage(t *testing.T) {
-	// When the server returns fewer than arcgisMaxRecords, no second request.
+	// A single short page with NO exceededTransferLimit flag. Because a missing
+	// flag is not authoritative (the server might have clamped and dropped rows),
+	// termination is confirmed by one follow-up request that returns an empty
+	// page — so a genuine single-page dataset costs one extra confirming request.
 	calls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
+		offset, _ := strconv.Atoi(r.URL.Query().Get("resultOffset"))
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(makeArcGISFeatures(10, 1))
+		if offset == 0 {
+			w.Write(makeArcGISFeatures(10, 1))
+			return
+		}
+		w.Write(makeArcGISFeatures(0, 1)) // empty page past the last record
 	}))
 	t.Cleanup(srv.Close)
 
@@ -495,8 +556,8 @@ func TestFetch_SinglePage(t *testing.T) {
 	if len(features) != 10 {
 		t.Fatalf("expected 10 features, got %d", len(features))
 	}
-	if calls != 1 {
-		t.Errorf("expected 1 server call, got %d", calls)
+	if calls != 2 { // the short page, then a terminating empty page
+		t.Errorf("expected 2 server calls, got %d", calls)
 	}
 }
 
