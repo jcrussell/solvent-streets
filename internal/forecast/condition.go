@@ -58,7 +58,13 @@ func ApplyConditionSpread(cohorts []Cohort) []Cohort {
 	out := make([]Cohort, 0, len(cohorts)*conditionBands)
 	for _, c := range cohorts {
 		m := c.InitialPCI / 100.0
-		if m <= conditionEps || m >= 1-conditionEps {
+		// Degenerate or non-finite means have no meaningful spread and would poison
+		// the Beta (a NaN m slips past both bound checks — all NaN comparisons are
+		// false — yielding NaN α/β and NaN sub-cohort PCIs). Callers at the JS->WASM
+		// boundary already reject non-finite InitialPCI; this is defense-in-depth for
+		// any other caller so a bad mean passes through unchanged rather than
+		// silently corrupting the forecast.
+		if math.IsNaN(m) || m <= conditionEps || m >= 1-conditionEps {
 			out = append(out, c)
 			continue
 		}

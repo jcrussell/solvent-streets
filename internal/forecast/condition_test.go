@@ -76,6 +76,19 @@ func TestApplyConditionSpreadDegenerate(t *testing.T) {
 	}
 }
 
+// A non-finite mean must pass through unchanged rather than produce NaN α/β and
+// NaN sub-cohort PCIs. NaN slips past the ordinary bound checks (all comparisons
+// against NaN are false), so it needs an explicit guard. This is defense-in-depth
+// for the JS->WASM boundary (game.New / bridge.Translate reject non-finite
+// InitialPCI upstream).
+func TestApplyConditionSpreadNonFinite(t *testing.T) {
+	in := []Cohort{{Classification: "x", Area: 10, InitialPCI: math.NaN(), DecayRate: 0.04}}
+	out := ApplyConditionSpread(in)
+	if len(out) != 1 || !math.IsNaN(out[0].InitialPCI) {
+		t.Errorf("NaN mean: expected passthrough, got %+v", out)
+	}
+}
+
 // Calibration guard: the deployed correction is the Simulate year-1 AnnualNeed
 // uplift. This pins conditionConcentration=4: a conservative *partial* recovery
 // of the validation.md §4 ~32–37% gap (a unimodal Beta cannot reproduce the real

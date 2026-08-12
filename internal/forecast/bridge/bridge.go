@@ -12,9 +12,17 @@ package bridge
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 )
+
+// finite reports whether f is a real number (not NaN or ±Inf). The browser
+// payload is untrusted: a NaN/Inf propagates through Simulate and then makes
+// json.Marshal fail with "unsupported value: NaN", and a NaN InitialPCI slips
+// past ApplyConditionSpread's degenerate-Beta guards (all NaN comparisons are
+// false) to yield NaN PCIs. Reject non-finite values at this boundary instead.
+func finite(f float64) bool { return !math.IsNaN(f) && !math.IsInf(f, 0) }
 
 // maxYears bounds Input.Years. forecast.Simulate -> EstimateGrowth does
 // make([]float64, years), so a huge value OOMs the WASM runtime; the shim's
@@ -62,7 +70,59 @@ type CostTier struct {
 // surfaced, not silently swallowed), the "custom" scenario, and the cohort
 // fallback with decay-rate default. This is a faithful extraction, not a
 // redesign.
+// validateInput rejects the untrusted browser payload before it reaches
+// forecast.Simulate and the Beta condition spread. Years is bounded because
+// EstimateGrowth does make([]float64, years) (years <= 0 panics, a huge value
+// OOMs the WASM runtime). The floats are finite/range-checked because NaN/Inf
+// corrupts every output number and breaks the final json.Marshal
+// ("unsupported value: NaN"), and an InitialPCI outside [0,100] yields a
+// negative Beta and garbage anchors (condition.go). finite guards come first so
+// NaN can't slip past a bare `< 0` (all NaN comparisons are false).
+func validateInput(in Input) error {
+	if in.Years <= 0 || in.Years > maxYears {
+		return fmt.Errorf("years must be between 1 and %d, got %d", maxYears, in.Years)
+	}
+	if !finite(in.Area) || in.Area < 0 {
+		return fmt.Errorf("area must be finite and >= 0, got %g", in.Area)
+	}
+	if !finite(in.InitialPCI) || in.InitialPCI < 0 || in.InitialPCI > 100 {
+		return fmt.Errorf("initial_pci must be finite in [0,100], got %g", in.InitialPCI)
+	}
+	if !finite(in.DecayRate) {
+		return fmt.Errorf("decay_rate must be finite, got %g", in.DecayRate)
+	}
+	if !finite(in.GrowthRate) {
+		return fmt.Errorf("growth_rate must be finite, got %g", in.GrowthRate)
+	}
+	if !finite(in.AnnualBudget) || in.AnnualBudget < 0 {
+		return fmt.Errorf("annual_budget must be finite and >= 0, got %g", in.AnnualBudget)
+	}
+	return validateInputCollections(in)
+}
+
+// validateInputCollections checks the per-tier and per-cohort float fields.
+func validateInputCollections(in Input) error {
+	for i, t := range in.CostTiers {
+		if !finite(t.CostPerSqM) || t.CostPerSqM < 0 {
+			return fmt.Errorf("cost_tier %d (%q) has invalid cost_per_sqm %g (want finite >= 0)", i, t.Label, t.CostPerSqM)
+		}
+	}
+	for i, c := range in.Cohorts {
+		if !finite(c.Area) || c.Area < 0 {
+			return fmt.Errorf("cohort %d (%q) has invalid area %g (want finite >= 0)", i, c.Classification, c.Area)
+		}
+		if !finite(c.DecayRate) || c.DecayRate < 0 {
+			return fmt.Errorf("cohort %d (%q) has invalid decay_rate %g (want finite >= 0)", i, c.Classification, c.DecayRate)
+		}
+	}
+	return nil
+}
+
 func Translate(in Input) (forecast.Scenario, []forecast.Cohort, int, *forecast.Params, error) {
+	if err := validateInput(in); err != nil {
+		return forecast.Scenario{}, nil, 0, nil, err
+	}
+
 	var tiers []forecast.CostTier
 	for _, t := range in.CostTiers {
 		tiers = append(tiers, forecast.CostTier{
@@ -71,14 +131,6 @@ func Translate(in Input) (forecast.Scenario, []forecast.Cohort, int, *forecast.P
 			CostPerSqM: t.CostPerSqM,
 			Label:      t.Label,
 		})
-	}
-
-	// Validate Years before it reaches forecast.Simulate -> EstimateGrowth's
-	// make([]float64, years): years <= 0 panics (negative make) and a huge value
-	// OOMs the WASM runtime. Surface both as an error so Run wraps it in the
-	// {"error": ...} envelope instead of crashing.
-	if in.Years <= 0 || in.Years > maxYears {
-		return forecast.Scenario{}, nil, 0, nil, fmt.Errorf("years must be between 1 and %d, got %d", maxYears, in.Years)
 	}
 
 	params := forecast.NewParams(in.GrowthRate, tiers, in.CycleYears)

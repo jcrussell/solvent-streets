@@ -182,6 +182,52 @@ func TestTranslateYearsBounds(t *testing.T) {
 	}
 }
 
+// TestTranslateNonFiniteInputs asserts NaN/Inf/out-of-range numeric fields are
+// rejected at the boundary (not passed into Simulate where they corrupt every
+// output and break the final json.Marshal with "unsupported value: NaN"), via
+// both Translate and the Run envelope path.
+func TestTranslateNonFiniteInputs(t *testing.T) {
+	base := func() Input {
+		return Input{
+			Area: 750_000, InitialPCI: 75, DecayRate: 0.04, GrowthRate: 0.01,
+			Years: 10, AnnualBudget: 1_000_000, Strategy: "do-nothing",
+		}
+	}
+	cases := map[string]func(*Input){
+		"nan area":         func(in *Input) { in.Area = math.NaN() },
+		"neg area":         func(in *Input) { in.Area = -1 },
+		"inf initial_pci":  func(in *Input) { in.InitialPCI = math.Inf(1) },
+		"neg initial_pci":  func(in *Input) { in.InitialPCI = -1 },
+		"initial_pci>100":  func(in *Input) { in.InitialPCI = 101 },
+		"nan decay":        func(in *Input) { in.DecayRate = math.NaN() },
+		"inf growth":       func(in *Input) { in.GrowthRate = math.Inf(-1) },
+		"nan budget":       func(in *Input) { in.AnnualBudget = math.NaN() },
+		"neg budget":       func(in *Input) { in.AnnualBudget = -1 },
+		"nan tier cost":    func(in *Input) { in.CostTiers = []CostTier{{MinPCI: 0, MaxPCI: 100, CostPerSqM: math.NaN(), Label: "x"}} },
+		"nan cohort area":  func(in *Input) { in.Cohorts = []Cohort{{Classification: "c", Area: math.NaN(), DecayRate: 0.04}} },
+		"neg cohort area":  func(in *Input) { in.Cohorts = []Cohort{{Classification: "c", Area: -1, DecayRate: 0.04}} },
+		"inf cohort decay": func(in *Input) { in.Cohorts = []Cohort{{Classification: "c", Area: 1000, DecayRate: math.Inf(1)}} },
+		"neg cohort decay": func(in *Input) { in.Cohorts = []Cohort{{Classification: "c", Area: 1000, DecayRate: -0.5}} },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			in := base()
+			mutate(&in)
+			if _, _, _, _, err := Translate(in); err == nil {
+				t.Errorf("Translate(%s): expected error, got nil", name)
+			}
+			raw, _ := json.Marshal(in)
+			if _, err := Run(raw); err == nil {
+				t.Errorf("Run(%s): expected error envelope, got nil", name)
+			}
+		})
+	}
+	// The finite base input still passes.
+	if _, _, _, _, err := Translate(base()); err != nil {
+		t.Errorf("Translate(base): unexpected error %v", err)
+	}
+}
+
 func TestRunEndToEnd(t *testing.T) {
 	in := Input{
 		Area:         750_000,

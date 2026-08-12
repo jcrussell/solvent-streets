@@ -49,12 +49,32 @@ func newGame(t *testing.T, cfg Config) *Game {
 
 func TestNewValidation(t *testing.T) {
 	cases := map[string]func(*Config){
-		"no hexes":      func(c *Config) { c.Hexes = nil },
-		"bad k":         func(c *Config) { c.Hexes[0].K = 0 },
-		"neg area":      func(c *Config) { c.Hexes[0].RoadArea = -1 },
-		"bad horizon":   func(c *Config) { c.HorizonYears = 0 },
-		"no cost tiers": func(c *Config) { c.CostTiers = nil },
-		"empty id":      func(c *Config) { c.Hexes[0].ID = "" },
+		"no hexes":       func(c *Config) { c.Hexes = nil },
+		"bad k":          func(c *Config) { c.Hexes[0].K = 0 },
+		"neg area":       func(c *Config) { c.Hexes[0].RoadArea = -1 },
+		"bad horizon":    func(c *Config) { c.HorizonYears = 0 },
+		"no cost tiers":  func(c *Config) { c.CostTiers = nil },
+		"empty id":       func(c *Config) { c.Hexes[0].ID = "" },
+		"nan horizon":    func(c *Config) { c.HorizonYears = math.NaN() },
+		"inf horizon":    func(c *Config) { c.HorizonYears = math.Inf(1) },
+		"nan k":          func(c *Config) { c.Hexes[0].K = math.NaN() },
+		"inf area":       func(c *Config) { c.Hexes[0].RoadArea = math.Inf(1) },
+		"nan initialpci": func(c *Config) { c.InitialPCI = math.NaN() },
+		"initialpci>100": func(c *Config) { c.InitialPCI = 101 },
+		"neg initialpci": func(c *Config) { c.InitialPCI = -1 },
+		"nan jitter":     func(c *Config) { c.PCIJitter = math.NaN() },
+		"neg jitter":     func(c *Config) { c.PCIJitter = -1 },
+		"nan budget":     func(c *Config) { c.StartingBudget = math.NaN() },
+		"inf budget":     func(c *Config) { c.StartingBudget = math.Inf(-1) },
+		"nan growth":     func(c *Config) { c.GrowthRate = math.NaN() },
+		"neg tier cost":  func(c *Config) { c.CostTiers[0].CostPerSqM = -1 },
+		"nan tier cost":  func(c *Config) { c.CostTiers[0].CostPerSqM = math.NaN() },
+		"nan cohort area": func(c *Config) {
+			c.Cohorts[0].Area = math.NaN()
+		},
+		"neg cohort area":  func(c *Config) { c.Cohorts[0].Area = -1 },
+		"inf cohort decay": func(c *Config) { c.Cohorts[0].DecayRate = math.Inf(1) },
+		"neg cohort decay": func(c *Config) { c.Cohorts[0].DecayRate = -1 },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -373,6 +393,31 @@ func TestProjectInsolvencyBadHorizon(t *testing.T) {
 			cfg.HorizonYears = h
 			if _, ok := ProjectInsolvency(cfg); ok {
 				t.Fatalf("expected ok=false for horizon %g", h)
+			}
+		})
+	}
+}
+
+// TestProjectInsolvencyNonFiniteInputs asserts the pregame preview path (which
+// reaches insolvencyFromForecast straight from an untrusted Config, bypassing
+// New) treats non-finite/out-of-range numerics as "no result" (ok=false) rather
+// than returning a silently garbage year.
+func TestProjectInsolvencyNonFiniteInputs(t *testing.T) {
+	cases := map[string]func(*Config){
+		"nan initial_pci":  func(c *Config) { c.InitialPCI = math.NaN() },
+		"initial_pci>100":  func(c *Config) { c.InitialPCI = 101 },
+		"inf growth":       func(c *Config) { c.GrowthRate = math.Inf(1) },
+		"nan budget":       func(c *Config) { c.StartingBudget = math.NaN() },
+		"nan tier cost":    func(c *Config) { c.CostTiers[0].CostPerSqM = math.NaN() },
+		"neg cohort area":  func(c *Config) { c.Cohorts[0].Area = -1 },
+		"inf cohort decay": func(c *Config) { c.Cohorts[0].DecayRate = math.Inf(1) },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			cfg := baseConfig()
+			mutate(&cfg)
+			if _, ok := ProjectInsolvency(cfg); ok {
+				t.Fatalf("expected ok=false for %q", name)
 			}
 		})
 	}

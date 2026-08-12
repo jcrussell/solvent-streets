@@ -168,26 +168,81 @@ type Game struct {
 // Starting PCI per hex is initial_pci offset by a *deterministic* jitter derived
 // from an FNV hash of the hex id (range [-pci_jitter, +pci_jitter], clamped to
 // [0,100]). No global math/rand is used, so runs and tests are reproducible.
-func New(cfg Config) (*Game, error) {
+// validateConfig rejects the untrusted JS->WASM Config before New trusts it.
+// finite guards come FIRST on every float: a bare `<= 0` / `< 0` comparison lets
+// NaN and ±Inf slip through (all comparisons against NaN are false), and a
+// non-finite value poisons treasury, per-hex PCI, and the forecast core
+// irrecoverably. (ProjectInsolvency reaches the forecast core without New, so it
+// re-guards the same numerics at insolvencyFromForecast.)
+func validateConfig(cfg Config) error {
 	if len(cfg.Hexes) == 0 {
-		return nil, errors.New("game: config has no hexes")
-	}
-	if cfg.HorizonYears <= 0 {
-		return nil, fmt.Errorf("game: horizon_years must be > 0, got %g", cfg.HorizonYears)
+		return errors.New("game: config has no hexes")
 	}
 	if len(cfg.CostTiers) == 0 {
-		return nil, errors.New("game: cost_tiers must be non-empty")
+		return errors.New("game: cost_tiers must be non-empty")
+	}
+	if err := validateConfigScalars(cfg); err != nil {
+		return err
+	}
+	return validateConfigCollections(cfg)
+}
+
+// validateConfigScalars checks the top-level float fields. finite guards come
+// first: a bare `<= 0` / `< 0` lets NaN and ±Inf through (all NaN comparisons
+// are false), and a non-finite value poisons treasury/PCI/the forecast core.
+func validateConfigScalars(cfg Config) error {
+	if !finite(cfg.HorizonYears) || cfg.HorizonYears <= 0 {
+		return fmt.Errorf("game: horizon_years must be finite and > 0, got %g", cfg.HorizonYears)
+	}
+	if !finite(cfg.InitialPCI) || cfg.InitialPCI < 0 || cfg.InitialPCI > 100 {
+		return fmt.Errorf("game: initial_pci must be finite in [0,100], got %g", cfg.InitialPCI)
+	}
+	if !finite(cfg.PCIJitter) || cfg.PCIJitter < 0 {
+		return fmt.Errorf("game: pci_jitter must be finite and >= 0, got %g", cfg.PCIJitter)
+	}
+	if !finite(cfg.StartingBudget) {
+		return fmt.Errorf("game: starting_budget must be finite, got %g", cfg.StartingBudget)
+	}
+	if !finite(cfg.GrowthRate) {
+		return fmt.Errorf("game: growth_rate must be finite, got %g", cfg.GrowthRate)
+	}
+	return nil
+}
+
+// validateConfigCollections checks the per-tier, per-hex, and per-cohort fields.
+func validateConfigCollections(cfg Config) error {
+	for i, t := range cfg.CostTiers {
+		// A negative or non-finite cost_per_sqm lets treatOne ADD to the treasury
+		// (money-printing) and corrupts the loss-backlog ceiling.
+		if !finite(t.CostPerSqM) || t.CostPerSqM < 0 {
+			return fmt.Errorf("game: cost_tier %d (%q) has invalid cost_per_sqm %g (want finite >= 0)", i, t.Label, t.CostPerSqM)
+		}
 	}
 	for i, h := range cfg.Hexes {
 		if h.ID == "" {
-			return nil, fmt.Errorf("game: hex %d has empty id", i)
+			return fmt.Errorf("game: hex %d has empty id", i)
 		}
-		if h.K <= 0 {
-			return nil, fmt.Errorf("game: hex %q has non-positive k %g", h.ID, h.K)
+		if !finite(h.K) || h.K <= 0 {
+			return fmt.Errorf("game: hex %q has invalid k %g (want finite > 0)", h.ID, h.K)
 		}
-		if h.RoadArea < 0 {
-			return nil, fmt.Errorf("game: hex %q has negative road_area %g", h.ID, h.RoadArea)
+		if !finite(h.RoadArea) || h.RoadArea < 0 {
+			return fmt.Errorf("game: hex %q has invalid road_area %g (want finite >= 0)", h.ID, h.RoadArea)
 		}
+	}
+	for i, c := range cfg.Cohorts {
+		if !finite(c.Area) || c.Area < 0 {
+			return fmt.Errorf("game: cohort %d (%q) has invalid area %g (want finite >= 0)", i, c.Classification, c.Area)
+		}
+		if !finite(c.DecayRate) || c.DecayRate < 0 {
+			return fmt.Errorf("game: cohort %d (%q) has invalid decay_rate %g (want finite >= 0)", i, c.Classification, c.DecayRate)
+		}
+	}
+	return nil
+}
+
+func New(cfg Config) (*Game, error) {
+	if err := validateConfig(cfg); err != nil {
+		return nil, err
 	}
 
 	tiers := make([]forecast.CostTier, len(cfg.CostTiers))
@@ -426,6 +481,26 @@ func insolvencyFromForecast(cohortCfgs []CohortConfig, initialPCI, growthRate fl
 	// "no result" signal (0, false) rather than crashing the WASM runtime.
 	if !finite(horizon) || horizon <= 0 || horizon > maxForecastHorizon {
 		return 0, false
+	}
+	// ProjectInsolvency reaches here straight from an untrusted Config (the WASM
+	// gameProjectInsolvency export) WITHOUT going through New, so re-guard the
+	// remaining numerics at this shared chokepoint. A non-finite/out-of-range
+	// input can't crash (the output is year|null, no float is marshaled), but it
+	// would yield a silently garbage preview. Treat bad input as "no result"
+	// (0, false), consistent with the horizon guard above. For the live-game
+	// caller these are always-true no-ops — New already validated the same fields.
+	if !finite(initialPCI) || initialPCI < 0 || initialPCI > 100 || !finite(growthRate) || !finite(budget) {
+		return 0, false
+	}
+	for _, t := range tiers {
+		if !finite(t.CostPerSqM) || t.CostPerSqM < 0 {
+			return 0, false
+		}
+	}
+	for _, c := range cohortCfgs {
+		if !finite(c.Area) || c.Area < 0 || !finite(c.DecayRate) || c.DecayRate < 0 {
+			return 0, false
+		}
 	}
 	cohorts := make([]forecast.Cohort, len(cohortCfgs))
 	for i, c := range cohortCfgs {
