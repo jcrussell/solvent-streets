@@ -164,8 +164,9 @@ func cleanFeatureGeometry(f Feature, proj *geo.UTMProjector, inferWidth widthFun
 	case GeomMultiLineString:
 		return bufferMultiLineCorridors(g, inferWidth(f.Tags))
 	case GeomPolygon, GeomMultiPolygon:
-		// ValidatePolygon is a Buffer(0) clean; it is dimension-agnostic and
-		// fixes both Polygon and MultiPolygon (e.g. parking relations).
+		// ValidatePolygon is a Buffer(0) clean that fixes both Polygon and
+		// MultiPolygon (e.g. parking relations); it rejects non-areal input,
+		// which only reaches here as dim-2 geometry via this branch.
 		return validatePolygonOK(g)
 	default:
 		return geom.Geometry{}, false

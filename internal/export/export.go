@@ -228,11 +228,20 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 	if err := entry.RequireMatchingSnapshot(ctx); err != nil {
 		return MetaJSON{}, "", err
 	}
-	_, lon, lat, err := entry.BBoxAndCenter(ctx)
+	bbox, lon, lat, err := entry.BBoxAndCenter(ctx)
 	if err != nil {
 		return MetaJSON{}, "", fmt.Errorf("city bbox: %w", err)
 	}
 	proj := geo.NewUTMProjector(lon, lat)
+	// A single UTM zone is picked from the bbox center; a bbox much wider than
+	// one 6° zone gets distorted areas near its edges. Warn so an oversized city
+	// isn't silently exported with skewed metrics (bbox is [south,west,north,
+	// east], so the lon span is east-west = bbox[3]-bbox[1]).
+	if geo.UTMLonSpanExceeds(bbox[1], bbox[3], 6) {
+		fmt.Fprintf(e.warnOut(),
+			"warning: city %q bbox spans %.1f° of longitude; a single UTM zone (%d) is used, so exported areas near the edges may be distorted\n",
+			entry.City.Name, bbox[3]-bbox[1], proj.Zone)
+	}
 
 	meta, err := BuildMeta(ctx, entry, 0)
 	if err != nil {

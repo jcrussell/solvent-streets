@@ -26,7 +26,25 @@ type UTMProjector struct {
 	utm *carto.UTM // the actual projection; nil unless built by NewUTMProjector
 }
 
+// UTMLonSpanExceeds reports whether the longitude span between minLon and
+// maxLon exceeds `degrees`. NewUTMProjector resolves a SINGLE UTM zone from the
+// bbox center longitude, and Transverse Mercator distortion grows with distance
+// from that zone's central meridian — a UTM zone is only 6° wide by design, and
+// area/length error becomes material for coverage stats well before the bbox
+// spans a full zone. Call sites use this to WARN (never fail) when a city's
+// bbox is too wide to be faithfully represented by one zone; the projector
+// itself stays a total, error-free constructor.
+func UTMLonSpanExceeds(minLon, maxLon, degrees float64) bool {
+	return math.Abs(maxLon-minLon) > degrees
+}
+
 // NewUTMProjector creates a UTM projector for the given lon/lat center point.
+//
+// ACCURACY LIMIT: exactly one UTM zone is chosen from the center longitude and
+// used for the whole projection. Coordinates far from that zone's central
+// meridian accumulate Transverse Mercator distortion, so a bbox spanning much
+// more than a single 6° zone will have distorted areas/lengths near its edges.
+// Callers that care should check UTMLonSpanExceeds on the bbox and warn.
 func NewUTMProjector(lon, lat float64) *UTMProjector {
 	// Resolve the zone ourselves rather than via carto.NewUTMFromLocation: that
 	// constructor returns an error for lon/lat outside [-180,180]/[-80,84] and

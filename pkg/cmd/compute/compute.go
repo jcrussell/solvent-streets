@@ -353,6 +353,14 @@ func loadBoundary(ctx context.Context, store db.Store, city *config.CityConfig) 
 	}
 	lon, lat := geo.CenterFromBBox(bbox)
 	proj := geo.NewUTMProjector(lon, lat)
+	// A single UTM zone is picked from the bbox center; a bbox much wider than
+	// one 6° zone gets distorted metric areas/lengths near its edges. Warn so an
+	// oversized city isn't silently mis-measured (bbox is [south,west,north,east],
+	// so the lon span is east-west = bbox[3]-bbox[1]).
+	if geo.UTMLonSpanExceeds(bbox[1], bbox[3], 6) {
+		logs.From(ctx).Warn("boundary: bbox longitude span exceeds one UTM zone; metric areas near the edges may be distorted",
+			"city", city.Name, "lon_span_deg", bbox[3]-bbox[1], "utm_zone", proj.Zone)
+	}
 	// Surface partial boundary loss: a degenerate sub-polygon that fails
 	// cleaning silently drops a whole landmass from the boundary, shrinking
 	// computed area and hex coverage. Warn so operators can fix the source.

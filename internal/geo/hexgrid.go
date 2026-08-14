@@ -3,6 +3,7 @@ package geo
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"math"
 	"sync/atomic"
 
@@ -23,6 +24,15 @@ type Hex struct {
 // edge is the hex edge length in projected units (meters for UTM).
 // Returns hexes that intersect the bounding box.
 func HexGrid(minX, minY, maxX, maxY, edge float64) []Hex {
+	// Guard degenerate inputs. A non-positive edge makes the hex spacings zero,
+	// so the startCol/endCol divisions below become ±Inf/NaN loop bounds; an
+	// inverted or zero-extent bbox (maxX<=minX or maxY<=minY) has no interior to
+	// tile. Return nil — the same result the loops produce when they cover no
+	// cell — so callers need no new error channel.
+	if edge <= 0 || maxX <= minX || maxY <= minY {
+		return nil
+	}
+
 	// Flat-top hex dimensions
 	w := 2 * edge            // width of hex
 	h := math.Sqrt(3) * edge // height of hex
@@ -106,6 +116,11 @@ func ComputeHexStats(ctx context.Context, hexes []Hex, idx *GeomIndex, resourceT
 		}
 
 		hexArea := h.Geom.Area()
+		if hexArea <= 0 {
+			// Degenerate hex (zero/negative area): the totalArea/hexArea below
+			// would divide by zero. Skip it rather than emit an Inf/NaN pct.
+			return nil
+		}
 		totalArea, ok := hexCoverageArea(h.Geom, candidates)
 		if !ok || totalArea <= 0 {
 			return nil
@@ -160,6 +175,13 @@ type groupArea struct {
 // If counter is non-nil it is incremented after each hex is processed. ctx
 // cancellation stops dispatching further hexes; in-flight hexes complete.
 func ComputeHexCoverageByGroup(ctx context.Context, hexes []Hex, geoms []geom.Geometry, labels []string, counter *atomic.Int64) map[string]float64 {
+	// geoms and labels are parallel slices: the record IDs returned by the index
+	// built from geoms are used to index labels[id]. A length mismatch would
+	// therefore panic on labels[id] out of range. Refuse the malformed call and
+	// return an empty map rather than risk an index-out-of-range in a worker.
+	if len(geoms) != len(labels) {
+		return map[string]float64{}
+	}
 	idx := NewGeomIndexFromGeoms(geoms)
 
 	perHex := ParallelMap(ctx, hexes, func(_ int, h Hex) []groupArea {
@@ -283,6 +305,16 @@ func mergeClipped(existing, addition geom.Geometry) geom.Geometry {
 	}
 	merged, err := geom.Union(existing, addition)
 	if err != nil {
+		// Union failed (a rare JTS topology error). This helper feeds the
+		// (Hex, bool)/nil-style clip path and can't grow an error return without
+		// rippling to every caller, so we keep the larger-area operand as a
+		// best-effort fallback — but log the loss so a dropped clip fragment is
+		// visible instead of silently vanishing. slog.Default matches the
+		// package's logging (internal/logs falls back to slog.Default).
+		slog.Warn("geo: mergeClipped union failed, keeping larger-area operand",
+			"err", err,
+			"existing_area", existing.Area(),
+			"addition_area", addition.Area())
 		if addition.Area() > existing.Area() {
 			return addition
 		}

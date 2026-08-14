@@ -88,3 +88,25 @@ func TestUTMDistanceMeters(t *testing.T) {
 		t.Errorf("expected ~1763m, got %f", dist)
 	}
 }
+
+func TestUTMLonSpanExceeds(t *testing.T) {
+	cases := []struct {
+		name                   string
+		minLon, maxLon, degree float64
+		want                   bool
+	}{
+		{"within", 0, 5, 6, false},
+		{"exactly at threshold", 0, 6, 6, false},
+		{"exceeds", 0, 7, 6, true},
+		{"reversed span still measured by magnitude", 7, 0, 6, true},
+		{"negative span within", -122.5, -122.0, 6, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := UTMLonSpanExceeds(tc.minLon, tc.maxLon, tc.degree); got != tc.want {
+				t.Errorf("UTMLonSpanExceeds(%v,%v,%v) = %v, want %v",
+					tc.minLon, tc.maxLon, tc.degree, got, tc.want)
+			}
+		})
+	}
+}

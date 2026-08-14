@@ -42,6 +42,43 @@ func TestHexGrid_UniqueIDs(t *testing.T) {
 	}
 }
 
+func TestHexGrid_DegenerateInputsReturnNil(t *testing.T) {
+	cases := []struct {
+		name                   string
+		minX, minY, maxX, maxY float64
+		edge                   float64
+	}{
+		{"zero_edge", 0, 0, 100, 100, 0},
+		{"negative_edge", 0, 0, 100, 100, -10},
+		{"inverted_x", 100, 0, 0, 100, 10},
+		{"inverted_y", 0, 100, 100, 0, 10},
+		{"empty_x", 50, 0, 50, 100, 10},
+		{"empty_y", 0, 50, 100, 50, 10},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := HexGrid(tc.minX, tc.minY, tc.maxX, tc.maxY, tc.edge); got != nil {
+				t.Errorf("expected nil for degenerate input, got %d hexes", len(got))
+			}
+		})
+	}
+}
+
+func TestComputeHexCoverageByGroup_LenMismatchReturnsEmpty(t *testing.T) {
+	// geoms and labels must be parallel; a mismatch would panic on labels[id].
+	// The guard must return an empty (non-nil) map instead.
+	hexes := HexGrid(0, 0, 100, 100, 50)
+	geoms := []geom.Geometry{makeRect(0, 0, 50, 50), makeRect(50, 50, 100, 100)}
+	labels := []string{"only-one"} // len 1 != len 2
+	got := ComputeHexCoverageByGroup(context.Background(), hexes, geoms, labels, nil)
+	if got == nil {
+		t.Fatal("expected non-nil empty map, got nil")
+	}
+	if len(got) != 0 {
+		t.Errorf("expected empty map for mismatched lengths, got %d entries", len(got))
+	}
+}
+
 func TestComputeHexStats_NoIntersection(t *testing.T) {
 	hexes := HexGrid(0, 0, 500, 500, 100)
 	// Index a geometry far away
@@ -139,5 +176,21 @@ func BenchmarkComputeHexStats(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		ComputeHexStats(context.Background(), hexes, idx, "roads", nil)
+	}
+}
+
+func TestComputeHexStats_SkipsZeroAreaHex(t *testing.T) {
+	// A degenerate hex whose Geom has a real envelope but zero area (a line):
+	// candidates are found, but hexArea==0 would divide-by-zero. It must be
+	// skipped, not emit an Inf/NaN pct.
+	line, err := geom.UnmarshalWKT("LINESTRING(0 0, 200 200)")
+	if err != nil {
+		t.Fatalf("build line: %v", err)
+	}
+	hexes := []Hex{{ID: "hex:0:0", Geom: line}}
+	idx := NewGeomIndexFromGeoms([]geom.Geometry{makeRect(0, 0, 200, 200)})
+	stats := ComputeHexStats(context.Background(), hexes, idx, "roads", nil)
+	if len(stats) != 0 {
+		t.Errorf("expected zero-area hex to be skipped, got %d stats: %+v", len(stats), stats)
 	}
 }

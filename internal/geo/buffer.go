@@ -15,6 +15,12 @@ func BufferLineString(coords [][2]float64, widthProjected float64) (geom.Geometr
 	if len(coords) < 2 {
 		return geom.Geometry{}, errors.New("need at least 2 coordinates")
 	}
+	// A non-positive or NaN width makes geom.Buffer(width/2) either produce an
+	// empty/degenerate corridor or return an opaque error; reject it up front so
+	// callers get a clear signal instead of silently losing the feature.
+	if math.IsNaN(widthProjected) || widthProjected <= 0 {
+		return geom.Geometry{}, fmt.Errorf("width must be positive and finite, got %v", widthProjected)
+	}
 	seq := coordsToSequence(coords)
 	ls := geom.NewLineString(seq)
 	g := ls.AsGeometry()
@@ -30,6 +36,17 @@ func BufferLineString(coords [][2]float64, widthProjected float64) (geom.Geometr
 func ValidatePolygon(g geom.Geometry) (geom.Geometry, error) {
 	if g.IsEmpty() {
 		return g, nil
+	}
+	// Buffer(0) silently returns an EMPTY geometry for non-areal input
+	// (LineString/Point, or a GeometryCollection with no 2-D part), which a
+	// caller cannot distinguish from "a real polygon that cleaned away to
+	// nothing". Reject non-areal input with a distinct error instead. The
+	// drop-path callers (buildProjectedMultiPolygon / buildProjectedGeometry-
+	// Collection) already treat an error the same as an empty result — a
+	// dropped-and-counted part — so this is neutral there; it only turns a
+	// silent surprise into a signal for callers that expect a polygon.
+	if g.Dimension() < 2 {
+		return geom.Geometry{}, fmt.Errorf("ValidatePolygon: non-areal input (dimension %d)", g.Dimension())
 	}
 	return geom.Buffer(g, 0)
 }
@@ -177,6 +194,22 @@ func reprojectCoords(v any, proj *UTMProjector, decimals int) any {
 	return result
 }
 
+// isLonLat reports whether (x, y) already looks like a WGS84 lon/lat pair
+// rather than projected UTM meters. It is a VALUE-RANGE heuristic driving the
+// GeoJSON reprojection walk (see tryReprojectCoord): a coordinate already
+// inside [-180,180]×[-90,90] is assumed to be lon/lat and passed through
+// untouched, and anything outside is assumed projected and sent through
+// FromProjected.
+//
+// The heuristic is safe here ONLY because our projected space is UTM
+// easting/northing in meters, whose magnitudes never fall inside that box:
+// easting carries a 500 000 m false easting (and stays within ~167 000–833 000
+// m of it), and northing is either ≥ ~1e6 m (northern hemisphere) or offset by
+// a 10 000 000 m false northing (southern) — so a genuine UTM pair always has
+// |x| > 180. Do NOT reuse this for coordinate systems whose values can
+// legitimately land in [-180,180]×[-90,90] (e.g. a small local meter grid near
+// the origin), because projected points there would be misclassified as
+// lon/lat and skipped, silently emitting raw meters as if they were degrees.
 func isLonLat(x, y float64) bool {
 	return math.Abs(x) <= 180 && math.Abs(y) <= 90
 }

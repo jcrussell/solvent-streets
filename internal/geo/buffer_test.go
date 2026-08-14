@@ -62,6 +62,78 @@ func TestBufferLineStringLShape(t *testing.T) {
 	}
 }
 
+func TestBufferLineString_RejectsNonPositiveWidth(t *testing.T) {
+	coords := [][2]float64{{0, 0}, {100, 0}}
+	cases := []struct {
+		name  string
+		width float64
+	}{
+		{"zero", 0},
+		{"negative", -5},
+		{"nan", math.NaN()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := BufferLineString(coords, tc.width); err == nil {
+				t.Errorf("expected error for width %v, got nil", tc.width)
+			}
+		})
+	}
+}
+
+func TestValidatePolygon_RejectsNonArealInput(t *testing.T) {
+	// A LineString is non-areal: Buffer(0) would silently return empty, hiding
+	// the type mismatch. ValidatePolygon must instead return an error.
+	ls := mustWKT(t, "LINESTRING(0 0,1 1,2 2)")
+	if _, err := ValidatePolygon(ls); err == nil {
+		t.Error("expected error for non-areal LineString input, got nil")
+	}
+	// A point is likewise non-areal.
+	pt := mustWKT(t, "POINT(1 1)")
+	if _, err := ValidatePolygon(pt); err == nil {
+		t.Error("expected error for non-areal Point input, got nil")
+	}
+	// A real polygon still cleans without error.
+	poly := mustWKT(t, "POLYGON((0 0,3 0,3 3,0 3,0 0))")
+	cleaned, err := ValidatePolygon(poly)
+	if err != nil {
+		t.Fatalf("unexpected error for areal input: %v", err)
+	}
+	if math.Abs(cleaned.Area()-9) > 1e-9 {
+		t.Errorf("expected area 9 for cleaned polygon, got %f", cleaned.Area())
+	}
+	// An empty geometry short-circuits to nil (no error).
+	empty := mustWKT(t, "POLYGON EMPTY")
+	if _, err := ValidatePolygon(empty); err != nil {
+		t.Errorf("expected no error for empty input, got %v", err)
+	}
+}
+
+// TestIsLonLat pins the value-range heuristic used to decide whether a
+// coordinate is already lon/lat (skip reprojection) or projected meters
+// (reproject). See the doc comment on isLonLat for the UTM coupling.
+func TestIsLonLat(t *testing.T) {
+	cases := []struct {
+		name string
+		x, y float64
+		want bool
+	}{
+		{"origin", 0, 0, true},
+		{"lonlat_corner", 180, 90, true},
+		{"lonlat_negative_corner", -180, -90, true},
+		{"utm_easting_out_of_range", 600000, 4170000, false},
+		{"lon_just_over", 180.0001, 45, false},
+		{"lat_just_over", 45, 90.0001, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isLonLat(tc.x, tc.y); got != tc.want {
+				t.Errorf("isLonLat(%v, %v) = %v, want %v", tc.x, tc.y, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestUnionAllRemovesOverlap(t *testing.T) {
 	// Two overlapping rectangles
 	r1 := makeRect(0, 0, 10, 10)
