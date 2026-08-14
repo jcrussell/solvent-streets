@@ -93,21 +93,32 @@ Exits non-zero if any check FAILs. With --strict, warnings fail too.`,
 	return cmd
 }
 
-func runCheckSite(_ context.Context, opts *Options) error {
+func runCheckSite(ctx context.Context, opts *Options) error {
 	r := newRunner(opts.IO, opts.Strict)
 
-	site, err := discoverSite(opts.Dir)
+	st, err := discoverSite(opts.Dir)
 	if err != nil {
 		return err
 	}
 
-	r.checkStructure(site)
-	r.checkReferences(site)
-	r.checkWasmFreshness(site)
-	r.checkHygiene(site)
-	r.checkConstraints(site)
-	r.checkReasonableness(site)
-	r.checkConsistency(site)
+	// The checks are CPU/IO bound and run sequentially; interleave a
+	// cancellation probe so a SIGINT aborts promptly instead of grinding
+	// through every remaining check (finding 881e).
+	checks := []func(*site){
+		r.checkStructure,
+		r.checkReferences,
+		r.checkWasmFreshness,
+		r.checkHygiene,
+		r.checkConstraints,
+		r.checkReasonableness,
+		r.checkConsistency,
+	}
+	for _, check := range checks {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		check(st)
+	}
 
 	return r.finish()
 }

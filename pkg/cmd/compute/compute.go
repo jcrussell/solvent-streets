@@ -168,12 +168,18 @@ func runCompute(ctx context.Context, opts *Options) error {
 	// only the final JSON payload reaches stdout (byob-iostreams.3: data
 	// to Out, chatter to ErrOut).
 	if opts.Exporter != nil {
-		return doCompute(ctx, io.Discard, opts.IO.ErrOut, tui.NoopNotifier{}, opts)
+		// JSON mode: the final payload is written separately by WriteRows, so
+		// result DATA is discarded here and human progress is discarded too —
+		// only warnings (errOut) reach the user.
+		return doCompute(ctx, io.Discard, io.Discard, opts.IO.ErrOut, tui.NoopNotifier{}, opts)
 	}
 	if opts.IO.IsTTY() {
 		return runComputeTUI(ctx, opts)
 	}
-	return doCompute(ctx, opts.IO.Out, opts.IO.ErrOut, tui.NoopNotifier{}, opts)
+	// Plain (non-TTY, non-JSON): result DATA goes to Out; human progress
+	// chatter and warnings go to ErrOut so a redirected stdout captures only
+	// the command's data (byob-iostreams.3).
+	return doCompute(ctx, opts.IO.Out, opts.IO.ErrOut, opts.IO.ErrOut, tui.NoopNotifier{}, opts)
 }
 
 func runComputeTUI(ctx context.Context, opts *Options) error {
@@ -193,7 +199,11 @@ func runComputeTUI(ctx context.Context, opts *Options) error {
 		SuccessMsg: fmt.Sprintf("%s compute complete for %s", opts.ResourceType.Type(), city.Name),
 	}
 	return tui.Run(ctx, label, steps, done, func(ctx context.Context, out io.Writer, errOut io.Writer, notify tui.PhaseNotifier) error {
-		return doCompute(ctx, out, errOut, notify, opts)
+		// In the TUI both result DATA and progress chatter render through the
+		// progress writer (out); warnings render through the warn writer
+		// (errOut). Preserves the pre-split behavior where chatter appeared as
+		// progress detail rather than as warnings.
+		return doCompute(ctx, out, out, errOut, notify, opts)
 	})
 }
 
@@ -211,11 +221,12 @@ type computer struct {
 	snapshotID *int64
 	sys        units.System
 	notify     tui.PhaseNotifier
-	out        io.Writer
-	errOut     io.Writer
+	out        io.Writer // result DATA (printResults / printCohortBreakdown)
+	progress   io.Writer // human progress chatter ("Loading...", "Generated N hexes")
+	errOut     io.Writer // warnings
 }
 
-func doCompute(ctx context.Context, out, errOut io.Writer, notify tui.PhaseNotifier, opts *Options) (retErr error) {
+func doCompute(ctx context.Context, out, progress, errOut io.Writer, notify tui.PhaseNotifier, opts *Options) (retErr error) {
 	cfg, err := opts.Config()
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
@@ -241,10 +252,11 @@ func doCompute(ctx context.Context, out, errOut io.Writer, notify tui.PhaseNotif
 		store:  store,
 		proj:   proj,
 		bbox:   bbox,
-		sys:    opts.UnitSystem(),
-		notify: notify,
-		out:    out,
-		errOut: errOut,
+		sys:      opts.UnitSystem(),
+		notify:   notify,
+		out:      out,
+		progress: progress,
+		errOut:   errOut,
 	}
 
 	// Load features before creating the snapshot: loadResourceFeatures
@@ -278,7 +290,7 @@ func doCompute(ctx context.Context, out, errOut io.Writer, notify tui.PhaseNotif
 		}()
 	}
 	jurisdictionParts := filter.Partition(resFeatures)
-	fmt.Fprintf(out, "  Total: %d features (%d city, %d county, %d state, %d federal)\n",
+	fmt.Fprintf(progress, "  Total: %d features (%d city, %d county, %d state, %d federal)\n",
 		len(resFeatures),
 		len(jurisdictionParts[filter.JurisdictionCity]),
 		len(jurisdictionParts[filter.JurisdictionCounty]),
@@ -377,7 +389,7 @@ func loadBoundary(ctx context.Context, store db.Store, city *config.CityConfig) 
 func (c *computer) loadResourceFeatures(ctx context.Context) ([]resource.Feature, error) {
 	c.notify.PhaseStart(phaseProcess)
 	t := c.opts.ResourceType.Type()
-	fmt.Fprintf(c.out, "Loading %s features from database...\n", t)
+	fmt.Fprintf(c.progress, "Loading %s features from database...\n", t)
 	dbFeatures, err := c.store.ListFeatures(ctx, t)
 	if err != nil {
 		c.notify.PhaseDone(phaseProcess, err)
@@ -388,7 +400,7 @@ func (c *computer) loadResourceFeatures(ctx context.Context) ([]resource.Feature
 		c.notify.PhaseDone(phaseProcess, errors.New("no features"))
 		return nil, cmdutil.ErrNoResults
 	}
-	fmt.Fprintf(c.out, "Processing %d features (UTM zone %d)...\n", len(dbFeatures), c.proj.Zone)
+	fmt.Fprintf(c.progress, "Processing %d features (UTM zone %d)...\n", len(dbFeatures), c.proj.Zone)
 	resFeatures := make([]resource.Feature, len(dbFeatures))
 	for i, f := range dbFeatures {
 		resFeatures[i] = resource.Feature{
@@ -594,7 +606,7 @@ func (c *computer) computeHexPipeline(ctx context.Context, buffered []geom.Geome
 	stopStatsProgress := startProgressTicker(ctx, c.notify, phaseStats, len(hexes), &statsCounter)
 	geoStats := geo.ComputeHexStats(ctx, hexes, idx, string(c.opts.ResourceType.Type()), &statsCounter)
 	stopStatsProgress()
-	fmt.Fprintf(c.out, "  %d hexes with coverage\n", len(geoStats))
+	fmt.Fprintf(c.progress, "  %d hexes with coverage\n", len(geoStats))
 	c.notify.PhaseDone(phaseStats, nil)
 
 	return geoStats, hexes
@@ -614,7 +626,7 @@ func (c *computer) hexGrid(ctx context.Context, boundaryGJSON string) []geo.Hex 
 		c.notify.PhaseDone(phaseHexGrid, nil)
 		c.notify.PhaseStart(phaseClip)
 		c.notify.PhaseDone(phaseClip, nil)
-		fmt.Fprintf(c.out, "\nReusing shared clipped hex grid: %d hexes\n", len(c.opts.PrebuiltGrid))
+		fmt.Fprintf(c.progress, "\nReusing shared clipped hex grid: %d hexes\n", len(c.opts.PrebuiltGrid))
 		return c.opts.PrebuiltGrid
 	}
 
@@ -624,9 +636,9 @@ func (c *computer) hexGrid(ctx context.Context, boundaryGJSON string) []geo.Hex 
 	hexEdge := c.cfg.ResolvedHexEdge(c.city)
 	minX, minY, maxX, maxY := geo.ProjectedBBoxExtent(c.proj, c.bbox)
 
-	fmt.Fprintf(c.out, "\nComputing hex grid (edge=%.0fm)...\n", hexEdge)
+	fmt.Fprintf(c.progress, "\nComputing hex grid (edge=%.0fm)...\n", hexEdge)
 	hexes := geo.HexGrid(minX, minY, maxX, maxY, hexEdge)
-	fmt.Fprintf(c.out, "  Generated %d hexes\n", len(hexes))
+	fmt.Fprintf(c.progress, "  Generated %d hexes\n", len(hexes))
 	c.notify.PhaseDone(phaseHexGrid, nil)
 
 	// --- Phase 2: Clip hexes to boundary ---
@@ -645,7 +657,7 @@ func (c *computer) hexGrid(ctx context.Context, boundaryGJSON string) []geo.Hex 
 		stopClipProgress := startProgressTicker(ctx, c.notify, phaseClip, len(hexes), &clipCounter)
 		hexes = geo.ClipHexesToBoundary(ctx, hexes, boundaryGeom, &clipCounter)
 		stopClipProgress()
-		fmt.Fprintf(c.out, "  Clipped to boundary: %d hexes\n", len(hexes))
+		fmt.Fprintf(c.progress, "  Clipped to boundary: %d hexes\n", len(hexes))
 	}
 	c.notify.PhaseDone(phaseClip, nil)
 

@@ -1,7 +1,6 @@
 package factory
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -11,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jcrussell/solvent-streets/internal/build"
@@ -197,6 +197,35 @@ func rootDBFactory(f *cmdutil.Factory, path string) func() (*db.RootStore, error
 	})
 }
 
+// rootDBWithClose wraps a lazy RootDB accessor with an "opened" tracker and a
+// matching close func. The close func releases the underlying handle only if
+// the accessor was ever called successfully, so commands that never open the
+// DB (--version, --help) don't create/close it just to shut down. The tracker
+// is an atomic.Bool so concurrent RootDB() callers under -race stay safe.
+func rootDBWithClose(open func() (*db.RootStore, error)) (func() (*db.RootStore, error), func() error) {
+	var opened atomic.Bool
+	get := func() (*db.RootStore, error) {
+		store, err := open()
+		if err == nil && store != nil {
+			opened.Store(true)
+		}
+		return store, err
+	}
+	closeFn := func() error {
+		if !opened.Load() {
+			return nil
+		}
+		// open is sync.OnceValues-backed, so this returns the already-opened
+		// handle without re-running Open.
+		store, err := open()
+		if err != nil || store == nil {
+			return nil
+		}
+		return store.Close()
+	}
+	return get, closeFn
+}
+
 func New() *cmdutil.Factory {
 	ios := iostreams.System()
 
@@ -221,7 +250,7 @@ func New() *cmdutil.Factory {
 	}
 
 	f.HttpClient = httpClientFactory(f, 24*time.Hour)
-	f.RootDB = rootDBFactory(f, "")
+	f.RootDB, f.CloseRootDB = rootDBWithClose(rootDBFactory(f, ""))
 
 	f.CityFlagSet = func() bool { return false }
 
@@ -267,7 +296,10 @@ func buildCityDB(f *cmdutil.Factory) func() (db.Store, error) {
 			return nil, err
 		}
 		configID := cmdutil.ResolveConfigID(f.Config)
-		id, err := root.EnsureCity(context.Background(), city.Slug(), city.Name, configID)
+		// Honor the per-invocation context installed by the root command's
+		// PersistentPreRunE (finding 0nyu). Falls back to Background when no
+		// request ctx was set (e.g. a command exempt from PersistentPreRunE).
+		id, err := root.EnsureCity(f.RequestContext(), city.Slug(), city.Name, configID)
 		if err != nil {
 			return nil, err
 		}

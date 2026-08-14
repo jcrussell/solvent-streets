@@ -20,6 +20,14 @@ func Main() int {
 	defer stop()
 
 	f := factory.New()
+	// Release the shared DB handle on shutdown — but only if the run actually
+	// opened it (CloseRootDB is a no-op otherwise), so DB-free commands like
+	// --version don't create the database just to close it.
+	defer func() {
+		if f.CloseRootDB != nil {
+			_ = f.CloseRootDB()
+		}
+	}()
 	rootCmd := root.NewCmdRoot(f)
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		return exitCode(err, f.IOStreams.ErrOut)

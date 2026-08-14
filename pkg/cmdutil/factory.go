@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
@@ -24,6 +25,12 @@ type Factory struct {
 	IOStreams      *iostreams.IOStreams
 	HttpClient     func() (*http.Client, error)
 	RootDB         func() (*db.RootStore, error)
+	// CloseRootDB releases the RootDB handle at process shutdown, but only
+	// if RootDB was actually opened during the run — commands that never
+	// touch the database (--version, --help) pay nothing and never create
+	// the DB file just to close it. Set by factory.New; Main defers it.
+	// Nil-safe: a nil closure means "nothing to close".
+	CloseRootDB func() error
 	Config         func() (*config.Config, error)
 	CurrentCity    func() (*config.CityConfig, error)
 	CityDB         func() (db.Store, error)
@@ -52,6 +59,67 @@ type Factory struct {
 	// from --log-level / -v / PVMT_LOG so existing Logger instances
 	// (snapshotted into Options) see the updated level.
 	LogLevel *slog.LevelVar
+
+	// requestCtx is the per-invocation context installed by the root
+	// command's PersistentPreRunE (SetRequestContext). Lazily-built
+	// closures such as CityDB — constructed in factory.New() with no
+	// request ctx — read it via RequestContext() so EnsureCity honors
+	// cancellation instead of falling back to context.Background().
+	// It is an interface value, so copying the Factory by value is safe
+	// (no copylocks). See finding 0nyu.
+	requestCtx context.Context
+
+	// cityStores memoizes city-scoped stores so repeated CityDB() calls
+	// (and value-copies made by withCity) don't re-run EnsureCity on
+	// every access. It lives behind a pointer so a copied Factory shares
+	// the same cache; it is keyed by (slug, configID) so a copy scoped to
+	// city A never hands back city B's store. See finding xygq.
+	cityStores *storeCache
+}
+
+// SetRequestContext installs the per-invocation context (called from the
+// root command's PersistentPreRunE). Later closures read it via
+// RequestContext.
+func (f *Factory) SetRequestContext(ctx context.Context) { f.requestCtx = ctx }
+
+// RequestContext returns the per-invocation context set by
+// SetRequestContext, or context.Background() when none was installed (e.g.
+// commands exempt from PersistentPreRunE, or a test factory built directly).
+func (f *Factory) RequestContext() context.Context {
+	if f.requestCtx != nil {
+		return f.requestCtx
+	}
+	return context.Background()
+}
+
+// storeCache memoizes db.Store values by an opaque key. It is shared across
+// value-copies of a Factory via a pointer, so the embedded Mutex is never
+// copied (no copylocks).
+type storeCache struct {
+	mu     sync.Mutex
+	stores map[string]db.Store
+}
+
+func newStoreCache() *storeCache {
+	return &storeCache{stores: make(map[string]db.Store)}
+}
+
+// get returns the cached store for key, building and caching it on a miss.
+// Errors are not cached so a transient failure can be retried on the next
+// call. The build runs under the lock so two concurrent callers for the same
+// key don't both run EnsureCity.
+func (c *storeCache) get(key string, build func() (db.Store, error)) (db.Store, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if s, ok := c.stores[key]; ok {
+		return s, nil
+	}
+	s, err := build()
+	if err != nil {
+		return nil, err
+	}
+	c.stores[key] = s
+	return s, nil
 }
 
 // AddCityOverride registers a --city/-c flag on the command and wraps
@@ -79,12 +147,28 @@ func cityOverrideFunc(cmd *cobra.Command, f *Factory, fallback func() (*config.C
 			return nil, err
 		}
 		slug := config.Slugify(val)
+		var matches []int
 		for i := range cfg.Cities {
 			if cfg.Cities[i].Slug() == slug || strings.EqualFold(cfg.Cities[i].Name, val) {
-				return &cfg.Cities[i], nil
+				matches = append(matches, i)
 			}
 		}
-		return nil, fmt.Errorf("city %q not found in config", val)
+		switch len(matches) {
+		case 0:
+			return nil, fmt.Errorf("city %q not found in config", val)
+		case 1:
+			return &cfg.Cities[matches[0]], nil
+		default:
+			// Two or more [[cities]] resolve to the same slug/name (e.g. two
+			// "Austin" entries): picking the first would silently operate on an
+			// arbitrary one. Force the user to disambiguate their config instead.
+			names := make([]string, 0, len(matches))
+			for _, i := range matches {
+				names = append(names, cfg.Cities[i].Name)
+			}
+			return nil, fmt.Errorf("city %q is ambiguous: matches %d configured cities (%s); disambiguate in pvmt.toml",
+				val, len(matches), strings.Join(names, ", "))
+		}
 	}
 }
 
@@ -194,21 +278,36 @@ func withCity(ctx context.Context, f *Factory, city *config.CityConfig) *Factory
 	c := *city
 	cp.CurrentCity = func() (*config.CityConfig, error) { return &c, nil }
 	cp.CityFlagSet = func() bool { return true }
+
+	// Share one store cache across the parent and all its withCity copies so
+	// repeated CityDB() calls memoize EnsureCity. Lazily install it on the
+	// parent (f is a pointer, and ForEachCity iterates sequentially) so a
+	// bare Factory built in tests memoizes too. Keyed by (slug, configID),
+	// so this per-city copy can never return a different city's store.
+	if f.cityStores == nil {
+		f.cityStores = newStoreCache()
+	}
+	cache := f.cityStores
+	cp.cityStores = cache
+
 	cp.CityDB = func() (db.Store, error) {
 		root, err := f.RootDB()
 		if err != nil {
 			return nil, err
 		}
 		configID := ResolveConfigID(f.Config)
-		id, err := root.EnsureCity(ctx, c.Slug(), c.Name, configID)
-		if err != nil {
-			return nil, err
-		}
-		store := root.ForCity(id)
-		if cfg, cfgErr := f.Config(); cfgErr == nil && cfg != nil {
-			store = store.WithConfigHash(cfg.Hash())
-		}
-		return store, nil
+		key := c.Slug() + "\x00" + configID
+		return cache.get(key, func() (db.Store, error) {
+			id, err := root.EnsureCity(ctx, c.Slug(), c.Name, configID)
+			if err != nil {
+				return nil, err
+			}
+			store := root.ForCity(id)
+			if cfg, cfgErr := f.Config(); cfgErr == nil && cfg != nil {
+				store = store.WithConfigHash(cfg.Hash())
+			}
+			return store, nil
+		})
 	}
 	return &cp
 }

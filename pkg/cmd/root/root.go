@@ -2,7 +2,6 @@ package root
 
 import (
 	"errors"
-	"fmt"
 	"log/slog"
 	"os"
 	"strconv"
@@ -54,7 +53,7 @@ func warnInvalidEnv(_ *cobra.Command, f *cmdutil.Factory) error {
 		return errors.New("warnInvalidEnv: factory has nil IOStreams")
 	}
 	warnf := func(format string, args ...any) {
-		fmt.Fprintf(ios.ErrOut, "warning: "+format+"; falling back to config/default\n", args...)
+		cmdutil.Warnf(ios, format+"; falling back to config/default", args...)
 	}
 	if v, ok := os.LookupEnv("PVMT_UNITS"); ok && v != "" && !units.IsKnown(v) {
 		warnf("PVMT_UNITS=%q is not a known unit system", v)
@@ -84,6 +83,11 @@ func warnInvalidEnv(_ *cobra.Command, f *cmdutil.Factory) error {
 			warnf("PVMT_FORECAST_INITIAL_PCI=%q is not a valid number", v)
 		case n <= 0 || n > 100:
 			warnf("PVMT_FORECAST_INITIAL_PCI=%q must be in (0, 100]", v)
+		}
+	}
+	if v, ok := os.LookupEnv("PVMT_LOG"); ok && v != "" {
+		if _, valid := cmdutil.ParseLogLevel(v); !valid {
+			warnf("PVMT_LOG=%q is not a valid log level (debug|info|warn|error)", v)
 		}
 	}
 	return nil
@@ -137,6 +141,10 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 		}
 		applyLogLevel(f, verbose, &logLevel)
 		c.SetContext(logs.WithLogger(c.Context(), f.Logger.With("cmd", c.CommandPath())))
+		// Install the per-invocation context so lazily-built factory closures
+		// (e.g. CityDB) can honor cancellation instead of falling back to
+		// context.Background() (finding 0nyu). Carries the logger + signal ctx.
+		f.SetRequestContext(c.Context())
 		for _, m := range middlewares {
 			if err := m(cmd, f); err != nil {
 				return err

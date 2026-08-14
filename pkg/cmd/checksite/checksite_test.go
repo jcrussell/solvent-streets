@@ -65,6 +65,28 @@ func TestCheckSite_ValidSite(t *testing.T) {
 	}
 }
 
+// TestCheckSite_CancelledContext pins finding 881e: a cancelled context must
+// abort the check run promptly (before finish) and return the cancellation
+// error, instead of grinding through every check with ctx ignored.
+func TestCheckSite_CancelledContext(t *testing.T) {
+	dir := buildValidSite(t)
+	ios, _, out, _ := iostreams.Test()
+	opts := &Options{IO: ios, Dir: dir}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := runCheckSite(ctx, opts)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("want context.Canceled, got %v", err)
+	}
+	// The cancellation probe fires before the first check, so no summary line
+	// ("N passed, ...") should have been printed.
+	if strings.Contains(out.String(), "passed,") {
+		t.Errorf("cancelled run should abort before finish(); got output:\n%s", out.String())
+	}
+}
+
 func TestCheckSite_MissingDataFile(t *testing.T) {
 	dir := buildValidSite(t)
 	os.Remove(filepath.Join(dir, "demo-ca", "data", "scenarios.json"))

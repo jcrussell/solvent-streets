@@ -136,6 +136,58 @@ func TestRunCompute_Success(t *testing.T) {
 	}
 }
 
+// TestRunCompute_ChatterToErrOut pins finding 752q: in the plain (non-TTY,
+// non-JSON) path, human progress chatter ("Loading...", "Total: N features",
+// "Generated N hexes", ...) must land on ErrOut, while the actual result DATA
+// (printResults / printCohortBreakdown) stays on Out. A redirected stdout must
+// therefore capture only the command's data, not the progress noise.
+func TestRunCompute_ChatterToErrOut(t *testing.T) {
+	store := &dbtest.MockStore{
+		GetBoundaryFunc:  func(_ context.Context) (string, error) { return testBoundary, nil },
+		ListFeaturesFunc: roadsFeaturesFunc,
+	}
+	ios, _, stdout, errBuf := iostreams.Test()
+	f := &cmdutil.Factory{
+		IOStreams:   ios,
+		UnitSystem:  func() units.System { return units.Metric },
+		CityDB:      func() (db.Store, error) { return store, nil },
+		CurrentCity: func() (*config.CityConfig, error) { return testCity, nil },
+		Config:      func() (*config.Config, error) { return testCfg, nil },
+	}
+
+	cmd := NewCmdCompute(f, &resource.Pavement{}, nil)
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("compute: %v", err)
+	}
+
+	out := stdout.String()
+	errStr := errBuf.String()
+
+	// Progress chatter must be on ErrOut and NOT on stdout.
+	chatter := []string{
+		"Loading",
+		"Total:",
+		"Generated",
+		"hexes with coverage",
+	}
+	for _, c := range chatter {
+		if !strings.Contains(errStr, c) {
+			t.Errorf("chatter %q missing from ErrOut:\n%s", c, errStr)
+		}
+		if strings.Contains(out, c) {
+			t.Errorf("chatter %q leaked onto stdout:\n%s", c, out)
+		}
+	}
+
+	// Result DATA must be on stdout.
+	if !strings.Contains(out, "Results") || !strings.Contains(out, "Area:") {
+		t.Errorf("expected result data on stdout, got:\n%s", out)
+	}
+}
+
 // countingSource wraps a resource.Source to count buffer-and-index invocations
 // so tests can assert the pipeline doesn't re-buffer the city subset or per
 // classification.
@@ -268,7 +320,7 @@ func TestRunCompute_PrebuiltGridMatchesInline(t *testing.T) {
 			ResourceType: &resource.Pavement{},
 			PrebuiltGrid: grid,
 		}
-		if err := doCompute(ctx, io.Discard, io.Discard, tui.NoopNotifier{}, opts); err != nil {
+		if err := doCompute(ctx, io.Discard, io.Discard, io.Discard, tui.NoopNotifier{}, opts); err != nil {
 			t.Fatalf("doCompute: %v", err)
 		}
 		return saved
@@ -486,7 +538,7 @@ func TestRunCompute_CancelledDoesNotSave(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err := doCompute(ctx, io.Discard, io.Discard, tui.NoopNotifier{}, opts)
+	err := doCompute(ctx, io.Discard, io.Discard, io.Discard, tui.NoopNotifier{}, opts)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got: %v", err)
 	}
@@ -537,7 +589,7 @@ func TestRunCompute_CancelledDeletesSnapshot(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err := doCompute(ctx, io.Discard, io.Discard, tui.NoopNotifier{}, opts)
+	err := doCompute(ctx, io.Discard, io.Discard, io.Discard, tui.NoopNotifier{}, opts)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got: %v", err)
 	}

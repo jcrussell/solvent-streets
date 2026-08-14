@@ -304,6 +304,9 @@ func TestWarnInvalidEnv_BadValuesEmitWarning(t *testing.T) {
 		{"pci out of range", map[string]string{"PVMT_FORECAST_INITIAL_PCI": "500"}, "must be in (0, 100]"},
 		{"pci zero", map[string]string{"PVMT_FORECAST_INITIAL_PCI": "0"}, "must be in (0, 100]"},
 		{"valid pci silent", map[string]string{"PVMT_FORECAST_INITIAL_PCI": "85"}, ""},
+		{"invalid log level", map[string]string{"PVMT_LOG": "trace"}, "PVMT_LOG"},
+		{"valid log level silent", map[string]string{"PVMT_LOG": "debug"}, ""},
+		{"valid log level warning silent", map[string]string{"PVMT_LOG": "warning"}, ""},
 	}
 
 	for _, tt := range tests {
@@ -316,7 +319,7 @@ func TestWarnInvalidEnv_BadValuesEmitWarning(t *testing.T) {
 			// t.Setenv can't unset a variable, and the cleanup here has
 			// to *conditionally* unset-or-restore, so os.Setenv/Unsetenv
 			// are the right tools; silence usetesting for this block.
-			for _, k := range []string{"PVMT_UNITS", "PVMT_FORECAST_YEARS", "PVMT_HEX_EDGE_M", "PVMT_FORECAST_INITIAL_PCI"} {
+			for _, k := range []string{"PVMT_UNITS", "PVMT_FORECAST_YEARS", "PVMT_HEX_EDGE_M", "PVMT_FORECAST_INITIAL_PCI", "PVMT_LOG"} {
 				if orig, ok := os.LookupEnv(k); ok {
 					t.Cleanup(func() { _ = os.Setenv(k, orig) }) //nolint:usetesting // see block comment above
 				} else {

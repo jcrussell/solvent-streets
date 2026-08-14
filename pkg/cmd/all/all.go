@@ -104,9 +104,10 @@ func forEachResource(ios *iostreams.IOStreams, fn func(resource.Source) error) e
 			if errors.Is(err, context.Canceled) {
 				return err
 			}
-			if errors.Is(err, cmdutil.ErrAllSourcesFailed) {
-				return err
-			}
+			// A total-source-failure for ONE resource is non-fatal to the
+			// fan-out: warn and move on so the remaining resources (e.g.
+			// parking, sidewalks) still run instead of being skipped by an
+			// early return (finding 0yfp).
 			cmdutil.Warnf(ios, "%s failed: %v", rt.Type(), err)
 		}
 	}

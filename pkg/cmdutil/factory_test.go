@@ -9,6 +9,8 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
+
+	"github.com/spf13/cobra"
 )
 
 // TestForEachCity pins the multi-city iteration contract used by every
@@ -200,6 +202,62 @@ func TestForEachCity(t *testing.T) {
 		}
 		if len(calls) != 1 || calls[0] != "Beta" {
 			t.Errorf("CityFlagSet should drive single-city run; calls = %v", calls)
+		}
+	})
+}
+
+// TestCityOverride_AmbiguousMatch pins finding 79hj: when two or more
+// [[cities]] resolve to the same slug/name, `--city X` must fail with a clear
+// ambiguity error rather than silently operating on the first match. A unique
+// match still resolves, and an unknown value still reports "not found".
+func TestCityOverride_AmbiguousMatch(t *testing.T) {
+	newFactory := func(cities []config.CityConfig) (*cobra.Command, *cmdutil.Factory) {
+		cfg := &config.Config{Cities: cities}
+		f := &cmdutil.Factory{
+			Config:      func() (*config.Config, error) { return cfg, nil },
+			CurrentCity: func() (*config.CityConfig, error) { return &cities[0], nil },
+		}
+		cmd := &cobra.Command{Use: "pvmt"}
+		cmdutil.AddCityOverride(cmd, f)
+		return cmd, f
+	}
+
+	t.Run("ambiguous name errors", func(t *testing.T) {
+		cmd, f := newFactory([]config.CityConfig{{Name: "Austin"}, {Name: "Austin"}})
+		if err := cmd.PersistentFlags().Set("city", "Austin"); err != nil {
+			t.Fatal(err)
+		}
+		_, err := f.CurrentCity()
+		if err == nil {
+			t.Fatal("expected ambiguity error, got nil")
+		}
+		if !strings.Contains(err.Error(), "ambiguous") {
+			t.Errorf("expected ambiguity error, got %v", err)
+		}
+	})
+
+	t.Run("unique match resolves", func(t *testing.T) {
+		cmd, f := newFactory([]config.CityConfig{{Name: "Austin"}, {Name: "Oakland"}})
+		if err := cmd.PersistentFlags().Set("city", "Oakland"); err != nil {
+			t.Fatal(err)
+		}
+		city, err := f.CurrentCity()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if city.Name != "Oakland" {
+			t.Errorf("got %q, want Oakland", city.Name)
+		}
+	})
+
+	t.Run("unknown value not found", func(t *testing.T) {
+		cmd, f := newFactory([]config.CityConfig{{Name: "Austin"}, {Name: "Oakland"}})
+		if err := cmd.PersistentFlags().Set("city", "Nowhere"); err != nil {
+			t.Fatal(err)
+		}
+		_, err := f.CurrentCity()
+		if err == nil || !strings.Contains(err.Error(), "not found") {
+			t.Errorf("expected not-found error, got %v", err)
 		}
 	})
 }

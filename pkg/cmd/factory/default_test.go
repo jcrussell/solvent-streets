@@ -9,10 +9,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
+	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/ingest"
 	"github.com/jcrussell/solvent-streets/internal/paths"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
@@ -338,6 +340,52 @@ func TestHttpClient_RedirectToPrivateBlockedEndToEnd(t *testing.T) {
 	if !strings.Contains(err.Error(), "redirect blocked") {
 		t.Errorf("expected 'redirect blocked' in error, got: %v", err)
 	}
+}
+
+// TestRootDBWithClose_ClosesOnlyIfOpened pins finding 9tsq: the shutdown
+// close func must (a) be a no-op when the DB was never opened — so DB-free
+// commands don't create/close the database — and (b) actually close the
+// underlying handle when RootDB was opened during the run.
+func TestRootDBWithClose_ClosesOnlyIfOpened(t *testing.T) {
+	t.Run("never opened is a no-op", func(t *testing.T) {
+		var opens int
+		base := sync.OnceValues(func() (*db.RootStore, error) {
+			opens++
+			return db.Open(filepath.Join(t.TempDir(), "pvmt.db"))
+		})
+		_, closeFn := rootDBWithClose(base)
+
+		if err := closeFn(); err != nil {
+			t.Fatalf("close on never-opened DB: %v", err)
+		}
+		if opens != 0 {
+			t.Errorf("close opened the DB %d time(s); want 0 (must not open just to close)", opens)
+		}
+	})
+
+	t.Run("closes after open", func(t *testing.T) {
+		var opens int
+		base := sync.OnceValues(func() (*db.RootStore, error) {
+			opens++
+			return db.Open(filepath.Join(t.TempDir(), "pvmt.db"))
+		})
+		get, closeFn := rootDBWithClose(base)
+
+		store, err := get()
+		if err != nil {
+			t.Fatalf("open: %v", err)
+		}
+		if opens != 1 {
+			t.Fatalf("opens = %d; want 1", opens)
+		}
+		if err := closeFn(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+		// A query after Close must fail because the connection pool is closed.
+		if _, err := store.ListCities(context.Background()); err == nil {
+			t.Error("expected error querying a closed RootStore; got nil")
+		}
+	})
 }
 
 func newTestFactoryForHTTP(t *testing.T) *cmdutil.Factory {
