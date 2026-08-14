@@ -119,14 +119,16 @@ func (s *sqliteStore) SaveComputeResult(ctx context.Context, result ComputeResul
 
 // LatestComputeResult returns the most recent compute result for a
 // resource. Snapshot/config-hash filtering follows the three-arm
-// semantic documented on snapshotQuery; ORDER BY computed_at DESC
+// semantic documented on snapshotQuery; ORDER BY computed_at DESC, id DESC
 // disambiguates within the chosen snapshot (LIMIT 1 because this is
-// the single-row read).
+// the single-row read). The id DESC tiebreak makes two rows sharing a
+// second-granularity computed_at resolve deterministically to the higher
+// id, matching ListSnapshots and the MAX(snapshot_id) latest-resolution.
 func (s *sqliteStore) LatestComputeResult(ctx context.Context, resourceType resource.Type) (*ComputeResult, error) {
 	q, bind := snapshotQuery(
 		`SELECT id, resource_type, total_area, feature_count, computed_at, snapshot_id FROM compute_results`,
 		"compute_results",
-		` ORDER BY computed_at DESC LIMIT 1`,
+		` ORDER BY computed_at DESC, id DESC LIMIT 1`,
 		s.snapshotID, s.configHash, resourceType, s.cityID,
 	)
 	var r ComputeResult
@@ -150,7 +152,7 @@ func (s *sqliteStore) LatestComputeResults(ctx context.Context, types []resource
 	}
 	q, bind := snapshotBatchQuery(
 		`SELECT id, resource_type, total_area, feature_count, computed_at, snapshot_id,
-		        ROW_NUMBER() OVER (PARTITION BY resource_type ORDER BY computed_at DESC) AS rn`,
+		        ROW_NUMBER() OVER (PARTITION BY resource_type ORDER BY computed_at DESC, id DESC) AS rn`,
 		"compute_results",
 		"",
 		s.snapshotID, s.configHash, types, s.cityID,
@@ -552,7 +554,7 @@ func snapshotBatchQuery(selectClause, table, suffix string, snapshotID int64, co
 	  WHERE cr.city_id = ? AND cr.resource_type IN (` + placeholders + `)
 	  AND (
 	    (? > 0 AND cr.snapshot_id = ?)
-	    OR (? = 0 AND ? != '' AND cr.snapshot_id IS (
+	    OR (? = 0 AND ? != '' AND cr.snapshot_id = (
 	      SELECT MAX(hs.snapshot_id) FROM ` + table + ` hs
 	      JOIN snapshots s ON s.id = hs.snapshot_id
 	      WHERE hs.resource_type = cr.resource_type AND hs.city_id = ?
@@ -587,15 +589,20 @@ func snapshotBatchQuery(selectClause, table, suffix string, snapshotID int64, co
 //
 //   - arm 1: pinned (snapshotID > 0) — exact match. Wins over configHash.
 //   - arm 2: unpinned + configHash set — latest snapshot for this
-//     (city, resource_type) whose snapshots.config_hash matches.
+//     (city, resource_type) whose snapshots.config_hash matches. Uses
+//     `snapshot_id = (SELECT MAX(...))`: on a config-hash miss MAX is
+//     NULL and `= NULL` matches nothing, so a miss returns zero rows
+//     rather than silently surfacing legacy untagged (NULL) rows.
 //   - arm 3: unpinned + no configHash — latest snapshot overall for
 //     this (city, resource_type). Preserves the back-compat path for
 //     tests and any caller that constructs a store without a config.
 //
-// SQLite's NULL-aware `IS` operator makes both arm-2 and arm-3
-// gracefully surface rows whose snapshot_id IS NULL when no matching
-// snapshot exists: MAX over an empty set returns NULL, and
-// `snapshot_id IS NULL` then matches those untagged rows.
+// Arm 3 deliberately uses SQLite's NULL-aware `IS` operator so it
+// gracefully surfaces rows whose snapshot_id IS NULL when no
+// snapshot-tagged row exists: MAX over an empty set returns NULL, and
+// `snapshot_id IS NULL` then matches those legacy untagged rows. Arm 2
+// intentionally does NOT do this — a config-hash filter that finds no
+// matching snapshot must not fall back to untagged data.
 //
 // The table name is interpolated into the SQL but it always comes from
 // a string literal at the call site (never from user input), so the
@@ -608,7 +615,7 @@ func snapshotQuery(selectClause, table, suffix string, snapshotID int64, configH
 	  WHERE resource_type = ? AND city_id = ?
 	  AND (
 	    (? > 0 AND snapshot_id = ?)
-	    OR (? = 0 AND ? != '' AND snapshot_id IS (
+	    OR (? = 0 AND ? != '' AND snapshot_id = (
 	      SELECT MAX(hs.snapshot_id) FROM ` + table + ` hs
 	      JOIN snapshots s ON s.id = hs.snapshot_id
 	      WHERE hs.resource_type = ? AND hs.city_id = ?
@@ -625,6 +632,19 @@ func snapshotQuery(selectClause, table, suffix string, snapshotID int64, configH
 		snapshotID, configHash, resourceType, cityID, configHash, // arm 2
 		snapshotID, configHash, resourceType, cityID, // arm 3
 	}
+}
+
+// snapshotResultTables is the canonical set of result tables that carry a
+// snapshot_id FK and are cascaded by DeleteSnapshot and swept by gc. Kept
+// in one place so those paths never drift out of sync. Every entry is a
+// compile-time string literal, never user input, so interpolating it into
+// SQL is safe (the G202 concatenation pattern gosec flags does not apply);
+// the concatenation is centralized here and at the reuse sites below.
+var snapshotResultTables = []string{
+	"compute_results",
+	"hex_stats",
+	"forecast_results",
+	"cohort_stats",
 }
 
 // DeleteSnapshot removes the snapshot and every FK-linked result row in a
@@ -653,21 +673,14 @@ func (s *sqliteStore) DeleteSnapshot(ctx context.Context, snapshotID int64) (boo
 			return fmt.Errorf("lookup snapshot: %w", err)
 		}
 
-		// Statements are static literals (gosec G202): table names are not
-		// derived from user input, but listing the four deletes explicitly
-		// keeps that fact obvious to readers and to the linter.
-		deletes := []struct {
-			label string
-			sql   string
-		}{
-			{"compute_results", `DELETE FROM compute_results WHERE snapshot_id = ? AND city_id = ?`},
-			{"hex_stats", `DELETE FROM hex_stats WHERE snapshot_id = ? AND city_id = ?`},
-			{"forecast_results", `DELETE FROM forecast_results WHERE snapshot_id = ? AND city_id = ?`},
-			{"cohort_stats", `DELETE FROM cohort_stats WHERE snapshot_id = ? AND city_id = ?`},
-		}
-		for _, d := range deletes {
-			if _, err := tx.ExecContext(ctx, d.sql, snapshotID, s.cityID); err != nil {
-				return fmt.Errorf("delete from %s: %w", d.label, err)
+		// Table names come from snapshotResultTables (compile-time literals,
+		// never user input), so the DELETE-string concatenation is safe
+		// (gosec G202 does not apply). We delete children before the parent
+		// snapshot to keep intent obvious.
+		for _, table := range snapshotResultTables {
+			q := `DELETE FROM ` + table + ` WHERE snapshot_id = ? AND city_id = ?`
+			if _, err := tx.ExecContext(ctx, q, snapshotID, s.cityID); err != nil {
+				return fmt.Errorf("delete from %s: %w", table, err)
 			}
 		}
 		if _, err := tx.ExecContext(ctx,
@@ -681,22 +694,25 @@ func (s *sqliteStore) DeleteSnapshot(ctx context.Context, snapshotID int64) (boo
 	return deleted, err
 }
 
-// gcResultTables is the set of result tables gc sweeps for NULL-snapshot
-// and dangling-snapshot orphan rows. Each carries a pointer into the
-// GCResultCounts struct so scan/sweep can write counts without a switch.
+// gcResultTables pairs each table in snapshotResultTables with a pointer
+// into the GCResultCounts struct so scan/sweep can write per-table counts
+// without a switch. The count pointers are listed in the same order as
+// snapshotResultTables (compute_results, hex_stats, forecast_results,
+// cohort_stats); keep the two in sync.
 func gcResultTables(c *GCResultCounts) []struct {
 	table string
 	count *int
 } {
-	return []struct {
+	counts := []*int{&c.ComputeResults, &c.HexStats, &c.ForecastResults, &c.CohortStats}
+	out := make([]struct {
 		table string
 		count *int
-	}{
-		{"compute_results", &c.ComputeResults},
-		{"hex_stats", &c.HexStats},
-		{"forecast_results", &c.ForecastResults},
-		{"cohort_stats", &c.CohortStats},
+	}, len(snapshotResultTables))
+	for i, table := range snapshotResultTables {
+		out[i].table = table
+		out[i].count = counts[i]
 	}
+	return out
 }
 
 // gcKeepPlaceholders builds the parameterized "?,?,..." placeholder list

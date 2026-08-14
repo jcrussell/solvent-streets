@@ -477,6 +477,21 @@ func TestListReads_ConfigHashScoping(t *testing.T) {
 		}
 	}
 
+	// Legacy untagged (snapshot_id IS NULL) rows coexisting with the tagged
+	// rows above. These are the rows a config-hash miss must NOT surface:
+	// before the kfvm fix, arm 2's `snapshot_id IS (SELECT MAX(...))` with a
+	// NULL MAX collapsed to `IS NULL` and wrongly returned these.
+	if err := store.SaveHexStats(ctx, []HexStat{
+		{HexID: "legacy", ResourceType: rtRoads, Area: 999, PctCovered: 100, SnapshotID: nil},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveComputeResult(ctx, ComputeResult{
+		ResourceType: rtRoads, TotalArea: 999, FeatureCount: 999, SnapshotID: nil,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
 	// Unpinned + no config hash: arm 3 — latest overall (snapH2's row).
 	if hex, _ := store.ListHexStats(ctx, rtRoads); len(hex) != 1 || hex[0].Area != float64(snapH2.ID*10) {
 		t.Errorf("unpinned-no-hash ListHexStats: want snapH2's row (area %v), got %+v", snapH2.ID*10, hex)
@@ -500,12 +515,21 @@ func TestListReads_ConfigHashScoping(t *testing.T) {
 		t.Errorf("WithConfigHash(hash-2) ListHexStats: want snapH2's row (area %v), got %+v", snapH2.ID*10, hex)
 	}
 
-	// Unpinned + WithConfigHash(no-match): arm 2 with empty subquery —
-	// no NULL-snapshot rows exist, so returns empty (NOT a fallback to
-	// latest overall — that's the contract the slug-collision fix
-	// relies on).
-	if hex, _ := store.WithConfigHash("no-match").ListHexStats(ctx, rtRoads); len(hex) != 0 {
-		t.Errorf("WithConfigHash(no-match) ListHexStats: want 0 rows, got %+v", hex)
+	// Unpinned + WithConfigHash(no-match): arm 2's MAX subquery is NULL, and
+	// `snapshot_id = NULL` matches nothing — so the read returns zero rows
+	// even though legacy NULL-snapshot rows exist. This is the kfvm contract:
+	// a config-hash miss must NOT fall back to latest overall OR to legacy
+	// untagged data (the slug-collision fix relies on it).
+	noMatch := store.WithConfigHash("no-match")
+	if hex, _ := noMatch.ListHexStats(ctx, rtRoads); len(hex) != 0 {
+		t.Errorf("WithConfigHash(no-match) ListHexStats: want 0 rows (not legacy NULL), got %+v", hex)
+	}
+	if cr, err := noMatch.LatestComputeResult(ctx, rtRoads); !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("WithConfigHash(no-match) LatestComputeResult: want sql.ErrNoRows, got %+v err=%v", cr, err)
+	}
+	// The batch path (snapshotBatchQuery) must apply the same arm-2 fix.
+	if m, err := noMatch.LatestComputeResults(ctx, []resource.Type{rtRoads}); err != nil || len(m) != 0 {
+		t.Errorf("WithConfigHash(no-match) LatestComputeResults: want empty map, got %+v err=%v", m, err)
 	}
 
 	// WithSnapshot(snapH1) + WithConfigHash(hash-2): pin precedence —
@@ -573,6 +597,72 @@ func TestListSnapshots_SameSecondTiebreak(t *testing.T) {
 	}
 	if snaps[0].ID != maxID {
 		t.Errorf("ListSnapshots newest id = %d, but MAX(snapshot_id) = %d", snaps[0].ID, maxID)
+	}
+}
+
+// TestLatestComputeResult_SameTimeTiebreak pins the yl89 fix: when two
+// compute_results rows for the same resource share a second-granularity
+// computed_at, both LatestComputeResult (single-row) and
+// LatestComputeResults (batch window function) must resolve the tie
+// deterministically to the higher id via the `id DESC` secondary sort.
+// Without it, SQLite's order among the tied rows is unstable and the two
+// paths could disagree on which row is "latest".
+func TestLatestComputeResult_SameTimeTiebreak(t *testing.T) {
+	ctx := context.Background()
+	root, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+
+	cityID, err := root.EnsureCity(ctx, "c", "C", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := root.ForCity(cityID).(*sqliteStore)
+
+	snap, err := store.CreateSnapshot(ctx, "h")
+	if err != nil {
+		t.Fatalf("CreateSnapshot: %v", err)
+	}
+
+	// Two rows for the same (city, resource, snapshot) with an explicit,
+	// identical computed_at so the tie is guaranteed. Insert the smaller id
+	// last so a naive rowid-order sort would surface the wrong row; the
+	// id DESC tiebreak must still pick id 20.
+	const sameTime = "2026-01-01 00:00:00"
+	for _, tc := range []struct {
+		id   int64
+		area float64
+	}{
+		{20, 2.0},
+		{10, 1.0},
+	} {
+		if _, err := store.db.ExecContext(ctx,
+			`INSERT INTO compute_results (id, resource_type, city_id, total_area, feature_count, computed_at, snapshot_id)
+			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			tc.id, rtRoads, cityID, tc.area, 1, sameTime, snap.ID); err != nil {
+			t.Fatalf("insert compute result %d: %v", tc.id, err)
+		}
+	}
+
+	// Single-row read.
+	cr, err := store.LatestComputeResult(ctx, rtRoads)
+	if err != nil {
+		t.Fatalf("LatestComputeResult: %v", err)
+	}
+	if cr.ID != 20 || cr.TotalArea != 2.0 {
+		t.Errorf("LatestComputeResult = id %d area %v, want id 20 area 2 (id DESC tiebreak)", cr.ID, cr.TotalArea)
+	}
+
+	// Batch read must agree.
+	m, err := store.LatestComputeResults(ctx, []resource.Type{rtRoads})
+	if err != nil {
+		t.Fatalf("LatestComputeResults: %v", err)
+	}
+	got := m[rtRoads]
+	if got == nil || got.ID != 20 || got.TotalArea != 2.0 {
+		t.Errorf("LatestComputeResults[roads] = %+v, want id 20 area 2 (id DESC tiebreak)", got)
 	}
 }
 
@@ -1469,6 +1559,45 @@ func TestForeignKeyEnforcement(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected FK violation error when inserting feature with nonexistent city_id")
 	}
+}
+
+// TestOpenDSN pins the itpe fix: the sqlite DSN is built by appending a
+// pragma query string to the path, so a path already containing '?' would
+// corrupt that query string and silently drop the WAL/busy_timeout/
+// foreign_keys pragmas. Open must reject such a path, and for a clean path
+// the pragmas must actually take effect.
+func TestOpenDSN(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("rejects path with query separator", func(t *testing.T) {
+		bad := filepath.Join(t.TempDir(), "pvmt.db") + "?_pragma=foreign_keys(off)"
+		if _, err := Open(bad); err == nil || !strings.Contains(err.Error(), "must not contain '?'") {
+			t.Fatalf("Open(%q): want error mentioning \"must not contain '?'\", got %v", bad, err)
+		}
+	})
+
+	t.Run("pragmas take effect on a clean file path", func(t *testing.T) {
+		root, err := Open(filepath.Join(t.TempDir(), "pvmt.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = root.Close() })
+
+		var fk int
+		if err := root.db.QueryRowContext(ctx, `PRAGMA foreign_keys`).Scan(&fk); err != nil {
+			t.Fatal(err)
+		}
+		if fk != 1 {
+			t.Errorf("foreign_keys pragma = %d, want 1 (on)", fk)
+		}
+		var mode string
+		if err := root.db.QueryRowContext(ctx, `PRAGMA journal_mode`).Scan(&mode); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.EqualFold(mode, "wal") {
+			t.Errorf("journal_mode = %q, want wal", mode)
+		}
+	})
 }
 
 func TestListCities(t *testing.T) {

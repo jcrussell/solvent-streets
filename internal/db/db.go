@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/jcrussell/solvent-streets/internal/resource"
@@ -17,6 +18,12 @@ import (
 
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
+
+// dsnPragmas is the query string appended to the db path to form the
+// sqlite DSN. WAL improves concurrency, busy_timeout avoids spurious
+// "database is locked" errors, and foreign_keys(on) enforces the FK
+// constraints the schema declares (SQLite defaults them off).
+const dsnPragmas = "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)"
 
 type Feature struct {
 	ID           string
@@ -211,7 +218,18 @@ func Open(path string) (retStore *RootStore, retErr error) {
 		}
 	}
 
-	db, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)")
+	// The DSN is built by appending our pragma query string to the path.
+	// A path that already contains a '?' would corrupt that query string
+	// (the driver splits the DSN on the first '?'), silently dropping the
+	// WAL/busy_timeout/foreign_keys pragmas we rely on. Reject it rather
+	// than open a database with the wrong durability/integrity settings.
+	// ":memory:" and DefaultPath() never contain '?', so this is a no-op
+	// for the supported paths.
+	if strings.Contains(path, "?") {
+		return nil, fmt.Errorf("open sqlite: db path must not contain '?': %q", path)
+	}
+
+	db, err := sql.Open("sqlite", path+dsnPragmas)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
