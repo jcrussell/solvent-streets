@@ -10,9 +10,11 @@
 package paths
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 // Paths holds the four resolved per-user, per-tool directories. All fields
@@ -29,6 +31,9 @@ type Paths struct {
 // or Cache on macOS and Windows; when they do, the colliding directory is
 // nested under a dedicated subdir so all four are always distinct.
 func Resolve(toolName string) (*Paths, error) {
+	if err := validateToolName(toolName); err != nil {
+		return nil, err
+	}
 	cfg, err := os.UserConfigDir()
 	if err != nil {
 		return nil, err
@@ -59,6 +64,28 @@ func Resolve(toolName string) (*Paths, error) {
 		p.Data = filepath.Join(p.Data, "data")
 	}
 	return p, nil
+}
+
+// validateToolName rejects tool names that would escape or restructure the
+// per-OS base directory when joined onto it. The name must be a single,
+// plain path segment: non-empty, not "." or "..", containing no path
+// separators (so it cannot traverse or embed subdirs) and not absolute.
+// filepath.Join would otherwise silently accept "../../etc" or "/etc/x"
+// and place the tool's dirs outside the intended root.
+func validateToolName(toolName string) error {
+	if toolName == "" {
+		return fmt.Errorf("paths: tool name must not be empty")
+	}
+	if toolName == "." || toolName == ".." {
+		return fmt.Errorf("paths: invalid tool name %q", toolName)
+	}
+	if strings.ContainsRune(toolName, '/') || strings.ContainsRune(toolName, filepath.Separator) {
+		return fmt.Errorf("paths: tool name %q must not contain a path separator", toolName)
+	}
+	if filepath.IsAbs(toolName) {
+		return fmt.Errorf("paths: tool name %q must not be absolute", toolName)
+	}
+	return nil
 }
 
 // EnsureDir is a thin wrapper around os.MkdirAll with 0o755 so callers do

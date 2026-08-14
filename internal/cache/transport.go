@@ -35,10 +35,10 @@ func bypassRequested(ctx context.Context) bool {
 }
 
 type entryMeta struct {
-	StatusCode int               `json:"status_code"`
-	Headers    map[string]string `json:"headers"`
-	Timestamp  time.Time         `json:"timestamp"`
-	URL        string            `json:"url"`
+	StatusCode int                 `json:"status_code"`
+	Headers    map[string][]string `json:"headers"`
+	Timestamp  time.Time           `json:"timestamp"`
+	URL        string              `json:"url"`
 }
 
 type CachingTransport struct {
@@ -78,22 +78,20 @@ func (t *CachingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	bodyPath := filepath.Join(t.Dir, key+".json")
 	metaPath := filepath.Join(t.Dir, key+".meta")
 
-	// TTL=0 is a true bypass: skip reading the cache entirely so no
-	// conditional validators are sent and no cached body is served.
+	// Two things suppress the read entirely: TTL=0 (cache fully disabled)
+	// and a per-request --force bypass (cache.WithBypass). Checking bypass
+	// BEFORE readCache means --force never pays the disk read + unmarshal
+	// only to discard the result (jk9e). Leaving haveCache false also
+	// disables the conditional-request / 304 path below, which would
+	// otherwise re-serve the old body; the fresh response is still written
+	// back to the cache.
 	var (
 		meta       *entryMeta
 		cachedBody []byte
 		haveCache  bool
 	)
-	if t.TTL > 0 {
+	if t.TTL > 0 && !bypassRequested(req.Context()) {
 		meta, cachedBody, haveCache = t.readCache(metaPath, bodyPath)
-	}
-	if bypassRequested(req.Context()) {
-		// --force: ignore any cached entry entirely. Forcing haveCache
-		// false here also disables the conditional-request / 304 path
-		// below (transport.go), which would otherwise re-serve the old
-		// body. The fresh response is still written back to the cache.
-		haveCache = false
 	}
 	if t.TTL > 0 && haveCache && time.Since(meta.Timestamp) < t.TTL {
 		return buildResponse(req, meta, cachedBody), nil
@@ -145,8 +143,8 @@ func (t *CachingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 // request is cloned before headers are set. When the meta carries no
 // validators the original request is returned unchanged.
 func withConditionalValidators(req *http.Request, meta *entryMeta) *http.Request {
-	etag := meta.Headers["Etag"]
-	lastMod := meta.Headers["Last-Modified"]
+	etag := firstHeaderValue(meta.Headers, "Etag")
+	lastMod := firstHeaderValue(meta.Headers, "Last-Modified")
 	if etag == "" && lastMod == "" {
 		return req
 	}
@@ -158,6 +156,17 @@ func withConditionalValidators(req *http.Request, meta *entryMeta) *http.Request
 		req.Header.Set("If-Modified-Since", lastMod)
 	}
 	return req
+}
+
+// firstHeaderValue returns the first value stored for key, or "" when the
+// header is absent or has no values. Validators (ETag, Last-Modified) are
+// single-valued in practice, so the first value is the right choice even
+// though the cache now stores every value for a header.
+func firstHeaderValue(h map[string][]string, key string) string {
+	if vs := h[key]; len(vs) > 0 {
+		return vs[0]
+	}
+	return ""
 }
 
 // cacheKey derives the on-disk cache filename from the request method,
@@ -204,6 +213,12 @@ func (t *CachingTransport) readCache(metaPath, bodyPath string) (*entryMeta, []b
 	}
 	var meta entryMeta
 	if err := json.Unmarshal(metaData, &meta); err != nil {
+		// Corrupt meta: the entry can never be served, so drop the whole
+		// (meta, body) pair best-effort rather than letting it wedge this
+		// key until manual cache clear. This is deliberately narrow — no
+		// size/age eviction, which is deferred (b136 partial).
+		_ = os.Remove(metaPath)
+		_ = os.Remove(bodyPath)
 		return nil, nil, false
 	}
 	body, err := os.ReadFile(bodyPath)
@@ -224,9 +239,14 @@ func (t *CachingTransport) writeCacheMeta(metaPath string, meta entryMeta) {
 }
 
 func (t *CachingTransport) writeCache(metaPath, bodyPath string, resp *http.Response, body []byte, url string) {
-	headers := make(map[string]string)
-	for k := range resp.Header {
-		headers[k] = resp.Header.Get(k)
+	// Store every value for each header. resp.Header is already
+	// map[string][]string; collapsing to a single value (the old
+	// resp.Header.Get) dropped repeated headers like Set-Cookie and Vary.
+	headers := make(map[string][]string, len(resp.Header))
+	for k, vs := range resp.Header {
+		cp := make([]string, len(vs))
+		copy(cp, vs)
+		headers[k] = cp
 	}
 	meta := entryMeta{
 		StatusCode: resp.StatusCode,
@@ -254,8 +274,10 @@ func (t *CachingTransport) writeCache(metaPath, bodyPath string, resp *http.Resp
 
 func buildResponse(req *http.Request, meta *entryMeta, body []byte) *http.Response {
 	header := make(http.Header)
-	for k, v := range meta.Headers {
-		header.Set(k, v)
+	for k, vs := range meta.Headers {
+		for _, v := range vs {
+			header.Add(k, v)
+		}
 	}
 	header.Set("X-Pvmt-Cache", "hit")
 	return &http.Response{

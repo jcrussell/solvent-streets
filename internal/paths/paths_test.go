@@ -47,6 +47,37 @@ func TestResolveNoMkdir(t *testing.T) {
 	}
 }
 
+// TestResolveRejectsUnsafeToolName pins odsq: Resolve validates toolName so
+// the join onto the per-OS base cannot escape it.
+func TestResolveRejectsUnsafeToolName(t *testing.T) {
+	cases := []struct {
+		name     string
+		toolName string
+		wantErr  bool
+	}{
+		{name: "valid", toolName: "pvmt", wantErr: false},
+		{name: "empty", toolName: "", wantErr: true},
+		{name: "dotdot", toolName: "..", wantErr: true},
+		{name: "traversal", toolName: "../../etc", wantErr: true},
+		{name: "absolute", toolName: "/etc/x", wantErr: true},
+		{name: "with separator", toolName: "a/b", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p, err := Resolve(tc.toolName)
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("Resolve(%q) = %+v, nil; want error", tc.toolName, p)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("Resolve(%q) unexpected error: %v", tc.toolName, err)
+			}
+		})
+	}
+}
+
 func TestEnsureDirIsIdempotent(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "a", "b", "c")
 	if err := EnsureDir(dir); err != nil {

@@ -47,6 +47,20 @@ func TestReadyURL(t *testing.T) {
 	}
 }
 
+// TestNosniffMiddleware pins s68f: every response carries
+// X-Content-Type-Options: nosniff.
+func TestNosniffMiddleware(t *testing.T) {
+	h := nosniffMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/anything", nil)
+	h.ServeHTTP(rec, req)
+	if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("X-Content-Type-Options = %q; want %q", got, "nosniff")
+	}
+}
+
 // TestServer_ReadyFile verifies that ListenAndServe writes the
 // listening URL to ReadyFile atomically after bind, before Serve
 // begins accepting. Container/test orchestration relies on this to

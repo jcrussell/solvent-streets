@@ -8,6 +8,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/jcrussell/solvent-streets/internal/textutil"
 )
 
 // StepStatus tracks the state of an individual step.
@@ -323,11 +325,9 @@ func (m StepModel) renderLogPanel(sb *strings.Builder, w int) {
 	tail := m.logLines[start:]
 
 	for _, line := range tail {
-		// Truncate long lines to terminal width
-		display := line
-		if len(display) > lineWidth {
-			display = display[:lineWidth-1] + "…"
-		}
+		// Truncate long lines to terminal width. Rune-safe: a byte-index cut
+		// could split a multi-byte UTF-8 rune and render a replacement char.
+		display := textutil.TruncateRunes(line, lineWidth-1, "…")
 		sb.WriteString("  ")
 		sb.WriteString(display)
 		sb.WriteString("\n")

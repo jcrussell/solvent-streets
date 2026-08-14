@@ -30,7 +30,15 @@ func Run(ctx context.Context, label string, steps []Step, done DoneConfig, workF
 	defer cancel()
 
 	model := NewStepModel(label, steps, done)
-	p := tea.NewProgram(model, tea.WithoutCatchPanics())
+	// Keep Bubbletea's default panic catching (do NOT pass
+	// tea.WithoutCatchPanics). On a panic inside the model's Update/View —
+	// which runs on the p.Run() loop, not the worker goroutine below — the
+	// default handler restores the terminal (exits the alt-screen, disables
+	// raw mode) and returns a non-nil error from p.Run() instead of leaving
+	// the terminal wedged. WithoutCatchPanics would skip that cleanup. The
+	// worker goroutine keeps its own recover (it runs outside the loop, so
+	// Bubbletea's recovery does not cover it). (am3l)
+	p := tea.NewProgram(model)
 
 	writer := NewProgressWriter(p)
 	warnWriter := NewWarnWriter(p)

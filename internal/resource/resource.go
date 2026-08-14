@@ -91,7 +91,7 @@ type Source interface {
 	// buffered set later (e.g. city-only subset, per-classification cohorts)
 	// can filter on Feature.Tags without re-buffering. Invalid features are
 	// dropped; an empty result means no inputs survived buffering.
-	BufferFeaturesPaired(ctx context.Context, features []Feature, proj *geo.UTMProjector) []BufferedFeature
+	BufferFeaturesPaired(ctx context.Context, features []Feature, proj geo.Projector) []BufferedFeature
 	HasCohorts() bool
 }
 
@@ -144,7 +144,7 @@ type widthFunc func(tags map[string]string) float64
 
 // cleanFeatureGeometry converts a single feature to a cleaned projected geometry.
 // For LineStrings, it buffers by the inferred width. Returns (geometry, ok).
-func cleanFeatureGeometry(f Feature, proj *geo.UTMProjector, inferWidth widthFunc) (geom.Geometry, bool) {
+func cleanFeatureGeometry(f Feature, proj geo.Projector, inferWidth widthFunc) (geom.Geometry, bool) {
 	g, gtype, err := geo.GeoJSONToProjectedGeometry(f.GeometryJSON, proj)
 	if err != nil {
 		return geom.Geometry{}, false
@@ -240,7 +240,7 @@ func lineStringCoords(ls geom.LineString) [][2]float64 {
 // slices in input order, and we emit a one-element slice for each success and an
 // empty slice for each drop — yielding exactly the successes-only ordering the
 // old sequential loop produced. counter is nil: buffering has no TUI phase.
-func bufferFeaturesPaired(ctx context.Context, features []Feature, proj *geo.UTMProjector, inferWidth widthFunc) []BufferedFeature {
+func bufferFeaturesPaired(ctx context.Context, features []Feature, proj geo.Projector, inferWidth widthFunc) []BufferedFeature {
 	return geo.ParallelMap(ctx, features, func(_ int, f Feature) []BufferedFeature {
 		if g, ok := cleanFeatureGeometry(f, proj, inferWidth); ok {
 			return []BufferedFeature{{Feature: f, Geom: g}}

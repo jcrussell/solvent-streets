@@ -8,6 +8,17 @@ import (
 	"github.com/peterstace/simplefeatures/geom"
 )
 
+// Projector converts between WGS84 lon/lat degrees and a projected planar
+// coordinate system in meters. *UTMProjector is the production
+// implementation; depending on the interface (rather than the concrete
+// type) lets callers — chiefly tests — substitute a fake projection.
+type Projector interface {
+	// ToProjected converts WGS84 (lon, lat) degrees to projected (x, y) meters.
+	ToProjected(lon, lat float64) (float64, float64)
+	// FromProjected converts projected (x, y) meters to WGS84 (lon, lat) degrees.
+	FromProjected(x, y float64) (float64, float64)
+}
+
 // UTMProjector converts between WGS84 (lon/lat degrees) and UTM Transverse
 // Mercator (meters). Zone is auto-detected from longitude. Works anywhere
 // with ~1m accuracy. The projection math is delegated to simplefeatures'

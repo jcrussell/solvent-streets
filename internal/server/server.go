@@ -97,14 +97,19 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	mux.HandleFunc("GET /app.js", s.handleAppJS)
 	mux.HandleFunc("GET /game.js", s.handleGameJS)
 
-	handler := recoveryMiddleware(mux, s.ios.ErrOut)
+	handler := recoveryMiddleware(nosniffMiddleware(mux), s.ios.ErrOut)
 
 	srv := &http.Server{
-		Addr:         net.JoinHostPort(s.host, strconv.Itoa(s.port)),
-		Handler:      handler,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:    net.JoinHostPort(s.host, strconv.Itoa(s.port)),
+		Handler: handler,
+		// ReadHeaderTimeout bounds slowloris-style header dribbling
+		// independently of ReadTimeout; MaxHeaderBytes caps header size so
+		// a client cannot exhaust memory with unbounded headers.
+		ReadTimeout:       15 * time.Second,
+		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 20, // 1 MiB
 	}
 
 	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", srv.Addr)
@@ -168,6 +173,18 @@ func (s *Server) cityBySlug(slug string) *export.CityEntry {
 		}
 	}
 	return nil
+}
+
+// nosniffMiddleware stamps X-Content-Type-Options: nosniff on every
+// response so browsers honor the declared Content-Type instead of
+// MIME-sniffing (which can turn a data file into executable script). Set
+// before the handler runs so it survives even a handler that writes its own
+// headers and body.
+func nosniffMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		next.ServeHTTP(w, r)
+	})
 }
 
 func recoveryMiddleware(next http.Handler, errOut io.Writer) http.Handler {

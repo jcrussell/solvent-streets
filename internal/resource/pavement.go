@@ -22,7 +22,7 @@ func (p *Pavement) OverpassQuery(bbox [4]float64) string {
 out geom;`, bbox[0], bbox[1], bbox[2], bbox[3])
 }
 
-func (p *Pavement) BufferFeaturesPaired(ctx context.Context, features []Feature, proj *geo.UTMProjector) []BufferedFeature {
+func (p *Pavement) BufferFeaturesPaired(ctx context.Context, features []Feature, proj geo.Projector) []BufferedFeature {
 	return bufferFeaturesPaired(ctx, features, proj, geo.InferWidth)
 }
 

@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
@@ -13,6 +15,31 @@ const (
 	testGeomLineString = "LineString"
 	testGeomPolygon    = "Polygon"
 )
+
+// TestTruncate_RuneSafe pins 6pty: the error-snippet truncate must clip on
+// a rune boundary, never splitting a multi-byte UTF-8 rune (which would
+// leave an invalid string in the surfaced error message).
+func TestTruncate_RuneSafe(t *testing.T) {
+	// Short strings pass through untouched.
+	if got := truncate("short"); got != "short" {
+		t.Errorf("truncate(short) = %q; want short", got)
+	}
+	// A run of 2-byte runes longer than errSnippetMaxLen must clip cleanly.
+	long := ""
+	for range errSnippetMaxLen + 10 {
+		long += "é" // 2 bytes each
+	}
+	got := truncate(long)
+	if !utf8.ValidString(got) {
+		t.Errorf("truncate produced invalid UTF-8: %q", got)
+	}
+	if !strings.HasSuffix(got, "...") {
+		t.Errorf("truncate should append ellipsis, got %q", got)
+	}
+	if n := utf8.RuneCountInString(strings.TrimSuffix(got, "...")); n != errSnippetMaxLen {
+		t.Errorf("truncate kept %d runes; want %d", n, errSnippetMaxLen)
+	}
+}
 
 var (
 	testResourceRoads   = resource.TypeRoads

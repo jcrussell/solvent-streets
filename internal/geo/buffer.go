@@ -234,7 +234,7 @@ func coordsToSequence(coords [][2]float64) geom.Sequence {
 // MultiPolygon or GeometryCollection that fail to build or clean are
 // silently dropped; use GeoJSONToProjectedGeometryDropped when the caller
 // needs to surface a warning about partial data loss.
-func GeoJSONToProjectedGeometry(gjson string, proj *UTMProjector) (geom.Geometry, string, error) {
+func GeoJSONToProjectedGeometry(gjson string, proj Projector) (geom.Geometry, string, error) {
 	g, gtype, _, err := GeoJSONToProjectedGeometryDropped(gjson, proj)
 	return g, gtype, err
 }
@@ -246,7 +246,7 @@ func GeoJSONToProjectedGeometry(gjson string, proj *UTMProjector) (geom.Geometry
 // input — callers handling whole-city boundaries should warn so operators
 // can fix the source data. The count is always 0 for single-part types
 // (Polygon, LineString, MultiLineString).
-func GeoJSONToProjectedGeometryDropped(gjson string, proj *UTMProjector) (geom.Geometry, string, int, error) {
+func GeoJSONToProjectedGeometryDropped(gjson string, proj Projector) (geom.Geometry, string, int, error) {
 	var obj struct {
 		Type        string          `json:"type"`
 		Coordinates json.RawMessage `json:"coordinates"`
@@ -296,7 +296,7 @@ func GeoJSONToProjectedGeometryDropped(gjson string, proj *UTMProjector) (geom.G
 	}
 }
 
-func buildProjectedLineString(coordsRaw json.RawMessage, proj *UTMProjector) (geom.Geometry, error) {
+func buildProjectedLineString(coordsRaw json.RawMessage, proj Projector) (geom.Geometry, error) {
 	var coords [][2]float64
 	if err := json.Unmarshal(coordsRaw, &coords); err != nil {
 		return geom.Geometry{}, err
@@ -311,7 +311,7 @@ func buildProjectedLineString(coordsRaw json.RawMessage, proj *UTMProjector) (ge
 // into its own LineString and returns a geom.MultiLineString. Parts are kept
 // separate (NOT concatenated) — joining their coordinates would fabricate bridge
 // segments between disjoint polylines. Callers buffer each part individually.
-func buildProjectedMultiLineString(coordsRaw json.RawMessage, proj *UTMProjector) (geom.Geometry, error) {
+func buildProjectedMultiLineString(coordsRaw json.RawMessage, proj Projector) (geom.Geometry, error) {
 	var lines [][][2]float64
 	if err := json.Unmarshal(coordsRaw, &lines); err != nil {
 		return geom.Geometry{}, err
@@ -335,7 +335,7 @@ func buildProjectedMultiLineString(coordsRaw json.RawMessage, proj *UTMProjector
 // second return value reports how many were dropped so callers can warn
 // about partial data loss (a degenerate sub-polygon can otherwise delete a
 // whole landmass undetected). Zero surviving members is an error.
-func buildProjectedMultiPolygon(coordsRaw json.RawMessage, proj *UTMProjector) (geom.Geometry, int, error) {
+func buildProjectedMultiPolygon(coordsRaw json.RawMessage, proj Projector) (geom.Geometry, int, error) {
 	var polys [][][][2]float64
 	if err := json.Unmarshal(coordsRaw, &polys); err != nil {
 		return geom.Geometry{}, 0, err
@@ -376,7 +376,7 @@ func buildProjectedMultiPolygon(coordsRaw json.RawMessage, proj *UTMProjector) (
 
 // buildProjectedGeometryCollection mirrors buildProjectedMultiPolygon's
 // drop-and-count behavior for GeometryCollection children.
-func buildProjectedGeometryCollection(gjson string, proj *UTMProjector) (geom.Geometry, int, error) {
+func buildProjectedGeometryCollection(gjson string, proj Projector) (geom.Geometry, int, error) {
 	var raw struct {
 		Geometries []json.RawMessage `json:"geometries"`
 	}
@@ -412,7 +412,7 @@ func buildProjectedGeometryCollection(gjson string, proj *UTMProjector) (geom.Ge
 	return g, dropped, err
 }
 
-func buildProjectedPolygon(coordsRaw json.RawMessage, proj *UTMProjector) (geom.Geometry, error) {
+func buildProjectedPolygon(coordsRaw json.RawMessage, proj Projector) (geom.Geometry, error) {
 	var rings [][][2]float64
 	if err := json.Unmarshal(coordsRaw, &rings); err != nil {
 		return geom.Geometry{}, err
@@ -427,7 +427,7 @@ func buildProjectedPolygon(coordsRaw json.RawMessage, proj *UTMProjector) (geom.
 	return poly.AsGeometry(), nil
 }
 
-func projectCoords(coords [][2]float64, proj *UTMProjector) [][2]float64 {
+func projectCoords(coords [][2]float64, proj Projector) [][2]float64 {
 	projected := make([][2]float64, len(coords))
 	for i, c := range coords {
 		x, y := proj.ToProjected(c[0], c[1])

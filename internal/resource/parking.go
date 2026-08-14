@@ -22,7 +22,7 @@ out geom;`, bbox[0], bbox[1], bbox[2], bbox[3],
 		bbox[0], bbox[1], bbox[2], bbox[3])
 }
 
-func (p *Parking) BufferFeaturesPaired(ctx context.Context, features []Feature, proj *geo.UTMProjector) []BufferedFeature {
+func (p *Parking) BufferFeaturesPaired(ctx context.Context, features []Feature, proj geo.Projector) []BufferedFeature {
 	return geo.ParallelMap(ctx, features, func(_ int, f Feature) []BufferedFeature {
 		g, gtype, err := geo.GeoJSONToProjectedGeometry(f.GeometryJSON, proj)
 		if err != nil {

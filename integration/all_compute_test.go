@@ -38,7 +38,7 @@ func TestAllCompute_SharedGridMatchesStandalone(t *testing.T) {
 
 	// --- Shared-grid path: run the real `all compute` command. ---
 	storeA := newAllFixtureStore(t, ctx)
-	iosA, _, outA, errA := iostreams.Test()
+	iosA, _, _, errA := iostreams.Test()
 	fA := allComputeFactory(iosA, storeA)
 	allCmd := all.NewCmdAll(fA)
 	allCmd.SilenceErrors, allCmd.SilenceUsage = true, true
@@ -49,7 +49,7 @@ func TestAllCompute_SharedGridMatchesStandalone(t *testing.T) {
 
 	// --- Baseline: standalone `roads compute` builds + clips its grid inline. ---
 	storeB := newAllFixtureStore(t, ctx)
-	iosB, _, outB, _ := iostreams.Test()
+	iosB, _, _, errB := iostreams.Test()
 	fB := allComputeFactory(iosB, storeB)
 	rcmd := compute.NewCmdCompute(fB, &resource.Pavement{}, nil)
 	rcmd.SilenceErrors, rcmd.SilenceUsage = true, true
@@ -78,15 +78,16 @@ func TestAllCompute_SharedGridMatchesStandalone(t *testing.T) {
 		t.Errorf("combined TotalArea = %v; want > 0", combined.TotalArea)
 	}
 
-	// (3) Perf signal: shared once, not rebuilt per resource.
-	if !strings.Contains(outA.String(), "Reusing shared clipped hex grid") {
-		t.Errorf("all compute did not report reusing a shared grid; got:\n%s", outA.String())
+	// (3) Perf signal: shared once, not rebuilt per resource. These are
+	// progress lines, so they land on ErrOut (chatter), not Out (data).
+	if !strings.Contains(errA.String(), "Reusing shared clipped hex grid") {
+		t.Errorf("all compute did not report reusing a shared grid; got:\n%s", errA.String())
 	}
-	if strings.Contains(outA.String(), "Computing hex grid") {
-		t.Errorf("all compute rebuilt the grid inline (found \"Computing hex grid\"); want the shared grid reused:\n%s", outA.String())
+	if strings.Contains(errA.String(), "Computing hex grid") {
+		t.Errorf("all compute rebuilt the grid inline (found \"Computing hex grid\"); want the shared grid reused:\n%s", errA.String())
 	}
-	if !strings.Contains(outB.String(), "Computing hex grid") {
-		t.Errorf("standalone compute should build its grid inline; got:\n%s", outB.String())
+	if !strings.Contains(errB.String(), "Computing hex grid") {
+		t.Errorf("standalone compute should build its grid inline; got:\n%s", errB.String())
 	}
 }
 

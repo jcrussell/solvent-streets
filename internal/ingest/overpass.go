@@ -14,6 +14,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/httpio"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/textutil"
 )
 
 const overpassAPI = "https://overpass-api.de/api/interpreter" //nolint:gosec // G101: not a credential
@@ -319,11 +320,9 @@ func coordsToPolygonGeoJSON(coords [][2]float64) string {
 // into an error message — enough to be diagnostic without dumping a full page.
 const errSnippetMaxLen = 200
 
-// truncate clips s to errSnippetMaxLen runes-worth of bytes for inclusion in an
-// error message, appending an ellipsis when it clips.
+// truncate clips s to errSnippetMaxLen runes for inclusion in an error
+// message, appending an ellipsis when it clips. Rune-safe: a byte-index cut
+// could split a multi-byte UTF-8 rune mid-sequence.
 func truncate(s string) string {
-	if len(s) <= errSnippetMaxLen {
-		return s
-	}
-	return s[:errSnippetMaxLen] + "..."
+	return textutil.TruncateRunes(s, errSnippetMaxLen, "...")
 }

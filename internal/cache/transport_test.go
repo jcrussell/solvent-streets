@@ -331,6 +331,121 @@ func TestWriteCache_MetaNotWrittenWhenBodyFails(t *testing.T) {
 	}
 }
 
+// TestCachingTransport_MultiValuedHeaderRoundTrip pins 69vw: a response
+// with repeated headers (Set-Cookie, Vary) must round-trip through the
+// disk cache with every value preserved, not collapsed to one.
+func TestCachingTransport_MultiValuedHeaderRoundTrip(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Add("Set-Cookie", "a=1")
+		w.Header().Add("Set-Cookie", "b=2")
+		w.Header().Add("Vary", "Accept")
+		w.Header().Add("Vary", "Origin")
+		_, _ = w.Write([]byte("ok"))
+	}))
+	t.Cleanup(srv.Close)
+
+	dir := t.TempDir()
+	client := &http.Client{Transport: NewTransport(http.DefaultTransport, dir, time.Hour)}
+
+	// Prime the cache.
+	req1, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/c", nil)
+	resp1, err := client.Do(req1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp1.Body.Close()
+
+	// Second request is served from cache; check every header value survived.
+	req2, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/c", nil)
+	resp2, err := client.Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp2.Body.Close()
+	if resp2.Header.Get("X-Pvmt-Cache") != "hit" {
+		t.Fatalf("expected a cache hit, got header %q", resp2.Header.Get("X-Pvmt-Cache"))
+	}
+
+	cookies := resp2.Header.Values("Set-Cookie")
+	if len(cookies) != 2 || cookies[0] != "a=1" || cookies[1] != "b=2" {
+		t.Errorf("Set-Cookie not round-tripped with both values in order: %#v", cookies)
+	}
+	if vary := resp2.Header.Values("Vary"); len(vary) != 2 {
+		t.Errorf("Vary not round-tripped with both values: %#v", vary)
+	}
+}
+
+// TestCachingTransport_BypassSkipsCacheRead pins jk9e: a --force (WithBypass)
+// request must not read the cache at all. We seed a corrupt entry that
+// readCache would delete (b136); under bypass readCache is never called, so
+// the corrupt files survive. Origin returns 500 so writeCache does not
+// recreate them, making the "never read" behavior observable.
+func TestCachingTransport_BypassSkipsCacheRead(t *testing.T) {
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		callCount++
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("err"))
+	}))
+	t.Cleanup(srv.Close)
+
+	dir := t.TempDir()
+	client := &http.Client{Transport: NewTransport(http.DefaultTransport, dir, time.Hour)}
+
+	key := cacheKey(http.MethodGet, srv.URL+"/x", nil)
+	metaPath := filepath.Join(dir, key+".meta")
+	bodyPath := filepath.Join(dir, key+".json")
+	if err := os.WriteFile(metaPath, []byte("{ not valid json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bodyPath, []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req, _ := http.NewRequestWithContext(WithBypass(context.Background()), http.MethodGet, srv.URL+"/x", nil)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if callCount != 1 {
+		t.Fatalf("bypass should hit origin once, got %d", callCount)
+	}
+
+	// Bypass skipped readCache, so the corrupt entry was neither read nor
+	// deleted.
+	if _, err := os.Stat(metaPath); err != nil {
+		t.Errorf("bypass must not read/delete the cache entry; corrupt meta gone: %v", err)
+	}
+}
+
+// TestReadCache_RemovesCorruptEntry pins b136 (partial): readCache deletes a
+// meta/body pair whose meta fails to unmarshal, best-effort.
+func TestReadCache_RemovesCorruptEntry(t *testing.T) {
+	dir := t.TempDir()
+	ct := NewTransport(http.DefaultTransport, dir, time.Hour)
+
+	key := cacheKey(http.MethodGet, "https://example.test/x", nil)
+	metaPath := filepath.Join(dir, key+".meta")
+	bodyPath := filepath.Join(dir, key+".json")
+	if err := os.WriteFile(metaPath, []byte("{corrupt"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bodyPath, []byte("body"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, ok := ct.readCache(metaPath, bodyPath); ok {
+		t.Fatal("corrupt entry must not be reported as a hit")
+	}
+	if _, err := os.Stat(metaPath); !os.IsNotExist(err) {
+		t.Errorf("corrupt meta should be removed, stat err=%v", err)
+	}
+	if _, err := os.Stat(bodyPath); !os.IsNotExist(err) {
+		t.Errorf("corrupt body should be removed, stat err=%v", err)
+	}
+}
+
 // postRequest builds a POST with a form-encoded body mirroring the
 // Overpass call shape (Content-Type + string body).
 func postRequest(ctx context.Context, url, body string) *http.Request {
