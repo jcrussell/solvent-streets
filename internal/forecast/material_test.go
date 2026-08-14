@@ -41,6 +41,15 @@ func TestMaterialsForAreaZero(t *testing.T) {
 	}
 }
 
+func TestMaterialsForAreaNegative(t *testing.T) {
+	// A negative area is floored at 0 (house style: clamp-in-place) so it can
+	// never yield negative tonnages or oil barrels.
+	got := MaterialsForArea(-1000, DefaultMaterialTiers[1])
+	if got != (MaterialQuantities{}) {
+		t.Errorf("negative area = %+v, want all zero", got)
+	}
+}
+
 func TestDefaultMaterialTiersAlignWithCostTiers(t *testing.T) {
 	// Every default cost tier must have a same-labeled material tier so a
 	// per-year cost_tier always resolves to a material intensity.

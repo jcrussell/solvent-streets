@@ -153,6 +153,33 @@ func TestTranslateNoCohortsExplicitDecay(t *testing.T) {
 	}
 }
 
+// TestTranslateExplicitCohortsDefaultDecay pins that the multi-cohort branch
+// resolves a zero decay rate the same way the single-cohort branch does: a
+// rate <= 0 falls back to the default. Previously only the single-cohort branch
+// applied this fallback, so a multi-cohort payload reported DecayRate=0.
+func TestTranslateExplicitCohortsDefaultDecay(t *testing.T) {
+	in := Input{
+		InitialPCI: 80,
+		Years:      2,
+		Strategy:   "do-nothing",
+		Cohorts: []Cohort{
+			{Classification: "primary", Area: 1000, DecayRate: 0}, // zero → default
+			{Classification: "residential", Area: 2000, DecayRate: 0.03},
+		},
+	}
+	_, cohorts, _, _, err := Translate(in)
+	if err != nil {
+		t.Fatalf("Translate: %v", err)
+	}
+	agg := aggregateByClass(cohorts)
+	if want := forecast.DefaultDecayRates["default"]; agg["primary"].decayRate != want {
+		t.Errorf("primary decayRate = %v, want default fallback %v", agg["primary"].decayRate, want)
+	}
+	if agg["residential"].decayRate != 0.03 {
+		t.Errorf("residential decayRate = %v, want 0.03 (preserved)", agg["residential"].decayRate)
+	}
+}
+
 func TestTranslateInvalidStrategy(t *testing.T) {
 	if _, _, _, _, err := Translate(Input{Years: 1, Strategy: "worst-first"}); err != nil {
 		t.Fatalf("valid strategy returned error: %v", err)

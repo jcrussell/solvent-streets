@@ -147,25 +147,34 @@ func Translate(in Input) (forecast.Scenario, []forecast.Cohort, int, *forecast.P
 		Strategy:     strategy,
 	}
 
+	// resolveDecay applies the same missing/zero-rate fallback in both the
+	// multi-cohort and single-cohort branches: a rate <= 0 resolves to the
+	// default. Previously only the single-cohort branch defaulted, so a
+	// multi-cohort payload with a 0 rate reported DecayRate=0 in its
+	// CohortSummary (the numeric PCI matched only because Forecast re-clamps
+	// k<=0 internally). Aligning here keeps the reported rate consistent.
+	resolveDecay := func(rate float64) float64 {
+		if rate <= 0 {
+			return forecast.DefaultDecayRates["default"]
+		}
+		return rate
+	}
+
 	var cohorts []forecast.Cohort
 	if len(in.Cohorts) > 0 {
 		for _, c := range in.Cohorts {
 			cohorts = append(cohorts, forecast.Cohort{
 				Classification: c.Classification,
 				Area:           c.Area,
-				DecayRate:      c.DecayRate,
+				DecayRate:      resolveDecay(c.DecayRate),
 				InitialPCI:     in.InitialPCI,
 			})
 		}
 	} else {
-		decayRate := in.DecayRate
-		if decayRate <= 0 {
-			decayRate = forecast.DefaultDecayRates["default"]
-		}
 		cohorts = []forecast.Cohort{{
 			Classification: "default",
 			Area:           in.Area,
-			DecayRate:      decayRate,
+			DecayRate:      resolveDecay(in.DecayRate),
 			InitialPCI:     in.InitialPCI,
 		}}
 	}

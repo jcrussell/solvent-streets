@@ -67,6 +67,11 @@ func MaterialTierFor(tiers []MaterialTier, label string) (MaterialTier, bool) {
 
 // MaterialsForArea returns the material demand to treat area (m^2) at one tier.
 func MaterialsForArea(area float64, t MaterialTier) MaterialQuantities {
+	// Floor negative area at 0 (house style: clamp-in-place, not error-return):
+	// a negative area would otherwise yield negative tonnages/barrels.
+	if area < 0 {
+		area = 0
+	}
 	mixTonnes := area * t.MixKgPerSqM / 1000
 	binderTonnes := mixTonnes * t.BinderPct
 	return MaterialQuantities{

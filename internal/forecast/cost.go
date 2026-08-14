@@ -3,6 +3,7 @@ package forecast
 import (
 	"math"
 	"sort"
+	"sync"
 )
 
 // Default cost tiers ($/sq m) based on PCI ranges.
@@ -48,7 +49,8 @@ func buildAnchors(tiers []CostTier) []costAnchor {
 			cost: t.CostPerSqM,
 		}
 	}
-	sort.Slice(anchors, func(i, j int) bool {
+	// Stable sort so equal-midpoint tiers keep their input order deterministically.
+	sort.SliceStable(anchors, func(i, j int) bool {
 		return anchors[i].pci > anchors[j].pci
 	})
 	return anchors
@@ -89,15 +91,29 @@ func interpolateCost(anchors []costAnchor, pci float64) float64 {
 // smooth cost curves instead of step-function jumps at tier boundaries.
 type TieredCostProjector struct {
 	Tiers []CostTier // if nil, uses DefaultCostTiers
+
+	// anchors is memoized from Tiers on first use. buildAnchors was previously
+	// re-run on every ProjectCost call (once per cohort per year in Simulate);
+	// the tier set is immutable for a projector's lifetime, so build it once.
+	anchorsOnce sync.Once
+	anchors     []costAnchor
+}
+
+// resolvedAnchors returns the memoized anchor set, building it lazily from Tiers
+// (falling back to DefaultCostTiers when Tiers is empty) on first call.
+func (p *TieredCostProjector) resolvedAnchors() []costAnchor {
+	p.anchorsOnce.Do(func() {
+		tiers := p.Tiers
+		if len(tiers) == 0 {
+			tiers = DefaultCostTiers
+		}
+		p.anchors = buildAnchors(tiers)
+	})
+	return p.anchors
 }
 
 func (p *TieredCostProjector) ProjectCost(area float64, pci float64) float64 {
-	tiers := p.Tiers
-	if len(tiers) == 0 {
-		tiers = DefaultCostTiers
-	}
-	anchors := buildAnchors(tiers)
-	return area * interpolateCost(anchors, pci)
+	return area * interpolateCost(p.resolvedAnchors(), pci)
 }
 
 // TierForPCIIn returns the label of the tier whose PCI band contains pci, or

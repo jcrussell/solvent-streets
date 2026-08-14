@@ -230,8 +230,7 @@ func Simulate(s Scenario, cohorts []Cohort, years int, p *Params) ScenarioResult
 
 		var totalNeed float64
 		for j := range sm.states {
-			decayed := sm.states[j].forecaster.Forecast(sm.states[j].currentPCI, 1)
-			sm.decayed[j] = decayed[0]
+			sm.decayed[j] = sm.states[j].forecaster.decayOneStep(sm.states[j].currentPCI)
 			fullNeed := p.Cost.ProjectCost(area*sm.states[j].areaFrac, sm.decayed[j])
 			need := fullNeed * eligibleFrac
 			sm.need[j] = need

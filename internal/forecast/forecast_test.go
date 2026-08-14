@@ -27,6 +27,25 @@ func TestExponentialPCIForecaster(t *testing.T) {
 	}
 }
 
+func TestExponentialPCIForecaster_NegativeYears(t *testing.T) {
+	// Negative years is clamped to 0 (house style: clamp-in-place) so
+	// make([]float64, years) can never panic on a negative length.
+	f := &ExponentialPCIForecaster{DecayRate: 0.035}
+	result := f.Forecast(100.0, -5)
+	if len(result) != 0 {
+		t.Errorf("negative years: expected empty result, got len %d", len(result))
+	}
+}
+
+func TestLinearGrowthEstimator_NegativeYears(t *testing.T) {
+	// Negative years is clamped to 0 so make([]float64, years) never panics.
+	g := &LinearGrowthEstimator{AnnualGrowthRate: 0.01}
+	result := g.EstimateGrowth(100000, -3)
+	if len(result) != 0 {
+		t.Errorf("negative years: expected empty result, got len %d", len(result))
+	}
+}
+
 func TestTieredCostProjector(t *testing.T) {
 	p := &TieredCostProjector{}
 
@@ -139,5 +158,22 @@ func TestLinearGrowthEstimator_NegativeRateFlooredAtZero(t *testing.T) {
 func TestDecayRateForClass_Sidewalks(t *testing.T) {
 	if got := DecayRateForClass("sidewalks"); got != 0.025 {
 		t.Errorf("DecayRateForClass(\"sidewalks\") = %f, want 0.025", got)
+	}
+}
+
+// TestDecayRateForClass_Link pins that a trailing _link suffix is stripped so a
+// link ramp gets its parent class's rate, while an unknown class still falls
+// through to the "default" rate (NOT collapsed to residential the way
+// NormalizeClass would do).
+func TestDecayRateForClass_Link(t *testing.T) {
+	if got, want := DecayRateForClass("motorway_link"), RoadDecayRates["motorway"]; got != want {
+		t.Errorf("DecayRateForClass(\"motorway_link\") = %f, want %f (parent motorway rate)", got, want)
+	}
+	if got, want := DecayRateForClass("primary_link"), RoadDecayRates["primary"]; got != want {
+		t.Errorf("DecayRateForClass(\"primary_link\") = %f, want %f (parent primary rate)", got, want)
+	}
+	// Unknown class stays on the default rate, not residential.
+	if got, want := DecayRateForClass("unknown"), DefaultDecayRates["default"]; got != want {
+		t.Errorf("DecayRateForClass(\"unknown\") = %f, want default %f", got, want)
 	}
 }

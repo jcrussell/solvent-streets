@@ -13,6 +13,11 @@ func (g *LinearGrowthEstimator) EstimateGrowth(currentArea float64, years int) [
 	// validation permits growth_rate in [-0.5, 0.5]). The factor is floored
 	// at zero so a steep, long decline can never produce negative area.
 	rate := g.AnnualGrowthRate
+	// Clamp negative years to 0 (house style: clamp-in-place, not error-return);
+	// make([]float64, years) panics on a negative length.
+	if years < 0 {
+		years = 0
+	}
 	result := make([]float64, years)
 	for i := range years {
 		factor := 1 + rate*float64(i+1)

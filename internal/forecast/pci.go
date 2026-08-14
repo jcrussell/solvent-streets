@@ -43,9 +43,18 @@ func (f *ExponentialPCIForecaster) Forecast(currentPCI float64, years int) []flo
 	if k <= 0 {
 		k = DefaultDecayRates["default"]
 	}
+	// Clamp negative years to 0 (house style: clamp-in-place, not error-return);
+	// make([]float64, years) panics on a negative length.
+	if years < 0 {
+		years = 0
+	}
 	result := make([]float64, years)
 	for i := range years {
 		t := float64(i + 1)
+		// NOTE: this file feeds the forecast WASM binary. math.Exp/Log/Lgamma
+		// can differ by ~1 ULP between the WASM and native builds, so any
+		// cross-build comparison of these outputs must use a tolerance, not
+		// exact equality.
 		pci := currentPCI * math.Exp(-k*t)
 		if pci < 0 {
 			pci = 0
@@ -53,6 +62,23 @@ func (f *ExponentialPCIForecaster) Forecast(currentPCI float64, years int) []flo
 		result[i] = pci
 	}
 	return result
+}
+
+// decayOneStep returns the PCI after a single year of decay. It is the scalar,
+// allocation-free equivalent of Forecast(currentPCI, 1)[0] — Simulate's inner
+// loop calls it once per cohort per year, so avoiding the throwaway 1-element
+// slice matters. The k-resolution and clamp mirror Forecast exactly so the two
+// paths are numerically identical.
+func (f *ExponentialPCIForecaster) decayOneStep(currentPCI float64) float64 {
+	k := f.DecayRate
+	if k <= 0 {
+		k = DefaultDecayRates["default"]
+	}
+	pci := currentPCI * math.Exp(-k)
+	if pci < 0 {
+		pci = 0
+	}
+	return pci
 }
 
 // NormalizeClass maps a highway tag value to a canonical classification.
@@ -73,8 +99,15 @@ func NormalizeClass(highway string) string {
 	}
 }
 
-// DecayRateForClass returns the decay rate for a road classification.
+// DecayRateForClass returns the decay rate for a road classification. A trailing
+// _link suffix is stripped so link ramps (e.g. "motorway_link") get their parent
+// class's rate. Unlike NormalizeClass, unknown values are NOT collapsed to
+// residential — they fall through to the "default" rate, so non-road classes
+// (e.g. "sidewalks") keep their own entry.
 func DecayRateForClass(highway string) float64 {
+	if before, ok := strings.CutSuffix(highway, "_link"); ok {
+		highway = before
+	}
 	if k, ok := DefaultDecayRates[highway]; ok {
 		return k
 	}
