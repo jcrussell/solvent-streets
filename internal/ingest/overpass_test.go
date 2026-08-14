@@ -3,6 +3,7 @@ package ingest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/resource"
@@ -320,6 +321,28 @@ func TestParseOverpassResponse_TruncationRemark(t *testing.T) {
 	}
 	if !isParseError(err) {
 		t.Errorf("truncation remark should be a parse-class error (to trigger retry): %v", err)
+	}
+}
+
+// TestParseOverpassResponse_MalformedJSONIsParseError pins the typed-sentinel
+// classification of a malformed-JSON parse failure (u78a): isParseError must
+// match via errors.Is on errOverpassParse, not a fragile substring of the
+// formatted message, so fetchRecursive still splits the bbox and retries.
+func TestParseOverpassResponse_MalformedJSONIsParseError(t *testing.T) {
+	_, err := parseOverpassResponse(context.Background(), []byte("{ this is not json"), testResourceRoads)
+	if err == nil {
+		t.Fatal("expected error for malformed json")
+	}
+	if !errors.Is(err, errOverpassParse) {
+		t.Errorf("expected errors.Is(err, errOverpassParse), got: %v", err)
+	}
+	if !isParseError(err) {
+		t.Errorf("malformed json should be a parse-class error (to trigger retry): %v", err)
+	}
+	// The truncation sentinel is a distinct parse-class cause and must NOT be
+	// reported by a plain malformed-JSON error.
+	if errors.Is(err, errOverpassTruncated) {
+		t.Errorf("malformed json should not report errOverpassTruncated: %v", err)
 	}
 }
 

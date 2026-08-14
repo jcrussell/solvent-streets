@@ -67,6 +67,14 @@ func (s *ArcGISSource) Fetch(ctx context.Context, client *http.Client, rt resour
 	envelope := fmt.Sprintf("%f,%f,%f,%f", bbox[1], bbox[0], bbox[3], bbox[2])
 
 	var allFeatures []db.Feature
+	// Deduplicate features by ID across pages. Esri offset paging can
+	// re-return a boundary row when the server reorders rows, and a
+	// resultOffset that lands mid-clamp can overlap the previous page; both
+	// yield duplicate OBJECTIDs. Mirror overpass.go / water.go, which dedup
+	// their cross-request results the same way. Pagination itself is still
+	// driven off the RAW server row count (rawCount) below, never the deduped
+	// slice, so dropping a duplicate here cannot stall the offset.
+	seen := make(map[string]bool)
 	offset := 0
 
 	rtVal := rt.Type()
@@ -78,7 +86,7 @@ func (s *ArcGISSource) Fetch(ctx context.Context, client *http.Client, rt resour
 		if err != nil {
 			return nil, err
 		}
-		allFeatures = append(allFeatures, features...)
+		allFeatures = appendUniqueFeatures(allFeatures, seen, features)
 
 		// Pagination is driven off rawCount (the number of rows the server
 		// returned, before geometry filtering) and exceededTransferLimit, NOT
@@ -111,6 +119,20 @@ func (s *ArcGISSource) Fetch(ctx context.Context, client *http.Client, rt resour
 	}
 
 	return allFeatures, nil
+}
+
+// appendUniqueFeatures appends each feature in src to dst, skipping any whose ID
+// has already been seen. seen is mutated in place so it dedupes across pages.
+// Mirrors the cross-request dedup in overpass.go / water.go.
+func appendUniqueFeatures(dst []db.Feature, seen map[string]bool, src []db.Feature) []db.Feature {
+	for _, f := range src {
+		if seen[f.ID] {
+			continue
+		}
+		seen[f.ID] = true
+		dst = append(dst, f)
+	}
+	return dst
 }
 
 // fetchArcGISPage fetches one page of features and reports the raw number of
@@ -173,96 +195,132 @@ func fetchArcGISPage(ctx context.Context, client *http.Client, endpoint, envelop
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, 0, false, false, fmt.Errorf("arcgis %s returned %d: %s", endpoint, resp.StatusCode, truncate(string(body), 200))
+		return nil, 0, false, false, fmt.Errorf("arcgis %s returned %d: %s", endpoint, resp.StatusCode, truncate(string(body)))
+	}
+
+	// Parse the body exactly ONCE into a combined envelope that carries the
+	// error, the features, and the exceededTransferLimit flag. The three
+	// concerns (error detection, feature parsing, pagination flag) are then
+	// derived from that single parse rather than re-unmarshalling the body
+	// three times.
+	page, err := parseArcGISPage(body)
+	if err != nil {
+		return nil, 0, false, false, err
 	}
 
 	// ArcGIS sometimes returns service-level errors as HTTP 200 with a JSON
 	// error envelope (e.g. stale layer path, retired service). Detect those
 	// up front so the caller sees the underlying message + endpoint instead
 	// of an empty feature list.
-	if msg, ok := arcgisErrorMessage(body); ok {
+	if msg, ok := arcgisErrorMessageFromPage(page); ok {
 		return nil, 0, false, false, fmt.Errorf("arcgis %s: %s", endpoint, msg)
 	}
 
-	features, rawCount, err := parseArcGISGeoJSON(body, resourceType, offset)
-	if err != nil {
-		return nil, 0, false, false, err
-	}
-	exceeded, present := arcgisTransferLimit(body)
+	features, rawCount := featuresFromArcGISPage(page, resourceType, offset)
+	exceeded, present := transferLimitFromPage(page)
 	return features, rawCount, exceeded, present, nil
 }
 
-// arcgisTransferLimit reports whether the response signals that more rows remain
-// beyond this page (exceeded) and whether the exceededTransferLimit flag was
-// actually PRESENT in the body (present). f=geojson responses carry the flag
-// under "properties"; some ArcGIS deployments emit it at the top level. Pointer
-// fields distinguish "flag present and false" from "flag absent" — a critical
-// distinction for pagination: absence is NOT authoritative (see the loop in
-// Fetch), so we must not treat a missing flag as "no more rows". A parse failure
-// here is reported as absent/false — the caller's parseArcGISGeoJSON surfaces
-// malformed bodies as real errors.
-func arcgisTransferLimit(body []byte) (exceeded, present bool) {
-	var env struct {
-		ExceededTransferLimit *bool `json:"exceededTransferLimit"`
-		Properties            struct {
-			ExceededTransferLimit *bool `json:"exceededTransferLimit"`
-		} `json:"properties"`
-	}
-	if err := json.Unmarshal(body, &env); err != nil {
-		return false, false
-	}
-	if env.ExceededTransferLimit != nil {
-		return *env.ExceededTransferLimit, true
-	}
-	if env.Properties.ExceededTransferLimit != nil {
-		return *env.Properties.ExceededTransferLimit, true
-	}
-	return false, false
-}
-
-// arcgisErrorMessage reports whether body is an ArcGIS error envelope of the
-// form {"error":{"code":N,"message":"..."}} and returns a human-readable
-// summary. Returns ok=false for any non-error response (including valid
-// GeoJSON FeatureCollections, which have no "error" key).
-func arcgisErrorMessage(body []byte) (string, bool) {
-	var env struct {
-		Error *struct {
-			Code    int      `json:"code"`
-			Message string   `json:"message"`
-			Details []string `json:"details"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal(body, &env); err != nil || env.Error == nil {
-		return "", false
-	}
-	msg := env.Error.Message
-	if msg == "" {
-		msg = "unknown error"
-	}
-	if len(env.Error.Details) > 0 && env.Error.Details[0] != msg {
-		msg = fmt.Sprintf("%s (%s)", msg, env.Error.Details[0])
-	}
-	return fmt.Sprintf("code %d: %s", env.Error.Code, msg), true
-}
-
-type arcgisGeoJSON struct {
+// arcgisPage is the single combined shape an ArcGIS page body is unmarshalled
+// into. It carries every concern the caller needs — the error envelope, the
+// GeoJSON features, and the exceededTransferLimit pagination flag (which
+// f=geojson nests under top-level "properties", while some deployments emit it
+// at the top level) — so fetchArcGISPage parses the body exactly once instead of
+// three times. Pointer flag fields distinguish "present and false" from "absent"
+// (critical for pagination; see the loop in Fetch).
+type arcgisPage struct {
+	Error *struct {
+		Code    int      `json:"code"`
+		Message string   `json:"message"`
+		Details []string `json:"details"`
+	} `json:"error"`
 	Features []struct {
 		Properties map[string]any  `json:"properties"`
 		Geometry   json.RawMessage `json:"geometry"`
 	} `json:"features"`
+	ExceededTransferLimit *bool `json:"exceededTransferLimit"`
+	Properties            struct {
+		ExceededTransferLimit *bool `json:"exceededTransferLimit"`
+	} `json:"properties"`
 }
 
-// parseArcGISGeoJSON parses a GeoJSON page into features, skipping rows with no
-// usable geometry (missing or explicit JSON null). It also returns the raw row
-// count — the number of features in the server response before geometry
-// filtering — which the pagination loop uses to advance the offset and decide
-// termination (a page may return rows that are all skipped here).
-func parseArcGISGeoJSON(data []byte, resourceType resource.Type, baseIndex int) ([]db.Feature, int, error) {
-	var resp arcgisGeoJSON
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, 0, fmt.Errorf("parse arcgis json: %w", err)
+// parseArcGISPage unmarshals one ArcGIS page body into the combined envelope.
+// It decodes with UseNumber so numeric property values (notably OBJECTID, the
+// feature-id / dedupe key) keep full integer precision: plain json.Unmarshal
+// into `any` decodes every number to float64, which silently loses precision for
+// integers above 2^53 (e.g. an OBJECTID of 9007199254740993 would round to
+// 9007199254740992 and collide with a neighbour). json.Number preserves the
+// exact source text; formatArcGISValue renders it verbatim.
+func parseArcGISPage(data []byte) (arcgisPage, error) {
+	var page arcgisPage
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	if err := dec.Decode(&page); err != nil {
+		return arcgisPage{}, fmt.Errorf("parse arcgis json: %w", err)
 	}
+	return page, nil
+}
 
+// transferLimitFromPage reports whether the response signals that more rows
+// remain beyond this page (exceeded) and whether the exceededTransferLimit flag
+// was actually PRESENT (present). Absence is NOT authoritative for pagination
+// (see the loop in Fetch), so a missing flag must not be treated as "no more
+// rows".
+func transferLimitFromPage(page arcgisPage) (exceeded, present bool) {
+	if page.ExceededTransferLimit != nil {
+		return *page.ExceededTransferLimit, true
+	}
+	if page.Properties.ExceededTransferLimit != nil {
+		return *page.Properties.ExceededTransferLimit, true
+	}
+	return false, false
+}
+
+// arcgisErrorMessageFromPage reports whether page is an ArcGIS error envelope of
+// the form {"error":{"code":N,"message":"..."}} and returns a human-readable
+// summary. Returns ok=false for any non-error response (including valid GeoJSON
+// FeatureCollections, which have no "error" key).
+func arcgisErrorMessageFromPage(page arcgisPage) (string, bool) {
+	if page.Error == nil {
+		return "", false
+	}
+	msg := page.Error.Message
+	if msg == "" {
+		msg = "unknown error"
+	}
+	if len(page.Error.Details) > 0 && page.Error.Details[0] != msg {
+		msg = fmt.Sprintf("%s (%s)", msg, page.Error.Details[0])
+	}
+	return fmt.Sprintf("code %d: %s", page.Error.Code, msg), true
+}
+
+// arcgisErrorMessage is the byte-level entry point retained for tests; it parses
+// then delegates to arcgisErrorMessageFromPage. A parse failure returns ok=false.
+func arcgisErrorMessage(body []byte) (string, bool) {
+	page, err := parseArcGISPage(body)
+	if err != nil {
+		return "", false
+	}
+	return arcgisErrorMessageFromPage(page)
+}
+
+// parseArcGISGeoJSON is the byte-level entry point retained for tests; it parses
+// then delegates to featuresFromArcGISPage.
+func parseArcGISGeoJSON(data []byte, resourceType resource.Type, baseIndex int) ([]db.Feature, int, error) {
+	page, err := parseArcGISPage(data)
+	if err != nil {
+		return nil, 0, err
+	}
+	features, rawCount := featuresFromArcGISPage(page, resourceType, baseIndex)
+	return features, rawCount, nil
+}
+
+// featuresFromArcGISPage builds features from an already-parsed page, skipping
+// rows with no usable geometry (missing or explicit JSON null). It also returns
+// the raw row count — the number of features in the server response before
+// geometry filtering — which the pagination loop uses to advance the offset and
+// decide termination (a page may return rows that are all skipped here).
+func featuresFromArcGISPage(resp arcgisPage, resourceType resource.Type, baseIndex int) ([]db.Feature, int) {
 	var features []db.Feature
 	for i, f := range resp.Features {
 		// Skip rows with no usable geometry. A missing "geometry" field
@@ -299,17 +357,23 @@ func parseArcGISGeoJSON(data []byte, resourceType resource.Type, baseIndex int) 
 		})
 	}
 
-	return features, len(resp.Features), nil
+	return features, len(resp.Features)
 }
 
-// formatArcGISValue renders a decoded JSON property value as a string. JSON
-// numbers decode into float64, so fmt's %v would render large integral values
-// in scientific notation (e.g. 1234567 → "1.234567e+06"); FormatFloat with
-// precision -1 yields plain decimal ("1234567"). Non-float values fall through
-// to %v, matching the prior behavior.
+// formatArcGISValue renders a decoded JSON property value as a string. With the
+// UseNumber decoder every JSON number arrives as json.Number, whose String()
+// returns the exact source text — plain decimal, no scientific notation, and no
+// float64 precision loss for large integers (the OBJECTID / dedupe-key case).
+// A float64 branch is kept for any value that reaches here already decoded as a
+// float (defensive; renders plain decimal via FormatFloat -1). Everything else
+// falls through to %v, matching the prior behavior.
 func formatArcGISValue(v any) string {
-	if f, ok := v.(float64); ok {
-		return strconv.FormatFloat(f, 'f', -1, 64)
+	switch n := v.(type) {
+	case json.Number:
+		return n.String()
+	case float64:
+		return strconv.FormatFloat(n, 'f', -1, 64)
+	default:
+		return fmt.Sprintf("%v", v)
 	}
-	return fmt.Sprintf("%v", v)
 }

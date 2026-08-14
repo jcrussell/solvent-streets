@@ -47,7 +47,7 @@ func TestFetchOSMWater_Success(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	result, err := fetchOSMWater(context.Background(), srv.Client(), srv.URL, [4]float64{42.0, -72.0, 43.0, -71.0}, [][2]float64{{-71.5, 42.5}})
+	result, err := fetchOSMWater(context.Background(), uaClient(srv), srv.URL, [4]float64{42.0, -72.0, 43.0, -71.0}, [][2]float64{{-71.5, 42.5}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestFetchOSMWater_NoWaterReturnsEmpty(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	result, err := fetchOSMWater(context.Background(), srv.Client(), srv.URL, [4]float64{0, 0, 1, 1}, [][2]float64{{0.5, 0.5}})
+	result, err := fetchOSMWater(context.Background(), uaClient(srv), srv.URL, [4]float64{0, 0, 1, 1}, [][2]float64{{0.5, 0.5}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestFetchOSMWater_SkipsOpenWays(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	result, err := fetchOSMWater(context.Background(), srv.Client(), srv.URL, [4]float64{0, 0, 1, 1}, [][2]float64{{0.5, 0.5}})
+	result, err := fetchOSMWater(context.Background(), uaClient(srv), srv.URL, [4]float64{0, 0, 1, 1}, [][2]float64{{0.5, 0.5}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestFetchOSMWater_Non200(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, err := fetchOSMWater(context.Background(), srv.Client(), srv.URL, [4]float64{0, 0, 1, 1}, [][2]float64{{0.5, 0.5}})
+	_, err := fetchOSMWater(context.Background(), uaClient(srv), srv.URL, [4]float64{0, 0, 1, 1}, [][2]float64{{0.5, 0.5}})
 	if err == nil {
 		t.Fatal("expected error on non-200")
 	}
@@ -663,7 +663,7 @@ func TestFetchOSMWater_SplitsOnTruncation(t *testing.T) {
 
 	// Probe well outside both water polygons (NW corner) so neither is
 	// dropped by the land-probe filter.
-	result, err := fetchOSMWater(context.Background(), srv.Client(), srv.URL, full, [][2]float64{{0.1, 1.9}})
+	result, err := fetchOSMWater(context.Background(), uaClient(srv), srv.URL, full, [][2]float64{{0.1, 1.9}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -719,7 +719,7 @@ func TestFetchOSMWater_RecursesDeeperOnQuadrantTruncation(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	result, err := fetchOSMWater(context.Background(), srv.Client(), srv.URL, full, [][2]float64{{1.9, 1.9}})
+	result, err := fetchOSMWater(context.Background(), uaClient(srv), srv.URL, full, [][2]float64{{1.9, 1.9}})
 	if err != nil {
 		t.Fatalf("expected recovery via deeper recursion, got error: %v", err)
 	}
@@ -750,7 +750,7 @@ func TestFetchOSMWater_TruncatedAtMaxDepthErrors(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, err := fetchOSMWater(context.Background(), srv.Client(), srv.URL, [4]float64{0, 0, 2, 2}, [][2]float64{{1, 1}})
+	_, err := fetchOSMWater(context.Background(), uaClient(srv), srv.URL, [4]float64{0, 0, 2, 2}, [][2]float64{{1, 1}})
 	if err == nil {
 		t.Fatal("expected an error when truncation persists to max depth")
 	}

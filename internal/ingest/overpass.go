@@ -99,7 +99,7 @@ func fetchBBox(ctx context.Context, client *http.Client, rt resource.Source, bbo
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("overpass returned %d: %s", resp.StatusCode, truncate(string(body), 200))
+		return nil, fmt.Errorf("overpass returned %d: %s", resp.StatusCode, truncate(string(body)))
 	}
 
 	return parseOverpassResponse(ctx, body, rt.Type())
@@ -112,8 +112,14 @@ func fetchBBox(ctx context.Context, client *http.Client, rt resource.Source, bbo
 // bbox and retries with smaller queries.
 var errOverpassTruncated = errors.New("overpass result truncated by server remark")
 
+// errOverpassParse is a typed sentinel wrapped around malformed-JSON parse
+// failures so isParseError can match via errors.Is rather than a fragile
+// substring check on the formatted message. Both this and errOverpassTruncated
+// mark the "response unusable, split the bbox and retry" class.
+var errOverpassParse = errors.New("parse overpass json")
+
 func isParseError(err error) bool {
-	return err != nil && (strings.Contains(err.Error(), "parse overpass json") ||
+	return err != nil && (errors.Is(err, errOverpassParse) ||
 		errors.Is(err, errOverpassTruncated))
 }
 
@@ -171,7 +177,10 @@ type overpassElement struct {
 func parseOverpassResponse(ctx context.Context, data []byte, resourceType resource.Type) ([]db.Feature, error) {
 	var resp overpassResponse
 	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, fmt.Errorf("parse overpass json: %w", err)
+		// Wrap both the sentinel (so isParseError matches via errors.Is) and
+		// the underlying error. errOverpassParse.Error() is "parse overpass
+		// json", so the rendered message is unchanged from before.
+		return nil, fmt.Errorf("%w: %w", errOverpassParse, err)
 	}
 	if remarkIndicatesTruncation(resp.Remark) {
 		return nil, fmt.Errorf("overpass remark %q: %w", strings.TrimSpace(resp.Remark), errOverpassTruncated)
@@ -306,9 +315,15 @@ func coordsToPolygonGeoJSON(coords [][2]float64) string {
 	return fmt.Sprintf(`{"type":"Polygon","coordinates":[[%s]]}`, strings.Join(parts, ","))
 }
 
-func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
+// errSnippetMaxLen bounds how much of an upstream error-response body is folded
+// into an error message — enough to be diagnostic without dumping a full page.
+const errSnippetMaxLen = 200
+
+// truncate clips s to errSnippetMaxLen runes-worth of bytes for inclusion in an
+// error message, appending an ellipsis when it clips.
+func truncate(s string) string {
+	if len(s) <= errSnippetMaxLen {
 		return s
 	}
-	return s[:maxLen] + "..."
+	return s[:errSnippetMaxLen] + "..."
 }

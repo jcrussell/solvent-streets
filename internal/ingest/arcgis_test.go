@@ -712,6 +712,122 @@ func TestFetch_AllowPrivateOptIn(t *testing.T) {
 	}
 }
 
+// TestFetch_DeduplicatesAcrossPages pins the cross-page dedup (ak42): Esri
+// offset paging can re-return a boundary OBJECTID on the next page (reorder /
+// mid-clamp overlap). The deduped result must contain each OBJECTID once, while
+// pagination still advances off the RAW server row count (so the overlap does
+// not stall the offset).
+func TestFetch_DeduplicatesAcrossPages(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		offset, _ := strconv.Atoi(r.URL.Query().Get("resultOffset"))
+		w.Header().Set("Content-Type", "application/json")
+		switch offset {
+		case 0:
+			// OBJECTIDs 1..10, more rows remain.
+			w.Write(makeArcGISPage(10, 1, true))
+		case 10:
+			// OBJECTIDs 10..19 — OBJECTID 10 overlaps page 1. Last page.
+			w.Write(makeArcGISPage(10, 10, false))
+		default:
+			t.Errorf("unexpected offset %d", offset)
+			http.Error(w, "bad offset", 400)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	src := &ArcGISSource{
+		BBox:         [4]float64{37.0, -122.0, 38.0, -121.0},
+		URL:          srv.URL,
+		AllowPrivate: true, // httptest.Server binds 127.0.0.1; the SSRF guard would otherwise refuse it.
+	}
+	features, err := src.Fetch(context.Background(), srv.Client(), resource.ByType(resource.TypeRoads))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 10 + 10 raw rows, one shared OBJECTID (10) → 19 unique features.
+	if len(features) != 19 {
+		t.Fatalf("expected 19 unique features after dedup, got %d", len(features))
+	}
+	if calls != 2 {
+		t.Errorf("expected 2 server calls, got %d", calls)
+	}
+	seen := make(map[string]bool)
+	for _, f := range features {
+		if seen[f.ID] {
+			t.Errorf("duplicate feature id survived dedup: %s", f.ID)
+		}
+		seen[f.ID] = true
+	}
+}
+
+// TestParseArcGISGeoJSON_LargeOBJECTIDPrecision pins the UseNumber fix (j4x8):
+// an OBJECTID above 2^53 must keep full integer precision as the feature id /
+// dedupe key. Plain json.Unmarshal into `any` decodes numbers to float64, which
+// would round 9007199254740993 down to ...992 and collide with a neighbour.
+func TestParseArcGISGeoJSON_LargeOBJECTIDPrecision(t *testing.T) {
+	const bigOID = "9007199254740993" // 2^53 + 1, not representable as float64
+	data := `{
+		"features": [
+			{
+				"properties": {"OBJECTID": ` + bigOID + `, "LEN": 42.5},
+				"geometry": {"type": "Point", "coordinates": [-121.77, 37.68]}
+			}
+		]
+	}`
+	features, _, err := parseArcGISGeoJSON([]byte(data), rtRoads, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(features) != 1 {
+		t.Fatalf("expected 1 feature, got %d", len(features))
+	}
+	if want := "arcgis:" + bigOID; features[0].ID != want {
+		t.Errorf("expected id %s (full precision), got %s", want, features[0].ID)
+	}
+	if got := features[0].Tags["OBJECTID"]; got != bigOID {
+		t.Errorf("expected OBJECTID tag %q (full precision), got %q", bigOID, got)
+	}
+	// Fractional float attributes must still render correctly, not be mangled.
+	if got := features[0].Tags["LEN"]; got != "42.5" {
+		t.Errorf("expected LEN tag '42.5', got %q", got)
+	}
+}
+
+// TestParseArcGISPage_SingleParseDerivesAll pins that one decode of a page body
+// yields the error envelope, features, and the exceededTransferLimit flag
+// consistently (6xti). Here a well-formed FeatureCollection carries the flag
+// nested under top-level "properties" and has no error.
+func TestParseArcGISPage_SingleParseDerivesAll(t *testing.T) {
+	body := makeArcGISPage(3, 1, true) // 3 features, exceeded=true under "properties"
+	page, err := parseArcGISPage(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := arcgisErrorMessageFromPage(page); ok {
+		t.Error("valid FeatureCollection should not be an error envelope")
+	}
+	features, rawCount := featuresFromArcGISPage(page, rtRoads, 0)
+	if len(features) != 3 || rawCount != 3 {
+		t.Errorf("expected 3 features and rawCount 3, got %d / %d", len(features), rawCount)
+	}
+	exceeded, present := transferLimitFromPage(page)
+	if !present || !exceeded {
+		t.Errorf("expected exceededTransferLimit present=true exceeded=true, got present=%v exceeded=%v", present, exceeded)
+	}
+
+	// And an error envelope parses into the error branch with no features.
+	errPage, err := parseArcGISPage([]byte(`{"error":{"code":498,"message":"Invalid Token"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, ok := arcgisErrorMessageFromPage(errPage)
+	if !ok || !strings.Contains(msg, "498") {
+		t.Errorf("expected error envelope message with code 498, got ok=%v msg=%q", ok, msg)
+	}
+}
+
 func TestFetch_EmptyResponse(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

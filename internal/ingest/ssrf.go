@@ -114,7 +114,32 @@ func validatePublicHTTPURL(ctx context.Context, urlStr string) error {
 	return nil
 }
 
+// blockedPrefixes are IANA special-use / non-routable ranges the stdlib
+// IsPrivate/IsLoopback/etc. predicates do NOT cover but which must still be
+// refused as SSRF targets: CGNAT space (a hostile config could route these at
+// carrier-internal hosts), the TEST-NET documentation ranges, the benchmarking
+// range, the reserved 240/4 block, the IPv4 broadcast address, and the
+// IPv4-in-IPv6 NAT64 well-known prefix. Parsed once at package init; every
+// candidate address is checked (after Unmap) against this list on top of the
+// stdlib predicates.
+var blockedPrefixes = []netip.Prefix{
+	netip.MustParsePrefix("100.64.0.0/10"),      // RFC 6598 CGNAT
+	netip.MustParsePrefix("192.0.2.0/24"),       // RFC 5737 TEST-NET-1
+	netip.MustParsePrefix("198.51.100.0/24"),    // RFC 5737 TEST-NET-2
+	netip.MustParsePrefix("203.0.113.0/24"),     // RFC 5737 TEST-NET-3
+	netip.MustParsePrefix("198.18.0.0/15"),      // RFC 2544 benchmarking
+	netip.MustParsePrefix("240.0.0.0/4"),        // RFC 1112 reserved (future use)
+	netip.MustParsePrefix("255.255.255.255/32"), // limited broadcast
+	netip.MustParsePrefix("64:ff9b::/96"),       // RFC 6052 NAT64 well-known prefix
+}
+
 func checkPublicAddr(addr netip.Addr, host string) error {
+	// Collapse IPv4-mapped IPv6 (e.g. ::ffff:10.0.0.1) to its IPv4 form FIRST
+	// so the stdlib predicates and the prefix blocklist below see the real
+	// address family — otherwise a mapped private/loopback address slips
+	// through every IsPrivate/IsLoopback check.
+	addr = addr.Unmap()
+
 	switch {
 	case addr.IsLoopback():
 		return fmt.Errorf("refusing %q: resolves to loopback %s (set allow_private_arcgis = true to override)", host, addr)
@@ -126,6 +151,12 @@ func checkPublicAddr(addr netip.Addr, host string) error {
 		return fmt.Errorf("refusing %q: resolves to unspecified %s (set allow_private_arcgis = true to override)", host, addr)
 	case addr.IsMulticast():
 		return fmt.Errorf("refusing %q: resolves to multicast %s (set allow_private_arcgis = true to override)", host, addr)
+	}
+
+	for _, p := range blockedPrefixes {
+		if p.Contains(addr) {
+			return fmt.Errorf("refusing %q: resolves to special-use %s in %s (set allow_private_arcgis = true to override)", host, addr, p)
+		}
 	}
 	return nil
 }

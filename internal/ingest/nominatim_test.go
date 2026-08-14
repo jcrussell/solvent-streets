@@ -11,6 +11,21 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/httpio"
 )
 
+// uaClient wraps srv's client with the UserAgent transport so tests exercise
+// the production middleware stack, which stamps User-Agent unconditionally on
+// every round-trip. The per-source fetch code no longer sets User-Agent itself
+// (lpqh) — a bare srv.Client() would therefore carry no pvmt UA. Tests that
+// assert the outbound UA must drive requests through this wrapped client.
+func uaClient(srv *httptest.Server) *http.Client {
+	c := srv.Client()
+	inner := c.Transport
+	if inner == nil {
+		inner = http.DefaultTransport
+	}
+	c.Transport = UserAgentTransport(inner)
+	return c
+}
+
 func nominatimTestServer(t *testing.T, body string) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -29,7 +44,7 @@ func TestFetchCityBoundary_Success(t *testing.T) {
 	srv := nominatimTestServer(t, body)
 	t.Cleanup(srv.Close)
 
-	result, err := fetchCityBoundary(context.Background(), srv.Client(), srv.URL, "Livermore")
+	result, err := fetchCityBoundary(context.Background(), uaClient(srv), srv.URL, "Livermore")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +71,7 @@ func TestFetchCityBoundary_ConstrainsToUS(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	if _, err := fetchCityBoundary(context.Background(), srv.Client(), srv.URL, "Windsor, CA"); err != nil {
+	if _, err := fetchCityBoundary(context.Background(), uaClient(srv), srv.URL, "Windsor, CA"); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(gotQuery, "countrycodes=us") {
@@ -72,7 +87,7 @@ func TestFetchCityBoundary_PrefersCityOverCounty(t *testing.T) {
 	srv := nominatimTestServer(t, body)
 	t.Cleanup(srv.Close)
 
-	result, err := fetchCityBoundary(context.Background(), srv.Client(), srv.URL, "Alameda, CA")
+	result, err := fetchCityBoundary(context.Background(), uaClient(srv), srv.URL, "Alameda, CA")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +100,7 @@ func TestFetchCityBoundary_EmptyResults(t *testing.T) {
 	srv := nominatimTestServer(t, `[]`)
 	t.Cleanup(srv.Close)
 
-	_, err := fetchCityBoundary(context.Background(), srv.Client(), srv.URL, "Nonexistent")
+	_, err := fetchCityBoundary(context.Background(), uaClient(srv), srv.URL, "Nonexistent")
 	if err == nil {
 		t.Fatal("expected error for empty results")
 	}
@@ -95,17 +110,25 @@ func TestFetchCityBoundary_EmptyResults(t *testing.T) {
 }
 
 func TestFetchCityBoundary_Non200(t *testing.T) {
+	// The non-200 path must read+drain the (bounded) body and fold a snippet
+	// of it into the error, matching the overpass/arcgis idiom (l47u). Nominatim
+	// rate-limit / block pages carry a human-readable body worth surfacing.
+	const bodyMsg = "Rate limit exceeded; see usage policy"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
+		w.Write([]byte(bodyMsg))
 	}))
 	t.Cleanup(srv.Close)
 
-	_, err := fetchCityBoundary(context.Background(), srv.Client(), srv.URL, "Test")
+	_, err := fetchCityBoundary(context.Background(), uaClient(srv), srv.URL, "Test")
 	if err == nil {
 		t.Fatal("expected error for non-200 status")
 	}
 	if !strings.Contains(err.Error(), "503") {
 		t.Errorf("expected status 503 in error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), bodyMsg) {
+		t.Errorf("expected response body snippet %q in error, got: %v", bodyMsg, err)
 	}
 }
 
@@ -121,7 +144,7 @@ func TestFetchCityBoundary_AllPointResults_ErrorsWithHint(t *testing.T) {
 	srv := nominatimTestServer(t, body)
 	t.Cleanup(srv.Close)
 
-	_, err := fetchCityBoundary(context.Background(), srv.Client(), srv.URL, "Albuquerque, NM")
+	_, err := fetchCityBoundary(context.Background(), uaClient(srv), srv.URL, "Albuquerque, NM")
 	if err == nil {
 		t.Fatal("expected error when no polygon-typed result exists")
 	}
@@ -145,7 +168,7 @@ func TestFetchCityBoundary_SkipsCityTypedPointForLaterPolygon(t *testing.T) {
 	srv := nominatimTestServer(t, body)
 	t.Cleanup(srv.Close)
 
-	result, err := fetchCityBoundary(context.Background(), srv.Client(), srv.URL, "Test")
+	result, err := fetchCityBoundary(context.Background(), uaClient(srv), srv.URL, "Test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +189,7 @@ func TestFetchCityBoundary_FallsBackToNonCityTypedPolygon(t *testing.T) {
 	srv := nominatimTestServer(t, body)
 	t.Cleanup(srv.Close)
 
-	result, err := fetchCityBoundary(context.Background(), srv.Client(), srv.URL, "Test")
+	result, err := fetchCityBoundary(context.Background(), uaClient(srv), srv.URL, "Test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +214,7 @@ func TestFetchCityBoundary_OversizedBodyRejected(t *testing.T) {
 	srv := nominatimTestServer(t, body)
 	t.Cleanup(srv.Close)
 
-	_, err := fetchCityBoundary(context.Background(), srv.Client(), srv.URL, "Test")
+	_, err := fetchCityBoundary(context.Background(), uaClient(srv), srv.URL, "Test")
 	if err == nil {
 		t.Fatal("expected size-limit error on oversized response")
 	}
@@ -207,7 +230,7 @@ func TestFetchCityBoundary_MultiPolygon(t *testing.T) {
 	srv := nominatimTestServer(t, body)
 	t.Cleanup(srv.Close)
 
-	result, err := fetchCityBoundary(context.Background(), srv.Client(), srv.URL, "Test")
+	result, err := fetchCityBoundary(context.Background(), uaClient(srv), srv.URL, "Test")
 	if err != nil {
 		t.Fatal(err)
 	}

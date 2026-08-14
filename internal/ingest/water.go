@@ -129,7 +129,7 @@ func postOverpass(ctx context.Context, client *http.Client, baseURL, query strin
 		return nil, fmt.Errorf("create overpass request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("User-Agent", UserAgent())
+	// User-Agent is stamped unconditionally by userAgentTransport.RoundTrip.
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -142,7 +142,7 @@ func postOverpass(ctx context.Context, client *http.Client, baseURL, query strin
 		return nil, fmt.Errorf("read overpass response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("overpass returned %d: %s", resp.StatusCode, truncate(string(body), 200))
+		return nil, fmt.Errorf("overpass returned %d: %s", resp.StatusCode, truncate(string(body)))
 	}
 	return body, nil
 }

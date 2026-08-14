@@ -48,7 +48,8 @@ func fetchCityBoundary(ctx context.Context, client *http.Client, baseURL string,
 	if err != nil {
 		return "", fmt.Errorf("create nominatim request: %w", err)
 	}
-	req.Header.Set("User-Agent", UserAgent())
+	// User-Agent is stamped unconditionally by userAgentTransport.RoundTrip,
+	// so an explicit set here would be redundant.
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -56,13 +57,16 @@ func fetchCityBoundary(ctx context.Context, client *http.Client, baseURL string,
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("nominatim returned status %d", resp.StatusCode)
-	}
-
+	// Read the (bounded) body before branching on status so a non-200 error
+	// can include a snippet AND the connection is drained for reuse — matching
+	// the overpass/arcgis idiom.
 	body, err := httpio.ReadAllLimit(resp.Body, maxResponseBodyBytes)
 	if err != nil {
 		return "", fmt.Errorf("read nominatim response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("nominatim returned status %d: %s", resp.StatusCode, truncate(string(body)))
 	}
 
 	var results []struct {

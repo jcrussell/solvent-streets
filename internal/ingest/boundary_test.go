@@ -41,7 +41,7 @@ func TestFetchCityBoundaryFromRelation_AlbuquerqueFixture(t *testing.T) {
 	srv := overpassTestServer(t, string(data))
 	t.Cleanup(srv.Close)
 
-	result, err := fetchCityBoundaryFromRelation(context.Background(), srv.Client(), srv.URL, 171262)
+	result, err := fetchCityBoundaryFromRelation(context.Background(), uaClient(srv), srv.URL, 171262)
 	if err != nil {
 		t.Fatalf("fetch failed: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestFetchCityBoundaryFromRelation_DenverFixture(t *testing.T) {
 	srv := overpassTestServer(t, string(data))
 	t.Cleanup(srv.Close)
 
-	result, err := fetchCityBoundaryFromRelation(context.Background(), srv.Client(), srv.URL, 1411339)
+	result, err := fetchCityBoundaryFromRelation(context.Background(), uaClient(srv), srv.URL, 1411339)
 	if err != nil {
 		t.Fatalf("fetch failed: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestFetchCityBoundaryFromRelation_InvalidID(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	for _, id := range []int64{0, -1, -171262} {
-		_, err := fetchCityBoundaryFromRelation(context.Background(), srv.Client(), srv.URL, id)
+		_, err := fetchCityBoundaryFromRelation(context.Background(), uaClient(srv), srv.URL, id)
 		if err == nil {
 			t.Errorf("expected error for relation id %d, got nil", id)
 		}
@@ -108,7 +108,7 @@ func TestFetchCityBoundaryFromRelation_EmptyResponse(t *testing.T) {
 	srv := overpassTestServer(t, `{"elements":[]}`)
 	t.Cleanup(srv.Close)
 
-	_, err := fetchCityBoundaryFromRelation(context.Background(), srv.Client(), srv.URL, 999999999)
+	_, err := fetchCityBoundaryFromRelation(context.Background(), uaClient(srv), srv.URL, 999999999)
 	if !errors.Is(err, ErrBoundaryRelationNotFound) {
 		t.Fatalf("expected ErrBoundaryRelationNotFound, got: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestFetchCityBoundaryFromRelation_NoWayMembers(t *testing.T) {
 	srv := overpassTestServer(t, body)
 	t.Cleanup(srv.Close)
 
-	_, err := fetchCityBoundaryFromRelation(context.Background(), srv.Client(), srv.URL, 42)
+	_, err := fetchCityBoundaryFromRelation(context.Background(), uaClient(srv), srv.URL, 42)
 	if !errors.Is(err, ErrBoundaryRelationNotFound) {
 		t.Fatalf("expected ErrBoundaryRelationNotFound for no-way relation, got: %v", err)
 	}
@@ -219,7 +219,7 @@ func TestFetchCityBoundaryFromRelation_TooLargeShortCircuitsStitching(t *testing
 	srv := overpassTestServer(t, body)
 	t.Cleanup(srv.Close)
 
-	_, err := fetchCityBoundaryFromRelation(context.Background(), srv.Client(), srv.URL, 9)
+	_, err := fetchCityBoundaryFromRelation(context.Background(), uaClient(srv), srv.URL, 9)
 	if !errors.Is(err, ErrBoundaryRelationTooLarge) {
 		t.Fatalf("expected ErrBoundaryRelationTooLarge (pre-stitch gate), got: %v", err)
 	}
@@ -242,7 +242,7 @@ func TestFetchCityBoundaryFromRelation_TooLarge(t *testing.T) {
 	srv := overpassTestServer(t, body)
 	t.Cleanup(srv.Close)
 
-	_, err := fetchCityBoundaryFromRelation(context.Background(), srv.Client(), srv.URL, 7)
+	_, err := fetchCityBoundaryFromRelation(context.Background(), uaClient(srv), srv.URL, 7)
 	if !errors.Is(err, ErrBoundaryRelationTooLarge) {
 		t.Fatalf("expected ErrBoundaryRelationTooLarge, got: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestFetchCityBoundaryFromRelation_HTTPError(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, err := fetchCityBoundaryFromRelation(context.Background(), srv.Client(), srv.URL, 171262)
+	_, err := fetchCityBoundaryFromRelation(context.Background(), uaClient(srv), srv.URL, 171262)
 	if err == nil {
 		t.Fatal("expected error on 504, got nil")
 	}
@@ -284,7 +284,7 @@ func TestFetchCityBoundaryFromRelation_SimpleSquare(t *testing.T) {
 	srv := overpassTestServer(t, body)
 	t.Cleanup(srv.Close)
 
-	result, err := fetchCityBoundaryFromRelation(context.Background(), srv.Client(), srv.URL, 1)
+	result, err := fetchCityBoundaryFromRelation(context.Background(), uaClient(srv), srv.URL, 1)
 	if err != nil {
 		t.Fatalf("fetch failed: %v", err)
 	}
@@ -316,7 +316,7 @@ func TestFetchCityBoundaryFromRelation_OuterPlusInnerHole(t *testing.T) {
 	srv := overpassTestServer(t, body)
 	t.Cleanup(srv.Close)
 
-	result, err := fetchCityBoundaryFromRelation(context.Background(), srv.Client(), srv.URL, 2)
+	result, err := fetchCityBoundaryFromRelation(context.Background(), uaClient(srv), srv.URL, 2)
 	if err != nil {
 		t.Fatalf("fetch failed: %v", err)
 	}
