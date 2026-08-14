@@ -241,3 +241,27 @@ func TestResolvedTOML_StripsZeroCurrentBudget(t *testing.T) {
 		t.Errorf("ResolvedTOML dropped a configured current_budget:\n%s", out)
 	}
 }
+
+// TestResolvedTOML_ShowsPerCityResolvedCalibration pins solvent-streets-xl1t:
+// the Config tab must reflect each city's effective, resolved calibration
+// (the per-metro hex_edge/forecast an [[include]] flattens onto the city),
+// not a parent-only view that hides those overrides.
+func TestResolvedTOML_ShowsPerCityResolvedCalibration(t *testing.T) {
+	cfg := &config.Config{
+		Grid:     config.GridConfig{HexEdgeM: 100},
+		Forecast: config.ForecastConfig{DecayRate: 0.088},
+		Cities: []config.CityConfig{
+			{Name: "Default City"},
+			{Name: "Fine City", HexEdgeM: 250},
+		},
+	}
+	out := ResolvedTOML(cfg)
+	if !strings.Contains(out, "250") {
+		t.Errorf("per-city hex_edge_m override (250) not shown in Config tab:\n%s", out)
+	}
+	// Every city now carries its resolved forecast, so decay_rate appears
+	// per-city (2 cities) on top of the top-level occurrence.
+	if got := strings.Count(out, "decay_rate"); got < 2 {
+		t.Errorf("expected per-city resolved forecast (decay_rate ≥2 occurrences), got %d:\n%s", got, out)
+	}
+}

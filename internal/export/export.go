@@ -114,7 +114,7 @@ func (e *Exporter) runSingleCity(ctx context.Context) error {
 		}
 	}
 
-	return e.renderHTML(meta, seed, rawTOML, ResolvedTOML(e.cfg), e.unitSystem, nil)
+	return e.renderHTML(meta, seed, rawTOML, ResolvedTOML(e.cfg), nil)
 }
 
 // exportOneCity writes one sub-city's data directory and returns its
@@ -217,7 +217,7 @@ func (e *Exporter) runMultiCity(ctx context.Context) error {
 		}
 	}
 
-	return e.renderHTML(meta, seed, rawTOML, ResolvedTOML(e.cfg), e.unitSystem, cities)
+	return e.renderHTML(meta, seed, rawTOML, ResolvedTOML(e.cfg), cities)
 }
 
 // exportCityData writes a city's data directory and returns the MetaJSON and
@@ -386,6 +386,23 @@ func ResolvedTOML(cfg *config.Config) string {
 		}
 	}
 
+	// Per-city calibration: with [[include]] the top-level grid/forecast are
+	// empty and each city carries its own flattened hex_edge/forecast/tags
+	// (from the include merge). Populate every city's effective, resolved
+	// values so the Config tab reflects what the pipeline actually used, not a
+	// parent-only view that hides per-metro overrides. Copy the slice first so
+	// we never mutate the live config.
+	if len(resolved.Cities) > 0 {
+		cities := make([]config.CityConfig, len(resolved.Cities))
+		copy(cities, resolved.Cities)
+		for i := range cities {
+			rf := cfg.ResolvedForecast(&cities[i])
+			cities[i].HexEdgeM = cfg.ResolvedHexEdge(&cities[i])
+			cities[i].Forecast = &rf
+		}
+		resolved.Cities = cities
+	}
+
 	var buf bytes.Buffer
 	enc := toml.NewEncoder(&buf)
 	if err := enc.Encode(resolved); err != nil {
@@ -448,7 +465,7 @@ func (e *Exporter) writeWasmAssets(dir string) error {
 	return WriteSharedWasmAssets(dir)
 }
 
-func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolvedTOML, unitSystem string, cities []CityInfo) error {
+func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolvedTOML string, cities []CityInfo) error {
 	methodology, err := MethodologyHTML()
 	if err != nil {
 		return fmt.Errorf("render methodology: %w", err)
@@ -460,7 +477,7 @@ func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolved
 		LayerColors:     ResourceColorsJS(),
 		RawTOML:         rawTOML,
 		ResolvedTOML:    resolvedTOML,
-		UnitSystem:      unitSystem,
+		UnitSystem:      e.unitSystem,
 		Cities:          cities,
 		CitiesByTag:     GroupCitiesByTag(cities),
 		WasmPrefix:      e.wasmPrefix,
