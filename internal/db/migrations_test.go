@@ -101,15 +101,28 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 		}
 	})
 
+	t.Run("cold migration records the latest schema version", func(t *testing.T) {
+		// A fresh cold migration applies 001_init then 002_add_indexes, so the
+		// highest recorded schema_version must be 2. This pins that 002 is
+		// discovered and applied by the embedded migration set.
+		var version int
+		if err := root.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&version); err != nil {
+			t.Fatalf("schema_version: %v", err)
+		}
+		if version != 2 {
+			t.Errorf("schema_version = %d; want 2 (001_init + 002_add_indexes applied)", version)
+		}
+	})
+
 	t.Run("query-planner indexes exist", func(t *testing.T) {
 		// These are the indexes the runtime path depends on. Dropping any
 		// would silently turn a hot read into a table scan.
 		want := map[string][]string{
-			"features":         {"idx_features_city_type"},
+			"features":         {"idx_features_city_type", "idx_features_city_type_time"},
 			"hex_stats":        {"idx_hex_stats_city_type_snap", "idx_hex_stats_snapshot"},
-			"compute_results":  {"idx_compute_results_resource_type", "idx_compute_results_city"},
-			"forecast_results": {"idx_forecast_results_type", "idx_forecast_results_snapshot", "idx_forecast_results_city"},
-			"cohort_stats":     {"idx_cohort_stats_city", "idx_cohort_stats_resource_type"},
+			"compute_results":  {"idx_compute_results_resource_type", "idx_compute_results_city", "idx_compute_results_city_type_time"},
+			"forecast_results": {"idx_forecast_results_type", "idx_forecast_results_snapshot", "idx_forecast_results_city", "idx_forecast_results_city_type_snap"},
+			"cohort_stats":     {"idx_cohort_stats_city", "idx_cohort_stats_resource_type", "idx_cohort_stats_city_type_snap"},
 			"snapshots":        {"idx_snapshots_city"},
 		}
 		for table, indexes := range want {
@@ -162,6 +175,40 @@ func TestQueryPlan_UsesCompositeIndexes(t *testing.T) {
 			query:     `SELECT id FROM features WHERE resource_type = ? AND city_id = ?`,
 			wantIndex: "idx_features_city_type",
 		},
+		{
+			// LatestComputeResult outer read shape (filter + computed_at order).
+			name:      "compute_results latest lookup",
+			query:     `SELECT id FROM compute_results WHERE resource_type = ? AND city_id = ? ORDER BY computed_at DESC`,
+			wantIndex: "idx_compute_results_city_type_time",
+		},
+		{
+			// LastIngestAt read shape (filter + fetched_at order, LIMIT 1).
+			name:      "features last ingest lookup",
+			query:     `SELECT fetched_at FROM features WHERE resource_type = ? AND city_id = ? ORDER BY fetched_at DESC LIMIT 1`,
+			wantIndex: "idx_features_city_type_time",
+		},
+		{
+			// forecast_results read shape + MAX(snapshot_id) latest-resolution.
+			name:      "forecast_results outer filter",
+			query:     `SELECT year FROM forecast_results WHERE resource_type = ? AND city_id = ?`,
+			wantIndex: "idx_forecast_results_city_type_snap",
+		},
+		{
+			name:      "forecast_results MAX(snapshot_id) subquery",
+			query:     `SELECT MAX(snapshot_id) FROM forecast_results WHERE resource_type = ? AND city_id = ?`,
+			wantIndex: "idx_forecast_results_city_type_snap",
+		},
+		{
+			// cohort_stats read shape + MAX(snapshot_id) latest-resolution.
+			name:      "cohort_stats outer filter",
+			query:     `SELECT classification FROM cohort_stats WHERE resource_type = ? AND city_id = ?`,
+			wantIndex: "idx_cohort_stats_city_type_snap",
+		},
+		{
+			name:      "cohort_stats MAX(snapshot_id) subquery",
+			query:     `SELECT MAX(snapshot_id) FROM cohort_stats WHERE resource_type = ? AND city_id = ?`,
+			wantIndex: "idx_cohort_stats_city_type_snap",
+		},
 	}
 
 	for _, tc := range cases {
@@ -173,8 +220,10 @@ func TestQueryPlan_UsesCompositeIndexes(t *testing.T) {
 			if !strings.Contains(plan, "INDEX "+tc.wantIndex) {
 				t.Errorf("query %q\nplan:\n%s\nwant INDEX %s", tc.query, plan, tc.wantIndex)
 			}
-			if strings.Contains(plan, "SCAN hex_stats\n") || strings.Contains(plan, "SCAN features\n") {
-				t.Errorf("query %q falls back to a full table scan:\n%s", tc.query, plan)
+			for _, table := range []string{"hex_stats", "features", "compute_results", "forecast_results", "cohort_stats"} {
+				if strings.Contains(plan, "SCAN "+table+"\n") {
+					t.Errorf("query %q falls back to a full table scan:\n%s", tc.query, plan)
+				}
 			}
 		})
 	}
