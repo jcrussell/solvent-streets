@@ -678,6 +678,7 @@ func (s *sqliteStore) DeleteSnapshot(ctx context.Context, snapshotID int64) (boo
 		// (gosec G202 does not apply). We delete children before the parent
 		// snapshot to keep intent obvious.
 		for _, table := range snapshotResultTables {
+			//nolint:gosec // table is a compile-time literal from snapshotResultTables, never user input
 			q := `DELETE FROM ` + table + ` WHERE snapshot_id = ? AND city_id = ?`
 			if _, err := tx.ExecContext(ctx, q, snapshotID, s.cityID); err != nil {
 				return fmt.Errorf("delete from %s: %w", table, err)

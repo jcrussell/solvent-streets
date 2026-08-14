@@ -25,10 +25,7 @@ func TestTruncate_RuneSafe(t *testing.T) {
 		t.Errorf("truncate(short) = %q; want short", got)
 	}
 	// A run of 2-byte runes longer than errSnippetMaxLen must clip cleanly.
-	long := ""
-	for range errSnippetMaxLen + 10 {
-		long += "é" // 2 bytes each
-	}
+	long := strings.Repeat("é", errSnippetMaxLen+10) // 2 bytes each
 	got := truncate(long)
 	if !utf8.ValidString(got) {
 		t.Errorf("truncate produced invalid UTF-8: %q", got)

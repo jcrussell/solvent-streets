@@ -221,16 +221,18 @@ func TestTranslateNonFiniteInputs(t *testing.T) {
 		}
 	}
 	cases := map[string]func(*Input){
-		"nan area":         func(in *Input) { in.Area = math.NaN() },
-		"neg area":         func(in *Input) { in.Area = -1 },
-		"inf initial_pci":  func(in *Input) { in.InitialPCI = math.Inf(1) },
-		"neg initial_pci":  func(in *Input) { in.InitialPCI = -1 },
-		"initial_pci>100":  func(in *Input) { in.InitialPCI = 101 },
-		"nan decay":        func(in *Input) { in.DecayRate = math.NaN() },
-		"inf growth":       func(in *Input) { in.GrowthRate = math.Inf(-1) },
-		"nan budget":       func(in *Input) { in.AnnualBudget = math.NaN() },
-		"neg budget":       func(in *Input) { in.AnnualBudget = -1 },
-		"nan tier cost":    func(in *Input) { in.CostTiers = []CostTier{{MinPCI: 0, MaxPCI: 100, CostPerSqM: math.NaN(), Label: "x"}} },
+		"nan area":        func(in *Input) { in.Area = math.NaN() },
+		"neg area":        func(in *Input) { in.Area = -1 },
+		"inf initial_pci": func(in *Input) { in.InitialPCI = math.Inf(1) },
+		"neg initial_pci": func(in *Input) { in.InitialPCI = -1 },
+		"initial_pci>100": func(in *Input) { in.InitialPCI = 101 },
+		"nan decay":       func(in *Input) { in.DecayRate = math.NaN() },
+		"inf growth":      func(in *Input) { in.GrowthRate = math.Inf(-1) },
+		"nan budget":      func(in *Input) { in.AnnualBudget = math.NaN() },
+		"neg budget":      func(in *Input) { in.AnnualBudget = -1 },
+		"nan tier cost": func(in *Input) {
+			in.CostTiers = []CostTier{{MinPCI: 0, MaxPCI: 100, CostPerSqM: math.NaN(), Label: "x"}}
+		},
 		"nan cohort area":  func(in *Input) { in.Cohorts = []Cohort{{Classification: "c", Area: math.NaN(), DecayRate: 0.04}} },
 		"neg cohort area":  func(in *Input) { in.Cohorts = []Cohort{{Classification: "c", Area: -1, DecayRate: 0.04}} },
 		"inf cohort decay": func(in *Input) { in.Cohorts = []Cohort{{Classification: "c", Area: 1000, DecayRate: math.Inf(1)}} },

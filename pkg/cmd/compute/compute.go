@@ -246,12 +246,12 @@ func doCompute(ctx context.Context, out, progress, errOut io.Writer, notify tui.
 	}
 
 	c := &computer{
-		opts:   opts,
-		cfg:    cfg,
-		city:   city,
-		store:  store,
-		proj:   proj,
-		bbox:   bbox,
+		opts:     opts,
+		cfg:      cfg,
+		city:     city,
+		store:    store,
+		proj:     proj,
+		bbox:     bbox,
 		sys:      opts.UnitSystem(),
 		notify:   notify,
 		out:      out,

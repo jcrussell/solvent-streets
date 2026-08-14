@@ -31,12 +31,12 @@ type Factory struct {
 	// the DB file just to close it. Set by factory.New; Main defers it.
 	// Nil-safe: a nil closure means "nothing to close".
 	CloseRootDB func() error
-	Config         func() (*config.Config, error)
-	CurrentCity    func() (*config.CityConfig, error)
-	CityDB         func() (db.Store, error)
-	CityFlagSet    func() bool
-	UnitSystem     func() units.System
-	Paths          func() (*paths.Paths, error)
+	Config      func() (*config.Config, error)
+	CurrentCity func() (*config.CityConfig, error)
+	CityDB      func() (db.Store, error)
+	CityFlagSet func() bool
+	UnitSystem  func() units.System
+	Paths       func() (*paths.Paths, error)
 
 	// Prompter is the interactive-input surface for destructive or
 	// otherwise-prompting commands (byob-prompter.1). Eager like

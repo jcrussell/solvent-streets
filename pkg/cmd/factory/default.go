@@ -217,8 +217,11 @@ func rootDBWithClose(open func() (*db.RootStore, error)) (func() (*db.RootStore,
 		}
 		// open is sync.OnceValues-backed, so this returns the already-opened
 		// handle without re-running Open.
-		store, err := open()
-		if err != nil || store == nil {
+		// open is sync.OnceValues-backed and opened==true means the first call
+		// succeeded, so this returns that handle; the error is ignored on the
+		// close path (nothing to close if it were somehow non-nil).
+		store, _ := open()
+		if store == nil {
 			return nil
 		}
 		return store.Close()

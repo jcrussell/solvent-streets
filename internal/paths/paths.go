@@ -10,6 +10,7 @@
 package paths
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -74,7 +75,7 @@ func Resolve(toolName string) (*Paths, error) {
 // and place the tool's dirs outside the intended root.
 func validateToolName(toolName string) error {
 	if toolName == "" {
-		return fmt.Errorf("paths: tool name must not be empty")
+		return errors.New("paths: tool name must not be empty")
 	}
 	if toolName == "." || toolName == ".." {
 		return fmt.Errorf("paths: invalid tool name %q", toolName)
