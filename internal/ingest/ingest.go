@@ -27,9 +27,15 @@ type Options struct {
 	AllowPrivateArcGIS bool
 }
 
-func AllSources(bbox [4]float64, arcgisURL string, opts Options) []Source {
-	sources := []Source{
-		&OverpassSource{BBox: bbox},
+// AllSources assembles the enabled sources for a city. OverpassSource is
+// included only when overpass is true (the city's CityConfig.Overpass flag);
+// ArcGISSource only when arcgisURL is non-empty. A city with overpass=false
+// and no arcgis_url therefore yields zero sources — config validation rejects
+// that combination up front (see internal/config validateCityFields).
+func AllSources(bbox [4]float64, overpass bool, arcgisURL string, opts Options) []Source {
+	var sources []Source
+	if overpass {
+		sources = append(sources, &OverpassSource{BBox: bbox})
 	}
 	if arcgisURL != "" {
 		sources = append(sources, &ArcGISSource{
@@ -42,8 +48,8 @@ func AllSources(bbox [4]float64, arcgisURL string, opts Options) []Source {
 	return sources
 }
 
-func SourceByName(name string, bbox [4]float64, arcgisURL string, opts Options) (Source, error) {
-	for _, s := range AllSources(bbox, arcgisURL, opts) {
+func SourceByName(name string, bbox [4]float64, overpass bool, arcgisURL string, opts Options) (Source, error) {
+	for _, s := range AllSources(bbox, overpass, arcgisURL, opts) {
 		if s.Name() == name {
 			return s, nil
 		}

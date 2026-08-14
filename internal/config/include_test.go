@@ -34,23 +34,30 @@ func cityBySlug(t *testing.T, cfg *Config, slug string) CityConfig {
 
 // TestInclude_MergesAndUnionsTags: a city pulled in by two includes appears
 // once with the union of both includes' tags; distinct cities are appended.
+// The shared city (San Jose) carries identical calibration in both includes so
+// the merge is a clean union (a *differing* calibration is a hard error — see
+// TestInclude_ConflictingCalibration).
 func TestInclude_MergesAndUnionsTags(t *testing.T) {
 	dir := t.TempDir()
 	writeTOML(t, dir, "bay/pvmt.toml", `
 [forecast]
-growth_rate = 0.005
+growth_rate = 0.01
 [[cities]]
 name = "San Jose, CA"
+overpass = true
 [[cities]]
 name = "Oakland, CA"
+overpass = true
 `)
 	writeTOML(t, dir, "top/pvmt.toml", `
 [forecast]
 growth_rate = 0.01
 [[cities]]
 name = "San Jose, CA"
+overpass = true
 [[cities]]
 name = "Austin, TX"
+overpass = true
 `)
 	top := writeTOML(t, dir, "all/pvmt.toml", `
 [[include]]
@@ -79,8 +86,9 @@ tags = ["Top 50"]
 }
 
 // TestInclude_PreservesPerMetroCalibration: with an empty top-level forecast,
-// each merged city still resolves to its source example's calibration, and the
-// first include wins for a city shared across includes.
+// each merged city still resolves to its source example's flattened
+// calibration, and a per-city override survives the flatten. Two distinct
+// metros are included (no shared city), so there is no cross-include collision.
 func TestInclude_PreservesPerMetroCalibration(t *testing.T) {
 	dir := t.TempDir()
 	writeTOML(t, dir, "bay/pvmt.toml", `
@@ -89,8 +97,10 @@ growth_rate = 0.005
 decay_rate = 0.04
 [[cities]]
 name = "San Jose, CA"
+overpass = true
 [[cities]]
 name = "Oakland, CA"
+overpass = true
 forecast.decay_rate = 0.07
 `)
 	writeTOML(t, dir, "boston/pvmt.toml", `
@@ -98,7 +108,8 @@ forecast.decay_rate = 0.07
 growth_rate = 0.015
 decay_rate = 0.065
 [[cities]]
-name = "San Jose, CA"
+name = "Boston, MA"
+overpass = true
 `)
 	top := writeTOML(t, dir, "all/pvmt.toml", `
 [[include]]
@@ -116,9 +127,14 @@ tags = ["Boston"]
 	// Top-level forecast is empty, so cities keep their flattened calibration.
 	sj := cityBySlug(t, cfg, "san-jose-ca")
 	fc := cfg.ResolvedForecast(&sj)
-	// San Jose is in both bay (first) and boston: first include (bay) wins.
 	if fc.GrowthRate != 0.005 || fc.DecayRate != 0.04 {
-		t.Errorf("San Jose resolved forecast = growth %g decay %g; want growth 0.005 decay 0.04 (first include wins)", fc.GrowthRate, fc.DecayRate)
+		t.Errorf("San Jose resolved forecast = growth %g decay %g; want growth 0.005 decay 0.04 (bay flatten)", fc.GrowthRate, fc.DecayRate)
+	}
+	// Boston keeps its own metro's calibration.
+	bos := cityBySlug(t, cfg, "boston-ma")
+	bfc := cfg.ResolvedForecast(&bos)
+	if bfc.GrowthRate != 0.015 || bfc.DecayRate != 0.065 {
+		t.Errorf("Boston resolved forecast = growth %g decay %g; want growth 0.015 decay 0.065", bfc.GrowthRate, bfc.DecayRate)
 	}
 	// Oakland's per-city decay override survives the flatten.
 	oak := cityBySlug(t, cfg, "oakland-ca")
@@ -128,12 +144,115 @@ tags = ["Boston"]
 	}
 }
 
+// TestInclude_ConflictingCalibration: the same city reached through two
+// includes with *different* non-empty calibration is a hard error (3vhw),
+// rather than silently keeping the first and dropping the second. Identical or
+// empty calibration on the second include is fine (covered elsewhere).
+func TestInclude_ConflictingCalibration(t *testing.T) {
+	t.Run("forecast", func(t *testing.T) {
+		dir := t.TempDir()
+		writeTOML(t, dir, "bay/pvmt.toml", `
+[forecast]
+decay_rate = 0.04
+[[cities]]
+name = "San Jose, CA"
+overpass = true
+`)
+		writeTOML(t, dir, "top/pvmt.toml", `
+[forecast]
+decay_rate = 0.065
+[[cities]]
+name = "San Jose, CA"
+overpass = true
+`)
+		top := writeTOML(t, dir, "all/pvmt.toml", `
+[[include]]
+path = "../bay/pvmt.toml"
+[[include]]
+path = "../top/pvmt.toml"
+`)
+		_, err := Load(top)
+		if err == nil || !errors.Is(err, ErrInvalidConfig) {
+			t.Fatalf("conflicting forecast across includes should be ErrInvalidConfig, got %v", err)
+		}
+	})
+
+	t.Run("hex_edge", func(t *testing.T) {
+		dir := t.TempDir()
+		writeTOML(t, dir, "a/pvmt.toml", `
+[grid]
+hex_edge_m = 80
+[[cities]]
+name = "Reno, NV"
+overpass = true
+`)
+		writeTOML(t, dir, "b/pvmt.toml", `
+[grid]
+hex_edge_m = 55
+[[cities]]
+name = "Reno, NV"
+overpass = true
+`)
+		top := writeTOML(t, dir, "all/pvmt.toml", `
+[[include]]
+path = "../a/pvmt.toml"
+[[include]]
+path = "../b/pvmt.toml"
+`)
+		_, err := Load(top)
+		if err == nil || !errors.Is(err, ErrInvalidConfig) {
+			t.Fatalf("conflicting hex_edge_m across includes should be ErrInvalidConfig, got %v", err)
+		}
+	})
+
+	t.Run("second include empty calibration is fine", func(t *testing.T) {
+		dir := t.TempDir()
+		writeTOML(t, dir, "a/pvmt.toml", `
+[grid]
+hex_edge_m = 80
+[forecast]
+decay_rate = 0.04
+[[cities]]
+name = "Reno, NV"
+overpass = true
+`)
+		// b contributes the same city with no calibration at all: defers to a's.
+		writeTOML(t, dir, "b/pvmt.toml", `
+[[cities]]
+name = "Reno, NV"
+overpass = true
+`)
+		top := writeTOML(t, dir, "all/pvmt.toml", `
+[[include]]
+path = "../a/pvmt.toml"
+tags = ["A"]
+[[include]]
+path = "../b/pvmt.toml"
+tags = ["B"]
+`)
+		cfg, err := Load(top)
+		if err != nil {
+			t.Fatalf("empty second calibration should merge cleanly, got %v", err)
+		}
+		reno := cityBySlug(t, cfg, "reno-nv")
+		if got := cfg.ResolvedHexEdge(&reno); got != 80 {
+			t.Errorf("Reno hex edge = %g; want 80 (first include's value kept)", got)
+		}
+		if rfc := cfg.ResolvedForecast(&reno); rfc.DecayRate != 0.04 {
+			t.Errorf("Reno decay = %g; want 0.04 (first include's value kept)", rfc.DecayRate)
+		}
+		if !equalStrings(reno.Tags, []string{"A", "B"}) {
+			t.Errorf("Reno tags = %v; want [A B]", reno.Tags)
+		}
+	})
+}
+
 // TestInclude_SlugCollisionDifferentNames errors rather than dropping a city.
 func TestInclude_SlugCollisionDifferentNames(t *testing.T) {
 	dir := t.TempDir()
 	// Both names slugify to "st-louis" but are different cities.
-	writeTOML(t, dir, "a/pvmt.toml", "[[cities]]\nname = \"St. Louis\"\n")
-	writeTOML(t, dir, "b/pvmt.toml", "[[cities]]\nname = \"St Louis\"\n")
+	writeTOML(t, dir, "a/pvmt.toml", "[[cities]]\nname = \"St. Louis\"\noverpass = true\n")
+	writeTOML(t, dir, "b/pvmt.toml", "[[cities]]\nname = \"St Louis\"\noverpass = true\n")
 	top := writeTOML(t, dir, "all/pvmt.toml", `
 [[include]]
 path = "../a/pvmt.toml"
@@ -153,7 +272,7 @@ path = "../b/pvmt.toml"
 // the merge supplies cities, and fails when it supplies none.
 func TestInclude_ThinFileLoads(t *testing.T) {
 	dir := t.TempDir()
-	writeTOML(t, dir, "leaf/pvmt.toml", "[[cities]]\nname = \"Reno, NV\"\n")
+	writeTOML(t, dir, "leaf/pvmt.toml", "[[cities]]\nname = \"Reno, NV\"\noverpass = true\n")
 	top := writeTOML(t, dir, "all/pvmt.toml", "[[include]]\npath = \"../leaf/pvmt.toml\"\ntags = [\"West\"]\n")
 	cfg, err := Load(top)
 	if err != nil {
@@ -184,7 +303,7 @@ func TestInclude_CycleDetected(t *testing.T) {
 // merged config's Hash(), so snapshots invalidate and recompute triggers.
 func TestInclude_HashFoldsIncludedFiles(t *testing.T) {
 	dir := t.TempDir()
-	leaf := writeTOML(t, dir, "leaf/pvmt.toml", "[forecast]\ndecay_rate = 0.04\n[[cities]]\nname = \"Reno, NV\"\n")
+	leaf := writeTOML(t, dir, "leaf/pvmt.toml", "[forecast]\ndecay_rate = 0.04\n[[cities]]\nname = \"Reno, NV\"\noverpass = true\n")
 	top := writeTOML(t, dir, "all/pvmt.toml", "[[include]]\npath = \"../leaf/pvmt.toml\"\ntags = [\"West\"]\n")
 
 	cfg1, err := Load(top)
@@ -194,7 +313,7 @@ func TestInclude_HashFoldsIncludedFiles(t *testing.T) {
 	h1 := cfg1.Hash()
 
 	// Edit the included file; the top-level file is unchanged.
-	if err := os.WriteFile(leaf, []byte("[forecast]\ndecay_rate = 0.09\n[[cities]]\nname = \"Reno, NV\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(leaf, []byte("[forecast]\ndecay_rate = 0.09\n[[cities]]\nname = \"Reno, NV\"\noverpass = true\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg2, err := Load(top)
@@ -209,19 +328,26 @@ func TestInclude_HashFoldsIncludedFiles(t *testing.T) {
 	}
 }
 
-// TestInclude_NoIncludeHashUnchanged: a plain single-file config keeps the same
-// content hash it had before includes existed (bytes.Join of one blob is that
-// blob), so existing snapshots stay valid.
+// TestInclude_NoIncludeHashUnchanged: a plain single-file config hashes as the
+// single-blob application of the length-prefixed hashBlobs scheme (vtk3). This
+// pins that a no-include config still hashes deterministically off its raw
+// bytes; the value differs from the pre-vtk3 raw-bytes hash (pre-1.0, snapshots
+// simply recompute).
 func TestInclude_NoIncludeHashUnchanged(t *testing.T) {
 	dir := t.TempDir()
-	data := "[[cities]]\nname = \"Reno, NV\"\n"
+	data := "[[cities]]\nname = \"Reno, NV\"\noverpass = true\n"
 	p := writeTOML(t, dir, "solo/pvmt.toml", data)
 	cfg, err := Load(p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := cfg.Hash(), hashBytes([]byte(data)); got != want {
-		t.Errorf("no-include hash = %q; want %q (raw-bytes hash)", got, want)
+	if got, want := cfg.Hash(), hashBlobs([][]byte{[]byte(data)}); got != want {
+		t.Errorf("no-include hash = %q; want %q (single length-prefixed blob)", got, want)
+	}
+	// The delimiter must actually participate: the length-prefixed hash of a
+	// single blob differs from the bare-bytes hash it used before vtk3.
+	if cfg.Hash() == hashBytes([]byte(data)) {
+		t.Error("length-prefixed hash must differ from the pre-vtk3 bare-bytes hash")
 	}
 }
 
@@ -265,6 +391,7 @@ func TestInclude_TransitiveNesting(t *testing.T) {
 decay_rate = 0.06
 [[cities]]
 name = "Reno, NV"
+overpass = true
 `)
 	writeTOML(t, dir, "child/pvmt.toml", `
 [[include]]
@@ -272,6 +399,7 @@ path = "../grandchild/pvmt.toml"
 tags = ["Nested"]
 [[cities]]
 name = "Sparks, NV"
+overpass = true
 `)
 	top := writeTOML(t, dir, "all/pvmt.toml", `
 [[include]]
@@ -305,12 +433,13 @@ tags = ["West"]
 	}
 }
 
-// TestInclude_DiamondReRead: the same leaf reached via two parents is re-read
-// and merged once, with the union of both paths' tags (the case the include.go
-// header comment promises) (solvent-streets-8je6).
-func TestInclude_DiamondReRead(t *testing.T) {
+// TestInclude_DiamondParsedOnce: the same leaf reached via two parents is
+// parsed exactly once within a single Load (scpj memoization) yet still merges
+// once with the union of both paths' tags. Before memoization the leaf was
+// re-read and re-parsed on the second path.
+func TestInclude_DiamondParsedOnce(t *testing.T) {
 	dir := t.TempDir()
-	writeTOML(t, dir, "leaf/pvmt.toml", "[[cities]]\nname = \"Reno, NV\"\n")
+	leaf := writeTOML(t, dir, "leaf/pvmt.toml", "[[cities]]\nname = \"Reno, NV\"\noverpass = true\n")
 	writeTOML(t, dir, "left/pvmt.toml", "[[include]]\npath = \"../leaf/pvmt.toml\"\ntags = [\"Left\"]\n")
 	writeTOML(t, dir, "right/pvmt.toml", "[[include]]\npath = \"../leaf/pvmt.toml\"\ntags = [\"Right\"]\n")
 	top := writeTOML(t, dir, "all/pvmt.toml", `
@@ -320,10 +449,30 @@ path = "../left/pvmt.toml"
 path = "../right/pvmt.toml"
 `)
 
+	// Count how many times each file is actually parsed during this Load.
+	parses := map[string]int{}
+	prev := loadParseHook
+	loadParseHook = func(abs string) { parses[abs]++ }
+	t.Cleanup(func() { loadParseHook = prev })
+
 	cfg, err := Load(top)
 	if err != nil {
 		t.Fatalf("diamond include should load, got %v", err)
 	}
+
+	// The shared leaf must be parsed exactly once despite two include paths.
+	leafAbs, err := filepath.Abs(leaf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := parses[leafAbs]; got != 1 {
+		t.Errorf("leaf parsed %d times; want 1 (memoized across the diamond)", got)
+	}
+	// Every file in the diamond parses exactly once: top, left, right, leaf.
+	if got := len(parses); got != 4 {
+		t.Errorf("parsed %d distinct files; want 4 (top,left,right,leaf): %v", got, parses)
+	}
+
 	if len(cfg.Cities) != 1 {
 		t.Fatalf("expected Reno merged once, got %d cities: %+v", len(cfg.Cities), cfg.Cities)
 	}
@@ -350,7 +499,7 @@ func TestInclude_ThreeNodeCycle(t *testing.T) {
 // resolves (solvent-streets-8je6).
 func TestInclude_AbsolutePath(t *testing.T) {
 	dir := t.TempDir()
-	leaf := writeTOML(t, dir, "leaf/pvmt.toml", "[[cities]]\nname = \"Reno, NV\"\n")
+	leaf := writeTOML(t, dir, "leaf/pvmt.toml", "[[cities]]\nname = \"Reno, NV\"\noverpass = true\n")
 	top := writeTOML(t, dir, "all/pvmt.toml", "[[include]]\npath = \""+leaf+"\"\ntags = [\"West\"]\n")
 	cfg, err := Load(top)
 	if err != nil {
@@ -371,8 +520,10 @@ func TestInclude_FlattensHexEdge(t *testing.T) {
 hex_edge_m = 80
 [[cities]]
 name = "Reno, NV"
+overpass = true
 [[cities]]
 name = "Sparks, NV"
+overpass = true
 hex_edge_m = 55
 `)
 	top := writeTOML(t, dir, "all/pvmt.toml", "[[include]]\npath = \"../leaf/pvmt.toml\"\n")
@@ -401,12 +552,15 @@ func TestInclude_ParentOwnCitiesAndIncludes(t *testing.T) {
 decay_rate = 0.09
 [[cities]]
 name = "Reno, NV"
+overpass = true
 [[cities]]
 name = "Sparks, NV"
+overpass = true
 `)
 	top := writeTOML(t, dir, "all/pvmt.toml", `
 [[cities]]
 name = "Reno, NV"
+overpass = true
 forecast.decay_rate = 0.02
 [[include]]
 path = "../leaf/pvmt.toml"

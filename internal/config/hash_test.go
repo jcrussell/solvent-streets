@@ -38,3 +38,31 @@ func TestHash_FallbackDeterministicWithCityForecast(t *testing.T) {
 		t.Errorf("Hash() after copy: got %q, want %q", got, want)
 	}
 }
+
+// TestHash_SameContentDiffPath pins the intentional divergence documented on
+// Config.Hash (radv): two byte-identical pvmt.toml files at different paths
+// share the same content Hash (so a compute run and a later read of the same
+// content agree on the snapshot) but get different ConfigID (so two configs
+// that happen to define the same city slug still land in distinct cities rows).
+func TestHash_SameContentDiffPath(t *testing.T) {
+	dir := t.TempDir()
+	data := "[[cities]]\nname = \"Reno, NV\"\noverpass = true\n"
+	a := writeTOML(t, dir, "a/pvmt.toml", data)
+	b := writeTOML(t, dir, "b/pvmt.toml", data)
+
+	ca, err := Load(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cb, err := Load(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if ca.Hash() != cb.Hash() {
+		t.Errorf("byte-identical configs at different paths must share Hash: %q vs %q", ca.Hash(), cb.Hash())
+	}
+	if ca.ConfigID == cb.ConfigID {
+		t.Errorf("configs at different paths must get distinct ConfigID, both = %q", ca.ConfigID)
+	}
+}

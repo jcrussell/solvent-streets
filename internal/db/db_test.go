@@ -1331,6 +1331,7 @@ func TestEnsureCityCollapsesPathSpellings(t *testing.T) {
 	path := filepath.Join(dir, "pvmt.toml")
 	if err := os.WriteFile(path, []byte(`[[cities]]
 name = "Pathville"
+overpass = true
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}

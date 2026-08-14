@@ -59,15 +59,17 @@ func TestKeepSourcesFor(t *testing.T) {
 		city config.CityConfig
 		want []string
 	}{
-		// "overpass" is ALWAYS kept, mirroring ingest.AllSources' unconditional
-		// OverpassSource (yvlv.36). "arcgis" is gated on ArcGISURL only.
+		// Mirrors ingest.AllSources: "overpass" is kept only when the flag is
+		// set; "arcgis" only when ArcGISURL is set.
 		{"overpass flag on", config.CityConfig{Overpass: true}, []string{"overpass"}},
 		{"overpass+arcgis", config.CityConfig{Overpass: true, ArcGISURL: "https://x"}, []string{"overpass", "arcgis"}},
-		// yvlv.36 regression: Overpass:false + an ArcGIS URL must still keep
-		// "overpass", because ingest writes overpass rows regardless of the
-		// flag. Gating on city.Overpass here swept every valid overpass feature.
-		{"arcgis url, overpass flag off", config.CityConfig{Overpass: false, ArcGISURL: "https://x"}, []string{"overpass", "arcgis"}},
-		{"none configured", config.CityConfig{}, []string{"overpass"}},
+		// overpass=false + an ArcGIS URL keeps only "arcgis" now that ingest
+		// respects the flag and no longer writes overpass rows. Any pre-existing
+		// overpass rows are stale and legitimately sweepable.
+		{"arcgis url, overpass flag off", config.CityConfig{Overpass: false, ArcGISURL: "https://x"}, []string{"arcgis"}},
+		// Empty config keeps nothing; config validation forbids this combination
+		// for a real city, so keepSourcesFor is only ever handed valid cities.
+		{"none configured", config.CityConfig{}, nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -79,10 +81,11 @@ func TestKeepSourcesFor(t *testing.T) {
 	}
 }
 
-// TestRunGC_ArcGISOnlyKeepsOverpass is the yvlv.36 regression: a city with
-// Overpass:false and an ArcGIS URL must still pass "overpass" in the keep set
-// handed to GCScan/GCSweep, so valid overpass feature rows are NOT swept.
-func TestRunGC_ArcGISOnlyKeepsOverpass(t *testing.T) {
+// TestRunGC_ArcGISOnlyDropsOverpass pins the corrected behavior: a city with
+// Overpass:false and an ArcGIS URL keeps only "arcgis". Ingest no longer writes
+// overpass rows for such a city, so any overpass rows present are stale and must
+// be swept — the keep set handed to GCScan/GCSweep must NOT contain "overpass".
+func TestRunGC_ArcGISOnlyDropsOverpass(t *testing.T) {
 	cities := []config.CityConfig{{Name: "Alpha", Overpass: false, ArcGISURL: "https://x"}}
 	var sweptKeep []string
 	root := &dbtest.MockRootStore{
@@ -90,8 +93,8 @@ func TestRunGC_ArcGISOnlyKeepsOverpass(t *testing.T) {
 		ForCityFunc: func(int64) db.Store {
 			return &dbtest.MockStore{
 				GCScanFunc: func(_ context.Context, keep []string) (*db.GCReport, error) {
-					if !slices.Contains(keep, "overpass") {
-						t.Errorf("GCScan keep = %v, want it to contain overpass", keep)
+					if slices.Contains(keep, "overpass") {
+						t.Errorf("GCScan keep = %v, want it NOT to contain overpass", keep)
 					}
 					return reportWithCounts(), nil
 				},
@@ -112,8 +115,11 @@ func TestRunGC_ArcGISOnlyKeepsOverpass(t *testing.T) {
 	if err := runGC(context.Background(), opts); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(sweptKeep, "overpass") {
-		t.Errorf("GCSweep keep = %v, want it to contain overpass (else valid overpass rows are deleted)", sweptKeep)
+	if slices.Contains(sweptKeep, "overpass") {
+		t.Errorf("GCSweep keep = %v, want it NOT to contain overpass", sweptKeep)
+	}
+	if !slices.Contains(sweptKeep, "arcgis") {
+		t.Errorf("GCSweep keep = %v, want it to contain arcgis", sweptKeep)
 	}
 }
 

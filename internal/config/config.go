@@ -1,7 +1,6 @@
 package config
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -395,7 +394,7 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve config path %q: %w", path, err)
 	}
-	cfg, blobs, err := loadResolved(abs, map[string]bool{}, 0)
+	cfg, blobs, err := loadResolved(abs, map[string]bool{}, 0, map[string]*resolvedInclude{})
 	if err != nil {
 		return nil, err
 	}
@@ -413,10 +412,13 @@ func Load(path string) (*Config, error) {
 	}
 	// Fold every included file's bytes into the content hash (in declaration
 	// order) so editing any included example changes the snapshot hash and
-	// triggers recompute. For a no-include config blobs is a single element, so
-	// this reproduces the pre-include hash exactly (bytes.Join of one blob is
-	// that blob) — existing snapshots stay valid.
-	cfg.contentHash = hashBytes(bytes.Join(blobs, nil))
+	// triggers recompute. Each blob is length-prefixed before hashing so the
+	// partition between files is unambiguous: a plain concatenation would hash
+	// two different include layouts of the same total bytes identically (e.g.
+	// files ("ab","c") vs ("a","bc")), silently sharing a snapshot. Pre-1.0, so
+	// this changes the hash value for every config (including single-file ones);
+	// stale snapshots simply recompute on next run.
+	cfg.contentHash = hashBlobs(blobs)
 	return cfg, nil
 }
 
@@ -507,6 +509,19 @@ func (c *Config) validate(requireCities bool) error {
 		return errors.Join(ErrInvalidConfig,
 			fmt.Errorf("display.min_hex_area %g must be non-negative", c.Display.MinHexArea))
 	}
+	// export.coordinate_decimals feeds CoordinateDecimals(), which silently
+	// falls back to DefaultCoordinateDecimals for any non-positive value — so a
+	// negative literal (a typo) loads clean and the intended precision is lost
+	// with no diagnostic. Reject it up front. maxCoordinateDecimals caps the
+	// upper end: a float64 lon/lat carries ~15 significant decimal digits, so
+	// anything beyond that is spurious precision (almost certainly a typo) and
+	// bloats the emitted GeoJSON. 0 is allowed (means "use the default").
+	const maxCoordinateDecimals = 15
+	if c.Export.CoordinateDecimals < 0 || c.Export.CoordinateDecimals > maxCoordinateDecimals {
+		return errors.Join(ErrInvalidConfig,
+			fmt.Errorf("export.coordinate_decimals %d out of range (0-%d, or 0 for default)",
+				c.Export.CoordinateDecimals, maxCoordinateDecimals))
+	}
 	// Reject an unknown display.units rather than silently rendering imperial:
 	// units.ParseSystem maps any unrecognized string (incl. typos like "metirc")
 	// to Imperial, so without this a misspelling loads clean and misreports every
@@ -555,24 +570,48 @@ func (c *Config) validateCities() error {
 			return errors.Join(ErrInvalidConfig,
 				fmt.Errorf("duplicate city name %q (slug: %s)", city.Name, slug))
 		}
-		if city.HexEdgeM < 0 {
-			return errors.Join(ErrInvalidConfig,
-				fmt.Errorf("cities[%d] (%s): hex_edge_m %g must be non-negative", i, city.Name, city.HexEdgeM))
-		}
-		if city.BoundaryRelationID < 0 {
-			return errors.Join(ErrInvalidConfig,
-				fmt.Errorf("cities[%d] (%s): boundary_relation_id %d must be non-negative", i, city.Name, city.BoundaryRelationID))
-		}
-		if err := validateTags(i, city); err != nil {
+		if err := validateCityFields(i, city); err != nil {
 			return err
 		}
-		if city.Forecast != nil {
-			if err := city.Forecast.Validate(); err != nil {
-				return errors.Join(ErrInvalidConfig,
-					fmt.Errorf("cities[%d] (%s): %w", i, city.Name, err))
-			}
-		}
 		seen[slug] = true
+	}
+	return nil
+}
+
+// validateCityFields checks the per-city field-shape invariants (hex edge,
+// boundary relation, data source, tags, forecast) for one city. Split from
+// validateCities, which keeps the name/slug/uniqueness loop, to hold each
+// function's cognitive complexity in bounds.
+func validateCityFields(i int, city CityConfig) error {
+	if city.HexEdgeM < 0 {
+		return errors.Join(ErrInvalidConfig,
+			fmt.Errorf("cities[%d] (%s): hex_edge_m %g must be non-negative", i, city.Name, city.HexEdgeM))
+	}
+	if city.BoundaryRelationID < 0 {
+		return errors.Join(ErrInvalidConfig,
+			fmt.Errorf("cities[%d] (%s): boundary_relation_id %d must be non-negative", i, city.Name, city.BoundaryRelationID))
+	}
+	// A city with neither Overpass nor an ArcGIS URL has no data source.
+	// ingest.AllSources includes OverpassSource only when overpass = true and
+	// ArcGISSource only when arcgis_url is set, so this combination resolves to
+	// zero sources: the ingest pipeline has nothing to fetch and the city
+	// silently produces an empty dataset (zero roads/parking/sidewalks) that
+	// renders as a blank heatmap with no error. Reject it at load time — every
+	// shipped example sets overpass = true. Note overpass defaults to Go's zero
+	// value false when the key is omitted; a city that wants Overpass must set
+	// it explicitly. Empty/whitespace arcgis_url counts as unset.
+	if !city.Overpass && strings.TrimSpace(city.ArcGISURL) == "" {
+		return errors.Join(ErrInvalidConfig,
+			fmt.Errorf("cities[%d] (%s): no data source; set overpass = true or provide arcgis_url", i, city.Name))
+	}
+	if err := validateTags(i, city); err != nil {
+		return err
+	}
+	if city.Forecast != nil {
+		if err := city.Forecast.Validate(); err != nil {
+			return errors.Join(ErrInvalidConfig,
+				fmt.Errorf("cities[%d] (%s): %w", i, city.Name, err))
+		}
 	}
 	return nil
 }

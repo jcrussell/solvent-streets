@@ -9,19 +9,40 @@ import (
 
 var testBBox = [4]float64{37.64, -121.84, 37.72, -121.68}
 
-func TestAllSources(t *testing.T) {
-	sources := AllSources(testBBox, "", Options{})
-	if len(sources) != 1 {
-		t.Fatalf("expected 1 source without arcgis URL, got %d", len(sources))
+func sourceNames(sources []Source) []string {
+	names := make([]string, len(sources))
+	for i, s := range sources {
+		names[i] = s.Name()
 	}
-	sources = AllSources(testBBox, "https://example.com/arcgis", Options{})
-	if len(sources) != 2 {
-		t.Fatalf("expected 2 sources with arcgis URL, got %d", len(sources))
+	return names
+}
+
+func TestAllSources(t *testing.T) {
+	cases := []struct {
+		name      string
+		overpass  bool
+		arcgisURL string
+		want      []string
+	}{
+		{"overpass only", true, "", []string{"overpass"}},
+		{"overpass + arcgis", true, "https://example.com/arcgis", []string{"overpass", "arcgis"}},
+		// overpass=false must OMIT OverpassSource — this is the whole point of
+		// making the flag meaningful (config validation forbids the empty case).
+		{"arcgis only, overpass off", false, "https://example.com/arcgis", []string{"arcgis"}},
+		{"nothing configured", false, "", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := sourceNames(AllSources(testBBox, tc.overpass, tc.arcgisURL, Options{}))
+			if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+				t.Errorf("AllSources names = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 
 func TestSourceByName_Overpass(t *testing.T) {
-	src, err := SourceByName("overpass", testBBox, "", Options{})
+	src, err := SourceByName("overpass", testBBox, true, "", Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,8 +51,17 @@ func TestSourceByName_Overpass(t *testing.T) {
 	}
 }
 
+// TestSourceByName_OverpassDisabled pins that requesting overpass explicitly on
+// a city with overpass=false is rejected, since the source isn't assembled.
+func TestSourceByName_OverpassDisabled(t *testing.T) {
+	_, err := SourceByName("overpass", testBBox, false, "https://example.com/arcgis", Options{})
+	if err == nil {
+		t.Error("expected error requesting overpass when overpass=false")
+	}
+}
+
 func TestSourceByName_Unknown(t *testing.T) {
-	_, err := SourceByName("bogus", testBBox, "", Options{})
+	_, err := SourceByName("bogus", testBBox, true, "", Options{})
 	if err == nil {
 		t.Error("expected error for unknown source")
 	}

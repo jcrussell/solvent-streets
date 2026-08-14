@@ -122,7 +122,7 @@ func runIngest(ctx context.Context, opts *Options) error {
 		return fmt.Errorf("derive bbox: %w", err)
 	}
 
-	sources, err := resolveSources(opts, bbox, city.ArcGISURL, city.AllowPrivateArcGIS, ios)
+	sources, err := resolveSources(opts, bbox, city.Overpass, city.ArcGISURL, city.AllowPrivateArcGIS, ios)
 	if err != nil {
 		return err
 	}
@@ -191,16 +191,26 @@ func printDryRunPlan(ctx context.Context, opts *Options, store db.Store, city *c
 		fmt.Fprintln(out, "[dry-run]   boundary cached, would skip Nominatim")
 	}
 	if opts.Source == cmdutil.SourceAll {
-		fmt.Fprintln(out, "[dry-run]   would resolve sources: overpass (always)"+
+		fmt.Fprintln(out, "[dry-run]   would resolve sources: "+fmtOverpass(city.Overpass)+
 			fmtArcgis(city.ArcGISURL))
 		fmt.Fprintln(out, "[dry-run]   would fetch + dedupe across all sources")
 	} else {
 		fmt.Fprintf(out, "[dry-run]   would fetch from source: %s\n", opts.Source)
+		if string(opts.Source) == "overpass" && !city.Overpass {
+			fmt.Fprintln(out, "[dry-run]   WARNING: overpass selected but city.overpass is false")
+		}
 		if string(opts.Source) == "arcgis" && city.ArcGISURL == "" {
 			fmt.Fprintln(out, "[dry-run]   WARNING: arcgis selected but city.arcgis_url is empty")
 		}
 	}
 	return nil
+}
+
+func fmtOverpass(overpass bool) string {
+	if overpass {
+		return "overpass"
+	}
+	return "(overpass: skipped — overpass=false for this city)"
 }
 
 func fmtArcgis(url string) string {
@@ -452,12 +462,12 @@ func acceptStripRatio(orig, stripped, threshold float64) bool {
 	return stripped/orig >= threshold
 }
 
-func resolveSources(opts *Options, bbox [4]float64, arcgisURL string, allowPrivateArcGIS bool, ios *iostreams.IOStreams) ([]ingestpkg.Source, error) {
+func resolveSources(opts *Options, bbox [4]float64, overpass bool, arcgisURL string, allowPrivateArcGIS bool, ios *iostreams.IOStreams) ([]ingestpkg.Source, error) {
 	srcOpts := ingestpkg.Options{Progress: ios.ErrOut, AllowPrivateArcGIS: allowPrivateArcGIS}
 	if opts.Source == cmdutil.SourceAll {
-		return ingestpkg.AllSources(bbox, arcgisURL, srcOpts), nil
+		return ingestpkg.AllSources(bbox, overpass, arcgisURL, srcOpts), nil
 	}
-	src, err := ingestpkg.SourceByName(string(opts.Source), bbox, arcgisURL, srcOpts)
+	src, err := ingestpkg.SourceByName(string(opts.Source), bbox, overpass, arcgisURL, srcOpts)
 	if err != nil {
 		return nil, fmt.Errorf("resolving source %q: %w", opts.Source, err)
 	}

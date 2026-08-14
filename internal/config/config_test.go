@@ -87,9 +87,11 @@ func TestValidateDuplicateCities(t *testing.T) {
 	toml := `
 [[cities]]
 name = "Livermore, CA"
+overpass = true
 
 [[cities]]
 name = "Livermore, CA"
+overpass = true
 `
 	fsys := fstest.MapFS{"pvmt.toml": &fstest.MapFile{Data: []byte(toml)}}
 	_, err := LoadFS(fsys, "pvmt.toml")
@@ -346,6 +348,7 @@ func TestLoad(t *testing.T) {
 	path := dir + "/pvmt.toml"
 	data := []byte(`[[cities]]
 name = "Testville"
+overpass = true
 `)
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatal(err)
@@ -370,6 +373,7 @@ func TestLoad_ConfigIDDefault(t *testing.T) {
 	path := filepath.Join(dir, "pvmt.toml")
 	if err := os.WriteFile(path, []byte(`[[cities]]
 name = "Hashville"
+overpass = true
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -409,6 +413,7 @@ func TestLoad_ConfigIDExplicit(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`config_id = "my-stable-id"
 [[cities]]
 name = "Explictville"
+overpass = true
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -431,6 +436,7 @@ func TestLoad_ConfigIDStableAcrossPathSpellings(t *testing.T) {
 	path := filepath.Join(dir, "pvmt.toml")
 	if err := os.WriteFile(path, []byte(`[[cities]]
 name = "Stableville"
+overpass = true
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -501,6 +507,7 @@ func TestFindAndLoad_StartDir(t *testing.T) {
 	path := filepath.Join(dir, "pvmt.toml")
 	if err := os.WriteFile(path, []byte(`[[cities]]
 name = "Here"
+overpass = true
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -524,6 +531,7 @@ func TestFindAndLoad_WalksUp(t *testing.T) {
 	path := filepath.Join(root, "pvmt.toml")
 	if err := os.WriteFile(path, []byte(`[[cities]]
 name = "Up"
+overpass = true
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -547,6 +555,7 @@ func TestFindAndLoad_FirstMatchWins(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "pvmt.toml"), []byte(`[[cities]]
 name = "Ancestor"
+overpass = true
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -557,6 +566,7 @@ name = "Ancestor"
 	childPath := filepath.Join(child, "pvmt.toml")
 	if err := os.WriteFile(childPath, []byte(`[[cities]]
 name = "Child"
+overpass = true
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}

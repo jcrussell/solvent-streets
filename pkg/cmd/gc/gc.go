@@ -82,17 +82,18 @@ and never writes.`,
 }
 
 // keepSourcesFor returns the set of source_api values a city legitimately
-// produces given its config. Mirrors ingest.AllSources, which ALWAYS includes
-// OverpassSource (ingest defaults to --source=all regardless of city.Overpass)
-// and adds ArcGISSource only when an ArcGIS URL is configured. So "overpass" is
-// always a keeper; "arcgis" is kept only when ArcGISURL is set. A feature whose
-// source_api is none of these (and non-empty) is an orphan.
-//
-// NOTE: "overpass" must be kept unconditionally even for arcgis-only configs —
-// gating it on city.Overpass (yvlv.36) swept every valid overpass feature,
-// because ingest writes overpass rows whether or not city.Overpass is true.
+// produces given its config. Mirrors ingest.AllSources: "overpass" is kept only
+// when city.Overpass is true, and "arcgis" only when an ArcGIS URL is
+// configured. A feature whose source_api is none of the kept set (and
+// non-empty) is an orphan — e.g. flipping overpass=false makes any previously
+// stored overpass rows sweepable, just as removing arcgis_url does for arcgis
+// rows. Config validation forbids overpass=false with no arcgis_url, so the
+// keep set is never empty for a valid city.
 func keepSourcesFor(city config.CityConfig) []string {
-	keep := []string{"overpass"}
+	var keep []string
+	if city.Overpass {
+		keep = append(keep, "overpass")
+	}
 	if city.ArcGISURL != "" {
 		keep = append(keep, "arcgis")
 	}

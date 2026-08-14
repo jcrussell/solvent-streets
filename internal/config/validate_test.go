@@ -64,10 +64,10 @@ func TestConfig_Validate_HexEdgeNonNegative(t *testing.T) {
 	cases := map[string]Config{
 		"top-level negative": {
 			Grid:   GridConfig{HexEdgeM: -10},
-			Cities: []CityConfig{{Name: "Oakland"}},
+			Cities: []CityConfig{{Name: "Oakland", Overpass: true}},
 		},
 		"per-city negative": {
-			Cities: []CityConfig{{Name: "Oakland", HexEdgeM: -1}},
+			Cities: []CityConfig{{Name: "Oakland", Overpass: true, HexEdgeM: -1}},
 		},
 	}
 	for name, cfg := range cases {
@@ -88,7 +88,7 @@ func TestConfig_Validate_HexEdgeNonNegative(t *testing.T) {
 // silently resolving to imperial via ParseSystem's default. Empty is allowed
 // (means "use the default"), and the canonical/normalized spellings pass.
 func TestConfig_Validate_DisplayUnits(t *testing.T) {
-	city := []CityConfig{{Name: "Oakland"}}
+	city := []CityConfig{{Name: "Oakland", Overpass: true}}
 
 	bad := map[string]string{
 		"typo":       "metirc",
@@ -170,7 +170,7 @@ func TestConfig_CoordinateDecimals_FallsBackToDefault(t *testing.T) {
 
 func TestConfig_Validate_BoundaryRelationID_RejectsNegative(t *testing.T) {
 	cfg := Config{
-		Cities: []CityConfig{{Name: "Oakland", BoundaryRelationID: -1}},
+		Cities: []CityConfig{{Name: "Oakland", Overpass: true, BoundaryRelationID: -1}},
 	}
 	err := cfg.Validate()
 	if err == nil {
@@ -185,7 +185,7 @@ func TestConfig_Validate_BoundaryRelationID_AcceptsZeroAndPositive(t *testing.T)
 	cases := []int64{0, 1, 171262, 4108817}
 	for _, id := range cases {
 		cfg := Config{
-			Cities: []CityConfig{{Name: "Oakland", BoundaryRelationID: id}},
+			Cities: []CityConfig{{Name: "Oakland", Overpass: true, BoundaryRelationID: id}},
 		}
 		if err := cfg.Validate(); err != nil {
 			t.Errorf("Validate() rejected id=%d: %v", id, err)
@@ -201,7 +201,7 @@ func TestConfig_Validate_BoundaryRelationID_AcceptsZeroAndPositive(t *testing.T)
 func TestConfig_Validate_Tags_RejectsBlank(t *testing.T) {
 	for _, tag := range []string{"", " ", "\t"} {
 		cfg := Config{
-			Cities: []CityConfig{{Name: "Oakland", Tags: []string{"Bay Area", tag}}},
+			Cities: []CityConfig{{Name: "Oakland", Overpass: true, Tags: []string{"Bay Area", tag}}},
 		}
 		err := cfg.Validate()
 		if err == nil {
@@ -215,7 +215,7 @@ func TestConfig_Validate_Tags_RejectsBlank(t *testing.T) {
 
 func TestConfig_Validate_Tags_AcceptsLabels(t *testing.T) {
 	cfg := Config{
-		Cities: []CityConfig{{Name: "San Jose", Tags: []string{"Bay Area", "Top 50"}}},
+		Cities: []CityConfig{{Name: "San Jose", Overpass: true, Tags: []string{"Bay Area", "Top 50"}}},
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("Validate() rejected valid tags: %v", err)
@@ -225,7 +225,7 @@ func TestConfig_Validate_Tags_AcceptsLabels(t *testing.T) {
 func TestConfig_Validate_MinHexArea_RejectsNegative(t *testing.T) {
 	cfg := Config{
 		Display: DisplayConfig{MinHexArea: -1},
-		Cities:  []CityConfig{{Name: "Oakland"}},
+		Cities:  []CityConfig{{Name: "Oakland", Overpass: true}},
 	}
 	err := cfg.Validate()
 	if err == nil {
@@ -233,6 +233,74 @@ func TestConfig_Validate_MinHexArea_RejectsNegative(t *testing.T) {
 	}
 	if !errors.Is(err, ErrInvalidConfig) {
 		t.Errorf("error %v does not chain to ErrInvalidConfig", err)
+	}
+}
+
+// TestConfig_Validate_CoordinateDecimals locks in itca: a negative or absurdly
+// large export.coordinate_decimals is rejected up front rather than silently
+// falling back to DefaultCoordinateDecimals (a negative literal used to load
+// clean and lose the intended precision). 0 means "use the default" and passes.
+func TestConfig_Validate_CoordinateDecimals(t *testing.T) {
+	city := []CityConfig{{Name: "Oakland", Overpass: true}}
+
+	for name, dec := range map[string]int{"negative": -1, "very negative": -100, "too large": 16, "absurd": 1000} {
+		t.Run("reject_"+name, func(t *testing.T) {
+			cfg := Config{Export: ExportConfig{CoordinateDecimals: dec}, Cities: city}
+			err := cfg.Validate()
+			if err == nil {
+				t.Fatalf("expected error for coordinate_decimals=%d, got nil", dec)
+			}
+			if !errors.Is(err, ErrInvalidConfig) {
+				t.Errorf("error %v does not chain to ErrInvalidConfig", err)
+			}
+		})
+	}
+
+	for _, dec := range []int{0, 1, 6, 7, 15} {
+		t.Run("accept", func(t *testing.T) {
+			cfg := Config{Export: ExportConfig{CoordinateDecimals: dec}, Cities: city}
+			if err := cfg.Validate(); err != nil {
+				t.Errorf("coordinate_decimals=%d should be accepted, got %v", dec, err)
+			}
+		})
+	}
+}
+
+// TestConfig_Validate_DataSource locks in f7l7: a city with neither overpass
+// nor an arcgis_url has no data source and would silently produce an empty
+// dataset, so it is rejected (chaining ErrInvalidConfig). A city with either
+// source — or both — is accepted.
+func TestConfig_Validate_DataSource(t *testing.T) {
+	t.Run("reject no source", func(t *testing.T) {
+		cfg := Config{Cities: []CityConfig{{Name: "Oakland"}}}
+		err := cfg.Validate()
+		if err == nil {
+			t.Fatal("expected error for a city with no data source, got nil")
+		}
+		if !errors.Is(err, ErrInvalidConfig) {
+			t.Errorf("error %v does not chain to ErrInvalidConfig", err)
+		}
+	})
+
+	t.Run("reject whitespace arcgis_url", func(t *testing.T) {
+		cfg := Config{Cities: []CityConfig{{Name: "Oakland", ArcGISURL: "   "}}}
+		if err := cfg.Validate(); err == nil || !errors.Is(err, ErrInvalidConfig) {
+			t.Fatalf("whitespace-only arcgis_url should be rejected, got %v", err)
+		}
+	})
+
+	accept := map[string]CityConfig{
+		"overpass only":   {Name: "Oakland", Overpass: true},
+		"arcgis only":     {Name: "Oakland", ArcGISURL: "https://example.com/arcgis"},
+		"overpass+arcgis": {Name: "Oakland", Overpass: true, ArcGISURL: "https://example.com/arcgis"},
+	}
+	for name, city := range accept {
+		t.Run("accept "+name, func(t *testing.T) {
+			cfg := Config{Cities: []CityConfig{city}}
+			if err := cfg.Validate(); err != nil {
+				t.Errorf("city with a data source should be accepted, got %v", err)
+			}
+		})
 	}
 }
 
