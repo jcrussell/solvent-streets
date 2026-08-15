@@ -1182,6 +1182,10 @@
         }
 
         let scenarioData = null;
+        // True once THIS city's forecast_seed.json has landed and been applied to
+        // FORECAST_SEED and the interactive controls. Reset by loadFinancials'
+        // teardown, so it always describes the city currently on screen.
+        let forecastSeedReady = false;
         let currentCharts = [];
 
         function destroyCharts() {
@@ -1424,6 +1428,75 @@
             });
         });
 
+        // Horizon-derived labels (never hardcode 20). FORECAST_SEED.years is
+        // the configured forecast horizon; the headline/cohort values are
+        // summed over it, so the captions must follow it too. The cohort Area
+        // cells convert to the live large-area unit (ha/acres), so that header
+        // carries the unit too — which is why the units toggle has to re-run
+        // this (via renderFinancialsFromCache) and not just the table body.
+        // Called twice per load: once before the fetches off the previous
+        // seed, once from the render pass after this city's seed has landed.
+        //
+        // ORDERING: these textContent writes blow away the .sort-arrow spans
+        // renderCohortBreakdown appends to the same <th>s, so this must run
+        // BEFORE the cohort render, never after. Both call paths
+        // (renderFinancialsFromCache, and the pre-fetch call in loadFinancials)
+        // satisfy that today.
+        function applyHorizonLabels() {
+            const yrs = (FORECAST_SEED && FORECAST_SEED.years) || 20;
+            document.getElementById('hl-spend-label').textContent = yrs + '-Year Spend';
+            document.getElementById('hl-deficit-label').textContent = yrs + '-Year Deficit';
+            document.getElementById('cohort-spend-th').textContent = yrs + 'yr Spend';
+            document.getElementById('cohort-deficit-th').textContent = yrs + 'yr Deficit';
+            document.getElementById('cohort-area-th').textContent = 'Area (' + areaLargeUnit() + ')';
+        }
+
+        // Render the Financials tab from data already in memory: scenarioData,
+        // FORECAST_SEED, and forecastData. Split out of loadFinancials so a
+        // display-unit change can re-render in place. loadFinancials is a
+        // teardown-and-refetch path — it nulls forecastData, hides the solvency
+        // headline / tiles / cohort table, and rebuilds the PCI slider and
+        // cost-tier inputs from the seed — so driving a units toggle through it
+        // refetched three JSON files, blanked the headline mid-flight, and
+        // silently discarded whatever the user had typed into the controls.
+        //
+        // Safe to call before any city has loaded: scenarioData is null then and
+        // this is a no-op.
+        function renderFinancialsFromCache() {
+            if (!scenarioData) return;
+            const scenarios = scenariosForScope(scenarioData, currentScope);
+            if (!scenarios || scenarios.length === 0) return;
+            applyHorizonLabels();
+            renderFinancials(scenarios, currentScope);
+
+            // Headline tiles come from the baseline scenario, so they work without WASM.
+            const baseline = scenarios.find(s =>
+                s.scenario.strategy === 0 || s.scenario.name === 'do-nothing' || s.scenario.name === 'baseline'
+            );
+            if (baseline) {
+                updateSummaryCards(baseline);
+            }
+            renderSolvencyHeadline();
+
+            // Cohort table: WASM drives it when the simulator is up, and the
+            // static forecast.json baseline stands in when it is not. Without
+            // the fallback the table never appeared at all in a no-WASM browser
+            // until the user happened to toggle scope. Mirrors selectScope.
+            //
+            // forecastSeedReady gates the WASM branch: if this city's
+            // forecast_seed.json failed to load, FORECAST_SEED, the PCI slider and
+            // the tier inputs still hold the PREVIOUS city's parameters, and
+            // runCustomScenario would simulate those — then overwrite the correct
+            // baseline tiles above (it calls updateSummaryCards) and draw a custom
+            // line from the wrong city. Fall back to the static baseline instead,
+            // which is this city's (forecast.json is fetched separately).
+            if (wasmReady && forecastSeedReady) {
+                runCustomScenario();
+            } else {
+                renderCohortFromForecast(currentScope);
+            }
+        }
+
         async function loadFinancials() {
             const gen = ++financialsLoadGen; // bail stale loads after each await
             const prefix = DATA_PREFIX; // snapshot to avoid mid-await mutation
@@ -1434,6 +1507,15 @@
             // screen — a wrong dollar claim under the new city's name.
             forecastData = null;
             renderSolvencyHeadline();
+            // Drop the previous city's scenarios and seed-loaded flag for the same
+            // reason, and so renderFinancialsFromCache — which any units toggle can
+            // fire at any moment — has no stale city to render. Without this, a
+            // toggle landing inside this load's fetch window would repaint the
+            // previous city's charts and (via updateSummaryCards) un-hide its dollar
+            // tiles under the new city's name; if this load then took either early
+            // return below, those tiles would stay on screen for good.
+            scenarioData = null;
+            forecastSeedReady = false;
             // Also hide the previous city's headline tiles, cohort table, and
             // forecast controls up front, mirroring the solvency-headline reset
             // above: an early return below (no scenarios / failed fetch) must not
@@ -1442,19 +1524,10 @@
             document.getElementById('cohort-section').style.display = 'none';
             document.querySelector('#cohort-table tbody').innerHTML = '';
             document.getElementById('forecast-controls').classList.remove('visible');
-            // Horizon-derived labels (never hardcode 20). FORECAST_SEED.years is
-            // the configured forecast horizon; the headline/cohort values are
-            // summed over it, so the captions must follow it too.
-            {
-                const yrs = (FORECAST_SEED && FORECAST_SEED.years) || 20;
-                document.getElementById('hl-spend-label').textContent = yrs + '-Year Spend';
-                document.getElementById('hl-deficit-label').textContent = yrs + '-Year Deficit';
-                document.getElementById('cohort-spend-th').textContent = yrs + 'yr Spend';
-                document.getElementById('cohort-deficit-th').textContent = yrs + 'yr Deficit';
-                // Cohort Area cells convert to the live large-area unit (ha/acres),
-                // so label the header with it (updated on units toggle via loadFinancials).
-                document.getElementById('cohort-area-th').textContent = 'Area (' + areaLargeUnit() + ')';
-            }
+            // Label off the outgoing seed so the tiles aren't unlabeled while the
+            // fetches are in flight; the render pass below relabels off this
+            // city's seed once it lands.
+            applyHorizonLabels();
             const loadedScenarios = await loadJSON(dataURL(prefix, 'scenarios.json'));
             if (gen !== financialsLoadGen) return; // a newer load superseded us
             scenarioData = loadedScenarios;
@@ -1477,44 +1550,38 @@
                 return;
             }
 
-            renderFinancials(scenarios, currentScope);
-
-            // Update headline tiles from baseline scenario (works without WASM)
-            const baseline = scenarios.find(s =>
-                s.scenario.strategy === 0 || s.scenario.name === 'do-nothing' || s.scenario.name === 'baseline'
-            );
-            if (baseline) {
-                updateSummaryCards(baseline);
-            }
-
             // Fetch per-city forecast seed for WASM interactive controls
             {
                 const seed = await loadJSON(dataURL(prefix, 'forecast_seed.json'));
                 if (gen !== financialsLoadGen) return; // a newer load superseded us
                 if (seed) {
                     FORECAST_SEED = seed;
-                    // Re-apply horizon-derived labels now that this city's seed
-                    // (and its configured years) is loaded.
-                    if (seed.years) {
-                        document.getElementById('hl-spend-label').textContent = seed.years + '-Year Spend';
-                        document.getElementById('hl-deficit-label').textContent = seed.years + '-Year Deficit';
-                        document.getElementById('cohort-spend-th').textContent = seed.years + 'yr Spend';
-                        document.getElementById('cohort-deficit-th').textContent = seed.years + 'yr Deficit';
-                        document.getElementById('cohort-area-th').textContent = 'Area (' + areaLargeUnit() + ')';
-                    }
+                    // Reset the interactive controls to the new city's seed. Only
+                    // this fetch path does so — a units toggle must not, or it
+                    // throws away the values the user typed.
                     syncPCISliderFromSeed();
                     rebuildTierInputs();
-                    if (wasmReady) runCustomScenario();
+                    // Gate the WASM sim: until this lands, FORECAST_SEED and the
+                    // controls still describe the *previous* city (see
+                    // renderFinancialsFromCache).
+                    forecastSeedReady = true;
                 }
             }
 
-            // Fetch forecast.json (used by scope toggle for static fallback)
+            // Fetch forecast.json (the static, WASM-free source for the cohort
+            // table and the solvency headline; also used by the scope toggle)
             {
                 const f = await loadJSON(dataURL(prefix, 'forecast.json'));
                 if (gen !== financialsLoadGen) return; // a newer load superseded us
                 if (f) forecastData = f;
-                renderSolvencyHeadline();
             }
+
+            // Single render pass once everything above has landed: charts,
+            // headline tiles, solvency headline, and the cohort table. Rendering
+            // here rather than before the awaits also means the WASM custom
+            // scenario runs against this city's seed and controls, not the
+            // previous city's.
+            renderFinancialsFromCache();
         }
 
         // Materials
@@ -1991,18 +2058,32 @@
                 // cost_per_sqm is stored/simulated in $/sq m (metric internal); show
                 // it in the live unit so the value and its label agree. runCustomScenario
                 // converts the entered value back to $/sq m before it reaches the sim.
+                // data-sqm carries the canonical $/sq m alongside the displayed value so
+                // a units toggle can re-derive the display from it exactly (see
+                // syncTierCostInputsToUnits) instead of rounding the visible number.
                 const costDisplay = UNIT_SYSTEM === 'metric' ? t.cost_per_sqm : t.cost_per_sqm / SQM_TO_SQFT;
                 row.innerHTML =
                     '<span>' + esc(t.label || 'Tier ' + (i+1)) + '</span>' +
                     '<input type="number" data-tier="' + i + '" data-field="min_pci" value="' + t.min_pci + '" step="1">' +
                     '<input type="number" data-tier="' + i + '" data-field="max_pci" value="' + t.max_pci + '" step="1">' +
-                    '<input type="number" data-tier="' + i + '" data-field="cost_per_sqm" value="' + costDisplay + '" step="0.01">';
+                    '<input type="number" data-tier="' + i + '" data-field="cost_per_sqm" data-sqm="' + t.cost_per_sqm + '" value="' + costDisplay + '" step="0.01">';
                 tierDiv.appendChild(row);
             });
             // Label the cost column header with the live unit (the input values are
             // shown in $/<live area unit>, converted back to $/sq m on read).
             document.getElementById('tier-cost-th').textContent = '$/' + areaUnit();
-            tierDiv.querySelectorAll('input').forEach(inp => {
+            queryAll('#tier-inputs input').forEach(el => {
+                const inp = /** @type {HTMLInputElement} */ (el);
+                if (inp.dataset.field === 'cost_per_sqm') {
+                    // Keep data-sqm in step with what the user types, in the same
+                    // $/sq m basis getControlValues converts to.
+                    inp.addEventListener('input', () => {
+                        const v = parseFloat(inp.value);
+                        if (Number.isFinite(v)) {
+                            inp.dataset.sqm = String(UNIT_SYSTEM === 'metric' ? v : v * SQM_TO_SQFT);
+                        }
+                    });
+                }
                 inp.addEventListener('input', runCustomScenario);
             });
         }
@@ -2319,6 +2400,32 @@
                 b.classList.toggle('active', b.dataset.units === UNIT_SYSTEM);
             });
         }
+        // Re-derive the cost-tier inputs for the live display unit. The inputs show
+        // $/<live area unit> and getControlValues reads UNIT_SYSTEM live, so the
+        // number on screen has to move with the unit or the same typed cost would
+        // silently change meaning by ~10.76x. rebuildTierInputs() converts too, but
+        // it rebuilds from the seed and so discards what the user typed — the bug
+        // this path exists to avoid.
+        //
+        // Reads data-sqm (the canonical $/sq m, kept current by rebuildTierInputs
+        // and the input listener) rather than rescaling the displayed number, so
+        // this is exactly the value rebuildTierInputs would render — no rounding,
+        // and toggling back and forth is an identity, not a slow drift away from
+        // the configured cost.
+        function syncTierCostInputsToUnits() {
+            queryAll('#tier-inputs input[data-field="cost_per_sqm"]').forEach(function (el) {
+                const inp = /** @type {HTMLInputElement} */ (el);
+                // A cleared or unparsable box stays as the user left it —
+                // getControlValues falls back to the seed for it.
+                if (!Number.isFinite(parseFloat(inp.value))) return;
+                const sqm = parseFloat(inp.dataset.sqm);
+                if (!Number.isFinite(sqm)) return;
+                inp.value = String(UNIT_SYSTEM === 'metric' ? sqm : sqm / SQM_TO_SQFT);
+            });
+            // Header follows the values (rebuildTierInputs sets it the same way).
+            document.getElementById('tier-cost-th').textContent = '$/' + areaUnit();
+        }
+
         function selectUnits(sys) {
             if ((sys !== 'metric' && sys !== 'imperial') || sys === UNIT_SYSTEM) return;
             UNIT_SYSTEM = sys;
@@ -2327,8 +2434,14 @@
             // Stats panel is always visible — re-render it in place (no map rebuild).
             renderCityStats(lastCityMeta);
             // Financials is loaded once per city and is NOT re-triggered by
-            // selectTab, so re-render it now regardless of the active tab.
-            loadFinancials();
+            // selectTab, so re-render it now regardless of the active tab. Render
+            // from the cached data rather than calling loadFinancials(): a display
+            // preference must not refetch, and must not reset the PCI slider or
+            // the cost-tier inputs the user has typed into. The tier inputs are
+            // re-derived (not rebuilt) first, from their canonical $/sq m, so
+            // runCustomScenario below simulates the same costs it did a moment ago.
+            syncTierCostInputsToUnits();
+            renderFinancialsFromCache();
             // Materials reloads unconditionally on tab open, so only the active
             // tab needs an immediate reload.
             reloadMaterialsIfActive();
