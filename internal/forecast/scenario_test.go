@@ -1,6 +1,7 @@
 package forecast
 
 import (
+	"math"
 	"testing"
 )
 
@@ -311,6 +312,60 @@ func TestSimulate_TwoCohorts_BlendedPCI(t *testing.T) {
 	if result.FinalCohorts[0].EndPCI <= result.FinalCohorts[1].EndPCI {
 		t.Errorf("primary end PCI (%.2f) should exceed residential (%.2f)",
 			result.FinalCohorts[0].EndPCI, result.FinalCohorts[1].EndPCI)
+	}
+}
+
+// TestSimulate_FinalCohortAreaIsFinalYear pins that CohortSummary.Area reports
+// the cohort's grown final-year area (areaValues[last] * areaFrac), not the
+// year-0 input area. With a 1%/yr linear growth rate over 10 years the terminal
+// factor is 1 + 0.01*10 = 1.10.
+func TestSimulate_FinalCohortAreaIsFinalYear(t *testing.T) {
+	params := NewParams(0.01, nil, 1)
+	cohorts := []Cohort{
+		{Classification: "primary", Area: 250_000, DecayRate: 0.05, InitialPCI: 85},
+		{Classification: "residential", Area: 750_000, DecayRate: 0.03, InitialPCI: 65},
+	}
+
+	result := Simulate(
+		Scenario{Name: "dn", Label: "DN", Strategy: StrategyDoNothing},
+		cohorts, 10, params,
+	)
+
+	want := []float64{275_000, 825_000}
+	for j, w := range want {
+		if got := result.FinalCohorts[j].Area; math.Abs(got-w) > 1e-6 {
+			t.Errorf("cohort %d final area = %.6f, want %.6f", j, got, w)
+		}
+	}
+}
+
+// TestSimulate_FinalCohortAreaZeroYears guards the years == 0 path: no years are
+// simulated so the growth series is empty and the final-year lookup would panic
+// without a fallback to the year-0 input area. No production caller reaches this
+// — bridge.validateInput rejects Years <= 0 and game.go guards horizon <= 0 —
+// so this pins Simulate as a total function for tests and direct library use.
+func TestSimulate_FinalCohortAreaZeroYears(t *testing.T) {
+	params := NewParams(0.01, nil, 1)
+	cohorts := []Cohort{
+		{Classification: "primary", Area: 250_000, DecayRate: 0.05, InitialPCI: 85},
+		{Classification: "residential", Area: 750_000, DecayRate: 0.03, InitialPCI: 65},
+	}
+
+	result := Simulate(
+		Scenario{Name: "dn", Label: "DN", Strategy: StrategyDoNothing},
+		cohorts, 0, params,
+	)
+
+	if len(result.Years) != 0 {
+		t.Fatalf("expected 0 years, got %d", len(result.Years))
+	}
+	if len(result.FinalCohorts) != 2 {
+		t.Fatalf("expected 2 final cohorts, got %d", len(result.FinalCohorts))
+	}
+	for j, c := range cohorts {
+		if got := result.FinalCohorts[j].Area; got != c.Area {
+			t.Errorf("cohort %d area = %.6f, want year-0 fallback %.6f", j, got, c.Area)
+		}
 	}
 }
 

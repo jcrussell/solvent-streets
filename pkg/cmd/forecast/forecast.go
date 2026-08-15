@@ -189,10 +189,20 @@ func renderBaselineTable(ios *iostreams.IOStreams, rt resource.Source, area, cur
 		fmt.Fprintf(ios.Out, "  Cohort Breakdown:\n")
 		cp := iostreams.NewTablePrinter(ios)
 		cp.AddHeader("Classification", "Area %", "Decay Rate", "End PCI")
+		// Self-normalize over the cohort areas rather than dividing by the
+		// year-0 network area: CohortSummary.Area is the final-year *grown*
+		// area, so mixing bases would make the column sum to the growth factor
+		// (120% at 20yr / growth_rate=0.01) instead of 100%, contradicting the
+		// "Current area" line printed above. Mirrors renderCohortBreakdown in
+		// internal/export/templates/app.js.
+		var cohortArea float64
+		for _, c := range baseline.FinalCohorts {
+			cohortArea += c.Area
+		}
 		for _, c := range baseline.FinalCohorts {
 			areaPct := 0.0
-			if area > 0 {
-				areaPct = c.Area / area * 100
+			if cohortArea > 0 {
+				areaPct = c.Area / cohortArea * 100
 			}
 			cp.AddRow(
 				c.Classification,

@@ -12,10 +12,14 @@ type Cohort struct {
 type CohortSummary struct {
 	Classification string  `json:"classification"`
 	EndPCI         float64 `json:"end_pci"`
-	Area           float64 `json:"area"`
-	DecayRate      float64 `json:"decay_rate"`
-	TotalSpend     float64 `json:"total_spend"`
-	TotalDeficit   float64 `json:"total_deficit"`
+	// Area is the cohort's final-year (grown) area, matching EndPCI's terminal
+	// semantics — not the year-0 input area, and not the multi-year area basis
+	// TotalSpend accumulated against. Falls back to the year-0 area when the
+	// simulation ran zero years. See Simulate in scenario.go.
+	Area         float64 `json:"area"`
+	DecayRate    float64 `json:"decay_rate"`
+	TotalSpend   float64 `json:"total_spend"`
+	TotalDeficit float64 `json:"total_deficit"`
 }
 
 // CohortInput is a minimal struct for building cohorts without importing db.

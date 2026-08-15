@@ -4,11 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"math"
+	"regexp"
+	"strconv"
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	fcpkg "github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
@@ -145,5 +149,70 @@ func TestNewCmdForecast_JqAndTemplateMutuallyExclusive(t *testing.T) {
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("expected error when --jq and --template both set")
+	}
+}
+
+// TestRenderBaselineTable_AreaPctSumsTo100UnderGrowth pins the cohort "Area %"
+// column against a base-mixing regression: CohortSummary.Area is the final-year
+// *grown* area, so normalizing it by the year-0 network area made the column sum
+// to the growth factor (120% at 20yr / 1%) rather than 100%, contradicting the
+// "Current area" line printed directly above it. The denominator must be derived
+// from the cohort areas themselves.
+func TestRenderBaselineTable_AreaPctSumsTo100UnderGrowth(t *testing.T) {
+	const growthRate = 0.01
+	const years = 20
+
+	params := fcpkg.NewParams(growthRate, nil, 12)
+	cohorts := []fcpkg.Cohort{
+		{Classification: "primary", Area: 250_000, DecayRate: 0.05, InitialPCI: 85},
+		{Classification: "secondary", Area: 500_000, DecayRate: 0.04, InitialPCI: 75},
+		{Classification: "residential", Area: 750_000, DecayRate: 0.03, InitialPCI: 65},
+	}
+	// year0Area is what the caller passes as `area` (result.TotalArea): the
+	// un-grown network area. The grown cohort areas exceed it by 1+r*N = 1.20.
+	var year0Area float64
+	for _, c := range cohorts {
+		year0Area += c.Area
+	}
+
+	baseline := fcpkg.Simulate(
+		fcpkg.Scenario{Name: "dn", Label: "DN", Strategy: fcpkg.StrategyDoNothing},
+		cohorts, years, params,
+	)
+
+	var grownArea float64
+	for _, c := range baseline.FinalCohorts {
+		grownArea += c.Area
+	}
+	if wantGrown := year0Area * (1 + growthRate*years); math.Abs(grownArea-wantGrown) > 1e-6 {
+		t.Fatalf("precondition: grown cohort area = %.4f, want %.4f", grownArea, wantGrown)
+	}
+	if grownArea <= year0Area {
+		t.Fatal("precondition: growth must make the two bases differ, else the test is vacuous")
+	}
+
+	ios, _, out, _ := iostreams.Test()
+	err := renderBaselineTable(ios, resource.ByType(resource.TypeRoads), year0Area, 75,
+		baseline, 0, years, units.Metric)
+	if err != nil {
+		t.Fatalf("renderBaselineTable: %v", err)
+	}
+
+	pcts := regexp.MustCompile(`(\d+\.\d)%`).FindAllStringSubmatch(out.String(), -1)
+	if len(pcts) != len(cohorts) {
+		t.Fatalf("expected %d percentage cells, got %d\noutput:\n%s", len(cohorts), len(pcts), out.String())
+	}
+	var sum float64
+	for _, m := range pcts {
+		v, perr := strconv.ParseFloat(m[1], 64)
+		if perr != nil {
+			t.Fatalf("parse %q: %v", m[1], perr)
+		}
+		sum += v
+	}
+	// Tolerance covers only the %.1f rounding of each of the 3 cells.
+	if math.Abs(sum-100) > 0.15 {
+		t.Errorf("Area %% column sums to %.1f%%, want 100%%; the denominator is "+
+			"mixing the year-0 network area with grown cohort areas\noutput:\n%s", sum, out.String())
 	}
 }

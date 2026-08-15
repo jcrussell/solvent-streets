@@ -158,6 +158,28 @@ func applyCohortSpend(st *cohortState, decayedPCI, spend, need float64, strategy
 		actual := need
 		surplus := spend - need
 		if surplus > 0 {
+			// The 2x cap (spend beyond 2*need buys nothing) is a deliberate
+			// diminishing-returns model, not an oversight, and the surplus it
+			// discards is intentionally not redistributed — see
+			// solvent-streets-z3fo. For the cap alone, redistribution is a
+			// no-op: distribute() allocates spend_j proportional to need_j
+			// (spend_j = totalSpend * need_j/totalNeed), so when totalNeed > 0
+			// the ratio spend_j/need_j = totalSpend/totalNeed is identical for
+			// every cohort. The cap triggers exactly when that shared ratio
+			// exceeds 2, so either all cohorts saturate — leaving no
+			// unsaturated cohort to receive the remainder — or none do.
+			//
+			// Two caveats. (1) The claim is scoped to this cap; it does NOT
+			// cover the maxPCI clamp below, where a cohort already at PCI 100
+			// still adds its full usableSurplus to actual for zero PCI gain
+			// while under-100 cohorts stay under-funded. That is a reachable
+			// mixed state in which redistribution would change outcomes.
+			// (2) The proof is an invariant of distribute()'s proportional
+			// allocation, asserted here at the callee and pinned by no test.
+			// Strategy is documented as prioritizing lowest/highest-PCI
+			// segments and today only scales an efficiency multiplier; if
+			// allocation ever becomes priority-ordered, the uniform ratio —
+			// and this proof — dies silently.
 			usableSurplus := math.Min(surplus, need)
 			improveFraction := usableSurplus / need
 			st.currentPCI = math.Min(maxPCI, st.currentPCI+(maxPCI-st.currentPCI)*improveFraction)
@@ -267,12 +289,32 @@ func Simulate(s Scenario, cohorts []Cohort, years int, p *Params) ScenarioResult
 		}
 	}
 
+	// FinalCohorts reports each cohort's terminal (final-year, grown) area rather
+	// than its year-0 area. This is NOT the basis TotalSpend was computed on —
+	// spend accumulates against every year's area, so the consistent denominator
+	// for a $/m² would be the area-integral mean, (1/N)*Σ_i areaValues[i]*areaFrac
+	// (factor 1 + r(N+1)/2 = 1.055*A₀ at r=0.01, N=10). Year-N area is chosen
+	// because it is unambiguous and matches EndPCI's terminal semantics, at a
+	// known cost: it is the larger denominator (1.10*A₀), so a $/m² derived from
+	// this summary is *understated* by ~4.1%, where reporting year-0 (1.00*A₀,
+	// the smaller denominator) *overstated* it by ~5.5%. The two errors have
+	// opposite sign and are not equal in magnitude.
+	//
+	// With years == 0 nothing was simulated and areaValues is empty, so fall back
+	// to the year-0 area. No production path reaches years == 0 — bridge.
+	// validateInput rejects it (bridge.go, in.Years <= 0) and game.go guards
+	// horizon <= 0 before calling — so this guard exists to keep Simulate total
+	// for tests and direct library use, not to serve a live caller.
 	result.FinalCohorts = make([]CohortSummary, n)
 	for j, c := range cohorts {
+		area := c.Area
+		if len(areaValues) > 0 {
+			area = areaValues[len(areaValues)-1] * sm.states[j].areaFrac
+		}
 		result.FinalCohorts[j] = CohortSummary{
 			Classification: c.Classification,
 			EndPCI:         sm.states[j].currentPCI,
-			Area:           c.Area,
+			Area:           area,
 			DecayRate:      c.DecayRate,
 			TotalSpend:     sm.spendAcc[j],
 			TotalDeficit:   sm.deficitAcc[j],
