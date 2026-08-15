@@ -93,6 +93,16 @@ func validateToolName(toolName string) error {
 // not have to remember the bit.
 func EnsureDir(p string) error { return os.MkdirAll(p, 0o755) }
 
+// HTTPCacheDir returns the directory backing the disk HTTP response cache
+// (cache.CachingTransport). It is a subdirectory of Cache rather than
+// Cache itself so future cache kinds get their own siblings without
+// colliding with the flat `<sha256>.json` / `<sha256>.meta` entry files.
+//
+// Both the client factory (which creates it) and `pvmt cache prune`
+// (which sweeps it) go through this accessor so the "http" literal is
+// defined exactly once.
+func (p *Paths) HTTPCacheDir() string { return filepath.Join(p.Cache, "http") }
+
 // stateRoot returns the per-OS root for persistent, non-regenerable state.
 // Go's stdlib has UserConfigDir and UserCacheDir but no UserStateDir.
 func stateRoot() (string, error) {

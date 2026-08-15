@@ -1,10 +1,11 @@
 package checksite
 
 import (
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 )
 
 const (
@@ -54,9 +55,9 @@ func (r *runner) checkConstraints(s *site) {
 	r.checkNojekyll(s)
 
 	if total > warnTreeSize {
-		r.warnf("constraints: total tree size is %s (over 1 GB)", humanSize(total))
+		r.warnf("constraints: total tree size is %s (over 1 GB)", cmdutil.HumanSize(total))
 	} else {
-		r.passf("constraints: total tree size is %s", humanSize(total))
+		r.passf("constraints: total tree size is %s", cmdutil.HumanSize(total))
 	}
 }
 
@@ -75,19 +76,4 @@ func (r *runner) checkNojekyll(s *site) {
 	default:
 		r.passf("constraints: .nojekyll present and zero-byte")
 	}
-}
-
-// humanSize formats a byte count as a compact human-readable string.
-func humanSize(b int64) string {
-	const unit = 1024
-	if b < unit {
-		return fmt.Sprintf("%d B", b)
-	}
-	div, exp := int64(unit), 0
-	for n := b / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	suffixes := []string{"KiB", "MiB", "GiB", "TiB"}
-	return fmt.Sprintf("%.1f %s", float64(b)/float64(div), suffixes[exp])
 }

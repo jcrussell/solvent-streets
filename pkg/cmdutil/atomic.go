@@ -8,6 +8,17 @@ import (
 	"path/filepath"
 )
 
+// TempPattern returns the os.CreateTemp pattern WriteFile uses for a
+// given target basename. os.CreateTemp replaces the "*" with a random
+// digit run, so the temp file is "<base>.tmp-<digits>".
+//
+// Exported because WriteFile's normal error paths clean up after
+// themselves but a SIGKILL between CreateTemp and rename does not: a
+// consumer that has to recognize the residue (internal/cache's pruner
+// sweeps it out of the HTTP cache) must derive the shape from here rather
+// than hard-coding a second copy of it that can silently drift.
+func TempPattern(base string) string { return base + ".tmp-*" }
+
 // WriteFile writes data to path atomically: temp file in the same
 // directory, fsync, then rename. Implements byob-runtime-directories.3.
 // If a write or rename fails, the temp file is removed so the target
@@ -17,7 +28,7 @@ func WriteFile(path string, data []byte, perm fs.FileMode) error {
 	if dir == "" {
 		dir = "."
 	}
-	tmp, err := os.CreateTemp(dir, base+".tmp-*")
+	tmp, err := os.CreateTemp(dir, TempPattern(base))
 	if err != nil {
 		return fmt.Errorf("creating temp file in %q: %w", dir, err)
 	}

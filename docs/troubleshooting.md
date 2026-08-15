@@ -5,7 +5,7 @@ When pvmt exits with an error, it prints two things:
 1. The error itself (e.g., `config file not found`).
 2. A one-line **hint** suggesting a fix.
 
-This page expands the hints into longer guidance. Each section quotes the hint text verbatim, so you can match the message pvmt printed to its section below.
+This page expands the hints into longer guidance. Most sections are named for a hint and quote its text verbatim, so you can match the message pvmt printed to its section below. A few sections at the end cover conditions that produce no error and therefore no hint — they are named for the symptom instead, and say so.
 
 ## `#config-not-found`
 
@@ -80,3 +80,33 @@ Fixes:
 - **Persistent**, or the hard error `boundary excludes most of the city's own roads` — Nominatim returned the wrong shape for this city. Set `[[cities]].boundary_relation_id` to the OSM `admin_level=8` relation (see [Configuration › Resolution hierarchy](configuration.md#resolution-hierarchy)), or remove the city from `pvmt.toml` if it's intentionally untracked.
 
 For per-polygon detail on what was dropped and why, re-run with `-vv` and grep the log for `water`.
+
+## Disk usage: the HTTP cache keeps growing
+
+Not tied to a hint — pvmt never errors on this, it just quietly uses disk.
+
+Every ingest that talks to Overpass, ArcGIS, or Nominatim writes the response into `$XDG_CACHE_HOME/pvmt/http` (`~/.cache/pvmt/http` by default), and nothing in the request path ever removes an entry. Responses are large (a city's Overpass extract runs to tens of MiB) and re-ingesting after a bbox change or a config edit writes *new* entries rather than replacing the old ones, so a long-lived install can reach several GiB of entries that will never be read again.
+
+Check and reclaim:
+
+```
+# What would go, and how much it would free — writes nothing
+pvmt cache prune --dry-run
+
+# Apply the defaults: drop entries older than 30 days, then cap the
+# total at 500 MiB by evicting oldest-first
+pvmt cache prune
+
+# Tighter caps, no confirmation prompt (scripts, CI)
+pvmt cache prune --max-age=168h --max-size=100mb --yes
+```
+
+`pvmt cache prune` shows what it plans to remove and asks before deleting; `--yes` skips the prompt and `--dry-run` reports without prompting or deleting. Without a TTY and without `--yes` it refuses rather than deleting unattended.
+
+No ingested data is touched — only downloaded responses — but pruning is not free: every removed entry is re-fetched on next use, which costs bandwidth and load on community-funded endpoints (Overpass, Nominatim). Prefer a size cap to a blanket wipe.
+
+The command reads no config and opens no database, so unlike `pvmt gc` it still works when your `pvmt.toml` is broken or the database won't open. It also sweeps half-written entries left behind if pvmt was killed mid-write.
+
+There is no way to turn the cache off. The 24-hour TTL is a compiled-in constant with no flag, environment variable, or config key behind it, so pruning (or deleting the directory) is the only lever you have. `--force` on an ingest bypasses the cache for that one run, but still writes the fresh response back.
+
+Deleting the directory by hand (`rm -rf ~/.cache/pvmt/http`) is equally safe, just less selective — and unlike `pvmt cache prune` it takes no confirmation and gives no size preview.

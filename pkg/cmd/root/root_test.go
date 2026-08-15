@@ -478,6 +478,26 @@ func TestSkipMiddleware_ExemptCommands(t *testing.T) {
 	}
 }
 
+// TestRoot_CacheGroupRegistered pins the `pvmt cache prune` wiring. The
+// command exists so users can reclaim the unbounded HTTP cache
+// (solvent-streets-b136); an unregistered group would leave the eviction
+// code unreachable while every unit test still passed.
+func TestRoot_CacheGroupRegistered(t *testing.T) {
+	cmd := NewCmdRoot(testFactory())
+	sub, _, err := cmd.Find([]string{"cache", "prune"})
+	if err != nil {
+		t.Fatalf("`pvmt cache prune` not reachable: %v", err)
+	}
+	if sub.Name() != "prune" || sub.Parent().Name() != "cache" {
+		t.Fatalf("resolved to %q under %q, want prune under cache", sub.Name(), sub.Parent().Name())
+	}
+	for _, name := range []string{"max-age", "max-size", "dry-run"} {
+		if sub.Flags().Lookup(name) == nil {
+			t.Errorf("`cache prune` is missing --%s", name)
+		}
+	}
+}
+
 // TestCompletion_DefaultSubcommandEnabled guards byob-command-shape.4: the
 // auto-generated `completion <shell>` subcommand must stay wired so users
 // can `eval "$(pvmt completion bash)"` without us hand-writing scripts.

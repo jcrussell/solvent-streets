@@ -98,7 +98,7 @@ func httpClientFactory(f *cmdutil.Factory, cacheTTL time.Duration) func() (*http
 		if err != nil {
 			return nil, err
 		}
-		cacheDir := filepath.Join(p.Cache, "http")
+		cacheDir := p.HTTPCacheDir()
 		if err := paths.EnsureDir(cacheDir); err != nil {
 			if errors.Is(err, fs.ErrPermission) {
 				return nil, cmdutil.Hintf(err, "check filesystem permissions on %s", p.Cache)
