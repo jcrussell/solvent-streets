@@ -3,11 +3,16 @@ package all
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/jcrussell/solvent-streets/internal/config"
+	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/units"
+	"github.com/jcrussell/solvent-streets/pkg/cmd/cmdtest"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
@@ -87,4 +92,109 @@ func TestForEachResource_ErrAllSourcesFailedContinues(t *testing.T) {
 			t.Errorf("cancellation must abort after the first resource; visited %d", visited)
 		}
 	})
+}
+
+// ingestTestBoundary is a valid polygon so the ingest path can derive a bbox
+// from the cached boundary without any network access.
+const ingestTestBoundary = `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
+
+// reqCtxKey marks the context handed to ExecuteContext so the test can assert
+// it reaches the ingest run — the property the retired execSub helper existed
+// to preserve (ExecuteContext, not Execute).
+type reqCtxKey struct{}
+
+// ingestFactory builds a factory whose city has no configured sources
+// (overpass off, no arcgis_url), so each per-resource ingest resolves an empty
+// source list, fetches nothing, and returns ErrNoResults — the fan-out
+// behavior under test, with no network involved.
+func ingestFactory(ios *iostreams.IOStreams, store db.Store) *cmdutil.Factory {
+	city := cmdtest.NewTestCity()
+	cfg := cmdtest.NewTestConfig(city)
+	return &cmdutil.Factory{
+		IOStreams:   ios,
+		CityDB:      func() (db.Store, error) { return store, nil },
+		CurrentCity: func() (*config.CityConfig, error) { return city, nil },
+		Config:      func() (*config.Config, error) { return cfg, nil },
+		HttpClient:  func() (*http.Client, error) { return &http.Client{}, nil },
+		UnitSystem:  func() units.System { return units.Imperial },
+	}
+}
+
+// TestAllIngest_InProcessFanOut pins the behavior `all ingest` used to get from
+// building a throwaway ingest cobra command per resource and running it via
+// ExecuteContext: every resource is visited and the request context reaches
+// each run.
+//
+// The load-bearing assertion is the empty stderr warning check. Every ingest
+// failure mode here lands on nil from the command — forEachResource skips
+// ErrNoResults and warn-continues everything else — so only the absence of a
+// "<resource> failed:" warning (cmdutil.Warnf) distinguishes "each resource
+// reached the no-sources ErrNoResults exit" from "each resource blew up early
+// and was swallowed". That is what catches, e.g., an Options literal that
+// leaves Source at its "" zero value instead of cmdutil.SourceAll: GetBoundary
+// still runs (it precedes resolveSources), so the call counts alone would not
+// notice.
+func TestAllIngest_InProcessFanOut(t *testing.T) {
+	ios, _, _, errBuf := iostreams.Test()
+	boundaryCalls, ctxSeen := 0, 0
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func(ctx context.Context) (string, error) {
+			boundaryCalls++
+			if ctx.Value(reqCtxKey{}) != nil {
+				ctxSeen++
+			}
+			return ingestTestBoundary, nil
+		},
+		// Tripwire, not coverage: the no-sources fixture returns ErrNoResults
+		// upstream of any write, so this is unreachable unless that ordering
+		// changes.
+		UpsertFeaturesFunc: func(_ context.Context, _ resource.Type, _ []db.Feature, _ []string) error {
+			t.Error("UpsertFeatures called; an empty fetch must return before touching the DB")
+			return nil
+		},
+	}
+
+	cmd := NewCmdAll(ingestFactory(ios, store))
+	cmd.SetArgs([]string{"ingest"})
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	ctx := context.WithValue(context.Background(), reqCtxKey{}, "req")
+	if err := cmd.ExecuteContext(ctx); err != nil {
+		t.Fatalf("all ingest = %v, want nil (per-resource ErrNoResults is skipped)", err)
+	}
+	if strings.Contains(errBuf.String(), "failed:") {
+		t.Errorf("a resource failed and was warn-swallowed; want every resource to reach ErrNoResults cleanly.\nstderr:\n%s", errBuf.String())
+	}
+	if boundaryCalls != len(resource.All) {
+		t.Errorf("ingested %d resources, want %d — the fan-out must visit every resource", boundaryCalls, len(resource.All))
+	}
+	if ctxSeen != len(resource.All) {
+		t.Errorf("request context reached %d of %d ingest runs; a cancellable ctx must propagate to each", ctxSeen, len(resource.All))
+	}
+}
+
+// TestAllIngest_CancelledContextAborts: a cancelled request context must stop
+// the fan-out before any per-resource ingest work happens.
+func TestAllIngest_CancelledContextAborts(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	boundaryCalls := 0
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) {
+			boundaryCalls++
+			return ingestTestBoundary, nil
+		},
+	}
+
+	cmd := NewCmdAll(ingestFactory(ios, store))
+	cmd.SetArgs([]string{"ingest"})
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := cmd.ExecuteContext(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("all ingest = %v, want context.Canceled", err)
+	}
+	if boundaryCalls != 0 {
+		t.Errorf("ingest ran %d times after cancellation; want 0", boundaryCalls)
+	}
 }

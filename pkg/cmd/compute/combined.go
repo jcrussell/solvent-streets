@@ -263,6 +263,17 @@ func (cr *combinedRunner) save(ctx context.Context, p combinedPass) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("compute %s cancelled: %w", p.label, err)
 	}
+	// Only the aggregate ComputeResult is persisted — deliberately no
+	// SaveHexStats, unlike doCompute. ListHexStats has exactly one caller in
+	// the tree (export's aggregateHexStats), and it only ever asks for the
+	// resource.All types — "roads", "parking", "sidewalks" (× ":city") — so
+	// "combined"/"combined:city" hex rows would never be read; every combined
+	// consumer goes through LatestComputeResult instead. Nor would they all
+	// render if something did read them: the export grid (cityHexGrid) agrees
+	// with the grid used here on hex ids, but additionally drops sliver hexes,
+	// so that subset of the rows would land on hexes the export excludes and
+	// be silently dropped by buildHexFeature's hexMap lookup. Writing them
+	// would add a row per covered hex per scope for zero readers.
 	if err := cr.store.SaveComputeResult(ctx, db.ComputeResult{
 		ResourceType: p.label,
 		TotalArea:    area,

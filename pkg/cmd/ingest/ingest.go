@@ -72,6 +72,26 @@ func NewCmdIngest(f *cmdutil.Factory, rt resource.Source, runF func(context.Cont
 	return cmd
 }
 
+// RunResourceForCity ingests a single resource type against the already
+// city-scoped factory f. `all ingest` calls it in-process — instead of
+// building a throwaway ingest cobra command and re-parsing flags through it —
+// so the fan-out uses the same mechanism as `all compute`'s
+// compute.RunResourceForCity. It mirrors the Options NewCmdIngest builds at
+// their flag defaults: `all ingest` registers no --source/--force/--dry-run
+// flags of its own, so there is nothing to forward and Source is pinned to
+// the same cmdutil.SourceAll default the flag would have supplied.
+func RunResourceForCity(ctx context.Context, f *cmdutil.Factory, rt resource.Source) error {
+	opts := &Options{
+		IO:           f.IOStreams,
+		CityDB:       f.CityDB,
+		CurrentCity:  f.CurrentCity,
+		HttpClient:   f.HttpClient,
+		ResourceType: rt,
+		Source:       cmdutil.SourceAll,
+	}
+	return runIngest(ctx, opts)
+}
+
 func runIngestAllCities(ctx context.Context, f *cmdutil.Factory, opts *Options) error {
 	return cmdutil.ForEachCity(ctx, f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
 		cityOpts := *opts

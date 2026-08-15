@@ -45,7 +45,7 @@ func newAllIngest(f *cmdutil.Factory) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmdutil.ForEachCity(cmd.Context(), f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
 				return forEachResource(f.IOStreams, func(rt resource.Source) error {
-					return execSub(cmd.Context(), ingest.NewCmdIngest(cf, rt, nil), "--source", "all")
+					return ingest.RunResourceForCity(cmd.Context(), cf, rt)
 				})
 			})
 		},
@@ -112,18 +112,4 @@ func forEachResource(ios *iostreams.IOStreams, fn func(resource.Source) error) e
 		}
 	}
 	return nil
-}
-
-func execSub(ctx context.Context, cmd *cobra.Command, args ...string) error {
-	// cobra.Command.SetArgs(nil) falls back to os.Args[1:]; force empty.
-	if args == nil {
-		args = []string{}
-	}
-	cmd.SetArgs(args)
-	cmd.SilenceErrors = true
-	cmd.SilenceUsage = true
-	// ExecuteContext (not Execute) so the freshly-built child sees the parent's
-	// signal-cancelled context; Execute would fall back to context.Background()
-	// and leave the nested ingest/compute run uninterruptible.
-	return cmd.ExecuteContext(ctx)
 }

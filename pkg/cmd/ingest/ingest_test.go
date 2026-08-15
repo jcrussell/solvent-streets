@@ -157,6 +157,102 @@ func TestNewCmdIngest_RunFInjection(t *testing.T) {
 	}
 }
 
+// noSourceBoundary is a valid polygon so runIngest can derive a bbox without
+// touching the network.
+const noSourceBoundary = `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
+
+// TestRunResourceForCity_MatchesCommandDefaults pins the in-process entry
+// point `all ingest` uses in place of executing a nested ingest cobra command
+// with "--source all". Every default the retired flag-parse supplied must
+// still hold: Source defaults to "all" (a zero-value Source would fail in
+// resolveSources with "resolving source" long before ErrNoResults), --force is
+// off (so the cached boundary is used instead of re-fetching Nominatim), and
+// --dry-run is off (so no plan is printed and the real path runs).
+func TestRunResourceForCity_MatchesCommandDefaults(t *testing.T) {
+	ios, _, out, errBuf := iostreams.Test()
+	// A city with no sources at all (overpass off, no arcgis_url) makes
+	// AllSources empty, so the run reaches the "nothing fetched" branch
+	// without any network access.
+	city := cmdtest.NewTestCity()
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return noSourceBoundary, nil },
+	}
+	f := &cmdutil.Factory{
+		IOStreams:   ios,
+		CityDB:      func() (db.Store, error) { return store, nil },
+		CurrentCity: func() (*config.CityConfig, error) { return city, nil },
+		Config:      func() (*config.Config, error) { return cmdtest.NewTestConfig(city), nil },
+		HttpClient:  func() (*http.Client, error) { return &http.Client{}, nil },
+	}
+
+	err := RunResourceForCity(context.Background(), f, &resource.Pavement{})
+	if !errors.Is(err, cmdutil.ErrNoResults) {
+		t.Fatalf("RunResourceForCity = %v, want ErrNoResults", err)
+	}
+	if !strings.Contains(errBuf.String(), "Using cached boundary") {
+		t.Errorf("expected the cached-boundary path (force=false), stderr = %q", errBuf.String())
+	}
+	if strings.Contains(out.String(), "[dry-run]") {
+		t.Errorf("expected dry-run=false, stdout = %q", out.String())
+	}
+}
+
+// TestRunResourceForCity_UsesTheFactoryItIsGiven pins that the run reads its
+// city and store from the factory ARGUMENT, not from any parent it was derived
+// from. `all ingest` hands over the per-city factory ForEachCity built with
+// withCity — a copy whose CurrentCity/CityDB are rebound — so a stale capture
+// of the parent's closures would silently ingest the wrong city's data into
+// the wrong store. Two factories with distinct cities and stores make that
+// failure observable.
+func TestRunResourceForCity_UsesTheFactoryItIsGiven(t *testing.T) {
+	ios, _, _, errBuf := iostreams.Test()
+
+	parentCity := cmdtest.NewTestCity()
+	parentCity.Name = "Parent City"
+	parentCalls := 0
+	parentStore := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) {
+			parentCalls++
+			return noSourceBoundary, nil
+		},
+	}
+	parent := &cmdutil.Factory{
+		IOStreams:   ios,
+		CityDB:      func() (db.Store, error) { return parentStore, nil },
+		CurrentCity: func() (*config.CityConfig, error) { return parentCity, nil },
+		Config:      func() (*config.Config, error) { return cmdtest.NewTestConfig(parentCity), nil },
+		HttpClient:  func() (*http.Client, error) { return &http.Client{}, nil },
+	}
+
+	// The city-scoped copy, shaped like cmdutil's withCity: same IO/Config/
+	// HttpClient, rebound CurrentCity + CityDB.
+	scopedCity := cmdtest.NewTestCity()
+	scopedCity.Name = "Scoped City"
+	scopedCalls := 0
+	scopedStore := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) {
+			scopedCalls++
+			return noSourceBoundary, nil
+		},
+	}
+	scoped := *parent
+	scoped.CurrentCity = func() (*config.CityConfig, error) { return scopedCity, nil }
+	scoped.CityDB = func() (db.Store, error) { return scopedStore, nil }
+
+	if err := RunResourceForCity(context.Background(), &scoped, &resource.Pavement{}); !errors.Is(err, cmdutil.ErrNoResults) {
+		t.Fatalf("RunResourceForCity = %v, want ErrNoResults", err)
+	}
+	if scopedCalls != 1 {
+		t.Errorf("scoped store read %d times, want 1", scopedCalls)
+	}
+	if parentCalls != 0 {
+		t.Errorf("parent store read %d times; the scoped factory's store must be the only one used", parentCalls)
+	}
+	if !strings.Contains(errBuf.String(), scopedCity.Name) || strings.Contains(errBuf.String(), parentCity.Name) {
+		t.Errorf("expected the run to name %q and never %q, stderr = %q", scopedCity.Name, parentCity.Name, errBuf.String())
+	}
+}
+
 type failingSource struct{ name string }
 
 func (s *failingSource) Name() string { return s.name }

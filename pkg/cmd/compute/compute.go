@@ -118,8 +118,8 @@ func NewCmdCompute(f *cmdutil.Factory, rt resource.Source, runF func(context.Con
 // RunResourceForCity computes stats for a single resource type against the
 // already city-scoped factory f, reusing the caller-supplied clipped hex grid
 // (nil = build one for this run). `all compute` calls it in-process — instead
-// of the cobra execSub path — so one clipped grid can be shared across the
-// per-resource passes. It mirrors the Options that NewCmdCompute builds and
+// of executing a nested cobra command — so one clipped grid can be shared
+// across the per-resource passes. It mirrors the Options NewCmdCompute builds and
 // runs the same single-city path (TTY/JSON routing included).
 func RunResourceForCity(ctx context.Context, f *cmdutil.Factory, rt resource.Source, grid []geo.Hex) error {
 	opts := &Options{
