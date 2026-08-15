@@ -139,6 +139,29 @@ func (c *Config) resolveHexEdgeForCity(city *CityConfig) (float64, Source) {
 	return c.resolveHexEdge()
 }
 
+// resolveMinHexArea returns the top-level heatmap sliver threshold and its
+// source. There is no PVMT_ env override for display.min_hex_area, so the
+// chain is file > default — one layer shorter than resolveHexEdge's.
+func (c *Config) resolveMinHexArea() (float64, Source) {
+	if c.Display.MinHexArea > 0 {
+		return c.Display.MinHexArea, Source{Kind: SourceFile, Detail: "display.min_hex_area"}
+	}
+	return DefaultMinHexArea, Source{Kind: SourceDefault}
+}
+
+// resolveMinHexAreaForCity returns the sliver threshold for a city and its
+// source (city > file > default), mirroring resolveHexEdgeForCity — the two
+// fields are coupled, so they resolve through the same shape.
+func (c *Config) resolveMinHexAreaForCity(city *CityConfig) (float64, Source) {
+	if city != nil && city.MinHexArea > 0 {
+		return city.MinHexArea, Source{
+			Kind:   SourceFile,
+			Detail: fmt.Sprintf("cities[%s].min_hex_area", city.Slug()),
+		}
+	}
+	return c.resolveMinHexArea()
+}
+
 // forecastProvenance records a source label for each resolved forecast
 // field. Every field is populated after resolveForecast returns.
 type forecastProvenance struct {
@@ -175,6 +198,21 @@ func fileForecastProv(fc *ForecastConfig) forecastProvenance {
 	if fc.DecayRate > 0 {
 		p.DecayRate = Source{Kind: SourceFile, Detail: "forecast.decay_rate"}
 	}
+	// GrowthRate has no "unset" sentinel (0 is a legitimate "no growth"), so an
+	// explicit `growth_rate = 0` is labeled SourceDefault here rather than
+	// SourceFile (solvent-streets-22kp). Deliberately left alone: no production
+	// code reads forecastProvenance.GrowthRate. It is set here, in
+	// applyCityForecastProv, and in applyDefaultForecastProv, and consumed only
+	// by provenance_test.go's "negative per-city growth_rate is not dropped"
+	// case, which asserts the city-layer label — so a future fix must update
+	// that test, but changes nothing a user sees: Config.Resolve does not emit
+	// forecast.growth_rate at any layer, so `config show --sources` never prints
+	// this label.
+	//
+	// The same `!= 0` sentinel in applyCityForecastProv is NOT inert — there it
+	// drops the value as well as the label, so a city cannot opt out of a
+	// positive top-level growth rate. That is solvent-streets-r312, and it needs
+	// a presence bit carried through the include merge, not a comment.
 	if fc.GrowthRate != 0 {
 		p.GrowthRate = Source{Kind: SourceFile, Detail: "forecast.growth_rate"}
 	}
@@ -288,13 +326,16 @@ func applyDefaultForecastProv(fc *ForecastConfig, p *forecastProvenance) {
 // Fields are emitted in a stable order: top-level first, then one block
 // per city containing only the fields that city explicitly overrides.
 func (c *Config) Resolve(flagUnits string) []ResolvedField {
-	fields := make([]ResolvedField, 0, 4+3*len(c.Cities))
+	fields := make([]ResolvedField, 0, 5+4*len(c.Cities))
 
 	unitsVal, unitsSrc := c.resolveUnits(flagUnits)
 	fields = append(fields, ResolvedField{Key: "units", Value: unitsVal.String(), Source: unitsSrc})
 
 	hexVal, hexSrc := c.resolveHexEdge()
 	fields = append(fields, ResolvedField{Key: "grid.hex_edge_m", Value: hexVal, Source: hexSrc})
+
+	areaVal, areaSrc := c.resolveMinHexArea()
+	fields = append(fields, ResolvedField{Key: "display.min_hex_area", Value: areaVal, Source: areaSrc})
 
 	fc, fprov := c.resolveForecast(nil)
 	fields = append(fields,
@@ -320,6 +361,13 @@ func (c *Config) Resolve(flagUnits string) []ResolvedField {
 				Key:    fmt.Sprintf("cities[%s].hex_edge_m", slug),
 				Value:  city.HexEdgeM,
 				Source: Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].hex_edge_m", slug)},
+			})
+		}
+		if city.MinHexArea > 0 {
+			fields = append(fields, ResolvedField{
+				Key:    fmt.Sprintf("cities[%s].min_hex_area", slug),
+				Value:  city.MinHexArea,
+				Source: Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].min_hex_area", slug)},
 			})
 		}
 		if city.Forecast == nil {

@@ -398,6 +398,12 @@ func ResolvedTOML(cfg *config.Config) string {
 		for i := range cities {
 			rf := cfg.ResolvedForecast(&cities[i])
 			cities[i].HexEdgeM = cfg.ResolvedHexEdge(&cities[i])
+			// min_hex_area is flattened per-city by the include merge like
+			// hex_edge_m, and CityConfig emits it unconditionally (no
+			// omitempty), so without this every city would publish a
+			// fabricated `min_hex_area = 0.0` next to a top level showing the
+			// resolved default.
+			cities[i].MinHexArea = cfg.ResolvedMinHexArea(&cities[i])
 			cities[i].Forecast = &rf
 		}
 		resolved.Cities = cities

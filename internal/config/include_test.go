@@ -542,6 +542,207 @@ hex_edge_m = 55
 	}
 }
 
+// TestInclude_FlattensMinHexArea pins l51o: an included example's
+// [display].min_hex_area is carried onto each of its cities by the merge, the
+// way hex_edge_m is. Without the flatten the child's [display] is discarded
+// with the rest of its non-[[cities]] settings and every city silently falls
+// back to the parent/default threshold — which is wrong precisely because the
+// example also tuned hex_edge_m, and the two are coupled.
+func TestInclude_FlattensMinHexArea(t *testing.T) {
+	dir := t.TempDir()
+	writeTOML(t, dir, "leaf/pvmt.toml", `
+[grid]
+hex_edge_m = 40
+[display]
+min_hex_area = 20
+[[cities]]
+name = "Reno, NV"
+overpass = true
+[[cities]]
+name = "Sparks, NV"
+overpass = true
+min_hex_area = 5
+`)
+	top := writeTOML(t, dir, "all/pvmt.toml", "[[include]]\npath = \"../leaf/pvmt.toml\"\n")
+	cfg, err := Load(top)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	// The merged parent's own [display] is empty, so an unflattened threshold
+	// would resolve to DefaultMinHexArea (100), not 20.
+	if cfg.Display.MinHexArea != 0 {
+		t.Fatalf("merged top-level display.min_hex_area = %g; want 0 (parent's own, child's discarded)", cfg.Display.MinHexArea)
+	}
+	reno := cityBySlug(t, cfg, "reno-nv")
+	if got := cfg.ResolvedMinHexArea(&reno); got != 20 {
+		t.Errorf("Reno min hex area = %g; want 20 (flattened from leaf [display])", got)
+	}
+	// The coupled hex edge travels with it.
+	if got := cfg.ResolvedHexEdge(&reno); got != 40 {
+		t.Errorf("Reno hex edge = %g; want 40", got)
+	}
+	sparks := cityBySlug(t, cfg, "sparks-nv")
+	if got := cfg.ResolvedMinHexArea(&sparks); got != 5 {
+		t.Errorf("Sparks min hex area = %g; want 5 (per-city override)", got)
+	}
+}
+
+// TestInclude_ParentMinHexAreaRejected pins the invariant half of l51o: once
+// min_hex_area is per-city calibration that the merge flattens, an including
+// file may no longer set the top-level form. A parent threshold sized for the
+// default 100 m grid would otherwise apply to every included city that did not
+// tune its own — and a metro that flattened a fine hex edge (greater-boston's
+// 60 m Cambridge grid, ~9.4k m² hexes) would have every hex filtered out,
+// blanking the heatmap and the /play board with no error anywhere in the
+// pipeline. The gate is field-scoped: the rest of [display] stays legal in a
+// parent, which the second subtest pins so a future tightening to the whole
+// table breaks loudly (examples/all sets [export].title and would follow).
+func TestInclude_ParentMinHexAreaRejected(t *testing.T) {
+	leaf := `
+[grid]
+hex_edge_m = 60
+[[cities]]
+name = "Cambridge, MA"
+overpass = true
+`
+	t.Run("top-level min_hex_area is an error", func(t *testing.T) {
+		dir := t.TempDir()
+		writeTOML(t, dir, "leaf/pvmt.toml", leaf)
+		top := writeTOML(t, dir, "all/pvmt.toml", `
+[display]
+min_hex_area = 20000
+[[include]]
+path = "../leaf/pvmt.toml"
+`)
+		_, err := Load(top)
+		if err == nil || !errors.Is(err, ErrInvalidConfig) {
+			t.Fatalf("top-level min_hex_area in an including file should be ErrInvalidConfig, got %v", err)
+		}
+		if !strings.Contains(err.Error(), "min_hex_area") {
+			t.Errorf("error %v should name the rejected field", err)
+		}
+	})
+
+	t.Run("other display/export settings stay legal", func(t *testing.T) {
+		dir := t.TempDir()
+		writeTOML(t, dir, "leaf/pvmt.toml", leaf)
+		top := writeTOML(t, dir, "all/pvmt.toml", `
+[display]
+units = "metric"
+[export]
+title = "Combined"
+[[include]]
+path = "../leaf/pvmt.toml"
+`)
+		if _, err := Load(top); err != nil {
+			t.Fatalf("[display].units / [export].title in an including file must stay legal, got %v", err)
+		}
+	})
+}
+
+// TestInclude_PerCityMinHexAreaBeatsParent exercises the resolution l51o exists
+// to arbitrate, end-to-end through a real merge rather than a struct literal: a
+// child that tuned min_hex_area keeps its value, while a sibling city that set
+// nothing falls through to the parent's top level. The parent value has to be
+// injected post-Load, since a parent that declares it in TOML is now rejected
+// outright (TestInclude_ParentMinHexAreaRejected) — this is the runtime shape a
+// programmatically-built config can still reach, and it pins that the flattened
+// per-city value wins rather than being shadowed.
+func TestInclude_PerCityMinHexAreaBeatsParent(t *testing.T) {
+	dir := t.TempDir()
+	writeTOML(t, dir, "leaf/pvmt.toml", `
+[display]
+min_hex_area = 20
+[[cities]]
+name = "Reno, NV"
+overpass = true
+`)
+	top := writeTOML(t, dir, "all/pvmt.toml", `
+[[include]]
+path = "../leaf/pvmt.toml"
+[[cities]]
+name = "Elko, NV"
+overpass = true
+`)
+	cfg, err := Load(top)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	cfg.Display.MinHexArea = 500
+
+	reno := cityBySlug(t, cfg, "reno-nv")
+	if got := cfg.ResolvedMinHexArea(&reno); got != 20 {
+		t.Errorf("Reno min hex area = %g; want 20 (flattened per-city value beats the parent's 500)", got)
+	}
+	// The parent's own city never went through the flatten, so it inherits.
+	elko := cityBySlug(t, cfg, "elko-nv")
+	if got := cfg.ResolvedMinHexArea(&elko); got != 500 {
+		t.Errorf("Elko min hex area = %g; want 500 (no per-city value, inherits the top level)", got)
+	}
+}
+
+// TestInclude_ConflictingMinHexArea: the sliver threshold gets the same
+// hard-error treatment as the hex edge it is coupled to (l51o) — erroring on
+// one and silently first-winning on the other would be incoherent. An unset or
+// identical value on the second include still defers to the first.
+func TestInclude_ConflictingMinHexArea(t *testing.T) {
+	writeThree := func(t *testing.T, aDisplay, bDisplay string) string {
+		t.Helper()
+		dir := t.TempDir()
+		writeTOML(t, dir, "a/pvmt.toml", aDisplay+`
+[[cities]]
+name = "Reno, NV"
+overpass = true
+`)
+		writeTOML(t, dir, "b/pvmt.toml", bDisplay+`
+[[cities]]
+name = "Reno, NV"
+overpass = true
+`)
+		return writeTOML(t, dir, "all/pvmt.toml", `
+[[include]]
+path = "../a/pvmt.toml"
+[[include]]
+path = "../b/pvmt.toml"
+`)
+	}
+
+	t.Run("conflict is an error", func(t *testing.T) {
+		top := writeThree(t, "[display]\nmin_hex_area = 20\n", "[display]\nmin_hex_area = 60\n")
+		_, err := Load(top)
+		if err == nil || !errors.Is(err, ErrInvalidConfig) {
+			t.Fatalf("conflicting min_hex_area across includes should be ErrInvalidConfig, got %v", err)
+		}
+		if !strings.Contains(err.Error(), "min_hex_area") {
+			t.Errorf("error %v should name the conflicting field", err)
+		}
+	})
+
+	t.Run("identical is fine", func(t *testing.T) {
+		top := writeThree(t, "[display]\nmin_hex_area = 20\n", "[display]\nmin_hex_area = 20\n")
+		cfg, err := Load(top)
+		if err != nil {
+			t.Fatalf("identical min_hex_area should merge cleanly, got %v", err)
+		}
+		reno := cityBySlug(t, cfg, "reno-nv")
+		if got := cfg.ResolvedMinHexArea(&reno); got != 20 {
+			t.Errorf("Reno min hex area = %g; want 20", got)
+		}
+	})
+
+	t.Run("unset on second defers to first", func(t *testing.T) {
+		top := writeThree(t, "[display]\nmin_hex_area = 20\n", "")
+		cfg, err := Load(top)
+		if err != nil {
+			t.Fatalf("unset second min_hex_area should merge cleanly, got %v", err)
+		}
+		reno := cityBySlug(t, cfg, "reno-nv")
+		if got := cfg.ResolvedMinHexArea(&reno); got != 20 {
+			t.Errorf("Reno min hex area = %g; want 20 (first include's value kept)", got)
+		}
+	})
+}
+
 // TestInclude_ParentOwnCitiesAndIncludes: a parent that declares its own
 // [[cities]] and also includes. A slug present in both keeps the parent's
 // direct city and unions the include's tags in (solvent-streets-8je6).

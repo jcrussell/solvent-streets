@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -239,6 +240,45 @@ func TestResolvedTOML_StripsZeroCurrentBudget(t *testing.T) {
 	out := ResolvedTOML(calibrated)
 	if !strings.Contains(out, "current_budget") {
 		t.Errorf("ResolvedTOML dropped a configured current_budget:\n%s", out)
+	}
+}
+
+// TestResolvedTOML_ShowsPerCityMinHexArea pins l51o's Config-tab half: the
+// per-city min_hex_area must be published as its *resolved* value. CityConfig
+// emits the field unconditionally, so an unresolved city would print
+// `min_hex_area = 0.0` right below a top level showing the resolved default —
+// a misleading published artifact.
+func TestResolvedTOML_ShowsPerCityMinHexArea(t *testing.T) {
+	cfg := &config.Config{
+		Display: config.DisplayConfig{MinHexArea: 40},
+		Cities: []config.CityConfig{
+			{Name: "Inherits"},
+			{Name: "Fine City", HexEdgeM: 25, MinHexArea: 5},
+		},
+	}
+	out := ResolvedTOML(cfg)
+	if strings.Contains(out, "min_hex_area = 0.0") {
+		t.Errorf("Config tab published an unresolved min_hex_area = 0.0:\n%s", out)
+	}
+	// The inheriting city resolves to the top-level 40 (so 40 appears twice:
+	// top-level [display] plus that city), and the override keeps its 5.
+	if got := strings.Count(out, "min_hex_area = 40.0"); got != 2 {
+		t.Errorf("expected top-level and inherited min_hex_area = 40.0 (2 occurrences), got %d:\n%s", got, out)
+	}
+	if !strings.Contains(out, "min_hex_area = 5.0") {
+		t.Errorf("per-city min_hex_area override (5) not shown in Config tab:\n%s", out)
+	}
+}
+
+// TestResolvedTOML_MinHexAreaFallsBackToDefault: a config that sets no
+// threshold anywhere publishes the applied default for both the top level and
+// every city, rather than a zero that reads as "slivers are never dropped".
+func TestResolvedTOML_MinHexAreaFallsBackToDefault(t *testing.T) {
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Nowhere"}}}
+	out := ResolvedTOML(cfg)
+	want := fmt.Sprintf("min_hex_area = %.1f", config.DefaultMinHexArea)
+	if got := strings.Count(out, want); got != 2 {
+		t.Errorf("expected %q twice (top level + city), got %d:\n%s", want, got, out)
 	}
 }
 

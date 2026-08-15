@@ -96,6 +96,60 @@ func TestFilterHexSlivers_DropsBelowThreshold(t *testing.T) {
 	}
 }
 
+// TestCityHexGrid_HonorsPerCityMinHexArea pins l51o's runtime half: the shared
+// grid resolves the sliver threshold per city (Config.ResolvedMinHexArea), not
+// from the top level alone, so a city that tuned min_hex_area alongside its hex
+// edge actually gets its threshold. Because cityHexGrid is the single source of
+// the grid for BuildHexGeoJSON and BuildPlayHexes, the /play board moves with
+// the heatmap — asserted here so the two stay in lock-step.
+func TestCityHexGrid_HonorsPerCityMinHexArea(t *testing.T) {
+	ctx := context.Background()
+	entry := playHexEntry(nil)
+	_, lon0, lat0, err := entry.BBoxAndCenter(ctx)
+	if err != nil {
+		t.Fatalf("BBoxAndCenter: %v", err)
+	}
+	proj := geo.NewUTMProjector(lon0, lat0)
+
+	base, err := cityHexGrid(ctx, entry, proj)
+	if err != nil {
+		t.Fatalf("cityHexGrid (default threshold): %v", err)
+	}
+	if len(base) == 0 {
+		t.Fatal("cityHexGrid returned no hexes for the default threshold")
+	}
+
+	// A full 200 m-edge hex is 3√3/2·200² ≈ 103.9k sqm, so a 100k threshold
+	// keeps only unclipped hexes and drops every boundary sliver.
+	tuned := playHexEntry(nil)
+	tuned.City.MinHexArea = 100_000
+	got, err := cityHexGrid(ctx, tuned, proj)
+	if err != nil {
+		t.Fatalf("cityHexGrid (per-city threshold): %v", err)
+	}
+	if len(got) >= len(base) {
+		t.Errorf("per-city min_hex_area had no effect: %d hexes vs %d at the default threshold",
+			len(got), len(base))
+	}
+	if len(got) == 0 {
+		t.Fatal("test setup: per-city threshold dropped every hex, so the comparison is vacuous")
+	}
+
+	// The same value set at the top level (with no per-city override) must
+	// produce the identical grid — the per-city layer is an override, not a
+	// separate mechanism.
+	topLevel := playHexEntry(nil)
+	topLevel.Config.Display.MinHexArea = 100_000
+	viaTop, err := cityHexGrid(ctx, topLevel, proj)
+	if err != nil {
+		t.Fatalf("cityHexGrid (top-level threshold): %v", err)
+	}
+	if len(viaTop) != len(got) {
+		t.Errorf("top-level threshold kept %d hexes; per-city kept %d — the layers must resolve to the same grid",
+			len(viaTop), len(got))
+	}
+}
+
 // hexEntry builds a CityEntry whose ListHexStats returns rows from the given
 // map (keyed by full resource label, e.g. roads or roads:city).
 // LatestComputeResult is similarly keyed.

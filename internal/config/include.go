@@ -169,7 +169,7 @@ func resolveOneInclude(parent *Config, inc IncludeSpec, i int, dir string,
 // between two *different* city names (same slug, different Name) is an error —
 // that would otherwise silently drop one real city. When a slug already present
 // via a prior include reappears with a *different* non-empty calibration
-// (hex_edge_m/forecast), that too is an error (see checkCalibrationConflict):
+// (hex_edge_m/min_hex_area/forecast), that too is an error (see checkCalibrationConflict):
 // silently keeping the first and dropping the second hides a real disagreement.
 // Identical or empty calibration on the later include is fine (first wins). A
 // city the parent declared directly (not via include) is exempt from the
@@ -198,6 +198,7 @@ func mergeIncludedCities(parent, child *Config, includeTags []string, byslug map
 		merged := src
 		merged.Tags = unionTags(includeTags, src.Tags)
 		merged.HexEdgeM = child.effectiveHexEdge(&src)
+		merged.MinHexArea = child.effectiveMinHexArea(&src)
 		merged.Forecast = child.effectiveForecast(&src)
 		parent.Cities = append(parent.Cities, merged)
 		byslug[slug] = len(parent.Cities) - 1
@@ -212,10 +213,13 @@ func mergeIncludedCities(parent, child *Config, includeTags []string, byslug map
 // differ; an unset (empty) value on either side is not a conflict — it defers
 // to the value already stored (the long-standing "first wins for empty or
 // identical" behavior). Only a real disagreement — a different non-zero
-// hex_edge_m, or a differing non-nil forecast block — is rejected, so the
-// operator must reconcile the includes explicitly rather than have one silently
-// dropped. existing holds the first include's flattened calibration; child/src
-// describe the current include's source config and city.
+// hex_edge_m or min_hex_area, or a differing non-nil forecast block — is
+// rejected, so the operator must reconcile the includes explicitly rather than
+// have one silently dropped. min_hex_area is checked for the same reason it is
+// flattened: it is coupled to hex_edge_m, so erroring on a disagreeing edge
+// while letting a disagreeing threshold pass first-wins would be inconsistent.
+// existing holds the first include's flattened calibration; child/src describe
+// the current include's source config and city.
 func checkCalibrationConflict(existing *CityConfig, child *Config, src *CityConfig, slug string) error {
 	srcEdge := child.effectiveHexEdge(src)
 	if existing.HexEdgeM != 0 && srcEdge != 0 && existing.HexEdgeM != srcEdge {
@@ -223,6 +227,13 @@ func checkCalibrationConflict(existing *CityConfig, child *Config, src *CityConf
 			"city %q (slug %q) is included more than once with conflicting hex_edge_m "+
 				"(%g vs %g); reconcile the includes so they agree",
 			existing.Name, slug, existing.HexEdgeM, srcEdge))
+	}
+	srcArea := child.effectiveMinHexArea(src)
+	if existing.MinHexArea != 0 && srcArea != 0 && existing.MinHexArea != srcArea {
+		return errors.Join(ErrInvalidConfig, fmt.Errorf(
+			"city %q (slug %q) is included more than once with conflicting min_hex_area "+
+				"(%g vs %g); reconcile the includes so they agree",
+			existing.Name, slug, existing.MinHexArea, srcArea))
 	}
 	srcFc := child.effectiveForecast(src)
 	if existing.Forecast != nil && srcFc != nil && !reflect.DeepEqual(*existing.Forecast, *srcFc) {
@@ -262,6 +273,24 @@ func (c *Config) effectiveHexEdge(city *CityConfig) float64 {
 		return city.HexEdgeM
 	}
 	return c.Grid.HexEdgeM
+}
+
+// effectiveMinHexArea is effectiveHexEdge for the heatmap sliver threshold:
+// the value ResolvedMinHexArea would pick for city from this config's file
+// layers alone (per-city override, else this config's top-level [display]) —
+// no package default. Storing it as the merged city's MinHexArea is what keeps
+// an included example's tuned threshold alive under a merged config whose
+// top-level [display] belongs to the parent. It has to be flattened for the
+// same reason hex_edge_m is, and *because* hex_edge_m is: the two are coupled
+// (a finer grid wants a smaller sliver threshold), so flattening only the edge
+// would silently pair an example's fine grid with the parent's coarse
+// threshold. A zero result means "unset" and defers to the parent's top-level
+// value, then the package default, at runtime.
+func (c *Config) effectiveMinHexArea(city *CityConfig) float64 {
+	if city != nil && city.MinHexArea > 0 {
+		return city.MinHexArea
+	}
+	return c.Display.MinHexArea
 }
 
 // effectiveForecast folds this config's top-level [forecast] with city's

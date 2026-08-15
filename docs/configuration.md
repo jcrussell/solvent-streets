@@ -19,7 +19,7 @@ flowchart TD
     CLI -->|overrides| Env -->|overrides| City -->|overrides| Top -->|overrides| Default
 ```
 
-Fields that support per-city override: `hex_edge_m`, `boundary_relation_id`, all `[forecast]` fields (`initial_pci`, `decay_rate`, `growth_rate`, `years`, `cost_tiers`, `current_budget`, `treatment_cycle_years`). Per-city forecast merges field-by-field — set only the fields you want to override.
+Fields that support per-city override: `hex_edge_m`, `min_hex_area`, `boundary_relation_id`, all `[forecast]` fields (`initial_pci`, `decay_rate`, `growth_rate`, `years`, `cost_tiers`, `current_budget`, `treatment_cycle_years`). Per-city forecast merges field-by-field — set only the fields you want to override.
 
 `boundary_relation_id` (default unset) names an OSM admin_level=8 relation to fetch from Overpass instead of the usual Nominatim search by name. Set it when ingest fails with `nominatim returned no Polygon/MultiPolygon result for "<city>" (set [[cities]].boundary_relation_id to fetch the admin boundary from Overpass)` — that means Nominatim has the city as a node rather than a relation, and the boundary is reachable only via Overpass. Find the relation ID with [Overpass Turbo](https://overpass-turbo.eu/): `relation["name"="<city>"]["boundary"="administrative"]["admin_level"="8"];out;`. A relation whose bbox spans more than 5° is rejected as a likely county/state typo.
 
@@ -89,8 +89,8 @@ tags = ["Top 50"]
 
 - `path` is resolved relative to the including file's directory (absolute paths are used as-is).
 - Cities are merged by slug. A city reached through several includes is merged **once** with the **union** of the includes' (and its own) tags — so San Jose, present in both the Bay Area and Top 50 lists, ends up tagged `["Bay Area", "Top 50"]`.
-- Two **different** city names that slugify to the same value are a hard error (rather than silently dropping one). Cities with the **same** name across includes are the intended overlap; the **first** include to contribute a city wins on calibration (forecast/hex edge), later includes only add tags. Order includes so the more specific (metro) config comes before a broad national list.
-- Each included example's per-metro calibration (decay/growth/cost tiers, hex edge) is flattened into fully self-describing per-city overrides during the merge. Keep the including file's top-level `[grid]`/`[forecast]` **empty** — a value there would re-calibrate any city that had relied on a package default.
+- Two **different** city names that slugify to the same value are a hard error (rather than silently dropping one). Cities with the **same** name across includes are the intended overlap; the **first** include to contribute a city wins on calibration (forecast/hex edge/min hex area) when the later include leaves it unset or repeats the same value — a genuine disagreement is a hard error, so reconcile the includes. Later includes only add tags. Order includes so the more specific (metro) config comes before a broad national list.
+- Each included example's per-metro calibration (decay/growth/cost tiers, hex edge, min hex area) is flattened into fully self-describing per-city overrides during the merge. The including file must keep its top-level `[grid]`/`[forecast]` **and** `[display].min_hex_area` **empty** — a value there would re-calibrate any city that had relied on a package default, so it is rejected at load. The rest of `[display]` and `[export]` (`units`, `title`, …) is fine in the parent: those have no per-city layer. Set calibration per city or per example instead.
 - A file that declares `[[include]]` may omit `[[cities]]` of its own; the "at least one city" requirement is enforced after the merge.
 - Editing any included file changes the merged config's identity hash, so snapshots invalidate and `pvmt compute` reruns as expected.
 
@@ -152,7 +152,9 @@ Cost values are calibration inputs, not measurements — the shipped defaults ar
 
 ## Display
 
-`[display].min_hex_area` (square meters, default `100`) drops boundary-sliver hexes below that area from the heatmap, so partial edge cells don't skew the map or the per-hex stats. `[display].units` is covered under [Resolution hierarchy](#resolution-hierarchy).
+`[display].min_hex_area` (square meters, default `100`) drops boundary-sliver hexes below that area from the heatmap, so partial edge cells don't skew the map or the per-hex stats. It is coupled to `hex_edge_m` — a finer grid wants a smaller threshold — so it can also be set per city (`[[cities]].min_hex_area`), which wins over the top-level value; `0`/unset inherits. The per-city form is what an `[[include]]` flattens, so an included example's tuned threshold survives the merge alongside its hex edge; for the same reason a file that declares `[[include]]` may not set the top-level form at all (see [Including other configs](#including-other-configs-include)). Mind the coupling when tuning: a threshold larger than a full hex (`3√3/2 · edge²`, so ~9.4k m² at a 60 m edge) drops **every** hex and renders a blank map. It applies to both the heatmap and the `/play` board, which share one hex grid.
+
+`[display].units` is covered under [Resolution hierarchy](#resolution-hierarchy).
 
 ## Export
 

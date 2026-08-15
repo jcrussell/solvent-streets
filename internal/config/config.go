@@ -102,13 +102,23 @@ type DisplayConfig struct {
 	MinHexArea float64 `toml:"min_hex_area"`
 }
 
-// MinHexArea returns the effective heatmap sliver threshold in square
-// meters: the configured value if positive, else DefaultMinHexArea.
+// MinHexArea returns the effective top-level heatmap sliver threshold in
+// square meters: the configured value if positive, else DefaultMinHexArea.
+// Per-city callers want ResolvedMinHexArea.
 func (c *Config) MinHexArea() float64 {
-	if c.Display.MinHexArea > 0 {
-		return c.Display.MinHexArea
-	}
-	return DefaultMinHexArea
+	v, _ := c.resolveMinHexArea()
+	return v
+}
+
+// ResolvedMinHexArea returns the heatmap sliver threshold for a city:
+// per-city override if set, else the top-level resolution. Mirrors
+// ResolvedHexEdge, to which it is coupled — the threshold is an area in the
+// same projected units the hex edge sizes, so a city that tunes hex_edge_m
+// usually has to tune min_hex_area with it. There is no env layer (none
+// exists for display.min_hex_area), so the chain is city > file > default.
+func (c *Config) ResolvedMinHexArea(city *CityConfig) float64 {
+	v, _ := c.resolveMinHexAreaForCity(city)
+	return v
 }
 
 // UnitSystem returns the resolved display unit system. Precedence:
@@ -223,11 +233,22 @@ type CostTierCfg struct {
 }
 
 type CityConfig struct {
-	Name      string          `toml:"name"`
-	Overpass  bool            `toml:"overpass"`
-	ArcGISURL string          `toml:"arcgis_url"`
-	HexEdgeM  float64         `toml:"hex_edge_m"`
-	Forecast  *ForecastConfig `toml:"forecast,omitempty"`
+	Name      string  `toml:"name"`
+	Overpass  bool    `toml:"overpass"`
+	ArcGISURL string  `toml:"arcgis_url"`
+	HexEdgeM  float64 `toml:"hex_edge_m"`
+	// MinHexArea overrides [display].min_hex_area for this city (square
+	// meters; see DefaultMinHexArea). It exists because the threshold is
+	// coupled to HexEdgeM — a finer grid needs a smaller sliver threshold —
+	// and HexEdgeM is per-city. It is flattened onto the city by the
+	// [[include]] merge alongside hex_edge_m (see effectiveMinHexArea): an
+	// included example's [display].min_hex_area would otherwise be lost,
+	// since the including file's top-level tables are the parent's and the
+	// child's are discarded. Resolve via Config.ResolvedMinHexArea; zero or
+	// unset falls back to the top level, then to DefaultMinHexArea.
+	// Negative values are rejected at config load.
+	MinHexArea float64         `toml:"min_hex_area"`
+	Forecast   *ForecastConfig `toml:"forecast,omitempty"`
 	// Tags are optional grouping labels for the city selector and the
 	// compare/aggregate scope filter. A city is rendered under an <optgroup>
 	// for each of its tags (multi-membership); cities with no tags fall into
@@ -488,17 +509,26 @@ func (c *Config) validate(requireCities bool) error {
 		return errors.Join(ErrInvalidConfig, ErrNoCities)
 	}
 	// A config that pulls cities in via [[include]] must keep its own top-level
-	// [grid]/[forecast] empty. The merge flattens each included example's
-	// calibration into per-city overrides only for the fields that example set,
-	// so a non-empty top-level here would silently re-calibrate every city that
+	// calibration empty. The merge flattens each included example's calibration
+	// into per-city overrides only for the fields that example set, so a
+	// non-empty top-level here would silently re-calibrate every city that
 	// inherited a package default — hundreds of forecast numbers changing with no
 	// diagnostic. Reject it (documented invariant; no shipped example violates
 	// it). Runs both per-file (a bad including file, incl. transitive parents)
 	// and post-merge, where Include is still populated and the top-level tables
 	// are unchanged, so it stays satisfied.
-	if len(c.Include) > 0 && (!forecastIsZero(c.Forecast) || c.Grid.HexEdgeM > 0) {
+	//
+	// display.min_hex_area is gated for the same reason, and gated *because*
+	// hex_edge_m is: the two are coupled (effectiveMinHexArea), so a parent
+	// threshold sized for the default 100 m grid can silently blank a metro that
+	// flattened a fine hex edge — greater-boston's 60 m Cambridge grid has ~9.4k
+	// m² hexes, and filterHexSlivers drops every one of them under a 20k parent
+	// threshold with no error from BuildHexGeoJSON. The gate is field-scoped, not
+	// table-scoped: display.units carries no per-city layer and stays legal in an
+	// including file (examples/all relies on the rest of [display]/[export]).
+	if len(c.Include) > 0 && (!forecastIsZero(c.Forecast) || c.Grid.HexEdgeM > 0 || c.Display.MinHexArea > 0) {
 		return errors.Join(ErrInvalidConfig, errors.New(
-			"a config with [[include]] must keep top-level [grid]/[forecast] empty; "+
+			"a config with [[include]] must keep top-level [grid]/[forecast] and display.min_hex_area empty; "+
 				"they would silently re-calibrate included cities (set per-city or per-example instead)"))
 	}
 	if c.Grid.HexEdgeM < 0 {
@@ -579,13 +609,21 @@ func (c *Config) validateCities() error {
 }
 
 // validateCityFields checks the per-city field-shape invariants (hex edge,
-// boundary relation, data source, tags, forecast) for one city. Split from
-// validateCities, which keeps the name/slug/uniqueness loop, to hold each
+// min hex area, boundary relation, data source, tags, forecast) for one city.
+// Split from validateCities, which keeps the name/slug/uniqueness loop, to hold each
 // function's cognitive complexity in bounds.
 func validateCityFields(i int, city CityConfig) error {
 	if city.HexEdgeM < 0 {
 		return errors.Join(ErrInvalidConfig,
 			fmt.Errorf("cities[%d] (%s): hex_edge_m %g must be non-negative", i, city.Name, city.HexEdgeM))
+	}
+	// Mirrors the top-level display.min_hex_area check in validate: a negative
+	// literal would fall through ResolvedMinHexArea's `> 0` guard to the
+	// top-level/default value with no diagnostic, silently discarding the
+	// threshold the author meant to set. 0 is allowed (means "inherit").
+	if city.MinHexArea < 0 {
+		return errors.Join(ErrInvalidConfig,
+			fmt.Errorf("cities[%d] (%s): min_hex_area %g must be non-negative", i, city.Name, city.MinHexArea))
 	}
 	if city.BoundaryRelationID < 0 {
 		return errors.Join(ErrInvalidConfig,

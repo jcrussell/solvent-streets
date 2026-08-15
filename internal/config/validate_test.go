@@ -236,6 +236,60 @@ func TestConfig_Validate_MinHexArea_RejectsNegative(t *testing.T) {
 	}
 }
 
+// TestConfig_Validate_PerCityMinHexArea_RejectsNegative mirrors the top-level
+// check for the per-city override (l51o): ResolvedMinHexArea guards on `> 0`,
+// so a negative literal would silently fall through to the top-level value and
+// discard the threshold the author wrote. 0 is allowed — it means "inherit".
+func TestConfig_Validate_PerCityMinHexArea_RejectsNegative(t *testing.T) {
+	cfg := Config{
+		Cities: []CityConfig{{Name: "Oakland", Overpass: true, MinHexArea: -1}},
+	}
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for negative cities[].min_hex_area, got nil")
+	}
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Errorf("error %v does not chain to ErrInvalidConfig", err)
+	}
+	if !strings.Contains(err.Error(), "min_hex_area") {
+		t.Errorf("error %v should name the offending field", err)
+	}
+
+	ok := Config{
+		Cities: []CityConfig{{Name: "Oakland", Overpass: true, MinHexArea: 0}},
+	}
+	if err := ok.Validate(); err != nil {
+		t.Errorf("cities[].min_hex_area = 0 should be accepted (inherit), got %v", err)
+	}
+}
+
+// TestConfig_ResolvedMinHexArea pins the per-city resolution chain (l51o):
+// per-city override > top-level [display] > DefaultMinHexArea, with a nil city
+// treated as "no override". Mirrors ResolvedHexEdge, to which the threshold is
+// coupled.
+func TestConfig_ResolvedMinHexArea(t *testing.T) {
+	cases := map[string]struct {
+		top  float64
+		city *CityConfig
+		want float64
+	}{
+		"nothing set":            {0, &CityConfig{Name: "A"}, DefaultMinHexArea},
+		"top level only":         {400, &CityConfig{Name: "A"}, 400},
+		"city wins over top":     {400, &CityConfig{Name: "A", MinHexArea: 25}, 25},
+		"city wins over default": {0, &CityConfig{Name: "A", MinHexArea: 25}, 25},
+		"nil city uses top":      {400, nil, 400},
+		"nil city uses default":  {0, nil, DefaultMinHexArea},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := &Config{Display: DisplayConfig{MinHexArea: tc.top}}
+			if got := c.ResolvedMinHexArea(tc.city); got != tc.want {
+				t.Errorf("ResolvedMinHexArea() = %v; want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestConfig_Validate_CoordinateDecimals locks in itca: a negative or absurdly
 // large export.coordinate_decimals is rejected up front rather than silently
 // falling back to DefaultCoordinateDecimals (a negative literal used to load

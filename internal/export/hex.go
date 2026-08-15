@@ -125,8 +125,9 @@ func (a *hexAgg) set(res string, scope resource.Scope, area, pct float64) {
 }
 
 // filterHexSlivers drops hexes whose geometry area is below minArea sqm.
-// Threshold lives in config.DisplayConfig.MinHexArea (resolved via
-// Config.MinHexArea()); the filter sits in BuildHexGeoJSON rather
+// Threshold lives in config.DisplayConfig.MinHexArea with a per-city
+// CityConfig.MinHexArea override (resolved via Config.ResolvedMinHexArea, which
+// pairs with the per-city hex edge); the filter sits in BuildHexGeoJSON rather
 // than ComputeHexStats so pct_paved's numerator/denominator scope matches.
 // Used after clipHexGridToBoundary to skip the visual misrepresentation
 // that a fully-covered sliver hex would produce on the heatmap.
@@ -196,7 +197,7 @@ func cityHexGrid(ctx context.Context, entry CityEntry, proj *geo.UTMProjector) (
 	minX, minY, maxX, maxY := geo.ProjectedBBoxExtent(proj, bbox)
 	hexes := geo.HexGrid(minX, minY, maxX, maxY, hexEdge)
 	hexes = clipHexGridToBoundary(ctx, hexes, entry, proj)
-	hexes = filterHexSlivers(hexes, entry.Config.MinHexArea())
+	hexes = filterHexSlivers(hexes, entry.Config.ResolvedMinHexArea(&entry.City))
 	return hexes, nil
 }
 

@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"sort"
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/units"
@@ -271,6 +272,67 @@ func TestResolve_EmitsExpectedFields(t *testing.T) {
 			t.Errorf("Chicago has no hex_edge_m override, should not emit city line")
 		}
 	}
+}
+
+// TestResolve_EmitsMinHexArea pins the diagnostic surface for l51o. Once
+// min_hex_area has a per-city layer, `config show --sources` has to be able to
+// answer "which one won?" for it — docs/configuration.md lists it as a
+// per-city-overridable field and points at --sources for exactly that. Both
+// layers are asserted, plus the "unset reports default" case, since a field
+// that only ever prints when configured teaches the user nothing.
+func TestResolve_EmitsMinHexArea(t *testing.T) {
+	cfg := &Config{
+		Display: DisplayConfig{MinHexArea: 40},
+		Cities: []CityConfig{
+			{Name: "Fine City", MinHexArea: 5},
+			{Name: "Inherits"},
+		},
+	}
+	byKey := make(map[string]ResolvedField)
+	for _, f := range cfg.Resolve("") {
+		byKey[f.Key] = f
+	}
+
+	top, ok := byKey["display.min_hex_area"]
+	if !ok {
+		t.Fatalf("Resolve did not emit display.min_hex_area; got keys %v", keysOf(byKey))
+	}
+	if top.Value != 40.0 || top.Source.String() != "file:display.min_hex_area" {
+		t.Errorf("display.min_hex_area = %v (%s); want 40 (file:display.min_hex_area)", top.Value, top.Source)
+	}
+
+	city, ok := byKey["cities[fine-city].min_hex_area"]
+	if !ok {
+		t.Fatalf("Resolve did not emit the per-city min_hex_area override; got keys %v", keysOf(byKey))
+	}
+	if city.Value != 5.0 || city.Source.String() != "file:cities[fine-city].min_hex_area" {
+		t.Errorf("cities[fine-city].min_hex_area = %v (%s); want 5 (file:cities[fine-city].min_hex_area)", city.Value, city.Source)
+	}
+
+	// A city with no override emits no line, matching hex_edge_m.
+	if _, ok := byKey["cities[inherits].min_hex_area"]; ok {
+		t.Error("city without a min_hex_area override should not emit a per-city line")
+	}
+
+	// Nothing configured anywhere → the default, reported as such.
+	bare := &Config{Cities: []CityConfig{{Name: "Nowhere"}}}
+	for _, f := range bare.Resolve("") {
+		if f.Key != "display.min_hex_area" {
+			continue
+		}
+		if f.Value != DefaultMinHexArea || f.Source.Kind != SourceDefault {
+			t.Errorf("unset display.min_hex_area = %v (%s); want %v (default)", f.Value, f.Source, DefaultMinHexArea)
+		}
+	}
+}
+
+func keysOf(m map[string]ResolvedField) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func TestResolve_FlagUnitsWins(t *testing.T) {
