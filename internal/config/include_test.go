@@ -35,8 +35,8 @@ func cityBySlug(t *testing.T, cfg *Config, slug string) CityConfig {
 // TestInclude_MergesAndUnionsTags: a city pulled in by two includes appears
 // once with the union of both includes' tags; distinct cities are appended.
 // The shared city (San Jose) carries identical calibration in both includes so
-// the merge is a clean union (a *differing* calibration is a hard error — see
-// TestInclude_ConflictingCalibration).
+// the merge is a clean union (a *differing* calibration keeps the first
+// include's values and warns — see TestInclude_ConflictingCalibration).
 func TestInclude_MergesAndUnionsTags(t *testing.T) {
 	dir := t.TempDir()
 	writeTOML(t, dir, "bay/pvmt.toml", `
@@ -145,11 +145,15 @@ tags = ["Boston"]
 }
 
 // TestInclude_ConflictingCalibration: the same city reached through two
-// includes with *different* non-empty calibration is a hard error (3vhw),
-// rather than silently keeping the first and dropping the second. Identical or
-// empty calibration on the second include is fine (covered elsewhere).
+// includes with *different* non-empty calibration keeps the FIRST include's
+// values (vf6m — the behavior examples/all's header has always documented)
+// and records a warning rather than hard-erroring. This inverts the original
+// 3vhw expectation: a conflict used to abort the load, which made examples/all
+// — the config `make site` builds — unloadable. Identical or empty calibration
+// on the second include is not a disagreement and stays silent (subtests
+// below and TestInclude_ConflictingMinHexArea).
 func TestInclude_ConflictingCalibration(t *testing.T) {
-	t.Run("forecast", func(t *testing.T) {
+	t.Run("forecast first include wins", func(t *testing.T) {
 		dir := t.TempDir()
 		writeTOML(t, dir, "bay/pvmt.toml", `
 [forecast]
@@ -171,13 +175,23 @@ path = "../bay/pvmt.toml"
 [[include]]
 path = "../top/pvmt.toml"
 `)
-		_, err := Load(top)
-		if err == nil || !errors.Is(err, ErrInvalidConfig) {
-			t.Fatalf("conflicting forecast across includes should be ErrInvalidConfig, got %v", err)
+		cfg, err := Load(top)
+		if err != nil {
+			t.Fatalf("conflicting forecast should load with a warning, got %v", err)
+		}
+		sj := cityBySlug(t, cfg, "san-jose-ca")
+		if got := cfg.ResolvedForecast(&sj).DecayRate; got != 0.04 {
+			t.Errorf("San Jose decay = %g; want 0.04 (first include wins)", got)
+		}
+		w := onlyWarning(t, cfg)
+		for _, want := range []string{"San Jose, CA", "san-jose-ca", "forecast.decay_rate (0.04 vs 0.065)", "../bay/pvmt.toml", "../top/pvmt.toml"} {
+			if !strings.Contains(w, want) {
+				t.Errorf("warning %q missing %q", w, want)
+			}
 		}
 	})
 
-	t.Run("hex_edge", func(t *testing.T) {
+	t.Run("hex_edge first include wins", func(t *testing.T) {
 		dir := t.TempDir()
 		writeTOML(t, dir, "a/pvmt.toml", `
 [grid]
@@ -199,9 +213,16 @@ path = "../a/pvmt.toml"
 [[include]]
 path = "../b/pvmt.toml"
 `)
-		_, err := Load(top)
-		if err == nil || !errors.Is(err, ErrInvalidConfig) {
-			t.Fatalf("conflicting hex_edge_m across includes should be ErrInvalidConfig, got %v", err)
+		cfg, err := Load(top)
+		if err != nil {
+			t.Fatalf("conflicting hex_edge_m should load with a warning, got %v", err)
+		}
+		reno := cityBySlug(t, cfg, "reno-nv")
+		if got := cfg.ResolvedHexEdge(&reno); got != 80 {
+			t.Errorf("Reno hex edge = %g; want 80 (first include wins)", got)
+		}
+		if w := onlyWarning(t, cfg); !strings.Contains(w, "hex_edge_m (80 vs 55)") {
+			t.Errorf("warning %q should name the superseded hex_edge_m values", w)
 		}
 	})
 
@@ -244,7 +265,727 @@ tags = ["B"]
 		if !equalStrings(reno.Tags, []string{"A", "B"}) {
 			t.Errorf("Reno tags = %v; want [A B]", reno.Tags)
 		}
+		// Deferral is not a disagreement: nothing was dropped, so warning
+		// about it would be pure noise on a config like examples/all where
+		// most shared cities take this path.
+		if w := cfg.LoadWarnings(); len(w) != 0 {
+			t.Errorf("an unset second calibration must not warn, got %q", w)
+		}
 	})
+}
+
+// onlyWarning asserts cfg collected exactly one load warning and returns it.
+func onlyWarning(t *testing.T, cfg *Config) string {
+	t.Helper()
+	w := cfg.LoadWarnings()
+	if len(w) != 1 {
+		t.Fatalf("want exactly 1 load warning, got %d: %q", len(w), w)
+	}
+	return w[0]
+}
+
+// TestInclude_IdenticalCalibrationIsSilent: two includes that agree are not a
+// disagreement and must not warn. This is the noise guard — examples/all
+// unions ten files and most of its cities appear in exactly one, so a warning
+// per shared city would train the reader to ignore the 13 real ones.
+func TestInclude_IdenticalCalibrationIsSilent(t *testing.T) {
+	dir := t.TempDir()
+	body := `
+[grid]
+hex_edge_m = 80
+[display]
+min_hex_area = 20
+[forecast]
+decay_rate = 0.04
+years = 25
+[[cities]]
+name = "Reno, NV"
+overpass = true
+`
+	writeTOML(t, dir, "a/pvmt.toml", body)
+	writeTOML(t, dir, "b/pvmt.toml", body)
+	top := writeTOML(t, dir, "all/pvmt.toml", `
+[[include]]
+path = "../a/pvmt.toml"
+[[include]]
+path = "../b/pvmt.toml"
+`)
+	cfg, err := Load(top)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if w := cfg.LoadWarnings(); len(w) != 0 {
+		t.Errorf("identical calibration must not warn, got %q", w)
+	}
+}
+
+// TestInclude_ParentDeclaredCityWins: a city the parent declares directly is
+// exempt from first-include-wins bookkeeping — "the parent's own city wins" is
+// a documented local override, not a peer conflict, so it stays silent.
+func TestInclude_ParentDeclaredCityWins(t *testing.T) {
+	dir := t.TempDir()
+	writeTOML(t, dir, "a/pvmt.toml", `
+[grid]
+hex_edge_m = 55
+[[cities]]
+name = "Reno, NV"
+overpass = true
+`)
+	top := writeTOML(t, dir, "all/pvmt.toml", `
+[[cities]]
+name = "Reno, NV"
+overpass = true
+hex_edge_m = 80
+[[include]]
+path = "../a/pvmt.toml"
+`)
+	cfg, err := Load(top)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	reno := cityBySlug(t, cfg, "reno-nv")
+	if got := cfg.ResolvedHexEdge(&reno); got != 80 {
+		t.Errorf("Reno hex edge = %g; want 80 (parent's own city wins)", got)
+	}
+	if w := cfg.LoadWarnings(); len(w) != 0 {
+		t.Errorf("a parent-declared city must not warn, got %q", w)
+	}
+}
+
+// TestInclude_SupersededWarningNamesEverything: the warning is the whole
+// reason the hard error could be dropped, so it must carry every fact needed
+// to act on it — the city name and slug, each superseded field with the kept
+// and ignored values, and both include paths.
+//
+// It is also the headline case for the per-field union: this is the real
+// examples/all Los Angeles shape, where the metro sets decay_rate + cost_tiers
+// and the national list sets growth_rate. Under the old block-atomic rule LA
+// kept the metro block whole and lost growth_rate entirely; now it keeps the
+// metro's decay and tiers AND gains the national growth rate, and only the two
+// fields both files actually set — hex_edge_m and min_hex_area — are contested.
+func TestInclude_SupersededWarningNamesEverything(t *testing.T) {
+	dir := t.TempDir()
+	writeTOML(t, dir, "metro/pvmt.toml", `
+[grid]
+hex_edge_m = 125
+[display]
+min_hex_area = 20
+[forecast]
+years = 20
+decay_rate = 0.03
+[[forecast.cost_tiers]]
+min_pci = 0
+max_pci = 100
+cost_per_sqm = 200.0
+label = "Flat"
+[[cities]]
+name = "Los Angeles, CA"
+overpass = true
+`)
+	writeTOML(t, dir, "national/pvmt.toml", `
+[grid]
+hex_edge_m = 150
+[display]
+min_hex_area = 60
+[forecast]
+years = 20
+growth_rate = 0.005
+[[cities]]
+name = "Los Angeles, CA"
+overpass = true
+`)
+	top := writeTOML(t, dir, "all/pvmt.toml", `
+[[include]]
+path = "../metro/pvmt.toml"
+tags = ["Metro"]
+[[include]]
+path = "../national/pvmt.toml"
+tags = ["Top 50"]
+`)
+	cfg, err := Load(top)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	w := onlyWarning(t, cfg)
+	want := []string{
+		`"Los Angeles, CA"`, `"los-angeles-ca"`, // city identity
+		"hex_edge_m (125 vs 150)",               // per-field, kept vs ignored
+		"min_hex_area (20 vs 60)",               // coupled threshold, reported too
+		`"../metro/pvmt.toml"`,                  // winner
+		`"../national/pvmt.toml"`,               // loser
+		"the first include to set a field wins", // the rule, stated once
+	}
+	for _, s := range want {
+		if !strings.Contains(w, s) {
+			t.Errorf("warning missing %q\ngot: %s", s, w)
+		}
+	}
+	// Only genuine disagreements belong in the list, or it stops meaning "what
+	// you lost": years is set identically on both sides; decay_rate and
+	// cost_tiers are set by the winner alone; growth_rate by the loser alone
+	// (a backfill, which loses nothing).
+	for _, quiet := range []string{"forecast.years", "forecast.decay_rate", "forecast.cost_tiers", "forecast.growth_rate"} {
+		if strings.Contains(w, quiet) {
+			t.Errorf("warning names %s, which is not a disagreement\ngot: %s", quiet, w)
+		}
+	}
+	// The union: winner's fields kept, loser's non-conflicting fields folded in.
+	la := cityBySlug(t, cfg, "los-angeles-ca")
+	fc := cfg.ResolvedForecast(&la)
+	if fc.DecayRate != 0.03 || len(fc.CostTiers) != 1 {
+		t.Errorf("LA decay = %g, %d tiers; want 0.03 / 1 (the metro set them and wins)",
+			fc.DecayRate, len(fc.CostTiers))
+	}
+	if fc.GrowthRate != 0.005 {
+		t.Errorf("LA growth = %g; want 0.005 backfilled from the national list, which is the only file that sets it", fc.GrowthRate)
+	}
+	if got := cfg.ResolvedHexEdge(&la); got != 125 {
+		t.Errorf("LA hex edge = %g; want 125", got)
+	}
+	if got := cfg.ResolvedMinHexArea(&la); got != 20 {
+		t.Errorf("LA min hex area = %g; want 20", got)
+	}
+	if !equalStrings(la.Tags, []string{"Metro", "Top 50"}) {
+		t.Errorf("LA tags = %v; want [Metro Top 50] — the losing include still contributes tags", la.Tags)
+	}
+}
+
+// TestInclude_BackfillsUnsetFieldsSilently is the headline of the per-field
+// union and the fix for the citation loss it replaced: a field the winning
+// include leaves UNSET is filled from a later include instead of being
+// discarded, and that is not a disagreement, so it must not warn.
+//
+// Before the union, the national list's cited initial_pci and current_budget
+// were dropped for five named cities in examples/all, replacing a cited PCI of
+// 63 with the default 85 and disabling the solvency metrics that gate on
+// CurrentBudget > 0 — publishing a fabricated optimistic 20-year projection
+// for a named city.
+func TestInclude_BackfillsUnsetFieldsSilently(t *testing.T) {
+	dir := t.TempDir()
+	// The metro tunes the grid and decay locally but cites no PCI or budget.
+	writeTOML(t, dir, "metro/pvmt.toml", `
+[grid]
+hex_edge_m = 125
+[display]
+min_hex_area = 20
+[forecast]
+decay_rate = 0.03
+[[cities]]
+name = "San Diego, CA"
+overpass = true
+`)
+	// The national list carries the cited figures and nothing that collides.
+	writeTOML(t, dir, "national/pvmt.toml", `
+[forecast]
+growth_rate = 0.005
+years = 30
+treatment_cycle_years = 8
+[[forecast.cost_tiers]]
+min_pci = 0
+max_pci = 100
+cost_per_sqm = 90.0
+label = "Flat"
+[[cities]]
+name = "San Diego, CA"
+overpass = true
+forecast.initial_pci = 63
+forecast.current_budget = 83100000
+`)
+	top := writeTOML(t, dir, "all/pvmt.toml", `
+[[include]]
+path = "../metro/pvmt.toml"
+[[include]]
+path = "../national/pvmt.toml"
+`)
+	cfg, err := Load(top)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if w := cfg.LoadWarnings(); len(w) != 0 {
+		t.Errorf("a pure backfill loses nothing and must not warn, got %q", w)
+	}
+	sd := cityBySlug(t, cfg, "san-diego-ca")
+	fc := cfg.ResolvedForecast(&sd)
+	checks := []struct {
+		field     string
+		got, want float64
+	}{
+		{"decay_rate (metro's, kept)", fc.DecayRate, 0.03},
+		{"initial_pci (cited, backfilled)", fc.InitialPCI, 63},
+		{"current_budget (cited, backfilled)", fc.CurrentBudget, 83100000},
+		{"growth_rate (backfilled)", fc.GrowthRate, 0.005},
+		{"treatment_cycle_years (backfilled)", fc.TreatmentCycleYears, 8},
+		{"hex_edge_m (metro's, kept)", cfg.ResolvedHexEdge(&sd), 125},
+		{"min_hex_area (metro's, kept)", cfg.ResolvedMinHexArea(&sd), 20},
+	}
+	for _, c := range checks {
+		if c.got != c.want {
+			t.Errorf("San Diego %s = %g; want %g", c.field, c.got, c.want)
+		}
+	}
+	if fc.Years != 30 {
+		t.Errorf("San Diego years = %d; want 30 (backfilled)", fc.Years)
+	}
+	if len(fc.CostTiers) != 1 {
+		t.Errorf("San Diego cost_tiers = %d; want 1 (backfilled)", len(fc.CostTiers))
+	}
+}
+
+// TestInclude_NoFieldIsDroppedSilently closes the hole the old code had in the
+// opposite direction from the one it guarded: hex_edge_m and min_hex_area were
+// checked only when the FIRST include had set them, so a value contributed by
+// a later include when the first left it unset vanished with no warning at all
+// — while the same situation on a forecast scalar was reported. Under the
+// union both are backfills. Asserted for every calibration field so the two
+// families stay consistent.
+func TestInclude_NoFieldIsDroppedSilently(t *testing.T) {
+	dir := t.TempDir()
+	// First include: a bare city, no calibration whatsoever.
+	writeTOML(t, dir, "first/pvmt.toml", "[[cities]]\nname = \"Reno, NV\"\noverpass = true\n")
+	// Second include: sets every calibration field there is.
+	writeTOML(t, dir, "second/pvmt.toml", `
+[grid]
+hex_edge_m = 55
+[display]
+min_hex_area = 60
+[forecast]
+initial_pci = 63
+decay_rate = 0.05
+growth_rate = 0.005
+years = 30
+treatment_cycle_years = 8
+current_budget = 1234567
+[[forecast.cost_tiers]]
+min_pci = 0
+max_pci = 100
+cost_per_sqm = 90.0
+label = "Flat"
+[[cities]]
+name = "Reno, NV"
+overpass = true
+`)
+	top := writeTOML(t, dir, "all/pvmt.toml", `
+[[include]]
+path = "../first/pvmt.toml"
+[[include]]
+path = "../second/pvmt.toml"
+`)
+	cfg, err := Load(top)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if w := cfg.LoadWarnings(); len(w) != 0 {
+		t.Errorf("nothing was dropped, so nothing should warn, got %q", w)
+	}
+	reno := cityBySlug(t, cfg, "reno-nv")
+	fc := cfg.ResolvedForecast(&reno)
+	if got := cfg.ResolvedHexEdge(&reno); got != 55 {
+		t.Errorf("hex_edge_m = %g; want 55 — silently dropped before the union", got)
+	}
+	if got := cfg.ResolvedMinHexArea(&reno); got != 60 {
+		t.Errorf("min_hex_area = %g; want 60 — silently dropped before the union", got)
+	}
+	if fc.InitialPCI != 63 || fc.DecayRate != 0.05 || fc.GrowthRate != 0.005 ||
+		fc.Years != 30 || fc.TreatmentCycleYears != 8 || fc.CurrentBudget != 1234567 ||
+		len(fc.CostTiers) != 1 {
+		t.Errorf("forecast did not fully backfill: %+v", fc)
+	}
+}
+
+// TestInclude_WinnerIsDeclarationOrderNotFileContent: swap the two includes and
+// the other file wins. Nothing about a file's contents (more fields set, finer
+// grid, larger numbers) may decide the winner — only where the [[include]] sits
+// in the parent, which is the one thing the user controls by editing.
+func TestInclude_WinnerIsDeclarationOrderNotFileContent(t *testing.T) {
+	metro := `
+[grid]
+hex_edge_m = 125
+[forecast]
+decay_rate = 0.03
+[[cities]]
+name = "Los Angeles, CA"
+overpass = true
+`
+	national := `
+[grid]
+hex_edge_m = 150
+[forecast]
+decay_rate = 0.06
+[[cities]]
+name = "Los Angeles, CA"
+overpass = true
+`
+	load := func(t *testing.T, firstPath, secondPath string) *Config {
+		t.Helper()
+		dir := t.TempDir()
+		writeTOML(t, dir, "metro/pvmt.toml", metro)
+		writeTOML(t, dir, "national/pvmt.toml", national)
+		top := writeTOML(t, dir, "all/pvmt.toml",
+			"[[include]]\npath = \""+firstPath+"\"\n[[include]]\npath = \""+secondPath+"\"\n")
+		cfg, err := Load(top)
+		if err != nil {
+			t.Fatalf("load: %v", err)
+		}
+		return cfg
+	}
+
+	t.Run("metro first", func(t *testing.T) {
+		cfg := load(t, "../metro/pvmt.toml", "../national/pvmt.toml")
+		la := cityBySlug(t, cfg, "los-angeles-ca")
+		if got := cfg.ResolvedHexEdge(&la); got != 125 {
+			t.Errorf("hex edge = %g; want 125", got)
+		}
+		if got := cfg.ResolvedForecast(&la).DecayRate; got != 0.03 {
+			t.Errorf("decay = %g; want 0.03", got)
+		}
+		w := onlyWarning(t, cfg)
+		if !strings.Contains(w, "hex_edge_m (125 vs 150)") ||
+			!strings.Contains(w, `keeping include "../metro/pvmt.toml"`) {
+			t.Errorf("warning should name the metro as the winner\ngot: %s", w)
+		}
+	})
+
+	t.Run("national first", func(t *testing.T) {
+		cfg := load(t, "../national/pvmt.toml", "../metro/pvmt.toml")
+		la := cityBySlug(t, cfg, "los-angeles-ca")
+		if got := cfg.ResolvedHexEdge(&la); got != 150 {
+			t.Errorf("hex edge = %g; want 150 (declaration order, not the finer grid)", got)
+		}
+		if got := cfg.ResolvedForecast(&la).DecayRate; got != 0.06 {
+			t.Errorf("decay = %g; want 0.06", got)
+		}
+		w := onlyWarning(t, cfg)
+		if !strings.Contains(w, "hex_edge_m (150 vs 125)") ||
+			!strings.Contains(w, `keeping include "../national/pvmt.toml"`) {
+			t.Errorf("warning should name the national list as the winner\ngot: %s", w)
+		}
+	})
+}
+
+// TestInclude_NestedAndDiamondOrdering: nesting is the one shape where "first"
+// is not obvious. all -> {west -> {ca, nv}, national}: the depth-first walk
+// makes ca's city the first contribution, so ca wins over national even though
+// national is a sibling of west rather than of ca. The diamond (national also
+// included directly by all, and by west) must not double-count: the memoized
+// child resolves once, so the same disagreement is recorded once.
+//
+// It also pins the warning's include paths: they are rendered relative to the
+// top-level config, so the nested file reads as "../ca/pvmt.toml" from all/
+// rather than by whatever spelling west/ used.
+func TestInclude_NestedAndDiamondOrdering(t *testing.T) {
+	dir := t.TempDir()
+	writeTOML(t, dir, "ca/pvmt.toml", `
+[grid]
+hex_edge_m = 125
+[[cities]]
+name = "Los Angeles, CA"
+overpass = true
+`)
+	writeTOML(t, dir, "nv/pvmt.toml", "[[cities]]\nname = \"Reno, NV\"\noverpass = true\n")
+	writeTOML(t, dir, "national/pvmt.toml", `
+[grid]
+hex_edge_m = 150
+[[cities]]
+name = "Los Angeles, CA"
+overpass = true
+`)
+	writeTOML(t, dir, "west/pvmt.toml", `
+[[include]]
+path = "../ca/pvmt.toml"
+tags = ["CA"]
+[[include]]
+path = "../nv/pvmt.toml"
+tags = ["NV"]
+[[include]]
+path = "../national/pvmt.toml"
+tags = ["Top 50"]
+`)
+	top := writeTOML(t, dir, "all/pvmt.toml", `
+[[include]]
+path = "../west/pvmt.toml"
+tags = ["West"]
+[[include]]
+path = "../national/pvmt.toml"
+tags = ["Top 50"]
+`)
+	cfg, err := Load(top)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	la := cityBySlug(t, cfg, "los-angeles-ca")
+	if got := cfg.ResolvedHexEdge(&la); got != 125 {
+		t.Errorf("LA hex edge = %g; want 125 — ca is reached first by the depth-first walk", got)
+	}
+	// One line from inside west (ca vs national), and one from the outer file
+	// (west's merged LA vs national again). Both are real: they are different
+	// [[include]] sites, and each is the user's to reconcile.
+	w := cfg.LoadWarnings()
+	if len(w) != 2 {
+		t.Fatalf("want 2 warnings (one per include site that lost), got %d: %q", len(w), w)
+	}
+	for _, line := range w {
+		if !strings.Contains(line, "hex_edge_m (125 vs 150)") {
+			t.Errorf("warning should report the contested edge\ngot: %s", line)
+		}
+		if strings.Contains(line, dir) {
+			t.Errorf("include paths must be relative to the top-level config, not absolute\ngot: %s", line)
+		}
+	}
+	// Rendered from all/, so the nested file is two hops up-and-over.
+	if !strings.Contains(w[0], `"../ca/pvmt.toml"`) {
+		t.Errorf("nested winner should be named relative to the top-level config\ngot: %s", w[0])
+	}
+	if !equalStrings(la.Tags, []string{"West", "CA", "Top 50"}) {
+		t.Errorf("LA tags = %v; want [West CA Top 50] — the outer include site tags first, then the nested ones", la.Tags)
+	}
+}
+
+// TestInclude_ThreeIncludesWarnPerLosingSite: a city in three includes yields
+// one warning per losing include, each naming the include that actually lost —
+// not two copies of the same pair — and the first include still wins every
+// field it set while the others backfill what it did not.
+func TestInclude_ThreeIncludesWarnPerLosingSite(t *testing.T) {
+	dir := t.TempDir()
+	writeTOML(t, dir, "a/pvmt.toml", `
+[grid]
+hex_edge_m = 80
+[forecast]
+decay_rate = 0.03
+[[cities]]
+name = "Reno, NV"
+overpass = true
+`)
+	writeTOML(t, dir, "b/pvmt.toml", `
+[grid]
+hex_edge_m = 55
+[forecast]
+growth_rate = 0.005
+[[cities]]
+name = "Reno, NV"
+overpass = true
+`)
+	writeTOML(t, dir, "c/pvmt.toml", `
+[grid]
+hex_edge_m = 200
+[forecast]
+years = 30
+[[cities]]
+name = "Reno, NV"
+overpass = true
+`)
+	top := writeTOML(t, dir, "all/pvmt.toml", `
+[[include]]
+path = "../a/pvmt.toml"
+[[include]]
+path = "../b/pvmt.toml"
+[[include]]
+path = "../c/pvmt.toml"
+`)
+	cfg, err := Load(top)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	w := cfg.LoadWarnings()
+	if len(w) != 2 {
+		t.Fatalf("want 2 warnings (b and c each lose the edge to a), got %d: %q", len(w), w)
+	}
+	if !strings.Contains(w[0], `ignoring include "../b/pvmt.toml"`) ||
+		!strings.Contains(w[0], "hex_edge_m (80 vs 55)") {
+		t.Errorf("first warning should name b as the loser\ngot: %s", w[0])
+	}
+	if !strings.Contains(w[1], `ignoring include "../c/pvmt.toml"`) ||
+		!strings.Contains(w[1], "hex_edge_m (80 vs 200)") {
+		t.Errorf("second warning should name c as the loser\ngot: %s", w[1])
+	}
+	for _, line := range w {
+		if !strings.Contains(line, `keeping include "../a/pvmt.toml"`) {
+			t.Errorf("a set the edge first and must win both times\ngot: %s", line)
+		}
+	}
+	// Every non-conflicting field still lands, from whichever include set it.
+	reno := cityBySlug(t, cfg, "reno-nv")
+	fc := cfg.ResolvedForecast(&reno)
+	if fc.DecayRate != 0.03 || fc.GrowthRate != 0.005 || fc.Years != 30 {
+		t.Errorf("Reno forecast = decay %g growth %g years %d; want 0.03 / 0.005 / 30 (one field from each include)",
+			fc.DecayRate, fc.GrowthRate, fc.Years)
+	}
+}
+
+// TestInclude_CostTiersDifferingSetsSameLength: two different tier sets of the
+// same length must not print "(4 vs 4 tiers)", which reads as a formatting bug
+// rather than a finding. Also covers the comparison the guard uses: an empty
+// tier list and an omitted one are the same thing, and must not manufacture a
+// warning for a city whose calibration is semantically identical.
+func TestInclude_CostTiersDifferingSetsSameLength(t *testing.T) {
+	tiers := func(cost float64) string {
+		return `
+[[forecast.cost_tiers]]
+min_pci = 0
+max_pci = 50
+cost_per_sqm = ` + plainFloat(cost) + `
+label = "Low"
+[[forecast.cost_tiers]]
+min_pci = 50
+max_pci = 100
+cost_per_sqm = 10.0
+label = "High"
+[[cities]]
+name = "Reno, NV"
+overpass = true
+`
+	}
+
+	t.Run("same length different sets", func(t *testing.T) {
+		dir := t.TempDir()
+		writeTOML(t, dir, "a/pvmt.toml", "[forecast]"+tiers(200))
+		writeTOML(t, dir, "b/pvmt.toml", "[forecast]"+tiers(120))
+		top := writeTOML(t, dir, "all/pvmt.toml",
+			"[[include]]\npath = \"../a/pvmt.toml\"\n[[include]]\npath = \"../b/pvmt.toml\"\n")
+		cfg, err := Load(top)
+		if err != nil {
+			t.Fatalf("load: %v", err)
+		}
+		w := onlyWarning(t, cfg)
+		if !strings.Contains(w, "different tier sets") {
+			t.Errorf("warning should say the sets differ, not compare counts\ngot: %s", w)
+		}
+		if strings.Contains(w, "(2 vs 2 tiers)") {
+			t.Errorf("warning prints an identical-looking count pair\ngot: %s", w)
+		}
+		reno := cityBySlug(t, cfg, "reno-nv")
+		if got := cfg.ResolvedForecast(&reno).CostTiers[0].CostPerSqM; got != 200 {
+			t.Errorf("kept tier cost = %g; want 200 (first include wins)", got)
+		}
+	})
+
+	t.Run("empty list equals omitted", func(t *testing.T) {
+		dir := t.TempDir()
+		writeTOML(t, dir, "a/pvmt.toml", "[forecast]\ndecay_rate = 0.03\n[[cities]]\nname = \"Reno, NV\"\noverpass = true\n")
+		writeTOML(t, dir, "b/pvmt.toml", "[forecast]\ndecay_rate = 0.03\ncost_tiers = []\n[[cities]]\nname = \"Reno, NV\"\noverpass = true\n")
+		top := writeTOML(t, dir, "all/pvmt.toml",
+			"[[include]]\npath = \"../a/pvmt.toml\"\n[[include]]\npath = \"../b/pvmt.toml\"\n")
+		cfg, err := Load(top)
+		if err != nil {
+			t.Fatalf("load: %v", err)
+		}
+		if w := cfg.LoadWarnings(); len(w) != 0 {
+			t.Errorf("an empty cost_tiers list is not a disagreement with an omitted one, got %q", w)
+		}
+	})
+}
+
+// TestInclude_SupersededOnlyWarnsForDisagreeingCities is the examples/all
+// shape: several metro files plus one broad national list, most cities unique
+// to one include. Exactly the overlapping-and-disagreeing cities warn, one
+// line each, and the whole thing loads — which is the bug this fixes
+// (examples/all could not be loaded at all).
+func TestInclude_SupersededOnlyWarnsForDisagreeingCities(t *testing.T) {
+	dir := t.TempDir()
+	writeTOML(t, dir, "bay/pvmt.toml", `
+[forecast]
+decay_rate = 0.04
+[[cities]]
+name = "San Jose, CA"
+overpass = true
+[[cities]]
+name = "Oakland, CA"
+overpass = true
+`)
+	writeTOML(t, dir, "boston/pvmt.toml", `
+[forecast]
+decay_rate = 0.065
+[[cities]]
+name = "Boston, MA"
+overpass = true
+`)
+	// Overlaps both metros. Disagrees with bay on San Jose's decay rate;
+	// agrees with boston on Boston's; Austin is unique to this file.
+	writeTOML(t, dir, "top/pvmt.toml", `
+[forecast]
+decay_rate = 0.065
+[[cities]]
+name = "San Jose, CA"
+overpass = true
+[[cities]]
+name = "Boston, MA"
+overpass = true
+[[cities]]
+name = "Austin, TX"
+overpass = true
+`)
+	top := writeTOML(t, dir, "all/pvmt.toml", `
+[[include]]
+path = "../bay/pvmt.toml"
+tags = ["Bay Area"]
+[[include]]
+path = "../boston/pvmt.toml"
+tags = ["Greater Boston"]
+[[include]]
+path = "../top/pvmt.toml"
+tags = ["Top 50"]
+`)
+	cfg, err := Load(top)
+	if err != nil {
+		t.Fatalf("an examples/all-shaped union must load, got %v", err)
+	}
+	if len(cfg.Cities) != 4 {
+		t.Fatalf("want 4 unique cities, got %d", len(cfg.Cities))
+	}
+	w := onlyWarning(t, cfg)
+	if !strings.Contains(w, "San Jose") {
+		t.Errorf("the one warning should be San Jose's, got %q", w)
+	}
+	// Boston overlaps but agrees; Oakland and Austin appear once.
+	for _, quiet := range []string{"Boston", "Oakland", "Austin"} {
+		if strings.Contains(w, quiet) {
+			t.Errorf("%s must not warn (agrees or appears once), got %q", quiet, w)
+		}
+	}
+	sj := cityBySlug(t, cfg, "san-jose-ca")
+	if got := cfg.ResolvedForecast(&sj).DecayRate; got != 0.04 {
+		t.Errorf("San Jose decay = %g; want 0.04 (bay came first)", got)
+	}
+	if !equalStrings(sj.Tags, []string{"Bay Area", "Top 50"}) {
+		t.Errorf("San Jose tags = %v; want [Bay Area Top 50]", sj.Tags)
+	}
+}
+
+// TestLoadWarnings_DoNotAffectHash: Config.Hash() is the snapshot key, and for
+// in-memory configs it falls back to a TOML re-encode of the struct — so a new
+// Config field can silently invalidate every stored snapshot. loadWarnings is
+// unexported (the encoder skips it) precisely so it cannot. Guard both hash
+// paths: the file-loaded one (raw bytes) and the in-memory fallback.
+func TestLoadWarnings_DoNotAffectHash(t *testing.T) {
+	dir := t.TempDir()
+	writeTOML(t, dir, "a/pvmt.toml", "[grid]\nhex_edge_m = 80\n[[cities]]\nname = \"Reno, NV\"\noverpass = true\n")
+	writeTOML(t, dir, "b/pvmt.toml", "[grid]\nhex_edge_m = 55\n[[cities]]\nname = \"Reno, NV\"\noverpass = true\n")
+	top := writeTOML(t, dir, "all/pvmt.toml", "[[include]]\npath = \"../a/pvmt.toml\"\n[[include]]\npath = \"../b/pvmt.toml\"\n")
+	cfg, err := Load(top)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(cfg.LoadWarnings()) == 0 {
+		t.Fatal("expected a superseded-calibration warning to exercise the field")
+	}
+	// Clear the memoized content hash first. Hash() short-circuits on it for
+	// any file-loaded config, so asserting stability with it in place would
+	// only prove the memo works — not the claim, which is about the reflection
+	// re-encode. This drives a realistic loaded config down the fallback path.
+	cfg.contentHash = ""
+	withWarnings := cfg.Hash()
+	cfg.loadWarnings = nil
+	if got := cfg.Hash(); got != withWarnings {
+		t.Errorf("loaded config's fallback Hash() changed with warnings: %s vs %s", withWarnings, got)
+	}
+
+	// In-memory path (no contentHash): the reflection re-encode must ignore
+	// the field too.
+	mem := &Config{Cities: []CityConfig{{Name: "Reno, NV", Overpass: true}}}
+	base := mem.Hash()
+	mem.loadWarnings = []string{"a warning that must not move the hash"}
+	if got := mem.Hash(); got != base {
+		t.Errorf("in-memory Hash() changed with warnings: %s vs %s", base, got)
+	}
 }
 
 // TestInclude_SlugCollisionDifferentNames errors rather than dropping a city.
@@ -682,9 +1423,11 @@ overpass = true
 }
 
 // TestInclude_ConflictingMinHexArea: the sliver threshold gets the same
-// hard-error treatment as the hex edge it is coupled to (l51o) — erroring on
-// one and silently first-winning on the other would be incoherent. An unset or
-// identical value on the second include still defers to the first.
+// treatment as the hex edge it is coupled to (l51o) — first-include-wins plus
+// a warning naming the field. Originally (l51o) this was a hard error; vf6m
+// inverted that along with hex_edge_m and forecast, since first-winning on one
+// and erroring on the other would be incoherent either way round. An unset or
+// identical value on the second include still defers to the first, silently.
 func TestInclude_ConflictingMinHexArea(t *testing.T) {
 	writeThree := func(t *testing.T, aDisplay, bDisplay string) string {
 		t.Helper()
@@ -707,14 +1450,18 @@ path = "../b/pvmt.toml"
 `)
 	}
 
-	t.Run("conflict is an error", func(t *testing.T) {
+	t.Run("conflict keeps the first include and warns", func(t *testing.T) {
 		top := writeThree(t, "[display]\nmin_hex_area = 20\n", "[display]\nmin_hex_area = 60\n")
-		_, err := Load(top)
-		if err == nil || !errors.Is(err, ErrInvalidConfig) {
-			t.Fatalf("conflicting min_hex_area across includes should be ErrInvalidConfig, got %v", err)
+		cfg, err := Load(top)
+		if err != nil {
+			t.Fatalf("conflicting min_hex_area should load with a warning, got %v", err)
 		}
-		if !strings.Contains(err.Error(), "min_hex_area") {
-			t.Errorf("error %v should name the conflicting field", err)
+		reno := cityBySlug(t, cfg, "reno-nv")
+		if got := cfg.ResolvedMinHexArea(&reno); got != 20 {
+			t.Errorf("Reno min hex area = %g; want 20 (first include wins)", got)
+		}
+		if w := onlyWarning(t, cfg); !strings.Contains(w, "min_hex_area (20 vs 60)") {
+			t.Errorf("warning %q should name the superseded field and both values", w)
 		}
 	})
 
@@ -727,6 +1474,9 @@ path = "../b/pvmt.toml"
 		reno := cityBySlug(t, cfg, "reno-nv")
 		if got := cfg.ResolvedMinHexArea(&reno); got != 20 {
 			t.Errorf("Reno min hex area = %g; want 20", got)
+		}
+		if w := cfg.LoadWarnings(); len(w) != 0 {
+			t.Errorf("identical min_hex_area must not warn, got %q", w)
 		}
 	})
 

@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
+	"slices"
+	"strconv"
+	"strings"
 )
 
 // IncludeSpec is one [[include]] block: a path to another pvmt.toml whose
@@ -43,6 +45,85 @@ type resolvedInclude struct {
 // parse-memoization guarantee (scpj); nil in production.
 var loadParseHook func(abs string)
 
+// calibrationWarning is one recorded disagreement: a city whose calibration
+// two includes both set, differently. winner/loser are the *absolute* paths of
+// the included files, not the paths as spelled at the include site — a nested
+// tree can reach the same file through several spellings, and "../pvmt.toml"
+// alone does not say which parent declared it. They are rendered relative to
+// the top-level config's directory once, in Load, where that directory is
+// known; for a flat tree like examples/all that reproduces the spelling the
+// user wrote.
+type calibrationWarning struct {
+	city, slug    string
+	winner, loser string
+	fields        []string
+}
+
+// calibrationWarnings accumulates the non-fatal "an earlier include already
+// set this field" notices raised during one Load. It is threaded through
+// loadResolved (rather than stored per-Config) for the same reason cache is:
+// a file reached through several includes resolves once, so its warnings are
+// recorded once, and the whole transitive set lands on the top-level Config
+// that Load returns.
+//
+// internal/config cannot print — it has no IOStreams — so the messages are
+// carried out on Config.LoadWarnings() and emitted at the CLI boundary,
+// mirroring how warnInvalidEnv surfaces silently-ignored PVMT_* env values.
+type calibrationWarnings struct{ items []calibrationWarning }
+
+func (w *calibrationWarnings) add(item calibrationWarning) {
+	w.items = append(w.items, item)
+}
+
+// render formats each recorded disagreement into one user-facing line, with
+// include paths expressed relative to baseDir (the directory holding the
+// top-level config) so every path in the output is anchored to the file the
+// user invoked pvmt against.
+func (w *calibrationWarnings) render(baseDir string) []string {
+	if len(w.items) == 0 {
+		return nil
+	}
+	// One line per (city, losing include), and no longer than it has to be:
+	// a union of ten example files produces a dozen of these, so a repeated
+	// paragraph explaining the rule on every line would be the same noise the
+	// warning exists to cut through. Everything needed to act is here — city,
+	// slug, both includes, each contested field with both values.
+	out := make([]string, 0, len(w.items))
+	for _, it := range w.items {
+		out = append(out, fmt.Sprintf(
+			"city %q (slug %q): keeping include %q, ignoring include %q on %s "+
+				"(kept vs ignored; the first include to set a field wins)",
+			it.city, it.slug, relTo(baseDir, it.winner), relTo(baseDir, it.loser),
+			strings.Join(it.fields, ", ")))
+	}
+	return out
+}
+
+// relTo renders path relative to baseDir, falling back to the absolute path
+// when no relative form exists (different volumes on Windows).
+func relTo(baseDir, path string) string {
+	if r, err := filepath.Rel(baseDir, path); err == nil {
+		return r
+	}
+	return path
+}
+
+// mergeState is the bookkeeping shared by every [[include]] of one config:
+// byslug indexes parent.Cities so a slug lookup is O(1) instead of a rescan
+// per child city (117k), fromInclude maps a slug contributed by an include to
+// the absolute path of the include that contributed it *first* — the one whose
+// already-set fields win — and warn is the Load-wide warning sink. byslug and
+// fromInclude are per-file; warn is shared across the whole Load.
+//
+// A slug absent from fromInclude but present in byslug was declared directly
+// by the parent, which is exempt from the union: "the parent's own city wins"
+// is a documented local override, and it wins silently and wholesale.
+type mergeState struct {
+	byslug      map[string]int
+	fromInclude map[string]string
+	warn        *calibrationWarnings
+}
+
 // loadResolved reads and parses the config at abs, recursively resolving its
 // [[include]] blocks and merging the included cities in. It returns the merged
 // config and the raw bytes of abs plus every file it (transitively) includes,
@@ -63,7 +144,11 @@ var loadParseHook func(abs string)
 // entry for the cycling file exists. The merged config and content hash are
 // unchanged: the cached child is treated read-only by mergeIncludedCities, and
 // its blobs are re-appended at every include site so each edge still counts.
-func loadResolved(abs string, ancestors map[string]bool, depth int, cache map[string]*resolvedInclude) (*Config, [][]byte, error) {
+//
+// warn is the Load-wide sink for first-include-wins notices; it is shared with
+// every recursive call so the top-level caller sees the transitive set.
+func loadResolved(abs string, ancestors map[string]bool, depth int, cache map[string]*resolvedInclude,
+	warn *calibrationWarnings) (*Config, [][]byte, error) {
 	if e, ok := cache[abs]; ok {
 		return e.cfg, e.blobs, nil
 	}
@@ -107,17 +192,20 @@ func loadResolved(abs string, ancestors map[string]bool, depth int, cache map[st
 	// Index the parent's own cities once so mergeIncludedCities can look up a
 	// slug in O(1) instead of rescanning every parent city per child (117k).
 	// byslug is maintained across include sites (appends update it); fromInclude
-	// tracks which slugs were contributed by an include (vs declared directly)
-	// so the conflict check applies only to include-vs-include collisions.
-	byslug := make(map[string]int, len(cfg.Cities))
-	for i := range cfg.Cities {
-		byslug[cfg.Cities[i].Slug()] = i
+	// records which include first contributed each slug (vs declared directly)
+	// so first-include-wins applies only to include-vs-include collisions.
+	ms := &mergeState{
+		byslug:      make(map[string]int, len(cfg.Cities)),
+		fromInclude: make(map[string]string),
+		warn:        warn,
 	}
-	fromInclude := make(map[string]bool)
+	for i := range cfg.Cities {
+		ms.byslug[cfg.Cities[i].Slug()] = i
+	}
 
 	dir := filepath.Dir(abs)
 	for i, inc := range cfg.Include {
-		childBlobs, err := resolveOneInclude(cfg, inc, i, dir, ancestors, depth, cache, byslug, fromInclude)
+		childBlobs, err := resolveOneInclude(cfg, inc, i, dir, ancestors, depth, cache, ms)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -129,13 +217,13 @@ func loadResolved(abs string, ancestors map[string]bool, depth int, cache map[st
 
 // resolveOneInclude resolves a single [[include]] entry of parent: it validates
 // and absolutizes the path, recursively loads the included config, and merges
-// its cities into parent (updating byslug/fromInclude). It returns the included
-// file's transitive blob list so the caller can fold it into the content hash.
+// its cities into parent (updating ms). It returns the included file's
+// transitive blob list so the caller can fold it into the content hash.
 // Split out of loadResolved to keep that function's cognitive complexity in
 // bounds.
 func resolveOneInclude(parent *Config, inc IncludeSpec, i int, dir string,
 	ancestors map[string]bool, depth int, cache map[string]*resolvedInclude,
-	byslug map[string]int, fromInclude map[string]bool) ([][]byte, error) {
+	ms *mergeState) ([][]byte, error) {
 	if inc.Path == "" {
 		return nil, errors.Join(ErrInvalidConfig,
 			fmt.Errorf("include[%d].path is required", i))
@@ -148,11 +236,11 @@ func resolveOneInclude(parent *Config, inc IncludeSpec, i int, dir string,
 	if err != nil {
 		return nil, fmt.Errorf("resolve include %q: %w", inc.Path, err)
 	}
-	child, childBlobs, err := loadResolved(incAbs, ancestors, depth+1, cache)
+	child, childBlobs, err := loadResolved(incAbs, ancestors, depth+1, cache, ms.warn)
 	if err != nil {
 		return nil, fmt.Errorf("include %q: %w", inc.Path, err)
 	}
-	if err := mergeIncludedCities(parent, child, inc.Tags, byslug, fromInclude); err != nil {
+	if err := mergeIncludedCities(parent, child, inc.Tags, incAbs, ms); err != nil {
 		return nil, fmt.Errorf("include %q: %w", inc.Path, err)
 	}
 	return childBlobs, nil
@@ -164,31 +252,52 @@ func resolveOneInclude(parent *Config, inc IncludeSpec, i int, dir string,
 // survives the collapse into one config with an empty top-level [forecast]/
 // [grid].
 //
-// Union is by slug: a slug new to parent is appended (and recorded in byslug /
-// fromInclude); a slug already present has its tags unioned in. A slug collision
-// between two *different* city names (same slug, different Name) is an error —
-// that would otherwise silently drop one real city. When a slug already present
-// via a prior include reappears with a *different* non-empty calibration
-// (hex_edge_m/min_hex_area/forecast), that too is an error (see checkCalibrationConflict):
-// silently keeping the first and dropping the second hides a real disagreement.
-// Identical or empty calibration on the later include is fine (first wins). A
-// city the parent declared directly (not via include) is exempt from the
-// conflict check: "parent's own city wins" is a documented local override.
-func mergeIncludedCities(parent, child *Config, includeTags []string, byslug map[string]int, fromInclude map[string]bool) error {
+// Union is by slug: a slug new to parent is appended (and recorded in ms); a
+// slug already present has its tags unioned in and its calibration folded per
+// field. A slug collision between two *different* city names (same slug,
+// different Name) is an error — that would otherwise silently drop one real
+// city.
+//
+// Calibration is a PER-FIELD union, not a block-atomic first-wins: for each of
+// hex_edge_m, min_hex_area and every field of the forecast block, the first
+// include to SET the field wins it, and a later include fills only the fields
+// the winner left UNSET. So a city in a metro example and in a broad national
+// list keeps the metro's local decay/grid tuning *and* gains the national
+// list's cited initial_pci and current_budget instead of losing them. No city
+// ends up calibrated worse than either input file.
+//
+// Two includes that both set a field to different values is the one case where
+// something is genuinely dropped: the first still wins, and unionCalibration
+// reports the field so mergeIncludedCities can record a warning naming the
+// city, the field, both values, and both includes. A backfill is not a
+// disagreement and is silent — it is the deferral case, in the direction the
+// merge used to handle only for a *later* unset field.
+//
+// A city the parent declared directly (not via include) is exempt entirely:
+// "the parent's own city wins" is a documented local override, and it wins
+// wholesale and silently rather than being unioned with an include's values.
+//
+// incAbs is the absolute path of the included file; see calibrationWarning for
+// why the merge records that rather than the path as spelled at the include
+// site.
+func mergeIncludedCities(parent, child *Config, includeTags []string, incAbs string, ms *mergeState) error {
 	for i := range child.Cities {
 		src := child.Cities[i]
 		slug := src.Slug()
 
-		if idx, ok := byslug[slug]; ok {
+		if idx, ok := ms.byslug[slug]; ok {
 			existing := &parent.Cities[idx]
 			if existing.Name != src.Name {
 				return errors.Join(ErrInvalidConfig, fmt.Errorf(
 					"slug collision %q maps to two different city names %q and %q; "+
 						"rename one so their slugs differ", slug, existing.Name, src.Name))
 			}
-			if fromInclude[slug] {
-				if err := checkCalibrationConflict(existing, child, &src, slug); err != nil {
-					return err
+			if winner, viaInclude := ms.fromInclude[slug]; viaInclude {
+				if fields := unionCalibration(existing, child, &src); len(fields) > 0 {
+					ms.warn.add(calibrationWarning{
+						city: existing.Name, slug: slug,
+						winner: winner, loser: incAbs, fields: fields,
+					})
 				}
 			}
 			existing.Tags = unionTags(existing.Tags, includeTags, src.Tags)
@@ -201,47 +310,104 @@ func mergeIncludedCities(parent, child *Config, includeTags []string, byslug map
 		merged.MinHexArea = child.effectiveMinHexArea(&src)
 		merged.Forecast = child.effectiveForecast(&src)
 		parent.Cities = append(parent.Cities, merged)
-		byslug[slug] = len(parent.Cities) - 1
-		fromInclude[slug] = true
+		ms.byslug[slug] = len(parent.Cities) - 1
+		ms.fromInclude[slug] = incAbs
 	}
 	return nil
 }
 
-// checkCalibrationConflict errors when a city reached through a second include
-// carries calibration that genuinely disagrees with what was captured on its
-// first appearance. "Conflict" means both sides specify a value and they
-// differ; an unset (empty) value on either side is not a conflict — it defers
-// to the value already stored (the long-standing "first wins for empty or
-// identical" behavior). Only a real disagreement — a different non-zero
-// hex_edge_m or min_hex_area, or a differing non-nil forecast block — is
-// rejected, so the operator must reconcile the includes explicitly rather than
-// have one silently dropped. min_hex_area is checked for the same reason it is
-// flattened: it is coupled to hex_edge_m, so erroring on a disagreeing edge
-// while letting a disagreeing threshold pass first-wins would be inconsistent.
-// existing holds the first include's flattened calibration; child/src describe
-// the current include's source config and city.
-func checkCalibrationConflict(existing *CityConfig, child *Config, src *CityConfig, slug string) error {
-	srcEdge := child.effectiveHexEdge(src)
-	if existing.HexEdgeM != 0 && srcEdge != 0 && existing.HexEdgeM != srcEdge {
-		return errors.Join(ErrInvalidConfig, fmt.Errorf(
-			"city %q (slug %q) is included more than once with conflicting hex_edge_m "+
-				"(%g vs %g); reconcile the includes so they agree",
-			existing.Name, slug, existing.HexEdgeM, srcEdge))
-	}
-	srcArea := child.effectiveMinHexArea(src)
-	if existing.MinHexArea != 0 && srcArea != 0 && existing.MinHexArea != srcArea {
-		return errors.Join(ErrInvalidConfig, fmt.Errorf(
-			"city %q (slug %q) is included more than once with conflicting min_hex_area "+
-				"(%g vs %g); reconcile the includes so they agree",
-			existing.Name, slug, existing.MinHexArea, srcArea))
-	}
+// unionCalibration folds the calibration src carries (flattened through its own
+// config, child) into the values already captured on existing, per field:
+// a field existing has not set takes src's value, a field both set identically
+// is a no-op, and a field both set differently keeps existing's value and is
+// described in the returned slice as "field (kept vs ignored)". An empty return
+// therefore means nothing was discarded — which is what makes a warning mean
+// something when there is one.
+//
+// existing is parent-owned throughout: HexEdgeM/MinHexArea are plain fields and
+// Forecast was freshly allocated by effectiveForecast when this city was first
+// appended, so mutating it here cannot reach back into a memoized child config.
+//
+// min_hex_area is unioned for the same reason it is flattened: it is coupled to
+// hex_edge_m, so backfilling the edge while dropping the threshold sized for it
+// would silently pair a fine grid with a coarse sliver filter.
+func unionCalibration(existing *CityConfig, child *Config, src *CityConfig) []string {
+	var conflicts []string
+	unionFloat(&existing.HexEdgeM, child.effectiveHexEdge(src), "hex_edge_m", &conflicts)
+	unionFloat(&existing.MinHexArea, child.effectiveMinHexArea(src), "min_hex_area", &conflicts)
+
 	srcFc := child.effectiveForecast(src)
-	if existing.Forecast != nil && srcFc != nil && !reflect.DeepEqual(*existing.Forecast, *srcFc) {
-		return errors.Join(ErrInvalidConfig, fmt.Errorf(
-			"city %q (slug %q) is included more than once with conflicting forecast "+
-				"calibration; reconcile the includes so they agree", existing.Name, slug))
+	if srcFc == nil {
+		return conflicts
 	}
-	return nil
+	if existing.Forecast == nil {
+		// Nothing set, so nothing to disagree with: adopt src's block whole.
+		// effectiveForecast allocates per call, so this pointer is not shared
+		// with the child config.
+		existing.Forecast = srcFc
+		return conflicts
+	}
+	return append(conflicts, unionForecast(existing.Forecast, srcFc)...)
+}
+
+// unionForecast applies the per-field union to a forecast block, returning the
+// fields on which the two genuinely disagree. Zero is the "unset" sentinel for
+// every field, matching the resolution layers in provenance.go
+// (applyCityForecastProv) — including GrowthRate, where 0 is indistinguishable
+// from "no growth" and a negative rate is a legitimate shrinking network.
+func unionForecast(dst, src *ForecastConfig) []string {
+	var conflicts []string
+	unionFloat(&dst.InitialPCI, src.InitialPCI, "forecast.initial_pci", &conflicts)
+	unionFloat(&dst.DecayRate, src.DecayRate, "forecast.decay_rate", &conflicts)
+	unionFloat(&dst.GrowthRate, src.GrowthRate, "forecast.growth_rate", &conflicts)
+	unionFloat(&dst.TreatmentCycleYears, src.TreatmentCycleYears, "forecast.treatment_cycle_years", &conflicts)
+	unionFloat(&dst.CurrentBudget, src.CurrentBudget, "forecast.current_budget", &conflicts)
+
+	switch {
+	case src.Years == 0: // unset upstream; nothing to fold in
+	case dst.Years == 0:
+		dst.Years = src.Years
+	case dst.Years != src.Years:
+		conflicts = append(conflicts, fmt.Sprintf("forecast.years (%d vs %d)", dst.Years, src.Years))
+	}
+
+	switch {
+	case len(src.CostTiers) == 0: // unset upstream; nothing to fold in
+	case len(dst.CostTiers) == 0:
+		dst.CostTiers = src.CostTiers
+	case !slices.Equal(dst.CostTiers, src.CostTiers):
+		// Deliberately not "(4 vs 4 tiers)": two different 4-tier sets would
+		// print an identical-looking pair and read as a formatting bug. Say
+		// the sets differ and give both sizes as context, not as the finding.
+		conflicts = append(conflicts, fmt.Sprintf(
+			"forecast.cost_tiers (different tier sets: kept %d tiers, ignored %d)",
+			len(dst.CostTiers), len(src.CostTiers)))
+	}
+	return conflicts
+}
+
+// unionFloat applies the per-field rule to one float calibration field. Zero is
+// the unset sentinel everywhere in this package, so: an unset incoming value
+// changes nothing, an unset destination takes the incoming value (a backfill —
+// nothing is lost, so nothing is reported), equal values are a no-op, and a
+// genuine disagreement keeps the destination and appends a description.
+func unionFloat(dst *float64, incoming float64, name string, conflicts *[]string) {
+	switch {
+	case incoming == 0: // unset upstream; nothing to fold in
+	case *dst == 0:
+		*dst = incoming
+	case *dst != incoming:
+		*conflicts = append(*conflicts,
+			fmt.Sprintf("%s (%s vs %s)", name, plainFloat(*dst), plainFloat(incoming)))
+	}
+}
+
+// plainFloat renders a config float in positional notation with no trailing
+// zeros. %g/%v would print a city budget of $83,100,000 as "8.31e+07", which
+// is unreadable in a warning the user is meant to act on; the same %g also
+// renders 0.03 as "0.03", so only the large end actually needs fixing.
+func plainFloat(f float64) string {
+	return strconv.FormatFloat(f, 'f', -1, 64)
 }
 
 // unionTags concatenates tag lists preserving first-seen order and dropping

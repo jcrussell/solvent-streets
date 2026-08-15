@@ -15,8 +15,21 @@
 # package default.
 #
 # Include order matters: metros come before the top-50 list so a city shared
-# between the two keeps the (more local) metro calibration — the first include
-# to contribute a city wins on calibration; later includes only add tags.
+# between the two keeps the (more local) metro calibration. Calibration merges
+# PER FIELD — the first include to *set* a field wins it, and later includes
+# fill only the fields it left unset. That is why Los Angeles keeps the LA
+# metro's decay rate and cost tiers while still picking up the national growth
+# rate, and why San Diego, Fresno, Sacramento, San Jose and San Francisco keep
+# their metro grid tuning *and* the top-50 list's cited PCI and budget figures.
+# Later includes also always add their tags.
+#
+# Where two includes set the same field to different values (12 cities today —
+# San Diego, San Jose, San Francisco, Denver, Boston, Portland, Fresno,
+# Sacramento, Long Beach, Oakland, Bakersfield, Aurora; mostly hex_edge_m and
+# forecast.years) the load prints one `warning:` line per city naming the
+# fields, both values, and both includes. Those warnings are expected here —
+# they are how "first wins" stays visible. Reordering the includes below
+# changes which calibration those cities get.
 #
 # Ingest/compute for the union is large (hundreds of cities). Run
 # `pvmt all ingest` then `pvmt all compute` from this directory before

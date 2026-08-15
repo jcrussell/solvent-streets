@@ -350,10 +350,41 @@ func TestWarnInvalidEnv_BadValuesEmitWarning(t *testing.T) {
 	}
 }
 
+// TestMiddlewareChain_DoesNotDereferenceConfig guards byob-config.3 at the
+// place it is easiest to break: the chain runs for every non-exempt command,
+// so one middleware calling f.Config() makes config discovery eager for all of
+// them — `pvmt cache prune` would walk the filesystem and parse the whole
+// include tree just to decide whether to print something. The [[include]]
+// load warnings are emitted from the lazy Config closure in pkg/cmd/factory
+// precisely so this stays true; a future middleware that reads the config must
+// come with a different answer to this test, not a deletion of it.
+func TestMiddlewareChain_DoesNotDereferenceConfig(t *testing.T) {
+	var calls int
+	f := testFactory()
+	f.Config = func() (*config.Config, error) {
+		calls++
+		// A broken pvmt.toml, i.e. the case where eager loading hurts most:
+		// a config-free command must still run to completion.
+		return nil, errors.New("synthetic broken pvmt.toml")
+	}
+
+	cmd := NewCmdRoot(f)
+	leaf := &cobra.Command{Use: "cache"}
+	leaf.SetContext(context.Background())
+	if err := cmd.PersistentPreRunE(leaf, nil); err != nil {
+		t.Fatalf("PersistentPreRunE must not fail for a config-free command: %v", err)
+	}
+	if calls != 0 {
+		t.Errorf("the middleware chain dereferenced f.Config %d time(s); it must stay lazy", calls)
+	}
+}
+
 // testFactory builds a Factory wired with the minimum dependencies required
 // to drive root.PersistentPreRunE: LogLevel + Logger (consumed by applyLogLevel
 // and the structured-log context binding) and a stub Config so the
-// config-reading middlewares (e.g. warnInvalidEnv) don't blow up.
+// middlewares don't blow up. No middleware may actually dereference the
+// closure — see TestMiddlewareChain_DoesNotDereferenceConfig — but the stub
+// keeps a factory-shape change from failing here for the wrong reason.
 func testFactory() *cmdutil.Factory {
 	ios, _, _, _ := iostreams.Test()
 	return &cmdutil.Factory{

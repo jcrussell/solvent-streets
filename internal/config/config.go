@@ -91,7 +91,29 @@ type Config struct {
 	// internal/config/hash.go for the rationale (path-independent,
 	// stable across Config struct evolution).
 	contentHash string `toml:"-"`
+
+	// loadWarnings holds the non-fatal notices raised while resolving
+	// [[include]] blocks — today, one per city whose calibration was
+	// superseded by an earlier include under first-include-wins (see
+	// include.go). Set by Load; read via LoadWarnings() and printed by
+	// the warnConfigLoad middleware, since this package has no IOStreams.
+	//
+	// Unexported deliberately: Config.Hash() falls back to a TOML
+	// re-encode of the struct for in-memory configs, and the encoder
+	// skips unexported fields — so warnings cannot perturb a snapshot
+	// hash. Same reason contentHash is unexported. See
+	// TestLoadWarnings_DoNotAffectHash.
+	loadWarnings []string `toml:"-"`
 }
+
+// LoadWarnings returns the non-fatal notices collected while this config was
+// loaded, in the order they were raised. Currently these describe per-city
+// calibration superseded by an earlier [[include]]: the merge picks the first
+// include's numbers, and this is how that choice reaches the user. Empty for a
+// config with no includes or no disagreements.
+//
+// The returned slice is owned by the Config; callers must not mutate it.
+func (c *Config) LoadWarnings() []string { return c.loadWarnings }
 
 type DisplayConfig struct {
 	Units string `toml:"units"` // "metric" or "imperial" (default: "imperial")
@@ -415,10 +437,19 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve config path %q: %w", path, err)
 	}
-	cfg, blobs, err := loadResolved(abs, map[string]bool{}, 0, map[string]*resolvedInclude{})
+	warn := &calibrationWarnings{}
+	cfg, blobs, err := loadResolved(abs, map[string]bool{}, 0, map[string]*resolvedInclude{}, warn)
 	if err != nil {
 		return nil, err
 	}
+	// Non-fatal include notices ride out on the Config because this package
+	// cannot print; the CLI boundary emits them. Rendered here because this is
+	// where the top-level config's directory is known — every include path in
+	// a warning is anchored to it, so a nested tree cannot produce two
+	// different files that both print as "../pvmt.toml". Assigned before
+	// Validate so a config that then fails validation still carries them for
+	// any caller that inspects it.
+	cfg.loadWarnings = warn.render(filepath.Dir(abs))
 	// SourcePath keeps the caller's spelling (used by export/server to read the
 	// raw TOML back); ConfigID and contentHash key on the absolute path and the
 	// merged file contents so two spellings of the same file agree.

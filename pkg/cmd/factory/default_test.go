@@ -18,6 +18,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/ingest"
 	"github.com/jcrussell/solvent-streets/internal/paths"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
+	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
 
 // TestNewPVMTTransport_TunedTimeouts locks in the byob-http-client.2 transport
@@ -397,4 +398,123 @@ func newTestFactoryForHTTP(t *testing.T) *cmdutil.Factory {
 	}
 	f.HttpClient = httpClientFactory(f, 24*time.Hour)
 	return f
+}
+
+// TestConfigFactory_EmitsLoadWarningsOnce covers the visible half of the
+// [[include]] merge (vf6m): internal/config has no IOStreams, so it records
+// its non-fatal notices on the Config and the lazy Config closure prints them.
+// Emitting from here rather than from a PersistentPreRunE middleware is what
+// keeps them lazy and scoped — see configFactory — so this test pins all three
+// properties at once: nothing is printed before the first call, everything is
+// printed on it, and nothing is repeated on the second.
+func TestConfigFactory_EmitsLoadWarningsOnce(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) string {
+		t.Helper()
+		p := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	city := "[[cities]]\nname = \"Reno, NV\"\noverpass = true\n"
+	write("metro/pvmt.toml", "[grid]\nhex_edge_m = 80\n"+city)
+	write("national/pvmt.toml", "[grid]\nhex_edge_m = 55\n"+city)
+	top := write("all/pvmt.toml",
+		"[[include]]\npath = \"../metro/pvmt.toml\"\n[[include]]\npath = \"../national/pvmt.toml\"\n")
+
+	ios, _, _, errBuf := iostreams.Test()
+	calls := 0
+	load := lazyConfig(warnAfterLoad(ios, func() (*config.Config, error) {
+		calls++
+		return config.Load(top)
+	}))
+
+	if errBuf.String() != "" || calls != 0 {
+		t.Fatalf("closure construction must not load or print; calls=%d out=%q", calls, errBuf.String())
+	}
+
+	cfg, err := load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(cfg.LoadWarnings()) != 1 {
+		t.Fatalf("want 1 load warning on the config, got %q", cfg.LoadWarnings())
+	}
+	first := errBuf.String()
+	for _, want := range []string{"warning: ", "Reno, NV", "hex_edge_m (80 vs 55)", "metro/pvmt.toml", "national/pvmt.toml"} {
+		if !strings.Contains(first, want) {
+			t.Errorf("stderr %q missing %q", first, want)
+		}
+	}
+
+	if _, err := load(); err != nil {
+		t.Fatalf("load (second): %v", err)
+	}
+	if got := errBuf.String(); got != first {
+		t.Errorf("warnings repeated on the second Config() call:\nfirst:  %q\nsecond: %q", first, got)
+	}
+	if calls != 1 {
+		t.Errorf("loader invoked %d time(s); want 1", calls)
+	}
+}
+
+// TestConfigFactory_SilentWhenNothingToSay pins the other half: a config that
+// merges cleanly prints nothing, and a config that fails to load prints
+// nothing either — the command that needed it reports that failure, and a
+// command that never dereferences the closure (the byob-config.3 case) must be
+// able to run to completion beside a broken pvmt.toml without a word.
+func TestConfigFactory_SilentWhenNothingToSay(t *testing.T) {
+	t.Run("clean config", func(t *testing.T) {
+		dir := t.TempDir()
+		p := filepath.Join(dir, "pvmt.toml")
+		if err := os.WriteFile(p, []byte("[[cities]]\nname = \"Reno, NV\"\noverpass = true\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ios, _, _, errBuf := iostreams.Test()
+		load := lazyConfig(warnAfterLoad(ios, func() (*config.Config, error) { return config.Load(p) }))
+		if _, err := load(); err != nil {
+			t.Fatalf("load: %v", err)
+		}
+		if got := errBuf.String(); got != "" {
+			t.Errorf("a config with no disagreements must print nothing, got %q", got)
+		}
+	})
+
+	t.Run("broken config", func(t *testing.T) {
+		dir := t.TempDir()
+		p := filepath.Join(dir, "pvmt.toml")
+		if err := os.WriteFile(p, []byte("this is not ][ valid toml"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ios, _, _, errBuf := iostreams.Test()
+		load := lazyConfig(warnAfterLoad(ios, func() (*config.Config, error) { return config.Load(p) }))
+		if _, err := load(); err == nil {
+			t.Fatal("expected a load error for invalid TOML")
+		}
+		if got := errBuf.String(); got != "" {
+			t.Errorf("a failed load must not print a warning here, got %q", got)
+		}
+	})
+
+	t.Run("never dereferenced", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "pvmt.toml"), []byte("this is not ][ valid toml"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Chdir(dir)
+		ios, _, _, errBuf := iostreams.Test()
+		f := &cmdutil.Factory{IOStreams: ios, Config: configFactory(ios)}
+		// Stand-in for a config-free command: it uses the factory without ever
+		// asking for the config. Nothing may be read or printed.
+		if f.Config == nil {
+			t.Fatal("Config closure not wired")
+		}
+		if got := errBuf.String(); got != "" {
+			t.Errorf("a command that never reads the config must see nothing, got %q", got)
+		}
+	})
 }

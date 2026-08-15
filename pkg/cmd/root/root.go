@@ -37,6 +37,12 @@ import (
 // addSubcommands runs (see wireUnitSystem).
 type middleware func(root *cobra.Command, f *cmdutil.Factory) error
 
+// Nothing here may dereference f.Config: the chain runs for every non-exempt
+// command, so a config-reading middleware would make config discovery eager
+// for all of them and break byob-config.3's "commands that never touch the
+// config pay nothing" contract (see configFactory). The config's own load
+// warnings are emitted from the lazy Config closure in pkg/cmd/factory for
+// exactly that reason.
 var middlewares = []middleware{
 	warnInvalidEnv,
 }

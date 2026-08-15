@@ -145,19 +145,53 @@ func httpClientFactory(f *cmdutil.Factory, cacheTTL time.Duration) func() (*http
 //     more than once pay one filesystem walk + parse total.
 //   - The actual load is deferred to first call. Commands that never
 //     touch the config — `pvmt --version`, `pvmt --help`, `pvmt
-//     completion`, the __complete completion path — therefore pay
+//     completion`, the __complete completion path, and the commands
+//     that only touch the database or the cache — therefore pay
 //     nothing for config discovery and survive a broken or absent
-//     pvmt.toml. PersistentPreRunE's skipMiddleware list keeps those
-//     commands from going through warnInvalidConfig, which is the
-//     other place the closure would otherwise be triggered.
+//     pvmt.toml. Nothing in the PersistentPreRunE middleware chain may
+//     dereference this closure, or that guarantee evaporates for every
+//     command at once.
 //   - Errors are cached too: a broken config file fails once and
 //     returns the same wrapped error on every subsequent call,
 //     instead of re-walking the filesystem on each access.
 //
+// It is also where the config's own load warnings reach the user.
+// internal/config has no IOStreams and cannot print, so it records
+// non-fatal notices on the Config (today: per-city calibration
+// superseded by an earlier [[include]]) and this closure emits them —
+// the same "collect in config, print at the CLI boundary" split that
+// warnInvalidEnv uses for silently-ignored PVMT_* env vars. Emitting
+// here rather than from a middleware is what keeps the notices scoped:
+// they appear exactly when a command actually reads the config, so
+// `pvmt cache prune` and `pvmt gc` stay silent, and they cannot appear
+// twice because the emission sits inside the sync.OnceValues body.
+//
 // loadConfigFromCwd is split out so tests can inject a counter-aware
 // loader through lazyConfig without bypassing the once/lazy contract.
-func configFactory() func() (*config.Config, error) {
-	return lazyConfig(loadConfigFromCwd)
+func configFactory(ios *iostreams.IOStreams) func() (*config.Config, error) {
+	return lazyConfig(warnAfterLoad(ios, loadConfigFromCwd))
+}
+
+// warnAfterLoad wraps a loader so the config's own non-fatal notices are
+// printed the once, right after the load that produced them. Split from
+// configFactory so tests can drive it with a counting or failing loader
+// without bypassing the once/lazy contract, exactly as loadConfigFromCwd is
+// split out for lazyConfig.
+//
+// Nil-tolerant on both the streams and the config: a failed load (cfg == nil)
+// is simply silent here, because the command that needed the config is the one
+// that reports the failure.
+func warnAfterLoad(ios *iostreams.IOStreams, load func() (*config.Config, error)) func() (*config.Config, error) {
+	return func() (*config.Config, error) {
+		cfg, err := load()
+		if ios == nil || cfg == nil {
+			return cfg, err
+		}
+		for _, w := range cfg.LoadWarnings() {
+			cmdutil.Warnf(ios, "%s", w)
+		}
+		return cfg, err
+	}
 }
 
 func loadConfigFromCwd() (*config.Config, error) {
@@ -243,7 +277,7 @@ func New() *cmdutil.Factory {
 		AppVersion:     build.Version,
 		ExecutableName: "pvmt",
 		IOStreams:      ios,
-		Config:         configFactory(),
+		Config:         configFactory(ios),
 		Logger:         logger,
 		LogLevel:       lvl,
 		Prompter:       prompt.NewLive(ios),
