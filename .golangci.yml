@@ -103,9 +103,21 @@ linters:
         - name: increment-decrement
   exclusions:
     presets: []
+    # node_modules is npm's tree for the eslint/tsc gate on the template JS.
+    # flatted ships a stray .go file that golangci-lint otherwise walks into
+    # and reports on; it is not our code and we do not build it.
+    paths:
+      - node_modules
     rules:
       # Test files: relax noisy linters
       - linters: [bodyclose, gocognit, nestif, dupl, goconst, noctx, usestdlibvars, fatcontext, forcetypeassert, gosec, perfsprint, wastedassign, nakedret, tparallel]
+        path: "_test\\.go$"
+      # SA5011 in tests: the guard is `if x == nil { t.Fatal(...) }`, which
+      # ends the goroutine via runtime.Goexit. staticcheck's nil-flow analysis
+      # does not model that, so it reads the guard as proof x may be nil at the
+      # deref below. The pattern is correct and idiomatic; the finding is not.
+      - linters: [staticcheck]
+        text: "SA5011"
         path: "_test\\.go$"
       # DB migrations run at startup before context is available
       - linters: [noctx]
@@ -143,6 +155,9 @@ formatters:
     goimports:
       local-prefixes:
         - github.com/jcrussell/solvent-streets
+  exclusions:
+    paths:
+      - node_modules
 
 output:
   show-stats: true
