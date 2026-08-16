@@ -88,14 +88,13 @@ func runPrune(ctx context.Context, opts *PruneOptions) error {
 	if err != nil {
 		return fmt.Errorf("database: %w", err)
 	}
-	configID := cmdutil.ResolveConfigID(opts.Config)
 
 	// Discovery: collect every city's victims first so we can quote the
 	// total in the prompt and bail without touching the DB on "no".
 	var plan []pruneVictims
 	var totalVictims int
 	for _, city := range cities {
-		store, err := cmdutil.EnsureCityStore(ctx, root, city, configID)
+		store, err := cmdutil.EnsureCityStore(ctx, root, city, cmdutil.ResolveConfigID(opts.Config, &city))
 		if err != nil {
 			return err
 		}

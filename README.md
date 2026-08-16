@@ -111,12 +111,14 @@ Push a `v*` tag. GoReleaser builds Linux/macOS (amd64/arm64) and publishes to Gi
 
 The site at <https://joncrussell.com/solvent-streets/> is a single consolidated dashboard: one `pvmt export` run from [`examples/all/`](examples/all/pvmt.toml), whose `[[include]]` blocks union every other example into one config (277 cities) and tag each one at the include site. Cities are browsed by tag rather than by example, and the Compare and Aggregate tabs can be scoped to a tag. See [docs/configuration.md](docs/configuration.md) for `tags` and `[[include]]`.
 
-Ingest/compute/forecast cannot run in CI (the source SQLite DB is ~1 GB and Overpass/ArcGIS pulls are slow and rate-limited), so the publish runs from a developer machine that already has data in `~/.local/share/pvmt/pvmt.db`. The combined config covers every example's cities, so they must all be ingested and computed first:
+Ingest/compute/forecast cannot run in CI (the source SQLite DB is ~1 GB and Overpass/ArcGIS pulls are slow and rate-limited), so the publish runs from a developer machine that already has data in `~/.local/share/pvmt/pvmt.db`. The combined config covers every example's cities, so they must all have data first — but it does **not** need its own ingest: a city reached through `[[include]]` keeps the identity of the file that declared it, so `examples/all` reads exactly the rows and snapshots each example's own ingest/compute wrote.
 
 ```
-cd examples/all && pvmt all ingest && pvmt all compute   # hours; only when data is stale
+cd examples/<name> && pvmt all ingest && pvmt all compute   # per example; hours, only when data is stale
 make site     # renders ./site/ from your local DB
 make deploy   # force-pushes ./site/ to the gh-pages branch
 ```
+
+Running ingest or compute from `examples/all` is supported and writes into those same per-example namespaces — which means it *replaces* their data rather than sandboxing it. Prefer running per example unless you specifically mean to refresh everything.
 
 GitHub Pages picks up the new commit on the next sync. The site auto-routes to `/solvent-streets/` under the `joncrussell.com` CNAME owned by the user-pages repo.

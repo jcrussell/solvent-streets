@@ -111,6 +111,10 @@ erDiagram
         text config_id
     }
     %% Unique key is the composite (slug, config_id), not slug alone.
+    %% A city pulled in via [[include]] carries its SOURCE config's id (and
+    %% content hash), so a union config resolves to the declaring example's
+    %% row rather than minting one of its own. See docs/configuration.md
+    %% "Config identity".
     city_boundaries {
         int city_id FK
         text geometry_json

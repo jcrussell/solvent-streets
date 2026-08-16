@@ -267,7 +267,7 @@ func doCompute(ctx context.Context, out, progress, errOut io.Writer, notify tui.
 	if err != nil {
 		return err
 	}
-	c.snapshotID = createSnapshot(ctx, errOut, store, cfg)
+	c.snapshotID = createSnapshot(ctx, errOut, store, cfg, city)
 	// Single cleanup chokepoint: the cancel guards below (and any error path
 	// after snapshot creation) return without deleting the snapshot row that
 	// createSnapshot just wrote. `snapshots prune` counts every snapshot toward
@@ -414,8 +414,15 @@ func (c *computer) loadResourceFeatures(ctx context.Context) ([]resource.Feature
 	return resFeatures, nil
 }
 
-func createSnapshot(ctx context.Context, errOut io.Writer, store db.Store, cfg *config.Config) *int64 {
-	snapshot, err := store.CreateSnapshot(ctx, cfg.Hash())
+// createSnapshot records the compute run under the hash that OWNS this city's
+// data. That is cfg.CityHash(city), not cfg.Hash(): for a city reached through
+// [[include]] the data belongs to the file that declared it, so computing from
+// a union config updates the source example's snapshots rather than writing
+// into a namespace nothing reads. The read side (RequireMatchingSnapshot,
+// BuildCityEntries, snapshotMatchesConfig) resolves the same way, and the two
+// have to agree or compute silently produces snapshots no export can find.
+func createSnapshot(ctx context.Context, errOut io.Writer, store db.Store, cfg *config.Config, city *config.CityConfig) *int64 {
+	snapshot, err := store.CreateSnapshot(ctx, cfg.CityHash(city))
 	if err != nil {
 		fmt.Fprintf(errOut, "Warning: failed to create snapshot: %v\n", err)
 	}

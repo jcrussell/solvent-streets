@@ -326,6 +326,41 @@ type CityConfig struct {
 	// Required only for staging or self-hosted ArcGIS endpoints on
 	// internal networks; public ArcGIS endpoints work without it.
 	AllowPrivateArcGIS bool `toml:"allow_private_arcgis"`
+
+	// --- Source identity: set by the [[include]] merge, never by a user. ---
+	//
+	// A city reached through [[include]] belongs to the file that declared it,
+	// not to the file that included it. Without these, a union config gets its
+	// own cities rows (keyed on ConfigID) and its own snapshot pin (keyed on
+	// Hash()), so it cannot see any of the data the source example ingested and
+	// computed — which is exactly why `make site` could not run.
+	//
+	// All three are toml:"-": BurntSushi treats that as skip, so they never
+	// appear in a user's file, never round-trip through ResolvedTOML, and never
+	// perturb Hash()'s struct-encoding fallback.
+	//
+	// They are stamped ONLY when still empty, so a city that arrives through
+	// nested includes keeps the identity of the file that actually declared it
+	// rather than the middle file's.
+
+	// SourceConfigID is the ConfigID of the config that declared this city.
+	// Empty means "declared directly by the config holding it".
+	SourceConfigID string `toml:"-"`
+
+	// SourceConfigHash is that config's content hash — the value its own
+	// `pvmt compute` writes into snapshots.config_hash. It must be computed the
+	// same way Load does (hashBlobs over the file and everything it includes),
+	// NOT via the included *Config's Hash(), which carries only the bare-bytes
+	// hash parseConfig set and would match a different, older snapshot.
+	SourceConfigHash string `toml:"-"`
+
+	// SourceHexEdgeM is the hex edge the source config resolves for this city,
+	// captured so a union config can detect the one merge outcome that silently
+	// corrupts an export: hex ids are derived from the grid, and stored
+	// hex_stats are joined to a freshly rebuilt grid BY ID, so a union that
+	// resolves a different edge than the snapshot was computed at produces a
+	// city with zero features rather than an error.
+	SourceHexEdgeM float64 `toml:"-"`
 }
 
 type GridConfig struct {
@@ -346,6 +381,32 @@ func (c *Config) HexEdge() float64 {
 func (c *Config) ResolvedHexEdge(city *CityConfig) float64 {
 	v, _ := c.resolveHexEdgeForCity(city)
 	return v
+}
+
+// CityConfigID returns the ConfigID that owns city's row in the cities table.
+//
+// For a city declared directly this is the config's own ConfigID, preserving
+// the deliberate divergence documented on Hash(): two unrelated files that
+// happen to define the same slug get distinct rows. A city reached through
+// [[include]] is not that case — it IS the included file's city — so it keeps
+// the source's id and resolves to the same row the source example ingested
+// into.
+func (c *Config) CityConfigID(city *CityConfig) string {
+	if city != nil && city.SourceConfigID != "" {
+		return city.SourceConfigID
+	}
+	return c.ConfigID
+}
+
+// CityHash returns the content hash that scopes snapshot reads for city, i.e.
+// the hash whose `pvmt compute` run produced the data this city should read.
+// Same rule as CityConfigID: an included city reads (and writes) under the
+// source config's hash, everything else under this config's own.
+func (c *Config) CityHash(city *CityConfig) string {
+	if city != nil && city.SourceConfigHash != "" {
+		return city.SourceConfigHash
+	}
+	return c.Hash()
 }
 
 // ResolvedForecast returns the forecast config for city with all layers

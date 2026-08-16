@@ -87,7 +87,6 @@ func runRm(ctx context.Context, opts *RmOptions) error {
 	if err != nil {
 		return fmt.Errorf("database: %w", err)
 	}
-	configID := cmdutil.ResolveConfigID(opts.Config)
 
 	// Discovery: find the city that owns the snapshot before deleting,
 	// so the confirmation prompt can name the owner. Splitting discovery
@@ -96,7 +95,7 @@ func runRm(ctx context.Context, opts *RmOptions) error {
 	var ownerStore db.Store
 	for i := range cities {
 		city := &cities[i]
-		store, err := cmdutil.EnsureCityStore(ctx, root, *city, configID)
+		store, err := cmdutil.EnsureCityStore(ctx, root, *city, cmdutil.ResolveConfigID(opts.Config, city))
 		if err != nil {
 			return err
 		}

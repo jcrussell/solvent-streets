@@ -31,9 +31,15 @@
 # they are how "first wins" stays visible. Reordering the includes below
 # changes which calibration those cities get.
 #
-# Ingest/compute for the union is large (hundreds of cities). Run
-# `pvmt all ingest` then `pvmt all compute` from this directory before
-# `make site`; the config ships without pre-computed artifacts.
+# This config stores no data of its own. Each city keeps the identity of the
+# example that declared it (config_id + content hash), so the union reads the
+# rows and snapshots those examples already ingested and computed — there is no
+# separate ingest for `examples/all`. Populate the individual examples, then run
+# `make site`.
+#
+# Ingest and compute DO work from here, and they write into the per-example
+# namespaces, replacing that data rather than sandboxing it. That is usually not
+# what you want; run them from the example directory instead.
 
 [export]
 title = "Solvent Streets"

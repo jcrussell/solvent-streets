@@ -101,6 +101,10 @@ tags = ["Top 50"]
 
 `cities` rows in the local database are keyed by `(slug, config_id)`. This separates two configs that happen to define the same city — e.g. `examples/livermore-ca/pvmt.toml` and `examples/bay-area-ca/pvmt.toml` both defining "Livermore, CA" — so features, snapshots, and forecasts written under one don't clobber the other.
 
+**`[[include]]` is the exception, deliberately.** Two files that merely happen to share a slug are unrelated; an included file's city *is* that file's city. So a city pulled in through `[[include]]` keeps its source config's `config_id` **and** its source config's content hash, and resolves to the same row and the same snapshots as if you had run `pvmt` from that example's own directory. That is what lets a union config like `examples/all` read data it never ingested. It also means ingest, compute and forecast run from the union write *into* the source examples' namespaces rather than a namespace of their own — see [examples/all](../examples/all/pvmt.toml).
+
+One divergence the merge can introduce is worth knowing about, because it is caught rather than tolerated: calibration merges per field with first-to-set winning, so a union can resolve a different `hex_edge_m` for a city than the config that computed it. Hex ids are derived from the grid, so that would silently export a blank map. The exporter compares the two and fails with a hint instead.
+
 `config_id` is optional. When omitted, it defaults to the 16-character sha256 prefix of the config's absolute filesystem path. That default works out of the box for single-config users and disambiguates multi-example setups on a single machine.
 
 Set `config_id` explicitly at the top of `pvmt.toml` if you need a stable key:

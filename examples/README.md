@@ -22,9 +22,12 @@ cities), so a city reached through several includes is merged once and carries
 the union of their tags. See
 [Including other configs](../docs/configuration.md#including-other-configs-include).
 
-It ships without pre-computed artifacts, so it needs every included example's
-data first — `cd examples/all && pvmt all ingest && pvmt all compute` — which
-takes hours. Try a single example below before reaching for this one.
+It declares no cities of its own and stores no data of its own: an included
+city keeps the identity of the file that declared it, so this config reads
+whatever the individual examples have already ingested and computed. Populate
+the examples you want (`cd examples/<name> && pvmt all ingest && pvmt all
+compute`), then run `make site`. Try a single example below before reaching for
+this one.
 
 ## Featured: [livermore-ca](livermore-ca/)
 

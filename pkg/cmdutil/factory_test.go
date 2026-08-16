@@ -275,23 +275,38 @@ func TestResolveConfigID(t *testing.T) {
 			ConfigID:   "expected-id",
 			SourcePath: "/home/someone/secret/path.toml",
 		}
-		got := cmdutil.ResolveConfigID(func() (*config.Config, error) { return cfg, nil })
+		got := cmdutil.ResolveConfigID(func() (*config.Config, error) { return cfg, nil }, nil)
 		if got != "expected-id" {
 			t.Errorf("ResolveConfigID = %q, want %q (must be ConfigID, not SourcePath)", got, "expected-id")
 		}
 	})
 
 	t.Run("nil resolver returns empty string", func(t *testing.T) {
-		got := cmdutil.ResolveConfigID(nil)
+		got := cmdutil.ResolveConfigID(nil, nil)
 		if got != "" {
 			t.Errorf("ResolveConfigID(nil) = %q, want empty string", got)
 		}
 	})
 
 	t.Run("resolver error returns empty string", func(t *testing.T) {
-		got := cmdutil.ResolveConfigID(func() (*config.Config, error) { return nil, errors.New("boom") })
+		got := cmdutil.ResolveConfigID(func() (*config.Config, error) { return nil, errors.New("boom") }, nil)
 		if got != "" {
 			t.Errorf("ResolveConfigID on error = %q, want empty string", got)
+		}
+	})
+
+	// An included city belongs to the file that DECLARED it, not the one that
+	// included it — that is what lets a union config read the data its source
+	// examples ingested. A nil city keeps the config's own id.
+	t.Run("included city keeps its source config id", func(t *testing.T) {
+		cfg := &config.Config{ConfigID: "union"}
+		included := &config.CityConfig{Name: "Oakland, CA", SourceConfigID: "bay-area-ca"}
+		if got := cmdutil.ResolveConfigID(func() (*config.Config, error) { return cfg, nil }, included); got != "bay-area-ca" {
+			t.Errorf("ResolveConfigID = %q, want %q (the source config's id)", got, "bay-area-ca")
+		}
+		direct := &config.CityConfig{Name: "Bend, OR"}
+		if got := cmdutil.ResolveConfigID(func() (*config.Config, error) { return cfg, nil }, direct); got != "union" {
+			t.Errorf("ResolveConfigID = %q, want %q (a directly-declared city keeps the config's own id)", got, "union")
 		}
 	})
 }

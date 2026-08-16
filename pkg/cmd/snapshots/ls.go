@@ -128,11 +128,10 @@ func collectSnapshotRows(
 	if err != nil {
 		return nil, fmt.Errorf("database: %w", err)
 	}
-	configID := cmdutil.ResolveConfigID(resolveConfig)
 
 	var rows []snapshotRow
 	for _, city := range cities {
-		store, err := cmdutil.EnsureCityStore(ctx, root, city, configID)
+		store, err := cmdutil.EnsureCityStore(ctx, root, city, cmdutil.ResolveConfigID(resolveConfig, &city))
 		if err != nil {
 			return nil, err
 		}

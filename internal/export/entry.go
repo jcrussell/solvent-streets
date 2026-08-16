@@ -39,20 +39,28 @@ func (entry CityEntry) WithSnapshot(snapshotID int64) CityEntry {
 	return entry
 }
 
-// BuildCityEntries creates CityEntry values for the given cities. The
-// returned stores are auto-pinned to cfg.Hash() so unpinned reads
-// (ListHexStats, ListCohortStats,
-// LatestComputeResult) only see snapshots written by this same config
-// — preventing slug-sharing examples (e.g. Livermore in both
-// livermore-ca and the bay-area-ca metro) from reading each other's
-// incompatible hex_id namespace. Callers that legitimately need cross-config reads can
-// call entry.Store.WithConfigHash("") to clear the pin.
+// BuildCityEntries creates CityEntry values for the given cities. The returned
+// stores are auto-pinned to cfg.CityHash(city) so unpinned reads (ListHexStats,
+// ListCohortStats, LatestComputeResult) only see snapshots written by the
+// config that owns that city's data — preventing slug-sharing examples (e.g.
+// Livermore in both livermore-ca and the bay-area-ca metro) from reading each
+// other's incompatible hex_id namespace. Callers that legitimately need
+// cross-config reads can call entry.Store.WithConfigHash("") to clear the pin.
+//
+// "The config that owns the data" is per city, not per Config: a city pulled in
+// through [[include]] is owned by the file that declared it. See
+// Config.CityHash / Config.CityConfigID.
 func BuildCityEntries(ctx context.Context, rootDB db.RootStorer, cfg *config.Config, cities []config.CityConfig) ([]CityEntry, error) {
-	configHash := cfg.Hash()
 	var entries []CityEntry
 	var errs []string
 	for _, city := range cities {
-		id, err := rootDB.EnsureCity(ctx, city.Slug(), city.Name, cfg.ConfigID)
+		// Both keys are resolved PER CITY, not once for the config. A city
+		// pulled in through [[include]] belongs to the file that declared it,
+		// so it reads the rows and snapshots that file's own ingest/compute
+		// wrote. Hoisting either out of this loop is what made `make site`
+		// impossible: a union config would look for its ~277 cities in a
+		// namespace nothing had ever written to.
+		id, err := rootDB.EnsureCity(ctx, city.Slug(), city.Name, cfg.CityConfigID(&city))
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", city.Name, err))
 			continue
@@ -60,7 +68,7 @@ func BuildCityEntries(ctx context.Context, rootDB db.RootStorer, cfg *config.Con
 		entries = append(entries, CityEntry{
 			Config: cfg,
 			City:   city,
-			Store:  rootDB.ForCity(id).WithConfigHash(configHash),
+			Store:  rootDB.ForCity(id).WithConfigHash(cfg.CityHash(&city)),
 			Slug:   city.Slug(),
 		})
 	}
@@ -83,7 +91,10 @@ func (entry CityEntry) RequireMatchingSnapshot(ctx context.Context) error {
 	if entry.Config == nil {
 		return nil
 	}
-	configHash := entry.Config.Hash()
+	if err := entry.requireMatchingHexEdge(); err != nil {
+		return err
+	}
+	configHash := entry.Config.CityHash(&entry.City)
 	snaps, err := entry.Store.ListSnapshots(ctx)
 	if err != nil {
 		return fmt.Errorf("list snapshots for %s: %w", entry.City.Name, err)
@@ -98,6 +109,44 @@ func (entry CityEntry) RequireMatchingSnapshot(ctx context.Context) error {
 			"matching the current config hash %s. If snapshots exist with other hashes "+
 			"(e.g. after editing hex_edge_m or a forecast knob), `pvmt snapshots ls --city %s` "+
 			"will show them.", entry.Slug, configHash, entry.Slug)
+}
+
+// requireMatchingHexEdge catches the one merge outcome that corrupts an export
+// without erroring anywhere.
+//
+// An included city reads the snapshot its SOURCE config computed, but its
+// effective calibration is resolved by the config doing the reading, and the
+// [[include]] merge unions calibration PER FIELD with first-to-set winning. So
+// a city contributed by one include can take hex_edge_m from a different one,
+// or inherit a union's top-level [grid] the source never had.
+//
+// That specific field is unforgiving. Hex ids are derived from the grid, and
+// the exporter rebuilds the grid from config and joins the stored hex_stats to
+// it BY ID (buildHexFeature). A different edge produces ids that match nothing,
+// so every feature is dropped and the city exports an empty heatmap — no error,
+// no warning, just a blank map that looks like a city with no data.
+//
+// The snapshot-hash check cannot see this: the hash is the SOURCE's, and it
+// matches. So compare the resolved edges directly. Zero means unstamped (a
+// directly-declared city), which is not an included city and needs no check.
+func (entry CityEntry) requireMatchingHexEdge() error {
+	want := entry.City.SourceHexEdgeM
+	if want == 0 {
+		return nil
+	}
+	got := entry.Config.ResolvedHexEdge(&entry.City)
+	if got == want {
+		return nil
+	}
+	return cmdutil.Hintf(
+		fmt.Errorf("%w for %s: hex_edge_m resolves to %g here but its data was computed at %g",
+			ErrNoMatchingSnapshot, entry.City.Name, got, want),
+		"%s is pulled in via [[include]], so it reads the snapshots its own config computed — "+
+			"but this config resolves a different hex edge, and hex ids are derived from the grid, "+
+			"so every stored hex would fail to match and the city would export a blank map. "+
+			"Either drop the conflicting hex_edge_m (a top-level [grid] in the including file "+
+			"applies to every city that has no override of its own), or recompute %s under this config.",
+		entry.City.Name, entry.Slug)
 }
 
 // BBoxAndCenter derives bbox and center from the stored boundary polygon.

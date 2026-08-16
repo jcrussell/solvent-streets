@@ -221,13 +221,20 @@ func ForEachCity(ctx context.Context, f *Factory, fn func(cf *Factory, city *con
 	return errors.Join(errs...)
 }
 
-// ResolveConfigID returns cfg.ConfigID via the given resolver, or ""
-// if the resolver is nil, errors, or returns a nil config. Used as the
-// EnsureCity config_id argument across commands that scope city ids
-// to a specific pvmt.toml. An empty return is intentional and surfaces
-// at the EnsureCity boundary as "config_id is required" — a clear
-// failure mode beats silently writing a row keyed on "".
-func ResolveConfigID(resolveConfig func() (*config.Config, error)) string {
+// ResolveConfigID returns the ConfigID that owns city's row in the cities
+// table, or "" if the resolver is nil, errors, or returns a nil config. Used as
+// the EnsureCity config_id argument across commands that scope city ids to a
+// specific pvmt.toml. An empty return is intentional and surfaces at the
+// EnsureCity boundary as "config_id is required" — a clear failure mode beats
+// silently writing a row keyed on "".
+//
+// It takes the CITY, not just the config, because a city pulled in through
+// [[include]] belongs to the file that declared it (Config.CityConfigID). Do
+// not hoist this out of a per-city loop: with includes in play, two cities of
+// the same config can legitimately resolve to different ids, and hoisting
+// silently points half of them at the wrong namespace. A nil city is fine and
+// means "this config's own id".
+func ResolveConfigID(resolveConfig func() (*config.Config, error), city *config.CityConfig) string {
 	if resolveConfig == nil {
 		return ""
 	}
@@ -235,7 +242,24 @@ func ResolveConfigID(resolveConfig func() (*config.Config, error)) string {
 	if err != nil || cfg == nil {
 		return ""
 	}
-	return cfg.ConfigID
+	return cfg.CityConfigID(city)
+}
+
+// ResolveCityHash returns the content hash that scopes snapshot reads for city
+// — the source config's hash for an included city, this config's own otherwise
+// (Config.CityHash). Returns "" when no config is available, which callers
+// treat as "don't pin".
+//
+// Same warning as ResolveConfigID: resolve it per city, not once per command.
+func ResolveCityHash(resolveConfig func() (*config.Config, error), city *config.CityConfig) string {
+	if resolveConfig == nil {
+		return ""
+	}
+	cfg, err := resolveConfig()
+	if err != nil || cfg == nil {
+		return ""
+	}
+	return cfg.CityHash(city)
 }
 
 // ResolveCities returns the single city selected by --city, or all configured
@@ -295,7 +319,7 @@ func withCity(ctx context.Context, f *Factory, city *config.CityConfig) *Factory
 		if err != nil {
 			return nil, err
 		}
-		configID := ResolveConfigID(f.Config)
+		configID := ResolveConfigID(f.Config, &c)
 		key := c.Slug() + "\x00" + configID
 		return cache.get(key, func() (db.Store, error) {
 			id, err := root.EnsureCity(ctx, c.Slug(), c.Name, configID)
@@ -304,7 +328,7 @@ func withCity(ctx context.Context, f *Factory, city *config.CityConfig) *Factory
 			}
 			store := root.ForCity(id)
 			if cfg, cfgErr := f.Config(); cfgErr == nil && cfg != nil {
-				store = store.WithConfigHash(cfg.Hash())
+				store = store.WithConfigHash(cfg.CityHash(&c))
 			}
 			return store, nil
 		})

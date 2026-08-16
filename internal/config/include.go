@@ -240,10 +240,39 @@ func resolveOneInclude(parent *Config, inc IncludeSpec, i int, dir string,
 	if err != nil {
 		return nil, fmt.Errorf("include %q: %w", inc.Path, err)
 	}
-	if err := mergeIncludedCities(parent, child, inc.Tags, incAbs, ms); err != nil {
+	if err := mergeIncludedCities(parent, child, inc.Tags, incAbs, childBlobs, ms); err != nil {
 		return nil, fmt.Errorf("include %q: %w", inc.Path, err)
 	}
 	return childBlobs, nil
+}
+
+// sourceIdentity is the (config id, content hash) pair a config's own cities
+// are stored under, derived for an INCLUDED file. Both have to reproduce what
+// Load would compute for that file if you ran pvmt from its directory —
+// otherwise the union reads a different namespace, or worse, a real-but-stale
+// snapshot.
+//
+// Neither can be read off the child *Config:
+//
+//   - ConfigID's absolute-path fallback lives in Load, which an included file
+//     never goes through, so child.ConfigID is "" for any file that omits
+//     config_id. Left unhandled, CityConfigID falls back to the parent's id and
+//     the whole feature silently no-ops for exactly those users.
+//
+//   - child.Hash() is worse than useless. Load sets contentHash = hashBlobs
+//     (length-prefixed, covering transitive includes); an included file only
+//     passes through parseConfig, which sets contentHash = hashBytes over its
+//     own bytes. Those differ by construction (TestInclude_NoIncludeHashUnchanged
+//     pins it), and both generations exist in real databases — so the bare-bytes
+//     hash does not fail to match, it matches an OLDER snapshot. That fails by
+//     producing a plausible site from stale data, which is the worst way to
+//     fail. Recompute from childBlobs, which is what Load hashes.
+func sourceIdentity(child *Config, incAbs string, childBlobs [][]byte) (configID, contentHash string) {
+	configID = child.ConfigID
+	if configID == "" {
+		configID = hashBytes([]byte(incAbs))
+	}
+	return configID, hashBlobs(childBlobs)
 }
 
 // mergeIncludedCities folds child's cities into parent, tagging each with
@@ -280,7 +309,9 @@ func resolveOneInclude(parent *Config, inc IncludeSpec, i int, dir string,
 // incAbs is the absolute path of the included file; see calibrationWarning for
 // why the merge records that rather than the path as spelled at the include
 // site.
-func mergeIncludedCities(parent, child *Config, includeTags []string, incAbs string, ms *mergeState) error {
+func mergeIncludedCities(parent, child *Config, includeTags []string, incAbs string,
+	childBlobs [][]byte, ms *mergeState) error {
+	srcConfigID, srcHash := sourceIdentity(child, incAbs, childBlobs)
 	for i := range child.Cities {
 		src := child.Cities[i]
 		slug := src.Slug()
@@ -309,6 +340,24 @@ func mergeIncludedCities(parent, child *Config, includeTags []string, incAbs str
 		merged.HexEdgeM = child.effectiveHexEdge(&src)
 		merged.MinHexArea = child.effectiveMinHexArea(&src)
 		merged.Forecast = child.effectiveForecast(&src)
+		// Stamp source identity, but only where it is not already set. `merged`
+		// is a wholesale copy of src, so a city that reached child through
+		// child's OWN includes arrives already stamped with the file that
+		// declared it — overwriting here would relabel a grandchild's city as
+		// belonging to the middle file, and it would do so silently.
+		if merged.SourceConfigID == "" {
+			merged.SourceConfigID = srcConfigID
+		}
+		if merged.SourceConfigHash == "" {
+			merged.SourceConfigHash = srcHash
+		}
+		if merged.SourceHexEdgeM == 0 {
+			// The fully RESOLVED edge (including the package default), not the
+			// flattened file-layer value above: it is compared against the
+			// union's own ResolvedHexEdge, and both sides have to have been
+			// through the same defaulting for that comparison to mean anything.
+			merged.SourceHexEdgeM = child.ResolvedHexEdge(&src)
+		}
 		parent.Cities = append(parent.Cities, merged)
 		ms.byslug[slug] = len(parent.Cities) - 1
 		ms.fromInclude[slug] = incAbs

@@ -1603,3 +1603,151 @@ func equalStrings(a, b []string) bool {
 	}
 	return true
 }
+
+// TestInclude_SourceIdentityMatchesStandaloneLoad is the whole point of the
+// source-identity stamp, expressed the only way that can't drift: load a config
+// as an INCLUDE, load the same file STANDALONE, and require that the stamped
+// identity equals what the standalone load produces. If those ever disagree,
+// the union config reads a different cities row or a different snapshot than
+// the example's own `pvmt compute` wrote.
+//
+// This is a pure-config test — no DB, no export — and it is specifically the
+// test that catches stamping child.Hash() instead of hashBlobs(childBlobs).
+// That bug does not fail loudly: an included file's bare-bytes contentHash is a
+// real hash that real (older) snapshots were written under, so the union would
+// silently export stale data.
+func TestInclude_SourceIdentityMatchesStandaloneLoad(t *testing.T) {
+	dir := t.TempDir()
+	leafA := writeTOML(t, dir, "leaf-a/pvmt.toml",
+		"config_id = \"leaf-a\"\n\n[grid]\nhex_edge_m = 80\n\n[[cities]]\nname = \"Reno, NV\"\noverpass = true\n")
+	// Deliberately no config_id: exercises the absolute-path fallback that lives
+	// only in Load and would otherwise leave SourceConfigID empty.
+	leafB := writeTOML(t, dir, "leaf-b/pvmt.toml",
+		"[grid]\nhex_edge_m = 120\n\n[[cities]]\nname = \"Boise, ID\"\noverpass = true\n")
+	top := writeTOML(t, dir, "all/pvmt.toml",
+		"[[include]]\npath = \"../leaf-a/pvmt.toml\"\n\n[[include]]\npath = \"../leaf-b/pvmt.toml\"\n")
+
+	union, err := Load(top)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		path, slug string
+		wantEdge   float64
+	}{
+		{leafA, "reno-nv", 80},
+		{leafB, "boise-id", 120},
+	} {
+		standalone, sErr := Load(tc.path)
+		if sErr != nil {
+			t.Fatal(sErr)
+		}
+		city := cityBySlug(t, union, tc.slug)
+
+		if got, want := city.SourceConfigHash, standalone.Hash(); got != want {
+			t.Errorf("%s: SourceConfigHash = %q; want %q (the hash its own compute writes)", tc.slug, got, want)
+		}
+		if got, want := city.SourceConfigID, standalone.ConfigID; got != want {
+			t.Errorf("%s: SourceConfigID = %q; want %q", tc.slug, got, want)
+		}
+		if city.SourceConfigID == "" {
+			t.Errorf("%s: SourceConfigID is empty; the union would fall back to its own namespace", tc.slug)
+		}
+		if got := city.SourceHexEdgeM; got != tc.wantEdge {
+			t.Errorf("%s: SourceHexEdgeM = %g; want %g", tc.slug, got, tc.wantEdge)
+		}
+		// And the resolvers must agree with the stamp.
+		if got := union.CityHash(&city); got != standalone.Hash() {
+			t.Errorf("%s: CityHash() = %q; want %q", tc.slug, got, standalone.Hash())
+		}
+		if got := union.CityConfigID(&city); got != standalone.ConfigID {
+			t.Errorf("%s: CityConfigID() = %q; want %q", tc.slug, got, standalone.ConfigID)
+		}
+	}
+}
+
+// TestInclude_SourceIdentityNotTheBareBytesHash makes the specific wrong answer
+// impossible to reintroduce: hashBytes over the included file's own bytes is
+// what parseConfig leaves on child.contentHash, and it is NOT what Load
+// computes. Asserting inequality here means a future refactor that "simplifies"
+// sourceIdentity to child.Hash() fails immediately rather than shipping.
+func TestInclude_SourceIdentityNotTheBareBytesHash(t *testing.T) {
+	dir := t.TempDir()
+	leafData := "config_id = \"leaf\"\n\n[[cities]]\nname = \"Reno, NV\"\noverpass = true\n"
+	writeTOML(t, dir, "leaf/pvmt.toml", leafData)
+	top := writeTOML(t, dir, "all/pvmt.toml", "[[include]]\npath = \"../leaf/pvmt.toml\"\n")
+
+	union, err := Load(top)
+	if err != nil {
+		t.Fatal(err)
+	}
+	city := cityBySlug(t, union, "reno-nv")
+	if city.SourceConfigHash == hashBytes([]byte(leafData)) {
+		t.Error("SourceConfigHash is the bare-bytes hash parseConfig sets; " +
+			"it must be hashBlobs over the file, which is what Load and compute use")
+	}
+	if city.SourceConfigHash != hashBlobs([][]byte{[]byte(leafData)}) {
+		t.Error("SourceConfigHash must equal hashBlobs of the included file's blobs")
+	}
+}
+
+// TestInclude_NestedSourceIdentityKeepsDeclaringFile pins the preserve-if-set
+// rule. A city declared in a leaf, pulled into a middle config, and then into a
+// top config must still point at the LEAF — that is where its data lives.
+// Unconditional stamping at each level would relabel it as the middle file's,
+// silently, and only for users who nest includes.
+func TestInclude_NestedSourceIdentityKeepsDeclaringFile(t *testing.T) {
+	dir := t.TempDir()
+	leaf := writeTOML(t, dir, "leaf/pvmt.toml",
+		"config_id = \"leaf\"\n\n[[cities]]\nname = \"Reno, NV\"\noverpass = true\n")
+	writeTOML(t, dir, "mid/pvmt.toml",
+		"config_id = \"mid\"\n\n[[include]]\npath = \"../leaf/pvmt.toml\"\n")
+	top := writeTOML(t, dir, "all/pvmt.toml",
+		"config_id = \"top\"\n\n[[include]]\npath = \"../mid/pvmt.toml\"\n")
+
+	union, err := Load(top)
+	if err != nil {
+		t.Fatal(err)
+	}
+	standaloneLeaf, err := Load(leaf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	city := cityBySlug(t, union, "reno-nv")
+	if got := city.SourceConfigID; got != "leaf" {
+		t.Errorf("SourceConfigID = %q; want \"leaf\" — the file that DECLARED the city", got)
+	}
+	if got, want := city.SourceConfigHash, standaloneLeaf.Hash(); got != want {
+		t.Errorf("SourceConfigHash = %q; want %q (the leaf's own hash)", got, want)
+	}
+}
+
+// TestInclude_DirectCityHasNoSourceIdentity: a city the config declares itself
+// is not an included city, keeps an empty stamp, and resolves to the config's
+// own id and hash. This is the case that preserves the deliberate
+// Hash()/ConfigID divergence for unrelated files that share a slug.
+func TestInclude_DirectCityHasNoSourceIdentity(t *testing.T) {
+	dir := t.TempDir()
+	writeTOML(t, dir, "leaf/pvmt.toml",
+		"config_id = \"leaf\"\n\n[[cities]]\nname = \"Reno, NV\"\noverpass = true\n")
+	top := writeTOML(t, dir, "all/pvmt.toml",
+		"config_id = \"top\"\n\n[[include]]\npath = \"../leaf/pvmt.toml\"\n\n"+
+			"[[cities]]\nname = \"Bend, OR\"\noverpass = true\n")
+
+	union, err := Load(top)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bend := cityBySlug(t, union, "bend-or")
+	if bend.SourceConfigID != "" || bend.SourceConfigHash != "" {
+		t.Errorf("a directly-declared city must carry no source stamp, got id=%q hash=%q",
+			bend.SourceConfigID, bend.SourceConfigHash)
+	}
+	if got := union.CityConfigID(&bend); got != "top" {
+		t.Errorf("CityConfigID() = %q; want the config's own %q", got, "top")
+	}
+	if got := union.CityHash(&bend); got != union.Hash() {
+		t.Errorf("CityHash() = %q; want the config's own %q", got, union.Hash())
+	}
+}

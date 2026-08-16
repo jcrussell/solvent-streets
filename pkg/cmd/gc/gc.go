@@ -121,7 +121,6 @@ func runGC(ctx context.Context, opts *Options) error {
 	if err != nil {
 		return fmt.Errorf("database: %w", err)
 	}
-	configID := cmdutil.ResolveConfigID(opts.Config)
 	multi := len(cities) > 1
 
 	// Scan pass: count orphans per city without writing anything, so the
@@ -129,7 +128,7 @@ func runGC(ctx context.Context, opts *Options) error {
 	// leaves the DB untouched.
 	var total int
 	for _, city := range cities {
-		store, err := cmdutil.EnsureCityStore(ctx, root, city, configID)
+		store, err := cmdutil.EnsureCityStore(ctx, root, city, cmdutil.ResolveConfigID(opts.Config, &city))
 		if err != nil {
 			return err
 		}
@@ -168,7 +167,7 @@ func runGC(ctx context.Context, opts *Options) error {
 	// Sweep pass: re-ensure each city store and delete.
 	var deletedTotal int
 	for _, city := range cities {
-		store, err := cmdutil.EnsureCityStore(ctx, root, city, configID)
+		store, err := cmdutil.EnsureCityStore(ctx, root, city, cmdutil.ResolveConfigID(opts.Config, &city))
 		if err != nil {
 			return err
 		}

@@ -68,7 +68,7 @@ func RunCombined(ctx context.Context, f *cmdutil.Factory, grid []geo.Hex) (retEr
 		store:      store,
 		io:         ios,
 		sys:        f.UnitSystem(),
-		snapshotID: createSnapshot(ctx, ios.ErrOut, store, cfg),
+		snapshotID: createSnapshot(ctx, ios.ErrOut, store, cfg, city),
 	}
 	// Same single cleanup chokepoint as doCompute: cr.save's cancel guard (and
 	// any post-snapshot error path) returns without deleting the snapshot row

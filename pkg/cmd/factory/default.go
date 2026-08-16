@@ -332,7 +332,7 @@ func buildCityDB(f *cmdutil.Factory) func() (db.Store, error) {
 		if err != nil {
 			return nil, err
 		}
-		configID := cmdutil.ResolveConfigID(f.Config)
+		configID := cmdutil.ResolveConfigID(f.Config, city)
 		// Honor the per-invocation context installed by the root command's
 		// PersistentPreRunE (finding 0nyu). Falls back to Background when no
 		// request ctx was set (e.g. a command exempt from PersistentPreRunE).
@@ -342,7 +342,7 @@ func buildCityDB(f *cmdutil.Factory) func() (db.Store, error) {
 		}
 		store := root.ForCity(id)
 		if cfg, cfgErr := f.Config(); cfgErr == nil && cfg != nil {
-			store = store.WithConfigHash(cfg.Hash())
+			store = store.WithConfigHash(cfg.CityHash(city))
 		}
 		return store, nil
 	}

@@ -497,7 +497,7 @@ func (s *Server) snapshotMatchesConfig(ctx context.Context, w http.ResponseWrite
 	if entry.Config == nil {
 		return true
 	}
-	want := entry.Config.Hash()
+	want := entry.Config.CityHash(&entry.City)
 	snaps, err := entry.Store.ListSnapshots(ctx)
 	if err != nil {
 		s.httpErr(w, fmt.Errorf("listing snapshots: %w", err), http.StatusInternalServerError)
