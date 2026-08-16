@@ -257,8 +257,9 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 	}
 
 	// Export hex grid — a single multi-scope file, one feature per hex with
-	// nested {bbox, city?} coverage. This is the largest file the export writes;
-	// a feature without "city" signals "hide the scope toggle" to the client.
+	// nested {bbox, city|city_same} coverage. This is the largest file the
+	// export writes; a feature with NEITHER "city" nor "city_same" signals
+	// "hide the scope toggle" to the client.
 	hexFC, err := BuildHexGeoJSON(ctx, entry, proj)
 	if err != nil {
 		return MetaJSON{}, "", fmt.Errorf("build hexgrid: %w", err)

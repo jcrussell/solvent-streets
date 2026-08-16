@@ -1479,3 +1479,50 @@ func TestServeBoundaryGeoJSON_UndetectableProjectionStillServes(t *testing.T) {
 		})
 	}
 }
+
+// TestServeHexGridGeoJSON_EmptyFCCarriesVersion pins the one hexgrid response
+// built INLINE rather than by export.BuildHexGeoJSON. The client aborts the
+// whole city load on an unrecognized version, so a version-less empty FC would
+// turn "this city has no hex stats" — which degrades gracefully today, showing
+// a map with no heatmap — into a blank page under `pvmt serve`. That is a worse
+// outcome than the format skew the gate exists to catch.
+func TestServeHexGridGeoJSON_EmptyFCCarriesVersion(t *testing.T) {
+	testBoundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Test City"}}}
+	entry := export.CityEntry{
+		Config: cfg,
+		City:   cfg.Cities[0],
+		Slug:   cfg.Cities[0].Slug(),
+		Store: &dbtest.MockStore{
+			GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
+			// No hex stats for any resource: BuildHexGeoJSON returns (nil, nil)
+			// and the handler substitutes its inline empty FC.
+			ListHexStatsFunc: func(_ context.Context, _ resource.Type) ([]db.HexStat, error) { return nil, nil },
+		},
+	}
+	ios, _, _, _ := iostreams.Test()
+	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /data/{file}", srv.handleDataFile(entry))
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", "/data/hexgrid.geojson", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200", w.Code)
+	}
+	var fc struct {
+		Type     string `json:"type"`
+		V        int    `json:"v"`
+		Features []any  `json:"features"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&fc); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(fc.Features) != 0 {
+		t.Errorf("features = %d; want 0", len(fc.Features))
+	}
+	if fc.V != 2 {
+		t.Errorf("v = %d; want 2 — a version-less empty FC blanks the page under the client's format gate", fc.V)
+	}
+}

@@ -284,9 +284,13 @@ func TestBuildHexGeoJSON_EmittedWhenRowsExist(t *testing.T) {
 	}
 }
 
-// TestBuildHexFeature_NestedScopes pins the per-feature shape: "id" plus nested
-// {bbox, city?} objects keyed by bare resource name -> {"area", "pct"}. "city"
-// is present only when the hex has city-scope coverage.
+// TestBuildHexFeature_NestedScopes pins the per-feature shape: "id" plus "bbox"
+// keyed by bare resource name -> {"area", "pct"}, plus exactly one of "city"
+// (city-scope coverage that DIFFERS from bbox), "city_same" (coverage identical
+// to bbox, elided), or neither (no city-scope coverage at all).
+//
+// The differing values below are load-bearing: equal ones would take the
+// city_same branch and this test would stop covering the "city" object.
 func TestBuildHexFeature_NestedScopes(t *testing.T) {
 	proj := geo.NewUTMProjector(-122.45, 37.55)
 	h := offsetSquareHex(t, "0,0", 550000, 4156000, 50)
@@ -314,11 +318,94 @@ func TestBuildHexFeature_NestedScopes(t *testing.T) {
 		t.Errorf("city.roads = %v; want {area:100, pct:50}", city["roads"])
 	}
 
-	// Hex with no city coverage omits the "city" key entirely.
+	if _, ok := props["city_same"]; ok {
+		t.Error("city_same must be absent when the scopes differ")
+	}
+
+	// Hex with no city coverage omits BOTH keys. That pair-absence — not the
+	// absence of "city" alone — is what tells the client there is no city-scope
+	// data and keeps the scope toggle hidden.
 	bboxOnly := &hexAgg{bbox: map[string]map[string]float64{"roads": {"area": 200, "pct": 75}}}
 	feat2, _ := buildHexFeature("0,0", bboxOnly, hexMap, proj, 6)
-	if _, ok := feat2["properties"].(map[string]any)["city"]; ok {
+	props2 := feat2["properties"].(map[string]any)
+	if _, ok := props2["city"]; ok {
 		t.Error("city key must be absent when the hex has no city coverage")
+	}
+	if _, ok := props2["city_same"]; ok {
+		t.Error("city_same must be absent when the hex has no city coverage")
+	}
+}
+
+// TestBuildHexFeature_CitySameElidesDuplicate pins B6b's dedup: city coverage
+// byte-identical to bbox is emitted as "city_same": 1 instead of a duplicate
+// object. About 70% of features site-wide take this branch, so a regression
+// here is a ~28 MiB size regression — and, if the client half were ever
+// reverted, a silent under-report of the entire city scope rather than an error.
+func TestBuildHexFeature_CitySameElidesDuplicate(t *testing.T) {
+	proj := geo.NewUTMProjector(-122.45, 37.55)
+	h := offsetSquareHex(t, "0,0", 550000, 4156000, 50)
+	hexMap := map[string]*geo.Hex{"0,0": &h}
+
+	// Equal values in two independently-allocated maps: the dedup must compare
+	// by value, not by identity.
+	agg := &hexAgg{
+		bbox: map[string]map[string]float64{"roads": {"area": 200, "pct": 75}},
+		city: map[string]map[string]float64{"roads": {"area": 200, "pct": 75}},
+	}
+	feat, ok := buildHexFeature("0,0", agg, hexMap, proj, 6)
+	if !ok {
+		t.Fatal("buildHexFeature returned ok=false")
+	}
+	props := feat["properties"].(map[string]any)
+	if _, ok := props["city"]; ok {
+		t.Error("city object must be elided when it equals bbox")
+	}
+	if props["city_same"] != 1 {
+		t.Errorf("city_same = %v; want 1", props["city_same"])
+	}
+
+	// A difference in ANY resource, or a differing resource set, must fall back
+	// to emitting the full object — otherwise real city-scope data is lost.
+	for name, city := range map[string]map[string]map[string]float64{
+		"one value differs":  {"roads": {"area": 200, "pct": 74}},
+		"extra resource":     {"roads": {"area": 200, "pct": 75}, "parking": {"area": 1, "pct": 1}},
+		"missing resource":   {},
+		"different resource": {"parking": {"area": 200, "pct": 75}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f, _ := buildHexFeature("0,0", &hexAgg{
+				bbox: map[string]map[string]float64{"roads": {"area": 200, "pct": 75}},
+				city: city,
+			}, hexMap, proj, 6)
+			p := f["properties"].(map[string]any)
+			if _, ok := p["city_same"]; ok {
+				t.Error("must not dedup when the scopes differ")
+			}
+			if _, ok := p["city"]; !ok {
+				t.Error("differing city coverage must be emitted in full")
+			}
+		})
+	}
+}
+
+// TestBuildHexGeoJSON_CarriesFormatVersion pins the version the client gates
+// on. Without it an older client silently drops ~70% of city-scope features
+// instead of showing the error banner.
+func TestBuildHexGeoJSON_CarriesFormatVersion(t *testing.T) {
+	now := time.Now()
+	entry := hexEntry(t, map[resource.Type][]db.HexStat{
+		rtRoads: {{HexID: "0,0", ResourceType: rtRoads, Area: 200, PctCovered: 75, ComputedAt: now}},
+	}, nil)
+	_, lon, lat, err := entry.BBoxAndCenter(t.Context())
+	if err != nil {
+		t.Fatalf("BBoxAndCenter: %v", err)
+	}
+	fc, err := BuildHexGeoJSON(t.Context(), entry, geo.NewUTMProjector(lon, lat))
+	if err != nil {
+		t.Fatalf("BuildHexGeoJSON: %v", err)
+	}
+	if fc["v"] != 2 {
+		t.Errorf("v = %v; want 2 — the client refuses to render an unrecognized version", fc["v"])
 	}
 }
 

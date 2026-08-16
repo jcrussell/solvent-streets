@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"sort"
 
@@ -16,6 +17,10 @@ import (
 // hexAgg accumulates a single hex's coverage across resources and scopes.
 // bbox/city map a bare resource name -> {"area", "pct"}; city stays nil until
 // a ":city" row lands, which doubles as the "this hex is in the city" signal.
+//
+// Note this is the BUILD-side signal and is not the same as the emitted shape:
+// a non-nil city equal to bbox is emitted as "city_same" rather than a "city"
+// object (see buildHexFeature).
 type hexAgg struct {
 	bbox map[string]map[string]float64
 	city map[string]map[string]float64
@@ -23,9 +28,19 @@ type hexAgg struct {
 
 // BuildHexGeoJSON builds a single GeoJSON FeatureCollection covering both
 // scopes — one feature per hex, geometry emitted once. Each feature carries
-// nested {bbox, city?} objects keyed by resource name; "city" is omitted when
-// the hex has no ":city" rows (so a city whose features all lack "city" hides
-// the scope toggle in the UI).
+// "bbox" coverage keyed by resource name, plus ONE OF:
+//
+//   - "city": city-scope coverage, when it differs from bbox;
+//   - "city_same": 1, when the two are identical (the common case, ~70% of
+//     features) and the duplicate is elided;
+//   - neither, when the hex has no ":city" rows at all.
+//
+// Only the third case means "no city-scope data". A city whose features are all
+// in that case leaves the client's city scope empty and hides the scope toggle
+// — note this is the absence of BOTH keys, not the absence of "city".
+//
+// The FeatureCollection carries "v": 2 for that property shape; see the version
+// comment below.
 //
 // Returns (nil, nil) when no hex_stats rows exist (a legitimate empty state),
 // but propagates any real ListHexStats DB error so callers can evict and retry
@@ -67,9 +82,29 @@ func BuildHexGeoJSON(ctx context.Context, entry CityEntry, proj *geo.UTMProjecto
 	}
 
 	return map[string]any{
-		"type":     "FeatureCollection",
+		"type": "FeatureCollection",
+		// Format version. Bumped to 2 when city_same dedup landed (B6b): a
+		// client that expands "city" but not "city_same" would silently drop
+		// ~70% of city-scope features rather than fail, so the client refuses
+		// to render a file it doesn't recognize instead. Any future change to
+		// the property shape must bump this too.
+		"v":        2,
 		"features": features,
 	}, nil
+}
+
+// sameCoverage reports whether two resources' {area, pct} maps are equal.
+//
+// EXACT float equality is deliberate and is only safe because BOTH scopes go
+// through round2 in aggregateHexStats before they ever reach here — they are
+// two aggregations of the same underlying geometry, so when the city polygon
+// doesn't clip a hex they round to bit-identical values. If that rounding ever
+// moves (or one scope stops being rounded), this silently stops matching and
+// the dedup quietly turns itself off: the output stays CORRECT, just large
+// again. Nothing would fail, so check this function when hexgrid size regresses
+// for no apparent reason.
+func sameCoverage(a, b map[string]float64) bool {
+	return maps.Equal(a, b)
 }
 
 func round2(v float64) float64 { return math.Round(v*100) / 100 }
@@ -246,7 +281,17 @@ func buildHexFeature(hexID string, agg *hexAgg, hexMap map[string]*geo.Hex, proj
 		"id":   hexID,
 		"bbox": agg.bbox,
 	}
-	if agg.city != nil {
+	switch {
+	case agg.city == nil:
+		// No ":city" rows: this hex is outside the city polygon. Neither key is
+		// emitted, and THAT — not the absence of "city" alone — is what tells
+		// the client there is no city-scope data here.
+	case maps.EqualFunc(agg.city, agg.bbox, sameCoverage):
+		// Identical to bbox, which is the common case: ~70% of features
+		// site-wide. Emit a flag instead of a byte-for-byte duplicate; the
+		// client reads it back as a reference to "bbox".
+		props["city_same"] = 1
+	default:
 		props["city"] = agg.city
 	}
 	return map[string]any{

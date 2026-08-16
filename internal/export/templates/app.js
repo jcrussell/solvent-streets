@@ -644,6 +644,20 @@
             // render — just under-reporting.
             const hexData = await loadJSON(dataURL(prefix, 'hexgrid.geojson'), { silent404: true });
             if (gen !== cityLoadGen) return; // a newer load superseded us
+            // Refuse a hexgrid whose property shape we don't know. `hexData` is
+            // legitimately null for a city with no hex stats (the export skips
+            // the file and loadJSON returns null on a silent 404), so the null
+            // check comes first — this must not fire on that.
+            //
+            // The failure this prevents is silent, not loud: an older client
+            // reading a v2 file finds no "city" object on ~70% of features and
+            // under-reports the city scope with no error anywhere. Better to
+            // show the banner and render nothing than a plausible wrong map.
+            if (hexData && hexData.v !== 2) {
+                showLoadError(dataURL(prefix, 'hexgrid.geojson'),
+                    'stale hexgrid format (expected v2) — re-export this site with a current pvmt');
+                return;
+            }
             if (hexData && hexData.features) {
                 for (const f of hexData.features) {
                     const hid = f.properties.id;

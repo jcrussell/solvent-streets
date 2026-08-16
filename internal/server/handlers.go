@@ -600,9 +600,10 @@ func (s *Server) serveMetaJSON(w http.ResponseWriter, _ *http.Request, entry exp
 }
 
 // serveHexGridGeoJSON serves the single multi-scope hex grid at
-// /data/hexgrid.geojson — one feature per hex with nested {bbox, city?}
-// coverage. A city with no rows returns an empty FeatureCollection; features
-// without a "city" object tell the client to hide the scope toggle.
+// /data/hexgrid.geojson — one feature per hex with nested
+// {bbox, city|city_same} coverage. A city with no rows returns an empty
+// FeatureCollection; features with NEITHER city key tell the client to hide the
+// scope toggle.
 func (s *Server) serveHexGridGeoJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry, snapshotID int64) {
 	s.serveJSONCached(w, cacheKey("hexgrid", entry.Slug, snapshotID), func() (any, error) {
 		_, lon0, lat0, err := entry.BBoxAndCenter(context.Background())
@@ -618,7 +619,12 @@ func (s *Server) serveHexGridGeoJSON(w http.ResponseWriter, _ *http.Request, ent
 			return nil, err
 		}
 		if fc == nil {
-			fc = map[string]any{"type": "FeatureCollection", "features": []any{}}
+			// Carry the version even on the empty FC. This is the one place the
+			// hexgrid is built INLINE rather than by BuildHexGeoJSON, and the
+			// client aborts the whole city load on an unrecognized version — so
+			// omitting it here would turn "city has no hex stats", which
+			// degrades gracefully today, into a blank page under `pvmt serve`.
+			fc = map[string]any{"type": "FeatureCollection", "v": 2, "features": []any{}}
 		}
 		return fc, nil
 	})
