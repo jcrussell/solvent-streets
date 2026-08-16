@@ -627,16 +627,30 @@
             // Load the hex grid — a single multi-scope file, one feature per
             // hex with nested {bbox, city?} coverage keyed by resource. Expand
             // it back into the per-scope/per-resource feature arrays the render
-            // path consumes. A feature whose properties lack "city" carries no
-            // city-scope data, so a city with no such objects leaves
-            // hexDataByScope.city empty and the scope toggle stays hidden.
+            // path consumes.
+            //
+            // A feature carries city-scope data in one of two shapes:
+            //   - a "city" object, when it differs from "bbox";
+            //   - "city_same": 1, when the two were byte-identical and the
+            //     writer emitted the flag instead of a duplicate copy.
+            // Only a feature with NEITHER has no city-scope data. That is the
+            // condition that leaves hexDataByScope.city empty and keeps the
+            // scope toggle hidden.
+            //
+            // Reading city_same is not optional once the writer emits it: about
+            // 70% of features site-wide have identical scopes, so treating the
+            // flag as "no city data" would silently drop them from the city
+            // heatmap and every cost rollup built off it. The map would still
+            // render — just under-reporting.
             const hexData = await loadJSON(dataURL(prefix, 'hexgrid.geojson'), { silent404: true });
             if (gen !== cityLoadGen) return; // a newer load superseded us
             if (hexData && hexData.features) {
                 for (const f of hexData.features) {
                     const hid = f.properties.id;
                     for (const scope of ['bbox', 'city']) {
-                        const byRes = f.properties[scope];
+                        const byRes = (scope === 'city' && f.properties.city_same)
+                            ? f.properties.bbox
+                            : f.properties[scope];
                         if (!byRes) continue;
                         for (const rt of Object.keys(byRes)) {
                             const m = byRes[rt];
