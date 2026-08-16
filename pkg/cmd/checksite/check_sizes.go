@@ -24,40 +24,51 @@ import (
 // they are reported as tree totals and carry no per-city budget.
 //
 // Every budget is a ceiling that catches a runaway, not a tracker of current
-// size, and all eight were seeded against a pretty-printed export before the
-// site-weight work began. The baseline is still moving under them, so re-seed
-// the whole map against a real export once B7 lands.
+// size. All eight were originally seeded against a pretty-printed export from
+// before the site-weight work (solvent-streets-pav7); this map was RE-SEEDED
+// against a real full export once that epic's last step (B7) landed, which is
+// what its own note asked for.
 //
-// Until then one of the eight is expected to WARN on a full tree, and it is not
-// a bug — it is waiting on a later step: hexgrid.geojson, ~2.3x over, until B6b
-// and B7 shrink it. Minification did nothing there, as that file was always
-// written compact.
+// Re-seed baseline: 277 cities, 309 MB total (from 637 MB), audit clean.
+// Worst city per file at that point:
 //
-// boundary.geojson was the second expected WARN until B4b simplified the
-// display boundary. Measured over all 291 city boundaries in the DB at the 10 m
-// default: 52.8 MiB -> 13.6 MiB (-74.3%), retaining 0.276 of coordinates, with
-// no ring dropped and no city left over budget. The worst city is still
-// Jacksonville, but at 1.31 MiB against the 2 MiB ceiling rather than 4.88 MiB
-// — it clears by ~34%, so unlike play-hexes below there is real headroom here.
+//	hexgrid.geojson       6.2 MiB  (portland-or)   mean 845.0 KiB   total 228.6 MiB
+//	boundary.geojson      1.2 MiB  (jacksonville)  mean  41.4 KiB   total  11.2 MiB
+//	play-hexes.json     956.4 KiB  (portland-or)   mean 107.0 KiB   total  28.9 MiB
+//	forecast.json        75.0 KiB  (pacifica-ca)   mean  63.1 KiB   total  17.1 MiB
+//	scenarios.json       47.5 KiB  (oakland-ca)    mean  40.8 KiB   total  11.0 MiB
+//	forecast_seed.json    1.8 KiB / meta.json 559 B / hex-cost-summary.json 474 B
 //
-// Of the six that pass, play-hexes.json is by far the closest to its ceiling
-// and the only one worth watching. It was a third expected WARN until B3
-// rounded its magnitudes (worst city 1,306,939 -> ~979,700 bytes, -25%); that
-// leaves it at ~93% of its 1 MiB budget, clearing by only ~6.6% — one larger
-// city, or a hex-edge change that raises the hex count, re-trips it. Raise the
-// budget or shrink the file then; do not just re-seed it silently.
+// Two budgets moved, and neither was raised just to silence a warning:
 //
-// The remaining five sit far under, forecast.json the closest at about a sixth
-// of its budget; the three small ones (forecast_seed, meta, hex-cost-summary)
-// are nominal ceilings orders of magnitude above today's bytes.
+//   - hexgrid.geojson 3 -> 8 MiB. The old value was seeded when the file was
+//     the epic's target, and B6b + B7 did shrink it (7.0 -> 6.2 MiB worst,
+//     258.8 -> 228.6 MiB total) — just not under a ceiling chosen for a
+//     hoped-for endpoint rather than a measured one. 8 MiB sits ~29% above the
+//     real worst city, which still catches a doubling. This file is now 74% of
+//     the published tree and is the only place a further large win is left; the
+//     remaining lever (lattice reconstruction, ~145 MB) is deliberately
+//     deferred in solvent-streets-pav7 until there is an executing JS test
+//     harness, because it cannot fail loudly.
+//
+//   - play-hexes.json 1 -> 2 MiB. It was at ~93% of its old ceiling, clearing
+//     by 6.6% — one larger city or a finer hex edge re-trips it. The previous
+//     note here said to raise it or shrink the file rather than re-seed it
+//     silently; this is that raise, and it is the reason the file is called out
+//     rather than quietly adjusted.
+//
+// The other six are unchanged and sit far under: boundary clears by ~40% after
+// B4b simplified the display copy, forecast.json is at about a seventh of its
+// ceiling, and forecast_seed / meta / hex-cost-summary remain nominal ceilings
+// orders of magnitude above today's bytes.
 var sizeBudgets = map[string]int64{
-	"boundary.geojson":      2 << 20,   // 2 MiB
+	"boundary.geojson":      2 << 20,   // 2 MiB  (worst 1.2 MiB after B4b)
 	"forecast.json":         512 << 10, // 512 KiB
 	"forecast_seed.json":    64 << 10,  // 64 KiB  (nominal)
 	"hex-cost-summary.json": 64 << 10,  // 64 KiB  (nominal)
-	"hexgrid.geojson":       3 << 20,   // 3 MiB
+	"hexgrid.geojson":       8 << 20,   // 8 MiB  (worst 6.2 MiB; 74% of the tree)
 	"meta.json":             64 << 10,  // 64 KiB  (nominal)
-	"play-hexes.json":       1 << 20,   // 1 MiB
+	"play-hexes.json":       2 << 20,   // 2 MiB  (worst 956 KiB; was at 93% of 1 MiB)
 	"scenarios.json":        256 << 10, // 256 KiB (nominal)
 }
 
