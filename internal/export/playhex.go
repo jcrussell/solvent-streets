@@ -129,8 +129,46 @@ func BuildPlayHexes(ctx context.Context, entry CityEntry, proj *geo.UTMProjector
 			// fires if a hex somehow accrued area with no class weight.
 			k = forecast.DefaultDecayRates["default"]
 		}
-		out = append(out, PlayHex{ID: id, RoadArea: b.area, K: k})
+		// Round at construction so play-hexes.json carries display precision
+		// rather than full float64 (704.5835576057434 -> 704.58); the mantissa
+		// is most of this file's bytes and nothing downstream reads past it.
+		//
+		// Both fields round under one rule: a quantity this loop already
+		// established as POSITIVE must not leave here as zero. Shrinking the
+		// file is a serialization change and must not silently reclassify a
+		// hex. See roundSig and roundRoadArea for the per-field consequences.
+		out = append(out, PlayHex{ID: id, RoadArea: roundRoadArea(b.area), K: roundSig(k, 4)})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
+}
+
+// minPlayHexArea is the smallest road area play-hexes.json can express at 2dp.
+// It is a rounding floor, not a filter threshold: hexes below it are still
+// emitted, just at 0.01 m² instead of 0.00.
+const minPlayHexArea = 0.01
+
+// roundRoadArea rounds a hex's road footprint to 2dp for serving, holding a
+// positive footprint above zero.
+//
+// A hex clipping only the tip of a buffered road can hold well under 0.005 m²
+// (the real export has 42 such hexes across 34 cities, the smallest at 0.00042
+// m²), and BuildPlayHexes admits them because its area filter runs on the
+// UNROUNDED value. Emitting 0.00 for those would not drop the hex — it would
+// leave a live, paintable board cell whose area is zero, and game.StateJSON
+// takes minOpenArea over open hexes, so one such hex pins the out-of-funds
+// bound (treasury < cost x 0) permanently false for the whole city. The signal
+// was already faint at 0.00042 m²; rounding must not be what finally kills it.
+//
+// Floor rather than drop: the alternative — filtering sub-0.005 hexes out — is
+// a byte-size change quietly editing which cells the board contains, and it
+// would put the emitted id set out of step with the area filter above. 0.01 m²
+// is the smallest value this precision can say, and at that size the choice
+// between 0.00042 and 0.01 is immaterial to play.
+func roundRoadArea(v float64) float64 {
+	r := round2(v)
+	if v > 0 && r < minPlayHexArea {
+		return minPlayHexArea
+	}
+	return r
 }

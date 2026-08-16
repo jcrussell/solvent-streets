@@ -28,17 +28,23 @@ import (
 // site-weight work began. The baseline is still moving under them, so re-seed
 // the whole map against a real export once B7 lands.
 //
-// Until then three of the eight are expected to WARN on a full tree, and none
-// of the three is a bug — each is waiting on a later step:
+// Until then two of the eight are expected to WARN on a full tree. Neither is a
+// bug; each is waiting on a later step:
 //   - boundary.geojson, worst city ~2.4x over, until B4b simplifies the
 //     display boundary
 //   - hexgrid.geojson, ~2.3x over, until B6b and B7 shrink it; minification
 //     did nothing here, as this file was always written compact
-//   - play-hexes.json, ~1.25x over, until B3 rounds its coordinates
 //
-// The other five sit far under, forecast.json the closest at about a sixth of
-// its budget; the three small ones (forecast_seed, meta, hex-cost-summary) are
-// nominal ceilings orders of magnitude above today's bytes.
+// Of the six that pass, play-hexes.json is by far the closest to its ceiling
+// and the only one worth watching. It was a third expected WARN until B3
+// rounded its magnitudes (worst city 1,306,939 -> ~979,700 bytes, -25%); that
+// leaves it at ~93% of its 1 MiB budget, clearing by only ~6.6% — one larger
+// city, or a hex-edge change that raises the hex count, re-trips it. Raise the
+// budget or shrink the file then; do not just re-seed it silently.
+//
+// The remaining five sit far under, forecast.json the closest at about a sixth
+// of its budget; the three small ones (forecast_seed, meta, hex-cost-summary)
+// are nominal ceilings orders of magnitude above today's bytes.
 var sizeBudgets = map[string]int64{
 	"boundary.geojson":      2 << 20,   // 2 MiB
 	"forecast.json":         512 << 10, // 512 KiB

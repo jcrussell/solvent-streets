@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"math"
 	"sort"
 	"strings"
 	"testing"
@@ -48,6 +49,61 @@ func offsetSquareHex(t *testing.T, id string, ox, oy, side float64) geo.Hex {
 	}, geom.DimXY))
 	poly := geom.NewPolygon([]geom.LineString{ring})
 	return geo.Hex{ID: id, Geom: poly.AsGeometry()}
+}
+
+// TestRoundSig covers the significant-figure rounder BuildPlayHexes uses for k.
+// The load-bearing property is the last group: a nonzero magnitude stays nonzero
+// no matter how small, because the game engine rejects a board with k <= 0 and a
+// fixed decimal count would flatten a legal 1e-7 decay_rate to zero.
+func TestRoundSig(t *testing.T) {
+	cases := []struct {
+		name   string
+		in     float64
+		digits int
+		want   float64
+	}{
+		{"typical blend", 0.03712345, 4, 0.03712},
+		{"rounds up", 0.0399999, 4, 0.04},
+		{"exact power of ten", 0.1, 4, 0.1},
+		{"above one", 704.5835576057434, 4, 704.6},
+		{"negative", -0.03712345, 4, -0.03712},
+		{"zero stays zero", 0, 4, 0},
+		// A fixed 2dp (or even 6dp) round maps all three of these to 0.
+		{"tiny override", 1e-7, 4, 1e-7},
+		{"tiny with mantissa", 1.234567e-7, 4, 1.235e-7},
+		{"absurdly tiny", 1e-300, 4, 1e-300},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := roundSig(c.in, c.digits)
+			if math.Abs(got-c.want) > math.Abs(c.want)*1e-12 {
+				t.Errorf("roundSig(%v, %d) = %v; want %v", c.in, c.digits, got, c.want)
+			}
+			if c.in != 0 && got == 0 {
+				t.Errorf("roundSig(%v, %d) flattened a nonzero value to 0", c.in, c.digits)
+			}
+		})
+	}
+
+	// digits below 1 is a caller error, treated as one significant figure. The
+	// wrong answer here is 0.037 back unrounded — the scaling collapses and the
+	// overflow fallback hands the input straight through, doing nothing.
+	for _, digits := range []int{0, -3} {
+		if got := roundSig(0.037, digits); got != 0.04 {
+			t.Errorf("roundSig(0.037, %d) = %v; want 0.04 (digits clamped to 1)", digits, got)
+		}
+	}
+
+	// Denormals scale to +Inf and would otherwise yield NaN; they pass through.
+	if got := roundSig(5e-324, 4); got != 5e-324 {
+		t.Errorf("roundSig(denormal) = %v; want the input unchanged", got)
+	}
+	if got := roundSig(math.NaN(), 4); !math.IsNaN(got) {
+		t.Errorf("roundSig(NaN) = %v; want NaN", got)
+	}
+	if got := roundSig(math.Inf(1), 4); !math.IsInf(got, 1) {
+		t.Errorf("roundSig(+Inf) = %v; want +Inf", got)
+	}
 }
 
 // TestFilterHexSlivers_DropsBelowThreshold pins the heatmap contract: hexes

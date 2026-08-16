@@ -74,6 +74,31 @@ func BuildHexGeoJSON(ctx context.Context, entry CityEntry, proj *geo.UTMProjecto
 
 func round2(v float64) float64 { return math.Round(v*100) / 100 }
 
+// roundSig rounds v to digits significant figures. Unlike round2 it never
+// flattens a nonzero magnitude to zero, which matters for values a consumer
+// validates as strictly positive at any scale (BuildPlayHexes' k — the game
+// engine rejects the whole board on k <= 0).
+//
+// Zero and non-finite inputs pass through. So does anything whose scaling would
+// overflow (a denormal drives mag to +Inf and the quotient to NaN): emitting v
+// at full precision is always safe, emitting NaN is not. digits below 1 is a
+// caller error and is treated as 1 — otherwise the scaling collapses and the
+// overflow fallback would hand back the unrounded input, silently doing nothing.
+func roundSig(v float64, digits int) float64 {
+	if v == 0 || math.IsNaN(v) || math.IsInf(v, 0) {
+		return v
+	}
+	if digits < 1 {
+		digits = 1
+	}
+	mag := math.Pow(10, float64(digits-1)-math.Floor(math.Log10(math.Abs(v))))
+	r := math.Round(v*mag) / mag
+	if r == 0 || math.IsNaN(r) || math.IsInf(r, 0) {
+		return v
+	}
+	return r
+}
+
 // aggregateHexStats collects hex_stats rows across every resource and both
 // scopes into per-hex aggregates. It returns the aggregates keyed by hex ID and
 // the first-seen hex order; the caller sorts this for reproducible output.
