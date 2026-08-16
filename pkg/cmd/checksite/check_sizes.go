@@ -23,14 +23,22 @@ import (
 // assets (*.wasm, *.js, index.html) are a fixed cost the export pays once, so
 // they are reported as tree totals and carry no per-city budget.
 //
-// The four heavy files are seeded LOOSE, at roughly 2-3x what the current
-// export writes. The four small ones (forecast_seed, meta, hex-cost-summary,
-// and to a lesser extent scenarios) are nominal ceilings, not calibrated
-// values — they sit orders of magnitude above today's bytes and exist to catch
-// a runaway, not to track growth. Six of the eight files are still
-// pretty-printed at this commit, so every number here is measured against a
-// baseline that is about to move; re-seed the whole map against a real export
-// once B7 lands.
+// Every budget is a ceiling that catches a runaway, not a tracker of current
+// size, and all eight were seeded against a pretty-printed export before the
+// site-weight work began. The baseline is still moving under them, so re-seed
+// the whole map against a real export once B7 lands.
+//
+// Until then three of the eight are expected to WARN on a full tree, and none
+// of the three is a bug — each is waiting on a later step:
+//   - boundary.geojson, worst city ~2.4x over, until B4b simplifies the
+//     display boundary
+//   - hexgrid.geojson, ~2.3x over, until B6b and B7 shrink it; minification
+//     did nothing here, as this file was always written compact
+//   - play-hexes.json, ~1.25x over, until B3 rounds its coordinates
+//
+// The other five sit far under, forecast.json the closest at about a sixth of
+// its budget; the three small ones (forecast_seed, meta, hex-cost-summary) are
+// nominal ceilings orders of magnitude above today's bytes.
 var sizeBudgets = map[string]int64{
 	"boundary.geojson":      2 << 20,   // 2 MiB
 	"forecast.json":         512 << 10, // 512 KiB

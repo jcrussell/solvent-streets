@@ -1,6 +1,7 @@
 package export
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -132,7 +133,7 @@ func TestRunSingleCity_ReusesExportedMetaAndSeed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildMeta: %v", err)
 	}
-	wantMetaBytes, err := json.MarshalIndent(wantMeta, "", "  ")
+	wantMetaBytes, err := json.Marshal(wantMeta)
 	if err != nil {
 		t.Fatalf("marshal want meta: %v", err)
 	}
@@ -493,7 +494,7 @@ func TestExport_HexGridBytesPerFeature(t *testing.T) {
 		t.Fatal("BuildHexGeoJSON returned no features")
 	}
 
-	// json.Marshal is exactly what writeJSONCompact writes to disk.
+	// json.Marshal is exactly what writeJSON writes to disk.
 	data, err := json.Marshal(fc)
 	if err != nil {
 		t.Fatalf("marshal hexgrid: %v", err)
@@ -503,5 +504,80 @@ func TestExport_HexGridBytesPerFeature(t *testing.T) {
 	if perFeature > maxBytesPerFeature {
 		t.Errorf("hexgrid.geojson is %d bytes/feature; budget is %d — the exported grid got heavier",
 			perFeature, maxBytesPerFeature)
+	}
+}
+
+// minifyFixture builds a roadEntry whose hex_stats rows carry the city grid's
+// own hex ids. BuildHexGeoJSON joins on those ids, and the exporter skips
+// hexgrid.geojson entirely when the join is empty (export.go:279) — so without
+// this seeding the heaviest file would be silently absent and the sweep in
+// TestExport_DataFilesAreMinified would not cover it.
+func minifyFixture(t *testing.T, cfg *config.Config, name, slug, boundary string) CityEntry {
+	t.Helper()
+	ctx := context.Background()
+	entry := roadEntry(t, cfg, name, slug, boundary)
+	_, lon, lat, err := entry.BBoxAndCenter(ctx)
+	if err != nil {
+		t.Fatalf("BBoxAndCenter: %v", err)
+	}
+	hexes, err := cityHexGrid(ctx, entry, geo.NewUTMProjector(lon, lat))
+	if err != nil {
+		t.Fatalf("cityHexGrid: %v", err)
+	}
+	entry.Store.(*dbtest.MockStore).ListHexStatsFunc = func(_ context.Context, rt resource.Type) ([]db.HexStat, error) {
+		rows := make([]db.HexStat, len(hexes))
+		for i, h := range hexes {
+			rows[i] = db.HexStat{HexID: h.ID, ResourceType: rt, Area: 1000, PctCovered: 12.5}
+		}
+		return rows, nil
+	}
+	return entry
+}
+
+// TestExport_DataFilesAreMinified pins that every JSON file the export writes is
+// compact. Indentation is dead weight on a published site, and for the files the
+// server also serves it was a whitespace-only divergence from /api on the same
+// snapshot.
+//
+// The assertion is "no newline byte anywhere", not "no newline + two spaces":
+// json.Marshal emits no newline at all, so the wider assertion is the true
+// invariant and it also catches a tab-indented or SetIndent-configured encoder
+// that a two-space probe would wave through. Escaping keeps it free of false
+// failures — real newlines inside string values are written as \n, and embedded
+// json.RawMessage goes through compact().
+//
+// The export is run multi-city on purpose: cities.json is a writeJSON call site
+// that only that path reaches, and it is not in DataFileNames, so nothing else
+// would notice it regressing to an indented encoder.
+func TestExport_DataFilesAreMinified(t *testing.T) {
+	cfg := &config.Config{Grid: config.GridConfig{HexEdgeM: 200}}
+	entries := []CityEntry{
+		minifyFixture(t, cfg, "Alpha", "alpha", exportBoundaryA),
+		minifyFixture(t, cfg, "Bravo", "bravo", exportBoundaryB),
+	}
+
+	dir := t.TempDir()
+	if err := New(entries, cfg, dir, "metric").Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	rels := []string{"cities.json"}
+	for _, entry := range entries {
+		for _, name := range DataFileNames {
+			rels = append(rels, filepath.Join("cities", entry.Slug, "data", name))
+		}
+	}
+
+	// Each file must exist as well as be minified — one the fixture failed to
+	// produce would make this vacuous for that name rather than fail loudly.
+	for _, rel := range rels {
+		data, err := os.ReadFile(filepath.Join(dir, rel))
+		if err != nil {
+			t.Errorf("read %s: %v", rel, err)
+			continue
+		}
+		if i := bytes.IndexByte(data, '\n'); i >= 0 {
+			t.Errorf("%s has a newline at byte %d; every exported JSON file must be written minified", rel, i)
+		}
 	}
 }

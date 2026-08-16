@@ -116,10 +116,16 @@ func scanHygiene(root, path string) string {
 	// normal case for small files) and EOF when zero bytes were read; both mean
 	// "we got the whole (short) file", so treat them as success and scan buf[:n].
 	//
-	// The cap only scans the file's header region. Leaks in these builds (host
-	// paths, emails, secrets) live in the top-of-file properties, not deep inside
-	// coordinate arrays, so capping is an accepted tradeoff that bounds memory
-	// for the ~17 MiB boundary geojsons rather than loading whole files.
+	// The cap only scans the file's header region, but it truncates very little
+	// in practice: under ten files in a full multi-city tree of a couple thousand
+	// clear 4 MiB, and they are the largest hex grids plus the largest boundary.
+	// Minifying the export made boundary.geojson about 3.6x denser and took all
+	// but the single biggest boundary under the cap; it did nothing for
+	// hexgrid.geojson, which has always been written compact, so the same few
+	// grids are still read as a prefix. The scan is sound either way — leaks in
+	// these builds (host paths, emails, secrets) live in top-of-file properties,
+	// never deep inside coordinate arrays — so the cap's job is bounding memory
+	// on those outliers.
 	buf := make([]byte, maxHygieneRead)
 	n, err := io.ReadFull(io.LimitReader(f, maxHygieneRead), buf)
 	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {

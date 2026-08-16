@@ -270,14 +270,14 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 	}
 
 	// Export hex grid — a single multi-scope file, one feature per hex with
-	// nested {bbox, city?} coverage. Written minified (it dominates site size);
+	// nested {bbox, city?} coverage. This is the largest file the export writes;
 	// a feature without "city" signals "hide the scope toggle" to the client.
 	hexFC, err := BuildHexGeoJSON(ctx, entry, proj)
 	if err != nil {
 		return MetaJSON{}, "", fmt.Errorf("build hexgrid: %w", err)
 	}
 	if hexFC != nil {
-		if err := writeJSONCompact(filepath.Join(dataDir, "hexgrid.geojson"), hexFC); err != nil {
+		if err := writeJSON(filepath.Join(dataDir, "hexgrid.geojson"), hexFC); err != nil {
 			return MetaJSON{}, "", fmt.Errorf("write hexgrid: %w", err)
 		}
 	}
@@ -525,18 +525,17 @@ func renderPage(parse func() (*template.Template, error), td TemplateData) ([]by
 	return buf.Bytes(), nil
 }
 
+// writeJSON writes minified JSON (no indentation). Indentation is pure weight
+// on a published site — it was the majority of boundary.geojson's bytes — and
+// buys nothing a formatter can't give back on demand. It also removes a
+// whitespace-only divergence from the live server, which marshals the same
+// values compact in serveJSONCached.
+//
+// This is not the only writer of an exported JSON file: forecast_seed.json is
+// written straight from BuildForecastSeed's bytes at the call site above, and
+// is compact because seeds.go marshals it with json.Marshal. Both paths are
+// pinned by TestExport_DataFilesAreMinified.
 func writeJSON(path string, v any) error {
-	data, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return err
-	}
-	return cmdutil.WriteFile(path, data, 0o644)
-}
-
-// writeJSONCompact writes minified JSON (no indentation). Used for the hex grid,
-// which dominates site size; the other exported files stay pretty for readable
-// diffs.
-func writeJSONCompact(path string, v any) error {
 	data, err := json.Marshal(v)
 	if err != nil {
 		return err
