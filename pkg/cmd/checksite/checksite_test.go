@@ -256,6 +256,77 @@ func TestCheckSite_CrossExampleDivergence(t *testing.T) {
 	}
 }
 
+// TestCheckSite_SizeBudgetBreachWarns pins the SIZES check: every bucket is
+// reported with its per-city share, and a per-city data file over its budget
+// WARNs rather than FAILs — a heavy export is a publish decision, not a broken
+// tree.
+func TestCheckSite_SizeBudgetBreachWarns(t *testing.T) {
+	dir := buildValidSite(t)
+	out, err := run(t, dir, false)
+	if err != nil {
+		t.Fatalf("valid site should pass: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "sizes: scenarios.json") {
+		t.Errorf("expected a per-file size line for scenarios.json:\n%s", out)
+	}
+
+	// scenarios.json is inert to every other check (nothing parses it), so
+	// padding it past its budget isolates the size warning.
+	pad := strings.Repeat("x", int(sizeBudgets["scenarios.json"])+1)
+	writeFile(t, filepath.Join(dir, "demo-ca", "data", "scenarios.json"), `{"pad":"`+pad+`"}`)
+
+	out, err = run(t, dir, false)
+	if err != nil {
+		t.Fatalf("a size breach should warn, not fail (non-strict): %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "WARN  sizes: scenarios.json") || !strings.Contains(out, "budget") {
+		t.Errorf("expected a WARN naming scenarios.json and its budget:\n%s", out)
+	}
+}
+
+// TestCheckSite_SizeBudgetIsWorstCityNotMean is the regression that the budget
+// mechanism exists for. One bloated city must breach even when the tree average
+// stays comfortably under, because a mean moves the wrong way: it lets an
+// outlier hide behind its neighbours, and adding cities would un-trip an
+// existing breach rather than surfacing it.
+//
+// The fixture is deliberately built so the two readings disagree. Exactly one
+// of the two cities carries 1.5x the scenarios.json budget, so the worst city
+// is over (WARN) while the mean across both is at 0.75x (silent). A check that
+// divided the total by the city count would report nothing here.
+func TestCheckSite_SizeBudgetIsWorstCityNotMean(t *testing.T) {
+	dir := buildValidSite(t)
+
+	// A second example is a second entry from dataDirsWithLabel, which is what
+	// the check divides by — mirroring demo-ca so every other check still passes.
+	ex2 := filepath.Join(dir, "demo2-ca")
+	writeFile(t, filepath.Join(ex2, "index.html"),
+		`<html><head><script src="../wasm_exec.js"></script>`+
+			`<script>script.src = '..\/pvmt.wasm';</script></head><body>map</body></html>`)
+	writeDataDir(t, filepath.Join(ex2, "data"), 52.5, 50000)
+
+	budget := sizeBudgets["scenarios.json"]
+	pad := strings.Repeat("x", int(budget+budget/2))
+	writeFile(t, filepath.Join(dir, "demo-ca", "data", "scenarios.json"), `{"pad":"`+pad+`"}`)
+
+	out, err := run(t, dir, false)
+	if err != nil {
+		t.Fatalf("a size breach should warn, not fail (non-strict): %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "WARN  sizes: scenarios.json") {
+		t.Errorf("worst city is over budget but no WARN was reported:\n%s", out)
+	}
+	// The offending city must be named, or the report cannot be acted on.
+	if !strings.Contains(out, "demo-ca") {
+		t.Errorf("expected the breaching city to be named in the WARN:\n%s", out)
+	}
+	// Guard the fixture itself: if this ever stops holding, the test would pass
+	// for the wrong reason and stop distinguishing worst-city from mean.
+	if mean := (budget + budget/2) / 2; mean >= budget {
+		t.Fatalf("fixture no longer separates the two readings: mean %d >= budget %d", mean, budget)
+	}
+}
+
 func TestCheckSite_Strict(t *testing.T) {
 	dir := buildValidSite(t)
 	// pct_paved 0 produces a WARN (absent paved area); --strict turns it fatal.

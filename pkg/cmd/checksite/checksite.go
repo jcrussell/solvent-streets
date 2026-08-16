@@ -48,8 +48,9 @@ The following checks run over the given directory (default "site"):
 
   - STRUCTURE: every city carries the expected data files
     (boundary.geojson, hexgrid.geojson, meta.json, forecast_seed.json,
-    forecast.json, hex-cost-summary.json, scenarios.json) and the site root
-    has index.html, .nojekyll, pvmt.wasm, and wasm_exec.js.
+    forecast.json, hex-cost-summary.json, play-hexes.json, scenarios.json)
+    and the site root has index.html, .nojekyll, pvmt.wasm, wasm_exec.js,
+    app.js, and game.js.
   - REFERENCES: every local asset referenced by index.html (pvmt.wasm,
     wasm_exec.js, local .css/.js) resolves on disk.
   - WASM FRESHNESS: the site's pvmt.wasm and wasm_exec.js match the
@@ -58,6 +59,11 @@ The following checks run over the given directory (default "site"):
     email, or an api-key/password/secret token.
   - CONSTRAINTS: no single file exceeds 100 MB, .nojekyll is present and
     zero-byte, and the total tree size is reported (warned over 1 GB).
+  - SIZES: where the bytes live — a total per data file name (plus *.html,
+    *.wasm, *.js and other buckets), largest first, each divided by the
+    discovered city count to give a per-city share. The per-city share is
+    what carries a budget, so adding cities cannot trip it; a data file
+    over its budget WARNs. Also available as 'make site-report'.
   - REASONABLENESS: every meta.json has a plausible pct_paved (a value
     between 0 and 1%% signals the near-zero-area bug), and every
     forecast.json baseline has monotonically falling PCI and non-decreasing
@@ -110,6 +116,7 @@ func runCheckSite(ctx context.Context, opts *Options) error {
 		r.checkWasmFreshness,
 		r.checkHygiene,
 		r.checkConstraints,
+		r.checkSizes,
 		r.checkReasonableness,
 		r.checkConsistency,
 	}

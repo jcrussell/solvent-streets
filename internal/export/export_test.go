@@ -12,6 +12,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 )
@@ -417,5 +418,90 @@ func TestRunMultiCity_WritesPlayPageAndHexes(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(dir, "cities", slug, "data", "play-hexes.json")); err != nil {
 			t.Errorf("expected cities/%s/data/play-hexes.json: %v", slug, err)
 		}
+	}
+}
+
+// TestExport_HexGridBytesPerFeature bounds the per-feature weight of
+// hexgrid.geojson, the single largest contributor to the published site. CI
+// cannot gate site size — .github/workflows/ci.yaml never runs `make site`, and
+// `pvmt check-site`'s SIZES budgets need a built tree — so this is the hermetic
+// stand-in: a synthetic grid whose bytes-per-feature must stay under a constant.
+//
+// The constant is a ceiling on the encoder's output, not a target. It moves DOWN
+// at B6 (coordinate precision) and again at B7; lowering it as those land is the
+// point of the gate.
+func TestExport_HexGridBytesPerFeature(t *testing.T) {
+	// The current encoding measures ~520 bytes/feature (logged below); this
+	// leaves headroom for a property or two without letting the shape double.
+	const maxBytesPerFeature = 700
+
+	ctx := context.Background()
+	cfg := &config.Config{Grid: config.GridConfig{HexEdgeM: 200}}
+	boundary := func(context.Context) (string, error) { return exportBoundaryA, nil }
+
+	// The grid is built first so the synthetic hex_stats rows carry the very
+	// hex ids BuildHexGeoJSON joins against — a mismatch would silently yield
+	// zero features and a vacuous assertion.
+	entry := CityEntry{
+		Config: cfg,
+		City:   config.CityConfig{Name: "Synth City"},
+		Store:  &dbtest.MockStore{GetBoundaryFunc: boundary},
+		Slug:   "synth-city",
+	}
+	_, lon, lat, err := entry.BBoxAndCenter(ctx)
+	if err != nil {
+		t.Fatalf("BBoxAndCenter: %v", err)
+	}
+	proj := geo.NewUTMProjector(lon, lat)
+	hexes, err := cityHexGrid(ctx, entry, proj)
+	if err != nil {
+		t.Fatalf("cityHexGrid: %v", err)
+	}
+	if len(hexes) < 100 {
+		t.Fatalf("test setup: synthetic grid has %d hexes; too few to average over", len(hexes))
+	}
+
+	// Every hex carries coverage for every resource in both scopes — the
+	// heaviest per-feature shape the exporter can emit — with varying values so
+	// the numbers encode at realistic width rather than as a repeated "0".
+	stats := make([]db.HexStat, len(hexes))
+	for i, h := range hexes {
+		stats[i] = db.HexStat{
+			HexID:      h.ID,
+			Area:       1000 + float64(i%997)*1.37,
+			PctCovered: float64(i%100) + 0.37,
+		}
+	}
+	entry.Store = &dbtest.MockStore{
+		GetBoundaryFunc: boundary,
+		ListHexStatsFunc: func(_ context.Context, rt resource.Type) ([]db.HexStat, error) {
+			rows := make([]db.HexStat, len(stats))
+			copy(rows, stats)
+			for i := range rows {
+				rows[i].ResourceType = rt
+			}
+			return rows, nil
+		},
+	}
+
+	fc, err := BuildHexGeoJSON(ctx, entry, proj)
+	if err != nil {
+		t.Fatalf("BuildHexGeoJSON: %v", err)
+	}
+	feats, _ := fc["features"].([]map[string]any)
+	if len(feats) == 0 {
+		t.Fatal("BuildHexGeoJSON returned no features")
+	}
+
+	// json.Marshal is exactly what writeJSONCompact writes to disk.
+	data, err := json.Marshal(fc)
+	if err != nil {
+		t.Fatalf("marshal hexgrid: %v", err)
+	}
+	perFeature := len(data) / len(feats)
+	t.Logf("hexgrid.geojson: %d bytes over %d features = %d bytes/feature", len(data), len(feats), perFeature)
+	if perFeature > maxBytesPerFeature {
+		t.Errorf("hexgrid.geojson is %d bytes/feature; budget is %d — the exported grid got heavier",
+			perFeature, maxBytesPerFeature)
 	}
 }

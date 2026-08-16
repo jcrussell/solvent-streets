@@ -13,7 +13,7 @@ LDFLAGS := -X github.com/jcrussell/solvent-streets/internal/build.Version=$(VERS
 	-X github.com/jcrussell/solvent-streets/internal/build.Commit=$(COMMIT) \
 	-X github.com/jcrussell/solvent-streets/internal/build.Date=$(DATE)
 
-.PHONY: build test e2e clean wasm lint lint-js gendocs release-dry-run site site-clean deploy \
+.PHONY: build test e2e clean wasm lint lint-js gendocs release-dry-run site site-clean site-report deploy \
 	fmt vet tidy cover help install pre-commit
 
 wasm:
@@ -102,6 +102,7 @@ help:
 	@echo "  gendocs       regenerate docs/reference/ from cobra"
 	@echo "  site          render the combined tagged static site to \$$SITE_DIR"
 	@echo "                (needs examples/all ingested + computed first — see examples/all/pvmt.toml)"
+	@echo "  site-report   per-file size totals and per-city budgets over \$$SITE_DIR"
 	@echo "  deploy        push existing \$$SITE_DIR to gh-pages (run 'make site' first)"
 	@echo "  clean         remove build outputs"
 
@@ -116,6 +117,24 @@ site: wasm
 
 site-clean:
 	rm -rf $(SITE_DIR)
+
+# Where the site's bytes live: the SIZES check of `pvmt check-site`, which
+# reports a per-city figure for each data file against its budget and a total
+# for the shared assets. The rest of the audit runs too (it is read-only and
+# cheap), so this target exits with check-site's own status — a tree that FAILs
+# the audit must not report success just because the size lines printed. The
+# full output is dumped whenever the run failed or the size report is missing.
+site-report:
+	@if [ ! -d "$(SITE_DIR)" ]; then \
+		echo "ERROR: $(SITE_DIR)/ does not exist — run 'make site' first"; exit 1; \
+	fi
+	@out=$$(go run ./cmd/pvmt check-site "$(SITE_DIR)" 2>&1); rc=$$?; \
+		if printf '%s\n' "$$out" | grep 'sizes:'; then \
+			[ $$rc -eq 0 ] || printf '%s\n' "$$out"; \
+		else \
+			printf '%s\n' "$$out"; [ $$rc -ne 0 ] || rc=1; \
+		fi; \
+		exit $$rc
 
 deploy:
 	@if [ "$(SITE_DIR)" = "." ] || [ "$(SITE_DIR)" = ".." ] || [ "$(SITE_DIR)" = "/" ]; then \
