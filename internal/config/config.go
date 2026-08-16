@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -31,12 +32,24 @@ const (
 	// hex_edge_m may want to tune this via display.min_hex_area.
 	DefaultMinHexArea = 100.0
 	// DefaultCoordinateDecimals is the precision of [lon, lat] floats
-	// emitted in hex GeoJSON. 6 decimals ≈ 11 cm, plenty for a
-	// city-scale heatmap; the JTS reproject path used to hardcode 7
-	// (~1 cm). Lower precision shrinks per-city JSON by 30-50%. Cities
-	// or examples that genuinely need finer resolution can override via
-	// export.coordinate_decimals.
+	// emitted in exported GeoJSON (the hex grid and the display boundary).
+	// 6 decimals ≈ 11 cm, plenty for a city-scale heatmap; the JTS
+	// reproject path used to hardcode 7 (~1 cm). Lower precision shrinks
+	// per-city JSON by 30-50%. Cities or examples that genuinely need
+	// finer resolution can override via export.coordinate_decimals.
 	DefaultCoordinateDecimals = 6
+	// DefaultBoundarySimplifyM is the Ramer-Douglas-Peucker tolerance, in
+	// meters, applied to the DISPLAY copy of the city boundary before it is
+	// written to boundary.geojson (or served from /data/boundary.geojson).
+	// Nominatim boundaries carry far more vertices than a dashed outline at
+	// city zoom can resolve — Jacksonville alone is 205,961 coordinate pairs
+	// across 7,371 rings — and 10 m retains ~23.5% of them for a ~0.15%
+	// change in enclosed area.
+	//
+	// This never touches the authoritative boundary: hex clipping
+	// (export.clipHexGridToBoundary) and the area figures behind
+	// meta.json's CityArea/PctPaved read store.GetBoundary directly.
+	DefaultBoundarySimplifyM = 10.0
 )
 
 // Sentinels for failure modes that warrant a remediation hint at the call
@@ -154,20 +167,39 @@ func (c *Config) UnitSystem() units.System {
 
 type ExportConfig struct {
 	Title string `toml:"title"`
-	// CoordinateDecimals sets the precision of emitted hex GeoJSON
-	// coordinates. Resolve via Config.CoordinateDecimals(); zero or
-	// unset falls back to DefaultCoordinateDecimals.
+	// CoordinateDecimals sets the precision of emitted GeoJSON
+	// coordinates — the hex grid and the display boundary. Resolve via
+	// Config.CoordinateDecimals(); zero or unset falls back to
+	// DefaultCoordinateDecimals.
 	CoordinateDecimals int `toml:"coordinate_decimals"`
+	// BoundarySimplifyM is the RDP tolerance in meters for the display
+	// boundary. Resolve via Config.BoundarySimplifyM(); zero or unset falls
+	// back to DefaultBoundarySimplifyM, and a NEGATIVE value opts out
+	// entirely (the stored GeoJSON is emitted byte-for-byte).
+	BoundarySimplifyM float64 `toml:"boundary_simplify_m"`
 }
 
-// CoordinateDecimals returns the effective hex GeoJSON coordinate
-// precision: the configured value if positive, else
-// DefaultCoordinateDecimals.
+// CoordinateDecimals returns the effective GeoJSON coordinate precision:
+// the configured value if positive, else DefaultCoordinateDecimals.
 func (c *Config) CoordinateDecimals() int {
 	if c.Export.CoordinateDecimals > 0 {
 		return c.Export.CoordinateDecimals
 	}
 	return DefaultCoordinateDecimals
+}
+
+// BoundarySimplifyM returns the effective display-boundary simplification
+// tolerance in meters.
+//
+// Unlike CoordinateDecimals this keys on zero-vs-nonzero, NOT on positive:
+// a negative tolerance is the documented byte-exact opt-out, so it has to
+// survive the resolver rather than being folded into the default. Only an
+// unset (zero) value falls back.
+func (c *Config) BoundarySimplifyM() float64 {
+	if c.Export.BoundarySimplifyM != 0 {
+		return c.Export.BoundarySimplifyM
+	}
+	return DefaultBoundarySimplifyM
 }
 
 type ForecastConfig struct {
@@ -582,6 +614,30 @@ func (c *Config) validate(requireCities bool) error {
 		return errors.Join(ErrInvalidConfig,
 			fmt.Errorf("export.coordinate_decimals %d out of range (0-%d, or 0 for default)",
 				c.Export.CoordinateDecimals, maxCoordinateDecimals))
+	}
+	// export.boundary_simplify_m is deliberately permissive about sign — a
+	// negative value is the byte-exact opt-out (see BoundarySimplifyM) — but
+	// NaN and ±Inf must be rejected, and not for tidiness: TOML accepts the
+	// `nan` and `inf` float literals, `NaN > maxBoundarySimplifyM` is false, so
+	// such a value loads clean and reaches the simplifier. simplefeatures'
+	// Ramer-Douglas-Peucker breaks its inner loop on `maxDist <= threshold`,
+	// which is never true for NaN, so the search interval never collapses and
+	// the export HANGS rather than failing. (A negative threshold has the same
+	// non-termination property, which is why the simplifier short-circuits the
+	// opt-out before calling Simplify rather than passing it through.)
+	//
+	// The upper bound is a typo guard: past a kilometre the "boundary" is no
+	// longer recognizable as the city, and nobody wants that on purpose.
+	const maxBoundarySimplifyM = 1000.0
+	if math.IsNaN(c.Export.BoundarySimplifyM) || math.IsInf(c.Export.BoundarySimplifyM, 0) {
+		return errors.Join(ErrInvalidConfig,
+			fmt.Errorf("export.boundary_simplify_m must be a finite number, got %g",
+				c.Export.BoundarySimplifyM))
+	}
+	if c.Export.BoundarySimplifyM > maxBoundarySimplifyM {
+		return errors.Join(ErrInvalidConfig,
+			fmt.Errorf("export.boundary_simplify_m %g exceeds the %g m maximum (0 for default, negative to disable)",
+				c.Export.BoundarySimplifyM, maxBoundarySimplifyM))
 	}
 	// Reject an unknown display.units rather than silently rendering imperial:
 	// units.ParseSystem maps any unrecognized string (incl. typos like "metirc")

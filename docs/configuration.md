@@ -163,7 +163,11 @@ Cost values are calibration inputs, not measurements — the shipped defaults ar
 
 `[export].title` sets the name headlining a multi-city exported dashboard; when unset it falls back to the output directory's base name. Only the top-level config's title is used — a title set in a file pulled in via `[[include]]` is discarded along with the rest of its non-`[[cities]]` settings.
 
-`[export].coordinate_decimals` (default `6`) controls the precision of `[lon, lat]` floats in emitted hex GeoJSON. 6 decimals ≈ 11 cm — plenty for a city-scale heatmap. Set higher (e.g. 7 for ~1 cm) if a downstream consumer genuinely needs finer resolution, or lower (e.g. 5 for ~1 m) to squeeze further. Boundary GeoJSON is unaffected (it's stored raw from Nominatim and embedded as-is).
+`[export].coordinate_decimals` (default `6`) controls the precision of `[lon, lat]` floats in emitted GeoJSON — both the hex grid and the display boundary. 6 decimals ≈ 11 cm — plenty for a city-scale heatmap. Set higher (e.g. 7 for ~1 cm) if a downstream consumer genuinely needs finer resolution, or lower (e.g. 5 for ~1 m) to squeeze further.
+
+`[export].boundary_simplify_m` (default `10`) is the [Ramer–Douglas–Peucker](https://en.wikipedia.org/wiki/Ramer%E2%80%93Douglas%E2%80%93Peucker_algorithm) tolerance, in meters, applied to the **display** copy of the city boundary — what `boundary.geojson` contains and what `/data/boundary.geojson` serves. Nominatim boundaries carry far more detail than a dashed outline at city zoom can resolve (Jacksonville is 205,961 coordinate pairs across 7,371 rings), so the default retains roughly a quarter of the vertices for about a 0.15% change in enclosed area. Raise it to squeeze further at visible cost to the outline; set it **negative** to opt out entirely, which emits the stored GeoJSON byte-for-byte. Values above `1000` are rejected, as are `nan` and `inf`.
+
+This affects display only. The **authoritative** boundary is never simplified: hex clipping, the `city` coverage scope, and the `City Area` / `% Paved` figures in `meta.json` all read the stored polygon directly. One visible consequence is that at high zoom, hexes clipped to the real boundary can overhang the drawn outline by up to the tolerance. Simplified rings are also not guaranteed to be valid polygons — RDP can make a ring self-intersect, which is invisible on the line layer the client draws but would matter to a downstream consumer filling them.
 
 ## HTTP caching
 

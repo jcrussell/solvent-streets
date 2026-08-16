@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"math"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -163,6 +164,91 @@ func TestConfig_CoordinateDecimals_FallsBackToDefault(t *testing.T) {
 			c := &Config{Export: ExportConfig{CoordinateDecimals: tc.set}}
 			if got := c.CoordinateDecimals(); got != tc.want {
 				t.Errorf("CoordinateDecimals() = %v; want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestConfig_BoundarySimplifyM_FallsBackToDefault pins the one place this knob
+// deliberately DIVERGES from CoordinateDecimals above: it keys on
+// zero-vs-nonzero, not on positive. A negative tolerance is the documented
+// byte-exact opt-out, so folding it into the default (as a `> 0` resolver
+// would) makes the opt-out unreachable from config.
+func TestConfig_BoundarySimplifyM_FallsBackToDefault(t *testing.T) {
+	cases := map[string]struct {
+		set  float64
+		want float64
+	}{
+		"unset":        {0, DefaultBoundarySimplifyM},
+		"override 25":  {25, 25},
+		"override 0.5": {0.5, 0.5},
+		"negative opts out of simplification, does NOT take the default": {-1, -1},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := &Config{Export: ExportConfig{BoundarySimplifyM: tc.set}}
+			if got := c.BoundarySimplifyM(); got != tc.want {
+				t.Errorf("BoundarySimplifyM() = %v; want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestConfig_Validate_BoundarySimplifyM covers the non-obvious rejections. NaN
+// is the one that matters: TOML accepts the `nan` literal, every ordered
+// comparison against it is false so a range check alone lets it through, and
+// simplefeatures' RDP never terminates on a NaN threshold — the export hangs
+// instead of failing. Negatives stay legal; they are the opt-out.
+func TestConfig_Validate_BoundarySimplifyM(t *testing.T) {
+	cases := map[string]struct {
+		set     float64
+		wantErr bool
+	}{
+		"default":       {0, false},
+		"10 m":          {10, false},
+		"negative":      {-1, false},
+		"at max":        {1000, false},
+		"over max":      {1000.1, true},
+		"NaN hangs RDP": {math.NaN(), true},
+		"+Inf":          {math.Inf(1), true},
+		"-Inf":          {math.Inf(-1), true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cfg := Config{
+				Cities: []CityConfig{{Name: "Oakland", Overpass: true}},
+				Export: ExportConfig{BoundarySimplifyM: tc.set},
+			}
+			err := cfg.Validate()
+			if tc.wantErr && err == nil {
+				t.Fatalf("Validate() = nil; want an error for boundary_simplify_m %g", tc.set)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("Validate() = %v; want nil for boundary_simplify_m %g", err, tc.set)
+			}
+			if tc.wantErr && !errors.Is(err, ErrInvalidConfig) {
+				t.Errorf("error %v does not wrap ErrInvalidConfig", err)
+			}
+		})
+	}
+}
+
+// TestLoadFS_BoundarySimplifyM_RejectsNaNLiteral closes the loop through the
+// actual ingress path. TOML has a `nan` float literal and BurntSushi decodes it
+// without error, so this is reachable from a real pvmt.toml — and it is the one
+// bad value a range check cannot catch, since every ordered comparison against
+// NaN is false. Left unguarded it does not misconfigure the export, it HANGS it.
+func TestLoadFS_BoundarySimplifyM_RejectsNaNLiteral(t *testing.T) {
+	for _, lit := range []string{"nan", "inf", "-inf"} {
+		t.Run(lit, func(t *testing.T) {
+			toml := "[export]\nboundary_simplify_m = " + lit + "\n\n[[cities]]\nname = \"Oakland, CA\"\n"
+			fsys := fstest.MapFS{"pvmt.toml": &fstest.MapFile{Data: []byte(toml)}}
+			_, err := LoadFS(fsys, "pvmt.toml")
+			if err == nil {
+				t.Fatalf("boundary_simplify_m = %s loaded clean; want a validation error", lit)
+			}
+			if !errors.Is(err, ErrInvalidConfig) {
+				t.Errorf("error %v does not chain to ErrInvalidConfig", err)
 			}
 		})
 	}
