@@ -717,3 +717,70 @@ func keysOf(m map[string]float64) []string {
 	sort.Strings(out)
 	return out
 }
+
+// TestBuildHexGeoJSON_DefaultCoordinatePrecision pins the precision an export
+// actually EMITS when coordinate_decimals is unset.
+//
+// Everything else in this area pins the plumbing rather than the outcome:
+// validate_test.go asserts against the constant (so it tracks any change), and
+// TestBuildHexFeature_RespectsCoordinatePrecision passes 7 and 4 explicitly.
+// Nothing observed the default, which means a revert of it — the single
+// highest-leverage byte knob in the export, spanning the two largest files —
+// would not fail a single test. The size budgets in check-site are a proxy, not
+// an assertion.
+func TestBuildHexGeoJSON_DefaultCoordinatePrecision(t *testing.T) {
+	if config.DefaultCoordinateDecimals != 5 {
+		t.Fatalf("DefaultCoordinateDecimals = %d; want 5. If this was changed deliberately, "+
+			"update this test AND re-seed the per-city size budgets in check_sizes.go",
+			config.DefaultCoordinateDecimals)
+	}
+
+	// Resolve through an unset config, which is the step under test: an export
+	// that sets nothing must land on the default.
+	cfg := &config.Config{}
+	if cfg.Export.CoordinateDecimals != 0 {
+		t.Fatal("fixture must leave coordinate_decimals unset")
+	}
+	decimals := cfg.CoordinateDecimals()
+	if decimals != config.DefaultCoordinateDecimals {
+		t.Fatalf("CoordinateDecimals() = %d; want the default %d", decimals, config.DefaultCoordinateDecimals)
+	}
+
+	// A hex at realistic UTM coords so the reprojection (and its rounding)
+	// actually runs — it is a no-op on values already in the lon/lat window.
+	proj := geo.NewUTMProjector(-122.45, 37.55)
+	h := offsetSquareHex(t, "0,0", 550000, 4156000, 50)
+	hexMap := map[string]*geo.Hex{"0,0": &h}
+	agg := &hexAgg{bbox: map[string]map[string]float64{"roads": {"area": 200, "pct": 75}}}
+
+	feat, ok := buildHexFeature("0,0", agg, hexMap, proj, decimals)
+	if !ok {
+		t.Fatal("buildHexFeature returned ok=false")
+	}
+	raw, _ := feat["geometry"].(json.RawMessage)
+	if len(raw) == 0 {
+		t.Fatal("no geometry emitted")
+	}
+	sawFraction := false
+	for tok := range strings.SplitSeq(string(raw), ",") {
+		dot := strings.IndexByte(tok, '.')
+		if dot < 0 {
+			continue
+		}
+		end := len(tok)
+		for end > dot+1 && (tok[end-1] < '0' || tok[end-1] > '9') {
+			end--
+		}
+		frac := end - dot - 1
+		if frac > 0 {
+			sawFraction = true
+		}
+		if frac > config.DefaultCoordinateDecimals {
+			t.Errorf("coordinate %q carries %d fractional digits; want <= %d",
+				tok, frac, config.DefaultCoordinateDecimals)
+		}
+	}
+	if !sawFraction {
+		t.Error("no fractional coordinates found; the test parsed nothing and would pass vacuously")
+	}
+}

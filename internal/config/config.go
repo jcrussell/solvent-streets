@@ -33,11 +33,20 @@ const (
 	DefaultMinHexArea = 100.0
 	// DefaultCoordinateDecimals is the precision of [lon, lat] floats
 	// emitted in exported GeoJSON (the hex grid and the display boundary).
-	// 6 decimals ≈ 11 cm, plenty for a city-scale heatmap; the JTS
-	// reproject path used to hardcode 7 (~1 cm). Lower precision shrinks
-	// per-city JSON by 30-50%. Cities or examples that genuinely need
-	// finer resolution can override via export.coordinate_decimals.
-	DefaultCoordinateDecimals = 6
+	//
+	// 5 decimals is ~1.1 m of latitude and ~0.79 m of longitude at mid
+	// latitudes, against a hex edge of 80-300 m — between two and three orders
+	// of magnitude below anything the heatmap can express. It costs a digit per
+	// coordinate across the two largest files in the export.
+	//
+	// This does NOT open gaps between adjacent hexes: neighbours share vertices
+	// computed from the same col*colSpacing arithmetic, so identical inputs
+	// round identically and the shared edge stays shared. (The JTS reproject
+	// path used to hardcode 7, ~1 cm, which was never meaningful here.)
+	//
+	// Raise it via export.coordinate_decimals if a downstream consumer needs
+	// finer resolution than the display does.
+	DefaultCoordinateDecimals = 5
 	// DefaultBoundarySimplifyM is the Ramer-Douglas-Peucker tolerance, in
 	// meters, applied to the DISPLAY copy of the city boundary before it is
 	// written to boundary.geojson (or served from /data/boundary.geojson).
