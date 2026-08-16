@@ -28,12 +28,17 @@ import (
 // site-weight work began. The baseline is still moving under them, so re-seed
 // the whole map against a real export once B7 lands.
 //
-// Until then two of the eight are expected to WARN on a full tree. Neither is a
-// bug; each is waiting on a later step:
-//   - boundary.geojson, worst city ~2.4x over, until B4b simplifies the
-//     display boundary
-//   - hexgrid.geojson, ~2.3x over, until B6b and B7 shrink it; minification
-//     did nothing here, as this file was always written compact
+// Until then one of the eight is expected to WARN on a full tree, and it is not
+// a bug — it is waiting on a later step: hexgrid.geojson, ~2.3x over, until B6b
+// and B7 shrink it. Minification did nothing there, as that file was always
+// written compact.
+//
+// boundary.geojson was the second expected WARN until B4b simplified the
+// display boundary. Measured over all 291 city boundaries in the DB at the 10 m
+// default: 52.8 MiB -> 13.6 MiB (-74.3%), retaining 0.276 of coordinates, with
+// no ring dropped and no city left over budget. The worst city is still
+// Jacksonville, but at 1.31 MiB against the 2 MiB ceiling rather than 4.88 MiB
+// — it clears by ~34%, so unlike play-hexes below there is real headroom here.
 //
 // Of the six that pass, play-hexes.json is by far the closest to its ceiling
 // and the only one worth watching. It was a third expected WARN until B3

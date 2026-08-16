@@ -252,21 +252,8 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 	// are enumerated for the publish-readiness checker by DataFileNames in
 	// checkassets.go — keep the two in sync when adding or removing a file.
 	//
-	// Write boundary.geojson if boundary exists
-	if boundaryGJSON, err := entry.Store.GetBoundary(ctx); err == nil && boundaryGJSON != "" {
-		fc := map[string]any{
-			"type": "FeatureCollection",
-			"features": []map[string]any{
-				{
-					"type":       "Feature",
-					"geometry":   json.RawMessage(boundaryGJSON),
-					"properties": map[string]any{"type": "boundary"},
-				},
-			},
-		}
-		if err := writeJSON(filepath.Join(dataDir, "boundary.geojson"), fc); err != nil {
-			return MetaJSON{}, "", fmt.Errorf("write boundary geojson: %w", err)
-		}
+	if err := e.writeBoundary(ctx, entry, proj, dataDir); err != nil {
+		return MetaJSON{}, "", err
 	}
 
 	// Export hex grid — a single multi-scope file, one feature per hex with
@@ -437,6 +424,30 @@ func stripZeroCurrentBudget(s string) string {
 		out = append(out, ln)
 	}
 	return strings.Join(out, "\n")
+}
+
+// writeBoundary writes the city's display boundary, if it has one.
+//
+// A nil FC means no boundary is stored — skip the file, exactly as the inline
+// GetBoundary check this replaced did. A non-nil error ALONGSIDE a usable FC
+// means simplification was skipped and the raw geometry is going out (see
+// BuildBoundaryGeoJSON's error contract); that is a warning, not a failure,
+// because every shape it fires on exports fine today. Only a write failure
+// aborts the export.
+func (e *Exporter) writeBoundary(ctx context.Context, entry CityEntry, proj *geo.UTMProjector, dataDir string) error {
+	fc, simplifyErr := BuildBoundaryGeoJSON(ctx, entry, proj)
+	if fc == nil {
+		return nil
+	}
+	if simplifyErr != nil {
+		fmt.Fprintf(e.warnOut(),
+			"warning: city %q boundary could not be simplified, writing it in full: %v\n",
+			entry.City.Name, simplifyErr)
+	}
+	if err := writeJSON(filepath.Join(dataDir, "boundary.geojson"), fc); err != nil {
+		return fmt.Errorf("write boundary geojson: %w", err)
+	}
+	return nil
 }
 
 // writeExportMarker drops a cmdutil.ExportMarkerName sentinel at the top of the

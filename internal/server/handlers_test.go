@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1362,5 +1363,119 @@ func TestHttpErr_HidesInternalMessage(t *testing.T) {
 	logged := errOut.String()
 	if !strings.Contains(logged, "sqlite") || !strings.Contains(logged, "/var/lib/pvmt/pvmt.db") {
 		t.Errorf("server log missing internal detail; got %q", logged)
+	}
+}
+
+// boundaryTestEntry builds a minimal entry whose store returns the given
+// boundary GeoJSON (or error) for GetBoundary.
+func boundaryTestEntry(gj string, getErr error) export.CityEntry {
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Test City"}}}
+	return export.CityEntry{
+		Config: cfg,
+		City:   cfg.Cities[0],
+		Store: &dbtest.MockStore{
+			GetBoundaryFunc: func(_ context.Context) (string, error) { return gj, getErr },
+		},
+		Slug: cfg.Cities[0].Slug(),
+	}
+}
+
+func getBoundary(t *testing.T, entry export.CityEntry) *httptest.ResponseRecorder {
+	t.Helper()
+	ios, _, _, _ := iostreams.Test()
+	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /data/{file}", srv.handleDataFile(entry))
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", "/data/boundary.geojson", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	return w
+}
+
+// TestServeBoundaryGeoJSON_Simplifies is the happy path: the served geometry
+// goes through the same simplifier the exporter uses, so it comes back with
+// fewer vertices than the stored polygon.
+func TestServeBoundaryGeoJSON_Simplifies(t *testing.T) {
+	// A ring with many near-collinear vertices along each edge; RDP should drop
+	// most of them at the 10 m default.
+	var pts []string
+	for i := range 41 {
+		lon := -121.84 + 0.16*float64(i)/40
+		pts = append(pts, `[`+strconv.FormatFloat(lon, 'f', 7, 64)+`,37.64]`)
+	}
+	pts = append(pts, `[-121.68,37.72]`, `[-121.84,37.72]`, `[-121.84,37.64]`)
+	stored := `{"type":"Polygon","coordinates":[[` + strings.Join(pts, ",") + `]]}`
+
+	w := getBoundary(t, boundaryTestEntry(stored, nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200", w.Code)
+	}
+	var fc struct {
+		Features []struct {
+			Geometry struct {
+				Coordinates [][][2]float64 `json:"coordinates"`
+			} `json:"geometry"`
+		} `json:"features"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&fc); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(fc.Features) != 1 {
+		t.Fatalf("feature count = %d; want 1", len(fc.Features))
+	}
+	got := len(fc.Features[0].Geometry.Coordinates[0])
+	if got >= 44 {
+		t.Errorf("served ring has %d points; want fewer than the stored 44 (simplification did not run)", got)
+	}
+	if got < 4 {
+		t.Errorf("served ring collapsed to %d points", got)
+	}
+}
+
+// TestServeBoundaryGeoJSON_EmptyIsNotAnError pins the empty-vs-error split: an
+// unconfigured city caches an empty FC and returns 200.
+func TestServeBoundaryGeoJSON_EmptyIsNotAnError(t *testing.T) {
+	w := getBoundary(t, boundaryTestEntry("", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200 for a city with no boundary", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), `"features":[]`) {
+		t.Errorf("body = %q; want an empty FeatureCollection", w.Body.String())
+	}
+}
+
+// TestServeBoundaryGeoJSON_DBErrorIs500 is the other half of that split: a real
+// GetBoundary failure must surface so serveJSONCached evicts and retries,
+// rather than baking an empty boundary in for the server's lifetime.
+func TestServeBoundaryGeoJSON_DBErrorIs500(t *testing.T) {
+	w := getBoundary(t, boundaryTestEntry("", errors.New("database is locked")))
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d; want 500 for a GetBoundary failure", w.Code)
+	}
+}
+
+// TestServeBoundaryGeoJSON_UndetectableProjectionStillServes is the regression
+// this route most needs. Each of these stored shapes serves 200 today and must
+// keep doing so: none is a Polygon/MultiPolygon that BBoxFromGeoJSON accepts,
+// so deriving a projector fails — but failing the REQUEST on that would evict
+// the cache entry and 500 forever on a city that renders fine. The geometry
+// goes out unsimplified instead.
+func TestServeBoundaryGeoJSON_UndetectableProjectionStillServes(t *testing.T) {
+	cases := map[string]string{
+		"feature wrapper":     `{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.64]]]},"properties":{}}`,
+		"geometry collection": `{"type":"GeometryCollection","geometries":[{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.64]]]}]}`,
+		"out of range lat":    `{"type":"Polygon","coordinates":[[[-121.84,137.64],[-121.68,137.64],[-121.68,137.72],[-121.84,137.64]]]}`,
+		"antimeridian span":   `{"type":"Polygon","coordinates":[[[-179.0,37.64],[179.0,37.64],[179.0,37.72],[-179.0,37.64]]]}`,
+	}
+	for name, stored := range cases {
+		t.Run(name, func(t *testing.T) {
+			w := getBoundary(t, boundaryTestEntry(stored, nil))
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d; want 200 — this shape serves today and must not regress to an error", w.Code)
+			}
+			if !strings.Contains(w.Body.String(), `"type":"boundary"`) {
+				t.Errorf("body should still carry the boundary feature, got %q", w.Body.String())
+			}
+		})
 	}
 }

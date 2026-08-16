@@ -714,30 +714,60 @@ func (s *Server) serveHexCostSummary(w http.ResponseWriter, _ *http.Request, ent
 	})
 }
 
-func (s *Server) serveBoundaryGeoJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry, snapshotID int64) {
-	s.serveJSONCached(w, cacheKey("boundary", entry.Slug, snapshotID), func() (any, error) {
-		// GetBoundary distinguishes "no row" (returns "", nil — genuinely
-		// unconfigured, cache the empty FC) from real DB errors (returns
-		// "", err — surface so serveJSONCached evicts and the next request
-		// retries instead of locking in an empty boundary for the server's
-		// lifetime).
-		gj, err := entry.Store.GetBoundary(context.Background())
-		if err != nil {
-			return nil, err
+// serveBoundaryGeoJSON serves the display boundary, built through the same
+// export.BuildBoundaryGeoJSON the static exporter uses so the served bytes and
+// the exported file stay identical.
+//
+// The cache key deliberately omits snapshotID, unlike every other handler here.
+// GetBoundary is snapshot-unaware, so the payload is byte-identical across
+// snapshots; keying on the snapshot would re-run the projector derivation —
+// which json.Unmarshals once per coordinate, 205,961 times for Jacksonville —
+// every time the user scrubs the time-travel picker, to produce the same bytes.
+func (s *Server) serveBoundaryGeoJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry, _ int64) {
+	s.serveJSONCached(w, cacheKey("boundary", entry.Slug, 0), func() (any, error) {
+		ctx := context.Background()
+
+		// Derive the projector the shared builder needs. BBoxAndCenter reports
+		// a genuinely-absent boundary as ErrNoBoundary (cache the empty FC —
+		// the city is simply unconfigured) and propagates real DB errors so
+		// serveJSONCached evicts and the next request retries instead of
+		// locking in an empty boundary for the server's lifetime.
+		//
+		// Anything else it can fail on — a stored Feature wrapper, a
+		// GeometryCollection, an out-of-range or antimeridian-spanning polygon
+		// — is NOT a reason to fail the request. All of those serve 200 today.
+		// Fall through with a nil projector, which makes BuildBoundaryGeoJSON
+		// skip simplification and emit the stored geometry as-is. Returning the
+		// error instead would evict the cache entry and 500 on every request,
+		// forever, for a city that renders fine.
+		var proj *geo.UTMProjector
+		_, lon, lat, err := entry.BBoxAndCenter(ctx)
+		switch {
+		case errors.Is(err, export.ErrNoBoundary):
+			return map[string]any{"type": "FeatureCollection", "features": []any{}}, nil
+		case err != nil:
+			fmt.Fprintf(s.ios.ErrOut,
+				"server: city %q boundary has no derivable projection (%v); serving it unsimplified\n",
+				entry.City.Name, err)
+		default:
+			proj = geo.NewUTMProjector(lon, lat)
 		}
-		if gj == "" {
+
+		fc, simplifyErr := export.BuildBoundaryGeoJSON(ctx, entry, proj)
+		if fc == nil {
+			// Either a GetBoundary failure (propagate: evict and retry) or the
+			// boundary vanished between the two reads (empty FC).
+			if simplifyErr != nil {
+				return nil, simplifyErr
+			}
 			return map[string]any{"type": "FeatureCollection", "features": []any{}}, nil
 		}
-		return map[string]any{
-			"type": "FeatureCollection",
-			"features": []map[string]any{
-				{
-					"type":       "Feature",
-					"geometry":   json.RawMessage(gj),
-					"properties": map[string]any{"type": "boundary"},
-				},
-			},
-		}, nil
+		if simplifyErr != nil {
+			fmt.Fprintf(s.ios.ErrOut,
+				"server: city %q boundary could not be simplified, serving it in full: %v\n",
+				entry.City.Name, simplifyErr)
+		}
+		return fc, nil
 	})
 }
 
