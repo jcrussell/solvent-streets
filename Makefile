@@ -13,7 +13,7 @@ LDFLAGS := -X github.com/jcrussell/solvent-streets/internal/build.Version=$(VERS
 	-X github.com/jcrussell/solvent-streets/internal/build.Commit=$(COMMIT) \
 	-X github.com/jcrussell/solvent-streets/internal/build.Date=$(DATE)
 
-.PHONY: build test e2e clean wasm lint lint-js gendocs release-dry-run site site-clean site-report deploy \
+.PHONY: build test test-js e2e clean wasm lint lint-js gendocs release-dry-run site site-clean site-report deploy \
 	fmt vet tidy cover help install pre-commit
 
 wasm:
@@ -61,6 +61,16 @@ lint-js:
 	npm run lint
 	npm run typecheck
 
+# Executing JS tests for the export templates' app.js (solvent-streets-azdu).
+# Driven from the Go side (internal/export TestJS) because the DOM the specs run
+# against is rendered from index.html.tmpl — a Go template — so a hand-written
+# HTML fixture would drift from it silently. `go test ./...` SKIPS these when
+# node or node_modules are absent, which is why this is a separate target and a
+# separate CI job rather than part of `make test`.
+test-js:
+	@test -d node_modules || npm ci
+	go test -count=1 -run TestJS ./internal/export/
+
 fmt:
 	gofmt -w ./cmd ./internal ./pkg
 
@@ -93,6 +103,7 @@ help:
 	@echo "  test          go test -race ./..."
 	@echo "  lint          golangci-lint run (pinned in .golangci-version)"
 	@echo "  lint-js       eslint + tsc --checkJs the export template JS (app.js/game.js)"
+	@echo "  test-js       executing jsdom tests for app.js (needs node + npm ci)"
 	@echo "  fmt           gofmt -w on cmd/internal/pkg"
 	@echo "  vet           go vet ./..."
 	@echo "  tidy          go mod tidy"

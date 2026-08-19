@@ -33,4 +33,22 @@ export default [
     // false positives here. Real temporal-dead-zone use is better caught by
     // tsc --checkJs flow analysis (see tsconfig.json), adopted incrementally.
   },
+  // The jsdom harness and its specs. A separate block because these are real
+  // ES modules running under node:test — the app config above is
+  // sourceType: 'script' with browser globals, and applying it here would
+  // reject every `import`. They are NOT type-checked by tsconfig.app.json,
+  // which includes app.js alone.
+  {
+    files: ['internal/export/templates/__tests__/**/*.mjs'],
+    languageOptions: {
+      ecmaVersion: 2023,
+      sourceType: 'module',
+      globals: { ...globals.node },
+    },
+    rules: {
+      ...js.configs.recommended.rules,
+      'no-unused-vars': ['error', { args: 'none', caughtErrors: 'none' }],
+      eqeqeq: ['error', 'smart'],
+    },
+  },
 ];

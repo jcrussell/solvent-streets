@@ -52,6 +52,27 @@ jobs:
       - name: Type-check (tsc --checkJs)
         run: npm run typecheck
 
+  test-js:
+    name: Test JS
+    runs-on: ubuntu-latest
+    # The executing jsdom tests for app.js (solvent-streets-azdu). Separate from
+    # the Go `test` job because the specs need node + node_modules, and separate
+    # from `lint-js` because they need Go: the DOM they run against is rendered
+    # from index.html.tmpl by internal/export's TestJS, so a hand-written HTML
+    # fixture cannot drift from the template unnoticed.
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
+
+      - name: Install JS devDependencies
+        run: npm ci
+
+      - name: Executing JS tests (jsdom)
+        run: make test-js
+
   format:
     name: Format
     runs-on: ubuntu-latest

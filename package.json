@@ -5,12 +5,14 @@
   "description": "Lint/type-check tooling for the export template JS (internal/export/templates/app.js, game.js). NOT a bundler: those files are embedded into the Go binary via go:embed and shipped verbatim. This exists only so the ~3k lines of browser JS get the same static analysis the Go side already has.",
   "scripts": {
     "lint": "eslint internal/export/templates",
-    "typecheck": "tsc -p tsconfig.app.json && tsc -p tsconfig.game.json"
+    "typecheck": "tsc -p tsconfig.app.json && tsc -p tsconfig.game.json",
+    "test": "node --test 'internal/export/templates/__tests__/*.test.mjs'"
   },
   "devDependencies": {
     "@eslint/js": "^9.13.0",
     "eslint": "^9.13.0",
     "globals": "^15.11.0",
+    "jsdom": "^29.1.1",
     "typescript": "^5.6.0"
   }
 }
