@@ -328,7 +328,9 @@ func exportScenariosForCity(ctx context.Context, entry CityEntry, dataDir string
 	}
 
 	if len(forecasts) > 0 {
-		if err := writeJSON(filepath.Join(dataDir, "forecast.json"), forecasts); err != nil {
+		// Round for emission only, on a copy: BuildHexCostSummary below derives
+		// from `forecasts` and must see full precision.
+		if err := writeJSON(filepath.Join(dataDir, "forecast.json"), RoundForecastsForEmission(forecasts)); err != nil {
 			return fmt.Errorf("write forecast.json: %w", err)
 		}
 
@@ -341,7 +343,7 @@ func exportScenariosForCity(ctx context.Context, entry CityEntry, dataDir string
 		if err != nil {
 			return fmt.Errorf("build scenarios: %w", err)
 		}
-		if err := writeJSON(filepath.Join(dataDir, "scenarios.json"), scenariosOut); err != nil {
+		if err := writeJSON(filepath.Join(dataDir, "scenarios.json"), RoundScenariosForEmission(scenariosOut)); err != nil {
 			return fmt.Errorf("write scenarios.json: %w", err)
 		}
 	}

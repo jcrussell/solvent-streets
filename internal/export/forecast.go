@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
@@ -406,6 +407,136 @@ func singleCohortScenarios(classification string, area, initialPCI, decayRate fl
 		DecayRate:      decayRate,
 		InitialPCI:     initialPCI,
 	}}), years, params)
+}
+
+// Emission-time rounding for forecast.json and scenarios.json.
+//
+// These two files carry full float64 magnitudes — a dollar figure serializes as
+// 704.5835576057434 when the site renders it as "$705" — and together they are a
+// meaningful share of the exported tree.
+//
+// Rounding happens HERE, at emission, and on a COPY. It deliberately does not
+// happen inside BuildForecastsForCity / BuildScenariosData:
+//
+//   - BuildHexCostSummary consumes the []ForecastExport those builders return
+//     (export.go and handlers.go both) and reads Baseline.Years[0].AnnualNeed,
+//     so rounding in the builder would feed it rounded input.
+//   - The server memoizes that same slice behind two cached handlers, so
+//     rounding it in place would mutate shared state.
+//   - It must not move into internal/forecast: parity_test.go is there to catch
+//     Simulate semantic changes, and this is a display concern.
+//
+// Precisions are chosen to be invisible to the client, not merely "close":
+// dollars and areas render with 0-1 decimals against magnitudes in the millions,
+// PCI renders at 0 decimals, and decay rates at 4. Each rounding below keeps at
+// least two digits of headroom past what any consumer displays.
+const (
+	// emitPCIDecimals: client renders PCI at 0 decimals (cohort table) and plots
+	// it on a 0-100 axis.
+	emitPCIDecimals = 2
+	// emitRateDecimals: client renders decay_rate at 4 decimals.
+	emitRateDecimals = 6
+	// emitRatioDecimals: funding_gap is a ratio rendered as a percentage.
+	emitRatioDecimals = 6
+)
+
+func roundTo(v float64, decimals int) float64 {
+	if v == 0 || math.IsNaN(v) || math.IsInf(v, 0) {
+		return v
+	}
+	p := math.Pow(10, float64(decimals))
+	return math.Round(v*p) / p
+}
+
+// roundMoney rounds to whole currency units. Every dollar figure on the site is
+// formatted with maximumFractionDigits: 0, so this is display-identical.
+func roundMoney(v float64) float64 { return roundTo(v, 0) }
+
+// roundArea rounds to whole square metres. Areas are displayed in acres or km2
+// to one decimal (1 acre ~ 4047 m2), so 1 m2 granularity is far below anything
+// visible, and area_pct is self-normalising over the same rounded values.
+func roundArea(v float64) float64 { return roundTo(v, 0) }
+
+func roundScenarioResult(r forecast.ScenarioResult) forecast.ScenarioResult {
+	years := make([]forecast.ScenarioYear, len(r.Years))
+	for i, y := range r.Years {
+		y.PCI = roundTo(y.PCI, emitPCIDecimals)
+		y.Area = roundArea(y.Area)
+		y.AnnualNeed = roundMoney(y.AnnualNeed)
+		y.AnnualSpend = roundMoney(y.AnnualSpend)
+		y.DeferredBacklog = roundMoney(y.DeferredBacklog)
+		years[i] = y
+	}
+	r.Years = years
+
+	cohorts := make([]forecast.CohortSummary, len(r.FinalCohorts))
+	for i, c := range r.FinalCohorts {
+		c.EndPCI = roundTo(c.EndPCI, emitPCIDecimals)
+		c.Area = roundArea(c.Area)
+		c.DecayRate = roundTo(c.DecayRate, emitRateDecimals)
+		c.TotalSpend = roundMoney(c.TotalSpend)
+		c.TotalDeficit = roundMoney(c.TotalDeficit)
+		cohorts[i] = c
+	}
+	r.FinalCohorts = cohorts
+	return r
+}
+
+func roundScenarioResults(rs []forecast.ScenarioResult) []forecast.ScenarioResult {
+	if rs == nil {
+		return nil
+	}
+	out := make([]forecast.ScenarioResult, len(rs))
+	for i, r := range rs {
+		out[i] = roundScenarioResult(r)
+	}
+	return out
+}
+
+// RoundForecastsForEmission returns a rounded copy of the forecast exports for
+// serialization. The input is left untouched, so callers that also derive from
+// it (BuildHexCostSummary) keep full precision. InsolvencyYear is an int and
+// BreakEvenBudget / CurrentBudget / FundingGap are computed inside the builder
+// from unrounded years, so rounding them here only affects what is written.
+func RoundForecastsForEmission(fes []ForecastExport) []ForecastExport {
+	if fes == nil {
+		return nil
+	}
+	out := make([]ForecastExport, len(fes))
+	for i, fe := range fes {
+		fe.Baseline = roundScenarioResult(fe.Baseline)
+		if fe.BboxBaseline != nil {
+			bb := roundScenarioResult(*fe.BboxBaseline)
+			fe.BboxBaseline = &bb
+		}
+		fe.Scenarios = roundScenarioResults(fe.Scenarios)
+		fe.BreakEvenBudget = roundMoney(fe.BreakEvenBudget)
+		fe.CurrentBudget = roundMoney(fe.CurrentBudget)
+		if fe.FundingGap != nil {
+			g := roundTo(*fe.FundingGap, emitRatioDecimals)
+			fe.FundingGap = &g
+		}
+		out[i] = fe
+	}
+	return out
+}
+
+// RoundScenariosForEmission returns a shallow copy of the scenarios payload with
+// the per-scope scenario slices rounded. "summary" is counts plus city_pct and
+// is left alone — it is small and city_pct feeds a displayed percentage.
+func RoundScenariosForEmission(data map[string]any) map[string]any {
+	if data == nil {
+		return nil
+	}
+	out := make(map[string]any, len(data))
+	for k, v := range data {
+		if rs, ok := v.([]forecast.ScenarioResult); ok {
+			out[k] = roundScenarioResults(rs)
+			continue
+		}
+		out[k] = v
+	}
+	return out
 }
 
 // BuildHexCostSummary builds the per-scope, per-resource hex cost summary

@@ -659,7 +659,13 @@ func (s *Server) serveScenariosJSON(w http.ResponseWriter, _ *http.Request, entr
 		// scenarios) from real DB errors (surfaced so serveJSONCached evicts
 		// and the next request retries instead of locking in a zero-area
 		// payload for the server's lifetime), mirroring serveBoundaryGeoJSON.
-		return export.BuildScenariosData(context.Background(), entry, &fc)
+		data, err := export.BuildScenariosData(context.Background(), entry, &fc)
+		if err != nil {
+			return nil, err
+		}
+		// Same emission-time rounding the static export applies, so served and
+		// exported bytes stay identical.
+		return export.RoundScenariosForEmission(data), nil
 	})
 }
 
@@ -706,7 +712,15 @@ func (s *Server) buildForecasts(entry export.CityEntry, snapshotID int64) ([]exp
 
 func (s *Server) serveForecastJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry, snapshotID int64) {
 	s.serveJSONCached(w, cacheKey("forecast", entry.Slug, snapshotID), func() (any, error) {
-		return s.buildForecasts(entry, snapshotID)
+		forecasts, err := s.buildForecasts(entry, snapshotID)
+		if err != nil {
+			return nil, err
+		}
+		// Round for emission only, and on a copy — buildForecasts memoizes this
+		// slice and serveHexCostSummary derives from the same cached value, so
+		// rounding in place would both mutate shared state and feed the hex cost
+		// summary rounded input. Mirrors exportScenariosForCity.
+		return export.RoundForecastsForEmission(forecasts), nil
 	})
 }
 
