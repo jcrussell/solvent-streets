@@ -172,6 +172,7 @@ type forecastProvenance struct {
 	CostTiers           Source
 	CurrentBudget       Source
 	TreatmentCycleYears Source
+	CostOverhead        Source
 }
 
 // resolveForecast returns the merged forecast config (env > city > file >
@@ -228,6 +229,9 @@ func fileForecastProv(fc *ForecastConfig) forecastProvenance {
 	if fc.TreatmentCycleYears > 0 {
 		p.TreatmentCycleYears = Source{Kind: SourceFile, Detail: "forecast.treatment_cycle_years"}
 	}
+	if fc.CostOverhead > 0 {
+		p.CostOverhead = Source{Kind: SourceFile, Detail: "forecast.cost_overhead"}
+	}
 	return p
 }
 
@@ -266,6 +270,13 @@ func applyCityForecastProv(fc *ForecastConfig, p *forecastProvenance, city *City
 	if ov.CurrentBudget > 0 {
 		fc.CurrentBudget = ov.CurrentBudget
 		p.CurrentBudget = Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].forecast.current_budget", slug)}
+	}
+	// A positive test is the correct presence check here, unlike growth_rate
+	// above: cost_overhead has no meaningful 0 (Validate rejects it), so 0 is
+	// unambiguously "unset". A city that wants bare pricing writes 1.0.
+	if ov.CostOverhead > 0 {
+		fc.CostOverhead = ov.CostOverhead
+		p.CostOverhead = Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].forecast.cost_overhead", slug)}
 	}
 	if ov.TreatmentCycleYears > 0 {
 		fc.TreatmentCycleYears = ov.TreatmentCycleYears
@@ -309,6 +320,14 @@ func applyDefaultForecastProv(fc *ForecastConfig, p *forecastProvenance) {
 	// core, like DecayRate), so config reports SourceDefault when no layer set it.
 	if (p.TreatmentCycleYears == Source{}) {
 		p.TreatmentCycleYears = Source{Kind: SourceDefault}
+	}
+	// Unlike TreatmentCycleYears, the VALUE is resolved here and not downstream:
+	// the forecast core reads a zero overhead as bare (1.0) on purpose, so a
+	// default applied there would silently load every directly-constructed
+	// projector. See ForecastConfig.ResolvedCostOverhead.
+	if fc.CostOverhead <= 0 {
+		fc.CostOverhead = DefaultCostOverhead
+		p.CostOverhead = Source{Kind: SourceDefault}
 	}
 }
 

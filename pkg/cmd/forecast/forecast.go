@@ -343,7 +343,7 @@ func forecastAllResources(ctx context.Context, opts *Options, store db.Store,
 	for _, rt := range resource.All {
 		t := rt.Type()
 		tName := string(t)
-		params := fcpkg.NewParamsForResource(tName, fc.GrowthRate, costTiers, fc.TreatmentCycleYears)
+		params := fcpkg.NewParamsForResource(tName, fc.GrowthRate, costTiers, fc.TreatmentCycleYears, fc.ResolvedCostOverhead())
 		// LatestComputeResult returns raw sql.ErrNoRows (never a nil result
 		// without an error) when this resource has not been computed for the
 		// city yet — warn and skip only in that case. Any other error (locked

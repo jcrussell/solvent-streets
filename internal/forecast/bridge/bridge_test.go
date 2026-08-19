@@ -366,6 +366,7 @@ func TestJSONKeyContract(t *testing.T) {
 		{"GrowthRate", "GrowthRate", "growth_rate"},
 		{"Years", "Years", "years"},
 		{"CostTiers", "CostTiers", "cost_tiers"},
+		{"CostOverhead", "CostOverhead", "cost_overhead"},
 		{"Cohorts", "Cohorts", "cohorts"},
 	}
 	for _, s := range inputShared {
@@ -390,5 +391,67 @@ func TestJSONKeyContract(t *testing.T) {
 		if got := cohortSeedTags[s.field]; got != s.want {
 			t.Errorf("export.CohortSeed.%s json tag = %q, want %q (renamed?)", s.field, got, s.want)
 		}
+	}
+}
+
+// TestRun_MissingCostOverheadPricesBareNotZero is the stale-seed guard.
+//
+// Input is decoded from untrusted browser JSON. A partially-rebuilt site pairs
+// a new pvmt.wasm with an old per-city forecast_seed.json that has no
+// cost_overhead field at all, which decodes to 0.0. A bare multiply would then
+// price every figure on the page at $0 — and $0 renders as a plausible-looking
+// "fully funded" rather than as an error. Bare figures are wrong by ~1.5x;
+// blank ones are wrong by everything.
+func TestRun_MissingCostOverheadPricesBareNotZero(t *testing.T) {
+	base := `{"area":1000000,"initial_pci":70,"decay_rate":0.04,"years":3,
+	          "treatment_cycle_years":12,"annual_budget":0,"strategy":"do-nothing"}`
+
+	out, err := Run([]byte(base))
+	if err != nil {
+		t.Fatalf("Run with no cost_overhead: %v", err)
+	}
+	var got struct {
+		Years []struct {
+			AnnualNeed float64 `json:"annual_need"`
+		} `json:"years"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(got.Years) == 0 {
+		t.Fatal("no years returned")
+	}
+	if got.Years[0].AnnualNeed <= 0 {
+		t.Fatalf("annual_need = %g with an absent cost_overhead; a stale seed must price bare, not zero",
+			got.Years[0].AnnualNeed)
+	}
+
+	// And an explicit overhead must actually scale, so the test above is not
+	// passing because the field is ignored entirely.
+	loaded, err := Run([]byte(base[:len(base)-1] + `,"cost_overhead":2}`))
+	if err != nil {
+		t.Fatalf("Run with cost_overhead: %v", err)
+	}
+	var got2 struct {
+		Years []struct {
+			AnnualNeed float64 `json:"annual_need"`
+		} `json:"years"`
+	}
+	if err := json.Unmarshal(loaded, &got2); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if want := got.Years[0].AnnualNeed * 2; math.Abs(got2.Years[0].AnnualNeed-want) > 1e-6*want {
+		t.Errorf("annual_need at overhead 2 = %g, want %g (bare %g x 2)",
+			got2.Years[0].AnnualNeed, want, got.Years[0].AnnualNeed)
+	}
+}
+
+// A negative overhead is a caller error, not a stale seed, so it is rejected
+// rather than clamped — clamping it to bare would hide the mistake.
+func TestRun_NegativeCostOverheadIsRejected(t *testing.T) {
+	in := `{"area":1000,"initial_pci":70,"decay_rate":0.04,"years":1,
+	        "annual_budget":0,"strategy":"do-nothing","cost_overhead":-1}`
+	if _, err := Run([]byte(in)); err == nil {
+		t.Error("a negative cost_overhead was accepted; want a validation error")
 	}
 }

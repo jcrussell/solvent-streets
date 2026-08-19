@@ -162,7 +162,7 @@ func TestRenderBaselineTable_AreaPctSumsTo100UnderGrowth(t *testing.T) {
 	const growthRate = 0.01
 	const years = 20
 
-	params := fcpkg.NewParams(growthRate, nil, 12)
+	params := fcpkg.NewParams(growthRate, nil, 12, 1)
 	cohorts := []fcpkg.Cohort{
 		{Classification: "primary", Area: 250_000, DecayRate: 0.05, InitialPCI: 85},
 		{Classification: "secondary", Area: 500_000, DecayRate: 0.04, InitialPCI: 75},

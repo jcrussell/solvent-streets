@@ -32,7 +32,7 @@ func TestResolveCycleYears_GuardsZero(t *testing.T) {
 	}
 
 	// End-to-end: a zero-cycle Params must not yield NaN/Inf in the output.
-	res := Simulate(Scenario{Strategy: StrategyDoNothing}, cycleCohorts(70, 0.05), 5, NewParams(0.01, nil, 0))
+	res := Simulate(Scenario{Strategy: StrategyDoNothing}, cycleCohorts(70, 0.05), 5, NewParams(0.01, nil, 0, 1))
 	for _, y := range res.Years {
 		if math.IsInf(y.AnnualNeed, 0) || math.IsNaN(y.AnnualNeed) {
 			t.Fatalf("year %d AnnualNeed is Inf/NaN (%g) — zero-cycle guard failed", y.Year, y.AnnualNeed)
@@ -46,8 +46,8 @@ func TestSimulate_AnnualNeedGatedByCycle(t *testing.T) {
 	cohorts := cycleCohorts(70, 0.05)
 	dn := Scenario{Strategy: StrategyDoNothing}
 
-	one := Simulate(dn, cohorts, 20, NewParams(0.01, nil, 1))
-	twelve := Simulate(dn, cohorts, 20, NewParams(0.01, nil, 12))
+	one := Simulate(dn, cohorts, 20, NewParams(0.01, nil, 1, 1))
+	twelve := Simulate(dn, cohorts, 20, NewParams(0.01, nil, 12, 1))
 
 	for i := range one.Years {
 		want := one.Years[i].AnnualNeed / 12
@@ -68,9 +68,9 @@ func TestSimulate_DollarsScaleButPCIIdentical(t *testing.T) {
 	const budget1 = 600_000.0
 	strategy := StrategyWorstFirst
 
-	one := Simulate(Scenario{AnnualBudget: budget1, Strategy: strategy}, cohorts, 20, NewParams(0.01, nil, 1))
+	one := Simulate(Scenario{AnnualBudget: budget1, Strategy: strategy}, cohorts, 20, NewParams(0.01, nil, 1, 1))
 	// Scale BOTH need (via N) and budget by 1/12; the PCI path must not move.
-	twelve := Simulate(Scenario{AnnualBudget: budget1 / 12, Strategy: strategy}, cohorts, 20, NewParams(0.01, nil, 12))
+	twelve := Simulate(Scenario{AnnualBudget: budget1 / 12, Strategy: strategy}, cohorts, 20, NewParams(0.01, nil, 12, 1))
 
 	for i := range one.Years {
 		if math.Abs(one.Years[i].PCI-twelve.Years[i].PCI) > 1e-9 {
@@ -91,8 +91,8 @@ func TestBreakEvenBudget_ScalesInverselyWithCycle(t *testing.T) {
 	cohorts := cycleCohorts(65, 0.08)
 	years := 20
 
-	be1 := BreakEvenBudget(cohorts, years, NewParams(0.01, nil, 1), StrategyWorstFirst)
-	be12 := BreakEvenBudget(cohorts, years, NewParams(0.01, nil, 12), StrategyWorstFirst)
+	be1 := BreakEvenBudget(cohorts, years, NewParams(0.01, nil, 1, 1), StrategyWorstFirst)
+	be12 := BreakEvenBudget(cohorts, years, NewParams(0.01, nil, 12, 1), StrategyWorstFirst)
 	if be1 <= 0 || be12 <= 0 {
 		t.Fatalf("break-even should be positive: be1=%g be12=%g", be1, be12)
 	}
@@ -111,7 +111,7 @@ func TestBreakEvenBudget_ScalesInverselyWithCycle(t *testing.T) {
 func TestBreakEvenBudget_MonotoneInBudget(t *testing.T) {
 	cohorts := cycleCohorts(65, 0.08)
 	years := 20
-	p := NewParams(0.01, nil, 12)
+	p := NewParams(0.01, nil, 12, 1)
 
 	dn := Simulate(Scenario{Strategy: StrategyDoNothing}, cohorts, years, p)
 	var upper float64
@@ -145,7 +145,7 @@ func TestInsolvencyYear_DiscriminatesUnderfunding(t *testing.T) {
 	cohorts := cycleCohorts(60, 0.10)
 	years := 30
 	cycle := 12.0
-	p := NewParams(0.01, nil, cycle)
+	p := NewParams(0.01, nil, cycle, 1)
 
 	be := BreakEvenBudget(cohorts, years, p, StrategyWorstFirst)
 	if be <= 0 {
@@ -178,7 +178,7 @@ func TestInsolvencyYear_DiscriminatesUnderfunding(t *testing.T) {
 // cost computed directly — the pre-gating behavior.
 func TestSimulate_CycleOne_MatchesLegacy(t *testing.T) {
 	const initialPCI, decay, growth = 70.0, 0.05, 0.01
-	p := NewParams(growth, nil, 1)
+	p := NewParams(growth, nil, 1, 1)
 	res := Simulate(Scenario{Strategy: StrategyDoNothing}, cycleCohorts(initialPCI, decay), 5, p)
 
 	// Year-1: area grows by one step, PCI decays one year, full area is priced.

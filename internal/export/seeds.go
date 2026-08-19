@@ -34,10 +34,23 @@ type ForecastSeedJSON struct {
 	// interactive "Custom Scenario" line uses the same cycle N as the static
 	// export lines; otherwise the custom line runs at a different N and the two
 	// diverge ~N× on the same chart. Key matches bridge.Input.CycleYears.
-	TreatmentCycleYears float64             `json:"treatment_cycle_years"`
-	TotalArea           float64             `json:"total_area"`
-	CityPaved           float64             `json:"city_paved"`
-	CostTiers           []forecast.CostTier `json:"cost_tiers"`
+	TreatmentCycleYears float64 `json:"treatment_cycle_years"`
+	TotalArea           float64 `json:"total_area"`
+	CityPaved           float64 `json:"city_paved"`
+	// CostTiers ships the BARE per-m2 schedule, unscaled by CostOverhead. The
+	// browser renders these into the editable #tier-inputs, so scaling them
+	// here would show the user loaded prices in boxes labelled with the tier's
+	// own cost — and the WASM bridge would then apply CostOverhead on top,
+	// pricing everything at overhead^2. Tiers and overhead travel separately
+	// and are combined exactly once, in TieredCostProjector.
+	CostTiers []forecast.CostTier `json:"cost_tiers"`
+	// CostOverhead is the resolved loaded-cost multiplier (ADA + soft costs +
+	// contingency; config.DefaultCostOverhead). Shipped resolved for the same
+	// reason as TreatmentCycleYears: the browser's interactive line must price
+	// work the same way the static export lines did, or the two diverge by this
+	// factor on the same chart. It also seeds the forecast page's overhead
+	// slider. Key matches bridge.Input.CostOverhead.
+	CostOverhead float64 `json:"cost_overhead"`
 	// MaterialTiers ships the per-tier physical material intensities (asphalt
 	// mix mass + binder fraction per m^2) that the Materials tab multiplies by
 	// each year's treated area (area / treatment_cycle_years) to estimate annual
@@ -58,6 +71,8 @@ func BuildForecastSeed(ctx context.Context, fc *config.ForecastConfig, store db.
 	if len(costTiers) == 0 {
 		costTiers = forecast.DefaultCostTiers
 	}
+	// Deliberately NOT scaled by the overhead — see the CostTiers field comment.
+	costOverhead := fc.ResolvedCostOverhead()
 
 	// Prefer the cross-resource union rows (RunCombined). Fall back to summing
 	// per-resource rows when missing — same behavior as BuildMeta.
@@ -106,6 +121,7 @@ func BuildForecastSeed(ctx context.Context, fc *config.ForecastConfig, store db.
 		TotalArea:           totalArea,
 		CityPaved:           cityArea,
 		CostTiers:           costTiers,
+		CostOverhead:        costOverhead,
 		MaterialTiers:       forecast.DefaultMaterialTiers,
 		BarrelsPerTonBinder: forecast.BarrelsPerTonBinder,
 		Cohorts:             cohortSeeds,

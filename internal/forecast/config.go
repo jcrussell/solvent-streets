@@ -14,9 +14,15 @@ type Params struct {
 }
 
 // NewParams builds forecasting parameters from config values.
-func NewParams(growthRate float64, costTiers []CostTier, cycleYears float64) *Params {
+//
+// costOverhead is the loaded-cost multiplier (TieredCostProjector.Overhead);
+// pass 0 or 1 for bare construction pricing. It is a separate parameter rather
+// than folded into costTiers so that the tiers a user sees and edits stay the
+// bare per-m2 schedule they typed, with the overhead applied once, at pricing
+// time — see the seed/Config-tab note in internal/export.
+func NewParams(growthRate float64, costTiers []CostTier, cycleYears, costOverhead float64) *Params {
 	p := &Params{
-		Cost:       &TieredCostProjector{},
+		Cost:       &TieredCostProjector{Overhead: costOverhead},
 		Growth:     &LinearGrowthEstimator{AnnualGrowthRate: growthRate},
 		CycleYears: cycleYears,
 	}
@@ -53,13 +59,17 @@ func sidewalkCostTiers(costTiers []CostTier) []CostTier {
 
 // NewParamsForResource builds forecasting parameters with resource-specific defaults.
 // Sidewalks get lower cost tiers. Other resource types fall back to NewParams.
-func NewParamsForResource(resourceType string, growthRate float64, costTiers []CostTier, cycleYears float64) *Params {
+// Overhead applies to sidewalks as well: ADA compliance, design and contingency
+// load a sidewalk project the same way they load a road project. It composes
+// with SidewalkCostRatio by plain multiplication, so the order the two are
+// applied in does not matter.
+func NewParamsForResource(resourceType string, growthRate float64, costTiers []CostTier, cycleYears, costOverhead float64) *Params {
 	if resourceType == "sidewalks" {
 		return &Params{
-			Cost:       &TieredCostProjector{Tiers: sidewalkCostTiers(costTiers)},
+			Cost:       &TieredCostProjector{Tiers: sidewalkCostTiers(costTiers), Overhead: costOverhead},
 			Growth:     &LinearGrowthEstimator{AnnualGrowthRate: growthRate},
 			CycleYears: cycleYears,
 		}
 	}
-	return NewParams(growthRate, costTiers, cycleYears)
+	return NewParams(growthRate, costTiers, cycleYears, costOverhead)
 }

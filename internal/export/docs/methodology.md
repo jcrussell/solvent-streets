@@ -60,6 +60,35 @@ measurements, and local bid prices will differ. Roads and sidewalks use
 independent cost tiers because the treatment economics differ
 substantially.
 
+### Bare construction cost vs. loaded program cost
+
+The cost tiers above are **bare construction** prices: what a contractor
+bids to lay the pavement. That is not what a city has to put in a budget
+line to get the same work built. Berkeley's StreetSaver schedule
+itemizes the difference as **+20% ADA** curb-ramp compliance (federal
+law: touch a street, rebuild the ramps), **+15% soft costs** (design,
+inspection, project management) and **+10% contingency** — together
+1.20 × 1.15 × 1.10 ≈ **1.5×**.
+
+The two are split into separate knobs because they vary independently.
+Regional construction **pricing** belongs in the cost tiers, which are
+already per-city. The overhead stack is policy-driven and roughly
+structural everywhere, so it is one multiplier: `forecast.cost_overhead`,
+defaulting to **1.5**.
+
+Loaded is the default because the point of these figures is to be
+comparable to a city's published pavement budget, and a bare figure is
+roughly two-thirds of that with nothing on the page saying so. The
+Financials tab exposes the multiplier as a live slider, because the true
+stack does vary by region — Berkeley's own report notes small systems run
+another 25–50% higher — and a city that commits an already-loaded
+`[[forecast.cost_tiers]]` schedule sets `cost_overhead = 1.0` so the load
+is not applied twice.
+
+One honest limit: 1.5 is derived from **one** city's itemized stack. It
+is a documented, reproducible number rather than a measured national
+average, and the slider exists so it does not have to be treated as one.
+
 ### Condition spread
 
 A real network is a *distribution* of conditions — some segments excellent, some

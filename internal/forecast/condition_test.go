@@ -95,7 +95,7 @@ func TestApplyConditionSpreadNonFinite(t *testing.T) {
 // barbell, and §4 is itself a lower bound). It also guards the high-μ regime
 // against a Gaussian-style explosion. If ν changes, these bands flag it.
 func TestConditionSpreadCalibration(t *testing.T) {
-	params := NewParams(0, DefaultCostTiers, 0)
+	params := NewParams(0, DefaultCostTiers, 0, 1)
 	decay := DecayRateForClass("roads")
 	uplift := func(mu float64) float64 {
 		base := []Cohort{{Classification: "roads", Area: 1e6, DecayRate: decay, InitialPCI: mu}}

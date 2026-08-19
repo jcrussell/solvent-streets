@@ -9,7 +9,7 @@ import (
 // existing assertions below pin the baseline simulation mechanics. The
 // treatment-cycle (N>1) behavior is covered by cycle_test.go.
 func defaultTestParams() *Params {
-	return NewParams(0.01, nil, 1)
+	return NewParams(0.01, nil, 1, 1)
 }
 
 func singleCohort(area, decayRate float64) []Cohort {
@@ -33,7 +33,7 @@ func TestSimulate_CostTierLabelHonorsCustomTiers(t *testing.T) {
 		{MinPCI: 50, MaxPCI: 70, CostPerSqM: 50, Label: "Fair"},
 		{MinPCI: 70, MaxPCI: 101, CostPerSqM: 5, Label: "Good"},
 	}
-	params := NewParams(0.0, customTiers, 1)
+	params := NewParams(0.0, customTiers, 1, 1)
 	cohorts := singleCohort(100000, 0.035)
 	result := Simulate(Scenario{Name: "dn", Label: "DN", Strategy: StrategyDoNothing}, cohorts, 20, params)
 
@@ -320,7 +320,7 @@ func TestSimulate_TwoCohorts_BlendedPCI(t *testing.T) {
 // year-0 input area. With a 1%/yr linear growth rate over 10 years the terminal
 // factor is 1 + 0.01*10 = 1.10.
 func TestSimulate_FinalCohortAreaIsFinalYear(t *testing.T) {
-	params := NewParams(0.01, nil, 1)
+	params := NewParams(0.01, nil, 1, 1)
 	cohorts := []Cohort{
 		{Classification: "primary", Area: 250_000, DecayRate: 0.05, InitialPCI: 85},
 		{Classification: "residential", Area: 750_000, DecayRate: 0.03, InitialPCI: 65},
@@ -345,7 +345,7 @@ func TestSimulate_FinalCohortAreaIsFinalYear(t *testing.T) {
 // — bridge.validateInput rejects Years <= 0 and game.go guards horizon <= 0 —
 // so this pins Simulate as a total function for tests and direct library use.
 func TestSimulate_FinalCohortAreaZeroYears(t *testing.T) {
-	params := NewParams(0.01, nil, 1)
+	params := NewParams(0.01, nil, 1, 1)
 	cohorts := []Cohort{
 		{Classification: "primary", Area: 250_000, DecayRate: 0.05, InitialPCI: 85},
 		{Classification: "residential", Area: 750_000, DecayRate: 0.03, InitialPCI: 65},

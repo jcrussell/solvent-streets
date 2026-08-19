@@ -45,8 +45,30 @@ type Input struct {
 	// Must match the value the static export lines use (seeded via
 	// ForecastSeedJSON.TreatmentCycleYears) or the custom line diverges ~N×.
 	// 0 is resolved to forecast.DefaultTreatmentCycleYears in Simulate.
-	CycleYears float64  `json:"treatment_cycle_years"`
-	Cohorts    []Cohort `json:"cohorts,omitempty"`
+	CycleYears float64 `json:"treatment_cycle_years"`
+	// CostOverhead is the loaded-cost multiplier (ADA + soft costs +
+	// contingency; see config.DefaultCostOverhead). Seeded from
+	// forecast_seed.json and adjustable live via the forecast page's overhead
+	// slider.
+	//
+	// 0 is resolved to 1.0 (bare), NOT to the config default, by
+	// resolveOverhead below. This matters: a partially-rebuilt site pairing a
+	// new pvmt.wasm with an old per-city forecast_seed.json sends no
+	// cost_overhead at all, which decodes to 0 — and a bare multiply would then
+	// price the entire page at $0. Bare figures are wrong by ~1.5x; blank ones
+	// are wrong by everything.
+	CostOverhead float64  `json:"cost_overhead,omitempty"`
+	Cohorts      []Cohort `json:"cohorts,omitempty"`
+}
+
+// resolveOverhead clamps a missing or nonsensical multiplier to 1.0 (bare).
+// Input is decoded from untrusted browser JSON, so this is a boundary check,
+// not a defaulting convenience.
+func resolveOverhead(v float64) float64 {
+	if !finite(v) || v <= 0 {
+		return 1
+	}
+	return v
 }
 
 // Cohort mirrors a single per-classification cohort from the browser payload.
@@ -97,6 +119,13 @@ func validateInput(in Input) error {
 	if !finite(in.AnnualBudget) || in.AnnualBudget < 0 {
 		return fmt.Errorf("annual_budget must be finite and >= 0, got %g", in.AnnualBudget)
 	}
+	// Absent (0) is tolerated and clamped to bare by resolveOverhead — see the
+	// stale-seed note on Input.CostOverhead. A NEGATIVE one is rejected rather
+	// than clamped: it can only be a caller error, and silently treating it as
+	// bare would hide that.
+	if !finite(in.CostOverhead) || in.CostOverhead < 0 {
+		return fmt.Errorf("cost_overhead must be finite and >= 0, got %g", in.CostOverhead)
+	}
 	return validateInputCollections(in)
 }
 
@@ -133,7 +162,7 @@ func Translate(in Input) (forecast.Scenario, []forecast.Cohort, int, *forecast.P
 		})
 	}
 
-	params := forecast.NewParams(in.GrowthRate, tiers, in.CycleYears)
+	params := forecast.NewParams(in.GrowthRate, tiers, in.CycleYears, resolveOverhead(in.CostOverhead))
 
 	strategy, err := forecast.ParseStrategy(in.Strategy)
 	if err != nil {

@@ -519,7 +519,20 @@ func insolvencyFromForecast(cohortCfgs []CohortConfig, initialPCI, growthRate fl
 	// CohortConfigs); ApplyConditionSpread is NOT idempotent, so it must not be
 	// applied again upstream.
 	cohorts = forecast.ApplyConditionSpread(cohorts)
-	params := forecast.NewParams(growthRate, tiers, cycleYears)
+	// Overhead 1.0 (bare) deliberately, NOT config.DefaultCostOverhead.
+	//
+	// The game prices work through two different paths: backlog accrues via
+	// this projector (ProjectCost), while the treatment charge, the
+	// affordability floor (minTierCost) and the loss ceiling all read RAW tier
+	// values off g.tiers. Loading only the projector would accrue backlog at
+	// 1.5x against treatments the player still pays 1.0x for, firing the
+	// out-of-funds loss condition roughly 1.5x sooner — a balance change
+	// disguised as a costing fix.
+	//
+	// Making the game genuinely overhead-aware means scaling all four sites
+	// together and plumbing the value through forecast_seed.json, which
+	// game.js does not carry today. Tracked as solvent-streets-0mc9.
+	params := forecast.NewParams(growthRate, tiers, cycleYears, 1)
 	scenario := forecast.Scenario{
 		Name:         "game",
 		AnnualBudget: budget,

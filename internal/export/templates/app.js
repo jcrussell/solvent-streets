@@ -1614,6 +1614,7 @@
                     // this fetch path does so — a units toggle must not, or it
                     // throws away the values the user typed.
                     syncPCISliderFromSeed();
+                    syncOverheadSliderFromSeed();
                     rebuildTierInputs();
                     // Gate the WASM sim: until this lands, FORECAST_SEED and the
                     // controls still describe the *previous* city (see
@@ -1979,8 +1980,37 @@
                 lead = 'Holding ' + name + '’s streets steady would take <span class="num">' + fmtCost(breakEven) + '/yr</span> (streets/roads only).';
                 detail = 'No current budget configured for this city, so the funding gap and insolvency year aren’t shown. Set <code>forecast.current_budget</code> (cited) to see them.';
             }
-            el.innerHTML = '<div class="lead">' + lead + '</div><div class="detail">' + detail + '</div>';
+            el.innerHTML = '<div class="lead">' + lead + '</div><div class="detail">' + detail
+                + '</div><div class="detail cost-regime" id="cost-regime-note">' + costRegimeText() + '</div>';
             el.style.display = 'block';
+        }
+
+        // Every dollar figure on this page is priced in ONE of two regimes, and
+        // they differ by ~1.5x. Say which, or a reader has no way to know
+        // whether these numbers are comparable to their city's budget line.
+        //
+        // Reads the seed, not the slider: the headline comes from forecast.json,
+        // which was priced server-side at the seeded overhead. The slider only
+        // moves the interactive custom line.
+        function costRegimeText() {
+            const oh = FORECAST_SEED && Number(FORECAST_SEED.cost_overhead);
+            if (!Number.isFinite(oh) || oh <= 1) {
+                return 'Figures are bare <strong>construction cost</strong> only — a city\u2019s budget line for the same work is higher.';
+            }
+            return 'Figures are <strong>all-in program cost</strong> (' + oh.toFixed(2).replace(/0$/, '')
+                + '\u00d7 construction), including ADA curb ramps, design and inspection, and contingency \u2014 '
+                + 'comparable to a published pavement budget.';
+        }
+
+        // The slider moves the interactive line's regime, so keep its label
+        // honest while the user drags. The headline note above stays on the
+        // seeded value, which is what forecast.json was priced at.
+        function renderOverheadRegimeLabel() {
+            const el = document.getElementById('overhead-value');
+            if (!el) return;
+            el.title = currentOverhead() <= 1
+                ? 'Construction cost only'
+                : 'All-in program cost: construction + ADA + design/inspection + contingency';
         }
 
         // Render the cohort breakdown from the scope-appropriate forecast
@@ -2126,6 +2156,41 @@
         }
         syncPCISliderFromSeed();
 
+        // Program overhead: the multiplier that turns the bare construction cost
+        // tiers into the all-in figure a city budgets (ADA curb ramps, design and
+        // inspection, contingency). Seeded per city from forecast_seed.json so
+        // the interactive line prices work the same way the static export lines
+        // did — the same reason the treatment cycle is seeded rather than
+        // hardcoded. A missing or non-finite value falls back to 1.0 (bare)
+        // rather than to the config default, matching the WASM bridge's clamp:
+        // if the seed is stale, showing construction-only dollars is recoverable,
+        // and showing $0 is not.
+        function syncOverheadSliderFromSeed() {
+            const slider = inputById('overhead-slider');
+            if (!slider) return;
+            const seeded = FORECAST_SEED && Number(FORECAST_SEED.cost_overhead);
+            const v = Number.isFinite(seeded) && seeded > 0 ? seeded : 1;
+            const min = parseFloat(slider.min);
+            const max = parseFloat(slider.max);
+            slider.value = String(Math.max(min, Math.min(max, v)));
+            renderOverheadValue();
+        }
+
+        function renderOverheadValue() {
+            const slider = inputById('overhead-slider');
+            if (!slider) return;
+            document.getElementById('overhead-value').textContent =
+                parseFloat(slider.value).toFixed(2).replace(/0$/, '') + '\u00d7';
+        }
+
+        // currentOverhead is what getControlValues ships to the WASM bridge.
+        function currentOverhead() {
+            const slider = inputById('overhead-slider');
+            const v = slider ? parseFloat(slider.value) : NaN;
+            return Number.isFinite(v) && v > 0 ? v : 1;
+        }
+        syncOverheadSliderFromSeed();
+
         function rebuildTierInputs() {
             const tierDiv = document.getElementById('tier-inputs');
             tierDiv.innerHTML = '';
@@ -2221,6 +2286,11 @@
                 years: FORECAST_SEED.years,
                 treatment_cycle_years: FORECAST_SEED.treatment_cycle_years,
                 cost_tiers: tiers,
+                // Same overhead as the scenario below. The Budget Level slider is
+                // a PERCENTAGE of this year-1 need, so pricing the two runs
+                // differently would silently scale the budget by the overhead:
+                // "50% funding" against a bare need, spent at loaded cost.
+                cost_overhead: currentOverhead(),
                 annual_budget: 0,
                 strategy: 'do-nothing',
                 cohorts: seedCohorts
@@ -2239,6 +2309,7 @@
                 years: FORECAST_SEED.years,
                 treatment_cycle_years: FORECAST_SEED.treatment_cycle_years,
                 cost_tiers: tiers,
+                cost_overhead: currentOverhead(),
                 annual_budget: annualBudget,
                 strategy: currentStrategy,
                 cohorts: seedCohorts
@@ -2364,6 +2435,12 @@
         const pciSlider = inputById('pci-slider');
         pciSlider.addEventListener('input', () => {
             document.getElementById('pci-value').textContent = pciSlider.value;
+            runCustomScenario();
+        });
+        const overheadSlider = inputById('overhead-slider');
+        overheadSlider.addEventListener('input', () => {
+            renderOverheadValue();
+            renderOverheadRegimeLabel();
             runCustomScenario();
         });
         queryAll('#strategy-buttons button').forEach(btn => {

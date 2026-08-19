@@ -22,6 +22,12 @@ hex_edge_m = 100
 decay_rate = 0.065
 years = 15
 
+# These tiers are already LOADED costs (they include ADA, soft costs and
+# contingency), so cost_overhead is pinned to 1.0 to stop the default 1.5x
+# from being applied on top of them. See docs/validation.md §3 and
+# config.DefaultCostOverhead.
+cost_overhead = 1.0
+
 [export]
 title = "Greater Boston Pavement Analysis"
 

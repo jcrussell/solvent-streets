@@ -59,6 +59,20 @@ const (
 	// (export.clipHexGridToBoundary) and the area figures behind
 	// meta.json's CityArea/PctPaved read store.GetBoundary directly.
 	DefaultBoundarySimplifyM = 10.0
+	// DefaultCostOverhead turns the bare-construction cost tiers into the
+	// LOADED program cost a municipality actually budgets. Berkeley's
+	// StreetSaver schedule itemizes the stack: +20% ADA curb-ramp compliance,
+	// +15% soft costs (design/inspection/PM), +10% contingency —
+	// 1.20 x 1.15 x 1.10 = 1.518, rounded here to 1.5 rather than carrying
+	// false precision from a single city's numbers (docs/validation.md §3).
+	//
+	// Loaded is the default because the whole claim of this tool is that its
+	// solvency dollars are comparable to a city's published pavement budget,
+	// and a bare figure is roughly half of that with nothing on the page saying
+	// so. Cities with their own already-loaded [[forecast.cost_tiers]] set
+	// cost_overhead = 1.0; the forecast page also exposes it as a live slider,
+	// because the true stack varies by region.
+	DefaultCostOverhead = 1.5
 )
 
 // Sentinels for failure modes that warrant a remediation hint at the call
@@ -234,6 +248,26 @@ type ForecastConfig struct {
 	// in shipped examples (the site makes dollar claims about named cities).
 	CurrentBudget float64 `toml:"current_budget,omitempty"`
 
+	// CostOverhead multiplies the cost tiers to turn BARE construction prices
+	// into the LOADED program cost a municipality actually budgets. Berkeley's
+	// StreetSaver schedule itemizes the stack as +20% ADA curb-ramp compliance
+	// (federal law: touch a street, rebuild the ramps), +15% soft costs
+	// (design, inspection, project management) and +10% contingency —
+	// 1.20 x 1.15 x 1.10 = 1.518, rounded to DefaultCostOverhead = 1.5.
+	// See docs/validation.md §3.
+	//
+	// This is a separate knob from cost_tiers because the two vary
+	// independently: regional construction PRICING belongs in the tiers, which
+	// are already per-city, while the overhead stack is policy-driven and
+	// roughly structural everywhere. A city that commits its own already-loaded
+	// [[forecast.cost_tiers]] schedule should set cost_overhead = 1.0 so the
+	// load is not applied twice; examples/los-angeles-ca and
+	// examples/greater-boston-ma do exactly that.
+	//
+	// 0 = unset, resolved to DefaultCostOverhead. Set 1.0 for bare
+	// construction pricing. Validate rejects non-positive and absurd values.
+	CostOverhead float64 `toml:"cost_overhead,omitempty"`
+
 	// growthRateSet records that growth_rate was written explicitly in the
 	// TOML, as opposed to being absent and decoding to 0. GrowthRate is the one
 	// field here where 0 is a legitimate value a user might mean — "this city
@@ -275,6 +309,14 @@ func (fc *ForecastConfig) Validate() error {
 	}
 	if fc.CurrentBudget < 0 {
 		return fmt.Errorf("forecast.current_budget %g must be non-negative", fc.CurrentBudget)
+	}
+	// 0 means "use DefaultCostOverhead". A negative or NaN multiplier would
+	// produce negative or blank dollar figures with nothing to flag them, and a
+	// value above 5 is past any documented load stack (Berkeley's is ~1.5, and
+	// its note about small systems running 25-50% higher tops out well under 3)
+	// — far more likely a decimal slip or a value typed as a percentage.
+	if fc.CostOverhead != 0 && !(fc.CostOverhead > 0 && fc.CostOverhead <= 5) {
+		return fmt.Errorf("forecast.cost_overhead %g out of range (0 = default, else 0-5)", fc.CostOverhead)
 	}
 	// 0 means "use default"; a positive but sub-annual cycle (<1) would make the
 	// 1/N gating exceed the full network, and an implausibly long cycle (>40 yr)
@@ -463,6 +505,23 @@ func NormalizeForecast(fc *ForecastConfig) {
 	if fc.Years <= 0 {
 		fc.Years = DefaultForecastYears
 	}
+	fc.CostOverhead = fc.ResolvedCostOverhead()
+}
+
+// ResolvedCostOverhead is the effective loaded-cost multiplier: the configured
+// value when positive, else DefaultCostOverhead.
+//
+// Unlike DecayRate and CostTiers, this default is applied HERE rather than
+// downstream in the forecast package. The forecast core treats a zero overhead
+// as 1.0 (bare) on purpose — a projector built without going through config,
+// as tests and the parity golden do, must not silently acquire a 1.5x — so if
+// config did not resolve it, an unset config would price at bare and the
+// default would never take effect.
+func (fc *ForecastConfig) ResolvedCostOverhead() float64 {
+	if fc == nil || fc.CostOverhead <= 0 {
+		return DefaultCostOverhead
+	}
+	return fc.CostOverhead
 }
 
 // parsePositiveIntEnv returns the int value of envKey if it is set to a

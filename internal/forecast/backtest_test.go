@@ -59,8 +59,8 @@ func TestBacktest_TreatmentCycleClosesSec5Gap(t *testing.T) {
 				InitialPCI:     c.initialPCI,
 			}})
 
-			ungated := BreakEvenBudget(cohorts, backtestYears, NewParams(0.005, nil, 1), StrategyWorstFirst)
-			gated := BreakEvenBudget(cohorts, backtestYears, NewParams(0.005, nil, cycle), StrategyWorstFirst)
+			ungated := BreakEvenBudget(cohorts, backtestYears, NewParams(0.005, nil, 1, 1), StrategyWorstFirst)
+			gated := BreakEvenBudget(cohorts, backtestYears, NewParams(0.005, nil, cycle, 1), StrategyWorstFirst)
 
 			// Property 1: exact 1/N relationship (within bisection tolerance).
 			want := ungated / cycle
