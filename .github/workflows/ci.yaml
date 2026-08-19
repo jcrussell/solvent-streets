@@ -73,6 +73,24 @@ jobs:
       - name: Executing JS tests (jsdom)
         run: make test-js
 
+  validate:
+    name: Forecast calibration
+    runs-on: ubuntu-latest
+    # `pvmt validate` compares the model's solvency dollars to committed, cited
+    # figures from real cities. Offline — no DB, no ingest, no network — so CI
+    # can run it. It fails when a cost-regime or treatment-cycle change moves
+    # the dollars away from Berkeley's published hold-steady budget, which is
+    # the one independently anchored figure (docs/validation.md §6).
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
+
+      - name: pvmt validate
+        run: go run ./cmd/pvmt validate
+
   format:
     name: Format
     runs-on: ubuntu-latest

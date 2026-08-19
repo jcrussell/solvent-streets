@@ -392,10 +392,25 @@ Broader confidence needs real per-segment condition (per-segment PCI ingest, §7
   land on Berkeley's cited reality (§6); a city wanting *loaded* program dollars sets
   a per-city `[[forecast.cost_tiers]]` schedule (§3).
 
-**Update.** The cost-regime half of this is now shipped: `forecast.cost_overhead`
-makes the regime explicit and adjustable (default `1.0` — see §3's box for why
-loading it by default would double-count). **Future work (the real fixes, out of
-scope here):** a `pvmt validate`/backtest harness; per-segment measured-PCI ingestion (`solvent-streets-mmvv.1`) to replace
+**Update — both items above are now shipped.** `forecast.cost_overhead` makes
+the cost regime explicit and adjustable (default `1.0`; see §3's box for why
+loading it by default would double-count), and **`pvmt validate`** promotes the
+backtest into a product surface: committed, per-row-cited reference data for six
+Bay Area cities, residuals regenerated from code rather than hand-written into
+this document, and a CI gate. It is offline — no database, ingest or network —
+so it runs anywhere the binary does.
+
+Only Berkeley is *gated*, because it is the only city with an independent
+published hold-steady figure; the other five are reported as context. That
+asymmetry is deliberate and visible in the output, so the report cannot read as
+more validated than §6's Limit allows. Current residual: **−2.3%** ($17.9M
+modelled vs $18.3M published) at a ±25% band — loose on purpose, since the model
+is calibrated on one city, its decay rates are not identifiable from public data
+(§2), and its condition spread is assumed (§4). The band is sized to catch a
+cost-regime or cycle change that moves the dollars by a *factor*, which is what
+a real regression here looks like.
+
+**Future work (the real fixes, out of scope here):** per-segment measured-PCI ingestion (`solvent-streets-mmvv.1`) to replace
 the *assumed* Beta condition spread with the real distribution and fully close §4.
 The default-on Beta spread (§4 Resolution) and the treatment-cycle model (§5,
 shipped) are now in place; together with a loaded per-city cost schedule they turn

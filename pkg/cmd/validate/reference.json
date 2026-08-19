@@ -1,0 +1,101 @@
+{
+  "_comment": [
+    "Committed reference data for `pvmt validate`. Every figure here is either",
+    "externally published or explicitly marked as derived. Sourced from",
+    "docs/validation.md §5/§6 and its Sources table; do not add a row without a",
+    "citation, and do not tune a row to make the gate pass — the point of the",
+    "gate is that it can fail.",
+    "",
+    "paved_area_sqm is DERIVED, not measured: it is back-computed from the §5",
+    "table's break-even $/m2 column, which is the tool's own output. It is",
+    "adequate as a scale input (it is what the model is asked to price) but it",
+    "is NOT an independent measurement, so a residual here is not evidence",
+    "about geometry. §1 validates the geometry separately against MTC lane-mile",
+    "counts.",
+    "",
+    "hold_steady_budget is the only truly independent target, and only Berkeley",
+    "has one in citable form — see the §6 'Limit' note. Cities without it are",
+    "reported for context and are not gated."
+  ],
+  "yardstick_per_sqm_year": {
+    "value": 5.6,
+    "low": 4.5,
+    "high": 6.5,
+    "source": "Berkeley 2022 PMP / PTAP-23: $18.3M/yr hold-steady over ~3.3M m2. Bracket matches internal/forecast/backtest_test.go."
+  },
+  "cities": [
+    {
+      "slug": "berkeley-ca",
+      "name": "Berkeley, CA",
+      "pci": 56,
+      "decay_rate": 0.045,
+      "paved_area_sqm": 3300000,
+      "current_budget": 15000000,
+      "hold_steady_budget": 18300000,
+      "sources": [
+        "MTC 2024 PCI table (mtc.ca.gov) — PCI 56",
+        "City of Berkeley 2022 PMP / PTAP-23 Final Report (berkeleyca.gov) — $18.3M/yr to maintain PCI 55, ~$15M/yr current, 214 centerline mi"
+      ]
+    },
+    {
+      "slug": "dublin-ca",
+      "name": "Dublin, CA",
+      "pci": 78,
+      "decay_rate": 0.035,
+      "paved_area_sqm": 3554455,
+      "current_budget": 3700000,
+      "sources": [
+        "MTC 2024 PCI table (mtc.ca.gov) — PCI 78",
+        "Dublin Pavement Resurfacing (dublin.ca.gov) — stated cycles; ~$3.7M/yr"
+      ]
+    },
+    {
+      "slug": "hayward-ca",
+      "name": "Hayward, CA",
+      "pci": 73,
+      "decay_rate": 0.04,
+      "paved_area_sqm": 7197080,
+      "current_budget": 10063947,
+      "sources": [
+        "MTC 2024 PCI table (mtc.ca.gov) — PCI 73",
+        "Hayward FY2026 Pavement Improvement Project (hayward-ca.gov) — $10.06M/yr (verified)"
+      ]
+    },
+    {
+      "slug": "pleasanton-ca",
+      "name": "Pleasanton, CA",
+      "pci": 76,
+      "decay_rate": 0.035,
+      "paved_area_sqm": 5151515,
+      "current_budget": 4800000,
+      "sources": [
+        "MTC 2024 PCI table (mtc.ca.gov) — PCI 76",
+        "Pleasanton FY23/24-26/27 CIP programs 24503 + 24504 (cityofpleasantonca.gov) — ~$4.8M/yr (verified); 215 centerline mi / 518 lane mi"
+      ]
+    },
+    {
+      "slug": "livermore-ca",
+      "name": "Livermore, CA",
+      "pci": 75,
+      "decay_rate": 0.035,
+      "paved_area_sqm": 6024490,
+      "current_budget": 4850000,
+      "sources": [
+        "MTC 2024 PCI table (mtc.ca.gov) — PCI 75",
+        "examples/bay-area-ca/pvmt.toml cited current_budget"
+      ]
+    },
+    {
+      "slug": "oakland-ca",
+      "name": "Oakland, CA",
+      "pci": 58,
+      "decay_rate": 0.045,
+      "paved_area_sqm": 14413442,
+      "current_budget": 60000000,
+      "sources": [
+        "MTC 2024 PCI table (mtc.ca.gov) — PCI 58",
+        "examples/bay-area-ca/pvmt.toml cited current_budget"
+      ]
+    }
+  ]
+}
