@@ -59,20 +59,28 @@ const (
 	// (export.clipHexGridToBoundary) and the area figures behind
 	// meta.json's CityArea/PctPaved read store.GetBoundary directly.
 	DefaultBoundarySimplifyM = 10.0
-	// DefaultCostOverhead turns the bare-construction cost tiers into the
-	// LOADED program cost a municipality actually budgets. Berkeley's
-	// StreetSaver schedule itemizes the stack: +20% ADA curb-ramp compliance,
-	// +15% soft costs (design/inspection/PM), +10% contingency —
-	// 1.20 x 1.15 x 1.10 = 1.518, rounded here to 1.5 rather than carrying
-	// false precision from a single city's numbers (docs/validation.md §3).
+	// DefaultCostOverhead is 1.0 — no multiplier — and that is a calibrated
+	// choice, not an oversight. Read docs/validation.md §6 before changing it.
 	//
-	// Loaded is the default because the whole claim of this tool is that its
-	// solvency dollars are comparable to a city's published pavement budget,
-	// and a bare figure is roughly half of that with nothing on the page saying
-	// so. Cities with their own already-loaded [[forecast.cost_tiers]] set
-	// cost_overhead = 1.0; the forecast page also exposes it as a live slider,
-	// because the true stack varies by region.
-	DefaultCostOverhead = 1.5
+	// The cost tiers are BARE construction prices, and a per-treatment
+	// comparison (§3) does show them ~2-3x under Berkeley's loaded StreetSaver
+	// schedule, which invites exactly the mistake of loading them by ~1.5x
+	// (+20% ADA, +15% soft costs, +10% contingency). But the system output is
+	// already loaded-equivalent: bare tiers x the §4 condition spread x the
+	// N=12 treatment cycle reproduce Berkeley's cited real hold-steady spend of
+	// $5.6/m2-yr, and that cited figure is itself a loaded municipal number.
+	//
+	// Measured against the committed backtest fixtures:
+	//   overhead 1.0 -> Berkeley break_even $17.9M ($5.42/m2-yr) vs cited $18.3M
+	//   overhead 1.5 -> Berkeley break_even $26.8M ($8.13/m2-yr), +47% over
+	// The second also breaks backtest_test.go's [$4.5, $6.5]/m2-yr calibration
+	// bracket. The overhead the tiers appear to be missing is already absorbed
+	// by the cycle and the spread; applying it again double-counts it.
+	//
+	// The knob exists so the regime is EXPLICIT and adjustable — a city whose
+	// own numbers say otherwise sets it, and the Financials tab exposes it as a
+	// live slider — not because the shipped default needs it.
+	DefaultCostOverhead = 1.0
 )
 
 // Sentinels for failure modes that warrant a remediation hint at the call

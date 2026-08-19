@@ -45,7 +45,7 @@ export const forecastJSON = [{
 
 export const seedJSON = {
   initial_pci: 68, decay_rate: 0.04, growth_rate: 0, years: 20,
-  treatment_cycle_years: 12, area: 3_300_000, city_area: 3_300_000,
+  treatment_cycle_years: 12, cost_overhead: 1, area: 3_300_000, city_area: 3_300_000,
   cost_tiers: [
     { min_pci: 70, max_pci: 101, cost_per_sqm: 5, label: 'preventive' },
     { min_pci: 40, max_pci: 70, cost_per_sqm: 50, label: 'rehab' },

@@ -1985,32 +1985,36 @@
             el.style.display = 'block';
         }
 
-        // Every dollar figure on this page is priced in ONE of two regimes, and
-        // they differ by ~1.5x. Say which, or a reader has no way to know
-        // whether these numbers are comparable to their city's budget line.
+        // Name the cost basis. At the default 1x this is not a hedge: the model's
+        // system output is already loaded-equivalent — bare tiers x the condition
+        // spread x the 12-year treatment cycle reproduce Berkeley's cited real
+        // hold-steady spend, which is itself a loaded municipal figure. Saying
+        // "comparable to a published pavement budget" is the accurate claim, and
+        // it is the claim a reader needs in order to use the number.
         //
         // Reads the seed, not the slider: the headline comes from forecast.json,
-        // which was priced server-side at the seeded overhead. The slider only
+        // which was priced server-side at the seeded multiplier. The slider only
         // moves the interactive custom line.
         function costRegimeText() {
             const oh = FORECAST_SEED && Number(FORECAST_SEED.cost_overhead);
             if (!Number.isFinite(oh) || oh <= 1) {
-                return 'Figures are bare <strong>construction cost</strong> only — a city\u2019s budget line for the same work is higher.';
+                return 'Figures are calibrated against real municipal hold-steady spending, so they are '
+                    + 'comparable to a published pavement budget. See Methodology for the cost basis.';
             }
-            return 'Figures are <strong>all-in program cost</strong> (' + oh.toFixed(2).replace(/0$/, '')
-                + '\u00d7 construction), including ADA curb ramps, design and inspection, and contingency \u2014 '
-                + 'comparable to a published pavement budget.';
+            return 'Figures carry a <strong>' + oh.toFixed(2).replace(/0$/, '')
+                + '\u00d7 cost multiplier</strong> over the calibrated default \u2014 set for this city in '
+                + '<code>forecast.cost_overhead</code>.';
         }
 
-        // The slider moves the interactive line's regime, so keep its label
-        // honest while the user drags. The headline note above stays on the
-        // seeded value, which is what forecast.json was priced at.
+        // The slider moves the interactive line's basis, so keep its label honest
+        // while the user drags. The headline note above stays on the seeded
+        // value, which is what forecast.json was priced at.
         function renderOverheadRegimeLabel() {
             const el = document.getElementById('overhead-value');
             if (!el) return;
             el.title = currentOverhead() <= 1
-                ? 'Construction cost only'
-                : 'All-in program cost: construction + ADA + design/inspection + contingency';
+                ? 'Calibrated default cost basis'
+                : currentOverhead().toFixed(2).replace(/0$/, '') + '\u00d7 the calibrated default cost basis';
         }
 
         // Render the cohort breakdown from the scope-appropriate forecast
@@ -2156,9 +2160,10 @@
         }
         syncPCISliderFromSeed();
 
-        // Program overhead: the multiplier that turns the bare construction cost
-        // tiers into the all-in figure a city budgets (ADA curb ramps, design and
-        // inspection, contingency). Seeded per city from forecast_seed.json so
+        // Cost multiplier: scales every cost tier. The default is 1.0 — the
+        // shipped tiers plus the treatment cycle are already calibrated against
+        // real municipal hold-steady spending, so no load is applied on top (see
+        // Methodology). Seeded per city from forecast_seed.json so
         // the interactive line prices work the same way the static export lines
         // did — the same reason the treatment cycle is seeded rather than
         // hardcoded. A missing or non-finite value falls back to 1.0 (bare)

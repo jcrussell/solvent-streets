@@ -82,14 +82,19 @@ test('cost tiers reach the bridge UNSCALED, so the overhead is applied once', as
     'tiers were scaled before reaching the bridge; the overhead would be applied twice');
 });
 
-test('the headline names which cost regime the figures are in', async () => {
-  const loaded = await ready(withSeedOverhead(1.5));
-  const loadedText = loaded.doc.getElementById('solvency-headline').textContent;
-  assert.match(loadedText, /all-in program cost/i,
-    'a loaded figure must say so, or it reads as a construction quote');
+test('the headline names the cost basis the figures are on', async () => {
+  // At the calibrated default the claim is that these dollars are comparable to
+  // a published pavement budget — that is the claim a reader needs in order to
+  // use the number at all.
+  const dflt = await ready(withSeedOverhead(1));
+  assert.match(dflt.doc.getElementById('solvency-headline').textContent,
+    /comparable to a published pavement budget/i,
+    'the default basis must state its comparability, or the figure is unusable');
 
-  const bare = await ready(withSeedOverhead(1));
-  const bareText = bare.doc.getElementById('solvency-headline').textContent;
-  assert.match(bareText, /construction cost/i,
-    'a bare figure must say so, or it reads as comparable to a city budget');
+  // A city that overrode it must say so, or its numbers silently differ from
+  // every other city on the same site.
+  const scaled = await ready(withSeedOverhead(1.5));
+  assert.match(scaled.doc.getElementById('solvency-headline').textContent,
+    /1\.5.*cost multiplier/i,
+    'an overridden multiplier must be disclosed');
 });

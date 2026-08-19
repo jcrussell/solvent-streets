@@ -37,12 +37,6 @@ hex_edge_m = 125
 years = 20
 decay_rate = 0.03
 
-# These tiers are already LOADED costs (they include ADA, soft costs and
-# contingency), so cost_overhead is pinned to 1.0 to stop the default 1.5x
-# from being applied on top of them. See docs/validation.md §3 and
-# config.DefaultCostOverhead.
-cost_overhead = 1.0
-
 [[forecast.cost_tiers]]
 min_pci = 0
 max_pci = 25

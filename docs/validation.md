@@ -170,10 +170,26 @@ sits in this loaded range, corroborating it.
 
 So the defaults are sound as **bare-construction** $/m² but understate the all-in
 cost a municipality budgets by ~2–3×. The report no longer claims the tiers are an
-*upper* bound — they are a *lower*, bare-construction bound. (No default change:
-the bare-vs-loaded choice is a modeling decision, and per-city
-`[[forecast.cost_tiers]]` overrides already exist for cities that want a loaded
-schedule.)
+*upper* bound — they are a *lower*, bare-construction bound.
+
+> **Do not "fix" this by loading the tiers. Read §6 first.** This finding is
+> about *per-treatment unit costs*; §6 is about *whole-program annual dollars*,
+> and at the system level the model is already loaded-equivalent — bare tiers ×
+> the §4 condition spread × N=12 reproduce Berkeley's cited real hold-steady
+> spend, which is itself a loaded municipal figure. The two sections read as if
+> they disagree; they don't, they are measuring different things, and only §6 is
+> measuring the thing the site publishes.
+>
+> A ~1.5× multiplier applied on top puts Berkeley's `break_even` at $26.8M
+> against its cited $18.3M (+47%) and breaks the $/m²·yr bracket in
+> `internal/forecast/backtest_test.go`. Measured, not argued.
+>
+> The regime is now an explicit knob rather than an undocumented default:
+> `forecast.cost_overhead` (top-level and per-city, default **1.0**) scales every
+> cost tier, and the Financials tab exposes it as a live slider for a reader
+> whose local program costs genuinely run higher. Per-city
+> `[[forecast.cost_tiers]]` overrides remain available for a city that wants to
+> state its own schedule outright.
 
 ---
 
@@ -364,17 +380,22 @@ Broader confidence needs real per-segment condition (per-segment PCI ingest, §7
 - **Decay:** defaults are reasonable; per-city `decay_rate` overrides are *not*
   warranted from this data (the observed rates are maintenance-blended, not
   deterioration rates).
-- **Cost tiers:** sound as bare-construction $/m². If the solvency dollars are
-  meant to mirror municipal budgets, a *loaded* per-city `[[forecast.cost_tiers]]`
-  schedule (as LA uses) is the lever.
+- **Cost tiers:** sound as bare-construction $/m², and — per §6 — already
+  loaded-equivalent at the system level once the condition spread and the N=12
+  cycle are applied, so **no multiplier is warranted by default**. The lever for
+  a city whose costs genuinely run higher is `forecast.cost_overhead` (default
+  `1.0`, also a live slider on the Financials tab), or a per-city
+  `[[forecast.cost_tiers]]` schedule stating its own numbers (as LA uses).
 - **Solvency $:** `break_even` is now a direct hold-steady budget — the `N`-year
   treatment cycle (default 12) is applied inside the model, so it no longer needs
   manual division. The remaining lever is the cost *regime*: the default bare tiers
   land on Berkeley's cited reality (§6); a city wanting *loaded* program dollars sets
   a per-city `[[forecast.cost_tiers]]` schedule (§3).
 
-**Future work (the real fixes, out of scope here):** a `pvmt validate`/backtest
-harness; per-segment measured-PCI ingestion (`solvent-streets-mmvv.1`) to replace
+**Update.** The cost-regime half of this is now shipped: `forecast.cost_overhead`
+makes the regime explicit and adjustable (default `1.0` — see §3's box for why
+loading it by default would double-count). **Future work (the real fixes, out of
+scope here):** a `pvmt validate`/backtest harness; per-segment measured-PCI ingestion (`solvent-streets-mmvv.1`) to replace
 the *assumed* Beta condition spread with the real distribution and fully close §4.
 The default-on Beta spread (§4 Resolution) and the treatment-cycle model (§5,
 shipped) are now in place; together with a loaded per-city cost schedule they turn

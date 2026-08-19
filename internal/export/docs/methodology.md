@@ -63,31 +63,25 @@ substantially.
 ### Bare construction cost vs. loaded program cost
 
 The cost tiers above are **bare construction** prices: what a contractor
-bids to lay the pavement. That is not what a city has to put in a budget
-line to get the same work built. Berkeley's StreetSaver schedule
-itemizes the difference as **+20% ADA** curb-ramp compliance (federal
-law: touch a street, rebuild the ramps), **+15% soft costs** (design,
-inspection, project management) and **+10% contingency** — together
-1.20 × 1.15 × 1.10 ≈ **1.5×**.
+bids to lay the pavement. A city's budget line for the same work carries
+more — Berkeley's StreetSaver schedule itemizes the difference as +20%
+ADA curb-ramp compliance (federal law: touch a street, rebuild the
+ramps), +15% soft costs (design, inspection, project management) and
++10% contingency, together roughly 1.5×.
 
-The two are split into separate knobs because they vary independently.
-Regional construction **pricing** belongs in the cost tiers, which are
-already per-city. The overhead stack is policy-driven and roughly
-structural everywhere, so it is one multiplier: `forecast.cost_overhead`,
-defaulting to **1.5**.
+**No such multiplier is applied by default, and that is deliberate.** The
+model's *system* output is already loaded-equivalent even though its
+per-treatment inputs are bare: bare tiers, the condition spread, and the
+12-year treatment cycle together reproduce Berkeley's cited real
+hold-steady spend of ~$5.6 per m² per year — and that cited figure is
+itself a loaded municipal number. Loading the tiers on top would
+double-count, putting the same city about 47% above its own published
+figure.
 
-Loaded is the default because the point of these figures is to be
-comparable to a city's published pavement budget, and a bare figure is
-roughly two-thirds of that with nothing on the page saying so. The
-Financials tab exposes the multiplier as a live slider, because the true
-stack does vary by region — Berkeley's own report notes small systems run
-another 25–50% higher — and a city that commits an already-loaded
-`[[forecast.cost_tiers]]` schedule sets `cost_overhead = 1.0` so the load
-is not applied twice.
-
-One honest limit: 1.5 is derived from **one** city's itemized stack. It
-is a documented, reproducible number rather than a measured national
-average, and the slider exists so it does not have to be treated as one.
+The multiplier exists as `forecast.cost_overhead` (default `1.0`) so the
+regime is explicit and adjustable rather than assumed, and the Financials
+tab exposes it as a live slider for a reader whose local numbers say
+otherwise. Changing it scales every dollar figure and nothing else.
 
 ### Condition spread
 

@@ -5,11 +5,12 @@ import (
 	"testing"
 )
 
-// TestCostOverhead_DefaultsToLoaded: an unset cost_overhead resolves to
-// DefaultCostOverhead (loaded), not to bare. This is the decision that makes
-// published dollars comparable to a city's budget line, so it is worth pinning
-// against a well-meaning "0 means bare" simplification.
-func TestCostOverhead_DefaultsToLoaded(t *testing.T) {
+// TestCostOverhead_DefaultIsTheCalibratedOne: an unset cost_overhead resolves to
+// DefaultCostOverhead. Pinned because the tiers LOOK ~2-3x low treatment-by-
+// treatment (validation.md §3), which invites "helpfully" defaulting this to
+// ~1.5 — but the system output is already loaded-equivalent (§6), so that would
+// double-count and put Berkeley ~47% above its own cited figure.
+func TestCostOverhead_DefaultIsTheCalibratedOne(t *testing.T) {
 	dir := t.TempDir()
 	path := writeTOML(t, dir, "pvmt.toml", `
 [[cities]]
@@ -26,10 +27,9 @@ overpass = true
 	}
 }
 
-// TestCostOverhead_ExplicitOneIsHonored: a city shipping its own already-loaded
-// [[forecast.cost_tiers]] sets 1.0 so the default is not applied on top,
-// double-loading it. Unlike growth_rate this needs no presence bit — Validate
-// rejects 0, so a positive test is an unambiguous presence check.
+// TestCostOverhead_ExplicitOneIsHonored: an explicit per-city value must beat a
+// top-level one in both directions. Unlike growth_rate this needs no presence
+// bit — Validate rejects 0, so a positive test is an unambiguous presence check.
 func TestCostOverhead_ExplicitOneIsHonored(t *testing.T) {
 	dir := t.TempDir()
 	path := writeTOML(t, dir, "pvmt.toml", `
