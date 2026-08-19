@@ -101,7 +101,13 @@ func forEachResource(ios *iostreams.IOStreams, fn func(resource.Source) error) e
 			// fan-out immediately: warn-and-continue would launch the next
 			// resource's TUI while the interrupted one just refused to save,
 			// and would mask the cancellation as exit 0.
-			if errors.Is(err, context.Canceled) {
+			//
+			// DeadlineExceeded gets the same treatment: an expired context does
+			// not un-expire, so every remaining resource would fail identically
+			// and the run would still exit 0. It also fell through the old
+			// Canceled-only check, which would have swallowed the ctx.Err()
+			// pre-checks that ingest/compute.RunResourceForCity now return.
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return err
 			}
 			// A total-source-failure for ONE resource is non-fatal to the

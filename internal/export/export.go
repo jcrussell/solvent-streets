@@ -260,7 +260,16 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 	// nested {bbox, city|city_same} coverage. This is the largest file the
 	// export writes; a feature with NEITHER "city" nor "city_same" signals
 	// "hide the scope toggle" to the client.
-	hexFC, err := BuildHexGeoJSON(ctx, entry, proj)
+	//
+	// The hex grid itself (lattice, boundary clip, sliver filter) is built at
+	// most ONCE per city and shared with BuildPlayHexes below. Both used to
+	// build it independently, so every export paid for the clip twice — for a
+	// city like Jacksonville that second pass is Buffer(0) over 302 boundary
+	// parts plus a union. Lazy, not eager: each consumer has an empty case that
+	// returns before it needs a grid.
+	grid := newCityHexGridOnce(ctx, entry, proj)
+
+	hexFC, err := buildHexGeoJSONFromGrid(ctx, entry, proj, grid)
 	if err != nil {
 		return MetaJSON{}, "", fmt.Errorf("build hexgrid: %w", err)
 	}
@@ -276,7 +285,7 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 	// hexgrid.geojson; it returns nil when the city has no road features, so skip
 	// the write then (exactly like hexFC above). Enumerated in DataFileNames
 	// (checkassets.go) so check-site requires it for a publish-ready city.
-	playHexes, err := BuildPlayHexes(ctx, entry, proj)
+	playHexes, err := buildPlayHexesFromGrid(ctx, entry, proj, grid)
 	if err != nil {
 		return MetaJSON{}, "", fmt.Errorf("build play hexes: %w", err)
 	}

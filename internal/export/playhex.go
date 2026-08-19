@@ -49,6 +49,14 @@ type hexBlend struct {
 // clipping reuses geo.ComputeHexStats (errgroup fanout). ctx cancellation
 // aborts the underlying ParallelMap cleanly.
 func BuildPlayHexes(ctx context.Context, entry CityEntry, proj *geo.UTMProjector) ([]PlayHex, error) {
+	return buildPlayHexesFromGrid(ctx, entry, proj, newCityHexGridOnce(ctx, entry, proj))
+}
+
+// buildPlayHexesFromGrid is BuildPlayHexes with the grid supplied as a thunk, so
+// exportCityData can share one build with buildHexGeoJSONFromGrid. The thunk is
+// forced where cityHexGrid used to be called — after the no-road-features early
+// return — so the empty case still never builds a grid.
+func buildPlayHexesFromGrid(ctx context.Context, entry CityEntry, proj *geo.UTMProjector, grid cityHexGridFunc) ([]PlayHex, error) {
 	dbFeatures, err := entry.Store.ListFeatures(ctx, resource.TypeRoads)
 	if err != nil {
 		return nil, fmt.Errorf("listing road features: %w", err)
@@ -86,7 +94,7 @@ func BuildPlayHexes(ctx context.Context, entry CityEntry, proj *geo.UTMProjector
 		return nil, nil
 	}
 
-	hexes, err := cityHexGrid(ctx, entry, proj)
+	hexes, err := grid()
 	if err != nil {
 		return nil, err
 	}

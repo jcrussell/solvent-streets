@@ -1476,7 +1476,15 @@
             document.getElementById('hl-deficit-label').textContent = yrs + '-Year Deficit';
             document.getElementById('cohort-spend-th').textContent = yrs + 'yr Spend';
             document.getElementById('cohort-deficit-th').textContent = yrs + 'yr Deficit';
-            document.getElementById('cohort-area-th').textContent = 'Area (' + areaLargeUnit() + ')';
+            // "End Area", not "Area": CohortSummary.Area reports the FINAL-year
+            // grown area, so at growth_rate > 0 it runs above the year-0 "Total
+            // paved" / network-area figures elsewhere on this page. Named to
+            // match its sibling "End PCI" column. area_pct is self-normalising,
+            // so it still sums to 100 against this basis.
+            const areaTh = document.getElementById('cohort-area-th');
+            areaTh.textContent = 'End Area (' + areaLargeUnit() + ')';
+            areaTh.title = 'Network area in year ' + yrs + ', after growth. '
+                + 'Year-0 area is shown under Total paved.';
         }
 
         // Render the Financials tab from data already in memory: scenarioData,
@@ -1495,7 +1503,16 @@
             const scenarios = scenariosForScope(scenarioData, currentScope);
             if (!scenarios || scenarios.length === 0) return;
             applyHorizonLabels();
-            renderFinancials(scenarios, currentScope);
+            // Either branch below settles the cohort table itself, so the
+            // wrapper must not simulate on the way through. When the WASM branch
+            // is not taken the sim would be wrong anyway — that is what
+            // forecastSeedReady guards.
+            deferCustomScenario = true;
+            try {
+                renderFinancials(scenarios, currentScope);
+            } finally {
+                deferCustomScenario = false;
+            }
 
             // Headline tiles come from the baseline scenario, so they work without WASM.
             const baseline = scenarios.find(s =>
@@ -1519,6 +1536,15 @@
             // line from the wrong city. Fall back to the static baseline instead,
             // which is this city's (forecast.json is fetched separately).
             if (wasmReady && forecastSeedReady) {
+                // Re-reveal the interactive controls. loadFinancials strips
+                // .visible on every teardown, but onWasmReady — the only other
+                // place that adds it — fires once per page load, so without this
+                // the PCI slider and tier inputs vanished for the rest of the
+                // session the first time the user switched city after WASM came
+                // up. Gated on the same condition as the sim below: with no seed
+                // the controls still describe the PREVIOUS city, so showing them
+                // would invite edits against the wrong parameters.
+                document.getElementById('forecast-controls').classList.add('visible');
                 runCustomScenario();
             } else {
                 renderCohortFromForecast(currentScope);
@@ -1986,8 +2012,19 @@
 
             if (scenarioData) {
                 const scenarios = scenariosForScope(scenarioData, scope);
-                if (scenarios) renderFinancials(scenarios, scope);
-                if (wasmReady) {
+                if (scenarios) {
+                    deferCustomScenario = true;
+                    try {
+                        renderFinancials(scenarios, scope);
+                    } finally {
+                        deferCustomScenario = false;
+                    }
+                }
+                // forecastSeedReady mirrors renderFinancialsFromCache: without
+                // this city's seed, FORECAST_SEED and the controls still hold the
+                // PREVIOUS city's parameters, so the sim would draw a custom line
+                // from the wrong city. Fall back to this city's static baseline.
+                if (wasmReady && forecastSeedReady) {
                     runCustomScenario();
                 } else {
                     renderCohortFromForecast(scope);
@@ -2063,6 +2100,18 @@
         let wasmReady = false;
         let chartRefs = { pci: null, backlog: null, spending: null };
         let customActive = false;
+        // Set by a caller that will run runCustomScenario() itself immediately
+        // after renderFinancials returns, so the renderFinancials wrapper below
+        // does not run a second, identical simulation. Each runCustomScenario is
+        // TWO WASM sims (the year-1 baseline inside getControlValues plus the
+        // result), so the duplicate was four sims per render, not two.
+        //
+        // The wrapper cannot simply own the re-run instead: it fires INSIDE
+        // renderFinancials, i.e. before renderFinancialsFromCache's
+        // updateSummaryCards(baseline) write, so dropping the caller's call
+        // would leave baseline numbers in the headline tiles under a
+        // custom-scenario chart line.
+        let deferCustomScenario = false;
         let currentStrategy = 'worst-first';
 
         function syncPCISliderFromSeed() {
@@ -2298,8 +2347,9 @@
             if (currentCharts.length >= 3) chartRefs.spending = currentCharts[2];
             if (currentCharts.length >= 4) chartRefs.tier = currentCharts[3];
 
-            // Re-apply custom scenario if active
-            if (customActive && wasmReady) {
+            // Re-apply custom scenario if active, unless the caller is about to
+            // do it itself (see deferCustomScenario).
+            if (customActive && wasmReady && !deferCustomScenario) {
                 runCustomScenario();
             }
         };

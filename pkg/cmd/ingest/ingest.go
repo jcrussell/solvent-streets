@@ -81,6 +81,15 @@ func NewCmdIngest(f *cmdutil.Factory, rt resource.Source, runF func(context.Cont
 // flags of its own, so there is nothing to forward and Source is pinned to
 // the same cmdutil.SourceAll default the flag would have supplied.
 func RunResourceForCity(ctx context.Context, f *cmdutil.Factory, rt resource.Source) error {
+	// Pre-check cancellation before doing any work. The `all` fan-out calls
+	// this in-process (it used to go through a throwaway cobra command, whose
+	// cmdutil.ForEachCity pre-check supplied this), so without it a mid-fan-out
+	// cancellation aborts only because the store or HTTP layer happens to
+	// surface context.Canceled. Real sqlite does; a ctx-ignoring store —
+	// dbtest.MockStore — would run every remaining resource after cancellation.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	opts := &Options{
 		IO:           f.IOStreams,
 		CityDB:       f.CityDB,

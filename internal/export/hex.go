@@ -7,6 +7,7 @@ import (
 	"maps"
 	"math"
 	"sort"
+	"sync"
 
 	"github.com/peterstace/simplefeatures/geom"
 
@@ -47,6 +48,14 @@ type hexAgg struct {
 // instead of caching a blank grid for the server's lifetime — mirroring
 // serveBoundaryGeoJSON's empty-vs-error split.
 func BuildHexGeoJSON(ctx context.Context, entry CityEntry, proj *geo.UTMProjector) (map[string]any, error) {
+	return buildHexGeoJSONFromGrid(ctx, entry, proj, newCityHexGridOnce(ctx, entry, proj))
+}
+
+// buildHexGeoJSONFromGrid is BuildHexGeoJSON with the grid supplied as a thunk
+// so exportCityData can share one build with buildPlayHexesFromGrid. Behaviour
+// is identical: the thunk is forced at exactly the point cityHexGrid used to be
+// called, which is *after* the no-hex-stats early return below.
+func buildHexGeoJSONFromGrid(ctx context.Context, entry CityEntry, proj *geo.UTMProjector, grid cityHexGridFunc) (map[string]any, error) {
 	decimals := entry.Config.CoordinateDecimals()
 
 	aggs, order, err := aggregateHexStats(ctx, entry)
@@ -64,7 +73,7 @@ func BuildHexGeoJSON(ctx context.Context, entry CityEntry, proj *geo.UTMProjecto
 	// output — unchanged data yields a byte-identical file across regens.
 	sort.Strings(order)
 
-	hexes, err := cityHexGrid(ctx, entry, proj)
+	hexes, err := grid()
 	if err != nil {
 		return nil, err
 	}
@@ -248,6 +257,22 @@ func clipHexGridToBoundary(ctx context.Context, hexes []geo.Hex, entry CityEntry
 // It is the single source of the grid for both BuildHexGeoJSON (the served
 // hexgrid.geojson) and BuildPlayHexes (the /play board); sharing one function
 // keeps their hex ids ("hex:col:row") in lock-step so the front-end join holds.
+// cityHexGridFunc defers a cityHexGrid build to its first use and memoizes the
+// result. Both consumers return early in their own empty cases (no hex stats /
+// no road features) before they need a grid, so an eagerly-built grid would add
+// a full lattice+clip for those cities and would turn a cityHexGrid error from
+// "skip this file" into "abort the whole export".
+type cityHexGridFunc func() ([]geo.Hex, error)
+
+// newCityHexGridOnce builds the grid at most once for the given city. The
+// returned slice is shared read-only by every caller: BuildHexGeoJSON only takes
+// &hexes[i] to read, and geo.ComputeHexStats takes each Hex by value.
+func newCityHexGridOnce(ctx context.Context, entry CityEntry, proj *geo.UTMProjector) cityHexGridFunc {
+	return sync.OnceValues(func() ([]geo.Hex, error) {
+		return cityHexGrid(ctx, entry, proj)
+	})
+}
+
 func cityHexGrid(ctx context.Context, entry CityEntry, proj *geo.UTMProjector) ([]geo.Hex, error) {
 	bbox, _, _, err := entry.BBoxAndCenter(ctx)
 	if err != nil {

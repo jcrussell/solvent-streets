@@ -3,6 +3,7 @@ package export
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"strconv"
 	"testing"
@@ -584,4 +585,79 @@ func TestBuildPlayHexes_NoFeatures(t *testing.T) {
 	if len(hexes) != 0 {
 		t.Errorf("expected no hexes for a city with no roads, got %d", len(hexes))
 	}
+}
+
+// TestSharedGrid_ThunkIsLazyAndMemoized pins the two properties the shared-grid
+// change (solvent-streets-2rgl) depends on:
+//
+//  1. MEMOIZED — exportCityData hands the same thunk to both builders, so the
+//     lattice/clip/sliver-filter pass must run once per city, not twice. That
+//     duplicate pass is a Buffer(0) over every boundary part plus a union.
+//  2. LAZY — each builder returns early in its own empty case (no hex stats /
+//     no road features) BEFORE it needs a grid. An eager build would pay for a
+//     full clip on those cities and, worse, would promote a cityHexGrid error
+//     from "skip this file" to "abort the export".
+//
+// The thunk here is poisoned: forcing it fails the test outright, which is a
+// stronger assertion than counting calls.
+func TestSharedGrid_ThunkIsLazyAndMemoized(t *testing.T) {
+	t.Run("memoized across both builders", func(t *testing.T) {
+		builds := 0
+		entry := playHexEntry([]db.Feature{
+			lineFeature("r1", "residential", -122.2600, 37.8000, -122.2560, 37.8000),
+		})
+		proj := projectorFor(t, entry)
+		inner := newCityHexGridOnce(context.Background(), entry, proj)
+		grid := cityHexGridFunc(func() ([]geo.Hex, error) {
+			builds++
+			return inner()
+		})
+
+		if _, err := buildPlayHexesFromGrid(context.Background(), entry, proj, grid); err != nil {
+			t.Fatalf("buildPlayHexesFromGrid: %v", err)
+		}
+		if _, err := buildHexGeoJSONFromGrid(context.Background(), entry, proj, grid); err != nil {
+			t.Fatalf("buildHexGeoJSONFromGrid: %v", err)
+		}
+		if builds != 1 {
+			t.Errorf("grid forced %d times across both builders, want 1", builds)
+		}
+	})
+
+	poison := cityHexGridFunc(func() ([]geo.Hex, error) {
+		t.Helper()
+		t.Error("hex grid was built for a city that returns before it needs one")
+		return nil, errors.New("grid must not be built")
+	})
+
+	t.Run("play hexes: no road features never builds a grid", func(t *testing.T) {
+		entry := playHexEntry(nil)
+		got, err := buildPlayHexesFromGrid(context.Background(), entry, projectorFor(t, entry), poison)
+		if err != nil || got != nil {
+			t.Errorf("buildPlayHexesFromGrid = (%v, %v), want (nil, nil)", got, err)
+		}
+	})
+
+	t.Run("hexgrid: no hex stats never builds a grid", func(t *testing.T) {
+		entry := playHexEntry(nil)
+		entry.Store = &dbtest.MockStore{
+			ListHexStatsFunc: func(_ context.Context, _ resource.Type) ([]db.HexStat, error) { return nil, nil },
+			GetBoundaryFunc:  func(_ context.Context) (string, error) { return boundaryGeoJSON, nil },
+		}
+		got, err := buildHexGeoJSONFromGrid(context.Background(), entry, projectorFor(t, entry), poison)
+		if err != nil || got != nil {
+			t.Errorf("buildHexGeoJSONFromGrid = (%v, %v), want (nil, nil)", got, err)
+		}
+	})
+}
+
+// projectorFor builds the UTM projector for a fixture entry the same way the
+// production export path does, so grid ids line up with the other tests.
+func projectorFor(t *testing.T, entry CityEntry) *geo.UTMProjector {
+	t.Helper()
+	_, lon0, lat0, err := entry.BBoxAndCenter(context.Background())
+	if err != nil {
+		t.Fatalf("BBoxAndCenter: %v", err)
+	}
+	return geo.NewUTMProjector(lon0, lat0)
 }

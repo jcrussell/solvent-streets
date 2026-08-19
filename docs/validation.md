@@ -72,6 +72,13 @@ cohort area from each `forecast.json`. Large cities ran at a coarser `hex_edge_m
 this is safe because cohort area is hex-independent (verified: Berkeley's area was
 *identical* at `hex_edge_m` 75 and 100).
 
+> **Note on "cohort area" since this report was written.** `CohortSummary.Area`
+> now reports the **final-year grown** area, not the year-0 area it meant here
+> (`solvent-streets-813n`). The hex-independence result above is unaffected — it
+> is a property of the geometry pipeline, not of the growth term — and every
+> config shipped in `examples/` uses `growth_rate = 0`, at which the two are
+> identical. The site's cohort table labels this column **End Area**.
+
 ---
 
 ## 1. Geometry → pavement area  ✅

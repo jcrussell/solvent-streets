@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
@@ -196,5 +197,78 @@ func TestAllIngest_CancelledContextAborts(t *testing.T) {
 	}
 	if boundaryCalls != 0 {
 		t.Errorf("ingest ran %d times after cancellation; want 0", boundaryCalls)
+	}
+}
+
+// TestAllIngest_MidFanOutCancelAborts covers the gap
+// TestAllIngest_CancelledContextAborts does not: there the context is already
+// dead at Execute, so cmdutil.ForEachCity's pre-check stops everything before
+// the first resource. Here the fan-out has already started and is cancelled
+// between resources.
+//
+// dbtest.MockStore ignores ctx entirely, which is the whole point — real sqlite
+// surfaces context.Canceled on its own, so without an explicit ctx.Err() check
+// in ingest.RunResourceForCity this fixture would happily run every remaining
+// resource after cancellation (solvent-streets-b3k2).
+func TestAllIngest_MidFanOutCancelAborts(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	boundaryCalls := 0
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) {
+			boundaryCalls++
+			cancel() // cancel partway through the first resource
+			return ingestTestBoundary, nil
+		},
+	}
+
+	cmd := NewCmdAll(ingestFactory(ios, store))
+	cmd.SetArgs([]string{"ingest"})
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	if err := cmd.ExecuteContext(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("all ingest = %v, want context.Canceled", err)
+	}
+	if boundaryCalls != 1 {
+		t.Errorf("ingest ran for %d resources, want 1 — the fan-out must stop at the first cancelled resource", boundaryCalls)
+	}
+}
+
+// TestAllIngest_MidFanOutDeadlineAborts is the DeadlineExceeded twin of the
+// above. forEachResource used to abort on context.Canceled ONLY, so an expired
+// deadline fell through to warn-and-continue: every remaining resource failed
+// identically and the run still exited 0.
+//
+// The deadline has to expire mid-fan-out to exercise that check. An
+// already-expired one is caught by cmdutil.ForEachCity's pre-check before the
+// first resource ever runs, so it never reaches forEachResource at all — which
+// is why this sleeps past a short deadline inside the first resource instead.
+func TestAllIngest_MidFanOutDeadlineAborts(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	t.Cleanup(cancel)
+
+	boundaryCalls := 0
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) {
+			boundaryCalls++
+			if boundaryCalls == 1 {
+				time.Sleep(50 * time.Millisecond) // outlive the deadline
+			}
+			return ingestTestBoundary, nil
+		},
+	}
+
+	cmd := NewCmdAll(ingestFactory(ios, store))
+	cmd.SetArgs([]string{"ingest"})
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	if err := cmd.ExecuteContext(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("all ingest = %v, want context.DeadlineExceeded", err)
+	}
+	if boundaryCalls != 1 {
+		t.Errorf("ingest ran for %d resources, want 1 — an expired deadline must stop the fan-out, not warn-and-continue", boundaryCalls)
 	}
 }
