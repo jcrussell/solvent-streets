@@ -408,7 +408,7 @@ func unionForecast(dst, src *ForecastConfig) []string {
 	var conflicts []string
 	unionFloat(&dst.InitialPCI, src.InitialPCI, "forecast.initial_pci", &conflicts)
 	unionFloat(&dst.DecayRate, src.DecayRate, "forecast.decay_rate", &conflicts)
-	unionFloat(&dst.GrowthRate, src.GrowthRate, "forecast.growth_rate", &conflicts)
+	unionGrowthRate(dst, src, &conflicts)
 	unionFloat(&dst.TreatmentCycleYears, src.TreatmentCycleYears, "forecast.treatment_cycle_years", &conflicts)
 	unionFloat(&dst.CurrentBudget, src.CurrentBudget, "forecast.current_budget", &conflicts)
 
@@ -448,6 +448,28 @@ func unionFloat(dst *float64, incoming float64, name string, conflicts *[]string
 	case *dst != incoming:
 		*conflicts = append(*conflicts,
 			fmt.Sprintf("%s (%s vs %s)", name, plainFloat(*dst), plainFloat(incoming)))
+	}
+}
+
+// unionGrowthRate is unionFloat for growth_rate, which cannot use zero as its
+// unset sentinel: an explicit `growth_rate = 0` is a real statement ("this city
+// does not grow") that has to beat a positive value from a later include, and
+// plain unionFloat would treat it as unset in both directions — never folding it
+// in, and letting a later nonzero backfill silently overwrite it.
+//
+// Presence, not value, decides: an incoming field that was never stated changes
+// nothing; a destination that never stated it takes the incoming value and its
+// presence with it; two that both stated it and disagree keep the destination
+// and report, exactly like every other field.
+func unionGrowthRate(dst, src *ForecastConfig, conflicts *[]string) {
+	switch {
+	case !src.growthRateSet && src.GrowthRate == 0: // unset upstream
+	case !dst.growthRateSet && dst.GrowthRate == 0:
+		dst.GrowthRate = src.GrowthRate
+		dst.growthRateSet = src.growthRateSet
+	case dst.GrowthRate != src.GrowthRate:
+		*conflicts = append(*conflicts, fmt.Sprintf("forecast.growth_rate (%s vs %s)",
+			plainFloat(dst.GrowthRate), plainFloat(src.GrowthRate)))
 	}
 }
 
@@ -528,6 +550,13 @@ func (c *Config) effectiveForecast(city *CityConfig) *ForecastConfig {
 // forecastIsZero reports whether every ForecastConfig field is at its zero
 // value. A struct literal comparison can't be used because CostTiers is a slice.
 func forecastIsZero(fc ForecastConfig) bool {
+	// An explicitly-stated growth_rate = 0 is NOT "nothing set" — it is a city
+	// opting out of a positive top-level rate. Treating it as zero here would
+	// erase the override at flatten time and undo the whole presence-bit fix,
+	// so the bit is checked before the values.
+	if fc.growthRateSet {
+		return false
+	}
 	return fc.InitialPCI == 0 && fc.DecayRate == 0 && fc.GrowthRate == 0 &&
 		fc.Years == 0 && len(fc.CostTiers) == 0 &&
 		fc.TreatmentCycleYears == 0 && fc.CurrentBudget == 0

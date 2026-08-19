@@ -209,11 +209,11 @@ func fileForecastProv(fc *ForecastConfig) forecastProvenance {
 	// forecast.growth_rate at any layer, so `config show --sources` never prints
 	// this label.
 	//
-	// The same `!= 0` sentinel in applyCityForecastProv is NOT inert — there it
-	// drops the value as well as the label, so a city cannot opt out of a
-	// positive top-level growth rate. That is solvent-streets-r312, and it needs
-	// a presence bit carried through the include merge, not a comment.
-	if fc.GrowthRate != 0 {
+	// The same `!= 0` sentinel in applyCityForecastProv was NOT inert — there it
+	// dropped the value as well as the label, so a city could not opt out of a
+	// positive top-level growth rate. That was solvent-streets-r312, now fixed
+	// with the ForecastConfig.growthRateSet presence bit.
+	if fc.GrowthRate != 0 || fc.growthRateSet {
 		p.GrowthRate = Source{Kind: SourceFile, Detail: "forecast.growth_rate"}
 	}
 	if fc.Years > 0 {
@@ -245,12 +245,14 @@ func applyCityForecastProv(fc *ForecastConfig, p *forecastProvenance, city *City
 		fc.DecayRate = ov.DecayRate
 		p.DecayRate = Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].forecast.decay_rate", slug)}
 	}
-	// Match fileForecastProv's `!= 0` sentinel: a negative per-city growth_rate
-	// (shrinking network) is valid per ForecastConfig.Validate and must not be
-	// silently dropped. An explicit per-city 0 remains inexpressible with a
-	// value-type float (see docs/configuration.md caveat).
-	if ov.GrowthRate != 0 {
+	// growth_rate is the one field here where 0 is a value, not a sentinel: a
+	// city that does not grow is a real thing to say, and saying it must
+	// override a positive top-level rate. So this consults the presence bit
+	// rather than testing != 0. A negative rate (shrinking network) is likewise
+	// valid per ForecastConfig.Validate and passes on its own.
+	if ov.GrowthRate != 0 || ov.growthRateSet {
 		fc.GrowthRate = ov.GrowthRate
+		fc.growthRateSet = true
 		p.GrowthRate = Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].forecast.growth_rate", slug)}
 	}
 	if ov.Years > 0 {

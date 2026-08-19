@@ -233,7 +233,27 @@ type ForecastConfig struct {
 	// the budget-dependent metrics for that city. Must be a cited figure
 	// in shipped examples (the site makes dollar claims about named cities).
 	CurrentBudget float64 `toml:"current_budget,omitempty"`
+
+	// growthRateSet records that growth_rate was written explicitly in the
+	// TOML, as opposed to being absent and decoding to 0. GrowthRate is the one
+	// field here where 0 is a legitimate value a user might mean — "this city
+	// does not grow" — rather than an unset sentinel: initial_pci, decay_rate,
+	// years, treatment_cycle_years and current_budget all have no real 0 case,
+	// so zero-as-unset is correct for them and they need no presence bit.
+	//
+	// Without this a per-city `growth_rate = 0` was indistinguishable from an
+	// absent one, so a city could not opt out of a positive top-level rate
+	// (solvent-streets-r312). Unexported on purpose: it must not decode from
+	// TOML, must not appear in Config.Hash's struct-encoding fallback, and must
+	// not be emitted by `config show`. It rides along on struct copies, which is
+	// exactly what the [[include]] merge does.
+	growthRateSet bool
 }
+
+// GrowthRateSet reports whether growth_rate was explicitly present in the
+// source TOML. Callers that resolve forecast layers need this to tell an
+// explicit 0 from an absent field; see growthRateSet.
+func (fc *ForecastConfig) GrowthRateSet() bool { return fc != nil && fc.growthRateSet }
 
 // Validate rejects obviously-wrong forecast inputs at config-load time
 // per byob-input-validation.2. Zero values are allowed for fields whose
@@ -605,8 +625,47 @@ func parseConfig(data []byte) (*Config, error) {
 	if err := cfg.validate(len(cfg.Include) == 0); err != nil {
 		return nil, err
 	}
+	applyForecastPresence(&cfg, data)
 	cfg.contentHash = hashBytes(data)
 	return &cfg, nil
+}
+
+// forecastPresence shadows just the forecast fields whose absence is
+// meaningful, using pointers so "absent" and "explicitly zero" are
+// distinguishable. It exists because BurntSushi's MetaData cannot address an
+// individual [[cities]] element — IsDefined("cities", "forecast",
+// "growth_rate") is false even when a city sets it, and Keys() flattens every
+// array element into one undifferentiated list — so per-city presence has to
+// come from a second decode rather than from decode metadata.
+type forecastPresence struct {
+	Forecast struct {
+		GrowthRate *float64 `toml:"growth_rate"`
+	} `toml:"forecast"`
+	Cities []struct {
+		Forecast *struct {
+			GrowthRate *float64 `toml:"growth_rate"`
+		} `toml:"forecast"`
+	} `toml:"cities"`
+}
+
+// applyForecastPresence records which forecast fields the TOML stated
+// explicitly. Decode errors are impossible here (the same bytes already decoded
+// into a full Config above) and are ignored rather than reported: presence is a
+// refinement, and failing the whole load over it would be worse than falling
+// back to the zero-as-unset behaviour.
+func applyForecastPresence(cfg *Config, data []byte) {
+	var p forecastPresence
+	if _, err := toml.Decode(string(data), &p); err != nil {
+		return
+	}
+	cfg.Forecast.growthRateSet = p.Forecast.GrowthRate != nil
+	for i := range cfg.Cities {
+		if i >= len(p.Cities) || cfg.Cities[i].Forecast == nil {
+			continue
+		}
+		pc := p.Cities[i].Forecast
+		cfg.Cities[i].Forecast.growthRateSet = pc != nil && pc.GrowthRate != nil
+	}
 }
 
 // FindAndLoad searches for pvmt.toml starting from dir, walking up to root.
