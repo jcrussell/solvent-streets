@@ -1751,3 +1751,124 @@ func TestInclude_DirectCityHasNoSourceIdentity(t *testing.T) {
 		t.Errorf("CityHash() = %q; want the config's own %q", got, union.Hash())
 	}
 }
+
+// TestInclude_BackfilledGridMovesSourceIdentity pins the first half of
+// solvent-streets-1h6j.
+//
+// mergeIncludedCities stamps SourceHexEdgeM/SourceConfigID/SourceConfigHash
+// preserve-if-set, i.e. from the FIRST include to declare the city. The old
+// per-field union then let a LATER include backfill hex_edge_m without moving
+// any of them, so the city resolved one edge and claimed another as its source.
+// export.RequireMatchingHexEdge aborts on that and serve 409s, with nothing in
+// the union file the user could edit to fix it — and LoadWarnings said nothing,
+// because a backfill is not a disagreement.
+//
+// Adopting the grid now moves the identity with it: the include that supplies
+// the edge is the include whose stored hexes get read.
+func TestInclude_BackfilledGridMovesSourceIdentity(t *testing.T) {
+	dir := t.TempDir()
+	// First include declares the city with no grid calibration of any kind.
+	writeTOML(t, dir, "first/pvmt.toml", `
+config_id = "first"
+[[cities]]
+name = "Livermore, CA"
+overpass = true
+`)
+	// Second include declares the same city WITH a grid.
+	writeTOML(t, dir, "second/pvmt.toml", `
+config_id = "second"
+[grid]
+hex_edge_m = 60
+[[cities]]
+name = "Livermore, CA"
+overpass = true
+`)
+	top := writeTOML(t, dir, "all/pvmt.toml", `
+[[include]]
+path = "../first/pvmt.toml"
+[[include]]
+path = "../second/pvmt.toml"
+`)
+	cfg, err := Load(top)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if w := cfg.LoadWarnings(); len(w) != 0 {
+		t.Errorf("a backfill is not a disagreement; want no warnings, got %q", w)
+	}
+	liv := cityBySlug(t, cfg, "livermore-ca")
+	if got := cfg.ResolvedHexEdge(&liv); got != 60 {
+		t.Errorf("ResolvedHexEdge = %g, want 60 (backfilled from the second include)", got)
+	}
+	// The invariant RequireMatchingHexEdge checks: the resolved edge and the
+	// edge the source config computed at have to be the same number.
+	if liv.SourceHexEdgeM != 60 {
+		t.Errorf("SourceHexEdgeM = %g, want 60; the config that supplied the "+
+			"edge must also be the one credited with the data", liv.SourceHexEdgeM)
+	}
+	if liv.SourceConfigID != "second" {
+		t.Errorf("SourceConfigID = %q, want %q; hex ids come from the grid and "+
+			"hex_stats join by id, so identity has to follow the edge",
+			liv.SourceConfigID, "second")
+	}
+}
+
+// TestInclude_GridPairCannotSplitAcrossIncludes pins the second half of
+// solvent-streets-1h6j, which is the worse of the two: it fails SILENTLY.
+//
+// hex_edge_m and min_hex_area used to union independently, so a city could take
+// a fine grid from one include and a sliver threshold sized for a coarse one
+// from another. A 60 m flat-top hex is ~9353 sq m, so a 20000 sq m threshold
+// makes filterHexSlivers drop every hex in the city. RequireMatchingHexEdge
+// compares only the edge and passes (60 == 60), so the failure mode is a
+// SUCCESSFUL export of an empty map — no error, no warning, no clue.
+func TestInclude_GridPairCannotSplitAcrossIncludes(t *testing.T) {
+	dir := t.TempDir()
+	// First include: a fine grid, no threshold.
+	writeTOML(t, dir, "fine/pvmt.toml", `
+config_id = "fine"
+[[cities]]
+name = "Livermore, CA"
+overpass = true
+hex_edge_m = 60
+`)
+	// Second include: a coarse grid with the threshold sized for IT.
+	writeTOML(t, dir, "coarse/pvmt.toml", `
+config_id = "coarse"
+[grid]
+hex_edge_m = 300
+[display]
+min_hex_area = 20000
+[[cities]]
+name = "Livermore, CA"
+overpass = true
+`)
+	top := writeTOML(t, dir, "all/pvmt.toml", `
+[[include]]
+path = "../fine/pvmt.toml"
+[[include]]
+path = "../coarse/pvmt.toml"
+`)
+	cfg, err := Load(top)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	liv := cityBySlug(t, cfg, "livermore-ca")
+	if got := cfg.ResolvedHexEdge(&liv); got != 60 {
+		t.Errorf("ResolvedHexEdge = %g, want 60 (the first include wins)", got)
+	}
+	if got := cfg.ResolvedMinHexArea(&liv); got == 20000 {
+		t.Errorf("ResolvedMinHexArea = %g: the coarse include's threshold was "+
+			"paired with the fine include's 60 m edge, which drops every hex", got)
+	}
+	// Both discards have to be named. Silence here is the actual bug: a
+	// warning is the only thing that tells the user their union is incoherent.
+	w := onlyWarning(t, cfg)
+	if !strings.Contains(w, "hex_edge_m (60 vs 300)") {
+		t.Errorf("warning %q should name the superseded hex_edge_m", w)
+	}
+	if !strings.Contains(w, "min_hex_area (unset vs 20000)") {
+		t.Errorf("warning %q should name the dropped min_hex_area, and spell a "+
+			"kept zero as \"unset\" rather than 0", w)
+	}
+}

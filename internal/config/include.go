@@ -324,12 +324,10 @@ func mergeIncludedCities(parent, child *Config, includeTags []string, incAbs str
 						"rename one so their slugs differ", slug, existing.Name, src.Name))
 			}
 			if winner, viaInclude := ms.fromInclude[slug]; viaInclude {
-				if fields := unionCalibration(existing, child, &src); len(fields) > 0 {
-					ms.warn.add(calibrationWarning{
-						city: existing.Name, slug: slug,
-						winner: winner, loser: incAbs, fields: fields,
-					})
-				}
+				mergeExistingCity(existing, child, &src, ms, mergeIdentity{
+					configID: srcConfigID, hash: srcHash,
+					winner: winner, loser: incAbs, slug: slug,
+				})
 			}
 			existing.Tags = unionTags(existing.Tags, includeTags, src.Tags)
 			continue
@@ -365,6 +363,44 @@ func mergeIncludedCities(parent, child *Config, includeTags []string, incAbs str
 	return nil
 }
 
+// mergeIdentity carries the per-include values mergeExistingCity needs that are
+// not derivable from the configs themselves: the source identity to stamp and
+// the two include paths a warning names.
+type mergeIdentity struct {
+	configID string
+	hash     string
+	winner   string
+	loser    string
+	slug     string
+}
+
+// mergeExistingCity folds src's calibration into a city an earlier include
+// already contributed, and records a warning for whatever was discarded.
+func mergeExistingCity(existing *CityConfig, child *Config, src *CityConfig,
+	ms *mergeState, id mergeIdentity) {
+	fields, gridAdopted := unionCalibration(existing, child, src)
+	if gridAdopted {
+		// The include that supplies the grid owns the data — see unionGrid.
+		// Unconditional, not preserve-if-set: the whole point is to move
+		// identity off the first include, which has already stamped all three.
+		//
+		// ms.fromInclude is deliberately NOT moved with it. That map names the
+		// include a warning reports as the winner, and the winner is
+		// declaration order and nothing else — see
+		// TestInclude_WinnerIsDeclarationOrderNotFileContent. Which file
+		// happens to state a grid is file content.
+		existing.SourceHexEdgeM = child.ResolvedHexEdge(src)
+		existing.SourceConfigID = id.configID
+		existing.SourceConfigHash = id.hash
+	}
+	if len(fields) > 0 {
+		ms.warn.add(calibrationWarning{
+			city: existing.Name, slug: id.slug,
+			winner: id.winner, loser: id.loser, fields: fields,
+		})
+	}
+}
+
 // unionCalibration folds the calibration src carries (flattened through its own
 // config, child) into the values already captured on existing, per field:
 // a field existing has not set takes src's value, a field both set identically
@@ -377,26 +413,87 @@ func mergeIncludedCities(parent, child *Config, includeTags []string, incAbs str
 // Forecast was freshly allocated by effectiveForecast when this city was first
 // appended, so mutating it here cannot reach back into a memoized child config.
 //
-// min_hex_area is unioned for the same reason it is flattened: it is coupled to
-// hex_edge_m, so backfilling the edge while dropping the threshold sized for it
-// would silently pair a fine grid with a coarse sliver filter.
-func unionCalibration(existing *CityConfig, child *Config, src *CityConfig) []string {
-	var conflicts []string
-	unionFloat(&existing.HexEdgeM, child.effectiveHexEdge(src), "hex_edge_m", &conflicts)
-	unionFloat(&existing.MinHexArea, child.effectiveMinHexArea(src), "min_hex_area", &conflicts)
+// hex_edge_m and min_hex_area are the exception to "per field": they union as a
+// PAIR, via unionGrid, and a backfill of the pair also moves the city's source
+// identity. See unionGrid for why neither half of that can be relaxed.
+//
+// gridAdopted reports whether the pair was taken from src, so the caller can
+// re-stamp. It is false for a no-op and for a conflict, both of which leave
+// existing's grid exactly as it was.
+func unionCalibration(existing *CityConfig, child *Config, src *CityConfig) (conflicts []string, gridAdopted bool) {
+	gridAdopted = unionGrid(existing, child, src, &conflicts)
 
 	srcFc := child.effectiveForecast(src)
 	if srcFc == nil {
-		return conflicts
+		return conflicts, gridAdopted
 	}
 	if existing.Forecast == nil {
 		// Nothing set, so nothing to disagree with: adopt src's block whole.
 		// effectiveForecast allocates per call, so this pointer is not shared
 		// with the child config.
 		existing.Forecast = srcFc
-		return conflicts
+		return conflicts, gridAdopted
 	}
-	return append(conflicts, unionForecast(existing.Forecast, srcFc)...)
+	return append(conflicts, unionForecast(existing.Forecast, srcFc)...), gridAdopted
+}
+
+// unionGrid folds src's grid calibration into existing as a single unit, and
+// reports whether existing took it.
+//
+// The pair is atomic because hex_edge_m and min_hex_area are physically
+// coupled: min_hex_area is a sliver threshold sized for a particular edge. A
+// 60 m flat-top hex is ~9353 sq m, so a 60 m grid wearing a 20000 sq m
+// threshold from a different include makes filterHexSlivers drop EVERY hex.
+// That failure is silent in both directions — RequireMatchingHexEdge compares
+// only the edge and passes, and the result is a SUCCESSFUL export of an empty
+// map. Unioning the two fields independently, as the old per-field code did,
+// reintroduces through the include path exactly what the display.min_hex_area
+// gate in validateGrid was written to prevent.
+//
+// Adopting the pair also moves SourceHexEdgeM/SourceConfigID/SourceConfigHash
+// onto src's config — that is the caller's job, signalled by the return, and it
+// is not optional. Hex ids come from the grid and hex_stats join BY id, so the
+// include that supplies the edge has to be the include whose stored data is
+// read; the alternative is a city that resolves one edge and reads another
+// one's rows. mergeIncludedCities stamps identity only from the FIRST include,
+// so before this a backfilled edge left the two disagreeing and
+// RequireMatchingHexEdge aborted the city on export and 409'd on serve, with no
+// fix available from the union file.
+//
+// The consequence is that a partial statement of the grid is no longer
+// backfilled: once existing has named either field, only agreeing values are
+// accepted and anything else is reported as a conflict rather than folded in.
+// Splitting the pair across two includes is precisely the hazard above.
+func unionGrid(existing *CityConfig, child *Config, src *CityConfig, conflicts *[]string) bool {
+	srcEdge := child.effectiveHexEdge(src)
+	srcMin := child.effectiveMinHexArea(src)
+	if srcEdge == 0 && srcMin == 0 {
+		return false // src states no grid at all; nothing to fold in
+	}
+	if existing.HexEdgeM == 0 && existing.MinHexArea == 0 {
+		existing.HexEdgeM, existing.MinHexArea = srcEdge, srcMin
+		return true
+	}
+	if srcEdge != 0 && srcEdge != existing.HexEdgeM {
+		*conflicts = append(*conflicts, gridConflict("hex_edge_m", existing.HexEdgeM, srcEdge))
+	}
+	if srcMin != 0 && srcMin != existing.MinHexArea {
+		*conflicts = append(*conflicts, gridConflict("min_hex_area", existing.MinHexArea, srcMin))
+	}
+	return false
+}
+
+// gridConflict formats a discarded grid field the way unionFloat does, except
+// that a kept value of zero is spelled "unset" rather than "0". Zero is
+// reachable here in a way it is not for unionFloat: the pair is atomic, so a
+// city can keep an edge while having named no threshold, and "min_hex_area (0
+// vs 20000)" would read as a deliberate zero instead of an absence.
+func gridConflict(name string, kept, ignored float64) string {
+	keptStr := "unset"
+	if kept != 0 {
+		keptStr = plainFloat(kept)
+	}
+	return fmt.Sprintf("%s (%s vs %s)", name, keptStr, plainFloat(ignored))
 }
 
 // unionForecast applies the per-field union to a forecast block, returning the
