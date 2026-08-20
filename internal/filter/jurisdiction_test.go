@@ -115,11 +115,41 @@ func TestClassifyJurisdiction(t *testing.T) {
 		{"texas business us", map[string]string{"ref": "BU 287"}, JurisdictionState},
 		{"texas business state", map[string]string{"ref": "BS 6"}, JurisdictionState},
 		{"minnesota trunk highway", map[string]string{"ref": "TH 5"}, JurisdictionState},
-		// NF (Forest Service) routes are federally administered, not state.
-		// State is not the right answer -- it is the status quo, pinned only
-		// so this batch does not move them. Fixing it needs a federal-ref
-		// rule, which is out of scope here.
-		{"national forest route unchanged", map[string]string{"ref": "NF 5"}, JurisdictionState},
+
+		// solvent-streets-akvx. The three cases below were previously pinned to
+		// State as the status quo, pending "a federal-ref rule" that
+		// federalRefRe now carries. Refs are the real ones from the ingested
+		// corpus: NF 61 is Angeles NF (Los Angeles / Glendale / La Cañada
+		// Flintridge), FR 2N72 is San Bernardino NF, FS 370 is Colorado
+		// Springs. Note FR's numbering is not plain digits -- "2N72", "3S04" --
+		// so the regex must only require a leading digit.
+		{"national forest route is federal", map[string]string{"ref": "NF 61"}, JurisdictionFederal},
+		{"forest road is federal", map[string]string{"ref": "FR 2N72"}, JurisdictionFederal},
+		{"forest road hyphenated", map[string]string{"ref": "FR-333"}, JurisdictionFederal},
+		{"forest service road is federal", map[string]string{"ref": "FS 370"}, JurisdictionFederal},
+
+		// County-highway refs. CH is the bead's case (Lakewood CO,
+		// Minneapolis MN -- not the IL/WI the bead predicted); CC 215 is the
+		// Clark County beltway in Las Vegas, found by measuring rather than
+		// from the bead. TR (township road) has zero occurrences in the
+		// corpus and rides on domain knowledge alone.
+		{"county highway ref", map[string]string{"ref": "CH 93", "highway": "primary"}, JurisdictionCounty},
+		{"county highway hyphenated", map[string]string{"ref": "CH-30"}, JurisdictionCounty},
+		{"clark county beltway", map[string]string{"ref": "CC 215", "highway": "primary"}, JurisdictionCounty},
+		// ...but on the real corpus every CC 215 way is tagged motorway, and
+		// the motorway rule runs ahead of the ref checks, so the county rule
+		// never fires for them. Pinned so the shadowing is visible rather than
+		// surprising the next reader who greps for CC.
+		{"clark county beltway as motorway stays federal", map[string]string{"ref": "CC 215", "highway": "motorway"}, JurisdictionFederal},
+		{"township road", map[string]string{"ref": "TR 40"}, JurisdictionCounty},
+
+		// Left as State deliberately -- see the statePostalDeny comment.
+		// BW 8 is Beltway 8, genuinely TxDOT. PR is Texas "Private Road", and
+		// State keeps a road the city does not maintain out of the city's
+		// cohort area. OS is unidentified on 19 features.
+		{"houston beltway stays state", map[string]string{"ref": "BW 8"}, JurisdictionState},
+		{"texas private road stays state", map[string]string{"ref": "PR 1836"}, JurisdictionState},
+		{"unidentified OS prefix stays state", map[string]string{"ref": "OS 15"}, JurisdictionState},
 	}
 
 	for _, tt := range tests {
@@ -326,5 +356,41 @@ func TestSummary(t *testing.T) {
 	}
 	if counts[JurisdictionFederal] != 1 {
 		t.Errorf("expected 1 federal, got %d", counts[JurisdictionFederal])
+	}
+}
+
+// TestRefPrefixesNeverFallToCity is the load-bearing guard for
+// solvent-streets-akvx. ClassifyJurisdiction is consumed as a binary
+// City / not-City gate everywhere it feeds an output, so reclassifying a ref
+// among County/State/Federal cannot move a published number — but routing one
+// to City moves lane area into the city cohort and inflates AnnualNeed and
+// FundingGap. That makes "not City" the invariant actually worth pinning, and
+// it is what makes the akvx reclassification provably area-neutral.
+//
+// Every prefix here denotes a route some government above the municipality is
+// responsible for (or, for PR, a private owner). None should ever reach the
+// City fallthrough — including via a well-meant statePostalDeny entry, which
+// routes there.
+func TestRefPrefixesNeverFallToCity(t *testing.T) {
+	refs := []string{
+		// Federal
+		"I 80", "I-80", "IH 35", "US 101", "NF 61", "FR 2N72", "FS 370",
+		// County
+		"CR 12", "CH 93", "CC 215", "TR 40",
+		// State: postal-code routes, the explicit SR/SH forms, and the
+		// non-postal prefixes deliberately left as State.
+		"CA 84", "SR 84", "OR-99E", "BW 8", "PR 1836", "OS 15",
+		// Texas state-maintained non-postal prefixes. These sit next to the
+		// new federal alternatives in the same regex and are easy to break:
+		// under an allow list of real USPS codes they would stop matching
+		// isStateRef and land in City, which is exactly what statePostalDeny's
+		// comment warns against.
+		"FM 1960", "RM 620", "SL 8", "SS 6", "BU 59", "BS 6", "TH 5",
+	}
+	for _, ref := range refs {
+		if got := ClassifyJurisdiction(map[string]string{"ref": ref}); got == JurisdictionCity {
+			t.Errorf("ref %q classified City; it must land in a non-city bucket "+
+				"or its lane area joins the city's funding obligation", ref)
+		}
 	}
 }

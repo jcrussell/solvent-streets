@@ -42,7 +42,18 @@ var (
 	// listed before the bare "I" alternative for readability; RE2 tries all
 	// alternatives, so "I" cannot shadow it either way. Without "IH" here
 	// the ref falls through to statePostalRefRe and is classified State.
-	federalRefRe = regexp.MustCompile(`^(IH|I|US)[ -]\d`)
+	//
+	// NF / FR / FS are the National Forest and Forest Service road prefixes —
+	// federally administered, not state maintained. They are matched here
+	// rather than deny-listed in statePostalDeny because a deny entry routes
+	// to City, the fallthrough bucket, which is further from the truth than
+	// the State they used to get. None of the three is a USPS state code, so
+	// none can shadow a real state route. Measured against the ingested
+	// corpus: NF 61 (Angeles NF, in the Los Angeles/Glendale/La Cañada
+	// Flintridge bboxes), FR 2N72 / 3S04 / 333 (San Bernardino NF plus
+	// El Paso, Albuquerque, Colorado Springs), FS 368 / 370 (Colorado
+	// Springs — the same roads FR also tags).
+	federalRefRe = regexp.MustCompile(`^(IH|I|US|NF|FR|FS)[ -]\d`)
 
 	// stateExplicitRefRe matches the unambiguous state-route conventions:
 	// SR/SH (State Route / State Highway) and "Route N" / "State Route N".
@@ -56,10 +67,32 @@ var (
 	// cannot reclassify county routes ("CR 12") or business/federal forms.
 	statePostalRefRe = regexp.MustCompile(`^([A-Z]{2})[ -]\d`)
 
-	// countyRefRe matches county-route refs ("CR 12", "CR-12"). "CR" is the
-	// near-universal OSM county-route prefix; it must be checked before the
-	// generic two-letter state match, which would otherwise swallow it.
-	countyRefRe = regexp.MustCompile(`^CR[ -]\d`)
+	// countyRefRe matches county-route refs. Each alternative must be checked
+	// before the generic two-letter state match, which would otherwise swallow
+	// it; none of them is a USPS state code, so none can shadow a real state
+	// route.
+	//
+	//   CR — the near-universal OSM county-route prefix.
+	//   CH — county highway. Documented as an IL/WI convention, but the
+	//        ingested corpus finds it only in Lakewood, CO and Minneapolis, MN
+	//        (CH 19/23/30/34/35/42/44/77/93/94, 172 features).
+	//   CC — Clark County, NV. "CC 215" is the Bruce Woodbury Beltway
+	//        (133 features, Las Vegas). Not in the bead; found by measuring.
+	//        Currently INERT on the corpus: every CC 215 way is tagged
+	//        highway=motorway, and ClassifyJurisdiction's motorway rule runs
+	//        ahead of the ref checks, so those 133 resolve Federal -- arguably
+	//        wrong for a county beltway, but that is the generic
+	//        motorways-are-federal heuristic's call to revisit, not this
+	//        rule's. The entry still earns its place for CC ways tagged
+	//        anything else.
+	//   TR — township road (OH/IN/MI/PA). A township is a sub-county civil
+	//        division, so County is the nearest correct bucket of the four
+	//        this type offers — NOT a claim that townships are county
+	//        maintained. Unlike the other three this has ZERO occurrences in
+	//        the ingested corpus (~400 cities); it is recorded here on domain
+	//        knowledge alone. Harmless if wrong: see the note below on why
+	//        County and State are indistinguishable to every published number.
+	countyRefRe = regexp.MustCompile(`^(CR|CH|CC|TR)[ -]\d`)
 
 	// federalOperatorRe matches the federal DOT and the federal highway
 	// agencies. It exists because these strings also satisfy the generic
@@ -114,17 +147,38 @@ var (
 // past the county checks, and land in the City bucket, silently inflating
 // city cohort area, AnnualNeed and FundingGap.
 //
-// "NF" (National Forest / Forest Service routes) also matches here and is
-// therefore classified State today. That is NOT because those routes are
-// state maintained — they are federally administered — but because no
-// federal-ref rule covers them and deny-listing them would drop them to
-// City, which is further from the truth. Left alone deliberately in this
-// batch; correcting it needs a federal-ref rule, not a deny entry.
+// Three more non-postal prefixes reach this rule and are left as State
+// deliberately, each for its own reason. All three were found by histogramming
+// distinct ^[A-Z]{2}[ -]\d prefixes over the ingested corpus rather than
+// reasoned about in the abstract:
+//
+//	BW (1015 features, Houston) — "BW 8" is Beltway 8 / the Sam Houston
+//	   Tollway, a TxDOT-designated state highway. State is simply correct
+//	   here; the permissive default got it right. Noted because the volume
+//	   makes it the largest prefix with no explicit rule.
+//	PR (17 features, Houston + San Antonio) — this settles the long-standing
+//	   ambiguity between Texas rural "Private Road" addressing and PRDOT
+//	   Puerto Rico highways: every occurrence is Texas, so these are private
+//	   roads, and no Puerto Rico city is in the set. None of the four buckets
+//	   means "private". State is the least-wrong: it keeps a road the city
+//	   does not maintain out of the city's cohort area and funding gap, which
+//	   City would not.
+//	OS (19 features, Jacksonville) — unidentified. Possibly Osceola National
+//	   Forest, which is ~50 mi west of the bbox, but not confidently enough to
+//	   route it federal on 19 features. Left as State until there is evidence.
 //
 // Only add a prefix here when its roads are demonstrably not state
 // maintained AND another rule already routes them somewhere better (or City
 // is genuinely the correct bucket, not merely the fallthrough one); the
 // permissive default stands for everything else.
+//
+// Worth knowing before agonizing over County vs State vs Federal for a new
+// prefix: ClassifyJurisdiction is consumed as a binary City / not-City gate
+// everywhere it feeds an output (compute.go's filterBufferedByJurisdiction,
+// combined.go, export/playhex.go). The three non-City buckets are told apart
+// only in compute's progress line. So a choice among them is a labeling
+// choice with no effect on any published number — and a choice to route
+// something to City is the one that moves area, AnnualNeed and FundingGap.
 var statePostalDeny = map[string]bool{
 	"CR": true, // county route
 	"US": true, // federal (handled by federalRefRe; defensive)
