@@ -354,10 +354,11 @@ func (m StepModel) renderWarnPanel(sb *strings.Builder, w int) {
 	sb.WriteString("\n")
 
 	for _, line := range m.warnLines {
-		display := line
-		if len(display) > lineWidth {
-			display = display[:lineWidth-1] + "…"
-		}
+		// Same rune-safe cut the log panel uses. Warnings are the MORE likely
+		// of the two to carry non-ASCII (place names like "La Cañada
+		// Flintridge", em-dashes in hint text), and a byte-index cut there
+		// emitted a dangling continuation byte.
+		display := textutil.TruncateRunes(line, lineWidth-1, "…")
 		sb.WriteString("  ")
 		sb.WriteString(warnBorderStyle.Render(display))
 		sb.WriteString("\n")
