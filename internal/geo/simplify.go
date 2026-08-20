@@ -148,12 +148,31 @@ func simplifyRing(ring [][2]float64, proj *UTMProjector, tolMeters float64, deci
 	if rounded := unprojectAndRound(projected, proj, decimals); distinctPoints(rounded) >= 3 {
 		return rounded
 	}
+	// Last resort: the raw input ring, emitted UNROUNDED, and deliberately so.
+	//
+	// unprojectAndRound's contract wants every path rounded, and this one
+	// cannot honour it. Reaching here means both checks above failed, which
+	// takes a ring smaller than the coordinate precision itself (~1.1 m at
+	// decimals=5) — measured: a ~0.1 m ring at decimals=5 rounds to ONE
+	// distinct point. Any ring big enough to survive rounding here already
+	// survived it two checks earlier, so there is no case where rounding this
+	// return is both safe and necessary.
+	//
+	// So the choice is a handful of 7-decimal coordinates in a 5-decimal file,
+	// or a degenerate ring that draws as a spike. Geometry wins; the file is
+	// inconsistent and correct rather than uniform and wrong. See
+	// TestSimplifyGeoJSONMeters_RoundingDoesNotDegenerate.
 	return ring
 }
 
 // unprojectAndRound converts projected meters back to [lon, lat] at the given
-// precision. The fallback paths round too, so one file never mixes 7-decimal
-// Nominatim coordinates with 6-decimal simplified ones.
+// precision. The simplified and unsimplified fallbacks both round, so a file
+// does not mix 7-decimal Nominatim coordinates with 5-decimal simplified ones.
+//
+// ONE exception, and it is deliberate rather than an oversight: simplifyRing's
+// last resort emits its raw input unrounded, because reaching it means the ring
+// is smaller than the precision and rounding would collapse it to a point. See
+// the comment on that return.
 func unprojectAndRound(coords [][2]float64, proj *UTMProjector, decimals int) [][2]float64 {
 	out := make([][2]float64, len(coords))
 	for i, c := range coords {

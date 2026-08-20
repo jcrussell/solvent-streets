@@ -62,6 +62,14 @@ func TestBufferLineStringLShape(t *testing.T) {
 	}
 }
 
+// TestBufferLineString_RejectsNonPositiveWidth pins the whole of
+// BufferLineString's "positive and finite" promise, not just the positive half.
+//
+// +Inf is reachable rather than defensive: geo.InferWidth multiplies a tag
+// value by the lane width, so lanes="1e308" overflows and nothing upstream
+// rejects it. Before the guard covered Inf, geom.Buffer answered with a
+// recovered JTS panic ("inconsistency in rightmost processing") instead of this
+// function's own error.
 func TestBufferLineString_RejectsNonPositiveWidth(t *testing.T) {
 	coords := [][2]float64{{0, 0}, {100, 0}}
 	cases := []struct {
@@ -71,11 +79,24 @@ func TestBufferLineString_RejectsNonPositiveWidth(t *testing.T) {
 		{"zero", 0},
 		{"negative", -5},
 		{"nan", math.NaN()},
+		{"positive_infinity", math.Inf(1)},
+		{"negative_infinity", math.Inf(-1)},
+		{"lane_count_overflow", InferWidth(map[string]string{"lanes": "1e308"})},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := BufferLineString(coords, tc.width); err == nil {
-				t.Errorf("expected error for width %v, got nil", tc.width)
+			_, err := BufferLineString(coords, tc.width)
+			if err == nil {
+				t.Fatalf("expected error for width %v, got nil", tc.width)
+			}
+			// Asserting on the MESSAGE is the point for the infinities.
+			// geom.Buffer fails on +Inf too, so a bare err != nil check passed
+			// before the guard covered it — with the caller handed a recovered
+			// JTS panic about "rightmost processing" instead of a statement
+			// about the width it supplied.
+			if !strings.Contains(err.Error(), "width must be positive and finite") {
+				t.Errorf("BufferLineString(%v) = %q; want the validation error, "+
+					"not whatever geom.Buffer produced downstream", tc.width, err)
 			}
 		})
 	}

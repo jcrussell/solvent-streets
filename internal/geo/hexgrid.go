@@ -29,7 +29,13 @@ func HexGrid(minX, minY, maxX, maxY, edge float64) []Hex {
 	// inverted or zero-extent bbox (maxX<=minX or maxY<=minY) has no interior to
 	// tile. Return nil — the same result the loops produce when they cover no
 	// cell — so callers need no new error channel.
-	if edge <= 0 || maxX <= minX || maxY <= minY {
+	//
+	// NaN needs its own test: NaN <= 0 is false, so a NaN edge slipped through
+	// and produced one hex whose polygon is entirely NaN. The hexArea <= 0
+	// guard further down misses it for the same reason, so it would reach the
+	// coverage math and yield pct = NaN. Not reachable through the CLI —
+	// resolveHexEdgeForCity gates on > 0 — but this is an exported function.
+	if math.IsNaN(edge) || edge <= 0 || maxX <= minX || maxY <= minY {
 		return nil
 	}
 

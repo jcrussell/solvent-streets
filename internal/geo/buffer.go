@@ -15,10 +15,17 @@ func BufferLineString(coords [][2]float64, widthProjected float64) (geom.Geometr
 	if len(coords) < 2 {
 		return geom.Geometry{}, errors.New("need at least 2 coordinates")
 	}
-	// A non-positive or NaN width makes geom.Buffer(width/2) either produce an
-	// empty/degenerate corridor or return an opaque error; reject it up front so
-	// callers get a clear signal instead of silently losing the feature.
-	if math.IsNaN(widthProjected) || widthProjected <= 0 {
+	// A non-positive, NaN or infinite width makes geom.Buffer(width/2) either
+	// produce an empty/degenerate corridor or return an opaque error; reject it
+	// up front so callers get a clear signal instead of silently losing the
+	// feature.
+	//
+	// +Inf is reachable, not defensive: geo.InferWidth multiplies a tag value
+	// by the lane width, so lanes="1e308" overflows to +Inf with nothing
+	// upstream to reject it (ParseFloat succeeds). geom.Buffer then returns a
+	// recovered JTS panic, "inconsistency in rightmost processing", in place of
+	// this function's own error text -- which already promised "finite".
+	if math.IsNaN(widthProjected) || math.IsInf(widthProjected, 0) || widthProjected <= 0 {
 		return geom.Geometry{}, fmt.Errorf("width must be positive and finite, got %v", widthProjected)
 	}
 	seq := coordsToSequence(coords)

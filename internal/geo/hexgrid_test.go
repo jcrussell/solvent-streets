@@ -54,6 +54,11 @@ func TestHexGrid_DegenerateInputsReturnNil(t *testing.T) {
 		{"inverted_y", 0, 100, 100, 0, 10},
 		{"empty_x", 50, 0, 50, 100, 10},
 		{"empty_y", 0, 50, 100, 50, 10},
+		// NaN needs its own case: NaN <= 0 is false, so it slipped past the
+		// guard entirely and produced one hex whose polygon was all NaN. The
+		// hexArea <= 0 check downstream misses it for the same reason, so the
+		// NaN would have reached the coverage math and come out as pct = NaN.
+		{"nan_edge", 0, 0, 1000, 1000, math.NaN()},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
