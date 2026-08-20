@@ -55,10 +55,11 @@ func TestNewCmdAll_RegistersSubcommands(t *testing.T) {
 // TestForEachResource_ErrAllSourcesFailedContinues pins finding 0yfp: a
 // total-source-failure for ONE resource must warn and continue the fan-out
 // (so parking/sidewalks still run), not abort the whole pass with an early
-// return. ErrNoResults is likewise skipped; a generic error also warns and
-// continues; only context.Canceled aborts.
+// return. It must still be REPORTED at the end, though — swallowing it made
+// `pvmt all ingest` exit 0 with nothing ingested. ErrNoResults is skipped
+// entirely; only context.Canceled/DeadlineExceeded aborts mid-fan-out.
 func TestForEachResource_ErrAllSourcesFailedContinues(t *testing.T) {
-	t.Run("ErrAllSourcesFailed warns and continues", func(t *testing.T) {
+	t.Run("ErrAllSourcesFailed warns, continues, and is returned", func(t *testing.T) {
 		ios, _, _, errBuf := iostreams.Test()
 		var visited []resource.Type
 		err := forEachResource(ios, func(rt resource.Source) error {
@@ -68,14 +69,29 @@ func TestForEachResource_ErrAllSourcesFailedContinues(t *testing.T) {
 			}
 			return nil
 		})
-		if err != nil {
-			t.Fatalf("forEachResource returned %v; want nil (non-fatal)", err)
+		if !errors.Is(err, cmdutil.ErrAllSourcesFailed) {
+			t.Fatalf("forEachResource = %v; want the failure joined into the result", err)
 		}
 		if len(visited) != len(resource.All) {
 			t.Errorf("visited %d resources; want all %d (first failure must not abort)", len(visited), len(resource.All))
 		}
 		if !strings.Contains(errBuf.String(), "failed") {
 			t.Errorf("expected a warning on ErrOut, got %q", errBuf.String())
+		}
+	})
+
+	t.Run("all resources clean returns nil", func(t *testing.T) {
+		ios, _, _, _ := iostreams.Test()
+		if err := forEachResource(ios, func(resource.Source) error { return nil }); err != nil {
+			t.Fatalf("forEachResource = %v; want nil when every resource succeeds", err)
+		}
+	})
+
+	t.Run("every resource empty returns ErrNoResults", func(t *testing.T) {
+		ios, _, _, _ := iostreams.Test()
+		err := forEachResource(ios, func(resource.Source) error { return cmdutil.ErrNoResults })
+		if !errors.Is(err, cmdutil.ErrNoResults) {
+			t.Fatalf("forEachResource = %v; want ErrNoResults (nothing was produced)", err)
 		}
 	})
 
@@ -127,8 +143,9 @@ func ingestFactory(ios *iostreams.IOStreams, store db.Store) *cmdutil.Factory {
 // each run.
 //
 // The load-bearing assertion is the empty stderr warning check. Every ingest
-// failure mode here lands on nil from the command — forEachResource skips
-// ErrNoResults and warn-continues everything else — so only the absence of a
+// failure mode here lands on the same ErrNoResults from the command —
+// forEachResource propagates it when NO resource produced anything, and
+// warn-continues everything else — so only the absence of a
 // "<resource> failed:" warning (cmdutil.Warnf) distinguishes "each resource
 // reached the no-sources ErrNoResults exit" from "each resource blew up early
 // and was swallowed". That is what catches, e.g., an Options literal that
@@ -160,8 +177,12 @@ func TestAllIngest_InProcessFanOut(t *testing.T) {
 	cmd.SilenceErrors = true
 	cmd.SilenceUsage = true
 	ctx := context.WithValue(context.Background(), reqCtxKey{}, "req")
-	if err := cmd.ExecuteContext(ctx); err != nil {
-		t.Fatalf("all ingest = %v, want nil (per-resource ErrNoResults is skipped)", err)
+	// Exit 3, not 0: every resource came back empty, so the city ingested
+	// nothing and a chained `ingest && compute && export` must not proceed.
+	// Same rule ForEachCity applies across cities, and same as what a bare
+	// `pvmt roads ingest` returns for this fixture.
+	if err := cmd.ExecuteContext(ctx); !errors.Is(err, cmdutil.ErrNoResults) {
+		t.Fatalf("all ingest = %v, want ErrNoResults (every resource was empty)", err)
 	}
 	if strings.Contains(errBuf.String(), "failed:") {
 		t.Errorf("a resource failed and was warn-swallowed; want every resource to reach ErrNoResults cleanly.\nstderr:\n%s", errBuf.String())
@@ -270,5 +291,41 @@ func TestAllIngest_MidFanOutDeadlineAborts(t *testing.T) {
 	}
 	if boundaryCalls != 1 {
 		t.Errorf("ingest ran for %d resources, want 1 — an expired deadline must stop the fan-out, not warn-and-continue", boundaryCalls)
+	}
+}
+
+// TestForEachResource_PartialResultsAreNotNoResults: ErrNoResults must only
+// propagate when NOTHING was produced. One empty resource alongside a
+// successful one is an ordinary outcome (a city with roads but no sidewalks),
+// and returning exit 3 there would break every chained pipeline.
+func TestForEachResource_PartialResultsAreNotNoResults(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	err := forEachResource(ios, func(rt resource.Source) error {
+		if rt.Type() == resource.All[0].Type() {
+			return nil
+		}
+		return cmdutil.ErrNoResults
+	})
+	if err != nil {
+		t.Fatalf("forEachResource = %v; want nil when at least one resource produced results", err)
+	}
+}
+
+// TestForEachResource_EmptyPlusFailureReportsTheFailure: a real failure must
+// win over ErrNoResults, so the caller sees the actionable error rather than a
+// generic "no results".
+func TestForEachResource_EmptyPlusFailureReportsTheFailure(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	err := forEachResource(ios, func(rt resource.Source) error {
+		if rt.Type() == resource.All[0].Type() {
+			return cmdutil.ErrAllSourcesFailed
+		}
+		return cmdutil.ErrNoResults
+	})
+	if !errors.Is(err, cmdutil.ErrAllSourcesFailed) {
+		t.Fatalf("forEachResource = %v; want the real failure, not ErrNoResults", err)
+	}
+	if errors.Is(err, cmdutil.ErrNoResults) {
+		t.Error("ErrNoResults must not mask the actionable failure")
 	}
 }

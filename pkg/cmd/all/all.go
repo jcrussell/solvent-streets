@@ -71,30 +71,46 @@ func newAllCompute(f *cmdutil.Factory) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if err := forEachResource(f.IOStreams, func(rt resource.Source) error {
+				resErr := forEachResource(f.IOStreams, func(rt resource.Source) error {
 					return compute.RunResourceForCity(cmd.Context(), cf, rt, grid)
-				}); err != nil {
-					return err
+				})
+				// Cancellation stops the city here: the combined pass would fail
+				// the same way, and running it on a half-computed city would
+				// overwrite a good combined row with a partial one.
+				if errors.Is(resErr, context.Canceled) || errors.Is(resErr, context.DeadlineExceeded) {
+					return resErr
 				}
+				// Any OTHER per-resource failure is reported but must not skip
+				// the combined pass. forEachResource returns those errors now
+				// (so the run exits non-zero) rather than the nil it used to,
+				// and an early return here would silently drop the combined
+				// paved-area row for every city where one resource failed —
+				// leaving the export with no cross-resource total.
 				if err := compute.RunCombined(cmd.Context(), cf, grid); err != nil {
-					// A cancelled run must stop the whole fan-out rather than
-					// proceed to the next city with partial data.
 					if errors.Is(err, context.Canceled) {
-						return err
+						return errors.Join(resErr, err)
 					}
 					cmdutil.Warnf(f.IOStreams, "combined pass failed: %v", err)
 				}
-				return nil
+				return resErr
 			})
 		},
 	}
 }
 
 func forEachResource(ios *iostreams.IOStreams, fn func(resource.Source) error) error {
+	var errs []error
+	sawResult := false    // at least one resource produced something
+	skippedEmpty := false // at least one resource came back empty
 	for _, rt := range resource.All {
 		fmt.Fprintf(ios.ErrOut, "\n--- %s ---\n", rt.Type())
-		if err := fn(rt); err != nil {
+		err := fn(rt)
+		if err == nil {
+			sawResult = true
+		}
+		if err != nil {
 			if errors.Is(err, cmdutil.ErrNoResults) {
+				skippedEmpty = true
 				continue
 			}
 			// A cancelled compute (SIGINT / TUI ctrl+c) must abort the
@@ -111,11 +127,25 @@ func forEachResource(ios *iostreams.IOStreams, fn func(resource.Source) error) e
 				return err
 			}
 			// A total-source-failure for ONE resource is non-fatal to the
-			// fan-out: warn and move on so the remaining resources (e.g.
-			// parking, sidewalks) still run instead of being skipped by an
-			// early return (finding 0yfp).
+			// REST of the fan-out: warn and move on so the remaining resources
+			// (e.g. parking, sidewalks) still run instead of being skipped by an
+			// early return (finding 0yfp). It is still fatal to the RUN, though
+			// — dropping it here made `pvmt all ingest` exit 0 with nothing
+			// ingested, so a chained `ingest && compute && export` would sail on
+			// and publish an empty site. Collect and join instead.
 			cmdutil.Warnf(ios, "%s failed: %v", rt.Type(), err)
+			errs = append(errs, fmt.Errorf("%s: %w", rt.Type(), err))
 		}
 	}
-	return nil
+	// Every resource came back empty and none produced anything: propagate
+	// ErrNoResults so the city exits 3, the same as `pvmt roads ingest` does
+	// for the identical condition. Returning nil here let `all ingest` exit 0
+	// on a city that ingested nothing at all, and a chained
+	// `ingest && compute && export` would publish the empty result.
+	// ForEachCity applies the same sawResult/skippedEmpty rule one level up,
+	// so a run is only ErrNoResults when EVERY city was empty.
+	if len(errs) == 0 && !sawResult && skippedEmpty {
+		return cmdutil.ErrNoResults
+	}
+	return errors.Join(errs...)
 }
