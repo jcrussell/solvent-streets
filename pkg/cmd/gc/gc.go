@@ -21,6 +21,13 @@ type Options struct {
 	Config        func() (*config.Config, error)
 	DryRun        bool
 	Yes           bool
+
+	// SweepDisabledSources opts in to deleting feature rows whose source is
+	// still a legal --source value but is switched off for this city (today:
+	// overpass=false). Off by default because those rows are much more often
+	// valid data written by an older binary than genuine orphans — see
+	// keepSourcesFor.
+	SweepDisabledSources bool
 }
 
 func NewCmdGC(f *cmdutil.Factory, runF func(context.Context, *Options) error) *cobra.Command {
@@ -42,6 +49,10 @@ cannot reach:
     source this city resolves from config (e.g. arcgis_url was removed
     from pvmt.toml). Rows with an empty source_api are never swept —
     they predate source tracking and are not safely attributable.
+    Neither are overpass rows on a city with overpass unset or false:
+    older releases ingested overpass regardless of that flag, so those
+    rows are usually real data rather than orphans. They are reported
+    and left in place; --sweep-disabled-sources deletes them.
   - Result rows (compute_results, hex_stats, forecast_results,
     cohort_stats) with snapshot_id IS NULL, which snapshot deletion
     never matches because it deletes WHERE snapshot_id = <id>.
@@ -66,7 +77,10 @@ and never writes.`,
   pvmt --city oakland gc
 
   # Skip the confirmation prompt
-  pvmt gc --yes`,
+  pvmt gc --yes
+
+  # Also delete overpass rows for a city that has overpass switched off
+  pvmt gc --sweep-disabled-sources`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
 				return runF(cmd.Context(), opts)
@@ -77,27 +91,69 @@ and never writes.`,
 
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Report what would be deleted without deleting")
 	cmd.Flags().BoolVarP(&opts.Yes, "yes", "y", false, "Skip the interactive confirmation")
+	cmd.Flags().BoolVar(&opts.SweepDisabledSources, "sweep-disabled-sources", false,
+		"Also delete rows from a source that is switched off for the city (e.g. overpass=false)")
 
 	return cmd
 }
 
 // keepSourcesFor returns the set of source_api values a city legitimately
-// produces given its config. Mirrors ingest.AllSources: "overpass" is kept only
-// when city.Overpass is true, and "arcgis" only when an ArcGIS URL is
-// configured. A feature whose source_api is none of the kept set (and
-// non-empty) is an orphan — e.g. flipping overpass=false makes any previously
-// stored overpass rows sweepable, just as removing arcgis_url does for arcgis
-// rows. Config validation forbids overpass=false with no arcgis_url, so the
-// keep set is never empty for a valid city.
-func keepSourcesFor(city config.CityConfig) []string {
+// produces given its config. A feature whose source_api is none of the kept set
+// (and non-empty) is an orphan: removing arcgis_url makes that city's arcgis
+// rows sweepable, which is what gc advertises.
+//
+// "overpass" is the asymmetric case, and it is asymmetric on purpose.
+// ingest.AllSources only started honouring city.Overpass recently; before that
+// it appended OverpassSource unconditionally. `overpass` defaults to false and
+// validateCityFields accepts a city that sets arcgis_url and omits it entirely,
+// so a user who never touched the flag can hold a full set of legitimately
+// ingested overpass rows. Mirroring AllSources exactly would classify every one
+// of them as an orphan on the first `pvmt gc --yes` after an upgrade and delete
+// them — silent data loss, reported only as a smaller paved area on the next
+// compute.
+//
+// So overpass rows are kept by default even when the flag is off, and reported
+// separately rather than swept. sweepDisabled (the --sweep-disabled-sources
+// flag) is the explicit opt-in for a user who really did flip overpass=false
+// and wants the old rows gone.
+//
+// Config validation forbids overpass=false with no arcgis_url, so the keep set
+// is never empty for a valid city.
+func keepSourcesFor(city config.CityConfig, sweepDisabled bool) []string {
 	var keep []string
-	if city.Overpass {
+	if city.Overpass || !sweepDisabled {
 		keep = append(keep, "overpass")
 	}
 	if city.ArcGISURL != "" {
 		keep = append(keep, "arcgis")
 	}
 	return keep
+}
+
+// retainedOverpassRows counts the overpass rows keepSourcesFor is deliberately
+// holding back for a city with overpass switched off, so the report can name
+// them. It re-scans with the strict (mirror-AllSources) keep set and subtracts
+// the stale count already reported under the safe one; the difference is
+// exactly the overpass rows.
+//
+// Returns 0 without touching the DB whenever nothing is being held back — the
+// flag is on, or the city enables overpass anyway.
+func retainedOverpassRows(ctx context.Context, store db.Store, city config.CityConfig,
+	sweepDisabled bool, staleUnderSafeKeep int) (int, error) {
+	if sweepDisabled || city.Overpass {
+		return 0, nil
+	}
+	strict, err := store.GCScan(ctx, keepSourcesFor(city, true))
+	if err != nil {
+		return 0, err
+	}
+	retained := strict.StaleFeatures - staleUnderSafeKeep
+	if retained < 0 {
+		// Not reachable: the strict keep set is a subset of the safe one, so it
+		// can only find more stale rows. Clamp rather than print a negative.
+		return 0, nil
+	}
+	return retained, nil
 }
 
 // printReport writes a per-table summary of a GCReport to w. verb is
@@ -110,6 +166,51 @@ func printReport(w *iostreams.IOStreams, report *db.GCReport) {
 		null.ComputeResults, null.HexStats, null.ForecastResults, null.CohortStats)
 	fmt.Fprintf(w.ErrOut, "  dangling results:      compute=%d hex=%d forecast=%d cohort=%d\n",
 		dang.ComputeResults, dang.HexStats, dang.ForecastResults, dang.CohortStats)
+}
+
+// printRetained names the overpass rows keepSourcesFor held back, and why. It
+// prints nothing when there are none, so the common case stays quiet.
+//
+// The wording has to carry the whole explanation: someone who sees this line is
+// almost always someone who never set `overpass` at all, and the honest reading
+// is "your data is fine and gc left it alone", not "you have orphans".
+func printRetained(w *iostreams.IOStreams, retained int) {
+	if retained <= 0 {
+		return
+	}
+	fmt.Fprintf(w.ErrOut, "  kept (overpass off):   %d — ingested by an older release, which\n", retained)
+	fmt.Fprintln(w.ErrOut, "                         fetched overpass regardless of the flag.")
+	fmt.Fprintln(w.ErrOut, "                         Pass --sweep-disabled-sources to delete them.")
+}
+
+// scanCities runs the read-only orphan count over every city, prints each
+// city's report, and returns the grand total the confirmation prompt quotes.
+// It performs ZERO writes, which is what lets --dry-run and a declined prompt
+// both stop here with the DB untouched.
+func scanCities(ctx context.Context, opts *Options, root db.RootStorer,
+	cities []config.CityConfig, multi bool) (int, error) {
+	var total int
+	for _, city := range cities {
+		store, err := cmdutil.EnsureCityStore(ctx, root, city, cmdutil.ResolveConfigID(opts.Config, &city))
+		if err != nil {
+			return 0, err
+		}
+		report, err := store.GCScan(ctx, keepSourcesFor(city, opts.SweepDisabledSources))
+		if err != nil {
+			return 0, fmt.Errorf("scan %s: %w", city.Slug(), err)
+		}
+		retained, err := retainedOverpassRows(ctx, store, city, opts.SweepDisabledSources, report.StaleFeatures)
+		if err != nil {
+			return 0, fmt.Errorf("scan %s: %w", city.Slug(), err)
+		}
+		if multi {
+			fmt.Fprintf(opts.IO.ErrOut, "\n=== %s ===\n", city.Name)
+		}
+		printReport(opts.IO, report)
+		printRetained(opts.IO, retained)
+		total += report.Total()
+	}
+	return total, nil
 }
 
 func runGC(ctx context.Context, opts *Options) error {
@@ -126,22 +227,9 @@ func runGC(ctx context.Context, opts *Options) error {
 	// Scan pass: count orphans per city without writing anything, so the
 	// confirmation prompt can quote a real total and a declined prompt
 	// leaves the DB untouched.
-	var total int
-	for _, city := range cities {
-		store, err := cmdutil.EnsureCityStore(ctx, root, city, cmdutil.ResolveConfigID(opts.Config, &city))
-		if err != nil {
-			return err
-		}
-		keep := keepSourcesFor(city)
-		report, err := store.GCScan(ctx, keep)
-		if err != nil {
-			return fmt.Errorf("scan %s: %w", city.Slug(), err)
-		}
-		if multi {
-			fmt.Fprintf(opts.IO.ErrOut, "\n=== %s ===\n", city.Name)
-		}
-		printReport(opts.IO, report)
-		total += report.Total()
+	total, err := scanCities(ctx, opts, root, cities, multi)
+	if err != nil {
+		return err
 	}
 
 	if total == 0 {
@@ -171,7 +259,7 @@ func runGC(ctx context.Context, opts *Options) error {
 		if err != nil {
 			return err
 		}
-		keep := keepSourcesFor(city)
+		keep := keepSourcesFor(city, opts.SweepDisabledSources)
 		report, err := store.GCSweep(ctx, keep)
 		if err != nil {
 			return fmt.Errorf("sweep %s: %w", city.Slug(), err)

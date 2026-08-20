@@ -55,25 +55,34 @@ func TestNewCmdGC_RunFInjection(t *testing.T) {
 // which feature source_api values gc treats as keepers (mirrors ingest).
 func TestKeepSourcesFor(t *testing.T) {
 	cases := []struct {
-		name string
-		city config.CityConfig
-		want []string
+		name          string
+		city          config.CityConfig
+		sweepDisabled bool
+		want          []string
 	}{
-		// Mirrors ingest.AllSources: "overpass" is kept only when the flag is
-		// set; "arcgis" only when ArcGISURL is set.
-		{"overpass flag on", config.CityConfig{Overpass: true}, []string{"overpass"}},
-		{"overpass+arcgis", config.CityConfig{Overpass: true, ArcGISURL: "https://x"}, []string{"overpass", "arcgis"}},
-		// overpass=false + an ArcGIS URL keeps only "arcgis" now that ingest
-		// respects the flag and no longer writes overpass rows. Any pre-existing
-		// overpass rows are stale and legitimately sweepable.
-		{"arcgis url, overpass flag off", config.CityConfig{Overpass: false, ArcGISURL: "https://x"}, []string{"arcgis"}},
-		// Empty config keeps nothing; config validation forbids this combination
-		// for a real city, so keepSourcesFor is only ever handed valid cities.
-		{"none configured", config.CityConfig{}, nil},
+		// "arcgis" is kept only when ArcGISURL is set — removing arcgis_url is
+		// the unambiguous case gc advertises, and it stays sweepable.
+		{"overpass flag on", config.CityConfig{Overpass: true}, false, []string{"overpass"}},
+		{"overpass+arcgis", config.CityConfig{Overpass: true, ArcGISURL: "https://x"}, false, []string{"overpass", "arcgis"}},
+		// overpass=false + an ArcGIS URL KEEPS overpass by default
+		// (solvent-streets-dnun). `overpass` defaults to false and older
+		// releases ingested overpass regardless, so a user who never touched
+		// the flag holds real data here, not orphans.
+		{"arcgis url, overpass flag off", config.CityConfig{Overpass: false, ArcGISURL: "https://x"}, false, []string{"overpass", "arcgis"}},
+		// The explicit opt-in is what drops it — for the user who really did
+		// flip overpass=false and wants the old rows gone.
+		{"arcgis url, overpass off, opt-in", config.CityConfig{Overpass: false, ArcGISURL: "https://x"}, true, []string{"arcgis"}},
+		// The opt-in cannot drop a source the city actually enables.
+		{"overpass on, opt-in", config.CityConfig{Overpass: true, ArcGISURL: "https://x"}, true, []string{"overpass", "arcgis"}},
+		// Empty config under the opt-in keeps nothing; config validation forbids
+		// this combination for a real city, so keepSourcesFor is only ever
+		// handed valid cities. Without the opt-in it still keeps overpass, which
+		// is what stops an empty keep set from reaching GCSweep.
+		{"none configured, opt-in", config.CityConfig{}, true, nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := keepSourcesFor(tc.city)
+			got := keepSourcesFor(tc.city, tc.sweepDisabled)
 			if strings.Join(got, ",") != strings.Join(tc.want, ",") {
 				t.Errorf("keepSourcesFor = %v, want %v", got, tc.want)
 			}
@@ -81,11 +90,18 @@ func TestKeepSourcesFor(t *testing.T) {
 	}
 }
 
-// TestRunGC_ArcGISOnlyDropsOverpass pins the corrected behavior: a city with
-// Overpass:false and an ArcGIS URL keeps only "arcgis". Ingest no longer writes
-// overpass rows for such a city, so any overpass rows present are stale and must
-// be swept — the keep set handed to GCScan/GCSweep must NOT contain "overpass".
-func TestRunGC_ArcGISOnlyDropsOverpass(t *testing.T) {
+// TestRunGC_ArcGISOnlyKeepsOverpassByDefault pins solvent-streets-dnun: a city
+// with Overpass:false and an ArcGIS URL must NOT have its overpass rows swept
+// unless the user opts in.
+//
+// The regression this guards is silent data loss on upgrade, not a wrong count.
+// `overpass` defaults to false and validateCityFields accepts a city that sets
+// arcgis_url and omits it, while older releases appended OverpassSource
+// unconditionally. So a user who never touched the flag can hold a full set of
+// real overpass rows, and a keep set that mirrors ingest.AllSources exactly
+// would delete every one of them on the first `pvmt gc --yes` after an upgrade
+// — surfacing only as a smaller paved area on the next compute.
+func TestRunGC_ArcGISOnlyKeepsOverpassByDefault(t *testing.T) {
 	cities := []config.CityConfig{{Name: "Alpha", Overpass: false, ArcGISURL: "https://x"}}
 	var sweptKeep []string
 	root := &dbtest.MockRootStore{
@@ -93,9 +109,6 @@ func TestRunGC_ArcGISOnlyDropsOverpass(t *testing.T) {
 		ForCityFunc: func(int64) db.Store {
 			return &dbtest.MockStore{
 				GCScanFunc: func(_ context.Context, keep []string) (*db.GCReport, error) {
-					if slices.Contains(keep, "overpass") {
-						t.Errorf("GCScan keep = %v, want it NOT to contain overpass", keep)
-					}
 					return reportWithCounts(), nil
 				},
 				GCSweepFunc: func(_ context.Context, keep []string) (*db.GCReport, error) {
@@ -115,11 +128,97 @@ func TestRunGC_ArcGISOnlyDropsOverpass(t *testing.T) {
 	if err := runGC(context.Background(), opts); err != nil {
 		t.Fatal(err)
 	}
+	if !slices.Contains(sweptKeep, "overpass") {
+		t.Errorf("GCSweep keep = %v, want it to CONTAIN overpass; "+
+			"overpass rows on an overpass=false city are not orphans by default", sweptKeep)
+	}
+	if !slices.Contains(sweptKeep, "arcgis") {
+		t.Errorf("GCSweep keep = %v, want it to contain arcgis", sweptKeep)
+	}
+}
+
+// TestRunGC_SweepDisabledSourcesDropsOverpass pins the other half: the explicit
+// opt-in is what makes an overpass=false city's overpass rows sweepable, for the
+// user who really did flip the flag.
+func TestRunGC_SweepDisabledSourcesDropsOverpass(t *testing.T) {
+	cities := []config.CityConfig{{Name: "Alpha", Overpass: false, ArcGISURL: "https://x"}}
+	var sweptKeep []string
+	root := &dbtest.MockRootStore{
+		EnsureCityFunc: func(context.Context, string, string, string) (int64, error) { return 1, nil },
+		ForCityFunc: func(int64) db.Store {
+			return &dbtest.MockStore{
+				GCScanFunc: func(_ context.Context, keep []string) (*db.GCReport, error) {
+					if slices.Contains(keep, "overpass") {
+						t.Errorf("GCScan keep = %v, want it NOT to contain overpass under the opt-in", keep)
+					}
+					return reportWithCounts(), nil
+				},
+				GCSweepFunc: func(_ context.Context, keep []string) (*db.GCReport, error) {
+					sweptKeep = keep
+					return reportWithCounts(), nil
+				},
+			}
+		},
+	}
+	ios, _, _, _ := iostreams.Test()
+	opts := &Options{
+		IO:                   ios,
+		RootDB:               rootDBFunc(root),
+		ResolveCities:        resolveCitiesFunc(cities),
+		Yes:                  true,
+		SweepDisabledSources: true,
+	}
+	if err := runGC(context.Background(), opts); err != nil {
+		t.Fatal(err)
+	}
 	if slices.Contains(sweptKeep, "overpass") {
 		t.Errorf("GCSweep keep = %v, want it NOT to contain overpass", sweptKeep)
 	}
 	if !slices.Contains(sweptKeep, "arcgis") {
 		t.Errorf("GCSweep keep = %v, want it to contain arcgis", sweptKeep)
+	}
+}
+
+// TestRunGC_ReportsRetainedOverpassRows pins that the rows gc holds back are
+// NAMED rather than silently omitted: the scan re-runs with the strict keep set,
+// diffs the stale counts, and prints the difference with the remedy.
+//
+// Without this line the report reads as "3 stale features" whether or not
+// another 7 rows were spared, and a user with a genuinely stale overpass source
+// would have no way to find out gc is not going to clean it.
+func TestRunGC_ReportsRetainedOverpassRows(t *testing.T) {
+	cities := []config.CityConfig{{Name: "Alpha", Overpass: false, ArcGISURL: "https://x"}}
+	root := &dbtest.MockRootStore{
+		EnsureCityFunc: func(context.Context, string, string, string) (int64, error) { return 1, nil },
+		ForCityFunc: func(int64) db.Store {
+			return &dbtest.MockStore{
+				GCScanFunc: func(_ context.Context, keep []string) (*db.GCReport, error) {
+					// The strict pass (no "overpass") finds 7 more stale rows
+					// than the safe one; those 7 are the retained overpass rows.
+					if slices.Contains(keep, "overpass") {
+						return &db.GCReport{StaleFeatures: 3}, nil
+					}
+					return &db.GCReport{StaleFeatures: 10}, nil
+				},
+			}
+		},
+	}
+	ios, _, _, stderr := iostreams.Test()
+	opts := &Options{
+		IO:            ios,
+		RootDB:        rootDBFunc(root),
+		ResolveCities: resolveCitiesFunc(cities),
+		DryRun:        true,
+	}
+	if err := runGC(context.Background(), opts); err != nil {
+		t.Fatal(err)
+	}
+	out := stderr.String()
+	if !strings.Contains(out, "kept (overpass off):   7") {
+		t.Errorf("report did not name the 7 retained overpass rows:\n%s", out)
+	}
+	if !strings.Contains(out, "--sweep-disabled-sources") {
+		t.Errorf("report did not name the remedy flag:\n%s", out)
 	}
 }
 
