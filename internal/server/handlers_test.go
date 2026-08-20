@@ -1526,3 +1526,91 @@ func TestServeHexGridGeoJSON_EmptyFCCarriesVersion(t *testing.T) {
 		t.Errorf("v = %d; want 2 — a version-less empty FC blanks the page under the client's format gate", fc.V)
 	}
 }
+
+// TestDataFile_HexEdgeMismatch pins the serve-side half of the included-city
+// hex-edge guard. For a city pulled in via [[include]], Config.CityHash returns
+// the SOURCE config's hash, so the snapshot-hash check passes even when THIS
+// config resolves a different hex_edge_m. Hex ids are derived from the grid, so
+// every stored hex then fails to join and the client gets an empty layer at
+// HTTP 200 — cached for the server's lifetime. `pvmt export` catches this via
+// RequireMatchingSnapshot; serve never calls that, so it checks directly.
+func TestDataFile_HexEdgeMismatch(t *testing.T) {
+	testBoundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
+
+	newStore := func() *dbtest.MockStore {
+		return &dbtest.MockStore{
+			GetBoundaryFunc:   func(_ context.Context) (string, error) { return testBoundary, nil },
+			ListSnapshotsFunc: func(_ context.Context) ([]db.Snapshot, error) { return nil, nil },
+			LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
+				if rt != srvRtRoads {
+					return nil, sql.ErrNoRows
+				}
+				return &db.ComputeResult{ResourceType: srvRtRoads, TotalArea: 1000, FeatureCount: 10, ComputedAt: time.Now()}, nil
+			},
+		}
+	}
+
+	// This config resolves 100 m for every city; the included city's data was
+	// computed by its source config at 60 m.
+	cfg := &config.Config{
+		Grid:   config.GridConfig{HexEdgeM: 100},
+		Cities: []config.CityConfig{{Name: "Included City", SourceHexEdgeM: 60}},
+	}
+	entry := export.CityEntry{Config: cfg, City: cfg.Cities[0], Store: newStore(), Slug: cfg.Cities[0].Slug()}
+
+	hit := func(entry export.CityEntry, url string) *httptest.ResponseRecorder {
+		ios, _, _, _ := iostreams.Test()
+		srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios)
+		mux := http.NewServeMux()
+		mux.HandleFunc("GET /data/{file}", srv.handleDataFile(entry))
+		req, _ := http.NewRequestWithContext(context.Background(), "GET", url, nil)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		return w
+	}
+
+	// The unpinned (latest) path is the one the old code left unguarded.
+	if w := hit(entry, "/data/hexgrid.geojson"); w.Code != http.StatusConflict {
+		t.Errorf("mismatched hex edge (latest): expected 409, got %d body=%q", w.Code, w.Body.String())
+	}
+	if w := hit(entry, "/data/meta.json"); w.Code != http.StatusConflict {
+		t.Errorf("mismatched hex edge (meta): expected 409, got %d", w.Code)
+	}
+
+	// Agreeing edges still serve. Same 60 m source stamp, config resolving 60.
+	okCfg := &config.Config{
+		Grid:   config.GridConfig{HexEdgeM: 60},
+		Cities: []config.CityConfig{{Name: "Included City", SourceHexEdgeM: 60}},
+	}
+	okEntry := export.CityEntry{Config: okCfg, City: okCfg.Cities[0], Store: newStore(), Slug: okCfg.Cities[0].Slug()}
+	if w := hit(okEntry, "/data/meta.json"); w.Code != http.StatusOK {
+		t.Errorf("matching hex edge: expected 200, got %d body=%q", w.Code, w.Body.String())
+	}
+
+	// A nil Config means there is nothing to resolve against (tests, and any
+	// entry not built by BuildCityEntries). The guard runs ahead of the two
+	// existing nil-Config checks, so it must tolerate it rather than panic
+	// into a 500 on every /data/* request.
+	nilCfgEntry := export.CityEntry{City: config.CityConfig{Name: "No Config", SourceHexEdgeM: 60}, Store: newStore(), Slug: "no-config"}
+	if w := hit(nilCfgEntry, "/data/meta.json"); w.Code != http.StatusOK {
+		t.Errorf("nil Config: expected 200, got %d body=%q", w.Code, w.Body.String())
+	}
+
+	// The 409 body must stay curated — the raw error carries a multi-line
+	// [[include]] remediation hint and resolved config values that belong in
+	// the operator's log, not the response.
+	if body := hit(entry, "/data/meta.json").Body.String(); strings.Contains(body, "[[include]]") {
+		t.Errorf("409 body leaked the internal hint chain: %q", body)
+	}
+
+	// An unstamped (directly-declared) city has SourceHexEdgeM == 0 and must
+	// not be checked at all — otherwise every ordinary city 409s.
+	plainCfg := &config.Config{
+		Grid:   config.GridConfig{HexEdgeM: 100},
+		Cities: []config.CityConfig{{Name: "Plain City"}},
+	}
+	plainEntry := export.CityEntry{Config: plainCfg, City: plainCfg.Cities[0], Store: newStore(), Slug: plainCfg.Cities[0].Slug()}
+	if w := hit(plainEntry, "/data/meta.json"); w.Code != http.StatusOK {
+		t.Errorf("unstamped city: expected 200, got %d body=%q", w.Code, w.Body.String())
+	}
+}

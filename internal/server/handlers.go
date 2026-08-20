@@ -415,6 +415,26 @@ func (s *Server) serveDataFile(w http.ResponseWriter, r *http.Request, file stri
 	if !ok {
 		return
 	}
+	// The hex-edge guard runs on EVERY request, pinned or not. The pinned
+	// config-hash check below cannot substitute for it: for a city pulled in
+	// via [[include]], Config.CityHash returns the SOURCE config's hash, so the
+	// snapshot matches by hash while THIS config resolves a different
+	// hex_edge_m — the exact mismatch that makes buildHexFeature drop every row
+	// and serve an empty layer at HTTP 200. `pvmt export` fails loud on this
+	// through RequireMatchingSnapshot; serve has no such call, so check here.
+	// The full error (with its [[include]] remediation hint) goes to the
+	// operator's console; the response body stays curated, like
+	// snapshotMatchesConfig's, so wrapped internal chains and config paths do
+	// not reach the client.
+	if err := entry.RequireMatchingHexEdge(); err != nil {
+		fmt.Fprintf(s.ios.ErrOut, "server: 409 Conflict: %v\n", err)
+		http.Error(w, fmt.Sprintf(
+			"%s was computed under a different hex_edge_m than this config resolves, so its "+
+				"stored hexes cannot be joined to the current grid; recompute the city under "+
+				"this config or drop the conflicting hex_edge_m (see the server log for details)",
+			entry.City.Name), http.StatusConflict)
+		return
+	}
 	if snapshotID > 0 {
 		// Guard against serving a config-mismatched pinned snapshot: the hex
 		// grid (and every other data file's hex_id namespace) is regenerated
@@ -422,11 +442,11 @@ func (s *Server) serveDataFile(w http.ResponseWriter, r *http.Request, file stri
 		// config (e.g. a different hex_edge_m) would have stored hex IDs that
 		// no longer match — buildHexFeature silently drops the rows and the
 		// client gets an empty/mislocated layer with HTTP 200, cached for the
-		// server's lifetime. Fail loud instead. Only an explicitly pinned id
-		// is checked; the default (latest) path is auto-scoped to the current
-		// config hash by BuildCityEntries' WithConfigHash pin, so it can't
-		// mismatch. RequireMatchingSnapshot only asks "does ANY snapshot match
-		// the current hash" and so can't answer "does THIS pinned id match",
+		// server's lifetime. Fail loud instead. The default (latest) path is
+		// auto-scoped to the current config hash by BuildCityEntries'
+		// WithConfigHash pin, so only an explicitly pinned id needs this.
+		// RequireMatchingSnapshot only asks "does ANY snapshot match the
+		// current hash" and so can't answer "does THIS pinned id match",
 		// hence the dedicated check here.
 		if !s.snapshotMatchesConfig(r.Context(), w, entry, snapshotID) {
 			return

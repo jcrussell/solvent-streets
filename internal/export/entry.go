@@ -91,7 +91,7 @@ func (entry CityEntry) RequireMatchingSnapshot(ctx context.Context) error {
 	if entry.Config == nil {
 		return nil
 	}
-	if err := entry.requireMatchingHexEdge(); err != nil {
+	if err := entry.RequireMatchingHexEdge(); err != nil {
 		return err
 	}
 	configHash := entry.Config.CityHash(&entry.City)
@@ -111,7 +111,7 @@ func (entry CityEntry) RequireMatchingSnapshot(ctx context.Context) error {
 			"will show them.", entry.Slug, configHash, entry.Slug)
 }
 
-// requireMatchingHexEdge catches the one merge outcome that corrupts an export
+// RequireMatchingHexEdge catches the one merge outcome that corrupts an export
 // without erroring anywhere.
 //
 // An included city reads the snapshot its SOURCE config computed, but its
@@ -129,7 +129,19 @@ func (entry CityEntry) RequireMatchingSnapshot(ctx context.Context) error {
 // The snapshot-hash check cannot see this: the hash is the SOURCE's, and it
 // matches. So compare the resolved edges directly. Zero means unstamped (a
 // directly-declared city), which is not an included city and needs no check.
-func (entry CityEntry) requireMatchingHexEdge() error {
+//
+// Exported because it is NOT specific to the export path: it is orthogonal to
+// the snapshot-hash question, applies to the latest snapshot as much as to a
+// pinned one, and `pvmt serve` needs it too — serve rebuilds the same grid from
+// the same config and would otherwise answer HTTP 200 with an empty hexgrid.
+func (entry CityEntry) RequireMatchingHexEdge() error {
+	// Nil Config means nothing to resolve against (some tests, and any entry
+	// not built by BuildCityEntries). Match RequireMatchingSnapshot and
+	// snapshotMatchesConfig, which both treat that as "no opinion" — this is
+	// now called directly by the server, ahead of both of those guards.
+	if entry.Config == nil {
+		return nil
+	}
 	want := entry.City.SourceHexEdgeM
 	if want == 0 {
 		return nil
