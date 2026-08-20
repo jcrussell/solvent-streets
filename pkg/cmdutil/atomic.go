@@ -57,5 +57,30 @@ func WriteFile(path string, data []byte, perm fs.FileMode) error {
 		cleanup()
 		return fmt.Errorf("renaming %q to %q: %w", tmpName, path, err)
 	}
+	// The body is durable (tmp.Sync above) and the rename is atomic with
+	// respect to concurrent readers, but the DIRECTORY ENTRY the rename creates
+	// is not durable until the directory itself is synced. On ext4 and XFS it
+	// can be lost to a power failure even though WriteFile returned nil — so
+	// `pvmt export` reports success, the machine loses power seconds later, and
+	// meta.json comes back absent or stale. That gap is what stopped this
+	// function from being as atomic as its doc claims.
+	return syncDir(dir)
+}
+
+// syncDir fsyncs a directory so a rename into it survives a power failure.
+//
+// A failure to OPEN the directory is reported: the write itself succeeded, but
+// its durability is unknown, and silently swallowing that would put this back
+// where it started. A failure to SYNC is not, because some filesystems
+// legitimately refuse fsync on a directory handle; on those there is nothing
+// the caller could do differently, and failing the write over it would be
+// worse than the risk it guards.
+func syncDir(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return fmt.Errorf("opening %q to sync: %w", dir, err)
+	}
+	defer func() { _ = d.Close() }()
+	_ = d.Sync()
 	return nil
 }

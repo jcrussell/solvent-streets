@@ -496,11 +496,36 @@ func resolveSources(opts *Options, bbox [4]float64, overpass bool, arcgisURL str
 	if opts.Source == cmdutil.SourceAll {
 		return ingestpkg.AllSources(bbox, overpass, arcgisURL, srcOpts), nil
 	}
+	// SourceByName builds AllSources and reports "unknown source" when nothing
+	// matches, which is the wrong diagnosis for a source that IS a valid
+	// --source value (cmdutil.sourceValues) but is switched off for this city.
+	// The user typed nothing wrong; their pvmt.toml disagrees with their flag,
+	// and "unknown source: overpass" sends them looking for a typo. The dry-run
+	// path already says the right thing — say it here too.
+	if disabled := disabledSourceReason(opts.Source, overpass, arcgisURL); disabled != "" {
+		return nil, cmdutil.Hintf(
+			fmt.Errorf("source %q is not available for this city", opts.Source),
+			"%s", disabled)
+	}
 	src, err := ingestpkg.SourceByName(string(opts.Source), bbox, overpass, arcgisURL, srcOpts)
 	if err != nil {
 		return nil, fmt.Errorf("resolving source %q: %w", opts.Source, err)
 	}
 	return []ingestpkg.Source{src}, nil
+}
+
+// disabledSourceReason explains why an otherwise-valid --source value yields no
+// source for this city, or "" when the source is available. It mirrors
+// ingest.AllSources' two conditions, which are the only two ways a named source
+// can be missing.
+func disabledSourceReason(source cmdutil.Source, overpass bool, arcgisURL string) string {
+	switch {
+	case source == cmdutil.SourceOverpass && !overpass:
+		return "set overpass = true for this city in pvmt.toml, or pick another --source"
+	case source == cmdutil.SourceArcGIS && arcgisURL == "":
+		return "set arcgis_url for this city in pvmt.toml, or pick another --source"
+	}
+	return ""
 }
 
 // fetchFromSources fetches from each source, tolerating per-source failures as

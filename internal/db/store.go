@@ -697,23 +697,26 @@ func (s *sqliteStore) DeleteSnapshot(ctx context.Context, snapshotID int64) (boo
 
 // gcResultTables pairs each table in snapshotResultTables with a pointer
 // into the GCResultCounts struct so scan/sweep can write per-table counts
-// without a switch. The count pointers are listed in the same order as
-// snapshotResultTables (compute_results, hex_stats, forecast_results,
-// cohort_stats); keep the two in sync.
+// without a switch.
+//
+// The pairs are written out as literals rather than zipped positionally against
+// snapshotResultTables. A positional index is a tripwire: adding a fifth table
+// to snapshotResultTables for DeleteSnapshot would compile fine and then panic
+// with index-out-of-range inside gc. Spelled this way the same edit fails to
+// compile, at the line that needs the new pointer.
 func gcResultTables(c *GCResultCounts) []struct {
 	table string
 	count *int
 } {
-	counts := []*int{&c.ComputeResults, &c.HexStats, &c.ForecastResults, &c.CohortStats}
-	out := make([]struct {
+	return []struct {
 		table string
 		count *int
-	}, len(snapshotResultTables))
-	for i, table := range snapshotResultTables {
-		out[i].table = table
-		out[i].count = counts[i]
+	}{
+		{"compute_results", &c.ComputeResults},
+		{"hex_stats", &c.HexStats},
+		{"forecast_results", &c.ForecastResults},
+		{"cohort_stats", &c.CohortStats},
 	}
-	return out
 }
 
 // gcKeepPlaceholders builds the parameterized "?,?,..." placeholder list

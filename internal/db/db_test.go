@@ -1629,3 +1629,39 @@ func TestListCities(t *testing.T) {
 		t.Errorf("expected %d cities, got %d", len(baseline)+2, len(cities))
 	}
 }
+
+// TestGCResultTablesCoversSnapshotResultTables pins the two lists together.
+//
+// gcResultTables spells its pairs out as literals so that adding a table to
+// snapshotResultTables fails to COMPILE rather than panicking with
+// index-out-of-range inside gc, which is what a positional zip against that
+// slice would do. The literal form trades that away for a different drift: a
+// table renamed in one list and not the other. This test closes it, so neither
+// spelling can go wrong silently.
+func TestGCResultTablesCoversSnapshotResultTables(t *testing.T) {
+	var counts GCResultCounts
+	pairs := gcResultTables(&counts)
+	if len(pairs) != len(snapshotResultTables) {
+		t.Fatalf("gcResultTables has %d entries, snapshotResultTables has %d; "+
+			"a table was added to one list and not the other",
+			len(pairs), len(snapshotResultTables))
+	}
+	for i, p := range pairs {
+		if p.table != snapshotResultTables[i] {
+			t.Errorf("gcResultTables[%d].table = %q, want %q",
+				i, p.table, snapshotResultTables[i])
+		}
+		if p.count == nil {
+			t.Errorf("gcResultTables[%d] (%s) has a nil count pointer", i, p.table)
+		}
+	}
+	// Every pair must address a DISTINCT field: two entries sharing a pointer
+	// would double-count one table and silently report zero for another.
+	seen := make(map[*int]string, len(pairs))
+	for _, p := range pairs {
+		if prev, dup := seen[p.count]; dup {
+			t.Errorf("%s and %s write to the same count field", prev, p.table)
+		}
+		seen[p.count] = p.table
+	}
+}

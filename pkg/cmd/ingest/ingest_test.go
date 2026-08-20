@@ -719,3 +719,81 @@ func TestStripWaterFromBoundary_NoWaterIsNoOp(t *testing.T) {
 			len(gjson), warn, err)
 	}
 }
+
+// TestResolveSources_DisabledSourceExplainsItself pins solvent-streets-rw06.
+//
+// `--source overpass` on a city with overpass unset used to fail with
+// `resolving source "overpass": unknown source: overpass`, because
+// SourceByName builds AllSources and reports "unknown" when nothing matches.
+// But "overpass" IS a valid --source value (cmdutil.sourceValues rejects
+// anything else before this point), so the user typed nothing wrong — their
+// config disagrees with their flag, and "unknown source" sends them hunting for
+// a typo. The dry-run path already printed the right diagnostic; the live path
+// has to match it.
+func TestResolveSources_DisabledSourceExplainsItself(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	cases := []struct {
+		name      string
+		source    cmdutil.Source
+		overpass  bool
+		arcgisURL string
+		wantHint  string
+	}{
+		{
+			name: "overpass off", source: cmdutil.SourceOverpass,
+			overpass: false, arcgisURL: "https://x",
+			wantHint: "set overpass = true",
+		},
+		{
+			name: "no arcgis url", source: cmdutil.SourceArcGIS,
+			overpass: true, arcgisURL: "",
+			wantHint: "set arcgis_url",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := &Options{Source: tc.source}
+			_, err := resolveSources(opts, [4]float64{}, tc.overpass, tc.arcgisURL, false, ios)
+			if err == nil {
+				t.Fatal("expected an error, got nil")
+			}
+			if strings.Contains(err.Error(), "unknown source") {
+				t.Errorf("error = %q; the source is valid, it is disabled for this city", err)
+			}
+			var hint *cmdutil.ErrHint
+			if !errors.As(err, &hint) {
+				t.Fatalf("error = %q; want an ErrHint carrying the remedy", err)
+			}
+			if !strings.Contains(hint.Hint, tc.wantHint) {
+				t.Errorf("hint = %q; want it to name %q", hint.Hint, tc.wantHint)
+			}
+		})
+	}
+}
+
+// TestResolveSources_EnabledSourcesStillResolve guards the obvious way to
+// over-fix the above: rejecting a source that IS configured.
+func TestResolveSources_EnabledSourcesStillResolve(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	for _, tc := range []struct {
+		name      string
+		source    cmdutil.Source
+		overpass  bool
+		arcgisURL string
+	}{
+		{"overpass on", cmdutil.SourceOverpass, true, ""},
+		{"arcgis configured", cmdutil.SourceArcGIS, false, "https://x"},
+		{"all", cmdutil.SourceAll, true, "https://x"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := &Options{Source: tc.source}
+			got, err := resolveSources(opts, [4]float64{}, tc.overpass, tc.arcgisURL, false, ios)
+			if err != nil {
+				t.Fatalf("resolveSources: %v", err)
+			}
+			if len(got) == 0 {
+				t.Error("resolveSources returned no sources")
+			}
+		})
+	}
+}

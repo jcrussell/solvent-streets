@@ -60,10 +60,14 @@ The following checks run over the given directory (default "site"):
   - CONSTRAINTS: no single file exceeds 100 MB, .nojekyll is present and
     zero-byte, and the total tree size is reported (warned over 1 GB).
   - SIZES: where the bytes live — a total per data file name (plus *.html,
-    *.wasm, *.js and other buckets), largest first, each divided by the
-    discovered city count to give a per-city share. The per-city share is
-    what carries a budget, so adding cities cannot trip it; a data file
-    over its budget WARNs. Also available as 'make site-report'.
+    *.wasm, *.js and other buckets), largest first. Each per-city data
+    file carries a budget, enforced against the WORST city rather than
+    the mean: a mean lets one bloated city hide behind a hundred small
+    ones, and adding cities would un-trip an existing breach. So a WARN
+    names a single city that is over, and adding cities cannot cause one
+    on its own. The mean and tree total ride along as context. Shared
+    root assets (*.wasm, *.js, index.html) are a fixed cost and carry no
+    budget. Also available as 'make site-report'.
   - REASONABLENESS: every meta.json has a plausible pct_paved (a value
     between 0 and 1%% signals the near-zero-area bug), and every
     forecast.json baseline has monotonically falling PCI and non-decreasing
