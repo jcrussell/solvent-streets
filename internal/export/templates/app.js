@@ -2170,14 +2170,27 @@
         // rather than to the config default, matching the WASM bridge's clamp:
         // if the seed is stale, showing construction-only dollars is recoverable,
         // and showing $0 is not.
+        // The markup's 1-2.5 range covers every plausible load stack, but config
+        // validation accepts cost_overhead up to 5. Clamping a seed above the
+        // slider max would price the interactive line (and the headline tiles it
+        // overwrites) differently from the static export lines on the SAME
+        // chart, while costRegimeText kept printing the seeded figure — exactly
+        // the divergence the seeding exists to prevent. So widen the track to
+        // admit the seed instead of clamping to it.
         function syncOverheadSliderFromSeed() {
             const slider = inputById('overhead-slider');
             if (!slider) return;
             const seeded = FORECAST_SEED && Number(FORECAST_SEED.cost_overhead);
             const v = Number.isFinite(seeded) && seeded > 0 ? seeded : 1;
-            const min = parseFloat(slider.min);
-            const max = parseFloat(slider.max);
-            slider.value = String(Math.max(min, Math.min(max, v)));
+            if (v > parseFloat(slider.max)) {
+                slider.max = String(v);
+                slider.setAttribute('aria-valuemax', String(v));
+            }
+            if (v < parseFloat(slider.min)) {
+                slider.min = String(v);
+                slider.setAttribute('aria-valuemin', String(v));
+            }
+            slider.value = String(v);
             renderOverheadValue();
         }
 

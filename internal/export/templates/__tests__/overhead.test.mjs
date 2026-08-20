@@ -98,3 +98,39 @@ test('the headline names the cost basis the figures are on', async () => {
     /1\.5.*cost multiplier/i,
     'an overridden multiplier must be disclosed');
 });
+
+test('a seed above the markup range widens the slider instead of clamping', async () => {
+  // Config validation accepts cost_overhead up to 5, but the markup ships a
+  // 1-2.5 track. Clamping a 3.0 seed to 2.5 priced the interactive line — and
+  // the headline tiles it overwrites — 17% below the static export lines on the
+  // same chart, while the disclosure text still read "3x". The seed is the
+  // source of truth; the track has to accommodate it.
+  const { $, win } = await ready(withSeedOverhead(3));
+
+  assert.equal(parseFloat($('#overhead-slider').value), 3,
+    'the slider clamped the seed instead of widening to admit it');
+  assert.ok(parseFloat($('#overhead-slider').max) >= 3,
+    'slider max must cover the seeded value');
+  assert.equal(win.__simCalls.at(-1).cost_overhead, 3,
+    'the bridge must price at the seeded multiplier, not the clamped one');
+  assert.match($('#overhead-value').textContent, /3/);
+
+  // And the disclosure must agree with what was actually simulated.
+  assert.match(win.document.getElementById('solvency-headline').textContent,
+    /3.*cost multiplier/i);
+});
+
+test('a sub-1 seed widens the slider downward rather than rounding up', async () => {
+  const { $, win } = await ready(withSeedOverhead(0.8));
+  assert.equal(parseFloat($('#overhead-slider').value), 0.8);
+  assert.ok(parseFloat($('#overhead-slider').min) <= 0.8);
+  assert.equal(win.__simCalls.at(-1).cost_overhead, 0.8);
+});
+
+test('an ordinary in-range seed leaves the shipped track alone', async () => {
+  // The widening must be conditional: a 1.5 seed must not move min/max, or the
+  // slider's feel changes city to city for no reason.
+  const { $ } = await ready(withSeedOverhead(1.5));
+  assert.equal(parseFloat($('#overhead-slider').min), 1);
+  assert.equal(parseFloat($('#overhead-slider').max), 2.5);
+});
