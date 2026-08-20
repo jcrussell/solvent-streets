@@ -530,3 +530,77 @@ func TestBuildCohorts_MixedOverride(t *testing.T) {
 		t.Errorf("sidewalks: expected class rate %f, got %f", DefaultDecayRates["sidewalks"], cohorts[1].DecayRate)
 	}
 }
+
+// fullFundingCohorts is a multi-cohort set for the FullFunding exactness tests
+// below. Multiple cohorts are load-bearing: with one cohort the old
+// totalSpend * (need_j/totalNeed) allocation is exact by construction (the
+// ratio is 1), so the defect these tests pin is invisible to singleCohort.
+func fullFundingCohorts() []Cohort {
+	return []Cohort{
+		{Classification: "primary", Area: 250_000, DecayRate: 0.05, InitialPCI: 85},
+		{Classification: "secondary", Area: 500_000, DecayRate: 0.04, InitialPCI: 75},
+		{Classification: "residential", Area: 750_000, DecayRate: 0.03, InitialPCI: 65},
+	}
+}
+
+func fullFundingTiers(scale float64) []CostTier {
+	return []CostTier{
+		{MinPCI: 0, MaxPCI: 40, CostPerSqM: 50 * scale, Label: "reconstruction"},
+		{MinPCI: 40, MaxPCI: 70, CostPerSqM: 15 * scale, Label: "rehabilitation"},
+		{MinPCI: 70, MaxPCI: 101, CostPerSqM: 2 * scale, Label: "preventive"},
+	}
+}
+
+// TestSimulate_FullFunding_SpendsExactlyNeed pins the contract the scenario's
+// name asserts: full funding funds every cohort's need in full, leaving nothing
+// deferred. The equality is deliberately EXACT rather than tolerance-based —
+// distribute() hands each cohort need_j itself and accumulates the sum in the
+// same order Simulate accumulated totalNeed, so the two are the same float. A
+// tolerance here would re-admit exactly the drift this guards (solvent-streets-0ulx).
+func TestSimulate_FullFunding_SpendsExactlyNeed(t *testing.T) {
+	params := NewParams(0.01, fullFundingTiers(1.0), 12, 1)
+	result := Simulate(
+		Scenario{Name: "full", Label: "Full", FullFunding: true, Strategy: StrategyWorstFirst},
+		fullFundingCohorts(), 20, params,
+	)
+
+	for _, y := range result.Years {
+		if y.AnnualSpend != y.AnnualNeed {
+			t.Errorf("year %d: full funding spent %.17g against a need of %.17g (delta %g)",
+				y.Year, y.AnnualSpend, y.AnnualNeed, y.AnnualNeed-y.AnnualSpend)
+		}
+		if y.DeferredBacklog != 0 {
+			t.Errorf("year %d: full funding deferred %.17g", y.Year, y.DeferredBacklog)
+		}
+	}
+}
+
+// TestSimulate_FullFunding_InvariantUnderCostScale is the regression lock for
+// solvent-streets-0ulx. Scaling every cost tier by a constant is a pure
+// rescaling in dollar-space: it multiplies need_j and totalSpend by the same
+// factor and leaves need_j/totalNeed untouched, so it cannot move a PCI in the
+// model. It did anyway — the rescale perturbed the low bits of
+// totalSpend * (need_j/totalNeed), flipping cohorts across applyCohortSpend's
+// `spend >= need` branch, where under-funded cohorts recover only
+// spendRatio*0.8 of the year's decay. The measured swing was ~0.46 PCI with no
+// modelled cause.
+func TestSimulate_FullFunding_InvariantUnderCostScale(t *testing.T) {
+	scenario := Scenario{Name: "full", Label: "Full", FullFunding: true, Strategy: StrategyWorstFirst}
+
+	bare := Simulate(scenario, fullFundingCohorts(), 20, NewParams(0.01, fullFundingTiers(1.0), 12, 1))
+	loaded := Simulate(scenario, fullFundingCohorts(), 20, NewParams(0.01, fullFundingTiers(1.5), 12, 1))
+
+	for i := range bare.Years {
+		if bare.Years[i].PCI != loaded.Years[i].PCI {
+			t.Errorf("year %d: PCI %.12f at cost scale 1.0 but %.12f at 1.5 — "+
+				"a cost rescale must not move the PCI trajectory",
+				bare.Years[i].Year, bare.Years[i].PCI, loaded.Years[i].PCI)
+		}
+	}
+
+	// The dollars must scale, or the test above would pass on a projector that
+	// simply ignored the tiers.
+	if got, want := loaded.Years[0].AnnualNeed, bare.Years[0].AnnualNeed*1.5; math.Abs(got-want) > 1e-6 {
+		t.Errorf("year-1 need at scale 1.5 = %.6f, want %.6f — the tiers are not being applied", got, want)
+	}
+}

@@ -133,11 +133,25 @@ func ResolveCycleYears(years float64) float64 {
 // PCI recovery, accumulates per-cohort spend and deficit, and returns the
 // actual total spend. Reads this year's scratch (decayed, need) and mutates
 // states plus the cumulative accumulators.
-func (sm *simulator) distribute(totalNeed, totalSpend float64, strategy Strategy) float64 {
+//
+// fullFund selects exact allocation instead of the proportional split: each
+// cohort is handed its own need_j rather than totalSpend * (need_j/totalNeed).
+// With totalSpend == totalNeed the two are the same number in exact arithmetic,
+// but not in floating point, and the difference is not cosmetic — it decides
+// which side of applyCohortSpend's `spend >= need` test each cohort lands on,
+// and the two sides model different things (full restoration vs. recovering
+// only spendRatio*efficiency of the year's decay). Round-tripping through the
+// ratio put ~40% of cohort-years on the wrong side, so "full funding" quietly
+// under-restored them and the blended PCI moved ~0.5 points purely with the
+// cost scale. See solvent-streets-0ulx.
+func (sm *simulator) distribute(totalNeed, totalSpend float64, strategy Strategy, fullFund bool) float64 {
 	actualSpend := 0.0
 	for j := range sm.states {
 		cohortSpend := 0.0
-		if totalNeed > 0 {
+		switch {
+		case fullFund:
+			cohortSpend = sm.need[j]
+		case totalNeed > 0:
 			cohortSpend = totalSpend * (sm.need[j] / totalNeed)
 		}
 
@@ -168,6 +182,11 @@ func applyCohortSpend(st *cohortState, decayedPCI, spend, need float64, strategy
 			// every cohort. The cap triggers exactly when that shared ratio
 			// exceeds 2, so either all cohorts saturate — leaving no
 			// unsaturated cohort to receive the remainder — or none do.
+			//
+			// distribute()'s second allocation path (fullFund: spend_j =
+			// need_j exactly) preserves this. There the shared ratio is 1 for
+			// every cohort, so it never exceeds 2 and the cap is unreachable —
+			// surplus is 0 and this whole block is skipped.
 			//
 			// Two caveats. (1) The claim is scoped to this cap; it does NOT
 			// cover the maxPCI clamp below, where a cohort already at PCI 100
@@ -260,18 +279,24 @@ func Simulate(s Scenario, cohorts []Cohort, years int, p *Params) ScenarioResult
 		}
 
 		var totalSpend float64
+		// fullFund is derived here rather than read off s.FullFunding inside
+		// distribute: StrategyDoNothing forces totalSpend to 0 even when
+		// FullFunding is set, and exact allocation must not resurrect spending
+		// on that path.
+		fullFund := false
 		switch s.Strategy {
 		case StrategyDoNothing:
 			totalSpend = 0
 		case StrategyWorstFirst, StrategyPreventiveFirst:
 			if s.FullFunding {
 				totalSpend = totalNeed
+				fullFund = true
 			} else {
 				totalSpend = s.AnnualBudget
 			}
 		}
 
-		totalSpend = sm.distribute(totalNeed, totalSpend, s.Strategy)
+		totalSpend = sm.distribute(totalNeed, totalSpend, s.Strategy, fullFund)
 
 		deferredBacklog += math.Max(0, totalNeed-totalSpend)
 
