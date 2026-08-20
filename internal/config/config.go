@@ -261,8 +261,11 @@ type ForecastConfig struct {
 	// StreetSaver schedule itemizes the stack as +20% ADA curb-ramp compliance
 	// (federal law: touch a street, rebuild the ramps), +15% soft costs
 	// (design, inspection, project management) and +10% contingency —
-	// 1.20 x 1.15 x 1.10 = 1.518, rounded to DefaultCostOverhead = 1.5.
-	// See docs/validation.md §3.
+	// 1.20 x 1.15 x 1.10 = 1.518. That stack is what this knob EXPRESSES, but
+	// it is NOT the default: DefaultCostOverhead is 1.0, because the shipped
+	// tiers and treatment cycle are calibrated against real municipal
+	// hold-steady spending and so already absorb it. Applying 1.5 on top
+	// double-counts. See DefaultCostOverhead and docs/validation.md §3.
 	//
 	// This is a separate knob from cost_tiers because the two vary
 	// independently: regional construction PRICING belongs in the tiers, which
@@ -689,10 +692,17 @@ func parseConfig(data []byte) (*Config, error) {
 	// its own — the cities arrive from the merge in Load. Defer the ≥1-city
 	// requirement to the post-merge Validate then; still validate every other
 	// invariant (grid, forecast, per-city shape) on whatever cities are present.
+	//
+	// applyForecastPresence must run BEFORE validate: the [[include]]
+	// calibration gate asks forecastIsZero whether this file states a
+	// top-level [forecast], and an explicit `growth_rate = 0` is only
+	// distinguishable from an absent one via the presence bit this sets.
+	// Validating first left the bit false, so a transitive parent could
+	// smuggle a zero growth rate past the per-file gate.
+	applyForecastPresence(&cfg, data)
 	if err := cfg.validate(len(cfg.Include) == 0); err != nil {
 		return nil, err
 	}
-	applyForecastPresence(&cfg, data)
 	cfg.contentHash = hashBytes(data)
 	return &cfg, nil
 }

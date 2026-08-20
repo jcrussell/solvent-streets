@@ -273,3 +273,68 @@ growth_rate = 0.0
 		t.Errorf("provenance kind = %v, want SourceFile", prov.GrowthRate.Kind)
 	}
 }
+
+// TestGrowthRate_ZeroInIncludingParentIsRejected closes a hole in the
+// [[include]] calibration gate. That gate (Config.validate) rejects a file that
+// both declares [[include]] and states its own top-level [forecast], because
+// the merge would silently re-calibrate every included city. It asks
+// forecastIsZero, which only sees an explicit `growth_rate = 0` through the
+// presence bit — and parseConfig used to set that bit AFTER validating, so the
+// bit was always false at gate time.
+//
+// The root config was still caught by the post-merge Validate, but an
+// INTERMEDIATE parent (included by the root, and itself including a child) is
+// only ever checked per-file, so it slipped through and its zero went on to
+// flatten over its children's rates.
+func TestGrowthRate_ZeroInIncludingParentIsRejected(t *testing.T) {
+	dir := t.TempDir()
+	writeTOML(t, dir, "child/pvmt.toml", `
+[forecast]
+growth_rate = 0.03
+
+[[cities]]
+name = "Leaf Town"
+overpass = true
+`)
+	// The intermediate: it includes the child AND states its own calibration.
+	writeTOML(t, dir, "mid/pvmt.toml", `
+[forecast]
+growth_rate = 0.0
+
+[[include]]
+path = "../child/pvmt.toml"
+`)
+	path := writeTOML(t, dir, "pvmt.toml", `
+[[include]]
+path = "mid/pvmt.toml"
+`)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("Load succeeded; want the transitive parent's [forecast] growth_rate = 0 rejected by the include gate")
+	}
+	if !strings.Contains(err.Error(), "[[include]]") {
+		t.Errorf("Load error = %v, want the include-calibration gate message", err)
+	}
+}
+
+// TestGrowthRate_ZeroInLeafConfigStillLoads is the control for the test above:
+// moving applyForecastPresence ahead of validate must not make a plain
+// `growth_rate = 0` illegal in a config that has no [[include]] at all.
+func TestGrowthRate_ZeroInLeafConfigStillLoads(t *testing.T) {
+	dir := t.TempDir()
+	path := writeTOML(t, dir, "pvmt.toml", `
+[forecast]
+growth_rate = 0.0
+
+[[cities]]
+name = "Flat Town"
+overpass = true
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := growthRateOf(t, cfg, "flat-town"); got != 0 {
+		t.Errorf("flat-town growth_rate = %v, want 0", got)
+	}
+}
