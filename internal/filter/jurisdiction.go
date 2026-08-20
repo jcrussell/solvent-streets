@@ -32,6 +32,21 @@ func (j Jurisdiction) String() string {
 	}
 }
 
+// stateNameAlt is the regex alternation of every US state name (plus DC and
+// Puerto Rico), shared by every rule that has to tell a state agency from a
+// municipal one. It is a single source of truth so the two spellings of a
+// transportation department cannot drift apart in which names they recognise —
+// which is exactly how solvent-streets-niak happened: "<State> Transportation
+// Department" was anchored on this list while "<City> Department of
+// Transportation" was left as a bare substring test.
+const stateNameAlt = `alabama|alaska|arizona|arkansas|california|colorado|connecticut|delaware|` +
+	`florida|georgia|hawaii|idaho|illinois|indiana|iowa|kansas|kentucky|louisiana|` +
+	`maine|maryland|massachusetts|michigan|minnesota|mississippi|missouri|montana|` +
+	`nebraska|nevada|new hampshire|new jersey|new mexico|new york|north carolina|` +
+	`north dakota|ohio|oklahoma|oregon|pennsylvania|rhode island|south carolina|` +
+	`south dakota|tennessee|texas|utah|vermont|west virginia|virginia|washington|` +
+	`wisconsin|wyoming|district of columbia|puerto rico`
+
 var (
 	// federalRefRe matches Interstate and US-highway refs in both the
 	// spaced ("I 80", "US 101") and hyphenated ("I-80", "US-101") forms
@@ -124,14 +139,28 @@ var (
 	// Transportation Department" out: their state-named prefix is followed
 	// by another word, not by "transportation".
 	stateTransportationDeptRe = regexp.MustCompile(
-		`\b(alabama|alaska|arizona|arkansas|california|colorado|connecticut|delaware|` +
-			`florida|georgia|hawaii|idaho|illinois|indiana|iowa|kansas|kentucky|louisiana|` +
-			`maine|maryland|massachusetts|michigan|minnesota|mississippi|missouri|montana|` +
-			`nebraska|nevada|new hampshire|new jersey|new mexico|new york|north carolina|` +
-			`north dakota|ohio|oklahoma|oregon|pennsylvania|rhode island|south carolina|` +
-			`south dakota|tennessee|texas|utah|vermont|west virginia|virginia|washington|` +
-			`wisconsin|wyoming|district of columbia|puerto rico)\s+(state\s+)?` +
-			`transportation department\b`)
+		`\b(` + stateNameAlt + `)\s+(state\s+)?transportation department\b`)
+
+	// stateNameSuffixRe matches a state name occupying the END of a string.
+	// It is used on the qualifier that precedes a transportation-agency name,
+	// where anchoring at the end is what separates a state from a city that
+	// merely starts with one: "virginia beach" ends in "beach", "kansas city"
+	// in "city", while "washington" and "new york" end in themselves.
+	stateNameSuffixRe = regexp.MustCompile(`(^|\s)(` + stateNameAlt + `)$`)
+
+	// deptOfTransportationRe and spacedDOTRe capture everything in front of a
+	// transportation-agency name, in the two spellings that need a qualifier
+	// test. The optional "the"/"state" words are absorbed by the pattern
+	// rather than left in the capture, so "the state department of
+	// transportation" yields an EMPTY qualifier and not a bogus local one.
+	//
+	// spacedDOTRe requires a word boundary before "dot", which is exactly what
+	// keeps the glued state abbreviations ("massdot", "caltrans"-adjacent
+	// forms like "cdot", "odot") out of it: they have no boundary there and
+	// stay on isStateOperator's bare-"dot" fallback.
+	deptOfTransportationRe = regexp.MustCompile(
+		`^(.*?)\b(?:the\s+)?(?:state\s+)?department of transportation\b`)
+	spacedDOTRe = regexp.MustCompile(`^(.*?)\b(?:the\s+)?(?:state\s+)?dot\b`)
 )
 
 // statePostalDeny lists two-letter prefixes that look like postal codes to
@@ -236,20 +265,73 @@ func isStateOperator(operator string) bool {
 		return false
 	}
 	// Both word orders appear in OSM: "Nevada Department of Transportation"
-	// and "Nevada Transportation Department". The second order must be
-	// state-name anchored -- see stateTransportationDeptRe -- because the
-	// bare substring is far more often a city public-works agency.
-	if strings.Contains(operator, "department of transportation") ||
+	// and "Nevada Transportation Department". BOTH must be state-name
+	// anchored -- see stateTransportationDeptRe -- because either bare
+	// substring is far more often a city public-works agency: "Columbus
+	// Department of Transportation" and "Boston Transportation Department"
+	// are both municipal.
+	if isStateTransportationAgency(operator) ||
 		stateTransportationDeptRe.MatchString(operator) ||
 		strings.Contains(operator, "state highway") {
 		return true
 	}
-	// Bare "dot" token (e.g. "CDOT", "MassDOT", "ODOT") — safe to match now
-	// that county/city operators have been excluded above.
+	// Bare "dot" token (e.g. "CDOT", "MassDOT", "ODOT") -- safe to match now
+	// that county and city operators have been excluded above. The city
+	// exclusion is what carries "Columbus DOT" and "Corpus Christi DOT": a
+	// SPACE-separated "dot" with a non-state qualifier is a local agency, and
+	// isCityOperator knows that. A glued abbreviation has no qualifier to
+	// read, so it stays here and stays State.
 	if strings.Contains(operator, "dot") {
 		return true
 	}
 	return false
+}
+
+// transportationAgencyQualifier returns the words standing in front of a
+// "department of transportation" or space-separated "DOT" agency name, and
+// whether operator names such an agency at all.
+//
+// The qualifier is what decides the bucket. "Nevada Department of
+// Transportation" is a state agency; "Columbus Department of Transportation"
+// and DC's "District Department of Transportation" are municipal ones; a bare
+// "Department of Transportation" carries no qualifier at all and is the state's
+// own agency as OSM uses the tag. Louisiana's "Department of Transportation and
+// Development" reaches the same answer either way -- the pattern ends on a word
+// boundary, so the trailing "and development" neither breaks the match nor
+// lands in the qualifier.
+func transportationAgencyQualifier(operator string) (qualifier string, ok bool) {
+	for _, re := range []*regexp.Regexp{deptOfTransportationRe, spacedDOTRe} {
+		if m := re.FindStringSubmatch(operator); m != nil {
+			return strings.TrimSpace(m[1]), true
+		}
+	}
+	return "", false
+}
+
+// isStateTransportationAgency reports whether operator names a transportation
+// department belonging to a state: either state-name qualified, or carrying no
+// qualifier at all.
+func isStateTransportationAgency(operator string) bool {
+	qualifier, ok := transportationAgencyQualifier(operator)
+	return ok && (qualifier == "" || stateNameSuffixRe.MatchString(qualifier))
+}
+
+// isLocalTransportationAgency reports whether operator names a transportation
+// department run by a CITY: a qualifier that is present and is neither a state
+// name nor the two other levels of government that also run DOTs.
+//
+// The federal and county exclusions are not reachable through
+// ClassifyJurisdiction — both are decided before anything consults
+// isCityOperator — but this predicate is also read on its own, and "US
+// Department of Transportation" or "Fairfax County Department of
+// Transportation" answering yes to "is this a city agency?" is wrong on its own
+// terms and would become a live bug the first time the rule order moved.
+func isLocalTransportationAgency(operator string) bool {
+	qualifier, ok := transportationAgencyQualifier(operator)
+	if !ok || qualifier == "" || stateNameSuffixRe.MatchString(qualifier) {
+		return false
+	}
+	return !isFederalOperator(operator) && !strings.Contains(operator, "county")
 }
 
 // ClassifyJurisdiction determines road jurisdiction from OSM tags.
@@ -308,8 +390,19 @@ func ClassifyJurisdiction(tags map[string]string) Jurisdiction {
 	return JurisdictionCity
 }
 
+// isCityOperator reports whether operator names a municipal agency.
+//
+// Beyond the "city"/"municipal" tokens, it recognises a transportation
+// department whose qualifier is not a state name -- "Columbus Department of
+// Transportation", DC's "District Department of Transportation". Those carry
+// neither token, so without this they would fail the City test twice: once as
+// isStateOperator's exclusion, leaving them in the State bucket, and once at
+// ClassifyJurisdiction's highway=secondary rule, which would route them to
+// County instead.
 func isCityOperator(operator string) bool {
-	return strings.Contains(operator, "city") || strings.Contains(operator, "municipal")
+	return strings.Contains(operator, "city") ||
+		strings.Contains(operator, "municipal") ||
+		isLocalTransportationAgency(operator)
 }
 
 // Partition classifies features into jurisdiction buckets.

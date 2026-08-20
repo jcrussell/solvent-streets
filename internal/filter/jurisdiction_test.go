@@ -230,11 +230,9 @@ func TestFederalRefBeatsStatePostalDeny(t *testing.T) {
 // them federal. It deliberately does not assert their state-vs-city verdict.
 //
 // "Columbus Department of Transportation" is a city street department (Columbus
-// OH is in examples/top-50-cities), but isStateOperator's pre-existing generic
-// "department of transportation" test classifies it State. That is a separate,
-// pre-existing gap -- isCityOperator only knows the "city"/"municipal" tokens
-// -- and pinning either verdict here would either bake in a known-wrong answer
-// or silently claim a fix this batch does not make.
+// OH is in examples/top-50-cities). Its state-vs-city verdict is pinned by
+// TestMunicipalTransportationDepartments, not here; this test stays narrowly
+// about the federal \b guard so a regression in either rule names itself.
 func TestFederalOperatorWordBoundary(t *testing.T) {
 	for _, operator := range []string{
 		"columbus department of transportation",
@@ -273,6 +271,32 @@ func TestFederalAndStateOperator(t *testing.T) {
 		{"caltrans", false, true},
 		{"massdot", false, true},
 		{"oregon state highway division", false, true},
+		// "<State> Department of Transportation" is state-name anchored the
+		// same way the reversed order is, so these must survive the anchoring.
+		{"washington state department of transportation", false, true},
+		{"new york state department of transportation", false, true},
+		{"colorado dot", false, true},
+		// Louisiana's agency is "Department of Transportation and
+		// Development". The pattern ends on a word boundary, so the trailing
+		// words neither break the match nor land in the qualifier.
+		{"louisiana department of transportation and development", false, true},
+		// No qualifier at all: a bare "Department of Transportation" on a road
+		// is the state's own agency as OSM uses the tag. Articles and a
+		// leading "state" are absorbed by the pattern, not read as a city.
+		{"department of transportation", false, true},
+		{"department of transportation and development", false, true},
+		{"the state department of transportation", false, true},
+		// City agencies using the "<X> Department of Transportation" word
+		// order -- solvent-streets-niak. None contain "city"/"municipal", so
+		// only the state-name anchoring keeps them out of the State bucket.
+		{"columbus department of transportation", false, false},
+		{"district department of transportation", false, false},
+		{"columbus dot", false, false},
+		{"corpus christi dot", false, false},
+		// State-named city prefixes in this word order too: the state name has
+		// to END the qualifier, and here it is followed by another word.
+		{"virginia beach department of transportation", false, false},
+		{"kansas city department of transportation", false, false},
 		// City agencies using the "<X> Transportation Department" word order.
 		// None contain "city"/"municipal", so only the state-name anchoring
 		// in stateTransportationDeptRe keeps them out of the State bucket.
@@ -392,5 +416,82 @@ func TestRefPrefixesNeverFallToCity(t *testing.T) {
 			t.Errorf("ref %q classified City; it must land in a non-city bucket "+
 				"or its lane area joins the city's funding obligation", ref)
 		}
+	}
+}
+
+// TestMunicipalTransportationDepartments pins solvent-streets-niak end to end,
+// through ClassifyJurisdiction rather than the operator predicates alone.
+//
+// The bug: isStateOperator tested for the bare substring "department of
+// transportation", so "Columbus Department of Transportation" (Columbus OH
+// ships in examples/top-50-cities) and DC's "District Department of
+// Transportation" put municipally-maintained lane area in the State cohort,
+// understating both cities' AnnualNeed and FundingGap. The reversed word order
+// had been anchored on a state name for exactly this reason; the anchoring was
+// applied to one order only.
+//
+// highway=secondary is covered deliberately: ClassifyJurisdiction routes a
+// secondary way to County unless isCityOperator claims it, so fixing only
+// isStateOperator would have moved this lane area from State to County rather
+// than to City -- a different wrong answer, and one the published numbers could
+// not tell apart from the first.
+func TestMunicipalTransportationDepartments(t *testing.T) {
+	tests := []struct {
+		name string
+		tags map[string]string
+		want Jurisdiction
+	}{
+		{
+			name: "columbus dot residential",
+			tags: map[string]string{"highway": "residential", "operator": "Columbus Department of Transportation"},
+			want: JurisdictionCity,
+		},
+		{
+			name: "columbus dot secondary",
+			tags: map[string]string{"highway": "secondary", "operator": "Columbus Department of Transportation"},
+			want: JurisdictionCity,
+		},
+		{
+			name: "ddot secondary",
+			tags: map[string]string{"highway": "secondary", "operator": "District Department of Transportation"},
+			want: JurisdictionCity,
+		},
+		{
+			name: "columbus dot abbreviated",
+			tags: map[string]string{"highway": "residential", "operator": "Columbus DOT"},
+			want: JurisdictionCity,
+		},
+		{
+			name: "state dot stays state",
+			tags: map[string]string{"highway": "residential", "operator": "Ohio Department of Transportation"},
+			want: JurisdictionState,
+		},
+		{
+			name: "louisiana dotd stays state",
+			tags: map[string]string{"highway": "residential", "operator": "Louisiana Department of Transportation and Development"},
+			want: JurisdictionState,
+		},
+		{
+			name: "unqualified dot stays state",
+			tags: map[string]string{"highway": "residential", "operator": "Department of Transportation"},
+			want: JurisdictionState,
+		},
+		{
+			name: "federal dot stays federal",
+			tags: map[string]string{"highway": "residential", "operator": "US Department of Transportation"},
+			want: JurisdictionFederal,
+		},
+		{
+			name: "county dot stays county",
+			tags: map[string]string{"highway": "residential", "operator": "Fairfax County Department of Transportation"},
+			want: JurisdictionCounty,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ClassifyJurisdiction(tt.tags); got != tt.want {
+				t.Errorf("ClassifyJurisdiction(%v) = %s, want %s", tt.tags, got, tt.want)
+			}
+		})
 	}
 }
