@@ -119,9 +119,26 @@ var errOverpassTruncated = errors.New("overpass result truncated by server remar
 // mark the "response unusable, split the bbox and retry" class.
 var errOverpassParse = errors.New("parse overpass json")
 
+// isParseError reports whether err belongs to the "response unusable, shrink
+// the bbox and retry" class that fetchRecursive splits quadrants for.
+//
+// httpio.ErrBodyTooLarge is in that class even though it is not a parse
+// failure. Before the read moved to httpio.ReadAllLimit, both this package and
+// the cache transport read through a silently-truncating io.LimitReader, so an
+// oversized response reached parseOverpassResponse, failed json.Unmarshal, and
+// split. Detecting the overflow instead of truncating it is the right change,
+// but it reclassified the error out of this set, and a city whose roads
+// response exceeds the limit went from "succeeds after splitting" to
+// ErrAllSourcesFailed for the whole resource.
+//
+// Both routes to the sentinel are covered: this package's own read (bare
+// clients, i.e. tests) and the cache transport's read, which in production runs
+// first as the outermost roundtripper and surfaces through client.Do wrapped in
+// a *url.Error. errors.Is unwraps both.
 func isParseError(err error) bool {
 	return err != nil && (errors.Is(err, errOverpassParse) ||
-		errors.Is(err, errOverpassTruncated))
+		errors.Is(err, errOverpassTruncated) ||
+		errors.Is(err, httpio.ErrBodyTooLarge))
 }
 
 // remarkIndicatesTruncation reports whether an Overpass top-level remark signals

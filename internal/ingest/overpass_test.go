@@ -4,10 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"unicode/utf8"
 
+	"github.com/jcrussell/solvent-streets/internal/httpio"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
@@ -425,5 +431,94 @@ func TestCoordsToPolygonGeoJSON(t *testing.T) {
 	}
 	if len(obj.Coordinates[0]) != 5 {
 		t.Errorf("expected 5 coords in ring, got %d", len(obj.Coordinates[0]))
+	}
+}
+
+// TestIsParseError_BodyTooLarge pins the q48z.4 fix. An oversized response body
+// belongs to the "response unusable, shrink the bbox and retry" class that
+// fetchRecursive splits quadrants for. Both routes to the sentinel must be
+// recognised: this package's own ReadAllLimit call, and the cache transport's,
+// which surfaces through client.Do wrapped in a *url.Error.
+func TestIsParseError_BodyTooLarge(t *testing.T) {
+	cases := map[string]error{
+		"bare sentinel": httpio.ErrBodyTooLarge,
+		"overpass read": fmt.Errorf("read overpass response: %w", httpio.ErrBodyTooLarge),
+		"cache transport": fmt.Errorf("overpass request: %w",
+			&url.Error{Op: "Post", URL: overpassAPI, Err: httpio.ErrBodyTooLarge}),
+	}
+	for name, err := range cases {
+		t.Run(name, func(t *testing.T) {
+			if !isParseError(err) {
+				t.Errorf("isParseError(%v) = false, want true", err)
+			}
+		})
+	}
+
+	// Guard the other direction: an ordinary transport failure is NOT this
+	// class, and splitting the bbox on it would quadruple the request count
+	// against an endpoint that is already failing.
+	if isParseError(fmt.Errorf("overpass request: %w", errors.New("connection refused"))) {
+		t.Errorf("isParseError matched an unrelated transport error")
+	}
+}
+
+// roundTripFunc adapts a function to http.RoundTripper so a test can serve
+// canned Overpass responses without the const overpassAPI endpoint.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// TestFetch_OversizedBodySplitsQuadrants is the behavioral half of the q48z.4
+// fix: a first response over the size cap must drive the quadrant split, not
+// abort the whole resource. Before the fix the oversized body surfaced as
+// httpio.ErrBodyTooLarge, isParseError returned false, and fetchRecursive
+// returned the error straight out — which fetchFromSources then turned into
+// ErrAllSourcesFailed for a city that used to succeed after splitting.
+func TestFetch_OversizedBodySplitsQuadrants(t *testing.T) {
+	prev := maxResponseBodyBytes
+	maxResponseBodyBytes = 256
+	t.Cleanup(func() { maxResponseBodyBytes = prev })
+
+	// One way per quadrant, with a distinct id so the cross-quadrant dedup
+	// can't collapse them.
+	quadrantBody := func(id int) string {
+		return fmt.Sprintf(`{"elements":[{"type":"way","id":%d,`+
+			`"tags":{"highway":"residential"},`+
+			`"geometry":[{"lat":37.68,"lon":-121.77},{"lat":37.69,"lon":-121.76}]}]}`, id)
+	}
+
+	var mu sync.Mutex
+	requests := 0
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		mu.Lock()
+		requests++
+		n := requests
+		mu.Unlock()
+
+		body := quadrantBody(1000 + n)
+		if n == 1 {
+			// Comfortably over the 256-byte cap set above.
+			body = `{"elements":[],"padding":"` + strings.Repeat("x", 512) + `"}`
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     make(http.Header),
+			Request:    r,
+		}, nil
+	})}
+
+	src := &OverpassSource{BBox: [4]float64{37.6, -121.9, 37.8, -121.6}}
+	features, err := src.Fetch(context.Background(), client, resource.ByType(resource.TypeRoads))
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+
+	// 1 oversized request at depth 0 + one per quadrant at depth 1.
+	if requests != 5 {
+		t.Errorf("made %d requests, want 5 (1 oversized + 4 quadrants)", requests)
+	}
+	if len(features) != 4 {
+		t.Errorf("got %d features, want 4 (one per quadrant)", len(features))
 	}
 }

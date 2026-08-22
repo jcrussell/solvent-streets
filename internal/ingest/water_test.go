@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/logs"
@@ -1636,5 +1637,56 @@ func TestPolygonsFromRelation_InnerFallsThroughRejectedOuter(t *testing.T) {
 	// Sanity: holes[0] starts at inner I's first vertex.
 	if got := polys[0].holes[0][0]; got != [2]float64{2.5, 2.5} {
 		t.Errorf("hole first vertex: got %v, want [2.5 2.5]", got)
+	}
+}
+
+// TestFetchOSMWater_OversizedBodySplitsQuadrants covers the water half of the
+// q48z.4 fix. fetchWaterElements already had the quadrant machinery, but it was
+// reached only from the server's truncation remark: an oversized response
+// errored out of postOverpass and propagated straight up, hard-failing the
+// ingest for a bbox that splitting would have handled.
+func TestFetchOSMWater_OversizedBodySplitsQuadrants(t *testing.T) {
+	prev := maxResponseBodyBytes
+	maxResponseBodyBytes = 512
+	t.Cleanup(func() { maxResponseBodyBytes = prev })
+
+	// One small water square per quadrant, offset so they don't merge.
+	quadrantBody := func(id int) string {
+		lat := 42.36 + float64(id)*0.01
+		return fmt.Sprintf(`{"elements":[{"type":"way","id":%d,"tags":{"natural":"water"},"geometry":[`+
+			`{"lat":%[2]f,"lon":-71.06},{"lat":%[2]f,"lon":-71.05},`+
+			`{"lat":%f,"lon":-71.05},{"lat":%[4]f,"lon":-71.06},`+
+			`{"lat":%[2]f,"lon":-71.06}]}]}`, id, lat, lat+0.002, lat+0.002)
+	}
+
+	var mu sync.Mutex
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		requests++
+		n := requests
+		mu.Unlock()
+
+		w.WriteHeader(http.StatusOK)
+		if n == 1 {
+			// Comfortably over the 512-byte cap set above.
+			_, _ = w.Write([]byte(`{"elements":[],"padding":"` + strings.Repeat("x", 1024) + `"}`))
+			return
+		}
+		_, _ = w.Write([]byte(quadrantBody(n)))
+	}))
+	t.Cleanup(srv.Close)
+
+	result, err := fetchOSMWater(context.Background(), uaClient(srv), srv.URL,
+		[4]float64{42.0, -72.0, 43.0, -71.0}, [][2]float64{{-71.5, 42.5}})
+	if err != nil {
+		t.Fatalf("fetchOSMWater: %v (an oversized body must split, not hard-fail)", err)
+	}
+	// 1 oversized request at depth 0 + one per quadrant at depth 1.
+	if requests != 5 {
+		t.Errorf("made %d requests, want 5 (1 oversized + 4 quadrants)", requests)
+	}
+	if !strings.HasPrefix(result, `{"type":"MultiPolygon"`) {
+		t.Errorf("expected MultiPolygon GeoJSON assembled from the quadrants; got %q", result)
 	}
 }

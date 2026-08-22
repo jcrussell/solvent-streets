@@ -63,7 +63,16 @@ func fetchOSMWater(ctx context.Context, client *http.Client, baseURL string, bbo
 func fetchWaterElements(ctx context.Context, client *http.Client, baseURL string, bbox [4]float64, seen map[string]bool, depth int) ([]overpassElement, error) {
 	body, err := postOverpass(ctx, client, baseURL, buildWaterQuery(bbox))
 	if err != nil {
-		return nil, err
+		// An oversized response body belongs to the same "response unusable,
+		// shrink the bbox" class as a truncation remark (see isParseError), and
+		// this function already has the quadrant machinery for it. Without this
+		// arm a water response over the size cap hard-failed the ingest, even
+		// though splitting would have succeeded — the same regression
+		// fetchRecursive had for roads.
+		if !isParseError(err) || depth >= maxSplitDepth {
+			return nil, err
+		}
+		return fetchWaterQuadrants(ctx, client, baseURL, bbox, seen, depth)
 	}
 	elements, truncated, err := parseWaterElements(body)
 	if err != nil {
@@ -73,15 +82,7 @@ func fetchWaterElements(ctx context.Context, client *http.Client, baseURL string
 		if depth >= maxSplitDepth {
 			return nil, fmt.Errorf("overpass water remark: %w", errOverpassTruncated)
 		}
-		var all []overpassElement
-		for _, q := range splitBBox(bbox) {
-			qElements, qErr := fetchWaterElements(ctx, client, baseURL, q, seen, depth+1)
-			if qErr != nil {
-				return nil, qErr
-			}
-			all = append(all, qElements...)
-		}
-		return all, nil
+		return fetchWaterQuadrants(ctx, client, baseURL, bbox, seen, depth)
 	}
 
 	// Dedup by stable element key (type+id), mirroring fetchRecursive's
@@ -97,6 +98,22 @@ func fetchWaterElements(ctx context.Context, client *http.Client, baseURL string
 		unique = append(unique, e)
 	}
 	return unique, nil
+}
+
+// fetchWaterQuadrants splits bbox into quadrants and concatenates their
+// elements. Shared by the two reasons a response is unusable — an oversized
+// body and a server truncation remark — so they cannot drift apart. Dedup is
+// left to the callee via the shared seen map.
+func fetchWaterQuadrants(ctx context.Context, client *http.Client, baseURL string, bbox [4]float64, seen map[string]bool, depth int) ([]overpassElement, error) {
+	var all []overpassElement
+	for _, q := range splitBBox(bbox) {
+		qElements, qErr := fetchWaterElements(ctx, client, baseURL, q, seen, depth+1)
+		if qErr != nil {
+			return nil, qErr
+		}
+		all = append(all, qElements...)
+	}
+	return all, nil
 }
 
 // parseWaterElements unmarshals an Overpass water response body and
