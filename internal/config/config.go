@@ -300,26 +300,43 @@ type ForecastConfig struct {
 // explicit 0 from an absent field; see growthRateSet.
 func (fc *ForecastConfig) GrowthRateSet() bool { return fc != nil && fc.growthRateSet }
 
+// nonFinite reports whether v is NaN or either infinity.
+//
+// It exists because TOML accepts the `nan` and `inf` float literals
+// (BurntSushi/toml v1.6.0, parse.go:509) and every comparison against NaN is
+// false, so a bare range check like `v < 0 || v > 100` admits NaN silently and
+// the value flows on into the forecast. Pair this with every float bound in
+// this package. The failure modes are not cosmetic: a NaN forecast knob makes
+// `pvmt forecast` print "Initial PCI: NaN" and every dollar column as NaN with
+// exit code 0, and a non-finite grid.hex_edge_m yields a silently empty hex
+// layer (see the geo.HexGrid guard).
+func nonFinite(v float64) bool { return math.IsNaN(v) || math.IsInf(v, 0) }
+
 // Validate rejects obviously-wrong forecast inputs at config-load time
 // per byob-input-validation.2. Zero values are allowed for fields whose
 // comment says "0 means default" (InitialPCI, DecayRate, Years);
 // NormalizeForecast fills those in. GrowthRate has no default sentinel
 // so 0 is a legitimate "no growth" value.
+//
+// Every float check is paired with nonFinite: a bare range comparison admits
+// NaN, because all comparisons against NaN are false. cost_overhead's check is
+// the exception that needs no pairing — its `!(x > 0 && x <= 5)` form already
+// rejects NaN.
 func (fc *ForecastConfig) Validate() error {
-	if fc.InitialPCI < 0 || fc.InitialPCI > 100 {
+	if nonFinite(fc.InitialPCI) || fc.InitialPCI < 0 || fc.InitialPCI > 100 {
 		return fmt.Errorf("forecast.initial_pci %g out of range (0-100)", fc.InitialPCI)
 	}
-	if fc.DecayRate < 0 || fc.DecayRate > 1 {
+	if nonFinite(fc.DecayRate) || fc.DecayRate < 0 || fc.DecayRate > 1 {
 		return fmt.Errorf("forecast.decay_rate %g out of range (0-1)", fc.DecayRate)
 	}
-	if fc.GrowthRate < -0.5 || fc.GrowthRate > 0.5 {
+	if nonFinite(fc.GrowthRate) || fc.GrowthRate < -0.5 || fc.GrowthRate > 0.5 {
 		return fmt.Errorf("forecast.growth_rate %g out of range (-0.5 to 0.5)", fc.GrowthRate)
 	}
 	if fc.Years < 0 {
 		return fmt.Errorf("forecast.years %d must be non-negative", fc.Years)
 	}
-	if fc.CurrentBudget < 0 {
-		return fmt.Errorf("forecast.current_budget %g must be non-negative", fc.CurrentBudget)
+	if nonFinite(fc.CurrentBudget) || fc.CurrentBudget < 0 {
+		return fmt.Errorf("forecast.current_budget %g must be a non-negative finite number", fc.CurrentBudget)
 	}
 	// 0 means "use DefaultCostOverhead". A negative or NaN multiplier would
 	// produce negative or blank dollar figures with nothing to flag them, and a
@@ -332,7 +349,8 @@ func (fc *ForecastConfig) Validate() error {
 	// 0 means "use default"; a positive but sub-annual cycle (<1) would make the
 	// 1/N gating exceed the full network, and an implausibly long cycle (>40 yr)
 	// is almost certainly a typo. The forecast core resolves 0 to the default.
-	if fc.TreatmentCycleYears != 0 && (fc.TreatmentCycleYears < 1 || fc.TreatmentCycleYears > 40) {
+	if nonFinite(fc.TreatmentCycleYears) ||
+		(fc.TreatmentCycleYears != 0 && (fc.TreatmentCycleYears < 1 || fc.TreatmentCycleYears > 40)) {
 		return fmt.Errorf("forecast.treatment_cycle_years %g out of range (1-40, or 0 for default)", fc.TreatmentCycleYears)
 	}
 	return validateCostTiers(fc.CostTiers)
@@ -800,13 +818,20 @@ func (c *Config) validate(requireCities bool) error {
 			"a config with [[include]] must keep top-level [grid]/[forecast] and display.min_hex_area empty; "+
 				"they would silently re-calibrate included cities (set per-city or per-example instead)"))
 	}
-	if c.Grid.HexEdgeM < 0 {
+	// nonFinite is load-bearing here, not tidiness. resolveHexEdge gates on
+	// `> 0`, which is false for NaN (so a NaN edge harmlessly falls back to the
+	// default) but TRUE for +Inf — making +Inf the only non-finite edge that can
+	// reach geo.HexGrid from the CLI. There it produces a single hex with an
+	// all-NaN polygon whose envelope overlaps nothing, so the R-tree search
+	// returns no candidates and the city exports with an empty hex layer and no
+	// error anywhere. Reject it at load instead.
+	if nonFinite(c.Grid.HexEdgeM) || c.Grid.HexEdgeM < 0 {
 		return errors.Join(ErrInvalidConfig,
-			fmt.Errorf("grid.hex_edge_m %g must be non-negative", c.Grid.HexEdgeM))
+			fmt.Errorf("grid.hex_edge_m %g must be a non-negative finite number", c.Grid.HexEdgeM))
 	}
-	if c.Display.MinHexArea < 0 {
+	if nonFinite(c.Display.MinHexArea) || c.Display.MinHexArea < 0 {
 		return errors.Join(ErrInvalidConfig,
-			fmt.Errorf("display.min_hex_area %g must be non-negative", c.Display.MinHexArea))
+			fmt.Errorf("display.min_hex_area %g must be a non-negative finite number", c.Display.MinHexArea))
 	}
 	// export.coordinate_decimals feeds CoordinateDecimals(), which silently
 	// falls back to DefaultCoordinateDecimals for any non-positive value — so a
@@ -835,7 +860,7 @@ func (c *Config) validate(requireCities bool) error {
 	// The upper bound is a typo guard: past a kilometre the "boundary" is no
 	// longer recognizable as the city, and nobody wants that on purpose.
 	const maxBoundarySimplifyM = 1000.0
-	if math.IsNaN(c.Export.BoundarySimplifyM) || math.IsInf(c.Export.BoundarySimplifyM, 0) {
+	if nonFinite(c.Export.BoundarySimplifyM) {
 		return errors.Join(ErrInvalidConfig,
 			fmt.Errorf("export.boundary_simplify_m must be a finite number, got %g",
 				c.Export.BoundarySimplifyM))
@@ -906,17 +931,17 @@ func (c *Config) validateCities() error {
 // Split from validateCities, which keeps the name/slug/uniqueness loop, to hold each
 // function's cognitive complexity in bounds.
 func validateCityFields(i int, city CityConfig) error {
-	if city.HexEdgeM < 0 {
+	if nonFinite(city.HexEdgeM) || city.HexEdgeM < 0 {
 		return errors.Join(ErrInvalidConfig,
-			fmt.Errorf("cities[%d] (%s): hex_edge_m %g must be non-negative", i, city.Name, city.HexEdgeM))
+			fmt.Errorf("cities[%d] (%s): hex_edge_m %g must be a non-negative finite number", i, city.Name, city.HexEdgeM))
 	}
 	// Mirrors the top-level display.min_hex_area check in validate: a negative
 	// literal would fall through ResolvedMinHexArea's `> 0` guard to the
 	// top-level/default value with no diagnostic, silently discarding the
 	// threshold the author meant to set. 0 is allowed (means "inherit").
-	if city.MinHexArea < 0 {
+	if nonFinite(city.MinHexArea) || city.MinHexArea < 0 {
 		return errors.Join(ErrInvalidConfig,
-			fmt.Errorf("cities[%d] (%s): min_hex_area %g must be non-negative", i, city.Name, city.MinHexArea))
+			fmt.Errorf("cities[%d] (%s): min_hex_area %g must be a non-negative finite number", i, city.Name, city.MinHexArea))
 	}
 	if city.BoundaryRelationID < 0 {
 		return errors.Join(ErrInvalidConfig,

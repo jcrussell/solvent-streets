@@ -30,12 +30,17 @@ func HexGrid(minX, minY, maxX, maxY, edge float64) []Hex {
 	// tile. Return nil — the same result the loops produce when they cover no
 	// cell — so callers need no new error channel.
 	//
-	// NaN needs its own test: NaN <= 0 is false, so a NaN edge slipped through
-	// and produced one hex whose polygon is entirely NaN. The hexArea <= 0
-	// guard further down misses it for the same reason, so it would reach the
-	// coverage math and yield pct = NaN. Not reachable through the CLI —
-	// resolveHexEdgeForCity gates on > 0 — but this is an exported function.
-	if math.IsNaN(edge) || edge <= 0 || maxX <= minX || maxY <= minY {
+	// NaN and ±Inf each need their own test, because `edge <= 0` is false for
+	// all three. A non-finite edge produces exactly one hex whose polygon is
+	// entirely NaN, and the hexArea <= 0 guard further down never sees it: a
+	// NaN envelope overlaps nothing, so the R-tree search in ComputeHexStats
+	// returns zero candidates and the function returns early. The result is a
+	// silently EMPTY hex layer — a blank city — not NaN coverage.
+	//
+	// +Inf is the reachable one. config rejects non-finite hex_edge_m at load
+	// now, but that gate postdates this one and HexGrid is exported, so keep
+	// the check here too.
+	if math.IsNaN(edge) || math.IsInf(edge, 0) || edge <= 0 || maxX <= minX || maxY <= minY {
 		return nil
 	}
 

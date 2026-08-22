@@ -54,11 +54,19 @@ func TestHexGrid_DegenerateInputsReturnNil(t *testing.T) {
 		{"inverted_y", 0, 100, 100, 0, 10},
 		{"empty_x", 50, 0, 50, 100, 10},
 		{"empty_y", 0, 50, 100, 50, 10},
-		// NaN needs its own case: NaN <= 0 is false, so it slipped past the
-		// guard entirely and produced one hex whose polygon was all NaN. The
-		// hexArea <= 0 check downstream misses it for the same reason, so the
-		// NaN would have reached the coverage math and come out as pct = NaN.
+		// The non-finite edges each need their own case: `edge <= 0` is false
+		// for all three, so they slipped past the guard entirely and produced
+		// one hex whose polygon was all NaN. That hex does NOT poison the
+		// coverage math — its NaN envelope overlaps nothing, so the R-tree
+		// search returns no candidates and ComputeHexStats returns early. The
+		// outcome is a silently empty hex layer, i.e. a blank city.
+		//
+		// +Inf is the reachable one: resolveHexEdge gates on `> 0`, which is
+		// false for NaN but true for +Inf, so a `hex_edge_m = inf` config
+		// landed here before config grew its own finite guard.
 		{"nan_edge", 0, 0, 1000, 1000, math.NaN()},
+		{"pos_inf_edge", 0, 0, 1000, 1000, math.Inf(1)},
+		{"neg_inf_edge", 0, 0, 1000, 1000, math.Inf(-1)},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

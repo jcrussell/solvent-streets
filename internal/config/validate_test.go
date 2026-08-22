@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -23,6 +24,21 @@ func TestForecastConfig_Validate_RejectsBad(t *testing.T) {
 		"tier min negative":   {CostTiers: []CostTierCfg{{MinPCI: -1, MaxPCI: 40, CostPerSqM: 5, Label: "x"}}},
 		"tier max over 101":   {CostTiers: []CostTierCfg{{MinPCI: 0, MaxPCI: 150, CostPerSqM: 5, Label: "x"}}},
 		"tier empty label":    {CostTiers: []CostTierCfg{{MinPCI: 0, MaxPCI: 40, CostPerSqM: 5, Label: ""}}},
+		// NaN is the case a bare range check cannot catch: every ordered
+		// comparison against it is false, so `x < 0 || x > 100` admits it and
+		// the value reaches `pvmt forecast`, which prints "Initial PCI: NaN"
+		// and every dollar column as NaN with exit code 0. cost_overhead was
+		// already covered by its `!(x > 0 && x <= 5)` form; these five were not.
+		"initial NaN": {InitialPCI: math.NaN()},
+		"decay NaN":   {DecayRate: math.NaN()},
+		"growth NaN":  {GrowthRate: math.NaN()},
+		"budget NaN":  {CurrentBudget: math.NaN()},
+		"cycle NaN":   {TreatmentCycleYears: math.NaN()},
+		// +Inf slips past every "must be non-negative" check for the same
+		// reason a negative literal does not.
+		"budget +Inf":  {CurrentBudget: math.Inf(1)},
+		"initial +Inf": {InitialPCI: math.Inf(1)},
+		"cycle +Inf":   {TreatmentCycleYears: math.Inf(1)},
 	}
 	for name, fc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -534,5 +550,65 @@ func TestConfig_Validate_ErrChainsErrInvalidConfig(t *testing.T) {
 	}
 	if !errors.Is(err, ErrNoCities) {
 		t.Errorf("error %v does not chain to ErrNoCities", err)
+	}
+}
+
+// TestLoadFS_RejectsNonFiniteFloatKnobs sweeps every float knob in the package
+// through the real TOML ingress. BurntSushi/toml accepts the `nan`, `inf` and
+// `-inf` literals, so all of these are reachable from a hand-written pvmt.toml.
+//
+// Before the finite guards, this sweep passed for six of the eight knobs below:
+// forecast.{decay_rate,growth_rate,current_budget,treatment_cycle_years,
+// initial_pci} and display.min_hex_area all loaded clean with a NaN value, and
+// grid.hex_edge_m accepted +Inf. Only forecast.cost_overhead and
+// export.boundary_simplify_m (its own test above) rejected anything.
+//
+// grid.hex_edge_m is the worst of them: +Inf passes resolveHexEdge's `> 0`
+// gate, reaches geo.HexGrid, and yields a silently empty hex layer.
+func TestLoadFS_RejectsNonFiniteFloatKnobs(t *testing.T) {
+	// %s is the non-finite literal under test.
+	knobs := map[string]string{
+		"forecast.initial_pci":           "[forecast]\ninitial_pci = %s\n",
+		"forecast.decay_rate":            "[forecast]\ndecay_rate = %s\n",
+		"forecast.growth_rate":           "[forecast]\ngrowth_rate = %s\n",
+		"forecast.current_budget":        "[forecast]\ncurrent_budget = %s\n",
+		"forecast.treatment_cycle_years": "[forecast]\ntreatment_cycle_years = %s\n",
+		"forecast.cost_overhead":         "[forecast]\ncost_overhead = %s\n",
+		"display.min_hex_area":           "[display]\nmin_hex_area = %s\n",
+		"grid.hex_edge_m":                "[grid]\nhex_edge_m = %s\n",
+	}
+	const city = "\n[[cities]]\nname = \"Oakland, CA\"\noverpass = true\n"
+	for knob, tmpl := range knobs {
+		for _, lit := range []string{"nan", "inf", "-inf"} {
+			t.Run(knob+"="+lit, func(t *testing.T) {
+				toml := fmt.Sprintf(tmpl, lit) + city
+				fsys := fstest.MapFS{"pvmt.toml": &fstest.MapFile{Data: []byte(toml)}}
+				if _, err := LoadFS(fsys, "pvmt.toml"); err == nil {
+					t.Fatalf("%s = %s loaded clean; want a validation error", knob, lit)
+				}
+			})
+		}
+	}
+}
+
+// TestLoadFS_RejectsNonFinitePerCityKnobs mirrors the sweep above for the
+// per-city overrides. validateCityFields' comments already promise these track
+// the top-level checks; without the finite guard they did not.
+func TestLoadFS_RejectsNonFinitePerCityKnobs(t *testing.T) {
+	knobs := map[string]string{
+		"cities[0].hex_edge_m":           "hex_edge_m = %s\n",
+		"cities[0].min_hex_area":         "min_hex_area = %s\n",
+		"cities[0].forecast.initial_pci": "[cities.forecast]\ninitial_pci = %s\n",
+	}
+	for knob, tmpl := range knobs {
+		for _, lit := range []string{"nan", "inf", "-inf"} {
+			t.Run(knob+"="+lit, func(t *testing.T) {
+				toml := "[[cities]]\nname = \"Oakland, CA\"\noverpass = true\n" + fmt.Sprintf(tmpl, lit)
+				fsys := fstest.MapFS{"pvmt.toml": &fstest.MapFile{Data: []byte(toml)}}
+				if _, err := LoadFS(fsys, "pvmt.toml"); err == nil {
+					t.Fatalf("%s = %s loaded clean; want a validation error", knob, lit)
+				}
+			})
+		}
 	}
 }
