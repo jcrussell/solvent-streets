@@ -429,6 +429,34 @@ func TestFederalAndStateOperator(t *testing.T) {
 		// An operator that explicitly disclaims a DOT is not naming one.
 		// Without notDOTRe this reaches the bare-"dot" fallback and is State.
 		{"not fdot", false, false},
+		// ...and the same disclaimer aimed at a FEDERAL agency must not come
+		// back Federal. ClassifyJurisdiction asks isFederalOperator first, so
+		// guarding only isStateOperator left these inverted.
+		{"not usdot", false, false},
+		// ...but only where the disclaimed token ends in "dot", which is all
+		// notDOTRe claims to match. "not fhwa" stays Federal. Pinned so the
+		// boundary is visible rather than surprising the next reader: zero
+		// disclaimers of any shape but "not fdot" exist in the corpus, and
+		// widening the regex would be guessing at a shape rather than
+		// measuring one.
+		{"not fhwa", true, false},
+		// The leading "the" deptOfTransportationRe leaves in the qualifier is
+		// dropped, so this stays State.
+		{"the nc department of transportation", false, true},
+		// A state CODE at the end of a qualifier is how a CITY is
+		// disambiguated, not how a state agency is named. A suffix test would
+		// read all three as state agencies and move municipal lane area out of
+		// the City cohort -- solvent-streets-niak's direction, one
+		// abbreviation at a time. isStateQualifier requires the abbreviation
+		// to be the WHOLE qualifier for exactly this reason.
+		{"charlotte nc department of transportation", false, false},
+		{"boston ma department of transportation", false, false},
+		{"columbus oh dot", false, false},
+		// "co" is in stateAbbrev for Colorado and is also how "County" is
+		// abbreviated. Whole-qualifier matching is what keeps this out of the
+		// State bucket.
+		{"fairfax co dot", false, false},
+		{"marin co department of transportation", false, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.operator, func(t *testing.T) {
@@ -666,6 +694,20 @@ func TestAbbreviatedStateTransportationAgencies(t *testing.T) {
 		"LA Department of Transportation",
 		"DC Department of Transportation",
 		"District Department of Transportation",
+		// "<City> <ST>" -- the ordinary way to disambiguate a city, and the
+		// reason isStateQualifier matches the whole qualifier rather than its
+		// last token. Caught in review of the commit that added the function:
+		// a suffix test made all three State, taking municipal lane area out
+		// of the city's area, AnnualNeed and FundingGap.
+		"Charlotte NC Department of Transportation",
+		"Boston MA Department of Transportation",
+		"Columbus OH DOT",
+		// "co" is Colorado in stateAbbrev and "County" in the wild. County
+		// would be the better bucket for these two, but City is the answer
+		// this file gave before stateAbbrev existed and the point here is that
+		// stateAbbrev did not change it; the County question is its own.
+		"Fairfax Co DOT",
+		"Marin Co Department of Transportation",
 	}
 	// highway is varied because the two half-fixes land in different buckets.
 	for _, highway := range []string{"residential", "secondary"} {
