@@ -36,7 +36,21 @@ func Main() int {
 }
 
 func exitCode(err error, errOut io.Writer) int {
-	if errors.Is(err, cmdutil.ErrCancel) || errors.Is(err, context.Canceled) {
+	// A declined confirmation prompt is a deliberate user choice, so it is a
+	// success: exit 0. An INTERRUPT is not. Mapping context.Canceled to 0 here
+	// too meant `pvmt check-site && deploy` and `pvmt export && deploy` treated
+	// a half-done run as a green gate — the gate reported ready for checks that
+	// never ran, and export exited 0 with a partially written site after
+	// SafeCleanDir had already removed the previous one (solvent-streets-kh5n).
+	// Cancellation now falls through to the generic arm below: printed, exit 1.
+	//
+	// Deliberately NOT a dedicated quiet `context.Canceled -> 1` arm. A
+	// multi-city run that is interrupted after real per-city failures returns
+	// errors.Join(failures..., ctx.Err()) from cmdutil.ForEachCity, so an arm
+	// matching on errors.Is and printing a fixed "interrupted" line would
+	// swallow those failures. Falling through costs a blunt
+	// "Error: context canceled" on a bare Ctrl-C and hides nothing.
+	if errors.Is(err, cmdutil.ErrCancel) {
 		return 0
 	}
 	err = classifyUsageError(err)

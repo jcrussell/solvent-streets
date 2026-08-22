@@ -81,7 +81,8 @@ func TestCheckSite_CancelledContext(t *testing.T) {
 		t.Fatalf("want context.Canceled, got %v", err)
 	}
 	// The cancellation probe fires before the first check, so no summary line
-	// ("N passed, ...") should have been printed.
+	// ("N passed, ...") should have been printed. The bare ctx error is the
+	// interrupt signal itself; exitCode maps it to 1 (solvent-streets-kh5n).
 	if strings.Contains(out.String(), "passed,") {
 		t.Errorf("cancelled run should abort before finish(); got output:\n%s", out.String())
 	}
@@ -583,10 +584,10 @@ func TestCheckSite_InterruptedAfterFailStillReportsFailure(t *testing.T) {
 	if !errors.Is(err, cmdutil.ErrSilent) {
 		t.Fatalf("runCheckSite = %v, want cmdutil.ErrSilent so the run exits non-zero\n%s", err, out.String())
 	}
-	// Load-bearing: exitCode checks context.Canceled BEFORE ErrSilent, so an
-	// error that still wraps Canceled maps to exit 0 and the fix is undone.
+	// finish() must be REACHED, not merely survived: returning the ctx error
+	// (even joined with ErrSilent) would mean the tally below never printed.
 	if errors.Is(err, context.Canceled) {
-		t.Errorf("returned error wraps context.Canceled; exitCode would map it to 0")
+		t.Errorf("returned error wraps context.Canceled; finish() was not reached")
 	}
 	if !strings.Contains(out.String(), "passed,") {
 		t.Errorf("no summary line printed for an interrupted run with failures:\n%s", out.String())
@@ -598,8 +599,10 @@ func TestCheckSite_InterruptedAfterFailStillReportsFailure(t *testing.T) {
 
 // TestCheckSite_InterruptedWithNoFailuresStaysQuiet is the companion guard for
 // finding 881e: with nothing recorded there is no verdict to report, so a clean
-// interrupt must still abort quietly and exit 0 rather than printing a summary
-// for checks that never ran.
+// interrupt must abort quietly rather than printing a summary for checks that
+// never ran. Quiet, but not successful — the bare context.Canceled it returns
+// now maps to exit 1, so `check-site && deploy` cannot publish a site whose
+// remaining checks were skipped (solvent-streets-kh5n).
 func TestCheckSite_InterruptedWithNoFailuresStaysQuiet(t *testing.T) {
 	dir := buildValidSite(t)
 

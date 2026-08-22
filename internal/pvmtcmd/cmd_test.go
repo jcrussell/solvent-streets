@@ -15,8 +15,8 @@ import (
 
 // TestExitCode covers the mapping from error shape to process exit code.
 // FlagError (and the usage-error paths that classifyUsageError wraps
-// as FlagError) → 2; ErrNoResults → 3; ErrCancel/context.Canceled → 0;
-// everything else → 1. Cross-check on byob-errors.4 and
+// as FlagError) → 2; ErrNoResults → 3; ErrCancel → 0; everything else,
+// context.Canceled included, → 1. Cross-check on byob-errors.4 and
 // byob-command-shape.6: a `pvmt nope` typo and a cobra flag-group
 // violation must both exit 2, not 1, since both are user errors.
 func TestExitCode(t *testing.T) {
@@ -28,7 +28,11 @@ func TestExitCode(t *testing.T) {
 		want int
 	}{
 		{"cancel sentinel", cmdutil.ErrCancel, 0},
-		{"context canceled", context.Canceled, 0},
+		// An interrupt is not a success: the command did not finish its
+		// work, and exiting 0 let a chained `check-site && deploy` publish
+		// a site whose remaining checks never ran (solvent-streets-kh5n).
+		{"context canceled", context.Canceled, 1},
+		{"context canceled wrapped", fmt.Errorf("export: %w", context.Canceled), 1},
 		{"flag error", &cmdutil.FlagError{Err: errors.New("--port out of range")}, 2},
 		{"flag error wrapped", fmt.Errorf("wrap: %w", &cmdutil.FlagError{Err: errors.New("bad")}), 2},
 		{"unknown command", errors.New(`unknown command "nope" for "pvmt"`), 2},
@@ -80,6 +84,27 @@ func TestExitCode_SilentSuppressesPrint(t *testing.T) {
 				t.Fatalf("exitCode wrote %q, want empty", buf.String())
 			}
 		})
+	}
+}
+
+// TestExitCode_CancelledJoinDoesNotSwallowFailures pins why cancellation has
+// no dedicated arm in exitCode (solvent-streets-kh5n).
+//
+// cmdutil.ForEachCity appends ctx.Err() to its error slice and returns
+// errors.Join(...), so a multi-city run interrupted AFTER real per-city
+// failures returns an error that wraps context.Canceled and those failures
+// together. A quiet `errors.Is(err, context.Canceled) -> print "interrupted"`
+// arm — the tidier-looking option — would match that error and hide every
+// failure in it. Cancellation therefore falls through to the generic arm.
+func TestExitCode_CancelledJoinDoesNotSwallowFailures(t *testing.T) {
+	err := errors.Join(errors.New("oakland-ca: locked database"), context.Canceled)
+
+	var buf bytes.Buffer
+	if got := exitCode(err, &buf); got != 1 {
+		t.Fatalf("exitCode = %d, want 1", got)
+	}
+	if !strings.Contains(buf.String(), "locked database") {
+		t.Fatalf("exitCode wrote %q; the real failure must survive alongside the cancellation", buf.String())
 	}
 }
 

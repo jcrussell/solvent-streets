@@ -7,6 +7,21 @@ When pvmt exits with an error, it prints two things:
 
 This page expands the hints into longer guidance. Most sections are named for a hint and quote its text verbatim, so you can match the message pvmt printed to its section below. A few sections at the end cover conditions that produce no error and therefore no hint — they are named for the symptom instead, and say so.
 
+## Exit codes
+
+Every command uses the same mapping, so a shell chain like `pvmt compute && pvmt export && pvmt check-site` can be trusted:
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success, or you declined a confirmation prompt |
+| 1 | The command failed, **or was interrupted** (Ctrl-C / SIGTERM) |
+| 2 | Usage error — a bad flag, a missing argument, or an invalid config ([`#invalid-config`](#invalid-config)) |
+| 3 | The command ran cleanly but produced nothing (no features, no cities with data) |
+
+An interrupt exits **1**, not 0: the command did not finish its work, so treating it as success would let `pvmt check-site && deploy` publish a site whose remaining checks never ran. Declining a prompt is different — that is a deliberate choice you made, and it exits 0.
+
+`pvmt serve` is the one command where Ctrl-C is the normal way to stop: it shuts down gracefully and exits 0.
+
 ## `#config-not-found`
 
 **Hint:** *create a pvmt.toml in your project root, or cd into a directory that contains one.*

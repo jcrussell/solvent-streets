@@ -127,21 +127,20 @@ func runCheckSite(ctx context.Context, opts *Options) error {
 	for _, check := range checks {
 		if cerr := ctx.Err(); cerr != nil {
 			// An interrupted run that has ALREADY recorded a failure must
-			// still finish. finish() is the only thing that prints the tally
+			// still finish: finish() is the only thing that prints the tally,
 			// and the only thing that converts those failures into
-			// cmdutil.ErrSilent, and exitCode maps context.Canceled to 0 ahead
-			// of every other classification — so returning the ctx error
-			// directly made check-site stream its FAIL lines, print no
-			// summary, and exit 0. For a publish gate that is the dangerous
-			// direction, and Main installs signal.NotifyContext, so the first
-			// Ctrl-C reaches exactly here rather than killing the process.
-			//
-			// Order matters: ErrSilent has to be returned INSTEAD of the ctx
-			// error, not joined with it, or exitCode's Canceled arm wins and
-			// the exit code is 0 again.
+			// cmdutil.ErrSilent. Returning the ctx error directly made
+			// check-site stream its FAIL lines and print no summary
+			// (solvent-streets-q48z.7). Main installs signal.NotifyContext, so
+			// the first Ctrl-C reaches exactly here rather than killing the
+			// process.
 			//
 			// With nothing recorded there is no verdict to report, so a clean
-			// interrupt stays quiet and exits 0 (finding 881e).
+			// interrupt stays quiet (finding 881e) — but it is still an
+			// interrupt, so the bare ctx error is returned and exitCode maps it
+			// to 1. It used to map context.Canceled to 0, which let
+			// `pvmt check-site && deploy` publish a site whose remaining checks
+			// never ran (solvent-streets-kh5n).
 			if r.failing() {
 				return r.finish()
 			}
