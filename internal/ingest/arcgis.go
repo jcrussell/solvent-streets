@@ -17,7 +17,14 @@ import (
 )
 
 const arcgisMaxRecords = 5000
-const arcgisMaxPages = 200 // safety limit: 200 pages × 5000 = 1M features max
+
+// arcgisMaxPages caps the pagination loop. The ceiling is 200 × the SERVER's
+// own maxRecordCount, not our requested arcgisMaxRecords — Esri clamps every
+// response to its own limit (commonly 1000 or 2000), so the real cap is nearer
+// 200k features than 1M. A var, not a const, so tests can shrink it instead of
+// standing up a server that has to answer 200 requests (mirrors
+// maxResponseBodyBytes).
+var arcgisMaxPages = 200
 
 // Default Alameda County ArcGIS feature service URL
 const defaultArcGISCenterlines = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
@@ -78,47 +85,119 @@ func (s *ArcGISSource) Fetch(ctx context.Context, client *http.Client, rt resour
 	offset := 0
 
 	rtVal := rt.Type()
+paging:
 	for page := 0; ; page++ {
 		if page >= arcgisMaxPages {
+			// Hard error, not a partial return. When arcgis is the only
+			// configured source a returned partial counts as SUCCESS in
+			// fetchFromSources, which leaves replaceSources nil, which makes
+			// UpsertFeatures DELETE every stored row for the resource before
+			// inserting the truncated set. Silently trading a complete
+			// previous ingest for a truncated one is worse than failing: the
+			// error path preserves what is already in the database.
+			//
+			// The offset-ignoring server this cap used to fire on is handled
+			// below by the no-new-ids rule, so reaching the cap now means
+			// something genuinely pathological.
 			return nil, fmt.Errorf("arcgis: exceeded %d pages (%d features), aborting", arcgisMaxPages, len(allFeatures))
 		}
 		features, rawCount, exceeded, flagPresent, err := fetchArcGISPage(ctx, client, endpoint, envelope, rtVal, offset)
 		if err != nil {
 			return nil, err
 		}
+		before := len(allFeatures)
 		allFeatures = appendUniqueFeatures(allFeatures, seen, features)
+		newUnique := len(allFeatures) - before
 
-		// Pagination is driven off rawCount (the number of rows the server
-		// returned, before geometry filtering) and exceededTransferLimit, NOT
-		// off the filtered feature slice. A page can return rows that are all
-		// dropped by the null-geometry guard; keying off the filtered length
-		// would wrongly terminate the loop AND stall the offset, so we must
-		// use the raw row count here.
-		//
-		// The server clamps each response to its own maxRecordCount (often below
-		// our requested arcgisMaxRecords), so a short page does NOT mean "last
-		// page". Termination rules, in order:
-		//   1. Empty page  -> definitively past the last record. Stop.
-		//   2. Flag PRESENT and false -> the server authoritatively says no more
-		//      rows remain. Stop (no wasted extra request).
-		//   3. Flag absent -> ambiguous: the server may have clamped below our
-		//      requested page size and silently dropped the rest. The old
-		//      `!exceeded && rawCount < arcgisMaxRecords` short-page break trusted
-		//      absence and once dropped 2000/5780 Livermore rows (solvent-streets-9auy),
-		//      so we no longer trust it — keep paging until an empty page (rule 1).
-		// arcgisMaxPages caps the loop (and errors loudly) so an offset-ignoring
-		// server can't spin forever.
-		if rawCount == 0 {
-			break
+		switch classifyArcGISPage(rawCount, len(features), newUnique, exceeded, flagPresent) {
+		case pageDone:
+			break paging
+		case pageRepeatedRows:
+			fmt.Fprintf(s.progress(),
+				"ArcGIS: page at offset %d returned only rows already fetched; "+
+					"the server appears to ignore resultOffset — stopping with %d features\n",
+				offset, len(allFeatures))
+			break paging
+		case pageTruncated:
+			return nil, fmt.Errorf(
+				"arcgis: server re-served rows already fetched at offset %d while reporting "+
+					"more rows remain (%d features); refusing to store a truncated result",
+				offset, len(allFeatures))
+		case pageContinue:
 		}
-		if flagPresent && !exceeded {
-			break
-		}
+
 		offset += rawCount
 		fmt.Fprintf(s.progress(), "ArcGIS: fetched %d features so far, requesting next page at offset %d...\n", len(allFeatures), offset)
 	}
 
 	return allFeatures, nil
+}
+
+// pageOutcome is what the pagination loop should do after fetching one page.
+type pageOutcome int
+
+const (
+	pageContinue     pageOutcome = iota // more rows may remain; request the next offset
+	pageDone                            // no more rows; stop and return what we have
+	pageRepeatedRows                    // the server re-served rows we hold; stop, this is the full result
+	pageTruncated                       // the server withheld rows it says exist; fail rather than store a partial
+)
+
+// classifyArcGISPage decides how pagination should proceed after one page.
+//
+// Pagination is driven off rawCount (the number of rows the server returned,
+// BEFORE geometry filtering) and exceededTransferLimit, never off the filtered
+// feature slice. A page can return rows that are all dropped by the
+// null-geometry guard; keying off the filtered length would wrongly terminate
+// the loop AND stall the offset.
+//
+// The server clamps each response to its own maxRecordCount (often well below
+// our requested arcgisMaxRecords), so a short page does NOT mean "last page".
+// The rules, in order:
+//
+//  1. Empty page -> definitively past the last record.
+//
+//  2. Flag PRESENT and false -> the server authoritatively says no rows remain.
+//     Stop without spending another request.
+//
+//  3. A page that parsed rows but added no NEW ids -> the server re-served what
+//     we already hold, the signature of a layer that ignores resultOffset
+//     (pre-10.3, or supportsPagination:false). Such layers answer completely in
+//     one request and then repeat forever, so we already have everything.
+//
+//     parsed > 0 is load-bearing: a page whose rows were ALL dropped by the
+//     null-geometry guard also adds no new ids, but says nothing about whether
+//     more rows remain, so it must keep paging.
+//
+//     If the flag says rows DO remain, the same shape means the server is
+//     withholding them — truncation, not completion. That must fail: with
+//     arcgis as the only source a partial counts as success in
+//     fetchFromSources, leaving replaceSources nil, so UpsertFeatures DELETEs
+//     every stored row for the resource before inserting the truncated set.
+//     Erroring preserves what is already in the database.
+//
+//     Neither arm catches an offset-ignoring layer with NO OBJECTID — ids there
+//     are synthesized from the offset, so repeats look new. That case runs to
+//     arcgisMaxPages and errors.
+//
+//  4. Otherwise keep paging. In particular a flag-absent short page is
+//     ambiguous, and the old `!exceeded && rawCount < arcgisMaxRecords` break
+//     trusted that absence and once dropped 2000 of 5780 Livermore rows
+//     (solvent-streets-9auy). We no longer trust it.
+func classifyArcGISPage(rawCount, parsed, newUnique int, exceeded, flagPresent bool) pageOutcome {
+	if rawCount == 0 {
+		return pageDone
+	}
+	if flagPresent && !exceeded {
+		return pageDone
+	}
+	if parsed > 0 && newUnique == 0 {
+		if flagPresent && exceeded {
+			return pageTruncated
+		}
+		return pageRepeatedRows
+	}
+	return pageContinue
 }
 
 // appendUniqueFeatures appends each feature in src to dst, skipping any whose ID

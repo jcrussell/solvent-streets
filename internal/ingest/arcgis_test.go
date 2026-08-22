@@ -848,3 +848,202 @@ func TestFetch_EmptyResponse(t *testing.T) {
 		t.Errorf("expected 0 features, got %d", len(features))
 	}
 }
+
+// TestFetch_OffsetIgnoringServerStopsCleanly pins the q48z.5 fix, and covers
+// the case TestFetch_PaginationFlagOmittedShortPages cannot: that server HONORS
+// resultOffset, so it always reaches an empty page.
+//
+// A server that IGNORES resultOffset and omits exceededTransferLimit — pre-10.3
+// layers, or supportsPagination:false — re-serves page 1 forever. rawCount is
+// never 0 and the flag is never present, so the two original termination rules
+// could not fire and the loop ran to the page cap, which returned an error and
+// discarded every fetched feature after 200 requests against the operator's
+// endpoint — for a layer that answered completely in ONE request before v0.3.0.
+//
+// Restoring the old short-page break is NOT the fix: trusting a short page is
+// exactly the truncation that dropped 2000 of 5780 Livermore centerlines
+// (solvent-streets-9auy). Instead we stop when a page parses rows but adds no
+// new ids, which is only true once the server has started repeating itself.
+func TestFetch_OffsetIgnoringServerStopsCleanly(t *testing.T) {
+	prevPages := arcgisMaxPages
+	arcgisMaxPages = 8
+	t.Cleanup(func() { arcgisMaxPages = prevPages })
+
+	const pageSize = 10
+
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		// resultOffset deliberately ignored: the same OBJECTIDs every time,
+		// and no exceededTransferLimit in the response.
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(makeArcGISFeatures(pageSize, 1))
+	}))
+	t.Cleanup(srv.Close)
+
+	var progress strings.Builder
+	src := &ArcGISSource{
+		BBox:         [4]float64{37.0, -122.0, 38.0, -121.0},
+		URL:          srv.URL,
+		Progress:     &progress,
+		AllowPrivate: true, // httptest.Server binds 127.0.0.1; the SSRF guard would otherwise refuse it.
+	}
+	features, err := src.Fetch(context.Background(), srv.Client(), resource.ByType(resource.TypeRoads))
+	if err != nil {
+		t.Fatalf("Fetch on an offset-ignoring server: %v (must stop cleanly, not abort)", err)
+	}
+	if len(features) != pageSize {
+		t.Errorf("got %d features, want %d (the layer's full result)", len(features), pageSize)
+	}
+	// Page 1 fetches, page 2 reveals the repeat. Anything more is wasted load
+	// on the operator's endpoint; anything less means we never paged at all.
+	if calls != 2 {
+		t.Errorf("made %d requests, want 2 (fetch, then detect the repeat)", calls)
+	}
+	if calls >= arcgisMaxPages {
+		t.Errorf("ran to the page cap; the no-new-ids rule did not fire")
+	}
+}
+
+// TestFetch_NullGeometryPageKeepsPaging guards the no-new-ids rule against the
+// case it must NOT fire on: a page whose rows were all dropped by the
+// null-geometry filter also contributes no new ids, but says nothing about
+// whether more rows remain. Breaking there would truncate.
+func TestFetch_NullGeometryPageKeepsPaging(t *testing.T) {
+	const pageSize = 10
+
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		offset, _ := strconv.Atoi(r.URL.Query().Get("resultOffset"))
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case offset == pageSize:
+			// A full page of rows that all fail the geometry guard: rawCount
+			// is pageSize, but zero features survive.
+			_, _ = w.Write(makeArcGISNullGeometryPage(pageSize))
+		case offset >= 3*pageSize:
+			_, _ = w.Write(makeArcGISFeatures(0, 1))
+		default:
+			_, _ = w.Write(makeArcGISFeatures(pageSize, offset+1))
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	src := &ArcGISSource{
+		BBox:         [4]float64{37.0, -122.0, 38.0, -121.0},
+		URL:          srv.URL,
+		AllowPrivate: true,
+	}
+	features, err := src.Fetch(context.Background(), srv.Client(), resource.ByType(resource.TypeRoads))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Pages at offsets 0 and 2*pageSize carry real rows; the middle page is
+	// all-null and must not stop the loop.
+	if want := 2 * pageSize; len(features) != want {
+		t.Errorf("got %d features, want %d (an all-null page must not terminate paging)", len(features), want)
+	}
+}
+
+// makeArcGISNullGeometryPage builds a page of n rows that all have null
+// geometry, so rawCount is n but every row is dropped by the geometry guard.
+func makeArcGISNullGeometryPage(n int) []byte {
+	type feat struct {
+		Properties map[string]any  `json:"properties"`
+		Geometry   json.RawMessage `json:"geometry"`
+	}
+	feats := make([]feat, n)
+	for i := range feats {
+		feats[i] = feat{
+			Properties: map[string]any{"OBJECTID": 90000 + i},
+			Geometry:   json.RawMessage(`null`),
+		}
+	}
+	data, _ := json.Marshal(map[string]any{"features": feats})
+	return data
+}
+
+// TestFetch_RepeatedRowsWithExceededFlagErrors guards the other side of the
+// no-new-ids rule. A server that re-serves rows we already hold WHILE setting
+// exceededTransferLimit is reporting that more rows remain — that is truncation,
+// not a complete result.
+//
+// Returning a partial here would be worse than failing: with arcgis as the only
+// source, fetchFromSources marks it succeeded, replaceSources stays nil, and
+// UpsertFeatures DELETEs every stored row for the resource before inserting the
+// truncated set — trading a complete previous ingest for a partial one, with no
+// error anywhere. The error path preserves what is already in the database.
+func TestFetch_RepeatedRowsWithExceededFlagErrors(t *testing.T) {
+	prevPages := arcgisMaxPages
+	arcgisMaxPages = 8
+	t.Cleanup(func() { arcgisMaxPages = prevPages })
+
+	const pageSize = 10
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Same rows every time AND "there are more rows" — a clamping layer
+		// that ignores resultOffset.
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(makeArcGISPage(pageSize, 1, true))
+	}))
+	t.Cleanup(srv.Close)
+
+	src := &ArcGISSource{
+		BBox:         [4]float64{37.0, -122.0, 38.0, -121.0},
+		URL:          srv.URL,
+		AllowPrivate: true,
+	}
+	features, err := src.Fetch(context.Background(), srv.Client(), resource.ByType(resource.TypeRoads))
+	if err == nil {
+		t.Fatalf("Fetch returned %d features and no error; a truncated result must not be "+
+			"reported as success (it would destructively replace good stored rows)", len(features))
+	}
+	if features != nil {
+		t.Errorf("Fetch returned %d features alongside the error; want nil", len(features))
+	}
+}
+
+// TestClassifyArcGISPage covers the pagination termination rules directly, so
+// each is pinned independently of the HTTP plumbing that exercises them.
+func TestClassifyArcGISPage(t *testing.T) {
+	cases := map[string]struct {
+		rawCount, parsed, newUnique int
+		exceeded, flagPresent       bool
+		want                        pageOutcome
+	}{
+		"empty page ends pagination": {
+			rawCount: 0, want: pageDone,
+		},
+		"flag present and false ends pagination": {
+			rawCount: 100, parsed: 100, newUnique: 100, exceeded: false, flagPresent: true, want: pageDone,
+		},
+		"flag present and true keeps paging": {
+			rawCount: 100, parsed: 100, newUnique: 100, exceeded: true, flagPresent: true, want: pageContinue,
+		},
+		// The Livermore truncation: a short page with no flag must NOT be
+		// trusted as the last page (solvent-streets-9auy).
+		"short page with no flag keeps paging": {
+			rawCount: 100, parsed: 100, newUnique: 100, want: pageContinue,
+		},
+		"repeated rows with no flag is a complete result": {
+			rawCount: 100, parsed: 100, newUnique: 0, want: pageRepeatedRows,
+		},
+		"repeated rows while claiming more remain is truncation": {
+			rawCount: 100, parsed: 100, newUnique: 0, exceeded: true, flagPresent: true, want: pageTruncated,
+		},
+		// All rows dropped by the null-geometry guard: no new ids, but that
+		// says nothing about whether more rows remain.
+		"all-null page keeps paging": {
+			rawCount: 100, parsed: 0, newUnique: 0, want: pageContinue,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := classifyArcGISPage(tc.rawCount, tc.parsed, tc.newUnique, tc.exceeded, tc.flagPresent)
+			if got != tc.want {
+				t.Errorf("classifyArcGISPage = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
