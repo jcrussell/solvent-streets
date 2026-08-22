@@ -85,7 +85,70 @@ var (
 	// applied AFTER federalRefRe (so US/I never reach it) and after the
 	// county-ref check, and excludes the deny-listed prefixes below so it
 	// cannot reclassify county routes ("CR 12") or business/federal forms.
-	statePostalRefRe = regexp.MustCompile(`^([A-Z]{2})[ -]\d`)
+	//
+	// The [A-Z]{1,2} alternative covers the designators that are LETTERS
+	// rather than digits: MoDOT's supplemental routes -- "MO W" (53
+	// features), "MO V" (18), "MO C" (6), "MO D", "MO N", plus the doubled
+	// "MO AA"/"MO FF" -- 81 of which land in City in Kansas City, MO.
+	// Requiring a digit was the last thing keeping the lettered spellings of
+	// a state route out, exactly as it was for CR/SR before f24871f.
+	//
+	// The ([^A-Z]|$) tail caps the designator at two letters, and it is
+	// load-bearing. Histogramming every two-letter-then-letter ref not
+	// already claimed by an earlier rule turns up exactly two things across
+	// the corpus: the 81 Missouri supplementals, and Washington DC's
+	// ref="DC GOVERNMENT" on one residential way. The latter is junk, and
+	// routing a DC residential road out of City would be the wrong direction
+	// besides -- DC the city IS the maintaining entity there.
+	statePostalRefRe = regexp.MustCompile(`^([A-Z]{2})[ -](\d|[A-Z]{1,2}([^A-Z]|$))`)
+
+	// singleLetterStateRefRe and singleLetterCountyRefRe carry the route
+	// conventions that number with a SINGLE letter. statePostalRefRe requires
+	// two, so before these rules every one of them matched nothing, fell
+	// through the whole ladder and landed in City -- 1648 features billing
+	// state highway to the city, tracked as solvent-streets-m0qa.
+	//
+	// This is an explicit ALLOW LIST rather than a `^[A-Z][ -]\d` pattern, and
+	// the distinction is the whole point. The complete set of single-letter
+	// prefixes in the ingested corpus is I, M, N, K, L, S, C -- and "I" is
+	// 65385 features of Interstate. A generic rule would swallow all of them,
+	// business routes included ("I 70 BUS;US 40"); they would survive only
+	// because federalRefRe runs earlier, which puts a large silent move one
+	// reordering away. Enumerating the six leaves nothing to reorder.
+	//
+	// Measured over 8741198 road features, settling the per-prefix
+	// determination the m0qa bead left open:
+	//
+	//	M  2355  Michigan (Detroit). "M 1" is Woodward Ave, MDOT;
+	//	         also M 5, M 3, M 53, M 85, M 153.                  -> State
+	//	N   456  Nebraska (Omaha). N-64, N-133, N-50.               -> State
+	//	K    63  Kansas. "K-32" reaches the Kansas City, MO bbox.   -> State
+	//	L    58  Nebraska link routes (Omaha). L-28K, L-28B, L-28H. -> State
+	//	S    41  NCDOT secondary routes (Charlotte, "S-29-64") plus
+	//	         Omaha's S-28J.                                     -> State
+	//	C    22  Columbus, OH: C-138, C-288, C-36, C-28, C-501.
+	//	         Franklin COUNTY roads, not state routes -- which is
+	//	         why C is split out below.                          -> County
+	//
+	// Both separators are accepted for every prefix even though the corpus is
+	// cleanly split (M spaced, the other five hyphenated). Pinning the
+	// measured separator looks tighter and is worse: Michigan routes are
+	// commonly tagged "M-5" in OSM and Detroit simply happens not to, so a
+	// space-only M rule would silently miss MDOT the first time another
+	// Michigan city is ingested. The trailing \d holds the line instead --
+	// it is what keeps a street whose ref is its own name ("M Street") out of
+	// the State bucket.
+	//
+	// The mandatory separator shadows nothing: SR, SS, SL, SH, MO, NF, LOOP,
+	// CR, CH, CC, CTH and COUNTY all carry a letter in position 2.
+	singleLetterStateRefRe = regexp.MustCompile(`^[MNKLS][ -]\d`)
+
+	// singleLetterCountyRefRe is the County half of the allow list above; see
+	// that comment for the measurement. It is kept out of countyRefRe because
+	// that rule matches on the PREFIX ALONE with no designator shape
+	// (bf0c601), and this one does require a digit: "C" is a single letter,
+	// with far more ways to turn up on a road than "CR" has.
+	singleLetterCountyRefRe = regexp.MustCompile(`^C[ -]\d`)
 
 	// countyRefRe matches county-route refs. Each alternative must be checked
 	// before the generic two-letter state match, which would otherwise swallow
@@ -229,14 +292,17 @@ var (
 // the ref convention you are reasoning about also has a spelled or lettered
 // form that no pattern in this file can reach.
 //
-// That class is NOT closed. statePostalRefRe still requires TWO letters, so
-// the single-letter state-route conventions land in City today: Michigan's
-// "M 5"/"M 1" (1207 features -- M 1 is Woodward Ave, MDOT), Nebraska's
-// "N-64"/"L-28K" (356), Kansas's "K-32" (63). ~1729 features, tracked in
-// solvent-streets-m0qa. They are left alone here rather than guessed at,
-// because a bare ^[A-Z][ -]\d would also need to reckon with Ohio's "C-138"
-// (county, not state) and with Missouri's lettered supplementals ("MO W"),
-// and neither has been measured per-prefix yet.
+// That class is now closed for every shape this file can see.
+// solvent-streets-m0qa was the last of it. statePostalRefRe required TWO
+// letters, so the single-letter conventions landed in City -- Michigan's
+// "M 5"/"M 1", Nebraska's "N-64"/"L-28K", Kansas's "K-32", 1648 features. It
+// also required a DIGIT, so Missouri's lettered supplementals ("MO W") landed
+// there too, 81 more. Both are handled above -- by singleLetterStateRefRe and
+// singleLetterCountyRefRe, and by the [A-Z]{1,2} alternative in
+// statePostalRefRe. Note that the answer to the single-letter case was an
+// allow list of the six measured prefixes and NOT a bare ^[A-Z][ -]\d, which
+// would have swallowed 65385 Interstate features and put Ohio's county
+// "C-138" in the State bucket.
 //
 // Three more non-postal prefixes reach this rule and are left as State
 // deliberately, each for its own reason. All three were found by histogramming
@@ -284,6 +350,9 @@ func isStateRef(ref string) bool {
 		return true
 	}
 	if stateWordRefRe.MatchString(ref) {
+		return true
+	}
+	if singleLetterStateRefRe.MatchString(ref) {
 		return true
 	}
 	if m := statePostalRefRe.FindStringSubmatch(ref); m != nil {
@@ -421,7 +490,8 @@ func ClassifyJurisdiction(tags map[string]string) Jurisdiction {
 	// County refs ("CR 12", "CR S21", "CTH PP") are checked before the generic
 	// state-postal match, which would otherwise misclassify them as a state
 	// route.
-	if countyRefRe.MatchString(ref) || spelledCountyRefRe.MatchString(ref) {
+	if countyRefRe.MatchString(ref) || spelledCountyRefRe.MatchString(ref) ||
+		singleLetterCountyRefRe.MatchString(ref) {
 		return JurisdictionCounty
 	}
 

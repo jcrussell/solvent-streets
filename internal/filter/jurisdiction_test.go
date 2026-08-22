@@ -200,6 +200,44 @@ func TestClassifyJurisdiction(t *testing.T) {
 		{"houston beltway stays state", map[string]string{"ref": "BW 8"}, JurisdictionState},
 		{"texas private road stays state", map[string]string{"ref": "PR 1836"}, JurisdictionState},
 		{"unidentified OS prefix stays state", map[string]string{"ref": "OS 15"}, JurisdictionState},
+
+		// solvent-streets-m0qa. statePostalRefRe required TWO letters, so the
+		// route conventions that number with a SINGLE one matched nothing and
+		// fell all the way through to City -- 1648 features billing state
+		// highway to the city. Every ref below is a real corpus ref, at the
+		// highway class it actually carries there.
+		//
+		// The bucket is per-prefix and measured, not pattern-derived: C is
+		// Columbus OH's Franklin COUNTY roads, which is why a bare
+		// ^[A-Z][ -]\d would have been wrong even before it swallowed the
+		// 65385 Interstate features.
+		{"michigan state route", map[string]string{"ref": "M 1", "highway": "primary"}, JurisdictionState},
+		{"nebraska state route", map[string]string{"ref": "N-64", "highway": "primary"}, JurisdictionState},
+		{"kansas state route", map[string]string{"ref": "K-32", "highway": "primary"}, JurisdictionState},
+		{"nebraska link route", map[string]string{"ref": "L-28K", "highway": "primary"}, JurisdictionState},
+		{"north carolina secondary route", map[string]string{"ref": "S-29-411", "highway": "unclassified"}, JurisdictionState},
+		{"ohio county road single letter", map[string]string{"ref": "C-138", "highway": "tertiary"}, JurisdictionCounty},
+		// Michigan is spaced in the corpus and Nebraska hyphenated, but both
+		// separators are accepted for both -- see singleLetterStateRefRe.
+		{"michigan state route hyphenated", map[string]string{"ref": "M-5", "highway": "primary"}, JurisdictionState},
+		{"nebraska state route spaced", map[string]string{"ref": "N 64", "highway": "primary"}, JurisdictionState},
+
+		// Missouri's lettered supplementals, 81 features in Kansas City MO.
+		// statePostalRefRe required a DIGIT after the separator; these put a
+		// letter there, which is the same trap SR A1A and CR S21 sprang.
+		{"missouri supplemental route", map[string]string{"ref": "MO W", "highway": "primary"}, JurisdictionState},
+		{"missouri supplemental doubled letter", map[string]string{"ref": "MO AA", "highway": "tertiary"}, JurisdictionState},
+
+		// The negative side of both rules above. The trailing \d in
+		// singleLetterStateRefRe is what keeps a street whose ref is its own
+		// name out of the State bucket, and the ([^A-Z]|$) cap in
+		// statePostalRefRe is what keeps Washington DC's junk
+		// ref="DC GOVERNMENT" (1 residential way, the ONLY thing besides the
+		// Missouri routes that the letter-designator relaxation newly
+		// matches) from being billed to the state -- DC the city is the
+		// maintaining entity there, so City is right.
+		{"street whose ref is its name is not a state route", map[string]string{"ref": "M Street", "highway": "residential"}, JurisdictionCity},
+		{"junk DC GOVERNMENT ref stays city", map[string]string{"ref": "DC GOVERNMENT", "highway": "residential"}, JurisdictionCity},
 	}
 
 	for _, tt := range tests {
@@ -241,6 +279,17 @@ func TestIsStateRefDenyList(t *testing.T) {
 		{"US 50", false}, // federal (also caught earlier by federalRefRe)
 		{"IH 35", false}, // federal interstate (also caught by federalRefRe)
 		{"BR 1", false},  // business route
+		// solvent-streets-m0qa: single-letter and lettered designators.
+		{"M 1", true},   // Michigan, MDOT
+		{"K-32", true},  // Kansas
+		{"MO W", true},  // MoDOT supplemental route
+		{"MO AA", true}, // ...including the doubled letter
+		// C is the County half of the single-letter allow list, so
+		// ClassifyJurisdiction -- not isStateRef -- is what claims it.
+		{"C-138", false},
+		// The trailing \d and the two-letter designator cap.
+		{"M Street", false},
+		{"DC GOVERNMENT", false},
 		// Not a two-letter+digit ref at all.
 		{"Main Street", false},
 		{"", false},
@@ -469,6 +518,11 @@ func TestRefPrefixesNeverFallToCity(t *testing.T) {
 		// isStateRef and land in City, which is exactly what statePostalDeny's
 		// comment warns against.
 		"FM 1960", "RM 620", "SL 8", "SS 6", "BU 59", "BS 6", "TH 5",
+		// Single-letter and lettered-designator conventions
+		// (solvent-streets-m0qa). These are the 1729 features that used to
+		// fall through to City; C-138 is County and the rest State, but the
+		// invariant this test pins is only that none of them is City.
+		"M 1", "N-64", "K-32", "L-28K", "S-29-64", "C-138", "MO W",
 	}
 	for _, ref := range refs {
 		if got := ClassifyJurisdiction(map[string]string{"ref": ref}); got == JurisdictionCity {
