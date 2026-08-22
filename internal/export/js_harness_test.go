@@ -1,6 +1,7 @@
 package export
 
 import (
+	"context"
 	"encoding/json"
 	"html/template"
 	"io/fs"
@@ -8,8 +9,15 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/jcrussell/solvent-streets/internal/config"
+	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/forecast"
 )
 
 // TestJS drives the executing JavaScript tests for
@@ -39,7 +47,7 @@ func TestJS(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	writeJSFixtureSite(t, dir)
+	writeJSFixtureTree(t, dir)
 
 	// Glob form, not the bare directory: `node --test <dir>` resolves the path
 	// as a module and fails with ENOENT.
@@ -73,10 +81,147 @@ func repoRoot(t *testing.T) string {
 	}
 }
 
-// writeJSFixtureSite renders index.html from the real template into dir. Only
-// the HTML is written: the JS tests serve every data file through a stubbed
-// fetch, so no ingest, compute or export run is needed.
-func writeJSFixtureSite(t *testing.T, dir string) {
+// jsFixtureSnapshotID is the snapshot the fixture meta.json is dated from.
+// Non-zero on purpose: snapshotDate falls back to time.Now() for id <= 0, and a
+// fixture that changes daily is a fixture that can drift under a test.
+const jsFixtureSnapshotID = 1
+
+// jsFixtureBoundary is the city polygon BuildMeta derives bbox, center, area and
+// pct_paved from. Roughly the alpha-ca box the rendered index.html carries, so
+// the fetched meta.json and the city <option> in the DOM describe one city.
+const jsFixtureBoundary = `{"type":"Polygon","coordinates":[[[-122.3,37.7],[-122.2,37.7],[-122.2,37.8],[-122.3,37.8],[-122.3,37.7]]]}`
+
+// jsFixtureForecastConfig is goldenForecastConfig with two deliberate changes:
+// a 20-year horizon (what a real site ships) and the canonical third tier label
+// "reconstruction". The golden's "reconstruct" does not match
+// forecast.DefaultMaterialTiers, so reusing it verbatim would silently drive the
+// Materials tab down MaterialTierFor's fallback path instead of a label match.
+func jsFixtureForecastConfig() config.ForecastConfig {
+	fc := goldenForecastConfig()
+	fc.Years = 20
+	fc.CostTiers = []config.CostTierCfg{
+		{MinPCI: 70, MaxPCI: 100, CostPerSqM: 2.0, Label: "preventive"},
+		{MinPCI: 50, MaxPCI: 70, CostPerSqM: 12.0, Label: "rehab"},
+		{MinPCI: 0, MaxPCI: 50, CostPerSqM: 60.0, Label: "reconstruction"},
+	}
+	return fc
+}
+
+// jsFixtureEntry is goldenFixtureEntry plus the two reads BuildMeta needs that
+// the golden tests do not: a boundary polygon and a dated snapshot.
+func jsFixtureEntry(t *testing.T) CityEntry {
+	t.Helper()
+	entry := goldenFixtureEntry(t)
+	store, ok := entry.Store.(*dbtest.MockStore)
+	if !ok {
+		t.Fatalf("goldenFixtureEntry store is %T, not *dbtest.MockStore", entry.Store)
+	}
+	store.GetBoundaryFunc = func(context.Context) (string, error) { return jsFixtureBoundary, nil }
+	store.ListSnapshotsFunc = func(context.Context) ([]db.Snapshot, error) {
+		return []db.Snapshot{{ID: jsFixtureSnapshotID, ComputedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}}, nil
+	}
+	// Matches a city option in the rendered index.html, so meta.project_name and
+	// the DOM describe the same place.
+	entry.City.Name = "Alpha, CA"
+	entry.Slug = "alpha-ca"
+	return entry
+}
+
+// writeJSFixtureTree writes everything the JS specs read: index.html rendered
+// from the real Go template, and the four data files the fetch stub serves.
+//
+// The data is NOT hand-written, for the same reason the DOM is not: it is built
+// by the real exporter entry points (BuildMeta, BuildForecastsForCity,
+// BuildScenariosData, BuildForecastSeed) over the deterministic DB-free fixture
+// the golden tests already use, then rounded through the same emission helpers
+// export.go writes with. A hand-rolled fixture drifts from the Go json tags
+// silently — which is exactly what happened (solvent-streets-q48z.8): the seed
+// said `area` where Go emits `total_area`, the scenarios were named
+// `do-nothing`/`maintain` where the exporter emits `baseline`/`fund-*`, and
+// meta put total_area at the top level instead of inside stats[]. Three of the
+// four Financials charts never rendered under test, and the suite was green.
+func writeJSFixtureTree(t *testing.T, dir string) {
+	t.Helper()
+	ctx := context.Background()
+	fc := jsFixtureForecastConfig()
+	entry := jsFixtureEntry(t)
+
+	seed, err := BuildForecastSeed(ctx, &fc, entry.Store)
+	if err != nil {
+		t.Fatalf("build forecast seed: %v", err)
+	}
+	writeJSFixtureSite(t, dir, seed)
+
+	meta, err := BuildMeta(ctx, entry, jsFixtureSnapshotID)
+	if err != nil {
+		t.Fatalf("build meta: %v", err)
+	}
+	forecasts, err := BuildForecastsForCity(ctx, entry, &fc, ConvertCostTiers(&fc))
+	if err != nil {
+		t.Fatalf("build forecasts: %v", err)
+	}
+	scenarios, err := BuildScenariosData(ctx, entry, &fc)
+	if err != nil {
+		t.Fatalf("build scenarios: %v", err)
+	}
+
+	// Tripwires. Each of these is something the JS specs assert on; if the Go
+	// side stops producing it, fail HERE with a clear cause rather than leaving
+	// a spec to pass vacuously over an empty chart list.
+	if len(meta.Stats) == 0 {
+		t.Fatal("fixture meta.json has no stats[]; the stats-panel specs would test nothing")
+	}
+	if len(forecasts) == 0 {
+		t.Fatal("fixture forecast.json is empty; the Financials specs would test nothing")
+	}
+	assertFundingScenarios(t, scenarios)
+
+	writeFixtureJSON(t, dir, "meta.json", meta)
+	writeFixtureJSON(t, dir, "forecast.json", RoundForecastsForEmission(forecasts))
+	writeFixtureJSON(t, dir, "scenarios.json", RoundScenariosForEmission(scenarios))
+	if err := os.WriteFile(filepath.Join(dir, "forecast_seed.json"), []byte(seed), 0o644); err != nil {
+		t.Fatalf("write forecast_seed.json: %v", err)
+	}
+}
+
+// assertFundingScenarios pins the scenario names app.js filters on
+// (FUNDING_SCENARIO_NAMES). Renaming one on the Go side drops a chart from the
+// Financials tab; without this the JS specs would just see fewer charts and,
+// before q48z.8, asserted nothing about how many.
+func assertFundingScenarios(t *testing.T, scenarios map[string]any) {
+	t.Helper()
+	want := []string{"baseline", "fund-25pct", "fund-50pct", "fund-100pct"}
+	for _, scope := range []string{"city", "bbox"} {
+		results, ok := scenarios[scope].([]forecast.ScenarioResult)
+		if !ok {
+			t.Fatalf("fixture scenarios.json has no %q scope (%T)", scope, scenarios[scope])
+		}
+		got := make([]string, 0, len(results))
+		for _, r := range results {
+			got = append(got, r.Scenario.Name)
+		}
+		if !slices.Equal(got, want) {
+			t.Fatalf("fixture scenarios.json %s scope = %v, want %v", scope, got, want)
+		}
+	}
+}
+
+func writeFixtureJSON(t *testing.T, dir, name string, v any) {
+	t.Helper()
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal %s: %v", name, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
+		t.Fatalf("write %s: %v", name, err)
+	}
+}
+
+// writeJSFixtureSite renders index.html from the real template into dir, with
+// the same forecast seed the fetched forecast_seed.json carries — the inline
+// PVMT_CONFIG.forecastSeed and the per-city fetch must agree, or a spec that
+// reads one is describing the other.
+func writeJSFixtureSite(t *testing.T, dir string, seed template.JS) {
 	t.Helper()
 
 	cities := []CityInfo{
@@ -85,30 +230,9 @@ func writeJSFixtureSite(t *testing.T, dir string) {
 		{Slug: "gamma-ca", Name: "Gamma, CA", BBox: [4]float64{-121.3, 38.5, -121.2, 38.6}, CenterLon: -121.25, CenterLat: 38.55},
 	}
 
-	seed, err := json.Marshal(map[string]any{
-		"initial_pci":           68,
-		"decay_rate":            0.04,
-		"growth_rate":           0,
-		"years":                 20,
-		"treatment_cycle_years": 12,
-		"area":                  3_300_000,
-		"cost_tiers": []map[string]any{
-			{"min_pci": 70, "max_pci": 101, "cost_per_sqm": 5, "label": "preventive"},
-			{"min_pci": 40, "max_pci": 70, "cost_per_sqm": 50, "label": "rehab"},
-			{"min_pci": 0, "max_pci": 40, "cost_per_sqm": 150, "label": "reconstruction"},
-		},
-		"cohorts": []map[string]any{
-			{"classification": "residential", "area": 2_000_000, "decay_rate": 0.045, "initial_pci": 68},
-			{"classification": "primary", "area": 1_300_000, "decay_rate": 0.03, "initial_pci": 68},
-		},
-	})
-	if err != nil {
-		t.Fatalf("marshal seed: %v", err)
-	}
-
 	td := TemplateData{
 		MetaJSON:      MetaJSON{ProjectName: "Harness"},
-		ForecastSeed:  template.JS(seed),
+		ForecastSeed:  seed,
 		LayerColors:   ResourceColorsJS(),
 		UnitSystem:    "imperial",
 		Cities:        cities,

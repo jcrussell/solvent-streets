@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
-import { fullData } from './fixtures.mjs';
+import { fullData, seedJSON } from './fixtures.mjs';
 
 // ready boots a window, loads the Financials data, and brings WASM up.
 async function ready() {
@@ -14,6 +14,88 @@ async function ready() {
   await h.flush();
   return h;
 }
+
+// solvent-streets-q48z.8. The whole Financials tab is four charts, and three of
+// them are gated on FUNDING_SCENARIO_NAMES matching the scenario names in
+// scenarios.json. When the fixtures were hand-written they said
+// `do-nothing`/`maintain` while the exporter emits `baseline`/`fund-25pct`/...,
+// so this tab rendered ONE card under test and every spec below still passed.
+// Assert the count and the titles: this is the tripwire that drift trips.
+test('all four Financials charts render from real exporter data', async () => {
+  const { win, $$, flush } = await ready();
+  win.selectTab('financials-tab');
+  await flush();
+
+  const titles = $$('#charts h3').map((h) => h.textContent);
+  assert.deepEqual(titles, [
+    'PCI Over Time by Funding Level',
+    'Deferred Maintenance Backlog',
+    'Cumulative Spending',
+    'Annual Treatment Need by Condition Tier',
+  ], 'the funding-level charts did not render; scenario names in scenarios.json ' +
+     'no longer match FUNDING_SCENARIO_NAMES');
+});
+
+// The other half of the same drift: meta.json's per-resource numbers live in
+// stats[], and a fixture that put them at the top level rendered a stats panel
+// with zero resource cards and Total Paved reading 0.0.
+test('the stats panel renders a card per resource from meta.stats[]', async () => {
+  const { win, $, flush } = await ready();
+  await win.loadCityData();   // renderCityStats runs off the meta.json fetch
+  await flush();
+
+  const stats = $('#stats').textContent;
+  for (const type of ['Roads', 'Parking', 'Sidewalks']) {
+    assert.match(stats, new RegExp(type, 'i'), `no ${type} card in the stats panel`);
+  }
+  assert.doesNotMatch(stats, /Total Paved \([^)]*\)\s*0\.0(?!\d)/,
+    'Total Paved read 0.0 — meta.total_paved did not reach the panel');
+});
+
+// The seed's area and cohort keys are what getControlValues ships to the WASM
+// bridge, and a mismatched key is INVISIBLE: `FORECAST_SEED.total_area` on a
+// seed that spells it `area` is undefined, which JSON.stringify turns into null,
+// which the bridge reads as zero area. Every dollar figure on the tab then comes
+// off a network of no size, with nothing thrown anywhere. Assert the values that
+// crossed, not just that a call happened.
+test('the seeded area and cohorts reach the WASM bridge', async () => {
+  const { win } = await ready();
+
+  const sent = win.__simCalls.at(-1);
+  assert.ok(sent, 'no simulation ran');
+  // Default scope is city, so the city-scoped paved area is the basis. Assert
+  // the seed carries the key at all first: comparing two undefineds passes.
+  assert.equal(typeof seedJSON.city_paved, 'number',
+    'forecast_seed.json has no numeric city_paved; the Go json tag moved');
+  assert.equal(sent.area, seedJSON.city_paved,
+    'the bridge did not receive the seeded city_paved area');
+  assert.ok(sent.area > 0, 'the bridge simulated a network of zero area');
+  assert.deepEqual(
+    Array.from(sent.cohorts ?? [], (c) => c.classification).sort(),
+    Array.from(seedJSON.city_cohorts ?? [], (c) => c.classification).sort(),
+    'the bridge did not receive the seeded city cohorts');
+});
+
+// The other half of the same key contract: the All-Roads scope reads
+// total_area / cohorts instead. Both branches of getControlValues' scope
+// selection need a live assertion, or a rename covers whichever one is unwatched.
+test('the All-Roads scope simulates over the seeded bbox area', async () => {
+  const { win, flush } = await ready();
+
+  win.selectScope('bbox', { push: false });
+  await flush();
+
+  const sent = win.__simCalls.at(-1);
+  assert.equal(typeof seedJSON.total_area, 'number',
+    'forecast_seed.json has no numeric total_area; the Go json tag moved');
+  assert.equal(sent.area, seedJSON.total_area,
+    'the bridge did not receive the seeded total_area in bbox scope');
+  assert.ok(sent.area > 0, 'the bridge simulated a network of zero area');
+  assert.deepEqual(
+    Array.from(sent.cohorts ?? [], (c) => c.classification).sort(),
+    Array.from(seedJSON.cohorts ?? [], (c) => c.classification).sort(),
+    'the bridge did not receive the seeded bbox cohorts');
+});
 
 // solvent-streets-sqcg. loadFinancials strips .visible from #forecast-controls
 // on every teardown, and onWasmReady — which only fires once per page load —

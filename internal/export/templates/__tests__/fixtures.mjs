@@ -1,66 +1,35 @@
-// Data fixtures shaped like the real exported files. Field names mirror the Go
-// structs (internal/export/forecast.go, seeds.go) — if those change, these
-// tests should break, which is the point.
+// Data fixtures for the app.js specs — READ FROM DISK, not hand-written.
+//
+// These are the real files a `pvmt export` produces: internal/export's TestJS
+// builds them with the actual exporter entry points (BuildMeta,
+// BuildForecastsForCity, BuildScenariosData, BuildForecastSeed) over the same
+// deterministic DB-free fixture the golden tests use, and drops them in
+// PVMT_FIXTURE_DIR next to the rendered index.html. See
+// js_harness_test.go:writeJSFixtureTree.
+//
+// They used to be JS object literals, and they had drifted from the Go json
+// tags with nothing to notice (solvent-streets-q48z.8): the seed said `area`
+// where Go emits `total_area`, scenarios were named `do-nothing`/`maintain`
+// where the exporter emits `baseline`/`fund-25pct`/..., and meta.json put
+// total_area at the top level instead of inside stats[]. Three of the four
+// Financials charts never rendered under test and the suite stayed green — so
+// it would also have stayed green through a real regression. Reading the
+// exporter's own output is what makes that class of drift impossible: rename a
+// json tag on the Go side and these specs fail.
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fixtureDir } from './harness.mjs';
 
-function years(n, { pci = 68, need = 1_650_000, spend = 0 } = {}) {
-  const out = [];
-  let backlog = 0;
-  for (let y = 1; y <= n; y++) {
-    pci = Math.max(0, pci - 2);
-    backlog += Math.max(0, need - spend);
-    out.push({
-      year: y, pci, area: 3_300_000,
-      annual_need: need, annual_spend: spend, deferred_backlog: backlog,
-      cost_tier: pci < 40 ? 'reconstruction' : 'rehab',
-    });
-  }
-  return out;
+// readFixture returns a FRESH parse each call, so a spec can mutate what it
+// gets back without leaking into the next one.
+export function readFixture(name) {
+  return JSON.parse(readFileSync(join(fixtureDir(), name), 'utf8'));
 }
 
-const cohorts = [
-  { classification: 'residential', end_pci: 28, area: 2_000_000, decay_rate: 0.045, total_spend: 12_000_000, total_deficit: 3_000_000 },
-  { classification: 'primary', end_pci: 34, area: 1_300_000, decay_rate: 0.03, total_spend: 8_000_000, total_deficit: 2_000_000 },
-];
-
-function scenario(name, strategy, opts) {
-  return { scenario: { name, strategy }, years: years(20, opts), final_cohorts: cohorts };
-}
-
-export const scenariosJSON = {
-  summary: { city_count: 900, all_count: 1200, city_pct: 0.75 },
-  city: [scenario('do-nothing', 0), scenario('maintain', 1, { spend: 1_000_000 })],
-  bbox: [scenario('do-nothing', 0), scenario('maintain', 1, { spend: 1_200_000 })],
-};
-
-export const forecastJSON = [{
-  resource_type: 'roads',
-  baseline: scenario('baseline', 0),
-  bbox_baseline: scenario('baseline', 0),
-  scenarios: [scenario('maintain', 1, { spend: 1_000_000 })],
-  insolvency_year: 7,
-  break_even_budget: 18_000_000,
-  current_budget: 15_000_000,
-  funding_gap: 0.2,
-}];
-
-export const seedJSON = {
-  initial_pci: 68, decay_rate: 0.04, growth_rate: 0, years: 20,
-  treatment_cycle_years: 12, cost_overhead: 1, area: 3_300_000, city_area: 3_300_000,
-  cost_tiers: [
-    { min_pci: 70, max_pci: 101, cost_per_sqm: 5, label: 'preventive' },
-    { min_pci: 40, max_pci: 70, cost_per_sqm: 50, label: 'rehab' },
-    { min_pci: 0, max_pci: 40, cost_per_sqm: 150, label: 'reconstruction' },
-  ],
-  cohorts: [
-    { classification: 'residential', area: 2_000_000, decay_rate: 0.045, initial_pci: 68 },
-    { classification: 'primary', area: 1_300_000, decay_rate: 0.03, initial_pci: 68 },
-  ],
-};
-
-export const metaJSON = {
-  project_name: 'Alpha', city_area: 40_000_000, total_area: 3_300_000,
-  pct_paved: 8.25, feature_count: 1234,
-};
+export const metaJSON = readFixture('meta.json');
+export const scenariosJSON = readFixture('scenarios.json');
+export const forecastJSON = readFixture('forecast.json');
+export const seedJSON = readFixture('forecast_seed.json');
 
 // fullData is everything a city needs for the Financials tab to render.
 export const fullData = {
