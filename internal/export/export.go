@@ -118,12 +118,33 @@ func (e *Exporter) runSingleCity(ctx context.Context) error {
 }
 
 // exportOneCity writes one sub-city's data directory and returns its
-// CityInfo. Skips (kept=false, no error) when the city has no boundary
-// stored — typically because ingest tripped a hard error like NYC's
+// CityInfo. Skips (kept=false, no error) WITHOUT creating the directory when
+// the city has no boundary stored — typically because ingest tripped a hard error like NYC's
 // water-strip backstop or Nominatim returning a Point. The regional
 // aggregation helpers (regionBBox, summedBoundaryArea, etc.) already
 // tolerate missing boundaries via continue-on-error.
 func (e *Exporter) exportOneCity(ctx context.Context, entry CityEntry) (CityInfo, bool, error) {
+	// Decide whether to skip BEFORE creating the directory, not after. The
+	// MkdirAll used to run first, so a skipped city left cities/<slug>/data/
+	// behind, empty — and checksite's discover.go enumerates every directory
+	// under cities/ regardless of what cities.json lists, so `pvmt check-site`
+	// then failed on a city the exporter had deliberately dropped. Ordering is
+	// the fix rather than a RemoveAll in the skip branch, so a future early
+	// return cannot reintroduce the ghost by forgetting to clean up.
+	//
+	// Info is the same BBoxAndCenter lookup exportCityData does first, and it
+	// is where ErrNoBoundary originates (entry.go:178) — before anything is
+	// written. Doing it up front also collapses what used to be two separate
+	// ErrNoBoundary branches into one.
+	info, err := entry.Info(ctx)
+	if err != nil {
+		if errors.Is(err, ErrNoBoundary) {
+			fmt.Fprintf(e.warnOut(), "  skipping %s: no boundary stored (ingest failed earlier)\n", entry.Slug)
+			return CityInfo{}, false, nil
+		}
+		return CityInfo{}, false, fmt.Errorf("city %s bbox: %w", entry.Slug, err)
+	}
+
 	cityDataDir := filepath.Join(e.outputDir, "cities", entry.Slug, "data")
 	if err := os.MkdirAll(cityDataDir, 0o755); err != nil {
 		return CityInfo{}, false, fmt.Errorf("create city dir %s: %w", entry.Slug, err)
@@ -132,18 +153,7 @@ func (e *Exporter) exportOneCity(ctx context.Context, entry CityEntry) (CityInfo
 	// config-wide aggregates (BuildMultiCityMeta / BuildMultiCityForecastSeed),
 	// and exportOneCity only needs the per-city bbox/center via entry.Info.
 	if _, _, err := e.exportCityData(ctx, entry, cityDataDir); err != nil {
-		if errors.Is(err, ErrNoBoundary) {
-			fmt.Fprintf(e.warnOut(), "  skipping %s: no boundary stored (ingest failed earlier)\n", entry.Slug)
-			return CityInfo{}, false, nil
-		}
 		return CityInfo{}, false, fmt.Errorf("export %s: %w", entry.Slug, err)
-	}
-	info, err := entry.Info(ctx)
-	if err != nil {
-		if errors.Is(err, ErrNoBoundary) {
-			return CityInfo{}, false, nil
-		}
-		return CityInfo{}, false, fmt.Errorf("city %s bbox: %w", entry.Slug, err)
 	}
 	return info, true, nil
 }

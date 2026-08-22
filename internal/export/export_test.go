@@ -581,3 +581,66 @@ func TestExport_DataFilesAreMinified(t *testing.T) {
 		}
 	}
 }
+
+// TestExportOneCity_SkippedCityLeavesNoDirectory pins solvent-streets-q48z.15.
+//
+// exportOneCity used to MkdirAll the city's data directory before discovering
+// the city had no boundary, then warn and return kept=false without removing
+// it. cities.json correctly omitted the city, but checksite's classifyExample
+// walks every directory under cities/ regardless of cities.json — so
+// `pvmt check-site` failed the deploy gate on a city the exporter had
+// deliberately dropped (one structure failf naming all 8 missing data files,
+// plus three from the reasonableness and consistency checks).
+//
+// No live instance existed when this was found (277 dirs, 277 cities.json
+// entries), so this test is the only thing holding the invariant.
+func TestExportOneCity_SkippedCityLeavesNoDirectory(t *testing.T) {
+	ctx := context.Background()
+	outDir := t.TempDir()
+	cfg := &config.Config{Forecast: jsFixtureForecastConfig(t)}
+
+	// entry returns a fixture city wired to cfg, with a snapshot whose hash
+	// matches so RequireMatchingSnapshot passes.
+	entry := func(slug string) CityEntry {
+		e := jsFixtureEntry(t)
+		e.Config = cfg
+		e.Slug = slug
+		hash := cfg.CityHash(&e.City)
+		e.Store.(*dbtest.MockStore).ListSnapshotsFunc = func(context.Context) ([]db.Snapshot, error) {
+			return []db.Snapshot{{ID: jsFixtureSnapshotID, ConfigHash: hash}}, nil
+		}
+		return e
+	}
+
+	// A city that has been ingested and computed: real boundary, matching snapshot.
+	kept := entry("kept-city")
+
+	// The skipped city: ingest failed earlier, so GetBoundary returns "" and
+	// BBoxAndCenter reports ErrNoBoundary before anything is written.
+	ghost := entry("ghost-city")
+	ghost.Store.(*dbtest.MockStore).GetBoundaryFunc = func(context.Context) (string, error) { return "", nil }
+
+	e := New([]CityEntry{kept, ghost}, cfg, outDir, "imperial")
+
+	if _, ok, err := e.exportOneCity(ctx, kept); err != nil || !ok {
+		t.Fatalf("exportOneCity(kept) = ok %v, err %v; want ok true, nil", ok, err)
+	}
+	info, ok, err := e.exportOneCity(ctx, ghost)
+	if err != nil {
+		t.Fatalf("exportOneCity(ghost) = %v; want nil error (a skip is not a failure)", err)
+	}
+	if ok {
+		t.Fatalf("exportOneCity(ghost) kept = true; want false — the city has no boundary")
+	}
+	if info.Slug != "" || info.Name != "" {
+		t.Errorf("exportOneCity(ghost) info = %+v; want the zero CityInfo", info)
+	}
+
+	if _, err := os.Stat(filepath.Join(outDir, "cities", "ghost-city")); !os.IsNotExist(err) {
+		t.Errorf("cities/ghost-city exists after a skip (stat err %v); check-site walks every "+
+			"directory under cities/ and would fail the deploy gate on it", err)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "cities", "kept-city", "data")); err != nil {
+		t.Errorf("cities/kept-city/data missing: %v", err)
+	}
+}
