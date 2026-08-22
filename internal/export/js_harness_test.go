@@ -92,18 +92,26 @@ const jsFixtureSnapshotID = 1
 const jsFixtureBoundary = `{"type":"Polygon","coordinates":[[[-122.3,37.7],[-122.2,37.7],[-122.2,37.8],[-122.3,37.8],[-122.3,37.7]]]}`
 
 // jsFixtureForecastConfig is goldenForecastConfig with two deliberate changes:
-// a 20-year horizon (what a real site ships) and the canonical third tier label
+// a 20-year horizon (what a real site ships) and the canonical worst-tier label
 // "reconstruction". The golden's "reconstruct" does not match
 // forecast.DefaultMaterialTiers, so reusing it verbatim would silently drive the
 // Materials tab down MaterialTierFor's fallback path instead of a label match.
-func jsFixtureForecastConfig() config.ForecastConfig {
+//
+// The tier PRICES are deliberately not restated here: relabelling a clone keeps
+// this config following the golden's, where copying the literal would let the
+// two drift apart with nothing to notice — the failure this whole fixture
+// arrangement exists to rule out.
+func jsFixtureForecastConfig(t *testing.T) config.ForecastConfig {
+	t.Helper()
 	fc := goldenForecastConfig()
 	fc.Years = 20
-	fc.CostTiers = []config.CostTierCfg{
-		{MinPCI: 70, MaxPCI: 100, CostPerSqM: 2.0, Label: "preventive"},
-		{MinPCI: 50, MaxPCI: 70, CostPerSqM: 12.0, Label: "rehab"},
-		{MinPCI: 0, MaxPCI: 50, CostPerSqM: 60.0, Label: "reconstruction"},
+	fc.CostTiers = slices.Clone(fc.CostTiers)
+	worst := len(fc.CostTiers) - 1
+	if fc.CostTiers[worst].Label != "reconstruct" {
+		t.Fatalf("goldenForecastConfig's worst tier is now %q; check which tier needs the canonical label",
+			fc.CostTiers[worst].Label)
 	}
+	fc.CostTiers[worst].Label = "reconstruction"
 	return fc
 }
 
@@ -143,7 +151,7 @@ func jsFixtureEntry(t *testing.T) CityEntry {
 func writeJSFixtureTree(t *testing.T, dir string) {
 	t.Helper()
 	ctx := context.Background()
-	fc := jsFixtureForecastConfig()
+	fc := jsFixtureForecastConfig(t)
 	entry := jsFixtureEntry(t)
 
 	seed, err := BuildForecastSeed(ctx, &fc, entry.Store)

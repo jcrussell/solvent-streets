@@ -115,6 +115,8 @@ func TestForecastJSON_Golden(t *testing.T) {
 // goldenFixtureEntry builds a deterministic CityEntry: hand-picked compute
 // results per resource, both bbox and :city scopes, so BuildScenariosData
 // exercises the dual-scope branch (out["city"] and out["bbox"] both set).
+// Also used, with a boundary and a snapshot bolted on, to generate the JS
+// specs' data fixtures — see jsFixtureEntry.
 func goldenFixtureEntry(t *testing.T) CityEntry {
 	t.Helper()
 	results := map[resource.Type]db.ComputeResult{
@@ -177,6 +179,10 @@ func goldenFixtureEntry(t *testing.T) CityEntry {
 // goldenForecastConfig returns the frozen forecast config used by the
 // golden test. Keep these values stable; updates should run with -update
 // and be reviewed in the diff.
+//
+// Also the basis for the JS specs' fixtures (js_harness_test.go), which
+// relabel one tier and lengthen the horizon but otherwise follow this. A change
+// here moves what internal/export/templates/__tests__ runs against.
 func goldenForecastConfig() config.ForecastConfig {
 	return config.ForecastConfig{
 		Years:      10,

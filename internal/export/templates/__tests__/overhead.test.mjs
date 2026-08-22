@@ -179,6 +179,8 @@ test('a widened track is restored on the next city', async () => {
 
   assert.equal(parseFloat(h.$('#overhead-slider').max), 2.5,
     'the previous city\'s widened ceiling leaked into this one');
+  assert.equal(h.$('#overhead-slider').getAttribute('aria-valuemax'), '2.5',
+    'the announced ceiling still describes the previous city');
   assert.equal(parseFloat(h.$('#overhead-slider').value), 1.5);
 });
 

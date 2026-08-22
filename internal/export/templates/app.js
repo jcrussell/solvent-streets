@@ -2169,8 +2169,18 @@
             return Math.abs(n - Math.round(n)) < 1e-6;
         }
 
+        // The markup carries aria-valuenow alongside the native value, and AT
+        // honours the ARIA value over the native one. Nothing kept it in step,
+        // so a screen reader read the shipped default (85 / 1x) for the life of
+        // the page no matter where the slider actually sat. Call this wherever
+        // a slider's value changes: at seed time and on every drag.
+        /** @param {HTMLInputElement} slider */
+        function syncAriaValueNow(slider) {
+            slider.setAttribute('aria-valuenow', slider.value);
+        }
+
         // seedRangeInput sets a range input to a seeded value EXACTLY, and
-        // returns what it set.
+        // returns the value the control ended up holding.
         //
         // There are two ways a range input silently refuses a value, and both
         // put the interactive line on a different basis from the static export
@@ -2188,6 +2198,14 @@
         //     costRegimeText keeps printing "1.33x". jsdom implements the clamp
         //     but NOT the snap, so no amount of reading back .value in a test
         //     can see it — drop to step="any" whenever the seed is off-ladder.
+        //
+        // step="any" costs this: on a city whose configured overhead is off the
+        // ladder, dragging then yields arbitrary-precision values, and the label
+        // (toFixed(2)) can round away up to 0.005x of what the sim prices at.
+        // That is the better trade — the alternative silently misprices the
+        // SEEDED value for every visitor at page load, and the obvious way to
+        // keep a 0.05 ladder while admitting 1.33 is to move min up to 1.03,
+        // which makes the default 1.0 unreachable all over again.
         /** @param {HTMLInputElement} slider @param {number} v @returns {number} */
         function seedRangeInput(slider, v) {
             let track = shippedTracks.get(slider);
@@ -2206,8 +2224,12 @@
             slider.setAttribute('aria-valuemin', slider.min);
             slider.setAttribute('aria-valuemax', slider.max);
             slider.value = String(v);
-            slider.setAttribute('aria-valuenow', slider.value);
-            return v;
+            syncAriaValueNow(slider);
+            // Read back rather than returning v: the caller labels the control
+            // with this, and the label has to say what the control actually
+            // holds. If a UA still refuses the value, a visibly wrong label is
+            // the bug surfacing, not a second bug on top of it.
+            return parseFloat(slider.value);
         }
 
         // Config validation accepts initial_pci anywhere in 0-100 and
@@ -2503,17 +2525,20 @@
         const budgetSlider = inputById('budget-slider');
         budgetSlider.addEventListener('input', () => {
             document.getElementById('budget-value').textContent = budgetSlider.value + '%';
+            syncAriaValueNow(budgetSlider);
             runCustomScenario();
         });
         const pciSlider = inputById('pci-slider');
         pciSlider.addEventListener('input', () => {
             document.getElementById('pci-value').textContent = pciSlider.value;
+            syncAriaValueNow(pciSlider);
             runCustomScenario();
         });
         const overheadSlider = inputById('overhead-slider');
         overheadSlider.addEventListener('input', () => {
             renderOverheadValue();
             renderOverheadRegimeLabel();
+            syncAriaValueNow(overheadSlider);
             runCustomScenario();
         });
         queryAll('#strategy-buttons button').forEach(btn => {

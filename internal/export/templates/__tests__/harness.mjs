@@ -128,6 +128,10 @@ function installStubs(win, { data, simulate }) {
 
   // Static-site fetch over the fixture data. Anything not in `data` 404s, which
   // is a case app.js is meant to survive (loadJSON returns null).
+  //
+  // `data` is read LIVE on every fetch, not snapshotted: that is what lets a
+  // spec simulate a city switch by reassigning an entry and calling
+  // loadFinancials() again. Do not clone it at install time.
   win.fetch = async (url) => {
     const key = String(url).split('?')[0].replace(/^\.?\//, '');
     const hit = Object.keys(data).find((k) => key.endsWith(k));

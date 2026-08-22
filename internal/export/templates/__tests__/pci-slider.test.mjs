@@ -58,3 +58,21 @@ test('a widened track is restored on the next city', async () => {
     'the previous city\'s widened track leaked into this one');
   assert.equal(parseInt(h.$('#pci-slider').value), 85);
 });
+
+test('the ARIA value tracks the seed and the drag, not the shipped default', async () => {
+  // AT reads aria-valuenow in preference to the native value, and nothing kept
+  // it in step: it stayed at the markup's 85 whatever the slider held. The
+  // bounds have to follow the widened track for the same reason.
+  const { $, win } = await ready(withPCI(45));
+  const slider = $('#pci-slider');
+
+  assert.equal(slider.getAttribute('aria-valuenow'), '45',
+    'a screen reader would announce the shipped default, not the seeded PCI');
+  assert.equal(slider.getAttribute('aria-valuemin'), '45',
+    'the announced range does not cover the widened track');
+
+  slider.value = '70';
+  slider.dispatchEvent(new win.Event('input', { bubbles: true }));
+  assert.equal(slider.getAttribute('aria-valuenow'), '70',
+    'the announced value went stale as soon as the slider moved');
+});

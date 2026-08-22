@@ -1,8 +1,10 @@
 package export
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"maps"
 	"math"
@@ -225,20 +227,30 @@ func buildSeedMap(t *testing.T, build func() (template.JS, error)) map[string]an
 	return out
 }
 
-// sortedCohorts orders a decoded cohort array by classification so two builders
-// that visit the same cohorts in a different order still compare equal.
+// sortedCohorts orders a decoded cohort array so two builders that visit the
+// same cohorts in a different order still compare equal.
+//
+// Classification alone is NOT a unique key: mergeCohortSeeds buckets on
+// (resource_type, classification) and keeps cross-resource collisions as
+// separate cohorts, so two entries can share a classification. Sorting on it
+// alone with an unstable sort would let tied entries swap and fail the test for
+// no reason, so break ties on the remaining fields.
 func sortedCohorts(v any) any {
 	list, ok := v.([]any)
 	if !ok {
 		return v
 	}
+	field := func(x any, name string) string {
+		m, _ := x.(map[string]any)
+		return fmt.Sprint(m[name])
+	}
 	out := slices.Clone(list)
-	slices.SortFunc(out, func(a, b any) int {
-		am, _ := a.(map[string]any)
-		bm, _ := b.(map[string]any)
-		as, _ := am["classification"].(string)
-		bs, _ := bm["classification"].(string)
-		return strings.Compare(as, bs)
+	slices.SortStableFunc(out, func(a, b any) int {
+		return cmp.Or(
+			strings.Compare(field(a, "classification"), field(b, "classification")),
+			strings.Compare(field(a, "area"), field(b, "area")),
+			strings.Compare(field(a, "decay_rate"), field(b, "decay_rate")),
+		)
 	})
 	return out
 }
