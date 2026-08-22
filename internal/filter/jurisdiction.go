@@ -112,15 +112,24 @@ var (
 	//        the ingested corpus (~400 cities); it is recorded here on domain
 	//        knowledge alone. Harmless if wrong: see the note below on why
 	//        County and State are indistinguishable to every published number.
-	// The optional [A-Z] before the number is California's county-route
-	// designator convention, which the bare-\d anchor missed entirely:
+	// Anything carrying one of these prefixes and a separator is a county
+	// route; no designator shape is required after it. The bare-\d anchor
+	// this replaces missed California's letter designators entirely --
 	// San Diego County's S-routes (CR S21, 1064 features; CR S17, 670;
-	// CR S11, 604), Los Angeles County's N-routes (CR N8, 624; CR N9), and
-	// the G/J/E series (CR G8, 600). 9025 features in total, overwhelmingly
-	// highway=primary, every one of them landing in City before this --
-	// billing a county arterial to the city's area, AnnualNeed and
-	// FundingGap. It makes CR S21 behave exactly as CR 12 already did.
-	countyRefRe = regexp.MustCompile(`^(CR|CH|CC|TR)[ -][A-Z]?\d`)
+	// CR S11, 604), Los Angeles County's N-routes (CR N8, 624), the G/J/E
+	// series (CR G8, 600) -- 9025 features, overwhelmingly highway=primary,
+	// every one landing in City and billing a county arterial to the city's
+	// area, AnnualNeed and FundingGap.
+	//
+	// Matching on the prefix alone rather than enumerating designator shapes
+	// is deliberate, and mirrors spelledCountyRefRe's `CTH[ -]`. A first
+	// attempt requiring [A-Z]?\d still missed 75 further features in three
+	// more shapes -- hyphenated "CR S-40" (16), and letter-only "CR G" (15),
+	// "CR LL" (6), "CR H" -- which is the same trap a fourth shape would
+	// spring later. None of CR/CH/CC/TR is a USPS state code (see
+	// statePostalDeny), so widening cannot shadow a real state route, and
+	// federalRefRe runs earlier in the ladder regardless.
+	countyRefRe = regexp.MustCompile(`^(CR|CH|CC|TR)[ -]`)
 
 	// spelledCountyRefRe matches the county-route forms written out in words,
 	// which no numeric pattern can reach. Wisconsin spells County Trunk
@@ -219,6 +228,15 @@ var (
 // countyRefRe/stateExplicitRefRe. Before adding a prefix here, check whether
 // the ref convention you are reasoning about also has a spelled or lettered
 // form that no pattern in this file can reach.
+//
+// That class is NOT closed. statePostalRefRe still requires TWO letters, so
+// the single-letter state-route conventions land in City today: Michigan's
+// "M 5"/"M 1" (1207 features -- M 1 is Woodward Ave, MDOT), Nebraska's
+// "N-64"/"L-28K" (356), Kansas's "K-32" (63). ~1729 features, tracked in
+// solvent-streets-m0qa. They are left alone here rather than guessed at,
+// because a bare ^[A-Z][ -]\d would also need to reckon with Ohio's "C-138"
+// (county, not state) and with Missouri's lettered supplementals ("MO W"),
+// and neither has been measured per-prefix yet.
 //
 // Three more non-postal prefixes reach this rule and are left as State
 // deliberately, each for its own reason. All three were found by histogramming

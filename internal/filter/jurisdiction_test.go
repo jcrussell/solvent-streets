@@ -169,6 +169,13 @@ func TestClassifyJurisdiction(t *testing.T) {
 		{"wisconsin county trunk letter only", map[string]string{"ref": "CTH E", "highway": "primary"}, JurisdictionCounty},
 		{"county highway spelled out", map[string]string{"ref": "County Highway S21", "highway": "primary"}, JurisdictionCounty},
 		{"county road spelled out", map[string]string{"ref": "County Road 12", "highway": "primary"}, JurisdictionCounty},
+		// Two further designator shapes, found by peer review after the first
+		// attempt at this fix required [A-Z]?\d and still missed 75 features.
+		// They are why countyRefRe matches on the prefix alone: enumerating
+		// shapes loses to the next shape.
+		{"CA county route hyphenated after the letter", map[string]string{"ref": "CR S-40", "highway": "primary"}, JurisdictionCounty},
+		{"CA county route letter only, no number", map[string]string{"ref": "CR G", "highway": "primary"}, JurisdictionCounty},
+		{"CA county route two-letter designator", map[string]string{"ref": "CR LL", "highway": "primary"}, JurisdictionCounty},
 		// TxDOT loops and spurs written out. The abbreviated SL/SS forms of
 		// the same roads were already State via the permissive default; these
 		// were City. 2905 features.
@@ -448,6 +455,7 @@ func TestRefPrefixesNeverFallToCity(t *testing.T) {
 		// are the 9480 features that used to fall through to City.
 		"CR S21", "CR N8", "CR G8", "CR-S6", "CTH PP", "CTH E",
 		"County Highway S21", "County Road 12",
+		"CR S-40", "CR G", "CR LL", "CR H",
 		// State: postal-code routes, the explicit SR/SH forms, and the
 		// non-postal prefixes deliberately left as State.
 		"CA 84", "SR 84", "OR-99E", "BW 8", "PR 1836", "OS 15",
