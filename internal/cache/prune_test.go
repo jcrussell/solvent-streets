@@ -1,6 +1,8 @@
 package cache
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -91,7 +93,7 @@ func TestPrune_AgeRemovesStaleEntriesOnly(t *testing.T) {
 	oldBody, oldMeta := writeEntry(t, dir, key(1), 100, 48*time.Hour)
 	newBody, newMeta := writeEntry(t, dir, key(2), 100, time.Hour)
 
-	report, err := Prune(dir, PruneOptions{MaxAge: 24 * time.Hour})
+	report, err := Prune(context.Background(), dir, PruneOptions{MaxAge: 24 * time.Hour})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,12 +119,116 @@ func TestPrune_AgeRemovesStaleEntriesOnly(t *testing.T) {
 	}
 }
 
+// TestPrune_CancelledSweepStopsAndReportsIt pins solvent-streets-q48z.22.
+//
+// Prune took no context, so `pvmt cache prune --yes` observed cancellation
+// nowhere. Worse than a slow Ctrl-C: signal.NotifyContext keeps the default
+// SIGINT disposition disabled for the whole run, so NO interrupt terminated
+// the sweep — it always ran to completion.
+//
+// A cancelled sweep must stop early, surface context.Canceled, and still
+// account for every entry it never reached.
+func TestPrune_CancelledSweepStopsAndReportsIt(t *testing.T) {
+	dir := t.TempDir()
+	const entries = 40
+	for i := range entries {
+		writeEntry(t, dir, key(i+1), 100, 48*time.Hour) // all stale: all eligible
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancelled before the first probe
+
+	report, err := Prune(ctx, dir, PruneOptions{MaxAge: 24 * time.Hour})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Prune err = %v, want it to wrap context.Canceled", err)
+	}
+	if report == nil {
+		t.Fatal("Prune returned a nil report; the partial result must survive for the caller to print")
+	}
+	if report.EntriesRemoved != 0 {
+		t.Errorf("EntriesRemoved = %d, want 0: an already-cancelled sweep must delete nothing", report.EntriesRemoved)
+	}
+
+	surviving := 0
+	for i := range entries {
+		if exists(t, filepath.Join(dir, key(i+1)+".json")) {
+			surviving++
+		}
+	}
+	if surviving != entries {
+		t.Errorf("%d of %d entries survived; a cancelled sweep must not evict", surviving, entries)
+	}
+}
+
+// cancelAfterNProbes reports Canceled once ctx.Err has been consulted more
+// than `after` times, so a test can cancel at a precise point inside the sweep
+// without racing it. Mirrors the helper of the same name in
+// pkg/cmd/checksite.
+type cancelAfterNProbes struct {
+	context.Context
+	n     int
+	after int
+}
+
+func (c *cancelAfterNProbes) Err() error {
+	c.n++
+	if c.n > c.after {
+		return context.Canceled
+	}
+	return nil
+}
+
+// TestPrune_CancelledMidSweepStopsEarly is the same guard for the realistic
+// case — cancellation arriving after the sweep has already evicted some
+// entries. The rest must be left alone rather than swept anyway.
+func TestPrune_CancelledMidSweepStopsEarly(t *testing.T) {
+	dir := t.TempDir()
+	const entries = 10
+	for i := range entries {
+		writeEntry(t, dir, key(i+1), 100, 48*time.Hour) // all stale: all eligible
+	}
+
+	// Probe budget: scanCacheDir checks once per FILE (2 per entry), then
+	// sweepIncomplete once per entry. Spending that much lets the run reach
+	// sweepByAge, where the next few entries are evicted before the cancel
+	// lands.
+	const evictedBeforeCancel = 3
+	ctx := &cancelAfterNProbes{
+		Context: context.Background(),
+		after:   entries*2 + entries + evictedBeforeCancel,
+	}
+
+	report, err := Prune(ctx, dir, PruneOptions{MaxAge: 24 * time.Hour})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Prune err = %v, want it to wrap context.Canceled", err)
+	}
+	if report.EntriesRemoved != evictedBeforeCancel {
+		t.Errorf("EntriesRemoved = %d, want %d — the sweep did not stop where the cancel landed",
+			report.EntriesRemoved, evictedBeforeCancel)
+	}
+	// The survivors must still be on disk: stopping means leaving them alone.
+	surviving := 0
+	for i := range entries {
+		if exists(t, filepath.Join(dir, key(i+1)+".json")) {
+			surviving++
+		}
+	}
+	if want := entries - evictedBeforeCancel; surviving != want {
+		t.Errorf("%d entries survived, want %d", surviving, want)
+	}
+	// Bytes the sweep never reached are still accounted for, so the report the
+	// command prints does not silently lose them.
+	if report.BytesRemaining == 0 {
+		t.Error("BytesRemaining = 0; unreached entries must still be credited")
+	}
+}
+
 // TestPrune_MaxAgeZeroDisablesAgePruning pins the documented escape hatch.
 func TestPrune_MaxAgeZeroDisablesAgePruning(t *testing.T) {
 	dir := t.TempDir()
 	body, meta := writeEntry(t, dir, key(1), 10, 10*365*24*time.Hour)
 
-	report, err := Prune(dir, PruneOptions{MaxAge: 0, MaxSize: 0})
+	report, err := Prune(context.Background(), dir, PruneOptions{MaxAge: 0, MaxSize: 0})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +250,7 @@ func TestPrune_SizeEvictsOldestFirst(t *testing.T) {
 	newestBody, newestMeta := writeEntry(t, dir, key(3), 100, time.Hour)
 
 	// 600 on disk, cap at 250 -> must drop the two oldest (leaving 200).
-	report, err := Prune(dir, PruneOptions{MaxSize: 250})
+	report, err := Prune(context.Background(), dir, PruneOptions{MaxSize: 250})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +280,7 @@ func TestPrune_SizeCountsBothFilesOfAPair(t *testing.T) {
 
 	// 200 on disk. A cap of 150 is under the true size but over the
 	// body-only size, so a half-counting implementation would keep it.
-	report, err := Prune(dir, PruneOptions{MaxSize: 150})
+	report, err := Prune(context.Background(), dir, PruneOptions{MaxSize: 150})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +306,7 @@ func TestPrune_SweepsOrphansAndTempFiles(t *testing.T) {
 	intactBody, intactMeta := writeEntry(t, dir, key(4), 10, time.Hour)
 
 	// No age or size pressure: orphan cleanup is unconditional.
-	report, err := Prune(dir, PruneOptions{MaxAge: 0, MaxSize: 0})
+	report, err := Prune(context.Background(), dir, PruneOptions{MaxAge: 0, MaxSize: 0})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +354,7 @@ func TestPrune_EntryAgeIsTheNewerHalf(t *testing.T) {
 			dir := t.TempDir()
 			body, meta := writeEntryMtimes(t, dir, key(1), tc.bodyAge, tc.metaAge)
 
-			report, err := Prune(dir, PruneOptions{MaxAge: 24 * time.Hour})
+			report, err := Prune(context.Background(), dir, PruneOptions{MaxAge: 24 * time.Hour})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -273,7 +379,7 @@ func TestPrune_EntryAgeUsesNewerHalfForLRU(t *testing.T) {
 	coldBody, coldMeta := writeEntryMtimes(t, dir, key(2), 24*time.Hour, 24*time.Hour)
 
 	// 400 bytes on disk, cap 250 -> exactly one entry must go.
-	if _, err := Prune(dir, PruneOptions{MaxSize: 250}); err != nil {
+	if _, err := Prune(context.Background(), dir, PruneOptions{MaxSize: 250}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -301,7 +407,7 @@ func TestPrune_SweepsRealWriteFileResidue(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	report, err := Prune(dir, PruneOptions{MaxAge: 0, MaxSize: 0})
+	report, err := Prune(context.Background(), dir, PruneOptions{MaxAge: 0, MaxSize: 0})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -349,7 +455,7 @@ func TestPrune_LeavesInFlightOrphansAlone(t *testing.T) {
 	inFlight := filepath.Join(dir, key(1)+".json")
 	writeFileAged(t, inFlight, 50, 0)
 
-	report, err := Prune(dir, PruneOptions{MaxAge: time.Nanosecond, MaxSize: 1})
+	report, err := Prune(context.Background(), dir, PruneOptions{MaxAge: time.Nanosecond, MaxSize: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,7 +478,7 @@ func TestPrune_DryRunMakesNoChanges(t *testing.T) {
 	orphan := filepath.Join(dir, key(2)+".json")
 	writeFileAged(t, orphan, 50, time.Hour)
 
-	report, err := Prune(dir, PruneOptions{MaxAge: 24 * time.Hour, DryRun: true})
+	report, err := Prune(context.Background(), dir, PruneOptions{MaxAge: 24 * time.Hour, DryRun: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -425,7 +531,7 @@ func TestPrune_FailedRemovalDoesNotCountAsRemoved(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
 
-	report, err := Prune(dir, PruneOptions{MaxAge: 24 * time.Hour})
+	report, err := Prune(context.Background(), dir, PruneOptions{MaxAge: 24 * time.Hour})
 	if err == nil {
 		t.Fatal("expected the permission failure to be reported")
 	}
@@ -454,7 +560,7 @@ func TestPrune_ConcurrentSweepsDoNotError(t *testing.T) {
 	errs := make([]error, 8)
 	for i := range errs {
 		wg.Go(func() {
-			_, errs[i] = Prune(dir, PruneOptions{MaxAge: time.Hour})
+			_, errs[i] = Prune(context.Background(), dir, PruneOptions{MaxAge: time.Hour})
 		})
 	}
 	wg.Wait()
@@ -504,7 +610,7 @@ func TestPrune_SkipsForeignPathsAndDoesNotRecurse(t *testing.T) {
 	writeFileAged(t, notes, 10, 90*24*time.Hour)
 	writeFileAged(t, shortKey, 10, 90*24*time.Hour)
 
-	report, err := Prune(dir, PruneOptions{MaxAge: time.Hour, MaxSize: 1})
+	report, err := Prune(context.Background(), dir, PruneOptions{MaxAge: time.Hour, MaxSize: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -526,7 +632,7 @@ func TestPrune_SkipsForeignPathsAndDoesNotRecurse(t *testing.T) {
 // TestPrune_MissingDirIsNotAnError: pruning before anything was ever
 // cached is a no-op, not a failure.
 func TestPrune_MissingDirIsNotAnError(t *testing.T) {
-	report, err := Prune(filepath.Join(t.TempDir(), "never-created"), PruneOptions{MaxAge: time.Hour})
+	report, err := Prune(context.Background(), filepath.Join(t.TempDir(), "never-created"), PruneOptions{MaxAge: time.Hour})
 	if err != nil {
 		t.Fatalf("missing cache dir must not error: %v", err)
 	}
@@ -549,7 +655,7 @@ func TestPrune_RealTransportEntriesAreRecognized(t *testing.T) {
 		resp, []byte("body bytes"), "https://example.com/x",
 	)
 
-	report, err := Prune(dir, PruneOptions{MaxSize: 1})
+	report, err := Prune(context.Background(), dir, PruneOptions{MaxSize: 1})
 	if err != nil {
 		t.Fatal(err)
 	}

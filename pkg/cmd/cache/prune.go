@@ -139,7 +139,7 @@ func runPrune(ctx context.Context, opts *PruneOptions) error {
 	}
 	sweep := httpcache.PruneOptions{MaxAge: opts.MaxAge, MaxSize: opts.MaxSizeBytes}
 
-	plan, planErr := httpcache.Prune(dir, withDryRun(sweep, true))
+	plan, planErr := httpcache.Prune(ctx, dir, withDryRun(sweep, true))
 	printPruneReport(opts, dir, plan)
 	if planErr != nil {
 		return planErr
@@ -169,7 +169,7 @@ func runPrune(ctx context.Context, opts *PruneOptions) error {
 		return err
 	}
 
-	report, pruneErr := httpcache.Prune(dir, withDryRun(sweep, false))
+	report, pruneErr := httpcache.Prune(ctx, dir, withDryRun(sweep, false))
 	// Print the outcome even on a partial failure — the caller still
 	// wants to know what was reclaimed before the error. This is a
 	// summary rather than a repeat of the block above; the counts are

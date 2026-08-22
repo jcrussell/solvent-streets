@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -146,9 +147,17 @@ func (e *cacheEntry) complete() bool { return e.hasBody && e.hasMeta }
 // failures that are not "already gone" (e.g. EPERM) are joined into the
 // returned error, and the report is still returned so the caller can
 // print the partial result.
-func Prune(dir string, opts PruneOptions) (*PruneReport, error) {
-	p := &pruneRun{opts: opts, report: &PruneReport{}, now: time.Now()}
-	entries, temps, err := scanCacheDir(dir, p.report)
+// Cancellation: ctx is checked once per directory entry and once per entry in
+// each sweep, so a SIGINT stops the sweep promptly instead of running to
+// completion. Before this, `pvmt cache prune --yes` observed ctx nowhere at
+// all, and because signal.NotifyContext keeps the default SIGINT disposition
+// disabled for the whole run, NO Ctrl-C terminated it mid-sweep
+// (solvent-streets-q48z.22). A cancelled sweep returns a context.Canceled in
+// the joined error alongside the partial report — entries it never reached are
+// credited to BytesRemaining, so the printed numbers stay honest.
+func Prune(ctx context.Context, dir string, opts PruneOptions) (*PruneReport, error) {
+	p := &pruneRun{ctx: ctx, opts: opts, report: &PruneReport{}, now: time.Now()}
+	entries, temps, err := scanCacheDir(ctx, dir, p.report)
 	if err != nil {
 		return p.report, err
 	}
@@ -168,10 +177,25 @@ func Prune(dir string, opts PruneOptions) (*PruneReport, error) {
 // pruneRun carries the mutable state of one sweep so the passes don't
 // thread four parameters each.
 type pruneRun struct {
+	ctx    context.Context
 	opts   PruneOptions
 	report *PruneReport
 	now    time.Time
 	errs   []error
+}
+
+// cancelled reports whether the run should stop, recording the cancellation
+// once so errors.Join surfaces it exactly once no matter how many sweeps
+// observe it.
+func (p *pruneRun) cancelled() bool {
+	err := p.ctx.Err()
+	if err == nil {
+		return false
+	}
+	if !slices.ContainsFunc(p.errs, func(e error) bool { return errors.Is(e, err) }) {
+		p.errs = append(p.errs, err)
+	}
+	return true
 }
 
 // evict removes one entry's files and reports whether the entry is fully
@@ -196,6 +220,13 @@ func (p *pruneRun) evict(e *cacheEntry) bool {
 func (p *pruneRun) sweepIncomplete(entries map[string]*cacheEntry, temps []*cacheEntry) []*cacheEntry {
 	live := make([]*cacheEntry, 0, len(entries))
 	for _, e := range entries {
+		if p.cancelled() {
+			// Stop removing, but keep the accounting honest: an entry we
+			// never examined survived the sweep, which is exactly what
+			// `live` means to the passes downstream.
+			live = append(live, e)
+			continue
+		}
 		p.report.EntriesScanned++
 		if e.complete() {
 			live = append(live, e)
@@ -204,6 +235,9 @@ func (p *pruneRun) sweepIncomplete(entries map[string]*cacheEntry, temps []*cach
 		p.sweepResidue(e)
 	}
 	for _, tmp := range temps {
+		if p.cancelled() {
+			break
+		}
 		p.sweepResidue(tmp)
 	}
 	return live
@@ -228,7 +262,13 @@ func (p *pruneRun) sweepByAge(live []*cacheEntry) []*cacheEntry {
 		return live
 	}
 	kept := live[:0:0]
-	for _, e := range live {
+	for i, e := range live {
+		if p.cancelled() {
+			// Everything not yet examined survives, so hand it on: the size
+			// pass credits its bytes to BytesRemaining.
+			kept = append(kept, live[i:]...)
+			break
+		}
 		if p.now.Sub(e.mtime) <= p.opts.MaxAge {
 			kept = append(kept, e)
 			continue
@@ -250,6 +290,11 @@ func (p *pruneRun) sweepBySize(kept []*cacheEntry) {
 	}
 	for _, e := range kept {
 		if p.opts.MaxSize <= 0 || remaining <= p.opts.MaxSize {
+			break
+		}
+		// Breaking here leaves every unprocessed entry's size in `remaining`,
+		// which is credited to BytesRemaining below — no accounting fixup needed.
+		if p.cancelled() {
 			break
 		}
 		// Decrement unconditionally: the entry has been processed either
@@ -277,7 +322,7 @@ type cacheScan struct {
 
 // scanCacheDir reads dir one level deep and groups the recognized files by
 // cache key.
-func scanCacheDir(dir string, report *PruneReport) (map[string]*cacheEntry, []*cacheEntry, error) {
+func scanCacheDir(ctx context.Context, dir string, report *PruneReport) (map[string]*cacheEntry, []*cacheEntry, error) {
 	dirEnts, err := os.ReadDir(dir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -289,6 +334,11 @@ func scanCacheDir(dir string, report *PruneReport) (map[string]*cacheEntry, []*c
 
 	s := &cacheScan{dir: dir, entries: make(map[string]*cacheEntry), report: report}
 	for _, de := range dirEnts {
+		if err := ctx.Err(); err != nil {
+			// A huge cache dir can take a while to stat; bail out rather than
+			// finishing a scan whose sweep is about to be abandoned anyway.
+			return nil, nil, err
+		}
 		s.add(de)
 	}
 	return s.entries, s.temps, nil
