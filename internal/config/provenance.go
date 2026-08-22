@@ -100,11 +100,18 @@ func (c *Config) resolveUnits(flagUnits string) (units.System, Source) {
 }
 
 // hexEdgeFromEnv reads the PVMT_HEX_EDGE_M override. The bool reports whether
-// a valid positive value was present. Shared by resolveHexEdge and
+// a valid positive FINITE value was present. Shared by resolveHexEdge and
 // resolveHexEdgeForCity so the env layer is read identically in both.
+//
+// nonFinite is load-bearing, not tidiness. strconv.ParseFloat accepts "inf" and
+// "Infinity" with a nil error and +Inf > 0 is true, so PVMT_HEX_EDGE_M=inf was
+// accepted here and went straight to geo.HexGrid — whose guard then returns nil
+// and the city exports with an empty hex layer, no error, exit 0. Config's
+// load-time gate on grid.hex_edge_m does not cover this: the env layer wins over
+// the file value and never passes through Validate.
 func hexEdgeFromEnv() (float64, Source, bool) {
 	if v, ok := os.LookupEnv("PVMT_HEX_EDGE_M"); ok && v != "" {
-		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && !nonFinite(f) && f > 0 {
 			return f, Source{Kind: SourceEnv, Detail: "PVMT_HEX_EDGE_M"}, true
 		}
 	}

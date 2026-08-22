@@ -3,6 +3,7 @@ package root
 import (
 	"errors"
 	"log/slog"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -55,6 +56,11 @@ var middlewares = []middleware{
 // was ignored; this middleware is the signal. Range checks mirror the
 // validation inside those resolvers so a warning implies the env will
 // be ignored and silence implies it will be honored.
+// nonFiniteEnv mirrors config.nonFinite for the env-warning middleware, which
+// lives outside that package. Kept in step with the resolvers in
+// internal/config: a value this reports true for is a value they drop.
+func nonFiniteEnv(v float64) bool { return math.IsNaN(v) || math.IsInf(v, 0) }
+
 func warnInvalidEnv(_ *cobra.Command, f *cmdutil.Factory) error {
 	ios := f.IOStreams
 	if ios == nil {
@@ -80,6 +86,13 @@ func warnInvalidEnv(_ *cobra.Command, f *cmdutil.Factory) error {
 		switch {
 		case err != nil:
 			warnf("PVMT_HEX_EDGE_M=%q is not a valid number", v)
+		// Ordered before the range test on purpose: ParseFloat accepts "inf"
+		// with a nil error, and +Inf <= 0 is false, so an infinite edge would
+		// otherwise fall through both arms and this middleware would stay
+		// silent about a value the resolver now drops — breaking the
+		// silence-implies-honored contract above.
+		case nonFiniteEnv(n):
+			warnf("PVMT_HEX_EDGE_M=%q must be a finite number", v)
 		case n <= 0:
 			warnf("PVMT_HEX_EDGE_M=%q must be > 0", v)
 		}
@@ -89,6 +102,10 @@ func warnInvalidEnv(_ *cobra.Command, f *cmdutil.Factory) error {
 		switch {
 		case err != nil:
 			warnf("PVMT_FORECAST_INITIAL_PCI=%q is not a valid number", v)
+		// Same ordering, and here NaN is the one that escapes: it is false
+		// against both `<= 0` and `> 100`.
+		case nonFiniteEnv(n):
+			warnf("PVMT_FORECAST_INITIAL_PCI=%q must be a finite number", v)
 		case n <= 0 || n > 100:
 			warnf("PVMT_FORECAST_INITIAL_PCI=%q must be in (0, 100]", v)
 		}

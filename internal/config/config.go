@@ -361,10 +361,20 @@ func (fc *ForecastConfig) Validate() error {
 // out-of-range bound silently produces wrong dollar figures (overlap and coverage
 // gaps are intentionally left to the operator). Split out of Validate to keep its
 // cognitive complexity in check.
+//
+// All three floats are nonFinite-guarded for the same reason every other float
+// bound in this package is: NaN is false against every ordered comparison here,
+// so `cost_per_sqm <= 0`, `min_pci < 0`, `max_pci > 101` and `min_pci >= max_pci`
+// all admit it. A NaN tier price loads clean and reaches the seed, where
+// json.Marshal kills `pvmt export` with "unsupported value: NaN" — after the
+// user has already run ingest and compute.
 func validateCostTiers(tiers []CostTierCfg) error {
 	for i, t := range tiers {
-		if t.CostPerSqM <= 0 {
-			return fmt.Errorf("forecast.cost_tiers[%d] (%s): cost_per_sqm %g must be positive", i, t.Label, t.CostPerSqM)
+		if nonFinite(t.CostPerSqM) || t.CostPerSqM <= 0 {
+			return fmt.Errorf("forecast.cost_tiers[%d] (%s): cost_per_sqm %g must be a positive finite number", i, t.Label, t.CostPerSqM)
+		}
+		if nonFinite(t.MinPCI) || nonFinite(t.MaxPCI) {
+			return fmt.Errorf("forecast.cost_tiers[%d] (%s): pci band [%g, %g) must be finite", i, t.Label, t.MinPCI, t.MaxPCI)
 		}
 		if t.MinPCI < 0 || t.MaxPCI > 101 {
 			return fmt.Errorf("forecast.cost_tiers[%d] (%s): pci band [%g, %g) out of range (0-101)", i, t.Label, t.MinPCI, t.MaxPCI)
@@ -569,13 +579,20 @@ func parsePositiveIntEnv(envKey string) (int, bool) {
 
 // parsePCIEnv returns the float value of envKey if it is set to a
 // string that parses as a float in (0, 100], else (0, false).
+//
+// The nonFinite guard is not redundant with the range test. strconv.ParseFloat
+// accepts "nan", "inf" and "Infinity" with a nil error, and NaN is false against
+// both `<= 0` and `> 100` — so PVMT_FORECAST_INITIAL_PCI=nan was ACCEPTED here
+// and `pvmt forecast` printed "Initial PCI: NaN" with every dollar column NaN
+// and exit code 0. The file layer grew this guard in Validate; the env layer
+// needs its own, because it never goes through Validate.
 func parsePCIEnv(envKey string) (float64, bool) {
 	s, ok := os.LookupEnv(envKey)
 	if !ok || s == "" {
 		return 0, false
 	}
 	f, err := strconv.ParseFloat(s, 64)
-	if err != nil || f <= 0 || f > 100 {
+	if err != nil || nonFinite(f) || f <= 0 || f > 100 {
 		return 0, false
 	}
 	return f, true

@@ -23,7 +23,15 @@ func TestForecastConfig_Validate_RejectsBad(t *testing.T) {
 		"tier inverted band":  {CostTiers: []CostTierCfg{{MinPCI: 70, MaxPCI: 40, CostPerSqM: 5, Label: "x"}}},
 		"tier min negative":   {CostTiers: []CostTierCfg{{MinPCI: -1, MaxPCI: 40, CostPerSqM: 5, Label: "x"}}},
 		"tier max over 101":   {CostTiers: []CostTierCfg{{MinPCI: 0, MaxPCI: 150, CostPerSqM: 5, Label: "x"}}},
-		"tier empty label":    {CostTiers: []CostTierCfg{{MinPCI: 0, MaxPCI: 40, CostPerSqM: 5, Label: ""}}},
+		// Every check in validateCostTiers is an ordered comparison, so NaN was
+		// false against all four and a NaN tier loaded clean — then killed
+		// `pvmt export` at json.Marshal, after ingest and compute had run.
+		"tier NaN cost":    {CostTiers: []CostTierCfg{{MinPCI: 0, MaxPCI: 40, CostPerSqM: math.NaN(), Label: "x"}}},
+		"tier +Inf cost":   {CostTiers: []CostTierCfg{{MinPCI: 0, MaxPCI: 40, CostPerSqM: math.Inf(1), Label: "x"}}},
+		"tier NaN min":     {CostTiers: []CostTierCfg{{MinPCI: math.NaN(), MaxPCI: 40, CostPerSqM: 5, Label: "x"}}},
+		"tier NaN max":     {CostTiers: []CostTierCfg{{MinPCI: 0, MaxPCI: math.NaN(), CostPerSqM: 5, Label: "x"}}},
+		"tier +Inf max":    {CostTiers: []CostTierCfg{{MinPCI: 0, MaxPCI: math.Inf(1), CostPerSqM: 5, Label: "x"}}},
+		"tier empty label": {CostTiers: []CostTierCfg{{MinPCI: 0, MaxPCI: 40, CostPerSqM: 5, Label: ""}}},
 		// NaN is the case a bare range check cannot catch: every ordered
 		// comparison against it is false, so `x < 0 || x > 100` admits it and
 		// the value reaches `pvmt forecast`, which prints "Initial PCI: NaN"
@@ -610,5 +618,81 @@ func TestLoadFS_RejectsNonFinitePerCityKnobs(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestLoadFS_RejectsNonFiniteCostTiers closes the gap the first non-finite sweep
+// left: it covered the eight scalar knobs but not forecast.cost_tiers, whose
+// three floats reach the same seed through the same Validate call. Found in peer
+// review of that change.
+func TestLoadFS_RejectsNonFiniteCostTiers(t *testing.T) {
+	// %s is the non-finite literal under test.
+	fields := map[string]string{
+		"cost_per_sqm": "min_pci = 0\nmax_pci = 40\ncost_per_sqm = %s\nlabel = \"Failed\"\n",
+		"min_pci":      "min_pci = %s\nmax_pci = 40\ncost_per_sqm = 5\nlabel = \"Failed\"\n",
+		"max_pci":      "min_pci = 0\nmax_pci = %s\ncost_per_sqm = 5\nlabel = \"Failed\"\n",
+	}
+	for field, tmpl := range fields {
+		for _, lit := range []string{"nan", "inf", "-inf"} {
+			t.Run(field+"="+lit, func(t *testing.T) {
+				toml := "[[forecast.cost_tiers]]\n" + fmt.Sprintf(tmpl, lit) +
+					"\n[[cities]]\nname = \"Oakland, CA\"\noverpass = true\n"
+				fsys := fstest.MapFS{"pvmt.toml": &fstest.MapFile{Data: []byte(toml)}}
+				if _, err := LoadFS(fsys, "pvmt.toml"); err == nil {
+					t.Fatalf("cost_tiers %s = %s loaded clean; want a validation error", field, lit)
+				}
+			})
+		}
+	}
+}
+
+// TestEnvOverrides_RejectNonFinite pins the OTHER half of the same peer-review
+// finding. The env layer wins over the file value and never passes through
+// Validate, so the load-time guards on grid.hex_edge_m and forecast.initial_pci
+// do not cover it at all.
+//
+// Each of these was accepted before, and each lands on exactly the failure its
+// file-layer twin was fixed for:
+//
+//	PVMT_HEX_EDGE_M=inf           -> +Inf > 0 is true -> geo.HexGrid -> empty hex layer, exit 0
+//	PVMT_FORECAST_INITIAL_PCI=nan -> NaN is false against both <=0 and >100 -> "Initial PCI: NaN", exit 0
+//
+// The asymmetry is the point: +Inf is the one that escapes the edge check and
+// NaN is the one that escapes the PCI range check, so testing a single literal
+// against a single knob would have missed one of them.
+func TestEnvOverrides_RejectNonFinite(t *testing.T) {
+	for _, lit := range []string{"nan", "inf", "-inf", "Infinity"} {
+		t.Run("PVMT_HEX_EDGE_M="+lit, func(t *testing.T) {
+			t.Setenv("PVMT_HEX_EDGE_M", lit)
+			if v, _, ok := hexEdgeFromEnv(); ok {
+				t.Errorf("hexEdgeFromEnv accepted %s (%g); a non-finite edge reaches geo.HexGrid "+
+					"and exports an empty hex layer with exit 0", lit, v)
+			}
+			// And the resolver falls back rather than propagating it.
+			c := &Config{}
+			if got, _ := c.resolveHexEdge(); got != DefaultHexEdgeM {
+				t.Errorf("resolveHexEdge() = %g; want the default %g", got, DefaultHexEdgeM)
+			}
+		})
+		t.Run("PVMT_FORECAST_INITIAL_PCI="+lit, func(t *testing.T) {
+			t.Setenv("PVMT_FORECAST_INITIAL_PCI", lit)
+			if v, ok := parsePCIEnv("PVMT_FORECAST_INITIAL_PCI"); ok {
+				t.Errorf("parsePCIEnv accepted %s (%g); `pvmt forecast` then prints "+
+					"NaN in every column with exit code 0", lit, v)
+			}
+		})
+	}
+}
+
+// TestEnvOverrides_StillAcceptFiniteValues: the guards above must not have
+// broken the override itself, which is the whole point of the env layer.
+func TestEnvOverrides_StillAcceptFiniteValues(t *testing.T) {
+	t.Setenv("PVMT_HEX_EDGE_M", "60")
+	if v, _, ok := hexEdgeFromEnv(); !ok || v != 60 {
+		t.Errorf("hexEdgeFromEnv() = %g, ok %v; want 60, true", v, ok)
+	}
+	t.Setenv("PVMT_FORECAST_INITIAL_PCI", "72.5")
+	if v, ok := parsePCIEnv("PVMT_FORECAST_INITIAL_PCI"); !ok || v != 72.5 {
+		t.Errorf("parsePCIEnv() = %g, ok %v; want 72.5, true", v, ok)
 	}
 }
