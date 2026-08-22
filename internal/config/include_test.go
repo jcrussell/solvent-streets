@@ -1813,6 +1813,99 @@ path = "../second/pvmt.toml"
 	}
 }
 
+// TestInclude_NestedIdentitySurvivesTheMergePath pins solvent-streets-q48z.12,
+// the gap between the two tests above.
+//
+// TestInclude_NestedSourceIdentityKeepsDeclaringFile covers a nested city on the
+// APPEND path, where mergeIncludedCities' `if merged.SourceConfigID == ""` guard
+// preserves the declaring file. TestInclude_BackfilledGridMovesSourceIdentity
+// covers the MERGE path, but only with flat includes, where the source carries
+// no identity of its own and stamping from the include is correct.
+//
+// Nothing covered both at once — a nested city that also reaches the merge path
+// — and there mergeExistingCity stamped identity from the file being folded in,
+// unconditionally. Livermore, declared in leaf and pulled through mid, came out
+// of `all` labelled as mid's: CityConfigID keys EnsureCity on a brand-new empty
+// cities row, and CityHash pins every compute/serve/export lookup to a merged
+// hash no compute run ever wrote (ErrNoMatchingSnapshot, or a blank city).
+//
+// The fixture is four files: all -> [first, mid], mid -> leaf, and only leaf
+// carries the grid, so folding mid into all takes the merge path with
+// gridAdopted true. SourceHexEdgeM was always right; the identity pair was not.
+func TestInclude_NestedIdentitySurvivesTheMergePath(t *testing.T) {
+	dir := t.TempDir()
+	// The leaf DECLARES the city and owns the grid the hexes were computed on.
+	leaf := writeTOML(t, dir, "leaf/pvmt.toml", `
+config_id = "leafid"
+[grid]
+hex_edge_m = 60
+[[cities]]
+name = "Livermore, CA"
+overpass = true
+`)
+	// The middle file only re-exports the leaf.
+	mid := writeTOML(t, dir, "mid/pvmt.toml", `
+config_id = "midid"
+[[include]]
+path = "../leaf/pvmt.toml"
+`)
+	// first declares the same city with no calibration, so `all` reaches mid's
+	// copy through mergeExistingCity rather than the append path.
+	writeTOML(t, dir, "first/pvmt.toml", `
+config_id = "firstid"
+[[cities]]
+name = "Livermore, CA"
+overpass = true
+`)
+	top := writeTOML(t, dir, "all/pvmt.toml", `
+[[include]]
+path = "../first/pvmt.toml"
+[[include]]
+path = "../mid/pvmt.toml"
+`)
+
+	standaloneLeaf, err := Load(leaf)
+	if err != nil {
+		t.Fatalf("load leaf: %v", err)
+	}
+	// Control: mid alone already gets this right, via the append path's guard.
+	midCfg, err := Load(mid)
+	if err != nil {
+		t.Fatalf("load mid: %v", err)
+	}
+	midLiv := cityBySlug(t, midCfg, "livermore-ca")
+	if midLiv.SourceConfigID != "leafid" {
+		t.Fatalf("control failed: mid alone gives SourceConfigID = %q, want \"leafid\"", midLiv.SourceConfigID)
+	}
+
+	cfg, err := Load(top)
+	if err != nil {
+		t.Fatalf("load all: %v", err)
+	}
+	liv := cityBySlug(t, cfg, "livermore-ca")
+	if got := liv.SourceConfigID; got != "leafid" {
+		t.Errorf("SourceConfigID = %q; want \"leafid\" — the file that DECLARED the city "+
+			"and computed its hexes, not the middle file it happened to travel through", got)
+	}
+	if got, want := liv.SourceConfigHash, standaloneLeaf.Hash(); got != want {
+		t.Errorf("SourceConfigHash = %q; want %q (the leaf's own hash). A mid-file hash "+
+			"pins CityHash to a blob no compute run ever wrote", got, want)
+	}
+	// The resolved edge was never the broken half — assert it stays right.
+	if liv.SourceHexEdgeM != 60 || cfg.ResolvedHexEdge(&liv) != 60 {
+		t.Errorf("SourceHexEdgeM = %g, ResolvedHexEdge = %g; both want 60",
+			liv.SourceHexEdgeM, cfg.ResolvedHexEdge(&liv))
+	}
+	// The identity has to be usable, not just stored: these are what
+	// EnsureCity and every snapshot lookup actually call.
+	if got := cfg.CityConfigID(&liv); got != "leafid" {
+		t.Errorf("CityConfigID() = %q; want \"leafid\" — this keys the cities row", got)
+	}
+	if got, want := cfg.CityHash(&liv), standaloneLeaf.Hash(); got != want {
+		t.Errorf("CityHash() = %q; want %q — this is what RequireMatchingSnapshot compares", got, want)
+	}
+}
+
 // TestInclude_GridPairCannotSplitAcrossIncludes pins the second half of
 // solvent-streets-1h6j, which is the worse of the two: it fails SILENTLY.
 //

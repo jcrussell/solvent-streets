@@ -380,18 +380,33 @@ func mergeExistingCity(existing *CityConfig, child *Config, src *CityConfig,
 	ms *mergeState, id mergeIdentity) {
 	fields, gridAdopted := unionCalibration(existing, child, src)
 	if gridAdopted {
-		// The include that supplies the grid owns the data — see unionGrid.
-		// Unconditional, not preserve-if-set: the whole point is to move
-		// identity off the first include, which has already stamped all three.
+		// The include that supplies the grid owns the data — see unionGrid. The
+		// resolved edge moves unconditionally: the whole point is to take it off
+		// the first include, which has already stamped one.
 		//
-		// ms.fromInclude is deliberately NOT moved with it. That map names the
-		// include a warning reports as the winner, and the winner is
+		// The identity PAIR is different, and prefers src's own. src is a
+		// wholesale copy, so a city that reached child through child's OWN
+		// includes arrives already stamped with the file that declared it;
+		// overwriting with id (the file we are folding in) would relabel a
+		// grandchild's city as belonging to the middle file. That is exactly the
+		// relabel the append path above guards against with its
+		// `if merged.SourceConfigID == ""` test, and dropping the guard here made
+		// Config.CityConfigID key EnsureCity on the wrong ID — a brand-new empty
+		// cities row — while Config.CityHash pinned every compute/serve/export
+		// lookup to a merged-blob hash no compute run ever wrote, so the city
+		// came out blank or died on ErrNoMatchingSnapshot.
+		//
+		// ms.fromInclude is deliberately NOT moved with any of it. That map names
+		// the include a warning reports as the winner, and the winner is
 		// declaration order and nothing else — see
-		// TestInclude_WinnerIsDeclarationOrderNotFileContent. Which file
-		// happens to state a grid is file content.
+		// TestInclude_WinnerIsDeclarationOrderNotFileContent. Which file happens
+		// to state a grid is file content.
 		existing.SourceHexEdgeM = child.ResolvedHexEdge(src)
-		existing.SourceConfigID = id.configID
-		existing.SourceConfigHash = id.hash
+		if src.SourceConfigID != "" {
+			existing.SourceConfigID, existing.SourceConfigHash = src.SourceConfigID, src.SourceConfigHash
+		} else {
+			existing.SourceConfigID, existing.SourceConfigHash = id.configID, id.hash
+		}
 	}
 	if len(fields) > 0 {
 		ms.warn.add(calibrationWarning{
