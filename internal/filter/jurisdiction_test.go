@@ -411,6 +411,24 @@ func TestFederalAndStateOperator(t *testing.T) {
 		{"los angeles county transportation department", false, false},
 		{"city of reno transportation department", false, false},
 		{"", false, false},
+		// solvent-streets-q48z.2: state DOTs named by ABBREVIATION or by a
+		// territory. Anchoring the qualifier on the 52 spelled-out state
+		// names alone dropped all of these into City.
+		{"nys department of transportation", false, true},
+		{"nc department of transportation", false, true},
+		{"n.c. department of transportation", false, true},
+		{"mass department of transportation", false, true},
+		{"pa dot", false, true},
+		{"guam department of transportation", false, true},
+		{"us virgin islands department of transportation", false, true},
+		// The two codes deliberately left OUT of stateAbbrev, both far more
+		// often a city than a state. Omitting them preserves today's answer
+		// rather than changing it.
+		{"la department of transportation", false, false},
+		{"dc department of transportation", false, false},
+		// An operator that explicitly disclaims a DOT is not naming one.
+		// Without notDOTRe this reaches the bare-"dot" fallback and is State.
+		{"not fdot", false, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.operator, func(t *testing.T) {
@@ -604,6 +622,103 @@ func TestMunicipalTransportationDepartments(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := ClassifyJurisdiction(tt.tags); got != tt.want {
 				t.Errorf("ClassifyJurisdiction(%v) = %s, want %s", tt.tags, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestAbbreviatedStateTransportationAgencies pins solvent-streets-q48z.2 end to
+// end, through ClassifyJurisdiction rather than the operator predicates alone.
+//
+// The regression: anchoring the DOT qualifier on stateNameSuffixRe -- the 52
+// spelled-out state names -- meant a state DOT named by abbreviation or by a
+// territory failed isStateTransportationAgency, PASSED
+// isLocalTransportationAgency, and fell through to City. The bare
+// strings.Contains(operator, "department of transportation") it replaced had
+// caught all of them.
+//
+// Covering highway=secondary as well as residential is deliberate, because the
+// two halves of the fix fail DIFFERENTLY and a residential-only table cannot
+// tell the second failure from success:
+//
+//   - Fix only isStateTransportationAgency and these stay City -- isStateOperator
+//     bails on isCityOperator first, and isLocalTransportationAgency still
+//     claims them.
+//   - Fix only isLocalTransportationAgency and the secondary ways land in
+//     County, via ClassifyJurisdiction's "secondary unless a city operator"
+//     rule, while the residential ones correctly reach... City, which is wrong.
+//
+// Only the shared isStateQualifier predicate makes every row below pass.
+func TestAbbreviatedStateTransportationAgencies(t *testing.T) {
+	states := []string{
+		"NYS Department of Transportation",
+		"NC Department of Transportation",
+		"N.C. Department of Transportation",
+		"Mass Department of Transportation",
+		"Guam Department of Transportation",
+		"US Virgin Islands Department of Transportation",
+		"Ohio Department of Transportation", // spelled-out control
+	}
+	// Not abbreviations of a state, whatever they look like: LA is Los
+	// Angeles and DC is the city that maintains its own roads. Both must stay
+	// City, and in DC's case moving it would be the wrong direction outright.
+	cities := []string{
+		"LA Department of Transportation",
+		"DC Department of Transportation",
+		"District Department of Transportation",
+	}
+	// highway is varied because the two half-fixes land in different buckets.
+	for _, highway := range []string{"residential", "secondary"} {
+		for _, operator := range states {
+			t.Run(highway+"/"+operator, func(t *testing.T) {
+				tags := map[string]string{"highway": highway, "operator": operator}
+				if got := ClassifyJurisdiction(tags); got != JurisdictionState {
+					t.Errorf("ClassifyJurisdiction(%v) = %s, want state", tags, got)
+				}
+			})
+		}
+		for _, operator := range cities {
+			t.Run(highway+"/"+operator, func(t *testing.T) {
+				tags := map[string]string{"highway": highway, "operator": operator}
+				if got := ClassifyJurisdiction(tags); got != JurisdictionCity {
+					t.Errorf("ClassifyJurisdiction(%v) = %s, want city", tags, got)
+				}
+			})
+		}
+	}
+}
+
+// TestOperatorDisclaimingADOTIsNotState pins the notDOTRe guard end to end.
+// operator="not fdot" is 9 real features -- Tampa primary 4, Jacksonville
+// secondary 5 -- and it is the only standalone "not" in any operator or network
+// value across the corpus. Before the guard it reached isStateOperator's
+// bare-"dot" fallback (spacedDOTRe needs a word boundary before "dot" and
+// "fdot" has none) and classified State, the exact opposite of what the tag
+// says.
+//
+// The guard only makes isStateOperator decline it; the buckets below are the
+// ordinary ladder's call afterwards, and the primary one is the only change in
+// this slice that moves features INTO City.
+//
+// Only 5 of the 9 actually move: 4 of the Jacksonville secondaries carry
+// ref="CR 228", so countyRefRe routes them County before the operator is ever
+// consulted. The ref rules running ahead of the operator rules is why the
+// bucket here is worth pinning through ClassifyJurisdiction rather than
+// through isStateOperator alone.
+func TestOperatorDisclaimingADOTIsNotState(t *testing.T) {
+	tests := []struct {
+		highway string
+		want    Jurisdiction
+	}{
+		{"primary", JurisdictionCity},     // Tampa, 4 features
+		{"secondary", JurisdictionCounty}, // Jacksonville, 5 features
+		{"residential", JurisdictionCity},
+	}
+	for _, tt := range tests {
+		t.Run(tt.highway, func(t *testing.T) {
+			tags := map[string]string{"highway": tt.highway, "operator": "not FDOT"}
+			if got := ClassifyJurisdiction(tags); got != tt.want {
+				t.Errorf("ClassifyJurisdiction(%v) = %s, want %s", tags, got, tt.want)
 			}
 		})
 	}

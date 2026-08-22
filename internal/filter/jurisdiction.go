@@ -33,8 +33,8 @@ func (j Jurisdiction) String() string {
 }
 
 // stateNameAlt is the regex alternation of every US state name (plus DC and
-// Puerto Rico), shared by every rule that has to tell a state agency from a
-// municipal one. It is a single source of truth so the two spellings of a
+// the territories), shared by every rule that has to tell a state agency from
+// a municipal one. It is a single source of truth so the two spellings of a
 // transportation department cannot drift apart in which names they recognise —
 // which is exactly how solvent-streets-niak happened: "<State> Transportation
 // Department" was anchored on this list while "<City> Department of
@@ -45,7 +45,8 @@ const stateNameAlt = `alabama|alaska|arizona|arkansas|california|colorado|connec
 	`nebraska|nevada|new hampshire|new jersey|new mexico|new york|north carolina|` +
 	`north dakota|ohio|oklahoma|oregon|pennsylvania|rhode island|south carolina|` +
 	`south dakota|tennessee|texas|utah|vermont|west virginia|virginia|washington|` +
-	`wisconsin|wyoming|district of columbia|puerto rico`
+	`wisconsin|wyoming|district of columbia|puerto rico|guam|virgin islands|` +
+	`american samoa|northern mariana islands`
 
 var (
 	// federalRefRe matches Interstate and US-highway refs in both the
@@ -226,6 +227,27 @@ var (
 		`\b(usdot|fhwa|(u\.?s\.?|united states|federal)[ .]+` +
 			`(department of transportation|transportation department|dot\b|highway administration))`)
 
+	// notDOTRe matches an operator that explicitly DISCLAIMS a DOT rather than
+	// naming one. Measured: operator="not fdot", 9 features -- Tampa primary
+	// 4, Jacksonville secondary 5. It is the only standalone "not" in any
+	// operator or network value across the corpus.
+	//
+	// Without this they reach isStateOperator's bare-"dot" fallback, because
+	// spacedDOTRe needs a word boundary before "dot" and "fdot" has none, and
+	// classify State -- the exact opposite of what the tag says. The guard
+	// only makes isStateOperator decline them; where they land afterwards is
+	// the ordinary ladder's call. Net movement is 5 features, not 9: the
+	// Tampa primaries fall to City and one Jacksonville secondary to County,
+	// while the other four Jacksonville ways carry ref="CR 228" and were
+	// already County via countyRefRe, which runs ahead of every operator rule.
+	//
+	// Deliberately narrow: it requires the negated token to END in "dot", so
+	// a spelled-out disclaimer ("not the ohio department of transportation")
+	// still reaches stateNameSuffixRe and still classifies State. Zero such
+	// features exist; widening it would be guessing at a shape rather than
+	// measuring one.
+	notDOTRe = regexp.MustCompile(`\bnot\s+\S*dot\b`)
+
 	// stateTransportationDeptRe matches the "<State> Transportation
 	// Department" word order that isStateOperator's "department of
 	// transportation" check misses.
@@ -343,6 +365,69 @@ var statePostalDeny = map[string]bool{
 	"BR": true, // business route
 }
 
+// stateAbbrev lists the qualifier forms that name a state or territory by
+// ABBREVIATION rather than by its spelled-out name. It is consulted by
+// isStateQualifier, alongside stateNameSuffixRe.
+//
+// solvent-streets-q48z.2: anchoring the DOT qualifier on the 52 spelled-out
+// names alone meant "NYS Department of Transportation", "NC Department of
+// Transportation" and "Guam Department of Transportation" failed
+// isStateTransportationAgency, PASSED isLocalTransportationAgency, and landed
+// in City -- a v0.3.0 regression, since the bare
+// strings.Contains(operator, "department of transportation") it replaced
+// caught all of them.
+//
+// This is an ALLOW list, and unlike the ref-side rules it is NOT restricted to
+// prefixes measured in the corpus. That is a deliberate departure and the
+// reason is the difference in ambiguity between the two signals. Refs collide
+// with local conventions -- solvent-streets-vp43 measured "CT" as Wisconsin
+// County Trunk and "ME" as a California county road, neither of them the state
+// the postal code names. An agency NAME does not collide that way: "<code>
+// Department of Transportation" is a state DOT essentially always. Enumerating
+// only the handful of forms someone happened to write down would leave the
+// next one ("PA ...", "WA ...") silently broken, which is the same "the next
+// shape springs the same trap" failure bf0c601 was fixed for.
+//
+// TWO DELIBERATE OMISSIONS, both two-letter codes that are far more often a
+// CITY:
+//
+//	la — Los Angeles. "LA Department of Transportation" (LADOT) already
+//	     classifies City via isLocalTransportationAgency; omitting "la" here
+//	     PRESERVES that rather than changing it. Louisiana's own agency is
+//	     "Department of Transportation and Development", which reaches State
+//	     on the no-qualifier path regardless.
+//	dc — accepting it would flip Washington DC road area from City to State,
+//	     which is the wrong direction: DC the city IS the maintaining entity
+//	     there, and City is where its funding obligation belongs. DC's actual
+//	     agency, "District Department of Transportation", stays City on the
+//	     "district" qualifier either way.
+//
+// Expect ZERO corpus movement from this map. The operator tag covers 0.042% of
+// road features (3,631 of 8,741,198, 160 distinct values, dominated by transit
+// agencies and businesses), and every state DOT actually present already
+// classified correctly -- spelled-out forms via stateNameSuffixRe, glued forms
+// (FDOT, MassDOT) via the bare-"dot" fallback. The regression is real; its
+// measured impact is not. Fixed on correctness, not on volume.
+var stateAbbrev = map[string]bool{
+	"al": true, "ak": true, "az": true, "ar": true, "ca": true, "co": true,
+	"ct": true, "de": true, "fl": true, "ga": true, "hi": true, "id": true,
+	"il": true, "in": true, "ia": true, "ks": true, "ky": true, "me": true,
+	"md": true, "ma": true, "mi": true, "mn": true, "ms": true, "mo": true,
+	"mt": true, "ne": true, "nv": true, "nh": true, "nj": true, "nm": true,
+	"ny": true, "nc": true, "nd": true, "oh": true, "ok": true, "or": true,
+	"pa": true, "ri": true, "sc": true, "sd": true, "tn": true, "tx": true,
+	"ut": true, "vt": true, "va": true, "wa": true, "wv": true, "wi": true,
+	"wy": true,
+	// Territories. Puerto Rico, Guam, the US Virgin Islands, American Samoa
+	// and the Northern Mariana Islands all run their own DOTs; their spelled
+	// names live in stateNameAlt.
+	"pr": true, "vi": true, "gu": true, "as": true, "mp": true,
+	// Not postal codes, but the abbreviations these two states actually use.
+	"nys":  true, // New York State
+	"mass": true, // Massachusetts (the spelled-out "MassDOT" is glued and
+	// reaches the bare-"dot" fallback instead)
+}
+
 // isStateRef reports whether an OSM ref denotes a state route. It assumes
 // federal and county refs have already been ruled out by the caller.
 func isStateRef(ref string) bool {
@@ -385,6 +470,13 @@ func isStateOperator(operator string) bool {
 	// it to JurisdictionFederal themselves — returning false here only keeps
 	// it out of the State bucket.
 	if isFederalOperator(operator) {
+		return false
+	}
+	// An operator that explicitly disclaims a DOT ("not FDOT") is not naming
+	// one. Checked here rather than next to the bare-"dot" fallback it exists
+	// to guard, so that the rule reads as what it is: a disclaimer beats every
+	// positive match below it, not just the last one.
+	if notDOTRe.MatchString(operator) {
 		return false
 	}
 	// Caltrans is unambiguous regardless of other tokens.
@@ -442,12 +534,42 @@ func transportationAgencyQualifier(operator string) (qualifier string, ok bool) 
 	return "", false
 }
 
+// isStateQualifier reports whether the words standing in front of a
+// transportation-agency name denote a STATE or territory rather than a city.
+//
+// It MUST be the single predicate both isStateTransportationAgency and
+// isLocalTransportationAgency consult, and that is not a stylistic preference.
+// isStateOperator bails on isCityOperator BEFORE it reaches the state-agency
+// test, and isCityOperator -> isLocalTransportationAgency answers yes to
+// "nc department of transportation" -- a qualifier that is present and is not a
+// state NAME. Teaching only isStateTransportationAgency about abbreviations
+// would compile, pass every existing test, and move zero features, because the
+// operator would still be rejected as a city one first. That is
+// solvent-streets-niak's failure shape, one level down.
+//
+// Matching is on the qualifier's last whitespace-separated token, with dots
+// stripped so "n.c." and "nc" agree. The last token rather than the whole
+// string because deptOfTransportationRe only absorbs a leading "the" when it
+// sits directly before "department" -- "the nc department of transportation"
+// yields the qualifier "the nc". Suffix matching is also what
+// stateNameSuffixRe already does, and the two rules should agree on shape.
+func isStateQualifier(qualifier string) bool {
+	if stateNameSuffixRe.MatchString(qualifier) {
+		return true
+	}
+	fields := strings.Fields(qualifier)
+	if len(fields) == 0 {
+		return false
+	}
+	return stateAbbrev[strings.ReplaceAll(fields[len(fields)-1], ".", "")]
+}
+
 // isStateTransportationAgency reports whether operator names a transportation
-// department belonging to a state: either state-name qualified, or carrying no
+// department belonging to a state: either state-qualified, or carrying no
 // qualifier at all.
 func isStateTransportationAgency(operator string) bool {
 	qualifier, ok := transportationAgencyQualifier(operator)
-	return ok && (qualifier == "" || stateNameSuffixRe.MatchString(qualifier))
+	return ok && (qualifier == "" || isStateQualifier(qualifier))
 }
 
 // isLocalTransportationAgency reports whether operator names a transportation
@@ -462,7 +584,7 @@ func isStateTransportationAgency(operator string) bool {
 // terms and would become a live bug the first time the rule order moved.
 func isLocalTransportationAgency(operator string) bool {
 	qualifier, ok := transportationAgencyQualifier(operator)
-	if !ok || qualifier == "" || stateNameSuffixRe.MatchString(qualifier) {
+	if !ok || qualifier == "" || isStateQualifier(qualifier) {
 		return false
 	}
 	return !isFederalOperator(operator) && !strings.Contains(operator, "county")
