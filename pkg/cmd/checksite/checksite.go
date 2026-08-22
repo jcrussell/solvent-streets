@@ -125,8 +125,27 @@ func runCheckSite(ctx context.Context, opts *Options) error {
 		r.checkConsistency,
 	}
 	for _, check := range checks {
-		if err := ctx.Err(); err != nil {
-			return err
+		if cerr := ctx.Err(); cerr != nil {
+			// An interrupted run that has ALREADY recorded a failure must
+			// still finish. finish() is the only thing that prints the tally
+			// and the only thing that converts those failures into
+			// cmdutil.ErrSilent, and exitCode maps context.Canceled to 0 ahead
+			// of every other classification — so returning the ctx error
+			// directly made check-site stream its FAIL lines, print no
+			// summary, and exit 0. For a publish gate that is the dangerous
+			// direction, and Main installs signal.NotifyContext, so the first
+			// Ctrl-C reaches exactly here rather than killing the process.
+			//
+			// Order matters: ErrSilent has to be returned INSTEAD of the ctx
+			// error, not joined with it, or exitCode's Canceled arm wins and
+			// the exit code is 0 again.
+			//
+			// With nothing recorded there is no verdict to report, so a clean
+			// interrupt stays quiet and exits 0 (finding 881e).
+			if r.failing() {
+				return r.finish()
+			}
+			return cerr
 		}
 		check(st)
 	}
@@ -162,6 +181,14 @@ func (r *runner) warnf(format string, a ...any) {
 func (r *runner) failf(format string, a ...any) {
 	r.fail++
 	fmt.Fprintf(r.io.Out, "FAIL  %s\n", fmt.Sprintf(format, a...))
+}
+
+// failing reports whether the results recorded so far already amount to a
+// non-zero verdict. Shared with finish() so the two cannot disagree about what
+// counts as a failure — the cancellation path keys off this to decide whether
+// an interrupted run still owes the user a summary.
+func (r *runner) failing() bool {
+	return r.fail > 0 || (r.strict && r.warn > 0)
 }
 
 func (r *runner) finish() error {

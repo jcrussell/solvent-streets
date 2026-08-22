@@ -536,3 +536,83 @@ func addMultiCityExample(t *testing.T, dir, exSlug, citySlug string, totalPaved,
 	writeFile(t, filepath.Join(exDir, "cities.json"), `[{"slug":"`+citySlug+`","name":"Demo"}]`)
 	writeDataDir(t, filepath.Join(exDir, "cities", citySlug, "data"), pctPaved, totalPaved)
 }
+
+// cancelAfterNProbes is a context whose Err() reports Canceled only after the
+// first n calls, so a test can land the cancellation BETWEEN checks
+// deterministically. runCheckSite polls ctx.Err() and never selects on Done(),
+// which is what makes this a faithful stand-in for a SIGINT arriving mid-run —
+// the real path, since Main installs signal.NotifyContext and the first Ctrl-C
+// cancels the context rather than killing the process.
+type cancelAfterNProbes struct {
+	context.Context
+	n     int
+	after int
+}
+
+func (c *cancelAfterNProbes) Err() error {
+	c.n++
+	if c.n > c.after {
+		return context.Canceled
+	}
+	return nil
+}
+
+// TestCheckSite_InterruptedAfterFailStillReportsFailure pins q48z.7.
+//
+// The cancellation probe used to return ctx.Err() straight out of
+// runCheckSite, skipping finish() — the only thing that prints the tally and
+// the only thing that turns recorded FAILs into cmdutil.ErrSilent. Because
+// exitCode maps context.Canceled to 0 ahead of every other classification, a
+// check-site run that had already recorded a FAIL and then took SIGINT streamed
+// its FAIL lines, printed no summary, and exited 0 — a publish gate reporting
+// "ready".
+func TestCheckSite_InterruptedAfterFailStillReportsFailure(t *testing.T) {
+	dir := buildValidSite(t)
+	// checkStructure runs first and fails on a missing data file.
+	if err := os.Remove(filepath.Join(dir, "demo-ca", "data", "scenarios.json")); err != nil {
+		t.Fatal(err)
+	}
+
+	ios, _, out, _ := iostreams.Test()
+	opts := &Options{IO: ios, Dir: dir}
+	// Let the first check run (recording the FAIL), then cancel.
+	ctx := &cancelAfterNProbes{Context: context.Background(), after: 1}
+
+	err := runCheckSite(ctx, opts)
+
+	if !errors.Is(err, cmdutil.ErrSilent) {
+		t.Fatalf("runCheckSite = %v, want cmdutil.ErrSilent so the run exits non-zero\n%s", err, out.String())
+	}
+	// Load-bearing: exitCode checks context.Canceled BEFORE ErrSilent, so an
+	// error that still wraps Canceled maps to exit 0 and the fix is undone.
+	if errors.Is(err, context.Canceled) {
+		t.Errorf("returned error wraps context.Canceled; exitCode would map it to 0")
+	}
+	if !strings.Contains(out.String(), "passed,") {
+		t.Errorf("no summary line printed for an interrupted run with failures:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "FAIL") {
+		t.Errorf("expected the recorded FAIL in the output:\n%s", out.String())
+	}
+}
+
+// TestCheckSite_InterruptedWithNoFailuresStaysQuiet is the companion guard for
+// finding 881e: with nothing recorded there is no verdict to report, so a clean
+// interrupt must still abort quietly and exit 0 rather than printing a summary
+// for checks that never ran.
+func TestCheckSite_InterruptedWithNoFailuresStaysQuiet(t *testing.T) {
+	dir := buildValidSite(t)
+
+	ios, _, out, _ := iostreams.Test()
+	opts := &Options{IO: ios, Dir: dir}
+	ctx := &cancelAfterNProbes{Context: context.Background(), after: 1}
+
+	err := runCheckSite(ctx, opts)
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("runCheckSite = %v, want context.Canceled\n%s", err, out.String())
+	}
+	if strings.Contains(out.String(), "passed,") {
+		t.Errorf("a clean interrupt should not print a summary:\n%s", out.String())
+	}
+}
