@@ -73,7 +73,12 @@ var (
 	// stateExplicitRefRe matches the unambiguous state-route conventions:
 	// SR/SH (State Route / State Highway) and "Route N" / "State Route N".
 	// These are never county or federal, so they can match directly.
-	stateExplicitRefRe = regexp.MustCompile(`^(SR|SH|STATE ROUTE|ROUTE)[ -]?\d`)
+	//
+	// The optional [A-Z] before the number covers Florida's lettered state
+	// roads -- "SR A1A" is 466 features in Jacksonville. Anchoring on a bare
+	// \d missed every one of them, and a state route that falls through this
+	// ladder lands in City, billing FDOT arterial to the city.
+	stateExplicitRefRe = regexp.MustCompile(`^(SR|SH|STATE ROUTE|ROUTE)[ -]?[A-Z]?\d`)
 
 	// statePostalRefRe matches a generic two-letter postal-code state route
 	// ("CA 84", "CO 2", "MA 9", "OR 99E", "OR-99E"). It is deliberately
@@ -107,7 +112,34 @@ var (
 	//        the ingested corpus (~400 cities); it is recorded here on domain
 	//        knowledge alone. Harmless if wrong: see the note below on why
 	//        County and State are indistinguishable to every published number.
-	countyRefRe = regexp.MustCompile(`^(CR|CH|CC|TR)[ -]\d`)
+	// The optional [A-Z] before the number is California's county-route
+	// designator convention, which the bare-\d anchor missed entirely:
+	// San Diego County's S-routes (CR S21, 1064 features; CR S17, 670;
+	// CR S11, 604), Los Angeles County's N-routes (CR N8, 624; CR N9), and
+	// the G/J/E series (CR G8, 600). 9025 features in total, overwhelmingly
+	// highway=primary, every one of them landing in City before this --
+	// billing a county arterial to the city's area, AnnualNeed and
+	// FundingGap. It makes CR S21 behave exactly as CR 12 already did.
+	countyRefRe = regexp.MustCompile(`^(CR|CH|CC|TR)[ -][A-Z]?\d`)
+
+	// spelledCountyRefRe matches the county-route forms written out in words,
+	// which no numeric pattern can reach. Wisconsin spells County Trunk
+	// Highway out: "CTH PP" (171 features, Milwaukee), "CTH E", "CTH ZZ" --
+	// note the letter-only designator carries no digit at all, so this cannot
+	// reuse the shape above -- plus "County Highway S21" (178). 455 features.
+	spelledCountyRefRe = regexp.MustCompile(`^(CTH[ -]|COUNTY (ROAD|HIGHWAY|ROUTE|TRUNK)\b)`)
+
+	// stateWordRefRe matches the state-route types spelled as words rather than
+	// abbreviated. statePostalDeny's note below already records that TxDOT's
+	// abbreviated SL/SS (state loop / state spur) forms reach isStateRef and
+	// are correctly State; the spelled forms of the very same roads matched
+	// nothing and fell through to City -- "Loop 12" is 1172 features in
+	// Dallas, "Spur 303" 327, 2905 in total across Dallas, Austin, San Antonio
+	// and Fort Worth.
+	//
+	// The trailing \d is load-bearing: it is what keeps a street literally
+	// named "Loop Road" or "Spur Trail" out of the State bucket.
+	stateWordRefRe = regexp.MustCompile(`^(LOOP|SPUR)[ -]\d`)
 
 	// federalOperatorRe matches the federal DOT and the federal highway
 	// agencies. It exists because these strings also satisfy the generic
@@ -176,6 +208,18 @@ var (
 // past the county checks, and land in the City bucket, silently inflating
 // city cohort area, AnnualNeed and FundingGap.
 //
+// The deny list is NOT the whole story, and reading it as such is how
+// solvent-streets-qwfo happened. Every rule here is a two-letter-then-DIGIT
+// shape, so it can only ever see the ABBREVIATED spelling of a route. The
+// same TxDOT loops and spurs this comment credits the permissive default with
+// catching as "SL 12"/"SS 55" were, written out as "Loop 12" and "Spur 303",
+// matching nothing at all and landing in City — 2905 features. Lettered
+// designators (CR S21, SR A1A) failed the same way, for 9491 more. Those are
+// now handled by stateWordRefRe, spelledCountyRefRe and the [A-Z]? in
+// countyRefRe/stateExplicitRefRe. Before adding a prefix here, check whether
+// the ref convention you are reasoning about also has a spelled or lettered
+// form that no pattern in this file can reach.
+//
 // Three more non-postal prefixes reach this rule and are left as State
 // deliberately, each for its own reason. All three were found by histogramming
 // distinct ^[A-Z]{2}[ -]\d prefixes over the ingested corpus rather than
@@ -219,6 +263,9 @@ var statePostalDeny = map[string]bool{
 // federal and county refs have already been ruled out by the caller.
 func isStateRef(ref string) bool {
 	if stateExplicitRefRe.MatchString(ref) {
+		return true
+	}
+	if stateWordRefRe.MatchString(ref) {
 		return true
 	}
 	if m := statePostalRefRe.FindStringSubmatch(ref); m != nil {
@@ -353,9 +400,10 @@ func ClassifyJurisdiction(tags map[string]string) Jurisdiction {
 		return JurisdictionFederal
 	}
 
-	// County refs ("CR 12") are checked before the generic state-postal
-	// match, which would otherwise misclassify them as a state route.
-	if countyRefRe.MatchString(ref) {
+	// County refs ("CR 12", "CR S21", "CTH PP") are checked before the generic
+	// state-postal match, which would otherwise misclassify them as a state
+	// route.
+	if countyRefRe.MatchString(ref) || spelledCountyRefRe.MatchString(ref) {
 		return JurisdictionCounty
 	}
 

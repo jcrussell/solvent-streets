@@ -143,6 +143,49 @@ func TestClassifyJurisdiction(t *testing.T) {
 		{"clark county beltway as motorway stays federal", map[string]string{"ref": "CC 215", "highway": "motorway"}, JurisdictionFederal},
 		{"township road", map[string]string{"ref": "TR 40"}, JurisdictionCounty},
 
+		// solvent-streets-qwfo: every rule in this file used to be anchored on
+		// a DIGIT right after the separator, so route designators that put a
+		// LETTER there, or spell the route type as a word, matched nothing and
+		// fell all the way through to City. 12851 road-like features across 55
+		// cities, 15427 of the 17214 ref-bearing City features being
+		// highway=primary -- arterial area, the expensive kind.
+		//
+		// Each case below is the lettered or spelled twin of a bare-digit case
+		// already pinned above, and must reach the same bucket: that
+		// equivalence is the whole claim of the fix.
+		//
+		// California county-route designators, 9025 features. San Diego
+		// County's S-series and Los Angeles County's N-series are the bulk.
+		{"CA county route S-series", map[string]string{"ref": "CR S21", "highway": "primary"}, JurisdictionCounty},
+		{"CA county route N-series", map[string]string{"ref": "CR N8", "highway": "primary"}, JurisdictionCounty},
+		{"CA county route G-series", map[string]string{"ref": "CR G8", "highway": "primary"}, JurisdictionCounty},
+		// Semicolon-joined refs are governed by the first component, because
+		// every ref pattern is ^-anchored. 225 features in Carlsbad alone.
+		{"CA county route with joined historic US ref", map[string]string{"ref": "CR S21;US 101 Historic", "highway": "primary"}, JurisdictionCounty},
+		// Wisconsin spells County Trunk Highway out, 455 features. "CTH E"
+		// carries no digit at all, which is why spelledCountyRefRe cannot
+		// reuse the numeric shape.
+		{"wisconsin county trunk highway", map[string]string{"ref": "CTH PP", "highway": "primary"}, JurisdictionCounty},
+		{"wisconsin county trunk letter only", map[string]string{"ref": "CTH E", "highway": "primary"}, JurisdictionCounty},
+		{"county highway spelled out", map[string]string{"ref": "County Highway S21", "highway": "primary"}, JurisdictionCounty},
+		{"county road spelled out", map[string]string{"ref": "County Road 12", "highway": "primary"}, JurisdictionCounty},
+		// TxDOT loops and spurs written out. The abbreviated SL/SS forms of
+		// the same roads were already State via the permissive default; these
+		// were City. 2905 features.
+		{"texas loop spelled out", map[string]string{"ref": "Loop 12", "highway": "primary"}, JurisdictionState},
+		{"texas spur spelled out", map[string]string{"ref": "Spur 303", "highway": "primary"}, JurisdictionState},
+		// Florida's lettered state road, 466 features in Jacksonville.
+		{"florida lettered state road", map[string]string{"ref": "SR A1A", "highway": "primary"}, JurisdictionState},
+
+		// The negative side of the same rules. A street whose NAME merely
+		// starts with a route word is not a route: the trailing \d in
+		// stateWordRefRe and the \b in spelledCountyRefRe are what hold this
+		// line, and dropping either silently moves real city streets out of
+		// the city's funding obligation.
+		{"street named Loop Road is not a state loop", map[string]string{"ref": "Loop Road", "highway": "residential"}, JurisdictionCity},
+		{"street named Spur Trail is not a state spur", map[string]string{"ref": "Spur Trail", "highway": "residential"}, JurisdictionCity},
+		{"street named County Line Road is not a county route", map[string]string{"ref": "County Line Road", "highway": "residential"}, JurisdictionCity},
+
 		// Left as State deliberately -- see the statePostalDeny comment.
 		// BW 8 is Beltway 8, genuinely TxDOT. PR is Texas "Private Road", and
 		// State keeps a road the city does not maintain out of the city's
@@ -401,9 +444,17 @@ func TestRefPrefixesNeverFallToCity(t *testing.T) {
 		"I 80", "I-80", "IH 35", "US 101", "NF 61", "FR 2N72", "FS 370",
 		// County
 		"CR 12", "CH 93", "CC 215", "TR 40",
+		// County, lettered and spelled forms (solvent-streets-qwfo). These
+		// are the 9480 features that used to fall through to City.
+		"CR S21", "CR N8", "CR G8", "CR-S6", "CTH PP", "CTH E",
+		"County Highway S21", "County Road 12",
 		// State: postal-code routes, the explicit SR/SH forms, and the
 		// non-postal prefixes deliberately left as State.
 		"CA 84", "SR 84", "OR-99E", "BW 8", "PR 1836", "OS 15",
+		// State, spelled and lettered forms (solvent-streets-qwfo). "Loop 12"
+		// and "Spur 303" are the written-out twins of the SL/SS entries below,
+		// which were already State; "SR A1A" is the lettered twin of "SR 84".
+		"Loop 12", "Spur 303", "SR A1A",
 		// Texas state-maintained non-postal prefixes. These sit next to the
 		// new federal alternatives in the same regex and are easy to break:
 		// under an allow list of real USPS codes they would stop matching
