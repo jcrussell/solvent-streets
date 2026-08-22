@@ -137,6 +137,60 @@ func TestRunGC_ArcGISOnlyKeepsOverpassByDefault(t *testing.T) {
 	}
 }
 
+// TestRunGC_RetainedCountFailureIsNotFatal pins solvent-streets-q48z.21.
+//
+// retainedOverpassRows issues a SECOND GCScan purely to derive the cosmetic
+// "kept (overpass off)" line. scanCities used to wrap its error as `scan %s`
+// and return it, so a query that feeds nothing but an informational message
+// could fail a gc run whose real scan — and whole sweep — had succeeded.
+// It must warn and carry on instead.
+//
+// The city deliberately omits overpass and sets arcgis_url: that is the only
+// shape for which retainedOverpassRows touches the DB at all (it returns
+// (0, nil) up front when sweepDisabled || city.Overpass).
+func TestRunGC_RetainedCountFailureIsNotFatal(t *testing.T) {
+	cities := []config.CityConfig{{Name: "Alpha", Overpass: false, ArcGISURL: "https://x"}}
+	scans := 0
+	swept := false
+	root := &dbtest.MockRootStore{
+		EnsureCityFunc: func(context.Context, string, string, string) (int64, error) { return 1, nil },
+		ForCityFunc: func(int64) db.Store {
+			return &dbtest.MockStore{
+				GCScanFunc: func(_ context.Context, keep []string) (*db.GCReport, error) {
+					scans++
+					if scans == 1 {
+						return reportWithCounts(), nil // the primary scan succeeds
+					}
+					return nil, errors.New("boom") // the cosmetic rescan does not
+				},
+				GCSweepFunc: func(_ context.Context, keep []string) (*db.GCReport, error) {
+					swept = true
+					return reportWithCounts(), nil
+				},
+			}
+		},
+	}
+	ios, _, _, errOut := iostreams.Test()
+	opts := &Options{
+		IO:            ios,
+		RootDB:        rootDBFunc(root),
+		ResolveCities: resolveCitiesFunc(cities),
+		Yes:           true,
+	}
+	if err := runGC(context.Background(), opts); err != nil {
+		t.Fatalf("runGC = %v, want nil; a cosmetic rescan must not fail the run", err)
+	}
+	if scans < 2 {
+		t.Fatalf("GCScan called %d time(s); the test never exercised the rescan path", scans)
+	}
+	if !swept {
+		t.Error("GCSweep was not called; the run aborted before doing its real work")
+	}
+	if !strings.Contains(errOut.String(), "warning:") {
+		t.Errorf("no warning printed for the failed rescan:\n%s", errOut.String())
+	}
+}
+
 // TestRunGC_SweepDisabledSourcesDropsOverpass pins the other half: the explicit
 // opt-in is what makes an overpass=false city's overpass rows sweepable, for the
 // user who really did flip the flag.
