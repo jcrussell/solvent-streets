@@ -518,3 +518,151 @@ INSERT INTO does_not_exist (id) VALUES (1);
 		t.Errorf("schema_version = %d, want 1 (migration 002 rolled back)", version)
 	}
 }
+
+// TestMigrate_UnbricksDuplicateSchemaVersion pins the q48z.3 fix.
+//
+// migrateFS reads MAX(version) outside any transaction and 001_init.sql is
+// entirely IF NOT EXISTS, so two concurrent first-runs could both record
+// version 1. That duplicate row was harmless until 002 added a UNIQUE index
+// over schema_version(version): creating it fails, applyMigration's single
+// transaction rolls the whole file back so 002 is never recorded, and every
+// subsequent Open retries and fails identically. db.Open is the single gateway
+// for every command and there is no repair subcommand, so the database is
+// permanently unusable.
+//
+// Seeded the way the damage actually occurs — 001 applied, version 1 recorded
+// twice — so this exercises the real embedded 002, not a stand-in.
+func TestMigrate_UnbricksDuplicateSchemaVersion(t *testing.T) {
+	ctx := context.Background()
+
+	d, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Close() })
+
+	init001, err := migrationsFS.ReadFile("migrations/001_init.sql")
+	if err != nil {
+		t.Fatalf("read 001: %v", err)
+	}
+	if _, err := d.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)`); err != nil {
+		t.Fatalf("create schema_version: %v", err)
+	}
+	if _, err := d.ExecContext(ctx, string(init001)); err != nil {
+		t.Fatalf("apply 001: %v", err)
+	}
+	// The duplicate the race leaves behind.
+	if _, err := d.ExecContext(ctx, `INSERT INTO schema_version (version) VALUES (1), (1)`); err != nil {
+		t.Fatalf("seed duplicate: %v", err)
+	}
+
+	if err := migrate(ctx, d); err != nil {
+		t.Fatalf("migrate over a duplicated schema_version row: %v", err)
+	}
+
+	var dupes int
+	if err := d.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM schema_version WHERE version = 1`).Scan(&dupes); err != nil {
+		t.Fatalf("count version 1: %v", err)
+	}
+	if dupes != 1 {
+		t.Errorf("schema_version has %d rows for version 1, want 1 (002 should collapse duplicates)", dupes)
+	}
+
+	var maxVersion int
+	if err := d.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_version`).Scan(&maxVersion); err != nil {
+		t.Fatalf("max version: %v", err)
+	}
+	if maxVersion != 2 {
+		t.Errorf("MAX(version) = %d, want 2 (002 must be recorded, not rolled back)", maxVersion)
+	}
+
+	// The index 002 exists for must actually be there — a rolled-back 002 also
+	// silently costs the four performance indexes, so "no error" is not enough.
+	var idx int
+	if err := d.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_schema_version_version'`).Scan(&idx); err != nil {
+		t.Fatalf("index lookup: %v", err)
+	}
+	if idx != 1 {
+		t.Errorf("idx_schema_version_version not created")
+	}
+
+	// And it must now be enforcing: a second duplicate can no longer be
+	// inserted, which is what keeps the database from re-entering this state.
+	if _, err := d.ExecContext(ctx, `INSERT INTO schema_version (version) VALUES (1)`); err == nil {
+		t.Errorf("duplicate insert succeeded; unique index is not enforcing")
+	}
+}
+
+// TestApplyMigration_SkipsAlreadyRecordedVersion pins the other half of the
+// q48z.3 fix: applyMigration re-reads the applied version INSIDE its
+// transaction, so a migration whose version another process recorded between
+// migrateFS's unsynchronized MAX(version) probe and this call is a no-op rather
+// than a second row.
+func TestApplyMigration_SkipsAlreadyRecordedVersion(t *testing.T) {
+	ctx := context.Background()
+
+	d, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Close() })
+
+	if _, err := d.ExecContext(ctx, `CREATE TABLE schema_version (version INTEGER NOT NULL)`); err != nil {
+		t.Fatalf("create schema_version: %v", err)
+	}
+	if _, err := d.ExecContext(ctx, `INSERT INTO schema_version (version) VALUES (7)`); err != nil {
+		t.Fatalf("seed version: %v", err)
+	}
+
+	if err := applyMigration(ctx, d, "007_x.sql", 7, `CREATE TABLE must_not_exist (id INTEGER);`); err != nil {
+		t.Fatalf("applyMigration on an already-recorded version: %v", err)
+	}
+
+	var rows int
+	if err := d.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM schema_version WHERE version = 7`).Scan(&rows); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if rows != 1 {
+		t.Errorf("schema_version has %d rows for version 7, want 1", rows)
+	}
+
+	var tables int
+	if err := d.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'must_not_exist'`).Scan(&tables); err != nil {
+		t.Fatalf("table lookup: %v", err)
+	}
+	if tables != 0 {
+		t.Errorf("migration body ran for an already-recorded version")
+	}
+}
+
+// TestMigrateFS_RejectsDuplicateVersions pins the guard that replaces the
+// accidental one applyMigration's skip removed. Two files sharing a version
+// prefix is an authoring mistake: the second would be silently skipped as
+// "already applied" and the schema would diverge from the migration set with
+// no error anywhere.
+func TestMigrateFS_RejectsDuplicateVersions(t *testing.T) {
+	ctx := context.Background()
+
+	mapFS := fstest.MapFS{
+		"mig/001_a.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE a (id INTEGER PRIMARY KEY);`)},
+		"mig/001_b.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE b (id INTEGER PRIMARY KEY);`)},
+	}
+
+	d, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Close() })
+
+	err = migrateFS(ctx, d, mapFS, "mig")
+	if err == nil {
+		t.Fatalf("migrateFS accepted two migrations with version 1")
+	}
+	if !strings.Contains(err.Error(), "duplicate migration version") {
+		t.Errorf("error = %v, want it to name the duplicate version", err)
+	}
+}

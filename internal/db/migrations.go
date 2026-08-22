@@ -74,6 +74,19 @@ func migrateFS(ctx context.Context, d *sql.DB, source fs.FS, root string) error 
 		return migrations[i].version < migrations[j].version
 	})
 
+	// Two files sharing a version prefix is an authoring mistake, and it has to
+	// fail here. applyMigration skips any version already recorded (see the
+	// probe there), so the second file would otherwise never execute and
+	// nothing would say so — the schema would silently diverge from the
+	// migration set. Previously the duplicate INSERT tripped 002's unique
+	// index, which was loud but only by accident and only after 002 existed.
+	for i := 1; i < len(migrations); i++ {
+		if migrations[i].version == migrations[i-1].version {
+			return fmt.Errorf("duplicate migration version %d: %s and %s",
+				migrations[i].version, migrations[i-1].name, migrations[i].name)
+		}
+	}
+
 	for _, m := range migrations {
 		if m.version <= currentVersion {
 			continue
@@ -104,6 +117,30 @@ func applyMigration(ctx context.Context, d *sql.DB, name string, version int, da
 			}
 		}
 	}()
+
+	// Re-read inside the transaction. migrateFS's MAX(version) probe runs
+	// outside any transaction, so two processes opening the same fresh
+	// database can both observe version 0 and both try to apply the same
+	// migration. 001_init.sql is entirely IF NOT EXISTS, which makes the
+	// duplicate apply a silent no-op and the duplicate INSERT below succeed --
+	// leaving two rows for one migration, which 002's unique index then
+	// cannot be created over.
+	//
+	// This probe takes the transaction's read snapshot before any write, so in
+	// WAL mode the loser of a race fails its write with a snapshot/busy error
+	// instead of silently duplicating. SetMaxOpenConns(1) only serializes
+	// within one process, so it does not cover this on its own.
+	var applied int
+	if err := tx.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM schema_version WHERE version = ?`, version).Scan(&applied); err != nil {
+		return fmt.Errorf("check migration %s: %w", name, err)
+	}
+	if applied > 0 {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			return fmt.Errorf("rollback migration %s: %w", name, err)
+		}
+		return nil
+	}
 
 	if _, err := tx.ExecContext(ctx, data); err != nil {
 		return fmt.Errorf("exec migration %s: %w", name, err)

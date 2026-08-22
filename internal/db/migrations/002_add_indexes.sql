@@ -25,6 +25,26 @@ CREATE INDEX IF NOT EXISTS idx_features_city_type_time ON features(city_id, reso
 
 -- schema_version is created imperatively in migrations.go (not in 001), and
 -- SQLite cannot add a table-level primary key via migration. A unique index on
--- version enforces one row per applied migration. This creation fails loud on a
--- dirty DB that already has duplicate version rows, which is the desired signal.
+-- version enforces one row per applied migration.
+--
+-- The DELETE must come first, and it is not optional. migrateFS reads
+-- MAX(version) outside any transaction, and 001_init.sql is entirely
+-- IF NOT EXISTS, so two concurrent first-runs could both record version 1 --
+-- harmless before this migration existed. Creating the unique index over that
+-- duplicate row fails, and because applyMigration runs the whole file in one
+-- transaction the failure rolls back, 002 is never recorded, and EVERY
+-- subsequent db.Open fails identically. db.Open is the single gateway for every
+-- command and there is no repair subcommand, so the database would be
+-- permanently unusable.
+--
+-- An earlier revision of this file claimed that failing on a dirty DB "is the
+-- desired signal". It is not: the failure is loud but unrecoverable, and it
+-- also silently costs the four performance indexes above, since they roll back
+-- with it. Collapsing duplicates to the earliest row is both recoverable and
+-- correct -- the rows are indistinguishable, they record the same applied
+-- migration. Both statements share one transaction, so a database can never be
+-- observed deduped-but-unindexed.
+DELETE FROM schema_version
+WHERE rowid NOT IN (SELECT MIN(rowid) FROM schema_version GROUP BY version);
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_schema_version_version ON schema_version(version);
