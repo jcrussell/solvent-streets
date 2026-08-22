@@ -3,7 +3,12 @@ package export
 import (
 	"context"
 	"encoding/json"
+	"html/template"
+	"maps"
 	"math"
+	"reflect"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
@@ -154,6 +159,88 @@ func TestOverhead_SeedShipsUnscaledTiers(t *testing.T) {
 				tier.Label, tier.CostPerSqM, want[i].CostPerSqM)
 		}
 	}
+}
+
+// TestOverhead_MultiCitySeedMatchesSingleCity pins the two seed builders to one
+// contract.
+//
+// BuildMultiCityForecastSeed had simply omitted CostOverhead from its literal.
+// The field has no omitempty, so the regional site/index.html shipped
+// "cost_overhead":0 inline while every cities/<slug>/data/forecast_seed.json
+// carried the real multiplier — the seed is the documented contract for what
+// the browser prices with, and half of it disagreed with the other half.
+//
+// The key-set comparison is the part that earns its keep: it catches the NEXT
+// field added to ForecastSeedJSON and wired into only one of the two builders,
+// which is the actual failure mode here. Area and cohort fields are compared
+// too, but only because a single-entry region is by definition the same network
+// as the city it contains — that equality is what makes the region's headline
+// tiles trustworthy at all.
+func TestOverhead_MultiCitySeedMatchesSingleCity(t *testing.T) {
+	entry := goldenFixtureEntry(t)
+	fc := goldenForecastConfig()
+	fc.CostOverhead = 1.75
+
+	single := buildSeedMap(t, func() (template.JS, error) {
+		return BuildForecastSeed(context.Background(), &fc, entry.Store)
+	})
+	multi := buildSeedMap(t, func() (template.JS, error) {
+		return BuildMultiCityForecastSeed(context.Background(), &fc, []CityEntry{entry})
+	})
+
+	if got := multi["cost_overhead"]; got != 1.75 {
+		t.Errorf("multi-city seed cost_overhead = %v, want 1.75 — the browser would price the region bare", got)
+	}
+
+	singleKeys := slices.Sorted(maps.Keys(single))
+	multiKeys := slices.Sorted(maps.Keys(multi))
+	if !slices.Equal(singleKeys, multiKeys) {
+		t.Errorf("seed key sets diverge:\n single: %v\n  multi: %v\nevery ForecastSeedJSON field must be populated by BOTH builders",
+			singleKeys, multiKeys)
+	}
+
+	// One entry means one network, so the two builders must agree on all of it.
+	// Cohort order is not part of the contract; compare them order-insensitively.
+	for _, key := range singleKeys {
+		want, got := single[key], multi[key]
+		if key == "cohorts" || key == "city_cohorts" {
+			want, got = sortedCohorts(want), sortedCohorts(got)
+		}
+		if !reflect.DeepEqual(want, got) {
+			t.Errorf("seed %q: single-city %v, multi-city %v", key, want, got)
+		}
+	}
+}
+
+func buildSeedMap(t *testing.T, build func() (template.JS, error)) map[string]any {
+	t.Helper()
+	seed, err := build()
+	if err != nil {
+		t.Fatalf("build seed: %v", err)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(seed), &out); err != nil {
+		t.Fatalf("unmarshal seed: %v", err)
+	}
+	return out
+}
+
+// sortedCohorts orders a decoded cohort array by classification so two builders
+// that visit the same cohorts in a different order still compare equal.
+func sortedCohorts(v any) any {
+	list, ok := v.([]any)
+	if !ok {
+		return v
+	}
+	out := slices.Clone(list)
+	slices.SortFunc(out, func(a, b any) int {
+		am, _ := a.(map[string]any)
+		bm, _ := b.(map[string]any)
+		as, _ := am["classification"].(string)
+		bs, _ := bm["classification"].(string)
+		return strings.Compare(as, bs)
+	})
+	return out
 }
 
 // TestOverhead_ResolvedTOMLReportsIt: the Config tab renders ResolvedTOML, so a
