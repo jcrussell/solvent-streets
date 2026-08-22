@@ -3,7 +3,9 @@ package ingest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -346,6 +348,95 @@ func TestFetch_PreservesEndpointQueryString(t *testing.T) {
 	}
 	if gotOffset != "0" {
 		t.Errorf("expected pagination param resultOffset=0 merged in, got %q", gotOffset)
+	}
+}
+
+// TestFetch_MetadataRequestPreservesEndpointQueryString is the companion for
+// the layer-metadata request added by solvent-streets-ofbo. It is derived from
+// the endpoint by trimming /query, so it must carry the same credentials —
+// otherwise a token-gated layer answers 499 for the metadata, completeness
+// becomes unverifiable, and the fail-closed default turns a working ingest
+// into a hard error.
+func TestFetch_MetadataRequestPreservesEndpointQueryString(t *testing.T) {
+	prevPages := arcgisMaxPages
+	arcgisMaxPages = 8
+	t.Cleanup(func() { arcgisMaxPages = prevPages })
+
+	var metaToken, metaFormat string
+	metaHits := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/FeatureServer/0/query", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(makeArcGISFeatures(10, 1)) // offset-ignoring: always the same rows
+	})
+	mux.HandleFunc("/FeatureServer/0", func(w http.ResponseWriter, r *http.Request) {
+		metaHits++
+		metaToken = r.URL.Query().Get("token")
+		metaFormat = r.URL.Query().Get("f")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"maxRecordCount":100}`)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	src := &ArcGISSource{
+		BBox:         [4]float64{37.0, -122.0, 38.0, -121.0},
+		URL:          srv.URL + "/FeatureServer/0/query?token=abc",
+		AllowPrivate: true,
+	}
+	if _, err := src.Fetch(context.Background(), http.DefaultClient, resource.ByType(resource.TypeRoads)); err != nil {
+		t.Fatal(err)
+	}
+	if metaHits != 1 {
+		t.Errorf("layer metadata requested %d times, want exactly 1 (lazy, once per Fetch)", metaHits)
+	}
+	if metaToken != "abc" {
+		t.Errorf("metadata request token = %q, want the endpoint's own token preserved", metaToken)
+	}
+	if metaFormat != "json" {
+		t.Errorf("metadata request f = %q, want json (the layer document, not geojson)", metaFormat)
+	}
+}
+
+// TestFetch_HealthyPaginationSkipsLayerMetadata pins the laziness that makes
+// the ofbo check free: a server that terminates normally — via the flag or an
+// empty page — never reaches the repeated-page arm, so it must never pay for
+// the extra metadata request.
+func TestFetch_HealthyPaginationSkipsLayerMetadata(t *testing.T) {
+	metaHits := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/FeatureServer/0/query", func(w http.ResponseWriter, r *http.Request) {
+		offset, _ := strconv.Atoi(r.URL.Query().Get("resultOffset"))
+		w.Header().Set("Content-Type", "application/json")
+		if offset >= 20 {
+			_, _ = w.Write(makeArcGISFeatures(0, 1)) // past the last record
+			return
+		}
+		_, _ = w.Write(makeArcGISFeatures(10, offset+1))
+	})
+	mux.HandleFunc("/FeatureServer/0", func(w http.ResponseWriter, r *http.Request) {
+		metaHits++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"maxRecordCount":100}`)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	src := &ArcGISSource{
+		BBox:         [4]float64{37.0, -122.0, 38.0, -121.0},
+		URL:          srv.URL + "/FeatureServer/0/query",
+		AllowPrivate: true,
+	}
+	features, err := src.Fetch(context.Background(), http.DefaultClient, resource.ByType(resource.TypeRoads))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(features) != 20 {
+		t.Errorf("got %d features, want 20", len(features))
+	}
+	if metaHits != 0 {
+		t.Errorf("layer metadata requested %d times on a healthy paginating server; "+
+			"the check must cost nothing on the common path", metaHits)
 	}
 }
 
@@ -849,6 +940,36 @@ func TestFetch_EmptyResponse(t *testing.T) {
 	}
 }
 
+// offsetIgnoringServer stands up a layer that ignores resultOffset — pre-10.3,
+// or supportsPagination:false — re-serving the same OBJECTIDs forever with no
+// exceededTransferLimit. rows is what every query returns; maxRecordCount is
+// what the layer document advertises, which is what tells the two cases in
+// solvent-streets-ofbo apart. A negative maxRecordCount omits the field.
+//
+// The layer document lives at the query URL minus /query, so this needs a mux:
+// a single catch-all handler would answer the metadata request with features.
+func offsetIgnoringServer(t *testing.T, rows, maxRecordCount int) (endpoint string, queryCalls *int) {
+	t.Helper()
+	var calls int
+	mux := http.NewServeMux()
+	mux.HandleFunc("/FeatureServer/0/query", func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(makeArcGISFeatures(rows, 1))
+	})
+	mux.HandleFunc("/FeatureServer/0", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if maxRecordCount < 0 {
+			_, _ = io.WriteString(w, `{"name":"Streets","type":"Feature Layer"}`)
+			return
+		}
+		_, _ = fmt.Fprintf(w, `{"name":"Streets","maxRecordCount":%d}`, maxRecordCount)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv.URL + "/FeatureServer/0/query", &calls
+}
+
 // TestFetch_OffsetIgnoringServerStopsCleanly pins the q48z.5 fix, and covers
 // the case TestFetch_PaginationFlagOmittedShortPages cannot: that server HONORS
 // resultOffset, so it always reaches an empty page.
@@ -863,32 +984,25 @@ func TestFetch_EmptyResponse(t *testing.T) {
 // Restoring the old short-page break is NOT the fix: trusting a short page is
 // exactly the truncation that dropped 2000 of 5780 Livermore centerlines
 // (solvent-streets-9auy). Instead we stop when a page parses rows but adds no
-// new ids, which is only true once the server has started repeating itself.
+// new ids AND the layer's own maxRecordCount proves the page was not clamped.
+// Here 10 rows sit well under the advertised 100, so the layer really did
+// answer completely.
 func TestFetch_OffsetIgnoringServerStopsCleanly(t *testing.T) {
 	prevPages := arcgisMaxPages
 	arcgisMaxPages = 8
 	t.Cleanup(func() { arcgisMaxPages = prevPages })
 
 	const pageSize = 10
-
-	calls := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		// resultOffset deliberately ignored: the same OBJECTIDs every time,
-		// and no exceededTransferLimit in the response.
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(makeArcGISFeatures(pageSize, 1))
-	}))
-	t.Cleanup(srv.Close)
+	endpoint, calls := offsetIgnoringServer(t, pageSize, 100)
 
 	var progress strings.Builder
 	src := &ArcGISSource{
 		BBox:         [4]float64{37.0, -122.0, 38.0, -121.0},
-		URL:          srv.URL,
+		URL:          endpoint,
 		Progress:     &progress,
 		AllowPrivate: true, // httptest.Server binds 127.0.0.1; the SSRF guard would otherwise refuse it.
 	}
-	features, err := src.Fetch(context.Background(), srv.Client(), resource.ByType(resource.TypeRoads))
+	features, err := src.Fetch(context.Background(), http.DefaultClient, resource.ByType(resource.TypeRoads))
 	if err != nil {
 		t.Fatalf("Fetch on an offset-ignoring server: %v (must stop cleanly, not abort)", err)
 	}
@@ -897,11 +1011,159 @@ func TestFetch_OffsetIgnoringServerStopsCleanly(t *testing.T) {
 	}
 	// Page 1 fetches, page 2 reveals the repeat. Anything more is wasted load
 	// on the operator's endpoint; anything less means we never paged at all.
-	if calls != 2 {
-		t.Errorf("made %d requests, want 2 (fetch, then detect the repeat)", calls)
+	// The metadata request is not a query and is deliberately not counted.
+	if *calls != 2 {
+		t.Errorf("made %d query requests, want 2 (fetch, then detect the repeat)", *calls)
 	}
-	if calls >= arcgisMaxPages {
+	if *calls >= arcgisMaxPages {
 		t.Errorf("ran to the page cap; the no-new-ids rule did not fire")
+	}
+}
+
+// TestFetch_OffsetIgnoringServerAtMaxRecordCountErrors is the other half of
+// solvent-streets-ofbo: the SAME wire signature as the test above — repeated
+// rows, no exceededTransferLimit — but the page is exactly the layer's
+// maxRecordCount, so the server clamped and the rest of the layer was withheld.
+//
+// Returning these rows as a success is destructive, not merely lossy: a
+// truncated fetch that reports no error leaves replaceSources nil in
+// pkg/cmd/ingest, so UpsertFeatures DELETEs every complete stored row for the
+// resource and replaces it with the short set. Fetch must fail instead, and
+// must return no features so there is nothing to store.
+func TestFetch_OffsetIgnoringServerAtMaxRecordCountErrors(t *testing.T) {
+	prevPages := arcgisMaxPages
+	arcgisMaxPages = 8
+	t.Cleanup(func() { arcgisMaxPages = prevPages })
+
+	const pageSize = 10
+	endpoint, _ := offsetIgnoringServer(t, pageSize, pageSize) // clamped: rows == cap
+
+	src := &ArcGISSource{
+		BBox:         [4]float64{37.0, -122.0, 38.0, -121.0},
+		URL:          endpoint,
+		AllowPrivate: true,
+	}
+	features, err := src.Fetch(context.Background(), http.DefaultClient, resource.ByType(resource.TypeRoads))
+	if err == nil {
+		t.Fatalf("Fetch succeeded with %d features; a clamped offset-ignoring layer is TRUNCATED "+
+			"and storing it deletes the complete rows already in the database", len(features))
+	}
+	if features != nil {
+		t.Errorf("got %d features alongside the error; a failed fetch must store nothing", len(features))
+	}
+	if !strings.Contains(err.Error(), "truncated") {
+		t.Errorf("error %q does not say the result was truncated", err)
+	}
+}
+
+// TestFetch_RepeatedPageWithUnverifiableLayerErrors pins the fail-closed
+// default. When the layer document cannot be read there is no way to tell a
+// complete single-response layer from a clamped one, and an unproven result
+// must not overwrite stored rows — so Fetch fails rather than returning what
+// it happens to hold.
+func TestFetch_RepeatedPageWithUnverifiableLayerErrors(t *testing.T) {
+	prevPages := arcgisMaxPages
+	arcgisMaxPages = 8
+	t.Cleanup(func() { arcgisMaxPages = prevPages })
+
+	for _, tt := range []struct {
+		name string
+		meta func(w http.ResponseWriter)
+	}{
+		{"metadata 404", func(w http.ResponseWriter) {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w, "not found")
+		}},
+		{"metadata error envelope", func(w http.ResponseWriter) {
+			_, _ = io.WriteString(w, `{"error":{"code":499,"message":"Token Required"}}`)
+		}},
+		{"maxRecordCount omitted", func(w http.ResponseWriter) {
+			_, _ = io.WriteString(w, `{"name":"Streets","type":"Feature Layer"}`)
+		}},
+		{"maxRecordCount zero", func(w http.ResponseWriter) {
+			_, _ = io.WriteString(w, `{"name":"Streets","maxRecordCount":0}`)
+		}},
+		{"metadata not json", func(w http.ResponseWriter) {
+			_, _ = io.WriteString(w, `<html>proxy error</html>`)
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			mux.HandleFunc("/FeatureServer/0/query", func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write(makeArcGISFeatures(10, 1))
+			})
+			mux.HandleFunc("/FeatureServer/0", func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				tt.meta(w)
+			})
+			srv := httptest.NewServer(mux)
+			t.Cleanup(srv.Close)
+
+			src := &ArcGISSource{
+				BBox:         [4]float64{37.0, -122.0, 38.0, -121.0},
+				URL:          srv.URL + "/FeatureServer/0/query",
+				AllowPrivate: true,
+			}
+			features, err := src.Fetch(context.Background(), http.DefaultClient, resource.ByType(resource.TypeRoads))
+			if err == nil {
+				t.Fatalf("Fetch succeeded with %d features; completeness was never proven", len(features))
+			}
+			if features != nil {
+				t.Errorf("got %d features alongside the error; a failed fetch must store nothing", len(features))
+			}
+		})
+	}
+}
+
+// TestFetch_RepeatedPageWithoutQuerySuffixErrors covers the endpoint shape that
+// has no layer document to ask: without a /query suffix there is nothing to
+// trim, so completeness is unverifiable and the fail-closed default applies.
+func TestFetch_RepeatedPageWithoutQuerySuffixErrors(t *testing.T) {
+	prevPages := arcgisMaxPages
+	arcgisMaxPages = 8
+	t.Cleanup(func() { arcgisMaxPages = prevPages })
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(makeArcGISFeatures(10, 1))
+	}))
+	t.Cleanup(srv.Close)
+
+	src := &ArcGISSource{
+		BBox:         [4]float64{37.0, -122.0, 38.0, -121.0},
+		URL:          srv.URL, // no /query to trim
+		AllowPrivate: true,
+	}
+	if _, err := src.Fetch(context.Background(), http.DefaultClient, resource.ByType(resource.TypeRoads)); err == nil {
+		t.Fatal("Fetch succeeded; an endpoint with no layer document cannot prove completeness")
+	}
+}
+
+// TestRepeatedPageOutcome is the pure-logic half of solvent-streets-ofbo.
+func TestRepeatedPageOutcome(t *testing.T) {
+	boom := errors.New("metadata unavailable")
+	for _, tt := range []struct {
+		name     string
+		rawCount int
+		maxRC    int
+		metaErr  error
+		want     pageOutcome
+	}{
+		{"well under the cap is complete", 10, 2000, nil, pageRepeatedRows},
+		{"one under the cap is complete", 1999, 2000, nil, pageRepeatedRows},
+		{"exactly at the cap is clamped", 2000, 2000, nil, pageTruncated},
+		{"over the cap is clamped", 2500, 2000, nil, pageTruncated},
+		{"metadata error fails closed", 10, 2000, boom, pageTruncated},
+		{"absent cap fails closed", 10, 0, nil, pageTruncated},
+		{"negative cap fails closed", 10, -1, nil, pageTruncated},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := repeatedPageOutcome(tt.rawCount, tt.maxRC, tt.metaErr); got != tt.want {
+				t.Errorf("repeatedPageOutcome(%d, %d, %v) = %v, want %v",
+					tt.rawCount, tt.maxRC, tt.metaErr, got, tt.want)
+			}
+		})
 	}
 }
 

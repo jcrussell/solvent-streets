@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jcrussell/solvent-streets/internal/db"
@@ -88,13 +91,16 @@ func (s *ArcGISSource) Fetch(ctx context.Context, client *http.Client, rt resour
 paging:
 	for page := 0; ; page++ {
 		if page >= arcgisMaxPages {
-			// Hard error, not a partial return. When arcgis is the only
-			// configured source a returned partial counts as SUCCESS in
-			// fetchFromSources, which leaves replaceSources nil, which makes
-			// UpsertFeatures DELETE every stored row for the resource before
-			// inserting the truncated set. Silently trading a complete
-			// previous ingest for a truncated one is worse than failing: the
-			// error path preserves what is already in the database.
+			// Hard error, not a partial return. A returned partial counts as
+			// SUCCESS in fetchFromSources, and pkg/cmd/ingest sets
+			// replaceSources only when a source FAILED — so whenever every
+			// configured source succeeds it stays nil, and UpsertFeatures
+			// DELETEs every stored row for the resource before inserting the
+			// truncated set. That holds for a city running overpass and arcgis
+			// together, not just an arcgis-only one. Silently trading a
+			// complete previous ingest for a truncated one is worse than
+			// failing: the error path preserves what is already in the
+			// database.
 			//
 			// The offset-ignoring server this cap used to fire on is handled
 			// below by the no-new-ids rule, so reaching the cap now means
@@ -113,10 +119,9 @@ paging:
 		case pageDone:
 			break paging
 		case pageRepeatedRows:
-			fmt.Fprintf(s.progress(),
-				"ArcGIS: page at offset %d returned only rows already fetched; "+
-					"the server appears to ignore resultOffset — stopping with %d features\n",
-				offset, len(allFeatures))
+			if err := s.confirmRepeatedPageIsComplete(ctx, client, endpoint, offset, rawCount, len(allFeatures)); err != nil {
+				return nil, err
+			}
 			break paging
 		case pageTruncated:
 			return nil, fmt.Errorf(
@@ -162,19 +167,23 @@ const (
 //
 //  3. A page that parsed rows but added no NEW ids -> the server re-served what
 //     we already hold, the signature of a layer that ignores resultOffset
-//     (pre-10.3, or supportsPagination:false). Such layers answer completely in
-//     one request and then repeat forever, so we already have everything.
+//     (pre-10.3, or supportsPagination:false). That alone does NOT mean we have
+//     everything: such a layer may equally have clamped to its own
+//     maxRecordCount and withheld the rest. This function reports
+//     pageRepeatedRows and the caller disambiguates via repeatedPageOutcome,
+//     which needs the layer metadata this pure function has no way to fetch
+//     (solvent-streets-ofbo).
 //
 //     parsed > 0 is load-bearing: a page whose rows were ALL dropped by the
 //     null-geometry guard also adds no new ids, but says nothing about whether
 //     more rows remain, so it must keep paging.
 //
 //     If the flag says rows DO remain, the same shape means the server is
-//     withholding them — truncation, not completion. That must fail: with
-//     arcgis as the only source a partial counts as success in
-//     fetchFromSources, leaving replaceSources nil, so UpsertFeatures DELETEs
-//     every stored row for the resource before inserting the truncated set.
-//     Erroring preserves what is already in the database.
+//     withholding them — truncation, not completion. That must fail: a partial
+//     counts as success in fetchFromSources, and pkg/cmd/ingest leaves
+//     replaceSources nil whenever every configured source succeeded, so
+//     UpsertFeatures DELETEs every stored row for the resource before inserting
+//     the truncated set. Erroring preserves what is already in the database.
 //
 //     Neither arm catches an offset-ignoring layer with NO OBJECTID — ids there
 //     are synthesized from the offset, so repeats look new. That case runs to
@@ -198,6 +207,149 @@ func classifyArcGISPage(rawCount, parsed, newUnique int, exceeded, flagPresent b
 		return pageRepeatedRows
 	}
 	return pageContinue
+}
+
+// arcgisLayerMeta is the subset of a layer's own metadata document
+// (<layer>?f=json) that pagination needs. MaxRecordCount is a pointer so
+// "the server omitted the field" is distinguishable from "the server said 0".
+type arcgisLayerMeta struct {
+	Error          *arcgisErrorEnvelope `json:"error"`
+	MaxRecordCount *int                 `json:"maxRecordCount"`
+}
+
+// errNoLayerMetadata reports that the layer's maxRecordCount could not be
+// established. It is never a partial success: repeatedPageOutcome treats it as
+// truncation, because an unproven result must not overwrite stored rows.
+var errNoLayerMetadata = errors.New("layer metadata unavailable")
+
+// arcgisLayerMaxRecordCount fetches the layer's own maxRecordCount — the cap
+// ArcGIS clamps every response to, independent of our requested
+// resultRecordCount.
+//
+// Called LAZILY, only when pagination hits a repeated page, so a healthy ingest
+// never pays for this request. The repeated-page arm breaks out of the loop
+// immediately, so it fires at most once per Fetch.
+//
+// The layer document lives at the query endpoint minus its /query suffix. Any
+// query string the endpoint carries (an arcgis_url with ?token=...) is
+// preserved, exactly as fetchArcGISPage does. No fresh validatePublicHTTPURL
+// call: this is the same scheme and host Fetch already validated, and the
+// client-level CheckRedirect re-validates every redirect hop.
+func arcgisLayerMaxRecordCount(ctx context.Context, client *http.Client, endpoint string) (int, error) {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return 0, fmt.Errorf("%w: parse endpoint %q: %w", errNoLayerMetadata, endpoint, err)
+	}
+	trimmed := strings.TrimSuffix(u.Path, "/")
+	if !strings.EqualFold(path.Base(trimmed), "query") {
+		return 0, fmt.Errorf("%w: endpoint path %q does not end in /query", errNoLayerMetadata, u.Path)
+	}
+	u.Path = path.Dir(trimmed)
+
+	q := u.Query()
+	q.Set("f", "json")
+	u.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return 0, fmt.Errorf("%w: create request: %w", errNoLayerMetadata, err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("%w: %w", errNoLayerMetadata, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := httpio.ReadAllLimit(resp.Body, maxResponseBodyBytes)
+	if err != nil {
+		return 0, fmt.Errorf("%w: read response: %w", errNoLayerMetadata, err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("%w: %s returned %d: %s", errNoLayerMetadata, u.String(), resp.StatusCode, truncate(string(body)))
+	}
+
+	var meta arcgisLayerMeta
+	if err := json.Unmarshal(body, &meta); err != nil {
+		return 0, fmt.Errorf("%w: parse json: %w", errNoLayerMetadata, err)
+	}
+	// ArcGIS returns service-level errors as HTTP 200 with an error envelope.
+	if msg, ok := arcgisErrorMessageFromEnvelope(meta.Error); ok {
+		return 0, fmt.Errorf("%w: %s", errNoLayerMetadata, msg)
+	}
+	if meta.MaxRecordCount == nil || *meta.MaxRecordCount <= 0 {
+		return 0, fmt.Errorf("%w: %s reported no usable maxRecordCount", errNoLayerMetadata, u.String())
+	}
+	return *meta.MaxRecordCount, nil
+}
+
+// confirmRepeatedPageIsComplete decides whether a repeated page may be returned
+// as the layer's full result, and reports an error when it may not.
+//
+// A repeated page is ambiguous on its own — it is equally the signature of a
+// complete single-response layer and of one that clamped and withheld the rest.
+// The layer's own maxRecordCount tells them apart (solvent-streets-ofbo).
+// Fetching it is LAZY: this is the only path that needs it, so a healthy ingest
+// never spends the extra request.
+func (s *ArcGISSource) confirmRepeatedPageIsComplete(ctx context.Context, client *http.Client,
+	endpoint string, offset, rawCount, fetched int) error {
+	maxRC, metaErr := arcgisLayerMaxRecordCount(ctx, client, endpoint)
+	if repeatedPageOutcome(rawCount, maxRC, metaErr) == pageTruncated {
+		if metaErr != nil {
+			return fmt.Errorf(
+				"arcgis: server at offset %d re-served rows already fetched (%d features) and "+
+					"completeness could not be verified: %w; refusing to store a possibly truncated result",
+				offset, fetched, metaErr)
+		}
+		return fmt.Errorf(
+			"arcgis: server at offset %d re-served rows already fetched while returning a full "+
+				"page (%d rows = layer maxRecordCount %d, %d features); it ignores resultOffset and "+
+				"clamped the result, so rows remain unfetched; refusing to store a truncated result",
+			offset, rawCount, maxRC, fetched)
+	}
+	fmt.Fprintf(s.progress(),
+		"ArcGIS: page at offset %d returned only rows already fetched (%d rows, under the layer's "+
+			"maxRecordCount of %d); the server ignores resultOffset but answered completely — "+
+			"stopping with %d features\n",
+		offset, rawCount, maxRC, fetched)
+	return nil
+}
+
+// repeatedPageOutcome decides what a repeated page actually means, once the
+// layer's maxRecordCount is known.
+//
+// classifyArcGISPage cannot make this call on its own: `parsed > 0 &&
+// newUnique == 0` with no exceededTransferLimit is produced by TWO different
+// servers, and treating them alike is solvent-streets-ofbo.
+//
+//   - (a) An offset-ignoring server whose layer genuinely fits in one response.
+//     Everything is in hand; stopping is correct.
+//   - (b) A pre-10.3 / supportsPagination:false layer that clamped to its own
+//     maxRecordCount AND omitted the flag. Page 2 repeats page 1, so it looks
+//     identical to (a) — but the result is PARTIAL.
+//
+// rawCount is the disambiguator because it is the RAW server row count, taken
+// before the null-geometry filter, so it is directly comparable to the server's
+// own cap. (A returnCountOnly probe is not: len(seen) is post-filter, so any
+// layer with null geometries would look truncated.)
+//
+// Returning a partial as success is destructive, not merely lossy: a truncated
+// fetch that reports no error leaves replaceSources nil in
+// pkg/cmd/ingest, so UpsertFeatures DELETEs every stored row for the resource
+// before inserting the short set. Failing preserves what is already stored, so
+// anything we cannot PROVE complete fails.
+//
+// Known, accepted false positive: a layer whose maxRecordCount is exactly
+// arcgisMaxRecords, holding exactly that many rows, on an offset-ignoring
+// server, errors despite being complete. It fails safe — the stored rows
+// survive — and a re-run against a corrected endpoint is the remedy.
+func repeatedPageOutcome(rawCount, maxRecordCount int, metaErr error) pageOutcome {
+	if metaErr != nil || maxRecordCount <= 0 {
+		return pageTruncated
+	}
+	if rawCount >= maxRecordCount {
+		return pageTruncated
+	}
+	return pageRepeatedRows
 }
 
 // appendUniqueFeatures appends each feature in src to dst, skipping any whose ID
@@ -300,6 +452,16 @@ func fetchArcGISPage(ctx context.Context, client *http.Client, endpoint, envelop
 	return features, rawCount, exceeded, present, nil
 }
 
+// arcgisErrorEnvelope is the {"error":{...}} object ArcGIS returns as an HTTP
+// 200 body for service-level failures (stale layer path, retired service, bad
+// orderByFields). Shared by arcgisPage and arcgisLayerMeta so both request
+// shapes detect it the same way.
+type arcgisErrorEnvelope struct {
+	Code    int      `json:"code"`
+	Message string   `json:"message"`
+	Details []string `json:"details"`
+}
+
 // arcgisPage is the single combined shape an ArcGIS page body is unmarshalled
 // into. It carries every concern the caller needs — the error envelope, the
 // GeoJSON features, and the exceededTransferLimit pagination flag (which
@@ -308,11 +470,7 @@ func fetchArcGISPage(ctx context.Context, client *http.Client, endpoint, envelop
 // three times. Pointer flag fields distinguish "present and false" from "absent"
 // (critical for pagination; see the loop in Fetch).
 type arcgisPage struct {
-	Error *struct {
-		Code    int      `json:"code"`
-		Message string   `json:"message"`
-		Details []string `json:"details"`
-	} `json:"error"`
+	Error    *arcgisErrorEnvelope `json:"error"`
 	Features []struct {
 		Properties map[string]any  `json:"properties"`
 		Geometry   json.RawMessage `json:"geometry"`
@@ -360,17 +518,24 @@ func transferLimitFromPage(page arcgisPage) (exceeded, present bool) {
 // summary. Returns ok=false for any non-error response (including valid GeoJSON
 // FeatureCollections, which have no "error" key).
 func arcgisErrorMessageFromPage(page arcgisPage) (string, bool) {
-	if page.Error == nil {
+	return arcgisErrorMessageFromEnvelope(page.Error)
+}
+
+// arcgisErrorMessageFromEnvelope formats an error envelope, if there is one.
+// Split out so the layer-metadata request (which is not a page) reuses exactly
+// the same detection and wording.
+func arcgisErrorMessageFromEnvelope(e *arcgisErrorEnvelope) (string, bool) {
+	if e == nil {
 		return "", false
 	}
-	msg := page.Error.Message
+	msg := e.Message
 	if msg == "" {
 		msg = "unknown error"
 	}
-	if len(page.Error.Details) > 0 && page.Error.Details[0] != msg {
-		msg = fmt.Sprintf("%s (%s)", msg, page.Error.Details[0])
+	if len(e.Details) > 0 && e.Details[0] != msg {
+		msg = fmt.Sprintf("%s (%s)", msg, e.Details[0])
 	}
-	return fmt.Sprintf("code %d: %s", page.Error.Code, msg), true
+	return fmt.Sprintf("code %d: %s", e.Code, msg), true
 }
 
 // arcgisErrorMessage is the byte-level entry point retained for tests; it parses
