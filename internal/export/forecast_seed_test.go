@@ -60,7 +60,7 @@ func TestMergeCohortSeeds_KeysOnResourceAndClassification(t *testing.T) {
 	}
 
 	fc := &config.ForecastConfig{}
-	got := mergeCohortSeeds(context.Background(), []CityEntry{cityA, cityB}, fc, false)
+	got, _ := mergeCohortSeeds(context.Background(), []CityEntry{cityA, cityB}, fc, false)
 
 	// Three distinct (resource, classification) pairs across both cities:
 	// roads/primary, roads/default, parking/default. Pre-fix bucket keyed on
@@ -193,5 +193,121 @@ func TestMergeCohortSeeds_CityScopeReadsCityLabels(t *testing.T) {
 	}
 	if len(seenLabels) == 0 {
 		t.Errorf("expected ListCohortStats to be called for each resource type")
+	}
+}
+
+// TestForecastSeed_AsphaltShareNetsOutSidewalks pins solvent-streets-q48z.11.
+//
+// DefaultMaterialTiers describes flexible (asphalt) pavement — mix mass and
+// asphalt-cement binder per m² — and forecast/material.go says outright that
+// sidewalks are concrete. But the tiers were attached to the seed
+// unconditionally, and the areas the Materials tab multiplies them by
+// (scenario.years[].area) sum every resource in resource.All. So the mix,
+// binder and "Annual Binder (Oil)" headlines billed concrete sidewalk panels,
+// which consume zero bitumen, as hot-mix asphalt — overstated by the sidewalk
+// share, measured at 1.4% (alameda-ca) to 8.9% (austin-tx) in a real export.
+//
+// The share must be computed on the COHORT area basis, because that is what
+// scenario.years[].area sums; the combined compute rows behind total_area are
+// deduped union geometry and would give a slightly different, wrong answer.
+func TestForecastSeed_AsphaltShareNetsOutSidewalks(t *testing.T) {
+	ctx := context.Background()
+	fc := &config.ForecastConfig{Years: 5, InitialPCI: 80}
+
+	// Roads 700 + parking 300 = 1000 asphalt, sidewalks 250 concrete, in the
+	// bbox scope; a deliberately different split in the city scope so a swapped
+	// or shared share shows up.
+	cohorts := map[resource.Type][]db.CohortStat{
+		resource.TypeRoads:                              {{Classification: "residential", Area: 700}},
+		resource.TypeParking:                            {{Classification: "parking", Area: 300}},
+		resource.TypeSidewalks:                          {{Classification: "sidewalks", Area: 250}},
+		resource.TypeRoads.With(resource.ScopeCity):     {{Classification: "residential", Area: 400}},
+		resource.TypeParking.With(resource.ScopeCity):   {{Classification: "parking", Area: 100}},
+		resource.TypeSidewalks.With(resource.ScopeCity): {{Classification: "sidewalks", Area: 100}},
+	}
+	store := &dbtest.MockStore{
+		ListCohortStatsFunc: func(_ context.Context, rt resource.Type) ([]db.CohortStat, error) {
+			return cohorts[rt], nil
+		},
+	}
+
+	got, err := collectCohortSeeds(ctx, store, fc)
+	if err != nil {
+		t.Fatalf("collectCohortSeeds: %v", err)
+	}
+	// 1000 asphalt of 1250 total.
+	if want := 1000.0 / 1250.0; got.BBoxAsphaltShare != want {
+		t.Errorf("BBoxAsphaltShare = %v; want %v (roads 700 + parking 300 of 1250)", got.BBoxAsphaltShare, want)
+	}
+	// 500 asphalt of 600 total — a different ratio, so the two are not shared.
+	if want := 500.0 / 600.0; got.CityAsphaltShare != want {
+		t.Errorf("CityAsphaltShare = %v; want %v (roads 400 + parking 100 of 600)", got.CityAsphaltShare, want)
+	}
+
+	// And it reaches the browser under the keys app.js reads.
+	seedJS, err := BuildForecastSeed(ctx, fc, store)
+	if err != nil {
+		t.Fatalf("BuildForecastSeed: %v", err)
+	}
+	var seed map[string]any
+	if err := json.Unmarshal([]byte(seedJS), &seed); err != nil {
+		t.Fatalf("unmarshal seed: %v", err)
+	}
+	if got, want := seed["asphalt_area_share"], 1000.0/1250.0; got != want {
+		t.Errorf("seed asphalt_area_share = %v; want %v", got, want)
+	}
+	if got, want := seed["city_asphalt_area_share"], 500.0/600.0; got != want {
+		t.Errorf("seed city_asphalt_area_share = %v; want %v", got, want)
+	}
+}
+
+// TestForecastSeed_AsphaltShareIsOneWithoutCohorts: 1 is the identity for the
+// browser's multiplication, so a store with no cohort stats — a fresh DB, where
+// BuildScenariosData falls back to singleCohortScenarios over the aggregate
+// compute area — must behave exactly as it did before the netting existed.
+// A 0 here would blank every Materials figure.
+func TestForecastSeed_AsphaltShareIsOneWithoutCohorts(t *testing.T) {
+	store := &dbtest.MockStore{
+		ListCohortStatsFunc: func(context.Context, resource.Type) ([]db.CohortStat, error) { return nil, nil },
+	}
+	got, err := collectCohortSeeds(context.Background(), store, &config.ForecastConfig{})
+	if err != nil {
+		t.Fatalf("collectCohortSeeds: %v", err)
+	}
+	if got.BBoxAsphaltShare != 1 || got.CityAsphaltShare != 1 {
+		t.Errorf("shares = bbox %v, city %v; want 1 and 1 (no cohorts means no netting)",
+			got.BBoxAsphaltShare, got.CityAsphaltShare)
+	}
+}
+
+// TestMergeCohortSeeds_AsphaltShareIsRegionWide: a region's asphalt share is
+// the region's asphalt area over its total area, NOT the average of its
+// cities' shares — a large sidewalk-heavy city and a small one must not carry
+// equal weight. Cities here are deliberately different sizes with different
+// internal splits so an averaging implementation gives a different number.
+func TestMergeCohortSeeds_AsphaltShareIsRegionWide(t *testing.T) {
+	entry := func(roads, sidewalks float64) CityEntry {
+		stats := map[resource.Type][]db.CohortStat{
+			resource.TypeRoads:     {{Classification: "residential", Area: roads}},
+			resource.TypeSidewalks: {{Classification: "sidewalks", Area: sidewalks}},
+		}
+		return CityEntry{Store: &dbtest.MockStore{
+			ListCohortStatsForTypesFunc: func(_ context.Context, types []resource.Type) (map[resource.Type][]db.CohortStat, error) {
+				out := map[resource.Type][]db.CohortStat{}
+				for _, t := range types {
+					if s, ok := stats[t]; ok {
+						out[t] = s
+					}
+				}
+				return out, nil
+			},
+		}}
+	}
+	// big: 900/1000 asphalt (0.9). small: 10/100 asphalt (0.1).
+	// Region-wide: 910/1100. Averaging the two would give 0.5.
+	entries := []CityEntry{entry(900, 100), entry(10, 90)}
+	_, share := mergeCohortSeeds(context.Background(), entries, &config.ForecastConfig{}, false)
+	if want := 910.0 / 1100.0; share != want {
+		t.Errorf("region asphalt share = %v; want %v (area-weighted, not the 0.5 average of 0.9 and 0.1)", share, want)
 	}
 }

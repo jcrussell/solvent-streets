@@ -1691,10 +1691,19 @@
         // (e.g. a custom tier set). fallbackTier is the highest-intensity tier —
         // mirroring the Go MaterialTierFor fallback — so an unmatched label
         // over-counts rather than silently reporting zero material.
-        function materialSeries(scenario, cycleYears, tierByLabel, fallbackTier) {
+        //
+        // asphaltShare nets the concrete out. y.area sums every resource — roads,
+        // parking AND sidewalks — but the material tiers describe flexible
+        // (asphalt) pavement only, so without it the oil/binder figures bill
+        // concrete sidewalk panels, which consume zero bitumen, as hot-mix. The
+        // share comes from the seed (asphalt_area_share / city_asphalt_area_share)
+        // and is computed on the same cohort area basis y.area is. Defaults to 1
+        // so a site exported before the field existed renders unchanged.
+        function materialSeries(scenario, cycleYears, tierByLabel, fallbackTier, asphaltShare) {
             var zero = { mix_kg_per_sqm: 0, binder_pct: 0 };
+            var share = typeof asphaltShare === 'number' && asphaltShare >= 0 ? asphaltShare : 1;
             return scenario.years.map(function(y) {
-                var treatedArea = cycleYears > 0 ? y.area / cycleYears : 0;
+                var treatedArea = cycleYears > 0 ? (y.area * share) / cycleYears : 0;
                 var tier = tierByLabel[y.cost_tier] || fallbackTier || zero;
                 var mixKg = treatedArea * tier.mix_kg_per_sqm;
                 var binderKg = mixKg * tier.binder_pct;
@@ -1731,7 +1740,7 @@
             section.style.display = '';
         }
 
-        function renderMaterials(scenarios, seed) {
+        function renderMaterials(scenarios, seed, scope) {
             var chartsDiv = document.getElementById('materials-charts');
             destroyMaterialsCharts();
             chartsDiv.innerHTML = '';
@@ -1762,6 +1771,11 @@
                 return b.mix_kg_per_sqm > a.mix_kg_per_sqm ? b : a;
             }, tiers[0]);
             var cycleYears = (seed && seed.treatment_cycle_years) || 12;
+            // Scope-selected the same way the forecast controls pick their area
+            // and cohorts: the bbox share unless a city scope is actually loaded.
+            var asphaltShare = (scope === 'bbox' || !(seed && seed.city_paved))
+                ? (seed && seed.asphalt_area_share)
+                : (seed && seed.city_asphalt_area_share);
 
             var fundingScenarios = scenarios.filter(function(s) {
                 return FUNDING_SCENARIO_NAMES.includes(s.scenario.name);
@@ -1770,7 +1784,7 @@
 
             var seriesByName = {};
             fundingScenarios.forEach(function(s) {
-                seriesByName[s.scenario.name] = materialSeries(s, cycleYears, tierByLabel, worstTier);
+                seriesByName[s.scenario.name] = materialSeries(s, cycleYears, tierByLabel, worstTier, asphaltShare);
             });
 
             // Final-year PCI, tolerant of an empty years array.
@@ -1796,9 +1810,18 @@
             document.getElementById('materials-headlines').style.display = '';
 
             var note = document.getElementById('materials-note');
-            note.textContent = 'Each year ~1/' + Math.round(cycleYears) + ' of the network (area ÷ ' +
+            var noteText = 'Each year ~1/' + Math.round(cycleYears) + ' of the network (area ÷ ' +
                 'treatment cycle) is retreated; material intensity follows the blended condition tier, ' +
                 'so the do-nothing line climbs as pavement decays into reconstruction. Planning-grade estimates.';
+            // Say so when the area basis here is narrower than the network area
+            // shown on the other tabs, rather than leaving the reader to wonder
+            // why the figures do not reconcile.
+            if (asphaltShare < 1) {
+                noteText += ' Concrete sidewalks are excluded — they consume no asphalt binder — so these ' +
+                    'figures cover the ' + (asphaltShare * 100).toFixed(0) + '% of network area that is ' +
+                    'asphalt-surfaced (roads and parking).';
+            }
+            note.textContent = noteText;
             note.style.display = '';
 
             renderMaterialTierTable(tiers);
@@ -1861,7 +1884,7 @@
                     return s.scenario.strategy === 0 || s.scenario.name === 'do-nothing' || s.scenario.name === 'baseline';
                 });
                 if (!baseline) return;
-                var series = materialSeries(baseline, cycleYears, tierByLabel, worstTier);
+                var series = materialSeries(baseline, cycleYears, tierByLabel, worstTier, asphaltShare);
                 var card = makeChartCard('Annual Mix by Condition Tier (Do-Nothing)');
                 chartsDiv.appendChild(card);
                 var ctx = card.querySelector('canvas').getContext('2d');
@@ -1907,7 +1930,7 @@
             // back when the loaded scenarios lack it.
             var scope = effectiveScope(scenarios, currentScope);
             var list = scenariosForScope(scenarios, scope);
-            renderMaterials(list, seed);
+            renderMaterials(list, seed, scope);
         }
 
         // Set by renderAggregate once the region data loads: true when any

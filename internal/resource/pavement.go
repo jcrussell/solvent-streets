@@ -11,8 +11,9 @@ import (
 
 type Pavement struct{}
 
-func (p *Pavement) Type() Type       { return TypeRoads }
-func (p *Pavement) HasCohorts() bool { return true }
+func (p *Pavement) Type() Type            { return TypeRoads }
+func (p *Pavement) HasCohorts() bool      { return true }
+func (p *Pavement) AsphaltSurfaced() bool { return true }
 
 func (p *Pavement) OverpassQuery(bbox [4]float64) string {
 	return fmt.Sprintf(`[out:json][timeout:120];

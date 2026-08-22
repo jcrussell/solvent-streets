@@ -93,6 +93,16 @@ type Source interface {
 	// dropped; an empty result means no inputs survived buffering.
 	BufferFeaturesPaired(ctx context.Context, features []Feature, proj geo.Projector) []BufferedFeature
 	HasCohorts() bool
+	// AsphaltSurfaced reports whether this resource's surface is flexible
+	// (asphalt) pavement, and so whether forecast.DefaultMaterialTiers — mix
+	// mass and asphalt-cement binder fraction per m^2 — describe it.
+	//
+	// Roads and parking lots are asphalt; sidewalks are concrete and consume no
+	// bitumen at all. The export nets the concrete area out of the Materials
+	// tab's mix/binder/oil figures on this basis (see
+	// export.collectCohortSeeds), which matters because sidewalks are 1.4-8.9%
+	// of network area across real cities.
+	AsphaltSurfaced() bool
 }
 
 // BufferedFeature pairs a source Feature with its cleaned, projected polygon

@@ -275,10 +275,11 @@ func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.Forecas
 	}
 
 	// Same cohort seeds the interactive line uses: bbox-scope and city-scope.
-	bboxSeeds, citySeeds, err := collectCohortSeeds(ctx, entry.Store, fc)
+	cohorts, err := collectCohortSeeds(ctx, entry.Store, fc)
 	if err != nil {
 		return nil, err
 	}
+	bboxSeeds, citySeeds := cohorts.BBox, cohorts.City
 
 	// bbox scenarios from bbox cohorts; fall back to a single synthetic cohort
 	// over the aggregate bbox area when no cohort stats exist (fresh DB).

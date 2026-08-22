@@ -199,6 +199,7 @@ type countingSource struct {
 func (c *countingSource) Type() resource.Type               { return c.inner.Type() }
 func (c *countingSource) OverpassQuery(b [4]float64) string { return c.inner.OverpassQuery(b) }
 func (c *countingSource) HasCohorts() bool                  { return c.inner.HasCohorts() }
+func (c *countingSource) AsphaltSurfaced() bool             { return c.inner.AsphaltSurfaced() }
 func (c *countingSource) BufferFeaturesPaired(ctx context.Context, f []resource.Feature, p geo.Projector) []resource.BufferedFeature {
 	c.pairedCalls++
 	return c.inner.BufferFeaturesPaired(ctx, f, p)

@@ -63,6 +63,28 @@ type ForecastSeedJSON struct {
 	BarrelsPerTonBinder float64      `json:"barrels_per_ton_binder,omitempty"`
 	Cohorts             []CohortSeed `json:"cohorts,omitempty"`
 	CityCohorts         []CohortSeed `json:"city_cohorts,omitempty"`
+	// AsphaltAreaShare and CityAsphaltAreaShare are the fraction of each
+	// scope's cohort area that is actually flexible (asphalt) pavement, i.e.
+	// roads and parking but not sidewalks. They exist because MaterialTiers
+	// describes asphalt only — forecast/material.go says outright that
+	// sidewalks are concrete — while the scenario areas the Materials tab
+	// multiplies by those tiers sum ALL of resource.All. Without the netting,
+	// "Annual Binder (Oil)" attributes crude-oil-equivalent barrels to concrete
+	// sidewalk panels that consume zero bitumen, overstating the mix/binder/oil
+	// headlines by the sidewalk share (1.4% alameda-ca, 7.0% atlanta-ga, 8.9%
+	// austin-tx in a real 277-city export).
+	//
+	// They are a SHARE and not an area because the browser applies them to
+	// scenario.years[].area, which is the cohort-summed area — not the deduped
+	// union geometry behind TotalArea/CityPaved. Same scope-selection shape as
+	// that pair. 1.0 means "no netting" and is what an absent or empty cohort
+	// set resolves to, so a fresh DB behaves exactly as before.
+	//
+	// Not omitempty: a legitimately-computed share is never 0 (a city with only
+	// sidewalks has no scenarios to draw), so an absent key means an older
+	// export and the browser defaults to 1.
+	AsphaltAreaShare     float64 `json:"asphalt_area_share"`
+	CityAsphaltAreaShare float64 `json:"city_asphalt_area_share"`
 }
 
 // BuildForecastSeed constructs a ForecastSeedJSON for the given forecast config and store.
@@ -107,31 +129,64 @@ func BuildForecastSeed(ctx context.Context, fc *config.ForecastConfig, store db.
 	years := fc.Years
 
 	// Collect cohort stats
-	cohortSeeds, cityCohortSeeds, err := collectCohortSeeds(ctx, store, fc)
+	cohorts, err := collectCohortSeeds(ctx, store, fc)
 	if err != nil {
 		return "", err
 	}
 
 	seed := ForecastSeedJSON{
-		InitialPCI:          fc.InitialPCI,
-		DecayRate:           decayRate,
-		GrowthRate:          fc.GrowthRate,
-		Years:               years,
-		TreatmentCycleYears: forecast.ResolveCycleYears(fc.TreatmentCycleYears),
-		TotalArea:           totalArea,
-		CityPaved:           cityArea,
-		CostTiers:           costTiers,
-		CostOverhead:        costOverhead,
-		MaterialTiers:       forecast.DefaultMaterialTiers,
-		BarrelsPerTonBinder: forecast.BarrelsPerTonBinder,
-		Cohorts:             cohortSeeds,
-		CityCohorts:         cityCohortSeeds,
+		InitialPCI:           fc.InitialPCI,
+		DecayRate:            decayRate,
+		GrowthRate:           fc.GrowthRate,
+		Years:                years,
+		TreatmentCycleYears:  forecast.ResolveCycleYears(fc.TreatmentCycleYears),
+		TotalArea:            totalArea,
+		CityPaved:            cityArea,
+		CostTiers:            costTiers,
+		CostOverhead:         costOverhead,
+		MaterialTiers:        forecast.DefaultMaterialTiers,
+		BarrelsPerTonBinder:  forecast.BarrelsPerTonBinder,
+		Cohorts:              cohorts.BBox,
+		CityCohorts:          cohorts.City,
+		AsphaltAreaShare:     cohorts.BBoxAsphaltShare,
+		CityAsphaltAreaShare: cohorts.CityAsphaltShare,
 	}
 	data, err := json.Marshal(seed)
 	if err != nil {
 		return "", fmt.Errorf("marshal forecast seed: %w", err)
 	}
 	return template.JS(data), nil
+}
+
+// cohortSet is what one store's cohort stats resolve to: the per-scope seeds
+// the interactive line and the static scenarios both build from, plus the
+// asphalt share of each scope's total cohort area (see ForecastSeedJSON's
+// AsphaltAreaShare).
+type cohortSet struct {
+	BBox, City                         []CohortSeed
+	BBoxAsphaltShare, CityAsphaltShare float64
+}
+
+// areaSplit accumulates asphalt-vs-total cohort area for one scope.
+type areaSplit struct{ asphalt, total float64 }
+
+// share returns the asphalt fraction, or 1 when there is no area to split.
+// 1 is the identity for the browser's multiplication, so a store with no
+// cohorts behaves exactly as it did before the netting existed — including the
+// fresh-DB path where scenariosFromSeeds returns nil and BuildScenariosData
+// falls back to singleCohortScenarios over the aggregate compute area.
+func (a *areaSplit) share() float64 {
+	if a.total <= 0 {
+		return 1
+	}
+	return a.asphalt / a.total
+}
+
+func (a *areaSplit) add(area float64, asphalt bool) {
+	a.total += area
+	if asphalt {
+		a.asphalt += area
+	}
 }
 
 // collectCohortSeeds iterates over all resource types and collects cohort seed
@@ -141,17 +196,25 @@ func BuildForecastSeed(ctx context.Context, fc *config.ForecastConfig, store db.
 // a real DB failure and is returned so the server's scenarios/seed cache evicts
 // and retries instead of locking in a synthetic-cohort payload for the server's
 // lifetime.
-func collectCohortSeeds(ctx context.Context, store db.Store, fc *config.ForecastConfig) ([]CohortSeed, []CohortSeed, error) {
-	var cohortSeeds []CohortSeed
-	var cityCohortSeeds []CohortSeed
+//
+// The asphalt shares are accumulated in this same loop, and deliberately so:
+// they have to be computed on the COHORT area basis, because that is what
+// scenario.years[].area sums. The combined compute rows behind TotalArea are
+// deduped union geometry — a different basis — and a share taken from those
+// would leave a residual error in the Materials figures.
+func collectCohortSeeds(ctx context.Context, store db.Store, fc *config.ForecastConfig) (cohortSet, error) {
+	var out cohortSet
+	var bboxSplit, citySplit areaSplit
 	for _, rt := range resource.All {
 		t := rt.Type()
+		asphalt := rt.AsphaltSurfaced()
 		stats, err := store.ListCohortStats(ctx, t)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return nil, nil, fmt.Errorf("list cohort stats for %s: %w", t, err)
+			return cohortSet{}, fmt.Errorf("list cohort stats for %s: %w", t, err)
 		}
 		for _, st := range stats {
-			cohortSeeds = append(cohortSeeds, CohortSeed{
+			bboxSplit.add(st.Area, asphalt)
+			out.BBox = append(out.BBox, CohortSeed{
 				Classification: st.Classification,
 				Area:           st.Area,
 				DecayRate:      resolvedDecayRate(st.Classification, fc.DecayRate),
@@ -159,17 +222,20 @@ func collectCohortSeeds(ctx context.Context, store db.Store, fc *config.Forecast
 		}
 		cityStats, err := store.ListCohortStats(ctx, t.With(resource.ScopeCity))
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return nil, nil, fmt.Errorf("list cohort stats for %s: %w", t.With(resource.ScopeCity), err)
+			return cohortSet{}, fmt.Errorf("list cohort stats for %s: %w", t.With(resource.ScopeCity), err)
 		}
 		for _, st := range cityStats {
-			cityCohortSeeds = append(cityCohortSeeds, CohortSeed{
+			citySplit.add(st.Area, asphalt)
+			out.City = append(out.City, CohortSeed{
 				Classification: st.Classification,
 				Area:           st.Area,
 				DecayRate:      resolvedDecayRate(st.Classification, fc.DecayRate),
 			})
 		}
 	}
-	return cohortSeeds, cityCohortSeeds, nil
+	out.BBoxAsphaltShare = bboxSplit.share()
+	out.CityAsphaltShare = citySplit.share()
+	return out, nil
 }
 
 // resolvedDecayRate returns the decay rate for a classification, applying the

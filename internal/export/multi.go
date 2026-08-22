@@ -185,20 +185,24 @@ func BuildMultiCityForecastSeed(ctx context.Context, fc *config.ForecastConfig, 
 	if decayRate <= 0 {
 		decayRate = forecast.DefaultDecayRates["default"]
 	}
+	bboxCohorts, bboxAsphaltShare := mergeCohortSeeds(ctx, entries, fc, false)
+	cityCohorts, cityAsphaltShare := mergeCohortSeeds(ctx, entries, fc, true)
 	seed := ForecastSeedJSON{
-		InitialPCI:          fc.InitialPCI,
-		DecayRate:           decayRate,
-		GrowthRate:          fc.GrowthRate,
-		Years:               fc.Years,
-		TreatmentCycleYears: forecast.ResolveCycleYears(fc.TreatmentCycleYears),
-		TotalArea:           totalArea,
-		CityPaved:           cityArea,
-		CostTiers:           costTiers,
-		CostOverhead:        fc.ResolvedCostOverhead(),
-		MaterialTiers:       forecast.DefaultMaterialTiers,
-		BarrelsPerTonBinder: forecast.BarrelsPerTonBinder,
-		Cohorts:             mergeCohortSeeds(ctx, entries, fc, false),
-		CityCohorts:         mergeCohortSeeds(ctx, entries, fc, true),
+		InitialPCI:           fc.InitialPCI,
+		DecayRate:            decayRate,
+		GrowthRate:           fc.GrowthRate,
+		Years:                fc.Years,
+		TreatmentCycleYears:  forecast.ResolveCycleYears(fc.TreatmentCycleYears),
+		TotalArea:            totalArea,
+		CityPaved:            cityArea,
+		CostTiers:            costTiers,
+		CostOverhead:         fc.ResolvedCostOverhead(),
+		MaterialTiers:        forecast.DefaultMaterialTiers,
+		BarrelsPerTonBinder:  forecast.BarrelsPerTonBinder,
+		Cohorts:              bboxCohorts,
+		CityCohorts:          cityCohorts,
+		AsphaltAreaShare:     bboxAsphaltShare,
+		CityAsphaltAreaShare: cityAsphaltShare,
 	}
 	data, err := json.Marshal(seed)
 	if err != nil {
@@ -229,7 +233,7 @@ func entryAreaWithFallback(ctx context.Context, store db.Store, combinedLabel re
 // "default") stay as separate cohorts — matching collectCohortSeeds' single-
 // city shape, where each ListCohortStats(rt) row appears verbatim and a
 // classification can recur across resources.
-func mergeCohortSeeds(ctx context.Context, entries []CityEntry, fc *config.ForecastConfig, cityScope bool) []CohortSeed {
+func mergeCohortSeeds(ctx context.Context, entries []CityEntry, fc *config.ForecastConfig, cityScope bool) ([]CohortSeed, float64) {
 	type key struct {
 		Resource       string
 		Classification string
@@ -239,6 +243,11 @@ func mergeCohortSeeds(ctx context.Context, entries []CityEntry, fc *config.Forec
 		Seed  CohortSeed
 	}
 	buckets := make(map[key]*bucket)
+	// Asphalt-vs-total cohort area for this scope, summed across every entry —
+	// same basis and same purpose as the single-city split in
+	// collectCohortSeeds. A region's sidewalk share is not the average of its
+	// cities' shares, so it has to be accumulated here rather than blended.
+	var split areaSplit
 	nextOrder := 0
 	scope := resource.ScopeAll
 	if cityScope {
@@ -260,7 +269,9 @@ func mergeCohortSeeds(ctx context.Context, entries []CityEntry, fc *config.Forec
 		for _, rt := range resource.All {
 			t := rt.Type()
 			stats := statsByType[t.With(scope)]
+			asphalt := rt.AsphaltSurfaced()
 			for _, st := range stats {
+				split.add(st.Area, asphalt)
 				k := key{Resource: string(t), Classification: st.Classification}
 				b, ok := buckets[k]
 				if !ok {
@@ -279,11 +290,11 @@ func mergeCohortSeeds(ctx context.Context, entries []CityEntry, fc *config.Forec
 		}
 	}
 	if len(buckets) == 0 {
-		return nil
+		return nil, split.share()
 	}
 	out := make([]CohortSeed, len(buckets))
 	for _, b := range buckets {
 		out[b.Order] = b.Seed
 	}
-	return out
+	return out, split.share()
 }

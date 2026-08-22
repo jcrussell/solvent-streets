@@ -12,6 +12,9 @@ type Sidewalk struct{}
 func (s *Sidewalk) Type() Type       { return TypeSidewalks }
 func (s *Sidewalk) HasCohorts() bool { return false }
 
+// Sidewalks are concrete, not asphalt — see forecast/material.go.
+func (s *Sidewalk) AsphaltSurfaced() bool { return false }
+
 func (s *Sidewalk) OverpassQuery(bbox [4]float64) string {
 	return fmt.Sprintf(`[out:json][timeout:120];
 (

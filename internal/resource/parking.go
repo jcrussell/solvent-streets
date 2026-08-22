@@ -9,8 +9,9 @@ import (
 
 type Parking struct{}
 
-func (p *Parking) Type() Type       { return TypeParking }
-func (p *Parking) HasCohorts() bool { return false }
+func (p *Parking) Type() Type            { return TypeParking }
+func (p *Parking) HasCohorts() bool      { return false }
+func (p *Parking) AsphaltSurfaced() bool { return true }
 
 func (p *Parking) OverpassQuery(bbox [4]float64) string {
 	return fmt.Sprintf(`[out:json][timeout:120];
