@@ -86,11 +86,37 @@ func newAllCompute(f *cmdutil.Factory) *cobra.Command {
 				// and an early return here would silently drop the combined
 				// paved-area row for every city where one resource failed —
 				// leaving the export with no cross-resource total.
+				// A failed combined pass is fatal to the RUN, exactly like a
+				// failed per-resource pass. It used to warn and return resErr —
+				// which is nil whenever all three resources succeeded, so any
+				// other failure (a locked database, a boundary read error, a
+				// store write error) exited 0. ForEachCity propagates that nil
+				// either way: it short-circuits single-city configs with a bare
+				// return, and a nil return marks the multi-city loop as having
+				// seen a result. `pvmt all compute && pvmt export` then
+				// published a site whose cross-resource paved-area total was
+				// the previous run's, or absent — the "sail on and publish"
+				// failure 336c1cd set out to prevent.
+				//
+				// Joining also subsumes the cancellation case the old code
+				// special-cased, and picks up DeadlineExceeded, which that
+				// check omitted (unlike its siblings above and in
+				// forEachResource). No Warnf here: the returned error is
+				// printed by the top-level runner, so warning as well would
+				// print it twice.
 				if err := compute.RunCombined(cmd.Context(), cf, grid); err != nil {
-					if errors.Is(err, context.Canceled) {
-						return errors.Join(resErr, err)
+					// Do NOT join when resErr is ErrNoResults. That sentinel is
+					// matched ahead of the generic arm by both ForEachCity
+					// (which files it under skippedEmpty, not errs, so a
+					// multi-city run still exits 0) and exitCode (which maps it
+					// to a silent 3). Joining would let "every resource was
+					// empty" swallow a real combined-pass failure — the exact
+					// masking this fix exists to remove. The combined error is
+					// the more serious signal, so it wins outright.
+					if errors.Is(resErr, cmdutil.ErrNoResults) {
+						return err
 					}
-					cmdutil.Warnf(f.IOStreams, "combined pass failed: %v", err)
+					return errors.Join(resErr, err)
 				}
 				return resErr
 			})

@@ -329,3 +329,167 @@ func TestForEachResource_EmptyPlusFailureReportsTheFailure(t *testing.T) {
 		t.Error("ErrNoResults must not mask the actionable failure")
 	}
 }
+
+// combinedTestBoundary is a ~600m box at 38°N, -120°. Sized so the road and
+// parking fixtures below sit inside the bbox-derived hex grid with margin
+// (mirrors pkg/cmd/compute's combined tests).
+const combinedTestBoundary = `{"type":"Polygon","coordinates":[[[-120.003,37.998],[-119.997,37.998],[-119.997,38.002],[-120.003,38.002],[-120.003,37.998]]]}`
+
+// computeFactory builds a factory for `all compute` over a store that has real
+// geometry, so every per-resource pass produces a result instead of short-
+// circuiting on ErrNoResults. That is what the q48z.6 regression needs: resErr
+// must be nil for the combined pass's error to be the only thing left to
+// report.
+func computeFactory(ios *iostreams.IOStreams, store db.Store) *cmdutil.Factory {
+	city := cmdtest.NewTestCity()
+	cfg := cmdtest.NewTestConfig(city)
+	return &cmdutil.Factory{
+		IOStreams:   ios,
+		CityDB:      func() (db.Store, error) { return store, nil },
+		CurrentCity: func() (*config.CityConfig, error) { return city, nil },
+		Config:      func() (*config.Config, error) { return cfg, nil },
+		HttpClient:  func() (*http.Client, error) { return &http.Client{}, nil },
+		UnitSystem:  func() units.System { return units.Metric },
+	}
+}
+
+func combinedTestStore(saveCombined func(db.ComputeResult) error) *dbtest.MockStore {
+	roadFeature := db.Feature{
+		ID:           "road1",
+		ResourceType: resource.TypeRoads,
+		Tags:         map[string]string{"highway": "residential", "width": "20"},
+		GeometryJSON: `{"type":"LineString","coordinates":[[-120.0025,38.0],[-119.9975,38.0]]}`,
+	}
+	return &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return combinedTestBoundary, nil },
+		ListFeaturesFunc: func(_ context.Context, rt resource.Type) ([]db.Feature, error) {
+			if rt == resource.TypeRoads {
+				return []db.Feature{roadFeature}, nil
+			}
+			return nil, nil
+		},
+		SaveComputeResultFunc: func(_ context.Context, r db.ComputeResult) error {
+			if r.ResourceType.Bare() == resource.TypeCombined {
+				return saveCombined(r)
+			}
+			return nil
+		},
+	}
+}
+
+// TestAllCompute_CombinedFailureIsFatal pins q48z.6. Before the fix, a failing
+// combined pass was a stderr warning and `all compute` returned resErr — nil
+// whenever the three per-resource passes succeeded. So `pvmt all compute &&
+// pvmt export` exited 0 and published a site whose cross-resource paved-area
+// total was the previous run's, or absent.
+//
+// The store here fails ONLY the combined write, so every per-resource pass
+// succeeds and resErr is nil. That isolates the regression: if the command
+// returns nil, the combined error was swallowed.
+func TestAllCompute_CombinedFailureIsFatal(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	wantErr := errors.New("database is locked")
+	combinedWrites := 0
+	store := combinedTestStore(func(db.ComputeResult) error {
+		combinedWrites++
+		return wantErr
+	})
+
+	cmd := NewCmdAll(computeFactory(ios, store))
+	cmd.SetArgs([]string{"compute"})
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+
+	err := cmd.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatalf("all compute = nil; want the combined-pass failure to be fatal (exit non-zero)")
+	}
+	if !errors.Is(err, wantErr) {
+		t.Errorf("all compute = %v; want it to wrap %v", err, wantErr)
+	}
+	if combinedWrites == 0 {
+		t.Errorf("the combined pass never attempted its write; the fixture is not exercising it")
+	}
+}
+
+// TestAllCompute_SucceedsWhenCombinedSucceeds is the companion guard: making
+// the combined failure fatal must not make a healthy run non-zero.
+func TestAllCompute_SucceedsWhenCombinedSucceeds(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	combinedWrites := 0
+	store := combinedTestStore(func(db.ComputeResult) error {
+		combinedWrites++
+		return nil
+	})
+
+	cmd := NewCmdAll(computeFactory(ios, store))
+	cmd.SetArgs([]string{"compute"})
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("all compute = %v; want nil on a healthy run", err)
+	}
+	if combinedWrites == 0 {
+		t.Errorf("the combined pass never ran")
+	}
+}
+
+// TestAllCompute_CombinedFailureNotMaskedByEmptyResources covers the case
+// TestAllCompute_CombinedFailureIsFatal cannot: there every resource produces a
+// result, so resErr is nil and there is no sentinel to collide with.
+//
+// When every resource comes back empty, forEachResource returns
+// cmdutil.ErrNoResults. errors.Join(ErrNoResults, combinedErr) still satisfies
+// errors.Is(_, ErrNoResults), and BOTH ForEachCity and exitCode match that
+// sentinel ahead of the generic arm — so a joined error would file the
+// combined-pass failure under "nothing to do" and exit 0 on a multi-city run.
+func TestAllCompute_CombinedFailureNotMaskedByEmptyResources(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	wantErr := errors.New("database is locked")
+
+	// No features anywhere, so every per-resource pass reports ErrNoResults.
+	// The combined pass is then failed at its boundary read — RunCombined
+	// returns nil once it finds nothing to union, so a later failure point
+	// would never be reached. The fan-out lists features once per resource, so
+	// once listCalls has reached len(resource.All) the next boundary read is
+	// RunCombined's; failedCombined pins that this actually happened, so the
+	// test cannot silently degrade into asserting nothing.
+	listCalls, failedCombined := 0, false
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) {
+			if listCalls >= len(resource.All) {
+				failedCombined = true
+				return "", wantErr
+			}
+			return combinedTestBoundary, nil
+		},
+		ListFeaturesFunc: func(_ context.Context, _ resource.Type) ([]db.Feature, error) {
+			listCalls++
+			return nil, nil
+		},
+		SaveComputeResultFunc: func(_ context.Context, _ db.ComputeResult) error {
+			t.Error("SaveComputeResult called; the fixture has no features")
+			return nil
+		},
+	}
+
+	cmd := NewCmdAll(computeFactory(ios, store))
+	cmd.SetArgs([]string{"compute"})
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+
+	err := cmd.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatalf("all compute = nil; the combined-pass failure must not be swallowed")
+	}
+	if errors.Is(err, cmdutil.ErrNoResults) {
+		t.Errorf("all compute = %v; it still matches ErrNoResults, which ForEachCity "+
+			"files under skippedEmpty and exitCode maps to a silent 3 — the combined "+
+			"failure is masked", err)
+	}
+	if !failedCombined {
+		t.Errorf("the combined pass never reached its boundary read; the fixture is not " +
+			"exercising the masking case")
+	}
+}
