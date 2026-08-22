@@ -2148,14 +2148,80 @@
         let deferCustomScenario = false;
         let currentStrategy = 'worst-first';
 
+        // The shipped track (min/max/step) of each seeded range input, captured
+        // the first time that input is seeded. Every sync restores it before
+        // deciding whether this city's seed needs the track widened. Without the
+        // restore the widening ACCUMULATES across city switches: a city seeded
+        // at 4x leaves max=4 for every city after it, and a city seeded at 0.83
+        // leaves a step ladder of 0.83/0.88/.../0.98/1.03 on which the default
+        // 1.0 is not reachable at all.
+        const shippedTracks = new WeakMap();
+
+        // Whether v lands on the input's step ladder, which starts at its min
+        // (HTML: the step base is the min content attribute). Computed with a
+        // tolerance because the steps are not binary-exact — (1.33 - 1) / 0.05
+        // is 6.6000000000000005, not 6.6. A non-numeric step is step="any",
+        // which accepts everything.
+        /** @param {number} v @param {number} base @param {number} step @returns {boolean} */
+        function isStepAligned(v, base, step) {
+            if (!Number.isFinite(step) || step <= 0) return true;
+            const n = (v - base) / step;
+            return Math.abs(n - Math.round(n)) < 1e-6;
+        }
+
+        // seedRangeInput sets a range input to a seeded value EXACTLY, and
+        // returns what it set.
+        //
+        // There are two ways a range input silently refuses a value, and both
+        // put the interactive line on a different basis from the static export
+        // lines drawn on the same chart — the divergence seeding exists to
+        // prevent:
+        //
+        //   - Out of [min,max]: the UA clamps. Config validation is wider than
+        //     the markup's track on both sliders (initial_pci is legal down to
+        //     0 against a 50 floor; cost_overhead up to 5 against a 2.5
+        //     ceiling), so widen the track to admit the seed rather than
+        //     clamping the seed into the track.
+        //   - Step-mismatched: the UA rounds to the nearest step-aligned value
+        //     (HTML, the Range state's value sanitization algorithm). A legal
+        //     cost_overhead of 1.33 on step=0.05 becomes 1.35 in a browser while
+        //     costRegimeText keeps printing "1.33x". jsdom implements the clamp
+        //     but NOT the snap, so no amount of reading back .value in a test
+        //     can see it — drop to step="any" whenever the seed is off-ladder.
+        /** @param {HTMLInputElement} slider @param {number} v @returns {number} */
+        function seedRangeInput(slider, v) {
+            let track = shippedTracks.get(slider);
+            if (!track) {
+                track = { min: slider.min, max: slider.max, step: slider.step };
+                shippedTracks.set(slider, track);
+            }
+            slider.min = track.min;
+            slider.max = track.max;
+            slider.step = track.step;
+
+            if (v > parseFloat(slider.max)) slider.max = String(v);
+            if (v < parseFloat(slider.min)) slider.min = String(v);
+            if (!isStepAligned(v, parseFloat(slider.min), parseFloat(track.step))) slider.step = 'any';
+
+            slider.setAttribute('aria-valuemin', slider.min);
+            slider.setAttribute('aria-valuemax', slider.max);
+            slider.value = String(v);
+            slider.setAttribute('aria-valuenow', slider.value);
+            return v;
+        }
+
+        // Config validation accepts initial_pci anywhere in 0-100 and
+        // NormalizeForecast only replaces <=0 or >100, so a city configured at
+        // 45 reaches the seed intact — while the markup's track floors at 50.
+        // Clamping it started the interactive line, and the End PCI / N-Year
+        // Spend / N-Year Deficit tiles it overwrites, from a condition the city
+        // never configured. Widen, don't clamp — the same call the overhead
+        // slider makes.
         function syncPCISliderFromSeed() {
             if (!FORECAST_SEED || typeof FORECAST_SEED.initial_pci !== 'number') return;
             const slider = inputById('pci-slider');
             if (!slider) return;
-            const min = parseInt(slider.min);
-            const max = parseInt(slider.max);
-            const v = Math.max(min, Math.min(max, Math.round(FORECAST_SEED.initial_pci)));
-            slider.value = String(v);
+            const v = seedRangeInput(slider, Math.round(FORECAST_SEED.initial_pci));
             document.getElementById('pci-value').textContent = String(v);
         }
         syncPCISliderFromSeed();
@@ -2171,26 +2237,15 @@
         // if the seed is stale, showing construction-only dollars is recoverable,
         // and showing $0 is not.
         // The markup's 1-2.5 range covers every plausible load stack, but config
-        // validation accepts cost_overhead up to 5. Clamping a seed above the
-        // slider max would price the interactive line (and the headline tiles it
-        // overwrites) differently from the static export lines on the SAME
-        // chart, while costRegimeText kept printing the seeded figure — exactly
-        // the divergence the seeding exists to prevent. So widen the track to
-        // admit the seed instead of clamping to it.
+        // validation accepts cost_overhead up to 5, and the seed is the source
+        // of truth: see seedRangeInput for why the track is widened (and
+        // un-stepped) to admit it rather than the other way round.
         function syncOverheadSliderFromSeed() {
             const slider = inputById('overhead-slider');
             if (!slider) return;
             const seeded = FORECAST_SEED && Number(FORECAST_SEED.cost_overhead);
             const v = Number.isFinite(seeded) && seeded > 0 ? seeded : 1;
-            if (v > parseFloat(slider.max)) {
-                slider.max = String(v);
-                slider.setAttribute('aria-valuemax', String(v));
-            }
-            if (v < parseFloat(slider.min)) {
-                slider.min = String(v);
-                slider.setAttribute('aria-valuemin', String(v));
-            }
-            slider.value = String(v);
+            seedRangeInput(slider, v);
             renderOverheadValue();
         }
 

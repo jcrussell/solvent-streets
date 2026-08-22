@@ -10,6 +10,23 @@ function withSeedOverhead(oh) {
   return { ...fullData, 'forecast_seed.json': { ...seedJSON, cost_overhead: oh } };
 }
 
+// assertReachable pins the property that keeps a browser from moving the seeded
+// value: it must lie on the step ladder the input advertises (which starts at
+// min, per the HTML step-base rule), or the input must be off-step entirely.
+//
+// This is asserted rather than observed because jsdom implements only the
+// invalid-value, underflow and overflow clauses of the range sanitization
+// algorithm — it has NO step-mismatch branch. Setting 1.33 on min=1 step=0.05
+// reads back "1.33" in jsdom and 1.35 in a real browser. Reading .value can
+// therefore never catch the snap; the ladder can.
+function assertReachable(slider, v) {
+  const step = parseFloat(slider.step);
+  if (!Number.isFinite(step)) return;      // step="any" reaches everything
+  const n = (v - parseFloat(slider.min)) / step;
+  assert.ok(Math.abs(n - Math.round(n)) < 1e-6,
+    `${v} is off the step ladder (min=${slider.min} step=${slider.step}); a browser would snap it`);
+}
+
 async function ready(data) {
   const h = load({ data });
   await h.flush();
@@ -133,4 +150,54 @@ test('an ordinary in-range seed leaves the shipped track alone', async () => {
   const { $ } = await ready(withSeedOverhead(1.5));
   assert.equal(parseFloat($('#overhead-slider').min), 1);
   assert.equal(parseFloat($('#overhead-slider').max), 2.5);
+});
+
+test('a step-mismatched seed is admitted exactly, not snapped to the ladder', async () => {
+  // A config-legal cost_overhead of 1.33 has step candidates 1.30 and 1.35 on
+  // the shipped step=0.05 track; 1.35 is nearer, so a browser hands the sim
+  // 1.35 — ~1.5% above what forecast.json was priced at — while costRegimeText
+  // (which reads the seed, not the slider) keeps printing "1.33x".
+  const { $, win } = await ready(withSeedOverhead(1.33));
+
+  assertReachable($('#overhead-slider'), 1.33);
+  assert.equal(parseFloat($('#overhead-slider').value), 1.33);
+  assert.equal(win.__simCalls.at(-1).cost_overhead, 1.33,
+    'the bridge priced at something other than the seeded multiplier');
+});
+
+test('a widened track is restored on the next city', async () => {
+  // Widening is cumulative unless something puts the shipped track back: one
+  // city seeded at 4x would leave every city after it draggable to 4x, on a
+  // track whose scale silently changed under the user.
+  const data = withSeedOverhead(4);
+  const h = await ready(data);
+  assert.equal(parseFloat(h.$('#overhead-slider').max), 4);
+
+  data['forecast_seed.json'] = { ...seedJSON, cost_overhead: 1.5 };
+  await h.win.loadFinancials();        // the refetch path a city switch takes
+  await h.flush();
+
+  assert.equal(parseFloat(h.$('#overhead-slider').max), 2.5,
+    'the previous city\'s widened ceiling leaked into this one');
+  assert.equal(parseFloat(h.$('#overhead-slider').value), 1.5);
+});
+
+test('a downward-widened track does not make the default unreachable', async () => {
+  // The nastiest form of the leak. Seeding 0.83 moves min to 0.83, and with
+  // step=0.05 the ladder becomes 0.83/0.88/.../0.98/1.03 — 1.0 is not on it.
+  // The next city, seeded at the default 1.0, lands on 0.98 in a real browser:
+  // a city that configured nothing gets priced 2% light.
+  const data = withSeedOverhead(0.83);
+  const h = await ready(data);
+  assert.equal(parseFloat(h.$('#overhead-slider').min), 0.83);
+
+  data['forecast_seed.json'] = { ...seedJSON, cost_overhead: 1 };
+  await h.win.loadFinancials();
+  await h.flush();
+
+  const slider = h.$('#overhead-slider');
+  assert.equal(parseFloat(slider.min), 1, 'the widened floor leaked into this city');
+  assertReachable(slider, 1);
+  assert.equal(parseFloat(slider.value), 1);
+  assert.equal(h.win.__simCalls.at(-1).cost_overhead, 1);
 });
