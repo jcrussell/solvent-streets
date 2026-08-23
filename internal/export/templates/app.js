@@ -3008,14 +3008,22 @@
                     return cat.higher ? (b[cat.key] - a[cat.key]) : (a[cat.key] - b[cat.key]);
                 });
                 var vals = sorted.map(function(m) { return m[cat.key]; });
-                var maxVal = Math.max.apply(null, vals);
+                // Floor at 0 before the zero repair. The funding-gap metric is
+                // signed (negative when over-funded), so a scope where EVERY
+                // city is over-funded yields a negative maxVal -- and dividing
+                // a negative value by a negative max gives a positive ratio, so
+                // every bar clamped to full width and the ranking the bars
+                // exist to show conveyed nothing. Flooring renders over-funded
+                // cities as an empty bar instead, which is what the mixed-sign
+                // case already does via the [0,100] clamp below.
+                var maxVal = Math.max(0, Math.max.apply(null, vals));
                 if (maxVal === 0) maxVal = 1;
 
                 var rows = sorted.map(function(m, i) {
                     // Clamp to [0,100]: the funding-gap metric is signed
-                    // (negative when over-funded) and maxVal can be negative if
-                    // every city is over-funded, either of which would produce
-                    // an invalid/overflowing bar width.
+                    // (negative when over-funded), which would otherwise produce
+                    // an invalid bar width. maxVal is floored at 0 above, so the
+                    // over-funded case lands at 0% here rather than overflowing.
                     var pct = Math.max(0, Math.min(100, m[cat.key] / maxVal * 100)).toFixed(1);
                     var medalIcon = i < 3 && i < medals.length ? medals[i] : (i + 1) + '.';
                     return '<div class="lb-row">' +
