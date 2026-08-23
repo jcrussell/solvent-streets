@@ -206,6 +206,15 @@ func validateConfigScalars(cfg Config) error {
 	if !finite(cfg.GrowthRate) {
 		return fmt.Errorf("game: growth_rate must be finite, got %g", cfg.GrowthRate)
 	}
+	// Mirrors config.ForecastConfig.Validate: 0 means "use the forecast default"
+	// (ResolveCycleYears), and a positive but sub-annual cycle makes the 1/N
+	// gating in Simulate exceed the whole network — eligibleFrac = 1/1e-9 = 1e9
+	// declares insolvency in year 1 at ANY budget. ResolveCycleYears only rejects
+	// <= 0, so it does not catch that band.
+	if !finite(cfg.TreatmentCycleYears) ||
+		(cfg.TreatmentCycleYears != 0 && (cfg.TreatmentCycleYears < 1 || cfg.TreatmentCycleYears > 40)) {
+		return fmt.Errorf("game: treatment_cycle_years %g out of range (1-40, or 0 for default)", cfg.TreatmentCycleYears)
+	}
 	return nil
 }
 
@@ -490,6 +499,15 @@ func insolvencyFromForecast(cohortCfgs []CohortConfig, initialPCI, growthRate fl
 	// (0, false), consistent with the horizon guard above. For the live-game
 	// caller these are always-true no-ops — New already validated the same fields.
 	if !finite(initialPCI) || initialPCI < 0 || initialPCI > 100 || !finite(growthRate) || !finite(budget) {
+		return 0, false
+	}
+	// cycleYears arrives already through ResolveCycleYears, which only maps <= 0
+	// to the default — a tiny positive value survives it. Simulate computes
+	// eligibleFrac = 1/cycleYears, so 1e-9 makes the whole network eligible 1e9
+	// times over and reports insolvency in year 1 regardless of budget. Bound it
+	// to the same [1,40] band config.ForecastConfig.Validate enforces; post-Resolve
+	// the unset case is already DefaultTreatmentCycleYears, so < 1 is the floor.
+	if !finite(cycleYears) || cycleYears < 1 || cycleYears > 40 {
 		return 0, false
 	}
 	for _, t := range tiers {

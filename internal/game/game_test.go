@@ -75,6 +75,14 @@ func TestNewValidation(t *testing.T) {
 		"neg cohort area":  func(c *Config) { c.Cohorts[0].Area = -1 },
 		"inf cohort decay": func(c *Config) { c.Cohorts[0].DecayRate = math.Inf(1) },
 		"neg cohort decay": func(c *Config) { c.Cohorts[0].DecayRate = -1 },
+		// ResolveCycleYears only maps <= 0 to the default, so a sub-annual
+		// positive cycle reaches Simulate and forces insolvency in year 1 at any
+		// budget. New must reject it before that.
+		"nan cycle":  func(c *Config) { c.TreatmentCycleYears = math.NaN() },
+		"inf cycle":  func(c *Config) { c.TreatmentCycleYears = math.Inf(1) },
+		"tiny cycle": func(c *Config) { c.TreatmentCycleYears = 1e-9 },
+		"neg cycle":  func(c *Config) { c.TreatmentCycleYears = -1 },
+		"huge cycle": func(c *Config) { c.TreatmentCycleYears = 41 },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -411,6 +419,11 @@ func TestProjectInsolvencyNonFiniteInputs(t *testing.T) {
 		"nan tier cost":    func(c *Config) { c.CostTiers[0].CostPerSqM = math.NaN() },
 		"neg cohort area":  func(c *Config) { c.Cohorts[0].Area = -1 },
 		"inf cohort decay": func(c *Config) { c.Cohorts[0].DecayRate = math.Inf(1) },
+		// A sub-annual cycle survives ResolveCycleYears and makes
+		// eligibleFrac = 1/1e-9 = 1e9, which reported insolvency in year 1 even
+		// at a $1e12 budget before the re-guard.
+		"tiny cycle": func(c *Config) { c.TreatmentCycleYears = 1e-9 },
+		"huge cycle": func(c *Config) { c.TreatmentCycleYears = 41 },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -420,6 +433,19 @@ func TestProjectInsolvencyNonFiniteInputs(t *testing.T) {
 				t.Fatalf("expected ok=false for %q", name)
 			}
 		})
+	}
+}
+
+// TestProjectInsolvencyTinyCycleIgnoresBudget pins the specific symptom the
+// cycleYears re-guard closes: before it, a sub-annual treatment cycle reported
+// insolvency in year 1 no matter how large the budget was, because
+// eligibleFrac = 1/cycleYears made the entire network eligible every year.
+func TestProjectInsolvencyTinyCycleIgnoresBudget(t *testing.T) {
+	cfg := baseConfig()
+	cfg.TreatmentCycleYears = 1e-9
+	cfg.StartingBudget = 1e12
+	if year, ok := ProjectInsolvency(cfg); ok {
+		t.Fatalf("expected ok=false for a sub-annual cycle at a $1e12 budget, got year %d", year)
 	}
 }
 
