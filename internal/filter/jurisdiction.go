@@ -211,7 +211,32 @@ var (
 	// Highway out: "CTH PP" (171 features, Milwaukee), "CTH E", "CTH ZZ" --
 	// note the letter-only designator carries no digit at all, so this cannot
 	// reuse the shape above -- plus "County Highway S21" (178). 455 features.
-	spelledCountyRefRe = regexp.MustCompile(`^(CTH[ -]|COUNTY (ROAD|HIGHWAY|ROUTE|TRUNK)\b)`)
+	//
+	// The `CO RD` family is the ABBREVIATED spelling of the same thing, and it
+	// is here because "CO" is both Colorado's USPS code and the near-universal
+	// abbreviation for "County". Without it, statePostalRefRe's [A-Z]{1,2}
+	// arm reads "CO RD 45" as a Colorado state route (its two-letter
+	// designator "RD" is followed by a non-letter), while "CO HWY 12" and
+	// "CO RTE 9" match nothing at all -- their three-letter designators fail
+	// that arm -- and fall through the whole ladder into City. One county road
+	// billed to the state, its neighbour billed to the city, for the same
+	// road type.
+	//
+	// Like TR above, this is recorded on domain knowledge and has ZERO
+	// occurrences in the ingested corpus: histogramming every ^CO ref over
+	// ~400 cities returns 33 distinct refs, 12118 features, and every one is a
+	// real Colorado route in the "CO <digits>" shape ("CO 121", 2377; "CO 30",
+	// 1398). `CO RD`/`CO HWY`/`CO RTE` appear zero times -- unsurprising for a
+	// city-focused corpus, since the abbreviation belongs to rural county
+	// addressing. So this rule is INERT today and cannot regress those 12118:
+	// a digit can never match (RD|ROAD|HWY|HIGHWAY|RTE|ROUTE), so Colorado
+	// keeps every ref it already had.
+	//
+	// The optional period covers the "CO. RD 45" spelling. \b after each
+	// alternative is load-bearing the same way stateWordRefRe's trailing \d
+	// is: without it "CO ROUTED" or a street named "CO RDS" would match.
+	spelledCountyRefRe = regexp.MustCompile(
+		`^(CTH[ -]|CO\.?[ -](RD|ROAD|HWY|HIGHWAY|RTE|ROUTE)\b|COUNTY (ROAD|HIGHWAY|ROUTE|TRUNK)\b)`)
 
 	// stateWordRefRe matches the state-route types spelled as words rather than
 	// abbreviated. statePostalDeny's note below already records that TxDOT's

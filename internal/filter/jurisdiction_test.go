@@ -169,6 +169,33 @@ func TestClassifyJurisdiction(t *testing.T) {
 		{"wisconsin county trunk letter only", map[string]string{"ref": "CTH E", "highway": "primary"}, JurisdictionCounty},
 		{"county highway spelled out", map[string]string{"ref": "County Highway S21", "highway": "primary"}, JurisdictionCounty},
 		{"county road spelled out", map[string]string{"ref": "County Road 12", "highway": "primary"}, JurisdictionCounty},
+		// The ABBREVIATED county spelling, where "CO" collides with Colorado's
+		// USPS code. Before spelledCountyRefRe covered these, the collision
+		// split identical road types across two different buckets: "CO RD 45"
+		// matched statePostalRefRe's [A-Z]{1,2} arm ("RD" followed by a
+		// non-letter) and billed a county road to the STATE, while "CO HWY 12"
+		// and "CO RTE 9" failed that arm on their three-letter designators and
+		// fell through the whole ladder to CITY.
+		{"abbreviated county road", map[string]string{"ref": "CO RD 45", "highway": "unclassified"}, JurisdictionCounty},
+		{"abbreviated county road lettered", map[string]string{"ref": "CO RD A", "highway": "unclassified"}, JurisdictionCounty},
+		{"abbreviated county highway", map[string]string{"ref": "CO HWY 12", "highway": "unclassified"}, JurisdictionCounty},
+		{"abbreviated county route", map[string]string{"ref": "CO RTE 9", "highway": "unclassified"}, JurisdictionCounty},
+		{"abbreviated county road with period", map[string]string{"ref": "CO. RD 45", "highway": "unclassified"}, JurisdictionCounty},
+		{"abbreviated county road hyphenated", map[string]string{"ref": "CO-RD 45", "highway": "unclassified"}, JurisdictionCounty},
+		// Mixed case appears in the wild; ClassifyJurisdiction uppercases the
+		// ref before any pattern runs.
+		{"abbreviated county road mixed case", map[string]string{"ref": "Co Rd 45", "highway": "unclassified"}, JurisdictionCounty},
+
+		// The other side of that collision, and the reason the rule keys on a
+		// WORD rather than adding CO to statePostalDeny: every real Colorado
+		// route must keep its State classification. Histogramming ^CO over the
+		// ingested corpus returns 33 distinct refs and 12118 features, all of
+		// them this shape -- denying CO outright would move every one of them
+		// into City.
+		{"colorado state route stays state", map[string]string{"ref": "CO 121", "highway": "primary"}, JurisdictionState},
+		{"colorado state route low number stays state", map[string]string{"ref": "CO 2", "highway": "primary"}, JurisdictionState},
+		{"colorado state route with suffix stays state", map[string]string{"ref": "CO 470 EXPR", "highway": "primary"}, JurisdictionState},
+		{"colorado route joined with a county ref stays state", map[string]string{"ref": "CO 88;CR 42", "highway": "primary"}, JurisdictionState},
 		// Two further designator shapes, found by peer review after the first
 		// attempt at this fix required [A-Z]?\d and still missed 75 features.
 		// They are why countyRefRe matches on the prefix alone: enumerating
@@ -192,6 +219,10 @@ func TestClassifyJurisdiction(t *testing.T) {
 		{"street named Loop Road is not a state loop", map[string]string{"ref": "Loop Road", "highway": "residential"}, JurisdictionCity},
 		{"street named Spur Trail is not a state spur", map[string]string{"ref": "Spur Trail", "highway": "residential"}, JurisdictionCity},
 		{"street named County Line Road is not a county route", map[string]string{"ref": "County Line Road", "highway": "residential"}, JurisdictionCity},
+		// The \b guarding the CO RD family: without it these two would read as
+		// county routes rather than the ordinary city streets they are.
+		{"street named CO ROUTED is not a county route", map[string]string{"ref": "CO ROUTED", "highway": "residential"}, JurisdictionCity},
+		{"street named CO RDS is not a county route", map[string]string{"ref": "CO RDS", "highway": "residential"}, JurisdictionCity},
 
 		// Left as State deliberately -- see the statePostalDeny comment.
 		// BW 8 is Beltway 8, genuinely TxDOT. PR is Texas "Private Road", and
