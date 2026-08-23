@@ -71,6 +71,39 @@ var (
 	// Springs — the same roads FR also tags).
 	federalRefRe = regexp.MustCompile(`^(IH|I|US|NF|FR|FS)[ -]\d`)
 
+	// federalWordRefRe is the spelled-out twin of federalRefRe, kept as a
+	// sibling rather than folded into the alternation above because that
+	// regex is already carrying six prefixes and three paragraphs of
+	// justification. Mirrors the stateExplicitRefRe / stateWordRefRe split.
+	// "US Highway 12", "U.S. 40", "Interstate 90" and "US Route 66" matched
+	// nothing and fell through to City. solvent-streets-fu74.
+	//
+	// Measured: every one of these is ZERO in the corpus except a single
+	// "US Route 1/9 Southbound" (New York NY), and that one is highway=trunk
+	// so it was ALREADY State -- this rule moves it State -> Federal and
+	// takes nothing out of City. The whole arm is therefore inert-plus-one,
+	// carried on domain knowledge like the CO RD arm below.
+	//
+	// Because it IS domain knowledge rather than measurement, the shape set
+	// is enumerated completely: dotted and undotted US, the spelled and
+	// abbreviated designators, "Interstate Highway", and a lettered
+	// designator. A half-enumerated shape set is the trap countyRefRe's
+	// comment describes -- a fourth shape springing later.
+	//
+	// The trailing \d is load-bearing the same way stateWordRefRe's is: it
+	// keeps a way whose ref is the bare word "Interstate" or "US Highway"
+	// out of the Federal bucket.
+	//
+	// Deliberately does NOT match "US HISTORIC 66" (1469 features): HISTORIC
+	// diverges from HIGHWAY at the third character. Whether a decommissioned
+	// US route is federal at all is a separate and much larger question --
+	// the corpus also holds 15331 features whose "US <n> HIST" refs match
+	// federalRefRe on the leading "US <n>" and are all Federal today, and
+	// Historic 66 is in fact a patchwork of local, state and federal
+	// maintenance. Tracked separately; do not widen this to reach it.
+	federalWordRefRe = regexp.MustCompile(
+		`^(U\.?S\.?[ -](HIGHWAY|HWY|ROUTE|RTE)[ -]?|U\.S\.[ -]?|INTERSTATE([ -]HIGHWAY)?[ -])[A-Z]?\d`)
+
 	// stateExplicitRefRe matches the unambiguous state-route conventions:
 	// SR/SH (State Route / State Highway) and "Route N" / "State Route N".
 	// These are never county or federal, so they can match directly.
@@ -79,7 +112,21 @@ var (
 	// roads -- "SR A1A" is 466 features in Jacksonville. Anchoring on a bare
 	// \d missed every one of them, and a state route that falls through this
 	// ladder lands in City, billing FDOT arterial to the city.
-	stateExplicitRefRe = regexp.MustCompile(`^(SR|SH|STATE ROUTE|ROUTE)[ -]?[A-Z]?\d`)
+	// The spelled STATE forms live here rather than in stateWordRefRe below,
+	// which is LOOP|SPUR-shaped for a different reason. This regex already
+	// carried "STATE ROUTE" and bare "ROUTE", so "State Route 26" was always
+	// State -- the gap was only HIGHWAY/HWY/ROAD/RD/RTE, which fell through
+	// the whole ladder into City. Sharing this regex also inherits the [A-Z]?
+	// lettered handling, so "State Highway A1A" works like "SR A1A".
+	// solvent-streets-fu74.
+	//
+	// Measured: STATE HIGHWAY and STATE ROAD are ZERO in the corpus and
+	// "State Hwy 391" is 3 features (Lakewood CO, highway=primary) -- the
+	// only features this whole change moves out of City. The bare ROUTE arm
+	// beside them is itself inert (^ROUTE is 0), so a rule carrying its
+	// domain knowledge ahead of the corpus is the norm here, not an exception.
+	stateExplicitRefRe = regexp.MustCompile(
+		`^(SR|SH|STATE[ -](ROUTE|HIGHWAY|HWY|ROAD|RD|RTE)|ROUTE)[ -]?[A-Z]?\d`)
 
 	// statePostalRefRe matches a generic two-letter postal-code state route
 	// ("CA 84", "CO 2", "MA 9", "OR 99E", "OR-99E"). It is deliberately
@@ -232,11 +279,39 @@ var (
 	// a digit can never match (RD|ROAD|HWY|HIGHWAY|RTE|ROUTE), so Colorado
 	// keeps every ref it already had.
 	//
-	// The optional period covers the "CO. RD 45" spelling. \b after each
-	// alternative is load-bearing the same way stateWordRefRe's trailing \d
-	// is: without it "CO ROUTED" or a street named "CO RDS" would match.
+	// Both spelled prefixes share ONE designator alternation. They did not
+	// used to: the CO arm carried RD|ROAD|HWY|HIGHWAY|RTE|ROUTE while the
+	// COUNTY arm carried only the spelled-out ROAD|HIGHWAY|ROUTE|TRUNK, so
+	// "CO RD 45" was County but "County Rd 12" was City, and "CO HWY 12" was
+	// County but "COUNTY HWY 5" was City -- the same "one county road billed
+	// to the state, its neighbour billed to the city" split the CO arm exists
+	// to prevent, reintroduced one level down. solvent-streets-fu74.
+	//
+	// Measured: every spelling this widening adds is ZERO in the ingested
+	// corpus (8.7M road features) -- COUNTY HWY, COUNTY RTE, CO.RD, CO TRUNK
+	// all absent; "County Road 17" is the single COUNTY-arm feature and it
+	// already matched. So this is INERT today, kept for the same reason the
+	// CO arm above is: the shape belongs to rural county addressing that a
+	// city-focused corpus does not sample.
+	//
+	// The separator group is `CO(\.[ -]?|[ -])` and NOT `CO\.?[ -]?`, which
+	// would match a street named "CORD 45". A period makes the separator
+	// optional ("CO.RD 45"); without one a separator is still required.
+	//
+	// The COUNTY arm's separator widened from a literal space to [ -], so
+	// "COUNTY-RD 12" now matches too.
+	//
+	// Colorado is still safe. The 33 distinct ^CO refs in the corpus (12118
+	// features, "CO 121" 2377, "CO 30" 1398) are all the "CO <digits>" shape,
+	// and a digit can never match the designator alternation -- which gained
+	// only TRUNK, another word. Verified unmoved in the corpus dump.
+	//
+	// One shared \b after the shared alternation is the same assertion the
+	// old per-arm \b made, and load-bearing the same way stateWordRefRe's
+	// trailing \d is: without it "CO ROUTED", "COUNTY ROADWAY 4" or a street
+	// named "CO RDS" would match.
 	spelledCountyRefRe = regexp.MustCompile(
-		`^(CTH[ -]|CO\.?[ -](RD|ROAD|HWY|HIGHWAY|RTE|ROUTE)\b|COUNTY (ROAD|HIGHWAY|ROUTE|TRUNK)\b)`)
+		`^(CTH[ -]|(CO(\.[ -]?|[ -])|COUNTY[ -])(RD|ROAD|HWY|HIGHWAY|RTE|ROUTE|TRUNK)\b)`)
 
 	// stateWordRefRe matches the state-route types spelled as words rather than
 	// abbreviated. statePostalDeny's note below already records that TxDOT's
@@ -249,15 +324,24 @@ var (
 	// The trailing \d is load-bearing: it is what keeps a street literally
 	// named "Loop Road" or "Spur Trail" out of the State bucket.
 	//
-	// This closed the LOOP/SPUR gap and nothing wider. The fully spelled-out
-	// State and US forms still reach no rule and fall through to City:
-	// "State Highway 26", "State Hwy 26", "State Road 37" (while "SH 130" and
-	// "SR-37" are correctly State), and in federalRefRe's territory
-	// "US Highway 12", "US Route 66", "Interstate 90", "U.S. 40". The federal
-	// misses are the expensive ones -- those are the highest-area roads in the
-	// corpus. spelledCountyRefRe has a matching asymmetry: its two arms use
-	// different designator vocabularies, so "CO RD 45" is County but
-	// "County Rd 12" is City. solvent-streets-fu74.
+	// This closed the LOOP/SPUR gap and nothing wider; the spelled State, US
+	// and County forms it used to leave open are now handled by
+	// stateExplicitRefRe, federalWordRefRe and spelledCountyRefRe's shared
+	// designator alternation (solvent-streets-fu74, all measured ~0 and
+	// carried on domain knowledge).
+	//
+	// What remains open is NOT a spelling gap but a shape gap, and it is
+	// bigger than the one just closed. Every ref rule in this file is
+	// ^-anchored against a prefix, so the classes below reach no rule at all:
+	// foreign national routes ("MEX 45", "CHL 784", ~600 features in the
+	// border bboxes, billed to a US city today), California county
+	// designators written WITHOUT the CR prefix ("S14", "S13", "N5", 65
+	// features at highway=primary, whose CR-prefixed twins are County), bare
+	// NCDOT 1000-series secondary numbers (~94 in Charlotte), and
+	// parenthesized county routes ("(610)", "(709)", 28 features -- the ref
+	// "(623);CR 623" carries both spellings of one road and gets two
+	// different jurisdictions). Do not read this rule, or the ones it names,
+	// as covering any of that.
 	stateWordRefRe = regexp.MustCompile(`^(LOOP|SPUR)[ -]\d`)
 
 	// federalOperatorRe matches the federal DOT and the federal highway
@@ -365,11 +449,12 @@ var (
 // the ref convention you are reasoning about also has a spelled or lettered
 // form that no pattern in this file can reach.
 //
-// That class is closed for the ABBREVIATED and LETTERED shapes. It is NOT closed
-// for the fully spelled-out ones -- "State Highway 26", "US Highway 12",
-// "Interstate 90" and "County Rd 12" all still land in City. See the note on
-// stateWordRefRe above and solvent-streets-fu74; do not read the paragraph below
-// as covering them.
+// That class is closed for the ABBREVIATED, LETTERED and now the fully
+// SPELLED-OUT shapes -- "State Highway 26", "US Highway 12", "Interstate 90" and
+// "County Rd 12" are handled as of solvent-streets-fu74. What is still open is a
+// different axis: refs whose shape defeats the ^-anchor entirely (a leading
+// paren, a foreign country prefix, a bare number with no prefix at all). See the
+// closing paragraphs on stateWordRefRe above before adding a prefix here.
 // solvent-streets-m0qa was the last of it. statePostalRefRe required TWO
 // letters, so the single-letter conventions landed in City -- Michigan's
 // "M 5"/"M 1", Nebraska's "N-64"/"L-28K", Kansas's "K-32", 1648 features. It
@@ -679,7 +764,7 @@ func ClassifyJurisdiction(tags map[string]string) Jurisdiction {
 
 	// Federal: interstates and US highways. Checked first so "US"/"I" refs
 	// never fall through to the generic two-letter state-postal match.
-	if federalRefRe.MatchString(ref) {
+	if federalRefRe.MatchString(ref) || federalWordRefRe.MatchString(ref) {
 		return JurisdictionFederal
 	}
 	if highway == "motorway" || highway == "motorway_link" {

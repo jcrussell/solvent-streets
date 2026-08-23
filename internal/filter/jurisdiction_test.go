@@ -224,6 +224,50 @@ func TestClassifyJurisdiction(t *testing.T) {
 		{"street named CO ROUTED is not a county route", map[string]string{"ref": "CO ROUTED", "highway": "residential"}, JurisdictionCity},
 		{"street named CO RDS is not a county route", map[string]string{"ref": "CO RDS", "highway": "residential"}, JurisdictionCity},
 
+		// solvent-streets-fu74: the spelled-out forms, pinned to their BUCKET
+		// and not merely to "not City" -- TestRefPrefixesNeverFallToCity would
+		// still pass if a state form were routed to County.
+		//
+		// "State Hwy 391" (Lakewood CO, 3 features, highway=primary) is the
+		// only ref in the whole corpus this change moves out of City, so it is
+		// pinned by its real spelling rather than a synthetic one.
+		{"spelled state highway", map[string]string{"ref": "State Hwy 391", "highway": "primary"}, JurisdictionState},
+		{"spelled state highway long form", map[string]string{"ref": "State Highway 26", "highway": "primary"}, JurisdictionState},
+		{"spelled state road", map[string]string{"ref": "State Road 37", "highway": "primary"}, JurisdictionState},
+		{"spelled us highway", map[string]string{"ref": "US Highway 12", "highway": "primary"}, JurisdictionFederal},
+		{"spelled us highway dotted", map[string]string{"ref": "U.S. Highway 12", "highway": "primary"}, JurisdictionFederal},
+		{"dotted us route number", map[string]string{"ref": "U.S. 40", "highway": "primary"}, JurisdictionFederal},
+		{"spelled interstate", map[string]string{"ref": "Interstate 90", "highway": "primary"}, JurisdictionFederal},
+		{"spelled interstate highway", map[string]string{"ref": "Interstate Highway 35", "highway": "primary"}, JurisdictionFederal},
+		{"abbreviated county designator", map[string]string{"ref": "County Rd 12", "highway": "primary"}, JurisdictionCounty},
+		{"abbreviated county highway", map[string]string{"ref": "COUNTY HWY 5", "highway": "primary"}, JurisdictionCounty},
+		{"hyphenated county designator", map[string]string{"ref": "COUNTY-RD 12", "highway": "primary"}, JurisdictionCounty},
+		{"county designator no space after period", map[string]string{"ref": "CO.RD 45", "highway": "primary"}, JurisdictionCounty},
+
+		// The one genuine adjacency this change creates: bare "Route 66" is
+		// State via stateExplicitRefRe's ROUTE arm, while "US Route 66" must
+		// reach federalWordRefRe first. Nothing else asserts this boundary.
+		{"bare route stays state", map[string]string{"ref": "Route 66", "highway": "primary"}, JurisdictionState},
+		{"us route is federal", map[string]string{"ref": "US Route 66", "highway": "primary"}, JurisdictionFederal},
+
+		// The negative side of the new arms, mirroring the Loop Road /
+		// CO RDS pins above. All are City today; each would silently move
+		// real city streets out of the city's funding obligation if the
+		// trailing \d were ever dropped.
+		{"street named State Road is not a state route", map[string]string{"ref": "State Road", "highway": "residential"}, JurisdictionCity},
+		{"street named State Street is not a state route", map[string]string{"ref": "State Street", "highway": "residential"}, JurisdictionCity},
+		{"street named State Line Rd is not a state route", map[string]string{"ref": "State Line Rd", "highway": "residential"}, JurisdictionCity},
+		{"bare US Highway is not federal", map[string]string{"ref": "US Highway", "highway": "residential"}, JurisdictionCity},
+		{"bare Interstate is not federal", map[string]string{"ref": "Interstate", "highway": "residential"}, JurisdictionCity},
+		{"street named CORD 45 is not a county route", map[string]string{"ref": "CORD 45", "highway": "residential"}, JurisdictionCity},
+
+		// The 12118-feature Colorado promise spelledCountyRefRe's comment
+		// makes. Part 1 of fu74 is the change most likely to break it: if the
+		// designator alternation ever admits a digit, every one of these flips
+		// State -> County.
+		{"colorado route stays state not county", map[string]string{"ref": "CO 121", "highway": "primary"}, JurisdictionState},
+		{"colorado low-numbered route stays state", map[string]string{"ref": "CO 30", "highway": "primary"}, JurisdictionState},
+
 		// Left as State deliberately -- see the statePostalDeny comment.
 		// BW 8 is Beltway 8, genuinely TxDOT. PR is Texas "Private Road", and
 		// State keeps a road the city does not maintain out of the city's
@@ -310,6 +354,25 @@ func TestIsStateRefDenyList(t *testing.T) {
 		{"US 50", false}, // federal (also caught earlier by federalRefRe)
 		{"IH 35", false}, // federal interstate (also caught by federalRefRe)
 		{"BR 1", false},  // business route
+		// solvent-streets-fu74: Part 2 widens stateExplicitRefRe, which
+		// isStateRef consults first, so this is that change's direct pin.
+		// Refs are uppercased by ClassifyJurisdiction before they reach
+		// isStateRef, so this table -- like every entry above -- passes the
+		// uppercased form. The mixed-case spellings are covered end to end in
+		// TestClassifyJurisdiction, which does the uppercasing itself.
+		{"STATE HWY 391", true},    // the 3 real Lakewood CO features
+		{"STATE HIGHWAY 26", true}, // 0 in corpus; domain knowledge
+		{"STATE ROAD 37", true},    // 0 in corpus; domain knowledge
+		{"ROUTE 66", true},         // pre-existing bare ROUTE arm
+		{"STATE ROAD", false},      // no trailing digit -- an ordinary street
+		{"STATE STREET", false},    // ditto, and far more common
+		// Federal spellings must NOT come back true here: federalWordRefRe
+		// claims them one rung earlier in the ladder, and a true from
+		// isStateRef would mean the ladder's order is the only thing keeping
+		// them Federal -- the fragility solvent-streets-044u warns about.
+		{"US HIGHWAY 12", false},
+		{"INTERSTATE 90", false},
+		{"U.S. 40", false},
 		// solvent-streets-m0qa: single-letter and lettered designators.
 		{"M 1", true},   // Michigan, MDOT
 		{"K-32", true},  // Kansas
@@ -600,6 +663,17 @@ func TestRefPrefixesNeverFallToCity(t *testing.T) {
 		// fall through to City; C-138 is County and the rest State, but the
 		// invariant this test pins is only that none of them is City.
 		"M 1", "N-64", "K-32", "L-28K", "S-29-64", "C-138", "MO W",
+		// The fully spelled-out forms (solvent-streets-fu74). Every one of
+		// these measured ZERO in the 8.7M-feature corpus except "State Hwy
+		// 391" (3) and "US Route 1/9 Southbound" (1), so they are carried on
+		// domain knowledge the way the CO RD family is -- which makes this
+		// invariant the only thing standing between a future corpus that DOES
+		// contain them and a silent fallthrough to City.
+		"County Rd 12", "COUNTY HWY 5", "County Rte 9", "COUNTY-RD 12",
+		"CO.RD 45", "CO. RD 45",
+		"State Highway 26", "State Hwy 391", "State Road 37",
+		"US Highway 12", "US HWY 12", "US Route 66", "U.S. Highway 12",
+		"Interstate 90", "Interstate Highway 35", "U.S. 40",
 	}
 	for _, ref := range refs {
 		if got := ClassifyJurisdiction(map[string]string{"ref": ref}); got == JurisdictionCity {
@@ -794,5 +868,44 @@ func TestOperatorDisclaimingADOTIsNotState(t *testing.T) {
 				t.Errorf("ClassifyJurisdiction(%v) = %s, want %s", tags, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestHistoricRefsAreNotClaimedByFederalRules pins the boundary
+// solvent-streets-fu74's federal arm must NOT cross.
+//
+// 1469 features in the ingested corpus carry a ref starting "US HISTORIC 66".
+// They match neither federal regex -- HISTORIC diverges from HIGHWAY at the
+// third character -- and today they scatter across City (849), County (453),
+// State (135) and Federal (32) on their highway tags alone.
+//
+// That looks like a gap federalWordRefRe should close, and closing it would be
+// wrong. A disjoint 15331 features carry "US <n> HIST..." refs which DO match
+// federalRefRe on the leading "US <n>" and are all Federal today, including
+// 12261 tagged highway=primary and 18 tagged residential. Historic Route 66 is
+// maintained by a patchwork of local, state and federal agencies, so the
+// historic marker carries no jurisdiction signal in either direction and the
+// real question is whether those 15331 should be Federal at all -- a ~15300
+// feature reclassification tracked separately.
+//
+// This test exists so that widening federalWordRefRe to swallow "US HISTORIC"
+// fails loudly here rather than silently pre-empting that decision.
+func TestHistoricRefsAreNotClaimedByFederalRules(t *testing.T) {
+	for _, ref := range []string{
+		"US HISTORIC 66",
+		"US HISTORIC 66 1926-1932",
+		"US HISTORIC 66;OK 66",
+	} {
+		if federalRefRe.MatchString(ref) {
+			t.Errorf("federalRefRe matched %q; the historic question is tracked separately", ref)
+		}
+		if federalWordRefRe.MatchString(ref) {
+			t.Errorf("federalWordRefRe matched %q; the historic question is tracked separately", ref)
+		}
+	}
+	// The other side of the same coin, pinned so the contrast stays visible:
+	// the HIST-suffixed spelling matches today, on its leading "US <n>".
+	if !federalRefRe.MatchString("US 66 HIST") {
+		t.Error("federalRefRe stopped matching \"US 66 HIST\"; that is the 15331-feature set")
 	}
 }
