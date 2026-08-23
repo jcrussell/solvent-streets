@@ -1154,6 +1154,13 @@ func TestRepeatedPageOutcome(t *testing.T) {
 		{"one under the cap is complete", 1999, 2000, nil, pageRepeatedRows},
 		{"exactly at the cap is clamped", 2000, 2000, nil, pageTruncated},
 		{"over the cap is clamped", 2500, 2000, nil, pageTruncated},
+		// A layer advertising MORE than we request: our own resultRecordCount
+		// is the binding limit, so a full page is still a clamped page.
+		// Comparing against maxRecordCount alone read these as complete and
+		// silently dropped every row past the first 5000.
+		{"full page under a larger cap is still clamped", arcgisMaxRecords, 10000, nil, pageTruncated},
+		{"over our own request cap is clamped", arcgisMaxRecords + 1, 10000, nil, pageTruncated},
+		{"short page under a larger cap is complete", arcgisMaxRecords - 1, 10000, nil, pageRepeatedRows},
 		{"metadata error fails closed", 10, 2000, boom, pageTruncated},
 		{"absent cap fails closed", 10, 0, nil, pageTruncated},
 		{"negative cap fails closed", 10, -1, nil, pageTruncated},

@@ -338,15 +338,22 @@ func (s *ArcGISSource) confirmRepeatedPageIsComplete(ctx context.Context, client
 // before inserting the short set. Failing preserves what is already stored, so
 // anything we cannot PROVE complete fails.
 //
-// Known, accepted false positive: a layer whose maxRecordCount is exactly
-// arcgisMaxRecords, holding exactly that many rows, on an offset-ignoring
-// server, errors despite being complete. It fails safe — the stored rows
-// survive — and a re-run against a corrected endpoint is the remedy.
+// The cap to compare against is min(maxRecordCount, arcgisMaxRecords), NOT
+// maxRecordCount alone: a response is clamped by whichever limit is lower, and
+// on a layer advertising more than we ask for it is OURS that binds. Comparing
+// against maxRecordCount alone let a full 5000-row repeated page from a layer
+// with maxRecordCount 10000 read as "complete" — reintroducing, for exactly
+// those layers, the silent truncation this function exists to prevent.
+//
+// Known, accepted false positive: a layer holding exactly that effective cap
+// in rows, on an offset-ignoring server, errors despite being complete. It
+// fails safe — the stored rows survive — and a re-run against a corrected
+// endpoint is the remedy.
 func repeatedPageOutcome(rawCount, maxRecordCount int, metaErr error) pageOutcome {
 	if metaErr != nil || maxRecordCount <= 0 {
 		return pageTruncated
 	}
-	if rawCount >= maxRecordCount {
+	if rawCount >= min(maxRecordCount, arcgisMaxRecords) {
 		return pageTruncated
 	}
 	return pageRepeatedRows
