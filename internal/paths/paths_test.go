@@ -87,3 +87,40 @@ func TestEnsureDirIsIdempotent(t *testing.T) {
 		t.Fatalf("second EnsureDir: %v", err)
 	}
 }
+
+// TestResolveIgnoresRelativeXDG pins the Paths doc contract ("all fields are
+// absolute paths"). stateRoot/dataRoot are hand-rolled -- os.UserConfigDir and
+// os.UserCacheDir already reject a relative override, but nothing guarded the
+// two XDG vars this package reads itself. A relative XDG_DATA_HOME survived
+// filepath.Join and Resolve's collision guards all the way to sql.Open, so
+// `pvmt` run from two directories silently opened two different databases.
+func TestResolveIgnoresRelativeXDG(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("XDG layout is Linux-specific")
+	}
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "config"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(t.TempDir(), "cache"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(".local", "state"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(".local", "share"))
+
+	p, err := Resolve("pvmt")
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	for name, d := range map[string]string{"Config": p.Config, "Cache": p.Cache, "State": p.State, "Data": p.Data} {
+		if !filepath.IsAbs(d) {
+			t.Errorf("%s = %q, want an absolute path", name, d)
+		}
+	}
+	// Ignored, not honoured: the spec-compliant fallback is the $HOME default.
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("no home dir: %v", err)
+	}
+	if want := filepath.Join(home, ".local", "state", "pvmt"); p.State != want {
+		t.Errorf("State = %q, want the $HOME fallback %q", p.State, want)
+	}
+	if want := filepath.Join(home, ".local", "share", "pvmt"); p.Data != want {
+		t.Errorf("Data = %q, want the $HOME fallback %q", p.Data, want)
+	}
+}

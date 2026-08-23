@@ -105,9 +105,16 @@ func (p *Paths) HTTPCacheDir() string { return filepath.Join(p.Cache, "http") }
 
 // stateRoot returns the per-OS root for persistent, non-regenerable state.
 // Go's stdlib has UserConfigDir and UserCacheDir but no UserStateDir.
+//
+// Environment overrides are taken only when absolute. A relative value would
+// make Paths.State cwd-relative in violation of the type's doc contract, so
+// `pvmt` run from two directories would touch two different trees. The XDG
+// basedir spec says to ignore a relative value rather than error, so this
+// falls through to the $HOME default (the stdlib resolvers this mirrors
+// error instead; ignoring is the spec-compliant behaviour).
 func stateRoot() (string, error) {
 	if runtime.GOOS == "windows" {
-		if d := os.Getenv("LocalAppData"); d != "" {
+		if d := os.Getenv("LocalAppData"); filepath.IsAbs(d) {
 			return d, nil
 		}
 		return os.UserCacheDir()
@@ -119,7 +126,7 @@ func stateRoot() (string, error) {
 		}
 		return filepath.Join(home, "Library", "Application Support"), nil
 	}
-	if d := os.Getenv("XDG_STATE_HOME"); d != "" {
+	if d := os.Getenv("XDG_STATE_HOME"); filepath.IsAbs(d) {
 		return d, nil
 	}
 	home, err := os.UserHomeDir()
@@ -130,10 +137,13 @@ func stateRoot() (string, error) {
 }
 
 // dataRoot returns the per-OS root for user-scoped data files (e.g. SQLite
-// databases that should survive a cache wipe).
+// databases that should survive a cache wipe). As in stateRoot, a relative
+// environment override is ignored rather than honoured: Paths.Data is joined
+// with "pvmt.db" and handed to sql.Open, so a cwd-relative value silently
+// forks the database per working directory.
 func dataRoot() (string, error) {
 	if runtime.GOOS == "windows" {
-		if d := os.Getenv("LocalAppData"); d != "" {
+		if d := os.Getenv("LocalAppData"); filepath.IsAbs(d) {
 			return d, nil
 		}
 		return os.UserCacheDir()
@@ -145,7 +155,7 @@ func dataRoot() (string, error) {
 		}
 		return filepath.Join(home, "Library", "Application Support"), nil
 	}
-	if d := os.Getenv("XDG_DATA_HOME"); d != "" {
+	if d := os.Getenv("XDG_DATA_HOME"); filepath.IsAbs(d) {
 		return d, nil
 	}
 	home, err := os.UserHomeDir()
