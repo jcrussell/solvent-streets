@@ -354,7 +354,7 @@ func applyDefaultForecastProv(fc *ForecastConfig, p *forecastProvenance) {
 // Fields are emitted in a stable order: top-level first, then one block
 // per city containing only the fields that city explicitly overrides.
 func (c *Config) Resolve(flagUnits string) []ResolvedField {
-	fields := make([]ResolvedField, 0, 5+4*len(c.Cities))
+	fields := make([]ResolvedField, 0, 6+4*len(c.Cities))
 
 	unitsVal, unitsSrc := c.resolveUnits(flagUnits)
 	fields = append(fields, ResolvedField{Key: "units", Value: unitsVal.String(), Source: unitsSrc})
@@ -380,6 +380,13 @@ func (c *Config) Resolve(flagUnits string) []ResolvedField {
 	if fc.TreatmentCycleYears > 0 {
 		fields = append(fields, ResolvedField{Key: "forecast.treatment_cycle_years", Value: fc.TreatmentCycleYears, Source: fprov.TreatmentCycleYears})
 	}
+	// Emitted unconditionally, unlike treatment_cycle_years: applyDefaultForecastProv
+	// resolves the VALUE here rather than downstream, so fc.CostOverhead is
+	// always a concrete positive multiplier by this point. It is a multi-layer
+	// field (file -> per-city -> default) exactly like initial_pci, so leaving it
+	// out made `config show --sources` unable to report which layer set the knob
+	// every priced dollar passes through.
+	fields = append(fields, ResolvedField{Key: "forecast.cost_overhead", Value: fc.CostOverhead, Source: fprov.CostOverhead})
 
 	for i := range c.Cities {
 		city := &c.Cities[i]

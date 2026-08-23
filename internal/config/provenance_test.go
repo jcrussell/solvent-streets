@@ -240,6 +240,7 @@ func TestResolve_EmitsExpectedFields(t *testing.T) {
 		"cities[detroit].hex_edge_m":     false,
 		"cities[detroit].forecast.years": false,
 		"cities[detroit].forecast.treatment_cycle_years": false,
+		"forecast.cost_overhead":                         false,
 	}
 	for _, f := range fields {
 		if _, ok := want[f.Key]; ok {
@@ -323,6 +324,47 @@ func TestResolve_EmitsMinHexArea(t *testing.T) {
 		if f.Value != DefaultMinHexArea || f.Source.Kind != SourceDefault {
 			t.Errorf("unset display.min_hex_area = %v (%s); want %v (default)", f.Value, f.Source, DefaultMinHexArea)
 		}
+	}
+}
+
+// TestResolve_EmitsCostOverhead pins that the multiplier every priced dollar
+// passes through is reportable by `config show --sources`. It resolves across
+// file -> per-city -> default exactly like initial_pci, and its provenance was
+// tracked at all three layers, but Resolve never emitted a field for it -- so
+// the Source was written and never read outside tests.
+//
+// Emitted unconditionally, unlike treatment_cycle_years: applyDefaultForecastProv
+// materializes the VALUE rather than deferring it to the forecast core, so
+// there is no "resolved downstream" case to omit.
+func TestResolve_EmitsCostOverhead(t *testing.T) {
+	cfg := &Config{Forecast: ForecastConfig{CostOverhead: 1.3}}
+	byKey := make(map[string]ResolvedField)
+	for _, f := range cfg.Resolve("") {
+		byKey[f.Key] = f
+	}
+	got, ok := byKey["forecast.cost_overhead"]
+	if !ok {
+		t.Fatalf("Resolve did not emit forecast.cost_overhead; got keys %v", keysOf(byKey))
+	}
+	if got.Value != 1.3 || got.Source.String() != "file:forecast.cost_overhead" {
+		t.Errorf("forecast.cost_overhead = %v (%s); want 1.3 (file:forecast.cost_overhead)", got.Value, got.Source)
+	}
+
+	// Unset anywhere -> the resolved default, reported as a default rather than
+	// omitted or shown as a sentinel 0.
+	bare := &Config{Cities: []CityConfig{{Name: "Nowhere"}}}
+	var saw bool
+	for _, f := range bare.Resolve("") {
+		if f.Key != "forecast.cost_overhead" {
+			continue
+		}
+		saw = true
+		if f.Value != DefaultCostOverhead || f.Source.Kind != SourceDefault {
+			t.Errorf("unset forecast.cost_overhead = %v (%s); want %v (default)", f.Value, f.Source, DefaultCostOverhead)
+		}
+	}
+	if !saw {
+		t.Error("unset forecast.cost_overhead must still be emitted, as a default")
 	}
 }
 
