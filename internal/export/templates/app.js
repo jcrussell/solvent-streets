@@ -1817,8 +1817,17 @@
             // shown on the other tabs, rather than leaving the reader to wonder
             // why the figures do not reconcile.
             if (asphaltShare < 1) {
+                // Clamp to [1, 99] rather than rounding. toFixed(0) printed
+                // "100%" for any share in [0.995, 1) — reachable wherever OSM
+                // sidewalk coverage is sparse — so the note claimed sidewalks
+                // were excluded AND that the figures covered the whole network
+                // in one breath. A share of exactly 0 is legitimate too (a
+                // concrete-only network; see asphalt_area_share in seeds.go)
+                // and printed the mirror-image "0%". Both ends contradict the
+                // sentence they sit in.
+                var shownPct = Math.min(99, Math.max(1, Math.floor(asphaltShare * 100)));
                 noteText += ' Concrete sidewalks are excluded — they consume no asphalt binder — so these ' +
-                    'figures cover the ' + (asphaltShare * 100).toFixed(0) + '% of network area that is ' +
+                    'figures cover the ' + shownPct + '% of network area that is ' +
                     'asphalt-surfaced (roads and parking).';
             }
             note.textContent = noteText;

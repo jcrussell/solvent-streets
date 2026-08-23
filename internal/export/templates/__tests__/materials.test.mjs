@@ -29,6 +29,15 @@ function seedWithoutShare() {
   return seed;
 }
 
+// seedWithShare pins both share keys to a given value, for the degenerate ends
+// of the range the fixture city cannot reach on its own.
+function seedWithShare(share) {
+  const seed = readFixture('forecast_seed.json');
+  seed.asphalt_area_share = share;
+  seed.city_asphalt_area_share = share;
+  return seed;
+}
+
 // Parses a headline like "3,197 tons/yr", "1.2K tons/yr" or "830 bbl/yr" back
 // to a number. Charts are stubbed out under jsdom, so the headlines are the
 // readable surface — and they come off the same materialSeries the charts use.
@@ -117,6 +126,24 @@ test('the note says concrete is excluded when the share is below 1', async () =>
   assert.doesNotMatch(h2.win.document.getElementById('materials-note').textContent,
     /Concrete sidewalks are excluded/,
     'the exclusion note appeared for a seed that does not net anything out');
+});
+
+// solvent-streets-ujji: the note is shown for any share < 1, but the percentage
+// it prints used to be rounded, so both ends of the range contradicted the
+// sentence they sat in. A share in [0.995, 1) printed "cover the 100% of network
+// area" while claiming sidewalks were excluded; a legitimate 0 (a concrete-only
+// network) printed "cover the 0%".
+test('the note never prints 0% or 100% while claiming an exclusion', async () => {
+  for (const share of [0.999, 0.9951, 0.004, 0]) {
+    const { win } = await ready({ ...fullData, 'forecast_seed.json': seedWithShare(share) });
+    const note = win.document.getElementById('materials-note').textContent;
+    assert.match(note, /Concrete sidewalks are excluded/,
+      `the exclusion note vanished at share ${share}`);
+    assert.doesNotMatch(note, /cover the 100% of network area/,
+      `share ${share} claimed full coverage while excluding a nonzero area`);
+    assert.doesNotMatch(note, /cover the 0% of network area/,
+      `share ${share} claimed zero coverage in a note about what IS covered`);
+  }
 });
 
 // Sanity: the tab renders its charts off the real exporter scenarios, so a

@@ -80,9 +80,18 @@ type ForecastSeedJSON struct {
 	// that pair. 1.0 means "no netting" and is what an absent or empty cohort
 	// set resolves to, so a fresh DB behaves exactly as before.
 	//
-	// Not omitempty: a legitimately-computed share is never 0 (a city with only
-	// sidewalks has no scenarios to draw), so an absent key means an older
-	// export and the browser defaults to 1.
+	// Not omitempty, and the reason is NOT that 0 is unreachable. A
+	// concrete-only network resolves a legitimate 0: buildCohortStats in
+	// pkg/cmd/compute emits a synthetic single-cohort row even where
+	// HasCohorts() is false, so a sidewalk-only store does produce cohort seeds
+	// and scenarios to draw. The browser handles it correctly (>= 0 accepted;
+	// the Materials tab renders 0 t mix, 0 bbl oil and three flat-zero charts,
+	// which is the right answer for a network that consumes no bitumen).
+	//
+	// omitempty must not be added precisely BECAUSE 0 is reachable: it would
+	// elide a real 0 and make it indistinguishable from an older export's
+	// absent key, which the browser defaults to 1 — silently reporting a
+	// concrete-only city as 100% asphalt. solvent-streets-ujji.
 	AsphaltAreaShare     float64 `json:"asphalt_area_share"`
 	CityAsphaltAreaShare float64 `json:"city_asphalt_area_share"`
 }
