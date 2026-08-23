@@ -176,7 +176,9 @@ func TestRecoveryMiddleware_Panic(t *testing.T) {
 // which is also what http.Server uses when the field is zero -- so the line
 // added nothing while the comment beside it claimed hardening that never
 // happened. Only a cap strictly below the stdlib default does anything, so this
-// asserts a 128 KiB header is refused while an ordinary one is served.
+// asserts a 128 KiB header is refused while an ordinary one is served -- the
+// control request is load-bearing, not decoration: it is what stops a transport
+// error from a dead server counting as "refused".
 func TestServer_RejectsOversizedHeaders(t *testing.T) {
 	probe, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -207,17 +209,40 @@ func TestServer_RejectsOversizedHeaders(t *testing.T) {
 
 	base := "http://127.0.0.1:" + strconv.Itoa(port) + "/"
 
+	do := func(t *testing.T, header string) (*http.Response, error) {
+		t.Helper()
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, base, nil)
+		if err != nil {
+			t.Fatalf("new request: %v", err)
+		}
+		if header != "" {
+			req.Header.Set("X-Bloat", header)
+		}
+		return http.DefaultClient.Do(req)
+	}
+
+	// Control request FIRST. Without it, the oversized case below could accept
+	// a transport error from a server that never came up at all -- the test
+	// would pass while proving nothing. This establishes that the listener
+	// answers ordinary requests, so a later transport error is attributable to
+	// the header cap rather than to a dead server.
+	resp, err := do(t, "")
+	if err != nil {
+		t.Fatalf("control request failed; the server is not serving: %v", err)
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode == http.StatusRequestHeaderFieldsTooLarge {
+		t.Fatalf("control request got 431; the cap is rejecting ordinary headers")
+	}
+
 	// A header well past the 64 KiB cap but well under the 1 MiB stdlib
 	// default, so this fails if the cap regresses to a no-op.
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base, nil)
+	resp, err = do(t, strings.Repeat("a", 128*1024))
 	if err != nil {
-		t.Fatalf("new request: %v", err)
-	}
-	req.Header.Set("X-Bloat", strings.Repeat("a", 128*1024))
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		// Some stacks drop the connection rather than answering 431; either
-		// outcome means the header was refused, which is the property here.
+		// Some stacks drop the connection rather than answering 431. Given the
+		// control request succeeded, either outcome means the header was
+		// refused, which is the property under test.
 		t.Logf("oversized header refused at the transport layer: %v", err)
 		return
 	}

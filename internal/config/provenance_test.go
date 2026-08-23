@@ -368,6 +368,38 @@ func TestResolve_EmitsCostOverhead(t *testing.T) {
 	}
 }
 
+// TestResolve_EmitsPerCityCostOverhead guards the failure mode the top-level
+// emission introduced on its own: Resolve's forecast block resolves with a nil
+// city, so a per-city override never reaches it. Emitting only the top-level
+// line meant a city pricing at 1.8 printed `forecast.cost_overhead = 1
+// (default)` and nothing else -- worse than the omission it replaced, because
+// it reads as a positive statement that the city prices bare.
+func TestResolve_EmitsPerCityCostOverhead(t *testing.T) {
+	cfg := &Config{
+		Cities: []CityConfig{
+			{Name: "Denver", Forecast: &ForecastConfig{CostOverhead: 1.8}},
+			{Name: "Inherits"},
+		},
+	}
+	byKey := make(map[string]ResolvedField)
+	for _, f := range cfg.Resolve("") {
+		byKey[f.Key] = f
+	}
+
+	got, ok := byKey["cities[denver].forecast.cost_overhead"]
+	if !ok {
+		t.Fatalf("Resolve did not emit the per-city cost_overhead override; got keys %v", keysOf(byKey))
+	}
+	if got.Value != 1.8 || got.Source.String() != "file:cities[denver].forecast.cost_overhead" {
+		t.Errorf("cities[denver].forecast.cost_overhead = %v (%s); want 1.8 (file:...)", got.Value, got.Source)
+	}
+
+	// A city with no override emits no line, matching every sibling field.
+	if _, ok := byKey["cities[inherits].forecast.cost_overhead"]; ok {
+		t.Error("city without a cost_overhead override should not emit a per-city line")
+	}
+}
+
 func keysOf(m map[string]ResolvedField) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {

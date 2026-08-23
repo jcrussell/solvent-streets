@@ -103,21 +103,43 @@ func EnsureDir(p string) error { return os.MkdirAll(p, 0o755) }
 // defined exactly once.
 func (p *Paths) HTTPCacheDir() string { return filepath.Join(p.Cache, "http") }
 
+// requireAbs enforces the Paths doc contract ("all fields are absolute paths")
+// on a resolved root. It exists for the branches that have no spec-blessed
+// fallback to ignore a relative value into -- notably Windows, where
+// os.UserCacheDir returns %LocalAppData% verbatim and errors only when that
+// variable is empty, so a relative value would otherwise flow through
+// untouched. Threading (string, error) lets it wrap a stdlib resolver call
+// directly.
+func requireAbs(dir string, err error) (string, error) {
+	if err != nil {
+		return "", err
+	}
+	if !filepath.IsAbs(dir) {
+		return "", fmt.Errorf("paths: resolved root %q is not an absolute path", dir)
+	}
+	return dir, nil
+}
+
 // stateRoot returns the per-OS root for persistent, non-regenerable state.
 // Go's stdlib has UserConfigDir and UserCacheDir but no UserStateDir.
 //
-// Environment overrides are taken only when absolute. A relative value would
-// make Paths.State cwd-relative in violation of the type's doc contract, so
-// `pvmt` run from two directories would touch two different trees. The XDG
-// basedir spec says to ignore a relative value rather than error, so this
-// falls through to the $HOME default (the stdlib resolvers this mirrors
-// error instead; ignoring is the spec-compliant behaviour).
+// A relative root would make Paths.State cwd-relative in violation of the
+// type's doc contract, so `pvmt` run from two directories would touch two
+// different trees. Two different mechanisms enforce absoluteness, because the
+// two branches fail differently:
+//
+//   - XDG_STATE_HOME is taken only when absolute, falling through to the $HOME
+//     default. The XDG basedir spec says to IGNORE a relative value rather than
+//     error, which is what this does (the stdlib resolvers this otherwise
+//     mirrors error instead).
+//   - The Windows branch has no such fallback to ignore into: os.UserCacheDir
+//     returns %LocalAppData% verbatim and errors only when it is EMPTY, so an
+//     IsAbs test there would fall through to the identical relative value. It
+//     goes through requireAbs, which errors -- the only honest option when
+//     there is nowhere to fall back to.
 func stateRoot() (string, error) {
 	if runtime.GOOS == "windows" {
-		if d := os.Getenv("LocalAppData"); filepath.IsAbs(d) {
-			return d, nil
-		}
-		return os.UserCacheDir()
+		return requireAbs(os.UserCacheDir())
 	}
 	if runtime.GOOS == "darwin" {
 		home, err := os.UserHomeDir()
@@ -137,16 +159,13 @@ func stateRoot() (string, error) {
 }
 
 // dataRoot returns the per-OS root for user-scoped data files (e.g. SQLite
-// databases that should survive a cache wipe). As in stateRoot, a relative
-// environment override is ignored rather than honoured: Paths.Data is joined
-// with "pvmt.db" and handed to sql.Open, so a cwd-relative value silently
-// forks the database per working directory.
+// databases that should survive a cache wipe). Enforces absoluteness exactly as
+// stateRoot does, and for a sharper reason: Paths.Data is joined with "pvmt.db"
+// and handed to sql.Open, so a cwd-relative value silently forks the database
+// per working directory.
 func dataRoot() (string, error) {
 	if runtime.GOOS == "windows" {
-		if d := os.Getenv("LocalAppData"); filepath.IsAbs(d) {
-			return d, nil
-		}
-		return os.UserCacheDir()
+		return requireAbs(os.UserCacheDir())
 	}
 	if runtime.GOOS == "darwin" {
 		home, err := os.UserHomeDir()

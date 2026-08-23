@@ -436,6 +436,18 @@ func (c *Config) Resolve(flagUnits string) []ResolvedField {
 				Source: Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].forecast.treatment_cycle_years", slug)},
 			})
 		}
+		// Without this the top-level forecast.cost_overhead line is worse than
+		// the omission it replaced: a city overriding the multiplier to 1.8
+		// would print `forecast.cost_overhead = 1 (default)` and nothing else,
+		// reading as "every city prices bare". A positive test is the right
+		// presence check (Validate rejects 0), matching applyCityForecastProv.
+		if city.Forecast.CostOverhead > 0 {
+			fields = append(fields, ResolvedField{
+				Key:    fmt.Sprintf("cities[%s].forecast.cost_overhead", slug),
+				Value:  city.Forecast.CostOverhead,
+				Source: Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].forecast.cost_overhead", slug)},
+			})
+		}
 	}
 
 	return fields

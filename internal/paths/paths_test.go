@@ -1,6 +1,7 @@
 package paths
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -122,5 +123,29 @@ func TestResolveIgnoresRelativeXDG(t *testing.T) {
 	}
 	if want := filepath.Join(home, ".local", "share", "pvmt"); p.Data != want {
 		t.Errorf("Data = %q, want the $HOME fallback %q", p.Data, want)
+	}
+}
+
+// TestRequireAbs covers the enforcement the Windows branch depends on. It is
+// tested directly rather than through Resolve because that branch is
+// unreachable on the platforms CI runs -- and the bug it replaced was exactly
+// an unreachable no-op that looked like a guard: an IsAbs test on LocalAppData
+// fell through to os.UserCacheDir, which returns %LocalAppData% verbatim and
+// errors only when it is EMPTY, handing back the identical relative value.
+func TestRequireAbs(t *testing.T) {
+	if _, err := requireAbs(filepath.Join(".local", "share"), nil); err == nil {
+		t.Error("a relative root must be rejected, not passed through")
+	}
+	got, err := requireAbs(filepath.Join(t.TempDir(), "x"), nil)
+	if err != nil {
+		t.Errorf("an absolute root must pass: %v", err)
+	}
+	if !filepath.IsAbs(got) {
+		t.Errorf("requireAbs returned %q, want it unchanged and absolute", got)
+	}
+	// An upstream error wins over the absoluteness check.
+	sentinel := errors.New("boom")
+	if _, err := requireAbs("", sentinel); !errors.Is(err, sentinel) {
+		t.Errorf("err = %v, want the upstream error propagated", err)
 	}
 }
