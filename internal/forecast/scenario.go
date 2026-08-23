@@ -239,6 +239,12 @@ func blendedPCI(states []cohortState) float64 {
 // decay rates. Each cohort decays independently; budget is distributed
 // proportional to need; PCI is area-weighted blended.
 func Simulate(s Scenario, cohorts []Cohort, years int, p *Params) ScenarioResult {
+	// Clamp negative years to 0 (house style: clamp-in-place, not error-return);
+	// make([]ScenarioYear, years) panics on a negative length. EstimateGrowth
+	// below already self-clamps, so this is the remaining panic site.
+	if years < 0 {
+		years = 0
+	}
 	states, totalArea := initCohortStates(cohorts)
 	n := len(cohorts)
 	sm := &simulator{

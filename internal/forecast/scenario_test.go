@@ -604,3 +604,18 @@ func TestSimulate_FullFunding_InvariantUnderCostScale(t *testing.T) {
 		t.Errorf("year-1 need at scale 1.5 = %.6f, want %.6f — the tiers are not being applied", got, want)
 	}
 }
+
+// TestSimulate_NegativeYearsClamped mirrors the clamps d727081 added to
+// EstimateGrowth and ExponentialPCIForecaster.Forecast. Simulate is the trunk
+// those two are leaves of, and it does make([]ScenarioYear, years) first --
+// so a negative horizon panicked with "makeslice: len out of range" before the
+// callee clamps were ever reached. Every production call site bounds years
+// first, so this is defense-in-depth at the chokepoint the callees already
+// guard.
+func TestSimulate_NegativeYearsClamped(t *testing.T) {
+	s := Scenario{Name: "neg", AnnualBudget: 1000, Strategy: StrategyWorstFirst}
+	result := Simulate(s, singleCohort(1000, 0.04), -1, defaultTestParams())
+	if len(result.Years) != 0 {
+		t.Fatalf("Years = %d, want 0 for a negative horizon", len(result.Years))
+	}
+}
