@@ -78,18 +78,28 @@ changelog:
   use: github
   filters:
     exclude:
-      - "^docs:"
-      - "^test:"
-      - "^chore:"
-      - "^ci:"
+      # Optional scope and bang, because this repo writes scoped conventional
+      # commits and a bare "^test:" does not match "test(export):" — those fell
+      # through to the catch-all "Other" group and shipped in the release notes.
+      # [^)]+ rather than .+ so the scope cannot run past its closing paren.
+      # solvent-streets-riwf.
+      - '^docs(\([^)]+\))?!?:'
+      - '^test(\([^)]+\))?!?:'
+      - '^chore(\([^)]+\))?!?:'
+      - '^ci(\([^)]+\))?!?:'
       - Merge pull request
       - Merge branch
   groups:
+    # [^)]+ not [[:word:]]+, which is [0-9A-Za-z_] only: a scope containing "/"
+    # or "," fell out of its group into "Other". Live, not hypothetical — three
+    # commits in v0.3.0..HEAD do it ("fix(export/cmd):",
+    # "fix(cmdutil,db,ingest,checksite):", "fix(cache/server/tui/geo):").
+    # solvent-streets-riwf.
     - title: Features
-      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      regexp: '^.*?feat(\([^)]+\))??!?:.+$'
       order: 0
     - title: Bug Fixes
-      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      regexp: '^.*?fix(\([^)]+\))??!?:.+$'
       order: 1
     - title: Other
       order: 999

@@ -248,6 +248,16 @@ var (
 	//
 	// The trailing \d is load-bearing: it is what keeps a street literally
 	// named "Loop Road" or "Spur Trail" out of the State bucket.
+	//
+	// This closed the LOOP/SPUR gap and nothing wider. The fully spelled-out
+	// State and US forms still reach no rule and fall through to City:
+	// "State Highway 26", "State Hwy 26", "State Road 37" (while "SH 130" and
+	// "SR-37" are correctly State), and in federalRefRe's territory
+	// "US Highway 12", "US Route 66", "Interstate 90", "U.S. 40". The federal
+	// misses are the expensive ones -- those are the highest-area roads in the
+	// corpus. spelledCountyRefRe has a matching asymmetry: its two arms use
+	// different designator vocabularies, so "CO RD 45" is County but
+	// "County Rd 12" is City. solvent-streets-fu74.
 	stateWordRefRe = regexp.MustCompile(`^(LOOP|SPUR)[ -]\d`)
 
 	// federalOperatorRe matches the federal DOT and the federal highway
@@ -355,7 +365,11 @@ var (
 // the ref convention you are reasoning about also has a spelled or lettered
 // form that no pattern in this file can reach.
 //
-// That class is now closed for every shape this file can see.
+// That class is closed for the ABBREVIATED and LETTERED shapes. It is NOT closed
+// for the fully spelled-out ones -- "State Highway 26", "US Highway 12",
+// "Interstate 90" and "County Rd 12" all still land in City. See the note on
+// stateWordRefRe above and solvent-streets-fu74; do not read the paragraph below
+// as covering them.
 // solvent-streets-m0qa was the last of it. statePostalRefRe required TWO
 // letters, so the single-letter conventions landed in City -- Michigan's
 // "M 5"/"M 1", Nebraska's "N-64"/"L-28K", Kansas's "K-32", 1648 features. It
