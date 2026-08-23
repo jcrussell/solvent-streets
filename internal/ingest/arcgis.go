@@ -19,7 +19,11 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
-const arcgisMaxRecords = 5000
+// arcgisMaxRecords is the resultRecordCount we request per page. A var, not a
+// const, so tests can shrink it instead of standing up a server that has to
+// serve 5000+ rows to exercise the "server returned more than we asked for"
+// branch in repeatedPageOutcome (mirrors arcgisMaxPages, maxResponseBodyBytes).
+var arcgisMaxRecords = 5000
 
 // arcgisMaxPages caps the pagination loop. The ceiling is 200 × the SERVER's
 // own maxRecordCount, not our requested arcgisMaxRecords — Esri clamps every
@@ -338,20 +342,42 @@ func (s *ArcGISSource) confirmRepeatedPageIsComplete(ctx context.Context, client
 // before inserting the short set. Failing preserves what is already stored, so
 // anything we cannot PROVE complete fails.
 //
-// The cap to compare against is min(maxRecordCount, arcgisMaxRecords), NOT
-// maxRecordCount alone: a response is clamped by whichever limit is lower, and
-// on a layer advertising more than we ask for it is OURS that binds. Comparing
-// against maxRecordCount alone let a full 5000-row repeated page from a layer
-// with maxRecordCount 10000 read as "complete" — reintroducing, for exactly
-// those layers, the silent truncation this function exists to prevent.
+// Below our own cap the comparison is against min(maxRecordCount,
+// arcgisMaxRecords), NOT maxRecordCount alone: a response is clamped by
+// whichever limit is lower, and on a layer advertising more than we ask for it
+// is OURS that binds. Comparing against maxRecordCount alone let a full 5000-row
+// repeated page from a layer with maxRecordCount 10000 read as "complete" —
+// reintroducing, for exactly those layers, the silent truncation this function
+// exists to prevent.
 //
-// Known, accepted false positive: a layer holding exactly that effective cap
-// in rows, on an offset-ignoring server, errors despite being complete. It
-// fails safe — the stored rows survive — and a re-run against a corrected
-// endpoint is the remedy.
+// ABOVE our own cap that reasoning inverts, and generalizing the min() across
+// the whole range was solvent-streets-szq9. rawCount > arcgisMaxRecords means
+// the server returned more rows than we asked for, which PROVES it never
+// applied our resultRecordCount — and a layer that ignores resultRecordCount
+// ignores resultOffset too (supportsPagination:false / pre-10.3), which is why
+// its pages repeat. Our cap therefore cannot be the binding limit; only the
+// server's can. Comparing against it anyway reported pageTruncated for a layer
+// we had read completely, and Fetch refused to store it: a layer with
+// maxRecordCount 10000 holding 6000 rows served all 6000 in one page, repeated
+// them on page 2, and then hard-errored. Fails safe (stored rows survive), but
+// it is a false refusal on data we hold in full.
+//
+// Known, accepted false positive: a layer holding exactly the effective cap in
+// rows, on an offset-ignoring server, errors despite being complete. At exactly
+// our cap the response IS ambiguous — a clamp and a complete answer look
+// identical — so it must still fail closed. It fails safe, and a re-run against
+// a corrected endpoint is the remedy.
 func repeatedPageOutcome(rawCount, maxRecordCount int, metaErr error) pageOutcome {
 	if metaErr != nil || maxRecordCount <= 0 {
 		return pageTruncated
+	}
+	// Strictly greater, not >=: at exactly our cap the page may have been
+	// clamped BY that cap, so only the server's limit can settle it here.
+	if rawCount > arcgisMaxRecords {
+		if rawCount >= maxRecordCount {
+			return pageTruncated
+		}
+		return pageRepeatedRows
 	}
 	if rawCount >= min(maxRecordCount, arcgisMaxRecords) {
 		return pageTruncated

@@ -532,7 +532,7 @@ func TestFetch_PaginationFlagOmittedShortPages(t *testing.T) {
 func TestFetch_Pagination(t *testing.T) {
 	// Simulate a server that returns arcgisMaxRecords on the first page
 	// and a smaller set on the second page.
-	const pageSize = arcgisMaxRecords
+	pageSize := arcgisMaxRecords
 	const page2Size = 42
 
 	calls := 0
@@ -1020,6 +1020,49 @@ func TestFetch_OffsetIgnoringServerStopsCleanly(t *testing.T) {
 	}
 }
 
+// TestFetch_OffsetIgnoringServerOverOurCapSucceeds pins solvent-streets-szq9:
+// the false-refusal case that sat between the two ofbo halves below.
+//
+// Same wire signature again — offset ignored, rows repeat, no
+// exceededTransferLimit — but the page is LARGER than the resultRecordCount we
+// requested. That is only possible if the server ignored resultRecordCount, so
+// our cap cannot be what clamped the page; the layer's own maxRecordCount is the
+// only limit that could, and the page sits well under it. The result is
+// complete and must be stored.
+//
+// Before the fix, repeatedPageOutcome compared against
+// min(maxRecordCount, arcgisMaxRecords) across the whole range, so this returned
+// pageTruncated and Fetch refused a layer it had read in full. It failed safe —
+// stored rows survived — but ingest hard-errored on a healthy endpoint.
+//
+// arcgisMaxRecords is shrunk rather than serving 5001+ rows, the same trade
+// arcgisMaxPages already documents.
+func TestFetch_OffsetIgnoringServerOverOurCapSucceeds(t *testing.T) {
+	prevPages, prevRecords := arcgisMaxPages, arcgisMaxRecords
+	arcgisMaxPages, arcgisMaxRecords = 8, 5
+	t.Cleanup(func() { arcgisMaxPages, arcgisMaxRecords = prevPages, prevRecords })
+
+	// arcgisMaxRecords (5) < pageSize (6) < maxRecordCount (10).
+	const pageSize = 6
+	endpoint, calls := offsetIgnoringServer(t, pageSize, 10)
+
+	src := &ArcGISSource{
+		BBox:         [4]float64{37.0, -122.0, 38.0, -121.0},
+		URL:          endpoint,
+		AllowPrivate: true,
+	}
+	features, err := src.Fetch(context.Background(), http.DefaultClient, resource.ByType(resource.TypeRoads))
+	if err != nil {
+		t.Fatalf("Fetch refused a complete layer: %v", err)
+	}
+	if len(features) != pageSize {
+		t.Errorf("got %d features, want %d (the layer's full result)", len(features), pageSize)
+	}
+	if *calls != 2 {
+		t.Errorf("made %d query requests, want 2 (fetch, then detect the repeat)", *calls)
+	}
+}
+
 // TestFetch_OffsetIgnoringServerAtMaxRecordCountErrors is the other half of
 // solvent-streets-ofbo: the SAME wire signature as the test above — repeated
 // rows, no exceededTransferLimit — but the page is exactly the layer's
@@ -1159,7 +1202,14 @@ func TestRepeatedPageOutcome(t *testing.T) {
 		// Comparing against maxRecordCount alone read these as complete and
 		// silently dropped every row past the first 5000.
 		{"full page under a larger cap is still clamped", arcgisMaxRecords, 10000, nil, pageTruncated},
-		{"over our own request cap is clamped", arcgisMaxRecords + 1, 10000, nil, pageTruncated},
+		// solvent-streets-szq9. ABOVE our own cap the server returned more rows
+		// than we asked for, proving it never applied resultRecordCount — so our
+		// cap cannot be what clamped this page, and only maxRecordCount can
+		// settle it. Reading it as truncated hard-failed ingest on layers we had
+		// read in full.
+		{"over our own request cap proves the server ignored our cap", arcgisMaxRecords + 1, 10000, nil, pageRepeatedRows},
+		{"over our own cap and at the server cap is clamped", 10000, 10000, nil, pageTruncated},
+		{"over our own cap and past the server cap is clamped", 10001, 10000, nil, pageTruncated},
 		{"short page under a larger cap is complete", arcgisMaxRecords - 1, 10000, nil, pageRepeatedRows},
 		{"metadata error fails closed", 10, 2000, boom, pageTruncated},
 		{"absent cap fails closed", 10, 0, nil, pageTruncated},
