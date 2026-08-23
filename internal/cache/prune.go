@@ -234,8 +234,16 @@ func (p *pruneRun) sweepIncomplete(entries map[string]*cacheEntry, temps []*cach
 		}
 		p.sweepResidue(e)
 	}
-	for _, tmp := range temps {
+	for i, tmp := range temps {
 		if p.cancelled() {
+			// Credit what we never reached, the same way the entry loop
+			// above hands its unexamined entries to `live`. Breaking without
+			// this made an interrupted sweep under-report BytesRemaining by
+			// the size of the unswept temps, contradicting the invariant in
+			// this function's own package doc.
+			for _, skipped := range temps[i:] {
+				p.report.BytesRemaining += skipped.size
+			}
 			break
 		}
 		p.sweepResidue(tmp)

@@ -223,6 +223,38 @@ func TestPrune_CancelledMidSweepStopsEarly(t *testing.T) {
 	}
 }
 
+// TestPrune_CancelledSweepAccountsForUnsweptTemps pins the accounting half of
+// the cancellation contract. Prune's doc promises the partial report stays
+// usable, and the entry loop honors that by handing unexamined entries to
+// `live`. The temps loop just broke, so an interrupted sweep silently
+// under-reported BytesRemaining by the size of every temp it never reached —
+// and `pvmt cache prune` prints that number.
+func TestPrune_CancelledSweepAccountsForUnsweptTemps(t *testing.T) {
+	dir := t.TempDir()
+	const temps = 6
+	const tempSize = 50 // leftoverTempFile writes 50 bytes
+	for i := range temps {
+		leftoverTempFile(t, dir, key(i+1)+".json", 2*orphanGrace) // past the grace window: real targets
+	}
+
+	// Spend exactly the scan's probe budget (one per directory entry) so the
+	// cancel lands in the temps loop rather than aborting the scan.
+	ctx := &cancelAfterNProbes{Context: context.Background(), after: temps}
+
+	report, err := Prune(ctx, dir, PruneOptions{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Prune err = %v, want it to wrap context.Canceled", err)
+	}
+	if report.OrphansRemoved != 0 {
+		t.Fatalf("OrphansRemoved = %d, want 0; the cancel was meant to land before any temp was swept",
+			report.OrphansRemoved)
+	}
+	if want := int64(temps * tempSize); report.BytesRemaining != want {
+		t.Errorf("BytesRemaining = %d, want %d — bytes the cancelled sweep never reached must still be counted",
+			report.BytesRemaining, want)
+	}
+}
+
 // TestPrune_MaxAgeZeroDisablesAgePruning pins the documented escape hatch.
 func TestPrune_MaxAgeZeroDisablesAgePruning(t *testing.T) {
 	dir := t.TempDir()
