@@ -104,12 +104,16 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		Handler: handler,
 		// ReadHeaderTimeout bounds slowloris-style header dribbling
 		// independently of ReadTimeout; MaxHeaderBytes caps header size so
-		// a client cannot exhaust memory with unbounded headers.
+		// a client cannot exhaust memory with unbounded headers. The cap has
+		// to be BELOW net/http.DefaultMaxHeaderBytes (1 MiB) to do anything at
+		// all -- setting it to that value, or leaving it zero, is the same
+		// no-op. A static-site server has no legitimate 64 KiB header, let
+		// alone a megabyte one.
 		ReadTimeout:       15 * time.Second,
 		ReadHeaderTimeout: 10 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
-		MaxHeaderBytes:    1 << 20, // 1 MiB
+		MaxHeaderBytes:    1 << 16, // 64 KiB (stdlib default is 1 MiB)
 	}
 
 	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", srv.Addr)
