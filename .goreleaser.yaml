@@ -87,6 +87,13 @@ changelog:
       - '^test(\([^)]+\))?!?:'
       - '^chore(\([^)]+\))?!?:'
       - '^ci(\([^)]+\))?!?:'
+      # refactor/style/build are internal churn the way docs/test/chore are.
+      # Without them 14 of the 103 commits in v0.3.0..HEAD landed in the
+      # catch-all "Other" group, mixing dependabot bumps and lint sweeps in
+      # with real work. build covers the `build(deps): bump ...` bumps.
+      - '^refactor(\([^)]+\))?!?:'
+      - '^style(\([^)]+\))?!?:'
+      - '^build(\([^)]+\))?!?:'
       - Merge pull request
       - Merge branch
   groups:
@@ -101,6 +108,12 @@ changelog:
     - title: Bug Fixes
       regexp: '^.*?fix(\([^)]+\))??!?:.+$'
       order: 1
+    # perf is user-visible here, not internal: the 7 in v0.3.0..HEAD are
+    # export payload minification, coordinate rounding and DB indexes. They
+    # earn a section rather than an exclusion or a slot in "Other".
+    - title: Performance
+      regexp: '^.*?perf(\([^)]+\))??!?:.+$'
+      order: 2
     - title: Other
       order: 999
 
