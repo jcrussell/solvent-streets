@@ -380,6 +380,15 @@ func ResolvedTOML(cfg *config.Config) string {
 	if resolved.Display.MinHexArea <= 0 {
 		resolved.Display.MinHexArea = config.DefaultMinHexArea
 	}
+	// Export defaults resolve lazily through the accessors, and ExportConfig
+	// emits both fields unconditionally (no omitempty), so an unset [export]
+	// block published `coordinate_decimals = 0` / `boundary_simplify_m = 0.0`
+	// — sentinel zeros the pipeline never uses, contradicting the documented
+	// defaults of 5 and 10 while [grid]/[display]/[forecast] all materialized
+	// theirs. Go through the accessors so the negative byte-exact opt-out for
+	// boundary_simplify_m survives (it keys on zero-vs-nonzero, not positive).
+	resolved.Export.CoordinateDecimals = cfg.CoordinateDecimals()
+	resolved.Export.BoundarySimplifyM = cfg.BoundarySimplifyM()
 	config.NormalizeForecast(&resolved.Forecast)
 	if resolved.Forecast.DecayRate <= 0 {
 		resolved.Forecast.DecayRate = forecast.DefaultDecayRates["default"]

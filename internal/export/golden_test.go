@@ -288,6 +288,42 @@ func TestResolvedTOML_MinHexAreaFallsBackToDefault(t *testing.T) {
 	}
 }
 
+// TestResolvedTOML_MaterializesExportDefaults pins that the [export] block
+// reports the values the pipeline actually uses. Both fields resolve lazily
+// through Config accessors and neither has omitempty, so an unset block used to
+// publish sentinel zeros -- contradicting docs/configuration.md (5 and 10) while
+// every other section materialized its defaults.
+func TestResolvedTOML_MaterializesExportDefaults(t *testing.T) {
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Nowhere"}}}
+	out := ResolvedTOML(cfg)
+	for _, want := range []string{
+		fmt.Sprintf("coordinate_decimals = %d", config.DefaultCoordinateDecimals),
+		fmt.Sprintf("boundary_simplify_m = %.1f", config.DefaultBoundarySimplifyM),
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in resolved TOML:\n%s", want, out)
+		}
+	}
+}
+
+// TestResolvedTOML_PreservesBoundarySimplifyOptOut guards the asymmetry in
+// Config.BoundarySimplifyM: it keys on zero-vs-nonzero, not positive, because a
+// NEGATIVE tolerance is the documented byte-exact opt-out. Materializing the
+// default with a `<= 0` guard would silently convert that opt-out into 10 m.
+func TestResolvedTOML_PreservesBoundarySimplifyOptOut(t *testing.T) {
+	cfg := &config.Config{
+		Export: config.ExportConfig{BoundarySimplifyM: -1, CoordinateDecimals: 7},
+		Cities: []config.CityConfig{{Name: "Nowhere"}},
+	}
+	out := ResolvedTOML(cfg)
+	if !strings.Contains(out, "boundary_simplify_m = -1.0") {
+		t.Errorf("the negative opt-out must survive resolution:\n%s", out)
+	}
+	if !strings.Contains(out, "coordinate_decimals = 7") {
+		t.Errorf("an explicit coordinate_decimals must survive resolution:\n%s", out)
+	}
+}
+
 // TestResolvedTOML_ShowsPerCityResolvedCalibration pins solvent-streets-xl1t:
 // the Config tab must reflect each city's effective, resolved calibration
 // (the per-metro hex_edge/forecast an [[include]] flattens onto the city),
