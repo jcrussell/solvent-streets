@@ -129,21 +129,43 @@ test('the note says concrete is excluded when the share is below 1', async () =>
 });
 
 // solvent-streets-ujji: the note is shown for any share < 1, but the percentage
-// it prints used to be rounded, so both ends of the range contradicted the
-// sentence they sat in. A share in [0.995, 1) printed "cover the 100% of network
-// area" while claiming sidewalks were excluded; a legitimate 0 (a concrete-only
-// network) printed "cover the 0%".
-test('the note never prints 0% or 100% while claiming an exclusion', async () => {
-  for (const share of [0.999, 0.9951, 0.004, 0]) {
+// it printed was rounded with toFixed(0), so a share in [0.995, 1) claimed
+// "cover the 100% of network area" in the same sentence that says sidewalks are
+// excluded. 99 is the honest ceiling while a nonzero area is excluded.
+test('the note never claims 100% coverage while claiming an exclusion', async () => {
+  for (const share of [0.999, 0.9951, 0.995, 0.5, 0.004]) {
     const { win } = await ready({ ...fullData, 'forecast_seed.json': seedWithShare(share) });
     const note = win.document.getElementById('materials-note').textContent;
     assert.match(note, /Concrete sidewalks are excluded/,
       `the exclusion note vanished at share ${share}`);
     assert.doesNotMatch(note, /cover the 100% of network area/,
       `share ${share} claimed full coverage while excluding a nonzero area`);
-    assert.doesNotMatch(note, /cover the 0% of network area/,
-      `share ${share} claimed zero coverage in a note about what IS covered`);
   }
+});
+
+// The percentage must not be biased away from the true share. Math.floor would
+// print "89%" for 0.899, so the note would stop agreeing with the network area
+// on the Overview tab; only the 100% ceiling is clamped.
+test('the note rounds the share rather than flooring it', async () => {
+  const { win } = await ready({ ...fullData, 'forecast_seed.json': seedWithShare(0.899) });
+  assert.match(win.document.getElementById('materials-note').textContent,
+    /cover the 90% of network area/,
+    'the share was floored rather than rounded');
+});
+
+// A concrete-only network resolves a legitimate asphalt_area_share of 0 (see the
+// asphalt_area_share comment in seeds.go). It gets its own sentence: "0%" reads
+// as a rounding artifact, and clamping up to "1%" would state something false
+// about a network with no asphalt in it at all.
+test('a zero-asphalt network gets a truthful sentence, not a percentage', async () => {
+  const { win } = await ready({ ...fullData, 'forecast_seed.json': seedWithShare(0) });
+  const note = win.document.getElementById('materials-note').textContent;
+  assert.match(note, /None of this network area is asphalt-surfaced/,
+    'a 0 share did not get its own sentence');
+  assert.doesNotMatch(note, /cover the \d+% of network area/,
+    'a 0 share still printed a coverage percentage');
+  assert.doesNotMatch(note, /cover the 1% of network area/,
+    'a 0 share was clamped up to a false 1%');
 });
 
 // Sanity: the tab renders its charts off the real exporter scenarios, so a

@@ -1816,16 +1816,31 @@
             // Say so when the area basis here is narrower than the network area
             // shown on the other tabs, rather than leaving the reader to wonder
             // why the figures do not reconcile.
-            if (asphaltShare < 1) {
-                // Clamp to [1, 99] rather than rounding. toFixed(0) printed
-                // "100%" for any share in [0.995, 1) — reachable wherever OSM
-                // sidewalk coverage is sparse — so the note claimed sidewalks
-                // were excluded AND that the figures covered the whole network
-                // in one breath. A share of exactly 0 is legitimate too (a
-                // concrete-only network; see asphalt_area_share in seeds.go)
-                // and printed the mirror-image "0%". Both ends contradict the
-                // sentence they sit in.
-                var shownPct = Math.min(99, Math.max(1, Math.floor(asphaltShare * 100)));
+            if (asphaltShare <= 0) {
+                // A concrete-only network: asphalt_area_share is legitimately 0
+                // (see the asphalt_area_share comment in seeds.go for why that
+                // is reachable). Every headline above is a zero, so the
+                // percentage sentence has no percentage to report — printing
+                // "0%" reads as a rounding artifact and clamping it up to "1%"
+                // would be an outright false claim about the network.
+                noteText += ' None of this network area is asphalt-surfaced — it is concrete ' +
+                    'sidewalks, which consume no asphalt binder — so these figures are all zero.';
+            } else if (asphaltShare < 1) {
+                // Round, then clamp the TOP only. toFixed(0) printed "100%" for
+                // any share in [0.995, 1) — reachable wherever OSM sidewalk
+                // coverage is sparse — so the note claimed sidewalks were
+                // excluded AND that the figures covered the whole network in one
+                // breath. 99 is the honest ceiling while a nonzero area is
+                // excluded.
+                //
+                // Math.round, not Math.floor: flooring biases every share down
+                // by up to a point (0.899 -> "89%"), so the note would stop
+                // agreeing with the share derivable from the Overview tab. The
+                // bottom needs no clamp — this branch only runs for a strictly
+                // positive share, and a share under 0.005 rounding to "0%" is
+                // the correct reading of a network that is essentially all
+                // concrete.
+                var shownPct = Math.min(99, Math.round(asphaltShare * 100));
                 noteText += ' Concrete sidewalks are excluded — they consume no asphalt binder — so these ' +
                     'figures cover the ' + shownPct + '% of network area that is ' +
                     'asphalt-surfaced (roads and parking).';
