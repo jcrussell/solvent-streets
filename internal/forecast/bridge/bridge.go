@@ -55,8 +55,9 @@ type Input struct {
 	// resolveOverhead below. This matters: a partially-rebuilt site pairing a
 	// new pvmt.wasm with an old per-city forecast_seed.json sends no
 	// cost_overhead at all, which decodes to 0 — and a bare multiply would then
-	// price the entire page at $0. Bare figures are wrong by ~1.5x; blank ones
-	// are wrong by everything.
+	// price the entire page at $0. Bare figures are off by whatever the
+	// configured overhead was (nothing at all under the current 1.0 default);
+	// blank ones are wrong by everything.
 	CostOverhead float64  `json:"cost_overhead,omitempty"`
 	Cohorts      []Cohort `json:"cohorts,omitempty"`
 }

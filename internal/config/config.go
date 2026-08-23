@@ -553,7 +553,8 @@ func NormalizeForecast(fc *ForecastConfig) {
 // Unlike DecayRate and CostTiers, this default is applied HERE rather than
 // downstream in the forecast package. The forecast core treats a zero overhead
 // as 1.0 (bare) on purpose — a projector built without going through config,
-// as tests and the parity golden do, must not silently acquire a 1.5x — so if
+// as tests and the parity golden do, must not silently acquire the config
+// default — so if
 // config did not resolve it, an unset config would price at bare and the
 // default would never take effect.
 func (fc *ForecastConfig) ResolvedCostOverhead() float64 {

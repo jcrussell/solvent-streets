@@ -104,15 +104,19 @@ type TieredCostProjector struct {
 	// matters and must not be "helpfully" changed to default to
 	// DefaultCostOverhead here:
 	//
-	//  1. The zero value of a freshly-constructed projector would otherwise be
-	//     a silent 1.5x, so any construction site that forgot to set it would
-	//     move dollars rather than fail.
+	//  1. The zero value of a freshly-constructed projector would silently
+	//     acquire whatever the config default happens to be, so any
+	//     construction site that forgot to set it would move dollars rather
+	//     than fail. That the default is currently 1.0 (making the divergence
+	//     zero today) is exactly why the rule has to be structural: it would
+	//     otherwise look safe to drop right up until the default moves.
 	//  2. Tests and the parity golden build Params directly, without going
 	//     through config. Defaulting in this package would move
 	//     testdata/parity_output.json and every export golden.
 	//
-	// The 1.5 default is injected by config resolution
-	// (config.ForecastConfig.CostOverhead). This package never defaults it.
+	// The default is injected by config resolution
+	// (config.ForecastConfig.CostOverhead, currently
+	// config.DefaultCostOverhead = 1.0). This package never defaults it.
 	Overhead float64
 
 	// anchors is memoized from Tiers on first use. buildAnchors was previously

@@ -543,9 +543,11 @@ func insolvencyFromForecast(cohortCfgs []CohortConfig, initialPCI, growthRate fl
 	// this projector (ProjectCost), while the treatment charge, the
 	// affordability floor (minTierCost) and the loss ceiling all read RAW tier
 	// values off g.tiers. Loading only the projector would accrue backlog at
-	// 1.5x against treatments the player still pays 1.0x for, firing the
-	// out-of-funds loss condition roughly 1.5x sooner — a balance change
-	// disguised as a costing fix.
+	// the overhead multiple against treatments the player still pays bare for,
+	// firing the out-of-funds loss condition proportionally sooner — a balance
+	// change disguised as a costing fix. (The default is 1.0 today, so that
+	// skew currently measures zero; the coupling is what matters, not the
+	// present value.)
 	//
 	// Making the game genuinely overhead-aware means scaling all four sites
 	// together and plumbing the value through forecast_seed.json, which

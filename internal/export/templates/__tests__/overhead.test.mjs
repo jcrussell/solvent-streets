@@ -45,7 +45,8 @@ test('a stale seed with no cost_overhead falls back to bare, not to $0', async (
   // The failure this guards: a partially-rebuilt site pairs a new app.js and
   // pvmt.wasm with an old per-city forecast_seed.json that has no
   // cost_overhead. Decoding that as 0 and multiplying would price the entire
-  // page at $0. Bare is wrong by ~1.5x; blank is wrong by everything.
+  // page at $0. Bare is off by whatever the configured overhead was (nothing
+  // at all under the current 1.0 default); blank is wrong by everything.
   const stale = { ...seedJSON };
   delete stale.cost_overhead;
   const { $, win } = await ready({ ...fullData, 'forecast_seed.json': stale });

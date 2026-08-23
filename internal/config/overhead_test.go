@@ -122,7 +122,7 @@ path = "metro/pvmt.toml"
 // TestCostOverhead_NormalizeResolvesIt: the Config tab renders ResolvedTOML,
 // which goes through NormalizeForecast rather than ResolvedForecast. If that
 // path did not resolve the default, the tab would show `cost_overhead = 0`
-// while the forecast priced at 1.5.
+// while the forecast priced at DefaultCostOverhead.
 func TestCostOverhead_NormalizeResolvesIt(t *testing.T) {
 	fc := ForecastConfig{}
 	NormalizeForecast(&fc)

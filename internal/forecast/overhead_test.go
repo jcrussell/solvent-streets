@@ -7,9 +7,9 @@ import (
 
 // TestOverhead_ScalesLinearlyAndExactlyOnce is the load-bearing property: the
 // multiplier must be applied to every priced dollar, and applied once. A path
-// that misses it prices at bare (~1/1.5 of the truth); a path that applies it
-// twice prices at overhead squared. Both are plausible-looking numbers, so
-// neither would be caught by eyeballing an export.
+// that misses it prices at bare (the truth divided by the overhead); a path
+// that applies it twice prices at overhead squared. Both are plausible-looking
+// numbers, so neither would be caught by eyeballing an export.
 func TestOverhead_ScalesLinearlyAndExactlyOnce(t *testing.T) {
 	tiers := []CostTier{
 		{MinPCI: 70, MaxPCI: 101, CostPerSqM: 5, Label: "preventive"},
@@ -35,9 +35,13 @@ func TestOverhead_ScalesLinearlyAndExactlyOnce(t *testing.T) {
 //
 // Changing it to default here would break two things at once. A projector built
 // without going through config — which is what every test and the parity golden
-// do — would silently acquire a 1.5x. And a zero-value projector would price at
-// 1.5x rather than failing loudly, so a construction site that forgot to pass
-// the overhead would move dollars instead of erroring.
+// do — would silently acquire the config default. And a zero-value projector
+// would price at that default rather than failing loudly, so a construction
+// site that forgot to pass the overhead would move dollars instead of erroring.
+//
+// The default is 1.0 today, so both divergences currently measure zero. That is
+// not a reason to relax the rule: it makes the breakage invisible until the
+// default next moves off 1.0, which is precisely when it would matter.
 func TestOverhead_NonPositiveMeansBareNotDefault(t *testing.T) {
 	tiers := []CostTier{{MinPCI: 0, MaxPCI: 101, CostPerSqM: 10, Label: "flat"}}
 	want := (&TieredCostProjector{Tiers: tiers, Overhead: 1}).ProjectCost(1000, 50)
