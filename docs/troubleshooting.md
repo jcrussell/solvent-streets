@@ -59,7 +59,7 @@ Optional fields — data sources (`overpass`, `arcgis_url`) and per-city overrid
 
 **Hint:** *(no hint — the validation error names the field.)*
 
-The config file parsed as TOML but failed shape validation (negative `hex_edge_m`, unknown `display.units`, etc.). pvmt returns exit code 2 (usage error) so scripts can distinguish bad input from operational failures.
+The config file parsed as TOML but failed shape validation (a `hex_edge_m` that is negative or below the 10 m floor, unknown `display.units`, etc.). pvmt returns exit code 2 (usage error) so scripts can distinguish bad input from operational failures.
 
 Read the error message: it names the offending field and what's wrong. Cross-check against [configuration.md](configuration.md) for valid ranges.
 

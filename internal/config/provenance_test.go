@@ -90,6 +90,33 @@ func TestResolveHexEdge_Precedence(t *testing.T) {
 			t.Errorf("source kind = %v, want file", s.Kind)
 		}
 	})
+	// solvent-streets-rbv7. The env layer wins over the file value and never
+	// passes through Validate, so this guard is the ONLY thing between
+	// PVMT_HEX_EDGE_M=1 and an OOM kill. Falling through (rather than erroring)
+	// matches how every other invalid env value is treated here.
+	t.Run("below-floor env falls through", func(t *testing.T) {
+		t.Setenv("PVMT_HEX_EDGE_M", "1")
+		cfg := &Config{Grid: GridConfig{HexEdgeM: 75}}
+		v, s := cfg.resolveHexEdge()
+		if v != 75 {
+			t.Errorf("value = %v, want the file value 75", v)
+		}
+		if s != (Source{Kind: SourceFile, Detail: "grid.hex_edge_m"}) {
+			t.Errorf("source = %v, want file:grid.hex_edge_m", s)
+		}
+	})
+	// Exactly the floor is honored, pinning `>=` against a drift into `>`.
+	t.Run("floor env is honored", func(t *testing.T) {
+		t.Setenv("PVMT_HEX_EDGE_M", "10")
+		cfg := &Config{Grid: GridConfig{HexEdgeM: 75}}
+		v, s := cfg.resolveHexEdge()
+		if v != MinHexEdgeM {
+			t.Errorf("value = %v, want the floor %v", v, MinHexEdgeM)
+		}
+		if s != (Source{Kind: SourceEnv, Detail: "PVMT_HEX_EDGE_M"}) {
+			t.Errorf("source = %v, want env:PVMT_HEX_EDGE_M", s)
+		}
+	})
 }
 
 func TestResolveHexEdgeForCity(t *testing.T) {

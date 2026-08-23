@@ -34,7 +34,7 @@ Env vars override the file but lose to CLI flags. Unparseable or out-of-range va
 | Variable | Overrides |
 |---|---|
 | `PVMT_UNITS` | `[display].units` (`metric` or `imperial`) |
-| `PVMT_HEX_EDGE_M` | `[grid].hex_edge_m` (positive float, meters) |
+| `PVMT_HEX_EDGE_M` | `[grid].hex_edge_m` (float, meters, minimum 10) |
 | `PVMT_FORECAST_YEARS` | `[forecast].years` (positive integer) |
 | `PVMT_FORECAST_INITIAL_PCI` | `[forecast].initial_pci` (must be in (0, 100]; out-of-range ignored with a stderr warning, next layer wins) |
 
@@ -164,6 +164,8 @@ The knob exists so the regime is explicit and adjustable rather than assumed —
 **`treatment_cycle_years`** — the pavement treatment cycle N, in years. The model assumes ~1/N of the network is scheduled for treatment each year, so the annual need is the full-network retreatment cost ÷ N. Default 12 (the midpoint of the typical 10–14 yr municipal cycle). This directly scales `break_even_budget` (∝ 1/N) and sets the `insolvency_year` threshold, so it is the main lever for matching the solvency dollars to a city's actual program. A value of `1` reproduces the legacy behavior (the entire network priced every year, which overstates the hold-steady budget — see [architecture.md](architecture.md) "Solvency methodology" and `docs/validation.md` §5). Allowed range 1–40; `0`/unset uses the default.
 
 ## Display
+
+`[grid].hex_edge_m` (meters, default `100`) sets the hex edge length. **The minimum is 10 m.** Hex count grows as the *square* of the inverse edge, so a mistyped decimal point is expensive: a 2 km × 2 km bbox at a 1 m edge builds over 1.5 million hexes, and a real city bbox at that edge would exhaust memory before producing anything. Values below the floor are rejected at load with exit code 2 rather than failing as an OOM kill mid-compute. `0`/unset inherits the default, and the same floor applies to the per-city override and to `PVMT_HEX_EDGE_M`. For scale: the finest grid any shipped example uses is 60 m (Cambridge/Somerville in `examples/greater-boston-ma`), and large cities run coarser at 125–300 m.
 
 `[display].min_hex_area` (square meters, default `100`) drops boundary-sliver hexes below that area from the heatmap, so partial edge cells don't skew the map or the per-hex stats. It is coupled to `hex_edge_m` — a finer grid wants a smaller threshold — so it can also be set per city (`[[cities]].min_hex_area`), which wins over the top-level value; `0`/unset inherits. The per-city form is what an `[[include]]` flattens, so an included example's tuned threshold survives the merge alongside its hex edge; for the same reason a file that declares `[[include]]` may not set the top-level form at all (see [Including other configs](#including-other-configs-include)). Mind the coupling when tuning: a threshold larger than a full hex (`3√3/2 · edge²`, so ~9.4k m² at a 60 m edge) drops **every** hex and renders a blank map. It applies to both the heatmap and the `/play` board, which share one hex grid.
 

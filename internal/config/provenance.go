@@ -109,9 +109,17 @@ func (c *Config) resolveUnits(flagUnits string) (units.System, Source) {
 // and the city exports with an empty hex layer, no error, exit 0. Config's
 // load-time gate on grid.hex_edge_m does not cover this: the env layer wins over
 // the file value and never passes through Validate.
+//
+// The MinHexEdgeM floor is here for that same reason, and it is the ONLY thing
+// standing between PVMT_HEX_EDGE_M=1 and an OOM kill: Validate's floor cannot
+// see the env layer at all. Below the floor we fall through to the file/default
+// value rather than erroring, matching how every other invalid env value is
+// handled here — warnInvalidEnv in pkg/cmd/root is what tells the user their
+// value was dropped, and its range test must mirror this one or that contract
+// breaks. solvent-streets-rbv7.
 func hexEdgeFromEnv() (float64, Source, bool) {
 	if v, ok := os.LookupEnv("PVMT_HEX_EDGE_M"); ok && v != "" {
-		if f, err := strconv.ParseFloat(v, 64); err == nil && !nonFinite(f) && f > 0 {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && !nonFinite(f) && f >= MinHexEdgeM {
 			return f, Source{Kind: SourceEnv, Detail: "PVMT_HEX_EDGE_M"}, true
 		}
 	}

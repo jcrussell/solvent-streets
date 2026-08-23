@@ -22,7 +22,21 @@ import (
 // export.ResolvedTOML) can apply the same rules without re-hardcoding
 // the numbers.
 const (
-	DefaultHexEdgeM      = 100.0
+	DefaultHexEdgeM = 100.0
+	// MinHexEdgeM is the smallest hex edge (in projected meters) a config may
+	// resolve. Cell count grows as 1/edge^2 with no upper bound anywhere in the
+	// pipeline: geo.HexGrid rejects only NaN/+/-Inf/<=0, and buildClippedHexGrid
+	// caps nothing. A 2 km x 2 km bbox at edge=1 already yields 1,542,592 hexes;
+	// a real 20 km city bbox is ~100x that area, i.e. ~1.5e8 Hex values each
+	// carrying a polygon. That is an OOM kill with no diagnostic -- the process
+	// just dies mid-compute. A mistyped decimal point is all it takes.
+	//
+	// 10 m is chosen for headroom, not precision: the finest grid any shipped
+	// example uses is 60 m (greater-boston-ma's Cambridge/Somerville), so the
+	// floor cannot reject a legitimate config, while capping a large city near
+	// ~1.5e6 cells -- slow (see project_compute_perf) but survivable.
+	// solvent-streets-rbv7.
+	MinHexEdgeM          = 10.0
 	DefaultInitialPCI    = 85.0
 	DefaultForecastYears = 20
 	// DefaultMinHexArea is the minimum projected hex area (in square
@@ -847,6 +861,14 @@ func (c *Config) validate(requireCities bool) error {
 		return errors.Join(ErrInvalidConfig,
 			fmt.Errorf("grid.hex_edge_m %g must be a non-negative finite number", c.Grid.HexEdgeM))
 	}
+	// 0 stays legal on purpose -- it means "unset", and resolveHexEdge falls
+	// back to DefaultHexEdgeM. Only a positive-but-tiny edge is rejected: that
+	// is the decimal-point typo that OOMs mid-compute with no diagnostic.
+	if c.Grid.HexEdgeM > 0 && c.Grid.HexEdgeM < MinHexEdgeM {
+		return errors.Join(ErrInvalidConfig, fmt.Errorf(
+			"grid.hex_edge_m %g is below the %g m floor; hex count grows as 1/edge² and a grid this fine "+
+				"will exhaust memory on a city-sized bbox", c.Grid.HexEdgeM, MinHexEdgeM))
+	}
 	if nonFinite(c.Display.MinHexArea) || c.Display.MinHexArea < 0 {
 		return errors.Join(ErrInvalidConfig,
 			fmt.Errorf("display.min_hex_area %g must be a non-negative finite number", c.Display.MinHexArea))
@@ -952,6 +974,12 @@ func validateCityFields(i int, city CityConfig) error {
 	if nonFinite(city.HexEdgeM) || city.HexEdgeM < 0 {
 		return errors.Join(ErrInvalidConfig,
 			fmt.Errorf("cities[%d] (%s): hex_edge_m %g must be a non-negative finite number", i, city.Name, city.HexEdgeM))
+	}
+	// Mirrors the top-level floor in validate; 0 means "inherit" and stays legal.
+	if city.HexEdgeM > 0 && city.HexEdgeM < MinHexEdgeM {
+		return errors.Join(ErrInvalidConfig, fmt.Errorf(
+			"cities[%d] (%s): hex_edge_m %g is below the %g m floor; hex count grows as 1/edge² and a grid "+
+				"this fine will exhaust memory on a city-sized bbox", i, city.Name, city.HexEdgeM, MinHexEdgeM))
 	}
 	// Mirrors the top-level display.min_hex_area check in validate: a negative
 	// literal would fall through ResolvedMinHexArea's `> 0` guard to the

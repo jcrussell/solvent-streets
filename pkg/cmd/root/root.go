@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/jcrussell/solvent-streets/internal/build"
+	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/logs"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/all"
@@ -49,6 +50,11 @@ var middlewares = []middleware{
 	warnInvalidEnv,
 }
 
+// nonFiniteEnv mirrors config.nonFinite for the env-warning middleware, which
+// lives outside that package. Kept in step with the resolvers in
+// internal/config: a value this reports true for is a value they drop.
+func nonFiniteEnv(v float64) bool { return math.IsNaN(v) || math.IsInf(v, 0) }
+
 // warnInvalidEnv emits a one-line stderr warning for any PVMT_* env var
 // set to an unparseable or out-of-range value. The config resolvers
 // (UnitSystem, HexEdge, ResolvedForecast) silently fall through on
@@ -56,11 +62,6 @@ var middlewares = []middleware{
 // was ignored; this middleware is the signal. Range checks mirror the
 // validation inside those resolvers so a warning implies the env will
 // be ignored and silence implies it will be honored.
-// nonFiniteEnv mirrors config.nonFinite for the env-warning middleware, which
-// lives outside that package. Kept in step with the resolvers in
-// internal/config: a value this reports true for is a value they drop.
-func nonFiniteEnv(v float64) bool { return math.IsNaN(v) || math.IsInf(v, 0) }
-
 func warnInvalidEnv(_ *cobra.Command, f *cmdutil.Factory) error {
 	ios := f.IOStreams
 	if ios == nil {
@@ -93,8 +94,12 @@ func warnInvalidEnv(_ *cobra.Command, f *cmdutil.Factory) error {
 		// silence-implies-honored contract above.
 		case nonFiniteEnv(n):
 			warnf("PVMT_HEX_EDGE_M=%q must be a finite number", v)
-		case n <= 0:
-			warnf("PVMT_HEX_EDGE_M=%q must be > 0", v)
+		// Subsumes the old `n <= 0` arm rather than sitting beside it: the
+		// floor is strictly tighter, and a second arm would push this
+		// function past gocognit's threshold. Mirrors hexEdgeFromEnv's
+		// `f >= MinHexEdgeM`, which is what actually drops the value.
+		case n < config.MinHexEdgeM:
+			warnf("PVMT_HEX_EDGE_M=%q must be >= %g (hex count grows as 1/edge²)", v, config.MinHexEdgeM)
 		}
 	}
 	if v, ok := os.LookupEnv("PVMT_FORECAST_INITIAL_PCI"); ok && v != "" {

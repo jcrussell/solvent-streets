@@ -299,7 +299,15 @@ func TestWarnInvalidEnv_BadValuesEmitWarning(t *testing.T) {
 		{"negative years", map[string]string{"PVMT_FORECAST_YEARS": "-5"}, "must be > 0"},
 		{"valid years silent", map[string]string{"PVMT_FORECAST_YEARS": "10"}, ""},
 		{"unparseable hex edge", map[string]string{"PVMT_HEX_EDGE_M": "wide"}, "not a valid number"},
-		{"negative hex edge", map[string]string{"PVMT_HEX_EDGE_M": "-5"}, "must be > 0"},
+		{"negative hex edge", map[string]string{"PVMT_HEX_EDGE_M": "-5"}, "must be >="},
+		// solvent-streets-rbv7: a positive-but-tiny edge is the decimal-point
+		// typo that OOMs mid-compute, so it must warn like any other dropped
+		// value -- hexEdgeFromEnv refuses it, and silence here would break the
+		// silence-implies-honored contract above.
+		{"below-floor hex edge", map[string]string{"PVMT_HEX_EDGE_M": "1"}, "must be >="},
+		// Exactly the floor is honored, pinning the `>=` in hexEdgeFromEnv
+		// against an off-by-one drift into `>`.
+		{"floor hex edge silent", map[string]string{"PVMT_HEX_EDGE_M": "10"}, ""},
 		{"valid hex edge silent", map[string]string{"PVMT_HEX_EDGE_M": "100"}, ""},
 		{"pci out of range", map[string]string{"PVMT_FORECAST_INITIAL_PCI": "500"}, "must be in (0, 100]"},
 		{"pci zero", map[string]string{"PVMT_FORECAST_INITIAL_PCI": "0"}, "must be in (0, 100]"},

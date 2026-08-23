@@ -85,6 +85,13 @@ func TestForecastConfig_Validate_AcceptsOK(t *testing.T) {
 // a negative hex_edge_m at any layer is rejected, and the failure chains
 // to ErrInvalidConfig so the cmdutil boundary can map it to FlagError.
 // Zero is explicitly accepted because HexEdge() falls back to default.
+//
+// solvent-streets-rbv7 widened it to the MinHexEdgeM floor: rejecting only
+// negatives left `hex_edge_m = 1` accepted everywhere, and cell count grows as
+// 1/edge², so that typo OOM-kills compute with no diagnostic. The valid subtest
+// is the load-bearing half -- it pins that 0 (meaning "unset") and the floor
+// itself stay accepted, so the new gate cannot creep into rejecting a config
+// that must keep loading.
 func TestConfig_Validate_HexEdgeNonNegative(t *testing.T) {
 	cases := map[string]Config{
 		"top-level negative": {
@@ -94,15 +101,54 @@ func TestConfig_Validate_HexEdgeNonNegative(t *testing.T) {
 		"per-city negative": {
 			Cities: []CityConfig{{Name: "Oakland", Overpass: true, HexEdgeM: -1}},
 		},
+		// solvent-streets-rbv7: positive but below MinHexEdgeM. Cell count
+		// grows as 1/edge², so a mistyped decimal point here is an OOM kill
+		// mid-compute with no diagnostic. Rejected at both layers.
+		"top-level below floor": {
+			Grid:   GridConfig{HexEdgeM: 1},
+			Cities: []CityConfig{{Name: "Oakland", Overpass: true}},
+		},
+		"per-city below floor": {
+			Cities: []CityConfig{{Name: "Oakland", Overpass: true, HexEdgeM: 1}},
+		},
 	}
 	for name, cfg := range cases {
 		t.Run(name, func(t *testing.T) {
 			err := cfg.Validate()
 			if err == nil {
-				t.Fatal("expected error for negative hex_edge_m, got nil")
+				t.Fatal("expected error for out-of-range hex_edge_m, got nil")
 			}
 			if !errors.Is(err, ErrInvalidConfig) {
 				t.Errorf("error %v does not chain to ErrInvalidConfig", err)
+			}
+		})
+	}
+
+	valid := map[string]Config{
+		// 0 means "unset" at both layers; resolveHexEdge falls back to
+		// DefaultHexEdgeM. The floor must not swallow it.
+		"top-level zero": {
+			Grid:   GridConfig{HexEdgeM: 0},
+			Cities: []CityConfig{{Name: "Oakland", Overpass: true}},
+		},
+		"per-city zero": {
+			Cities: []CityConfig{{Name: "Oakland", Overpass: true, HexEdgeM: 0}},
+		},
+		"exactly the floor": {
+			Grid:   GridConfig{HexEdgeM: MinHexEdgeM},
+			Cities: []CityConfig{{Name: "Oakland", Overpass: true}},
+		},
+		// The finest grid any shipped example uses (greater-boston-ma's
+		// Cambridge/Somerville). If the floor ever rises above this, every
+		// one of those configs stops loading.
+		"finest shipped example": {
+			Cities: []CityConfig{{Name: "Cambridge", Overpass: true, HexEdgeM: 60}},
+		},
+	}
+	for name, cfg := range valid {
+		t.Run(name, func(t *testing.T) {
+			if err := cfg.Validate(); err != nil {
+				t.Fatalf("expected valid hex_edge_m to pass, got %v", err)
 			}
 		})
 	}
