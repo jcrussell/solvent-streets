@@ -222,3 +222,31 @@ func equalSlice(a, b []string) bool {
 	}
 	return true
 }
+
+// TestGroupCitiesByTag_CaseDifferingTagsDeterministic pins the byte-identical
+// regen property the export pipeline preserves elsewhere (hex.go, playhex.go,
+// export.go). tags is built by ranging a map, so a comparator that keys only on
+// strings.ToLower leaves case-differing tags as ties, and sort.Slice is not
+// stable -- group order then followed map iteration and index.html changed
+// between regens of unchanged data. Case-differing tags do coexist: unionTags
+// dedupes on exact equality and validateTags only rejects blanks.
+//
+// Run enough iterations that Go's map randomization actually shuffles the tie.
+func TestGroupCitiesByTag_CaseDifferingTagsDeterministic(t *testing.T) {
+	cities := []CityInfo{
+		{Name: "Oakland", Tags: []string{"Bay Area"}},
+		{Name: "Alameda", Tags: []string{"bay area"}},
+		{Name: "Zed", Tags: []string{"Zeta"}},
+	}
+	want := []string{"Bay Area", "bay area", "Zeta"}
+	for i := range 200 {
+		got := GroupCitiesByTag(cities)
+		tags := make([]string, len(got))
+		for j, g := range got {
+			tags[j] = g.Tag
+		}
+		if !equalSlice(tags, want) {
+			t.Fatalf("iteration %d: group order = %v; want %v", i, tags, want)
+		}
+	}
+}

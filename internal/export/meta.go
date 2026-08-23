@@ -246,8 +246,19 @@ func GroupCitiesByTag(cities []CityInfo) []CityGroup {
 			tags = append(tags, t)
 		}
 	}
+	// Tiebreak on the raw tag. tags is filled by ranging byTag (randomized
+	// order), and a case-only comparator makes "Bay Area" and "bay area" compare
+	// equal — sort.Slice is not stable, so the pair kept whatever order the map
+	// handed out and index.html differed byte-for-byte across regens of
+	// unchanged data. Case-differing tags do coexist: unionTags dedupes on exact
+	// equality and validateTags only rejects blanks. A stable sort alone would
+	// not fix this; the comparator itself has to be total.
 	sort.Slice(tags, func(i, j int) bool {
-		return strings.ToLower(tags[i]) < strings.ToLower(tags[j])
+		a, b := strings.ToLower(tags[i]), strings.ToLower(tags[j])
+		if a != b {
+			return a < b
+		}
+		return tags[i] < tags[j]
 	})
 
 	groups := make([]CityGroup, 0, len(byTag))
