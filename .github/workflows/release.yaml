@@ -55,13 +55,24 @@ jobs:
             exit 1
           fi
           "$bin" --help > /dev/null
-          workdir="$(mktemp -d)"
-          cat > "$workdir/pvmt.toml" <<'EOF'
-          [[cities]]
-          name = "SmokeTest"
-          EOF
-          (cd "$workdir" && "$bin" status)
-          rm -rf "$workdir"
+          # Proves the shipped binary decodes a real pvmt.toml, links
+          # modernc.org/sqlite under CGO_ENABLED=0 + -trimpath (nothing in
+          # ci.yaml builds with release flags), resolves its XDG data dir on a
+          # cold machine, and exits 0.
+          #
+          # Runs against a shipped example rather than a config invented here:
+          # the inline one this replaces sat unmaintained for three months
+          # while config validation moved on, then blocked a release
+          # (solvent-streets-mv2p). examples/livermore-ca is pinned by name in
+          # integration/examples_test.go, which also loads every shipped
+          # example — so a rename or a new validation rule fails on the PR
+          # rather than at tag time.
+          #
+          # No scratch dir needed: `status` finds pvmt.toml by walking up from
+          # cwd (config.FindAndLoad) and opens its SQLite file under the XDG
+          # data dir, not cwd (pkg/cmd/factory/default.go) — the checkout stays
+          # clean.
+          (cd examples/livermore-ca && "$bin" status)
 
   release:
     name: Release

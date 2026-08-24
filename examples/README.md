@@ -35,6 +35,12 @@ Simple single-city setup with both OpenStreetMap (Overpass) and Alameda
 County's ArcGIS FeatureServer. **Start here** if you're new — it's the
 smallest config that exercises the full pipeline.
 
+It is also the config the release workflow smoke-tests the built binary
+against, so this directory's path is release-blocking: renaming or moving it
+breaks the tag build. `TestShippedExamplesLoad` (`integration/`) fails on the
+PR if you do, and also checks that every example here still loads — so a new
+config validation rule cannot quietly outdate one.
+
 ## National sample: [top-50-cities](top-50-cities/)
 
 The 50 largest US cities by 2025 Census population — a national rollup
