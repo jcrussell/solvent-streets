@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Pavement Manager</title>
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css">
+    <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f1115; color: #e8eaed; overflow: hidden;
+        }
+        :root { --bar-h: 44px; }
+        #game-root, #map { position: absolute; top: var(--bar-h); left: 0; right: 0; bottom: 0; }
+        #map { width: 100%; height: 100%; }
+
+         
+        #topbar {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+            height: var(--bar-h); display: flex; align-items: center; gap: 12px;
+            padding: 0 14px; background: #171b22; border-bottom: 1px solid #2a3140;
+        }
+        #topbar .brand { font-size: 14px; font-weight: 700; letter-spacing: .3px; white-space: nowrap; }
+        #topbar a.navlink { color: #9aa4b2; text-decoration: none; font-size: 13px; padding: 5px 10px; border-radius: 6px; }
+        #topbar a.navlink:hover { color: #e8eaed; background: #1c2330; }
+        #topbar .spacer { flex: 1; }
+
+        .panel {
+            position: absolute; z-index: 10;
+            background: rgba(20, 24, 31, 0.92);
+            border: 1px solid #2a3140;
+            border-radius: 10px;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+            backdrop-filter: blur(4px);
+        }
+
+         
+        #hud { top: calc(var(--bar-h) + 12px); left: 12px; padding: 14px 18px; min-width: 230px; }
+        #hud h1 { font-size: 15px; font-weight: 700; margin-bottom: 10px; letter-spacing: 0.3px; }
+        .hud-row { display: flex; justify-content: space-between; gap: 18px; padding: 3px 0; font-size: 13px; }
+        .hud-row .k { color: #9aa4b2; }
+        .hud-row .v { font-weight: 600; font-variant-numeric: tabular-nums; }
+         
+        #start-projection {
+            margin: 12px 0 2px; font-size: 14px; font-weight: 700; line-height: 1.35;
+            min-height: 19px;
+        }
+        #start-projection.bad { color: #ff7a6b; }
+        #start-projection.ok  { color: #6fe08a; }
+        #start-projection .num { font-size: 17px; }
+         
+        .funds-warn { display: none; margin-top: 8px; color: #ff7a6b; font-size: 13px; font-weight: 700; }
+        .hud-row .v.broke { color: #ff7a6b; }
+
+         
+        #city-select {
+            background: #1c2330; color: #e8eaed; border: 1px solid #384152;
+            border-radius: 6px; padding: 4px 8px; font-size: 13px; cursor: pointer;
+        }
+
+         
+        #controls { bottom: 12px; left: 12px; padding: 14px 18px; min-width: 260px; max-height: calc(100vh - var(--bar-h) - 24px); overflow-y: auto; }
+        #controls label .hint { color: #6b7280; font-weight: 400; text-transform: none; }
+        #controls .ctrl-block { margin-bottom: 14px; }
+        #controls .ctrl-block:last-child { margin-bottom: 0; }
+        #controls label { display: block; font-size: 12px; color: #9aa4b2; margin-bottom: 6px; }
+        #controls .ctrl-value { color: #e8eaed; font-weight: 600; }
+        input[type="range"] { width: 100%; accent-color: #4f8cff; cursor: pointer; }
+        .btn {
+            background: #1c2330; color: #e8eaed; border: 1px solid #384152;
+            border-radius: 6px;
+            padding: 7px 14px; font-size: 13px; cursor: pointer; transition: all .12s;
+        }
+        .btn:hover { border-color: #4f8cff; }
+        .row-buttons { display: flex; gap: 6px; flex-wrap: wrap; }
+        .row-buttons .btn { flex: 1; }
+        .row-buttons .btn.active, #pause-btn.active {
+            background: #4f8cff; border-color: #4f8cff; color: #fff;
+        }
+        #pause-btn { font-weight: 600; }
+
+         
+        #brush-cursor {
+            position: fixed; z-index: 60; pointer-events: none; display: none;
+            border: 2px solid rgba(79,140,255,0.9); border-radius: 50%;
+            transform: translate(-50%, -50%); box-shadow: 0 0 0 1px rgba(0,0,0,0.4);
+        }
+
+         
+        #legend { bottom: 12px; right: 12px; padding: 10px 14px; font-size: 11px; }
+        #legend .legend-title { font-weight: 600; margin-bottom: 6px; color: #9aa4b2; }
+        #legend .legend-bar {
+            width: 170px; height: 12px; border-radius: 3px;
+            background: linear-gradient(90deg,#b2182b,#ef8a62,#fddbc7,#a6d96a,#66bd63,#1a9850);
+        }
+        #legend .legend-labels { display: flex; justify-content: space-between; margin-top: 3px; color: #9aa4b2; }
+        #legend .gravel-key { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+        #legend .gravel-swatch { width: 12px; height: 12px; border-radius: 2px; background: #8d8074; display: inline-block; }
+
+         
+        #banner {
+            position: absolute; z-index: 50; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 26px 34px; border-radius: 14px; text-align: center;
+            min-width: 320px; display: none;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+        }
+        #banner.won  { background: #123d22; border: 2px solid #6fe08a; display: block; }
+        #banner.lost { background: #3d1212; border: 2px solid #ff7a6b; display: block; }
+        #banner .headline { font-size: 26px; font-weight: 800; }
+        #banner.won  .headline { color: #6fe08a; }
+        #banner.lost .headline { color: #ff7a6b; }
+        #banner .sub { font-size: 14px; font-weight: 500; margin-top: 6px; color: #cdd3db; }
+        #banner .banner-stats {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 6px 22px;
+            margin: 18px 0; text-align: left; font-size: 14px;
+        }
+        #banner .banner-stats .row { display: flex; justify-content: space-between; gap: 16px; }
+        #banner .banner-stats .k { color: #9aa4b2; }
+        #banner .banner-stats .v { font-weight: 700; font-variant-numeric: tabular-nums; color: #e8eaed; }
+        #banner .banner-actions { display: flex; gap: 8px; justify-content: center; }
+        #banner .banner-actions .btn { text-decoration: none; flex: 1; text-align: center; }
+
+         
+        #start-overlay {
+            position: absolute; z-index: 55; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 26px 34px; border-radius: 14px; text-align: center;
+            min-width: 340px; display: none;
+            background: #141821; border: 1px solid #2a3140;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+        }
+        #start-overlay .headline { font-size: 24px; font-weight: 800; }
+        #start-overlay .sub { font-size: 14px; font-weight: 500; margin: 6px 0 18px; color: #cdd3db; }
+        #start-overlay label { display: block; font-size: 12px; color: #9aa4b2; margin-bottom: 8px; text-align: left; }
+        #start-overlay .ctrl-value { color: #e8eaed; font-weight: 600; }
+        #start-overlay #start-btn { width: 100%; margin-top: 18px; padding: 10px; font-weight: 700; }
+
+         
+        #error-banner {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
+            background: #c53030; color: #fff; padding: 8px 16px; font-size: 13px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3); display: none;
+        }
+        #error-banner ul { margin: 4px 0 0 18px; }
+        #error-banner button { float: right; background: transparent; color: #fff; border: 1px solid #fff; cursor: pointer; padding: 2px 8px; border-radius: 3px; }
+        #loading {
+            position: absolute; z-index: 40; top: 50%; left: 50%; transform: translate(-50%,-50%);
+            color: #9aa4b2; font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div id="error-banner" role="alert" aria-live="assertive">
+        <button type="button" onclick="document.getElementById('error-banner').style.display='none'">Dismiss</button>
+        <strong>Error:</strong>
+        <ul id="error-banner-list"></ul>
+    </div>
+
+    <div id="topbar">
+        <span class="brand">Pavement Manager</span>
+        <a class="navlink" href="index.html">&larr; Map</a>
+        <span class="spacer"></span>
+        
+        <label for="city-select" style="font-size:12px;color:#9aa4b2;">City</label>
+        <select id="city-select">
+            <optgroup label="Bay Area"><option value="alameda-ca">Alameda, CA</option><option value="albany-ca">Albany, CA</option><option value="american-canyon-ca">American Canyon, CA</option><option value="antioch-ca">Antioch, CA</option><option value="belmont-ca">Belmont, CA</option><option value="belvedere-ca">Belvedere, CA</option><option value="benicia-ca">Benicia, CA</option><option value="berkeley-ca">Berkeley, CA</option><option value="brentwood-ca">Brentwood, CA</option><option value="brisbane-ca">Brisbane, CA</option><option value="burlingame-ca">Burlingame, CA</option><option value="calistoga-ca">Calistoga, CA</option><option value="campbell-ca">Campbell, CA</option><option value="clayton-ca">Clayton, CA</option><option value="cloverdale-ca">Cloverdale, CA</option><option value="colma-ca">Colma, CA</option><option value="concord-ca">Concord, CA</option><option value="corte-madera-ca">Corte Madera, CA</option><option value="cotati-ca">Cotati, CA</option><option value="cupertino-ca">Cupertino, CA</option><option value="daly-city-ca">Daly City, CA</option><option value="dixon-ca">Dixon, CA</option><option value="dublin-ca">Dublin, CA</option><option value="east-palo-alto-ca">East Palo Alto, CA</option><option value="el-cerrito-ca">El Cerrito, CA</option><option value="emeryville-ca">Emeryville, CA</option><option value="fairfax-ca">Fairfax, CA</option><option value="fairfield-ca">Fairfield, CA</option><option value="foster-city-ca">Foster City, CA</option><option value="fremont-ca">Fremont, CA</option><option value="gilroy-ca">Gilroy, CA</option><option value="half-moon-bay-ca">Half Moon Bay, CA</option><option value="hayward-ca">Hayward, CA</option><option value="healdsburg-ca">Healdsburg, CA</option><option value="hercules-ca">Hercules, CA</option><option value="hillsborough-ca">Hillsborough, CA</option><option value="lafayette-ca">Lafayette, CA</option><option value="larkspur-ca">Larkspur, CA</option><option value="livermore-ca">Livermore, CA</option><option value="los-altos-hills-ca">Los Altos Hills, CA</option><option value="los-altos-ca">Los Altos, CA</option><option value="los-gatos-ca">Los Gatos, CA</option><option value="martinez-ca">Martinez, CA</option><option value="menlo-park-ca">Menlo Park, CA</option><option value="mill-valley-ca">Mill Valley, CA</option><option value="millbrae-ca">Millbrae, CA</option><option value="milpitas-ca">Milpitas, CA</option><option value="monte-sereno-ca">Monte Sereno, CA</option><option value="moraga-ca">Moraga, CA</option><option value="morgan-hill-ca">Morgan Hill, CA</option><option value="mountain-view-ca">Mountain View, CA</option><option value="napa-ca">Napa, CA</option><option value="newark-ca">Newark, CA</option><option value="novato-ca">Novato, CA</option><option value="oakland-ca">Oakland, CA</option><option value="oakley-ca">Oakley, CA</option><option value="orinda-ca">Orinda, CA</option><option value="pacifica-ca">Pacifica, CA</option><option value="palo-alto-ca">Palo Alto, CA</option><option value="petaluma-ca">Petaluma, CA</option><option value="piedmont-ca">Piedmont, CA</option><option value="pinole-ca">Pinole, CA</option><option value="pittsburg-ca">Pittsburg, CA</option><option value="pleasant-hill-ca">Pleasant Hill, CA</option><option value="pleasanton-ca">Pleasanton, CA</option><option value="portola-valley-ca">Portola Valley, CA</option><option value="redwood-city-ca">Redwood City, CA</option><option value="richmond-ca">Richmond, CA</option><option value="rio-vista-ca">Rio Vista, CA</option><option value="rohnert-park-ca">Rohnert Park, CA</option><option value="ross-ca">Ross, CA</option><option value="san-anselmo-ca">San Anselmo, CA</option><option value="san-bruno-ca">San Bruno, CA</option><option value="san-carlos-ca">San Carlos, CA</option><option value="san-francisco-ca">San Francisco, CA</option><option value="san-jose-ca">San Jose, CA</option><option value="san-leandro-ca">San Leandro, CA</option><option value="san-mateo-ca">San Mateo, CA</option><option value="san-pablo-ca">San Pablo, CA</option><option value="san-rafael-ca">San Rafael, CA</option><option value="san-ramon-ca">San Ramon, CA</option><option value="santa-clara-ca">Santa Clara, CA</option><option value="saratoga-ca">Saratoga, CA</option><option value="sausalito-ca">Sausalito, CA</option><option value="sebastopol-ca">Sebastopol, CA</option><option value="sonoma-ca">Sonoma, CA</option><option value="south-san-francisco-ca">South San Francisco, CA</option><option value="st-helena-ca">St. Helena, CA</option><option value="suisun-city-ca">Suisun City, CA</option><option value="sunnyvale-ca">Sunnyvale, CA</option><option value="tiburon-ca">Tiburon, CA</option><option value="union-city-ca">Union City, CA</option><option value="vacaville-ca">Vacaville, CA</option><option value="vallejo-ca">Vallejo, CA</option><option value="walnut-creek-ca">Walnut Creek, CA</option><option value="windsor-ca">Windsor, CA</option><option value="woodside-ca">Woodside, CA</option><option value="yountville-ca">Yountville, CA</option></optgroup><optgroup label="Central Valley"><option value="bakersfield-ca">Bakersfield, CA</option><option value="clovis-ca">Clovis, CA</option><option value="fresno-ca">Fresno, CA</option><option value="modesto-ca">Modesto, CA</option><option value="stockton-ca">Stockton, CA</option><option value="visalia-ca">Visalia, CA</option></optgroup><optgroup label="Denver Metro"><option value="arvada-co">Arvada, CO</option><option value="aurora-co">Aurora, CO</option><option value="boulder-co">Boulder, CO</option><option value="centennial-co">Centennial, CO</option><option value="denver-co">Denver, CO</option><option value="lakewood-co">Lakewood, CO</option><option value="thornton-co">Thornton, CO</option><option value="westminster-co">Westminster, CO</option></optgroup><optgroup label="Greater Boston"><option value="boston-ma">Boston, MA</option><option value="cambridge-ma">Cambridge, MA</option><option value="malden-ma">Malden, MA</option><option value="medford-ma">Medford, MA</option><option value="newton-ma">Newton, MA</option><option value="quincy-ma">Quincy, MA</option><option value="somerville-ma">Somerville, MA</option><option value="waltham-ma">Waltham, MA</option></optgroup><optgroup label="Inland Empire"><option value="corona-ca">Corona, CA</option><option value="fontana-ca">Fontana, CA</option><option value="moreno-valley-ca">Moreno Valley, CA</option><option value="ontario-ca">Ontario, CA</option><option value="rancho-cucamonga-ca">Rancho Cucamonga, CA</option><option value="rialto-ca">Rialto, CA</option><option value="riverside-ca">Riverside, CA</option><option value="san-bernardino-ca">San Bernardino, CA</option></optgroup><optgroup label="Los Angeles"><option value="agoura-hills-ca">Agoura Hills, CA</option><option value="alhambra-ca">Alhambra, CA</option><option value="arcadia-ca">Arcadia, CA</option><option value="artesia-ca">Artesia, CA</option><option value="avalon-ca">Avalon, CA</option><option value="azusa-ca">Azusa, CA</option><option value="baldwin-park-ca">Baldwin Park, CA</option><option value="bell-gardens-ca">Bell Gardens, CA</option><option value="bell-ca">Bell, CA</option><option value="bellflower-ca">Bellflower, CA</option><option value="beverly-hills-ca">Beverly Hills, CA</option><option value="bradbury-ca">Bradbury, CA</option><option value="burbank-ca">Burbank, CA</option><option value="calabasas-ca">Calabasas, CA</option><option value="carson-ca">Carson, CA</option><option value="cerritos-ca">Cerritos, CA</option><option value="claremont-ca">Claremont, CA</option><option value="commerce-ca">Commerce, CA</option><option value="covina-ca">Covina, CA</option><option value="cudahy-ca">Cudahy, CA</option><option value="culver-city-ca">Culver City, CA</option><option value="diamond-bar-ca">Diamond Bar, CA</option><option value="downey-ca">Downey, CA</option><option value="duarte-ca">Duarte, CA</option><option value="el-monte-ca">El Monte, CA</option><option value="el-segundo-ca">El Segundo, CA</option><option value="gardena-ca">Gardena, CA</option><option value="glendale-ca">Glendale, CA</option><option value="glendora-ca">Glendora, CA</option><option value="hawaiian-gardens-ca">Hawaiian Gardens, CA</option><option value="hawthorne-ca">Hawthorne, CA</option><option value="hermosa-beach-ca">Hermosa Beach, CA</option><option value="hidden-hills-ca">Hidden Hills, CA</option><option value="huntington-park-ca">Huntington Park, CA</option><option value="industry-ca">Industry, CA</option><option value="inglewood-ca">Inglewood, CA</option><option value="irwindale-ca">Irwindale, CA</option><option value="la-ca-ada-flintridge-ca">La Cañada Flintridge, CA</option><option value="la-habra-heights-ca">La Habra Heights, CA</option><option value="la-mirada-ca">La Mirada, CA</option><option value="la-puente-ca">La Puente, CA</option><option value="la-verne-ca">La Verne, CA</option><option value="lakewood-ca">Lakewood, CA</option><option value="lancaster-ca">Lancaster, CA</option><option value="lawndale-ca">Lawndale, CA</option><option value="lomita-ca">Lomita, CA</option><option value="long-beach-ca">Long Beach, CA</option><option value="los-angeles-ca">Los Angeles, CA</option><option value="lynwood-ca">Lynwood, CA</option><option value="malibu-ca">Malibu, CA</option><option value="manhattan-beach-ca">Manhattan Beach, CA</option><option value="maywood-ca">Maywood, CA</option><option value="monrovia-ca">Monrovia, CA</option><option value="montebello-ca">Montebello, CA</option><option value="monterey-park-ca">Monterey Park, CA</option><option value="norwalk-ca">Norwalk, CA</option><option value="palmdale-ca">Palmdale, CA</option><option value="palos-verdes-estates-ca">Palos Verdes Estates, CA</option><option value="paramount-ca">Paramount, CA</option><option value="pasadena-ca">Pasadena, CA</option><option value="pico-rivera-ca">Pico Rivera, CA</option><option value="pomona-ca">Pomona, CA</option><option value="rancho-palos-verdes-ca">Rancho Palos Verdes, CA</option><option value="redondo-beach-ca">Redondo Beach, CA</option><option value="rolling-hills-estates-ca">Rolling Hills Estates, CA</option><option value="rolling-hills-ca">Rolling Hills, CA</option><option value="rosemead-ca">Rosemead, CA</option><option value="san-dimas-ca">San Dimas, CA</option><option value="san-fernando-ca">San Fernando, CA</option><option value="san-gabriel-ca">San Gabriel, CA</option><option value="san-marino-ca">San Marino, CA</option><option value="santa-clarita-ca">Santa Clarita, CA</option><option value="santa-fe-springs-ca">Santa Fe Springs, CA</option><option value="santa-monica-ca">Santa Monica, CA</option><option value="sierra-madre-ca">Sierra Madre, CA</option><option value="signal-hill-ca">Signal Hill, CA</option><option value="south-el-monte-ca">South El Monte, CA</option><option value="south-gate-ca">South Gate, CA</option><option value="south-pasadena-ca">South Pasadena, CA</option><option value="temple-city-ca">Temple City, CA</option><option value="torrance-ca">Torrance, CA</option><option value="vernon-ca">Vernon, CA</option><option value="walnut-ca">Walnut, CA</option><option value="west-covina-ca">West Covina, CA</option><option value="west-hollywood-ca">West Hollywood, CA</option><option value="westlake-village-ca">Westlake Village, CA</option><option value="whittier-ca">Whittier, CA</option></optgroup><optgroup label="Portland Metro"><option value="beaverton-or">Beaverton, OR</option><option value="gresham-or">Gresham, OR</option><option value="hillsboro-or">Hillsboro, OR</option><option value="lake-oswego-or">Lake Oswego, OR</option><option value="milwaukie-or">Milwaukie, OR</option><option value="portland-or">Portland, OR</option><option value="tigard-or">Tigard, OR</option></optgroup><optgroup label="Sacramento"><option value="citrus-heights-ca">Citrus Heights, CA</option><option value="davis-ca">Davis, CA</option><option value="elk-grove-ca">Elk Grove, CA</option><option value="folsom-ca">Folsom, CA</option><option value="rancho-cordova-ca">Rancho Cordova, CA</option><option value="roseville-ca">Roseville, CA</option><option value="sacramento-ca">Sacramento, CA</option><option value="west-sacramento-ca">West Sacramento, CA</option></optgroup><optgroup label="San Diego"><option value="carlsbad-ca">Carlsbad, CA</option><option value="chula-vista-ca">Chula Vista, CA</option><option value="el-cajon-ca">El Cajon, CA</option><option value="escondido-ca">Escondido, CA</option><option value="la-mesa-ca">La Mesa, CA</option><option value="national-city-ca">National City, CA</option><option value="oceanside-ca">Oceanside, CA</option><option value="san-diego-ca">San Diego, CA</option><option value="san-marcos-ca">San Marcos, CA</option><option value="vista-ca">Vista, CA</option></optgroup><optgroup label="Top 50"><option value="albuquerque-nm">Albuquerque, NM</option><option value="atlanta-ga">Atlanta, GA</option><option value="aurora-co">Aurora, CO</option><option value="austin-tx">Austin, TX</option><option value="bakersfield-ca">Bakersfield, CA</option><option value="baltimore-md">Baltimore, MD</option><option value="boston-ma">Boston, MA</option><option value="charlotte-nc">Charlotte, NC</option><option value="chicago-il">Chicago, IL</option><option value="colorado-springs-co">Colorado Springs, CO</option><option value="columbus-oh">Columbus, OH</option><option value="dallas-tx">Dallas, TX</option><option value="denver-co">Denver, CO</option><option value="detroit-mi">Detroit, MI</option><option value="el-paso-tx">El Paso, TX</option><option value="fort-worth-tx">Fort Worth, TX</option><option value="fresno-ca">Fresno, CA</option><option value="houston-tx">Houston, TX</option><option value="indianapolis-in">Indianapolis, IN</option><option value="jacksonville-fl">Jacksonville, FL</option><option value="kansas-city-mo">Kansas City, MO</option><option value="las-vegas-nv">Las Vegas, NV</option><option value="long-beach-ca">Long Beach, CA</option><option value="los-angeles-ca">Los Angeles, CA</option><option value="louisville-ky">Louisville, KY</option><option value="memphis-tn">Memphis, TN</option><option value="mesa-az">Mesa, AZ</option><option value="miami-fl">Miami, FL</option><option value="milwaukee-wi">Milwaukee, WI</option><option value="minneapolis-mn">Minneapolis, MN</option><option value="nashville-tn">Nashville, TN</option><option value="new-york-ny">New York, NY</option><option value="oakland-ca">Oakland, CA</option><option value="oklahoma-city-ok">Oklahoma City, OK</option><option value="omaha-ne">Omaha, NE</option><option value="philadelphia-pa">Philadelphia, PA</option><option value="phoenix-az">Phoenix, AZ</option><option value="portland-or">Portland, OR</option><option value="raleigh-nc">Raleigh, NC</option><option value="sacramento-ca">Sacramento, CA</option><option value="san-antonio-tx">San Antonio, TX</option><option value="san-diego-ca">San Diego, CA</option><option value="san-francisco-ca">San Francisco, CA</option><option value="san-jose-ca">San Jose, CA</option><option value="seattle-wa">Seattle, WA</option><option value="tampa-fl">Tampa, FL</option><option value="tucson-az">Tucson, AZ</option><option value="tulsa-ok">Tulsa, OK</option><option value="virginia-beach-va">Virginia Beach, VA</option><option value="washington-dc">Washington, DC</option></optgroup>
+        </select>
+        
+    </div>
+
+    
+    <div id="game-root" data-project="Solvent Streets">
+        <div id="map"></div>
+    </div>
+
+    <div id="brush-cursor"></div>
+    <div id="loading">Loading board&hellip;</div>
+
+    <div class="panel" id="hud" style="display:none">
+        <h1>Pavement Manager &mdash; Solvent Streets</h1>
+        <div class="hud-row"><span class="k">Year</span><span class="v" id="hud-year">&mdash;</span></div>
+        <div class="hud-row"><span class="k">Treasury</span><span class="v" id="hud-treasury">&mdash;</span></div>
+        <div class="funds-warn" id="hud-funds-warn">Out of funds &mdash; waiting on budget</div>
+        <div class="hud-row"><span class="k">Network PCI</span><span class="v" id="hud-pci">&mdash;</span></div>
+        <div class="hud-row"><span class="k">Backlog</span><span class="v" id="hud-backlog">&mdash;</span></div>
+    </div>
+
+    <div class="panel" id="controls" style="display:none">
+        <div class="ctrl-block">
+            <label>Speed</label>
+            <div class="row-buttons" id="speed-buttons">
+                <button class="btn" id="pause-btn" type="button" data-speed="0">Pause</button>
+                <button class="btn active" type="button" data-speed="1">1&times;</button>
+                <button class="btn" type="button" data-speed="2">2&times;</button>
+                <button class="btn" type="button" data-speed="4">4&times;</button>
+            </div>
+            <button class="btn" id="reset-btn" type="button" style="margin-top:8px;width:100%">Reset</button>
+        </div>
+        <div class="ctrl-block">
+            <label>Brush size <span class="hint">(left-drag to treat, right-drag to pan)</span></label>
+            <input type="range" id="brush-size" min="0" max="80" value="24" step="2">
+        </div>
+    </div>
+
+    <div class="panel" id="legend" style="display:none">
+        <div class="legend-title">Pavement condition (PCI)</div>
+        <div class="legend-bar"></div>
+        <div class="legend-labels"><span>worst</span><span>best</span></div>
+        <div class="gravel-key"><span class="gravel-swatch"></span>closed &rarr; gravel</div>
+    </div>
+
+    <div class="panel" id="start-overlay">
+        <div class="headline">Pavement Manager</div>
+        <div class="sub">Keep the network solvent through the horizon.</div>
+        <label>Horizon</label>
+        <div class="row-buttons" id="horizon-buttons">
+            <button class="btn" type="button" data-horizon="20">20y</button>
+            <button class="btn" type="button" data-horizon="30">30y</button>
+            <button class="btn" type="button" data-horizon="50">50y</button>
+            <button class="btn" type="button" data-horizon="endless">Endless</button>
+        </div>
+        <label style="margin-top:16px">Annual budget: <span class="ctrl-value" id="start-budget-value"></span>/yr</label>
+        <input type="range" id="start-budget-slider" min="0" max="100" value="50" step="1" style="width:100%">
+        <div id="start-projection">&mdash;</div>
+        <button class="btn" id="start-btn" type="button">Start</button>
+    </div>
+
+    <div id="banner"></div>
+
+    
+    <script src="wasm_exec.js"></script>
+    <script>window.PVMT_CONFIG = {"center":[-96.9922589,36.721601],"forecastSeed":{"initial_pci":85,"decay_rate":0.035,"growth_rate":0,"years":20,"treatment_cycle_years":12,"total_area":3785336084.601935,"city_paved":3109984216.296902,"cost_tiers":[{"min_pci":70,"max_pci":101,"cost_per_sqm":5,"label":"preventive"},{"min_pci":40,"max_pci":70,"cost_per_sqm":50,"label":"rehab"},{"min_pci":0,"max_pci":40,"cost_per_sqm":150,"label":"reconstruction"}],"cost_overhead":1,"material_tiers":[{"label":"preventive","mix_kg_per_sqm":30,"binder_pct":0.065},{"label":"rehab","mix_kg_per_sqm":120,"binder_pct":0.055},{"label":"reconstruction","mix_kg_per_sqm":480,"binder_pct":0.05}],"barrels_per_ton_binder":6.23,"cohorts":[{"classification":"motorway","area":246736187.08354598,"decay_rate":0.015},{"classification":"primary","area":219655034.29930726,"decay_rate":0.025},{"classification":"residential","area":1184217575.6108015,"decay_rate":0.04},{"classification":"service","area":756454201.8314472,"decay_rate":0.045},{"classification":"tertiary","area":268416760.2895795,"decay_rate":0.035},{"classification":"secondary","area":341540004.20429474,"decay_rate":0.03},{"classification":"parking","area":650750880.1618055,"decay_rate":0.035},{"classification":"sidewalks","area":225559565.69664958,"decay_rate":0.025},{"classification":"trunk","area":30019810.798450153,"decay_rate":0.02}],"city_cohorts":[{"classification":"tertiary","area":268665637.6873146,"decay_rate":0.035},{"classification":"secondary","area":4165715.5387829435,"decay_rate":0.03},{"classification":"primary","area":140408060.75663102,"decay_rate":0.025},{"classification":"residential","area":1193607699.8750136,"decay_rate":0.04},{"classification":"service","area":761843377.217303,"decay_rate":0.045},{"classification":"parking","area":649506931.6970549,"decay_rate":0.035},{"classification":"sidewalks","area":225559304.22677082,"decay_rate":0.025}],"asphalt_area_share":0.9425084265874305,"city_asphalt_area_share":0.9304635571621745},"dataPrefix":"","mapHref":"index.html","bandCount":6,"wasmPrefix":""};</script>
+    <script src="game.js"></script>
+</body>
+</html>
