@@ -3,7 +3,7 @@ module github.com/jcrussell/solvent-streets
 go 1.26.4
 
 require (
-	charm.land/bubbletea/v2 v2.1.0
+	charm.land/bubbletea/v2 v2.1.1
 	charm.land/huh/v2 v2.0.3
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/BurntSushi/toml v1.6.0
@@ -12,7 +12,7 @@ require (
 	github.com/peterstace/simplefeatures v0.59.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
-	github.com/yuin/goldmark v1.8.6
+	github.com/yuin/goldmark v1.8.7
 	golang.org/x/sync v0.24.0
 	modernc.org/sqlite v1.61.0
 )
