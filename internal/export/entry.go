@@ -198,6 +198,9 @@ func (entry CityEntry) Info(ctx context.Context) (CityInfo, error) {
 		BBox:      bbox,
 		CenterLon: lon,
 		CenterLat: lat,
-		Tags:      entry.City.Tags,
+		// EffectiveTags adds the derived state:XX tag; this is the one place
+		// the derivation is applied, so cities.json, PVMT_CONFIG.cities, the
+		// selector groups and /api/cities all see the same tags.
+		Tags: entry.City.EffectiveTags(),
 	}, nil
 }

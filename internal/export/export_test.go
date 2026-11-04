@@ -60,7 +60,27 @@ func TestCityEntry_InfoMapsTags(t *testing.T) {
 	if got := strings.Join(info.Tags, ","); got != "Bay Area,Top 50" {
 		t.Errorf("Info().Tags = %v; want [Bay Area Top 50]", info.Tags)
 	}
-	// An untagged city yields no tags.
+	// A ", XX" name suffix derives a state tag after the explicit ones; an
+	// explicit state tag suppresses the derivation (CityConfig.EffectiveTags).
+	derived := exportTestEntry(&config.Config{}, "Livermore, CA", "livermore-ca", exportBoundaryA, nil)
+	derived.City.Tags = []string{"Bay Area"}
+	dinfo, err := derived.Info(context.Background())
+	if err != nil {
+		t.Fatalf("Info (derived): %v", err)
+	}
+	if got := strings.Join(dinfo.Tags, ","); got != "Bay Area,state:CA" {
+		t.Errorf("Info().Tags = %v; want [Bay Area state:CA]", dinfo.Tags)
+	}
+	explicit := exportTestEntry(&config.Config{}, "Kansas City, MO", "kansas-city-mo", exportBoundaryA, nil)
+	explicit.City.Tags = []string{"state:KS"}
+	einfo, err := explicit.Info(context.Background())
+	if err != nil {
+		t.Fatalf("Info (explicit state): %v", err)
+	}
+	if got := strings.Join(einfo.Tags, ","); got != "state:KS" {
+		t.Errorf("Info().Tags = %v; want [state:KS]", einfo.Tags)
+	}
+	// An untagged city with no state suffix yields no tags.
 	untagged := exportTestEntry(&config.Config{}, "Reno", "reno", exportBoundaryB, nil)
 	uinfo, err := untagged.Info(context.Background())
 	if err != nil {

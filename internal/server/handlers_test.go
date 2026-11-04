@@ -1246,6 +1246,38 @@ func TestHandleCitiesList_SchemaParity(t *testing.T) {
 	}
 }
 
+// TestHandleCitiesList_DerivesStateTag: the live /api/cities goes through
+// CityEntry.Info like the static cities.json, so the derived state:XX tag
+// (CityConfig.EffectiveTags) shows up on both surfaces identically.
+func TestHandleCitiesList_DerivesStateTag(t *testing.T) {
+	boundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return boundary, nil },
+	}
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Pleasanton, CA", Tags: []string{"Bay Area"}}}}
+	entries := []export.CityEntry{
+		{Config: cfg, City: cfg.Cities[0], Store: store, Slug: cfg.Cities[0].Slug()},
+	}
+	ios, _, _, _ := iostreams.Test()
+	srv := New(entries, "127.0.0.1", 0, ios)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/cities", srv.handleCitiesList)
+
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", "/api/cities", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var got []export.CityInfo
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || len(got[0].Tags) != 2 || got[0].Tags[0] != "Bay Area" || got[0].Tags[1] != "state:CA" {
+		t.Errorf("/api/cities tags = %+v; want [Bay Area state:CA]", got)
+	}
+}
+
 // TestHandleCitiesList_Cached verifies /api/cities is single-flighted through
 // serveJSONCached: the per-city Info build (GetBoundary + boundary parse) runs
 // once, and the second response carries the Cache-Control header the cached
