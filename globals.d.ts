@@ -47,6 +47,19 @@ interface PvmtTagDimension {
   values: Array<{ tag: string; label: string }>;
 }
 
+// One entry of hex-metrics.json's metrics map (export.MetricJSON).
+interface PvmtHexMetric {
+  label: string;
+  unit: string;
+  format: string;
+  source: string;
+  scale: { kind: string; transform: string; bands: number[] | null };
+  threshold_s?: number;
+  values: Record<string, number>;
+  refs?: Record<string, number>;
+  points?: Array<{ id: string; name: string; lon: number; lat: number; source: string }>;
+}
+
 // window.PvmtSelectors, assigned by selectors.js (loaded before the page
 // script); the shared tag-filter + city-select logic both pages call.
 interface PvmtSelectorsAPI {
@@ -80,6 +93,8 @@ interface PvmtConfig {
 interface Window {
   PVMT_CONFIG: PvmtConfig;
   PvmtSelectors: PvmtSelectorsAPI;
+  // Test seam for the play page's navigation (see game.js navigateTo).
+  __pvmtNavigate?: (u: URL) => void;
   _map?: any; // debug/resize handle to the live maplibre Map (app.js sets window._map = map)
   simulateForecast?: WasmFn;
   gameInit?: WasmFn;

@@ -60,8 +60,15 @@
             border-radius: 6px; padding: 4px 8px; font-size: 13px; cursor: pointer;
         }
         /* Tag filters (shared partial, selectors.js) narrow the city selector. */
-        #topbar .tag-filters { display: flex; gap: 8px; }
+        #topbar .tag-filters { display: flex; gap: 8px; flex-wrap: wrap; }
         .tag-filter[hidden] { display: none; }
+        /* Phone width: the bar cannot grow (HUD/controls key off --bar-h), so
+           drop the brand and the "City" label and let the controls shrink. */
+        @media (max-width: 640px) {
+            #topbar { gap: 6px; padding: 0 8px; }
+            #topbar .brand, #topbar label[for="city-select"] { display: none; }
+            #topbar select { max-width: 40vw; font-size: 12px; }
+        }
 
         /* Controls — bottom left */
         #controls { bottom: 12px; left: 12px; padding: 14px 18px; min-width: 260px; max-height: calc(100vh - var(--bar-h) - 24px); overflow-y: auto; }
@@ -168,7 +175,7 @@
         <span class="spacer"></span>
         {{if .Cities}}
         <label for="city-select" style="font-size:12px;color:#9aa4b2;">City</label>
-        <select id="city-select">
+        <select id="city-select" autocomplete="off">
             {{range .CityGroups}}{{if .Tag}}<optgroup label="{{.Label}}">{{range .Cities}}<option value="{{.Slug}}"{{if eq .Slug $.ActiveSlug}} selected{{end}}>{{.Name}}</option>{{end}}</optgroup>{{else}}{{range .Cities}}<option value="{{.Slug}}"{{if eq .Slug $.ActiveSlug}} selected{{end}}>{{.Name}}</option>{{end}}{{end}}{{end}}
         </select>
         {{if .HasTagFilters}}{{template "tag_filters" .}}{{end}}

@@ -34,6 +34,16 @@
         // for the stateful board (MapLibre source + WASM game state + timers), and
         // using location.href keeps us on play.html (static) or /play (server).
         // A filter change that keeps the current city only rewrites the URL.
+        // navigateTo is the one place the play page leaves for another URL; a
+        // function declaration so the jsdom specs can observe it (jsdom cannot
+        // navigate).
+        /** @param {URL} u */
+        function navigateTo(u) {
+            // Test seam: jsdom cannot navigate, so the harness installs
+            // window.__pvmtNavigate to observe where the page would have gone.
+            if (typeof window.__pvmtNavigate === 'function') { window.__pvmtNavigate(u); return; }
+            location.assign(u);
+        }
         {
             const sel = selectById('city-select');
             if (sel) {
@@ -45,16 +55,16 @@
                 const linked = want ? cities.find(c => c.slug === want) : null;
                 if (linked && !PvmtSelectors.matches(linked.tags, filters)) filters = {};
                 PvmtSelectors.writeFilters(filters);
-                if (cities.length > 0) PvmtSelectors.rebuildCitySelect(sel, cities, dims, filters, want || sel.value);
-                const valid = new Set(Array.from(sel.options).map(o => o.value));
-                if (want && valid.has(want)) {
-                    DATA_PREFIX = 'cities/' + want + '/';
-                    sel.value = want;
-                } else if (!DATA_PREFIX && sel.value) {
-                    // Static multi-city with no valid ?city=: default to the first
-                    // option (a multi-city export has no root data/ dir).
-                    DATA_PREFIX = 'cities/' + sel.value + '/';
-                }
+                // On the live server the page was rendered FOR one city: its
+                // data prefix, HUD title and seed are baked in. Keep that city
+                // selected through the rebuild; if the filters (or an unknown
+                // ?city=) leave the dropdown on a different city, the only
+                // consistent state is a re-render, so navigate to it.
+                const served = DATA_PREFIX.startsWith('cities/') ? DATA_PREFIX.slice('cities/'.length, -1) : '';
+                // Keep a KNOWN ?city= selected through the rebuild; an unknown one
+                // defers to the served city (or the first option on a static host).
+                const prefer = (want && cities.some(c => c.slug === want)) ? want : (served || sel.value);
+                if (cities.length > 0) PvmtSelectors.rebuildCitySelect(sel, cities, dims, filters, prefer);
                 /** @param {string} slug @param {Record<string, string>} selected */
                 const urlFor = (slug, selected) => {
                     const u = new URL(location.href);
@@ -63,9 +73,20 @@
                     if (slug) u.searchParams.set('city', slug);
                     return u;
                 };
+                const valid = new Set(Array.from(sel.options).map(o => o.value));
+                if (served) {
+                    if (sel.value && sel.value !== served) navigateTo(urlFor(sel.value, filters));
+                } else if (want && valid.has(want)) {
+                    DATA_PREFIX = 'cities/' + want + '/';
+                    sel.value = want;
+                } else if (!DATA_PREFIX && sel.value) {
+                    // Static multi-city with no valid ?city=: default to the first
+                    // option (a multi-city export has no root data/ dir).
+                    DATA_PREFIX = 'cities/' + sel.value + '/';
+                }
                 sel.addEventListener('change', () => {
                     if (!sel.value) return;
-                    location.assign(urlFor(sel.value, PvmtSelectors.readFilters()));
+                    navigateTo(urlFor(sel.value, PvmtSelectors.readFilters()));
                 });
                 queryAll('select.tag-filter').forEach(f => {
                     f.addEventListener('change', () => {
@@ -74,7 +95,7 @@
                         const picked = cities.length > 0
                             ? PvmtSelectors.rebuildCitySelect(sel, cities, dims, selected, before)
                             : before;
-                        if (picked && picked !== before) location.assign(urlFor(picked, selected));
+                        if (picked && picked !== before) navigateTo(urlFor(picked, selected));
                         else history.replaceState(null, '', urlFor(picked || before, selected));
                     });
                 });

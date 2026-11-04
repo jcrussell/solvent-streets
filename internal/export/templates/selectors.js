@@ -36,7 +36,8 @@ window.PvmtSelectors = (function () {
     /**
      * parseTags reads every ?tag= param into a {dim: configTag} map, keeping
      * only values that exist in dims — an unknown label is ignored rather than
-     * filtering every city away. Later params win within a dimension.
+     * filtering every city away, and so is a dimension with a single value
+     * (it renders no filter control). Later params win within a dimension.
      * @param {URLSearchParams} params
      * @param {PvmtTagDimension[] | undefined} dims
      * @returns {Record<string, string>}
@@ -47,6 +48,10 @@ window.PvmtSelectors = (function () {
         params.getAll('tag').forEach(function (raw) {
             const want = normalizeTag(raw);
             (dims || []).forEach(function (d) {
+                // A dimension with one value renders no (visible) filter, so a
+                // tag in it could never be cleared: ignore it rather than apply
+                // a filter the user cannot see.
+                if (d.values.length < 2) return;
                 d.values.forEach(function (v) {
                     if (normalizeTag(v.tag) === want) out[d.name] = v.tag;
                 });

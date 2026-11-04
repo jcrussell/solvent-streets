@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
-import { metaJSON, fullData } from './fixtures.mjs';
+import { metaJSON, fullData, readFixture } from './fixtures.mjs';
 
 const plain = (v) => JSON.parse(JSON.stringify(v));
 const params = (win) => new URLSearchParams(win.location.search);
@@ -23,22 +23,15 @@ function hexFC(features) {
   };
 }
 
-const metricsFile = {
-  v: 1,
-  metrics: {
-    fire_response_s: {
-      label: 'Fire response', unit: 's', format: 'minutes', source: 'test',
-      scale: { kind: 'sequential', transform: 'linear', bands: [320, 440, 560, 680] },
-      values: { 'hex:0:0': 300, 'hex:0:1': 700 },
-      refs: { 'hex:0:0': 0 },
-      points: [{ id: 'osm:node:9', name: 'Station 9', lon: 0.5, lat: 0.5, source: 'osm' }],
-    },
-  },
-};
+// REAL exporter output (BuildHexMetrics / BuildMeta over the harness fixture,
+// see js_harness_test.go), not hand-written: rename a json tag on the Go side
+// and these specs fail instead of passing over a stale literal.
+const metricsFile = readFixture('hex-metrics.json');
+const fire = metricsFile.metrics.fire_response_s;
 
 const data = {
   ...fullData,
-  'meta.json': { ...metaJSON, metrics: { fire_response_s: { label: 'Fire response', unit: 's', format: 'minutes', hexes: 2, min: 300, median: 700, max: 700, points: 1 } } },
+  'meta.json': metaJSON,
   'hexgrid.geojson': hexFC([
     { bbox: { roads: { area: 100, pct: 10 } }, city_same: 1 },
     { bbox: { roads: { area: 100, pct: 10 } }, city_same: 1 },
@@ -75,7 +68,7 @@ test('selecting a metric paints discrete bands guarded for missing values, redra
   assert.equal(paint[0], 'case');
   assert.deepEqual(paint[1], ['has', 'metric_v'], 'a hex without a value must not hit the step expression');
   assert.equal(paint[2][0], 'step');
-  assert.equal(paint[2].length, 3 + 2 * 4, 'one colour per band: 4 edges -> 5 colours');
+  assert.equal(paint[2].length, 3 + 2 * fire.scale.bands.length, 'one colour per band');
 
   const fc = plain(win.buildBlendedHexFC());
   const byId = Object.fromEntries(fc.features.map((f) => [f.properties.hex_id, f.properties]));
@@ -85,8 +78,14 @@ test('selecting a metric paints discrete bands guarded for missing values, redra
   assert.equal(byId['hex:0:2'].metric_v, undefined, 'a hex the metric does not cover carries no value');
 
   assert.match($('#legend .legend-row label').textContent, /Color by/);
+  // One label per band, centred under its colour block: "≤ first", ranges,
+  // "> last"; the exact strings follow the fixture's resolved bands.
   const labels = $$('#legend .legend-labels span').map((s) => s.textContent);
-  assert.deepEqual(labels, ['≤ 5:20', '7:20', '9:20', '11:20', '> 11:20']);
+  assert.equal(labels.length, fire.scale.bands.length + 1, 'one label per band');
+  assert.ok(labels[0].startsWith('≤ '), labels[0]);
+  assert.ok(labels[labels.length - 1].startsWith('> '), labels[labels.length - 1]);
+  assert.match(labels[1], /^\d+:\d\d–\d+:\d\d$/, 'inner labels name the band range');
+  assert.equal($('#legend .legend-labels').style.gridTemplateColumns, 'repeat(' + labels.length + ', 1fr)');
   assert.ok($('#legend .legend-bar').classList.contains('discrete'));
   assert.ok(get('map').__sources.has('metric-points'), 'the points layer source must exist for a metric with points');
   assert.ok(get('map').__layers.has('metric-points'));
@@ -114,12 +113,46 @@ test('?metric= rides the URL only on the Map tab and restores on load', async ()
   assert.equal(plain(deep.win.hexFillColor())[0], 'case', 'a deep-linked metric must paint on first load');
 });
 
-test('a city without the requested metric falls back to coverage and hides the selector', async () => {
-  const h = load({ data: fullData, url: 'https://example.test/index.html?metric=fire_response_s' });
+test('a city without the requested metric falls back to coverage, hides the selector, and drops ?metric=', async () => {
+  const noMetrics = { ...fullData, 'meta.json': { ...metaJSON, metrics: undefined } };
+  const h = load({ data: noMetrics, url: 'https://example.test/index.html?metric=fire_response_s' });
   await h.flush();
   await h.win.loadCityData();
   await h.flush();
   assert.equal(h.get('hexMetric'), 'coverage');
   assert.equal(h.$('#hex-metric').hidden, true, 'no metrics -> no selector');
   assert.match(h.$('#legend .legend-row label').textContent, /Coverage %/);
+  assert.equal(params(h.win).get('metric'), null, 'the address bar must stop claiming the metric');
+});
+
+test('fmtMetric rounds to whole seconds before splitting minutes', async () => {
+  const { win } = await loadWithMetrics();
+  assert.equal(win.fmtMetric(359.7, 'minutes'), '6:00');
+  assert.equal(win.fmtMetric(300, 'minutes'), '5:00');
+  assert.equal(win.fmtMetric(61.4, 'minutes'), '1:01');
+  assert.equal(win.fmtMetric(1234.5, 'int'), '1,235');
+});
+
+test('a prototype key in ?metric= does not resolve to a metric', async () => {
+  const h = await loadWithMetrics('https://example.test/index.html?metric=constructor');
+  assert.equal(h.get('hexMetric'), 'coverage');
+  assert.equal(plain(h.win.hexFillColor())[0], 'interpolate');
+});
+
+test('Back across a city change restores the metric for the returned-to city', async () => {
+  const h = await loadWithMetrics();
+  h.win.selectHexMetric('fire_response_s');
+  // The fetch stub reads `data` live: hide the metrics file while the second
+  // city loads so it lacks the metric, then restore it before going Back.
+  const saved = data['hex-metrics.json'];
+  data['hex-metrics.json'] = { v: 1, metrics: {} };
+  h.win.selectCity('beta-ca');
+  await h.flush();
+  assert.equal(h.get('hexMetric'), 'coverage', 'the city without the metric falls back');
+  data['hex-metrics.json'] = saved;
+  h.win.history.back();
+  await h.flush();
+  await h.flush();
+  assert.equal(params(h.win).get('metric'), 'fire_response_s');
+  assert.equal(h.get('hexMetric'), 'fire_response_s', 'the metric must be restored, not collapsed to coverage by the empty map mid-load');
 });

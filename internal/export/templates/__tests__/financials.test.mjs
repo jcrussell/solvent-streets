@@ -44,7 +44,9 @@ test('the stats panel renders a card per resource from meta.stats[]', async () =
   await win.loadCityData();   // renderCityStats runs off the meta.json fetch
   await flush();
 
-  const cards = $$('#stats .stat-card h3').map((h) => h.textContent.toLowerCase());
+  // Per-hex metric cards (fire response, …) are separate from the resource
+  // cards meta.stats[] produces.
+  const cards = $$('#stats .stat-card:not(.metric-card) h3').map((h) => h.textContent.toLowerCase());
   assert.deepEqual(cards.filter((c) => c !== 'city summary'), ['roads', 'parking', 'sidewalks'],
     'meta.stats[] did not produce a card per resource');
 

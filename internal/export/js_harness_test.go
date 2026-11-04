@@ -19,6 +19,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/services"
 )
 
 // TestJS drives the executing JavaScript tests for
@@ -142,12 +143,55 @@ func jsFixtureEntry(t *testing.T) CityEntry {
 		}
 		return r, err
 	}
+	// Per-hex metrics: two fire-response rows referencing one OSM station, on
+	// hexes that also carry roads hex_stats rows (so meta.metrics counts them
+	// as painted). hex-metrics.json and meta.metrics in the fixture tree are
+	// then the REAL BuildHexMetrics/BuildMeta output, the same drift guard the
+	// other fixtures get.
+	innerFeatures := store.ListFeaturesFunc
+	store.ListFeaturesFunc = func(ctx context.Context, rt resource.Type) ([]db.Feature, error) {
+		if rt == resource.FacilityType("fire") {
+			return []db.Feature{{ID: jsFixtureStationID, ResourceType: rt, Name: "Station 9", SourceAPI: "overpass",
+				GeometryJSON: `{"type":"Point","coordinates":[-122.25,37.75]}`}}, nil
+		}
+		if innerFeatures != nil {
+			return innerFeatures(ctx, rt)
+		}
+		return nil, nil
+	}
+	store.ListHexMetricsFunc = func(_ context.Context, key string) ([]db.HexMetric, error) {
+		if key != services.MetricFire {
+			return nil, nil
+		}
+		return []db.HexMetric{
+			{HexID: "hex:0:0", Metric: key, Value: 300, Ref: jsFixtureStationID},
+			{HexID: "hex:0:1", Metric: key, Value: 700, Ref: jsFixtureStationID},
+		}, nil
+	}
+	innerHex := store.ListHexStatsFunc
+	store.ListHexStatsFunc = func(ctx context.Context, rt resource.Type) ([]db.HexStat, error) {
+		var out []db.HexStat
+		if innerHex != nil {
+			var err error
+			if out, err = innerHex(ctx, rt); err != nil {
+				return nil, err
+			}
+		}
+		if rt == resource.TypeRoads {
+			out = append(out, db.HexStat{HexID: "hex:0:0", ResourceType: rt, Area: 1}, db.HexStat{HexID: "hex:0:1", ResourceType: rt, Area: 1})
+		}
+		return out, nil
+	}
 	// Matches a city option in the rendered index.html, so meta.project_name and
 	// the DOM describe the same place.
 	entry.City.Name = "Alpha, CA"
 	entry.Slug = "alpha-ca"
 	return entry
 }
+
+// jsFixtureStationID is the fixture fire station's feature id; the metrics
+// specs expect its name ("Station 9") on the referencing hexes.
+const jsFixtureStationID = "osm:node:9"
 
 // jsFixtureParkingSpaces is the estimated parking space count the fixture's
 // parking stat carries (see jsFixtureEntry); parking.test.mjs asserts on it.
@@ -200,6 +244,17 @@ func writeJSFixtureTree(t *testing.T, dir string) {
 	if !slices.ContainsFunc(meta.Stats, func(s StatJSON) bool { return s.Type == "parking" && s.EstimatedSpaces == jsFixtureParkingSpaces }) {
 		t.Fatalf("fixture meta.json parking stat lacks estimated_spaces=%d; the parking specs would test nothing: %+v", jsFixtureParkingSpaces, meta.Stats)
 	}
+	if s, ok := meta.Metrics[services.MetricFire]; !ok || s.Hexes != 2 {
+		t.Fatalf("fixture meta.json lacks the %s summary over 2 painted hexes; the metrics specs would test nothing: %+v", services.MetricFire, meta.Metrics)
+	}
+	hm, err := BuildHexMetrics(ctx, entry)
+	if err != nil {
+		t.Fatalf("build hex metrics: %v", err)
+	}
+	if hm == nil || len(hm.Metrics[services.MetricFire].Points) != 1 {
+		t.Fatalf("fixture hex-metrics.json lacks the fire metric with its station: %+v", hm)
+	}
+	writeFixtureJSON(t, dir, "hex-metrics.json", hm)
 	if len(forecasts) == 0 {
 		t.Fatal("fixture forecast.json is empty; the Financials specs would test nothing")
 	}
@@ -293,6 +348,19 @@ func writeJSFixtureSite(t *testing.T, dir string, seed template.JS) {
 	}
 	if err := os.WriteFile(filepath.Join(dir, "play.html"), play, 0o644); err != nil {
 		t.Fatalf("write play.html: %v", err)
+	}
+	// And the live-server shape (`pvmt serve` renders /play per city): the
+	// served city pre-selected with its data prefix injected, which is where
+	// a filter that excludes it must trigger a re-render rather than mismatch.
+	live := td
+	live.ActiveSlug = "gamma-or"
+	live.IsLiveServer = true
+	playLive, err := renderPage(ParseGameTemplate, live)
+	if err != nil {
+		t.Fatalf("render play-live: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "play-live.html"), playLive, 0o644); err != nil {
+		t.Fatalf("write play-live.html: %v", err)
 	}
 
 	// Tripwire: if the template stops emitting city options, every selectCity

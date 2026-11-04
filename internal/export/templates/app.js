@@ -80,8 +80,12 @@
                 // (the same rule scope follows). Coverage is the default and is
                 // left out of the URL.
                 const onMap = tabBtn && tabBtn.dataset.tab === 'map-tab';
+                // With no city matching the filters the select holds a disabled
+                // placeholder (value ''); the city actually in view is the one
+                // DATA_PREFIX points at, so the URL keeps naming it.
+                const loaded = DATA_PREFIX.startsWith('cities/') ? DATA_PREFIX.slice('cities/'.length, -1) : '';
                 return {
-                    city:     sel ? sel.value : null,
+                    city:     sel ? (sel.value || loaded || null) : null,
                     tab:      tabBtn ? tabBtn.dataset.tab : null,
                     tags:     PvmtSelectors.readFilters(),
                     scope:    (scopeVis && scopeBtn) ? scopeBtn.dataset.scope : null,
@@ -145,7 +149,7 @@
         // Declared here (like the tab guards) so a ?metric= deep link survives
         // the init IIFE and the per-city load can honour it once the file is in.
         var hexMetric = 'coverage';
-        /** @type {Record<string, any>} */
+        /** @type {Record<string, PvmtHexMetric>} */
         var hexMetrics = {};
 
         // Active tag filters: {dimension: configTag}, empty means all cities.
@@ -274,8 +278,14 @@
             if (!cityChanged && !snapshotChanged) {
                 selectScope(currentScope, { push: false });
             }
+            // Restore the metric. When the city changed, loadCityData has just
+            // reset hexMetrics and will honour (or fall back from) hexMetric once
+            // the new city's file arrives — so set the key directly, as the
+            // deep-link path does; selectHexMetric would see an empty map and
+            // collapse to coverage. Only a same-city entry repaints in place.
             const targetMetric = s.metric || 'coverage';
-            if (targetMetric !== hexMetric) selectHexMetric(targetMetric, { push: false });
+            if (cityChanged) hexMetric = targetMetric;
+            else if (targetMetric !== hexMetric) selectHexMetric(targetMetric, { push: false });
         });
 
         // dataURL builds a /data/{file} request URL, appending ?snapshot=<id>
@@ -545,7 +555,7 @@
             // The active per-hex metric (hex-metrics.json), when one is chosen:
             // its value and, for a coverage metric, the referenced point's name
             // ride on the feature so the paint expression and tooltip read them.
-            const metric = hexMetric !== 'coverage' ? hexMetrics[hexMetric] : null;
+            const metric = activeMetric();
             const features = [];
             for (const [hid, data] of Object.entries(byHex)) {
                 /** @type {Record<string, any>} */
@@ -615,8 +625,9 @@
             Object.keys(meta.metrics || {}).sort().forEach(key => {
                 const s = meta.metrics[key];
                 statsHTML +=
-                    '<div class="stat-card"><h3>' + esc(s.label) + '</h3>' +
+                    '<div class="stat-card metric-card"><h3>' + esc(s.label) + '</h3>' +
                     '<div class="stat-row"><span class="stat-label">Hexes reached</span><span class="stat-value">' + (s.hexes || 0).toLocaleString() + '</span></div>' +
+                    (s.threshold_s > 0 ? '<div class="stat-row"><span class="stat-label">Within ' + fmtMetric(s.threshold_s, s.format) + '</span><span class="stat-value">' + (s.pct_within || 0).toFixed(1) + '%</span></div>' : '') +
                     '<div class="stat-row"><span class="stat-label">Median</span><span class="stat-value">' + fmtMetric(s.median, s.format) + '</span></div>' +
                     '<div class="stat-row"><span class="stat-label">Range</span><span class="stat-value">' + fmtMetric(s.min, s.format) + ' – ' + fmtMetric(s.max, s.format) + '</span></div>' +
                     (s.points > 0 ? '<div class="stat-row"><span class="stat-label">Points of service</span><span class="stat-value">' + s.points + '</span></div>' : '') +
@@ -663,7 +674,12 @@
                 const hm = await loadJSON(dataURL(prefix, 'hex-metrics.json'), { silent404: true });
                 if (gen !== cityLoadGen) return;
                 if (hm && hm.v === 1 && hm.metrics) hexMetrics = hm.metrics;
-                if (hexMetric !== 'coverage' && !hexMetrics[hexMetric]) hexMetric = 'coverage';
+                if (hexMetric !== 'coverage' && !Object.hasOwn(hexMetrics, hexMetric)) {
+                    // The requested metric is not in this city: fall back and
+                    // rewrite the address bar so it no longer claims it.
+                    hexMetric = 'coverage';
+                    Router.replace();
+                }
                 populateMetricSelect();
                 renderLegend();
             }
@@ -959,8 +975,16 @@
             }
             return colors;
         }
+        // activeMetric returns the selected per-hex metric's description, or
+        // null for coverage / an unknown key. Own-property lookup, so a shared
+        // link like ?metric=constructor cannot resolve to a prototype member.
+        /** @returns {PvmtHexMetric | null} */
+        function activeMetric() {
+            if (hexMetric === 'coverage' || !Object.hasOwn(hexMetrics, hexMetric)) return null;
+            return hexMetrics[hexMetric];
+        }
         function hexFillColor() {
-            const metric = hexMetric !== 'coverage' ? hexMetrics[hexMetric] : null;
+            const metric = activeMetric();
             if (!metric) {
                 const lg = n => cssVar('--legend-' + n);
                 return ['interpolate', ['linear'], ['get', 'pct_covered'],
@@ -968,6 +992,11 @@
             }
             const bands = (metric.scale && metric.scale.bands) || [];
             const colors = metricBandColors(metric.scale);
+            // The style spec's `step` needs at least one stop; a bandless scale
+            // (rejected by the registry, but the file is data) is one flat colour.
+            if (bands.length === 0) {
+                return ['case', ['has', 'metric_v'], colors[0], cssVar('--metric-none')];
+            }
             /** @type {any[]} */
             const step = ['step', ['get', 'metric_v'], colors[0]];
             bands.forEach((edge, i) => { step.push(edge, colors[i + 1]); });
@@ -976,6 +1005,9 @@
         document.addEventListener('pvmt:themechange', () => {
             if (map.getLayer('hex-fill')) {
                 map.setPaintProperty('hex-fill', 'fill-color', hexFillColor());
+            }
+            if (map.getLayer('metric-points')) {
+                map.setPaintProperty('metric-points', 'circle-color', metricPointColor());
             }
             renderLegend();
         });
@@ -986,7 +1018,8 @@
             if (v == null || !Number.isFinite(v)) return '—';
             switch (format) {
                 case 'minutes': {
-                    const m = Math.floor(v / 60), s = Math.round(v % 60);
+                    // Round to whole seconds FIRST, or 359.7 renders as "5:60".
+                    const t = Math.round(v), m = Math.floor(t / 60), s = t % 60;
                     return m + ':' + (s < 10 ? '0' : '') + s;
                 }
                 case 'float1': return v.toFixed(1);
@@ -997,7 +1030,7 @@
 
         // metricTooltipLine is the tooltip's extra line for the active metric.
         function metricTooltipLine(p) {
-            const metric = hexMetric !== 'coverage' ? hexMetrics[hexMetric] : null;
+            const metric = activeMetric();
             if (!metric || p.metric_v == null) return '';
             return '<br><strong>' + esc(metric.label) + ':</strong> ' + fmtMetric(p.metric_v, metric.format) +
                 (p.metric_ref ? ' · ' + esc(String(p.metric_ref)) : '');
@@ -1027,10 +1060,12 @@
             const bar = queryEl('#legend .legend-bar');
             const labels = queryEl('#legend .legend-labels');
             if (!bar || !labels) return;
-            const metric = hexMetric !== 'coverage' ? hexMetrics[hexMetric] : null;
+            const metric = activeMetric();
             if (!metric) {
                 bar.classList.remove('discrete');
                 bar.style.background = '';
+                labels.classList.remove('discrete');
+                labels.style.gridTemplateColumns = '';
                 labels.innerHTML = '<span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span>';
                 return;
             }
@@ -1040,15 +1075,28 @@
             const stops = colors.map((c, i) => c + ' ' + (i * 100 / n) + '% ' + ((i + 1) * 100 / n) + '%');
             bar.classList.add('discrete');
             bar.style.background = 'linear-gradient(90deg, ' + stops.join(', ') + ')';
-            const parts = bands.map((b, i) => (i === 0 ? '≤ ' : '') + fmtMetric(b, metric.format));
-            if (bands.length > 0) parts.push('> ' + fmtMetric(bands[bands.length - 1], metric.format));
+            // One label per band, each centred under its colour block (a grid
+            // with as many columns as bands), naming the band's range: the
+            // first is "≤ edge", the last "> edge", the rest "lo–hi".
+            const f = v => fmtMetric(v, metric.format);
+            const parts = colors.map((_, i) => {
+                if (bands.length === 0) return 'all';
+                if (i === 0) return '≤ ' + f(bands[0]);
+                if (i === bands.length) return '> ' + f(bands[bands.length - 1]);
+                return f(bands[i - 1]) + '–' + f(bands[i]);
+            });
+            labels.classList.add('discrete');
+            labels.style.gridTemplateColumns = 'repeat(' + n + ', 1fr)';
             labels.innerHTML = parts.map(t => '<span>' + esc(t) + '</span>').join('');
         }
 
         // updateMetricPoints shows the active metric's points of service
         // (stations) as circles, or removes the layer for coverage.
+        function metricPointColor() {
+            return cssVar('--metric-seq-6') || '#b2182b';
+        }
         function updateMetricPoints() {
-            const metric = hexMetric !== 'coverage' ? hexMetrics[hexMetric] : null;
+            const metric = activeMetric();
             const points = metric && metric.points ? metric.points : [];
             if (map.getLayer('metric-points')) map.removeLayer('metric-points');
             if (map.getSource('metric-points')) map.removeSource('metric-points');
@@ -1059,7 +1107,7 @@
             } });
             map.addLayer({
                 id: 'metric-points', type: 'circle', source: 'metric-points',
-                paint: { 'circle-radius': 6, 'circle-color': cssVar('--metric-seq-6') || '#b2182b', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 },
+                paint: { 'circle-radius': 6, 'circle-color': metricPointColor(), 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 },
             });
         }
 
@@ -1067,7 +1115,7 @@
         // same blended source, redraws the legend and the points layer, and
         // records the choice in the URL (counterpart of selectCity/selectScope).
         function selectHexMetric(key, opts) {
-            hexMetric = (key && key !== 'coverage' && hexMetrics[key]) ? key : 'coverage';
+            hexMetric = (key && key !== 'coverage' && Object.hasOwn(hexMetrics, key)) ? key : 'coverage';
             const sel = selectById('hex-metric');
             if (sel) sel.value = hexMetric;
             const src = map.getSource('hexgrid');

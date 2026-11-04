@@ -50,6 +50,10 @@ test('parseTags accepts normalized and legacy bare ?tag= values and ignores unkn
     'a legacy bare label must resolve to the default dimension');
   assert.deepEqual(plain(S.parseTags(new URLSearchParams(''), dims)), {});
   assert.deepEqual(plain(S.parseTags(new URLSearchParams('tag=x'), undefined)), {});
+  // A dimension with a single value renders no filter, so a tag in it is
+  // ignored rather than applied with no way to clear it.
+  const one = dims.concat([{ name: 'metro', label: 'Metro', values: [{ tag: 'metro:X', label: 'X' }] }]);
+  assert.deepEqual(plain(S.parseTags(new URLSearchParams('tag=metro:X&tag=state:CA'), one)), { state: 'state:CA' });
 });
 
 test('urlTags serializes in dimension order using the normalized form', () => {

@@ -187,8 +187,10 @@ export function defaultSimulate(input) {
 // `data` maps a data-file suffix (e.g. 'scenarios.json') to a parsed object;
 // the fetch stub matches by suffix so both single-city ('data/x.json') and
 // multi-city ('cities/<slug>/x.json') prefixes resolve.
-export function load({ page = 'index', data = {}, simulate = defaultSimulate, url } = {}) {
-  const file = page === 'play' ? 'play.html' : 'index.html';
+export function load({ page = 'index', data = {}, simulate = defaultSimulate, url, navigate } = {}) {
+  // 'play-live' is the play page as `pvmt serve` renders it: ActiveSlug set,
+  // DATA_PREFIX injected, the served city pre-selected.
+  const file = page === 'play' ? 'play.html' : page === 'play-live' ? 'play-live.html' : 'index.html';
   url = url || 'https://example.test/' + file;
   const html = readFileSync(join(fixtureDir(), file), 'utf8');
   const dom = new JSDOM(html, {
@@ -202,6 +204,8 @@ export function load({ page = 'index', data = {}, simulate = defaultSimulate, ur
   // jsdom has localStorage, but tests need it empty and isolated per load.
   win.localStorage.clear();
   installStubs(win, { data, simulate });
+  // The play page's navigation seam: record where it would have gone.
+  if (navigate) win.__pvmtNavigate = navigate;
 
   // Run app.js as a real classic script, exactly as <script src> would —
   // NOT via win.eval(). eval evaluates in its own declarative environment, so
@@ -210,7 +214,7 @@ export function load({ page = 'index', data = {}, simulate = defaultSimulate, ur
   // invisible to `get` below. Appending a <script> puts those bindings in the
   // window's global lexical environment, where they belong.
   // selectors.js first, exactly as the page's <script src> order has it.
-  for (const path of [SELECTORS_JS, page === 'play' ? GAME_JS : APP_JS]) {
+  for (const path of [SELECTORS_JS, page.startsWith('play') ? GAME_JS : APP_JS]) {
     const el = win.document.createElement('script');
     el.textContent = readFileSync(path, 'utf8');
     win.document.body.appendChild(el);

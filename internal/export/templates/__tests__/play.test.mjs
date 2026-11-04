@@ -59,3 +59,31 @@ test('play: a filter change that keeps the current city only rewrites the URL', 
   assert.deepEqual(params(win).getAll('tag'), ['group:Top 50']);
   assert.equal(params(win).get('city'), 'beta-ca');
 });
+
+test('play (live server): the served city stays in charge when filters keep it', async () => {
+  const gone = [];
+  const { $, get } = load({ page: 'play-live', data: {}, navigate: (u) => gone.push(String(u)),
+    url: 'https://example.test/play?city=gamma-or&tag=state:OR' });
+  assert.equal($('#city-select').value, 'gamma-or');
+  assert.equal(get('DATA_PREFIX'), 'cities/gamma-or/', 'the injected prefix must not be clobbered');
+  assert.deepEqual(gone, [], 'no re-render needed');
+});
+
+test('play (live server): a filter that excludes the served city re-renders for the shown one', async () => {
+  const gone = [];
+  load({ page: 'play-live', data: {}, navigate: (u) => gone.push(String(u)),
+    url: 'https://example.test/play?tag=state:CA' });
+  assert.equal(gone.length, 1, 'must navigate exactly once');
+  const q = new URL(gone[0]).searchParams;
+  assert.equal(q.get('city'), 'alpha-ca', 'the first visible CA city');
+  assert.deepEqual(q.getAll('tag'), ['state:CA'], 'the filters ride along');
+});
+
+test('play (live server): an unknown ?city= with no filters keeps the served city', async () => {
+  const gone = [];
+  const { $, get } = load({ page: 'play-live', data: {}, navigate: (u) => gone.push(String(u)),
+    url: 'https://example.test/play?city=zzz' });
+  assert.equal($('#city-select').value, 'gamma-or');
+  assert.equal(get('DATA_PREFIX'), 'cities/gamma-or/');
+  assert.deepEqual(gone, []);
+});
