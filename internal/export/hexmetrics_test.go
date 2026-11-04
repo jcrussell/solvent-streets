@@ -177,3 +177,18 @@ func TestRegistry_ProducersLinked(t *testing.T) {
 		}
 	}
 }
+
+// TestSummarizeMetric_AdditiveTotal: an additive count (population) carries
+// its city total; a non-additive metric (fire seconds) does not.
+func TestSummarizeMetric_AdditiveTotal(t *testing.T) {
+	rows := []db.HexMetric{{HexID: "a", Value: 12.5}, {HexID: "b", Value: 30}}
+	pop, _ := hexmetric.Lookup("population")
+	s, ok := summarizeMetric(pop, rows, 0, false)
+	if !ok || s.Total == nil || *s.Total != 42.5 {
+		t.Errorf("population total = %v, want 42.5", s.Total)
+	}
+	fire, _ := hexmetric.Lookup(services.MetricFire)
+	if s, _ := summarizeMetric(fire, rows, 0, false); s.Total != nil {
+		t.Errorf("fire response must not carry a total, got %v", *s.Total)
+	}
+}

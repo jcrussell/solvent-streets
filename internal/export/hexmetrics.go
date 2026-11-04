@@ -59,14 +59,17 @@ type MetricPointJSON struct {
 // card: computed over every stored row, which (hexgrid v4) are the hexes the
 // map paints for that metric.
 type MetricSummaryJSON struct {
-	Label  string  `json:"label"`
-	Unit   string  `json:"unit"`
-	Format string  `json:"format"`
-	Hexes  int     `json:"hexes"`
-	Min    float64 `json:"min"`
-	Median float64 `json:"median"`
-	Max    float64 `json:"max"`
-	Points int     `json:"points,omitempty"`
+	Label  string `json:"label"`
+	Unit   string `json:"unit"`
+	Format string `json:"format"`
+	Hexes  int    `json:"hexes"`
+	// Total is the sum over the city's hexes, for additive metrics
+	// (hexmetric.Spec.Additive) only.
+	Total  *float64 `json:"total,omitempty"`
+	Min    float64  `json:"min"`
+	Median float64  `json:"median"`
+	Max    float64  `json:"max"`
+	Points int      `json:"points,omitempty"`
 	// ThresholdS and PctWithin describe coverage against the service's
 	// resolved threshold (total seconds); omitted for metrics without one.
 	ThresholdS float64 `json:"threshold_s,omitempty"`
@@ -224,7 +227,7 @@ func buildMetricSummaries(ctx context.Context, entry CityEntry) (map[string]Metr
 				return nil, err
 			}
 			if !hasGrid {
-				return nil, nil
+				return nil, nil //nolint:nilnil // nil map = no grid to paint metrics on, not an error
 			}
 			checkedGrid = true
 		}
@@ -263,6 +266,14 @@ func summarizeMetric(spec hexmetric.Spec, rows []db.HexMetric, threshold float64
 		Label: spec.Label, Unit: spec.Unit, Format: spec.Format,
 		Hexes: len(vals), Min: round2(vals[0]), Median: round2(vals[len(vals)/2]), Max: round2(vals[len(vals)-1]),
 		Points: len(refs),
+	}
+	if spec.Additive {
+		var total float64
+		for _, v := range vals {
+			total += v
+		}
+		total = round2(total)
+		sum.Total = &total
 	}
 	if hasThreshold {
 		sum.ThresholdS = threshold

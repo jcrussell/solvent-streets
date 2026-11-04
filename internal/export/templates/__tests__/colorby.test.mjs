@@ -115,6 +115,18 @@ test('a ratio divides a blended numerator by a stored denominator above min_den'
   assert.equal(fc['hex:0:2'].metric_v, 0, 'a populated hex with no pavement has 0 m² per resident');
 });
 
+test('metric cards lead with a total for additive counts and never list hexes reached', async () => {
+  const meta = { ...metaJSON, metrics: {
+    population: { label: 'Population', unit: '', format: 'int', hexes: 3, min: 2, median: 50, max: 80, total: 132 },
+    population_per_km2: { label: 'Population density (per km²)', unit: '1/km2', format: 'int', hexes: 3, min: 70, median: 1900, max: 3000 },
+  } };
+  const h = await loadGrid({ 'meta.json': meta });
+  const card = (title) => h.$$('#stats .metric-card').find((c) => c.querySelector('h3').textContent === title);
+  assert.match(card('Population').textContent, /Total\s*132/);
+  assert.doesNotMatch(card('Population density (per km²)').textContent, /Total/, 'a density has no meaningful sum');
+  assert.doesNotMatch(h.$('#stats').textContent, /Hexes reached/);
+});
+
 test('a ratio is not offered without its stored denominator', async () => {
   const h = await loadGrid();
   assert.equal(h.win.metricAvailable('road_m2_per_resident'), false);

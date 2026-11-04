@@ -665,7 +665,9 @@
                 const s = meta.metrics[key];
                 statsHTML +=
                     '<div class="stat-card metric-card"><h3>' + esc(s.label) + '</h3>' +
-                    '<div class="stat-row"><span class="stat-label">Hexes reached</span><span class="stat-value">' + (s.hexes || 0).toLocaleString() + '</span></div>' +
+                    // Additive counts lead with the city total; a time,
+                    // rate or density has no meaningful sum.
+                    (s.total != null ? '<div class="stat-row"><span class="stat-label">Total</span><span class="stat-value">' + fmtMetric(s.total, s.format) + '</span></div>' : '') +
                     (s.threshold_s > 0 ? '<div class="stat-row"><span class="stat-label">Within ' + fmtMetric(s.threshold_s, s.format) + '</span><span class="stat-value">' + (s.pct_within || 0).toFixed(1) + '%</span></div>' : '') +
                     '<div class="stat-row"><span class="stat-label">Median</span><span class="stat-value">' + fmtMetric(s.median, s.format) + '</span></div>' +
                     '<div class="stat-row"><span class="stat-label">Range</span><span class="stat-value">' + fmtMetric(s.min, s.format) + ' – ' + fmtMetric(s.max, s.format) + '</span></div>' +

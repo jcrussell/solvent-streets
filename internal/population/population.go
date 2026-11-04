@@ -46,13 +46,13 @@ func init() {
 	// Transform is advisory and the dashboard paints the literal edges.
 	hexmetric.Register(hexmetric.Spec{
 		Key: KeyPopulation, Label: "Population", Unit: "", Source: source,
-		Format: hexmetric.FormatInt,
-		Scale:  hexmetric.Scale{Kind: hexmetric.KindSequential, Transform: hexmetric.TransformLog, Bands: []float64{10, 50, 100, 200, 400}},
+		Format: hexmetric.FormatInt, Additive: true,
+		Scale: hexmetric.Scale{Kind: hexmetric.KindSequential, Transform: hexmetric.TransformLog, Bands: []float64{10, 50, 100, 200, 400}},
 	})
 	hexmetric.Register(hexmetric.Spec{
 		Key: KeyHousingUnits, Label: "Housing units", Unit: "", Source: source,
-		Format: hexmetric.FormatInt,
-		Scale:  hexmetric.Scale{Kind: hexmetric.KindSequential, Transform: hexmetric.TransformLog, Bands: []float64{5, 25, 50, 100, 200}},
+		Format: hexmetric.FormatInt, Additive: true,
+		Scale: hexmetric.Scale{Kind: hexmetric.KindSequential, Transform: hexmetric.TransformLog, Bands: []float64{5, 25, 50, 100, 200}},
 	})
 	hexmetric.Register(hexmetric.Spec{
 		Key: KeyDensity, Label: "Population density (per km²)", Unit: "1/km2", Source: source,

@@ -137,6 +137,10 @@ type Spec struct {
 	Source string `json:"source"` // one line on where the numbers come from
 	Format string `json:"format"` // one of the Format* constants
 	Scale  Scale  `json:"scale"`
+	// Additive marks a count whose per-hex values sum to a meaningful city
+	// total (population, housing units). The stats card then leads with
+	// that total; for a time, rate or density a sum means nothing.
+	Additive bool `json:"additive,omitempty"`
 	// Derive, when set, makes this a derived metric: the dashboard computes
 	// it (see Derivation) and nothing is stored or exported per hex.
 	Derive *Derivation `json:"derive,omitempty"`
