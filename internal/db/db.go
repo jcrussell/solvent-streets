@@ -40,16 +40,21 @@ type ComputeResult struct {
 	ResourceType resource.Type
 	TotalArea    float64
 	FeatureCount int
-	ComputedAt   time.Time
-	SnapshotID   *int64
+	// EstimatedSpaces is the parking resource's estimated vehicle capacity
+	// (resource.EstimateParkingSpaces summed over the hex-clipped lots); 0 for
+	// every other resource and for rows computed before the estimate existed.
+	EstimatedSpaces int
+	ComputedAt      time.Time
+	SnapshotID      *int64
 }
 
 type StatusInfo struct {
-	ResourceType  resource.Type
-	FeatureCount  int
-	LastIngestAt  *time.Time
-	LastComputeAt *time.Time
-	TotalArea     float64
+	ResourceType    resource.Type
+	FeatureCount    int
+	LastIngestAt    *time.Time
+	LastComputeAt   *time.Time
+	TotalArea       float64
+	EstimatedSpaces int // parking only; see ComputeResult.EstimatedSpaces
 }
 
 type HexStat struct {
@@ -57,8 +62,11 @@ type HexStat struct {
 	ResourceType resource.Type
 	Area         float64
 	PctCovered   float64
-	ComputedAt   time.Time
-	SnapshotID   *int64
+	// EstimatedSpaces is the parking spaces apportioned to this hex by the
+	// area fraction of each lot inside it (fractional); 0 for other resources.
+	EstimatedSpaces float64
+	ComputedAt      time.Time
+	SnapshotID      *int64
 }
 
 type Snapshot struct {

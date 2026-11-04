@@ -1665,3 +1665,62 @@ func TestGCResultTablesCoversSnapshotResultTables(t *testing.T) {
 		seen[p.count] = p.table
 	}
 }
+
+// TestEstimatedSpacesRoundTrip pins the estimated_spaces column on both
+// result tables through the Store: the parking compute pass writes it, every
+// reader (single, batched, Stats, hex list) returns it, and a resource that
+// never sets it reads back 0.
+func TestEstimatedSpacesRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	snap, err := store.CreateSnapshot(ctx, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := snap.ID
+	if err := store.SaveComputeResult(ctx, ComputeResult{ResourceType: rtParking, TotalArea: 900, FeatureCount: 3, EstimatedSpaces: 31, SnapshotID: &id}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveComputeResult(ctx, ComputeResult{ResourceType: rtRoads, TotalArea: 5000, FeatureCount: 9, SnapshotID: &id}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveHexStats(ctx, []HexStat{
+		{HexID: "h1", ResourceType: rtParking, Area: 600, PctCovered: 20, EstimatedSpaces: 20.5, SnapshotID: &id},
+		{HexID: "h2", ResourceType: rtParking, Area: 300, PctCovered: 10, EstimatedSpaces: 10.5, SnapshotID: &id},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := store.LatestComputeResult(ctx, rtParking)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.EstimatedSpaces != 31 {
+		t.Errorf("LatestComputeResult(parking).EstimatedSpaces = %d, want 31", got.EstimatedSpaces)
+	}
+	batch, err := store.LatestComputeResults(ctx, []resource.Type{rtParking, rtRoads})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if batch[rtParking].EstimatedSpaces != 31 || batch[rtRoads].EstimatedSpaces != 0 {
+		t.Errorf("LatestComputeResults spaces = parking %d / roads %d, want 31 / 0", batch[rtParking].EstimatedSpaces, batch[rtRoads].EstimatedSpaces)
+	}
+	info, err := store.Stats(ctx, rtParking)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.EstimatedSpaces != 31 {
+		t.Errorf("Stats(parking).EstimatedSpaces = %d, want 31", info.EstimatedSpaces)
+	}
+	hexes, err := store.ListHexStats(ctx, rtParking)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sum float64
+	for _, h := range hexes {
+		sum += h.EstimatedSpaces
+	}
+	if len(hexes) != 2 || sum != 31 {
+		t.Errorf("ListHexStats(parking) spaces = %v (n=%d), want 31 over 2 rows", sum, len(hexes))
+	}
+}

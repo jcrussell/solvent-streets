@@ -102,15 +102,24 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 	})
 
 	t.Run("cold migration records the latest schema version", func(t *testing.T) {
-		// A fresh cold migration applies 001_init then 002_add_indexes, so the
-		// highest recorded schema_version must be 2. This pins that 002 is
-		// discovered and applied by the embedded migration set.
+		// A fresh cold migration applies 001_init, 002_add_indexes and
+		// 003_parking_spaces, so the highest recorded schema_version must be
+		// 3. This pins that every file is discovered and applied by the
+		// embedded migration set.
 		var version int
 		if err := root.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&version); err != nil {
 			t.Fatalf("schema_version: %v", err)
 		}
-		if version != 2 {
-			t.Errorf("schema_version = %d; want 2 (001_init + 002_add_indexes applied)", version)
+		if version != 3 {
+			t.Errorf("schema_version = %d; want 3 (001_init + 002_add_indexes + 003_parking_spaces applied)", version)
+		}
+	})
+
+	t.Run("003 adds the estimated_spaces columns", func(t *testing.T) {
+		for _, table := range []string{"compute_results", "hex_stats"} {
+			if !slices.ContainsFunc(listColumns(t, ctx, root.db, table), func(c columnInfo) bool { return c.name == "estimated_spaces" }) {
+				t.Errorf("%s missing estimated_spaces column", table)
+			}
 		}
 	})
 
@@ -573,8 +582,8 @@ func TestMigrate_UnbricksDuplicateSchemaVersion(t *testing.T) {
 	if err := d.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_version`).Scan(&maxVersion); err != nil {
 		t.Fatalf("max version: %v", err)
 	}
-	if maxVersion != 2 {
-		t.Errorf("MAX(version) = %d, want 2 (002 must be recorded, not rolled back)", maxVersion)
+	if maxVersion != 3 {
+		t.Errorf("MAX(version) = %d, want 3 (002 and 003 must be recorded, not rolled back)", maxVersion)
 	}
 
 	// The index 002 exists for must actually be there — a rolled-back 002 also
@@ -664,5 +673,71 @@ func TestMigrateFS_RejectsDuplicateVersions(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "duplicate migration version") {
 		t.Errorf("error = %v, want it to name the duplicate version", err)
+	}
+}
+
+// TestMigrate_003UpgradesExistingRows pins the additive-migration contract 003
+// relies on: a database already at schema_version 2 with compute_results and
+// hex_stats rows gains the estimated_spaces columns in place, existing rows
+// read back as 0 (never NULL), and new rows round-trip the value through the
+// Store. Editing 001 in place would never have reached such a database.
+func TestMigrate_003UpgradesExistingRows(t *testing.T) {
+	ctx := context.Background()
+	init001, err := migrationsFS.ReadFile("migrations/001_init.sql")
+	if err != nil {
+		t.Fatalf("read 001: %v", err)
+	}
+	idx002, err := migrationsFS.ReadFile("migrations/002_add_indexes.sql")
+	if err != nil {
+		t.Fatalf("read 002: %v", err)
+	}
+	upTo002 := fstest.MapFS{
+		"migrations/001_init.sql":        &fstest.MapFile{Data: init001},
+		"migrations/002_add_indexes.sql": &fstest.MapFile{Data: idx002},
+	}
+
+	d, err := sql.Open("sqlite", ":memory:"+dsnPragmas)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Close() })
+	d.SetMaxOpenConns(1)
+	if err := migrateFS(ctx, d, upTo002, "migrations"); err != nil {
+		t.Fatalf("migrate to 002: %v", err)
+	}
+	if _, err := d.ExecContext(ctx, `INSERT INTO cities (slug, name, config_id) VALUES ('x', 'X', 'cfg')`); err != nil {
+		t.Fatalf("insert city: %v", err)
+	}
+	if _, err := d.ExecContext(ctx, `INSERT INTO compute_results (resource_type, city_id, total_area, feature_count) VALUES ('parking', 1, 100, 2)`); err != nil {
+		t.Fatalf("insert pre-003 compute result: %v", err)
+	}
+	if _, err := d.ExecContext(ctx, `INSERT INTO hex_stats (hex_id, resource_type, city_id, area, pct_covered) VALUES ('hex:0:0', 'parking', 1, 10, 50)`); err != nil {
+		t.Fatalf("insert pre-003 hex stat: %v", err)
+	}
+
+	// Now the real embedded set: only 003 should run.
+	if err := migrate(ctx, d); err != nil {
+		t.Fatalf("migrate to 003: %v", err)
+	}
+	var maxVersion int
+	if err := d.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_version`).Scan(&maxVersion); err != nil {
+		t.Fatalf("max version: %v", err)
+	}
+	if maxVersion != 3 {
+		t.Errorf("MAX(version) = %d, want 3", maxVersion)
+	}
+	var spaces int
+	if err := d.QueryRowContext(ctx, `SELECT estimated_spaces FROM compute_results WHERE city_id = 1`).Scan(&spaces); err != nil {
+		t.Fatalf("pre-003 compute row estimated_spaces: %v (want readable default 0, not NULL)", err)
+	}
+	if spaces != 0 {
+		t.Errorf("pre-003 compute row estimated_spaces = %d, want 0", spaces)
+	}
+	var hexSpaces float64
+	if err := d.QueryRowContext(ctx, `SELECT estimated_spaces FROM hex_stats WHERE city_id = 1`).Scan(&hexSpaces); err != nil {
+		t.Fatalf("pre-003 hex row estimated_spaces: %v", err)
+	}
+	if hexSpaces != 0 {
+		t.Errorf("pre-003 hex row estimated_spaces = %v, want 0", hexSpaces)
 	}
 }

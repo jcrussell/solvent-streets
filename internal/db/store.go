@@ -108,9 +108,9 @@ func (s *sqliteStore) ListFeatures(ctx context.Context, resourceType resource.Ty
 
 func (s *sqliteStore) SaveComputeResult(ctx context.Context, result ComputeResult) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO compute_results (resource_type, city_id, total_area, feature_count, computed_at, snapshot_id)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, result.ResourceType, s.cityID, result.TotalArea, result.FeatureCount, time.Now(), result.SnapshotID)
+		INSERT INTO compute_results (resource_type, city_id, total_area, feature_count, estimated_spaces, computed_at, snapshot_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, result.ResourceType, s.cityID, result.TotalArea, result.FeatureCount, result.EstimatedSpaces, time.Now(), result.SnapshotID)
 	if err != nil {
 		return fmt.Errorf("insert compute result: %w", err)
 	}
@@ -126,13 +126,13 @@ func (s *sqliteStore) SaveComputeResult(ctx context.Context, result ComputeResul
 // id, matching ListSnapshots and the MAX(snapshot_id) latest-resolution.
 func (s *sqliteStore) LatestComputeResult(ctx context.Context, resourceType resource.Type) (*ComputeResult, error) {
 	q, bind := snapshotQuery(
-		`SELECT id, resource_type, total_area, feature_count, computed_at, snapshot_id FROM compute_results`,
+		`SELECT id, resource_type, total_area, feature_count, estimated_spaces, computed_at, snapshot_id FROM compute_results`,
 		"compute_results",
 		` ORDER BY computed_at DESC, id DESC LIMIT 1`,
 		s.snapshotID, s.configHash, resourceType, s.cityID,
 	)
 	var r ComputeResult
-	err := s.db.QueryRowContext(ctx, q, bind...).Scan(&r.ID, &r.ResourceType, &r.TotalArea, &r.FeatureCount, &r.ComputedAt, &r.SnapshotID)
+	err := s.db.QueryRowContext(ctx, q, bind...).Scan(&r.ID, &r.ResourceType, &r.TotalArea, &r.FeatureCount, &r.EstimatedSpaces, &r.ComputedAt, &r.SnapshotID)
 	if err != nil {
 		return nil, err
 	}
@@ -151,13 +151,13 @@ func (s *sqliteStore) LatestComputeResults(ctx context.Context, types []resource
 		return out, nil
 	}
 	q, bind := snapshotBatchQuery(
-		`SELECT id, resource_type, total_area, feature_count, computed_at, snapshot_id,
+		`SELECT id, resource_type, total_area, feature_count, estimated_spaces, computed_at, snapshot_id,
 		        ROW_NUMBER() OVER (PARTITION BY resource_type ORDER BY computed_at DESC, id DESC) AS rn`,
 		"compute_results",
 		"",
 		s.snapshotID, s.configHash, types, s.cityID,
 	)
-	q = `SELECT id, resource_type, total_area, feature_count, computed_at, snapshot_id FROM (` + q + `) WHERE rn = 1`
+	q = `SELECT id, resource_type, total_area, feature_count, estimated_spaces, computed_at, snapshot_id FROM (` + q + `) WHERE rn = 1`
 	rows, err := s.db.QueryContext(ctx, q, bind...)
 	if err != nil {
 		return nil, fmt.Errorf("query latest compute results: %w", err)
@@ -165,7 +165,7 @@ func (s *sqliteStore) LatestComputeResults(ctx context.Context, types []resource
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var r ComputeResult
-		if err := rows.Scan(&r.ID, &r.ResourceType, &r.TotalArea, &r.FeatureCount, &r.ComputedAt, &r.SnapshotID); err != nil {
+		if err := rows.Scan(&r.ID, &r.ResourceType, &r.TotalArea, &r.FeatureCount, &r.EstimatedSpaces, &r.ComputedAt, &r.SnapshotID); err != nil {
 			return nil, fmt.Errorf("scan compute result: %w", err)
 		}
 		row := r
@@ -182,8 +182,8 @@ func (s *sqliteStore) LatestComputeResults(ctx context.Context, types []resource
 func (s *sqliteStore) SaveHexStats(ctx context.Context, stats []HexStat) error {
 	return s.withTx(ctx, func(tx *sql.Tx) error {
 		stmt, err := tx.PrepareContext(ctx, `
-			INSERT INTO hex_stats (hex_id, resource_type, city_id, snapshot_id, area, pct_covered, computed_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?)
+			INSERT INTO hex_stats (hex_id, resource_type, city_id, snapshot_id, area, pct_covered, estimated_spaces, computed_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		`)
 		if err != nil {
 			return fmt.Errorf("prepare hex stats insert: %w", err)
@@ -192,7 +192,7 @@ func (s *sqliteStore) SaveHexStats(ctx context.Context, stats []HexStat) error {
 
 		now := time.Now()
 		for _, st := range stats {
-			if _, err := stmt.ExecContext(ctx, st.HexID, st.ResourceType, s.cityID, st.SnapshotID, st.Area, st.PctCovered, now); err != nil {
+			if _, err := stmt.ExecContext(ctx, st.HexID, st.ResourceType, s.cityID, st.SnapshotID, st.Area, st.PctCovered, st.EstimatedSpaces, now); err != nil {
 				return fmt.Errorf("insert hex stat %s: %w", st.HexID, err)
 			}
 		}
@@ -207,27 +207,39 @@ func (s *sqliteStore) SaveHexStats(ctx context.Context, stats []HexStat) error {
 // every `pvmt compute` appends a fresh snapshot_id, so the previous
 // behavior duplicated output for every caller that didn't pin.
 func (s *sqliteStore) ListHexStats(ctx context.Context, resourceType resource.Type) ([]HexStat, error) {
-	q, bind := snapshotQuery(
-		`SELECT hex_id, resource_type, area, pct_covered, computed_at, snapshot_id FROM hex_stats`,
-		"hex_stats",
-		"",
-		s.snapshotID, s.configHash, resourceType, s.cityID,
-	)
+	return listSnapshotRows(ctx, s, "hex stat",
+		`SELECT hex_id, resource_type, area, pct_covered, estimated_spaces, computed_at, snapshot_id FROM hex_stats`,
+		"hex_stats", resourceType,
+		func(rows *sql.Rows) (HexStat, error) {
+			var st HexStat
+			err := rows.Scan(&st.HexID, &st.ResourceType, &st.Area, &st.PctCovered, &st.EstimatedSpaces, &st.ComputedAt, &st.SnapshotID)
+			return st, err
+		})
+}
+
+// listSnapshotRows runs the snapshot-scoped list shape every per-resource
+// result table shares: snapshotQuery over table for resourceType (three-arm
+// pinned / config-hash / latest semantic, see there), then scan each row with
+// scan. what names the row kind in error messages ("hex stat"). A table with
+// no rows returns (nil, nil) — never sql.ErrNoRows — which is the contract
+// the server's cache-eviction logic relies on for genuinely empty cities.
+func listSnapshotRows[T any](ctx context.Context, s *sqliteStore, what, selectClause, table string, resourceType resource.Type, scan func(*sql.Rows) (T, error)) ([]T, error) {
+	q, bind := snapshotQuery(selectClause, table, "", s.snapshotID, s.configHash, resourceType, s.cityID)
 	rows, err := s.db.QueryContext(ctx, q, bind...)
 	if err != nil {
-		return nil, fmt.Errorf("query hex stats: %w", err)
+		return nil, fmt.Errorf("query %ss: %w", what, err)
 	}
 	defer func() { _ = rows.Close() }()
 
-	var stats []HexStat
+	var out []T
 	for rows.Next() {
-		var st HexStat
-		if err := rows.Scan(&st.HexID, &st.ResourceType, &st.Area, &st.PctCovered, &st.ComputedAt, &st.SnapshotID); err != nil {
-			return nil, fmt.Errorf("scan hex stat: %w", err)
+		row, err := scan(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan %s: %w", what, err)
 		}
-		stats = append(stats, st)
+		out = append(out, row)
 	}
-	return stats, rows.Err()
+	return out, rows.Err()
 }
 
 func (s *sqliteStore) CreateSnapshot(ctx context.Context, configHash string) (*Snapshot, error) {
@@ -394,27 +406,14 @@ func (s *sqliteStore) ListCohortStatsForTypes(ctx context.Context, types []resou
 // ListCohortStats: snapshot/config-hash filtering via snapshotQuery —
 // see that helper for the three-arm semantic.
 func (s *sqliteStore) ListCohortStats(ctx context.Context, resourceType resource.Type) ([]CohortStat, error) {
-	q, bind := snapshotQuery(
+	return listSnapshotRows(ctx, s, "cohort stat",
 		`SELECT id, resource_type, classification, area, feature_count, snapshot_id, computed_at FROM cohort_stats`,
-		"cohort_stats",
-		"",
-		s.snapshotID, s.configHash, resourceType, s.cityID,
-	)
-	rows, err := s.db.QueryContext(ctx, q, bind...)
-	if err != nil {
-		return nil, fmt.Errorf("query cohort stats: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	var stats []CohortStat
-	for rows.Next() {
-		var st CohortStat
-		if err := rows.Scan(&st.ID, &st.ResourceType, &st.Classification, &st.Area, &st.FeatureCount, &st.SnapshotID, &st.ComputedAt); err != nil {
-			return nil, fmt.Errorf("scan cohort stat: %w", err)
-		}
-		stats = append(stats, st)
-	}
-	return stats, rows.Err()
+		"cohort_stats", resourceType,
+		func(rows *sql.Rows) (CohortStat, error) {
+			var st CohortStat
+			err := rows.Scan(&st.ID, &st.ResourceType, &st.Classification, &st.Area, &st.FeatureCount, &st.SnapshotID, &st.ComputedAt)
+			return st, err
+		})
 }
 
 func (s *sqliteStore) SaveBoundary(ctx context.Context, geometryJSON, source string) error {
@@ -478,6 +477,7 @@ func (s *sqliteStore) Stats(ctx context.Context, resourceType resource.Type) (*S
 	default:
 		info.LastComputeAt = &result.ComputedAt
 		info.TotalArea = result.TotalArea
+		info.EstimatedSpaces = result.EstimatedSpaces
 	}
 
 	return info, nil
