@@ -174,6 +174,30 @@ overpass = true
   snapshots stop matching until the city is recomputed, exactly as for any
   other config edit.
 
+## Census population (`census`)
+
+`pvmt census` ingests 2020 Census blocks (population and housing units) from
+the Census Bureau's TIGERweb service and apportions them onto the hex grid
+by area. The results are the `population`, `housing_units` and
+`population_per_km2` metrics, plus the per-resident ratios the dashboard
+derives from them (paved m² and year-1 need per resident). The source is
+fixed, so `overpass` / `arcgis_url` do not affect it. `pvmt all ingest` /
+`pvmt all compute` run the census steps best-effort after the pavement
+passes, the same way as the services steps.
+
+```toml
+[[cities]]
+name = "Toronto, ON"
+overpass = true
+census = false   # outside the US: TIGERweb has no blocks here
+```
+
+- `census = false` keeps the city out of the census steps of `pvmt all`.
+  Unset (the default) means enabled. Use it for any city outside the US.
+- Like service coverage, results attach to the city's latest `roads`
+  compute snapshot. A new roads compute hides them until `pvmt census
+  compute` (or `pvmt all compute`) runs again.
+
 ## Forecast tuning
 
 **`initial_pci`** — the starting Pavement Condition Index (PCI) the forecast assumes for every segment, on a 0–100 scale. Must be in `(0, 100]`; an unset, zero, or out-of-range value falls back to the default `85`. Also settable via the `PVMT_FORECAST_INITIAL_PCI` env var (see [Environment variables](#environment-variables)). This is the network *average*: internally the forecast spreads it into a condition **distribution** (a Beta around this mean, preserved exactly) before pricing, so the cost figures reflect the failed/poor tail rather than the average alone (see `docs/validation.md` §4). No configuration is needed — the spread is always on; setting a realistic average for your network is the lever.

@@ -276,6 +276,25 @@ response come from a compute pass and can also paint hexes that hold no
 pavement. Band edges are fixed values, the same in every city, so colors
 compare across cities.
 
+### Population and per-resident figures
+
+**Population**, **Housing units** and **Population density** come from the
+2020 Census: block-level counts from the Census Bureau's TIGERweb service.
+Each block's people and homes are spread onto the hexes it overlaps in
+proportion to the overlapping area. That assumes people are spread evenly
+within a block. Blocks are small (about a city block in town), so this
+moves people only within a block and never changes the city total. Density
+divides a hex's population by its own area after clipping to the city
+boundary, so edge hexes are not understated.
+
+**Paved m² per resident** and **Year-1 need per resident** divide a hex's
+paved area, or its year-1 need, by its population. Both follow the
+resources toggled on. Hexes with fewer than 10 residents are left blank, so
+a nearly empty hex doesn't produce a huge per-resident figure. The year-1
+need is the do-nothing first-year need, including any repair backlog. It is
+not a recurring upkeep cost. The figures are 2020 counts set against
+today's roads, so fast-growing areas read high.
+
 ### Service coverage (fire response)
 
 The map's **Color by → Fire response** mode paints each hex with an
