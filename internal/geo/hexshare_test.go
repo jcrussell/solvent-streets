@@ -118,3 +118,78 @@ func TestComputeHexWeightedShares_CancelledIsPartial(t *testing.T) {
 		t.Errorf("cancelled run produced %d shares, more than the full run's %d", len(partial), len(full))
 	}
 }
+
+// TestComputeHexWeightedSharesN_ConservesTotalsOverTiling: blocks that tile a
+// region inside the grid (as census blocks tile a city) hand every column its
+// full total back, however the blocks straddle hex edges, and each column is
+// apportioned independently by the same area fractions.
+func TestComputeHexWeightedSharesN_ConservesTotalsOverTiling(t *testing.T) {
+	const edge = 100.0
+	hexes := HexGrid(0, 0, 2000, 2000, edge)
+	var geoms []geom.Geometry
+	var pop, hu []float64
+	var wantPop, wantHU float64
+	// A 6x6 tiling of 130 m squares (deliberately not commensurate with the
+	// hex edge) starting well inside the grid.
+	for r := 0; r < 6; r++ {
+		for c := 0; c < 6; c++ {
+			geoms = append(geoms, squareAt(500+65+float64(c)*130, 500+65+float64(r)*130, 130))
+			p := float64(10 + r*6 + c)
+			pop = append(pop, p)
+			hu = append(hu, p/2)
+			wantPop += p
+			wantHU += p / 2
+		}
+	}
+	shares := ComputeHexWeightedSharesN(context.Background(), hexes, geoms, [][]float64{pop, hu}, nil)
+	if len(shares) < 2 {
+		t.Fatalf("expected the tiling to span several hexes, got %d", len(shares))
+	}
+	var gotPop, gotHU float64
+	for _, sh := range shares {
+		if len(sh.Values) != 2 {
+			t.Fatalf("share %+v: want 2 columns", sh)
+		}
+		gotPop += sh.Values[0]
+		gotHU += sh.Values[1]
+		if math.Abs(sh.Values[1]-sh.Values[0]/2) > 1e-6 {
+			t.Errorf("hex %s: columns not apportioned by the same fractions: %v", sh.HexID, sh.Values)
+		}
+	}
+	if math.Abs(gotPop-wantPop) > 1e-6 || math.Abs(gotHU-wantHU) > 1e-6 {
+		t.Errorf("totals = (%v, %v), want (%v, %v)", gotPop, gotHU, wantPop, wantHU)
+	}
+}
+
+// TestComputeHexWeightedSharesN_BoundaryClippedHex: when the grid is clipped
+// to a boundary, a block straddling the boundary only hands over the share
+// that lands inside the clipped hexes — the rest is outside the city.
+func TestComputeHexWeightedSharesN_BoundaryClippedHex(t *testing.T) {
+	const edge = 100.0
+	hexes := HexGrid(0, 0, 1000, 1000, edge)
+	boundary := squareAt(500, 500, 400) // covers [300,700]²
+	clipped := ClipHexesToBoundary(context.Background(), hexes, boundary, nil)
+	// A block half inside the boundary: [600,800] x [400,600].
+	blk := squareAt(700, 500, 200)
+	shares := ComputeHexWeightedSharesN(context.Background(), clipped, []geom.Geometry{blk}, [][]float64{{100}}, nil)
+	var got float64
+	for _, sh := range shares {
+		got += sh.Values[0]
+	}
+	if math.Abs(got-50) > 1e-6 {
+		t.Errorf("clipped share = %v, want 50 (half the block is inside the boundary)", got)
+	}
+}
+
+// TestComputeHexWeightedSharesN_Mismatched: any column of the wrong length,
+// or no columns at all, is refused with nil rather than an index panic.
+func TestComputeHexWeightedSharesN_Mismatched(t *testing.T) {
+	hexes := HexGrid(0, 0, 500, 500, 100)
+	sq := squareAt(250, 250, 50)
+	if got := ComputeHexWeightedSharesN(context.Background(), hexes, []geom.Geometry{sq}, [][]float64{{1}, {1, 2}}, nil); got != nil {
+		t.Errorf("mismatched column should return nil, got %+v", got)
+	}
+	if got := ComputeHexWeightedSharesN(context.Background(), hexes, []geom.Geometry{sq}, nil, nil); got != nil {
+		t.Errorf("no columns should return nil, got %+v", got)
+	}
+}

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"strconv"
 	"sync/atomic"
 
 	"github.com/peterstace/simplefeatures/geom"
@@ -221,8 +220,7 @@ func ComputeHexCoverageByGroup(ctx context.Context, hexes []Hex, geoms []geom.Ge
 	return areas
 }
 
-// hexGroupAreas is the per-hex body shared by ComputeHexCoverageByGroup and
-// ComputeHexWeightedShares: one R-tree search for h's candidates, grouped by
+// hexGroupAreas is the per-hex body of ComputeHexCoverageByGroup: one R-tree search for h's candidates, grouped by
 // labels[id], each group clipped to h and unioned via hexCoverageArea. Returns
 // one entry per label with positive in-hex area; nil when nothing overlaps.
 func hexGroupAreas(h Hex, idx *GeomIndex, labels []string) []groupArea {
@@ -253,12 +251,20 @@ type HexShare struct {
 	Value float64
 }
 
+// HexShares is one hex's apportioned shares of several per-feature weight
+// columns, produced by ComputeHexWeightedSharesN. Values is index-aligned with
+// the weight columns passed in.
+type HexShares struct {
+	HexID  string
+	Values []float64
+}
+
 // ComputeHexWeightedShares apportions each geom's weight onto the hexes it
 // overlaps by area fraction: a hex receives Σᵢ weightsᵢ × Area(h ∩ geomᵢ) /
 // Area(geomᵢ) over the candidates touching it, so a feature's weight is split
 // across the hexes it straddles and sums back to the weight when the feature
-// lies within the grid. geoms and weights are parallel slices. It reuses the
-// per-hex clip primitive of ComputeHexCoverageByGroup with one label per geom.
+// lies within the grid. geoms and weights are parallel slices. It is the
+// single-column form of ComputeHexWeightedSharesN.
 //
 // Unlike ComputeHexStats this does NOT union overlapping candidates — the
 // weight belongs to the feature, not to the paved surface — so two overlapping
@@ -269,29 +275,65 @@ type HexShare struct {
 // result, exactly like ComputeHexStats; callers guard with ctx.Err() before
 // persisting. A length mismatch between geoms and weights returns nil.
 func ComputeHexWeightedShares(ctx context.Context, hexes []Hex, geoms []geom.Geometry, weights []float64, counter *atomic.Int64) []HexShare {
-	if len(geoms) != len(weights) {
+	multi := ComputeHexWeightedSharesN(ctx, hexes, geoms, [][]float64{weights}, counter)
+	if multi == nil {
 		return nil
 	}
-	labels := make([]string, len(geoms))
+	out := make([]HexShare, 0, len(multi))
+	for _, m := range multi {
+		out = append(out, HexShare{HexID: m.HexID, Value: m.Values[0]})
+	}
+	return out
+}
+
+// ComputeHexWeightedSharesN is ComputeHexWeightedShares over several weight
+// columns at once (e.g. population and housing units of the same census
+// blocks): weights[c][i] is column c's weight for geoms[i]. The R-tree search
+// and the hex ∩ geom clip — the expensive part — run once per (hex, geom)
+// pair regardless of the column count. A hex is omitted when no column
+// receives a positive share. Any column whose length differs from geoms, or
+// an empty column list, returns nil.
+func ComputeHexWeightedSharesN(ctx context.Context, hexes []Hex, geoms []geom.Geometry, weights [][]float64, counter *atomic.Int64) []HexShares {
+	if len(weights) == 0 {
+		return nil
+	}
+	for _, col := range weights {
+		if len(col) != len(geoms) {
+			return nil
+		}
+	}
 	totals := make([]float64, len(geoms))
 	for i, g := range geoms {
-		labels[i] = strconv.Itoa(i)
 		totals[i] = g.Area()
 	}
 	idx := NewGeomIndexFromGeoms(geoms)
-	return ParallelMap(ctx, hexes, func(_ int, h Hex) []HexShare {
-		var sum float64
-		for _, ga := range hexGroupAreas(h, idx, labels) {
-			i, err := strconv.Atoi(ga.label)
-			if err != nil || totals[i] <= 0 || weights[i] == 0 {
-				continue
-			}
-			sum += weights[i] * ga.area / totals[i]
-		}
-		if sum <= 0 {
+	return ParallelMap(ctx, hexes, func(_ int, h Hex) []HexShares {
+		ids := idx.SearchIDs(h.Geom.Envelope())
+		if len(ids) == 0 {
 			return nil
 		}
-		return []HexShare{{HexID: h.ID, Value: sum}}
+		sums := make([]float64, len(weights))
+		for _, id := range ids {
+			if totals[id] <= 0 {
+				continue
+			}
+			// Each geom is its own group, so there is nothing to union: the
+			// in-hex area is the single-candidate clip.
+			area, ok := hexCoverageArea(h.Geom, []geom.Geometry{idx.parts[id]})
+			if !ok || area <= 0 {
+				continue
+			}
+			frac := area / totals[id]
+			for c, col := range weights {
+				sums[c] += col[id] * frac
+			}
+		}
+		for _, v := range sums {
+			if v > 0 {
+				return []HexShares{{HexID: h.ID, Values: sums}}
+			}
+		}
+		return nil
 	}, counter)
 }
 
