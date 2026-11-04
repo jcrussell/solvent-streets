@@ -103,13 +103,10 @@ test('a stored metric paints pavement-free v4 hexes too', async () => {
   assert.equal(fc['hex:0:2'].pct_covered, 0);
 });
 
+// The population ratios are the REAL registry specs (internal/population),
+// rendered into PVMT_CONFIG.hexMetrics by the harness: min_den is 10.
 test('a ratio divides a blended numerator by a stored denominator above min_den', async () => {
   const h = await loadGrid({ 'hex-metrics.json': { v: 1, metrics: { population } } });
-  h.get('derivedMetrics').road_m2_per_resident = {
-    key: 'road_m2_per_resident', label: 'Road m² per resident', unit: 'm2', format: 'float1', source: 'test',
-    scale: { kind: 'sequential', transform: 'linear', bands: [1, 10] },
-    derive: { op: 'ratio', prop: 'area', den: 'population', min_den: 5 },
-  };
   h.win.selectHexMetric('road_m2_per_resident');
   assert.equal(h.get('hexMetric'), 'road_m2_per_resident');
   const fc = byId(h.win.buildBlendedHexFC());
@@ -120,10 +117,19 @@ test('a ratio divides a blended numerator by a stored denominator above min_den'
 
 test('a ratio is not offered without its stored denominator', async () => {
   const h = await loadGrid();
-  h.get('derivedMetrics').road_m2_per_resident = {
-    key: 'road_m2_per_resident', label: 'x', unit: '', format: 'float1', source: 'test',
-    scale: { kind: 'sequential', transform: 'linear', bands: [1] },
-    derive: { op: 'ratio', prop: 'area', den: 'population' },
-  };
   assert.equal(h.win.metricAvailable('road_m2_per_resident'), false);
+  assert.equal(h.$('#stats .ratio-card'), null, 'no per-resident card without population');
+});
+
+test('the per-resident card is a city-wide sum over sum and follows the toggles', async () => {
+  const h = await loadGrid({ 'hex-metrics.json': { v: 1, metrics: { population } } });
+  const rows = () => Object.fromEntries(h.$$('#stats .ratio-card .stat-row').map((r) =>
+    [r.querySelector('.stat-label').textContent, r.querySelector('.stat-value').textContent]));
+  // 4500 m² paved / 132 residents; $21,000 year-1 need / 132 residents.
+  assert.deepEqual(rows(), { 'Paved m² per resident': '34.1', 'Year-1 need per resident': '$159' });
+  const cb = h.$('#toggles input[data-type="parking"]');
+  cb.checked = false;
+  cb.dispatchEvent(new h.win.Event('change'));
+  // Roads only: 1500 m² and $15,000 over the same 132 residents.
+  assert.deepEqual(rows(), { 'Paved m² per resident': '11.4', 'Year-1 need per resident': '$114' });
 });

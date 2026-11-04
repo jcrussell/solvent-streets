@@ -7,6 +7,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	censuscmd "github.com/jcrussell/solvent-streets/pkg/cmd/census"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/compute"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/ingest"
 	servicescmd "github.com/jcrussell/solvent-streets/pkg/cmd/services"
@@ -51,10 +52,14 @@ func newAllIngest(f *cmdutil.Factory) *cobra.Command {
 				if isCancel(err) {
 					return err
 				}
-				// Facility ingest rides along best-effort (see runServiceStep).
-				return joinServiceStep(err, runServiceStep(f.IOStreams, "ingest", func() error {
-					return servicescmd.RunIngestForCity(cmd.Context(), cf, servicescmd.DefaultService)
-				}))
+				// Facility and Census ingest ride along best-effort (see
+				// runOptionalStep).
+				return runOptionalSteps(err, f.IOStreams, []optionalStep{
+					{servicescmd.DefaultService + " ingest", func() error {
+						return servicescmd.RunIngestForCity(cmd.Context(), cf, servicescmd.DefaultService)
+					}},
+					{"census ingest", func() error { return censuscmd.RunIngestForCity(cmd.Context(), cf) }},
+				})
 			})
 		},
 	}
@@ -126,11 +131,15 @@ func newAllCompute(f *cmdutil.Factory) *cobra.Command {
 					}
 					return errors.Join(resErr, err)
 				}
-				// Service coverage rides along best-effort after the pavement
-				// passes, on the same shared grid (see runServiceStep).
-				return joinServiceStep(resErr, runServiceStep(f.IOStreams, "compute", func() error {
-					return servicescmd.RunComputeForCity(cmd.Context(), cf, servicescmd.DefaultService, grid)
-				}))
+				// Service coverage and population ride along best-effort after
+				// the pavement passes, on the same shared grid (see
+				// runOptionalStep).
+				return runOptionalSteps(resErr, f.IOStreams, []optionalStep{
+					{servicescmd.DefaultService + " compute", func() error {
+						return servicescmd.RunComputeForCity(cmd.Context(), cf, servicescmd.DefaultService, grid)
+					}},
+					{"census compute", func() error { return censuscmd.RunComputeForCity(cmd.Context(), cf, grid) }},
+				})
 			})
 		},
 	}
@@ -142,14 +151,34 @@ func isCancel(err error) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
-// runServiceStep runs a service (fire) step best-effort: cancellation is
-// returned as-is so the city aborts; ErrNoResults (no stations mapped — the
-// common case in a large config) is a silent skip exactly like an empty
-// pavement resource; any other failure is warned about and dropped so the
-// pavement outcome, exit code and combined pass are unchanged. The step is
-// optional output, so it never fails a run on its own.
-func runServiceStep(ios *iostreams.IOStreams, step string, fn func() error) error {
-	fmt.Fprintf(ios.ErrOut, "\n--- %s %s ---\n", servicescmd.DefaultService, step)
+// optionalStep is one per-hex metric producer step (fire coverage,
+// population) that rides along after the pavement passes.
+type optionalStep struct {
+	label string
+	fn    func() error
+}
+
+// runOptionalSteps runs each step best-effort (runOptionalStep) and folds the
+// outcome into the pavement result: a cancellation stops the remaining steps
+// and wins; otherwise the pavement result stands.
+func runOptionalSteps(resErr error, ios *iostreams.IOStreams, steps []optionalStep) error {
+	for _, st := range steps {
+		if err := runOptionalStep(ios, st.label, st.fn); isCancel(err) {
+			return err
+		}
+	}
+	return resErr
+}
+
+// runOptionalStep runs one optional step best-effort: cancellation is
+// returned as-is so the city aborts; ErrNoResults (no stations mapped, no
+// Census blocks, a city that opted out — the common case in a large config)
+// is a silent skip exactly like an empty pavement resource; any other failure
+// is warned about and dropped so the pavement outcome, exit code and combined
+// pass are unchanged. The step is optional output, so it never fails a run
+// on its own.
+func runOptionalStep(ios *iostreams.IOStreams, label string, fn func() error) error {
+	fmt.Fprintf(ios.ErrOut, "\n--- %s ---\n", label)
 	err := fn()
 	switch {
 	case err == nil, errors.Is(err, cmdutil.ErrNoResults):
@@ -157,18 +186,9 @@ func runServiceStep(ios *iostreams.IOStreams, step string, fn func() error) erro
 	case isCancel(err):
 		return err
 	default:
-		cmdutil.Warnf(ios, "%s %s failed: %v", servicescmd.DefaultService, step, err)
+		cmdutil.Warnf(ios, "%s failed: %v", label, err)
 		return nil
 	}
-}
-
-// joinServiceStep folds the service step's outcome into the pavement result:
-// a cancellation from the step wins, otherwise the pavement result stands.
-func joinServiceStep(resErr, svcErr error) error {
-	if isCancel(svcErr) {
-		return svcErr
-	}
-	return resErr
 }
 
 func forEachResource(ios *iostreams.IOStreams, fn func(resource.Source) error) error {

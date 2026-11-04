@@ -56,8 +56,8 @@ type MetricPointJSON struct {
 }
 
 // MetricSummaryJSON is the per-metric summary meta.json carries for the stats
-// card: computed over the hexes that also have pavement rows, so the figures
-// describe exactly the hexes the map paints.
+// card: computed over every stored row, which (hexgrid v4) are the hexes the
+// map paints for that metric.
 type MetricSummaryJSON struct {
 	Label  string  `json:"label"`
 	Unit   string  `json:"unit"`
@@ -199,12 +199,17 @@ func pointLonLat(f db.Feature) (float64, float64, bool) {
 	return pt.Coordinates[0], pt.Coordinates[1], true
 }
 
-// buildMetricSummaries returns meta.json's per-metric summaries over the
-// hexes that carry pavement rows (the ones hexgrid.geojson paints), or nil
-// when no metric has rows. Any store error propagates.
+// buildMetricSummaries returns meta.json's per-metric summaries over every
+// stored row, or nil when no metric has rows or the city has no hex grid to
+// paint them on. Any store error propagates.
+//
+// Every row is a hex the map paints: hexgrid.geojson (v4) carries every hex
+// of the clipped grid the producers compute on, whether or not it holds
+// pavement. (The export's sliver filter can drop a handful of edge hexes
+// below min_hex_area; their rows are a rounding error in these figures.)
 func buildMetricSummaries(ctx context.Context, entry CityEntry) (map[string]MetricSummaryJSON, error) {
 	var out map[string]MetricSummaryJSON
-	var painted map[string]bool // built lazily: most cities have no metrics
+	checkedGrid := false // checked lazily: most cities have no metrics
 	for _, spec := range hexmetric.StoredSpecs() {
 		rows, err := entry.Store.ListHexMetrics(ctx, spec.Key)
 		if err != nil {
@@ -213,13 +218,18 @@ func buildMetricSummaries(ctx context.Context, entry CityEntry) (map[string]Metr
 		if len(rows) == 0 {
 			continue
 		}
-		if painted == nil {
-			if painted, err = paintedHexIDs(ctx, entry); err != nil {
+		if !checkedGrid {
+			hasGrid, err := hasHexGrid(ctx, entry)
+			if err != nil {
 				return nil, err
 			}
+			if !hasGrid {
+				return nil, nil
+			}
+			checkedGrid = true
 		}
 		_, threshold, hasThreshold := resolvedScale(entry, spec)
-		sum, ok := summarizeMetric(spec, rows, painted, threshold, hasThreshold)
+		sum, ok := summarizeMetric(spec, rows, threshold, hasThreshold)
 		if !ok {
 			continue
 		}
@@ -231,16 +241,12 @@ func buildMetricSummaries(ctx context.Context, entry CityEntry) (map[string]Metr
 	return out, nil
 }
 
-// summarizeMetric reduces one metric's rows over the painted hexes; ok is
-// false when none of its rows lands on a painted hex.
-func summarizeMetric(spec hexmetric.Spec, rows []db.HexMetric, painted map[string]bool, threshold float64, hasThreshold bool) (MetricSummaryJSON, bool) {
+// summarizeMetric reduces one metric's rows; ok is false when there are none.
+func summarizeMetric(spec hexmetric.Spec, rows []db.HexMetric, threshold float64, hasThreshold bool) (MetricSummaryJSON, bool) {
 	var vals []float64
 	within := 0
 	refs := map[string]bool{}
 	for _, r := range rows {
-		if !painted[r.HexID] {
-			continue
-		}
 		vals = append(vals, r.Value)
 		if hasThreshold && r.Value <= threshold {
 			within++
@@ -265,20 +271,19 @@ func summarizeMetric(spec hexmetric.Spec, rows []db.HexMetric, painted map[strin
 	return sum, true
 }
 
-// paintedHexIDs is the set of hex ids hexgrid.geojson will contain: every hex
-// with a hex_stats row for any resource and scope.
-func paintedHexIDs(ctx context.Context, entry CityEntry) (map[string]bool, error) {
-	ids := map[string]bool{}
+// hasHexGrid reports whether hexgrid.geojson will exist for the city: it is
+// written only when some resource has hex_stats rows (BuildHexGeoJSON).
+func hasHexGrid(ctx context.Context, entry CityEntry) (bool, error) {
 	for _, rt := range resource.All {
 		for _, scope := range []resource.Scope{resource.ScopeAll, resource.ScopeCity} {
 			stats, err := entry.Store.ListHexStats(ctx, rt.Type().With(scope))
 			if err != nil {
-				return nil, fmt.Errorf("listing hex stats for %s: %w", rt.Type().With(scope), err)
+				return false, fmt.Errorf("listing hex stats for %s: %w", rt.Type().With(scope), err)
 			}
-			for _, st := range stats {
-				ids[st.HexID] = true
+			if len(stats) > 0 {
+				return true, nil
 			}
 		}
 	}
-	return ids, nil
+	return false, nil
 }

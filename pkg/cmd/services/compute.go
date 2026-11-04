@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -273,27 +272,11 @@ func loadInputs(ctx context.Context, errOut io.Writer, opts *Options) (*inputs, 
 		fmt.Fprintf(errOut, "No %s facilities for %s (run 'pvmt services ingest' or add [[cities.facilities]]).\n", in.spec.Name, city.Name)
 		return nil, cmdutil.ErrNoResults
 	}
-	// The metric attaches to the latest roads compute snapshot (the forecast
-	// pattern): without one there is no grid the dashboard would join it to.
-	roadsResult, err := store.LatestComputeResult(ctx, resource.TypeRoads)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, cmdutil.Hintf(fmt.Errorf("no roads compute snapshot for %s", city.Name),
-				"run `pvmt roads compute` (or `pvmt all compute`) first; service coverage attaches to the roads snapshot")
-		}
-		return nil, fmt.Errorf("latest roads compute result: %w", err)
-	}
-	in.snapshotID = roadsResult.SnapshotID
-	boundaryGJSON, bbox, proj, err := compute.LoadBoundary(ctx, store, city)
+	target, err := compute.LoadMetricTarget(ctx, store, cfg, city, opts.PrebuiltGrid, errOut, "service coverage")
 	if err != nil {
 		return nil, err
 	}
-	in.proj = proj
-	in.grid = opts.PrebuiltGrid
-	if in.grid == nil {
-		// Same grid the pavement passes use, so hex ids line up.
-		in.grid = compute.BuildClippedHexGrid(ctx, cfg, city, proj, bbox, boundaryGJSON, errOut)
-	}
+	in.snapshotID, in.proj, in.grid = target.SnapshotID, target.Proj, target.Grid
 	roads := make([]resource.Feature, len(roadRows))
 	for i, r := range roadRows {
 		roads[i] = resource.Feature{ID: r.ID, Name: r.Name, Tags: r.Tags, GeometryJSON: r.GeometryJSON, SourceAPI: r.SourceAPI}

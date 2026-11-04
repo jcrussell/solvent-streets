@@ -10,6 +10,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/hexmetric"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/services"
 )
@@ -116,9 +117,9 @@ func TestBuildHexMetrics(t *testing.T) {
 	}
 }
 
-// TestBuildMeta_MetricSummaries: meta.json summarises each metric over the
-// hexes that have pavement rows (what the map paints), and omits the key when
-// no metric has rows.
+// TestBuildMeta_MetricSummaries: meta.json summarises each metric over every
+// stored row — hexgrid v4 paints every grid hex, pavement or not — and omits
+// the key when no metric has rows.
 func TestBuildMeta_MetricSummaries(t *testing.T) {
 	now := time.Now()
 	rows := []db.HexMetric{
@@ -136,11 +137,11 @@ func TestBuildMeta_MetricSummaries(t *testing.T) {
 	if !ok {
 		t.Fatalf("meta.metrics = %v", meta.Metrics)
 	}
-	if s.Hexes != 2 || s.Min != 300 || s.Max != 420 || s.Median != 420 || s.Points != 2 || s.Format != "minutes" {
-		t.Errorf("summary = %+v; the unpainted hex (9000) must be excluded", s)
+	if s.Hexes != 3 || s.Min != 300 || s.Max != 9000 || s.Median != 420 || s.Points != 2 || s.Format != "minutes" {
+		t.Errorf("summary = %+v; the pavement-free hex (9000) is painted in v4 and must count", s)
 	}
-	if s.ThresholdS != 320 || s.PctWithin != 50 {
-		t.Errorf("summary threshold/pct = %v/%v, want 320 s and 50%% (300 within, 420 not)", s.ThresholdS, s.PctWithin)
+	if s.ThresholdS != 320 || s.PctWithin != 33.33 {
+		t.Errorf("summary threshold/pct = %v/%v, want 320 s and 33.33%% (300 within, 420 and 9000 not)", s.ThresholdS, s.PctWithin)
 	}
 	empty := metricsEntry(t, nil, nil, stats)
 	emeta, err := BuildMeta(context.Background(), empty, 0)
@@ -163,5 +164,16 @@ func TestDataFileNames_OptionalAreDistinct(t *testing.T) {
 	}
 	if !seen["hex-metrics.json"] {
 		t.Error("hex-metrics.json must be an (optional) data file name")
+	}
+}
+
+// TestRegistry_ProducersLinked: the exporter sees every metric producer's
+// specs — fire, population and the derived population ratios — so none can
+// silently fall out of hex-metrics.json or the page config.
+func TestRegistry_ProducersLinked(t *testing.T) {
+	for _, key := range []string{"fire_response_s", "population", "housing_units", "population_per_km2", "road_m2_per_resident", "year1_need_usd_per_resident"} {
+		if _, ok := hexmetric.Lookup(key); !ok {
+			t.Errorf("metric %s is not registered as seen from the exporter", key)
+		}
 	}
 }

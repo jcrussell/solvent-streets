@@ -470,6 +470,12 @@ type CityConfig struct {
 	// internal networks; public ArcGIS endpoints work without it.
 	AllowPrivateArcGIS bool `toml:"allow_private_arcgis"`
 
+	// Census opts the city out of the 2020 Census population layer when set
+	// to false (unset means enabled). The census steps of `pvmt all ingest`
+	// and `pvmt all compute` skip a city that opts out — set it for a city
+	// outside the US, where TIGERweb has no blocks. Read via CensusEnabled.
+	Census *bool `toml:"census,omitempty"`
+
 	// --- Source identity: set by the [[include]] merge, never by a user. ---
 	//
 	// A city reached through [[include]] belongs to the file that declared it,
@@ -1098,4 +1104,10 @@ func validateCityFields(i int, city CityConfig) error {
 		}
 	}
 	return nil
+}
+
+// CensusEnabled reports whether the city takes part in the Census
+// population steps of `pvmt all` (CityConfig.Census unset or true).
+func (c *CityConfig) CensusEnabled() bool {
+	return c.Census == nil || *c.Census
 }

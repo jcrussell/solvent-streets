@@ -622,6 +622,7 @@
                 return; // selectHexMetric re-blended and repainted
             }
             populateMetricSelect();
+            refreshCityStats();
             src.setData(buildBlendedHexFC());
         }
 
@@ -671,8 +672,62 @@
                     (s.points > 0 ? '<div class="stat-row"><span class="stat-label">Points of service</span><span class="stat-value">' + s.points + '</span></div>' : '') +
                     '</div>';
             });
+            statsHTML += ratioTotalsCard();
             statsEl.innerHTML = statsHTML;
             savedPanelHTML = statsHTML;
+        }
+
+        // refreshCityStats re-renders the stats panel once hex data arrives or
+        // the resource toggles change (the per-resident totals depend on
+        // both). A hex-detail panel the user opened stays put; the refreshed
+        // summary is what its close button restores.
+        function refreshCityStats() {
+            const statsEl = document.getElementById('stats');
+            if (!statsEl || !lastCityMeta) return;
+            if (statsEl.querySelector('.hex-detail')) {
+                const open = statsEl.innerHTML;
+                renderCityStats(lastCityMeta);
+                statsEl.innerHTML = open;
+                return;
+            }
+            renderCityStats(lastCityMeta);
+        }
+
+        // blendedTotal sums a derivation property over the city's toggled
+        // resources in the current scope: the city-wide numerator of a
+        // per-resident ratio. est_cost totals each resource's year-1 cost
+        // (the per-hex estimate splits exactly that by area share).
+        function blendedTotal(prop) {
+            const byType = hexDataByScope[currentScope] || {};
+            const cs = costSummaryByScope[currentScope] || {};
+            let total = 0;
+            for (const t of activeTypes) {
+                if (prop === 'est_cost') {
+                    if (cs[t] && cs[t].total_area > 0) total += cs[t].year1_cost || 0;
+                    continue;
+                }
+                const field = DERIVE_PROPS[prop];
+                for (const f of byType[t] || []) total += f.properties[field] || 0;
+            }
+            return total;
+        }
+
+        // ratioTotalsCard is the "Per resident" stats card: each available
+        // ratio metric as a city-wide Σ numerator / Σ denominator — not the
+        // median of per-hex ratios, which over-weights sparse hexes.
+        function ratioTotalsCard() {
+            let rows = '';
+            for (const key of availableMetricKeys()) {
+                const m = lookupMetric(key);
+                if (!m || !m.derive || m.derive.op !== 'ratio') continue;
+                const den = hexMetrics[m.derive.den || ''];
+                let d = 0;
+                for (const v of Object.values((den && den.values) || {})) d += v;
+                if (d <= 0) continue;
+                rows += '<div class="stat-row"><span class="stat-label">' + esc(m.label) + '</span><span class="stat-value">' +
+                    fmtMetric(blendedTotal(m.derive.prop) / d, m.format) + '</span></div>';
+            }
+            return rows ? '<div class="stat-card metric-card ratio-card"><h3>Per resident (city)</h3>' + rows + '</div>' : '';
         }
 
         async function loadCityData() {
@@ -854,6 +909,7 @@
             }
             populateMetricSelect();
             renderLegend();
+            refreshCityStats();
 
             {
                 const haveAnyHex = Object.keys(hexDataByScope.city).length > 0 ||
