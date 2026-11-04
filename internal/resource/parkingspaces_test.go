@@ -35,3 +35,19 @@ func TestEstimateParkingSpaces(t *testing.T) {
 		}
 	}
 }
+
+func TestSpacesMetricKey(t *testing.T) {
+	cases := map[Type]string{
+		TypeParking:                  SpacesMetricAll,
+		TypeParking.With(ScopeCity):  SpacesMetricCity,
+		TypeRoads:                    "",
+		TypeRoads.With(ScopeCity):    "",
+		TypeSidewalks:                "",
+		TypeCombined.With(ScopeCity): "",
+	}
+	for in, want := range cases {
+		if got := SpacesMetricKey(in); got != want {
+			t.Errorf("SpacesMetricKey(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

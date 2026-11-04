@@ -62,17 +62,16 @@ type HexStat struct {
 	ResourceType resource.Type
 	Area         float64
 	PctCovered   float64
-	// EstimatedSpaces is the parking spaces apportioned to this hex by the
-	// area fraction of each lot inside it (fractional); 0 for other resources.
-	EstimatedSpaces float64
-	ComputedAt      time.Time
-	SnapshotID      *int64
+	ComputedAt   time.Time
+	SnapshotID   *int64
 }
 
 // HexMetric is one per-hex value of a registered metric (internal/hexmetric),
 // e.g. fire_response_s. Ref is an optional reference id the metric attaches
 // to the hex (the nearest facility for a coverage metric); "" when unused.
-// SnapshotID is the roads compute snapshot the value was computed against.
+// SnapshotID is the compute snapshot the value belongs to: the latest roads
+// snapshot for service and census metrics, the parking compute's own snapshot
+// for the per-hex parking spaces (resource.SpacesMetricKey).
 type HexMetric struct {
 	HexID      string
 	Metric     string

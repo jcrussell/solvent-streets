@@ -58,6 +58,29 @@ func EstimateParkingSpaces(tags map[string]string, areaM2 float64) (float64, Spa
 	return spaces, SpaceSourceArea
 }
 
+// Hex-metric keys holding the per-hex parking-space estimate, one per scope.
+// Compute writes them to hex_metrics against the parking compute's own
+// snapshot, and export joins them back into hexgrid.geojson's per-hex
+// "spaces". Deliberately NOT registered in internal/hexmetric: the dashboard's
+// "parking_spaces" Color-by metric is derived from hexgrid, and a stored spec
+// would duplicate it and ignore the scope toggle.
+const (
+	SpacesMetricAll  = "parking_spaces_all"
+	SpacesMetricCity = "parking_spaces_city"
+)
+
+// SpacesMetricKey returns the hex_metrics key carrying t's per-hex parking
+// spaces, or "" when t carries none (anything but parking).
+func SpacesMetricKey(t Type) string {
+	if t.Bare() != TypeParking {
+		return ""
+	}
+	if t.Scope() == ScopeCity {
+		return SpacesMetricCity
+	}
+	return SpacesMetricAll
+}
+
 // ParkingSpaceWeights returns the estimated spaces of each buffered parking
 // feature, index-aligned with buffered, for apportioning onto the hex grid
 // (geo.ComputeHexWeightedShares). The area used is the cleaned projected

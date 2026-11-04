@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math"
+	"slices"
 	"strings"
 	"testing"
 
@@ -636,8 +638,9 @@ func TestRunCompute_DBError(t *testing.T) {
 // TestRunCompute_ParkingEstimatesSpaces pins the parking-space estimate end to
 // end through the compute command: two lots with capacity tags (40 and 25)
 // produce a city total of 65 on both the all-jurisdiction and city rows, and
-// the per-hex rows apportion the same 65 across the hexes the lots touch. Lots
-// are small squares inside the test boundary.
+// the per-hex space metrics (one key per scope, on the run's snapshot, the
+// same one the hex_stats rows carry) apportion the same 65 across the hexes
+// the lots touch. Lots are small squares inside the test boundary.
 func TestRunCompute_ParkingEstimatesSpaces(t *testing.T) {
 	lot := func(id, capacity string, lon, lat float64) db.Feature {
 		d := 0.0004
@@ -651,6 +654,11 @@ func TestRunCompute_ParkingEstimatesSpaces(t *testing.T) {
 	}
 	var results []db.ComputeResult
 	var hexRows []db.HexStat
+	type savedMetric struct {
+		snapshotID *int64
+		rows       []db.HexMetric
+	}
+	metrics := map[string]savedMetric{}
 	store := &dbtest.MockStore{
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
 		ListFeaturesFunc: func(_ context.Context, _ resource.Type) ([]db.Feature, error) {
@@ -665,6 +673,10 @@ func TestRunCompute_ParkingEstimatesSpaces(t *testing.T) {
 		},
 		SaveHexStatsFunc: func(_ context.Context, rows []db.HexStat) error {
 			hexRows = append(hexRows, rows...)
+			return nil
+		},
+		SaveHexMetricsFunc: func(_ context.Context, metric string, snapshotID *int64, rows []db.HexMetric) error {
+			metrics[metric] = savedMetric{snapshotID: snapshotID, rows: rows}
 			return nil
 		},
 	}
@@ -692,18 +704,34 @@ func TestRunCompute_ParkingEstimatesSpaces(t *testing.T) {
 			t.Errorf("%s EstimatedSpaces = %d, want 65 (capacity 40 + 25)", r.ResourceType, r.EstimatedSpaces)
 		}
 	}
-	// Both passes write hex rows; each pass's rows must apportion the full 65.
-	sums := map[resource.Type]float64{}
-	for _, h := range hexRows {
-		sums[h.ResourceType] += h.EstimatedSpaces
+	// Both passes write a space metric; each must apportion the full 65 and
+	// sit on the same snapshot as the hex_stats rows export joins it to.
+	if len(hexRows) == 0 {
+		t.Fatal("expected hex_stats rows")
 	}
-	for rt, sum := range sums {
+	wantSnap := hexRows[0].SnapshotID
+	for _, key := range []string{resource.SpacesMetricAll, resource.SpacesMetricCity} {
+		m, ok := metrics[key]
+		if !ok {
+			t.Errorf("no %s metric saved; got %v", key, slices.Collect(maps.Keys(metrics)))
+			continue
+		}
+		var sum float64
+		for _, r := range m.rows {
+			if r.Value <= 0 {
+				t.Errorf("%s stored a non-positive row %+v", key, r)
+			}
+			sum += r.Value
+		}
 		if math.Abs(sum-65) > 0.01 {
-			t.Errorf("%s hex rows apportion %v spaces, want 65", rt, sum)
+			t.Errorf("%s apportions %v spaces, want 65", key, sum)
+		}
+		if (m.snapshotID == nil) != (wantSnap == nil) || (wantSnap != nil && *m.snapshotID != *wantSnap) {
+			t.Errorf("%s snapshot = %v, want the hex_stats snapshot %v", key, m.snapshotID, wantSnap)
 		}
 	}
-	if len(sums) != 2 {
-		t.Errorf("expected hex rows for parking and parking:city, got %v", sums)
+	if len(metrics) != 2 {
+		t.Errorf("expected exactly the two parking space metrics, got %v", slices.Collect(maps.Keys(metrics)))
 	}
 	if !strings.Contains(stdout.String(), "Spaces:    ~65 (estimated)") {
 		t.Errorf("expected the prose summary to report ~65 estimated spaces, got:\n%s", stdout.String())
@@ -711,10 +739,16 @@ func TestRunCompute_ParkingEstimatesSpaces(t *testing.T) {
 }
 
 // TestRunCompute_RoadsCarryNoSpaces: the estimate is a parking concept, so a
-// roads compute writes 0 spaces everywhere and prints no Spaces line.
+// roads compute writes 0 spaces everywhere, stores no space metrics and
+// prints no Spaces line.
 func TestRunCompute_RoadsCarryNoSpaces(t *testing.T) {
 	var results []db.ComputeResult
+	var metricSaves []string
 	store := &dbtest.MockStore{
+		SaveHexMetricsFunc: func(_ context.Context, metric string, _ *int64, _ []db.HexMetric) error {
+			metricSaves = append(metricSaves, metric)
+			return nil
+		},
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
 		ListFeaturesFunc: func(_ context.Context, _ resource.Type) ([]db.Feature, error) {
 			return []db.Feature{{
@@ -750,5 +784,42 @@ func TestRunCompute_RoadsCarryNoSpaces(t *testing.T) {
 	}
 	if strings.Contains(stdout.String(), "Spaces:") {
 		t.Errorf("roads output must not report spaces:\n%s", stdout.String())
+	}
+	if len(metricSaves) != 0 {
+		t.Errorf("roads compute saved hex metrics %v, want none", metricSaves)
+	}
+}
+
+// TestRunCompute_SaveSpaceMetricsErrorFatal: a failed per-hex space save
+// fails the parking compute like a failed SaveHexStats, rather than leaving
+// coverage published without its spaces.
+func TestRunCompute_SaveSpaceMetricsErrorFatal(t *testing.T) {
+	saveErr := errors.New("disk full")
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
+		ListFeaturesFunc: func(_ context.Context, _ resource.Type) ([]db.Feature, error) {
+			return []db.Feature{{
+				ID: "lot", ResourceType: resource.TypeParking,
+				Tags:         map[string]string{"amenity": "parking", "capacity": "40"},
+				GeometryJSON: `{"type":"Polygon","coordinates":[[[-121.7700,37.6800],[-121.7696,37.6800],[-121.7696,37.6804],[-121.7700,37.6804],[-121.7700,37.6800]]]}`,
+			}}, nil
+		},
+		SaveHexMetricsFunc: func(_ context.Context, _ string, _ *int64, _ []db.HexMetric) error { return saveErr },
+	}
+	ios, _, _, _ := iostreams.Test()
+	f := &cmdutil.Factory{
+		IOStreams:   ios,
+		UnitSystem:  func() units.System { return units.Metric },
+		CityDB:      func() (db.Store, error) { return store, nil },
+		CurrentCity: func() (*config.CityConfig, error) { return testCity, nil },
+		Config:      func() (*config.Config, error) { return testCfg, nil },
+	}
+	cmd := NewCmdCompute(f, &resource.Parking{}, nil)
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	cmd.SetArgs([]string{})
+	err := cmd.Execute()
+	if !errors.Is(err, saveErr) {
+		t.Errorf("expected wrapped SaveHexMetrics error, got: %v", err)
 	}
 }

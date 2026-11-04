@@ -558,16 +558,36 @@ func (c *computer) saveHexStats(ctx context.Context, hexStats []geo.HexStat) err
 	dbStats := make([]db.HexStat, len(hexStats))
 	for i, s := range hexStats {
 		dbStats[i] = db.HexStat{
-			HexID:           s.HexID,
-			ResourceType:    rt,
-			Area:            s.Area,
-			PctCovered:      s.PctCovered,
-			EstimatedSpaces: s.EstimatedSpaces,
-			SnapshotID:      c.snapshotID,
+			HexID:        s.HexID,
+			ResourceType: rt,
+			Area:         s.Area,
+			PctCovered:   s.PctCovered,
+			SnapshotID:   c.snapshotID,
 		}
 	}
 	if err := c.store.SaveHexStats(ctx, dbStats); err != nil {
 		return fmt.Errorf("save hex stats: %w", err)
+	}
+	return c.saveSpaceMetrics(ctx, rt, hexStats)
+}
+
+// saveSpaceMetrics persists the per-hex parking spaces of rt's stats to
+// hex_metrics (resource.SpacesMetricKey) against this run's snapshot, the
+// same one its hex_stats rows carry; export joins the two on that snapshot.
+// Hexes with no spaces are not stored. A no-op for resources without spaces.
+func (c *computer) saveSpaceMetrics(ctx context.Context, rt resource.Type, stats []geo.HexStat) error {
+	key := resource.SpacesMetricKey(rt)
+	if key == "" {
+		return nil
+	}
+	var rows []db.HexMetric
+	for _, s := range stats {
+		if s.EstimatedSpaces > 0 {
+			rows = append(rows, db.HexMetric{HexID: s.HexID, Value: s.EstimatedSpaces})
+		}
+	}
+	if err := c.store.SaveHexMetrics(ctx, key, c.snapshotID, rows); err != nil {
+		return fmt.Errorf("save %s parking space metrics: %w", rt, err)
 	}
 	return nil
 }
@@ -596,16 +616,18 @@ func (c *computer) processCityResults(ctx context.Context, cityBuffered []resour
 	for i, s := range cityStats {
 		cityArea += s.Area
 		cityDBStats[i] = db.HexStat{
-			HexID:           s.HexID,
-			ResourceType:    rtCity,
-			Area:            s.Area,
-			PctCovered:      s.PctCovered,
-			EstimatedSpaces: s.EstimatedSpaces,
-			SnapshotID:      c.snapshotID,
+			HexID:        s.HexID,
+			ResourceType: rtCity,
+			Area:         s.Area,
+			PctCovered:   s.PctCovered,
+			SnapshotID:   c.snapshotID,
 		}
 	}
 	if err := c.store.SaveHexStats(ctx, cityDBStats); err != nil {
 		return fmt.Errorf("save city hex stats: %w", err)
+	}
+	if err := c.saveSpaceMetrics(ctx, rtCity, cityStats); err != nil {
+		return err
 	}
 
 	citySpaces := sumSpaces(cityStats)

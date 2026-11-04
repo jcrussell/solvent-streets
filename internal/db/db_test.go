@@ -1666,10 +1666,10 @@ func TestGCResultTablesCoversSnapshotResultTables(t *testing.T) {
 	}
 }
 
-// TestEstimatedSpacesRoundTrip pins the estimated_spaces column on both
-// result tables through the Store: the parking compute pass writes it, every
-// reader (single, batched, Stats, hex list) returns it, and a resource that
-// never sets it reads back 0.
+// TestEstimatedSpacesRoundTrip pins the compute_results.estimated_spaces
+// column through the Store: the parking compute pass writes it, every reader
+// (single, batched, Stats) returns it, and a resource that never sets it reads
+// back 0. Per-hex spaces live in hex_metrics (TestHexMetricsRoundTrip).
 func TestEstimatedSpacesRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
@@ -1682,12 +1682,6 @@ func TestEstimatedSpacesRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := store.SaveComputeResult(ctx, ComputeResult{ResourceType: rtRoads, TotalArea: 5000, FeatureCount: 9, SnapshotID: &id}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.SaveHexStats(ctx, []HexStat{
-		{HexID: "h1", ResourceType: rtParking, Area: 600, PctCovered: 20, EstimatedSpaces: 20.5, SnapshotID: &id},
-		{HexID: "h2", ResourceType: rtParking, Area: 300, PctCovered: 10, EstimatedSpaces: 10.5, SnapshotID: &id},
-	}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1711,17 +1705,6 @@ func TestEstimatedSpacesRoundTrip(t *testing.T) {
 	}
 	if info.EstimatedSpaces != 31 {
 		t.Errorf("Stats(parking).EstimatedSpaces = %d, want 31", info.EstimatedSpaces)
-	}
-	hexes, err := store.ListHexStats(ctx, rtParking)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var sum float64
-	for _, h := range hexes {
-		sum += h.EstimatedSpaces
-	}
-	if len(hexes) != 2 || sum != 31 {
-		t.Errorf("ListHexStats(parking) spaces = %v (n=%d), want 31 over 2 rows", sum, len(hexes))
 	}
 }
 

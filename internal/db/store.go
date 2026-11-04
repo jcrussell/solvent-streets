@@ -182,8 +182,8 @@ func (s *sqliteStore) LatestComputeResults(ctx context.Context, types []resource
 func (s *sqliteStore) SaveHexStats(ctx context.Context, stats []HexStat) error {
 	return s.withTx(ctx, func(tx *sql.Tx) error {
 		stmt, err := tx.PrepareContext(ctx, `
-			INSERT INTO hex_stats (hex_id, resource_type, city_id, snapshot_id, area, pct_covered, estimated_spaces, computed_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			INSERT INTO hex_stats (hex_id, resource_type, city_id, snapshot_id, area, pct_covered, computed_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
 		`)
 		if err != nil {
 			return fmt.Errorf("prepare hex stats insert: %w", err)
@@ -192,7 +192,7 @@ func (s *sqliteStore) SaveHexStats(ctx context.Context, stats []HexStat) error {
 
 		now := time.Now()
 		for _, st := range stats {
-			if _, err := stmt.ExecContext(ctx, st.HexID, st.ResourceType, s.cityID, st.SnapshotID, st.Area, st.PctCovered, st.EstimatedSpaces, now); err != nil {
+			if _, err := stmt.ExecContext(ctx, st.HexID, st.ResourceType, s.cityID, st.SnapshotID, st.Area, st.PctCovered, now); err != nil {
 				return fmt.Errorf("insert hex stat %s: %w", st.HexID, err)
 			}
 		}
@@ -208,11 +208,11 @@ func (s *sqliteStore) SaveHexStats(ctx context.Context, stats []HexStat) error {
 // behavior duplicated output for every caller that didn't pin.
 func (s *sqliteStore) ListHexStats(ctx context.Context, resourceType resource.Type) ([]HexStat, error) {
 	return listSnapshotRows(ctx, s, "hex stat",
-		`SELECT hex_id, resource_type, area, pct_covered, estimated_spaces, computed_at, snapshot_id FROM hex_stats`,
+		`SELECT hex_id, resource_type, area, pct_covered, computed_at, snapshot_id FROM hex_stats`,
 		"hex_stats", resourceType,
 		func(rows *sql.Rows) (HexStat, error) {
 			var st HexStat
-			err := rows.Scan(&st.HexID, &st.ResourceType, &st.Area, &st.PctCovered, &st.EstimatedSpaces, &st.ComputedAt, &st.SnapshotID)
+			err := rows.Scan(&st.HexID, &st.ResourceType, &st.Area, &st.PctCovered, &st.ComputedAt, &st.SnapshotID)
 			return st, err
 		})
 }

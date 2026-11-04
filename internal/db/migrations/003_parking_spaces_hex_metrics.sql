@@ -9,18 +9,22 @@
 -- Estimated parking spaces (solvent-streets-l3gz). The parking compute pass
 -- derives a space count per lot (OSM capacity tag, else footprint area over
 -- resource.ParkingSpaceAreaM2, times levels for structured parking) and
--- apportions it onto the hex grid alongside the covered area.
+-- apportions it onto the hex grid alongside the covered area. The city
+-- total is a column here; the per-hex shares are hex_metrics rows (below).
 --
 -- Non-parking rows keep the default 0; readers treat 0 as "no estimate".
 ALTER TABLE compute_results ADD COLUMN estimated_spaces INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE hex_stats ADD COLUMN estimated_spaces REAL NOT NULL DEFAULT 0;
 
 -- Generic per-hex metrics (solvent-streets-ql2w). One row per
 -- (city, snapshot, hex, metric): a named numeric value (internal/hexmetric)
 -- such as fire_response_s, plus an optional reference id (the nearest
--- facility for a coverage metric). Rows attach to the LATEST ROADS compute
--- snapshot of the city rather than minting one of their own (the forecast
--- pattern), and a re-run replaces that (city, metric, snapshot) slice.
+-- facility for a coverage metric). Each producer attaches its rows to the
+-- compute snapshot they derive from, and a re-run replaces that
+-- (city, metric, snapshot) slice: service coverage and census metrics attach
+-- to the LATEST ROADS snapshot rather than minting one of their own (the
+-- forecast pattern); the per-hex parking spaces (parking_spaces_all /
+-- parking_spaces_city, deliberately not registered in internal/hexmetric)
+-- attach to the parking compute's own snapshot, the one its hex_stats carry.
 --
 -- `metric` plays the role resource_type plays on the other result tables:
 -- the snapshot-scoped list query is keyed on it, and the per-city composite

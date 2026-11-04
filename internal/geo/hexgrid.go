@@ -112,7 +112,8 @@ type HexStat struct {
 	PctCovered   float64
 	// EstimatedSpaces is the parking spaces apportioned to this hex
 	// (ComputeHexWeightedShares, folded in by the compute pass); 0 for every
-	// other resource.
+	// other resource. In-memory only: compute persists it to hex_metrics
+	// under resource.SpacesMetricKey, not to hex_stats.
 	EstimatedSpaces float64
 }
 

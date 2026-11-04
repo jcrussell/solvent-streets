@@ -117,11 +117,16 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 		}
 	})
 
-	t.Run("003 adds the estimated_spaces columns", func(t *testing.T) {
-		for _, table := range []string{"compute_results", "hex_stats"} {
-			if !slices.ContainsFunc(listColumns(t, ctx, root.db, table), func(c columnInfo) bool { return c.name == "estimated_spaces" }) {
-				t.Errorf("%s missing estimated_spaces column", table)
-			}
+	t.Run("003 adds estimated_spaces to compute_results only", func(t *testing.T) {
+		hasSpaces := func(table string) bool {
+			return slices.ContainsFunc(listColumns(t, ctx, root.db, table), func(c columnInfo) bool { return c.name == "estimated_spaces" })
+		}
+		if !hasSpaces("compute_results") {
+			t.Error("compute_results missing estimated_spaces column")
+		}
+		// Per-hex spaces are hex_metrics rows (resource.SpacesMetricKey).
+		if hasSpaces("hex_stats") {
+			t.Error("hex_stats must not carry estimated_spaces; per-hex spaces live in hex_metrics")
 		}
 	})
 
@@ -680,9 +685,10 @@ func TestMigrateFS_RejectsDuplicateVersions(t *testing.T) {
 
 // TestMigrate_003UpgradesExistingRows pins the additive-migration contract 003
 // relies on: a database already at schema_version 2 with compute_results and
-// hex_stats rows gains the estimated_spaces columns in place, existing rows
-// read back as 0 (never NULL), and new rows round-trip the value through the
-// Store. Editing 001 in place would never have reached such a database.
+// hex_stats rows gains compute_results.estimated_spaces and the hex_metrics
+// table in place, existing rows read back as 0 (never NULL), and the old
+// hex_stats rows still read. Editing 001 in place would never have reached
+// such a database.
 func TestMigrate_003UpgradesExistingRows(t *testing.T) {
 	ctx := context.Background()
 	init001, err := migrationsFS.ReadFile("migrations/001_init.sql")
@@ -735,11 +741,12 @@ func TestMigrate_003UpgradesExistingRows(t *testing.T) {
 	if spaces != 0 {
 		t.Errorf("pre-003 compute row estimated_spaces = %d, want 0", spaces)
 	}
-	var hexSpaces float64
-	if err := d.QueryRowContext(ctx, `SELECT estimated_spaces FROM hex_stats WHERE city_id = 1`).Scan(&hexSpaces); err != nil {
-		t.Fatalf("pre-003 hex row estimated_spaces: %v", err)
+	var hexRows int
+	if err := d.QueryRowContext(ctx, `SELECT COUNT(*) FROM hex_stats WHERE city_id = 1`).Scan(&hexRows); err != nil || hexRows != 1 {
+		t.Errorf("pre-003 hex_stats rows = %d (err %v), want 1", hexRows, err)
 	}
-	if hexSpaces != 0 {
-		t.Errorf("pre-003 hex row estimated_spaces = %v, want 0", hexSpaces)
+	var metricRows int
+	if err := d.QueryRowContext(ctx, `SELECT COUNT(*) FROM hex_metrics`).Scan(&metricRows); err != nil {
+		t.Fatalf("hex_metrics after 003: %v", err)
 	}
 }

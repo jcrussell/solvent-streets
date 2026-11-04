@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -17,6 +18,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/geo"
+	"github.com/jcrussell/solvent-streets/internal/hexmetric"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
@@ -786,23 +788,37 @@ func TestBuildHexGeoJSON_DefaultCoordinatePrecision(t *testing.T) {
 }
 
 // TestBuildHexGeoJSON_ParkingSpaces pins the v3 "spaces" key: a parking hex
-// carries its apportioned spaces rounded to a whole count, a sub-space sliver
-// and every non-parking resource carry no key, and — because both scopes round
-// through the same function — an identical city scope still dedups to
-// city_same rather than silently emitting a duplicate object.
+// carries its apportioned spaces (stored in hex_metrics, one key per scope)
+// rounded to a whole count, a sub-space sliver and every non-parking resource
+// carry no key, and — because both scopes round through the same function — an
+// identical city scope still dedups to city_same rather than silently emitting
+// a duplicate object.
 func TestBuildHexGeoJSON_ParkingSpaces(t *testing.T) {
 	now := time.Now()
+	snap := int64(7)
 	parkingCity := rtParkingAll.With(resource.ScopeCity)
 	entry := hexEntry(t, map[resource.Type][]db.HexStat{
-		rtRoads: {{HexID: "0,0", ResourceType: rtRoads, Area: 200, PctCovered: 75, EstimatedSpaces: 0, ComputedAt: now}},
-		rtParkingAll: {{HexID: "0,0", ResourceType: rtParkingAll, Area: 90, PctCovered: 30, EstimatedSpaces: 12.4, ComputedAt: now},
-			{HexID: "0,1", ResourceType: rtParkingAll, Area: 9, PctCovered: 3, EstimatedSpaces: 0.3, ComputedAt: now}},
-		parkingCity: {{HexID: "0,0", ResourceType: parkingCity, Area: 90, PctCovered: 30, EstimatedSpaces: 12.4, ComputedAt: now},
-			{HexID: "0,1", ResourceType: parkingCity, Area: 9, PctCovered: 3, EstimatedSpaces: 0.3, ComputedAt: now}},
+		rtRoads: {{HexID: "0,0", ResourceType: rtRoads, Area: 200, PctCovered: 75, ComputedAt: now}},
+		rtParkingAll: {{HexID: "0,0", ResourceType: rtParkingAll, Area: 90, PctCovered: 30, ComputedAt: now, SnapshotID: &snap},
+			{HexID: "0,1", ResourceType: rtParkingAll, Area: 9, PctCovered: 3, ComputedAt: now, SnapshotID: &snap}},
+		parkingCity: {{HexID: "0,0", ResourceType: parkingCity, Area: 90, PctCovered: 30, ComputedAt: now, SnapshotID: &snap},
+			{HexID: "0,1", ResourceType: parkingCity, Area: 9, PctCovered: 3, ComputedAt: now, SnapshotID: &snap}},
 	}, nil)
+	spaceRows := []db.HexMetric{{HexID: "0,0", Value: 12.4, SnapshotID: &snap}, {HexID: "0,1", Value: 0.3, SnapshotID: &snap}}
+	var listed []string
+	entry.Store.(*dbtest.MockStore).ListHexMetricsFunc = func(_ context.Context, metric string) ([]db.HexMetric, error) {
+		listed = append(listed, metric)
+		if metric == resource.SpacesMetricAll || metric == resource.SpacesMetricCity {
+			return spaceRows, nil
+		}
+		return nil, nil
+	}
 	aggs, err := aggregateHexStats(t.Context(), entry)
 	if err != nil {
 		t.Fatalf("aggregateHexStats: %v", err)
+	}
+	if want := []string{resource.SpacesMetricAll, resource.SpacesMetricCity}; !slices.Equal(listed, want) {
+		t.Errorf("listed metrics %v, want only the parking space keys %v", listed, want)
 	}
 	a := aggs["0,0"]
 	if got := a.bbox["parking"]["spaces"]; got != 12 {
@@ -816,6 +832,38 @@ func TestBuildHexGeoJSON_ParkingSpaces(t *testing.T) {
 	}
 	if !sameCoverage(a.city["parking"], a.bbox["parking"]) {
 		t.Errorf("identical parking scopes must still compare equal with spaces present: city=%v bbox=%v", a.city["parking"], a.bbox["parking"])
+	}
+}
+
+// TestBuildHexGeoJSON_ParkingSpacesSnapshotMismatch: space rows from a
+// different snapshot than the coverage rows (a newer parking run that stored
+// no spaces, so ListHexMetrics resolved an older one) are dropped rather than
+// paired with the newer coverage.
+func TestBuildHexGeoJSON_ParkingSpacesSnapshotMismatch(t *testing.T) {
+	older, newer := int64(3), int64(4)
+	entry := hexEntry(t, map[resource.Type][]db.HexStat{
+		rtParkingAll: {{HexID: "0,0", ResourceType: rtParkingAll, Area: 90, PctCovered: 30, SnapshotID: &newer}},
+	}, nil)
+	entry.Store.(*dbtest.MockStore).ListHexMetricsFunc = func(_ context.Context, _ string) ([]db.HexMetric, error) {
+		return []db.HexMetric{{HexID: "0,0", Value: 12, SnapshotID: &older}}, nil
+	}
+	aggs, err := aggregateHexStats(t.Context(), entry)
+	if err != nil {
+		t.Fatalf("aggregateHexStats: %v", err)
+	}
+	if got, ok := aggs["0,0"].bbox["parking"]["spaces"]; ok {
+		t.Errorf("spaces from snapshot %d leaked onto snapshot %d coverage: %v", older, newer, got)
+	}
+}
+
+// TestParkingSpaceKeysUnregistered guards the stored space keys from being
+// registered as hex metrics: a stored spec would duplicate the derived
+// "parking_spaces" Color-by and ignore the scope toggle.
+func TestParkingSpaceKeysUnregistered(t *testing.T) {
+	for _, key := range []string{resource.SpacesMetricAll, resource.SpacesMetricCity} {
+		if _, ok := hexmetric.Lookup(key); ok {
+			t.Errorf("%s is registered in hexmetric; it must stay an export-internal key", key)
+		}
 	}
 }
 

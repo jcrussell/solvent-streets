@@ -11,6 +11,7 @@ import (
 
 	"github.com/peterstace/simplefeatures/geom"
 
+	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
@@ -178,6 +179,10 @@ func aggregateHexStats(ctx context.Context, entry CityEntry) (map[string]*hexAgg
 			if err != nil {
 				return nil, fmt.Errorf("listing hex stats for %s: %w", rt.Type().With(scope), err)
 			}
+			spaces, err := hexSpaces(ctx, entry, rt.Type().With(scope), stats)
+			if err != nil {
+				return nil, err
+			}
 			for _, st := range stats {
 				a := aggs[st.HexID]
 				if a == nil {
@@ -188,11 +193,45 @@ func aggregateHexStats(ctx context.Context, entry CityEntry) (map[string]*hexAgg
 				// for both scopes: sameCoverage compares the maps exactly, so
 				// asymmetric rounding would silently switch off the city_same
 				// dedup for every parking hex.
-				a.set(res, scope, round2(st.Area), round2(st.PctCovered), math.Round(st.EstimatedSpaces))
+				a.set(res, scope, round2(st.Area), round2(st.PctCovered), math.Round(spaces[st.HexID]))
 			}
 		}
 	}
 	return aggs, nil
+}
+
+// hexSpaces returns t's per-hex parking spaces keyed by hex ID, read from
+// hex_metrics (resource.SpacesMetricKey). Only
+// rows from the same snapshot as stats are kept: ListHexMetrics resolves the
+// latest snapshot per metric key, so a parking run that stored no space rows
+// would otherwise pair an older run's spaces with the newer coverage. The
+// map is empty, never nil, when t carries no spaces.
+func hexSpaces(ctx context.Context, entry CityEntry, t resource.Type, stats []db.HexStat) (map[string]float64, error) {
+	key := resource.SpacesMetricKey(t)
+	if key == "" || len(stats) == 0 {
+		return map[string]float64{}, nil
+	}
+	rows, err := entry.Store.ListHexMetrics(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("listing parking spaces for %s: %w", t, err)
+	}
+	snap := stats[0].SnapshotID
+	out := make(map[string]float64, len(rows))
+	for _, r := range rows {
+		if sameSnapshot(r.SnapshotID, snap) {
+			out[r.HexID] = r.Value
+		}
+	}
+	return out, nil
+}
+
+// sameSnapshot reports whether two optional snapshot ids are equal, treating
+// two nils (legacy pre-snapshot rows) as equal.
+func sameSnapshot(a, b *int64) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 // set records one resource's coverage for the given scope, lazily allocating
