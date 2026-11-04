@@ -156,3 +156,33 @@ test('Back across a city change restores the metric for the returned-to city', a
   assert.equal(params(h.win).get('metric'), 'fire_response_s');
   assert.equal(h.get('hexMetric'), 'fire_response_s', 'the metric must be restored, not collapsed to coverage by the empty map mid-load');
 });
+
+// Goldens for the generic-coloring refactor (solvent-streets-59hj): the
+// coverage ramp and the fire bands must paint and label exactly as they did
+// when each had its own code path. Colours resolve to '' in jsdom (no
+// stylesheet), so the expression SHAPE and stops are what is pinned.
+test('golden: coverage paint ramp and legend labels', async () => {
+  const { win, $$ } = await loadWithMetrics();
+  const paint = plain(win.hexFillColor());
+  assert.deepEqual(paint.slice(0, 3), ['interpolate', ['linear'], ['get', 'pct_covered']]);
+  assert.deepEqual(paint.slice(3).filter((_, i) => i % 2 === 0), [0, 10, 25, 50, 75, 100]);
+  assert.deepEqual($$('#legend .legend-labels span').map((s) => s.textContent), ['0%', '25%', '50%', '75%', '100%']);
+});
+
+test('golden: fire paint bands and legend labels', async () => {
+  const { win, $$ } = await loadWithMetrics();
+  win.selectHexMetric('fire_response_s');
+  const paint = plain(win.hexFillColor());
+  const step = paint[2];
+  assert.deepEqual(step.slice(0, 2), ['step', ['get', 'metric_v']]);
+  assert.deepEqual(step.slice(3).filter((_, i) => i % 2 === 0), fire.scale.bands);
+  const labels = $$('#legend .legend-labels span').map((s) => s.textContent);
+  assert.deepEqual(labels, goldenBandLabels(fire.scale.bands, (v) => win.fmtMetric(v, 'minutes')));
+});
+
+function goldenBandLabels(bands, fmt) {
+  const out = ['≤ ' + fmt(bands[0])];
+  for (let i = 1; i < bands.length; i++) out.push(fmt(bands[i - 1]) + '–' + fmt(bands[i]));
+  out.push('> ' + fmt(bands[bands.length - 1]));
+  return out;
+}
