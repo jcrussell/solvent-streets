@@ -35,8 +35,8 @@ func NewCmdCensus(f *cmdutil.Factory) *cobra.Command {
 (from the Census Bureau's TIGERweb service), apportion those counts onto the
 hex grid by area, and view status. The results land as per-hex metrics —
 population, housing_units, population_per_km2 — that the dashboard offers
-under "Color by", together with per-resident ratios (paved m² and year-1
-need per resident) it derives from them.
+under "Color by", together with per-resident ratios (paved area and
+year-1 need per resident) it derives from them.
 
 US cities only: TIGERweb has no blocks elsewhere. Set census = false on a
 city to keep it out of the census steps of 'pvmt all'.`,

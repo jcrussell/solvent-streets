@@ -114,10 +114,13 @@
         .legend-gradient { width: 100px; height: 12px; border-radius: 2px; display: inline-block; }
 
         /* Color legend */
+        /* Bottom-left: the stats panel owns the right edge, and a legend
+           there covered its lower cards. */
         #legend {
             position: absolute;
             bottom: 36px;
-            right: 10px;
+            left: 10px;
+            max-width: 460px;
             background: var(--panel);
             padding: 10px 14px;
             border-radius: 6px;
@@ -135,6 +138,7 @@
         #legend .legend-labels { display: flex; justify-content: space-between; margin-top: 2px; color: var(--text-muted); }
         /* Metric legend: one label centred under each colour block. */
         #legend .legend-labels.discrete { display: grid; text-align: center; font-size: 11px; gap: 2px; }
+        #legend .legend-labels.discrete span { white-space: nowrap; }
         #legend .legend-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
         #legend .legend-row .legend-title { margin-bottom: 0; }
         #legend select { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; font-size: 12px; cursor: pointer; }
@@ -596,6 +600,7 @@
             #legend {
                 bottom: auto;
                 top: 56px;
+                left: auto;
                 right: 8px;
                 padding: 6px 10px;
             }

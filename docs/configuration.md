@@ -180,7 +180,7 @@ overpass = true
 the Census Bureau's TIGERweb service and apportions them onto the hex grid
 by area. The results are the `population`, `housing_units` and
 `population_per_km2` metrics, plus the per-resident ratios the dashboard
-derives from them (paved m² and year-1 need per resident). The source is
+derives from them (paved area and year-1 need per resident). The source is
 fixed, so `overpass` / `arcgis_url` do not affect it. `pvmt all ingest` /
 `pvmt all compute` run the census steps best-effort after the pavement
 passes, the same way as the services steps.

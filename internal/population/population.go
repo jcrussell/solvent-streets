@@ -55,13 +55,15 @@ func init() {
 		Scale: hexmetric.Scale{Kind: hexmetric.KindSequential, Transform: hexmetric.TransformLog, Bands: []float64{5, 25, 50, 100, 200}},
 	})
 	hexmetric.Register(hexmetric.Spec{
-		Key: KeyDensity, Label: "Population density (per km²)", Unit: "1/km2", Source: source,
-		Format: hexmetric.FormatInt,
+		// FormatDensity: stored per km², shown per the viewer's unit.
+		Key: KeyDensity, Label: "Population density", Unit: "1/km2", Source: source,
+		Format: hexmetric.FormatDensity,
 		Scale:  hexmetric.Scale{Kind: hexmetric.KindSequential, Transform: hexmetric.TransformLog, Bands: []float64{500, 2000, 5000, 10000, 20000}},
 	})
 	hexmetric.Register(hexmetric.Spec{
-		Key: KeyRoadAreaPerResident, Label: "Paved m² per resident", Unit: "m2", Source: "Paved area of the toggled resources ÷ " + source,
-		Format: hexmetric.FormatFloat1,
+		// FormatArea: stored in m² per resident, shown in the viewer's unit.
+		Key: KeyRoadAreaPerResident, Label: "Paved area per resident", Unit: "m2", Source: "Paved area of the toggled resources ÷ " + source,
+		Format: hexmetric.FormatArea,
 		Scale:  hexmetric.Scale{Kind: hexmetric.KindSequential, Transform: hexmetric.TransformLog, Bands: []float64{20, 40, 60, 100, 200}},
 		Derive: &hexmetric.Derivation{Op: hexmetric.OpRatio, Prop: hexmetric.PropArea, Den: KeyPopulation, MinDen: MinResidents},
 	})

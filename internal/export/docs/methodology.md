@@ -287,7 +287,7 @@ moves people only within a block and never changes the city total. Density
 divides a hex's population by its own area after clipping to the city
 boundary, so edge hexes are not understated.
 
-**Paved m² per resident** and **Year-1 need per resident** divide a hex's
+**Paved area per resident** and **Year-1 need per resident** divide a hex's
 paved area, or its year-1 need, by its population. Both follow the
 resources toggled on. Hexes with fewer than 10 residents are left blank, so
 a nearly empty hex doesn't produce a huge per-resident figure. The year-1

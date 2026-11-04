@@ -85,6 +85,32 @@ test('legend labels follow the metric format', async () => {
   assert.equal(labels[labels.length - 1], '> 250');
 });
 
+// Area band edges are metric; converted to sq ft they are never round, and
+// at full precision ("5,382 sq ft–10,764 sq ft") the legend outgrew the map.
+// Compact edges, with the unit named once on the last label.
+test('area legend edges are compact and name the unit once', async () => {
+  const { win, $$ } = await loadGrid();
+  win.selectHexMetric('paved_area_m2');
+  const labels = $$('#legend .legend-labels span').map((s) => s.textContent);
+  const unit = win.areaUnit();
+  const sqft = unit !== 'm²' && unit !== 'sq m';
+  assert.deepEqual(labels, sqft
+    ? ['≤ 5.4K', '5.4K–11K', '11K–22K', '22K–43K', '43K–86K', '> 86K ' + unit]
+    : ['≤ 500', '500–1K', '1K–2K', '2K–4K', '4K–8K', '> 8K ' + unit]);
+
+  // Dollar edges keep a decimal: fmtCost would round $2,500 to "$3K".
+  win.selectHexMetric('est_cost_usd');
+  assert.deepEqual($$('#legend .legend-labels span').map((s) => s.textContent),
+    ['≤ $1K', '$1K–$2.5K', '$2.5K–$5K', '$5K–$10K', '$10K–$20K', '> $20K']);
+});
+
+test('density follows the unit system: per km² stored, per sq mi shown in imperial', async () => {
+  const { win } = await loadGrid();
+  const big = win.areaVeryLargeUnit();
+  const want = big === 'sq mi' ? '2,590 / sq mi' : '1,000 / sq km';
+  assert.equal(win.fmtMetric(1000, 'density'), want);
+});
+
 test('untoggling the only resource with spaces falls back from Parking spaces', async () => {
   const { win, $, $$, get } = await loadGrid();
   win.selectHexMetric('parking_spaces');
@@ -137,11 +163,11 @@ test('the per-resident card is a city-wide sum over sum and follows the toggles'
   const h = await loadGrid({ 'hex-metrics.json': { v: 1, metrics: { population } } });
   const rows = () => Object.fromEntries(h.$$('#stats .ratio-card .stat-row').map((r) =>
     [r.querySelector('.stat-label').textContent, r.querySelector('.stat-value').textContent]));
-  // 4500 m² paved / 132 residents; $21,000 year-1 need / 132 residents.
-  assert.deepEqual(rows(), { 'Paved m² per resident': '34.1', 'Year-1 need per resident': '$159' });
+  // 4500 m² paved / 132 residents (34.1 m², shown in sq ft); $21,000 year-1 need / 132 residents.
+  assert.deepEqual(rows(), { 'Paved area per resident': '367 sq ft', 'Year-1 need per resident': '$159' });
   const cb = h.$('#toggles input[data-type="parking"]');
   cb.checked = false;
   cb.dispatchEvent(new h.win.Event('change'));
   // Roads only: 1500 m² and $15,000 over the same 132 residents.
-  assert.deepEqual(rows(), { 'Paved m² per resident': '11.4', 'Year-1 need per resident': '$114' });
+  assert.deepEqual(rows(), { 'Paved area per resident': '122 sq ft', 'Year-1 need per resident': '$114' });
 });

@@ -43,6 +43,7 @@ const (
 	FormatUSD     = "usd"     // dollars
 	FormatPercent = "percent" // 0–100, rendered with a % sign
 	FormatArea    = "area"    // square metres in, the viewer's area unit out
+	FormatDensity = "density" // per km² in, per the viewer's large area unit (km² or sq mi) out
 )
 
 // Scale modes. Bands (the default, and what an empty Mode means so files
@@ -162,7 +163,7 @@ func (s Spec) Validate() error {
 		return fmt.Errorf("hexmetric: %s has no label", s.Key)
 	}
 	switch s.Format {
-	case FormatInt, FormatFloat1, FormatMinutes, FormatUSD, FormatPercent, FormatArea:
+	case FormatInt, FormatFloat1, FormatMinutes, FormatUSD, FormatPercent, FormatArea, FormatDensity:
 	default:
 		return fmt.Errorf("hexmetric: %s has unknown format %q", s.Key, s.Format)
 	}

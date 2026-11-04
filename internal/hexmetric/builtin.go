@@ -8,8 +8,10 @@ package hexmetric
 // these colorings without code.
 //
 // Band edges are absolute and city-independent (the Spec is static per key).
-// They were picked from the hex_stats distribution of a real city at the
-// default 100 m hex edge: roughly the 10th–99th percentiles.
+// They were picked from a real city's distribution (Livermore) at the
+// default 100 m hex edge: roughly the 10th–99th percentiles. The cost edges
+// sit a little above that city's roads-only spread, to leave room for
+// parking and sidewalks.
 const (
 	// KeyCoverage is the default "Color by" metric. It stays out of the URL.
 	KeyCoverage = "coverage_pct"
@@ -67,7 +69,7 @@ func init() {
 		Format: FormatUSD,
 		Scale: Scale{
 			Kind: KindSequential, Transform: TransformLinear,
-			Bands: []float64{5000, 10000, 25000, 50000, 100000},
+			Bands: []float64{1000, 2500, 5000, 10000, 20000},
 		},
 		Derive: &Derivation{Op: OpSum, Prop: PropEstCost},
 	})

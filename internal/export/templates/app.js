@@ -670,7 +670,8 @@
                     (s.total != null ? '<div class="stat-row"><span class="stat-label">Total</span><span class="stat-value">' + fmtMetric(s.total, s.format) + '</span></div>' : '') +
                     (s.threshold_s > 0 ? '<div class="stat-row"><span class="stat-label">Within ' + fmtMetric(s.threshold_s, s.format) + '</span><span class="stat-value">' + (s.pct_within || 0).toFixed(1) + '%</span></div>' : '') +
                     '<div class="stat-row"><span class="stat-label">Median</span><span class="stat-value">' + fmtMetric(s.median, s.format) + '</span></div>' +
-                    '<div class="stat-row"><span class="stat-label">Range</span><span class="stat-value">' + fmtMetric(s.min, s.format) + ' – ' + fmtMetric(s.max, s.format) + '</span></div>' +
+                    // Compact, unit once: "0 – 24K / sq mi", not the unit twice.
+                    '<div class="stat-row"><span class="stat-label">Range</span><span class="stat-value">' + fmtLegend(s.min, s.format, false) + ' – ' + fmtLegend(s.max, s.format, true) + '</span></div>' +
                     (s.points > 0 ? '<div class="stat-row"><span class="stat-label">Points of service</span><span class="stat-value">' + s.points + '</span></div>' : '') +
                     '</div>';
             });
@@ -1223,8 +1224,45 @@
                 case 'usd': return fmtCost(v);
                 case 'percent': return Math.round(v) + '%';
                 case 'area': return fmtArea(v);
+                case 'density': return Math.round(densityInUnit(v)).toLocaleString() + ' / ' + areaVeryLargeUnit();
                 default: return Math.round(v).toLocaleString();
             }
+        }
+
+        // densityInUnit converts a per-km² density to per the viewer's large
+        // area unit (km², or sq mi in imperial).
+        function densityInUnit(perKm2) {
+            return perKm2 / toAreaVeryLarge(1e6);
+        }
+
+        // compactNum renders a legend edge in at most ~3 characters of digits:
+        // 500, 5.4K, 22K, 1.2M. Band edges are fixed metric values, so after
+        // a unit conversion they are rarely round; full precision
+        // ("5,382 sq ft") made legends wider than the map.
+        function compactNum(v) {
+            const a = Math.abs(v);
+            const two = x => (Math.abs(x) < 10 ? String(Math.round(x * 10) / 10) : String(Math.round(x)));
+            if (a >= 1e6) return two(v / 1e6) + 'M';
+            if (a >= 1e3) return two(v / 1e3) + 'K';
+            return two(v);
+        }
+
+        // fmtLegend renders a legend edge: compact counts and areas (area in
+        // the viewer's unit, the unit itself only where withUnit asks so a row
+        // of ranges names it once), everything else as fmtMetric does.
+        function fmtLegend(v, format, withUnit) {
+            if (format === 'area') {
+                const val = UNIT_SYSTEM === 'metric' ? v : v * SQM_TO_SQFT;
+                return compactNum(val) + (withUnit ? ' ' + areaUnit() : '');
+            }
+            if (format === 'density') {
+                return compactNum(densityInUnit(v)) + (withUnit ? ' / ' + areaVeryLargeUnit() : '');
+            }
+            // fmtCost rounds to whole thousands ($2.5K -> "$3K"), which
+            // misstates a band edge; keep one decimal here.
+            if (format === 'usd') return '$' + compactNum(v);
+            if (format === 'int') return compactNum(v);
+            return fmtMetric(v, format);
         }
 
         // metricTooltipLine is the tooltip's extra line for the active metric.
@@ -1291,7 +1329,7 @@
             }
             const bands = (metric.scale && metric.scale.bands) || [];
             const colors = metricBandColors(metric.scale);
-            const f = v => fmtMetric(v, metric.format);
+            const f = (v, withUnit) => fmtLegend(v, metric.format, withUnit);
             if (isRamp(metric.scale) && bands.length >= 2) {
                 const lo = bands[0], span = bands[bands.length - 1] - lo;
                 const stops = bands.map((b, i) => colors[i] + ' ' + ((b - lo) * 100 / span) + '%');
@@ -1300,7 +1338,7 @@
                 const ticks = (metric.scale.ticks && metric.scale.ticks.length) ? metric.scale.ticks : bands;
                 labels.classList.remove('discrete');
                 labels.style.gridTemplateColumns = '';
-                labels.innerHTML = ticks.map(t => '<span>' + esc(f(t)) + '</span>').join('');
+                labels.innerHTML = ticks.map(t => '<span>' + esc(f(t, true)) + '</span>').join('');
                 return;
             }
             const n = colors.length;
@@ -1309,12 +1347,13 @@
             bar.style.background = 'linear-gradient(90deg, ' + stops.join(', ') + ')';
             // One label per band, each centred under its colour block (a grid
             // with as many columns as bands), naming the band's range: the
-            // first is "≤ edge", the last "> edge", the rest "lo–hi".
+            // first is "≤ edge", the last "> edge" (which also names the unit,
+            // once for the row), the rest "lo–hi".
             const parts = colors.map((_, i) => {
                 if (bands.length === 0) return 'all';
-                if (i === 0) return '≤ ' + f(bands[0]);
-                if (i === bands.length) return '> ' + f(bands[bands.length - 1]);
-                return f(bands[i - 1]) + '–' + f(bands[i]);
+                if (i === 0) return '≤ ' + f(bands[0], false);
+                if (i === bands.length) return '> ' + f(bands[bands.length - 1], true);
+                return f(bands[i - 1], false) + '–' + f(bands[i], false);
             });
             labels.classList.add('discrete');
             labels.style.gridTemplateColumns = 'repeat(' + n + ', 1fr)';
