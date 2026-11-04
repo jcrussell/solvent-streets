@@ -300,6 +300,9 @@ type MetaJSON struct {
 	CityArea     float64    `json:"city_area,omitempty"`
 	TotalPaved   float64    `json:"total_paved,omitempty"`
 	PctPaved     float64    `json:"pct_paved,omitempty"`
+	// Metrics summarises each per-hex metric (hex-metrics.json) over the
+	// painted hexes, for the Map stats card. Omitted when none has rows.
+	Metrics map[string]MetricSummaryJSON `json:"metrics,omitempty"`
 }
 
 type StatJSON struct {
@@ -494,6 +497,12 @@ func BuildMeta(ctx context.Context, entry CityEntry, snapshotID int64) (MetaJSON
 			EstimatedSpaces: result.EstimatedSpaces,
 		})
 	}
+
+	metrics, err := buildMetricSummaries(ctx, entry)
+	if err != nil {
+		return MetaJSON{}, err
+	}
+	meta.Metrics = metrics
 
 	// Total paved area across all resource types: prefer the cross-resource
 	// union row written by `pvmt all compute` (RunCombined). Fall back to

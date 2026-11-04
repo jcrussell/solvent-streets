@@ -476,6 +476,8 @@ func (s *Server) serveDataFile(w http.ResponseWriter, r *http.Request, file stri
 		s.serveHexCostSummary(w, r, entry, snapshotID)
 	case "boundary.geojson":
 		s.serveBoundaryGeoJSON(w, r, entry, snapshotID)
+	case "hex-metrics.json":
+		s.serveHexMetrics(w, r, entry, snapshotID)
 	default:
 		http.NotFound(w, r)
 	}
@@ -653,6 +655,23 @@ func (s *Server) serveHexGridGeoJSON(w http.ResponseWriter, _ *http.Request, ent
 			fc = map[string]any{"type": "FeatureCollection", "v": 3, "features": []any{}}
 		}
 		return fc, nil
+	})
+}
+
+// serveHexMetrics serves the optional per-hex metrics file. A city with no
+// metric rows gets an empty, versioned document (the static export writes no
+// file and the client treats a 404 the same way); a real store error
+// propagates so serveJSONCached evicts and retries.
+func (s *Server) serveHexMetrics(w http.ResponseWriter, _ *http.Request, entry export.CityEntry, snapshotID int64) {
+	s.serveJSONCached(w, cacheKey("hexmetrics", entry.Slug, snapshotID), func() (any, error) {
+		hm, err := export.BuildHexMetrics(context.Background(), entry)
+		if err != nil {
+			return nil, err
+		}
+		if hm == nil {
+			return export.HexMetricsJSON{V: export.HexMetricsFileVersion, Metrics: map[string]export.MetricJSON{}}, nil
+		}
+		return hm, nil
 	})
 }
 

@@ -310,6 +310,10 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 		return MetaJSON{}, "", fmt.Errorf("write meta: %w", err)
 	}
 
+	if err := writeHexMetrics(ctx, entry, dataDir); err != nil {
+		return MetaJSON{}, "", err
+	}
+
 	// Export forecast and scenario data
 	if err := exportScenariosForCity(ctx, entry, dataDir); err != nil {
 		return MetaJSON{}, "", fmt.Errorf("export scenarios: %w", err)
@@ -326,6 +330,24 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 	}
 
 	return meta, seed, nil
+}
+
+// writeHexMetrics writes the optional hex-metrics.json (fire response, …):
+// only when a metric has rows (OptionalDataFileNames), so a city that never
+// ran `pvmt services compute` publishes without the file and check-site is
+// content either way.
+func writeHexMetrics(ctx context.Context, entry CityEntry, dataDir string) error {
+	hm, err := BuildHexMetrics(ctx, entry)
+	if err != nil {
+		return fmt.Errorf("build hex metrics: %w", err)
+	}
+	if hm == nil {
+		return nil
+	}
+	if err := writeJSON(filepath.Join(dataDir, "hex-metrics.json"), hm); err != nil {
+		return fmt.Errorf("write hex-metrics: %w", err)
+	}
+	return nil
 }
 
 func exportScenariosForCity(ctx context.Context, entry CityEntry, dataDir string) error {

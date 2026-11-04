@@ -62,8 +62,9 @@ func (r *runner) checkExampleStructure(ex example) {
 }
 
 // checkDataDir confirms a data directory holds exactly the expected files:
-// every name in export.DataFileNames (a missing one FAILs) and reports any
-// extras as a WARN.
+// every name in export.DataFileNames (a missing one FAILs), optionally any of
+// export.OptionalDataFileNames (neither missing nor extra), and reports any
+// other file as a WARN.
 func (r *runner) checkDataDir(label, dataDir string) {
 	present := make(map[string]bool)
 	entries, err := os.ReadDir(dataDir)
@@ -77,13 +78,16 @@ func (r *runner) checkDataDir(label, dataDir string) {
 		}
 	}
 
-	expected := make(map[string]bool, len(export.DataFileNames))
+	expected := make(map[string]bool, len(export.DataFileNames)+len(export.OptionalDataFileNames))
 	var missing []string
 	for _, name := range export.DataFileNames {
 		expected[name] = true
 		if !present[name] {
 			missing = append(missing, name)
 		}
+	}
+	for _, name := range export.OptionalDataFileNames {
+		expected[name] = true
 	}
 	var extra []string
 	for name := range present {

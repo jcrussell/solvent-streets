@@ -20,6 +20,22 @@ var DataFileNames = []string{
 	"scenarios.json",
 }
 
+// OptionalDataFileNames are per-city data files a publish-ready export MAY
+// carry: written only when the city has the data (hex-metrics.json needs a
+// `pvmt services compute` run), so `pvmt check-site` treats a missing one as
+// fine and a present one as expected rather than extra. Sorted.
+var OptionalDataFileNames = []string{
+	"hex-metrics.json",
+}
+
+// AllDataFileNames is DataFileNames followed by OptionalDataFileNames: every
+// filename the exporter can write into a city data directory.
+func AllDataFileNames() []string {
+	out := make([]string, 0, len(DataFileNames)+len(OptionalDataFileNames))
+	out = append(out, DataFileNames...)
+	return append(out, OptionalDataFileNames...)
+}
+
 // EmbeddedSharedAssets returns the shared browser assets embedded into this
 // binary — the WASM pair, the extracted app.js/game.js and selectors.js — keyed by their
 // on-disk filename at the site root. `pvmt check-site` uses this to compare

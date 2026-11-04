@@ -70,13 +70,15 @@ var sizeBudgets = map[string]int64{
 	"meta.json":             64 << 10,  // 64 KiB  (nominal)
 	"play-hexes.json":       2 << 20,   // 2 MiB  (worst 956 KiB; was at 93% of 1 MiB)
 	"scenarios.json":        256 << 10, // 256 KiB (nominal)
+	"hex-metrics.json":      2 << 20,   // 2 MiB  (optional; ~30 B per painted hex per metric)
 }
 
 // dataFileNameSet is export.DataFileNames as a set, so the shared-asset walk
 // can skip in one lookup the files the per-city pass already accounted for.
 var dataFileNameSet = func() map[string]bool {
-	m := make(map[string]bool, len(export.DataFileNames))
-	for _, name := range export.DataFileNames {
+	names := export.AllDataFileNames()
+	m := make(map[string]bool, len(names))
+	for _, name := range names {
 		m[name] = true
 	}
 	return m
@@ -168,14 +170,15 @@ func (r *runner) reportDataFile(bucket string, c *citySizes, cities int) {
 // individual file simply contributes nothing; the structure check owns that
 // failure.
 func perCityDataSizes(s *site) (map[string]*citySizes, int) {
-	out := make(map[string]*citySizes, len(export.DataFileNames))
+	names := export.AllDataFileNames()
+	out := make(map[string]*citySizes, len(names))
 	cities := 0
 	for _, d := range s.dataDirsWithLabel() {
 		if !isDir(d.dir) {
 			continue
 		}
 		cities++
-		for _, name := range export.DataFileNames {
+		for _, name := range names {
 			info, err := os.Stat(filepath.Join(d.dir, name))
 			if err != nil || info.IsDir() {
 				continue

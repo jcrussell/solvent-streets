@@ -619,3 +619,22 @@ func TestCheckSite_InterruptedWithNoFailuresStaysQuiet(t *testing.T) {
 		t.Errorf("a clean interrupt should not print a summary:\n%s", out.String())
 	}
 }
+
+// TestCheckDataDir_OptionalFiles: an optional per-city file (hex-metrics.json)
+// is neither a FAIL when absent nor a WARN when present.
+func TestCheckDataDir_OptionalFiles(t *testing.T) {
+	dir := buildValidSite(t)
+	dataDir := filepath.Join(dir, "demo-ca", "data")
+	ios, _, _, _ := iostreams.Test()
+	r := newRunner(ios, false)
+	r.checkDataDir("x", dataDir)
+	if r.fail != 0 || r.warn != 0 {
+		t.Errorf("valid site without the optional file: fail=%d warn=%d, want 0/0", r.fail, r.warn)
+	}
+	writeFile(t, filepath.Join(dataDir, "hex-metrics.json"), `{"v":1,"metrics":{}}`)
+	r = newRunner(ios, false)
+	r.checkDataDir("x", dataDir)
+	if r.fail != 0 || r.warn != 0 {
+		t.Errorf("optional file present: fail=%d warn=%d, want 0/0 (must not be reported as extra)", r.fail, r.warn)
+	}
+}
