@@ -1724,3 +1724,78 @@ func TestEstimatedSpacesRoundTrip(t *testing.T) {
 		t.Errorf("ListHexStats(parking) spaces = %v (n=%d), want 31 over 2 rows", sum, len(hexes))
 	}
 }
+
+// TestHexMetricsRoundTrip pins the hex_metrics contract: SaveHexMetrics
+// replaces a (metric, snapshot) slice in place rather than appending, rows
+// resolve per metric under the latest-snapshot rule, a different metric on
+// the same snapshot is untouched, an unknown metric lists (nil, nil), and
+// DeleteSnapshot cascades to the table.
+func TestHexMetricsRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	snap, err := store.CreateSnapshot(ctx, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := snap.ID
+	first := []HexMetric{
+		{HexID: "h1", Metric: "fire_response_s", Value: 300, Ref: "osm:node:1", SnapshotID: &id},
+		{HexID: "h2", Metric: "fire_response_s", Value: 420, Ref: "osm:node:1", SnapshotID: &id},
+		{HexID: "h1", Metric: "population", Value: 12, SnapshotID: &id},
+	}
+	if err := store.SaveHexMetrics(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	// Re-run with a different fire slice: replaces, does not append; the
+	// population slice is not touched.
+	if err := store.SaveHexMetrics(ctx, []HexMetric{{HexID: "h3", Metric: "fire_response_s", Value: 99, SnapshotID: &id}}); err != nil {
+		t.Fatal(err)
+	}
+	fire, err := store.ListHexMetrics(ctx, "fire_response_s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fire) != 1 || fire[0].HexID != "h3" || fire[0].Value != 99 || fire[0].Ref != "" {
+		t.Errorf("fire rows after replace = %+v, want only h3=99", fire)
+	}
+	pop, err := store.ListHexMetrics(ctx, "population")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pop) != 1 || pop[0].Value != 12 {
+		t.Errorf("population rows = %+v, want h1=12 untouched", pop)
+	}
+	none, err := store.ListHexMetrics(ctx, "nope")
+	if err != nil || none != nil {
+		t.Errorf("unknown metric = (%v, %v), want (nil, nil)", none, err)
+	}
+	if err := store.SaveHexMetrics(ctx, nil); err != nil {
+		t.Errorf("empty save must be a no-op, got %v", err)
+	}
+
+	// A newer snapshot wins the unpinned read; the pinned read sees the old one.
+	snap2, err := store.CreateSnapshot(ctx, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id2 := snap2.ID
+	if err := store.SaveHexMetrics(ctx, []HexMetric{{HexID: "h9", Metric: "fire_response_s", Value: 1, SnapshotID: &id2}}); err != nil {
+		t.Fatal(err)
+	}
+	latest, _ := store.ListHexMetrics(ctx, "fire_response_s")
+	if len(latest) != 1 || latest[0].HexID != "h9" {
+		t.Errorf("latest = %+v, want the snapshot-2 row", latest)
+	}
+	pinned, _ := store.WithSnapshot(id).ListHexMetrics(ctx, "fire_response_s")
+	if len(pinned) != 1 || pinned[0].HexID != "h3" {
+		t.Errorf("pinned = %+v, want the snapshot-1 row", pinned)
+	}
+
+	if _, err := store.DeleteSnapshot(ctx, id2); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := store.ListHexMetrics(ctx, "fire_response_s")
+	if len(after) != 1 || after[0].HexID != "h3" {
+		t.Errorf("after deleting snapshot 2 = %+v, want snapshot-1 row back as latest", after)
+	}
+}

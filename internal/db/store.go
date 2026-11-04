@@ -224,7 +224,13 @@ func (s *sqliteStore) ListHexStats(ctx context.Context, resourceType resource.Ty
 // no rows returns (nil, nil) — never sql.ErrNoRows — which is the contract
 // the server's cache-eviction logic relies on for genuinely empty cities.
 func listSnapshotRows[T any](ctx context.Context, s *sqliteStore, what, selectClause, table string, resourceType resource.Type, scan func(*sql.Rows) (T, error)) ([]T, error) {
-	q, bind := snapshotQuery(selectClause, table, "", s.snapshotID, s.configHash, resourceType, s.cityID)
+	return listSnapshotRowsKeyed(ctx, s, what, selectClause, table, "resource_type", string(resourceType), scan)
+}
+
+// listSnapshotRowsKeyed is listSnapshotRows with the partition column named
+// (see snapshotQueryKeyed).
+func listSnapshotRowsKeyed[T any](ctx context.Context, s *sqliteStore, what, selectClause, table, keyColumn, key string, scan func(*sql.Rows) (T, error)) ([]T, error) {
+	q, bind := snapshotQueryKeyed(selectClause, table, keyColumn, "", s.snapshotID, s.configHash, key, s.cityID)
 	rows, err := s.db.QueryContext(ctx, q, bind...)
 	if err != nil {
 		return nil, fmt.Errorf("query %ss: %w", what, err)
@@ -611,26 +617,34 @@ func snapshotBatchQuery(selectClause, table, suffix string, snapshotID int64, co
 // helper rather than at the QueryContext call site — kept centralized
 // for that reason.
 func snapshotQuery(selectClause, table, suffix string, snapshotID int64, configHash string, resourceType resource.Type, cityID int64) (string, []any) {
+	return snapshotQueryKeyed(selectClause, table, "resource_type", suffix, snapshotID, configHash, string(resourceType), cityID)
+}
+
+// snapshotQueryKeyed is snapshotQuery with the partition column named: the
+// result tables partition by resource_type, hex_metrics by metric. keyColumn
+// is always a compile-time literal at the call site (never user input), so
+// interpolating it is as safe as the table name.
+func snapshotQueryKeyed(selectClause, table, keyColumn, suffix string, snapshotID int64, configHash string, key string, cityID int64) (string, []any) {
 	q := selectClause + `
-	  WHERE resource_type = ? AND city_id = ?
+	  WHERE ` + keyColumn + ` = ? AND city_id = ?
 	  AND (
 	    (? > 0 AND snapshot_id = ?)
 	    OR (? = 0 AND ? != '' AND snapshot_id = (
 	      SELECT MAX(hs.snapshot_id) FROM ` + table + ` hs
 	      JOIN snapshots s ON s.id = hs.snapshot_id
-	      WHERE hs.resource_type = ? AND hs.city_id = ?
+	      WHERE hs.` + keyColumn + ` = ? AND hs.city_id = ?
 	        AND s.config_hash = ?
 	    ))
 	    OR (? = 0 AND ? = '' AND snapshot_id IS (
 	      SELECT MAX(snapshot_id) FROM ` + table + `
-	      WHERE resource_type = ? AND city_id = ?
+	      WHERE ` + keyColumn + ` = ? AND city_id = ?
 	    ))
 	  )` + suffix
 	return q, []any{
-		resourceType, cityID, // outer WHERE
+		key, cityID, // outer WHERE
 		snapshotID, snapshotID, // arm 1
-		snapshotID, configHash, resourceType, cityID, configHash, // arm 2
-		snapshotID, configHash, resourceType, cityID, // arm 3
+		snapshotID, configHash, key, cityID, configHash, // arm 2
+		snapshotID, configHash, key, cityID, // arm 3
 	}
 }
 
@@ -645,6 +659,7 @@ var snapshotResultTables = []string{
 	"hex_stats",
 	"forecast_results",
 	"cohort_stats",
+	"hex_metrics",
 }
 
 // DeleteSnapshot removes the snapshot and every FK-linked result row in a
@@ -716,6 +731,7 @@ func gcResultTables(c *GCResultCounts) []struct {
 		{"hex_stats", &c.HexStats},
 		{"forecast_results", &c.ForecastResults},
 		{"cohort_stats", &c.CohortStats},
+		{"hex_metrics", &c.HexMetrics},
 	}
 }
 
@@ -836,4 +852,74 @@ func (s *sqliteStore) ResolveSnapshot(ctx context.Context, snapshotID int64) err
 		return err
 	}
 	return nil
+}
+
+// SaveHexMetrics replaces every (metric, snapshot) slice present in metrics
+// with the given rows inside one transaction. snapshot_id is nullable and
+// `= ?` never matches NULL, so untagged slices are deleted via IS NULL.
+func (s *sqliteStore) SaveHexMetrics(ctx context.Context, metrics []HexMetric) error {
+	if len(metrics) == 0 {
+		return nil
+	}
+	return s.withTx(ctx, func(tx *sql.Tx) error {
+		if err := s.replaceHexMetricSlices(ctx, tx, metrics); err != nil {
+			return err
+		}
+		stmt, err := tx.PrepareContext(ctx, `
+			INSERT INTO hex_metrics (hex_id, city_id, snapshot_id, metric, value, ref, computed_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+		`)
+		if err != nil {
+			return fmt.Errorf("prepare hex metrics insert: %w", err)
+		}
+		defer func() { _ = stmt.Close() }()
+		now := time.Now()
+		for _, m := range metrics {
+			if _, err := stmt.ExecContext(ctx, m.HexID, s.cityID, m.SnapshotID, m.Metric, m.Value, m.Ref, now); err != nil {
+				return fmt.Errorf("insert hex metric %s/%s: %w", m.Metric, m.HexID, err)
+			}
+		}
+		return nil
+	})
+}
+
+// replaceHexMetricSlices deletes the existing rows of every distinct
+// (metric, snapshot) pair present in metrics so the following insert replaces
+// them in place (the forecast replace-on-rerun pattern).
+func (s *sqliteStore) replaceHexMetricSlices(ctx context.Context, tx *sql.Tx, metrics []HexMetric) error {
+	seen := make(map[string]struct{})
+	for _, m := range metrics {
+		key := m.Metric + ":null"
+		if m.SnapshotID != nil {
+			key = fmt.Sprintf("%s:%d", m.Metric, *m.SnapshotID)
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		var err error
+		if m.SnapshotID != nil {
+			_, err = tx.ExecContext(ctx, `DELETE FROM hex_metrics WHERE city_id = ? AND metric = ? AND snapshot_id = ?`, s.cityID, m.Metric, *m.SnapshotID)
+		} else {
+			_, err = tx.ExecContext(ctx, `DELETE FROM hex_metrics WHERE city_id = ? AND metric = ? AND snapshot_id IS NULL`, s.cityID, m.Metric)
+		}
+		if err != nil {
+			return fmt.Errorf("replace hex metrics %s: %w", m.Metric, err)
+		}
+	}
+	return nil
+}
+
+// ListHexMetrics returns one metric's rows with the three-arm snapshot
+// resolution of snapshotQueryKeyed, partitioned by metric rather than
+// resource_type.
+func (s *sqliteStore) ListHexMetrics(ctx context.Context, metric string) ([]HexMetric, error) {
+	return listSnapshotRowsKeyed(ctx, s, "hex metric",
+		`SELECT hex_id, metric, value, ref, snapshot_id, computed_at FROM hex_metrics`,
+		"hex_metrics", "metric", metric,
+		func(rows *sql.Rows) (HexMetric, error) {
+			var m HexMetric
+			err := rows.Scan(&m.HexID, &m.Metric, &m.Value, &m.Ref, &m.SnapshotID, &m.ComputedAt)
+			return m, err
+		})
 }

@@ -69,6 +69,19 @@ type HexStat struct {
 	SnapshotID      *int64
 }
 
+// HexMetric is one per-hex value of a registered metric (internal/hexmetric),
+// e.g. fire_response_s. Ref is an optional reference id the metric attaches
+// to the hex (the nearest facility for a coverage metric); "" when unused.
+// SnapshotID is the roads compute snapshot the value was computed against.
+type HexMetric struct {
+	HexID      string
+	Metric     string
+	Value      float64
+	Ref        string
+	SnapshotID *int64
+	ComputedAt time.Time
+}
+
 type Snapshot struct {
 	ID         int64     `json:"id"`
 	ComputedAt time.Time `json:"computed_at"`
@@ -104,17 +117,18 @@ type City struct {
 }
 
 // GCResultCounts holds per-result-table row counts for a gc sweep
-// (compute_results, hex_stats, forecast_results, cohort_stats).
+// (compute_results, hex_stats, forecast_results, cohort_stats, hex_metrics).
 type GCResultCounts struct {
 	ComputeResults  int
 	HexStats        int
 	ForecastResults int
 	CohortStats     int
+	HexMetrics      int
 }
 
 // Total returns the sum of all per-table counts.
 func (c GCResultCounts) Total() int {
-	return c.ComputeResults + c.HexStats + c.ForecastResults + c.CohortStats
+	return c.ComputeResults + c.HexStats + c.ForecastResults + c.CohortStats + c.HexMetrics
 }
 
 // GCReport summarizes the rows a gc scan/sweep found (or deleted), broken
@@ -148,6 +162,14 @@ type Store interface {
 	LatestComputeResults(ctx context.Context, types []resource.Type) (map[resource.Type]*ComputeResult, error)
 	SaveHexStats(ctx context.Context, stats []HexStat) error
 	ListHexStats(ctx context.Context, resourceType resource.Type) ([]HexStat, error)
+	// SaveHexMetrics replaces the (metric, snapshot) slices present in
+	// metrics with the given rows, in one transaction, so a re-run of a
+	// metric against the same snapshot never duplicates rows.
+	SaveHexMetrics(ctx context.Context, metrics []HexMetric) error
+	// ListHexMetrics returns the rows for one metric key with the same
+	// snapshot / config-hash resolution as ListHexStats (latest per city and
+	// metric). A metric with no rows returns (nil, nil), never sql.ErrNoRows.
+	ListHexMetrics(ctx context.Context, metric string) ([]HexMetric, error)
 	CreateSnapshot(ctx context.Context, configHash string) (*Snapshot, error)
 	ListSnapshots(ctx context.Context) ([]Snapshot, error)
 	ResolveSnapshot(ctx context.Context, snapshotID int64) error

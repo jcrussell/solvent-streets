@@ -162,10 +162,10 @@ func printReport(w *iostreams.IOStreams, report *db.GCReport) {
 	null := report.NullSnapshotResults
 	dang := report.DanglingResults
 	fmt.Fprintf(w.ErrOut, "  stale features:        %d\n", report.StaleFeatures)
-	fmt.Fprintf(w.ErrOut, "  null-snapshot results: compute=%d hex=%d forecast=%d cohort=%d\n",
-		null.ComputeResults, null.HexStats, null.ForecastResults, null.CohortStats)
-	fmt.Fprintf(w.ErrOut, "  dangling results:      compute=%d hex=%d forecast=%d cohort=%d\n",
-		dang.ComputeResults, dang.HexStats, dang.ForecastResults, dang.CohortStats)
+	fmt.Fprintf(w.ErrOut, "  null-snapshot results: compute=%d hex=%d forecast=%d cohort=%d metrics=%d\n",
+		null.ComputeResults, null.HexStats, null.ForecastResults, null.CohortStats, null.HexMetrics)
+	fmt.Fprintf(w.ErrOut, "  dangling results:      compute=%d hex=%d forecast=%d cohort=%d metrics=%d\n",
+		dang.ComputeResults, dang.HexStats, dang.ForecastResults, dang.CohortStats, dang.HexMetrics)
 }
 
 // printRetained names the overpass rows keepSourcesFor held back, and why. It

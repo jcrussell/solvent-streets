@@ -38,6 +38,7 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 			"compute_results",
 			"features",
 			"forecast_results",
+			"hex_metrics",
 			"hex_stats",
 			"schema_version",
 			"snapshots",
@@ -61,6 +62,7 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 			"hex_stats",
 			"forecast_results",
 			"cohort_stats",
+			"hex_metrics",
 		}
 		for _, table := range scoped {
 			fks := listForeignKeys(t, ctx, root.db, table)
@@ -103,15 +105,15 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 
 	t.Run("cold migration records the latest schema version", func(t *testing.T) {
 		// A fresh cold migration applies 001_init, 002_add_indexes and
-		// 003_parking_spaces, so the highest recorded schema_version must be
-		// 3. This pins that every file is discovered and applied by the
+		// 003_parking_spaces_hex_metrics, so the highest recorded
+		// schema_version must be 3. This pins that every file is discovered and applied by the
 		// embedded migration set.
 		var version int
 		if err := root.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&version); err != nil {
 			t.Fatalf("schema_version: %v", err)
 		}
 		if version != 3 {
-			t.Errorf("schema_version = %d; want 3 (001_init + 002_add_indexes + 003_parking_spaces applied)", version)
+			t.Errorf("schema_version = %d; want 3 (001 + 002 + 003_parking_spaces_hex_metrics applied)", version)
 		}
 	})
 
