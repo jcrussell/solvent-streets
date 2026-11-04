@@ -250,3 +250,147 @@ func TestGroupCitiesByTag_CaseDifferingTagsDeterministic(t *testing.T) {
 		}
 	}
 }
+
+// TestGroupCitiesByDimension_Order pins the dimension layout the templates
+// and PVMT_CONFIG depend on: the default "group" dimension first (so index 0
+// is always the city selector's optgroup source), remaining dimensions in name
+// order, groups within a dimension sorted by label (not by the raw
+// "state:CA" string), and the untagged "Other" group only in the default
+// dimension.
+func TestGroupCitiesByDimension_Order(t *testing.T) {
+	cities := []CityInfo{
+		{Name: "Zephyr"}, // no tags at all
+		{Name: "Oakland", Tags: []string{"Bay Area", "state:CA", "metro:East Bay"}},
+		{Name: "Boulder", Tags: []string{"state:CO"}},
+		{Name: "Alameda", Tags: []string{"Bay Area", "state:CA"}},
+	}
+	got := GroupCitiesByDimension(cities)
+	if len(got) != 3 {
+		t.Fatalf("expected 3 dimensions (group, metro, state), got %d: %+v", len(got), got)
+	}
+	wantNames := []string{"group", "metro", "state"}
+	wantLabels := []string{"Group", "Metro", "State"}
+	for i := range wantNames {
+		if got[i].Name != wantNames[i] || got[i].Label != wantLabels[i] {
+			t.Errorf("dim[%d] = (%q, %q); want (%q, %q)", i, got[i].Name, got[i].Label, wantNames[i], wantLabels[i])
+		}
+	}
+	// group: "Bay Area" then untagged (Boulder + Zephyr have no group tag).
+	grp := got[0].Groups
+	if len(grp) != 2 || grp[0].Tag != "Bay Area" || grp[0].Label != "Bay Area" || grp[1].Tag != "" {
+		t.Fatalf("group dimension groups = %+v", grp)
+	}
+	if names := cityNames(grp[1].Cities); !equalSlice(names, []string{"Boulder", "Zephyr"}) {
+		t.Errorf("untagged = %v; want [Boulder Zephyr]", names)
+	}
+	// metro: only Oakland, no untagged bucket.
+	if m := got[1].Groups; len(m) != 1 || m[0].Tag != "metro:East Bay" || m[0].Label != "East Bay" || len(m[0].Cities) != 1 {
+		t.Errorf("metro groups = %+v", m)
+	}
+	// state: CA before CO, labels without prefix, no untagged bucket.
+	st := got[2].Groups
+	if len(st) != 2 || st[0].Tag != "state:CA" || st[0].Label != "CA" || st[1].Tag != "state:CO" {
+		t.Fatalf("state groups = %+v", st)
+	}
+	if names := cityNames(st[0].Cities); !equalSlice(names, []string{"Alameda", "Oakland"}) {
+		t.Errorf("state:CA cities = %v; want [Alameda Oakland]", names)
+	}
+}
+
+// TestGroupCitiesByDimension_DefaultAlwaysFirst: a city list with only
+// non-default tags still yields the default dimension at index 0 (holding every
+// city as untagged), because the selector template reads index 0.
+func TestGroupCitiesByDimension_DefaultAlwaysFirst(t *testing.T) {
+	got := GroupCitiesByDimension([]CityInfo{{Name: "Denver", Tags: []string{"state:CO"}}})
+	if len(got) != 2 || got[0].Name != "group" || len(got[0].Groups) != 1 || got[0].Groups[0].Tag != "" {
+		t.Fatalf("got %+v", got)
+	}
+	if GroupCitiesByDimension(nil) != nil {
+		t.Error("nil in should be nil out")
+	}
+}
+
+// TestGroupCitiesByDimension_Deterministic shuffles the input and runs many
+// iterations: output must be byte-identical regardless of input order or map
+// iteration order (index.html is diffed across regens).
+func TestGroupCitiesByDimension_Deterministic(t *testing.T) {
+	base := []CityInfo{
+		{Name: "Oakland", Tags: []string{"Bay Area", "state:CA"}},
+		{Name: "Alameda", Tags: []string{"bay area", "state:CA"}},
+		{Name: "Zed", Tags: []string{"Zeta", "state:CO", "metro:X"}},
+		{Name: "Aspen"},
+	}
+	want, _ := json.Marshal(GroupCitiesByDimension(base))
+	for i := range 200 {
+		shuffled := make([]CityInfo, len(base))
+		copy(shuffled, base)
+		for j := range shuffled {
+			k := (i*7 + j*3) % len(shuffled)
+			shuffled[j], shuffled[k] = shuffled[k], shuffled[j]
+		}
+		got, _ := json.Marshal(GroupCitiesByDimension(shuffled))
+		if string(got) != string(want) {
+			t.Fatalf("iteration %d: output differs:\n%s\n%s", i, got, want)
+		}
+	}
+}
+
+// TestTemplateData_CityGroups pins the nil-safe accessor the templates use in
+// place of `index .TagDimensions 0`.
+func TestTemplateData_CityGroups(t *testing.T) {
+	if got := (TemplateData{}).CityGroups(); got != nil {
+		t.Errorf("empty TemplateData CityGroups = %v, want nil", got)
+	}
+	cities := []CityInfo{{Name: "Oakland", Tags: []string{"Bay Area"}}}
+	td := TemplateData{Cities: cities, TagDimensions: GroupCitiesByDimension(cities)}
+	if got := td.CityGroups(); len(got) != 1 || got[0].Tag != "Bay Area" {
+		t.Errorf("CityGroups = %+v", got)
+	}
+}
+
+// TestConfigJSON_EmitsTagDimensions: both page payloads carry tagDimensions
+// (untagged group dropped, labels stripped of the prefix) and the play page now
+// carries the cities array too, so game.js can rebuild its selector.
+func TestConfigJSON_EmitsTagDimensions(t *testing.T) {
+	cities := []CityInfo{
+		{Slug: "oak", Name: "Oakland", Tags: []string{"Bay Area", "state:CA"}},
+		{Slug: "den", Name: "Denver"},
+	}
+	td := TemplateData{Cities: cities, TagDimensions: GroupCitiesByDimension(cities)}
+	for name, js := range map[string]string{"index": string(td.IndexConfigJSON()), "game": string(td.GameConfigJSON())} {
+		var cfg struct {
+			Cities []struct {
+				Slug string `json:"slug"`
+			} `json:"cities"`
+			TagDimensions []struct {
+				Name   string `json:"name"`
+				Label  string `json:"label"`
+				Values []struct {
+					Tag   string `json:"tag"`
+					Label string `json:"label"`
+				} `json:"values"`
+			} `json:"tagDimensions"`
+		}
+		if err := json.Unmarshal([]byte(js), &cfg); err != nil {
+			t.Fatalf("%s: unmarshal: %v\n%s", name, err, js)
+		}
+		if len(cfg.Cities) != 2 {
+			t.Errorf("%s: cities = %d, want 2", name, len(cfg.Cities))
+		}
+		if len(cfg.TagDimensions) != 2 {
+			t.Fatalf("%s: tagDimensions = %+v, want group+state", name, cfg.TagDimensions)
+		}
+		g := cfg.TagDimensions[0]
+		if g.Name != "group" || len(g.Values) != 1 || g.Values[0].Tag != "Bay Area" {
+			t.Errorf("%s: group dim = %+v (untagged bucket must be dropped)", name, g)
+		}
+		s := cfg.TagDimensions[1]
+		if s.Name != "state" || s.Label != "State" || len(s.Values) != 1 || s.Values[0].Tag != "state:CA" || s.Values[0].Label != "CA" {
+			t.Errorf("%s: state dim = %+v", name, s)
+		}
+	}
+	// Empty TemplateData: tagDimensions is [] not null so the client can read .length.
+	if js := string((TemplateData{}).IndexConfigJSON()); !strings.Contains(js, `"tagDimensions":[]`) {
+		t.Errorf("empty payload should carry tagDimensions:[], got %s", js)
+	}
+}

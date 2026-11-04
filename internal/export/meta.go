@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jcrussell/solvent-streets/internal/build"
+	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/game"
 	"github.com/jcrussell/solvent-streets/internal/geo"
@@ -33,13 +34,27 @@ type CityInfo struct {
 	Tags []string `json:"tags,omitempty"`
 }
 
-// CityGroup is a tag label with the cities that belong to it. Used by the
-// template to render the city selector as <optgroup>s. A group with an empty
-// Tag holds the untagged ("Other") cities and is rendered as bare options.
-// A city with multiple tags appears in multiple groups.
+// CityGroup is one tag value with the cities that carry it. Tag is the full
+// tag string as it appears in config ("Bay Area", "state:CA") and is what the
+// client filters on; Label is its display form without the dimension prefix
+// ("Bay Area", "CA"). Used by the template to render the city selector as
+// <optgroup>s and each dimension's filter as <option>s. A group with an empty
+// Tag holds the untagged ("Other") cities and is rendered as bare options; it
+// only ever appears in the default dimension. A city with multiple tags in one
+// dimension appears in multiple groups.
 type CityGroup struct {
 	Tag    string
+	Label  string
 	Cities []CityInfo
+}
+
+// TagDimension is one axis of tags ("group", "state", "metro") with its
+// cities grouped by value. Name is the config.ParseTag dimension; Label is the
+// selector heading ("Group", "State"). Groups follow GroupCitiesByTag's order.
+type TagDimension struct {
+	Name   string
+	Label  string
+	Groups []CityGroup
 }
 
 // TemplateData wraps MetaJSON with the forecast seed for the interactive controls.
@@ -51,12 +66,13 @@ type TemplateData struct {
 	ResolvedTOML string      // config with all defaults filled in
 	UnitSystem   string      // "metric" or "imperial"
 	Cities       []CityInfo
-	// CitiesByTag is the same cities as Cities, grouped for the selector:
-	// non-empty tags first (sorted ascending by label, cities sorted by
-	// name within each), then the untagged group ("Other") last. A city with
-	// multiple tags appears in multiple groups. Built alongside Cities; the
-	// flat Cities slice is kept for the CITIES JS array and cities.json.
-	CitiesByTag []CityGroup
+	// TagDimensions is the same cities as Cities, grouped per tag dimension
+	// (see GroupCitiesByDimension): the default "group" dimension first, whose
+	// groups drive the city selector's <optgroup>s via CityGroups, then the
+	// other dimensions in name order; every dimension renders as one filter.
+	// Built alongside Cities; the flat Cities slice is kept for the CITIES JS
+	// array and cities.json.
+	TagDimensions []TagDimension
 	// ActiveSlug is the slug of the city this page was rendered against, set
 	// only in multi-city mode (empty single-city). The game page (/play) renders
 	// per-city and uses it to emit DATA_PREFIX ('cities/<slug>/') and pre-select
@@ -73,6 +89,17 @@ type TemplateData struct {
 	// BuildVersion is "<version> (commit <hash>)", the same string
 	// pvmt --version reports (build.Current().Short()).
 	BuildVersion string
+}
+
+// CityGroups returns the default-dimension groups the city selector renders
+// as <optgroup>s (non-empty tags first, untagged "Other" last), or nil when
+// there are no dimensions. A method rather than an `index` in the template so
+// a single-city page with a nil TagDimensions cannot panic the render.
+func (d TemplateData) CityGroups() []CityGroup {
+	if len(d.TagDimensions) == 0 {
+		return nil
+	}
+	return d.TagDimensions[0].Groups
 }
 
 // BandCount exposes game.BandCount to the game template, which checks its
@@ -118,6 +145,48 @@ type jsCityInfo struct {
 	Tags []string `json:"tags,omitempty"`
 }
 
+// jsTagDimension / jsTagValue are the PVMT_CONFIG.tagDimensions payload both
+// pages read to drive their tag filters and to rebuild the city selector
+// client-side: one entry per dimension, values in selector order, each value
+// carrying the full tag string (what a city's tags contain) and its label.
+type jsTagDimension struct {
+	Name   string       `json:"name"`
+	Label  string       `json:"label"`
+	Values []jsTagValue `json:"values"`
+}
+
+type jsTagValue struct {
+	Tag   string `json:"tag"`
+	Label string `json:"label"`
+}
+
+// jsTagDimensions flattens TagDimensions for the config payload, dropping the
+// untagged group (it is not a filter value). Never nil, so the client can read
+// `.tagDimensions.length` without a guard.
+func jsTagDimensions(dims []TagDimension) []jsTagDimension {
+	out := make([]jsTagDimension, 0, len(dims))
+	for _, d := range dims {
+		vals := make([]jsTagValue, 0, len(d.Groups))
+		for _, g := range d.Groups {
+			if g.Tag == "" {
+				continue
+			}
+			vals = append(vals, jsTagValue{Tag: g.Tag, Label: g.Label})
+		}
+		out = append(out, jsTagDimension{Name: d.Name, Label: d.Label, Values: vals})
+	}
+	return out
+}
+
+// jsCities maps the flat CityInfo list to the CITIES array shape.
+func jsCities(cities []CityInfo) []jsCityInfo {
+	out := make([]jsCityInfo, len(cities))
+	for i, c := range cities {
+		out[i] = jsCityInfo{Slug: c.Slug, Name: c.Name, BBox: c.BBox, Lon: c.CenterLon, Lat: c.CenterLat, Tags: c.Tags}
+	}
+	return out
+}
+
 // rawOrNull adapts a template.JS holding a pre-marshaled JSON fragment (e.g.
 // LayerColors, ForecastSeed) into a json.RawMessage for nesting inside the
 // PVMT_CONFIG object. An empty fragment becomes `null` so the enclosing
@@ -137,24 +206,22 @@ func rawOrNull(js template.JS) json.RawMessage {
 // "</script>" as an escaped fragment, so the template.JS blob is safe inside an
 // inline <script> — the same guarantee LayerColors/ForecastSeed already rely on.
 func (d TemplateData) IndexConfigJSON() template.JS {
-	cities := make([]jsCityInfo, len(d.Cities))
-	for i, c := range d.Cities {
-		cities[i] = jsCityInfo{Slug: c.Slug, Name: c.Name, BBox: c.BBox, Lon: c.CenterLon, Lat: c.CenterLat, Tags: c.Tags}
-	}
 	cfg := struct {
-		Cities       []jsCityInfo    `json:"cities"`
-		Center       [2]float64      `json:"center"`
-		LayerColors  json.RawMessage `json:"layerColors"`
-		UnitSystem   string          `json:"unitSystem"`
-		ForecastSeed json.RawMessage `json:"forecastSeed"`
-		WasmPrefix   string          `json:"wasmPrefix"`
+		Cities        []jsCityInfo     `json:"cities"`
+		TagDimensions []jsTagDimension `json:"tagDimensions"`
+		Center        [2]float64       `json:"center"`
+		LayerColors   json.RawMessage  `json:"layerColors"`
+		UnitSystem    string           `json:"unitSystem"`
+		ForecastSeed  json.RawMessage  `json:"forecastSeed"`
+		WasmPrefix    string           `json:"wasmPrefix"`
 	}{
-		Cities:       cities,
-		Center:       [2]float64{d.CenterLon, d.CenterLat},
-		LayerColors:  rawOrNull(d.LayerColors),
-		UnitSystem:   d.UnitSystem,
-		ForecastSeed: rawOrNull(d.ForecastSeed),
-		WasmPrefix:   d.WasmPrefix,
+		Cities:        jsCities(d.Cities),
+		TagDimensions: jsTagDimensions(d.TagDimensions),
+		Center:        [2]float64{d.CenterLon, d.CenterLat},
+		LayerColors:   rawOrNull(d.LayerColors),
+		UnitSystem:    d.UnitSystem,
+		ForecastSeed:  rawOrNull(d.ForecastSeed),
+		WasmPrefix:    d.WasmPrefix,
 	}
 	data, _ := json.Marshal(cfg)
 	return template.JS(data)
@@ -164,7 +231,9 @@ func (d TemplateData) IndexConfigJSON() template.JS {
 // templates/game.js. Like IndexConfigJSON it is a method so neither construction
 // site changes. DataPrefix/MapHref reproduce the {{if}} branches the template
 // used to inline (empty ActiveSlug → client-side resolution; static host → a
-// relative back-to-map link).
+// relative back-to-map link). Cities/TagDimensions carry the same payload the
+// index page gets so the play page's tag filters can rebuild its city selector
+// client-side from the same data.
 func (d TemplateData) GameConfigJSON() template.JS {
 	dataPrefix := ""
 	if d.ActiveSlug != "" {
@@ -175,19 +244,23 @@ func (d TemplateData) GameConfigJSON() template.JS {
 		mapHref = "/"
 	}
 	cfg := struct {
-		Center       [2]float64      `json:"center"`
-		ForecastSeed json.RawMessage `json:"forecastSeed"`
-		DataPrefix   string          `json:"dataPrefix"`
-		MapHref      string          `json:"mapHref"`
-		BandCount    int             `json:"bandCount"`
-		WasmPrefix   string          `json:"wasmPrefix"`
+		Cities        []jsCityInfo     `json:"cities"`
+		TagDimensions []jsTagDimension `json:"tagDimensions"`
+		Center        [2]float64       `json:"center"`
+		ForecastSeed  json.RawMessage  `json:"forecastSeed"`
+		DataPrefix    string           `json:"dataPrefix"`
+		MapHref       string           `json:"mapHref"`
+		BandCount     int              `json:"bandCount"`
+		WasmPrefix    string           `json:"wasmPrefix"`
 	}{
-		Center:       [2]float64{d.CenterLon, d.CenterLat},
-		ForecastSeed: rawOrNull(d.ForecastSeed),
-		DataPrefix:   dataPrefix,
-		MapHref:      mapHref,
-		BandCount:    d.BandCount(),
-		WasmPrefix:   d.WasmPrefix,
+		Cities:        jsCities(d.Cities),
+		TagDimensions: jsTagDimensions(d.TagDimensions),
+		Center:        [2]float64{d.CenterLon, d.CenterLat},
+		ForecastSeed:  rawOrNull(d.ForecastSeed),
+		DataPrefix:    dataPrefix,
+		MapHref:       mapHref,
+		BandCount:     d.BandCount(),
+		WasmPrefix:    d.WasmPrefix,
 	}
 	data, _ := json.Marshal(cfg)
 	return template.JS(data)
@@ -219,24 +292,91 @@ var ResourceColors = map[string]string{
 	"sidewalks": "#f59e0b",
 }
 
-// GroupCitiesByTag groups cities for the selector. Non-empty tags come first,
-// sorted ascending by tag label, with cities sorted ascending by name within
-// each group. A city with multiple tags appears in every matching group
-// (multi-membership). Cities with no tags are collected into a final group
-// (Tag == "") rendered as ungrouped ("Other") options. The input slice is not
+// GroupCitiesByDimension groups cities per tag dimension for the selectors.
+// The default dimension (config.DefaultTagDimension) always comes first — even
+// when no city carries a plain tag, so the city selector's <optgroup> source is
+// always index 0 and untagged cities still render as bare options — followed by
+// the other dimensions sorted by name. Within a dimension, groups follow
+// GroupCitiesByTag's order. The untagged ("Other") group appears only in the
+// default dimension: a city lacking a tag in some other dimension is simply not
+// a member of that dimension. The input slice is not mutated. Returns nil when
+// cities is empty.
+func GroupCitiesByDimension(cities []CityInfo) []TagDimension {
+	if len(cities) == 0 {
+		return nil
+	}
+	seen := map[string]bool{config.DefaultTagDimension: true}
+	for _, c := range cities {
+		for _, t := range c.Tags {
+			dim, _ := config.ParseTag(t)
+			seen[dim] = true
+		}
+	}
+	names := make([]string, 0, len(seen))
+	for d := range seen {
+		if d != config.DefaultTagDimension {
+			names = append(names, d)
+		}
+	}
+	sort.Strings(names)
+	names = append([]string{config.DefaultTagDimension}, names...)
+
+	dims := make([]TagDimension, 0, len(names))
+	for _, name := range names {
+		dims = append(dims, TagDimension{
+			Name:   name,
+			Label:  dimensionLabel(name),
+			Groups: groupCitiesInDimension(cities, name),
+		})
+	}
+	return dims
+}
+
+// dimensionLabel is the selector heading for a dimension name: the name with
+// its first letter upper-cased ("group" → "Group", "state" → "State").
+func dimensionLabel(name string) string {
+	if name == "" {
+		return ""
+	}
+	return strings.ToUpper(name[:1]) + name[1:]
+}
+
+// GroupCitiesByTag groups cities by their DEFAULT-dimension tags for the city
+// selector: non-empty tags first, sorted ascending by label, with cities sorted
+// ascending by name within each group. A city with multiple tags appears in
+// every matching group (multi-membership). Cities with no default-dimension tag
+// are collected into a final group (Tag == "") rendered as ungrouped ("Other")
+// options. Tags in other dimensions ("state:CA") are ignored here; see
+// GroupCitiesByDimension for the per-dimension view. The input slice is not
 // mutated. Returns nil when cities is empty.
 func GroupCitiesByTag(cities []CityInfo) []CityGroup {
 	if len(cities) == 0 {
 		return nil
 	}
+	return groupCitiesInDimension(cities, config.DefaultTagDimension)
+}
+
+// groupCitiesInDimension groups cities by their tags in one dimension. Only
+// the default dimension collects an untagged group (last); for any other
+// dimension a city with no tag there is omitted.
+func groupCitiesInDimension(cities []CityInfo, dim string) []CityGroup {
 	byTag := make(map[string][]CityInfo)
 	for _, c := range cities {
-		if len(c.Tags) == 0 {
-			byTag[""] = append(byTag[""], c)
-			continue
-		}
+		matched := false
 		for _, t := range c.Tags {
+			if d, _ := config.ParseTag(t); d != dim {
+				continue
+			}
+			if t == "" {
+				// An explicit empty tag parses into the default dimension; keep
+				// it in the untagged bucket rather than a group labelled "".
+				continue
+			}
+			matched = true
 			byTag[t] = append(byTag[t], c)
+		}
+		if !matched && dim == config.DefaultTagDimension {
+			byTag[""] = append(byTag[""], c)
 		}
 	}
 
@@ -251,10 +391,11 @@ func GroupCitiesByTag(cities []CityInfo) []CityGroup {
 	// equal — sort.Slice is not stable, so the pair kept whatever order the map
 	// handed out and index.html differed byte-for-byte across regens of
 	// unchanged data. Case-differing tags do coexist: unionTags dedupes on exact
-	// equality and validateTags only rejects blanks. A stable sort alone would
-	// not fix this; the comparator itself has to be total.
+	// equality and validateTags only rejects blanks and malformed prefixes. A
+	// stable sort alone would not fix this; the comparator itself has to be
+	// total. Compare on the label (the value) so "state:CA" sorts by "CA".
 	sort.Slice(tags, func(i, j int) bool {
-		a, b := strings.ToLower(tags[i]), strings.ToLower(tags[j])
+		a, b := strings.ToLower(config.TagLabel(tags[i])), strings.ToLower(config.TagLabel(tags[j]))
 		if a != b {
 			return a < b
 		}
@@ -267,17 +408,14 @@ func GroupCitiesByTag(cities []CityInfo) []CityGroup {
 		sort.SliceStable(group, func(i, j int) bool {
 			return strings.ToLower(group[i].Name) < strings.ToLower(group[j].Name)
 		})
-		groups = append(groups, CityGroup{Tag: tag, Cities: group})
+		groups = append(groups, CityGroup{Tag: tag, Label: config.TagLabel(tag), Cities: group})
 	}
 	for _, t := range tags {
 		appendSortedGroup(t)
 	}
 	// Untagged cities last, only if any exist. Keyed off the map rather than a
-	// flag set in the len(Tags)==0 branch: a city carrying an explicit empty
-	// tag string also lands in byTag[""], and a flag would leave that group
-	// unrendered — dropping the city from the selector entirely while it
-	// stayed in cities.json. config rejects empty tags, so this is belt and
-	// braces for any CityInfo built outside that path.
+	// flag so a city carrying an explicit empty tag string (rejected by config,
+	// but possible for a CityInfo built outside that path) still renders.
 	if _, ok := byTag[""]; ok {
 		appendSortedGroup("")
 	}

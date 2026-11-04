@@ -244,7 +244,7 @@ func writeJSFixtureSite(t *testing.T, dir string, seed template.JS) {
 		LayerColors:   ResourceColorsJS(),
 		UnitSystem:    "imperial",
 		Cities:        cities,
-		CitiesByTag:   GroupCitiesByTag(cities),
+		TagDimensions: GroupCitiesByDimension(cities),
 		GeneratedDate: "2026-01-01",
 		BuildVersion:  "test",
 	}

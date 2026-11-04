@@ -290,7 +290,7 @@ func (s *Server) buildIndexData(ctx context.Context, entry export.CityEntry) (ex
 		ResolvedTOML:    export.ResolvedTOML(entry.Config),
 		UnitSystem:      entry.Config.UnitSystem().String(),
 		Cities:          cities,
-		CitiesByTag:     export.GroupCitiesByTag(cities),
+		TagDimensions:   export.GroupCitiesByDimension(cities),
 		ActiveSlug:      activeSlug,
 		MethodologyHTML: methodology,
 		IsLiveServer:    true,

@@ -172,8 +172,8 @@ func TestCitySelectorOptgroups(t *testing.T) {
 	}
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, TemplateData{
-		Cities:      cities,
-		CitiesByTag: GroupCitiesByTag(cities),
+		Cities:        cities,
+		TagDimensions: GroupCitiesByDimension(cities),
 	}); err != nil {
 		t.Fatalf("execute index: %v", err)
 	}

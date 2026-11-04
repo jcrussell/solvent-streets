@@ -30,6 +30,9 @@ type WasmFn = (...args: any[]) => string;
 interface PvmtConfig {
   center: [number, number];
   cities?: Array<{ slug: string; name: string; bbox: [number, number, number, number]; lon: number; lat: number; tags?: string[] }>;
+  // One entry per tag dimension (default "group" first), each value carrying
+  // the full tag string a city's tags contain plus its display label.
+  tagDimensions?: Array<{ name: string; label: string; values: Array<{ tag: string; label: string }> }>;
   layerColors?: any;
   unitSystem?: string;
   dataPrefix?: string;

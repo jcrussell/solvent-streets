@@ -527,7 +527,7 @@ func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolved
 		ResolvedTOML:    resolvedTOML,
 		UnitSystem:      e.unitSystem,
 		Cities:          cities,
-		CitiesByTag:     GroupCitiesByTag(cities),
+		TagDimensions:   GroupCitiesByDimension(cities),
 		WasmPrefix:      e.wasmPrefix,
 		MethodologyHTML: methodology,
 		GeneratedDate:   date,
