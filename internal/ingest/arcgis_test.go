@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -899,7 +900,7 @@ func TestParseArcGISPage_SingleParseDerivesAll(t *testing.T) {
 	if _, ok := arcgisErrorMessageFromPage(page); ok {
 		t.Error("valid FeatureCollection should not be an error envelope")
 	}
-	features, rawCount := featuresFromArcGISPage(page, rtRoads, 0)
+	features, rawCount := rowsFromArcGISPage(page, "OBJECTID", "arcgis", 0)
 	if len(features) != 3 || rawCount != 3 {
 		t.Errorf("expected 3 features and rawCount 3, got %d / %d", len(features), rawCount)
 	}
@@ -1364,5 +1365,86 @@ func TestClassifyArcGISPage(t *testing.T) {
 				t.Errorf("classifyArcGISPage = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestArcGISQuery_ConfigurableQuery pins the generic query core: Where,
+// OutFields, IDField, GeometryPrecision and MaxAllowableOffset reach the
+// request, and row ids are built from the configured id field and prefix.
+// A layer with polygons and a non-OBJECTID id field (census blocks) is the
+// motivating case.
+func TestArcGISQuery_ConfigurableQuery(t *testing.T) {
+	var got url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.URL.Query()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"properties":{"exceededTransferLimit":false},"features":[
+			{"properties":{"GEOID":"060014507011000","POP100":42,"HU100":null},
+			 "geometry":{"type":"Polygon","coordinates":[[[-121.8,37.6],[-121.7,37.6],[-121.7,37.7],[-121.8,37.6]]]}}]}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	q := ArcGISQuery{
+		Endpoint:           srv.URL + "/query?token=abc",
+		BBox:               [4]float64{37.0, -122.0, 38.0, -121.0},
+		Where:              "POP100 > 0",
+		OutFields:          []string{"GEOID", "POP100", "HU100"},
+		IDField:            "GEOID",
+		IDPrefix:           "census",
+		GeometryPrecision:  6,
+		MaxAllowableOffset: 0.00001,
+		AllowPrivate:       true, // httptest binds 127.0.0.1
+	}
+	rows, err := q.FetchAll(context.Background(), srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for k, want := range map[string]string{
+		"where":              "POP100 > 0",
+		"outFields":          "GEOID,POP100,HU100",
+		"orderByFields":      "GEOID",
+		"geometryPrecision":  "6",
+		"maxAllowableOffset": "0.00001",
+		"token":              "abc",
+	} {
+		if got.Get(k) != want {
+			t.Errorf("param %s = %q, want %q", k, got.Get(k), want)
+		}
+	}
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(rows))
+	}
+	r := rows[0]
+	if r.ID != "census:060014507011000" {
+		t.Errorf("id = %q, want census:060014507011000", r.ID)
+	}
+	if r.Props["POP100"] != "42" {
+		t.Errorf("POP100 = %q, want 42", r.Props["POP100"])
+	}
+	if _, ok := r.Props["HU100"]; ok {
+		t.Error("null attributes must be omitted")
+	}
+}
+
+// TestArcGISQuery_Defaults: an unconfigured query asks for everything,
+// ordered by OBJECTID, with no generalization params — exactly the request
+// the roads source has always sent.
+func TestArcGISQuery_Defaults(t *testing.T) {
+	var got url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.URL.Query()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"features":[]}`))
+	}))
+	t.Cleanup(srv.Close)
+	q := ArcGISQuery{Endpoint: srv.URL, AllowPrivate: true}
+	if _, err := q.FetchAll(context.Background(), srv.Client()); err != nil {
+		t.Fatal(err)
+	}
+	if got.Get("where") != "1=1" || got.Get("outFields") != "*" || got.Get("orderByFields") != "OBJECTID" {
+		t.Errorf("defaults: where=%q outFields=%q orderBy=%q", got.Get("where"), got.Get("outFields"), got.Get("orderByFields"))
+	}
+	if got.Has("geometryPrecision") || got.Has("maxAllowableOffset") {
+		t.Error("generalization params must be absent unless configured")
 	}
 }

@@ -36,6 +36,10 @@ var arcgisMaxPages = 200
 // Default Alameda County ArcGIS feature service URL
 const defaultArcGISCenterlines = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
 
+// ArcGISSource ingests road centerlines from an ArcGIS layer. It is the roads
+// adapter over ArcGISQuery: the query core owns paging, completeness checks
+// and the SSRF guard; this type only picks the layer and maps rows onto road
+// features (name from FULLNAME).
 type ArcGISSource struct {
 	BBox         [4]float64 // [south, west, north, east]
 	URL          string     // custom ArcGIS endpoint; empty uses default
@@ -44,13 +48,6 @@ type ArcGISSource struct {
 }
 
 var _ Source = (*ArcGISSource)(nil)
-
-func (s *ArcGISSource) progress() io.Writer {
-	if s.Progress == nil {
-		return io.Discard
-	}
-	return s.Progress
-}
 
 func (s *ArcGISSource) Name() string { return "arcgis" }
 
@@ -64,8 +61,105 @@ func (s *ArcGISSource) Fetch(ctx context.Context, client *http.Client, rt resour
 	if endpoint == "" {
 		endpoint = defaultArcGISCenterlines
 	}
+	q := ArcGISQuery{
+		Endpoint:     endpoint,
+		BBox:         s.BBox,
+		AllowPrivate: s.AllowPrivate,
+		Progress:     s.Progress,
+	}
+	rows, err := q.FetchAll(ctx, client)
+	if err != nil {
+		return nil, err
+	}
+	return roadFeaturesFromRows(rows, rt.Type()), nil
+}
 
-	if !s.AllowPrivate {
+// roadFeaturesFromRows maps fetched rows onto road features: every property
+// becomes a tag, and FULLNAME (any casing seen in the wild) is the name.
+func roadFeaturesFromRows(rows []ArcGISRow, resourceType resource.Type) []db.Feature {
+	features := make([]db.Feature, 0, len(rows))
+	now := time.Now()
+	for _, r := range rows {
+		var name string
+		for _, k := range []string{"FULLNAME", "FullName", "fullname"} {
+			if v, ok := r.Props[k]; ok {
+				name = v
+			}
+		}
+		features = append(features, db.Feature{
+			ID:           r.ID,
+			ResourceType: resourceType,
+			Name:         name,
+			Tags:         r.Props,
+			GeometryJSON: string(r.Geometry),
+			SourceAPI:    "arcgis",
+			FetchedAt:    now,
+		})
+	}
+	return features
+}
+
+// ArcGISQuery is one bbox query against an ArcGIS REST layer, independent of
+// what the layer holds (road centerlines, census blocks, ...). FetchAll pages
+// through the whole result and refuses to return anything it cannot prove
+// complete: a truncated fetch that reported success would let the caller
+// replace a complete stored ingest with a partial one.
+type ArcGISQuery struct {
+	Endpoint string     // the layer's .../query URL; may carry its own query string (?token=...)
+	BBox     [4]float64 // [south, west, north, east], WGS84
+	// Where filters rows; empty means "1=1".
+	Where string
+	// OutFields limits the returned attributes; empty means all ("*"). A
+	// large layer should name only what it needs.
+	OutFields []string
+	// IDField is the layer's object-id field, used to order pages and to
+	// build row ids; empty means "OBJECTID".
+	IDField string
+	// IDPrefix prefixes row ids ("<prefix>:<oid>"); empty means "arcgis".
+	IDPrefix string
+	// GeometryPrecision, when > 0, asks the server to round coordinates to
+	// that many decimal places.
+	GeometryPrecision int
+	// MaxAllowableOffset, when > 0, asks the server to generalize geometry
+	// to that tolerance (in degrees, the output SR's units).
+	MaxAllowableOffset float64
+	AllowPrivate       bool      // skip the SSRF guard; for self-hosted endpoints on internal networks
+	Progress           io.Writer // pagination progress sink; nil discards
+}
+
+// ArcGISRow is one fetched row: its id, every non-null attribute rendered as
+// a string, and its GeoJSON geometry (rows without geometry are skipped).
+type ArcGISRow struct {
+	ID       string
+	Props    map[string]string
+	Geometry json.RawMessage
+}
+
+func (q *ArcGISQuery) progress() io.Writer {
+	if q.Progress == nil {
+		return io.Discard
+	}
+	return q.Progress
+}
+
+func (q *ArcGISQuery) idField() string {
+	if q.IDField == "" {
+		return "OBJECTID"
+	}
+	return q.IDField
+}
+
+func (q *ArcGISQuery) idPrefix() string {
+	if q.IDPrefix == "" {
+		return "arcgis"
+	}
+	return q.IDPrefix
+}
+
+// FetchAll pages through the layer and returns every row with geometry.
+func (q *ArcGISQuery) FetchAll(ctx context.Context, client *http.Client) ([]ArcGISRow, error) {
+	endpoint := q.Endpoint
+	if !q.AllowPrivate {
 		if err := validatePublicHTTPURL(ctx, endpoint); err != nil {
 			return nil, fmt.Errorf("arcgis endpoint: %w", err)
 		}
@@ -77,11 +171,8 @@ func (s *ArcGISSource) Fetch(ctx context.Context, client *http.Client, rt resour
 		ctx = WithAllowPrivate(ctx)
 	}
 
-	bbox := s.BBox
-	envelope := fmt.Sprintf("%f,%f,%f,%f", bbox[1], bbox[0], bbox[3], bbox[2])
-
-	var allFeatures []db.Feature
-	// Deduplicate features by ID across pages. Esri offset paging can
+	var allRows []ArcGISRow
+	// Deduplicate rows by ID across pages. Esri offset paging can
 	// re-return a boundary row when the server reorders rows, and a
 	// resultOffset that lands mid-clamp can overlap the previous page; both
 	// yield duplicate OBJECTIDs. Mirror overpass.go / water.go, which dedup
@@ -91,7 +182,6 @@ func (s *ArcGISSource) Fetch(ctx context.Context, client *http.Client, rt resour
 	seen := make(map[string]bool)
 	offset := 0
 
-	rtVal := rt.Type()
 paging:
 	for page := 0; ; page++ {
 		if page >= arcgisMaxPages {
@@ -109,21 +199,21 @@ paging:
 			// The offset-ignoring server this cap used to fire on is handled
 			// below by the no-new-ids rule, so reaching the cap now means
 			// something genuinely pathological.
-			return nil, fmt.Errorf("arcgis: exceeded %d pages (%d features), aborting", arcgisMaxPages, len(allFeatures))
+			return nil, fmt.Errorf("arcgis: exceeded %d pages (%d features), aborting", arcgisMaxPages, len(allRows))
 		}
-		features, rawCount, exceeded, flagPresent, err := fetchArcGISPage(ctx, client, endpoint, envelope, rtVal, offset)
+		rows, rawCount, exceeded, flagPresent, err := q.fetchPage(ctx, client, offset)
 		if err != nil {
 			return nil, err
 		}
-		before := len(allFeatures)
-		allFeatures = appendUniqueFeatures(allFeatures, seen, features)
-		newUnique := len(allFeatures) - before
+		before := len(allRows)
+		allRows = appendUniqueRows(allRows, seen, rows)
+		newUnique := len(allRows) - before
 
-		switch classifyArcGISPage(rawCount, len(features), newUnique, exceeded, flagPresent) {
+		switch classifyArcGISPage(rawCount, len(rows), newUnique, exceeded, flagPresent) {
 		case pageDone:
 			break paging
 		case pageRepeatedRows:
-			if err := s.confirmRepeatedPageIsComplete(ctx, client, endpoint, offset, rawCount, len(allFeatures)); err != nil {
+			if err := q.confirmRepeatedPageIsComplete(ctx, client, offset, rawCount, len(allRows)); err != nil {
 				return nil, err
 			}
 			break paging
@@ -131,15 +221,15 @@ paging:
 			return nil, fmt.Errorf(
 				"arcgis: server re-served rows already fetched at offset %d while reporting "+
 					"more rows remain (%d features); refusing to store a truncated result",
-				offset, len(allFeatures))
+				offset, len(allRows))
 		case pageContinue:
 		}
 
 		offset += rawCount
-		fmt.Fprintf(s.progress(), "ArcGIS: fetched %d features so far, requesting next page at offset %d...\n", len(allFeatures), offset)
+		fmt.Fprintf(q.progress(), "ArcGIS: fetched %d features so far, requesting next page at offset %d...\n", len(allRows), offset)
 	}
 
-	return allFeatures, nil
+	return allRows, nil
 }
 
 // pageOutcome is what the pagination loop should do after fetching one page.
@@ -294,9 +384,9 @@ func arcgisLayerMaxRecordCount(ctx context.Context, client *http.Client, endpoin
 // The layer's own maxRecordCount tells them apart (solvent-streets-ofbo).
 // Fetching it is LAZY: this is the only path that needs it, so a healthy ingest
 // never spends the extra request.
-func (s *ArcGISSource) confirmRepeatedPageIsComplete(ctx context.Context, client *http.Client,
-	endpoint string, offset, rawCount, fetched int) error {
-	maxRC, metaErr := arcgisLayerMaxRecordCount(ctx, client, endpoint)
+func (q *ArcGISQuery) confirmRepeatedPageIsComplete(ctx context.Context, client *http.Client,
+	offset, rawCount, fetched int) error {
+	maxRC, metaErr := arcgisLayerMaxRecordCount(ctx, client, q.Endpoint)
 	if repeatedPageOutcome(rawCount, maxRC, metaErr) == pageTruncated {
 		if metaErr != nil {
 			return fmt.Errorf(
@@ -310,7 +400,7 @@ func (s *ArcGISSource) confirmRepeatedPageIsComplete(ctx context.Context, client
 				"clamped the result, so rows remain unfetched; refusing to store a truncated result",
 			offset, rawCount, maxRC, fetched)
 	}
-	fmt.Fprintf(s.progress(),
+	fmt.Fprintf(q.progress(),
 		"ArcGIS: page at offset %d returned only rows already fetched (%d rows, under the layer's "+
 			"maxRecordCount of %d); the server ignores resultOffset but answered completely — "+
 			"stopping with %d features\n",
@@ -385,10 +475,10 @@ func repeatedPageOutcome(rawCount, maxRecordCount int, metaErr error) pageOutcom
 	return pageRepeatedRows
 }
 
-// appendUniqueFeatures appends each feature in src to dst, skipping any whose ID
-// has already been seen. seen is mutated in place so it dedupes across pages.
+// appendUniqueRows appends each row in src to dst, skipping any whose ID has
+// already been seen. seen is mutated in place so it dedupes across pages.
 // Mirrors the cross-request dedup in overpass.go / water.go.
-func appendUniqueFeatures(dst []db.Feature, seen map[string]bool, src []db.Feature) []db.Feature {
+func appendUniqueRows(dst []ArcGISRow, seen map[string]bool, src []ArcGISRow) []ArcGISRow {
 	for _, f := range src {
 		if seen[f.ID] {
 			continue
@@ -399,17 +489,28 @@ func appendUniqueFeatures(dst []db.Feature, seen map[string]bool, src []db.Featu
 	return dst
 }
 
-// fetchArcGISPage fetches one page of features and reports the raw number of
-// rows the server returned (before geometry filtering) and whether the server
+// fetchPage fetches one page of rows and reports the raw number of rows the
+// server returned (before geometry filtering) and whether the server
 // signalled that more rows remain (exceededTransferLimit).
-func fetchArcGISPage(ctx context.Context, client *http.Client, endpoint, envelope string, resourceType resource.Type, offset int) ([]db.Feature, int, bool, bool, error) {
+func (q *ArcGISQuery) fetchPage(ctx context.Context, client *http.Client, offset int) ([]ArcGISRow, int, bool, bool, error) {
+	endpoint := q.Endpoint
+	bbox := q.BBox
+	envelope := fmt.Sprintf("%f,%f,%f,%f", bbox[1], bbox[0], bbox[3], bbox[2])
+	where := q.Where
+	if where == "" {
+		where = "1=1"
+	}
+	outFields := "*"
+	if len(q.OutFields) > 0 {
+		outFields = strings.Join(q.OutFields, ",")
+	}
 	params := url.Values{
-		"where":             {"1=1"},
+		"where":             {where},
 		"geometry":          {envelope},
 		"geometryType":      {"esriGeometryEnvelope"},
 		"inSR":              {"4326"},
 		"outSR":             {"4326"},
-		"outFields":         {"*"},
+		"outFields":         {outFields},
 		"f":                 {"geojson"},
 		"resultRecordCount": {strconv.Itoa(arcgisMaxRecords)},
 		"resultOffset":      {strconv.Itoa(offset)},
@@ -423,7 +524,14 @@ func fetchArcGISPage(ctx context.Context, client *http.Client, endpoint, envelop
 		// orderBy — a loud failure (surfaced via arcgisErrorMessage)
 		// rather than today's silent dup/skip, which is acceptable since
 		// such layers already mis-parse ids. (solvent-streets-2a7n.26)
-		"orderByFields": {"OBJECTID"},
+		// IDField overrides it for layers whose OID field is named otherwise.
+		"orderByFields": {q.idField()},
+	}
+	if q.GeometryPrecision > 0 {
+		params.Set("geometryPrecision", strconv.Itoa(q.GeometryPrecision))
+	}
+	if q.MaxAllowableOffset > 0 {
+		params.Set("maxAllowableOffset", strconv.FormatFloat(q.MaxAllowableOffset, 'f', -1, 64))
 	}
 
 	// Merge the pagination/query params into any query string the endpoint
@@ -480,9 +588,9 @@ func fetchArcGISPage(ctx context.Context, client *http.Client, endpoint, envelop
 		return nil, 0, false, false, fmt.Errorf("arcgis %s: %s", endpoint, msg)
 	}
 
-	features, rawCount := featuresFromArcGISPage(page, resourceType, offset)
+	rows, rawCount := rowsFromArcGISPage(page, q.idField(), q.idPrefix(), offset)
 	exceeded, present := transferLimitFromPage(page)
-	return features, rawCount, exceeded, present, nil
+	return rows, rawCount, exceeded, present, nil
 }
 
 // arcgisErrorEnvelope is the {"error":{...}} object ArcGIS returns as an HTTP
@@ -581,24 +689,26 @@ func arcgisErrorMessage(body []byte) (string, bool) {
 	return arcgisErrorMessageFromPage(page)
 }
 
-// parseArcGISGeoJSON is the byte-level entry point retained for tests; it parses
-// then delegates to featuresFromArcGISPage.
+// parseArcGISGeoJSON is the byte-level entry point retained for tests: one
+// page parsed with the default id field and mapped through the roads adapter.
 func parseArcGISGeoJSON(data []byte, resourceType resource.Type, baseIndex int) ([]db.Feature, int, error) {
 	page, err := parseArcGISPage(data)
 	if err != nil {
 		return nil, 0, err
 	}
-	features, rawCount := featuresFromArcGISPage(page, resourceType, baseIndex)
-	return features, rawCount, nil
+	rows, rawCount := rowsFromArcGISPage(page, "OBJECTID", "arcgis", baseIndex)
+	return roadFeaturesFromRows(rows, resourceType), rawCount, nil
 }
 
-// featuresFromArcGISPage builds features from an already-parsed page, skipping
-// rows with no usable geometry (missing or explicit JSON null). It also returns
-// the raw row count — the number of features in the server response before
-// geometry filtering — which the pagination loop uses to advance the offset and
-// decide termination (a page may return rows that are all skipped here).
-func featuresFromArcGISPage(resp arcgisPage, resourceType resource.Type, baseIndex int) ([]db.Feature, int) {
-	var features []db.Feature
+// rowsFromArcGISPage builds rows from an already-parsed page, skipping rows
+// with no usable geometry (missing or explicit JSON null). It also returns the
+// raw row count — the number of features in the server response before
+// geometry filtering — which the pagination loop uses to advance the offset
+// and decide termination (a page may return rows that are all skipped here).
+// A row's id is "<prefix>:<idField value>", or "<prefix>:<position>" when the
+// layer omits the id field.
+func rowsFromArcGISPage(resp arcgisPage, idField, idPrefix string, baseIndex int) ([]ArcGISRow, int) {
+	var rows []ArcGISRow
 	for i, f := range resp.Features {
 		// Skip rows with no usable geometry. A missing "geometry" field
 		// unmarshals to a nil RawMessage; an explicit "geometry": null
@@ -607,34 +717,22 @@ func featuresFromArcGISPage(resp arcgisPage, resourceType resource.Type, baseInd
 			continue
 		}
 
-		tags := make(map[string]string)
-		var name string
+		props := make(map[string]string, len(f.Properties))
 		for k, v := range f.Properties {
 			if v != nil {
-				tags[k] = formatArcGISValue(v)
-			}
-			if v != nil && (k == "FULLNAME" || k == "FullName" || k == "fullname") {
-				name = formatArcGISValue(v)
+				props[k] = formatArcGISValue(v)
 			}
 		}
 
-		id := fmt.Sprintf("arcgis:%d", baseIndex+i)
-		if oid, ok := f.Properties["OBJECTID"]; ok {
-			id = "arcgis:" + formatArcGISValue(oid)
+		id := fmt.Sprintf("%s:%d", idPrefix, baseIndex+i)
+		if oid, ok := f.Properties[idField]; ok {
+			id = idPrefix + ":" + formatArcGISValue(oid)
 		}
 
-		features = append(features, db.Feature{
-			ID:           id,
-			ResourceType: resourceType,
-			Name:         name,
-			Tags:         tags,
-			GeometryJSON: string(f.Geometry),
-			SourceAPI:    "arcgis",
-			FetchedAt:    time.Now(),
-		})
+		rows = append(rows, ArcGISRow{ID: id, Props: props, Geometry: f.Geometry})
 	}
 
-	return features, len(resp.Features)
+	return rows, len(resp.Features)
 }
 
 // formatArcGISValue renders a decoded JSON property value as a string. With the
