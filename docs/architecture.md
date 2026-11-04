@@ -82,7 +82,7 @@ flowchart TD
 ```
 
 Roads: width inferred from `width` tag, `lanes` count, or classification defaults, plus parking lane addon.
-Parking: polygons used directly.
+Parking: polygons used directly; each lot also gets an estimated space count (`capacity` tag, else area / 30 m², × levels for garages) apportioned onto hexes by area fraction (`resource.EstimateParkingSpaces`, `geo.ComputeHexWeightedShares`).
 Sidewalks: buffered like roads with sidewalk-specific width defaults.
 
 ## Database schema
