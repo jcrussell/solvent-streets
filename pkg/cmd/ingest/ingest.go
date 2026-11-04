@@ -151,12 +151,9 @@ func runIngest(ctx context.Context, opts *Options) error {
 		return fmt.Errorf("derive bbox: %w", err)
 	}
 
-	// Facilities have exactly one source (Overpass): ingest them whether or
-	// not the city enables Overpass for its pavement, so an ArcGIS-only city
-	// still gets stations. gc leaves facility rows out of its stale-source
-	// sweep for the same reason.
-	overpass := city.Overpass || opts.ResourceType.Type().IsFacility()
-	sources, err := resolveSources(opts, bbox, overpass, city.ArcGISURL, city.AllowPrivateArcGIS, ios)
+	// An own-sourced resource (facilities, census blocks) ignores the city's
+	// overpass / arcgis_url settings; see resolveSources.
+	sources, err := resolveSources(opts, bbox, city.Overpass, city.ArcGISURL, city.AllowPrivateArcGIS, ios)
 	if err != nil {
 		return err
 	}
@@ -224,7 +221,9 @@ func printDryRunPlan(ctx context.Context, opts *Options, store db.Store, city *c
 	} else {
 		fmt.Fprintln(out, "[dry-run]   boundary cached, would skip Nominatim")
 	}
-	if opts.Source == cmdutil.SourceAll {
+	if own, ok := opts.ResourceType.(resource.OwnSourced); ok {
+		fmt.Fprintf(out, "[dry-run]   would fetch from source: %s (fixed for %s)\n", own.OwnSource(), opts.ResourceType.Type())
+	} else if opts.Source == cmdutil.SourceAll {
 		fmt.Fprintln(out, "[dry-run]   would resolve sources: "+fmtOverpass(city.Overpass)+
 			fmtArcgis(city.ArcGISURL))
 		fmt.Fprintln(out, "[dry-run]   would fetch + dedupe across all sources")
@@ -498,6 +497,17 @@ func acceptStripRatio(orig, stripped, threshold float64) bool {
 
 func resolveSources(opts *Options, bbox [4]float64, overpass bool, arcgisURL string, allowPrivateArcGIS bool, ios *iostreams.IOStreams) ([]ingestpkg.Source, error) {
 	srcOpts := ingestpkg.Options{Progress: ios.ErrOut, AllowPrivateArcGIS: allowPrivateArcGIS}
+	// An own-sourced resource has exactly one source, fixed by the resource
+	// rather than the city config (resource.OwnSourced). --source may name it
+	// or be "all"; anything else cannot apply.
+	if own, ok := opts.ResourceType.(resource.OwnSourced); ok {
+		if opts.Source != cmdutil.SourceAll && string(opts.Source) != own.OwnSource() {
+			return nil, cmdutil.Hintf(
+				fmt.Errorf("source %q is not available for %s", opts.Source, opts.ResourceType.Type()),
+				"%s is ingested only from %s; omit --source", opts.ResourceType.Type(), own.OwnSource())
+		}
+		return ingestpkg.SourcesFor(opts.ResourceType, bbox, overpass, arcgisURL, srcOpts), nil
+	}
 	if opts.Source == cmdutil.SourceAll {
 		return ingestpkg.AllSources(bbox, overpass, arcgisURL, srcOpts), nil
 	}

@@ -1834,3 +1834,36 @@ func TestGC_KeepsFacilityRows(t *testing.T) {
 		t.Errorf("facility row deleted by the stale-source sweep: %+v", left)
 	}
 }
+
+// TestGC_KeepsOwnSourcedLayerRows: an attribute layer (census blocks, source
+// "tigerweb") is never in a city's keep list, yet must survive the sweep —
+// the sweep applies only to the pavement types, so no per-prefix exemption
+// is needed for a new own-sourced type.
+func TestGC_KeepsOwnSourcedLayerRows(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	blk := resource.TypeCensusBlocks
+	poly := `{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}`
+	if err := store.UpsertFeatures(ctx, blk, []Feature{{ID: "census:060014507011000", ResourceType: blk, GeometryJSON: poly, SourceAPI: "tigerweb"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertFeatures(ctx, rtRoads, []Feature{{ID: "osm:way:1", ResourceType: rtRoads, GeometryJSON: `{"type":"LineString","coordinates":[[0,0],[1,1]]}`, SourceAPI: "overpass"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := store.GCScan(ctx, []string{"arcgis"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.StaleFeatures != 1 {
+		t.Errorf("stale = %d, want 1 (the road, not the census block)", rep.StaleFeatures)
+	}
+	if _, err := store.GCSweep(ctx, []string{"arcgis"}); err != nil {
+		t.Fatal(err)
+	}
+	if left, _ := store.ListFeatures(ctx, blk); len(left) != 1 {
+		t.Errorf("census block deleted by the stale-source sweep: %+v", left)
+	}
+	if left, _ := store.ListFeatures(ctx, rtRoads); len(left) != 0 {
+		t.Errorf("stale road survived the sweep: %+v", left)
+	}
+}

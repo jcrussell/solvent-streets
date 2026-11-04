@@ -749,6 +749,21 @@ func (s *sqliteStore) gcKeepArgs(keepSources []string) (placeholders string, arg
 	return placeholders, args
 }
 
+// gcSweptTypes returns the placeholders and bound values for the resource
+// types the stale-source sweep applies to: the pavement types (resource.All),
+// whose sources the city config chooses. Every other stored type — facility
+// points, attribute layers such as census blocks — owns its source
+// (resource.OwnSourced) and so is never stale on the pavement sources'
+// account. Listing the swept types, rather than excluding known prefixes,
+// keeps a new own-sourced type safe without touching this query.
+func gcSweptTypes() (placeholders string, args []any) {
+	for _, r := range resource.All {
+		args = append(args, string(r.Type()))
+	}
+	placeholders = strings.TrimSuffix(strings.Repeat("?,", len(args)), ",")
+	return placeholders, args
+}
+
 // GCScan counts orphan rows for this city without writing anything. See the
 // Store interface for the orphan classes and the empty-keepSources guard.
 func (s *sqliteStore) GCScan(ctx context.Context, keepSources []string) (*GCReport, error) {
@@ -759,11 +774,10 @@ func (s *sqliteStore) GCScan(ctx context.Context, keepSources []string) (*GCRepo
 	// stale (which a Sweep would then delete — data loss).
 	if len(keepSources) > 0 {
 		placeholders, args := s.gcKeepArgs(keepSources)
-		// placeholders is only "?,?,..."; sources are bound via args.
-		// Facility rows (facility-<service>) always come from Overpass whether
-		// or not the city enables it for pavement (see ingest), so they are
-		// never stale on the pavement sources' account.
-		q := `SELECT COUNT(*) FROM features WHERE city_id = ? AND source_api NOT IN (` + placeholders + `) AND source_api != '' AND resource_type NOT LIKE 'facility-%'`
+		typePlaceholders, typeArgs := gcSweptTypes()
+		args = append(args, typeArgs...)
+		// placeholders are only "?,?,..."; sources and types are bound via args.
+		q := `SELECT COUNT(*) FROM features WHERE city_id = ? AND source_api NOT IN (` + placeholders + `) AND source_api != '' AND resource_type IN (` + typePlaceholders + `)`
 		if err := s.db.QueryRowContext(ctx, q, args...).Scan(&report.StaleFeatures); err != nil {
 			return nil, fmt.Errorf("count stale features: %w", err)
 		}
@@ -809,8 +823,10 @@ func (s *sqliteStore) GCSweep(ctx context.Context, keepSources []string) (*GCRep
 		// (a) Stale features — skip when keepSources is empty (never wipe all).
 		if len(keepSources) > 0 {
 			placeholders, args := s.gcKeepArgs(keepSources)
-			// placeholders is only "?,?,..."; sources are bound via args.
-			q := `DELETE FROM features WHERE city_id = ? AND source_api NOT IN (` + placeholders + `) AND source_api != '' AND resource_type NOT LIKE 'facility-%'`
+			typePlaceholders, typeArgs := gcSweptTypes()
+			args = append(args, typeArgs...)
+			// placeholders are only "?,?,..."; sources and types are bound via args.
+			q := `DELETE FROM features WHERE city_id = ? AND source_api NOT IN (` + placeholders + `) AND source_api != '' AND resource_type IN (` + typePlaceholders + `)`
 			if err := execDeleteCount(ctx, tx, "stale features", q, &report.StaleFeatures, args...); err != nil {
 				return err
 			}

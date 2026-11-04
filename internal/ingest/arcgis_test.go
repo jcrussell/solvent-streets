@@ -1448,3 +1448,66 @@ func TestArcGISQuery_Defaults(t *testing.T) {
 		t.Error("generalization params must be absent unless configured")
 	}
 }
+
+// TestSourcesFor_OwnSourced: an own-sourced resource gets exactly its fixed
+// source whatever the city's settings; pavement gets the configured ones.
+func TestSourcesFor_OwnSourced(t *testing.T) {
+	bbox := [4]float64{37, -122, 38, -121}
+	names := func(srcs []Source) []string {
+		var out []string
+		for _, s := range srcs {
+			out = append(out, s.Name())
+		}
+		return out
+	}
+	cases := []struct {
+		rt   resource.Source
+		over bool
+		url  string
+		want []string
+	}{
+		{&resource.CensusBlocks{}, true, "https://x/query", []string{"tigerweb"}},
+		{&resource.Facility{Service: "fire"}, false, "https://x/query", []string{"overpass"}},
+		{resource.ByType(resource.TypeRoads), true, "https://x/query", []string{"overpass", "arcgis"}},
+		{resource.ByType(resource.TypeRoads), false, "https://x/query", []string{"arcgis"}},
+	}
+	for _, c := range cases {
+		got := names(SourcesFor(c.rt, bbox, c.over, c.url, Options{}))
+		if strings.Join(got, ",") != strings.Join(c.want, ",") {
+			t.Errorf("%s (overpass=%v): sources %v, want %v", c.rt.Type(), c.over, got, c.want)
+		}
+	}
+}
+
+// TestCensusBlocksSource_Fetch: the census adapter asks TIGERweb for only
+// the counted fields of populated blocks, ids rows by GEOID, and tags them
+// with the counts the population compute reads.
+func TestCensusBlocksSource_Fetch(t *testing.T) {
+	var got url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.URL.Query()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"properties":{"exceededTransferLimit":false},"features":[{"properties":{"GEOID":"060014507011000","POP100":42,"HU100":17},
+			"geometry":{"type":"Polygon","coordinates":[[[-121.8,37.6],[-121.7,37.6],[-121.7,37.7],[-121.8,37.6]]]}}]}`))
+	}))
+	t.Cleanup(srv.Close)
+	src := &CensusBlocksSource{BBox: [4]float64{37, -122, 38, -121}, URL: srv.URL, AllowPrivate: true}
+	feats, err := src.Fetch(context.Background(), srv.Client(), &resource.CensusBlocks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Get("outFields") != "GEOID,POP100,HU100" || got.Get("where") != "POP100 > 0 OR HU100 > 0" || got.Get("orderByFields") != "GEOID" {
+		t.Errorf("query: %v", got)
+	}
+	if len(feats) != 1 {
+		t.Fatalf("features = %d", len(feats))
+	}
+	f := feats[0]
+	if f.ID != "census:060014507011000" || f.ResourceType != resource.TypeCensusBlocks || f.SourceAPI != "tigerweb" {
+		t.Errorf("feature identity: %+v", f)
+	}
+	pop, hu := resource.CensusCounts(resource.Feature{Tags: f.Tags})
+	if pop != 42 || hu != 17 {
+		t.Errorf("counts = %v, %v; want 42, 17", pop, hu)
+	}
+}
