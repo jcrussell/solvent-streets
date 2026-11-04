@@ -361,6 +361,23 @@ func applyDefaultForecastProv(fc *ForecastConfig, p *forecastProvenance) {
 //
 // Fields are emitted in a stable order: top-level first, then one block
 // per city containing only the fields that city explicitly overrides.
+// appendServiceFields emits the configured [[services]] overrides. Only set
+// values appear: an unset override leaves the registry default in force, and
+// that default is a Go constant rather than a config layer.
+func (c *Config) appendServiceFields(fields []ResolvedField) []ResolvedField {
+	for _, s := range c.Services {
+		if s.TurnoutS > 0 {
+			key := fmt.Sprintf("services[%s].turnout_s", s.Name)
+			fields = append(fields, ResolvedField{Key: key, Value: s.TurnoutS, Source: Source{Kind: SourceFile, Detail: key}})
+		}
+		if s.TravelThresholdS > 0 {
+			key := fmt.Sprintf("services[%s].travel_threshold_s", s.Name)
+			fields = append(fields, ResolvedField{Key: key, Value: s.TravelThresholdS, Source: Source{Kind: SourceFile, Detail: key}})
+		}
+	}
+	return fields
+}
+
 func (c *Config) Resolve(flagUnits string) []ResolvedField {
 	fields := make([]ResolvedField, 0, 6+4*len(c.Cities))
 
@@ -395,6 +412,8 @@ func (c *Config) Resolve(flagUnits string) []ResolvedField {
 	// out made `config show --sources` unable to report which layer set the knob
 	// every priced dollar passes through.
 	fields = append(fields, ResolvedField{Key: "forecast.cost_overhead", Value: fc.CostOverhead, Source: fprov.CostOverhead})
+
+	fields = c.appendServiceFields(fields)
 
 	for i := range c.Cities {
 		city := &c.Cities[i]

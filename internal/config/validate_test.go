@@ -742,3 +742,38 @@ func TestEnvOverrides_StillAcceptFiniteValues(t *testing.T) {
 		t.Errorf("parsePCIEnv() = %g, ok %v; want 72.5, true", v, ok)
 	}
 }
+
+// TestConfig_Validate_Services pins the shape checks on [[services]]
+// overrides and [[cities.facilities]]: names required, no duplicate service,
+// non-negative finite numbers, lat/lon in range. Known-service membership is
+// not checked here (internal/config does not import the registry).
+func TestConfig_Validate_Services(t *testing.T) {
+	ok := Config{
+		Services: []ServiceOverride{{Name: "fire", TurnoutS: 60, TravelThresholdS: 300}},
+		Cities: []CityConfig{{Name: "Oakland, CA", Overpass: true, Facilities: []FacilityConfig{
+			{Service: "fire", Name: "Station 1", Lat: 37.8, Lon: -122.27},
+		}}},
+	}
+	if err := ok.Validate(); err != nil {
+		t.Fatalf("valid services config rejected: %v", err)
+	}
+	bad := map[string]Config{
+		"service without name":      {Services: []ServiceOverride{{TurnoutS: 60}}, Cities: []CityConfig{{Name: "O", Overpass: true}}},
+		"duplicate service":         {Services: []ServiceOverride{{Name: "fire"}, {Name: "fire"}}, Cities: []CityConfig{{Name: "O", Overpass: true}}},
+		"negative turnout":          {Services: []ServiceOverride{{Name: "fire", TurnoutS: -1}}, Cities: []CityConfig{{Name: "O", Overpass: true}}},
+		"negative threshold":        {Services: []ServiceOverride{{Name: "fire", TravelThresholdS: -1}}, Cities: []CityConfig{{Name: "O", Overpass: true}}},
+		"facility without service":  {Cities: []CityConfig{{Name: "O", Overpass: true, Facilities: []FacilityConfig{{Lat: 1, Lon: 1}}}}},
+		"facility lat out of range": {Cities: []CityConfig{{Name: "O", Overpass: true, Facilities: []FacilityConfig{{Service: "fire", Lat: 91, Lon: 1}}}}},
+		"facility lon out of range": {Cities: []CityConfig{{Name: "O", Overpass: true, Facilities: []FacilityConfig{{Service: "fire", Lat: 1, Lon: -181}}}}},
+	}
+	for name, cfg := range bad {
+		err := cfg.Validate()
+		if err == nil {
+			t.Errorf("%s: expected error", name)
+			continue
+		}
+		if !errors.Is(err, ErrInvalidConfig) {
+			t.Errorf("%s: %v does not chain to ErrInvalidConfig", name, err)
+		}
+	}
+}

@@ -126,6 +126,13 @@ type Config struct {
 	// requirement is enforced after the merge.
 	Include []IncludeSpec `toml:"include,omitempty"`
 
+	// Services overrides the per-service coverage parameters
+	// (internal/services.Registry) by name. Only the fields set are applied;
+	// an unknown name is rejected when the services command merges them.
+	// An array of tables (not a map) so Config.Hash()'s struct-encoding
+	// fallback keeps its "no map fields" ordering guarantee.
+	Services []ServiceOverride `toml:"services,omitempty"`
+
 	// ConfigID is the opaque identifier used as part of the cities
 	// table key (UNIQUE(slug, config_id)). Optional in TOML; when
 	// absent it is filled at load time with the 16-char sha256 prefix
@@ -450,6 +457,13 @@ type CityConfig struct {
 	// pattern.
 	BoundaryRelationID int64 `toml:"boundary_relation_id"`
 
+	// Facilities are hand-placed points of service for this city, used by
+	// `pvmt services compute` alongside (or instead of) the OSM-ingested
+	// ones when OpenStreetMap coverage is poor — e.g. a fire station that
+	// is unmapped or mapped as an untagged building. Each carries the
+	// service name it belongs to.
+	Facilities []FacilityConfig `toml:"facilities,omitempty"`
+
 	// AllowPrivateArcGIS opts this city's ArcGISURL out of the
 	// loopback / link-local / private-IP defense (solvent-streets-di49).
 	// Required only for staging or self-hosted ArcGIS endpoints on
@@ -490,6 +504,25 @@ type CityConfig struct {
 	// resolves a different edge than the snapshot was computed at produces a
 	// city with zero features rather than an error.
 	SourceHexEdgeM float64 `toml:"-"`
+}
+
+// ServiceOverride adjusts one service's coverage parameters. Zero means
+// "keep the registry default" for both numeric fields.
+type ServiceOverride struct {
+	// Name is the service key ("fire").
+	Name string `toml:"name"`
+	// TurnoutS is the fixed overhead in seconds added to every travel time.
+	TurnoutS float64 `toml:"turnout_s,omitempty"`
+	// TravelThresholdS is the travel time within which a hex counts as covered.
+	TravelThresholdS float64 `toml:"travel_threshold_s,omitempty"`
+}
+
+// FacilityConfig is one hand-placed facility (see CityConfig.Facilities).
+type FacilityConfig struct {
+	Service string  `toml:"service"`
+	Name    string  `toml:"name,omitempty"`
+	Lat     float64 `toml:"lat"`
+	Lon     float64 `toml:"lon"`
 }
 
 type GridConfig struct {
@@ -927,7 +960,49 @@ func (c *Config) validate(requireCities bool) error {
 	if err := c.Forecast.Validate(); err != nil {
 		return errors.Join(ErrInvalidConfig, err)
 	}
+	if err := c.validateServices(); err != nil {
+		return err
+	}
 	return c.validateCities()
+}
+
+// validateServices checks the shape of [[services]] overrides: a name, and
+// non-negative finite numbers. Whether the name is a known service is decided
+// where the overrides are applied (pkg/cmd/services), since internal/config
+// does not import the registry.
+func (c *Config) validateServices() error {
+	seen := make(map[string]bool)
+	for i, s := range c.Services {
+		if strings.TrimSpace(s.Name) == "" {
+			return errors.Join(ErrInvalidConfig, fmt.Errorf("services[%d].name is required", i))
+		}
+		if seen[s.Name] {
+			return errors.Join(ErrInvalidConfig, fmt.Errorf("services[%d]: duplicate service %q", i, s.Name))
+		}
+		seen[s.Name] = true
+		if nonFinite(s.TurnoutS) || s.TurnoutS < 0 {
+			return errors.Join(ErrInvalidConfig, fmt.Errorf("services[%d] (%s): turnout_s %g must be a non-negative finite number", i, s.Name, s.TurnoutS))
+		}
+		if nonFinite(s.TravelThresholdS) || s.TravelThresholdS < 0 {
+			return errors.Join(ErrInvalidConfig, fmt.Errorf("services[%d] (%s): travel_threshold_s %g must be a non-negative finite number", i, s.Name, s.TravelThresholdS))
+		}
+	}
+	return nil
+}
+
+// validateFacilities checks one city's hand-placed facilities: a service
+// name and a lat/lon inside the WGS84 range. A facility outside the city is
+// legal (a station just over the line still serves the edge of town).
+func validateFacilities(i int, city CityConfig) error {
+	for j, f := range city.Facilities {
+		if strings.TrimSpace(f.Service) == "" {
+			return errors.Join(ErrInvalidConfig, fmt.Errorf("cities[%d] (%s): facilities[%d].service is required", i, city.Name, j))
+		}
+		if nonFinite(f.Lat) || f.Lat < -90 || f.Lat > 90 || nonFinite(f.Lon) || f.Lon < -180 || f.Lon > 180 {
+			return errors.Join(ErrInvalidConfig, fmt.Errorf("cities[%d] (%s): facilities[%d] (%s) lat/lon %g,%g out of range", i, city.Name, j, f.Service, f.Lat, f.Lon))
+		}
+	}
+	return nil
 }
 
 // validateTags rejects blank or malformed tags on one city (see validateTag
@@ -1011,6 +1086,9 @@ func validateCityFields(i int, city CityConfig) error {
 			fmt.Errorf("cities[%d] (%s): no data source; set overpass = true or provide arcgis_url", i, city.Name))
 	}
 	if err := validateTags(i, city); err != nil {
+		return err
+	}
+	if err := validateFacilities(i, city); err != nil {
 		return err
 	}
 	if city.Forecast != nil {
