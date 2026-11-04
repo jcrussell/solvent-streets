@@ -50,21 +50,25 @@ Without `--city`, commands run against all cities. With `--city "Berkeley, CA"` 
 
 The web UI and export provide a city switcher when multiple cities are configured.
 
-## Tags (grouping cities)
+## Tags (grouping and filtering cities)
 
-Give a city one or more `tags` to group it in the city selector and to scope the Compare and Aggregate tabs:
+Give a city one or more `tags` to group it in the city selector and to filter the dashboard:
 
 ```toml
 [[cities]]
 name = "San Jose, CA"
-tags = ["Bay Area", "Top 50"]
+tags = ["Bay Area", "Top 50", "metro:South Bay"]
 ```
 
-- The city selector renders one `<optgroup>` per tag; a city with several tags appears under each. Cities with no tags fall into an ungrouped "Other" group.
-- The dashboard's `#tag-scope` selector filters the Compare and Aggregate tabs to a single tag ("All cities" restores the global rollup). This is independent of the city-vs-all-jurisdiction scope toggle. The active tag is recorded in the URL as `?tag=`, so a filtered view is shareable and survives back/forward.
-- Tag labels must be non-blank; an empty string is rejected at load rather than silently grouping the city as untagged.
+A tag is either a plain label (`"Bay Area"`) or a `dimension:value` pair (`"metro:South Bay"`, `"state:CA"`). Plain labels belong to the default **`group`** dimension, so configs written before dimensions existed keep working unchanged. A dimension name is a lowercase identifier (`[a-z][a-z0-9_-]*`); the value is everything after the first colon and may itself contain colons. A city may carry several values in one dimension.
 
-Tags are often assigned at the `[[include]]` site (below) rather than per city, so a city pulled in by several includes accumulates the union of their tags automatically.
+- **City selector.** The selector is grouped by the `group` dimension: one `<optgroup>` per group tag, a city with several appearing under each, and cities with no group tag in an ungrouped "Other" set. Tags in other dimensions never create optgroups.
+- **Filters.** The gear menu's *Cities* row holds one filter per dimension (`Any Group`, `Any State`, …). Selections AND together and narrow the city selector on **every** tab and on the Play page, and scope the Compare and Aggregate tabs to the matching cities. A dimension with a single value offers no choice and is hidden; the row is omitted when no dimension has two or more values. If the city in view is filtered out, the first matching city is loaded instead; if nothing matches, the current city stays on screen behind a disabled "No cities match" placeholder.
+- **URL.** Filters are recorded as repeated `?tag=dimension:value` params (`?tag=group:Bay%20Area&tag=state:CA`), so a filtered view is shareable and survives back/forward. A bare legacy `?tag=Bay%20Area` is read as `group:Bay Area`. A deep-linked `?city=` always wins: a filter that would hide it is dropped and the address bar rewritten.
+- **Derived `state` dimension.** Every city whose name ends in a two-letter postal suffix (`"Livermore, CA"`) gets a `state:XX` tag at export time, unless the config gives an explicit `state:` tag. Nothing in the TOML changes (so no stored snapshot is invalidated), and `cities.json`, `/api/cities`, the selector groups and the filters all see the same tags.
+- **Validation.** Tags must be non-blank, and a prefixed tag must have a well-formed dimension and a non-blank value: `":CA"`, `"state:"`, `"State:CA"` and `"Metro: Boston"` are rejected at load with a message naming the fix, rather than silently forking a dimension or mis-grouping the city.
+
+Tags are often assigned at the `[[include]]` site (below) rather than per city, so a city pulled in by several includes accumulates the union of their tags automatically. The union is a plain set union of full tag strings: it never merges values across dimensions.
 
 ### Migrating from `region`
 

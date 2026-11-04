@@ -109,7 +109,7 @@ Push a `v*` tag. GoReleaser builds Linux/macOS (amd64/arm64) and publishes to Gi
 
 ### Publishing the showcase
 
-The site at <https://joncrussell.com/solvent-streets/> is a single consolidated dashboard: one `pvmt export` run from [`examples/all/`](examples/all/pvmt.toml), whose `[[include]]` blocks union every other example into one config (277 cities) and tag each one at the include site. Cities are browsed by tag rather than by example, and the Compare and Aggregate tabs can be scoped to a tag. See [docs/configuration.md](docs/configuration.md) for `tags` and `[[include]]`.
+The site at <https://joncrussell.com/solvent-streets/> is a single consolidated dashboard: one `pvmt export` run from [`examples/all/`](examples/all/pvmt.toml), whose `[[include]]` blocks union every other example into one config (277 cities) and tag each one at the include site. Cities are browsed by tag rather than by example; the gear menu's tag filters (one per dimension — metro group, state, …) narrow the city selector on every tab and scope the Compare and Aggregate tabs. See [docs/configuration.md](docs/configuration.md) for `tags` and `[[include]]`.
 
 Ingest/compute/forecast cannot run in CI (the source SQLite DB is ~1 GB and Overpass/ArcGIS pulls are slow and rate-limited), so the publish runs from a developer machine that already has data in `~/.local/share/pvmt/pvmt.db`. The combined config covers every example's cities, so they must all have data first — but it does **not** need its own ingest: a city reached through `[[include]]` keeps the identity of the file that declared it, so `examples/all` reads exactly the rows and snapshots each example's own ingest/compute wrote.
 
