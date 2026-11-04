@@ -30,6 +30,9 @@ type statusRow struct {
 	LastIngest   string  `json:"lastIngest,omitempty"`
 	LastCompute  string  `json:"lastCompute,omitempty"`
 	Area         float64 `json:"area,omitempty"`
+	// EstimatedSpaces is the parking resource's estimated vehicle capacity
+	// from its last compute; 0 and omitted for other resources.
+	EstimatedSpaces int `json:"estimatedSpaces,omitempty"`
 }
 
 var _ cmdutil.RowExporter = statusRow{}
@@ -48,12 +51,14 @@ func (r statusRow) ExportData(fields []string) map[string]any {
 			out[f] = r.LastCompute
 		case "area":
 			out[f] = r.Area
+		case "estimatedSpaces":
+			out[f] = r.EstimatedSpaces
 		}
 	}
 	return out
 }
 
-var statusFields = []string{"resourceType", "featureCount", "lastIngest", "lastCompute", "area"}
+var statusFields = []string{"resourceType", "featureCount", "lastIngest", "lastCompute", "area", "estimatedSpaces"}
 
 func NewCmdStatus(f *cmdutil.Factory, rt resource.Source, runF func(context.Context, *Options) error) *cobra.Command {
 	opts := &Options{
@@ -70,8 +75,8 @@ resource type: feature counts, last-ingest and last-compute timestamps,
 and paved area totals in the active unit system. On a TTY the output is
 followed by a city-area summary (paved-vs-total %) and the five most
 recent compute snapshots. Use --json with a comma-separated field list
-(resourceType, featureCount, lastIngest, lastCompute, area) to emit one
-row per resource.`
+(resourceType, featureCount, lastIngest, lastCompute, area,
+estimatedSpaces) to emit one row per resource.`
 	example := `  # Show feature + result counts across every resource
   pvmt status
 
@@ -83,7 +88,7 @@ row per resource.`
 current city: feature count, last-ingest and last-compute timestamps,
 and paved area in the active unit system. Use --json with a
 comma-separated field list (resourceType, featureCount, lastIngest,
-lastCompute, area) for a single row.`, rt.Type())
+lastCompute, area, estimatedSpaces) for a single row.`, rt.Type())
 		example = fmt.Sprintf(`  # Show feature + result counts for %s
   pvmt %s status
 
@@ -135,9 +140,10 @@ func runStatus(ctx context.Context, opts *Options) error {
 			continue
 		}
 		row := statusRow{
-			ResourceType: string(rt.Type()),
-			FeatureCount: info.FeatureCount,
-			Area:         info.TotalArea,
+			ResourceType:    string(rt.Type()),
+			FeatureCount:    info.FeatureCount,
+			Area:            info.TotalArea,
+			EstimatedSpaces: info.EstimatedSpaces,
 		}
 		if info.LastIngestAt != nil {
 			row.LastIngest = info.LastIngestAt.Format(time.RFC3339)
@@ -155,10 +161,14 @@ func runStatus(ctx context.Context, opts *Options) error {
 
 	// Table output
 	tp := iostreams.NewTablePrinter(ios)
-	tp.AddHeader("Resource", "Features", "Last Ingest", "Last Compute", units.AreaLabel(sys), units.AreaLargeLabel(sys))
+	tp.AddHeader("Resource", "Features", "Last Ingest", "Last Compute", units.AreaLabel(sys), units.AreaLargeLabel(sys), "Est. Spaces")
 	for _, r := range rows {
 		ingestStr := iostreams.FormatTimestamp(r.LastIngest, ios.IsTTY())
 		computeStr := iostreams.FormatTimestamp(r.LastCompute, ios.IsTTY())
+		spacesStr := "-"
+		if r.EstimatedSpaces > 0 {
+			spacesStr = strconv.Itoa(r.EstimatedSpaces)
+		}
 		tp.AddRow(
 			r.ResourceType,
 			strconv.Itoa(r.FeatureCount),
@@ -166,6 +176,7 @@ func runStatus(ctx context.Context, opts *Options) error {
 			computeStr,
 			fmt.Sprintf("%.0f", units.AreaValue(r.Area, sys)),
 			fmt.Sprintf("%.1f", units.AreaLargeValue(r.Area, sys)),
+			spacesStr,
 		)
 	}
 	if err := tp.Render(); err != nil {

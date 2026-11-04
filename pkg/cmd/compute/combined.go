@@ -286,6 +286,6 @@ func (cr *combinedRunner) save(ctx context.Context, p combinedPass) error {
 	if p.label == resource.CombinedCity {
 		suffix = "Results (city only)"
 	}
-	printResults(cr.io.Out, "combined "+suffix, p.featureCount, area, cr.sys)
+	printResults(cr.io.Out, "combined "+suffix, p.featureCount, area, 0, cr.sys)
 	return nil
 }

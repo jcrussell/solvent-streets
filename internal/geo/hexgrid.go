@@ -111,6 +111,10 @@ type HexStat struct {
 	ResourceType string
 	Area         float64
 	PctCovered   float64
+	// EstimatedSpaces is the parking spaces apportioned to this hex
+	// (ComputeHexWeightedShares, folded in by the compute pass); 0 for every
+	// other resource.
+	EstimatedSpaces float64
 }
 
 // ComputeHexStats intersects each hex with the geometries indexed by idx and

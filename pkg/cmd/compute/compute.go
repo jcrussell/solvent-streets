@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -51,7 +52,10 @@ type computeRow struct {
 	Jurisdiction string  `json:"jurisdiction"` // "all" or "city"
 	FeatureCount int     `json:"featureCount"`
 	Area         float64 `json:"area"`
-	SnapshotID   int64   `json:"snapshotId,omitempty"`
+	// EstimatedSpaces is the parking resource's estimated vehicle capacity
+	// (0 and omitted for every other resource).
+	EstimatedSpaces int   `json:"estimatedSpaces,omitempty"`
+	SnapshotID      int64 `json:"snapshotId,omitempty"`
 }
 
 var _ cmdutil.RowExporter = computeRow{}
@@ -70,6 +74,8 @@ func (r computeRow) ExportData(fields []string) map[string]any {
 			out[f] = r.FeatureCount
 		case "area":
 			out[f] = r.Area
+		case "estimatedSpaces":
+			out[f] = r.EstimatedSpaces
 		case "snapshotId":
 			out[f] = r.SnapshotID
 		}
@@ -77,7 +83,7 @@ func (r computeRow) ExportData(fields []string) map[string]any {
 	return out
 }
 
-var computeFields = []string{"city", "resourceType", "jurisdiction", "featureCount", "area", "snapshotId"}
+var computeFields = []string{"city", "resourceType", "jurisdiction", "featureCount", "area", "estimatedSpaces", "snapshotId"}
 
 func NewCmdCompute(f *cmdutil.Factory, rt resource.Source, runF func(context.Context, *Options) error) *cobra.Command {
 	opts := &Options{
@@ -329,6 +335,9 @@ func doCompute(ctx context.Context, out, progress, errOut io.Writer, notify tui.
 	cityBuffered := filterBufferedByJurisdiction(allBuffered, filter.JurisdictionCity)
 
 	hexStats, clippedHexes := c.runAllFeaturesPass(ctx, allBuffered, boundaryGJSON)
+	// Parking only: apportion each lot's estimated spaces onto the same hexes
+	// (a no-op slice for other resources, see spaceWeights).
+	hexStats = c.mergeSpaces(ctx, hexStats, allBuffered, clippedHexes)
 	// ParallelMap returns partial results (no error) on cancellation, so a
 	// SIGINT'd run would otherwise persist truncated hex stats under a
 	// complete-looking snapshot. Guard between compute and persistence: bail
@@ -345,6 +354,52 @@ func doCompute(ctx context.Context, out, progress, errOut io.Writer, notify tui.
 	}
 
 	return c.saveHexStats(ctx, hexStats)
+}
+
+// spaceWeights returns the per-feature estimated parking spaces for the
+// parking resource, index-aligned with buffered, and nil for every other
+// resource — the estimate is a parking concept (lots and garages), so roads
+// and sidewalks carry no spaces.
+func (c *computer) spaceWeights(buffered []resource.BufferedFeature) []float64 {
+	if c.opts.ResourceType.Type() != resource.TypeParking {
+		return nil
+	}
+	return resource.ParkingSpaceWeights(buffered)
+}
+
+// mergeSpaces apportions the parking-space estimate onto the hex grid and
+// folds it into stats by hex id. A hex that holds spaces but no coverage row
+// cannot occur (a lot with area always has coverage), so only existing rows
+// are updated and a stray share is dropped. Returns stats unchanged for
+// resources without weights.
+func (c *computer) mergeSpaces(ctx context.Context, stats []geo.HexStat, buffered []resource.BufferedFeature, hexes []geo.Hex) []geo.HexStat {
+	weights := c.spaceWeights(buffered)
+	if weights == nil {
+		return stats
+	}
+	shares := geo.ComputeHexWeightedShares(ctx, hexes, resource.Geoms(buffered), weights, nil)
+	if len(shares) == 0 {
+		return stats
+	}
+	byHex := make(map[string]float64, len(shares))
+	for _, sh := range shares {
+		byHex[sh.HexID] += sh.Value
+	}
+	for i := range stats {
+		stats[i].EstimatedSpaces = byHex[stats[i].HexID]
+	}
+	return stats
+}
+
+// sumSpaces totals the apportioned spaces over a hex-stat slice, rounded to
+// a whole count: the city-level figure is the sum of the hex-clipped shares,
+// so it stays consistent with total_area (also a sum over clipped hexes).
+func sumSpaces(stats []geo.HexStat) int {
+	var s float64
+	for _, st := range stats {
+		s += st.EstimatedSpaces
+	}
+	return int(math.Round(s))
 }
 
 // filterBufferedByJurisdiction returns the subset of buffered features whose
@@ -463,16 +518,18 @@ func (c *computer) saveAllJurisdictionsResult(ctx context.Context, allBuffered [
 	}
 
 	rtAll := c.opts.ResourceType.Type()
+	spaces := sumSpaces(hexStats)
 	result := db.ComputeResult{
-		ResourceType: rtAll,
-		TotalArea:    area,
-		FeatureCount: featureCount,
-		SnapshotID:   c.snapshotID,
+		ResourceType:    rtAll,
+		TotalArea:       area,
+		FeatureCount:    featureCount,
+		EstimatedSpaces: spaces,
+		SnapshotID:      c.snapshotID,
 	}
 	if err := c.store.SaveComputeResult(ctx, result); err != nil {
 		return fmt.Errorf("save result: %w", err)
 	}
-	c.recordRow("all", featureCount, area)
+	c.recordRow("all", featureCount, area, spaces)
 
 	cohortStats := c.buildCohortStats(ctx, rtAll, allBuffered, area, clippedHexes)
 	if len(cohortStats) > 0 {
@@ -484,7 +541,7 @@ func (c *computer) saveAllJurisdictionsResult(ctx context.Context, allBuffered [
 		}
 	}
 	if !c.opts.CityOnly {
-		printResults(c.out, fmt.Sprintf("%s Results (all)", rtAll.Bare()), featureCount, area, c.sys)
+		printResults(c.out, fmt.Sprintf("%s Results (all)", rtAll.Bare()), featureCount, area, spaces, c.sys)
 	}
 	return nil
 }
@@ -496,11 +553,12 @@ func (c *computer) saveHexStats(ctx context.Context, hexStats []geo.HexStat) err
 	dbStats := make([]db.HexStat, len(hexStats))
 	for i, s := range hexStats {
 		dbStats[i] = db.HexStat{
-			HexID:        s.HexID,
-			ResourceType: rt,
-			Area:         s.Area,
-			PctCovered:   s.PctCovered,
-			SnapshotID:   c.snapshotID,
+			HexID:           s.HexID,
+			ResourceType:    rt,
+			Area:            s.Area,
+			PctCovered:      s.PctCovered,
+			EstimatedSpaces: s.EstimatedSpaces,
+			SnapshotID:      c.snapshotID,
 		}
 	}
 	if err := c.store.SaveHexStats(ctx, dbStats); err != nil {
@@ -521,6 +579,7 @@ func (c *computer) processCityResults(ctx context.Context, cityBuffered []resour
 	rtCity := c.opts.ResourceType.Type().With(resource.ScopeCity)
 	cityIdx := geo.NewGeomIndexFromGeoms(resource.Geoms(cityBuffered))
 	cityStats := geo.ComputeHexStats(ctx, clippedHexes, cityIdx, string(rtCity), nil)
+	cityStats = c.mergeSpaces(ctx, cityStats, cityBuffered, clippedHexes)
 	// ComputeHexStats (ParallelMap-backed) yields partial results on cancel;
 	// bail before persisting truncated city stats.
 	if err := ctx.Err(); err != nil {
@@ -532,27 +591,30 @@ func (c *computer) processCityResults(ctx context.Context, cityBuffered []resour
 	for i, s := range cityStats {
 		cityArea += s.Area
 		cityDBStats[i] = db.HexStat{
-			HexID:        s.HexID,
-			ResourceType: rtCity,
-			Area:         s.Area,
-			PctCovered:   s.PctCovered,
-			SnapshotID:   c.snapshotID,
+			HexID:           s.HexID,
+			ResourceType:    rtCity,
+			Area:            s.Area,
+			PctCovered:      s.PctCovered,
+			EstimatedSpaces: s.EstimatedSpaces,
+			SnapshotID:      c.snapshotID,
 		}
 	}
 	if err := c.store.SaveHexStats(ctx, cityDBStats); err != nil {
 		return fmt.Errorf("save city hex stats: %w", err)
 	}
 
+	citySpaces := sumSpaces(cityStats)
 	cityResult := db.ComputeResult{
-		ResourceType: rtCity,
-		TotalArea:    cityArea,
-		FeatureCount: featureCount,
-		SnapshotID:   c.snapshotID,
+		ResourceType:    rtCity,
+		TotalArea:       cityArea,
+		FeatureCount:    featureCount,
+		EstimatedSpaces: citySpaces,
+		SnapshotID:      c.snapshotID,
 	}
 	if err := c.store.SaveComputeResult(ctx, cityResult); err != nil {
 		return fmt.Errorf("save city result: %w", err)
 	}
-	c.recordRow("city", featureCount, cityArea)
+	c.recordRow("city", featureCount, cityArea, citySpaces)
 
 	cityCohortStats := c.buildCohortStats(ctx, rtCity, cityBuffered, cityArea, clippedHexes)
 	if len(cityCohortStats) > 0 {
@@ -564,22 +626,23 @@ func (c *computer) processCityResults(ctx context.Context, cityBuffered []resour
 		}
 	}
 
-	printResults(c.out, fmt.Sprintf("%s Results (city only)", c.opts.ResourceType.Type()), featureCount, cityArea, c.sys)
+	printResults(c.out, fmt.Sprintf("%s Results (city only)", c.opts.ResourceType.Type()), featureCount, cityArea, citySpaces, c.sys)
 	return nil
 }
 
 // recordRow appends a computeRow to the multi-city accumulator if the
 // caller set one up. No-op when --json is not active.
-func (c *computer) recordRow(jurisdiction string, featureCount int, area float64) {
+func (c *computer) recordRow(jurisdiction string, featureCount int, area float64, spaces int) {
 	if c.opts.rows == nil {
 		return
 	}
 	row := computeRow{
-		City:         c.city.Name,
-		ResourceType: string(c.opts.ResourceType.Type()),
-		Jurisdiction: jurisdiction,
-		FeatureCount: featureCount,
-		Area:         area,
+		City:            c.city.Name,
+		ResourceType:    string(c.opts.ResourceType.Type()),
+		Jurisdiction:    jurisdiction,
+		FeatureCount:    featureCount,
+		Area:            area,
+		EstimatedSpaces: spaces,
 	}
 	if c.snapshotID != nil {
 		row.SnapshotID = *c.snapshotID
@@ -587,12 +650,15 @@ func (c *computer) recordRow(jurisdiction string, featureCount int, area float64
 	*c.opts.rows = append(*c.opts.rows, row)
 }
 
-func printResults(out io.Writer, label string, featureCount int, area float64, sys units.System) {
+func printResults(out io.Writer, label string, featureCount int, area float64, spaces int, sys units.System) {
 	fmt.Fprintf(out, "\n%s:\n", label)
 	fmt.Fprintf(out, "  Features:  %d\n", featureCount)
 	fmt.Fprintf(out, "  Area:      %s\n", units.FormatArea(area, sys))
 	fmt.Fprintf(out, "  Area:      %s\n", units.FormatAreaLarge(area, sys))
 	fmt.Fprintf(out, "  Area:      %s\n", units.FormatAreaVeryLarge(area, sys))
+	if spaces > 0 {
+		fmt.Fprintf(out, "  Spaces:    ~%d (estimated)\n", spaces)
+	}
 }
 
 func printCohortBreakdown(out io.Writer, title string, stats []db.CohortStat, totalArea float64, sys units.System) {
