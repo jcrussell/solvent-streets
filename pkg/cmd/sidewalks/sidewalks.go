@@ -2,18 +2,14 @@ package sidewalks
 
 import (
 	"github.com/jcrussell/solvent-streets/internal/resource"
-	"github.com/jcrussell/solvent-streets/pkg/cmd/compute"
-	"github.com/jcrussell/solvent-streets/pkg/cmd/ingest"
-	"github.com/jcrussell/solvent-streets/pkg/cmd/status"
+	"github.com/jcrussell/solvent-streets/pkg/cmd/resourcecmd"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 
 	"github.com/spf13/cobra"
 )
 
 func NewCmdSidewalks(f *cmdutil.Factory) *cobra.Command {
-	rt := &resource.Sidewalk{}
-
-	cmd := &cobra.Command{
+	return resourcecmd.New(f, &resource.Sidewalk{}, resourcecmd.Spec{
 		Use:   "sidewalks",
 		Short: "Manage sidewalk data",
 		Long:  "Ingest, compute, and view status for sidewalk features.",
@@ -25,11 +21,5 @@ func NewCmdSidewalks(f *cmdutil.Factory) *cobra.Command {
 
   # Show last-ingested / last-computed timestamps
   pvmt sidewalks status`,
-	}
-
-	cmd.AddCommand(ingest.NewCmdIngest(f, rt, nil))
-	cmd.AddCommand(compute.NewCmdCompute(f, rt, nil))
-	cmd.AddCommand(status.NewCmdStatus(f, rt, nil))
-
-	return cmd
+	})
 }
