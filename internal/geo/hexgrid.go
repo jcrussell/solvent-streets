@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"strconv"
 	"sync/atomic"
 
 	"github.com/peterstace/simplefeatures/geom"
@@ -196,24 +197,7 @@ func ComputeHexCoverageByGroup(ctx context.Context, hexes []Hex, geoms []geom.Ge
 	idx := NewGeomIndexFromGeoms(geoms)
 
 	perHex := ParallelMap(ctx, hexes, func(_ int, h Hex) []groupArea {
-		ids := idx.SearchIDs(h.Geom.Envelope())
-		if len(ids) == 0 {
-			return nil
-		}
-		byLabel := make(map[string][]geom.Geometry)
-		for _, id := range ids {
-			label := labels[id]
-			byLabel[label] = append(byLabel[label], idx.parts[id])
-		}
-		out := make([]groupArea, 0, len(byLabel))
-		for label, groupGeoms := range byLabel {
-			area, ok := hexCoverageArea(h.Geom, groupGeoms)
-			if !ok || area <= 0 {
-				continue
-			}
-			out = append(out, groupArea{label: label, area: area})
-		}
-		return out
+		return hexGroupAreas(h, idx, labels)
 	}, counter)
 
 	// Pre-seed every distinct input label at 0.0 so the key set equals "one key
@@ -231,6 +215,80 @@ func ComputeHexCoverageByGroup(ctx context.Context, hexes []Hex, geoms []geom.Ge
 		areas[ga.label] += ga.area
 	}
 	return areas
+}
+
+// hexGroupAreas is the per-hex body shared by ComputeHexCoverageByGroup and
+// ComputeHexWeightedShares: one R-tree search for h's candidates, grouped by
+// labels[id], each group clipped to h and unioned via hexCoverageArea. Returns
+// one entry per label with positive in-hex area; nil when nothing overlaps.
+func hexGroupAreas(h Hex, idx *GeomIndex, labels []string) []groupArea {
+	ids := idx.SearchIDs(h.Geom.Envelope())
+	if len(ids) == 0 {
+		return nil
+	}
+	byLabel := make(map[string][]geom.Geometry)
+	for _, id := range ids {
+		label := labels[id]
+		byLabel[label] = append(byLabel[label], idx.parts[id])
+	}
+	out := make([]groupArea, 0, len(byLabel))
+	for label, groupGeoms := range byLabel {
+		area, ok := hexCoverageArea(h.Geom, groupGeoms)
+		if !ok || area <= 0 {
+			continue
+		}
+		out = append(out, groupArea{label: label, area: area})
+	}
+	return out
+}
+
+// HexShare is one hex's apportioned share of per-feature weights, produced by
+// ComputeHexWeightedShares.
+type HexShare struct {
+	HexID string
+	Value float64
+}
+
+// ComputeHexWeightedShares apportions each geom's weight onto the hexes it
+// overlaps by area fraction: a hex receives Σᵢ weightsᵢ × Area(h ∩ geomᵢ) /
+// Area(geomᵢ) over the candidates touching it, so a feature's weight is split
+// across the hexes it straddles and sums back to the weight when the feature
+// lies within the grid. geoms and weights are parallel slices. It reuses the
+// per-hex clip primitive of ComputeHexCoverageByGroup with one label per geom.
+//
+// Unlike ComputeHexStats this does NOT union overlapping candidates — the
+// weight belongs to the feature, not to the paved surface — so two overlapping
+// lots, or a multipolygon relation and a separately tagged member way, both
+// contribute their full weight. Zero-area geoms contribute nothing. Hexes with
+// no overlapping candidate are omitted; hexes with a zero share are omitted
+// too. ctx cancellation stops dispatching further hexes and yields a partial
+// result, exactly like ComputeHexStats; callers guard with ctx.Err() before
+// persisting. A length mismatch between geoms and weights returns nil.
+func ComputeHexWeightedShares(ctx context.Context, hexes []Hex, geoms []geom.Geometry, weights []float64, counter *atomic.Int64) []HexShare {
+	if len(geoms) != len(weights) {
+		return nil
+	}
+	labels := make([]string, len(geoms))
+	totals := make([]float64, len(geoms))
+	for i, g := range geoms {
+		labels[i] = strconv.Itoa(i)
+		totals[i] = g.Area()
+	}
+	idx := NewGeomIndexFromGeoms(geoms)
+	return ParallelMap(ctx, hexes, func(_ int, h Hex) []HexShare {
+		var sum float64
+		for _, ga := range hexGroupAreas(h, idx, labels) {
+			i, err := strconv.Atoi(ga.label)
+			if err != nil || totals[i] <= 0 || weights[i] == 0 {
+				continue
+			}
+			sum += weights[i] * ga.area / totals[i]
+		}
+		if sum <= 0 {
+			return nil
+		}
+		return []HexShare{{HexID: h.ID, Value: sum}}
+	}, counter)
 }
 
 // hexCoverageArea returns the area covered by the candidate features within h.
