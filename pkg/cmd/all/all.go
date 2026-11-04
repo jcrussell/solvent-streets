@@ -9,6 +9,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/compute"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/ingest"
+	servicescmd "github.com/jcrussell/solvent-streets/pkg/cmd/services"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 
@@ -44,9 +45,16 @@ func newAllIngest(f *cmdutil.Factory) *cobra.Command {
   pvmt all ingest`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmdutil.ForEachCity(cmd.Context(), f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
-				return forEachResource(f.IOStreams, func(rt resource.Source) error {
+				err := forEachResource(f.IOStreams, func(rt resource.Source) error {
 					return ingest.RunResourceForCity(cmd.Context(), cf, rt)
 				})
+				if isCancel(err) {
+					return err
+				}
+				// Facility ingest rides along best-effort (see runServiceStep).
+				return joinServiceStep(err, runServiceStep(f.IOStreams, "ingest", func() error {
+					return servicescmd.RunIngestForCity(cmd.Context(), cf, servicescmd.DefaultService)
+				}))
 			})
 		},
 	}
@@ -118,10 +126,49 @@ func newAllCompute(f *cmdutil.Factory) *cobra.Command {
 					}
 					return errors.Join(resErr, err)
 				}
-				return resErr
+				// Service coverage rides along best-effort after the pavement
+				// passes, on the same shared grid (see runServiceStep).
+				return joinServiceStep(resErr, runServiceStep(f.IOStreams, "compute", func() error {
+					return servicescmd.RunComputeForCity(cmd.Context(), cf, servicescmd.DefaultService, grid)
+				}))
 			})
 		},
 	}
+}
+
+// isCancel reports a context cancellation or deadline, which must abort the
+// fan-out rather than be warned about.
+func isCancel(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+// runServiceStep runs a service (fire) step best-effort: cancellation is
+// returned as-is so the city aborts; ErrNoResults (no stations mapped — the
+// common case in a large config) is a silent skip exactly like an empty
+// pavement resource; any other failure is warned about and dropped so the
+// pavement outcome, exit code and combined pass are unchanged. The step is
+// optional output, so it never fails a run on its own.
+func runServiceStep(ios *iostreams.IOStreams, step string, fn func() error) error {
+	fmt.Fprintf(ios.ErrOut, "\n--- %s %s ---\n", servicescmd.DefaultService, step)
+	err := fn()
+	switch {
+	case err == nil, errors.Is(err, cmdutil.ErrNoResults):
+		return nil
+	case isCancel(err):
+		return err
+	default:
+		cmdutil.Warnf(ios, "%s %s failed: %v", servicescmd.DefaultService, step, err)
+		return nil
+	}
+}
+
+// joinServiceStep folds the service step's outcome into the pavement result:
+// a cancellation from the step wins, otherwise the pavement result stands.
+func joinServiceStep(resErr, svcErr error) error {
+	if isCancel(svcErr) {
+		return svcErr
+	}
+	return resErr
 }
 
 func forEachResource(ios *iostreams.IOStreams, fn func(resource.Source) error) error {

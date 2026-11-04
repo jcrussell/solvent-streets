@@ -255,7 +255,7 @@ func doCompute(ctx context.Context, out, progress, errOut io.Writer, notify tui.
 		return fmt.Errorf("database: %w", err)
 	}
 
-	boundaryGJSON, bbox, proj, err := loadBoundary(ctx, store, city)
+	boundaryGJSON, bbox, proj, err := LoadBoundary(ctx, store, city)
 	if err != nil {
 		return err
 	}
@@ -415,7 +415,12 @@ func filterBufferedByJurisdiction(bufs []resource.BufferedFeature, j filter.Juri
 	return out
 }
 
-func loadBoundary(ctx context.Context, store db.Store, city *config.CityConfig) (string, [4]float64, *geo.UTMProjector, error) {
+// LoadBoundary reads the city's stored boundary and derives its bbox and UTM
+// projector, warning about an oversized bbox or dropped sub-polygons. It is
+// the single source of the projection every per-city pass (coverage, the
+// combined pass, service routing) must share so their hex ids and metres
+// agree.
+func LoadBoundary(ctx context.Context, store db.Store, city *config.CityConfig) (string, [4]float64, *geo.UTMProjector, error) {
 	boundaryGJSON, err := store.GetBoundary(ctx)
 	if err != nil {
 		return "", [4]float64{}, nil, fmt.Errorf("get boundary: %w", err)

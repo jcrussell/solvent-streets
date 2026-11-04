@@ -330,11 +330,11 @@ func TestRunCompute_PrebuiltGridMatchesInline(t *testing.T) {
 
 	// Build the shared grid exactly as BuildCityGrid would for this city.
 	bstore := &dbtest.MockStore{GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil }}
-	boundaryGJSON, bbox, proj, err := loadBoundary(ctx, bstore, testCity)
+	boundaryGJSON, bbox, proj, err := LoadBoundary(ctx, bstore, testCity)
 	if err != nil {
-		t.Fatalf("loadBoundary: %v", err)
+		t.Fatalf("LoadBoundary: %v", err)
 	}
-	grid := buildClippedHexGrid(ctx, testCfg, testCity, proj, bbox, boundaryGJSON, io.Discard)
+	grid := BuildClippedHexGrid(ctx, testCfg, testCity, proj, bbox, boundaryGJSON, io.Discard)
 	if len(grid) == 0 {
 		t.Fatal("shared grid is empty; fixture would not exercise the comparison")
 	}

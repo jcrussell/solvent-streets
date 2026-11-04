@@ -47,7 +47,7 @@ func RunCombined(ctx context.Context, f *cmdutil.Factory, grid []geo.Hex) (retEr
 	}
 	ios := f.IOStreams
 
-	boundaryGJSON, bbox, proj, err := loadBoundary(ctx, store, city)
+	boundaryGJSON, bbox, proj, err := LoadBoundary(ctx, store, city)
 	if err != nil {
 		return err
 	}
@@ -62,7 +62,7 @@ func RunCombined(ctx context.Context, f *cmdutil.Factory, grid []geo.Hex) (retEr
 	// build one here when called standalone (grid == nil).
 	hexes := grid
 	if hexes == nil {
-		hexes = buildClippedHexGrid(ctx, cfg, city, proj, bbox, boundaryGJSON, ios.ErrOut)
+		hexes = BuildClippedHexGrid(ctx, cfg, city, proj, bbox, boundaryGJSON, ios.ErrOut)
 	}
 	cr := &combinedRunner{
 		store:      store,
@@ -201,14 +201,17 @@ func BuildCityGrid(ctx context.Context, f *cmdutil.Factory) ([]geo.Hex, error) {
 	if err != nil {
 		return nil, fmt.Errorf("database: %w", err)
 	}
-	boundaryGJSON, bbox, proj, err := loadBoundary(ctx, store, city)
+	boundaryGJSON, bbox, proj, err := LoadBoundary(ctx, store, city)
 	if err != nil {
 		return nil, err
 	}
-	return buildClippedHexGrid(ctx, cfg, city, proj, bbox, boundaryGJSON, f.IOStreams.ErrOut), nil
+	return BuildClippedHexGrid(ctx, cfg, city, proj, bbox, boundaryGJSON, f.IOStreams.ErrOut), nil
 }
 
-func buildClippedHexGrid(ctx context.Context, cfg *config.Config, city *config.CityConfig, proj *geo.UTMProjector, bbox [4]float64, boundaryGJSON string, errOut io.Writer) []geo.Hex {
+// BuildClippedHexGrid generates the city's hex lattice over bbox and clips it
+// to the boundary — the grid every per-city pass shares (see BuildCityGrid,
+// which loads the boundary first).
+func BuildClippedHexGrid(ctx context.Context, cfg *config.Config, city *config.CityConfig, proj *geo.UTMProjector, bbox [4]float64, boundaryGJSON string, errOut io.Writer) []geo.Hex {
 	hexEdge := cfg.ResolvedHexEdge(city)
 	minX, minY, maxX, maxY := geo.ProjectedBBoxExtent(proj, bbox)
 	hexes := geo.HexGrid(minX, minY, maxX, maxY, hexEdge)

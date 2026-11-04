@@ -187,11 +187,14 @@ func TestAllIngest_InProcessFanOut(t *testing.T) {
 	if strings.Contains(errBuf.String(), "failed:") {
 		t.Errorf("a resource failed and was warn-swallowed; want every resource to reach ErrNoResults cleanly.\nstderr:\n%s", errBuf.String())
 	}
-	if boundaryCalls != len(resource.All) {
-		t.Errorf("ingested %d resources, want %d — the fan-out must visit every resource", boundaryCalls, len(resource.All))
+	// Every pavement resource plus the best-effort fire-facility ingest that
+	// rides along after them (runServiceStep).
+	wantRuns := len(resource.All) + 1
+	if boundaryCalls != wantRuns {
+		t.Errorf("ingested %d resources, want %d — the fan-out must visit every resource and the facility step", boundaryCalls, wantRuns)
 	}
-	if ctxSeen != len(resource.All) {
-		t.Errorf("request context reached %d of %d ingest runs; a cancellable ctx must propagate to each", ctxSeen, len(resource.All))
+	if ctxSeen != wantRuns {
+		t.Errorf("request context reached %d of %d ingest runs; a cancellable ctx must propagate to each", ctxSeen, wantRuns)
 	}
 }
 
