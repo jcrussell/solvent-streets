@@ -133,6 +133,12 @@
             background: linear-gradient(90deg, var(--legend-1) 0%, var(--legend-2) 10%, var(--legend-3) 25%, var(--legend-4) 50%, var(--legend-5) 75%, var(--legend-6) 100%);
         }
         #legend .legend-labels { display: flex; justify-content: space-between; margin-top: 2px; color: var(--text-muted); }
+        #legend .legend-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+        #legend .legend-row .legend-title { margin-bottom: 0; }
+        #legend select { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; font-size: 12px; cursor: pointer; }
+        /* A metric legend paints discrete bands; the bar background is set by
+           renderLegend to hard colour stops. */
+        #legend .legend-bar.discrete { border: 1px solid var(--border); }
 
         /* Hex tooltip */
         #hex-tooltip {
@@ -707,7 +713,15 @@
             <div id="stats"></div>
         </div>
         <div id="legend">
-            <div class="legend-title">Coverage %</div>
+            <!-- "Color by": coverage, plus one entry per per-hex metric the city's
+                 hex-metrics.json carries (app.js populates #hex-metric and redraws
+                 the bar + labels from the metric's scale via renderLegend). -->
+            <div class="legend-row">
+                <label class="legend-title" for="hex-metric">Color by</label>
+                <select id="hex-metric" aria-label="Color hexes by" autocomplete="off">
+                    <option value="coverage">Coverage %</option>
+                </select>
+            </div>
             <div class="legend-bar"></div>
             <div class="legend-labels">
                 <span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span>

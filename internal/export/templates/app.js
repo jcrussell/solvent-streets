@@ -62,6 +62,7 @@
                     tags:     PvmtSelectors.parseTags(p, TAG_DIMS),
                     scope:    p.get('scope'),
                     snapshot: p.get('snapshot'),
+                    metric:   p.get('metric'),
                 };
             },
             current() {
@@ -74,18 +75,24 @@
                 const scopeVis = scopeRow && !scopeRow.hidden;
                 const snapEl   = selectById('snapshot-picker');
                 const sel      = selectById('city-select');
+                // The "Color by" metric lives on the Map tab; serializing it
+                // elsewhere would pin ?metric= to a tab where it does nothing
+                // (the same rule scope follows). Coverage is the default and is
+                // left out of the URL.
+                const onMap = tabBtn && tabBtn.dataset.tab === 'map-tab';
                 return {
                     city:     sel ? sel.value : null,
                     tab:      tabBtn ? tabBtn.dataset.tab : null,
                     tags:     PvmtSelectors.readFilters(),
                     scope:    (scopeVis && scopeBtn) ? scopeBtn.dataset.scope : null,
                     snapshot: snapEl ? snapEl.value : null,
+                    metric:   (onMap && hexMetric !== 'coverage') ? hexMetric : null,
                 };
             },
             // url serializes a state object to this page's path + query string.
             url(s) {
                 const p = new URLSearchParams();
-                for (const k of ['city', 'tab', 'scope', 'snapshot']) {
+                for (const k of ['city', 'tab', 'scope', 'snapshot', 'metric']) {
                     if (s[k]) p.set(k, s[k]);
                 }
                 PvmtSelectors.urlTags(s.tags, TAG_DIMS).forEach(t => p.append('tag', t));
@@ -133,6 +140,14 @@
         var materialsCharts = [];
         var materialsLoadGen = 0;
         var allCityDataPromise = null;
+        // "Color by" state. hexMetric is 'coverage' or a key of hexMetrics
+        // (the current city's hex-metrics.json metrics map, loaded per city).
+        // Declared here (like the tab guards) so a ?metric= deep link survives
+        // the init IIFE and the per-city load can honour it once the file is in.
+        var hexMetric = 'coverage';
+        /** @type {Record<string, any>} */
+        var hexMetrics = {};
+
         // Active tag filters: {dimension: configTag}, empty means all cities.
         // They narrow the city selector on every tab and scope Compare /
         // Aggregate. Declared here (alongside the other tab guards) so a deep
@@ -199,6 +214,9 @@
                 queryAll('#scope-toggle button').forEach(b =>
                     b.classList.toggle('active', b.dataset.scope === currentScope));
             }
+            // The metric list arrives with the city's data; keep the requested
+            // key and let loadCityData fall back to coverage if it is absent.
+            if (init.metric) hexMetric = init.metric;
             Router.replace();
         })();
 
@@ -256,6 +274,8 @@
             if (!cityChanged && !snapshotChanged) {
                 selectScope(currentScope, { push: false });
             }
+            const targetMetric = s.metric || 'coverage';
+            if (targetMetric !== hexMetric) selectHexMetric(targetMetric, { push: false });
         });
 
         // dataURL builds a /data/{file} request URL, appending ?snapshot=<id>
@@ -522,14 +542,26 @@
                 }
             }
 
+            // The active per-hex metric (hex-metrics.json), when one is chosen:
+            // its value and, for a coverage metric, the referenced point's name
+            // ride on the feature so the paint expression and tooltip read them.
+            const metric = hexMetric !== 'coverage' ? hexMetrics[hexMetric] : null;
             const features = [];
             for (const [hid, data] of Object.entries(byHex)) {
+                /** @type {Record<string, any>} */
+                const extra = {};
+                if (metric && metric.values && metric.values[hid] != null) {
+                    extra.metric_v = metric.values[hid];
+                    const refIdx = metric.refs ? metric.refs[hid] : undefined;
+                    if (refIdx != null && metric.points && metric.points[refIdx]) extra.metric_ref = metric.points[refIdx].name || metric.points[refIdx].id;
+                }
                 features.push({
                     type: 'Feature',
                     geometry: data.geometry,
                     properties: {
                         hex_id: hid,
                         spaces: data.spaces,
+                        ...extra,
                         area: data.area,
                         pct_covered: Math.min(data.pct_covered, 100),
                         est_cost: data.est_cost
@@ -578,6 +610,18 @@
                     (s.estimated_spaces > 0 ? '<div class="stat-row"><span class="stat-label">Est. Spaces</span><span class="stat-value">' + s.estimated_spaces.toLocaleString() + '</span></div>' : '') +
                     '</div>';
             });
+            // One card per per-hex metric (meta.metrics, summarised over the
+            // painted hexes so it describes what the map shows).
+            Object.keys(meta.metrics || {}).sort().forEach(key => {
+                const s = meta.metrics[key];
+                statsHTML +=
+                    '<div class="stat-card"><h3>' + esc(s.label) + '</h3>' +
+                    '<div class="stat-row"><span class="stat-label">Hexes reached</span><span class="stat-value">' + (s.hexes || 0).toLocaleString() + '</span></div>' +
+                    '<div class="stat-row"><span class="stat-label">Median</span><span class="stat-value">' + fmtMetric(s.median, s.format) + '</span></div>' +
+                    '<div class="stat-row"><span class="stat-label">Range</span><span class="stat-value">' + fmtMetric(s.min, s.format) + ' – ' + fmtMetric(s.max, s.format) + '</span></div>' +
+                    (s.points > 0 ? '<div class="stat-row"><span class="stat-label">Points of service</span><span class="stat-value">' + s.points + '</span></div>' : '') +
+                    '</div>';
+            });
             statsEl.innerHTML = statsHTML;
             savedPanelHTML = statsHTML;
         }
@@ -586,15 +630,16 @@
             const gen = ++cityLoadGen; // bail stale loads after each await
             const prefix = DATA_PREFIX; // snapshot to avoid mid-await mutation
             // Remove existing layers and sources
-            ['hex-outline', 'hex-fill', 'boundary-line'].concat(Object.keys(layerColors).map(t => t + '-fill')).forEach(id => {
+            ['hex-outline', 'hex-fill', 'boundary-line', 'metric-points'].concat(Object.keys(layerColors).map(t => t + '-fill')).forEach(id => {
                 if (map.getLayer(id)) map.removeLayer(id);
             });
-            ['hexgrid', 'boundary'].concat(Object.keys(layerColors)).forEach(id => {
+            ['hexgrid', 'boundary', 'metric-points'].concat(Object.keys(layerColors)).forEach(id => {
                 if (map.getSource(id)) map.removeSource(id);
             });
             hexDataByScope = { city: {}, bbox: {} };
             costSummaryByScope = { city: {}, bbox: {} };
             activeTypes = new Set(Object.keys(layerColors));
+            hexMetrics = {};
 
             // Reload meta.json for stats panel
             {
@@ -609,6 +654,18 @@
                     lastCityMeta = meta;
                     renderCityStats(meta);
                 }
+            }
+
+            // Per-hex metrics (optional file: absent until `pvmt services compute`
+            // has run for the city). Refuse an unknown version like hexgrid does;
+            // fall back to coverage when the requested metric is not present.
+            {
+                const hm = await loadJSON(dataURL(prefix, 'hex-metrics.json'), { silent404: true });
+                if (gen !== cityLoadGen) return;
+                if (hm && hm.v === 1 && hm.metrics) hexMetrics = hm.metrics;
+                if (hexMetric !== 'coverage' && !hexMetrics[hexMetric]) hexMetric = 'coverage';
+                populateMetricSelect();
+                renderLegend();
             }
 
             // Load and render boundary polygon
@@ -758,6 +815,7 @@
                                 paint: { 'line-color': '#333', 'line-width': 0.5, 'line-opacity': 0.3 }
                             });
                         }
+                        updateMetricPoints();
                         toggles += '<label><input type="checkbox" checked data-layers="hex-fill,hex-outline"><span class="legend-gradient" style="background:linear-gradient(90deg,var(--legend-2),var(--legend-6))"></span>hex grid</label>';
                         // Hover/click handlers for the hex-fill layer are registered
                         // ONCE at startup (registerHexHandlers), not here. MapLibre
@@ -814,7 +872,8 @@
                         '<strong>Coverage:</strong> ' + (p.pct_covered != null ? Math.round(p.pct_covered) : 0) + '%<br>' +
                         '<strong>Area:</strong> ' + fmtArea(p.area || 0) + '<br>' +
                         '<strong>Est. Annual Cost:</strong> ' + fmtCost(p.est_cost || 0) +
-                        (p.spaces > 0 ? '<br><strong>Est. Parking Spaces:</strong> ' + Math.round(p.spaces).toLocaleString() : '');
+                        (p.spaces > 0 ? '<br><strong>Est. Parking Spaces:</strong> ' + Math.round(p.spaces).toLocaleString() : '') +
+                        metricTooltipLine(p);
                     tooltip.style.display = 'block';
                     tooltip.style.left = (e.point.x + 12) + 'px';
                     tooltip.style.top = (e.point.y - 12) + 'px';
@@ -877,20 +936,151 @@
         }
         registerHexHandlers();
 
-        // Coverage heatmap colors are read from the --legend-* CSS vars (which
-        // differ per theme) at the same breakpoints as the #legend bar, so the
-        // map and its legend always agree. Rebuilt on theme toggle.
+        // Heatmap colors are read from CSS vars (which differ per theme) at the
+        // same breakpoints as the #legend bar, so the map and its legend always
+        // agree. Rebuilt on theme toggle. Coverage interpolates the blue
+        // --legend-* ramp; a per-hex metric paints one discrete band colour per
+        // scale band from --metric-seq-*/--metric-div-*, and a hex with no value
+        // gets --metric-none (a bare `step` on a missing property would be an
+        // expression error).
+        function cssVar(name) {
+            return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+        }
+        /** @param {{kind?: string, bands?: number[]}} scale */
+        function metricBandColors(scale) {
+            const bands = (scale && scale.bands) || [];
+            const family = scale && scale.kind === 'diverging' ? '--metric-div-' : '--metric-seq-';
+            const n = bands.length + 1;
+            const colors = [];
+            for (let i = 0; i < n; i++) {
+                // Spread n bands over the 6 ramp stops.
+                const stop = n === 1 ? 6 : 1 + Math.round(i * 5 / (n - 1));
+                colors.push(cssVar(family + stop));
+            }
+            return colors;
+        }
         function hexFillColor() {
-            const cs = getComputedStyle(document.documentElement);
-            const lg = n => cs.getPropertyValue('--legend-' + n).trim();
-            return ['interpolate', ['linear'], ['get', 'pct_covered'],
-                0, lg(1), 10, lg(2), 25, lg(3), 50, lg(4), 75, lg(5), 100, lg(6)];
+            const metric = hexMetric !== 'coverage' ? hexMetrics[hexMetric] : null;
+            if (!metric) {
+                const lg = n => cssVar('--legend-' + n);
+                return ['interpolate', ['linear'], ['get', 'pct_covered'],
+                    0, lg(1), 10, lg(2), 25, lg(3), 50, lg(4), 75, lg(5), 100, lg(6)];
+            }
+            const bands = (metric.scale && metric.scale.bands) || [];
+            const colors = metricBandColors(metric.scale);
+            /** @type {any[]} */
+            const step = ['step', ['get', 'metric_v'], colors[0]];
+            bands.forEach((edge, i) => { step.push(edge, colors[i + 1]); });
+            return ['case', ['has', 'metric_v'], step, cssVar('--metric-none')];
         }
         document.addEventListener('pvmt:themechange', () => {
             if (map.getLayer('hex-fill')) {
                 map.setPaintProperty('hex-fill', 'fill-color', hexFillColor());
             }
+            renderLegend();
         });
+
+        // fmtMetric renders a per-hex metric value per its registry format
+        // (hexmetric.Format*): minutes shows m:ss from seconds.
+        function fmtMetric(v, format) {
+            if (v == null || !Number.isFinite(v)) return '—';
+            switch (format) {
+                case 'minutes': {
+                    const m = Math.floor(v / 60), s = Math.round(v % 60);
+                    return m + ':' + (s < 10 ? '0' : '') + s;
+                }
+                case 'float1': return v.toFixed(1);
+                case 'usd': return fmtCost(v);
+                default: return Math.round(v).toLocaleString();
+            }
+        }
+
+        // metricTooltipLine is the tooltip's extra line for the active metric.
+        function metricTooltipLine(p) {
+            const metric = hexMetric !== 'coverage' ? hexMetrics[hexMetric] : null;
+            if (!metric || p.metric_v == null) return '';
+            return '<br><strong>' + esc(metric.label) + ':</strong> ' + fmtMetric(p.metric_v, metric.format) +
+                (p.metric_ref ? ' · ' + esc(String(p.metric_ref)) : '');
+        }
+
+        // populateMetricSelect lists Coverage % plus every metric the city has.
+        function populateMetricSelect() {
+            const sel = selectById('hex-metric');
+            if (!sel) return;
+            sel.innerHTML = '<option value="coverage">Coverage %</option>';
+            Object.keys(hexMetrics).sort().forEach(key => {
+                const o = document.createElement('option');
+                o.value = key;
+                o.textContent = hexMetrics[key].label || key;
+                sel.appendChild(o);
+            });
+            sel.value = hexMetric;
+            sel.hidden = Object.keys(hexMetrics).length === 0;
+            const row = sel.closest('.legend-row');
+            if (row) row.querySelector('label').textContent = sel.hidden ? 'Coverage %' : 'Color by';
+        }
+
+        // renderLegend redraws the legend bar + labels for the active metric:
+        // the continuous coverage ramp, or one hard-stop band per scale edge
+        // with the edges as labels ("≤ 5:20", …, "> 11:20").
+        function renderLegend() {
+            const bar = queryEl('#legend .legend-bar');
+            const labels = queryEl('#legend .legend-labels');
+            if (!bar || !labels) return;
+            const metric = hexMetric !== 'coverage' ? hexMetrics[hexMetric] : null;
+            if (!metric) {
+                bar.classList.remove('discrete');
+                bar.style.background = '';
+                labels.innerHTML = '<span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span>';
+                return;
+            }
+            const bands = (metric.scale && metric.scale.bands) || [];
+            const colors = metricBandColors(metric.scale);
+            const n = colors.length;
+            const stops = colors.map((c, i) => c + ' ' + (i * 100 / n) + '% ' + ((i + 1) * 100 / n) + '%');
+            bar.classList.add('discrete');
+            bar.style.background = 'linear-gradient(90deg, ' + stops.join(', ') + ')';
+            const parts = bands.map((b, i) => (i === 0 ? '≤ ' : '') + fmtMetric(b, metric.format));
+            if (bands.length > 0) parts.push('> ' + fmtMetric(bands[bands.length - 1], metric.format));
+            labels.innerHTML = parts.map(t => '<span>' + esc(t) + '</span>').join('');
+        }
+
+        // updateMetricPoints shows the active metric's points of service
+        // (stations) as circles, or removes the layer for coverage.
+        function updateMetricPoints() {
+            const metric = hexMetric !== 'coverage' ? hexMetrics[hexMetric] : null;
+            const points = metric && metric.points ? metric.points : [];
+            if (map.getLayer('metric-points')) map.removeLayer('metric-points');
+            if (map.getSource('metric-points')) map.removeSource('metric-points');
+            if (points.length === 0) return;
+            map.addSource('metric-points', { type: 'geojson', data: {
+                type: 'FeatureCollection',
+                features: points.map(pt => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [pt.lon, pt.lat] }, properties: { name: pt.name || pt.id, source: pt.source } })),
+            } });
+            map.addLayer({
+                id: 'metric-points', type: 'circle', source: 'metric-points',
+                paint: { 'circle-radius': 6, 'circle-color': cssVar('--metric-seq-6') || '#b2182b', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 },
+            });
+        }
+
+        // selectHexMetric switches "Color by": repaints the hex layer from the
+        // same blended source, redraws the legend and the points layer, and
+        // records the choice in the URL (counterpart of selectCity/selectScope).
+        function selectHexMetric(key, opts) {
+            hexMetric = (key && key !== 'coverage' && hexMetrics[key]) ? key : 'coverage';
+            const sel = selectById('hex-metric');
+            if (sel) sel.value = hexMetric;
+            const src = map.getSource('hexgrid');
+            if (src) src.setData(buildBlendedHexFC());
+            if (map.getLayer('hex-fill')) map.setPaintProperty('hex-fill', 'fill-color', hexFillColor());
+            renderLegend();
+            updateMetricPoints();
+            if (!opts || opts.push !== false) Router.push();
+        }
+        {
+            const metricSel = selectById('hex-metric');
+            if (metricSel) metricSel.addEventListener('change', () => selectHexMetric(metricSel.value));
+        }
 
         // --- Drag-to-select region -> aggregate totals ---------------------
         // Lets the user drag a rectangle on the map and see aggregate totals
