@@ -522,3 +522,79 @@ func TestFetch_OversizedBodySplitsQuadrants(t *testing.T) {
 		t.Errorf("got %d features, want 4 (one per quadrant)", len(features))
 	}
 }
+
+// TestParseOverpassResponse_FacilityPoints: for a facility resource type every
+// tagged element becomes a Point — a node at its position, a closed way at its
+// vertex centroid (closing vertex not double-counted), a multipolygon relation
+// at its outer ring's centroid — while untagged nodes (member geometry) are
+// skipped. Names fall back to the amenity tag.
+func TestParseOverpassResponse_FacilityPoints(t *testing.T) {
+	data := `{
+		"elements": [
+			{"type": "node", "id": 1, "lat": 37.68, "lon": -121.77, "tags": {"amenity": "fire_station", "name": "Station 1"}},
+			{"type": "node", "id": 2, "lat": 37.0, "lon": -121.0},
+			{"type": "way", "id": 3, "tags": {"amenity": "fire_station"},
+			 "geometry": [{"lat": 37.0, "lon": -122.0}, {"lat": 37.0, "lon": -122.2}, {"lat": 37.2, "lon": -122.2}, {"lat": 37.2, "lon": -122.0}, {"lat": 37.0, "lon": -122.0}]},
+			{"type": "relation", "id": 4, "tags": {"type": "multipolygon", "amenity": "fire_station", "name": "HQ"},
+			 "members": [{"type": "way", "ref": 40, "role": "outer",
+			   "geometry": [{"lat": 38.0, "lon": -120.0}, {"lat": 38.0, "lon": -120.2}, {"lat": 38.2, "lon": -120.2}, {"lat": 38.2, "lon": -120.0}, {"lat": 38.0, "lon": -120.0}]}]}
+		]
+	}`
+	ft := resource.FacilityType("fire")
+	features, err := parseOverpassResponse(context.Background(), []byte(data), ft)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(features) != 3 {
+		t.Fatalf("expected 3 facility points (untagged node skipped), got %d: %+v", len(features), features)
+	}
+	type pt struct {
+		Type        string
+		Coordinates [2]float64
+	}
+	want := map[string]struct {
+		name string
+		c    [2]float64
+	}{
+		"osm:node:1":     {"Station 1", [2]float64{-121.77, 37.68}},
+		"osm:way:3":      {"fire_station", [2]float64{-122.1, 37.1}},
+		"osm:relation:4": {"HQ", [2]float64{-120.1, 38.1}},
+	}
+	for _, f := range features {
+		w, ok := want[f.ID]
+		if !ok {
+			t.Errorf("unexpected feature %s", f.ID)
+			continue
+		}
+		if f.ResourceType != ft || f.Name != w.name {
+			t.Errorf("%s: type/name = %s/%q, want %s/%q", f.ID, f.ResourceType, f.Name, ft, w.name)
+		}
+		var p pt
+		if err := json.Unmarshal([]byte(f.GeometryJSON), &p); err != nil {
+			t.Fatalf("%s: %v", f.ID, err)
+		}
+		if p.Type != "Point" || abs(p.Coordinates[0]-w.c[0]) > 1e-6 || abs(p.Coordinates[1]-w.c[1]) > 1e-6 {
+			t.Errorf("%s: geometry = %+v, want Point at %v", f.ID, p, w.c)
+		}
+	}
+}
+
+// TestParseOverpassResponse_NodesIgnoredForRoads: pavement types keep their
+// way/relation handling and never turn a tagged node into a feature.
+func TestParseOverpassResponse_NodesIgnoredForRoads(t *testing.T) {
+	data := `{"elements": [{"type": "node", "id": 1, "lat": 37.68, "lon": -121.77, "tags": {"highway": "crossing"}}]}`
+	features, err := parseOverpassResponse(context.Background(), []byte(data), testResourceRoads)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(features) != 0 {
+		t.Errorf("roads must not emit node features, got %+v", features)
+	}
+}
+
+func abs(v float64) float64 {
+	if v < 0 {
+		return -v
+	}
+	return v
+}

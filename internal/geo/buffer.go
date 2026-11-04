@@ -298,9 +298,33 @@ func GeoJSONToProjectedGeometryDropped(gjson string, proj Projector) (geom.Geome
 		}
 		return g, obj.Type, dropped, nil
 
+	case "Point":
+		var c [2]float64
+		if err := json.Unmarshal(obj.Coordinates, &c); err != nil {
+			return geom.Geometry{}, "", 0, err
+		}
+		return projectedPoint(c, proj).AsGeometry(), obj.Type, 0, nil
+
+	case "MultiPoint":
+		var cs [][2]float64
+		if err := json.Unmarshal(obj.Coordinates, &cs); err != nil {
+			return geom.Geometry{}, "", 0, err
+		}
+		pts := make([]geom.Point, len(cs))
+		for i, c := range cs {
+			pts[i] = projectedPoint(c, proj)
+		}
+		return geom.NewMultiPoint(pts).AsGeometry(), obj.Type, 0, nil
+
 	default:
 		return geom.Geometry{}, obj.Type, 0, fmt.Errorf("unsupported geometry type: %s", obj.Type)
 	}
+}
+
+// projectedPoint projects one lon/lat pair to a simplefeatures Point.
+func projectedPoint(c [2]float64, proj Projector) geom.Point {
+	x, y := proj.ToProjected(c[0], c[1])
+	return geom.NewPoint(geom.Coordinates{XY: geom.XY{X: x, Y: y}})
 }
 
 func buildProjectedLineString(coordsRaw json.RawMessage, proj Projector) (geom.Geometry, error) {

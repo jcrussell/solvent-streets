@@ -23,9 +23,11 @@ const (
 	geomLineString   = "LineString"
 	geomPolygon      = "Polygon"
 	geomMultiPolygon = "MultiPolygon"
+	geomPoint        = "Point"
 )
 
 const (
+	elementNode     = "node"
 	elementWay      = "way"
 	elementRelation = "relation"
 )
@@ -212,6 +214,14 @@ func parseOverpassResponse(ctx context.Context, data []byte, resourceType resour
 		}
 	}
 
+	// Facility types (resource.FacilityType) collapse every match — tagged
+	// node, closed way, multipolygon relation — to a single Point feature:
+	// a fire station is a point of service, not a surface. Pavement types
+	// keep their line/polygon handling below and never see nodes.
+	if resourceType.IsFacility() {
+		return parseFacilityElements(ctx, resp.Elements, nodes, resourceType), nil
+	}
+
 	var features []db.Feature
 	for _, e := range resp.Elements {
 		switch e.Type {
@@ -295,6 +305,86 @@ func buildFeatureFromRelation(ctx context.Context, e overpassElement, resourceTy
 		SourceAPI:    "overpass",
 		FetchedAt:    time.Now(),
 	}, true
+}
+
+// parseFacilityElements turns each tagged element into a Point feature: a
+// node at its own position, a way or relation at the vertex centroid of its
+// (first outer) ring. Untagged nodes are the geometry of other elements, not
+// facilities, and are skipped.
+func parseFacilityElements(ctx context.Context, elements []overpassElement, nodes map[int64][2]float64, resourceType resource.Type) []db.Feature {
+	var features []db.Feature
+	for _, e := range elements {
+		c, ok := vertexCentroid(facilityCoords(ctx, e, nodes))
+		if !ok {
+			continue
+		}
+		name := e.Tags["name"]
+		if name == "" {
+			name = e.Tags["amenity"]
+		}
+		features = append(features, db.Feature{
+			ID:           fmt.Sprintf("osm:%s:%d", e.Type, e.ID),
+			ResourceType: resourceType,
+			Name:         name,
+			Tags:         e.Tags,
+			GeometryJSON: coordToPointGeoJSON(c),
+			SourceAPI:    "overpass",
+			FetchedAt:    time.Now(),
+		})
+	}
+	return features
+}
+
+// facilityCoords returns the vertices a facility element's location is taken
+// from: the node itself (only when tagged — untagged nodes are other
+// elements' geometry), a way's vertices, or a relation's first outer ring,
+// falling back to every member vertex when no ring closes so a broken
+// multipolygon still yields a usable location.
+func facilityCoords(ctx context.Context, e overpassElement, nodes map[int64][2]float64) [][2]float64 {
+	switch e.Type {
+	case elementNode:
+		if len(e.Tags) == 0 {
+			return nil
+		}
+		return [][2]float64{{e.Lon, e.Lat}}
+	case elementWay:
+		return resolveWayCoords(e, nodes)
+	case elementRelation:
+		if polys := relationToPolygons(ctx, e, stitchRings, nil); len(polys) > 0 {
+			return polys[0].outer
+		}
+		var coords [][2]float64
+		for _, m := range e.Members {
+			for _, g := range m.Geometry {
+				coords = append(coords, [2]float64{g.Lon, g.Lat})
+			}
+		}
+		return coords
+	}
+	return nil
+}
+
+// vertexCentroid is the mean of the vertices, dropping a closing duplicate.
+// Good enough to place a building-sized footprint; not an area centroid.
+func vertexCentroid(coords [][2]float64) ([2]float64, bool) {
+	if len(coords) == 0 {
+		return [2]float64{}, false
+	}
+	if len(coords) > 1 && coords[0] == coords[len(coords)-1] {
+		coords = coords[:len(coords)-1]
+	}
+	var sx, sy float64
+	for _, c := range coords {
+		sx += c[0]
+		sy += c[1]
+	}
+	n := float64(len(coords))
+	return [2]float64{sx / n, sy / n}, true
+}
+
+func coordToPointGeoJSON(c [2]float64) string {
+	return fmt.Sprintf(`{"type":"%s","coordinates":[%s,%s]}`, geomPoint,
+		strconv.FormatFloat(c[0], 'f', 7, 64), strconv.FormatFloat(c[1], 'f', 7, 64))
 }
 
 func resolveWayCoords(e overpassElement, nodes map[int64][2]float64) [][2]float64 {
