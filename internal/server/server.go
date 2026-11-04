@@ -96,6 +96,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	// Application JS extracted from the templates (shared)
 	mux.HandleFunc("GET /app.js", s.handleAppJS)
 	mux.HandleFunc("GET /game.js", s.handleGameJS)
+	mux.HandleFunc("GET /selectors.js", s.handleSelectorsJS)
 
 	handler := recoveryMiddleware(nosniffMiddleware(mux), s.ios.ErrOut)
 

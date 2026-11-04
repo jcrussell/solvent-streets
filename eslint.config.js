@@ -18,6 +18,9 @@ export default [
         maplibregl: 'readonly',
         Chart: 'readonly',
         Go: 'readonly',
+        // Loaded before app.js/game.js: the shared selector namespace from
+        // selectors.js (which assigns it on window rather than declaring it).
+        PvmtSelectors: 'readonly',
       },
     },
     rules: {

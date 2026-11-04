@@ -19,6 +19,7 @@ import { JSDOM } from 'jsdom';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const APP_JS = join(HERE, '..', 'app.js');
+const SELECTORS_JS = join(HERE, '..', 'selectors.js');
 
 export function fixtureDir() {
   const dir = process.env.PVMT_FIXTURE_DIR;
@@ -198,9 +199,12 @@ export function load({ data = {}, simulate = defaultSimulate, url = 'https://exa
   // wasmReady, ...) would be created there and discarded, leaving them
   // invisible to `get` below. Appending a <script> puts those bindings in the
   // window's global lexical environment, where they belong.
-  const el = win.document.createElement('script');
-  el.textContent = readFileSync(APP_JS, 'utf8');
-  win.document.body.appendChild(el);
+  // selectors.js first, exactly as the page's <script src> order has it.
+  for (const path of [SELECTORS_JS, APP_JS]) {
+    const el = win.document.createElement('script');
+    el.textContent = readFileSync(path, 'utf8');
+    win.document.body.appendChild(el);
+  }
 
   return {
     dom,

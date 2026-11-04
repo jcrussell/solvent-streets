@@ -333,6 +333,12 @@ func (s *Server) handleGameJS(w http.ResponseWriter, _ *http.Request) {
 	s.serveEmbeddedJS(w, export.GameJS())
 }
 
+// handleSelectorsJS serves the selector logic both pages load before their
+// page script.
+func (s *Server) handleSelectorsJS(w http.ResponseWriter, _ *http.Request) {
+	s.serveEmbeddedJS(w, export.SelectorsJS())
+}
+
 func (s *Server) handleForecastWasm(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/wasm")
 	// Embedded, immutable-per-binary asset (the largest the server serves):

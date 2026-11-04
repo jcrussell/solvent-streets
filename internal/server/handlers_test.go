@@ -1349,6 +1349,7 @@ func TestWasmAssets_CacheControl(t *testing.T) {
 		{"wasm_exec.js", srv.handleWasmExecJS, "application/javascript", true},
 		{"app.js", srv.handleAppJS, "application/javascript", true},
 		{"game.js", srv.handleGameJS, "application/javascript", true},
+		{"selectors.js", srv.handleSelectorsJS, "application/javascript", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

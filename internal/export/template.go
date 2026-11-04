@@ -67,6 +67,12 @@ var appJS []byte
 //go:embed templates/game.js
 var gameJS []byte
 
+// selectors.js is the selector logic both pages share (tag filters + the
+// client-side city-select rebuild); it is loaded before app.js/game.js.
+//
+//go:embed templates/selectors.js
+var selectorsJS []byte
+
 // TemplateFS returns the embedded template filesystem for use by the server.
 func TemplateFS() fs.ReadFileFS {
 	return templatesFS
@@ -86,8 +92,12 @@ func AppJS() []byte { return appJS }
 // referenced by play.html as an external <script src>.
 func GameJS() []byte { return gameJS }
 
+// SelectorsJS returns the embedded shared selector JavaScript
+// (templates/selectors.js), loaded by both pages before their page script.
+func SelectorsJS() []byte { return selectorsJS }
+
 // WriteSharedWasmAssets writes the embedded shared browser assets — pvmt.wasm,
-// wasm_exec.js, and the extracted app.js/game.js — to dir. Use this when writing
+// wasm_exec.js, the extracted app.js/game.js and the shared selectors.js — to dir. Use this when writing
 // a single shared copy at a site root instead of per-export copies. The pages
 // reference these via {{.WasmPrefix}}, so they must all land in the same dir.
 func WriteSharedWasmAssets(dir string) error {
@@ -102,6 +112,9 @@ func WriteSharedWasmAssets(dir string) error {
 	}
 	if err := os.WriteFile(filepath.Join(dir, "game.js"), gameJS, 0o644); err != nil {
 		return fmt.Errorf("write game.js: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "selectors.js"), selectorsJS, 0o644); err != nil {
+		return fmt.Errorf("write selectors.js: %w", err)
 	}
 	return nil
 }
