@@ -1850,3 +1850,79 @@ func TestGC_KeepsOwnSourcedLayerRows(t *testing.T) {
 		t.Errorf("stale road survived the sweep: %+v", left)
 	}
 }
+
+// TestSaveHexMetricSet_Atomic: the keys of one set commit or roll back
+// together. A trigger aborts the insert of the second key (sorted order), and
+// the first key's replacement must roll back with it — the previous run's
+// rows for BOTH keys survive.
+func TestSaveHexMetricSet_Atomic(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	snap, err := store.CreateSnapshot(ctx, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := snap.ID
+	if err := store.SaveHexMetricSet(ctx, &id, map[string][]HexMetric{
+		"a_metric": {{HexID: "h1", Value: 1}},
+		"b_metric": {{HexID: "h1", Value: 2}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	raw := store.(*sqliteStore).db
+	if _, err := raw.ExecContext(ctx, `CREATE TRIGGER fail_b BEFORE INSERT ON hex_metrics
+		WHEN NEW.metric = 'b_metric' BEGIN SELECT RAISE(ABORT, 'boom'); END`); err != nil {
+		t.Fatal(err)
+	}
+	err = store.SaveHexMetricSet(ctx, &id, map[string][]HexMetric{
+		"a_metric": {{HexID: "h1", Value: 10}},
+		"b_metric": {{HexID: "h1", Value: 20}},
+	})
+	if err == nil {
+		t.Fatal("expected the aborted insert to fail the set")
+	}
+	for key, want := range map[string]float64{"a_metric": 1, "b_metric": 2} {
+		rows, err := store.ListHexMetrics(ctx, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) != 1 || rows[0].Value != want {
+			t.Errorf("%s = %+v after a failed set, want the previous value %v (rolled back)", key, rows, want)
+		}
+	}
+}
+
+// TestHasHexStats agrees with ListHexStats under each snapshot arm: false on
+// an empty table and for types with no rows, true once any requested type
+// has rows, and pinned to a snapshot it sees only that snapshot's rows.
+func TestHasHexStats(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	both := []resource.Type{rtRoads, rtParking}
+	if ok, err := store.HasHexStats(ctx, both); err != nil || ok {
+		t.Fatalf("empty table: (%v, %v), want (false, nil)", ok, err)
+	}
+	snap, err := store.CreateSnapshot(ctx, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := snap.ID
+	if err := store.SaveHexStats(ctx, []HexStat{{HexID: "h1", ResourceType: rtParking, Area: 1, PctCovered: 1, SnapshotID: &id}}); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := store.HasHexStats(ctx, []resource.Type{rtRoads}); err != nil || ok {
+		t.Errorf("roads only: (%v, %v), want (false, nil)", ok, err)
+	}
+	if ok, err := store.HasHexStats(ctx, both); err != nil || !ok {
+		t.Errorf("roads+parking: (%v, %v), want (true, nil)", ok, err)
+	}
+	if ok, _ := store.WithConfigHash("hash").HasHexStats(ctx, both); !ok {
+		t.Error("matching config hash must see the rows")
+	}
+	if ok, _ := store.WithConfigHash("other").HasHexStats(ctx, both); ok {
+		t.Error("a different config hash must not see the rows")
+	}
+	if ok, _ := store.WithSnapshot(id+100).HasHexStats(ctx, both); ok {
+		t.Error("a pinned snapshot without rows must report none")
+	}
+}

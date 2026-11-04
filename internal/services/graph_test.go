@@ -164,13 +164,18 @@ func TestComputeCoverage(t *testing.T) {
 	if _, ok := byID["off-network"]; ok {
 		t.Error("a hex far from any road must be omitted")
 	}
+	// The station snaps onto vertex A; near-a snaps ~20 m along A→B, so it is
+	// turnout plus ~20 m of driving (not turnout alone, as a vertex snap
+	// would have it).
+	v := 40 / 3.6
 	na, ok := byID["near-a"]
-	if !ok || math.Abs(na.Seconds-spec.TurnoutS) > 1e-6 || na.Facility != 0 {
-		t.Errorf("near-a = %+v, want turnout only (%v s) from facility 0", na, spec.TurnoutS)
+	if wantA := spec.TurnoutS + 20/v; !ok || math.Abs(na.Seconds-wantA) > 0.1 || na.Facility != 0 {
+		t.Errorf("near-a = %+v, want ~%v s (turnout + 20 m) from facility 0", na, wantA)
 	}
-	wantD := spec.TurnoutS + (metres(p, [2]float64{lonA, latA}, [2]float64{lonB, latB})+metres(p, [2]float64{lonB, latB}, [2]float64{lonD, latD}))/(40/3.6)
-	if nd := byID["near-d"]; math.Abs(nd.Seconds-wantD) > 1e-6 {
-		t.Errorf("near-d = %v s, want %v", nd.Seconds, wantD)
+	// near-d snaps ~20 m short of D on B→D: travel stops at the snapped point.
+	wantD := spec.TurnoutS + (metres(p, [2]float64{lonA, latA}, [2]float64{lonB, latB})+metres(p, [2]float64{lonB, latB}, [2]float64{lonD, latD})-20)/v
+	if nd := byID["near-d"]; math.Abs(nd.Seconds-wantD) > 0.1 {
+		t.Errorf("near-d = %v s, want ~%v", nd.Seconds, wantD)
 	}
 	if _, ok := byID["near-c"]; !ok {
 		t.Error("near-c should be reachable via B")
@@ -239,5 +244,93 @@ func TestComputeCoverage_IsolatedApronSnapsToStreet(t *testing.T) {
 	// outcome is acceptable as long as nothing is silently dropped.
 	if len(cov2.Unsnapped) != 0 {
 		t.Errorf("a facility within FacilitySnapM must not be unsnapped: %+v", cov2)
+	}
+}
+
+// TestComputeCoverage_SparseSegmentReachesHexes pins segment snapping: a
+// single straight 1.76 km segment (vertices only at its ends) reaches a hex
+// at its midpoint, more than HexSnapM from either vertex, and the time is
+// costed to the point along the road, not to a vertex.
+func TestComputeCoverage_SparseSegmentReachesHexes(t *testing.T) {
+	p := testProj()
+	g := BuildGraph(context.Background(), []resource.Feature{
+		line(map[string]string{"highway": "residential"}, [2]float64{lonA, latA}, [2]float64{lonD, latD}),
+	}, DefaultRoadSpeeds, p)
+	ax, ay := p.ToProjected(lonA, latA)
+	dx, dy := p.ToProjected(lonD, latD)
+	mx, my := (ax+dx)/2, (ay+dy)/2
+	half := math.Hypot(dx-ax, dy-ay) / 2
+	if half <= HexSnapM {
+		t.Fatalf("test premise: midpoint must be > %v m from both vertices, got %v", HexSnapM, half)
+	}
+	spec := Registry["fire"]
+	cov := ComputeCoverage(context.Background(), spec, []geo.Hex{{ID: "mid", CenterX: mx, CenterY: my + 30}},
+		g, []Facility{{ID: "st", Lon: lonA, Lat: latA}})
+	if len(cov.Hexes) != 1 {
+		t.Fatalf("midpoint hex must be reached along the segment, got %+v", cov)
+	}
+	if want := spec.TurnoutS + half/(40/3.6); math.Abs(cov.Hexes[0].Seconds-want) > 0.1 {
+		t.Errorf("mid = %v s, want ~%v (turnout + half the segment)", cov.Hexes[0].Seconds, want)
+	}
+}
+
+// TestComputeCoverage_SameSegmentRespectsOneway: a station and a hex on the
+// same long segment are joined along it in the allowed direction only.
+func TestComputeCoverage_SameSegmentRespectsOneway(t *testing.T) {
+	p := testProj()
+	ax, ay := p.ToProjected(lonA, latA)
+	dx, dy := p.ToProjected(lonD, latD)
+	at := func(f float64) (float64, float64) { return ax + f*(dx-ax), ay + f*(dy-ay) }
+	stLon, stLat := p.FromProjected(at(0.25))
+	hx, hy := at(0.75)
+	length := math.Hypot(dx-ax, dy-ay)
+	spec := Registry["fire"]
+	hexes := []geo.Hex{{ID: "h", CenterX: hx, CenterY: hy}}
+	st := []Facility{{ID: "st", Lon: stLon, Lat: stLat}}
+
+	two := BuildGraph(context.Background(), []resource.Feature{
+		line(map[string]string{"highway": "residential"}, [2]float64{lonA, latA}, [2]float64{lonD, latD}),
+	}, DefaultRoadSpeeds, p)
+	cov := ComputeCoverage(context.Background(), spec, hexes, two, st)
+	if want := spec.TurnoutS + length/2/(40/3.6); len(cov.Hexes) != 1 || math.Abs(cov.Hexes[0].Seconds-want) > 0.1 {
+		t.Errorf("two-way same segment = %+v, want ~%v s (half the segment)", cov.Hexes, want)
+	}
+
+	// Oneway D→A: the hex lies downstream of nothing the station can reach.
+	rev := BuildGraph(context.Background(), []resource.Feature{
+		line(map[string]string{"highway": "residential", "oneway": "-1"}, [2]float64{lonA, latA}, [2]float64{lonD, latD}),
+	}, DefaultRoadSpeeds, p)
+	if cov := ComputeCoverage(context.Background(), spec, hexes, rev, st); len(cov.Hexes) != 0 {
+		t.Errorf("oneway against the hex must leave it unreached, got %+v", cov.Hexes)
+	}
+}
+
+// TestSnapConnected_LargestComponentMustBeInRange pins the radius fix: the
+// "largest component" is chosen among segments truly within maxDist, so a
+// big network sitting only in the search square's corner (beyond the radius)
+// cannot make an in-range smaller component lose and the point go unsnapped.
+func TestSnapConnected_LargestComponentMustBeInRange(t *testing.T) {
+	p := testProj()
+	bx, by := p.ToProjected(lonB, latB)
+	pt := func(x, y float64) [2]float64 {
+		lon, lat := p.FromProjected(x, y)
+		return [2]float64{lon, lat}
+	}
+	res := map[string]string{"highway": "residential"}
+	// A 3-vertex stub 400 m east of the query point.
+	stub := line(map[string]string{"highway": "service"}, pt(bx+400, by-10), pt(bx+400, by), pt(bx+400, by+10))
+	// A 20-vertex street whose nearest point is ~600 m away diagonally:
+	// inside the 500 m search square, outside the 500 m radius.
+	var street [][2]float64
+	for i := range 20 {
+		street = append(street, pt(bx-430-float64(i)*10, by+430+float64(i)*10))
+	}
+	g := BuildGraph(context.Background(), []resource.Feature{stub, line(res, street...)}, DefaultRoadSpeeds, p)
+	s, ok := g.SnapConnected(bx, by, FacilitySnapM)
+	if !ok {
+		t.Fatal("a stub within range must still be snapped to when the bigger network is out of range")
+	}
+	if g.SnapComponentSize(s) != 3 || s.Dist > FacilitySnapM {
+		t.Errorf("snapped to component of %d vertices at %v m, want the 3-vertex stub within %v m", g.SnapComponentSize(s), s.Dist, FacilitySnapM)
 	}
 }

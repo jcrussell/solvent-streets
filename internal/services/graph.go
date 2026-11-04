@@ -3,6 +3,7 @@ package services
 import (
 	"container/heap"
 	"context"
+	"fmt"
 	"math"
 
 	"github.com/peterstace/simplefeatures/geom"
@@ -12,16 +13,28 @@ import (
 )
 
 // Snap radii. A hex centre or a facility more than this far from any road
-// vertex is treated as off-network rather than snapped to something far away.
+// segment is treated as off-network rather than snapped to something far
+// away. Distances are to the nearest point ALONG a segment, not to its
+// vertices, so a long straight road with sparse vertices still reaches the
+// hexes it passes through.
 const (
-	// HexSnapM bounds how far a hex centre may be from the nearest road
-	// vertex; at the default 100 m hex edge every hex that holds any road is
-	// within reach, and an empty hex (water, open space) is left unpainted.
+	// HexSnapM bounds how far a hex centre may be from the nearest road; at
+	// the default 100 m hex edge every hex that holds any road is within
+	// reach, and an empty hex (water, open space) is left unpainted.
 	HexSnapM = 300.0
 	// FacilitySnapM bounds how far a facility point may be from the road
 	// network; stations sit on a parcel beside the street, not on it.
 	FacilitySnapM = 500.0
 )
+
+// ConfigFacilityID is the stable id of a hand-placed [[cities.facilities]]
+// entry: its service and position, not its index in the list, so inserting,
+// removing or reordering entries between a compute and an export never makes
+// a stored hex reference resolve to a different station. Two entries at the
+// same position share an id, which is harmless — they are the same point.
+func ConfigFacilityID(service string, lon, lat float64) string {
+	return fmt.Sprintf("config:%s:%.6f,%.6f", service, lon, lat)
+}
 
 // Facility is one point of service for a coverage computation.
 type Facility struct {
@@ -33,14 +46,19 @@ type Facility struct {
 }
 
 // Graph is a routable road network: vertices keyed by position, directed
-// edges weighted in seconds, and a spatial index over the vertices for
-// snapping.
+// edges weighted in seconds, the undirected segments those edges came from,
+// and spatial indexes over the vertices and segments for snapping.
 type Graph struct {
 	proj  geo.Projector
 	xs    []float64
 	ys    []float64
 	adj   [][]edge
 	index *geo.GeomIndex
+	// segs are the road segments (one per consecutive vertex pair of a way)
+	// and segIndex their R-tree, so a point snaps to the nearest position
+	// along a road rather than to the nearest vertex.
+	segs     []segment
+	segIndex *geo.GeomIndex
 	// comp is each vertex's weakly connected component id and compSize the
 	// vertex count per component, so snapping can prefer the street network
 	// over an isolated driveway or parking aisle that happens to be closer.
@@ -57,6 +75,33 @@ const MinFacilityComponent = 10
 type edge struct {
 	to   int
 	cost float64 // seconds
+}
+
+// segment is one road segment between vertices a and c: its projected
+// length, its speed, and which directions it may be driven (fwd: a→c,
+// back: c→a).
+type segment struct {
+	a, c      int
+	length    float64 // metres
+	mps       float64
+	fwd, back bool
+}
+
+// Snap is a position on the network: the point at fraction T (0 at the
+// segment's a end, 1 at its c end) along segment Seg, Dist metres from the
+// query point.
+type Snap struct {
+	Seg  int
+	T    float64
+	Dist float64
+}
+
+// Seed is a Dijkstra start: Node is reached at Cost seconds from source
+// index Source.
+type Seed struct {
+	Node   int
+	Cost   float64
+	Source int
 }
 
 // sourceOverpass is the SourceAPI label the Overpass ingest writes.
@@ -141,7 +186,9 @@ func (b *graphBuilder) addLine(seq geom.Sequence, mps float64, fwd, back bool) {
 		if a == c {
 			continue
 		}
-		cost := math.Hypot(g.xs[a]-g.xs[c], g.ys[a]-g.ys[c]) / mps
+		length := math.Hypot(g.xs[a]-g.xs[c], g.ys[a]-g.ys[c])
+		cost := length / mps
+		g.segs = append(g.segs, segment{a: a, c: c, length: length, mps: mps, fwd: fwd, back: back})
 		if fwd {
 			g.adj[a] = append(g.adj[a], edge{to: c, cost: cost})
 		}
@@ -151,8 +198,8 @@ func (b *graphBuilder) addLine(seq geom.Sequence, mps float64, fwd, back bool) {
 	}
 }
 
-// finish builds the vertex spatial index and the component labels and
-// returns the graph.
+// finish builds the vertex and segment spatial indexes and the component
+// labels and returns the graph.
 func (b *graphBuilder) finish() *Graph {
 	g := b.g
 	pts := make([]geom.Geometry, len(g.xs))
@@ -160,6 +207,12 @@ func (b *graphBuilder) finish() *Graph {
 		pts[i] = geom.NewPoint(geom.Coordinates{XY: geom.XY{X: g.xs[i], Y: g.ys[i]}}).AsGeometry()
 	}
 	g.index = geo.NewGeomIndexFromGeoms(pts)
+	lines := make([]geom.Geometry, len(g.segs))
+	for i, sg := range g.segs {
+		seq := geom.NewSequence([]float64{g.xs[sg.a], g.ys[sg.a], g.xs[sg.c], g.ys[sg.c]}, geom.DimXY)
+		lines[i] = geom.NewLineString(seq).AsGeometry()
+	}
+	g.segIndex = geo.NewGeomIndexFromGeoms(lines)
 	g.labelComponents()
 	return g
 }
@@ -254,56 +307,17 @@ func (g *Graph) NodeCount() int { return len(g.xs) }
 // Nearest returns the vertex closest to the projected point (x, y) within
 // maxDist metres, or false when none is that close.
 func (g *Graph) Nearest(x, y, maxDist float64) (int, bool) {
-	return g.NearestWhere(x, y, maxDist, nil)
-}
-
-// NearestWhere is Nearest restricted to vertices accepted by ok (nil accepts
-// all). Used to snap a hex to the nearest vertex that a facility can actually
-// reach, rather than to an unreachable fragment that is marginally closer.
-func (g *Graph) NearestWhere(x, y, maxDist float64, ok func(int) bool) (int, bool) {
+	if g.index == nil || g.index.Len() == 0 {
+		return 0, false
+	}
+	env := geom.NewEnvelope(geom.XY{X: x - maxDist, Y: y - maxDist}, geom.XY{X: x + maxDist, Y: y + maxDist})
 	best, bestD := -1, maxDist
-	for _, id := range g.candidates(x, y, maxDist) {
-		if ok != nil && !ok(id) {
-			continue
-		}
-		d := math.Hypot(g.xs[id]-x, g.ys[id]-y)
-		if d <= bestD {
+	for _, id := range g.index.SearchIDs(env) {
+		if d := math.Hypot(g.xs[id]-x, g.ys[id]-y); d <= bestD {
 			best, bestD = id, d
 		}
 	}
-	if best < 0 {
-		return 0, false
-	}
-	return best, true
-}
-
-// NearestConnected is Nearest biased toward the street network: among the
-// vertices within maxDist it returns the nearest one that belongs to the
-// LARGEST connected component present. A station beside an unjoined apron or
-// driveway therefore snaps to the street a little farther away instead of to
-// the stub, which would otherwise swallow the whole station silently.
-func (g *Graph) NearestConnected(x, y, maxDist float64) (int, bool) {
-	ids := g.candidates(x, y, maxDist)
-	bestSize := 0
-	for _, id := range ids {
-		if s := g.ComponentSize(id); s > bestSize {
-			bestSize = s
-		}
-	}
-	if bestSize == 0 {
-		return 0, false
-	}
-	return g.NearestWhere(x, y, maxDist, func(id int) bool { return g.ComponentSize(id) == bestSize })
-}
-
-// candidates returns the vertex ids whose position lies within the square of
-// half-side maxDist around (x, y).
-func (g *Graph) candidates(x, y, maxDist float64) []int {
-	if g.index == nil || g.index.Len() == 0 {
-		return nil
-	}
-	env := geom.NewEnvelope(geom.XY{X: x - maxDist, Y: y - maxDist}, geom.XY{X: x + maxDist, Y: y + maxDist})
-	return g.index.SearchIDs(env)
+	return best, best >= 0
 }
 
 // NearestLonLat is Nearest for an unprojected position.
@@ -312,17 +326,159 @@ func (g *Graph) NearestLonLat(lon, lat, maxDist float64) (int, bool) {
 	return g.Nearest(x, y, maxDist)
 }
 
-// NearestConnectedLonLat is NearestConnected for an unprojected position.
-func (g *Graph) NearestConnectedLonLat(lon, lat, maxDist float64) (int, bool) {
-	x, y := g.proj.ToProjected(lon, lat)
-	return g.NearestConnected(x, y, maxDist)
+// snapCandidates returns the nearest position on every segment within
+// maxDist metres (true distance, not the search square) of (x, y).
+func (g *Graph) snapCandidates(x, y, maxDist float64) []Snap {
+	if g.segIndex == nil || g.segIndex.Len() == 0 {
+		return nil
+	}
+	env := geom.NewEnvelope(geom.XY{X: x - maxDist, Y: y - maxDist}, geom.XY{X: x + maxDist, Y: y + maxDist})
+	var out []Snap
+	for _, id := range g.segIndex.SearchIDs(env) {
+		sg := g.segs[id]
+		ax, ay := g.xs[sg.a], g.ys[sg.a]
+		dx, dy := g.xs[sg.c]-ax, g.ys[sg.c]-ay
+		t := 0.0
+		if l2 := dx*dx + dy*dy; l2 > 0 {
+			t = math.Max(0, math.Min(1, ((x-ax)*dx+(y-ay)*dy)/l2))
+		}
+		if d := math.Hypot(ax+t*dx-x, ay+t*dy-y); d <= maxDist {
+			out = append(out, Snap{Seg: id, T: t, Dist: d})
+		}
+	}
+	return out
 }
 
-// ShortestFrom runs a multi-source Dijkstra: every source vertex starts at
-// zero and each vertex ends up with the travel seconds from its nearest
-// source and that source's index into sources. Unreachable vertices carry
-// +Inf and source -1.
+// SnapWhere returns the nearest network position to (x, y) within maxDist
+// that ok accepts (nil accepts all), or false when there is none. Used to
+// snap a hex to the nearest position a facility can actually reach, rather
+// than to an unreachable fragment that is marginally closer.
+func (g *Graph) SnapWhere(x, y, maxDist float64, ok func(Snap) bool) (Snap, bool) {
+	var best Snap
+	found := false
+	for _, c := range g.snapCandidates(x, y, maxDist) {
+		if ok != nil && !ok(c) {
+			continue
+		}
+		if !found || c.Dist < best.Dist {
+			best, found = c, true
+		}
+	}
+	return best, found
+}
+
+// SnapConnected is SnapWhere biased toward the street network: among the
+// segments within maxDist it returns the nearest position on one that
+// belongs to the LARGEST connected component in range. A station beside an
+// unjoined apron or driveway therefore snaps to the street a little farther
+// away instead of to the stub, which would otherwise swallow the whole
+// station silently. Only segments actually within maxDist compete for
+// "largest", so the choice never lands on a component that is out of range.
+func (g *Graph) SnapConnected(x, y, maxDist float64) (Snap, bool) {
+	cands := g.snapCandidates(x, y, maxDist)
+	bestSize := 0
+	for _, c := range cands {
+		if s := g.SnapComponentSize(c); s > bestSize {
+			bestSize = s
+		}
+	}
+	if bestSize == 0 {
+		return Snap{}, false
+	}
+	return g.SnapWhere(x, y, maxDist, func(c Snap) bool { return g.SnapComponentSize(c) == bestSize })
+}
+
+// SnapConnectedLonLat is SnapConnected for an unprojected position.
+func (g *Graph) SnapConnectedLonLat(lon, lat, maxDist float64) (Snap, bool) {
+	x, y := g.proj.ToProjected(lon, lat)
+	return g.SnapConnected(x, y, maxDist)
+}
+
+// SnapComponentSize is ComponentSize for the segment s lies on.
+func (g *Graph) SnapComponentSize(s Snap) int {
+	if s.Seg < 0 || s.Seg >= len(g.segs) {
+		return 0
+	}
+	return g.ComponentSize(g.segs[s.Seg].a)
+}
+
+// snapEps is the along-segment distance (metres) under which a snapped
+// position is treated as sitting on the segment's end vertex.
+const snapEps = 1e-6
+
+// SeedsAt returns the Dijkstra seeds for a source at network position s:
+// each end vertex the source can drive to along its segment (respecting
+// oneway), at the travel time to get there. A position on a vertex reaches
+// that vertex at zero cost whatever the direction.
+func (g *Graph) SeedsAt(s Snap, source int) []Seed {
+	sg := g.segs[s.Seg]
+	toA, toC := s.T*sg.length, (1-s.T)*sg.length
+	var out []Seed
+	if sg.back || toA <= snapEps {
+		out = append(out, Seed{Node: sg.a, Cost: toA / sg.mps, Source: source})
+	}
+	if sg.fwd || toC <= snapEps {
+		out = append(out, Seed{Node: sg.c, Cost: toC / sg.mps, Source: source})
+	}
+	return out
+}
+
+// ArrivalAt returns the travel seconds to network position s given the
+// vertex times dist/src from ShortestFromSeeds, and the source index that
+// achieves it; (+Inf, -1) when s is unreachable. Arriving from the a end
+// requires the segment to allow a→c, from the c end c→a — except at the
+// vertex itself, which needs no driving along the segment.
+func (g *Graph) ArrivalAt(s Snap, dist []float64, src []int) (float64, int) {
+	sg := g.segs[s.Seg]
+	fromA, fromC := s.T*sg.length, (1-s.T)*sg.length
+	best, bestSrc := math.Inf(1), -1
+	if src[sg.a] >= 0 && (sg.fwd || fromA <= snapEps) {
+		if c := dist[sg.a] + fromA/sg.mps; c < best {
+			best, bestSrc = c, src[sg.a]
+		}
+	}
+	if src[sg.c] >= 0 && (sg.back || fromC <= snapEps) {
+		if c := dist[sg.c] + fromC/sg.mps; c < best {
+			best, bestSrc = c, src[sg.c]
+		}
+	}
+	return best, bestSrc
+}
+
+// AlongSegment returns the seconds to drive from position from to position
+// to when both lie on the same segment and its direction allows it, else
+// +Inf. It covers a hex and a facility on one long segment, which the
+// vertex-based ArrivalAt would route out to an end vertex and back.
+func (g *Graph) AlongSegment(from, to Snap) float64 {
+	if from.Seg != to.Seg {
+		return math.Inf(1)
+	}
+	sg := g.segs[from.Seg]
+	d := (to.T - from.T) * sg.length
+	switch {
+	case math.Abs(d) <= snapEps:
+		return 0
+	case d > 0 && sg.fwd, d < 0 && sg.back:
+		return math.Abs(d) / sg.mps
+	}
+	return math.Inf(1)
+}
+
+// ShortestFrom runs a multi-source Dijkstra with every source vertex
+// starting at zero; see ShortestFromSeeds.
 func (g *Graph) ShortestFrom(sources []int) (dist []float64, src []int) {
+	seeds := make([]Seed, 0, len(sources))
+	for i, s := range sources {
+		seeds = append(seeds, Seed{Node: s, Source: i})
+	}
+	return g.ShortestFromSeeds(seeds)
+}
+
+// ShortestFromSeeds runs a multi-source Dijkstra from seeds: each vertex ends
+// up with the travel seconds from its nearest seed and that seed's Source.
+// Unreachable vertices carry +Inf and source -1. Out-of-range seed nodes are
+// ignored.
+func (g *Graph) ShortestFromSeeds(seeds []Seed) (dist []float64, src []int) {
 	n := len(g.xs)
 	dist = make([]float64, n)
 	src = make([]int, n)
@@ -331,15 +487,13 @@ func (g *Graph) ShortestFrom(sources []int) (dist []float64, src []int) {
 		src[i] = -1
 	}
 	pq := &nodeHeap{}
-	for i, s := range sources {
-		if s < 0 || s >= n {
+	for _, s := range seeds {
+		if s.Node < 0 || s.Node >= n || s.Cost >= dist[s.Node] {
 			continue
 		}
-		if dist[s] > 0 || src[s] == -1 {
-			dist[s] = 0
-			src[s] = i
-			heap.Push(pq, item{node: s, dist: 0})
-		}
+		dist[s.Node] = s.Cost
+		src[s.Node] = s.Source
+		heap.Push(pq, item{node: s.Node, dist: s.Cost})
 	}
 	for pq.Len() > 0 {
 		cur, ok := heap.Pop(pq).(item)

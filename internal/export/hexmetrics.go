@@ -2,7 +2,9 @@ package export
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 
@@ -100,10 +102,14 @@ func resolvedScale(entry CityEntry, spec hexmetric.Spec) (hexmetric.Scale, float
 // cache evicts rather than memoising a blank file.
 func BuildHexMetrics(ctx context.Context, entry CityEntry) (*HexMetricsJSON, error) {
 	out := &HexMetricsJSON{V: HexMetricsFileVersion, Metrics: map[string]MetricJSON{}}
+	roadsSnap, hasRoads, err := roadsSnapshot(ctx, entry)
+	if err != nil {
+		return nil, err
+	}
 	for _, spec := range hexmetric.StoredSpecs() {
-		rows, err := entry.Store.ListHexMetrics(ctx, spec.Key)
+		rows, err := currentMetricRows(ctx, entry, spec.Key, roadsSnap, hasRoads)
 		if err != nil {
-			return nil, fmt.Errorf("listing hex metric %s: %w", spec.Key, err)
+			return nil, err
 		}
 		if len(rows) == 0 {
 			continue
@@ -118,6 +124,42 @@ func BuildHexMetrics(ctx context.Context, entry CityEntry) (*HexMetricsJSON, err
 		return nil, nil //nolint:nilnil // nil = legitimate "no metrics", distinct from a store error
 	}
 	return out, nil
+}
+
+// roadsSnapshot resolves the roads compute snapshot the stored metrics must
+// sit on: the one the entry's store resolves for roads (pinned, config-hash
+// or latest — the same rule the metric rows themselves resolve under).
+// hasRoads is false when the city has no roads compute.
+func roadsSnapshot(ctx context.Context, entry CityEntry) (*int64, bool, error) {
+	r, err := entry.Store.LatestComputeResult(ctx, resource.TypeRoads)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("latest roads compute result: %w", err)
+	}
+	return r.SnapshotID, true, nil
+}
+
+// currentMetricRows lists a stored metric's rows and keeps them only when
+// they were computed against roadsSnap. Producers (service coverage, census)
+// attach their rows to the latest roads snapshot, but ListHexMetrics resolves
+// the newest snapshot that still HAS rows for the key — so a rerun that
+// stored nothing on a newer roads snapshot (no stations reached, no blocks)
+// would otherwise fall back to an older run's rows and keep publishing them.
+// Rows on any snapshot but the current roads one are stale; none are
+// returned, and the metric is absent until its producer reruns (as
+// `pvmt all compute` does after the roads pass). A city with no roads
+// compute has no current metric either.
+func currentMetricRows(ctx context.Context, entry CityEntry, key string, roadsSnap *int64, hasRoads bool) ([]db.HexMetric, error) {
+	rows, err := entry.Store.ListHexMetrics(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("listing hex metric %s: %w", key, err)
+	}
+	if !hasRoads || len(rows) == 0 || !sameSnapshot(rows[0].SnapshotID, roadsSnap) {
+		return nil, nil
+	}
+	return rows, nil
 }
 
 // buildMetricJSON assembles one metric's file entry: the registry
@@ -157,7 +199,8 @@ func buildMetricJSON(ctx context.Context, entry CityEntry, spec hexmetric.Spec, 
 // metricPoints resolves the point ids a metric references. A service's
 // coverage metric references its facilities: the ingested OSM points (by
 // feature id) and the city's hand-placed [[cities.facilities]]
-// ("config:<service>:<i>"). Points are returned sorted by id so the file is
+// (services.ConfigFacilityID: service and position, stable across edits to
+// the list's order). Points are returned sorted by id so the file is
 // deterministic.
 func metricPoints(ctx context.Context, entry CityEntry, metricKey string, refIDs map[string]bool) ([]MetricPointJSON, error) {
 	var points []MetricPointJSON
@@ -179,11 +222,13 @@ func metricPoints(ctx context.Context, entry CityEntry, metricKey string, refIDs
 			}
 			points = append(points, MetricPointJSON{ID: f.ID, Name: f.Name, Lon: lon, Lat: lat, Source: "osm"})
 		}
-		for i, fc := range entry.City.Facilities {
-			id := fmt.Sprintf("config:%s:%d", spec.Name, i)
-			if fc.Service != spec.Name || !refIDs[id] {
+		seen := map[string]bool{}
+		for _, fc := range entry.City.Facilities {
+			id := services.ConfigFacilityID(spec.Name, fc.Lon, fc.Lat)
+			if fc.Service != spec.Name || !refIDs[id] || seen[id] {
 				continue
 			}
+			seen[id] = true
 			points = append(points, MetricPointJSON{ID: id, Name: fc.Name, Lon: fc.Lon, Lat: fc.Lat, Source: "config"})
 		}
 	}
@@ -212,11 +257,15 @@ func pointLonLat(f db.Feature) (float64, float64, bool) {
 // below min_hex_area; their rows are a rounding error in these figures.)
 func buildMetricSummaries(ctx context.Context, entry CityEntry) (map[string]MetricSummaryJSON, error) {
 	var out map[string]MetricSummaryJSON
+	roadsSnap, hasRoads, err := roadsSnapshot(ctx, entry)
+	if err != nil {
+		return nil, err
+	}
 	checkedGrid := false // checked lazily: most cities have no metrics
 	for _, spec := range hexmetric.StoredSpecs() {
-		rows, err := entry.Store.ListHexMetrics(ctx, spec.Key)
+		rows, err := currentMetricRows(ctx, entry, spec.Key, roadsSnap, hasRoads)
 		if err != nil {
-			return nil, fmt.Errorf("listing hex metric %s: %w", spec.Key, err)
+			return nil, err
 		}
 		if len(rows) == 0 {
 			continue
@@ -283,18 +332,16 @@ func summarizeMetric(spec hexmetric.Spec, rows []db.HexMetric, threshold float64
 }
 
 // hasHexGrid reports whether hexgrid.geojson will exist for the city: it is
-// written only when some resource has hex_stats rows (BuildHexGeoJSON).
+// written only when some resource has hex_stats rows (BuildHexGeoJSON). One
+// existence query over every resource and scope, not a load of the rows.
 func hasHexGrid(ctx context.Context, entry CityEntry) (bool, error) {
+	types := make([]resource.Type, 0, 2*len(resource.All))
 	for _, rt := range resource.All {
-		for _, scope := range []resource.Scope{resource.ScopeAll, resource.ScopeCity} {
-			stats, err := entry.Store.ListHexStats(ctx, rt.Type().With(scope))
-			if err != nil {
-				return false, fmt.Errorf("listing hex stats for %s: %w", rt.Type().With(scope), err)
-			}
-			if len(stats) > 0 {
-				return true, nil
-			}
-		}
+		types = append(types, rt.Type(), rt.Type().With(resource.ScopeCity))
 	}
-	return false, nil
+	ok, err := entry.Store.HasHexStats(ctx, types)
+	if err != nil {
+		return false, fmt.Errorf("checking for hex stats: %w", err)
+	}
+	return ok, nil
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"maps"
+	"slices"
 
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/resource"
@@ -30,7 +32,9 @@ type MockStore struct {
 	ListCohortStatsForTypesFunc func(context.Context, []resource.Type) (map[resource.Type][]db.CohortStat, error)
 	SaveHexStatsFunc            func(context.Context, []db.HexStat) error
 	ListHexStatsFunc            func(context.Context, resource.Type) ([]db.HexStat, error)
+	HasHexStatsFunc             func(context.Context, []resource.Type) (bool, error)
 	SaveHexMetricsFunc          func(context.Context, string, *int64, []db.HexMetric) error
+	SaveHexMetricSetFunc        func(context.Context, *int64, map[string][]db.HexMetric) error
 	ListHexMetricsFunc          func(context.Context, string) ([]db.HexMetric, error)
 	CreateSnapshotFunc          func(context.Context, string) (*db.Snapshot, error)
 	ListSnapshotsFunc           func(context.Context) ([]db.Snapshot, error)
@@ -109,6 +113,24 @@ func (m *MockStore) SaveHexStats(ctx context.Context, stats []db.HexStat) error 
 		return m.SaveHexStatsFunc(ctx, stats)
 	}
 	return nil
+}
+
+// HasHexStats delegates to HasHexStatsFunc if set, otherwise answers from
+// ListHexStats per type, so fixtures that only stub ListHexStatsFunc agree.
+func (m *MockStore) HasHexStats(ctx context.Context, types []resource.Type) (bool, error) {
+	if m.HasHexStatsFunc != nil {
+		return m.HasHexStatsFunc(ctx, types)
+	}
+	for _, t := range types {
+		rows, err := m.ListHexStats(ctx, t)
+		if err != nil {
+			return false, err
+		}
+		if len(rows) > 0 {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (m *MockStore) ListHexStats(ctx context.Context, rt resource.Type) ([]db.HexStat, error) {
@@ -293,6 +315,21 @@ func (m *MockRootStore) Close() error {
 func (m *MockStore) SaveHexMetrics(ctx context.Context, metric string, snapshotID *int64, rows []db.HexMetric) error {
 	if m.SaveHexMetricsFunc != nil {
 		return m.SaveHexMetricsFunc(ctx, metric, snapshotID, rows)
+	}
+	return nil
+}
+
+// SaveHexMetricSet delegates to SaveHexMetricSetFunc if set, otherwise
+// replays the set through SaveHexMetrics key by key (sorted), so tests that
+// only capture SaveHexMetricsFunc still observe every metric.
+func (m *MockStore) SaveHexMetricSet(ctx context.Context, snapshotID *int64, set map[string][]db.HexMetric) error {
+	if m.SaveHexMetricSetFunc != nil {
+		return m.SaveHexMetricSetFunc(ctx, snapshotID, set)
+	}
+	for _, metric := range slices.Sorted(maps.Keys(set)) {
+		if err := m.SaveHexMetrics(ctx, metric, snapshotID, set[metric]); err != nil {
+			return err
+		}
 	}
 	return nil
 }

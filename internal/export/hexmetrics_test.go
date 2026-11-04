@@ -2,6 +2,7 @@ package export
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -15,9 +16,25 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/services"
 )
 
+// metricsRoadsSnap is the roads compute snapshot metricsEntry reports; rows
+// on any other snapshot are stale and must not be published.
+const metricsRoadsSnap int64 = 5
+
 func metricsEntry(t *testing.T, rows []db.HexMetric, facilities []db.Feature, hexStats []db.HexStat) CityEntry {
 	t.Helper()
+	snap := metricsRoadsSnap
+	for i := range rows {
+		if rows[i].SnapshotID == nil {
+			rows[i].SnapshotID = &snap
+		}
+	}
 	store := &dbtest.MockStore{
+		LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
+			if rt == resource.TypeRoads {
+				return &db.ComputeResult{ResourceType: rt, TotalArea: 1, SnapshotID: &snap}, nil
+			}
+			return nil, sql.ErrNoRows
+		},
 		ListHexMetricsFunc: func(_ context.Context, key string) ([]db.HexMetric, error) {
 			var out []db.HexMetric
 			for _, r := range rows {
@@ -54,7 +71,7 @@ func TestBuildHexMetrics(t *testing.T) {
 	now := time.Now()
 	rows := []db.HexMetric{
 		{HexID: "h1", Metric: services.MetricFire, Value: 300.123, Ref: "osm:node:9", ComputedAt: now},
-		{HexID: "h2", Metric: services.MetricFire, Value: 420, Ref: "config:fire:0", ComputedAt: now},
+		{HexID: "h2", Metric: services.MetricFire, Value: 420, Ref: services.ConfigFacilityID("fire", -122.4, 37.7), ComputedAt: now},
 		{HexID: "h3", Metric: services.MetricFire, Value: 500, Ref: "osm:node:missing", ComputedAt: now},
 	}
 	facilities := []db.Feature{{ID: "osm:node:9", Name: "Station 9", GeometryJSON: `{"type":"Point","coordinates":[-122.41,37.71]}`}}
@@ -86,7 +103,7 @@ func TestBuildHexMetrics(t *testing.T) {
 	if m.Values["h1"] != 300.12 || m.Values["h2"] != 420 {
 		t.Errorf("values = %v", m.Values)
 	}
-	if len(m.Points) != 2 || m.Points[0].ID != "config:fire:0" || m.Points[1].ID != "osm:node:9" {
+	if len(m.Points) != 2 || m.Points[0].ID != services.ConfigFacilityID("fire", -122.4, 37.7) || m.Points[1].ID != "osm:node:9" {
 		t.Fatalf("points = %+v, want config then osm (sorted by id)", m.Points)
 	}
 	if m.Points[1].Lon != -122.41 || m.Points[0].Source != "config" || m.Points[0].Name != "Manual" {
@@ -103,6 +120,18 @@ func TestBuildHexMetrics(t *testing.T) {
 	var back map[string]any
 	if err := json.Unmarshal(raw, &back); err != nil {
 		t.Fatal(err)
+	}
+
+	// A [[cities.facilities]] entry inserted before the station must not
+	// change which station h2 references: ids follow position, not index.
+	entry.City.Facilities = append([]config.FacilityConfig{{Service: "fire", Name: "Inserted", Lat: 37.8, Lon: -122.3}}, entry.City.Facilities...)
+	hm3, err := BuildHexMetrics(context.Background(), entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m3 := hm3.Metrics[services.MetricFire]
+	if p := m3.Points[m3.Refs["h2"]]; p.Name != "Manual" {
+		t.Errorf("after inserting a facility, h2 references %q, want Manual", p.Name)
 	}
 
 	empty := metricsEntry(t, nil, nil, nil)
@@ -151,6 +180,35 @@ func TestBuildMeta_MetricSummaries(t *testing.T) {
 	raw, _ := json.Marshal(emeta)
 	if json.Valid(raw) && len(emeta.Metrics) != 0 {
 		t.Errorf("metrics must be omitted when none has rows: %s", raw)
+	}
+}
+
+// TestHexMetrics_StaleSnapshotDropped pins the stale-fallback guard: metric
+// rows resolve to the newest snapshot that HAS rows, so a rerun that stored
+// nothing on the current roads snapshot would otherwise leave an older run's
+// coverage published. Rows on any snapshot but the current roads one are
+// dropped from both hex-metrics.json and meta.json, and a city with no roads
+// compute publishes no metric.
+func TestHexMetrics_StaleSnapshotDropped(t *testing.T) {
+	old := metricsRoadsSnap - 2
+	rows := []db.HexMetric{{HexID: "h1", Metric: services.MetricFire, Value: 300, Ref: "a", SnapshotID: &old}}
+	stats := []db.HexStat{{HexID: "h1", ResourceType: rtRoads, Area: 1}}
+	entry := metricsEntry(t, rows, nil, stats)
+	if hm, err := BuildHexMetrics(context.Background(), entry); err != nil || hm != nil {
+		t.Errorf("stale rows: BuildHexMetrics = (%+v, %v), want (nil, nil)", hm, err)
+	}
+	meta, err := BuildMeta(context.Background(), entry, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(meta.Metrics) != 0 {
+		t.Errorf("stale rows must not be summarised: %+v", meta.Metrics)
+	}
+
+	noRoads := metricsEntry(t, []db.HexMetric{{HexID: "h1", Metric: services.MetricFire, Value: 300}}, nil, stats)
+	noRoads.Store.(*dbtest.MockStore).LatestComputeResultFunc = nil
+	if hm, err := BuildHexMetrics(context.Background(), noRoads); err != nil || hm != nil {
+		t.Errorf("no roads compute: BuildHexMetrics = (%+v, %v), want (nil, nil)", hm, err)
 	}
 }
 

@@ -187,7 +187,7 @@ func TestServicesCompute_ConfigFacilityAndOverrides(t *testing.T) {
 		t.Fatal("no rows saved from the config facility")
 	}
 	for _, m := range saved {
-		if m.Ref != "config:fire:0" {
+		if m.Ref != services.ConfigFacilityID("fire", -121.755, 37.6805) {
 			t.Fatalf("row %+v should reference the config facility", m)
 		}
 		if m.Value < 200 {

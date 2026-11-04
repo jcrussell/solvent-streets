@@ -143,7 +143,9 @@ func NewCmdCompute(f *cmdutil.Factory, runF func(context.Context, *Options) erro
 hexes it overlaps, in proportion to the overlapping area, and store per hex:
 population, housing_units and population_per_km2 (population over the hex's
 own boundary-clipped area). The metrics attach to the city's latest roads
-compute snapshot, like service coverage, so run a roads compute first.`,
+compute snapshot, like service coverage, so run a roads compute first; export
+publishes them only while that snapshot is still the latest, so rerun this
+after a roads compute.`,
 		Example: `  # Every configured city
   pvmt census compute
 
@@ -224,19 +226,16 @@ func runCompute(ctx context.Context, opts *Options) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("compute cancelled: %w", err)
 	}
-	// Each key is saved even when empty, so a rerun that apportions nothing
-	// clears the previous rows instead of leaving them on the map.
-	for _, s := range []struct {
-		key  string
-		rows []db.HexMetric
-	}{
-		{population.KeyPopulation, m.Population},
-		{population.KeyHousingUnits, m.HousingUnits},
-		{population.KeyDensity, m.Density},
-	} {
-		if err := store.SaveHexMetrics(ctx, s.key, target.SnapshotID, s.rows); err != nil {
-			return fmt.Errorf("save %s: %w", s.key, err)
-		}
+	// All three keys in one transaction, so a failure never leaves them from
+	// different runs; each is saved even when empty, so a rerun that
+	// apportions nothing clears the previous rows instead of leaving them on
+	// the map.
+	if err := store.SaveHexMetricSet(ctx, target.SnapshotID, map[string][]db.HexMetric{
+		population.KeyPopulation:   m.Population,
+		population.KeyHousingUnits: m.HousingUnits,
+		population.KeyDensity:      m.Density,
+	}); err != nil {
+		return fmt.Errorf("save population metrics: %w", err)
 	}
 
 	row := computeRow{City: city.Name, Blocks: len(projected), Hexes: len(m.Population), Population: m.Total}

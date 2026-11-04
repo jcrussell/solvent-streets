@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -215,6 +217,24 @@ func (s *sqliteStore) ListHexStats(ctx context.Context, resourceType resource.Ty
 			err := rows.Scan(&st.HexID, &st.ResourceType, &st.Area, &st.PctCovered, &st.ComputedAt, &st.SnapshotID)
 			return st, err
 		})
+}
+
+// HasHexStats answers "would ListHexStats return anything for any of types"
+// with a single LIMIT 1 query over the same per-type snapshot resolution
+// (snapshotBatchQuery), rather than loading every row to test len > 0.
+func (s *sqliteStore) HasHexStats(ctx context.Context, types []resource.Type) (bool, error) {
+	if len(types) == 0 {
+		return false, nil
+	}
+	q, bind := snapshotBatchQuery(`SELECT 1`, "hex_stats", ` LIMIT 1`, s.snapshotID, s.configHash, types, s.cityID)
+	var one int
+	switch err := s.db.QueryRowContext(ctx, q, bind...).Scan(&one); {
+	case errors.Is(err, sql.ErrNoRows):
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("query hex stats existence: %w", err)
+	}
+	return true, nil
 }
 
 // listSnapshotRows runs the snapshot-scoped list shape every per-resource
@@ -874,40 +894,58 @@ func (s *sqliteStore) ResolveSnapshot(ctx context.Context, snapshotID int64) err
 }
 
 // SaveHexMetrics replaces this city's (metric, snapshotID) slice with rows
-// inside one transaction. The delete runs even for an empty rows slice —
-// a compute that produced nothing must clear what the previous run stored.
-// snapshot_id is nullable and `= ?` never matches NULL, so an untagged slice
-// is deleted via IS NULL.
+// inside one transaction; see replaceHexMetrics.
 func (s *sqliteStore) SaveHexMetrics(ctx context.Context, metric string, snapshotID *int64, rows []HexMetric) error {
+	return s.SaveHexMetricSet(ctx, snapshotID, map[string][]HexMetric{metric: rows})
+}
+
+// SaveHexMetricSet replaces every (metric, snapshotID) slice in set inside a
+// single transaction, in sorted key order so the statement sequence is
+// deterministic.
+func (s *sqliteStore) SaveHexMetricSet(ctx context.Context, snapshotID *int64, set map[string][]HexMetric) error {
 	return s.withTx(ctx, func(tx *sql.Tx) error {
-		var err error
-		if snapshotID != nil {
-			_, err = tx.ExecContext(ctx, `DELETE FROM hex_metrics WHERE city_id = ? AND metric = ? AND snapshot_id = ?`, s.cityID, metric, *snapshotID)
-		} else {
-			_, err = tx.ExecContext(ctx, `DELETE FROM hex_metrics WHERE city_id = ? AND metric = ? AND snapshot_id IS NULL`, s.cityID, metric)
-		}
-		if err != nil {
-			return fmt.Errorf("replace hex metrics %s: %w", metric, err)
-		}
-		if len(rows) == 0 {
-			return nil
-		}
-		stmt, err := tx.PrepareContext(ctx, `
-			INSERT INTO hex_metrics (hex_id, city_id, snapshot_id, metric, value, ref, computed_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?)
-		`)
-		if err != nil {
-			return fmt.Errorf("prepare hex metrics insert: %w", err)
-		}
-		defer func() { _ = stmt.Close() }()
-		now := time.Now()
-		for _, m := range rows {
-			if _, err := stmt.ExecContext(ctx, m.HexID, s.cityID, snapshotID, metric, m.Value, m.Ref, now); err != nil {
-				return fmt.Errorf("insert hex metric %s/%s: %w", metric, m.HexID, err)
+		for _, metric := range slices.Sorted(maps.Keys(set)) {
+			if err := s.replaceHexMetrics(ctx, tx, metric, snapshotID, set[metric]); err != nil {
+				return err
 			}
 		}
 		return nil
 	})
+}
+
+// replaceHexMetrics deletes this city's (metric, snapshotID) slice and inserts
+// rows in its place. The delete runs even for an empty rows slice — a compute
+// that produced nothing must clear what the previous run stored. snapshot_id
+// is nullable and `= ?` never matches NULL, so an untagged slice is deleted
+// via IS NULL.
+func (s *sqliteStore) replaceHexMetrics(ctx context.Context, tx *sql.Tx, metric string, snapshotID *int64, rows []HexMetric) error {
+	var err error
+	if snapshotID != nil {
+		_, err = tx.ExecContext(ctx, `DELETE FROM hex_metrics WHERE city_id = ? AND metric = ? AND snapshot_id = ?`, s.cityID, metric, *snapshotID)
+	} else {
+		_, err = tx.ExecContext(ctx, `DELETE FROM hex_metrics WHERE city_id = ? AND metric = ? AND snapshot_id IS NULL`, s.cityID, metric)
+	}
+	if err != nil {
+		return fmt.Errorf("replace hex metrics %s: %w", metric, err)
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO hex_metrics (hex_id, city_id, snapshot_id, metric, value, ref, computed_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return fmt.Errorf("prepare hex metrics insert: %w", err)
+	}
+	defer func() { _ = stmt.Close() }()
+	now := time.Now()
+	for _, m := range rows {
+		if _, err := stmt.ExecContext(ctx, m.HexID, s.cityID, snapshotID, metric, m.Value, m.Ref, now); err != nil {
+			return fmt.Errorf("insert hex metric %s/%s: %w", metric, m.HexID, err)
+		}
+	}
+	return nil
 }
 
 // ListHexMetrics returns one metric's rows with the three-arm snapshot

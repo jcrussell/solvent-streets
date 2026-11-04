@@ -94,10 +94,12 @@ func NewCmdCompute(f *cmdutil.Factory, service *string, runF func(context.Contex
 		Short: "Compute response-time coverage per hex",
 		Long: `Build a routable graph from the stored roads (OpenStreetMap rows when
 present, else the agency centerlines), route from every facility at once,
-and store each hex's response time — turnout plus travel to the road vertex
-nearest the hex centre — as a per-hex metric attached to the city's latest
-roads compute snapshot. Hexes off the network or unreachable from every
-facility carry no value.`,
+and store each hex's response time — turnout plus travel to the nearest
+reachable point along a road from the hex centre — as a per-hex metric
+attached to the city's latest roads compute snapshot. Export publishes it
+only while that snapshot is still the latest, so rerun this after a roads
+compute. Hexes off the network or unreachable from every facility carry no
+value.`,
 		Example: `  # Fire response coverage for every configured city
   pvmt services compute
 
@@ -203,11 +205,11 @@ func loadFacilities(ctx context.Context, store db.Store, city *config.CityConfig
 		}
 		out = append(out, services.Facility{ID: r.ID, Name: r.Name, Lon: pt.Coordinates[0], Lat: pt.Coordinates[1], Source: "osm"})
 	}
-	for i, fc := range city.Facilities {
+	for _, fc := range city.Facilities {
 		if fc.Service != spec.Name {
 			continue
 		}
-		out = append(out, services.Facility{ID: fmt.Sprintf("config:%s:%d", spec.Name, i), Name: fc.Name, Lon: fc.Lon, Lat: fc.Lat, Source: "config"})
+		out = append(out, services.Facility{ID: services.ConfigFacilityID(spec.Name, fc.Lon, fc.Lat), Name: fc.Name, Lon: fc.Lon, Lat: fc.Lat, Source: "config"})
 	}
 	return out, nil
 }
@@ -316,7 +318,7 @@ func doCompute(ctx context.Context, out, progress, errOut io.Writer, notify tui.
 	// Warnings go through errOut, the TUI's warn writer, not straight to
 	// ErrOut under the alt-screen program.
 	for _, i := range cov.Unsnapped {
-		fmt.Fprintf(errOut, "warning: %s facility %s (%s) is more than %.0f m from any road vertex and was ignored\n", spec.Name, facilities[i].ID, facilities[i].Name, services.FacilitySnapM)
+		fmt.Fprintf(errOut, "warning: %s facility %s (%s) is more than %.0f m from any road and was ignored\n", spec.Name, facilities[i].ID, facilities[i].Name, services.FacilitySnapM)
 	}
 	for _, i := range cov.Isolated {
 		fmt.Fprintf(errOut, "warning: %s facility %s (%s) snapped to a road fragment of fewer than %d vertices (an apron or driveway OSM does not join to the street); it reaches almost nothing\n", spec.Name, facilities[i].ID, facilities[i].Name, services.MinFacilityComponent)

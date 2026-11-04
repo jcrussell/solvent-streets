@@ -315,17 +315,23 @@ city-builder's service-coverage overlay. It is computed, not observed:
    roundabouts) is respected. One source feeds the graph: OpenStreetMap
    when ingested, otherwise the agency centerlines (which carry no speed
    tags and so run at the default).
-3. **Routing.** A single multi-source shortest-path run from every station
-   gives each road vertex its travel time from the nearest one. A hex's
-   value is the **turnout** (80 s, NFPA 1710 for fire and special
-   operations) plus the travel time to the vertex nearest its centre,
-   provided that vertex is within 300 m; stations farther than 500 m from
-   the network are ignored with a warning. The summary's "within
+3. **Routing.** Each station is placed at the nearest point along a road
+   (preferring the main street network over a closer unconnected stub),
+   and a single multi-source shortest-path run from every station gives
+   each road vertex its travel time from the nearest one. A hex's value is
+   the **turnout** (80 s, NFPA 1710 for fire and special operations) plus
+   the travel time to the nearest reachable point along a road from its
+   centre — not merely the nearest vertex, so a long straight road with
+   few vertices still reaches the hexes it crosses — provided that point
+   is within 300 m; stations farther than 500 m from the network are
+   ignored with a warning. The summary's "within
    threshold" share uses NFPA 1710's 240 s first-engine travel time.
    `[[services]]` in the config overrides both constants.
 4. **Storage and display.** Values are stored per hex as the
    `fire_response_s` metric against the city's latest roads compute
-   snapshot, exported in `hex-metrics.json`, and painted in five bands
+   snapshot, exported in `hex-metrics.json` only while that snapshot is
+   still the latest (a fresh roads compute hides them until coverage is
+   recomputed, as `pvmt all compute` does), and painted in five bands
    (≤ 5:20, 7:20, 9:20, 11:20, > 11:20 total time). Only hexes that
    also carry pavement rows are painted; a hex with no road within reach
    carries no value rather than a sentinel.
