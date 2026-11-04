@@ -141,6 +141,11 @@
         /* A metric legend paints discrete bands; the bar background is set by
            renderLegend to hard colour stops. */
         #legend .legend-bar.discrete { border: 1px solid var(--border); }
+        /* ...and stretches to the legend's width, which the label grid sets:
+           range labels such as "10,000–20,000" need more than the ramp's
+           fixed width, and a fixed bar under a wider grid would put each
+           label beside its colour block instead of under it. */
+        #legend .legend-bar.discrete { width: auto; box-sizing: border-box; }
 
         /* Hex tooltip */
         #hex-tooltip {
