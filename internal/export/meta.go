@@ -17,6 +17,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/game"
 	"github.com/jcrussell/solvent-streets/internal/geo"
+	"github.com/jcrussell/solvent-streets/internal/hexmetric"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
@@ -238,6 +239,7 @@ func (d TemplateData) IndexConfigJSON() template.JS {
 		UnitSystem    string           `json:"unitSystem"`
 		ForecastSeed  json.RawMessage  `json:"forecastSeed"`
 		WasmPrefix    string           `json:"wasmPrefix"`
+		HexMetrics    []hexmetric.Spec `json:"hexMetrics"`
 	}{
 		Cities:        jsCities(d.Cities),
 		TagDimensions: jsTagDimensions(d.TagDimensions),
@@ -246,6 +248,10 @@ func (d TemplateData) IndexConfigJSON() template.JS {
 		UnitSystem:    d.UnitSystem,
 		ForecastSeed:  rawOrNull(d.ForecastSeed),
 		WasmPrefix:    d.WasmPrefix,
+		// The derived "Color by" metrics (coverage, area, spaces, est. cost):
+		// static registry data, so every city offers them with or without
+		// a hex-metrics.json.
+		HexMetrics: hexmetric.DerivedSpecs(),
 	}
 	data, _ := json.Marshal(cfg)
 	return template.JS(data)

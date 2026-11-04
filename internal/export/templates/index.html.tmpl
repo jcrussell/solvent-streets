@@ -715,13 +715,14 @@
             <div id="stats"></div>
         </div>
         <div id="legend">
-            <!-- "Color by": coverage, plus one entry per per-hex metric the city's
-                 hex-metrics.json carries (app.js populates #hex-metric and redraws
-                 the bar + labels from the metric's scale via renderLegend). -->
+            <!-- "Color by": every registry metric available for the city — the
+                 derived pavement colorings (PVMT_CONFIG.hexMetrics) plus the
+                 stored ones in hex-metrics.json (app.js populates #hex-metric and
+                 redraws the bar + labels from the metric's scale via renderLegend). -->
             <div class="legend-row">
                 <label class="legend-title" for="hex-metric">Color by</label>
                 <select id="hex-metric" aria-label="Color hexes by" autocomplete="off">
-                    <option value="coverage">Coverage %</option>
+                    <option value="coverage_pct">Coverage %</option>
                 </select>
             </div>
             <div class="legend-bar"></div>

@@ -264,6 +264,18 @@ are hex-clipped the same way). Limitations:
 - A city computed before this estimate existed shows no count until it is
   recomputed.
 
+### Color by
+
+The map's **Color by** selector offers every per-hex metric available for
+the city. The pavement colorings — **Coverage %** (the default), **Paved
+area**, **Parking spaces** and **Est. year-1 cost** — are computed in the
+browser from the hex grid over the resources currently toggled on, so they
+change as you toggle roads, parking or sidewalks; a coloring with nothing to
+show (no parking, no forecast) is not offered. Stored metrics such as fire
+response come from a compute pass and can also paint hexes that hold no
+pavement. Band edges are fixed values, the same in every city, so colors
+compare across cities.
+
 ### Service coverage (fire response)
 
 The map's **Color by → Fire response** mode paints each hex with an

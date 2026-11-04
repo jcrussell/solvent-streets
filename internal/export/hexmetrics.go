@@ -97,7 +97,7 @@ func resolvedScale(entry CityEntry, spec hexmetric.Spec) (hexmetric.Scale, float
 // cache evicts rather than memoising a blank file.
 func BuildHexMetrics(ctx context.Context, entry CityEntry) (*HexMetricsJSON, error) {
 	out := &HexMetricsJSON{V: HexMetricsFileVersion, Metrics: map[string]MetricJSON{}}
-	for _, spec := range hexmetric.All() {
+	for _, spec := range hexmetric.StoredSpecs() {
 		rows, err := entry.Store.ListHexMetrics(ctx, spec.Key)
 		if err != nil {
 			return nil, fmt.Errorf("listing hex metric %s: %w", spec.Key, err)
@@ -205,7 +205,7 @@ func pointLonLat(f db.Feature) (float64, float64, bool) {
 func buildMetricSummaries(ctx context.Context, entry CityEntry) (map[string]MetricSummaryJSON, error) {
 	var out map[string]MetricSummaryJSON
 	var painted map[string]bool // built lazily: most cities have no metrics
-	for _, spec := range hexmetric.All() {
+	for _, spec := range hexmetric.StoredSpecs() {
 		rows, err := entry.Store.ListHexMetrics(ctx, spec.Key)
 		if err != nil {
 			return nil, fmt.Errorf("listing hex metric %s: %w", spec.Key, err)

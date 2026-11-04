@@ -47,15 +47,19 @@ interface PvmtTagDimension {
   values: Array<{ tag: string; label: string }>;
 }
 
-// One entry of hex-metrics.json's metrics map (export.MetricJSON).
+// One "Color by" metric: an entry of hex-metrics.json's metrics map
+// (export.MetricJSON, a stored metric with values) or of PVMT_CONFIG.hexMetrics
+// (hexmetric.Spec, a derived metric the client computes; carries key/derive).
 interface PvmtHexMetric {
+  key?: string;
   label: string;
   unit: string;
   format: string;
   source: string;
-  scale: { kind: string; transform: string; bands: number[] | null };
+  scale: { kind: string; transform: string; bands: number[] | null; mode?: string; ticks?: number[] };
+  derive?: { op: string; prop: string; max?: number; den?: string; min_den?: number };
   threshold_s?: number;
-  values: Record<string, number>;
+  values?: Record<string, number>;
   refs?: Record<string, number>;
   points?: Array<{ id: string; name: string; lon: number; lat: number; source: string }>;
 }
@@ -82,6 +86,7 @@ interface PvmtConfig {
   cities?: PvmtCity[];
   tagDimensions?: PvmtTagDimension[];
   layerColors?: any;
+  hexMetrics?: PvmtHexMetric[];
   unitSystem?: string;
   dataPrefix?: string;
   mapHref?: string;

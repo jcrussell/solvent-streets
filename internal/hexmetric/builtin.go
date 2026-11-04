@@ -1,0 +1,74 @@
+package hexmetric
+
+// Built-in derived metrics: the pavement colorings the dashboard has always
+// offered, expressed as registry Specs so they share one paint, legend,
+// selector and tooltip path with stored metrics like fire response. Their
+// values are computed by the dashboard from hexgrid.geojson over the toggled
+// resources (see Derivation), so a new pavement resource gets every one of
+// these colorings without code.
+//
+// Band edges are absolute and city-independent (the Spec is static per key).
+// They were picked from the hex_stats distribution of a real city at the
+// default 100 m hex edge: roughly the 10th–99th percentiles.
+const (
+	// KeyCoverage is the default "Color by" metric. It stays out of the URL.
+	KeyCoverage = "coverage_pct"
+	// KeyArea is the toggled resources' area per hex.
+	KeyArea = "paved_area_m2"
+	// KeySpaces is the apportioned parking-space estimate per hex.
+	KeySpaces = "parking_spaces"
+	// KeyEstCost is the client's year-1 cost estimate per hex.
+	KeyEstCost = "est_cost_usd"
+)
+
+func init() {
+	Register(Spec{
+		Key:    KeyCoverage,
+		Label:  "Coverage %",
+		Unit:   "%",
+		Source: "Share of the hex covered by the toggled resources (pvmt compute)",
+		Format: FormatPercent,
+		Scale: Scale{
+			Kind: KindCoverage, Transform: TransformLinear, Mode: ModeRamp,
+			Bands: []float64{0, 10, 25, 50, 75, 100},
+			Ticks: []float64{0, 25, 50, 75, 100},
+		},
+		Derive: &Derivation{Op: OpSum, Prop: PropPct, Max: 100},
+	})
+	Register(Spec{
+		Key:    KeyArea,
+		Label:  "Paved area",
+		Unit:   "m2",
+		Source: "Area of the toggled resources inside the hex (pvmt compute)",
+		Format: FormatArea,
+		Scale: Scale{
+			Kind: KindSequential, Transform: TransformLinear,
+			Bands: []float64{500, 1000, 2000, 4000, 8000},
+		},
+		Derive: &Derivation{Op: OpSum, Prop: PropArea},
+	})
+	Register(Spec{
+		Key:    KeySpaces,
+		Label:  "Parking spaces",
+		Unit:   "",
+		Source: "Estimated parking spaces apportioned to the hex by lot area (pvmt compute)",
+		Format: FormatInt,
+		Scale: Scale{
+			Kind: KindSequential, Transform: TransformLinear,
+			Bands: []float64{10, 25, 50, 100, 250},
+		},
+		Derive: &Derivation{Op: OpSum, Prop: PropSpaces},
+	})
+	Register(Spec{
+		Key:    KeyEstCost,
+		Label:  "Est. year-1 cost",
+		Unit:   "usd",
+		Source: "Each toggled resource's year-1 need (pvmt forecast) split by the hex's share of its area",
+		Format: FormatUSD,
+		Scale: Scale{
+			Kind: KindSequential, Transform: TransformLinear,
+			Bands: []float64{5000, 10000, 25000, 50000, 100000},
+		},
+		Derive: &Derivation{Op: OpSum, Prop: PropEstCost},
+	})
+}

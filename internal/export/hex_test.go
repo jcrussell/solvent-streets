@@ -404,8 +404,8 @@ func TestBuildHexGeoJSON_CarriesFormatVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildHexGeoJSON: %v", err)
 	}
-	if fc["v"] != 3 {
-		t.Errorf("v = %v; want 3 — the client refuses to render an unrecognized version", fc["v"])
+	if fc["v"] != HexGridFileVersion || HexGridFileVersion != 4 {
+		t.Errorf("v = %v; want 4 — the client refuses to render an unrecognized version", fc["v"])
 	}
 }
 
@@ -800,7 +800,7 @@ func TestBuildHexGeoJSON_ParkingSpaces(t *testing.T) {
 		parkingCity: {{HexID: "0,0", ResourceType: parkingCity, Area: 90, PctCovered: 30, EstimatedSpaces: 12.4, ComputedAt: now},
 			{HexID: "0,1", ResourceType: parkingCity, Area: 9, PctCovered: 3, EstimatedSpaces: 0.3, ComputedAt: now}},
 	}, nil)
-	aggs, _, err := aggregateHexStats(t.Context(), entry)
+	aggs, err := aggregateHexStats(t.Context(), entry)
 	if err != nil {
 		t.Fatalf("aggregateHexStats: %v", err)
 	}
@@ -816,5 +816,48 @@ func TestBuildHexGeoJSON_ParkingSpaces(t *testing.T) {
 	}
 	if !sameCoverage(a.city["parking"], a.bbox["parking"]) {
 		t.Errorf("identical parking scopes must still compare equal with spaces present: city=%v bbox=%v", a.city["parking"], a.bbox["parking"])
+	}
+}
+
+// TestBuildHexGeoJSON_EmitsEveryGridHex pins hexgrid v4: every hex of the
+// clipped grid is a feature, and a hex without pavement rows carries only its
+// id (geometry for stored metrics such as population, nothing for the
+// pavement colorings).
+func TestBuildHexGeoJSON_EmitsEveryGridHex(t *testing.T) {
+	probe := hexEntry(t, nil, nil)
+	_, lon, lat, err := probe.BBoxAndCenter(t.Context())
+	if err != nil {
+		t.Fatalf("BBoxAndCenter: %v", err)
+	}
+	proj := geo.NewUTMProjector(lon, lat)
+	grid, err := cityHexGrid(t.Context(), probe, proj)
+	if err != nil || len(grid) < 2 {
+		t.Fatalf("cityHexGrid: %d hexes, err %v; need at least 2", len(grid), err)
+	}
+	paved := grid[0].ID
+	entry := hexEntry(t, map[resource.Type][]db.HexStat{
+		rtRoads: {{HexID: paved, ResourceType: rtRoads, Area: 100, PctCovered: 50}},
+	}, nil)
+
+	fc, err := BuildHexGeoJSON(t.Context(), entry, proj)
+	if err != nil {
+		t.Fatalf("BuildHexGeoJSON: %v", err)
+	}
+	feats, _ := fc["features"].([]map[string]any)
+	if len(feats) != len(grid) {
+		t.Fatalf("features = %d, want one per grid hex (%d)", len(feats), len(grid))
+	}
+	for _, f := range feats {
+		props := f["properties"].(map[string]any)
+		_, hasBBox := props["bbox"]
+		if id := props["id"]; id == paved {
+			if !hasBBox {
+				t.Errorf("paved hex %s lost its coverage", id)
+			}
+			continue
+		}
+		if hasBBox || len(props) != 1 {
+			t.Errorf("pavement-free hex must carry only its id, got %v", props)
+		}
 	}
 }

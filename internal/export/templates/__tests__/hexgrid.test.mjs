@@ -6,15 +6,17 @@ import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
 import { metaJSON } from './fixtures.mjs';
 
-// Three per-feature property shapes exist in a v3 file, and all three have to
+// Four per-feature property shapes exist in a v4 file, and all four have to
 // roll up correctly:
 //   city_same: 1   -> city scope reuses the bbox coverage (the dedup, ~70% of features)
 //   city: {...}    -> city scope differs and carries its own object
-//   neither        -> the hex has no city-scope rows at all
+//   bbox only      -> the hex has no city-scope rows at all
+//   id only        -> a grid hex with no pavement rows (v4): geometry for
+//                     stored metrics, nothing for the pavement colorings
 function hexFC(features) {
   return {
     type: 'FeatureCollection',
-    v: 3,
+    v: 4,
     features: features.map((props, i) => ({
       type: 'Feature',
       geometry: { type: 'Polygon', coordinates: [[[0, 0], [0, 1], [1, 1], [0, 0]]] },
@@ -63,7 +65,7 @@ test('a city_same hex is not silently dropped from city scope', async () => {
     'every city_same hex must appear in city scope');
 });
 
-test('a non-v3 hexgrid is refused rather than under-reported', async () => {
+test('a non-v4 hexgrid is refused rather than under-reported', async () => {
   // Failing loudly is the point: an older client reading a newer file finds
   // keys it does not know (or misses ones it expects) and under-reports with no
   // error anywhere.
@@ -75,7 +77,7 @@ test('a non-v3 hexgrid is refused rather than under-reported', async () => {
     'a version-less file must not populate any scope');
   const banner = doc.getElementById('load-error') || doc.querySelector('.load-error, #error-banner');
   const text = banner ? banner.textContent : doc.body.textContent;
-  assert.match(text, /hexgrid|stale|v3/i, 'no error surfaced for a stale hexgrid format');
+  assert.match(text, /hexgrid|stale|v4/i, 'no error surfaced for a stale hexgrid format');
 });
 
 test('multiple resource types stay separated per scope', async () => {
@@ -92,7 +94,7 @@ test('multiple resource types stay separated per scope', async () => {
   assert.equal(city.sidewalks[0].properties.area, 20);
 });
 
-test('parking spaces ride the v3 per-resource map into the blended hex layer', async () => {
+test('parking spaces ride the per-resource map into the blended hex layer', async () => {
   const { get, win } = await loadHexes(hexFC([
     { bbox: { roads: { area: 100, pct: 10 }, parking: { area: 60, pct: 6, spaces: 12 } }, city_same: 1 },
     { bbox: { roads: { area: 100, pct: 10 } }, city_same: 1 },

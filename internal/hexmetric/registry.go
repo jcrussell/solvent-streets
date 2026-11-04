@@ -1,8 +1,10 @@
 // Package hexmetric is the registry of per-hex metrics: named, unit-bearing
 // values that a compute pass stores per hex (db.HexMetric / hex_metrics),
 // the exporter writes to hex-metrics.json, and the dashboard offers in its
-// "Color by" selector. Fire response time is the first metric; population
-// density and per-resident upkeep are planned. A new metric is a Spec
+// "Color by" selector. Fire response time is the first stored metric; the
+// pavement colorings (coverage, area, spaces, est. cost) are derived metrics
+// registered in builtin.go, which the dashboard computes from hexgrid.geojson
+// so every hex coloring goes through this one registry. A new metric is a Spec
 // registered from its producing package's init(), and nothing on the export
 // or client side changes.
 //
@@ -28,6 +30,7 @@ import (
 const (
 	KindSequential  = "sequential" // low → high, one hue ramp
 	KindDiverging   = "diverging"  // two hues around a midpoint
+	KindCoverage    = "coverage"   // the blue pavement-coverage ramp (--legend-*)
 	TransformLinear = "linear"
 	TransformLog    = "log"
 )
@@ -38,17 +41,92 @@ const (
 	FormatFloat1  = "float1"  // one decimal
 	FormatMinutes = "minutes" // seconds in, "m:ss" or "N min" out
 	FormatUSD     = "usd"     // dollars
+	FormatPercent = "percent" // 0–100, rendered with a % sign
+	FormatArea    = "area"    // square metres in, the viewer's area unit out
 )
+
+// Scale modes. Bands (the default, and what an empty Mode means so files
+// written before Mode existed read unchanged) paints one discrete colour per
+// band; Ramp interpolates continuously between the edges, which are then
+// the colour stops.
+const (
+	ModeBands = "bands"
+	ModeRamp  = "ramp"
+)
+
+// Derivation ops. A derived metric is computed by the dashboard from data it
+// already holds instead of being stored per hex, so it follows the viewer's
+// resource toggles and scope.
+const (
+	// OpSum sums Prop over the toggled resources, capped at Max when Max > 0.
+	OpSum = "sum"
+	// OpRatio divides the OpSum numerator by the stored metric Den, leaving
+	// the hex empty when Den is below MinDen.
+	OpRatio = "ratio"
+)
+
+// Per-resource hex properties a Derivation may combine: the coverage
+// percentage and area from hexgrid.geojson, the apportioned parking spaces,
+// and the client's year-1 cost estimate (the resource's year-1 need from
+// hex-cost-summary.json split by the hex's share of that resource's area).
+const (
+	PropPct     = "pct"
+	PropArea    = "area"
+	PropSpaces  = "spaces"
+	PropEstCost = "est_cost"
+)
+
+// Derivation describes how the dashboard computes a derived metric. See the
+// Op* constants.
+type Derivation struct {
+	Op     string  `json:"op"`
+	Prop   string  `json:"prop"`
+	Max    float64 `json:"max,omitempty"`
+	Den    string  `json:"den,omitempty"`
+	MinDen float64 `json:"min_den,omitempty"`
+}
+
+func (d Derivation) validate(key string) error {
+	switch d.Prop {
+	case PropPct, PropArea, PropSpaces, PropEstCost:
+	default:
+		return fmt.Errorf("hexmetric: %s derives from unknown property %q", key, d.Prop)
+	}
+	if d.Max < 0 || d.MinDen < 0 {
+		return fmt.Errorf("hexmetric: %s has a negative max or min_den", key)
+	}
+	switch d.Op {
+	case OpSum:
+		if d.Den != "" {
+			return fmt.Errorf("hexmetric: %s is a sum but names a denominator", key)
+		}
+	case OpRatio:
+		if !keyRe.MatchString(d.Den) {
+			return fmt.Errorf("hexmetric: %s ratio denominator %q must be a metric key", key, d.Den)
+		}
+	default:
+		return fmt.Errorf("hexmetric: %s has unknown derivation op %q", key, d.Op)
+	}
+	return nil
+}
 
 // Scale describes how a metric's values map to colours: band edges in
 // ascending order (the client paints one colour per band, values at or below
 // an edge fall in that band, values above the last edge in the final band).
 // At least one edge is required — a bandless scale would be a single colour
 // and produces an invalid map paint expression.
+//
+// Mode and Ticks are omitempty so a bands scale serializes exactly as it did
+// before they existed (hex-metrics.json stays at v1).
 type Scale struct {
 	Kind      string    `json:"kind"`
 	Transform string    `json:"transform"`
 	Bands     []float64 `json:"bands"`
+	// Mode is ModeBands (or empty) or ModeRamp; a ramp needs two or more
+	// edges, which are its colour stops.
+	Mode string `json:"mode,omitempty"`
+	// Ticks are the legend labels for a ramp; empty labels the edges.
+	Ticks []float64 `json:"ticks,omitempty"`
 }
 
 // Spec describes one per-hex metric.
@@ -59,7 +137,13 @@ type Spec struct {
 	Source string `json:"source"` // one line on where the numbers come from
 	Format string `json:"format"` // one of the Format* constants
 	Scale  Scale  `json:"scale"`
+	// Derive, when set, makes this a derived metric: the dashboard computes
+	// it (see Derivation) and nothing is stored or exported per hex.
+	Derive *Derivation `json:"derive,omitempty"`
 }
+
+// Derived reports whether s is computed by the dashboard rather than stored.
+func (s Spec) Derived() bool { return s.Derive != nil }
 
 var keyRe = regexp.MustCompile(`^[a-z][a-z0-9]*(_[a-z0-9]+)*$`)
 
@@ -74,12 +158,12 @@ func (s Spec) Validate() error {
 		return fmt.Errorf("hexmetric: %s has no label", s.Key)
 	}
 	switch s.Format {
-	case FormatInt, FormatFloat1, FormatMinutes, FormatUSD:
+	case FormatInt, FormatFloat1, FormatMinutes, FormatUSD, FormatPercent, FormatArea:
 	default:
 		return fmt.Errorf("hexmetric: %s has unknown format %q", s.Key, s.Format)
 	}
 	switch s.Scale.Kind {
-	case KindSequential, KindDiverging:
+	case KindSequential, KindDiverging, KindCoverage:
 	default:
 		return fmt.Errorf("hexmetric: %s has unknown scale kind %q", s.Key, s.Scale.Kind)
 	}
@@ -91,12 +175,37 @@ func (s Spec) Validate() error {
 	if len(s.Scale.Bands) == 0 {
 		return fmt.Errorf("hexmetric: %s needs at least one band edge", s.Key)
 	}
-	for i := 1; i < len(s.Scale.Bands); i++ {
-		if s.Scale.Bands[i] <= s.Scale.Bands[i-1] {
-			return fmt.Errorf("hexmetric: %s band edges must be strictly ascending, got %v", s.Key, s.Scale.Bands)
+	if !ascending(s.Scale.Bands) {
+		return fmt.Errorf("hexmetric: %s band edges must be strictly ascending, got %v", s.Key, s.Scale.Bands)
+	}
+	switch s.Scale.Mode {
+	case "", ModeBands:
+		if len(s.Scale.Ticks) > 0 {
+			return fmt.Errorf("hexmetric: %s has ticks but is not a ramp", s.Key)
 		}
+	case ModeRamp:
+		if len(s.Scale.Bands) < 2 {
+			return fmt.Errorf("hexmetric: %s ramp needs at least two stops", s.Key)
+		}
+		if !ascending(s.Scale.Ticks) {
+			return fmt.Errorf("hexmetric: %s ticks must be strictly ascending, got %v", s.Key, s.Scale.Ticks)
+		}
+	default:
+		return fmt.Errorf("hexmetric: %s has unknown scale mode %q", s.Key, s.Scale.Mode)
+	}
+	if s.Derive != nil {
+		return s.Derive.validate(s.Key)
 	}
 	return nil
+}
+
+func ascending(xs []float64) bool {
+	for i := 1; i < len(xs); i++ {
+		if xs[i] <= xs[i-1] {
+			return false
+		}
+	}
+	return true
 }
 
 var (
@@ -149,5 +258,25 @@ func All() []Spec {
 		out = append(out, s)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	return out
+}
+
+// StoredSpecs returns the registered Specs whose values a compute pass stores
+// per hex (hex_metrics), sorted by key. These are what the exporter writes to
+// hex-metrics.json.
+func StoredSpecs() []Spec { return filterSpecs(false) }
+
+// DerivedSpecs returns the registered Specs the dashboard computes itself,
+// sorted by key. The exporter ships them in the page config so they exist for
+// every city, with or without hex-metrics.json.
+func DerivedSpecs() []Spec { return filterSpecs(true) }
+
+func filterSpecs(derived bool) []Spec {
+	var out []Spec
+	for _, s := range All() {
+		if s.Derived() == derived {
+			out = append(out, s)
+		}
+	}
 	return out
 }

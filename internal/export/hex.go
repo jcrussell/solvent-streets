@@ -15,6 +15,10 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
+// HexGridFileVersion is the "v" of hexgrid.geojson; the client refuses any
+// other value. See the version history in buildHexGeoJSONFromGrid.
+const HexGridFileVersion = 4
+
 // hexAgg accumulates a single hex's coverage across resources and scopes.
 // bbox/city map a bare resource name -> {"area", "pct"}; city stays nil until
 // a ":city" row lands, which doubles as the "this hex is in the city" signal.
@@ -61,25 +65,32 @@ func BuildHexGeoJSON(ctx context.Context, entry CityEntry, proj *geo.UTMProjecto
 func buildHexGeoJSONFromGrid(ctx context.Context, entry CityEntry, proj *geo.UTMProjector, grid cityHexGridFunc) (map[string]any, error) {
 	decimals := entry.Config.CoordinateDecimals()
 
-	aggs, order, err := aggregateHexStats(ctx, entry)
+	aggs, err := aggregateHexStats(ctx, entry)
 	if err != nil {
 		return nil, err
 	}
-	if len(order) == 0 {
+	if len(aggs) == 0 {
 		// nil map signals "no hex stats" — a legitimate empty both callers
 		// handle (server returns an empty FC; static export skips the file).
 		// The error slot is reserved for real ListHexStats failures, which
 		// aggregateHexStats already surfaced above.
 		return nil, nil //nolint:nilnil // nil map = legitimate empty, distinct from the propagated DB error above
 	}
-	// ListHexStats has no ORDER BY, so sort hex IDs here for reproducible
-	// output — unchanged data yields a byte-identical file across regens.
-	sort.Strings(order)
-
 	hexes, err := grid()
 	if err != nil {
 		return nil, err
 	}
+
+	// Every hex of the clipped grid is emitted, with or without pavement rows
+	// (v4), so a stored metric such as population can paint hexes that hold
+	// no pavement. Hex stats for ids outside the grid (bbox-scope rows beyond
+	// the boundary) have no geometry and are dropped as before. Sorted by id
+	// so unchanged data yields a byte-identical file across regens.
+	order := make([]string, 0, len(hexes))
+	for i := range hexes {
+		order = append(order, hexes[i].ID)
+	}
+	sort.Strings(order)
 
 	hexMap := make(map[string]*geo.Hex, len(hexes))
 	for i := range hexes {
@@ -101,8 +112,10 @@ func buildHexGeoJSONFromGrid(ctx context.Context, entry CityEntry, proj *geo.UTM
 		// to render a file it doesn't recognize instead. Bumped to 3 when the
 		// per-resource maps gained the optional "spaces" key (parking). Any
 		// future change to the property shape must bump this too — the client
-		// and the exporter ship together, so the bump costs nothing.
-		"v":        3,
+		// and the exporter ship together, so the bump costs nothing. Bumped to
+		// 4 when every grid hex became a feature: a hex with no pavement rows
+		// carries only "id" (no "bbox"), which a v3 client would mis-count.
+		"v":        HexGridFileVersion,
 		"features": features,
 	}, nil
 }
@@ -149,29 +162,27 @@ func roundSig(v float64, digits int) float64 {
 }
 
 // aggregateHexStats collects hex_stats rows across every resource and both
-// scopes into per-hex aggregates. It returns the aggregates keyed by hex ID and
-// the first-seen hex order; the caller sorts this for reproducible output.
+// scopes into per-hex aggregates keyed by hex ID. The caller emits one feature
+// per grid hex in sorted id order, so no order is returned here.
 //
 // ListHexStats returns a nil slice and no error for an un-computed resource
 // (a legitimate empty), so any non-nil error here is a real DB failure and is
 // propagated — distinguishing "no data" from "the query failed" so the caller
 // doesn't memoize a blank grid on a transient error.
-func aggregateHexStats(ctx context.Context, entry CityEntry) (map[string]*hexAgg, []string, error) {
+func aggregateHexStats(ctx context.Context, entry CityEntry) (map[string]*hexAgg, error) {
 	aggs := make(map[string]*hexAgg)
-	var order []string
 	for _, rt := range resource.All {
 		res := string(rt.Type().Bare())
 		for _, scope := range []resource.Scope{resource.ScopeAll, resource.ScopeCity} {
 			stats, err := entry.Store.ListHexStats(ctx, rt.Type().With(scope))
 			if err != nil {
-				return nil, nil, fmt.Errorf("listing hex stats for %s: %w", rt.Type().With(scope), err)
+				return nil, fmt.Errorf("listing hex stats for %s: %w", rt.Type().With(scope), err)
 			}
 			for _, st := range stats {
 				a := aggs[st.HexID]
 				if a == nil {
 					a = &hexAgg{}
 					aggs[st.HexID] = a
-					order = append(order, st.HexID)
 				}
 				// Spaces are rounded to a whole count with the same function
 				// for both scopes: sameCoverage compares the maps exactly, so
@@ -181,7 +192,7 @@ func aggregateHexStats(ctx context.Context, entry CityEntry) (map[string]*hexAgg
 			}
 		}
 	}
-	return aggs, order, nil
+	return aggs, nil
 }
 
 // set records one resource's coverage for the given scope, lazily allocating
@@ -316,10 +327,17 @@ func buildHexFeature(hexID string, agg *hexAgg, hexMap map[string]*geo.Hex, proj
 	if err != nil {
 		return nil, false
 	}
-	props := map[string]any{
-		"id":   hexID,
-		"bbox": agg.bbox,
+	props := map[string]any{"id": hexID}
+	if agg == nil {
+		// A grid hex with no pavement rows: geometry only, so stored metrics
+		// can still paint it.
+		return map[string]any{
+			"type":       "Feature",
+			"geometry":   json.RawMessage(gjson),
+			"properties": props,
+		}, true
 	}
+	props["bbox"] = agg.bbox
 	switch {
 	case agg.city == nil:
 		// No ":city" rows: this hex is outside the city polygon. Neither key is

@@ -652,7 +652,7 @@ func (s *Server) serveHexGridGeoJSON(w http.ResponseWriter, _ *http.Request, ent
 			// client aborts the whole city load on an unrecognized version — so
 			// omitting it here would turn "city has no hex stats", which
 			// degrades gracefully today, into a blank page under `pvmt serve`.
-			fc = map[string]any{"type": "FeatureCollection", "v": 3, "features": []any{}}
+			fc = map[string]any{"type": "FeatureCollection", "v": export.HexGridFileVersion, "features": []any{}}
 		}
 		return fc, nil
 	})

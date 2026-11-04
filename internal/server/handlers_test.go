@@ -1555,8 +1555,8 @@ func TestServeHexGridGeoJSON_EmptyFCCarriesVersion(t *testing.T) {
 	if len(fc.Features) != 0 {
 		t.Errorf("features = %d; want 0", len(fc.Features))
 	}
-	if fc.V != 3 {
-		t.Errorf("v = %d; want 3 — a version-less empty FC blanks the page under the client's format gate", fc.V)
+	if fc.V != export.HexGridFileVersion {
+		t.Errorf("v = %d; want %d — a version-less empty FC blanks the page under the client's format gate", fc.V, export.HexGridFileVersion)
 	}
 }
 
