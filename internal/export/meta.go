@@ -57,6 +57,18 @@ type TagDimension struct {
 	Groups []CityGroup
 }
 
+// Values returns the dimension's groups minus the untagged bucket: the
+// options a filter for this dimension offers.
+func (d TagDimension) Values() []CityGroup {
+	out := make([]CityGroup, 0, len(d.Groups))
+	for _, g := range d.Groups {
+		if g.Tag != "" {
+			out = append(out, g)
+		}
+	}
+	return out
+}
+
 // TemplateData wraps MetaJSON with the forecast seed for the interactive controls.
 type TemplateData struct {
 	MetaJSON
@@ -100,6 +112,18 @@ func (d TemplateData) CityGroups() []CityGroup {
 		return nil
 	}
 	return d.TagDimensions[0].Groups
+}
+
+// HasTagFilters reports whether any dimension offers a real choice (two or
+// more values). The templates omit the filter row entirely when it is false —
+// a single-value dimension cannot narrow anything.
+func (d TemplateData) HasTagFilters() bool {
+	for _, dim := range d.TagDimensions {
+		if len(dim.Values()) >= 2 {
+			return true
+		}
+	}
+	return false
 }
 
 // BandCount exposes game.BandCount to the game template, which checks its

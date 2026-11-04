@@ -1,4 +1,4 @@
-// URL state: ?tab= / ?city= / ?scope= / ?tag= must round-trip and survive
+// URL state: ?tab= / ?city= / ?scope= / ?tag= (repeated, dim:value) must round-trip and survive
 // back/forward. Router was previously verified only by a one-off Node harness
 // during the consolidate-tagged-site audit (solvent-streets-8je6) — nothing in
 // the repo ran it.
@@ -22,11 +22,11 @@ test('selecting a city writes it to the URL', async () => {
 test('a deep-linked city is restored on load', async () => {
   const { $, flush } = load({
     data: fullData,
-    url: 'https://example.test/index.html?city=gamma-ca',
+    url: 'https://example.test/index.html?city=gamma-or',
   });
   await flush();
 
-  assert.equal($('#city-select').value, 'gamma-ca',
+  assert.equal($('#city-select').value, 'gamma-or',
     'the city selector did not adopt ?city=');
 });
 
@@ -43,36 +43,141 @@ test('a deep-linked tab is restored on load', async () => {
     'the active tab did not adopt ?tab=');
 });
 
-test('tag scope round-trips through the URL', async () => {
+// Objects built inside the jsdom window belong to that realm; compare by
+// structure only.
+const plain = (v) => JSON.parse(JSON.stringify(v));
+const filter = ($, dim) => $('select.tag-filter[data-dim="' + dim + '"]');
+// Distinct slugs in selector order (a multi-tag city appears under each of its groups).
+const cityOptions = ($) => Array.from(new Set(Array.from($('#city-select').querySelectorAll('option')).map((o) => o.value)));
+
+test('tag filters round-trip through the URL on every tab', async () => {
   const { win, $, flush } = load({ data: fullData });
   await flush();
 
-  // #tag-scope only serializes while it is visible — it is shown on the
-  // Compare/Aggregate tabs, and pinning ?tag= elsewhere would set it where it
-  // does nothing.
-  win.selectTab('aggregate-tab');
-  await flush();
-  const tagEl = $('#tag-scope');
-  assert.equal(tagEl.hidden, false, '#tag-scope should be visible on the Aggregate tab');
-
-  tagEl.value = 'Metro';
-  win.onTagScopeChange('Metro');
-  await flush();
-
-  assert.equal(params(win).get('tag'), 'Metro', 'tag did not reach the URL');
-});
-
-test('a tag is not serialized on a tab where it does nothing', async () => {
-  const { win, $, get, flush } = load({ data: fullData });
-  await flush();
-
+  // The filters live in the gear menu and apply everywhere, so they
+  // serialize on the Map tab too (unlike the old Compare/Aggregate-only
+  // #tag-scope). Both dimensions are present: "group" from the explicit tags,
+  // "state" derived from the ", XX" name suffix.
   win.selectTab('map-tab');
   await flush();
-  assert.equal($('#tag-scope').hidden, true, '#tag-scope should be hidden on the Map tab');
+  assert.equal($('#tag-scope'), null, 'the legacy #tag-scope selector must be gone');
+  assert.equal(filter($, 'group').hidden, false);
+  assert.equal(filter($, 'state').hidden, false);
 
-  get('Router.push()');
-  assert.equal(params(win).get('tag'), null,
-    'a hidden tag selector must not pin ?tag=');
+  filter($, 'group').value = 'Metro';
+  win.onTagFilterChange();
+  await flush();
+  assert.deepEqual(params(win).getAll('tag'), ['group:Metro'], 'the filter did not reach the URL in dim:value form');
+
+  filter($, 'state').value = 'state:CA';
+  win.onTagFilterChange();
+  await flush();
+  assert.deepEqual(params(win).getAll('tag'), ['group:Metro', 'state:CA']);
+  assert.deepEqual(plain(win.selectedTags), { group: 'Metro', state: 'state:CA' });
+});
+
+test('a legacy bare ?tag= is read as the default dimension and narrows the selector', async () => {
+  const { win, $, flush } = load({
+    data: fullData,
+    url: 'https://example.test/index.html?tag=Metro',
+  });
+  await flush();
+
+  assert.deepEqual(plain(win.selectedTags), { group: 'Metro' });
+  assert.equal(filter($, 'group').value, 'Metro');
+  assert.deepEqual(cityOptions($), ['alpha-ca', 'beta-ca'], 'Gamma (no Metro tag) must be filtered out');
+  assert.ok($('#city-select option[value="alpha-ca"]').dataset.bbox, 'rebuilt options must keep data-bbox for selectCity');
+});
+
+test('filtering out the city in view switches to the first visible city', async () => {
+  const { win, $, flush } = load({ data: fullData });
+  await flush();
+
+  win.selectCity('gamma-or');
+  await flush();
+  assert.equal(params(win).get('city'), 'gamma-or');
+
+  filter($, 'state').value = 'state:CA';
+  win.onTagFilterChange();
+  await flush();
+  assert.equal($('#city-select').value, 'alpha-ca');
+  assert.equal(params(win).get('city'), 'alpha-ca', 'the URL must follow the switched city');
+  assert.equal(win.DATA_PREFIX, 'cities/alpha-ca/', 'the data prefix must follow the switched city');
+});
+
+test('an empty match keeps the current city and renders a disabled placeholder', async () => {
+  const { win, $, flush } = load({ data: fullData });
+  await flush();
+  win.selectCity('gamma-or');
+  await flush();
+
+  filter($, 'group').value = 'Top 50';
+  filter($, 'state').value = 'state:OR';
+  win.onTagFilterChange();
+  await flush();
+  const opts = Array.from($('#city-select').options);
+  assert.equal(opts.length, 1);
+  assert.equal(opts[0].disabled, true);
+  assert.equal(win.DATA_PREFIX, 'cities/gamma-or/', 'no match must not switch the data in view');
+});
+
+test('a deep-linked city outside the filters wins and the filters are dropped', async () => {
+  const { win, $, flush } = load({
+    data: fullData,
+    url: 'https://example.test/index.html?city=gamma-or&tag=state:CA',
+  });
+  await flush();
+
+  assert.equal($('#city-select').value, 'gamma-or');
+  assert.equal(win.DATA_PREFIX, 'cities/gamma-or/');
+  assert.equal(filter($, 'state').value, '', 'the conflicting filter must be reset');
+  assert.deepEqual(params(win).getAll('tag'), [], 'replaceState must record the dropped filter');
+});
+
+test('scopeCityData ANDs the selected dimensions', async () => {
+  const { win, flush } = load({ data: fullData });
+  await flush();
+
+  const rows = [{ slug: 'alpha-ca' }, { slug: 'beta-ca' }, { slug: 'gamma-or' }];
+  win.applyTagFilters({ group: 'Metro', state: 'state:CA' });
+  assert.deepEqual(plain(win.scopeCityData(rows)).map((r) => r.slug), ['alpha-ca', 'beta-ca']);
+  win.applyTagFilters({ group: 'Top 50', state: 'state:CA' });
+  assert.deepEqual(plain(win.scopeCityData(rows)).map((r) => r.slug), ['beta-ca']);
+  win.applyTagFilters({});
+  assert.equal(win.scopeCityData(rows).length, 3);
+});
+
+test('the Play link carries the city and the filters', async () => {
+  const { win, $, flush } = load({ data: fullData });
+  await flush();
+
+  filter($, 'group').value = 'Metro';
+  win.onTagFilterChange();
+  await flush();
+  const href = $('a.nav-link').getAttribute('href');
+  const q = new URLSearchParams(href.slice(href.indexOf('?') + 1));
+  assert.equal(q.get('city'), $('#city-select').value);
+  assert.deepEqual(q.getAll('tag'), ['group:Metro']);
+});
+
+test('back/forward restores the filter set', async () => {
+  const { win, $, flush } = load({ data: fullData });
+  await flush();
+
+  filter($, 'group').value = 'Metro';
+  win.onTagFilterChange();
+  await flush();
+  filter($, 'group').value = '';
+  win.onTagFilterChange();
+  await flush();
+  assert.deepEqual(params(win).getAll('tag'), []);
+
+  win.history.back();
+  await flush();
+  assert.deepEqual(params(win).getAll('tag'), ['group:Metro']);
+  assert.deepEqual(plain(win.selectedTags), { group: 'Metro' }, 'going back did not restore the filter');
+  assert.equal(filter($, 'group').value, 'Metro', 'the select did not follow the restored filter');
+  assert.deepEqual(cityOptions($), ['alpha-ca', 'beta-ca'], 'the selector was not rebuilt for the restored filter');
 });
 
 test('back/forward restores prior state', async () => {
@@ -81,9 +186,9 @@ test('back/forward restores prior state', async () => {
 
   win.selectCity('beta-ca');
   await flush();
-  win.selectCity('gamma-ca');
+  win.selectCity('gamma-or');
   await flush();
-  assert.equal(params(win).get('city'), 'gamma-ca');
+  assert.equal(params(win).get('city'), 'gamma-or');
 
   win.history.back();
   await flush();

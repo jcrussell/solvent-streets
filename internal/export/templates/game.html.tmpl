@@ -55,10 +55,13 @@
         .hud-row .v.broke { color: #ff7a6b; }
 
         /* City selector — lives in the top bar */
-        #city-select {
+        #city-select, #topbar .tag-filter {
             background: #1c2330; color: #e8eaed; border: 1px solid #384152;
             border-radius: 6px; padding: 4px 8px; font-size: 13px; cursor: pointer;
         }
+        /* Tag filters (shared partial, selectors.js) narrow the city selector. */
+        #topbar .tag-filters { display: flex; gap: 8px; }
+        .tag-filter[hidden] { display: none; }
 
         /* Controls — bottom left */
         #controls { bottom: 12px; left: 12px; padding: 14px 18px; min-width: 260px; max-height: calc(100vh - var(--bar-h) - 24px); overflow-y: auto; }
@@ -166,8 +169,9 @@
         {{if .Cities}}
         <label for="city-select" style="font-size:12px;color:#9aa4b2;">City</label>
         <select id="city-select">
-            {{range .CityGroups}}{{if .Tag}}<optgroup label="{{.Tag}}">{{range .Cities}}<option value="{{.Slug}}"{{if eq .Slug $.ActiveSlug}} selected{{end}}>{{.Name}}</option>{{end}}</optgroup>{{else}}{{range .Cities}}<option value="{{.Slug}}"{{if eq .Slug $.ActiveSlug}} selected{{end}}>{{.Name}}</option>{{end}}{{end}}{{end}}
+            {{range .CityGroups}}{{if .Tag}}<optgroup label="{{.Label}}">{{range .Cities}}<option value="{{.Slug}}"{{if eq .Slug $.ActiveSlug}} selected{{end}}>{{.Name}}</option>{{end}}</optgroup>{{else}}{{range .Cities}}<option value="{{.Slug}}"{{if eq .Slug $.ActiveSlug}} selected{{end}}>{{.Name}}</option>{{end}}{{end}}{{end}}
         </select>
+        {{if .HasTagFilters}}{{template "tag_filters" .}}{{end}}
         {{end}}
     </div>
 
@@ -233,6 +237,7 @@
     <!-- Shared with the index page; mounted once on the server (do not duplicate). -->
     <script src="{{.WasmPrefix}}wasm_exec.js"></script>
     <script>window.PVMT_CONFIG = {{ .GameConfigJSON }};</script>
+    <script src="{{.WasmPrefix}}selectors.js"></script>
     <script src="{{.WasmPrefix}}game.js"></script>
 </body>
 </html>

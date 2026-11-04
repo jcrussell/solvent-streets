@@ -232,10 +232,17 @@ func writeFixtureJSON(t *testing.T, dir, name string, v any) {
 func writeJSFixtureSite(t *testing.T, dir string, seed template.JS) {
 	t.Helper()
 
+	// Tags go through CityConfig.EffectiveTags exactly as CityEntry.Info does,
+	// so the derived state dimension (CA vs OR here) exists in the fixture and
+	// the state-filter specs exercise the real derivation rather than a
+	// hand-written tag.
+	tagsFor := func(name string, explicit ...string) []string {
+		return (&config.CityConfig{Name: name, Tags: explicit}).EffectiveTags()
+	}
 	cities := []CityInfo{
-		{Slug: "alpha-ca", Name: "Alpha, CA", BBox: [4]float64{-122.3, 37.7, -122.2, 37.8}, CenterLon: -122.25, CenterLat: 37.75, Tags: []string{"Metro"}},
-		{Slug: "beta-ca", Name: "Beta, CA", BBox: [4]float64{-121.8, 37.6, -121.7, 37.7}, CenterLon: -121.75, CenterLat: 37.65, Tags: []string{"Metro", "Top 50"}},
-		{Slug: "gamma-ca", Name: "Gamma, CA", BBox: [4]float64{-121.3, 38.5, -121.2, 38.6}, CenterLon: -121.25, CenterLat: 38.55},
+		{Slug: "alpha-ca", Name: "Alpha, CA", BBox: [4]float64{-122.3, 37.7, -122.2, 37.8}, CenterLon: -122.25, CenterLat: 37.75, Tags: tagsFor("Alpha, CA", "Metro")},
+		{Slug: "beta-ca", Name: "Beta, CA", BBox: [4]float64{-121.8, 37.6, -121.7, 37.7}, CenterLon: -121.75, CenterLat: 37.65, Tags: tagsFor("Beta, CA", "Metro", "Top 50")},
+		{Slug: "gamma-or", Name: "Gamma, OR", BBox: [4]float64{-122.8, 45.4, -122.5, 45.6}, CenterLon: -122.65, CenterLat: 45.5, Tags: tagsFor("Gamma, OR")},
 	}
 
 	td := TemplateData{
@@ -255,6 +262,16 @@ func writeJSFixtureSite(t *testing.T, dir string, seed template.JS) {
 	}
 	if err := os.WriteFile(filepath.Join(dir, "index.html"), index, 0o644); err != nil {
 		t.Fatalf("write index.html: %v", err)
+	}
+	// The play page too, so the game.js selector specs run against the real
+	// game template (static-host shape: ActiveSlug empty, city resolved from
+	// ?city= client-side).
+	play, err := renderPage(ParseGameTemplate, td)
+	if err != nil {
+		t.Fatalf("render play: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "play.html"), play, 0o644); err != nil {
+		t.Fatalf("write play.html: %v", err)
 	}
 
 	// Tripwire: if the template stops emitting city options, every selectCity

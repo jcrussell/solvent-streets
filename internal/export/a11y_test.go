@@ -160,15 +160,17 @@ func TestDashboardCompareChartLabels(t *testing.T) {
 }
 
 // TestCitySelectorOptgroups asserts the city selector renders one <optgroup>
-// per tag (a multi-tag city appears under each) and bare <option>s for untagged
-// ("Other") cities when TemplateData.CitiesByTag is populated.
+// per default-dimension tag (a multi-tag city appears under each) and bare
+// <option>s for untagged ("Other") cities, and that the gear menu carries one
+// tag filter per dimension (values listed once each, labels without the
+// dimension prefix) in place of the old Compare/Aggregate-only #tag-scope.
 func TestCitySelectorOptgroups(t *testing.T) {
 	tmpl := parseDashboardTemplates(t)
 
 	cities := []CityInfo{
-		{Slug: "san-jose", Name: "San Jose", Tags: []string{"Bay Area", "Top 50"}},
-		{Slug: "oakland", Name: "Oakland", Tags: []string{"Bay Area"}},
-		{Slug: "denver", Name: "Denver"},
+		{Slug: "san-jose", Name: "San Jose, CA", Tags: []string{"Bay Area", "Top 50", "state:CA"}},
+		{Slug: "oakland", Name: "Oakland, CA", Tags: []string{"Bay Area", "state:CA"}},
+		{Slug: "denver", Name: "Denver, CO", Tags: []string{"state:CO"}},
 	}
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, TemplateData{
@@ -188,11 +190,12 @@ func TestCitySelectorOptgroups(t *testing.T) {
 	if !strings.Contains(out, `<option value="oakland"`) {
 		t.Error("tagged city option missing")
 	}
-	// The untagged city must render as a bare <option> with no optgroup wrapper.
+	// The city with no group tag must render as a bare <option> with no
+	// optgroup wrapper; its state tag does not create a selector group.
 	if !strings.Contains(out, `<option value="denver"`) {
 		t.Error("untagged city option missing")
 	}
-	// Two optgroups (Bay Area, Top 50); the untagged group is bare.
+	// Two optgroups (Bay Area, Top 50); state tags never become optgroups.
 	if n := strings.Count(out, "<optgroup"); n != 2 {
 		t.Errorf("expected exactly 2 optgroups, got %d", n)
 	}
@@ -202,19 +205,89 @@ func TestCitySelectorOptgroups(t *testing.T) {
 		t.Errorf("expected San Jose option to render twice (Bay Area + Top 50), got %d", n)
 	}
 
-	// The #tag-scope selector offers "All cities" plus one option per distinct
-	// tag (once each, not once per city), scoping Compare/Aggregate.
-	if !strings.Contains(out, `id="tag-scope"`) {
-		t.Error("missing #tag-scope selector")
+	// The gear menu's Cities row holds one filter per dimension: the group
+	// filter lists each value once (not once per city), the state filter lists
+	// its values by bare label. The legacy #tag-scope is gone.
+	if strings.Contains(out, `id="tag-scope"`) {
+		t.Error("legacy #tag-scope selector must not render")
 	}
-	if !strings.Contains(out, `<option value="">All cities</option>`) {
-		t.Error("#tag-scope missing 'All cities' default option")
+	if !strings.Contains(out, `id="gear-cities-row"`) {
+		t.Error("missing gear-menu Cities row")
 	}
-	if n := strings.Count(out, `<option value="Bay Area">`); n != 1 {
-		t.Errorf("expected one Bay Area tag-scope option, got %d", n)
+	if !strings.Contains(out, `class="tag-filter" data-dim="group"`) || !strings.Contains(out, `class="tag-filter" data-dim="state"`) {
+		t.Error("missing a tag-filter select for the group or state dimension")
 	}
-	if n := strings.Count(out, `<option value="Top 50">`); n != 1 {
-		t.Errorf("expected one Top 50 tag-scope option, got %d", n)
+	if !strings.Contains(out, `aria-label="Filter cities by Group"`) {
+		t.Error("group filter missing its aria-label")
+	}
+	if !strings.Contains(out, `<option value="">Any Group</option>`) {
+		t.Error("group filter missing its 'Any' default option")
+	}
+	if n := strings.Count(out, `<option value="Bay Area">Bay Area</option>`); n != 1 {
+		t.Errorf("expected one Bay Area filter option, got %d", n)
+	}
+	if n := strings.Count(out, `<option value="state:CA">CA</option>`); n != 1 {
+		t.Errorf("expected one state:CA filter option labelled CA, got %d", n)
+	}
+	if strings.Contains(out, `data-dim="group" aria-label="Filter cities by Group" title="Show only cities in this Group" autocomplete="off" hidden`) {
+		t.Error("the two-value group filter must not be hidden")
+	}
+
+	// The play page carries the same filters next to its own city selector.
+	game, err := ParseGameTemplate()
+	if err != nil {
+		t.Fatalf("parse game: %v", err)
+	}
+	buf.Reset()
+	if err := game.Execute(&buf, TemplateData{Cities: cities, TagDimensions: GroupCitiesByDimension(cities)}); err != nil {
+		t.Fatalf("execute game: %v", err)
+	}
+	if !strings.Contains(buf.String(), `class="tag-filter" data-dim="state"`) {
+		t.Error("play page missing the tag filters")
+	}
+}
+
+// TestCitySelector_NoFilterRowWithoutChoice: a dimension with a single value
+// cannot narrow anything, so when no dimension offers two or more values the
+// Cities row is omitted entirely (HasTagFilters), and a single-value dimension
+// alongside a real one renders hidden.
+func TestCitySelector_NoFilterRowWithoutChoice(t *testing.T) {
+	tmpl := parseDashboardTemplates(t)
+
+	oneValue := []CityInfo{
+		{Slug: "a", Name: "Alameda, CA", Tags: []string{"state:CA"}},
+		{Slug: "b", Name: "Berkeley, CA", Tags: []string{"state:CA"}},
+	}
+	var buf bytes.Buffer
+	td := TemplateData{Cities: oneValue, TagDimensions: GroupCitiesByDimension(oneValue)}
+	if td.HasTagFilters() {
+		t.Error("HasTagFilters() = true for a single-value dimension")
+	}
+	if err := tmpl.Execute(&buf, td); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if strings.Contains(buf.String(), `id="gear-cities-row"`) {
+		t.Error("Cities row rendered although no filter offers a choice")
+	}
+
+	mixed := []CityInfo{
+		{Slug: "a", Name: "Alameda, CA", Tags: []string{"Bay Area", "state:CA"}},
+		{Slug: "b", Name: "Boulder, CA", Tags: []string{"Front Range", "state:CA"}},
+	}
+	buf.Reset()
+	td = TemplateData{Cities: mixed, TagDimensions: GroupCitiesByDimension(mixed)}
+	if !td.HasTagFilters() {
+		t.Error("HasTagFilters() = false although the group dimension has two values")
+	}
+	if err := tmpl.Execute(&buf, td); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, `id="gear-cities-row"`) {
+		t.Error("Cities row missing although the group dimension offers a choice")
+	}
+	if !strings.Contains(out, `data-dim="state" aria-label="Filter cities by State" title="Show only cities in this State" autocomplete="off" hidden>`) {
+		t.Error("single-value state filter must render hidden")
 	}
 }
 

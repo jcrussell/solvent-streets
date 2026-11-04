@@ -25,16 +25,28 @@
         /** @param {string} sel @param {ParentNode} [root] @returns {HTMLElement[]} */
         function queryAll(sel, root) { return /** @type {HTMLElement[]} */ (Array.from((root || document).querySelectorAll(sel))); }
 
-        // City dropdown (multi-city only). Resolve the active city from ?city= on
-        // boot (validated against the selector's own options), then reload to
+        // City dropdown (multi-city only). Apply the ?tag= filters first (the
+        // shared PvmtSelectors logic from selectors.js rebuilds the selector to
+        // the matching cities; a deep-linked ?city= outside the filters wins and
+        // the filters are dropped), then resolve the active city from ?city=
+        // (validated against the selector's own options), then reload to
         // <current-path>?city=<slug> on change — a full reload is the clean reset
         // for the stateful board (MapLibre source + WASM game state + timers), and
         // using location.href keeps us on play.html (static) or /play (server).
+        // A filter change that keeps the current city only rewrites the URL.
         {
             const sel = selectById('city-select');
             if (sel) {
+                const cities = PVMT_CONFIG.cities || [];
+                const dims = PVMT_CONFIG.tagDimensions;
+                const params = new URLSearchParams(location.search);
+                const want = params.get('city');
+                let filters = PvmtSelectors.parseTags(params, dims);
+                const linked = want ? cities.find(c => c.slug === want) : null;
+                if (linked && !PvmtSelectors.matches(linked.tags, filters)) filters = {};
+                PvmtSelectors.writeFilters(filters);
+                if (cities.length > 0) PvmtSelectors.rebuildCitySelect(sel, cities, dims, filters, want || sel.value);
                 const valid = new Set(Array.from(sel.options).map(o => o.value));
-                const want = new URLSearchParams(location.search).get('city');
                 if (want && valid.has(want)) {
                     DATA_PREFIX = 'cities/' + want + '/';
                     sel.value = want;
@@ -43,10 +55,28 @@
                     // option (a multi-city export has no root data/ dir).
                     DATA_PREFIX = 'cities/' + sel.value + '/';
                 }
-                sel.addEventListener('change', () => {
+                /** @param {string} slug @param {Record<string, string>} selected */
+                const urlFor = (slug, selected) => {
                     const u = new URL(location.href);
-                    u.searchParams.set('city', sel.value);
-                    location.assign(u);
+                    u.searchParams.delete('tag');
+                    PvmtSelectors.urlTags(selected, dims).forEach(t => u.searchParams.append('tag', t));
+                    if (slug) u.searchParams.set('city', slug);
+                    return u;
+                };
+                sel.addEventListener('change', () => {
+                    if (!sel.value) return;
+                    location.assign(urlFor(sel.value, PvmtSelectors.readFilters()));
+                });
+                queryAll('select.tag-filter').forEach(f => {
+                    f.addEventListener('change', () => {
+                        const selected = PvmtSelectors.readFilters();
+                        const before = sel.value;
+                        const picked = cities.length > 0
+                            ? PvmtSelectors.rebuildCitySelect(sel, cities, dims, selected, before)
+                            : before;
+                        if (picked && picked !== before) location.assign(urlFor(picked, selected));
+                        else history.replaceState(null, '', urlFor(picked || before, selected));
+                    });
                 });
             }
         }

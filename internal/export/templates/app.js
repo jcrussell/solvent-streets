@@ -27,17 +27,39 @@
         /** @param {string} sel @param {ParentNode} [root] @returns {HTMLElement[]} */
         function queryAll(sel, root) { return /** @type {HTMLElement[]} */ (Array.from((root || document).querySelectorAll(sel))); }
 
-        // URL state router: city, tab, scope, snapshot. DOM is the source of
-        // truth; the router serializes DOM → URL and applies URL → DOM via
+        // Tag dimensions for the filters (PvmtSelectors, selectors.js); absent
+        // on a single-city page, which has no selector to filter.
+        const TAG_DIMS = PVMT_CONFIG.tagDimensions;
+
+        // The Play link in the tab bar carries the current city and tag
+        // filters so the game opens on the same selection. Captured before any
+        // query string is appended so re-syncs don't stack parameters.
+        const playLink = queryEl('a.nav-link');
+        const playLinkBase = playLink ? playLink.getAttribute('href') : '';
+        /** @param {{city: string | null, tags: Record<string, string>}} s */
+        function syncPlayLink(s) {
+            if (!playLink) return;
+            const p = new URLSearchParams();
+            if (s.city) p.set('city', s.city);
+            PvmtSelectors.urlTags(s.tags || {}, TAG_DIMS).forEach(t => p.append('tag', t));
+            const qs = p.toString();
+            playLink.setAttribute('href', playLinkBase + (qs ? '?' + qs : ''));
+        }
+
+        // URL state router: city, tab, tags, scope, snapshot. DOM is the source
+        // of truth; the router serializes DOM → URL and applies URL → DOM via
         // the same selectX helpers the event handlers use. The snapshot slot
-        // is reserved for the snapshot-picker (solvent-streets-pv8).
+        // is reserved for the snapshot-picker (solvent-streets-pv8). `tags` is
+        // a {dimension: configTag} map in state and repeated ?tag=dim:value
+        // params in the URL (PvmtSelectors.parseTags/urlTags); it serializes on
+        // every tab because the filters narrow the city selector everywhere.
         const Router = {
             read() {
                 const p = new URLSearchParams(location.search);
                 return {
                     city:     p.get('city'),
                     tab:      p.get('tab'),
-                    tag:      p.get('tag'),
+                    tags:     PvmtSelectors.parseTags(p, TAG_DIMS),
                     scope:    p.get('scope'),
                     snapshot: p.get('snapshot'),
                 };
@@ -52,27 +74,37 @@
                 const scopeVis = scopeRow && !scopeRow.hidden;
                 const snapEl   = selectById('snapshot-picker');
                 const sel      = selectById('city-select');
-                // Same visibility rule as scope: #tag-scope is only shown on
-                // the Compare/Aggregate tabs, so serializing it elsewhere would
-                // pin a ?tag= to a tab where it does nothing.
-                const tagEl    = selectById('tag-scope');
-                const tagVis   = tagEl && !tagEl.hidden;
                 return {
                     city:     sel ? sel.value : null,
                     tab:      tabBtn ? tabBtn.dataset.tab : null,
-                    tag:      tagVis ? tagEl.value : null,
+                    tags:     PvmtSelectors.readFilters(),
                     scope:    (scopeVis && scopeBtn) ? scopeBtn.dataset.scope : null,
                     snapshot: snapEl ? snapEl.value : null,
                 };
             },
-            push() {
-                const s = this.current();
+            // url serializes a state object to this page's path + query string.
+            url(s) {
                 const p = new URLSearchParams();
-                for (const k of ['city', 'tab', 'tag', 'scope', 'snapshot']) {
+                for (const k of ['city', 'tab', 'scope', 'snapshot']) {
                     if (s[k]) p.set(k, s[k]);
                 }
+                PvmtSelectors.urlTags(s.tags, TAG_DIMS).forEach(t => p.append('tag', t));
                 const qs = p.toString();
-                history.pushState(s, '', location.pathname + (qs ? '?' + qs : ''));
+                return location.pathname + (qs ? '?' + qs : '');
+            },
+            push() {
+                const s = this.current();
+                history.pushState(s, '', this.url(s));
+                syncPlayLink(s);
+            },
+            // replace records the current DOM state without a history entry —
+            // used at boot so the address bar reflects what was actually
+            // applied (e.g. a ?tag= dropped because the deep-linked city was
+            // outside it), not the raw link that was followed.
+            replace() {
+                const s = this.current();
+                history.replaceState(s, '', this.url(s));
+                syncPlayLink(s);
             },
         };
 
@@ -101,20 +133,20 @@
         var materialsCharts = [];
         var materialsLoadGen = 0;
         var allCityDataPromise = null;
-        // Tag scope for the Compare/Aggregate tabs: '' means all cities, else a
-        // tag label from #tag-scope. Declared here (alongside the other tab
-        // guards) so a deep link does not re-run the initializer and reset it.
-        var selectedTag = '';
+        // Active tag filters: {dimension: configTag}, empty means all cities.
+        // They narrow the city selector on every tab and scope Compare /
+        // Aggregate. Declared here (alongside the other tab guards) so a deep
+        // link does not re-run the initializer and reset it.
+        /** @type {Record<string, string>} */
+        var selectedTags = {};
 
-        // updateTagScopeVisibility shows #tag-scope only on the Compare/Aggregate
-        // tabs, and only when there is more than the "All cities" option (i.e.
-        // at least one real tag exists). Called from both selectTab and the
-        // deep-link initializer so a ?tab= link reveals it too.
-        function updateTagScopeVisibility(tabId) {
-            var tagScope = selectById('tag-scope');
-            if (!tagScope) return;
-            var onScopedTab = tabId === 'compare-tab' || tabId === 'aggregate-tab';
-            tagScope.hidden = !(onScopedTab && tagScope.options.length > 1);
+        // rebuildCitySelector regenerates #city-select for the active filters
+        // and returns the slug now selected ('' when nothing matches). `prefer`
+        // names the slug to keep selected when it survives the filter.
+        function rebuildCitySelector(prefer) {
+            const sel = selectById('city-select');
+            if (!sel || CITIES.length === 0) return '';
+            return PvmtSelectors.rebuildCitySelect(sel, CITIES, TAG_DIMS, selectedTags, prefer);
         }
 
         // Apply URL state synchronously, before first render, to avoid flicker.
@@ -122,31 +154,34 @@
         // truth thereafter — selectScope is the only function that changes it.
         (function applyInitialState() {
             const init = Router.read();
+            const sel = selectById('city-select');
+            // Tag filters FIRST, before anything reads the selector: the
+            // selector is rebuilt for the filters, and the tab block below calls
+            // loadCompareData()/loadAggregateData(), which read selectedTags via
+            // scopeCityData. A deep-linked ?city= always wins — filters that
+            // would hide it are dropped rather than the link landing on another
+            // city. Unknown ?tag= values are ignored rather than filtering
+            // everything away, and writeFilters resets any value a browser
+            // restored into the selects across reload/bfcache (Firefox) so the
+            // controls never disagree with the data.
+            if (sel && CITIES.length > 0) {
+                let filters = init.tags;
+                const linked = init.city ? CITIES.find(c => c.slug === init.city) : null;
+                if (linked && !PvmtSelectors.matches(linked.tags, filters)) filters = {};
+                selectedTags = filters;
+                PvmtSelectors.writeFilters(selectedTags);
+                rebuildCitySelector(init.city || sel.value);
+            }
             if (init.city && CITIES.some(c => c.slug === init.city)) {
                 DATA_PREFIX = 'cities/' + init.city + '/';
-                const sel = selectById('city-select');
                 if (sel) sel.value = init.city;
             } else {
                 // No ?city= deep link: the browser default-selects the first DOM <option>,
-                // which follows CitiesByTag (tag groups first) and can differ from
+                // which follows the tag groups (tag groups first) and can differ from
                 // CITIES[0] (flat alphabetical) that seeded DATA_PREFIX above. Align the
                 // data prefix with the shown selection so we never load one city's data
                 // while the dropdown names another (and replaceState records the truth).
-                const sel = selectById('city-select');
                 if (sel && sel.value) DATA_PREFIX = 'cities/' + sel.value + '/';
-            }
-            // Seed the tag filter BEFORE the tab block below: that block calls
-            // loadCompareData()/loadAggregateData(), which read selectedTag via
-            // scopeCityData, so seeding afterwards would render the unfiltered
-            // set on a ?tag= deep link. Unknown labels are ignored rather than
-            // filtering everything away. The else-branch matters too: browsers
-            // that restore form state across reload/bfcache (Firefox) would
-            // otherwise show a tag in #tag-scope while the data shows all cities.
-            const initTagEl = selectById('tag-scope');
-            if (initTagEl) {
-                const known = init.tag && Array.from(initTagEl.options).some(o => o.value === init.tag);
-                selectedTag = known ? init.tag : '';
-                initTagEl.value = selectedTag;
             }
             if (init.tab && document.getElementById(init.tab)) {
                 queryAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === init.tab));
@@ -158,17 +193,13 @@
                 if (init.tab === 'aggregate-tab') loadAggregateData();
                 else if (init.tab === 'compare-tab') loadCompareData();
                 else if (init.tab === 'materials-tab') loadMaterials();
-                // Class-toggling above bypasses selectTab, so reveal #tag-scope
-                // here too — otherwise a deep-linked Compare/Aggregate tab shows
-                // no tag selector until the user clicks a tab.
-                updateTagScopeVisibility(init.tab);
             }
             if (init.scope === 'city' || init.scope === 'bbox') {
                 currentScope = init.scope;
                 queryAll('#scope-toggle button').forEach(b =>
                     b.classList.toggle('active', b.dataset.scope === currentScope));
             }
-            history.replaceState(Router.current(), '');
+            Router.replace();
         })();
 
         window.addEventListener('popstate', (e) => {
@@ -191,18 +222,19 @@
             // on a same-city snapshot-only navigation would clobber targetSnap
             // (set above) and reload against Latest. The snapshot-only branch
             // below handles that case explicitly.
-            // Restore the tag filter before the tab switch below: selectTab
+            // Restore the tag filters before the tab switch below: selectTab
             // kicks off loadCompareData/loadAggregateData, which read
-            // selectedTag via scopeCityData. Clearing compareLoaded here (not
+            // selectedTags via scopeCityData. Clearing compareLoaded here (not
             // after) is what lets that one-shot loader re-render; otherwise the
             // leaderboard keeps the previous filter's rows while the URL claims
-            // otherwise.
-            const tagEl = selectById('tag-scope');
-            const targetTag = s.tag == null ? '' : String(s.tag);
-            const tagChanged = selectedTag !== targetTag;
-            if (tagEl) tagEl.value = targetTag;
+            // otherwise. The selector is rebuilt for the restored filters with
+            // the history entry's city kept selected.
+            const targetTags = s.tags || {};
+            const tagChanged = !PvmtSelectors.sameFilters(selectedTags, targetTags);
             if (tagChanged) {
-                selectedTag = targetTag;
+                selectedTags = targetTags;
+                PvmtSelectors.writeFilters(selectedTags);
+                rebuildCitySelector(s.city || (sel ? sel.value : ''));
                 compareLoaded = false;
             }
             if (cityChanged) selectCity(s.city, { push: false });
@@ -210,7 +242,8 @@
             // A hand-edited URL can carry ?tag= with no ?tab=, so selectTab
             // never fired and nothing re-rendered. Router.push always writes
             // both, so this only guards that case.
-            if (tagChanged && !s.tab) applyTagScope(targetTag);
+            if (tagChanged && !s.tab) rerenderTagScopedTabs();
+            if (tagChanged) syncPlayLink(Router.current());
             // Snapshot-only change (no city change) needs an explicit reload —
             // selectCity didn't fire so loadCityData/loadFinancials weren't called.
             if (!cityChanged && snapshotChanged) {
@@ -316,7 +349,6 @@
             if (tabId === 'compare-tab') loadCompareData();
             if (tabId === 'aggregate-tab') loadAggregateData();
             if (tabId === 'materials-tab') loadMaterials();
-            updateTagScopeVisibility(tabId);
             // The aggregate honors the region-wide scope, so re-evaluate the
             // scope-toggle reveal whenever the active tab changes.
             maybeRevealScopeToggle();
@@ -1020,10 +1052,9 @@
             citySelect.addEventListener('change', () => selectCity(citySelect.value));
         }
 
-        const tagScopeSelect = selectById('tag-scope');
-        if (tagScopeSelect) {
-            tagScopeSelect.addEventListener('change', () => onTagScopeChange(tagScopeSelect.value));
-        }
+        queryAll('select.tag-filter').forEach(el => {
+            el.addEventListener('change', () => onTagFilterChange());
+        });
 
         // Snapshot picker (live server only). loadSnapshots fetches the list
         // for the current city and populates options; selectSnapshot is the
@@ -2636,15 +2667,15 @@
             return (c && c.tags) || [];
         }
 
-        // scopeCityData filters fetched per-city data to the selected tag. An
-        // empty selectedTag means "all cities". Filtering happens here at the
-        // render step — NOT inside loadAllCityData, whose single cached promise
-        // must always hold every city so switching tags never serves a stale
-        // subset.
+        // scopeCityData filters fetched per-city data to the selected tag
+        // filters (AND across dimensions). An empty selection means "all
+        // cities". Filtering happens here at the render step — NOT inside
+        // loadAllCityData, whose single cached promise must always hold every
+        // city so switching tags never serves a stale subset.
         function scopeCityData(cityData) {
-            if (!selectedTag) return cityData;
+            if (Object.keys(selectedTags).length === 0) return cityData;
             return cityData.filter(function(city) {
-                return cityTagsForSlug(city.slug).indexOf(selectedTag) !== -1;
+                return PvmtSelectors.matches(cityTagsForSlug(city.slug), selectedTags);
             });
         }
 
@@ -2664,16 +2695,16 @@
             renderAggregate(scopeCityData(await loadAllCityData()));
         }
 
-        // applyTagScope re-scopes the Compare/Aggregate tabs to a tag label
-        // ('' = all cities). Compare is one-shot (compareLoaded gates its only
-        // render), so reset that guard to force a re-render; Aggregate always
-        // re-renders. Only the active tab is re-run — the other picks up
-        // selectedTag when next opened. renderAggregate recomputes
-        // regionHasBothScopes from the filtered set and re-reveals the
-        // city/all-jurisdiction toggle accordingly. Shared with popstate, which
-        // needs the same guard reset when a history entry changes the tag.
-        function applyTagScope(value) {
-            selectedTag = value;
+        // rerenderTagScopedTabs re-runs whichever of Compare/Aggregate is
+        // active after the tag filters changed. Compare is one-shot
+        // (compareLoaded gates its only render), so reset that guard to force a
+        // re-render; Aggregate always re-renders. Only the active tab is re-run
+        // — the other picks up selectedTags when next opened. renderAggregate
+        // recomputes regionHasBothScopes from the filtered set and re-reveals
+        // the city/all-jurisdiction toggle accordingly. Shared with popstate,
+        // which needs the same guard reset when a history entry changes the
+        // filters.
+        function rerenderTagScopedTabs() {
             compareLoaded = false;
             var btn = queryEl('.tab-btn.active');
             var id = btn ? btn.dataset.tab : '';
@@ -2681,11 +2712,26 @@
             else if (id === 'aggregate-tab') loadAggregateData();
         }
 
-        // onTagScopeChange handles the #tag-scope selector: re-scope, then
-        // record the tag in the URL so a filtered Compare/Aggregate view is
+        // applyTagFilters applies a {dimension: configTag} selection: the city
+        // selector is rebuilt to the matching cities and, when the city in view
+        // is filtered out, the first visible city is loaded in its place (an
+        // empty match keeps the current city's data on screen). Then the
+        // Compare/Aggregate scope follows.
+        /** @param {Record<string, string>} selected */
+        function applyTagFilters(selected) {
+            selectedTags = selected;
+            const sel = selectById('city-select');
+            const current = sel ? sel.value : '';
+            const picked = rebuildCitySelector(current);
+            if (picked && picked !== current) selectCity(picked, { push: false });
+            rerenderTagScopedTabs();
+        }
+
+        // onTagFilterChange handles any .tag-filter select: apply the filters
+        // read from the DOM, then record them in the URL so a filtered view is
         // shareable and survives back/forward like every other selector.
-        function onTagScopeChange(value) {
-            applyTagScope(value);
+        function onTagFilterChange() {
+            applyTagFilters(PvmtSelectors.readFilters());
             Router.push();
         }
 
@@ -2748,7 +2794,7 @@
             // Compare is a one-shot (compareLoaded gates its only render): reset the
             // guard so a later reopen re-renders in the new units, and re-render now
             // if Compare/Aggregate is the active tab. Both read the cached all-city
-            // data — no refetch. Mirrors applyTagScope.
+            // data — no refetch. Mirrors rerenderTagScopedTabs.
             compareLoaded = false;
             var active = queryEl('.tab-btn.active');
             var id = active ? active.dataset.tab : '';

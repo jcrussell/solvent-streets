@@ -90,27 +90,11 @@ func TestDashboardHasAboutTab(t *testing.T) {
 
 func parseDashboardTemplates(t *testing.T) *template.Template {
 	t.Helper()
-	indexData, err := templatesFS.ReadFile("templates/index.html.tmpl")
+	// The production parser, so a partial added to ParseIndexTemplateFS is
+	// exercised here too rather than silently missing from the test tree.
+	tmpl, err := ParseIndexTemplate()
 	if err != nil {
-		t.Fatalf("read index template: %v", err)
-	}
-	methData, err := templatesFS.ReadFile("templates/methodology.html.tmpl")
-	if err != nil {
-		t.Fatalf("read methodology template: %v", err)
-	}
-	themeData, err := templatesFS.ReadFile("templates/theme.html.tmpl")
-	if err != nil {
-		t.Fatalf("read theme template: %v", err)
-	}
-	tmpl, err := template.New("index").Parse(string(indexData))
-	if err != nil {
-		t.Fatalf("parse index: %v", err)
-	}
-	if _, err := tmpl.Parse(string(methData)); err != nil {
-		t.Fatalf("parse methodology: %v", err)
-	}
-	if _, err := tmpl.Parse(string(themeData)); err != nil {
-		t.Fatalf("parse theme: %v", err)
+		t.Fatalf("parse index templates: %v", err)
 	}
 	return tmpl
 }

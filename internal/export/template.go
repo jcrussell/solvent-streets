@@ -120,9 +120,9 @@ func WriteSharedWasmAssets(dir string) error {
 }
 
 // ParseIndexTemplate returns the parsed template tree for the index page,
-// including the methodology and theme partials that index.html.tmpl references
-// via {{template ...}}. Shared between the static exporter and the live server
-// so they can't drift.
+// including the methodology, theme and selectors partials that index.html.tmpl
+// references via {{template ...}}. Shared between the static exporter and the
+// live server so they can't drift.
 func ParseIndexTemplate() (*template.Template, error) {
 	return ParseIndexTemplateFS(templatesFS)
 }
@@ -133,24 +133,31 @@ func ParseIndexTemplate() (*template.Template, error) {
 // template content to exercise the parse wiring without touching disk or the
 // embed.
 func ParseIndexTemplateFS(source fs.FS) (*template.Template, error) {
-	files := []string{
+	return parseTemplateFiles(source, "index",
 		"templates/index.html.tmpl",
 		"templates/methodology.html.tmpl",
 		"templates/theme.html.tmpl",
-	}
+		"templates/selectors.html.tmpl",
+	)
+}
+
+// parseTemplateFiles parses files[0] as the page template named name and the
+// rest as partials into the same tree. Both page parsers go through it so the
+// shared partials (selectors.html.tmpl) are wired identically.
+func parseTemplateFiles(source fs.FS, name string, files ...string) (*template.Template, error) {
 	var tmpl *template.Template
-	for _, name := range files {
-		data, err := fs.ReadFile(source, name)
+	for _, file := range files {
+		data, err := fs.ReadFile(source, file)
 		if err != nil {
-			return nil, fmt.Errorf("read %s: %w", name, err)
+			return nil, fmt.Errorf("read %s: %w", file, err)
 		}
 		if tmpl == nil {
-			tmpl, err = template.New("index").Parse(string(data))
+			tmpl, err = template.New(name).Parse(string(data))
 		} else {
 			_, err = tmpl.Parse(string(data))
 		}
 		if err != nil {
-			return nil, fmt.Errorf("parse %s: %w", name, err)
+			return nil, fmt.Errorf("parse %s: %w", file, err)
 		}
 	}
 	return tmpl, nil

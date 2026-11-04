@@ -20,6 +20,7 @@ import { JSDOM } from 'jsdom';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const APP_JS = join(HERE, '..', 'app.js');
 const SELECTORS_JS = join(HERE, '..', 'selectors.js');
+const GAME_JS = join(HERE, '..', 'game.js');
 
 export function fixtureDir() {
   const dir = process.env.PVMT_FIXTURE_DIR;
@@ -74,6 +75,7 @@ function installStubs(win, { data, simulate }) {
       queryRenderedFeatures() { return []; }
       addControl() { return this; }
       getZoom() { return 10; }
+      isStyleLoaded() { return false; }
       setStyle() { return this; }
       get dragPan() { return { enable() {}, disable() {} }; }
       get scrollZoom() { return { enable() {}, disable() {} }; }
@@ -91,6 +93,12 @@ function installStubs(win, { data, simulate }) {
       isEmpty() { return false; }
     },
   };
+
+  // The Go WASM runtime constructor from wasm_exec.js (play page). The boot
+  // then fetches pvmt.wasm through the fetch stub below, which 404s, so the
+  // page reports a WASM error and never boots the board — the selector block
+  // this harness exists to test runs before that.
+  win.Go = class { constructor() { this.importObject = {}; } run() {} };
 
   // Chart.js. Instances are recorded so a test can read what was plotted
   // without a canvas.
@@ -179,8 +187,10 @@ export function defaultSimulate(input) {
 // `data` maps a data-file suffix (e.g. 'scenarios.json') to a parsed object;
 // the fetch stub matches by suffix so both single-city ('data/x.json') and
 // multi-city ('cities/<slug>/x.json') prefixes resolve.
-export function load({ data = {}, simulate = defaultSimulate, url = 'https://example.test/index.html' } = {}) {
-  const html = readFileSync(join(fixtureDir(), 'index.html'), 'utf8');
+export function load({ page = 'index', data = {}, simulate = defaultSimulate, url } = {}) {
+  const file = page === 'play' ? 'play.html' : 'index.html';
+  url = url || 'https://example.test/' + file;
+  const html = readFileSync(join(fixtureDir(), file), 'utf8');
   const dom = new JSDOM(html, {
     url,
     runScripts: 'dangerously',   // executes the inline PVMT_CONFIG + theme_boot
@@ -200,7 +210,7 @@ export function load({ data = {}, simulate = defaultSimulate, url = 'https://exa
   // invisible to `get` below. Appending a <script> puts those bindings in the
   // window's global lexical environment, where they belong.
   // selectors.js first, exactly as the page's <script src> order has it.
-  for (const path of [SELECTORS_JS, APP_JS]) {
+  for (const path of [SELECTORS_JS, page === 'play' ? GAME_JS : APP_JS]) {
     const el = win.document.createElement('script');
     el.textContent = readFileSync(path, 'utf8');
     win.document.body.appendChild(el);

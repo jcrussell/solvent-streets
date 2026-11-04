@@ -1,0 +1,10 @@
+{{/*
+tag_filters renders one <select class="tag-filter"> per tag dimension (see
+GroupCitiesByDimension): the city selector can be narrowed by each dimension
+independently, and the selections AND together. The option values are the
+FULL tag strings a city's tags contain ("Bay Area", "state:CA"); labels drop
+the dimension prefix. A dimension with fewer than two values cannot narrow
+anything and renders hidden. Both pages include this partial; selectors.js
+owns the behaviour, each page's stylesheet owns the look.
+*/}}
+{{define "tag_filters"}}<div class="tag-filters" id="tag-filters">{{range .TagDimensions}}{{$vals := .Values}}<select class="tag-filter" data-dim="{{.Name}}" aria-label="Filter cities by {{.Label}}" title="Show only cities in this {{.Label}}" autocomplete="off"{{if lt (len $vals) 2}} hidden{{end}}><option value="">Any {{.Label}}</option>{{range $vals}}<option value="{{.Tag}}">{{.Label}}</option>{{end}}</select>{{end}}</div>{{end}}

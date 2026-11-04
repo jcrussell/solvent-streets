@@ -249,6 +249,11 @@
            label rather than beside it (the default .gear-row is a row). */
         #gear-menu .layer-toggle { margin-top: 0; border-top: none; padding-top: 0; }
         #gear-toggles-row { flex-direction: column; align-items: stretch; }
+        /* Tag filters (one select per dimension) narrow the city selector on
+           every tab; stacked under their label like the layer toggles. */
+        #gear-cities-row { flex-direction: column; align-items: stretch; }
+        .tag-filters { display: flex; flex-direction: column; gap: 6px; }
+        .tag-filter[hidden] { display: none; }
         .gear-menu select {
             background: var(--bg);
             color: var(--text);
@@ -639,12 +644,8 @@
         <a class="nav-link" href="{{if .IsLiveServer}}/play{{else}}play.html{{end}}" title="Play the Pavement Manager game">Play &#9656;</a>
         {{if .Cities}}
         <select id="city-select" style="margin-left:auto;margin-right:16px;align-self:center;background:var(--header-bg);color:var(--header-fg);border:1px solid var(--header-muted);border-radius:4px;padding:4px 8px;font-size:14px;cursor:pointer;">
-            {{range .CityGroups}}{{if .Tag}}<optgroup label="{{.Tag}}">{{range .Cities}}<option value="{{.Slug}}" data-bbox="{{index .BBox 0}},{{index .BBox 1}},{{index .BBox 2}},{{index .BBox 3}}" data-lon="{{.CenterLon}}" data-lat="{{.CenterLat}}">{{.Name}}</option>{{end}}</optgroup>{{else}}{{range .Cities}}<option value="{{.Slug}}" data-bbox="{{index .BBox 0}},{{index .BBox 1}},{{index .BBox 2}},{{index .BBox 3}}" data-lon="{{.CenterLon}}" data-lat="{{.CenterLat}}">{{.Name}}</option>{{end}}{{end}}
+            {{range .CityGroups}}{{if .Tag}}<optgroup label="{{.Label}}">{{range .Cities}}<option value="{{.Slug}}" data-bbox="{{index .BBox 0}},{{index .BBox 1}},{{index .BBox 2}},{{index .BBox 3}}" data-lon="{{.CenterLon}}" data-lat="{{.CenterLat}}">{{.Name}}</option>{{end}}</optgroup>{{else}}{{range .Cities}}<option value="{{.Slug}}" data-bbox="{{index .BBox 0}},{{index .BBox 1}},{{index .BBox 2}},{{index .BBox 3}}" data-lon="{{.CenterLon}}" data-lat="{{.CenterLat}}">{{.Name}}</option>{{end}}{{end}}
             {{end}}
-        </select>
-        <select id="tag-scope" hidden aria-label="Scope Compare and Aggregate by tag" title="Scope the Compare and Aggregate tabs to a tag" style="margin-right:16px;align-self:center;background:var(--header-bg);color:var(--header-fg);border:1px solid var(--header-muted);border-radius:4px;padding:4px 8px;font-size:14px;cursor:pointer;">
-            <option value="">All cities</option>
-            {{range .CityGroups}}{{if .Tag}}<option value="{{.Tag}}">{{.Tag}}</option>{{end}}{{end}}
         </select>
         {{end}}
         <button class="gear-toggle" id="gear-btn"
@@ -655,6 +656,12 @@
                 style="{{if not .Cities}}margin-left:auto;{{end}}margin-right:8px;">&#9881;</button>
     </div>
     <div class="gear-menu" id="gear-menu" role="menu" hidden>
+        {{if .HasTagFilters}}
+        <div class="gear-row" id="gear-cities-row">
+            <span class="gear-label">Cities</span>
+            {{template "tag_filters" .}}
+        </div>
+        {{end}}
         <div class="gear-row" id="gear-scope-row" hidden>
             <span class="gear-label">Roads</span>
             <div class="jurisdiction-toggle" id="scope-toggle">
@@ -926,6 +933,7 @@
     {{end}}
 
     <script>window.PVMT_CONFIG = {{ .IndexConfigJSON }};</script>
+    <script src="{{.WasmPrefix}}selectors.js"></script>
     <script src="{{.WasmPrefix}}app.js"></script>
     <footer class="site-footer">
         Generated {{.GeneratedDate}} · {{.BuildVersion}} · <a href="https://github.com/jcrussell/solvent-streets">solvent-streets</a>
