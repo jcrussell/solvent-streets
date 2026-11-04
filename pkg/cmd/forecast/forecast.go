@@ -251,27 +251,14 @@ func renderScenarioComparisons(ios *iostreams.IOStreams, baseline fcpkg.Scenario
 }
 
 // runForecastAllCities fans the forecast out across every configured city
-// (or the single --city target), mirroring runComputeAllCities. Because
-// runForecast builds JSON rows, the accumulator is hoisted here so all cities'
-// rows are written once as a single document instead of N concatenated ones.
+// (or the single --city target); ForEachCityRows writes all cities' JSON rows
+// as one document.
 func runForecastAllCities(ctx context.Context, f *cmdutil.Factory, opts *Options) error {
-	var accumulator []forecastRow
-	if opts.Exporter != nil {
-		opts.rows = &accumulator
-	}
-	err := cmdutil.ForEachCity(ctx, f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
+	return cmdutil.ForEachCityRows(ctx, f, opts.IO, opts.Exporter, func(cf *cmdutil.Factory, rows *[]forecastRow) error {
 		cityOpts := *opts
-		cityOpts.CurrentCity = cf.CurrentCity
-		cityOpts.CityDB = cf.CityDB
+		cityOpts.CurrentCity, cityOpts.CityDB, cityOpts.rows = cf.CurrentCity, cf.CityDB, rows
 		return runForecast(ctx, &cityOpts)
 	})
-	if err != nil {
-		return err
-	}
-	if opts.Exporter != nil {
-		return cmdutil.WriteRows(opts.IO, opts.Exporter, accumulator)
-	}
-	return nil
 }
 
 func runForecast(ctx context.Context, opts *Options) error {

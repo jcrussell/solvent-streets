@@ -35,6 +35,16 @@ type Feature struct {
 	FetchedAt    time.Time
 }
 
+// ResourceFeatures converts stored rows to the resource.Feature form the
+// geometry passes consume (id, name, tags, geometry, source).
+func ResourceFeatures(rows []Feature) []resource.Feature {
+	out := make([]resource.Feature, len(rows))
+	for i, r := range rows {
+		out[i] = resource.Feature{ID: r.ID, Name: r.Name, Tags: r.Tags, GeometryJSON: r.GeometryJSON, SourceAPI: r.SourceAPI}
+	}
+	return out
+}
+
 type ComputeResult struct {
 	ID           int64
 	ResourceType resource.Type

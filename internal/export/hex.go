@@ -201,26 +201,22 @@ func aggregateHexStats(ctx context.Context, entry CityEntry) (map[string]*hexAgg
 }
 
 // hexSpaces returns t's per-hex parking spaces keyed by hex ID, read from
-// hex_metrics (resource.SpacesMetricKey). Only
-// rows from the same snapshot as stats are kept: ListHexMetrics resolves the
-// latest snapshot per metric key, so a parking run that stored no space rows
-// would otherwise pair an older run's spaces with the newer coverage. The
-// map is empty, never nil, when t carries no spaces.
+// hex_metrics (resource.SpacesMetricKey) and kept only when they come from
+// the same snapshot as stats (metricRowsOn): a parking run that stored no
+// space rows must not pair an older run's spaces with its coverage. The map
+// is empty, never nil, when t carries no spaces.
 func hexSpaces(ctx context.Context, entry CityEntry, t resource.Type, stats []db.HexStat) (map[string]float64, error) {
+	out := map[string]float64{}
 	key := resource.SpacesMetricKey(t)
 	if key == "" || len(stats) == 0 {
-		return map[string]float64{}, nil
+		return out, nil
 	}
-	rows, err := entry.Store.ListHexMetrics(ctx, key)
+	rows, err := metricRowsOn(ctx, entry, key, stats[0].SnapshotID)
 	if err != nil {
-		return nil, fmt.Errorf("listing parking spaces for %s: %w", t, err)
+		return nil, err
 	}
-	snap := stats[0].SnapshotID
-	out := make(map[string]float64, len(rows))
 	for _, r := range rows {
-		if sameSnapshot(r.SnapshotID, snap) {
-			out[r.HexID] = r.Value
-		}
+		out[r.HexID] = r.Value
 	}
 	return out, nil
 }

@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -141,23 +140,11 @@ func RunComputeForCity(ctx context.Context, cf *cmdutil.Factory, service string,
 }
 
 func runComputeAllCities(ctx context.Context, f *cmdutil.Factory, opts *Options) error {
-	var accumulator []computeRow
-	if opts.Exporter != nil {
-		opts.rows = &accumulator
-	}
-	err := cmdutil.ForEachCity(ctx, f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
+	return cmdutil.ForEachCityRows(ctx, f, opts.IO, opts.Exporter, func(cf *cmdutil.Factory, rows *[]computeRow) error {
 		cityOpts := *opts
-		cityOpts.CurrentCity = cf.CurrentCity
-		cityOpts.CityDB = cf.CityDB
+		cityOpts.CurrentCity, cityOpts.CityDB, cityOpts.rows = cf.CurrentCity, cf.CityDB, rows
 		return runCompute(ctx, &cityOpts)
 	})
-	if err != nil {
-		return err
-	}
-	if opts.Exporter != nil {
-		return cmdutil.WriteRows(opts.IO, opts.Exporter, accumulator)
-	}
-	return nil
 }
 
 // Phase indices for the TUI checklist.
@@ -194,24 +181,7 @@ func loadFacilities(ctx context.Context, store db.Store, city *config.CityConfig
 	if err != nil {
 		return nil, fmt.Errorf("list %s facilities: %w", spec.Name, err)
 	}
-	var out []services.Facility
-	for _, r := range rows {
-		var pt struct {
-			Type        string     `json:"type"`
-			Coordinates [2]float64 `json:"coordinates"`
-		}
-		if err := json.Unmarshal([]byte(r.GeometryJSON), &pt); err != nil || pt.Type != "Point" {
-			continue
-		}
-		out = append(out, services.Facility{ID: r.ID, Name: r.Name, Lon: pt.Coordinates[0], Lat: pt.Coordinates[1], Source: "osm"})
-	}
-	for _, fc := range city.Facilities {
-		if fc.Service != spec.Name {
-			continue
-		}
-		out = append(out, services.Facility{ID: services.ConfigFacilityID(spec.Name, fc.Lon, fc.Lat), Name: fc.Name, Lon: fc.Lon, Lat: fc.Lat, Source: "config"})
-	}
-	return out, nil
+	return services.Facilities(db.ResourceFeatures(rows), city.Facilities, spec.Name), nil
 }
 
 // inputs is everything the routing pass needs, gathered by loadInputs.
@@ -279,11 +249,7 @@ func loadInputs(ctx context.Context, errOut io.Writer, opts *Options) (*inputs, 
 		return nil, err
 	}
 	in.snapshotID, in.proj, in.grid = target.SnapshotID, target.Proj, target.Grid
-	roads := make([]resource.Feature, len(roadRows))
-	for i, r := range roadRows {
-		roads[i] = resource.Feature{ID: r.ID, Name: r.Name, Tags: r.Tags, GeometryJSON: r.GeometryJSON, SourceAPI: r.SourceAPI}
-	}
-	in.roads, in.source = services.PreferredRoads(roads)
+	in.roads, in.source = services.PreferredRoads(db.ResourceFeatures(roadRows))
 	return in, nil
 }
 

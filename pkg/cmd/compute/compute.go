@@ -150,23 +150,11 @@ func RunResourceForCity(ctx context.Context, f *cmdutil.Factory, rt resource.Sou
 }
 
 func runComputeAllCities(ctx context.Context, f *cmdutil.Factory, opts *Options) error {
-	var accumulator []computeRow
-	if opts.Exporter != nil {
-		opts.rows = &accumulator
-	}
-	err := cmdutil.ForEachCity(ctx, f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
+	return cmdutil.ForEachCityRows(ctx, f, opts.IO, opts.Exporter, func(cf *cmdutil.Factory, rows *[]computeRow) error {
 		cityOpts := *opts
-		cityOpts.CurrentCity = cf.CurrentCity
-		cityOpts.CityDB = cf.CityDB
+		cityOpts.CurrentCity, cityOpts.CityDB, cityOpts.rows = cf.CurrentCity, cf.CityDB, rows
 		return runCompute(ctx, &cityOpts)
 	})
-	if err != nil {
-		return err
-	}
-	if opts.Exporter != nil {
-		return cmdutil.WriteRows(opts.IO, opts.Exporter, accumulator)
-	}
-	return nil
 }
 
 // Phase indices for the TUI step checklist.
@@ -470,17 +458,7 @@ func (c *computer) loadResourceFeatures(ctx context.Context) ([]resource.Feature
 		return nil, cmdutil.ErrNoResults
 	}
 	fmt.Fprintf(c.progress, "Processing %d features (UTM zone %d)...\n", len(dbFeatures), c.proj.Zone)
-	resFeatures := make([]resource.Feature, len(dbFeatures))
-	for i, f := range dbFeatures {
-		resFeatures[i] = resource.Feature{
-			ID:           f.ID,
-			Name:         f.Name,
-			Tags:         f.Tags,
-			GeometryJSON: f.GeometryJSON,
-			SourceAPI:    f.SourceAPI,
-		}
-	}
-	return resFeatures, nil
+	return db.ResourceFeatures(dbFeatures), nil
 }
 
 // createSnapshot records the compute run under the hash that OWNS this city's

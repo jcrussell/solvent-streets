@@ -163,7 +163,7 @@ func TestDashboardCompareChartLabels(t *testing.T) {
 // per default-dimension tag (a multi-tag city appears under each) and bare
 // <option>s for untagged ("Other") cities, and that the gear menu carries one
 // tag filter per dimension (values listed once each, labels without the
-// dimension prefix) in place of the old Compare/Aggregate-only #tag-scope.
+// dimension prefix) and no single #tag-scope selector.
 func TestCitySelectorOptgroups(t *testing.T) {
 	tmpl := parseDashboardTemplates(t)
 

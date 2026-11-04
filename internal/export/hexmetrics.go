@@ -3,7 +3,6 @@ package export
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -152,11 +151,21 @@ func roadsSnapshot(ctx context.Context, entry CityEntry) (*int64, bool, error) {
 // `pvmt all compute` does after the roads pass). A city with no roads
 // compute has no current metric either.
 func currentMetricRows(ctx context.Context, entry CityEntry, key string, roadsSnap *int64, hasRoads bool) ([]db.HexMetric, error) {
+	if !hasRoads {
+		return nil, nil
+	}
+	return metricRowsOn(ctx, entry, key, roadsSnap)
+}
+
+// metricRowsOn lists a stored metric's rows (ListHexMetrics resolves one
+// snapshot per key) and returns them only when that snapshot is snap — the
+// snapshot the caller's other data comes from — else none.
+func metricRowsOn(ctx context.Context, entry CityEntry, key string, snap *int64) ([]db.HexMetric, error) {
 	rows, err := entry.Store.ListHexMetrics(ctx, key)
 	if err != nil {
 		return nil, fmt.Errorf("listing hex metric %s: %w", key, err)
 	}
-	if !hasRoads || len(rows) == 0 || !sameSnapshot(rows[0].SnapshotID, roadsSnap) {
+	if len(rows) == 0 || !sameSnapshot(rows[0].SnapshotID, snap) {
 		return nil, nil
 	}
 	return rows, nil
@@ -208,43 +217,18 @@ func metricPoints(ctx context.Context, entry CityEntry, metricKey string, refIDs
 		if spec.Metric != metricKey {
 			continue
 		}
-		feats, err := entry.Store.ListFeatures(ctx, resource.FacilityType(spec.Name))
+		rows, err := entry.Store.ListFeatures(ctx, resource.FacilityType(spec.Name))
 		if err != nil {
 			return nil, fmt.Errorf("listing %s facilities: %w", spec.Name, err)
 		}
-		for _, f := range feats {
-			if !refIDs[f.ID] {
-				continue
+		for _, f := range services.Facilities(db.ResourceFeatures(rows), entry.City.Facilities, spec.Name) {
+			if refIDs[f.ID] {
+				points = append(points, MetricPointJSON{ID: f.ID, Name: f.Name, Lon: f.Lon, Lat: f.Lat, Source: f.Source})
 			}
-			lon, lat, ok := pointLonLat(f)
-			if !ok {
-				continue
-			}
-			points = append(points, MetricPointJSON{ID: f.ID, Name: f.Name, Lon: lon, Lat: lat, Source: "osm"})
-		}
-		seen := map[string]bool{}
-		for _, fc := range entry.City.Facilities {
-			id := services.ConfigFacilityID(spec.Name, fc.Lon, fc.Lat)
-			if fc.Service != spec.Name || !refIDs[id] || seen[id] {
-				continue
-			}
-			seen[id] = true
-			points = append(points, MetricPointJSON{ID: id, Name: fc.Name, Lon: fc.Lon, Lat: fc.Lat, Source: "config"})
 		}
 	}
 	sort.Slice(points, func(i, j int) bool { return points[i].ID < points[j].ID })
 	return points, nil
-}
-
-func pointLonLat(f db.Feature) (float64, float64, bool) {
-	var pt struct {
-		Type        string     `json:"type"`
-		Coordinates [2]float64 `json:"coordinates"`
-	}
-	if err := json.Unmarshal([]byte(f.GeometryJSON), &pt); err != nil || pt.Type != "Point" {
-		return 0, 0, false
-	}
-	return pt.Coordinates[0], pt.Coordinates[1], true
 }
 
 // buildMetricSummaries returns meta.json's per-metric summaries over every

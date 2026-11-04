@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/filter"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/geo"
@@ -65,16 +66,7 @@ func buildPlayHexesFromGrid(ctx context.Context, entry CityEntry, proj *geo.UTMP
 		return nil, nil
 	}
 
-	feats := make([]resource.Feature, len(dbFeatures))
-	for i, f := range dbFeatures {
-		feats[i] = resource.Feature{
-			ID:           f.ID,
-			Name:         f.Name,
-			Tags:         f.Tags,
-			GeometryJSON: f.GeometryJSON,
-			SourceAPI:    f.SourceAPI,
-		}
-	}
+	feats := db.ResourceFeatures(dbFeatures)
 
 	buffered := (&resource.Pavement{}).BufferFeaturesPaired(ctx, feats, proj)
 

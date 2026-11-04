@@ -165,17 +165,7 @@ func loadFeaturesForCombined(ctx context.Context, store db.Store, rt resource.So
 	if len(dbFeatures) == 0 {
 		return nil, false
 	}
-	out := make([]resource.Feature, len(dbFeatures))
-	for i, f := range dbFeatures {
-		out[i] = resource.Feature{
-			ID:           f.ID,
-			Name:         f.Name,
-			Tags:         f.Tags,
-			GeometryJSON: f.GeometryJSON,
-			SourceAPI:    f.SourceAPI,
-		}
-	}
-	return out, true
+	return db.ResourceFeatures(dbFeatures), true
 }
 
 // BuildCityGrid loads the city boundary and returns the clipped hex grid keyed

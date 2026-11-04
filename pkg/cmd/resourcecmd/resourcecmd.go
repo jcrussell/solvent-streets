@@ -1,11 +1,9 @@
-// Package resourcecmd builds the per-resource command group — `pvmt roads`,
-// `pvmt parking`, `pvmt sidewalks`, `pvmt services` — from one description.
-// The three pavement groups were structural twins (ingest + compute + status
-// over a resource.Source) that differed only in their help text; the fourth
-// group, services, is the trigger the deferred note on that duplication
-// (solvent-streets-2a1c) said to wait for. It lives under pkg/cmd rather than
-// pkg/cmdutil because it imports the ingest/compute/status commands, which
-// themselves import cmdutil.
+// Package resourcecmd builds the per-resource command groups — `pvmt roads`,
+// `pvmt parking`, `pvmt sidewalks`, `pvmt services`, `pvmt census` — from one
+// description: ingest + compute + status over a resource.Source, differing
+// in help text and, where a group needs it, its own compute command. It
+// lives under pkg/cmd rather than pkg/cmdutil because it imports the
+// ingest/compute/status commands, which themselves import cmdutil.
 package resourcecmd
 
 import (

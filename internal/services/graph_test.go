@@ -192,8 +192,8 @@ func TestComputeCoverage(t *testing.T) {
 // rule: a station 20 m from an unjoined two-vertex service apron and 140 m
 // from the street must snap to the street (the larger component), reach the
 // street's hexes, and be flagged Isolated only when nothing bigger is in
-// range. A hex whose nearest vertex is the apron must still be painted from
-// the reachable street vertex within its radius.
+// range. A hex whose nearest road is the apron must still be painted from
+// the reachable street within its radius.
 func TestComputeCoverage_IsolatedApronSnapsToStreet(t *testing.T) {
 	p := testProj()
 	// Street A–B–D plus a short apron 120 m north of A, not joined to it.
@@ -219,7 +219,7 @@ func TestComputeCoverage_IsolatedApronSnapsToStreet(t *testing.T) {
 	station := Facility{ID: "st", Name: "Apron station", Lon: lonA, Lat: latA + 100/111000.0} // ~20 m from the apron, ~100 m from A
 	hexes := []geo.Hex{
 		{ID: "near-a", CenterX: ax + 10, CenterY: ay + 10},
-		{ID: "near-apron", CenterX: ax, CenterY: ay + 110}, // apron vertex is nearest, A is 110 m away (within HexSnapM)
+		{ID: "near-apron", CenterX: ax, CenterY: ay + 110}, // the apron is nearest, A is 110 m away (within HexSnapM)
 	}
 	cov := ComputeCoverage(context.Background(), spec, hexes, g, []Facility{station})
 	if len(cov.Unsnapped) != 0 || len(cov.Isolated) != 0 {
@@ -332,5 +332,44 @@ func TestSnapConnected_LargestComponentMustBeInRange(t *testing.T) {
 	}
 	if g.SnapComponentSize(s) != 3 || s.Dist > FacilitySnapM {
 		t.Errorf("snapped to component of %d vertices at %v m, want the 3-vertex stub within %v m", g.SnapComponentSize(s), s.Dist, FacilitySnapM)
+	}
+}
+
+// TestSeedsAndArrival_AtVertexIgnoresDirection: a position exactly on a
+// segment's end vertex reaches (and is reached from) that vertex at zero
+// cost even when the segment's oneway forbids driving along it that way;
+// mid-segment positions respect the direction.
+func TestSeedsAndArrival_AtVertexIgnoresDirection(t *testing.T) {
+	p := testProj()
+	// oneway=yes A→B: the segment may only be driven from A toward B.
+	g := BuildGraph(context.Background(), []resource.Feature{
+		line(map[string]string{"highway": "residential", "oneway": "yes"}, [2]float64{lonA, latA}, [2]float64{lonB, latB}),
+	}, DefaultRoadSpeeds, p)
+	bx, by := p.ToProjected(lonB, latB)
+	atB, ok := g.SnapWhere(bx, by, 1, nil)
+	if !ok || atB.T < 1-1e-9 {
+		t.Fatalf("snap at B = %+v (ok=%v), want T=1", atB, ok)
+	}
+	seeds := g.SeedsAt(atB, 0)
+	b, _ := g.NearestLonLat(lonB, latB, 1)
+	if len(seeds) != 1 || seeds[0].Node != b || seeds[0].Cost != 0 {
+		t.Errorf("seeds at B on A→B oneway = %+v, want only B at 0 s (A is upstream)", seeds)
+	}
+
+	// A source at A reaches the midpoint going with the oneway; a source at
+	// B cannot reach it (driving B→A is forbidden).
+	ax, ay := p.ToProjected(lonA, latA)
+	mid, _ := g.SnapWhere((ax+bx)/2, (ay+by)/2, 1, nil)
+	a, _ := g.NearestLonLat(lonA, latA, 1)
+	dist, src := g.ShortestFrom([]int{a})
+	if secs, s := g.ArrivalAt(mid, dist, src); math.IsInf(secs, 1) || s != 0 {
+		t.Errorf("midpoint from A = (%v, %d), want reachable from source 0", secs, s)
+	}
+	dist, src = g.ShortestFrom([]int{b})
+	if secs, s := g.ArrivalAt(mid, dist, src); !math.IsInf(secs, 1) || s != -1 {
+		t.Errorf("midpoint from B = (%v, %d), want unreachable against the oneway", secs, s)
+	}
+	if secs, s := g.ArrivalAt(atB, dist, src); secs != 0 || s != 0 {
+		t.Errorf("B itself from B = (%v, %d), want (0, 0)", secs, s)
 	}
 }

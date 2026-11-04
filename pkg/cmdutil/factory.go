@@ -172,6 +172,25 @@ func cityOverrideFunc(cmd *cobra.Command, f *Factory, fallback func() (*config.C
 	}
 }
 
+// ForEachCityRows is ForEachCity for a command that emits JSON rows: run is
+// called once per city with rows, the shared accumulator (nil when exporter
+// is nil, i.e. human output), and when exporter is set every city's rows are
+// written once as a single document instead of one per city.
+func ForEachCityRows[R RowExporter](ctx context.Context, f *Factory, ios *iostreams.IOStreams, exporter Exporter, run func(cf *Factory, rows *[]R) error) error {
+	var acc []R
+	var rows *[]R
+	if exporter != nil {
+		rows = &acc
+	}
+	if err := ForEachCity(ctx, f, func(cf *Factory, _ *config.CityConfig) error { return run(cf, rows) }); err != nil {
+		return err
+	}
+	if exporter != nil {
+		return WriteRows(ios, exporter, acc)
+	}
+	return nil
+}
+
 // ForEachCity resolves cities from config (all if no --city flag, one if set)
 // and calls fn for each. Prints a city header when iterating multiple cities.
 // Collects and joins all errors. A single per-city ErrNoResults is skipped so

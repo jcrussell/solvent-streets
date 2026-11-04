@@ -310,3 +310,59 @@ func TestResolveConfigID(t *testing.T) {
 		}
 	})
 }
+
+// cityRow is a RowExporter carrying one city's name.
+type cityRow struct{ city string }
+
+func (r cityRow) ExportData([]string) map[string]any { return map[string]any{"city": r.city} }
+
+// recordingExporter records every Write so a test can count documents.
+type recordingExporter struct{ writes [][]map[string]any }
+
+func (e *recordingExporter) Fields() []string { return []string{"city"} }
+func (e *recordingExporter) Write(_ *iostreams.IOStreams, rows []map[string]any) error {
+	e.writes = append(e.writes, rows)
+	return nil
+}
+
+// TestForEachCityRows: with an exporter, every city's rows land in ONE
+// written document, in city order; without one (human output) run sees a nil
+// accumulator and nothing is written.
+func TestForEachCityRows(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Alpha"}, {Name: "Beta"}}}
+	f := &cmdutil.Factory{
+		IOStreams:   ios,
+		Config:      func() (*config.Config, error) { return cfg, nil },
+		CityFlagSet: func() bool { return false },
+	}
+	run := func(cf *cmdutil.Factory, rows *[]cityRow) error {
+		city, err := cf.CurrentCity()
+		if err != nil {
+			return err
+		}
+		if rows != nil {
+			*rows = append(*rows, cityRow{city: city.Name})
+		}
+		return nil
+	}
+
+	exp := &recordingExporter{}
+	if err := cmdutil.ForEachCityRows(context.Background(), f, ios, exp, run); err != nil {
+		t.Fatal(err)
+	}
+	if len(exp.writes) != 1 || len(exp.writes[0]) != 2 || exp.writes[0][0]["city"] != "Alpha" || exp.writes[0][1]["city"] != "Beta" {
+		t.Errorf("writes = %v, want one document with Alpha then Beta", exp.writes)
+	}
+
+	sawRows := false
+	if err := cmdutil.ForEachCityRows(context.Background(), f, ios, nil, func(_ *cmdutil.Factory, rows *[]cityRow) error {
+		sawRows = sawRows || rows != nil
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if sawRows {
+		t.Error("without an exporter run must get a nil accumulator")
+	}
+}

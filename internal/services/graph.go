@@ -3,7 +3,6 @@ package services
 import (
 	"container/heap"
 	"context"
-	"fmt"
 	"math"
 
 	"github.com/peterstace/simplefeatures/geom"
@@ -26,15 +25,6 @@ const (
 	// network; stations sit on a parcel beside the street, not on it.
 	FacilitySnapM = 500.0
 )
-
-// ConfigFacilityID is the stable id of a hand-placed [[cities.facilities]]
-// entry: its service and position, not its index in the list, so inserting,
-// removing or reordering entries between a compute and an export never makes
-// a stored hex reference resolve to a different station. Two entries at the
-// same position share an id, which is harmless — they are the same point.
-func ConfigFacilityID(service string, lon, lat float64) string {
-	return fmt.Sprintf("config:%s:%.6f,%.6f", service, lon, lat)
-}
 
 // Facility is one point of service for a coverage computation.
 type Facility struct {
@@ -310,7 +300,7 @@ func (g *Graph) Nearest(x, y, maxDist float64) (int, bool) {
 	if g.index == nil || g.index.Len() == 0 {
 		return 0, false
 	}
-	env := geom.NewEnvelope(geom.XY{X: x - maxDist, Y: y - maxDist}, geom.XY{X: x + maxDist, Y: y + maxDist})
+	env := squareAround(x, y, maxDist)
 	best, bestD := -1, maxDist
 	for _, id := range g.index.SearchIDs(env) {
 		if d := math.Hypot(g.xs[id]-x, g.ys[id]-y); d <= bestD {
@@ -326,13 +316,19 @@ func (g *Graph) NearestLonLat(lon, lat, maxDist float64) (int, bool) {
 	return g.Nearest(x, y, maxDist)
 }
 
+// squareAround is the envelope of half-side d centred on (x, y): the R-tree
+// prefilter for a radius-d search.
+func squareAround(x, y, d float64) geom.Envelope {
+	return geom.NewEnvelope(geom.XY{X: x - d, Y: y - d}, geom.XY{X: x + d, Y: y + d})
+}
+
 // snapCandidates returns the nearest position on every segment within
 // maxDist metres (true distance, not the search square) of (x, y).
 func (g *Graph) snapCandidates(x, y, maxDist float64) []Snap {
 	if g.segIndex == nil || g.segIndex.Len() == 0 {
 		return nil
 	}
-	env := geom.NewEnvelope(geom.XY{X: x - maxDist, Y: y - maxDist}, geom.XY{X: x + maxDist, Y: y + maxDist})
+	env := squareAround(x, y, maxDist)
 	var out []Snap
 	for _, id := range g.segIndex.SearchIDs(env) {
 		sg := g.segs[id]

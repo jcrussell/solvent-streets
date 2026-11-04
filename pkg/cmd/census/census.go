@@ -163,23 +163,11 @@ after a roads compute.`,
 }
 
 func runComputeAllCities(ctx context.Context, f *cmdutil.Factory, opts *Options) error {
-	var accumulator []computeRow
-	if opts.Exporter != nil {
-		opts.rows = &accumulator
-	}
-	err := cmdutil.ForEachCity(ctx, f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
+	return cmdutil.ForEachCityRows(ctx, f, opts.IO, opts.Exporter, func(cf *cmdutil.Factory, rows *[]computeRow) error {
 		cityOpts := *opts
-		cityOpts.CurrentCity = cf.CurrentCity
-		cityOpts.CityDB = cf.CityDB
+		cityOpts.CurrentCity, cityOpts.CityDB, cityOpts.rows = cf.CurrentCity, cf.CityDB, rows
 		return runCompute(ctx, &cityOpts)
 	})
-	if err != nil {
-		return err
-	}
-	if opts.Exporter != nil {
-		return cmdutil.WriteRows(opts.IO, opts.Exporter, accumulator)
-	}
-	return nil
 }
 
 func runCompute(ctx context.Context, opts *Options) error {
@@ -214,10 +202,7 @@ func runCompute(ctx context.Context, opts *Options) error {
 	if err != nil {
 		return err
 	}
-	feats := make([]resource.Feature, len(rows))
-	for i, r := range rows {
-		feats[i] = resource.Feature{ID: r.ID, Name: r.Name, Tags: r.Tags, GeometryJSON: r.GeometryJSON, SourceAPI: r.SourceAPI}
-	}
+	feats := db.ResourceFeatures(rows)
 	fmt.Fprintf(errOut, "Apportioning %d Census blocks onto %d hexes for %s...\n", len(feats), len(target.Grid), city.Name)
 	projected := blocks.BufferFeaturesPaired(ctx, feats, target.Proj)
 	m := population.Apportion(ctx, target.Grid, projected, nil)
