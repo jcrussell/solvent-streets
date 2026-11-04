@@ -428,12 +428,17 @@ type CityConfig struct {
 	MinHexArea float64         `toml:"min_hex_area"`
 	Forecast   *ForecastConfig `toml:"forecast,omitempty"`
 	// Tags are optional grouping labels for the city selector and the
-	// compare/aggregate scope filter. A city is rendered under an <optgroup>
-	// for each of its tags (multi-membership); cities with no tags fall into
-	// an ungrouped "Other" set. Tags are usually assigned at the [[include]]
-	// site so a city pulled in by several includes (e.g. a Bay Area metro that
-	// is also a top-50 city) accumulates the union of their tags. Used to keep
-	// large city lists navigable and to scope compare/aggregate to a subset.
+	// dashboard's tag filters. A tag is either a plain label ("Bay Area",
+	// "Top 50"), which belongs to the default "group" dimension, or a
+	// "dimension:value" pair ("state:CA", "metro:Bay Area"); each dimension
+	// renders as its own filter and the city selector is grouped by the default
+	// dimension. A city may carry several values in one dimension
+	// (multi-membership); cities with no group tag fall into an ungrouped
+	// "Other" set. A "state:XX" tag is derived from the ", XX" name suffix at
+	// export time unless one is given explicitly (see EffectiveTags). Tags are
+	// usually assigned at the [[include]] site so a city pulled in by several
+	// includes (e.g. a Bay Area metro that is also a top-50 city) accumulates
+	// the union of their tags.
 	Tags []string `toml:"tags,omitempty"`
 	// BoundaryRelationID is the OSM relation ID for the city's admin
 	// boundary (admin_level typically 8). Set this for cities whose
@@ -925,17 +930,16 @@ func (c *Config) validate(requireCities bool) error {
 	return c.validateCities()
 }
 
-// validateTags rejects blank tag labels on one city. A blank tag is never what
-// the author meant, and it groups the city under the exporter's "untagged"
-// bucket rather than a named optgroup — a silent mis-grouping. unionTags strips
-// empties, but only for cities arriving through [[include]]; a directly
-// declared city bypasses it. Split out of validateCities for the same reason
-// that function was split out of validate: cognitive complexity.
+// validateTags rejects blank or malformed tags on one city (see validateTag
+// in tags.go for the rules). unionTags strips empties, but only for cities
+// arriving through [[include]]; a directly declared city bypasses it. Split out
+// of validateCities for the same reason that function was split out of
+// validate: cognitive complexity.
 func validateTags(i int, city CityConfig) error {
 	for j, tag := range city.Tags {
-		if strings.TrimSpace(tag) == "" {
+		if err := validateTag(tag); err != nil {
 			return errors.Join(ErrInvalidConfig,
-				fmt.Errorf("cities[%d] (%s): tags[%d] is empty; remove it or give it a label", i, city.Name, j))
+				fmt.Errorf("cities[%d] (%s): tags[%d] %w", i, city.Name, j, err))
 		}
 	}
 	return nil

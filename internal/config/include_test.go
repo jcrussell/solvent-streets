@@ -1965,3 +1965,40 @@ path = "../coarse/pvmt.toml"
 			"kept zero as \"unset\" rather than 0", w)
 	}
 }
+
+// TestInclude_UnionsTagsAcrossDimensionValues pins that the include union is
+// a plain set union of full tag strings: two values in the same dimension on
+// one city both survive (multi-valued dimensions are allowed), and nothing
+// merges or dedups across dimensions.
+func TestInclude_UnionsTagsAcrossDimensionValues(t *testing.T) {
+	dir := t.TempDir()
+	writeTOML(t, dir, "a/pvmt.toml", `
+[[cities]]
+name = "Kansas City, MO"
+overpass = true
+tags = ["state:MO"]
+`)
+	writeTOML(t, dir, "b/pvmt.toml", `
+[[cities]]
+name = "Kansas City, MO"
+overpass = true
+tags = ["state:KS"]
+`)
+	top := writeTOML(t, dir, "all/pvmt.toml", `
+[[include]]
+path = "../a/pvmt.toml"
+tags = ["metro:Kansas City", "Top 50"]
+[[include]]
+path = "../b/pvmt.toml"
+tags = ["metro:Kansas City"]
+`)
+	cfg, err := Load(top)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	kc := cityBySlug(t, cfg, "kansas-city-mo")
+	want := []string{"metro:Kansas City", "Top 50", "state:MO", "state:KS"}
+	if !equalStrings(kc.Tags, want) {
+		t.Errorf("tags = %v; want %v", kc.Tags, want)
+	}
+}
