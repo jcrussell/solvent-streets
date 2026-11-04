@@ -85,6 +85,8 @@ Roads: width inferred from `width` tag, `lanes` count, or classification default
 Parking: polygons used directly; each lot also gets an estimated space count (`capacity` tag, else area / 30 m², × levels for garages) apportioned onto hexes by area fraction (`resource.EstimateParkingSpaces`, `geo.ComputeHexWeightedShares`).
 Sidewalks: buffered like roads with sidewalk-specific width defaults.
 
+Service coverage (`pvmt services`, `internal/services`) runs beside the pavement passes rather than through them: facilities (`facility-<service>` features, OSM points collapsed from nodes/buildings) are routed from over a graph built from the stored roads (one source per city, vertices keyed by shared coordinates, edges costed by posted or class speed, oneway honoured), and each hex's response seconds land in the generic `hex_metrics` table (`internal/hexmetric` registry, key `fire_response_s`) attached to the latest roads snapshot. The exporter writes them as the optional `hex-metrics.json`; the dashboard's "Color by" mode paints any registered metric from its scale, so a new metric is a registry entry and a producer, not new client code.
+
 ## Database schema
 
 Single file at `~/.local/share/pvmt/pvmt.db`. WAL mode. All tables scoped by `city_id`.

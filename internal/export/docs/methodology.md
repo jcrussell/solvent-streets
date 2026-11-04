@@ -264,6 +264,48 @@ are hex-clipped the same way). Limitations:
 - A city computed before this estimate existed shows no count until it is
   recomputed.
 
+### Service coverage (fire response)
+
+The map's **Color by → Fire response** mode paints each hex with an
+estimated response time from the nearest fire station, in the spirit of a
+city-builder's service-coverage overlay. It is computed, not observed:
+
+1. **Facilities.** Fire stations come from OpenStreetMap
+   (`amenity=fire_station` nodes, buildings and multipolygons, collapsed
+   to a point), plus any hand-placed `[[cities.facilities]]` in the
+   config for stations OSM lacks.
+2. **Road graph.** The city's stored roads become a routable graph: ways
+   that share an OSM node join at that vertex; each segment costs its
+   length over the road's posted `maxspeed` when tagged, else a per-class
+   free-flow speed (motorway 100 km/h … residential 40, service 20,
+   default 30). These are deliberately near posted limits rather than
+   emergency speeds — intersections and turns roughly offset the
+   exemption. `oneway` (and the implied one-way of motorways and
+   roundabouts) is respected. One source feeds the graph: OpenStreetMap
+   when ingested, otherwise the agency centerlines (which carry no speed
+   tags and so run at the default).
+3. **Routing.** A single multi-source shortest-path run from every station
+   gives each road vertex its travel time from the nearest one. A hex's
+   value is the **turnout** (80 s, NFPA 1710 for fire and special
+   operations) plus the travel time to the vertex nearest its centre,
+   provided that vertex is within 300 m; stations farther than 500 m from
+   the network are ignored with a warning. The summary's "within
+   threshold" share uses NFPA 1710's 240 s first-engine travel time.
+   `[[services]]` in the config overrides both constants.
+4. **Storage and display.** Values are stored per hex as the
+   `fire_response_s` metric against the city's latest roads compute
+   snapshot, exported in `hex-metrics.json`, and painted in five bands
+   (≤ 5:20, 7:20, 9:20, 11:20, > 11:20 total time). Only hexes that
+   also carry pavement rows are painted; a hex with no road within reach
+   carries no value rather than a sentinel.
+
+Limitations: no traffic, signals, grade separation beyond what OSM nodes
+encode, unit availability, dispatch time, or apparatus type are modelled;
+OSM station coverage is uneven; and the same machinery (a generic per-hex
+metric registry) is meant to carry other services and metrics later, so
+the legend bands and colour ramp are per-metric descriptions, not a fixed
+fire palette.
+
 ### Assumptions and limitations
 
 - Initial PCI is a user-chosen stand-in, not a field measurement.
@@ -288,7 +330,11 @@ are hex-clipped the same way). Limitations:
   Investment*, Federal Highway Administration. Motivates the direction
   of the preventive-first vs. worst-first efficiency adjustment.
 - [OpenStreetMap contributors](https://www.openstreetmap.org/copyright)
-  — road, parking, and sidewalk geometry (ODbL).
+  — road, parking, sidewalk and fire-station geometry (ODbL).
+- **NFPA 1710** — *Standard for the Organization and Deployment of Fire
+  Suppression Operations… by Career Fire Departments*, National Fire
+  Protection Association. Source for the 80 s turnout and 240 s
+  first-engine travel time used by the fire response coverage.
 - **VTPI** — Litman, T., *Transportation Cost and Benefit Analysis II —
   Parking Costs*, Victoria Transport Policy Institute. Source for the
   300–400 sq ft per surface space rule behind the 30 m² parking-space

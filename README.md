@@ -80,6 +80,8 @@ pvmt export -o ./site
 
 `./site` is a self-contained folder you can deploy to GitHub Pages or any static host.
 
+`pvmt all ingest` and `pvmt all compute` also pull fire stations from OpenStreetMap and compute a per-hex fire response time over the road network (the map's **Color by → Fire response**); `pvmt services --help` runs those steps on their own. Parking lots carry an estimated space count, and the gear menu's tag filters narrow the city list by metro group and state on every page.
+
 Use `pvmt --help` and `pvmt <command> --help` for full usage.
 
 See [`examples/`](examples/) for ready-to-use configs covering several US metro areas and a 50-largest-US-cities national sample.

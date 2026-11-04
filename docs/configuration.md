@@ -135,6 +135,45 @@ Two configs that both set `config_id = "same"` while defining a city with the sa
 
 Multiple sources can be enabled for the same city. Features are deduplicated by ID.
 
+## Services (`[[services]]`, `[[cities.facilities]]`)
+
+`pvmt services` ingests the facilities of a public service and computes how
+long that service takes to reach each hex over the road network (see the
+dashboard's **Color by → Fire response**). Only the `fire` service is
+registered today; `pvmt all ingest` / `pvmt all compute` run its steps
+best-effort after the pavement passes (no stations mapped is a silent skip,
+any other failure only warns).
+
+```toml
+[[services]]
+name = "fire"
+turnout_s = 80            # fixed overhead added to every travel time (NFPA 1710 default)
+travel_threshold_s = 240  # travel time within which a hex counts as covered
+
+[[cities]]
+name = "Livermore, CA"
+overpass = true
+
+  [[cities.facilities]]   # hand-placed stations where OpenStreetMap is missing them
+  service = "fire"
+  name = "Station 10"
+  lat = 37.6819
+  lon = -121.7680
+```
+
+- `[[services]]` entries override the registry defaults for the named
+  service; only the fields set are applied, and an unknown `name` is
+  rejected when the services command runs. It is an array of tables, not a
+  map, so the config hash stays order-stable.
+- `[[cities.facilities]]` adds points of service routed from exactly like
+  the OpenStreetMap ones; `lat`/`lon` must be in range. A station just
+  outside the boundary is fine.
+- Results attach to the city's latest `roads` compute snapshot, so run
+  `pvmt roads compute` (or `pvmt all compute`) first. Adding either table
+  changes the config bytes and therefore the config hash: existing
+  snapshots stop matching until the city is recomputed, exactly as for any
+  other config edit.
+
 ## Forecast tuning
 
 **`initial_pci`** — the starting Pavement Condition Index (PCI) the forecast assumes for every segment, on a 0–100 scale. Must be in `(0, 100]`; an unset, zero, or out-of-range value falls back to the default `85`. Also settable via the `PVMT_FORECAST_INITIAL_PCI` env var (see [Environment variables](#environment-variables)). This is the network *average*: internally the forecast spreads it into a condition **distribution** (a Beta around this mean, preserved exactly) before pricing, so the cost figures reflect the failed/poor tail rather than the average alone (see `docs/validation.md` §4). No configuration is needed — the spread is always on; setting a realistic average for your network is the lever.
