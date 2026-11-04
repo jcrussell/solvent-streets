@@ -32,11 +32,11 @@ func TestSpecValidate(t *testing.T) {
 			t.Errorf("%s: expected validation error", name)
 		}
 	}
-	// No bands is legal (one band).
+	// A bandless scale is a single colour and an invalid paint expression.
 	s := validSpec("one_band")
 	s.Scale.Bands = nil
-	if err := s.Validate(); err != nil {
-		t.Errorf("bandless spec rejected: %v", err)
+	if err := s.Validate(); err == nil {
+		t.Error("bandless spec must be rejected")
 	}
 }
 

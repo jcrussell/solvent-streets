@@ -186,22 +186,6 @@ func runCompute(ctx context.Context, opts *Options) error {
 	return doCompute(ctx, opts.IO.Out, opts.IO.ErrOut, opts.IO.ErrOut, tui.NoopNotifier{}, opts)
 }
 
-// applyOverrides merges the config's [[services]] entry for spec, if any.
-func applyOverrides(spec services.Spec, cfg *config.Config) services.Spec {
-	for _, o := range cfg.Services {
-		if o.Name != spec.Name {
-			continue
-		}
-		if o.TurnoutS > 0 {
-			spec.TurnoutS = o.TurnoutS
-		}
-		if o.TravelThresholdS > 0 {
-			spec.TravelThresholdS = o.TravelThresholdS
-		}
-	}
-	return spec
-}
-
 // loadFacilities gathers the service's facilities: the ingested OSM points
 // plus the city's hand-placed [[cities.facilities]] for this service.
 func loadFacilities(ctx context.Context, store db.Store, city *config.CityConfig, spec services.Spec) ([]services.Facility, error) {
@@ -263,19 +247,16 @@ func loadInputs(ctx context.Context, errOut io.Writer, opts *Options) (*inputs, 
 	if err != nil {
 		return nil, err
 	}
-	in := &inputs{store: store, city: city, spec: applyOverrides(spec, cfg)}
-
-	// The metric attaches to the latest roads compute snapshot (the forecast
-	// pattern): without one there is no grid the dashboard would join it to.
-	roadsResult, err := store.LatestComputeResult(ctx, resource.TypeRoads)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, cmdutil.Hintf(errorf("no roads compute snapshot for %s", city.Name),
-				"run `pvmt roads compute` (or `pvmt all compute`) first; service coverage attaches to the roads snapshot")
-		}
-		return nil, fmt.Errorf("latest roads compute result: %w", err)
+	// A [[services]] entry naming an unregistered service is a config error,
+	// not something to skip silently (the docs promise rejection).
+	if err := services.ValidateOverrides(cfg.Services); err != nil {
+		return nil, errors.Join(config.ErrInvalidConfig, err)
 	}
-	in.snapshotID = roadsResult.SnapshotID
+	in := &inputs{store: store, city: city, spec: services.Resolve(spec, cfg.Services)}
+
+	// Empty inputs first (ErrNoResults = a quiet skip in `pvmt all`), then
+	// the snapshot precondition (a real, hinted error): a city with no roads
+	// or no stations is not a failure, a city that skipped `roads compute` is.
 	roadRows, err := store.ListFeatures(ctx, resource.TypeRoads)
 	if err != nil {
 		return nil, fmt.Errorf("list roads: %w", err)
@@ -292,6 +273,17 @@ func loadInputs(ctx context.Context, errOut io.Writer, opts *Options) (*inputs, 
 		fmt.Fprintf(errOut, "No %s facilities for %s (run 'pvmt services ingest' or add [[cities.facilities]]).\n", in.spec.Name, city.Name)
 		return nil, cmdutil.ErrNoResults
 	}
+	// The metric attaches to the latest roads compute snapshot (the forecast
+	// pattern): without one there is no grid the dashboard would join it to.
+	roadsResult, err := store.LatestComputeResult(ctx, resource.TypeRoads)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, cmdutil.Hintf(fmt.Errorf("no roads compute snapshot for %s", city.Name),
+				"run `pvmt roads compute` (or `pvmt all compute`) first; service coverage attaches to the roads snapshot")
+		}
+		return nil, fmt.Errorf("latest roads compute result: %w", err)
+	}
+	in.snapshotID = roadsResult.SnapshotID
 	boundaryGJSON, bbox, proj, err := compute.LoadBoundary(ctx, store, city)
 	if err != nil {
 		return nil, err
@@ -338,17 +330,24 @@ func doCompute(ctx context.Context, out, progress, errOut io.Writer, notify tui.
 		notify.PhaseDone(phaseRoute, err)
 		return fmt.Errorf("compute cancelled: %w", err)
 	}
+	// Warnings go through errOut, the TUI's warn writer, not straight to
+	// ErrOut under the alt-screen program.
 	for _, i := range cov.Unsnapped {
-		cmdutil.Warnf(opts.IO, "%s facility %s (%s) is more than %.0f m from any road vertex and was ignored", spec.Name, facilities[i].ID, facilities[i].Name, services.FacilitySnapM)
+		fmt.Fprintf(errOut, "warning: %s facility %s (%s) is more than %.0f m from any road vertex and was ignored\n", spec.Name, facilities[i].ID, facilities[i].Name, services.FacilitySnapM)
+	}
+	for _, i := range cov.Isolated {
+		fmt.Fprintf(errOut, "warning: %s facility %s (%s) snapped to a road fragment of fewer than %d vertices (an apron or driveway OSM does not join to the street); it reaches almost nothing\n", spec.Name, facilities[i].ID, facilities[i].Name, services.MinFacilityComponent)
 	}
 	notify.PhaseDone(phaseRoute, nil)
 
 	notify.PhaseStart(phaseSave)
+	// Always saved, even empty: a run that reached nothing must clear the
+	// previous run's rows rather than leave stale coverage on the map.
 	metrics := make([]db.HexMetric, len(cov.Hexes))
 	for i, h := range cov.Hexes {
-		metrics[i] = db.HexMetric{HexID: h.HexID, Metric: spec.Metric, Value: h.Seconds, Ref: facilities[h.Facility].ID, SnapshotID: in.snapshotID}
+		metrics[i] = db.HexMetric{HexID: h.HexID, Value: h.Seconds, Ref: facilities[h.Facility].ID}
 	}
-	if err := store.SaveHexMetrics(ctx, metrics); err != nil {
+	if err := store.SaveHexMetrics(ctx, spec.Metric, in.snapshotID, metrics); err != nil {
 		notify.PhaseDone(phaseSave, err)
 		return fmt.Errorf("save hex metrics: %w", err)
 	}

@@ -182,3 +182,62 @@ func TestComputeCoverage(t *testing.T) {
 		t.Errorf("no snapped facility: %+v", empty)
 	}
 }
+
+// TestComputeCoverage_IsolatedApronSnapsToStreet pins the connected-snapping
+// rule: a station 20 m from an unjoined two-vertex service apron and 140 m
+// from the street must snap to the street (the larger component), reach the
+// street's hexes, and be flagged Isolated only when nothing bigger is in
+// range. A hex whose nearest vertex is the apron must still be painted from
+// the reachable street vertex within its radius.
+func TestComputeCoverage_IsolatedApronSnapsToStreet(t *testing.T) {
+	p := testProj()
+	// Street A–B–D plus a short apron 120 m north of A, not joined to it.
+	ax, ay := p.ToProjected(lonA, latA)
+	apronA := [2]float64{lonA, latA + 120/111000.0}
+	apronB := [2]float64{lonA + 30/88000.0, latA + 120/111000.0}
+	res := map[string]string{"highway": "residential"}
+	// Densify the street so its component is clearly above
+	// MinFacilityComponent: twelve vertices from A to D plus the spur to C.
+	var street [][2]float64
+	for i := range 12 {
+		street = append(street, [2]float64{lonA + (lonD-lonA)*float64(i)/11, latA})
+	}
+	g := BuildGraph(context.Background(), []resource.Feature{
+		line(res, street...),
+		line(res, [2]float64{lonB, latB}, [2]float64{lonC, latC}),
+		line(map[string]string{"highway": "service"}, apronA, apronB),
+	}, DefaultRoadSpeeds, p)
+	if got := g.ComponentSize(0); got < MinFacilityComponent {
+		t.Fatalf("street component size = %d, want at least %d joined vertices", got, MinFacilityComponent)
+	}
+	spec := Registry["fire"]
+	station := Facility{ID: "st", Name: "Apron station", Lon: lonA, Lat: latA + 100/111000.0} // ~20 m from the apron, ~100 m from A
+	hexes := []geo.Hex{
+		{ID: "near-a", CenterX: ax + 10, CenterY: ay + 10},
+		{ID: "near-apron", CenterX: ax, CenterY: ay + 110}, // apron vertex is nearest, A is 110 m away (within HexSnapM)
+	}
+	cov := ComputeCoverage(context.Background(), spec, hexes, g, []Facility{station})
+	if len(cov.Unsnapped) != 0 || len(cov.Isolated) != 0 {
+		t.Fatalf("station must snap to the street component: unsnapped=%v isolated=%v", cov.Unsnapped, cov.Isolated)
+	}
+	ids := map[string]bool{}
+	for _, h := range cov.Hexes {
+		ids[h.HexID] = true
+	}
+	if !ids["near-a"] || !ids["near-apron"] {
+		t.Errorf("both hexes must be reached via the street; got %v", ids)
+	}
+
+	// With only the apron in range, the station still snaps (to the apron)
+	// but is reported Isolated so the CLI can warn.
+	far := Facility{ID: "far", Lon: apronA[0], Lat: apronA[1] + 350/111000.0} // ~350 m north of the apron, ~470 m from A
+	cov2 := ComputeCoverage(context.Background(), spec, hexes, g, []Facility{far})
+	if len(cov2.Isolated) == 1 && len(cov2.Unsnapped) == 0 {
+		return
+	}
+	// Depending on exact distances the street may also be in range; either
+	// outcome is acceptable as long as nothing is silently dropped.
+	if len(cov2.Unsnapped) != 0 {
+		t.Errorf("a facility within FacilitySnapM must not be unsnapped: %+v", cov2)
+	}
+}

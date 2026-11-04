@@ -3,6 +3,7 @@ package all
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -124,6 +125,11 @@ type reqCtxKey struct{}
 // (overpass off, no arcgis_url), so each per-resource ingest resolves an empty
 // source list, fetches nothing, and returns ErrNoResults — the fan-out
 // behavior under test, with no network involved.
+// roundTripFunc adapts a function to http.RoundTripper for offline tests.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
 func ingestFactory(ios *iostreams.IOStreams, store db.Store) *cmdutil.Factory {
 	city := cmdtest.NewTestCity()
 	cfg := cmdtest.NewTestConfig(city)
@@ -132,8 +138,16 @@ func ingestFactory(ios *iostreams.IOStreams, store db.Store) *cmdutil.Factory {
 		CityDB:      func() (db.Store, error) { return store, nil },
 		CurrentCity: func() (*config.CityConfig, error) { return city, nil },
 		Config:      func() (*config.Config, error) { return cfg, nil },
-		HttpClient:  func() (*http.Client, error) { return &http.Client{}, nil },
-		UnitSystem:  func() units.System { return units.Imperial },
+		// Offline: every request answers an empty Overpass result, so the
+		// facility step (which always uses Overpass) reaches ErrNoResults
+		// without touching the network.
+		HttpClient: func() (*http.Client, error) {
+			return &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
+					Body: io.NopCloser(strings.NewReader(`{"elements":[]}`))}, nil
+			})}, nil
+		},
+		UnitSystem: func() units.System { return units.Imperial },
 	}
 }
 

@@ -1726,10 +1726,11 @@ func TestEstimatedSpacesRoundTrip(t *testing.T) {
 }
 
 // TestHexMetricsRoundTrip pins the hex_metrics contract: SaveHexMetrics
-// replaces a (metric, snapshot) slice in place rather than appending, rows
-// resolve per metric under the latest-snapshot rule, a different metric on
-// the same snapshot is untouched, an unknown metric lists (nil, nil), and
-// DeleteSnapshot cascades to the table.
+// replaces a (metric, snapshot) slice in place rather than appending — and an
+// EMPTY save clears the slice, so a re-run that reaches nothing never leaves
+// stale coverage behind — rows resolve per metric under the latest-snapshot
+// rule, a different metric on the same snapshot is untouched, an unknown
+// metric lists (nil, nil), and DeleteSnapshot cascades to the table.
 func TestHexMetricsRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
@@ -1738,24 +1739,25 @@ func TestHexMetricsRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := snap.ID
-	first := []HexMetric{
-		{HexID: "h1", Metric: "fire_response_s", Value: 300, Ref: "osm:node:1", SnapshotID: &id},
-		{HexID: "h2", Metric: "fire_response_s", Value: 420, Ref: "osm:node:1", SnapshotID: &id},
-		{HexID: "h1", Metric: "population", Value: 12, SnapshotID: &id},
+	if err := store.SaveHexMetrics(ctx, "fire_response_s", &id, []HexMetric{
+		{HexID: "h1", Value: 300, Ref: "osm:node:1"},
+		{HexID: "h2", Value: 420, Ref: "osm:node:1"},
+	}); err != nil {
+		t.Fatal(err)
 	}
-	if err := store.SaveHexMetrics(ctx, first); err != nil {
+	if err := store.SaveHexMetrics(ctx, "population", &id, []HexMetric{{HexID: "h1", Value: 12}}); err != nil {
 		t.Fatal(err)
 	}
 	// Re-run with a different fire slice: replaces, does not append; the
 	// population slice is not touched.
-	if err := store.SaveHexMetrics(ctx, []HexMetric{{HexID: "h3", Metric: "fire_response_s", Value: 99, SnapshotID: &id}}); err != nil {
+	if err := store.SaveHexMetrics(ctx, "fire_response_s", &id, []HexMetric{{HexID: "h3", Value: 99}}); err != nil {
 		t.Fatal(err)
 	}
 	fire, err := store.ListHexMetrics(ctx, "fire_response_s")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(fire) != 1 || fire[0].HexID != "h3" || fire[0].Value != 99 || fire[0].Ref != "" {
+	if len(fire) != 1 || fire[0].HexID != "h3" || fire[0].Value != 99 || fire[0].Ref != "" || fire[0].Metric != "fire_response_s" {
 		t.Errorf("fire rows after replace = %+v, want only h3=99", fire)
 	}
 	pop, err := store.ListHexMetrics(ctx, "population")
@@ -1769,8 +1771,12 @@ func TestHexMetricsRoundTrip(t *testing.T) {
 	if err != nil || none != nil {
 		t.Errorf("unknown metric = (%v, %v), want (nil, nil)", none, err)
 	}
-	if err := store.SaveHexMetrics(ctx, nil); err != nil {
-		t.Errorf("empty save must be a no-op, got %v", err)
+	// An empty save CLEARS the slice.
+	if err := store.SaveHexMetrics(ctx, "population", &id, nil); err != nil {
+		t.Fatal(err)
+	}
+	if pop, _ := store.ListHexMetrics(ctx, "population"); len(pop) != 0 {
+		t.Errorf("empty save must clear the slice, got %+v", pop)
 	}
 
 	// A newer snapshot wins the unpinned read; the pinned read sees the old one.
@@ -1779,7 +1785,7 @@ func TestHexMetricsRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	id2 := snap2.ID
-	if err := store.SaveHexMetrics(ctx, []HexMetric{{HexID: "h9", Metric: "fire_response_s", Value: 1, SnapshotID: &id2}}); err != nil {
+	if err := store.SaveHexMetrics(ctx, "fire_response_s", &id2, []HexMetric{{HexID: "h9", Value: 1}}); err != nil {
 		t.Fatal(err)
 	}
 	latest, _ := store.ListHexMetrics(ctx, "fire_response_s")
@@ -1797,5 +1803,34 @@ func TestHexMetricsRoundTrip(t *testing.T) {
 	after, _ := store.ListHexMetrics(ctx, "fire_response_s")
 	if len(after) != 1 || after[0].HexID != "h3" {
 		t.Errorf("after deleting snapshot 2 = %+v, want snapshot-1 row back as latest", after)
+	}
+}
+
+// TestGC_KeepsFacilityRows: facility rows always come from Overpass whether
+// or not the city enables it for pavement, so the stale-source sweep must
+// leave them alone even when "overpass" is not in the keep list.
+func TestGC_KeepsFacilityRows(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	fac := resource.FacilityType("fire")
+	if err := store.UpsertFeatures(ctx, fac, []Feature{{ID: "osm:node:1", ResourceType: fac, GeometryJSON: `{"type":"Point","coordinates":[0,0]}`, SourceAPI: "overpass"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertFeatures(ctx, rtRoads, []Feature{{ID: "osm:way:1", ResourceType: rtRoads, GeometryJSON: `{"type":"LineString","coordinates":[[0,0],[1,1]]}`, SourceAPI: "overpass"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := store.GCScan(ctx, []string{"arcgis"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.StaleFeatures != 1 {
+		t.Errorf("stale = %d, want 1 (the road, not the facility)", rep.StaleFeatures)
+	}
+	if _, err := store.GCSweep(ctx, []string{"arcgis"}); err != nil {
+		t.Fatal(err)
+	}
+	left, _ := store.ListFeatures(ctx, fac)
+	if len(left) != 1 {
+		t.Errorf("facility row deleted by the stale-source sweep: %+v", left)
 	}
 }

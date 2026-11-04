@@ -162,10 +162,12 @@ type Store interface {
 	LatestComputeResults(ctx context.Context, types []resource.Type) (map[resource.Type]*ComputeResult, error)
 	SaveHexStats(ctx context.Context, stats []HexStat) error
 	ListHexStats(ctx context.Context, resourceType resource.Type) ([]HexStat, error)
-	// SaveHexMetrics replaces the (metric, snapshot) slices present in
-	// metrics with the given rows, in one transaction, so a re-run of a
-	// metric against the same snapshot never duplicates rows.
-	SaveHexMetrics(ctx context.Context, metrics []HexMetric) error
+	// SaveHexMetrics replaces the (metric, snapshotID) slice for this city
+	// with rows, in one transaction: the slice is deleted even when rows is
+	// empty, so a re-run that reaches nothing clears the previous result
+	// instead of leaving it on the map. Every row is stored under metric and
+	// snapshotID regardless of its own fields.
+	SaveHexMetrics(ctx context.Context, metric string, snapshotID *int64, rows []HexMetric) error
 	// ListHexMetrics returns the rows for one metric key with the same
 	// snapshot / config-hash resolution as ListHexStats (latest per city and
 	// metric). A metric with no rows returns (nil, nil), never sql.ErrNoRows.

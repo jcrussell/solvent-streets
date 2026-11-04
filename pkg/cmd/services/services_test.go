@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"testing"
 
@@ -51,8 +52,14 @@ func fixtureStore(saved *[]db.HexMetric) *dbtest.MockStore {
 			}
 			return nil, sql.ErrNoRows
 		},
-		SaveHexMetricsFunc: func(_ context.Context, m []db.HexMetric) error {
-			*saved = append(*saved, m...)
+		SaveHexMetricsFunc: func(_ context.Context, metric string, snapshotID *int64, rows []db.HexMetric) error {
+			for _, r := range rows {
+				r.Metric, r.SnapshotID = metric, snapshotID
+				*saved = append(*saved, r)
+			}
+			if len(rows) == 0 {
+				*saved = append(*saved, db.HexMetric{Metric: metric, SnapshotID: snapshotID, HexID: "<cleared>"})
+			}
 			return nil
 		},
 	}
@@ -190,26 +197,66 @@ func TestServicesCompute_ConfigFacilityAndOverrides(t *testing.T) {
 }
 
 // TestServicesCompute_CancelledSavesNothing pins the guard between routing
-// and persistence.
+// and persistence: the context is cancelled from inside a store callback, so
+// the pre-check passes and routing runs under a cancelled ctx; the
+// post-routing ctx.Err() check is what must stop the save.
 func TestServicesCompute_CancelledSavesNothing(t *testing.T) {
 	var saved []db.HexMetric
-	f := testFactory(fixtureStore(&saved))
+	store := fixtureStore(&saved)
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
+	inner := store.GetBoundaryFunc
+	store.GetBoundaryFunc = func(ctx context.Context) (string, error) {
+		cancel() // after inputs are loaded, before routing
+		return inner(ctx)
+	}
+	f := testFactory(store)
 	err := RunComputeForCity(ctx, f, "fire", nil)
-	if err == nil {
-		t.Fatal("expected a cancellation error")
+	if err == nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected a cancellation error, got %v", err)
 	}
 	if len(saved) != 0 {
 		t.Errorf("cancelled run persisted %d rows", len(saved))
 	}
 }
 
-func TestApplyOverrides(t *testing.T) {
-	spec := services.Registry["fire"]
-	cfg := &config.Config{Services: []config.ServiceOverride{{Name: "fire", TravelThresholdS: 360}, {Name: "police", TurnoutS: 1}}}
-	got := applyOverrides(spec, cfg)
-	if got.TravelThresholdS != 360 || got.TurnoutS != spec.TurnoutS {
-		t.Errorf("applyOverrides = turnout %v threshold %v; want turnout unchanged (%v) and threshold 360", got.TurnoutS, got.TravelThresholdS, spec.TurnoutS)
+// TestServicesCompute_UnknownOverrideRejected: a [[services]] entry naming an
+// unregistered service is a config error, not a silent no-op.
+func TestServicesCompute_UnknownOverrideRejected(t *testing.T) {
+	var saved []db.HexMetric
+	f := testFactory(fixtureStore(&saved))
+	f.Config = func() (*config.Config, error) {
+		cfg := testCfg()
+		cfg.Services = []config.ServiceOverride{{Name: "fire ", TurnoutS: 1}}
+		return cfg, nil
+	}
+	err := RunComputeForCity(context.Background(), f, "fire", nil)
+	if err == nil || !errors.Is(err, config.ErrInvalidConfig) || !strings.Contains(err.Error(), `"fire "`) {
+		t.Fatalf("expected ErrInvalidConfig naming the bad service, got %v", err)
+	}
+	if len(saved) != 0 {
+		t.Error("nothing must be saved for an invalid config")
+	}
+}
+
+// TestServicesCompute_NoReachClearsPreviousRows: when routing reaches no hex
+// (the only station is beyond the snap radius) the save still runs with zero
+// rows so the previous run's coverage is cleared, and the user is warned.
+func TestServicesCompute_NoReachClearsPreviousRows(t *testing.T) {
+	var saved []db.HexMetric
+	store := fixtureStore(&saved)
+	inner := store.ListFeaturesFunc
+	store.ListFeaturesFunc = func(ctx context.Context, rt resource.Type) ([]db.Feature, error) {
+		if rt.IsFacility() {
+			return []db.Feature{{ID: "osm:node:far", ResourceType: rt, Name: "Far", SourceAPI: "overpass",
+				GeometryJSON: `{"type":"Point","coordinates":[-121.7750000,37.6880000]}`}}, nil // ~900 m north of the road
+		}
+		return inner(ctx, rt)
+	}
+	f := testFactory(store)
+	if err := RunComputeForCity(context.Background(), f, "fire", nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(saved) != 1 || saved[0].HexID != "<cleared>" || saved[0].Metric != services.MetricFire {
+		t.Fatalf("expected one empty save clearing %s, got %+v", services.MetricFire, saved)
 	}
 }

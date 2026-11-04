@@ -4,6 +4,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/hexmetric"
 )
 
@@ -68,11 +69,24 @@ func TestRegistry_FireRegistersItsMetric(t *testing.T) {
 	if !ok {
 		t.Fatalf("hexmetric %q not registered by init()", MetricFire)
 	}
-	if m.Format != hexmetric.FormatMinutes || len(m.Scale.Bands) != len(spec.Bands) {
-		t.Errorf("fire metric spec = %+v, want minutes format and %d bands", m, len(spec.Bands))
+	if m.Format != hexmetric.FormatMinutes || len(m.Scale.Bands) != len(spec.LegendBands()) {
+		t.Errorf("fire metric spec = %+v, want minutes format and %d bands", m, len(spec.LegendBands()))
 	}
-	if spec.Bands[0] != spec.TurnoutS+spec.TravelThresholdS {
-		t.Errorf("first legend band %v should equal turnout+threshold %v", spec.Bands[0], spec.TurnoutS+spec.TravelThresholdS)
+	if b := spec.LegendBands(); len(b) != 4 || b[0] != spec.TurnoutS+spec.TravelThresholdS || m.Scale.Bands[0] != b[0] {
+		t.Errorf("legend bands %v should start at turnout+threshold %v and match the registered metric %v", b, spec.TurnoutS+spec.TravelThresholdS, m.Scale.Bands)
+	}
+	over := Resolve(spec, []config.ServiceOverride{{Name: "fire", TurnoutS: 200}, {Name: "police", TravelThresholdS: 1}})
+	if over.TurnoutS != 200 || over.TravelThresholdS != spec.TravelThresholdS || over.LegendBands()[0] != 440 {
+		t.Errorf("Resolve: turnout %v threshold %v bands %v", over.TurnoutS, over.TravelThresholdS, over.LegendBands())
+	}
+	if err := ValidateOverrides([]config.ServiceOverride{{Name: "police"}}); err == nil {
+		t.Error("ValidateOverrides must reject an unregistered service name")
+	}
+	if err := ValidateOverrides([]config.ServiceOverride{{Name: "fire"}}); err != nil {
+		t.Errorf("ValidateOverrides rejected fire: %v", err)
+	}
+	if fm, ok := ForMetric(MetricFire); !ok || fm.Name != "fire" {
+		t.Errorf("ForMetric(%s) = %+v, %v", MetricFire, fm, ok)
 	}
 	if n := Names(); len(n) != 1 || n[0] != "fire" {
 		t.Errorf("Names() = %v, want [fire]", n)

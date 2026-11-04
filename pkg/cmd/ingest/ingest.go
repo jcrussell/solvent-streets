@@ -151,7 +151,12 @@ func runIngest(ctx context.Context, opts *Options) error {
 		return fmt.Errorf("derive bbox: %w", err)
 	}
 
-	sources, err := resolveSources(opts, bbox, city.Overpass, city.ArcGISURL, city.AllowPrivateArcGIS, ios)
+	// Facilities have exactly one source (Overpass): ingest them whether or
+	// not the city enables Overpass for its pavement, so an ArcGIS-only city
+	// still gets stations. gc leaves facility rows out of its stale-source
+	// sweep for the same reason.
+	overpass := city.Overpass || opts.ResourceType.Type().IsFacility()
+	sources, err := resolveSources(opts, bbox, overpass, city.ArcGISURL, city.AllowPrivateArcGIS, ios)
 	if err != nil {
 		return err
 	}

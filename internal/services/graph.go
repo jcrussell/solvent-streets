@@ -41,7 +41,18 @@ type Graph struct {
 	ys    []float64
 	adj   [][]edge
 	index *geo.GeomIndex
+	// comp is each vertex's weakly connected component id and compSize the
+	// vertex count per component, so snapping can prefer the street network
+	// over an isolated driveway or parking aisle that happens to be closer.
+	comp     []int
+	compSize []int
 }
+
+// MinFacilityComponent is the component size below which a facility's
+// snapped vertex is reported as isolated: a station whose nearest road
+// fragment is a stub of a few vertices is almost certainly mapped beside an
+// apron that OSM does not join to the street.
+const MinFacilityComponent = 10
 
 type edge struct {
 	to   int
@@ -140,7 +151,8 @@ func (b *graphBuilder) addLine(seq geom.Sequence, mps float64, fwd, back bool) {
 	}
 }
 
-// finish builds the vertex spatial index and returns the graph.
+// finish builds the vertex spatial index and the component labels and
+// returns the graph.
 func (b *graphBuilder) finish() *Graph {
 	g := b.g
 	pts := make([]geom.Geometry, len(g.xs))
@@ -148,7 +160,54 @@ func (b *graphBuilder) finish() *Graph {
 		pts[i] = geom.NewPoint(geom.Coordinates{XY: geom.XY{X: g.xs[i], Y: g.ys[i]}}).AsGeometry()
 	}
 	g.index = geo.NewGeomIndexFromGeoms(pts)
+	g.labelComponents()
 	return g
+}
+
+// labelComponents assigns weakly connected component ids (edges treated as
+// undirected: a one-way street still joins its ends) with union-find.
+func (g *Graph) labelComponents() {
+	n := len(g.xs)
+	parent := make([]int, n)
+	for i := range parent {
+		parent[i] = i
+	}
+	find := func(i int) int {
+		for parent[i] != i {
+			parent[i] = parent[parent[i]]
+			i = parent[i]
+		}
+		return i
+	}
+	for a, edges := range g.adj {
+		for _, e := range edges {
+			ra, rb := find(a), find(e.to)
+			if ra != rb {
+				parent[ra] = rb
+			}
+		}
+	}
+	g.comp = make([]int, n)
+	ids := map[int]int{}
+	for i := range parent {
+		r := find(i)
+		id, ok := ids[r]
+		if !ok {
+			id = len(ids)
+			ids[r] = id
+			g.compSize = append(g.compSize, 0)
+		}
+		g.comp[i] = id
+		g.compSize[id]++
+	}
+}
+
+// ComponentSize returns the vertex count of n's connected component.
+func (g *Graph) ComponentSize(n int) int {
+	if n < 0 || n >= len(g.comp) {
+		return 0
+	}
+	return g.compSize[g.comp[n]]
 }
 
 // lineSequences returns the coordinate sequences of a LineString or
@@ -195,12 +254,18 @@ func (g *Graph) NodeCount() int { return len(g.xs) }
 // Nearest returns the vertex closest to the projected point (x, y) within
 // maxDist metres, or false when none is that close.
 func (g *Graph) Nearest(x, y, maxDist float64) (int, bool) {
-	if g.index == nil || g.index.Len() == 0 {
-		return 0, false
-	}
-	env := geom.NewEnvelope(geom.XY{X: x - maxDist, Y: y - maxDist}, geom.XY{X: x + maxDist, Y: y + maxDist})
+	return g.NearestWhere(x, y, maxDist, nil)
+}
+
+// NearestWhere is Nearest restricted to vertices accepted by ok (nil accepts
+// all). Used to snap a hex to the nearest vertex that a facility can actually
+// reach, rather than to an unreachable fragment that is marginally closer.
+func (g *Graph) NearestWhere(x, y, maxDist float64, ok func(int) bool) (int, bool) {
 	best, bestD := -1, maxDist
-	for _, id := range g.index.SearchIDs(env) {
+	for _, id := range g.candidates(x, y, maxDist) {
+		if ok != nil && !ok(id) {
+			continue
+		}
 		d := math.Hypot(g.xs[id]-x, g.ys[id]-y)
 		if d <= bestD {
 			best, bestD = id, d
@@ -212,10 +277,45 @@ func (g *Graph) Nearest(x, y, maxDist float64) (int, bool) {
 	return best, true
 }
 
+// NearestConnected is Nearest biased toward the street network: among the
+// vertices within maxDist it returns the nearest one that belongs to the
+// LARGEST connected component present. A station beside an unjoined apron or
+// driveway therefore snaps to the street a little farther away instead of to
+// the stub, which would otherwise swallow the whole station silently.
+func (g *Graph) NearestConnected(x, y, maxDist float64) (int, bool) {
+	ids := g.candidates(x, y, maxDist)
+	bestSize := 0
+	for _, id := range ids {
+		if s := g.ComponentSize(id); s > bestSize {
+			bestSize = s
+		}
+	}
+	if bestSize == 0 {
+		return 0, false
+	}
+	return g.NearestWhere(x, y, maxDist, func(id int) bool { return g.ComponentSize(id) == bestSize })
+}
+
+// candidates returns the vertex ids whose position lies within the square of
+// half-side maxDist around (x, y).
+func (g *Graph) candidates(x, y, maxDist float64) []int {
+	if g.index == nil || g.index.Len() == 0 {
+		return nil
+	}
+	env := geom.NewEnvelope(geom.XY{X: x - maxDist, Y: y - maxDist}, geom.XY{X: x + maxDist, Y: y + maxDist})
+	return g.index.SearchIDs(env)
+}
+
 // NearestLonLat is Nearest for an unprojected position.
 func (g *Graph) NearestLonLat(lon, lat, maxDist float64) (int, bool) {
 	x, y := g.proj.ToProjected(lon, lat)
 	return g.Nearest(x, y, maxDist)
+}
+
+// NearestConnectedLonLat is NearestConnected for an unprojected position.
+func (g *Graph) NearestConnectedLonLat(lon, lat, maxDist float64) (int, bool) {
+	x, y := g.proj.ToProjected(lon, lat)
+	return g.NearestConnected(x, y, maxDist)
 }
 
 // ShortestFrom runs a multi-source Dijkstra: every source vertex starts at

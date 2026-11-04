@@ -106,8 +106,8 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 	t.Run("cold migration records the latest schema version", func(t *testing.T) {
 		// A fresh cold migration applies 001_init, 002_add_indexes and
 		// 003_parking_spaces_hex_metrics, so the highest recorded
-		// schema_version must be 3. This pins that every file is discovered and applied by the
-		// embedded migration set.
+		// schema_version must be 3. This pins that every file is discovered
+		// and applied by the embedded migration set.
 		var version int
 		if err := root.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&version); err != nil {
 			t.Fatalf("schema_version: %v", err)

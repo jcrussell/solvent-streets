@@ -760,7 +760,10 @@ func (s *sqliteStore) GCScan(ctx context.Context, keepSources []string) (*GCRepo
 	if len(keepSources) > 0 {
 		placeholders, args := s.gcKeepArgs(keepSources)
 		// placeholders is only "?,?,..."; sources are bound via args.
-		q := `SELECT COUNT(*) FROM features WHERE city_id = ? AND source_api NOT IN (` + placeholders + `) AND source_api != ''`
+		// Facility rows (facility-<service>) always come from Overpass whether
+		// or not the city enables it for pavement (see ingest), so they are
+		// never stale on the pavement sources' account.
+		q := `SELECT COUNT(*) FROM features WHERE city_id = ? AND source_api NOT IN (` + placeholders + `) AND source_api != '' AND resource_type NOT LIKE 'facility-%'`
 		if err := s.db.QueryRowContext(ctx, q, args...).Scan(&report.StaleFeatures); err != nil {
 			return nil, fmt.Errorf("count stale features: %w", err)
 		}
@@ -807,7 +810,7 @@ func (s *sqliteStore) GCSweep(ctx context.Context, keepSources []string) (*GCRep
 		if len(keepSources) > 0 {
 			placeholders, args := s.gcKeepArgs(keepSources)
 			// placeholders is only "?,?,..."; sources are bound via args.
-			q := `DELETE FROM features WHERE city_id = ? AND source_api NOT IN (` + placeholders + `) AND source_api != ''`
+			q := `DELETE FROM features WHERE city_id = ? AND source_api NOT IN (` + placeholders + `) AND source_api != '' AND resource_type NOT LIKE 'facility-%'`
 			if err := execDeleteCount(ctx, tx, "stale features", q, &report.StaleFeatures, args...); err != nil {
 				return err
 			}
@@ -854,16 +857,24 @@ func (s *sqliteStore) ResolveSnapshot(ctx context.Context, snapshotID int64) err
 	return nil
 }
 
-// SaveHexMetrics replaces every (metric, snapshot) slice present in metrics
-// with the given rows inside one transaction. snapshot_id is nullable and
-// `= ?` never matches NULL, so untagged slices are deleted via IS NULL.
-func (s *sqliteStore) SaveHexMetrics(ctx context.Context, metrics []HexMetric) error {
-	if len(metrics) == 0 {
-		return nil
-	}
+// SaveHexMetrics replaces this city's (metric, snapshotID) slice with rows
+// inside one transaction. The delete runs even for an empty rows slice —
+// a compute that produced nothing must clear what the previous run stored.
+// snapshot_id is nullable and `= ?` never matches NULL, so an untagged slice
+// is deleted via IS NULL.
+func (s *sqliteStore) SaveHexMetrics(ctx context.Context, metric string, snapshotID *int64, rows []HexMetric) error {
 	return s.withTx(ctx, func(tx *sql.Tx) error {
-		if err := s.replaceHexMetricSlices(ctx, tx, metrics); err != nil {
-			return err
+		var err error
+		if snapshotID != nil {
+			_, err = tx.ExecContext(ctx, `DELETE FROM hex_metrics WHERE city_id = ? AND metric = ? AND snapshot_id = ?`, s.cityID, metric, *snapshotID)
+		} else {
+			_, err = tx.ExecContext(ctx, `DELETE FROM hex_metrics WHERE city_id = ? AND metric = ? AND snapshot_id IS NULL`, s.cityID, metric)
+		}
+		if err != nil {
+			return fmt.Errorf("replace hex metrics %s: %w", metric, err)
+		}
+		if len(rows) == 0 {
+			return nil
 		}
 		stmt, err := tx.PrepareContext(ctx, `
 			INSERT INTO hex_metrics (hex_id, city_id, snapshot_id, metric, value, ref, computed_at)
@@ -874,40 +885,13 @@ func (s *sqliteStore) SaveHexMetrics(ctx context.Context, metrics []HexMetric) e
 		}
 		defer func() { _ = stmt.Close() }()
 		now := time.Now()
-		for _, m := range metrics {
-			if _, err := stmt.ExecContext(ctx, m.HexID, s.cityID, m.SnapshotID, m.Metric, m.Value, m.Ref, now); err != nil {
-				return fmt.Errorf("insert hex metric %s/%s: %w", m.Metric, m.HexID, err)
+		for _, m := range rows {
+			if _, err := stmt.ExecContext(ctx, m.HexID, s.cityID, snapshotID, metric, m.Value, m.Ref, now); err != nil {
+				return fmt.Errorf("insert hex metric %s/%s: %w", metric, m.HexID, err)
 			}
 		}
 		return nil
 	})
-}
-
-// replaceHexMetricSlices deletes the existing rows of every distinct
-// (metric, snapshot) pair present in metrics so the following insert replaces
-// them in place (the forecast replace-on-rerun pattern).
-func (s *sqliteStore) replaceHexMetricSlices(ctx context.Context, tx *sql.Tx, metrics []HexMetric) error {
-	seen := make(map[string]struct{})
-	for _, m := range metrics {
-		key := m.Metric + ":null"
-		if m.SnapshotID != nil {
-			key = fmt.Sprintf("%s:%d", m.Metric, *m.SnapshotID)
-		}
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		var err error
-		if m.SnapshotID != nil {
-			_, err = tx.ExecContext(ctx, `DELETE FROM hex_metrics WHERE city_id = ? AND metric = ? AND snapshot_id = ?`, s.cityID, m.Metric, *m.SnapshotID)
-		} else {
-			_, err = tx.ExecContext(ctx, `DELETE FROM hex_metrics WHERE city_id = ? AND metric = ? AND snapshot_id IS NULL`, s.cityID, m.Metric)
-		}
-		if err != nil {
-			return fmt.Errorf("replace hex metrics %s: %w", m.Metric, err)
-		}
-	}
-	return nil
 }
 
 // ListHexMetrics returns one metric's rows with the three-arm snapshot

@@ -69,9 +69,19 @@ func TestBuildHexMetrics(t *testing.T) {
 	if !ok {
 		t.Fatalf("metrics = %v, want %s", hm.Metrics, services.MetricFire)
 	}
-	if m.Label != "Fire response" || m.Format != "minutes" || len(m.Scale.Bands) != 4 {
-		t.Errorf("metric description = %+v", m)
+	if m.Label != "Fire response" || m.Format != "minutes" || len(m.Scale.Bands) != 4 || m.Scale.Bands[0] != 320 || m.ThresholdS != 320 {
+		t.Errorf("metric description = %+v (bands must start at the default turnout+threshold 320)", m)
 	}
+	// A [[services]] override moves the published bands and threshold with it.
+	entry.Config.Services = []config.ServiceOverride{{Name: "fire", TurnoutS: 200}}
+	hm2, err := BuildHexMetrics(context.Background(), entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m2 := hm2.Metrics[services.MetricFire]; m2.Scale.Bands[0] != 440 || m2.ThresholdS != 440 {
+		t.Errorf("overridden bands/threshold = %v / %v, want 440", m2.Scale.Bands, m2.ThresholdS)
+	}
+	entry.Config.Services = nil
 	if m.Values["h1"] != 300.12 || m.Values["h2"] != 420 {
 		t.Errorf("values = %v", m.Values)
 	}
@@ -128,6 +138,9 @@ func TestBuildMeta_MetricSummaries(t *testing.T) {
 	}
 	if s.Hexes != 2 || s.Min != 300 || s.Max != 420 || s.Median != 420 || s.Points != 2 || s.Format != "minutes" {
 		t.Errorf("summary = %+v; the unpainted hex (9000) must be excluded", s)
+	}
+	if s.ThresholdS != 320 || s.PctWithin != 50 {
+		t.Errorf("summary threshold/pct = %v/%v, want 320 s and 50%% (300 within, 420 not)", s.ThresholdS, s.PctWithin)
 	}
 	empty := metricsEntry(t, nil, nil, stats)
 	emeta, err := BuildMeta(context.Background(), empty, 0)

@@ -30,7 +30,7 @@ type MockStore struct {
 	ListCohortStatsForTypesFunc func(context.Context, []resource.Type) (map[resource.Type][]db.CohortStat, error)
 	SaveHexStatsFunc            func(context.Context, []db.HexStat) error
 	ListHexStatsFunc            func(context.Context, resource.Type) ([]db.HexStat, error)
-	SaveHexMetricsFunc          func(context.Context, []db.HexMetric) error
+	SaveHexMetricsFunc          func(context.Context, string, *int64, []db.HexMetric) error
 	ListHexMetricsFunc          func(context.Context, string) ([]db.HexMetric, error)
 	CreateSnapshotFunc          func(context.Context, string) (*db.Snapshot, error)
 	ListSnapshotsFunc           func(context.Context) ([]db.Snapshot, error)
@@ -290,9 +290,9 @@ func (m *MockRootStore) Close() error {
 	return nil
 }
 
-func (m *MockStore) SaveHexMetrics(ctx context.Context, metrics []db.HexMetric) error {
+func (m *MockStore) SaveHexMetrics(ctx context.Context, metric string, snapshotID *int64, rows []db.HexMetric) error {
 	if m.SaveHexMetricsFunc != nil {
-		return m.SaveHexMetricsFunc(ctx, metrics)
+		return m.SaveHexMetricsFunc(ctx, metric, snapshotID, rows)
 	}
 	return nil
 }

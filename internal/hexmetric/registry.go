@@ -20,7 +20,11 @@ import (
 	"sync"
 )
 
-// Scale kinds and transforms the dashboard knows how to paint.
+// Scale kinds the dashboard paints (Kind picks the colour ramp) and
+// transforms. Transform is ADVISORY: the client paints the explicit Bands
+// edges as discrete steps and never rescales values, so a metric that wants
+// a logarithmic legend supplies log-spaced edges and labels itself "log" for
+// readers of the file.
 const (
 	KindSequential  = "sequential" // low → high, one hue ramp
 	KindDiverging   = "diverging"  // two hues around a midpoint
@@ -39,6 +43,8 @@ const (
 // Scale describes how a metric's values map to colours: band edges in
 // ascending order (the client paints one colour per band, values at or below
 // an edge fall in that band, values above the last edge in the final band).
+// At least one edge is required — a bandless scale would be a single colour
+// and produces an invalid map paint expression.
 type Scale struct {
 	Kind      string    `json:"kind"`
 	Transform string    `json:"transform"`
@@ -58,9 +64,8 @@ type Spec struct {
 var keyRe = regexp.MustCompile(`^[a-z][a-z0-9]*(_[a-z0-9]+)*$`)
 
 // Validate rejects a Spec the dashboard could not render: a malformed key, no
-// label, an unknown format or scale kind/transform, or band edges that are
-// not strictly ascending (a single band needs no edges, so Bands may be
-// empty).
+// label, an unknown format or scale kind/transform, no band edges, or band
+// edges that are not strictly ascending.
 func (s Spec) Validate() error {
 	if !keyRe.MatchString(s.Key) {
 		return fmt.Errorf("hexmetric: key %q must be lowercase snake_case", s.Key)
@@ -82,6 +87,9 @@ func (s Spec) Validate() error {
 	case TransformLinear, TransformLog:
 	default:
 		return fmt.Errorf("hexmetric: %s has unknown scale transform %q", s.Key, s.Scale.Transform)
+	}
+	if len(s.Scale.Bands) == 0 {
+		return fmt.Errorf("hexmetric: %s needs at least one band edge", s.Key)
 	}
 	for i := 1; i < len(s.Scale.Bands); i++ {
 		if s.Scale.Bands[i] <= s.Scale.Bands[i-1] {

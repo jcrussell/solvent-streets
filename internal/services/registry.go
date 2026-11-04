@@ -9,8 +9,11 @@
 package services
 
 import (
+	"fmt"
 	"sort"
+	"strings"
 
+	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/hexmetric"
 )
 
@@ -34,8 +37,58 @@ type Spec struct {
 	Speeds SpeedTable
 	// Metric is the hexmetric key the coverage is stored under.
 	Metric string
-	// Bands are the legend band edges in seconds (total time incl. turnout).
-	Bands []float64
+}
+
+// legendBandStepS is the width of each legend band after the first edge.
+const legendBandStepS = 120
+
+// LegendBands returns the legend band edges in total seconds for this spec:
+// the first edge is turnout + travel threshold (the "covered" line), then
+// three two-minute steps. Derived rather than stored so a [[services]]
+// override of turnout_s or travel_threshold_s moves the legend with it.
+func (s Spec) LegendBands() []float64 {
+	first := s.TurnoutS + s.TravelThresholdS
+	return []float64{first, first + legendBandStepS, first + 2*legendBandStepS, first + 3*legendBandStepS}
+}
+
+// Resolve applies the config's [[services]] override for s, if any: only the
+// fields set (> 0) replace the registry defaults.
+func Resolve(s Spec, overrides []config.ServiceOverride) Spec {
+	for _, o := range overrides {
+		if o.Name != s.Name {
+			continue
+		}
+		if o.TurnoutS > 0 {
+			s.TurnoutS = o.TurnoutS
+		}
+		if o.TravelThresholdS > 0 {
+			s.TravelThresholdS = o.TravelThresholdS
+		}
+	}
+	return s
+}
+
+// ValidateOverrides rejects a [[services]] entry naming a service that is
+// not registered (a typo would otherwise leave the defaults silently in
+// force). internal/config cannot do this itself without importing the
+// registry.
+func ValidateOverrides(overrides []config.ServiceOverride) error {
+	for _, o := range overrides {
+		if _, ok := Registry[o.Name]; !ok {
+			return fmt.Errorf("[[services]] name %q is not a registered service (registered: %s)", o.Name, strings.Join(Names(), ", "))
+		}
+	}
+	return nil
+}
+
+// ForMetric returns the service whose coverage is stored under metric key.
+func ForMetric(metric string) (Spec, bool) {
+	for _, s := range Registry {
+		if s.Metric == metric {
+			return s, true
+		}
+	}
+	return Spec{}, false
 }
 
 // MetricFire is the hexmetric key for fire response time.
@@ -44,8 +97,8 @@ const MetricFire = "fire_response_s"
 // Registry holds every known service. Fire is the only shipped service; the
 // values follow NFPA 1710 (career fire departments): 80 s turnout for fire
 // and special operations, 240 s travel for the first-arriving engine. The
-// legend bands are total time, so the first edge is turnout + the 240 s
-// travel threshold, then two-minute steps.
+// legend bands (LegendBands) are total time: turnout + the travel threshold,
+// then two-minute steps.
 var Registry = map[string]Spec{
 	"fire": {
 		Name:             "fire",
@@ -55,7 +108,6 @@ var Registry = map[string]Spec{
 		TravelThresholdS: 240,
 		Speeds:           DefaultRoadSpeeds,
 		Metric:           MetricFire,
-		Bands:            []float64{320, 440, 560, 680},
 	},
 }
 
@@ -86,7 +138,7 @@ func init() {
 		Scale: hexmetric.Scale{
 			Kind:      hexmetric.KindSequential,
 			Transform: hexmetric.TransformLinear,
-			Bands:     Registry["fire"].Bands,
+			Bands:     Registry["fire"].LegendBands(),
 		},
 	})
 }

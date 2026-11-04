@@ -5,7 +5,6 @@ package services
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/jcrussell/solvent-streets/internal/resource"
@@ -106,6 +105,3 @@ func RunIngestForCity(ctx context.Context, cf *cmdutil.Factory, service string) 
 	}
 	return ingestRunResourceForCity(ctx, cf, facilitySource(spec))
 }
-
-// errorf keeps error wording in one place for the per-city runner.
-func errorf(format string, a ...any) error { return fmt.Errorf(format, a...) }

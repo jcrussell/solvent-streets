@@ -24,13 +24,19 @@ type HexMetricsJSON struct {
 	Metrics map[string]MetricJSON `json:"metrics"`
 }
 
-// MetricJSON is one metric's rows plus its registry description.
+// MetricJSON is one metric's rows plus its registry description. For a
+// service's coverage metric the Scale and ThresholdS come from the RESOLVED
+// service spec (config [[services]] overrides applied), so the legend bands
+// and the "covered" line match what the compute pass stored.
 type MetricJSON struct {
 	Label  string          `json:"label"`
 	Unit   string          `json:"unit"`
 	Format string          `json:"format"`
 	Source string          `json:"source"`
 	Scale  hexmetric.Scale `json:"scale"`
+	// ThresholdS is the total seconds (turnout + travel threshold) within
+	// which a hex counts as covered; omitted for metrics without one.
+	ThresholdS float64 `json:"threshold_s,omitempty"`
 	// Values maps hex id → value.
 	Values map[string]float64 `json:"values"`
 	// Refs maps hex id → index into Points, for metrics that reference a
@@ -61,6 +67,28 @@ type MetricSummaryJSON struct {
 	Median float64 `json:"median"`
 	Max    float64 `json:"max"`
 	Points int     `json:"points,omitempty"`
+	// ThresholdS and PctWithin describe coverage against the service's
+	// resolved threshold (total seconds); omitted for metrics without one.
+	ThresholdS float64 `json:"threshold_s,omitempty"`
+	PctWithin  float64 `json:"pct_within,omitempty"`
+}
+
+// resolvedScale returns the scale (and covered threshold) to publish for a
+// metric: the registry's, unless a service produces it, in which case the
+// bands follow the service spec resolved against the entry's config so a
+// turnout/threshold override moves the legend with it. ok is false when the
+// metric has no threshold.
+func resolvedScale(entry CityEntry, spec hexmetric.Spec) (hexmetric.Scale, float64, bool) {
+	svc, ok := services.ForMetric(spec.Key)
+	if !ok {
+		return spec.Scale, 0, false
+	}
+	if entry.Config != nil {
+		svc = services.Resolve(svc, entry.Config.Services)
+	}
+	scale := spec.Scale
+	scale.Bands = svc.LegendBands()
+	return scale, svc.TurnoutS + svc.TravelThresholdS, true
 }
 
 // BuildHexMetrics assembles hex-metrics.json for a city. Returns (nil, nil)
@@ -93,7 +121,8 @@ func BuildHexMetrics(ctx context.Context, entry CityEntry) (*HexMetricsJSON, err
 // description, rounded per-hex values, and — when rows reference points —
 // the resolved points list with per-hex indexes into it.
 func buildMetricJSON(ctx context.Context, entry CityEntry, spec hexmetric.Spec, rows []db.HexMetric) (MetricJSON, error) {
-	m := MetricJSON{Label: spec.Label, Unit: spec.Unit, Format: spec.Format, Source: spec.Source, Scale: spec.Scale, Values: make(map[string]float64, len(rows))}
+	scale, threshold, _ := resolvedScale(entry, spec)
+	m := MetricJSON{Label: spec.Label, Unit: spec.Unit, Format: spec.Format, Source: spec.Source, Scale: scale, ThresholdS: threshold, Values: make(map[string]float64, len(rows))}
 	refIDs := map[string]bool{}
 	for _, r := range rows {
 		m.Values[r.HexID] = round2(r.Value)
@@ -174,41 +203,66 @@ func pointLonLat(f db.Feature) (float64, float64, bool) {
 // hexes that carry pavement rows (the ones hexgrid.geojson paints), or nil
 // when no metric has rows. Any store error propagates.
 func buildMetricSummaries(ctx context.Context, entry CityEntry) (map[string]MetricSummaryJSON, error) {
-	painted, err := paintedHexIDs(ctx, entry)
-	if err != nil {
-		return nil, err
-	}
 	var out map[string]MetricSummaryJSON
+	var painted map[string]bool // built lazily: most cities have no metrics
 	for _, spec := range hexmetric.All() {
 		rows, err := entry.Store.ListHexMetrics(ctx, spec.Key)
 		if err != nil {
 			return nil, fmt.Errorf("listing hex metric %s: %w", spec.Key, err)
 		}
-		var vals []float64
-		refs := map[string]bool{}
-		for _, r := range rows {
-			if !painted[r.HexID] {
-				continue
-			}
-			vals = append(vals, r.Value)
-			if r.Ref != "" {
-				refs[r.Ref] = true
-			}
-		}
-		if len(vals) == 0 {
+		if len(rows) == 0 {
 			continue
 		}
-		sort.Float64s(vals)
+		if painted == nil {
+			if painted, err = paintedHexIDs(ctx, entry); err != nil {
+				return nil, err
+			}
+		}
+		_, threshold, hasThreshold := resolvedScale(entry, spec)
+		sum, ok := summarizeMetric(spec, rows, painted, threshold, hasThreshold)
+		if !ok {
+			continue
+		}
 		if out == nil {
 			out = map[string]MetricSummaryJSON{}
 		}
-		out[spec.Key] = MetricSummaryJSON{
-			Label: spec.Label, Unit: spec.Unit, Format: spec.Format,
-			Hexes: len(vals), Min: round2(vals[0]), Median: round2(vals[len(vals)/2]), Max: round2(vals[len(vals)-1]),
-			Points: len(refs),
-		}
+		out[spec.Key] = sum
 	}
 	return out, nil
+}
+
+// summarizeMetric reduces one metric's rows over the painted hexes; ok is
+// false when none of its rows lands on a painted hex.
+func summarizeMetric(spec hexmetric.Spec, rows []db.HexMetric, painted map[string]bool, threshold float64, hasThreshold bool) (MetricSummaryJSON, bool) {
+	var vals []float64
+	within := 0
+	refs := map[string]bool{}
+	for _, r := range rows {
+		if !painted[r.HexID] {
+			continue
+		}
+		vals = append(vals, r.Value)
+		if hasThreshold && r.Value <= threshold {
+			within++
+		}
+		if r.Ref != "" {
+			refs[r.Ref] = true
+		}
+	}
+	if len(vals) == 0 {
+		return MetricSummaryJSON{}, false
+	}
+	sort.Float64s(vals)
+	sum := MetricSummaryJSON{
+		Label: spec.Label, Unit: spec.Unit, Format: spec.Format,
+		Hexes: len(vals), Min: round2(vals[0]), Median: round2(vals[len(vals)/2]), Max: round2(vals[len(vals)-1]),
+		Points: len(refs),
+	}
+	if hasThreshold {
+		sum.ThresholdS = threshold
+		sum.PctWithin = round2(float64(within) / float64(len(vals)) * 100)
+	}
+	return sum, true
 }
 
 // paintedHexIDs is the set of hex ids hexgrid.geojson will contain: every hex
