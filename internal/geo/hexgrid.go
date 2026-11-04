@@ -308,26 +308,7 @@ func ComputeHexWeightedSharesN(ctx context.Context, hexes []Hex, geoms []geom.Ge
 	}
 	idx := NewGeomIndexFromGeoms(geoms)
 	return ParallelMap(ctx, hexes, func(_ int, h Hex) []HexShares {
-		ids := idx.SearchIDs(h.Geom.Envelope())
-		if len(ids) == 0 {
-			return nil
-		}
-		sums := make([]float64, len(weights))
-		for _, id := range ids {
-			if totals[id] <= 0 {
-				continue
-			}
-			// Each geom is its own group, so there is nothing to union: the
-			// in-hex area is the single-candidate clip.
-			area, ok := hexCoverageArea(h.Geom, []geom.Geometry{idx.parts[id]})
-			if !ok || area <= 0 {
-				continue
-			}
-			frac := area / totals[id]
-			for c, col := range weights {
-				sums[c] += col[id] * frac
-			}
-		}
+		sums := hexWeightedSums(h, idx, totals, weights)
 		for _, v := range sums {
 			if v > 0 {
 				return []HexShares{{HexID: h.ID, Values: sums}}
@@ -335,6 +316,33 @@ func ComputeHexWeightedSharesN(ctx context.Context, hexes []Hex, geoms []geom.Ge
 		}
 		return nil
 	}, counter)
+}
+
+// hexWeightedSums is the per-hex body of ComputeHexWeightedSharesN: one
+// R-tree search for h's candidates, then each candidate's in-hex area
+// fraction times every weight column. Each geom is its own group, so there is
+// nothing to union: the in-hex area is the single-candidate clip. Returns nil
+// when no candidate touches h.
+func hexWeightedSums(h Hex, idx *GeomIndex, totals []float64, weights [][]float64) []float64 {
+	ids := idx.SearchIDs(h.Geom.Envelope())
+	if len(ids) == 0 {
+		return nil
+	}
+	sums := make([]float64, len(weights))
+	for _, id := range ids {
+		if totals[id] <= 0 {
+			continue
+		}
+		area, ok := hexCoverageArea(h.Geom, []geom.Geometry{idx.parts[id]})
+		if !ok || area <= 0 {
+			continue
+		}
+		frac := area / totals[id]
+		for c, col := range weights {
+			sums[c] += col[id] * frac
+		}
+	}
+	return sums
 }
 
 // hexCoverageArea returns the area covered by the candidate features within h.

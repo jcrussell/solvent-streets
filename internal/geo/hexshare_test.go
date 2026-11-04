@@ -131,8 +131,8 @@ func TestComputeHexWeightedSharesN_ConservesTotalsOverTiling(t *testing.T) {
 	var wantPop, wantHU float64
 	// A 6x6 tiling of 130 m squares (deliberately not commensurate with the
 	// hex edge) starting well inside the grid.
-	for r := 0; r < 6; r++ {
-		for c := 0; c < 6; c++ {
+	for r := range 6 {
+		for c := range 6 {
 			geoms = append(geoms, squareAt(500+65+float64(c)*130, 500+65+float64(r)*130, 130))
 			p := float64(10 + r*6 + c)
 			pop = append(pop, p)
