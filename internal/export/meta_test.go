@@ -3,6 +3,7 @@ package export
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"math"
 	"testing"
 	"time"
@@ -313,5 +314,38 @@ func TestBuildMultiCityMeta_FarApartCitiesUsePerCityUTMZones(t *testing.T) {
 	if meta.CityArea >= buggy*0.9 {
 		t.Errorf("city_area = %v; want noticeably smaller than the shared-zone result %v (>=10%% reduction)",
 			meta.CityArea, buggy)
+	}
+}
+
+// TestBuildMeta_CarriesEstimatedSpaces: the parking stat in meta.json carries
+// the compute pass's estimated space count; other resources omit the key.
+func TestBuildMeta_CarriesEstimatedSpaces(t *testing.T) {
+	entry := hexEntry(t, nil, map[resource.Type]db.ComputeResult{
+		rtRoads:      {ResourceType: rtRoads, TotalArea: 1000, FeatureCount: 10},
+		rtParkingAll: {ResourceType: rtParkingAll, TotalArea: 300, FeatureCount: 3, EstimatedSpaces: 42},
+	})
+	meta, err := BuildMeta(t.Context(), entry, 0)
+	if err != nil {
+		t.Fatalf("BuildMeta: %v", err)
+	}
+	raw, err := json.Marshal(meta.Stats)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stats []map[string]any
+	if err := json.Unmarshal(raw, &stats); err != nil {
+		t.Fatal(err)
+	}
+	for _, st := range stats {
+		switch st["type"] {
+		case "parking":
+			if st["estimated_spaces"] != float64(42) {
+				t.Errorf("parking estimated_spaces = %v; want 42", st["estimated_spaces"])
+			}
+		default:
+			if _, ok := st["estimated_spaces"]; ok {
+				t.Errorf("%v must omit estimated_spaces", st["type"])
+			}
+		}
 	}
 }

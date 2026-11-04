@@ -307,6 +307,11 @@ type StatJSON struct {
 	Color        string  `json:"color"`
 	TotalArea    float64 `json:"total_area"`
 	FeatureCount int     `json:"feature_count"`
+	// EstimatedSpaces is the parking resource's estimated vehicle capacity
+	// (OSM capacity tags, else footprint area over a per-space constant; see
+	// resource.EstimateParkingSpaces). Omitted for other resources and for
+	// cities computed before the estimate existed.
+	EstimatedSpaces int `json:"estimated_spaces,omitempty"`
 }
 
 // ResourceColors maps resource type names to their display colors.
@@ -482,10 +487,11 @@ func BuildMeta(ctx context.Context, entry CityEntry, snapshotID int64) (MetaJSON
 		}
 		typeName := string(result.ResourceType.Bare())
 		meta.Stats = append(meta.Stats, StatJSON{
-			Type:         typeName,
-			Color:        ResourceColors[typeName],
-			TotalArea:    result.TotalArea,
-			FeatureCount: result.FeatureCount,
+			Type:            typeName,
+			Color:           ResourceColors[typeName],
+			TotalArea:       result.TotalArea,
+			FeatureCount:    result.FeatureCount,
+			EstimatedSpaces: result.EstimatedSpaces,
 		})
 	}
 

@@ -83,6 +83,7 @@ func aggregatePerResourceStats(ctx context.Context, entries []CityEntry) []StatJ
 			}
 			st.TotalArea += result.TotalArea
 			st.FeatureCount += result.FeatureCount
+			st.EstimatedSpaces += result.EstimatedSpaces
 		}
 	}
 	var out []StatJSON

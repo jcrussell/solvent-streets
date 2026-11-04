@@ -43,6 +43,9 @@ type hexAgg struct {
 // The FeatureCollection carries "v": 2 for that property shape; see the version
 // comment below.
 //
+// A parking entry additionally carries "spaces" — the estimated parking spaces
+// apportioned to the hex, rounded to a whole count — when it is at least one.
+//
 // Returns (nil, nil) when no hex_stats rows exist (a legitimate empty state),
 // but propagates any real ListHexStats DB error so callers can evict and retry
 // instead of caching a blank grid for the server's lifetime — mirroring
@@ -95,9 +98,11 @@ func buildHexGeoJSONFromGrid(ctx context.Context, entry CityEntry, proj *geo.UTM
 		// Format version. Bumped to 2 when city_same dedup landed (B6b): a
 		// client that expands "city" but not "city_same" would silently drop
 		// ~70% of city-scope features rather than fail, so the client refuses
-		// to render a file it doesn't recognize instead. Any future change to
-		// the property shape must bump this too.
-		"v":        2,
+		// to render a file it doesn't recognize instead. Bumped to 3 when the
+		// per-resource maps gained the optional "spaces" key (parking). Any
+		// future change to the property shape must bump this too — the client
+		// and the exporter ship together, so the bump costs nothing.
+		"v":        3,
 		"features": features,
 	}, nil
 }
@@ -168,7 +173,11 @@ func aggregateHexStats(ctx context.Context, entry CityEntry) (map[string]*hexAgg
 					aggs[st.HexID] = a
 					order = append(order, st.HexID)
 				}
-				a.set(res, scope, round2(st.Area), round2(st.PctCovered))
+				// Spaces are rounded to a whole count with the same function
+				// for both scopes: sameCoverage compares the maps exactly, so
+				// asymmetric rounding would silently switch off the city_same
+				// dedup for every parking hex.
+				a.set(res, scope, round2(st.Area), round2(st.PctCovered), math.Round(st.EstimatedSpaces))
 			}
 		}
 	}
@@ -177,9 +186,14 @@ func aggregateHexStats(ctx context.Context, entry CityEntry) (map[string]*hexAgg
 
 // set records one resource's coverage for the given scope, lazily allocating
 // the scope's per-resource map. City coverage staying nil doubles as the
-// "this hex is not in the city" signal.
-func (a *hexAgg) set(res string, scope resource.Scope, area, pct float64) {
+// "this hex is not in the city" signal. spaces is emitted only when at least
+// one whole space lands in the hex, so non-parking resources (always 0) and
+// hexes with a sub-space sliver carry no key.
+func (a *hexAgg) set(res string, scope resource.Scope, area, pct, spaces float64) {
 	m := map[string]float64{"area": area, "pct": pct}
+	if spaces >= 1 {
+		m["spaces"] = spaces
+	}
 	if scope == resource.ScopeCity {
 		if a.city == nil {
 			a.city = make(map[string]map[string]float64)

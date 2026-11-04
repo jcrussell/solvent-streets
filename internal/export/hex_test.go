@@ -404,8 +404,8 @@ func TestBuildHexGeoJSON_CarriesFormatVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildHexGeoJSON: %v", err)
 	}
-	if fc["v"] != 2 {
-		t.Errorf("v = %v; want 2 — the client refuses to render an unrecognized version", fc["v"])
+	if fc["v"] != 3 {
+		t.Errorf("v = %v; want 3 — the client refuses to render an unrecognized version", fc["v"])
 	}
 }
 
@@ -782,5 +782,39 @@ func TestBuildHexGeoJSON_DefaultCoordinatePrecision(t *testing.T) {
 	}
 	if !sawFraction {
 		t.Error("no fractional coordinates found; the test parsed nothing and would pass vacuously")
+	}
+}
+
+// TestBuildHexGeoJSON_ParkingSpaces pins the v3 "spaces" key: a parking hex
+// carries its apportioned spaces rounded to a whole count, a sub-space sliver
+// and every non-parking resource carry no key, and — because both scopes round
+// through the same function — an identical city scope still dedups to
+// city_same rather than silently emitting a duplicate object.
+func TestBuildHexGeoJSON_ParkingSpaces(t *testing.T) {
+	now := time.Now()
+	parkingCity := rtParkingAll.With(resource.ScopeCity)
+	entry := hexEntry(t, map[resource.Type][]db.HexStat{
+		rtRoads: {{HexID: "0,0", ResourceType: rtRoads, Area: 200, PctCovered: 75, EstimatedSpaces: 0, ComputedAt: now}},
+		rtParkingAll: {{HexID: "0,0", ResourceType: rtParkingAll, Area: 90, PctCovered: 30, EstimatedSpaces: 12.4, ComputedAt: now},
+			{HexID: "0,1", ResourceType: rtParkingAll, Area: 9, PctCovered: 3, EstimatedSpaces: 0.3, ComputedAt: now}},
+		parkingCity: {{HexID: "0,0", ResourceType: parkingCity, Area: 90, PctCovered: 30, EstimatedSpaces: 12.4, ComputedAt: now},
+			{HexID: "0,1", ResourceType: parkingCity, Area: 9, PctCovered: 3, EstimatedSpaces: 0.3, ComputedAt: now}},
+	}, nil)
+	aggs, _, err := aggregateHexStats(t.Context(), entry)
+	if err != nil {
+		t.Fatalf("aggregateHexStats: %v", err)
+	}
+	a := aggs["0,0"]
+	if got := a.bbox["parking"]["spaces"]; got != 12 {
+		t.Errorf("parking spaces = %v; want 12 (rounded)", got)
+	}
+	if _, ok := a.bbox["roads"]["spaces"]; ok {
+		t.Error("roads must carry no spaces key")
+	}
+	if _, ok := aggs["0,1"].bbox["parking"]["spaces"]; ok {
+		t.Error("a sub-space sliver (0.3) must carry no spaces key")
+	}
+	if !sameCoverage(a.city["parking"], a.bbox["parking"]) {
+		t.Errorf("identical parking scopes must still compare equal with spaces present: city=%v bbox=%v", a.city["parking"], a.bbox["parking"])
 	}
 }

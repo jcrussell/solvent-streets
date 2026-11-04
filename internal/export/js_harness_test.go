@@ -18,6 +18,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
+	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
 // TestJS drives the executing JavaScript tests for
@@ -128,12 +129,29 @@ func jsFixtureEntry(t *testing.T) CityEntry {
 	store.ListSnapshotsFunc = func(context.Context) ([]db.Snapshot, error) {
 		return []db.Snapshot{{ID: jsFixtureSnapshotID, ComputedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}}, nil
 	}
+	// The parking compute result carries an estimated space count so the
+	// fixture meta.json has the real estimated_spaces key the stats panel and
+	// Compare specs read; the golden fixture itself stays untouched.
+	inner := store.LatestComputeResultFunc
+	store.LatestComputeResultFunc = func(ctx context.Context, rt resource.Type) (*db.ComputeResult, error) {
+		r, err := inner(ctx, rt)
+		if err == nil && rt == resource.TypeParking {
+			cp := *r
+			cp.EstimatedSpaces = jsFixtureParkingSpaces
+			return &cp, nil
+		}
+		return r, err
+	}
 	// Matches a city option in the rendered index.html, so meta.project_name and
 	// the DOM describe the same place.
 	entry.City.Name = "Alpha, CA"
 	entry.Slug = "alpha-ca"
 	return entry
 }
+
+// jsFixtureParkingSpaces is the estimated parking space count the fixture's
+// parking stat carries (see jsFixtureEntry); parking.test.mjs asserts on it.
+const jsFixtureParkingSpaces = 4321
 
 // writeJSFixtureTree writes everything the JS specs read: index.html rendered
 // from the real Go template, and the four data files the fetch stub serves.
@@ -178,6 +196,9 @@ func writeJSFixtureTree(t *testing.T, dir string) {
 	// a spec to pass vacuously over an empty chart list.
 	if len(meta.Stats) == 0 {
 		t.Fatal("fixture meta.json has no stats[]; the stats-panel specs would test nothing")
+	}
+	if !slices.ContainsFunc(meta.Stats, func(s StatJSON) bool { return s.Type == "parking" && s.EstimatedSpaces == jsFixtureParkingSpaces }) {
+		t.Fatalf("fixture meta.json parking stat lacks estimated_spaces=%d; the parking specs would test nothing: %+v", jsFixtureParkingSpaces, meta.Stats)
 	}
 	if len(forecasts) == 0 {
 		t.Fatal("fixture forecast.json is empty; the Financials specs would test nothing")

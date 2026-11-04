@@ -503,10 +503,11 @@
                 for (const f of features) {
                     const hid = f.properties.hex_id;
                     if (!byHex[hid]) {
-                        byHex[hid] = { geometry: f.geometry, area: 0, pct_covered: 0, est_cost: 0 };
+                        byHex[hid] = { geometry: f.geometry, area: 0, pct_covered: 0, est_cost: 0, spaces: 0 };
                     }
                     byHex[hid].area += f.properties.area || 0;
                     byHex[hid].pct_covered += f.properties.pct_covered || 0;
+                    byHex[hid].spaces += f.properties.spaces || 0;
                 }
             }
 
@@ -528,6 +529,7 @@
                     geometry: data.geometry,
                     properties: {
                         hex_id: hid,
+                        spaces: data.spaces,
                         area: data.area,
                         pct_covered: Math.min(data.pct_covered, 100),
                         est_cost: data.est_cost
@@ -572,6 +574,8 @@
                     '<div class="stat-row"><span class="stat-label">Features</span><span class="stat-value">' + s.feature_count + '</span></div>' +
                     '<div class="stat-row"><span class="stat-label">Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + areaLargeVal.toFixed(1) + '</span></div>' +
                     '<div class="stat-row"><span class="stat-label">Area (' + areaVeryLargeUnit() + ')</span><span class="stat-value">' + toAreaVeryLarge(s.total_area).toFixed(2) + '</span></div>' +
+                    // Parking only (v3 meta): a unitless count, so no units conversion.
+                    (s.estimated_spaces > 0 ? '<div class="stat-row"><span class="stat-label">Est. Spaces</span><span class="stat-value">' + s.estimated_spaces.toLocaleString() + '</span></div>' : '') +
                     '</div>';
             });
             statsEl.innerHTML = statsHTML;
@@ -685,9 +689,9 @@
             // reading a v2 file finds no "city" object on ~70% of features and
             // under-reports the city scope with no error anywhere. Better to
             // show the banner and render nothing than a plausible wrong map.
-            if (hexData && hexData.v !== 2) {
+            if (hexData && hexData.v !== 3) {
                 showLoadError(dataURL(prefix, 'hexgrid.geojson'),
-                    'stale hexgrid format (expected v2) — re-export this site with a current pvmt');
+                    'stale hexgrid format (expected v3) — re-export this site with a current pvmt');
                 return;
             }
             if (hexData && hexData.features) {
@@ -708,6 +712,9 @@
                                     resource_type: rt,
                                     area: m.area,
                                     pct_covered: m.pct,
+                                    // v3: estimated parking spaces apportioned to
+                                    // the hex; absent (0) for other resources.
+                                    spaces: m.spaces || 0,
                                 },
                             });
                         }
@@ -806,7 +813,8 @@
                     tooltip.innerHTML =
                         '<strong>Coverage:</strong> ' + (p.pct_covered != null ? Math.round(p.pct_covered) : 0) + '%<br>' +
                         '<strong>Area:</strong> ' + fmtArea(p.area || 0) + '<br>' +
-                        '<strong>Est. Annual Cost:</strong> ' + fmtCost(p.est_cost || 0);
+                        '<strong>Est. Annual Cost:</strong> ' + fmtCost(p.est_cost || 0) +
+                        (p.spaces > 0 ? '<br><strong>Est. Parking Spaces:</strong> ' + Math.round(p.spaces).toLocaleString() : '');
                     tooltip.style.display = 'block';
                     tooltip.style.left = (e.point.x + 12) + 'px';
                     tooltip.style.top = (e.point.y - 12) + 'px';
@@ -833,13 +841,14 @@
                 const hexDataByType = hexDataByScope[currentScope] || {};
                 const costSummary = costSummaryByScope[currentScope] || {};
                 let rows = '';
-                let totalArea = 0, totalPct = 0, totalCost = 0;
+                let totalArea = 0, totalPct = 0, totalCost = 0, totalSpaces = 0;
                 for (const type of Object.keys(layerColors)) {
                     const features = hexDataByType[type] || [];
                     const match = features.find(f => f.properties.hex_id === hexId);
                     if (!match) continue;
                     const area = match.properties.area || 0;
                     const pct = match.properties.pct_covered || 0;
+                    totalSpaces += match.properties.spaces || 0;
                     let cost = 0;
                     const cs = costSummary[type];
                     if (cs && cs.total_area) {
@@ -857,7 +866,9 @@
                     '<table><tr><th>Type</th><th>Area</th><th>Coverage</th><th>Est. Cost</th></tr>' +
                     rows +
                     '<tr class="total-row"><td>Total</td><td>' + fmtArea(totalArea) + '</td><td>' + Math.min(Math.round(totalPct), 100) + '%</td><td>' + fmtCost(totalCost) + '</td></tr>' +
-                    '</table></div>';
+                    '</table>' +
+                    (totalSpaces > 0 ? '<div class="stat-row"><span class="stat-label">Est. Parking Spaces</span><span class="stat-value">' + Math.round(totalSpaces).toLocaleString() + '</span></div>' : '') +
+                    '</div>';
 
                 document.getElementById('close-hex').addEventListener('click', () => {
                     statsEl.innerHTML = savedPanelHTML;
@@ -2827,6 +2838,10 @@
             m.sidewalksSqM = statByType.sidewalks ? statByType.sidewalks.total_area : 0;
             m.roadsFeatures = statByType.roads ? statByType.roads.feature_count : 0;
             m.parkingFeatures = statByType.parking ? statByType.parking.feature_count : 0;
+            // Estimated parking spaces (lots + garages); 0 when the city was
+            // computed before the estimate existed, which the leaderboard
+            // category filters out rather than ranking at zero.
+            m.parkingSpaces = statByType.parking ? (statByType.parking.estimated_spaces || 0) : 0;
             m.sidewalksFeatures = statByType.sidewalks ? statByType.sidewalks.feature_count : 0;
 
             // City area and pct paved from meta
@@ -3022,6 +3037,7 @@
                     '<div class="sb-row"><span>Parking</span><span>' + m.parkingAreaLarge.toFixed(0) + ' ' + areaLargeUnit() + '</span></div>' +
                     '<div class="sb-row"><span>Sidewalks</span><span>' + m.sidewalksAreaLarge.toFixed(1) + ' ' + areaLargeUnit() + '</span></div>' +
                     '<div class="sb-row"><span>Sidewalk/Road</span><span>' + m.sidewalkToRoadPct.toFixed(1) + '%</span></div>' +
+                    (m.parkingSpaces > 0 ? '<div class="sb-row"><span>Parking Spaces (est.)</span><span>' + m.parkingSpaces.toLocaleString() + '</span></div>' : '') +
                     '<div class="sb-row"><span>City-Owned</span><span>' + m.cityPct.toFixed(0) + '%</span></div>' +
                     '<div class="sb-row"><span>Blended Decay</span><span>' + (m.blendedDecay * 100).toFixed(2) + '%/yr</span></div>';
             }
@@ -3054,6 +3070,8 @@
                 { key: 'totalAreaLarge', label: 'Total Managed Area', award: 'Biggest Network', higher: true, fmt: function(v) { return v.toFixed(0) + ' ' + areaLargeUnit(); }, color: '#6366f1' },
                 { key: 'sidewalkToRoadPct', label: 'Walkability (Sidewalk-to-Road Ratio)', award: 'Most Walkable', higher: true, fmt: function(v) { return v.toFixed(1) + '%'; }, color: '#10b981' },
                 { key: 'parkingAreaLarge', label: 'Parking Infrastructure', award: 'Most Parking', higher: true, fmt: function(v) { return v.toFixed(0) + ' ' + areaLargeUnit(); }, color: '#3b82f6' },
+                // No award of its own: "Most Parking" above already crowns parking, and two parking medals would be noise.
+                { key: 'parkingSpaces', label: 'Parking Spaces (est.)', higher: true, filter: function(m) { return m.parkingSpaces > 0; }, fmt: function(v) { return v.toLocaleString(); }, color: '#60a5fa', note: 'Estimated vehicle capacity of mapped lots and garages: the OSM capacity tag where present, otherwise lot footprint ÷ 30 m² per space (× levels for structured parking). On-street parking is not counted. Cities computed before the estimate existed are omitted.' },
                 { key: 'cityPct', label: 'City Ownership Share', award: 'Most City-Owned', higher: true, fmt: function(v) { return v.toFixed(0) + '%'; }, color: '#8b5cf6' },
                 { key: 'featureCount', label: 'Total Features Tracked', award: 'Most Detailed', higher: true, fmt: function(v) { return v.toLocaleString(); }, color: '#f59e0b' },
                 { key: 'blendedDecay', label: 'Blended Decay Rate (lower is better)', award: 'Slowest Decay', higher: false, fmt: function(v) { return (v * 100).toFixed(2) + '%/yr'; }, color: '#ef4444' },
@@ -3106,7 +3124,7 @@
 
                 var noteIcon = cat.note ? ' <span class="lb-note" title="' + cat.note.replace(/"/g, '&quot;') + '">ⓘ</span>' : '';
                 return '<div class="lb-category">' +
-                    '<div class="lb-title"><h4>' + cat.label + noteIcon + '</h4><span class="lb-award">' + medals[0] + ' ' + cat.award + ': ' + esc(sorted[0].name) + '</span></div>' +
+                    '<div class="lb-title"><h4>' + cat.label + noteIcon + '</h4>' + (cat.award ? '<span class="lb-award">' + medals[0] + ' ' + cat.award + ': ' + esc(sorted[0].name) + '</span>' : '') + '</div>' +
                     rows +
                 '</div>';
             }).join('');
@@ -3269,9 +3287,10 @@
             var minLen = fc.length > 0 ? Math.min.apply(null, fc.map(function(m) { return m.baselineYears.length; })) : 0;
 
             // Region area sums (every city, forecast or not).
-            var totalRoads = 0, totalParking = 0, totalSidewalks = 0, totalNetwork = 0, totalCityArea = 0, totalPaved = 0;
+            var totalRoads = 0, totalParking = 0, totalSidewalks = 0, totalNetwork = 0, totalCityArea = 0, totalPaved = 0, totalSpaces = 0;
             allMetrics.forEach(function(m) {
                 totalRoads += m.roadsAreaLarge; totalParking += m.parkingAreaLarge; totalSidewalks += m.sidewalksAreaLarge;
+                totalSpaces += m.parkingSpaces || 0;
                 totalNetwork += m.totalAreaLarge; totalCityArea += m.cityAreaLarge;
                 // Union-based paved area (large units) for an apples-to-apples
                 // Paved Share that matches the Map/Compare % Paved, instead of the
@@ -3308,7 +3327,8 @@
                 aggCard('Area-Weighted PCI', weightedPCI === null ? '—' : weightedPCI.toFixed(0), 'Baseline condition (simplified single-cohort)'),
                 aggCard('Year-1 Maintenance Need', hasFc ? fmt$(regionYear1) : '—', 'To hold the whole network steady'),
                 aggCard(horizon + 'Deferred Backlog', hasFc ? fmt$(regionBacklog) : '—', hasFc ? 'Unfunded need accumulated by year ' + minLen : 'No forecast data in this region'),
-                aggCard('Year-1 Need / ' + unit, perArea === null ? '—' : '$' + fmtNum(perArea), 'Region maintenance intensity')
+                aggCard('Year-1 Need / ' + unit, perArea === null ? '—' : '$' + fmtNum(perArea), 'Region maintenance intensity'),
+                aggCard('Est. Parking Spaces', totalSpaces > 0 ? fmtNum(totalSpaces) : '—', 'Lots and garages: OSM capacity, else footprint ÷ 30 m²/space')
             ].join('');
 
             // Forecast divergence note: per-city [forecast] can override
