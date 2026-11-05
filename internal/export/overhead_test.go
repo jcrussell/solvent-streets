@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
+	"github.com/jcrussell/solvent-streets/internal/export/exporttest"
 )
 
 // dollarFields are the emitted keys that must scale with the cost overhead.
@@ -54,8 +55,8 @@ func TestOverhead_ExportScalesDollarsOnly(t *testing.T) {
 	const factor = 2.0
 
 	emit := func(overhead float64) map[string]any {
-		entry := goldenFixtureEntry(t)
-		fc := goldenForecastConfig()
+		entry := fixtureEntry(t)
+		fc := exporttest.ForecastConfig()
 		fc.CostOverhead = overhead
 		got, err := BuildForecastsForCity(context.Background(), entry, &fc, ConvertCostTiers(&fc))
 		if err != nil {
@@ -129,8 +130,8 @@ func TestOverhead_ExportScalesDollarsOnly(t *testing.T) {
 // boxes labelled with the tier's own cost AND price the interactive line at
 // overhead squared.
 func TestOverhead_SeedShipsUnscaledTiers(t *testing.T) {
-	entry := goldenFixtureEntry(t)
-	fc := goldenForecastConfig()
+	entry := fixtureEntry(t)
+	fc := exporttest.ForecastConfig()
 	fc.CostOverhead = 2
 
 	seed, err := BuildForecastSeed(context.Background(), &fc, entry.Store)
@@ -179,8 +180,8 @@ func TestOverhead_SeedShipsUnscaledTiers(t *testing.T) {
 // as the city it contains — that equality is what makes the region's headline
 // tiles trustworthy at all.
 func TestOverhead_MultiCitySeedMatchesSingleCity(t *testing.T) {
-	entry := goldenFixtureEntry(t)
-	fc := goldenForecastConfig()
+	entry := fixtureEntry(t)
+	fc := exporttest.ForecastConfig()
 	fc.CostOverhead = 1.75
 
 	single := buildSeedMap(t, func() (template.JS, error) {

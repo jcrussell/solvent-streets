@@ -17,6 +17,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/export/exporttest"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/services"
@@ -93,38 +94,38 @@ const jsFixtureSnapshotID = 1
 // the fetched meta.json and the city <option> in the DOM describe one city.
 const jsFixtureBoundary = `{"type":"Polygon","coordinates":[[[-122.3,37.7],[-122.2,37.7],[-122.2,37.8],[-122.3,37.8],[-122.3,37.7]]]}`
 
-// jsFixtureForecastConfig is goldenForecastConfig with two deliberate changes:
+// jsFixtureForecastConfig is exporttest.ForecastConfig with two deliberate changes:
 // a 20-year horizon (what a real site ships) and the canonical worst-tier label
-// "reconstruction". The golden's "reconstruct" does not match
+// "reconstruction". The fixture's "reconstruct" does not match
 // forecast.DefaultMaterialTiers, so reusing it verbatim would silently drive the
 // Materials tab down MaterialTierFor's fallback path instead of a label match.
 //
 // The tier PRICES are deliberately not restated here: relabelling a clone keeps
-// this config following the golden's, where copying the literal would let the
+// this config following the fixture's, where copying the literal would let the
 // two drift apart with nothing to notice — the failure this whole fixture
 // arrangement exists to rule out.
 func jsFixtureForecastConfig(t *testing.T) config.ForecastConfig {
 	t.Helper()
-	fc := goldenForecastConfig()
+	fc := exporttest.ForecastConfig()
 	fc.Years = 20
 	fc.CostTiers = slices.Clone(fc.CostTiers)
 	worst := len(fc.CostTiers) - 1
 	if fc.CostTiers[worst].Label != "reconstruct" {
-		t.Fatalf("goldenForecastConfig's worst tier is now %q; check which tier needs the canonical label",
+		t.Fatalf("exporttest.ForecastConfig's worst tier is now %q; check which tier needs the canonical label",
 			fc.CostTiers[worst].Label)
 	}
 	fc.CostTiers[worst].Label = "reconstruction"
 	return fc
 }
 
-// jsFixtureEntry is goldenFixtureEntry plus the two reads BuildMeta needs that
-// the golden tests do not: a boundary polygon and a dated snapshot.
+// jsFixtureEntry is fixtureEntry plus the two reads BuildMeta needs that
+// the contract tests do not: a boundary polygon and a dated snapshot.
 func jsFixtureEntry(t *testing.T) CityEntry {
 	t.Helper()
-	entry := goldenFixtureEntry(t)
+	entry := fixtureEntry(t)
 	store, ok := entry.Store.(*dbtest.MockStore)
 	if !ok {
-		t.Fatalf("goldenFixtureEntry store is %T, not *dbtest.MockStore", entry.Store)
+		t.Fatalf("fixtureEntry store is %T, not *dbtest.MockStore", entry.Store)
 	}
 	store.GetBoundaryFunc = func(context.Context) (string, error) { return jsFixtureBoundary, nil }
 	store.ListSnapshotsFunc = func(context.Context) ([]db.Snapshot, error) {
@@ -132,7 +133,7 @@ func jsFixtureEntry(t *testing.T) CityEntry {
 	}
 	// The parking compute result carries an estimated space count so the
 	// fixture meta.json has the real estimated_spaces key the stats panel and
-	// Compare specs read; the golden fixture itself stays untouched.
+	// Compare specs read; the shared fixture itself stays untouched.
 	inner := store.LatestComputeResultFunc
 	store.LatestComputeResultFunc = func(ctx context.Context, rt resource.Type) (*db.ComputeResult, error) {
 		r, err := inner(ctx, rt)
@@ -203,7 +204,7 @@ const jsFixtureParkingSpaces = 4321
 // The data is NOT hand-written, for the same reason the DOM is not: it is built
 // by the real exporter entry points (BuildMeta, BuildForecastsForCity,
 // BuildScenariosData, BuildForecastSeed) over the deterministic DB-free fixture
-// the golden tests already use, then rounded through the same emission helpers
+// the contract tests already use (internal/export/exporttest), then rounded through the same emission helpers
 // export.go writes with. A hand-rolled fixture drifts from the Go json tags
 // silently — which is exactly what happened (solvent-streets-q48z.8): the seed
 // said `area` where Go emits `total_area`, the scenarios were named

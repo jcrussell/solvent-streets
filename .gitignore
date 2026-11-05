@@ -1,6 +1,10 @@
 # Built binaries
 /pvmt
 
+# Scratch output: actual results written by failing golden tests
+# (internal/goldentest) for review before a `cp -f` accepts them
+/bin/
+
 # Claude Code local settings
 .claude/
 

@@ -2,19 +2,19 @@ package forecast_test
 
 import (
 	"encoding/json"
-	"flag"
-	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/forecast"
+	"github.com/jcrussell/solvent-streets/internal/goldentest"
 )
 
 // TestSimulateParity locks down the output of forecast.Simulate against a
 // committed golden so a refactor that changes simulation semantics breaks
 // both the CLI and the WASM forecast (internal/forecast/bridge.Run calls
-// the same Simulate). Regenerate the golden with `-update` if the change
-// is intentional, then read the diff line by line before committing.
+// the same Simulate). There is no -update flag: a mismatch prints the diff
+// and the `cp -f` that accepts it (internal/goldentest); read the diff line
+// by line before running it.
 func TestSimulateParity(t *testing.T) {
 	scenario := forecast.Scenario{
 		Name:         "parity-scenario",
@@ -45,25 +45,5 @@ func TestSimulateParity(t *testing.T) {
 	}
 	got = append(got, '\n')
 
-	goldenPath := filepath.Join("testdata", "parity_output.json")
-	if *updateGolden {
-		if err := os.MkdirAll(filepath.Dir(goldenPath), 0o755); err != nil {
-			t.Fatalf("mkdir testdata: %v", err)
-		}
-		if err := os.WriteFile(goldenPath, got, 0o644); err != nil {
-			t.Fatalf("write golden: %v", err)
-		}
-		t.Logf("golden updated: %s", goldenPath)
-		return
-	}
-
-	want, err := os.ReadFile(goldenPath)
-	if err != nil {
-		t.Fatalf("read golden (run with -update to create): %v", err)
-	}
-	if string(got) != string(want) {
-		t.Errorf("Simulate output diverged from %s. If intentional, regenerate with:\n  go test ./internal/forecast -run TestSimulateParity -update", goldenPath)
-	}
+	goldentest.Check(t, filepath.Join("testdata", "parity_output.json"), got)
 }
-
-var updateGolden = flag.Bool("update", false, "regenerate the parity golden file")
