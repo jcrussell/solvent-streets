@@ -39,8 +39,9 @@ forecast WASM at `internal/export/wasm/pvmt.wasm` is `go:embed`ed
 into the main binary; `make build` rebuilds the WASM first, while a bare
 `go build` silently embeds whatever stale binary is on disk — or, on a fresh
 clone with none, builds a pvmt whose `export`, `serve` and `check-site`
-refuse to run (`export.ErrNoWasm`). Tests need it too: run `make wasm` once
-before `go test`.
+refuse to run (`export.ErrNoWasm`). Unit tests run on fake assets
+(`exporttest.AssetFiles`) and pass without it; only `integration/` checks the
+real WASM, and `make test` builds it first.
 
 Run a single test: `go test -race ./internal/geo -run TestHexGrid`.
 

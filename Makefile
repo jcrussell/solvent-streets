@@ -34,7 +34,9 @@ install: build
 	install -m 0755 $(BINARY) $(PREFIX)/bin/$(BINARY)
 	@echo "installed $(BINARY) to $(PREFIX)/bin/$(BINARY)"
 
-test:
+# wasm: integration/ checks the real embedded forecast WASM; unit tests run on
+# fakes and pass without it.
+test: wasm
 	go test -race ./...
 
 # Table test for the commit-msg hook's conventional-commit check.
@@ -42,8 +44,7 @@ test-hooks:
 	sh scripts/check-commit-msg_test.sh
 
 # Pinned, not @latest (byob-security.1); CI runs this same target. Scans the
-# stdlib of the toolchain go.mod's `toolchain` line selects. Needs the WASM
-# embed in place: run `make wasm` first on a fresh clone.
+# stdlib of the toolchain go.mod's `toolchain` line selects.
 GOVULNCHECK_VERSION := v1.9.0
 vuln:
 	go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
@@ -91,7 +92,7 @@ vet:
 tidy:
 	go mod tidy
 
-cover:
+cover: wasm
 	go test -race -coverprofile=coverage.out ./...
 	go tool cover -func=coverage.out
 

@@ -21,9 +21,6 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
-      - name: Build WASM (required for go:embed)
-        run: make wasm
-
       - name: Read golangci-lint floor
         id: lint-version
         run: echo "version=$(cat .golangci-version)" >> "$GITHUB_OUTPUT"
@@ -67,9 +64,6 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
-      - name: Build WASM (required for go:embed)
-        run: make wasm
-
       - name: Install JS devDependencies
         run: npm ci
 
@@ -91,9 +85,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
-
-      - name: Build WASM (required for go:embed)
-        run: make wasm
 
       - name: pvmt validate
         run: go run ./cmd/pvmt validate
@@ -132,7 +123,10 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
-      - name: Build WASM (required for go:embed)
+      # Builds the real binary, and proves cmd/wasm/pvmt still compiles for
+      # js/wasm. Without it the build succeeds anyway (internal/export embeds
+      # the wasm/ directory), but export and serve would refuse to run.
+      - name: Build forecast WASM
         run: make wasm
 
       - name: Build
@@ -149,7 +143,9 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
-      - name: Build WASM (required for go:embed)
+      # Only integration/ needs the real WASM (TestEmbeddedAssets_CarryTheRealWasm
+      # and the export pipeline); every unit test runs on fake assets.
+      - name: Build forecast WASM (integration tests)
         run: make wasm
 
       - name: Test with coverage
@@ -176,9 +172,6 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
-      - name: Build WASM (required for go:embed)
-        run: make wasm
-
       # setup-go above reads go.mod's toolchain line, so this scans the
       # standard library the release job compiles with; a stdlib finding
       # is fixed by bumping that line. (byob-security.1 / byob-security.2)
@@ -196,9 +189,6 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
-      - name: Build WASM (required for go:embed)
-        run: make wasm
-
       - name: Check go mod tidy
         run: |
           go mod tidy
@@ -215,9 +205,6 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
-      - name: Build WASM (required for go:embed)
-        run: make wasm
-
       - name: Go vet
         run: go vet ./...
 
@@ -231,9 +218,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
-
-      - name: Build WASM (required for go:embed)
-        run: make wasm
 
       - name: Check GoReleaser config
         uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7

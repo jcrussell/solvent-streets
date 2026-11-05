@@ -21,7 +21,7 @@ locally, and stop.
 
 ```
 make build    # builds WASM then CGO_ENABLED=0 binary (export/serve need the go:embed'd WASM)
-make test     # go test -race ./...
+make test     # make wasm, then go test -race ./... (only integration/ needs the WASM)
 make lint     # golangci-lint run
 make wasm     # rebuild only the forecast WASM (internal/export/wasm/)
 make gendocs  # regenerate docs/reference/ from cobra
