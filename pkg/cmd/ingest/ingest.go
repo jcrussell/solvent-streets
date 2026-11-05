@@ -142,7 +142,7 @@ func runIngest(ctx context.Context, opts *Options) error {
 		ctx = cache.WithBypass(ctx)
 	}
 
-	boundaryGJSON, fresh, err := resolveBoundary(ctx, opts, store, client, city, ingestpkg.FetchCityBoundary, ingestpkg.FetchCityBoundaryFromRelation)
+	boundaryGJSON, fresh, err := resolveBoundary(ctx, opts, store, client, city, liveBoundaryFetchers())
 	if err != nil {
 		return err
 	}
@@ -230,10 +230,10 @@ func printDryRunPlan(ctx context.Context, opts *Options, store db.Store, city *c
 		fmt.Fprintln(out, "[dry-run]   would fetch + dedupe across all sources")
 	} else {
 		fmt.Fprintf(out, "[dry-run]   would fetch from source: %s\n", opts.Source)
-		if string(opts.Source) == "overpass" && !city.Overpass {
+		if opts.Source == cmdutil.SourceOverpass && !city.Overpass {
 			fmt.Fprintln(out, "[dry-run]   WARNING: overpass selected but city.overpass is false")
 		}
-		if string(opts.Source) == "arcgis" && city.ArcGISURL == "" {
+		if opts.Source == cmdutil.SourceArcGIS && city.ArcGISURL == "" {
 			fmt.Fprintln(out, "[dry-run]   WARNING: arcgis selected but city.arcgis_url is empty")
 		}
 	}
@@ -242,7 +242,7 @@ func printDryRunPlan(ctx context.Context, opts *Options, store db.Store, city *c
 
 func fmtOverpass(overpass bool) string {
 	if overpass {
-		return "overpass"
+		return string(cmdutil.SourceOverpass)
 	}
 	return "(overpass: skipped — overpass=false for this city)"
 }
@@ -263,6 +263,26 @@ type nominatimFetcher func(ctx context.Context, client *http.Client, cityName st
 // relationFetcher abstracts the Overpass-relation-by-id fetch with
 // the same shape and rationale as nominatimFetcher.
 type relationFetcher func(ctx context.Context, client *http.Client, relationID int64) (string, error)
+
+// boundaryFetchers is every network call resolveBoundary makes. All three
+// are injected — the water fetch included — so its tests never reach
+// Nominatim or Overpass: a hardcoded FetchOSMWater once made them hang
+// `make test` for its full timeout wherever Overpass was unreachable
+// (solvent-streets-zdv7).
+type boundaryFetchers struct {
+	byName     nominatimFetcher
+	byRelation relationFetcher
+	water      waterFetcher
+}
+
+// liveBoundaryFetchers wires the real upstream fetchers.
+func liveBoundaryFetchers() boundaryFetchers {
+	return boundaryFetchers{
+		byName:     ingestpkg.FetchCityBoundary,
+		byRelation: ingestpkg.FetchCityBoundaryFromRelation,
+		water:      ingestpkg.FetchOSMWater,
+	}
+}
 
 // freshBoundary carries the metadata the post-strip road-coverage
 // gate needs to roll back a freshly-stored boundary if the strip turns
@@ -305,8 +325,7 @@ func resolveBoundary(
 	store db.Store,
 	client *http.Client,
 	city *config.CityConfig,
-	fetchByName nominatimFetcher,
-	fetchByRelation relationFetcher,
+	fetch boundaryFetchers,
 ) (string, *freshBoundary, error) {
 	boundaryGJSON, err := store.GetBoundary(ctx)
 	if err != nil {
@@ -322,11 +341,11 @@ func resolveBoundary(
 	case city.BoundaryRelationID > 0:
 		fmt.Fprintf(opts.IO.ErrOut, "Fetching boundary for %s from OSM relation %d via Overpass...\n",
 			city.Name, city.BoundaryRelationID)
-		boundaryGJSON, err = fetchByRelation(ctx, client, city.BoundaryRelationID)
+		boundaryGJSON, err = fetch.byRelation(ctx, client, city.BoundaryRelationID)
 		unstrippedSource = "overpass-relation"
 	default:
 		fmt.Fprintf(opts.IO.ErrOut, "Fetching boundary for %s from Nominatim...\n", city.Name)
-		boundaryGJSON, err = fetchByName(ctx, client, city.Name)
+		boundaryGJSON, err = fetch.byName(ctx, client, city.Name)
 		unstrippedSource = "nominatim"
 	}
 	if err != nil {
@@ -338,7 +357,7 @@ func resolveBoundary(
 	// before stripWaterFromBoundary potentially produces a sliver.
 	nominatim := boundaryGJSON
 
-	stripped, warn, stripErr := stripWaterFromBoundary(ctx, client, ingestpkg.FetchOSMWater, boundaryGJSON)
+	stripped, warn, stripErr := stripWaterFromBoundary(ctx, client, fetch.water, boundaryGJSON)
 	if stripErr != nil {
 		return "", nil, hint.Withf(fmt.Errorf("water strip for %s: %w", city.Name, stripErr),
 			"This usually means the OSM water-stitching pipeline produced a polygon "+

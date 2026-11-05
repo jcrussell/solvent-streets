@@ -423,8 +423,11 @@ func TestResolveBoundary_NominatimWhenNoRelationID(t *testing.T) {
 
 	got, _, err := resolveBoundary(
 		context.Background(), opts, store, &http.Client{}, city,
-		recordingNominatim(boundary, &nomName),
-		recordingRelation("", &relID),
+		boundaryFetchers{
+			byName:     recordingNominatim(boundary, &nomName),
+			byRelation: recordingRelation("", &relID),
+			water:      fakeWaterFetcher(""),
+		},
 	)
 	if err != nil {
 		t.Fatalf("resolveBoundary returned err: %v", err)
@@ -461,8 +464,11 @@ func TestResolveBoundary_RelationWhenIDSet(t *testing.T) {
 
 	got, _, err := resolveBoundary(
 		context.Background(), opts, store, &http.Client{}, city,
-		recordingNominatim("", &nomName),
-		recordingRelation(boundary, &relID),
+		boundaryFetchers{
+			byName:     recordingNominatim("", &nomName),
+			byRelation: recordingRelation(boundary, &relID),
+			water:      fakeWaterFetcher(""),
+		},
 	)
 	if err != nil {
 		t.Fatalf("resolveBoundary returned err: %v", err)
@@ -500,8 +506,11 @@ func TestResolveBoundary_CachedShortCircuitsBothFetchers(t *testing.T) {
 
 	got, _, err := resolveBoundary(
 		context.Background(), opts, store, &http.Client{}, city,
-		recordingNominatim("nope", &nomName),
-		recordingRelation("nope", &relID),
+		boundaryFetchers{
+			byName:     recordingNominatim("nope", &nomName),
+			byRelation: recordingRelation("nope", &relID),
+			water:      fakeWaterFetcher(""),
+		},
 	)
 	if err != nil {
 		t.Fatalf("resolveBoundary returned err: %v", err)
@@ -534,7 +543,7 @@ func TestResolveBoundary_FetcherErrorWrappedWithHint(t *testing.T) {
 
 	_, _, err := resolveBoundary(
 		context.Background(), opts, store, &http.Client{}, city,
-		failingNominatim, failingRelation,
+		boundaryFetchers{byName: failingNominatim, byRelation: failingRelation, water: fakeWaterFetcher("")},
 	)
 	if err == nil {
 		t.Fatal("expected error from failing fetcher")
@@ -593,7 +602,7 @@ func TestResolveBoundary_RelationErrorHintsAreClassSpecific(t *testing.T) {
 			opts := resolveBoundaryHarness(t)
 			_, _, err := resolveBoundary(
 				context.Background(), opts, store, &http.Client{}, city,
-				recordingNominatim("", nil), failing,
+				boundaryFetchers{byName: recordingNominatim("", nil), byRelation: failing, water: fakeWaterFetcher("")},
 			)
 			if err == nil {
 				t.Fatal("expected error")

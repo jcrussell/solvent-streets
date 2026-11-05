@@ -40,6 +40,11 @@ into the main binary; `make build` rebuilds the WASM first, while a bare
 `go build` silently embeds whatever stale binary is on disk.
 
 Run a single test: `go test -race ./internal/geo -run TestHexGrid`.
+
+Unit tests never touch the network. Packages that talk to upstreams call
+`offlinetest.Main` from `TestMain`, which refuses any non-loopback dial and
+fails the run; inject a fake fetcher or use an `httptest` server instead.
+Live-network tests live in `integration/` behind `make e2e`.
 Run the binary without installing: `go run ./cmd/pvmt <args>`.
 
 `make pre-commit` runs `fmt + vet + lint` and is suitable for a
