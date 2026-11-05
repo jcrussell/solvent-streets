@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+# Conventional-commit subject check; goreleaser's changelog depends on the
+# prefixes. Lives outside the beads markers so `bd hooks install` leaves it
+# alone (core.hooksPath is .beads/hooks, so .git/hooks/commit-msg never runs).
+sh "$(git rev-parse --show-toplevel)/scripts/check-commit-msg.sh" "$1" || exit $?

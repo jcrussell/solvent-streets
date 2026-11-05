@@ -14,7 +14,7 @@ LDFLAGS := -X github.com/jcrussell/solvent-streets/internal/build.Version=$(VERS
 	-X github.com/jcrussell/solvent-streets/internal/build.Date=$(DATE)
 
 .PHONY: build test test-js e2e clean wasm lint lint-js gendocs release-dry-run site site-clean site-report deploy \
-	fmt vet tidy cover help install pre-commit vuln
+	fmt vet tidy cover help install pre-commit vuln test-hooks
 
 wasm:
 	@want="$(GO_MOD_VERSION)"; \
@@ -36,6 +36,10 @@ install: build
 
 test:
 	go test -race ./...
+
+# Table test for the commit-msg hook's conventional-commit check.
+test-hooks:
+	sh scripts/check-commit-msg_test.sh
 
 # Pinned, not @latest (byob-security.1); CI runs this same target. Scans the
 # stdlib of the toolchain go.mod's `toolchain` line selects. Needs the WASM
@@ -108,6 +112,7 @@ help:
 	@echo "  build         build WASM + binary (default for releases)"
 	@echo "  install       build and install to \$$PREFIX/bin (default: ~/.local/bin)"
 	@echo "  test          go test -race ./..."
+	@echo "  test-hooks    table test for scripts/check-commit-msg.sh (the commit-msg hook)"
 	@echo "  vuln          govulncheck (pinned) over ./... with the go.mod toolchain"
 	@echo "  lint          golangci-lint run (pinned in .golangci-version)"
 	@echo "  lint-js       eslint + tsc --checkJs the export template JS (app.js/game.js)"

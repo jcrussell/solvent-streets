@@ -118,6 +118,9 @@ jobs:
             exit 1
           fi
 
+      - name: commit-msg hook table test
+        run: make test-hooks
+
   build:
     name: Build
     runs-on: ubuntu-latest

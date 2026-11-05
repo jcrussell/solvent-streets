@@ -63,6 +63,13 @@ docs: link CONTRIBUTING from README
 
 Scope is optional but encouraged for cross-cutting changes.
 
+`.beads/hooks/commit-msg` enforces this shape at commit time. It runs when
+`core.hooksPath` points at `.beads/hooks`, which `bd init` / `bd hooks
+install` set up (or run `git config core.hooksPath .beads/hooks`). The check
+itself is `scripts/check-commit-msg.sh`; `make test-hooks` runs its table
+test. Dependabot is configured to commit as `chore(deps):` (Go modules) and
+`ci(deps):` (Actions).
+
 ## Issue tracking
 
 This project uses [beads](https://github.com/steveyegge/beads) (`bd`)
