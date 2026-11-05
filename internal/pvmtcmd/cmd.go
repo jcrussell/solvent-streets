@@ -18,6 +18,15 @@ import (
 func Main() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// The first signal cancels ctx. Unregister right away so the next one
+	// gets the default disposition and kills the process: while the
+	// NotifyContext registration is live, Go diverts every SIGINT into ctx,
+	// so a command stuck in a loop that never checks ctx could not be
+	// interrupted at all (byob-lifecycle.2).
+	go func() {
+		<-ctx.Done()
+		stop()
+	}()
 
 	f := factory.New()
 	// Release the shared DB handle on shutdown — but only if the run actually
