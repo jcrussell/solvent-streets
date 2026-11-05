@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -91,28 +92,6 @@ func TestCityEntry_InfoMapsTags(t *testing.T) {
 	}
 }
 
-// TestRunMultiCity_WritesNojekyll asserts the multi-city path writes a zero-byte
-// .nojekyll at the site root (export.go:159), which only the single-city path
-// was asserting (solvent-streets-8je6).
-func TestRunMultiCity_WritesNojekyll(t *testing.T) {
-	cfg := &config.Config{}
-	entries := []CityEntry{
-		exportTestEntry(cfg, "Alpha", "alpha", exportBoundaryA, nil),
-		exportTestEntry(cfg, "Beta", "beta", exportBoundaryB, nil),
-	}
-	dir := t.TempDir()
-	if err := New(entries, cfg, dir, "metric", testAssets(t)).Run(context.Background()); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	info, err := os.Stat(filepath.Join(dir, ".nojekyll"))
-	if err != nil {
-		t.Fatalf(".nojekyll should exist after multi-city run: %v", err)
-	}
-	if info.Size() != 0 {
-		t.Errorf(".nojekyll should be zero-byte, got %d bytes", info.Size())
-	}
-}
-
 // TestRunSingleCity_ReusesExportedMetaAndSeed is the 7ou7.11 regression:
 // runSingleCity must render index.html from the very MetaJSON + forecast seed
 // that exportCityData already built and wrote, not a second from-scratch
@@ -177,43 +156,6 @@ func TestRunSingleCity_ReusesExportedMetaAndSeed(t *testing.T) {
 	}
 }
 
-// TestRunSingleCity_RendersMaterialsTab pins the Materials tab end-to-end: the
-// exported page must carry the tab button + panel, and the forecast seed the
-// page reads must ship the per-tier material intensities the tab multiplies by
-// treated area. Without material_tiers the tab has nothing to compute from.
-func TestRunSingleCity_RendersMaterialsTab(t *testing.T) {
-	cfg := &config.Config{}
-	entry := exportTestEntry(cfg, "Solo City", "solo-city", exportBoundaryA, map[resource.Type]db.ComputeResult{
-		resource.TypeRoads: {ResourceType: resource.TypeRoads, TotalArea: 1000, FeatureCount: 10},
-	})
-
-	dir := t.TempDir()
-	if err := New([]CityEntry{entry}, cfg, dir, "metric", testAssets(t)).Run(context.Background()); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-
-	indexHTML, err := os.ReadFile(filepath.Join(dir, "index.html"))
-	if err != nil {
-		t.Fatalf("read index.html: %v", err)
-	}
-	for _, want := range []string{`data-tab="materials-tab"`, `id="materials-tab"`, `id="materials-charts"`} {
-		if !strings.Contains(string(indexHTML), want) {
-			t.Errorf("index.html missing Materials markup %q", want)
-		}
-	}
-
-	seed, err := os.ReadFile(filepath.Join(dir, "data", "forecast_seed.json"))
-	if err != nil {
-		t.Fatalf("read forecast_seed.json: %v", err)
-	}
-	if !strings.Contains(string(seed), `"material_tiers"`) {
-		t.Errorf("forecast_seed.json missing material_tiers: %s", seed)
-	}
-	if !strings.Contains(string(seed), `"mix_kg_per_sqm"`) {
-		t.Errorf("forecast_seed.json material_tiers missing mix_kg_per_sqm: %s", seed)
-	}
-}
-
 // TestRunMultiCity_FailureLeavesRecoverableDir pins yvlv.19: when the export
 // fails partway (here, a second city whose stored snapshot hash doesn't match,
 // so RequireMatchingSnapshot fails), the output dir is left non-empty and
@@ -253,78 +195,6 @@ func TestRunMultiCity_FailureLeavesRecoverableDir(t *testing.T) {
 	// SafeCleanDir must now accept the partial dir (marker, no index.html).
 	if cleanErr := fsutil.SafeCleanDir(dir); cleanErr != nil {
 		t.Errorf("partial export dir should be recoverable with --clean: %v", cleanErr)
-	}
-}
-
-// TestRunMultiCity_AlphabetisesCitySelector is the dao7 regression: the city
-// selector must be sorted case-insensitively by Name, not left in TOML
-// (definition) order. Feed entries out of order and assert cities.json — the
-// source for the dropdown and JS CITIES array — comes out alphabetised.
-func TestRunMultiCity_AlphabetisesCitySelector(t *testing.T) {
-	cfg := &config.Config{}
-	// Deliberately unsorted, with a lowercase-leading name to exercise the
-	// case-insensitive comparator (a flat byte sort would order "apple" after
-	// "Banana" because 'B' < 'a').
-	entries := []CityEntry{
-		exportTestEntry(cfg, "Charlie", "charlie", exportBoundaryA, nil),
-		exportTestEntry(cfg, "apple", "apple", exportBoundaryB, nil),
-		exportTestEntry(cfg, "Banana", "banana", exportBoundaryA, nil),
-	}
-
-	dir := t.TempDir()
-	e := New(entries, cfg, dir, "metric", testAssets(t))
-	if err := e.Run(context.Background()); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-
-	raw, err := os.ReadFile(filepath.Join(dir, "cities.json"))
-	if err != nil {
-		t.Fatalf("read cities.json: %v", err)
-	}
-	var cities []CityInfo
-	if err := json.Unmarshal(raw, &cities); err != nil {
-		t.Fatalf("unmarshal cities.json: %v", err)
-	}
-	gotNames := make([]string, len(cities))
-	for i, c := range cities {
-		gotNames[i] = c.Name
-	}
-	want := []string{"apple", "Banana", "Charlie"}
-	if len(gotNames) != len(want) {
-		t.Fatalf("cities.json has %d entries %v; want %d", len(gotNames), gotNames, len(want))
-	}
-	for i := range want {
-		if gotNames[i] != want[i] {
-			t.Errorf("cities.json order = %v; want %v (case-insensitive by Name)", gotNames, want)
-			break
-		}
-	}
-}
-
-// TestRunMultiCity_IndexAlignsDataPrefixToSelector: on initial load without a
-// ?city= deep link, the browser default-selects the first DOM <option>, which
-// follows CitiesByTag (tag groups first) and can differ from CITIES[0]
-// (flat alphabetical) that seeds DATA_PREFIX. The rendered index must contain
-// the boot-time alignment that re-derives DATA_PREFIX from the selector's
-// actual default value in the no-?city= (else) branch, so the page never loads
-// one city's data while the dropdown names another. See bead yvlv.24.
-func TestRunMultiCity_IndexAlignsDataPrefixToSelector(t *testing.T) {
-	cfg := &config.Config{}
-	entries := []CityEntry{
-		exportTestEntry(cfg, "Charlie", "charlie", exportBoundaryA, nil),
-		exportTestEntry(cfg, "apple", "apple", exportBoundaryB, nil),
-	}
-
-	dir := t.TempDir()
-	if err := New(entries, cfg, dir, "metric", testAssets(t)).Run(context.Background()); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-
-	// The selector-derived DATA_PREFIX alignment lives in the extracted app.js,
-	// not inline in the page.
-	const want = "DATA_PREFIX = 'cities/' + sel.value + '/'"
-	if !strings.Contains(string(AppJS()), want) {
-		t.Errorf("app.js missing selector-derived DATA_PREFIX alignment %q", want)
 	}
 }
 
@@ -399,13 +269,6 @@ func TestRunSingleCity_WritesPlayPage(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "data", "play-hexes.json")); err != nil {
 		t.Errorf("expected data/play-hexes.json: %v", err)
-	}
-	// The exporter emits a publish-ready tree: a zero-byte .nojekyll at the root
-	// (required by check-site; this was gensite's job before consolidation).
-	if info, err := os.Stat(filepath.Join(dir, ".nojekyll")); err != nil {
-		t.Errorf("expected .nojekyll at site root: %v", err)
-	} else if info.Size() != 0 {
-		t.Errorf(".nojekyll must be zero-byte, got %d bytes", info.Size())
 	}
 }
 
@@ -658,5 +521,90 @@ func TestExportOneCity_SkippedCityLeavesNoDirectory(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(outDir, "cities", "kept-city", "data")); err != nil {
 		t.Errorf("cities/kept-city/data missing: %v", err)
+	}
+}
+
+// TestRun_WritesPublishReadyRoot pins what both layouts leave at the site
+// root, which check-site and a static host need: a zero-byte .nojekyll (or
+// GitHub Pages runs Jekyll and drops "_"-prefixed files), both pages, and
+// exactly the assets the exporter was given. Multi-city also writes
+// cities.json in selector order; the sort itself is TestSortCitiesByName.
+func TestRun_WritesPublishReadyRoot(t *testing.T) {
+	cfg := &config.Config{}
+	for _, tc := range []struct {
+		name    string
+		entries []CityEntry
+		cities  []string // cities.json names, nil for single-city
+	}{
+		{"single-city", []CityEntry{exportTestEntry(cfg, "Solo City", "solo-city", exportBoundaryA, nil)}, nil},
+		{"multi-city", []CityEntry{
+			exportTestEntry(cfg, "Bravo", "bravo", exportBoundaryA, nil),
+			exportTestEntry(cfg, "alpha", "alpha", exportBoundaryB, nil),
+		}, []string{"alpha", "Bravo"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			assets := testAssets(t)
+			if err := New(tc.entries, cfg, dir, "metric", assets).Run(context.Background()); err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			if info, err := os.Stat(filepath.Join(dir, ".nojekyll")); err != nil {
+				t.Errorf(".nojekyll: %v", err)
+			} else if info.Size() != 0 {
+				t.Errorf(".nojekyll is %d bytes; must be zero-byte", info.Size())
+			}
+			for _, page := range []string{"index.html", "play.html"} {
+				if _, err := os.Stat(filepath.Join(dir, page)); err != nil {
+					t.Errorf("%s: %v", page, err)
+				}
+			}
+			for _, name := range assets.Names() {
+				got, err := os.ReadFile(filepath.Join(dir, name))
+				if err != nil || string(got) != string(assets.Bytes(name)) {
+					t.Errorf("%s = %q (%v); want the exporter's asset bytes", name, got, err)
+				}
+			}
+			if tc.cities == nil {
+				return
+			}
+			raw, err := os.ReadFile(filepath.Join(dir, "cities.json"))
+			if err != nil {
+				t.Fatalf("cities.json: %v", err)
+			}
+			var cities []CityInfo
+			if err := json.Unmarshal(raw, &cities); err != nil {
+				t.Fatalf("unmarshal cities.json: %v", err)
+			}
+			var got []string
+			for _, c := range cities {
+				got = append(got, c.Name)
+			}
+			if !slices.Equal(got, tc.cities) {
+				t.Errorf("cities.json order = %v; want %v", got, tc.cities)
+			}
+		})
+	}
+}
+
+// TestSortCitiesByName pins the selector order: case-insensitive by Name, and
+// stable for ties so same-named cities keep config order.
+func TestSortCitiesByName(t *testing.T) {
+	cities := []CityInfo{
+		{Name: "Charlie", Slug: "charlie"},
+		{Name: "apple", Slug: "apple"},
+		{Name: "Springfield", Slug: "springfield-il"},
+		{Name: "Banana", Slug: "banana"},
+		{Name: "springfield", Slug: "springfield-ma"},
+	}
+	sortCitiesByName(cities)
+	var got []string
+	for _, c := range cities {
+		got = append(got, c.Slug)
+	}
+	// A byte sort would put "apple" after "Banana" ('B' < 'a'); the two
+	// Springfields compare equal and must keep their input order.
+	want := []string{"apple", "banana", "charlie", "springfield-il", "springfield-ma"}
+	if !slices.Equal(got, want) {
+		t.Errorf("order = %v; want %v", got, want)
 	}
 }

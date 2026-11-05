@@ -89,6 +89,22 @@ test('a legacy bare ?tag= is read as the default dimension and narrows the selec
   assert.ok($('#city-select option[value="alpha-ca"]').dataset.bbox, 'rebuilt options must keep data-bbox for selectCity');
 });
 
+test('without ?city=, the data in view follows the selector default, not CITIES[0]', async () => {
+  // A ?tag= filter that excludes CITIES[0] (Alpha, flat-alphabetical first)
+  // leaves the dropdown defaulting to Gamma. DATA_PREFIX was seeded from
+  // CITIES[0], so without the boot-time alignment the page would load Alpha's
+  // data under a dropdown naming Gamma (solvent-streets-yvlv.24).
+  const { win, $, flush } = load({
+    data: fullData,
+    url: 'https://example.test/index.html?tag=state:OR',
+  });
+  await flush();
+
+  assert.deepEqual(cityOptions($), ['gamma-or'], 'the filter should leave only Gamma');
+  assert.equal($('#city-select').value, 'gamma-or');
+  assert.equal(win.DATA_PREFIX, 'cities/gamma-or/', 'the data prefix must follow the shown city');
+});
+
 test('filtering out the city in view switches to the first visible city', async () => {
   const { win, $, flush } = load({ data: fullData });
   await flush();

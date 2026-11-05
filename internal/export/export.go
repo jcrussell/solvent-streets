@@ -190,11 +190,7 @@ func (e *Exporter) runMultiCity(ctx context.Context) error {
 	if cities == nil {
 		cities = []CityInfo{}
 	}
-	// Alphabetise the city selector case-insensitively by Name. Stable so
-	// ties (e.g. two same-named cities in different states) keep config order.
-	slices.SortStableFunc(cities, func(a, b CityInfo) int {
-		return cmp.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
-	})
+	sortCitiesByName(cities)
 	if err := writeJSON(filepath.Join(e.outputDir, "cities.json"), cities); err != nil {
 		return fmt.Errorf("write cities.json: %w", err)
 	}
@@ -231,6 +227,15 @@ func (e *Exporter) runMultiCity(ctx context.Context) error {
 	}
 
 	return e.renderHTML(meta, seed, rawTOML, ResolvedTOML(e.cfg), cities)
+}
+
+// sortCitiesByName orders the city selector alphabetically by Name,
+// case-insensitively (a byte sort would put "apple" after "Banana"). Stable,
+// so ties — two same-named cities in different states — keep config order.
+func sortCitiesByName(cities []CityInfo) {
+	slices.SortStableFunc(cities, func(a, b CityInfo) int {
+		return cmp.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
+	})
 }
 
 // exportCityData writes a city's data directory and returns the MetaJSON and

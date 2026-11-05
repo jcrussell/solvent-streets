@@ -175,3 +175,19 @@ test('the Materials tab renders its charts from real exporter data', async () =>
   const titles = $$('#materials-charts h3').map((h) => h.textContent);
   assert.ok(titles.length > 0, 'the Materials tab rendered no charts');
 });
+
+// The other specs open the tab with loadMaterials(), which bypasses the tab
+// strip. This one goes through the button a user clicks, so a template that
+// drops the Materials button (selectTab silently no-ops without it) fails.
+test('clicking the Materials tab button opens the tab and renders its charts', async () => {
+  const { $, $$, flush } = load({ data: fullData });
+  await flush();
+
+  const btn = $('.tab-btn[data-tab="materials-tab"]');
+  assert.ok(btn, 'the page has no Materials tab button');
+  btn.click();
+  await flush();
+
+  assert.ok($('#materials-tab').classList.contains('active'), 'clicking the button did not open the Materials tab');
+  assert.ok($$('#materials-charts h3').length > 0, 'opening the Materials tab rendered no charts');
+});
