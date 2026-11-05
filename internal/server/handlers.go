@@ -320,7 +320,14 @@ func (s *Server) serveEmbeddedJS(w http.ResponseWriter, js []byte) {
 }
 
 func (s *Server) handleWasmExecJS(w http.ResponseWriter, _ *http.Request) {
-	s.serveEmbeddedJS(w, export.WasmExecJS())
+	pair, err := export.WasmAssets()
+	if err != nil {
+		// Unreachable via `pvmt serve`, which refuses to start without the
+		// WASM (export.RequireWasm); kept so the handler never serves empty.
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	s.serveEmbeddedJS(w, pair.ExecJS)
 }
 
 // handleAppJS and handleGameJS serve the application JS extracted from the index
@@ -340,12 +347,17 @@ func (s *Server) handleSelectorsJS(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleForecastWasm(w http.ResponseWriter, _ *http.Request) {
+	pair, err := export.WasmAssets()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
 	w.Header().Set("Content-Type", "application/wasm")
 	// Embedded, immutable-per-binary asset (the largest the server serves):
 	// match serveJSONCached's Cache-Control so the 3.4 MB binary isn't
 	// re-downloaded on every page load.
 	w.Header().Set("Cache-Control", "public, max-age=300")
-	w.Write(export.ForecastWasm())
+	w.Write(pair.Wasm)
 }
 
 // handleDataFile returns a handler for /data/{file} for a specific city entry.

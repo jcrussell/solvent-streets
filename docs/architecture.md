@@ -187,7 +187,7 @@ erDiagram
 
 **Snapshots.** Each compute run creates a snapshot with a hash of the resolved config. Per-row `snapshot_id` columns on `hex_stats`, `compute_results`, `forecast_results`, `cohort_stats` and `hex_metrics` preserve every run's results — saves append rather than DELETE-then-INSERT, so historical snapshots stay queryable for reproducibility (`hex_metrics` replaces only its own `(metric, snapshot)` slice on a re-run).
 
-**WASM build order.** The forecast WASM binary is embedded via `go:embed`. It must be compiled (`make wasm`) before building the main binary. The Makefile enforces this dependency.
+**WASM build order.** The forecast WASM binary is embedded via `go:embed`. It must be compiled (`make wasm`) before building the main binary; the Makefile enforces this dependency. The embed is of the `internal/export/wasm/` directory, whose only tracked file is a README, so a build without the generated WASM still compiles: that is what `go install …@version` produces, since the module zip carries only tracked files. Such a binary runs every command except `export`, `serve` and `check-site`'s asset check, which fail with `export.ErrNoWasm` and a hint.
 
 **HTTP caching.** API responses are disk-cached at `~/.cache/pvmt/http/` with a 24-hour TTL. Both GET (Nominatim, ArcGIS) and POST (Overpass) requests are cached — the cache key folds in the request method and body, so Overpass query POSTs are keyed by their `data=` payload rather than colliding on a shared URL. Use `--force` on ingest to bypass. A TTL of 0 disables the cache entirely (no read, no conditional revalidation).
 

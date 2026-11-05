@@ -439,7 +439,11 @@ func buildValidSite(t *testing.T) string {
 	dir := t.TempDir()
 
 	// Root shared assets: copied from the embedded bytes so sha matches.
-	for name, data := range export.EmbeddedSharedAssets() {
+	assets, err := export.EmbeddedSharedAssets()
+	if err != nil {
+		t.Fatalf("EmbeddedSharedAssets: %v (run make wasm)", err)
+	}
+	for name, data := range assets {
 		writeFile(t, filepath.Join(dir, name), string(data))
 	}
 	writeFile(t, filepath.Join(dir, "index.html"), `<html><body>landing</body></html>`)
@@ -467,7 +471,11 @@ func buildValidRootSite(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 
-	for name, data := range export.EmbeddedSharedAssets() {
+	assets, err := export.EmbeddedSharedAssets()
+	if err != nil {
+		t.Fatalf("EmbeddedSharedAssets: %v (run make wasm)", err)
+	}
+	for name, data := range assets {
 		writeFile(t, filepath.Join(dir, name), string(data))
 	}
 	// Root index.html references WASM in the same directory (wasmPrefix empty),

@@ -16,7 +16,14 @@ import (
 // embedded in this binary. A mismatch means the site was built by a different
 // (older) binary and must be regenerated.
 func (r *runner) checkWasmFreshness(s *site) {
-	for name, embedded := range export.EmbeddedSharedAssets() {
+	assets, err := export.EmbeddedSharedAssets()
+	if err != nil {
+		// A binary without the WASM cannot vouch for a site's copy; say why
+		// rather than reporting every asset as stale.
+		r.failf("wasm: cannot check the site's assets: %v (build pvmt with `make build`)", err)
+		return
+	}
+	for name, embedded := range assets {
 		path := filepath.Join(s.dir, name)
 		onDisk, err := os.ReadFile(path)
 		if err != nil {

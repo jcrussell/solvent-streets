@@ -3,6 +3,7 @@ package export
 import (
 	"bytes"
 	"embed"
+	"errors"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -11,6 +12,8 @@ import (
 	"sync"
 
 	"github.com/yuin/goldmark"
+
+	"github.com/jcrussell/solvent-streets/internal/hint"
 )
 
 //go:embed templates
@@ -47,11 +50,52 @@ var methodologyHTMLOnce = sync.OnceValues(func() (template.HTML, error) {
 // forecast package and surface wherever they are actually used.
 func MethodologyHTML() (template.HTML, error) { return methodologyHTMLOnce() }
 
-//go:embed wasm/pvmt.wasm
-var forecastWasm []byte
+// wasmFS holds the forecast WASM pair when `make wasm` has run. It embeds
+// the directory, not the two files, so a build without them still compiles:
+// wasm/README.md is tracked, while pvmt.wasm and wasm_exec.js are generated
+// and gitignored, so `go install …@version` (which builds from the module zip
+// of tracked files) gets a binary without them. Only export, serve and
+// check-site need them; WasmAssets reports their absence as ErrNoWasm.
+//
+//go:embed wasm
+var wasmFS embed.FS
 
-//go:embed wasm/wasm_exec.js
-var wasmExecJS []byte
+// ErrNoWasm means this binary was built without the forecast WASM, so it
+// cannot write or serve a site.
+var ErrNoWasm = errors.New("this pvmt binary was built without the forecast WASM")
+
+// WasmPair is the forecast simulator and the Go runtime shim that loads it.
+type WasmPair struct {
+	Wasm   []byte // pvmt.wasm
+	ExecJS []byte // wasm_exec.js
+}
+
+// wasmAssets reads the pair once: embed.FS.ReadFile copies, and pvmt.wasm is
+// ~3.5 MB, so serve must not re-read it per request.
+var wasmAssets = sync.OnceValues(func() (WasmPair, error) { return loadWasmPair(wasmFS) })
+
+// WasmAssets returns the embedded forecast WASM pair, or an error wrapping
+// ErrNoWasm, with a remediation hint, when this binary has none.
+func WasmAssets() (WasmPair, error) { return wasmAssets() }
+
+// RequireWasm fails with WasmAssets' error when the WASM is missing. Commands
+// that ship it call this first, before any slow work.
+func RequireWasm() error {
+	_, err := WasmAssets()
+	return err
+}
+
+func loadWasmPair(fsys fs.FS) (WasmPair, error) {
+	wasm, werr := fs.ReadFile(fsys, "wasm/pvmt.wasm")
+	execJS, jerr := fs.ReadFile(fsys, "wasm/wasm_exec.js")
+	if werr == nil && jerr == nil && len(wasm) > 0 && len(execJS) > 0 {
+		return WasmPair{Wasm: wasm, ExecJS: execJS}, nil
+	}
+	return WasmPair{}, hint.With(ErrNoWasm,
+		"`go install` builds from the published module, which cannot include the\n"+
+			"generated WASM. Install a release (.deb or tarball), or build from a\n"+
+			"checkout with `make build`. Every other pvmt command works with this binary.")
+}
 
 // app.js and game.js are the index and play pages' application JavaScript,
 // extracted out of index.html.tmpl / game.html.tmpl so they can be linted
@@ -78,12 +122,6 @@ func TemplateFS() fs.ReadFileFS {
 	return templatesFS
 }
 
-// ForecastWasm returns the embedded WASM binary for the forecast simulator.
-func ForecastWasm() []byte { return forecastWasm }
-
-// WasmExecJS returns the embedded Go WASM support JavaScript.
-func WasmExecJS() []byte { return wasmExecJS }
-
 // AppJS returns the embedded index-page application JavaScript (templates/app.js),
 // referenced by index.html as an external <script src>.
 func AppJS() []byte { return appJS }
@@ -101,10 +139,14 @@ func SelectorsJS() []byte { return selectorsJS }
 // a single shared copy at a site root instead of per-export copies. The pages
 // reference these via {{.WasmPrefix}}, so they must all land in the same dir.
 func WriteSharedWasmAssets(dir string) error {
-	if err := os.WriteFile(filepath.Join(dir, "pvmt.wasm"), forecastWasm, 0o644); err != nil {
+	pair, err := WasmAssets()
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pvmt.wasm"), pair.Wasm, 0o644); err != nil {
 		return fmt.Errorf("write pvmt.wasm: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "wasm_exec.js"), wasmExecJS, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "wasm_exec.js"), pair.ExecJS, 0o644); err != nil {
 		return fmt.Errorf("write wasm_exec.js: %w", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "app.js"), appJS, 0o644); err != nil {

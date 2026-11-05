@@ -37,7 +37,10 @@ make lint     # golangci-lint run, pinned floor
 Always use `make build` rather than `go build ./cmd/pvmt` directly. The
 forecast WASM at `internal/export/wasm/pvmt.wasm` is `go:embed`ed
 into the main binary; `make build` rebuilds the WASM first, while a bare
-`go build` silently embeds whatever stale binary is on disk.
+`go build` silently embeds whatever stale binary is on disk — or, on a fresh
+clone with none, builds a pvmt whose `export`, `serve` and `check-site`
+refuse to run (`export.ErrNoWasm`). Tests need it too: run `make wasm` once
+before `go test`.
 
 Run a single test: `go test -race ./internal/geo -run TestHexGrid`.
 

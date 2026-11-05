@@ -20,7 +20,7 @@ locally, and stop.
 ## Build & Test
 
 ```
-make build    # builds WASM then CGO_ENABLED=0 binary (WASM is required — go:embed)
+make build    # builds WASM then CGO_ENABLED=0 binary (export/serve need the go:embed'd WASM)
 make test     # go test -race ./...
 make lint     # golangci-lint run
 make wasm     # rebuild only the forecast WASM (internal/export/wasm/)
@@ -30,7 +30,7 @@ make gendocs  # regenerate docs/reference/ from cobra
 Run a single test: `go test -race ./internal/geo -run TestHexGrid`.
 Run the binary without install: `go run ./cmd/pvmt <args>`.
 
-**WASM build order matters.** `cmd/wasm/pvmt` compiles to `internal/export/wasm/pvmt.wasm` and is embedded into the main binary via `go:embed`. If you edit forecast code used by the WASM, `make build` re-runs wasm automatically; a bare `go build ./cmd/pvmt` will silently embed a stale binary.
+**WASM build order matters.** `cmd/wasm/pvmt` compiles to `internal/export/wasm/pvmt.wasm` and is embedded into the main binary via `go:embed`. If you edit forecast code used by the WASM, `make build` re-runs wasm automatically; a bare `go build ./cmd/pvmt` will silently embed a stale binary, or none at all on a fresh clone (export/serve/check-site then fail with `export.ErrNoWasm`).
 
 ## Where to find more
 

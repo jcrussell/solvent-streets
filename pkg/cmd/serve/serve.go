@@ -72,6 +72,11 @@ func runServe(ctx context.Context, opts *Options) error {
 	if err := opts.Validate(); err != nil {
 		return err
 	}
+	// Before any DB or network work: a `go install` build has no WASM and
+	// cannot produce a working site (exportpkg.ErrNoWasm).
+	if err := exportpkg.RequireWasm(); err != nil {
+		return err
+	}
 
 	cfg, err := opts.Config()
 	if err != nil {
