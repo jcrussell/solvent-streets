@@ -9,6 +9,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/prompt"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
@@ -110,7 +111,7 @@ func runRm(ctx context.Context, opts *RmOptions) error {
 		break
 	}
 	if ownerCity == nil {
-		return cmdutil.Hintf(
+		return hint.Withf(
 			fmt.Errorf("snapshot %d not found", opts.SnapshotID),
 			"check 'pvmt snapshots ls' for available ids",
 		)
@@ -132,7 +133,7 @@ func runRm(ctx context.Context, opts *RmOptions) error {
 		// Lost a race with another deleter between ResolveSnapshot and
 		// DeleteSnapshot — treat as not-found rather than a silent
 		// success.
-		return cmdutil.Hintf(
+		return hint.Withf(
 			fmt.Errorf("snapshot %d not found", opts.SnapshotID),
 			"check 'pvmt snapshots ls' for available ids",
 		)

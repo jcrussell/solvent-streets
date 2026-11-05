@@ -11,6 +11,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/hint"
 	ingestpkg "github.com/jcrussell/solvent-streets/internal/ingest"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/cmdtest"
@@ -538,7 +539,7 @@ func TestResolveBoundary_FetcherErrorWrappedWithHint(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error from failing fetcher")
 	}
-	// cmdutil.Hintf wraps the error with the remediation hint; check
+	// hint.Withf wraps the error with the remediation hint; check
 	// that the hint payload mentions the new config knob so operators
 	// can find it.
 	if !strings.Contains(err.Error(), "synthetic nominatim failure") {
@@ -597,18 +598,18 @@ func TestResolveBoundary_RelationErrorHintsAreClassSpecific(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected error")
 			}
-			var hint *cmdutil.ErrHint
-			if !errors.As(err, &hint) {
-				t.Fatalf("expected *cmdutil.ErrHint wrap, got %T: %v", err, err)
+			var he *hint.ErrHint
+			if !errors.As(err, &he) {
+				t.Fatalf("expected *hint.ErrHint wrap, got %T: %v", err, err)
 			}
 			for _, want := range tc.wantHintHas {
-				if !strings.Contains(hint.Hint, want) {
-					t.Errorf("hint %q missing substring %q", hint.Hint, want)
+				if !strings.Contains(he.Hint, want) {
+					t.Errorf("hint %q missing substring %q", he.Hint, want)
 				}
 			}
 			for _, missing := range tc.wantHintMissing {
-				if strings.Contains(hint.Hint, missing) {
-					t.Errorf("hint %q should NOT contain %q (Nominatim-only wording on relation path)", hint.Hint, missing)
+				if strings.Contains(he.Hint, missing) {
+					t.Errorf("hint %q should NOT contain %q (Nominatim-only wording on relation path)", he.Hint, missing)
 				}
 			}
 		})
@@ -760,12 +761,12 @@ func TestResolveSources_DisabledSourceExplainsItself(t *testing.T) {
 			if strings.Contains(err.Error(), "unknown source") {
 				t.Errorf("error = %q; the source is valid, it is disabled for this city", err)
 			}
-			var hint *cmdutil.ErrHint
-			if !errors.As(err, &hint) {
+			var he *hint.ErrHint
+			if !errors.As(err, &he) {
 				t.Fatalf("error = %q; want an ErrHint carrying the remedy", err)
 			}
-			if !strings.Contains(hint.Hint, tc.wantHint) {
-				t.Errorf("hint = %q; want it to name %q", hint.Hint, tc.wantHint)
+			if !strings.Contains(he.Hint, tc.wantHint) {
+				t.Errorf("hint = %q; want it to name %q", he.Hint, tc.wantHint)
 			}
 		})
 	}

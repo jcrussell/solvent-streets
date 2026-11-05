@@ -9,8 +9,8 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/geo"
+	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/internal/resource"
-	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 )
 
 // stripCoverageMinRatio is the minimum fraction of bbox-queried road
@@ -316,7 +316,7 @@ func applyRoadCoverageGate(
 	// in the pct_paved denominator.
 	ratioOriginal, ok := validateBoundaryAgainstRoads(fresh.Nominatim, roads)
 	if !ok || ratioOriginal < stripCoverageMinRatio {
-		return cmdutil.Hintf(
+		return hint.Withf(
 			fmt.Errorf("%w: city=%q stripped=%.3f original=%.3f", ErrBoundaryInvertedVsRoads, cityName, ratioStripped, ratioOriginal),
 			"%s", describeGateFailure(cityName, ratioStripped, ratioOriginal),
 		)

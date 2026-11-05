@@ -13,6 +13,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	exportpkg "github.com/jcrussell/solvent-streets/internal/export"
+	"github.com/jcrussell/solvent-streets/internal/fsutil"
 	"github.com/jcrussell/solvent-streets/internal/logs"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
@@ -70,7 +71,7 @@ func NewCmdExport(f *cmdutil.Factory, runF func(context.Context, *Options) error
 // writability — all before the multi-minute export work begins. Errors
 // are returned as FlagError so the runner maps them to exit code 2.
 func (opts *Options) Validate() error {
-	resolved, err := cmdutil.ResolveOutputDir(opts.OutputDir)
+	resolved, err := fsutil.ResolveOutputDir(opts.OutputDir)
 	if err != nil {
 		return cmdutil.FlagErrorf("%s", err)
 	}
@@ -79,7 +80,7 @@ func (opts *Options) Validate() error {
 	if info, err := os.Stat(opts.OutputDir); err == nil && info.IsDir() && !opts.Clean {
 		return cmdutil.FlagErrorf("output directory %q already exists; use --clean to remove it first", opts.OutputDir)
 	}
-	if err := cmdutil.WritableDir(opts.OutputDir); err != nil {
+	if err := fsutil.WritableDir(opts.OutputDir); err != nil {
 		return cmdutil.FlagErrorf("%s", err)
 	}
 	return nil
@@ -95,7 +96,7 @@ func runExport(ctx context.Context, opts *Options) error {
 	// SafeCleanDir refuses to delete a non-empty directory that does not look
 	// like a generated site (no index.html sentinel), so a mistyped --output
 	// can't wipe unrelated user data.
-	if err := cmdutil.SafeCleanDir(opts.OutputDir); err != nil {
+	if err := fsutil.SafeCleanDir(opts.OutputDir); err != nil {
 		return fmt.Errorf("clean output directory: %w", err)
 	}
 

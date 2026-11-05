@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/prompt"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
@@ -37,7 +38,7 @@ func TestConfirmDestructiveRefusesOffTTY(t *testing.T) {
 	if !errors.As(err, &flagErr) {
 		t.Fatalf("got %v, want FlagError", err)
 	}
-	var hint *ErrHint
+	var hint *hint.ErrHint
 	if !errors.As(err, &hint) || !strings.Contains(hint.Hint, "--yes") {
 		t.Errorf("got %v, want --yes hint", err)
 	}
@@ -87,7 +88,7 @@ func TestConfirmDestructiveNotTTYFromPrompterGetsHint(t *testing.T) {
 	if !errors.As(err, &flagErr) {
 		t.Fatalf("got %v, want FlagError", err)
 	}
-	var hint *ErrHint
+	var hint *hint.ErrHint
 	if !errors.As(err, &hint) || !strings.Contains(hint.Hint, "--yes") {
 		t.Errorf("got %v, want --yes hint", err)
 	}

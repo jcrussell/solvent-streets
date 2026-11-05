@@ -20,8 +20,8 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
+	"github.com/jcrussell/solvent-streets/internal/fsutil"
 	"github.com/jcrussell/solvent-streets/internal/geo"
-	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 )
 
 // --- Exporter (static site generation) ---
@@ -325,7 +325,7 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 	if err != nil {
 		return MetaJSON{}, "", fmt.Errorf("build forecast seed: %w", err)
 	}
-	if err := cmdutil.WriteFile(filepath.Join(dataDir, "forecast_seed.json"), []byte(seed), 0o644); err != nil {
+	if err := fsutil.WriteFile(filepath.Join(dataDir, "forecast_seed.json"), []byte(seed), 0o644); err != nil {
 		return MetaJSON{}, "", fmt.Errorf("write forecast_seed.json: %w", err)
 	}
 
@@ -503,14 +503,14 @@ func (e *Exporter) writeBoundary(ctx context.Context, entry CityEntry, proj *geo
 	return nil
 }
 
-// writeExportMarker drops a cmdutil.ExportMarkerName sentinel at the top of the
+// writeExportMarker drops a fsutil.ExportMarkerName sentinel at the top of the
 // output dir at the very start of a run. index.html is only written last, so a
 // run that fails partway (e.g. RequireMatchingSnapshot on city N of M) would
 // otherwise leave a non-empty tree that SafeCleanDir refuses to remove; the
 // early marker keeps such a partial export recoverable via --clean.
 func (e *Exporter) writeExportMarker() error {
-	path := filepath.Join(e.outputDir, cmdutil.ExportMarkerName)
-	if err := cmdutil.WriteFile(path, []byte("pvmt export in progress\n"), 0o644); err != nil {
+	path := filepath.Join(e.outputDir, fsutil.ExportMarkerName)
+	if err := fsutil.WriteFile(path, []byte("pvmt export in progress\n"), 0o644); err != nil {
 		return fmt.Errorf("write export marker: %w", err)
 	}
 	return nil
@@ -525,7 +525,7 @@ func (e *Exporter) writeExportMarker() error {
 // export marker (post-MkdirAll) so the output dir already exists.
 func (e *Exporter) writeNojekyll() error {
 	path := filepath.Join(e.outputDir, ".nojekyll")
-	if err := cmdutil.WriteFile(path, nil, 0o644); err != nil {
+	if err := fsutil.WriteFile(path, nil, 0o644); err != nil {
 		return fmt.Errorf("write .nojekyll: %w", err)
 	}
 	return nil
@@ -568,14 +568,14 @@ func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolved
 	if err != nil {
 		return err
 	}
-	if err := cmdutil.WriteFile(filepath.Join(e.outputDir, "index.html"), index, 0o644); err != nil {
+	if err := fsutil.WriteFile(filepath.Join(e.outputDir, "index.html"), index, 0o644); err != nil {
 		return err
 	}
-	return cmdutil.WriteFile(filepath.Join(e.outputDir, "play.html"), play, 0o644)
+	return fsutil.WriteFile(filepath.Join(e.outputDir, "play.html"), play, 0o644)
 }
 
 // renderPage parses a page template and renders it against td into a buffer.
-// Buffering (plus cmdutil.WriteFile's temp+rename at the call site) keeps an
+// Buffering (plus fsutil.WriteFile's temp+rename at the call site) keeps an
 // interrupted Execute from leaving a partial file visible.
 func renderPage(parse func() (*template.Template, error), td TemplateData) ([]byte, error) {
 	tmpl, err := parse()
@@ -604,5 +604,5 @@ func writeJSON(path string, v any) error {
 	if err != nil {
 		return err
 	}
-	return cmdutil.WriteFile(path, data, 0o644)
+	return fsutil.WriteFile(path, data, 0o644)
 }

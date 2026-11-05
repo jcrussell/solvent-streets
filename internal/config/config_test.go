@@ -584,7 +584,7 @@ overpass = true
 
 // TestFindAndLoad_NotFound locks in the typed-sentinel contract:
 // callers (the factory boundary) check errors.Is(err, ErrConfigNotFound)
-// to attach the cmdutil.Hintf remediation hint. A plain wrapped error
+// to attach the hint.Withf remediation hint. A plain wrapped error
 // would silently break that hint.
 func TestFindAndLoad_NotFound(t *testing.T) {
 	dir := t.TempDir()

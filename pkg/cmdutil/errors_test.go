@@ -11,10 +11,7 @@ import (
 // signature creates the typed-nil-in-interface trap — `var err error = ctor()`
 // is non-nil even when the constructor returned `(*FlagError)(nil)`. See
 // byob-errors.5 for the full rationale.
-var (
-	_ func(string, ...any) error        = FlagErrorf
-	_ func(error, string, ...any) error = Hintf
-)
+var _ func(string, ...any) error = FlagErrorf
 
 func TestFlagErrorf_ReturnsErrorInterface(t *testing.T) {
 	err := FlagErrorf("bad flag %q", "x")
@@ -27,59 +24,6 @@ func TestFlagErrorf_ReturnsErrorInterface(t *testing.T) {
 	}
 	if got, want := err.Error(), `bad flag "x"`; got != want {
 		t.Errorf("Error(): got %q, want %q", got, want)
-	}
-}
-
-func TestHintf_NilErrorPropagatesAsNilInterface(t *testing.T) {
-	// The whole point of returning `error` from Hintf is so that this
-	// comparison is true. If Hintf were declared `func(...) *ErrHint`,
-	// returning a typed nil would yield a non-nil interface here.
-	if err := Hintf(nil, "remediation"); err != nil {
-		t.Fatalf("Hintf(nil, ...) = %v, want nil", err)
-	}
-}
-
-func TestHintf_WrapsErrorAndCarriesHint(t *testing.T) {
-	base := errors.New("disk full")
-	err := Hintf(base, "free space in %s", "/var")
-	if err == nil {
-		t.Fatal("Hintf returned nil for non-nil err")
-	}
-	if !errors.Is(err, base) {
-		t.Errorf("errors.Is(err, base) = false; Unwrap chain broken")
-	}
-	var hint *ErrHint
-	if !errors.As(err, &hint) {
-		t.Fatalf("errors.As(*ErrHint) failed: %T", err)
-	}
-	if got, want := hint.Hint, "free space in /var"; got != want {
-		t.Errorf("Hint: got %q, want %q", got, want)
-	}
-	if got, want := err.Error(), "disk full"; got != want {
-		t.Errorf("Error(): got %q, want %q", got, want)
-	}
-}
-
-// TestHintf_SurvivesFmtErrorfWrap pins the production pattern of
-// callers wrapping a hinted error with `fmt.Errorf("context: %w", err)`
-// for additional context: the runner must still find the *ErrHint via
-// errors.As so the hint is printed. Without %w (a bare %v wrap), the
-// chain breaks and the hint is silently lost — that's the failure mode
-// errors-wrap-w guards against, and this test pins the success case.
-func TestHintf_SurvivesFmtErrorfWrap(t *testing.T) {
-	base := errors.New("disk full")
-	hinted := Hintf(base, "free space in /var")
-	wrapped := fmt.Errorf("compute snapshot: %w", hinted)
-
-	var hint *ErrHint
-	if !errors.As(wrapped, &hint) {
-		t.Fatalf("errors.As(*ErrHint) through fmt.Errorf wrap failed: %T", wrapped)
-	}
-	if got, want := hint.Hint, "free space in /var"; got != want {
-		t.Errorf("Hint after wrap: got %q, want %q", got, want)
-	}
-	if !errors.Is(wrapped, base) {
-		t.Error("errors.Is(wrapped, base) = false; wrap chain broken")
 	}
 }
 

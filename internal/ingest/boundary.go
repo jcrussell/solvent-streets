@@ -13,7 +13,7 @@ import (
 
 // Sentinels for FetchCityBoundaryFromRelation failure modes. Callers
 // (resolveBoundary in pkg/cmd/ingest) detect these via errors.Is and
-// attach remediation hints via cmdutil.Hintf.
+// attach remediation hints via hint.Withf.
 var (
 	// ErrBoundaryRelationNotFound signals that the requested Overpass
 	// relation either isn't in the response (deleted/wrong ID) or has

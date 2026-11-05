@@ -10,6 +10,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/prompt"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
@@ -384,8 +385,8 @@ func TestRunGC_NoTTYWithoutYesIsFlagError(t *testing.T) {
 	if !errors.As(err, &fe) {
 		t.Fatalf("want *cmdutil.FlagError, got %T: %v", err, err)
 	}
-	var hint *cmdutil.ErrHint
-	if !errors.As(err, &hint) || !strings.Contains(hint.Hint, "--yes") {
+	var he *hint.ErrHint
+	if !errors.As(err, &he) || !strings.Contains(he.Hint, "--yes") {
 		t.Errorf("expected --yes hint, got: %v", err)
 	}
 	if swept {

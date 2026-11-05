@@ -1,4 +1,4 @@
-package cmdutil
+package recovery
 
 import (
 	"fmt"
@@ -6,7 +6,7 @@ import (
 	"runtime/debug"
 )
 
-// GuardPanic invokes fn and converts any panic it raises into an error
+// Guard invokes fn and converts any panic it raises into an error
 // return. The panic value plus a stack trace are written to errOut (if
 // non-nil) so the user can locate the offending input. The returned
 // error wraps only the panic value — callers can attach context with
@@ -17,7 +17,7 @@ import (
 // input — geometry libraries, parsers, anything that takes user data and
 // has CGO or unchecked-cast surface area. Wrap the smallest scope you
 // can usefully attribute context to.
-func GuardPanic(errOut io.Writer, fn func() error) (err error) {
+func Guard(errOut io.Writer, fn func() error) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			if errOut != nil {

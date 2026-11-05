@@ -13,8 +13,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/jcrussell/solvent-streets/internal/fsutil"
 	"github.com/jcrussell/solvent-streets/internal/httpio"
-	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 )
 
 // bypassKey is the context key carrying the per-request "skip the read
@@ -235,7 +235,7 @@ func (t *CachingTransport) writeCacheMeta(metaPath string, meta entryMeta) {
 	if err != nil {
 		return
 	}
-	_ = cmdutil.WriteFile(metaPath, data, 0o644) // best-effort cache write
+	_ = fsutil.WriteFile(metaPath, data, 0o644) // best-effort cache write
 }
 
 func (t *CachingTransport) writeCache(metaPath, bodyPath string, resp *http.Response, body []byte, url string) {
@@ -266,10 +266,10 @@ func (t *CachingTransport) writeCache(metaPath, bodyPath string, resp *http.Resp
 	// fresh hit forever. Committing meta only after a successful body
 	// write means a body failure leaves the previous (consistent) pair
 	// intact and the entry simply re-fetches. (solvent-streets-2a7n.24)
-	if err := cmdutil.WriteFile(bodyPath, body, 0o644); err != nil {
+	if err := fsutil.WriteFile(bodyPath, body, 0o644); err != nil {
 		return
 	}
-	_ = cmdutil.WriteFile(metaPath, metaData, 0o644) // commit; best-effort
+	_ = fsutil.WriteFile(metaPath, metaData, 0o644) // commit; best-effort
 }
 
 func buildResponse(req *http.Request, meta *entryMeta, body []byte) *http.Response {

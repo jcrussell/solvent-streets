@@ -17,6 +17,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/cache"
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/internal/ingest"
 	"github.com/jcrussell/solvent-streets/internal/paths"
 	"github.com/jcrussell/solvent-streets/internal/units"
@@ -33,15 +34,15 @@ func hintForConfigError(err error) error {
 	case err == nil:
 		return nil
 	case errors.Is(err, config.ErrConfigNotFound):
-		return cmdutil.Hintf(err,
+		return hint.Withf(err,
 			"create a pvmt.toml in your project root, or cd into a directory that contains one.\nminimal example:\n  [[cities]]\n  name = \"Oakland\"")
 	case errors.Is(err, config.ErrNoCities):
-		return cmdutil.Hintf(cmdutil.FlagErrorf("%w", err),
+		return hint.Withf(cmdutil.FlagErrorf("%w", err),
 			"add a [[cities]] section to pvmt.toml, e.g.:\n  [[cities]]\n  name = \"Oakland\"")
 	case errors.Is(err, config.ErrInvalidConfig):
 		return cmdutil.FlagErrorf("%w", err)
 	case errors.Is(err, fs.ErrPermission):
-		return cmdutil.Hintf(err, "check filesystem permissions on the pvmt.toml path")
+		return hint.Withf(err, "check filesystem permissions on the pvmt.toml path")
 	default:
 		return err
 	}
@@ -101,7 +102,7 @@ func httpClientFactory(f *cmdutil.Factory, cacheTTL time.Duration) func() (*http
 		cacheDir := p.HTTPCacheDir()
 		if err := paths.EnsureDir(cacheDir); err != nil {
 			if errors.Is(err, fs.ErrPermission) {
-				return nil, cmdutil.Hintf(err, "check filesystem permissions on %s", p.Cache)
+				return nil, hint.Withf(err, "check filesystem permissions on %s", p.Cache)
 			}
 			return nil, err
 		}
@@ -217,7 +218,7 @@ func rootDBFactory(f *cmdutil.Factory, path string) func() (*db.RootStore, error
 			}
 			if err := paths.EnsureDir(p.Data); err != nil {
 				if errors.Is(err, fs.ErrPermission) {
-					return nil, cmdutil.Hintf(err, "check filesystem permissions on %s", p.Data)
+					return nil, hint.Withf(err, "check filesystem permissions on %s", p.Data)
 				}
 				return nil, err
 			}
@@ -225,7 +226,7 @@ func rootDBFactory(f *cmdutil.Factory, path string) func() (*db.RootStore, error
 		}
 		store, err := db.Open(resolved)
 		if err != nil && errors.Is(err, fs.ErrPermission) {
-			return nil, cmdutil.Hintf(err, "check filesystem permissions on %s", resolved)
+			return nil, hint.Withf(err, "check filesystem permissions on %s", resolved)
 		}
 		return store, err
 	})

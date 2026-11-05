@@ -1,4 +1,4 @@
-package cmdutil_test
+package fsutil_test
 
 import (
 	"errors"
@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
+	"github.com/jcrussell/solvent-streets/internal/fsutil"
 )
 
 func TestWriteFile_CreatesFileWithContent(t *testing.T) {
@@ -15,7 +15,7 @@ func TestWriteFile_CreatesFileWithContent(t *testing.T) {
 	target := filepath.Join(dir, "out.txt")
 	want := []byte("hello world")
 
-	if err := cmdutil.WriteFile(target, want, 0o644); err != nil {
+	if err := fsutil.WriteFile(target, want, 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -32,7 +32,7 @@ func TestWriteFile_RespectsPerm(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "perm.txt")
 
-	if err := cmdutil.WriteFile(target, []byte("x"), 0o600); err != nil {
+	if err := fsutil.WriteFile(target, []byte("x"), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -49,10 +49,10 @@ func TestWriteFile_OverwritesAtomically(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "overwrite.txt")
 
-	if err := cmdutil.WriteFile(target, []byte("first"), 0o644); err != nil {
+	if err := fsutil.WriteFile(target, []byte("first"), 0o644); err != nil {
 		t.Fatalf("first WriteFile: %v", err)
 	}
-	if err := cmdutil.WriteFile(target, []byte("second"), 0o644); err != nil {
+	if err := fsutil.WriteFile(target, []byte("second"), 0o644); err != nil {
 		t.Fatalf("second WriteFile: %v", err)
 	}
 
@@ -83,7 +83,7 @@ func TestWriteFile_NoLeftoverOnRenameFailure(t *testing.T) {
 		t.Fatalf("Mkdir: %v", err)
 	}
 
-	err := cmdutil.WriteFile(conflictDir, []byte("x"), 0o644)
+	err := fsutil.WriteFile(conflictDir, []byte("x"), 0o644)
 	if err == nil {
 		t.Fatal("expected error renaming over an existing directory")
 	}
@@ -103,7 +103,7 @@ func TestWriteFile_NoLeftoverOnRenameFailure(t *testing.T) {
 
 func TestWriteFile_MissingParent(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "does-not-exist", "file.txt")
-	err := cmdutil.WriteFile(target, []byte("x"), 0o644)
+	err := fsutil.WriteFile(target, []byte("x"), 0o644)
 	if err == nil {
 		t.Fatal("expected error for missing parent")
 	}

@@ -13,9 +13,9 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/fsutil"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/resource"
-	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 )
 
 // exportTestEntry builds a CityEntry whose store satisfies the exporter's
@@ -247,11 +247,11 @@ func TestRunMultiCity_FailureLeavesRecoverableDir(t *testing.T) {
 		t.Errorf("index.html should be absent after a mid-run failure (stat err=%v)", statErr)
 	}
 	// The early marker IS present, so the partial dir is recoverable.
-	if _, statErr := os.Stat(filepath.Join(dir, cmdutil.ExportMarkerName)); statErr != nil {
+	if _, statErr := os.Stat(filepath.Join(dir, fsutil.ExportMarkerName)); statErr != nil {
 		t.Errorf("export marker should be present after a mid-run failure: %v", statErr)
 	}
 	// SafeCleanDir must now accept the partial dir (marker, no index.html).
-	if cleanErr := cmdutil.SafeCleanDir(dir); cleanErr != nil {
+	if cleanErr := fsutil.SafeCleanDir(dir); cleanErr != nil {
 		t.Errorf("partial export dir should be recoverable with --clean: %v", cleanErr)
 	}
 }

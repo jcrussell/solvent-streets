@@ -8,7 +8,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/geo"
-	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
+	"github.com/jcrussell/solvent-streets/internal/hint"
 )
 
 // ErrNoBoundary signals that a city has no boundary stored. Callers that
@@ -104,7 +104,7 @@ func (entry CityEntry) RequireMatchingSnapshot(ctx context.Context) error {
 			return nil
 		}
 	}
-	return cmdutil.Hintf(fmt.Errorf("%w for %s", ErrNoMatchingSnapshot, entry.City.Name),
+	return hint.Withf(fmt.Errorf("%w for %s", ErrNoMatchingSnapshot, entry.City.Name),
 		"Run `pvmt all compute` (or `pvmt compute --city %s`) to produce a snapshot "+
 			"matching the current config hash %s. If snapshots exist with other hashes "+
 			"(e.g. after editing hex_edge_m or a forecast knob), `pvmt snapshots ls --city %s` "+
@@ -150,7 +150,7 @@ func (entry CityEntry) RequireMatchingHexEdge() error {
 	if got == want {
 		return nil
 	}
-	return cmdutil.Hintf(
+	return hint.Withf(
 		fmt.Errorf("%w for %s: hex_edge_m resolves to %g here but its data was computed at %g",
 			ErrNoMatchingSnapshot, entry.City.Name, got, want),
 		"%s is pulled in via [[include]], so it reads the snapshots its own config computed — "+

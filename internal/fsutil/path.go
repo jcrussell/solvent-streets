@@ -1,4 +1,4 @@
-package cmdutil
+package fsutil
 
 import (
 	"errors"

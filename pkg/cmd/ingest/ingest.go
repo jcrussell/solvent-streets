@@ -10,6 +10,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/geo"
+	"github.com/jcrussell/solvent-streets/internal/hint"
 	ingestpkg "github.com/jcrussell/solvent-streets/internal/ingest"
 	"github.com/jcrussell/solvent-streets/internal/logs"
 	"github.com/jcrussell/solvent-streets/internal/resource"
@@ -329,7 +330,7 @@ func resolveBoundary(
 		unstrippedSource = "nominatim"
 	}
 	if err != nil {
-		return "", nil, cmdutil.Hintf(fmt.Errorf("fetch boundary: %w", err),
+		return "", nil, hint.Withf(fmt.Errorf("fetch boundary: %w", err),
 			"%s", boundaryFetchHint(err))
 	}
 
@@ -339,7 +340,7 @@ func resolveBoundary(
 
 	stripped, warn, stripErr := stripWaterFromBoundary(ctx, client, ingestpkg.FetchOSMWater, boundaryGJSON)
 	if stripErr != nil {
-		return "", nil, cmdutil.Hintf(fmt.Errorf("water strip for %s: %w", city.Name, stripErr),
+		return "", nil, hint.Withf(fmt.Errorf("water strip for %s: %w", city.Name, stripErr),
 			"This usually means the OSM water-stitching pipeline produced a polygon "+
 				"covering more than the city boundary. Re-run with verbose logging "+
 				"(check stderr for 'water way:', 'water relation:', or 'water coastline:' "+
@@ -502,7 +503,7 @@ func resolveSources(opts *Options, bbox [4]float64, overpass bool, arcgisURL str
 	// or be "all"; anything else cannot apply.
 	if own, ok := opts.ResourceType.(resource.OwnSourced); ok {
 		if opts.Source != cmdutil.SourceAll && string(opts.Source) != own.OwnSource() {
-			return nil, cmdutil.Hintf(
+			return nil, hint.Withf(
 				fmt.Errorf("source %q is not available for %s", opts.Source, opts.ResourceType.Type()),
 				"%s is ingested only from %s; omit --source", opts.ResourceType.Type(), own.OwnSource())
 		}
@@ -518,7 +519,7 @@ func resolveSources(opts *Options, bbox [4]float64, overpass bool, arcgisURL str
 	// and "unknown source: overpass" sends them looking for a typo. The dry-run
 	// path already says the right thing — say it here too.
 	if disabled := disabledSourceReason(opts.Source, overpass, arcgisURL); disabled != "" {
-		return nil, cmdutil.Hintf(
+		return nil, hint.Withf(
 			fmt.Errorf("source %q is not available for this city", opts.Source),
 			"%s", disabled)
 	}

@@ -11,6 +11,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/prompt"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
@@ -317,8 +318,8 @@ func TestRunRm_NoTTYWithoutYesIsFlagError(t *testing.T) {
 	if !errors.As(err, &fe) {
 		t.Fatalf("want *cmdutil.FlagError, got %T: %v", err, err)
 	}
-	var hint *cmdutil.ErrHint
-	if !errors.As(err, &hint) || !strings.Contains(hint.Hint, "--yes") {
+	var he *hint.ErrHint
+	if !errors.As(err, &he) || !strings.Contains(he.Hint, "--yes") {
 		t.Errorf("expected --yes hint, got: %v", err)
 	}
 	if deleted {
@@ -351,8 +352,8 @@ func TestRunRm_NotFoundReturnsHint(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected not-found error")
 	}
-	var hint *cmdutil.ErrHint
-	if !errors.As(err, &hint) {
+	var he *hint.ErrHint
+	if !errors.As(err, &he) {
 		t.Errorf("expected ErrHint wrapping, got %T: %v", err, err)
 	}
 	if !strings.Contains(err.Error(), "snapshot 999 not found") {
@@ -577,8 +578,8 @@ func TestRunPrune_NoTTYWithoutYesIsFlagError(t *testing.T) {
 	if !errors.As(err, &fe) {
 		t.Fatalf("want *cmdutil.FlagError, got %T: %v", err, err)
 	}
-	var hint *cmdutil.ErrHint
-	if !errors.As(err, &hint) || !strings.Contains(hint.Hint, "--yes") {
+	var he *hint.ErrHint
+	if !errors.As(err, &he) || !strings.Contains(he.Hint, "--yes") {
 		t.Errorf("expected --yes hint, got: %v", err)
 	}
 	if deleted {

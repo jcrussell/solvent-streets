@@ -10,6 +10,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/filter"
 	"github.com/jcrussell/solvent-streets/internal/geo"
+	"github.com/jcrussell/solvent-streets/internal/recovery"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
@@ -121,7 +122,7 @@ func bufferAllResources(ctx context.Context, store db.Store, proj *geo.UTMProjec
 			continue
 		}
 		var paired []resource.BufferedFeature
-		if err := cmdutil.GuardPanic(errOut, func() error {
+		if err := recovery.Guard(errOut, func() error {
 			paired = rt.BufferFeaturesPaired(ctx, resFeatures, proj)
 			if len(paired) == 0 {
 				return errNoValidGeoms
@@ -240,7 +241,7 @@ type combinedPass struct {
 
 func (cr *combinedRunner) save(ctx context.Context, p combinedPass) error {
 	var area float64
-	if err := cmdutil.GuardPanic(cr.io.ErrOut, func() error {
+	if err := recovery.Guard(cr.io.ErrOut, func() error {
 		idx := geo.NewGeomIndexFromGeoms(p.buffered)
 		hexStats := geo.ComputeHexStats(ctx, p.hexes, idx, string(p.label), nil)
 		for _, s := range hexStats {

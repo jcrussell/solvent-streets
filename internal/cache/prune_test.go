@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
+	"github.com/jcrussell/solvent-streets/internal/fsutil"
 )
 
 // key returns a well-formed cache key (64 lowercase hex chars) derived
@@ -51,7 +51,7 @@ func writeEntryMtimes(t *testing.T, dir, k string, bodyAge, metaAge time.Duratio
 	return body, meta
 }
 
-// leftoverTempFile creates the residue cmdutil.WriteFile leaves when it is
+// leftoverTempFile creates the residue fsutil.WriteFile leaves when it is
 // killed between CreateTemp and rename, using the very same pattern +
 // os.CreateTemp pair WriteFile uses. Building it any other way (a
 // hand-written ".tmp-123" literal) would let atomic.go change its naming
@@ -61,7 +61,7 @@ func writeEntryMtimes(t *testing.T, dir, k string, bodyAge, metaAge time.Duratio
 // path removes the temp, and only a SIGKILL produces the real thing.
 func leftoverTempFile(t *testing.T, dir, base string, age time.Duration) string {
 	t.Helper()
-	f, err := os.CreateTemp(dir, cmdutil.TempPattern(base))
+	f, err := os.CreateTemp(dir, fsutil.TempPattern(base))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,7 +327,7 @@ func TestPrune_SizeCountsBothFilesOfAPair(t *testing.T) {
 // TestPrune_SweepsOrphansAndTempFiles covers the crash residue the narrow
 // readCache cleanup structurally cannot reach: a body with no meta (killed
 // between writeCache's two renames), a meta with no body, and a leftover
-// cmdutil.WriteFile temp file.
+// fsutil.WriteFile temp file.
 func TestPrune_SweepsOrphansAndTempFiles(t *testing.T) {
 	dir := t.TempDir()
 	bodyOnly := filepath.Join(dir, key(1)+".json")
@@ -424,7 +424,7 @@ func TestPrune_EntryAgeUsesNewerHalfForLRU(t *testing.T) {
 }
 
 // TestPrune_SweepsRealWriteFileResidue closes the loop with the writer:
-// the residue is created through cmdutil.TempPattern (what WriteFile
+// the residue is created through fsutil.TempPattern (what WriteFile
 // passes to os.CreateTemp), and a *successful* WriteFile must leave
 // nothing behind for prune to find.
 func TestPrune_SweepsRealWriteFileResidue(t *testing.T) {
@@ -432,10 +432,10 @@ func TestPrune_SweepsRealWriteFileResidue(t *testing.T) {
 	residue := leftoverTempFile(t, dir, key(1)+".meta", time.Hour)
 
 	// A completed write leaves exactly the pair and no temp file.
-	if err := cmdutil.WriteFile(filepath.Join(dir, key(2)+".json"), make([]byte, 10), 0o644); err != nil {
+	if err := fsutil.WriteFile(filepath.Join(dir, key(2)+".json"), make([]byte, 10), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := cmdutil.WriteFile(filepath.Join(dir, key(2)+".meta"), make([]byte, 10), 0o644); err != nil {
+	if err := fsutil.WriteFile(filepath.Join(dir, key(2)+".meta"), make([]byte, 10), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -444,7 +444,7 @@ func TestPrune_SweepsRealWriteFileResidue(t *testing.T) {
 		t.Fatal(err)
 	}
 	if exists(t, residue) {
-		t.Errorf("%s survived; prune no longer recognizes cmdutil.WriteFile's temp naming",
+		t.Errorf("%s survived; prune no longer recognizes fsutil.WriteFile's temp naming",
 			filepath.Base(residue))
 	}
 	if report.OrphansRemoved != 1 {

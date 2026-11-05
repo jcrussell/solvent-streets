@@ -13,7 +13,8 @@ import (
 	"time"
 
 	"github.com/jcrussell/solvent-streets/internal/export"
-	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
+	"github.com/jcrussell/solvent-streets/internal/fsutil"
+	"github.com/jcrussell/solvent-streets/internal/recovery"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
 
@@ -124,7 +125,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 
 	url := readyURL(ln.Addr())
 	if s.ReadyFile != "" {
-		if err := cmdutil.WriteFile(s.ReadyFile, []byte(url+"\n"), 0o644); err != nil {
+		if err := fsutil.WriteFile(s.ReadyFile, []byte(url+"\n"), 0o644); err != nil {
 			_ = ln.Close()
 			return fmt.Errorf("write ready file: %w", err)
 		}
@@ -194,7 +195,7 @@ func nosniffMiddleware(next http.Handler) http.Handler {
 
 func recoveryMiddleware(next http.Handler, errOut io.Writer) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		err := cmdutil.GuardPanic(errOut, func() error {
+		err := recovery.Guard(errOut, func() error {
 			next.ServeHTTP(w, r)
 			return nil
 		})

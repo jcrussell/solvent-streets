@@ -1,4 +1,4 @@
-package cmdutil
+package recovery
 
 import (
 	"bytes"
@@ -7,10 +7,10 @@ import (
 	"testing"
 )
 
-func TestGuardPanic_NoPanicReturnsFnErr(t *testing.T) {
+func TestGuard_NoPanicReturnsFnErr(t *testing.T) {
 	want := errors.New("boom")
 	var buf bytes.Buffer
-	got := GuardPanic(&buf, func() error { return want })
+	got := Guard(&buf, func() error { return want })
 	if !errors.Is(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
@@ -19,9 +19,9 @@ func TestGuardPanic_NoPanicReturnsFnErr(t *testing.T) {
 	}
 }
 
-func TestGuardPanic_RecoversPanic(t *testing.T) {
+func TestGuard_RecoversPanic(t *testing.T) {
 	var buf bytes.Buffer
-	err := GuardPanic(&buf, func() error {
+	err := Guard(&buf, func() error {
 		panic("kaboom")
 	})
 	if err == nil {
@@ -38,8 +38,8 @@ func TestGuardPanic_RecoversPanic(t *testing.T) {
 	}
 }
 
-func TestGuardPanic_NilErrOutNoCrash(t *testing.T) {
-	err := GuardPanic(nil, func() error {
+func TestGuard_NilErrOutNoCrash(t *testing.T) {
+	err := Guard(nil, func() error {
 		panic("silent")
 	})
 	if err == nil {

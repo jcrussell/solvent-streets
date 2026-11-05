@@ -77,7 +77,7 @@ func TestOptions_Validate_EmptyOutputDir(t *testing.T) {
 
 // TestOptions_Validate_SensitiveLocations locks in the byob-input-validation.5
 // rejection of paths that would erase user data on --clean (the filesystem
-// root and the user's home directory). The cmdutil.ResolveOutputDir helper
+// root and the user's home directory). The fsutil.ResolveOutputDir helper
 // owns this list; this test pins the integration through Options.Validate.
 func TestOptions_Validate_SensitiveLocations(t *testing.T) {
 	cases := []struct {

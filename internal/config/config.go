@@ -100,7 +100,7 @@ const (
 // Sentinels for failure modes that warrant a remediation hint at the call
 // site. Declared here (not in cmdutil) to avoid an import cycle: cmdutil
 // imports config. Callers detect these with errors.Is and wrap with
-// cmdutil.Hintf before returning to the runner.
+// hint.Withf before returning to the runner.
 var (
 	ErrConfigNotFound = errors.New("pvmt.toml not found (searched from working directory to root)")
 	ErrNoCities       = errors.New("at least one [[cities]] entry is required")

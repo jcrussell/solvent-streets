@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
+	"github.com/jcrussell/solvent-streets/internal/fsutil"
 )
 
 // The disk cache written by CachingTransport is append-only: every miss
@@ -48,17 +48,17 @@ const (
 	orphanGrace = 5 * time.Minute
 )
 
-// isTempFile reports whether name is a temp file cmdutil.WriteFile left
+// isTempFile reports whether name is a temp file fsutil.WriteFile left
 // behind after being killed between CreateTemp and rename (its normal
 // error paths clean up after themselves). Such a file is cache bytes with
 // no reader, so prune reclaims it alongside orphans.
 //
-// The shape is derived from cmdutil.TempPattern rather than restated as a
+// The shape is derived from fsutil.TempPattern rather than restated as a
 // literal here: a hard-coded second copy would let a change to the
 // pattern silently stop this sweep from matching anything. The base must
 // still be a real entry name, so an unrelated "notes.tmp-1" is not ours.
 func isTempFile(name string) bool {
-	prefix, suffix, ok := strings.Cut(cmdutil.TempPattern(""), "*")
+	prefix, suffix, ok := strings.Cut(fsutil.TempPattern(""), "*")
 	if !ok {
 		return false
 	}

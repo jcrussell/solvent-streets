@@ -10,8 +10,8 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/geo"
+	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/internal/resource"
-	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 )
 
 // MetricTarget is where a per-hex metric producer (service coverage,
@@ -34,7 +34,7 @@ func LoadMetricTarget(ctx context.Context, store db.Store, cfg *config.Config, c
 	roadsResult, err := store.LatestComputeResult(ctx, resource.TypeRoads)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, cmdutil.Hintf(fmt.Errorf("no roads compute snapshot for %s", city.Name),
+			return nil, hint.Withf(fmt.Errorf("no roads compute snapshot for %s", city.Name),
 				"run `pvmt roads compute` (or `pvmt all compute`) first; %s attaches to the roads snapshot", producer)
 		}
 		return nil, fmt.Errorf("latest roads compute result: %w", err)

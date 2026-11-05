@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/prompt"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
@@ -20,7 +21,7 @@ func ConfirmDestructive(ctx context.Context, io *iostreams.IOStreams, prompter p
 		return nil
 	}
 	if !io.IsStdinTTY() {
-		return Hintf(
+		return hint.Withf(
 			FlagErrorf("%s", refusal),
 			"pass --yes/-y to skip the prompt in non-interactive environments",
 		)
@@ -36,7 +37,7 @@ func ConfirmDestructive(ctx context.Context, io *iostreams.IOStreams, prompter p
 		// The prompter can refuse even when stdin passed the isatty check
 		// above (e.g. TERM=dumb, where the TUI prompt can't render) —
 		// give those callers the same --yes hint, not a bare error.
-		return Hintf(
+		return hint.Withf(
 			FlagErrorf("%s", refusal),
 			"pass --yes/-y to skip the prompt in non-interactive environments",
 		)
