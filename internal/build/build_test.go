@@ -145,3 +145,27 @@ func TestShort_DirtyRendersDifferently(t *testing.T) {
 		t.Errorf("no-info Short() = %q; want %q", got, "dev (commit none)")
 	}
 }
+
+// TestShort_ModuleBuild pins how a `go install …@v0.4.0` binary reports
+// itself: the same version a release shows, with the module hash standing in
+// for the commit it does not have, so it is distinguishable from a release
+// without looking broken ("commit none").
+func TestShort_ModuleBuild(t *testing.T) {
+	const sum = "h1:Xq3abcdEF12ghijKLmnopQRstuvWXyz0123456789+/="
+	mod := Info{Version: "v0.4.0", Commit: CommitNone, Date: DateUnknown, Sum: sum}
+	release := Info{Version: "v0.4.0", Commit: "0123456789abcdef0123456789abcdef01234567", VCSKnown: true}
+
+	if got, want := mod.Short(), "v0.4.0 (go install, h1:Xq3abcdEF12g…)"; got != want {
+		t.Errorf("module build Short() = %q; want %q", got, want)
+	}
+	if got, want := release.Short(), "v0.4.0 (commit 0123456789ab)"; got != want {
+		t.Errorf("release Short() = %q; want %q", got, want)
+	}
+	if !strings.Contains(mod.Full(), "source:  go install (module "+sum+")") {
+		t.Errorf("module build Full() = %q; want the full module hash", mod.Full())
+	}
+	// A checkout build carries a commit, so a stray sum does not relabel it.
+	if got := (Info{Version: "v1", Commit: "abc1234", VCSKnown: true, Sum: sum}).Short(); got != "v1 (commit abc1234)" {
+		t.Errorf("checkout build with a sum: Short() = %q; want the commit", got)
+	}
+}

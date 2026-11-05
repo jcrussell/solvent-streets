@@ -19,7 +19,12 @@ type Info struct {
 	// VCSKnown reports that the build recorded any vcs.* setting. False
 	// under -buildvcs=false or outside a repository, where Modified=false
 	// means "not measured", not "clean".
-	VCSKnown  bool
+	VCSKnown bool
+	// Sum is the main module's go.sum hash ("h1:…"), recorded only when Go
+	// built the binary from a downloaded module (`go install …@v1.2.3`).
+	// Such a build has no VCS data, so the sum is its provenance in place of
+	// a commit — the same convention golangci-lint's --version follows.
+	Sum       string
 	GoVersion string
 	OS        string
 	Arch      string
@@ -44,6 +49,7 @@ var Current = sync.OnceValue(func() Info {
 	}
 	if bi, ok := debug.ReadBuildInfo(); ok {
 		i = fromBuildInfo(i, bi.Main.Version, bi.Settings)
+		i.Sum = bi.Main.Sum
 	}
 	return i
 })
@@ -94,11 +100,39 @@ func (i Info) commitLabel() string {
 	return c
 }
 
+// fromModule reports a binary Go built from a downloaded module: a go.sum
+// hash and no commit from either ldflags or VCS.
+func (i Info) fromModule() bool {
+	return i.Sum != "" && (i.Commit == CommitNone || i.Commit == "")
+}
+
+// provenance is the parenthetical after the version: which commit, or for a
+// module build, that it came from `go install` and which module hash.
+func (i Info) provenance() string {
+	if i.fromModule() {
+		sum := i.Sum
+		if len(sum) > 15 { // "h1:" + 12 characters of the hash
+			sum = sum[:15] + "…"
+		}
+		return "go install, " + sum
+	}
+	return "commit " + i.commitLabel()
+}
+
+// Short is the --version line: "v0.4.0 (commit 81eaae7c0ffe)" for a release
+// or checkout build, "v0.4.0 (go install, h1:Xq3abcdEF12g…)" for a module
+// build. The version is the same either way — `go install …@v0.4.0` builds
+// exactly the tagged source, checked against the checksum database — and the
+// parenthetical says where the binary came from.
 func (i Info) Short() string {
-	return fmt.Sprintf("%s (commit %s)", i.Version, i.commitLabel())
+	return fmt.Sprintf("%s (%s)", i.Version, i.provenance())
 }
 
 func (i Info) Full() string {
-	return fmt.Sprintf("pvmt %s\n  commit:  %s\n  built:   %s\n  go:      %s\n  os/arch: %s/%s\n",
-		i.Version, i.commitLabel(), i.Date, i.GoVersion, i.OS, i.Arch)
+	src := "  commit:  " + i.commitLabel()
+	if i.fromModule() {
+		src = "  source:  go install (module " + i.Sum + ")"
+	}
+	return fmt.Sprintf("pvmt %s\n%s\n  built:   %s\n  go:      %s\n  os/arch: %s/%s\n",
+		i.Version, src, i.Date, i.GoVersion, i.OS, i.Arch)
 }
