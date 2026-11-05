@@ -10,6 +10,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -27,10 +28,7 @@ func Check(tb testing.TB, goldenPath string, got []byte) {
 		return
 	}
 
-	root, rerr := repoRoot()
-	if rerr != nil {
-		tb.Fatalf("golden %s mismatch, and locating the repo root failed: %v", goldenPath, rerr)
-	}
+	root := RepoRoot(tb)
 	absGolden, aerr := filepath.Abs(goldenPath)
 	if aerr != nil {
 		tb.Fatalf("abs %s: %v", goldenPath, aerr)
@@ -55,20 +53,25 @@ func Check(tb testing.TB, goldenPath string, got []byte) {
 		relGolden, cmp.Diff(string(want), string(got)), actual, relGolden)
 }
 
-// repoRoot walks up from the working directory to the directory holding
-// go.mod.
-func repoRoot() (string, error) {
-	dir, err := os.Getwd()
-	if err != nil {
-		return "", err
+// RepoRoot returns the module root: the nearest directory above this
+// package's source file that holds go.mod. It keys off the source path
+// baked in at compile time (runtime.Caller), not the working directory, so
+// a test that has called t.Chdir still resolves it. That only breaks if a
+// `go test -c` binary is run from somewhere the source tree is not.
+func RepoRoot(tb testing.TB) string {
+	tb.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		tb.Fatal("goldentest: runtime.Caller failed")
 	}
+	dir := filepath.Dir(file)
 	for {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir, nil
+			return dir
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", errors.New("no go.mod above the working directory")
+			tb.Fatalf("goldentest: no go.mod above %s", file)
 		}
 		dir = parent
 	}

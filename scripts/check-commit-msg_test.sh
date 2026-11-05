@@ -30,6 +30,7 @@ expect pass 'ci(deps): bump actions/checkout\n'
 expect pass '# Please enter the commit message\n\ndocs: subject after comments\n'
 expect pass 'Merge branch '"'"'main'"'"' into feature\n'
 expect pass 'Revert "feat: add thing"\n'
+expect pass 'Reapply "feat: add thing"\n'
 expect pass 'fixup! fix(ingest): handle 504\n'
 expect pass ''
 

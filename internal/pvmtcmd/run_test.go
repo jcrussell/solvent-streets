@@ -89,6 +89,8 @@ func TestRun_HelpStillWorks(t *testing.T) {
 		{"help"},
 		{"help", "cache"},
 		{"help", "cache", "prune"},
+		// A leaf's positional argument is not a typo'd topic.
+		{"help", "snapshots", "rm", "5"},
 		{"--help"},
 	}
 	for _, p := range parentPaths(t) {

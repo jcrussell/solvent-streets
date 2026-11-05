@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
+	"github.com/jcrussell/solvent-streets/internal/goldentest"
 )
 
 // externalExampleConsumers names the example directories something outside
@@ -34,7 +35,7 @@ var externalExampleConsumers = map[string]string{
 // non-fatal load warnings by design (one per city whose calibration is
 // superseded), so a "no warnings" assertion would fail on a healthy config.
 func TestShippedExamplesLoad(t *testing.T) {
-	dir := filepath.Join(repoRoot(t), "examples")
+	dir := filepath.Join(goldentest.RepoRoot(t), "examples")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("read %s: %v", dir, err)

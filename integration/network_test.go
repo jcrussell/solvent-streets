@@ -8,12 +8,12 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/goldentest"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/factory"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/root"
@@ -86,7 +86,7 @@ func setupE2E(t *testing.T) *e2eState {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "xdg-config"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(t.TempDir(), "xdg-state"))
 
-	repo := repoRoot(t)
+	repo := goldentest.RepoRoot(t)
 	workdir := t.TempDir()
 	src := filepath.Join(repo, "examples", "livermore-ca", "pvmt.toml")
 	dst := filepath.Join(workdir, "pvmt.toml")
@@ -316,32 +316,6 @@ func assertExportManifest(t *testing.T, stdout string) {
 	}
 	if len(m.Shared) == 0 {
 		t.Errorf("manifest shared is empty (want pvmt.wasm etc.): %+v", m)
-	}
-}
-
-// repoRoot walks up from this test file until it finds go.mod. Resolved
-// before t.Chdir so subsequent cwd changes do not break the lookup.
-//
-// runtime.Caller(0) returns the source path baked in at compile time,
-// so this only works for `go test ./...` and `make e2e`. If you ever
-// `go test -c` this package and relocate the binary, the path won't
-// resolve — but no current workflow does that.
-func repoRoot(t *testing.T) string {
-	t.Helper()
-	_, this, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	dir := filepath.Dir(this)
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatal("repoRoot: no go.mod found walking up from " + this)
-		}
-		dir = parent
 	}
 }
 

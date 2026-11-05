@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -19,6 +18,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/export/exporttest"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
+	"github.com/jcrussell/solvent-streets/internal/goldentest"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/services"
 )
@@ -41,7 +41,7 @@ func TestJS(t *testing.T) {
 	if testing.Short() {
 		t.Skip("short mode")
 	}
-	root := repoRoot(t)
+	root := goldentest.RepoRoot(t)
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node not on PATH; run `make test-js`")
 	}
@@ -62,26 +62,6 @@ func TestJS(t *testing.T) {
 		t.Fatalf("node --test failed: %v\n%s", err, out)
 	}
 	t.Logf("node --test output:\n%s", out)
-}
-
-// repoRoot walks up from this source file to the module root.
-func repoRoot(t *testing.T) string {
-	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	dir := filepath.Dir(file)
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatal("go.mod not found above " + file)
-		}
-		dir = parent
-	}
 }
 
 // jsFixtureSnapshotID is the snapshot the fixture meta.json is dated from.

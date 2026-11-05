@@ -47,3 +47,5 @@ internal/export/wasm/wasm_exec.js
 .dolt/
 *.db
 .beads-credential-key
+# bd's run lock: untracked, so it would mark every build vcs.modified (-dirty)
+.beads.gate.lock

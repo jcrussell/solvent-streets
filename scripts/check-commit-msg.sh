@@ -10,7 +10,8 @@
 # Accepts:  <type>[(<scope>)][!]: <summary>
 #   type  = feat fix perf refactor docs test chore ci build style revert
 #   scope = anything but ")" — "export/cmd" and "db,ingest" are both in use
-# Also passes git's own subjects: Merge ..., Revert "...", and the
+# Also passes git's own subjects: Merge ..., Revert "...", Reapply "..." (a
+# reverted revert), and the
 # fixup!/squash!/amend! subjects that `git rebase --autosquash` consumes.
 set -eu
 
@@ -27,7 +28,7 @@ types='feat|fix|perf|refactor|docs|test|chore|ci|build|style|revert'
 if printf '%s\n' "$subject" | grep -Eq "^(${types})(\([^)]+\))?!?: [^[:space:]]"; then
   exit 0
 fi
-if printf '%s\n' "$subject" | grep -Eq '^(Merge |Revert "|(fixup|squash|amend)! )'; then
+if printf '%s\n' "$subject" | grep -Eq '^(Merge |Revert "|Reapply "|(fixup|squash|amend)! )'; then
   exit 0
 fi
 

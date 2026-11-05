@@ -26,8 +26,10 @@ type Info struct {
 }
 
 // Current returns the build metadata: ldflags values are authoritative, and
-// debug.ReadBuildInfo fills whatever they left at the sentinel, so a plain
-// `go build` or `go install` still reports a commit. vcs.modified is read
+// debug.ReadBuildInfo fills whatever they left at the sentinel: the module
+// version (the tag for `go install …@v1.2.3`, which records no vcs.*
+// settings; a pseudo-version for a plain `go build` in a checkout) and the
+// commit and its time. vcs.modified is read
 // regardless — the Makefile's `git describe --dirty` misses untracked files
 // and a plain build sets no ldflags at all (byob-release.1). The scan runs
 // once per process and never mutates the package vars.
@@ -41,15 +43,19 @@ var Current = sync.OnceValue(func() Info {
 		Arch:      runtime.GOARCH,
 	}
 	if bi, ok := debug.ReadBuildInfo(); ok {
-		i = fromSettings(i, bi.Settings)
+		i = fromBuildInfo(i, bi.Main.Version, bi.Settings)
 	}
 	return i
 })
 
-// fromSettings fills the fields ldflags left at the sentinel and always
-// records the dirty state. Split from Current so tests can inject settings:
-// a test binary cannot dirty its own tree and rebuild itself.
-func fromSettings(i Info, settings []debug.BuildSetting) Info {
+// fromBuildInfo fills the fields ldflags left at the sentinel and always
+// records the dirty state. Split from Current so tests can inject the build
+// info: a test binary cannot dirty its own tree and rebuild itself.
+// "(devel)" is what an unversioned build records, so it is no version.
+func fromBuildInfo(i Info, mainVersion string, settings []debug.BuildSetting) Info {
+	if (i.Version == VersionDev || i.Version == "") && mainVersion != "" && mainVersion != "(devel)" {
+		i.Version = mainVersion
+	}
 	for _, s := range settings {
 		if strings.HasPrefix(s.Key, "vcs.") {
 			i.VCSKnown = true

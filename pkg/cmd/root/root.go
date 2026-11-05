@@ -202,8 +202,10 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 // while leaving cobra's help text and completion untouched. Cobra's help
 // command reports an unknown topic only by printing to stdout with a nil
 // error, so `pvmt help biuld` used to exit 0. A topic is unknown when Find
-// fails (`help biuld`) or resolves with arguments left over
-// (`help cache biuld`). (byob-command-shape.6)
+// fails (`help biuld`) or stops at a group with arguments left over
+// (`help cache biuld`). Leftovers after a leaf are that command's own
+// positional arguments (`help snapshots rm 5`), so its help is shown.
+// (byob-command-shape.6)
 //
 // The root itself deliberately stays non-runnable with no Args: cobra's
 // legacy arg check then rejects `pvmt biuld` with a "Did you mean"
@@ -217,7 +219,7 @@ func refuseUnknownHelpTopics(root *cobra.Command) {
 	show := help.Run
 	help.Run = nil
 	help.RunE = func(c *cobra.Command, args []string) error {
-		if _, rest, ferr := c.Root().Find(args); ferr != nil || len(rest) > 0 {
+		if target, rest, ferr := c.Root().Find(args); ferr != nil || (len(rest) > 0 && target.HasSubCommands()) {
 			return cmdutil.FlagErrorf("unknown help topic %q", strings.Join(args, " "))
 		}
 		show(c, args)

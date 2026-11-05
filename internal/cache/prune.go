@@ -150,9 +150,11 @@ func (e *cacheEntry) complete() bool { return e.hasBody && e.hasMeta }
 // Cancellation: ctx is checked once per directory entry and once per entry in
 // each sweep, so a SIGINT stops the sweep promptly instead of running to
 // completion. Before this, `pvmt cache prune --yes` observed ctx nowhere at
-// all, and because signal.NotifyContext keeps the default SIGINT disposition
-// disabled for the whole run, NO Ctrl-C terminated it mid-sweep
-// (solvent-streets-q48z.22). A cancelled sweep returns a context.Canceled in
+// all, and because Main then kept signal.NotifyContext registered for the
+// whole run, NO Ctrl-C terminated it mid-sweep (solvent-streets-q48z.22).
+// Main now unregisters after the first signal (solvent-streets-f6pu), so a
+// second Ctrl-C kills the process outright — possibly between a temp write
+// and its rename; the next prune sweeps that residue. A cancelled sweep returns a context.Canceled in
 // the joined error alongside the partial report — entries it never reached are
 // credited to BytesRemaining, so the printed numbers stay honest.
 func Prune(ctx context.Context, dir string, opts PruneOptions) (*PruneReport, error) {

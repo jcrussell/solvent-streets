@@ -64,10 +64,10 @@ func TestInfo_Short_Full(t *testing.T) {
 	}
 }
 
-// TestFromSettings pins how debug.ReadBuildInfo's vcs.* settings combine with
-// ldflags: they fill only sentinel fields, but vcs.modified is always read —
+// TestFromBuildInfo pins how debug.ReadBuildInfo's module version and vcs.*
+// settings combine with ldflags: they fill only sentinel fields, but vcs.modified is always read —
 // it describes the tree the ldflags commit came from too.
-func TestFromSettings(t *testing.T) {
+func TestFromBuildInfo(t *testing.T) {
 	const rev = "0123456789abcdef0123456789abcdef01234567"
 	dirty := []debug.BuildSetting{
 		{Key: "vcs", Value: "git"},
@@ -77,7 +77,7 @@ func TestFromSettings(t *testing.T) {
 	}
 
 	t.Run("plain go build fills sentinels", func(t *testing.T) {
-		got := fromSettings(Info{Version: VersionDev, Commit: CommitNone, Date: DateUnknown}, dirty)
+		got := fromBuildInfo(Info{Version: VersionDev, Commit: CommitNone, Date: DateUnknown}, "(devel)", dirty)
 		if got.Commit != rev || got.Date != "2026-11-05T00:00:00Z" {
 			t.Errorf("Commit, Date = %q, %q; want the vcs values", got.Commit, got.Date)
 		}
@@ -87,17 +87,33 @@ func TestFromSettings(t *testing.T) {
 	})
 
 	t.Run("ldflags win but dirty state is still read", func(t *testing.T) {
-		got := fromSettings(Info{Version: "v1", Commit: "abc1234", Date: "2026-01-01"}, dirty)
-		if got.Commit != "abc1234" || got.Date != "2026-01-01" {
-			t.Errorf("Commit, Date = %q, %q; ldflags values must win", got.Commit, got.Date)
+		got := fromBuildInfo(Info{Version: "v1", Commit: "abc1234", Date: "2026-01-01"}, "v9.9.9", dirty)
+		if got.Version != "v1" || got.Commit != "abc1234" || got.Date != "2026-01-01" {
+			t.Errorf("Version, Commit, Date = %q, %q, %q; ldflags values must win", got.Version, got.Commit, got.Date)
 		}
 		if !got.Modified {
 			t.Error("Modified = false; vcs.modified must apply to an ldflags commit too")
 		}
 	})
 
+	t.Run("go install by version records only the module version", func(t *testing.T) {
+		got := fromBuildInfo(Info{Version: VersionDev, Commit: CommitNone, Date: DateUnknown}, "v0.4.0", nil)
+		if got.Version != "v0.4.0" {
+			t.Errorf("Version = %q; want the module version v0.4.0", got.Version)
+		}
+		if got.Commit != CommitNone || got.VCSKnown {
+			t.Errorf("Commit, VCSKnown = %q, %v; want %q, false", got.Commit, got.VCSKnown, CommitNone)
+		}
+	})
+
+	t.Run("(devel) is not a version", func(t *testing.T) {
+		if got := fromBuildInfo(Info{Version: VersionDev}, "(devel)", nil); got.Version != VersionDev {
+			t.Errorf("Version = %q; want %q", got.Version, VersionDev)
+		}
+	})
+
 	t.Run("-buildvcs=false records nothing", func(t *testing.T) {
-		got := fromSettings(Info{Commit: "abc1234"}, []debug.BuildSetting{{Key: "-trimpath", Value: "true"}})
+		got := fromBuildInfo(Info{Commit: "abc1234"}, "", []debug.BuildSetting{{Key: "-trimpath", Value: "true"}})
 		if got.VCSKnown || got.Modified {
 			t.Errorf("VCSKnown, Modified = %v, %v; want false, false", got.VCSKnown, got.Modified)
 		}

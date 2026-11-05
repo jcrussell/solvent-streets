@@ -325,8 +325,12 @@ func TestForecastJSON_Contract(t *testing.T) {
 		if want := (*e.BreakEvenBudget - *e.CurrentBudget) / *e.CurrentBudget; math.Abs(*e.FundingGap-want) > 1e-9 {
 			t.Errorf("roads funding_gap = %v, want (break_even - current) / current = %v", *e.FundingGap, want)
 		}
-		// The fixture budget exceeds break-even, so it never runs out.
-		if *e.FundingGap < 0 && e.InsolvencyYear != nil {
+		// The fixture budget exceeds break-even, so it never runs out. Assert
+		// the premise too: a fixture change that drops the budget below
+		// break-even must fail here, not quietly skip the insolvency check.
+		if *e.FundingGap >= 0 {
+			t.Errorf("roads funding_gap = %v; exporttest.ForecastConfig's budget must exceed break-even", *e.FundingGap)
+		} else if e.InsolvencyYear != nil {
 			t.Errorf("roads insolvency_year = %d with a budget above break-even", *e.InsolvencyYear)
 		}
 	}
