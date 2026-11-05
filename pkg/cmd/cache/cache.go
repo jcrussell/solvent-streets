@@ -38,6 +38,7 @@ Pruning is always safe: a removed entry is re-fetched on next use.`,
   # Keep only the last week, capped at 100 MiB
   pvmt cache prune --max-age=168h --max-size=100mb`,
 	}
+	cmdutil.MarkGroup(cmd)
 	cmd.AddCommand(NewCmdPrune(f, nil))
 	return cmd
 }

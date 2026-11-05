@@ -37,6 +37,7 @@ func New(f *cmdutil.Factory, rt resource.Source, spec Spec) *cobra.Command {
 		Long:    spec.Long,
 		Example: spec.Example,
 	}
+	cmdutil.MarkGroup(cmd)
 	cmd.AddCommand(ingest.NewCmdIngest(f, rt, nil))
 	if spec.Compute != nil {
 		cmd.AddCommand(spec.Compute(f, rt))

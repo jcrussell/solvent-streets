@@ -32,6 +32,7 @@ unions the per-resource geometries to avoid double-counting overlap.`,
   pvmt all compute`,
 	}
 
+	cmdutil.MarkGroup(cmd)
 	cmd.AddCommand(newAllIngest(f))
 	cmd.AddCommand(newAllCompute(f))
 

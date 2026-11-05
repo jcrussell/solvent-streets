@@ -25,6 +25,7 @@ func NewCmdSnapshots(f *cmdutil.Factory) *cobra.Command {
   # Keep only the 5 most recent snapshots per city
   pvmt snapshots prune --keep=5`,
 	}
+	cmdutil.MarkGroup(cmd)
 	cmd.AddCommand(NewCmdLs(f, nil))
 	cmd.AddCommand(NewCmdRm(f, nil))
 	cmd.AddCommand(NewCmdPrune(f, nil))

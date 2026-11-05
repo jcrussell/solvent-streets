@@ -37,7 +37,15 @@ func Main() int {
 			_ = f.CloseRootDB()
 		}
 	}()
+	return run(ctx, f, os.Args[1:])
+}
+
+// run executes the command tree for args and maps the outcome to a process
+// exit code. Split from Main so tests drive the real root and the real
+// exit-code mapping without signals or the process environment.
+func run(ctx context.Context, f *cmdutil.Factory, args []string) int {
 	rootCmd := root.NewCmdRoot(f)
+	rootCmd.SetArgs(args)
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		return exitCode(err, f.IOStreams.ErrOut)
 	}

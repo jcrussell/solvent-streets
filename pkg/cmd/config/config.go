@@ -20,6 +20,7 @@ func NewCmdConfig(f *cmdutil.Factory) *cobra.Command {
   pvmt config show --sources`,
 	}
 
+	cmdutil.MarkGroup(cmd)
 	cmd.AddCommand(NewCmdShow(f, nil))
 
 	return cmd

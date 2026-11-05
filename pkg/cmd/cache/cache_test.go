@@ -427,8 +427,10 @@ func TestNewCmdCache_WiresPrune(t *testing.T) {
 	if err != nil || sub.Name() != "prune" {
 		t.Fatalf("`cache prune` not registered: %v", err)
 	}
-	// The group itself must not run anything — it only aggregates.
-	if cmd.RunE != nil || cmd.Run != nil {
-		t.Error("the cache group should have no runFunc of its own")
+	// The group itself only aggregates: its RunE shows help, and a stray
+	// argument (a typo'd subcommand) is refused rather than shown help and
+	// exit 0 (byob-command-shape.6; pinned end-to-end in internal/pvmtcmd).
+	if cmd.Args == nil || cmd.Args(cmd, []string{"pruen"}) == nil {
+		t.Error("the cache group should reject stray arguments")
 	}
 }

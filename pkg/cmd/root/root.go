@@ -185,10 +185,44 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 		return nil
 	}
 
+	// Route cobra's own output (help, usage, completion scripts) through the
+	// factory's streams rather than its os.Stdout/os.Stderr defaults, so
+	// tests can capture it and byob-iostreams.1 holds for cobra too.
+	cmd.SetOut(f.IOStreams.Out)
+	cmd.SetErr(f.IOStreams.ErrOut)
+
 	addCommandGroups(cmd)
 	addSubcommands(cmd, f)
+	refuseUnknownHelpTopics(cmd)
 
 	return cmd
+}
+
+// refuseUnknownHelpTopics makes `pvmt help <typo>` a usage error (exit 2)
+// while leaving cobra's help text and completion untouched. Cobra's help
+// command reports an unknown topic only by printing to stdout with a nil
+// error, so `pvmt help biuld` used to exit 0. A topic is unknown when Find
+// fails (`help biuld`) or resolves with arguments left over
+// (`help cache biuld`). (byob-command-shape.6)
+//
+// The root itself deliberately stays non-runnable with no Args: cobra's
+// legacy arg check then rejects `pvmt biuld` with a "Did you mean"
+// suggestion, which an explicit NoArgs would drop.
+func refuseUnknownHelpTopics(root *cobra.Command) {
+	root.InitDefaultHelpCmd()
+	help, _, err := root.Find([]string{"help"})
+	if err != nil || help == root || help.Run == nil {
+		return // TestRun_TyposExitTwo notices
+	}
+	show := help.Run
+	help.Run = nil
+	help.RunE = func(c *cobra.Command, args []string) error {
+		if _, rest, ferr := c.Root().Find(args); ferr != nil || len(rest) > 0 {
+			return cmdutil.FlagErrorf("unknown help topic %q", strings.Join(args, " "))
+		}
+		show(c, args)
+		return nil
+	}
 }
 
 // applyLogLevel implements byob-logging.3's precedence ladder:
