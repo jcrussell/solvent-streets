@@ -2,6 +2,7 @@ package build
 
 import (
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"testing"
 )
@@ -60,5 +61,71 @@ func TestInfo_Short_Full(t *testing.T) {
 		if !strings.Contains(full, want) {
 			t.Errorf("Full() = %q; missing %q", full, want)
 		}
+	}
+}
+
+// TestFromSettings pins how debug.ReadBuildInfo's vcs.* settings combine with
+// ldflags: they fill only sentinel fields, but vcs.modified is always read —
+// it describes the tree the ldflags commit came from too.
+func TestFromSettings(t *testing.T) {
+	const rev = "0123456789abcdef0123456789abcdef01234567"
+	dirty := []debug.BuildSetting{
+		{Key: "vcs", Value: "git"},
+		{Key: "vcs.revision", Value: rev},
+		{Key: "vcs.time", Value: "2026-11-05T00:00:00Z"},
+		{Key: "vcs.modified", Value: "true"},
+	}
+
+	t.Run("plain go build fills sentinels", func(t *testing.T) {
+		got := fromSettings(Info{Version: VersionDev, Commit: CommitNone, Date: DateUnknown}, dirty)
+		if got.Commit != rev || got.Date != "2026-11-05T00:00:00Z" {
+			t.Errorf("Commit, Date = %q, %q; want the vcs values", got.Commit, got.Date)
+		}
+		if !got.Modified || !got.VCSKnown {
+			t.Errorf("Modified, VCSKnown = %v, %v; want true, true", got.Modified, got.VCSKnown)
+		}
+	})
+
+	t.Run("ldflags win but dirty state is still read", func(t *testing.T) {
+		got := fromSettings(Info{Version: "v1", Commit: "abc1234", Date: "2026-01-01"}, dirty)
+		if got.Commit != "abc1234" || got.Date != "2026-01-01" {
+			t.Errorf("Commit, Date = %q, %q; ldflags values must win", got.Commit, got.Date)
+		}
+		if !got.Modified {
+			t.Error("Modified = false; vcs.modified must apply to an ldflags commit too")
+		}
+	})
+
+	t.Run("-buildvcs=false records nothing", func(t *testing.T) {
+		got := fromSettings(Info{Commit: "abc1234"}, []debug.BuildSetting{{Key: "-trimpath", Value: "true"}})
+		if got.VCSKnown || got.Modified {
+			t.Errorf("VCSKnown, Modified = %v, %v; want false, false", got.VCSKnown, got.Modified)
+		}
+	})
+}
+
+// TestShort_DirtyRendersDifferently pins that a dirty, a clean and an
+// unmeasured build of the same commit render three different --version
+// lines, and that the marker survives shortening a full 40-char hash.
+func TestShort_DirtyRendersDifferently(t *testing.T) {
+	const rev = "0123456789abcdef0123456789abcdef01234567"
+	clean := Info{Version: "v1", Commit: rev, VCSKnown: true}.Short()
+	dirty := Info{Version: "v1", Commit: rev, VCSKnown: true, Modified: true}.Short()
+	unknown := Info{Version: "v1", Commit: rev}.Short()
+
+	if clean == dirty || clean == unknown || dirty == unknown {
+		t.Fatalf("renders collide:\n clean:   %q\n dirty:   %q\n unknown: %q", clean, dirty, unknown)
+	}
+	if want := "v1 (commit 0123456789ab)"; clean != want {
+		t.Errorf("clean = %q; want %q", clean, want)
+	}
+	if !strings.HasSuffix(dirty, "0123456789ab-dirty)") {
+		t.Errorf("dirty = %q; want the marker after the shortened hash", dirty)
+	}
+	if !strings.HasSuffix(unknown, "0123456789ab+unknown)") {
+		t.Errorf("unknown = %q; want +unknown when no VCS state was recorded", unknown)
+	}
+	if got := (Info{Version: VersionDev, Commit: CommitNone}).Short(); got != "dev (commit none)" {
+		t.Errorf("no-info Short() = %q; want %q", got, "dev (commit none)")
 	}
 }
