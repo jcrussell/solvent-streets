@@ -230,3 +230,29 @@ test('scope selection round-trips only while the scope row is visible', async ()
   await flush();
   assert.equal(params(win).get('scope'), 'bbox');
 });
+
+test('back to a different tab of the same city does not reload the city', async () => {
+  // Deep-link a city so every history entry carries ?city=: the bug was gating
+  // the reload on the entry having a city at all (yvlv.21), which a same-city
+  // back navigation always does.
+  const { win, fetches, fireMap, flush } = load({
+    data: fullData,
+    url: 'https://example.test/index.html?city=beta-ca',
+  });
+  await flush();
+  fireMap('load');
+  await flush();
+  const cityLoads = () => fetches().filter((f) => f.endsWith('/meta.json')).length;
+  const before = cityLoads();
+  assert.ok(before > 0, 'the deep-linked city never loaded');
+  const startTab = params(win).get('tab');
+
+  win.selectTab('financials-tab');
+  await flush();
+  assert.notEqual(params(win).get('tab'), startTab, 'selectTab did not push a new tab');
+  win.history.back();
+  await flush();
+
+  assert.equal(params(win).get('tab'), startTab, 'going back did not return to the earlier tab');
+  assert.equal(cityLoads(), before, 'a tab-only back navigation reloaded the city');
+});

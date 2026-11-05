@@ -157,67 +157,6 @@ func TestHandleIndex(t *testing.T) {
 	}
 }
 
-// TestHandleIndex_ConcurrencyGuardsAndSnapshotState asserts the rendered index
-// script carries the load-generation guards (yvlv.22) and the snapshot URL-state
-// fixes (yvlv.21). These are source-presence checks — no JS runtime — mirroring
-// how DATA_PREFIX presence is already asserted. Substrings are literal so the
-// test breaks if the guard scaffolding is dropped.
-func TestHandleIndex_ConcurrencyGuardsAndSnapshotState(t *testing.T) {
-	store := &dbtest.MockStore{
-		GetBoundaryFunc: func(_ context.Context) (string, error) {
-			return `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`, nil
-		},
-		LatestComputeResultFunc: func(_ context.Context, _ resource.Type) (*db.ComputeResult, error) {
-			return nil, sql.ErrNoRows
-		},
-	}
-	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Test City"}}}
-	entry := export.CityEntry{
-		Config: cfg,
-		City:   cfg.Cities[0],
-		Store:  store,
-		Slug:   cfg.Cities[0].Slug(),
-	}
-	ios, _, _, _ := iostreams.Test()
-	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios, testAssets(t))
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /", srv.handleIndex)
-
-	req, _ := http.NewRequestWithContext(context.Background(), "GET", "/", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	// The index application logic now lives in the external app.js (served at
-	// /app.js), not inline in the page, so assert the guards against its source.
-	appJS := string(export.AppJS())
-
-	wants := []string{
-		// Bug 1: per-function generation-guard tokens (separate counters).
-		"let cityLoadGen = 0;",
-		"let financialsLoadGen = 0;",
-		"const gen = ++cityLoadGen;",
-		"if (gen !== cityLoadGen) return;",
-		"const gen = ++financialsLoadGen;",
-		"if (gen !== financialsLoadGen) return;",
-		// Bug 1: getSource-guarded addSource so a residual race can't throw.
-		"if (!map.getSource('boundary')) {",
-		"if (!map.getSource('hexgrid')) {",
-		// Bug 2(a): popstate gates selectCity on cityChanged, not s.city.
-		"if (cityChanged) selectCity(s.city, { push: false });",
-	}
-	for _, want := range wants {
-		if !strings.Contains(appJS, want) {
-			t.Errorf("app.js missing %q", want)
-		}
-	}
-	// Bug 2(a) regression guard: the old unconditional gate must be gone.
-	if strings.Contains(appJS, "if (s.city) selectCity(s.city, { push: false });") {
-		t.Errorf("app.js still contains the pre-fix unconditional selectCity gate")
-	}
-}
-
 // TestHandleGame verifies GET /play renders the stub game page (200, HTML,
 // the same Cache-Control as the index) and that it carries the stub marker a
 // later agent replaces with the real board. Uses the same computed-city
@@ -270,20 +209,6 @@ func TestHandleGame(t *testing.T) {
 	}
 	if !strings.Contains(body, `"dataPrefix":""`) {
 		t.Errorf("single-city game page should set dataPrefix to empty in PVMT_CONFIG")
-	}
-	// yvlv.16: the board must seed from the PER-CITY forecast_seed.json (fetched
-	// under DATA_PREFIX), preferred over the region-wide embedded FORECAST_SEED,
-	// and fit the map to the actual board instead of the embedded region center.
-	// This wiring now lives in the external game.js (served at /game.js).
-	gameJS := string(export.GameJS())
-	for _, want := range []string{
-		`DATA_PREFIX + 'data/forecast_seed.json'`, // per-city seed fetch
-		`fetchedSeed || FORECAST_SEED`,            // per-city seed preferred over embedded region seed
-		`map.fitBounds(`,                          // fit to the real board, not the region centroid
-	} {
-		if !strings.Contains(gameJS, want) {
-			t.Errorf("game.js missing per-city seed/fitBounds wiring %q", want)
-		}
 	}
 	// Play-test feedback controls: nav link back to the map, reset, the always-on
 	// brush size, and the pre-game start screen with its horizon selector.

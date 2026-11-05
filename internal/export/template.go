@@ -50,15 +50,6 @@ func TemplateFS() fs.ReadFileFS {
 	return templatesFS
 }
 
-// AppJS returns the embedded index-page application JavaScript (templates/app.js),
-// referenced by index.html as an external <script src>. Site output goes
-// through Assets; this is the source for tests that read the script itself.
-func AppJS() []byte { return appJS }
-
-// GameJS returns the embedded play-page application JavaScript (templates/game.js),
-// referenced by play.html as an external <script src>.
-func GameJS() []byte { return gameJS }
-
 // ParseIndexTemplate returns the parsed template tree for the index page,
 // including the methodology, theme and selectors partials that index.html.tmpl
 // references via {{template ...}}. Shared between the static exporter and the

@@ -35,7 +35,7 @@ export function fixtureDir() {
 // installStubs provides the browser APIs app.js reaches for at evaluation time.
 // Each entry here is load-bearing: without it app.js throws before any test
 // gets to run.
-function installStubs(win, { data, simulate }) {
+function installStubs(win, { data, simulate, gates, wasm }) {
   // MapLibre GL, not Leaflet. app.js constructs `new maplibregl.Map(...)` at
   // top level and later swaps sources and layers on it, so this needs real
   // behaviour rather than a no-op: updateHexGrid reads back the source it just
@@ -53,7 +53,12 @@ function installStubs(win, { data, simulate }) {
       on(ev, a, b) { (handlers.get(ev) || handlers.set(ev, []).get(ev)).push(b || a); return this; }
       off() { return this; }
       once(ev, fn) { return this.on(ev, fn); }
-      addSource(id, spec) { sources.set(id, { ...spec, setData(d) { this.data = d; } }); }
+      // Real MapLibre throws on a duplicate source id; so must the stub, or a
+      // double add (the symptom of an unguarded load race) passes silently.
+      addSource(id, spec) {
+        if (sources.has(id)) throw new Error('There is already a source with id "' + id + '".');
+        sources.set(id, { ...spec, setData(d) { this.data = d; } });
+      }
       getSource(id) { return sources.get(id); }
       removeSource(id) { sources.delete(id); }
       addLayer(spec) { layers.set(spec.id, spec); }
@@ -62,13 +67,13 @@ function installStubs(win, { data, simulate }) {
       setPaintProperty() {}
       setLayoutProperty() {}
       setFilter() {}
-      fitBounds() {}
+      fitBounds(bounds) { win.__fitBounds.push(bounds); }
       flyTo() {}
       easeTo() {}
       jumpTo() {}
       resize() {}
       remove() {}
-      getCanvas() { return { style: {} }; }
+      getCanvas() { return { style: {}, addEventListener() {} }; }
       getContainer() { return win.document.createElement('div'); }
       unproject() { return { lng: 0, lat: 0 }; }
       project() { return { x: 0, y: 0 }; }
@@ -78,6 +83,7 @@ function installStubs(win, { data, simulate }) {
       isStyleLoaded() { return false; }
       setStyle() { return this; }
       get dragPan() { return { enable() {}, disable() {} }; }
+      get dragRotate() { return { enable() {}, disable() {} }; }
       get scrollZoom() { return { enable() {}, disable() {} }; }
       get boxZoom() { return { enable() {}, disable() {} }; }
     },
@@ -99,6 +105,13 @@ function installStubs(win, { data, simulate }) {
   // page reports a WASM error and never boots the board — the selector block
   // this harness exists to test runs before that.
   win.Go = class { constructor() { this.importObject = {}; } run() {} };
+  // With `wasm: true` the instantiate succeeds (go.run is the no-op above), so
+  // the play page goes on to boot its board on the map's 'load' event (fire
+  // it with fireMap). The engine itself is never called: game.js only
+  // reaches it when the player presses Start.
+  if (wasm) win.WebAssembly = { instantiateStreaming: async () => ({ instance: {} }) };
+  win.__fitBounds = [];
+  win.__mapHandlers = handlers;
 
   // Chart.js. Instances are recorded so a test can read what was plotted
   // without a canvas.
@@ -141,8 +154,16 @@ function installStubs(win, { data, simulate }) {
   // `data` is read LIVE on every fetch, not snapshotted: that is what lets a
   // spec simulate a city switch by reassigning an entry and calling
   // loadFinancials() again. Do not clone it at install time.
+  // Every request is logged (win.__fetches), and a request matching a held
+  // suffix (see hold() on load's return) waits until it is released, so a
+  // spec can make an earlier request finish after a later one.
+  win.__fetches = [];
   win.fetch = async (url) => {
     const key = String(url).split('?')[0].replace(/^\.?\//, '');
+    win.__fetches.push(key);
+    for (const [suffix, gate] of gates) {
+      if (key.endsWith(suffix)) await gate;
+    }
     const hit = Object.keys(data).find((k) => key.endsWith(k));
     if (!hit) {
       return { ok: false, status: 404, json: async () => { throw new Error('404'); } };
@@ -187,7 +208,7 @@ export function defaultSimulate(input) {
 // `data` maps a data-file suffix (e.g. 'scenarios.json') to a parsed object;
 // the fetch stub matches by suffix so both single-city ('data/x.json') and
 // multi-city ('cities/<slug>/x.json') prefixes resolve.
-export function load({ page = 'index', data = {}, simulate = defaultSimulate, url, navigate } = {}) {
+export function load({ page = 'index', data = {}, simulate = defaultSimulate, url, navigate, wasm = false, hold = [] } = {}) {
   // 'play-live' is the play page as `pvmt serve` renders it: ActiveSlug set,
   // DATA_PREFIX injected, the served city pre-selected.
   const file = page === 'play' ? 'play.html' : page === 'play-live' ? 'play-live.html' : 'index.html';
@@ -203,7 +224,17 @@ export function load({ page = 'index', data = {}, simulate = defaultSimulate, ur
 
   // jsdom has localStorage, but tests need it empty and isolated per load.
   win.localStorage.clear();
-  installStubs(win, { data, simulate });
+  // gates: suffix → pending promise. `hold` installs them before the scripts
+  // run, so the page's own boot-time loads can be held too.
+  const gates = new Map();
+  const releases = new Map();
+  const addGate = (suffix) => {
+    gates.set(suffix, new Promise((r) => releases.set(suffix, r)));
+    return () => release(suffix);
+  };
+  const release = (suffix) => { gates.delete(suffix); (releases.get(suffix) || (() => {}))(); };
+  for (const suffix of hold) addGate(suffix);
+  installStubs(win, { data, simulate, gates, wasm });
   // The play page's navigation seam: record where it would have gone.
   if (navigate) win.__pvmtNavigate = navigate;
 
@@ -236,6 +267,17 @@ export function load({ page = 'index', data = {}, simulate = defaultSimulate, ur
     // simulations — not runCustomScenario calls, which are two each.
     simCalls: () => win.__simCalls.length,
     resetSimCalls: () => { win.__simCalls.length = 0; },
+    // hold delays every fetch whose path ends with suffix until the returned
+    // release() is called. Install it before the request is made (it is
+    // checked when a fetch starts); a fetch already waiting resumes on release.
+    hold: addGate,
+    // release resumes the fetches held for suffix (via hold() or load's
+    // `hold` option).
+    release,
+    // fetches lists the requested paths (query string dropped), in order.
+    fetches: () => win.__fetches.slice(),
+    // fireMap runs the handlers the page registered on the map for event.
+    fireMap: (event) => { for (const fn of win.__mapHandlers.get(event) || []) fn({}); },
     // flush lets pending microtasks (loadJSON chains) settle.
     flush: async (n = 6) => { for (let i = 0; i < n; i++) await new Promise((r) => setTimeout(r, 0)); },
   };
