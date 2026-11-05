@@ -18,8 +18,7 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26"
-          check-latest: true
+          go-version-file: go.mod
           cache-dependency-path: go.sum
 
       - name: Build WASM (required for go:embed)
@@ -65,8 +64,7 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26"
-          check-latest: true
+          go-version-file: go.mod
           cache-dependency-path: go.sum
 
       - name: Build WASM (required for go:embed)
@@ -91,8 +89,7 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26"
-          check-latest: true
+          go-version-file: go.mod
           cache-dependency-path: go.sum
 
       - name: Build WASM (required for go:embed)
@@ -109,8 +106,7 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26"
-          check-latest: true
+          go-version-file: go.mod
           cache-dependency-path: go.sum
 
       - name: gofmt -l
@@ -130,8 +126,7 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26"
-          check-latest: true
+          go-version-file: go.mod
           cache-dependency-path: go.sum
 
       - name: Build WASM (required for go:embed)
@@ -148,8 +143,7 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26"
-          check-latest: true
+          go-version-file: go.mod
           cache-dependency-path: go.sum
 
       - name: Build WASM (required for go:embed)
@@ -176,18 +170,17 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26"
-          check-latest: true
+          go-version-file: go.mod
           cache-dependency-path: go.sum
 
       - name: Build WASM (required for go:embed)
         run: make wasm
 
-      - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
-
+      # setup-go above reads go.mod's toolchain line, so this scans the
+      # standard library the release job compiles with; a stdlib finding
+      # is fixed by bumping that line. (byob-security.1 / byob-security.2)
       - name: Run govulncheck
-        run: govulncheck ./...
+        run: make vuln
 
   mod-tidy-check:
     name: Mod Tidy Check
@@ -197,8 +190,7 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26"
-          check-latest: true
+          go-version-file: go.mod
           cache-dependency-path: go.sum
 
       - name: Build WASM (required for go:embed)
@@ -217,8 +209,7 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26"
-          check-latest: true
+          go-version-file: go.mod
           cache-dependency-path: go.sum
 
       - name: Build WASM (required for go:embed)
@@ -235,8 +226,7 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26"
-          check-latest: true
+          go-version-file: go.mod
           cache-dependency-path: go.sum
 
       - name: Build WASM (required for go:embed)

@@ -14,7 +14,7 @@ LDFLAGS := -X github.com/jcrussell/solvent-streets/internal/build.Version=$(VERS
 	-X github.com/jcrussell/solvent-streets/internal/build.Date=$(DATE)
 
 .PHONY: build test test-js e2e clean wasm lint lint-js gendocs release-dry-run site site-clean site-report deploy \
-	fmt vet tidy cover help install pre-commit
+	fmt vet tidy cover help install pre-commit vuln
 
 wasm:
 	@want="$(GO_MOD_VERSION)"; \
@@ -36,6 +36,13 @@ install: build
 
 test:
 	go test -race ./...
+
+# Pinned, not @latest (byob-security.1); CI runs this same target. Scans the
+# stdlib of the toolchain go.mod's `toolchain` line selects. Needs the WASM
+# embed in place: run `make wasm` first on a fresh clone.
+GOVULNCHECK_VERSION := v1.9.0
+vuln:
+	go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
 # Real-network e2e. Gated by PVMT_E2E_NETWORK=1 so `make test` stays
 # hermetic. Hits Overpass + ArcGIS; 429/504 from upstream is flakiness,
@@ -101,6 +108,7 @@ help:
 	@echo "  build         build WASM + binary (default for releases)"
 	@echo "  install       build and install to \$$PREFIX/bin (default: ~/.local/bin)"
 	@echo "  test          go test -race ./..."
+	@echo "  vuln          govulncheck (pinned) over ./... with the go.mod toolchain"
 	@echo "  lint          golangci-lint run (pinned in .golangci-version)"
 	@echo "  lint-js       eslint + tsc --checkJs the export template JS (app.js/game.js)"
 	@echo "  test-js       executing jsdom tests for app.js (needs node + npm ci)"

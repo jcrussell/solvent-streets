@@ -5,8 +5,9 @@ loop, commit-message style, and how this project tracks work.
 
 ## Prerequisites
 
-- **Go 1.26+** — the floor is declared in [`go.mod`](go.mod); CI pins the
-  same minor version.
+- **Go 1.26+** — the floor is the `go` line in [`go.mod`](go.mod). Its
+  `toolchain` line names the exact release CI builds and `make vuln` scans;
+  with the default `GOTOOLCHAIN=auto`, the go command downloads it for you.
 - **golangci-lint** at the version pinned in [`.golangci-version`](.golangci-version).
 - A POSIX shell (`make`, `awk`, `sed`).
 
