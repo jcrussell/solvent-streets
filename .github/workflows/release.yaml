@@ -43,14 +43,14 @@ jobs:
           version_out="$("$bin" --version)"
           echo "$version_out"
           # pvmt's --version template is "pvmt {{.Version}}\n" (pkg/cmd/root/root.go).
-          # When ldflags inject internal/build.Version, the output is a semver
-          # (snapshot template: {{incpatch .Version}}-SNAPSHOT-{{.ShortCommit}};
-          # real release: {{.Version}}). If the ldflags symbol path ever drifts
-          # away from internal/build.Version, the binary falls back to the
-          # VersionDev sentinel ("dev") — catch that here so the release fails
-          # before publish instead of shipping a binary that reports "dev".
-          if ! echo "$version_out" | grep -qE '^pvmt [0-9]+\.[0-9]+\.[0-9]+'; then
-            echo "::error::--version output '$version_out' is missing a semver — ldflags injection broken?"
+          # .goreleaser.yaml injects internal/build.Version=v{{.Version}}, which
+          # for this snapshot build is v<incpatch>-SNAPSHOT-<shortcommit>. Assert
+          # the -SNAPSHOT- suffix, not just a semver: if the ldflags symbol path
+          # drifts, internal/build falls back to the module version Go stamps
+          # from git (a tag or pseudo-version, never -SNAPSHOT-), so a bare
+          # semver check would pass with the ldflags silently ignored.
+          if ! echo "$version_out" | grep -qE '^pvmt v[0-9]+\.[0-9]+\.[0-9]+-SNAPSHOT-'; then
+            echo "::error::--version output '$version_out' lacks the ldflags-injected v<semver>-SNAPSHOT- version — ldflags injection broken?"
             exit 1
           fi
           "$bin" --help > /dev/null

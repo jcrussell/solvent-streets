@@ -24,7 +24,10 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
-      - -X github.com/jcrussell/solvent-streets/internal/build.Version={{.Version}}
+      # v-prefixed: {{.Version}} strips the tag's "v", which made a release
+      # report 0.4.0 while git describe, go install and the module proxy all
+      # say v0.4.0. Not {{.Tag}}: snapshots need their -SNAPSHOT-<sha> suffix.
+      - -X github.com/jcrussell/solvent-streets/internal/build.Version=v{{.Version}}
       - -X github.com/jcrussell/solvent-streets/internal/build.Commit={{.Commit}}
       - -X github.com/jcrussell/solvent-streets/internal/build.Date={{.Date}}
 
