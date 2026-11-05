@@ -29,6 +29,10 @@ type Options struct {
 	OutputDir string
 	Clean     bool
 	JSON      bool
+	// Assets loads the site-root browser files. NewCmd sets
+	// exportpkg.EmbeddedAssets, which fails with ErrNoWasm on a `go install`
+	// build; tests pass fakes.
+	Assets func() (*exportpkg.Assets, error)
 }
 
 func NewCmdExport(f *cmdutil.Factory, runF func(context.Context, *Options) error) *cobra.Command {
@@ -37,6 +41,7 @@ func NewCmdExport(f *cmdutil.Factory, runF func(context.Context, *Options) error
 		RootDB: f.RootDB,
 		Config: f.Config,
 		Cities: func() ([]config.CityConfig, error) { return cmdutil.ResolveCities(f) },
+		Assets: exportpkg.EmbeddedAssets,
 	}
 
 	cmd := &cobra.Command{
@@ -94,7 +99,8 @@ func runExport(ctx context.Context, opts *Options) error {
 	}
 	// Before any DB or network work: a `go install` build has no WASM and
 	// cannot produce a working site (exportpkg.ErrNoWasm).
-	if err := exportpkg.RequireWasm(); err != nil {
+	assets, err := opts.Assets()
+	if err != nil {
 		return err
 	}
 
@@ -127,7 +133,7 @@ func runExport(ctx context.Context, opts *Options) error {
 
 	logs.From(ctx).Info("exporting static site", "output_dir", opts.OutputDir)
 
-	exporter := exportpkg.New(entries, cfg, opts.OutputDir, cfg.UnitSystem().String())
+	exporter := exportpkg.New(entries, cfg, opts.OutputDir, cfg.UnitSystem().String(), assets)
 	exporter.SetErrOut(ios.ErrOut)
 	if err := exporter.Run(ctx); err != nil {
 		return fmt.Errorf("export: %w", err)

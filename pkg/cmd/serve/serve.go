@@ -22,6 +22,10 @@ type Options struct {
 	Host      string
 	Port      int
 	ReadyFile string
+	// Assets loads the site-root browser files. NewCmd sets
+	// exportpkg.EmbeddedAssets, which fails with ErrNoWasm on a `go install`
+	// build; tests pass fakes.
+	Assets func() (*exportpkg.Assets, error)
 }
 
 func NewCmdServe(f *cmdutil.Factory, runF func(context.Context, *Options) error) *cobra.Command {
@@ -30,6 +34,7 @@ func NewCmdServe(f *cmdutil.Factory, runF func(context.Context, *Options) error)
 		RootDB: f.RootDB,
 		Config: f.Config,
 		Cities: func() ([]config.CityConfig, error) { return cmdutil.ResolveCities(f) },
+		Assets: exportpkg.EmbeddedAssets,
 	}
 
 	cmd := &cobra.Command{
@@ -74,7 +79,8 @@ func runServe(ctx context.Context, opts *Options) error {
 	}
 	// Before any DB or network work: a `go install` build has no WASM and
 	// cannot produce a working site (exportpkg.ErrNoWasm).
-	if err := exportpkg.RequireWasm(); err != nil {
+	assets, err := opts.Assets()
+	if err != nil {
 		return err
 	}
 
@@ -98,7 +104,7 @@ func runServe(ctx context.Context, opts *Options) error {
 		return err
 	}
 
-	srv := server.New(entries, opts.Host, opts.Port, opts.IO)
+	srv := server.New(entries, opts.Host, opts.Port, opts.IO, assets)
 	srv.ReadyFile = opts.ReadyFile
 	return srv.ListenAndServe(ctx)
 }

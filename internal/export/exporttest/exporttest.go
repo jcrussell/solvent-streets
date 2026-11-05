@@ -16,6 +16,20 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
+// AssetFiles returns small stand-ins for the site-root browser files, for
+// export.NewAssets. Unit tests use these instead of the real embedded WASM,
+// which only exists after `make wasm`; the real assets are exercised in
+// integration/. Each call returns fresh slices.
+func AssetFiles() map[string][]byte {
+	return map[string][]byte{
+		"pvmt.wasm":    []byte("\x00asm\x01\x00\x00\x00 fake forecast wasm"),
+		"wasm_exec.js": []byte("// fake wasm_exec.js\n"),
+		"app.js":       []byte("// fake app.js\n"),
+		"game.js":      []byte("// fake game.js\n"),
+		"selectors.js": []byte("// fake selectors.js\n"),
+	}
+}
+
 // CityName and Slug identify the fixture city.
 const (
 	CityName = "Golden City"

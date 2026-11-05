@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/export"
+	"github.com/jcrussell/solvent-streets/internal/export/exporttest"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
@@ -35,7 +37,7 @@ func TestNewCmdCheckSite_RunFInjection(t *testing.T) {
 
 func TestCheckSite_MissingDir(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
-	opts := &Options{IO: ios, Dir: filepath.Join(t.TempDir(), "nope")}
+	opts := &Options{IO: ios, Dir: filepath.Join(t.TempDir(), "nope"), Assets: testAssetsLoader(t)}
 	err := runCheckSite(context.Background(), opts)
 	if err == nil || !strings.Contains(err.Error(), "make site") {
 		t.Fatalf("want 'make site' error, got %v", err)
@@ -46,7 +48,7 @@ func TestCheckSite_MissingDir(t *testing.T) {
 func run(t *testing.T, dir string, strict bool) (string, error) {
 	t.Helper()
 	ios, _, out, _ := iostreams.Test()
-	opts := &Options{IO: ios, Dir: dir, Strict: strict}
+	opts := &Options{IO: ios, Dir: dir, Strict: strict, Assets: testAssetsLoader(t)}
 	err := runCheckSite(context.Background(), opts)
 	return out.String(), err
 }
@@ -71,7 +73,7 @@ func TestCheckSite_ValidSite(t *testing.T) {
 func TestCheckSite_CancelledContext(t *testing.T) {
 	dir := buildValidSite(t)
 	ios, _, out, _ := iostreams.Test()
-	opts := &Options{IO: ios, Dir: dir}
+	opts := &Options{IO: ios, Dir: dir, Assets: testAssetsLoader(t)}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -105,6 +107,26 @@ func TestCheckSite_TamperedWasm(t *testing.T) {
 	dir := buildValidSite(t)
 	writeFile(t, filepath.Join(dir, "pvmt.wasm"), "tampered")
 	assertFails(t, dir, "stale")
+}
+
+// TestCheckSite_BinaryWithoutWasm: a `go install` build has no WASM to
+// compare against, so the freshness check must fail with that reason rather
+// than call every asset stale.
+func TestCheckSite_BinaryWithoutWasm(t *testing.T) {
+	dir := buildValidSite(t)
+	ios, _, out, _ := iostreams.Test()
+	opts := &Options{IO: ios, Dir: dir, Assets: func() (*export.Assets, error) {
+		return nil, fmt.Errorf("load: %w", export.ErrNoWasm)
+	}}
+	if err := runCheckSite(context.Background(), opts); !errors.Is(err, cmdutil.ErrSilent) {
+		t.Fatalf("err = %v; want ErrSilent (a FAIL was reported)\n%s", err, out)
+	}
+	if !strings.Contains(out.String(), "FAIL  wasm: cannot check the site's assets") {
+		t.Errorf("want the no-WASM reason as the failure:\n%s", out)
+	}
+	if strings.Contains(out.String(), "stale") {
+		t.Errorf("a missing WASM must not be reported as stale assets:\n%s", out)
+	}
 }
 
 func TestCheckSite_HygieneHit(t *testing.T) {
@@ -359,6 +381,23 @@ func assertFails(t *testing.T, dir, want string) {
 
 // --- fixtures ---
 
+// testAssets is the fake asset set fixture sites carry and the checker
+// compares against, so no check-site test needs `make wasm`.
+func testAssets(t *testing.T) *export.Assets {
+	t.Helper()
+	a, err := export.NewAssets(exporttest.AssetFiles())
+	if err != nil {
+		t.Fatalf("NewAssets: %v", err)
+	}
+	return a
+}
+
+func testAssetsLoader(t *testing.T) func() (*export.Assets, error) {
+	t.Helper()
+	a := testAssets(t)
+	return func() (*export.Assets, error) { return a, nil }
+}
+
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -439,12 +478,9 @@ func buildValidSite(t *testing.T) string {
 	dir := t.TempDir()
 
 	// Root shared assets: copied from the embedded bytes so sha matches.
-	assets, err := export.EmbeddedSharedAssets()
-	if err != nil {
-		t.Fatalf("EmbeddedSharedAssets: %v (run make wasm)", err)
-	}
-	for name, data := range assets {
-		writeFile(t, filepath.Join(dir, name), string(data))
+	assets := testAssets(t)
+	for _, name := range assets.Names() {
+		writeFile(t, filepath.Join(dir, name), string(assets.Bytes(name)))
 	}
 	writeFile(t, filepath.Join(dir, "index.html"), `<html><body>landing</body></html>`)
 	if err := os.WriteFile(filepath.Join(dir, ".nojekyll"), nil, 0o644); err != nil {
@@ -471,12 +507,9 @@ func buildValidRootSite(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 
-	assets, err := export.EmbeddedSharedAssets()
-	if err != nil {
-		t.Fatalf("EmbeddedSharedAssets: %v (run make wasm)", err)
-	}
-	for name, data := range assets {
-		writeFile(t, filepath.Join(dir, name), string(data))
+	assets := testAssets(t)
+	for _, name := range assets.Names() {
+		writeFile(t, filepath.Join(dir, name), string(assets.Bytes(name)))
 	}
 	// Root index.html references WASM in the same directory (wasmPrefix empty),
 	// exactly as the consolidated dashboard does.
@@ -583,7 +616,7 @@ func TestCheckSite_InterruptedAfterFailStillReportsFailure(t *testing.T) {
 	}
 
 	ios, _, out, _ := iostreams.Test()
-	opts := &Options{IO: ios, Dir: dir}
+	opts := &Options{IO: ios, Dir: dir, Assets: testAssetsLoader(t)}
 	// Let the first check run (recording the FAIL), then cancel.
 	ctx := &cancelAfterNProbes{Context: context.Background(), after: 1}
 
@@ -615,7 +648,7 @@ func TestCheckSite_InterruptedWithNoFailuresStaysQuiet(t *testing.T) {
 	dir := buildValidSite(t)
 
 	ios, _, out, _ := iostreams.Test()
-	opts := &Options{IO: ios, Dir: dir}
+	opts := &Options{IO: ios, Dir: dir, Assets: testAssetsLoader(t)}
 	ctx := &cancelAfterNProbes{Context: context.Background(), after: 1}
 
 	err := runCheckSite(ctx, opts)

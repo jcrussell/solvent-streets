@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jcrussell/solvent-streets/internal/export"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 
@@ -23,11 +24,16 @@ type Options struct {
 	IO     *iostreams.IOStreams
 	Dir    string
 	Strict bool
+	// Assets loads the site-root browser files this binary would write, which
+	// the freshness check compares the tree's copies against.
+	// NewCmdCheckSite sets export.EmbeddedAssets; tests pass fakes.
+	Assets func() (*export.Assets, error)
 }
 
 func NewCmdCheckSite(f *cmdutil.Factory, runF func(context.Context, *Options) error) *cobra.Command {
 	opts := &Options{
-		IO: f.IOStreams,
+		IO:     f.IOStreams,
+		Assets: export.EmbeddedAssets,
 	}
 
 	cmd := &cobra.Command{
@@ -105,6 +111,7 @@ Exits non-zero if any check FAILs. With --strict, warnings fail too.`,
 
 func runCheckSite(ctx context.Context, opts *Options) error {
 	r := newRunner(opts.IO, opts.Strict)
+	r.assets = opts.Assets
 
 	st, err := discoverSite(opts.Dir)
 	if err != nil {
@@ -158,6 +165,7 @@ func runCheckSite(ctx context.Context, opts *Options) error {
 type runner struct {
 	io     *iostreams.IOStreams
 	strict bool
+	assets func() (*export.Assets, error) // see Options.Assets
 	pass   int
 	warn   int
 	fail   int

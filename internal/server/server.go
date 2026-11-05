@@ -20,6 +20,7 @@ import (
 
 type Server struct {
 	cities    []export.CityEntry
+	assets    *export.Assets // site-root browser files, routed at /<name>
 	host      string
 	port      int
 	ios       *iostreams.IOStreams
@@ -57,9 +58,12 @@ type Server struct {
 	Ready chan struct{}
 }
 
-func New(cities []export.CityEntry, host string, port int, ios *iostreams.IOStreams) *Server {
+// New returns a Server for cities that serves assets (export.EmbeddedAssets
+// in production) at the site root, as a static export lays them out.
+func New(cities []export.CityEntry, host string, port int, ios *iostreams.IOStreams, assets *export.Assets) *Server {
 	return &Server{
 		cities:        cities,
+		assets:        assets,
 		host:          host,
 		port:          port,
 		ios:           ios,
@@ -69,41 +73,9 @@ func New(cities []export.CityEntry, host string, port int, ios *iostreams.IOStre
 }
 
 func (s *Server) ListenAndServe(ctx context.Context) error {
-	mux := http.NewServeMux()
-
-	if len(s.cities) == 1 {
-		// Single-city mode: serve data at /data/{file} (backward compatible)
-		entry := s.cities[0]
-		mux.HandleFunc("GET /data/{file}", s.handleDataFile(entry))
-		mux.HandleFunc("GET /api/snapshots", s.handleSnapshotsList(entry))
-		mux.HandleFunc("GET /play", s.handleGame) // DATA_PREFIX='' → /data/<file>
-		mux.HandleFunc("GET /", s.handleIndex)
-	} else {
-		// Multi-city mode
-		mux.HandleFunc("GET /api/cities", s.handleCitiesList)
-		mux.HandleFunc("GET /api/cities/{slug}/snapshots", s.handleCitySnapshotsList)
-		mux.HandleFunc("GET /cities/{slug}/data/{file}", s.handleCityDataFile)
-		// /play renders per-city: the city comes from ?city=<slug> (the dropdown
-		// navigates there), defaulting to the first renderable city, and the page
-		// fetches its board under /cities/{slug}/data/. See handleGame.
-		mux.HandleFunc("GET /play", s.handleGame)
-		mux.HandleFunc("GET /", s.handleIndex)
-	}
-
-	// WASM assets (shared)
-	mux.HandleFunc("GET /wasm_exec.js", s.handleWasmExecJS)
-	mux.HandleFunc("GET /pvmt.wasm", s.handleForecastWasm)
-
-	// Application JS extracted from the templates (shared)
-	mux.HandleFunc("GET /app.js", s.handleAppJS)
-	mux.HandleFunc("GET /game.js", s.handleGameJS)
-	mux.HandleFunc("GET /selectors.js", s.handleSelectorsJS)
-
-	handler := recoveryMiddleware(nosniffMiddleware(mux), s.ios.ErrOut)
-
 	srv := &http.Server{
 		Addr:    net.JoinHostPort(s.host, strconv.Itoa(s.port)),
-		Handler: handler,
+		Handler: s.handler(),
 		// ReadHeaderTimeout bounds slowloris-style header dribbling
 		// independently of ReadTimeout; MaxHeaderBytes caps header size so
 		// a client cannot exhaust memory with unbounded headers. The cap has
@@ -155,6 +127,38 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		}
 		return nil
 	}
+}
+
+// handler builds the routes: data and page endpoints for the single- or
+// multi-city layout, plus the site-root assets.
+func (s *Server) handler() http.Handler {
+	mux := http.NewServeMux()
+
+	if len(s.cities) == 1 {
+		// Single-city mode: serve data at /data/{file} (backward compatible)
+		entry := s.cities[0]
+		mux.HandleFunc("GET /data/{file}", s.handleDataFile(entry))
+		mux.HandleFunc("GET /api/snapshots", s.handleSnapshotsList(entry))
+		mux.HandleFunc("GET /play", s.handleGame) // DATA_PREFIX='' → /data/<file>
+		mux.HandleFunc("GET /", s.handleIndex)
+	} else {
+		// Multi-city mode
+		mux.HandleFunc("GET /api/cities", s.handleCitiesList)
+		mux.HandleFunc("GET /api/cities/{slug}/snapshots", s.handleCitySnapshotsList)
+		mux.HandleFunc("GET /cities/{slug}/data/{file}", s.handleCityDataFile)
+		// /play renders per-city: the city comes from ?city=<slug> (the dropdown
+		// navigates there), defaulting to the first renderable city, and the page
+		// fetches its board under /cities/{slug}/data/. See handleGame.
+		mux.HandleFunc("GET /play", s.handleGame)
+		mux.HandleFunc("GET /", s.handleIndex)
+	}
+
+	// Site-root browser assets: the same list `pvmt export` writes.
+	for _, name := range s.assets.Names() {
+		mux.HandleFunc("GET /"+name, s.handleAsset(name))
+	}
+
+	return recoveryMiddleware(nosniffMiddleware(mux), s.ios.ErrOut)
 }
 
 // readyURL formats the listener address as a URL suitable for the

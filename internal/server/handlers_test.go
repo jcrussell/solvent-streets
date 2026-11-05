@@ -57,7 +57,7 @@ func TestHandleDataMetaJSON(t *testing.T) {
 		Slug:   cfg.Cities[0].Slug(),
 	}
 	ios, _, _, _ := iostreams.Test()
-	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios)
+	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios, testAssets(t))
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /data/{file}", srv.handleDataFile(entry))
 
@@ -111,7 +111,7 @@ func TestHandleIndex(t *testing.T) {
 		Slug:   cfg.Cities[0].Slug(),
 	}
 	ios, _, _, _ := iostreams.Test()
-	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios)
+	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios, testAssets(t))
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", srv.handleIndex)
 
@@ -179,7 +179,7 @@ func TestHandleIndex_ConcurrencyGuardsAndSnapshotState(t *testing.T) {
 		Slug:   cfg.Cities[0].Slug(),
 	}
 	ios, _, _, _ := iostreams.Test()
-	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios)
+	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios, testAssets(t))
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", srv.handleIndex)
 
@@ -240,7 +240,7 @@ func TestHandleGame(t *testing.T) {
 		Slug:   cfg.Cities[0].Slug(),
 	}
 	ios, _, _, _ := iostreams.Test()
-	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios)
+	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios, testAssets(t))
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /play", srv.handleGame)
 
@@ -336,7 +336,7 @@ func TestHandleGame_MultiCity(t *testing.T) {
 	}
 	slugA, slugB := entries[0].Slug, entries[1].Slug
 	ios, _, _, _ := iostreams.Test()
-	srv := New(entries, "127.0.0.1", 0, ios)
+	srv := New(entries, "127.0.0.1", 0, ios, testAssets(t))
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /play", srv.handleGame)
 
@@ -411,7 +411,7 @@ func TestHandleGame_MultiCity_BrokenCityFallback(t *testing.T) {
 	}
 	slugA, slugB := entries[0].Slug, entries[1].Slug
 	ios, _, _, _ := iostreams.Test()
-	srv := New(entries, "127.0.0.1", 0, ios)
+	srv := New(entries, "127.0.0.1", 0, ios, testAssets(t))
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /play", srv.handleGame)
 
@@ -470,7 +470,7 @@ func TestHandleSnapshots_SingleCity(t *testing.T) {
 		Config: cfg, City: cfg.Cities[0], Store: store, Slug: cfg.Cities[0].Slug(),
 	}
 	ios, _, _, _ := iostreams.Test()
-	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios)
+	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios, testAssets(t))
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/snapshots", srv.handleSnapshotsList(entry))
 
@@ -523,7 +523,7 @@ func TestHandleSnapshots_EmptyEmitsArrayNotNull(t *testing.T) {
 		Config: cfg, City: cfg.Cities[0], Store: store, Slug: cfg.Cities[0].Slug(),
 	}
 	ios, _, _, _ := iostreams.Test()
-	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios)
+	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios, testAssets(t))
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/snapshots", srv.handleSnapshotsList(entry))
 
@@ -560,7 +560,7 @@ func TestHandleSnapshots_MultiCity(t *testing.T) {
 		{Config: cfg, City: cfg.Cities[1], Store: storeB, Slug: cfg.Cities[1].Slug()},
 	}
 	ios, _, _, _ := iostreams.Test()
-	srv := New(entries, "127.0.0.1", 0, ios)
+	srv := New(entries, "127.0.0.1", 0, ios, testAssets(t))
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/cities/{slug}/snapshots", srv.handleCitySnapshotsList)
 
@@ -668,7 +668,7 @@ func TestDataFile_SnapshotParam(t *testing.T) {
 		Config: cfg, City: cfg.Cities[0], Store: root, Slug: cfg.Cities[0].Slug(),
 	}
 	ios, _, _, _ := iostreams.Test()
-	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios)
+	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios, testAssets(t))
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /data/{file}", srv.handleDataFile(entry))
 
@@ -770,7 +770,7 @@ func TestDataFile_SnapshotConfigMismatch(t *testing.T) {
 
 	entry := export.CityEntry{Config: cfg, City: cfg.Cities[0], Store: root, Slug: cfg.Cities[0].Slug()}
 	ios, _, _, _ := iostreams.Test()
-	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios)
+	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios, testAssets(t))
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /data/{file}", srv.handleDataFile(entry))
 
@@ -800,7 +800,7 @@ func TestDataFile_SnapshotConfigMismatch(t *testing.T) {
 
 func TestServeJSONCached_SingleFlight(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
-	srv := New(nil, "127.0.0.1", 0, ios)
+	srv := New(nil, "127.0.0.1", 0, ios, testAssets(t))
 
 	const goroutines = 32
 	var calls atomic.Int32
@@ -842,7 +842,7 @@ func TestServeJSONCached_SingleFlight(t *testing.T) {
 
 func TestServeJSONCached_ErrorEvicts(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
-	srv := New(nil, "127.0.0.1", 0, ios)
+	srv := New(nil, "127.0.0.1", 0, ios, testAssets(t))
 
 	var calls atomic.Int32
 	build := func() (any, error) {
@@ -903,7 +903,7 @@ func TestBuildForecasts_DBErrorEvicts(t *testing.T) {
 		Store:  failingStore,
 		Slug:   cfg.Cities[0].Slug(),
 	}
-	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios)
+	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios, testAssets(t))
 
 	w1 := httptest.NewRecorder()
 	srv.serveForecastJSON(w1, nil, entry, 0)
@@ -950,7 +950,7 @@ func TestServeHexGridGeoJSON_DBErrorEvicts(t *testing.T) {
 		Store:  failingStore,
 		Slug:   cfg.Cities[0].Slug(),
 	}
-	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios)
+	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios, testAssets(t))
 
 	w1 := httptest.NewRecorder()
 	srv.serveHexGridGeoJSON(w1, nil, entry, 0)
@@ -987,7 +987,7 @@ func TestServeScenariosJSON_DBErrorEvicts(t *testing.T) {
 	}
 	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Test City"}}}
 	entry := export.CityEntry{Config: cfg, City: cfg.Cities[0], Store: failingStore, Slug: cfg.Cities[0].Slug()}
-	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios)
+	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios, testAssets(t))
 
 	w1 := httptest.NewRecorder()
 	srv.serveScenariosJSON(w1, nil, entry, 0)
@@ -1023,7 +1023,7 @@ func TestServeScenariosJSON_NoRowsIsEmpty(t *testing.T) {
 	}
 	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Test City"}}}
 	entry := export.CityEntry{Config: cfg, City: cfg.Cities[0], Store: store, Slug: cfg.Cities[0].Slug()}
-	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios)
+	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios, testAssets(t))
 
 	w := httptest.NewRecorder()
 	srv.serveScenariosJSON(w, nil, entry, 0)
@@ -1059,7 +1059,7 @@ func TestRenderGame_TransientRecovers(t *testing.T) {
 	}
 	slugA, slugB := entries[0].Slug, entries[1].Slug
 	ios, _, _, _ := iostreams.Test()
-	srv := New(entries, "127.0.0.1", 0, ios)
+	srv := New(entries, "127.0.0.1", 0, ios, testAssets(t))
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /play", srv.handleGame)
 
@@ -1111,7 +1111,7 @@ func TestBuildIndexData_TransientCityErrorLoggedAndPropagated(t *testing.T) {
 		{Config: cfg, City: cfg.Cities[1], Store: storeB, Slug: cfg.Cities[1].Slug()},
 	}
 	ios, _, _, _ := iostreams.Test()
-	srv := New(entries, "127.0.0.1", 0, ios)
+	srv := New(entries, "127.0.0.1", 0, ios, testAssets(t))
 
 	// Rendering A's page runs the dropdown loop, which hits B's transient
 	// error → buildIndexData must return an error (propagated), not silently
@@ -1143,7 +1143,7 @@ func TestBuildIndexData_UnconfiguredCityLogged(t *testing.T) {
 		{Config: cfg, City: cfg.Cities[1], Store: storeB, Slug: cfg.Cities[1].Slug()},
 	}
 	ios, _, _, errOut := iostreams.Test()
-	srv := New(entries, "127.0.0.1", 0, ios)
+	srv := New(entries, "127.0.0.1", 0, ios, testAssets(t))
 
 	td, err := srv.buildIndexData(context.Background(), entries[0])
 	if err != nil {
@@ -1160,7 +1160,7 @@ func TestBuildIndexData_UnconfiguredCityLogged(t *testing.T) {
 
 func TestServeJSONCached_PanicEvicts(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
-	srv := New(nil, "127.0.0.1", 0, ios)
+	srv := New(nil, "127.0.0.1", 0, ios, testAssets(t))
 
 	var calls atomic.Int32
 	build := func() (any, error) { //nolint:unparam // signature must match serveJSONCached parameter
@@ -1213,7 +1213,7 @@ func TestHandleCitiesList_SchemaParity(t *testing.T) {
 		{Config: cfg, City: cfg.Cities[0], Store: store, Slug: cfg.Cities[0].Slug()},
 	}
 	ios, _, _, _ := iostreams.Test()
-	srv := New(entries, "127.0.0.1", 0, ios)
+	srv := New(entries, "127.0.0.1", 0, ios, testAssets(t))
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/cities", srv.handleCitiesList)
 
@@ -1259,7 +1259,7 @@ func TestHandleCitiesList_DerivesStateTag(t *testing.T) {
 		{Config: cfg, City: cfg.Cities[0], Store: store, Slug: cfg.Cities[0].Slug()},
 	}
 	ios, _, _, _ := iostreams.Test()
-	srv := New(entries, "127.0.0.1", 0, ios)
+	srv := New(entries, "127.0.0.1", 0, ios, testAssets(t))
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/cities", srv.handleCitiesList)
 
@@ -1297,7 +1297,7 @@ func TestHandleCitiesList_Cached(t *testing.T) {
 		{Config: cfg, City: cfg.Cities[1], Store: store, Slug: cfg.Cities[1].Slug()},
 	}
 	ios, _, _, _ := iostreams.Test()
-	srv := New(entries, "127.0.0.1", 0, ios)
+	srv := New(entries, "127.0.0.1", 0, ios, testAssets(t))
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/cities", srv.handleCitiesList)
 
@@ -1332,54 +1332,13 @@ func TestHandleCitiesList_Cached(t *testing.T) {
 	}
 }
 
-// TestWasmAssets_CacheControl verifies the embedded WASM/JS handlers set the
-// same Cache-Control as the JSON endpoints so browsers stop re-downloading the
-// immutable-per-binary assets on every page load.
-func TestWasmAssets_CacheControl(t *testing.T) {
-	ios, _, _, _ := iostreams.Test()
-	srv := New(nil, "127.0.0.1", 0, ios)
-
-	cases := []struct {
-		name        string
-		handler     http.HandlerFunc
-		wantType    string
-		wantNonZero bool
-	}{
-		{"pvmt.wasm", srv.handleForecastWasm, "application/wasm", true},
-		{"wasm_exec.js", srv.handleWasmExecJS, "application/javascript", true},
-		{"app.js", srv.handleAppJS, "application/javascript", true},
-		{"game.js", srv.handleGameJS, "application/javascript", true},
-		{"selectors.js", srv.handleSelectorsJS, "application/javascript", true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			req, _ := http.NewRequestWithContext(context.Background(), "GET", "/"+tc.name, nil)
-			w := httptest.NewRecorder()
-			tc.handler(w, req)
-
-			if w.Code != http.StatusOK {
-				t.Fatalf("expected 200, got %d", w.Code)
-			}
-			if got := w.Header().Get("Cache-Control"); got != "public, max-age=300" {
-				t.Errorf("Cache-Control = %q, want %q", got, "public, max-age=300")
-			}
-			if got := w.Header().Get("Content-Type"); got != tc.wantType {
-				t.Errorf("Content-Type = %q, want %q", got, tc.wantType)
-			}
-			if tc.wantNonZero && w.Body.Len() == 0 {
-				t.Errorf("expected non-empty body")
-			}
-		})
-	}
-}
-
 // TestHttpErr_HidesInternalMessage pins the policy that internal error
 // strings (DB paths, file paths, wrapped chains) never reach the HTTP
 // response body — they are logged to ErrOut and the client sees only the
 // generic status text. Regression guard for solvent-streets-fvzj.
 func TestHttpErr_HidesInternalMessage(t *testing.T) {
 	ios, _, _, errOut := iostreams.Test()
-	srv := New(nil, "127.0.0.1", 0, ios)
+	srv := New(nil, "127.0.0.1", 0, ios, testAssets(t))
 
 	internal := errors.New("sqlite: failed to open /var/lib/pvmt/pvmt.db: locked")
 	w := httptest.NewRecorder()
@@ -1416,7 +1375,7 @@ func boundaryTestEntry(gj string, getErr error) export.CityEntry {
 func getBoundary(t *testing.T, entry export.CityEntry) *httptest.ResponseRecorder {
 	t.Helper()
 	ios, _, _, _ := iostreams.Test()
-	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios)
+	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios, testAssets(t))
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /data/{file}", srv.handleDataFile(entry))
 	req, _ := http.NewRequestWithContext(context.Background(), "GET", "/data/boundary.geojson", nil)
@@ -1534,7 +1493,7 @@ func TestServeHexGridGeoJSON_EmptyFCCarriesVersion(t *testing.T) {
 		},
 	}
 	ios, _, _, _ := iostreams.Test()
-	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios)
+	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios, testAssets(t))
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /data/{file}", srv.handleDataFile(entry))
 	req, _ := http.NewRequestWithContext(context.Background(), "GET", "/data/hexgrid.geojson", nil)
@@ -1593,7 +1552,7 @@ func TestDataFile_HexEdgeMismatch(t *testing.T) {
 
 	hit := func(entry export.CityEntry, url string) *httptest.ResponseRecorder {
 		ios, _, _, _ := iostreams.Test()
-		srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios)
+		srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios, testAssets(t))
 		mux := http.NewServeMux()
 		mux.HandleFunc("GET /data/{file}", srv.handleDataFile(entry))
 		req, _ := http.NewRequestWithContext(context.Background(), "GET", url, nil)

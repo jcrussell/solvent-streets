@@ -101,7 +101,7 @@ func TestRunMultiCity_WritesNojekyll(t *testing.T) {
 		exportTestEntry(cfg, "Beta", "beta", exportBoundaryB, nil),
 	}
 	dir := t.TempDir()
-	if err := New(entries, cfg, dir, "metric").Run(context.Background()); err != nil {
+	if err := New(entries, cfg, dir, "metric", testAssets(t)).Run(context.Background()); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	info, err := os.Stat(filepath.Join(dir, ".nojekyll"))
@@ -126,7 +126,7 @@ func TestRunSingleCity_ReusesExportedMetaAndSeed(t *testing.T) {
 	})
 
 	dir := t.TempDir()
-	e := New([]CityEntry{entry}, cfg, dir, "metric")
+	e := New([]CityEntry{entry}, cfg, dir, "metric", testAssets(t))
 	if err := e.Run(context.Background()); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestRunSingleCity_RendersMaterialsTab(t *testing.T) {
 	})
 
 	dir := t.TempDir()
-	if err := New([]CityEntry{entry}, cfg, dir, "metric").Run(context.Background()); err != nil {
+	if err := New([]CityEntry{entry}, cfg, dir, "metric", testAssets(t)).Run(context.Background()); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
@@ -237,7 +237,7 @@ func TestRunMultiCity_FailureLeavesRecoverableDir(t *testing.T) {
 	bad := CityEntry{Config: cfg, City: config.CityConfig{Name: "Bad"}, Store: badStore, Slug: "bad"}
 
 	dir := t.TempDir()
-	err := New([]CityEntry{good, bad}, cfg, dir, "metric").Run(context.Background())
+	err := New([]CityEntry{good, bad}, cfg, dir, "metric", testAssets(t)).Run(context.Background())
 	if err == nil {
 		t.Fatal("expected export to fail on the mismatched-snapshot city")
 	}
@@ -272,7 +272,7 @@ func TestRunMultiCity_AlphabetisesCitySelector(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	e := New(entries, cfg, dir, "metric")
+	e := New(entries, cfg, dir, "metric", testAssets(t))
 	if err := e.Run(context.Background()); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -316,18 +316,14 @@ func TestRunMultiCity_IndexAlignsDataPrefixToSelector(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	if err := New(entries, cfg, dir, "metric").Run(context.Background()); err != nil {
+	if err := New(entries, cfg, dir, "metric", testAssets(t)).Run(context.Background()); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
-	// The selector-derived DATA_PREFIX alignment lives in the extracted app.js
-	// (written alongside index.html), not inline in the page.
-	appJS, err := os.ReadFile(filepath.Join(dir, "app.js"))
-	if err != nil {
-		t.Fatalf("read app.js: %v", err)
-	}
+	// The selector-derived DATA_PREFIX alignment lives in the extracted app.js,
+	// not inline in the page.
 	const want = "DATA_PREFIX = 'cities/' + sel.value + '/'"
-	if !strings.Contains(string(appJS), want) {
+	if !strings.Contains(string(AppJS()), want) {
 		t.Errorf("app.js missing selector-derived DATA_PREFIX alignment %q", want)
 	}
 }
@@ -387,7 +383,7 @@ func TestRunSingleCity_WritesPlayPage(t *testing.T) {
 	entry := roadEntry(t, cfg, "Solo City", "solo-city", exportBoundaryA)
 
 	dir := t.TempDir()
-	if err := New([]CityEntry{entry}, cfg, dir, "metric").Run(context.Background()); err != nil {
+	if err := New([]CityEntry{entry}, cfg, dir, "metric", testAssets(t)).Run(context.Background()); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
@@ -424,7 +420,7 @@ func TestRunMultiCity_WritesPlayPageAndHexes(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	if err := New(entries, cfg, dir, "metric").Run(context.Background()); err != nil {
+	if err := New(entries, cfg, dir, "metric", testAssets(t)).Run(context.Background()); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
@@ -577,7 +573,7 @@ func TestExport_DataFilesAreMinified(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	if err := New(entries, cfg, dir, "metric").Run(context.Background()); err != nil {
+	if err := New(entries, cfg, dir, "metric", testAssets(t)).Run(context.Background()); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
@@ -640,7 +636,7 @@ func TestExportOneCity_SkippedCityLeavesNoDirectory(t *testing.T) {
 	ghost := entry("ghost-city")
 	ghost.Store.(*dbtest.MockStore).GetBoundaryFunc = func(context.Context) (string, error) { return "", nil }
 
-	e := New([]CityEntry{kept, ghost}, cfg, outDir, "imperial")
+	e := New([]CityEntry{kept, ghost}, cfg, outDir, "imperial", testAssets(t))
 
 	if _, ok, err := e.exportOneCity(ctx, kept); err != nil || !ok {
 		t.Fatalf("exportOneCity(kept) = ok %v, err %v; want ok true, nil", ok, err)

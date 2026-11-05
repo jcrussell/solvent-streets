@@ -79,7 +79,7 @@ func TestServer_ReadyFile(t *testing.T) {
 	readyPath := filepath.Join(dir, "ready.txt")
 
 	ios, _, _, _ := iostreams.Test()
-	srv := New(nil, "127.0.0.1", port, ios)
+	srv := New(nil, "127.0.0.1", port, ios, testAssets(t))
 	srv.ReadyFile = readyPath
 	srv.Ready = make(chan struct{})
 
@@ -128,7 +128,7 @@ func TestServer_ReadyFile_Empty(t *testing.T) {
 
 	dir := t.TempDir()
 	ios, _, _, _ := iostreams.Test()
-	srv := New(nil, "127.0.0.1", port, ios)
+	srv := New(nil, "127.0.0.1", port, ios, testAssets(t))
 	// Leave ReadyFile zero-valued.
 	srv.Ready = make(chan struct{})
 
@@ -188,7 +188,7 @@ func TestServer_RejectsOversizedHeaders(t *testing.T) {
 	_ = probe.Close()
 
 	ios, _, _, _ := iostreams.Test()
-	srv := New(nil, "127.0.0.1", port, ios)
+	srv := New(nil, "127.0.0.1", port, ios, testAssets(t))
 	srv.Ready = make(chan struct{})
 
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)

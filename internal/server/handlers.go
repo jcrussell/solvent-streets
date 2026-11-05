@@ -310,54 +310,21 @@ func (s *Server) httpErr(w http.ResponseWriter, err error, code int) {
 	http.Error(w, http.StatusText(code), code)
 }
 
-// serveEmbeddedJS writes an embedded, immutable-per-binary JavaScript asset with
-// the same Cache-Control the JSON endpoints use (serveJSONCached), so the browser
-// stops re-fetching it on every page load under the restart-after-changes invariant.
-func (s *Server) serveEmbeddedJS(w http.ResponseWriter, js []byte) {
-	w.Header().Set("Content-Type", "application/javascript")
-	w.Header().Set("Cache-Control", "public, max-age=300")
-	w.Write(js)
-}
-
-func (s *Server) handleWasmExecJS(w http.ResponseWriter, _ *http.Request) {
-	pair, err := export.WasmAssets()
-	if err != nil {
-		// Unreachable via `pvmt serve`, which refuses to start without the
-		// WASM (export.RequireWasm); kept so the handler never serves empty.
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
-		return
+// handleAsset serves one site-root browser asset. They are immutable for the
+// server's lifetime, so they get the same Cache-Control as the JSON endpoints
+// (serveJSONCached): the browser stops re-fetching them, the ~3.4 MB
+// pvmt.wasm above all, under the restart-after-changes invariant.
+func (s *Server) handleAsset(name string) http.HandlerFunc {
+	contentType := "application/javascript"
+	if strings.HasSuffix(name, ".wasm") {
+		contentType = "application/wasm"
 	}
-	s.serveEmbeddedJS(w, pair.ExecJS)
-}
-
-// handleAppJS and handleGameJS serve the application JS extracted from the index
-// and play templates; the pages load them as external <script src>.
-func (s *Server) handleAppJS(w http.ResponseWriter, _ *http.Request) {
-	s.serveEmbeddedJS(w, export.AppJS())
-}
-
-func (s *Server) handleGameJS(w http.ResponseWriter, _ *http.Request) {
-	s.serveEmbeddedJS(w, export.GameJS())
-}
-
-// handleSelectorsJS serves the selector logic both pages load before their
-// page script.
-func (s *Server) handleSelectorsJS(w http.ResponseWriter, _ *http.Request) {
-	s.serveEmbeddedJS(w, export.SelectorsJS())
-}
-
-func (s *Server) handleForecastWasm(w http.ResponseWriter, _ *http.Request) {
-	pair, err := export.WasmAssets()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
-		return
+	body := s.assets.Bytes(name)
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Cache-Control", "public, max-age=300")
+		w.Write(body)
 	}
-	w.Header().Set("Content-Type", "application/wasm")
-	// Embedded, immutable-per-binary asset (the largest the server serves):
-	// match serveJSONCached's Cache-Control so the 3.4 MB binary isn't
-	// re-downloaded on every page load.
-	w.Header().Set("Cache-Control", "public, max-age=300")
-	w.Write(pair.Wasm)
 }
 
 // handleDataFile returns a handler for /data/{file} for a specific city entry.

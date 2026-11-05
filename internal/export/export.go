@@ -34,6 +34,7 @@ type Exporter struct {
 	wasmPrefix string    // relative path prefix for WASM assets in generated HTML
 	skipWasm   bool      // skip writing WASM files (caller handles shared copy)
 	errOut     io.Writer // progress/warning sink; nil means discard (byob-iostreams.3)
+	assets     *Assets   // site-root browser files written beside index.html
 }
 
 // validWasmPrefix matches safe relative path prefixes (alphanumeric, dots, slashes, hyphens, underscores).
@@ -67,8 +68,10 @@ func (e *Exporter) warnOut() io.Writer {
 	return e.errOut
 }
 
-func New(entries []CityEntry, cfg *config.Config, outputDir, unitSystem string) *Exporter {
-	return &Exporter{entries: entries, cfg: cfg, outputDir: outputDir, unitSystem: unitSystem}
+// New returns an Exporter that writes entries' site into outputDir, with
+// assets (EmbeddedAssets in production) at its root.
+func New(entries []CityEntry, cfg *config.Config, outputDir, unitSystem string, assets *Assets) *Exporter {
+	return &Exporter{entries: entries, cfg: cfg, outputDir: outputDir, unitSystem: unitSystem, assets: assets}
 }
 
 func (e *Exporter) Run(ctx context.Context) error {
@@ -101,7 +104,7 @@ func (e *Exporter) runSingleCity(ctx context.Context) error {
 
 	// Write WASM assets (skip when caller provides a shared copy)
 	if !e.skipWasm {
-		if err := e.writeWasmAssets(e.outputDir); err != nil {
+		if err := e.assets.WriteTo(e.outputDir); err != nil {
 			return err
 		}
 	}
@@ -198,7 +201,7 @@ func (e *Exporter) runMultiCity(ctx context.Context) error {
 
 	// Write WASM assets (skip when caller provides a shared copy)
 	if !e.skipWasm {
-		if err := e.writeWasmAssets(e.outputDir); err != nil {
+		if err := e.assets.WriteTo(e.outputDir); err != nil {
 			return err
 		}
 	}
@@ -529,10 +532,6 @@ func (e *Exporter) writeNojekyll() error {
 		return fmt.Errorf("write .nojekyll: %w", err)
 	}
 	return nil
-}
-
-func (e *Exporter) writeWasmAssets(dir string) error {
-	return WriteSharedWasmAssets(dir)
 }
 
 func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolvedTOML string, cities []CityInfo) error {

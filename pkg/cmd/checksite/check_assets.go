@@ -8,29 +8,31 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-
-	"github.com/jcrussell/solvent-streets/internal/export"
 )
 
-// checkWasmFreshness compares the site-root WASM assets against the copies
-// embedded in this binary. A mismatch means the site was built by a different
-// (older) binary and must be regenerated.
+// checkWasmFreshness compares the site-root browser assets against the
+// copies this binary would write. A mismatch means the site was built by a
+// different (older) binary and must be regenerated.
 func (r *runner) checkWasmFreshness(s *site) {
-	assets, err := export.EmbeddedSharedAssets()
+	if r.assets == nil {
+		r.failf("wasm: no assets to compare the site's copies against")
+		return
+	}
+	assets, err := r.assets()
 	if err != nil {
 		// A binary without the WASM cannot vouch for a site's copy; say why
 		// rather than reporting every asset as stale.
 		r.failf("wasm: cannot check the site's assets: %v (build pvmt with `make build`)", err)
 		return
 	}
-	for name, embedded := range assets {
+	for _, name := range assets.Names() {
 		path := filepath.Join(s.dir, name)
 		onDisk, err := os.ReadFile(path)
 		if err != nil {
 			r.failf("wasm: cannot read %s: %v", name, err)
 			continue
 		}
-		if sha256.Sum256(onDisk) == sha256.Sum256(embedded) {
+		if sha256.Sum256(onDisk) == sha256.Sum256(assets.Bytes(name)) {
 			r.passf("wasm: %s matches this binary's embedded copy", name)
 		} else {
 			r.failf("wasm: %s is stale vs this binary's embedded copy — rebuild with make site", name)
