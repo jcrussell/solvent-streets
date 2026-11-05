@@ -113,9 +113,13 @@ linters:
       - linters: [bodyclose, gocognit, nestif, dupl, goconst, noctx, usestdlibvars, fatcontext, forcetypeassert, gosec, perfsprint, wastedassign, nakedret, tparallel]
         path: "_test\\.go$"
       # SA5011 in tests: the guard is `if x == nil { t.Fatal(...) }`, which
-      # ends the goroutine via runtime.Goexit. staticcheck's nil-flow analysis
-      # does not model that, so it reads the guard as proof x may be nil at the
-      # deref below. The pattern is correct and idiomatic; the finding is not.
+      # ends the goroutine via runtime.Goexit. staticcheck does model
+      # t.Fatal as noreturn, but under golangci-lint that model is not
+      # reliably applied: with this exclusion removed (2026-11-05,
+      # solvent-streets-cb68) consecutive full runs flagged a different 2-3
+      # of the ~120 such guards each time, and a staticcheck-only run
+      # flagged none. A blanket exclusion is the price of a deterministic
+      # gate; it does hide genuine nil-deref-after-t.Errorf bugs in tests.
       - linters: [staticcheck]
         text: "SA5011"
         path: "_test\\.go$"
