@@ -91,7 +91,6 @@ type TemplateData struct {
 	// per-city and uses it to emit DATA_PREFIX ('cities/<slug>/') and pre-select
 	// the city dropdown; the index ignores it (it switches cities client-side).
 	ActiveSlug      string
-	WasmPrefix      string // path prefix for WASM assets (e.g. "../"); empty = same directory
 	MethodologyHTML template.HTML
 	// IsLiveServer is true when rendered by pvmt serve; false for static
 	// export. Gates server-only UI (e.g. the snapshot picker) that depends
@@ -238,7 +237,6 @@ func (d TemplateData) IndexConfigJSON() template.JS {
 		LayerColors   json.RawMessage  `json:"layerColors"`
 		UnitSystem    string           `json:"unitSystem"`
 		ForecastSeed  json.RawMessage  `json:"forecastSeed"`
-		WasmPrefix    string           `json:"wasmPrefix"`
 		HexMetrics    []hexmetric.Spec `json:"hexMetrics"`
 	}{
 		Cities:        jsCities(d.Cities),
@@ -247,7 +245,6 @@ func (d TemplateData) IndexConfigJSON() template.JS {
 		LayerColors:   rawOrNull(d.LayerColors),
 		UnitSystem:    d.UnitSystem,
 		ForecastSeed:  rawOrNull(d.ForecastSeed),
-		WasmPrefix:    d.WasmPrefix,
 		// The derived "Color by" metrics (coverage, area, spaces, est. cost):
 		// static registry data, so every city offers them with or without
 		// a hex-metrics.json.
@@ -281,7 +278,6 @@ func (d TemplateData) GameConfigJSON() template.JS {
 		DataPrefix    string           `json:"dataPrefix"`
 		MapHref       string           `json:"mapHref"`
 		BandCount     int              `json:"bandCount"`
-		WasmPrefix    string           `json:"wasmPrefix"`
 	}{
 		Cities:        jsCities(d.Cities),
 		TagDimensions: jsTagDimensions(d.TagDimensions),
@@ -290,7 +286,6 @@ func (d TemplateData) GameConfigJSON() template.JS {
 		DataPrefix:    dataPrefix,
 		MapHref:       mapHref,
 		BandCount:     d.BandCount(),
-		WasmPrefix:    d.WasmPrefix,
 	}
 	data, _ := json.Marshal(cfg)
 	return template.JS(data)

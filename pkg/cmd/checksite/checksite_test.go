@@ -511,7 +511,7 @@ func buildValidRootSite(t *testing.T) string {
 	for _, name := range assets.Names() {
 		writeFile(t, filepath.Join(dir, name), string(assets.Bytes(name)))
 	}
-	// Root index.html references WASM in the same directory (wasmPrefix empty),
+	// Root index.html references WASM in the same directory,
 	// exactly as the consolidated dashboard does.
 	writeFile(t, filepath.Join(dir, "index.html"),
 		`<html><head><script src="wasm_exec.js"></script>`+

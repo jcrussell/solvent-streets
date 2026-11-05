@@ -91,7 +91,6 @@ interface PvmtConfig {
   dataPrefix?: string;
   mapHref?: string;
   bandCount?: number;
-  wasmPrefix: string;
   forecastSeed: any;
 }
 

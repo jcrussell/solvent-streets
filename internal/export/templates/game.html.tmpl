@@ -242,9 +242,9 @@
     <div id="banner"></div>
 
     <!-- Shared with the index page; mounted once on the server (do not duplicate). -->
-    <script src="{{.WasmPrefix}}wasm_exec.js"></script>
+    <script src="wasm_exec.js"></script>
     <script>window.PVMT_CONFIG = {{ .GameConfigJSON }};</script>
-    <script src="{{.WasmPrefix}}selectors.js"></script>
-    <script src="{{.WasmPrefix}}game.js"></script>
+    <script src="selectors.js"></script>
+    <script src="game.js"></script>
 </body>
 </html>

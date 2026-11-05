@@ -725,7 +725,7 @@
 
         if (typeof WebAssembly !== 'undefined' && typeof Go !== 'undefined') {
             const go = new Go();
-            WebAssembly.instantiateStreaming(fetch(PVMT_CONFIG.wasmPrefix + 'pvmt.wasm'), go.importObject)
+            WebAssembly.instantiateStreaming(fetch('pvmt.wasm'), go.importObject)
                 .then(result => { go.run(result.instance); onWasmReady(); })
                 .catch(err => showError('forecast WASM', err.message || String(err)));
         } else {

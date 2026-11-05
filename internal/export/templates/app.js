@@ -3946,10 +3946,10 @@
         // Load WASM
         if (typeof WebAssembly !== 'undefined') {
             const script = document.createElement('script');
-            script.src = PVMT_CONFIG.wasmPrefix + 'wasm_exec.js';
+            script.src = 'wasm_exec.js';
             script.onload = function() {
                 const go = new Go();
-                WebAssembly.instantiateStreaming(fetch(PVMT_CONFIG.wasmPrefix + 'pvmt.wasm'), go.importObject)
+                WebAssembly.instantiateStreaming(fetch('pvmt.wasm'), go.importObject)
                     .then(result => { go.run(result.instance); onWasmReady(); })
                     .catch(err => {
                         console.warn('WASM load failed:', err);

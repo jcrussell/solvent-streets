@@ -11,7 +11,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -31,29 +30,9 @@ type Exporter struct {
 	cfg        *config.Config
 	outputDir  string
 	unitSystem string
-	wasmPrefix string    // relative path prefix for WASM assets in generated HTML
-	skipWasm   bool      // skip writing WASM files (caller handles shared copy)
 	errOut     io.Writer // progress/warning sink; nil means discard (byob-iostreams.3)
 	assets     *Assets   // site-root browser files written beside index.html
 }
-
-// validWasmPrefix matches safe relative path prefixes (alphanumeric, dots, slashes, hyphens, underscores).
-var validWasmPrefix = regexp.MustCompile(`^[a-zA-Z0-9_./-]*$`)
-
-// SetWasmPrefix sets the relative path prefix for WASM asset references in
-// generated HTML (e.g. "../" when WASM is served from a parent directory).
-// The prefix must contain only safe path characters.
-func (e *Exporter) SetWasmPrefix(prefix string) error {
-	if !validWasmPrefix.MatchString(prefix) {
-		return fmt.Errorf("invalid WASM prefix %q: must match %s", prefix, validWasmPrefix)
-	}
-	e.wasmPrefix = prefix
-	return nil
-}
-
-// SetSkipWasm controls whether the exporter writes WASM files. Set to true
-// when the caller writes a single shared copy at a parent directory.
-func (e *Exporter) SetSkipWasm(skip bool) { e.skipWasm = skip }
 
 // SetErrOut routes the exporter's progress and warning output (chatter, not
 // data — byob-iostreams.3). Unset, warnings are discarded.
@@ -102,11 +81,8 @@ func (e *Exporter) runSingleCity(ctx context.Context) error {
 		return err
 	}
 
-	// Write WASM assets (skip when caller provides a shared copy)
-	if !e.skipWasm {
-		if err := e.assets.WriteTo(e.outputDir); err != nil {
-			return err
-		}
+	if err := e.assets.WriteTo(e.outputDir); err != nil {
+		return err
 	}
 
 	// Read raw TOML and build resolved version for Config tab
@@ -195,11 +171,8 @@ func (e *Exporter) runMultiCity(ctx context.Context) error {
 		return fmt.Errorf("write cities.json: %w", err)
 	}
 
-	// Write WASM assets (skip when caller provides a shared copy)
-	if !e.skipWasm {
-		if err := e.assets.WriteTo(e.outputDir); err != nil {
-			return err
-		}
+	if err := e.assets.WriteTo(e.outputDir); err != nil {
+		return err
 	}
 
 	// Render the dashboard index: aggregated meta and forecast seed across all
@@ -554,7 +527,6 @@ func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolved
 		UnitSystem:      e.unitSystem,
 		Cities:          cities,
 		TagDimensions:   GroupCitiesByDimension(cities),
-		WasmPrefix:      e.wasmPrefix,
 		MethodologyHTML: methodology,
 		GeneratedDate:   date,
 		BuildVersion:    ver,
