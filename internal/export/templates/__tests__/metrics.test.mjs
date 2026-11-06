@@ -93,7 +93,7 @@ test('selecting a metric paints discrete bands guarded for missing values, redra
   assert.ok(get('map').__sources.has('metric-points'), 'the points layer source must exist for a metric with points');
   assert.ok(get('map').__layers.has('metric-points'));
 
-  win.selectHexMetric('coverage'); // the pre-registry key still resolves
+  win.selectHexMetric('coverage_share');
   assert.equal(plain(win.hexFillColor())[2][0], 'interpolate');
   assert.equal(get('map').__sources.has('metric-points'), false, 'switching back to coverage drops the points layer');
   assert.equal($$('#legend .legend-labels span')[0].textContent, '0%');

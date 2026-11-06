@@ -42,12 +42,13 @@ test('normalizeTag prefixes bare labels with the default dimension', () => {
   assert.equal(S.dimensionOf('state:CA'), 'state');
 });
 
-test('parseTags accepts normalized and legacy bare ?tag= values and ignores unknown ones', () => {
+test('parseTags accepts dim:value ?tag= values and ignores unknown or unprefixed ones', () => {
   const { S } = loadSelectors();
-  const p = new URLSearchParams('tag=group:Bay%20Area&tag=state:TX&tag=state:ZZ&tag=Nope');
+  const p = new URLSearchParams('tag=group:Bay%20Area&tag=state:TX&tag=state:ZZ&tag=group:Nope');
   assert.deepEqual(plain(S.parseTags(p, dims)), { group: 'Bay Area', state: 'state:TX' });
-  assert.deepEqual(plain(S.parseTags(new URLSearchParams('tag=Top%2050'), dims)), { group: 'Top 50' },
-    'a legacy bare label must resolve to the default dimension');
+  assert.deepEqual(plain(S.parseTags(new URLSearchParams('tag=group:Top%2050'), dims)), { group: 'Top 50' });
+  assert.deepEqual(plain(S.parseTags(new URLSearchParams('tag=Top%2050'), dims)), {},
+    'a value without its dimension prefix is ignored');
   assert.deepEqual(plain(S.parseTags(new URLSearchParams(''), dims)), {});
   assert.deepEqual(plain(S.parseTags(new URLSearchParams('tag=x'), undefined)), {});
   // A dimension with a single value renders no filter, so a tag in it is

@@ -73,10 +73,10 @@ test('tag filters round-trip through the URL on every tab', async () => {
   assert.deepEqual(plain(win.selectedTags), { group: 'Metro', state: 'state:CA' });
 });
 
-test('a legacy bare ?tag= is read as the default dimension and narrows the selector', async () => {
+test('a ?tag= in the default dimension narrows the selector', async () => {
   const { win, $, flush } = load({
     data: fullData,
-    url: 'https://example.test/index.html?tag=Metro',
+    url: 'https://example.test/index.html?tag=group:Metro',
   });
   await flush();
 

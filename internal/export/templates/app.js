@@ -163,12 +163,6 @@
         // without pavement rows too) so a stored metric can paint them.
         /** @type {Record<string, any>} */
         var hexGeomById = {};
-        // normalizeMetricKey maps the pre-registry 'coverage' key (old shared
-        // links) onto its registry key.
-        function normalizeMetricKey(key) {
-            return key === 'coverage' ? DEFAULT_METRIC : key;
-        }
-
         // Active tag filters: {dimension: configTag}, empty means all cities.
         // They narrow the city selector on every tab and scope Compare /
         // Aggregate. Declared here (alongside the other tab guards) so a deep
@@ -237,7 +231,7 @@
             }
             // The metric list arrives with the city's data; keep the requested
             // key and let loadCityData fall back to coverage if it is absent.
-            if (init.metric) hexMetric = normalizeMetricKey(init.metric);
+            if (init.metric) hexMetric = init.metric;
             Router.replace();
         })();
 
@@ -300,7 +294,7 @@
             // the new city's file arrives — so set the key directly, as the
             // deep-link path does; selectHexMetric would see an empty map and
             // collapse to coverage. Only a same-city entry repaints in place.
-            const targetMetric = normalizeMetricKey(s.metric || DEFAULT_METRIC);
+            const targetMetric = s.metric || DEFAULT_METRIC;
             if (cityChanged) hexMetric = targetMetric;
             else if (targetMetric !== hexMetric) selectHexMetric(targetMetric, { push: false });
         });
@@ -1385,8 +1379,7 @@
         // same blended source, redraws the legend and the points layer, and
         // records the choice in the URL (counterpart of selectCity/selectScope).
         function selectHexMetric(key, opts) {
-            const k = normalizeMetricKey(key);
-            hexMetric = (k && metricAvailable(k)) ? k : DEFAULT_METRIC;
+            hexMetric = (key && metricAvailable(key)) ? key : DEFAULT_METRIC;
             populateMetricSelect();
             const src = map.getSource('hexgrid');
             if (src) src.setData(buildBlendedHexFC());

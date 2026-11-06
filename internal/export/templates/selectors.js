@@ -8,10 +8,9 @@
 // tagDimensions payload it consumes).
 //
 // Tag forms. A city's tags are in CONFIG form — "Bay Area" for the default
-// "group" dimension, "state:CA" for any other. The URL carries the NORMALIZED
-// form, always "dim:value", so ?tag=group:Bay%20Area and the legacy bare
-// ?tag=Bay%20Area both resolve to the same filter. The selected-filter map
-// passed between these functions is {dim: configTag}.
+// "group" dimension, "state:CA" for any other. The URL carries only the
+// NORMALIZED form, always "dim:value" (?tag=group:Bay%20Area). The
+// selected-filter map passed between these functions is {dim: configTag}.
 window.PvmtSelectors = (function () {
     'use strict';
 
@@ -35,9 +34,10 @@ window.PvmtSelectors = (function () {
 
     /**
      * parseTags reads every ?tag= param into a {dim: configTag} map, keeping
-     * only values that exist in dims — an unknown label is ignored rather than
-     * filtering every city away, and so is a dimension with a single value
-     * (it renders no filter control). Later params win within a dimension.
+     * only "dim:value" values that exist in dims — an unknown or unprefixed
+     * value is ignored rather than filtering every city away, and so is a
+     * dimension with a single value (it renders no filter control). Later
+     * params win within a dimension.
      * @param {URLSearchParams} params
      * @param {PvmtTagDimension[] | undefined} dims
      * @returns {Record<string, string>}
@@ -45,8 +45,8 @@ window.PvmtSelectors = (function () {
     function parseTags(params, dims) {
         /** @type {Record<string, string>} */
         const out = {};
-        params.getAll('tag').forEach(function (raw) {
-            const want = normalizeTag(raw);
+        params.getAll('tag').forEach(function (want) {
+            if (want.indexOf(':') === -1) return;
             (dims || []).forEach(function (d) {
                 // A dimension with one value renders no (visible) filter, so a
                 // tag in it could never be cleared: ignore it rather than apply

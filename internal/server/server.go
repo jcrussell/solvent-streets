@@ -135,7 +135,8 @@ func (s *Server) handler() http.Handler {
 	mux := http.NewServeMux()
 
 	if len(s.cities) == 1 {
-		// Single-city mode: serve data at /data/{file} (backward compatible)
+		// Single-city mode: serve data at /data/{file}, the same layout a
+		// single-city static export uses.
 		entry := s.cities[0]
 		mux.HandleFunc("GET /data/{file}", s.handleDataFile(entry))
 		mux.HandleFunc("GET /api/snapshots", s.handleSnapshotsList(entry))
