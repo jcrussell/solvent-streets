@@ -692,26 +692,60 @@ func TestStripWaterFromBoundary_AcceptsModestStrip(t *testing.T) {
 	}
 }
 
-// TestStripWaterFromBoundary_SoftFailureFallsBack pins that a Overpass
-// fetch error returns a warn (not an err), so the caller falls back to
-// the unstripped boundary. Network outages must not break ingest.
-func TestStripWaterFromBoundary_SoftFailureFallsBack(t *testing.T) {
+// failingWaterFetcher simulates the water fetch failing upstream.
+func failingWaterFetcher(_ context.Context, _ *http.Client, _ [4]float64, _ [][2]float64) (string, error) {
+	return "", errors.New("simulated overpass outage")
+}
+
+// TestStripWaterFromBoundary_FetchErrorIsHard pins solvent-streets-o9a3: a
+// failed water fetch is an ErrWaterFetch error, not a soft warn. Falling
+// back used to save the unstripped boundary, which every later ingest then
+// reused, so one Overpass hiccup left open water in the city's area.
+func TestStripWaterFromBoundary_FetchErrorIsHard(t *testing.T) {
 	boundary := `{"type":"Polygon","coordinates":[[[-71.06,42.36],[-71.05,42.36],[-71.05,42.37],[-71.06,42.37],[-71.06,42.36]]]}`
-	failingFetcher := func(_ context.Context, _ *http.Client, _ [4]float64, _ [][2]float64) (string, error) {
-		return "", errors.New("simulated overpass outage")
-	}
 
 	gjson, warn, err := stripWaterFromBoundary(
-		context.Background(), &http.Client{}, failingFetcher, boundary,
+		context.Background(), &http.Client{}, failingWaterFetcher, boundary,
 	)
-	if err != nil {
-		t.Fatalf("err = %v, want nil (soft failure should not abort)", err)
+	if !errors.Is(err, ErrWaterFetch) {
+		t.Fatalf("err = %v, want ErrWaterFetch", err)
 	}
-	if !strings.Contains(warn, "overpass") {
-		t.Errorf("warn = %q, want it to mention the overpass failure", warn)
+	if !strings.Contains(err.Error(), "simulated overpass outage") {
+		t.Errorf("err = %v, want it to wrap the upstream failure", err)
 	}
-	if gjson != "" {
-		t.Errorf("on soft failure gjson should be empty; got gjson=%d", len(gjson))
+	if gjson != "" || warn != "" {
+		t.Errorf("on a fetch error gjson and warn should be empty; got gjson=%d warn=%q", len(gjson), warn)
+	}
+}
+
+// TestResolveBoundary_WaterFetchErrorSavesNothing pins the other half of
+// solvent-streets-o9a3: when the water fetch fails, no boundary is saved,
+// so the next ingest finds nothing cached and retries the fetch.
+func TestResolveBoundary_WaterFetchErrorSavesNothing(t *testing.T) {
+	boundary := `{"type":"Polygon","coordinates":[[[-122.5,37.5],[-122.4,37.5],[-122.4,37.6],[-122.5,37.6],[-122.5,37.5]]]}`
+	saved := false
+	store := &dbtest.MockStore{
+		GetBoundaryFunc:  func(_ context.Context) (string, error) { return "", nil },
+		SaveBoundaryFunc: func(_ context.Context, _, _ string) error { saved = true; return nil },
+	}
+	city := &config.CityConfig{Name: "Oakland, CA"}
+
+	_, fresh, err := resolveBoundary(
+		context.Background(), resolveBoundaryHarness(t), store, &http.Client{}, city,
+		boundaryFetchers{
+			byName:     recordingNominatim(boundary, nil),
+			byRelation: recordingRelation("", nil),
+			water:      failingWaterFetcher,
+		},
+	)
+	if !errors.Is(err, ErrWaterFetch) {
+		t.Fatalf("err = %v, want ErrWaterFetch", err)
+	}
+	if saved {
+		t.Error("SaveBoundary was called; a failed water fetch must save nothing so the next ingest retries")
+	}
+	if fresh != nil {
+		t.Errorf("fresh = %+v, want nil on error", fresh)
 	}
 }
 

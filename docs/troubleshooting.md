@@ -85,13 +85,15 @@ The `<path>` in the hint is the exact directory pvmt failed on, so start there. 
 
 ## `#water-strip-skipped`
 
-**Hint:** *one-line warning emitted by `pvmt ingest`; the boundary is still saved but without OSM water subtracted.*
+**Hint:** *one-line warning emitted by `pvmt ingest`; the boundary is still saved but without OSM water subtracted (or, for a failed water fetch, an error and nothing saved).*
 
-Before computing coverage, pvmt subtracts OSM water (`natural=water`, `natural=coastline`) from the Nominatim boundary so cross-city `% paved` is comparable. This is best-effort: when it fails it logs `water strip skipped: …` and keeps the unstripped boundary. Area numbers are then inflated by the un-subtracted water; roads/parking/sidewalks ingest itself is unaffected.
+Before computing coverage, pvmt subtracts OSM water (`natural=water`, `natural=coastline`) from the Nominatim boundary so cross-city `% paved` is comparable. When the subtraction's *geometry* fails it logs `water strip skipped: …` and keeps the unstripped boundary. Area numbers are then inflated by the un-subtracted water; roads/parking/sidewalks ingest itself is unaffected.
+
+A failed water *fetch* is different: ingest stops with `water strip for <city>: water fetch failed: …` and saves no boundary, so the next ingest retries. It never falls back, because a saved boundary is reused by every later ingest and one Overpass hiccup would otherwise leave the water in for good. Overpass is usually just overloaded: wait a few minutes and re-run.
 
 Fixes:
 
-- **Transient** (`bbox:`, `interior points:`, or `overpass:` variants) — a malformed cached boundary or a failed/rate-limited Overpass fetch. Re-run with `--force` to re-fetch.
+- **Geometry** (`bbox:`, `interior points:`, or `subtract:` variants) — a malformed boundary or a subtraction failure. Re-run with `--force` to re-fetch; if it recurs, see the next bullet.
 - **Persistent**, or the hard error `boundary excludes most of the city's own roads` — Nominatim returned the wrong shape for this city. Set `[[cities]].boundary_relation_id` to the OSM `admin_level=8` relation (see [Configuration › Resolution hierarchy](configuration.md#resolution-hierarchy)), or remove the city from `pvmt.toml` if it's intentionally untracked.
 
 For per-polygon detail on what was dropped and why, re-run with `-vv` and grep the log for `water`.

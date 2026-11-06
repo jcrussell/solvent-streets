@@ -315,8 +315,10 @@ type freshBoundary struct {
 // city name.
 //
 // Fresh fetches subtract OSM `natural=water` polygons from the
-// boundary so cross-city % paved is apples-to-apples. Soft water-strip
-// failures are warned + fallback; over-subtraction is a HARD error.
+// boundary so cross-city % paved is apples-to-apples. A failed water
+// FETCH is a HARD error and nothing is saved, so the next ingest retries
+// (ErrWaterFetch); geometry-side strip failures are warned + fallback;
+// over-subtraction is a HARD error.
 // Silent inversions are caught downstream by the road-coverage gate
 // (solvent-streets-e5mk).
 func resolveBoundary(
@@ -358,6 +360,11 @@ func resolveBoundary(
 	nominatim := boundaryGJSON
 
 	stripped, warn, stripErr := stripWaterFromBoundary(ctx, client, fetch.water, boundaryGJSON)
+	if errors.Is(stripErr, ErrWaterFetch) {
+		return "", nil, hint.Withf(fmt.Errorf("water strip for %s: %w", city.Name, stripErr),
+			"The boundary was not saved, so the next ingest retries the water fetch. "+
+				"Overpass is usually just overloaded: wait a few minutes and re-run.")
+	}
 	if stripErr != nil {
 		return "", nil, hint.Withf(fmt.Errorf("water strip for %s: %w", city.Name, stripErr),
 			"This usually means the OSM water-stitching pipeline produced a polygon "+
@@ -435,6 +442,16 @@ const waterStripMinAreaRatio = 0.1
 // errors.Is and so tests can pin the failure mode.
 var ErrWaterStripOverSubtracted = errors.New("water strip over-subtracted")
 
+// ErrWaterFetch signals that the OSM water fetch itself failed (network
+// error, upstream timeout, a response still truncated at the deepest
+// quadrant split). It is a HARD failure, unlike the geometry-side soft
+// failures: falling back would save the UNSTRIPPED boundary, and every
+// later ingest reuses a saved boundary ("Using cached boundary"), so one
+// transient Overpass hiccup would permanently leave open water in the
+// city's area denominator (solvent-streets-o9a3). Failing saves nothing,
+// so the next ingest retries.
+var ErrWaterFetch = errors.New("water fetch failed")
+
 // waterFetcher abstracts the OSM water fetch so tests can inject a
 // fake response without spinning up an httptest server inside the
 // internal/ingest package. The interface is intentionally narrow per
@@ -451,8 +468,12 @@ type waterFetcher func(ctx context.Context, client *http.Client, bbox [4]float64
 //   - (gjson, "", nil)  - success; use stripped boundary, caller appends
 //     "+osm-water" to its existing source label
 //   - ("", "", nil)     - no water in bbox; use unstripped boundary
-//   - ("", warn, nil)   - soft failure (network/geometry); log warn and fall back
-//   - ("", "", err)     - HARD failure (over-subtraction guard); abort
+//   - ("", warn, nil)   - soft failure (geometry: bbox, interior points,
+//     subtract); log warn and fall back. These are deterministic, so a
+//     retry could not succeed where this run failed.
+//   - ("", "", err)     - HARD failure: the water fetch failed
+//     (ErrWaterFetch; retryable, so nothing may be saved) or the
+//     over-subtraction guard tripped (ErrWaterStripOverSubtracted); abort
 //
 // boundaryGJSON itself is preserved verbatim — callers pass it in and
 // hold onto it for the rollback path of the post-strip road-coverage
@@ -461,8 +482,8 @@ type waterFetcher func(ctx context.Context, client *http.Client, bbox [4]float64
 // 2026-05-28 inversion fix (solvent-streets-e5mk) only changed the
 // caller's responsibility, not this function's contract.
 //
-// The err return wraps ErrWaterStripOverSubtracted with diagnostic
-// detail (areas + ratio); callers should attach the city name via
+// The err return wraps ErrWaterFetch or ErrWaterStripOverSubtracted (the
+// latter with areas + ratio); callers should attach the city name via
 // ErrHint so the operator can identify which city is affected.
 //
 // The source label is composed by the caller (resolveBoundary) so the
@@ -484,7 +505,7 @@ func stripWaterFromBoundary(
 	}
 	waterGJSON, err := fetchWater(ctx, client, bbox, landProbes)
 	if err != nil {
-		return "", fmt.Sprintf("water strip skipped: overpass: %v", err), nil
+		return "", "", fmt.Errorf("%w: %w", ErrWaterFetch, err)
 	}
 	if waterGJSON == "" {
 		return "", "", nil
