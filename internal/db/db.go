@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 
 	_ "modernc.org/sqlite"
@@ -293,6 +294,12 @@ func Open(path string) (retStore *RootStore, retErr error) {
 	}()
 
 	if err := migrate(context.Background(), db); err != nil {
+		if errors.Is(err, ErrIncompatibleDatabase) {
+			return nil, hint.Withf(fmt.Errorf("open %s: %w", path, err),
+				"Move %s (and any -wal/-shm files beside it) aside; pvmt creates a fresh database on the "+
+					"next run. Then re-ingest with `pvmt all ingest` and `pvmt all compute`. pvmt never "+
+					"deletes it for you. See docs/troubleshooting.md#incompatible-database.", path)
+		}
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 

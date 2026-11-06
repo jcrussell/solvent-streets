@@ -1,4 +1,18 @@
 -- Init schema: all tables with multi-city support.
+--
+-- SCHEMA GENERATION. This file is the squash of every migration up to and
+-- including v0.4.1's 001/002 and the unreleased 003 (solvent-streets-25t6.2).
+-- A squash is a deliberate breaking change: databases created under an earlier
+-- generation already record schema_version 1, so this file would be SKIPPED for
+-- them and they would run on the old schema. migrate() therefore refuses any
+-- non-empty database whose PRAGMA user_version is not schemaGeneration
+-- (migrations.go) with ErrIncompatibleDatabase.
+--
+-- Rules:
+--   * Ordinary schema changes are additive numbered migrations (002_..., ...),
+--     applied within the current generation. Never edit this file for those.
+--   * Editing this file in place IS a squash: bump schemaGeneration in the same
+--     commit, and mark that commit breaking ("!" in the subject).
 
 CREATE TABLE IF NOT EXISTS cities (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,6 +48,10 @@ CREATE TABLE IF NOT EXISTS features (
 -- also covers city_id-only lookups. The old single-column idx_features_city
 -- and idx_features_resource_type were dropped as redundant write overhead.
 CREATE INDEX IF NOT EXISTS idx_features_city_type ON features(city_id, resource_type);
+-- LastIngestAt filters `resource_type = ? AND city_id = ?` and orders by
+-- fetched_at DESC LIMIT 1; the trailing fetched_at makes that an index-only
+-- seek instead of a scan of the city/type slice.
+CREATE INDEX IF NOT EXISTS idx_features_city_type_time ON features(city_id, resource_type, fetched_at);
 
 CREATE TABLE IF NOT EXISTS snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,11 +70,21 @@ CREATE TABLE IF NOT EXISTS compute_results (
     total_area REAL NOT NULL DEFAULT 0,
     feature_count INTEGER NOT NULL DEFAULT 0,
     snapshot_id INTEGER REFERENCES snapshots(id),
-    computed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    computed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- Estimated parking spaces (solvent-streets-l3gz): the parking compute
+    -- pass derives a space count per lot (OSM capacity tag, else footprint
+    -- area over resource.ParkingSpaceAreaM2, times levels for structured
+    -- parking). The city total lives here; per-hex shares are hex_metrics
+    -- rows. Non-parking rows keep 0; readers treat 0 as "no estimate".
+    estimated_spaces INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_compute_results_resource_type ON compute_results(resource_type);
 CREATE INDEX IF NOT EXISTS idx_compute_results_city ON compute_results(city_id);
+-- LatestComputeResult filters `resource_type = ? AND city_id = ?` and orders
+-- by computed_at DESC; the trailing computed_at resolves the ORDER BY from the
+-- index.
+CREATE INDEX IF NOT EXISTS idx_compute_results_city_type_time ON compute_results(city_id, resource_type, computed_at);
 
 CREATE TABLE IF NOT EXISTS hex_stats (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -104,6 +132,9 @@ CREATE TABLE IF NOT EXISTS forecast_results (
 CREATE INDEX IF NOT EXISTS idx_forecast_results_type ON forecast_results(resource_type);
 CREATE INDEX IF NOT EXISTS idx_forecast_results_snapshot ON forecast_results(snapshot_id);
 CREATE INDEX IF NOT EXISTS idx_forecast_results_city ON forecast_results(city_id);
+-- Reads filter `resource_type = ? AND city_id = ?` with MAX(snapshot_id)
+-- latest-resolution subqueries over the same slice (the hex_stats shape).
+CREATE INDEX IF NOT EXISTS idx_forecast_results_city_type_snap ON forecast_results(city_id, resource_type, snapshot_id);
 
 CREATE TABLE IF NOT EXISTS cohort_stats (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -118,3 +149,26 @@ CREATE TABLE IF NOT EXISTS cohort_stats (
 
 CREATE INDEX IF NOT EXISTS idx_cohort_stats_city ON cohort_stats(city_id);
 CREATE INDEX IF NOT EXISTS idx_cohort_stats_resource_type ON cohort_stats(resource_type);
+-- Same read shape as forecast_results.
+CREATE INDEX IF NOT EXISTS idx_cohort_stats_city_type_snap ON cohort_stats(city_id, resource_type, snapshot_id);
+
+-- Generic per-hex metrics (solvent-streets-ql2w). One row per
+-- (city, snapshot, hex, metric): a named numeric value (internal/hexmetric)
+-- such as fire_response_s, plus an optional reference id (the nearest
+-- facility for a coverage metric). A re-run replaces its own
+-- (city, metric, snapshot) slice. `metric` plays the role resource_type plays
+-- on the other result tables: the snapshot-scoped list query is keyed on it,
+-- and the per-city composite index below serves it as a seek.
+CREATE TABLE IF NOT EXISTS hex_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    hex_id TEXT NOT NULL,
+    city_id INTEGER NOT NULL REFERENCES cities(id),
+    snapshot_id INTEGER REFERENCES snapshots(id),
+    metric TEXT NOT NULL,
+    value REAL NOT NULL,
+    ref TEXT NOT NULL DEFAULT '',
+    computed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_hex_metrics_city_metric_snap ON hex_metrics(city_id, metric, snapshot_id);
+CREATE INDEX IF NOT EXISTS idx_hex_metrics_snapshot ON hex_metrics(snapshot_id);

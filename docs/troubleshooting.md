@@ -83,6 +83,17 @@ Common causes:
 
 The `<path>` in the hint is the exact directory pvmt failed on, so start there. If it's not the one you expected, an `XDG_CACHE_HOME` / `XDG_DATA_HOME` override may be redirecting it — check those env vars and the directory holding your `pvmt.toml`. (Note: `pvmt status` won't help here — it opens the database, so it fails on the same permission error, and it reports per-resource counts rather than paths.)
 
+## `#incompatible-database`
+
+**Hint:** *move `<path>` (and any `-wal`/`-shm` files beside it) aside (pvmt creates a fresh database on the next run), then re-ingest with `pvmt all ingest` and `pvmt all compute`. pvmt never deletes it for you.*
+
+Every pvmt database is stamped with a *schema generation*. Ordinary schema changes are migrated automatically within a generation. A new generation is a deliberate breaking change, listed under "Breaking Changes" in the release notes, and pvmt refuses to open a database from any other generation rather than guess at converting it:
+
+- `schema generation N predates this pvmt's M`: the database was created by an older pvmt (every database from v0.4.1 or earlier is generation 0).
+- `schema generation N is newer than this pvmt's M`: the database was created by a newer pvmt. Upgrade pvmt instead of moving the database.
+
+The refused file is left exactly as it was. To start over, move it aside together with its `-wal` and `-shm` companions if they exist (for example `for f in <path> <path>-wal <path>-shm; do [ -e "$f" ] && mv "$f" "$f.old"; done`), run your ingest and compute again, and delete the old files once you no longer need them. Everything in the database is rebuilt from upstream sources. The HTTP cache is separate, so responses fetched within its 24-hour TTL are reused.
+
 ## `#water-strip-skipped`
 
 **Hint:** *one-line warning emitted by `pvmt ingest`; the boundary is still saved but without OSM water subtracted (or, for a failed water fetch, an error and nothing saved).*

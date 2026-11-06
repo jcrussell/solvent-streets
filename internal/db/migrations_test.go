@@ -1,12 +1,19 @@
 package db
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/jcrussell/solvent-streets/internal/hint"
 )
 
 // TestColdMigration_SchemaShape pins the deployment-correctness contract: a
@@ -104,20 +111,18 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 	})
 
 	t.Run("cold migration records the latest schema version", func(t *testing.T) {
-		// A fresh cold migration applies 001_init, 002_add_indexes and
-		// 003_parking_spaces_hex_metrics, so the highest recorded
-		// schema_version must be 3. This pins that every file is discovered
-		// and applied by the embedded migration set.
+		// Generation 1 is a single squashed 001_init.sql, so the highest
+		// recorded schema_version is 1. Bump this when an additive 002 lands.
 		var version int
 		if err := root.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&version); err != nil {
 			t.Fatalf("schema_version: %v", err)
 		}
-		if version != 3 {
-			t.Errorf("schema_version = %d; want 3 (001 + 002 + 003_parking_spaces_hex_metrics applied)", version)
+		if version != 1 {
+			t.Errorf("schema_version = %d; want 1 (the squashed 001_init.sql)", version)
 		}
 	})
 
-	t.Run("003 adds estimated_spaces to compute_results only", func(t *testing.T) {
+	t.Run("estimated_spaces is on compute_results only", func(t *testing.T) {
 		hasSpaces := func(table string) bool {
 			return slices.ContainsFunc(listColumns(t, ctx, root.db, table), func(c columnInfo) bool { return c.name == "estimated_spaces" })
 		}
@@ -535,79 +540,149 @@ INSERT INTO does_not_exist (id) VALUES (1);
 	}
 }
 
-// TestMigrate_UnbricksDuplicateSchemaVersion pins the q48z.3 fix.
-//
-// migrateFS reads MAX(version) outside any transaction and 001_init.sql is
-// entirely IF NOT EXISTS, so two concurrent first-runs could both record
-// version 1. That duplicate row was harmless until 002 added a UNIQUE index
-// over schema_version(version): creating it fails, applyMigration's single
-// transaction rolls the whole file back so 002 is never recorded, and every
-// subsequent Open retries and fails identically. db.Open is the single gateway
-// for every command and there is no repair subcommand, so the database is
-// permanently unusable.
-//
-// Seeded the way the damage actually occurs — 001 applied, version 1 recorded
-// twice — so this exercises the real embedded 002, not a stand-in.
-func TestMigrate_UnbricksDuplicateSchemaVersion(t *testing.T) {
+// TestMigrateFS_SchemaVersionUniqueFromTheStart pins that the one-row-per-
+// migration index exists before any migration runs. It used to arrive with
+// migration 002, which also had to repair duplicates a concurrent first run
+// could already have recorded (q48z.3); created up front, the duplicate can
+// never be written.
+func TestMigrateFS_SchemaVersionUniqueFromTheStart(t *testing.T) {
 	ctx := context.Background()
-
 	d, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
 	t.Cleanup(func() { _ = d.Close() })
 
-	init001, err := migrationsFS.ReadFile("migrations/001_init.sql")
-	if err != nil {
-		t.Fatalf("read 001: %v", err)
+	if err := migrateFS(ctx, d, fstest.MapFS{"m/001_a.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE a (x INTEGER);`)}}, "m"); err != nil {
+		t.Fatalf("migrateFS: %v", err)
 	}
-	if _, err := d.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)`); err != nil {
-		t.Fatalf("create schema_version: %v", err)
-	}
-	if _, err := d.ExecContext(ctx, string(init001)); err != nil {
-		t.Fatalf("apply 001: %v", err)
-	}
-	// The duplicate the race leaves behind.
-	if _, err := d.ExecContext(ctx, `INSERT INTO schema_version (version) VALUES (1), (1)`); err != nil {
-		t.Fatalf("seed duplicate: %v", err)
-	}
-
-	if err := migrate(ctx, d); err != nil {
-		t.Fatalf("migrate over a duplicated schema_version row: %v", err)
-	}
-
-	var dupes int
-	if err := d.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM schema_version WHERE version = 1`).Scan(&dupes); err != nil {
-		t.Fatalf("count version 1: %v", err)
-	}
-	if dupes != 1 {
-		t.Errorf("schema_version has %d rows for version 1, want 1 (002 should collapse duplicates)", dupes)
-	}
-
-	var maxVersion int
-	if err := d.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_version`).Scan(&maxVersion); err != nil {
-		t.Fatalf("max version: %v", err)
-	}
-	if maxVersion != 3 {
-		t.Errorf("MAX(version) = %d, want 3 (002 and 003 must be recorded, not rolled back)", maxVersion)
-	}
-
-	// The index 002 exists for must actually be there — a rolled-back 002 also
-	// silently costs the four performance indexes, so "no error" is not enough.
-	var idx int
-	if err := d.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_schema_version_version'`).Scan(&idx); err != nil {
-		t.Fatalf("index lookup: %v", err)
-	}
-	if idx != 1 {
-		t.Errorf("idx_schema_version_version not created")
-	}
-
-	// And it must now be enforcing: a second duplicate can no longer be
-	// inserted, which is what keeps the database from re-entering this state.
 	if _, err := d.ExecContext(ctx, `INSERT INTO schema_version (version) VALUES (1)`); err == nil {
-		t.Errorf("duplicate insert succeeded; unique index is not enforcing")
+		t.Error("duplicate schema_version insert succeeded; the unique index is not enforcing")
+	}
+}
+
+// openRaw opens a database file without migrating it, so a test can seed the
+// shape an older pvmt left behind. It uses Open's own pragmas (WAL and so
+// on), as every older pvmt did, so the file starts in the state a real
+// install's database is in.
+func openRaw(t *testing.T, path string) *sql.DB {
+	t.Helper()
+	d, err := sql.Open("sqlite", path+dsnPragmas)
+	if err != nil {
+		t.Fatalf("open %s: %v", path, err)
+	}
+	t.Cleanup(func() { _ = d.Close() })
+	return d
+}
+
+// TestOpen_RefusesOlderGeneration pins solvent-streets-25t6.2. A database an
+// older pvmt created records schema_version 1, so after the squash migrateFS
+// would skip the new 001_init.sql and run on the old schema. Open must refuse
+// it with ErrIncompatibleDatabase, name the path in the hint, and leave the
+// file byte-identical: it may hold hours of ingested data.
+func TestOpen_RefusesOlderGeneration(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		versions []int
+	}{
+		{"v0.4.1 (001, 002)", []int{1, 2}},
+		{"pre-release HEAD (001, 002, 003)", []int{1, 2, 3}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			path := filepath.Join(t.TempDir(), "pvmt.db")
+			d := openRaw(t, path)
+			if _, err := d.ExecContext(ctx, `CREATE TABLE schema_version (version INTEGER NOT NULL);
+				CREATE TABLE cities (id INTEGER PRIMARY KEY, slug TEXT, name TEXT, config_id TEXT);
+				INSERT INTO cities (slug, name, config_id) VALUES ('x', 'X', 'cfg');`); err != nil {
+				t.Fatalf("seed: %v", err)
+			}
+			for _, v := range tc.versions {
+				if _, err := d.ExecContext(ctx, `INSERT INTO schema_version (version) VALUES (?)`, v); err != nil {
+					t.Fatalf("seed version %d: %v", v, err)
+				}
+			}
+			if err := d.Close(); err != nil {
+				t.Fatalf("close: %v", err)
+			}
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read before: %v", err)
+			}
+
+			root, err := Open(path)
+			if err == nil {
+				_ = root.Close()
+				t.Fatal("Open succeeded on an older-generation database; want ErrIncompatibleDatabase")
+			}
+			if !errors.Is(err, ErrIncompatibleDatabase) {
+				t.Fatalf("err = %v, want ErrIncompatibleDatabase", err)
+			}
+			var h *hint.ErrHint
+			if !errors.As(err, &h) || !strings.Contains(h.Hint, path) {
+				t.Errorf("hint = %v, want one naming %s", h, path)
+			}
+			after, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read after: %v", err)
+			}
+			if !bytes.Equal(before, after) {
+				t.Error("refused database was modified on disk")
+			}
+		})
+	}
+}
+
+// TestOpen_RefusesNewerGeneration pins the downgrade direction: a database
+// stamped by a newer pvmt is refused, not reinterpreted.
+func TestOpen_RefusesNewerGeneration(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "pvmt.db")
+	d := openRaw(t, path)
+	if _, err := d.ExecContext(ctx, fmt.Sprintf(`CREATE TABLE cities (id INTEGER PRIMARY KEY); PRAGMA user_version = %d;`, schemaGeneration+1)); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	_ = d.Close()
+
+	if _, err := Open(path); !errors.Is(err, ErrIncompatibleDatabase) {
+		t.Fatalf("err = %v, want ErrIncompatibleDatabase", err)
+	}
+}
+
+// TestOpen_StampsAndReopensCurrentGeneration pins the happy path: a brand-new
+// file (and a zero-byte one, which is how some tools pre-create it) is stamped
+// with schemaGeneration on first open, and reopening the stamped database works.
+func TestOpen_StampsAndReopensCurrentGeneration(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		prepare func(path string) error
+	}{
+		{"missing file", func(string) error { return nil }},
+		{"zero-byte file", func(path string) error { return os.WriteFile(path, nil, 0o600) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			path := filepath.Join(t.TempDir(), "pvmt.db")
+			if err := tc.prepare(path); err != nil {
+				t.Fatalf("prepare: %v", err)
+			}
+			for i := range 2 {
+				root, err := Open(path)
+				if err != nil {
+					t.Fatalf("Open #%d: %v", i+1, err)
+				}
+				var gen int
+				if err := root.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&gen); err != nil {
+					t.Fatalf("user_version: %v", err)
+				}
+				if gen != schemaGeneration {
+					t.Errorf("Open #%d: user_version = %d, want %d", i+1, gen, schemaGeneration)
+				}
+				if err := root.Close(); err != nil {
+					t.Fatalf("close: %v", err)
+				}
+			}
+		})
 	}
 }
 
@@ -680,73 +755,5 @@ func TestMigrateFS_RejectsDuplicateVersions(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "duplicate migration version") {
 		t.Errorf("error = %v, want it to name the duplicate version", err)
-	}
-}
-
-// TestMigrate_003UpgradesExistingRows pins the additive-migration contract 003
-// relies on: a database already at schema_version 2 with compute_results and
-// hex_stats rows gains compute_results.estimated_spaces and the hex_metrics
-// table in place, existing rows read back as 0 (never NULL), and the old
-// hex_stats rows still read. Editing 001 in place would never have reached
-// such a database.
-func TestMigrate_003UpgradesExistingRows(t *testing.T) {
-	ctx := context.Background()
-	init001, err := migrationsFS.ReadFile("migrations/001_init.sql")
-	if err != nil {
-		t.Fatalf("read 001: %v", err)
-	}
-	idx002, err := migrationsFS.ReadFile("migrations/002_add_indexes.sql")
-	if err != nil {
-		t.Fatalf("read 002: %v", err)
-	}
-	upTo002 := fstest.MapFS{
-		"migrations/001_init.sql":        &fstest.MapFile{Data: init001},
-		"migrations/002_add_indexes.sql": &fstest.MapFile{Data: idx002},
-	}
-
-	d, err := sql.Open("sqlite", ":memory:"+dsnPragmas)
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	t.Cleanup(func() { _ = d.Close() })
-	d.SetMaxOpenConns(1)
-	if err := migrateFS(ctx, d, upTo002, "migrations"); err != nil {
-		t.Fatalf("migrate to 002: %v", err)
-	}
-	if _, err := d.ExecContext(ctx, `INSERT INTO cities (slug, name, config_id) VALUES ('x', 'X', 'cfg')`); err != nil {
-		t.Fatalf("insert city: %v", err)
-	}
-	if _, err := d.ExecContext(ctx, `INSERT INTO compute_results (resource_type, city_id, total_area, feature_count) VALUES ('parking', 1, 100, 2)`); err != nil {
-		t.Fatalf("insert pre-003 compute result: %v", err)
-	}
-	if _, err := d.ExecContext(ctx, `INSERT INTO hex_stats (hex_id, resource_type, city_id, area, pct_covered) VALUES ('hex:0:0', 'parking', 1, 10, 50)`); err != nil {
-		t.Fatalf("insert pre-003 hex stat: %v", err)
-	}
-
-	// Now the real embedded set: only 003 should run.
-	if err := migrate(ctx, d); err != nil {
-		t.Fatalf("migrate to 003: %v", err)
-	}
-	var maxVersion int
-	if err := d.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_version`).Scan(&maxVersion); err != nil {
-		t.Fatalf("max version: %v", err)
-	}
-	if maxVersion != 3 {
-		t.Errorf("MAX(version) = %d, want 3", maxVersion)
-	}
-	var spaces int
-	if err := d.QueryRowContext(ctx, `SELECT estimated_spaces FROM compute_results WHERE city_id = 1`).Scan(&spaces); err != nil {
-		t.Fatalf("pre-003 compute row estimated_spaces: %v (want readable default 0, not NULL)", err)
-	}
-	if spaces != 0 {
-		t.Errorf("pre-003 compute row estimated_spaces = %d, want 0", spaces)
-	}
-	var hexRows int
-	if err := d.QueryRowContext(ctx, `SELECT COUNT(*) FROM hex_stats WHERE city_id = 1`).Scan(&hexRows); err != nil || hexRows != 1 {
-		t.Errorf("pre-003 hex_stats rows = %d (err %v), want 1", hexRows, err)
-	}
-	var metricRows int
-	if err := d.QueryRowContext(ctx, `SELECT COUNT(*) FROM hex_metrics`).Scan(&metricRows); err != nil {
-		t.Fatalf("hex_metrics after 003: %v", err)
 	}
 }
