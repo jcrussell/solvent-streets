@@ -7,13 +7,13 @@ checked against real cities' published numbers. This report does that check
 existing config/forecast/export path, and tabulates tool-vs-reality residuals.
 
 > **Status (resolved).** The two ❌ findings below — the several-fold break-even
-> overstatement and the year-2 insolvency saturation — were **fixed** by the
-> treatment-cycle work (epic `qehh`). `Simulate` now schedules `1/N` of the
-> network per year (`treatment_cycle_years`, default 12), so `break_even_budget` is a
-> realistic hold-steady budget and `insolvency_year` no longer saturates. This
-> report is retained as the point-in-time analysis that motivated that change;
-> the present-tense findings describe the **pre-fix** model. See the "Solvency
-> methodology" section of [architecture.md](architecture.md) and
+> overstatement and the year-2 insolvency saturation — describe an **ungated
+> (N = 1) model** that prices the whole network every year. The current
+> `Simulate` schedules `1/N` of the network per year (`treatment_cycle_years`,
+> default 12), so `break_even_budget` is a realistic hold-steady budget and
+> `insolvency_year` does not saturate; the ❌ findings are kept as the analysis
+> that sets N. See the "Solvency methodology" section of
+> [architecture.md](architecture.md) and
 > [methodology.md](../internal/export/docs/methodology.md).
 
 It is a lightweight comparison, not a calibration harness. Scope: **8 Alameda
@@ -169,8 +169,8 @@ committed 4-tier schedule (`examples/los-angeles-ca/pvmt.toml`: $200/$120/$60/$1
 sits in this loaded range, corroborating it.
 
 So the defaults are sound as **bare-construction** $/m² but understate the all-in
-cost a municipality budgets by ~2–3×. The report no longer claims the tiers are an
-*upper* bound — they are a *lower*, bare-construction bound.
+cost a municipality budgets by ~2–3×. The tiers are therefore not an *upper*
+bound — they are a *lower*, bare-construction bound.
 
 > **Do not "fix" this by loading the tiers. Read §6 first.** This finding is
 > about *per-treatment unit costs*; §6 is about *whole-program annual dollars*,
@@ -330,16 +330,16 @@ it's a structural floor, not a signal.
 
 The errors run in **opposite directions** on the per-m² cost vs. the time basis:
 
-- per-m² cost is **under**-stated — ~2–3× (§3, bare vs. loaded) and historically a
-  further ~30–40% (§4, mean vs. distribution), now **partially corrected** by the
-  default-on condition spread (§4 Resolution);
+- per-m² cost is **under**-stated — ~2–3× (§3, bare vs. loaded), plus a further
+  ~30–40% from pricing the mean rather than the distribution (§4), which the
+  default-on condition spread **partially corrects** (§4 Resolution);
 - the raw "treat the whole network every year" need is **over**-stated ~10× (§5) —
   now corrected **in the model** by the treatment-cycle gating (annual need =
   full-network cost ÷ N, default **N = 12**; `scenario.go`), not by a mental
   division the reader is expected to perform.
 
-**These no longer merely "partially offset" — the balance is now explicit and
-pinned.** Two facts make it a *validated* calibration rather than an accident:
+**The balance is explicit and pinned, not an accidental partial offset.** Two
+facts make it a *validated* calibration:
 
 1. **The cost×cycle degeneracy is exact.** `break_even_budget(N) = break_even_budget(1) / N`
    (`solvency.go`) is a pure 1/N dollar-space rescale, so the cost regime and the
@@ -350,7 +350,7 @@ pinned.** Two facts make it a *validated* calibration rather than an accident:
    Berkeley treats 31.9 of 448.7 lane-mi/yr ≈ a **14.1-yr** cadence at its current
    $15M; the *hold-steady* budget ($18.3M) buys the shorter cadence
    14.1 × 15/18.3 ≈ **11.6 yr ≈ the model's N = 12**. With the cycle anchored there,
-   the cost regime is no longer free:
+   the cost regime is not a free parameter:
    - **bare** tiers × the §4 condition spread × N=12 → **$5.4/m²·yr**, matching the
      cited real hold-steady **$5.6/m²·yr** (Berkeley StreetSaver); *without* the §4
      spread it is $4.5 (−19%), so the spread is load-bearing for the match. ✅
@@ -359,9 +359,9 @@ pinned.** Two facts make it a *validated* calibration rather than an accident:
 
 So the defaults — **bare-construction cost tiers + the §4 condition spread + N = 12**
 — together reproduce Berkeley's cited reality, with the cycle *anchored* to the
-physical hold-steady cadence rather than chosen freely. `break_even_budget` is no longer a
-figure to mentally divide by a cycle (the earlier reading guide); the cycle is in the
-model, and the bare-cost regime lands on reality directly.
+physical hold-steady cadence rather than chosen freely. The cycle is in the model, so
+`break_even_budget` needs no mental division by a cycle, and the bare-cost regime
+lands on reality directly.
 `internal/forecast/backtest_test.go` brackets Berkeley's $/m²·yr against the $5.6
 yardstick (±~18%), guarding the balance against gross drift (a cost-regime or cycle
 change trips it) — though it does not pin the exact figure.
@@ -386,9 +386,8 @@ Broader confidence needs real per-segment condition (per-segment PCI ingest, §7
   a city whose costs genuinely run higher is `forecast.cost_overhead` (default
   `1.0`, also a live slider on the Financials tab), or a per-city
   `[[forecast.cost_tiers]]` schedule stating its own numbers (as LA uses).
-- **Solvency $:** `break_even_budget` is now a direct hold-steady budget — the `N`-year
-  treatment cycle (default 12) is applied inside the model, so it no longer needs
-  manual division. The remaining lever is the cost *regime*: the default bare tiers
+- **Solvency $:** `break_even_budget` is a direct hold-steady budget — the `N`-year
+  treatment cycle (default 12) is applied inside the model. The remaining lever is the cost *regime*: the default bare tiers
   land on Berkeley's cited reality (§6); a city wanting *loaded* program dollars sets
   a per-city `[[forecast.cost_tiers]]` schedule (§3).
 

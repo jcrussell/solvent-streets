@@ -427,9 +427,10 @@ func TestResolvedTOML_MinHexAreaFallsBackToDefault(t *testing.T) {
 
 // TestResolvedTOML_MaterializesExportDefaults pins that the [export] block
 // reports the values the pipeline actually uses. Both fields resolve lazily
-// through Config accessors and neither has omitempty, so an unset block used to
-// publish sentinel zeros -- contradicting docs/configuration.md (5 and 10) while
-// every other section materialized its defaults.
+// through Config accessors and neither has omitempty, so without
+// materialization an unset block would publish sentinel zeros, contradicting
+// docs/configuration.md (5 and 10) and every other section, which
+// materializes its defaults.
 func TestResolvedTOML_MaterializesExportDefaults(t *testing.T) {
 	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Nowhere"}}}
 	out := ResolvedTOML(cfg)

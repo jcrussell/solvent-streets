@@ -220,11 +220,10 @@ func TestBuildMeta_SnapshotDateLatestIsToday(t *testing.T) {
 }
 
 // TestBuildMultiCityMeta_MixedCombinedRollout covers partial-rollout: city A
-// has been recomputed (has a combined row), city B has not. Pre-fix, the
-// regional total dropped city B entirely and reported just A's combined area;
-// the fix sums A's combined + B's per-resource fallback so not-yet-recomputed
-// entries still contribute. Sum overcounts B's buffer overlap, but a missing
-// city is worse than an overcounted one.
+// has been recomputed (has a combined row), city B has not. The regional
+// total sums A's combined + B's per-resource fallback so a not-yet-recomputed
+// entry still contributes rather than being dropped. The sum overcounts B's
+// buffer overlap, but a missing city is worse than an overcounted one.
 func TestBuildMultiCityMeta_MixedCombinedRollout(t *testing.T) {
 	cityA := newMockEntryWithBoundary(map[resource.Type]db.ComputeResult{
 		mtRoads:    {ResourceType: mtRoads, TotalArea: 1000},
@@ -244,19 +243,18 @@ func TestBuildMultiCityMeta_MixedCombinedRollout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildMultiCityMeta: %v", err)
 	}
-	// Want: A's combined (800) + B's per-resource fallback (2000) = 2800.
-	// Pre-fix bug returned 800 (B silently dropped).
+	// Want: A's combined (800) + B's per-resource fallback (2000) = 2800;
+	// 800 would mean B was silently dropped.
 	if meta.TotalPaved != 2800 {
 		t.Errorf("total_paved = %v; want 2800 (combined_A + sum_B)", meta.TotalPaved)
 	}
 }
 
-// TestBuildMultiCityMeta_FarApartCitiesUsePerCityUTMZones is the s1e
-// regression: two sub-cities in different UTM zones (Boston ~71°W zone 19N,
-// San Francisco ~122°W zone 10N) must each be projected through their own
-// UTM zone for accurate area. The pre-fix code picked one zone from the
-// regional bbox center and projected both polygons through it, inflating
-// the area of whichever city was further from the central meridian.
+// TestBuildMultiCityMeta_FarApartCitiesUsePerCityUTMZones: two sub-cities in
+// different UTM zones (Boston ~71°W zone 19N, San Francisco ~122°W zone 10N)
+// must each be projected through their own UTM zone for accurate area.
+// Projecting both through one zone picked from the regional bbox center
+// inflates the area of whichever city is further from its central meridian.
 func TestBuildMultiCityMeta_FarApartCitiesUsePerCityUTMZones(t *testing.T) {
 	// ~1 km² square near downtown Boston (42.35°N, -71.06°W).
 	const bostonBoundary = `{"type":"Polygon","coordinates":[[[-71.065,42.345],[-71.0546,42.345],[-71.0546,42.354],[-71.065,42.354],[-71.065,42.345]]]}`
@@ -295,11 +293,10 @@ func TestBuildMultiCityMeta_FarApartCitiesUsePerCityUTMZones(t *testing.T) {
 			meta.CityArea, want, rel)
 	}
 
-	// Regression check: the pre-fix code projected both polygons through
-	// one UTM zone derived from the regional bbox center (~96°W, zone 15N).
-	// Both Boston and SF are >20° from that meridian, so the single-zone
-	// result is inflated. Compute what that buggy value would be and assert
-	// the new result is materially smaller.
+	// Projecting both polygons through one UTM zone derived from the regional
+	// bbox center (~96°W, zone 15N) inflates the result: Boston and SF are
+	// both >20° from that meridian. Compute that single-zone value and assert
+	// the per-city result is materially smaller.
 	centerLon, centerLat := meta.Center[0], meta.Center[1]
 	sharedProj := geo.NewUTMProjector(centerLon, centerLat)
 	gA, _, err := geo.GeoJSONToProjectedGeometry(bostonBoundary, sharedProj)

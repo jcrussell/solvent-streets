@@ -42,10 +42,9 @@ var ErrBoundaryInvertedVsRoads = errors.New("boundary excludes most of the city'
 // Roads are unimpeachable land probes: a `highway=*` way's first node
 // is its starting intersection, virtually always on land. Bridge
 // midpoints over water are not relevant because we only consult coords[0],
-// which lives at the bridge's land-side approach. See solvent-streets-e5mk
-// for why a road-based gate is the right shape of defense (this is
-// iteration 10 in a long lineage of fixes that previously used the
-// boundary's own PointOnSurface as a probe).
+// which lives at the bridge's land-side approach. A road-based gate is the
+// right shape of defense because the boundary's own PointOnSurface cannot
+// tell a land-dominated polygon from a water-dominated one.
 func validateBoundaryAgainstRoads(boundaryGJSON string, roads []db.Feature) (float64, bool) {
 	if len(roads) == 0 {
 		return 0, false

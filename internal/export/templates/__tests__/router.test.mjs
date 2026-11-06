@@ -1,7 +1,5 @@
 // URL state: ?tab= / ?city= / ?scope= / ?tag= (repeated, dim:value) must round-trip and survive
-// back/forward. Router was previously verified only by a one-off Node harness
-// during the consolidate-tagged-site audit (solvent-streets-8je6) — nothing in
-// the repo ran it.
+// back/forward.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
@@ -55,12 +53,11 @@ test('tag filters round-trip through the URL on every tab', async () => {
   await flush();
 
   // The filters live in the gear menu and apply everywhere, so they
-  // serialize on the Map tab too (unlike the old Compare/Aggregate-only
-  // #tag-scope). Both dimensions are present: "group" from the explicit tags,
-  // "state" derived from the ", XX" name suffix.
+  // serialize on the Map tab too. Both dimensions are present: "group" from
+  // the explicit tags, "state" derived from the ", XX" name suffix.
   win.selectTab('map-tab');
   await flush();
-  assert.equal($('#tag-scope'), null, 'the legacy #tag-scope selector must be gone');
+  assert.equal($('#tag-scope'), null, 'tag filtering lives in the per-dimension filters, not a #tag-scope selector');
   assert.equal(filter($, 'group').hidden, false);
   assert.equal(filter($, 'state').hidden, false);
 

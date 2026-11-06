@@ -155,8 +155,8 @@ func TestTranslateNoCohortsExplicitDecay(t *testing.T) {
 
 // TestTranslateExplicitCohortsDefaultDecay pins that the multi-cohort branch
 // resolves a zero decay rate the same way the single-cohort branch does: a
-// rate <= 0 falls back to the default. Previously only the single-cohort branch
-// applied this fallback, so a multi-cohort payload reported DecayRate=0.
+// rate <= 0 falls back to the default, so a multi-cohort payload never reports
+// DecayRate=0.
 func TestTranslateExplicitCohortsDefaultDecay(t *testing.T) {
 	in := Input{
 		InitialPCI:   80,

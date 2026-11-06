@@ -176,11 +176,10 @@ func TestBuildMeta_MetricSummaries(t *testing.T) {
 	}
 }
 
-// TestHexMetrics_IndependentOfRoadsCompute pins solvent-streets-25t6: stored
-// metrics are their producers' own parts of the resolved snapshot, so they are
-// published whether or not the city has a roads compute (a roads recompute
-// used to hide them until their producers reran) and regardless of which run
-// wrote them.
+// TestHexMetrics_IndependentOfRoadsCompute: stored metrics are their
+// producers' own parts of the resolved snapshot, so they are published
+// whether or not the city has a roads compute, a roads recompute does not hide
+// them, and it does not matter which run wrote them.
 func TestHexMetrics_IndependentOfRoadsCompute(t *testing.T) {
 	rows := []db.HexMetric{{HexID: "h1", Metric: services.MetricFire, Value: 300, Ref: "a", RunID: 3}}
 	stats := []db.HexStat{{HexID: "h1", ResourceType: rtRoads, Area: 1}}

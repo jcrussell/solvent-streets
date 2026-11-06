@@ -461,18 +461,12 @@ func TestExport_DataFilesAreMinified(t *testing.T) {
 	}
 }
 
-// TestExportOneCity_SkippedCityLeavesNoDirectory pins solvent-streets-q48z.15.
-//
-// exportOneCity used to MkdirAll the city's data directory before discovering
-// the city had no boundary, then warn and return kept=false without removing
-// it. cities.json correctly omitted the city, but checksite's classifyExample
-// walks every directory under cities/ regardless of cities.json — so
-// `pvmt check-site` failed the deploy gate on a city the exporter had
-// deliberately dropped (one structure failf naming all 8 missing data files,
-// plus three from the reasonableness and consistency checks).
-//
-// No live instance existed when this was found (277 dirs, 277 cities.json
-// entries), so this test is the only thing holding the invariant.
+// TestExportOneCity_SkippedCityLeavesNoDirectory: a city exportOneCity skips
+// (no boundary, kept=false) must leave no data directory behind. cities.json
+// omits it, but checksite's classifyExample walks every directory under
+// cities/ regardless of cities.json, so a leftover empty directory would fail
+// the `pvmt check-site` deploy gate on a city the exporter deliberately
+// dropped.
 func TestExportOneCity_SkippedCityLeavesNoDirectory(t *testing.T) {
 	ctx := context.Background()
 	outDir := t.TempDir()

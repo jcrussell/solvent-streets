@@ -1,6 +1,6 @@
-// Regression locks for the two app.js fixes that shipped without any executing
-// coverage: solvent-streets-sqcg (forecast controls) and solvent-streets-i9pt
-// (redundant WASM simulations). Both were invisible to eslint and tsc.
+// Regression locks for app.js behavior eslint and tsc cannot see: forecast
+// controls survive a city switch, and a re-render runs no redundant WASM
+// simulations.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
@@ -15,12 +15,10 @@ async function ready() {
   return h;
 }
 
-// solvent-streets-q48z.8. The whole Financials tab is four charts, and three of
-// them are gated on FUNDING_SCENARIO_NAMES matching the scenario names in
-// scenarios.json. When the fixtures were hand-written they said
-// `do-nothing`/`maintain` while the exporter emits `baseline`/`fund-25pct`/...,
-// so this tab rendered ONE card under test and every spec below still passed.
-// Assert the count and the titles: this is the tripwire that drift trips.
+// The whole Financials tab is four charts, and three of them are gated on
+// FUNDING_SCENARIO_NAMES matching the scenario names in scenarios.json. A
+// mismatch renders ONE card while every other spec still passes, so assert
+// the count and the titles: this is the tripwire that drift trips.
 test('all four Financials charts render from real exporter data', async () => {
   const { win, $$, flush } = await ready();
   win.selectTab('financials-tab');
@@ -104,11 +102,10 @@ test('the All-Roads scope simulates over the seeded all-scope area', async () =>
     'the bridge did not receive the seeded all-scope cohorts');
 });
 
-// solvent-streets-sqcg. loadFinancials strips .visible from #forecast-controls
-// on every teardown, and onWasmReady — which only fires once per page load —
-// used to be the only thing that put it back. So the first city switch after
-// WASM came up hid the PCI slider and cost-tier inputs for the rest of the
-// session.
+// loadFinancials strips .visible from #forecast-controls on every teardown,
+// and onWasmReady fires only once per page load, so something else must put
+// it back on a city switch — or the PCI slider and cost-tier inputs vanish for
+// the rest of the session.
 test('forecast controls survive a city switch', async () => {
   const { win, $, flush } = await ready();
   assert.ok($('#forecast-controls').classList.contains('visible'),

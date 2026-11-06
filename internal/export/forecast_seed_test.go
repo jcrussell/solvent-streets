@@ -17,8 +17,8 @@ import (
 
 // TestMergeCohortSeeds_KeysOnResourceAndClassification pins the invariant
 // that cross-resource classification collisions stay as separate cohorts
-// (matching collectCohortSeeds' single-city shape). Pre-fix, "default"
-// roads and "default" parking collapsed into one summed cohort.
+// (matching collectCohortSeeds' single-city shape): "default" roads and
+// "default" parking must not collapse into one summed cohort.
 func TestMergeCohortSeeds_KeysOnResourceAndClassification(t *testing.T) {
 	cohortsByLabel := func(m map[resource.Type][]db.CohortStat) func(context.Context, resource.Type) ([]db.CohortStat, error) {
 		return func(_ context.Context, rt resource.Type) ([]db.CohortStat, error) {
@@ -63,8 +63,8 @@ func TestMergeCohortSeeds_KeysOnResourceAndClassification(t *testing.T) {
 	got, _ := mergeCohortSeeds(context.Background(), []CityEntry{cityA, cityB}, fc, false)
 
 	// Three distinct (resource, classification) pairs across both cities:
-	// roads/primary, roads/default, parking/default. Pre-fix bucket keyed on
-	// classification only collapsed the two "default" entries into one.
+	// roads/primary, roads/default, parking/default. Keying on classification
+	// alone would collapse the two "default" entries into one.
 	want := []CohortSeed{
 		{Classification: "primary", Area: 1200}, // roads: 1000 + 200
 		{Classification: "default", Area: 500},  // roads "default" only
@@ -75,12 +75,11 @@ func TestMergeCohortSeeds_KeysOnResourceAndClassification(t *testing.T) {
 	}
 }
 
-// TestBuildMultiCityForecastSeed_CarriesTreatmentCycleYears pins yvlv.17: the
-// region seed must carry the resolved treatment_cycle_years so the multi-city
-// landing's interactive Custom Scenario line uses the same cycle N as the
-// per-city static lines. Pre-fix the field was omitted, emitting 0, which the
-// WASM bridge silently resolved to the default 12 — discarding a configured
-// non-default value.
+// TestBuildMultiCityForecastSeed_CarriesTreatmentCycleYears: the region seed
+// must carry the resolved treatment_cycle_years so the multi-city landing's
+// interactive Custom Scenario line uses the same cycle N as the per-city
+// static lines. A missing field decodes as 0, which the WASM bridge silently
+// resolves to the default 12 — discarding a configured non-default value.
 func TestBuildMultiCityForecastSeed_CarriesTreatmentCycleYears(t *testing.T) {
 	entry := CityEntry{
 		Config: &config.Config{},

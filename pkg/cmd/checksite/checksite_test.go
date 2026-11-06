@@ -599,15 +599,12 @@ func (c *cancelAfterNProbes) Err() error {
 	return nil
 }
 
-// TestCheckSite_InterruptedAfterFailStillReportsFailure pins q48z.7.
-//
-// The cancellation probe used to return ctx.Err() straight out of
-// runCheckSite, skipping finish() — the only thing that prints the tally and
-// the only thing that turns recorded FAILs into cmdutil.ErrSilent. Because
-// exitCode maps context.Canceled to 0 ahead of every other classification, a
-// check-site run that had already recorded a FAIL and then took SIGINT streamed
-// its FAIL lines, printed no summary, and exited 0 — a publish gate reporting
-// "ready".
+// TestCheckSite_InterruptedAfterFailStillReportsFailure: a run that has
+// recorded a FAIL and then takes SIGINT must still go through finish() — the
+// only thing that prints the tally and turns recorded FAILs into
+// cmdutil.ErrSilent. Returning the bare ctx error instead would print no
+// summary and let a publish gate with known failures look like a plain
+// interrupt.
 func TestCheckSite_InterruptedAfterFailStillReportsFailure(t *testing.T) {
 	dir := buildValidSite(t)
 	// checkStructure runs first and fails on a missing data file.

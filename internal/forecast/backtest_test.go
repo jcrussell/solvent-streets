@@ -21,8 +21,8 @@ type backtestCity struct {
 
 // fixtures are tuned so their N=1 (un-gated) break-even budget lands near the
 // validation.md §5 `break_even_budget` column, i.e. an order of magnitude above the
-// city's actual budget — reproducing the pre-fix overstatement. After 1/12
-// gating they should fall into a plausible hold-steady band.
+// city's actual budget — the overstatement an ungated (N=1) model produces.
+// With 1/12 gating they should fall into a plausible hold-steady band.
 var backtestCities = []backtestCity{
 	// Berkeley: PCI ~56, ~$15M/yr budget, MTC hold-steady ~$18M (validation §5).
 	{name: "berkeley", initialPCI: 56, decay: 0.045, areaSqM: 3_300_000, currentBudget: 15_000_000},

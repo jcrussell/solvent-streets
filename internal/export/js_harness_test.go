@@ -187,11 +187,8 @@ const jsFixtureParkingSpaces = 4321
 // BuildScenariosData, BuildForecastSeed) over the deterministic DB-free fixture
 // the contract tests already use (internal/export/exporttest), then rounded through the same emission helpers
 // export.go writes with. A hand-rolled fixture drifts from the Go json tags
-// silently — which is exactly what happened (solvent-streets-q48z.8): the seed
-// said `area` where Go emits `total_area`, the scenarios were named
-// `do-nothing`/`maintain` where the exporter emits `baseline`/`fund-*`, and
-// meta put total_area at the top level instead of inside stats[]. Three of the
-// four Financials charts never rendered under test, and the suite was green.
+// silently: a wrong key or scenario name leaves charts unrendered under test
+// while every spec stays green.
 func writeJSFixtureTree(t *testing.T, dir string) {
 	t.Helper()
 	ctx := context.Background()

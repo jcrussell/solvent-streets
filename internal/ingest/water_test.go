@@ -365,15 +365,14 @@ func TestParseWaterResponse_RelationHoleContainingProbeKeepsPolygon(t *testing.T
 	}
 }
 
-// TestParseWaterResponse_AcceptsLargeCoastlineRingInWaterDominatedBBox is
-// the bd-86aa regression: a city whose admin boundary extends into open
-// water (Foster City reaching into San Francisco Bay) produces a query
-// bbox that is mostly water, so the legitimate bay ring covers far more
-// than maxOuterBboxAreaFraction (0.8) of the bbox. That cap used to reject
-// the ring on the coastline path, leaving ~40 km² of bay in the paved_share
-// denominator. Coastline rings are validated by land probes + CW
-// orientation in closeCoastlineChain, so the bbox-fraction cap is not
-// applied to them; the large water ring must now be accepted.
+// TestParseWaterResponse_AcceptsLargeCoastlineRingInWaterDominatedBBox: a
+// city whose admin boundary extends into open water (Foster City reaching
+// into San Francisco Bay) produces a query bbox that is mostly water, so the
+// legitimate bay ring covers far more than maxOuterBboxAreaFraction (0.8) of
+// the bbox. Rejecting it would leave ~40 km² of bay in the paved_share
+// denominator. Coastline rings are validated by land probes + CW orientation
+// in closeCoastlineChain, so the bbox-fraction cap is not applied to them and
+// the large water ring must be accepted.
 func TestParseWaterResponse_AcceptsLargeCoastlineRingInWaterDominatedBBox(t *testing.T) {
 	// bbox lon[0,10] lat[0,10] (area 100). A single open coastline way runs
 	// from the south edge (lon=2,lat=0) to the west edge (lon=0,lat=2),
@@ -1386,14 +1385,13 @@ func TestStitchRings_ManySegments(t *testing.T) {
 	}
 }
 
-// TestCloseCoastlineChain_EastToWestPicksNorthSide is the regression
-// test for the closing-direction bug. A coastline running east→west at
-// y=0.5 places water on the right of forward direction = NORTH. Today's
-// pre-fix code blindly walked CW from tail to head and produced the
-// south strip (the LAND side), which then got subtracted from the city
-// boundary and erased real city area. After the right-hand-rule probe
-// fix, the closing direction is derived from the coastline orientation
-// and the result is the north strip (the water side).
+// TestCloseCoastlineChain_EastToWestPicksNorthSide: a coastline running
+// east→west at y=0.5 places water on the right of forward direction = NORTH.
+// The closing direction is derived from the coastline orientation (the
+// right-hand rule), so the result is the north strip (the water side).
+// Blindly walking CW from tail to head would produce the south strip (the
+// LAND side), which then gets subtracted from the city boundary and erases
+// real city area.
 func TestCloseCoastlineChain_EastToWestPicksNorthSide(t *testing.T) {
 	bbox := [4]float64{0, 0, 1, 1}
 	chain := [][2]float64{{1, 0.5}, {0, 0.5}}
@@ -1640,11 +1638,9 @@ func TestPolygonsFromRelation_InnerFallsThroughRejectedOuter(t *testing.T) {
 	}
 }
 
-// TestFetchOSMWater_OversizedBodySplitsQuadrants covers the water half of the
-// q48z.4 fix. fetchWaterElements already had the quadrant machinery, but it was
-// reached only from the server's truncation remark: an oversized response
-// errored out of postOverpass and propagated straight up, hard-failing the
-// ingest for a bbox that splitting would have handled.
+// TestFetchOSMWater_OversizedBodySplitsQuadrants: an oversized water response
+// must reach fetchWaterElements' quadrant splitting, not error out of
+// postOverpass and hard-fail the ingest for a bbox that splitting handles.
 func TestFetchOSMWater_OversizedBodySplitsQuadrants(t *testing.T) {
 	prev := maxResponseBodyBytes
 	maxResponseBodyBytes = 512

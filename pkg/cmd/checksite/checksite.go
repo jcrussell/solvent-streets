@@ -145,9 +145,8 @@ func runCheckSite(ctx context.Context, opts *Options) error {
 			// With nothing recorded there is no verdict to report, so a clean
 			// interrupt stays quiet (finding 881e) — but it is still an
 			// interrupt, so the bare ctx error is returned and exitCode maps it
-			// to 1. It used to map context.Canceled to 0, which let
-			// `pvmt check-site && deploy` publish a site whose remaining checks
-			// never ran (solvent-streets-kh5n).
+			// to 1 — never 0, or `pvmt check-site && deploy` would publish a
+			// site whose remaining checks never ran.
 			if r.failing() {
 				return r.finish()
 			}

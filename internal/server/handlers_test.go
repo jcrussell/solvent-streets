@@ -228,11 +228,11 @@ func TestHandleGame(t *testing.T) {
 			t.Errorf("game page missing expected control markup %q", want)
 		}
 	}
-	// Budget is now a pre-game choice: the in-game "City Council" budget slider and
-	// the live solvency HUD line were removed.
+	// Budget is a pre-game choice on the start screen: the game page has no
+	// in-game budget slider or live solvency HUD line.
 	for _, gone := range []string{`id="budget-slider"`, `id="hud-solvency"`} {
 		if strings.Contains(body, gone) {
-			t.Errorf("game page should no longer render %q (budget moved to start screen)", gone)
+			t.Errorf("game page must not render %q (budget is set on the start screen)", gone)
 		}
 	}
 }
