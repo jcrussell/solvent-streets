@@ -12,9 +12,9 @@ import (
 
 // Hash returns a fingerprint of the config used to scope
 // snapshot-aware reads to the snapshot(s) written by the same config.
-// Both the write path (pkg/cmd/compute createSnapshot) and the read
-// path (db.Store.WithConfigHash → snapshotQuery) call this so they
-// always agree on which snapshot belongs to which config.
+// Both the write path (every producer's db.Draft, via CityHash) and the
+// read path (db.Store.WithConfigHash) call this so they always agree on
+// which snapshot belongs to which config.
 //
 // Loaded configs hash their raw TOML bytes (set by parseConfig). This
 // is:

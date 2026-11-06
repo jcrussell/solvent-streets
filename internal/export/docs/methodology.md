@@ -328,10 +328,10 @@ city-builder's service-coverage overlay. It is computed, not observed:
    threshold" share uses NFPA 1710's 240 s first-engine travel time.
    `[[services]]` in the config overrides both constants.
 4. **Storage and display.** Values are stored per hex as the
-   `fire_response_s` metric against the city's latest roads compute
-   snapshot, exported in `hex-metrics.json` only while that snapshot is
-   still the latest (a fresh roads compute hides them until coverage is
-   recomputed, as `pvmt all compute` does), and painted in five bands
+   `fire_response_s` metric, as the fire-coverage part of the city's
+   snapshot (recomputing roads leaves it in place; a city with no
+   stations left has the part removed), exported in `hex-metrics.json`,
+   and painted in five bands
    (≤ 5:20, 7:20, 9:20, 11:20, > 11:20 total time). Only hexes that
    also carry pavement rows are painted; a hex with no road within reach
    carries no value rather than a sentinel.

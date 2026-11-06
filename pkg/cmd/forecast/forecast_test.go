@@ -52,7 +52,7 @@ func TestForecastRow_ExportData_AllFieldsPopulated(t *testing.T) {
 func TestForecastAllResources_PropagatesNonNoRowsError(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	opts := &Options{IO: ios}
-	fc := &config.ForecastConfig{InitialPCI: 85}
+	fc := &config.ForecastConfig{InitialPCI: 85, Years: 5}
 
 	boom := errors.New("database is locked")
 	store := &dbtest.MockStore{
@@ -61,7 +61,7 @@ func TestForecastAllResources_PropagatesNonNoRowsError(t *testing.T) {
 		},
 	}
 
-	_, err := forecastAllResources(context.Background(), opts, store, fc, 5, nil, units.Metric)
+	_, err := forecastAllResources(context.Background(), opts, db.NewDraft(store, "h"), fc, units.Metric)
 	if err == nil {
 		t.Fatal("expected error to propagate, got nil")
 	}
@@ -79,7 +79,7 @@ func TestForecastAllResources_PropagatesNonNoRowsError(t *testing.T) {
 func TestForecastAllResources_AllSkippedReturnsNoResults(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	opts := &Options{IO: ios}
-	fc := &config.ForecastConfig{InitialPCI: 85}
+	fc := &config.ForecastConfig{InitialPCI: 85, Years: 5}
 
 	store := &dbtest.MockStore{
 		LatestComputeResultFunc: func(_ context.Context, _ resource.Type) (*db.ComputeResult, error) {
@@ -87,7 +87,7 @@ func TestForecastAllResources_AllSkippedReturnsNoResults(t *testing.T) {
 		},
 	}
 
-	results, err := forecastAllResources(context.Background(), opts, store, fc, 5, nil, units.Metric)
+	results, err := forecastAllResources(context.Background(), opts, db.NewDraft(store, "h"), fc, units.Metric)
 	if !errors.Is(err, cmdutil.ErrNoResults) {
 		t.Fatalf("expected ErrNoResults, got: %v", err)
 	}

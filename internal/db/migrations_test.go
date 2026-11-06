@@ -47,7 +47,9 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 			"forecast_results",
 			"hex_metrics",
 			"hex_stats",
+			"runs",
 			"schema_version",
+			"snapshot_parts",
 			"snapshots",
 		}
 		got := listTables(t, ctx, root.db)
@@ -64,6 +66,7 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 		scoped := []string{
 			"city_boundaries",
 			"features",
+			"runs",
 			"snapshots",
 			"compute_results",
 			"hex_stats",
@@ -140,11 +143,13 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 		// would silently turn a hot read into a table scan.
 		want := map[string][]string{
 			"features":         {"idx_features_city_type", "idx_features_city_type_time"},
-			"hex_stats":        {"idx_hex_stats_city_type_snap", "idx_hex_stats_snapshot"},
-			"compute_results":  {"idx_compute_results_resource_type", "idx_compute_results_city", "idx_compute_results_city_type_time"},
-			"forecast_results": {"idx_forecast_results_type", "idx_forecast_results_snapshot", "idx_forecast_results_city", "idx_forecast_results_city_type_snap"},
-			"cohort_stats":     {"idx_cohort_stats_city", "idx_cohort_stats_resource_type", "idx_cohort_stats_city_type_snap"},
-			"snapshots":        {"idx_snapshots_city"},
+			"hex_stats":        {"idx_hex_stats_city_type_run", "idx_hex_stats_run"},
+			"compute_results":  {"idx_compute_results_city_type_run", "idx_compute_results_run"},
+			"forecast_results": {"idx_forecast_results_city_type_run", "idx_forecast_results_run"},
+			"cohort_stats":     {"idx_cohort_stats_city_type_run", "idx_cohort_stats_run"},
+			"hex_metrics":      {"idx_hex_metrics_city_metric_run", "idx_hex_metrics_run"},
+			"snapshots":        {"idx_snapshots_city_hash"},
+			"snapshot_parts":   {"idx_snapshot_parts_run"},
 		}
 		for table, indexes := range want {
 			got := listIndexes(t, ctx, root.db, table)
@@ -157,13 +162,45 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 	})
 }
 
+// TestColdMigration_ResultRowsRequireARun pins that every result row is
+// tagged with the run that wrote it, NOT NULL with an FK to runs(id): a row no
+// snapshot can reach through a run would be invisible forever.
+func TestColdMigration_ResultRowsRequireARun(t *testing.T) {
+	ctx := context.Background()
+	root, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:): %v", err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	// Every result row is tagged with the run that wrote it, NOT NULL: a
+	// row no snapshot can reach through a run would be invisible forever.
+	for _, table := range resultTables {
+		var run *columnInfo
+		cols := listColumns(t, ctx, root.db, table)
+		for i := range cols {
+			if cols[i].name == "run_id" {
+				run = &cols[i]
+			}
+			if cols[i].name == "snapshot_id" {
+				t.Errorf("%s still has snapshot_id; rows belong to runs, snapshots reference runs", table)
+			}
+		}
+		if run == nil || !run.notNull {
+			t.Errorf("%s.run_id = %+v, want a NOT NULL column", table, run)
+		}
+		if !slices.ContainsFunc(listForeignKeys(t, ctx, root.db, table), func(fk foreignKey) bool {
+			return fk.from == "run_id" && fk.table == "runs" && fk.to == "id"
+		}) {
+			t.Errorf("%s missing FK run_id -> runs(id)", table)
+		}
+	}
+}
+
 // TestQueryPlan_UsesCompositeIndexes is a regression guard for the
-// (city_id, resource_type[, snapshot_id]) composite indexes. The hot read
-// paths — ListHexStats / ListFeatures and the MAX(snapshot_id) subqueries in
-// snapshotQuery — must seek these composites, not fall back to scanning all of
-// a city's rows across every resource type and snapshot. Asserting on the
-// EXPLAIN QUERY PLAN catches a dropped or reordered index that a schema-shape
-// test (which only checks index presence) would miss.
+// (city_id, key, run_id) composite indexes. Every result read has the
+// viewQuery shape — `city_id = ? AND key IN (...) AND run_id IN (...)` — and
+// must seek the composite, not scan all of a city's rows across every run.
+// The snapshot resolution and the run-reference checks must seek too.
 func TestQueryPlan_UsesCompositeIndexes(t *testing.T) {
 	ctx := context.Background()
 
@@ -173,63 +210,24 @@ func TestQueryPlan_UsesCompositeIndexes(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = root.Close() })
 
+	view := func(cols, table, key string) string {
+		return `SELECT ` + cols + ` FROM ` + table + ` WHERE city_id = ? AND ` + key + ` IN (?, ?) AND run_id IN (?, ?, ?)`
+	}
 	cases := []struct {
 		name      string
 		query     string
 		wantIndex string
 	}{
-		{
-			// ListHexStats outer read shape.
-			name:      "hex_stats outer filter",
-			query:     `SELECT hex_id FROM hex_stats WHERE resource_type = ? AND city_id = ?`,
-			wantIndex: "idx_hex_stats_city_type_snap",
-		},
-		{
-			// One of snapshotQuery's MAX(snapshot_id) arms — must be index-only.
-			name:      "hex_stats MAX(snapshot_id) subquery",
-			query:     `SELECT MAX(snapshot_id) FROM hex_stats WHERE resource_type = ? AND city_id = ?`,
-			wantIndex: "idx_hex_stats_city_type_snap",
-		},
-		{
-			// ListFeatures read shape.
-			name:      "features outer filter",
-			query:     `SELECT id FROM features WHERE resource_type = ? AND city_id = ?`,
-			wantIndex: "idx_features_city_type",
-		},
-		{
-			// LatestComputeResult outer read shape (filter + computed_at order).
-			name:      "compute_results latest lookup",
-			query:     `SELECT id FROM compute_results WHERE resource_type = ? AND city_id = ? ORDER BY computed_at DESC`,
-			wantIndex: "idx_compute_results_city_type_time",
-		},
-		{
-			// LastIngestAt read shape (filter + fetched_at order, LIMIT 1).
-			name:      "features last ingest lookup",
-			query:     `SELECT fetched_at FROM features WHERE resource_type = ? AND city_id = ? ORDER BY fetched_at DESC LIMIT 1`,
-			wantIndex: "idx_features_city_type_time",
-		},
-		{
-			// forecast_results read shape + MAX(snapshot_id) latest-resolution.
-			name:      "forecast_results outer filter",
-			query:     `SELECT year FROM forecast_results WHERE resource_type = ? AND city_id = ?`,
-			wantIndex: "idx_forecast_results_city_type_snap",
-		},
-		{
-			name:      "forecast_results MAX(snapshot_id) subquery",
-			query:     `SELECT MAX(snapshot_id) FROM forecast_results WHERE resource_type = ? AND city_id = ?`,
-			wantIndex: "idx_forecast_results_city_type_snap",
-		},
-		{
-			// cohort_stats read shape + MAX(snapshot_id) latest-resolution.
-			name:      "cohort_stats outer filter",
-			query:     `SELECT classification FROM cohort_stats WHERE resource_type = ? AND city_id = ?`,
-			wantIndex: "idx_cohort_stats_city_type_snap",
-		},
-		{
-			name:      "cohort_stats MAX(snapshot_id) subquery",
-			query:     `SELECT MAX(snapshot_id) FROM cohort_stats WHERE resource_type = ? AND city_id = ?`,
-			wantIndex: "idx_cohort_stats_city_type_snap",
-		},
+		{"hex_stats view read", view("hex_id", "hex_stats", "resource_type"), "idx_hex_stats_city_type_run"},
+		{"compute_results view read", view("id", "compute_results", "resource_type") + ` ORDER BY computed_at DESC, id DESC LIMIT 1`, "idx_compute_results_city_type_run"},
+		{"forecast_results view read", view("year", "forecast_results", "resource_type"), "idx_forecast_results_city_type_run"},
+		{"cohort_stats view read", view("classification", "cohort_stats", "resource_type"), "idx_cohort_stats_city_type_run"},
+		{"hex_metrics view read", view("hex_id", "hex_metrics", "metric"), "idx_hex_metrics_city_metric_run"},
+		{"features outer filter", `SELECT id FROM features WHERE resource_type = ? AND city_id = ?`, "idx_features_city_type"},
+		{"features last ingest lookup", `SELECT fetched_at FROM features WHERE resource_type = ? AND city_id = ? ORDER BY fetched_at DESC LIMIT 1`, "idx_features_city_type_time"},
+		{"newest snapshot for a hash", `SELECT id FROM snapshots WHERE city_id = ? AND config_hash = ? ORDER BY id DESC LIMIT 1`, "idx_snapshots_city_hash"},
+		{"run still referenced", `SELECT COUNT(*) FROM snapshot_parts WHERE run_id = ?`, "idx_snapshot_parts_run"},
+		{"delete a run's rows", `DELETE FROM hex_stats WHERE run_id IN (?, ?)`, "idx_hex_stats_run"},
 	}
 
 	for _, tc := range cases {
@@ -241,7 +239,7 @@ func TestQueryPlan_UsesCompositeIndexes(t *testing.T) {
 			if !strings.Contains(plan, "INDEX "+tc.wantIndex) {
 				t.Errorf("query %q\nplan:\n%s\nwant INDEX %s", tc.query, plan, tc.wantIndex)
 			}
-			for _, table := range []string{"hex_stats", "features", "compute_results", "forecast_results", "cohort_stats"} {
+			for _, table := range []string{"hex_stats", "features", "compute_results", "forecast_results", "cohort_stats", "hex_metrics", "snapshots", "snapshot_parts"} {
 				if strings.Contains(plan, "SCAN "+table+"\n") {
 					t.Errorf("query %q falls back to a full table scan:\n%s", tc.query, plan)
 				}
@@ -277,9 +275,10 @@ func queryPlan(t *testing.T, ctx context.Context, d *sql.DB, query string) strin
 }
 
 type columnInfo struct {
-	name string
-	typ  string
-	pk   int
+	name    string
+	typ     string
+	pk      int
+	notNull bool
 }
 
 type foreignKey struct {
@@ -309,7 +308,7 @@ func listTables(t *testing.T, ctx context.Context, d *sql.DB) []string {
 
 func listColumns(t *testing.T, ctx context.Context, d *sql.DB, table string) []columnInfo {
 	t.Helper()
-	rows, err := d.QueryContext(ctx, `SELECT name, type, pk FROM pragma_table_info(?)`, table)
+	rows, err := d.QueryContext(ctx, `SELECT name, type, pk, "notnull" FROM pragma_table_info(?)`, table)
 	if err != nil {
 		t.Fatalf("pragma_table_info(%q): %v", table, err)
 	}
@@ -317,7 +316,7 @@ func listColumns(t *testing.T, ctx context.Context, d *sql.DB, table string) []c
 	var cols []columnInfo
 	for rows.Next() {
 		var c columnInfo
-		if err := rows.Scan(&c.name, &c.typ, &c.pk); err != nil {
+		if err := rows.Scan(&c.name, &c.typ, &c.pk, &c.notNull); err != nil {
 			t.Fatalf("scan column: %v", err)
 		}
 		cols = append(cols, c)

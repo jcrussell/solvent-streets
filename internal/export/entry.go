@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/hint"
+	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
 // ErrNoBoundary signals that a city has no boundary stored. Callers that
@@ -78,6 +80,27 @@ func BuildCityEntries(ctx context.Context, rootDB db.RootStorer, cfg *config.Con
 	return entries, nil
 }
 
+// PinCurrentSnapshot returns entry pinned to the newest snapshot for its
+// current config hash, so every later read sees that one snapshot even if a
+// compute commits another meanwhile. Without such a snapshot (or a config) the
+// entry is returned unchanged, and RequireMatchingSnapshot reports why.
+func (entry CityEntry) PinCurrentSnapshot(ctx context.Context) (CityEntry, error) {
+	if entry.Config == nil {
+		return entry, nil
+	}
+	snaps, err := entry.Store.ListSnapshots(ctx)
+	if err != nil {
+		return entry, fmt.Errorf("list snapshots for %s: %w", entry.City.Name, err)
+	}
+	hash := entry.Config.CityHash(&entry.City)
+	for _, s := range snaps { // newest first
+		if s.ConfigHash == hash {
+			return entry.WithSnapshot(s.ID), nil
+		}
+	}
+	return entry, nil
+}
+
 // RequireMatchingSnapshot returns ErrNoMatchingSnapshot when the city's
 // snapshots include none with the current config's hash. This is the
 // fail-loud signal that `pvmt compute` was skipped (or run with a
@@ -99,16 +122,46 @@ func (entry CityEntry) RequireMatchingSnapshot(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list snapshots for %s: %w", entry.City.Name, err)
 	}
-	for _, s := range snaps {
-		if s.ConfigHash == configHash {
+	for _, s := range snaps { // newest first: the snapshot the export pins
+		if s.ConfigHash != configHash {
+			continue
+		}
+		if hasPavement(s) {
 			return nil
 		}
+		// Only metric parts (coverage, census) under this config: exporting
+		// would publish a city with no pavement at all, at exit 0.
+		return hint.Withf(fmt.Errorf("%w for %s: snapshot %d has no pavement compute", ErrNoMatchingSnapshot, entry.City.Name, s.ID),
+			"Run `pvmt all compute` (or a roads/parking/sidewalks compute) for %s under "+
+				"the current config. The config's snapshot so far holds only %s.", entry.Slug, partNames(s))
 	}
 	return hint.Withf(fmt.Errorf("%w for %s", ErrNoMatchingSnapshot, entry.City.Name),
 		"Run `pvmt all compute` (or `pvmt compute --city %s`) to produce a snapshot "+
 			"matching the current config hash %s. If snapshots exist with other hashes "+
 			"(e.g. after editing hex_edge_m or a forecast knob), `pvmt snapshots ls --city %s` "+
 			"will show them.", entry.Slug, configHash, entry.Slug)
+}
+
+// hasPavement reports whether the snapshot holds at least one pavement
+// resource's compute, the data every page is built from.
+func hasPavement(s db.Snapshot) bool {
+	for _, p := range s.Parts {
+		for _, rt := range resource.All {
+			if p.Part == string(rt.Type()) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// partNames lists a snapshot's parts for a hint ("service:fire, census").
+func partNames(s db.Snapshot) string {
+	names := make([]string, len(s.Parts))
+	for i, p := range s.Parts {
+		names[i] = p.Part
+	}
+	return strings.Join(names, ", ")
 }
 
 // RequireMatchingHexEdge catches the one merge outcome that corrupts an export

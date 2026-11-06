@@ -201,17 +201,17 @@ func aggregateHexStats(ctx context.Context, entry CityEntry) (map[string]*hexAgg
 }
 
 // hexSpaces returns t's per-hex parking spaces keyed by hex ID, read from
-// hex_metrics (resource.SpacesMetricKey) and kept only when they come from
-// the same snapshot as stats (metricRowsOn): a parking run that stored no
-// space rows must not pair an older run's spaces with its coverage. The map
-// is empty, never nil, when t carries no spaces.
+// hex_metrics (resource.SpacesMetricKey). The parking compute writes its
+// coverage and its spaces under ONE run, and the snapshot holds one parking
+// run, so the two always describe the same compute. The map is empty, never
+// nil, when t carries no spaces.
 func hexSpaces(ctx context.Context, entry CityEntry, t resource.Type, stats []db.HexStat) (map[string]float64, error) {
 	out := map[string]float64{}
 	key := resource.SpacesMetricKey(t)
 	if key == "" || len(stats) == 0 {
 		return out, nil
 	}
-	rows, err := metricRowsOn(ctx, entry, key, stats[0].SnapshotID)
+	rows, err := metricRows(ctx, entry, key)
 	if err != nil {
 		return nil, err
 	}
@@ -219,15 +219,6 @@ func hexSpaces(ctx context.Context, entry CityEntry, t resource.Type, stats []db
 		out[r.HexID] = r.Value
 	}
 	return out, nil
-}
-
-// sameSnapshot reports whether two optional snapshot ids are equal, treating
-// two nils (legacy pre-snapshot rows) as equal.
-func sameSnapshot(a, b *int64) bool {
-	if a == nil || b == nil {
-		return a == b
-	}
-	return *a == *b
 }
 
 // set records one resource's coverage for the given scope, lazily allocating

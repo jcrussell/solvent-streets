@@ -24,7 +24,14 @@ var migrationsFS embed.FS
 // sqlite DSN. WAL improves concurrency, busy_timeout avoids spurious
 // "database is locked" errors, and foreign_keys(on) enforces the FK
 // constraints the schema declares (SQLite defaults them off).
-const dsnPragmas = "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)"
+//
+// _txlock=immediate makes every BeginTx take the write lock up front. Write
+// transactions here read before they write (CommitSnapshot reads its base
+// manifest, DeleteSnapshot its parts, gc its orphans). A DEFERRED one that
+// loses a race with another process fails with SQLITE_BUSY_SNAPSHOT (517),
+// which busy_timeout cannot retry; IMMEDIATE waits out busy_timeout at BEGIN
+// instead, and reads the newest committed state once it holds the lock.
+const dsnPragmas = "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)&_txlock=immediate"
 
 type Feature struct {
 	ID           string
@@ -56,7 +63,7 @@ type ComputeResult struct {
 	// every other resource and for rows computed before the estimate existed.
 	EstimatedSpaces int
 	ComputedAt      time.Time
-	SnapshotID      *int64
+	RunID           int64
 }
 
 type StatusInfo struct {
@@ -74,28 +81,48 @@ type HexStat struct {
 	Area         float64
 	PctCovered   float64
 	ComputedAt   time.Time
-	SnapshotID   *int64
+	RunID        int64
 }
 
 // HexMetric is one per-hex value of a registered metric (internal/hexmetric),
 // e.g. fire_response_s. Ref is an optional reference id the metric attaches
 // to the hex (the nearest facility for a coverage metric); "" when unused.
-// SnapshotID is the compute snapshot the value belongs to: the latest roads
-// snapshot for service and census metrics, the parking compute's own snapshot
-// for the per-hex parking spaces (resource.SpacesMetricKey).
+// RunID is the producer run that wrote it: a service or census run for those
+// metrics, the parking compute run for the per-hex parking spaces
+// (resource.SpacesMetricKey).
 type HexMetric struct {
 	HexID      string
 	Metric     string
 	Value      float64
 	Ref        string
-	SnapshotID *int64
+	RunID      int64
 	ComputedAt time.Time
 }
 
-type Snapshot struct {
+// Run is one producer's output for one city (see 001_init.sql). Producer is
+// the snapshot part it fills, e.g. "roads", "forecast:roads", "census".
+type Run struct {
 	ID         int64     `json:"id"`
-	ComputedAt time.Time `json:"computed_at"`
+	Producer   string    `json:"producer"`
 	ConfigHash string    `json:"config_hash"`
+	ComputedAt time.Time `json:"computed_at"`
+}
+
+// Snapshot is a city's complete computed state: one run per part. Every
+// reader resolves exactly one snapshot (Store.WithSnapshot / WithConfigHash /
+// newest) and reads only its runs.
+type Snapshot struct {
+	ID         int64          `json:"id"`
+	CreatedAt  time.Time      `json:"created_at"`
+	ConfigHash string         `json:"config_hash"`
+	Parts      []SnapshotPart `json:"parts"`
+}
+
+// SnapshotPart is one (part -> run) entry of a snapshot's manifest.
+type SnapshotPart struct {
+	Part       string    `json:"part"`
+	RunID      int64     `json:"run_id"`
+	ComputedAt time.Time `json:"computed_at"`
 }
 
 type ForecastResult struct {
@@ -106,7 +133,7 @@ type ForecastResult struct {
 	Area          float64       `json:"area"`
 	TreatmentCost float64       `json:"treatmentCost"`
 	TreatmentTier string        `json:"treatmentTier"`
-	SnapshotID    *int64        `json:"-"`
+	RunID         int64         `json:"-"`
 	ComputedAt    time.Time     `json:"-"`
 }
 
@@ -116,7 +143,7 @@ type CohortStat struct {
 	Classification string
 	Area           float64
 	FeatureCount   int
-	SnapshotID     *int64
+	RunID          int64
 	ComputedAt     time.Time
 }
 
@@ -147,17 +174,18 @@ type GCReport struct {
 	// StaleFeatures counts features whose source_api is a non-empty value
 	// that is no longer resolvable from the city's configured sources.
 	StaleFeatures int
-	// NullSnapshotResults counts result rows with snapshot_id IS NULL —
-	// undeletable via snapshot prune/rm, which only match a concrete id.
-	NullSnapshotResults GCResultCounts
-	// DanglingResults counts result rows whose non-NULL snapshot_id points
-	// at a snapshot that no longer exists (defensive FK-orphan sweep).
-	DanglingResults GCResultCounts
+	// OrphanRuns counts runs no snapshot references that are older than
+	// OrphanRunGrace: left behind by a command that failed or was killed
+	// before it committed. Younger unreferenced runs may belong to a command
+	// still running, so they are never swept.
+	OrphanRuns int
+	// OrphanRunResults counts the result rows those runs wrote.
+	OrphanRunResults GCResultCounts
 }
 
 // Total returns the grand total of every count in the report.
 func (r GCReport) Total() int {
-	return r.StaleFeatures + r.NullSnapshotResults.Total() + r.DanglingResults.Total()
+	return r.StaleFeatures + r.OrphanRuns + r.OrphanRunResults.Total()
 }
 
 type Store interface {
@@ -176,32 +204,59 @@ type Store interface {
 	// of types, under the same snapshot / config-hash resolution, with one
 	// LIMIT 1 query instead of loading the rows.
 	HasHexStats(ctx context.Context, types []resource.Type) (bool, error)
-	// SaveHexMetrics replaces the (metric, snapshotID) slice for this city
-	// with rows, in one transaction: the slice is deleted even when rows is
-	// empty, so a re-run that reaches nothing clears the previous result
-	// instead of leaving it on the map. Every row is stored under metric and
-	// snapshotID regardless of its own fields.
-	SaveHexMetrics(ctx context.Context, metric string, snapshotID *int64, rows []HexMetric) error
+	// SaveHexMetrics replaces the (metric, runID) slice for this city with
+	// rows, in one transaction. Every row is stored under metric and runID
+	// regardless of its own fields. An empty rows slice stores nothing, and
+	// because readers see only the resolved snapshot's runs, a run that
+	// stored nothing for a metric hides that metric (no older run's rows
+	// resurface).
+	SaveHexMetrics(ctx context.Context, metric string, runID int64, rows []HexMetric) error
 	// SaveHexMetricSet is SaveHexMetrics for several metrics at once, all in
 	// ONE transaction: a producer that writes related metrics (population,
-	// housing units, density) never leaves them from different runs when a
-	// save fails partway. Each key's slice is replaced exactly as
-	// SaveHexMetrics replaces it, including clearing on an empty rows slice.
-	SaveHexMetricSet(ctx context.Context, snapshotID *int64, set map[string][]HexMetric) error
-	// ListHexMetrics returns the rows for one metric key with the same
-	// snapshot / config-hash resolution as ListHexStats (latest per city and
-	// metric). A metric with no rows returns (nil, nil), never sql.ErrNoRows.
+	// housing units, density) never leaves them half-saved.
+	SaveHexMetricSet(ctx context.Context, runID int64, set map[string][]HexMetric) error
+	// ListHexMetrics returns the rows for one metric key from the resolved
+	// snapshot. A metric with no rows returns (nil, nil), never sql.ErrNoRows.
 	ListHexMetrics(ctx context.Context, metric string) ([]HexMetric, error)
-	CreateSnapshot(ctx context.Context, configHash string) (*Snapshot, error)
+	// CreateRun starts a run for producer under configHash. Its rows are
+	// invisible to every reader until a snapshot that includes the run is
+	// committed (CommitSnapshot) or a view overlays it (WithParts).
+	CreateRun(ctx context.Context, producer, configHash string) (*Run, error)
+	// DiscardRun deletes a run and every row it wrote, provided no snapshot
+	// references it (a committed run is only ever removed with its last
+	// snapshot). Used to clean up after a failed or cancelled command.
+	DiscardRun(ctx context.Context, runID int64) error
+	// CommitSnapshot creates this city's next snapshot for configHash: the
+	// newest existing snapshot with that hash, with parts applied on top
+	// (part -> run; a run id of 0 removes the part). Every run in parts must
+	// belong to this city, carry configHash, and have Producer == part. One
+	// transaction; returns the new snapshot with its full manifest. A commit
+	// that would not change the manifest writes nothing and returns the
+	// current snapshot, or (nil, nil) when configHash has none, so no-op
+	// commands never mint snapshots and no snapshot is ever empty. An empty
+	// configHash is rejected. Retries while another process holds the lock.
+	CommitSnapshot(ctx context.Context, configHash string, parts map[string]int64) (*Snapshot, error)
+	// WithParts returns a view that reads the newest snapshot for configHash
+	// with parts overlaid exactly as CommitSnapshot would apply them. A
+	// command reads its own not-yet-committed runs through it (e.g. the
+	// forecast that follows a recompute in the same command).
+	WithParts(configHash string, parts map[string]int64) Store
+	// ListSnapshots returns this city's snapshots newest first, each with
+	// its manifest.
 	ListSnapshots(ctx context.Context) ([]Snapshot, error)
 	ResolveSnapshot(ctx context.Context, snapshotID int64) error
 	WithSnapshot(snapshotID int64) Store
 	WithConfigHash(configHash string) Store
+	// DeleteSnapshot removes one snapshot's manifest, then every run no
+	// remaining snapshot references, with the rows those runs wrote. Runs
+	// still referenced by another snapshot are kept, so deleting any
+	// snapshot never changes what another snapshot reads.
 	DeleteSnapshot(ctx context.Context, snapshotID int64) (bool, error)
 	// GCScan counts orphan rows for this city WITHOUT writing: features
-	// with a stale source_api (non-empty, not in keepSources) and result
-	// rows with a NULL or dangling snapshot_id. An empty keepSources
-	// skips the feature scan entirely (never reports every row as stale).
+	// with a stale source_api (non-empty, not in keepSources) and runs no
+	// snapshot references that are older than OrphanRunGrace, with their
+	// rows. An empty keepSources skips the feature scan entirely (never
+	// reports every row as stale).
 	GCScan(ctx context.Context, keepSources []string) (*GCReport, error)
 	// GCSweep deletes the same orphan rows GCScan counts, in one
 	// transaction, and returns the counts of rows actually deleted. An
@@ -223,8 +278,11 @@ type Store interface {
 type sqliteStore struct {
 	db         *sql.DB
 	cityID     int64
-	snapshotID int64  // 0 = unpinned; >0 = snapshot-scoped reads (wins over configHash)
-	configHash string // "" = unpinned; non-empty = filter unpinned reads to snapshots with this hash
+	snapshotID int64  // 0 = unpinned; >0 = read exactly this snapshot (wins over configHash)
+	configHash string // "" = newest snapshot; non-empty = newest snapshot with this hash
+	// overlay (WithParts) replaces or removes (run id 0) parts of the
+	// resolved snapshot for reads, the way CommitSnapshot would apply them.
+	overlay map[string]int64
 }
 
 var _ Store = (*sqliteStore)(nil)

@@ -795,16 +795,16 @@ func TestBuildHexGeoJSON_DefaultCoordinatePrecision(t *testing.T) {
 // a duplicate object.
 func TestBuildHexGeoJSON_ParkingSpaces(t *testing.T) {
 	now := time.Now()
-	snap := int64(7)
+	const run = int64(7)
 	parkingCity := rtParkingAll.With(resource.ScopeCity)
 	entry := hexEntry(t, map[resource.Type][]db.HexStat{
 		rtRoads: {{HexID: "0,0", ResourceType: rtRoads, Area: 200, PctCovered: 75, ComputedAt: now}},
-		rtParkingAll: {{HexID: "0,0", ResourceType: rtParkingAll, Area: 90, PctCovered: 30, ComputedAt: now, SnapshotID: &snap},
-			{HexID: "0,1", ResourceType: rtParkingAll, Area: 9, PctCovered: 3, ComputedAt: now, SnapshotID: &snap}},
-		parkingCity: {{HexID: "0,0", ResourceType: parkingCity, Area: 90, PctCovered: 30, ComputedAt: now, SnapshotID: &snap},
-			{HexID: "0,1", ResourceType: parkingCity, Area: 9, PctCovered: 3, ComputedAt: now, SnapshotID: &snap}},
+		rtParkingAll: {{HexID: "0,0", ResourceType: rtParkingAll, Area: 90, PctCovered: 30, ComputedAt: now, RunID: run},
+			{HexID: "0,1", ResourceType: rtParkingAll, Area: 9, PctCovered: 3, ComputedAt: now, RunID: run}},
+		parkingCity: {{HexID: "0,0", ResourceType: parkingCity, Area: 90, PctCovered: 30, ComputedAt: now, RunID: run},
+			{HexID: "0,1", ResourceType: parkingCity, Area: 9, PctCovered: 3, ComputedAt: now, RunID: run}},
 	}, nil)
-	spaceRows := []db.HexMetric{{HexID: "0,0", Value: 12.4, SnapshotID: &snap}, {HexID: "0,1", Value: 0.3, SnapshotID: &snap}}
+	spaceRows := []db.HexMetric{{HexID: "0,0", Value: 12.4, RunID: run}, {HexID: "0,1", Value: 0.3, RunID: run}}
 	var listed []string
 	entry.Store.(*dbtest.MockStore).ListHexMetricsFunc = func(_ context.Context, metric string) ([]db.HexMetric, error) {
 		listed = append(listed, metric)
@@ -832,27 +832,6 @@ func TestBuildHexGeoJSON_ParkingSpaces(t *testing.T) {
 	}
 	if !sameCoverage(a.city["parking"], a.bbox["parking"]) {
 		t.Errorf("identical parking scopes must still compare equal with spaces present: city=%v bbox=%v", a.city["parking"], a.bbox["parking"])
-	}
-}
-
-// TestBuildHexGeoJSON_ParkingSpacesSnapshotMismatch: space rows from a
-// different snapshot than the coverage rows (a newer parking run that stored
-// no spaces, so ListHexMetrics resolved an older one) are dropped rather than
-// paired with the newer coverage.
-func TestBuildHexGeoJSON_ParkingSpacesSnapshotMismatch(t *testing.T) {
-	older, newer := int64(3), int64(4)
-	entry := hexEntry(t, map[resource.Type][]db.HexStat{
-		rtParkingAll: {{HexID: "0,0", ResourceType: rtParkingAll, Area: 90, PctCovered: 30, SnapshotID: &newer}},
-	}, nil)
-	entry.Store.(*dbtest.MockStore).ListHexMetricsFunc = func(_ context.Context, _ string) ([]db.HexMetric, error) {
-		return []db.HexMetric{{HexID: "0,0", Value: 12, SnapshotID: &older}}, nil
-	}
-	aggs, err := aggregateHexStats(t.Context(), entry)
-	if err != nil {
-		t.Fatalf("aggregateHexStats: %v", err)
-	}
-	if got, ok := aggs["0,0"].bbox["parking"]["spaces"]; ok {
-		t.Errorf("spaces from snapshot %d leaked onto snapshot %d coverage: %v", older, newer, got)
 	}
 }
 

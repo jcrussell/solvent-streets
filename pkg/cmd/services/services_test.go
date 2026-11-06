@@ -2,8 +2,8 @@ package services
 
 import (
 	"context"
-	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -25,9 +25,13 @@ func testCfg() *config.Config {
 }
 
 // fixtureStore holds one straight road (two segments) and one fire station
-// beside it, with a roads compute snapshot to attach the metric to.
-func fixtureStore(saved *[]db.HexMetric) *dbtest.MockStore {
-	snap := int64(7)
+// beside it. No roads compute is mocked: coverage routes over the road
+// features and needs none. Saved rows are recorded with the producer of the
+// run they were saved under (in Metric's place for an empty save, see
+// below), and each committed manifest is appended to *commits when non-nil.
+func fixtureStore(saved *[]db.HexMetric, commits *[]map[string]int64) *dbtest.MockStore {
+	runs := map[int64]string{}
+	var next int64
 	return &dbtest.MockStore{
 		GetBoundaryFunc: func(context.Context) (string, error) { return testBoundary, nil },
 		ListFeaturesFunc: func(_ context.Context, rt resource.Type) ([]db.Feature, error) {
@@ -46,23 +50,37 @@ func fixtureStore(saved *[]db.HexMetric) *dbtest.MockStore {
 			}
 			return nil, nil
 		},
-		LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
-			if rt == resource.TypeRoads {
-				return &db.ComputeResult{ResourceType: rt, SnapshotID: &snap}, nil
-			}
-			return nil, sql.ErrNoRows
+		CreateRunFunc: func(_ context.Context, producer, hash string) (*db.Run, error) {
+			next++
+			runs[next] = producer
+			return &db.Run{ID: next, Producer: producer, ConfigHash: hash}, nil
 		},
-		SaveHexMetricsFunc: func(_ context.Context, metric string, snapshotID *int64, rows []db.HexMetric) error {
+		SaveHexMetricsFunc: func(_ context.Context, metric string, runID int64, rows []db.HexMetric) error {
+			if runs[runID] != Producer("fire") {
+				return fmt.Errorf("metric %s saved under run %d (%q), want a %q run", metric, runID, runs[runID], Producer("fire"))
+			}
 			for _, r := range rows {
-				r.Metric, r.SnapshotID = metric, snapshotID
+				r.Metric, r.RunID = metric, runID
 				*saved = append(*saved, r)
 			}
 			if len(rows) == 0 {
-				*saved = append(*saved, db.HexMetric{Metric: metric, SnapshotID: snapshotID, HexID: "<cleared>"})
+				*saved = append(*saved, db.HexMetric{Metric: metric, RunID: runID, HexID: "<empty>"})
 			}
 			return nil
 		},
+		CommitSnapshotFunc: func(_ context.Context, hash string, parts map[string]int64) (*db.Snapshot, error) {
+			if commits != nil {
+				*commits = append(*commits, parts)
+			}
+			return &db.Snapshot{ID: 1, ConfigHash: hash}, nil
+		},
 	}
+}
+
+// committedOnlyFire reports whether commits is exactly one snapshot that
+// swaps in only the fire part, filled by runID.
+func committedOnlyFire(commits []map[string]int64, runID int64) bool {
+	return len(commits) == 1 && len(commits[0]) == 1 && commits[0][Producer("fire")] == runID
 }
 
 func testFactory(store db.Store) *cmdutil.Factory {
@@ -76,12 +94,14 @@ func testFactory(store db.Store) *cmdutil.Factory {
 }
 
 // TestServicesCompute_StoresFireMetric drives `pvmt services compute` end to
-// end over the mock store: every saved row is the fire metric attached to the
-// roads snapshot, carries at least the turnout, references the station, and
-// the hex nearest the station is faster than one at the far end of the road.
+// end over the mock store: every saved row is the fire metric under one fire
+// run, that run is committed as the snapshot's only new part, every row
+// carries at least the turnout and references the station, and the hex
+// nearest the station is faster than one at the far end of the road.
 func TestServicesCompute_StoresFireMetric(t *testing.T) {
 	var saved []db.HexMetric
-	f := testFactory(fixtureStore(&saved))
+	var commits []map[string]int64
+	f := testFactory(fixtureStore(&saved, &commits))
 	cmd := NewCmdServices(f)
 	cmd.SilenceErrors, cmd.SilenceUsage = true, true
 	cmd.SetArgs([]string{"compute"})
@@ -94,8 +114,8 @@ func TestServicesCompute_StoresFireMetric(t *testing.T) {
 	spec := services.Registry["fire"]
 	var minV, maxV = saved[0].Value, saved[0].Value
 	for _, m := range saved {
-		if m.Metric != services.MetricFire || m.SnapshotID == nil || *m.SnapshotID != 7 || m.Ref != "osm:node:9" {
-			t.Fatalf("row %+v: want metric %s on snapshot 7 referencing osm:node:9", m, services.MetricFire)
+		if m.Metric != services.MetricFire || m.RunID != saved[0].RunID || m.Ref != "osm:node:9" {
+			t.Fatalf("row %+v: want metric %s under one run referencing osm:node:9", m, services.MetricFire)
 		}
 		if m.Value < spec.TurnoutS {
 			t.Errorf("row %+v below turnout %v", m, spec.TurnoutS)
@@ -105,11 +125,14 @@ func TestServicesCompute_StoresFireMetric(t *testing.T) {
 	if maxV <= minV {
 		t.Errorf("expected a spread of response times along the road, got min=max=%v", minV)
 	}
+	if !committedOnlyFire(commits, saved[0].RunID) {
+		t.Errorf("commits = %v, want one snapshot swapping in only %s = run %d", commits, Producer("fire"), saved[0].RunID)
+	}
 }
 
 func TestServicesCompute_UnknownServiceIsFlagError(t *testing.T) {
 	var saved []db.HexMetric
-	f := testFactory(fixtureStore(&saved))
+	f := testFactory(fixtureStore(&saved, nil))
 	cmd := NewCmdServices(f)
 	cmd.SilenceErrors, cmd.SilenceUsage = true, true
 	cmd.SetArgs([]string{"compute", "--service", "police"})
@@ -122,28 +145,14 @@ func TestServicesCompute_UnknownServiceIsFlagError(t *testing.T) {
 	}
 }
 
-// TestServicesCompute_NoRoadsSnapshotHints: coverage attaches to the roads
-// snapshot, so a city that never ran roads compute gets a hinted error, not a
-// metric nobody can join.
-func TestServicesCompute_NoRoadsSnapshotHints(t *testing.T) {
-	var saved []db.HexMetric
-	store := fixtureStore(&saved)
-	store.LatestComputeResultFunc = func(context.Context, resource.Type) (*db.ComputeResult, error) { return nil, sql.ErrNoRows }
-	f := testFactory(store)
-	cmd := NewCmdServices(f)
-	cmd.SilenceErrors, cmd.SilenceUsage = true, true
-	cmd.SetArgs([]string{"compute"})
-	err := cmd.Execute()
-	if err == nil || !strings.Contains(err.Error(), "roads compute") {
-		t.Fatalf("expected a hinted no-snapshot error, got %v", err)
-	}
-}
-
 // TestServicesCompute_NoFacilitiesIsNoResults: without stations the city is an
-// empty result (exit 3 / silent skip in `all`), not a failure.
+// empty result (exit 3 / silent skip in `all`), not a failure, and the
+// service's part is removed: a city whose stations disappeared must not keep
+// publishing the coverage they produced.
 func TestServicesCompute_NoFacilitiesIsNoResults(t *testing.T) {
 	var saved []db.HexMetric
-	store := fixtureStore(&saved)
+	var commits []map[string]int64
+	store := fixtureStore(&saved, &commits)
 	inner := store.ListFeaturesFunc
 	store.ListFeaturesFunc = func(ctx context.Context, rt resource.Type) ([]db.Feature, error) {
 		if rt.IsFacility() {
@@ -152,9 +161,15 @@ func TestServicesCompute_NoFacilitiesIsNoResults(t *testing.T) {
 		return inner(ctx, rt)
 	}
 	f := testFactory(store)
-	err := RunComputeForCity(context.Background(), f, "fire", nil)
+	err := RunComputeForCity(context.Background(), f, "fire", nil, nil)
 	if err == nil || !strings.Contains(err.Error(), cmdutil.ErrNoResults.Error()) {
 		t.Fatalf("expected ErrNoResults, got %v", err)
+	}
+	if len(commits) != 1 || len(commits[0]) != 1 || commits[0][Producer("fire")] != 0 {
+		t.Errorf("commits = %v, want one dropping the fire part (service:fire: 0)", commits)
+	}
+	if len(saved) != 0 {
+		t.Errorf("saved %d metric rows with no facilities", len(saved))
 	}
 }
 
@@ -163,7 +178,7 @@ func TestServicesCompute_NoFacilitiesIsNoResults(t *testing.T) {
 // [[services]] override changes the turnout every row carries.
 func TestServicesCompute_ConfigFacilityAndOverrides(t *testing.T) {
 	var saved []db.HexMetric
-	store := fixtureStore(&saved)
+	store := fixtureStore(&saved, nil)
 	inner := store.ListFeaturesFunc
 	store.ListFeaturesFunc = func(ctx context.Context, rt resource.Type) ([]db.Feature, error) {
 		if rt.IsFacility() {
@@ -180,7 +195,7 @@ func TestServicesCompute_ConfigFacilityAndOverrides(t *testing.T) {
 		cfg.Services = []config.ServiceOverride{{Name: "fire", TurnoutS: 200}}
 		return cfg, nil
 	}
-	if err := RunComputeForCity(context.Background(), f, "fire", nil); err != nil {
+	if err := RunComputeForCity(context.Background(), f, "fire", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(saved) == 0 {
@@ -202,7 +217,8 @@ func TestServicesCompute_ConfigFacilityAndOverrides(t *testing.T) {
 // post-routing ctx.Err() check is what must stop the save.
 func TestServicesCompute_CancelledSavesNothing(t *testing.T) {
 	var saved []db.HexMetric
-	store := fixtureStore(&saved)
+	var commits []map[string]int64
+	store := fixtureStore(&saved, &commits)
 	ctx, cancel := context.WithCancel(context.Background())
 	inner := store.GetBoundaryFunc
 	store.GetBoundaryFunc = func(ctx context.Context) (string, error) {
@@ -210,12 +226,15 @@ func TestServicesCompute_CancelledSavesNothing(t *testing.T) {
 		return inner(ctx)
 	}
 	f := testFactory(store)
-	err := RunComputeForCity(ctx, f, "fire", nil)
+	err := RunComputeForCity(ctx, f, "fire", nil, nil)
 	if err == nil || !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected a cancellation error, got %v", err)
 	}
 	if len(saved) != 0 {
 		t.Errorf("cancelled run persisted %d rows", len(saved))
+	}
+	if len(commits) != 0 {
+		t.Errorf("cancelled run committed %v", commits)
 	}
 }
 
@@ -223,13 +242,13 @@ func TestServicesCompute_CancelledSavesNothing(t *testing.T) {
 // unregistered service is a config error, not a silent no-op.
 func TestServicesCompute_UnknownOverrideRejected(t *testing.T) {
 	var saved []db.HexMetric
-	f := testFactory(fixtureStore(&saved))
+	f := testFactory(fixtureStore(&saved, nil))
 	f.Config = func() (*config.Config, error) {
 		cfg := testCfg()
 		cfg.Services = []config.ServiceOverride{{Name: "fire ", TurnoutS: 1}}
 		return cfg, nil
 	}
-	err := RunComputeForCity(context.Background(), f, "fire", nil)
+	err := RunComputeForCity(context.Background(), f, "fire", nil, nil)
 	if err == nil || !errors.Is(err, config.ErrInvalidConfig) || !strings.Contains(err.Error(), `"fire "`) {
 		t.Fatalf("expected ErrInvalidConfig naming the bad service, got %v", err)
 	}
@@ -238,12 +257,14 @@ func TestServicesCompute_UnknownOverrideRejected(t *testing.T) {
 	}
 }
 
-// TestServicesCompute_NoReachClearsPreviousRows: when routing reaches no hex
-// (the only station is beyond the snap radius) the save still runs with zero
-// rows so the previous run's coverage is cleared, and the user is warned.
-func TestServicesCompute_NoReachClearsPreviousRows(t *testing.T) {
+// TestServicesCompute_NoReachCommitsEmptyRun: when routing reaches no hex
+// (the only station is beyond the snap radius) an EMPTY fire run is still
+// committed, so the snapshot's fire part hides the previous run's coverage
+// instead of carrying it forward.
+func TestServicesCompute_NoReachCommitsEmptyRun(t *testing.T) {
 	var saved []db.HexMetric
-	store := fixtureStore(&saved)
+	var commits []map[string]int64
+	store := fixtureStore(&saved, &commits)
 	inner := store.ListFeaturesFunc
 	store.ListFeaturesFunc = func(ctx context.Context, rt resource.Type) ([]db.Feature, error) {
 		if rt.IsFacility() {
@@ -253,10 +274,13 @@ func TestServicesCompute_NoReachClearsPreviousRows(t *testing.T) {
 		return inner(ctx, rt)
 	}
 	f := testFactory(store)
-	if err := RunComputeForCity(context.Background(), f, "fire", nil); err != nil {
+	if err := RunComputeForCity(context.Background(), f, "fire", nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	if len(saved) != 1 || saved[0].HexID != "<cleared>" || saved[0].Metric != services.MetricFire {
-		t.Fatalf("expected one empty save clearing %s, got %+v", services.MetricFire, saved)
+	if len(saved) != 1 || saved[0].HexID != "<empty>" || saved[0].Metric != services.MetricFire {
+		t.Fatalf("expected one empty save of %s, got %+v", services.MetricFire, saved)
+	}
+	if !committedOnlyFire(commits, saved[0].RunID) {
+		t.Errorf("commits = %v, want the empty fire run %d committed", commits, saved[0].RunID)
 	}
 }

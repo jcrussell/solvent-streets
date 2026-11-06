@@ -58,8 +58,8 @@ func TestNewCmdLs_RunFInjection(t *testing.T) {
 
 // TestRunLs_ListsAcrossCities exercises the happy-path multi-city render.
 // Verifies the table shape (one row per snapshot, tagged with the owning
-// city slug) and that newest-first ordering from ListSnapshots is
-// preserved on the way to the printer.
+// city slug, with its manifest as part#run entries) and that newest-first
+// ordering from ListSnapshots is preserved on the way to the printer.
 func TestRunLs_ListsAcrossCities(t *testing.T) {
 	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
 	cities := twoCityConfig()
@@ -76,13 +76,16 @@ func TestRunLs_ListsAcrossCities(t *testing.T) {
 			case 1:
 				return &dbtest.MockStore{ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
 					return []db.Snapshot{
-						{ID: 7, ComputedAt: now, ConfigHash: "hash-a-2"},
-						{ID: 6, ComputedAt: now.Add(-time.Hour), ConfigHash: "hash-a-1"},
+						{ID: 7, CreatedAt: now, ConfigHash: "hash-a-2", Parts: []db.SnapshotPart{
+							{Part: "forecast:roads", RunID: 13, ComputedAt: now},
+							{Part: "roads", RunID: 12, ComputedAt: now},
+						}},
+						{ID: 6, CreatedAt: now.Add(-time.Hour), ConfigHash: "hash-a-1"},
 					}, nil
 				}}
 			case 2:
 				return &dbtest.MockStore{ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
-					return []db.Snapshot{{ID: 9, ComputedAt: now, ConfigHash: "hash-b-1"}}, nil
+					return []db.Snapshot{{ID: 9, CreatedAt: now, ConfigHash: "hash-b-1"}}, nil
 				}}
 			}
 			return &dbtest.MockStore{}
@@ -99,7 +102,7 @@ func TestRunLs_ListsAcrossCities(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := stdout.String()
-	for _, want := range []string{"alpha", "beta", "7", "6", "9", "hash-a-2", "hash-b-1"} {
+	for _, want := range []string{"alpha", "beta", "7", "6", "9", "hash-a-2", "hash-b-1", "roads#12", "forecast:roads#13"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected %q in output, got: %s", want, out)
 		}
@@ -136,7 +139,8 @@ func TestRunLs_EmptyDatabase(t *testing.T) {
 // switch in snapshotRow.ExportData against typo regressions, the same
 // way cities does it for cityRow.
 func TestSnapshotRow_ExportData_AllFieldsPopulated(t *testing.T) {
-	r := snapshotRow{City: "alpha", ID: 1, ComputedAt: "2026-05-18T12:00:00Z", ConfigHash: "h"}
+	r := snapshotRow{City: "alpha", ID: 1, CreatedAt: "2026-05-18T12:00:00Z", ConfigHash: "h",
+		Parts: []partRow{{Part: "roads", RunID: 3, ComputedAt: "2026-05-18T12:00:00Z"}}}
 	out := r.ExportData(snapshotFields)
 	if len(out) != len(snapshotFields) {
 		t.Fatalf("want %d keys, got %d: %v", len(snapshotFields), len(out), out)

@@ -2,8 +2,6 @@ package export
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"sort"
 
@@ -101,12 +99,8 @@ func resolvedScale(entry CityEntry, spec hexmetric.Spec) (hexmetric.Scale, float
 // cache evicts rather than memoising a blank file.
 func BuildHexMetrics(ctx context.Context, entry CityEntry) (*HexMetricsJSON, error) {
 	out := &HexMetricsJSON{V: HexMetricsFileVersion, Metrics: map[string]MetricJSON{}}
-	roadsSnap, hasRoads, err := roadsSnapshot(ctx, entry)
-	if err != nil {
-		return nil, err
-	}
 	for _, spec := range hexmetric.StoredSpecs() {
-		rows, err := currentMetricRows(ctx, entry, spec.Key, roadsSnap, hasRoads)
+		rows, err := metricRows(ctx, entry, spec.Key)
 		if err != nil {
 			return nil, err
 		}
@@ -125,48 +119,15 @@ func BuildHexMetrics(ctx context.Context, entry CityEntry) (*HexMetricsJSON, err
 	return out, nil
 }
 
-// roadsSnapshot resolves the roads compute snapshot the stored metrics must
-// sit on: the one the entry's store resolves for roads (pinned, config-hash
-// or latest — the same rule the metric rows themselves resolve under).
-// hasRoads is false when the city has no roads compute.
-func roadsSnapshot(ctx context.Context, entry CityEntry) (*int64, bool, error) {
-	r, err := entry.Store.LatestComputeResult(ctx, resource.TypeRoads)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, false, nil
-	}
-	if err != nil {
-		return nil, false, fmt.Errorf("latest roads compute result: %w", err)
-	}
-	return r.SnapshotID, true, nil
-}
-
-// currentMetricRows lists a stored metric's rows and keeps them only when
-// they were computed against roadsSnap. Producers (service coverage, census)
-// attach their rows to the latest roads snapshot, but ListHexMetrics resolves
-// the newest snapshot that still HAS rows for the key — so a rerun that
-// stored nothing on a newer roads snapshot (no stations reached, no blocks)
-// would otherwise fall back to an older run's rows and keep publishing them.
-// Rows on any snapshot but the current roads one are stale; none are
-// returned, and the metric is absent until its producer reruns (as
-// `pvmt all compute` does after the roads pass). A city with no roads
-// compute has no current metric either.
-func currentMetricRows(ctx context.Context, entry CityEntry, key string, roadsSnap *int64, hasRoads bool) ([]db.HexMetric, error) {
-	if !hasRoads {
-		return nil, nil
-	}
-	return metricRowsOn(ctx, entry, key, roadsSnap)
-}
-
-// metricRowsOn lists a stored metric's rows (ListHexMetrics resolves one
-// snapshot per key) and returns them only when that snapshot is snap — the
-// snapshot the caller's other data comes from — else none.
-func metricRowsOn(ctx context.Context, entry CityEntry, key string, snap *int64) ([]db.HexMetric, error) {
+// metricRows lists a stored metric's rows from the entry's resolved snapshot.
+// Each metric is its producer's part of that snapshot (solvent-streets-25t6),
+// so it is current by construction: a recompute of roads leaves it in place,
+// and a producer rerun that stored nothing hides it (its new, empty run
+// replaces the old one) rather than letting older rows resurface.
+func metricRows(ctx context.Context, entry CityEntry, key string) ([]db.HexMetric, error) {
 	rows, err := entry.Store.ListHexMetrics(ctx, key)
 	if err != nil {
 		return nil, fmt.Errorf("listing hex metric %s: %w", key, err)
-	}
-	if len(rows) == 0 || !sameSnapshot(rows[0].SnapshotID, snap) {
-		return nil, nil
 	}
 	return rows, nil
 }
@@ -241,13 +202,9 @@ func metricPoints(ctx context.Context, entry CityEntry, metricKey string, refIDs
 // below min_hex_area; their rows are a rounding error in these figures.)
 func buildMetricSummaries(ctx context.Context, entry CityEntry) (map[string]MetricSummaryJSON, error) {
 	var out map[string]MetricSummaryJSON
-	roadsSnap, hasRoads, err := roadsSnapshot(ctx, entry)
-	if err != nil {
-		return nil, err
-	}
 	checkedGrid := false // checked lazily: most cities have no metrics
 	for _, spec := range hexmetric.StoredSpecs() {
-		rows, err := currentMetricRows(ctx, entry, spec.Key, roadsSnap, hasRoads)
+		rows, err := metricRows(ctx, entry, spec.Key)
 		if err != nil {
 			return nil, err
 		}

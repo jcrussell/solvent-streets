@@ -38,9 +38,11 @@ func NewCmdRm(f *cmdutil.Factory, runF func(context.Context, *RmOptions) error) 
 
 	cmd := &cobra.Command{
 		Use:   "rm <id>",
-		Short: "Delete a snapshot and its FK-linked result rows",
-		Long: `Delete a snapshot and all its FK-linked result rows (compute_results,
-hex_stats, forecast_results, cohort_stats) in a single transaction.
+		Short: "Delete a snapshot and the runs only it used",
+		Long: `Delete a snapshot, then every run it referenced that no other snapshot
+references, with all the result rows those runs wrote, in a single
+transaction. Runs another snapshot still uses are kept, so every remaining
+snapshot reads exactly what it did before.
 
 Snapshot IDs are unique across cities; the command searches every
 configured city for the id and deletes from whichever city owns it.

@@ -457,7 +457,7 @@ func groupCitiesInDimension(cities []CityInfo, dim string) []CityGroup {
 
 // BuildMeta builds metadata JSON for a city entry. snapshotID is the pinned
 // snapshot the entry's Store was scoped to (0 == latest/unpinned). For a
-// pinned snapshot the SnapshotDate reflects that snapshot's computed_at rather
+// pinned snapshot the SnapshotDate reflects that snapshot's created_at rather
 // than today — a time-travel view of a months-old snapshot must show when it
 // was computed, not the render date (which would freeze at first-request date
 // in the lifetime cache).
@@ -528,7 +528,7 @@ func BuildMeta(ctx context.Context, entry CityEntry, snapshotID int64) (MetaJSON
 // snapshotDate returns the YYYY-MM-DD date to report as snapshot_date. For the
 // unpinned/latest path (snapshotID <= 0) it returns today, matching the
 // restart-for-fresh-data invariant of the rest of the exporter. For a pinned
-// snapshot it looks up that snapshot's computed_at via ListSnapshots (the
+// snapshot it looks up that snapshot's created_at via ListSnapshots (the
 // snapshot-unaware list, which the WithSnapshot-scoped store still exposes) so
 // the time-travel UI shows when the data was actually computed. A pinned id
 // that resolved elsewhere but is absent from the list is treated as a
@@ -544,7 +544,7 @@ func snapshotDate(ctx context.Context, store db.Store, snapshotID int64) (string
 	}
 	for _, snap := range snaps {
 		if snap.ID == snapshotID {
-			return snap.ComputedAt.Format("2006-01-02"), nil
+			return snap.CreatedAt.Format("2006-01-02"), nil
 		}
 	}
 	return "", fmt.Errorf("snapshot %d not found", snapshotID)

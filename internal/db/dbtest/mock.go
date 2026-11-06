@@ -33,10 +33,13 @@ type MockStore struct {
 	SaveHexStatsFunc            func(context.Context, []db.HexStat) error
 	ListHexStatsFunc            func(context.Context, resource.Type) ([]db.HexStat, error)
 	HasHexStatsFunc             func(context.Context, []resource.Type) (bool, error)
-	SaveHexMetricsFunc          func(context.Context, string, *int64, []db.HexMetric) error
-	SaveHexMetricSetFunc        func(context.Context, *int64, map[string][]db.HexMetric) error
+	SaveHexMetricsFunc          func(context.Context, string, int64, []db.HexMetric) error
+	SaveHexMetricSetFunc        func(context.Context, int64, map[string][]db.HexMetric) error
 	ListHexMetricsFunc          func(context.Context, string) ([]db.HexMetric, error)
-	CreateSnapshotFunc          func(context.Context, string) (*db.Snapshot, error)
+	CreateRunFunc               func(context.Context, string, string) (*db.Run, error)
+	DiscardRunFunc              func(context.Context, int64) error
+	CommitSnapshotFunc          func(context.Context, string, map[string]int64) (*db.Snapshot, error)
+	WithPartsFunc               func(string, map[string]int64) db.Store
 	ListSnapshotsFunc           func(context.Context) ([]db.Snapshot, error)
 	ResolveSnapshotFunc         func(context.Context, int64) error
 	WithSnapshotFunc            func(int64) db.Store
@@ -51,6 +54,8 @@ type MockStore struct {
 	GetBoundaryFunc             func(context.Context) (string, error)
 	StatsFunc                   func(context.Context, resource.Type) (*db.StatusInfo, error)
 	CloseFunc                   func() error
+
+	lastRunID int64 // CreateRun's default id sequence
 }
 
 func (m *MockStore) UpsertFeatures(ctx context.Context, rt resource.Type, f []db.Feature, sourceAPIs []string) error {
@@ -140,11 +145,46 @@ func (m *MockStore) ListHexStats(ctx context.Context, rt resource.Type) ([]db.He
 	return []db.HexStat{}, nil
 }
 
-func (m *MockStore) CreateSnapshot(ctx context.Context, hash string) (*db.Snapshot, error) {
-	if m.CreateSnapshotFunc != nil {
-		return m.CreateSnapshotFunc(ctx, hash)
+// CreateRun delegates to CreateRunFunc, else hands out run ids 1, 2, 3, ...
+// in call order (so a test can tell runs apart without mocking).
+func (m *MockStore) CreateRun(ctx context.Context, producer, hash string) (*db.Run, error) {
+	if m.CreateRunFunc != nil {
+		return m.CreateRunFunc(ctx, producer, hash)
 	}
-	return &db.Snapshot{ID: 1}, nil
+	m.lastRunID++
+	return &db.Run{ID: m.lastRunID, Producer: producer, ConfigHash: hash}, nil
+}
+
+func (m *MockStore) DiscardRun(ctx context.Context, id int64) error {
+	if m.DiscardRunFunc != nil {
+		return m.DiscardRunFunc(ctx, id)
+	}
+	return nil
+}
+
+// CommitSnapshot delegates to CommitSnapshotFunc, else returns snapshot 1
+// whose manifest is exactly parts (zero ids dropped). It does not carry a
+// previous snapshot forward; tests of carry-forward use a real store.
+func (m *MockStore) CommitSnapshot(ctx context.Context, hash string, parts map[string]int64) (*db.Snapshot, error) {
+	if m.CommitSnapshotFunc != nil {
+		return m.CommitSnapshotFunc(ctx, hash, parts)
+	}
+	snap := &db.Snapshot{ID: 1, ConfigHash: hash}
+	for _, part := range slices.Sorted(maps.Keys(parts)) {
+		if parts[part] != 0 {
+			snap.Parts = append(snap.Parts, db.SnapshotPart{Part: part, RunID: parts[part]})
+		}
+	}
+	return snap, nil
+}
+
+// WithParts returns the mock unchanged by default, like WithConfigHash: the
+// overlay is not modelled, so reads see whatever the List*/Latest* funcs return.
+func (m *MockStore) WithParts(hash string, parts map[string]int64) db.Store {
+	if m.WithPartsFunc != nil {
+		return m.WithPartsFunc(hash, parts)
+	}
+	return m
 }
 
 func (m *MockStore) ListSnapshots(ctx context.Context) ([]db.Snapshot, error) {
@@ -312,9 +352,9 @@ func (m *MockRootStore) Close() error {
 	return nil
 }
 
-func (m *MockStore) SaveHexMetrics(ctx context.Context, metric string, snapshotID *int64, rows []db.HexMetric) error {
+func (m *MockStore) SaveHexMetrics(ctx context.Context, metric string, runID int64, rows []db.HexMetric) error {
 	if m.SaveHexMetricsFunc != nil {
-		return m.SaveHexMetricsFunc(ctx, metric, snapshotID, rows)
+		return m.SaveHexMetricsFunc(ctx, metric, runID, rows)
 	}
 	return nil
 }
@@ -322,12 +362,12 @@ func (m *MockStore) SaveHexMetrics(ctx context.Context, metric string, snapshotI
 // SaveHexMetricSet delegates to SaveHexMetricSetFunc if set, otherwise
 // replays the set through SaveHexMetrics key by key (sorted), so tests that
 // only capture SaveHexMetricsFunc still observe every metric.
-func (m *MockStore) SaveHexMetricSet(ctx context.Context, snapshotID *int64, set map[string][]db.HexMetric) error {
+func (m *MockStore) SaveHexMetricSet(ctx context.Context, runID int64, set map[string][]db.HexMetric) error {
 	if m.SaveHexMetricSetFunc != nil {
-		return m.SaveHexMetricSetFunc(ctx, snapshotID, set)
+		return m.SaveHexMetricSetFunc(ctx, runID, set)
 	}
 	for _, metric := range slices.Sorted(maps.Keys(set)) {
-		if err := m.SaveHexMetrics(ctx, metric, snapshotID, set[metric]); err != nil {
+		if err := m.SaveHexMetrics(ctx, metric, runID, set[metric]); err != nil {
 			return err
 		}
 	}

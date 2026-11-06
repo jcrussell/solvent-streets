@@ -36,7 +36,10 @@ type Options struct {
 	// PrebuiltGrid is the clipped hex grid when `all compute` already built
 	// one for the city; nil builds it here (compute.BuildCityGrid shape).
 	PrebuiltGrid []geo.Hex
-	rows         *[]computeRow
+	// Draft is the snapshot `all compute` is assembling; nil commits this
+	// run's own (see compute.WithDraft).
+	Draft *db.Draft
+	rows  *[]computeRow
 }
 
 type computeRow struct {
@@ -47,7 +50,7 @@ type computeRow struct {
 	Hexes         int     `json:"hexes"`
 	PctWithin     float64 `json:"pctWithinThreshold"`
 	MedianSeconds float64 `json:"medianSeconds"`
-	SnapshotID    int64   `json:"snapshotId,omitempty"`
+	RunID         int64   `json:"runId,omitempty"`
 }
 
 var _ cmdutil.RowExporter = computeRow{}
@@ -70,14 +73,14 @@ func (r computeRow) ExportData(fields []string) map[string]any {
 			out[f] = r.PctWithin
 		case "medianSeconds":
 			out[f] = r.MedianSeconds
-		case "snapshotId":
-			out[f] = r.SnapshotID
+		case "runId":
+			out[f] = r.RunID
 		}
 	}
 	return out
 }
 
-var computeFields = []string{"city", "service", "facilities", "unsnapped", "hexes", "pctWithinThreshold", "medianSeconds", "snapshotId"}
+var computeFields = []string{"city", "service", "facilities", "unsnapped", "hexes", "pctWithinThreshold", "medianSeconds", "runId"}
 
 // NewCmdCompute builds `services compute`. service points at the group's
 // --service flag value, read at run time.
@@ -94,11 +97,11 @@ func NewCmdCompute(f *cmdutil.Factory, service *string, runF func(context.Contex
 		Long: `Build a routable graph from the stored roads (OpenStreetMap rows when
 present, else the agency centerlines), route from every facility at once,
 and store each hex's response time — turnout plus travel to the nearest
-reachable point along a road from the hex centre — as a per-hex metric
-attached to the city's latest roads compute snapshot. Export publishes it
-only while that snapshot is still the latest, so rerun this after a roads
-compute. Hexes off the network or unreachable from every facility carry no
-value.`,
+reachable point along a road from the hex centre — as a per-hex metric.
+The result is committed as the service's own part of the city's snapshot,
+so a later roads compute leaves it in place; rerun this after re-ingesting
+roads or facilities. Hexes off the network or unreachable from every
+facility carry no value.`,
 		Example: `  # Fire response coverage for every configured city
   pvmt services compute
 
@@ -123,8 +126,9 @@ value.`,
 
 // RunComputeForCity computes coverage for one city against the city-scoped
 // factory cf, reusing grid (nil = build one). `pvmt all compute` calls it
-// in-process after the pavement passes.
-func RunComputeForCity(ctx context.Context, cf *cmdutil.Factory, service string, grid []geo.Hex) error {
+// in-process after the pavement passes, with the city's draft (nil commits
+// this run's own snapshot).
+func RunComputeForCity(ctx context.Context, cf *cmdutil.Factory, service string, grid []geo.Hex, draft *db.Draft) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -135,6 +139,7 @@ func RunComputeForCity(ctx context.Context, cf *cmdutil.Factory, service string,
 		CurrentCity:  cf.CurrentCity,
 		Service:      service,
 		PrebuiltGrid: grid,
+		Draft:        draft,
 	}
 	return runCompute(ctx, opts)
 }
@@ -188,8 +193,8 @@ func loadFacilities(ctx context.Context, store db.Store, city *config.CityConfig
 type inputs struct {
 	store      db.Store
 	city       *config.CityConfig
+	configHash string // the hash the city's snapshot is committed under
 	spec       services.Spec
-	snapshotID *int64
 	roads      []resource.Feature
 	source     string
 	facilities []services.Facility
@@ -197,10 +202,11 @@ type inputs struct {
 	grid       []geo.Hex
 }
 
-// loadInputs resolves the service, the roads snapshot the metric attaches
-// to, the road rows, the facilities and the clipped grid. It returns
-// cmdutil.ErrNoResults (after a note on errOut) when the city has no roads or
-// no facilities — an empty result, not a failure.
+// loadInputs resolves the service, the road rows, the facilities and the
+// clipped grid. It returns cmdutil.ErrNoResults (after a note on errOut) when
+// the city has no roads or no facilities — an empty result, not a failure —
+// together with the partly filled inputs (store, hash, spec), so the caller
+// can drop the service's part from the snapshot.
 func loadInputs(ctx context.Context, errOut io.Writer, opts *Options) (*inputs, error) {
 	cfg, err := opts.Config()
 	if err != nil {
@@ -223,18 +229,18 @@ func loadInputs(ctx context.Context, errOut io.Writer, opts *Options) (*inputs, 
 	if err := services.ValidateOverrides(cfg.Services); err != nil {
 		return nil, errors.Join(config.ErrInvalidConfig, err)
 	}
-	in := &inputs{store: store, city: city, spec: services.Resolve(spec, cfg.Services)}
+	in := &inputs{store: store, city: city, configHash: cfg.CityHash(city), spec: services.Resolve(spec, cfg.Services)}
 
-	// Empty inputs first (ErrNoResults = a quiet skip in `pvmt all`), then
-	// the snapshot precondition (a real, hinted error): a city with no roads
-	// or no stations is not a failure, a city that skipped `roads compute` is.
+	// Empty inputs are ErrNoResults (a quiet skip in `pvmt all`): a city with
+	// no roads or no stations is not a failure. Coverage routes over the road
+	// FEATURES, so no roads compute is required.
 	roadRows, err := store.ListFeatures(ctx, resource.TypeRoads)
 	if err != nil {
 		return nil, fmt.Errorf("list roads: %w", err)
 	}
 	if len(roadRows) == 0 {
 		fmt.Fprintf(errOut, "No roads features in database for %s. Run 'pvmt roads ingest' first.\n", city.Name)
-		return nil, cmdutil.ErrNoResults
+		return in, cmdutil.ErrNoResults
 	}
 	in.facilities, err = loadFacilities(ctx, store, city, in.spec)
 	if err != nil {
@@ -242,13 +248,13 @@ func loadInputs(ctx context.Context, errOut io.Writer, opts *Options) (*inputs, 
 	}
 	if len(in.facilities) == 0 {
 		fmt.Fprintf(errOut, "No %s facilities for %s (run 'pvmt services ingest' or add [[cities.facilities]]).\n", in.spec.Name, city.Name)
-		return nil, cmdutil.ErrNoResults
+		return in, cmdutil.ErrNoResults
 	}
-	target, err := compute.LoadMetricTarget(ctx, store, cfg, city, opts.PrebuiltGrid, errOut, "service coverage")
+	target, err := compute.LoadMetricTarget(ctx, store, cfg, city, opts.PrebuiltGrid, errOut)
 	if err != nil {
 		return nil, err
 	}
-	in.snapshotID, in.proj, in.grid = target.SnapshotID, target.Proj, target.Grid
+	in.proj, in.grid = target.Proj, target.Grid
 	in.roads, in.source = services.PreferredRoads(db.ResourceFeatures(roadRows))
 	return in, nil
 }
@@ -256,13 +262,34 @@ func loadInputs(ctx context.Context, errOut io.Writer, opts *Options) (*inputs, 
 func doCompute(ctx context.Context, out, progress, errOut io.Writer, notify tui.PhaseNotifier, opts *Options) error {
 	notify.PhaseStart(phaseLoad)
 	in, err := loadInputs(ctx, errOut, opts)
+	if errors.Is(err, cmdutil.ErrNoResults) && in != nil {
+		// Nothing to route from: drop the service's part, so a city whose
+		// stations were removed stops publishing its old coverage.
+		notify.PhaseDone(phaseLoad, err)
+		return compute.WithDraft(ctx, opts.Draft, in.store, in.configHash, func(draft *db.Draft) error {
+			draft.Drop(Producer(in.spec.Name))
+			return err
+		})
+	}
 	if err != nil {
 		notify.PhaseDone(phaseLoad, err)
 		return err
 	}
-	spec, city, facilities, grid, proj, store := in.spec, in.city, in.facilities, in.grid, in.proj, in.store
+	spec, facilities, grid := in.spec, in.facilities, in.grid
 	fmt.Fprintf(progress, "Loaded %d road features (%s), %d %s facilities, %d hexes\n", len(in.roads), in.source, len(facilities), spec.Name, len(grid))
 	notify.PhaseDone(phaseLoad, nil)
+	return compute.WithDraft(ctx, opts.Draft, in.store, in.configHash, func(draft *db.Draft) error {
+		return route(ctx, out, progress, errOut, notify, opts, in, draft)
+	})
+}
+
+// Producer is the snapshot part a service's coverage fills.
+func Producer(service string) string { return "service:" + service }
+
+// route builds the road graph, routes every hex to its nearest facility and
+// saves the result as the draft's run for the service.
+func route(ctx context.Context, out, progress, errOut io.Writer, notify tui.PhaseNotifier, opts *Options, in *inputs, draft *db.Draft) error {
+	spec, city, facilities, grid, proj, store := in.spec, in.city, in.facilities, in.grid, in.proj, in.store
 
 	notify.PhaseStart(phaseGraph)
 	graph := services.BuildGraph(ctx, in.roads, spec.Speeds, proj)
@@ -276,7 +303,7 @@ func doCompute(ctx context.Context, out, progress, errOut io.Writer, notify tui.
 	notify.PhaseStart(phaseRoute)
 	cov := services.ComputeCoverage(ctx, spec, grid, graph, facilities)
 	// ParallelMap yields partial results with no error on cancellation; never
-	// persist a truncated coverage set under a complete-looking snapshot.
+	// persist a truncated coverage set.
 	if err := ctx.Err(); err != nil {
 		notify.PhaseDone(phaseRoute, err)
 		return fmt.Errorf("compute cancelled: %w", err)
@@ -292,19 +319,25 @@ func doCompute(ctx context.Context, out, progress, errOut io.Writer, notify tui.
 	notify.PhaseDone(phaseRoute, nil)
 
 	notify.PhaseStart(phaseSave)
-	// Always saved, even empty: a run that reached nothing must clear the
-	// previous run's rows rather than leave stale coverage on the map.
+	// The run is committed even when it reached nothing: an empty run hides
+	// the metric instead of leaving the previous run's coverage on the map.
+	runID, err := draft.NewRun(ctx, Producer(spec.Name))
+	if err != nil {
+		notify.PhaseDone(phaseSave, err)
+		return err
+	}
 	metrics := make([]db.HexMetric, len(cov.Hexes))
 	for i, h := range cov.Hexes {
 		metrics[i] = db.HexMetric{HexID: h.HexID, Value: h.Seconds, Ref: facilities[h.Facility].ID}
 	}
-	if err := store.SaveHexMetrics(ctx, spec.Metric, in.snapshotID, metrics); err != nil {
+	if err := store.SaveHexMetrics(ctx, spec.Metric, runID, metrics); err != nil {
 		notify.PhaseDone(phaseSave, err)
 		return fmt.Errorf("save hex metrics: %w", err)
 	}
+	draft.Put(Producer(spec.Name), runID)
 	notify.PhaseDone(phaseSave, nil)
 
-	row := summarize(city.Name, spec, cov, len(facilities), in.snapshotID)
+	row := summarize(city.Name, spec, cov, len(facilities), runID)
 	if opts.rows != nil {
 		*opts.rows = append(*opts.rows, row)
 	}
@@ -317,11 +350,8 @@ func doCompute(ctx context.Context, out, progress, errOut io.Writer, notify tui.
 }
 
 // summarize reduces a coverage result to the JSON row / prose figures.
-func summarize(cityName string, spec services.Spec, cov services.Coverage, facilities int, snapshotID *int64) computeRow {
-	row := computeRow{City: cityName, Service: spec.Name, Facilities: facilities, Unsnapped: len(cov.Unsnapped), Hexes: len(cov.Hexes)}
-	if snapshotID != nil {
-		row.SnapshotID = *snapshotID
-	}
+func summarize(cityName string, spec services.Spec, cov services.Coverage, facilities int, runID int64) computeRow {
+	row := computeRow{City: cityName, Service: spec.Name, Facilities: facilities, Unsnapped: len(cov.Unsnapped), Hexes: len(cov.Hexes), RunID: runID}
 	if len(cov.Hexes) == 0 {
 		return row
 	}

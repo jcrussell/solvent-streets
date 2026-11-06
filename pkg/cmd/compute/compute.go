@@ -19,6 +19,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/tui"
 	"github.com/jcrussell/solvent-streets/internal/units"
+	forecastcmd "github.com/jcrussell/solvent-streets/pkg/cmd/forecast"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 
@@ -44,6 +45,10 @@ type Options struct {
 	// path). The grid depends only on (boundary, hex edge), identical across
 	// resources for a city.
 	PrebuiltGrid []geo.Hex
+	// Draft, when non-nil, is the snapshot the caller is assembling (`all
+	// compute` commits one per city once all its steps are done). nil means this run
+	// owns its draft and commits it as one snapshot (see WithDraft).
+	Draft *db.Draft
 }
 
 type computeRow struct {
@@ -54,8 +59,11 @@ type computeRow struct {
 	Area         float64 `json:"area"`
 	// EstimatedSpaces is the parking resource's estimated vehicle capacity
 	// (0 and omitted for every other resource).
-	EstimatedSpaces int   `json:"estimatedSpaces,omitempty"`
-	SnapshotID      int64 `json:"snapshotId,omitempty"`
+	EstimatedSpaces int `json:"estimatedSpaces,omitempty"`
+	// RunID is the run this compute wrote. The snapshot id is not known yet
+	// when the row is recorded: under `all compute` the city's snapshot is
+	// committed once all of the city's steps are done.
+	RunID int64 `json:"runId,omitempty"`
 }
 
 var _ cmdutil.RowExporter = computeRow{}
@@ -76,14 +84,14 @@ func (r computeRow) ExportData(fields []string) map[string]any {
 			out[f] = r.Area
 		case "estimatedSpaces":
 			out[f] = r.EstimatedSpaces
-		case "snapshotId":
-			out[f] = r.SnapshotID
+		case "runId":
+			out[f] = r.RunID
 		}
 	}
 	return out
 }
 
-var computeFields = []string{"city", "resourceType", "jurisdiction", "featureCount", "area", "estimatedSpaces", "snapshotId"}
+var computeFields = []string{"city", "resourceType", "jurisdiction", "featureCount", "area", "estimatedSpaces", "runId"}
 
 func NewCmdCompute(f *cmdutil.Factory, rt resource.Source, runF func(context.Context, *Options) error) *cobra.Command {
 	opts := &Options{
@@ -127,7 +135,9 @@ func NewCmdCompute(f *cmdutil.Factory, rt resource.Source, runF func(context.Con
 // of executing a nested cobra command — so one clipped grid can be shared
 // across the per-resource passes. It mirrors the Options NewCmdCompute builds and
 // runs the same single-city path (TTY/JSON routing included).
-func RunResourceForCity(ctx context.Context, f *cmdutil.Factory, rt resource.Source, grid []geo.Hex) error {
+//
+// draft is the snapshot the caller is assembling; nil commits this run's own.
+func RunResourceForCity(ctx context.Context, f *cmdutil.Factory, rt resource.Source, grid []geo.Hex, draft *db.Draft) error {
 	// Pre-check cancellation before doing any work. The `all` fan-out calls
 	// this in-process (it used to go through a throwaway cobra command, whose
 	// cmdutil.ForEachCity pre-check supplied this), so without it a mid-fan-out
@@ -145,6 +155,7 @@ func RunResourceForCity(ctx context.Context, f *cmdutil.Factory, rt resource.Sou
 		UnitSystem:   f.UnitSystem,
 		ResourceType: rt,
 		PrebuiltGrid: grid,
+		Draft:        draft,
 	}
 	return runCompute(ctx, opts)
 }
@@ -215,21 +226,21 @@ func runComputeTUI(ctx context.Context, opts *Options) error {
 // computeHexPipeline are invoked as methods with only the varying payload
 // (resFeatures, clippedHexes, buffered) as explicit args.
 type computer struct {
-	opts       *Options
-	cfg        *config.Config
-	city       *config.CityConfig
-	store      db.Store
-	proj       *geo.UTMProjector
-	bbox       [4]float64
-	snapshotID *int64
-	sys        units.System
-	notify     tui.PhaseNotifier
-	out        io.Writer // result DATA (printResults / printCohortBreakdown)
-	progress   io.Writer // human progress chatter ("Loading...", "Generated N hexes")
-	errOut     io.Writer // warnings
+	opts     *Options
+	cfg      *config.Config
+	city     *config.CityConfig
+	store    db.Store
+	proj     *geo.UTMProjector
+	bbox     [4]float64
+	runID    int64 // the run every row of this compute is tagged with
+	sys      units.System
+	notify   tui.PhaseNotifier
+	out      io.Writer // result DATA (printResults / printCohortBreakdown)
+	progress io.Writer // human progress chatter ("Loading...", "Generated N hexes")
+	errOut   io.Writer // warnings
 }
 
-func doCompute(ctx context.Context, out, progress, errOut io.Writer, notify tui.PhaseNotifier, opts *Options) (retErr error) {
+func doCompute(ctx context.Context, out, progress, errOut io.Writer, notify tui.PhaseNotifier, opts *Options) error {
 	cfg, err := opts.Config()
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
@@ -262,36 +273,61 @@ func doCompute(ctx context.Context, out, progress, errOut io.Writer, notify tui.
 		errOut:   errOut,
 	}
 
-	// Load features before creating the snapshot: loadResourceFeatures
-	// returns ErrNoResults on an empty database, and creating the snapshot
-	// first would leave an empty run that `snapshots prune` counts toward
-	// --keep. Nothing consumes c.snapshotID before this point.
+	producer := string(opts.ResourceType.Type())
+	// No features is an empty result (ErrNoResults) that removes the
+	// resource's part and its forecast, so coverage computed from features
+	// that are gone (a source removed and swept) stops being published. A
+	// city that never had the part is unchanged: dropping an absent part is a
+	// no-op commit.
 	resFeatures, err := c.loadResourceFeatures(ctx)
+	if errors.Is(err, cmdutil.ErrNoResults) {
+		return WithDraft(ctx, opts.Draft, store, cfg.CityHash(city), func(draft *db.Draft) error {
+			draft.Drop(producer)
+			draft.Drop(forecastcmd.Producer(opts.ResourceType.Type()))
+			return err
+		})
+	}
 	if err != nil {
 		return err
 	}
-	c.snapshotID = createSnapshot(ctx, errOut, store, cfg, city)
-	// Single cleanup chokepoint: the cancel guards below (and any error path
-	// after snapshot creation) return without deleting the snapshot row that
-	// createSnapshot just wrote. `snapshots prune` counts every snapshot toward
-	// --keep with no result-row filter, so an empty run from a SIGINT'd compute
-	// would consume a keep slot and evict a real snapshot. Delete it here on a
-	// cancellation. The request ctx is already cancelled, so use a derived ctx
-	// that preserves values (logger, etc.) but ignores the cancellation.
-	if c.snapshotID != nil {
-		id := *c.snapshotID
-		defer func() {
-			if retErr == nil || !errors.Is(retErr, context.Canceled) {
-				return
-			}
-			cleanupCtx := context.WithoutCancel(ctx)
-			// Don't mask the original context.Canceled: warn on failure but
-			// leave retErr untouched so the caller still sees the cancellation.
-			if _, err := store.DeleteSnapshot(cleanupCtx, id); err != nil {
-				fmt.Fprintf(errOut, "Warning: failed to delete snapshot %d after cancellation: %v\n", id, err)
-			}
-		}()
+	return WithDraft(ctx, opts.Draft, store, cfg.CityHash(city), func(draft *db.Draft) error {
+		runID, err := draft.NewRun(ctx, producer)
+		if err != nil {
+			return err
+		}
+		c.runID = runID
+		if err := c.computeAndSave(ctx, resFeatures, boundaryGJSON); err != nil {
+			return err
+		}
+		draft.Put(producer, runID)
+		return c.rerunForecast(ctx, draft)
+	})
+}
+
+// rerunForecast refreshes the resource's forecast in the same draft, so the
+// snapshot never pairs this compute with a forecast of an older one (epic
+// solvent-streets-25t6, decision 3). A forecast failure does not fail the
+// compute: the stale forecast part is dropped from the snapshot instead, with
+// a warning, until `pvmt forecast` succeeds. Cancellation still propagates.
+func (c *computer) rerunForecast(ctx context.Context, draft *db.Draft) error {
+	rt := c.opts.ResourceType
+	fc := c.cfg.ResolvedForecast(c.city)
+	if _, err := forecastcmd.ForecastResource(ctx, draft, rt, &fc); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return fmt.Errorf("forecast %s: %w", rt.Type(), ctxErr)
+		}
+		draft.Drop(forecastcmd.Producer(rt.Type()))
+		fmt.Fprintf(c.errOut, "Warning: %s forecast not refreshed (%v); it is left out of the snapshot until `pvmt forecast` succeeds\n", rt.Type(), err)
+		return nil
 	}
+	fmt.Fprintf(c.progress, "Refreshed the %s forecast.\n", rt.Type())
+	return nil
+}
+
+// computeAndSave runs the coverage passes over resFeatures and saves every
+// result row under c.runID.
+func (c *computer) computeAndSave(ctx context.Context, resFeatures []resource.Feature, boundaryGJSON string) error {
+	opts, notify, progress, proj := c.opts, c.notify, c.progress, c.proj
 	jurisdictionParts := filter.Partition(resFeatures)
 	fmt.Fprintf(progress, "  Total: %d features (%d city, %d county, %d state, %d federal)\n",
 		len(resFeatures),
@@ -327,9 +363,9 @@ func doCompute(ctx context.Context, out, progress, errOut io.Writer, notify tui.
 	// (a no-op slice for other resources, see spaceWeights).
 	hexStats = c.mergeSpaces(ctx, hexStats, allBuffered, clippedHexes)
 	// ParallelMap returns partial results (no error) on cancellation, so a
-	// SIGINT'd run would otherwise persist truncated hex stats under a
-	// complete-looking snapshot. Guard between compute and persistence: bail
-	// on cancellation without saving anything.
+	// SIGINT'd run would otherwise persist truncated hex stats. Guard between
+	// compute and persistence: bail on cancellation without saving anything
+	// (the run is then discarded, never committed).
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("compute cancelled: %w", err)
 	}
@@ -461,24 +497,6 @@ func (c *computer) loadResourceFeatures(ctx context.Context) ([]resource.Feature
 	return db.ResourceFeatures(dbFeatures), nil
 }
 
-// createSnapshot records the compute run under the hash that OWNS this city's
-// data. That is cfg.CityHash(city), not cfg.Hash(): for a city reached through
-// [[include]] the data belongs to the file that declared it, so computing from
-// a union config updates the source example's snapshots rather than writing
-// into a namespace nothing reads. The read side (RequireMatchingSnapshot,
-// BuildCityEntries, snapshotMatchesConfig) resolves the same way, and the two
-// have to agree or compute silently produces snapshots no export can find.
-func createSnapshot(ctx context.Context, errOut io.Writer, store db.Store, cfg *config.Config, city *config.CityConfig) *int64 {
-	snapshot, err := store.CreateSnapshot(ctx, cfg.CityHash(city))
-	if err != nil {
-		fmt.Fprintf(errOut, "Warning: failed to create snapshot: %v\n", err)
-	}
-	if snapshot != nil {
-		return &snapshot.ID
-	}
-	return nil
-}
-
 // runAllFeaturesPass runs the hex pipeline against every-jurisdiction
 // buffered features and returns the per-hex coverage plus the clipped hex
 // grid for downstream passes to share.
@@ -507,7 +525,7 @@ func (c *computer) saveAllJurisdictionsResult(ctx context.Context, allBuffered [
 		TotalArea:       area,
 		FeatureCount:    featureCount,
 		EstimatedSpaces: spaces,
-		SnapshotID:      c.snapshotID,
+		RunID:           c.runID,
 	}
 	if err := c.store.SaveComputeResult(ctx, result); err != nil {
 		return fmt.Errorf("save result: %w", err)
@@ -540,7 +558,7 @@ func (c *computer) saveHexStats(ctx context.Context, hexStats []geo.HexStat) err
 			ResourceType: rt,
 			Area:         s.Area,
 			PctCovered:   s.PctCovered,
-			SnapshotID:   c.snapshotID,
+			RunID:        c.runID,
 		}
 	}
 	if err := c.store.SaveHexStats(ctx, dbStats); err != nil {
@@ -550,8 +568,8 @@ func (c *computer) saveHexStats(ctx context.Context, hexStats []geo.HexStat) err
 }
 
 // saveSpaceMetrics persists the per-hex parking spaces of rt's stats to
-// hex_metrics (resource.SpacesMetricKey) against this run's snapshot, the
-// same one its hex_stats rows carry; export joins the two on that snapshot.
+// hex_metrics (resource.SpacesMetricKey) under this compute's run, the same
+// run its hex_stats rows carry, so the snapshot always pairs them.
 // Hexes with no spaces are not stored. A no-op for resources without spaces.
 func (c *computer) saveSpaceMetrics(ctx context.Context, rt resource.Type, stats []geo.HexStat) error {
 	key := resource.SpacesMetricKey(rt)
@@ -564,7 +582,7 @@ func (c *computer) saveSpaceMetrics(ctx context.Context, rt resource.Type, stats
 			rows = append(rows, db.HexMetric{HexID: s.HexID, Value: s.EstimatedSpaces})
 		}
 	}
-	if err := c.store.SaveHexMetrics(ctx, key, c.snapshotID, rows); err != nil {
+	if err := c.store.SaveHexMetrics(ctx, key, c.runID, rows); err != nil {
 		return fmt.Errorf("save %s parking space metrics: %w", rt, err)
 	}
 	return nil
@@ -598,7 +616,7 @@ func (c *computer) processCityResults(ctx context.Context, cityBuffered []resour
 			ResourceType: rtCity,
 			Area:         s.Area,
 			PctCovered:   s.PctCovered,
-			SnapshotID:   c.snapshotID,
+			RunID:        c.runID,
 		}
 	}
 	if err := c.store.SaveHexStats(ctx, cityDBStats); err != nil {
@@ -614,7 +632,7 @@ func (c *computer) processCityResults(ctx context.Context, cityBuffered []resour
 		TotalArea:       cityArea,
 		FeatureCount:    featureCount,
 		EstimatedSpaces: citySpaces,
-		SnapshotID:      c.snapshotID,
+		RunID:           c.runID,
 	}
 	if err := c.store.SaveComputeResult(ctx, cityResult); err != nil {
 		return fmt.Errorf("save city result: %w", err)
@@ -649,9 +667,7 @@ func (c *computer) recordRow(jurisdiction string, featureCount int, area float64
 		Area:            area,
 		EstimatedSpaces: spaces,
 	}
-	if c.snapshotID != nil {
-		row.SnapshotID = *c.snapshotID
-	}
+	row.RunID = c.runID
 	*c.opts.rows = append(*c.opts.rows, row)
 }
 
@@ -805,7 +821,7 @@ func (c *computer) buildCohortStats(ctx context.Context, rt resource.Type, buffe
 			Classification: string(rt.Bare()),
 			Area:           totalArea,
 			FeatureCount:   len(buffered),
-			SnapshotID:     c.snapshotID,
+			RunID:          c.runID,
 		}}
 	}
 
@@ -830,7 +846,7 @@ func (c *computer) buildCohortStats(ctx context.Context, rt resource.Type, buffe
 			Classification: class,
 			Area:           totalArea * proportion,
 			FeatureCount:   counts[class],
-			SnapshotID:     c.snapshotID,
+			RunID:          c.runID,
 		})
 	}
 	return stats

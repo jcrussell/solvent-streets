@@ -33,7 +33,10 @@ import (
 // grid `all compute` built once per city (see BuildCityGrid) so the boundary
 // clip isn't repeated here. Pass nil to have RunCombined build its own grid
 // (standalone use).
-func RunCombined(ctx context.Context, f *cmdutil.Factory, grid []geo.Hex) (retErr error) {
+//
+// The pass is the draft's "combined" part (both labels' rows share one run).
+// draft is the snapshot the caller is assembling; nil commits its own.
+func RunCombined(ctx context.Context, f *cmdutil.Factory, grid []geo.Hex, draft *db.Draft) error {
 	cfg, err := f.Config()
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
@@ -53,10 +56,15 @@ func RunCombined(ctx context.Context, f *cmdutil.Factory, grid []geo.Hex) (retEr
 		return err
 	}
 
+	producer := string(resource.CombinedAll)
 	bufs := bufferAllResources(ctx, store, proj, ios.ErrOut)
 	if len(bufs.all) == 0 {
+		// Nothing to union: drop the part rather than keep an old total.
 		fmt.Fprintf(ios.ErrOut, "combined: no features across resources, skipping\n")
-		return nil
+		return WithDraft(ctx, draft, store, cfg.CityHash(city), func(draft *db.Draft) error {
+			draft.Drop(producer)
+			return nil
+		})
 	}
 
 	// Reuse the grid `all compute` already built + clipped for this city; only
@@ -65,39 +73,23 @@ func RunCombined(ctx context.Context, f *cmdutil.Factory, grid []geo.Hex) (retEr
 	if hexes == nil {
 		hexes = BuildClippedHexGrid(ctx, cfg, city, proj, bbox, boundaryGJSON, ios.ErrOut)
 	}
-	cr := &combinedRunner{
-		store:      store,
-		io:         ios,
-		sys:        f.UnitSystem(),
-		snapshotID: createSnapshot(ctx, ios.ErrOut, store, cfg, city),
-	}
-	// Same single cleanup chokepoint as doCompute: cr.save's cancel guard (and
-	// any post-snapshot error path) returns without deleting the snapshot row
-	// created above. An empty run from a SIGINT'd combined compute would
-	// otherwise consume a `snapshots prune` --keep slot. Delete it on cancel
-	// via a value-preserving, cancellation-ignoring derived ctx.
-	if cr.snapshotID != nil {
-		id := *cr.snapshotID
-		defer func() {
-			if retErr == nil || !errors.Is(retErr, context.Canceled) {
-				return
-			}
-			cleanupCtx := context.WithoutCancel(ctx)
-			if _, err := store.DeleteSnapshot(cleanupCtx, id); err != nil {
-				fmt.Fprintf(ios.ErrOut, "Warning: failed to delete snapshot %d after cancellation: %v\n", id, err)
-			}
-		}()
-	}
-
-	if err := cr.save(ctx, combinedPass{hexes: hexes, buffered: bufs.all, label: resource.CombinedAll, featureCount: bufs.allCount}); err != nil {
-		return err
-	}
-	if len(bufs.city) > 0 {
-		if err := cr.save(ctx, combinedPass{hexes: hexes, buffered: bufs.city, label: resource.CombinedCity, featureCount: bufs.cityCount}); err != nil {
+	return WithDraft(ctx, draft, store, cfg.CityHash(city), func(draft *db.Draft) error {
+		runID, err := draft.NewRun(ctx, producer)
+		if err != nil {
 			return err
 		}
-	}
-	return nil
+		cr := &combinedRunner{store: store, io: ios, sys: f.UnitSystem(), runID: runID}
+		if err := cr.save(ctx, combinedPass{hexes: hexes, buffered: bufs.all, label: resource.CombinedAll, featureCount: bufs.allCount}); err != nil {
+			return err
+		}
+		if len(bufs.city) > 0 {
+			if err := cr.save(ctx, combinedPass{hexes: hexes, buffered: bufs.city, label: resource.CombinedCity, featureCount: bufs.cityCount}); err != nil {
+				return err
+			}
+		}
+		draft.Put(producer, runID)
+		return nil
+	})
 }
 
 type combinedBuffers struct {
@@ -219,14 +211,14 @@ func BuildClippedHexGrid(ctx context.Context, cfg *config.Config, city *config.C
 	return hexes
 }
 
-// combinedRunner bundles the cross-pass dependencies (DB, IO, units, snapshot)
+// combinedRunner bundles the cross-pass dependencies (DB, IO, units, run)
 // so each combinedPass save() invocation carries only its varying payload.
 // Mirrors the `computer` struct in compute.go.
 type combinedRunner struct {
-	store      db.Store
-	io         *iostreams.IOStreams
-	sys        units.System
-	snapshotID *int64
+	store db.Store
+	io    *iostreams.IOStreams
+	sys   units.System
+	runID int64
 }
 
 // combinedPass is one cross-resource union pass: the buffered geometries to
@@ -253,7 +245,7 @@ func (cr *combinedRunner) save(ctx context.Context, p combinedPass) error {
 	}
 	// ComputeHexStats (ParallelMap-backed) returns partial results with no
 	// error on cancellation; bail before persisting a truncated combined
-	// result under a complete-looking snapshot.
+	// result (the run is then discarded, never committed).
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("compute %s cancelled: %w", p.label, err)
 	}
@@ -272,7 +264,7 @@ func (cr *combinedRunner) save(ctx context.Context, p combinedPass) error {
 		ResourceType: p.label,
 		TotalArea:    area,
 		FeatureCount: p.featureCount,
-		SnapshotID:   cr.snapshotID,
+		RunID:        cr.runID,
 	}); err != nil {
 		return fmt.Errorf("save %s result: %w", p.label, err)
 	}

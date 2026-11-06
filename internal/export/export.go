@@ -54,6 +54,17 @@ func New(entries []CityEntry, cfg *config.Config, outputDir, unitSystem string, 
 }
 
 func (e *Exporter) Run(ctx context.Context) error {
+	// Pin every city to ONE snapshot for the whole export. Each read would
+	// otherwise resolve "newest snapshot for the config" on its own, and a
+	// compute committing mid-export could leave a city's files (and the
+	// multi-city totals) built from two different snapshots.
+	for i, entry := range e.entries {
+		pinned, err := entry.PinCurrentSnapshot(ctx)
+		if err != nil {
+			return err
+		}
+		e.entries[i] = pinned
+	}
 	if len(e.entries) == 1 {
 		return e.runSingleCity(ctx)
 	}

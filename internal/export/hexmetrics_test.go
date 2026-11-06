@@ -16,22 +16,15 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/services"
 )
 
-// metricsRoadsSnap is the roads compute snapshot metricsEntry reports; rows
-// on any other snapshot are stale and must not be published.
-const metricsRoadsSnap int64 = 5
-
+// metricsEntry is a city whose resolved snapshot holds rows (the store's
+// ListHexMetrics), a roads compute and hexStats. The mock stands in for the
+// snapshot: whatever it lists IS the snapshot's metric part.
 func metricsEntry(t *testing.T, rows []db.HexMetric, facilities []db.Feature, hexStats []db.HexStat) CityEntry {
 	t.Helper()
-	snap := metricsRoadsSnap
-	for i := range rows {
-		if rows[i].SnapshotID == nil {
-			rows[i].SnapshotID = &snap
-		}
-	}
 	store := &dbtest.MockStore{
 		LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
 			if rt == resource.TypeRoads {
-				return &db.ComputeResult{ResourceType: rt, TotalArea: 1, SnapshotID: &snap}, nil
+				return &db.ComputeResult{ResourceType: rt, TotalArea: 1, RunID: 5}, nil
 			}
 			return nil, sql.ErrNoRows
 		},
@@ -183,32 +176,30 @@ func TestBuildMeta_MetricSummaries(t *testing.T) {
 	}
 }
 
-// TestHexMetrics_StaleSnapshotDropped pins the stale-fallback guard: metric
-// rows resolve to the newest snapshot that HAS rows, so a rerun that stored
-// nothing on the current roads snapshot would otherwise leave an older run's
-// coverage published. Rows on any snapshot but the current roads one are
-// dropped from both hex-metrics.json and meta.json, and a city with no roads
-// compute publishes no metric.
-func TestHexMetrics_StaleSnapshotDropped(t *testing.T) {
-	old := metricsRoadsSnap - 2
-	rows := []db.HexMetric{{HexID: "h1", Metric: services.MetricFire, Value: 300, Ref: "a", SnapshotID: &old}}
+// TestHexMetrics_IndependentOfRoadsCompute pins solvent-streets-25t6: stored
+// metrics are their producers' own parts of the resolved snapshot, so they are
+// published whether or not the city has a roads compute (a roads recompute
+// used to hide them until their producers reran) and regardless of which run
+// wrote them.
+func TestHexMetrics_IndependentOfRoadsCompute(t *testing.T) {
+	rows := []db.HexMetric{{HexID: "h1", Metric: services.MetricFire, Value: 300, Ref: "a", RunID: 3}}
 	stats := []db.HexStat{{HexID: "h1", ResourceType: rtRoads, Area: 1}}
-	entry := metricsEntry(t, rows, nil, stats)
-	if hm, err := BuildHexMetrics(context.Background(), entry); err != nil || hm != nil {
-		t.Errorf("stale rows: BuildHexMetrics = (%+v, %v), want (nil, nil)", hm, err)
-	}
-	meta, err := BuildMeta(context.Background(), entry, 0)
+
+	noRoads := metricsEntry(t, rows, nil, stats)
+	noRoads.Store.(*dbtest.MockStore).LatestComputeResultFunc = nil
+	hm, err := BuildHexMetrics(context.Background(), noRoads)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(meta.Metrics) != 0 {
-		t.Errorf("stale rows must not be summarised: %+v", meta.Metrics)
+	if hm == nil || hm.Metrics[services.MetricFire].Values["h1"] != 300 {
+		t.Errorf("no roads compute: BuildHexMetrics = %+v, want the fire metric published", hm)
 	}
-
-	noRoads := metricsEntry(t, []db.HexMetric{{HexID: "h1", Metric: services.MetricFire, Value: 300}}, nil, stats)
-	noRoads.Store.(*dbtest.MockStore).LatestComputeResultFunc = nil
-	if hm, err := BuildHexMetrics(context.Background(), noRoads); err != nil || hm != nil {
-		t.Errorf("no roads compute: BuildHexMetrics = (%+v, %v), want (nil, nil)", hm, err)
+	meta, err := BuildMeta(context.Background(), metricsEntry(t, rows, nil, stats), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := meta.Metrics[services.MetricFire]; !ok {
+		t.Errorf("meta.json must summarise the snapshot's fire metric: %+v", meta.Metrics)
 	}
 }
 

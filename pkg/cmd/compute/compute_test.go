@@ -2,6 +2,7 @@ package compute
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -437,16 +438,23 @@ func TestRunCompute_CityOnlySuppressesAllCohortBreakdown(t *testing.T) {
 	}
 }
 
-// TestRunCompute_NoFeaturesSkipsSnapshot pins solvent-streets-yvlv.39: the
-// snapshot must not be created when loadResourceFeatures reports no features,
-// otherwise `snapshots prune` counts an empty run toward --keep.
-func TestRunCompute_NoFeaturesSkipsSnapshot(t *testing.T) {
-	snapshotCreated := false
+// TestRunCompute_NoFeaturesDropsThePart pins solvent-streets-yvlv.39 under
+// runs and snapshots: when loadResourceFeatures reports no features, no run is
+// created, and the only thing committed is the removal of the resource's part
+// and its forecast (a no-op in the store when the city never had them), so
+// coverage from features that are gone stops being published.
+func TestRunCompute_NoFeaturesDropsThePart(t *testing.T) {
+	runCreated := false
+	var committed map[string]int64
 	store := &dbtest.MockStore{
 		GetBoundaryFunc:  func(_ context.Context) (string, error) { return testBoundary, nil },
 		ListFeaturesFunc: func(_ context.Context, _ resource.Type) ([]db.Feature, error) { return nil, nil },
-		CreateSnapshotFunc: func(_ context.Context, _ string) (*db.Snapshot, error) {
-			snapshotCreated = true
+		CreateRunFunc: func(_ context.Context, producer, hash string) (*db.Run, error) {
+			runCreated = true
+			return &db.Run{ID: 1, Producer: producer, ConfigHash: hash}, nil
+		},
+		CommitSnapshotFunc: func(_ context.Context, _ string, parts map[string]int64) (*db.Snapshot, error) {
+			committed = parts
 			return &db.Snapshot{ID: 1}, nil
 		},
 	}
@@ -467,8 +475,12 @@ func TestRunCompute_NoFeaturesSkipsSnapshot(t *testing.T) {
 	if !errors.Is(err, cmdutil.ErrNoResults) {
 		t.Fatalf("expected ErrNoResults, got: %v", err)
 	}
-	if snapshotCreated {
-		t.Error("CreateSnapshot was called on the no-features path; expected snapshot creation to be skipped")
+	if runCreated {
+		t.Error("no-features path created a run")
+	}
+	want := map[string]int64{"roads": 0, "forecast:roads": 0}
+	if !maps.Equal(committed, want) {
+		t.Errorf("committed %v, want only the drops %v", committed, want)
 	}
 }
 
@@ -554,25 +566,30 @@ func TestRunCompute_CancelledDoesNotSave(t *testing.T) {
 	}
 }
 
-// TestRunCompute_CancelledDeletesSnapshot pins the cancellation-cleanup fix:
-// when a snapshot has already been created and the compute is then cancelled,
-// doCompute must delete that snapshot (so `snapshots prune` doesn't count an
-// empty run toward --keep) while still returning context.Canceled. Deletion
-// must use a fresh (non-cancelled) context so it isn't itself cancelled.
-func TestRunCompute_CancelledDeletesSnapshot(t *testing.T) {
-	const snapID = int64(42)
-	var deletedID int64
-	var deleteCtxErr error
+// TestRunCompute_CancelledDiscardsRun pins the cancellation cleanup: when a
+// run has already been created and the compute is then cancelled, doCompute
+// discards that run and commits no snapshot, while still returning
+// context.Canceled. The discard must use a fresh (non-cancelled) context so it
+// isn't itself cancelled.
+func TestRunCompute_CancelledDiscardsRun(t *testing.T) {
+	const runID = int64(42)
+	var discardedID int64
+	var discardCtxErr error
+	committed := false
 	store := &dbtest.MockStore{
 		GetBoundaryFunc:  func(_ context.Context) (string, error) { return testBoundary, nil },
 		ListFeaturesFunc: roadsFeaturesFunc,
-		CreateSnapshotFunc: func(_ context.Context, _ string) (*db.Snapshot, error) {
-			return &db.Snapshot{ID: snapID}, nil
+		CreateRunFunc: func(_ context.Context, producer, hash string) (*db.Run, error) {
+			return &db.Run{ID: runID, Producer: producer, ConfigHash: hash}, nil
 		},
-		DeleteSnapshotFunc: func(ctx context.Context, id int64) (bool, error) {
-			deletedID = id
-			deleteCtxErr = ctx.Err()
-			return true, nil
+		DiscardRunFunc: func(ctx context.Context, id int64) error {
+			discardedID = id
+			discardCtxErr = ctx.Err()
+			return nil
+		},
+		CommitSnapshotFunc: func(_ context.Context, _ string, _ map[string]int64) (*db.Snapshot, error) {
+			committed = true
+			return &db.Snapshot{ID: 1}, nil
 		},
 		SaveHexStatsFunc:      func(_ context.Context, _ []db.HexStat) error { return nil },
 		SaveComputeResultFunc: func(_ context.Context, _ db.ComputeResult) error { return nil },
@@ -587,9 +604,9 @@ func TestRunCompute_CancelledDeletesSnapshot(t *testing.T) {
 		ResourceType: &resource.Pavement{},
 	}
 
-	// Pre-cancelled context: CreateSnapshot (mock ignores ctx) still returns a
-	// snapshot, then the ctx.Err() guard fires before any save, and the
-	// deferred cleanup must delete the snapshot.
+	// Pre-cancelled context: CreateRun (mock ignores ctx) still returns a run,
+	// then the ctx.Err() guard fires before any save, and the draft must
+	// discard the run.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -597,11 +614,14 @@ func TestRunCompute_CancelledDeletesSnapshot(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got: %v", err)
 	}
-	if deletedID != snapID {
-		t.Errorf("expected DeleteSnapshot(%d) on cancellation, got id %d", snapID, deletedID)
+	if discardedID != runID {
+		t.Errorf("expected DiscardRun(%d) on cancellation, got id %d", runID, discardedID)
 	}
-	if deleteCtxErr != nil {
-		t.Errorf("DeleteSnapshot must run on a fresh (non-cancelled) context, got ctx.Err() = %v", deleteCtxErr)
+	if discardCtxErr != nil {
+		t.Errorf("DiscardRun must run on a fresh (non-cancelled) context, got ctx.Err() = %v", discardCtxErr)
+	}
+	if committed {
+		t.Error("a cancelled compute committed a snapshot")
 	}
 }
 
@@ -638,8 +658,8 @@ func TestRunCompute_DBError(t *testing.T) {
 // TestRunCompute_ParkingEstimatesSpaces pins the parking-space estimate end to
 // end through the compute command: two lots with capacity tags (40 and 25)
 // produce a city total of 65 on both the all-jurisdiction and city rows, and
-// the per-hex space metrics (one key per scope, on the run's snapshot, the
-// same one the hex_stats rows carry) apportion the same 65 across the hexes
+// the per-hex space metrics (one key per scope, under the same run the
+// hex_stats rows carry) apportion the same 65 across the hexes
 // the lots touch. Lots are small squares inside the test boundary.
 func TestRunCompute_ParkingEstimatesSpaces(t *testing.T) {
 	lot := func(id, capacity string, lon, lat float64) db.Feature {
@@ -655,8 +675,8 @@ func TestRunCompute_ParkingEstimatesSpaces(t *testing.T) {
 	var results []db.ComputeResult
 	var hexRows []db.HexStat
 	type savedMetric struct {
-		snapshotID *int64
-		rows       []db.HexMetric
+		runID int64
+		rows  []db.HexMetric
 	}
 	metrics := map[string]savedMetric{}
 	store := &dbtest.MockStore{
@@ -675,8 +695,8 @@ func TestRunCompute_ParkingEstimatesSpaces(t *testing.T) {
 			hexRows = append(hexRows, rows...)
 			return nil
 		},
-		SaveHexMetricsFunc: func(_ context.Context, metric string, snapshotID *int64, rows []db.HexMetric) error {
-			metrics[metric] = savedMetric{snapshotID: snapshotID, rows: rows}
+		SaveHexMetricsFunc: func(_ context.Context, metric string, runID int64, rows []db.HexMetric) error {
+			metrics[metric] = savedMetric{runID: runID, rows: rows}
 			return nil
 		},
 	}
@@ -705,11 +725,11 @@ func TestRunCompute_ParkingEstimatesSpaces(t *testing.T) {
 		}
 	}
 	// Both passes write a space metric; each must apportion the full 65 and
-	// sit on the same snapshot as the hex_stats rows export joins it to.
+	// sit under the same run as the hex_stats rows export joins it to.
 	if len(hexRows) == 0 {
 		t.Fatal("expected hex_stats rows")
 	}
-	wantSnap := hexRows[0].SnapshotID
+	wantRun := hexRows[0].RunID
 	for _, key := range []string{resource.SpacesMetricAll, resource.SpacesMetricCity} {
 		m, ok := metrics[key]
 		if !ok {
@@ -726,8 +746,8 @@ func TestRunCompute_ParkingEstimatesSpaces(t *testing.T) {
 		if math.Abs(sum-65) > 0.01 {
 			t.Errorf("%s apportions %v spaces, want 65", key, sum)
 		}
-		if (m.snapshotID == nil) != (wantSnap == nil) || (wantSnap != nil && *m.snapshotID != *wantSnap) {
-			t.Errorf("%s snapshot = %v, want the hex_stats snapshot %v", key, m.snapshotID, wantSnap)
+		if m.runID != wantRun {
+			t.Errorf("%s run = %d, want the hex_stats run %d", key, m.runID, wantRun)
 		}
 	}
 	if len(metrics) != 2 {
@@ -745,7 +765,7 @@ func TestRunCompute_RoadsCarryNoSpaces(t *testing.T) {
 	var results []db.ComputeResult
 	var metricSaves []string
 	store := &dbtest.MockStore{
-		SaveHexMetricsFunc: func(_ context.Context, metric string, _ *int64, _ []db.HexMetric) error {
+		SaveHexMetricsFunc: func(_ context.Context, metric string, _ int64, _ []db.HexMetric) error {
 			metricSaves = append(metricSaves, metric)
 			return nil
 		},
@@ -804,7 +824,7 @@ func TestRunCompute_SaveSpaceMetricsErrorFatal(t *testing.T) {
 				GeometryJSON: `{"type":"Polygon","coordinates":[[[-121.7700,37.6800],[-121.7696,37.6800],[-121.7696,37.6804],[-121.7700,37.6804],[-121.7700,37.6800]]]}`,
 			}}, nil
 		},
-		SaveHexMetricsFunc: func(_ context.Context, _ string, _ *int64, _ []db.HexMetric) error { return saveErr },
+		SaveHexMetricsFunc: func(_ context.Context, _ string, _ int64, _ []db.HexMetric) error { return saveErr },
 	}
 	ios, _, _, _ := iostreams.Test()
 	f := &cmdutil.Factory{
@@ -821,5 +841,87 @@ func TestRunCompute_SaveSpaceMetricsErrorFatal(t *testing.T) {
 	err := cmd.Execute()
 	if !errors.Is(err, saveErr) {
 		t.Errorf("expected wrapped SaveHexMetrics error, got: %v", err)
+	}
+}
+
+// TestRunCompute_CommitsComputeWithRefreshedForecast pins epic
+// solvent-streets-25t6 decision 3: a standalone resource compute reruns that
+// resource's forecast from the NEW compute result and commits both as ONE
+// snapshot, so the snapshot never pairs a compute with an older forecast.
+// The mock's reads stand in for the draft overlay by serving back whatever
+// compute result was just saved.
+func TestRunCompute_CommitsComputeWithRefreshedForecast(t *testing.T) {
+	saved := map[resource.Type]db.ComputeResult{}
+	producers := map[int64]string{}
+	var next int64
+	var forecastRuns []int64
+	var commits []map[string]int64
+	store := &dbtest.MockStore{
+		GetBoundaryFunc:  func(_ context.Context) (string, error) { return testBoundary, nil },
+		ListFeaturesFunc: roadsFeaturesFunc,
+		CreateRunFunc: func(_ context.Context, producer, hash string) (*db.Run, error) {
+			next++
+			producers[next] = producer
+			return &db.Run{ID: next, Producer: producer, ConfigHash: hash}, nil
+		},
+		SaveComputeResultFunc: func(_ context.Context, r db.ComputeResult) error {
+			saved[r.ResourceType] = r
+			return nil
+		},
+		LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
+			r, ok := saved[rt]
+			if !ok {
+				return nil, sql.ErrNoRows
+			}
+			return &r, nil
+		},
+		SaveForecastResultsFunc: func(_ context.Context, rows []db.ForecastResult) error {
+			for _, r := range rows {
+				forecastRuns = append(forecastRuns, r.RunID)
+			}
+			return nil
+		},
+		CommitSnapshotFunc: func(_ context.Context, hash string, parts map[string]int64) (*db.Snapshot, error) {
+			commits = append(commits, parts)
+			return &db.Snapshot{ID: 1, ConfigHash: hash}, nil
+		},
+	}
+	ios, _, _, stderr := iostreams.Test()
+	f := &cmdutil.Factory{
+		IOStreams:   ios,
+		UnitSystem:  func() units.System { return units.Metric },
+		CityDB:      func() (db.Store, error) { return store, nil },
+		CurrentCity: func() (*config.CityConfig, error) { return testCity, nil },
+		Config:      func() (*config.Config, error) { return testCfg, nil },
+	}
+	cmd := NewCmdCompute(f, &resource.Pavement{}, nil)
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("compute: %v\nstderr:\n%s", err, stderr.String())
+	}
+
+	if len(commits) != 1 {
+		t.Fatalf("expected exactly one committed snapshot, got %d: %v", len(commits), commits)
+	}
+	parts := commits[0]
+	roadsRun, forecastRun := parts[string(resource.TypeRoads)], parts["forecast:"+string(resource.TypeRoads)]
+	if roadsRun == 0 || forecastRun == 0 || len(parts) != 2 {
+		t.Fatalf("snapshot parts = %v, want exactly roads and forecast:roads", parts)
+	}
+	if producers[roadsRun] != string(resource.TypeRoads) || producers[forecastRun] != "forecast:roads" {
+		t.Errorf("parts point at runs produced for %q and %q", producers[roadsRun], producers[forecastRun])
+	}
+	if saved[resource.TypeRoads].RunID != roadsRun {
+		t.Errorf("roads compute result saved under run %d, committed roads run is %d", saved[resource.TypeRoads].RunID, roadsRun)
+	}
+	if len(forecastRuns) == 0 {
+		t.Fatal("no forecast rows saved")
+	}
+	for _, id := range forecastRuns {
+		if id != forecastRun {
+			t.Fatalf("forecast row saved under run %d, committed forecast run is %d", id, forecastRun)
+		}
 	}
 }

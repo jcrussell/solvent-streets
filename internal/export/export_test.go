@@ -27,7 +27,7 @@ func exportTestEntry(cfg *config.Config, name, slug, boundary string, results ma
 	store := &dbtest.MockStore{
 		GetBoundaryFunc: func(context.Context) (string, error) { return boundary, nil },
 		ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
-			return []db.Snapshot{{ID: 1, ConfigHash: cfg.Hash()}}, nil
+			return []db.Snapshot{{ID: 1, ConfigHash: cfg.Hash(), Parts: paved}}, nil
 		},
 		LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
 			if r, ok := results[rt]; ok {
@@ -486,7 +486,7 @@ func TestExportOneCity_SkippedCityLeavesNoDirectory(t *testing.T) {
 		e.Slug = slug
 		hash := cfg.CityHash(&e.City)
 		e.Store.(*dbtest.MockStore).ListSnapshotsFunc = func(context.Context) ([]db.Snapshot, error) {
-			return []db.Snapshot{{ID: jsFixtureSnapshotID, ConfigHash: hash}}, nil
+			return []db.Snapshot{{ID: jsFixtureSnapshotID, ConfigHash: hash, Parts: paved}}, nil
 		}
 		return e
 	}

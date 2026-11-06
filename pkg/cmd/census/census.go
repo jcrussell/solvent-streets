@@ -65,15 +65,16 @@ func RunIngestForCity(ctx context.Context, cf *cmdutil.Factory) error {
 }
 
 // RunComputeForCity apportions the city's blocks onto grid (nil builds it).
-// `pvmt all compute` calls it in-process after the pavement passes.
-func RunComputeForCity(ctx context.Context, cf *cmdutil.Factory, grid []geo.Hex) error {
-	if skip, err := optedOut(cf); skip || err != nil {
-		return err
-	}
+// `pvmt all compute` calls it in-process after the pavement passes, with the
+// city's draft (nil commits this run's own snapshot).
+func RunComputeForCity(ctx context.Context, cf *cmdutil.Factory, grid []geo.Hex, draft *db.Draft) error {
 	return runCompute(ctx, &Options{
-		IO: cf.IOStreams, CityDB: cf.CityDB, Config: cf.Config, CurrentCity: cf.CurrentCity, PrebuiltGrid: grid,
+		IO: cf.IOStreams, CityDB: cf.CityDB, Config: cf.Config, CurrentCity: cf.CurrentCity, PrebuiltGrid: grid, Draft: draft,
 	})
 }
+
+// Producer is the snapshot part the population metrics fill.
+const Producer = "census"
 
 // optedOut reports a city with census = false as ErrNoResults (a quiet skip
 // in `pvmt all`).
@@ -99,7 +100,10 @@ type Options struct {
 	// PrebuiltGrid is the clipped hex grid when `all compute` already built
 	// one for the city; nil builds it here.
 	PrebuiltGrid []geo.Hex
-	rows         *[]computeRow
+	// Draft is the snapshot `all compute` is assembling; nil commits this
+	// run's own (see compute.WithDraft).
+	Draft *db.Draft
+	rows  *[]computeRow
 }
 
 type computeRow struct {
@@ -107,7 +111,7 @@ type computeRow struct {
 	Blocks     int     `json:"blocks"`
 	Hexes      int     `json:"hexes"`
 	Population float64 `json:"population"`
-	SnapshotID int64   `json:"snapshotId,omitempty"`
+	RunID      int64   `json:"runId,omitempty"`
 }
 
 var _ cmdutil.RowExporter = computeRow{}
@@ -124,14 +128,14 @@ func (r computeRow) ExportData(fields []string) map[string]any {
 			out[f] = r.Hexes
 		case "population":
 			out[f] = r.Population
-		case "snapshotId":
-			out[f] = r.SnapshotID
+		case "runId":
+			out[f] = r.RunID
 		}
 	}
 	return out
 }
 
-var computeFields = []string{"city", "blocks", "hexes", "population", "snapshotId"}
+var computeFields = []string{"city", "blocks", "hexes", "population", "runId"}
 
 // NewCmdCompute builds `census compute`.
 func NewCmdCompute(f *cmdutil.Factory, runF func(context.Context, *Options) error) *cobra.Command {
@@ -142,10 +146,10 @@ func NewCmdCompute(f *cmdutil.Factory, runF func(context.Context, *Options) erro
 		Long: `Spread each stored Census block's population and housing units onto the
 hexes it overlaps, in proportion to the overlapping area, and store per hex:
 population, housing_units and population_per_km2 (population over the hex's
-own boundary-clipped area). The metrics attach to the city's latest roads
-compute snapshot, like service coverage, so run a roads compute first; export
-publishes them only while that snapshot is still the latest, so rerun this
-after a roads compute.`,
+own boundary-clipped area). The result is committed as the census part of
+the city's snapshot, so a later roads compute leaves it in place. A city
+with census = false, or with no stored blocks, has its census part removed
+rather than keeping an old result.`,
 		Example: `  # Every configured city
   pvmt census compute
 
@@ -188,34 +192,53 @@ func runCompute(ctx context.Context, opts *Options) error {
 		return fmt.Errorf("database: %w", err)
 	}
 
-	// No blocks is an empty result (ErrNoResults: a quiet skip in `pvmt
-	// all`), checked before the snapshot precondition, which is a real error.
-	rows, err := store.ListFeatures(ctx, resource.TypeCensusBlocks)
-	if err != nil {
-		return fmt.Errorf("list census blocks: %w", err)
-	}
-	if len(rows) == 0 {
-		fmt.Fprintf(errOut, "No Census blocks in database for %s. Run 'pvmt census ingest' first.\n", city.Name)
-		return cmdutil.ErrNoResults
-	}
-	target, err := compute.LoadMetricTarget(ctx, store, cfg, city, opts.PrebuiltGrid, errOut, "population")
-	if err != nil {
-		return err
-	}
+	return compute.WithDraft(ctx, opts.Draft, store, cfg.CityHash(city), func(draft *db.Draft) error {
+		// Opted out, or no blocks: an empty result (ErrNoResults, a quiet skip
+		// in `pvmt all`) that drops the census part, so a city that had
+		// population before stops publishing it.
+		if !city.CensusEnabled() {
+			fmt.Fprintf(errOut, "Census disabled for %s (census = false); skipping.\n", city.Name)
+			draft.Drop(Producer)
+			return cmdutil.ErrNoResults
+		}
+		rows, err := store.ListFeatures(ctx, resource.TypeCensusBlocks)
+		if err != nil {
+			return fmt.Errorf("list census blocks: %w", err)
+		}
+		if len(rows) == 0 {
+			fmt.Fprintf(errOut, "No Census blocks in database for %s. Run 'pvmt census ingest' first.\n", city.Name)
+			draft.Drop(Producer)
+			return cmdutil.ErrNoResults
+		}
+		target, err := compute.LoadMetricTarget(ctx, store, cfg, city, opts.PrebuiltGrid, errOut)
+		if err != nil {
+			return err
+		}
+		return apportion(ctx, out, errOut, opts, city, store, rows, target, draft)
+	})
+}
+
+// apportion spreads the blocks' counts onto the grid and saves the three
+// population metrics as the draft's census run.
+func apportion(ctx context.Context, out, errOut io.Writer, opts *Options, city *config.CityConfig, store db.Store,
+	rows []db.Feature, target *compute.MetricTarget, draft *db.Draft) error {
 	feats := db.ResourceFeatures(rows)
 	fmt.Fprintf(errOut, "Apportioning %d Census blocks onto %d hexes for %s...\n", len(feats), len(target.Grid), city.Name)
 	projected := blocks.BufferFeaturesPaired(ctx, feats, target.Proj)
 	m := population.Apportion(ctx, target.Grid, projected, nil)
 	// Partial results come back without an error on cancellation; never save
-	// a truncated set under a complete-looking snapshot.
+	// a truncated set.
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("compute cancelled: %w", err)
 	}
-	// All three keys in one transaction, so a failure never leaves them from
-	// different runs; each is saved even when empty, so a rerun that
-	// apportions nothing clears the previous rows instead of leaving them on
-	// the map.
-	if err := store.SaveHexMetricSet(ctx, target.SnapshotID, map[string][]db.HexMetric{
+	// All three keys in one transaction under one run. The run is committed
+	// even when it apportioned nothing, so an empty rerun hides the metrics
+	// instead of leaving the previous run's on the map.
+	runID, err := draft.NewRun(ctx, Producer)
+	if err != nil {
+		return err
+	}
+	if err := store.SaveHexMetricSet(ctx, runID, map[string][]db.HexMetric{
 		population.KeyPopulation:   m.Population,
 		population.KeyHousingUnits: m.HousingUnits,
 		population.KeyDensity:      m.Density,
@@ -223,10 +246,9 @@ func runCompute(ctx context.Context, opts *Options) error {
 		return fmt.Errorf("save population metrics: %w", err)
 	}
 
-	row := computeRow{City: city.Name, Blocks: len(projected), Hexes: len(m.Population), Population: m.Total}
-	if target.SnapshotID != nil {
-		row.SnapshotID = *target.SnapshotID
-	}
+	draft.Put(Producer, runID)
+
+	row := computeRow{City: city.Name, Blocks: len(projected), Hexes: len(m.Population), Population: m.Total, RunID: runID}
 	if opts.rows != nil {
 		*opts.rows = append(*opts.rows, row)
 	}

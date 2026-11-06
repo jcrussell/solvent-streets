@@ -376,17 +376,17 @@ func TestParseIndexTemplate_StaticExport(t *testing.T) {
 }
 
 // TestHandleSnapshots_SingleCity exercises /api/snapshots in single-city mode
-// and asserts the JSON shape matches the {id, computed_at, config_hash}
-// contract documented on solvent-streets-56w.
+// and asserts the JSON shape matches the {id, created_at, config_hash, parts}
+// contract the dashboard's snapshot picker reads (app.js renders created_at).
 func TestHandleSnapshots_SingleCity(t *testing.T) {
 	t1 := time.Date(2026, 5, 14, 10, 0, 0, 0, time.UTC)
 	t2 := time.Date(2026, 5, 15, 12, 30, 0, 0, time.UTC)
 	store := &dbtest.MockStore{
 		ListSnapshotsFunc: func(_ context.Context) ([]db.Snapshot, error) {
-			// Mirrors ListSnapshots' real ORDER BY computed_at DESC.
+			// Mirrors ListSnapshots' real newest-first order.
 			return []db.Snapshot{
-				{ID: 2, ComputedAt: t2, ConfigHash: "deadbeef"},
-				{ID: 1, ComputedAt: t1, ConfigHash: "cafebabe"},
+				{ID: 2, CreatedAt: t2, ConfigHash: "deadbeef"},
+				{ID: 1, CreatedAt: t1, ConfigHash: "cafebabe"},
 			}, nil
 		},
 	}
@@ -416,7 +416,7 @@ func TestHandleSnapshots_SingleCity(t *testing.T) {
 	if got[0]["id"] != float64(2) || got[1]["id"] != float64(1) {
 		t.Errorf("expected DESC order id=2,1, got %v,%v", got[0]["id"], got[1]["id"])
 	}
-	for _, k := range []string{"id", "computed_at", "config_hash"} {
+	for _, k := range []string{"id", "created_at", "config_hash", "parts"} {
 		if _, ok := got[0][k]; !ok {
 			t.Errorf("missing key %q in response", k)
 		}
@@ -531,8 +531,8 @@ func TestDataFile_SnapshotParam(t *testing.T) {
 		// present here.
 		ListSnapshotsFunc: func(_ context.Context) ([]db.Snapshot, error) {
 			return []db.Snapshot{
-				{ID: 2, ComputedAt: time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)},
-				{ID: 1, ComputedAt: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)},
+				{ID: 2, CreatedAt: time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)},
+				{ID: 1, CreatedAt: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)},
 			}, nil
 		},
 		LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
@@ -665,8 +665,8 @@ func TestDataFile_SnapshotConfigMismatch(t *testing.T) {
 		// pinned snapshot's computed_at from here.
 		ListSnapshotsFunc: func(_ context.Context) ([]db.Snapshot, error) {
 			return []db.Snapshot{
-				{ID: 1, ComputedAt: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)},
-				{ID: 2, ComputedAt: time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)},
+				{ID: 1, CreatedAt: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)},
+				{ID: 2, CreatedAt: time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)},
 			}, nil
 		},
 		LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {

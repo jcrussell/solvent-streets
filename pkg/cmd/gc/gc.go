@@ -53,11 +53,10 @@ cannot reach:
     older releases ingested overpass regardless of that flag, so those
     rows are usually real data rather than orphans. They are reported
     and left in place; --sweep-disabled-sources deletes them.
-  - Result rows (compute_results, hex_stats, forecast_results,
-    cohort_stats) with snapshot_id IS NULL, which snapshot deletion
-    never matches because it deletes WHERE snapshot_id = <id>.
-  - Defensive: result rows whose snapshot_id references a snapshot that
-    no longer exists (FK orphans).
+  - Runs no snapshot references, with every row they wrote: left behind
+    by a compute that crashed or was killed before it committed its
+    snapshot. Runs younger than a day are never swept, because they
+    may belong to a compute that is still running.
 
 Scope: all configured cities by default; restrict to one with --city.
 
@@ -159,13 +158,10 @@ func retainedOverpassRows(ctx context.Context, store db.Store, city config.CityC
 // printReport writes a per-table summary of a GCReport to w. verb is
 // "would delete" for dry-run / scan, "deleted" for a completed sweep.
 func printReport(w *iostreams.IOStreams, report *db.GCReport) {
-	null := report.NullSnapshotResults
-	dang := report.DanglingResults
+	rows := report.OrphanRunResults
 	fmt.Fprintf(w.ErrOut, "  stale features:        %d\n", report.StaleFeatures)
-	fmt.Fprintf(w.ErrOut, "  null-snapshot results: compute=%d hex=%d forecast=%d cohort=%d metrics=%d\n",
-		null.ComputeResults, null.HexStats, null.ForecastResults, null.CohortStats, null.HexMetrics)
-	fmt.Fprintf(w.ErrOut, "  dangling results:      compute=%d hex=%d forecast=%d cohort=%d metrics=%d\n",
-		dang.ComputeResults, dang.HexStats, dang.ForecastResults, dang.CohortStats, dang.HexMetrics)
+	fmt.Fprintf(w.ErrOut, "  orphan runs:           %d (compute=%d hex=%d forecast=%d cohort=%d metrics=%d rows)\n",
+		report.OrphanRuns, rows.ComputeResults, rows.HexStats, rows.ForecastResults, rows.CohortStats, rows.HexMetrics)
 }
 
 // printRetained names the overpass rows keepSourcesFor held back, and why. It

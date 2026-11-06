@@ -19,7 +19,7 @@ import (
 // record schema_version 1 and would otherwise skip the edited file and run on
 // the old schema. Generation 0 is every database created before generations
 // existed (v0.4.1 and earlier, plus pre-release HEADs with migration 003).
-const schemaGeneration = 1
+const schemaGeneration = 2
 
 // ErrIncompatibleDatabase means the database was created by a pvmt whose
 // schema generation differs from this one. It is never migrated or deleted

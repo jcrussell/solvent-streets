@@ -186,8 +186,8 @@ func TestBuildMeta_SnapshotDateUsesPinnedComputedAt(t *testing.T) {
 		},
 		ListSnapshotsFunc: func(_ context.Context) ([]db.Snapshot, error) {
 			return []db.Snapshot{
-				{ID: 7, ComputedAt: computed},
-				{ID: 6, ComputedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)},
+				{ID: 7, CreatedAt: computed},
+				{ID: 6, CreatedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)},
 			}, nil
 		},
 	}

@@ -103,6 +103,16 @@ func runServe(ctx context.Context, opts *Options) error {
 	if err != nil {
 		return err
 	}
+	// Serve one snapshot per city: the newest for the config when the server
+	// starts. Each endpoint resolving "newest" on its own would mix snapshots
+	// after a compute commits mid-session, and responses are cached for the
+	// server's lifetime anyway (restart to pick up new data). ?snapshot=N
+	// still overrides the pin per request.
+	for i, entry := range entries {
+		if entries[i], err = entry.PinCurrentSnapshot(ctx); err != nil {
+			return err
+		}
+	}
 
 	srv := server.New(entries, opts.Host, opts.Port, opts.IO, assets)
 	srv.ReadyFile = opts.ReadyFile

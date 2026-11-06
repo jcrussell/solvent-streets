@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
@@ -23,15 +24,23 @@ type LsOptions struct {
 }
 
 type snapshotRow struct {
-	City       string `json:"city"`
-	ID         int64  `json:"id"`
+	City       string    `json:"city"`
+	ID         int64     `json:"id"`
+	CreatedAt  string    `json:"createdAt"`
+	ConfigHash string    `json:"configHash"`
+	Parts      []partRow `json:"parts"`
+}
+
+// partRow is one entry of a snapshot's manifest: the run filling a part.
+type partRow struct {
+	Part       string `json:"part"`
+	RunID      int64  `json:"runId"`
 	ComputedAt string `json:"computedAt"`
-	ConfigHash string `json:"configHash"`
 }
 
 var _ cmdutil.RowExporter = snapshotRow{}
 
-var snapshotFields = []string{"city", "id", "computedAt", "configHash"}
+var snapshotFields = []string{"city", "id", "createdAt", "configHash", "parts"}
 
 func (r snapshotRow) ExportData(fields []string) map[string]any {
 	out := make(map[string]any, len(fields))
@@ -41,10 +50,12 @@ func (r snapshotRow) ExportData(fields []string) map[string]any {
 			out[f] = r.City
 		case "id":
 			out[f] = r.ID
-		case "computedAt":
-			out[f] = r.ComputedAt
+		case "createdAt":
+			out[f] = r.CreatedAt
 		case "configHash":
 			out[f] = r.ConfigHash
+		case "parts":
+			out[f] = r.Parts
 		}
 	}
 	return out
@@ -61,7 +72,15 @@ func NewCmdLs(f *cmdutil.Factory, runF func(context.Context, *LsOptions) error) 
 	cmd := &cobra.Command{
 		Use:   "ls",
 		Short: "List snapshots",
-		Long:  "List snapshots across configured cities. Use --city to scope to one city.",
+		Long: `List snapshots across configured cities, newest first. Use --city to
+scope to one city.
+
+A snapshot is a city's complete computed state: one run per part (roads,
+parking, sidewalks, combined, each resource's forecast, service coverage,
+census). A recompute commits a new snapshot that swaps in only the parts
+it produced, so the Parts column shows which run each part comes from:
+"roads#12" is run 12. Export and serve read the newest snapshot for the
+current config.`,
 		Example: `  # All snapshots across every city
   pvmt snapshots ls
 
@@ -69,7 +88,7 @@ func NewCmdLs(f *cmdutil.Factory, runF func(context.Context, *LsOptions) error) 
   pvmt --city oakland snapshots ls
 
   # Machine-readable
-  pvmt snapshots ls --json city,id,computedAt`,
+  pvmt snapshots ls --json city,id,createdAt,parts`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
 				return runF(cmd.Context(), opts)
@@ -99,13 +118,18 @@ func runLs(ctx context.Context, opts *LsOptions) error {
 	}
 
 	tp := iostreams.NewTablePrinter(ios)
-	tp.AddHeader("City", "ID", "Computed", "Config Hash")
+	tp.AddHeader("City", "ID", "Created", "Config Hash", "Parts")
 	for _, r := range rows {
+		parts := make([]string, len(r.Parts))
+		for i, p := range r.Parts {
+			parts[i] = p.Part + "#" + strconv.FormatInt(p.RunID, 10)
+		}
 		tp.AddRow(
 			r.City,
 			strconv.FormatInt(r.ID, 10),
-			iostreams.FormatTimestamp(r.ComputedAt, ios.IsTTY()),
+			iostreams.FormatTimestamp(r.CreatedAt, ios.IsTTY()),
 			r.ConfigHash,
+			strings.Join(parts, " "),
 		)
 	}
 	return tp.Render()
@@ -140,11 +164,16 @@ func collectSnapshotRows(
 			return nil, fmt.Errorf("list snapshots for %s: %w", city.Slug(), err)
 		}
 		for _, s := range snaps {
+			parts := make([]partRow, len(s.Parts))
+			for i, p := range s.Parts {
+				parts[i] = partRow{Part: p.Part, RunID: p.RunID, ComputedAt: p.ComputedAt.UTC().Format(time.RFC3339)}
+			}
 			rows = append(rows, snapshotRow{
 				City:       city.Slug(),
 				ID:         s.ID,
-				ComputedAt: s.ComputedAt.UTC().Format(time.RFC3339),
+				CreatedAt:  s.CreatedAt.UTC().Format(time.RFC3339),
 				ConfigHash: s.ConfigHash,
+				Parts:      parts,
 			})
 		}
 	}

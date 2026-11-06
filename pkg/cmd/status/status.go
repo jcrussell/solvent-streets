@@ -261,7 +261,7 @@ func printSnapshotHistory(ctx context.Context, ios *iostreams.IOStreams, store d
 	fmt.Fprintf(ios.ErrOut, "\n=== Snapshots ===\n")
 	limit := min(len(snapshots), 5)
 	for _, s := range snapshots[:limit] {
-		fmt.Fprintf(ios.ErrOut, "  #%d  %s  (%s)\n", s.ID, s.ComputedAt.Format(time.RFC3339), iostreams.RelativeTime(s.ComputedAt))
+		fmt.Fprintf(ios.ErrOut, "  #%d  %s  (%s)  %d parts\n", s.ID, s.CreatedAt.Format(time.RFC3339), iostreams.RelativeTime(s.CreatedAt), len(s.Parts))
 	}
 	if len(snapshots) > 5 {
 		fmt.Fprintf(ios.ErrOut, "  ... and %d more\n", len(snapshots)-5)

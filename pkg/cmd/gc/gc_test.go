@@ -28,9 +28,9 @@ func rootDBFunc(root db.RootStorer) func() (db.RootStorer, error) {
 // proceeds past the "nothing to collect" short-circuit.
 func reportWithCounts() *db.GCReport {
 	return &db.GCReport{
-		StaleFeatures:       3,
-		NullSnapshotResults: db.GCResultCounts{ForecastResults: 5, HexStats: 2},
-		DanglingResults:     db.GCResultCounts{ComputeResults: 1},
+		StaleFeatures:    3,
+		OrphanRuns:       1,
+		OrphanRunResults: db.GCResultCounts{ForecastResults: 5, HexStats: 2, ComputeResults: 1},
 	}
 }
 

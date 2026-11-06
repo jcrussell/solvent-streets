@@ -168,11 +168,11 @@ overpass = true
 - `[[cities.facilities]]` adds points of service routed from exactly like
   the OpenStreetMap ones; `lat`/`lon` must be in range. A station just
   outside the boundary is fine.
-- Results attach to the city's latest `roads` compute snapshot, so run
-  `pvmt roads compute` (or `pvmt all compute`) first. Adding either table
-  changes the config bytes and therefore the config hash: existing
-  snapshots stop matching until the city is recomputed, exactly as for any
-  other config edit.
+- Coverage routes over the ingested roads, so it needs `pvmt roads ingest`
+  but not a roads compute, and recomputing roads leaves it in place. Adding
+  either table changes the config bytes and therefore the config hash:
+  existing snapshots stop matching until the city is recomputed, exactly as
+  for any other config edit.
 
 ## Census population (`census`)
 
@@ -194,9 +194,8 @@ census = false   # outside the US: TIGERweb has no blocks here
 
 - `census = false` keeps the city out of the census steps of `pvmt all`.
   Unset (the default) means enabled. Use it for any city outside the US.
-- Like service coverage, results attach to the city's latest `roads`
-  compute snapshot. A new roads compute hides them until `pvmt census
-  compute` (or `pvmt all compute`) runs again.
+- Like service coverage, the results are their own part of the city's
+  snapshot, so recomputing roads leaves them in place.
 
 ## Forecast tuning
 

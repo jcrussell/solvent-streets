@@ -82,14 +82,14 @@ flowchart TD
 ```
 
 Roads: width inferred from `width` tag, `lanes` count, or classification defaults, plus parking lane addon.
-Parking: polygons used directly; each lot also gets an estimated space count (`capacity` tag, else area / 30 m², × levels for garages) apportioned onto hexes by area fraction (`resource.EstimateParkingSpaces`, `geo.ComputeHexWeightedShares`). The city total is `compute_results.estimated_spaces`; the per-hex shares are `hex_metrics` rows under `parking_spaces_all` / `parking_spaces_city` (`resource.SpacesMetricKey`, deliberately unregistered) on the parking compute's own snapshot, which the exporter joins back into `hexgrid.geojson`'s per-hex `spaces` only when the snapshot matches the coverage rows'.
+Parking: polygons used directly; each lot also gets an estimated space count (`capacity` tag, else area / 30 m², × levels for garages) apportioned onto hexes by area fraction (`resource.EstimateParkingSpaces`, `geo.ComputeHexWeightedShares`). The city total is `compute_results.estimated_spaces`; the per-hex shares are `hex_metrics` rows under `parking_spaces_all` / `parking_spaces_city` (`resource.SpacesMetricKey`, deliberately unregistered) written by the same parking run as the coverage, which the exporter joins back into `hexgrid.geojson`'s per-hex `spaces`.
 Sidewalks: buffered like roads with sidewalk-specific width defaults.
 
-Service coverage (`pvmt services`, `internal/services`) runs beside the pavement passes rather than through them: facilities (`facility-<service>` features, OSM points collapsed from nodes/buildings) are routed from over a graph built from the stored roads (one source per city, vertices keyed by shared coordinates, edges costed by posted or class speed, oneway honoured), and each hex's response seconds land in the generic `hex_metrics` table (`internal/hexmetric` registry, key `fire_response_s`) attached to the latest roads snapshot. Facilities and hex centres snap to the nearest point along a road segment, not just a vertex. The exporter writes stored metrics (fire coverage, census population) as the optional `hex-metrics.json` only when their rows sit on the roads snapshot the export resolves, so a producer rerun that stored nothing never lets an older run's rows resurface; the dashboard's "Color by" mode paints any registered metric from its scale, so a new metric is a registry entry and a producer, not new client code.
+Service coverage (`pvmt services`, `internal/services`) runs beside the pavement passes rather than through them: facilities (`facility-<service>` features, OSM points collapsed from nodes/buildings) are routed from over a graph built from the stored roads (one source per city, vertices keyed by shared coordinates, edges costed by posted or class speed, oneway honoured), and each hex's response seconds land in the generic `hex_metrics` table (`internal/hexmetric` registry, key `fire_response_s`) under the service's own run (part `service:fire`). Facilities and hex centres snap to the nearest point along a road segment, not just a vertex. The exporter writes stored metrics (fire coverage, census population) from the resolved snapshot as the optional `hex-metrics.json`; a producer rerun that stored nothing commits an empty run, so an older run's rows never resurface; the dashboard's "Color by" mode paints any registered metric from its scale, so a new metric is a registry entry and a producer, not new client code.
 
 Every hex coloring goes through that registry, including the pavement ones. Coverage %, paved area, parking spaces and est. year-1 cost are *derived* specs (`internal/hexmetric/builtin.go`): each declares how to combine the per-resource values in `hexgrid.geojson` (`sum` over the toggled resources, optionally capped, or a `ratio` of that sum over a stored metric). The exporter ships derived specs once in the page config and writes only stored metrics to `hex-metrics.json`; the dashboard resolves the active spec into one per-hex value and paints it with one expression, legend and tooltip path. `hexgrid.geojson` (v4) carries every hex of the clipped grid, so stored metrics can paint hexes with no pavement rows. Pavement storage itself is unchanged: `hex_stats` stays the pavement compute's table (area and % covered), feeding forecast, game seeds and cost; only the per-hex parking spaces ride in `hex_metrics`.
 
-Population (`pvmt census`, `internal/population`) is a second metric producer. 2020 Census blocks are stored as `layer-census-blocks` features (`layer-<name>` is the convention for attribute polygons, like `facility-<service>` for points). Each block's POP100/HU100 counts are spread onto the hexes by area overlap (`geo.ComputeHexWeightedSharesN`). The results are stored as `population`, `housing_units` and `population_per_km2` metrics. Per-resident ratios are derived specs over the stored population. Both producers set up through `compute.LoadMetricTarget`, which resolves the roads snapshot, projection and clipped grid.
+Population (`pvmt census`, `internal/population`) is a second metric producer. 2020 Census blocks are stored as `layer-census-blocks` features (`layer-<name>` is the convention for attribute polygons, like `facility-<service>` for points). Each block's POP100/HU100 counts are spread onto the hexes by area overlap (`geo.ComputeHexWeightedSharesN`). The results are stored as `population`, `housing_units` and `population_per_km2` metrics. Per-resident ratios are derived specs over the stored population. Both producers set up through `compute.LoadMetricTarget`, which resolves the projection and the clipped grid the pavement passes use (so hex ids line up). Neither depends on a roads compute: coverage routes over the road features, and population over the census features.
 
 Facilities and census blocks are *own-sourced* (`resource.OwnSourced`): each comes from one fixed source (Overpass, TIGERweb) whatever the city's `overpass` / `arcgis_url` settings. `ingest.SourcesFor` resolves that source, and `pvmt gc`'s stale-source sweep only touches the pavement types in `resource.All`. A new own-sourced type therefore needs no special case in either place. TIGERweb is reached through `ingest.ArcGISQuery`, the generic ArcGIS paging and completeness core that the roads centerline source also uses.
 
@@ -100,17 +100,17 @@ Single file at `~/.local/share/pvmt/pvmt.db`. WAL mode. All tables scoped by `ci
 ```mermaid
 erDiagram
     cities ||--o{ features : has
-    cities ||--o{ compute_results : has
-    cities ||--o{ hex_stats : has
-    cities ||--o{ forecast_results : has
-    cities ||--o{ cohort_stats : has
-    cities ||--o{ snapshots : has
     cities ||--o| city_boundaries : has
+    cities ||--o{ runs : has
+    cities ||--o{ snapshots : has
 
-    snapshots ||--o{ compute_results : tags
-    snapshots ||--o{ hex_stats : tags
-    snapshots ||--o{ forecast_results : tags
-    snapshots ||--o{ cohort_stats : tags
+    snapshots ||--o{ snapshot_parts : lists
+    runs ||--o{ snapshot_parts : "fills a part of"
+    runs ||--o{ compute_results : wrote
+    runs ||--o{ hex_stats : wrote
+    runs ||--o{ cohort_stats : wrote
+    runs ||--o{ forecast_results : wrote
+    runs ||--o{ hex_metrics : wrote
 
     cities {
         int id PK
@@ -129,12 +129,6 @@ erDiagram
         text source
         datetime fetched_at
     }
-    snapshots {
-        int id PK
-        int city_id FK
-        text config_hash
-        datetime computed_at
-    }
     features {
         text id PK
         text resource_type PK
@@ -142,42 +136,67 @@ erDiagram
         text tags
         text geometry_json
     }
+    runs {
+        int id PK
+        int city_id FK
+        text producer
+        text config_hash
+        datetime computed_at
+    }
+    snapshots {
+        int id PK
+        int city_id FK
+        text config_hash
+        datetime created_at
+    }
+    snapshot_parts {
+        int snapshot_id PK
+        text part PK
+        int run_id FK
+    }
     compute_results {
         int id PK
         int city_id FK
+        int run_id FK
         text resource_type
         real total_area
         int feature_count
-        int snapshot_id FK
+        int estimated_spaces
     }
     hex_stats {
         int id PK
+        int city_id FK
+        int run_id FK
         text hex_id
         text resource_type
-        int city_id FK
-        int snapshot_id FK
         real area
         real pct_covered
     }
     forecast_results {
         int id PK
         int city_id FK
+        int run_id FK
         text resource_type
         int year
         real pci
-        real area
         real treatment_cost
-        text treatment_tier
-        int snapshot_id FK
     }
     cohort_stats {
         int id PK
         int city_id FK
+        int run_id FK
         text resource_type
         text classification
         real area
-        int feature_count
-        int snapshot_id FK
+    }
+    hex_metrics {
+        int id PK
+        int city_id FK
+        int run_id FK
+        text hex_id
+        text metric
+        real value
+        text ref
     }
 ```
 
@@ -185,7 +204,11 @@ erDiagram
 
 **Metric internals.** All areas are stored in square meters. The `--units` flag and `[display].units` config control presentation only.
 
-**Snapshots.** Each compute run creates a snapshot with a hash of the resolved config. Per-row `snapshot_id` columns on `hex_stats`, `compute_results`, `forecast_results`, `cohort_stats` and `hex_metrics` preserve every run's results — saves append rather than DELETE-then-INSERT, so historical snapshots stay queryable for reproducibility (`hex_metrics` replaces only its own `(metric, snapshot)` slice on a re-run).
+**Runs and snapshots.** A *run* is one producer's output for one city: the roads, parking or sidewalks compute, the combined pass, each resource's forecast (`forecast:<resource>`), service coverage (`service:<name>`) or census. Every result row carries the `run_id` that wrote it, and runs are immutable. A *snapshot* is the city's complete computed state: a manifest in `snapshot_parts` naming one run per part. Every read resolves exactly one snapshot, the pinned id or else the newest for the current config hash, and reads only that snapshot's runs. `pvmt export` and `pvmt serve` pin each city to its newest snapshot once, at the start (`CityEntry.PinCurrentSnapshot`), so a compute that commits meanwhile cannot mix two snapshots into one city's files; `?snapshot=N` overrides the pin per request. Export refuses a city whose current snapshot holds no pavement compute (only coverage or census), which is what a metric-only command leaves right after a config edit.
+
+Each command assembles a `db.Draft` and commits it as **one** snapshot: the newest snapshot for the same config hash, with only the parts the command produced swapped in. So a recompute affects only what it recomputes. `pvmt roads compute` swaps in a new roads run and reruns the roads forecast, since that is derived from the roads compute, in the same snapshot, and fire coverage and population carry over untouched. `pvmt all compute` commits one snapshot per city for all of its steps; a step that fails leaves its part as it was. A producer whose rerun reaches nothing (coverage that reaches no hex) commits an empty run, and one with nothing to work from (no features, no stations, no census blocks, `census = false`) drops its part; either way the old result is no longer published. A commit that would not change the manifest writes no snapshot, and no snapshot is ever empty. Nothing carries across config hashes, because hex ids from another grid would land on the wrong hexes; a config edit means recomputing. Uncommitted runs are invisible: a cancelled or failed command discards its runs, and `pvmt gc` sweeps any left behind by a crash once they are a day old (`db.OrphanRunGrace`; one city of `all compute` can legitimately hold an uncommitted run for hours). Write transactions take SQLite's lock up front (`_txlock=immediate`) and a commit retries while another process holds it, so two processes computing at once wait for each other rather than fail. Known limit: a command's draft reads the snapshot that was newest when it ran, so a `pvmt forecast` racing a `pvmt roads compute` can commit a forecast of the older roads on top of the newer one. `pvmt snapshots prune` / `rm` delete manifests and then every run no surviving snapshot references, so every snapshot that remains reads exactly what it did.
+
+**Schema generations.** `001_init.sql` creates the current schema and stamps `PRAGMA user_version` with the generation (`schemaGeneration` in `internal/db/migrations.go`). Ordinary changes are additive numbered migrations within a generation. A breaking squash bumps the generation, and pvmt refuses a database from any other generation rather than converting it (see [`#incompatible-database`](troubleshooting.md#incompatible-database)).
 
 **WASM build order.** The forecast WASM binary is embedded via `go:embed`. It must be compiled (`make wasm`) before building the main binary; the Makefile enforces this dependency. The embed is of the `internal/export/wasm/` directory, whose only tracked file is a README, so a build without the generated WASM still compiles: that is what `go install …@version` produces, since the module zip carries only tracked files. Such a binary runs every command except `export`, `serve` and `check-site`'s asset check, which fail with `export.ErrNoWasm` and a hint.
 

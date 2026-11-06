@@ -1592,7 +1592,7 @@
                 catch (e) { return ts; }
             };
             sel.innerHTML = '<option value="">Latest</option>' +
-                list.map(s => '<option value="' + s.id + '" title="' + (s.config_hash || '').slice(0, 12) + '">' + fmt(s.computed_at) + '</option>').join('');
+                list.map(s => '<option value="' + s.id + '" title="' + (s.config_hash || '').slice(0, 12) + '">' + fmt(s.created_at) + '</option>').join('');
             // Restore from URL (covers initial load and bfcache restores).
             const want = Router.read().snapshot;
             if (want && list.some(s => String(s.id) === String(want))) {

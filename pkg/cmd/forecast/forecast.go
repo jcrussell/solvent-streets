@@ -97,7 +97,7 @@ func NewCmdForecast(f *cmdutil.Factory, runF func(context.Context, *Options) err
 
 // simulateResource runs the baseline forecast for a single resource type, returning
 // the collected results, total deferred cost, and scenario result.
-func simulateResource(rt resource.Source, cohorts []fcpkg.Cohort, years int, params *fcpkg.Params, snapshotID *int64) ([]db.ForecastResult, float64, fcpkg.ScenarioResult) {
+func simulateResource(rt resource.Source, cohorts []fcpkg.Cohort, years int, params *fcpkg.Params, runID int64) ([]db.ForecastResult, float64, fcpkg.ScenarioResult) {
 	baseline := fcpkg.Simulate(
 		fcpkg.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: fcpkg.StrategyDoNothing},
 		cohorts, years, params,
@@ -119,9 +119,7 @@ func simulateResource(rt resource.Source, cohorts []fcpkg.Cohort, years int, par
 			Area:          y.Area,
 			TreatmentCost: y.AnnualNeed,
 			TreatmentTier: y.CostTier,
-			// Tag with the snapshot the forecast is derived from so rows are
-			// FK-clean and replaced (not accumulated) on re-run.
-			SnapshotID: snapshotID,
+			RunID:         runID,
 		})
 	}
 
@@ -280,15 +278,19 @@ func runForecast(ctx context.Context, opts *Options) error {
 	}
 
 	fc := cfg.ResolvedForecast(city)
-	years := fc.Years
-	costTiers := convertCostTiers(&fc)
 	sys := opts.UnitSystem()
 
-	fmt.Fprintf(ios.ErrOut, "Running %d-year forecast for %s...\n\n", years, city.Name)
+	fmt.Fprintf(ios.ErrOut, "Running %d-year forecast for %s...\n\n", fc.Years, city.Name)
 
-	allResults, err := forecastAllResources(ctx, opts, store, &fc, years, costTiers, sys)
+	// One snapshot for the whole command: the newest snapshot for this
+	// config with only the forecast parts swapped.
+	draft := db.NewDraft(store, cfg.CityHash(city))
+	allResults, err := forecastAllResources(ctx, opts, draft, &fc, sys)
 	if err != nil {
-		return err
+		return errors.Join(err, draft.Discard(context.WithoutCancel(ctx)))
+	}
+	if _, err := draft.Commit(ctx); err != nil {
+		return errors.Join(fmt.Errorf("commit snapshot: %w", err), draft.Discard(context.WithoutCancel(ctx)))
 	}
 
 	if opts.Exporter == nil {
@@ -320,57 +322,83 @@ func convertCostTiers(fc *config.ForecastConfig) []fcpkg.CostTier {
 	return tiers
 }
 
-func forecastAllResources(ctx context.Context, opts *Options, store db.Store,
-	fc *config.ForecastConfig, years int, costTiers []fcpkg.CostTier, sys units.System) ([]db.ForecastResult, error) {
+// Producer is the snapshot part a resource's forecast fills. A recompute of
+// the resource reruns it in the same command (pkg/cmd/compute), so a snapshot
+// never pairs a resource with a forecast of an older compute.
+func Producer(t resource.Type) string { return "forecast:" + string(t) }
+
+// ResourceForecast is one resource's simulated baseline, as stored and as the
+// forecast command renders it.
+type ResourceForecast struct {
+	Area          float64
+	Cohorts       []fcpkg.Cohort
+	Params        *fcpkg.Params
+	Results       []db.ForecastResult
+	TotalDeferred float64
+	Baseline      fcpkg.ScenarioResult
+}
+
+// ForecastResource simulates rt's baseline from the compute result and cohort
+// stats the draft reads (so it sees a recompute made earlier in the same
+// command), stores the rows as a new forecast run, and puts that run into the
+// draft. It returns raw sql.ErrNoRows when the draft has no compute result for
+// rt, and stores nothing in that case.
+func ForecastResource(ctx context.Context, draft *db.Draft, rt resource.Source, fc *config.ForecastConfig) (*ResourceForecast, error) {
+	t := rt.Type()
+	store := draft.Store()
+	result, err := store.LatestComputeResult(ctx, t)
+	if err != nil {
+		return nil, err
+	}
+	params := fcpkg.NewParamsForResource(string(t), fc.GrowthRate, convertCostTiers(fc), fc.TreatmentCycleYears, fc.ResolvedCostOverhead())
+	cohorts, err := buildForecastCohorts(ctx, rt, result.TotalArea, store, fc)
+	if err != nil {
+		return nil, err
+	}
+	runID, err := draft.NewRun(ctx, Producer(t))
+	if err != nil {
+		return nil, err
+	}
+	rows, total, baseline := simulateResource(rt, cohorts, fc.Years, params, runID)
+	if err := store.SaveForecastResults(ctx, rows); err != nil {
+		return nil, fmt.Errorf("saving forecast results for %s: %w", t, err)
+	}
+	draft.Put(Producer(t), runID)
+	return &ResourceForecast{Area: result.TotalArea, Cohorts: cohorts, Params: params, Results: rows, TotalDeferred: total, Baseline: baseline}, nil
+}
+
+func forecastAllResources(ctx context.Context, opts *Options, draft *db.Draft,
+	fc *config.ForecastConfig, sys units.System) ([]db.ForecastResult, error) {
 	ios := opts.IO
-	currentPCI := fc.InitialPCI
+	years := fc.Years
 	var allResults []db.ForecastResult
 	forecasted := false
 
 	for _, rt := range resource.All {
 		t := rt.Type()
-		tName := string(t)
-		params := fcpkg.NewParamsForResource(tName, fc.GrowthRate, costTiers, fc.TreatmentCycleYears, fc.ResolvedCostOverhead())
-		// LatestComputeResult returns raw sql.ErrNoRows (never a nil result
+		// ForecastResource returns raw sql.ErrNoRows (never a nil result
 		// without an error) when this resource has not been computed for the
 		// city yet — warn and skip only in that case. Any other error (locked
 		// DB, dropped table) must propagate; folding it into the skip path
 		// would silently forecast nothing and exit 0.
-		result, err := store.LatestComputeResult(ctx, t)
+		rf, err := ForecastResource(ctx, draft, rt, fc)
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
 			fmt.Fprintf(ios.ErrOut, "Warning: no compute results for %s, skipping\n", t)
 			continue
 		case err != nil:
-			return nil, fmt.Errorf("latest compute result for %s: %w", t, err)
-		case result == nil:
-			// Defensive: the store contract never returns (nil, nil), but a
-			// nil result with no error genuinely means "nothing computed".
-			fmt.Fprintf(ios.ErrOut, "Warning: no compute results for %s, skipping\n", t)
-			continue
+			return nil, fmt.Errorf("forecast %s: %w", t, err)
 		}
-
-		area := result.TotalArea
-		cohorts, err := buildForecastCohorts(ctx, rt, area, store, fc)
-		if err != nil {
-			return nil, err
-		}
-		dbResults, totalDeferredCost, baseline := simulateResource(rt, cohorts, years, params, result.SnapshotID)
-		allResults = append(allResults, dbResults...)
+		allResults = append(allResults, rf.Results...)
 		forecasted = true
 
 		if opts.Exporter == nil {
-			if err := renderBaselineTable(ios, rt, area, currentPCI, baseline, totalDeferredCost, years, sys); err != nil {
+			if err := renderBaselineTable(ios, rt, rf.Area, fc.InitialPCI, rf.Baseline, rf.TotalDeferred, years, sys); err != nil {
 				return nil, err
 			}
 		}
-
-		if err := store.SaveForecastResults(ctx, dbResults); err != nil {
-			return nil, fmt.Errorf("saving forecast results for %s: %w", t, err)
-		}
-
 		if opts.Scenarios && opts.Exporter == nil {
-			if err := renderScenarioComparisons(ios, baseline, cohorts, years, params); err != nil {
+			if err := renderScenarioComparisons(ios, rf.Baseline, rf.Cohorts, years, rf.Params); err != nil {
 				return nil, err
 			}
 		}
