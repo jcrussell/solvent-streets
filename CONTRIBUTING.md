@@ -63,6 +63,12 @@ commits (scoped or not) from the release notes and groups `feat`, `fix`
 and `perf` separately. See [`.goreleaser.yaml`](.goreleaser.yaml) for the
 exact filters.
 
+Mark a breaking change with `!` in the **subject** (`feat(db)!: …`,
+`refactor(db)!: …`). Any type with `!` is listed under "Breaking Changes"
+at the top of the release notes and is never filtered out. A
+`BREAKING CHANGE:` footer alone is not enough: GoReleaser matches only
+the subject.
+
 There is no hand-maintained `CHANGELOG.md`, and PRs adding one will be
 declined: the commit subject *is* the changelog entry, so write it for a
 reader of the release notes.

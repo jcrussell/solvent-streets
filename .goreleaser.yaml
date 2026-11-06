@@ -81,22 +81,26 @@ changelog:
   use: github
   filters:
     exclude:
-      # Optional scope and bang, because this repo writes scoped conventional
-      # commits and a bare "^test:" does not match "test(export):" — those fell
+      # Optional scope, because this repo writes scoped conventional commits
+      # and a bare "^test:" does not match "test(export):" — those fell
       # through to the catch-all "Other" group and shipped in the release notes.
       # [^)]+ rather than .+ so the scope cannot run past its closing paren.
       # solvent-streets-riwf.
-      - '^docs(\([^)]+\))?!?:'
-      - '^test(\([^)]+\))?!?:'
-      - '^chore(\([^)]+\))?!?:'
-      - '^ci(\([^)]+\))?!?:'
+      #
+      # NO optional bang: a breaking commit of any type ("refactor(db)!:")
+      # must never be filtered out. With "!?" here it vanished from the
+      # notes entirely (verified with a real changelog run, 2026-11-06).
+      - '^docs(\([^)]+\))?:'
+      - '^test(\([^)]+\))?:'
+      - '^chore(\([^)]+\))?:'
+      - '^ci(\([^)]+\))?:'
       # refactor/style/build are internal churn the way docs/test/chore are.
       # Without them 14 of the 103 commits in v0.3.0..HEAD landed in the
       # catch-all "Other" group, mixing dependabot bumps and lint sweeps in
       # with real work. build covers the `build(deps): bump ...` bumps.
-      - '^refactor(\([^)]+\))?!?:'
-      - '^style(\([^)]+\))?!?:'
-      - '^build(\([^)]+\))?!?:'
+      - '^refactor(\([^)]+\))?:'
+      - '^style(\([^)]+\))?:'
+      - '^build(\([^)]+\))?:'
       - Merge pull request
       - Merge branch
   groups:
@@ -105,18 +109,26 @@ changelog:
     # commits in v0.3.0..HEAD do it ("fix(export/cmd):",
     # "fix(cmdutil,db,ingest,checksite):", "fix(cache/server/tui/geo):").
     # solvent-streets-riwf.
+    #
+    # Breaking changes lead, for any type: the subject's "!" is the only
+    # marker GoReleaser sees (a BREAKING CHANGE: footer is in the body, which
+    # it does not match). A commit lands in the first group it matches, so a
+    # "feat(db)!:" is listed here and not again under Features.
+    - title: Breaking Changes
+      regexp: '^.*?[a-z]+(\([^)]+\))?!:.+$'
+      order: 0
     - title: Features
       regexp: '^.*?feat(\([^)]+\))??!?:.+$'
-      order: 0
+      order: 1
     - title: Bug Fixes
       regexp: '^.*?fix(\([^)]+\))??!?:.+$'
-      order: 1
+      order: 2
     # perf is user-visible here, not internal: the 7 in v0.3.0..HEAD are
     # export payload minification, coordinate rounding and DB indexes. They
     # earn a section rather than an exclusion or a slot in "Other".
     - title: Performance
       regexp: '^.*?perf(\([^)]+\))??!?:.+$'
-      order: 2
+      order: 3
     - title: Other
       order: 999
 
