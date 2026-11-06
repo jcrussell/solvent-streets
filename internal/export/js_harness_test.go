@@ -71,7 +71,7 @@ func TestJS(t *testing.T) {
 const jsFixtureSnapshotID = 1
 
 // jsFixtureBoundary is the city polygon BuildMeta derives bbox, center, area and
-// pct_paved from. Roughly the alpha-ca box the rendered index.html carries, so
+// paved_share from. Roughly the alpha-ca box the rendered index.html carries, so
 // the fetched meta.json and the city <option> in the DOM describe one city.
 const jsFixtureBoundary = `{"type":"Polygon","coordinates":[[[-122.3,37.7],[-122.2,37.7],[-122.2,37.8],[-122.3,37.8],[-122.3,37.7]]]}`
 
@@ -223,10 +223,12 @@ func writeJSFixtureTree(t *testing.T, dir string) {
 	if len(meta.Stats) == 0 {
 		t.Fatal("fixture meta.json has no stats[]; the stats-panel specs would test nothing")
 	}
-	if !slices.ContainsFunc(meta.Stats, func(s StatJSON) bool { return s.Type == "parking" && s.EstimatedSpaces == jsFixtureParkingSpaces }) {
+	if !slices.ContainsFunc(meta.Stats, func(s StatJSON) bool {
+		return s.ResourceType == "parking" && s.EstimatedSpaces == jsFixtureParkingSpaces
+	}) {
 		t.Fatalf("fixture meta.json parking stat lacks estimated_spaces=%d; the parking specs would test nothing: %+v", jsFixtureParkingSpaces, meta.Stats)
 	}
-	if s, ok := meta.Metrics[services.MetricFire]; !ok || s.Hexes != 2 {
+	if s, ok := meta.Metrics[services.MetricFire]; !ok || s.HexCount != 2 {
 		t.Fatalf("fixture meta.json lacks the %s summary over 2 painted hexes; the metrics specs would test nothing: %+v", services.MetricFire, meta.Metrics)
 	}
 	hm, err := BuildHexMetrics(ctx, entry)
@@ -279,12 +281,11 @@ func writeJSFixtureBoard(t *testing.T, dir string) {
 
 // assertFundingScenarios pins the scenario names app.js filters on
 // (FUNDING_SCENARIO_NAMES). Renaming one on the Go side drops a chart from the
-// Financials tab; without this the JS specs would just see fewer charts and,
-// before q48z.8, asserted nothing about how many.
+// Financials tab; without this the JS specs would just see fewer charts.
 func assertFundingScenarios(t *testing.T, scenarios map[string]any) {
 	t.Helper()
 	want := []string{"baseline", "fund-25pct", "fund-50pct", "fund-100pct"}
-	for _, scope := range []string{"city", "bbox"} {
+	for _, scope := range []string{"city", "all"} {
 		results, ok := scenarios[scope].([]forecast.ScenarioResult)
 		if !ok {
 			t.Fatalf("fixture scenarios.json has no %q scope (%T)", scope, scenarios[scope])
@@ -312,7 +313,7 @@ func writeFixtureJSON(t *testing.T, dir, name string, v any) {
 
 // writeJSFixtureSite renders index.html from the real template into dir, with
 // the same forecast seed the fetched forecast_seed.json carries — the inline
-// PVMT_CONFIG.forecastSeed and the per-city fetch must agree, or a spec that
+// PVMT_CONFIG.forecast_seed and the per-city fetch must agree, or a spec that
 // reads one is describing the other.
 func writeJSFixtureSite(t *testing.T, dir string, seed template.JS) {
 	t.Helper()
@@ -325,9 +326,9 @@ func writeJSFixtureSite(t *testing.T, dir string, seed template.JS) {
 		return (&config.CityConfig{Name: name, Tags: explicit}).EffectiveTags()
 	}
 	cities := []CityInfo{
-		{Slug: "alpha-ca", Name: "Alpha, CA", BBox: [4]float64{-122.3, 37.7, -122.2, 37.8}, CenterLon: -122.25, CenterLat: 37.75, Tags: tagsFor("Alpha, CA", "Metro")},
-		{Slug: "beta-ca", Name: "Beta, CA", BBox: [4]float64{-121.8, 37.6, -121.7, 37.7}, CenterLon: -121.75, CenterLat: 37.65, Tags: tagsFor("Beta, CA", "Metro", "Top 50")},
-		{Slug: "gamma-or", Name: "Gamma, OR", BBox: [4]float64{-122.8, 45.4, -122.5, 45.6}, CenterLon: -122.65, CenterLat: 45.5, Tags: tagsFor("Gamma, OR")},
+		{Slug: "alpha-ca", Name: "Alpha, CA", BBox: [4]float64{-122.3, 37.7, -122.2, 37.8}, Center: [2]float64{-122.25, 37.75}, Tags: tagsFor("Alpha, CA", "Metro")},
+		{Slug: "beta-ca", Name: "Beta, CA", BBox: [4]float64{-121.8, 37.6, -121.7, 37.7}, Center: [2]float64{-121.75, 37.65}, Tags: tagsFor("Beta, CA", "Metro", "Top 50")},
+		{Slug: "gamma-or", Name: "Gamma, OR", BBox: [4]float64{-122.8, 45.4, -122.5, 45.6}, Center: [2]float64{-122.65, 45.5}, Tags: tagsFor("Gamma, OR")},
 	}
 
 	td := TemplateData{

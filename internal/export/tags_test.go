@@ -348,7 +348,7 @@ func TestTemplateData_CityGroups(t *testing.T) {
 	}
 }
 
-// TestConfigJSON_EmitsTagDimensions: both page payloads carry tagDimensions
+// TestConfigJSON_EmitsTagDimensions: both page payloads carry tag_dimensions
 // (untagged group dropped, labels stripped of the prefix) and the play page now
 // carries the cities array too, so game.js can rebuild its selector.
 func TestConfigJSON_EmitsTagDimensions(t *testing.T) {
@@ -369,7 +369,7 @@ func TestConfigJSON_EmitsTagDimensions(t *testing.T) {
 					Tag   string `json:"tag"`
 					Label string `json:"label"`
 				} `json:"values"`
-			} `json:"tagDimensions"`
+			} `json:"tag_dimensions"`
 		}
 		if err := json.Unmarshal([]byte(js), &cfg); err != nil {
 			t.Fatalf("%s: unmarshal: %v\n%s", name, err, js)
@@ -378,7 +378,7 @@ func TestConfigJSON_EmitsTagDimensions(t *testing.T) {
 			t.Errorf("%s: cities = %d, want 2", name, len(cfg.Cities))
 		}
 		if len(cfg.TagDimensions) != 2 {
-			t.Fatalf("%s: tagDimensions = %+v, want group+state", name, cfg.TagDimensions)
+			t.Fatalf("%s: tag_dimensions = %+v, want group+state", name, cfg.TagDimensions)
 		}
 		g := cfg.TagDimensions[0]
 		if g.Name != "group" || len(g.Values) != 1 || g.Values[0].Tag != "Bay Area" {
@@ -389,8 +389,8 @@ func TestConfigJSON_EmitsTagDimensions(t *testing.T) {
 			t.Errorf("%s: state dim = %+v", name, s)
 		}
 	}
-	// Empty TemplateData: tagDimensions is [] not null so the client can read .length.
-	if js := string((TemplateData{}).IndexConfigJSON()); !strings.Contains(js, `"tagDimensions":[]`) {
-		t.Errorf("empty payload should carry tagDimensions:[], got %s", js)
+	// Empty TemplateData: tag_dimensions is [] not null so the client can read .length.
+	if js := string((TemplateData{}).IndexConfigJSON()); !strings.Contains(js, `"tag_dimensions":[]`) {
+		t.Errorf("empty payload should carry tag_dimensions:[], got %s", js)
 	}
 }

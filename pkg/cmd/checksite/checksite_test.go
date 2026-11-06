@@ -194,11 +194,11 @@ func TestScanHygiene_HeaderTokenAfterShortRead(t *testing.T) {
 }
 
 // TestCheckSite_ZeroBaselineAreaWarns guards Gap 2: a resource whose baseline
-// carries zero paved area (while pct_paved stays plausible) surfaces a WARN,
+// carries zero paved area (while paved_share stays plausible) surfaces a WARN,
 // not a FAIL — a hard failure would collide with legitimately empty resources.
 func TestCheckSite_ZeroBaselineAreaWarns(t *testing.T) {
 	dir := buildValidSite(t)
-	// pct_paved stays plausible (unchanged), but the roads resource is zeroed.
+	// paved_share stays plausible (unchanged), but the roads resource is zeroed.
 	writeForecastArea(t, filepath.Join(dir, "demo-ca", "data", "forecast.json"),
 		[]float64{85, 80, 75}, []float64{0, 5, 12}, 0)
 	out, err := run(t, dir, false)
@@ -214,9 +214,9 @@ func TestCheckSite_ZeroBaselineAreaWarns(t *testing.T) {
 	}
 }
 
-func TestCheckSite_NearZeroPctPaved(t *testing.T) {
+func TestCheckSite_NearZeroPavedShare(t *testing.T) {
 	dir := buildValidSite(t)
-	writeMeta(t, filepath.Join(dir, "demo-ca", "data", "meta.json"), 0.5, 1000)
+	writeMeta(t, filepath.Join(dir, "demo-ca", "data", "meta.json"), 0.005, 1000)
 	assertFails(t, dir, "near-zero-area")
 }
 
@@ -265,7 +265,7 @@ func TestCheckSite_CrossExampleDivergence(t *testing.T) {
 	// total_paved. This is a WARN, not a FAIL: a divergence can be an
 	// intentional config difference (different ingest sources per example),
 	// which check-site can't distinguish from the built tree alone.
-	addMultiCityExample(t, dir, "region-ca", "demo-ca", 999, 60.0)
+	addMultiCityExample(t, dir, "region-ca", "demo-ca", 999, 0.6)
 	out, err := run(t, dir, false)
 	if err != nil {
 		t.Fatalf("divergence should warn, not fail (non-strict): %v\n%s", err, out)
@@ -326,7 +326,7 @@ func TestCheckSite_SizeBudgetIsWorstCityNotMean(t *testing.T) {
 	writeFile(t, filepath.Join(ex2, "index.html"),
 		`<html><head><script src="../wasm_exec.js"></script>`+
 			`<script>script.src = '..\/pvmt.wasm';</script></head><body>map</body></html>`)
-	writeDataDir(t, filepath.Join(ex2, "data"), 52.5, 50000)
+	writeDataDir(t, filepath.Join(ex2, "data"), 0.525, 50000)
 
 	budget := sizeBudgets["scenarios.json"]
 	pad := strings.Repeat("x", int(budget+budget/2))
@@ -352,7 +352,7 @@ func TestCheckSite_SizeBudgetIsWorstCityNotMean(t *testing.T) {
 
 func TestCheckSite_Strict(t *testing.T) {
 	dir := buildValidSite(t)
-	// pct_paved 0 produces a WARN (absent paved area); --strict turns it fatal.
+	// paved_share 0 produces a WARN (absent paved area); --strict turns it fatal.
 	writeMeta(t, filepath.Join(dir, "demo-ca", "data", "meta.json"), 0, 0)
 	if out, err := run(t, dir, false); err != nil {
 		t.Fatalf("non-strict should pass with a warning: %v\n%s", err, out)
@@ -408,9 +408,9 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
-func writeMeta(t *testing.T, path string, pctPaved, totalPaved float64) {
+func writeMeta(t *testing.T, path string, pavedShare, totalPaved float64) {
 	t.Helper()
-	m := export.MetaJSON{ProjectName: "Demo", PctPaved: pctPaved, TotalPaved: totalPaved, CityArea: 100000}
+	m := export.MetaJSON{ProjectName: "Demo", PavedShare: pavedShare, TotalPaved: totalPaved, CityArea: 100000}
 	writeJSONFile(t, path, m)
 }
 
@@ -458,9 +458,9 @@ func writeJSONFile(t *testing.T, path string, v any) {
 }
 
 // writeDataDir writes a full set of valid data files into dataDir.
-func writeDataDir(t *testing.T, dataDir string, pctPaved, totalPaved float64) {
+func writeDataDir(t *testing.T, dataDir string, pavedShare, totalPaved float64) {
 	t.Helper()
-	writeMeta(t, filepath.Join(dataDir, "meta.json"), pctPaved, totalPaved)
+	writeMeta(t, filepath.Join(dataDir, "meta.json"), pavedShare, totalPaved)
 	writeForecast(t, filepath.Join(dataDir, "forecast.json"),
 		[]float64{85, 80, 75}, []float64{0, 5, 12})
 	for _, name := range []string{
@@ -494,7 +494,7 @@ func buildValidSite(t *testing.T) string {
 	writeFile(t, filepath.Join(exDir, "index.html"),
 		`<html><head><script src="../wasm_exec.js"></script>`+
 			`<script>script.src = '..\/pvmt.wasm';</script></head><body>map</body></html>`)
-	writeDataDir(t, filepath.Join(exDir, "data"), 52.5, 50000)
+	writeDataDir(t, filepath.Join(exDir, "data"), 0.525, 50000)
 
 	return dir
 }
@@ -520,7 +520,7 @@ func buildValidRootSite(t *testing.T) string {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(dir, "cities.json"), `[{"slug":"demo","name":"Demo"}]`)
-	writeDataDir(t, filepath.Join(dir, "cities", "demo", "data"), 52.5, 50000)
+	writeDataDir(t, filepath.Join(dir, "cities", "demo", "data"), 0.525, 50000)
 
 	return dir
 }
@@ -552,7 +552,7 @@ func TestCheckSite_RootShadowsChildren(t *testing.T) {
 	dir := buildValidRootSite(t)
 	// A child directory that itself looks like a single-city export.
 	writeFile(t, filepath.Join(dir, "extra-ca", "index.html"), `<html><body>x</body></html>`)
-	writeDataDir(t, filepath.Join(dir, "extra-ca", "data"), 52.5, 50000)
+	writeDataDir(t, filepath.Join(dir, "extra-ca", "data"), 0.525, 50000)
 
 	out, err := run(t, dir, false)
 	if err != nil {
@@ -570,13 +570,13 @@ func TestCheckSite_RootShadowsChildren(t *testing.T) {
 // addMultiCityExample appends a multi-city example named exSlug containing one
 // city citySlug, with cities.json and a full data dir using the given paved
 // values. Used to create a cross-example slug collision.
-func addMultiCityExample(t *testing.T, dir, exSlug, citySlug string, totalPaved, pctPaved float64) {
+func addMultiCityExample(t *testing.T, dir, exSlug, citySlug string, totalPaved, pavedShare float64) {
 	t.Helper()
 	exDir := filepath.Join(dir, exSlug)
 	writeFile(t, filepath.Join(exDir, "index.html"),
 		`<html><head><script src="../wasm_exec.js"></script></head><body>map</body></html>`)
 	writeFile(t, filepath.Join(exDir, "cities.json"), `[{"slug":"`+citySlug+`","name":"Demo"}]`)
-	writeDataDir(t, filepath.Join(exDir, "cities", citySlug, "data"), pctPaved, totalPaved)
+	writeDataDir(t, filepath.Join(exDir, "cities", citySlug, "data"), pavedShare, totalPaved)
 }
 
 // cancelAfterNProbes is a context whose Err() reports Canceled only after the

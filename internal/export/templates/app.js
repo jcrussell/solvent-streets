@@ -29,7 +29,7 @@
 
         // Tag dimensions for the filters (PvmtSelectors, selectors.js); absent
         // on a single-city page, which has no selector to filter.
-        const TAG_DIMS = PVMT_CONFIG.tagDimensions;
+        const TAG_DIMS = PVMT_CONFIG.tag_dimensions;
 
         // The Play link in the tab bar carries the current city and tag
         // filters so the game opens on the same selection. Captured before any
@@ -146,20 +146,20 @@
         var allCityDataPromise = null;
         // "Color by" state. Every hex coloring is a registry metric
         // (internal/hexmetric): DERIVED ones (coverage, area, spaces, est.
-        // cost) arrive once in PVMT_CONFIG.hexMetrics and are computed here
+        // cost) arrive once in PVMT_CONFIG.hex_metrics and are computed here
         // from hexgrid.geojson over the toggled resources; STORED ones arrive
         // per city in hex-metrics.json (hexMetrics). hexMetric is the selected
         // key. Declared here (like the tab guards) so a ?metric= deep link
         // survives the init IIFE and the per-city load can honour it once the
         // city's files are in.
-        const DEFAULT_METRIC = 'coverage_pct';
+        const DEFAULT_METRIC = 'coverage_share';
         /** @type {Record<string, PvmtHexMetric>} */
         const derivedMetrics = {};
-        for (const spec of (PVMT_CONFIG.hexMetrics || [])) derivedMetrics[spec.key] = spec;
+        for (const spec of (PVMT_CONFIG.hex_metrics || [])) derivedMetrics[spec.key] = spec;
         var hexMetric = DEFAULT_METRIC;
         /** @type {Record<string, PvmtHexMetric>} */
         var hexMetrics = {};
-        // hexGeomById holds every grid hex's geometry (hexgrid v4 emits hexes
+        // hexGeomById holds every grid hex's geometry (hexgrid emits hexes
         // without pavement rows too) so a stored metric can paint them.
         /** @type {Record<string, any>} */
         var hexGeomById = {};
@@ -230,7 +230,7 @@
                 else if (init.tab === 'compare-tab') loadCompareData();
                 else if (init.tab === 'materials-tab') loadMaterials();
             }
-            if (init.scope === 'city' || init.scope === 'bbox') {
+            if (init.scope === 'city' || init.scope === 'all') {
                 currentScope = init.scope;
                 queryAll('#scope-toggle button').forEach(b =>
                     b.classList.toggle('active', b.dataset.scope === currentScope));
@@ -253,7 +253,7 @@
             if (snapEl) snapEl.value = targetSnap;
             // Update currentScope from URL state before kicking off reloads
             // (selectCity → loadCityData → buildBlendedHexFC reads currentScope).
-            if (s.scope === 'city' || s.scope === 'bbox') currentScope = s.scope;
+            if (s.scope === 'city' || s.scope === 'all') currentScope = s.scope;
             queryAll('#scope-toggle button').forEach(b =>
                 b.classList.toggle('active', b.dataset.scope === currentScope));
             // Only fire selectCity when the city actually changed. selectCity
@@ -431,12 +431,12 @@
 
         // Map
         const CENTER = PVMT_CONFIG.center;
-        const layerColors = PVMT_CONFIG.layerColors;
+        const layerColors = PVMT_CONFIG.layer_colors;
         // Display units are a client-side preference. All emitted data is raw
         // metric and the area/mass helpers below convert on the fly, so the unit
         // system can change at runtime (see the gear-menu Units toggle) without a
         // reload. localStorage persists the choice across visits; the config's
-        // [display].units (PVMT_CONFIG.unitSystem) seeds the first visit — so a
+        // [display].units (PVMT_CONFIG.unit_system) seeds the first visit — so a
         // standalone example keeps its configured default, and in the combined
         // site every included city follows the one live preference.
         let UNIT_SYSTEM = (function () {
@@ -444,7 +444,7 @@
                 const u = localStorage.getItem('pvmtUnits');
                 if (u === 'metric' || u === 'imperial') return u;
             } catch (e) { /* storage disabled (private mode): fall through */ }
-            return PVMT_CONFIG.unitSystem;
+            return PVMT_CONFIG.unit_system;
         })();
 
         // Unit conversion helpers
@@ -488,12 +488,12 @@
         window._map = map;
 
         // Hex interactivity state. Scope-keyed so the same map view can
-        // repaint between city-only and full-bbox without re-fetching;
+        // repaint between city-only and all-jurisdiction without re-fetching;
         // currentScope (declared above applyInitialState) is the single
         // source of truth for which bucket buildBlendedHexFC / the click
         // handler read from.
-        let hexDataByScope = { city: {}, bbox: {} };       // { scope: { type: [features] } }
-        let costSummaryByScope = { city: {}, bbox: {} };   // { scope: { type: {year1_cost,total_area} } }
+        let hexDataByScope = { city: {}, all: {} };       // { scope: { type: [features] } }
+        let costSummaryByScope = { city: {}, all: {} };   // { scope: { type: {year1_need,total_area} } }
         let activeTypes = new Set(Object.keys(layerColors));
         let savedPanelHTML = '';
         // Monotonic load-generation tokens. loadCityData and loadFinancials each
@@ -550,10 +550,10 @@
                 for (const f of features) {
                     const hid = f.properties.hex_id;
                     if (!byHex[hid]) {
-                        byHex[hid] = { geometry: f.geometry, area: 0, pct_covered: 0, est_cost: 0, spaces: 0 };
+                        byHex[hid] = { geometry: f.geometry, area: 0, share: 0, est_cost: 0, spaces: 0 };
                     }
                     byHex[hid].area += f.properties.area || 0;
-                    byHex[hid].pct_covered += f.properties.pct_covered || 0;
+                    byHex[hid].share += f.properties.share || 0;
                     byHex[hid].spaces += f.properties.spaces || 0;
                 }
             }
@@ -565,7 +565,7 @@
                 for (const f of features) {
                     const hid = f.properties.hex_id;
                     if (!byHex[hid]) continue;
-                    byHex[hid].est_cost += ((f.properties.area || 0) / cs.total_area) * cs.year1_cost;
+                    byHex[hid].est_cost += ((f.properties.area || 0) / cs.total_area) * cs.year1_need;
                 }
             }
 
@@ -579,7 +579,7 @@
             if (metric) {
                 for (const hid of metricExtraHexes(metric)) {
                     if (!byHex[hid] && hexGeomById[hid]) {
-                        byHex[hid] = { geometry: hexGeomById[hid], area: 0, pct_covered: 0, est_cost: 0, spaces: 0 };
+                        byHex[hid] = { geometry: hexGeomById[hid], area: 0, share: 0, est_cost: 0, spaces: 0 };
                     }
                 }
             }
@@ -601,7 +601,7 @@
                         spaces: data.spaces,
                         ...extra,
                         area: data.area,
-                        pct_covered: Math.min(data.pct_covered, 100),
+                        share: Math.min(data.share, 1),
                         est_cost: data.est_cost
                     }
                 });
@@ -645,17 +645,17 @@
                     '<div class="stat-row"><span class="stat-label">City Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + toAreaLarge(meta.city_area).toFixed(1) + '</span></div>' +
                     '<div class="stat-row"><span class="stat-label">City Area (' + areaVeryLargeUnit() + ')</span><span class="stat-value">' + toAreaVeryLarge(meta.city_area).toFixed(2) + '</span></div>' +
                     '<div class="stat-row"><span class="stat-label">Total Paved (' + areaLargeUnit() + ')</span><span class="stat-value">' + toAreaLarge(meta.total_paved || 0).toFixed(1) + '</span></div>' +
-                    '<div class="stat-row"><span class="stat-label">% Paved</span><span class="stat-value">' + (meta.pct_paved || 0).toFixed(1) + '%</span></div>' +
+                    '<div class="stat-row"><span class="stat-label">% Paved</span><span class="stat-value">' + ((meta.paved_share || 0) * 100).toFixed(1) + '%</span></div>' +
                     '</div>';
             }
             (meta.stats || []).forEach(s => {
                 const areaLargeVal = toAreaLarge(s.total_area);
                 statsHTML +=
-                    '<div class="stat-card"><h3>' + s.type + '</h3>' +
+                    '<div class="stat-card"><h3>' + s.resource_type + '</h3>' +
                     '<div class="stat-row"><span class="stat-label">Features</span><span class="stat-value">' + s.feature_count + '</span></div>' +
                     '<div class="stat-row"><span class="stat-label">Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + areaLargeVal.toFixed(1) + '</span></div>' +
                     '<div class="stat-row"><span class="stat-label">Area (' + areaVeryLargeUnit() + ')</span><span class="stat-value">' + toAreaVeryLarge(s.total_area).toFixed(2) + '</span></div>' +
-                    // Parking only (v3 meta): a unitless count, so no units conversion.
+                    // Parking only: a unitless count, so no units conversion.
                     (s.estimated_spaces > 0 ? '<div class="stat-row"><span class="stat-label">Est. Spaces</span><span class="stat-value">' + s.estimated_spaces.toLocaleString() + '</span></div>' : '') +
                     '</div>';
             });
@@ -668,11 +668,11 @@
                     // Additive counts lead with the city total; a time,
                     // rate or density has no meaningful sum.
                     (s.total != null ? '<div class="stat-row"><span class="stat-label">Total</span><span class="stat-value">' + fmtMetric(s.total, s.format) + '</span></div>' : '') +
-                    (s.threshold_s > 0 ? '<div class="stat-row"><span class="stat-label">Within ' + fmtMetric(s.threshold_s, s.format) + '</span><span class="stat-value">' + (s.pct_within || 0).toFixed(1) + '%</span></div>' : '') +
+                    (s.threshold_s > 0 ? '<div class="stat-row"><span class="stat-label">Within ' + fmtMetric(s.threshold_s, s.format) + '</span><span class="stat-value">' + ((s.within_threshold_share || 0) * 100).toFixed(1) + '%</span></div>' : '') +
                     '<div class="stat-row"><span class="stat-label">Median</span><span class="stat-value">' + fmtMetric(s.median, s.format) + '</span></div>' +
                     // Compact, unit once: "0 – 24K / sq mi", not the unit twice.
                     '<div class="stat-row"><span class="stat-label">Range</span><span class="stat-value">' + fmtLegend(s.min, s.format, false) + ' – ' + fmtLegend(s.max, s.format, true) + '</span></div>' +
-                    (s.points > 0 ? '<div class="stat-row"><span class="stat-label">Points of service</span><span class="stat-value">' + s.points + '</span></div>' : '') +
+                    (s.point_count > 0 ? '<div class="stat-row"><span class="stat-label">Points of service</span><span class="stat-value">' + s.point_count + '</span></div>' : '') +
                     '</div>';
             });
             statsHTML += ratioTotalsCard();
@@ -706,7 +706,7 @@
             let total = 0;
             for (const t of activeTypes) {
                 if (prop === 'est_cost') {
-                    if (cs[t] && cs[t].total_area > 0) total += cs[t].year1_cost || 0;
+                    if (cs[t] && cs[t].total_area > 0) total += cs[t].year1_need || 0;
                     continue;
                 }
                 const field = DERIVE_PROPS[prop];
@@ -743,8 +743,8 @@
             ['hexgrid', 'boundary', 'metric-points'].concat(Object.keys(layerColors)).forEach(id => {
                 if (map.getSource(id)) map.removeSource(id);
             });
-            hexDataByScope = { city: {}, bbox: {} };
-            costSummaryByScope = { city: {}, bbox: {} };
+            hexDataByScope = { city: {}, all: {} };
+            costSummaryByScope = { city: {}, all: {} };
             activeTypes = new Set(Object.keys(layerColors));
             hexMetrics = {};
             hexGeomById = {};
@@ -771,7 +771,7 @@
             {
                 const hm = await loadJSON(dataURL(prefix, 'hex-metrics.json'), { silent404: true });
                 if (gen !== cityLoadGen) return;
-                if (hm && hm.v === 1 && hm.metrics) hexMetrics = hm.metrics;
+                if (hm && hm.v === 2 && hm.metrics) hexMetrics = hm.metrics;
             }
 
             // Load and render boundary polygon
@@ -813,23 +813,23 @@
             }
 
             // Load hex cost summary: map[scope]map[resource]{...}, scope in
-            // {city, bbox}. "city" is omitted when the city has no :city rows.
+            // {city, all}. "city" is omitted when the city has no :city rows.
             {
                 const cs = await loadJSON(dataURL(prefix, 'hex-cost-summary.json'));
                 if (gen !== cityLoadGen) return; // a newer load superseded us
                 if (cs) {
                     costSummaryByScope.city = cs.city || {};
-                    costSummaryByScope.bbox = cs.bbox || {};
+                    costSummaryByScope.all = cs.all || {};
                 }
             }
 
             // Load the hex grid — a single multi-scope file, one feature per
-            // hex with nested {bbox, city?} coverage keyed by resource. Expand
+            // hex with nested {all, city?} coverage keyed by resource. Expand
             // it back into the per-scope/per-resource feature arrays the render
             // path consumes.
             //
             // A feature carries city-scope data in one of two shapes:
-            //   - a "city" object, when it differs from "bbox";
+            //   - a "city" object, when it differs from "all";
             //   - "city_same": 1, when the two were byte-identical and the
             //     writer emitted the flag instead of a duplicate copy.
             // Only a feature with NEITHER has no city-scope data. That is the
@@ -848,22 +848,22 @@
             // the file and loadJSON returns null on a silent 404), so the null
             // check comes first — this must not fire on that.
             //
-            // The failure this prevents is silent, not loud: an older client
-            // reading a v2 file finds no "city" object on ~70% of features and
-            // under-reports the city scope with no error anywhere. Better to
-            // show the banner and render nothing than a plausible wrong map.
-            if (hexData && hexData.v !== 4) {
+            // The failure this prevents is silent, not loud: misreading a
+            // changed property shape (e.g. not expanding city_same) drops ~70%
+            // of city-scope features with no error anywhere. Better to show the
+            // banner and render nothing than a plausible wrong map.
+            if (hexData && hexData.v !== 5) {
                 showLoadError(dataURL(prefix, 'hexgrid.geojson'),
-                    'stale hexgrid format (expected v4) — re-export this site with a current pvmt');
+                    'unsupported hexgrid format (expected v5) — re-export this site with a current pvmt');
                 return;
             }
             if (hexData && hexData.features) {
                 for (const f of hexData.features) {
                     const hid = f.properties.id;
                     hexGeomById[hid] = f.geometry;
-                    for (const scope of ['bbox', 'city']) {
+                    for (const scope of ['all', 'city']) {
                         const byRes = (scope === 'city' && f.properties.city_same)
-                            ? f.properties.bbox
+                            ? f.properties.all
                             : f.properties[scope];
                         if (!byRes) continue;
                         for (const rt of Object.keys(byRes)) {
@@ -875,8 +875,8 @@
                                     hex_id: hid,
                                     resource_type: rt,
                                     area: m.area,
-                                    pct_covered: m.pct,
-                                    // v3: estimated parking spaces apportioned to
+                                    share: m.share,
+                                    // Estimated parking spaces apportioned to
                                     // the hex; absent (0) for other resources.
                                     spaces: m.spaces || 0,
                                 },
@@ -890,12 +890,12 @@
             // and URL are kept in sync via selectScope (don't push, this is
             // an internal repair, not a user action).
             const cityEmpty = Object.keys(hexDataByScope.city).length === 0;
-            const bboxEmpty = Object.keys(hexDataByScope.bbox).length === 0;
-            if (currentScope === 'city' && cityEmpty && !bboxEmpty) {
-                currentScope = 'bbox';
+            const allEmpty = Object.keys(hexDataByScope.all).length === 0;
+            if (currentScope === 'city' && cityEmpty && !allEmpty) {
+                currentScope = 'all';
                 queryAll('#scope-toggle button').forEach(b =>
                     b.classList.toggle('active', b.dataset.scope === currentScope));
-            } else if (currentScope === 'bbox' && bboxEmpty && !cityEmpty) {
+            } else if (currentScope === 'all' && allEmpty && !cityEmpty) {
                 currentScope = 'city';
                 queryAll('#scope-toggle button').forEach(b =>
                     b.classList.toggle('active', b.dataset.scope === currentScope));
@@ -916,7 +916,7 @@
 
             {
                 const haveAnyHex = Object.keys(hexDataByScope.city).length > 0 ||
-                                    Object.keys(hexDataByScope.bbox).length > 0;
+                                    Object.keys(hexDataByScope.all).length > 0;
                 if (haveAnyHex) {
                     {
                         const blended = buildBlendedHexFC();
@@ -988,7 +988,7 @@
                 if (e.features && e.features.length > 0) {
                     const p = e.features[0].properties;
                     tooltip.innerHTML =
-                        '<strong>Coverage:</strong> ' + (p.pct_covered != null ? Math.round(p.pct_covered) : 0) + '%<br>' +
+                        '<strong>Coverage:</strong> ' + (p.share != null ? Math.round(p.share * 100) : 0) + '%<br>' +
                         '<strong>Area:</strong> ' + fmtArea(p.area || 0) + '<br>' +
                         '<strong>Est. Annual Cost:</strong> ' + fmtCost(p.est_cost || 0) +
                         (p.spaces > 0 ? '<br><strong>Est. Parking Spaces:</strong> ' + Math.round(p.spaces).toLocaleString() : '') +
@@ -1025,12 +1025,12 @@
                     const match = features.find(f => f.properties.hex_id === hexId);
                     if (!match) continue;
                     const area = match.properties.area || 0;
-                    const pct = match.properties.pct_covered || 0;
+                    const pct = (match.properties.share || 0) * 100;
                     totalSpaces += match.properties.spaces || 0;
                     let cost = 0;
                     const cs = costSummary[type];
                     if (cs && cs.total_area) {
-                        cost = (area / cs.total_area) * cs.year1_cost;
+                        cost = (area / cs.total_area) * cs.year1_need;
                     }
                     totalArea += area;
                     totalPct += pct;
@@ -1106,7 +1106,7 @@
         }
         // DERIVE_PROPS maps a derivation's per-resource property onto the
         // blended hex record buildBlendedHexFC accumulates.
-        const DERIVE_PROPS = { pct: 'pct_covered', area: 'area', spaces: 'spaces', est_cost: 'est_cost' };
+        const DERIVE_PROPS = { share: 'share', area: 'area', spaces: 'spaces', est_cost: 'est_cost' };
         // derivedInputPresent reports whether this city has data for a derived
         // metric's per-resource property: a coloring with nothing to show (no
         // parking spaces, no forecast cost) is not offered rather than
@@ -1222,7 +1222,7 @@
                 }
                 case 'float1': return v.toFixed(1);
                 case 'usd': return fmtCost(v);
-                case 'percent': return Math.round(v) + '%';
+                case 'percent': return Math.round(v * 100) + '%';
                 case 'area': return fmtArea(v);
                 case 'density': return Math.round(densityInUnit(v)).toLocaleString() + ' / ' + areaVeryLargeUnit();
                 default: return Math.round(v).toLocaleString();
@@ -1373,7 +1373,7 @@
             if (points.length === 0) return;
             map.addSource('metric-points', { type: 'geojson', data: {
                 type: 'FeatureCollection',
-                features: points.map(pt => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [pt.lon, pt.lat] }, properties: { name: pt.name || pt.id, source: pt.source } })),
+                features: points.map(pt => ({ type: 'Feature', geometry: { type: 'Point', coordinates: pt.position }, properties: { name: pt.name || pt.id, source: pt.source } })),
             } });
             map.addLayer({
                 id: 'metric-points', type: 'circle', source: 'metric-points',
@@ -1509,7 +1509,7 @@
             function aggregateSelection(bbox) {
                 const [minLng, minLat, maxLng, maxLat] = bbox;
                 const fc = buildBlendedHexFC();
-                let count = 0, sumArea = 0, sumCost = 0, sumPctArea = 0;
+                let count = 0, sumArea = 0, sumCost = 0, sumShareArea = 0;
                 for (const f of (fc.features || [])) {
                     const c = polyCentroid(f.geometry);
                     if (!c) continue;
@@ -1518,9 +1518,9 @@
                     count++;
                     sumArea += area;
                     sumCost += f.properties.est_cost || 0;
-                    sumPctArea += (f.properties.pct_covered || 0) * area;
+                    sumShareArea += (f.properties.share || 0) * area;
                 }
-                const wPct = sumArea > 0 ? (sumPctArea / sumArea) : 0;
+                const wPct = sumArea > 0 ? (sumShareArea / sumArea) * 100 : 0;
 
                 const statsEl = document.getElementById('stats');
                 // Single-slot savedPanelHTML is shared with the hex-click panel.
@@ -1554,7 +1554,8 @@
             if (!opt) return;
             DATA_PREFIX = 'cities/' + slug + '/';
             const bboxParts = opt.dataset.bbox.split(',').map(Number);
-            map.fitBounds([[bboxParts[1], bboxParts[0]], [bboxParts[3], bboxParts[2]]], { padding: 40 });
+            // data-bbox is [west, south, east, north], fitBounds' own order.
+            map.fitBounds([[bboxParts[0], bboxParts[1]], [bboxParts[2], bboxParts[3]]], { padding: 40 });
             document.querySelector('#panel h2').textContent = opt.textContent.trim();
             // Snapshot ids are per-city. Reset the picker on city change so a
             // stale id can't be sent against the new city's data endpoints.
@@ -1654,17 +1655,17 @@
         }
         // The funding-level scenarios the charts plot (order matters for COLORS).
         const FUNDING_SCENARIO_NAMES = ['baseline', 'fund-25pct', 'fund-50pct', 'fund-100pct'];
-        // scenarios.json / city.scenarios is scope-keyed ({city, bbox, summary}).
+        // scenarios.json / city.scenarios is scope-keyed ({city, all, summary}).
         // effectiveScope resolves a preferred scope to one actually present;
-        // scenariosForScope selects the list for a scope with the city→bbox
+        // scenariosForScope selects the list for a scope with the city→all
         // fallback every caller uses.
         function effectiveScope(byScope, preferred) {
-            if (preferred === 'city' && !byScope.city && byScope.bbox) return 'bbox';
-            if (preferred === 'bbox' && !byScope.bbox && byScope.city) return 'city';
+            if (preferred === 'city' && !byScope.city && byScope.all) return 'all';
+            if (preferred === 'all' && !byScope.all && byScope.city) return 'city';
             return preferred;
         }
         function scenariosForScope(byScope, scope) {
-            return byScope[scope] || byScope.city || byScope.bbox;
+            return byScope[scope] || byScope.city || byScope.all;
         }
 
         // Vertical crosshair plugin: hover line + click-to-pin
@@ -2006,7 +2007,7 @@
             });
         });
 
-        // Horizon-derived labels (never hardcode 20). FORECAST_SEED.years is
+        // Horizon-derived labels (never hardcode 20). FORECAST_SEED.horizon_years is
         // the configured forecast horizon; the headline/cohort values are
         // summed over it, so the captions must follow it too. The cohort Area
         // cells convert to the live large-area unit (ha/acres), so that header
@@ -2021,7 +2022,7 @@
         // (renderFinancialsFromCache, and the pre-fetch call in loadFinancials)
         // satisfy that today.
         function applyHorizonLabels() {
-            const yrs = (FORECAST_SEED && FORECAST_SEED.years) || 20;
+            const yrs = (FORECAST_SEED && FORECAST_SEED.horizon_years) || 20;
             document.getElementById('hl-spend-label').textContent = yrs + '-Year Spend';
             document.getElementById('hl-deficit-label').textContent = yrs + '-Year Deficit';
             document.getElementById('cohort-spend-th').textContent = yrs + 'yr Spend';
@@ -2142,7 +2143,7 @@
 
             // Fall back if currentScope is unsupported by the loaded
             // scenarios (e.g. URL said scope=city but this city only has
-            // bbox data). Mirrors the same repair in loadCityData.
+            // all-scope data). Mirrors the same repair in loadCityData.
             currentScope = effectiveScope(scenarioData, currentScope);
             queryAll('#scope-toggle button').forEach(b =>
                 b.classList.toggle('active', b.dataset.scope === currentScope));
@@ -2250,13 +2251,13 @@
         // and is computed on the same cohort area basis y.area is. Defaults to 1
         // so a site exported before the field existed renders unchanged.
         function materialSeries(scenario, cycleYears, tierByLabel, fallbackTier, asphaltShare) {
-            var zero = { mix_kg_per_sqm: 0, binder_pct: 0 };
+            var zero = { mix_kg_per_sqm: 0, binder_share: 0 };
             var share = typeof asphaltShare === 'number' && asphaltShare >= 0 ? asphaltShare : 1;
             return scenario.years.map(function(y) {
                 var treatedArea = cycleYears > 0 ? (y.area * share) / cycleYears : 0;
                 var tier = tierByLabel[y.cost_tier] || fallbackTier || zero;
                 var mixKg = treatedArea * tier.mix_kg_per_sqm;
-                var binderKg = mixKg * tier.binder_pct;
+                var binderKg = mixKg * tier.binder_share;
                 return {
                     year: y.year,
                     tier: y.cost_tier,
@@ -2273,7 +2274,7 @@
             var tbody = document.querySelector('#materials-tier-table tbody');
             if (!tiers || tiers.length === 0) { section.style.display = 'none'; return; }
             tbody.innerHTML = tiers.map(function(t) {
-                var binderKgSqM = t.mix_kg_per_sqm * t.binder_pct;
+                var binderKgSqM = t.mix_kg_per_sqm * t.binder_share;
                 // Over 1000 m^2 the binder mass in tonnes equals binderKgSqM, so
                 // barrels/1000 m^2 = binderKgSqM * BARRELS_PER_TON_BINDER.
                 var oilPer1000 = binderKgSqM * BARRELS_PER_TON_BINDER;
@@ -2282,7 +2283,7 @@
                 return '<tr>' +
                     '<td>' + dot + esc(t.label) + '</td>' +
                     '<td class="number">' + t.mix_kg_per_sqm.toFixed(0) + '</td>' +
-                    '<td class="number">' + (t.binder_pct * 100).toFixed(1) + '%</td>' +
+                    '<td class="number">' + (t.binder_share * 100).toFixed(1) + '%</td>' +
                     '<td class="number">' + binderKgSqM.toFixed(1) + '</td>' +
                     '<td class="number">' + oilPer1000.toFixed(1) + '</td>' +
                     '</tr>';
@@ -2322,8 +2323,8 @@
             }, tiers[0]);
             var cycleYears = (seed && seed.treatment_cycle_years) || 12;
             // Scope-selected the same way the forecast controls pick their area
-            // and cohorts: the bbox share unless a city scope is actually loaded.
-            var asphaltShare = (scope === 'bbox' || !(seed && seed.city_paved))
+            // and cohorts: the all-scope share unless a city scope is actually loaded.
+            var asphaltShare = (scope === 'all' || !(seed && seed.city_paved))
                 ? (seed && seed.asphalt_area_share)
                 : (seed && seed.city_asphalt_area_share);
 
@@ -2508,26 +2509,26 @@
         }
 
         // Set by renderAggregate once the region data loads: true when any
-        // city in the config carries both city- and bbox-scoped scenarios.
+        // city in the config carries both city- and all-scope scenarios.
         var regionHasBothScopes = false;
 
-        // Reveal the scope toggle only when BOTH city and bbox data are
+        // Reveal the scope toggle only when BOTH city and all-scope data are
         // detectable in at least one data source (hex grid or scenarios).
         // Idempotent — both loaders call this after their fetches settle.
         // On the Aggregate tab the toggle is region-wide, so honor whether
         // ANY city has both scopes rather than just the selected dropdown city.
         function maybeRevealScopeToggle() {
             const haveHexCity = hexDataByScope.city && Object.keys(hexDataByScope.city).length > 0;
-            const haveHexBbox = hexDataByScope.bbox && Object.keys(hexDataByScope.bbox).length > 0;
+            const haveHexAll = hexDataByScope.all && Object.keys(hexDataByScope.all).length > 0;
             const haveScenCity = !!(scenarioData && scenarioData.city);
-            const haveScenBbox = !!(scenarioData && scenarioData.bbox);
+            const haveScenAll = !!(scenarioData && scenarioData.all);
             const haveCity = haveHexCity || haveScenCity;
-            const haveBbox = haveHexBbox || haveScenBbox;
+            const haveAll = haveHexAll || haveScenAll;
             const aggActive = (function() {
                 const el = document.getElementById('aggregate-tab');
                 return el && el.classList.contains('active');
             })();
-            const reveal = (haveCity && haveBbox) || (aggActive && regionHasBothScopes);
+            const reveal = (haveCity && haveAll) || (aggActive && regionHasBothScopes);
             document.getElementById('gear-scope-row').hidden = !reveal;
         }
 
@@ -2616,11 +2617,11 @@
 
         // Render the cohort breakdown from the scope-appropriate forecast
         // baseline. Extracted so selectScope can call it without duplicating
-        // the bbox/city baseline-picking logic.
+        // the all/city baseline-picking logic.
         function renderCohortFromForecast(scope) {
             if (!forecastData) return;
             const roads = forecastData.find(f => f.resource_type === 'roads');
-            const src = (scope === 'bbox' && roads && roads.bbox_baseline) ? roads.bbox_baseline : (roads && roads.baseline);
+            const src = (scope === 'all' && roads && roads.all_baseline) ? roads.all_baseline : (roads && roads.baseline);
             if (src && src.final_cohorts && src.final_cohorts.length > 1) {
                 renderCohortBreakdown(src.final_cohorts);
             } else {
@@ -2724,7 +2725,7 @@
         // read FORECAST_SEED synchronously (loadFinancials at its horizon-label
         // block, before its first await), so a `let` further down would throw a
         // temporal-dead-zone ReferenceError and silently reject the promise.
-        let FORECAST_SEED = PVMT_CONFIG.forecastSeed;
+        let FORECAST_SEED = PVMT_CONFIG.forecast_seed;
 
         loadFinancials();
 
@@ -2959,13 +2960,13 @@
             });
 
             // Area/cohorts for the active scope: city-scoped data by default,
-            // full bounding-box data when scope === 'bbox'.
+            // all-jurisdiction data when scope === 'all'.
             const activeScope = queryEl('#scope-toggle button.active');
             const scope = activeScope ? activeScope.dataset.scope : 'city';
-            const area = (scope === 'bbox' || !FORECAST_SEED.city_paved)
+            const area = (scope === 'all' || !FORECAST_SEED.city_paved)
                 ? FORECAST_SEED.total_area
                 : FORECAST_SEED.city_paved;
-            const seedCohorts = (scope === 'bbox' || !FORECAST_SEED.city_cohorts || FORECAST_SEED.city_cohorts.length === 0)
+            const seedCohorts = (scope === 'all' || !FORECAST_SEED.city_cohorts || FORECAST_SEED.city_cohorts.length === 0)
                 ? (FORECAST_SEED.cohorts || [])
                 : FORECAST_SEED.city_cohorts;
 
@@ -2975,7 +2976,7 @@
                 initial_pci: initialPCI,
                 decay_rate: FORECAST_SEED.decay_rate,
                 growth_rate: FORECAST_SEED.growth_rate,
-                years: FORECAST_SEED.years,
+                horizon_years: FORECAST_SEED.horizon_years,
                 treatment_cycle_years: FORECAST_SEED.treatment_cycle_years,
                 cost_tiers: tiers,
                 // Same overhead as the scenario below. The Budget Level slider is
@@ -2998,7 +2999,7 @@
                 initial_pci: initialPCI,
                 decay_rate: FORECAST_SEED.decay_rate,
                 growth_rate: FORECAST_SEED.growth_rate,
-                years: FORECAST_SEED.years,
+                horizon_years: FORECAST_SEED.horizon_years,
                 treatment_cycle_years: FORECAST_SEED.treatment_cycle_years,
                 cost_tiers: tiers,
                 cost_overhead: currentOverhead(),
@@ -3331,7 +3332,7 @@
             // Per-type area from meta
             var statByType = {};
             if (city.meta && city.meta.stats) {
-                city.meta.stats.forEach(function(st) { statByType[st.type] = st; });
+                city.meta.stats.forEach(function(st) { statByType[st.resource_type] = st; });
                 m.totalAreaLarge = city.meta.stats.reduce(function(s, st) { return s + toAreaLarge(st.total_area || 0); }, 0);
                 m.totalSqM = city.meta.stats.reduce(function(s, st) { return s + (st.total_area || 0); }, 0);
                 m.featureCount = city.meta.stats.reduce(function(s, st) { return s + (st.feature_count || 0); }, 0);
@@ -3354,7 +3355,7 @@
 
             // City area and pct paved from meta
             m.cityAreaLarge = toAreaLarge(city.meta && city.meta.city_area ? city.meta.city_area : 0);
-            m.pctPaved = city.meta && city.meta.pct_paved ? city.meta.pct_paved : 0;
+            m.pctPaved = city.meta && city.meta.paved_share ? city.meta.paved_share * 100 : 0;
             // Union-based total paved (sq m). meta.total_paved is the cross-resource
             // union the Go side maintains precisely so it does NOT double-count
             // road/sidewalk/parking buffer overlap; the Map and Compare % Paved use
@@ -3392,7 +3393,7 @@
             }
 
             // Scenarios baseline for the active scope. scenarios.json is
-            // scope-keyed ({city, bbox, summary}); mirror loadFinancials'
+            // scope-keyed ({city, all, summary}); mirror loadFinancials'
             // selection and honor currentScope (driven by the ?scope= param).
             m.baselineYears = [];
             var scenarios = city.scenarios
@@ -3412,7 +3413,7 @@
             }
             // Divide the (scope-selected) year-1 need by an area in the SAME
             // scope. m.totalAreaLarge sums meta.stats, which BuildMeta populates
-            // from bare full-bbox/all-jurisdiction compute rows, so using it with
+            // from bare all-jurisdiction compute rows, so using it with
             // a city-scope numerator mixes scopes and understates the ratio for
             // cities with lots of state/county-owned network. Use seed.city_paved
             // when the city scope is active, else seed.total_area (both sq m, so
@@ -3786,7 +3787,7 @@
             // Does the region as a whole support both scopes? Drives the
             // region-wide scope-toggle reveal (maybeRevealScopeToggle).
             regionHasBothScopes = cityData.some(function(city) {
-                return city.scenarios && city.scenarios.city && city.scenarios.bbox;
+                return city.scenarios && city.scenarios.city && city.scenarios.all;
             });
             maybeRevealScopeToggle();
 
@@ -3846,7 +3847,7 @@
             cityData.forEach(function(city, idx) {
                 if (!allMetrics[idx].hasForecasts || !city.seed) return;
                 var s = city.seed;
-                sigs[JSON.stringify([s.initial_pci, s.decay_rate, s.years, s.cost_tiers])] = true;
+                sigs[JSON.stringify([s.initial_pci, s.decay_rate, s.horizon_years, s.cost_tiers])] = true;
             });
             var noteEl = document.getElementById('aggregate-divergence-note');
             if (Object.keys(sigs).length > 1) {

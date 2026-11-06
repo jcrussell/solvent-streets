@@ -26,10 +26,10 @@ func TestEvaluate_BerkeleyMatchesItsPublishedFigure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Evaluate: %v", err)
 	}
-	if report.Failed != 0 {
-		t.Errorf("%d gated cities failed at the shipped tolerance", report.Failed)
+	if report.FailCount != 0 {
+		t.Errorf("%d gated cities failed at the shipped tolerance", report.FailCount)
 	}
-	if report.Passed == 0 {
+	if report.PassCount == 0 {
 		t.Fatal("no city was gated; the reference data lost its published figures")
 	}
 
@@ -39,7 +39,7 @@ func TestEvaluate_BerkeleyMatchesItsPublishedFigure(t *testing.T) {
 	}
 	if math.Abs(*berkeley.Residual) > DefaultTolerance {
 		t.Errorf("Berkeley residual %+.1f%% exceeds ±%.0f%%: modelled %.0f vs published %.0f",
-			*berkeley.Residual*100, DefaultTolerance*100, berkeley.BreakEven, berkeley.HoldSteadyBudget)
+			*berkeley.Residual*100, DefaultTolerance*100, berkeley.BreakEvenBudget, berkeley.HoldSteadyBudget)
 	}
 
 	// The $/m2-yr yardstick from §6, which is what pins the cost x cycle balance.
@@ -60,7 +60,7 @@ func TestEvaluate_UngatedCitiesAreReportedNotHidden(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Evaluate: %v", err)
 	}
-	if report.Context == 0 {
+	if report.ContextCount == 0 {
 		t.Error("no context-only rows; the report is claiming more validation than the data supports")
 	}
 	for _, r := range report.Results {
@@ -72,8 +72,8 @@ func TestEvaluate_UngatedCitiesAreReportedNotHidden(t *testing.T) {
 				t.Errorf("%s is context-only with no explanation", r.Slug)
 			}
 		}
-		if r.BreakEven <= 0 {
-			t.Errorf("%s: break-even %g; every row must model something", r.Slug, r.BreakEven)
+		if r.BreakEvenBudget <= 0 {
+			t.Errorf("%s: break-even %g; every row must model something", r.Slug, r.BreakEvenBudget)
 		}
 	}
 }
@@ -85,7 +85,7 @@ func TestEvaluate_TightToleranceCanFail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Evaluate: %v", err)
 	}
-	if report.Failed == 0 {
+	if report.FailCount == 0 {
 		t.Error("no city failed at a 1e-9 tolerance; the comparison is not actually being made")
 	}
 }

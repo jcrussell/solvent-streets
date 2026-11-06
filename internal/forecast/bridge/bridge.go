@@ -1,12 +1,10 @@
 // Package bridge holds the build-tag-free translation between the browser's
 // forecast JSON payload and the shared forecast core (forecast.Simulate).
 //
-// This logic used to live inside cmd/wasm/forecast/main.go behind
-// `//go:build js && wasm`, which made it unreachable by host tests. Extracting
-// it here lets bridge_test.go exercise the parse -> translate -> simulate path
-// on the CI platform and pin the JSON-key contract shared with
-// internal/export/seeds.go (ForecastSeedJSON / CohortSeed). main.go is now a
-// thin syscall/js shim that delegates to Run.
+// It carries no `//go:build js && wasm` constraint, so bridge_test.go can
+// exercise the parse -> translate -> simulate path on the host and pin the
+// JSON-key contract shared with internal/export/seeds.go (ForecastSeedJSON /
+// CohortSeed). cmd/wasm/pvmt is a thin syscall/js shim that delegates to Run.
 package bridge
 
 import (
@@ -24,7 +22,7 @@ import (
 // false) to yield NaN PCIs. Reject non-finite values at this boundary instead.
 func finite(f float64) bool { return !math.IsNaN(f) && !math.IsInf(f, 0) }
 
-// maxYears bounds Input.Years. forecast.Simulate -> EstimateGrowth does
+// maxYears bounds Input.HorizonYears. forecast.Simulate -> EstimateGrowth does
 // make([]float64, years), so a huge value OOMs the WASM runtime; the shim's
 // contract is "bad input returns a JSON error, never panics".
 const maxYears = 200
@@ -37,7 +35,7 @@ type Input struct {
 	InitialPCI   float64    `json:"initial_pci"`
 	DecayRate    float64    `json:"decay_rate"`
 	GrowthRate   float64    `json:"growth_rate"`
-	Years        int        `json:"years"`
+	HorizonYears int        `json:"horizon_years"`
 	CostTiers    []CostTier `json:"cost_tiers"`
 	AnnualBudget float64    `json:"annual_budget"`
 	Strategy     string     `json:"strategy"`
@@ -102,8 +100,8 @@ type CostTier struct {
 // negative Beta and garbage anchors (condition.go). finite guards come first so
 // NaN can't slip past a bare `< 0` (all NaN comparisons are false).
 func validateInput(in Input) error {
-	if in.Years <= 0 || in.Years > maxYears {
-		return fmt.Errorf("years must be between 1 and %d, got %d", maxYears, in.Years)
+	if in.HorizonYears <= 0 || in.HorizonYears > maxYears {
+		return fmt.Errorf("horizon_years must be between 1 and %d, got %d", maxYears, in.HorizonYears)
 	}
 	if !finite(in.Area) || in.Area < 0 {
 		return fmt.Errorf("area must be finite and >= 0, got %g", in.Area)
@@ -179,10 +177,9 @@ func Translate(in Input) (forecast.Scenario, []forecast.Cohort, int, *forecast.P
 
 	// resolveDecay applies the same missing/zero-rate fallback in both the
 	// multi-cohort and single-cohort branches: a rate <= 0 resolves to the
-	// default. Previously only the single-cohort branch defaulted, so a
-	// multi-cohort payload with a 0 rate reported DecayRate=0 in its
-	// CohortSummary (the numeric PCI matched only because Forecast re-clamps
-	// k<=0 internally). Aligning here keeps the reported rate consistent.
+	// default, so a cohort's reported DecayRate in its CohortSummary is the
+	// rate actually simulated (Forecast also clamps k<=0 internally, so the
+	// PCI alone would not reveal a 0 rate).
 	resolveDecay := func(rate float64) float64 {
 		if rate <= 0 {
 			return forecast.DefaultDecayRates["default"]
@@ -215,7 +212,7 @@ func Translate(in Input) (forecast.Scenario, []forecast.Cohort, int, *forecast.P
 	// InitialPCI, so nothing new crosses the JS boundary.
 	cohorts = forecast.ApplyConditionSpread(cohorts)
 
-	return scenario, cohorts, in.Years, params, nil
+	return scenario, cohorts, in.HorizonYears, params, nil
 }
 
 // Run decodes a raw browser payload, translates it, runs the forecast, and

@@ -1,6 +1,7 @@
 package cmdutil
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 
 	"github.com/itchyny/gojq"
+	"github.com/spf13/cobra"
 )
 
 // fakeRow is a minimal RowExporter used by WriteRows tests.
@@ -101,10 +103,9 @@ func TestBuildExporter_TrimsSpacedFields(t *testing.T) {
 	}
 }
 
-// TestJQFilterExporter_Write guards the []map[string]any → []any
-// widening (json.go:142-149). gojq's .[] iterator rejects the narrower
-// slice type at runtime, so a regression here would surface only when
-// users actually invoke --jq on multi-row output.
+// TestJQFilterExporter_Write guards that rows reach gojq as []any: its .[]
+// iterator rejects []map[string]any at runtime, so a regression here would
+// surface only when users actually invoke --jq on multi-row output.
 func TestJQFilterExporter_Write(t *testing.T) {
 	t.Run("selector over rows", func(t *testing.T) {
 		ios, _, out, _ := iostreams.Test()
@@ -127,10 +128,7 @@ func TestJQFilterExporter_Write(t *testing.T) {
 	})
 }
 
-// TestTemplateExporter_Write confirms the simplified per-row loop
-// handles the common []map input. The old scalar-map branch was
-// removed; every caller now goes through WriteRows, so only the slice
-// shape needs to work.
+// TestTemplateExporter_Write confirms the template runs once per row.
 func TestTemplateExporter_Write(t *testing.T) {
 	t.Run("per-row template execution", func(t *testing.T) {
 		ios, _, out, _ := iostreams.Test()
@@ -151,6 +149,74 @@ func TestTemplateExporter_Write(t *testing.T) {
 			t.Errorf("unexpected template output: %q", got)
 		}
 	})
+}
+
+// nestedRow and nestedKind stand in for the row values commands hand to the
+// exporters: a slice of tagged structs and a named string type.
+type nestedKind string
+
+type nestedRow struct {
+	RunID int64      `json:"run_id"`
+	Kind  nestedKind `json:"kind"`
+}
+
+// TestExporters_SeeMarshaledRows guards that --jq and --template see the
+// same keys and plain values --json prints: struct json tags rather than Go
+// field names, named string types as strings, and numbers in their JSON
+// spelling (ints stay ints; large floats are not rendered in e-notation).
+func TestExporters_SeeMarshaledRows(t *testing.T) {
+	rows := func() []map[string]any {
+		return []map[string]any{{
+			"parts": []nestedRow{{RunID: 12, Kind: "roads"}},
+			"kind":  nestedKind("combined"),
+			"area":  1500000.0,
+		}}
+	}
+	fields := []string{"parts", "kind", "area"}
+
+	t.Run("jq", func(t *testing.T) {
+		var e Exporter
+		if err := buildExporter("parts,kind,area", `[.[0].parts[0].run_id, .[0].parts[0].kind, .[0].kind, .[0].area, .[0].parts[0].run_id + 1]`, "", fields, &e); err != nil {
+			t.Fatal(err)
+		}
+		ios, _, out, _ := iostreams.Test()
+		if err := e.Write(ios, rows()); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
+		var got []any
+		if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+			t.Fatalf("jq output is not JSON: %v\n%s", err, out.String())
+		}
+		compact := strings.Join(strings.Fields(out.String()), "")
+		if want := `[12,"roads","combined",1500000,13]`; compact != want {
+			t.Errorf("jq output = %s, want %s", compact, want)
+		}
+	})
+	t.Run("template", func(t *testing.T) {
+		var e Exporter
+		tmpl := `{{range .parts}}{{.run_id}} {{.kind}}{{end}} {{.kind}} {{.area}}`
+		if err := buildExporter("parts,kind,area", "", tmpl, fields, &e); err != nil {
+			t.Fatal(err)
+		}
+		ios, _, out, _ := iostreams.Test()
+		if err := e.Write(ios, rows()); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
+		if got, want := strings.TrimSpace(out.String()), "12 roads combined 1500000"; got != want {
+			t.Errorf("template output = %q, want %q", got, want)
+		}
+	})
+}
+
+// TestAddJSONFlags_RecordsFieldsAnnotation guards the annotation the
+// root-level field-name test walks.
+func TestAddJSONFlags_RecordsFieldsAnnotation(t *testing.T) {
+	cmd := &cobra.Command{Use: "x"}
+	var e Exporter
+	AddJSONFlags(cmd, &e, []string{"city", "run_id"})
+	if got := cmd.Annotations[JSONFieldsAnnotation]; got != "city,run_id" {
+		t.Errorf("annotation = %q, want %q", got, "city,run_id")
+	}
 }
 
 // TestBuildExporter_ParsesExpressionsEarly verifies that a malformed --jq

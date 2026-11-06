@@ -168,7 +168,7 @@ func (s *sqliteStore) SaveForecastResults(ctx context.Context, results []Forecas
 
 		now := time.Now()
 		for _, r := range results {
-			if _, err := stmt.ExecContext(ctx, r.ResourceType, s.cityID, r.Year, r.PCI, r.Area, r.TreatmentCost, r.TreatmentTier, r.RunID, now); err != nil {
+			if _, err := stmt.ExecContext(ctx, r.ResourceType, s.cityID, r.Year, r.PCI, r.Area, r.AnnualNeed, r.CostTier, r.RunID, now); err != nil {
 				return fmt.Errorf("insert forecast year %d: %w", r.Year, err)
 			}
 		}

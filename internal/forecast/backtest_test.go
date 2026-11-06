@@ -19,8 +19,8 @@ type backtestCity struct {
 	currentBudget float64 // cited annual pavement budget
 }
 
-// fixtures are tuned so their N=1 (un-gated) break_even lands near the
-// validation.md §5 "break_even" column, i.e. an order of magnitude above the
+// fixtures are tuned so their N=1 (un-gated) break-even budget lands near the
+// validation.md §5 `break_even_budget` column, i.e. an order of magnitude above the
 // city's actual budget — reproducing the pre-fix overstatement. After 1/12
 // gating they should fall into a plausible hold-steady band.
 var backtestCities = []backtestCity{

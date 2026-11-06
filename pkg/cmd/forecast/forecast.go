@@ -29,11 +29,13 @@ type Options struct {
 	rows        *[]forecastRow // multi-city accumulator; nil for single-pass JSON
 }
 
-var forecastFields = []string{"resourceType", "year", "pci", "area", "treatmentCost", "treatmentTier"}
+var forecastFields = []string{"city", "resource_type", "year", "pci", "area", "annual_need", "cost_tier"}
 
 // forecastRow wraps db.ForecastResult to attach the CLI JSON export
-// contract without pulling cmdutil into the db package.
+// contract without pulling cmdutil into the db package. City is the
+// city slug, so multi-city output stays distinguishable.
 type forecastRow struct {
+	City string
 	db.ForecastResult
 }
 
@@ -43,18 +45,20 @@ func (r forecastRow) ExportData(fields []string) map[string]any {
 	out := make(map[string]any, len(fields))
 	for _, f := range fields {
 		switch f {
-		case "resourceType":
-			out[f] = r.ResourceType
+		case "city":
+			out[f] = r.City
+		case "resource_type":
+			out[f] = string(r.ResourceType)
 		case "year":
 			out[f] = r.Year
 		case "pci":
 			out[f] = r.PCI
 		case "area":
 			out[f] = r.Area
-		case "treatmentCost":
-			out[f] = r.TreatmentCost
-		case "treatmentTier":
-			out[f] = r.TreatmentTier
+		case "annual_need":
+			out[f] = r.AnnualNeed
+		case "cost_tier":
+			out[f] = r.CostTier
 		}
 	}
 	return out
@@ -80,7 +84,7 @@ func NewCmdForecast(f *cmdutil.Factory, runF func(context.Context, *Options) err
   pvmt forecast --scenarios=false
 
   # Emit machine-readable JSON instead of the formatted table
-  pvmt forecast --json year,pci,treatmentCost`,
+  pvmt forecast --json city,year,pci,annual_need`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
 				return runF(cmd.Context(), opts)
@@ -113,13 +117,13 @@ func simulateResource(rt resource.Source, cohorts []fcpkg.Cohort, years int, par
 	for _, y := range baseline.Years {
 		totalDeferredCost += y.AnnualNeed
 		results = append(results, db.ForecastResult{
-			ResourceType:  rtVal,
-			Year:          y.Year,
-			PCI:           y.PCI,
-			Area:          y.Area,
-			TreatmentCost: y.AnnualNeed,
-			TreatmentTier: y.CostTier,
-			RunID:         runID,
+			ResourceType: rtVal,
+			Year:         y.Year,
+			PCI:          y.PCI,
+			Area:         y.Area,
+			AnnualNeed:   y.AnnualNeed,
+			CostTier:     y.CostTier,
+			RunID:        runID,
 		})
 	}
 
@@ -166,7 +170,7 @@ func renderBaselineTable(ios *iostreams.IOStreams, rt resource.Source, area, cur
 	fmt.Fprintf(ios.Out, "  Initial PCI: %.0f\n\n", currentPCI)
 
 	tp := iostreams.NewTablePrinter(ios)
-	tp.AddHeader("Year", "PCI", units.AreaLargeLabel(sys), "Treatment Cost", "Tier")
+	tp.AddHeader("Year", "PCI", units.AreaLargeLabel(sys), "Annual Need", "Cost Tier")
 	for _, y := range baseline.Years {
 		if y.Year <= 5 || y.Year%5 == 0 || y.Year == years {
 			tp.AddRow(
@@ -298,7 +302,7 @@ func runForecast(ctx context.Context, opts *Options) error {
 	}
 	rows := make([]forecastRow, len(allResults))
 	for i, r := range allResults {
-		rows[i] = forecastRow{r}
+		rows[i] = forecastRow{City: city.Slug(), ForecastResult: r}
 	}
 	// Multi-city: append to the shared accumulator, written once by the
 	// caller. Single-pass (direct runForecast, no accumulator): write here.

@@ -17,26 +17,30 @@ import (
 )
 
 // HexGridFileVersion is the "v" of hexgrid.geojson; the client refuses any
-// other value. See the version history in buildHexGeoJSONFromGrid.
-const HexGridFileVersion = 4
+// other value. Any change to the feature property shape must bump it — the
+// client and the exporter ship together, so a bump costs nothing, while a
+// client misreading a changed shape (e.g. expanding "city" but not
+// "city_same") would silently drop features instead of failing.
+const HexGridFileVersion = 5
 
 // hexAgg accumulates a single hex's coverage across resources and scopes.
-// bbox/city map a bare resource name -> {"area", "pct"}; city stays nil until
+// all/city map a bare resource name -> {"area", "share"}; city stays nil until
 // a ":city" row lands, which doubles as the "this hex is in the city" signal.
 //
 // Note this is the BUILD-side signal and is not the same as the emitted shape:
-// a non-nil city equal to bbox is emitted as "city_same" rather than a "city"
+// a non-nil city equal to all is emitted as "city_same" rather than a "city"
 // object (see buildHexFeature).
 type hexAgg struct {
-	bbox map[string]map[string]float64
+	all  map[string]map[string]float64
 	city map[string]map[string]float64
 }
 
 // BuildHexGeoJSON builds a single GeoJSON FeatureCollection covering both
 // scopes — one feature per hex, geometry emitted once. Each feature carries
-// "bbox" coverage keyed by resource name, plus ONE OF:
+// "all" coverage keyed by resource name -> {"area" (m²), "share" (0..1 of the
+// hex covered)}, plus ONE OF:
 //
-//   - "city": city-scope coverage, when it differs from bbox;
+//   - "city": city-scope coverage, when it differs from all;
 //   - "city_same": 1, when the two are identical (the common case, ~70% of
 //     features) and the duplicate is elided;
 //   - neither, when the hex has no ":city" rows at all.
@@ -45,8 +49,9 @@ type hexAgg struct {
 // in that case leaves the client's city scope empty and hides the scope toggle
 // — note this is the absence of BOTH keys, not the absence of "city".
 //
-// The FeatureCollection carries "v": 2 for that property shape; see the version
-// comment below.
+// Every hex of the clipped grid is a feature: a hex with no pavement rows
+// carries only "id", so a stored metric such as population can still paint it.
+// The FeatureCollection's "v" is HexGridFileVersion.
 //
 // A parking entry additionally carries "spaces" — the estimated parking spaces
 // apportioned to the hex, rounded to a whole count — when it is at least one.
@@ -60,9 +65,8 @@ func BuildHexGeoJSON(ctx context.Context, entry CityEntry, proj *geo.UTMProjecto
 }
 
 // buildHexGeoJSONFromGrid is BuildHexGeoJSON with the grid supplied as a thunk
-// so exportCityData can share one build with buildPlayHexesFromGrid. Behaviour
-// is identical: the thunk is forced at exactly the point cityHexGrid used to be
-// called, which is *after* the no-hex-stats early return below.
+// so exportCityData can share one build with buildPlayHexesFromGrid. The thunk
+// is forced only *after* the no-hex-stats early return below.
 func buildHexGeoJSONFromGrid(ctx context.Context, entry CityEntry, proj *geo.UTMProjector, grid cityHexGridFunc) (map[string]any, error) {
 	decimals := entry.Config.CoordinateDecimals()
 
@@ -82,11 +86,11 @@ func buildHexGeoJSONFromGrid(ctx context.Context, entry CityEntry, proj *geo.UTM
 		return nil, err
 	}
 
-	// Every hex of the clipped grid is emitted, with or without pavement rows
-	// (v4), so a stored metric such as population can paint hexes that hold
-	// no pavement. Hex stats for ids outside the grid (bbox-scope rows beyond
-	// the boundary) have no geometry and are dropped as before. Sorted by id
-	// so unchanged data yields a byte-identical file across regens.
+	// Every hex of the clipped grid is emitted, with or without pavement rows,
+	// so a stored metric such as population can paint hexes that hold no
+	// pavement. Hex stats for ids outside the grid (all-scope rows beyond the
+	// boundary) have no geometry and are dropped. Sorted by id so unchanged
+	// data yields a byte-identical file across regens.
 	order := make([]string, 0, len(hexes))
 	for i := range hexes {
 		order = append(order, hexes[i].ID)
@@ -106,25 +110,16 @@ func buildHexGeoJSONFromGrid(ctx context.Context, entry CityEntry, proj *geo.UTM
 	}
 
 	return map[string]any{
-		"type": "FeatureCollection",
-		// Format version. Bumped to 2 when city_same dedup landed (B6b): a
-		// client that expands "city" but not "city_same" would silently drop
-		// ~70% of city-scope features rather than fail, so the client refuses
-		// to render a file it doesn't recognize instead. Bumped to 3 when the
-		// per-resource maps gained the optional "spaces" key (parking). Any
-		// future change to the property shape must bump this too — the client
-		// and the exporter ship together, so the bump costs nothing. Bumped to
-		// 4 when every grid hex became a feature: a hex with no pavement rows
-		// carries only "id" (no "bbox"), which a v3 client would mis-count.
+		"type":     "FeatureCollection",
 		"v":        HexGridFileVersion,
 		"features": features,
 	}, nil
 }
 
-// sameCoverage reports whether two resources' {area, pct} maps are equal.
+// sameCoverage reports whether two resources' {area, share} maps are equal.
 //
 // EXACT float equality is deliberate and is only safe because BOTH scopes go
-// through round2 in aggregateHexStats before they ever reach here — they are
+// through the same rounding in aggregateHexStats before they ever reach here — they are
 // two aggregations of the same underlying geometry, so when the city polygon
 // doesn't clip a hex they round to bit-identical values. If that rounding ever
 // moves (or one scope stops being rounded), this silently stops matching and
@@ -136,6 +131,9 @@ func sameCoverage(a, b map[string]float64) bool {
 }
 
 func round2(v float64) float64 { return math.Round(v*100) / 100 }
+
+// round4 rounds a 0..1 share to four decimals (a hundredth of a percent).
+func round4(v float64) float64 { return math.Round(v*1e4) / 1e4 }
 
 // roundSig rounds v to digits significant figures. Unlike round2 it never
 // flattens a nonzero magnitude to zero, which matters for values a consumer
@@ -193,7 +191,7 @@ func aggregateHexStats(ctx context.Context, entry CityEntry) (map[string]*hexAgg
 				// for both scopes: sameCoverage compares the maps exactly, so
 				// asymmetric rounding would silently switch off the city_same
 				// dedup for every parking hex.
-				a.set(res, scope, round2(st.Area), round2(st.PctCovered), math.Round(spaces[st.HexID]))
+				a.set(res, scope, round2(st.Area), round4(st.PctCovered/100), math.Round(spaces[st.HexID]))
 			}
 		}
 	}
@@ -226,8 +224,8 @@ func hexSpaces(ctx context.Context, entry CityEntry, t resource.Type, stats []db
 // "this hex is not in the city" signal. spaces is emitted only when at least
 // one whole space lands in the hex, so non-parking resources (always 0) and
 // hexes with a sub-space sliver carry no key.
-func (a *hexAgg) set(res string, scope resource.Scope, area, pct, spaces float64) {
-	m := map[string]float64{"area": area, "pct": pct}
+func (a *hexAgg) set(res string, scope resource.Scope, area, share, spaces float64) {
+	m := map[string]float64{"area": area, "share": share}
 	if spaces >= 1 {
 		m["spaces"] = spaces
 	}
@@ -238,17 +236,17 @@ func (a *hexAgg) set(res string, scope resource.Scope, area, pct, spaces float64
 		a.city[res] = m
 		return
 	}
-	if a.bbox == nil {
-		a.bbox = make(map[string]map[string]float64)
+	if a.all == nil {
+		a.all = make(map[string]map[string]float64)
 	}
-	a.bbox[res] = m
+	a.all[res] = m
 }
 
 // filterHexSlivers drops hexes whose geometry area is below minArea sqm.
 // Threshold lives in config.DisplayConfig.MinHexArea with a per-city
 // CityConfig.MinHexArea override (resolved via Config.ResolvedMinHexArea, which
 // pairs with the per-city hex edge); the filter sits in BuildHexGeoJSON rather
-// than ComputeHexStats so pct_paved's numerator/denominator scope matches.
+// than ComputeHexStats so paved_share's numerator/denominator scope matches.
 // Used after clipHexGridToBoundary to skip the visual misrepresentation
 // that a fully-covered sliver hex would produce on the heatmap.
 func filterHexSlivers(hexes []geo.Hex, minArea float64) []geo.Hex {
@@ -339,8 +337,8 @@ func cityHexGrid(ctx context.Context, entry CityEntry, proj *geo.UTMProjector) (
 
 // buildHexFeature builds one GeoJSON feature for a hex from its aggregated
 // per-resource coverage. Geometry is emitted once (clipped to the boundary by
-// the caller); properties carry "id" plus nested scope objects {bbox, city?}
-// keyed by bare resource name -> {"area", "pct"}. The scope dimension lives in
+// the caller); properties carry "id" plus nested scope objects {all, city?}
+// keyed by bare resource name -> {"area", "share"}. The scope dimension lives in
 // these per-feature objects rather than in separate files, and "city" is
 // omitted when the hex has no ":city" rows. Returns the feature and true on
 // success, or nil and false when the hex has no geometry.
@@ -363,16 +361,16 @@ func buildHexFeature(hexID string, agg *hexAgg, hexMap map[string]*geo.Hex, proj
 			"properties": props,
 		}, true
 	}
-	props["bbox"] = agg.bbox
+	props["all"] = agg.all
 	switch {
 	case agg.city == nil:
 		// No ":city" rows: this hex is outside the city polygon. Neither key is
 		// emitted, and THAT — not the absence of "city" alone — is what tells
 		// the client there is no city-scope data here.
-	case maps.EqualFunc(agg.city, agg.bbox, sameCoverage):
-		// Identical to bbox, which is the common case: ~70% of features
+	case maps.EqualFunc(agg.city, agg.all, sameCoverage):
+		// Identical to all, which is the common case: ~70% of features
 		// site-wide. Emit a flag instead of a byte-for-byte duplicate; the
-		// client reads it back as a reference to "bbox".
+		// client reads it back as a reference to "all".
 		props["city_same"] = 1
 	default:
 		props["city"] = agg.city

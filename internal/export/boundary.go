@@ -14,7 +14,7 @@ import (
 // (export.coordinate_decimals). It is for drawing only — the client uses it for
 // a dashed line layer and fitBounds, nothing else. Every consumer that needs
 // the real polygon (hex clipping, the city coverage scope, meta.json's
-// CityArea/PctPaved) reads store.GetBoundary directly and is unaffected.
+// CityArea/PavedShare) reads store.GetBoundary directly and is unaffected.
 //
 // Returns (nil, nil) when the city has no boundary stored, which both callers
 // already handle: the exporter skips the file, the server returns an empty FC.

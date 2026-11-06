@@ -622,23 +622,23 @@ type stateOut struct {
 	Treasury       float64 `json:"treasury"`
 	BudgetRate     float64 `json:"budget_rate"`
 	NetworkPCI     float64 `json:"network_pci"`
-	Backlog        float64 `json:"backlog"`
-	InsolvencyYear *int    `json:"insolvency_year"`
+	Backlog        float64 `json:"deferred_backlog"`
+	InsolvencyYear *int    `json:"insolvency_year,omitempty"`
 	Status         string  `json:"status"`
 	// OutOfFunds is true when the treasury can't afford even the cheapest possible
 	// treatment on the board (cheapest tier x smallest open hex). The front-end
 	// surfaces this as the live "out of funds" HUD warning.
 	OutOfFunds bool `json:"out_of_funds"`
 	// Run totals for the end-of-game summary (cumulative, not deltas).
-	Spent       float64      `json:"spent"`
-	Treatments  int          `json:"treatments"`
+	Spent       float64      `json:"total_spend"`
+	Treatments  int          `json:"treatment_count"`
 	ClosedCount int          `json:"closed_count"`
 	Changed     []changedHex `json:"changed"`
 }
 
 // StateJSON marshals the HUD fields plus a delta: only hexes whose quantized
 // color band or closed state changed since the last StateJSON call. The first
-// call returns every hex (initial paint). insolvency_year is null when the
+// call returns every hex (initial paint). insolvency_year is omitted while the
 // network stays solvent through the horizon.
 func (g *Game) StateJSON() ([]byte, error) {
 	out := stateOut{

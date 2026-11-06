@@ -370,7 +370,7 @@ func TestParseWaterResponse_RelationHoleContainingProbeKeepsPolygon(t *testing.T
 // water (Foster City reaching into San Francisco Bay) produces a query
 // bbox that is mostly water, so the legitimate bay ring covers far more
 // than maxOuterBboxAreaFraction (0.8) of the bbox. That cap used to reject
-// the ring on the coastline path, leaving ~40 km² of bay in the pct_paved
+// the ring on the coastline path, leaving ~40 km² of bay in the paved_share
 // denominator. Coastline rings are validated by land probes + CW
 // orientation in closeCoastlineChain, so the bbox-fraction cap is not
 // applied to them; the large water ring must now be accepted.
@@ -1506,7 +1506,7 @@ func TestBBoxWalkCCW(t *testing.T) {
 // per-polygon area guard at the relation construction site: an outer
 // ring covering most of the bbox is rejected with a warn naming the
 // relation id. Without this guard a single mis-stitched relation could
-// reduce a city's pct_paved denominator to a sliver.
+// reduce a city's paved_share denominator to a sliver.
 func TestParseWaterResponse_RejectsOversizedRelation(t *testing.T) {
 	body := `{"elements":[{
 		"type":"relation","id":777,"tags":{"natural":"water","type":"multipolygon"},

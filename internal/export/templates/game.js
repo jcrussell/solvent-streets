@@ -3,16 +3,16 @@
         // TemplateData.GameConfigJSON in internal/export/meta.go).
         const PVMT_CONFIG = window.PVMT_CONFIG;
         const CENTER = PVMT_CONFIG.center;
-        const FORECAST_SEED = PVMT_CONFIG.forecastSeed;
+        const FORECAST_SEED = PVMT_CONFIG.forecast_seed;
         // Single-city: data files are at data/<file> (DATA_PREFIX ''). Multi-city:
         // the live server injects the active city's slug (it re-renders per
         // ?city=<slug>); a static host leaves ActiveSlug empty, so the block below
         // resolves the city client-side from ?city= against the selector options.
-        let DATA_PREFIX = PVMT_CONFIG.dataPrefix;
+        let DATA_PREFIX = PVMT_CONFIG.data_prefix;
         // Back-to-map target: absolute on the live server, relative on a static
         // host so navigation stays inside the exported tree wherever it is
         // mounted (e.g. a project subpath like /solvent-streets/).
-        const MAP_HREF = PVMT_CONFIG.mapHref;
+        const MAP_HREF = PVMT_CONFIG.map_href;
 
         // Typed DOM accessors — same pattern as app.js: one audited type-assertion
         // each so the call sites below read straight (el.value / el.dataset / …)
@@ -48,7 +48,7 @@
             const sel = selectById('city-select');
             if (sel) {
                 const cities = PVMT_CONFIG.cities || [];
-                const dims = PVMT_CONFIG.tagDimensions;
+                const dims = PVMT_CONFIG.tag_dimensions;
                 const params = new URLSearchParams(location.search);
                 const want = params.get('city');
                 let filters = PvmtSelectors.parseTags(params, dims);
@@ -116,7 +116,7 @@
         // band assignment (game.BandForPCI), JS only maps band→color here. The
         // palette length must match Go's game.BandCount, injected below —
         // checked at boot so a Go-side change can't silently gray out bands.
-        const BAND_COUNT = PVMT_CONFIG.bandCount;
+        const BAND_COUNT = PVMT_CONFIG.band_count;
         const BAND_COLORS = ['#b2182b', '#ef8a62', '#fddbc7', '#a6d96a', '#66bd63', '#1a9850'];
         const GRAVEL_COLOR = '#8d8074';
         const HEX_SOURCE = 'play-hexes';
@@ -249,9 +249,9 @@
         }
 
         function updateHUD(state) {
-            if (state.backlog != null && state.backlog > peakBacklog) peakBacklog = state.backlog;
+            if (state.deferred_backlog != null && state.deferred_backlog > peakBacklog) peakBacklog = state.deferred_backlog;
             const endless = !!(gameConfig && gameConfig.endless);
-            const horizon = gameConfig ? gameConfig.horizon_years : ((FORECAST_SEED && FORECAST_SEED.years) || 0);
+            const horizon = gameConfig ? gameConfig.horizon_years : ((FORECAST_SEED && FORECAST_SEED.horizon_years) || 0);
             const yr = state.year != null ? state.year.toFixed(1) : '0';
             document.getElementById('hud-year').textContent =
                 endless ? (yr + ' (Endless)') : (yr + (horizon ? ' / ' + horizon : ''));
@@ -264,7 +264,7 @@
             document.getElementById('hud-funds-warn').style.display = broke ? 'block' : 'none';
             document.getElementById('hud-pci').textContent =
                 state.network_pci != null ? state.network_pci.toFixed(1) : '—';
-            document.getElementById('hud-backlog').textContent = fmtMoney(state.backlog);
+            document.getElementById('hud-backlog').textContent = fmtMoney(state.deferred_backlog);
         }
 
         function onStatusChange(status) {
@@ -283,8 +283,8 @@
                 '<div class="banner-stats">' +
                     row('Years', (s.year != null ? s.year.toFixed(1) : '—')) +
                     row('Final PCI', (s.network_pci != null ? s.network_pci.toFixed(1) : '—')) +
-                    row('Total spent', fmtMoney(s.spent)) +
-                    row('Treatments', (s.treatments || 0).toLocaleString()) +
+                    row('Total spent', fmtMoney(s.total_spend)) +
+                    row('Treatments', (s.treatment_count || 0).toLocaleString()) +
                     row('Gravel', gravelPct.toFixed(0) + '%') +
                     row('Peak backlog', fmtMoney(peakBacklog)) +
                 '</div>' +
@@ -488,8 +488,7 @@
         // horizon, WITHOUT a board: the slim payload omits hexes so a 5k-hex city
         // isn't serialized on every slider tick. The forecast is cohort-based and
         // hex-count-independent, so it is cheap; the short debounce just coalesces
-        // rapid drags. null insolvency_year => solvent through the horizon (mirrors
-        // the old HUD convention).
+        // rapid drags. No insolvency_year => solvent through the horizon.
         let projectionTimer = null;
         function refreshProjection() {
             if (!gameConfig) return;
@@ -698,7 +697,7 @@
                 pci_jitter: 8,
                 cost_tiers: seed.cost_tiers || [],
                 starting_budget: startingBudget,
-                horizon_years: seed.years || 20,
+                horizon_years: seed.horizon_years || 20,
                 endless: false,
                 treatment_cycle_years: seed.treatment_cycle_years || 0,
                 growth_rate: seed.growth_rate || 0,

@@ -8,7 +8,7 @@ package forecast
 type MaterialTier struct {
 	Label       string  `json:"label"`          // matches CostTier.Label (preventive/rehab/reconstruction)
 	MixKgPerSqM float64 `json:"mix_kg_per_sqm"` // applied hot-mix asphalt (or slurry) mass per m^2
-	BinderPct   float64 `json:"binder_pct"`     // asphalt-cement (bitumen) fraction of mix mass, 0..1
+	BinderShare float64 `json:"binder_share"`   // asphalt-cement (bitumen) fraction of mix mass, 0..1
 }
 
 // DefaultMaterialTiers are representative per-tier material intensities for
@@ -16,7 +16,7 @@ type MaterialTier struct {
 // MixKgPerSqM is derived as compacted lift thickness x hot-mix density
 // (~2400 kg/m^3 dense-graded HMA, Asphalt Institute MS-2) for the overlay and
 // reconstruction tiers, and as a slurry application rate for the preventive
-// tier; BinderPct is typical dense-graded asphalt-cement content (Asphalt
+// tier; BinderShare is typical dense-graded asphalt-cement content (Asphalt
 // Institute MS-2, 4.5-6% by mass; microsurfacing residual binder ~6.5%, MS-19).
 //
 // These are planning-grade estimates; a municipality can refine them against
@@ -31,9 +31,9 @@ type MaterialTier struct {
 // (cement/aggregate) would REPLACE that share with a real blend, not stack on
 // top of it — the way DefaultSidewalkCostTiers parallels DefaultCostTiers.
 var DefaultMaterialTiers = []MaterialTier{
-	{Label: "preventive", MixKgPerSqM: 30, BinderPct: 0.065},     // microsurfacing/slurry seal, ~2.0 kg/m^2 binder
-	{Label: "rehab", MixKgPerSqM: 120, BinderPct: 0.055},         // ~50 mm mill & overlay (0.05 m x 2400), ~6.6 kg/m^2 binder
-	{Label: "reconstruction", MixKgPerSqM: 480, BinderPct: 0.05}, // ~200 mm full-depth asphalt (0.20 m x 2400), ~24 kg/m^2 binder
+	{Label: "preventive", MixKgPerSqM: 30, BinderShare: 0.065},     // microsurfacing/slurry seal, ~2.0 kg/m^2 binder
+	{Label: "rehab", MixKgPerSqM: 120, BinderShare: 0.055},         // ~50 mm mill & overlay (0.05 m x 2400), ~6.6 kg/m^2 binder
+	{Label: "reconstruction", MixKgPerSqM: 480, BinderShare: 0.05}, // ~200 mm full-depth asphalt (0.20 m x 2400), ~24 kg/m^2 binder
 }
 
 // BarrelsPerTonBinder converts asphalt-cement (bitumen) tonnage to
@@ -80,7 +80,7 @@ func MaterialsForArea(area float64, t MaterialTier) MaterialQuantities {
 		area = 0
 	}
 	mixTonnes := area * t.MixKgPerSqM / 1000
-	binderTonnes := mixTonnes * t.BinderPct
+	binderTonnes := mixTonnes * t.BinderShare
 	return MaterialQuantities{
 		MixTonnes:       mixTonnes,
 		BinderTonnes:    binderTonnes,

@@ -124,8 +124,8 @@ func bufferAllResources(ctx context.Context, store db.Store, proj *geo.UTMProjec
 			fmt.Fprintf(errOut, "combined: buffer %s: %v\n", rt.Type(), err)
 			continue
 		}
-		// Preserve pre-refactor count semantics: bufs counts reflect input
-		// feature counts per jurisdiction, not the post-buffer survivor count.
+		// Counts are input feature counts per jurisdiction, not the
+		// post-buffer survivor count.
 		cityInputs := 0
 		for _, f := range resFeatures {
 			if filter.ClassifyJurisdiction(f.Tags) == filter.JurisdictionCity {

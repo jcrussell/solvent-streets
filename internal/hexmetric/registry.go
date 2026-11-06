@@ -41,7 +41,7 @@ const (
 	FormatFloat1  = "float1"  // one decimal
 	FormatMinutes = "minutes" // seconds in, "m:ss" or "N min" out
 	FormatUSD     = "usd"     // dollars
-	FormatPercent = "percent" // 0–100, rendered with a % sign
+	FormatPercent = "percent" // a 0..1 share in, "N%" out
 	FormatArea    = "area"    // square metres in, the viewer's area unit out
 	FormatDensity = "density" // per km² in, per the viewer's large area unit (km² or sq mi) out
 )
@@ -66,12 +66,12 @@ const (
 	OpRatio = "ratio"
 )
 
-// Per-resource hex properties a Derivation may combine: the coverage
-// percentage and area from hexgrid.geojson, the apportioned parking spaces,
+// Per-resource hex properties a Derivation may combine: the covered share and
+// area from hexgrid.geojson, the apportioned parking spaces,
 // and the client's year-1 cost estimate (the resource's year-1 need from
 // hex-cost-summary.json split by the hex's share of that resource's area).
 const (
-	PropPct     = "pct"
+	PropShare   = "share"
 	PropArea    = "area"
 	PropSpaces  = "spaces"
 	PropEstCost = "est_cost"
@@ -89,7 +89,7 @@ type Derivation struct {
 
 func (d Derivation) validate(key string) error {
 	switch d.Prop {
-	case PropPct, PropArea, PropSpaces, PropEstCost:
+	case PropShare, PropArea, PropSpaces, PropEstCost:
 	default:
 		return fmt.Errorf("hexmetric: %s derives from unknown property %q", key, d.Prop)
 	}
@@ -117,8 +117,7 @@ func (d Derivation) validate(key string) error {
 // At least one edge is required — a bandless scale would be a single colour
 // and produces an invalid map paint expression.
 //
-// Mode and Ticks are omitempty so a bands scale serializes exactly as it did
-// before they existed (hex-metrics.json stays at v1).
+// Mode and Ticks are omitempty, so a bands scale carries only its bands.
 type Scale struct {
 	Kind      string    `json:"kind"`
 	Transform string    `json:"transform"`

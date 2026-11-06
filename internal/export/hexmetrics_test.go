@@ -99,7 +99,7 @@ func TestBuildHexMetrics(t *testing.T) {
 	if len(m.Points) != 2 || m.Points[0].ID != services.ConfigFacilityID("fire", -122.4, 37.7) || m.Points[1].ID != "osm:node:9" {
 		t.Fatalf("points = %+v, want config then osm (sorted by id)", m.Points)
 	}
-	if m.Points[1].Lon != -122.41 || m.Points[0].Source != "config" || m.Points[0].Name != "Manual" {
+	if m.Points[1].Position[0] != -122.41 || m.Points[0].Source != "config" || m.Points[0].Name != "Manual" {
 		t.Errorf("points = %+v", m.Points)
 	}
 	if m.Refs["h1"] != 1 || m.Refs["h2"] != 0 {
@@ -140,7 +140,7 @@ func TestBuildHexMetrics(t *testing.T) {
 }
 
 // TestBuildMeta_MetricSummaries: meta.json summarises each metric over every
-// stored row — hexgrid v4 paints every grid hex, pavement or not — and omits
+// stored row — hexgrid paints every grid hex, pavement or not — and omits
 // the key when no metric has rows.
 func TestBuildMeta_MetricSummaries(t *testing.T) {
 	now := time.Now()
@@ -159,11 +159,11 @@ func TestBuildMeta_MetricSummaries(t *testing.T) {
 	if !ok {
 		t.Fatalf("meta.metrics = %v", meta.Metrics)
 	}
-	if s.Hexes != 3 || s.Min != 300 || s.Max != 9000 || s.Median != 420 || s.Points != 2 || s.Format != "minutes" {
-		t.Errorf("summary = %+v; the pavement-free hex (9000) is painted in v4 and must count", s)
+	if s.HexCount != 3 || s.Min != 300 || s.Max != 9000 || s.Median != 420 || s.PointCount != 2 || s.Format != "minutes" {
+		t.Errorf("summary = %+v; the pavement-free hex (9000) is painted and must count", s)
 	}
-	if s.ThresholdS != 320 || s.PctWithin != 33.33 {
-		t.Errorf("summary threshold/pct = %v/%v, want 320 s and 33.33%% (300 within, 420 and 9000 not)", s.ThresholdS, s.PctWithin)
+	if s.ThresholdS != 320 || s.WithinThresholdShare == nil || *s.WithinThresholdShare != 0.3333 {
+		t.Errorf("summary threshold/share = %v/%v, want 320 s and 0.3333 (300 within, 420 and 9000 not)", s.ThresholdS, s.WithinThresholdShare)
 	}
 	empty := metricsEntry(t, nil, nil, stats)
 	emeta, err := BuildMeta(context.Background(), empty, 0)

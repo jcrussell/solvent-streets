@@ -171,7 +171,7 @@ func decodeSeed(t *testing.T, entry CityEntry, fc *config.ForecastConfig) Foreca
 }
 
 // TestMergeCohortSeeds_CityScopeReadsCityLabels verifies cityScope=true
-// drives the ":city"-suffixed cohort label, not the bbox label.
+// drives the ":city"-suffixed cohort label, not the all label.
 func TestMergeCohortSeeds_CityScopeReadsCityLabels(t *testing.T) {
 	var seenLabels []resource.Type
 	entry := CityEntry{
@@ -215,7 +215,7 @@ func TestForecastSeed_AsphaltShareNetsOutSidewalks(t *testing.T) {
 	fc := &config.ForecastConfig{Years: 5, InitialPCI: 80}
 
 	// Roads 700 + parking 300 = 1000 asphalt, sidewalks 250 concrete, in the
-	// bbox scope; a deliberately different split in the city scope so a swapped
+	// all scope; a deliberately different split in the city scope so a swapped
 	// or shared share shows up.
 	cohorts := map[resource.Type][]db.CohortStat{
 		resource.TypeRoads:                              {{Classification: "residential", Area: 700}},
@@ -236,8 +236,8 @@ func TestForecastSeed_AsphaltShareNetsOutSidewalks(t *testing.T) {
 		t.Fatalf("collectCohortSeeds: %v", err)
 	}
 	// 1000 asphalt of 1250 total.
-	if want := 1000.0 / 1250.0; got.BBoxAsphaltShare != want {
-		t.Errorf("BBoxAsphaltShare = %v; want %v (roads 700 + parking 300 of 1250)", got.BBoxAsphaltShare, want)
+	if want := 1000.0 / 1250.0; got.AllAsphaltShare != want {
+		t.Errorf("AllAsphaltShare = %v; want %v (roads 700 + parking 300 of 1250)", got.AllAsphaltShare, want)
 	}
 	// 500 asphalt of 600 total — a different ratio, so the two are not shared.
 	if want := 500.0 / 600.0; got.CityAsphaltShare != want {
@@ -274,9 +274,9 @@ func TestForecastSeed_AsphaltShareIsOneWithoutCohorts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("collectCohortSeeds: %v", err)
 	}
-	if got.BBoxAsphaltShare != 1 || got.CityAsphaltShare != 1 {
-		t.Errorf("shares = bbox %v, city %v; want 1 and 1 (no cohorts means no netting)",
-			got.BBoxAsphaltShare, got.CityAsphaltShare)
+	if got.AllAsphaltShare != 1 || got.CityAsphaltShare != 1 {
+		t.Errorf("shares = all %v, city %v; want 1 and 1 (no cohorts means no netting)",
+			got.AllAsphaltShare, got.CityAsphaltShare)
 	}
 }
 

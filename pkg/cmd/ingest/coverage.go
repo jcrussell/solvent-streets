@@ -264,9 +264,9 @@ func roadsForCoverageGate(ctx context.Context, store db.Store, opts *Options, ju
 // e.g. SF, where two coastline land-probes can't disambiguate the
 // bay), B-water yields the WATER part, so B-(B-water) = B∩water_poly
 // recovers the land. That fixes both the paved-area numerator AND the
-// pct_paved denominator (a land-only boundary), whereas the unstripped
+// paved_share denominator (a land-only boundary), whereas the unstripped
 // rollback leaves the bay/ocean in the boundary and understates
-// pct_paved for coastal cities. Validated on SF: B-water=481 km² at
+// paved_share for coastal cities. Validated on SF: B-water=481 km² at
 // 0.6% road coverage; B-(B-water)=119.5 km² (≈SF land) at 43%.
 //
 // Caller is responsible for already having saved the stripped boundary
@@ -313,7 +313,7 @@ func applyRoadCoverageGate(
 
 	// Complement didn't recover the land either. Roll back to unstripped
 	// Nominatim — safe for the paved-area numerator, but leaves any water
-	// in the pct_paved denominator.
+	// in the paved_share denominator.
 	ratioOriginal, ok := validateBoundaryAgainstRoads(fresh.Nominatim, roads)
 	if !ok || ratioOriginal < stripCoverageMinRatio {
 		return hint.Withf(

@@ -24,18 +24,17 @@ type WasmFn = (...args: any[]) => string;
 // window.PVMT_CONFIG, injected inline by the template as the whole config
 // payload. Shape is the union of IndexConfigJSON (index.html) and GameConfigJSON
 // (play.html); a given page only populates its own subset, so page-specific
-// fields are optional. forecastSeed/layerColors are opaque json.RawMessage
-// blobs consumed loosely (forecastSeed is even reassigned from fetched JSON), so
+// fields are optional. forecast_seed/layer_colors are opaque json.RawMessage
+// blobs consumed loosely (forecast_seed is even reassigned from fetched JSON), so
 // they stay `any` — typing them fully is high effort, low payoff under checkJs.
-// One city as both pages' PVMT_CONFIG.cities carries it (jsCityInfo in
-// meta.go). bbox/lon/lat are present on every emitted entry; they are optional
+// One city as both pages' PVMT_CONFIG.cities carries it (CityInfo in
+// meta.go). bbox/center are present on every emitted entry; they are optional
 // here only so selectors.js can also take hand-built test cities.
 interface PvmtCity {
   slug: string;
   name: string;
-  bbox?: [number, number, number, number];
-  lon?: number;
-  lat?: number;
+  bbox?: [number, number, number, number]; // [west, south, east, north]
+  center?: [number, number]; // [lon, lat]
   tags?: string[];
 }
 
@@ -48,7 +47,7 @@ interface PvmtTagDimension {
 }
 
 // One "Color by" metric: an entry of hex-metrics.json's metrics map
-// (export.MetricJSON, a stored metric with values) or of PVMT_CONFIG.hexMetrics
+// (export.MetricJSON, a stored metric with values) or of PVMT_CONFIG.hex_metrics
 // (hexmetric.Spec, a derived metric the client computes; carries key/derive).
 interface PvmtHexMetric {
   key?: string;
@@ -61,7 +60,7 @@ interface PvmtHexMetric {
   threshold_s?: number;
   values?: Record<string, number>;
   refs?: Record<string, number>;
-  points?: Array<{ id: string; name: string; lon: number; lat: number; source: string }>;
+  points?: Array<{ id: string; name: string; position: [number, number]; source: string }>; // position is [lon, lat]
 }
 
 // window.PvmtSelectors, assigned by selectors.js (loaded before the page
@@ -84,14 +83,14 @@ declare const PvmtSelectors: PvmtSelectorsAPI;
 interface PvmtConfig {
   center: [number, number];
   cities?: PvmtCity[];
-  tagDimensions?: PvmtTagDimension[];
-  layerColors?: any;
-  hexMetrics?: PvmtHexMetric[];
-  unitSystem?: string;
-  dataPrefix?: string;
-  mapHref?: string;
-  bandCount?: number;
-  forecastSeed: any;
+  tag_dimensions?: PvmtTagDimension[];
+  layer_colors?: any;
+  hex_metrics?: PvmtHexMetric[];
+  unit_system?: string;
+  data_prefix?: string;
+  map_href?: string;
+  band_count?: number;
+  forecast_seed: any;
 }
 
 interface Window {

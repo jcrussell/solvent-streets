@@ -284,3 +284,40 @@ func TestServicesCompute_NoReachCommitsEmptyRun(t *testing.T) {
 		t.Errorf("commits = %v, want the empty fire run %d committed", commits, saved[0].RunID)
 	}
 }
+
+// TestSummarize_ShareIsAFraction: within_threshold_share is a 0..1 fraction
+// alongside the threshold it is measured against, the median is the response
+// time in seconds, and the row is keyed by the city slug.
+func TestSummarize_ShareIsAFraction(t *testing.T) {
+	spec := services.Spec{Name: "fire", TurnoutS: 60, TravelThresholdS: 240}
+	cov := services.Coverage{
+		Hexes: []services.HexCoverage{
+			{HexID: "a", Seconds: 100}, {HexID: "b", Seconds: 200},
+			{HexID: "c", Seconds: 300}, {HexID: "d", Seconds: 400},
+		},
+		Unsnapped: []int{2},
+	}
+	row := summarize(testCity.Slug(), spec, cov, 3, 9)
+	out := row.ExportData(computeFields)
+	want := map[string]any{
+		"city": "livermore-ca", "service": "fire", "facility_count": 3, "unsnapped_count": 1,
+		"hex_count": 4, "threshold_s": 240.0, "within_threshold_share": 0.75,
+		"median_response_s": 300.0, "run_id": int64(9),
+	}
+	if len(out) != len(want) {
+		t.Fatalf("got %d keys, want %d: %v", len(out), len(want), out)
+	}
+	for k, v := range want {
+		if out[k] != v {
+			t.Errorf("%s = %v (%T), want %v (%T)", k, out[k], out[k], v, v)
+		}
+	}
+
+	// No hex reached: the share and median are not applicable and are omitted.
+	empty := summarize(testCity.Slug(), spec, services.Coverage{}, 3, 9).ExportData(computeFields)
+	for _, k := range []string{"within_threshold_share", "median_response_s"} {
+		if v, ok := empty[k]; ok {
+			t.Errorf("%s = %v with no hexes reached; want it omitted", k, v)
+		}
+	}
+}

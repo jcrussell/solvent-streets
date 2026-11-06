@@ -11,7 +11,7 @@ func approxEqual(a, b float64) bool {
 
 func TestMaterialsForArea(t *testing.T) {
 	// rehab tier: 120 kg/m^2 mix at 5.5% binder over 1000 m^2.
-	tier := MaterialTier{Label: "rehab", MixKgPerSqM: 120, BinderPct: 0.055}
+	tier := MaterialTier{Label: "rehab", MixKgPerSqM: 120, BinderShare: 0.055}
 	got := MaterialsForArea(1000, tier)
 
 	// mix = 1000 * 120 / 1000 = 120 t; binder = 120 * 0.055 = 6.6 t.

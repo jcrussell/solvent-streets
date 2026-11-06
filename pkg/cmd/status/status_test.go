@@ -276,16 +276,17 @@ func TestRunStatus_CitySummary_SingleResourceIgnoresCombined(t *testing.T) {
 	}
 }
 
-// TestStatusRow_ExportData_AllFieldsPopulated guards S2: with reflection
-// removed, a typo in statusRow.ExportData's switch silently drops that
-// field. This asserts the full statusFields list round-trips.
+// TestStatusRow_ExportData_AllFieldsPopulated guards S2: a typo in
+// statusRow.ExportData's switch silently drops that field. This asserts the
+// full statusFields list round-trips for a fully populated row.
 func TestStatusRow_ExportData_AllFieldsPopulated(t *testing.T) {
 	r := statusRow{
-		ResourceType: "roads",
-		FeatureCount: 42,
-		LastIngest:   "2026-04-18T00:00:00Z",
-		LastCompute:  "2026-04-18T01:00:00Z",
-		Area:         123.4,
+		ResourceType:    "parking",
+		FeatureCount:    42,
+		LastIngestAt:    "2026-04-18T00:00:00Z",
+		LastComputeAt:   "2026-04-18T01:00:00Z",
+		Area:            123.4,
+		EstimatedSpaces: 7,
 	}
 	out := r.ExportData(statusFields)
 	if len(out) != len(statusFields) {
@@ -296,7 +297,7 @@ func TestStatusRow_ExportData_AllFieldsPopulated(t *testing.T) {
 			t.Errorf("missing field %q", f)
 		}
 	}
-	if out["resourceType"] != "roads" || out["featureCount"] != 42 || out["area"] != 123.4 {
+	if out["resource_type"] != "parking" || out["feature_count"] != 42 || out["area"] != 123.4 || out["estimated_spaces"] != 7 {
 		t.Errorf("unexpected values: %+v", out)
 	}
 }
@@ -306,11 +307,11 @@ func TestStatusRow_ExportData_AllFieldsPopulated(t *testing.T) {
 // flag depends on.
 func TestStatusRow_ExportData_SubsetFields(t *testing.T) {
 	r := statusRow{ResourceType: "roads", FeatureCount: 42, Area: 1}
-	out := r.ExportData([]string{"resourceType"})
+	out := r.ExportData([]string{"resource_type"})
 	if len(out) != 1 {
 		t.Fatalf("want 1 key, got %d: %v", len(out), out)
 	}
-	if out["resourceType"] != "roads" {
+	if out["resource_type"] != "roads" {
 		t.Errorf("unexpected: %+v", out)
 	}
 }
@@ -346,5 +347,20 @@ func TestRunStatus_NonTTY_TabSeparated(t *testing.T) {
 	}
 	if !strings.Contains(output, "roads") {
 		t.Errorf("expected 'roads' in output, got: %s", output)
+	}
+}
+
+// TestStatusRow_ExportData_OmitsNotApplicable: a resource never ingested or
+// computed has no timestamps, and a non-parking resource has no space
+// estimate; those keys are omitted rather than emitted as "" or 0.
+func TestStatusRow_ExportData_OmitsNotApplicable(t *testing.T) {
+	out := statusRow{ResourceType: "roads"}.ExportData(statusFields)
+	for _, f := range []string{"last_ingest_at", "last_compute_at", "estimated_spaces"} {
+		if v, ok := out[f]; ok {
+			t.Errorf("%s = %v; want it omitted", f, v)
+		}
+	}
+	if out["feature_count"] != 0 || out["area"] != 0.0 {
+		t.Errorf("counts and areas are always present, got %v", out)
 	}
 }

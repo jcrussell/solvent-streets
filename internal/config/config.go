@@ -55,8 +55,7 @@ const (
 	//
 	// This does NOT open gaps between adjacent hexes: neighbours share vertices
 	// computed from the same col*colSpacing arithmetic, so identical inputs
-	// round identically and the shared edge stays shared. (The JTS reproject
-	// path used to hardcode 7, ~1 cm, which was never meaningful here.)
+	// round identically and the shared edge stays shared.
 	//
 	// Raise it via export.coordinate_decimals if a downstream consumer needs
 	// finer resolution than the display does.
@@ -71,7 +70,7 @@ const (
 	//
 	// This never touches the authoritative boundary: hex clipping
 	// (export.clipHexGridToBoundary) and the area figures behind
-	// meta.json's CityArea/PctPaved read store.GetBoundary directly.
+	// meta.json's CityArea/PavedShare read store.GetBoundary directly.
 	DefaultBoundarySimplifyM = 10.0
 	// DefaultCostOverhead is 1.0 — no multiplier — and that is a calibrated
 	// choice, not an oversight. Read docs/validation.md §6 before changing it.

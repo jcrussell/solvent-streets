@@ -86,22 +86,22 @@ test('the seeded area and cohorts reach the WASM bridge', async () => {
 // The other half of the same key contract: the All-Roads scope reads
 // total_area / cohorts instead. Both branches of getControlValues' scope
 // selection need a live assertion, or a rename covers whichever one is unwatched.
-test('the All-Roads scope simulates over the seeded bbox area', async () => {
+test('the All-Roads scope simulates over the seeded all-scope area', async () => {
   const { win, flush } = await ready();
 
-  win.selectScope('bbox', { push: false });
+  win.selectScope('all', { push: false });
   await flush();
 
   const sent = win.__simCalls.at(-1);
   assert.equal(typeof seedJSON.total_area, 'number',
     'forecast_seed.json has no numeric total_area; the Go json tag moved');
   assert.equal(sent.area, seedJSON.total_area,
-    'the bridge did not receive the seeded total_area in bbox scope');
+    'the bridge did not receive the seeded total_area in all scope');
   assert.ok(sent.area > 0, 'the bridge simulated a network of zero area');
   assert.deepEqual(
     Array.from(sent.cohorts ?? [], (c) => c.classification).sort(),
     Array.from(seedJSON.cohorts ?? [], (c) => c.classification).sort(),
-    'the bridge did not receive the seeded bbox cohorts');
+    'the bridge did not receive the seeded all-scope cohorts');
 });
 
 // solvent-streets-sqcg. loadFinancials strips .visible from #forecast-controls
@@ -164,7 +164,7 @@ test('a scope change runs exactly one custom scenario', async () => {
   const { win, resetSimCalls, simCalls, flush } = await ready();
 
   resetSimCalls();
-  win.selectScope('bbox', { push: false });
+  win.selectScope('all', { push: false });
   await flush();
 
   assert.equal(simCalls(), 2,

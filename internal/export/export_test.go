@@ -261,8 +261,8 @@ func TestRunSingleCity_WritesPlayPage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read play.html: %v", err)
 	}
-	if !strings.Contains(string(play), `"dataPrefix":""`) {
-		t.Errorf("single-city play.html should set dataPrefix to empty in PVMT_CONFIG")
+	if !strings.Contains(string(play), `"data_prefix":""`) {
+		t.Errorf("single-city play.html should set data_prefix to empty in PVMT_CONFIG")
 	}
 	if strings.Contains(string(play), `id="city-select"`) {
 		t.Errorf("single-city play.html should not render a city selector")

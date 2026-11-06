@@ -14,7 +14,7 @@ package hexmetric
 // parking and sidewalks.
 const (
 	// KeyCoverage is the default "Color by" metric. It stays out of the URL.
-	KeyCoverage = "coverage_pct"
+	KeyCoverage = "coverage_share"
 	// KeyArea is the toggled resources' area per hex.
 	KeyArea = "paved_area_m2"
 	// KeySpaces is the apportioned parking-space estimate per hex.
@@ -32,10 +32,10 @@ func init() {
 		Format: FormatPercent,
 		Scale: Scale{
 			Kind: KindCoverage, Transform: TransformLinear, Mode: ModeRamp,
-			Bands: []float64{0, 10, 25, 50, 75, 100},
-			Ticks: []float64{0, 25, 50, 75, 100},
+			Bands: []float64{0, 0.1, 0.25, 0.5, 0.75, 1},
+			Ticks: []float64{0, 0.25, 0.5, 0.75, 1},
 		},
-		Derive: &Derivation{Op: OpSum, Prop: PropPct, Max: 100},
+		Derive: &Derivation{Op: OpSum, Prop: PropShare, Max: 1},
 	})
 	Register(Spec{
 		Key:    KeyArea,

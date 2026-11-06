@@ -86,18 +86,18 @@ func collapseFinalCohorts(r forecast.ScenarioResult) forecast.ScenarioResult {
 type ForecastExport struct {
 	ResourceType string                    `json:"resource_type"`
 	Baseline     forecast.ScenarioResult   `json:"baseline"`
-	BboxBaseline *forecast.ScenarioResult  `json:"bbox_baseline,omitempty"` // full-bbox scope (shown when "All Roads" is toggled)
+	AllBaseline  *forecast.ScenarioResult  `json:"all_baseline,omitempty"` // all-jurisdiction scope (shown when the "All" scope is toggled)
 	Scenarios    []forecast.ScenarioResult `json:"scenarios"`
 
 	// Solvency metrics — populated for the roads resource only (the blended
 	// scenarios mis-price sidewalks at road tiers, so an advocacy headline
 	// must be roads-only). BreakEvenBudget is always computed for roads;
 	// InsolvencyYear and FundingGap require a configured current_budget and
-	// are nil otherwise. See buildResourceForecast and the methodology doc.
-	InsolvencyYear  *int     `json:"insolvency_year"`             // nil = solvent through horizon, or no budget configured
+	// are omitted otherwise. See buildResourceForecast and the methodology doc.
+	InsolvencyYear  *int     `json:"insolvency_year,omitempty"`   // omitted = solvent through the horizon, or no budget configured
 	BreakEvenBudget float64  `json:"break_even_budget,omitempty"` // smallest constant annual budget that holds the network steady
-	CurrentBudget   float64  `json:"current_budget,omitempty"`    // the configured budget the metrics are measured against (0 = unset)
-	FundingGap      *float64 `json:"funding_gap"`                 // (break_even - current)/current; nil = no budget configured
+	CurrentBudget   float64  `json:"current_budget,omitempty"`    // the configured budget the metrics are measured against; omitted when unset
+	FundingGap      *float64 `json:"funding_gap,omitempty"`       // (break_even_budget - current_budget)/current_budget; omitted when no budget is configured
 }
 
 // errSkipResource sentinel: a resource has no compute run yet (or returned
@@ -108,8 +108,8 @@ var errSkipResource = errors.New("no compute result for resource")
 
 // BuildForecastsForCity builds per-resource forecast exports for a city.
 // Prefers city-scoped data (excluding state/federal roads) as the primary
-// baseline since that matches what a city budget covers. The full-bbox
-// baseline is stored as BboxBaseline for the "All Roads" toggle.
+// baseline since that matches what a city budget covers. The all-jurisdiction
+// baseline is stored as AllBaseline for the "All Roads" toggle.
 //
 // Returns (forecasts, nil) on success, (nil, err) on any real DB failure.
 // sql.ErrNoRows from LatestComputeResult is treated as "no compute run yet
@@ -125,17 +125,17 @@ func BuildForecastsForCity(ctx context.Context, entry CityEntry, fc *config.Fore
 	// LatestComputeResult + (per scope) ListCohortStats calls. Across the
 	// 3-resource × 2-scope cross-product that's 6 → 1 for compute results
 	// and 6 → 1 for cohort stats, per city.
-	bboxTypes := make([]resource.Type, 0, len(resource.All))
+	allTypes := make([]resource.Type, 0, len(resource.All))
 	cityTypes := make([]resource.Type, 0, len(resource.All))
 	for _, rt := range resource.All {
-		bboxTypes = append(bboxTypes, rt.Type())
+		allTypes = append(allTypes, rt.Type())
 		cityTypes = append(cityTypes, rt.Type().With(resource.ScopeCity))
 	}
-	latestByType, err := entry.Store.LatestComputeResults(ctx, bboxTypes)
+	latestByType, err := entry.Store.LatestComputeResults(ctx, allTypes)
 	if err != nil {
 		return nil, fmt.Errorf("loading latest compute results: %w", err)
 	}
-	cohortStats, err := entry.Store.ListCohortStatsForTypes(ctx, append(append([]resource.Type{}, bboxTypes...), cityTypes...))
+	cohortStats, err := entry.Store.ListCohortStatsForTypes(ctx, append(append([]resource.Type{}, allTypes...), cityTypes...))
 	if err != nil {
 		return nil, fmt.Errorf("loading cohort stats: %w", err)
 	}
@@ -174,13 +174,13 @@ func buildResourceForecast(rt resource.Source, fc *config.ForecastConfig, costTi
 	years := fc.Years
 	rtParams := forecast.NewParamsForResource(tName, fc.GrowthRate, costTiers, fc.TreatmentCycleYears, fc.ResolvedCostOverhead())
 
-	bboxCohorts := buildCohortsFromStats(t, result.TotalArea, cohortStats[t], fc)
+	allCohorts := buildCohortsFromStats(t, result.TotalArea, cohortStats[t], fc)
 
 	// Try city-scoped cohorts — use as primary if available. Empty result is
 	// legitimate (not all cities have city-scope data).
 	primaryCohorts, hasCityScope := cityScopeCohorts(cohortStats[t.With(resource.ScopeCity)], fc)
 	if !hasCityScope {
-		primaryCohorts = bboxCohorts
+		primaryCohorts = allCohorts
 	}
 
 	baseline := forecast.Simulate(doNothing, primaryCohorts, years, rtParams)
@@ -198,8 +198,8 @@ func buildResourceForecast(rt resource.Source, fc *config.ForecastConfig, costTi
 		Scenarios:    scenarios,
 	}
 	if hasCityScope {
-		bboxBaseline := collapseFinalCohorts(forecast.Simulate(doNothing, bboxCohorts, years, rtParams))
-		fe.BboxBaseline = &bboxBaseline
+		allBaseline := collapseFinalCohorts(forecast.Simulate(doNothing, allCohorts, years, rtParams))
+		fe.AllBaseline = &allBaseline
 	}
 
 	// Roads-only solvency metrics. Computed on primaryCohorts (city-scope when
@@ -225,7 +225,7 @@ func buildResourceForecast(rt resource.Source, fc *config.ForecastConfig, costTi
 
 // cityScopeCohorts converts city-scope cohort stats to forecast cohorts.
 // Returns (nil, false) if the stats are empty or BuildCohorts rejects them,
-// signalling the caller should fall back to bbox-scope cohorts.
+// signalling the caller should fall back to all-scope cohorts.
 func cityScopeCohorts(cityStats []db.CohortStat, fc *config.ForecastConfig) ([]forecast.Cohort, bool) {
 	if len(cityStats) == 0 {
 		return nil, false
@@ -244,23 +244,22 @@ func cityScopeCohorts(cityStats []db.CohortStat, fc *config.ForecastConfig) ([]f
 	return forecast.ApplyConditionSpread(cohorts), true
 }
 
-// BuildScenariosData builds the aggregate scenarios JSON structure for a city.
-// Prefers city-scoped data as the primary ("all") output since that matches
-// what a city budget covers. Full-bbox data is available as "bbox".
+// BuildScenariosData builds the aggregate scenarios JSON structure for a city:
+// {"city": [...], "all": [...], "summary": {...}}. "city" (city-maintained
+// features, what a city budget covers) is present when the city has
+// city-scope area; "all" covers every jurisdiction.
 //
 // The static Baseline/25%/50%/Full lines are built from the SAME multi-cohort
 // seeds (per-class decay rates) that drive the interactive "Custom Scenario"
 // line via WASM Simulate — see collectCohortSeeds and index.html.tmpl's
-// getControlValues. Building both from one cohort source keeps the static and
-// custom lines in agreement on the same chart at equal settings; the previous
-// single-synthetic-cohort path (blended decay over a city-paved area) diverged
-// from the interactive line by ~4.7%.
+// getControlValues — so the static and custom lines agree on the same chart
+// at equal settings.
 //
-// AREA SCOPE: the scenario lines now use the cohort-summed area (sum of
-// per-class cohort areas), not the city-paved/bbox aggregate compute area, so
-// the static and custom lines share an identical area basis. The summary block
-// below still reports the aggregate compute areas/feature counts (city_pct,
-// *_count) — those are informational rollups, not the chart's area basis.
+// AREA SCOPE: the scenario lines use the cohort-summed area (sum of per-class
+// cohort areas), not the aggregate compute area, so the static and custom
+// lines share an identical area basis. The summary block reports the aggregate
+// compute feature counts and the city's share of the all-scope area — those
+// are informational rollups, not the chart's area basis.
 func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.ForecastConfig) (map[string]any, error) {
 	costTiers := ConvertCostTiers(fc)
 	params := forecast.NewParams(fc.GrowthRate, costTiers, fc.TreatmentCycleYears, fc.ResolvedCostOverhead())
@@ -274,21 +273,21 @@ func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.Forecas
 		return nil, err
 	}
 
-	// Same cohort seeds the interactive line uses: bbox-scope and city-scope.
+	// Same cohort seeds the interactive line uses: all-scope and city-scope.
 	cohorts, err := collectCohortSeeds(ctx, entry.Store, fc)
 	if err != nil {
 		return nil, err
 	}
-	bboxSeeds, citySeeds := cohorts.BBox, cohorts.City
+	allSeeds, citySeeds := cohorts.All, cohorts.City
 
-	// bbox scenarios from bbox cohorts; fall back to a single synthetic cohort
-	// over the aggregate bbox area when no cohort stats exist (fresh DB).
-	bboxScenarios := scenariosFromSeeds(bboxSeeds, fc.InitialPCI, fc.Years, params)
-	if bboxScenarios == nil {
-		bboxScenarios = singleCohortScenarios("all", areas.bboxArea, fc.InitialPCI, defaultRate, fc.Years, params)
+	// all scenarios from all cohorts; fall back to a single synthetic cohort
+	// over the aggregate all area when no cohort stats exist (fresh DB).
+	allScenarios := scenariosFromSeeds(allSeeds, fc.InitialPCI, fc.Years, params)
+	if allScenarios == nil {
+		allScenarios = singleCohortScenarios("all", areas.allArea, fc.InitialPCI, defaultRate, fc.Years, params)
 	}
 
-	primaryScenarios := bboxScenarios
+	primaryScenarios := allScenarios
 	if areas.cityArea > 0 {
 		primaryScenarios = scenariosFromSeeds(citySeeds, fc.InitialPCI, fc.Years, params)
 		if primaryScenarios == nil {
@@ -297,39 +296,35 @@ func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.Forecas
 	}
 
 	summary := map[string]any{
-		"city_count":    areas.cityFeatures,
-		"all_count":     areas.bboxFeatures,
-		"state_count":   0,
-		"county_count":  0,
-		"federal_count": 0,
+		"city_feature_count": areas.cityFeatures,
+		"all_feature_count":  areas.allFeatures,
 	}
-	if areas.bboxArea > 0 && areas.cityArea > 0 {
-		summary["city_pct"] = areas.cityArea / areas.bboxArea
+	if areas.allArea > 0 && areas.cityArea > 0 {
+		summary["city_area_share"] = areas.cityArea / areas.allArea
 	}
 
 	out := map[string]any{"summary": summary}
 	if areas.cityArea > 0 {
 		out["city"] = primaryScenarios
-		out["bbox"] = bboxScenarios
+		out["all"] = allScenarios
 	} else {
-		out["bbox"] = primaryScenarios
+		out["all"] = primaryScenarios
 	}
 	return out, nil
 }
 
-// scenarioAreas pairs bbox-scope and city-scope aggregate areas and feature
+// scenarioAreas pairs all-scope and city-scope aggregate areas and feature
 // counts across all resources for a single CityEntry.
 type scenarioAreas struct {
-	bboxArea, cityArea         float64
-	bboxFeatures, cityFeatures int
+	allArea, cityArea         float64
+	allFeatures, cityFeatures int
 }
 
 // aggregateScenarioAreas sums TotalArea and FeatureCount across all
-// resources for both bbox and city scopes. The city-scope lookup is gated
-// on bbox-row existence for the same resource — a resource with no bbox
-// row contributes to neither total, matching the pre-refactor behavior.
-// One batched DB call collects both scopes; previously each resource
-// type took two round trips.
+// resources for both all and city scopes. The city-scope lookup is gated
+// on all-scope row existence for the same resource — a resource with no
+// all-scope row contributes to neither total. One batched DB call collects
+// both scopes.
 func aggregateScenarioAreas(ctx context.Context, entry CityEntry) (scenarioAreas, error) {
 	types := make([]resource.Type, 0, 2*len(resource.All))
 	for _, rt := range resource.All {
@@ -354,8 +349,8 @@ func aggregateScenarioAreas(ctx context.Context, entry CityEntry) (scenarioAreas
 		if !ok || result == nil {
 			continue
 		}
-		agg.bboxArea += result.TotalArea
-		agg.bboxFeatures += result.FeatureCount
+		agg.allArea += result.TotalArea
+		agg.allFeatures += result.FeatureCount
 
 		if cityResult, ok := latestByType[t.With(resource.ScopeCity)]; ok && cityResult != nil {
 			agg.cityArea += cityResult.TotalArea
@@ -437,7 +432,7 @@ const (
 	emitPCIDecimals = 2
 	// emitRateDecimals: client renders decay_rate at 4 decimals.
 	emitRateDecimals = 6
-	// emitRatioDecimals: funding_gap is a ratio rendered as a percentage.
+	// emitRatioDecimals: funding_gap is a ratio the client renders as a percentage.
 	emitRatioDecimals = 6
 )
 
@@ -506,9 +501,9 @@ func RoundForecastsForEmission(fes []ForecastExport) []ForecastExport {
 	out := make([]ForecastExport, len(fes))
 	for i, fe := range fes {
 		fe.Baseline = roundScenarioResult(fe.Baseline)
-		if fe.BboxBaseline != nil {
-			bb := roundScenarioResult(*fe.BboxBaseline)
-			fe.BboxBaseline = &bb
+		if fe.AllBaseline != nil {
+			bb := roundScenarioResult(*fe.AllBaseline)
+			fe.AllBaseline = &bb
 		}
 		fe.Scenarios = roundScenarioResults(fe.Scenarios)
 		fe.BreakEvenBudget = roundMoney(fe.BreakEvenBudget)
@@ -523,8 +518,9 @@ func RoundForecastsForEmission(fes []ForecastExport) []ForecastExport {
 }
 
 // RoundScenariosForEmission returns a shallow copy of the scenarios payload with
-// the per-scope scenario slices rounded. "summary" is counts plus city_pct and
-// is left alone — it is small and city_pct feeds a displayed percentage.
+// the per-scope scenario slices rounded. "summary" (feature counts plus
+// city_area_share) is left alone — it is small and the share feeds a
+// displayed percentage.
 func RoundScenariosForEmission(data map[string]any) map[string]any {
 	if data == nil {
 		return nil
@@ -541,56 +537,56 @@ func RoundScenariosForEmission(data map[string]any) map[string]any {
 }
 
 // BuildHexCostSummary builds the per-scope, per-resource hex cost summary
-// from forecast results. The outer key is the scope ("city" or "bbox"), the
+// from forecast results. The outer key is the scope ("city" or "all"), the
 // inner key is the resource type. The "city" sub-map is omitted entirely
 // when no ":city" compute rows exist — matching the toggle-visibility gate
 // used by the client.
 func BuildHexCostSummary(ctx context.Context, entry CityEntry, forecasts []ForecastExport) map[string]map[string]map[string]float64 {
 	out := map[string]map[string]map[string]float64{
-		"bbox": {},
+		"all": {},
 	}
 	for _, fe := range forecasts {
-		cityYear1, bboxYear1, hasCity := scopeYear1Costs(fe)
+		cityYear1, allYear1, hasCity := scopeYear1Needs(fe)
 		t := resource.Type(fe.ResourceType)
 		if resource.ByType(t) == nil {
 			continue
 		}
-		addScopeRow(ctx, entry, out, "bbox", t, bboxYear1)
+		addScopeRow(ctx, entry, out, "all", t, allYear1)
 		if hasCity {
 			addScopeRow(ctx, entry, out, "city", t.With(resource.ScopeCity), cityYear1)
 		}
 	}
-	if len(out["bbox"]) == 0 {
-		delete(out, "bbox")
+	if len(out["all"]) == 0 {
+		delete(out, "all")
 	}
 	return out
 }
 
-// scopeYear1Costs reads the year-1 annual need for each scope out of a
+// scopeYear1Needs reads the year-1 annual need for each scope out of a
 // ForecastExport. The convention is set in BuildForecastForResource: when
-// BboxBaseline is non-nil, Baseline is the city-scoped run; when nil,
-// Baseline carries the bbox-scope run alone.
-func scopeYear1Costs(fe ForecastExport) (city, bbox float64, hasCity bool) {
-	hasCity = fe.BboxBaseline != nil
+// AllBaseline is non-nil, Baseline is the city-scoped run; when nil,
+// Baseline carries the all-scope run alone.
+func scopeYear1Needs(fe ForecastExport) (city, all float64, hasCity bool) {
+	hasCity = fe.AllBaseline != nil
 	if hasCity {
 		if len(fe.Baseline.Years) > 0 {
 			city = fe.Baseline.Years[0].AnnualNeed
 		}
-		if len(fe.BboxBaseline.Years) > 0 {
-			bbox = fe.BboxBaseline.Years[0].AnnualNeed
+		if len(fe.AllBaseline.Years) > 0 {
+			all = fe.AllBaseline.Years[0].AnnualNeed
 		}
-		return city, bbox, true
+		return city, all, true
 	}
 	if len(fe.Baseline.Years) > 0 {
-		bbox = fe.Baseline.Years[0].AnnualNeed
+		all = fe.Baseline.Years[0].AnnualNeed
 	}
-	return 0, bbox, false
+	return 0, all, false
 }
 
 // addScopeRow looks up the compute row for rt and writes the
-// {year1_cost, total_area} pair under out[scope][rt.Bare()]. Missing
-// compute rows are skipped silently — same as the pre-rename behavior.
-func addScopeRow(ctx context.Context, entry CityEntry, out map[string]map[string]map[string]float64, scope string, rt resource.Type, year1Cost float64) {
+// {year1_need, total_area} pair under out[scope][rt.Bare()]. Missing
+// compute rows are skipped silently.
+func addScopeRow(ctx context.Context, entry CityEntry, out map[string]map[string]map[string]float64, scope string, rt resource.Type, year1Need float64) {
 	r, err := entry.Store.LatestComputeResult(ctx, rt)
 	if err != nil || r == nil {
 		return
@@ -599,7 +595,7 @@ func addScopeRow(ctx context.Context, entry CityEntry, out map[string]map[string
 		out[scope] = make(map[string]map[string]float64)
 	}
 	out[scope][string(rt.Bare())] = map[string]float64{
-		"year1_cost": year1Cost,
+		"year1_need": year1Need,
 		"total_area": r.TotalArea,
 	}
 }

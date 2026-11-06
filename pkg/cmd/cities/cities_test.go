@@ -79,7 +79,7 @@ func TestRunCities_ListsCitiesWithStats(t *testing.T) {
 	}
 }
 
-// TestRunCities_PrefersCombinedArea pins yvlv.37: TotalArea comes from the
+// TestRunCities_PrefersCombinedArea pins yvlv.37: TotalPaved comes from the
 // combined (de-duplicated) compute row when present, not the per-resource sum
 // which double-counts road/parking/sidewalk buffer overlap.
 func TestRunCities_PrefersCombinedArea(t *testing.T) {
@@ -112,8 +112,8 @@ func TestRunCities_PrefersCombinedArea(t *testing.T) {
 	}
 	// Exercise buildCityRow directly to assert the numeric value.
 	captured = append(captured, buildCityRow(context.Background(), root.ForCity(1), db.City{ID: 1, Slug: "austin-tx", Name: "Austin, TX"}, ios))
-	if got := captured[0].TotalArea; got != 210 {
-		t.Errorf("TotalArea = %v, want 210 (combined row, not the 300 per-resource sum)", got)
+	if got := captured[0].TotalPaved; got != 210 {
+		t.Errorf("TotalPaved = %v, want 210 (combined row, not the 300 per-resource sum)", got)
 	}
 
 	// And end-to-end through runCities without a combined row: falls back.
@@ -126,12 +126,12 @@ func TestRunCities_PrefersCombinedArea(t *testing.T) {
 // coverage for the handwritten switch in cityRow.ExportData.
 func TestCityRow_ExportData_AllFieldsPopulated(t *testing.T) {
 	r := cityRow{
-		Slug:        "austin-tx",
-		Name:        "Austin, TX",
-		Features:    map[string]int{"roads": 42},
-		TotalArea:   1000,
-		LastIngest:  "2026-04-18T00:00:00Z",
-		LastCompute: "2026-04-18T01:00:00Z",
+		Slug:          "austin-tx",
+		Name:          "Austin, TX",
+		FeatureCounts: map[string]int{"roads": 42},
+		TotalPaved:    1000,
+		LastIngestAt:  "2026-04-18T00:00:00Z",
+		LastComputeAt: "2026-04-18T01:00:00Z",
 	}
 	out := r.ExportData(citiesFields)
 	if len(out) != len(citiesFields) {

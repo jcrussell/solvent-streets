@@ -149,7 +149,7 @@ func TestComputeHexStats_DedupesOverlappingCandidates(t *testing.T) {
 
 func TestComputeHexStats_KeepsSubHundredSqMHexes(t *testing.T) {
 	// A clipped boundary sliver hex (<100 sqm) used to be silently dropped,
-	// causing the pct_paved numerator to under-count while the denominator
+	// causing the paved_share numerator to under-count while the denominator
 	// stayed full. The filter now lives in the display layer; aggregate
 	// stats include slivers so numerator/denominator scope matches.
 	tinyHex := Hex{ID: "tiny", Geom: makeRect(0, 0, 9, 9)} // 81 sqm

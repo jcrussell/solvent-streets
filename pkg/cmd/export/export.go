@@ -167,7 +167,7 @@ func runExport(ctx context.Context, opts *Options) error {
 // apart from city-specific data.
 type manifest struct {
 	OutputDir string         `json:"output_dir"`
-	Total     int            `json:"total"`
+	FileCount int            `json:"file_count"`
 	Cities    []manifestCity `json:"cities"`
 	Shared    []string       `json:"shared,omitempty"`
 }
@@ -206,7 +206,7 @@ func buildManifest(outputDir string, entries []exportpkg.CityEntry) (manifest, e
 			return relErr
 		}
 		rel = filepath.ToSlash(rel)
-		m.Total++
+		m.FileCount++
 		if slug := attributeFile(rel, singleSlug, bySlug); slug != "" {
 			bySlug[slug] = append(bySlug[slug], rel)
 		} else {

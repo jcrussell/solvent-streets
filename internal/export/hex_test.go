@@ -238,14 +238,14 @@ func hexEntry(t *testing.T, hexStats map[resource.Type][]db.HexStat, results map
 
 // TestBuildHexGeoJSON_EmittedWhenRowsExist: a single FeatureCollection is
 // returned when any hex_stats rows exist (across either scope), and nil only
-// when there are no rows at all. The per-feature {bbox, city?} shape is pinned
+// when there are no rows at all. The per-feature {all, city?} shape is pinned
 // deterministically in TestBuildHexFeature_NestedScopes.
 func TestBuildHexGeoJSON_EmittedWhenRowsExist(t *testing.T) {
 	now := time.Now()
 	cityRows := []db.HexStat{{HexID: "0,0", ResourceType: rtRoadsCity, Area: 100, PctCovered: 50, ComputedAt: now}}
-	bboxRows := []db.HexStat{{HexID: "0,0", ResourceType: rtRoads, Area: 200, PctCovered: 75, ComputedAt: now}}
+	allRows := []db.HexStat{{HexID: "0,0", ResourceType: rtRoads, Area: 200, PctCovered: 75, ComputedAt: now}}
 	entry := hexEntry(t, map[resource.Type][]db.HexStat{
-		rtRoads:       bboxRows,
+		rtRoads:       allRows,
 		rtRoadsCity:   cityRows,
 		rtParkingAll:  nil,
 		rtSidewalkAll: nil,
@@ -272,7 +272,7 @@ func TestBuildHexGeoJSON_EmittedWhenRowsExist(t *testing.T) {
 	feats, _ := fc["features"].([]map[string]any)
 	for _, f := range feats {
 		props := f["properties"].(map[string]any)
-		for _, scope := range []string{"bbox", "city"} {
+		for _, scope := range []string{"all", "city"} {
 			byRes, ok := props[scope].(map[string]map[string]float64)
 			if !ok {
 				continue
@@ -286,10 +286,10 @@ func TestBuildHexGeoJSON_EmittedWhenRowsExist(t *testing.T) {
 	}
 }
 
-// TestBuildHexFeature_NestedScopes pins the per-feature shape: "id" plus "bbox"
-// keyed by bare resource name -> {"area", "pct"}, plus exactly one of "city"
-// (city-scope coverage that DIFFERS from bbox), "city_same" (coverage identical
-// to bbox, elided), or neither (no city-scope coverage at all).
+// TestBuildHexFeature_NestedScopes pins the per-feature shape: "id" plus "all"
+// keyed by bare resource name -> {"area", "share"}, plus exactly one of "city"
+// (city-scope coverage that DIFFERS from all), "city_same" (coverage identical
+// to all, elided), or neither (no city-scope coverage at all).
 //
 // The differing values below are load-bearing: equal ones would take the
 // city_same branch and this test would stop covering the "city" object.
@@ -300,8 +300,8 @@ func TestBuildHexFeature_NestedScopes(t *testing.T) {
 
 	// Hex with both scopes.
 	agg := &hexAgg{
-		bbox: map[string]map[string]float64{"roads": {"area": 200, "pct": 75}},
-		city: map[string]map[string]float64{"roads": {"area": 100, "pct": 50}},
+		all:  map[string]map[string]float64{"roads": {"area": 200, "share": 0.75}},
+		city: map[string]map[string]float64{"roads": {"area": 100, "share": 0.5}},
 	}
 	feat, ok := buildHexFeature("0,0", agg, hexMap, proj, 6)
 	if !ok {
@@ -311,13 +311,13 @@ func TestBuildHexFeature_NestedScopes(t *testing.T) {
 	if props["id"] != "0,0" {
 		t.Errorf("id = %v; want 0,0", props["id"])
 	}
-	bbox := props["bbox"].(map[string]map[string]float64)
-	if bbox["roads"]["area"] != 200 || bbox["roads"]["pct"] != 75 {
-		t.Errorf("bbox.roads = %v; want {area:200, pct:75}", bbox["roads"])
+	all := props["all"].(map[string]map[string]float64)
+	if all["roads"]["area"] != 200 || all["roads"]["share"] != 0.75 {
+		t.Errorf("all.roads = %v; want {area:200, share:0.75}", all["roads"])
 	}
 	city := props["city"].(map[string]map[string]float64)
-	if city["roads"]["area"] != 100 || city["roads"]["pct"] != 50 {
-		t.Errorf("city.roads = %v; want {area:100, pct:50}", city["roads"])
+	if city["roads"]["area"] != 100 || city["roads"]["share"] != 0.5 {
+		t.Errorf("city.roads = %v; want {area:100, share:0.5}", city["roads"])
 	}
 
 	if _, ok := props["city_same"]; ok {
@@ -327,8 +327,8 @@ func TestBuildHexFeature_NestedScopes(t *testing.T) {
 	// Hex with no city coverage omits BOTH keys. That pair-absence — not the
 	// absence of "city" alone — is what tells the client there is no city-scope
 	// data and keeps the scope toggle hidden.
-	bboxOnly := &hexAgg{bbox: map[string]map[string]float64{"roads": {"area": 200, "pct": 75}}}
-	feat2, _ := buildHexFeature("0,0", bboxOnly, hexMap, proj, 6)
+	allOnly := &hexAgg{all: map[string]map[string]float64{"roads": {"area": 200, "share": 0.75}}}
+	feat2, _ := buildHexFeature("0,0", allOnly, hexMap, proj, 6)
 	props2 := feat2["properties"].(map[string]any)
 	if _, ok := props2["city"]; ok {
 		t.Error("city key must be absent when the hex has no city coverage")
@@ -339,7 +339,7 @@ func TestBuildHexFeature_NestedScopes(t *testing.T) {
 }
 
 // TestBuildHexFeature_CitySameElidesDuplicate pins B6b's dedup: city coverage
-// byte-identical to bbox is emitted as "city_same": 1 instead of a duplicate
+// byte-identical to all is emitted as "city_same": 1 instead of a duplicate
 // object. About 70% of features site-wide take this branch, so a regression
 // here is a ~28 MiB size regression — and, if the client half were ever
 // reverted, a silent under-report of the entire city scope rather than an error.
@@ -351,8 +351,8 @@ func TestBuildHexFeature_CitySameElidesDuplicate(t *testing.T) {
 	// Equal values in two independently-allocated maps: the dedup must compare
 	// by value, not by identity.
 	agg := &hexAgg{
-		bbox: map[string]map[string]float64{"roads": {"area": 200, "pct": 75}},
-		city: map[string]map[string]float64{"roads": {"area": 200, "pct": 75}},
+		all:  map[string]map[string]float64{"roads": {"area": 200, "share": 0.75}},
+		city: map[string]map[string]float64{"roads": {"area": 200, "share": 0.75}},
 	}
 	feat, ok := buildHexFeature("0,0", agg, hexMap, proj, 6)
 	if !ok {
@@ -360,7 +360,7 @@ func TestBuildHexFeature_CitySameElidesDuplicate(t *testing.T) {
 	}
 	props := feat["properties"].(map[string]any)
 	if _, ok := props["city"]; ok {
-		t.Error("city object must be elided when it equals bbox")
+		t.Error("city object must be elided when it equals all")
 	}
 	if props["city_same"] != 1 {
 		t.Errorf("city_same = %v; want 1", props["city_same"])
@@ -369,14 +369,14 @@ func TestBuildHexFeature_CitySameElidesDuplicate(t *testing.T) {
 	// A difference in ANY resource, or a differing resource set, must fall back
 	// to emitting the full object — otherwise real city-scope data is lost.
 	for name, city := range map[string]map[string]map[string]float64{
-		"one value differs":  {"roads": {"area": 200, "pct": 74}},
-		"extra resource":     {"roads": {"area": 200, "pct": 75}, "parking": {"area": 1, "pct": 1}},
+		"one value differs":  {"roads": {"area": 200, "share": 0.74}},
+		"extra resource":     {"roads": {"area": 200, "share": 0.75}, "parking": {"area": 1, "share": 0.01}},
 		"missing resource":   {},
-		"different resource": {"parking": {"area": 200, "pct": 75}},
+		"different resource": {"parking": {"area": 200, "share": 0.75}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f, _ := buildHexFeature("0,0", &hexAgg{
-				bbox: map[string]map[string]float64{"roads": {"area": 200, "pct": 75}},
+				all:  map[string]map[string]float64{"roads": {"area": 200, "share": 0.75}},
 				city: city,
 			}, hexMap, proj, 6)
 			p := f["properties"].(map[string]any)
@@ -406,8 +406,8 @@ func TestBuildHexGeoJSON_CarriesFormatVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildHexGeoJSON: %v", err)
 	}
-	if fc["v"] != HexGridFileVersion || HexGridFileVersion != 4 {
-		t.Errorf("v = %v; want 4 — the client refuses to render an unrecognized version", fc["v"])
+	if fc["v"] != HexGridFileVersion || HexGridFileVersion != 5 {
+		t.Errorf("v = %v; want 5 — the client refuses to render an unrecognized version", fc["v"])
 	}
 }
 
@@ -418,7 +418,7 @@ func TestBuildHexGeoJSON_CarriesFormatVersion(t *testing.T) {
 // the lower-precision pass emits fewer significant fractional digits.
 //
 // Regression caught: dropping the decimals plumb-through (forgetting to
-// thread the value into buildHexFeature, or calling the legacy
+// thread the value into buildHexFeature, or calling the default-precision
 // GeometryToGeoJSON inadvertently).
 func TestBuildHexFeature_RespectsCoordinatePrecision(t *testing.T) {
 	proj := geo.NewUTMProjector(-122.45, 37.55)
@@ -427,7 +427,7 @@ func TestBuildHexFeature_RespectsCoordinatePrecision(t *testing.T) {
 	// reprojector actually runs (it's a no-op on already-lon/lat coords).
 	h := offsetSquareHex(t, "0,0", 550000, 4156000, 50)
 	hexMap := map[string]*geo.Hex{"0,0": &h}
-	agg := &hexAgg{bbox: map[string]map[string]float64{"roads": {"area": 200, "pct": 75}}}
+	agg := &hexAgg{all: map[string]map[string]float64{"roads": {"area": 200, "share": 0.75}}}
 
 	maxFrac := func(decimals int) int {
 		feat, ok := buildHexFeature("0,0", agg, hexMap, proj, decimals)
@@ -462,13 +462,13 @@ func TestBuildHexFeature_RespectsCoordinatePrecision(t *testing.T) {
 	}
 }
 
-// TestBuildHexGeoJSON_NoCityRowsOmitsCity: legacy cities without ":city"-suffixed
+// TestBuildHexGeoJSON_NoCityRowsOmitsCity: cities without ":city"-suffixed
 // hex_stats rows still yield a FeatureCollection, but no feature carries a "city"
 // object. The client uses that absence as the "hide the scope toggle" signal.
 func TestBuildHexGeoJSON_NoCityRowsOmitsCity(t *testing.T) {
-	bboxRows := []db.HexStat{{HexID: "0,0", ResourceType: rtRoads, Area: 100, PctCovered: 50}}
+	allRows := []db.HexStat{{HexID: "0,0", ResourceType: rtRoads, Area: 100, PctCovered: 50}}
 	entry := hexEntry(t, map[resource.Type][]db.HexStat{
-		rtRoads:       bboxRows,
+		rtRoads:       allRows,
 		rtParkingAll:  nil,
 		rtSidewalkAll: nil,
 	}, nil)
@@ -479,7 +479,7 @@ func TestBuildHexGeoJSON_NoCityRowsOmitsCity(t *testing.T) {
 		t.Fatalf("BuildHexGeoJSON: %v", err)
 	}
 	if fc == nil {
-		t.Fatal("FC must be non-nil when bbox rows exist")
+		t.Fatal("FC must be non-nil when all rows exist")
 	}
 	feats, _ := fc["features"].([]map[string]any)
 	for _, f := range feats {
@@ -489,10 +489,10 @@ func TestBuildHexGeoJSON_NoCityRowsOmitsCity(t *testing.T) {
 	}
 }
 
-// TestBuildHexCostSummary_NestedByScope: the legacy flat shape
-// (map[resource]{...}) is replaced by map[scope]map[resource]{...}. Both
-// "city" and "bbox" keys appear when BboxBaseline is set on the forecast
-// export (the marker that compute produced both scopes).
+// TestBuildHexCostSummary_NestedByScope: the summary is
+// map[scope]map[resource]{...}. Both "city" and "all" keys appear when
+// AllBaseline is set on the forecast export (the marker that compute produced
+// both scopes).
 func TestBuildHexCostSummary_NestedByScope(t *testing.T) {
 	now := time.Now()
 	results := map[resource.Type]db.ComputeResult{
@@ -501,13 +501,13 @@ func TestBuildHexCostSummary_NestedByScope(t *testing.T) {
 	}
 	entry := hexEntry(t, nil, results)
 
-	bboxBaseline := forecast.ScenarioResult{
+	allBaseline := forecast.ScenarioResult{
 		Years: []forecast.ScenarioYear{{AnnualNeed: 50000}},
 	}
 	forecasts := []ForecastExport{{
 		ResourceType: "roads",
 		Baseline:     forecast.ScenarioResult{Years: []forecast.ScenarioYear{{AnnualNeed: 25000}}},
-		BboxBaseline: &bboxBaseline,
+		AllBaseline:  &allBaseline,
 	}}
 
 	out := BuildHexCostSummary(t.Context(), entry, forecasts)
@@ -516,28 +516,28 @@ func TestBuildHexCostSummary_NestedByScope(t *testing.T) {
 	if !ok {
 		t.Fatalf("missing 'city' key in %v", out)
 	}
-	bbox, ok := out["bbox"]
+	all, ok := out["all"]
 	if !ok {
-		t.Fatalf("missing 'bbox' key in %v", out)
+		t.Fatalf("missing 'all' key in %v", out)
 	}
-	if city["roads"]["year1_cost"] != 25000 {
-		t.Errorf("city roads year1_cost = %v; want 25000 (from Baseline)", city["roads"]["year1_cost"])
+	if city["roads"]["year1_need"] != 25000 {
+		t.Errorf("city roads year1_need = %v; want 25000 (from Baseline)", city["roads"]["year1_need"])
 	}
 	if city["roads"]["total_area"] != 1000 {
 		t.Errorf("city roads total_area = %v; want 1000 (city-scope row)", city["roads"]["total_area"])
 	}
-	if bbox["roads"]["year1_cost"] != 50000 {
-		t.Errorf("bbox roads year1_cost = %v; want 50000 (from BboxBaseline)", bbox["roads"]["year1_cost"])
+	if all["roads"]["year1_need"] != 50000 {
+		t.Errorf("all roads year1_need = %v; want 50000 (from AllBaseline)", all["roads"]["year1_need"])
 	}
-	if bbox["roads"]["total_area"] != 2000 {
-		t.Errorf("bbox roads total_area = %v; want 2000 (bbox-scope row)", bbox["roads"]["total_area"])
+	if all["roads"]["total_area"] != 2000 {
+		t.Errorf("all roads total_area = %v; want 2000 (all-scope row)", all["roads"]["total_area"])
 	}
 }
 
-// TestBuildHexCostSummary_BboxOnlyWhenNoCity: when BboxBaseline is nil
-// (legacy single-scope compute), the output has only the "bbox" key and
-// Baseline carries the bbox numbers.
-func TestBuildHexCostSummary_BboxOnlyWhenNoCity(t *testing.T) {
+// TestBuildHexCostSummary_AllOnlyWhenNoCity: when AllBaseline is nil
+// (single-scope compute), the output has only the "all" key and
+// Baseline carries the all-scope numbers.
+func TestBuildHexCostSummary_AllOnlyWhenNoCity(t *testing.T) {
 	results := map[resource.Type]db.ComputeResult{
 		rtRoads: {ResourceType: rtRoads, TotalArea: 2000},
 	}
@@ -546,23 +546,22 @@ func TestBuildHexCostSummary_BboxOnlyWhenNoCity(t *testing.T) {
 	forecasts := []ForecastExport{{
 		ResourceType: "roads",
 		Baseline:     forecast.ScenarioResult{Years: []forecast.ScenarioYear{{AnnualNeed: 50000}}},
-		// BboxBaseline left nil → no city scope.
+		// AllBaseline left nil → no city scope.
 	}}
 
 	out := BuildHexCostSummary(t.Context(), entry, forecasts)
 
 	if _, ok := out["city"]; ok {
-		t.Errorf("'city' key must be absent when BboxBaseline is nil; got %v", out)
+		t.Errorf("'city' key must be absent when AllBaseline is nil; got %v", out)
 	}
-	if out["bbox"]["roads"]["year1_cost"] != 50000 {
-		t.Errorf("bbox roads year1_cost = %v; want 50000", out["bbox"]["roads"]["year1_cost"])
+	if out["all"]["roads"]["year1_need"] != 50000 {
+		t.Errorf("all roads year1_need = %v; want 50000", out["all"]["roads"]["year1_need"])
 	}
 }
 
-// TestBuildScenariosData_RenamedKeys: the legacy "all" key (which actually
-// held the city-scope primary) is renamed to "city". When no :city compute
-// rows exist, the only scope key is "bbox".
-func TestBuildScenariosData_RenamedKeys(t *testing.T) {
+// TestBuildScenariosData_ScopeKeys: with :city compute rows, scenarios.json
+// carries both the "city" and "all" scope keys.
+func TestBuildScenariosData_ScopeKeys(t *testing.T) {
 	results := map[resource.Type]db.ComputeResult{
 		rtRoads:     {ResourceType: rtRoads, TotalArea: 2000, FeatureCount: 100},
 		rtRoadsCity: {ResourceType: rtRoadsCity, TotalArea: 1000, FeatureCount: 60},
@@ -574,20 +573,17 @@ func TestBuildScenariosData_RenamedKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildScenariosData: %v", err)
 	}
-	if _, ok := out["all"]; ok {
-		t.Errorf("legacy 'all' key still present; got %v", out)
-	}
 	if _, ok := out["city"]; !ok {
 		t.Errorf("'city' key missing; got %v", out)
 	}
-	if _, ok := out["bbox"]; !ok {
-		t.Errorf("'bbox' key missing when city data exists; got %v", out)
+	if _, ok := out["all"]; !ok {
+		t.Errorf("'all' key missing when city data exists; got %v", out)
 	}
 }
 
-// TestBuildScenariosData_BboxOnlyKey: when only bbox compute rows exist,
-// the output has just the "bbox" key — no "city", no legacy "all".
-func TestBuildScenariosData_BboxOnlyKey(t *testing.T) {
+// TestBuildScenariosData_AllOnlyKey: when only all-scope compute rows exist,
+// the output has just the "all" key — no "city".
+func TestBuildScenariosData_AllOnlyKey(t *testing.T) {
 	results := map[resource.Type]db.ComputeResult{
 		rtRoads: {ResourceType: rtRoads, TotalArea: 2000, FeatureCount: 100},
 	}
@@ -598,14 +594,11 @@ func TestBuildScenariosData_BboxOnlyKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildScenariosData: %v", err)
 	}
-	if _, ok := out["all"]; ok {
-		t.Errorf("legacy 'all' key still present; got %v", out)
-	}
 	if _, ok := out["city"]; ok {
 		t.Errorf("'city' key must be absent when no :city rows; got %v", out)
 	}
-	if _, ok := out["bbox"]; !ok {
-		t.Errorf("'bbox' key missing; got %v", out)
+	if _, ok := out["all"]; !ok {
+		t.Errorf("'all' key missing; got %v", out)
 	}
 }
 
@@ -753,7 +746,7 @@ func TestBuildHexGeoJSON_DefaultCoordinatePrecision(t *testing.T) {
 	proj := geo.NewUTMProjector(-122.45, 37.55)
 	h := offsetSquareHex(t, "0,0", 550000, 4156000, 50)
 	hexMap := map[string]*geo.Hex{"0,0": &h}
-	agg := &hexAgg{bbox: map[string]map[string]float64{"roads": {"area": 200, "pct": 75}}}
+	agg := &hexAgg{all: map[string]map[string]float64{"roads": {"area": 200, "share": 0.75}}}
 
 	feat, ok := buildHexFeature("0,0", agg, hexMap, proj, decimals)
 	if !ok {
@@ -787,7 +780,7 @@ func TestBuildHexGeoJSON_DefaultCoordinatePrecision(t *testing.T) {
 	}
 }
 
-// TestBuildHexGeoJSON_ParkingSpaces pins the v3 "spaces" key: a parking hex
+// TestBuildHexGeoJSON_ParkingSpaces pins the "spaces" key: a parking hex
 // carries its apportioned spaces (stored in hex_metrics, one key per scope)
 // rounded to a whole count, a sub-space sliver and every non-parking resource
 // carry no key, and — because both scopes round through the same function — an
@@ -821,17 +814,17 @@ func TestBuildHexGeoJSON_ParkingSpaces(t *testing.T) {
 		t.Errorf("listed metrics %v, want only the parking space keys %v", listed, want)
 	}
 	a := aggs["0,0"]
-	if got := a.bbox["parking"]["spaces"]; got != 12 {
+	if got := a.all["parking"]["spaces"]; got != 12 {
 		t.Errorf("parking spaces = %v; want 12 (rounded)", got)
 	}
-	if _, ok := a.bbox["roads"]["spaces"]; ok {
+	if _, ok := a.all["roads"]["spaces"]; ok {
 		t.Error("roads must carry no spaces key")
 	}
-	if _, ok := aggs["0,1"].bbox["parking"]["spaces"]; ok {
+	if _, ok := aggs["0,1"].all["parking"]["spaces"]; ok {
 		t.Error("a sub-space sliver (0.3) must carry no spaces key")
 	}
-	if !sameCoverage(a.city["parking"], a.bbox["parking"]) {
-		t.Errorf("identical parking scopes must still compare equal with spaces present: city=%v bbox=%v", a.city["parking"], a.bbox["parking"])
+	if !sameCoverage(a.city["parking"], a.all["parking"]) {
+		t.Errorf("identical parking scopes must still compare equal with spaces present: city=%v all=%v", a.city["parking"], a.all["parking"])
 	}
 }
 
@@ -846,7 +839,7 @@ func TestParkingSpaceKeysUnregistered(t *testing.T) {
 	}
 }
 
-// TestBuildHexGeoJSON_EmitsEveryGridHex pins hexgrid v4: every hex of the
+// TestBuildHexGeoJSON_EmitsEveryGridHex pins that every hex of the
 // clipped grid is a feature, and a hex without pavement rows carries only its
 // id (geometry for stored metrics such as population, nothing for the
 // pavement colorings).
@@ -876,14 +869,14 @@ func TestBuildHexGeoJSON_EmitsEveryGridHex(t *testing.T) {
 	}
 	for _, f := range feats {
 		props := f["properties"].(map[string]any)
-		_, hasBBox := props["bbox"]
+		_, hasAll := props["all"]
 		if id := props["id"]; id == paved {
-			if !hasBBox {
+			if !hasAll {
 				t.Errorf("paved hex %s lost its coverage", id)
 			}
 			continue
 		}
-		if hasBBox || len(props) != 1 {
+		if hasAll || len(props) != 1 {
 			t.Errorf("pavement-free hex must carry only its id, got %v", props)
 		}
 	}

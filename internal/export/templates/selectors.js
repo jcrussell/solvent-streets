@@ -154,8 +154,8 @@ window.PvmtSelectors = (function () {
      * server-side: one <optgroup> per default-dimension value in dims[0] order
      * (a multi-tag city appears under each), then untagged cities as bare
      * <option>s, cities sorted case-insensitively by name within each. Options
-     * carry data-bbox/lon/lat when the city has them so the index page's
-     * selectCity keeps reading them from the DOM. The previous selection (or
+     * carry data-bbox when the city has one, which the index page's selectCity
+     * reads from the DOM. The previous selection (or
      * `prefer`) is kept when it survives the filter, otherwise the first visible
      * city is selected; with no match the select holds one disabled "No cities
      * match" option. Returns the selected slug, or '' when nothing matches.
@@ -186,8 +186,6 @@ window.PvmtSelectors = (function () {
             o.value = c.slug;
             o.textContent = c.name;
             if (c.bbox) o.dataset.bbox = c.bbox.join(',');
-            if (c.lon !== undefined) o.dataset.lon = String(c.lon);
-            if (c.lat !== undefined) o.dataset.lat = String(c.lat);
             return o;
         }
         const groupDim = dims && dims.length > 0 && dims[0].name === DEFAULT_DIM ? dims[0] : null;

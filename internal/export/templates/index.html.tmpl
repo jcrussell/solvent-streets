@@ -662,7 +662,7 @@
         <a class="nav-link" href="{{if .IsLiveServer}}/play{{else}}play.html{{end}}" title="Play the Pavement Manager game">Play &#9656;</a>
         {{if .Cities}}
         <select id="city-select" style="margin-left:auto;margin-right:16px;align-self:center;background:var(--header-bg);color:var(--header-fg);border:1px solid var(--header-muted);border-radius:4px;padding:4px 8px;font-size:14px;cursor:pointer;">
-            {{range .CityGroups}}{{if .Tag}}<optgroup label="{{.Label}}">{{range .Cities}}<option value="{{.Slug}}" data-bbox="{{index .BBox 0}},{{index .BBox 1}},{{index .BBox 2}},{{index .BBox 3}}" data-lon="{{.CenterLon}}" data-lat="{{.CenterLat}}">{{.Name}}</option>{{end}}</optgroup>{{else}}{{range .Cities}}<option value="{{.Slug}}" data-bbox="{{index .BBox 0}},{{index .BBox 1}},{{index .BBox 2}},{{index .BBox 3}}" data-lon="{{.CenterLon}}" data-lat="{{.CenterLat}}">{{.Name}}</option>{{end}}{{end}}
+            {{range .CityGroups}}{{if .Tag}}<optgroup label="{{.Label}}">{{range .Cities}}<option value="{{.Slug}}" data-bbox="{{index .BBox 0}},{{index .BBox 1}},{{index .BBox 2}},{{index .BBox 3}}">{{.Name}}</option>{{end}}</optgroup>{{else}}{{range .Cities}}<option value="{{.Slug}}" data-bbox="{{index .BBox 0}},{{index .BBox 1}},{{index .BBox 2}},{{index .BBox 3}}">{{.Name}}</option>{{end}}{{end}}
             {{end}}
         </select>
         {{end}}
@@ -684,7 +684,7 @@
             <span class="gear-label">Roads</span>
             <div class="jurisdiction-toggle" id="scope-toggle">
                 <button class="active" data-scope="city">City Only</button>
-                <button data-scope="bbox">All</button>
+                <button data-scope="all">All</button>
             </div>
         </div>
         {{if .IsLiveServer}}
@@ -726,13 +726,13 @@
         </div>
         <div id="legend">
             <!-- "Color by": every registry metric available for the city — the
-                 derived pavement colorings (PVMT_CONFIG.hexMetrics) plus the
+                 derived pavement colorings (PVMT_CONFIG.hex_metrics) plus the
                  stored ones in hex-metrics.json (app.js populates #hex-metric and
                  redraws the bar + labels from the metric's scale via renderLegend). -->
             <div class="legend-row">
                 <label class="legend-title" for="hex-metric">Color by</label>
                 <select id="hex-metric" aria-label="Color hexes by" autocomplete="off">
-                    <option value="coverage_pct">Coverage %</option>
+                    <option value="coverage_share">Coverage %</option>
                 </select>
             </div>
             <div class="legend-bar"></div>

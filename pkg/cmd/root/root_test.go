@@ -4,15 +4,24 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"reflect"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
+	"github.com/jcrussell/solvent-streets/internal/goldentest"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
@@ -49,9 +58,9 @@ func TestFlagParseErrorWrappedAsFlagError(t *testing.T) {
 }
 
 // TestUnitsFlag_Override asserts that --units on the root flips f.UnitSystem
-// to the imperial reading, overriding the config default. Regression guard:
-// previously wireUnitSystem ran from PersistentPreRunE, but subcommand Options
-// snapshot f.UnitSystem at NewCmdXxx time — so the flag was silently ignored.
+// to the imperial reading, overriding the config default. Subcommand Options
+// snapshot f.UnitSystem at NewCmdXxx time, so wiring the flag from
+// PersistentPreRunE would silently ignore it.
 func TestUnitsFlag_Override(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	f := &cmdutil.Factory{
@@ -688,5 +697,99 @@ func TestPersistentPreRunE_SkipsExemptCommands(t *testing.T) {
 	}
 	if calls != 0 {
 		t.Fatalf("middleware ran %d time(s) for exempt commands; expected 0", calls)
+	}
+}
+
+// TestJSONFields_SnakeCase walks the whole command tree and checks every
+// --json field a command advertises is a snake_case key.
+func TestJSONFields_SnakeCase(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	f := &cmdutil.Factory{
+		IOStreams: ios,
+		LogLevel:  new(slog.LevelVar),
+		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Config: func() (*config.Config, error) {
+			return &config.Config{Display: config.DisplayConfig{Units: "metric"}}, nil
+		},
+	}
+	snake := regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+	annotated := 0
+	var walk func(c *cobra.Command)
+	walk = func(c *cobra.Command) {
+		if fields, ok := c.Annotations[cmdutil.JSONFieldsAnnotation]; ok {
+			annotated++
+			for field := range strings.SplitSeq(fields, ",") {
+				if !snake.MatchString(field) || strings.HasPrefix(field, "pct_") {
+					t.Errorf("%s: --json field %q is not a snake_case key (proportions are *_share fractions)", c.CommandPath(), field)
+				}
+			}
+		}
+		for _, sub := range c.Commands() {
+			walk(sub)
+		}
+	}
+	walk(NewCmdRoot(f))
+	if annotated == 0 {
+		t.Fatal("no command records its --json fields; the walk checked nothing")
+	}
+}
+
+// TestJSONTagsSnakeCase parses every non-test Go file pvmt owns and checks
+// each struct field's json tag name follows the JSON conventions in
+// docs/architecture.md: snake_case, and no pct_ keys (proportions are 0..1
+// *_share fractions). Upstream formats (internal/ingest) and the on-disk HTTP
+// cache (internal/cache) keep their own names.
+func TestJSONTagsSnakeCase(t *testing.T) {
+	root := goldentest.RepoRoot(t)
+	exempt := []string{filepath.Join("internal", "ingest"), filepath.Join("internal", "cache")}
+	snake := regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+	checked := 0
+	fset := token.NewFileSet()
+	for _, top := range []string{"cmd", "internal", "pkg"} {
+		err := filepath.WalkDir(filepath.Join(root, top), func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			rel, _ := filepath.Rel(root, path)
+			if d.IsDir() {
+				if slices.Contains(exempt, rel) || d.Name() == "testdata" || d.Name() == "node_modules" {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+			if err != nil {
+				return err
+			}
+			ast.Inspect(file, func(n ast.Node) bool {
+				field, ok := n.(*ast.Field)
+				if !ok || field.Tag == nil {
+					return true
+				}
+				tag, err := strconv.Unquote(field.Tag.Value)
+				if err != nil {
+					return true
+				}
+				name, _, _ := strings.Cut(reflect.StructTag(tag).Get("json"), ",")
+				if name == "" || name == "-" {
+					return true
+				}
+				checked++
+				if !snake.MatchString(name) || strings.HasPrefix(name, "pct_") {
+					t.Errorf("%s: json tag %q is not a snake_case key (proportions are *_share fractions)", fset.Position(field.Pos()), name)
+				}
+				return true
+			})
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no json tags found; the walk checked nothing")
 	}
 }

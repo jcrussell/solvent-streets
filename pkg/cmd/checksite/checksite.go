@@ -74,8 +74,8 @@ The following checks run over the given directory (default "site"):
     on its own. The mean and tree total ride along as context. Shared
     root assets (*.wasm, *.js, index.html) are a fixed cost and carry no
     budget. Also available as 'make site-report'.
-  - REASONABLENESS: every meta.json has a plausible pct_paved (a value
-    between 0 and 1%% signals the near-zero-area bug), and every
+  - REASONABLENESS: every meta.json has a plausible paved_share (a value
+    between 0 and 0.01 signals the near-zero-area bug), and every
     forecast.json baseline has monotonically falling PCI and non-decreasing
     deferred backlog year over year.
   - CONSISTENCY: on a nested multi-export tree, a city slug shared across

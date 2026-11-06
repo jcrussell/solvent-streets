@@ -1,8 +1,8 @@
 // Generic "Color by" (solvent-streets-59hj): every hex coloring is a registry
 // metric. The pavement colorings are DERIVED specs shipped in
-// PVMT_CONFIG.hexMetrics (rendered from the real Go registry by the harness)
+// PVMT_CONFIG.hex_metrics (rendered from the real Go registry by the harness)
 // and computed client-side over the toggled resources; stored metrics come
-// from hex-metrics.json; hexgrid v4 carries geometry-only hexes so stored
+// from hex-metrics.json; hexgrid carries geometry-only hexes so stored
 // metrics can paint hexes without pavement.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -14,7 +14,7 @@ const plain = (v) => JSON.parse(JSON.stringify(v));
 function hexFC(features) {
   return {
     type: 'FeatureCollection',
-    v: 4,
+    v: 5,
     features: features.map((props, i) => ({
       type: 'Feature',
       geometry: { type: 'Polygon', coordinates: [[[0, 0], [0, 1], [1, 1], [0, 0]]] },
@@ -24,14 +24,14 @@ function hexFC(features) {
 }
 
 const grid = hexFC([
-  { bbox: { roads: { area: 1000, pct: 40 }, parking: { area: 3000, pct: 70, spaces: 120 } }, city_same: 1 },
-  { bbox: { roads: { area: 500, pct: 20 } }, city_same: 1 },
-  {}, // v4: a grid hex with no pavement rows
+  { all: { roads: { area: 1000, share: 0.4 }, parking: { area: 3000, share: 0.7, spaces: 120 } }, city_same: 1 },
+  { all: { roads: { area: 500, share: 0.2 } }, city_same: 1 },
+  {}, // a grid hex with no pavement rows
 ]);
 
 const costSummary = {
-  bbox: { roads: { total_area: 1500, year1_cost: 15000 }, parking: { total_area: 3000, year1_cost: 6000 } },
-  city: { roads: { total_area: 1500, year1_cost: 15000 }, parking: { total_area: 3000, year1_cost: 6000 } },
+  all: { roads: { total_area: 1500, year1_need: 15000 }, parking: { total_area: 3000, year1_need: 6000 } },
+  city: { roads: { total_area: 1500, year1_need: 15000 }, parking: { total_area: 3000, year1_need: 6000 } },
 };
 
 const population = {
@@ -54,8 +54,8 @@ const byId = (fc) => Object.fromEntries(plain(fc).features.map((f) => [f.propert
 test('the derived pavement colorings come from the registry and are all offered when their inputs exist', async () => {
   const { $$, get } = await loadGrid();
   const opts = $$('#hex-metric option').map((o) => o.value);
-  assert.deepEqual(opts, ['coverage_pct', 'est_cost_usd', 'parking_spaces', 'paved_area_m2']);
-  assert.equal(get('hexMetric'), 'coverage_pct');
+  assert.deepEqual(opts, ['coverage_share', 'est_cost_usd', 'parking_spaces', 'paved_area_m2']);
+  assert.equal(get('hexMetric'), 'coverage_share');
 });
 
 test('a derived sum paints its registry bands from the blended toggled resources', async () => {
@@ -73,8 +73,8 @@ test('a derived sum paints its registry bands from the blended toggled resources
   // roads: 1000/1500 × 15000 + parking: 3000/3000 × 6000
   assert.equal(cost['hex:0:0'].metric_v, 16000);
 
-  win.selectHexMetric('coverage_pct');
-  assert.equal(byId(win.buildBlendedHexFC())['hex:0:0'].metric_v, 100, 'coverage is capped at 100');
+  win.selectHexMetric('coverage_share');
+  assert.equal(byId(win.buildBlendedHexFC())['hex:0:0'].metric_v, 1, 'coverage is capped at a share of 1');
 });
 
 test('legend labels follow the metric format', async () => {
@@ -117,22 +117,22 @@ test('untoggling the only resource with spaces falls back from Parking spaces', 
   const cb = $('#toggles input[data-type="parking"]');
   cb.checked = false;
   cb.dispatchEvent(new win.Event('change'));
-  assert.equal(get('hexMetric'), 'coverage_pct');
+  assert.equal(get('hexMetric'), 'coverage_share');
   assert.ok(!$$('#hex-metric option').map((o) => o.value).includes('parking_spaces'));
 });
 
-test('a stored metric paints pavement-free v4 hexes too', async () => {
-  const { win } = await loadGrid({ 'hex-metrics.json': { v: 1, metrics: { population } } });
+test('a stored metric paints pavement-free hexes too', async () => {
+  const { win } = await loadGrid({ 'hex-metrics.json': { v: 2, metrics: { population } } });
   win.selectHexMetric('population');
   const fc = byId(win.buildBlendedHexFC());
   assert.equal(fc['hex:0:2'].metric_v, 80, 'the geometry-only hex carries the stored value');
-  assert.equal(fc['hex:0:2'].pct_covered, 0);
+  assert.equal(fc['hex:0:2'].share, 0);
 });
 
 // The population ratios are the REAL registry specs (internal/population),
-// rendered into PVMT_CONFIG.hexMetrics by the harness: min_den is 10.
+// rendered into PVMT_CONFIG.hex_metrics by the harness: min_den is 10.
 test('a ratio divides a blended numerator by a stored denominator above min_den', async () => {
-  const h = await loadGrid({ 'hex-metrics.json': { v: 1, metrics: { population } } });
+  const h = await loadGrid({ 'hex-metrics.json': { v: 2, metrics: { population } } });
   h.win.selectHexMetric('road_m2_per_resident');
   assert.equal(h.get('hexMetric'), 'road_m2_per_resident');
   const fc = byId(h.win.buildBlendedHexFC());
@@ -143,8 +143,8 @@ test('a ratio divides a blended numerator by a stored denominator above min_den'
 
 test('metric cards lead with a total for additive counts and never list hexes reached', async () => {
   const meta = { ...metaJSON, metrics: {
-    population: { label: 'Population', unit: '', format: 'int', hexes: 3, min: 2, median: 50, max: 80, total: 132 },
-    population_per_km2: { label: 'Population density (per km²)', unit: '1/km2', format: 'int', hexes: 3, min: 70, median: 1900, max: 3000 },
+    population: { label: 'Population', unit: '', format: 'int', hex_count: 3, min: 2, median: 50, max: 80, total: 132 },
+    population_per_km2: { label: 'Population density (per km²)', unit: '1/km2', format: 'int', hex_count: 3, min: 70, median: 1900, max: 3000 },
   } };
   const h = await loadGrid({ 'meta.json': meta });
   const card = (title) => h.$$('#stats .metric-card').find((c) => c.querySelector('h3').textContent === title);
@@ -160,7 +160,7 @@ test('a ratio is not offered without its stored denominator', async () => {
 });
 
 test('the per-resident card is a city-wide sum over sum and follows the toggles', async () => {
-  const h = await loadGrid({ 'hex-metrics.json': { v: 1, metrics: { population } } });
+  const h = await loadGrid({ 'hex-metrics.json': { v: 2, metrics: { population } } });
   const rows = () => Object.fromEntries(h.$$('#stats .ratio-card .stat-row').map((r) =>
     [r.querySelector('.stat-label').textContent, r.querySelector('.stat-value').textContent]));
   // 4500 m² paved / 132 residents (34.1 m², shown in sq ft); $21,000 year-1 need / 132 residents.

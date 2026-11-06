@@ -91,8 +91,8 @@ func TestRegisterLookupAll(t *testing.T) {
 func TestSpecValidate_Derived(t *testing.T) {
 	ramp := validSpec("ramp_pct")
 	ramp.Format = FormatPercent
-	ramp.Scale = Scale{Kind: KindCoverage, Transform: TransformLinear, Mode: ModeRamp, Bands: []float64{0, 100}, Ticks: []float64{0, 50, 100}}
-	ramp.Derive = &Derivation{Op: OpSum, Prop: PropPct, Max: 100}
+	ramp.Scale = Scale{Kind: KindCoverage, Transform: TransformLinear, Mode: ModeRamp, Bands: []float64{0, 1}, Ticks: []float64{0, 0.5, 1}}
+	ramp.Derive = &Derivation{Op: OpSum, Prop: PropShare, Max: 100}
 	if err := ramp.Validate(); err != nil {
 		t.Errorf("valid ramp sum rejected: %v", err)
 	}
@@ -119,20 +119,20 @@ func TestBuiltins(t *testing.T) {
 		}
 	}
 	cov, _ := Lookup(KeyCoverage)
-	if cov.Scale.Mode != ModeRamp || cov.Derive.Max != 100 {
-		t.Errorf("coverage must be a ramp capped at 100: %+v", cov)
+	if cov.Scale.Mode != ModeRamp || cov.Derive.Max != 1 {
+		t.Errorf("coverage must be a ramp capped at a share of 1: %+v", cov)
 	}
-	if got, want := cov.Scale.Bands, []float64{0, 10, 25, 50, 75, 100}; !slices.Equal(got, want) {
+	if got, want := cov.Scale.Bands, []float64{0, 0.1, 0.25, 0.5, 0.75, 1}; !slices.Equal(got, want) {
 		t.Errorf("coverage stops = %v, want %v", got, want)
 	}
-	if got, want := cov.Scale.Ticks, []float64{0, 25, 50, 75, 100}; !slices.Equal(got, want) {
+	if got, want := cov.Scale.Ticks, []float64{0, 0.25, 0.5, 0.75, 1}; !slices.Equal(got, want) {
 		t.Errorf("coverage ticks = %v, want %v", got, want)
 	}
 }
 
-// TestScaleJSON_BandsUnchanged: Mode and Ticks are omitempty, so a bands
-// scale serializes byte-identically to the v1 hex-metrics.json shape.
-func TestScaleJSON_BandsUnchanged(t *testing.T) {
+// TestScaleJSON_BandsOnly: Mode and Ticks are omitempty, so a bands scale
+// serializes as kind, transform and bands only.
+func TestScaleJSON_BandsOnly(t *testing.T) {
 	b, err := json.Marshal(Scale{Kind: KindSequential, Transform: TransformLinear, Bands: []float64{1, 2}})
 	if err != nil {
 		t.Fatal(err)

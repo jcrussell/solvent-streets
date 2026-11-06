@@ -134,8 +134,8 @@ func gameTreatBatch(_ js.Value, args []js.Value) any {
 // gameProjectInsolvency computes the macro insolvency projection for a candidate
 // config WITHOUT creating a game (no board), for the pregame budget preview. It
 // takes a config JSON (only cohorts/tiers/horizon/budget matter; hexes may be
-// omitted) and returns {"insolvency_year": N|null} — null meaning solvent
-// through the horizon, mirroring the old HUD's insolvency_year == null convention.
+// omitted) and returns {"insolvency_year": N}, or {} when the network stays
+// solvent through the horizon.
 func gameProjectInsolvency(_ js.Value, args []js.Value) any {
 	if len(args) < 1 || args[0].Type() != js.TypeString {
 		return errJSON("gameProjectInsolvency: missing config JSON argument")
@@ -145,7 +145,7 @@ func gameProjectInsolvency(_ js.Value, args []js.Value) any {
 		return errJSON(err.Error())
 	}
 	year, ok := game.ProjectInsolvency(cfg)
-	out := map[string]any{"insolvency_year": nil}
+	out := map[string]any{}
 	if ok {
 		out["insolvency_year"] = year
 	}

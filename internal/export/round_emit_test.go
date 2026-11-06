@@ -11,7 +11,7 @@ import (
 
 func emitTestForecasts() []ForecastExport {
 	gap := 1.23456789012345
-	bbox := forecast.ScenarioResult{
+	all := forecast.ScenarioResult{
 		Years: []forecast.ScenarioYear{{Year: 1, PCI: 61.234567890123, Area: 704.5835576057434, AnnualNeed: 1234567.8901234567}},
 	}
 	return []ForecastExport{{
@@ -24,8 +24,8 @@ func emitTestForecasts() []ForecastExport {
 				{Classification: "residential", EndPCI: 42.987654321, Area: 704.5835576057434, DecayRate: 0.04523456789, TotalSpend: 1234567.8901234567, TotalDeficit: 246913.57802469135},
 			},
 		},
-		BboxBaseline:    &bbox,
-		Scenarios:       []forecast.ScenarioResult{bbox},
+		AllBaseline:     &all,
+		Scenarios:       []forecast.ScenarioResult{all},
 		BreakEvenBudget: 18234567.891234567,
 		CurrentBudget:   15000000.000000002,
 		FundingGap:      &gap,
@@ -111,11 +111,11 @@ func TestRoundForecastsForEmission_RoundsToDisplayPrecision(t *testing.T) {
 		}
 	}
 
-	// BboxBaseline and Scenarios must be rounded too — they are the same shape
+	// AllBaseline and Scenarios must be rounded too — they are the same shape
 	// and the same size cost, and an unrounded one would look identical on the
 	// page while shipping the full float.
-	if got.BboxBaseline.Years[0].AnnualNeed != 1234568 {
-		t.Errorf("bbox_baseline not rounded: %v", got.BboxBaseline.Years[0].AnnualNeed)
+	if got.AllBaseline.Years[0].AnnualNeed != 1234568 {
+		t.Errorf("all_baseline not rounded: %v", got.AllBaseline.Years[0].AnnualNeed)
 	}
 	if got.Scenarios[0].Years[0].AnnualNeed != 1234568 {
 		t.Errorf("scenarios not rounded: %v", got.Scenarios[0].Years[0].AnnualNeed)
@@ -144,11 +144,11 @@ func TestRoundForEmission_ShrinksSerializedBytes(t *testing.T) {
 }
 
 // TestRoundScenariosForEmission_PassesNonScenarioKeysThrough: the payload is a
-// map[string]any holding scenario slices under "city"/"bbox" alongside a
+// map[string]any holding scenario slices under "city"/"all" alongside a
 // "summary" map of counts. Only the slices are rounded; anything else must
 // survive untouched, or the summary silently loses fields.
 func TestRoundScenariosForEmission_PassesNonScenarioKeysThrough(t *testing.T) {
-	summary := map[string]any{"city_count": 3, "city_pct": 0.87654321}
+	summary := map[string]any{"city_feature_count": 3, "city_area_share": 0.87654321}
 	in := map[string]any{
 		"summary": summary,
 		"city":    []forecast.ScenarioResult{{Years: []forecast.ScenarioYear{{Year: 1, AnnualNeed: 1234567.8901234567}}}},
@@ -160,7 +160,7 @@ func TestRoundScenariosForEmission_PassesNonScenarioKeysThrough(t *testing.T) {
 	if !ok {
 		t.Fatalf("summary = %T, want map[string]any", got["summary"])
 	}
-	if gotSummary["city_count"] != 3 || gotSummary["city_pct"] != 0.87654321 {
+	if gotSummary["city_feature_count"] != 3 || gotSummary["city_area_share"] != 0.87654321 {
 		t.Errorf("summary altered: %v", gotSummary)
 	}
 	city, ok := got["city"].([]forecast.ScenarioResult)

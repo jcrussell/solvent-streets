@@ -246,11 +246,10 @@ func (entry CityEntry) Info(ctx context.Context) (CityInfo, error) {
 		return CityInfo{}, err
 	}
 	return CityInfo{
-		Slug:      entry.Slug,
-		Name:      entry.City.Name,
-		BBox:      bbox,
-		CenterLon: lon,
-		CenterLat: lat,
+		Slug:   entry.Slug,
+		Name:   entry.City.Name,
+		BBox:   geoJSONBBox(bbox),
+		Center: [2]float64{lon, lat},
 		// EffectiveTags adds the derived state:XX tag; this is the one place
 		// the derivation is applied, so cities.json, PVMT_CONFIG.cities, the
 		// selector groups and /api/cities all see the same tags.

@@ -17,8 +17,8 @@ import (
 // TestRunCombined_DedupesCrossResourceOverlap exercises the cx2 fix end-to-end:
 // when a road buffer and a parking polygon overlap, the "combined" row's area
 // is strictly less than the sum of per-resource areas computed against the same
-// hex grid. Pre-fix, BuildMeta summed per-resource rows directly and inflated
-// pct_paved by the overlap.
+// hex grid; summing per-resource rows instead would inflate paved_share by
+// the overlap.
 func TestRunCombined_DedupesCrossResourceOverlap(t *testing.T) {
 	ctx := context.Background()
 

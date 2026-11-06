@@ -108,10 +108,10 @@ type Options struct {
 
 type computeRow struct {
 	City       string  `json:"city"`
-	Blocks     int     `json:"blocks"`
-	Hexes      int     `json:"hexes"`
+	BlockCount int     `json:"block_count"`
+	HexCount   int     `json:"hex_count"`
 	Population float64 `json:"population"`
-	RunID      int64   `json:"runId,omitempty"`
+	RunID      int64   `json:"run_id,omitempty"`
 }
 
 var _ cmdutil.RowExporter = computeRow{}
@@ -122,20 +122,22 @@ func (r computeRow) ExportData(fields []string) map[string]any {
 		switch f {
 		case "city":
 			out[f] = r.City
-		case "blocks":
-			out[f] = r.Blocks
-		case "hexes":
-			out[f] = r.Hexes
+		case "block_count":
+			out[f] = r.BlockCount
+		case "hex_count":
+			out[f] = r.HexCount
 		case "population":
 			out[f] = r.Population
-		case "runId":
-			out[f] = r.RunID
+		case "run_id":
+			if r.RunID != 0 {
+				out[f] = r.RunID
+			}
 		}
 	}
 	return out
 }
 
-var computeFields = []string{"city", "blocks", "hexes", "population", "runId"}
+var computeFields = []string{"city", "block_count", "hex_count", "population", "run_id"}
 
 // NewCmdCompute builds `census compute`.
 func NewCmdCompute(f *cmdutil.Factory, runF func(context.Context, *Options) error) *cobra.Command {
@@ -154,7 +156,7 @@ rather than keeping an old result.`,
   pvmt census compute
 
   # One city, as JSON
-  pvmt --city oakland census compute --json city,hexes,population`,
+  pvmt --city oakland census compute --json city,hex_count,population`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
 				return runF(cmd.Context(), opts)
@@ -248,13 +250,13 @@ func apportion(ctx context.Context, out, errOut io.Writer, opts *Options, city *
 
 	draft.Put(Producer, runID)
 
-	row := computeRow{City: city.Name, Blocks: len(projected), Hexes: len(m.Population), Population: m.Total, RunID: runID}
+	row := computeRow{City: city.Slug(), BlockCount: len(projected), HexCount: len(m.Population), Population: m.Total, RunID: runID}
 	if opts.rows != nil {
 		*opts.rows = append(*opts.rows, row)
 	}
 	fmt.Fprintf(out, "\nPopulation Results for %s:\n", city.Name)
-	fmt.Fprintf(out, "  Blocks:            %d\n", row.Blocks)
-	fmt.Fprintf(out, "  Hexes populated:   %d\n", row.Hexes)
+	fmt.Fprintf(out, "  Blocks:            %d\n", row.BlockCount)
+	fmt.Fprintf(out, "  Hexes populated:   %d\n", row.HexCount)
 	fmt.Fprintf(out, "  Residents in grid: %.0f\n", row.Population)
 	return nil
 }

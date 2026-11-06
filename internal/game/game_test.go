@@ -546,19 +546,19 @@ func TestStateJSONShape(t *testing.T) {
 	if err := json.Unmarshal(raw, &m); err != nil {
 		t.Fatal(err)
 	}
-	for _, k := range []string{"year", "treasury", "budget_rate", "network_pci", "backlog", "insolvency_year", "status", "changed"} {
+	for _, k := range []string{"year", "treasury", "budget_rate", "network_pci", "deferred_backlog", "status", "total_spend", "treatment_count", "changed"} {
 		if _, ok := m[k]; !ok {
 			t.Fatalf("StateJSON missing key %q", k)
 		}
 	}
 }
 
-func TestInsolvencyNullWhenSolvent(t *testing.T) {
+func TestInsolvencyOmittedWhenSolvent(t *testing.T) {
 	g := newGame(t, baseConfig())
 	g.SetBudget(1e12)
 	st := decodeState(t, g)
 	if st.InsolvencyYear != nil {
-		t.Fatalf("expected null insolvency_year when solvent, got %v", *st.InsolvencyYear)
+		t.Fatalf("expected no insolvency_year when solvent, got %v", *st.InsolvencyYear)
 	}
 }
 
@@ -590,11 +590,11 @@ type stateView struct {
 	Treasury       float64      `json:"treasury"`
 	BudgetRate     float64      `json:"budget_rate"`
 	NetworkPCI     float64      `json:"network_pci"`
-	Backlog        float64      `json:"backlog"`
+	Backlog        float64      `json:"deferred_backlog"`
 	InsolvencyYear *int         `json:"insolvency_year"`
 	Status         string       `json:"status"`
-	Spent          float64      `json:"spent"`
-	Treatments     int          `json:"treatments"`
+	Spent          float64      `json:"total_spend"`
+	Treatments     int          `json:"treatment_count"`
 	ClosedCount    int          `json:"closed_count"`
 	Changed        []changedHex `json:"changed"`
 }

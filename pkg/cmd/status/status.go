@@ -25,14 +25,14 @@ type Options struct {
 }
 
 type statusRow struct {
-	ResourceType string  `json:"resourceType"`
-	FeatureCount int     `json:"featureCount"`
-	LastIngest   string  `json:"lastIngest,omitempty"`
-	LastCompute  string  `json:"lastCompute,omitempty"`
-	Area         float64 `json:"area,omitempty"`
+	ResourceType  string  `json:"resource_type"`
+	FeatureCount  int     `json:"feature_count"`
+	LastIngestAt  string  `json:"last_ingest_at,omitempty"`
+	LastComputeAt string  `json:"last_compute_at,omitempty"`
+	Area          float64 `json:"area,omitempty"`
 	// EstimatedSpaces is the parking resource's estimated vehicle capacity
 	// from its last compute; 0 and omitted for other resources.
-	EstimatedSpaces int `json:"estimatedSpaces,omitempty"`
+	EstimatedSpaces int `json:"estimated_spaces,omitempty"`
 }
 
 var _ cmdutil.RowExporter = statusRow{}
@@ -41,24 +41,30 @@ func (r statusRow) ExportData(fields []string) map[string]any {
 	out := make(map[string]any, len(fields))
 	for _, f := range fields {
 		switch f {
-		case "resourceType":
+		case "resource_type":
 			out[f] = r.ResourceType
-		case "featureCount":
+		case "feature_count":
 			out[f] = r.FeatureCount
-		case "lastIngest":
-			out[f] = r.LastIngest
-		case "lastCompute":
-			out[f] = r.LastCompute
+		case "last_ingest_at":
+			if r.LastIngestAt != "" {
+				out[f] = r.LastIngestAt
+			}
+		case "last_compute_at":
+			if r.LastComputeAt != "" {
+				out[f] = r.LastComputeAt
+			}
 		case "area":
 			out[f] = r.Area
-		case "estimatedSpaces":
-			out[f] = r.EstimatedSpaces
+		case "estimated_spaces":
+			if r.EstimatedSpaces != 0 {
+				out[f] = r.EstimatedSpaces
+			}
 		}
 	}
 	return out
 }
 
-var statusFields = []string{"resourceType", "featureCount", "lastIngest", "lastCompute", "area", "estimatedSpaces"}
+var statusFields = []string{"resource_type", "feature_count", "last_ingest_at", "last_compute_at", "area", "estimated_spaces"}
 
 func NewCmdStatus(f *cmdutil.Factory, rt resource.Source, runF func(context.Context, *Options) error) *cobra.Command {
 	opts := &Options{
@@ -75,25 +81,25 @@ resource type: feature counts, last-ingest and last-compute timestamps,
 and paved area totals in the active unit system. On a TTY the output is
 followed by a city-area summary (paved-vs-total %) and the five most
 recent compute snapshots. Use --json with a comma-separated field list
-(resourceType, featureCount, lastIngest, lastCompute, area,
-estimatedSpaces) to emit one row per resource.`
+(resource_type, feature_count, last_ingest_at, last_compute_at, area,
+estimated_spaces) to emit one row per resource.`
 	example := `  # Show feature + result counts across every resource
   pvmt status
 
   # Emit one row per resource as JSON
-  pvmt status --json resourceType,featureCount,area`
+  pvmt status --json resource_type,feature_count,area`
 	if rt != nil {
 		short = fmt.Sprintf("Show %s status", rt.Type())
 		long = fmt.Sprintf(`Report ingest and compute progress for the %s resource in the
 current city: feature count, last-ingest and last-compute timestamps,
 and paved area in the active unit system. Use --json with a
-comma-separated field list (resourceType, featureCount, lastIngest,
-lastCompute, area, estimatedSpaces) for a single row.`, rt.Type())
+comma-separated field list (resource_type, feature_count, last_ingest_at,
+last_compute_at, area, estimated_spaces) for a single row.`, rt.Type())
 		example = fmt.Sprintf(`  # Show feature + result counts for %s
   pvmt %s status
 
   # Emit the row as JSON
-  pvmt %s status --json resourceType,featureCount,area`, rt.Type(), rt.Type(), rt.Type())
+  pvmt %s status --json resource_type,feature_count,area`, rt.Type(), rt.Type(), rt.Type())
 	}
 
 	cmd := &cobra.Command{
@@ -146,10 +152,10 @@ func runStatus(ctx context.Context, opts *Options) error {
 			EstimatedSpaces: info.EstimatedSpaces,
 		}
 		if info.LastIngestAt != nil {
-			row.LastIngest = info.LastIngestAt.Format(time.RFC3339)
+			row.LastIngestAt = info.LastIngestAt.UTC().Format(time.RFC3339)
 		}
 		if info.LastComputeAt != nil {
-			row.LastCompute = info.LastComputeAt.Format(time.RFC3339)
+			row.LastComputeAt = info.LastComputeAt.UTC().Format(time.RFC3339)
 		}
 		rows = append(rows, row)
 	}
@@ -163,8 +169,8 @@ func runStatus(ctx context.Context, opts *Options) error {
 	tp := iostreams.NewTablePrinter(ios)
 	tp.AddHeader("Resource", "Features", "Last Ingest", "Last Compute", units.AreaLabel(sys), units.AreaLargeLabel(sys), "Est. Spaces")
 	for _, r := range rows {
-		ingestStr := iostreams.FormatTimestamp(r.LastIngest, ios.IsTTY())
-		computeStr := iostreams.FormatTimestamp(r.LastCompute, ios.IsTTY())
+		ingestStr := iostreams.FormatTimestamp(r.LastIngestAt, ios.IsTTY())
+		computeStr := iostreams.FormatTimestamp(r.LastComputeAt, ios.IsTTY())
 		spacesStr := "-"
 		if r.EstimatedSpaces > 0 {
 			spacesStr = strconv.Itoa(r.EstimatedSpaces)

@@ -36,14 +36,16 @@ func fixtureEntry(t *testing.T) CityEntry {
 
 // binding is one key path the dashboard reads and the JSON types it accepts
 // there. "[]" stands for every element of an array.
+// binding is one JSON path the dashboard reads and the JSON types it accepts
+// there. The pseudo-type "absent" marks a key that may be omitted.
 type binding struct {
 	path  string
 	types []string
 }
 
 // seriesBindings are the keys app.js reads off one scenario series (an entry
-// of scenarios.json's city/bbox arrays, or forecast.json's baseline,
-// bbox_baseline and scenarios[]).
+// of scenarios.json's city/all arrays, or forecast.json's baseline,
+// all_baseline and scenarios[]).
 func seriesBindings(prefix string) []binding {
 	b := []binding{{prefix, []string{"object"}}}
 	for _, k := range []string{"scenario.name", "scenario.label"} {
@@ -108,6 +110,9 @@ func checkBindings(t *testing.T, doc []byte, bindings []binding) {
 	for _, b := range bindings {
 		got, ok := seen[b.path]
 		if !ok {
+			if slices.Contains(b.types, "absent") {
+				continue
+			}
 			t.Errorf("%s: missing; the dashboard reads it", b.path)
 			continue
 		}
@@ -207,7 +212,7 @@ func fundOrder(name string) int {
 }
 
 // TestScenariosJSON_Contract pins scenarios.json, which app.js loads per city
-// and reads per scope (data.city[...] / data.bbox[...]).
+// and reads per scope (data.city[...] / data.all[...]).
 func TestScenariosJSON_Contract(t *testing.T) {
 	fc := exporttest.ForecastConfig()
 	got, err := BuildScenariosData(context.Background(), fixtureEntry(t), &fc)
@@ -220,7 +225,7 @@ func TestScenariosJSON_Contract(t *testing.T) {
 	}
 
 	var bindings []binding
-	for _, scope := range []string{"city", "bbox"} {
+	for _, scope := range []string{"city", "all"} {
 		bindings = append(bindings, binding{"." + scope, []string{"array"}})
 		bindings = append(bindings, seriesBindings("."+scope+"[]")...)
 	}
@@ -228,13 +233,13 @@ func TestScenariosJSON_Contract(t *testing.T) {
 
 	var data struct {
 		City []series `json:"city"`
-		BBox []series `json:"bbox"`
+		All  []series `json:"all"`
 	}
 	if err := json.Unmarshal(doc, &data); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	want := []string{"baseline", "fund-25pct", "fund-50pct", "fund-100pct"}
-	for scope, ss := range map[string][]series{"city": data.City, "bbox": data.BBox} {
+	for scope, ss := range map[string][]series{"city": data.City, "all": data.All} {
 		if got := names(ss); !slices.Equal(got, want) {
 			t.Errorf("%s scenarios = %v, want %v (app.js indexes them by name and order)", scope, got, want)
 		}
@@ -243,10 +248,10 @@ func TestScenariosJSON_Contract(t *testing.T) {
 		}
 		checkFundingLadder(t, scope, ss, fc.InitialPCI)
 	}
-	// The fixture's city scope is a strict subset of its bbox.
-	if len(data.City) > 0 && len(data.BBox) > 0 && len(data.City[0].Years) > 0 && len(data.BBox[0].Years) > 0 {
-		if c, b := data.City[0].Years[0].Area, data.BBox[0].Years[0].Area; c >= b {
-			t.Errorf("city-scope area %v >= bbox-scope area %v; the scopes are swapped or merged", c, b)
+	// The fixture's city scope is a strict subset of its all.
+	if len(data.City) > 0 && len(data.All) > 0 && len(data.City[0].Years) > 0 && len(data.All[0].Years) > 0 {
+		if c, b := data.City[0].Years[0].Area, data.All[0].Years[0].Area; c >= b {
+			t.Errorf("city-scope area %v >= all-scope area %v; the scopes are swapped or merged", c, b)
 		}
 	}
 }
@@ -269,21 +274,21 @@ func TestForecastJSON_Contract(t *testing.T) {
 		{"", []string{"array"}},
 		{"[].resource_type", []string{"string"}},
 		{"[].scenarios", []string{"array"}},
-		// Null when the budget never runs out / when there is no budget.
-		{"[].insolvency_year", []string{"number", "null"}},
-		{"[].funding_gap", []string{"number", "null"}},
+		// Omitted when the budget never runs out / when there is no budget.
+		{"[].insolvency_year", []string{"number", "absent"}},
+		{"[].funding_gap", []string{"number", "absent"}},
 		{"[].break_even_budget", []string{"number"}},
 		{"[].current_budget", []string{"number"}},
 	}
 	bindings = append(bindings, seriesBindings("[].baseline")...)
-	bindings = append(bindings, seriesBindings("[].bbox_baseline")...)
+	bindings = append(bindings, seriesBindings("[].all_baseline")...)
 	bindings = append(bindings, seriesBindings("[].scenarios[]")...)
 	checkBindings(t, doc, bindings)
 
 	var entries []struct {
 		ResourceType    string   `json:"resource_type"`
 		Baseline        series   `json:"baseline"`
-		BBoxBaseline    series   `json:"bbox_baseline"`
+		AllBaseline     series   `json:"all_baseline"`
 		Scenarios       []series `json:"scenarios"`
 		InsolvencyYear  *int     `json:"insolvency_year"`
 		FundingGap      *float64 `json:"funding_gap"`
@@ -297,7 +302,7 @@ func TestForecastJSON_Contract(t *testing.T) {
 	for _, e := range entries {
 		types = append(types, e.ResourceType)
 		checkSeries(t, e.ResourceType+"/baseline", e.Baseline, fc.Years)
-		checkSeries(t, e.ResourceType+"/bbox_baseline", e.BBoxBaseline, fc.Years)
+		checkSeries(t, e.ResourceType+"/all_baseline", e.AllBaseline, fc.Years)
 		for _, s := range e.Scenarios {
 			checkSeries(t, e.ResourceType, s, fc.Years)
 		}

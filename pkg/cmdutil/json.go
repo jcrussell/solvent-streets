@@ -1,6 +1,7 @@
 package cmdutil
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -42,10 +43,20 @@ func WriteRows[T RowExporter](ios *iostreams.IOStreams, e Exporter, rows []T) er
 	return e.Write(ios, out)
 }
 
+// JSONFieldsAnnotation is the cobra annotation key under which AddJSONFlags
+// records a command's comma-joined --json field list.
+const JSONFieldsAnnotation = "json_fields"
+
 // AddJSONFlags adds --json, --jq, and --template flags to the command.
 // When --json is set, creates an exporter stored in *exporter.
 // --jq and --template post-process the JSON output and require --json.
+// The valid fields are recorded in cmd.Annotations[JSONFieldsAnnotation].
 func AddJSONFlags(cmd *cobra.Command, exporter *Exporter, validFields []string) {
+	if cmd.Annotations == nil {
+		cmd.Annotations = map[string]string{}
+	}
+	cmd.Annotations[JSONFieldsAnnotation] = strings.Join(validFields, ",")
+
 	var jsonFields string
 	var jqExpr string
 	var tmplStr string
@@ -146,12 +157,9 @@ type jqFilterExporter struct {
 }
 
 func (e *jqFilterExporter) Write(ios *iostreams.IOStreams, rows []map[string]any) error {
-	// gojq evaluates .[] on []any, not []map[string]any — rebuild the
-	// slice with the wider element type so jq expressions work as users
-	// expect on multi-row output.
-	generic := make([]any, len(rows))
-	for i, r := range rows {
-		generic[i] = r
+	generic, err := normalizeRows(rows)
+	if err != nil {
+		return err
 	}
 
 	iter := e.query.Run(generic)
@@ -181,11 +189,35 @@ type templateExporter struct {
 }
 
 func (e *templateExporter) Write(ios *iostreams.IOStreams, rows []map[string]any) error {
-	for _, item := range rows {
+	generic, err := normalizeRows(rows)
+	if err != nil {
+		return err
+	}
+	for _, item := range generic {
 		if err := e.tmpl.Execute(ios.Out, item); err != nil {
 			return fmt.Errorf("template error: %w", err)
 		}
 		fmt.Fprintln(ios.Out)
 	}
 	return nil
+}
+
+// normalizeRows round-trips rows through encoding/json so --jq and
+// --template see exactly what --json prints: nested structs become maps
+// keyed by their json tags, named string types become plain strings, and
+// numbers become json.Number (which gojq accepts and templates print with
+// their JSON spelling, so 1500000 does not render as 1.5e+06). The result
+// is a []any of map[string]any, the shapes gojq evaluates.
+func normalizeRows(rows []map[string]any) ([]any, error) {
+	raw, err := json.Marshal(rows)
+	if err != nil {
+		return nil, fmt.Errorf("marshal JSON: %w", err)
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var out []any
+	if err := dec.Decode(&out); err != nil {
+		return nil, fmt.Errorf("normalize JSON: %w", err)
+	}
+	return out, nil
 }

@@ -20,17 +20,17 @@ import (
 )
 
 // TestForecastRow_ExportData_AllFieldsPopulated guards S2: the handwritten
-// switch in forecastRow.ExportData is now the JSON contract — a typo
-// silently drops a field.
+// switch in forecastRow.ExportData is the JSON contract — a typo silently
+// drops a field.
 func TestForecastRow_ExportData_AllFieldsPopulated(t *testing.T) {
 	rtRoads := resource.TypeRoads
-	r := forecastRow{db.ForecastResult{
-		ResourceType:  rtRoads,
-		Year:          2030,
-		PCI:           72.5,
-		Area:          1500.0,
-		TreatmentCost: 42000.0,
-		TreatmentTier: "mill-and-overlay",
+	r := forecastRow{City: "livermore-ca", ForecastResult: db.ForecastResult{
+		ResourceType: rtRoads,
+		Year:         2030,
+		PCI:          72.5,
+		Area:         1500.0,
+		AnnualNeed:   42000.0,
+		CostTier:     "mill-and-overlay",
 	}}
 	out := r.ExportData(forecastFields)
 	if len(out) != len(forecastFields) {
@@ -41,14 +41,14 @@ func TestForecastRow_ExportData_AllFieldsPopulated(t *testing.T) {
 			t.Errorf("missing field %q", f)
 		}
 	}
-	if out["resourceType"] != rtRoads || out["year"] != 2030 {
+	if out["city"] != "livermore-ca" || out["resource_type"] != string(rtRoads) || out["year"] != 2030 {
 		t.Errorf("unexpected values: %+v", out)
 	}
 }
 
 // TestForecastAllResources_PropagatesNonNoRowsError guards yvlv.38: a genuine
 // query failure (locked DB, dropped table) must propagate, not fold into the
-// "no compute results, skipping" path that previously exited 0.
+// "no compute results, skipping" path, which exits 0.
 func TestForecastAllResources_PropagatesNonNoRowsError(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	opts := &Options{IO: ios}

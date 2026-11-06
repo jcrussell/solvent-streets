@@ -294,7 +294,7 @@ func assertExportManifest(t *testing.T, stdout string) {
 	var m struct {
 		OutputDir string   `json:"output_dir"`
 		Shared    []string `json:"shared"`
-		Total     int      `json:"total"`
+		FileCount int      `json:"file_count"`
 		Cities    []struct {
 			Slug      string   `json:"slug"`
 			Name      string   `json:"name"`
@@ -305,8 +305,8 @@ func assertExportManifest(t *testing.T, stdout string) {
 	if err := json.Unmarshal([]byte(stdout), &m); err != nil {
 		t.Fatalf("export --json stdout is not valid JSON: %v\nstdout:\n%s", err, stdout)
 	}
-	if m.Total == 0 {
-		t.Errorf("manifest total=0; want >0")
+	if m.FileCount == 0 {
+		t.Errorf("manifest file_count=0; want >0")
 	}
 	if len(m.Cities) == 0 {
 		t.Fatalf("manifest cities is empty: %+v", m)

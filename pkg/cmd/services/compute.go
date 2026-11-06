@@ -43,14 +43,18 @@ type Options struct {
 }
 
 type computeRow struct {
-	City          string  `json:"city"`
-	Service       string  `json:"service"`
-	Facilities    int     `json:"facilities"`
-	Unsnapped     int     `json:"unsnapped,omitempty"`
-	Hexes         int     `json:"hexes"`
-	PctWithin     float64 `json:"pctWithinThreshold"`
-	MedianSeconds float64 `json:"medianSeconds"`
-	RunID         int64   `json:"runId,omitempty"`
+	City           string  `json:"city"`
+	Service        string  `json:"service"`
+	FacilityCount  int     `json:"facility_count"`
+	UnsnappedCount int     `json:"unsnapped_count"`
+	HexCount       int     `json:"hex_count"`
+	ThresholdS     float64 `json:"threshold_s"`
+	// WithinThresholdShare is the fraction (0..1) of reached hexes whose
+	// travel time is within ThresholdS. It and MedianResponseS are nil (and
+	// omitted) when no hex was reached.
+	WithinThresholdShare *float64 `json:"within_threshold_share,omitempty"`
+	MedianResponseS      *float64 `json:"median_response_s,omitempty"`
+	RunID                int64    `json:"run_id,omitempty"`
 }
 
 var _ cmdutil.RowExporter = computeRow{}
@@ -63,24 +67,32 @@ func (r computeRow) ExportData(fields []string) map[string]any {
 			out[f] = r.City
 		case "service":
 			out[f] = r.Service
-		case "facilities":
-			out[f] = r.Facilities
-		case "unsnapped":
-			out[f] = r.Unsnapped
-		case "hexes":
-			out[f] = r.Hexes
-		case "pctWithinThreshold":
-			out[f] = r.PctWithin
-		case "medianSeconds":
-			out[f] = r.MedianSeconds
-		case "runId":
-			out[f] = r.RunID
+		case "facility_count":
+			out[f] = r.FacilityCount
+		case "unsnapped_count":
+			out[f] = r.UnsnappedCount
+		case "hex_count":
+			out[f] = r.HexCount
+		case "threshold_s":
+			out[f] = r.ThresholdS
+		case "within_threshold_share":
+			if r.WithinThresholdShare != nil {
+				out[f] = *r.WithinThresholdShare
+			}
+		case "median_response_s":
+			if r.MedianResponseS != nil {
+				out[f] = *r.MedianResponseS
+			}
+		case "run_id":
+			if r.RunID != 0 {
+				out[f] = r.RunID
+			}
 		}
 	}
 	return out
 }
 
-var computeFields = []string{"city", "service", "facilities", "unsnapped", "hexes", "pctWithinThreshold", "medianSeconds", "runId"}
+var computeFields = []string{"city", "service", "facility_count", "unsnapped_count", "hex_count", "threshold_s", "within_threshold_share", "median_response_s", "run_id"}
 
 // NewCmdCompute builds `services compute`. service points at the group's
 // --service flag value, read at run time.
@@ -106,7 +118,7 @@ facility carry no value.`,
   pvmt services compute
 
   # One city, as JSON
-  pvmt --city oakland services compute --json city,hexes,pctWithinThreshold`,
+  pvmt --city oakland services compute --json city,hex_count,within_threshold_share`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if service != nil {
 				opts.Service = *service
@@ -337,21 +349,33 @@ func route(ctx context.Context, out, progress, errOut io.Writer, notify tui.Phas
 	draft.Put(Producer(spec.Name), runID)
 	notify.PhaseDone(phaseSave, nil)
 
-	row := summarize(city.Name, spec, cov, len(facilities), runID)
+	row := summarize(city.Slug(), spec, cov, len(facilities), runID)
 	if opts.rows != nil {
 		*opts.rows = append(*opts.rows, row)
 	}
 	fmt.Fprintf(out, "\n%s Results:\n", spec.Label)
-	fmt.Fprintf(out, "  Facilities:        %d (%d unsnapped)\n", row.Facilities, row.Unsnapped)
-	fmt.Fprintf(out, "  Hexes reached:     %d\n", row.Hexes)
-	fmt.Fprintf(out, "  Within %.0f s travel: %.1f%%\n", spec.TravelThresholdS, row.PctWithin)
-	fmt.Fprintf(out, "  Median response:   %.0f s (incl. %.0f s turnout)\n", row.MedianSeconds, spec.TurnoutS)
+	fmt.Fprintf(out, "  Facilities:        %d (%d unsnapped)\n", row.FacilityCount, row.UnsnappedCount)
+	fmt.Fprintf(out, "  Hexes reached:     %d\n", row.HexCount)
+	if row.WithinThresholdShare != nil {
+		fmt.Fprintf(out, "  Within %.0f s travel: %.1f%%\n", row.ThresholdS, *row.WithinThresholdShare*100)
+	}
+	if row.MedianResponseS != nil {
+		fmt.Fprintf(out, "  Median response:   %.0f s (incl. %.0f s turnout)\n", *row.MedianResponseS, spec.TurnoutS)
+	}
 	return nil
 }
 
 // summarize reduces a coverage result to the JSON row / prose figures.
-func summarize(cityName string, spec services.Spec, cov services.Coverage, facilities int, runID int64) computeRow {
-	row := computeRow{City: cityName, Service: spec.Name, Facilities: facilities, Unsnapped: len(cov.Unsnapped), Hexes: len(cov.Hexes), RunID: runID}
+func summarize(citySlug string, spec services.Spec, cov services.Coverage, facilities int, runID int64) computeRow {
+	row := computeRow{
+		City:           citySlug,
+		Service:        spec.Name,
+		FacilityCount:  facilities,
+		UnsnappedCount: len(cov.Unsnapped),
+		HexCount:       len(cov.Hexes),
+		ThresholdS:     spec.TravelThresholdS,
+		RunID:          runID,
+	}
 	if len(cov.Hexes) == 0 {
 		return row
 	}
@@ -364,7 +388,9 @@ func summarize(cityName string, spec services.Spec, cov services.Coverage, facil
 		}
 	}
 	sort.Float64s(secs)
-	row.PctWithin = float64(within) / float64(len(secs)) * 100
-	row.MedianSeconds = secs[len(secs)/2]
+	share := float64(within) / float64(len(secs))
+	median := secs[len(secs)/2]
+	row.WithinThresholdShare = &share
+	row.MedianResponseS = &median
 	return row
 }

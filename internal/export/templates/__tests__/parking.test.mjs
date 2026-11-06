@@ -8,12 +8,12 @@ import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
 import { metaJSON, fullData } from './fixtures.mjs';
 
-const fixtureSpaces = metaJSON.stats.find((s) => s.type === 'parking').estimated_spaces;
+const fixtureSpaces = metaJSON.stats.find((s) => s.resource_type === 'parking').estimated_spaces;
 
 test('the fixture parking stat carries estimated_spaces', () => {
   assert.ok(fixtureSpaces > 0, 'the Go fixture must supply estimated_spaces for parking');
   for (const s of metaJSON.stats) {
-    if (s.type !== 'parking') assert.equal(s.estimated_spaces, undefined, s.type + ' must omit estimated_spaces');
+    if (s.resource_type !== 'parking') assert.equal(s.estimated_spaces, undefined, s.resource_type + ' must omit estimated_spaces');
   }
 });
 
@@ -35,10 +35,10 @@ test('the stats panel shows Est. Spaces on the parking card only', async () => {
 test('extractMetrics reads parkingSpaces and defaults to 0 when absent', async () => {
   const { win, flush } = load({ data: fullData });
   await flush();
-  const withSpaces = win.extractMetrics({ name: 'A', slug: 'a', meta: { stats: [{ type: 'parking', total_area: 10, feature_count: 1, estimated_spaces: 321 }] }, scenarios: null, seed: null, forecast: [] });
+  const withSpaces = win.extractMetrics({ name: 'A', slug: 'a', meta: { stats: [{ resource_type: 'parking', total_area: 10, feature_count: 1, estimated_spaces: 321 }] }, scenarios: null, seed: null, forecast: [] });
   assert.equal(withSpaces.parkingSpaces, 321);
-  const legacy = win.extractMetrics({ name: 'B', slug: 'b', meta: { stats: [{ type: 'parking', total_area: 10, feature_count: 1 }] }, scenarios: null, seed: null, forecast: [] });
-  assert.equal(legacy.parkingSpaces, 0, 'a pre-estimate meta must read as 0 so the leaderboard filter drops it');
+  const without = win.extractMetrics({ name: 'B', slug: 'b', meta: { stats: [{ resource_type: 'parking', total_area: 10, feature_count: 1 }] }, scenarios: null, seed: null, forecast: [] });
+  assert.equal(without.parkingSpaces, 0, 'a meta without the estimate must read as 0 so the leaderboard filter drops it');
 });
 
 test('the Compare leaderboard lists Parking Spaces without a second parking award', async () => {

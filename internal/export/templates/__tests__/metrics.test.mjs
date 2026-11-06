@@ -14,7 +14,7 @@ const params = (win) => new URLSearchParams(win.location.search);
 function hexFC(features) {
   return {
     type: 'FeatureCollection',
-    v: 4,
+    v: 5,
     features: features.map((props, i) => ({
       type: 'Feature',
       geometry: { type: 'Polygon', coordinates: [[[0, 0], [0, 1], [1, 1], [0, 0]]] },
@@ -33,9 +33,9 @@ const data = {
   ...fullData,
   'meta.json': metaJSON,
   'hexgrid.geojson': hexFC([
-    { bbox: { roads: { area: 100, pct: 10 } }, city_same: 1 },
-    { bbox: { roads: { area: 100, pct: 10 } }, city_same: 1 },
-    { bbox: { roads: { area: 100, pct: 10 } }, city_same: 1 }, // no metric value
+    { all: { roads: { area: 100, share: 0.1 } }, city_same: 1 },
+    { all: { roads: { area: 100, share: 0.1 } }, city_same: 1 },
+    { all: { roads: { area: 100, share: 0.1 } }, city_same: 1 }, // no metric value
   ]),
   'hex-metrics.json': metricsFile,
 };
@@ -54,7 +54,7 @@ test('the Color-by selector lists the available derived metrics plus each stored
   // Derived pavement colorings first (default first, then registry order;
   // spaces and est. cost are absent: the fixture has no parking or cost
   // summary), then stored metrics.
-  assert.deepEqual(opts, ['coverage_pct', 'paved_area_m2', 'fire_response_s']);
+  assert.deepEqual(opts, ['coverage_share', 'paved_area_m2', 'fire_response_s']);
   assert.equal($('#hex-metric').hidden, false);
   const card = $$('#stats .stat-card').find((c) => c.querySelector('h3').textContent === 'Fire response');
   assert.ok(card, 'no metric card rendered from meta.metrics');
@@ -122,7 +122,7 @@ test('a city without the requested metric falls back to coverage, leaves it off 
   await h.flush();
   await h.win.loadCityData();
   await h.flush();
-  assert.equal(h.get('hexMetric'), 'coverage_pct');
+  assert.equal(h.get('hexMetric'), 'coverage_share');
   // The derived pavement colorings exist for every city, so the selector
   // shows whenever more than one is available, and never offers the absent
   // stored metric.
@@ -143,7 +143,7 @@ test('fmtMetric rounds to whole seconds before splitting minutes', async () => {
 
 test('a prototype key in ?metric= does not resolve to a metric', async () => {
   const h = await loadWithMetrics('https://example.test/index.html?metric=constructor');
-  assert.equal(h.get('hexMetric'), 'coverage_pct');
+  assert.equal(h.get('hexMetric'), 'coverage_share');
   assert.equal(plain(h.win.hexFillColor())[2][0], 'interpolate');
 });
 
@@ -153,10 +153,10 @@ test('Back across a city change restores the metric for the returned-to city', a
   // The fetch stub reads `data` live: hide the metrics file while the second
   // city loads so it lacks the metric, then restore it before going Back.
   const saved = data['hex-metrics.json'];
-  data['hex-metrics.json'] = { v: 1, metrics: {} };
+  data['hex-metrics.json'] = { v: 2, metrics: {} };
   h.win.selectCity('beta-ca');
   await h.flush();
-  assert.equal(h.get('hexMetric'), 'coverage_pct', 'the city without the metric falls back');
+  assert.equal(h.get('hexMetric'), 'coverage_share', 'the city without the metric falls back');
   data['hex-metrics.json'] = saved;
   h.win.history.back();
   await h.flush();
@@ -171,17 +171,17 @@ test('Back across a city change restores the metric for the returned-to city', a
 // stylesheet), so the expression SHAPE and stops are what is pinned.
 //
 // Coverage now paints metric_v (its registry value) under the generic
-// has-value guard; every pavement hex carries metric_v === pct_covered, so the
-// guard never fires and the ramp is the same 0/10/25/50/75/100 interpolation.
+// has-value guard; every pavement hex carries metric_v === share, so the guard
+// never fires and the ramp interpolates over 0/0.1/0.25/0.5/0.75/1.
 test('golden: coverage paint ramp and legend labels', async () => {
   const { win, $$ } = await loadWithMetrics();
   const paint = plain(win.hexFillColor());
   assert.deepEqual(paint.slice(0, 2), ['case', ['has', 'metric_v']]);
   const ramp = paint[2];
   assert.deepEqual(ramp.slice(0, 3), ['interpolate', ['linear'], ['get', 'metric_v']]);
-  assert.deepEqual(ramp.slice(3).filter((_, i) => i % 2 === 0), [0, 10, 25, 50, 75, 100]);
+  assert.deepEqual(ramp.slice(3).filter((_, i) => i % 2 === 0), [0, 0.1, 0.25, 0.5, 0.75, 1]);
   for (const f of plain(win.buildBlendedHexFC()).features) {
-    assert.equal(f.properties.metric_v, f.properties.pct_covered, 'every coverage hex paints its own pct');
+    assert.equal(f.properties.metric_v, f.properties.share, 'every coverage hex paints its own share');
   }
   assert.deepEqual($$('#legend .legend-labels span').map((s) => s.textContent), ['0%', '25%', '50%', '75%', '100%']);
 });

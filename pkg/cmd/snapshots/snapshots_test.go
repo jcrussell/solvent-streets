@@ -152,6 +152,37 @@ func TestSnapshotRow_ExportData_AllFieldsPopulated(t *testing.T) {
 	}
 }
 
+// TestLs_JQSeesManifestKeys: --jq evaluates over the same snake_case keys
+// --json prints, including inside each part of the manifest.
+func TestLs_JQSeesManifestKeys(t *testing.T) {
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+	root := &dbtest.MockRootStore{
+		EnsureCityFunc: func(context.Context, string, string, string) (int64, error) { return 1, nil },
+		ForCityFunc: func(int64) db.Store {
+			return &dbtest.MockStore{ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
+				return []db.Snapshot{{ID: 7, CreatedAt: now, ConfigHash: "h", Parts: []db.SnapshotPart{
+					{Part: "roads", RunID: 12, ComputedAt: now},
+				}}}, nil
+			}}
+		},
+	}
+	ios, _, stdout, _ := iostreams.Test()
+	cmd := NewCmdLs(&cmdutil.Factory{IOStreams: ios}, func(ctx context.Context, opts *LsOptions) error {
+		opts.RootDB = rootDBFunc(root)
+		opts.ResolveCities = resolveCitiesFunc([]config.CityConfig{{Name: "Alpha"}})
+		opts.Config = nil
+		return runLs(ctx, opts)
+	})
+	cmd.SetArgs([]string{"--json", "parts,created_at", "--jq", `[.[0].parts[0].run_id, .[0].parts[0].computed_at, .[0].created_at]`})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(strings.Fields(stdout.String()), "")
+	if want := `[12,"2026-05-18T12:00:00Z","2026-05-18T12:00:00Z"]`; got != want {
+		t.Errorf("jq output = %s, want %s", got, want)
+	}
+}
+
 // TestRunRm_DeletesFromOwningCity verifies the cross-city discovery loop:
 // the rm subcommand calls ResolveSnapshot on each configured city until
 // one claims the id, then deletes from that city only. This is the

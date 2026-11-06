@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"maps"
 	"path/filepath"
@@ -135,9 +136,9 @@ func TestSnapshot_RecomputeSwapsOnlyItsPart(t *testing.T) {
 	}
 }
 
-// TestSnapshot_PinnedReadIsTheWholeCity: pinning a snapshot used to serve only
-// the resource computed in that run. Now every part of the pinned snapshot is
-// read, and nothing from a later snapshot leaks in.
+// TestSnapshot_PinnedReadIsTheWholeCity: pinning a snapshot reads every part
+// of it, not just the resource computed in its newest run, and nothing from a
+// later snapshot leaks in.
 func TestSnapshot_PinnedReadIsTheWholeCity(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
@@ -407,6 +408,55 @@ func TestListSnapshots_Manifests(t *testing.T) {
 	}
 	if got[0].ComputedAt.IsZero() || snaps[0].CreatedAt.IsZero() || snaps[0].ConfigHash != "h" {
 		t.Errorf("snapshot metadata not populated: %+v", snaps[0])
+	}
+}
+
+// TestListSnapshots_TimestampsMarshalLikeTheCLI guards that marshaling a
+// listed snapshot (what /api/snapshots serves) gives the same timestamp
+// string the CLI prints, even when the stored value carries an offset and
+// sub-second digits.
+func TestListSnapshots_TimestampsMarshalLikeTheCLI(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	run, snap := commitRun(t, store, "h", "roads", nil)
+	raw := store.(*sqliteStore).db
+	const stored = "2026-03-04 05:06:07.123456789-07:00"
+	if _, err := raw.ExecContext(ctx, `UPDATE snapshots SET created_at = ? WHERE id = ?`, stored, snap); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.ExecContext(ctx, `UPDATE runs SET computed_at = ? WHERE id = ?`, stored, run); err != nil {
+		t.Fatal(err)
+	}
+
+	snaps, err := store.ListSnapshots(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snaps) != 1 || len(snaps[0].Parts) != 1 {
+		t.Fatalf("snapshots = %+v, want one with one part", snaps)
+	}
+	b, err := json.Marshal(snaps[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		CreatedAt string `json:"created_at"`
+		Parts     []struct {
+			ComputedAt string `json:"computed_at"`
+		} `json:"parts"`
+	}
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	const want = "2026-03-04T12:06:07Z"
+	if cli := snaps[0].CreatedAt.UTC().Format(time.RFC3339); cli != want {
+		t.Errorf("CLI created_at = %q, want %q", cli, want)
+	}
+	if got.CreatedAt != want {
+		t.Errorf("marshaled created_at = %q, want %q", got.CreatedAt, want)
+	}
+	if got.Parts[0].ComputedAt != want {
+		t.Errorf("marshaled computed_at = %q, want %q", got.Parts[0].ComputedAt, want)
 	}
 }
 

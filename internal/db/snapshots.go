@@ -204,6 +204,7 @@ func (s *sqliteStore) CreateRun(ctx context.Context, producer, configHash string
 	if err := s.db.QueryRowContext(ctx, `SELECT computed_at FROM runs WHERE id = ?`, id).Scan(&run.ComputedAt); err != nil {
 		return nil, fmt.Errorf("read run timestamp: %w", err)
 	}
+	run.ComputedAt = canonicalTime(run.ComputedAt)
 	return run, nil
 }
 
@@ -352,6 +353,13 @@ func (s *sqliteStore) ListSnapshots(ctx context.Context) ([]Snapshot, error) {
 	return listSnapshots(ctx, s.db, s.cityID, 0)
 }
 
+// canonicalTime puts a stored timestamp in UTC at second precision, so
+// marshaling a Snapshot or Run yields the same RFC3339 string the CLI prints
+// with t.UTC().Format(time.RFC3339).
+func canonicalTime(t time.Time) time.Time {
+	return t.UTC().Truncate(time.Second)
+}
+
 // listSnapshots lists the city's snapshots newest first (by id; created_at
 // has second granularity), each with its manifest sorted by part. A non-zero
 // only restricts the result to that one snapshot.
@@ -379,13 +387,14 @@ func listSnapshots(ctx context.Context, q queryer, cityID, only int64) ([]Snapsh
 		if err := rows.Scan(&snap.ID, &snap.CreatedAt, &snap.ConfigHash, &part, &runID, &computedAt); err != nil {
 			return nil, fmt.Errorf("scan snapshot: %w", err)
 		}
+		snap.CreatedAt = canonicalTime(snap.CreatedAt)
 		if len(out) == 0 || out[len(out)-1].ID != snap.ID {
 			out = append(out, snap)
 		}
 		if part.Valid {
 			p := SnapshotPart{Part: part.String, RunID: runID.Int64}
 			if computedAt != nil {
-				p.ComputedAt = *computedAt
+				p.ComputedAt = canonicalTime(*computedAt)
 			}
 			last := &out[len(out)-1]
 			last.Parts = append(last.Parts, p)

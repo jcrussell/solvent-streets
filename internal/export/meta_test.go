@@ -69,7 +69,7 @@ func TestBuildMeta_PrefersCombinedOverSum(t *testing.T) {
 	}
 	statByType := map[string]float64{}
 	for _, s := range meta.Stats {
-		statByType[s.Type] = s.TotalArea
+		statByType[s.ResourceType] = s.TotalArea
 	}
 	want := map[string]float64{"roads": 1000, "parking": 500, "sidewalks": 300}
 	if diff := cmp.Diff(want, statByType); diff != "" {
@@ -111,7 +111,7 @@ func TestBuildMultiCityMeta_AggregatesAcrossEntries(t *testing.T) {
 	if len(meta.Stats) != 1 {
 		t.Fatalf("expected 1 resource stat, got %d", len(meta.Stats))
 	}
-	if meta.Stats[0].Type != "roads" || meta.Stats[0].TotalArea != 3000 || meta.Stats[0].FeatureCount != 30 {
+	if meta.Stats[0].ResourceType != "roads" || meta.Stats[0].TotalArea != 3000 || meta.Stats[0].FeatureCount != 30 {
 		t.Errorf("aggregated roads stat = %+v; want type=roads, area=3000, count=30", meta.Stats[0])
 	}
 
@@ -121,7 +121,7 @@ func TestBuildMultiCityMeta_AggregatesAcrossEntries(t *testing.T) {
 	}
 
 	// Regional bbox spans both sub-cities.
-	if meta.BBox[1] >= -121.4 || meta.BBox[3] <= -122.4 {
+	if meta.BBox[0] >= -121.4 || meta.BBox[2] <= -122.4 {
 		t.Errorf("bbox %v does not span both cities", meta.BBox)
 	}
 
@@ -300,7 +300,7 @@ func TestBuildMultiCityMeta_FarApartCitiesUsePerCityUTMZones(t *testing.T) {
 	// Both Boston and SF are >20° from that meridian, so the single-zone
 	// result is inflated. Compute what that buggy value would be and assert
 	// the new result is materially smaller.
-	centerLon, centerLat := geo.CenterFromBBox(meta.BBox)
+	centerLon, centerLat := meta.Center[0], meta.Center[1]
 	sharedProj := geo.NewUTMProjector(centerLon, centerLat)
 	gA, _, err := geo.GeoJSONToProjectedGeometry(bostonBoundary, sharedProj)
 	if err != nil {
@@ -337,14 +337,14 @@ func TestBuildMeta_CarriesEstimatedSpaces(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, st := range stats {
-		switch st["type"] {
+		switch st["resource_type"] {
 		case "parking":
 			if st["estimated_spaces"] != float64(42) {
 				t.Errorf("parking estimated_spaces = %v; want 42", st["estimated_spaces"])
 			}
 		default:
 			if _, ok := st["estimated_spaces"]; ok {
-				t.Errorf("%v must omit estimated_spaces", st["type"])
+				t.Errorf("%v must omit estimated_spaces", st["resource_type"])
 			}
 		}
 	}

@@ -179,7 +179,7 @@ export function defaultSimulate(input) {
   const years = [];
   let pci = input.initial_pci ?? 70;
   let backlog = 0;
-  const n = input.years ?? 20;
+  const n = input.horizon_years ?? 20;
   for (let y = 1; y <= n; y++) {
     pci = Math.max(0, pci - 2);
     const need = (input.area ?? 1e6) * 0.5;

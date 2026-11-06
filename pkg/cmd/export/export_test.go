@@ -226,8 +226,8 @@ func TestBuildManifest_SingleCity(t *testing.T) {
 	if m.OutputDir != dir {
 		t.Errorf("OutputDir = %q, want %q", m.OutputDir, dir)
 	}
-	if m.Total != 6 {
-		t.Errorf("Total = %d, want 6", m.Total)
+	if m.FileCount != 6 {
+		t.Errorf("FileCount = %d, want 6", m.FileCount)
 	}
 	if len(m.Cities) != 1 {
 		t.Fatalf("Cities len = %d, want 1", len(m.Cities))
@@ -279,8 +279,8 @@ func TestBuildManifest_MultiCity(t *testing.T) {
 		t.Fatalf("buildManifest: %v", err)
 	}
 
-	if m.Total != 8 {
-		t.Errorf("Total = %d, want 8", m.Total)
+	if m.FileCount != 8 {
+		t.Errorf("FileCount = %d, want 8", m.FileCount)
 	}
 	if len(m.Cities) != 2 {
 		t.Fatalf("Cities len = %d, want 2", len(m.Cities))
@@ -330,8 +330,8 @@ func TestBuildManifest_UnknownCityDirFallsThrough(t *testing.T) {
 		t.Fatalf("buildManifest: %v", err)
 	}
 
-	if m.Total != 2 {
-		t.Errorf("Total = %d, want 2", m.Total)
+	if m.FileCount != 2 {
+		t.Errorf("FileCount = %d, want 2", m.FileCount)
 	}
 	if len(m.Cities[0].Files) != 1 {
 		t.Errorf("portland Files = %v, want one entry", m.Cities[0].Files)

@@ -23,11 +23,12 @@ import (
 
 // CityInfo holds city metadata for the frontend city switcher.
 type CityInfo struct {
-	Slug      string     `json:"slug"`
-	Name      string     `json:"name"`
-	BBox      [4]float64 `json:"bbox"`
-	CenterLon float64    `json:"center_lon"`
-	CenterLat float64    `json:"center_lat"`
+	Slug string `json:"slug"`
+	Name string `json:"name"`
+	// BBox is [west, south, east, north] (GeoJSON order; see geoJSONBBox).
+	BBox [4]float64 `json:"bbox"`
+	// Center is the map's initial view, [lon, lat].
+	Center [2]float64 `json:"center"`
 	// Tags are optional grouping labels (e.g. "Bay Area", "Top 50"). Omitted
 	// from JSON when empty. Used by the template to build city-selector
 	// optgroups (a city appears under each of its tags) and by app.js to scope
@@ -153,22 +154,6 @@ var resourceColorsJSOnce = sync.OnceValue(func() template.JS {
 // ResourceColorsJS returns ResourceColors as a template.JS JSON object.
 func ResourceColorsJS() template.JS { return resourceColorsJSOnce() }
 
-// jsCityInfo mirrors the fields the index page's CITIES array historically
-// carried (note lon/lat, not the center_lon/center_lat that CityInfo and
-// cities.json use). Kept as a distinct shape so app.js's CITIES[i] access is
-// byte-for-byte the same contract it had when the array was inlined.
-type jsCityInfo struct {
-	Slug string     `json:"slug"`
-	Name string     `json:"name"`
-	BBox [4]float64 `json:"bbox"`
-	Lon  float64    `json:"lon"`
-	Lat  float64    `json:"lat"`
-	// Tags let app.js filter the flat CITIES array for the compare/aggregate
-	// tag scope. Omitted for untagged cities (omitempty) — app.js guards the
-	// access as (city.tags || []).
-	Tags []string `json:"tags,omitempty"`
-}
-
 // jsTagDimension / jsTagValue are the PVMT_CONFIG.tagDimensions payload both
 // pages read to drive their tag filters and to rebuild the city selector
 // client-side: one entry per dimension, values in selector order, each value
@@ -186,7 +171,7 @@ type jsTagValue struct {
 
 // jsTagDimensions flattens TagDimensions for the config payload, dropping the
 // untagged group (it is not a filter value). Never nil, so the client can read
-// `.tagDimensions.length` without a guard.
+// `.tag_dimensions.length` without a guard.
 func jsTagDimensions(dims []TagDimension) []jsTagDimension {
 	out := make([]jsTagDimension, 0, len(dims))
 	for _, d := range dims {
@@ -202,13 +187,20 @@ func jsTagDimensions(dims []TagDimension) []jsTagDimension {
 	return out
 }
 
-// jsCities maps the flat CityInfo list to the CITIES array shape.
-func jsCities(cities []CityInfo) []jsCityInfo {
-	out := make([]jsCityInfo, len(cities))
-	for i, c := range cities {
-		out[i] = jsCityInfo{Slug: c.Slug, Name: c.Name, BBox: c.BBox, Lon: c.CenterLon, Lat: c.CenterLat, Tags: c.Tags}
+// geoJSONBBox reorders an internal [south, west, north, east] bbox (the
+// Overpass order geo and the config use) into the [west, south, east, north]
+// order every emitted bbox uses, matching GeoJSON and the [lon, lat] centers.
+func geoJSONBBox(b [4]float64) [4]float64 {
+	return [4]float64{b[1], b[0], b[3], b[2]}
+}
+
+// citiesOrEmpty returns cities, or an empty slice so the payload carries []
+// rather than null.
+func citiesOrEmpty(cities []CityInfo) []CityInfo {
+	if cities == nil {
+		return []CityInfo{}
 	}
-	return out
+	return cities
 }
 
 // rawOrNull adapts a template.JS holding a pre-marshaled JSON fragment (e.g.
@@ -231,17 +223,17 @@ func rawOrNull(js template.JS) json.RawMessage {
 // inline <script> — the same guarantee LayerColors/ForecastSeed already rely on.
 func (d TemplateData) IndexConfigJSON() template.JS {
 	cfg := struct {
-		Cities        []jsCityInfo     `json:"cities"`
-		TagDimensions []jsTagDimension `json:"tagDimensions"`
+		Cities        []CityInfo       `json:"cities"`
+		TagDimensions []jsTagDimension `json:"tag_dimensions"`
 		Center        [2]float64       `json:"center"`
-		LayerColors   json.RawMessage  `json:"layerColors"`
-		UnitSystem    string           `json:"unitSystem"`
-		ForecastSeed  json.RawMessage  `json:"forecastSeed"`
-		HexMetrics    []hexmetric.Spec `json:"hexMetrics"`
+		LayerColors   json.RawMessage  `json:"layer_colors"`
+		UnitSystem    string           `json:"unit_system"`
+		ForecastSeed  json.RawMessage  `json:"forecast_seed"`
+		HexMetrics    []hexmetric.Spec `json:"hex_metrics"`
 	}{
-		Cities:        jsCities(d.Cities),
+		Cities:        citiesOrEmpty(d.Cities),
 		TagDimensions: jsTagDimensions(d.TagDimensions),
-		Center:        [2]float64{d.CenterLon, d.CenterLat},
+		Center:        d.Center,
 		LayerColors:   rawOrNull(d.LayerColors),
 		UnitSystem:    d.UnitSystem,
 		ForecastSeed:  rawOrNull(d.ForecastSeed),
@@ -255,11 +247,10 @@ func (d TemplateData) IndexConfigJSON() template.JS {
 }
 
 // GameConfigJSON is the window.PVMT_CONFIG payload for play.html, consumed by
-// templates/game.js. Like IndexConfigJSON it is a method so neither construction
-// site changes. DataPrefix/MapHref reproduce the {{if}} branches the template
-// used to inline (empty ActiveSlug → client-side resolution; static host → a
-// relative back-to-map link). Cities/TagDimensions carry the same payload the
-// index page gets so the play page's tag filters can rebuild its city selector
+// templates/game.js. data_prefix is empty when there is no ActiveSlug (the
+// client resolves the city itself); map_href is the back-to-map link, relative
+// on a static host. cities/tag_dimensions carry the same payload the index page
+// gets so the play page's tag filters can rebuild its city selector
 // client-side from the same data.
 func (d TemplateData) GameConfigJSON() template.JS {
 	dataPrefix := ""
@@ -271,17 +262,17 @@ func (d TemplateData) GameConfigJSON() template.JS {
 		mapHref = "/"
 	}
 	cfg := struct {
-		Cities        []jsCityInfo     `json:"cities"`
-		TagDimensions []jsTagDimension `json:"tagDimensions"`
+		Cities        []CityInfo       `json:"cities"`
+		TagDimensions []jsTagDimension `json:"tag_dimensions"`
 		Center        [2]float64       `json:"center"`
-		ForecastSeed  json.RawMessage  `json:"forecastSeed"`
-		DataPrefix    string           `json:"dataPrefix"`
-		MapHref       string           `json:"mapHref"`
-		BandCount     int              `json:"bandCount"`
+		ForecastSeed  json.RawMessage  `json:"forecast_seed"`
+		DataPrefix    string           `json:"data_prefix"`
+		MapHref       string           `json:"map_href"`
+		BandCount     int              `json:"band_count"`
 	}{
-		Cities:        jsCities(d.Cities),
+		Cities:        citiesOrEmpty(d.Cities),
 		TagDimensions: jsTagDimensions(d.TagDimensions),
-		Center:        [2]float64{d.CenterLon, d.CenterLat},
+		Center:        d.Center,
 		ForecastSeed:  rawOrNull(d.ForecastSeed),
 		DataPrefix:    dataPrefix,
 		MapHref:       mapHref,
@@ -293,28 +284,26 @@ func (d TemplateData) GameConfigJSON() template.JS {
 
 type MetaJSON struct {
 	ProjectName  string     `json:"project_name"`
-	BBox         [4]float64 `json:"bbox"`
-	CenterLon    float64    `json:"center_lon"`
-	CenterLat    float64    `json:"center_lat"`
+	BBox         [4]float64 `json:"bbox"`   // [west, south, east, north]
+	Center       [2]float64 `json:"center"` // [lon, lat]
 	SnapshotDate string     `json:"snapshot_date"`
 	Stats        []StatJSON `json:"stats"`
 	CityArea     float64    `json:"city_area,omitempty"`
 	TotalPaved   float64    `json:"total_paved,omitempty"`
-	PctPaved     float64    `json:"pct_paved,omitempty"`
+	PavedShare   float64    `json:"paved_share,omitempty"` // total_paved / city_area, 0..1
 	// Metrics summarises each per-hex metric (hex-metrics.json) over the
 	// painted hexes, for the Map stats card. Omitted when none has rows.
 	Metrics map[string]MetricSummaryJSON `json:"metrics,omitempty"`
 }
 
 type StatJSON struct {
-	Type         string  `json:"type"`
+	ResourceType string  `json:"resource_type"`
 	Color        string  `json:"color"`
 	TotalArea    float64 `json:"total_area"`
 	FeatureCount int     `json:"feature_count"`
 	// EstimatedSpaces is the parking resource's estimated vehicle capacity
 	// (OSM capacity tags, else footprint area over a per-space constant; see
-	// resource.EstimateParkingSpaces). Omitted for other resources and for
-	// cities computed before the estimate existed.
+	// resource.EstimateParkingSpaces). Omitted for other resources.
 	EstimatedSpaces int `json:"estimated_spaces,omitempty"`
 }
 
@@ -472,10 +461,10 @@ func BuildMeta(ctx context.Context, entry CityEntry, snapshotID int64) (MetaJSON
 	}
 	meta := MetaJSON{
 		ProjectName:  entry.City.Name,
-		BBox:         bbox,
-		CenterLon:    lon,
-		CenterLat:    lat,
+		BBox:         geoJSONBBox(bbox),
+		Center:       [2]float64{lon, lat},
 		SnapshotDate: snapshotDate,
+		Stats:        []StatJSON{},
 	}
 	for _, rt := range resource.All {
 		result, err := entry.Store.LatestComputeResult(ctx, rt.Type())
@@ -491,7 +480,7 @@ func BuildMeta(ctx context.Context, entry CityEntry, snapshotID int64) (MetaJSON
 		}
 		typeName := string(result.ResourceType.Bare())
 		meta.Stats = append(meta.Stats, StatJSON{
-			Type:            typeName,
+			ResourceType:    typeName,
 			Color:           ResourceColors[typeName],
 			TotalArea:       result.TotalArea,
 			FeatureCount:    result.FeatureCount,
@@ -508,16 +497,16 @@ func BuildMeta(ctx context.Context, entry CityEntry, snapshotID int64) (MetaJSON
 	// Total paved area across all resource types: prefer the cross-resource
 	// union row written by `pvmt all compute` (RunCombined). Fall back to
 	// summing per-resource rows when the combined row is missing — the sum
-	// inflates pct_paved by the road/sidewalk/parking buffer overlap, but
+	// inflates paved_share by the road/sidewalk/parking buffer overlap, but
 	// keeps single-resource workflows usable until `all compute` runs.
 	meta.TotalPaved = totalPavedFromStore(ctx, entry.Store, meta.Stats)
 
-	// Compute city boundary area and % paved.
+	// Compute city boundary area and the paved share of it.
 	if boundaryGJSON, err := entry.Store.GetBoundary(ctx); err == nil && boundaryGJSON != "" {
 		if cityArea, err := geo.BoundaryArea(ctx, boundaryGJSON); err == nil && cityArea > 0 {
 			meta.CityArea = cityArea
 			if meta.TotalPaved > 0 {
-				meta.PctPaved = meta.TotalPaved / cityArea * 100
+				meta.PavedShare = meta.TotalPaved / cityArea
 			}
 		}
 	}

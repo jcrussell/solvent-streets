@@ -68,10 +68,10 @@ const (
 type Result struct {
 	Slug string `json:"slug"`
 	Name string `json:"name"`
-	// BreakEven is the modelled smallest constant annual budget that holds the
-	// network steady, with the treatment cycle applied.
-	BreakEven float64 `json:"break_even"`
-	// BreakEvenPerSqM is BreakEven / area — the figure §6's anchor is expressed
+	// BreakEvenBudget is the modelled smallest constant annual budget that
+	// holds the network steady, with the treatment cycle applied.
+	BreakEvenBudget float64 `json:"break_even_budget"`
+	// BreakEvenPerSqM is BreakEvenBudget / area — the figure §6's anchor is expressed
 	// in, and the only one comparable across cities of different sizes.
 	BreakEvenPerSqM float64 `json:"break_even_per_sqm_year"`
 	CurrentBudget   float64 `json:"current_budget"`
@@ -91,11 +91,11 @@ type Result struct {
 
 // Report is the full --json payload.
 type Report struct {
-	Tolerance float64  `json:"tolerance"`
-	Results   []Result `json:"results"`
-	Passed    int      `json:"passed"`
-	Failed    int      `json:"failed"`
-	Context   int      `json:"context"`
+	Tolerance    float64  `json:"tolerance"`
+	Results      []Result `json:"results"`
+	PassCount    int      `json:"pass_count"`
+	FailCount    int      `json:"fail_count"`
+	ContextCount int      `json:"context_count"`
 }
 
 // DefaultTolerance is the residual band a gated city must land in.
@@ -182,12 +182,12 @@ func Run(_ context.Context, opts *Options) error {
 		writeTable(opts.IO, report)
 	}
 
-	if report.Failed > 0 {
+	if report.FailCount > 0 {
 		// The table above already named every failing city and its residual, so
 		// a top-level "Error: 1 of 1 outside ±25%" would just repeat it. Exit
 		// non-zero quietly, per cmdutil.ErrSilent's contract.
 		fmt.Fprintf(opts.IO.ErrOut, "%d of %d gated cities outside ±%.0f%%\n",
-			report.Failed, report.Failed+report.Passed, opts.Tolerance*100)
+			report.FailCount, report.FailCount+report.PassCount, opts.Tolerance*100)
 		return cmdutil.ErrSilent
 	}
 	return nil
@@ -212,11 +212,11 @@ func Evaluate(tolerance float64) (Report, error) {
 	for _, r := range report.Results {
 		switch r.Status {
 		case statusPass:
-			report.Passed++
+			report.PassCount++
 		case statusFail:
-			report.Failed++
+			report.FailCount++
 		default:
-			report.Context++
+			report.ContextCount++
 		}
 	}
 	return report, nil
@@ -244,7 +244,7 @@ func evaluateCity(c referenceCity, tolerance float64) Result {
 	res := Result{
 		Slug:             c.Slug,
 		Name:             c.Name,
-		BreakEven:        breakEven,
+		BreakEvenBudget:  breakEven,
 		CurrentBudget:    c.CurrentBudget,
 		HoldSteadyBudget: c.HoldSteadyBudget,
 	}
@@ -291,13 +291,13 @@ func writeTable(io *iostreams.IOStreams, r Report) {
 			status = cs.Red("FAIL")
 		}
 		fmt.Fprintf(w, "%s\t%s\t$%.2f\t%s\t%s\t%s\n",
-			res.Name, fmtDollars(res.BreakEven), res.BreakEvenPerSqM, published, residual, status)
+			res.Name, fmtDollars(res.BreakEvenBudget), res.BreakEvenPerSqM, published, residual, status)
 	}
 	_ = w.Flush()
 
 	// Chatter to ErrOut so `pvmt validate > table.txt` yields only the table.
 	fmt.Fprintf(io.ErrOut, "\n%d gated (%d pass, %d fail), %d context-only, tolerance ±%.0f%%\n",
-		r.Passed+r.Failed, r.Passed, r.Failed, r.Context, r.Tolerance*100)
+		r.PassCount+r.FailCount, r.PassCount, r.FailCount, r.ContextCount, r.Tolerance*100)
 	fmt.Fprintln(io.ErrOut,
 		"Only cities publishing an independent hold-steady budget are gated; see docs/validation.md §6.")
 }

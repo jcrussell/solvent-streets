@@ -13,7 +13,7 @@ import (
 
 // HexMetricsFileVersion is the "v" of hex-metrics.json; bump on any change
 // to the shape below (the client refuses unknown versions).
-const HexMetricsFileVersion = 1
+const HexMetricsFileVersion = 2
 
 // HexMetricsJSON is hex-metrics.json: every registered metric that has rows
 // for the city, keyed by metric key, each self-describing enough for the
@@ -47,32 +47,32 @@ type MetricJSON struct {
 
 // MetricPointJSON is a referenced point of service.
 type MetricPointJSON struct {
-	ID     string  `json:"id"`
-	Name   string  `json:"name"`
-	Lon    float64 `json:"lon"`
-	Lat    float64 `json:"lat"`
-	Source string  `json:"source"`
+	ID       string     `json:"id"`
+	Name     string     `json:"name"`
+	Position [2]float64 `json:"position"` // [lon, lat]
+	Source   string     `json:"source"`
 }
 
 // MetricSummaryJSON is the per-metric summary meta.json carries for the stats
-// card: computed over every stored row, which (hexgrid v4) are the hexes the
-// map paints for that metric.
+// card: computed over every stored row, which are the hexes the map paints
+// for that metric.
 type MetricSummaryJSON struct {
-	Label  string `json:"label"`
-	Unit   string `json:"unit"`
-	Format string `json:"format"`
-	Hexes  int    `json:"hexes"`
+	Label    string `json:"label"`
+	Unit     string `json:"unit"`
+	Format   string `json:"format"`
+	HexCount int    `json:"hex_count"`
 	// Total is the sum over the city's hexes, for additive metrics
 	// (hexmetric.Spec.Additive) only.
-	Total  *float64 `json:"total,omitempty"`
-	Min    float64  `json:"min"`
-	Median float64  `json:"median"`
-	Max    float64  `json:"max"`
-	Points int      `json:"points,omitempty"`
-	// ThresholdS and PctWithin describe coverage against the service's
-	// resolved threshold (total seconds); omitted for metrics without one.
-	ThresholdS float64 `json:"threshold_s,omitempty"`
-	PctWithin  float64 `json:"pct_within,omitempty"`
+	Total      *float64 `json:"total,omitempty"`
+	Min        float64  `json:"min"`
+	Median     float64  `json:"median"`
+	Max        float64  `json:"max"`
+	PointCount int      `json:"point_count,omitempty"`
+	// ThresholdS and WithinThresholdShare (0..1 of the hexes) describe
+	// coverage against the service's resolved threshold (total seconds);
+	// omitted for metrics without one.
+	ThresholdS           float64  `json:"threshold_s,omitempty"`
+	WithinThresholdShare *float64 `json:"within_threshold_share,omitempty"`
 }
 
 // resolvedScale returns the scale (and covered threshold) to publish for a
@@ -184,7 +184,7 @@ func metricPoints(ctx context.Context, entry CityEntry, metricKey string, refIDs
 		}
 		for _, f := range services.Facilities(db.ResourceFeatures(rows), entry.City.Facilities, spec.Name) {
 			if refIDs[f.ID] {
-				points = append(points, MetricPointJSON{ID: f.ID, Name: f.Name, Lon: f.Lon, Lat: f.Lat, Source: f.Source})
+				points = append(points, MetricPointJSON{ID: f.ID, Name: f.Name, Position: [2]float64{f.Lon, f.Lat}, Source: f.Source})
 			}
 		}
 	}
@@ -196,7 +196,7 @@ func metricPoints(ctx context.Context, entry CityEntry, metricKey string, refIDs
 // stored row, or nil when no metric has rows or the city has no hex grid to
 // paint them on. Any store error propagates.
 //
-// Every row is a hex the map paints: hexgrid.geojson (v4) carries every hex
+// Every row is a hex the map paints: hexgrid.geojson carries every hex
 // of the clipped grid the producers compute on, whether or not it holds
 // pavement. (The export's sliver filter can drop a handful of edge hexes
 // below min_hex_area; their rows are a rounding error in these figures.)
@@ -254,8 +254,8 @@ func summarizeMetric(spec hexmetric.Spec, rows []db.HexMetric, threshold float64
 	sort.Float64s(vals)
 	sum := MetricSummaryJSON{
 		Label: spec.Label, Unit: spec.Unit, Format: spec.Format,
-		Hexes: len(vals), Min: round2(vals[0]), Median: round2(vals[len(vals)/2]), Max: round2(vals[len(vals)-1]),
-		Points: len(refs),
+		HexCount: len(vals), Min: round2(vals[0]), Median: round2(vals[len(vals)/2]), Max: round2(vals[len(vals)-1]),
+		PointCount: len(refs),
 	}
 	if spec.Additive {
 		var total float64
@@ -267,7 +267,8 @@ func summarizeMetric(spec hexmetric.Spec, rows []db.HexMetric, threshold float64
 	}
 	if hasThreshold {
 		sum.ThresholdS = threshold
-		sum.PctWithin = round2(float64(within) / float64(len(vals)) * 100)
+		share := round4(float64(within) / float64(len(vals)))
+		sum.WithinThresholdShare = &share
 	}
 	return sum, true
 }

@@ -23,12 +23,12 @@ type Options struct {
 }
 
 type cityRow struct {
-	Slug        string         `json:"slug"`
-	Name        string         `json:"name"`
-	Features    map[string]int `json:"features"`
-	TotalArea   float64        `json:"totalArea"`
-	LastIngest  string         `json:"lastIngest,omitempty"`
-	LastCompute string         `json:"lastCompute,omitempty"`
+	Slug          string         `json:"slug"`
+	Name          string         `json:"name"`
+	FeatureCounts map[string]int `json:"feature_counts"`
+	TotalPaved    float64        `json:"total_paved"`
+	LastIngestAt  string         `json:"last_ingest_at,omitempty"`
+	LastComputeAt string         `json:"last_compute_at,omitempty"`
 }
 
 var _ cmdutil.RowExporter = cityRow{}
@@ -41,20 +41,24 @@ func (r cityRow) ExportData(fields []string) map[string]any {
 			out[f] = r.Slug
 		case "name":
 			out[f] = r.Name
-		case "features":
-			out[f] = r.Features
-		case "totalArea":
-			out[f] = r.TotalArea
-		case "lastIngest":
-			out[f] = r.LastIngest
-		case "lastCompute":
-			out[f] = r.LastCompute
+		case "feature_counts":
+			out[f] = r.FeatureCounts
+		case "total_paved":
+			out[f] = r.TotalPaved
+		case "last_ingest_at":
+			if r.LastIngestAt != "" {
+				out[f] = r.LastIngestAt
+			}
+		case "last_compute_at":
+			if r.LastComputeAt != "" {
+				out[f] = r.LastComputeAt
+			}
 		}
 	}
 	return out
 }
 
-var citiesFields = []string{"slug", "name", "features", "totalArea", "lastIngest", "lastCompute"}
+var citiesFields = []string{"slug", "name", "feature_counts", "total_paved", "last_ingest_at", "last_compute_at"}
 
 func NewCmdCities(f *cmdutil.Factory, runF func(context.Context, *Options) error) *cobra.Command {
 	opts := &Options{
@@ -73,7 +77,7 @@ func NewCmdCities(f *cmdutil.Factory, runF func(context.Context, *Options) error
   pvmt cities
 
   # Same data as JSON
-  pvmt cities --json slug,name,features,totalArea`,
+  pvmt cities --json slug,name,feature_counts,total_paved`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
 				return runF(cmd.Context(), opts)
@@ -124,12 +128,12 @@ func runCities(ctx context.Context, opts *Options) error {
 		tp.AddRow(
 			r.Slug,
 			r.Name,
-			strconv.Itoa(r.Features["roads"]),
-			strconv.Itoa(r.Features["parking"]),
-			strconv.Itoa(r.Features["sidewalks"]),
-			fmt.Sprintf("%.1f", units.AreaLargeValue(r.TotalArea, sys)),
-			iostreams.FormatTimestamp(r.LastIngest, ios.IsTTY()),
-			iostreams.FormatTimestamp(r.LastCompute, ios.IsTTY()),
+			strconv.Itoa(r.FeatureCounts["roads"]),
+			strconv.Itoa(r.FeatureCounts["parking"]),
+			strconv.Itoa(r.FeatureCounts["sidewalks"]),
+			fmt.Sprintf("%.1f", units.AreaLargeValue(r.TotalPaved, sys)),
+			iostreams.FormatTimestamp(r.LastIngestAt, ios.IsTTY()),
+			iostreams.FormatTimestamp(r.LastComputeAt, ios.IsTTY()),
 		)
 	}
 	return tp.Render()
@@ -137,9 +141,9 @@ func runCities(ctx context.Context, opts *Options) error {
 
 func buildCityRow(ctx context.Context, store db.Store, c db.City, ios *iostreams.IOStreams) cityRow {
 	row := cityRow{
-		Slug:     c.Slug,
-		Name:     c.Name,
-		Features: make(map[string]int, len(resource.All)),
+		Slug:          c.Slug,
+		Name:          c.Name,
+		FeatureCounts: make(map[string]int, len(resource.All)),
 	}
 	var latestIngest, latestCompute time.Time
 	var perResourceSum float64
@@ -150,7 +154,7 @@ func buildCityRow(ctx context.Context, store db.Store, c db.City, ios *iostreams
 			fmt.Fprintf(ios.ErrOut, "Warning: %s/%s: %v\n", c.Slug, t, err)
 			continue
 		}
-		row.Features[string(t)] = info.FeatureCount
+		row.FeatureCounts[string(t)] = info.FeatureCount
 		perResourceSum += info.TotalArea
 		if info.LastIngestAt != nil && info.LastIngestAt.After(latestIngest) {
 			latestIngest = *info.LastIngestAt
@@ -160,18 +164,18 @@ func buildCityRow(ctx context.Context, store db.Store, c db.City, ios *iostreams
 		}
 	}
 	// Prefer the combined (de-duplicated) compute row from `pvmt all compute`
-	// for TotalArea; fall back to the per-resource sum when it's absent. The
+	// for TotalPaved; fall back to the per-resource sum when it's absent. The
 	// sum double-counts road/parking/sidewalk buffer overlap — mirrors
 	// export.totalPavedFromStore so `pvmt cities` agrees with meta.json.
-	row.TotalArea = perResourceSum
+	row.TotalPaved = perResourceSum
 	if r, err := store.LatestComputeResult(ctx, resource.CombinedAll); err == nil && r != nil {
-		row.TotalArea = r.TotalArea
+		row.TotalPaved = r.TotalArea
 	}
 	if !latestIngest.IsZero() {
-		row.LastIngest = latestIngest.Format(time.RFC3339)
+		row.LastIngestAt = latestIngest.UTC().Format(time.RFC3339)
 	}
 	if !latestCompute.IsZero() {
-		row.LastCompute = latestCompute.Format(time.RFC3339)
+		row.LastComputeAt = latestCompute.UTC().Format(time.RFC3339)
 	}
 	return row
 }

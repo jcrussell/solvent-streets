@@ -27,7 +27,7 @@ func (s *site) dataDirsWithLabel() []struct{ label, slug, dir string } {
 	return out
 }
 
-// checkReasonableness validates every meta.json (plausible pct_paved) and
+// checkReasonableness validates every meta.json (plausible paved_share) and
 // forecast.json (monotonic baseline) found in the tree.
 func (r *runner) checkReasonableness(s *site) {
 	for _, d := range s.dataDirsWithLabel() {
@@ -36,22 +36,26 @@ func (r *runner) checkReasonableness(s *site) {
 	}
 }
 
-// checkMeta flags the near-zero-area geometry bug: a city whose pct_paved is a
-// positive value under 1%. pct_paved is stored as a percentage (50.0 == 50%),
-// so the bug window is (0, 1.0). An absent/zero value is WARNed, not FAILed —
-// it can be legitimately omitted for a not-yet-computed city.
+// minPlausiblePavedShare is the paved_share below which a positive value
+// signals the near-zero-area geometry bug.
+const minPlausiblePavedShare = 0.01
+
+// checkMeta flags the near-zero-area geometry bug: a city whose paved_share
+// (0..1) is positive but under minPlausiblePavedShare. An absent/zero value is
+// WARNed, not FAILed — it can be legitimately omitted for a not-yet-computed
+// city.
 func (r *runner) checkMeta(label, path string) {
 	var meta export.MetaJSON
 	if !readJSON(r, "reasonableness", label, "meta.json", path, &meta) {
 		return
 	}
 	switch {
-	case meta.PctPaved <= 0:
-		r.warnf("reasonableness: %s: pct_paved is absent/zero — cannot validate paved area", label)
-	case meta.PctPaved < 1.0:
-		r.failf("reasonableness: %s: pct_paved %.3f%% < 1%% — possible near-zero-area geometry bug", label, meta.PctPaved)
+	case meta.PavedShare <= 0:
+		r.warnf("reasonableness: %s: paved_share is absent/zero — cannot validate paved area", label)
+	case meta.PavedShare < minPlausiblePavedShare:
+		r.failf("reasonableness: %s: paved %.3f%% < %.0f%% — possible near-zero-area geometry bug", label, meta.PavedShare*100, minPlausiblePavedShare*100)
 	default:
-		r.passf("reasonableness: %s: pct_paved %.2f%% is plausible", label, meta.PctPaved)
+		r.passf("reasonableness: %s: paved %.2f%% is plausible", label, meta.PavedShare*100)
 	}
 }
 
@@ -71,7 +75,7 @@ func (r *runner) checkForecast(label, path string) {
 	for _, fc := range forecasts {
 		// Per-resource zero-area blind spot: a single resource erroneously
 		// zeroed (while other resources keep area) passes both monotonicity and
-		// the whole-city pct_paved check. WARN — not FAIL — because an all-flat/
+		// the whole-city paved_share check. WARN — not FAIL — because an all-flat/
 		// all-zero baseline is also the legitimate "empty resource" state, and a
 		// hard failure here would collide with those legit-empty resources.
 		//

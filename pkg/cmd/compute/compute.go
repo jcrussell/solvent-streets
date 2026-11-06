@@ -53,17 +53,17 @@ type Options struct {
 
 type computeRow struct {
 	City         string  `json:"city"`
-	ResourceType string  `json:"resourceType"`
+	ResourceType string  `json:"resource_type"`
 	Jurisdiction string  `json:"jurisdiction"` // "all" or "city"
-	FeatureCount int     `json:"featureCount"`
+	FeatureCount int     `json:"feature_count"`
 	Area         float64 `json:"area"`
 	// EstimatedSpaces is the parking resource's estimated vehicle capacity
 	// (0 and omitted for every other resource).
-	EstimatedSpaces int `json:"estimatedSpaces,omitempty"`
+	EstimatedSpaces int `json:"estimated_spaces,omitempty"`
 	// RunID is the run this compute wrote. The snapshot id is not known yet
 	// when the row is recorded: under `all compute` the city's snapshot is
 	// committed once all of the city's steps are done.
-	RunID int64 `json:"runId,omitempty"`
+	RunID int64 `json:"run_id,omitempty"`
 }
 
 var _ cmdutil.RowExporter = computeRow{}
@@ -74,24 +74,28 @@ func (r computeRow) ExportData(fields []string) map[string]any {
 		switch f {
 		case "city":
 			out[f] = r.City
-		case "resourceType":
+		case "resource_type":
 			out[f] = r.ResourceType
 		case "jurisdiction":
 			out[f] = r.Jurisdiction
-		case "featureCount":
+		case "feature_count":
 			out[f] = r.FeatureCount
 		case "area":
 			out[f] = r.Area
-		case "estimatedSpaces":
-			out[f] = r.EstimatedSpaces
-		case "runId":
-			out[f] = r.RunID
+		case "estimated_spaces":
+			if r.EstimatedSpaces != 0 {
+				out[f] = r.EstimatedSpaces
+			}
+		case "run_id":
+			if r.RunID != 0 {
+				out[f] = r.RunID
+			}
 		}
 	}
 	return out
 }
 
-var computeFields = []string{"city", "resourceType", "jurisdiction", "featureCount", "area", "estimatedSpaces", "runId"}
+var computeFields = []string{"city", "resource_type", "jurisdiction", "feature_count", "area", "estimated_spaces", "run_id"}
 
 func NewCmdCompute(f *cmdutil.Factory, rt resource.Source, runF func(context.Context, *Options) error) *cobra.Command {
 	opts := &Options{
@@ -139,9 +143,8 @@ func NewCmdCompute(f *cmdutil.Factory, rt resource.Source, runF func(context.Con
 // draft is the snapshot the caller is assembling; nil commits this run's own.
 func RunResourceForCity(ctx context.Context, f *cmdutil.Factory, rt resource.Source, grid []geo.Hex, draft *db.Draft) error {
 	// Pre-check cancellation before doing any work. The `all` fan-out calls
-	// this in-process (it used to go through a throwaway cobra command, whose
-	// cmdutil.ForEachCity pre-check supplied this), so without it a mid-fan-out
-	// cancellation aborts only because the store or HTTP layer happens to
+	// this in-process, bypassing cmdutil.ForEachCity's pre-check, so without it
+	// a mid-fan-out cancellation aborts only because the store or HTTP layer happens to
 	// surface context.Canceled. Real sqlite does; a ctx-ignoring store —
 	// dbtest.MockStore — would run every remaining resource after cancellation.
 	if err := ctx.Err(); err != nil {
@@ -508,8 +511,8 @@ func (c *computer) runAllFeaturesPass(ctx context.Context, allBuffered []resourc
 // cohort stats, and prose summary derived from the pre-buffered features.
 // Splits out from runAllFeaturesPass so the hex pipeline output is reusable
 // for the city-only pass before any per-jurisdiction persistence happens.
-// featureCount is the count of input features (including any dropped by the
-// buffer step), preserved so DB rows match the pre-refactor semantics.
+// featureCount is the count of input features, including any dropped by the
+// buffer step.
 func (c *computer) saveAllJurisdictionsResult(ctx context.Context, allBuffered []resource.BufferedFeature, featureCount int, hexStats []geo.HexStat, clippedHexes []geo.Hex) error {
 	// Per-hex coverage is dedup'd by the local union inside ComputeHexStats,
 	// so summing does not double-count crossing-road overlaps.
@@ -660,7 +663,7 @@ func (c *computer) recordRow(jurisdiction string, featureCount int, area float64
 		return
 	}
 	row := computeRow{
-		City:            c.city.Name,
+		City:            c.city.Slug(),
 		ResourceType:    string(c.opts.ResourceType.Type()),
 		Jurisdiction:    jurisdiction,
 		FeatureCount:    featureCount,

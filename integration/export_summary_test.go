@@ -48,20 +48,20 @@ func TestExportForecast_SummaryGolden(t *testing.T) {
 	var buf bytes.Buffer
 	var sc struct {
 		City []summarySeries `json:"city"`
-		BBox []summarySeries `json:"bbox"`
+		All  []summarySeries `json:"all"`
 	}
 	roundTrip(t, scenarios, &sc)
 	for _, s := range sc.City {
 		writeLine(t, &buf, s.summary("scenarios.json", "city", ""))
 	}
-	for _, s := range sc.BBox {
-		writeLine(t, &buf, s.summary("scenarios.json", "bbox", ""))
+	for _, s := range sc.All {
+		writeLine(t, &buf, s.summary("scenarios.json", "all", ""))
 	}
 
 	var fe []struct {
 		ResourceType    string          `json:"resource_type"`
 		Baseline        summarySeries   `json:"baseline"`
-		BBoxBaseline    summarySeries   `json:"bbox_baseline"`
+		AllBaseline     summarySeries   `json:"all_baseline"`
 		Scenarios       []summarySeries `json:"scenarios"`
 		InsolvencyYear  *int            `json:"insolvency_year"`
 		FundingGap      *float64        `json:"funding_gap"`
@@ -71,7 +71,7 @@ func TestExportForecast_SummaryGolden(t *testing.T) {
 	roundTrip(t, forecasts, &fe)
 	for _, e := range fe {
 		writeLine(t, &buf, e.Baseline.summary("forecast.json", "city", e.ResourceType))
-		writeLine(t, &buf, e.BBoxBaseline.summary("forecast.json", "bbox", e.ResourceType))
+		writeLine(t, &buf, e.AllBaseline.summary("forecast.json", "all", e.ResourceType))
 		for _, s := range e.Scenarios {
 			writeLine(t, &buf, s.summary("forecast.json", "city", e.ResourceType))
 		}

@@ -15,7 +15,7 @@ func TestTranslateExplicitCohorts(t *testing.T) {
 	in := Input{
 		InitialPCI:   80,
 		GrowthRate:   0.01,
-		Years:        5,
+		HorizonYears: 5,
 		AnnualBudget: 500_000,
 		Strategy:     "worst-first",
 		CostTiers: []CostTier{
@@ -106,11 +106,11 @@ func aggregateByClass(cohorts []forecast.Cohort) map[string]classAgg {
 func TestTranslateNoCohortsDefaultFallback(t *testing.T) {
 	// DecayRate <= 0 must fall back to the default decay rate.
 	in := Input{
-		Area:       4242,
-		InitialPCI: 70,
-		DecayRate:  0,
-		Years:      3,
-		Strategy:   "do-nothing",
+		Area:         4242,
+		InitialPCI:   70,
+		DecayRate:    0,
+		HorizonYears: 3,
+		Strategy:     "do-nothing",
 	}
 
 	scenario, cohorts, _, _, err := Translate(in)
@@ -143,7 +143,7 @@ func TestTranslateNoCohortsDefaultFallback(t *testing.T) {
 
 func TestTranslateNoCohortsExplicitDecay(t *testing.T) {
 	// A positive DecayRate must be preserved (no fallback).
-	in := Input{Area: 100, DecayRate: 0.07, Years: 1, Strategy: "do-nothing"}
+	in := Input{Area: 100, DecayRate: 0.07, HorizonYears: 1, Strategy: "do-nothing"}
 	_, cohorts, _, _, err := Translate(in)
 	if err != nil {
 		t.Fatalf("Translate: %v", err)
@@ -159,9 +159,9 @@ func TestTranslateNoCohortsExplicitDecay(t *testing.T) {
 // applied this fallback, so a multi-cohort payload reported DecayRate=0.
 func TestTranslateExplicitCohortsDefaultDecay(t *testing.T) {
 	in := Input{
-		InitialPCI: 80,
-		Years:      2,
-		Strategy:   "do-nothing",
+		InitialPCI:   80,
+		HorizonYears: 2,
+		Strategy:     "do-nothing",
 		Cohorts: []Cohort{
 			{Classification: "primary", Area: 1000, DecayRate: 0}, // zero → default
 			{Classification: "residential", Area: 2000, DecayRate: 0.03},
@@ -181,10 +181,10 @@ func TestTranslateExplicitCohortsDefaultDecay(t *testing.T) {
 }
 
 func TestTranslateInvalidStrategy(t *testing.T) {
-	if _, _, _, _, err := Translate(Input{Years: 1, Strategy: "worst-first"}); err != nil {
+	if _, _, _, _, err := Translate(Input{HorizonYears: 1, Strategy: "worst-first"}); err != nil {
 		t.Fatalf("valid strategy returned error: %v", err)
 	}
-	_, _, _, _, err := Translate(Input{Years: 1, Strategy: "definitely-not-a-strategy"})
+	_, _, _, _, err := Translate(Input{HorizonYears: 1, Strategy: "definitely-not-a-strategy"})
 	if err == nil {
 		t.Fatal("invalid strategy: expected error, got nil")
 	}
@@ -195,16 +195,16 @@ func TestTranslateInvalidStrategy(t *testing.T) {
 // make([]float64, years)), via both Translate and the Run envelope path.
 func TestTranslateYearsBounds(t *testing.T) {
 	for _, years := range []int{0, -5, 100000} {
-		if _, _, _, _, err := Translate(Input{Years: years, Strategy: "do-nothing"}); err == nil {
+		if _, _, _, _, err := Translate(Input{HorizonYears: years, Strategy: "do-nothing"}); err == nil {
 			t.Errorf("Translate(Years=%d): expected error, got nil", years)
 		}
-		raw, _ := json.Marshal(Input{Years: years, Strategy: "do-nothing"})
+		raw, _ := json.Marshal(Input{HorizonYears: years, Strategy: "do-nothing"})
 		if _, err := Run(raw); err == nil {
 			t.Errorf("Run(Years=%d): expected error envelope, got nil", years)
 		}
 	}
 	// A sane Years still passes.
-	if _, _, _, _, err := Translate(Input{Years: 10, Strategy: "do-nothing"}); err != nil {
+	if _, _, _, _, err := Translate(Input{HorizonYears: 10, Strategy: "do-nothing"}); err != nil {
 		t.Errorf("Translate(Years=10): unexpected error %v", err)
 	}
 }
@@ -217,7 +217,7 @@ func TestTranslateNonFiniteInputs(t *testing.T) {
 	base := func() Input {
 		return Input{
 			Area: 750_000, InitialPCI: 75, DecayRate: 0.04, GrowthRate: 0.01,
-			Years: 10, AnnualBudget: 1_000_000, Strategy: "do-nothing",
+			HorizonYears: 10, AnnualBudget: 1_000_000, Strategy: "do-nothing",
 		}
 	}
 	cases := map[string]func(*Input){
@@ -263,7 +263,7 @@ func TestRunEndToEnd(t *testing.T) {
 		InitialPCI:   75,
 		DecayRate:    0.04,
 		GrowthRate:   0.01,
-		Years:        10,
+		HorizonYears: 10,
 		AnnualBudget: 1_000_000,
 		Strategy:     "worst-first",
 		CostTiers: []CostTier{
@@ -364,7 +364,7 @@ func TestJSONKeyContract(t *testing.T) {
 		{"InitialPCI", "InitialPCI", "initial_pci"},
 		{"DecayRate", "DecayRate", "decay_rate"},
 		{"GrowthRate", "GrowthRate", "growth_rate"},
-		{"Years", "Years", "years"},
+		{"HorizonYears", "HorizonYears", "horizon_years"},
 		{"CostTiers", "CostTiers", "cost_tiers"},
 		{"CostOverhead", "CostOverhead", "cost_overhead"},
 		{"Cohorts", "Cohorts", "cohorts"},
@@ -403,7 +403,7 @@ func TestJSONKeyContract(t *testing.T) {
 // "fully funded" rather than as an error. Bare figures are wrong by ~1.5x;
 // blank ones are wrong by everything.
 func TestRun_MissingCostOverheadPricesBareNotZero(t *testing.T) {
-	base := `{"area":1000000,"initial_pci":70,"decay_rate":0.04,"years":3,
+	base := `{"area":1000000,"initial_pci":70,"decay_rate":0.04,"horizon_years":3,
 	          "treatment_cycle_years":12,"annual_budget":0,"strategy":"do-nothing"}`
 
 	out, err := Run([]byte(base))
@@ -449,7 +449,7 @@ func TestRun_MissingCostOverheadPricesBareNotZero(t *testing.T) {
 // A negative overhead is a caller error, not a stale seed, so it is rejected
 // rather than clamped — clamping it to bare would hide the mistake.
 func TestRun_NegativeCostOverheadIsRejected(t *testing.T) {
-	in := `{"area":1000,"initial_pci":70,"decay_rate":0.04,"years":1,
+	in := `{"area":1000,"initial_pci":70,"decay_rate":0.04,"horizon_years":1,
 	        "annual_budget":0,"strategy":"do-nothing","cost_overhead":-1}`
 	if _, err := Run([]byte(in)); err == nil {
 		t.Error("a negative cost_overhead was accepted; want a validation error")

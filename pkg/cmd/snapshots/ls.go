@@ -26,21 +26,21 @@ type LsOptions struct {
 type snapshotRow struct {
 	City       string    `json:"city"`
 	ID         int64     `json:"id"`
-	CreatedAt  string    `json:"createdAt"`
-	ConfigHash string    `json:"configHash"`
+	CreatedAt  string    `json:"created_at"`
+	ConfigHash string    `json:"config_hash"`
 	Parts      []partRow `json:"parts"`
 }
 
 // partRow is one entry of a snapshot's manifest: the run filling a part.
 type partRow struct {
 	Part       string `json:"part"`
-	RunID      int64  `json:"runId"`
-	ComputedAt string `json:"computedAt"`
+	RunID      int64  `json:"run_id"`
+	ComputedAt string `json:"computed_at"`
 }
 
 var _ cmdutil.RowExporter = snapshotRow{}
 
-var snapshotFields = []string{"city", "id", "createdAt", "configHash", "parts"}
+var snapshotFields = []string{"city", "id", "created_at", "config_hash", "parts"}
 
 func (r snapshotRow) ExportData(fields []string) map[string]any {
 	out := make(map[string]any, len(fields))
@@ -50,9 +50,9 @@ func (r snapshotRow) ExportData(fields []string) map[string]any {
 			out[f] = r.City
 		case "id":
 			out[f] = r.ID
-		case "createdAt":
+		case "created_at":
 			out[f] = r.CreatedAt
-		case "configHash":
+		case "config_hash":
 			out[f] = r.ConfigHash
 		case "parts":
 			out[f] = r.Parts
@@ -88,7 +88,7 @@ current config.`,
   pvmt --city oakland snapshots ls
 
   # Machine-readable
-  pvmt snapshots ls --json city,id,createdAt,parts`,
+  pvmt snapshots ls --json city,id,created_at,parts`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
 				return runF(cmd.Context(), opts)

@@ -34,16 +34,15 @@ func BuildMultiCityMeta(ctx context.Context, entries []CityEntry, title string) 
 
 	meta := MetaJSON{
 		ProjectName:  title,
-		BBox:         bbox,
-		CenterLon:    centerLon,
-		CenterLat:    centerLat,
+		BBox:         geoJSONBBox(bbox),
+		Center:       [2]float64{centerLon, centerLat},
 		SnapshotDate: time.Now().Format("2006-01-02"),
 		Stats:        aggregatePerResourceStats(ctx, entries),
 	}
 	meta.TotalPaved = aggregateTotalPaved(ctx, entries)
 	meta.CityArea = summedBoundaryArea(ctx, entries)
 	if meta.CityArea > 0 && meta.TotalPaved > 0 {
-		meta.PctPaved = meta.TotalPaved / meta.CityArea * 100
+		meta.PavedShare = meta.TotalPaved / meta.CityArea
 	}
 	return meta, nil
 }
@@ -78,7 +77,7 @@ func aggregatePerResourceStats(ctx context.Context, entries []CityEntry) []StatJ
 			kindName := string(t)
 			st, ok := statByType[kindName]
 			if !ok {
-				st = &StatJSON{Type: kindName, Color: ResourceColors[kindName]}
+				st = &StatJSON{ResourceType: kindName, Color: ResourceColors[kindName]}
 				statByType[kindName] = st
 			}
 			st.TotalArea += result.TotalArea
@@ -86,7 +85,7 @@ func aggregatePerResourceStats(ctx context.Context, entries []CityEntry) []StatJ
 			st.EstimatedSpaces += result.EstimatedSpaces
 		}
 	}
-	var out []StatJSON
+	out := []StatJSON{}
 	for _, rt := range resource.All {
 		if st, ok := statByType[string(rt.Type())]; ok {
 			out = append(out, *st)
@@ -186,13 +185,13 @@ func BuildMultiCityForecastSeed(ctx context.Context, fc *config.ForecastConfig, 
 	if decayRate <= 0 {
 		decayRate = forecast.DefaultDecayRates["default"]
 	}
-	bboxCohorts, bboxAsphaltShare := mergeCohortSeeds(ctx, entries, fc, false)
+	allCohorts, allAsphaltShare := mergeCohortSeeds(ctx, entries, fc, false)
 	cityCohorts, cityAsphaltShare := mergeCohortSeeds(ctx, entries, fc, true)
 	seed := ForecastSeedJSON{
 		InitialPCI:           fc.InitialPCI,
 		DecayRate:            decayRate,
 		GrowthRate:           fc.GrowthRate,
-		Years:                fc.Years,
+		HorizonYears:         fc.Years,
 		TreatmentCycleYears:  forecast.ResolveCycleYears(fc.TreatmentCycleYears),
 		TotalArea:            totalArea,
 		CityPaved:            cityArea,
@@ -200,9 +199,9 @@ func BuildMultiCityForecastSeed(ctx context.Context, fc *config.ForecastConfig, 
 		CostOverhead:         fc.ResolvedCostOverhead(),
 		MaterialTiers:        forecast.DefaultMaterialTiers,
 		BarrelsPerTonBinder:  forecast.BarrelsPerTonBinder,
-		Cohorts:              bboxCohorts,
+		Cohorts:              allCohorts,
 		CityCohorts:          cityCohorts,
-		AsphaltAreaShare:     bboxAsphaltShare,
+		AsphaltAreaShare:     allAsphaltShare,
 		CityAsphaltAreaShare: cityAsphaltShare,
 	}
 	data, err := json.Marshal(seed)

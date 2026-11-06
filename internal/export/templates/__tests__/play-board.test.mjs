@@ -28,7 +28,7 @@ const boardData = (seed) => ({
 
 test('play: the board seeds from the per-city forecast_seed.json, not the embedded region seed', async () => {
   // Mark the fetched seed so it cannot be confused with the embedded one.
-  const perCity = { ...structuredClone(seedJSON), initial_pci: 61.25, years: 17 };
+  const perCity = { ...structuredClone(seedJSON), initial_pci: 61.25, horizon_years: 17 };
   const { get } = await bootBoard(boardData(perCity));
 
   const embedded = get('FORECAST_SEED');

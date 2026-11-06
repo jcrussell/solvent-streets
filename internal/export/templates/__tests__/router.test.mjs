@@ -226,9 +226,9 @@ test('scope selection round-trips only while the scope row is visible', async ()
     'a hidden scope row must not pin ?scope=');
 
   row.hidden = false;
-  win.selectScope('bbox', { push: true });
+  win.selectScope('all', { push: true });
   await flush();
-  assert.equal(params(win).get('scope'), 'bbox');
+  assert.equal(params(win).get('scope'), 'all');
 });
 
 test('back to a different tab of the same city does not reload the city', async () => {

@@ -8,7 +8,7 @@ import { load } from './harness.mjs';
 
 const META = {
   project_name: 'Alpha', city_area: 40_000_000, total_area: 3_300_000,
-  pct_paved: 8.25, feature_count: 1234,
+  paved_share: 0.0825, feature_count: 1234,
 };
 const data = { 'meta.json': META };
 
@@ -39,7 +39,7 @@ test('choice persists to localStorage and seeds from it on reload', async () => 
   assert.equal(first.win.localStorage.getItem('pvmtUnits'), 'metric');
 
   // A fresh window with the same storage must come up metric, not fall back to
-  // PVMT_CONFIG.unitSystem (which the fixture pins to imperial).
+  // PVMT_CONFIG.unit_system (which the fixture pins to imperial).
   const second = load({ data });
   second.win.localStorage.setItem('pvmtUnits', 'metric');
   const third = load({ data });
@@ -47,11 +47,11 @@ test('choice persists to localStorage and seeds from it on reload', async () => 
   assert.equal(third.win.localStorage.getItem('pvmtUnits'), 'metric');
 });
 
-test('initial value seeds from PVMT_CONFIG.unitSystem when storage is empty', async () => {
+test('initial value seeds from PVMT_CONFIG.unit_system when storage is empty', async () => {
   const { win, flush } = load({ data });
   await flush();
   assert.equal(win.localStorage.getItem('pvmtUnits'), null, 'storage should start empty');
-  assert.equal(win.PVMT_CONFIG.unitSystem, 'imperial');
+  assert.equal(win.PVMT_CONFIG.unit_system, 'imperial');
   win.renderCityStats(META);
   assert.match(win.document.querySelector('#stats').textContent, /acres/,
     'with empty storage the config default (imperial) must win');

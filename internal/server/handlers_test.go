@@ -207,8 +207,8 @@ func TestHandleGame(t *testing.T) {
 	if strings.Contains(body, `id="city-select"`) {
 		t.Errorf("single-city game page should not render the city selector")
 	}
-	if !strings.Contains(body, `"dataPrefix":""`) {
-		t.Errorf("single-city game page should set dataPrefix to empty in PVMT_CONFIG")
+	if !strings.Contains(body, `"data_prefix":""`) {
+		t.Errorf("single-city game page should set data_prefix to empty in PVMT_CONFIG")
 	}
 	// Play-test feedback controls: nav link back to the map, reset, the always-on
 	// brush size, and the pre-game start screen with its horizon selector.
@@ -280,7 +280,7 @@ func TestHandleGame_MultiCity(t *testing.T) {
 	if !strings.Contains(body, `id="city-select"`) {
 		t.Errorf("multi-city game page should render the city selector")
 	}
-	if !strings.Contains(body, `"dataPrefix":"cities/`+slugA+`/"`) {
+	if !strings.Contains(body, `"data_prefix":"cities/`+slugA+`/"`) {
 		t.Errorf("default /play should render city A's data prefix %q", slugA)
 	}
 
@@ -290,7 +290,7 @@ func TestHandleGame_MultiCity(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("GET /play?city=%s: expected 200, got %d", slugB, code)
 	}
-	if !strings.Contains(body, `"dataPrefix":"cities/`+slugB+`/"`) {
+	if !strings.Contains(body, `"data_prefix":"cities/`+slugB+`/"`) {
 		t.Errorf("/play?city=%s should render city B's data prefix", slugB)
 	}
 	if !strings.Contains(body, "City B") {
@@ -302,7 +302,7 @@ func TestHandleGame_MultiCity(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("GET /play?city=no-such-city: expected 200 fallback, got %d", code)
 	}
-	if !strings.Contains(body, `"dataPrefix":"cities/`+slugA+`/"`) {
+	if !strings.Contains(body, `"data_prefix":"cities/`+slugA+`/"`) {
 		t.Errorf("unknown-slug /play should fall back to city A's prefix")
 	}
 }
@@ -347,7 +347,7 @@ func TestHandleGame_MultiCity_BrokenCityFallback(t *testing.T) {
 		t.Fatalf("GET /play?city=%s (broken): expected 200 fallback, got %d", slugB, w.Code)
 	}
 	// Fell back to A — A's data prefix, not B's, and not a 500.
-	if !strings.Contains(w.Body.String(), `"dataPrefix":"cities/`+slugA+`/"`) {
+	if !strings.Contains(w.Body.String(), `"data_prefix":"cities/`+slugA+`/"`) {
 		t.Errorf("broken-city /play should fall back to city A's prefix, got body without it")
 	}
 }
@@ -1001,7 +1001,7 @@ func TestRenderGame_TransientRecovers(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("first /play?city=%s: expected 200 fallback, got %d", slugB, code)
 	}
-	if !strings.Contains(body, `"dataPrefix":"cities/`+slugA+`/"`) {
+	if !strings.Contains(body, `"data_prefix":"cities/`+slugA+`/"`) {
 		t.Errorf("first request should fall back to city A's prefix")
 	}
 
@@ -1011,7 +1011,7 @@ func TestRenderGame_TransientRecovers(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("recovered /play?city=%s: expected 200, got %d", slugB, code)
 	}
-	if !strings.Contains(body, `"dataPrefix":"cities/`+slugB+`/"`) {
+	if !strings.Contains(body, `"data_prefix":"cities/`+slugB+`/"`) {
 		t.Errorf("after recovery /play?city=%s must render B's prefix, not the pinned fallback A", slugB)
 	}
 }
@@ -1158,7 +1158,7 @@ func TestHandleCitiesList_SchemaParity(t *testing.T) {
 	}
 	wantKeys := map[string]bool{
 		"slug": true, "name": true, "bbox": true,
-		"center_lon": true, "center_lat": true, "tags": true,
+		"center": true, "tags": true,
 	}
 	for k := range got[0] {
 		if !wantKeys[k] {

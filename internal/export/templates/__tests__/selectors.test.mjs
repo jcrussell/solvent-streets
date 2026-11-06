@@ -28,7 +28,7 @@ const dims = [
   { name: 'state', label: 'State', values: [{ tag: 'state:CA', label: 'CA' }, { tag: 'state:TX', label: 'TX' }] },
 ];
 const cities = [
-  { slug: 'san-jose-ca', name: 'San Jose, CA', bbox: [1, 2, 3, 4], lon: 1.5, lat: 2.5, tags: ['Bay Area', 'Top 50', 'state:CA'] },
+  { slug: 'san-jose-ca', name: 'San Jose, CA', bbox: [1, 2, 3, 4], center: [1.5, 2.5], tags: ['Bay Area', 'Top 50', 'state:CA'] },
   { slug: 'oakland-ca', name: 'Oakland, CA', tags: ['Bay Area', 'state:CA'] },
   { slug: 'austin-tx', name: 'Austin, TX', tags: ['Top 50', 'state:TX'] },
   { slug: 'reno-nv', name: 'Reno, NV' },
@@ -88,7 +88,6 @@ test('rebuildCitySelect mirrors the server-side optgroup layout and keeps data a
   assert.deepEqual(plain(bare), ['reno-nv'], 'untagged city renders as a bare option after the groups');
   const sj = sel.querySelector('option[value="san-jose-ca"]');
   assert.equal(sj.dataset.bbox, '1,2,3,4');
-  assert.equal(sj.dataset.lon, '1.5');
   assert.equal(sel.querySelector('option[value="reno-nv"]').dataset.bbox, undefined);
 });
 

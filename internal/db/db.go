@@ -126,15 +126,15 @@ type SnapshotPart struct {
 }
 
 type ForecastResult struct {
-	ID            int64         `json:"-"`
-	ResourceType  resource.Type `json:"resourceType"`
-	Year          int           `json:"year"`
-	PCI           float64       `json:"pci"`
-	Area          float64       `json:"area"`
-	TreatmentCost float64       `json:"treatmentCost"`
-	TreatmentTier string        `json:"treatmentTier"`
-	RunID         int64         `json:"-"`
-	ComputedAt    time.Time     `json:"-"`
+	ID           int64
+	ResourceType resource.Type
+	Year         int
+	PCI          float64
+	Area         float64
+	AnnualNeed   float64
+	CostTier     string
+	RunID        int64
+	ComputedAt   time.Time
 }
 
 type CohortStat struct {
