@@ -22,14 +22,19 @@ func NewCmdAll(f *cmdutil.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "all",
 		Short: "Operate on all resource types",
-		Long: `Fan out the ingest or compute pipeline across every resource type
-(roads, parking, sidewalks) for every [[cities]] entry in pvmt.toml.
-'all compute' additionally runs the combined paved-area pass that
-unions the per-resource geometries to avoid double-counting overlap.`,
-		Example: `  # Ingest roads, parking, and sidewalks from all configured sources
+		Long: `Fan out the ingest or compute pipeline across every pavement resource
+(roads, parking, sidewalks) for every [[cities]] entry in pvmt.toml, then
+run the fire-station and Census steps ('pvmt services', 'pvmt census')
+best-effort: a failure there is warned about and does not fail the run.
+A city with census = false skips the Census steps.
+
+'all compute' also runs the combined paved-area pass, which unions the
+per-resource geometries to avoid double-counting overlap, before fire
+response coverage and per-hex population.`,
+		Example: `  # Ingest roads, parking, sidewalks, fire stations and Census blocks
   pvmt all ingest
 
-  # Compute coverage for each resource and the combined paved area
+  # Compute pavement coverage, the combined paved area, fire coverage and population
   pvmt all compute`,
 	}
 
@@ -44,7 +49,7 @@ func newAllIngest(f *cmdutil.Factory) *cobra.Command {
 	return &cobra.Command{
 		Use:   "ingest",
 		Short: "Ingest data for all resource types",
-		Example: `  # Pull roads, parking, sidewalks across every configured [[cities]]
+		Example: `  # Pull roads, parking, sidewalks, fire stations and Census blocks for every [[cities]] entry
   pvmt all ingest`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmdutil.ForEachCity(cmd.Context(), f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {

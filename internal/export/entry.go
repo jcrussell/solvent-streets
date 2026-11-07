@@ -19,7 +19,7 @@ import (
 var ErrNoBoundary = errors.New("no boundary stored")
 
 // ErrNoMatchingSnapshot signals that no snapshot for this city was written
-// by the current config — typically because `pvmt compute` was skipped or
+// by the current config — typically because `pvmt all compute` was skipped or
 // run with a different config. The exporter fails loud rather than emitting
 // silent empty hex_stats / zero meta totals.
 var ErrNoMatchingSnapshot = errors.New("no snapshot matches current config hash")
@@ -103,7 +103,7 @@ func (entry CityEntry) PinCurrentSnapshot(ctx context.Context) (CityEntry, error
 
 // RequireMatchingSnapshot returns ErrNoMatchingSnapshot when the city's
 // snapshots include none with the current config's hash. This is the
-// fail-loud signal that `pvmt compute` was skipped (or run with a
+// fail-loud signal that `pvmt all compute` was skipped (or run with a
 // different config) for this city — exporting would otherwise produce
 // silent empty hex_stats and zero totals.
 //
@@ -136,7 +136,7 @@ func (entry CityEntry) RequireMatchingSnapshot(ctx context.Context) error {
 				"the current config. The config's snapshot so far holds only %s.", entry.Slug, partNames(s))
 	}
 	return hint.Withf(fmt.Errorf("%w for %s", ErrNoMatchingSnapshot, entry.City.Name),
-		"Run `pvmt all compute` (or `pvmt compute --city %s`) to produce a snapshot "+
+		"Run `pvmt --city %s all compute` to produce a snapshot "+
 			"matching the current config hash %s. If snapshots exist with other hashes "+
 			"(e.g. after editing hex_edge_m or a forecast knob), `pvmt snapshots ls --city %s` "+
 			"will show them.", entry.Slug, configHash, entry.Slug)
@@ -228,7 +228,7 @@ func (entry CityEntry) BBoxAndCenter(ctx context.Context) ([4]float64, float64, 
 		return [4]float64{}, 0, 0, fmt.Errorf("boundary for %s: %w", entry.City.Name, err)
 	}
 	if boundaryGJSON == "" {
-		return [4]float64{}, 0, 0, fmt.Errorf("%w for %s — run 'pvmt ingest' first", ErrNoBoundary, entry.City.Name)
+		return [4]float64{}, 0, 0, fmt.Errorf("%w for %s — run 'pvmt all ingest' first", ErrNoBoundary, entry.City.Name)
 	}
 	bbox, err := geo.BBoxFromGeoJSON(boundaryGJSON)
 	if err != nil {

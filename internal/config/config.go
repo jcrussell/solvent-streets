@@ -496,7 +496,7 @@ type CityConfig struct {
 	SourceConfigID string `toml:"-"`
 
 	// SourceConfigHash is that config's content hash — the value its own
-	// `pvmt compute` writes into snapshots.config_hash. It must be computed the
+	// a compute run writes into snapshots.config_hash. It must be computed the
 	// same way Load does (hashBlobs over the file and everything it includes),
 	// NOT via the included *Config's Hash(), which carries only the bare-bytes
 	// hash parseConfig set and would match a different, older snapshot.
@@ -566,7 +566,7 @@ func (c *Config) CityConfigID(city *CityConfig) string {
 }
 
 // CityHash returns the content hash that scopes snapshot reads for city, i.e.
-// the hash whose `pvmt compute` run produced the data this city should read.
+// the hash whose compute run produced the data this city should read.
 // Same rule as CityConfigID: an included city reads (and writes) under the
 // source config's hash, everything else under this config's own.
 func (c *Config) CityHash(city *CityConfig) string {

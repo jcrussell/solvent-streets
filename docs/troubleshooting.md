@@ -9,7 +9,7 @@ This page expands the hints into longer guidance. Most sections are named for a 
 
 ## Exit codes
 
-Every command uses the same mapping, so a shell chain like `pvmt compute && pvmt export && pvmt check-site` can be trusted:
+Every command uses the same mapping, so a shell chain like `pvmt all compute && pvmt export && pvmt check-site` can be trusted:
 
 | Code | Meaning |
 |------|---------|
@@ -96,7 +96,7 @@ The refused file is left exactly as it was. To start over, move it aside togethe
 
 ## `#water-strip-skipped`
 
-**Hint:** *one-line warning emitted by `pvmt ingest`; the boundary is still saved but without OSM water subtracted (or, for a failed water fetch, an error and nothing saved).*
+**Hint:** *one-line warning emitted by `pvmt <resource> ingest` and `pvmt all ingest`; the boundary is still saved but without OSM water subtracted (or, for a failed water fetch, an error and nothing saved).*
 
 Before computing coverage, pvmt subtracts OSM water (`natural=water`, `natural=coastline`) from the Nominatim boundary so cross-city `% paved` is comparable. When the subtraction's *geometry* fails it logs `water strip skipped: …` and keeps the unstripped boundary. Area numbers are then inflated by the un-subtracted water; roads/parking/sidewalks ingest itself is unaffected.
 

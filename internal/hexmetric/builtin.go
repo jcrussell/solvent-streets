@@ -28,7 +28,7 @@ func init() {
 		Key:    KeyCoverage,
 		Label:  "Coverage %",
 		Unit:   "%",
-		Source: "Share of the hex covered by the toggled resources (pvmt compute)",
+		Source: "Share of the hex covered by the toggled resources (pvmt all compute)",
 		Format: FormatPercent,
 		Scale: Scale{
 			Kind: KindCoverage, Transform: TransformLinear, Mode: ModeRamp,
@@ -41,7 +41,7 @@ func init() {
 		Key:    KeyArea,
 		Label:  "Paved area",
 		Unit:   "m2",
-		Source: "Area of the toggled resources inside the hex (pvmt compute)",
+		Source: "Area of the toggled resources inside the hex (pvmt all compute)",
 		Format: FormatArea,
 		Scale: Scale{
 			Kind: KindSequential, Transform: TransformLinear,
@@ -53,7 +53,7 @@ func init() {
 		Key:    KeySpaces,
 		Label:  "Parking spaces",
 		Unit:   "",
-		Source: "Estimated parking spaces apportioned to the hex by lot area (pvmt compute)",
+		Source: "Estimated parking spaces apportioned to the hex by lot area (pvmt all compute)",
 		Format: FormatInt,
 		Scale: Scale{
 			Kind: KindSequential, Transform: TransformLinear,

@@ -64,6 +64,18 @@ func (r statusRow) ExportData(fields []string) map[string]any {
 	return out
 }
 
+// Example is the --help example text for the status subcommand of the
+// command group named group (`pvmt <group> status`). The group name is not
+// derivable from the resource type (census blocks are stored as
+// "layer-census-blocks" but their command is `pvmt census`).
+func Example(group string) string {
+	return fmt.Sprintf(`  # Show feature + result counts for %s
+  pvmt %s status
+
+  # Emit the row as JSON
+  pvmt %s status --json resource_type,feature_count,area`, group, group, group)
+}
+
 var statusFields = []string{"resource_type", "feature_count", "last_ingest_at", "last_compute_at", "area", "estimated_spaces"}
 
 func NewCmdStatus(f *cmdutil.Factory, rt resource.Source, runF func(context.Context, *Options) error) *cobra.Command {
@@ -95,11 +107,7 @@ current city: feature count, last-ingest and last-compute timestamps,
 and paved area in the active unit system. Use --json with a
 comma-separated field list (resource_type, feature_count, last_ingest_at,
 last_compute_at, area, estimated_spaces) for a single row.`, rt.Type())
-		example = fmt.Sprintf(`  # Show feature + result counts for %s
-  pvmt %s status
-
-  # Emit the row as JSON
-  pvmt %s status --json resource_type,feature_count,area`, rt.Type(), rt.Type(), rt.Type())
+		example = Example(string(rt.Type()))
 	}
 
 	cmd := &cobra.Command{

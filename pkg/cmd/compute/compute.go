@@ -95,6 +95,19 @@ func (r computeRow) ExportData(fields []string) map[string]any {
 	return out
 }
 
+// Example is the --help example text for the coverage compute subcommand of
+// the command group named group (`pvmt <group> compute`).
+func Example(group string) string {
+	return fmt.Sprintf(`  # Compute per-hex coverage for %s across every configured city
+  pvmt %s compute
+
+  # Restrict to city-maintained features only (when the resource has cohorts)
+  pvmt %s compute --city-only
+
+  # Scope to a single city
+  pvmt --city oakland %s compute`, group, group, group, group)
+}
+
 var computeFields = []string{"city", "resource_type", "jurisdiction", "feature_count", "area", "estimated_spaces", "run_id"}
 
 func NewCmdCompute(f *cmdutil.Factory, rt resource.Source, runF func(context.Context, *Options) error) *cobra.Command {
@@ -109,16 +122,9 @@ func NewCmdCompute(f *cmdutil.Factory, rt resource.Source, runF func(context.Con
 
 	t := rt.Type()
 	cmd := &cobra.Command{
-		Use:   "compute",
-		Short: fmt.Sprintf("Compute %s area statistics", t),
-		Example: fmt.Sprintf(`  # Compute per-hex coverage for %s across every configured city
-  pvmt %s compute
-
-  # Restrict to city-maintained features only (when the resource has cohorts)
-  pvmt %s compute --city-only
-
-  # Scope to a single city
-  pvmt --city oakland %s compute`, t, t, t, t),
+		Use:     "compute",
+		Short:   fmt.Sprintf("Compute %s area statistics", t),
+		Example: Example(string(t)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
 				return runF(cmd.Context(), opts)
@@ -453,7 +459,7 @@ func LoadBoundary(ctx context.Context, store db.Store, city *config.CityConfig) 
 		return "", [4]float64{}, nil, fmt.Errorf("get boundary: %w", err)
 	}
 	if boundaryGJSON == "" {
-		return "", [4]float64{}, nil, fmt.Errorf("no boundary stored for city %s — run 'pvmt ingest' first", city.Name)
+		return "", [4]float64{}, nil, fmt.Errorf("no boundary stored for city %s — run 'pvmt all ingest' first", city.Name)
 	}
 	bbox, err := geo.BBoxFromGeoJSON(boundaryGJSON)
 	if err != nil {

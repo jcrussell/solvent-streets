@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/jcrussell/solvent-streets/internal/cache"
 	"github.com/jcrussell/solvent-streets/internal/config"
@@ -42,16 +43,9 @@ func NewCmdIngest(f *cmdutil.Factory, rt resource.Source, runF func(context.Cont
 	}
 
 	cmd := &cobra.Command{
-		Use:   "ingest",
-		Short: fmt.Sprintf("Ingest %s data from APIs", rt.Type()),
-		Example: fmt.Sprintf(`  # Pull %s from the OpenStreetMap Overpass API
-  pvmt %s ingest --source overpass
-
-  # Bypass the 24h HTTP cache and re-fetch
-  pvmt %s ingest --force
-
-  # Show what would be fetched without making any requests
-  pvmt %s ingest --dry-run`, rt.Type(), rt.Type(), rt.Type(), rt.Type()),
+		Use:     "ingest",
+		Short:   fmt.Sprintf("Ingest %s data from APIs", rt.Type()),
+		Example: Example(string(rt.Type()), rt),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
 				return runF(cmd.Context(), opts)
@@ -71,6 +65,28 @@ func NewCmdIngest(f *cmdutil.Factory, rt resource.Source, runF func(context.Cont
 	cmd.MarkFlagsMutuallyExclusive("force", "dry-run")
 
 	return cmd
+}
+
+// Example is the --help example text for the ingest subcommand of the
+// command group named group (`pvmt <group> ingest`). The group name is not
+// derivable from rt: census blocks are stored as "layer-census-blocks" and
+// fire stations as "facility-fire", but their commands are `pvmt census` and
+// `pvmt services`. A resource with one fixed source gets no --source example.
+func Example(group string, rt resource.Source) string {
+	var b strings.Builder
+	if own, ok := rt.(resource.OwnSourced); ok {
+		fmt.Fprintf(&b, "  # Ingest every configured city (%s has one source: %s)\n  pvmt %s ingest\n\n",
+			group, own.OwnSource(), group)
+	} else {
+		fmt.Fprintf(&b, "  # Pull %s from the OpenStreetMap Overpass API only\n  pvmt %s ingest --source overpass\n\n",
+			group, group)
+	}
+	fmt.Fprintf(&b, `  # Bypass the 24h HTTP cache and re-fetch
+  pvmt %s ingest --force
+
+  # Show what would be fetched without making any requests
+  pvmt %s ingest --dry-run`, group, group)
+	return b.String()
 }
 
 // RunResourceForCity ingests a single resource type against the already

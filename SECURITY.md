@@ -46,9 +46,9 @@ In scope:
 
 Out of scope:
 
-- Vulnerabilities in third-party data sources (OpenStreetMap, ArcGIS
-  feature servers, GeoJSON files supplied to `pvmt ingest`). Report
-  those upstream.
+- Vulnerabilities in third-party data sources (OpenStreetMap's
+  Overpass and Nominatim APIs, ArcGIS feature servers, the Census
+  Bureau's TIGERweb). Report those upstream.
 - Issues that require a malicious `pvmt.toml` or local SQLite database
   controlled by the attacker; `pvmt` trusts its own configuration and
   on-disk state by design.

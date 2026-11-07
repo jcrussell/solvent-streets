@@ -99,7 +99,7 @@ tags = ["Top 50"]
 - The warnings are printed when a command actually reads the config, so `pvmt --version`, `pvmt cache prune` and other config-free commands stay silent and never pay for config discovery.
 - Each included example's per-metro calibration (decay/growth/cost tiers, hex edge, min hex area) is flattened into fully self-describing per-city overrides during the merge. The including file must keep its top-level `[grid]`/`[forecast]` **and** `[display].min_hex_area` **empty** — a value there would re-calibrate any city that had relied on a package default, so it is rejected at load. The rest of `[display]` and `[export]` (`units`, `title`, …) is fine in the parent: those have no per-city layer. Set calibration per city or per example instead.
 - A file that declares `[[include]]` may omit `[[cities]]` of its own; the "at least one city" requirement is enforced after the merge.
-- Editing any included file changes the merged config's identity hash, so snapshots invalidate and `pvmt compute` reruns as expected.
+- Editing any included file changes the merged config's identity hash, so snapshots invalidate and the next `pvmt all compute` produces fresh ones.
 
 ## Config identity (`config_id`)
 

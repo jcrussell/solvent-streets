@@ -190,3 +190,50 @@ func diffSorted(want, got []string) string {
 	}
 	return b.String()
 }
+
+// TestCobraTree_ExamplesNameRealCommands parses every `pvmt ...` line of
+// every command's Example against a fresh tree: the command path must
+// resolve to a real leaf and the flags must parse, values included. Help
+// text and the generated manpages ship these lines verbatim, so an example
+// built from a storage name (`pvmt layer-census-blocks ingest`) or naming a
+// --source the command rejects is a bug users copy-paste.
+func TestCobraTree_ExamplesNameRealCommands(t *testing.T) {
+	var examples []string
+	var walk func(cmd *cobra.Command)
+	walk = func(cmd *cobra.Command) {
+		for line := range strings.SplitSeq(cmd.Example, "\n") {
+			line = strings.TrimSpace(line)
+			// Keep only the pvmt invocation of a shell pipeline or chain.
+			if i := strings.IndexAny(line, "|&;>"); i >= 0 {
+				line = strings.TrimSpace(line[:i])
+			}
+			if strings.HasPrefix(line, "pvmt ") {
+				examples = append(examples, line)
+			}
+		}
+		for _, sub := range cmd.Commands() {
+			walk(sub)
+		}
+	}
+	walk(newTestRoot(t))
+	if len(examples) == 0 {
+		t.Fatal("found no examples; the walk is broken")
+	}
+
+	for _, ex := range examples {
+		t.Run(ex, func(t *testing.T) {
+			args := strings.Fields(ex)[1:]
+			rootCmd := newTestRoot(t)
+			cmd, rest, err := rootCmd.Find(args)
+			if err != nil {
+				t.Fatalf("%q does not resolve to a command: %v", ex, err)
+			}
+			if cmd.HasSubCommands() {
+				t.Fatalf("%q resolves to the group %q, not a runnable command", ex, cmd.CommandPath())
+			}
+			if err := cmd.ParseFlags(rest); err != nil {
+				t.Fatalf("%q: flags do not parse: %v", ex, err)
+			}
+		})
+	}
+}

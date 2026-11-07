@@ -1609,7 +1609,7 @@ func equalStrings(a, b []string) bool {
 // as an INCLUDE, load the same file STANDALONE, and require that the stamped
 // identity equals what the standalone load produces. If those ever disagree,
 // the union config reads a different cities row or a different snapshot than
-// the example's own `pvmt compute` wrote.
+// the example's own compute run wrote.
 //
 // This is a pure-config test — no DB, no export — and it is specifically the
 // test that catches stamping child.Hash() instead of hashBlobs(childBlobs).

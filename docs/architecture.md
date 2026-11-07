@@ -5,9 +5,10 @@
 ```mermaid
 flowchart LR
     subgraph Ingest ["internal/ingest"]
+        Nominatim
         Overpass
         ArcGIS
-        CSV/GeoJSON
+        TIGERweb
     end
 
     subgraph Compute ["internal/geo + internal/resource"]
