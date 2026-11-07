@@ -73,7 +73,8 @@ import (
 // An [[include]]d city: see CityHash.
 //
 // Scheme: the hashed bytes are computeInputsScheme, a newline, then the JSON
-// encoding of computeInputs. encoding/json writes struct fields in declaration
+// encoding of hashEnvelope (ComputeEpoch plus computeInputs). encoding/json
+// writes struct fields in declaration
 // order and floats in their shortest round-trip form, so the encoding is
 // canonical; -0 is folded to 0 first. Bump the scheme when the encoding itself
 // changes. Adding a field to computeInputs changes every hash unless the field
@@ -83,9 +84,39 @@ import (
 // The 16-character truncation matches snapshots.config_hash, which the schema
 // stores as TEXT; widening it desynchronizes write vs read for existing rows.
 
-// computeInputsScheme names the encoding of computeInputs; part of the hashed
+// ComputeEpoch identifies the compute logic behind a stored result, the half
+// of "what produced this" that no setting can see (solvent-streets-mfjb). It
+// is part of every CityHash, so bumping it makes every stored snapshot stop
+// matching: export then refuses each city with the "settings or pvmt changed"
+// hint until it is recomputed.
+//
+// Bump it by one, in the same commit, whenever a code change alters what a
+// producer stores for the same stored features and the same settings — for
+// example jurisdiction classification (internal/filter, which decides what is
+// billed to the city), buffering and width rules (internal/geo,
+// internal/resource, ParkingSpaceAreaM2), hex tiling, clipping or hex stats,
+// the forecast model or its built-in defaults (internal/forecast), routing,
+// speeds or registry defaults (internal/services), census apportionment
+// (internal/population), or what a producer writes or drops. Do not bump it
+// for changes that only affect ingest, export or serve rendering, CLI output,
+// docs or tests: stored results would not change, and a needless bump costs
+// every user a full recompute. When unsure, compare a city's stored results
+// before and after the change. See CONTRIBUTING.md.
+//
+// History: 1 — v0.5.0, the first semantic hash.
+const ComputeEpoch = 1
+
+// computeInputsScheme names the encoding of hashEnvelope; part of the hashed
 // bytes so a future encoding can never collide with this one.
 const computeInputsScheme = "pvmt-compute-inputs/v2"
+
+// hashEnvelope is the value actually encoded: the code epoch, then the
+// resolved settings.
+type hashEnvelope struct {
+	Epoch    int            `json:"epoch"`
+	Data     dataInputs     `json:"data"`
+	Forecast forecastInputs `json:"forecast"`
+}
 
 // computeInputs is everything, resolved, that a stored result for one city
 // depends on besides the stored features themselves. Split in two because the
@@ -194,10 +225,11 @@ func (c *Config) cityForecastInputs(city *CityConfig) forecastInputs {
 	return f
 }
 
-// hashComputeInputs encodes in canonically and returns the 16-hex-char prefix
-// of its sha256.
-func hashComputeInputs(in computeInputs) string {
-	b, err := json.Marshal(in)
+// hashComputeInputs encodes in, under compute epoch epoch, canonically and
+// returns the 16-hex-char prefix of its sha256. CityHash passes ComputeEpoch;
+// the parameter exists so a test can show a bump moves the hash.
+func hashComputeInputs(epoch int, in computeInputs) string {
+	b, err := json.Marshal(hashEnvelope{Epoch: epoch, Data: in.Data, Forecast: in.Forecast})
 	if err != nil {
 		// Unreachable: the envelope holds only strings, ints, finite floats
 		// (Validate rejects NaN/Inf) and slices of them.
@@ -255,7 +287,7 @@ func (c *Config) CityHash(city *CityConfig) string {
 			return city.SourceConfigHash
 		}
 	}
-	return hashComputeInputs(in)
+	return hashComputeInputs(ComputeEpoch, in)
 }
 
 // SourceDivergence describes, field by field, how this config resolves an

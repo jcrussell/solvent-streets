@@ -57,6 +57,23 @@ func TestCityHash_Format(t *testing.T) {
 	}
 }
 
+// TestCityHash_ComputeEpochMovesEveryHash (solvent-streets-mfjb): a code change
+// that alters stored results is invisible to every setting, so the epoch is
+// part of the key and bumping it invalidates every city's snapshots.
+func TestCityHash_ComputeEpochMovesEveryHash(t *testing.T) {
+	cfg, _ := loadCity(t, writeTOML(t, t.TempDir(), "pvmt.toml", twoCities), "reno-nv")
+	for i := range cfg.Cities {
+		city := &cfg.Cities[i]
+		in := cfg.cityComputeInputs(city)
+		if got, want := cfg.CityHash(city), hashComputeInputs(ComputeEpoch, in); got != want {
+			t.Fatalf("%s: CityHash = %q, want the hash at ComputeEpoch %d (%q)", city.Name, got, ComputeEpoch, want)
+		}
+		if hashComputeInputs(ComputeEpoch+1, in) == cfg.CityHash(city) {
+			t.Errorf("%s: bumping ComputeEpoch left the hash unchanged", city.Name)
+		}
+	}
+}
+
 // TestCityHash_DeterministicInMemory: two identical in-memory configs, each
 // carrying a per-city *ForecastConfig, hash identically (no pointer addresses
 // or map order can leak into the encoding).
