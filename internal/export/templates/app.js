@@ -489,7 +489,16 @@
         let hexDataByScope = { city: {}, all: {} };       // { scope: { type: [features] } }
         let costSummaryByScope = { city: {}, all: {} };   // { scope: { type: {year1_need,total_area} } }
         let activeTypes = new Set(Object.keys(layerColors));
+        // #stats shows either the city summary or one detail panel (a clicked
+        // hex, a dragged region) over it. savedPanelHTML is the summary the
+        // detail panel's close button restores; renderOpenDetail re-renders
+        // the open detail panel from live state, and is null while the
+        // summary is showing. A resource toggle, scope switch or units switch
+        // refreshes both (refreshCityStats), so the panel stays open and
+        // current and closing it lands on an up-to-date summary.
         let savedPanelHTML = '';
+        /** @type {(() => void) | null} */
+        let renderOpenDetail = null;
         // Monotonic load-generation tokens. loadCityData and loadFinancials each
         // await several fetches before mutating map sources/layers and module
         // globals; overlapping invocations (e.g. rapid city/snapshot switches or a
@@ -613,11 +622,13 @@
             if (!metricAvailable(hexMetric)) {
                 selectHexMetric(DEFAULT_METRIC, { push: false });
                 Router.replace();
-                return; // selectHexMetric re-blended and repainted
+            } else {
+                populateMetricSelect();
+                src.setData(buildBlendedHexFC());
             }
-            populateMetricSelect();
+            // After the blend either way: the per-resident totals and an open
+            // detail panel follow the toggles and scope, not the metric.
             refreshCityStats();
-            src.setData(buildBlendedHexFC());
         }
 
         // lastCityMeta holds the most recently loaded city's meta.json so a units
@@ -625,13 +636,20 @@
         // rebuilding the map layers loadCityData otherwise touches.
         let lastCityMeta = null;
 
-        // renderCityStats paints the side-panel stat cards for one city's meta.
-        // Split from loadCityData so a units switch re-renders them in place; it
-        // also refreshes savedPanelHTML so the hex-detail panel's Close button
-        // restores the panel in the current units.
+        // renderCityStats shows the side-panel stat cards for one city's meta,
+        // closing any open detail panel (a new city's summary replaces it).
         function renderCityStats(meta) {
             const statsEl = document.getElementById('stats');
             if (!statsEl || !meta) return;
+            savedPanelHTML = cityStatsHTML(meta);
+            renderOpenDetail = null;
+            statsEl.innerHTML = savedPanelHTML;
+        }
+
+        // cityStatsHTML renders the stat cards for one city's meta in the
+        // current units, with the per-resident card over the toggled resources
+        // in the current scope.
+        function cityStatsHTML(meta) {
             let statsHTML = '';
             if (meta.city_area && meta.city_area > 0) {
                 statsHTML +=
@@ -670,24 +688,46 @@
                     '</div>';
             });
             statsHTML += ratioTotalsCard();
-            statsEl.innerHTML = statsHTML;
-            savedPanelHTML = statsHTML;
+            return statsHTML;
         }
 
         // refreshCityStats re-renders the stats panel once hex data arrives or
-        // the resource toggles change (the per-resident totals depend on
-        // both). A hex-detail panel the user opened stays put; the refreshed
-        // summary is what its close button restores.
+        // the resource toggles, scope or units change (the per-resident totals
+        // depend on the first three, every number on the last). A detail
+        // panel the user opened stays open and is re-rendered too; the
+        // refreshed summary is what its close button restores.
         function refreshCityStats() {
             const statsEl = document.getElementById('stats');
             if (!statsEl || !lastCityMeta) return;
-            if (statsEl.querySelector('.hex-detail')) {
-                const open = statsEl.innerHTML;
+            if (!renderOpenDetail) {
                 renderCityStats(lastCityMeta);
-                statsEl.innerHTML = open;
                 return;
             }
-            renderCityStats(lastCityMeta);
+            savedPanelHTML = cityStatsHTML(lastCityMeta);
+            renderOpenDetail();
+        }
+
+        // openDetail shows a detail panel in #stats, keeping the summary its
+        // close button restores. render redraws the panel from live state and
+        // is kept so refreshCityStats can redraw it after a toggle.
+        function openDetail(render) {
+            const statsEl = document.getElementById('stats');
+            if (!statsEl) return;
+            if (!renderOpenDetail) savedPanelHTML = statsEl.innerHTML;
+            renderOpenDetail = render;
+            render();
+        }
+
+        // One delegated listener for every detail panel's close button: the
+        // panels are rebuilt as innerHTML on each refresh, so a listener bound
+        // to the button itself would die with the first rebuild.
+        {
+            const statsEl = document.getElementById('stats');
+            if (statsEl) statsEl.addEventListener('click', e => {
+                if (!(e.target instanceof Element) || !e.target.closest('.close-btn')) return;
+                renderOpenDetail = null;
+                statsEl.innerHTML = savedPanelHTML;
+            });
         }
 
         // blendedTotal sums a derivation property over the city's toggled
@@ -971,7 +1011,7 @@
         }
 
         // Register the hex-fill hover/click handlers exactly once. They read live
-        // module state (hexDataByScope/costSummaryByScope/currentScope/savedPanelHTML),
+        // module state (hexDataByScope/costSummaryByScope/currentScope/activeTypes),
         // so re-running loadCityData with new data is reflected without re-binding.
         // Registered before the layer exists is fine: MapLibre layer-scoped listeners
         // simply don't fire until a layer with that id is present.
@@ -999,53 +1039,49 @@
             map.on('click', 'hex-fill', e => {
                 if (selecting) return; // region-select drag in progress; don't open hex panel
                 if (!e.features || e.features.length === 0) return;
-                const p = e.features[0].properties;
-                const hexId = p.hex_id;
-
-                // Save current stats panel
-                const statsEl = document.getElementById('stats');
-                if (!statsEl.querySelector('.hex-detail')) {
-                    savedPanelHTML = statsEl.innerHTML;
-                }
-
-                // Build per-type breakdown — read from the active scope's buckets
-                // so the click panel matches what the user just saw on the heatmap.
-                const hexDataByType = hexDataByScope[currentScope] || {};
-                const costSummary = costSummaryByScope[currentScope] || {};
-                let rows = '';
-                let totalArea = 0, totalPct = 0, totalCost = 0, totalSpaces = 0;
-                for (const type of Object.keys(layerColors)) {
-                    const features = hexDataByType[type] || [];
-                    const match = features.find(f => f.properties.hex_id === hexId);
-                    if (!match) continue;
-                    const area = match.properties.area || 0;
-                    const pct = (match.properties.share || 0) * 100;
-                    totalSpaces += match.properties.spaces || 0;
-                    let cost = 0;
-                    const cs = costSummary[type];
-                    if (cs && cs.total_area) {
-                        cost = (area / cs.total_area) * cs.year1_need;
-                    }
-                    totalArea += area;
-                    totalPct += pct;
-                    totalCost += cost;
-                    rows += '<tr><td style="text-transform:capitalize">' + type + '</td><td>' + fmtArea(area) + '</td><td>' + Math.round(pct) + '%</td><td>' + fmtCost(cost) + '</td></tr>';
-                }
-
-                statsEl.innerHTML =
-                    '<div class="hex-detail">' +
-                    '<h3>Hex ' + hexId + '<button class="close-btn" id="close-hex" type="button" aria-label="Close hex details">&times;</button></h3>' +
-                    '<table><tr><th>Type</th><th>Area</th><th>Coverage</th><th>Est. Cost</th></tr>' +
-                    rows +
-                    '<tr class="total-row"><td>Total</td><td>' + fmtArea(totalArea) + '</td><td>' + Math.min(Math.round(totalPct), 100) + '%</td><td>' + fmtCost(totalCost) + '</td></tr>' +
-                    '</table>' +
-                    (totalSpaces > 0 ? '<div class="stat-row"><span class="stat-label">Est. Parking Spaces</span><span class="stat-value">' + Math.round(totalSpaces).toLocaleString() + '</span></div>' : '') +
-                    '</div>';
-
-                document.getElementById('close-hex').addEventListener('click', () => {
-                    statsEl.innerHTML = savedPanelHTML;
-                });
+                const hexId = e.features[0].properties.hex_id;
+                openDetail(() => renderHexDetail(hexId));
             });
+        }
+
+        // renderHexDetail shows one hex's per-resource breakdown in #stats,
+        // over the toggled resources in the active scope, so the panel matches
+        // what the heatmap paints for that hex.
+        function renderHexDetail(hexId) {
+            const statsEl = document.getElementById('stats');
+            if (!statsEl) return;
+            const hexDataByType = hexDataByScope[currentScope] || {};
+            const costSummary = costSummaryByScope[currentScope] || {};
+            let rows = '';
+            let totalArea = 0, totalPct = 0, totalCost = 0, totalSpaces = 0;
+            for (const type of Object.keys(layerColors)) {
+                if (!activeTypes.has(type)) continue;
+                const features = hexDataByType[type] || [];
+                const match = features.find(f => f.properties.hex_id === hexId);
+                if (!match) continue;
+                const area = match.properties.area || 0;
+                const pct = (match.properties.share || 0) * 100;
+                totalSpaces += match.properties.spaces || 0;
+                let cost = 0;
+                const cs = costSummary[type];
+                if (cs && cs.total_area) {
+                    cost = (area / cs.total_area) * cs.year1_need;
+                }
+                totalArea += area;
+                totalPct += pct;
+                totalCost += cost;
+                rows += '<tr><td style="text-transform:capitalize">' + type + '</td><td>' + fmtArea(area) + '</td><td>' + Math.round(pct) + '%</td><td>' + fmtCost(cost) + '</td></tr>';
+            }
+
+            statsEl.innerHTML =
+                '<div class="hex-detail">' +
+                '<h3>Hex ' + hexId + '<button class="close-btn" id="close-hex" type="button" aria-label="Close hex details">&times;</button></h3>' +
+                '<table><tr><th>Type</th><th>Area</th><th>Coverage</th><th>Est. Cost</th></tr>' +
+                rows +
+                '<tr class="total-row"><td>Total</td><td>' + fmtArea(totalArea) + '</td><td>' + Math.min(Math.round(totalPct), 100) + '%</td><td>' + fmtCost(totalCost) + '</td></tr>' +
+                '</table>' +
+                (totalSpaces > 0 ? '<div class="stat-row"><span class="stat-label">Est. Parking Spaces</span><span class="stat-value">' + Math.round(totalSpaces).toLocaleString() + '</span></div>' : '') +
+                '</div>';
         }
         registerHexHandlers();
 
@@ -1497,9 +1533,16 @@
                 if (e.key === 'Escape' && selecting) stopSelecting();
             });
 
-            // Aggregate the blended hex FC over the selection bbox and render the
-            // result card into #stats. Empty selection shows zeros, not an error.
+            // aggregateSelection opens the region panel for the selection bbox.
+            // The bbox is kept, so a toggle re-aggregates the same region.
             function aggregateSelection(bbox) {
+                openDetail(() => renderRegionDetail(bbox));
+            }
+
+            // renderRegionDetail aggregates the blended hex FC over bbox and
+            // renders the result card into #stats. Empty selection shows
+            // zeros, not an error.
+            function renderRegionDetail(bbox) {
                 const [minLng, minLat, maxLng, maxLat] = bbox;
                 const fc = buildBlendedHexFC();
                 let count = 0, sumArea = 0, sumCost = 0, sumShareArea = 0;
@@ -1516,12 +1559,7 @@
                 const wPct = sumArea > 0 ? (sumShareArea / sumArea) * 100 : 0;
 
                 const statsEl = document.getElementById('stats');
-                // Single-slot savedPanelHTML is shared with the hex-click panel.
-                // Only capture when neither detail panel is already showing, so
-                // closing restores the real stats, not another detail view.
-                if (!statsEl.querySelector('.hex-detail') && !statsEl.querySelector('.region-detail')) {
-                    savedPanelHTML = statsEl.innerHTML;
-                }
+                if (!statsEl) return;
                 statsEl.innerHTML =
                     '<div class="region-detail">' +
                     '<div class="stat-card summary-card">' +
@@ -1531,8 +1569,6 @@
                     '<div class="stat-row"><span class="stat-label">% Covered (area-weighted)</span><span class="stat-value">' + wPct.toFixed(1) + '%</span></div>' +
                     '<div class="stat-row"><span class="stat-label">Est. Annual Cost</span><span class="stat-value">' + fmtCost(sumCost) + '</span></div>' +
                     '</div></div>';
-                const closeBtn = document.getElementById('close-region');
-                if (closeBtn) closeBtn.addEventListener('click', () => { statsEl.innerHTML = savedPanelHTML; });
             }
         })();
 
@@ -3290,8 +3326,9 @@
             UNIT_SYSTEM = sys;
             try { localStorage.setItem('pvmtUnits', sys); } catch (e) { /* storage disabled */ }
             syncUnitsToggle();
-            // Stats panel is always visible — re-render it in place (no map rebuild).
-            renderCityStats(lastCityMeta);
+            // Stats panel is always visible — re-render it in place (no map
+            // rebuild), an open detail panel included.
+            refreshCityStats();
             // Financials is loaded once per city and is NOT re-triggered by
             // selectTab, so re-render it now regardless of the active tab. Render
             // from the cached data rather than calling loadFinancials(): a display
