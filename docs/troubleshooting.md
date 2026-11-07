@@ -87,7 +87,7 @@ The `<path>` in the hint is the exact directory pvmt failed on, so start there. 
 
 **Hint:** *move `<path>` (and any `-wal`/`-shm` files beside it) aside (pvmt creates a fresh database on the next run), then re-ingest with `pvmt all ingest` and `pvmt all compute`. pvmt never deletes it for you.*
 
-Every pvmt database is stamped with a *schema generation*. Ordinary schema changes are migrated automatically within a generation. A new generation is a deliberate breaking change, listed under "Breaking Changes" in the release notes, and pvmt refuses to open a database from any other generation rather than guess at converting it:
+Every pvmt database is stamped with a *schema generation*. Ordinary schema changes are migrated automatically within a generation. A new generation is a deliberate breaking change, listed under "Breaking Changes" in the release notes and in [upgrading.md](upgrading.md), and pvmt refuses to open a database from any other generation rather than guess at converting it:
 
 - `schema generation N predates this pvmt's M`: the database was created by an older pvmt (every database from v0.4.1 or earlier is generation 0).
 - `schema generation N is newer than this pvmt's M`: the database was created by a newer pvmt. Upgrade pvmt instead of moving the database.

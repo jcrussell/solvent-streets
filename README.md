@@ -104,6 +104,7 @@ See [`examples/`](examples/) for ready-to-use configs covering several US metro 
 | [Architecture](docs/architecture.md) | Data pipeline, DI, geometry, schema, design decisions |
 | [Configuration](docs/configuration.md) | Config discovery, resolution, env vars, multi-city, forecast tuning |
 | [Troubleshooting](docs/troubleshooting.md) | Common errors and remediation hints |
+| [Upgrading](docs/upgrading.md) | Steps each release needs when you upgrade to it (re-ingest, re-export, renamed JSON fields) |
 | CLI reference | `pvmt help <command>` (or `pvmt <command> --help`); release archives and the `.deb` also ship it as manpages (`man pvmt-roads-ingest`), and `make gendocs` renders it as Markdown under `docs/reference/` |
 | [Examples](examples/README.md) | Ready-to-use configs for several US metro areas and a 50-city national sample |
 | [Contributing](CONTRIBUTING.md) | Prerequisites, build/test loop, commit-message style, issue tracking |

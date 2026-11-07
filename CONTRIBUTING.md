@@ -69,7 +69,10 @@ Mark a breaking change with `!` in the **subject** (`feat(db)!: …`,
 `refactor(db)!: …`). Any type with `!` is listed under "Breaking Changes"
 at the top of the release notes and is never filtered out. A
 `BREAKING CHANGE:` footer alone is not enough: GoReleaser matches only
-the subject.
+the subject. The release notes carry subjects only, never bodies, so a
+breaking change that needs users to act (re-ingest, re-export, a renamed
+JSON field or URL) also adds those steps to the next release's section of
+[`docs/upgrading.md`](docs/upgrading.md), which the release header links.
 
 There is no hand-maintained `CHANGELOG.md`, and PRs adding one will be
 declined: the commit subject *is* the changelog entry, so write it for a

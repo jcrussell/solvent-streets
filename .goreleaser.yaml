@@ -168,3 +168,10 @@ release:
   draft: false
   prerelease: auto
   name_template: "{{ .Tag }}"
+  # The changelog below is commit subjects only; migration steps live in
+  # docs/upgrading.md, one section per release that needs any. The header is
+  # the same for every release and links the file as of the release's own tag,
+  # so it never goes stale and a reader skipping releases sees every section
+  # they need. Add a section there, not here, when a release needs steps.
+  header: |
+    **Upgrading from an earlier release?** [docs/upgrading.md](https://github.com/jcrussell/solvent-streets/blob/{{ .Tag }}/docs/upgrading.md) lists the steps each release needs (re-ingesting, re-exporting, renamed JSON fields). A release it does not list needs none.
