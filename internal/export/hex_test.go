@@ -560,7 +560,8 @@ func TestBuildHexCostSummary_AllOnlyWhenNoCity(t *testing.T) {
 }
 
 // TestBuildScenariosData_ScopeKeys: with :city compute rows, scenarios.json
-// carries both the "city" and "all" scope keys.
+// carries exactly the "city" and "all" scope keys — no summary or feature
+// counts (the site publishes none).
 func TestBuildScenariosData_ScopeKeys(t *testing.T) {
 	results := map[resource.Type]db.ComputeResult{
 		rtRoads:     {ResourceType: rtRoads, TotalArea: 2000, FeatureCount: 100},
@@ -579,6 +580,18 @@ func TestBuildScenariosData_ScopeKeys(t *testing.T) {
 	if _, ok := out["all"]; !ok {
 		t.Errorf("'all' key missing when city data exists; got %v", out)
 	}
+	if len(out) != 2 {
+		t.Errorf("scenarios.json keys = %v; want exactly city and all", scenarioKeys(out))
+	}
+}
+
+func scenarioKeys(m map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // TestBuildScenariosData_AllOnlyKey: when only all-scope compute rows exist,
@@ -599,6 +612,9 @@ func TestBuildScenariosData_AllOnlyKey(t *testing.T) {
 	}
 	if _, ok := out["all"]; !ok {
 		t.Errorf("'all' key missing; got %v", out)
+	}
+	if len(out) != 1 {
+		t.Errorf("scenarios.json keys = %v; want just all", scenarioKeys(out))
 	}
 }
 

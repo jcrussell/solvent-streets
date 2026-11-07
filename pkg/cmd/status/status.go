@@ -101,8 +101,9 @@ func NewCmdStatus(f *cmdutil.Factory, rt resource.Source, runF func(context.Cont
 	use := "status"
 	short := "Show overall status"
 	long := `Report ingest and compute progress for the current city across every
-resource type: feature counts, last-ingest and last-compute timestamps,
-and paved area totals in the active unit system. On a TTY the output is
+resource type: ingested feature counts (everything the bounding-box fetch
+returned, before the boundary clip), last-ingest and last-compute
+timestamps, and paved area totals in the active unit system. On a TTY the output is
 followed by a city-area summary (paved-vs-total %) and the five most
 recent compute snapshots with their config hash, marking those computed
 under the current settings; when none was, a note says so and how to
@@ -117,8 +118,9 @@ estimated_spaces) to emit one row per resource.`
 	if rt != nil {
 		short = fmt.Sprintf("Show %s status", rt.Type())
 		long = fmt.Sprintf(`Report ingest and compute progress for the %s resource in the
-current city: feature count, last-ingest and last-compute timestamps,
-and paved area in the active unit system. Use --json with a
+current city: ingested feature count (everything the bounding-box fetch
+returned, before the boundary clip), last-ingest and last-compute
+timestamps, and paved area in the active unit system. Use --json with a
 comma-separated field list (resource_type, feature_count, last_ingest_at,
 last_compute_at, area, estimated_spaces) for a single row.`, rt.Type())
 		example = Example(string(rt.Type()))

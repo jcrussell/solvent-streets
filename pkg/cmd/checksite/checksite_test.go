@@ -213,6 +213,9 @@ func TestCheckSite_ZeroBaselineAreaWarns(t *testing.T) {
 	if !strings.Contains(out, "outside the city boundary") || !strings.Contains(out, "geometry was dropped") {
 		t.Errorf("the zero-area WARN must name both causes:\n%s", out)
 	}
+	if !strings.Contains(out, "pvmt --city demo-ca roads status") {
+		t.Errorf("the zero-area WARN must name the read-only command for this city:\n%s", out)
+	}
 	// --strict promotes the warning to a failure.
 	if _, err := run(t, dir, true); !errors.Is(err, cmdutil.ErrSilent) {
 		t.Errorf("strict should fail on the zero-area warning, got %v", err)

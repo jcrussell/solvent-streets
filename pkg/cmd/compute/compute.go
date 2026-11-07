@@ -660,7 +660,10 @@ func (c *computer) recordRow(jurisdiction string, featureCount int, area float64
 
 func printResults(out io.Writer, label string, featureCount int, area float64, spaces int, sys units.System) {
 	fmt.Fprintf(out, "\n%s:\n", label)
-	fmt.Fprintf(out, "  Features:  %d\n", featureCount)
+	// Features counts the fetched input (bounding box, before the buffer step
+	// and the boundary clip); Area is clipped, so N features beside zero area
+	// means they all lie outside the boundary.
+	fmt.Fprintf(out, "  Features:  %d (fetched)\n", featureCount)
 	fmt.Fprintf(out, "  Area:      %s\n", units.FormatArea(area, sys))
 	fmt.Fprintf(out, "  Area:      %s\n", units.FormatAreaLarge(area, sys))
 	fmt.Fprintf(out, "  Area:      %s\n", units.FormatAreaVeryLarge(area, sys))

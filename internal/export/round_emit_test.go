@@ -144,9 +144,8 @@ func TestRoundForEmission_ShrinksSerializedBytes(t *testing.T) {
 }
 
 // TestRoundScenariosForEmission_PassesNonScenarioKeysThrough: the payload is a
-// map[string]any holding scenario slices under "city"/"all" alongside a
-// "summary" map. Only the slices are rounded; anything else must survive
-// untouched, or the summary's share loses precision.
+// map[string]any holding scenario slices under "city"/"all". Only the slices
+// are rounded; any other key must survive untouched.
 func TestRoundScenariosForEmission_PassesNonScenarioKeysThrough(t *testing.T) {
 	summary := map[string]any{"city_area_share": 0.87654321}
 	in := map[string]any{

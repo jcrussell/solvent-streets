@@ -32,7 +32,7 @@ func (s *site) dataDirsWithLabel() []struct{ label, slug, dir string } {
 func (r *runner) checkReasonableness(s *site) {
 	for _, d := range s.dataDirsWithLabel() {
 		r.checkMeta(d.label, filepath.Join(d.dir, "meta.json"))
-		r.checkForecast(d.label, filepath.Join(d.dir, "forecast.json"))
+		r.checkForecast(d.label, d.slug, filepath.Join(d.dir, "forecast.json"))
 	}
 }
 
@@ -63,7 +63,7 @@ func (r *runner) checkMeta(label, path string) {
 // strictly year over year (do-nothing decays) and deferred backlog must never
 // fall (unmet need accumulates). Short (<2-year) baselines are passed as having
 // nothing to compare.
-func (r *runner) checkForecast(label, path string) {
+func (r *runner) checkForecast(label, slug, path string) {
 	var forecasts []export.ForecastExport
 	if !readJSON(r, "reasonableness", label, "forecast.json", path, &forecasts) {
 		return
@@ -81,9 +81,17 @@ func (r *runner) checkForecast(label, path string) {
 		// The site carries no feature counts, so the warning names both
 		// causes rather than guessing: ingest fetches by bounding box, and
 		// features that all lie outside the city boundary are clipped to
-		// zero area, which is not a geometry bug.
+		// zero area, which is not a geometry bug. `<resource> status` shows
+		// the ingested count beside the area, read-only. With an all-scope
+		// baseline present, Baseline is the city-maintained scope, so only
+		// that part is known to be zero.
 		if baselineAreaAllZero(fc) {
-			r.warnf("reasonableness: %s [%s]: resource has zero paved area — every feature may lie outside the city boundary, or its geometry was dropped (check `pvmt --city <slug> %s compute`)", label, fc.ResourceType, fc.ResourceType)
+			what := "resource has zero paved area"
+			if fc.AllBaseline != nil {
+				what = "resource has zero city-maintained paved area"
+			}
+			r.warnf("reasonableness: %s [%s]: %s — every feature may lie outside the city boundary, or its geometry was dropped (compare the ingested count and area with `pvmt --city %s %s status`)",
+				label, fc.ResourceType, what, slug, fc.ResourceType)
 		}
 		if msg := baselineViolation(fc); msg != "" {
 			r.failf("reasonableness: %s [%s]: %s", label, fc.ResourceType, msg)
@@ -96,8 +104,8 @@ func (r *runner) checkForecast(label, path string) {
 // baselineAreaAllZero reports whether fc's baseline carries no paved area:
 // the year-0 area is zero (equivalently, every baseline year's area is zero,
 // since do-nothing area only grows). A baseline with no years is treated as
-// zero-area. Callers use this to surface a per-resource geometry-drop warning
-// without false-failing a legitimately empty resource.
+// zero-area. Callers use this to surface a zero-area warning without
+// false-failing a legitimately empty resource.
 func baselineAreaAllZero(fc export.ForecastExport) bool {
 	years := fc.Baseline.Years
 	if len(years) == 0 {

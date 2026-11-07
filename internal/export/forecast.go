@@ -245,7 +245,7 @@ func cityScopeCohorts(cityStats []db.CohortStat, fc *config.ForecastConfig) ([]f
 }
 
 // BuildScenariosData builds the aggregate scenarios JSON structure for a city:
-// {"city": [...], "all": [...], "summary": {...}}. "city" (city-maintained
+// {"city": [...], "all": [...]}. "city" (city-maintained
 // features, what a city budget covers) is present when the city has
 // city-scope area; "all" covers every jurisdiction.
 //
@@ -257,9 +257,8 @@ func cityScopeCohorts(cityStats []db.CohortStat, fc *config.ForecastConfig) ([]f
 //
 // AREA SCOPE: the scenario lines use the cohort-summed area (sum of per-class
 // cohort areas), not the aggregate compute area, so the static and custom
-// lines share an identical area basis. The summary block, present only when the
-// city has both scopes, reports the city's share of the all-scope compute area
-// — an informational rollup, not the chart's area basis.
+// lines share an identical area basis. The aggregate compute areas only decide
+// which scopes exist and size the single-cohort fallback.
 func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.ForecastConfig) (map[string]any, error) {
 	costTiers := ConvertCostTiers(fc)
 	params := forecast.NewParams(fc.GrowthRate, costTiers, fc.TreatmentCycleYears, fc.ResolvedCostOverhead())
@@ -296,9 +295,6 @@ func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.Forecas
 	}
 
 	out := map[string]any{}
-	if areas.allArea > 0 && areas.cityArea > 0 {
-		out["summary"] = map[string]any{"city_area_share": areas.cityArea / areas.allArea}
-	}
 	if areas.cityArea > 0 {
 		out["city"] = primaryScenarios
 		out["all"] = allScenarios
@@ -510,9 +506,8 @@ func RoundForecastsForEmission(fes []ForecastExport) []ForecastExport {
 }
 
 // RoundScenariosForEmission returns a shallow copy of the scenarios payload with
-// the per-scope scenario slices rounded. "summary" (city_area_share) is left
-// alone — it is small and the share feeds a
-// displayed percentage.
+// the per-scope scenario slices rounded. Any other key passes through
+// unchanged.
 func RoundScenariosForEmission(data map[string]any) map[string]any {
 	if data == nil {
 		return nil
