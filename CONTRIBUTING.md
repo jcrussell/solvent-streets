@@ -51,8 +51,10 @@ fails the run; inject a fake fetcher or use an `httptest` server instead.
 Live-network tests live in `integration/` behind `make e2e`.
 Run the binary without installing: `go run ./cmd/pvmt <args>`.
 
-`make pre-commit` runs `fmt + vet + lint` and is suitable for a
-`.git/hooks/pre-commit` symlink.
+`make pre-commit` runs `fmt`, `vet`, `lint` and `lint-js` (which needs
+Node and runs `npm ci` on first use). Run it by hand before committing. It
+is not a git hook, and a `.git/hooks/pre-commit` symlink would never run:
+git takes its hooks from `.beads/hooks` (`core.hooksPath`, see below).
 
 ## Commit messages
 
@@ -99,16 +101,21 @@ for issue tracking. Run `bd prime` for the full command reference.
 - Read an issue: `bd show <id>`
 - File a new issue: `bd create --title=… --description=… --type=task|bug|feature --priority=2`
 
-GitHub Issues are also welcome; bead IDs may be referenced from PRs in
-the form `<scope>: <summary> (<bead-id>)` in the commit subject.
+GitHub Issues are also welcome. To reference a bead from a commit, end
+the Conventional Commit subject with its ID:
+`<type>[(<scope>)]: <summary> (<bead-id>)`, e.g.
+`fix(ingest): page ArcGIS by exceededTransferLimit (solvent-streets-o9a3)`.
 
 ## Pull requests
 
 - Keep PRs focused on a single change. Land tests in the same PR.
 - Make sure `make build`, `make test`, and `make lint` are green
   locally before pushing.
-- If you regenerate any embedded artifact (e.g. `make gendocs`,
-  `make wasm`), include the regenerated files in the PR.
+- Don't commit generated output. The forecast WASM (`make wasm`) and the
+  CLI reference (`make gendocs`: `docs/reference/`, `manpages/`,
+  `completions/`) are gitignored. `make build` regenerates the WASM, and
+  the release build regenerates both (the `before` hooks in
+  [`.goreleaser.yaml`](.goreleaser.yaml)).
 - For architectural choices, see [`docs/architecture.md`](docs/architecture.md)
   and the conventions in [`CLAUDE.md`](CLAUDE.md).
 

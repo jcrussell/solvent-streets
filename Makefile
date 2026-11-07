@@ -122,7 +122,7 @@ help:
 	@echo "  vet           go vet ./..."
 	@echo "  tidy          go mod tidy"
 	@echo "  cover         coverage report (writes coverage.out)"
-	@echo "  pre-commit    fmt + vet + lint + lint-js (link to .git/hooks/pre-commit)"
+	@echo "  pre-commit    fmt + vet + lint + lint-js (run by hand; not a git hook)"
 	@echo "  wasm          rebuild forecast WASM (embedded into binary)"
 	@echo "  gendocs       regenerate docs/reference/ from cobra"
 	@echo "  site          render the combined tagged static site to \$$SITE_DIR"
