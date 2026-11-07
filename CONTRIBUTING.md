@@ -69,19 +69,20 @@ under the hash it was computed with, so two kinds of change need care.
 classification against `CityHash`. Pick one:
 
 - **hashed**: some producer (roads/parking/sidewalks compute, the combined
-  pass, `forecast`, `services`, `census`) reads it, so changing it changes
-  a stored row. Add its *resolved* value to `computeInputs` in `hash.go`:
-  defaults applied, env overrides applied, `[[include]]` flattening
-  respected. Make it `omitempty`, with a zero value that means today's
-  behaviour, so configs that don't set it keep their hashes and nobody has
-  to recompute. Settings that feed a part every reader consumes as stored
-  (grid, coverage, metrics) go in `dataInputs`; forecast calibration goes
-  in `forecastInputs`. The difference is how an `[[include]]`d city
-  behaves: the union keeps reading its source's snapshots only while their
-  `dataInputs` agree (see `CityHash`).
+  pass, `services`, `census`) reads it, so changing it changes a stored
+  row. Add its *resolved* value to `computeInputs` in `hash.go`: defaults
+  applied, env overrides applied, `[[include]]` flattening respected. Make
+  it `omitempty`, with a zero value that means today's behaviour, so
+  configs that don't set it keep their hashes and nobody has to recompute.
+  An `[[include]]`d city then hashes as its source does exactly when both
+  resolve the same value; add the field to `SourceDivergence` too, so the
+  stale hint can name it when they differ.
 - **presentation**: read only when exporting or rendering (units, `[export]`,
-  tags, sliver thresholds, legend bands, budgets used only by the export's
-  solvency metrics).
+  tags, sliver thresholds, legend bands).
+- **simulated**: read only by the forecast, which is never stored: export,
+  serve, `pvmt forecast` and the site's WASM simulate it on demand from the
+  stored cohort stats and the settings in force (every `[forecast]` field).
+  It stays out of the hash; an edit takes effect on the next read.
 - **ingest**: decides what is fetched and stored, not what compute does with
   it (sources, URLs, boundary lookup). A re-ingest is followed by a recompute
   as usual.
@@ -96,12 +97,14 @@ export publish stale results.
 commit, when a code change alters what a producer stores for the same stored
 features and the same settings: jurisdiction classification
 (`internal/filter`), buffering or width rules, hex tiling, clipping or
-stats, the forecast model or its built-in defaults, routing, speeds or the
-services registry defaults, census apportionment, or what a producer writes
-or drops. Every stored snapshot then stops matching and export asks for a
-recompute, which is the point. Do not bump it for changes to ingest, export
-or serve rendering, CLI output, docs or tests: each bump costs every user a
-full recompute. Note the bump in the commit message body.
+stats, cohort classification (`forecast.NormalizeClass`, which keys
+`cohort_stats`), routing, speeds or the services registry defaults, census
+apportionment, or what a producer writes or drops. Every stored snapshot
+then stops matching and export asks for a recompute, which is the point. Do
+not bump it for changes to ingest, the forecast model or its defaults (the
+forecast is simulated on demand, never stored), export or serve rendering,
+CLI output, docs or tests: each bump costs every user a full recompute.
+Note the bump in the commit message body.
 
 ## Commit messages
 
