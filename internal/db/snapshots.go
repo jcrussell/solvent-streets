@@ -57,17 +57,6 @@ func (s *sqliteStore) WithConfigHash(configHash string) Store {
 	return &cp
 }
 
-// WithParts returns a view of the newest snapshot for configHash with parts
-// overlaid (a run id of 0 removes the part), exactly as CommitSnapshot would
-// apply them. The map is copied, so later changes to parts are not seen.
-func (s *sqliteStore) WithParts(configHash string, parts map[string]int64) Store {
-	cp := *s
-	cp.snapshotID = 0
-	cp.configHash = configHash
-	cp.overlay = maps.Clone(parts)
-	return &cp
-}
-
 // resolvedSnapshotID returns the snapshot this view reads: the pinned id, else
 // the newest snapshot for the view's config hash (any hash when unset). It
 // returns 0 when the city has no such snapshot.
@@ -129,7 +118,7 @@ func snapshotParts(ctx context.Context, q queryer, cityID, snapshotID int64) (ma
 	return parts, rows.Err()
 }
 
-// applyParts overlays parts onto base in place: a run id of 0 removes the
+// applyParts applies parts to base in place: a run id of 0 removes the
 // part, anything else sets it.
 func applyParts(base, parts map[string]int64) {
 	for part, run := range parts {
@@ -142,7 +131,7 @@ func applyParts(base, parts map[string]int64) {
 }
 
 // viewRunIDs returns the runs this view reads: the resolved snapshot's
-// manifest with the WithParts overlay applied, sorted for stable SQL.
+// manifest, sorted for stable SQL.
 func (s *sqliteStore) viewRunIDs(ctx context.Context) ([]int64, error) {
 	snap, err := s.resolvedSnapshotID(ctx, s.db)
 	if err != nil {
@@ -152,7 +141,6 @@ func (s *sqliteStore) viewRunIDs(ctx context.Context) ([]int64, error) {
 	if err != nil {
 		return nil, err
 	}
-	applyParts(parts, s.overlay)
 	return slices.Sorted(maps.Values(parts)), nil
 }
 

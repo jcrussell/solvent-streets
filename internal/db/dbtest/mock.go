@@ -39,7 +39,6 @@ type MockStore struct {
 	CreateRunFunc               func(context.Context, string, string) (*db.Run, error)
 	DiscardRunFunc              func(context.Context, int64) error
 	CommitSnapshotFunc          func(context.Context, string, map[string]int64) (*db.Snapshot, error)
-	WithPartsFunc               func(string, map[string]int64) db.Store
 	ListSnapshotsFunc           func(context.Context) ([]db.Snapshot, error)
 	ResolveSnapshotFunc         func(context.Context, int64) error
 	WithSnapshotFunc            func(int64) db.Store
@@ -175,15 +174,6 @@ func (m *MockStore) CommitSnapshot(ctx context.Context, hash string, parts map[s
 		}
 	}
 	return snap, nil
-}
-
-// WithParts returns the mock unchanged by default, like WithConfigHash: the
-// overlay is not modelled, so reads see whatever the List*/Latest* funcs return.
-func (m *MockStore) WithParts(hash string, parts map[string]int64) db.Store {
-	if m.WithPartsFunc != nil {
-		return m.WithPartsFunc(hash, parts)
-	}
-	return m
 }
 
 func (m *MockStore) ListSnapshots(ctx context.Context) ([]db.Snapshot, error) {

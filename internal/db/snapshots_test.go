@@ -207,8 +207,7 @@ func TestSnapshot_ConfigHashesDoNotMix(t *testing.T) {
 }
 
 // TestSnapshot_UncommittedRunsAreInvisible: rows written under a run are not
-// readable until a snapshot references the run, except through a WithParts
-// view, which is how a command reads its own pending output.
+// readable until a snapshot references the run.
 func TestSnapshot_UncommittedRunsAreInvisible(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
@@ -222,12 +221,11 @@ func TestSnapshot_UncommittedRunsAreInvisible(t *testing.T) {
 	if got := roadsArea(t, store); got != 100 {
 		t.Errorf("committed view = %v, want 100 (the pending run is invisible)", got)
 	}
-	if got := roadsArea(t, store.WithParts("h", map[string]int64{"roads": run.ID})); got != 200 {
-		t.Errorf("WithParts view = %v, want 200 from the pending run", got)
+	if _, err := store.CommitSnapshot(ctx, "h", map[string]int64{"roads": run.ID}); err != nil {
+		t.Fatal(err)
 	}
-	dropped := store.WithParts("h", map[string]int64{"roads": 0})
-	if _, err := dropped.LatestComputeResult(ctx, rtRoads); !errors.Is(err, sql.ErrNoRows) {
-		t.Errorf("WithParts dropping roads: err = %v, want sql.ErrNoRows", err)
+	if got := roadsArea(t, store); got != 200 {
+		t.Errorf("after committing the run = %v, want 200", got)
 	}
 }
 
@@ -488,8 +486,8 @@ func TestResolveSnapshot(t *testing.T) {
 	}
 }
 
-// TestDraft: a draft's Store sees parts as they are put, Commit writes one
-// snapshot with exactly those parts swapped in and discards runs that were
+// TestDraft: a draft's runs stay invisible until Commit, which writes one
+// snapshot with exactly the put parts swapped in and discards runs that were
 // created but never put, and Discard deletes every run it created.
 func TestDraft(t *testing.T) {
 	ctx := context.Background()
@@ -502,12 +500,9 @@ func TestDraft(t *testing.T) {
 		t.Fatal(err)
 	}
 	roadsRun(t, store, 100)(roads)
-	if _, err := d.Store().LatestComputeResult(ctx, rtRoads); !errors.Is(err, sql.ErrNoRows) {
-		t.Errorf("draft Store before Put: err = %v, want sql.ErrNoRows", err)
-	}
 	d.Put("roads", roads)
-	if got := roadsArea(t, d.Store()); got != 100 {
-		t.Errorf("draft Store after Put = %v, want 100", got)
+	if _, err := store.LatestComputeResult(ctx, rtRoads); !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("put but uncommitted roads: err = %v, want sql.ErrNoRows", err)
 	}
 	abandoned, _ := d.NewRun(ctx, "parking")
 	parkingRun(t, store, 5)(abandoned)
@@ -518,6 +513,9 @@ func TestDraft(t *testing.T) {
 	}
 	if got := parts(t, store, snap.ID); len(got) != 2 || got["roads"] != roads || got["service:fire"] == 0 {
 		t.Errorf("committed manifest = %v, want roads=%d plus the carried fire part", got, roads)
+	}
+	if got := roadsArea(t, store); got != 100 {
+		t.Errorf("roads after Commit = %v, want 100", got)
 	}
 	raw := store.(*sqliteStore)
 	var n int

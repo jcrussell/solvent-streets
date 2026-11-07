@@ -219,7 +219,7 @@ type Store interface {
 	ListHexMetrics(ctx context.Context, metric string) ([]HexMetric, error)
 	// CreateRun starts a run for producer under configHash. Its rows are
 	// invisible to every reader until a snapshot that includes the run is
-	// committed (CommitSnapshot) or a view overlays it (WithParts).
+	// committed (CommitSnapshot).
 	CreateRun(ctx context.Context, producer, configHash string) (*Run, error)
 	// DiscardRun deletes a run and every row it wrote, provided no snapshot
 	// references it (a committed run is only ever removed with its last
@@ -235,11 +235,6 @@ type Store interface {
 	// commands never mint snapshots and no snapshot is ever empty. An empty
 	// configHash is rejected. Retries while another process holds the lock.
 	CommitSnapshot(ctx context.Context, configHash string, parts map[string]int64) (*Snapshot, error)
-	// WithParts returns a view that reads the newest snapshot for configHash
-	// with parts overlaid exactly as CommitSnapshot would apply them. A
-	// command reads its own not-yet-committed runs through it (e.g. the
-	// forecast that follows a recompute in the same command).
-	WithParts(configHash string, parts map[string]int64) Store
 	// ListSnapshots returns this city's snapshots newest first, each with
 	// its manifest.
 	ListSnapshots(ctx context.Context) ([]Snapshot, error)
@@ -278,9 +273,6 @@ type sqliteStore struct {
 	cityID     int64
 	snapshotID int64  // 0 = unpinned; >0 = read exactly this snapshot (wins over configHash)
 	configHash string // "" = newest snapshot; non-empty = newest snapshot with this hash
-	// overlay (WithParts) replaces or removes (run id 0) parts of the
-	// resolved snapshot for reads, the way CommitSnapshot would apply them.
-	overlay map[string]int64
 }
 
 var _ Store = (*sqliteStore)(nil)

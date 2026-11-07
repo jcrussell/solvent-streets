@@ -8,12 +8,11 @@ import (
 )
 
 // Draft is the snapshot one command is assembling. Every producer the command
-// runs (a resource compute, the forecast that follows it, service coverage,
-// census) creates its run through the draft and Puts it once the run is
-// complete. Reads through Store see those runs on top of the newest snapshot
-// for the config hash, so a later producer in the same command reads an
-// earlier one's output. Commit writes ONE snapshot with only the put parts
-// swapped in; Discard deletes every run the draft created and nothing else.
+// runs (a resource compute, the combined pass, service coverage, census)
+// creates its run through the draft and Puts it once the run is complete. No
+// producer reads another's stored results, so a draft has no read view: its
+// runs stay invisible until Commit writes ONE snapshot with only the put parts
+// swapped in. Discard deletes every run the draft created and nothing else.
 //
 // A Draft is not safe for concurrent use.
 type Draft struct {
@@ -32,12 +31,8 @@ func NewDraft(store Store, configHash string) *Draft {
 // ConfigHash is the hash the draft commits under.
 func (d *Draft) ConfigHash() string { return d.configHash }
 
-// Store returns a view reading the newest snapshot for the draft's hash with
-// the parts put so far overlaid. Call it again after Put to see new parts.
-func (d *Draft) Store() Store { return d.store.WithParts(d.configHash, d.parts) }
-
 // NewRun creates a run for producer under the draft's hash. The run stays
-// invisible, even through Store, until it is Put.
+// invisible to every reader until a committed snapshot references it.
 func (d *Draft) NewRun(ctx context.Context, producer string) (int64, error) {
 	run, err := d.store.CreateRun(ctx, producer, d.configHash)
 	if err != nil {
@@ -51,7 +46,8 @@ func (d *Draft) NewRun(ctx context.Context, producer string) (int64, error) {
 func (d *Draft) Put(producer string, runID int64) { d.parts[producer] = runID }
 
 // Drop removes producer's part from the snapshot the draft will commit, e.g.
-// a dependent part whose rerun failed and must not be carried forward stale.
+// when the producer found nothing to work from (no features, no stations), so
+// results computed from inputs that are gone stop being published.
 func (d *Draft) Drop(producer string) { d.parts[producer] = 0 }
 
 // Parts returns a copy of the parts put (or dropped, as 0) so far.
