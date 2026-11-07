@@ -22,8 +22,8 @@ import (
 //  1. `all compute` commits exactly ONE snapshot holding every step's part,
 //     fire coverage included, and a census part only when there is census.
 //  2. A standalone `roads compute` commits a new snapshot that swaps in a new
-//     roads run AND a refreshed roads forecast, and carries every other part
-//     (fire coverage, parking, the combined pass) forward untouched.
+//     roads run, and carries every other part (fire coverage, parking, the
+//     combined pass) forward untouched.
 //  3. A services compute that finds no stations drops its part, so the old
 //     coverage stops being published while everything else stays.
 func TestSnapshots_RecomputeSwapsOnlyItsPart(t *testing.T) {
@@ -51,10 +51,7 @@ func TestSnapshots_RecomputeSwapsOnlyItsPart(t *testing.T) {
 		t.Fatalf("all compute committed %d snapshots, want exactly 1: %+v", len(snaps), snaps)
 	}
 	first := partsOf(snaps[0])
-	wantParts := []string{
-		"combined", "forecast:parking", "forecast:roads", "forecast:sidewalks",
-		"parking", "roads", "service:fire", "sidewalks",
-	}
+	wantParts := []string{"combined", "parking", "roads", "service:fire", "sidewalks"}
 	if got := slices.Sorted(maps.Keys(first)); !slices.Equal(got, wantParts) {
 		t.Errorf("all compute parts = %v, want %v (no census part: the fixture has no blocks)", got, wantParts)
 	}
@@ -63,7 +60,7 @@ func TestSnapshots_RecomputeSwapsOnlyItsPart(t *testing.T) {
 		t.Fatal("fire coverage reached no hexes; the fixture station should reach the fixture roads")
 	}
 
-	// 2. A standalone roads recompute swaps roads and its forecast only.
+	// 2. A standalone roads recompute swaps roads only.
 	rcmd := compute.NewCmdCompute(f, &resource.Pavement{}, nil)
 	rcmd.SilenceErrors, rcmd.SilenceUsage = true, true
 	rcmd.SetArgs(nil)
@@ -76,12 +73,12 @@ func TestSnapshots_RecomputeSwapsOnlyItsPart(t *testing.T) {
 	}
 	second := partsOf(snaps[0])
 	for part, run := range first {
-		swapped := part == "roads" || part == "forecast:roads"
+		swapped := part == "roads"
 		if swapped && second[part] == run {
 			t.Errorf("%s still points at run %d after a roads recompute; want a new run", part, run)
 		}
 		if !swapped && second[part] != run {
-			t.Errorf("%s changed from run %d to %d on a ROADS recompute; only roads and its forecast may change", part, run, second[part])
+			t.Errorf("%s changed from run %d to %d on a ROADS recompute; only roads may change", part, run, second[part])
 		}
 	}
 	if len(second) != len(first) {

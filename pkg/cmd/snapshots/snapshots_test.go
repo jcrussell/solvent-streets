@@ -77,7 +77,7 @@ func TestRunLs_ListsAcrossCities(t *testing.T) {
 				return &dbtest.MockStore{ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
 					return []db.Snapshot{
 						{ID: 7, CreatedAt: now, ConfigHash: "hash-a-2", Parts: []db.SnapshotPart{
-							{Part: "forecast:roads", RunID: 13, ComputedAt: now},
+							{Part: "service:fire", RunID: 13, ComputedAt: now},
 							{Part: "roads", RunID: 12, ComputedAt: now},
 						}},
 						{ID: 6, CreatedAt: now.Add(-time.Hour), ConfigHash: "hash-a-1"},
@@ -102,7 +102,7 @@ func TestRunLs_ListsAcrossCities(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := stdout.String()
-	for _, want := range []string{"alpha", "beta", "7", "6", "9", "hash-a-2", "hash-b-1", "roads#12", "forecast:roads#13"} {
+	for _, want := range []string{"alpha", "beta", "7", "6", "9", "hash-a-2", "hash-b-1", "roads#12", "service:fire#13"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected %q in output, got: %s", want, out)
 		}

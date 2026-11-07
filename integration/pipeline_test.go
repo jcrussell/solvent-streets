@@ -78,12 +78,17 @@ func TestPipeline_ComputeForecastExport(t *testing.T) {
 		}
 	}
 
-	// forecast: reads compute_results + cohort_stats, writes forecast_results.
+	// forecast: simulates from compute_results + cohort_stats and writes
+	// nothing, so it commits no snapshot.
+	before := len(listSnapshots(t, store))
 	fcmd := forecast.NewCmdForecast(f, nil)
 	fcmd.SilenceErrors, fcmd.SilenceUsage = true, true
 	fcmd.SetArgs([]string{"--scenarios=false"})
 	if err := fcmd.ExecuteContext(ctx); err != nil {
 		t.Fatalf("forecast: %v", err)
+	}
+	if after := len(listSnapshots(t, store)); after != before {
+		t.Errorf("forecast changed the snapshot count from %d to %d; it must only read", before, after)
 	}
 
 	// export: reads everything, writes the static-site files.

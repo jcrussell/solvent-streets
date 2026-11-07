@@ -100,7 +100,7 @@ type HexMetric struct {
 }
 
 // Run is one producer's output for one city (see 001_init.sql). Producer is
-// the snapshot part it fills, e.g. "roads", "forecast:roads", "census".
+// the snapshot part it fills, e.g. "roads", "service:fire", "census".
 type Run struct {
 	ID         int64     `json:"id"`
 	Producer   string    `json:"producer"`
@@ -137,18 +137,6 @@ type SnapshotPart struct {
 	ComputedAt time.Time `json:"computed_at"`
 }
 
-type ForecastResult struct {
-	ID           int64
-	ResourceType resource.Type
-	Year         int
-	PCI          float64
-	Area         float64
-	AnnualNeed   float64
-	CostTier     string
-	RunID        int64
-	ComputedAt   time.Time
-}
-
 type CohortStat struct {
 	ID             int64
 	ResourceType   resource.Type
@@ -166,18 +154,17 @@ type City struct {
 }
 
 // GCResultCounts holds per-result-table row counts for a gc sweep
-// (compute_results, hex_stats, forecast_results, cohort_stats, hex_metrics).
+// (compute_results, hex_stats, cohort_stats, hex_metrics).
 type GCResultCounts struct {
-	ComputeResults  int
-	HexStats        int
-	ForecastResults int
-	CohortStats     int
-	HexMetrics      int
+	ComputeResults int
+	HexStats       int
+	CohortStats    int
+	HexMetrics     int
 }
 
 // Total returns the sum of all per-table counts.
 func (c GCResultCounts) Total() int {
-	return c.ComputeResults + c.HexStats + c.ForecastResults + c.CohortStats + c.HexMetrics
+	return c.ComputeResults + c.HexStats + c.CohortStats + c.HexMetrics
 }
 
 // GCReport summarizes the rows a gc scan/sweep found (or deleted), broken
@@ -274,7 +261,6 @@ type Store interface {
 	// transaction, and returns the counts of rows actually deleted. An
 	// empty keepSources skips the feature delete (never wipes all rows).
 	GCSweep(ctx context.Context, keepSources []string) (*GCReport, error)
-	SaveForecastResults(ctx context.Context, results []ForecastResult) error
 	SaveCohortStats(ctx context.Context, stats []CohortStat) error
 	ListCohortStats(ctx context.Context, resourceType resource.Type) ([]CohortStat, error)
 	// ListCohortStatsForTypes returns cohort stats grouped by resource

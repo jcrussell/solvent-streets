@@ -76,11 +76,10 @@ func NewCmdLs(f *cmdutil.Factory, runF func(context.Context, *LsOptions) error) 
 scope to one city.
 
 A snapshot is a city's complete computed state: one run per part (roads,
-parking, sidewalks, combined, each resource's forecast, service coverage,
-census). A recompute commits a new snapshot that swaps in only the parts
-it produced, so the Parts column shows which run each part comes from:
-"roads#12" is run 12. Export and serve read the newest snapshot for the
-current config.`,
+parking, sidewalks, combined, service coverage, census). A recompute
+commits a new snapshot that swaps in only the parts it produced, so the
+Parts column shows which run each part comes from: "roads#12" is run 12.
+Export and serve read the newest snapshot for the current config.`,
 		Example: `  # All snapshots across every city
   pvmt snapshots ls
 

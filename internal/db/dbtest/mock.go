@@ -47,7 +47,6 @@ type MockStore struct {
 	DeleteSnapshotFunc          func(context.Context, int64) (bool, error)
 	GCScanFunc                  func(context.Context, []string) (*db.GCReport, error)
 	GCSweepFunc                 func(context.Context, []string) (*db.GCReport, error)
-	SaveForecastResultsFunc     func(context.Context, []db.ForecastResult) error
 	SaveCohortStatsFunc         func(context.Context, []db.CohortStat) error
 	ListCohortStatsFunc         func(context.Context, resource.Type) ([]db.CohortStat, error)
 	SaveBoundaryFunc            func(context.Context, string, string) error
@@ -244,13 +243,6 @@ func (m *MockStore) WithConfigHash(configHash string) db.Store {
 		return m.WithConfigHashFunc(configHash)
 	}
 	return m
-}
-
-func (m *MockStore) SaveForecastResults(ctx context.Context, results []db.ForecastResult) error {
-	if m.SaveForecastResultsFunc != nil {
-		return m.SaveForecastResultsFunc(ctx, results)
-	}
-	return nil
 }
 
 func (m *MockStore) SaveCohortStats(ctx context.Context, stats []db.CohortStat) error {

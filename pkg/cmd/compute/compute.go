@@ -19,7 +19,6 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/tui"
 	"github.com/jcrussell/solvent-streets/internal/units"
-	forecastcmd "github.com/jcrussell/solvent-streets/pkg/cmd/forecast"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 
@@ -284,7 +283,7 @@ func doCompute(ctx context.Context, out, progress, errOut io.Writer, notify tui.
 
 	producer := string(opts.ResourceType.Type())
 	// No features is an empty result (ErrNoResults) that removes the
-	// resource's part and its forecast, so coverage computed from features
+	// resource's part, so coverage computed from features
 	// that are gone (a source removed and swept) stops being published. A
 	// city that never had the part is unchanged: dropping an absent part is a
 	// no-op commit.
@@ -292,7 +291,6 @@ func doCompute(ctx context.Context, out, progress, errOut io.Writer, notify tui.
 	if errors.Is(err, cmdutil.ErrNoResults) {
 		return WithDraft(ctx, opts.Draft, store, cfg.CityHash(city), func(draft *db.Draft) error {
 			draft.Drop(producer)
-			draft.Drop(forecastcmd.Producer(opts.ResourceType.Type()))
 			return err
 		})
 	}
@@ -309,28 +307,8 @@ func doCompute(ctx context.Context, out, progress, errOut io.Writer, notify tui.
 			return err
 		}
 		draft.Put(producer, runID)
-		return c.rerunForecast(ctx, draft)
-	})
-}
-
-// rerunForecast refreshes the resource's forecast in the same draft, so the
-// snapshot never pairs this compute with a forecast of an older one (epic
-// solvent-streets-25t6, decision 3). A forecast failure does not fail the
-// compute: the stale forecast part is dropped from the snapshot instead, with
-// a warning, until `pvmt forecast` succeeds. Cancellation still propagates.
-func (c *computer) rerunForecast(ctx context.Context, draft *db.Draft) error {
-	rt := c.opts.ResourceType
-	fc := c.cfg.ResolvedForecast(c.city)
-	if _, err := forecastcmd.ForecastResource(ctx, draft, rt, &fc); err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return fmt.Errorf("forecast %s: %w", rt.Type(), ctxErr)
-		}
-		draft.Drop(forecastcmd.Producer(rt.Type()))
-		fmt.Fprintf(c.errOut, "Warning: %s forecast not refreshed (%v); it is left out of the snapshot until `pvmt forecast` succeeds\n", rt.Type(), err)
 		return nil
-	}
-	fmt.Fprintf(c.progress, "Refreshed the %s forecast.\n", rt.Type())
-	return nil
+	})
 }
 
 // computeAndSave runs the coverage passes over resFeatures and saves every

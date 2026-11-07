@@ -44,7 +44,6 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 			"cohort_stats",
 			"compute_results",
 			"features",
-			"forecast_results",
 			"hex_metrics",
 			"hex_stats",
 			"runs",
@@ -58,6 +57,10 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 				t.Errorf("missing table %q; got tables %v", name, got)
 			}
 		}
+		// Forecasts are simulated on demand from cohort_stats, never stored.
+		if slices.Contains(got, "forecast_results") {
+			t.Error("forecast_results exists; nothing writes or reads stored forecasts")
+		}
 	})
 
 	t.Run("city-scoped tables FK to cities(id)", func(t *testing.T) {
@@ -70,7 +73,6 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 			"snapshots",
 			"compute_results",
 			"hex_stats",
-			"forecast_results",
 			"cohort_stats",
 			"hex_metrics",
 		}
@@ -142,14 +144,13 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 		// These are the indexes the runtime path depends on. Dropping any
 		// would silently turn a hot read into a table scan.
 		want := map[string][]string{
-			"features":         {"idx_features_city_type", "idx_features_city_type_time"},
-			"hex_stats":        {"idx_hex_stats_city_type_run", "idx_hex_stats_run"},
-			"compute_results":  {"idx_compute_results_city_type_run", "idx_compute_results_run"},
-			"forecast_results": {"idx_forecast_results_city_type_run", "idx_forecast_results_run"},
-			"cohort_stats":     {"idx_cohort_stats_city_type_run", "idx_cohort_stats_run"},
-			"hex_metrics":      {"idx_hex_metrics_city_metric_run", "idx_hex_metrics_run"},
-			"snapshots":        {"idx_snapshots_city_hash"},
-			"snapshot_parts":   {"idx_snapshot_parts_run"},
+			"features":        {"idx_features_city_type", "idx_features_city_type_time"},
+			"hex_stats":       {"idx_hex_stats_city_type_run", "idx_hex_stats_run"},
+			"compute_results": {"idx_compute_results_city_type_run", "idx_compute_results_run"},
+			"cohort_stats":    {"idx_cohort_stats_city_type_run", "idx_cohort_stats_run"},
+			"hex_metrics":     {"idx_hex_metrics_city_metric_run", "idx_hex_metrics_run"},
+			"snapshots":       {"idx_snapshots_city_hash"},
+			"snapshot_parts":  {"idx_snapshot_parts_run"},
 		}
 		for table, indexes := range want {
 			got := listIndexes(t, ctx, root.db, table)
@@ -220,7 +221,6 @@ func TestQueryPlan_UsesCompositeIndexes(t *testing.T) {
 	}{
 		{"hex_stats view read", view("hex_id", "hex_stats", "resource_type"), "idx_hex_stats_city_type_run"},
 		{"compute_results view read", view("id", "compute_results", "resource_type") + ` ORDER BY computed_at DESC, id DESC LIMIT 1`, "idx_compute_results_city_type_run"},
-		{"forecast_results view read", view("year", "forecast_results", "resource_type"), "idx_forecast_results_city_type_run"},
 		{"cohort_stats view read", view("classification", "cohort_stats", "resource_type"), "idx_cohort_stats_city_type_run"},
 		{"hex_metrics view read", view("hex_id", "hex_metrics", "metric"), "idx_hex_metrics_city_metric_run"},
 		{"features outer filter", `SELECT id FROM features WHERE resource_type = ? AND city_id = ?`, "idx_features_city_type"},
@@ -239,7 +239,7 @@ func TestQueryPlan_UsesCompositeIndexes(t *testing.T) {
 			if !strings.Contains(plan, "INDEX "+tc.wantIndex) {
 				t.Errorf("query %q\nplan:\n%s\nwant INDEX %s", tc.query, plan, tc.wantIndex)
 			}
-			for _, table := range []string{"hex_stats", "features", "compute_results", "forecast_results", "cohort_stats", "hex_metrics", "snapshots", "snapshot_parts"} {
+			for _, table := range []string{"hex_stats", "features", "compute_results", "cohort_stats", "hex_metrics", "snapshots", "snapshot_parts"} {
 				if strings.Contains(plan, "SCAN "+table+"\n") {
 					t.Errorf("query %q falls back to a full table scan:\n%s", tc.query, plan)
 				}
@@ -579,13 +579,20 @@ func openRaw(t *testing.T, path string) *sql.DB {
 // would skip the new 001_init.sql and run on the old schema. Open must refuse
 // it with ErrIncompatibleDatabase, name the path in the hint, and leave the
 // file byte-identical: it may hold hours of ingested data.
+//
+// Generation 2 is the pre-release schema that still stored forecasts
+// (forecast_results, forecast:<resource> snapshot parts); generation 3 dropped
+// them by editing 001_init.sql in place, so a generation-2 database records
+// schema_version 1 too and must be refused the same way.
 func TestOpen_RefusesOlderGeneration(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		versions []int
+		gen      int // PRAGMA user_version stamped on the seeded file; 0 = never stamped
 	}{
-		{"v0.4.1 (001, 002)", []int{1, 2}},
-		{"pre-release HEAD (001, 002, 003)", []int{1, 2, 3}},
+		{"v0.4.1 (001, 002)", []int{1, 2}, 0},
+		{"pre-release HEAD (001, 002, 003)", []int{1, 2, 3}, 0},
+		{"pre-release generation 2 (stored forecasts)", []int{1}, 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -599,6 +606,12 @@ func TestOpen_RefusesOlderGeneration(t *testing.T) {
 			for _, v := range tc.versions {
 				if _, err := d.ExecContext(ctx, `INSERT INTO schema_version (version) VALUES (?)`, v); err != nil {
 					t.Fatalf("seed version %d: %v", v, err)
+				}
+			}
+			if tc.gen > 0 {
+				if _, err := d.ExecContext(ctx, fmt.Sprintf(`CREATE TABLE forecast_results (id INTEGER PRIMARY KEY);
+					PRAGMA user_version = %d;`, tc.gen)); err != nil {
+					t.Fatalf("seed generation %d: %v", tc.gen, err)
 				}
 			}
 			if err := d.Close(); err != nil {
@@ -616,6 +629,9 @@ func TestOpen_RefusesOlderGeneration(t *testing.T) {
 			}
 			if !errors.Is(err, ErrIncompatibleDatabase) {
 				t.Fatalf("err = %v, want ErrIncompatibleDatabase", err)
+			}
+			if want := fmt.Sprintf("schema generation %d predates this pvmt's %d", tc.gen, schemaGeneration); !strings.Contains(err.Error(), want) {
+				t.Errorf("err = %v, want it to say %q", err, want)
 			}
 			var h *hint.ErrHint
 			if !errors.As(err, &h) || !strings.Contains(h.Hint, path) {

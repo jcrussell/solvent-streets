@@ -59,8 +59,8 @@ CREATE INDEX IF NOT EXISTS idx_features_city_type_time ON features(city_id, reso
 --
 -- A run is one producer's output for one city, immutable once written:
 -- producer names the part it fills ("roads", "parking", "sidewalks",
--- "combined", "forecast:roads", "service:fire", "census", ...). Every result
--- row below carries the run_id that wrote it.
+-- "combined", "service:fire", "census", ...). Every result row below carries
+-- the run_id that wrote it.
 --
 -- A snapshot is the city's COMPLETE computed state: a manifest of
 -- (part -> run) rows in snapshot_parts. Each command commits ONE new snapshot
@@ -135,23 +135,6 @@ CREATE TABLE IF NOT EXISTS hex_stats (
 -- appears in a WHERE clause, so it is deliberately not indexed.
 CREATE INDEX IF NOT EXISTS idx_hex_stats_city_type_run ON hex_stats(city_id, resource_type, run_id);
 CREATE INDEX IF NOT EXISTS idx_hex_stats_run ON hex_stats(run_id);
-
-CREATE TABLE IF NOT EXISTS forecast_results (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    resource_type TEXT NOT NULL,
-    city_id INTEGER NOT NULL REFERENCES cities(id),
-    year INTEGER NOT NULL,
-    pci REAL NOT NULL DEFAULT 0,
-    area REAL NOT NULL DEFAULT 0,
-    treatment_cost REAL NOT NULL DEFAULT 0,
-    treatment_tier TEXT NOT NULL DEFAULT '',
-    run_id INTEGER NOT NULL REFERENCES runs(id),
-    computed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
--- Same read and delete shapes as hex_stats.
-CREATE INDEX IF NOT EXISTS idx_forecast_results_city_type_run ON forecast_results(city_id, resource_type, run_id);
-CREATE INDEX IF NOT EXISTS idx_forecast_results_run ON forecast_results(run_id);
 
 CREATE TABLE IF NOT EXISTS cohort_stats (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

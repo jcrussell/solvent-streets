@@ -274,7 +274,7 @@ func TestMissingParts(t *testing.T) {
 		}
 		return out
 	}
-	full := parts("roads", "parking", "sidewalks", "combined", "forecast:roads", "service:fire", "census")
+	full := parts("roads", "parking", "sidewalks", "combined", "service:fire", "census")
 	off := false
 
 	for _, tc := range []struct {
@@ -287,7 +287,7 @@ func TestMissingParts(t *testing.T) {
 		{
 			name: "partial recompute after a settings change",
 			snaps: []db.Snapshot{
-				{ID: 3, ConfigHash: cur, Parts: parts("roads", "forecast:roads")},
+				{ID: 3, ConfigHash: cur, Parts: parts("roads")},
 				{ID: 2, ConfigHash: "0ld0ld0ld0ld0ld0", Parts: full},
 			},
 			want:     []string{"parking", "sidewalks", "combined", "service:fire", "census"},
@@ -303,7 +303,7 @@ func TestMissingParts(t *testing.T) {
 		{
 			name: "dropped under the current settings is deliberate",
 			snaps: []db.Snapshot{
-				{ID: 4, ConfigHash: cur, Parts: parts("roads", "parking", "sidewalks", "combined", "forecast:roads", "census")},
+				{ID: 4, ConfigHash: cur, Parts: parts("roads", "parking", "sidewalks", "combined", "census")},
 				{ID: 3, ConfigHash: cur, Parts: full},
 				{ID: 2, ConfigHash: "0ld0ld0ld0ld0ld0", Parts: full},
 			},
@@ -312,18 +312,8 @@ func TestMissingParts(t *testing.T) {
 			name: "census = false is not reported",
 			city: config.CityConfig{Census: &off},
 			snaps: []db.Snapshot{
-				{ID: 3, ConfigHash: cur, Parts: parts("roads", "parking", "sidewalks", "combined", "forecast:roads", "service:fire")},
+				{ID: 3, ConfigHash: cur, Parts: parts("roads", "parking", "sidewalks", "combined", "service:fire")},
 				{ID: 2, ConfigHash: "0ld0ld0ld0ld0ld0", Parts: full},
-			},
-		},
-		{
-			// Export re-simulates forecasts from config, so a missing
-			// forecast:* part costs it nothing and is not reported.
-			name: "forecast parts are not reported",
-			snaps: []db.Snapshot{
-				{ID: 3, ConfigHash: cur, Parts: parts("roads", "parking", "sidewalks", "combined", "service:fire", "census")},
-				{ID: 2, ConfigHash: "0ld0ld0ld0ld0ld0", Parts: parts("roads", "parking", "sidewalks", "combined",
-					"forecast:roads", "forecast:parking", "forecast:sidewalks", "service:fire", "census")},
 			},
 		},
 		{

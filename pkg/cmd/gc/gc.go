@@ -160,8 +160,8 @@ func retainedOverpassRows(ctx context.Context, store db.Store, city config.CityC
 func printReport(w *iostreams.IOStreams, report *db.GCReport) {
 	rows := report.OrphanRunResults
 	fmt.Fprintf(w.ErrOut, "  stale features:        %d\n", report.StaleFeatures)
-	fmt.Fprintf(w.ErrOut, "  orphan runs:           %d (compute=%d hex=%d forecast=%d cohort=%d metrics=%d rows)\n",
-		report.OrphanRuns, rows.ComputeResults, rows.HexStats, rows.ForecastResults, rows.CohortStats, rows.HexMetrics)
+	fmt.Fprintf(w.ErrOut, "  orphan runs:           %d (compute=%d hex=%d cohort=%d metrics=%d rows)\n",
+		report.OrphanRuns, rows.ComputeResults, rows.HexStats, rows.CohortStats, rows.HexMetrics)
 }
 
 // printRetained names the overpass rows keepSourcesFor held back, and why. It

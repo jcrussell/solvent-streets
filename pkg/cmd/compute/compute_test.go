@@ -2,7 +2,6 @@ package compute
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -441,8 +440,8 @@ func TestRunCompute_CityOnlySuppressesAllCohortBreakdown(t *testing.T) {
 // TestRunCompute_NoFeaturesDropsThePart pins solvent-streets-yvlv.39 under
 // runs and snapshots: when loadResourceFeatures reports no features, no run is
 // created, and the only thing committed is the removal of the resource's part
-// and its forecast (a no-op in the store when the city never had them), so
-// coverage from features that are gone stops being published.
+// (a no-op in the store when the city never had it), so coverage from
+// features that are gone stops being published.
 func TestRunCompute_NoFeaturesDropsThePart(t *testing.T) {
 	runCreated := false
 	var committed map[string]int64
@@ -478,9 +477,9 @@ func TestRunCompute_NoFeaturesDropsThePart(t *testing.T) {
 	if runCreated {
 		t.Error("no-features path created a run")
 	}
-	want := map[string]int64{"roads": 0, "forecast:roads": 0}
+	want := map[string]int64{"roads": 0}
 	if !maps.Equal(committed, want) {
-		t.Errorf("committed %v, want only the drops %v", committed, want)
+		t.Errorf("committed %v, want only the drop %v", committed, want)
 	}
 }
 
@@ -844,17 +843,14 @@ func TestRunCompute_SaveSpaceMetricsErrorFatal(t *testing.T) {
 	}
 }
 
-// TestRunCompute_CommitsComputeWithRefreshedForecast pins epic
-// solvent-streets-25t6 decision 3: a standalone resource compute reruns that
-// resource's forecast from the NEW compute result and commits both as ONE
-// snapshot, so the snapshot never pairs a compute with an older forecast.
-// The mock's reads stand in for the draft overlay by serving back whatever
-// compute result was just saved.
-func TestRunCompute_CommitsComputeWithRefreshedForecast(t *testing.T) {
+// TestRunCompute_CommitsOnlyItsOwnPart: a standalone resource compute
+// commits ONE snapshot swapping in exactly its own part, under the run its
+// rows were saved with. No forecast is stored or rerun: every reader
+// simulates the forecast from the compute's cohort stats on demand.
+func TestRunCompute_CommitsOnlyItsOwnPart(t *testing.T) {
 	saved := map[resource.Type]db.ComputeResult{}
 	producers := map[int64]string{}
 	var next int64
-	var forecastRuns []int64
 	var commits []map[string]int64
 	store := &dbtest.MockStore{
 		GetBoundaryFunc:  func(_ context.Context) (string, error) { return testBoundary, nil },
@@ -866,19 +862,6 @@ func TestRunCompute_CommitsComputeWithRefreshedForecast(t *testing.T) {
 		},
 		SaveComputeResultFunc: func(_ context.Context, r db.ComputeResult) error {
 			saved[r.ResourceType] = r
-			return nil
-		},
-		LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
-			r, ok := saved[rt]
-			if !ok {
-				return nil, sql.ErrNoRows
-			}
-			return &r, nil
-		},
-		SaveForecastResultsFunc: func(_ context.Context, rows []db.ForecastResult) error {
-			for _, r := range rows {
-				forecastRuns = append(forecastRuns, r.RunID)
-			}
 			return nil
 		},
 		CommitSnapshotFunc: func(_ context.Context, hash string, parts map[string]int64) (*db.Snapshot, error) {
@@ -906,22 +889,14 @@ func TestRunCompute_CommitsComputeWithRefreshedForecast(t *testing.T) {
 		t.Fatalf("expected exactly one committed snapshot, got %d: %v", len(commits), commits)
 	}
 	parts := commits[0]
-	roadsRun, forecastRun := parts[string(resource.TypeRoads)], parts["forecast:"+string(resource.TypeRoads)]
-	if roadsRun == 0 || forecastRun == 0 || len(parts) != 2 {
-		t.Fatalf("snapshot parts = %v, want exactly roads and forecast:roads", parts)
+	roadsRun := parts[string(resource.TypeRoads)]
+	if want := map[string]int64{string(resource.TypeRoads): roadsRun}; roadsRun == 0 || !maps.Equal(parts, want) {
+		t.Fatalf("snapshot parts = %v, want exactly roads", parts)
 	}
-	if producers[roadsRun] != string(resource.TypeRoads) || producers[forecastRun] != "forecast:roads" {
-		t.Errorf("parts point at runs produced for %q and %q", producers[roadsRun], producers[forecastRun])
+	if len(producers) != 1 || producers[roadsRun] != string(resource.TypeRoads) {
+		t.Errorf("runs created = %v, want only the roads run", producers)
 	}
 	if saved[resource.TypeRoads].RunID != roadsRun {
 		t.Errorf("roads compute result saved under run %d, committed roads run is %d", saved[resource.TypeRoads].RunID, roadsRun)
-	}
-	if len(forecastRuns) == 0 {
-		t.Fatal("no forecast rows saved")
-	}
-	for _, id := range forecastRuns {
-		if id != forecastRun {
-			t.Fatalf("forecast row saved under run %d, committed forecast run is %d", id, forecastRun)
-		}
 	}
 }

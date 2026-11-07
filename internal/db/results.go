@@ -153,37 +153,6 @@ func (s *sqliteStore) HasHexStats(ctx context.Context, types []resource.Type) (b
 	return len(rows) > 0, err
 }
 
-// SaveForecastResults appends forecast rows, each tagged with its run. A
-// forecast rerun is a new run, so nothing is replaced in place.
-//
-// Nothing reads these rows back today (export, serve and `pvmt forecast`
-// re-simulate from cohort stats and the config), and they are not reliably
-// keyed to the calibration that produced them: an [[include]]d city keeps its
-// source config's hash even when the including config backfills a different
-// forecast calibration (config.CityHash), so a forecast run from the union is
-// stored under the source's hash. Re-key them — e.g. per-part input hashes —
-// before anything reads them back.
-func (s *sqliteStore) SaveForecastResults(ctx context.Context, results []ForecastResult) error {
-	return s.withTx(ctx, func(tx *sql.Tx) error {
-		stmt, err := tx.PrepareContext(ctx, `
-			INSERT INTO forecast_results (resource_type, city_id, year, pci, area, treatment_cost, treatment_tier, run_id, computed_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`)
-		if err != nil {
-			return fmt.Errorf("prepare forecast insert: %w", err)
-		}
-		defer func() { _ = stmt.Close() }()
-
-		now := time.Now()
-		for _, r := range results {
-			if _, err := stmt.ExecContext(ctx, r.ResourceType, s.cityID, r.Year, r.PCI, r.Area, r.AnnualNeed, r.CostTier, r.RunID, now); err != nil {
-				return fmt.Errorf("insert forecast year %d: %w", r.Year, err)
-			}
-		}
-		return nil
-	})
-}
-
 // SaveCohortStats appends cohort rows, each tagged with its run.
 func (s *sqliteStore) SaveCohortStats(ctx context.Context, stats []CohortStat) error {
 	return s.withTx(ctx, func(tx *sql.Tx) error {

@@ -33,7 +33,6 @@ const commitBusyBudget = 2 * time.Minute
 var resultTables = []string{
 	"compute_results",
 	"hex_stats",
-	"forecast_results",
 	"cohort_stats",
 	"hex_metrics",
 }
@@ -541,7 +540,6 @@ func gcResultTables(c *GCResultCounts) []struct {
 	}{
 		{"compute_results", &c.ComputeResults},
 		{"hex_stats", &c.HexStats},
-		{"forecast_results", &c.ForecastResults},
 		{"cohort_stats", &c.CohortStats},
 		{"hex_metrics", &c.HexMetrics},
 	}

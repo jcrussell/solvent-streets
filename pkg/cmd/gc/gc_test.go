@@ -30,7 +30,7 @@ func reportWithCounts() *db.GCReport {
 	return &db.GCReport{
 		StaleFeatures:    3,
 		OrphanRuns:       1,
-		OrphanRunResults: db.GCResultCounts{ForecastResults: 5, HexStats: 2, ComputeResults: 1},
+		OrphanRunResults: db.GCResultCounts{CohortStats: 5, HexStats: 2, ComputeResults: 1},
 	}
 }
 
@@ -321,7 +321,7 @@ func TestRunGC_DryRunScansButDoesNotSweep(t *testing.T) {
 		t.Errorf("stdout should be empty; got: %q", got)
 	}
 	out := stderr.String()
-	for _, want := range []string{"stale features:        3", "forecast=5", "Dry run", "nothing deleted"} {
+	for _, want := range []string{"stale features:        3", "cohort=5", "Dry run", "nothing deleted"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected %q in output, got: %s", want, out)
 		}

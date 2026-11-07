@@ -25,14 +25,15 @@ import (
 // drops a field.
 func TestForecastRow_ExportData_AllFieldsPopulated(t *testing.T) {
 	rtRoads := resource.TypeRoads
-	r := forecastRow{City: "livermore-ca", ForecastResult: db.ForecastResult{
+	r := forecastRow{
+		City:         "livermore-ca",
 		ResourceType: rtRoads,
 		Year:         2030,
 		PCI:          72.5,
 		Area:         1500.0,
 		AnnualNeed:   42000.0,
 		CostTier:     "mill-and-overlay",
-	}}
+	}
 	out := r.ExportData(forecastFields)
 	if len(out) != len(forecastFields) {
 		t.Fatalf("want %d keys, got %d: %v", len(forecastFields), len(out), out)
@@ -62,7 +63,7 @@ func TestForecastAllResources_PropagatesNonNoRowsError(t *testing.T) {
 		},
 	}
 
-	_, err := forecastAllResources(context.Background(), opts, db.NewDraft(store, "h"), fc, units.Metric)
+	_, err := forecastAllResources(context.Background(), opts, store, "c", fc, units.Metric)
 	if err == nil {
 		t.Fatal("expected error to propagate, got nil")
 	}
@@ -88,7 +89,7 @@ func TestForecastAllResources_AllSkippedReturnsNoResults(t *testing.T) {
 		},
 	}
 
-	results, err := forecastAllResources(context.Background(), opts, db.NewDraft(store, "h"), fc, units.Metric)
+	results, err := forecastAllResources(context.Background(), opts, store, "c", fc, units.Metric)
 	if !errors.Is(err, cmdutil.ErrNoResults) {
 		t.Fatalf("expected ErrNoResults, got: %v", err)
 	}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/export"
 	fcpkg "github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/units"
@@ -31,12 +32,17 @@ type Options struct {
 
 var forecastFields = []string{"city", "resource_type", "year", "pci", "area", "annual_need", "cost_tier"}
 
-// forecastRow wraps db.ForecastResult to attach the CLI JSON export
-// contract without pulling cmdutil into the db package. City is the
-// city slug, so multi-city output stays distinguishable.
+// forecastRow is one simulated baseline year of one resource, the unit of
+// the --json output. City is the city slug, so multi-city output stays
+// distinguishable.
 type forecastRow struct {
-	City string
-	db.ForecastResult
+	City         string
+	ResourceType resource.Type
+	Year         int
+	PCI          float64
+	Area         float64
+	AnnualNeed   float64
+	CostTier     string
 }
 
 var _ cmdutil.RowExporter = forecastRow{}
@@ -76,7 +82,12 @@ func NewCmdForecast(f *cmdutil.Factory, runF func(context.Context, *Options) err
 	cmd := &cobra.Command{
 		Use:   "forecast",
 		Short: "Project pavement deterioration and maintenance costs",
-		Long:  "Run PCI decay and cost projections over a configurable time horizon.\nShows projected deterioration and deferred maintenance costs.",
+		Long: `Project PCI decay and maintenance costs over the [forecast] horizon.
+
+The forecast is simulated each time from the city's current snapshot (its
+compute results and cohort stats) under the current [forecast] settings, the
+same way export and serve simulate it. Nothing is stored and no snapshot is
+committed. A city with nothing computed under its current settings exits 3.`,
 		Example: `  # Run baseline + scenario comparisons for every configured city
   pvmt forecast
 
@@ -99,9 +110,9 @@ func NewCmdForecast(f *cmdutil.Factory, runF func(context.Context, *Options) err
 	return cmd
 }
 
-// simulateResource runs the baseline forecast for a single resource type, returning
-// the collected results, total deferred cost, and scenario result.
-func simulateResource(rt resource.Source, cohorts []fcpkg.Cohort, years int, params *fcpkg.Params, runID int64) ([]db.ForecastResult, float64, fcpkg.ScenarioResult) {
+// simulateResource runs rt's baseline (do-nothing) forecast and returns its
+// per-year rows, total deferred cost, and the baseline itself.
+func simulateResource(city string, rt resource.Source, cohorts []fcpkg.Cohort, years int, params *fcpkg.Params) ([]forecastRow, float64, fcpkg.ScenarioResult) {
 	baseline := fcpkg.Simulate(
 		fcpkg.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: fcpkg.StrategyDoNothing},
 		cohorts, years, params,
@@ -110,57 +121,21 @@ func simulateResource(rt resource.Source, cohorts []fcpkg.Cohort, years int, par
 	// to one row per classification for the cohort-breakdown table.
 	baseline.FinalCohorts = fcpkg.AggregateCohortSummariesByClass(baseline.FinalCohorts)
 
-	var results []db.ForecastResult
+	var rows []forecastRow
 	var totalDeferredCost float64
-
-	rtVal := rt.Type()
 	for _, y := range baseline.Years {
 		totalDeferredCost += y.AnnualNeed
-		results = append(results, db.ForecastResult{
-			ResourceType: rtVal,
+		rows = append(rows, forecastRow{
+			City:         city,
+			ResourceType: rt.Type(),
 			Year:         y.Year,
 			PCI:          y.PCI,
 			Area:         y.Area,
 			AnnualNeed:   y.AnnualNeed,
 			CostTier:     y.CostTier,
-			RunID:        runID,
 		})
 	}
-
-	return results, totalDeferredCost, baseline
-}
-
-func buildForecastCohorts(ctx context.Context, rt resource.Source, area float64, store db.Store, fc *config.ForecastConfig) ([]fcpkg.Cohort, error) {
-	currentPCI := fc.InitialPCI
-	t := rt.Type()
-	stats, err := store.ListCohortStats(ctx, t)
-	if err != nil {
-		return nil, fmt.Errorf("list cohort stats for %s: %w", t, err)
-	}
-	var inputs []fcpkg.CohortInput
-	for _, st := range stats {
-		inputs = append(inputs, fcpkg.CohortInput{
-			Classification: st.Classification,
-			Area:           st.Area,
-		})
-	}
-	cohorts := fcpkg.BuildCohorts(inputs, currentPCI, fc.DecayRate)
-	if cohorts == nil {
-		tName := string(t)
-		defaultRate := fcpkg.DecayRateForClass(tName)
-		if fc.DecayRate > 0 && fcpkg.IsRoadClass(tName) {
-			defaultRate = fc.DecayRate
-		}
-		cohorts = []fcpkg.Cohort{{
-			Classification: tName,
-			Area:           area,
-			DecayRate:      defaultRate,
-			InitialPCI:     currentPCI,
-		}}
-	}
-	// Spread the mean PCI into a condition distribution so the CLI matches the
-	// exported site (docs/validation.md §4); both share fcpkg.ApplyConditionSpread.
-	return fcpkg.ApplyConditionSpread(cohorts), nil
+	return rows, totalDeferredCost, baseline
 }
 
 func renderBaselineTable(ios *iostreams.IOStreams, rt resource.Source, area, currentPCI float64,
@@ -263,6 +238,9 @@ func runForecastAllCities(ctx context.Context, f *cmdutil.Factory, opts *Options
 	})
 }
 
+// runForecast simulates and prints one city's forecast. It only reads: the
+// store view (CityDB) resolves the city's snapshot for its current settings,
+// and nothing is written back.
 func runForecast(ctx context.Context, opts *Options) error {
 	ios := opts.IO
 
@@ -283,7 +261,6 @@ func runForecast(ctx context.Context, opts *Options) error {
 
 	fc := cfg.ResolvedForecast(city)
 	sys := opts.UnitSystem()
-	hash := cfg.CityHash(city)
 
 	// Computed, but not under the current settings: there is nothing to
 	// forecast from, and "no compute results" for every resource would hide
@@ -292,30 +269,19 @@ func runForecast(ctx context.Context, opts *Options) error {
 	if err != nil {
 		return fmt.Errorf("list snapshots: %w", err)
 	}
-	if db.StaleFor(snaps, hash) {
+	if db.StaleFor(snaps, cfg.CityHash(city)) {
 		fmt.Fprintf(ios.ErrOut, "Warning: %s\n", cfg.StaleHint(city))
 		return cmdutil.ErrNoResults
 	}
 
 	fmt.Fprintf(ios.ErrOut, "Running %d-year forecast for %s...\n\n", fc.Years, city.Name)
 
-	// One snapshot for the whole command: the newest snapshot for this
-	// config with only the forecast parts swapped.
-	draft := db.NewDraft(store, hash)
-	allResults, err := forecastAllResources(ctx, opts, draft, &fc, sys)
+	rows, err := forecastAllResources(ctx, opts, store, city.Slug(), &fc, sys)
 	if err != nil {
-		return errors.Join(err, draft.Discard(context.WithoutCancel(ctx)))
+		return err
 	}
-	if _, err := draft.Commit(ctx); err != nil {
-		return errors.Join(fmt.Errorf("commit snapshot: %w", err), draft.Discard(context.WithoutCancel(ctx)))
-	}
-
 	if opts.Exporter == nil {
 		return nil
-	}
-	rows := make([]forecastRow, len(allResults))
-	for i, r := range allResults {
-		rows[i] = forecastRow{City: city.Slug(), ForecastResult: r}
 	}
 	// Multi-city: append to the shared accumulator, written once by the
 	// caller. Single-pass (direct runForecast, no accumulator): write here.
@@ -326,84 +292,26 @@ func runForecast(ctx context.Context, opts *Options) error {
 	return cmdutil.WriteRows(ios, opts.Exporter, rows)
 }
 
-func convertCostTiers(fc *config.ForecastConfig) []fcpkg.CostTier {
-	var tiers []fcpkg.CostTier
-	for _, t := range fc.CostTiers {
-		tiers = append(tiers, fcpkg.CostTier{
-			MinPCI:     t.MinPCI,
-			MaxPCI:     t.MaxPCI,
-			CostPerSqM: t.CostPerSqM,
-			Label:      t.Label,
-		})
-	}
-	return tiers
-}
-
-// Producer is the snapshot part a resource's forecast fills. A recompute of
-// the resource reruns it in the same command (pkg/cmd/compute), so a snapshot
-// never pairs a resource with a forecast of an older compute.
-func Producer(t resource.Type) string { return "forecast:" + string(t) }
-
-// ResourceForecast is one resource's simulated baseline, as stored and as the
-// forecast command renders it.
-type ResourceForecast struct {
-	Area          float64
-	Cohorts       []fcpkg.Cohort
-	Params        *fcpkg.Params
-	Results       []db.ForecastResult
-	TotalDeferred float64
-	Baseline      fcpkg.ScenarioResult
-}
-
-// ForecastResource simulates rt's baseline from the compute result and cohort
-// stats the draft reads (so it sees a recompute made earlier in the same
-// command), stores the rows as a new forecast run, and puts that run into the
-// draft. It returns raw sql.ErrNoRows when the draft has no compute result for
-// rt, and stores nothing in that case.
-//
-// The stored rows may carry a calibration other than the one their snapshot
-// hash implies (an [[include]]d city under a union that backfills forecast
-// fields; see db.SaveForecastResults). Nothing reads them back today; they
-// must be re-keyed before anything does.
-func ForecastResource(ctx context.Context, draft *db.Draft, rt resource.Source, fc *config.ForecastConfig) (*ResourceForecast, error) {
-	t := rt.Type()
-	store := draft.Store()
-	result, err := store.LatestComputeResult(ctx, t)
-	if err != nil {
-		return nil, err
-	}
-	params := fcpkg.NewParamsForResource(string(t), fc.GrowthRate, convertCostTiers(fc), fc.TreatmentCycleYears, fc.ResolvedCostOverhead())
-	cohorts, err := buildForecastCohorts(ctx, rt, result.TotalArea, store, fc)
-	if err != nil {
-		return nil, err
-	}
-	runID, err := draft.NewRun(ctx, Producer(t))
-	if err != nil {
-		return nil, err
-	}
-	rows, total, baseline := simulateResource(rt, cohorts, fc.Years, params, runID)
-	if err := store.SaveForecastResults(ctx, rows); err != nil {
-		return nil, fmt.Errorf("saving forecast results for %s: %w", t, err)
-	}
-	draft.Put(Producer(t), runID)
-	return &ResourceForecast{Area: result.TotalArea, Cohorts: cohorts, Params: params, Results: rows, TotalDeferred: total, Baseline: baseline}, nil
-}
-
-func forecastAllResources(ctx context.Context, opts *Options, draft *db.Draft,
-	fc *config.ForecastConfig, sys units.System) ([]db.ForecastResult, error) {
+// forecastAllResources simulates every computed resource from store and
+// renders the tables (unless --json). Cohorts and cost tiers come from the
+// same builders export uses, so the CLI's figures match the site's for the
+// all-jurisdiction baseline.
+func forecastAllResources(ctx context.Context, opts *Options, store db.Store, citySlug string,
+	fc *config.ForecastConfig, sys units.System) ([]forecastRow, error) {
 	ios := opts.IO
 	years := fc.Years
-	var allResults []db.ForecastResult
+	costTiers := export.ConvertCostTiers(fc)
+	var all []forecastRow
 	forecasted := false
 
 	for _, rt := range resource.All {
 		t := rt.Type()
-		// ForecastResource returns raw sql.ErrNoRows (never a nil result
-		// without an error) when this resource has not been computed for the
-		// city yet — warn and skip only in that case. Any other error (locked
-		// DB, dropped table) must propagate; folding it into the skip path
-		// would silently forecast nothing and exit 0.
-		rf, err := ForecastResource(ctx, draft, rt, fc)
+		// LatestComputeResult returns raw sql.ErrNoRows when this resource has
+		// not been computed for the city yet — warn and skip only in that
+		// case. Any other error (locked DB, dropped table) must propagate;
+		// folding it into the skip path would silently forecast nothing and
+		// exit 0.
+		result, err := store.LatestComputeResult(ctx, t)
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
 			fmt.Fprintf(ios.ErrOut, "Warning: no compute results for %s, skipping\n", t)
@@ -411,17 +319,23 @@ func forecastAllResources(ctx context.Context, opts *Options, draft *db.Draft,
 		case err != nil:
 			return nil, fmt.Errorf("forecast %s: %w", t, err)
 		}
-		allResults = append(allResults, rf.Results...)
+		cohorts, err := export.BuildCohortsForResource(ctx, rt, result.TotalArea, store, fc)
+		if err != nil {
+			return nil, fmt.Errorf("forecast %s: %w", t, err)
+		}
+		params := fcpkg.NewParamsForResource(string(t), fc.GrowthRate, costTiers, fc.TreatmentCycleYears, fc.ResolvedCostOverhead())
+		rows, total, baseline := simulateResource(citySlug, rt, cohorts, years, params)
+		all = append(all, rows...)
 		forecasted = true
 
 		if opts.Exporter == nil {
-			if err := renderBaselineTable(ios, rt, rf.Area, fc.InitialPCI, rf.Baseline, rf.TotalDeferred, years, sys); err != nil {
+			if err := renderBaselineTable(ios, rt, result.TotalArea, fc.InitialPCI, baseline, total, years, sys); err != nil {
 				return nil, err
 			}
-		}
-		if opts.Scenarios && opts.Exporter == nil {
-			if err := renderScenarioComparisons(ios, rf.Baseline, rf.Cohorts, years, rf.Params); err != nil {
-				return nil, err
+			if opts.Scenarios {
+				if err := renderScenarioComparisons(ios, baseline, cohorts, years, params); err != nil {
+					return nil, err
+				}
 			}
 		}
 	}
@@ -431,6 +345,5 @@ func forecastAllResources(ctx context.Context, opts *Options, draft *db.Draft,
 	if !forecasted {
 		return nil, cmdutil.ErrNoResults
 	}
-
-	return allResults, nil
+	return all, nil
 }

@@ -544,13 +544,13 @@ func TestDraft(t *testing.T) {
 }
 
 // TestDraft_DropRemovesPart: Drop takes a part out of the next snapshot, e.g.
-// a forecast whose rerun failed and must not be paired with a newer compute.
+// a service whose stations are gone, so its coverage stops being published.
 func TestDraft_DropRemovesPart(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
-	commitRun(t, store, "h", "forecast:roads", nil)
+	commitRun(t, store, "h", "service:fire", nil)
 	d := NewDraft(store, "h")
-	d.Drop("forecast:roads")
+	d.Drop("service:fire")
 	snap, err := d.Commit(ctx)
 	if err != nil {
 		t.Fatal(err)
