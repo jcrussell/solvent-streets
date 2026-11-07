@@ -16,6 +16,9 @@ LDFLAGS := -X github.com/jcrussell/solvent-streets/internal/build.Version=$(VERS
 .PHONY: build test test-js e2e clean wasm lint lint-js gendocs release-dry-run site site-clean site-report deploy \
 	fmt vet tidy cover help install pre-commit vuln test-hooks
 
+# wasm_exec.js is copied with install -m, not cp: a module-cache toolchain's
+# GOROOT is read-only (0444), and cp would carry that mode over and fail the
+# next build's copy.
 wasm:
 	@want="$(GO_MOD_VERSION)"; \
 	  host=$$(go env GOVERSION | sed 's/^go//'); \
@@ -24,7 +27,7 @@ wasm:
 	  fi
 	@mkdir -p internal/export/wasm
 	GOOS=js GOARCH=wasm go build -o internal/export/wasm/pvmt.wasm ./cmd/wasm/pvmt
-	cp "$$(go env GOROOT)/lib/wasm/wasm_exec.js" internal/export/wasm/wasm_exec.js
+	install -m 0644 "$$(go env GOROOT)/lib/wasm/wasm_exec.js" internal/export/wasm/wasm_exec.js
 
 build: wasm
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/pvmt
