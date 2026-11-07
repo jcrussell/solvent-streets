@@ -9,8 +9,8 @@ import (
 	"github.com/spf13/pflag"
 )
 
-// Source is the --source enum for the ingest subcommand. Implements pflag.Value
-// so invalid values fail at parse time rather than inside the runFunc.
+// Source is an ingest --source value: "all", or the name of one ingest
+// source (ingest.Source.Name).
 type Source string
 
 const (
@@ -19,22 +19,44 @@ const (
 	SourceArcGIS   Source = "arcgis"
 )
 
-var sourceValues = []string{"all", "overpass", "arcgis"}
+// PavementSources returns the --source values a pavement resource accepts:
+// "all" plus the two sources a city can configure.
+func PavementSources() []string {
+	return []string{string(SourceAll), string(SourceOverpass), string(SourceArcGIS)}
+}
 
-func (s *Source) Set(v string) error {
-	if !slices.Contains(sourceValues, v) {
-		return FlagErrorf("unknown source %q, valid sources: %s", v, strings.Join(sourceValues, ", "))
+// SourceFlag is the pflag.Value behind an ingest --source flag. It accepts
+// only Valid, so a source the resource cannot be ingested from fails at
+// parse time as a FlagError (exit 2): before the runFunc, so before any
+// network call, and identically with or without --dry-run.
+type SourceFlag struct {
+	Value *Source
+	Valid []string
+}
+
+// Set implements pflag.Value.
+func (f *SourceFlag) Set(v string) error {
+	if !slices.Contains(f.Valid, v) {
+		return FlagErrorf("unsupported source %q, valid sources: %s", v, strings.Join(f.Valid, ", "))
 	}
-	*s = Source(v)
+	*f.Value = Source(v)
 	return nil
 }
 
-func (s *Source) String() string { return string(*s) }
-func (s *Source) Type() string   { return "source" }
+// String implements pflag.Value.
+func (f *SourceFlag) String() string {
+	if f.Value == nil {
+		return ""
+	}
+	return string(*f.Value)
+}
 
-// SourceCompletion returns the completion func for --source.
-func SourceCompletion() cobra.CompletionFunc {
-	return cobra.FixedCompletions(sourceValues, cobra.ShellCompDirectiveNoFileComp)
+// Type implements pflag.Value.
+func (f *SourceFlag) Type() string { return "source" }
+
+// Completion returns the completion func for the flag's valid values.
+func (f *SourceFlag) Completion() cobra.CompletionFunc {
+	return cobra.FixedCompletions(f.Valid, cobra.ShellCompDirectiveNoFileComp)
 }
 
 // UnitSystem is the --units enum for the root command. Empty is a legal value
@@ -146,7 +168,7 @@ func ParseLogLevel(s string) (slog.Level, bool) {
 // Compile-time assertions so a drift in pflag.Value fails here, not at
 // a distant cmd.Flags().Var call site.
 var (
-	_ pflag.Value = (*Source)(nil)
+	_ pflag.Value = (*SourceFlag)(nil)
 	_ pflag.Value = (*UnitSystem)(nil)
 	_ pflag.Value = (*LogLevel)(nil)
 )

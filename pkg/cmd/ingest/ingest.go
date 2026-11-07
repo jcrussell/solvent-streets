@@ -54,8 +54,9 @@ func NewCmdIngest(f *cmdutil.Factory, rt resource.Source, runF func(context.Cont
 		},
 	}
 
-	cmd.Flags().Var(&opts.Source, "source", "Data source (overpass|arcgis|all)")
-	_ = cmd.RegisterFlagCompletionFunc("source", cmdutil.SourceCompletion())
+	source := &cmdutil.SourceFlag{Value: &opts.Source, Valid: sourceValues(rt)}
+	cmd.Flags().Var(source, "source", "Data source ("+strings.Join(source.Valid, "|")+")")
+	_ = cmd.RegisterFlagCompletionFunc("source", source.Completion())
 	cmd.Flags().BoolVar(&opts.Force, "force", false, "Bypass HTTP cache")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Resolve sources and print plan without fetching or writing")
 
@@ -65,6 +66,18 @@ func NewCmdIngest(f *cmdutil.Factory, rt resource.Source, runF func(context.Cont
 	cmd.MarkFlagsMutuallyExclusive("force", "dry-run")
 
 	return cmd
+}
+
+// sourceValues returns the --source values rt accepts. A pavement resource
+// takes "all" or either configurable source (cmdutil.PavementSources). An
+// own-sourced resource (resource.OwnSourced: census blocks from tigerweb,
+// facilities from overpass) takes "all" or its own source's name, both
+// meaning that one source; any other value cannot apply to it.
+func sourceValues(rt resource.Source) []string {
+	if own, ok := rt.(resource.OwnSourced); ok {
+		return []string{string(cmdutil.SourceAll), own.OwnSource()}
+	}
+	return cmdutil.PavementSources()
 }
 
 // Example is the --help example text for the ingest subcommand of the
@@ -555,14 +568,10 @@ func acceptStripRatio(orig, stripped, threshold float64) bool {
 func resolveSources(opts *Options, bbox [4]float64, overpass bool, arcgisURL string, allowPrivateArcGIS bool, ios *iostreams.IOStreams) ([]ingestpkg.Source, error) {
 	srcOpts := ingestpkg.Options{Progress: ios.ErrOut, AllowPrivateArcGIS: allowPrivateArcGIS}
 	// An own-sourced resource has exactly one source, fixed by the resource
-	// rather than the city config (resource.OwnSourced). --source may name it
-	// or be "all"; anything else cannot apply.
-	if own, ok := opts.ResourceType.(resource.OwnSourced); ok {
-		if opts.Source != cmdutil.SourceAll && string(opts.Source) != own.OwnSource() {
-			return nil, hint.Withf(
-				fmt.Errorf("source %q is not available for %s", opts.Source, opts.ResourceType.Type()),
-				"%s is ingested only from %s; omit --source", opts.ResourceType.Type(), own.OwnSource())
-		}
+	// rather than the city config (resource.OwnSourced). The --source flag
+	// admits only "all" or that source's name (sourceValues), both of which
+	// mean the one source.
+	if _, ok := opts.ResourceType.(resource.OwnSourced); ok {
 		return ingestpkg.SourcesFor(opts.ResourceType, bbox, overpass, arcgisURL, srcOpts), nil
 	}
 	if opts.Source == cmdutil.SourceAll {
@@ -570,7 +579,7 @@ func resolveSources(opts *Options, bbox [4]float64, overpass bool, arcgisURL str
 	}
 	// SourceByName builds AllSources and reports "unknown source" when nothing
 	// matches, which is the wrong diagnosis for a source that IS a valid
-	// --source value (cmdutil.sourceValues) but is switched off for this city.
+	// --source value (sourceValues) but is switched off for this city.
 	// The user typed nothing wrong; their pvmt.toml disagrees with their flag,
 	// and "unknown source: overpass" sends them looking for a typo. The dry-run
 	// path already says the right thing — say it here too.

@@ -39,19 +39,29 @@ func TestUnitSystem_Set(t *testing.T) {
 	}
 }
 
-func TestSource_Set(t *testing.T) {
+func TestSourceFlag_Set(t *testing.T) {
 	var s Source
-	if err := s.Set("all"); err != nil {
-		t.Fatalf("Set(all): %v", err)
-	}
-	if s != SourceAll {
-		t.Errorf("got %q, want %q", s, SourceAll)
+	f := &SourceFlag{Value: &s, Valid: []string{"all", "tigerweb"}}
+	for _, v := range []string{"all", "tigerweb"} {
+		if err := f.Set(v); err != nil {
+			t.Fatalf("Set(%s): %v", v, err)
+		}
+		if s != Source(v) {
+			t.Errorf("got %q, want %q", s, v)
+		}
 	}
 
-	err := s.Set("bogus")
-	var flagErr *FlagError
-	if !errors.As(err, &flagErr) {
-		t.Fatalf("expected FlagError, got %T: %v", err, err)
+	// A source that exists for other resources but is not in Valid is
+	// rejected exactly like a typo.
+	for _, v := range []string{"overpass", "bogus"} {
+		err := f.Set(v)
+		var flagErr *FlagError
+		if !errors.As(err, &flagErr) {
+			t.Fatalf("Set(%s) = %T: %v, want FlagError", v, err, err)
+		}
+		if s != "tigerweb" {
+			t.Errorf("Set(%s) changed the value to %q", v, s)
+		}
 	}
 }
 

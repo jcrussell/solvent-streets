@@ -769,7 +769,7 @@ func TestStripWaterFromBoundary_NoWaterIsNoOp(t *testing.T) {
 // `--source overpass` on a city with overpass unset used to fail with
 // `resolving source "overpass": unknown source: overpass`, because
 // SourceByName builds AllSources and reports "unknown" when nothing matches.
-// But "overpass" IS a valid --source value (cmdutil.sourceValues rejects
+// But "overpass" IS a valid --source value (the --source flag rejects
 // anything else before this point), so the user typed nothing wrong — their
 // config disagrees with their flag, and "unknown source" sends them hunting for
 // a typo. The dry-run path already printed the right diagnostic; the live path
@@ -839,5 +839,131 @@ func TestResolveSources_EnabledSourcesStillResolve(t *testing.T) {
 				t.Error("resolveSources returned no sources")
 			}
 		})
+	}
+}
+
+// untouchableFactory is a Factory whose every dependency fails the test when
+// called: a command run against it must stop before reading the city, opening
+// the database or building an HTTP client.
+func untouchableFactory(t *testing.T, ios *iostreams.IOStreams) *cmdutil.Factory {
+	t.Helper()
+	return &cmdutil.Factory{
+		IOStreams: ios,
+		HttpClient: func() (*http.Client, error) {
+			t.Error("HttpClient called; the source must be rejected before any network")
+			return nil, errors.New("unreachable")
+		},
+		CityDB: func() (db.Store, error) {
+			t.Error("CityDB called; the source must be rejected before the database is opened")
+			return nil, errors.New("unreachable")
+		},
+		CurrentCity: func() (*config.CityConfig, error) {
+			t.Error("CurrentCity called; the source must be rejected before the run starts")
+			return nil, errors.New("unreachable")
+		},
+		Config: func() (*config.Config, error) {
+			t.Error("Config called; the source must be rejected before the run starts")
+			return nil, errors.New("unreachable")
+		},
+	}
+}
+
+// TestNewCmdIngest_SourceTheResourceCannotUse pins that a --source naming a
+// real source the resource is not ingested from (census blocks come only from
+// tigerweb, fire stations only from overpass) is a usage error: a FlagError
+// (exit 2) at flag parse, before the city, database or HTTP client is touched,
+// and the same with --dry-run, which must not print a plan the real run would
+// reject.
+func TestNewCmdIngest_SourceTheResourceCannotUse(t *testing.T) {
+	cases := []struct {
+		name   string
+		rt     resource.Source
+		source string
+	}{
+		{"census overpass", &resource.CensusBlocks{}, "overpass"},
+		{"census arcgis", &resource.CensusBlocks{}, "arcgis"},
+		{"fire arcgis", &resource.Facility{Service: "fire"}, "arcgis"},
+		{"fire tigerweb", &resource.Facility{Service: "fire"}, "tigerweb"},
+		{"roads tigerweb", &resource.Pavement{}, "tigerweb"},
+	}
+	for _, tc := range cases {
+		for _, extra := range [][]string{nil, {"--dry-run"}} {
+			args := append([]string{"--source", tc.source}, extra...)
+			t.Run(tc.name+" "+strings.Join(extra, " "), func(t *testing.T) {
+				ios, _, out, _ := iostreams.Test()
+				cmd := NewCmdIngest(untouchableFactory(t, ios), tc.rt, nil)
+				cmd.SilenceErrors = true
+				cmd.SilenceUsage = true
+				cmd.SetArgs(args)
+				err := cmd.Execute()
+				var flagErr *cmdutil.FlagError
+				if !errors.As(err, &flagErr) {
+					t.Fatalf("Execute(%v) = %T: %v, want a FlagError", args, err, err)
+				}
+				if !strings.Contains(err.Error(), tc.source) {
+					t.Errorf("error = %q, want it to name the rejected source %q", err, tc.source)
+				}
+				if out.Len() != 0 {
+					t.Errorf("stdout = %q, want no dry-run plan for a rejected source", out.String())
+				}
+			})
+		}
+	}
+}
+
+// TestNewCmdIngest_ValidSourcesPerResource pins the other half: each resource
+// accepts "all" and the sources it is ingested from (an own-sourced resource
+// thus accepts its own source's name), and --help lists exactly those.
+func TestNewCmdIngest_ValidSourcesPerResource(t *testing.T) {
+	for _, tc := range []struct {
+		rt    resource.Source
+		valid []string
+	}{
+		{&resource.CensusBlocks{}, []string{"all", "tigerweb"}},
+		{&resource.Facility{Service: "fire"}, []string{"all", "overpass"}},
+		{&resource.Pavement{}, []string{"all", "overpass", "arcgis"}},
+	} {
+		for _, source := range tc.valid {
+			t.Run(string(tc.rt.Type())+" "+source, func(t *testing.T) {
+				ios, _, _, _ := iostreams.Test()
+				var got cmdutil.Source
+				cmd := NewCmdIngest(testFactory(ios), tc.rt, func(_ context.Context, opts *Options) error {
+					got = opts.Source
+					return nil
+				})
+				cmd.SetArgs([]string{"--source", source})
+				if err := cmd.Execute(); err != nil {
+					t.Fatalf("--source %s: %v", source, err)
+				}
+				if got != cmdutil.Source(source) {
+					t.Errorf("Source = %q, want %q", got, source)
+				}
+				usage := cmd.Flags().Lookup("source").Usage
+				if want := "(" + strings.Join(tc.valid, "|") + ")"; !strings.Contains(usage, want) {
+					t.Errorf("--source usage = %q, want it to list %s", usage, want)
+				}
+			})
+		}
+	}
+}
+
+// TestResolveSources_OwnSourcedTakesItsOwnSource pins that "all" and the
+// resource's own source name both resolve to that one source, whatever the
+// city's pavement sources are.
+func TestResolveSources_OwnSourcedTakesItsOwnSource(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	for _, source := range []cmdutil.Source{cmdutil.SourceAll, "tigerweb"} {
+		opts := &Options{ResourceType: &resource.CensusBlocks{}, Source: source}
+		got, err := resolveSources(opts, [4]float64{}, true, "https://x", false, ios)
+		if err != nil {
+			t.Fatalf("resolveSources(%s): %v", source, err)
+		}
+		if len(got) != 1 || got[0].Name() != "tigerweb" {
+			names := make([]string, len(got))
+			for i, s := range got {
+				names[i] = s.Name()
+			}
+			t.Errorf("resolveSources(%s) = %v, want [tigerweb]", source, names)
+		}
 	}
 }
