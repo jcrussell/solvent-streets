@@ -351,16 +351,27 @@ func TestRunStatus_NonTTY_TabSeparated(t *testing.T) {
 }
 
 // TestStatusRow_ExportData_OmitsNotApplicable: a resource never ingested or
-// computed has no timestamps, and a non-parking resource has no space
-// estimate; those keys are omitted rather than emitted as "" or 0.
+// computed has no timestamps and no area, and a non-parking resource has no
+// space estimate; those keys are omitted rather than emitted as "" or a 0
+// sentinel (solvent-streets-ern4.9).
 func TestStatusRow_ExportData_OmitsNotApplicable(t *testing.T) {
 	out := statusRow{ResourceType: "roads"}.ExportData(statusFields)
-	for _, f := range []string{"last_ingest_at", "last_compute_at", "estimated_spaces"} {
+	for _, f := range []string{"last_ingest_at", "last_compute_at", "area", "estimated_spaces"} {
 		if v, ok := out[f]; ok {
 			t.Errorf("%s = %v; want it omitted", f, v)
 		}
 	}
-	if out["feature_count"] != 0 || out["area"] != 0.0 {
-		t.Errorf("counts and areas are always present, got %v", out)
+	if out["feature_count"] != 0 {
+		t.Errorf("the feature count is always present, got %v", out)
+	}
+}
+
+// TestStatusRow_ExportData_ComputedZeroAreaIsKept: once a resource has been
+// computed its area is a real value, so a computed 0 (a city with no
+// parking) is emitted, not mistaken for "never computed".
+func TestStatusRow_ExportData_ComputedZeroAreaIsKept(t *testing.T) {
+	out := statusRow{ResourceType: "parking", LastComputeAt: "2026-04-18T01:00:00Z"}.ExportData(statusFields)
+	if v, ok := out["area"]; !ok || v != 0.0 {
+		t.Errorf("area = %v (present %v), want a computed 0", v, ok)
 	}
 }

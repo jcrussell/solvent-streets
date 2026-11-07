@@ -54,7 +54,11 @@ func (r statusRow) ExportData(fields []string) map[string]any {
 				out[f] = r.LastComputeAt
 			}
 		case "area":
-			out[f] = r.Area
+			// Area is a compute result: a computed 0 is a value, but a
+			// never-computed row has none.
+			if r.LastComputeAt != "" {
+				out[f] = r.Area
+			}
 		case "estimated_spaces":
 			if r.EstimatedSpaces != 0 {
 				out[f] = r.EstimatedSpaces
