@@ -950,11 +950,9 @@ tags = ["Top 50"]
 	}
 }
 
-// TestLoadWarnings_DoNotAffectHash: Config.Hash() is the snapshot key, and for
-// in-memory configs it falls back to a TOML re-encode of the struct — so a new
-// Config field can silently invalidate every stored snapshot. loadWarnings is
-// unexported (the encoder skips it) precisely so it cannot. Guard both hash
-// paths: the file-loaded one (raw bytes) and the in-memory fallback.
+// TestLoadWarnings_DoNotAffectHash: warnings are a by-product of the merge,
+// not a setting, so carrying them (or not) must not move any city's snapshot
+// key.
 func TestLoadWarnings_DoNotAffectHash(t *testing.T) {
 	dir := t.TempDir()
 	writeTOML(t, dir, "a/pvmt.toml", "[grid]\nhex_edge_m = 80\n[[cities]]\nname = \"Reno, NV\"\noverpass = true\n")
@@ -967,24 +965,10 @@ func TestLoadWarnings_DoNotAffectHash(t *testing.T) {
 	if len(cfg.LoadWarnings()) == 0 {
 		t.Fatal("expected a superseded-calibration warning to exercise the field")
 	}
-	// Clear the memoized content hash first. Hash() short-circuits on it for
-	// any file-loaded config, so asserting stability with it in place would
-	// only prove the memo works — not the claim, which is about the reflection
-	// re-encode. This drives a realistic loaded config down the fallback path.
-	cfg.contentHash = ""
-	withWarnings := cfg.Hash()
+	withWarnings := cfg.CityHash(&cfg.Cities[0])
 	cfg.loadWarnings = nil
-	if got := cfg.Hash(); got != withWarnings {
-		t.Errorf("loaded config's fallback Hash() changed with warnings: %s vs %s", withWarnings, got)
-	}
-
-	// In-memory path (no contentHash): the reflection re-encode must ignore
-	// the field too.
-	mem := &Config{Cities: []CityConfig{{Name: "Reno, NV", Overpass: true}}}
-	base := mem.Hash()
-	mem.loadWarnings = []string{"a warning that must not move the hash"}
-	if got := mem.Hash(); got != base {
-		t.Errorf("in-memory Hash() changed with warnings: %s vs %s", base, got)
+	if got := cfg.CityHash(&cfg.Cities[0]); got != withWarnings {
+		t.Errorf("CityHash changed with warnings: %s vs %s", withWarnings, got)
 	}
 }
 
@@ -1040,55 +1024,33 @@ func TestInclude_CycleDetected(t *testing.T) {
 	}
 }
 
-// TestInclude_HashFoldsIncludedFiles: editing an included file changes the
-// merged config's Hash(), so snapshots invalidate and recompute triggers.
-func TestInclude_HashFoldsIncludedFiles(t *testing.T) {
+// TestInclude_EditingIncludedFileMovesItsCities: a result-affecting edit to an
+// included file changes the hash its cities read under the including config,
+// and a comment-only edit does not.
+func TestInclude_EditingIncludedFileMovesItsCities(t *testing.T) {
 	dir := t.TempDir()
-	leaf := writeTOML(t, dir, "leaf/pvmt.toml", "[forecast]\ndecay_rate = 0.04\n[[cities]]\nname = \"Reno, NV\"\noverpass = true\n")
+	leafData := "[forecast]\ndecay_rate = 0.04\n[[cities]]\nname = \"Reno, NV\"\noverpass = true\n"
+	leaf := writeTOML(t, dir, "leaf/pvmt.toml", leafData)
 	top := writeTOML(t, dir, "all/pvmt.toml", "[[include]]\npath = \"../leaf/pvmt.toml\"\ntags = [\"West\"]\n")
 
-	cfg1, err := Load(top)
-	if err != nil {
-		t.Fatal(err)
+	hashAfter := func(data string) string {
+		t.Helper()
+		if err := os.WriteFile(leaf, []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := Load(top)
+		if err != nil {
+			t.Fatal(err)
+		}
+		city := cityBySlug(t, cfg, "reno-nv")
+		return cfg.CityHash(&city)
 	}
-	h1 := cfg1.Hash()
-
-	// Edit the included file; the top-level file is unchanged.
-	if err := os.WriteFile(leaf, []byte("[forecast]\ndecay_rate = 0.09\n[[cities]]\nname = \"Reno, NV\"\noverpass = true\n"), 0o644); err != nil {
-		t.Fatal(err)
+	h1 := hashAfter(leafData)
+	if got := hashAfter("# tuned for the high desert\n" + leafData); got != h1 {
+		t.Errorf("a comment in an included file moved its city's hash: %q vs %q", got, h1)
 	}
-	cfg2, err := Load(top)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg1.Hash() != h1 {
-		t.Fatal("Hash() must be stable for a given config value")
-	}
-	if cfg2.Hash() == h1 {
-		t.Error("editing an included file must change the merged config hash")
-	}
-}
-
-// TestInclude_NoIncludeHashUnchanged: a plain single-file config hashes as the
-// single-blob application of the length-prefixed hashBlobs scheme (vtk3). This
-// pins that a no-include config still hashes deterministically off its raw
-// bytes; the value differs from the pre-vtk3 raw-bytes hash (pre-1.0, snapshots
-// simply recompute).
-func TestInclude_NoIncludeHashUnchanged(t *testing.T) {
-	dir := t.TempDir()
-	data := "[[cities]]\nname = \"Reno, NV\"\noverpass = true\n"
-	p := writeTOML(t, dir, "solo/pvmt.toml", data)
-	cfg, err := Load(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, want := cfg.Hash(), hashBlobs([][]byte{[]byte(data)}); got != want {
-		t.Errorf("no-include hash = %q; want %q (single length-prefixed blob)", got, want)
-	}
-	// The delimiter must actually participate: the length-prefixed hash of a
-	// single blob differs from the bare-bytes hash it used before vtk3.
-	if cfg.Hash() == hashBytes([]byte(data)) {
-		t.Error("length-prefixed hash must differ from the pre-vtk3 bare-bytes hash")
+	if hashAfter(strings.Replace(leafData, "0.04", "0.09", 1)) == h1 {
+		t.Error("editing an included file's decay_rate must change its city's hash")
 	}
 }
 
@@ -1611,11 +1573,7 @@ func equalStrings(a, b []string) bool {
 // the union config reads a different cities row or a different snapshot than
 // the example's own compute run wrote.
 //
-// This is a pure-config test — no DB, no export — and it is specifically the
-// test that catches stamping child.Hash() instead of hashBlobs(childBlobs).
-// That bug does not fail loudly: an included file's bare-bytes contentHash is a
-// real hash that real (older) snapshots were written under, so the union would
-// silently export stale data.
+// This is a pure-config test — no DB, no export.
 func TestInclude_SourceIdentityMatchesStandaloneLoad(t *testing.T) {
 	dir := t.TempDir()
 	leafA := writeTOML(t, dir, "leaf-a/pvmt.toml",
@@ -1639,13 +1597,10 @@ func TestInclude_SourceIdentityMatchesStandaloneLoad(t *testing.T) {
 		{leafA, "reno-nv", 80},
 		{leafB, "boise-id", 120},
 	} {
-		standalone, sErr := Load(tc.path)
-		if sErr != nil {
-			t.Fatal(sErr)
-		}
+		standalone, standaloneCity := loadCity(t, tc.path, tc.slug)
 		city := cityBySlug(t, union, tc.slug)
 
-		if got, want := city.SourceConfigHash, standalone.Hash(); got != want {
+		if got, want := city.SourceConfigHash, standalone.CityHash(standaloneCity); got != want {
 			t.Errorf("%s: SourceConfigHash = %q; want %q (the hash its own compute writes)", tc.slug, got, want)
 		}
 		if got, want := city.SourceConfigID, standalone.ConfigID; got != want {
@@ -1654,41 +1609,16 @@ func TestInclude_SourceIdentityMatchesStandaloneLoad(t *testing.T) {
 		if city.SourceConfigID == "" {
 			t.Errorf("%s: SourceConfigID is empty; the union would fall back to its own namespace", tc.slug)
 		}
-		if got := city.SourceHexEdgeM; got != tc.wantEdge {
-			t.Errorf("%s: SourceHexEdgeM = %g; want %g", tc.slug, got, tc.wantEdge)
+		if got := union.ResolvedHexEdge(&city); got != tc.wantEdge {
+			t.Errorf("%s: ResolvedHexEdge = %g; want %g", tc.slug, got, tc.wantEdge)
 		}
 		// And the resolvers must agree with the stamp.
-		if got := union.CityHash(&city); got != standalone.Hash() {
-			t.Errorf("%s: CityHash() = %q; want %q", tc.slug, got, standalone.Hash())
+		if got, want := union.CityHash(&city), standalone.CityHash(standaloneCity); got != want {
+			t.Errorf("%s: CityHash() = %q; want %q", tc.slug, got, want)
 		}
 		if got := union.CityConfigID(&city); got != standalone.ConfigID {
 			t.Errorf("%s: CityConfigID() = %q; want %q", tc.slug, got, standalone.ConfigID)
 		}
-	}
-}
-
-// TestInclude_SourceIdentityNotTheBareBytesHash makes the specific wrong answer
-// impossible to reintroduce: hashBytes over the included file's own bytes is
-// what parseConfig leaves on child.contentHash, and it is NOT what Load
-// computes. Asserting inequality here means a future refactor that "simplifies"
-// sourceIdentity to child.Hash() fails immediately rather than shipping.
-func TestInclude_SourceIdentityNotTheBareBytesHash(t *testing.T) {
-	dir := t.TempDir()
-	leafData := "config_id = \"leaf\"\n\n[[cities]]\nname = \"Reno, NV\"\noverpass = true\n"
-	writeTOML(t, dir, "leaf/pvmt.toml", leafData)
-	top := writeTOML(t, dir, "all/pvmt.toml", "[[include]]\npath = \"../leaf/pvmt.toml\"\n")
-
-	union, err := Load(top)
-	if err != nil {
-		t.Fatal(err)
-	}
-	city := cityBySlug(t, union, "reno-nv")
-	if city.SourceConfigHash == hashBytes([]byte(leafData)) {
-		t.Error("SourceConfigHash is the bare-bytes hash parseConfig sets; " +
-			"it must be hashBlobs over the file, which is what Load and compute use")
-	}
-	if city.SourceConfigHash != hashBlobs([][]byte{[]byte(leafData)}) {
-		t.Error("SourceConfigHash must equal hashBlobs of the included file's blobs")
 	}
 }
 
@@ -1710,23 +1640,21 @@ func TestInclude_NestedSourceIdentityKeepsDeclaringFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	standaloneLeaf, err := Load(leaf)
-	if err != nil {
-		t.Fatal(err)
-	}
+	standaloneLeaf, leafCity := loadCity(t, leaf, "reno-nv")
 	city := cityBySlug(t, union, "reno-nv")
 	if got := city.SourceConfigID; got != "leaf" {
 		t.Errorf("SourceConfigID = %q; want \"leaf\" — the file that DECLARED the city", got)
 	}
-	if got, want := city.SourceConfigHash, standaloneLeaf.Hash(); got != want {
+	if got, want := city.SourceConfigHash, standaloneLeaf.CityHash(leafCity); got != want {
 		t.Errorf("SourceConfigHash = %q; want %q (the leaf's own hash)", got, want)
 	}
 }
 
 // TestInclude_DirectCityHasNoSourceIdentity: a city the config declares itself
 // is not an included city, keeps an empty stamp, and resolves to the config's
-// own id and hash. This is the case that preserves the deliberate
-// Hash()/ConfigID divergence for unrelated files that share a slug.
+// own id and its own resolution of the hash. This is the case that preserves
+// the deliberate CityHash/ConfigID divergence for unrelated files that share a
+// slug.
 func TestInclude_DirectCityHasNoSourceIdentity(t *testing.T) {
 	dir := t.TempDir()
 	writeTOML(t, dir, "leaf/pvmt.toml",
@@ -1747,21 +1675,21 @@ func TestInclude_DirectCityHasNoSourceIdentity(t *testing.T) {
 	if got := union.CityConfigID(&bend); got != "top" {
 		t.Errorf("CityConfigID() = %q; want the config's own %q", got, "top")
 	}
-	if got := union.CityHash(&bend); got != union.Hash() {
-		t.Errorf("CityHash() = %q; want the config's own %q", got, union.Hash())
+	solo := &Config{Cities: []CityConfig{{Name: "Bend, OR", Overpass: true}}}
+	if got, want := union.CityHash(&bend), solo.CityHash(&solo.Cities[0]); got != want {
+		t.Errorf("CityHash() = %q; want the city's own resolution %q", got, want)
 	}
 }
 
 // TestInclude_BackfilledGridMovesSourceIdentity pins the first half of
 // solvent-streets-1h6j.
 //
-// mergeIncludedCities stamps SourceHexEdgeM/SourceConfigID/SourceConfigHash
-// preserve-if-set, i.e. from the FIRST include to declare the city. The old
-// per-field union then let a LATER include backfill hex_edge_m without moving
-// any of them, so the city resolved one edge and claimed another as its source.
-// export.RequireMatchingHexEdge aborts on that and serve 409s, with nothing in
-// the union file the user could edit to fix it — and LoadWarnings said nothing,
-// because a backfill is not a disagreement.
+// mergeIncludedCities stamps the source identity preserve-if-set, i.e. from the
+// FIRST include to declare the city. The old per-field union then let a LATER
+// include backfill hex_edge_m without moving it, so the city resolved one edge
+// and claimed another config as its source. Export then refused it, with
+// nothing in the union file the user could edit to fix it — and LoadWarnings
+// said nothing, because a backfill is not a disagreement.
 //
 // Adopting the grid now moves the identity with it: the include that supplies
 // the edge is the include whose stored hexes get read.
@@ -1800,11 +1728,15 @@ path = "../second/pvmt.toml"
 	if got := cfg.ResolvedHexEdge(&liv); got != 60 {
 		t.Errorf("ResolvedHexEdge = %g, want 60 (backfilled from the second include)", got)
 	}
-	// The invariant RequireMatchingHexEdge checks: the resolved edge and the
-	// edge the source config computed at have to be the same number.
-	if liv.SourceHexEdgeM != 60 {
-		t.Errorf("SourceHexEdgeM = %g, want 60; the config that supplied the "+
-			"edge must also be the one credited with the data", liv.SourceHexEdgeM)
+	// The resolved edge and the edge the source config computed at have to be
+	// the same number, which is what lets the city keep its source's hash.
+	if d := cfg.SourceDivergence(&liv); len(d) != 0 {
+		t.Errorf("SourceDivergence = %q; the config that supplied the edge must "+
+			"also be the one credited with the data", d)
+	}
+	second, secondCity := loadCity(t, filepath.Join(dir, "second/pvmt.toml"), "livermore-ca")
+	if got, want := cfg.CityHash(&liv), second.CityHash(secondCity); got != want {
+		t.Errorf("CityHash() = %q; want the second include's own %q", got, want)
 	}
 	if liv.SourceConfigID != "second" {
 		t.Errorf("SourceConfigID = %q, want %q; hex ids come from the grid and "+
@@ -1831,7 +1763,7 @@ path = "../second/pvmt.toml"
 //
 // The fixture is four files: all -> [first, mid], mid -> leaf, and only leaf
 // carries the grid, so folding mid into all takes the merge path with
-// gridAdopted true. SourceHexEdgeM was always right; the identity pair was not.
+// gridAdopted true. The resolved edge was always right; the identity was not.
 func TestInclude_NestedIdentitySurvivesTheMergePath(t *testing.T) {
 	dir := t.TempDir()
 	// The leaf DECLARES the city and owns the grid the hexes were computed on.
@@ -1864,10 +1796,7 @@ path = "../first/pvmt.toml"
 path = "../mid/pvmt.toml"
 `)
 
-	standaloneLeaf, err := Load(leaf)
-	if err != nil {
-		t.Fatalf("load leaf: %v", err)
-	}
+	standaloneLeaf, leafCity := loadCity(t, leaf, "livermore-ca")
 	// Control: mid alone already gets this right, via the append path's guard.
 	midCfg, err := Load(mid)
 	if err != nil {
@@ -1887,21 +1816,20 @@ path = "../mid/pvmt.toml"
 		t.Errorf("SourceConfigID = %q; want \"leafid\" — the file that DECLARED the city "+
 			"and computed its hexes, not the middle file it happened to travel through", got)
 	}
-	if got, want := liv.SourceConfigHash, standaloneLeaf.Hash(); got != want {
+	if got, want := liv.SourceConfigHash, standaloneLeaf.CityHash(leafCity); got != want {
 		t.Errorf("SourceConfigHash = %q; want %q (the leaf's own hash). A mid-file hash "+
-			"pins CityHash to a blob no compute run ever wrote", got, want)
+			"pins CityHash to a hash no compute run ever wrote", got, want)
 	}
 	// The resolved edge was never the broken half — assert it stays right.
-	if liv.SourceHexEdgeM != 60 || cfg.ResolvedHexEdge(&liv) != 60 {
-		t.Errorf("SourceHexEdgeM = %g, ResolvedHexEdge = %g; both want 60",
-			liv.SourceHexEdgeM, cfg.ResolvedHexEdge(&liv))
+	if got := cfg.ResolvedHexEdge(&liv); got != 60 {
+		t.Errorf("ResolvedHexEdge = %g; want 60", got)
 	}
 	// The identity has to be usable, not just stored: these are what
 	// EnsureCity and every snapshot lookup actually call.
 	if got := cfg.CityConfigID(&liv); got != "leafid" {
 		t.Errorf("CityConfigID() = %q; want \"leafid\" — this keys the cities row", got)
 	}
-	if got, want := cfg.CityHash(&liv), standaloneLeaf.Hash(); got != want {
+	if got, want := cfg.CityHash(&liv), standaloneLeaf.CityHash(leafCity); got != want {
 		t.Errorf("CityHash() = %q; want %q — this is what RequireMatchingSnapshot compares", got, want)
 	}
 }
@@ -1912,9 +1840,10 @@ path = "../mid/pvmt.toml"
 // hex_edge_m and min_hex_area used to union independently, so a city could take
 // a fine grid from one include and a sliver threshold sized for a coarse one
 // from another. A 60 m flat-top hex is ~9353 sq m, so a 20000 sq m threshold
-// makes filterHexSlivers drop every hex in the city. RequireMatchingHexEdge
-// compares only the edge and passes (60 == 60), so the failure mode is a
-// SUCCESSFUL export of an empty map — no error, no warning, no clue.
+// makes filterHexSlivers drop every hex in the city. The snapshot hash covers
+// only the edge (the threshold is applied at export), so it matches, and the
+// failure mode is a SUCCESSFUL export of an empty map — no error, no warning,
+// no clue.
 func TestInclude_GridPairCannotSplitAcrossIncludes(t *testing.T) {
 	dir := t.TempDir()
 	// First include: a fine grid, no threshold.

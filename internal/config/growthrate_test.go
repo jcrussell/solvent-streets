@@ -224,15 +224,14 @@ initial_pci = 70
 	}
 }
 
-// TestGrowthRate_PresenceDoesNotMoveTheConfigHash: growthRateSet is unexported
-// precisely so it stays out of Config.Hash's struct-encoding fallback. If it
-// leaked in, adding the field would orphan every stored snapshot for
-// in-memory configs.
+// TestGrowthRate_PresenceDoesNotMoveTheConfigHash: the snapshot hash is over
+// the RESOLVED growth rate, so an explicit top-level `growth_rate = 0` and an
+// absent one compute — and hash — the same.
 func TestGrowthRate_PresenceDoesNotMoveTheConfigHash(t *testing.T) {
 	a := &Config{Forecast: ForecastConfig{GrowthRate: 0}}
 	b := &Config{Forecast: ForecastConfig{GrowthRate: 0, growthRateSet: true}}
-	if a.Hash() != b.Hash() {
-		t.Errorf("presence bit changed the hash: %s vs %s", a.Hash(), b.Hash())
+	if ha, hb := a.CityHash(nil), b.CityHash(nil); ha != hb {
+		t.Errorf("presence bit changed the hash: %s vs %s", ha, hb)
 	}
 }
 

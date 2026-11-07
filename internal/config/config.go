@@ -129,9 +129,8 @@ type Config struct {
 	// (internal/services.Registry) by name. Only the fields set are applied.
 	// Whether each name is a registered service is checked where a command
 	// loads the config (the factory), since this package does not import the
-	// registry.
-	// An array of tables (not a map) so Config.Hash()'s struct-encoding
-	// fallback keeps its "no map fields" ordering guarantee.
+	// registry. An array of tables (not a map) so `config show` and the
+	// exported Config tab render it in a stable order.
 	Services []ServiceOverride `toml:"services,omitempty"`
 
 	// ConfigID is the opaque identifier used as part of the cities
@@ -151,24 +150,15 @@ type Config struct {
 	// tab; not used as a database key (see ConfigID).
 	SourcePath string `toml:"-"`
 
-	// contentHash is the SHA-256 prefix of the raw TOML bytes the
-	// config was loaded from. Set by parseConfig; empty when the
-	// Config is constructed in-memory (tests). Read via Hash() — see
-	// internal/config/hash.go for the rationale (path-independent,
-	// stable across Config struct evolution).
-	contentHash string `toml:"-"`
-
 	// loadWarnings holds the non-fatal notices raised while resolving
 	// [[include]] blocks — today, one per city whose calibration was
 	// superseded by an earlier include under first-include-wins (see
 	// include.go). Set by Load; read via LoadWarnings() and printed by
 	// the warnConfigLoad middleware, since this package has no IOStreams.
 	//
-	// Unexported deliberately: Config.Hash() falls back to a TOML
-	// re-encode of the struct for in-memory configs, and the encoder
-	// skips unexported fields — so warnings cannot perturb a snapshot
-	// hash. Same reason contentHash is unexported. See
-	// TestLoadWarnings_DoNotAffectHash.
+	// Unexported so it never decodes from or encodes to TOML. It cannot
+	// perturb a snapshot hash: CityHash reads only the resolved compute
+	// inputs (hash.go). See TestLoadWarnings_DoNotAffectHash.
 	loadWarnings []string `toml:"-"`
 }
 
@@ -266,13 +256,12 @@ type ForecastConfig struct {
 	// cost / N. 0 = use forecast.DefaultTreatmentCycleYears (~12); the default is
 	// resolved in the forecast core (ResolveCycleYears), not here, so every
 	// construction path gets a safe divisor. Scales break_even by 1/N and drives
-	// the insolvency threshold. A value type (not *float64) for the same
-	// Config.Hash() reason as CurrentBudget.
+	// the insolvency threshold. A value type (not *float64): 0 is never a real
+	// cycle, so it serves as the unset sentinel.
 	TreatmentCycleYears float64 `toml:"treatment_cycle_years"`
 	// CurrentBudget is the city's annual pavement-repair budget in
 	// dollars, used by the solvency export (insolvency year, break-even,
-	// funding gap). A value type, NOT *float64: a pointer breaks the
-	// deterministic Config.Hash() reflection fallback (hash.go). 0 means
+	// funding gap). A value type, NOT *float64: 0 means
 	// "not provided" — no real city budgets a literal $0 — and disables
 	// the budget-dependent metrics for that city. Must be a cited figure
 	// in shipped examples (the site makes dollar claims about named cities).
@@ -311,8 +300,8 @@ type ForecastConfig struct {
 	// Without this a per-city `growth_rate = 0` was indistinguishable from an
 	// absent one, so a city could not opt out of a positive top-level rate
 	// (solvent-streets-r312). Unexported on purpose: it must not decode from
-	// TOML, must not appear in Config.Hash's struct-encoding fallback, and must
-	// not be emitted by `config show`. It rides along on struct copies, which is
+	// TOML and must not be emitted by `config show`; the snapshot hash sees
+	// only the resolved growth rate it produces. It rides along on struct copies, which is
 	// exactly what the [[include]] merge does.
 	growthRateSet bool
 }
@@ -481,13 +470,12 @@ type CityConfig struct {
 	//
 	// A city reached through [[include]] belongs to the file that declared it,
 	// not to the file that included it. Without these, a union config gets its
-	// own cities rows (keyed on ConfigID) and its own snapshot pin (keyed on
-	// Hash()), so it cannot see any of the data the source example ingested and
-	// computed — which is exactly why `make site` could not run.
+	// own cities rows (keyed on ConfigID) and its own snapshots (keyed on
+	// CityHash), so it cannot see any of the data the source example ingested
+	// and computed — which is exactly why `make site` could not run.
 	//
-	// All three are toml:"-": BurntSushi treats that as skip, so they never
-	// appear in a user's file, never round-trip through ResolvedTOML, and never
-	// perturb Hash()'s struct-encoding fallback.
+	// All are toml:"-": BurntSushi treats that as skip, so they never appear in
+	// a user's file and never round-trip through ResolvedTOML.
 	//
 	// They are stamped ONLY when still empty, so a city that arrives through
 	// nested includes keeps the identity of the file that actually declared it
@@ -497,20 +485,18 @@ type CityConfig struct {
 	// Empty means "declared directly by the config holding it".
 	SourceConfigID string `toml:"-"`
 
-	// SourceConfigHash is that config's content hash — the value its own
-	// a compute run writes into snapshots.config_hash. It must be computed the
-	// same way Load does (hashBlobs over the file and everything it includes),
-	// NOT via the included *Config's Hash(), which carries only the bare-bytes
-	// hash parseConfig set and would match a different, older snapshot.
+	// SourceConfigHash is that config's CityHash for this city — the value its
+	// own compute commands write into snapshots.config_hash. CityHash returns it
+	// for as long as this config resolves the city's data inputs the way the
+	// source does (sourceData); see CityHash.
 	SourceConfigHash string `toml:"-"`
 
-	// SourceHexEdgeM is the hex edge the source config resolves for this city,
-	// captured so a union config can detect the one merge outcome that silently
-	// corrupts an export: hex ids are derived from the grid, and stored
-	// hex_stats are joined to a freshly rebuilt grid BY ID, so a union that
-	// resolves a different edge than the snapshot was computed at produces a
-	// city with zero features rather than an error.
-	SourceHexEdgeM float64 `toml:"-"`
+	// sourceData is the source config's resolution of this city's data inputs
+	// (hex edge, census, services, facilities), stamped alongside
+	// SourceConfigHash so CityHash can tell when the stored data no longer
+	// matches what this config would compute. nil for a hand-built CityConfig,
+	// in which case SourceConfigHash is trusted as given.
+	sourceData *dataInputs
 }
 
 // ServiceOverride adjusts one service's coverage parameters. A nil numeric
@@ -557,9 +543,13 @@ func (c *Config) ResolvedHexEdge(city *CityConfig) float64 {
 
 // CityConfigID returns the ConfigID that owns city's row in the cities table.
 //
-// For a city declared directly this is the config's own ConfigID, preserving
-// the deliberate divergence documented on Hash(): two unrelated files that
-// happen to define the same slug get distinct rows. A city reached through
+// For a city declared directly this is the config's own ConfigID. That is a
+// deliberate divergence from CityHash: the snapshot key says what results were
+// computed FROM, so two files resolving the same settings for a city hash the
+// same, while the row key says which config OWNS the city, so two unrelated
+// files that happen to define the same slug get distinct rows — and, since
+// snapshots belong to a row, never read each other's results even when their
+// hashes agree (see TestHash_SameContentDiffPath). A city reached through
 // [[include]] is not that case — it IS the included file's city — so it keeps
 // the source's id and resolves to the same row the source example ingested
 // into.
@@ -568,17 +558,6 @@ func (c *Config) CityConfigID(city *CityConfig) string {
 		return city.SourceConfigID
 	}
 	return c.ConfigID
-}
-
-// CityHash returns the content hash that scopes snapshot reads for city, i.e.
-// the hash whose compute run produced the data this city should read.
-// Same rule as CityConfigID: an included city reads (and writes) under the
-// source config's hash, everything else under this config's own.
-func (c *Config) CityHash(city *CityConfig) string {
-	if city != nil && city.SourceConfigHash != "" {
-		return city.SourceConfigHash
-	}
-	return c.Hash()
 }
 
 // ResolvedForecast returns the forecast config for city with all layers
@@ -728,7 +707,7 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("resolve config path %q: %w", path, err)
 	}
 	warn := &calibrationWarnings{}
-	cfg, blobs, err := loadResolved(abs, map[string]bool{}, 0, map[string]*resolvedInclude{}, warn)
+	cfg, err := loadResolved(abs, map[string]bool{}, 0, map[string]*Config{}, warn)
 	if err != nil {
 		return nil, err
 	}
@@ -741,8 +720,8 @@ func Load(path string) (*Config, error) {
 	// any caller that inspects it.
 	cfg.loadWarnings = warn.render(filepath.Dir(abs))
 	// SourcePath keeps the caller's spelling (used by export/server to read the
-	// raw TOML back); ConfigID and contentHash key on the absolute path and the
-	// merged file contents so two spellings of the same file agree.
+	// raw TOML back); ConfigID keys on the absolute path so two spellings of the
+	// same file agree.
 	cfg.SourcePath = path
 	if cfg.ConfigID == "" {
 		cfg.ConfigID = hashBytes([]byte(abs))
@@ -752,15 +731,6 @@ func Load(path string) (*Config, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	// Fold every included file's bytes into the content hash (in declaration
-	// order) so editing any included example changes the snapshot hash and
-	// triggers recompute. Each blob is length-prefixed before hashing so the
-	// partition between files is unambiguous: a plain concatenation would hash
-	// two different include layouts of the same total bytes identically (e.g.
-	// files ("ab","c") vs ("a","bc")), silently sharing a snapshot. Pre-1.0, so
-	// this changes the hash value for every config (including single-file ones);
-	// stale snapshots simply recompute on next run.
-	cfg.contentHash = hashBlobs(blobs)
 	return cfg, nil
 }
 
@@ -801,7 +771,6 @@ func parseConfig(data []byte) (*Config, error) {
 	if err := cfg.validate(len(cfg.Include) == 0); err != nil {
 		return nil, err
 	}
-	cfg.contentHash = hashBytes(data)
 	return &cfg, nil
 }
 

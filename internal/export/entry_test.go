@@ -3,12 +3,15 @@ package export
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/hint"
 )
 
 // TestRequireMatchingSnapshot covers the 8xqn fail-loud behavior: the
@@ -17,7 +20,7 @@ import (
 // empty (legitimate tiny-city case).
 func TestRequireMatchingSnapshot(t *testing.T) {
 	cfg := &config.Config{}
-	wantHash := cfg.Hash()
+	wantHash := cfg.CityHash(nil)
 
 	cases := []struct {
 		name    string
@@ -100,7 +103,7 @@ func TestRequireMatchingSnapshot_IncludedCityUsesSourceHash(t *testing.T) {
 	// is being ignored.
 	entry.Store = &dbtest.MockStore{
 		ListSnapshotsFunc: func(_ context.Context) ([]db.Snapshot, error) {
-			return []db.Snapshot{{ID: 1, ConfigHash: cfg.Hash(), Parts: paved}}, nil
+			return []db.Snapshot{{ID: 1, ConfigHash: cfg.CityHash(nil), Parts: paved}}, nil
 		},
 	}
 	if err := entry.RequireMatchingSnapshot(context.Background()); !errors.Is(err, ErrNoMatchingSnapshot) {
@@ -108,61 +111,49 @@ func TestRequireMatchingSnapshot_IncludedCityUsesSourceHash(t *testing.T) {
 	}
 }
 
-// TestRequireMatchingSnapshot_HexEdgeMismatch is the guard for the one merge
-// outcome that produces a blank map instead of an error. The snapshot hash is
-// the source's and matches fine; what diverges is the resolved hex edge, and
-// since hex ids are derived from the grid, every stored hex would fail to join
-// and the city would export zero features silently.
-func TestRequireMatchingSnapshot_HexEdgeMismatch(t *testing.T) {
-	const sourceHash = "50urc3hash000000"
-	matching := &dbtest.MockStore{
-		ListSnapshotsFunc: func(_ context.Context) ([]db.Snapshot, error) {
-			return []db.Snapshot{{ID: 1, ConfigHash: sourceHash, Parts: paved}}, nil
+// TestRequireMatchingSnapshot_IncludedDataDivergence: an [[include]]d city
+// whose data inputs this config resolves differently from its own config gets
+// its own hash (Config.CityHash), so the source's snapshots stop satisfying it
+// — and the error says which setting diverged rather than just "recompute".
+// The divergence used is solvent-streets-qtue: the merge drops an included
+// file's [[services]].
+func TestRequireMatchingSnapshot_IncludedDataDivergence(t *testing.T) {
+	dir := t.TempDir()
+	write := func(rel, data string) string {
+		t.Helper()
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	write("leaf/pvmt.toml", "config_id = \"leaf\"\n[[services]]\nname = \"fire\"\nturnout_s = 60\n"+
+		"[[cities]]\nname = \"Reno, NV\"\noverpass = true\n")
+	cfg, err := config.Load(write("all/pvmt.toml", "[[include]]\npath = \"../leaf/pvmt.toml\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	city := cfg.Cities[0]
+	entry := CityEntry{
+		Config: cfg, City: city, Slug: city.Slug(),
+		Store: &dbtest.MockStore{
+			ListSnapshotsFunc: func(_ context.Context) ([]db.Snapshot, error) {
+				// Only the leaf's own snapshot exists.
+				return []db.Snapshot{{ID: 1, ConfigHash: city.SourceConfigHash, Parts: paved}}, nil
+			},
 		},
 	}
-
-	t.Run("union resolves a different edge", func(t *testing.T) {
-		// The union sets a top-level grid the source never had; the city has no
-		// override of its own, so it silently inherits the wrong edge.
-		cfg := &config.Config{Grid: config.GridConfig{HexEdgeM: 150}}
-		city := config.CityConfig{Name: "Oakland, CA", SourceConfigHash: sourceHash, SourceHexEdgeM: 100}
-		entry := CityEntry{Config: cfg, City: city, Slug: city.Slug(), Store: matching}
-
-		err := entry.RequireMatchingSnapshot(context.Background())
-		if !errors.Is(err, ErrNoMatchingSnapshot) {
-			t.Fatalf("want ErrNoMatchingSnapshot for a hex-edge divergence, got %v", err)
-		}
-		if !strings.Contains(err.Error(), "hex_edge_m") {
-			t.Errorf("error should name hex_edge_m, got %q", err)
-		}
-	})
-
-	t.Run("edges agree", func(t *testing.T) {
-		cfg := &config.Config{Grid: config.GridConfig{HexEdgeM: 100}}
-		city := config.CityConfig{Name: "Oakland, CA", SourceConfigHash: sourceHash, SourceHexEdgeM: 100}
-		entry := CityEntry{Config: cfg, City: city, Slug: city.Slug(), Store: matching}
-		if err := entry.RequireMatchingSnapshot(context.Background()); err != nil {
-			t.Errorf("matching edges must pass, got %v", err)
-		}
-	})
-
-	t.Run("unstamped city is not checked", func(t *testing.T) {
-		// A directly-declared city has no source edge; the guard must not fire
-		// on it regardless of what the config resolves.
-		cfg := &config.Config{Grid: config.GridConfig{HexEdgeM: 150}}
-		city := config.CityConfig{Name: "Bend, OR"}
-		entry := CityEntry{
-			Config: cfg, City: city, Slug: city.Slug(),
-			Store: &dbtest.MockStore{
-				ListSnapshotsFunc: func(_ context.Context) ([]db.Snapshot, error) {
-					return []db.Snapshot{{ID: 1, ConfigHash: cfg.Hash(), Parts: paved}}, nil
-				},
-			},
-		}
-		if err := entry.RequireMatchingSnapshot(context.Background()); err != nil {
-			t.Errorf("a directly-declared city must skip the hex-edge guard, got %v", err)
-		}
-	})
+	err = entry.RequireMatchingSnapshot(context.Background())
+	if !errors.Is(err, ErrNoMatchingSnapshot) {
+		t.Fatalf("want ErrNoMatchingSnapshot, got %v", err)
+	}
+	var h *hint.ErrHint
+	if !errors.As(err, &h) || !strings.Contains(h.Hint, "[[services]]") || !strings.Contains(h.Hint, "[[include]]") {
+		t.Errorf("hint should name the [[include]] and the diverging [[services]], got %v", err)
+	}
 }
 
 // TestPinCurrentSnapshot: an export reads ONE snapshot per city. The pin picks
@@ -228,7 +219,7 @@ func TestRequireMatchingSnapshot_MetricsOnlyIsRefused(t *testing.T) {
 	cfg := &config.Config{}
 	store := &dbtest.MockStore{ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
 		return []db.Snapshot{
-			{ID: 3, ConfigHash: cfg.Hash(), Parts: []db.SnapshotPart{{Part: "service:fire"}}},
+			{ID: 3, ConfigHash: cfg.CityHash(nil), Parts: []db.SnapshotPart{{Part: "service:fire"}}},
 			{ID: 2, ConfigHash: "older-config", Parts: paved},
 		}, nil
 	}}

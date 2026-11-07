@@ -283,9 +283,9 @@ func ResolveConfigID(resolveConfig func() (*config.Config, error), city *config.
 	return cfg.CityConfigID(city)
 }
 
-// ResolveCityHash returns the content hash that scopes snapshot reads for city
-// — the source config's hash for an included city, this config's own otherwise
-// (Config.CityHash). Returns "" when no config is available, which callers
+// ResolveCityHash returns the snapshot key that scopes snapshot reads for city
+// (Config.CityHash: the per-city hash of the settings that affect results; an
+// included city keeps its source config's while the two agree). Returns "" when no config is available, which callers
 // treat as "don't pin".
 //
 // Same warning as ResolveConfigID: resolve it per city, not once per command.

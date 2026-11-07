@@ -102,9 +102,9 @@ func (entry CityEntry) PinCurrentSnapshot(ctx context.Context) (CityEntry, error
 }
 
 // RequireMatchingSnapshot returns ErrNoMatchingSnapshot when the city's
-// snapshots include none with the current config's hash. This is the
-// fail-loud signal that `pvmt all compute` was skipped (or run with a
-// different config) for this city — exporting would otherwise produce
+// snapshots include none with the city's current hash (Config.CityHash). This
+// is the fail-loud signal that the city was never computed, or not since a
+// setting that affects results changed — exporting would otherwise produce
 // silent empty hex_stats and zero totals.
 //
 // A city with snapshots matching the current hash but with empty
@@ -113,9 +113,6 @@ func (entry CityEntry) PinCurrentSnapshot(ctx context.Context) (CityEntry, error
 func (entry CityEntry) RequireMatchingSnapshot(ctx context.Context) error {
 	if entry.Config == nil {
 		return nil
-	}
-	if err := entry.RequireMatchingHexEdge(); err != nil {
-		return err
 	}
 	configHash := entry.Config.CityHash(&entry.City)
 	snaps, err := entry.Store.ListSnapshots(ctx)
@@ -132,14 +129,26 @@ func (entry CityEntry) RequireMatchingSnapshot(ctx context.Context) error {
 		// Only metric parts (coverage, census) under this config: exporting
 		// would publish a city with no pavement at all, at exit 0.
 		return hint.Withf(fmt.Errorf("%w for %s: snapshot %d has no pavement compute", ErrNoMatchingSnapshot, entry.City.Name, s.ID),
-			"Run `pvmt all compute` (or a roads/parking/sidewalks compute) for %s under "+
-				"the current config. The config's snapshot so far holds only %s.", entry.Slug, partNames(s))
+			"Run `pvmt --city %s all compute` (or a roads/parking/sidewalks compute) "+
+				"under the current settings. The city's snapshot so far holds only %s.", entry.Slug, partNames(s))
 	}
-	return hint.Withf(fmt.Errorf("%w for %s", ErrNoMatchingSnapshot, entry.City.Name),
-		"Run `pvmt --city %s all compute` to produce a snapshot "+
-			"matching the current config hash %s. If snapshots exist with other hashes "+
-			"(e.g. after editing hex_edge_m or a forecast knob), `pvmt snapshots ls --city %s` "+
-			"will show them.", entry.Slug, configHash, entry.Slug)
+	err = fmt.Errorf("%w for %s", ErrNoMatchingSnapshot, entry.City.Name)
+	if d := entry.Config.SourceDivergence(&entry.City); len(d) > 0 {
+		// An [[include]]d city whose stored data this config would not have
+		// computed: CityHash refused the source's stamp. Say why, since the fix
+		// is usually in the config rather than a recompute.
+		return hint.Withf(err,
+			"%s is pulled in via [[include]], so it reads the snapshots its own config computed — "+
+				"but this config resolves %s, which changes the stored results, so those snapshots "+
+				"do not apply here. Make the including config agree with the city's own, or run "+
+				"`pvmt --city %s all compute` under this config.",
+			entry.City.Name, strings.Join(d, "; "), entry.Slug)
+	}
+	return hint.Withf(err,
+		"Run `pvmt --city %s all compute` to produce a snapshot matching the current "+
+			"settings (hash %s). If snapshots exist with other hashes (e.g. after editing "+
+			"hex_edge_m or a forecast knob), `pvmt snapshots ls --city %s` will show them.",
+		entry.Slug, configHash, entry.Slug)
 }
 
 // hasPavement reports whether the snapshot holds at least one pavement
@@ -162,56 +171,6 @@ func partNames(s db.Snapshot) string {
 		names[i] = p.Part
 	}
 	return strings.Join(names, ", ")
-}
-
-// RequireMatchingHexEdge catches the one merge outcome that corrupts an export
-// without erroring anywhere.
-//
-// An included city reads the snapshot its SOURCE config computed, but its
-// effective calibration is resolved by the config doing the reading, and the
-// [[include]] merge unions calibration PER FIELD with first-to-set winning. So
-// a city contributed by one include can take hex_edge_m from a different one,
-// or inherit a union's top-level [grid] the source never had.
-//
-// That specific field is unforgiving. Hex ids are derived from the grid, and
-// the exporter rebuilds the grid from config and joins the stored hex_stats to
-// it BY ID (buildHexFeature). A different edge produces ids that match nothing,
-// so every feature is dropped and the city exports an empty heatmap — no error,
-// no warning, just a blank map that looks like a city with no data.
-//
-// The snapshot-hash check cannot see this: the hash is the SOURCE's, and it
-// matches. So compare the resolved edges directly. Zero means unstamped (a
-// directly-declared city), which is not an included city and needs no check.
-//
-// Exported because it is NOT specific to the export path: it is orthogonal to
-// the snapshot-hash question, applies to the latest snapshot as much as to a
-// pinned one, and `pvmt serve` needs it too — serve rebuilds the same grid from
-// the same config and would otherwise answer HTTP 200 with an empty hexgrid.
-func (entry CityEntry) RequireMatchingHexEdge() error {
-	// Nil Config means nothing to resolve against (some tests, and any entry
-	// not built by BuildCityEntries). Match RequireMatchingSnapshot and
-	// snapshotMatchesConfig, which both treat that as "no opinion" — this is
-	// now called directly by the server, ahead of both of those guards.
-	if entry.Config == nil {
-		return nil
-	}
-	want := entry.City.SourceHexEdgeM
-	if want == 0 {
-		return nil
-	}
-	got := entry.Config.ResolvedHexEdge(&entry.City)
-	if got == want {
-		return nil
-	}
-	return hint.Withf(
-		fmt.Errorf("%w for %s: hex_edge_m resolves to %g here but its data was computed at %g",
-			ErrNoMatchingSnapshot, entry.City.Name, got, want),
-		"%s is pulled in via [[include]], so it reads the snapshots its own config computed — "+
-			"but this config resolves a different hex edge, and hex ids are derived from the grid, "+
-			"so every stored hex would fail to match and the city would export a blank map. "+
-			"Either drop the conflicting hex_edge_m (a top-level [grid] in the including file "+
-			"applies to every city that has no override of its own), or recompute %s under this config.",
-		entry.City.Name, entry.Slug)
 }
 
 // BBoxAndCenter derives bbox and center from the stored boundary polygon.

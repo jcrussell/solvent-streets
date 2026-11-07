@@ -33,13 +33,6 @@ type IncludeSpec struct {
 // tree (examples/all nests one level).
 const maxIncludeDepth = 32
 
-// resolvedInclude is a memoized loadResolved result: the fully-resolved config
-// for one file and the transitive blob list rooted at it.
-type resolvedInclude struct {
-	cfg   *Config
-	blobs [][]byte
-}
-
 // loadParseHook, when non-nil, is invoked with the absolute path of every file
 // loadResolved actually parses (a cache miss). Test-only seam for the
 // parse-memoization guarantee (scpj); nil in production.
@@ -125,9 +118,8 @@ type mergeState struct {
 }
 
 // loadResolved reads and parses the config at abs, recursively resolving its
-// [[include]] blocks and merging the included cities in. It returns the merged
-// config and the raw bytes of abs plus every file it (transitively) includes,
-// in declaration order, so the caller can fold them all into the content hash.
+// [[include]] blocks and merging the included cities in, and returns the
+// merged config.
 //
 // ancestors holds the files currently being resolved on this branch; a repeat
 // is an include cycle (a diamond — the same file reached via two different
@@ -141,23 +133,22 @@ type mergeState struct {
 // cached entry cannot mask a cycle: a file only lands in cache after its
 // resolution completes, and a file on the current ancestors stack has not
 // completed — a true cycle is caught by the ancestors check before any cache
-// entry for the cycling file exists. The merged config and content hash are
-// unchanged: the cached child is treated read-only by mergeIncludedCities, and
-// its blobs are re-appended at every include site so each edge still counts.
+// entry for the cycling file exists. The merged config is unchanged: the
+// cached child is treated read-only by mergeIncludedCities.
 //
 // warn is the Load-wide sink for first-include-wins notices; it is shared with
 // every recursive call so the top-level caller sees the transitive set.
-func loadResolved(abs string, ancestors map[string]bool, depth int, cache map[string]*resolvedInclude,
-	warn *calibrationWarnings) (*Config, [][]byte, error) {
-	if e, ok := cache[abs]; ok {
-		return e.cfg, e.blobs, nil
+func loadResolved(abs string, ancestors map[string]bool, depth int, cache map[string]*Config,
+	warn *calibrationWarnings) (*Config, error) {
+	if cfg, ok := cache[abs]; ok {
+		return cfg, nil
 	}
 	if depth > maxIncludeDepth {
-		return nil, nil, errors.Join(ErrInvalidConfig, fmt.Errorf(
+		return nil, errors.Join(ErrInvalidConfig, fmt.Errorf(
 			"include nesting too deep (>%d) at %s; likely a symlink cycle", maxIncludeDepth, abs))
 	}
 	if ancestors[abs] {
-		return nil, nil, errors.Join(ErrInvalidConfig, fmt.Errorf("include cycle detected at %s", abs))
+		return nil, errors.Join(ErrInvalidConfig, fmt.Errorf("include cycle detected at %s", abs))
 	}
 	ancestors[abs] = true
 	defer delete(ancestors, abs)
@@ -166,27 +157,26 @@ func loadResolved(abs string, ancestors map[string]bool, depth int, cache map[st
 	// (path = "/dev/stdin") blocks forever rather than returning. Stat follows
 	// symlinks, so a symlink to a regular file is still accepted.
 	if info, err := os.Stat(abs); err != nil {
-		return nil, nil, fmt.Errorf("read config: %w", err)
+		return nil, fmt.Errorf("read config: %w", err)
 	} else if !info.Mode().IsRegular() {
-		return nil, nil, errors.Join(ErrInvalidConfig,
+		return nil, errors.Join(ErrInvalidConfig,
 			fmt.Errorf("include %s is not a regular file", abs))
 	}
 
 	data, err := os.ReadFile(abs)
 	if err != nil {
-		return nil, nil, fmt.Errorf("read config: %w", err)
+		return nil, fmt.Errorf("read config: %w", err)
 	}
 	cfg, err := parseConfig(data)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%s: %w", abs, err)
+		return nil, fmt.Errorf("%s: %w", abs, err)
 	}
 	if loadParseHook != nil {
 		loadParseHook(abs)
 	}
-	blobs := [][]byte{data}
 	if len(cfg.Include) == 0 {
-		cache[abs] = &resolvedInclude{cfg: cfg, blobs: blobs}
-		return cfg, blobs, nil
+		cache[abs] = cfg
+		return cfg, nil
 	}
 
 	// Index the parent's own cities once so mergeIncludedCities can look up a
@@ -205,27 +195,23 @@ func loadResolved(abs string, ancestors map[string]bool, depth int, cache map[st
 
 	dir := filepath.Dir(abs)
 	for i, inc := range cfg.Include {
-		childBlobs, err := resolveOneInclude(cfg, inc, i, dir, ancestors, depth, cache, ms)
-		if err != nil {
-			return nil, nil, err
+		if err := resolveOneInclude(cfg, inc, i, dir, ancestors, depth, cache, ms); err != nil {
+			return nil, err
 		}
-		blobs = append(blobs, childBlobs...)
 	}
-	cache[abs] = &resolvedInclude{cfg: cfg, blobs: blobs}
-	return cfg, blobs, nil
+	cache[abs] = cfg
+	return cfg, nil
 }
 
 // resolveOneInclude resolves a single [[include]] entry of parent: it validates
 // and absolutizes the path, recursively loads the included config, and merges
-// its cities into parent (updating ms). It returns the included file's
-// transitive blob list so the caller can fold it into the content hash.
-// Split out of loadResolved to keep that function's cognitive complexity in
-// bounds.
+// its cities into parent (updating ms). Split out of loadResolved to keep that
+// function's cognitive complexity in bounds.
 func resolveOneInclude(parent *Config, inc IncludeSpec, i int, dir string,
-	ancestors map[string]bool, depth int, cache map[string]*resolvedInclude,
-	ms *mergeState) ([][]byte, error) {
+	ancestors map[string]bool, depth int, cache map[string]*Config,
+	ms *mergeState) error {
 	if inc.Path == "" {
-		return nil, errors.Join(ErrInvalidConfig,
+		return errors.Join(ErrInvalidConfig,
 			fmt.Errorf("include[%d].path is required", i))
 	}
 	incAbs := inc.Path
@@ -234,45 +220,50 @@ func resolveOneInclude(parent *Config, inc IncludeSpec, i int, dir string,
 	}
 	incAbs, err := filepath.Abs(incAbs)
 	if err != nil {
-		return nil, fmt.Errorf("resolve include %q: %w", inc.Path, err)
+		return fmt.Errorf("resolve include %q: %w", inc.Path, err)
 	}
-	child, childBlobs, err := loadResolved(incAbs, ancestors, depth+1, cache, ms.warn)
+	child, err := loadResolved(incAbs, ancestors, depth+1, cache, ms.warn)
 	if err != nil {
-		return nil, fmt.Errorf("include %q: %w", inc.Path, err)
+		return fmt.Errorf("include %q: %w", inc.Path, err)
 	}
-	if err := mergeIncludedCities(parent, child, inc.Tags, incAbs, childBlobs, ms); err != nil {
-		return nil, fmt.Errorf("include %q: %w", inc.Path, err)
+	if err := mergeIncludedCities(parent, child, inc.Tags, incAbs, ms); err != nil {
+		return fmt.Errorf("include %q: %w", inc.Path, err)
 	}
-	return childBlobs, nil
+	return nil
 }
 
-// sourceIdentity is the (config id, content hash) pair a config's own cities
-// are stored under, derived for an INCLUDED file. Both have to reproduce what
-// Load would compute for that file if you ran pvmt from its directory —
-// otherwise the union reads a different namespace, or worse, a real-but-stale
-// snapshot.
+// sourceConfigID is the ConfigID a config's own cities are stored under,
+// derived for an INCLUDED file. It has to reproduce what Load would compute for
+// that file if you ran pvmt from its directory — otherwise the union reads a
+// different cities row. It cannot be read off child.ConfigID: the
+// absolute-path fallback lives in Load, which an included file never goes
+// through, so child.ConfigID is "" for any file that omits config_id. Left
+// unhandled, CityConfigID falls back to the parent's id and the whole feature
+// silently no-ops for exactly those users.
 //
-// Neither can be read off the child *Config:
-//
-//   - ConfigID's absolute-path fallback lives in Load, which an included file
-//     never goes through, so child.ConfigID is "" for any file that omits
-//     config_id. Left unhandled, CityConfigID falls back to the parent's id and
-//     the whole feature silently no-ops for exactly those users.
-//
-//   - child.Hash() is worse than useless. Load sets contentHash = hashBlobs
-//     (length-prefixed, covering transitive includes); an included file only
-//     passes through parseConfig, which sets contentHash = hashBytes over its
-//     own bytes. Those differ by construction (TestInclude_NoIncludeHashUnchanged
-//     pins it), and both generations exist in real databases — so the bare-bytes
-//     hash does not fail to match, it matches an OLDER snapshot. That fails by
-//     producing a plausible site from stale data, which is the worst way to
-//     fail. Recompute from childBlobs, which is what Load hashes.
-func sourceIdentity(child *Config, incAbs string, childBlobs [][]byte) (configID, contentHash string) {
-	configID = child.ConfigID
-	if configID == "" {
-		configID = hashBytes([]byte(incAbs))
+// The other half of the identity, the snapshot hash, is per city and needs no
+// such reconstruction: child.CityHash(&city) is by construction what the
+// source's own commands commit under (see stampSource).
+func sourceConfigID(child *Config, incAbs string) string {
+	if child.ConfigID != "" {
+		return child.ConfigID
 	}
-	return configID, hashBlobs(childBlobs)
+	return hashBytes([]byte(incAbs))
+}
+
+// stampSource records on dst that its data lives under child's resolution of
+// src: child's cities row, child's CityHash, and child's data inputs for the
+// city (which CityHash compares against to decide whether the stamp still
+// holds). A src that child itself pulled in through [[include]] arrives
+// already stamped with the file that declared it; that stamp is kept, so a
+// nested city never gets relabelled as the middle file's.
+func stampSource(dst *CityConfig, child *Config, src *CityConfig, configID string) {
+	if src.SourceConfigID != "" {
+		dst.SourceConfigID, dst.SourceConfigHash, dst.sourceData = src.SourceConfigID, src.SourceConfigHash, src.sourceData
+		return
+	}
+	d := child.cityDataInputs(src)
+	dst.SourceConfigID, dst.SourceConfigHash, dst.sourceData = configID, child.CityHash(src), &d
 }
 
 // mergeIncludedCities folds child's cities into parent, tagging each with
@@ -310,8 +301,8 @@ func sourceIdentity(child *Config, incAbs string, childBlobs [][]byte) (configID
 // why the merge records that rather than the path as spelled at the include
 // site.
 func mergeIncludedCities(parent, child *Config, includeTags []string, incAbs string,
-	childBlobs [][]byte, ms *mergeState) error {
-	srcConfigID, srcHash := sourceIdentity(child, incAbs, childBlobs)
+	ms *mergeState) error {
+	srcConfigID := sourceConfigID(child, incAbs)
 	for i := range child.Cities {
 		src := child.Cities[i]
 		slug := src.Slug()
@@ -325,8 +316,8 @@ func mergeIncludedCities(parent, child *Config, includeTags []string, incAbs str
 			}
 			if winner, viaInclude := ms.fromInclude[slug]; viaInclude {
 				mergeExistingCity(existing, child, &src, ms, mergeIdentity{
-					configID: srcConfigID, hash: srcHash,
-					winner: winner, loser: incAbs, slug: slug,
+					configID: srcConfigID,
+					winner:   winner, loser: incAbs, slug: slug,
 				})
 			}
 			existing.Tags = unionTags(existing.Tags, includeTags, src.Tags)
@@ -338,24 +329,9 @@ func mergeIncludedCities(parent, child *Config, includeTags []string, incAbs str
 		merged.HexEdgeM = child.effectiveHexEdge(&src)
 		merged.MinHexArea = child.effectiveMinHexArea(&src)
 		merged.Forecast = child.effectiveForecast(&src)
-		// Stamp source identity, but only where it is not already set. `merged`
-		// is a wholesale copy of src, so a city that reached child through
-		// child's OWN includes arrives already stamped with the file that
-		// declared it — overwriting here would relabel a grandchild's city as
-		// belonging to the middle file, and it would do so silently.
-		if merged.SourceConfigID == "" {
-			merged.SourceConfigID = srcConfigID
-		}
-		if merged.SourceConfigHash == "" {
-			merged.SourceConfigHash = srcHash
-		}
-		if merged.SourceHexEdgeM == 0 {
-			// The fully RESOLVED edge (including the package default), not the
-			// flattened file-layer value above: it is compared against the
-			// union's own ResolvedHexEdge, and both sides have to have been
-			// through the same defaulting for that comparison to mean anything.
-			merged.SourceHexEdgeM = child.ResolvedHexEdge(&src)
-		}
+		// Stamp source identity from child's view of src, unless src already
+		// carries the identity of the file that declared it (see stampSource).
+		stampSource(&merged, child, &src, srcConfigID)
 		parent.Cities = append(parent.Cities, merged)
 		ms.byslug[slug] = len(parent.Cities) - 1
 		ms.fromInclude[slug] = incAbs
@@ -368,7 +344,6 @@ func mergeIncludedCities(parent, child *Config, includeTags []string, incAbs str
 // the two include paths a warning names.
 type mergeIdentity struct {
 	configID string
-	hash     string
 	winner   string
 	loser    string
 	slug     string
@@ -380,33 +355,24 @@ func mergeExistingCity(existing *CityConfig, child *Config, src *CityConfig,
 	ms *mergeState, id mergeIdentity) {
 	fields, gridAdopted := unionCalibration(existing, child, src)
 	if gridAdopted {
-		// The include that supplies the grid owns the data — see unionGrid. The
-		// resolved edge moves unconditionally: the whole point is to take it off
-		// the first include, which has already stamped one.
+		// The include that supplies the grid owns the data — see unionGrid — so
+		// the identity moves to src's config.
 		//
-		// The identity PAIR is different, and prefers src's own. src is a
-		// wholesale copy, so a city that reached child through child's OWN
-		// includes arrives already stamped with the file that declared it;
-		// overwriting with id (the file we are folding in) would relabel a
-		// grandchild's city as belonging to the middle file. That is exactly the
-		// relabel the append path above guards against with its
-		// `if merged.SourceConfigID == ""` test, and dropping the guard here made
-		// Config.CityConfigID key EnsureCity on the wrong ID — a brand-new empty
-		// cities row — while Config.CityHash pinned every compute/serve/export
-		// lookup to a merged-blob hash no compute run ever wrote, so the city
-		// came out blank or died on ErrNoMatchingSnapshot.
+		// stampSource prefers src's own stamp. src is a wholesale copy, so a city
+		// that reached child through child's OWN includes arrives already stamped
+		// with the file that declared it; overwriting with id (the file we are
+		// folding in) would relabel a grandchild's city as belonging to the
+		// middle file. Doing that made Config.CityConfigID key EnsureCity on the
+		// wrong ID — a brand-new empty cities row — while Config.CityHash pinned
+		// every lookup to a hash no compute run ever wrote, so the city came out
+		// blank or died on ErrNoMatchingSnapshot.
 		//
 		// ms.fromInclude is deliberately NOT moved with any of it. That map names
 		// the include a warning reports as the winner, and the winner is
 		// declaration order and nothing else — see
 		// TestInclude_WinnerIsDeclarationOrderNotFileContent. Which file happens
 		// to state a grid is file content.
-		existing.SourceHexEdgeM = child.ResolvedHexEdge(src)
-		if src.SourceConfigID != "" {
-			existing.SourceConfigID, existing.SourceConfigHash = src.SourceConfigID, src.SourceConfigHash
-		} else {
-			existing.SourceConfigID, existing.SourceConfigHash = id.configID, id.hash
-		}
+		stampSource(existing, child, src, id.configID)
 	}
 	if len(fields) > 0 {
 		ms.warn.add(calibrationWarning{
@@ -459,21 +425,21 @@ func unionCalibration(existing *CityConfig, child *Config, src *CityConfig) (con
 // coupled: min_hex_area is a sliver threshold sized for a particular edge. A
 // 60 m flat-top hex is ~9353 sq m, so a 60 m grid wearing a 20000 sq m
 // threshold from a different include makes filterHexSlivers drop EVERY hex.
-// That failure is silent in both directions — RequireMatchingHexEdge compares
-// only the edge and passes, and the result is a SUCCESSFUL export of an empty
-// map. Unioning the two fields independently, as the old per-field code did,
+// That failure is silent in both directions — the snapshot hash covers the edge
+// but not the export-time threshold, so it passes, and the result is a
+// SUCCESSFUL export of an empty map. Unioning the two fields independently, as the old per-field code did,
 // reintroduces through the include path exactly what the display.min_hex_area
 // gate in validateGrid was written to prevent.
 //
-// Adopting the pair also moves SourceHexEdgeM/SourceConfigID/SourceConfigHash
-// onto src's config — that is the caller's job, signalled by the return, and it
-// is not optional. Hex ids come from the grid and hex_stats join BY id, so the
-// include that supplies the edge has to be the include whose stored data is
-// read; the alternative is a city that resolves one edge and reads another
-// one's rows. mergeIncludedCities stamps identity only from the FIRST include,
-// so before this a backfilled edge left the two disagreeing and
-// RequireMatchingHexEdge aborted the city on export and 409'd on serve, with no
-// fix available from the union file.
+// Adopting the pair also moves the source identity (SourceConfigID,
+// SourceConfigHash and the stamped data inputs) onto src's config — that is the
+// caller's job, signalled by the return, and it is not optional. Hex ids come
+// from the grid and hex_stats join BY id, so the include that supplies the edge
+// has to be the include whose stored data is read. mergeIncludedCities stamps
+// identity only from the FIRST include, so without the move a backfilled edge
+// would leave the city resolving one edge while stamped with a config that
+// computed at another; CityHash would then (correctly) refuse the stamp and the
+// city would read nothing, with no fix available from the union file.
 //
 // The consequence is that a partial statement of the grid is no longer
 // backfilled: once existing has named either field, only agreeing values are

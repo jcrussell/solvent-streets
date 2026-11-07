@@ -21,13 +21,13 @@ import (
 
 // exportTestEntry builds a CityEntry whose store satisfies the exporter's
 // preconditions: a boundary (so BBoxAndCenter/Info succeed) and a snapshot
-// whose config hash matches cfg.Hash() (so RequireMatchingSnapshot passes).
+// whose config hash matches the city's CityHash (so RequireMatchingSnapshot passes).
 // Compute results drive the per-resource stats / forecast totals.
 func exportTestEntry(cfg *config.Config, name, slug, boundary string, results map[resource.Type]db.ComputeResult) CityEntry {
 	store := &dbtest.MockStore{
 		GetBoundaryFunc: func(context.Context) (string, error) { return boundary, nil },
 		ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
-			return []db.Snapshot{{ID: 1, ConfigHash: cfg.Hash(), Parts: paved}}, nil
+			return []db.Snapshot{{ID: 1, ConfigHash: cfg.CityHash(&config.CityConfig{Name: name}), Parts: paved}}, nil
 		},
 		LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
 			if r, ok := results[rt]; ok {
