@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -142,7 +143,7 @@ func TestRun_FailingGateExitsSilentlyNonZero(t *testing.T) {
 // pipes cleanly into jq.
 func TestRun_JSONIsCleanOnStdout(t *testing.T) {
 	ios, _, out, _ := iostreams.Test()
-	if err := Run(context.Background(), &Options{IO: ios, Tolerance: DefaultTolerance, JSON: true}); err != nil {
+	if err := Run(context.Background(), &Options{IO: ios, Tolerance: DefaultTolerance, JSON: &cmdutil.DocumentExporter{}}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	var report Report
@@ -182,7 +183,7 @@ func TestNewCmdValidate_RunFOverride(t *testing.T) {
 	if got == nil {
 		t.Fatal("runF was not called")
 	}
-	if got.Tolerance != 0.5 || !got.JSON {
+	if got.Tolerance != 0.5 || got.JSON == nil {
 		t.Errorf("flags not parsed into Options: %+v", got)
 	}
 }
@@ -196,4 +197,22 @@ func findCity(t *testing.T, r Report, slug string) Result {
 	}
 	t.Fatalf("city %q not in the report", slug)
 	return Result{}
+}
+
+// --jq filters the whole report, so a CI step can pull one number out.
+func TestNewCmdValidate_JQOverTheReport(t *testing.T) {
+	report, err := Evaluate(DefaultTolerance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ios, _, out, _ := iostreams.Test()
+	cmd := NewCmdValidate(&cmdutil.Factory{IOStreams: ios}, nil)
+	cmd.SetArgs([]string{"--json", "--jq", ".results | length"})
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	if err := cmd.Execute(); err != nil && !errors.Is(err, cmdutil.ErrSilent) {
+		t.Fatalf("Execute: %v", err)
+	}
+	if got, want := strings.TrimSpace(out.String()), strconv.Itoa(len(report.Results)); got != want {
+		t.Errorf("--jq '.results | length' printed %q, want %q", got, want)
+	}
 }

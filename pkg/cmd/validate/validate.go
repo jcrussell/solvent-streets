@@ -111,7 +111,9 @@ const DefaultTolerance = 0.25
 type Options struct {
 	IO        *iostreams.IOStreams
 	Tolerance float64
-	JSON      bool
+	// JSON is set by --json (nil otherwise) and applies --jq / --template to
+	// the report.
+	JSON *cmdutil.DocumentExporter
 }
 
 func NewCmdValidate(f *cmdutil.Factory, runF func(context.Context, *Options) error) *cobra.Command {
@@ -137,6 +139,9 @@ on Berkeley alone.`,
   # Machine-readable, for a CI step or a dashboard
   pvmt validate --json
 
+  # Only the failing cities
+  pvmt validate --json --jq '.results[] | select(.status == "fail")'
+
   # Tighten the band
   pvmt validate --tolerance 0.1`,
 		Args: cobra.NoArgs,
@@ -153,7 +158,7 @@ on Berkeley alone.`,
 
 	cmd.Flags().Float64Var(&opts.Tolerance, "tolerance", DefaultTolerance,
 		"Maximum absolute residual before a city fails (0.25 = ±25%)")
-	cmd.Flags().BoolVar(&opts.JSON, "json", false, "Emit the report as JSON instead of a table")
+	cmdutil.AddDocumentJSONFlags(cmd, &opts.JSON, "Emit the report as JSON instead of a table")
 
 	return cmd
 }
@@ -172,11 +177,9 @@ func Run(_ context.Context, opts *Options) error {
 		return err
 	}
 
-	if opts.JSON {
-		enc := json.NewEncoder(opts.IO.Out)
-		enc.SetIndent("", "  ")
-		if err := enc.Encode(report); err != nil {
-			return fmt.Errorf("encode report: %w", err)
+	if opts.JSON != nil {
+		if err := opts.JSON.Write(opts.IO, report); err != nil {
+			return fmt.Errorf("write report: %w", err)
 		}
 	} else {
 		writeTable(opts.IO, report)

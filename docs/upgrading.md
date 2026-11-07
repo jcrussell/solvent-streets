@@ -42,7 +42,7 @@ Every JSON document pvmt emits (`--json` output, the `pvmt serve` API, the expor
 - the two scopes are `"city"` (city-maintained) and `"all"` (every jurisdiction);
 - a value that does not apply is omitted, not written as `null` or `0`.
 
-`--jq` and `--template` see the same keys `--json` prints.
+`--jq` and `--template` see the same keys `--json` prints. `pvmt export --json` and `pvmt validate --json` stay bare flags (each prints one document) and now accept `--jq` and `--template` too.
 
 Only names that existed in v0.4.x are listed. Fields of the commands and files that are new in v0.5.0 (`pvmt census`, `pvmt services`, `hex-metrics.json`) have no older name.
 

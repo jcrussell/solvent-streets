@@ -96,28 +96,116 @@ func buildExporter(jsonFields, jqExpr, tmplStr string, validFields []string, out
 		}
 	}
 	base := baseExporter{fields: fields}
+	query, tmpl, err := parseFilters(jqExpr, tmplStr)
+	if err != nil {
+		return err
+	}
 	switch {
-	case jqExpr != "":
-		// Parse the jq expression at build time (PreRunE) so a syntax
-		// error surfaces as a FlagError (exit 2) before the command body
-		// runs, rather than after the full compute inside Write (exit 1).
-		query, err := gojq.Parse(jqExpr)
-		if err != nil {
-			return FlagErrorf("invalid jq expression: %w", err)
-		}
+	case query != nil:
 		*out = &jqFilterExporter{baseExporter: base, query: query}
-	case tmplStr != "":
-		// Parse the template at build time for the same reason; Write
-		// reuses the precompiled *template.Template.
-		tmpl, err := template.New("").Parse(tmplStr)
-		if err != nil {
-			return FlagErrorf("invalid template: %w", err)
-		}
+	case tmpl != nil:
 		*out = &templateExporter{baseExporter: base, tmpl: tmpl}
 	default:
 		*out = &jsonExporter{baseExporter: base}
 	}
 	return nil
+}
+
+// parseFilters compiles the --jq expression or --template text, whichever is
+// set. It runs at build time (PreRunE) so a syntax error surfaces as a
+// FlagError (exit 2) before the command body runs, rather than after the
+// full compute inside Write (exit 1).
+func parseFilters(jqExpr, tmplStr string) (*gojq.Query, *template.Template, error) {
+	if jqExpr != "" {
+		query, err := gojq.Parse(jqExpr)
+		if err != nil {
+			return nil, nil, FlagErrorf("invalid jq expression: %w", err)
+		}
+		return query, nil, nil
+	}
+	if tmplStr != "" {
+		tmpl, err := template.New("").Parse(tmplStr)
+		if err != nil {
+			return nil, nil, FlagErrorf("invalid template: %w", err)
+		}
+		return nil, tmpl, nil
+	}
+	return nil, nil, nil
+}
+
+// DocumentExporter writes a command's single JSON document (a manifest or a
+// report, not a list of rows), applying --jq or --template to the whole
+// document. Commands get one from AddDocumentJSONFlags; it is nil when
+// --json was not given.
+type DocumentExporter struct {
+	query *gojq.Query
+	tmpl  *template.Template
+}
+
+// AddDocumentJSONFlags adds a boolean --json (described by usage) plus --jq
+// and --template to a command whose JSON output is one document rather than
+// rows, so it takes no field list. When --json is set, PreRunE stores a
+// DocumentExporter in *exporter; --jq and --template require --json.
+func AddDocumentJSONFlags(cmd *cobra.Command, exporter **DocumentExporter, usage string) {
+	var asJSON bool
+	var jqExpr string
+	var tmplStr string
+
+	cmd.Flags().BoolVar(&asJSON, "json", false, usage)
+	cmd.Flags().StringVar(&jqExpr, "jq", "", "Filter JSON output using a jq expression (requires --json)")
+	cmd.Flags().StringVar(&tmplStr, "template", "", "Format JSON output using a Go template (requires --json)")
+	cmd.MarkFlagsMutuallyExclusive("jq", "template")
+
+	oldPreRun := cmd.PreRunE
+	cmd.PreRunE = func(cmd *cobra.Command, args []string) error {
+		if oldPreRun != nil {
+			if err := oldPreRun(cmd, args); err != nil {
+				return err
+			}
+		}
+		if jqExpr != "" && !asJSON {
+			return FlagErrorf("--jq requires --json")
+		}
+		if tmplStr != "" && !asJSON {
+			return FlagErrorf("--template requires --json")
+		}
+		if !asJSON {
+			*exporter = nil
+			return nil
+		}
+		query, tmpl, err := parseFilters(jqExpr, tmplStr)
+		if err != nil {
+			return err
+		}
+		*exporter = &DocumentExporter{query: query, tmpl: tmpl}
+		return nil
+	}
+}
+
+// Write prints doc as indented JSON, or each jq result, or the template
+// executed once over the whole document. --jq and --template see exactly
+// what --json prints (see normalizeRows).
+func (e *DocumentExporter) Write(ios *iostreams.IOStreams, doc any) error {
+	if e.query == nil && e.tmpl == nil {
+		out, err := json.MarshalIndent(doc, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshal JSON: %w", err)
+		}
+		_, err = fmt.Fprintln(ios.Out, string(out))
+		return err
+	}
+	generic, err := normalizeJSON[any](doc)
+	if err != nil {
+		return err
+	}
+	if e.tmpl != nil {
+		if err := e.tmpl.Execute(ios.Out, generic); err != nil {
+			return fmt.Errorf("template error: %w", err)
+		}
+		_, err := fmt.Fprintln(ios.Out)
+		return err
+	}
+	return writeJQ(ios, e.query, generic)
 }
 
 // baseExporter holds the shared fields slice for all exporter types.
@@ -161,8 +249,12 @@ func (e *jqFilterExporter) Write(ios *iostreams.IOStreams, rows []map[string]any
 	if err != nil {
 		return err
 	}
+	return writeJQ(ios, e.query, generic)
+}
 
-	iter := e.query.Run(generic)
+// writeJQ runs query over input and prints each result as indented JSON.
+func writeJQ(ios *iostreams.IOStreams, query *gojq.Query, input any) error {
+	iter := query.Run(input)
 	for {
 		v, ok := iter.Next()
 		if !ok {
@@ -209,15 +301,21 @@ func (e *templateExporter) Write(ios *iostreams.IOStreams, rows []map[string]any
 // their JSON spelling, so 1500000 does not render as 1.5e+06). The result
 // is a []any of map[string]any, the shapes gojq evaluates.
 func normalizeRows(rows []map[string]any) ([]any, error) {
-	raw, err := json.Marshal(rows)
+	return normalizeJSON[[]any](rows)
+}
+
+// normalizeJSON round-trips v through encoding/json into T (see
+// normalizeRows for why).
+func normalizeJSON[T any](v any) (T, error) {
+	var out T
+	raw, err := json.Marshal(v)
 	if err != nil {
-		return nil, fmt.Errorf("marshal JSON: %w", err)
+		return out, fmt.Errorf("marshal JSON: %w", err)
 	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
-	var out []any
 	if err := dec.Decode(&out); err != nil {
-		return nil, fmt.Errorf("normalize JSON: %w", err)
+		return out, fmt.Errorf("normalize JSON: %w", err)
 	}
 	return out, nil
 }

@@ -2,7 +2,6 @@ package export
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -28,7 +27,9 @@ type Options struct {
 	Cities    func() ([]config.CityConfig, error)
 	OutputDir string
 	Clean     bool
-	JSON      bool
+	// JSON is set by --json (nil otherwise) and applies --jq / --template to
+	// the manifest.
+	JSON *cmdutil.DocumentExporter
 	// Assets loads the site-root browser files. NewCmd sets
 	// exportpkg.EmbeddedAssets, which fails with ErrNoWasm on a `go install`
 	// build; tests pass fakes.
@@ -55,7 +56,10 @@ func NewCmdExport(f *cmdutil.Factory, runF func(context.Context, *Options) error
   pvmt export --output build --clean
 
   # Emit a machine-readable manifest of files written (stdout)
-  pvmt export --json`,
+  pvmt export --json
+
+  # Just the number of files written
+  pvmt export --json --jq .file_count`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
 				return runF(cmd.Context(), opts)
@@ -66,7 +70,7 @@ func NewCmdExport(f *cmdutil.Factory, runF func(context.Context, *Options) error
 
 	cmd.Flags().StringVarP(&opts.OutputDir, "output", "o", "dist", "Output directory")
 	cmd.Flags().BoolVar(&opts.Clean, "clean", false, "Remove output directory before exporting")
-	cmd.Flags().BoolVar(&opts.JSON, "json", false, "Emit a JSON manifest of written files to stdout instead of human chatter")
+	cmdutil.AddDocumentJSONFlags(cmd, &opts.JSON, "Emit a JSON manifest of written files to stdout instead of human chatter")
 
 	return cmd
 }
@@ -141,17 +145,12 @@ func runExport(ctx context.Context, opts *Options) error {
 
 	logs.From(ctx).Info("export complete", "output_dir", opts.OutputDir)
 
-	if opts.JSON {
+	if opts.JSON != nil {
 		manifest, err := buildManifest(opts.OutputDir, entries)
 		if err != nil {
 			return fmt.Errorf("manifest: %w", err)
 		}
-		out, err := json.MarshalIndent(manifest, "", "  ")
-		if err != nil {
-			return fmt.Errorf("marshal manifest: %w", err)
-		}
-		fmt.Fprintln(ios.Out, string(out))
-		return nil
+		return opts.JSON.Write(ios, manifest)
 	}
 
 	// The "serve locally" hint is chatter, not data: route to ErrOut so

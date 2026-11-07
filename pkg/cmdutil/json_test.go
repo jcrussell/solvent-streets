@@ -300,3 +300,103 @@ func TestWriteRows(t *testing.T) {
 		t.Errorf("count was not requested but appeared in output: %q", got)
 	}
 }
+
+// docCmd runs a command carrying AddDocumentJSONFlags with args and returns
+// what --json / --jq / --template printed for doc.
+func docCmd(t *testing.T, doc any, args ...string) (string, error) {
+	t.Helper()
+	ios, _, out, _ := iostreams.Test()
+	var exp *DocumentExporter
+	cmd := &cobra.Command{
+		Use: "doc",
+		RunE: func(*cobra.Command, []string) error {
+			if exp == nil {
+				_, err := out.WriteString("table\n")
+				return err
+			}
+			return exp.Write(ios, doc)
+		},
+	}
+	AddDocumentJSONFlags(cmd, &exp, "Emit the document as JSON")
+	cmd.SetArgs(args)
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	err := cmd.Execute()
+	return out.String(), err
+}
+
+type fakeDoc struct {
+	FileCount int        `json:"file_count"`
+	Cities    []fakeCity `json:"cities"`
+}
+
+type fakeCity struct {
+	Slug  string `json:"slug"`
+	Bytes int    `json:"bytes"`
+}
+
+var testDoc = fakeDoc{FileCount: 3, Cities: []fakeCity{{"a", 1500000}, {"b", 2}}}
+
+// A one-document command's --json prints the document itself (not a row
+// array), and --jq / --template see that whole document.
+func TestDocumentExporter_FiltersTheWholeDocument(t *testing.T) {
+	t.Run("--json prints the document", func(t *testing.T) {
+		got, err := docCmd(t, testDoc, "--json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var back fakeDoc
+		if err := json.Unmarshal([]byte(got), &back); err != nil {
+			t.Fatalf("not one JSON document (%v):\n%s", err, got)
+		}
+		if back.FileCount != 3 || len(back.Cities) != 2 {
+			t.Errorf("round-tripped %+v, want %+v", back, testDoc)
+		}
+	})
+	t.Run("--jq runs over the document", func(t *testing.T) {
+		got, err := docCmd(t, testDoc, "--json", "--jq", ".cities[] | .slug")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != "\"a\"\n\"b\"\n" {
+			t.Errorf("got %q, want each slug on its own line", got)
+		}
+	})
+	t.Run("--template runs once over the document", func(t *testing.T) {
+		got, err := docCmd(t, testDoc, "--json", "--template", "{{.file_count}}:{{range .cities}} {{.bytes}}{{end}}")
+		if err != nil {
+			t.Fatal(err)
+		}
+		// json.Number keeps 1500000 from rendering as 1.5e+06.
+		if got != "3: 1500000 2\n" {
+			t.Errorf("got %q, want %q", got, "3: 1500000 2\n")
+		}
+	})
+	t.Run("no --json leaves the exporter nil", func(t *testing.T) {
+		got, err := docCmd(t, testDoc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != "table\n" {
+			t.Errorf("got %q, want the non-JSON path", got)
+		}
+	})
+}
+
+// Misuse fails as a FlagError (exit 2) before the command body runs.
+func TestAddDocumentJSONFlags_RejectsMisuseEarly(t *testing.T) {
+	for _, args := range [][]string{
+		{"--jq", ".file_count"},
+		{"--template", "{{.file_count}}"},
+		{"--json", "--jq", ".["},
+		{"--json", "--template", "{{"},
+	} {
+		got, err := docCmd(t, testDoc, args...)
+		var fe *FlagError
+		if !errors.As(err, &fe) {
+			t.Errorf("%v: err = %v, want a FlagError", args, err)
+		}
+		if got != "" {
+			t.Errorf("%v: command body ran and printed %q", args, got)
+		}
+	}
+}

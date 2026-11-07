@@ -177,8 +177,8 @@ func TestNewCmdExport_JSONFlag(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !gotOpts.JSON {
-		t.Errorf("expected --json to be true, got false")
+	if gotOpts.JSON == nil {
+		t.Errorf("--json did not set an exporter")
 	}
 }
 
@@ -342,5 +342,24 @@ func TestBuildManifest_UnknownCityDirFallsThrough(t *testing.T) {
 	wantShared := []string{"cities/leftover/data/old.json"}
 	if !reflect.DeepEqual(m.Shared, wantShared) {
 		t.Errorf("Shared = %v, want %v", m.Shared, wantShared)
+	}
+}
+
+// --jq / --template without --json is a FlagError before any export work.
+func TestNewCmdExport_FilterRequiresJSON(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	ran := false
+	cmd := NewCmdExport(&cmdutil.Factory{IOStreams: ios}, func(context.Context, *Options) error {
+		ran = true
+		return nil
+	})
+	cmd.SetArgs([]string{"--jq", ".file_count"})
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	var fe *cmdutil.FlagError
+	if err := cmd.Execute(); !errors.As(err, &fe) {
+		t.Errorf("err = %v, want a FlagError", err)
+	}
+	if ran {
+		t.Error("export ran despite the flag error")
 	}
 }
