@@ -84,7 +84,7 @@ func TestBuildHexMetrics(t *testing.T) {
 		t.Errorf("metric description = %+v (bands must start at the default turnout+threshold 320)", m)
 	}
 	// A [[services]] override moves the published bands and threshold with it.
-	entry.Config.Services = []config.ServiceOverride{{Name: "fire", TurnoutS: 200}}
+	entry.Config.Services = []config.ServiceOverride{{Name: "fire", TurnoutS: new(200.0)}}
 	hm2, err := BuildHexMetrics(context.Background(), entry)
 	if err != nil {
 		t.Fatal(err)

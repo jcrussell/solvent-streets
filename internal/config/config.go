@@ -126,8 +126,10 @@ type Config struct {
 	Include []IncludeSpec `toml:"include,omitempty"`
 
 	// Services overrides the per-service coverage parameters
-	// (internal/services.Registry) by name. Only the fields set are applied;
-	// an unknown name is rejected when the services command merges them.
+	// (internal/services.Registry) by name. Only the fields set are applied.
+	// Whether each name is a registered service is checked where a command
+	// loads the config (the factory), since this package does not import the
+	// registry.
 	// An array of tables (not a map) so Config.Hash()'s struct-encoding
 	// fallback keeps its "no map fields" ordering guarantee.
 	Services []ServiceOverride `toml:"services,omitempty"`
@@ -511,15 +513,18 @@ type CityConfig struct {
 	SourceHexEdgeM float64 `toml:"-"`
 }
 
-// ServiceOverride adjusts one service's coverage parameters. Zero means
-// "keep the registry default" for both numeric fields.
+// ServiceOverride adjusts one service's coverage parameters. A nil numeric
+// field keeps the registry default; a set one replaces it, 0 included
+// (turnout_s = 0 times travel alone). Pointers rather than zero-as-unset
+// because 0 is a value a user can mean, and because BurntSushi's MetaData
+// cannot address one element of a [[services]] array to tell absent from 0.
 type ServiceOverride struct {
 	// Name is the service key ("fire").
 	Name string `toml:"name"`
 	// TurnoutS is the fixed overhead in seconds added to every travel time.
-	TurnoutS float64 `toml:"turnout_s,omitempty"`
+	TurnoutS *float64 `toml:"turnout_s,omitempty"`
 	// TravelThresholdS is the travel time within which a hex counts as covered.
-	TravelThresholdS float64 `toml:"travel_threshold_s,omitempty"`
+	TravelThresholdS *float64 `toml:"travel_threshold_s,omitempty"`
 }
 
 // FacilityConfig is one hand-placed facility (see CityConfig.Facilities).
@@ -972,9 +977,9 @@ func (c *Config) validate(requireCities bool) error {
 }
 
 // validateServices checks the shape of [[services]] overrides: a name, and
-// non-negative finite numbers. Whether the name is a known service is decided
-// where the overrides are applied (pkg/cmd/services), since internal/config
-// does not import the registry.
+// non-negative finite numbers. Whether the name is a registered service is
+// checked when a command loads the config (services.ValidateConfig, called
+// by the factory), since internal/config does not import the registry.
 func (c *Config) validateServices() error {
 	seen := make(map[string]bool)
 	for i, s := range c.Services {
@@ -985,11 +990,11 @@ func (c *Config) validateServices() error {
 			return errors.Join(ErrInvalidConfig, fmt.Errorf("services[%d]: duplicate service %q", i, s.Name))
 		}
 		seen[s.Name] = true
-		if nonFinite(s.TurnoutS) || s.TurnoutS < 0 {
-			return errors.Join(ErrInvalidConfig, fmt.Errorf("services[%d] (%s): turnout_s %g must be a non-negative finite number", i, s.Name, s.TurnoutS))
+		if v := s.TurnoutS; v != nil && (nonFinite(*v) || *v < 0) {
+			return errors.Join(ErrInvalidConfig, fmt.Errorf("services[%d] (%s): turnout_s %g must be a non-negative finite number", i, s.Name, *v))
 		}
-		if nonFinite(s.TravelThresholdS) || s.TravelThresholdS < 0 {
-			return errors.Join(ErrInvalidConfig, fmt.Errorf("services[%d] (%s): travel_threshold_s %g must be a non-negative finite number", i, s.Name, s.TravelThresholdS))
+		if v := s.TravelThresholdS; v != nil && (nonFinite(*v) || *v < 0) {
+			return errors.Join(ErrInvalidConfig, fmt.Errorf("services[%d] (%s): travel_threshold_s %g must be a non-negative finite number", i, s.Name, *v))
 		}
 	}
 	return nil
@@ -998,6 +1003,8 @@ func (c *Config) validateServices() error {
 // validateFacilities checks one city's hand-placed facilities: a service
 // name and a lat/lon inside the WGS84 range. A facility outside the city is
 // legal (a station just over the line still serves the edge of town).
+// Whether the service is registered is checked when a command loads the
+// config (services.ValidateConfig), as for [[services]] names.
 func validateFacilities(i int, city CityConfig) error {
 	for j, f := range city.Facilities {
 		if strings.TrimSpace(f.Service) == "" {

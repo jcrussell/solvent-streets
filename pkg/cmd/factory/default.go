@@ -20,6 +20,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/internal/ingest"
 	"github.com/jcrussell/solvent-streets/internal/paths"
+	"github.com/jcrussell/solvent-streets/internal/services"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/prompt"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
@@ -195,12 +196,22 @@ func warnAfterLoad(ios *iostreams.IOStreams, load func() (*config.Config, error)
 	}
 }
 
+// loadConfigFromCwd finds and loads pvmt.toml from the working directory,
+// then checks the service names it uses against the services registry
+// (services.ValidateConfig), which internal/config cannot import. Both
+// failures surface through hintForConfigError, so a typo'd service fails
+// every command that reads the config with the invalid-config exit code.
 func loadConfigFromCwd() (*config.Config, error) {
 	wd, err := os.Getwd()
 	if err != nil {
 		return nil, err
 	}
 	cfg, err := config.FindAndLoad(wd)
+	if err == nil {
+		if err = services.ValidateConfig(cfg); err != nil {
+			cfg = nil
+		}
+	}
 	return cfg, hintForConfigError(err)
 }
 

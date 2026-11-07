@@ -236,11 +236,6 @@ func loadInputs(ctx context.Context, errOut io.Writer, opts *Options) (*inputs, 
 	if err != nil {
 		return nil, err
 	}
-	// A [[services]] entry naming an unregistered service is a config error,
-	// not something to skip silently (the docs promise rejection).
-	if err := services.ValidateOverrides(cfg.Services); err != nil {
-		return nil, errors.Join(config.ErrInvalidConfig, err)
-	}
 	in := &inputs{store: store, city: city, configHash: cfg.CityHash(city), spec: services.Resolve(spec, cfg.Services)}
 
 	// Empty inputs are ErrNoResults (a quiet skip in `pvmt all`): a city with

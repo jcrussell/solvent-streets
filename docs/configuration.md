@@ -162,12 +162,15 @@ overpass = true
 ```
 
 - `[[services]]` entries override the registry defaults for the named
-  service; only the fields set are applied, and an unknown `name` is
-  rejected when the services command runs. It is an array of tables, not a
-  map, so the config hash stays order-stable.
+  service; only the fields set are applied, and an explicit `0` counts as
+  set (`turnout_s = 0` times travel alone). It is an array of tables, not
+  a map, so the config hash stays order-stable.
 - `[[cities.facilities]]` adds points of service routed from exactly like
   the OpenStreetMap ones; `lat`/`lon` must be in range. A station just
   outside the boundary is fine.
+- A `[[services]]` `name` or a facility `service` that is not a
+  registered service is an invalid config: every command that reads the
+  config refuses it with exit code 2, naming the value.
 - Coverage routes over the ingested roads, so it needs `pvmt roads ingest`
   but not a roads compute, and recomputing roads leaves it in place. Adding
   either table changes the config bytes and therefore the config hash:

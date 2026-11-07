@@ -9,6 +9,7 @@
 package services
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -51,31 +52,45 @@ func (s Spec) LegendBands() []float64 {
 	return []float64{first, first + legendBandStepS, first + 2*legendBandStepS, first + 3*legendBandStepS}
 }
 
-// Resolve applies the config's [[services]] override for s, if any: only the
-// fields set (> 0) replace the registry defaults.
+// Resolve applies the config's [[services]] override for s, if any: each
+// field the override sets replaces the registry default, an explicit 0
+// included (turnout_s = 0 times travel alone).
 func Resolve(s Spec, overrides []config.ServiceOverride) Spec {
 	for _, o := range overrides {
 		if o.Name != s.Name {
 			continue
 		}
-		if o.TurnoutS > 0 {
-			s.TurnoutS = o.TurnoutS
+		if o.TurnoutS != nil {
+			s.TurnoutS = *o.TurnoutS
 		}
-		if o.TravelThresholdS > 0 {
-			s.TravelThresholdS = o.TravelThresholdS
+		if o.TravelThresholdS != nil {
+			s.TravelThresholdS = *o.TravelThresholdS
 		}
 	}
 	return s
 }
 
-// ValidateOverrides rejects a [[services]] entry naming a service that is
-// not registered (a typo would otherwise leave the defaults silently in
-// force). internal/config cannot do this itself without importing the
-// registry.
-func ValidateOverrides(overrides []config.ServiceOverride) error {
-	for _, o := range overrides {
+// ValidateConfig rejects a config whose [[services]] names or
+// [[cities.facilities]] service values are not registered services: a typo
+// would otherwise leave the registry defaults silently in force, or drop a
+// hand-placed station without a word. internal/config cannot check this
+// itself without importing the registry, so the factory runs it as part of
+// loading the config for every command. Errors are joined under
+// config.ErrInvalidConfig, the invalid-config exit code.
+func ValidateConfig(cfg *config.Config) error {
+	for i, o := range cfg.Services {
 		if _, ok := Registry[o.Name]; !ok {
-			return fmt.Errorf("[[services]] name %q is not a registered service (registered: %s)", o.Name, strings.Join(Names(), ", "))
+			return errors.Join(config.ErrInvalidConfig, fmt.Errorf(
+				"services[%d]: name %q is not a registered service (registered: %s)", i, o.Name, strings.Join(Names(), ", ")))
+		}
+	}
+	for i, city := range cfg.Cities {
+		for j, f := range city.Facilities {
+			if _, ok := Registry[f.Service]; !ok {
+				return errors.Join(config.ErrInvalidConfig, fmt.Errorf(
+					"cities[%d] (%s): facilities[%d].service %q is not a registered service (registered: %s)",
+					i, city.Name, j, f.Service, strings.Join(Names(), ", ")))
+			}
 		}
 	}
 	return nil

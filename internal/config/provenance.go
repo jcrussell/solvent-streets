@@ -362,17 +362,18 @@ func applyDefaultForecastProv(fc *ForecastConfig, p *forecastProvenance) {
 // Fields are emitted in a stable order: top-level first, then one block
 // per city containing only the fields that city explicitly overrides.
 // appendServiceFields emits the configured [[services]] overrides. Only set
-// values appear: an unset override leaves the registry default in force, and
-// that default is a Go constant rather than a config layer.
+// values appear, an explicit 0 included: an unset override leaves the
+// registry default in force, and that default is a Go constant rather than a
+// config layer.
 func (c *Config) appendServiceFields(fields []ResolvedField) []ResolvedField {
 	for _, s := range c.Services {
-		if s.TurnoutS > 0 {
+		if s.TurnoutS != nil {
 			key := fmt.Sprintf("services[%s].turnout_s", s.Name)
-			fields = append(fields, ResolvedField{Key: key, Value: s.TurnoutS, Source: Source{Kind: SourceFile, Detail: key}})
+			fields = append(fields, ResolvedField{Key: key, Value: *s.TurnoutS, Source: Source{Kind: SourceFile, Detail: key}})
 		}
-		if s.TravelThresholdS > 0 {
+		if s.TravelThresholdS != nil {
 			key := fmt.Sprintf("services[%s].travel_threshold_s", s.Name)
-			fields = append(fields, ResolvedField{Key: key, Value: s.TravelThresholdS, Source: Source{Kind: SourceFile, Detail: key}})
+			fields = append(fields, ResolvedField{Key: key, Value: *s.TravelThresholdS, Source: Source{Kind: SourceFile, Detail: key}})
 		}
 	}
 	return fields

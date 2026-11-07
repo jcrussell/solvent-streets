@@ -4,6 +4,7 @@ import (
 	"os"
 	"sort"
 	"testing"
+	"testing/fstest"
 
 	"github.com/jcrussell/solvent-streets/internal/units"
 )
@@ -392,6 +393,39 @@ func TestResolve_EmitsCostOverhead(t *testing.T) {
 	}
 	if !saw {
 		t.Error("unset forecast.cost_overhead must still be emitted, as a default")
+	}
+}
+
+// TestResolve_EmitsExplicitZeroServiceOverrides: `turnout_s = 0` written in
+// [[services]] is a value the user means (travel time alone), so it loads as
+// set and `config show --sources` reports it; a field left out is not
+// reported, since the registry default is not a config layer.
+func TestResolve_EmitsExplicitZeroServiceOverrides(t *testing.T) {
+	const doc = `[[services]]
+name = "fire"
+turnout_s = 0
+
+[[cities]]
+name = "Oakland, CA"
+overpass = true
+`
+	cfg, err := LoadFS(fstest.MapFS{"pvmt.toml": &fstest.MapFile{Data: []byte(doc)}}, "pvmt.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := cfg.Services[0]; s.TurnoutS == nil || *s.TurnoutS != 0 || s.TravelThresholdS != nil {
+		t.Fatalf("loaded override = %+v, want turnout_s set to 0 and travel_threshold_s unset", s)
+	}
+	byKey := make(map[string]ResolvedField)
+	for _, f := range cfg.Resolve("") {
+		byKey[f.Key] = f
+	}
+	got, ok := byKey["services[fire].turnout_s"]
+	if !ok || got.Value != 0.0 || got.Source.String() != "file:services[fire].turnout_s" {
+		t.Errorf("services[fire].turnout_s = %+v (emitted %v), want 0 from file:services[fire].turnout_s", got, ok)
+	}
+	if _, ok := byKey["services[fire].travel_threshold_s"]; ok {
+		t.Error("an unset travel_threshold_s must not be reported as a file value")
 	}
 }
 

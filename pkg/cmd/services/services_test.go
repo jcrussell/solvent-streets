@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 
@@ -192,7 +193,7 @@ func TestServicesCompute_ConfigFacilityAndOverrides(t *testing.T) {
 	f.CurrentCity = func() (*config.CityConfig, error) { return &city, nil }
 	f.Config = func() (*config.Config, error) {
 		cfg := testCfg()
-		cfg.Services = []config.ServiceOverride{{Name: "fire", TurnoutS: 200}}
+		cfg.Services = []config.ServiceOverride{{Name: "fire", TurnoutS: new(200.0)}}
 		return cfg, nil
 	}
 	if err := RunComputeForCity(context.Background(), f, "fire", nil, nil); err != nil {
@@ -238,22 +239,39 @@ func TestServicesCompute_CancelledSavesNothing(t *testing.T) {
 	}
 }
 
-// TestServicesCompute_UnknownOverrideRejected: a [[services]] entry naming an
-// unregistered service is a config error, not a silent no-op.
-func TestServicesCompute_UnknownOverrideRejected(t *testing.T) {
-	var saved []db.HexMetric
-	f := testFactory(fixtureStore(&saved, nil))
-	f.Config = func() (*config.Config, error) {
-		cfg := testCfg()
-		cfg.Services = []config.ServiceOverride{{Name: "fire ", TurnoutS: 1}}
-		return cfg, nil
+// TestServicesCompute_ZeroTurnoutIsHonoured: [[services]] turnout_s = 0
+// stores travel time alone, so every hex comes out exactly the registry
+// turnout faster than with no override, rather than the 0 being read as
+// "unset" and the default staying in force.
+func TestServicesCompute_ZeroTurnoutIsHonoured(t *testing.T) {
+	byHex := func(override []config.ServiceOverride) map[string]float64 {
+		t.Helper()
+		var saved []db.HexMetric
+		f := testFactory(fixtureStore(&saved, nil))
+		f.Config = func() (*config.Config, error) {
+			cfg := testCfg()
+			cfg.Services = override
+			return cfg, nil
+		}
+		if err := RunComputeForCity(context.Background(), f, "fire", nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]float64{}
+		for _, m := range saved {
+			out[m.HexID] = m.Value
+		}
+		return out
 	}
-	err := RunComputeForCity(context.Background(), f, "fire", nil, nil)
-	if err == nil || !errors.Is(err, config.ErrInvalidConfig) || !strings.Contains(err.Error(), `"fire "`) {
-		t.Fatalf("expected ErrInvalidConfig naming the bad service, got %v", err)
+	def := byHex(nil)
+	zero := byHex([]config.ServiceOverride{{Name: "fire", TurnoutS: new(0.0)}})
+	if len(def) == 0 || len(zero) != len(def) {
+		t.Fatalf("default run stored %d hexes, turnout 0 run %d; want the same non-empty set", len(def), len(zero))
 	}
-	if len(saved) != 0 {
-		t.Error("nothing must be saved for an invalid config")
+	turnout := services.Registry["fire"].TurnoutS
+	for id, v := range def {
+		if got := zero[id]; math.Abs(v-got-turnout) > 1e-9 {
+			t.Errorf("hex %s: %v s with turnout_s = 0, want %v (default %v minus the %v s turnout)", id, got, v-turnout, v, turnout)
+		}
 	}
 }
 
