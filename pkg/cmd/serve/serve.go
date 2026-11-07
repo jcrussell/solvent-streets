@@ -2,11 +2,14 @@ package serve
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	exportpkg "github.com/jcrussell/solvent-streets/internal/export"
+	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/internal/server"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
@@ -103,18 +106,40 @@ func runServe(ctx context.Context, opts *Options) error {
 	if err != nil {
 		return err
 	}
-	// Serve one snapshot per city: the newest for the config when the server
-	// starts. Each endpoint resolving "newest" on its own would mix snapshots
-	// after a compute commits mid-session, and responses are cached for the
-	// server's lifetime anyway (restart to pick up new data). ?snapshot=N
-	// still overrides the pin per request.
-	for i, entry := range entries {
-		if entries[i], err = entry.PinCurrentSnapshot(ctx); err != nil {
-			return err
-		}
+	if err := pinEntries(ctx, entries, opts.IO.ErrOut); err != nil {
+		return err
 	}
 
 	srv := server.New(entries, opts.Host, opts.Port, opts.IO, assets)
 	srv.ReadyFile = opts.ReadyFile
 	return srv.ListenAndServe(ctx)
+}
+
+// pinEntries pins every city to one snapshot: the newest for its config hash
+// when the server starts. Each endpoint resolving "newest" on its own would
+// mix snapshots after a compute commits mid-session, and responses are cached
+// for the server's lifetime anyway (restart to pick up new data). ?snapshot=N
+// still overrides the pin per request.
+//
+// A city with no snapshot under its current settings is still served (as an
+// empty map, HTTP 200, like any uncomputed city), so say why once per city at
+// startup — with export's error and hint — rather than leave a blank map the
+// operator has to diagnose: the settings changed since its last compute, or an
+// [[include]]d city resolves different data inputs than its own config.
+func pinEntries(ctx context.Context, entries []exportpkg.CityEntry, errOut io.Writer) error {
+	for i, entry := range entries {
+		pinned, err := entry.PinCurrentSnapshot(ctx)
+		if err != nil {
+			return err
+		}
+		entries[i] = pinned
+		if err := pinned.RequireMatchingSnapshot(ctx); err != nil {
+			fmt.Fprintf(errOut, "warning: %v; serving it without data\n", err)
+			var h *hint.ErrHint
+			if errors.As(err, &h) {
+				fmt.Fprintf(errOut, "  hint: %s\n", h.Hint)
+			}
+		}
+	}
+	return nil
 }

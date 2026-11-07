@@ -246,7 +246,7 @@ func TestRunForecast_StaleSnapshotsSayWhy(t *testing.T) {
 		t.Fatalf("err = %v, want ErrNoResults (exit 3)", err)
 	}
 	out := stderr.String()
-	if want := config.StaleSnapshotsHint("test-city", cfg.CityHash(city)); !strings.Contains(out, want) {
+	if want := cfg.StaleHint(city); !strings.Contains(out, want) {
 		t.Errorf("stderr lacks the shared stale-snapshot hint:\n%s", out)
 	}
 	if strings.Contains(out, "no compute results") {

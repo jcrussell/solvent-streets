@@ -96,7 +96,7 @@ The refused file is left exactly as it was. To start over, move it aside togethe
 
 ## No snapshot matches current config hash
 
-`pvmt export` fails with `no snapshot matches current config hash for <city>`; `pvmt forecast` warns `<slug> was computed, but not under the current settings …` and exits 3; `pvmt status` shows a blank *Last Compute* with the same note under the table.
+`pvmt export` fails with `no snapshot matches current config hash for <city>`; `pvmt forecast` warns `<slug> was computed, but not under the current settings …` and exits 3; `pvmt status` shows a blank *Last Compute* with the same note under the table; `pvmt serve` logs it once per city at startup and serves the city without data.
 
 Computed results are stored per city under a hash of the settings that affect them (see [Configuration › Snapshots and the config hash](configuration.md#snapshots-and-the-config-hash)), and are read back only under the same hash. The hint says which case you are in:
 

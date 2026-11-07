@@ -252,8 +252,8 @@ func TestRequireMatchingSnapshot_StaleSaysSettingsChanged(t *testing.T) {
 
 	stale := hintOf(entryWith([]db.Snapshot{{ID: 1, ConfigHash: "0123456789abcdef", Parts: paved}}).
 		RequireMatchingSnapshot(context.Background()))
-	if want := config.StaleSnapshotsHint("test-city", cfg.CityHash(nil)); stale != want {
-		t.Errorf("stale hint = %q; want the shared StaleSnapshotsHint %q", stale, want)
+	if want := cfg.StaleHint(&config.CityConfig{Name: "Test City"}); stale != want {
+		t.Errorf("stale hint = %q; want the shared Config.StaleHint %q", stale, want)
 	}
 	never := hintOf(entryWith(nil).RequireMatchingSnapshot(context.Background()))
 	if !strings.Contains(never, "never been computed") {
@@ -314,6 +314,16 @@ func TestMissingParts(t *testing.T) {
 			snaps: []db.Snapshot{
 				{ID: 3, ConfigHash: cur, Parts: parts("roads", "parking", "sidewalks", "combined", "forecast:roads", "service:fire")},
 				{ID: 2, ConfigHash: "0ld0ld0ld0ld0ld0", Parts: full},
+			},
+		},
+		{
+			// Export re-simulates forecasts from config, so a missing
+			// forecast:* part costs it nothing and is not reported.
+			name: "forecast parts are not reported",
+			snaps: []db.Snapshot{
+				{ID: 3, ConfigHash: cur, Parts: parts("roads", "parking", "sidewalks", "combined", "service:fire", "census")},
+				{ID: 2, ConfigHash: "0ld0ld0ld0ld0ld0", Parts: parts("roads", "parking", "sidewalks", "combined",
+					"forecast:roads", "forecast:parking", "forecast:sidewalks", "service:fire", "census")},
 			},
 		},
 		{

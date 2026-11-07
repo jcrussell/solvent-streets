@@ -507,9 +507,9 @@ func (s *Server) snapshotMatchesConfig(ctx context.Context, w http.ResponseWrite
 			"server: 409 Conflict: snapshot %d config_hash %q != current %q\n",
 			snapshotID, snap.ConfigHash, want)
 		http.Error(w, fmt.Sprintf(
-			"snapshot %d was computed under a different config (hex_edge_m or other grid "+
-				"setting changed) and cannot be served against the current hex grid; "+
-				"recompute with the current config or pick a snapshot matching it",
+			"snapshot %d was computed under different settings (or a different pvmt version) "+
+				"and cannot be served against the current config; recompute under the current "+
+				"settings or pick a snapshot matching them",
 			snapshotID), http.StatusConflict)
 		return false
 	}

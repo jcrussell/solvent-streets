@@ -293,7 +293,7 @@ func runForecast(ctx context.Context, opts *Options) error {
 		return fmt.Errorf("list snapshots: %w", err)
 	}
 	if db.StaleFor(snaps, hash) {
-		fmt.Fprintf(ios.ErrOut, "Warning: %s\n", config.StaleSnapshotsHint(city.Slug(), hash))
+		fmt.Fprintf(ios.ErrOut, "Warning: %s\n", cfg.StaleHint(city))
 		return cmdutil.ErrNoResults
 	}
 
@@ -360,6 +360,11 @@ type ResourceForecast struct {
 // command), stores the rows as a new forecast run, and puts that run into the
 // draft. It returns raw sql.ErrNoRows when the draft has no compute result for
 // rt, and stores nothing in that case.
+//
+// The stored rows may carry a calibration other than the one their snapshot
+// hash implies (an [[include]]d city under a union that backfills forecast
+// fields; see db.SaveForecastResults). Nothing reads them back today; they
+// must be re-keyed before anything does.
 func ForecastResource(ctx context.Context, draft *db.Draft, rt resource.Source, fc *config.ForecastConfig) (*ResourceForecast, error) {
 	t := rt.Type()
 	store := draft.Store()

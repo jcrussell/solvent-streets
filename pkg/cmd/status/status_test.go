@@ -408,7 +408,7 @@ func TestRunStatus_StaleSnapshotsSayWhy(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := stderr.String()
-	if want := config.StaleSnapshotsHint("test-city", cur); !strings.Contains(out, want) {
+	if want := cfg.StaleHint(city); !strings.Contains(out, want) {
 		t.Errorf("stderr lacks the shared stale-snapshot hint %q:\n%s", want, out)
 	}
 	if !strings.Contains(out, "0ld0ld0ld0ld0ld0") || strings.Contains(out, "(current settings)") {

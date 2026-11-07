@@ -155,6 +155,14 @@ func (s *sqliteStore) HasHexStats(ctx context.Context, types []resource.Type) (b
 
 // SaveForecastResults appends forecast rows, each tagged with its run. A
 // forecast rerun is a new run, so nothing is replaced in place.
+//
+// Nothing reads these rows back today (export, serve and `pvmt forecast`
+// re-simulate from cohort stats and the config), and they are not reliably
+// keyed to the calibration that produced them: an [[include]]d city keeps its
+// source config's hash even when the including config backfills a different
+// forecast calibration (config.CityHash), so a forecast run from the union is
+// stored under the source's hash. Re-key them — e.g. per-part input hashes —
+// before anything reads them back.
 func (s *sqliteStore) SaveForecastResults(ctx context.Context, results []ForecastResult) error {
 	return s.withTx(ctx, func(tx *sql.Tx) error {
 		stmt, err := tx.PrepareContext(ctx, `

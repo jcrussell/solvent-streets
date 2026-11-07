@@ -134,19 +134,11 @@ func (entry CityEntry) RequireMatchingSnapshot(ctx context.Context) error {
 				"under the current settings. The city's snapshot so far holds only %s.", entry.Slug, partNames(s))
 	}
 	err = fmt.Errorf("%w for %s", ErrNoMatchingSnapshot, entry.City.Name)
-	if d := entry.Config.SourceDivergence(&entry.City); len(d) > 0 {
-		// An [[include]]d city whose stored data this config would not have
-		// computed: CityHash refused the source's stamp. Say why, since the fix
-		// is usually in the config rather than a recompute.
-		return hint.Withf(err,
-			"%s is pulled in via [[include]], so it reads the snapshots its own config computed — "+
-				"but this config resolves %s, which changes the stored results, so those snapshots "+
-				"do not apply here. Make the including config agree with the city's own, or run "+
-				"`pvmt --city %s all compute` under this config.",
-			entry.City.Name, strings.Join(d, "; "), entry.Slug)
-	}
-	if db.StaleFor(snaps, configHash) {
-		return hint.With(err, config.StaleSnapshotsHint(entry.Slug, configHash))
+	// Computed under other settings, or an [[include]]d city whose stored data
+	// this config would not have computed (CityHash refused the source's
+	// stamp; StaleHint names the diverging setting).
+	if db.StaleFor(snaps, configHash) || len(entry.Config.SourceDivergence(&entry.City)) > 0 {
+		return hint.With(err, entry.Config.StaleHint(&entry.City))
 	}
 	return hint.Withf(err, "%s has never been computed. Run `pvmt --city %s all compute` (after "+
 		"`pvmt --city %s all ingest` if its data is not ingested yet).", entry.City.Name, entry.Slug, entry.Slug)
@@ -161,7 +153,8 @@ func (entry CityEntry) RequireMatchingSnapshot(ctx context.Context) error {
 // export would otherwise publish the city without them, silently. (A part
 // dropped under the current settings, because its producer found nothing to
 // work from, was held by an earlier current-hash snapshot and is not reported:
-// that drop is deliberate.) census is not reported for a city with census =
+// that drop is deliberate.) Only parts export reads are reported (not
+// forecast:*, see exportReads), and census not for a city with census =
 // false. prev is that other snapshot's id; missing is empty when nothing is
 // missing or there is no other snapshot.
 func (entry CityEntry) MissingParts(ctx context.Context) (missing []string, prev int64, err error) {
@@ -189,12 +182,30 @@ func (entry CityEntry) MissingParts(ctx context.Context) (missing []string, prev
 		return nil, 0, nil
 	}
 	for _, p := range other.Parts {
-		if held[p.Part] || (p.Part == "census" && !entry.City.CensusEnabled()) {
+		if held[p.Part] || !exportReads(p.Part) || (p.Part == "census" && !entry.City.CensusEnabled()) {
 			continue
 		}
 		missing = append(missing, p.Part)
 	}
 	return missing, other.ID, nil
+}
+
+// exportReads reports whether export publishes a snapshot part as stored: the
+// pavement computes, the combined pass, service coverage and census. The
+// forecast:<resource> parts are not among them — export re-simulates the
+// forecast from cohort stats and the config — so their absence costs the
+// export nothing.
+func exportReads(part string) bool {
+	switch {
+	case part == string(resource.CombinedAll), part == "census", strings.HasPrefix(part, "service:"):
+		return true
+	}
+	for _, rt := range resource.All {
+		if part == string(rt.Type()) {
+			return true
+		}
+	}
+	return false
 }
 
 // hasPavement reports whether the snapshot holds at least one pavement

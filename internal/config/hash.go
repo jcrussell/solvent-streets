@@ -111,11 +111,12 @@ const ComputeEpoch = 1
 const computeInputsScheme = "pvmt-compute-inputs/v2"
 
 // hashEnvelope is the value actually encoded: the code epoch, then the
-// resolved settings.
+// resolved settings. computeInputs is embedded, so encoding/json promotes its
+// fields ("data", "forecast") into the envelope and a field added there is
+// hashed without being repeated here.
 type hashEnvelope struct {
-	Epoch    int            `json:"epoch"`
-	Data     dataInputs     `json:"data"`
-	Forecast forecastInputs `json:"forecast"`
+	Epoch int `json:"epoch"`
+	computeInputs
 }
 
 // computeInputs is everything, resolved, that a stored result for one city
@@ -229,7 +230,7 @@ func (c *Config) cityForecastInputs(city *CityConfig) forecastInputs {
 // returns the 16-hex-char prefix of its sha256. CityHash passes ComputeEpoch;
 // the parameter exists so a test can show a bump moves the hash.
 func hashComputeInputs(epoch int, in computeInputs) string {
-	b, err := json.Marshal(hashEnvelope{Epoch: epoch, Data: in.Data, Forecast: in.Forecast})
+	b, err := json.Marshal(hashEnvelope{Epoch: epoch, computeInputs: in})
 	if err != nil {
 		// Unreachable: the envelope holds only strings, ints, finite floats
 		// (Validate rejects NaN/Inf) and slices of them.
@@ -324,12 +325,21 @@ func (c *Config) SourceDivergence(city *CityConfig) []string {
 	return out
 }
 
-// StaleSnapshotsHint is the one explanation export, `pvmt forecast` and `pvmt
-// status` give for a city that has snapshots but none under its current
-// CityHash (db.StaleFor). It lives here because what invalidates a snapshot is
-// this file's business: a result-affecting setting, an env override, or a
-// ComputeEpoch bump.
-func StaleSnapshotsHint(slug, hash string) string {
+// StaleHint is the one explanation export, `pvmt forecast` and `pvmt status`
+// give for a city with no snapshot under its current CityHash although it has
+// snapshots (db.StaleFor). It lives here because what invalidates a snapshot
+// is this file's business: a result-affecting setting, an env override, a
+// ComputeEpoch bump — or, for an [[include]]d city, this config resolving the
+// city's data inputs differently from the config that declared it, which
+// StaleHint names when it is the cause (SourceDivergence).
+func (c *Config) StaleHint(city *CityConfig) string {
+	slug, hash := city.Slug(), c.CityHash(city)
+	if d := c.SourceDivergence(city); len(d) > 0 {
+		return fmt.Sprintf("%s is pulled in via [[include]], so it reads the snapshots its own config "+
+			"computed — but this config resolves %s, which changes the stored results, so those "+
+			"snapshots do not apply here. Make the including config agree with the city's own, or run "+
+			"`pvmt --city %s all compute` under this config.", city.Name, strings.Join(d, "; "), slug)
+	}
 	return fmt.Sprintf("%s was computed, but not under the current settings (hash %s): a setting that "+
 		"affects results changed since its last compute (hex_edge_m, [forecast], [[services]], "+
 		"facilities, census, or a PVMT_HEX_EDGE_M / PVMT_FORECAST_* override), or this pvmt computes "+

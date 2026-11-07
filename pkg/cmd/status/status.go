@@ -211,14 +211,8 @@ func runStatus(ctx context.Context, opts *Options) error {
 		return err
 	}
 
-	// "Last Compute" reads through the current settings' snapshot, so a city
-	// computed only under other settings shows it blank. Say why, the way
-	// export does, rather than leave it looking never-computed.
-	hash, slug := opts.currentHash()
 	snaps, snapsErr := store.ListSnapshots(ctx)
-	if hash != "" && snapsErr == nil && db.StaleFor(snaps, hash) {
-		fmt.Fprintf(ios.ErrOut, "\nNote: %s\n", config.StaleSnapshotsHint(slug, hash))
-	}
+	hash := opts.noteStaleSnapshots(ios, snaps, snapsErr)
 
 	if ios.IsTTY() {
 		printCitySummary(ctx, ios, store, rows, sys, opts.ResourceType == nil)
@@ -230,17 +224,38 @@ func runStatus(ctx context.Context, opts *Options) error {
 	return nil
 }
 
-// currentHash returns the current city's snapshot key and slug, or "" when no
-// config or city resolves (then nothing is marked or hinted).
-func (opts *Options) currentHash() (hash, slug string) {
+// noteStaleSnapshots prints the shared stale-snapshot hint when the city has
+// snapshots but none under its current settings, and returns the current hash
+// ("" without a config). "Last Compute" reads through the current settings'
+// snapshot, so such a city shows it blank; say why, the way export does,
+// rather than leave it looking never-computed.
+func (opts *Options) noteStaleSnapshots(ios *iostreams.IOStreams, snaps []db.Snapshot, snapsErr error) string {
+	cfg, city := opts.currentCity()
+	if cfg == nil {
+		return ""
+	}
+	hash := cfg.CityHash(city)
+	if snapsErr == nil && db.StaleFor(snaps, hash) {
+		fmt.Fprintf(ios.ErrOut, "\nNote: %s\n", cfg.StaleHint(city))
+	}
+	return hash
+}
+
+// currentCity returns the config and the current city, or nils when either
+// does not resolve (then nothing is marked or hinted).
+func (opts *Options) currentCity() (*config.Config, *config.CityConfig) {
 	if opts.Config == nil || opts.CurrentCity == nil {
-		return "", ""
+		return nil, nil
+	}
+	cfg, err := opts.Config()
+	if err != nil || cfg == nil {
+		return nil, nil
 	}
 	city, err := opts.CurrentCity()
 	if err != nil || city == nil {
-		return "", ""
+		return nil, nil
 	}
-	return cmdutil.ResolveCityHash(opts.Config, city), city.Slug()
+	return cfg, city
 }
 
 func printCitySummary(ctx context.Context, ios *iostreams.IOStreams, store db.Store, rows []statusRow, sys units.System, allResources bool) {

@@ -145,7 +145,7 @@ Every compute stores its results in a snapshot keyed by a **config hash**, compu
 
 So editing one city's settings invalidates that city alone, a comment edit invalidates nothing, and an explicit default (`hex_edge_m = 100`, `initial_pci = 85`) is the same as leaving it out. The exception is a default that lives outside the config (`treatment_cycle_years`, `cost_tiers`, `decay_rate` and the services registry): stating one explicitly counts as a change, which costs a recompute but never a stale result.
 
-When a city has snapshots but none under its current hash, `pvmt export` refuses it, and `pvmt forecast` and `pvmt status` say the same thing: run `pvmt --city <slug> all compute`. `pvmt status` and `pvmt snapshots ls` show each snapshot's hash. If only some steps are rerun after a change (say `pvmt roads compute`), export publishes the city but warns about the parts — fire coverage, population, the combined total — the new settings have not produced yet.
+When a city has snapshots but none under its current hash, `pvmt export` refuses it, `pvmt forecast` and `pvmt status` say the same thing, and `pvmt serve` logs it at startup: run `pvmt --city <slug> all compute`. `pvmt status` and `pvmt snapshots ls` show each snapshot's hash. If only some steps are rerun after a change (say `pvmt roads compute`), export publishes the city but warns about the parts — fire coverage, population, the combined total — the new settings have not produced yet.
 
 ## Data sources
 

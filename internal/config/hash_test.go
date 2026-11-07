@@ -620,3 +620,41 @@ func TestComputeInputs_EveryFieldClassified(t *testing.T) {
 		}
 	}
 }
+
+// TestCityHash_PinnedValue pins the encoding: a refactor of hashEnvelope or
+// computeInputs that changes the hashed bytes, even by accident, fails here.
+// If the change is intended, bump computeInputsScheme (and say so in the
+// commit), then update the value.
+func TestCityHash_PinnedValue(t *testing.T) {
+	c := &Config{
+		Services: []ServiceOverride{{Name: "fire", TurnoutS: new(60.0)}},
+		Forecast: ForecastConfig{Years: 25, CostTiers: []CostTierCfg{{MinPCI: 0, MaxPCI: 101, CostPerSqM: 10, Label: "flat"}}},
+		Cities: []CityConfig{{
+			Name: "Reno, NV", Overpass: true, HexEdgeM: 120,
+			Facilities: []FacilityConfig{{Service: "fire", Lat: 39.5, Lon: -119.8}},
+		}},
+	}
+	if got, want := c.CityHash(&c.Cities[0]), "0e69213eb07d79d8"; got != want {
+		t.Errorf("CityHash = %q, want %q (scheme %s, epoch %d)", got, want, computeInputsScheme, ComputeEpoch)
+	}
+}
+
+// TestStaleHint: export, forecast and status share one explanation, and for
+// an [[include]]d city whose data inputs diverge it names the diverging
+// setting rather than suggesting the settings changed since a compute.
+func TestStaleHint(t *testing.T) {
+	plain := &Config{Cities: []CityConfig{{Name: "Reno, NV", Overpass: true}}}
+	h := plain.StaleHint(&plain.Cities[0])
+	if !strings.Contains(h, "not under the current settings") || !strings.Contains(h, "pvmt --city reno-nv all compute") {
+		t.Errorf("stale hint = %q", h)
+	}
+
+	dir := t.TempDir()
+	writeTOML(t, dir, "leaf/pvmt.toml", "config_id = \"leaf\"\n[[services]]\nname = \"fire\"\nturnout_s = 60\n"+
+		"[[cities]]\nname = \"Reno, NV\"\noverpass = true\n")
+	union, city := loadCity(t, writeTOML(t, dir, "all/pvmt.toml", "[[include]]\npath = \"../leaf/pvmt.toml\"\n"), "reno-nv")
+	h = union.StaleHint(city)
+	if !strings.Contains(h, "[[include]]") || !strings.Contains(h, "[[services]]") {
+		t.Errorf("divergence hint = %q; want it to name the [[include]] and [[services]]", h)
+	}
+}
