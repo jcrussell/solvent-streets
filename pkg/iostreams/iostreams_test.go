@@ -4,9 +4,44 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// TestIsTerminal_DevNullIsNotATerminal pins solvent-streets-zzdi. /dev/null is
+// a character device but not a terminal; counting it as one sent
+// `pvmt roads compute > /dev/null` (cron, nohup, CI) into the TUI, which then
+// died opening /dev/tty. Regular files and pipes are not terminals either.
+func TestIsTerminal_DevNullIsNotATerminal(t *testing.T) {
+	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = devNull.Close() }) // best-effort close in test cleanup
+	if isTerminal(devNull) {
+		t.Errorf("isTerminal(%s) = true, want false", os.DevNull)
+	}
+
+	file, err := os.Create(filepath.Join(t.TempDir(), "out.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = file.Close() }) // best-effort close in test cleanup
+	if isTerminal(file) {
+		t.Error("isTerminal(regular file) = true, want false")
+	}
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = r.Close(); _ = w.Close() }) // best-effort close in test cleanup
+	if isTerminal(w) {
+		t.Error("isTerminal(pipe) = true, want false")
+	}
+}
 
 // TestShouldEnableColor pins the (isTTY, NO_COLOR) decision matrix for
 // byob-iostreams.2. NO_COLOR must disable color whenever it is present —

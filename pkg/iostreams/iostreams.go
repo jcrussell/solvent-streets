@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"time"
+
+	"github.com/mattn/go-isatty"
 )
 
 const noTimestamp = "never"
@@ -171,10 +173,10 @@ func FormatTimestamp(raw string, isTTY bool) string {
 	return raw
 }
 
+// isTerminal reports whether f is an interactive terminal. It asks the
+// terminal driver (an ioctl) rather than checking for a character device:
+// /dev/null is one too, so `pvmt roads compute > /dev/null` from cron or CI
+// used to pick the TUI and die opening /dev/tty.
 func isTerminal(f *os.File) bool {
-	fi, err := f.Stat()
-	if err != nil {
-		return false
-	}
-	return (fi.Mode() & os.ModeCharDevice) != 0
+	return isatty.IsTerminal(f.Fd()) || isatty.IsCygwinTerminal(f.Fd())
 }
