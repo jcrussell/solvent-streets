@@ -13,6 +13,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/tui"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/cmdtest"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
@@ -426,6 +427,49 @@ func TestAllCompute_CombinedFailureIsFatal(t *testing.T) {
 	}
 	if combinedWrites == 0 {
 		t.Errorf("the combined pass never attempted its write; the fixture is not exercising it")
+	}
+}
+
+// TestAllCompute_TUIInterruptAbortsCity pins solvent-streets-ern4.6. Ctrl-C
+// inside a step's TUI never cancels the request context (raw mode swallows
+// SIGINT); it surfaces only as the step returning tui.ErrInterrupted. That
+// must abort the city like any cancellation: no further resource passes, no
+// combined pass, no best-effort steps, and nothing committed. It used to be
+// demoted to "roads failed: interrupted" and the run carried on through every
+// step, committed, and moved to the next city.
+func TestAllCompute_TUIInterruptAbortsCity(t *testing.T) {
+	ios, _, _, errOut := iostreams.Test()
+	var listed []resource.Type
+	commits := 0
+	store := combinedTestStore(func(db.ComputeResult) error {
+		t.Error("the combined pass ran after an interrupt")
+		return nil
+	})
+	store.ListFeaturesFunc = func(_ context.Context, rt resource.Type) ([]db.Feature, error) {
+		listed = append(listed, rt)
+		return nil, tui.ErrInterrupted // the user hit ctrl+c in the first step's TUI
+	}
+	store.CommitSnapshotFunc = func(context.Context, string, map[string]int64) (*db.Snapshot, error) {
+		commits++
+		return &db.Snapshot{ID: 1}, nil
+	}
+
+	cmd := NewCmdAll(computeFactory(ios, store))
+	cmd.SetArgs([]string{"compute"})
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+
+	if err := cmd.ExecuteContext(context.Background()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("all compute = %v, want a cancellation", err)
+	}
+	if len(listed) != 1 {
+		t.Errorf("resource passes that read features = %v, want only the interrupted one", listed)
+	}
+	if commits != 0 {
+		t.Errorf("committed %d snapshot(s) after an interrupt, want 0", commits)
+	}
+	if strings.Contains(errOut.String(), "failed:") {
+		t.Errorf("the interrupt was reported as a step failure:\n%s", errOut.String())
 	}
 }
 

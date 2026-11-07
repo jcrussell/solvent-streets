@@ -20,7 +20,8 @@ type WorkFunc func(ctx context.Context, out io.Writer, errOut io.Writer, notify 
 //
 // Because bubbletea's raw mode disables ISIG, a signal.NotifyContext on the
 // caller's ctx never fires on ctrl+c; the model maps ctrl+c to tea.Quit +
-// "interrupted" instead. So on any exit (success, error, or ctrl+c) we cancel
+// ErrInterrupted (a context.Canceled) instead. So on any exit (success, error,
+// or ctrl+c) we cancel
 // the child ctx to stop the worker's ctx-aware operations, then WAIT for the
 // goroutine to return before Run returns — otherwise, under `all compute`, the
 // next resource's TUI would start while the abandoned goroutine still writes to

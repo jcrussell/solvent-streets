@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"errors"
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -11,6 +11,13 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/textutil"
 )
+
+// ErrInterrupted is the error a TUI run returns when the user hits ctrl+c.
+// Raw mode swallows the SIGINT that would otherwise cancel the root context,
+// so this wraps context.Canceled: every caller that stops on a cancellation
+// (the `pvmt all` fan-out, ForEachCity, the draft discard) treats the key
+// press exactly like a signal.
+var ErrInterrupted = fmt.Errorf("interrupted: %w", context.Canceled)
 
 // StepStatus tracks the state of an individual step.
 type StepStatus int
@@ -161,7 +168,7 @@ func (m StepModel) handleKeyPress(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
 		m.finished = true
-		m.err = errors.New("interrupted")
+		m.err = ErrInterrupted
 		return m, tea.Quit
 	case "v":
 		m.logExpanded = !m.logExpanded

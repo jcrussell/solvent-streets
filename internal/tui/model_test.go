@@ -1,9 +1,30 @@
 package tui
 
 import (
+	"context"
 	"errors"
+	"strings"
 	"testing"
+
+	tea "charm.land/bubbletea/v2"
 )
+
+// TestStepModel_CtrlCIsACancellation pins solvent-streets-ern4.6: raw mode
+// swallows SIGINT, so ctrl+c reaches the model as a key press and the error it
+// leaves is the only signal the caller gets. It must match context.Canceled,
+// or `pvmt all compute` warns "roads failed: interrupted" and carries on
+// through every remaining step and city.
+func TestStepModel_CtrlCIsACancellation(t *testing.T) {
+	m := NewStepModel("compute", []Step{{Name: "step-0"}}, DoneConfig{})
+	got, _ := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	err := got.(StepModel).Err()
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("ctrl+c left Err() = %v, want an error matching context.Canceled", err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "interrupted") {
+		t.Errorf("ctrl+c left Err() = %v, want a message saying the run was interrupted", err)
+	}
+}
 
 // TestStepModel_PhaseTransitions pins the state-machine contract that
 // drives the compute progress UI. PhaseStart on a pending step flips it

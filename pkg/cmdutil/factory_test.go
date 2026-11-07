@@ -3,6 +3,7 @@ package cmdutil_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -168,6 +169,27 @@ func TestForEachCity(t *testing.T) {
 		}
 		if len(calls) != 0 {
 			t.Errorf("cancelled context must run no cities; calls = %v", calls)
+		}
+	})
+
+	t.Run("city_returning_cancel_stops_remaining_cities", func(t *testing.T) {
+		// A ctrl+c inside a TUI step never cancels ctx (raw mode swallows
+		// SIGINT); the step just returns an error wrapping context.Canceled.
+		// That must stop the run, not move on to the next city
+		// (solvent-streets-ern4.6).
+		f, _ := newFactory([]config.CityConfig{cityA, cityB, cityC}, false, nil)
+		interrupted := fmt.Errorf("interrupted: %w", context.Canceled)
+
+		var calls []string
+		err := cmdutil.ForEachCity(context.Background(), f, func(_ *cmdutil.Factory, city *config.CityConfig) error {
+			calls = append(calls, city.Name)
+			return interrupted
+		})
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("ForEachCity = %v, want context.Canceled", err)
+		}
+		if len(calls) != 1 {
+			t.Errorf("cities run = %v, want only [Alpha]: a cancelled city must stop the run", calls)
 		}
 	})
 

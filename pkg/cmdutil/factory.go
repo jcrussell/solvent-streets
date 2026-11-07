@@ -197,7 +197,8 @@ func ForEachCityRows[R RowExporter](ctx context.Context, f *Factory, ios *iostre
 // one empty city doesn't fail a run that produced results elsewhere — but when
 // EVERY city yields ErrNoResults, ForEachCity returns ErrNoResults so the
 // "nothing produced" outcome maps to the same exit code (3) as the single-city
-// path, instead of silently exiting 0 (solvent-streets-9zc2).
+// path, instead of silently exiting 0 (solvent-streets-9zc2). A cancellation,
+// whether ctx is done or fn returns context.Canceled, stops the loop.
 func ForEachCity(ctx context.Context, f *Factory, fn func(cf *Factory, city *config.CityConfig) error) error {
 	cities, err := ResolveCities(f)
 	if err != nil {
@@ -223,13 +224,20 @@ func ForEachCity(ctx context.Context, f *Factory, fn func(cf *Factory, city *con
 			break
 		}
 		fmt.Fprintf(f.IOStreams.ErrOut, "\n=== %s ===\n", city.Name)
-		switch err := fn(withCity(ctx, f, &city), &city); {
+		err := fn(withCity(ctx, f, &city), &city)
+		switch {
 		case err == nil:
 			sawResult = true
 		case errors.Is(err, ErrNoResults):
 			skippedEmpty = true
 		default:
 			errs = append(errs, fmt.Errorf("%s: %w", city.Name, err))
+		}
+		// A city that was cancelled stops the run even when ctx is still live:
+		// a ctrl+c inside a TUI step never reaches ctx (raw mode swallows the
+		// signal) and surfaces only as the step's tui.ErrInterrupted.
+		if errors.Is(err, context.Canceled) {
+			break
 		}
 	}
 	// Only when there were no real errors and no city produced anything: every
