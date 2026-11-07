@@ -241,9 +241,9 @@ func resolveOneInclude(parent *Config, inc IncludeSpec, i int, dir string,
 // unhandled, CityConfigID falls back to the parent's id and the whole feature
 // silently no-ops for exactly those users.
 //
-// The other half of the identity, the snapshot hash, is per city and needs no
-// such reconstruction: child.CityHash(&city) is by construction what the
-// source's own commands commit under (see stampSource).
+// The snapshot hash needs no such reconstruction: CityHash depends only on
+// the inputs a city resolves to, so the union's hash for the city is the
+// source's own whenever the two resolve the same inputs.
 func sourceConfigID(child *Config, incAbs string) string {
 	if child.ConfigID != "" {
 		return child.ConfigID
@@ -252,18 +252,18 @@ func sourceConfigID(child *Config, incAbs string) string {
 }
 
 // stampSource records on dst that its data lives under child's resolution of
-// src: child's cities row, child's CityHash, and child's data inputs for the
-// city (which CityHash compares against to decide whether the stamp still
-// holds). A src that child itself pulled in through [[include]] arrives
+// src: child's cities row, and child's compute inputs for the city (which
+// SourceDivergence compares against to explain a hash that differs from the
+// source's). A src that child itself pulled in through [[include]] arrives
 // already stamped with the file that declared it; that stamp is kept, so a
 // nested city never gets relabelled as the middle file's.
 func stampSource(dst *CityConfig, child *Config, src *CityConfig, configID string) {
 	if src.SourceConfigID != "" {
-		dst.SourceConfigID, dst.SourceConfigHash, dst.sourceData = src.SourceConfigID, src.SourceConfigHash, src.sourceData
+		dst.SourceConfigID, dst.sourceInputs = src.SourceConfigID, src.sourceInputs
 		return
 	}
-	d := child.cityDataInputs(src)
-	dst.SourceConfigID, dst.SourceConfigHash, dst.sourceData = configID, child.CityHash(src), &d
+	in := child.cityComputeInputs(src)
+	dst.SourceConfigID, dst.sourceInputs = configID, &in
 }
 
 // mergeIncludedCities folds child's cities into parent, tagging each with
@@ -363,9 +363,8 @@ func mergeExistingCity(existing *CityConfig, child *Config, src *CityConfig,
 		// with the file that declared it; overwriting with id (the file we are
 		// folding in) would relabel a grandchild's city as belonging to the
 		// middle file. Doing that made Config.CityConfigID key EnsureCity on the
-		// wrong ID — a brand-new empty cities row — while Config.CityHash pinned
-		// every lookup to a hash no compute run ever wrote, so the city came out
-		// blank or died on ErrNoMatchingSnapshot.
+		// wrong ID — a brand-new empty cities row — so the city came out blank
+		// or died on ErrNoMatchingSnapshot.
 		//
 		// ms.fromInclude is deliberately NOT moved with any of it. That map names
 		// the include a warning reports as the winner, and the winner is
@@ -431,15 +430,15 @@ func unionCalibration(existing *CityConfig, child *Config, src *CityConfig) (con
 // reintroduces through the include path exactly what the display.min_hex_area
 // gate in validateGrid was written to prevent.
 //
-// Adopting the pair also moves the source identity (SourceConfigID,
-// SourceConfigHash and the stamped data inputs) onto src's config — that is the
-// caller's job, signalled by the return, and it is not optional. Hex ids come
-// from the grid and hex_stats join BY id, so the include that supplies the edge
-// has to be the include whose stored data is read. mergeIncludedCities stamps
-// identity only from the FIRST include, so without the move a backfilled edge
-// would leave the city resolving one edge while stamped with a config that
-// computed at another; CityHash would then (correctly) refuse the stamp and the
-// city would read nothing, with no fix available from the union file.
+// Adopting the pair also moves the source identity (SourceConfigID and the
+// stamped compute inputs) onto src's config — that is the caller's job,
+// signalled by the return, and it is not optional. Hex ids come from the grid
+// and hex_stats join BY id, so the include that supplies the edge has to be the
+// include whose stored data is read. mergeIncludedCities stamps identity only
+// from the FIRST include, so without the move a backfilled edge would leave the
+// city reading the cities row of a config that computed at another edge; no
+// snapshot there carries the hash of the edge the city resolves, so it would
+// read nothing, with no fix available from the union file.
 //
 // The consequence is that a partial statement of the grid is no longer
 // backfilled: once existing has named either field, only agreeing values are

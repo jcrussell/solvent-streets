@@ -469,13 +469,15 @@ type CityConfig struct {
 	// --- Source identity: set by the [[include]] merge, never by a user. ---
 	//
 	// A city reached through [[include]] belongs to the file that declared it,
-	// not to the file that included it. Without these, a union config gets its
-	// own cities rows (keyed on ConfigID) and its own snapshots (keyed on
-	// CityHash), so it cannot see any of the data the source example ingested
-	// and computed — which is exactly why `make site` could not run.
+	// not to the file that included it. Without SourceConfigID, a union config
+	// gets its own cities rows (keyed on ConfigID), so it cannot see any of the
+	// data the source example ingested and computed — which is exactly why
+	// `make site` could not run. (The snapshot key needs no stamp: CityHash is
+	// a function of the city's resolved inputs, so it already matches the
+	// source's whenever the inputs do.)
 	//
-	// All are toml:"-": BurntSushi treats that as skip, so they never appear in
-	// a user's file and never round-trip through ResolvedTOML.
+	// Both are toml:"-" or unexported: BurntSushi skips them, so they never
+	// appear in a user's file and never round-trip through ResolvedTOML.
 	//
 	// They are stamped ONLY when still empty, so a city that arrives through
 	// nested includes keeps the identity of the file that actually declared it
@@ -485,18 +487,11 @@ type CityConfig struct {
 	// Empty means "declared directly by the config holding it".
 	SourceConfigID string `toml:"-"`
 
-	// SourceConfigHash is that config's CityHash for this city — the value its
-	// own compute commands write into snapshots.config_hash. CityHash returns it
-	// for as long as this config resolves the city's data inputs the way the
-	// source does (sourceData); see CityHash.
-	SourceConfigHash string `toml:"-"`
-
-	// sourceData is the source config's resolution of this city's data inputs
-	// (hex edge, census, services, facilities), stamped alongside
-	// SourceConfigHash so CityHash can tell when the stored data no longer
-	// matches what this config would compute. nil for a hand-built CityConfig,
-	// in which case SourceConfigHash is trusted as given.
-	sourceData *dataInputs
+	// sourceInputs is the source config's resolution of this city's compute
+	// inputs (hex edge, census, services, facilities). It decides nothing; it
+	// lets SourceDivergence say which setting makes this config's hash for
+	// the city differ from the source's. nil for a hand-built CityConfig.
+	sourceInputs *computeInputs
 }
 
 // ServiceOverride adjusts one service's coverage parameters. A nil numeric

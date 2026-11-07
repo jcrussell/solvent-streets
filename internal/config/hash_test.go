@@ -140,14 +140,64 @@ func TestCityHash_EditOneCityMovesOnlyThatCity(t *testing.T) {
 	if got, want := cityHashOf(t, edited, "reno-nv"), cityHashOf(t, twoCities, "reno-nv"); got != want {
 		t.Errorf("editing Boise moved Reno's hash: %q vs %q", got, want)
 	}
-	// A per-city forecast override is the same story.
+	// A per-city facility is the same story.
 	edited = strings.Replace(twoCities, "hex_edge_m = 90",
-		"hex_edge_m = 90\n[cities.forecast]\ninitial_pci = 70", 1)
+		"hex_edge_m = 90\n[[cities.facilities]]\nservice = \"fire\"\nlat = 43.6\nlon = -116.2", 1)
 	if cityHashOf(t, edited, "boise-id") == cityHashOf(t, twoCities, "boise-id") {
-		t.Error("a per-city forecast override must change that city's hash")
+		t.Error("a Boise facility must change Boise's hash")
 	}
 	if got, want := cityHashOf(t, edited, "reno-nv"), cityHashOf(t, twoCities, "reno-nv"); got != want {
-		t.Errorf("Boise's forecast override moved Reno's hash: %q vs %q", got, want)
+		t.Errorf("Boise's facility moved Reno's hash: %q vs %q", got, want)
+	}
+}
+
+// TestCityHash_ForecastEditsDoNotMove (solvent-streets-ern4.16): no forecast is
+// stored — export, serve, `pvmt forecast` and the site simulate it on demand
+// from stored cohort stats — so no [forecast] setting, at any layer or through
+// PVMT_FORECAST_*, invalidates any city's snapshots.
+func TestCityHash_ForecastEditsDoNotMove(t *testing.T) {
+	base := map[string]string{"reno-nv": cityHashOf(t, twoCities, "reno-nv"), "boise-id": cityHashOf(t, twoCities, "boise-id")}
+	check := func(t *testing.T, data string) {
+		t.Helper()
+		for slug, want := range base {
+			if got := cityHashOf(t, data, slug); got != want {
+				t.Errorf("%s: hash %q, want the unedited %q", slug, got, want)
+			}
+		}
+	}
+	for name, edit := range map[string]func(string) string{
+		"decay_rate":  func(s string) string { return strings.Replace(s, "years = 25", "years = 25\ndecay_rate = 0.05", 1) },
+		"years":       func(s string) string { return strings.Replace(s, "years = 25", "years = 40", 1) },
+		"initial_pci": func(s string) string { return strings.Replace(s, "years = 25", "years = 25\ninitial_pci = 60", 1) },
+		"growth_rate": func(s string) string { return strings.Replace(s, "years = 25", "years = 25\ngrowth_rate = 0.02", 1) },
+		"treatment_cycle_years": func(s string) string {
+			return strings.Replace(s, "years = 25", "years = 25\ntreatment_cycle_years = 8", 1)
+		},
+		"cost_overhead": func(s string) string { return strings.Replace(s, "years = 25", "years = 25\ncost_overhead = 1.5", 1) },
+		"current_budget": func(s string) string {
+			return strings.Replace(s, "years = 25", "years = 25\ncurrent_budget = 5000000", 1)
+		},
+		"cost_tiers": func(s string) string {
+			return strings.Replace(s, "[[cities]]", "[[forecast.cost_tiers]]\nmin_pci = 0\nmax_pci = 101\ncost_per_sqm = 9\nlabel = \"flat\"\n\n[[cities]]", 1)
+		},
+		"per-city [cities.forecast]": func(s string) string {
+			return strings.Replace(s, "hex_edge_m = 90", "hex_edge_m = 90\n[cities.forecast]\ninitial_pci = 70\nyears = 10", 1)
+		},
+	} {
+		t.Run(name, func(t *testing.T) { check(t, edit(twoCities)) })
+	}
+	for _, env := range []struct{ key, val string }{
+		{"PVMT_FORECAST_YEARS", "40"},
+		{"PVMT_FORECAST_INITIAL_PCI", "60"},
+	} {
+		t.Run(env.key, func(t *testing.T) {
+			t.Setenv(env.key, env.val)
+			cfg, city := loadCity(t, writeTOML(t, t.TempDir(), "pvmt.toml", twoCities), "reno-nv")
+			if got := cfg.ResolvedForecast(city); got.Years != 40 && got.InitialPCI != 60 {
+				t.Fatalf("fixture: %s=%s did not reach the resolved forecast (%+v)", env.key, env.val, got)
+			}
+			check(t, twoCities)
+		})
 	}
 }
 
@@ -181,43 +231,38 @@ census = true
 }
 
 // TestCityHash_DownstreamDefaultsAreHashedAsStated pins the documented
-// exception: defaults that live in internal/forecast or internal/services are
+// exception: [[services]] defaults live in the internal/services registry,
 // unknown to config, so stating one is a (harmless) change. If config ever
 // learns those defaults, flip this test and update hash.go's doc comment.
 func TestCityHash_DownstreamDefaultsAreHashedAsStated(t *testing.T) {
 	omitted := "[[cities]]\nname = \"Reno, NV\"\noverpass = true\n"
-	stated := "[forecast]\ntreatment_cycle_years = 12\n" + omitted // forecast.DefaultTreatmentCycleYears
+	stated := "[[services]]\nname = \"fire\"\nturnout_s = 80\n" + omitted // services.Registry["fire"].TurnoutS
 	if cityHashOf(t, stated, "reno-nv") == cityHashOf(t, omitted, "reno-nv") {
-		t.Error("treatment_cycle_years = 12 hashed like an omitted one; hash.go documents the opposite")
+		t.Error("turnout_s = 80 hashed like an omitted one; hash.go documents the opposite")
 	}
 }
 
 // TestCityHash_EnvOverridesMoveTheHash (solvent-streets-ern4.15): an env
-// override changes stored results, so it must change the key, or its results
-// would be read back as the file's.
+// override that changes stored results must change the key, or its results
+// would be read back as the file's. (PVMT_FORECAST_* changes no stored result;
+// see TestCityHash_ForecastEditsDoNotMove.)
 func TestCityHash_EnvOverridesMoveTheHash(t *testing.T) {
 	path := writeTOML(t, t.TempDir(), "pvmt.toml", twoCities)
 	baseCfg, baseCity := loadCity(t, path, "reno-nv")
 	base := baseCfg.CityHash(baseCity)
-	for _, env := range []struct{ key, val string }{
-		{"PVMT_HEX_EDGE_M", "300"},
-		{"PVMT_FORECAST_YEARS", "40"},
-		{"PVMT_FORECAST_INITIAL_PCI", "60"},
-	} {
-		t.Run(env.key, func(t *testing.T) {
-			t.Setenv(env.key, env.val)
-			cfg, city := loadCity(t, path, "reno-nv")
-			if cfg.CityHash(city) == base {
-				t.Errorf("%s=%s did not change the hash", env.key, env.val)
-			}
-		})
-	}
+	t.Run("PVMT_HEX_EDGE_M", func(t *testing.T) {
+		t.Setenv("PVMT_HEX_EDGE_M", "300")
+		cfg, city := loadCity(t, path, "reno-nv")
+		if cfg.CityHash(city) == base {
+			t.Error("PVMT_HEX_EDGE_M=300 did not change the hash")
+		}
+	})
 	// An override equal to the file's value is no change at all.
 	t.Run("equal to file", func(t *testing.T) {
-		t.Setenv("PVMT_FORECAST_YEARS", "25")
+		t.Setenv("PVMT_HEX_EDGE_M", "120")
 		cfg, city := loadCity(t, path, "reno-nv")
 		if got := cfg.CityHash(city); got != base {
-			t.Errorf("PVMT_FORECAST_YEARS equal to the file's years moved the hash: %q vs %q", got, base)
+			t.Errorf("PVMT_HEX_EDGE_M equal to the file's hex_edge_m moved the hash: %q vs %q", got, base)
 		}
 	})
 }
@@ -233,7 +278,6 @@ func TestCityHash_PresentationAndIngestEditsDoNotMove(t *testing.T) {
 		"tags":                 base + "tags = [\"West\", \"state:NV\"]\n",
 		"city min_hex_area":    base + "min_hex_area = 300\n",
 		"sources":              base + "arcgis_url = \"https://example.com/arcgis\"\nallow_private_arcgis = true\nboundary_relation_id = 42\n",
-		"current_budget":       "[forecast]\ncurrent_budget = 5000000\n" + base,
 		"travel_threshold_s":   "[[services]]\nname = \"fire\"\ntravel_threshold_s = 300\n" + base,
 		"facility name":        base + "[[cities.facilities]]\nservice = \"fire\"\nlat = 39.5\nlon = -119.8\n",
 	} {
@@ -268,10 +312,7 @@ func TestCityHash_ResultSettingsMove(t *testing.T) {
 		// alone), not "unset", so it must not hash like an absent turnout_s.
 		"turnout_s = 0": "[[services]]\nname = \"fire\"\nturnout_s = 0\n" + base,
 		"facility":      base + "[[cities.facilities]]\nservice = \"fire\"\nlat = 39.5\nlon = -119.8\n",
-		"decay_rate":    "[forecast]\ndecay_rate = 0.05\n" + base,
-		"growth_rate":   "[forecast]\ngrowth_rate = 0.02\n" + base,
-		"cost_tiers":    "[[forecast.cost_tiers]]\nmin_pci = 0\nmax_pci = 101\ncost_per_sqm = 9\nlabel = \"flat\"\n" + base,
-		"cost_overhead": "[forecast]\ncost_overhead = 1.5\n" + base,
+		"hex_edge_m":    "[grid]\nhex_edge_m = 150\n" + base,
 	} {
 		if cityHashOf(t, data, "reno-nv") == ref {
 			t.Errorf("%s did not change the hash", name)
@@ -334,8 +375,9 @@ overpass = true
 
 // TestCityHash_IncludedForecastBackfillKeepsSourceHash: the per-field merge may
 // give an included city forecast fields its source lacks (examples/all does
-// this for ten cities). Every reader recomputes the forecast from its own
-// config, so the union still reads the source's snapshots.
+// this for ten cities). [forecast] is not a compute input — every reader
+// simulates the forecast from its own config — so the union still hashes the
+// city as its source does and reads the source's snapshots.
 func TestCityHash_IncludedForecastBackfillKeepsSourceHash(t *testing.T) {
 	dir := t.TempDir()
 	metro := writeTOML(t, dir, "metro/pvmt.toml", "config_id = \"metro\"\n[grid]\nhex_edge_m = 300\n[[cities]]\nname = \"San Diego, CA\"\noverpass = true\n")
@@ -377,8 +419,8 @@ overpass = true
 
 	src, srcCity := loadCity(t, leaf, "reno-nv")
 	union, city := loadCity(t, top, "reno-nv")
-	if city.SourceConfigHash != src.CityHash(srcCity) {
-		t.Fatalf("stamp = %q, want the source's own hash %q", city.SourceConfigHash, src.CityHash(srcCity))
+	if city.SourceConfigID != "leaf" {
+		t.Fatalf("SourceConfigID = %q, want the leaf's", city.SourceConfigID)
 	}
 	if union.CityHash(city) == src.CityHash(srcCity) {
 		t.Error("the union drops the leaf's [[services]] (qtue) yet reads the leaf's coverage")
@@ -399,7 +441,8 @@ overpass = true
 // TestCityHash_ExamplesAllMatchesEachExample runs the include rule over the
 // shipped configs: every city examples/all pulls in hashes as the example that
 // declares it does, so `make site` reads the examples' snapshots. Ten of these
-// cities get forecast fields their example lacks; none differs in data inputs.
+// cities get forecast fields their example lacks, which no hash sees; none
+// differs in compute inputs.
 func TestCityHash_ExamplesAllMatchesEachExample(t *testing.T) {
 	root := filepath.Join("..", "..", "examples")
 	union, err := Load(filepath.Join(root, "all", "pvmt.toml"))
@@ -459,6 +502,10 @@ const (
 	hashed
 	// presentation is read only when rendering or exporting.
 	presentation
+	// simulated feeds only the forecast, which is simulated on demand
+	// (export, serve, `pvmt forecast`, the site's WASM) from stored cohort
+	// stats and the settings in force. No stored row depends on it.
+	simulated
 	// ingest decides what gets fetched and stored; compute reads the stored
 	// copy, so it does not invalidate results by itself.
 	ingest
@@ -467,8 +514,8 @@ const (
 	plumbing
 )
 
-// fieldRule classifies one field. mutate (required for hashed, presentation
-// and ingest fields) changes that field on baseHashConfig, so the test can
+// fieldRule classifies one field. mutate (required for hashed, presentation,
+// simulated and ingest fields) changes that field on baseHashConfig, so the test can
 // check the classification against what CityHash actually does.
 type fieldRule struct {
 	class  fieldClass
@@ -514,20 +561,22 @@ var configFieldRules = map[string]fieldRule{
 	"ExportConfig.CoordinateDecimals": {presentation, func(c *Config) { c.Export.CoordinateDecimals = 7 }},
 	"ExportConfig.BoundarySimplifyM":  {presentation, func(c *Config) { c.Export.BoundarySimplifyM = 25 }},
 
-	"ForecastConfig.InitialPCI":          {hashed, func(c *Config) { c.Forecast.InitialPCI = 70 }},
-	"ForecastConfig.DecayRate":           {hashed, func(c *Config) { c.Forecast.DecayRate = 0.05 }},
-	"ForecastConfig.GrowthRate":          {hashed, func(c *Config) { c.Forecast.GrowthRate = 0.02 }},
-	"ForecastConfig.Years":               {hashed, func(c *Config) { c.Forecast.Years = 30 }},
+	// The whole [forecast] block is simulated: no forecast is stored, so a
+	// forecast edit takes effect on the next read and invalidates nothing.
+	"ForecastConfig.InitialPCI":          {simulated, func(c *Config) { c.Forecast.InitialPCI = 70 }},
+	"ForecastConfig.DecayRate":           {simulated, func(c *Config) { c.Forecast.DecayRate = 0.05 }},
+	"ForecastConfig.GrowthRate":          {simulated, func(c *Config) { c.Forecast.GrowthRate = 0.02 }},
+	"ForecastConfig.Years":               {simulated, func(c *Config) { c.Forecast.Years = 30 }},
 	"ForecastConfig.CostTiers":           {class: nested},
-	"ForecastConfig.TreatmentCycleYears": {hashed, func(c *Config) { c.Forecast.TreatmentCycleYears = 8 }},
-	"ForecastConfig.CurrentBudget":       {presentation, func(c *Config) { c.Forecast.CurrentBudget = 1e6 }},
-	"ForecastConfig.CostOverhead":        {hashed, func(c *Config) { c.Forecast.CostOverhead = 1.5 }},
+	"ForecastConfig.TreatmentCycleYears": {simulated, func(c *Config) { c.Forecast.TreatmentCycleYears = 8 }},
+	"ForecastConfig.CurrentBudget":       {simulated, func(c *Config) { c.Forecast.CurrentBudget = 1e6 }},
+	"ForecastConfig.CostOverhead":        {simulated, func(c *Config) { c.Forecast.CostOverhead = 1.5 }},
 	"ForecastConfig.growthRateSet":       {class: plumbing},
 
-	"CostTierCfg.MinPCI":     {hashed, func(c *Config) { c.Forecast.CostTiers[0].MinPCI = 1 }},
-	"CostTierCfg.MaxPCI":     {hashed, func(c *Config) { c.Forecast.CostTiers[0].MaxPCI = 100 }},
-	"CostTierCfg.CostPerSqM": {hashed, func(c *Config) { c.Forecast.CostTiers[0].CostPerSqM = 11 }},
-	"CostTierCfg.Label":      {hashed, func(c *Config) { c.Forecast.CostTiers[0].Label = "other" }},
+	"CostTierCfg.MinPCI":     {simulated, func(c *Config) { c.Forecast.CostTiers[0].MinPCI = 1 }},
+	"CostTierCfg.MaxPCI":     {simulated, func(c *Config) { c.Forecast.CostTiers[0].MaxPCI = 100 }},
+	"CostTierCfg.CostPerSqM": {simulated, func(c *Config) { c.Forecast.CostTiers[0].CostPerSqM = 11 }},
+	"CostTierCfg.Label":      {simulated, func(c *Config) { c.Forecast.CostTiers[0].Label = "other" }},
 
 	"CityConfig.Name":               {ingest, func(c *Config) { c.Cities[0].Name = "Sparks, NV" }},
 	"CityConfig.Overpass":           {ingest, func(c *Config) { c.Cities[0].Overpass = false }},
@@ -543,9 +592,8 @@ var configFieldRules = map[string]fieldRule{
 		off := false
 		c.Cities[0].Census = &off
 	}},
-	"CityConfig.SourceConfigID":   {class: plumbing},
-	"CityConfig.SourceConfigHash": {class: plumbing},
-	"CityConfig.sourceData":       {class: plumbing},
+	"CityConfig.SourceConfigID": {class: plumbing},
+	"CityConfig.sourceInputs":   {class: plumbing},
 
 	"ServiceOverride.Name":             {hashed, func(c *Config) { c.Services[0].Name = "ems" }},
 	"ServiceOverride.TurnoutS":         {hashed, func(c *Config) { c.Services[0].TurnoutS = new(60.0) }},
@@ -623,8 +671,11 @@ func TestComputeInputs_EveryFieldClassified(t *testing.T) {
 
 // TestCityHash_PinnedValue pins the encoding: a refactor of hashEnvelope or
 // computeInputs that changes the hashed bytes, even by accident, fails here.
-// If the change is intended, bump computeInputsScheme (and say so in the
-// commit), then update the value.
+// If the change is intended, update the value and say so in the commit. Bump
+// computeInputsScheme too when the change re-encodes the same inputs in a way
+// that could collide with hashes already stored by a readable database.
+// (The [forecast] fields left the encoding in schema generation 3, which no
+// database holding the older hashes can be opened under, so the scheme stayed.)
 func TestCityHash_PinnedValue(t *testing.T) {
 	c := &Config{
 		Services: []ServiceOverride{{Name: "fire", TurnoutS: new(60.0)}},
@@ -634,7 +685,7 @@ func TestCityHash_PinnedValue(t *testing.T) {
 			Facilities: []FacilityConfig{{Service: "fire", Lat: 39.5, Lon: -119.8}},
 		}},
 	}
-	if got, want := c.CityHash(&c.Cities[0]), "0e69213eb07d79d8"; got != want {
+	if got, want := c.CityHash(&c.Cities[0]), "b05f7b2b5d073534"; got != want {
 		t.Errorf("CityHash = %q, want %q (scheme %s, epoch %d)", got, want, computeInputsScheme, ComputeEpoch)
 	}
 }

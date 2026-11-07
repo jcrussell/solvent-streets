@@ -1026,10 +1026,10 @@ func TestInclude_CycleDetected(t *testing.T) {
 
 // TestInclude_EditingIncludedFileMovesItsCities: a result-affecting edit to an
 // included file changes the hash its cities read under the including config,
-// and a comment-only edit does not.
+// and a comment-only or forecast-only edit does not.
 func TestInclude_EditingIncludedFileMovesItsCities(t *testing.T) {
 	dir := t.TempDir()
-	leafData := "[forecast]\ndecay_rate = 0.04\n[[cities]]\nname = \"Reno, NV\"\noverpass = true\n"
+	leafData := "[grid]\nhex_edge_m = 80\n[forecast]\ndecay_rate = 0.04\n[[cities]]\nname = \"Reno, NV\"\noverpass = true\n"
 	leaf := writeTOML(t, dir, "leaf/pvmt.toml", leafData)
 	top := writeTOML(t, dir, "all/pvmt.toml", "[[include]]\npath = \"../leaf/pvmt.toml\"\ntags = [\"West\"]\n")
 
@@ -1049,8 +1049,12 @@ func TestInclude_EditingIncludedFileMovesItsCities(t *testing.T) {
 	if got := hashAfter("# tuned for the high desert\n" + leafData); got != h1 {
 		t.Errorf("a comment in an included file moved its city's hash: %q vs %q", got, h1)
 	}
-	if hashAfter(strings.Replace(leafData, "0.04", "0.09", 1)) == h1 {
-		t.Error("editing an included file's decay_rate must change its city's hash")
+	if hashAfter(strings.Replace(leafData, "hex_edge_m = 80", "hex_edge_m = 90", 1)) == h1 {
+		t.Error("editing an included file's hex_edge_m must change its city's hash")
+	}
+	// A forecast edit is simulated on demand, never stored: no hash moves.
+	if got := hashAfter(strings.Replace(leafData, "0.04", "0.09", 1)); got != h1 {
+		t.Errorf("editing an included file's decay_rate moved its city's hash: %q vs %q", got, h1)
 	}
 }
 
@@ -1600,9 +1604,6 @@ func TestInclude_SourceIdentityMatchesStandaloneLoad(t *testing.T) {
 		standalone, standaloneCity := loadCity(t, tc.path, tc.slug)
 		city := cityBySlug(t, union, tc.slug)
 
-		if got, want := city.SourceConfigHash, standalone.CityHash(standaloneCity); got != want {
-			t.Errorf("%s: SourceConfigHash = %q; want %q (the hash its own compute writes)", tc.slug, got, want)
-		}
 		if got, want := city.SourceConfigID, standalone.ConfigID; got != want {
 			t.Errorf("%s: SourceConfigID = %q; want %q", tc.slug, got, want)
 		}
@@ -1612,7 +1613,8 @@ func TestInclude_SourceIdentityMatchesStandaloneLoad(t *testing.T) {
 		if got := union.ResolvedHexEdge(&city); got != tc.wantEdge {
 			t.Errorf("%s: ResolvedHexEdge = %g; want %g", tc.slug, got, tc.wantEdge)
 		}
-		// And the resolvers must agree with the stamp.
+		// The union hashes the city as its own config does (the hash its own
+		// compute writes), and keys the same cities row.
 		if got, want := union.CityHash(&city), standalone.CityHash(standaloneCity); got != want {
 			t.Errorf("%s: CityHash() = %q; want %q", tc.slug, got, want)
 		}
@@ -1645,8 +1647,8 @@ func TestInclude_NestedSourceIdentityKeepsDeclaringFile(t *testing.T) {
 	if got := city.SourceConfigID; got != "leaf" {
 		t.Errorf("SourceConfigID = %q; want \"leaf\" — the file that DECLARED the city", got)
 	}
-	if got, want := city.SourceConfigHash, standaloneLeaf.CityHash(leafCity); got != want {
-		t.Errorf("SourceConfigHash = %q; want %q (the leaf's own hash)", got, want)
+	if got, want := union.CityHash(&city), standaloneLeaf.CityHash(leafCity); got != want {
+		t.Errorf("CityHash() = %q; want %q (the leaf's own hash)", got, want)
 	}
 }
 
@@ -1668,9 +1670,9 @@ func TestInclude_DirectCityHasNoSourceIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	bend := cityBySlug(t, union, "bend-or")
-	if bend.SourceConfigID != "" || bend.SourceConfigHash != "" {
-		t.Errorf("a directly-declared city must carry no source stamp, got id=%q hash=%q",
-			bend.SourceConfigID, bend.SourceConfigHash)
+	if bend.SourceConfigID != "" || bend.sourceInputs != nil {
+		t.Errorf("a directly-declared city must carry no source stamp, got id=%q inputs=%+v",
+			bend.SourceConfigID, bend.sourceInputs)
 	}
 	if got := union.CityConfigID(&bend); got != "top" {
 		t.Errorf("CityConfigID() = %q; want the config's own %q", got, "top")
@@ -1729,7 +1731,7 @@ path = "../second/pvmt.toml"
 		t.Errorf("ResolvedHexEdge = %g, want 60 (backfilled from the second include)", got)
 	}
 	// The resolved edge and the edge the source config computed at have to be
-	// the same number, which is what lets the city keep its source's hash.
+	// the same number, which is what makes the city hash as its source does.
 	if d := cfg.SourceDivergence(&liv); len(d) != 0 {
 		t.Errorf("SourceDivergence = %q; the config that supplied the edge must "+
 			"also be the one credited with the data", d)
@@ -1816,9 +1818,8 @@ path = "../mid/pvmt.toml"
 		t.Errorf("SourceConfigID = %q; want \"leafid\" — the file that DECLARED the city "+
 			"and computed its hexes, not the middle file it happened to travel through", got)
 	}
-	if got, want := liv.SourceConfigHash, standaloneLeaf.CityHash(leafCity); got != want {
-		t.Errorf("SourceConfigHash = %q; want %q (the leaf's own hash). A mid-file hash "+
-			"pins CityHash to a hash no compute run ever wrote", got, want)
+	if got, want := cfg.CityHash(&liv), standaloneLeaf.CityHash(leafCity); got != want {
+		t.Errorf("CityHash() = %q; want %q (the leaf's own hash)", got, want)
 	}
 	// The resolved edge was never the broken half — assert it stays right.
 	if got := cfg.ResolvedHexEdge(&liv); got != 60 {

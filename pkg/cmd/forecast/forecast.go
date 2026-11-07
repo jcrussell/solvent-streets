@@ -87,7 +87,9 @@ func NewCmdForecast(f *cmdutil.Factory, runF func(context.Context, *Options) err
 The forecast is simulated each time from the city's current snapshot (its
 compute results and cohort stats) under the current [forecast] settings, the
 same way export and serve simulate it. Nothing is stored and no snapshot is
-committed. A city with nothing computed under its current settings exits 3.`,
+committed, and [forecast] settings are not part of the snapshot hash, so a
+forecast edit takes effect here without a recompute. A city with nothing
+computed under its current settings exits 3.`,
 		Example: `  # Run baseline + scenario comparisons for every configured city
   pvmt forecast
 

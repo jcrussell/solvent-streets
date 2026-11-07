@@ -78,11 +78,40 @@ func TestRequireMatchingSnapshot(t *testing.T) {
 // [[include]] reads the snapshots its SOURCE config wrote, not the including
 // config's. Without this the union config looks for a hash nothing ever wrote
 // and every city fails — which is exactly why `make site` could not run.
+//
+// The union also gives the city a forecast calibration its source lacks, the
+// way examples/all backfills cited figures; [forecast] is not a compute input,
+// so the source's snapshot still applies.
 func TestRequireMatchingSnapshot_IncludedCityUsesSourceHash(t *testing.T) {
-	cfg := &config.Config{ConfigID: "union"}
-	const sourceHash = "50urc3hash000000"
-
-	city := config.CityConfig{Name: "Oakland, CA", SourceConfigID: "bay-area-ca", SourceConfigHash: sourceHash}
+	dir := t.TempDir()
+	write := func(rel, data string) string {
+		t.Helper()
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	leaf, err := config.Load(write("bay/pvmt.toml", "config_id = \"bay-area-ca\"\n[grid]\nhex_edge_m = 80\n"+
+		"[[cities]]\nname = \"Oakland, CA\"\noverpass = true\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	write("top50/pvmt.toml", "config_id = \"top50\"\n[[cities]]\nname = \"Oakland, CA\"\noverpass = true\n"+
+		"[cities.forecast]\ninitial_pci = 58\n")
+	cfg, err := config.Load(write("all/pvmt.toml", "[[include]]\npath = \"../bay/pvmt.toml\"\n"+
+		"[[include]]\npath = \"../top50/pvmt.toml\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	city := cfg.Cities[0]
+	if got := cfg.ResolvedForecast(&city).InitialPCI; got != 58 {
+		t.Fatalf("fixture: union initial_pci = %g, want the backfilled 58", got)
+	}
+	sourceHash := leaf.CityHash(&leaf.Cities[0])
 	entry := CityEntry{
 		Config: cfg,
 		City:   city,
@@ -98,16 +127,8 @@ func TestRequireMatchingSnapshot_IncludedCityUsesSourceHash(t *testing.T) {
 	if err := entry.RequireMatchingSnapshot(context.Background()); err != nil {
 		t.Fatalf("included city should match its source snapshot, got %v", err)
 	}
-
-	// And the union's own hash must NOT satisfy it — that would mean the stamp
-	// is being ignored.
-	entry.Store = &dbtest.MockStore{
-		ListSnapshotsFunc: func(_ context.Context) ([]db.Snapshot, error) {
-			return []db.Snapshot{{ID: 1, ConfigHash: cfg.CityHash(nil), Parts: paved}}, nil
-		},
-	}
-	if err := entry.RequireMatchingSnapshot(context.Background()); !errors.Is(err, ErrNoMatchingSnapshot) {
-		t.Errorf("a snapshot under the UNION's hash must not satisfy an included city, got %v", err)
+	if got := cfg.CityConfigID(&city); got != "bay-area-ca" {
+		t.Errorf("CityConfigID = %q, want the source's cities row %q", got, "bay-area-ca")
 	}
 }
 
@@ -130,19 +151,23 @@ func TestRequireMatchingSnapshot_IncludedDataDivergence(t *testing.T) {
 		}
 		return p
 	}
-	write("leaf/pvmt.toml", "config_id = \"leaf\"\n[[services]]\nname = \"fire\"\nturnout_s = 60\n"+
-		"[[cities]]\nname = \"Reno, NV\"\noverpass = true\n")
+	leaf, err := config.Load(write("leaf/pvmt.toml", "config_id = \"leaf\"\n[[services]]\nname = \"fire\"\nturnout_s = 60\n"+
+		"[[cities]]\nname = \"Reno, NV\"\noverpass = true\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	cfg, err := config.Load(write("all/pvmt.toml", "[[include]]\npath = \"../leaf/pvmt.toml\"\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	city := cfg.Cities[0]
+	leafHash := leaf.CityHash(&leaf.Cities[0])
 	entry := CityEntry{
 		Config: cfg, City: city, Slug: city.Slug(),
 		Store: &dbtest.MockStore{
 			ListSnapshotsFunc: func(_ context.Context) ([]db.Snapshot, error) {
 				// Only the leaf's own snapshot exists.
-				return []db.Snapshot{{ID: 1, ConfigHash: city.SourceConfigHash, Parts: paved}}, nil
+				return []db.Snapshot{{ID: 1, ConfigHash: leafHash, Parts: paved}}, nil
 			},
 		},
 	}

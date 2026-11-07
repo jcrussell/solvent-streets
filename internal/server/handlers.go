@@ -401,11 +401,11 @@ func (s *Server) serveDataFile(w http.ResponseWriter, r *http.Request, file stri
 		return
 	}
 	// No separate hex-edge guard is needed, even for a city pulled in via
-	// [[include]]: the resolved hex edge is part of Config.CityHash, and an
-	// included city keeps its source's hash only while this config resolves the
-	// same edge (and the rest of the city's data inputs). A divergent union
-	// reads its own hash, so it can never be served the source's hexes on a
-	// different grid.
+	// [[include]]: the resolved hex edge is part of Config.CityHash, so an
+	// included city shares its source's hash only while this config resolves
+	// the same edge (and the rest of the city's compute inputs). A divergent
+	// union reads its own hash, so it can never be served the source's hexes
+	// on a different grid.
 	if snapshotID > 0 {
 		// Guard against serving a config-mismatched pinned snapshot: the hex
 		// grid (and every other data file's hex_id namespace) is regenerated

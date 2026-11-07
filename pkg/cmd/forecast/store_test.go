@@ -130,3 +130,34 @@ func TestForecast_SimulatesFromStoredCohortsAndWritesNothing(t *testing.T) {
 			runsBefore, runs, snapsBefore, snaps)
 	}
 }
+
+// TestForecast_ForecastEditNeedsNoRecompute: [forecast] settings are not part
+// of the snapshot hash, so after a forecast-only edit the city's snapshot
+// still applies and `pvmt forecast` simulates under the edited settings with
+// no recompute.
+func TestForecast_ForecastEditNeedsNoRecompute(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pvmt.db")
+	computed := &config.Config{
+		ConfigID: "test",
+		Forecast: config.ForecastConfig{Years: 7},
+		Cities:   []config.CityConfig{{Name: "Test City", Overpass: true}},
+	}
+	store := seedComputedCity(t, path, computed, &computed.Cities[0])
+
+	edited := &config.Config{
+		ConfigID: "test",
+		Forecast: config.ForecastConfig{Years: 3, DecayRate: 0.09, InitialPCI: 60, GrowthRate: 0.02},
+		Cities:   []config.CityConfig{{Name: "Test City", Overpass: true}},
+	}
+	if got, want := edited.CityHash(&edited.Cities[0]), computed.CityHash(&computed.Cities[0]); got != want {
+		t.Fatalf("a forecast-only edit moved the hash (%q vs %q)", got, want)
+	}
+	rows := runForecastJSON(t, edited, &edited.Cities[0], store)
+	if len(rows) != 3 {
+		t.Fatalf("got %d rows, want the edited 3-year horizon: %v", len(rows), rows)
+	}
+	// growth_rate 0.02 now applies: the area grows past the stored 100000.
+	if area, _ := rows[2]["area"].(float64); area <= 100_000 {
+		t.Errorf("year 3 area = %v, want the stored area grown by the edited growth_rate", rows[2]["area"])
+	}
+}
