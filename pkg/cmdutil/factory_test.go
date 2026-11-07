@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
+	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 
@@ -38,17 +40,7 @@ func TestForEachCity(t *testing.T) {
 	cityB := config.CityConfig{Name: "Beta"}
 	cityC := config.CityConfig{Name: "Gamma"}
 
-	newFactory := func(cities []config.CityConfig, flagSet bool, current *config.CityConfig) (*cmdutil.Factory, func() string) {
-		ios, _, _, errOut := iostreams.Test()
-		cfg := &config.Config{Cities: cities}
-		f := &cmdutil.Factory{
-			IOStreams:   ios,
-			Config:      func() (*config.Config, error) { return cfg, nil },
-			CityFlagSet: func() bool { return flagSet },
-			CurrentCity: func() (*config.CityConfig, error) { return current, nil },
-		}
-		return f, errOut.String
-	}
+	newFactory := newCitiesFactory
 
 	t.Run("single_city_no_header", func(t *testing.T) {
 		f, errOut := newFactory([]config.CityConfig{cityA}, false, nil)
@@ -169,27 +161,6 @@ func TestForEachCity(t *testing.T) {
 		}
 		if len(calls) != 0 {
 			t.Errorf("cancelled context must run no cities; calls = %v", calls)
-		}
-	})
-
-	t.Run("city_returning_cancel_stops_remaining_cities", func(t *testing.T) {
-		// A ctrl+c inside a TUI step never cancels ctx (raw mode swallows
-		// SIGINT); the step just returns an error wrapping context.Canceled.
-		// That must stop the run, not move on to the next city
-		// (solvent-streets-ern4.6).
-		f, _ := newFactory([]config.CityConfig{cityA, cityB, cityC}, false, nil)
-		interrupted := fmt.Errorf("interrupted: %w", context.Canceled)
-
-		var calls []string
-		err := cmdutil.ForEachCity(context.Background(), f, func(_ *cmdutil.Factory, city *config.CityConfig) error {
-			calls = append(calls, city.Name)
-			return interrupted
-		})
-		if !errors.Is(err, context.Canceled) {
-			t.Errorf("ForEachCity = %v, want context.Canceled", err)
-		}
-		if len(calls) != 1 {
-			t.Errorf("cities run = %v, want only [Alpha]: a cancelled city must stop the run", calls)
 		}
 	})
 
@@ -345,6 +316,83 @@ func (e *recordingExporter) Fields() []string { return []string{"city"} }
 func (e *recordingExporter) Write(_ *iostreams.IOStreams, rows []map[string]any) error {
 	e.writes = append(e.writes, rows)
 	return nil
+}
+
+// newCitiesFactory builds a factory over cities, with --city reported as
+// set when flagSet and CurrentCity returning current. The second return
+// reads what was written to ErrOut.
+func newCitiesFactory(cities []config.CityConfig, flagSet bool, current *config.CityConfig) (*cmdutil.Factory, func() string) {
+	ios, _, _, errOut := iostreams.Test()
+	cfg := &config.Config{Cities: cities}
+	f := &cmdutil.Factory{
+		IOStreams:   ios,
+		Config:      func() (*config.Config, error) { return cfg, nil },
+		CityFlagSet: func() bool { return flagSet },
+		CurrentCity: func() (*config.CityConfig, error) { return current, nil },
+	}
+	return f, errOut.String
+}
+
+// TestForEachCity_StopsEarly pins the failures that end a multi-city run
+// instead of being collected per city: a cancellation surfaced by a city, and
+// a database that will not open.
+func TestForEachCity_StopsEarly(t *testing.T) {
+	cityA := config.CityConfig{Name: "Alpha"}
+	cityB := config.CityConfig{Name: "Beta"}
+	cityC := config.CityConfig{Name: "Gamma"}
+
+	t.Run("city_returning_cancel_stops_remaining_cities", func(t *testing.T) {
+		// A ctrl+c inside a TUI step never cancels ctx (raw mode swallows
+		// SIGINT); the step just returns an error wrapping context.Canceled.
+		// That must stop the run, not move on to the next city
+		// (solvent-streets-ern4.6).
+		f, _ := newCitiesFactory([]config.CityConfig{cityA, cityB, cityC}, false, nil)
+		interrupted := fmt.Errorf("interrupted: %w", context.Canceled)
+
+		var calls []string
+		err := cmdutil.ForEachCity(context.Background(), f, func(_ *cmdutil.Factory, city *config.CityConfig) error {
+			calls = append(calls, city.Name)
+			return interrupted
+		})
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("ForEachCity = %v, want context.Canceled", err)
+		}
+		if len(calls) != 1 {
+			t.Errorf("cities run = %v, want only [Alpha]: a cancelled city must stop the run", calls)
+		}
+	})
+
+	t.Run("database_open_failure_reported_once", func(t *testing.T) {
+		// The database is shared by every city, so failing to open it (here,
+		// one from an older pvmt) must fail the run once, hint intact, not once
+		// per city (solvent-streets-ern4.8).
+		f, errOut := newCitiesFactory([]config.CityConfig{cityA, cityB, cityC}, false, nil)
+		openErr := hint.With(fmt.Errorf("open: %w", db.ErrIncompatibleDatabase), "move the old database aside")
+		f.RootDB = func() (*db.RootStore, error) { return nil, openErr }
+
+		var calls []string
+		err := cmdutil.ForEachCity(context.Background(), f, func(cf *cmdutil.Factory, city *config.CityConfig) error {
+			calls = append(calls, city.Name)
+			_, err := cf.CityDB()
+			return err
+		})
+		if !errors.Is(err, db.ErrIncompatibleDatabase) {
+			t.Fatalf("ForEachCity = %v, want the database error", err)
+		}
+		if n := strings.Count(err.Error(), db.ErrIncompatibleDatabase.Error()); n != 1 {
+			t.Errorf("error reports the database failure %d times, want once:\n%v", n, err)
+		}
+		var he *hint.ErrHint
+		if !errors.As(err, &he) || he.Hint != "move the old database aside" {
+			t.Errorf("ForEachCity = %v, want the open error's hint intact", err)
+		}
+		if len(calls) != 0 {
+			t.Errorf("cities run = %v, want none", calls)
+		}
+		if got := errOut(); strings.Contains(got, "===") {
+			t.Errorf("printed city headers for a run that never reached a city:\n%s", got)
+		}
+	})
 }
 
 // TestForEachCityRows: with an exporter, every city's rows land in ONE

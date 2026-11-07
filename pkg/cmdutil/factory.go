@@ -198,7 +198,8 @@ func ForEachCityRows[R RowExporter](ctx context.Context, f *Factory, ios *iostre
 // EVERY city yields ErrNoResults, ForEachCity returns ErrNoResults so the
 // "nothing produced" outcome maps to the same exit code (3) as the single-city
 // path, instead of silently exiting 0 (solvent-streets-9zc2). A cancellation,
-// whether ctx is done or fn returns context.Canceled, stops the loop.
+// whether ctx is done or fn returns context.Canceled, stops the loop, and a
+// database that will not open fails the run once, before any city.
 func ForEachCity(ctx context.Context, f *Factory, fn func(cf *Factory, city *config.CityConfig) error) error {
 	cities, err := ResolveCities(f)
 	if err != nil {
@@ -213,6 +214,16 @@ func ForEachCity(ctx context.Context, f *Factory, fn func(cf *Factory, city *con
 
 	if len(cities) == 1 {
 		return fn(f, &cities[0])
+	}
+
+	// Open the database before the first city. Failing to (say, a database
+	// from an older pvmt) is not about any one city: reported per city it
+	// printed once for every city, with its hint lost below them all
+	// (solvent-streets-ern4.8).
+	if f.RootDB != nil {
+		if _, err := f.RootDB(); err != nil {
+			return err
+		}
 	}
 
 	var errs []error
