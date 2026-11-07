@@ -373,3 +373,82 @@ func TestSeedsAndArrival_AtVertexIgnoresDirection(t *testing.T) {
 		t.Errorf("B itself from B = (%v, %d), want (0, 0)", secs, s)
 	}
 }
+
+// freewayBesideStreet builds a residential street W–E with a one-way
+// motorway carriageway running west to east 20 m north of it, joined by an
+// on-ramp at the west end and an off-ramp at the east end. It returns the
+// graph, the projector, the street's projected end points and its length.
+func freewayBesideStreet(t *testing.T) (g *Graph, p *geo.UTMProjector, wx, wy, ex, ey, length float64) {
+	t.Helper()
+	p = testProj()
+	wx, wy = p.ToProjected(lonA, latA)
+	ex, ey = p.ToProjected(lonD, latD)
+	pt := func(x, y float64) [2]float64 {
+		lon, lat := p.FromProjected(x, y)
+		return [2]float64{lon, lat}
+	}
+	w, e := pt(wx, wy), pt(ex, ey)
+	wn, en := pt(wx, wy+20), pt(ex, ey+20)
+	g = BuildGraph(context.Background(), []resource.Feature{
+		line(map[string]string{"highway": "residential"}, w, e),
+		line(map[string]string{"highway": "motorway"}, wn, en),
+		line(map[string]string{"highway": "motorway_link"}, w, wn),
+		line(map[string]string{"highway": "motorway_link"}, en, e),
+	}, DefaultRoadSpeeds, p)
+	return g, p, wx, wy, ex, ey, math.Hypot(ex-wx, ey-wy)
+}
+
+// TestComputeCoverage_HexBesideFreewayTimedViaStreet: a hex centre 5 m from a
+// one-way motorway and 15 m from a residential street is timed along the
+// street. Snapped onto the carriageway it could only be reached in the
+// motorway's direction of travel, i.e. by looping round through both ramps.
+func TestComputeCoverage_HexBesideFreewayTimedViaStreet(t *testing.T) {
+	g, p, wx, wy, ex, ey, length := freewayBesideStreet(t)
+	spec := Registry["fire"]
+	stLon, stLat := p.FromProjected(ex, ey) // station at the east end, downstream of the whole carriageway
+	hexes := []geo.Hex{{ID: "h", CenterX: (wx + ex) / 2, CenterY: (wy+ey)/2 + 15}}
+	cov := ComputeCoverage(context.Background(), spec, hexes, g, []Facility{{ID: "st", Lon: stLon, Lat: stLat}})
+	want := spec.TurnoutS + length/2/(40/3.6)
+	if len(cov.Hexes) != 1 || math.Abs(cov.Hexes[0].Seconds-want) > 0.1 {
+		t.Errorf("hex beside freeway = %+v, want ~%v s (half the street at 40 km/h)", cov.Hexes, want)
+	}
+}
+
+// TestComputeCoverage_StationBesideFreewayLeavesViaStreet: a station 5 m from
+// a one-way motorway and 15 m from a residential street starts on the
+// street, not on the carriageway (which would send it east to the off-ramp
+// before it could head west).
+func TestComputeCoverage_StationBesideFreewayLeavesViaStreet(t *testing.T) {
+	g, p, wx, wy, ex, ey, length := freewayBesideStreet(t)
+	spec := Registry["fire"]
+	stLon, stLat := p.FromProjected((wx+ex)/2, (wy+ey)/2+15)
+	hexes := []geo.Hex{{ID: "w", CenterX: wx, CenterY: wy - 10}} // south of the west end, away from the motorway
+	cov := ComputeCoverage(context.Background(), spec, hexes, g, []Facility{{ID: "st", Lon: stLon, Lat: stLat}})
+	want := spec.TurnoutS + length/2/(40/3.6)
+	if len(cov.Hexes) != 1 || math.Abs(cov.Hexes[0].Seconds-want) > 0.1 {
+		t.Errorf("hex from station beside freeway = %+v, want ~%v s (half the street at 40 km/h)", cov.Hexes, want)
+	}
+}
+
+// TestComputeCoverage_MotorwayOnlyStillSnaps: where a motorway is the only
+// road within range, a station and a hex still snap onto it rather than
+// going unsnapped or unpainted.
+func TestComputeCoverage_MotorwayOnlyStillSnaps(t *testing.T) {
+	p := testProj()
+	g := BuildGraph(context.Background(), []resource.Feature{
+		line(map[string]string{"highway": "motorway"}, [2]float64{lonA, latA}, [2]float64{lonD, latD}),
+	}, DefaultRoadSpeeds, p)
+	ax, ay := p.ToProjected(lonA, latA)
+	dx, dy := p.ToProjected(lonD, latD)
+	stLon, stLat := p.FromProjected(ax, ay+10)
+	spec := Registry["fire"]
+	cov := ComputeCoverage(context.Background(), spec, []geo.Hex{{ID: "mid", CenterX: (ax + dx) / 2, CenterY: (ay+dy)/2 + 5}},
+		g, []Facility{{ID: "st", Lon: stLon, Lat: stLat}})
+	if len(cov.Unsnapped) != 0 {
+		t.Fatalf("a station 10 m from a motorway must snap to it: %+v", cov)
+	}
+	want := spec.TurnoutS + math.Hypot(dx-ax, dy-ay)/2/(100/3.6)
+	if len(cov.Hexes) != 1 || math.Abs(cov.Hexes[0].Seconds-want) > 0.1 {
+		t.Errorf("motorway-only hex = %+v, want ~%v s (half the motorway at 100 km/h)", cov.Hexes, want)
+	}
+}

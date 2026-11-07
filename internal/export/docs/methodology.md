@@ -324,7 +324,12 @@ city-builder's service-coverage overlay. It is computed, not observed:
    centre — not merely the nearest vertex, so a long straight road with
    few vertices still reaches the hexes it crosses — provided that point
    is within 300 m; stations farther than 500 m from the network are
-   ignored with a warning. The summary's "within
+   ignored with a warning. Neither a station nor a hex centre is placed
+   on a motorway carriageway or ramp while any other road is within
+   those distances: a carriageway is one-way with no frontage, so a point
+   beside a freeway placed on it would be timed as if reachable only in
+   the freeway's direction of travel. Trunk roads, often surface
+   arterials, are not excluded. The summary's "within
    threshold" share uses NFPA 1710's 240 s first-engine travel time.
    `[[services]]` in the config overrides both constants.
 4. **Storage and display.** Values are stored per hex as the

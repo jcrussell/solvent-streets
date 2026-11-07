@@ -35,7 +35,8 @@ type Coverage struct {
 // sparse vertices still reaches the hexes it crosses and travel is costed to
 // the snapped point. Facilities snap to the street network (SnapConnected)
 // rather than to a closer unjoined stub, and hexes to the nearest position a
-// facility can reach. Hexes off the network or unreachable from every
+// facility can reach; neither snaps onto a motorway carriageway unless no
+// other road is in range (see SnapWhere). Hexes off the network or unreachable from every
 // facility are omitted — they carry no value rather than a sentinel. ctx
 // cancellation yields a partial Hexes list with no error, like
 // geo.ComputeHexStats; callers check ctx.Err() before persisting.

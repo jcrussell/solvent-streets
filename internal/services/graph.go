@@ -68,13 +68,15 @@ type edge struct {
 }
 
 // segment is one road segment between vertices a and c: its projected
-// length, its speed, and which directions it may be driven (fwd: a→c,
-// back: c→a).
+// length, its speed, which directions it may be driven (fwd: a→c,
+// back: c→a), and whether it is a motorway carriageway, which snapping
+// avoids (see SnapWhere).
 type segment struct {
 	a, c      int
 	length    float64 // metres
 	mps       float64
 	fwd, back bool
+	motorway  bool
 }
 
 // Snap is a position on the network: the point at fraction T (0 at the
@@ -124,8 +126,9 @@ func PreferredRoads(roads []resource.Feature) ([]resource.Feature, string) {
 // becomes an edge whose cost is its projected length over the speed for the
 // road's tags (speeds.SpeedKmh). oneway=yes/true/1 (and the implied oneway of
 // motorways and roundabouts) keeps only the forward edge, oneway=-1 only the
-// reverse. Geometries that are not lines are skipped. Cancelling ctx stops the
-// build and returns what was built so far.
+// reverse. Motorway and motorway_link segments are marked so snapping can
+// pass over them (SnapWhere). Geometries that are not lines are skipped.
+// Cancelling ctx stops the build and returns what was built so far.
 func BuildGraph(ctx context.Context, roads []resource.Feature, speeds SpeedTable, proj geo.Projector) *Graph {
 	b := &graphBuilder{g: &Graph{proj: proj}, nodeAt: make(map[[2]float64]int)}
 	for _, r := range roads {
@@ -137,8 +140,9 @@ func BuildGraph(ctx context.Context, roads []resource.Feature, speeds SpeedTable
 			continue
 		}
 		fwd, back := direction(r.Tags)
+		motorway := isMotorway(r.Tags)
 		for _, seq := range lineSequences(r.GeometryJSON) {
-			b.addLine(seq, mps, fwd, back)
+			b.addLine(seq, mps, fwd, back, motorway)
 		}
 	}
 	return b.finish()
@@ -167,8 +171,9 @@ func (b *graphBuilder) node(xy geom.XY) int {
 }
 
 // addLine adds one edge per consecutive vertex pair of seq, costed at mps
-// metres per second, in the allowed direction(s).
-func (b *graphBuilder) addLine(seq geom.Sequence, mps float64, fwd, back bool) {
+// metres per second, in the allowed direction(s); motorway marks the
+// segments as carriageway for snapping.
+func (b *graphBuilder) addLine(seq geom.Sequence, mps float64, fwd, back, motorway bool) {
 	g := b.g
 	for i := 1; i < seq.Length(); i++ {
 		a := b.node(seq.GetXY(i - 1))
@@ -178,7 +183,7 @@ func (b *graphBuilder) addLine(seq geom.Sequence, mps float64, fwd, back bool) {
 		}
 		length := math.Hypot(g.xs[a]-g.xs[c], g.ys[a]-g.ys[c])
 		cost := length / mps
-		g.segs = append(g.segs, segment{a: a, c: c, length: length, mps: mps, fwd: fwd, back: back})
+		g.segs = append(g.segs, segment{a: a, c: c, length: length, mps: mps, fwd: fwd, back: back, motorway: motorway})
 		if fwd {
 			g.adj[a] = append(g.adj[a], edge{to: c, cost: cost})
 		}
@@ -285,10 +290,18 @@ func direction(tags map[string]string) (fwd, back bool) {
 	case "no", "false", "0":
 		return true, true
 	}
-	if tags["junction"] == "roundabout" || tags["highway"] == "motorway" || tags["highway"] == "motorway_link" {
+	if tags["junction"] == "roundabout" || isMotorway(tags) {
 		return true, false
 	}
 	return true, true
+}
+
+// isMotorway reports whether a road is a motorway carriageway or one of its
+// links: implicitly one-way and grade-separated, so a point placed on one can
+// only be reached or left in its direction of travel. Trunk roads are not
+// included; they are often surface arterials with frontage.
+func isMotorway(tags map[string]string) bool {
+	return tags["highway"] == "motorway" || tags["highway"] == "motorway_link"
 }
 
 // NodeCount is the number of vertices.
@@ -348,24 +361,38 @@ func (g *Graph) snapCandidates(x, y, maxDist float64) []Snap {
 // SnapWhere returns the nearest network position to (x, y) within maxDist
 // that ok accepts (nil accepts all), or false when there is none. Used to
 // snap a hex to the nearest position a facility can actually reach, rather
-// than to an unreachable fragment that is marginally closer.
+// than to an unreachable fragment that is marginally closer. A motorway
+// carriageway (or link) is taken only when no other accepted road is within
+// maxDist: it is one-way and has no frontage, so a point beside a freeway
+// snapped onto it would be timed as reached only in the carriageway's
+// direction of travel, minutes off its true time via the local street.
 func (g *Graph) SnapWhere(x, y, maxDist float64, ok func(Snap) bool) (Snap, bool) {
-	var best Snap
-	found := false
+	var best, motorway Snap
+	found, foundMotorway := false, false
 	for _, c := range g.snapCandidates(x, y, maxDist) {
 		if ok != nil && !ok(c) {
+			continue
+		}
+		if g.segs[c.Seg].motorway {
+			if !foundMotorway || c.Dist < motorway.Dist {
+				motorway, foundMotorway = c, true
+			}
 			continue
 		}
 		if !found || c.Dist < best.Dist {
 			best, found = c, true
 		}
 	}
-	return best, found
+	if found {
+		return best, true
+	}
+	return motorway, foundMotorway
 }
 
 // SnapConnected is SnapWhere biased toward the street network: among the
 // segments within maxDist it returns the nearest position on one that
-// belongs to the LARGEST connected component in range. A station beside an
+// belongs to the LARGEST connected component in range, passing over
+// motorway carriageways as SnapWhere does. A station beside an
 // unjoined apron or driveway therefore snaps to the street a little farther
 // away instead of to the stub, which would otherwise swallow the whole
 // station silently. Only segments actually within maxDist compete for
