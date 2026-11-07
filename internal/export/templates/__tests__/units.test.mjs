@@ -32,6 +32,29 @@ test('toggle switches both the numbers and their labels', async () => {
   assert.notEqual(imperial, metric, 'numbers did not change with the unit system');
 });
 
+test('the Color-by legend follows a units switch', async () => {
+  const grid = {
+    type: 'FeatureCollection',
+    v: 5,
+    features: [{
+      type: 'Feature',
+      geometry: { type: 'Polygon', coordinates: [[[0, 0], [0, 1], [1, 1], [0, 0]]] },
+      properties: { id: 'hex:0:0', all: { roads: { area: 1000, share: 0.4 } }, city_same: 1 },
+    }],
+  };
+  const { win, $$, flush } = load({ data: { ...data, 'hexgrid.geojson': grid } });
+  await flush();
+  await win.loadCityData();
+  await flush();
+  win.selectHexMetric('paved_area_m2');
+  const labels = () => $$('#legend .legend-labels span').map((s) => s.textContent);
+  assert.equal(labels().at(-1), '> 86K sq ft');
+
+  win.selectUnits('metric');
+  assert.deepEqual(labels(), ['≤ 500', '500–1K', '1K–2K', '2K–4K', '4K–8K', '> 8K ' + win.areaUnit()],
+    'the legend kept the old units');
+});
+
 test('choice persists to localStorage and seeds from it on reload', async () => {
   const first = load({ data });
   await first.flush();

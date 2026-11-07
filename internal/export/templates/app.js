@@ -3329,6 +3329,8 @@
             // Stats panel is always visible — re-render it in place (no map
             // rebuild), an open detail panel included.
             refreshCityStats();
+            // The Color-by legend's edges are formatted in the display units.
+            renderLegend();
             // Financials is loaded once per city and is NOT re-triggered by
             // selectTab, so re-render it now regardless of the active tab. Render
             // from the cached data rather than calling loadFinancials(): a display
