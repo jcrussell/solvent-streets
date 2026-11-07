@@ -88,7 +88,7 @@ pvmt all compute
 pvmt export -o ./site
 ```
 
-`./site` is a self-contained folder you can deploy to GitHub Pages or any static host. `pvmt forecast` prints the same deterioration and cost projections in the terminal; it, export and serve all simulate the forecast from the computed data when they run, so it is not a pipeline step.
+`./site` is a self-contained folder you can deploy to GitHub Pages or any static host. `pvmt forecast` prints deterioration and cost projections in the terminal over every jurisdiction's pavement: the dashboard's "All" view, not its headline, which covers city-maintained pavement when the city has any. It, export and serve all simulate the forecast from the computed data when they run, so it is not a pipeline step.
 
 `pvmt all ingest` and `pvmt all compute` also pull fire stations from OpenStreetMap and compute a per-hex fire response time over the road network (the map's **Color by → Fire response**); `pvmt services --help` runs those steps on their own. Parking lots carry an estimated space count, and the gear menu's tag filters narrow the city list by metro group and state on every page.
 

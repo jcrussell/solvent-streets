@@ -186,14 +186,17 @@ func TestCityHash_ForecastEditsDoNotMove(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) { check(t, edit(twoCities)) })
 	}
-	for _, env := range []struct{ key, val string }{
-		{"PVMT_FORECAST_YEARS", "40"},
-		{"PVMT_FORECAST_INITIAL_PCI", "60"},
+	for _, env := range []struct {
+		key, val string
+		reached  func(ForecastConfig) bool
+	}{
+		{"PVMT_FORECAST_YEARS", "40", func(f ForecastConfig) bool { return f.Years == 40 }},
+		{"PVMT_FORECAST_INITIAL_PCI", "60", func(f ForecastConfig) bool { return f.InitialPCI == 60 }},
 	} {
 		t.Run(env.key, func(t *testing.T) {
 			t.Setenv(env.key, env.val)
 			cfg, city := loadCity(t, writeTOML(t, t.TempDir(), "pvmt.toml", twoCities), "reno-nv")
-			if got := cfg.ResolvedForecast(city); got.Years != 40 && got.InitialPCI != 60 {
+			if got := cfg.ResolvedForecast(city); !env.reached(got) {
 				t.Fatalf("fixture: %s=%s did not reach the resolved forecast (%+v)", env.key, env.val, got)
 			}
 			check(t, twoCities)
@@ -622,8 +625,8 @@ func TestComputeInputs_EveryFieldClassified(t *testing.T) {
 			seen[key] = true
 			rule, ok := configFieldRules[key]
 			if !ok {
-				t.Errorf("%s is not classified: add it to configFieldRules as hashed, presentation, "+
-					"ingest or plumbing (see CONTRIBUTING.md, \"Adding a config field\")", key)
+				t.Errorf("%s is not classified: add it to configFieldRules as hashed, simulated, "+
+					"presentation, ingest or plumbing (see CONTRIBUTING.md, \"Adding a config field\")", key)
 				continue
 			}
 			if rule.class != nested {

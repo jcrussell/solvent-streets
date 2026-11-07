@@ -85,11 +85,12 @@ func NewCmdForecast(f *cmdutil.Factory, runF func(context.Context, *Options) err
 		Long: `Project PCI decay and maintenance costs over the [forecast] horizon.
 
 The forecast is simulated each time from the city's current snapshot (its
-compute results and cohort stats) under the current [forecast] settings, the
-same way export and serve simulate it. Nothing is stored and no snapshot is
-committed, and [forecast] settings are not part of the snapshot hash, so a
-forecast edit takes effect here without a recompute. A city with nothing
-computed under its current settings exits 3.`,
+compute results and cohort stats) under the current [forecast] settings, over
+every jurisdiction's pavement: the dashboard's "All" view, not its headline,
+which covers city-maintained pavement when the city has any. Nothing is
+stored and no snapshot is committed, and [forecast] settings are not part of
+the snapshot hash, so a forecast edit takes effect here without a recompute.
+A city with nothing computed under its current settings exits 3.`,
 		Example: `  # Run baseline + scenario comparisons for every configured city
   pvmt forecast
 
