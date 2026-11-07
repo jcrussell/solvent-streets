@@ -52,24 +52,39 @@ func newAllIngest(f *cmdutil.Factory) *cobra.Command {
 		Example: `  # Pull roads, parking, sidewalks, fire stations and Census blocks for every [[cities]] entry
   pvmt all ingest`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return cmdutil.ForEachCity(cmd.Context(), f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
-				err := forEachResource(f.IOStreams, func(rt resource.Source) error {
-					return ingest.RunResourceForCity(cmd.Context(), cf, rt)
-				})
-				if isCancel(err) {
-					return err
-				}
-				// Facility and Census ingest ride along best-effort (see
-				// runOptionalStep).
-				return runOptionalSteps(err, f.IOStreams, []optionalStep{
-					{servicescmd.DefaultService + " ingest", func() error {
-						return servicescmd.RunIngestForCity(cmd.Context(), cf, servicescmd.DefaultService)
-					}},
-					{"census ingest", func() error { return censuscmd.RunIngestForCity(cmd.Context(), cf) }},
-				})
+			return cmdutil.ForEachCity(cmd.Context(), f, func(cf *cmdutil.Factory, city *config.CityConfig) error {
+				return ingestCity(cmd.Context(), f.IOStreams, cf, city)
 			})
 		},
 	}
+}
+
+// ingestCity runs every ingest step for one city. The boundary (and its
+// water strip, the heaviest Overpass query) is resolved once up front: every
+// step needs it, so when it cannot be had the city is skipped with one
+// warning instead of each step re-fetching it and failing the same way.
+func ingestCity(ctx context.Context, ios *iostreams.IOStreams, cf *cmdutil.Factory, city *config.CityConfig) error {
+	boundary, err := ingest.ResolveBoundaryForCity(ctx, cf)
+	if err != nil {
+		if !isCancel(err) {
+			cmdutil.Warnf(ios, "skipping %s: no boundary: %v", city.Name, err)
+		}
+		return err
+	}
+	err = forEachResource(ios, func(rt resource.Source) error {
+		return ingest.RunResourceWithBoundary(ctx, cf, rt, boundary)
+	})
+	if isCancel(err) {
+		return err
+	}
+	// Facility and Census ingest ride along best-effort (see
+	// runOptionalStep).
+	return runOptionalSteps(err, ios, []optionalStep{
+		{servicescmd.DefaultService + " ingest", func() error {
+			return servicescmd.RunIngestForCity(ctx, cf, servicescmd.DefaultService)
+		}},
+		{"census ingest", func() error { return censuscmd.RunIngestForCity(ctx, cf) }},
+	})
 }
 
 func newAllCompute(f *cmdutil.Factory) *cobra.Command {

@@ -202,14 +202,54 @@ func TestAllIngest_InProcessFanOut(t *testing.T) {
 	if strings.Contains(errBuf.String(), "failed:") {
 		t.Errorf("a resource failed and was warn-swallowed; want every resource to reach ErrNoResults cleanly.\nstderr:\n%s", errBuf.String())
 	}
-	// Every pavement resource plus the best-effort fire-facility and Census
-	// block ingests that ride along after them (runOptionalStep).
-	wantRuns := len(resource.All) + 2
+	// The up-front boundary resolve, every pavement resource, and the
+	// best-effort fire-facility and Census block ingests that ride along
+	// after them (runOptionalStep).
+	wantRuns := 1 + len(resource.All) + 2
 	if boundaryCalls != wantRuns {
 		t.Errorf("ingested %d resources, want %d — the fan-out must visit every resource and the optional steps", boundaryCalls, wantRuns)
 	}
 	if ctxSeen != wantRuns {
 		t.Errorf("request context reached %d of %d ingest runs; a cancellable ctx must propagate to each", ctxSeen, wantRuns)
+	}
+}
+
+// TestAllIngest_BoundaryFailureSkipsCity pins solvent-streets-ern4.7: every
+// ingest step needs the city boundary, so when it cannot be resolved the city
+// is skipped after one attempt and one warning. Each step used to resolve it
+// on its own, so a failing Overpass re-issued the boundary and water-strip
+// queries for every step of every city, with a warning each time.
+func TestAllIngest_BoundaryFailureSkipsCity(t *testing.T) {
+	ios, _, _, errBuf := iostreams.Test()
+	wantErr := errors.New("database is locked")
+	boundaryCalls := 0
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func(context.Context) (string, error) {
+			boundaryCalls++
+			return "", wantErr
+		},
+		UpsertFeaturesFunc: func(context.Context, resource.Type, []db.Feature, []string) error {
+			t.Error("UpsertFeatures called; no step may run without a boundary")
+			return nil
+		},
+	}
+
+	cmd := NewCmdAll(ingestFactory(ios, store))
+	cmd.SetArgs([]string{"ingest"})
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	if err := cmd.ExecuteContext(context.Background()); !errors.Is(err, wantErr) {
+		t.Fatalf("all ingest = %v, want the boundary failure", err)
+	}
+	if boundaryCalls != 1 {
+		t.Errorf("boundary resolved %d times, want 1", boundaryCalls)
+	}
+	stderr := errBuf.String()
+	if n := strings.Count(stderr, "warning:"); n != 1 {
+		t.Errorf("printed %d warnings, want 1:\n%s", n, stderr)
+	}
+	if strings.Contains(stderr, "--- ") {
+		t.Errorf("an ingest step ran after the boundary failed:\n%s", stderr)
 	}
 }
 

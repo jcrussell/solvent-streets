@@ -30,6 +30,8 @@ type Options struct {
 	Source       cmdutil.Source
 	Force        bool
 	DryRun       bool
+
+	boundary *Boundary // resolved up front by `all ingest`; nil resolves it per run
 }
 
 func NewCmdIngest(f *cmdutil.Factory, rt resource.Source, runF func(context.Context, *Options) error) *cobra.Command {
@@ -103,7 +105,8 @@ func Example(group string, rt resource.Source) string {
 }
 
 // RunResourceForCity ingests a single resource type against the already
-// city-scoped factory f. `all ingest` calls it in-process — instead of
+// city-scoped factory f. `all ingest` calls it (as RunResourceWithBoundary)
+// and the fire and Census steps call it in-process — instead of
 // building a throwaway ingest cobra command and re-parsing flags through it —
 // so the fan-out uses the same mechanism as `all compute`'s
 // compute.RunResourceForCity. It mirrors the Options NewCmdIngest builds at
@@ -111,6 +114,68 @@ func Example(group string, rt resource.Source) string {
 // flags of its own, so there is nothing to forward and Source is pinned to
 // the same cmdutil.SourceAll default the flag would have supplied.
 func RunResourceForCity(ctx context.Context, f *cmdutil.Factory, rt resource.Source) error {
+	return RunResourceWithBoundary(ctx, f, rt, nil)
+}
+
+// Boundary is a city's boundary resolved once by ResolveBoundaryForCity and
+// shared by the ingest steps that follow, so `pvmt all ingest` fetches the
+// boundary and its water strip once per city instead of once per step. The
+// boundary itself lives in the store; Boundary carries the road-coverage
+// check a fresh fetch still owes, which the first step with roads runs.
+type Boundary struct {
+	fresh *freshBoundary // nil on a cache hit, and once the check has run
+}
+
+// pending returns the road-coverage check b still owes, or nil (also for a
+// nil b).
+func (b *Boundary) pending() *freshBoundary {
+	if b == nil {
+		return nil
+	}
+	return b.fresh
+}
+
+// checked records that the road-coverage check has run, so later steps skip
+// it. A nil b is a no-op.
+func (b *Boundary) checked() {
+	if b != nil {
+		b.fresh = nil
+	}
+}
+
+// ResolveBoundaryForCity returns the city's cached boundary or fetches and
+// saves a fresh one, exactly as the first step of a plain ingest would. Pass
+// the result to RunResourceWithBoundary for each step. An error means the
+// city has no usable boundary, so every one of its ingest steps would fail
+// the same way.
+func ResolveBoundaryForCity(ctx context.Context, f *cmdutil.Factory) (*Boundary, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	opts := &Options{IO: f.IOStreams, Source: cmdutil.SourceAll}
+	city, err := f.CurrentCity()
+	if err != nil {
+		return nil, fmt.Errorf("city: %w", err)
+	}
+	client, err := f.HttpClient()
+	if err != nil {
+		return nil, fmt.Errorf("http client: %w", err)
+	}
+	store, err := f.CityDB()
+	if err != nil {
+		return nil, fmt.Errorf("database: %w", err)
+	}
+	_, fresh, err := resolveBoundary(ctx, opts, store, client, city, liveBoundaryFetchers())
+	if err != nil {
+		return nil, err
+	}
+	return &Boundary{fresh: fresh}, nil
+}
+
+// RunResourceWithBoundary is RunResourceForCity for a city whose boundary
+// ResolveBoundaryForCity already resolved; b may be nil, which resolves it
+// here.
+func RunResourceWithBoundary(ctx context.Context, f *cmdutil.Factory, rt resource.Source, b *Boundary) error {
 	// Pre-check cancellation before doing any work. The `all` fan-out calls
 	// this in-process (it used to go through a throwaway cobra command, whose
 	// cmdutil.ForEachCity pre-check supplied this), so without it a mid-fan-out
@@ -127,6 +192,7 @@ func RunResourceForCity(ctx context.Context, f *cmdutil.Factory, rt resource.Sou
 		HttpClient:   f.HttpClient,
 		ResourceType: rt,
 		Source:       cmdutil.SourceAll,
+		boundary:     b,
 	}
 	return runIngest(ctx, opts)
 }
@@ -174,6 +240,11 @@ func runIngest(ctx context.Context, opts *Options) error {
 	boundaryGJSON, fresh, err := resolveBoundary(ctx, opts, store, client, city, liveBoundaryFetchers())
 	if err != nil {
 		return err
+	}
+	if fresh == nil {
+		// A boundary fetched up front makes this run a cache hit, but the
+		// road-coverage check that fetch owes may still be pending.
+		fresh = opts.boundary.pending()
 	}
 
 	bbox, err := geo.BBoxFromGeoJSON(boundaryGJSON)
@@ -223,6 +294,7 @@ func runIngest(ctx context.Context, opts *Options) error {
 	if fresh != nil {
 		roads, ok := roadsForCoverageGate(ctx, store, opts, allFeatures)
 		if ok {
+			opts.boundary.checked()
 			if err := applyRoadCoverageGate(ctx, store, city.Name, boundaryGJSON, fresh, roads, opts.IO.ErrOut); err != nil {
 				return err
 			}
@@ -389,6 +461,10 @@ func resolveBoundary(
 	nominatim := boundaryGJSON
 
 	stripped, warn, stripErr := stripWaterFromBoundary(ctx, client, fetch.water, boundaryGJSON)
+	if errors.Is(stripErr, context.Canceled) {
+		// The user stopped it; no "Overpass is overloaded" advice.
+		return "", nil, fmt.Errorf("water strip for %s: %w", city.Name, stripErr)
+	}
 	if errors.Is(stripErr, ErrWaterFetch) {
 		return "", nil, hint.Withf(fmt.Errorf("water strip for %s: %w", city.Name, stripErr),
 			"The boundary was not saved, so the next ingest retries the water fetch. "+

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -195,6 +197,67 @@ func TestRunResourceForCity_MatchesCommandDefaults(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "[dry-run]") {
 		t.Errorf("expected dry-run=false, stdout = %q", out.String())
+	}
+}
+
+// roundTripFunc adapts a function to http.RoundTripper for offline tests.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// TestRunResourceWithBoundary_RunsPendingCoverageCheckOnce: when `all ingest`
+// fetches the boundary up front, every step then hits the cache, but the
+// road-coverage check that a fresh water strip owes (solvent-streets-e5mk)
+// must still run, once, in the first step that has roads. Losing it would
+// leave an inverted water strip in place for the whole city.
+func TestRunResourceWithBoundary_RunsPendingCoverageCheckOnce(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	city := cmdtest.NewTestCity()
+	city.Overpass = true
+	// Roads sit in the left half of the [0,2]² city; the saved strip kept
+	// only the right half, so the strip is inverted and the check must
+	// replace it with the complement.
+	const overpassRoads = `{"elements":[
+		{"type":"node","id":1,"lat":0.5,"lon":0.5},
+		{"type":"node","id":2,"lat":0.51,"lon":0.51},
+		{"type":"way","id":10,"nodes":[1,2],"tags":{"highway":"residential"}}]}`
+	var saved []string
+	store := &dbtest.MockStore{
+		// Deliberately does not reflect SaveBoundary, so a second check would
+		// find the strip inverted again and save again.
+		GetBoundaryFunc: func(context.Context) (string, error) { return rightHalfBoundary, nil },
+		SaveBoundaryFunc: func(_ context.Context, _, source string) error {
+			saved = append(saved, source)
+			return nil
+		},
+		ListFeaturesFunc: func(context.Context, resource.Type) ([]db.Feature, error) {
+			return []db.Feature{road("r1", 0.5, 0.5)}, nil
+		},
+	}
+	f := &cmdutil.Factory{
+		IOStreams:   ios,
+		CityDB:      func() (db.Store, error) { return store, nil },
+		CurrentCity: func() (*config.CityConfig, error) { return city, nil },
+		HttpClient: func() (*http.Client, error) {
+			return &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
+					Body: io.NopCloser(strings.NewReader(overpassRoads))}, nil
+			})}, nil
+		},
+	}
+	b := &Boundary{fresh: &freshBoundary{
+		Nominatim:        bigSquareBoundary,
+		SavedSource:      "nominatim+osm-water",
+		UnstrippedSource: "nominatim",
+	}}
+
+	for _, rt := range []resource.Source{&resource.Pavement{}, &resource.Parking{}} {
+		if err := RunResourceWithBoundary(context.Background(), f, rt, b); err != nil {
+			t.Fatalf("%s ingest = %v", rt.Type(), err)
+		}
+	}
+	if want := []string{"nominatim+osm-water-inverted"}; !slices.Equal(saved, want) {
+		t.Errorf("boundary saves = %q, want %q: the pending check must run exactly once", saved, want)
 	}
 }
 
@@ -746,6 +809,36 @@ func TestResolveBoundary_WaterFetchErrorSavesNothing(t *testing.T) {
 	}
 	if fresh != nil {
 		t.Errorf("fresh = %+v, want nil on error", fresh)
+	}
+}
+
+// TestResolveBoundary_CancelledWaterFetchHasNoOverloadHint: a Ctrl-C during
+// the water fetch is the user stopping the run, not an overloaded Overpass, so
+// it must stay a plain cancellation without the "wait a few minutes and
+// re-run" hint (solvent-streets-ern4.7).
+func TestResolveBoundary_CancelledWaterFetchHasNoOverloadHint(t *testing.T) {
+	boundary := `{"type":"Polygon","coordinates":[[[-122.5,37.5],[-122.4,37.5],[-122.4,37.6],[-122.5,37.6],[-122.5,37.5]]]}`
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return "", nil },
+		SaveBoundaryFunc: func(_ context.Context, _, _ string) error {
+			t.Error("SaveBoundary called; a cancelled water fetch must save nothing")
+			return nil
+		},
+	}
+	cancelled := func(context.Context, *http.Client, [4]float64, [][2]float64) (string, error) {
+		return "", context.Canceled
+	}
+
+	_, _, err := resolveBoundary(
+		context.Background(), resolveBoundaryHarness(t), store, &http.Client{}, &config.CityConfig{Name: "Oakland, CA"},
+		boundaryFetchers{byName: recordingNominatim(boundary, nil), byRelation: recordingRelation("", nil), water: cancelled},
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	var he *hint.ErrHint
+	if errors.As(err, &he) {
+		t.Errorf("a cancelled water fetch carries hint %q, want none", he.Hint)
 	}
 }
 
