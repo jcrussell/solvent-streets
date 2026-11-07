@@ -94,6 +94,18 @@ Every pvmt database is stamped with a *schema generation*. Ordinary schema chang
 
 The refused file is left exactly as it was. To start over, move it aside together with its `-wal` and `-shm` companions if they exist (for example `for f in <path> <path>-wal <path>-shm; do [ -e "$f" ] && mv "$f" "$f.old"; done`), run your ingest and compute again, and delete the old files once you no longer need them. Everything in the database is rebuilt from upstream sources. The HTTP cache is separate, so responses fetched within its 24-hour TTL are reused.
 
+## No snapshot matches current config hash
+
+`pvmt export` fails with `no snapshot matches current config hash for <city>`; `pvmt forecast` warns `<slug> was computed, but not under the current settings …` and exits 3; `pvmt status` shows a blank *Last Compute* with the same note under the table.
+
+Computed results are stored per city under a hash of the settings that affect them (see [Configuration › Snapshots and the config hash](configuration.md#snapshots-and-the-config-hash)), and are read back only under the same hash. The hint says which case you are in:
+
+- **Computed, but not under the current settings.** A setting that affects results changed since the city was last computed — the hex edge, the `[forecast]` calibration, `[[services]].turnout_s`, a facility, `census` — or a `PVMT_HEX_EDGE_M` / `PVMT_FORECAST_*` override is set (or no longer set), or a pvmt upgrade changed how results are computed. Run `pvmt --city <slug> all compute`. `pvmt status` and `pvmt snapshots ls --city <slug>` list the city's snapshots with their hashes; `pvmt status` marks the ones that match the current settings. Comment, whitespace and presentation-only edits never cause this.
+- **Never computed.** Run `pvmt --city <slug> all compute`, after `pvmt all ingest` if its data is not ingested yet.
+- **Pulled in via `[[include]]` but resolved differently.** The including config resolves a different hex edge, `[[services]]`, facilities or `census` for the city than the config that declared it, so the stored results do not apply. The hint names the setting. The common cause is `[[services]]` in an included file: the include merge does not carry it into the including config. Make the two agree, or compute the city under the including config. For `[[services]]`, repeating the block at the top of the including config works only if every included example uses the same overrides, since the including config's `[[services]]` apply to all of its cities.
+
+A related **warning** — `no snapshot under the current settings has <parts>, which snapshot N (earlier settings) had` — means the city was recomputed only partly after a settings change (say `pvmt roads compute` after a `hex_edge_m` edit). The export goes ahead without those parts (fire coverage, population, or the combined paved total, without which the page falls back to the per-resource sum that double-counts overlap). Run `pvmt --city <slug> all compute`; if the part was dropped on purpose, ignore it.
+
 ## `#water-strip-skipped`
 
 **Hint:** *one-line warning emitted by `pvmt <resource> ingest` and `pvmt all ingest`; the boundary is still saved but without OSM water subtracted (or, for a failed water fetch, an error and nothing saved).*

@@ -19,6 +19,8 @@ pvmt all compute
 
 The new database fills from Overpass, ArcGIS and TIGERweb again, so a large config takes as long as its first ingest did (hours; about a day for the 277-city showcase). Responses still in the HTTP cache (24-hour TTL) are reused.
 
+Snapshot config hashes are also computed differently: per city, over only the settings that affect results (see [Snapshots and the config hash](configuration.md#snapshots-and-the-config-hash)). A `config_hash` a script recorded from v0.4.x never matches a v0.5.0 snapshot; the recompute above is all that is needed.
+
 ### 2. Re-export sites
 
 A site exported by v0.4.x cannot be refreshed in place. Its data files use the old formats, and the v0.5.0 dashboard refuses them (`unsupported hexgrid format (expected v5) — re-export this site`). After the compute, run `pvmt export` again (and `pvmt check-site` on the result) and redeploy the whole tree.

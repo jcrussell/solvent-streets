@@ -56,6 +56,53 @@ Node and runs `npm ci` on first use). Run it by hand before committing. It
 is not a git hook, and a `.git/hooks/pre-commit` symlink would never run:
 git takes its hooks from `.beads/hooks` (`core.hooksPath`, see below).
 
+## Changes that affect stored results
+
+Stored results are keyed on `Config.CityHash` (`internal/config/hash.go`):
+a per-city hash of the resolved settings that change what a compute
+stores, plus a hand-maintained `ComputeEpoch`. A snapshot is read only
+under the hash it was computed with, so two kinds of change need care.
+
+**Adding a config field.** `TestComputeInputs_EveryFieldClassified`
+(`internal/config/hash_test.go`) fails until the new field is entered in
+`configFieldRules`, with a `mutate` func that the test uses to check the
+classification against `CityHash`. Pick one:
+
+- **hashed**: some producer (roads/parking/sidewalks compute, the combined
+  pass, `forecast`, `services`, `census`) reads it, so changing it changes
+  a stored row. Add its *resolved* value to `computeInputs` in `hash.go`:
+  defaults applied, env overrides applied, `[[include]]` flattening
+  respected. Make it `omitempty`, with a zero value that means today's
+  behaviour, so configs that don't set it keep their hashes and nobody has
+  to recompute. Settings that feed a part every reader consumes as stored
+  (grid, coverage, metrics) go in `dataInputs`; forecast calibration goes
+  in `forecastInputs`. The difference is how an `[[include]]`d city
+  behaves: the union keeps reading its source's snapshots only while their
+  `dataInputs` agree (see `CityHash`).
+- **presentation**: read only when exporting or rendering (units, `[export]`,
+  tags, sliver thresholds, legend bands, budgets used only by the export's
+  solvency metrics).
+- **ingest**: decides what is fetched and stored, not what compute does with
+  it (sources, URLs, boundary lookup). A re-ingest is followed by a recompute
+  as usual.
+- **plumbing**: identity, keys, include layout, merge stamps, presence bits.
+
+When unsure whether a stored row depends on it, grep the producers for the
+field before deciding; hashing a field no producer reads only costs users
+spurious recomputes, while leaving out one that a producer reads lets
+export publish stale results.
+
+**Changing compute logic.** Bump `config.ComputeEpoch` by one, in the same
+commit, when a code change alters what a producer stores for the same stored
+features and the same settings: jurisdiction classification
+(`internal/filter`), buffering or width rules, hex tiling, clipping or
+stats, the forecast model or its built-in defaults, routing, speeds or the
+services registry defaults, census apportionment, or what a producer writes
+or drops. Every stored snapshot then stops matching and export asks for a
+recompute, which is the point. Do not bump it for changes to ingest, export
+or serve rendering, CLI output, docs or tests: each bump costs every user a
+full recompute. Note the bump in the commit message body.
+
 ## Commit messages
 
 Use [Conventional Commits](https://www.conventionalcommits.org/). The

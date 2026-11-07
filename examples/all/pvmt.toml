@@ -32,7 +32,7 @@
 # changes which calibration those cities get.
 #
 # This config stores no data of its own. Each city keeps the identity of the
-# example that declared it (config_id + content hash), so the union reads the
+# example that declared it (config_id + snapshot hash), so the union reads the
 # rows and snapshots those examples already ingested and computed — there is no
 # separate ingest for `examples/all`. Populate the individual examples, then run
 # `make site`.
