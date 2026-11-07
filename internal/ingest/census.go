@@ -89,7 +89,7 @@ func SourcesFor(rt resource.Source, bbox [4]float64, overpass bool, arcgisURL st
 // ownSource builds the named fixed source, or nil for an unknown name.
 func ownSource(name string, bbox [4]float64, opts Options) Source {
 	switch name {
-	case "overpass":
+	case sourceOverpass:
 		return &OverpassSource{BBox: bbox}
 	case "tigerweb":
 		return &CensusBlocksSource{BBox: bbox, Progress: opts.Progress}

@@ -38,7 +38,10 @@ type OverpassSource struct {
 
 var _ Source = (*OverpassSource)(nil)
 
-func (s *OverpassSource) Name() string { return "overpass" }
+// sourceOverpass is the Overpass source's name and its features' SourceAPI.
+const sourceOverpass = "overpass"
+
+func (s *OverpassSource) Name() string { return sourceOverpass }
 
 const maxSplitDepth = 3 // max 4^3 = 64 requests per city/resource
 
@@ -275,7 +278,7 @@ func buildFeatureFromWay(e overpassElement, nodes map[int64][2]float64, resource
 		Name:         name,
 		Tags:         e.Tags,
 		GeometryJSON: geojson,
-		SourceAPI:    "overpass",
+		SourceAPI:    sourceOverpass,
 		FetchedAt:    time.Now(),
 	}, true
 }
@@ -302,7 +305,7 @@ func buildFeatureFromRelation(ctx context.Context, e overpassElement, resourceTy
 		Name:         name,
 		Tags:         e.Tags,
 		GeometryJSON: polysToMultiPolygonGeoJSON(polys),
-		SourceAPI:    "overpass",
+		SourceAPI:    sourceOverpass,
 		FetchedAt:    time.Now(),
 	}, true
 }
@@ -328,7 +331,7 @@ func parseFacilityElements(ctx context.Context, elements []overpassElement, node
 			Name:         name,
 			Tags:         e.Tags,
 			GeometryJSON: coordToPointGeoJSON(c),
-			SourceAPI:    "overpass",
+			SourceAPI:    sourceOverpass,
 			FetchedAt:    time.Now(),
 		})
 	}
