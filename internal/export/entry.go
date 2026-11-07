@@ -18,10 +18,11 @@ import (
 // use errors.Is to skip the city rather than failing the whole export.
 var ErrNoBoundary = errors.New("no boundary stored")
 
-// ErrNoMatchingSnapshot signals that no snapshot for this city was written
-// by the current config — typically because `pvmt all compute` was skipped or
-// run with a different config. The exporter fails loud rather than emitting
-// silent empty hex_stats / zero meta totals.
+// ErrNoMatchingSnapshot signals that no snapshot for this city was computed
+// under its current settings (Config.CityHash) — the city was never computed,
+// or a setting that affects results (or pvmt's compute logic, ComputeEpoch)
+// changed since. The exporter fails loud rather than emitting silent empty
+// hex_stats / zero meta totals.
 var ErrNoMatchingSnapshot = errors.New("no snapshot matches current config hash")
 
 // CityEntry holds the config and store for a single city.
@@ -144,11 +145,56 @@ func (entry CityEntry) RequireMatchingSnapshot(ctx context.Context) error {
 				"`pvmt --city %s all compute` under this config.",
 			entry.City.Name, strings.Join(d, "; "), entry.Slug)
 	}
-	return hint.Withf(err,
-		"Run `pvmt --city %s all compute` to produce a snapshot matching the current "+
-			"settings (hash %s). If snapshots exist with other hashes (e.g. after editing "+
-			"hex_edge_m or a forecast knob), `pvmt snapshots ls --city %s` will show them.",
-		entry.Slug, configHash, entry.Slug)
+	if db.StaleFor(snaps, configHash) {
+		return hint.With(err, config.StaleSnapshotsHint(entry.Slug, configHash))
+	}
+	return hint.Withf(err, "%s has never been computed. Run `pvmt --city %s all compute` (after "+
+		"`pvmt --city %s all ingest` if its data is not ingested yet).", entry.City.Name, entry.Slug, entry.Slug)
+}
+
+// MissingParts reports the parts the export of this city will lack although
+// the city once had them: parts of its newest snapshot under OTHER settings
+// (a different config hash) that no snapshot under the current hash has ever
+// held. That is the trace of a settings change followed by a partial recompute —
+// say `pvmt roads compute` after a hex_edge_m edit — which leaves the current
+// snapshot without fire coverage, population or the combined total, and the
+// export would otherwise publish the city without them, silently. (A part
+// dropped under the current settings, because its producer found nothing to
+// work from, was held by an earlier current-hash snapshot and is not reported:
+// that drop is deliberate.) census is not reported for a city with census =
+// false. prev is that other snapshot's id; missing is empty when nothing is
+// missing or there is no other snapshot.
+func (entry CityEntry) MissingParts(ctx context.Context) (missing []string, prev int64, err error) {
+	if entry.Config == nil {
+		return nil, 0, nil
+	}
+	snaps, err := entry.Store.ListSnapshots(ctx)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list snapshots for %s: %w", entry.City.Name, err)
+	}
+	hash := entry.Config.CityHash(&entry.City)
+	held := map[string]bool{}
+	var other *db.Snapshot
+	for i := range snaps { // newest first
+		s := &snaps[i]
+		if s.ConfigHash == hash {
+			for _, p := range s.Parts {
+				held[p.Part] = true
+			}
+		} else if other == nil {
+			other = s
+		}
+	}
+	if other == nil || len(held) == 0 {
+		return nil, 0, nil
+	}
+	for _, p := range other.Parts {
+		if held[p.Part] || (p.Part == "census" && !entry.City.CensusEnabled()) {
+			continue
+		}
+		missing = append(missing, p.Part)
+	}
+	return missing, other.ID, nil
 }
 
 // hasPavement reports whether the snapshot holds at least one pavement

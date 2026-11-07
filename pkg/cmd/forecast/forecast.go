@@ -283,12 +283,25 @@ func runForecast(ctx context.Context, opts *Options) error {
 
 	fc := cfg.ResolvedForecast(city)
 	sys := opts.UnitSystem()
+	hash := cfg.CityHash(city)
+
+	// Computed, but not under the current settings: there is nothing to
+	// forecast from, and "no compute results" for every resource would hide
+	// why. Say it once, the way export does.
+	snaps, err := store.ListSnapshots(ctx)
+	if err != nil {
+		return fmt.Errorf("list snapshots: %w", err)
+	}
+	if db.StaleFor(snaps, hash) {
+		fmt.Fprintf(ios.ErrOut, "Warning: %s\n", config.StaleSnapshotsHint(city.Slug(), hash))
+		return cmdutil.ErrNoResults
+	}
 
 	fmt.Fprintf(ios.ErrOut, "Running %d-year forecast for %s...\n\n", fc.Years, city.Name)
 
 	// One snapshot for the whole command: the newest snapshot for this
 	// config with only the forecast parts swapped.
-	draft := db.NewDraft(store, cfg.CityHash(city))
+	draft := db.NewDraft(store, hash)
 	allResults, err := forecastAllResources(ctx, opts, draft, &fc, sys)
 	if err != nil {
 		return errors.Join(err, draft.Discard(context.WithoutCancel(ctx)))

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/resource"
@@ -373,5 +374,65 @@ func TestStatusRow_ExportData_ComputedZeroAreaIsKept(t *testing.T) {
 	out := statusRow{ResourceType: "parking", LastComputeAt: "2026-04-18T01:00:00Z"}.ExportData(statusFields)
 	if v, ok := out["area"]; !ok || v != 0.0 {
 		t.Errorf("area = %v (present %v), want a computed 0", v, ok)
+	}
+}
+
+// TestRunStatus_StaleSnapshotsSayWhy is solvent-streets-ern4.12 (b): after a
+// settings change, Last Compute reads through the new settings' (missing)
+// snapshot and shows blank. Status must say why — with export's hint — and mark
+// which listed snapshots are current, rather than look never-computed.
+func TestRunStatus_StaleSnapshotsSayWhy(t *testing.T) {
+	cfg := &config.Config{}
+	city := &config.CityConfig{Name: "Test City"}
+	cur := cfg.CityHash(city)
+	store := &dbtest.MockStore{
+		StatsFunc: func(_ context.Context, rt resource.Type) (*db.StatusInfo, error) {
+			return &db.StatusInfo{ResourceType: rt}, nil
+		},
+		ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
+			return []db.Snapshot{{ID: 7, ConfigHash: "0ld0ld0ld0ld0ld0", CreatedAt: time.Now()}}, nil
+		},
+	}
+	ios, _, _, stderr := iostreams.Test()
+	ios.SetTTY(true)
+	f := &cmdutil.Factory{
+		IOStreams:   ios,
+		UnitSystem:  func() units.System { return units.Imperial },
+		CityDB:      func() (db.Store, error) { return store, nil },
+		Config:      func() (*config.Config, error) { return cfg, nil },
+		CurrentCity: func() (*config.CityConfig, error) { return city, nil },
+	}
+	cmd := NewCmdStatus(f, nil, nil)
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	out := stderr.String()
+	if want := config.StaleSnapshotsHint("test-city", cur); !strings.Contains(out, want) {
+		t.Errorf("stderr lacks the shared stale-snapshot hint %q:\n%s", want, out)
+	}
+	if !strings.Contains(out, "0ld0ld0ld0ld0ld0") || strings.Contains(out, "(current settings)") {
+		t.Errorf("snapshot history should list the old hash, unmarked:\n%s", out)
+	}
+
+	// Once a snapshot under the current settings exists: no hint, and it is marked.
+	store.ListSnapshotsFunc = func(context.Context) ([]db.Snapshot, error) {
+		return []db.Snapshot{
+			{ID: 8, ConfigHash: cur, CreatedAt: time.Now()},
+			{ID: 7, ConfigHash: "0ld0ld0ld0ld0ld0", CreatedAt: time.Now()},
+		}, nil
+	}
+	stderr.Reset()
+	cmd = NewCmdStatus(f, nil, nil)
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	out = stderr.String()
+	if strings.Contains(out, "not under the current settings") {
+		t.Errorf("hint printed although a current snapshot exists:\n%s", out)
+	}
+	if !strings.Contains(out, cur+"  (current settings)") {
+		t.Errorf("current snapshot not marked:\n%s", out)
 	}
 }

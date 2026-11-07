@@ -324,6 +324,19 @@ func (c *Config) SourceDivergence(city *CityConfig) []string {
 	return out
 }
 
+// StaleSnapshotsHint is the one explanation export, `pvmt forecast` and `pvmt
+// status` give for a city that has snapshots but none under its current
+// CityHash (db.StaleFor). It lives here because what invalidates a snapshot is
+// this file's business: a result-affecting setting, an env override, or a
+// ComputeEpoch bump.
+func StaleSnapshotsHint(slug, hash string) string {
+	return fmt.Sprintf("%s was computed, but not under the current settings (hash %s): a setting that "+
+		"affects results changed since its last compute (hex_edge_m, [forecast], [[services]], "+
+		"facilities, census, or a PVMT_HEX_EDGE_M / PVMT_FORECAST_* override), or this pvmt computes "+
+		"differently from the one that did. Run `pvmt --city %s all compute`; "+
+		"`pvmt snapshots ls --city %s` lists the older snapshots.", slug, hash, slug, slug)
+}
+
 // hashBytes returns the 16-hex-char sha256 prefix of b. Used for the
 // path-derived ConfigID default, which shares snapshots.config_hash's format.
 func hashBytes(b []byte) string {

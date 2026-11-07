@@ -798,3 +798,21 @@ func TestCommitSnapshot_NoOpWritesNothing(t *testing.T) {
 		t.Error("commit with an empty config hash succeeded; it would take its base from any hash")
 	}
 }
+
+// TestStaleFor: stale means "computed, but not under these settings"; a city
+// never computed is not stale (its hint is a different one).
+func TestStaleFor(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		snaps []Snapshot
+		want  bool
+	}{
+		{"never computed", nil, false},
+		{"only other hashes", []Snapshot{{ID: 2, ConfigHash: "b"}, {ID: 1, ConfigHash: "c"}}, true},
+		{"one matches", []Snapshot{{ID: 2, ConfigHash: "b"}, {ID: 1, ConfigHash: "a"}}, false},
+	} {
+		if got := StaleFor(tc.snaps, "a"); got != tc.want {
+			t.Errorf("%s: StaleFor = %t, want %t", tc.name, got, tc.want)
+		}
+	}
+}

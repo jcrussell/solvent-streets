@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/resource"
@@ -17,8 +18,13 @@ import (
 )
 
 type Options struct {
-	IO           *iostreams.IOStreams
-	CityDB       func() (db.Store, error)
+	IO     *iostreams.IOStreams
+	CityDB func() (db.Store, error)
+	// Config and CurrentCity resolve the city's snapshot key, so status can
+	// say when the city's snapshots were computed under other settings. Either
+	// may be nil (no config): status then reports what it can without it.
+	Config       func() (*config.Config, error)
+	CurrentCity  func() (*config.CityConfig, error)
 	UnitSystem   func() units.System
 	ResourceType resource.Source // nil for global status
 	Exporter     cmdutil.Exporter
@@ -86,6 +92,8 @@ func NewCmdStatus(f *cmdutil.Factory, rt resource.Source, runF func(context.Cont
 	opts := &Options{
 		IO:           f.IOStreams,
 		CityDB:       f.CityDB,
+		Config:       f.Config,
+		CurrentCity:  f.CurrentCity,
 		UnitSystem:   f.UnitSystem,
 		ResourceType: rt,
 	}
@@ -96,7 +104,9 @@ func NewCmdStatus(f *cmdutil.Factory, rt resource.Source, runF func(context.Cont
 resource type: feature counts, last-ingest and last-compute timestamps,
 and paved area totals in the active unit system. On a TTY the output is
 followed by a city-area summary (paved-vs-total %) and the five most
-recent compute snapshots. Use --json with a comma-separated field list
+recent compute snapshots with their config hash, marking those computed
+under the current settings; when none was, a note says so and how to
+recompute. Use --json with a comma-separated field list
 (resource_type, feature_count, last_ingest_at, last_compute_at, area,
 estimated_spaces) to emit one row per resource.`
 	example := `  # Show feature + result counts across every resource
@@ -201,12 +211,36 @@ func runStatus(ctx context.Context, opts *Options) error {
 		return err
 	}
 
+	// "Last Compute" reads through the current settings' snapshot, so a city
+	// computed only under other settings shows it blank. Say why, the way
+	// export does, rather than leave it looking never-computed.
+	hash, slug := opts.currentHash()
+	snaps, snapsErr := store.ListSnapshots(ctx)
+	if hash != "" && snapsErr == nil && db.StaleFor(snaps, hash) {
+		fmt.Fprintf(ios.ErrOut, "\nNote: %s\n", config.StaleSnapshotsHint(slug, hash))
+	}
+
 	if ios.IsTTY() {
 		printCitySummary(ctx, ios, store, rows, sys, opts.ResourceType == nil)
-		printSnapshotHistory(ctx, ios, store)
+		if snapsErr == nil {
+			printSnapshotHistory(ios, snaps, hash)
+		}
 	}
 
 	return nil
+}
+
+// currentHash returns the current city's snapshot key and slug, or "" when no
+// config or city resolves (then nothing is marked or hinted).
+func (opts *Options) currentHash() (hash, slug string) {
+	if opts.Config == nil || opts.CurrentCity == nil {
+		return "", ""
+	}
+	city, err := opts.CurrentCity()
+	if err != nil || city == nil {
+		return "", ""
+	}
+	return cmdutil.ResolveCityHash(opts.Config, city), city.Slug()
 }
 
 func printCitySummary(ctx context.Context, ios *iostreams.IOStreams, store db.Store, rows []statusRow, sys units.System, allResources bool) {
@@ -271,15 +305,21 @@ func totalPavedArea(ctx context.Context, store db.Store, rows []statusRow, allRe
 	return sum, !allResources
 }
 
-func printSnapshotHistory(ctx context.Context, ios *iostreams.IOStreams, store db.Store) {
-	snapshots, err := store.ListSnapshots(ctx)
-	if err != nil || len(snapshots) == 0 {
+// printSnapshotHistory lists the newest snapshots with their config hash,
+// marking the ones computed under the current settings (hash; "" marks none).
+func printSnapshotHistory(ios *iostreams.IOStreams, snapshots []db.Snapshot, hash string) {
+	if len(snapshots) == 0 {
 		return
 	}
 	fmt.Fprintf(ios.ErrOut, "\n=== Snapshots ===\n")
 	limit := min(len(snapshots), 5)
 	for _, s := range snapshots[:limit] {
-		fmt.Fprintf(ios.ErrOut, "  #%d  %s  (%s)  %d parts\n", s.ID, s.CreatedAt.Format(time.RFC3339), iostreams.RelativeTime(s.CreatedAt), len(s.Parts))
+		mark := ""
+		if hash != "" && s.ConfigHash == hash {
+			mark = "  (current settings)"
+		}
+		fmt.Fprintf(ios.ErrOut, "  #%d  %s  (%s)  %d parts  %s%s\n", s.ID, s.CreatedAt.Format(time.RFC3339),
+			iostreams.RelativeTime(s.CreatedAt), len(s.Parts), s.ConfigHash, mark)
 	}
 	if len(snapshots) > 5 {
 		fmt.Fprintf(ios.ErrOut, "  ... and %d more\n", len(snapshots)-5)

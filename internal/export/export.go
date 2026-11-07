@@ -230,6 +230,19 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 	if err := entry.RequireMatchingSnapshot(ctx); err != nil {
 		return MetaJSON{}, "", err
 	}
+	// Warn, not refuse: a missing part may be a half-finished recompute or a
+	// deliberate change, and the rest of the city is still current.
+	missing, prev, err := entry.MissingParts(ctx)
+	if err != nil {
+		return MetaJSON{}, "", err
+	}
+	if len(missing) > 0 {
+		fmt.Fprintf(e.warnOut(),
+			"warning: %s: no snapshot under the current settings has %s, which snapshot %d (earlier "+
+				"settings) had, so this export publishes the city without them; run `pvmt --city %s "+
+				"all compute` to recompute them (ignore this if they were dropped on purpose)\n",
+			entry.City.Name, strings.Join(missing, ", "), prev, entry.Slug)
+	}
 	bbox, lon, lat, err := entry.BBoxAndCenter(ctx)
 	if err != nil {
 		return MetaJSON{}, "", fmt.Errorf("city bbox: %w", err)

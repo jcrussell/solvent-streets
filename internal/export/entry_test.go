@@ -229,3 +229,137 @@ func TestRequireMatchingSnapshot_MetricsOnlyIsRefused(t *testing.T) {
 		t.Errorf("err = %v, want ErrNoMatchingSnapshot naming the missing pavement compute", err)
 	}
 }
+
+// TestRequireMatchingSnapshot_StaleSaysSettingsChanged: a city computed only
+// under other settings gets the shared "settings changed" hint (the one
+// forecast and status print too), and a never-computed city a different one.
+func TestRequireMatchingSnapshot_StaleSaysSettingsChanged(t *testing.T) {
+	cfg := &config.Config{}
+	entryWith := func(snaps []db.Snapshot) CityEntry {
+		return CityEntry{
+			Config: cfg, City: config.CityConfig{Name: "Test City"}, Slug: "test-city",
+			Store: &dbtest.MockStore{ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) { return snaps, nil }},
+		}
+	}
+	hintOf := func(err error) string {
+		t.Helper()
+		var h *hint.ErrHint
+		if !errors.As(err, &h) {
+			t.Fatalf("want a hinted error, got %v", err)
+		}
+		return h.Hint
+	}
+
+	stale := hintOf(entryWith([]db.Snapshot{{ID: 1, ConfigHash: "0123456789abcdef", Parts: paved}}).
+		RequireMatchingSnapshot(context.Background()))
+	if want := config.StaleSnapshotsHint("test-city", cfg.CityHash(nil)); stale != want {
+		t.Errorf("stale hint = %q; want the shared StaleSnapshotsHint %q", stale, want)
+	}
+	never := hintOf(entryWith(nil).RequireMatchingSnapshot(context.Background()))
+	if !strings.Contains(never, "never been computed") {
+		t.Errorf("never-computed hint = %q; want it to say so", never)
+	}
+}
+
+// TestMissingParts is solvent-streets-ern4.12 (a): a settings change followed
+// by a partial recompute leaves the current snapshot without parts the city had
+// under its earlier settings, and export would publish it without them.
+func TestMissingParts(t *testing.T) {
+	cfg := &config.Config{}
+	cur := cfg.CityHash(nil)
+	parts := func(names ...string) []db.SnapshotPart {
+		out := make([]db.SnapshotPart, len(names))
+		for i, n := range names {
+			out[i] = db.SnapshotPart{Part: n, RunID: int64(i + 1)}
+		}
+		return out
+	}
+	full := parts("roads", "parking", "sidewalks", "combined", "forecast:roads", "service:fire", "census")
+	off := false
+
+	for _, tc := range []struct {
+		name     string
+		city     config.CityConfig
+		snaps    []db.Snapshot // newest first
+		want     []string
+		wantPrev int64
+	}{
+		{
+			name: "partial recompute after a settings change",
+			snaps: []db.Snapshot{
+				{ID: 3, ConfigHash: cur, Parts: parts("roads", "forecast:roads")},
+				{ID: 2, ConfigHash: "0ld0ld0ld0ld0ld0", Parts: full},
+			},
+			want:     []string{"parking", "sidewalks", "combined", "service:fire", "census"},
+			wantPrev: 2,
+		},
+		{
+			name: "everything recomputed",
+			snaps: []db.Snapshot{
+				{ID: 3, ConfigHash: cur, Parts: full},
+				{ID: 2, ConfigHash: "0ld0ld0ld0ld0ld0", Parts: full},
+			},
+		},
+		{
+			name: "dropped under the current settings is deliberate",
+			snaps: []db.Snapshot{
+				{ID: 4, ConfigHash: cur, Parts: parts("roads", "parking", "sidewalks", "combined", "forecast:roads", "census")},
+				{ID: 3, ConfigHash: cur, Parts: full},
+				{ID: 2, ConfigHash: "0ld0ld0ld0ld0ld0", Parts: full},
+			},
+		},
+		{
+			name: "census = false is not reported",
+			city: config.CityConfig{Census: &off},
+			snaps: []db.Snapshot{
+				{ID: 3, ConfigHash: cur, Parts: parts("roads", "parking", "sidewalks", "combined", "forecast:roads", "service:fire")},
+				{ID: 2, ConfigHash: "0ld0ld0ld0ld0ld0", Parts: full},
+			},
+		},
+		{
+			name:  "no other settings",
+			snaps: []db.Snapshot{{ID: 1, ConfigHash: cur, Parts: parts("roads")}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			city := tc.city
+			city.Name = "Test City"
+			snaps := tc.snaps
+			entry := CityEntry{
+				Config: cfg, City: city, Slug: "test-city",
+				Store: &dbtest.MockStore{ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) { return snaps, nil }},
+			}
+			got, prev, err := entry.MissingParts(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			// prev only means something when a part is missing.
+			if strings.Join(got, ",") != strings.Join(tc.want, ",") || (len(tc.want) > 0 && prev != tc.wantPrev) {
+				t.Errorf("MissingParts = %v (prev %d); want %v (prev %d)", got, prev, tc.want, tc.wantPrev)
+			}
+		})
+	}
+}
+
+// TestExport_WarnsAboutMissingParts: the export still succeeds (the rest of
+// the city is current) but says what it is leaving out.
+func TestExport_WarnsAboutMissingParts(t *testing.T) {
+	cfg := &config.Config{}
+	entry := exportTestEntry(cfg, "Solo City", "solo-city", exportBoundaryA, nil)
+	cur := cfg.CityHash(&entry.City)
+	entry.Store.(*dbtest.MockStore).ListSnapshotsFunc = func(context.Context) ([]db.Snapshot, error) {
+		return []db.Snapshot{
+			{ID: 2, ConfigHash: cur, Parts: paved},
+			{ID: 1, ConfigHash: "0ld0ld0ld0ld0ld0", Parts: append([]db.SnapshotPart{{Part: "census", RunID: 9}}, paved...)},
+		}, nil
+	}
+	var warn strings.Builder
+	e := New([]CityEntry{entry}, cfg, t.TempDir(), "metric", testAssets(t))
+	e.SetErrOut(&warn)
+	if err := e.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !strings.Contains(warn.String(), "census") || !strings.Contains(warn.String(), "snapshot 1") {
+		t.Errorf("warnings = %q; want one naming census and snapshot 1", warn.String())
+	}
+}

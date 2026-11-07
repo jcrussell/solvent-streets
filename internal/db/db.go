@@ -118,6 +118,18 @@ type Snapshot struct {
 	Parts      []SnapshotPart `json:"parts"`
 }
 
+// StaleFor reports whether snaps (one city's) hold snapshots but none
+// committed under configHash: the city was computed, just not under the
+// settings now in force. Empty snaps (never computed) is not stale.
+func StaleFor(snaps []Snapshot, configHash string) bool {
+	for _, s := range snaps {
+		if s.ConfigHash == configHash {
+			return false
+		}
+	}
+	return len(snaps) > 0
+}
+
 // SnapshotPart is one (part -> run) entry of a snapshot's manifest.
 type SnapshotPart struct {
 	Part       string    `json:"part"`

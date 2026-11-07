@@ -7,6 +7,7 @@ import (
 	"math"
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
@@ -214,5 +215,41 @@ func TestRenderBaselineTable_AreaPctSumsTo100UnderGrowth(t *testing.T) {
 	if math.Abs(sum-100) > 0.15 {
 		t.Errorf("Area %% column sums to %.1f%%, want 100%%; the denominator is "+
 			"mixing the year-0 network area with grown cohort areas\noutput:\n%s", sum, out.String())
+	}
+}
+
+// TestRunForecast_StaleSnapshotsSayWhy is solvent-streets-ern4.12 (b): a city
+// computed only under other settings used to print "no compute results for
+// roads, skipping" once per resource and exit 3 with no hint why. Now it says
+// once, with export's wording, and still exits 3 (ErrNoResults).
+func TestRunForecast_StaleSnapshotsSayWhy(t *testing.T) {
+	ios, _, _, stderr := iostreams.Test()
+	cfg := &config.Config{}
+	city := &config.CityConfig{Name: "Test City"}
+	store := &dbtest.MockStore{
+		ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
+			return []db.Snapshot{{ID: 1, ConfigHash: "0ld0ld0ld0ld0ld0"}}, nil
+		},
+		LatestComputeResultFunc: func(context.Context, resource.Type) (*db.ComputeResult, error) {
+			return nil, sql.ErrNoRows
+		},
+	}
+	opts := &Options{
+		IO:          ios,
+		Config:      func() (*config.Config, error) { return cfg, nil },
+		CurrentCity: func() (*config.CityConfig, error) { return city, nil },
+		CityDB:      func() (db.Store, error) { return store, nil },
+		UnitSystem:  func() units.System { return units.Metric },
+	}
+	err := runForecast(context.Background(), opts)
+	if !errors.Is(err, cmdutil.ErrNoResults) {
+		t.Fatalf("err = %v, want ErrNoResults (exit 3)", err)
+	}
+	out := stderr.String()
+	if want := config.StaleSnapshotsHint("test-city", cfg.CityHash(city)); !strings.Contains(out, want) {
+		t.Errorf("stderr lacks the shared stale-snapshot hint:\n%s", out)
+	}
+	if strings.Contains(out, "no compute results") {
+		t.Errorf("stderr still has the bare per-resource warnings:\n%s", out)
 	}
 }
