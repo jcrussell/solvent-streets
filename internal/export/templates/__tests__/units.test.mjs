@@ -8,7 +8,7 @@ import { load } from './harness.mjs';
 
 const META = {
   project_name: 'Alpha', city_area: 40_000_000, total_area: 3_300_000,
-  paved_share: 0.0825, feature_count: 1234,
+  paved_share: 0.0825,
 };
 const data = { 'meta.json': META };
 

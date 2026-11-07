@@ -664,7 +664,6 @@
                 const areaLargeVal = toAreaLarge(s.total_area);
                 statsHTML +=
                     '<div class="stat-card"><h3>' + s.resource_type + '</h3>' +
-                    '<div class="stat-row"><span class="stat-label">Features</span><span class="stat-value">' + s.feature_count + '</span></div>' +
                     '<div class="stat-row"><span class="stat-label">Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + areaLargeVal.toFixed(1) + '</span></div>' +
                     '<div class="stat-row"><span class="stat-label">Area (' + areaVeryLargeUnit() + ')</span><span class="stat-value">' + toAreaVeryLarge(s.total_area).toFixed(2) + '</span></div>' +
                     // Parking only: a unitless count, so no units conversion.
@@ -3367,9 +3366,8 @@
                 city.meta.stats.forEach(function(st) { statByType[st.resource_type] = st; });
                 m.totalAreaLarge = city.meta.stats.reduce(function(s, st) { return s + toAreaLarge(st.total_area || 0); }, 0);
                 m.totalSqM = city.meta.stats.reduce(function(s, st) { return s + (st.total_area || 0); }, 0);
-                m.featureCount = city.meta.stats.reduce(function(s, st) { return s + (st.feature_count || 0); }, 0);
             } else {
-                m.totalAreaLarge = 0; m.totalSqM = 0; m.featureCount = 0;
+                m.totalAreaLarge = 0; m.totalSqM = 0;
             }
             m.roadsAreaLarge = toAreaLarge(statByType.roads ? statByType.roads.total_area || 0 : 0);
             m.parkingAreaLarge = toAreaLarge(statByType.parking ? statByType.parking.total_area || 0 : 0);
@@ -3377,13 +3375,10 @@
             m.roadsSqM = statByType.roads ? statByType.roads.total_area : 0;
             m.parkingSqM = statByType.parking ? statByType.parking.total_area : 0;
             m.sidewalksSqM = statByType.sidewalks ? statByType.sidewalks.total_area : 0;
-            m.roadsFeatures = statByType.roads ? statByType.roads.feature_count : 0;
-            m.parkingFeatures = statByType.parking ? statByType.parking.feature_count : 0;
             // Estimated parking spaces (lots + garages); 0 when the city was
             // computed before the estimate existed, which the leaderboard
             // category filters out rather than ranking at zero.
             m.parkingSpaces = statByType.parking ? (statByType.parking.estimated_spaces || 0) : 0;
-            m.sidewalksFeatures = statByType.sidewalks ? statByType.sidewalks.feature_count : 0;
 
             // City area and pct paved from meta
             m.cityAreaLarge = toAreaLarge(city.meta && city.meta.city_area ? city.meta.city_area : 0);
@@ -3614,7 +3609,6 @@
                 // No award of its own: "Most Parking" above already crowns parking, and two parking medals would be noise.
                 { key: 'parkingSpaces', label: 'Parking Spaces (est.)', higher: true, filter: function(m) { return m.parkingSpaces > 0; }, fmt: function(v) { return v.toLocaleString(); }, color: '#60a5fa', note: 'Estimated vehicle capacity of mapped lots and garages: the OSM capacity tag where present, otherwise lot footprint ÷ 30 m² per space (× levels for structured parking). On-street parking is not counted. Cities computed before the estimate existed are omitted.' },
                 { key: 'cityPct', label: 'City Ownership Share', award: 'Most City-Owned', higher: true, fmt: function(v) { return v.toFixed(0) + '%'; }, color: '#8b5cf6' },
-                { key: 'featureCount', label: 'Total Features Tracked', award: 'Most Detailed', higher: true, fmt: function(v) { return v.toLocaleString(); }, color: '#f59e0b' },
                 { key: 'blendedDecay', label: 'Blended Decay Rate (lower is better)', award: 'Slowest Decay', higher: false, fmt: function(v) { return (v * 100).toFixed(2) + '%/yr'; }, color: '#ef4444' },
                 { key: 'year1PerAreaUnit', label: 'Year 1 Maintenance Cost per ' + areaLargeUnit().charAt(0).toUpperCase() + areaLargeUnit().slice(1), award: 'Most Efficient', higher: false, fmt: function(v) { return '$' + (v >= 1e3 ? (v/1e3).toFixed(1) + 'K' : v.toFixed(0)); }, color: '#ec4899' },
                 // endBacklog is each city's own final-year backlog; with mixed

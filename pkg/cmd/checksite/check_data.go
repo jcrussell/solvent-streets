@@ -78,13 +78,12 @@ func (r *runner) checkForecast(label, path string) {
 		// the whole-city paved_share check. WARN — not FAIL — because an all-flat/
 		// all-zero baseline is also the legitimate "empty resource" state, and a
 		// hard failure here would collide with those legit-empty resources.
-		//
-		// A stricter check would compare this resource's baseline area against
-		// the city paved total from meta.json to tell a real geometry drop from
-		// a genuinely empty resource; threading meta.json totals in is out of
-		// scope for this fix.
+		// The site carries no feature counts, so the warning names both
+		// causes rather than guessing: ingest fetches by bounding box, and
+		// features that all lie outside the city boundary are clipped to
+		// zero area, which is not a geometry bug.
 		if baselineAreaAllZero(fc) {
-			r.warnf("reasonableness: %s [%s]: resource has zero paved area — possible per-resource geometry drop", label, fc.ResourceType)
+			r.warnf("reasonableness: %s [%s]: resource has zero paved area — every feature may lie outside the city boundary, or its geometry was dropped (check `pvmt --city <slug> %s compute`)", label, fc.ResourceType, fc.ResourceType)
 		}
 		if msg := baselineViolation(fc); msg != "" {
 			r.failf("reasonableness: %s [%s]: %s", label, fc.ResourceType, msg)

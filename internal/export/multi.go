@@ -47,7 +47,7 @@ func BuildMultiCityMeta(ctx context.Context, entries []CityEntry, title string) 
 	return meta, nil
 }
 
-// aggregatePerResourceStats sums TotalArea and FeatureCount per resource
+// aggregatePerResourceStats sums TotalArea and EstimatedSpaces per resource
 // type across all entries, returning the per-resource cards in resource.All
 // order. Resources with no rows in any entry are omitted.
 //
@@ -81,7 +81,6 @@ func aggregatePerResourceStats(ctx context.Context, entries []CityEntry) []StatJ
 				statByType[kindName] = st
 			}
 			st.TotalArea += result.TotalArea
-			st.FeatureCount += result.FeatureCount
 			st.EstimatedSpaces += result.EstimatedSpaces
 		}
 	}

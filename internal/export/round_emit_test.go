@@ -145,10 +145,10 @@ func TestRoundForEmission_ShrinksSerializedBytes(t *testing.T) {
 
 // TestRoundScenariosForEmission_PassesNonScenarioKeysThrough: the payload is a
 // map[string]any holding scenario slices under "city"/"all" alongside a
-// "summary" map of counts. Only the slices are rounded; anything else must
-// survive untouched, or the summary silently loses fields.
+// "summary" map. Only the slices are rounded; anything else must survive
+// untouched, or the summary's share loses precision.
 func TestRoundScenariosForEmission_PassesNonScenarioKeysThrough(t *testing.T) {
-	summary := map[string]any{"city_feature_count": 3, "city_area_share": 0.87654321}
+	summary := map[string]any{"city_area_share": 0.87654321}
 	in := map[string]any{
 		"summary": summary,
 		"city":    []forecast.ScenarioResult{{Years: []forecast.ScenarioYear{{Year: 1, AnnualNeed: 1234567.8901234567}}}},
@@ -160,7 +160,7 @@ func TestRoundScenariosForEmission_PassesNonScenarioKeysThrough(t *testing.T) {
 	if !ok {
 		t.Fatalf("summary = %T, want map[string]any", got["summary"])
 	}
-	if gotSummary["city_feature_count"] != 3 || gotSummary["city_area_share"] != 0.87654321 {
+	if gotSummary["city_area_share"] != 0.87654321 {
 		t.Errorf("summary altered: %v", gotSummary)
 	}
 	city, ok := got["city"].([]forecast.ScenarioResult)

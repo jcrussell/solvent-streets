@@ -257,9 +257,9 @@ func cityScopeCohorts(cityStats []db.CohortStat, fc *config.ForecastConfig) ([]f
 //
 // AREA SCOPE: the scenario lines use the cohort-summed area (sum of per-class
 // cohort areas), not the aggregate compute area, so the static and custom
-// lines share an identical area basis. The summary block reports the aggregate
-// compute feature counts and the city's share of the all-scope area — those
-// are informational rollups, not the chart's area basis.
+// lines share an identical area basis. The summary block, present only when the
+// city has both scopes, reports the city's share of the all-scope compute area
+// — an informational rollup, not the chart's area basis.
 func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.ForecastConfig) (map[string]any, error) {
 	costTiers := ConvertCostTiers(fc)
 	params := forecast.NewParams(fc.GrowthRate, costTiers, fc.TreatmentCycleYears, fc.ResolvedCostOverhead())
@@ -295,15 +295,10 @@ func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.Forecas
 		}
 	}
 
-	summary := map[string]any{
-		"city_feature_count": areas.cityFeatures,
-		"all_feature_count":  areas.allFeatures,
-	}
+	out := map[string]any{}
 	if areas.allArea > 0 && areas.cityArea > 0 {
-		summary["city_area_share"] = areas.cityArea / areas.allArea
+		out["summary"] = map[string]any{"city_area_share": areas.cityArea / areas.allArea}
 	}
-
-	out := map[string]any{"summary": summary}
 	if areas.cityArea > 0 {
 		out["city"] = primaryScenarios
 		out["all"] = allScenarios
@@ -313,14 +308,13 @@ func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.Forecas
 	return out, nil
 }
 
-// scenarioAreas pairs all-scope and city-scope aggregate areas and feature
-// counts across all resources for a single CityEntry.
+// scenarioAreas pairs all-scope and city-scope aggregate areas across all
+// resources for a single CityEntry.
 type scenarioAreas struct {
-	allArea, cityArea         float64
-	allFeatures, cityFeatures int
+	allArea, cityArea float64
 }
 
-// aggregateScenarioAreas sums TotalArea and FeatureCount across all
+// aggregateScenarioAreas sums TotalArea across all
 // resources for both all and city scopes. The city-scope lookup is gated
 // on all-scope row existence for the same resource — a resource with no
 // all-scope row contributes to neither total. One batched DB call collects
@@ -350,11 +344,9 @@ func aggregateScenarioAreas(ctx context.Context, entry CityEntry) (scenarioAreas
 			continue
 		}
 		agg.allArea += result.TotalArea
-		agg.allFeatures += result.FeatureCount
 
 		if cityResult, ok := latestByType[t.With(resource.ScopeCity)]; ok && cityResult != nil {
 			agg.cityArea += cityResult.TotalArea
-			agg.cityFeatures += cityResult.FeatureCount
 		}
 	}
 	return agg, nil
@@ -518,8 +510,8 @@ func RoundForecastsForEmission(fes []ForecastExport) []ForecastExport {
 }
 
 // RoundScenariosForEmission returns a shallow copy of the scenarios payload with
-// the per-scope scenario slices rounded. "summary" (feature counts plus
-// city_area_share) is left alone — it is small and the share feeds a
+// the per-scope scenario slices rounded. "summary" (city_area_share) is left
+// alone — it is small and the share feeds a
 // displayed percentage.
 func RoundScenariosForEmission(data map[string]any) map[string]any {
 	if data == nil {

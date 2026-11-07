@@ -111,8 +111,8 @@ func TestBuildMultiCityMeta_AggregatesAcrossEntries(t *testing.T) {
 	if len(meta.Stats) != 1 {
 		t.Fatalf("expected 1 resource stat, got %d", len(meta.Stats))
 	}
-	if meta.Stats[0].ResourceType != "roads" || meta.Stats[0].TotalArea != 3000 || meta.Stats[0].FeatureCount != 30 {
-		t.Errorf("aggregated roads stat = %+v; want type=roads, area=3000, count=30", meta.Stats[0])
+	if meta.Stats[0].ResourceType != "roads" || meta.Stats[0].TotalArea != 3000 {
+		t.Errorf("aggregated roads stat = %+v; want type=roads, area=3000", meta.Stats[0])
 	}
 
 	// total_paved comes from summed combined rows (not per-resource fallback).

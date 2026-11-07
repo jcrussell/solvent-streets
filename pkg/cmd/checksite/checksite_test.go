@@ -193,9 +193,11 @@ func TestScanHygiene_HeaderTokenAfterShortRead(t *testing.T) {
 	}
 }
 
-// TestCheckSite_ZeroBaselineAreaWarns guards Gap 2: a resource whose baseline
-// carries zero paved area (while paved_share stays plausible) surfaces a WARN,
-// not a FAIL — a hard failure would collide with legitimately empty resources.
+// TestCheckSite_ZeroBaselineAreaWarns: a resource whose baseline carries zero
+// paved area (while paved_share stays plausible) surfaces a WARN, not a FAIL —
+// a hard failure would collide with legitimately empty resources — and the
+// warning names the common benign cause (every feature outside the boundary)
+// alongside a geometry drop, rather than blaming geometry alone.
 func TestCheckSite_ZeroBaselineAreaWarns(t *testing.T) {
 	dir := buildValidSite(t)
 	// paved_share stays plausible (unchanged), but the roads resource is zeroed.
@@ -207,6 +209,9 @@ func TestCheckSite_ZeroBaselineAreaWarns(t *testing.T) {
 	}
 	if !strings.Contains(out, "WARN") || !strings.Contains(out, "zero paved area") {
 		t.Errorf("expected a WARN about zero paved area:\n%s", out)
+	}
+	if !strings.Contains(out, "outside the city boundary") || !strings.Contains(out, "geometry was dropped") {
+		t.Errorf("the zero-area WARN must name both causes:\n%s", out)
 	}
 	// --strict promotes the warning to a failure.
 	if _, err := run(t, dir, true); !errors.Is(err, cmdutil.ErrSilent) {
@@ -423,7 +428,7 @@ func writeForecast(t *testing.T, path string, pci, backlog []float64) {
 }
 
 // writeForecastArea is writeForecast with an explicit per-year baseline area,
-// letting a test drive the zero-area (per-resource geometry drop) warning.
+// letting a test drive the zero-area warning.
 func writeForecastArea(t *testing.T, path string, pci, backlog []float64, area float64) {
 	t.Helper()
 	if len(pci) != len(backlog) {

@@ -35,9 +35,9 @@ test('the stats panel shows Est. Spaces on the parking card only', async () => {
 test('extractMetrics reads parkingSpaces and defaults to 0 when absent', async () => {
   const { win, flush } = load({ data: fullData });
   await flush();
-  const withSpaces = win.extractMetrics({ name: 'A', slug: 'a', meta: { stats: [{ resource_type: 'parking', total_area: 10, feature_count: 1, estimated_spaces: 321 }] }, scenarios: null, seed: null, forecast: [] });
+  const withSpaces = win.extractMetrics({ name: 'A', slug: 'a', meta: { stats: [{ resource_type: 'parking', total_area: 10, estimated_spaces: 321 }] }, scenarios: null, seed: null, forecast: [] });
   assert.equal(withSpaces.parkingSpaces, 321);
-  const without = win.extractMetrics({ name: 'B', slug: 'b', meta: { stats: [{ resource_type: 'parking', total_area: 10, feature_count: 1 }] }, scenarios: null, seed: null, forecast: [] });
+  const without = win.extractMetrics({ name: 'B', slug: 'b', meta: { stats: [{ resource_type: 'parking', total_area: 10 }] }, scenarios: null, seed: null, forecast: [] });
   assert.equal(without.parkingSpaces, 0, 'a meta without the estimate must read as 0 so the leaderboard filter drops it');
 });
 
