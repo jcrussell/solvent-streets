@@ -10,7 +10,7 @@ import (
 // per-segment data — that needs an ingested+computed DB and is out of scope for
 // an offline gate. The point is to lock the §5 gap-closure: with the treatment
 // cycle, break_even is a realistic multiple of the stated budget (single digits,
-// often ~1), not the ~12× overstatement the 1-year-cycle model produced.
+// often ~1), not the order-of-magnitude overstatement a 1-year cycle gives.
 type backtestCity struct {
 	name          string
 	initialPCI    float64
@@ -19,12 +19,12 @@ type backtestCity struct {
 	currentBudget float64 // cited annual pavement budget
 }
 
-// fixtures are tuned so their N=1 (un-gated) break-even budget lands near the
-// validation.md §5 `break_even_budget` column, i.e. an order of magnitude above the
-// city's actual budget — the overstatement an ungated (N=1) model produces.
+// fixtures are tuned so their N=1 (un-gated) break-even budget lands an order
+// of magnitude above the city's actual budget — the overstatement an ungated
+// model produces (validation.md §5).
 // With 1/12 gating they should fall into a plausible hold-steady band.
 var backtestCities = []backtestCity{
-	// Berkeley: PCI ~56, ~$15M/yr budget, MTC hold-steady ~$18M (validation §5).
+	// Berkeley: PCI ~56, ~$15M/yr budget, Berkeley PMP hold-steady $18.3M (validation §6).
 	{name: "berkeley", initialPCI: 56, decay: 0.045, areaSqM: 3_300_000, currentBudget: 15_000_000},
 	// Dublin: good condition (PCI ~78), small network, ~$3.7M/yr.
 	{name: "dublin", initialPCI: 78, decay: 0.035, areaSqM: 1_900_000, currentBudget: 3_700_000},
@@ -36,8 +36,7 @@ const backtestYears = 25 // matches examples/bay-area-ca/pvmt.toml
 // solvency-dollar-fidelity epic (qehh). For each representative city it proves:
 //  1. gated break_even == un-gated break_even / N (the core fix is applied), and
 //  2. gated break_even / current_budget is a realistic single-digit multiple —
-//     the §5 overstatement (3.6×–9.6× against reality, and ~12× as a raw ratio)
-//     is closed.
+//     the overstatement a 1-year cycle gives (validation.md §5) is closed.
 //
 // If this fails, either the gating regressed (property 1) or a fixture/cost
 // default drifted enough to reopen the gap (property 2) — read the logged ratios
@@ -94,7 +93,7 @@ func TestBacktest_TreatmentCycleClosesSec5Gap(t *testing.T) {
 			// ~2.5×) would need an un-physical N≈29. This bracket trips if a future
 			// cost-regime or cycle change breaks that validated balance. Berkeley is
 			// the only city with a clean {budget, hold-steady $/m²·yr, cycle} triplet
-			// (§5), so the per-m² anchor is asserted for it alone.
+			// (validation.md §6), so the per-m² anchor is asserted for it alone.
 			if c.name == "berkeley" {
 				perM2 := gated / c.areaSqM
 				t.Logf("berkeley: break_even = $%.2f/m²·yr (cited real hold-steady ~$5.6)", perM2)

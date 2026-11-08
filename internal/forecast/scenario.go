@@ -112,9 +112,9 @@ const maxPCI = 100.0
 // DefaultTreatmentCycleYears is the assumed pavement treatment cycle N: each
 // simulated year roughly 1/N of the network is scheduled for treatment, so the
 // annual need is the full-network retreatment cost divided by N. ~12 yr is the
-// midpoint of the 10-14 yr band documented in docs/validation.md §5 (Finding B);
-// before this gating the model priced the entire network every year (an implicit
-// 1-year cycle), overstating break_even 3.6x-9.6x.
+// midpoint of the 10-14 yr band documented in docs/validation.md §5; an
+// ungated model (N = 1) prices the entire network every year, overstating
+// break_even 3.6x-9.6x.
 const DefaultTreatmentCycleYears = 12.0
 
 // ResolveCycleYears applies DefaultTreatmentCycleYears when the configured value
