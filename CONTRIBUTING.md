@@ -1,178 +1,189 @@
 # Contributing to solvent-streets
 
-Thanks for your interest. This guide covers prerequisites, the build/test
-loop, commit-message style, and how this project tracks work.
+Thanks for your interest. This guide covers the workflow for changing the
+code: building and testing it, the rules for changes that alter stored
+results, commit messages, writing docs, and how a release and the showcase
+site go out. How the code is put together is in
+[docs/architecture.md](docs/architecture.md).
 
 ## Prerequisites
 
-- **Go 1.26+** — the floor is the `go` line in [`go.mod`](go.mod). Its
-  `toolchain` line names the exact release CI builds and `make vuln` scans;
-  with the default `GOTOOLCHAIN=auto`, the go command downloads it for you.
-- **golangci-lint** at the version pinned in [`.golangci-version`](.golangci-version).
-- A POSIX shell (`make`, `awk`, `sed`).
-
-Linux: install Go from your distro's package manager (e.g.
-`sudo apt install golang-go` on Debian/Ubuntu, `sudo dnf install golang`
-on Fedora). If your distro's Go is older than 1.26, download a release
-from [go.dev/dl](https://go.dev/dl/). Install `golangci-lint` via the
-[install script](https://golangci-lint.run/welcome/install/#local-installation).
-
-macOS:
-
-```
-brew install go golangci-lint
-```
-
-No CGO is required — `pvmt` builds with `CGO_ENABLED=0`. Don't introduce
-CGO-backed dependencies.
+You need Go at the floor in the `go` line of [`go.mod`](go.mod) (1.26). Its
+`toolchain` line names the exact release CI uses, and with the default
+`GOTOOLCHAIN=auto` the go command downloads it for you. You also need
+golangci-lint at the version in [`.golangci-version`](.golangci-version) (see
+its [install guide](https://golangci-lint.run/welcome/install/#local-installation)),
+`make`, and Node for the JavaScript lint and tests. Nothing needs CGO: `pvmt`
+builds with `CGO_ENABLED=0`, and must keep doing so. SQL goes through
+`modernc.org/sqlite` and geometry through `peterstace/simplefeatures`; don't add
+CGO-backed replacements.
 
 ## Build, test, lint
 
-```
-make build    # WASM + binary (CGO_ENABLED=0)
-make test     # go test -race ./...
-make lint     # golangci-lint run, pinned floor
-```
+`make build`, `make test` and `make lint` are the loop, and all three must be
+green before a PR. `make help` lists the rest. To run one test, use
+`go test -race ./internal/geo -run TestHexGrid`. To run the binary without
+installing it, use `go run ./cmd/pvmt <args>`.
 
-Always use `make build` rather than `go build ./cmd/pvmt` directly. The
-forecast WASM at `internal/export/wasm/pvmt.wasm` is `go:embed`ed
-into the main binary; `make build` rebuilds the WASM first, while a bare
-`go build` silently embeds whatever stale binary is on disk — or, on a fresh
-clone with none, builds a pvmt whose `export`, `serve` and `check-site`
-refuse to run (`export.ErrNoWasm`). Unit tests run on fake assets
-(`exporttest.AssetFiles`) and pass without it; only `integration/` checks the
-real WASM, and `make test` builds it first.
-
-Run a single test: `go test -race ./internal/geo -run TestHexGrid`.
+Always build with `make build`, not `go build ./cmd/pvmt`. The forecast WASM
+(`internal/export/wasm/pvmt.wasm`) is `go:embed`ed into the binary, and
+`make build` regenerates it first. A bare `go build` embeds whatever stale WASM
+is on disk, or on a fresh clone none at all. That binary's `export` and
+`serve` then refuse to run, and `check-site` fails its asset check
+(`export.ErrNoWasm`). Unit tests use
+fake assets (`exporttest.AssetFiles`), so only `integration/` needs the real
+WASM, and `make test` builds it.
 
 Unit tests never touch the network. Packages that talk to upstreams call
-`offlinetest.Main` from `TestMain`, which refuses any non-loopback dial and
-fails the run; inject a fake fetcher or use an `httptest` server instead.
-Live-network tests live in `integration/` behind `make e2e`.
-Run the binary without installing: `go run ./cmd/pvmt <args>`.
+`offlinetest.Main` from `TestMain`, which fails the run on any non-loopback
+dial. Inject a fake fetcher or use an `httptest` server instead. Live-network
+tests live in `integration/` behind `make e2e`.
 
-`make pre-commit` runs `fmt`, `vet`, `lint` and `lint-js` (which needs
-Node and runs `npm ci` on first use). Run it by hand before committing. It
-is not a git hook, and a `.git/hooks/pre-commit` symlink would never run:
-git takes its hooks from `.beads/hooks` (`core.hooksPath`, see below).
+`make pre-commit` runs fmt, vet, lint and the JavaScript lint. Run it by hand:
+git takes its hooks from `.beads/hooks`, so a `.git/hooks/pre-commit` would
+never run.
+
+Don't commit generated output. The WASM and the CLI reference (`make gendocs`:
+`docs/reference/`, `manpages/`, `completions/`) are gitignored, and the release
+build regenerates them.
 
 ## Changes that affect stored results
 
-Stored results are keyed on `Config.CityHash` (`internal/config/hash.go`):
-a per-city hash of the resolved settings that change what a compute
-stores, plus a hand-maintained `ComputeEpoch`. A snapshot is read only
-under the hash it was computed with, so two kinds of change need care.
+Computed results are stored per city under `Config.CityHash`
+(`internal/config/hash.go`). That is a hash of the resolved settings that
+change what a compute stores, plus a hand-maintained `ComputeEpoch`. A snapshot
+is read back only under the hash it was written with. Users see this as the
+table in [configuration.md](docs/configuration.md#snapshots-and-the-config-hash).
+Two kinds of change have to keep that table true.
 
 **Adding a config field.** `TestComputeInputs_EveryFieldClassified`
-(`internal/config/hash_test.go`) fails until the new field is entered in
-`configFieldRules`, with a `mutate` func that the test uses to check the
-classification against `CityHash`. Pick one:
+(`internal/config/hash_test.go`) fails until the field is entered in
+`configFieldRules`. The entry needs a `mutate` func, which the test uses to
+check the classification against `CityHash`. A field is *hashed* when some
+producer reads it, so changing it changes a stored row. The producers are the
+roads/parking/sidewalks compute, the combined pass, `services` and `census`.
+For a hashed field:
 
-- **hashed**: some producer (roads/parking/sidewalks compute, the combined
-  pass, `services`, `census`) reads it, so changing it changes a stored
-  row. Add its *resolved* value to `computeInputs` in `hash.go`: defaults
-  applied, env overrides applied, `[[include]]` flattening respected. Make
-  it `omitempty`, with a zero value that means today's behaviour, so
-  configs that don't set it keep their hashes and nobody has to recompute.
-  An `[[include]]`d city then hashes as its source does exactly when both
-  resolve the same value; add the field to `SourceDivergence` too, so the
-  stale hint can name it when they differ.
-- **presentation**: read only when exporting or rendering (units, `[export]`,
-  tags, sliver thresholds, legend bands).
-- **simulated**: read only by the forecast, which is never stored: export,
-  serve, `pvmt forecast` and the site's WASM simulate it on demand from the
-  stored cohort stats and the settings in force (every `[forecast]` field).
-  It stays out of the hash; an edit takes effect on the next read.
-- **ingest**: decides what is fetched and stored, not what compute does with
-  it (sources, URLs, boundary lookup). A re-ingest is followed by a recompute
-  as usual.
-- **plumbing**: identity, keys, include layout, merge stamps, presence bits.
+- add its resolved value to `computeInputs`, with defaults, env overrides and
+  `[[include]]` flattening applied;
+- make it `omitempty`, with a zero value that means today's behaviour, so
+  existing configs keep their hashes;
+- add it to `SourceDivergence`, so the stale hint can name it.
 
-When unsure whether a stored row depends on it, grep the producers for the
-field before deciding; hashing a field no producer reads only costs users
-spurious recomputes, while leaving out one that a producer reads lets
-export publish stale results.
+Every other field is *presentation* (read only when exporting or rendering),
+*simulated* (read only by the forecast, which is never stored), *ingest*
+(decides what is fetched, not what compute does with it) or *plumbing*.
+When unsure, grep the producers for the field. Hashing a field no producer
+reads costs users spurious recomputes. Leaving out a field a producer does read
+lets export publish stale results.
 
 **Changing compute logic.** Bump `config.ComputeEpoch` by one, in the same
-commit, when a code change alters what a producer stores for the same stored
-features and the same settings: jurisdiction classification
-(`internal/filter`), buffering or width rules, hex tiling, clipping or
-stats, cohort classification (`forecast.NormalizeClass`, which keys
-`cohort_stats`), routing, speeds or the services registry defaults, census
-apportionment, or what a producer writes or drops. Every stored snapshot
-then stops matching and export asks for a recompute, which is the point. Do
-not bump it for changes to ingest, the forecast model or its defaults (the
-forecast is simulated on demand, never stored), export or serve rendering,
-CLI output, docs or tests: each bump costs every user a full recompute.
-Note the bump in the commit message body.
+commit, when a code change alters what a producer stores for the same features
+and settings. Examples:
+
+- jurisdiction classification;
+- buffering or width rules;
+- hex tiling, clipping or stats;
+- cohort classification (`forecast.NormalizeClass`);
+- routing, speeds or the services registry defaults;
+- census apportionment;
+- what a producer writes or drops.
+
+Every stored snapshot then stops matching and export asks for a recompute,
+which is the point. Don't bump it for ingest, forecast, export, serve, CLI,
+docs or test changes. Each bump costs every user a full recompute. Note the
+bump in the commit body.
 
 ## Commit messages
 
-Use [Conventional Commits](https://www.conventionalcommits.org/). The
-release changelog is generated by GoReleaser from commit subjects: it
-drops `docs`, `test`, `chore`, `ci`, `refactor`, `style` and `build`
-commits (scoped or not) from the release notes and groups `feat`, `fix`
-and `perf` separately. See [`.goreleaser.yaml`](.goreleaser.yaml) for the
-exact filters.
+Use [Conventional Commits](https://www.conventionalcommits.org/). There is no
+hand-maintained changelog: GoReleaser builds the release notes from commit
+subjects, so write each subject for a reader of the release notes. It groups
+`feat`, `fix` and `perf` and drops `docs`, `test`, `chore`, `ci`, `refactor`,
+`style` and `build` (the filters are in [`.goreleaser.yaml`](.goreleaser.yaml)).
+Mark a breaking change with `!` in the subject (`feat(db)!: …`). GoReleaser
+matches subjects only, so a `BREAKING CHANGE:` footer alone is invisible to it.
+A breaking change that needs users to act also gets steps in the next
+release's section of [docs/upgrading.md](docs/upgrading.md).
 
-Mark a breaking change with `!` in the **subject** (`feat(db)!: …`,
-`refactor(db)!: …`). Any type with `!` is listed under "Breaking Changes"
-at the top of the release notes and is never filtered out. A
-`BREAKING CHANGE:` footer alone is not enough: GoReleaser matches only
-the subject. The release notes carry subjects only, never bodies, so a
-breaking change that needs users to act (re-ingest, re-export, a renamed
-JSON field or URL) also adds those steps to the next release's section of
-[`docs/upgrading.md`](docs/upgrading.md), which the release header links.
+To reference a bead, end the subject with its ID:
+`fix(ingest): page ArcGIS by exceededTransferLimit (solvent-streets-o9a3)`.
 
-There is no hand-maintained `CHANGELOG.md`, and PRs adding one will be
-declined: the commit subject *is* the changelog entry, so write it for a
-reader of the release notes.
+The `.beads/hooks/commit-msg` hook checks the Conventional Commit subject (not
+the bead ID). It runs when `core.hooksPath` is `.beads/hooks`, which
+`bd hooks install` sets, or set it yourself with
+`git config core.hooksPath .beads/hooks`. The check is
+`scripts/check-commit-msg.sh`, and `make test-hooks` tests it. Dependabot
+commits as `chore(deps):` and `ci(deps):`, so dependency bumps stay out of the
+release notes.
 
-Examples:
+## Writing documentation
 
-```
-feat(forecast): add piecewise PCI decay
-fix(ingest): handle 504 from Overpass with backoff
-docs: link CONTRIBUTING from README
-```
+Every fact has exactly one home. Other pages link to that home rather than
+restate it, so a change is made once and nothing drifts. The homes:
 
-Scope is optional but encouraged for cross-cutting changes.
+| Page | Owns |
+|---|---|
+| [README.md](README.md) | what pvmt is, install, quickstart, where to go next |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | the workflow: build, test, stored-results rules, commits, docs, releases |
+| [AGENTS.md](AGENTS.md) | only what is specific to coding agents |
+| [docs/architecture.md](docs/architecture.md) | how the code is built and why |
+| [docs/configuration.md](docs/configuration.md) | every `pvmt.toml` setting, env var and directory, and what invalidates stored results |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | errors, one section per hint, and silent symptoms |
+| [docs/upgrading.md](docs/upgrading.md) | the steps each release needs |
+| [methodology](internal/export/docs/methodology.md) | what the models mean, as shown on the site |
+| [docs/validation.md](docs/validation.md) | the evidence that the models match real cities |
+| [examples/](examples/README.md) | which example to start from; each config's header comment describes that config |
+| `--help` (`make gendocs`) | each command's flags and usage |
 
-`.beads/hooks/commit-msg` enforces this shape at commit time. It runs when
-`core.hooksPath` points at `.beads/hooks`, which `bd init` / `bd hooks
-install` set up (or run `git config core.hooksPath .beads/hooks`). The check
-itself is `scripts/check-commit-msg.sh`; `make test-hooks` runs its table
-test. Dependabot is configured to commit as `chore(deps):` (Go modules) and
-`ci(deps):` (Actions).
+Open each page with the big picture, and let the detail follow or live behind
+a link. Describe the code as it is now. History belongs in commit messages,
+release notes and `upgrading.md`, so write no "now", "no longer" or
+"previously" notes, and keep no tables of superseded results. Don't list what
+`ls`, `--help` or `make help` already shows. A list or table earns its place
+only when it holds facts found nowhere else. When a change alters behaviour,
+update the page that owns it in the same commit.
 
 ## Issue tracking
 
-This project uses [beads](https://github.com/steveyegge/beads) (`bd`)
-for issue tracking. Run `bd prime` for the full command reference.
-
-- Browse open work: `bd ready`
-- Read an issue: `bd show <id>`
-- File a new issue: `bd create --title=… --description=… --type=task|bug|feature --priority=2`
-
-GitHub Issues are also welcome. To reference a bead from a commit, end
-the Conventional Commit subject with its ID:
-`<type>[(<scope>)]: <summary> (<bead-id>)`, e.g.
-`fix(ingest): page ArcGIS by exceededTransferLimit (solvent-streets-o9a3)`.
+Work is tracked with [beads](https://github.com/steveyegge/beads): `bd ready`
+shows what is open and `bd prime` explains the rest. GitHub Issues are welcome
+too. Vulnerabilities go through [SECURITY.md](SECURITY.md), not a public issue.
 
 ## Pull requests
 
-- Keep PRs focused on a single change. Land tests in the same PR.
-- Make sure `make build`, `make test`, and `make lint` are green
-  locally before pushing.
-- Don't commit generated output. The forecast WASM (`make wasm`) and the
-  CLI reference (`make gendocs`: `docs/reference/`, `manpages/`,
-  `completions/`) are gitignored. `make build` regenerates the WASM, and
-  the release build regenerates both (the `before` hooks in
-  [`.goreleaser.yaml`](.goreleaser.yaml)).
-- For architectural choices, see [`docs/architecture.md`](docs/architecture.md)
-  and the conventions in [`CLAUDE.md`](CLAUDE.md).
+Keep a PR to one change, with its tests. Architectural choices are explained in
+[docs/architecture.md](docs/architecture.md). Coding agents also follow
+[AGENTS.md](AGENTS.md).
 
-## Reporting security issues
+## Releasing and publishing the showcase
 
-Don't open public issues for vulnerabilities — see
-[SECURITY.md](SECURITY.md) for private reporting channels.
+Pushing a `v*` tag releases. The release workflow first smoke-tests a snapshot
+build (`--version`, `--help`, and `status` in `examples/livermore-ca`), so that
+example's path is release-blocking; `TestShippedExamplesLoad` (`integration/`)
+pins it and checks that every example still loads. GoReleaser then builds Linux and macOS
+binaries (amd64 and arm64) and a `.deb`, and publishes them to GitHub Releases.
+Its notes link to that release's section of
+[docs/upgrading.md](docs/upgrading.md). `make release-dry-run` checks the build
+locally, but not the changelog filters.
+
+The showcase at <https://joncrussell.com/solvent-streets/> is one `pvmt export`
+of [`examples/all/`](examples/all/pvmt.toml). That config `[[include]]`s every
+other example and tags each city at the include site. Ingest and compute can't
+run in CI: the database is about 1 GB, and the upstream pulls are slow and
+rate-limited. So the site is built from a developer machine whose database
+already holds every example's data. `examples/all` reads each example's data
+rather than ingesting its own, so populate the examples, not `examples/all`
+(see [Config identity](docs/configuration.md#config-identity-config_id)). To
+publish:
+
+```
+cd examples/<name> && pvmt all ingest && pvmt all compute   # each stale example; hours
+make site          # render ./site/ from the local database
+make site-report   # pvmt check-site: per-city size budgets and the asset audit
+make deploy        # force-push ./site/ to gh-pages
+```
+
+Run `make site` and `make site-report` before tagging a release that changes
+export output, so a city over its size budget is caught first. GitHub Pages
+serves the new commit on its next sync.

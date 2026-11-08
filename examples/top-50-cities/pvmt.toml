@@ -25,8 +25,8 @@
 #   pvmt all compute
 #   pvmt serve           # or `make site` from the repo root to publish
 
-# Internal DB scoping key. Kept stable across the display rename so the
-# already-ingested 50-city dataset is reused rather than re-fetched.
+# Database scoping key, set explicitly so this dataset keeps its rows if the
+# file is moved or renamed (see docs/configuration.md, "Config identity").
 config_id = "city-nerd"
 
 [grid]

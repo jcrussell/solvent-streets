@@ -1,13 +1,7 @@
 # Forecast WASM assets
 
-`make wasm` writes `pvmt.wasm` (compiled from `cmd/wasm/pvmt`) and
-`wasm_exec.js` (from the Go toolchain) here. Both are generated and
-gitignored; this README is the one tracked file, so the directory always
-exists and `//go:embed wasm` in `../template.go` compiles even when they
-are absent.
-
-That is what lets `go install github.com/jcrussell/solvent-streets/cmd/pvmt@<version>`
-build: the module zip carries only tracked files, so such a binary has no
-WASM. It runs every command except the ones that ship the interactive
-forecast — `export`, `serve` and `check-site`'s asset check — which fail
-with `export.ErrNoWasm` and a hint to use `make build` or a release.
+`make wasm` compiles `cmd/wasm/pvmt` into the generated, gitignored
+`pvmt.wasm` here, beside the Go toolchain's `wasm_exec.js`. This README is the
+directory's one tracked file, so `//go:embed wasm` in `../assets.go` compiles
+even without them. Why, and what a binary without them can't do, is in
+[docs/architecture.md](../../../docs/architecture.md#design-decisions).
