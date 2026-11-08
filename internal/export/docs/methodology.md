@@ -7,16 +7,20 @@ analysis presented in each dashboard.
 
 - **Road, parking, and sidewalk geometry.** OpenStreetMap via the Overpass
   API, under the Open Database License
-  ([ODbL](https://www.openstreetmap.org/copyright)). When a city has no
-  ArcGIS or local-layer source configured, OSM is the sole source and
-  coverage inherits OSM's gaps — most notably uneven sidewalk tagging and
-  inconsistent classification of alleys and unpaved service roads.
-- **Jurisdictional layers.** Optional ArcGIS FeatureService endpoints
-  configured per city in `pvmt.toml`.
-- **City boundaries.** Nominatim lookups or user-supplied GeoJSON,
-  configurable per city.
+  ([ODbL](https://www.openstreetmap.org/copyright)). Parking and sidewalks
+  always come from OSM alone, and so do roads unless the city has an agency
+  source, so coverage inherits OSM's gaps — most notably uneven sidewalk
+  tagging and inconsistent classification of alleys and unpaved service
+  roads.
+- **Agency road centerlines.** Optional ArcGIS FeatureServer layers,
+  configured per city in `pvmt.toml`, merged with the OSM roads.
+- **City boundaries.** OpenStreetMap administrative boundaries, found by a
+  Nominatim search for the city's name or fetched by OSM relation id, with
+  OSM water subtracted so that cities with lakes or coastline compare fairly.
+- **Population.** 2020 Census blocks from the Census Bureau's TIGERweb
+  service (see *Population and per-resident figures*).
 - **Initial PCI.** A *stand-in value* supplied through config or the
-  interactive slider. PVMT does not ingest field-measured PCI and makes no
+  interactive slider. pvmt does not ingest field-measured PCI and makes no
   claim that the starting condition matches reality — changing this input
   is the right way to explore sensitivity to unknown starting condition.
 
@@ -36,8 +40,8 @@ classification. Higher-class roads (motorway, trunk, primary) decay more
 slowly than lower-class roads (residential, service) because they are
 built to thicker, more rigorous design standards and typically receive
 more frequent maintenance. Default values are derived from LTPP data
-reported in **FHWA-RD-01-156, *Long-Term Pavement Performance*** and
-ship as part of the `forecast` package; they are continental-US
+reported in **FHWA-RD-01-156, *Long-Term Pavement Performance***; they
+are continental-US
 averages and do not account for local climate, traffic, or
 construction quality. A config may set a per-city `decay_rate` to tune
 for local conditions (e.g. freeze/thaw or road salt); that override is
@@ -54,9 +58,10 @@ tier midpoints, so the cost-versus-PCI curve is smooth rather than
 step-shaped. Above the highest anchor (the midpoint of the preventive
 tier) and below the lowest anchor (the midpoint of the reconstruction
 tier), the cost is clamped to that anchor's value rather than
-extrapolated. Default cost tiers are expressed in `$/sq m` and sourced
-from FHWA treatment-selection guidance; they are calibration inputs, not
-measurements, and local bid prices will differ. Roads and sidewalks use
+extrapolated. The default tiers are bare-construction contractor bid
+prices: $5 per m² for preventive treatment, $50 for mill-and-overlay
+rehabilitation and $150 for full-depth reconstruction. They are
+calibration inputs, not measurements, and local bid prices will differ. Roads and sidewalks use
 independent cost tiers because the treatment economics differ
 substantially.
 
@@ -70,18 +75,17 @@ ramps), +15% soft costs (design, inspection, project management) and
 +10% contingency, together roughly 1.5×.
 
 **No such multiplier is applied by default, and that is deliberate.** The
-model's *system* output is already loaded-equivalent even though its
-per-treatment inputs are bare: bare tiers, the condition spread, and the
-12-year treatment cycle together reproduce Berkeley's cited real
-hold-steady spend of ~$5.6 per m² per year — and that cited figure is
-itself a loaded municipal number. Loading the tiers on top would
-double-count, putting the same city about 47% above its own published
-figure.
+model's *whole-program* output already matches a loaded municipal budget:
+bare tiers, the condition spread and the treatment cycle together reproduce
+a real city's published hold-steady spend, so loading the tiers as well
+would count the overhead twice. The
+[validation report](https://github.com/jcrussell/solvent-streets/blob/main/docs/validation.md)
+gives the evidence.
 
-The multiplier exists as `forecast.cost_overhead` (default `1.0`) so the
-regime is explicit and adjustable rather than assumed, and the Financials
-tab exposes it as a live slider for a reader whose local numbers say
-otherwise. Changing it scales every dollar figure and nothing else.
+The multiplier exists as `cost_overhead` (default `1.0`) so the regime is
+explicit and adjustable rather than assumed, and the Financials tab exposes
+it as a live slider for a reader whose local numbers say otherwise.
+Changing it scales every dollar figure and nothing else.
 
 ### Condition spread
 
@@ -89,15 +93,14 @@ A real network is a *distribution* of conditions — some segments excellent, so
 failed — not a single average. Because the cost-versus-PCI curve is non-linear,
 pricing everything at the network-average PCI under-states the true program cost
 (the failed/poor tail is disproportionately expensive). To correct this without
-requiring per-segment condition data the model does not have, PVMT spreads the
+requiring per-segment condition data the model does not have, pvmt spreads the
 single configured average PCI into a **distribution around that average** (a Beta
 distribution on the 0–100 scale, with the average preserved exactly) and prices
-each slice separately. The result is a more realistic — and modestly higher —
-cost than pricing the average alone. This is a deliberately conservative
-approximation of the real spread; it is applied automatically and moves the
-solvency dollars in the direction validated against published city data. When
-field-measured per-segment condition becomes available, it will replace this
-assumed spread.
+each slice separately. The result is a more realistic, and higher, cost than
+pricing the average alone. This is a deliberately conservative
+approximation of the real spread, applied automatically: a single-peaked
+spread cannot reproduce a network split between excellent and failed streets,
+so it under-corrects the worst cases.
 
 ### Treatment cycle
 
@@ -110,29 +113,24 @@ scheduled for treatment, so the **annual treatment need** is the
 full-network retreatment cost divided by `N`. This is what makes the
 break-even budget a realistic *annual* program cost rather than the
 one-off cost of rebuilding the entire network at once. A cycle of `N = 1`
-reproduces the older behavior (the whole network priced every year), which
-overstated the hold-steady budget several-fold.
+prices the whole network every year.
 
-The cost level and the cycle length are not independent — the break-even
-budget scales as cost ÷ `N`, so a cheaper cost basis and a shorter cycle
-trade off exactly. We anchor the cycle to the **physical** rate at which a
-city actually repaves (lane-miles treated per year, not dollars): for
-Berkeley that hold-steady cadence is ≈ 12 years, which is the default. With
-the cycle fixed there, the default bare-construction cost tiers reproduce
-the city's cited real hold-steady spend (~$5.6 per m² per year), so the
-break-even dollars are calibrated to reality rather than chosen freely. See
-the validation report for the derivation and the limits of this anchor.
+The default of 12 years is anchored to the rate at which a real city
+repaves (lane-miles per year, not dollars), and with it the default cost
+tiers reproduce that city's published budget. The
+[validation report](https://github.com/jcrussell/solvent-streets/blob/main/docs/validation.md)
+gives the derivation and the limits of that anchor.
 
 ### Scenario comparisons
 
-PVMT ships with three comparison runs driven by annual funding level, all
+pvmt ships with three comparison runs driven by annual funding level, all
 using the **worst-first** allocation strategy (budget is spent on the
 lowest-PCI segments first):
 
 - **25% funding** — annual spend = 25% of year-1 worst-first need.
 - **50% funding** — annual spend = 50% of year-1 worst-first need.
-- **Full funding** — unconstrained budget; spend whatever it takes to
-  treat every segment that falls below the worst-first trigger each year.
+- **Full funding** — unconstrained budget; each year's whole scheduled
+  treatment need is funded.
 
 A **do-nothing** baseline (no spend, uncontrolled decay) is shown
 alongside the funded runs for comparison.
@@ -150,15 +148,16 @@ single-year spending efficiency.
 
 ### Area growth
 
-Optional **compound annual growth** applies to pavement area each year:
+Optional **linear annual growth** adds a fixed share of the starting
+pavement area each year:
 
 ```
-Area(y) = Area₀ · (1 + g)^y
+Area(y) = Area₀ · (1 + g · y)
 ```
 
 where `g` is configured per city (default zero). This lets an example
-model a city that is still expanding its street network; it does not
-model demolition or removal.
+model a city that is still expanding its street network. A negative `g`
+models a shrinking network, floored at zero area.
 
 ### Solvency metrics (streets/roads only)
 
@@ -186,9 +185,8 @@ absolute dollar claim must be roads-only. They are derived from a
   budget whose **final** deferred backlog is within a small relative
   tolerance (a fraction of the annual need) of zero: the budget that funds
   the network's annually-scheduled treatment slice and keeps pace with the
-  cycle. Found by bisection over budget; the search's upper bound is the
-  peak do-nothing annual need over the horizon, which is sufficient to
-  fully fund every year.
+  cycle, found by searching over budgets. It does not depend on the configured current
+  budget, so it is reported for every city.
 
 - **Funding gap** — `(break-even − current budget) / current budget`,
   the primary cross-city ranking metric. Negative when a city already
@@ -201,16 +199,14 @@ Three caveats apply to these figures specifically:
   balance.** It only ever grows; spending in a later year reduces *new*
   need but never pays down backlog already accrued. Read it as "total
   treatment value foregone to date," not as a debt that can be cleared.
-- In the years **before** the insolvency crossing, the reported
-  `annual_spend` series can **exceed the configured budget**. The
-  allocator routes leftover budget on a fully-funded cohort into extra
-  PCI recovery (a surplus branch), and that extra is counted as spend.
-  So an `annual_spend` above `current_budget` in early years is expected,
-  not an error.
+- In early years the reported **annual spend can exceed the configured
+  budget**. Budget left over once a road class is fully treated goes into
+  extra condition recovery, and that extra counts as spend, so this is
+  expected, not an error.
 - Break-even assumes the cost-versus-PCI relationship is **monotone**
   (true for the default cost tiers: worse pavement costs more to treat).
   A pathological custom `cost_tiers` curve that violates this could make
-  the bisection **overstate** the break-even budget — a conservative
+  the search **overstate** the break-even budget — a conservative
   direction (it never understates the gap).
 
 ### Compare-tab scores
@@ -261,8 +257,6 @@ are hex-clipped the same way). Limitations:
 - Overlapping lots, or a multipolygon lot whose member ways are also
   tagged, are each counted — unlike paved area, which unions overlaps.
 - OSM `capacity` tags are sparse and uneven; most lots use the area rule.
-- A city computed before this estimate existed shows no count until it is
-  recomputed.
 
 ### Color by
 
@@ -315,38 +309,31 @@ city-builder's service-coverage overlay. It is computed, not observed:
    roundabouts) is respected. One source feeds the graph: OpenStreetMap
    when ingested, otherwise the agency centerlines (which carry no speed
    tags and so run at the default).
-3. **Routing.** Each station is placed at the nearest point along a road
-   (preferring the main street network over a closer unconnected stub),
-   and a single multi-source shortest-path run from every station gives
-   each road vertex its travel time from the nearest one. A hex's value is
-   the **turnout** (80 s, NFPA 1710 for fire and special operations) plus
-   the travel time to the nearest reachable point along a road from its
-   centre — not merely the nearest vertex, so a long straight road with
-   few vertices still reaches the hexes it crosses — provided that point
-   is within 300 m; stations farther than 500 m from the network are
-   ignored with a warning. Neither a station nor a hex centre is placed
-   on a motorway carriageway or ramp while any other road is within
-   those distances: a carriageway is one-way with no frontage, so a point
-   beside a freeway placed on it would be timed as if reachable only in
-   the freeway's direction of travel. Trunk roads, often surface
-   arterials, are not excluded. The summary's "within
-   threshold" share uses NFPA 1710's 240 s first-engine travel time.
-   `[[services]]` in the config overrides both constants.
-4. **Storage and display.** Values are stored per hex as the
-   `fire_response_s` metric, as the fire-coverage part of the city's
-   snapshot (recomputing roads leaves it in place; a city with no
-   stations left has the part removed), exported in `hex-metrics.json`,
-   and painted in five bands
-   (≤ 5:20, 7:20, 9:20, 11:20, > 11:20 total time). Only hexes that
-   also carry pavement rows are painted; a hex with no road within reach
-   carries no value rather than a sentinel.
+3. **Placement.** Each station is placed at the nearest point along a
+   road, preferring the main street network over a closer unconnected stub.
+   A station farther than 500 m from any road is ignored with a warning.
+4. **Travel time.** One shortest-path run from every station at once gives
+   each point on the road network its travel time from the nearest station.
+   A hex's value is the **turnout** time (80 s, from NFPA 1710) plus the
+   travel time to the nearest point along a road from the hex's centre,
+   provided that point is within 300 m. Nearest *point*, not nearest
+   intersection, so a long straight road still reaches the hexes it
+   crosses.
+5. **Freeways.** Neither a station nor a hex centre is placed on a motorway
+   or ramp while any other road is within reach. A freeway carriageway is
+   one-way with no frontage, so a point beside it placed on it would be
+   timed as reachable in one direction only. Trunk roads, often surface
+   arterials, are not excluded.
+6. **Display.** Hexes are painted in five bands of total time (≤ 5:20,
+   7:20, 9:20, 11:20, > 11:20). Any hex of the grid can be painted, paved or
+   not, and a hex with no road within reach is left blank. The summary's
+   "within threshold" share uses NFPA 1710's 240 s first-engine travel
+   time. `[[services]]` in the config overrides the turnout and the
+   threshold.
 
-Limitations: no traffic, signals, grade separation beyond what OSM nodes
-encode, unit availability, dispatch time, or apparatus type are modelled;
-OSM station coverage is uneven; and the same machinery (a generic per-hex
-metric registry) is meant to carry other services and metrics later, so
-the legend bands and colour ramp are per-metric descriptions, not a fixed
-fire palette.
+Limitations: traffic, signals, unit availability, dispatch time and
+apparatus type are not modelled, nor is grade separation beyond what OSM
+encodes; and OSM's station coverage is uneven.
 
 ### Assumptions and limitations
 
@@ -384,4 +371,6 @@ fire palette.
 - [pvmt source](https://github.com/jcrussell/solvent-streets) —
   implementation reference. See
   [`docs/architecture.md`](https://github.com/jcrussell/solvent-streets/blob/main/docs/architecture.md)
-  for the ingest and compute pipeline.
+  for the ingest and compute pipeline, and
+  [`docs/validation.md`](https://github.com/jcrussell/solvent-streets/blob/main/docs/validation.md)
+  for the comparison against published city data.

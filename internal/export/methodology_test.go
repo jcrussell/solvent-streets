@@ -15,7 +15,7 @@ var methodologyMarkers = []string{
 	"OpenStreetMap",
 	"FHWA-RD-01-156",
 	"FHWA-HIF-12-042",
-	"compound annual growth",
+	"linear annual growth",
 }
 
 // forbiddenHTML are substrings that must never appear in the rendered
