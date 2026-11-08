@@ -15,6 +15,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/internal/ingest"
 	"github.com/jcrussell/solvent-streets/internal/paths"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
@@ -517,4 +518,27 @@ func TestConfigFactory_SilentWhenNothingToSay(t *testing.T) {
 			t.Errorf("a command that never reads the config must see nothing, got %q", got)
 		}
 	})
+}
+
+// TestHintForConfigError_ExampleConfigLoads keeps the example config that the
+// config-not-found and no-cities hints print loadable. A user who pastes it
+// must get a working config, not a "no data source" validation error.
+func TestHintForConfigError_ExampleConfigLoads(t *testing.T) {
+	for _, sentinel := range []error{config.ErrConfigNotFound, config.ErrNoCities} {
+		var h *hint.ErrHint
+		if !errors.As(hintForConfigError(sentinel), &h) {
+			t.Fatalf("%v: no hint attached", sentinel)
+		}
+		_, example, ok := strings.Cut(h.Hint, "\n  [[cities]]")
+		if !ok {
+			t.Fatalf("%v: hint has no example config: %q", sentinel, h.Hint)
+		}
+		path := filepath.Join(t.TempDir(), "pvmt.toml")
+		if err := os.WriteFile(path, []byte("[[cities]]"+strings.ReplaceAll(example, "\n  ", "\n")), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := config.Load(path); err != nil {
+			t.Errorf("%v: the hint's example config does not load: %v", sentinel, err)
+		}
+	}
 }

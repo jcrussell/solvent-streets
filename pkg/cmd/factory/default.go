@@ -36,10 +36,10 @@ func hintForConfigError(err error) error {
 		return nil
 	case errors.Is(err, config.ErrConfigNotFound):
 		return hint.Withf(err,
-			"create a pvmt.toml in your project root, or cd into a directory that contains one.\nminimal example:\n  [[cities]]\n  name = \"Oakland\"")
+			"create a pvmt.toml in your project root, or cd into a directory that contains one.\nminimal example:\n  [[cities]]\n  name = \"Oakland, CA\"\n  overpass = true")
 	case errors.Is(err, config.ErrNoCities):
 		return hint.Withf(cmdutil.FlagErrorf("%w", err),
-			"add a [[cities]] section to pvmt.toml, e.g.:\n  [[cities]]\n  name = \"Oakland\"")
+			"add a [[cities]] section to pvmt.toml, e.g.:\n  [[cities]]\n  name = \"Oakland, CA\"\n  overpass = true")
 	case errors.Is(err, config.ErrInvalidConfig):
 		return cmdutil.FlagErrorf("%w", err)
 	case errors.Is(err, fs.ErrPermission):
