@@ -26,6 +26,6 @@ the prompts/ directory are rejected.
 
 You are working on `pvmt` — a pure-Go (no CGO) CLI for pavement data ingestion, hex-grid coverage, and PCI decay forecasting. Repo root: `{{.RepoRoot}}`.
 
-The authoritative project guide is `CLAUDE.md` at the repo root. It documents the factory DI pattern, multi-city model, simplefeatures gotchas, and `make` targets — read it if you need architecture or convention context. Persistent cross-session knowledge lives in `bd memories`.
+The agent guide is `AGENTS.md` at the repo root (agent rules and gotchas); it links to `CONTRIBUTING.md` for the build/test/commit workflow and `docs/architecture.md` for the factory DI pattern and multi-city model. Persistent cross-session knowledge lives in `bd memories`.
 
 Current iteration: {{.Iter}}. State: `{{.State}}` (previous: `{{.PrevState}}`). Git HEAD: `{{.GitHead}}` (dirty: {{.GitDirty}}). Last gate: `{{.GateResult}}`.

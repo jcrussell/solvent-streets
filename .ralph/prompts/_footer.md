@@ -54,7 +54,7 @@ These never bend:
   designed to finish.
 - **No remote sync.** Never `git push`, never `bd dolt push`,
   never `bd dolt pull`. Remote sync is human-controlled per
-  `CLAUDE.md`. Leave work committed locally and stop.
+  `AGENTS.md`. Leave work committed locally and stop.
 
 ## Communicate
 
