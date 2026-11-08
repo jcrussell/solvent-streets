@@ -1,6 +1,15 @@
 # Architecture
 
-## Data pipeline
+`pvmt` is a pipeline with a database in the middle. **Ingest** fetches
+features for each configured city from upstream services and stores them.
+**Compute** projects those features onto a hex grid, and each producer stores
+its results as an immutable *run*, grouped into a *snapshot*. **Read**
+commands work only from a snapshot: export, serve and `pvmt forecast`. They
+simulate the forecast when they run, so nothing forecast-related is ever
+stored. This page explains how each stage is built and why. What the models
+*mean* (decay, cost, solvency, fire response, population) is in the
+[methodology](../internal/export/docs/methodology.md), and every setting is in
+[configuration.md](configuration.md).
 
 ```mermaid
 flowchart LR
@@ -11,92 +20,112 @@ flowchart LR
         TIGERweb
     end
 
-    subgraph Compute ["internal/geo + internal/resource"]
-        Project["WGS84 → UTM"]
-        Buffer["Buffer features"]
-        HexGrid["Hex grid"]
-        RTree["R-tree + per-hex union"]
+    subgraph Compute ["pkg/cmd/compute, internal/resource, services, population"]
+        Grid["Project to UTM, hex grid, clip"]
+        Pavement["Pavement coverage"]
+        Metrics["Per-hex metrics"]
     end
 
-    subgraph Forecast ["internal/forecast"]
-        PCI["PCI decay"]
-        Cost["Cost projection"]
-    end
-
-    subgraph Output ["internal/export + internal/server"]
+    subgraph Read ["internal/export, server, forecast"]
+        Forecast["Forecast (simulated on read)"]
         Export["Static site"]
         Serve["HTTP server"]
+        CLI["pvmt forecast"]
     end
 
-    Ingest --> DB[(SQLite)]
-    DB --> Project --> Buffer --> HexGrid --> RTree --> DB
-    DB --> PCI --> Cost --> DB
-    DB --> Export
-    DB --> Serve
+    Ingest --> Features[(features)]
+    Features --> Grid --> Pavement --> Snap[(snapshot)]
+    Grid --> Metrics --> Snap
+    Snap --> Forecast --> Export & Serve & CLI
 ```
 
-## Factory DI
+## Commands and the Factory
 
-Most dependencies are lazy-initialized behind `sync.OnceValues` closures in the `Factory` struct. The exception is `Logger`, which is constructed eagerly because its handler is cheap and the level is mutated through a shared `LogLevel *slog.LevelVar`.
+Commands follow the `gh` CLI's shape: each has an Options struct, a
+constructor and a `Run` function. Each receives a `*cmdutil.Factory`, and tests
+swap in a `runF` to capture the options. The Factory holds lazy
+`sync.OnceValues` accessors, so a command pays only for what it touches:
+`--version` opens no config and no database. `IOStreams`, `Prompter` and
+`Logger` are the eager exceptions, because they are cheap to build.
 
 ```mermaid
 graph TD
-    Factory --> Config
+    Factory --> Config --> CurrentCity
+    Factory --> RootDB --> CityDB
+    CurrentCity --> CityDB
     Factory --> HttpClient
-    Factory --> RootDB
     Factory --> UnitSystem
     Factory --> Paths
-    Factory --> Logger
-
-    Config --> CurrentCity
-    RootDB --> CityDB
-    CurrentCity --> CityDB
-
-    style Factory fill:#f5f5f5,stroke:#333
 ```
 
-Commands receive a `*Factory` and call only the accessors they need. The root command's `PersistentPreRunE` wires the `--city/-c` and `--units` flags into `CurrentCity` and `UnitSystem` before subcommands are added, so flag-aware overrides take precedence over per-city and top-level config. Multi-city commands use `cmdutil.ForEachCity`, which builds a city-scoped factory per iteration and silently skips cities with no results.
+The root command's `PersistentPreRunE` applies `--city/-c`, `--units` and the
+log level before any subcommand runs, so a flag beats per-city and top-level
+config. Multi-city commands iterate with `cmdutil.ForEachCity`, which builds a
+city-scoped Factory per city.
 
-## Geometry pipeline
+## Geometry
 
-All area math happens in projected (meter) coordinates, never in degrees.
+All area math happens in projected meters, never in degrees. Each city is
+projected to the UTM zone of its bbox centre. A road centerline is buffered by
+a width inferred from its OSM tags: the `width` tag, else `lanes`, else a
+class default, plus any parking lanes. Sidewalks are buffered the same way
+with their own defaults. Parking lots are already polygons. Buffered
+geometries go into an R-tree. The city is tiled with flat-top hexes of the
+configured edge and clipped to the city boundary. For each hex, the features
+it touches are unioned and clipped to the hex, which gives its area and
+percent covered (`pct_covered`, 0–100) in `hex_stats`. Hex polygons are
+projected back to WGS84 only for output.
 
-```mermaid
-flowchart TD
-    GeoJSON["GeoJSON features (WGS84 lon/lat)"]
-    UTM["UTMProjector → meters"]
-    Width["Infer width from OSM tags"]
-    Buf["Buffer LineStrings → Polygons"]
-    Val["Validate via Buffer(0)"]
-    RTIdx["R-tree index over buffered geoms"]
-    Hex["HexGrid (flat-top, configurable edge)"]
-    Clip["Clip hexes to city boundary"]
-    PerHex["Per-hex: spatial query → local union → clip to hex"]
-    Stats["Per-hex area & % coverage → hex_stats"]
-    Back["Reproject hex polygons → WGS84 GeoJSON"]
+Geometry is pure Go, `peterstace/simplefeatures`. Several of its constructors
+have non-obvious signatures (`NewLineString` returns one value,
+`Envelope.MinMaxXYs()` returns `(XY, XY, bool)`), so mirror the existing
+`internal/geo/` call sites rather than guessing.
 
-    GeoJSON --> UTM --> Width --> Buf --> Val --> RTIdx
-    Hex --> Clip
-    RTIdx --> PerHex
-    Clip --> PerHex
-    PerHex --> Stats --> Back
-```
+Large Overpass queries split into quadrants, up to depth 3 (64 requests), and
+deduplicate features at the seams.
 
-Roads: width inferred from `width` tag, `lanes` count, or classification defaults, plus parking lane addon.
-Parking: polygons used directly; each lot also gets an estimated space count (`capacity` tag, else area / 30 m², × levels for garages) apportioned onto hexes by area fraction (`resource.EstimateParkingSpaces`, `geo.ComputeHexWeightedShares`). The city total is `compute_results.estimated_spaces`; the per-hex shares are `hex_metrics` rows under `parking_spaces_all` / `parking_spaces_city` (`resource.SpacesMetricKey`, deliberately unregistered) written by the same parking run as the coverage, which the exporter joins back into `hexgrid.geojson`'s per-hex `spaces`.
-Sidewalks: buffered like roads with sidewalk-specific width defaults.
+## Per-hex metrics
 
-Service coverage (`pvmt services`, `internal/services`) runs beside the pavement passes rather than through them: facilities (`facility-<service>` features, OSM points collapsed from nodes/buildings) are routed from over a graph built from the stored roads (one source per city, vertices keyed by shared coordinates, edges costed by posted or class speed, oneway honoured), and each hex's response seconds land in the generic `hex_metrics` table (`internal/hexmetric` registry, key `fire_response_s`) under the service's own run (part `service:fire`). Facilities and hex centres snap to the nearest point along a road segment, not just a vertex, and onto a motorway carriageway or link only when no other road is in range (a one-way carriageway would time the point beside it in one direction only). The exporter writes stored metrics (fire coverage, census population) from the resolved snapshot as the optional `hex-metrics.json`; a producer rerun that stored nothing commits an empty run, so an older run's rows never resurface; the dashboard's "Color by" mode paints any registered metric from its scale, so a new metric is a registry entry and a producer, not new client code.
+Pavement coverage lives in `hex_stats`. Every other per-hex value lives in the
+generic `hex_metrics` table, keyed by a metric registered in
+`internal/hexmetric`. Two producers write registered metrics:
 
-Every hex coloring goes through that registry, including the pavement ones. Coverage %, paved area, parking spaces and est. year-1 cost are *derived* specs (`internal/hexmetric/builtin.go`): each declares how to combine the per-resource values in `hexgrid.geojson` (`sum` over the toggled resources, optionally capped, or a `ratio` of that sum over a stored metric). The exporter ships derived specs once in the page config and writes only stored metrics to `hex-metrics.json`; the dashboard resolves the active spec into one per-hex value and paints it with one expression, legend and tooltip path. `hexgrid.geojson` carries every hex of the clipped grid, so stored metrics can paint hexes with no pavement rows. Pavement storage itself is unchanged: `hex_stats` stays the pavement compute's table (area and % covered), feeding forecast, game seeds and cost; only the per-hex parking spaces ride in `hex_metrics`.
+- **Fire response.** `internal/services` routes from fire stations over a
+  graph built from the stored roads.
+- **Population.** `internal/population` apportions 2020 Census blocks onto
+  hexes by area.
 
-Population (`pvmt census`, `internal/population`) is a second metric producer. 2020 Census blocks are stored as `layer-census-blocks` features (`layer-<name>` is the convention for attribute polygons, like `facility-<service>` for points). Each block's POP100/HU100 counts are spread onto the hexes by area overlap (`geo.ComputeHexWeightedSharesN`). The results are stored as `population`, `housing_units` and `population_per_km2` metrics. Per-resident ratios are derived specs over the stored population. Both producers set up through `compute.LoadMetricTarget`, which resolves the projection and the clipped grid the pavement passes use (so hex ids line up). Neither depends on a roads compute: coverage routes over the road features, and population over the census features.
+The parking compute also stores its per-hex space estimates in `hex_metrics`.
+They sit under deliberately unregistered keys (`resource.SpacesMetricKey`),
+and the exporter folds them back into `hexgrid.geojson`.
 
-Facilities and census blocks are *own-sourced* (`resource.OwnSourced`): each comes from one fixed source (Overpass, TIGERweb) whatever the city's `overpass` / `arcgis_url` settings. `ingest.SourcesFor` resolves that source, and `pvmt gc`'s stale-source sweep only touches the pavement types in `resource.All`. A new own-sourced type therefore needs no special case in either place. TIGERweb is reached through `ingest.ArcGISQuery`, the generic ArcGIS paging and completeness core that the roads centerline source also uses.
+Both metric producers resolve, through `compute.LoadMetricTarget`
+(`pkg/cmd/compute`), the same projection and clipped grid the pavement passes
+use, so hex ids line up. No producer reads another producer's stored results.
 
-## Database schema
+The dashboard paints every coloring from that registry. Stored metrics ship in
+`hex-metrics.json`. *Derived* metrics are registered beside
+them: coverage %, paved area, parking spaces and year-1 cost in
+`internal/hexmetric/builtin.go`, and the per-resident ratios in
+`internal/population`. Each declares how to combine the per-resource values in
+`hexgrid.geojson`, and the browser resolves it. A new coloring is therefore a
+registry entry, plus a producer if it needs stored data, and no client code.
+`hexgrid.geojson` carries every hex of the clipped grid, so a stored metric can
+paint a hex that has no pavement.
 
-Single file at `~/.local/share/pvmt/pvmt.db`. WAL mode. All tables scoped by `city_id`.
+Fire stations and census blocks are *own-sourced* (`resource.OwnSourced`):
+each comes from one fixed upstream, whatever the city's `overpass` /
+`arcgis_url` settings. `ingest.SourcesFor` resolves the source, and `pvmt gc`'s
+stale-source sweep covers only the pavement types in `resource.All`, so a new
+own-sourced type needs no special case in either. TIGERweb and the ArcGIS
+centerline source share one paging and completeness core, `ingest.ArcGISQuery`.
+
+## Database
+
+The database is a single SQLite file in the data directory (see
+[configuration.md](configuration.md#files-and-directories)), opened in WAL
+mode. Every table carries a `city_id`, except `snapshot_parts`, which hangs
+off its snapshot.
 
 ```mermaid
 erDiagram
@@ -118,11 +147,6 @@ erDiagram
         text name
         text config_id
     }
-    %% Unique key is the composite (slug, config_id), not slug alone.
-    %% A city pulled in via [[include]] carries its SOURCE config's id, so a
-    %% union config resolves to the declaring example's row rather than
-    %% minting one of its own. See docs/configuration.md
-    %% "Config identity".
     city_boundaries {
         int city_id FK
         text geometry_json
@@ -133,8 +157,11 @@ erDiagram
         text id PK
         text resource_type PK
         int city_id PK
+        text name
         text tags
         text geometry_json
+        text source_api
+        datetime fetched_at
     }
     runs {
         int id PK
@@ -162,6 +189,7 @@ erDiagram
         real total_area
         int feature_count
         int estimated_spaces
+        datetime computed_at
     }
     hex_stats {
         int id PK
@@ -171,6 +199,7 @@ erDiagram
         text resource_type
         real area
         real pct_covered
+        datetime computed_at
     }
     cohort_stats {
         int id PK
@@ -179,6 +208,8 @@ erDiagram
         text resource_type
         text classification
         real area
+        int feature_count
+        datetime computed_at
     }
     hex_metrics {
         int id PK
@@ -188,52 +219,154 @@ erDiagram
         text metric
         real value
         text ref
+        datetime computed_at
     }
 ```
 
+`cities` is unique on `(slug, config_id)`, not on slug alone. That keeps two
+configs that happen to define the same city apart, while a city pulled in
+through `[[include]]` resolves to its declaring config's row (see
+[Config identity](configuration.md#config-identity-config_id)).
+
+`001_init.sql` creates the schema, and `checkGeneration`
+(`internal/db/migrations.go`) stamps a fresh database's `PRAGMA user_version`
+with `schemaGeneration`.
+Changes within a generation are numbered migrations. A breaking change bumps
+the generation, and pvmt refuses a database from any other generation rather
+than converting it (see
+[troubleshooting](troubleshooting.md#incompatible-database)).
+
+## Runs and snapshots
+
+A *run* is one producer's output for one city. The producers are the roads,
+parking or sidewalks compute, the combined pass, `service:<name>` and census.
+Every result row carries its `run_id`, and runs are immutable. A *snapshot* is
+the city's complete computed state: a manifest in `snapshot_parts` that names
+one run per part. Every read resolves exactly one snapshot and reads only its
+runs. That snapshot is the pinned id, or else the newest one under the city's
+current config hash. `pvmt export` and `pvmt serve` pin each city's snapshot
+once at startup (`CityEntry.PinCurrentSnapshot`), so a compute that commits
+meanwhile cannot mix two snapshots into one city's files. `?snapshot=N`
+overrides the pin per request.
+
+Each command builds a `db.Draft` and commits it as one snapshot: the newest
+snapshot under the same hash, with only the parts the command produced swapped
+in. `pvmt roads compute` replaces the roads part, and fire coverage, population
+and the other resources carry over. `pvmt all compute` commits one snapshot
+per city covering all of its steps. A failed step leaves its part as it was.
+
+A rerun that reaches nothing still commits, as an empty run. A producer with
+nothing to work from drops its part. Either way the older result stops being
+published. A commit that would not change the manifest writes nothing, and no
+snapshot is ever empty.
+
+Nothing carries across config hashes, because hex ids from another grid would
+land on the wrong hexes. Export refuses a city whose snapshot has no pavement
+compute. It warns when a part the city had under earlier settings has not yet
+been produced under the current ones.
+
+Uncommitted runs are invisible. A cancelled or failed command discards its
+runs, and `pvmt gc` sweeps any left by a crash once they are a day old
+(`db.OrphanRunGrace`). The grace is that long because one city of `pvmt all
+compute` can legitimately hold an uncommitted run for hours. Write
+transactions take the lock up front (`_txlock=immediate`) and wait out SQLite's
+busy timeout. A snapshot commit then keeps retrying for up to two minutes
+(`commitBusyBudget`), so two concurrent computes wait for each other instead of
+failing. No producer reads
+another's results, so two commands committing in either order each swap in
+only their own parts. `pvmt snapshots prune` and `rm` delete manifests, then
+every run no surviving snapshot references.
+
+## Config hash
+
+Snapshots are keyed by `Config.CityHash` (`internal/config/hash.go`). It is a
+16-hex-character sha256 over a canonical encoding of only the resolved inputs
+that change a stored result (`computeInputs`), plus a hand-bumped
+`ComputeEpoch` for code changes. Resolved means defaults, `[[include]]`
+flattening and env overrides are applied first. Because the hash depends only
+on what a city resolves to, an included city hashes as its source config does
+when both resolve the same inputs (see
+[Config identity](configuration.md#config-identity-config_id)). When they
+differ, `SourceDivergence` names the setting.
+
+`TestComputeInputs_EveryFieldClassified` forces every new config field to be
+classified. Which settings are in the hash is stated once, for users, in
+[configuration.md](configuration.md#snapshots-and-the-config-hash). The rules
+for contributors are in
+[CONTRIBUTING.md](../CONTRIBUTING.md#changes-that-affect-stored-results).
+
+## JSON conventions
+
+Every JSON document pvmt emits shares one vocabulary, so a key reads the same
+everywhere. That covers CLI `--json` output, the HTTP API, the exported site
+files, `window.PVMT_CONFIG`, and the game and WASM payloads.
+
+- Keys are `snake_case`, and a value has one name across every surface
+  (forecast.json's `annual_need` is the CLI's `annual_need`).
+- Timestamps end in `_at` and are RFC3339 UTC at second precision. Calendar
+  dates end in `_date`.
+- A plural noun is a collection. An integer count of entities ends in
+  `_count`. A quantity in a unit keeps its noun (`estimated_spaces`).
+- Values are in canonical units, and the UI converts them for display:
+  - areas in m², with no unit suffix;
+  - money in dollars;
+  - durations in seconds, suffixed `_s`;
+  - rates carry their unit (`cost_per_sqm`).
+- Proportions are fractions in 0..1. A part-of-whole proportion ends in
+  `_share`. Signed ratios (`funding_gap`) keep plain names.
+- Positions are `[lon, lat]`, and extents are `bbox:
+  [west, south, east, north]` (GeoJSON order). `pvmt.toml` and the Go
+  internals use Overpass's `[south, west, north, east]`, and the exporter
+  reorders at the boundary.
+- `city` holds the slug. The display name is `name`.
+- A value that does not apply is omitted, never `null` or a 0 sentinel.
+- Scope values are `"city"` (city-maintained) and `"all"` (every
+  jurisdiction).
+
+A few formats are exempt:
+
+- upstream formats;
+- HTTP cache entries;
+- `pvmt.toml` keys;
+- `pkg/cmd/validate/reference.json`;
+- the deliberately short per-hex keys in the large hexgrid and play-board
+  arrays (`area`, `share`, `spaces`, `city_same`, `k`, and the file version
+  `v`).
+
+`TestJSONTagsSnakeCase` and `TestJSONFields_SnakeCase` enforce the
+conventions.
+
+A command that prints rows takes `--json <field,...>`
+(`cmdutil.AddJSONFlags`) and prints an array of row objects. A command that
+prints one document takes a bare `--json` (`cmdutil.AddDocumentJSONFlags`):
+export's manifest and validate's report. `--jq` and `--template` need `--json`
+and see exactly what it prints. `--jq` runs once over the whole output, and
+`--template` runs once per row, or once over the document.
+
 ## Design decisions
 
-**Metric internals.** All areas are stored in square meters. The `--units` flag and `[display].units` config control presentation only.
+**Metric internals.** Areas are stored in square meters and money in dollars.
+`--units` and `[display].units` change presentation only.
 
-**JSON conventions.** Every JSON document pvmt emits — CLI `--json` output, the HTTP API, the exported site files, `window.PVMT_CONFIG`, the game and WASM payloads — shares one vocabulary, so a key reads the same everywhere and needs no docs to interpret:
+**Embedded WASM.** The forecast runs in the browser as the same Go forecast
+code compiled to WASM (`cmd/wasm/pvmt`), so the site and the CLI run one
+model. The binary embeds it from `internal/export/wasm/`, whose only
+tracked file is a README, so a build without the generated WASM still
+compiles. That keeps `go install` working, at the cost of the commands that
+ship the forecast (see
+[troubleshooting](troubleshooting.md#export-errnowasm)). The build order is in
+[CONTRIBUTING.md](../CONTRIBUTING.md#build-test-lint).
 
-- Keys are `snake_case`. A value has one name across every surface (forecast.json's `annual_need` is the CLI's `annual_need`).
-- Timestamps end in `_at` and are RFC3339 UTC at second precision; calendar dates end in `_date`.
-- A plural noun is a collection (list or map); an integer count of entities ends in `_count`. Quantities in a unit keep their noun (`estimated_spaces`, `oil_barrels`).
-- Values are in canonical units and the UI converts for display: areas in m² (no unit suffix), money in dollars, durations in seconds (suffix `_s`), rates carry their unit (`cost_per_sqm`).
-- Proportions are fractions in 0..1, never percentages. A part-of-whole proportion ends in `_share` (`paved_share`, `within_threshold_share`); signed relative ratios (`funding_gap`, `residual`) keep plain names.
-- Positions are `[lon, lat]` arrays and extents are `bbox: [west, south, east, north]`, both in GeoJSON order. (`pvmt.toml` and the Go internals keep Overpass's `[south, west, north, east]`; the exporter reorders at the boundary.)
-- `city` holds the slug; the display name is `name`.
-- A value that does not apply is omitted — never `null`, never a 0 sentinel.
-- Scope values are `"city"` (city-maintained features) and `"all"` (every jurisdiction).
+**Outbound HTTP cache.** Upstream responses are disk-cached for 24 hours in
+the cache directory. That includes Overpass POSTs, because the key folds in
+the method and body. The cache has no online eviction: a directory scan in
+front of every request would cost more than it saves. Eviction is the
+explicit offline sweep `pvmt cache prune` (see
+[troubleshooting](troubleshooting.md#disk-usage-the-http-cache-keeps-growing)).
+It is a command group of its own rather than part of `pvmt gc`, because
+reclaiming disk must not depend on the config or the database. An entry's age is the newer of its body and
+`.meta` files, because a 304 revalidation rewrites only the `.meta`.
 
-**CLI JSON flags.** A command that prints rows takes `--json <field,...>` (fields checked against the command's list, `cmdutil.AddJSONFlags`) and prints an array of row objects. A command that prints one document — `pvmt export`'s manifest, `pvmt validate`'s report — takes a bare `--json` (`cmdutil.AddDocumentJSONFlags`). Both kinds accept `--jq` or `--template`, which require `--json` and see exactly what `--json` prints. `--jq` runs over the whole output (the row array, or the document); `--template` runs once per row, or once over the document.
-
-Exempt: upstream formats (Overpass, ArcGIS, Nominatim, GeoJSON keys), the on-disk HTTP cache entries, `pvmt.toml` keys, the hand-curated `pkg/cmd/validate/reference.json`, and the deliberately short per-hex keys in the large hexgrid and play-board arrays (`area`, `share`, `spaces`, `city_same`, `k`, file version `v`). Struct tags are checked by `TestJSONTagsSnakeCase` and CLI field lists by `TestJSONFields_SnakeCase`.
-
-**Runs and snapshots.** A *run* is one producer's output for one city: the roads, parking or sidewalks compute, the combined pass, service coverage (`service:<name>`) or census. Forecasts are not stored: export, serve, `pvmt forecast` and the site's WASM simulate them on demand from the snapshot's compute results and cohort stats under the `[forecast]` settings in force, so `pvmt forecast` only reads and commits nothing. Every result row carries the `run_id` that wrote it, and runs are immutable. A *snapshot* is the city's complete computed state: a manifest in `snapshot_parts` naming one run per part. Every read resolves exactly one snapshot, the pinned id or else the newest for the city's current config hash, and reads only that snapshot's runs. `pvmt export` and `pvmt serve` pin each city to its newest snapshot once, at the start (`CityEntry.PinCurrentSnapshot`), so a compute that commits meanwhile cannot mix two snapshots into one city's files; `?snapshot=N` overrides the pin per request. Export refuses a city whose current snapshot holds no pavement compute (only coverage or census), which is what a metric-only command leaves right after a change to a setting that affects results.
-
-Each command assembles a `db.Draft` and commits it as **one** snapshot: the newest snapshot for the same config hash, with only the parts the command produced swapped in. So a recompute affects only what it recomputes. `pvmt roads compute` swaps in a new roads run, and fire coverage, population and the other resources carry over untouched. `pvmt all compute` commits one snapshot per city for all of its steps; a step that fails leaves its part as it was. A producer whose rerun reaches nothing (coverage that reaches no hex) commits an empty run, and one with nothing to work from (no features, no stations, no census blocks, `census = false`) drops its part; either way the old result is no longer published. A commit that would not change the manifest writes no snapshot, and no snapshot is ever empty. Nothing carries across config hashes, because hex ids from another grid would land on the wrong hexes; a change to a setting that affects results means recomputing the city, and export warns when the current settings have not yet produced a part (fire coverage, population, the combined total) that the city's snapshot under its earlier settings had. Uncommitted runs are invisible: a cancelled or failed command discards its runs, and `pvmt gc` sweeps any left behind by a crash once they are a day old (`db.OrphanRunGrace`; one city of `all compute` can legitimately hold an uncommitted run for hours). Write transactions take SQLite's lock up front (`_txlock=immediate`) and a commit retries while another process holds it, so two processes computing at once wait for each other rather than fail. No producer reads another producer's stored results (each works from features, the boundary and the grid), so a draft has no read view and two commands committing in either order each swap in only their own parts. `pvmt snapshots prune` / `rm` delete manifests and then every run no surviving snapshot references, so every snapshot that remains reads exactly what it did.
-
-**Config hash.** The key snapshots are stored under, `Config.CityHash` (`internal/config/hash.go`), is per city and semantic: the sha256 (16 hex characters) of a canonical encoding of only the *resolved* settings that change a stored result computed from the same stored features — the hex edge, census on/off, `[[services]].turnout_s` and the city's `[[cities.facilities]]` — with defaults, `[[include]]` flattening and `PVMT_HEX_EDGE_M` applied, plus a hand-bumped `ComputeEpoch` for code changes that alter stored results. So a comment, whitespace or key-order edit changes nothing; a presentation-only setting (units, `[export]`, tags, `min_hex_area`, `travel_threshold_s`), any `[forecast]` setting or `PVMT_FORECAST_*` override (the forecast is simulated on demand, never stored), or an ingest-only setting (sources, URLs, `boundary_relation_id`) changes nothing; editing one city's grid, services or facilities invalidates that city alone; and `PVMT_HEX_EDGE_M=300 pvmt roads compute` writes under a different hash than the file's grid. Every config field is classified by a contract test (see [CONTRIBUTING.md](../CONTRIBUTING.md#changes-that-affect-stored-results)). The hash depends only on what a city resolves to, so a city pulled in through `[[include]]` hashes as its source config does whenever the including config resolves the same inputs, and `examples/all` reads every example's snapshots, including where the per-field merge backfills forecast figures; if the grid, `[[services]]`, facilities or census differ, it gets its own hash and export names the diverging setting. When a city has snapshots but none under its current hash, export, `pvmt forecast`, `pvmt status` and `pvmt serve` (at startup) give the same explanation, naming the diverging setting for such an included city, and `pvmt status` marks which snapshots match the current settings.
-
-**Schema generations.** `001_init.sql` creates the current schema and stamps `PRAGMA user_version` with the generation (`schemaGeneration` in `internal/db/migrations.go`). Ordinary changes are additive numbered migrations within a generation. A breaking squash bumps the generation, and pvmt refuses a database from any other generation rather than converting it (see [`#incompatible-database`](troubleshooting.md#incompatible-database)).
-
-**WASM build order.** The forecast WASM binary is embedded via `go:embed`. It must be compiled (`make wasm`) before building the main binary; the Makefile enforces this dependency. The embed is of the `internal/export/wasm/` directory, whose only tracked file is a README, so a build without the generated WASM still compiles: that is what `go install …@version` produces, since the module zip carries only tracked files. Such a binary runs every command except `export`, `serve` and `check-site`'s asset check, which fail with `export.ErrNoWasm` and a hint.
-
-**HTTP caching.** API responses are disk-cached at `~/.cache/pvmt/http/` with a 24-hour TTL. Both GET (Nominatim, ArcGIS) and POST (Overpass) requests are cached — the cache key folds in the request method and body, so Overpass query POSTs are keyed by their `data=` payload rather than colliding on a shared URL. Use `--force` on ingest to bypass. A TTL of 0 disables the cache entirely (no read, no conditional revalidation).
-
-The cache has no online eviction — putting a directory scan in front of every request would cost more than it saves — so entries accumulate for the life of the install, including keys that will never be requested again (a changed bbox, a city dropped from `pvmt.toml`). Eviction is an explicit offline sweep: `pvmt cache prune` removes entries past an age ceiling, evicts oldest-first until the total is under a size ceiling, and sweeps half-written pairs left by a crash between the body and metadata writes. An entry's age is the newer of its two files, because a 304 revalidation rewrites only the `.meta`. It plans the sweep, prints it, and confirms before deleting (`--yes` to skip, `--dry-run` to plan only) — evicting is cheap for the user's data but costs a re-download from community-funded endpoints. It reads no config and opens no database, so it still works when either is broken — which is why it is its own command group rather than part of `pvmt gc`.
-
-**Overpass splitting.** Large Overpass queries auto-split into quadrants (up to depth 3 / 64 requests) and deduplicate at boundaries.
-
-**Forecast model.** Exponential PCI decay: `PCI(t) = PCI_0 * exp(-k*t)`. Per-classification decay rates default to FHWA national averages. Costs are projected via configurable PCI-to-cost tiers. Pavement growth is modeled as linear annual increase.
-
-**Solvency methodology.** Three roads-only metrics summarize funding adequacy, all computed on a worst-first, current-budget scenario (`internal/forecast/solvency.go`):
-
-- **Treatment cycle.** Real pavement is treated on a multi-year cycle (~10–14 yr): each year only ~1/N of the network is scheduled, not the whole network. `Simulate` models this by gating annual need to `full-network cost / N` (`treatment_cycle_years`, default 12). Without it the model would price the entire network every year (an implicit 1-year cycle), overstating the hold-steady budget 3.6×–9.6× (see `docs/validation.md` §5). Because gating is a pure `1/N` rescaling in dollar-space, the PCI trajectory is unchanged and `break_even_budget` scales exactly as `1/N`.
-- **`break_even_budget`** — the smallest constant annual budget whose final deferred backlog ≈ 0: the budget to fund the network's annually-scheduled treatment slice, i.e. keep pace with the cycle. Budget-independent of `current_budget`; always computed for roads.
-- **`insolvency_year`** — the first year cumulative deferred backlog reaches one full treatment cycle of work (`cycleYears × year-1 need`), i.e. the city has deferred an entire network's worth of treatment. A do-nothing network crosses at ~N years; a city funding fraction f of each slice crosses at ~N/(1−f), so well-funded cities omit it ("solvent through horizon"). On the funded side **`funding_gap` is the primary discriminator**, by design.
-- **Cost basis.** Solvency dollars use the cost tiers' *bare-construction* basis (validation §3), not loaded municipal program cost (which runs ~2–3× higher); they are an order-of-magnitude planning figure, not a budget line item. The default tiers and cycle are calibration inputs — override per city when local figures differ.
-
-**TUI progress.** `internal/tui` is a single bubbletea `StepModel` rendering a phase checklist, log tail, warnings panel, and progress bar in one view — spinner frames and bar are inline, not standalone widgets, so it carries zero extra deps. (This deviates from the byob-progress.3 recipe's `bubbles/spinner` + `schollz/progressbar` behind a `Progress` interface, which earns its ceremony only for isolated ad-hoc progress events, not an already-unified program.)
+**TUI progress.** `internal/tui` is one bubbletea `StepModel` that renders the
+phase checklist, log tail, warnings and progress bar in a single view, with no
+widget dependencies.

@@ -34,15 +34,7 @@ A site exported by v0.4.x cannot be refreshed in place. Its data files use the o
 
 ### 4. Update anything that reads pvmt's JSON
 
-Every JSON document pvmt emits (`--json` output, the `pvmt serve` API, the exported site's data files and `window.PVMT_CONFIG`) now uses one vocabulary. A script that reads an old name gets nothing back rather than an error, so check each one against the tables below. The conventions are:
-
-- keys are `snake_case`, and a value has one name everywhere;
-- timestamps end in `_at` and are UTC at second precision; counts end in `_count`;
-- proportions end in `_share` and run 0..1, not 0..100;
-- positions are `[lon, lat]`, and a `bbox` is GeoJSON order `[west, south, east, north]`;
-- `city` is the city's slug, not its display name;
-- the two scopes are `"city"` (city-maintained) and `"all"` (every jurisdiction);
-- a value that does not apply is omitted, not written as `null` or `0`.
+Every JSON document pvmt emits (`--json` output, the `pvmt serve` API, the exported site's data files and `window.PVMT_CONFIG`) now uses one vocabulary, described in [JSON conventions](architecture.md#json-conventions). A script that reads an old name gets nothing back rather than an error, so check each one against the tables below.
 
 `--jq` and `--template` see the same keys `--json` prints. `pvmt export --json` and `pvmt validate --json` stay bare flags (each prints one document) and now accept `--jq` and `--template` too.
 

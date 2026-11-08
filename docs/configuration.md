@@ -1,282 +1,283 @@
 # Configuration
 
-## Discovery
+Everything pvmt does is driven by one `pvmt.toml`. It lists the cities to
+analyse as `[[cities]]` entries. Each city names its data sources and
+inherits shared settings from the top level: the hex grid, the forecast,
+display and export. Any city can override those settings. A config can also
+pull in other configs with `[[include]]`. The smallest config is one city:
 
-`pvmt.toml` is found by walking from the current working directory upward to `/`. First match wins. Put it at the project root and it works from any subdirectory.
-
-If no file is found, pvmt exits with an error.
-
-## Resolution hierarchy
-
-```mermaid
-flowchart TD
-    CLI["CLI flags (--city, --units)"]
-    Env["Environment variables (PVMT_*)"]
-    City["Per-city config ([[cities]])"]
-    Top["Top-level config ([grid], [forecast], [display])"]
-    Default["Built-in defaults"]
-
-    CLI -->|overrides| Env -->|overrides| City -->|overrides| Top -->|overrides| Default
+```toml
+[[cities]]
+name = "Alameda, CA"
+overpass = true
 ```
 
-Fields that support per-city override: `hex_edge_m`, `min_hex_area`, `boundary_relation_id`, all `[forecast]` fields (`initial_pci`, `decay_rate`, `growth_rate`, `years`, `cost_tiers`, `cost_overhead`, `current_budget`, `treatment_cycle_years`). Per-city forecast merges field-by-field — set only the fields you want to override.
+Unknown keys and out-of-range values are rejected when the config loads, with
+exit code 2 and a message naming the field. `pvmt config show --sources` prints
+every resolved value with where it came from: `flag`, `env`, `file` or
+`default`. Working configs to copy from are in [`examples/`](../examples/README.md).
 
-`boundary_relation_id` (default unset) names an OSM admin_level=8 relation to fetch from Overpass instead of the usual Nominatim search by name. Set it when ingest fails with `nominatim returned no Polygon/MultiPolygon result for "<city>" (set [[cities]].boundary_relation_id to fetch the admin boundary from Overpass)` — that means Nominatim has the city as a node rather than a relation, and the boundary is reachable only via Overpass. Find the relation ID with [Overpass Turbo](https://overpass-turbo.eu/): `relation["name"="<city>"]["boundary"="administrative"]["admin_level"="8"];out;`. A relation whose bbox spans more than 5° is rejected as a likely county/state typo.
+## Finding the config and resolving values
 
-Built-in defaults: hex edge 100m, forecast horizon 20 years, imperial display units.
+pvmt looks for `pvmt.toml` in the current directory and then in each parent
+directory, and the first match wins. So a config at a project's root works from
+any subdirectory.
 
-To inspect what value won and where it came from, run `pvmt config show --sources`. It annotates each resolved value with its origin (`flag`, `env`, `file`, or `default`); `--json` emits the same data structured for scripts.
+A value is resolved from the first layer that sets it:
 
-## Environment variables
+1. CLI flags: `--city`, `--units`, `--log-level`.
+2. Environment variables.
+3. The city's own `[[cities]]` entry.
+4. The top-level tables: `[grid]`, `[forecast]`, `[display]`.
+5. Built-in defaults.
 
-Env vars override the file but lose to CLI flags. Unparseable or out-of-range values are ignored with a stderr warning and the next layer wins.
+A per-city `[cities.forecast]` overrides field by field, so set only the
+fields that differ.
 
 | Variable | Overrides |
 |---|---|
 | `PVMT_UNITS` | `[display].units` (`metric` or `imperial`) |
-| `PVMT_HEX_EDGE_M` | `[grid].hex_edge_m` (float, meters, minimum 10) |
-| `PVMT_FORECAST_YEARS` | `[forecast].years` (positive integer) |
-| `PVMT_FORECAST_INITIAL_PCI` | `[forecast].initial_pci` (must be in (0, 100]; out-of-range ignored with a stderr warning, next layer wins) |
+| `PVMT_HEX_EDGE_M` | `hex_edge_m` (meters, minimum 10) |
+| `PVMT_FORECAST_YEARS` | `[forecast].years` |
+| `PVMT_FORECAST_INITIAL_PCI` | `[forecast].initial_pci` |
+| `PVMT_LOG` | the log level (`debug`, `info`, `warn`, `error`; default `warn`) |
 
-`PVMT_HEX_EDGE_M` changes computed results, so it is part of the [config hash](#snapshots-and-the-config-hash): results computed with it set are stored under a different hash than the file's own and are not read back without it. The `PVMT_FORECAST_*` variables change only the forecast, which is simulated on demand when it is read, so they take effect on the next `pvmt forecast`, export or serve without a recompute. `PVMT_UNITS` is display-only.
+An environment value that doesn't parse, or is out of range, is ignored with a
+`warning:` on stderr, and the next layer wins. `PVMT_HEX_EDGE_M` changes
+computed results, so it is part of the
+[config hash](#snapshots-and-the-config-hash). The forecast variables take
+effect on the next read.
 
-## Multi-city
+## Files and directories
 
-Each `[[cities]]` entry gets:
+| What | Linux | macOS |
+|---|---|---|
+| Database (`pvmt.db`) | `$XDG_DATA_HOME/pvmt`, default `~/.local/share/pvmt` | `~/Library/Application Support/pvmt/data` |
+| HTTP response cache | `$XDG_CACHE_HOME/pvmt/http`, default `~/.cache/pvmt/http` | `~/Library/Caches/pvmt/http` |
 
-- An auto-generated slug (e.g., "Berkeley, CA" becomes `berkeley-ca`)
-- Its own boundary polygon (fetched from Nominatim on first ingest)
-- Its own features, compute results, hex stats, and forecasts — all scoped by `city_id` in the database
+Every config on the machine shares one database and one cache. On macOS the
+`XDG_*` variables are ignored. The cache keeps
+upstream responses for 24 hours. It is not configurable from `pvmt.toml`,
+because it belongs to no single config; `pvmt cache prune` manages it (see
+[troubleshooting](troubleshooting.md#disk-usage-the-http-cache-keeps-growing)).
 
-Without `--city`, commands run against all cities. With `--city "Berkeley, CA"` (matches by name or slug), they target one.
+## Cities
 
-The web UI and export provide a city switcher when multiple cities are configured.
+A city's `name` is how pvmt finds its boundary, and it derives the city's slug
+from it: `"Berkeley, CA"` becomes `berkeley-ca`. Without `--city`, a command
+runs over every city. `--city` picks one, by name or slug.
 
-## Tags (grouping and filtering cities)
+**Data sources.** `overpass = true` fetches roads, parking and sidewalks from
+OpenStreetMap. `arcgis_url` adds an ArcGIS FeatureServer of road centerlines.
+A city may use both, and features are deduplicated by ID. A private or
+loopback ArcGIS address is refused unless the city also sets
+`allow_private_arcgis = true`, which is for self-hosted or staging endpoints
+only. Fire stations always come from OpenStreetMap, and census blocks always
+come from the Census Bureau's TIGERweb, whatever these settings say.
 
-Give a city one or more `tags` to group it in the city selector and to filter the dashboard:
+**Boundary.** The city boundary comes from a Nominatim search for the name.
+When Nominatim has no polygon for the city, set `boundary_relation_id` to the
+city's OSM `admin_level=8` relation, and the boundary is fetched from Overpass
+instead. Ingest's error names this fix. Find the ID with
+[Overpass Turbo](https://overpass-turbo.eu/):
+`relation["name"="<city>"]["boundary"="administrative"]["admin_level"="8"];out;`.
+A relation whose bbox spans more than 5° is rejected as a likely county or
+state.
+
+**Census.** By default `pvmt all` also apportions 2020 Census population onto
+the city's hexes. Set `census = false` for a city outside the US, where
+TIGERweb has no blocks.
+
+### Tags
+
+`tags` group cities in the dashboard's city selector and drive its filters:
 
 ```toml
 [[cities]]
 name = "San Jose, CA"
-tags = ["Bay Area", "Top 50", "metro:South Bay"]
+tags = ["Bay Area", "metro:South Bay"]
 ```
 
-A tag is either a plain label (`"Bay Area"`) or a `dimension:value` pair (`"metro:South Bay"`, `"state:CA"`). Plain labels belong to the default **`group`** dimension, so configs written before dimensions existed keep working unchanged. A dimension name is a lowercase identifier (`[a-z][a-z0-9_-]*`); the value is everything after the first colon and may itself contain colons. A city may carry several values in one dimension.
-
-- **City selector.** The selector is grouped by the `group` dimension: one `<optgroup>` per group tag, a city with several appearing under each, and cities with no group tag in an ungrouped "Other" set. Tags in other dimensions never create optgroups.
-- **Filters.** The gear menu's *Cities* row holds one filter per dimension (`Any Group`, `Any State`, …). Selections AND together and narrow the city selector on **every** tab and on the Play page, and scope the Compare and Aggregate tabs to the matching cities. A dimension with a single value offers no choice and is hidden; the row is omitted when no dimension has two or more values. If the city in view is filtered out, the first matching city is loaded instead; if nothing matches, the current city stays on screen behind a disabled "No cities match" placeholder.
-- **URL.** Filters are recorded as repeated `?tag=dimension:value` params (`?tag=group:Bay%20Area&tag=state:CA`), so a filtered view is shareable and survives back/forward. A value without its dimension prefix is ignored. A deep-linked `?city=` always wins: a filter that would hide it is dropped and the address bar rewritten.
-- **Derived `state` dimension.** Every city whose name ends in a two-letter postal suffix (`"Livermore, CA"`) gets a `state:XX` tag at export time, unless the config gives an explicit `state:` tag. Nothing in the TOML changes (so no stored snapshot is invalidated), and `cities.json`, `/api/cities`, the selector groups and the filters all see the same tags.
-- **Validation.** Tags must be non-blank, and a prefixed tag must have a well-formed dimension and a non-blank value: `":CA"`, `"state:"`, `"State:CA"` and `"Metro: Boston"` are rejected at load with a message naming the fix, rather than silently forking a dimension or mis-grouping the city.
-
-Tags are often assigned at the `[[include]]` site (below) rather than per city, so a city pulled in by several includes accumulates the union of their tags automatically. The union is a plain set union of full tag strings: it never merges values across dimensions.
-
-### Migrating from `region`
-
-`tags` replaces the older single-valued `region` key. Unknown keys are a hard error, so a config still carrying `region = "…"` fails at load with `unknown config key(s): cities.region` — replace it with `tags = ["…"]`. The rename also flips the published `cities.json` and the `/api/cities` response from `region` to `tags`, so any external consumer reading `region` needs the same change.
+A tag is either a `dimension:value` pair or a plain label. A plain label
+belongs to the `group` dimension. A dimension name is a lowercase identifier,
+and the value is everything after the first colon. The `group` dimension
+builds the selector's sections. Every dimension with at least two values gets
+a filter in the gear menu. Filters combine with AND, apply on every tab, and
+are recorded in the URL as `?tag=dimension:value`. Every city whose name ends
+in a comma and a two-letter code (`"Livermore, CA"`, but also `"Toronto, ON"`)
+also gets a `state:XX` tag at export, unless it sets a `state:` tag itself. Malformed tags are rejected at load, for example
+`":CA"`, `"state:"` or `"State:CA"`.
 
 ## Including other configs (`[[include]]`)
 
-`[[include]]` merges the cities from other `pvmt.toml` files into one config, tagging each pulled-in city at the include site. This is how `examples/all/pvmt.toml` unions every example into a single tagged site without duplicating any `[[cities]]`:
+`[[include]]` merges the cities of other configs into this one and tags them
+at the include site. This is how [`examples/all`](../examples/all/pvmt.toml)
+builds the published site from every example without repeating a city:
 
 ```toml
-[export]
-title = "Solvent Streets"
-
 [[include]]
-path = "../bay-area-ca/pvmt.toml"
+path = "../bay-area-ca/pvmt.toml"   # relative to this file
 tags = ["Bay Area"]
-
-[[include]]
-path = "../top-50-cities/pvmt.toml"
-tags = ["Top 50"]
 ```
 
-- `path` is resolved relative to the including file's directory (absolute paths are used as-is).
-- Cities are merged by slug. A city reached through several includes is merged **once** with the **union** of the includes' (and its own) tags — so San Jose, present in both the Bay Area and Top 50 lists, ends up tagged `["Bay Area", "Top 50"]`.
-- Two **different** city names that slugify to the same value are a hard error (rather than silently dropping one). Cities with the **same** name across includes are the intended overlap.
-- Calibration merges **per field**, not per block. For each of `hex_edge_m`, `min_hex_area` and every field of `[forecast]` (including `cost_tiers`), the **first** include to *set* the field wins it, and later includes fill only the fields it left **unset**. So a city in both a metro example and a broad national list keeps the metro's local grid and decay tuning *and* gains the national list's cited `initial_pci` and `current_budget` — no city ends up calibrated worse than either input file. Order includes so the more specific (metro) config comes first; that is what decides the winner, not the file's contents.
-- When two includes both set the same field to *different* values, the first still wins and the load prints one `warning:` line per affected city naming the city, each contested field with both values, and both include paths. A field only one side sets is a backfill, not a disagreement, and is silent; identical values are silent too. Silence means nothing was dropped. `examples/all` currently warns about 12 cities, mostly `hex_edge_m` and `forecast.years` disagreements between a metro example and `top-50-cities`.
-- The warnings are printed when a command actually reads the config, so `pvmt --version`, `pvmt cache prune` and other config-free commands stay silent and never pay for config discovery.
-- Each included example's per-metro calibration (decay/growth/cost tiers, hex edge, min hex area) is flattened into fully self-describing per-city overrides during the merge. The including file must keep its top-level `[grid]`/`[forecast]` **and** `[display].min_hex_area` **empty** — a value there would re-calibrate any city that had relied on a package default, so it is rejected at load. The rest of `[display]` and `[export]` (`units`, `title`, …) is fine in the parent: those have no per-city layer. Set calibration per city or per example instead.
-- A file that declares `[[include]]` may omit `[[cities]]` of its own; the "at least one city" requirement is enforced after the merge.
-- Editing a setting that affects results in an included file changes the snapshot hash of the cities it declares, under the including config as under its own, so their snapshots stop matching until they are recomputed; a comment, presentation-only or forecast edit changes nothing (see [Snapshots and the config hash](#snapshots-and-the-config-hash)).
+Cities are merged by slug. A city reached through several includes appears
+once, with the union of their tags. Two *different* names that slugify alike
+are an error.
 
-## Config identity (`config_id`)
+Calibration merges per field. That covers `hex_edge_m`, `min_hex_area` and
+every `[forecast]` field. The first include to set a field wins it, and later
+includes fill only the fields still unset. So list the more specific config
+first. When two includes set the same field to different values, the load
+prints a `warning:` naming the city, the field, both values and both files.
 
-`cities` rows in the local database are keyed by `(slug, config_id)`. This separates two configs that happen to define the same city — e.g. `examples/livermore-ca/pvmt.toml` and `examples/bay-area-ca/pvmt.toml` both defining "Livermore, CA" — so features and snapshots written under one don't clobber the other.
+An included file's calibration is flattened into per-city values. So the
+including file may not set top-level `[grid]`, `[forecast]` or
+`[display].min_hex_area`, because those would silently recalibrate the
+included cities. Its `[display].units` and `[export]` apply as usual. An
+included file's `[[services]]` and `[export]` are not carried over.
 
-**`[[include]]` is the exception, deliberately.** Two files that merely happen to share a slug are unrelated; an included file's city *is* that file's city. So a city pulled in through `[[include]]` keeps its source config's `config_id`, and resolves to the same row as if you had run `pvmt` from that example's own directory. The snapshot hash needs no such carry-over: it depends only on the settings the city resolves to, so the union hashes the city exactly as its source does and reads the same snapshots. That is what lets a union config like `examples/all` read data it never ingested. It also means ingest and compute run from the union write *into* the source examples' namespaces rather than a namespace of their own — see [examples/all](../examples/all/pvmt.toml).
+### Config identity (`config_id`)
 
-That holds while the union resolves the same compute inputs for the city. If it resolves a different hex edge, `[[services]]` (an included file's `[[services]]` are not carried into the including config), facilities or `census` switch than the config that declared the city, the stored coverage was computed under settings the union does not have — and hex ids are derived from the grid, so a different edge would silently export a blank map. The city's hash then differs from its source's, it reads nothing until it is computed under the union, and the exporter names the diverging setting. A different *forecast* calibration does not matter — the per-field merge gives several `examples/all` cities cited figures their metro example lacks — because no forecast is stored and every reader simulates it from its own config.
-
-`config_id` is optional. When omitted, it defaults to the 16-character sha256 prefix of the config's absolute filesystem path. That default works out of the box for single-config users and disambiguates multi-example setups on a single machine.
-
-Set `config_id` explicitly at the top of `pvmt.toml` if you need a stable key:
+Cities in the database are keyed by slug *and* config. That way two unrelated
+configs that both define "Livermore, CA" keep separate data. The config's key
+is `config_id`. It defaults to a hash of the config file's absolute path. Set
+it explicitly to keep the key stable when the file moves, or across machines
+sharing a database:
 
 ```toml
 config_id = "austin-tx"
-
-[[cities]]
-name = "Austin, TX"
 ```
 
-A user-set `config_id` is stable across:
+A city pulled in through `[[include]]` keeps the `config_id` of the file that
+declared it. So `examples/all` reads exactly the data each example's own ingest
+and compute produce, with no ingest of its own, and an ingest or compute run
+from `examples/all` writes into, and replaces, those examples' data. This holds
+while the including config resolves the same
+[compute inputs](#snapshots-and-the-config-hash) for the city. When it doesn't,
+the city reads nothing until it is computed under the including config, and
+export names the setting that differs.
 
-- Renaming or moving the config file (the default hash would change and orphan the old row).
-- Sharing the local database (`~/.local/share/pvmt/pvmt.db`) with a collaborator (the default hash encodes the source machine's `$HOME` indirectly).
-- Symlinks and case-insensitive filesystems that would produce different absolute paths for the same file.
-
-Two configs that both set `config_id = "same"` while defining a city with the same slug will collide — that is the keying-collision the field is designed to prevent, so pick distinct values.
+Two configs that set the *same* `config_id` and define the same city share its
+row and overwrite each other's data, so give each config its own.
 
 ## Snapshots and the config hash
 
-Every compute stores its results in a snapshot keyed by a **config hash**, computed per city, and export, serve and forecast read only the snapshots whose hash matches the city's current one. The hash covers just the *resolved* settings that change what a compute stores — with defaults, `[[include]]` flattening and `PVMT_*` overrides applied — plus a version number for pvmt's compute logic:
+Computed results are stored per city under a hash of just the resolved
+settings that change them. Export, serve and `pvmt forecast` read only results
+whose hash matches the city's current one.
 
-| Changes the hash (recompute needed) | Does not |
+| Changes the hash (recompute the city) | Does not |
 |---|---|
-| hex edge (`[grid]`/per-city `hex_edge_m`, `PVMT_HEX_EDGE_M`) | comments, whitespace, key order |
-| `[[services]].turnout_s` (an explicit `0` too) | `[[services]].travel_threshold_s` |
-| a `[[cities.facilities]]` entry's `service`, `lat`, `lon` | a facility's `name` |
-| `census = false` | `[display]`, per-city `min_hex_area`, `[export]`, `tags`, city names |
-| a pvmt upgrade that changes how results are computed | data sources (`overpass`, `arcgis_url`, `allow_private_arcgis`, `boundary_relation_id`): they decide what ingest stores, and a re-ingest is followed by a recompute anyway |
+| `hex_edge_m`, including `PVMT_HEX_EDGE_M` | comments, whitespace, key order |
+| `[[services]].turnout_s`, an explicit `0` too | `[[services]].travel_threshold_s` |
+| a facility's `service`, `lat` or `lon` | a facility's `name` |
+| `census = false` | `[display]`, `min_hex_area`, `[export]`, `tags`, city names |
+| a pvmt release whose compute logic changed | every `[forecast]` setting and `PVMT_FORECAST_*` |
+| | data sources: `overpass`, `arcgis_url`, `allow_private_arcgis`, `boundary_relation_id` |
 
-**Forecast settings never change the hash.** No forecast is stored: export, serve, `pvmt forecast` and the site simulate it from the stored cohort stats under the settings in force. So every `[forecast]` and per-city forecast setting (`initial_pci`, `decay_rate`, `growth_rate`, `years`, `cost_tiers`, `treatment_cycle_years`, `cost_overhead`, `current_budget`) and every `PVMT_FORECAST_*` override takes effect on the next read, with no recompute.
+Forecasts are never stored. Every reader simulates them from the stored
+results under the settings in force, so a forecast edit takes effect on the
+next read. Editing a data source changes what the next ingest fetches, and the
+recompute that follows an ingest picks it up. An explicit default
+(`hex_edge_m = 100`) hashes the same as leaving it out. The exception is
+`turnout_s`, whose default lives in the services registry.
 
-So editing one city's settings invalidates that city alone, a comment or forecast edit invalidates nothing, and an explicit default (`hex_edge_m = 100`) is the same as leaving it out. The exception is a default that lives outside the config (the services registry's `turnout_s`): stating one explicitly counts as a change, which costs a recompute but never a stale result.
+When a city's results were computed under other settings, export refuses the
+city, and forecast, status and serve report the same thing (see
+[troubleshooting](troubleshooting.md#no-snapshot-matches-current-config-hash)).
+`pvmt status` and `pvmt snapshots ls` show each snapshot's hash.
 
-When a city has snapshots but none under its current hash, `pvmt export` refuses it, `pvmt forecast` and `pvmt status` say the same thing, and `pvmt serve` logs it at startup: run `pvmt --city <slug> all compute`. `pvmt status` and `pvmt snapshots ls` show each snapshot's hash. If only some steps are rerun after a change (say `pvmt roads compute`), export publishes the city but warns about the parts — fire coverage, population, the combined total — the new settings have not produced yet.
+## Grid and display
 
-## Data sources
+**`hex_edge_m`** sets the hex edge in meters. Set it in `[grid]` or per city.
+The default is 100 and the minimum is 10. Hex count grows with the square of
+the inverse edge, so large cities run coarser: the examples range from 60 m to
+300 m.
 
-- `overpass = true` — enables OpenStreetMap Overpass API queries
-- `arcgis_url = "https://..."` — enables ArcGIS FeatureServer queries (roads only). Add `allow_private_arcgis = true` alongside it to reach a self-hosted or staging endpoint on a private/loopback address; public endpoints don't need it and shouldn't set it.
+**`min_hex_area`** drops boundary slivers smaller than this many m² from the
+map, the stats and the play board. Set it in `[display]` or per city; the
+default is 100. It is coupled to the edge: a threshold above a full hex's area
+(`3√3/2 · edge²`) drops every hex.
 
-Multiple sources can be enabled for the same city. Features are deduplicated by ID.
+**`[display].units`** is `imperial` (the default) or `metric`. It changes
+presentation only.
+
+## Forecast
+
+The forecast models each road class's condition decaying over the horizon,
+priced by PCI-banded cost tiers, against the city's budget. What each setting
+means is explained in the [methodology](../internal/export/docs/methodology.md).
+Every setting goes in `[forecast]` or a city's `[cities.forecast]`:
+
+| Key | Default | Range | Sets |
+|---|---|---|---|
+| `initial_pci` | 85 | (0, 100] | the network's average starting condition ([Data sources](../internal/export/docs/methodology.md#data-sources)) |
+| `decay_rate` | per class | 0–1 | the decay rate of a typical road; every road class scales with it, and parking and sidewalks keep their own rates ([Decay model](../internal/export/docs/methodology.md#decay-model)) |
+| `growth_rate` | 0 | −0.5–0.5 | linear annual growth of paved area; a per-city `0` overrides the top level ([Area growth](../internal/export/docs/methodology.md#area-growth)) |
+| `years` | 20 | ≥ 0 | the forecast horizon |
+| `cost_tiers` | 3 tiers | PCI 0–101 | treatment cost per m² by PCI band ([Cost model](../internal/export/docs/methodology.md#cost-model)) |
+| `cost_overhead` | 1.0 | 0–5 | a multiplier on every tier ([Bare construction cost vs. loaded program cost](../internal/export/docs/methodology.md#bare-construction-cost-vs-loaded-program-cost)) |
+| `treatment_cycle_years` | 12 | 1–40 | the share of the network treated per year, 1/N ([Treatment cycle](../internal/export/docs/methodology.md#treatment-cycle)) |
+| `current_budget` | unset | ≥ 0 | the annual pavement budget in dollars; it enables `insolvency_year` and `funding_gap` ([Solvency metrics](../internal/export/docs/methodology.md#solvency-metrics-streetsroads-only)) |
+
+A tier is one `[[forecast.cost_tiers]]` table with `min_pci`, `max_pci`,
+`cost_per_sqm` and a `label`. Setting tiers replaces the defaults entirely.
+Except for `growth_rate`, a `0` means "use the default". The default tiers and
+cycle are calibrated together against published city figures. The evidence is
+in [validation.md](validation.md#6-how-the-cost-and-cycle-are-anchored), and
+it is why `cost_overhead` defaults to 1.0.
 
 ## Services (`[[services]]`, `[[cities.facilities]]`)
 
-`pvmt services` ingests the facilities of a public service and computes how
-long that service takes to reach each hex over the road network (see the
-dashboard's **Color by → Fire response**). Only the `fire` service is
-registered today; `pvmt all ingest` / `pvmt all compute` run its steps
-best-effort after the pavement passes (no stations mapped is a silent skip,
-any other failure only warns).
+`pvmt services` computes how long a public service takes to reach each hex
+over the road network. The dashboard shows it as **Color by → Fire response**.
+`fire` is the one registered service. `pvmt all` runs the service steps after
+the pavement passes: a city with no stations mapped is skipped quietly, and any
+other failure is a warning. Coverage routes over the ingested roads, so it
+needs a roads ingest but not a roads compute.
 
 ```toml
 [[services]]
 name = "fire"
-turnout_s = 80            # fixed overhead added to every travel time (NFPA 1710 default)
-travel_threshold_s = 240  # travel time within which a hex counts as covered
+turnout_s = 80            # added to every travel time
+travel_threshold_s = 240  # travel time that counts as covered
 
 [[cities]]
 name = "Livermore, CA"
 overpass = true
 
-  [[cities.facilities]]   # hand-placed stations where OpenStreetMap is missing them
+  [[cities.facilities]]   # a station OpenStreetMap is missing
   service = "fire"
   name = "Station 10"
   lat = 37.6819
   lon = -121.7680
 ```
 
-- `[[services]]` entries override the registry defaults for the named
-  service; only the fields set are applied, and an explicit `0` counts as
-  set (`turnout_s = 0` times travel alone). Only `turnout_s` reaches stored
-  results (it is baked into the stored response seconds), so only it is
-  part of the config hash, an explicit `0` included; `travel_threshold_s`
-  shapes the legend and the "within threshold" share at export time.
-- `[[cities.facilities]]` adds points of service routed from exactly like
-  the OpenStreetMap ones; `lat`/`lon` must be in range. A station just
-  outside the boundary is fine.
-- A `[[services]]` `name` or a facility `service` that is not a
-  registered service is an invalid config: every command that reads the
-  config refuses it with exit code 2, naming the value.
-- Coverage routes over the ingested roads, so it needs `pvmt roads ingest`
-  but not a roads compute, and recomputing roads leaves it in place. A
-  `turnout_s` override or a facility's service or position is part of the
-  config hash: changing one makes existing snapshots stop matching until
-  the city is recomputed, exactly as for any other setting that affects
-  results. A facility's `name` is not.
+`[[services]]` overrides only the fields it sets, and an explicit `0` counts
+as set. The defaults and their sources are in the
+[methodology](../internal/export/docs/methodology.md#service-coverage-fire-response).
+A hand-placed facility is routed from exactly like a mapped one, and may sit
+just outside the boundary. A service name that isn't registered is a config
+error.
 
-## Census population (`census`)
+## Export and hosting
 
-`pvmt census` ingests 2020 Census blocks (population and housing units) from
-the Census Bureau's TIGERweb service and apportions them onto the hex grid
-by area. The results are the `population`, `housing_units` and
-`population_per_km2` metrics, plus the per-resident ratios the dashboard
-derives from them (paved area and year-1 need per resident). The source is
-fixed, so `overpass` / `arcgis_url` do not affect it. `pvmt all ingest` /
-`pvmt all compute` run the census steps best-effort after the pavement
-passes, the same way as the services steps.
+**`[export].title`** names a multi-city dashboard. It defaults to the output
+directory's name.
 
-```toml
-[[cities]]
-name = "Toronto, ON"
-overpass = true
-census = false   # outside the US: TIGERweb has no blocks here
-```
+**`[export].coordinate_decimals`** sets the precision of emitted GeoJSON. The
+default is 5, about 1 m, which is far finer than any hex.
 
-- `census = false` keeps the city out of the census steps of `pvmt all`.
-  Unset (the default) means enabled. Use it for any city outside the US.
-- Like service coverage, the results are their own part of the city's
-  snapshot, so recomputing roads leaves them in place.
+**`[export].boundary_simplify_m`** sets the simplification tolerance, in
+meters, for the *drawn* city outline only. The default is 10. A negative value
+disables simplification, and the maximum is 1000. Hex clipping and every area
+figure use the full stored boundary, so at high zoom a clipped hex can overhang
+the drawn outline by up to the tolerance. A simplified ring is not guaranteed
+to be a valid polygon, which matters only to a consumer that fills
+`boundary.geojson` rather than drawing it.
 
-## Forecast tuning
-
-**`initial_pci`** — the starting Pavement Condition Index (PCI) the forecast assumes for every segment, on a 0–100 scale. Must be in `(0, 100]`; an unset, zero, or out-of-range value falls back to the default `85`. Also settable via the `PVMT_FORECAST_INITIAL_PCI` env var (see [Environment variables](#environment-variables)). This is the network *average*: internally the forecast spreads it into a condition **distribution** (a Beta around this mean, preserved exactly) before pricing, so the cost figures reflect the failed/poor tail rather than the average alone (see `docs/validation.md` §4). No configuration is needed — the spread is always on; setting a realistic average for your network is the lever.
-
-**`decay_rate`** — the exponential decay coefficient (see [Architecture › Design decisions › Forecast model](architecture.md#design-decisions) for the equation). Higher values mean faster degradation. When set to 0 (default), per-classification rates are used (ranging from ~0.015 for motorways to ~0.045 for service roads).
-
-**`growth_rate`** — annual linear growth of paved area. `0.01` = 1% per year. Negative values (shrinking network) are accepted. A per-city `growth_rate = 0` **is** honored: it is an explicit "this network does not grow" and overrides a positive top-level rate. This is the one forecast field where `0` is a value rather than an unset sentinel, so unlike the others it is tracked by presence — an *omitted* `growth_rate` still inherits the top level, and an explicit `0` still wins over a later `[[include]]`'s positive rate (with the usual conflict warning).
-
-**`years`** — forecast horizon. Default 20.
-
-**`cost_tiers`** — maps PCI ranges to treatment cost per square meter. Costs are interpolated between tier midpoints, not step functions. Example:
-
-```toml
-[[forecast.cost_tiers]]
-min_pci = 0
-max_pci = 40
-cost_per_sqm = 150.0
-label = "Critical"
-```
-
-Cost values are calibration inputs, not measurements — the shipped defaults are 2024 median urban municipal bid prices (preventive-treatment costs stay near FHWA ranges). Start with the defaults and only override per city when local bid tabs differ materially. Because tiers interpolate linearly at tier midpoints (not step-wise), the forecast is less sensitive to any single tier's value than it looks; bulk shifts across tiers matter more than boundary tweaks.
-
-**`cost_overhead`** — multiplies the cost tiers to price work in a different cost regime. Default `1.0`: **no multiplier, and that is a calibrated choice, not an oversight.**
-
-The tiers are *bare construction* prices, and comparing them treatment-by-treatment against a loaded municipal schedule (`docs/validation.md` §3) makes them look ~2–3× low — which invites setting this to ~1.5 (+20% ADA, +15% soft costs, +10% contingency). Don't, without reading §6 first. The model's *system* output is already loaded-equivalent: bare tiers × the condition spread × the 12-year treatment cycle reproduce Berkeley's cited real hold-steady spend of ~$5.6/m²·yr, and that cited figure is itself a loaded municipal number. Setting `1.5` puts Berkeley ~47% above its own published figure and breaks the calibration bracket in `internal/forecast/backtest_test.go`.
-
-The knob exists so the regime is explicit and adjustable rather than assumed — the Financials tab exposes it as a live slider for a reader whose local numbers say otherwise. Allowed range 0–5; `0`/unset uses the default. Changing it scales every dollar figure and nothing else. Like every forecast setting it is not part of the config hash: the forecast is priced when it is simulated, so the next `pvmt forecast` or export uses the new value without a recompute.
-
-**`current_budget`** — the city's annual pavement-repair budget, in dollars. There is no default: when unset (or `0`), the budget-dependent solvency metrics — `insolvency_year` and `funding_gap` — are disabled for that city, and the export omits them rather than reporting figures against a fabricated `$0`. (The `break_even_budget` metric is always computed for roads and does not depend on this field.) Set it to a cited figure to surface the headline solvency numbers.
-
-**`treatment_cycle_years`** — the pavement treatment cycle N, in years. The model assumes ~1/N of the network is scheduled for treatment each year, so the annual need is the full-network retreatment cost ÷ N. Default 12 (the midpoint of the typical 10–14 yr municipal cycle). This directly scales `break_even_budget` (∝ 1/N) and sets the `insolvency_year` threshold, so it is the main lever for matching the solvency dollars to a city's actual program. A value of `1` reproduces the legacy behavior (the entire network priced every year, which overstates the hold-steady budget — see [architecture.md](architecture.md) "Solvency methodology" and `docs/validation.md` §5). Allowed range 1–40; `0`/unset uses the default.
-
-## Display
-
-`[grid].hex_edge_m` (meters, default `100`) sets the hex edge length. **The minimum is 10 m.** Hex count grows as the *square* of the inverse edge, so a mistyped decimal point is expensive: a 2 km × 2 km bbox at a 1 m edge builds over 1.5 million hexes, and a real city bbox at that edge would exhaust memory before producing anything. A file value below the floor — top-level or the per-city override — is rejected at load with exit code 2 rather than failing as an OOM kill mid-compute; `0`/unset inherits the default. `PVMT_HEX_EDGE_M` is held to the same floor but behaves like every other env override rather than like a config error: a below-floor value is ignored with a `warning:` line on stderr and the file/default value is used, so the run continues. For scale: the finest grid any shipped example uses is 60 m (Cambridge/Somerville in `examples/greater-boston-ma`), and large cities run coarser at 125–300 m.
-
-`[display].min_hex_area` (square meters, default `100`) drops boundary-sliver hexes below that area from the heatmap, so partial edge cells don't skew the map or the per-hex stats. It is coupled to `hex_edge_m` — a finer grid wants a smaller threshold — so it can also be set per city (`[[cities]].min_hex_area`), which wins over the top-level value; `0`/unset inherits. The per-city form is what an `[[include]]` flattens, so an included example's tuned threshold survives the merge alongside its hex edge; for the same reason a file that declares `[[include]]` may not set the top-level form at all (see [Including other configs](#including-other-configs-include)). Mind the coupling when tuning: a threshold larger than a full hex (`3√3/2 · edge²`, so ~9.4k m² at a 60 m edge) drops **every** hex and renders a blank map. It applies to both the heatmap and the `/play` board, which share one hex grid.
-
-`[display].units` is covered under [Resolution hierarchy](#resolution-hierarchy).
-
-## Export
-
-`[export].title` sets the name headlining a multi-city exported dashboard; when unset it falls back to the output directory's base name. Only the top-level config's title is used — a title set in a file pulled in via `[[include]]` is discarded along with the rest of its non-`[[cities]]` settings.
-
-`[export].coordinate_decimals` (default `5`) controls the precision of `[lon, lat]` floats in emitted GeoJSON — both the hex grid and the display boundary. 5 decimals is about 1.1 m of latitude and 0.79 m of longitude, against a hex edge of 80–300 m, so it is two to three orders of magnitude finer than anything the heatmap can express. It does not open gaps between adjacent hexes: neighbours share vertices computed from the same arithmetic, so identical inputs round identically. Set it higher (6 for ~11 cm, 7 for ~1 cm) if a downstream consumer genuinely needs finer resolution than the display does.
-
-`[export].boundary_simplify_m` (default `10`) is the [Ramer–Douglas–Peucker](https://en.wikipedia.org/wiki/Ramer%E2%80%93Douglas%E2%80%93Peucker_algorithm) tolerance, in meters, applied to the **display** copy of the city boundary — what `boundary.geojson` contains and what `/data/boundary.geojson` serves. Nominatim boundaries carry far more detail than a dashed outline at city zoom can resolve (Jacksonville is 205,961 coordinate pairs across 7,371 rings), so the default retains roughly a quarter of the vertices for about a 0.15% change in enclosed area. Raise it to squeeze further at visible cost to the outline; set it **negative** to opt out entirely, which emits the stored GeoJSON byte-for-byte. Values above `1000` are rejected, as are `nan` and `inf`.
-
-This affects display only. The **authoritative** boundary is never simplified: hex clipping, the `city` coverage scope, and the `City Area` / `% Paved` figures in `meta.json` all read the stored polygon directly. One visible consequence is that at high zoom, hexes clipped to the real boundary can overhang the drawn outline by up to the tolerance. Simplified rings are also not guaranteed to be valid polygons — RDP can make a ring self-intersect, which is invisible on the line layer the client draws but would matter to a downstream consumer filling them.
-
-## HTTP caching
-
-`pvmt serve` sets `Cache-Control: public, max-age=300` on every JSON / GeoJSON response (meta, hexgrid, scenarios, forecast, forecast seed, hex cost summary, boundary, snapshots). HTML, JavaScript, and the embedded WASM are returned without a `Cache-Control` header — clients fall back to their own heuristic caching. The 5-minute TTL is hard-coded; there is no flag to tune it. Restart the server to force a refresh sooner.
-
-The *outbound* request cache — the disk cache of Overpass / ArcGIS / Nominatim responses under `~/.cache/pvmt/http` — is deliberately not configurable from `pvmt.toml`. Its 24-hour TTL is a constant, and its size and age ceilings are flags on `pvmt cache prune` (`--max-age`, `--max-size`) rather than config keys: the cache is global and shared across every city and every project directory, so it does not belong to any one config file, and reclaiming disk has to work even when the config is unparseable. See [Troubleshooting › Disk usage](troubleshooting.md#disk-usage-the-http-cache-keeps-growing).
-
-`pvmt export` writes plain files into the output directory and cannot set response headers. Caching is whatever the host applies: GitHub Pages serves with `Cache-Control: max-age=600`, S3/CloudFront and nginx use whatever you configure. If you re-export and re-publish, intermediate caches may keep serving the previous build until their TTL expires — invalidate at the CDN or bump a query-string fingerprint on the deploy if you need an immediate flip.
+`pvmt serve` pins each city's snapshot when it starts and sends
+`Cache-Control: public, max-age=300` on every response, so restart it to pick
+up a new compute. `pvmt export` writes plain files, so caching is whatever the
+host applies. After re-publishing, purge the
+CDN if the new build has to show immediately.
