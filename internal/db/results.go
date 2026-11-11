@@ -22,13 +22,13 @@ import (
 // (run, metric, subject[, class | hex]). Saving one writes its fields as
 // metric rows; listing one pivots them back.
 
-// Metric keys of the pavement results, as stored. Counts are stored as REAL
-// and converted back with int() at this boundary.
+// Pavement metric keys (internal/resource/metric.go). Counts are stored as
+// REAL and converted back with int() at this boundary.
 const (
-	metricPavedArea     = "paved_area_m2"
-	metricCoveragePct   = "coverage_pct"
-	metricFeatureCount  = "feature_count"
-	metricParkingSpaces = "parking_spaces"
+	metricPavedArea     = resource.MetricPavedArea
+	metricCoveragePct   = resource.MetricCoveragePct
+	metricFeatureCount  = resource.MetricFeatureCount
+	metricParkingSpaces = resource.MetricParkingSpaces
 )
 
 // cityTotalClass is city_metrics.class for a city-wide total; any other class
