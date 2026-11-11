@@ -18,7 +18,7 @@ import (
 
 // TestRequireMatchingSnapshot covers the 8xqn fail-loud behavior: the
 // exporter must reject a city whose snapshots predate the current config
-// hash, but pass a city with a matching snapshot even when hex_stats is
+// hash, but pass a city with a matching snapshot even when its per-hex coverage is
 // empty (legitimate tiny-city case).
 func TestRequireMatchingSnapshot(t *testing.T) {
 	cfg := &config.Config{}

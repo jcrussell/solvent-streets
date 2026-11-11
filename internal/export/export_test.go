@@ -314,7 +314,7 @@ func TestExport_HexGridBytesPerFeature(t *testing.T) {
 	cfg := &config.Config{Grid: config.GridConfig{HexEdgeM: 200}}
 	boundary := func(context.Context) (string, error) { return exportBoundaryA, nil }
 
-	// The grid is built first so the synthetic hex_stats rows carry the very
+	// The grid is built first so the synthetic coverage rows carry the very
 	// hex ids BuildHexGeoJSON joins against — a mismatch would silently yield
 	// zero features and a vacuous assertion.
 	entry := CityEntry{

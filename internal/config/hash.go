@@ -99,7 +99,7 @@ import (
 // example jurisdiction classification (internal/filter, which decides what is
 // billed to the city), buffering and width rules (internal/geo,
 // internal/resource, ParkingSpaceAreaM2), hex tiling, clipping or hex stats,
-// cohort classification (forecast.NormalizeClass, which keys cohort_stats),
+// cohort classification (forecast.NormalizeClass, which keys the cohort split),
 // routing, speeds or registry defaults (internal/services), census
 // apportionment (internal/population), or what a producer writes or drops. Do
 // not bump it for changes that only affect ingest, the forecast model or its
@@ -126,8 +126,8 @@ type hashEnvelope struct {
 
 // computeInputs is everything, resolved, that a stored result for one city
 // depends on besides the stored features themselves: the inputs of coverage
-// (hex_stats, cohort_stats, compute_results), the combined pass, service
-// coverage and census population.
+// (per-hex coverage, city totals and the cohort split), the combined pass,
+// service coverage and census population.
 type computeInputs struct {
 	// HexEdgeM is the resolved edge (env > city > file > default). Hex ids are
 	// derived from the grid and stored rows are joined to a rebuilt grid by id.

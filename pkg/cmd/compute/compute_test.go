@@ -634,7 +634,7 @@ func TestRunCompute_DBError(t *testing.T) {
 // end through the compute command: two lots with capacity tags (40 and 25)
 // produce a city total of 65 on both the all-jurisdiction and city rows, and
 // the per-hex space metrics (one key per scope, under the same run the
-// hex_stats rows carry) apportion the same 65 across the hexes
+// coverage rows carry) apportion the same 65 across the hexes
 // the lots touch. Lots are small squares inside the test boundary.
 func TestRunCompute_ParkingEstimatesSpaces(t *testing.T) {
 	lot := func(id, capacity string, lon, lat float64) db.Feature {

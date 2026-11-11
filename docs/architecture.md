@@ -72,8 +72,8 @@ class default, plus any parking lanes. Sidewalks are buffered the same way
 with their own defaults. Parking lots are already polygons. Buffered
 geometries go into an R-tree. The city is tiled with flat-top hexes of the
 configured edge and clipped to the city boundary. For each hex, the features
-it touches are unioned and clipped to the hex, which gives its area and
-percent covered (`pct_covered`, 0–100) in `hex_stats`. Hex polygons are
+it touches are unioned and clipped to the hex, which gives its paved area
+(`paved_area_m2`) and percent covered (`coverage_pct`, 0–100). Hex polygons are
 projected back to WGS84 only for output.
 
 Geometry is pure Go, `peterstace/simplefeatures`. Several of its constructors
@@ -86,18 +86,22 @@ deduplicate features at the seams.
 
 ## Per-hex metrics
 
-Pavement coverage lives in `hex_stats`. Every other per-hex value lives in the
-generic `hex_metrics` table, keyed by a metric registered in
-`internal/hexmetric`. Two producers write registered metrics:
+Every per-hex value is a row of `hex_metrics`: a metric, the subject it is
+measured over, and the value. Pavement coverage is just more metric keys
+(`paved_area_m2`, `coverage_pct`, and `parking_spaces` for parking) over a
+resource subject (`roads`, `roads:city`, ...); `internal/results` maps the
+pavement compute onto those rows. Every other metric is registered in
+`internal/hexmetric` and has subject `""`. Two producers write registered
+metrics:
 
 - **Fire response.** `internal/services` routes from fire stations over a
   graph built from the stored roads.
 - **Population.** `internal/population` apportions 2020 Census blocks onto
   hexes by area.
 
-The parking compute also stores its per-hex space estimates in `hex_metrics`.
-They sit under deliberately unregistered keys (`resource.SpacesMetricKey`),
-and the exporter folds them back into `hexgrid.geojson`.
+The pavement keys are deliberately not registered as stored metrics: the
+exporter folds coverage and parking spaces into `hexgrid.geojson`, and the
+dashboard derives its colorings from there.
 
 Both metric producers resolve, through `compute.LoadMetricTarget`
 (`pkg/cmd/compute`), the same projection and clipped grid the pavement passes
@@ -124,8 +128,18 @@ centerline source share one paging and completeness core, `ingest.ArcGISQuery`.
 
 The database is a single SQLite file in the data directory (see
 [configuration.md](configuration.md#files-and-directories)), opened in WAL
-mode. Every table carries a `city_id`, except `snapshot_parts`, which hangs
-off its snapshot.
+mode. Every ingest and bookkeeping table carries a `city_id`. Results do not:
+each result row hangs off the run that wrote it and is deleted with it
+(`ON DELETE CASCADE`), so a city's results are its runs' results. Results are
+long-format metric rows (metric, subject, value) rather than per-measure
+tables, so a new producer adds metric keys, not tables:
+
+- `city_metrics` holds city-wide values: a resource's totals (class `""`) and
+  its per-highway-class cohort split (class `primary`, `residential`, ...).
+- `hex_metrics` holds per-hex values.
+
+Both are keyed by run and measure, which makes each row write-once. The
+metric keys and the subject convention are in `internal/resource/metric.go`.
 
 ```mermaid
 erDiagram
@@ -136,9 +150,7 @@ erDiagram
 
     snapshots ||--o{ snapshot_parts : lists
     runs ||--o{ snapshot_parts : "fills a part of"
-    runs ||--o{ compute_results : wrote
-    runs ||--o{ hex_stats : wrote
-    runs ||--o{ cohort_stats : wrote
+    runs ||--o{ city_metrics : wrote
     runs ||--o{ hex_metrics : wrote
 
     cities {
@@ -181,45 +193,20 @@ erDiagram
         text part PK
         int run_id FK
     }
-    compute_results {
-        int id PK
-        int city_id FK
-        int run_id FK
-        text resource_type
-        real total_area
-        int feature_count
-        int estimated_spaces
-        datetime computed_at
-    }
-    hex_stats {
-        int id PK
-        int city_id FK
-        int run_id FK
-        text hex_id
-        text resource_type
-        real area
-        real pct_covered
-        datetime computed_at
-    }
-    cohort_stats {
-        int id PK
-        int city_id FK
-        int run_id FK
-        text resource_type
-        text classification
-        real area
-        int feature_count
-        datetime computed_at
+    city_metrics {
+        int run_id PK
+        text metric PK
+        text subject PK
+        text class PK
+        real value
     }
     hex_metrics {
-        int id PK
-        int city_id FK
-        int run_id FK
-        text hex_id
-        text metric
+        int run_id PK
+        text metric PK
+        text subject PK
+        text hex_id PK
         real value
         text ref
-        datetime computed_at
     }
 ```
 

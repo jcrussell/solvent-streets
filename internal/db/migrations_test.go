@@ -25,9 +25,8 @@ import (
 //
 // Don't grow this test into a column-by-column type fingerprint; pin only
 // the invariants that matter: table presence, city_id FK on scoped tables,
-// the hex_stats auto-increment id (so multiple snapshots can coexist for
-// the same hex/resource/city), and the lookup indexes the query planner
-// depends on.
+// the result tables' (run, measure) primary keys, and the lookup indexes the
+// query planner depends on.
 func TestColdMigration_SchemaShape(t *testing.T) {
 	ctx := context.Background()
 

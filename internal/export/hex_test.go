@@ -232,7 +232,7 @@ func hexEntry(t *testing.T, hexStats map[resource.Type][]results.HexCoverage, to
 }
 
 // TestBuildHexGeoJSON_EmittedWhenRowsExist: a single FeatureCollection is
-// returned when any hex_stats rows exist (across either scope), and nil only
+// returned when any per-hex coverage exists (across either scope), and nil only
 // when there are no rows at all. The per-feature {all, city?} shape is pinned
 // deterministically in TestBuildHexFeature_NestedScopes.
 func TestBuildHexGeoJSON_EmittedWhenRowsExist(t *testing.T) {
@@ -456,7 +456,7 @@ func TestBuildHexFeature_RespectsCoordinatePrecision(t *testing.T) {
 }
 
 // TestBuildHexGeoJSON_NoCityRowsOmitsCity: cities without ":city"-suffixed
-// hex_stats rows still yield a FeatureCollection, but no feature carries a "city"
+// coverage rows still yield a FeatureCollection, but no feature carries a "city"
 // object. The client uses that absence as the "hide the scope toggle" signal.
 func TestBuildHexGeoJSON_NoCityRowsOmitsCity(t *testing.T) {
 	allRows := []results.HexCoverage{{HexID: "0,0", Area: 100, PctCovered: 50}}

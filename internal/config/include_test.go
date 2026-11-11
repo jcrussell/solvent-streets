@@ -1742,7 +1742,7 @@ path = "../second/pvmt.toml"
 	}
 	if liv.SourceConfigID != "second" {
 		t.Errorf("SourceConfigID = %q, want %q; hex ids come from the grid and "+
-			"hex_stats join by id, so identity has to follow the edge",
+			"per-hex rows join by id, so identity has to follow the edge",
 			liv.SourceConfigID, "second")
 	}
 }
