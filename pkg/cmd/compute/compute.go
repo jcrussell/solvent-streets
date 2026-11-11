@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -825,8 +827,12 @@ func (c *computer) buildCohortStats(ctx context.Context, rt resource.Type, buffe
 		class := forecast.NormalizeClass(bf.Feature.Tags["highway"])
 		counts[class]++
 	}
-	var stats []db.CohortStat
-	for class, rawArea := range rawAreas {
+	// Iterate classes in sorted order so rows (and every float sum a reader
+	// takes over them) come out the same on every run.
+	classes := slices.Sorted(maps.Keys(rawAreas))
+	stats := make([]db.CohortStat, 0, len(classes))
+	for _, class := range classes {
+		rawArea := rawAreas[class]
 		proportion := 0.0
 		if rawTotal > 0 {
 			proportion = rawArea / rawTotal

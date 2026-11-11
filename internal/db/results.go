@@ -186,7 +186,7 @@ func scanCohortStat(rows *sql.Rows) (CohortStat, error) {
 // ListCohortStats returns the resource's cohort rows in the resolved snapshot.
 func (s *sqliteStore) ListCohortStats(ctx context.Context, resourceType resource.Type) ([]CohortStat, error) {
 	return listView(ctx, s, "cohort stat", `SELECT `+cohortColumns+` FROM cohort_stats`,
-		"resource_type", []string{string(resourceType)}, "", scanCohortStat)
+		"resource_type", []string{string(resourceType)}, ` ORDER BY classification`, scanCohortStat)
 }
 
 // ListCohortStatsForTypes is ListCohortStats for several types in one query,
@@ -194,7 +194,7 @@ func (s *sqliteStore) ListCohortStats(ctx context.Context, resourceType resource
 func (s *sqliteStore) ListCohortStatsForTypes(ctx context.Context, types []resource.Type) (map[resource.Type][]CohortStat, error) {
 	out := make(map[resource.Type][]CohortStat, len(types))
 	rows, err := listView(ctx, s, "cohort stat", `SELECT `+cohortColumns+` FROM cohort_stats`,
-		"resource_type", typeKeys(types), "", scanCohortStat)
+		"resource_type", typeKeys(types), ` ORDER BY resource_type, classification`, scanCohortStat)
 	if err != nil {
 		return nil, err
 	}
