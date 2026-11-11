@@ -20,6 +20,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/export"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
 
@@ -29,20 +30,8 @@ func TestHandleDataMetaJSON(t *testing.T) {
 	testBoundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
 	store := &dbtest.MockStore{
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
-		LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
-			if rt == srvRtRoads {
-				return &db.ComputeResult{
-					ResourceType: srvRtRoads,
-					TotalArea:    46452,
-					FeatureCount: 100,
-					ComputedAt:   time.Now(),
-				}, nil
-			}
-			// Un-computed resources return sql.ErrNoRows in production
-			// (QueryRow.Scan); BuildMeta skips those and propagates only
-			// real DB errors.
-			return nil, sql.ErrNoRows
-		},
+		// Only roads is computed; BuildMeta skips the others.
+		CityMetrics: results.TotalRows(srvRtRoads, results.Totals{Area: 46452, Features: 100}),
 	}
 
 	cfg := &config.Config{
@@ -94,11 +83,6 @@ func TestHandleIndex(t *testing.T) {
 		GetBoundaryFunc: func(_ context.Context) (string, error) {
 			boundaryReads.Add(1)
 			return testBoundary, nil
-		},
-		LatestComputeResultFunc: func(_ context.Context, _ resource.Type) (*db.ComputeResult, error) {
-			// Un-computed resources return sql.ErrNoRows in production;
-			// BuildMeta skips those (and propagates only real DB errors).
-			return nil, sql.ErrNoRows
 		},
 	}
 	cfg := &config.Config{
@@ -165,9 +149,6 @@ func TestHandleGame(t *testing.T) {
 	testBoundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
 	store := &dbtest.MockStore{
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
-		LatestComputeResultFunc: func(_ context.Context, _ resource.Type) (*db.ComputeResult, error) {
-			return nil, sql.ErrNoRows
-		},
 	}
 	cfg := &config.Config{
 		Cities: []config.CityConfig{{Name: "Test City"}},
@@ -247,9 +228,6 @@ func TestHandleGame_MultiCity(t *testing.T) {
 	newStore := func() *dbtest.MockStore {
 		return &dbtest.MockStore{
 			GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
-			LatestComputeResultFunc: func(_ context.Context, _ resource.Type) (*db.ComputeResult, error) {
-				return nil, sql.ErrNoRows
-			},
 		}
 	}
 	cfg := &config.Config{Cities: []config.CityConfig{
@@ -316,9 +294,6 @@ func TestHandleGame_MultiCity_BrokenCityFallback(t *testing.T) {
 	// City A renders; City B is broken (no boundary → buildIndexData errors).
 	storeA := &dbtest.MockStore{
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
-		LatestComputeResultFunc: func(_ context.Context, _ resource.Type) (*db.ComputeResult, error) {
-			return nil, sql.ErrNoRows
-		},
 	}
 	// City B is genuinely unconfigured: GetBoundary returns ("", nil), which
 	// BBoxAndCenter maps to ErrNoBoundary — the skippable, permanent case. (A
@@ -535,17 +510,7 @@ func TestDataFile_SnapshotParam(t *testing.T) {
 				{ID: 1, CreatedAt: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)},
 			}, nil
 		},
-		LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
-			if rt != srvRtRoads {
-				return nil, sql.ErrNoRows
-			}
-			return &db.ComputeResult{
-				ResourceType: srvRtRoads,
-				TotalArea:    float64(pinnedSnapshot * 1000),
-				FeatureCount: int(pinnedSnapshot * 10),
-				ComputedAt:   time.Now(),
-			}, nil
-		},
+		CityMetrics: results.TotalRows(srvRtRoads, results.Totals{Area: float64(pinnedSnapshot * 1000), Features: int(pinnedSnapshot * 10)}),
 	}
 	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Test City"}}}
 	root := &dbtest.MockStore{
@@ -566,27 +531,10 @@ func TestDataFile_SnapshotParam(t *testing.T) {
 		},
 		WithSnapshotFunc: func(id int64) db.Store {
 			cp := *pinnedStore
-			cp.LatestComputeResultFunc = func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
-				if rt != srvRtRoads {
-					return nil, sql.ErrNoRows
-				}
-				return &db.ComputeResult{
-					ResourceType: srvRtRoads,
-					TotalArea:    float64(id * 1000),
-					FeatureCount: int(id * 10),
-					ComputedAt:   time.Now(),
-				}, nil
-			}
+			cp.CityMetrics = results.TotalRows(srvRtRoads, results.Totals{Area: float64(id * 1000), Features: int(id * 10)})
 			return &cp
 		},
-		LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
-			if rt != srvRtRoads {
-				return nil, sql.ErrNoRows
-			}
-			return &db.ComputeResult{
-				ResourceType: srvRtRoads, TotalArea: 999000, FeatureCount: 999, ComputedAt: time.Now(),
-			}, nil
-		},
+		CityMetrics: results.TotalRows(srvRtRoads, results.Totals{Area: 999000, Features: 999}),
 	}
 
 	entry := export.CityEntry{
@@ -669,12 +617,7 @@ func TestDataFile_SnapshotConfigMismatch(t *testing.T) {
 				{ID: 2, CreatedAt: time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)},
 			}, nil
 		},
-		LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
-			if rt != srvRtRoads {
-				return nil, sql.ErrNoRows
-			}
-			return &db.ComputeResult{ResourceType: srvRtRoads, TotalArea: 1000, FeatureCount: 10, ComputedAt: time.Now()}, nil
-		},
+		CityMetrics: results.TotalRows(srvRtRoads, results.Totals{Area: 1000, Features: 10}),
 	}
 	root := &dbtest.MockStore{
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
@@ -804,19 +747,14 @@ func TestBuildForecasts_DBErrorEvicts(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	var builds atomic.Int32
 	failingStore := &dbtest.MockStore{
-		LatestComputeResultsFunc: func(_ context.Context, types []resource.Type) (map[resource.Type]*db.ComputeResult, error) {
+		ListCityMetricsFunc: func(_ context.Context, subjects []string) ([]db.CityMetric, error) {
 			n := builds.Add(1)
 			if n == 1 {
 				return nil, errors.New("db unavailable")
 			}
-			out := make(map[resource.Type]*db.ComputeResult, len(types))
-			for _, t := range types {
-				out[t] = &db.ComputeResult{
-					ResourceType: t,
-					TotalArea:    10000,
-					FeatureCount: 100,
-					ComputedAt:   time.Now(),
-				}
+			var out []db.CityMetric
+			for _, s := range subjects {
+				out = append(out, results.TotalRows(resource.Type(s), results.Totals{Area: 10000, Features: 100})...)
 			}
 			return out, nil
 		},
@@ -842,13 +780,13 @@ func TestBuildForecasts_DBErrorEvicts(t *testing.T) {
 		t.Fatalf("expected 200 on retry, got %d: %s", w2.Code, w2.Body.String())
 	}
 
-	// Build retried after eviction; LatestComputeResults ran twice total.
+	// Build retried after eviction; the city-metrics read ran twice total.
 	if got := builds.Load(); got != 2 {
-		t.Errorf("expected LatestComputeResults to run 2 times (build twice), ran %d", got)
+		t.Errorf("expected ListCityMetrics to run 2 times (build twice), ran %d", got)
 	}
 }
 
-// TestServeHexGridGeoJSON_DBErrorEvicts verifies that a real ListHexStats DB
+// TestServeHexGridGeoJSON_DBErrorEvicts verifies that a real per-hex coverage DB
 // error during the hex grid build evicts the s.cache hexgrid:slug thunk so the
 // next request retries against a recovered store rather than memoizing a blank
 // FeatureCollection for the server's lifetime — mirroring serveBoundaryGeoJSON
@@ -859,9 +797,9 @@ func TestServeHexGridGeoJSON_DBErrorEvicts(t *testing.T) {
 	var hexCalls atomic.Int32
 	failingStore := &dbtest.MockStore{
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return boundary, nil },
-		ListHexStatsFunc: func(_ context.Context, _ resource.Type) ([]db.HexStat, error) {
-			// Fail the very first ListHexStats; once the thunk is evicted the
-			// retry returns the legitimate empty (nil slice, no error).
+		ListHexMetricsFunc: func(context.Context, string, string) ([]db.HexMetric, error) {
+			// Fail the very first read; once the thunk is evicted the retry
+			// returns the legitimate empty (nil slice, no error).
 			if hexCalls.Add(1) == 1 {
 				return nil, errors.New("db unavailable")
 			}
@@ -891,7 +829,7 @@ func TestServeHexGridGeoJSON_DBErrorEvicts(t *testing.T) {
 }
 
 // TestServeScenariosJSON_DBErrorEvicts verifies that a real (non-ErrNoRows) DB
-// error inside the scenarios build (LatestComputeResults or ListCohortStats)
+// error inside the scenarios build (the city-metrics read)
 // surfaces so serveJSONCached evicts the scenarios:slug thunk and the next
 // request retries against a recovered store — rather than locking in a
 // zero-area/synthetic payload for the server's lifetime (yvlv.29).
@@ -901,13 +839,13 @@ func TestServeScenariosJSON_DBErrorEvicts(t *testing.T) {
 	var calls atomic.Int32
 	failingStore := &dbtest.MockStore{
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return boundary, nil },
-		LatestComputeResultsFunc: func(_ context.Context, _ []resource.Type) (map[resource.Type]*db.ComputeResult, error) {
+		ListCityMetricsFunc: func(context.Context, []string) ([]db.CityMetric, error) {
 			// Fail the first aggregate lookup; the retry (after eviction)
-			// returns a legitimate empty map.
+			// returns a legitimate empty result.
 			if calls.Add(1) == 1 {
 				return nil, errors.New("db unavailable")
 			}
-			return map[resource.Type]*db.ComputeResult{}, nil
+			return nil, nil
 		},
 	}
 	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Test City"}}}
@@ -925,12 +863,15 @@ func TestServeScenariosJSON_DBErrorEvicts(t *testing.T) {
 	if w2.Code != http.StatusOK {
 		t.Fatalf("expected 200 on retry, got %d: %s", w2.Code, w2.Body.String())
 	}
-	if got := calls.Load(); got != 2 {
-		t.Errorf("expected the aggregate build to run twice (error + retry), ran %d", got)
+	// The first read failed (500) and the retry read again rather than
+	// serving a memoized result. A build reads city metrics more than once,
+	// so count only that the retry happened.
+	if got := calls.Load(); got < 2 {
+		t.Errorf("expected the build to read again after the error, read %d time(s)", got)
 	}
 }
 
-// TestServeScenariosJSON_NoRowsIsEmpty verifies that sql.ErrNoRows (the normal
+// TestServeScenariosJSON_NoRowsIsEmpty verifies that no rows (the normal
 // "nothing computed yet" state) is tolerated as an empty 200 rather than
 // surfaced as a 500 — the flip side of TestServeScenariosJSON_DBErrorEvicts
 // (yvlv.29).
@@ -939,12 +880,6 @@ func TestServeScenariosJSON_NoRowsIsEmpty(t *testing.T) {
 	boundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
 	store := &dbtest.MockStore{
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return boundary, nil },
-		LatestComputeResultsFunc: func(_ context.Context, _ []resource.Type) (map[resource.Type]*db.ComputeResult, error) {
-			return nil, sql.ErrNoRows
-		},
-		ListCohortStatsFunc: func(_ context.Context, _ resource.Type) ([]db.CohortStat, error) {
-			return nil, sql.ErrNoRows
-		},
 	}
 	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Test City"}}}
 	entry := export.CityEntry{Config: cfg, City: cfg.Cities[0], Store: store, Slug: cfg.Cities[0].Slug()}
@@ -953,7 +888,7 @@ func TestServeScenariosJSON_NoRowsIsEmpty(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.serveScenariosJSON(w, nil, entry, 0)
 	if w.Code != http.StatusOK {
-		t.Fatalf("ErrNoRows should yield an empty 200, got %d: %s", w.Code, w.Body.String())
+		t.Fatalf("no rows should yield an empty 200, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -1412,9 +1347,8 @@ func TestServeHexGridGeoJSON_EmptyFCCarriesVersion(t *testing.T) {
 		Slug:   cfg.Cities[0].Slug(),
 		Store: &dbtest.MockStore{
 			GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
-			// No hex stats for any resource: BuildHexGeoJSON returns (nil, nil)
-			// and the handler substitutes its inline empty FC.
-			ListHexStatsFunc: func(_ context.Context, _ resource.Type) ([]db.HexStat, error) { return nil, nil },
+			// No hex coverage for any resource: BuildHexGeoJSON returns
+			// (nil, nil) and the handler substitutes its inline empty FC.
 		},
 	}
 	ios, _, _, _ := iostreams.Test()

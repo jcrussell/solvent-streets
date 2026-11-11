@@ -240,11 +240,21 @@ func apportion(ctx context.Context, out, errOut io.Writer, opts *Options, city *
 	if err != nil {
 		return err
 	}
-	if err := store.SaveHexMetricSet(ctx, runID, map[string][]db.HexMetric{
-		population.KeyPopulation:   m.Population,
-		population.KeyHousingUnits: m.HousingUnits,
-		population.KeyDensity:      m.Density,
-	}); err != nil {
+	var metrics []db.HexMetric
+	for _, set := range []struct {
+		key  string
+		rows []db.HexMetric
+	}{
+		{population.KeyPopulation, m.Population},
+		{population.KeyHousingUnits, m.HousingUnits},
+		{population.KeyDensity, m.Density},
+	} {
+		for _, r := range set.rows {
+			r.Metric = set.key
+			metrics = append(metrics, r)
+		}
+	}
+	if err := store.SaveHexMetrics(ctx, runID, metrics); err != nil {
 		return fmt.Errorf("save population metrics: %w", err)
 	}
 

@@ -9,6 +9,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
@@ -47,7 +48,6 @@ func TestRunCombined_DedupesCrossResourceOverlap(t *testing.T) {
 		GeometryJSON: `{"type":"Polygon","coordinates":[[[-120.000285,37.99996],[-119.999715,37.99996],[-119.999715,38.00004],[-120.000285,38.00004],[-120.000285,37.99996]]]}`,
 	}
 
-	saved := map[resource.Type]db.ComputeResult{}
 	store := &dbtest.MockStore{
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return boundary, nil },
 		ListFeaturesFunc: func(_ context.Context, rt resource.Type) ([]db.Feature, error) {
@@ -59,10 +59,6 @@ func TestRunCombined_DedupesCrossResourceOverlap(t *testing.T) {
 			default:
 				return nil, nil
 			}
-		},
-		SaveComputeResultFunc: func(_ context.Context, r db.ComputeResult) error {
-			saved[r.ResourceType] = r
-			return nil
 		},
 	}
 
@@ -80,12 +76,12 @@ func TestRunCombined_DedupesCrossResourceOverlap(t *testing.T) {
 		t.Fatalf("RunCombined: %v", err)
 	}
 
-	combined, ok := saved[resource.CombinedAll]
-	if !ok {
-		t.Fatalf("no %q ComputeResult was saved (got: %v)", resource.CombinedAll, saved)
+	combined, ok, err := results.LoadTotal(ctx, store, resource.CombinedAll)
+	if err != nil || !ok {
+		t.Fatalf("no %q totals were saved (got: %+v, %v)", resource.CombinedAll, store.CityMetrics, err)
 	}
-	if combined.TotalArea <= 0 {
-		t.Fatalf("combined.TotalArea = %v; want > 0", combined.TotalArea)
+	if combined.Area <= 0 {
+		t.Fatalf("combined.Area = %v; want > 0", combined.Area)
 	}
 
 	// Compute per-resource areas against the same projection and hex grid
@@ -128,9 +124,9 @@ func TestRunCombined_DedupesCrossResourceOverlap(t *testing.T) {
 	}
 
 	sum := roadsArea + parkingArea
-	if combined.TotalArea >= sum {
+	if combined.Area >= sum {
 		t.Errorf("combined area %v >= per-resource sum %v (roads=%v, parking=%v) — overlap was not deduped",
-			combined.TotalArea, sum, roadsArea, parkingArea)
+			combined.Area, sum, roadsArea, parkingArea)
 	}
 }
 
@@ -142,14 +138,9 @@ func TestRunCombined_NoFeaturesSkipsSave(t *testing.T) {
 
 	const boundary = `{"type":"Polygon","coordinates":[[[-120.003,37.998],[-119.997,37.998],[-119.997,38.002],[-120.003,38.002],[-120.003,37.998]]]}`
 
-	saveCalled := false
 	store := &dbtest.MockStore{
 		GetBoundaryFunc:  func(_ context.Context) (string, error) { return boundary, nil },
 		ListFeaturesFunc: func(_ context.Context, _ resource.Type) ([]db.Feature, error) { return nil, nil },
-		SaveComputeResultFunc: func(_ context.Context, _ db.ComputeResult) error {
-			saveCalled = true
-			return nil
-		},
 	}
 
 	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Test City"}}}
@@ -165,7 +156,7 @@ func TestRunCombined_NoFeaturesSkipsSave(t *testing.T) {
 	if err := RunCombined(ctx, f, nil, nil); err != nil {
 		t.Fatalf("RunCombined: %v", err)
 	}
-	if saveCalled {
-		t.Errorf("SaveComputeResult was called on the no-features path; expected early return")
+	if len(store.CityMetrics) > 0 {
+		t.Errorf("city totals were saved on the no-features path; expected early return: %+v", store.CityMetrics)
 	}
 }

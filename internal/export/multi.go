@@ -13,6 +13,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/results"
 )
 
 // BuildMultiCityMeta aggregates each sub-city's per-resource compute results
@@ -60,18 +61,16 @@ func aggregatePerResourceStats(ctx context.Context, entries []CityEntry) []StatJ
 	}
 	statByType := make(map[string]*StatJSON)
 	for _, entry := range entries {
-		// One batched lookup per entry replaces the per-resource
-		// LatestComputeResult loop. A type missing from the returned map is
-		// the same skip as the old loop's err/nil result — it contributes
-		// nothing.
-		latestByType, err := entry.Store.LatestComputeResults(ctx, types)
+		// One batched lookup per entry. A type missing from the returned map
+		// has not been computed and contributes nothing.
+		latestByType, err := results.LoadTotals(ctx, entry.Store, types)
 		if err != nil {
 			continue
 		}
 		for _, rt := range resource.All {
 			t := rt.Type()
 			result, ok := latestByType[t]
-			if !ok || result == nil {
+			if !ok {
 				continue
 			}
 			kindName := string(t)
@@ -80,8 +79,8 @@ func aggregatePerResourceStats(ctx context.Context, entries []CityEntry) []StatJ
 				st = &StatJSON{ResourceType: kindName, Color: ResourceColors[kindName]}
 				statByType[kindName] = st
 			}
-			st.TotalArea += result.TotalArea
-			st.EstimatedSpaces += result.EstimatedSpaces
+			st.TotalArea += result.Area
+			st.EstimatedSpaces += result.Spaces
 		}
 	}
 	out := []StatJSON{}
@@ -213,14 +212,13 @@ func BuildMultiCityForecastSeed(ctx context.Context, fc *config.ForecastConfig, 
 // entryAreaWithFallback reads the combined row for a single entry; if absent,
 // sums the per-resource rows in the matching scope.
 func entryAreaWithFallback(ctx context.Context, store db.Store, combinedLabel resource.Type, scope resource.Scope) float64 {
-	if r, err := store.LatestComputeResult(ctx, combinedLabel); err == nil && r != nil {
-		return r.TotalArea
+	if r, ok, err := results.LoadTotal(ctx, store, combinedLabel); err == nil && ok {
+		return r.Area
 	}
 	var sum float64
 	for _, rt := range resource.All {
-		r, err := store.LatestComputeResult(ctx, rt.Type().With(scope))
-		if err == nil && r != nil {
-			sum += r.TotalArea
+		if r, ok, err := results.LoadTotal(ctx, store, rt.Type().With(scope)); err == nil && ok {
+			sum += r.Area
 		}
 	}
 	return sum
@@ -230,7 +228,7 @@ func entryAreaWithFallback(ctx context.Context, store db.Store, combinedLabel re
 // the same (resource_type, classification) pair. cityScope=true reads ":city"
 // cohort rows. Cross-resource collisions (e.g. roads "default" vs parking
 // "default") stay as separate cohorts — matching collectCohortSeeds' single-
-// city shape, where each ListCohortStats(rt) row appears verbatim and a
+// city shape, where each cohort row of rt appears verbatim and a
 // classification can recur across resources.
 func mergeCohortSeeds(ctx context.Context, entries []CityEntry, fc *config.ForecastConfig, cityScope bool) ([]CohortSeed, float64) {
 	type key struct {
@@ -261,7 +259,7 @@ func mergeCohortSeeds(ctx context.Context, entries []CityEntry, fc *config.Forec
 		// from the map is the same skip as the old per-type err/empty path.
 		// Iterate resource.All (not the map) so first-seen Order stays
 		// deterministic and matches the pre-batch insertion order.
-		statsByType, err := entry.Store.ListCohortStatsForTypes(ctx, scopedTypes)
+		statsByType, err := results.LoadCohortsByType(ctx, entry.Store, scopedTypes)
 		if err != nil {
 			continue
 		}
@@ -271,14 +269,14 @@ func mergeCohortSeeds(ctx context.Context, entries []CityEntry, fc *config.Forec
 			asphalt := rt.AsphaltSurfaced()
 			for _, st := range stats {
 				split.add(st.Area, asphalt)
-				k := key{Resource: string(t), Classification: st.Classification}
+				k := key{Resource: string(t), Classification: st.Class}
 				b, ok := buckets[k]
 				if !ok {
 					b = &bucket{
 						Order: nextOrder,
 						Seed: CohortSeed{
-							Classification: st.Classification,
-							DecayRate:      resolvedDecayRate(st.Classification, fc.DecayRate),
+							Classification: st.Class,
+							DecayRate:      resolvedDecayRate(st.Class, fc.DecayRate),
 						},
 					}
 					buckets[k] = b

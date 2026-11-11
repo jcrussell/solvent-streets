@@ -2,7 +2,6 @@ package status
 
 import (
 	"context"
-	"database/sql"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +10,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
@@ -173,12 +173,7 @@ func TestRunStatus_CitySummary_PrefersCombined(t *testing.T) {
 			return &db.StatusInfo{ResourceType: rt, TotalArea: 30000}, nil
 		},
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return boundaryGJSON, nil },
-		LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
-			if rt == resource.CombinedAll {
-				return &db.ComputeResult{ResourceType: rt, TotalArea: 60000}, nil
-			}
-			return nil, sql.ErrNoRows
-		},
+		CityMetrics:     results.TotalRows(resource.CombinedAll, results.Totals{Area: 60000}),
 	}
 	ios, _, _, stderr := iostreams.Test()
 	ios.SetTTY(true)
@@ -213,7 +208,7 @@ func TestRunStatus_CitySummary_FallsBackToSum(t *testing.T) {
 			return &db.StatusInfo{ResourceType: rt, TotalArea: 30000}, nil
 		},
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return boundaryGJSON, nil },
-		// No LatestComputeResultFunc → mock returns sql.ErrNoRows → fallback.
+		// No combined rows in the mock → fallback.
 	}
 	ios, _, _, stderr := iostreams.Test()
 	ios.SetTTY(true)
@@ -245,13 +240,8 @@ func TestRunStatus_CitySummary_SingleResourceIgnoresCombined(t *testing.T) {
 			return &db.StatusInfo{ResourceType: rt, TotalArea: 30000}, nil
 		},
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return boundaryGJSON, nil },
-		LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
-			// A combined row exists but must be ignored in single-resource mode.
-			if rt == resource.CombinedAll {
-				return &db.ComputeResult{ResourceType: rt, TotalArea: 999999}, nil
-			}
-			return nil, sql.ErrNoRows
-		},
+		// A combined row exists but must be ignored in single-resource mode.
+		CityMetrics: results.TotalRows(resource.CombinedAll, results.Totals{Area: 999999}),
 	}
 	ios, _, _, stderr := iostreams.Test()
 	ios.SetTTY(true)

@@ -12,6 +12,8 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/hint"
+	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/results"
 )
 
 // TestRequireMatchingSnapshot covers the 8xqn fail-loud behavior: the
@@ -206,7 +208,7 @@ func TestPinCurrentSnapshot(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := store.SaveComputeResult(ctx, db.ComputeResult{ResourceType: "roads", TotalArea: area, RunID: run.ID}); err != nil {
+		if err := store.SaveCityMetrics(ctx, run.ID, results.TotalRows(resource.TypeRoads, results.Totals{Area: area})); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := store.CommitSnapshot(ctx, h, map[string]int64{"roads": run.ID}); err != nil {
@@ -223,11 +225,11 @@ func TestPinCurrentSnapshot(t *testing.T) {
 	}
 	commitArea(hash, 200) // lands "mid-export"
 
-	r, err := pinned.Store.LatestComputeResult(ctx, "roads")
-	if err != nil || r.TotalArea != 100 {
+	r, ok, err := results.LoadTotal(ctx, pinned.Store, resource.TypeRoads)
+	if err != nil || !ok || r.Area != 100 {
 		t.Errorf("pinned read = (%+v, %v), want the 100 snapshot that was current when the export started", r, err)
 	}
-	if r, _ := entry.Store.LatestComputeResult(ctx, "roads"); r == nil || r.TotalArea != 200 {
+	if r, ok, _ := results.LoadTotal(ctx, entry.Store, resource.TypeRoads); !ok || r.Area != 200 {
 		t.Errorf("unpinned entry = %+v, want the newer 200 (so the pin is what holds the export steady)", r)
 	}
 }

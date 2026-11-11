@@ -433,7 +433,7 @@ func unionCalibration(existing *CityConfig, child *Config, src *CityConfig) (con
 // Adopting the pair also moves the source identity (SourceConfigID and the
 // stamped compute inputs) onto src's config — that is the caller's job,
 // signalled by the return, and it is not optional. Hex ids come from the grid
-// and hex_stats join BY id, so the include that supplies the edge has to be the
+// and the per-hex result rows join BY id, so the include that supplies the edge has to be the
 // include whose stored data is read. mergeIncludedCities stamps identity only
 // from the FIRST include, so without the move a backfilled edge would leave the
 // city reading the cities row of a config that computed at another edge; no

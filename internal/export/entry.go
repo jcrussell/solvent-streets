@@ -21,8 +21,8 @@ var ErrNoBoundary = errors.New("no boundary stored")
 // ErrNoMatchingSnapshot signals that no snapshot for this city was computed
 // under its current settings (Config.CityHash) — the city was never computed,
 // or a setting that affects results (or pvmt's compute logic, ComputeEpoch)
-// changed since. The exporter fails loud rather than emitting silent empty
-// hex_stats / zero meta totals.
+// changed since. The exporter fails loud rather than emitting a silent empty
+// grid / zero meta totals.
 var ErrNoMatchingSnapshot = errors.New("no snapshot matches current config hash")
 
 // CityEntry holds the config and store for a single city.
@@ -43,8 +43,8 @@ func (entry CityEntry) WithSnapshot(snapshotID int64) CityEntry {
 }
 
 // BuildCityEntries creates CityEntry values for the given cities. The returned
-// stores are auto-pinned to cfg.CityHash(city) so unpinned reads (ListHexStats,
-// ListCohortStats, LatestComputeResult) only see snapshots written by the
+// stores are auto-pinned to cfg.CityHash(city) so unpinned reads (per-hex
+// coverage, cohort splits, city totals) only see snapshots written by the
 // config that owns that city's data — preventing slug-sharing examples (e.g.
 // Livermore in both livermore-ca and the bay-area-ca metro) from reading each
 // other's incompatible hex_id namespace. Callers that legitimately need
@@ -106,10 +106,10 @@ func (entry CityEntry) PinCurrentSnapshot(ctx context.Context) (CityEntry, error
 // snapshots include none with the city's current hash (Config.CityHash). This
 // is the fail-loud signal that the city was never computed, or not since a
 // setting that affects results changed — exporting would otherwise produce
-// silent empty hex_stats and zero totals.
+// a silent empty grid and zero totals.
 //
-// A city with snapshots matching the current hash but with empty
-// hex_stats (e.g. tiny city, all features below the sliver threshold)
+// A city with snapshots matching the current hash but with no per-hex
+// coverage (e.g. tiny city, all features below the sliver threshold)
 // passes — that's a legitimate empty result, not a setup error.
 func (entry CityEntry) RequireMatchingSnapshot(ctx context.Context) error {
 	if entry.Config == nil {

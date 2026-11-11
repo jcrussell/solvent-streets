@@ -2,9 +2,9 @@ package export
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -13,39 +13,21 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/hexmetric"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/internal/services"
 )
 
 // metricsEntry is a city whose resolved snapshot holds rows (the store's
-// ListHexMetrics), a roads compute and hexStats. The mock stands in for the
+// hex metrics), a roads compute and hexStats. The mock stands in for the
 // snapshot: whatever it lists IS the snapshot's metric part.
-func metricsEntry(t *testing.T, rows []db.HexMetric, facilities []db.Feature, hexStats []db.HexStat) CityEntry {
+func metricsEntry(t *testing.T, rows []db.HexMetric, facilities []db.Feature, hexStats []results.HexCoverage) CityEntry {
 	t.Helper()
 	store := &dbtest.MockStore{
-		LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
-			if rt == resource.TypeRoads {
-				return &db.ComputeResult{ResourceType: rt, TotalArea: 1, RunID: 5}, nil
-			}
-			return nil, sql.ErrNoRows
-		},
-		ListHexMetricsFunc: func(_ context.Context, key string) ([]db.HexMetric, error) {
-			var out []db.HexMetric
-			for _, r := range rows {
-				if r.Metric == key {
-					out = append(out, r)
-				}
-			}
-			return out, nil
-		},
+		CityMetrics: results.TotalRows(resource.TypeRoads, results.Totals{Area: 1}),
+		HexMetrics:  append(slices.Clone(rows), results.HexCoverageRows(rtRoads, hexStats)...),
 		ListFeaturesFunc: func(_ context.Context, rt resource.Type) ([]db.Feature, error) {
 			if rt == resource.FacilityType("fire") {
 				return facilities, nil
-			}
-			return nil, nil
-		},
-		ListHexStatsFunc: func(_ context.Context, rt resource.Type) ([]db.HexStat, error) {
-			if rt == rtRoads {
-				return hexStats, nil
 			}
 			return nil, nil
 		},
@@ -133,7 +115,7 @@ func TestBuildHexMetrics(t *testing.T) {
 	}
 
 	boom := metricsEntry(t, rows, facilities, nil)
-	boom.Store.(*dbtest.MockStore).ListHexMetricsFunc = func(context.Context, string) ([]db.HexMetric, error) { return nil, errors.New("db down") }
+	boom.Store.(*dbtest.MockStore).ListHexMetricsFunc = func(context.Context, string, string) ([]db.HexMetric, error) { return nil, errors.New("db down") }
 	if _, err := BuildHexMetrics(context.Background(), boom); err == nil {
 		t.Error("a store error must propagate, not become an empty file")
 	}
@@ -149,7 +131,7 @@ func TestBuildMeta_MetricSummaries(t *testing.T) {
 		{HexID: "h2", Metric: services.MetricFire, Value: 420, Ref: "b", ComputedAt: now},
 		{HexID: "h-nopave", Metric: services.MetricFire, Value: 9000, Ref: "b", ComputedAt: now},
 	}
-	stats := []db.HexStat{{HexID: "h1", ResourceType: rtRoads, Area: 1}, {HexID: "h2", ResourceType: rtRoads, Area: 1}}
+	stats := []results.HexCoverage{{HexID: "h1", Area: 1}, {HexID: "h2", Area: 1}}
 	entry := metricsEntry(t, rows, nil, stats)
 	meta, err := BuildMeta(context.Background(), entry, 0)
 	if err != nil {
@@ -182,10 +164,10 @@ func TestBuildMeta_MetricSummaries(t *testing.T) {
 // them, and it does not matter which run wrote them.
 func TestHexMetrics_IndependentOfRoadsCompute(t *testing.T) {
 	rows := []db.HexMetric{{HexID: "h1", Metric: services.MetricFire, Value: 300, Ref: "a", RunID: 3}}
-	stats := []db.HexStat{{HexID: "h1", ResourceType: rtRoads, Area: 1}}
+	stats := []results.HexCoverage{{HexID: "h1", Area: 1}}
 
 	noRoads := metricsEntry(t, rows, nil, stats)
-	noRoads.Store.(*dbtest.MockStore).LatestComputeResultFunc = nil
+	noRoads.Store.(*dbtest.MockStore).CityMetrics = nil
 	hm, err := BuildHexMetrics(context.Background(), noRoads)
 	if err != nil {
 		t.Fatal(err)

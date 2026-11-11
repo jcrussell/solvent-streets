@@ -154,20 +154,25 @@ func (s *sqliteStore) Stats(ctx context.Context, resourceType resource.Type) (*S
 		info.LastIngestAt = &t
 	}
 
-	// Same ErrNoRows-vs-real-failure distinction as fetched_at above:
-	// LatestComputeResult returns raw sql.ErrNoRows when a city has not been
-	// computed yet, but a genuine query failure must propagate rather than
-	// silently report TotalArea=0 / LastComputeAt=nil ("never computed").
-	result, err := s.LatestComputeResult(ctx, resourceType)
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
-		// no compute yet
-	case err != nil:
+	// The resource's city totals (class ""), read from its metric rows. No
+	// rows means "never computed" (LastComputeAt stays nil); a genuine query
+	// failure must propagate rather than silently report TotalArea=0.
+	rows, err := s.ListCityMetrics(ctx, []string{resource.Subject(resourceType)})
+	if err != nil {
 		return nil, fmt.Errorf("latest compute result: %w", err)
-	default:
-		info.LastComputeAt = &result.ComputedAt
-		info.TotalArea = result.TotalArea
-		info.EstimatedSpaces = result.EstimatedSpaces
+	}
+	for _, m := range rows {
+		if m.Class != "" {
+			continue
+		}
+		at := m.ComputedAt
+		info.LastComputeAt = &at
+		switch m.Metric {
+		case resource.MetricPavedArea:
+			info.TotalArea = m.Value
+		case resource.MetricParkingSpaces:
+			info.EstimatedSpaces = int(m.Value)
+		}
 	}
 
 	return info, nil

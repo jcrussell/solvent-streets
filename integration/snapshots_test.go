@@ -128,7 +128,7 @@ func partsOf(s db.Snapshot) map[string]int64 {
 
 func hexMetricCount(t *testing.T, store db.Store, metric string) int {
 	t.Helper()
-	rows, err := store.ListHexMetrics(context.Background(), metric)
+	rows, err := store.ListHexMetrics(context.Background(), metric, "")
 	if err != nil {
 		t.Fatal(err)
 	}

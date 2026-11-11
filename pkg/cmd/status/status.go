@@ -10,6 +10,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
@@ -296,7 +297,7 @@ func printCitySummary(ctx context.Context, ios *iostreams.IOStreams, store db.St
 // totalPavedArea returns the paved area for the City Summary and whether that
 // figure is free of cross-resource double-counting.
 //
-// For an all-resources status it prefers the "combined" ComputeResult written
+// For an all-resources status it prefers the "combined" totals written
 // by `pvmt all compute` (the de-duplicated union, mirroring
 // export.totalPavedFromStore so `pvmt status` agrees with meta.json); when that
 // row is absent it falls back to summing per-resource areas, which
@@ -309,8 +310,8 @@ func printCitySummary(ctx context.Context, ios *iostreams.IOStreams, store db.St
 // table above it.
 func totalPavedArea(ctx context.Context, store db.Store, rows []statusRow, allResources bool) (float64, bool) {
 	if allResources {
-		if r, err := store.LatestComputeResult(ctx, resource.CombinedAll); err == nil && r != nil {
-			return r.TotalArea, true
+		if tot, ok, err := results.LoadTotal(ctx, store, resource.CombinedAll); err == nil && ok {
+			return tot.Area, true
 		}
 	}
 	var sum float64

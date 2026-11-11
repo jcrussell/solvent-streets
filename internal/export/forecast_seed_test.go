@@ -13,6 +13,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/results"
 )
 
 // TestMergeCohortSeeds_KeysOnResourceAndClassification pins the invariant
@@ -20,12 +21,6 @@ import (
 // (matching collectCohortSeeds' single-city shape): "default" roads and
 // "default" parking must not collapse into one summed cohort.
 func TestMergeCohortSeeds_KeysOnResourceAndClassification(t *testing.T) {
-	cohortsByLabel := func(m map[resource.Type][]db.CohortStat) func(context.Context, resource.Type) ([]db.CohortStat, error) {
-		return func(_ context.Context, rt resource.Type) ([]db.CohortStat, error) {
-			return m[rt], nil
-		}
-	}
-
 	rtRoads := resource.TypeRoads
 	rtParking := resource.TypeParking
 
@@ -33,13 +28,13 @@ func TestMergeCohortSeeds_KeysOnResourceAndClassification(t *testing.T) {
 		Config: &config.Config{},
 		Slug:   "city-a",
 		Store: &dbtest.MockStore{
-			ListCohortStatsFunc: cohortsByLabel(map[resource.Type][]db.CohortStat{
+			CityMetrics: cohortsFixture(map[resource.Type][]results.Cohort{
 				rtRoads: {
-					{Classification: "primary", Area: 1000},
-					{Classification: "default", Area: 500},
+					{Class: "primary", Area: 1000},
+					{Class: "default", Area: 500},
 				},
 				rtParking: {
-					{Classification: "default", Area: 300},
+					{Class: "default", Area: 300},
 				},
 			}),
 		},
@@ -48,12 +43,12 @@ func TestMergeCohortSeeds_KeysOnResourceAndClassification(t *testing.T) {
 		Config: &config.Config{},
 		Slug:   "city-b",
 		Store: &dbtest.MockStore{
-			ListCohortStatsFunc: cohortsByLabel(map[resource.Type][]db.CohortStat{
+			CityMetrics: cohortsFixture(map[resource.Type][]results.Cohort{
 				rtRoads: {
-					{Classification: "primary", Area: 200},
+					{Class: "primary", Area: 200},
 				},
 				rtParking: {
-					{Classification: "default", Area: 100},
+					{Class: "default", Area: 100},
 				},
 			}),
 		},
@@ -65,9 +60,11 @@ func TestMergeCohortSeeds_KeysOnResourceAndClassification(t *testing.T) {
 	// Three distinct (resource, classification) pairs across both cities:
 	// roads/primary, roads/default, parking/default. Keying on classification
 	// alone would collapse the two "default" entries into one.
+	// Order is first-seen: resource.All order, then each resource's cohorts
+	// by class, as the store returns them.
 	want := []CohortSeed{
-		{Classification: "primary", Area: 1200}, // roads: 1000 + 200
 		{Classification: "default", Area: 500},  // roads "default" only
+		{Classification: "primary", Area: 1200}, // roads: 1000 + 200
 		{Classification: "default", Area: 400},  // parking "default": 300 + 100
 	}
 	if diff := cmp.Diff(want, got, cmpopts.IgnoreFields(CohortSeed{}, "DecayRate")); diff != "" {
@@ -172,26 +169,26 @@ func decodeSeed(t *testing.T, entry CityEntry, fc *config.ForecastConfig) Foreca
 // TestMergeCohortSeeds_CityScopeReadsCityLabels verifies cityScope=true
 // drives the ":city"-suffixed cohort label, not the all label.
 func TestMergeCohortSeeds_CityScopeReadsCityLabels(t *testing.T) {
-	var seenLabels []resource.Type
+	var seen []string
 	entry := CityEntry{
 		Config: &config.Config{},
 		Slug:   "city-a",
 		Store: &dbtest.MockStore{
-			ListCohortStatsFunc: func(_ context.Context, rt resource.Type) ([]db.CohortStat, error) {
-				seenLabels = append(seenLabels, rt)
+			ListCityMetricsFunc: func(_ context.Context, subjects []string) ([]db.CityMetric, error) {
+				seen = append(seen, subjects...)
 				return nil, nil
 			},
 		},
 	}
 	mergeCohortSeeds(context.Background(), []CityEntry{entry}, &config.ForecastConfig{}, true)
 
-	for _, label := range seenLabels {
-		if label.Scope() != resource.ScopeCity {
-			t.Errorf("cityScope=true read label %q; want all labels to be ScopeCity", label)
+	for _, subject := range seen {
+		if resource.Type(subject).Scope() != resource.ScopeCity {
+			t.Errorf("cityScope=true read subject %q; want every subject to be city-scoped", subject)
 		}
 	}
-	if len(seenLabels) == 0 {
-		t.Errorf("expected ListCohortStats to be called for each resource type")
+	if len(seen) == 0 {
+		t.Errorf("expected the cohort split to be read for each resource type")
 	}
 }
 
@@ -216,19 +213,15 @@ func TestForecastSeed_AsphaltShareNetsOutSidewalks(t *testing.T) {
 	// Roads 700 + parking 300 = 1000 asphalt, sidewalks 250 concrete, in the
 	// all scope; a deliberately different split in the city scope so a swapped
 	// or shared share shows up.
-	cohorts := map[resource.Type][]db.CohortStat{
-		resource.TypeRoads:                              {{Classification: "residential", Area: 700}},
-		resource.TypeParking:                            {{Classification: "parking", Area: 300}},
-		resource.TypeSidewalks:                          {{Classification: "sidewalks", Area: 250}},
-		resource.TypeRoads.With(resource.ScopeCity):     {{Classification: "residential", Area: 400}},
-		resource.TypeParking.With(resource.ScopeCity):   {{Classification: "parking", Area: 100}},
-		resource.TypeSidewalks.With(resource.ScopeCity): {{Classification: "sidewalks", Area: 100}},
+	cohorts := map[resource.Type][]results.Cohort{
+		resource.TypeRoads:                              {{Class: "residential", Area: 700}},
+		resource.TypeParking:                            {{Class: "parking", Area: 300}},
+		resource.TypeSidewalks:                          {{Class: "sidewalks", Area: 250}},
+		resource.TypeRoads.With(resource.ScopeCity):     {{Class: "residential", Area: 400}},
+		resource.TypeParking.With(resource.ScopeCity):   {{Class: "parking", Area: 100}},
+		resource.TypeSidewalks.With(resource.ScopeCity): {{Class: "sidewalks", Area: 100}},
 	}
-	store := &dbtest.MockStore{
-		ListCohortStatsFunc: func(_ context.Context, rt resource.Type) ([]db.CohortStat, error) {
-			return cohorts[rt], nil
-		},
-	}
+	store := &dbtest.MockStore{CityMetrics: cohortsFixture(cohorts)}
 
 	got, err := collectCohortSeeds(ctx, store, fc)
 	if err != nil {
@@ -266,9 +259,7 @@ func TestForecastSeed_AsphaltShareNetsOutSidewalks(t *testing.T) {
 // compute area — must behave exactly as it did before the netting existed.
 // A 0 here would blank every Materials figure.
 func TestForecastSeed_AsphaltShareIsOneWithoutCohorts(t *testing.T) {
-	store := &dbtest.MockStore{
-		ListCohortStatsFunc: func(context.Context, resource.Type) ([]db.CohortStat, error) { return nil, nil },
-	}
+	store := &dbtest.MockStore{}
 	got, err := collectCohortSeeds(context.Background(), store, &config.ForecastConfig{})
 	if err != nil {
 		t.Fatalf("collectCohortSeeds: %v", err)
@@ -286,21 +277,11 @@ func TestForecastSeed_AsphaltShareIsOneWithoutCohorts(t *testing.T) {
 // internal splits so an averaging implementation gives a different number.
 func TestMergeCohortSeeds_AsphaltShareIsRegionWide(t *testing.T) {
 	entry := func(roads, sidewalks float64) CityEntry {
-		stats := map[resource.Type][]db.CohortStat{
-			resource.TypeRoads:     {{Classification: "residential", Area: roads}},
-			resource.TypeSidewalks: {{Classification: "sidewalks", Area: sidewalks}},
+		stats := map[resource.Type][]results.Cohort{
+			resource.TypeRoads:     {{Class: "residential", Area: roads}},
+			resource.TypeSidewalks: {{Class: "sidewalks", Area: sidewalks}},
 		}
-		return CityEntry{Store: &dbtest.MockStore{
-			ListCohortStatsForTypesFunc: func(_ context.Context, types []resource.Type) (map[resource.Type][]db.CohortStat, error) {
-				out := map[resource.Type][]db.CohortStat{}
-				for _, t := range types {
-					if s, ok := stats[t]; ok {
-						out[t] = s
-					}
-				}
-				return out, nil
-			},
-		}}
+		return CityEntry{Store: &dbtest.MockStore{CityMetrics: cohortsFixture(stats)}}
 	}
 	// big: 900/1000 asphalt (0.9). small: 10/100 asphalt (0.1).
 	// Region-wide: 910/1100. Averaging the two would give 0.5.

@@ -12,6 +12,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/results"
 )
 
 // CohortSeed holds per-cohort data for interactive controls.
@@ -106,28 +107,8 @@ func BuildForecastSeed(ctx context.Context, fc *config.ForecastConfig, store db.
 
 	// Prefer the cross-resource union rows (RunCombined). Fall back to summing
 	// per-resource rows when missing — same behavior as BuildMeta.
-	var totalArea, cityArea float64
-	if r, err := store.LatestComputeResult(ctx, resource.CombinedAll); err == nil && r != nil {
-		totalArea = r.TotalArea
-	} else {
-		for _, rt := range resource.All {
-			result, err := store.LatestComputeResult(ctx, rt.Type())
-			if err != nil || result == nil {
-				continue
-			}
-			totalArea += result.TotalArea
-		}
-	}
-	if r, err := store.LatestComputeResult(ctx, resource.CombinedCity); err == nil && r != nil {
-		cityArea = r.TotalArea
-	} else {
-		for _, rt := range resource.All {
-			cityResult, err := store.LatestComputeResult(ctx, rt.Type().With(resource.ScopeCity))
-			if err == nil && cityResult != nil {
-				cityArea += cityResult.TotalArea
-			}
-		}
-	}
+	totalArea := entryAreaWithFallback(ctx, store, resource.CombinedAll, resource.ScopeAll)
+	cityArea := entryAreaWithFallback(ctx, store, resource.CombinedCity, resource.ScopeCity)
 
 	decayRate := fc.DecayRate
 	if decayRate <= 0 {
@@ -200,7 +181,7 @@ func (a *areaSplit) add(area float64, asphalt bool) {
 // collectCohortSeeds iterates over all resource types and collects cohort seed
 // data for both the main and city-scoped cohort stats. sql.ErrNoRows for a
 // given type is the normal "no cohorts computed for this resource" state and is
-// tolerated (that type contributes nothing); any other ListCohortStats error is
+// tolerated (that type contributes nothing); any other cohort-read error is
 // a real DB failure and is returned so the server's scenarios/seed cache evicts
 // and retries instead of locking in a synthetic-cohort payload for the server's
 // lifetime.
@@ -216,28 +197,28 @@ func collectCohortSeeds(ctx context.Context, store db.Store, fc *config.Forecast
 	for _, rt := range resource.All {
 		t := rt.Type()
 		asphalt := rt.AsphaltSurfaced()
-		stats, err := store.ListCohortStats(ctx, t)
+		stats, err := results.LoadCohorts(ctx, store, t)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return cohortSet{}, fmt.Errorf("list cohort stats for %s: %w", t, err)
 		}
 		for _, st := range stats {
 			allSplit.add(st.Area, asphalt)
 			out.All = append(out.All, CohortSeed{
-				Classification: st.Classification,
+				Classification: st.Class,
 				Area:           st.Area,
-				DecayRate:      resolvedDecayRate(st.Classification, fc.DecayRate),
+				DecayRate:      resolvedDecayRate(st.Class, fc.DecayRate),
 			})
 		}
-		cityStats, err := store.ListCohortStats(ctx, t.With(resource.ScopeCity))
+		cityStats, err := results.LoadCohorts(ctx, store, t.With(resource.ScopeCity))
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return cohortSet{}, fmt.Errorf("list cohort stats for %s: %w", t.With(resource.ScopeCity), err)
 		}
 		for _, st := range cityStats {
 			citySplit.add(st.Area, asphalt)
 			out.City = append(out.City, CohortSeed{
-				Classification: st.Classification,
+				Classification: st.Class,
 				Area:           st.Area,
-				DecayRate:      resolvedDecayRate(st.Classification, fc.DecayRate),
+				DecayRate:      resolvedDecayRate(st.Class, fc.DecayRate),
 			})
 		}
 	}

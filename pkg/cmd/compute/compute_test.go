@@ -16,6 +16,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/internal/tui"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/cmdtest"
@@ -87,7 +88,6 @@ func TestRunCompute_NoFeatures(t *testing.T) {
 }
 
 func TestRunCompute_Success(t *testing.T) {
-	var savedResult *db.ComputeResult
 	store := &dbtest.MockStore{
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
 		ListFeaturesFunc: func(_ context.Context, _ resource.Type) ([]db.Feature, error) {
@@ -100,10 +100,6 @@ func TestRunCompute_Success(t *testing.T) {
 					GeometryJSON: `{"type":"LineString","coordinates":[[-121.7700,37.6800],[-121.7690,37.6810]]}`,
 				},
 			}, nil
-		},
-		SaveComputeResultFunc: func(_ context.Context, r db.ComputeResult) error {
-			savedResult = &r
-			return nil
 		},
 	}
 	ios, _, stdout, _ := iostreams.Test()
@@ -134,8 +130,8 @@ func TestRunCompute_Success(t *testing.T) {
 	if !strings.Contains(output, "sq ft") {
 		t.Errorf("expected area output with imperial units, got: %s", output)
 	}
-	if savedResult == nil {
-		t.Error("expected SaveComputeResult to be called")
+	if _, ok, _ := results.LoadTotal(context.Background(), store, resource.TypeRoads); !ok {
+		t.Error("expected the roads city totals to be saved")
 	}
 }
 
@@ -303,16 +299,11 @@ func TestRunCompute_PrebuiltGridMatchesInline(t *testing.T) {
 			GeometryJSON: `{"type":"LineString","coordinates":[[-121.7800,37.7000],[-121.7750,37.7010]]}`},
 	}
 
-	run := func(grid []geo.Hex) []db.HexStat {
+	run := func(grid []geo.Hex) []db.HexMetric {
 		t.Helper()
-		var saved []db.HexStat
 		store := &dbtest.MockStore{
 			GetBoundaryFunc:  func(_ context.Context) (string, error) { return testBoundary, nil },
 			ListFeaturesFunc: func(_ context.Context, _ resource.Type) ([]db.Feature, error) { return features, nil },
-			SaveHexStatsFunc: func(_ context.Context, s []db.HexStat) error {
-				saved = append(saved, s...)
-				return nil
-			},
 		}
 		ios, _, _, _ := iostreams.Test()
 		opts := &Options{
@@ -327,7 +318,7 @@ func TestRunCompute_PrebuiltGridMatchesInline(t *testing.T) {
 		if err := doCompute(ctx, io.Discard, io.Discard, io.Discard, tui.NoopNotifier{}, opts); err != nil {
 			t.Fatalf("doCompute: %v", err)
 		}
-		return saved
+		return store.HexMetrics
 	}
 
 	// Build the shared grid exactly as BuildCityGrid would for this city.
@@ -350,25 +341,21 @@ func TestRunCompute_PrebuiltGridMatchesInline(t *testing.T) {
 	if len(inline) != len(shared) {
 		t.Fatalf("hex stat count differs: inline=%d shared=%d", len(inline), len(shared))
 	}
-	// Compare keyed by (HexID, ResourceType) so ordering differences don't
-	// matter; assert Area and PctCovered match exactly.
-	type key struct {
-		id string
-		rt resource.Type
-	}
-	inlineByKey := make(map[key]db.HexStat, len(inline))
+	// Compare keyed by (HexID, Metric, Subject) so ordering differences
+	// don't matter; assert each value (area, coverage) matches exactly.
+	type key struct{ id, metric, subject string }
+	inlineByKey := make(map[key]float64, len(inline))
 	for _, s := range inline {
-		inlineByKey[key{s.HexID, s.ResourceType}] = s
+		inlineByKey[key{s.HexID, s.Metric, s.Subject}] = s.Value
 	}
 	for _, s := range shared {
-		want, ok := inlineByKey[key{s.HexID, s.ResourceType}]
+		want, ok := inlineByKey[key{s.HexID, s.Metric, s.Subject}]
 		if !ok {
-			t.Errorf("shared run produced hex %s (%s) absent from inline run", s.HexID, s.ResourceType)
+			t.Errorf("shared run produced hex %s %s (%s) absent from inline run", s.HexID, s.Metric, s.Subject)
 			continue
 		}
-		if want.Area != s.Area || want.PctCovered != s.PctCovered {
-			t.Errorf("hex %s (%s): inline {area=%v pct=%v} != shared {area=%v pct=%v}",
-				s.HexID, s.ResourceType, want.Area, want.PctCovered, s.Area, s.PctCovered)
+		if want != s.Value {
+			t.Errorf("hex %s %s (%s): inline %v != shared %v", s.HexID, s.Metric, s.Subject, want, s.Value)
 		}
 	}
 }
@@ -379,9 +366,9 @@ func TestRunCompute_PrebuiltGridMatchesInline(t *testing.T) {
 func TestRunCompute_SaveHexStatsErrorFatal(t *testing.T) {
 	saveErr := errors.New("disk full")
 	store := &dbtest.MockStore{
-		GetBoundaryFunc:  func(_ context.Context) (string, error) { return testBoundary, nil },
-		ListFeaturesFunc: roadsFeaturesFunc,
-		SaveHexStatsFunc: func(_ context.Context, _ []db.HexStat) error { return saveErr },
+		GetBoundaryFunc:    func(_ context.Context) (string, error) { return testBoundary, nil },
+		ListFeaturesFunc:   roadsFeaturesFunc,
+		SaveHexMetricsFunc: func(_ context.Context, _ int64, _ []db.HexMetric) error { return saveErr },
 	}
 	ios, _, _, _ := iostreams.Test()
 	f := &cmdutil.Factory{
@@ -525,18 +512,9 @@ func TestRunCompute_InvalidBoundaryWarns(t *testing.T) {
 // so the ctx.Err() guard between compute and persistence is the load-bearing
 // fix under test.
 func TestRunCompute_CancelledDoesNotSave(t *testing.T) {
-	var savedHexStats, savedResults bool
 	store := &dbtest.MockStore{
 		GetBoundaryFunc:  func(_ context.Context) (string, error) { return testBoundary, nil },
 		ListFeaturesFunc: roadsFeaturesFunc,
-		SaveHexStatsFunc: func(_ context.Context, _ []db.HexStat) error {
-			savedHexStats = true
-			return nil
-		},
-		SaveComputeResultFunc: func(_ context.Context, _ db.ComputeResult) error {
-			savedResults = true
-			return nil
-		},
 	}
 	ios, _, _, _ := iostreams.Test()
 	opts := &Options{
@@ -557,11 +535,11 @@ func TestRunCompute_CancelledDoesNotSave(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got: %v", err)
 	}
-	if savedHexStats {
-		t.Error("SaveHexStats was called on a cancelled run; truncated stats must not be persisted")
+	if len(store.HexMetrics) > 0 {
+		t.Error("hex rows were saved on a cancelled run; truncated stats must not be persisted")
 	}
-	if savedResults {
-		t.Error("SaveComputeResult was called on a cancelled run; partial results must not be persisted")
+	if len(store.CityMetrics) > 0 {
+		t.Error("city totals were saved on a cancelled run; partial results must not be persisted")
 	}
 }
 
@@ -590,8 +568,6 @@ func TestRunCompute_CancelledDiscardsRun(t *testing.T) {
 			committed = true
 			return &db.Snapshot{ID: 1}, nil
 		},
-		SaveHexStatsFunc:      func(_ context.Context, _ []db.HexStat) error { return nil },
-		SaveComputeResultFunc: func(_ context.Context, _ db.ComputeResult) error { return nil },
 	}
 	ios, _, _, _ := iostreams.Test()
 	opts := &Options{
@@ -671,13 +647,6 @@ func TestRunCompute_ParkingEstimatesSpaces(t *testing.T) {
 				lon, lat, lon+d, lat, lon+d, lat+d, lon, lat+d, lon, lat),
 		}
 	}
-	var results []db.ComputeResult
-	var hexRows []db.HexStat
-	type savedMetric struct {
-		runID int64
-		rows  []db.HexMetric
-	}
-	metrics := map[string]savedMetric{}
 	store := &dbtest.MockStore{
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
 		ListFeaturesFunc: func(_ context.Context, _ resource.Type) ([]db.Feature, error) {
@@ -685,18 +654,6 @@ func TestRunCompute_ParkingEstimatesSpaces(t *testing.T) {
 				lot("lotA", "40", -121.7700, 37.6800),
 				lot("lotB", "25", -121.7650, 37.6830),
 			}, nil
-		},
-		SaveComputeResultFunc: func(_ context.Context, r db.ComputeResult) error {
-			results = append(results, r)
-			return nil
-		},
-		SaveHexStatsFunc: func(_ context.Context, rows []db.HexStat) error {
-			hexRows = append(hexRows, rows...)
-			return nil
-		},
-		SaveHexMetricsFunc: func(_ context.Context, metric string, runID int64, rows []db.HexMetric) error {
-			metrics[metric] = savedMetric{runID: runID, rows: rows}
-			return nil
 		},
 	}
 	ios, _, stdout, _ := iostreams.Test()
@@ -715,42 +672,54 @@ func TestRunCompute_ParkingEstimatesSpaces(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(results) != 2 {
-		t.Fatalf("expected all + city compute results, got %d: %+v", len(results), results)
+	ctx := context.Background()
+	parkingCity := resource.TypeParking.With(resource.ScopeCity)
+	totals, err := results.LoadTotals(ctx, store, []resource.Type{resource.TypeParking, parkingCity})
+	if err != nil || len(totals) != 2 {
+		t.Fatalf("expected all + city totals, got %+v (%v)", totals, err)
 	}
-	for _, r := range results {
-		if r.EstimatedSpaces != 65 {
-			t.Errorf("%s EstimatedSpaces = %d, want 65 (capacity 40 + 25)", r.ResourceType, r.EstimatedSpaces)
+	for rt, r := range totals {
+		if r.Spaces != 65 {
+			t.Errorf("%s Spaces = %d, want 65 (capacity 40 + 25)", rt, r.Spaces)
 		}
 	}
-	// Both passes write a space metric; each must apportion the full 65 and
-	// sit under the same run as the hex_stats rows export joins it to.
-	if len(hexRows) == 0 {
-		t.Fatal("expected hex_stats rows")
+	// Both passes write per-hex spaces; each must apportion the full 65 and
+	// sit under the same run as the coverage rows export joins them to.
+	var coverageRun int64
+	spaces := map[string][]db.HexMetric{}
+	for _, m := range store.HexMetrics {
+		switch m.Metric {
+		case resource.MetricPavedArea:
+			coverageRun = m.RunID
+		case resource.MetricParkingSpaces:
+			spaces[m.Subject] = append(spaces[m.Subject], m)
+		}
 	}
-	wantRun := hexRows[0].RunID
-	for _, key := range []string{resource.SpacesMetricAll, resource.SpacesMetricCity} {
-		m, ok := metrics[key]
+	if coverageRun == 0 {
+		t.Fatal("expected per-hex coverage rows")
+	}
+	for _, subject := range []string{"parking", "parking:city"} {
+		rows, ok := spaces[subject]
 		if !ok {
-			t.Errorf("no %s metric saved; got %v", key, slices.Collect(maps.Keys(metrics)))
+			t.Errorf("no %s parking spaces saved; got %v", subject, slices.Collect(maps.Keys(spaces)))
 			continue
 		}
 		var sum float64
-		for _, r := range m.rows {
+		for _, r := range rows {
 			if r.Value <= 0 {
-				t.Errorf("%s stored a non-positive row %+v", key, r)
+				t.Errorf("%s stored a non-positive row %+v", subject, r)
+			}
+			if r.RunID != coverageRun {
+				t.Errorf("%s spaces run = %d, want the coverage run %d", subject, r.RunID, coverageRun)
 			}
 			sum += r.Value
 		}
 		if math.Abs(sum-65) > 0.01 {
-			t.Errorf("%s apportions %v spaces, want 65", key, sum)
-		}
-		if m.runID != wantRun {
-			t.Errorf("%s run = %d, want the hex_stats run %d", key, m.runID, wantRun)
+			t.Errorf("%s apportions %v spaces, want 65", subject, sum)
 		}
 	}
-	if len(metrics) != 2 {
-		t.Errorf("expected exactly the two parking space metrics, got %v", slices.Collect(maps.Keys(metrics)))
+	if len(spaces) != 2 {
+		t.Errorf("expected exactly the two parking space subjects, got %v", slices.Collect(maps.Keys(spaces)))
 	}
 	if !strings.Contains(stdout.String(), "Spaces:    ~65 (estimated)") {
 		t.Errorf("expected the prose summary to report ~65 estimated spaces, got:\n%s", stdout.String())
@@ -758,16 +727,9 @@ func TestRunCompute_ParkingEstimatesSpaces(t *testing.T) {
 }
 
 // TestRunCompute_RoadsCarryNoSpaces: the estimate is a parking concept, so a
-// roads compute writes 0 spaces everywhere, stores no space metrics and
-// prints no Spaces line.
+// roads compute writes no spaces anywhere and prints no Spaces line.
 func TestRunCompute_RoadsCarryNoSpaces(t *testing.T) {
-	var results []db.ComputeResult
-	var metricSaves []string
 	store := &dbtest.MockStore{
-		SaveHexMetricsFunc: func(_ context.Context, metric string, _ int64, _ []db.HexMetric) error {
-			metricSaves = append(metricSaves, metric)
-			return nil
-		},
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
 		ListFeaturesFunc: func(_ context.Context, _ resource.Type) ([]db.Feature, error) {
 			return []db.Feature{{
@@ -775,10 +737,6 @@ func TestRunCompute_RoadsCarryNoSpaces(t *testing.T) {
 				Tags:         map[string]string{"highway": "residential", "capacity": "99"},
 				GeometryJSON: `{"type":"LineString","coordinates":[[-121.7700,37.6800],[-121.7690,37.6810]]}`,
 			}}, nil
-		},
-		SaveComputeResultFunc: func(_ context.Context, r db.ComputeResult) error {
-			results = append(results, r)
-			return nil
 		},
 	}
 	ios, _, stdout, _ := iostreams.Test()
@@ -796,21 +754,26 @@ func TestRunCompute_RoadsCarryNoSpaces(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	for _, r := range results {
-		if r.EstimatedSpaces != 0 {
-			t.Errorf("%s EstimatedSpaces = %d, want 0", r.ResourceType, r.EstimatedSpaces)
+	if len(store.CityMetrics) == 0 {
+		t.Fatal("roads compute saved no city totals")
+	}
+	for _, m := range store.CityMetrics {
+		if m.Metric == resource.MetricParkingSpaces {
+			t.Errorf("roads compute saved a city parking_spaces row %+v", m)
+		}
+	}
+	for _, m := range store.HexMetrics {
+		if m.Metric == resource.MetricParkingSpaces {
+			t.Errorf("roads compute saved a per-hex parking_spaces row %+v", m)
 		}
 	}
 	if strings.Contains(stdout.String(), "Spaces:") {
 		t.Errorf("roads output must not report spaces:\n%s", stdout.String())
 	}
-	if len(metricSaves) != 0 {
-		t.Errorf("roads compute saved hex metrics %v, want none", metricSaves)
-	}
 }
 
-// TestRunCompute_SaveSpaceMetricsErrorFatal: a failed per-hex space save
-// fails the parking compute like a failed SaveHexStats, rather than leaving
+// TestRunCompute_SaveSpaceMetricsErrorFatal: a failed per-hex save (coverage
+// and spaces go in one save) fails the parking compute, rather than leaving
 // coverage published without its spaces.
 func TestRunCompute_SaveSpaceMetricsErrorFatal(t *testing.T) {
 	saveErr := errors.New("disk full")
@@ -823,7 +786,7 @@ func TestRunCompute_SaveSpaceMetricsErrorFatal(t *testing.T) {
 				GeometryJSON: `{"type":"Polygon","coordinates":[[[-121.7700,37.6800],[-121.7696,37.6800],[-121.7696,37.6804],[-121.7700,37.6804],[-121.7700,37.6800]]]}`,
 			}}, nil
 		},
-		SaveHexMetricsFunc: func(_ context.Context, _ string, _ int64, _ []db.HexMetric) error { return saveErr },
+		SaveHexMetricsFunc: func(_ context.Context, _ int64, _ []db.HexMetric) error { return saveErr },
 	}
 	ios, _, _, _ := iostreams.Test()
 	f := &cmdutil.Factory{
@@ -848,7 +811,6 @@ func TestRunCompute_SaveSpaceMetricsErrorFatal(t *testing.T) {
 // rows were saved with. No forecast is stored or rerun: every reader
 // simulates the forecast from the compute's cohort stats on demand.
 func TestRunCompute_CommitsOnlyItsOwnPart(t *testing.T) {
-	saved := map[resource.Type]db.ComputeResult{}
 	producers := map[int64]string{}
 	var next int64
 	var commits []map[string]int64
@@ -859,10 +821,6 @@ func TestRunCompute_CommitsOnlyItsOwnPart(t *testing.T) {
 			next++
 			producers[next] = producer
 			return &db.Run{ID: next, Producer: producer, ConfigHash: hash}, nil
-		},
-		SaveComputeResultFunc: func(_ context.Context, r db.ComputeResult) error {
-			saved[r.ResourceType] = r
-			return nil
 		},
 		CommitSnapshotFunc: func(_ context.Context, hash string, parts map[string]int64) (*db.Snapshot, error) {
 			commits = append(commits, parts)
@@ -896,7 +854,7 @@ func TestRunCompute_CommitsOnlyItsOwnPart(t *testing.T) {
 	if len(producers) != 1 || producers[roadsRun] != string(resource.TypeRoads) {
 		t.Errorf("runs created = %v, want only the roads run", producers)
 	}
-	if saved[resource.TypeRoads].RunID != roadsRun {
-		t.Errorf("roads compute result saved under run %d, committed roads run is %d", saved[resource.TypeRoads].RunID, roadsRun)
+	if tot, _, _ := results.LoadTotal(context.Background(), store, resource.TypeRoads); tot.RunID != roadsRun {
+		t.Errorf("roads totals saved under run %d, committed roads run is %d", tot.RunID, roadsRun)
 	}
 }

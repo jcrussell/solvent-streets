@@ -8,6 +8,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/hexmetric"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/internal/services"
 )
 
@@ -125,7 +126,7 @@ func BuildHexMetrics(ctx context.Context, entry CityEntry) (*HexMetricsJSON, err
 // and a producer rerun that stored nothing hides it (its new, empty run
 // replaces the old one) rather than letting older rows resurface.
 func metricRows(ctx context.Context, entry CityEntry, key string) ([]db.HexMetric, error) {
-	rows, err := entry.Store.ListHexMetrics(ctx, key)
+	rows, err := entry.Store.ListHexMetrics(ctx, key, "")
 	if err != nil {
 		return nil, fmt.Errorf("listing hex metric %s: %w", key, err)
 	}
@@ -274,14 +275,14 @@ func summarizeMetric(spec hexmetric.Spec, rows []db.HexMetric, threshold float64
 }
 
 // hasHexGrid reports whether hexgrid.geojson will exist for the city: it is
-// written only when some resource has hex_stats rows (BuildHexGeoJSON). One
+// written only when some resource has per-hex coverage (BuildHexGeoJSON). One
 // existence query over every resource and scope, not a load of the rows.
 func hasHexGrid(ctx context.Context, entry CityEntry) (bool, error) {
 	types := make([]resource.Type, 0, 2*len(resource.All))
 	for _, rt := range resource.All {
 		types = append(types, rt.Type(), rt.Type().With(resource.ScopeCity))
 	}
-	ok, err := entry.Store.HasHexStats(ctx, types)
+	ok, err := results.HasHexCoverage(ctx, entry.Store, types)
 	if err != nil {
 		return false, fmt.Errorf("checking for hex stats: %w", err)
 	}

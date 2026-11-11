@@ -8,6 +8,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
@@ -168,8 +169,8 @@ func buildCityRow(ctx context.Context, store db.Store, c db.City, ios *iostreams
 	// sum double-counts road/parking/sidewalk buffer overlap — mirrors
 	// export.totalPavedFromStore so `pvmt cities` agrees with meta.json.
 	row.TotalPaved = perResourceSum
-	if r, err := store.LatestComputeResult(ctx, resource.CombinedAll); err == nil && r != nil {
-		row.TotalPaved = r.TotalArea
+	if tot, ok, err := results.LoadTotal(ctx, store, resource.CombinedAll); err == nil && ok {
+		row.TotalPaved = tot.Area
 	}
 	if !latestIngest.IsZero() {
 		row.LastIngestAt = latestIngest.UTC().Format(time.RFC3339)

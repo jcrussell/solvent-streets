@@ -56,16 +56,16 @@ func fixtureStore(saved *[]db.HexMetric, commits *[]map[string]int64) *dbtest.Mo
 			runs[next] = producer
 			return &db.Run{ID: next, Producer: producer, ConfigHash: hash}, nil
 		},
-		SaveHexMetricsFunc: func(_ context.Context, metric string, runID int64, rows []db.HexMetric) error {
+		SaveHexMetricsFunc: func(_ context.Context, runID int64, rows []db.HexMetric) error {
 			if runs[runID] != Producer("fire") {
-				return fmt.Errorf("metric %s saved under run %d (%q), want a %q run", metric, runID, runs[runID], Producer("fire"))
+				return fmt.Errorf("metrics saved under run %d (%q), want a %q run", runID, runs[runID], Producer("fire"))
 			}
 			for _, r := range rows {
-				r.Metric, r.RunID = metric, runID
+				r.RunID = runID
 				*saved = append(*saved, r)
 			}
 			if len(rows) == 0 {
-				*saved = append(*saved, db.HexMetric{Metric: metric, RunID: runID, HexID: "<empty>"})
+				*saved = append(*saved, db.HexMetric{Metric: services.MetricFire, RunID: runID, HexID: "<empty>"})
 			}
 			return nil
 		},

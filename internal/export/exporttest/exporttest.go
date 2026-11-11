@@ -7,13 +7,13 @@
 package exporttest
 
 import (
-	"context"
-	"database/sql"
+	"maps"
+	"slices"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
-	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/results"
 )
 
 // AssetFiles returns small stand-ins for the site-root browser files, for
@@ -40,54 +40,47 @@ const (
 // for both the bbox and :city scopes, so the export builders exercise the
 // dual-scope branch, plus per-class cohort stats for each.
 func Store() *dbtest.MockStore {
-	results := map[resource.Type]db.ComputeResult{
-		resource.TypeRoads:                              {ResourceType: resource.TypeRoads, TotalArea: 1_500_000, FeatureCount: 800},
-		resource.TypeRoads.With(resource.ScopeCity):     {ResourceType: resource.TypeRoads.With(resource.ScopeCity), TotalArea: 900_000, FeatureCount: 480},
-		resource.TypeParking:                            {ResourceType: resource.TypeParking, TotalArea: 200_000, FeatureCount: 120},
-		resource.TypeParking.With(resource.ScopeCity):   {ResourceType: resource.TypeParking.With(resource.ScopeCity), TotalArea: 150_000, FeatureCount: 90},
-		resource.TypeSidewalks:                          {ResourceType: resource.TypeSidewalks, TotalArea: 100_000, FeatureCount: 250},
-		resource.TypeSidewalks.With(resource.ScopeCity): {ResourceType: resource.TypeSidewalks.With(resource.ScopeCity), TotalArea: 80_000, FeatureCount: 200},
+	totals := map[resource.Type]results.Totals{
+		resource.TypeRoads:                              {Area: 1_500_000, Features: 800},
+		resource.TypeRoads.With(resource.ScopeCity):     {Area: 900_000, Features: 480},
+		resource.TypeParking:                            {Area: 200_000, Features: 120},
+		resource.TypeParking.With(resource.ScopeCity):   {Area: 150_000, Features: 90},
+		resource.TypeSidewalks:                          {Area: 100_000, Features: 250},
+		resource.TypeSidewalks.With(resource.ScopeCity): {Area: 80_000, Features: 200},
 	}
 	// Per-class cohort stats per resource and scope. BuildScenariosData and
 	// BuildForecastsForCity now build their lines from these multi-cohort seeds
 	// (the same source as the interactive WASM line), so the fixture must supply
 	// them to exercise that path rather than the single-synthetic-cohort
 	// fallback. Class areas are split so they roughly sum to the matching
-	// compute TotalArea above; the road classes carry distinct decay rates so
+	// compute total above; the road classes carry distinct decay rates so
 	// the blended (multi-cohort) curve differs from a single-rate cohort.
-	cohorts := map[resource.Type][]db.CohortStat{
+	cohorts := map[resource.Type][]results.Cohort{
 		resource.TypeRoads: {
-			{ResourceType: resource.TypeRoads, Classification: "primary", Area: 500_000, FeatureCount: 200},
-			{ResourceType: resource.TypeRoads, Classification: "residential", Area: 1_000_000, FeatureCount: 600},
+			{Class: "primary", Area: 500_000, Features: 200},
+			{Class: "residential", Area: 1_000_000, Features: 600},
 		},
 		resource.TypeRoads.With(resource.ScopeCity): {
-			{ResourceType: resource.TypeRoads.With(resource.ScopeCity), Classification: "primary", Area: 300_000, FeatureCount: 120},
-			{ResourceType: resource.TypeRoads.With(resource.ScopeCity), Classification: "residential", Area: 600_000, FeatureCount: 360},
+			{Class: "primary", Area: 300_000, Features: 120},
+			{Class: "residential", Area: 600_000, Features: 360},
 		},
 		resource.TypeParking: {
-			{ResourceType: resource.TypeParking, Classification: "parking", Area: 200_000, FeatureCount: 120},
+			{Class: "parking", Area: 200_000, Features: 120},
 		},
 		resource.TypeParking.With(resource.ScopeCity): {
-			{ResourceType: resource.TypeParking.With(resource.ScopeCity), Classification: "parking", Area: 150_000, FeatureCount: 90},
+			{Class: "parking", Area: 150_000, Features: 90},
 		},
 		resource.TypeSidewalks: {
-			{ResourceType: resource.TypeSidewalks, Classification: "sidewalks", Area: 100_000, FeatureCount: 250},
+			{Class: "sidewalks", Area: 100_000, Features: 250},
 		},
 		resource.TypeSidewalks.With(resource.ScopeCity): {
-			{ResourceType: resource.TypeSidewalks.With(resource.ScopeCity), Classification: "sidewalks", Area: 80_000, FeatureCount: 200},
+			{Class: "sidewalks", Area: 80_000, Features: 200},
 		},
 	}
-	store := &dbtest.MockStore{
-		LatestComputeResultFunc: func(_ context.Context, key resource.Type) (*db.ComputeResult, error) {
-			r, ok := results[key]
-			if !ok {
-				return nil, sql.ErrNoRows
-			}
-			return &r, nil
-		},
-		ListCohortStatsFunc: func(_ context.Context, key resource.Type) ([]db.CohortStat, error) {
-			return cohorts[key], nil
-		},
+	store := &dbtest.MockStore{}
+	for _, t := range slices.Sorted(maps.Keys(totals)) {
+		store.CityMetrics = append(store.CityMetrics, results.TotalRows(t, totals[t])...)
+		store.CityMetrics = append(store.CityMetrics, results.CohortRows(t, cohorts[t])...)
 	}
 	return store
 }

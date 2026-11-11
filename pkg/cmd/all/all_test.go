@@ -411,7 +411,7 @@ func computeFactory(ios *iostreams.IOStreams, store db.Store) *cmdutil.Factory {
 	}
 }
 
-func combinedTestStore(saveCombined func(db.ComputeResult) error) *dbtest.MockStore {
+func combinedTestStore(saveCombined func([]db.CityMetric) error) *dbtest.MockStore {
 	roadFeature := db.Feature{
 		ID:           "road1",
 		ResourceType: resource.TypeRoads,
@@ -426,9 +426,9 @@ func combinedTestStore(saveCombined func(db.ComputeResult) error) *dbtest.MockSt
 			}
 			return nil, nil
 		},
-		SaveComputeResultFunc: func(_ context.Context, r db.ComputeResult) error {
-			if r.ResourceType.Bare() == resource.TypeCombined {
-				return saveCombined(r)
+		SaveCityMetricsFunc: func(_ context.Context, _ int64, rows []db.CityMetric) error {
+			if len(rows) > 0 && resource.Type(rows[0].Subject).Bare() == resource.TypeCombined {
+				return saveCombined(rows)
 			}
 			return nil
 		},
@@ -448,7 +448,7 @@ func TestAllCompute_CombinedFailureIsFatal(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	wantErr := errors.New("database is locked")
 	combinedWrites := 0
-	store := combinedTestStore(func(db.ComputeResult) error {
+	store := combinedTestStore(func([]db.CityMetric) error {
 		combinedWrites++
 		return wantErr
 	})
@@ -481,7 +481,7 @@ func TestAllCompute_TUIInterruptAbortsCity(t *testing.T) {
 	ios, _, _, errOut := iostreams.Test()
 	var listed []resource.Type
 	commits := 0
-	store := combinedTestStore(func(db.ComputeResult) error {
+	store := combinedTestStore(func([]db.CityMetric) error {
 		t.Error("the combined pass ran after an interrupt")
 		return nil
 	})
@@ -518,7 +518,7 @@ func TestAllCompute_TUIInterruptAbortsCity(t *testing.T) {
 func TestAllCompute_SucceedsWhenCombinedSucceeds(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	combinedWrites := 0
-	store := combinedTestStore(func(db.ComputeResult) error {
+	store := combinedTestStore(func([]db.CityMetric) error {
 		combinedWrites++
 		return nil
 	})
@@ -569,8 +569,8 @@ func TestAllCompute_CombinedFailureNotMaskedByEmptyResources(t *testing.T) {
 			listCalls++
 			return nil, nil
 		},
-		SaveComputeResultFunc: func(_ context.Context, _ db.ComputeResult) error {
-			t.Error("SaveComputeResult called; the fixture has no features")
+		SaveCityMetricsFunc: func(context.Context, int64, []db.CityMetric) error {
+			t.Error("SaveCityMetrics called; the fixture has no features")
 			return nil
 		},
 	}

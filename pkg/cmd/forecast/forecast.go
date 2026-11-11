@@ -2,8 +2,6 @@ package forecast
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"strconv"
 
@@ -12,6 +10,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/export"
 	fcpkg "github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
@@ -309,20 +308,19 @@ func forecastAllResources(ctx context.Context, opts *Options, store db.Store, ci
 
 	for _, rt := range resource.All {
 		t := rt.Type()
-		// LatestComputeResult returns raw sql.ErrNoRows when this resource has
-		// not been computed for the city yet — warn and skip only in that
-		// case. Any other error (locked DB, dropped table) must propagate;
+		// Warn and skip only when this resource has not been computed for the
+		// city yet. Any other error (locked DB, dropped table) must propagate;
 		// folding it into the skip path would silently forecast nothing and
 		// exit 0.
-		result, err := store.LatestComputeResult(ctx, t)
+		result, ok, err := results.LoadTotal(ctx, store, t)
 		switch {
-		case errors.Is(err, sql.ErrNoRows):
-			fmt.Fprintf(ios.ErrOut, "Warning: no compute results for %s, skipping\n", t)
-			continue
 		case err != nil:
 			return nil, fmt.Errorf("forecast %s: %w", t, err)
+		case !ok:
+			fmt.Fprintf(ios.ErrOut, "Warning: no compute results for %s, skipping\n", t)
+			continue
 		}
-		cohorts, err := export.BuildCohortsForResource(ctx, rt, result.TotalArea, store, fc)
+		cohorts, err := export.BuildCohortsForResource(ctx, rt, result.Area, store, fc)
 		if err != nil {
 			return nil, fmt.Errorf("forecast %s: %w", t, err)
 		}
@@ -332,7 +330,7 @@ func forecastAllResources(ctx context.Context, opts *Options, store db.Store, ci
 		forecasted = true
 
 		if opts.Exporter == nil {
-			if err := renderBaselineTable(ios, rt, result.TotalArea, fc.InitialPCI, baseline, total, years, sys); err != nil {
+			if err := renderBaselineTable(ios, rt, result.Area, fc.InitialPCI, baseline, total, years, sys); err != nil {
 				return nil, err
 			}
 			if opts.Scenarios {

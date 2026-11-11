@@ -21,6 +21,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/goldentest"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/internal/services"
 )
 
@@ -115,18 +116,13 @@ func jsFixtureEntry(t *testing.T) CityEntry {
 	// The parking compute result carries an estimated space count so the
 	// fixture meta.json has the real estimated_spaces key the stats panel and
 	// Compare specs read; the shared fixture itself stays untouched.
-	inner := store.LatestComputeResultFunc
-	store.LatestComputeResultFunc = func(ctx context.Context, rt resource.Type) (*db.ComputeResult, error) {
-		r, err := inner(ctx, rt)
-		if err == nil && rt == resource.TypeParking {
-			cp := *r
-			cp.EstimatedSpaces = jsFixtureParkingSpaces
-			return &cp, nil
+	for i, m := range store.CityMetrics {
+		if m.Metric == resource.MetricParkingSpaces && m.Subject == string(resource.TypeParking) && m.Class == "" {
+			store.CityMetrics[i].Value = jsFixtureParkingSpaces
 		}
-		return r, err
 	}
 	// Per-hex metrics: two fire-response rows referencing one OSM station, on
-	// hexes that also carry roads hex_stats rows (so meta.metrics counts them
+	// hexes that also carry roads coverage rows (so meta.metrics counts them
 	// as painted). hex-metrics.json and meta.metrics in the fixture tree are
 	// then the REAL BuildHexMetrics/BuildMeta output, the same drift guard the
 	// other fixtures get.
@@ -141,29 +137,11 @@ func jsFixtureEntry(t *testing.T) CityEntry {
 		}
 		return nil, nil
 	}
-	store.ListHexMetricsFunc = func(_ context.Context, key string) ([]db.HexMetric, error) {
-		if key != services.MetricFire {
-			return nil, nil
-		}
-		return []db.HexMetric{
-			{HexID: "hex:0:0", Metric: key, Value: 300, Ref: jsFixtureStationID},
-			{HexID: "hex:0:1", Metric: key, Value: 700, Ref: jsFixtureStationID},
-		}, nil
-	}
-	innerHex := store.ListHexStatsFunc
-	store.ListHexStatsFunc = func(ctx context.Context, rt resource.Type) ([]db.HexStat, error) {
-		var out []db.HexStat
-		if innerHex != nil {
-			var err error
-			if out, err = innerHex(ctx, rt); err != nil {
-				return nil, err
-			}
-		}
-		if rt == resource.TypeRoads {
-			out = append(out, db.HexStat{HexID: "hex:0:0", ResourceType: rt, Area: 1}, db.HexStat{HexID: "hex:0:1", ResourceType: rt, Area: 1})
-		}
-		return out, nil
-	}
+	store.HexMetrics = append(store.HexMetrics,
+		db.HexMetric{HexID: "hex:0:0", Metric: services.MetricFire, Value: 300, Ref: jsFixtureStationID},
+		db.HexMetric{HexID: "hex:0:1", Metric: services.MetricFire, Value: 700, Ref: jsFixtureStationID})
+	store.HexMetrics = append(store.HexMetrics, results.HexCoverageRows(resource.TypeRoads,
+		[]results.HexCoverage{{HexID: "hex:0:0", Area: 1}, {HexID: "hex:0:1", Area: 1}})...)
 	// Matches a city option in the rendered index.html, so meta.project_name and
 	// the DOM describe the same place.
 	entry.City.Name = "Alpha, CA"

@@ -53,49 +53,42 @@ func ResourceFeatures(rows []Feature) []resource.Feature {
 	return out
 }
 
-type ComputeResult struct {
-	ResourceType resource.Type
-	TotalArea    float64
-	FeatureCount int
-	// EstimatedSpaces is the parking resource's estimated vehicle capacity
-	// (resource.EstimateParkingSpaces summed over the hex-clipped lots); 0 for
-	// every other resource and for rows computed before the estimate existed.
-	EstimatedSpaces int
-	ComputedAt      time.Time
-	RunID           int64
-}
-
 type StatusInfo struct {
 	ResourceType    resource.Type
 	FeatureCount    int
 	LastIngestAt    *time.Time
 	LastComputeAt   *time.Time
 	TotalArea       float64
-	EstimatedSpaces int // parking only; see ComputeResult.EstimatedSpaces
+	EstimatedSpaces int // parking only; resource.MetricParkingSpaces
 }
 
-type HexStat struct {
-	HexID        string
-	ResourceType resource.Type
-	Area         float64
-	PctCovered   float64
-	ComputedAt   time.Time
-	RunID        int64
+// CityMetric is one city-wide measure written by a run (city_metrics in
+// 001_init.sql): Metric measured over Subject, for one highway Class of the
+// cohort split or the whole city (Class ""). See internal/resource/metric.go
+// for the pavement keys and the subject convention.
+type CityMetric struct {
+	Metric     string
+	Subject    string
+	Class      string
+	Value      float64
+	RunID      int64
+	ComputedAt time.Time // the run's
 }
 
-// HexMetric is one per-hex value of a registered metric (internal/hexmetric),
-// e.g. fire_response_s. Ref is an optional reference id the metric attaches
-// to the hex (the nearest facility for a coverage metric); "" when unused.
-// RunID is the producer run that wrote it: a service or census run for those
-// metrics, the parking compute run for the per-hex parking spaces
-// (resource.SpacesMetricKey).
+// HexMetric is one per-hex measure written by a run (hex_metrics in
+// 001_init.sql): Metric measured over Subject in hex HexID. Pavement coverage
+// uses the resource metric keys with a resource subject; the registered
+// metrics of internal/hexmetric (fire_response_s, population, ...) use
+// subject "". Ref is an optional reference id the metric attaches to the hex
+// (the nearest facility for a coverage metric); "" when unused.
 type HexMetric struct {
 	HexID      string
 	Metric     string
+	Subject    string
 	Value      float64
 	Ref        string
 	RunID      int64
-	ComputedAt time.Time
+	ComputedAt time.Time // the run's
 }
 
 // Run is one producer's output for one city (see 001_init.sql). Producer is
@@ -134,15 +127,6 @@ type SnapshotPart struct {
 	Part       string    `json:"part"`
 	RunID      int64     `json:"run_id"`
 	ComputedAt time.Time `json:"computed_at"`
-}
-
-type CohortStat struct {
-	ResourceType   resource.Type
-	Classification string
-	Area           float64
-	FeatureCount   int
-	RunID          int64
-	ComputedAt     time.Time
 }
 
 type City struct {
@@ -186,33 +170,29 @@ func (r GCReport) Total() int {
 type Store interface {
 	UpsertFeatures(ctx context.Context, resourceType resource.Type, features []Feature, sourceAPIs []string) error
 	ListFeatures(ctx context.Context, resourceType resource.Type) ([]Feature, error)
-	SaveComputeResult(ctx context.Context, result ComputeResult) error
-	LatestComputeResult(ctx context.Context, resourceType resource.Type) (*ComputeResult, error)
-	// LatestComputeResults returns the latest compute result for each
-	// requested resource type in one round trip. Missing types are
-	// simply absent from the returned map (no sql.ErrNoRows). Honors
-	// the same snapshot / config_hash filtering as LatestComputeResult.
-	LatestComputeResults(ctx context.Context, types []resource.Type) (map[resource.Type]*ComputeResult, error)
-	SaveHexStats(ctx context.Context, stats []HexStat) error
-	ListHexStats(ctx context.Context, resourceType resource.Type) ([]HexStat, error)
-	// HasHexStats reports whether ListHexStats would return any row for any
-	// of types, under the same snapshot / config-hash resolution, with one
-	// LIMIT 1 query instead of loading the rows.
-	HasHexStats(ctx context.Context, types []resource.Type) (bool, error)
-	// SaveHexMetrics replaces the (metric, runID) slice for this city with
-	// rows, in one transaction. Every row is stored under metric and runID
-	// regardless of its own fields. An empty rows slice stores nothing, and
-	// because readers see only the resolved snapshot's runs, a run that
-	// stored nothing for a metric hides that metric (no older run's rows
-	// resurface).
-	SaveHexMetrics(ctx context.Context, metric string, runID int64, rows []HexMetric) error
-	// SaveHexMetricSet is SaveHexMetrics for several metrics at once, all in
-	// ONE transaction: a producer that writes related metrics (population,
-	// housing units, density) never leaves them half-saved.
-	SaveHexMetricSet(ctx context.Context, runID int64, set map[string][]HexMetric) error
-	// ListHexMetrics returns the rows for one metric key from the resolved
-	// snapshot. A metric with no rows returns (nil, nil), never sql.ErrNoRows.
-	ListHexMetrics(ctx context.Context, metric string) ([]HexMetric, error)
+	// SaveCityMetrics writes city-wide measures for runID, in one
+	// transaction. Every row is stored under runID regardless of its own
+	// RunID. Rows are write-once: a (metric, subject, class) the run already
+	// holds fails the whole save.
+	SaveCityMetrics(ctx context.Context, runID int64, rows []CityMetric) error
+	// ListCityMetrics returns every city-wide measure over any of subjects in
+	// the resolved snapshot, ordered by subject, class, metric. No rows
+	// returns (nil, nil), never sql.ErrNoRows.
+	ListCityMetrics(ctx context.Context, subjects []string) ([]CityMetric, error)
+	// SaveHexMetrics writes per-hex measures for runID, in one transaction.
+	// Every row is stored under runID regardless of its own RunID. Rows are
+	// write-once: a (metric, subject, hex) the run already holds fails the
+	// whole save. Because readers see only the resolved snapshot's runs, a
+	// run that stored nothing for a metric hides that metric (no older run's
+	// rows resurface).
+	SaveHexMetrics(ctx context.Context, runID int64, rows []HexMetric) error
+	// ListHexMetrics returns one metric's rows over subject from the resolved
+	// snapshot, ordered by hex id. No rows returns (nil, nil), never
+	// sql.ErrNoRows.
+	ListHexMetrics(ctx context.Context, metric, subject string) ([]HexMetric, error)
+	// HasHexMetric reports whether ListHexMetrics would return any row for
+	// metric over any of subjects, with one LIMIT 1 query.
+	HasHexMetric(ctx context.Context, metric string, subjects []string) (bool, error)
 	// CreateRun starts a run for producer under configHash. Its rows are
 	// invisible to every reader until a snapshot that includes the run is
 	// committed (CommitSnapshot).
@@ -252,12 +232,6 @@ type Store interface {
 	// transaction, and returns the counts of rows actually deleted. An
 	// empty keepSources skips the feature delete (never wipes all rows).
 	GCSweep(ctx context.Context, keepSources []string) (*GCReport, error)
-	SaveCohortStats(ctx context.Context, stats []CohortStat) error
-	ListCohortStats(ctx context.Context, resourceType resource.Type) ([]CohortStat, error)
-	// ListCohortStatsForTypes returns cohort stats grouped by resource
-	// type for each requested type in one round trip. Same snapshot /
-	// config_hash semantics as ListCohortStats.
-	ListCohortStatsForTypes(ctx context.Context, types []resource.Type) (map[resource.Type][]CohortStat, error)
 	SaveBoundary(ctx context.Context, geometryJSON, source string) error
 	GetBoundary(ctx context.Context) (string, error)
 	Stats(ctx context.Context, resourceType resource.Type) (*StatusInfo, error)

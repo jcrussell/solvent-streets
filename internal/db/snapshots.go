@@ -147,11 +147,6 @@ func eq(column string, value any) viewFilter {
 	return viewFilter{sql: column + ` = ?`, args: []any{value}}
 }
 
-// ne is `column != value`.
-func ne(column string, value any) viewFilter {
-	return viewFilter{sql: column + ` != ?`, args: []any{value}}
-}
-
 // in is `column IN (values)`; with no values it matches nothing.
 func in(column string, values []string) viewFilter {
 	if len(values) == 0 {

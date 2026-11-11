@@ -3,7 +3,6 @@ package export
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -17,24 +16,20 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/fsutil"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/results"
 )
 
 // exportTestEntry builds a CityEntry whose store satisfies the exporter's
 // preconditions: a boundary (so BBoxAndCenter/Info succeed) and a snapshot
 // whose config hash matches the city's CityHash (so RequireMatchingSnapshot passes).
 // Compute results drive the per-resource stats / forecast totals.
-func exportTestEntry(cfg *config.Config, name, slug, boundary string, results map[resource.Type]db.ComputeResult) CityEntry {
+func exportTestEntry(cfg *config.Config, name, slug, boundary string, totals map[resource.Type]results.Totals) CityEntry {
 	store := &dbtest.MockStore{
 		GetBoundaryFunc: func(context.Context) (string, error) { return boundary, nil },
 		ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
 			return []db.Snapshot{{ID: 1, ConfigHash: cfg.CityHash(&config.CityConfig{Name: name}), Parts: paved}}, nil
 		},
-		LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
-			if r, ok := results[rt]; ok {
-				return &r, nil
-			}
-			return nil, sql.ErrNoRows
-		},
+		CityMetrics: totalsFixture(totals),
 	}
 	return CityEntry{
 		Config: cfg,
@@ -100,8 +95,8 @@ func TestCityEntry_InfoMapsTags(t *testing.T) {
 // (the exportCityData return values) are exactly the on-disk data files.
 func TestRunSingleCity_ReusesExportedMetaAndSeed(t *testing.T) {
 	cfg := &config.Config{}
-	entry := exportTestEntry(cfg, "Solo City", "solo-city", exportBoundaryA, map[resource.Type]db.ComputeResult{
-		resource.TypeRoads: {ResourceType: resource.TypeRoads, TotalArea: 1000, FeatureCount: 10},
+	entry := exportTestEntry(cfg, "Solo City", "solo-city", exportBoundaryA, map[resource.Type]results.Totals{
+		resource.TypeRoads: {Area: 1000, Features: 10},
 	})
 
 	dir := t.TempDir()
@@ -164,8 +159,8 @@ func TestRunSingleCity_ReusesExportedMetaAndSeed(t *testing.T) {
 // rm -rf.
 func TestRunMultiCity_FailureLeavesRecoverableDir(t *testing.T) {
 	cfg := &config.Config{}
-	good := exportTestEntry(cfg, "Good", "good", exportBoundaryA, map[resource.Type]db.ComputeResult{
-		resource.TypeRoads: {ResourceType: resource.TypeRoads, TotalArea: 1000, FeatureCount: 10},
+	good := exportTestEntry(cfg, "Good", "good", exportBoundaryA, map[resource.Type]results.Totals{
+		resource.TypeRoads: {Area: 1000, Features: 10},
 	})
 	// A city whose only snapshot carries a non-matching config hash: its
 	// RequireMatchingSnapshot returns ErrNoMatchingSnapshot, aborting the run
@@ -230,8 +225,8 @@ func boundaryMinLon(t *testing.T, boundary string) float64 {
 func roadEntry(t *testing.T, cfg *config.Config, name, slug, boundary string) CityEntry {
 	t.Helper()
 	lon0 := boundaryMinLon(t, boundary)
-	entry := exportTestEntry(cfg, name, slug, boundary, map[resource.Type]db.ComputeResult{
-		resource.TypeRoads: {ResourceType: resource.TypeRoads, TotalArea: 1000, FeatureCount: 2},
+	entry := exportTestEntry(cfg, name, slug, boundary, map[resource.Type]results.Totals{
+		resource.TypeRoads: {Area: 1000, Features: 2},
 	})
 	entry.Store.(*dbtest.MockStore).ListFeaturesFunc = func(_ context.Context, rt resource.Type) ([]db.Feature, error) {
 		if rt == resource.TypeRoads {
@@ -344,9 +339,9 @@ func TestExport_HexGridBytesPerFeature(t *testing.T) {
 	// Every hex carries coverage for every resource in both scopes — the
 	// heaviest per-feature shape the exporter can emit — with varying values so
 	// the numbers encode at realistic width rather than as a repeated "0".
-	stats := make([]db.HexStat, len(hexes))
+	stats := make([]results.HexCoverage, len(hexes))
 	for i, h := range hexes {
-		stats[i] = db.HexStat{
+		stats[i] = results.HexCoverage{
 			HexID:      h.ID,
 			Area:       1000 + float64(i%997)*1.37,
 			PctCovered: float64(i%100) + 0.37,
@@ -354,14 +349,7 @@ func TestExport_HexGridBytesPerFeature(t *testing.T) {
 	}
 	entry.Store = &dbtest.MockStore{
 		GetBoundaryFunc: boundary,
-		ListHexStatsFunc: func(_ context.Context, rt resource.Type) ([]db.HexStat, error) {
-			rows := make([]db.HexStat, len(stats))
-			copy(rows, stats)
-			for i := range rows {
-				rows[i].ResourceType = rt
-			}
-			return rows, nil
-		},
+		HexMetrics:      coverageFixture(pavementTypes(), stats),
 	}
 
 	fc, err := BuildHexGeoJSON(ctx, entry, proj)
@@ -386,7 +374,7 @@ func TestExport_HexGridBytesPerFeature(t *testing.T) {
 	}
 }
 
-// minifyFixture builds a roadEntry whose hex_stats rows carry the city grid's
+// minifyFixture builds a roadEntry whose per-hex coverage rows carry the city grid's
 // own hex ids. BuildHexGeoJSON joins on those ids, and the exporter skips
 // hexgrid.geojson entirely when the join is empty (export.go:279) — so without
 // this seeding the heaviest file would be silently absent and the sweep in
@@ -403,13 +391,11 @@ func minifyFixture(t *testing.T, cfg *config.Config, name, slug, boundary string
 	if err != nil {
 		t.Fatalf("cityHexGrid: %v", err)
 	}
-	entry.Store.(*dbtest.MockStore).ListHexStatsFunc = func(_ context.Context, rt resource.Type) ([]db.HexStat, error) {
-		rows := make([]db.HexStat, len(hexes))
-		for i, h := range hexes {
-			rows[i] = db.HexStat{HexID: h.ID, ResourceType: rt, Area: 1000, PctCovered: 12.5}
-		}
-		return rows, nil
+	cov := make([]results.HexCoverage, len(hexes))
+	for i, h := range hexes {
+		cov[i] = results.HexCoverage{HexID: h.ID, Area: 1000, PctCovered: 12.5}
 	}
+	entry.Store.(*dbtest.MockStore).HexMetrics = coverageFixture(pavementTypes(), cov)
 	return entry
 }
 

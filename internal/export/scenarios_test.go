@@ -13,11 +13,12 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/results"
 )
 
 // TestExportScenariosForCity_PropagatesDBError pins the deployment-correctness
-// contract: when LatestComputeResult fails with anything other than
-// sql.ErrNoRows, exportScenariosForCity surfaces the error and writes nothing
+// contract: when reading the city totals fails, exportScenariosForCity
+// surfaces the error and writes nothing
 // — so a transient DB failure aborts the static export rather than emitting
 // partial output that would mislead the downstream dashboard.
 //
@@ -28,7 +29,7 @@ import (
 func TestExportScenariosForCity_PropagatesDBError(t *testing.T) {
 	sentinel := errors.New("db unavailable")
 	store := &dbtest.MockStore{
-		LatestComputeResultFunc: func(_ context.Context, _ resource.Type) (*db.ComputeResult, error) {
+		ListCityMetricsFunc: func(context.Context, []string) ([]db.CityMetric, error) {
 			return nil, sentinel
 		},
 	}
@@ -78,11 +79,11 @@ func TestBuildResourceForecast_AllBaselineGatedOnCityScope(t *testing.T) {
 	tCity := tAll.With(resource.ScopeCity)
 
 	t.Run("no_city_scope_skips_all_baseline", func(t *testing.T) {
-		latest := map[resource.Type]*db.ComputeResult{
-			tAll: {ResourceType: tAll, TotalArea: 1000, ComputedAt: now},
+		latest := map[resource.Type]results.Totals{
+			tAll: {Area: 1000, ComputedAt: now},
 		}
 		// Empty maps for both all and city scopes — no cohort stats stored.
-		cohorts := map[resource.Type][]db.CohortStat{}
+		cohorts := map[resource.Type][]results.Cohort{}
 
 		fe, err := buildResourceForecast(pavement, fc, costTiers, doNothing, latest, cohorts)
 		if err != nil {
@@ -97,11 +98,11 @@ func TestBuildResourceForecast_AllBaselineGatedOnCityScope(t *testing.T) {
 	})
 
 	t.Run("city_scope_populates_all_baseline", func(t *testing.T) {
-		latest := map[resource.Type]*db.ComputeResult{
-			tAll: {ResourceType: tAll, TotalArea: 2000, ComputedAt: now},
+		latest := map[resource.Type]results.Totals{
+			tAll: {Area: 2000, ComputedAt: now},
 		}
-		cohorts := map[resource.Type][]db.CohortStat{
-			tCity: {{ResourceType: tCity, Classification: "residential", Area: 500}},
+		cohorts := map[resource.Type][]results.Cohort{
+			tCity: {{Class: "residential", Area: 500}},
 		}
 
 		fe, err := buildResourceForecast(pavement, fc, costTiers, doNothing, latest, cohorts)

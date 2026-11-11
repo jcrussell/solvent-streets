@@ -2,9 +2,7 @@ package export
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"html/template"
 	"sort"
@@ -19,6 +17,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/hexmetric"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/results"
 )
 
 // CityInfo holds city metadata for the frontend city switcher.
@@ -466,23 +465,23 @@ func BuildMeta(ctx context.Context, entry CityEntry, snapshotID int64) (MetaJSON
 		Stats:        []StatJSON{},
 	}
 	for _, rt := range resource.All {
-		result, err := entry.Store.LatestComputeResult(ctx, rt.Type())
+		result, ok, err := results.LoadTotal(ctx, entry.Store, rt.Type())
 		if err != nil {
-			// sql.ErrNoRows is the normal "this resource hasn't been computed
-			// yet" state — skip it. Any other error is a real DB failure and
-			// is propagated so serveMetaJSON's cache evicts and retries
-			// instead of memoizing a partial meta for the server's lifetime.
-			if errors.Is(err, sql.ErrNoRows) {
-				continue
-			}
+			// A real DB failure is propagated so serveMetaJSON's cache evicts
+			// and retries instead of memoizing a partial meta for the
+			// server's lifetime.
 			return MetaJSON{}, fmt.Errorf("latest compute result for %s: %w", rt.Type(), err)
 		}
-		typeName := string(result.ResourceType.Bare())
+		if !ok {
+			// This resource hasn't been computed yet.
+			continue
+		}
+		typeName := string(rt.Type().Bare())
 		meta.Stats = append(meta.Stats, StatJSON{
 			ResourceType:    typeName,
 			Color:           ResourceColors[typeName],
-			TotalArea:       result.TotalArea,
-			EstimatedSpaces: result.EstimatedSpaces,
+			TotalArea:       result.Area,
+			EstimatedSpaces: result.Spaces,
 		})
 	}
 
@@ -538,13 +537,13 @@ func snapshotDate(ctx context.Context, store db.Store, snapshotID int64) (string
 }
 
 // totalPavedFromStore returns the cross-resource paved area: the "combined"
-// ComputeResult if present, otherwise the sum of per-resource Stats. The
+// totals if present, otherwise the sum of per-resource Stats. The
 // fallback intentionally double-counts where buffers overlap (the bug that
 // motivated RunCombined) — better than reporting zero before `all compute`
 // has populated the combined row.
 func totalPavedFromStore(ctx context.Context, store db.Store, perResource []StatJSON) float64 {
-	if r, err := store.LatestComputeResult(ctx, resource.CombinedAll); err == nil && r != nil {
-		return r.TotalArea
+	if r, ok, err := results.LoadTotal(ctx, store, resource.CombinedAll); err == nil && ok {
+		return r.Area
 	}
 	var sum float64
 	for _, st := range perResource {

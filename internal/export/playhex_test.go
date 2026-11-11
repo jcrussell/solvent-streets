@@ -641,8 +641,7 @@ func TestSharedGrid_ThunkIsLazyAndMemoized(t *testing.T) {
 	t.Run("hexgrid: no hex stats never builds a grid", func(t *testing.T) {
 		entry := playHexEntry(nil)
 		entry.Store = &dbtest.MockStore{
-			ListHexStatsFunc: func(_ context.Context, _ resource.Type) ([]db.HexStat, error) { return nil, nil },
-			GetBoundaryFunc:  func(_ context.Context) (string, error) { return boundaryGeoJSON, nil },
+			GetBoundaryFunc: func(_ context.Context) (string, error) { return boundaryGeoJSON, nil },
 		}
 		got, err := buildHexGeoJSONFromGrid(context.Background(), entry, projectorFor(t, entry), poison)
 		if err != nil || got != nil {

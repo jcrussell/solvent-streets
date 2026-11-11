@@ -11,9 +11,9 @@ import (
 
 	"github.com/peterstace/simplefeatures/geom"
 
-	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/results"
 )
 
 // HexGridFileVersion is the "v" of hexgrid.geojson; the client refuses any
@@ -56,8 +56,8 @@ type hexAgg struct {
 // A parking entry additionally carries "spaces" — the estimated parking spaces
 // apportioned to the hex, rounded to a whole count — when it is at least one.
 //
-// Returns (nil, nil) when no hex_stats rows exist (a legitimate empty state),
-// but propagates any real ListHexStats DB error so callers can evict and retry
+// Returns (nil, nil) when no per-hex coverage exists (a legitimate empty
+// state), but propagates any real coverage-read DB error so callers can evict and retry
 // instead of caching a blank grid for the server's lifetime — mirroring
 // serveBoundaryGeoJSON's empty-vs-error split.
 func BuildHexGeoJSON(ctx context.Context, entry CityEntry, proj *geo.UTMProjector) (map[string]any, error) {
@@ -77,7 +77,7 @@ func buildHexGeoJSONFromGrid(ctx context.Context, entry CityEntry, proj *geo.UTM
 	if len(aggs) == 0 {
 		// nil map signals "no hex stats" — a legitimate empty both callers
 		// handle (server returns an empty FC; static export skips the file).
-		// The error slot is reserved for real ListHexStats failures, which
+		// The error slot is reserved for real coverage-read failures, which
 		// aggregateHexStats already surfaced above.
 		return nil, nil //nolint:nilnil // nil map = legitimate empty, distinct from the propagated DB error above
 	}
@@ -160,11 +160,11 @@ func roundSig(v float64, digits int) float64 {
 	return r
 }
 
-// aggregateHexStats collects hex_stats rows across every resource and both
+// aggregateHexStats collects per-hex coverage across every resource and both
 // scopes into per-hex aggregates keyed by hex ID. The caller emits one feature
 // per grid hex in sorted id order, so no order is returned here.
 //
-// ListHexStats returns a nil slice and no error for an un-computed resource
+// LoadHexCoverage returns a nil slice and no error for an un-computed resource
 // (a legitimate empty), so any non-nil error here is a real DB failure and is
 // propagated — distinguishing "no data" from "the query failed" so the caller
 // doesn't memoize a blank grid on a transient error.
@@ -173,7 +173,7 @@ func aggregateHexStats(ctx context.Context, entry CityEntry) (map[string]*hexAgg
 	for _, rt := range resource.All {
 		res := string(rt.Type().Bare())
 		for _, scope := range []resource.Scope{resource.ScopeAll, resource.ScopeCity} {
-			stats, err := entry.Store.ListHexStats(ctx, rt.Type().With(scope))
+			stats, err := results.LoadHexCoverage(ctx, entry.Store, rt.Type().With(scope))
 			if err != nil {
 				return nil, fmt.Errorf("listing hex stats for %s: %w", rt.Type().With(scope), err)
 			}
@@ -199,19 +199,18 @@ func aggregateHexStats(ctx context.Context, entry CityEntry) (map[string]*hexAgg
 }
 
 // hexSpaces returns t's per-hex parking spaces keyed by hex ID, read from
-// hex_metrics (resource.SpacesMetricKey). The parking compute writes its
+// hex_metrics (resource.MetricParkingSpaces). The parking compute writes its
 // coverage and its spaces under ONE run, and the snapshot holds one parking
 // run, so the two always describe the same compute. The map is empty, never
 // nil, when t carries no spaces.
-func hexSpaces(ctx context.Context, entry CityEntry, t resource.Type, stats []db.HexStat) (map[string]float64, error) {
+func hexSpaces(ctx context.Context, entry CityEntry, t resource.Type, stats []results.HexCoverage) (map[string]float64, error) {
 	out := map[string]float64{}
-	key := resource.SpacesMetricKey(t)
-	if key == "" || len(stats) == 0 {
+	if t.Bare() != resource.TypeParking || len(stats) == 0 {
 		return out, nil
 	}
-	rows, err := metricRows(ctx, entry, key)
+	rows, err := entry.Store.ListHexMetrics(ctx, resource.MetricParkingSpaces, resource.Subject(t))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("listing hex parking spaces for %s: %w", t, err)
 	}
 	for _, r := range rows {
 		out[r.HexID] = r.Value

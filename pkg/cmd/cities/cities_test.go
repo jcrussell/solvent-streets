@@ -2,13 +2,13 @@ package cities
 
 import (
 	"context"
-	"database/sql"
 	"strings"
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
@@ -93,12 +93,7 @@ func TestRunCities_PrefersCombinedArea(t *testing.T) {
 				StatsFunc: func(_ context.Context, rt resource.Type) (*db.StatusInfo, error) {
 					return &db.StatusInfo{ResourceType: rt, TotalArea: 100}, nil
 				},
-				LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
-					if rt == resource.CombinedAll {
-						return &db.ComputeResult{ResourceType: rt, TotalArea: 210}, nil
-					}
-					return nil, sql.ErrNoRows
-				},
+				CityMetrics: results.TotalRows(resource.CombinedAll, results.Totals{Area: 210}),
 			}
 		},
 	}

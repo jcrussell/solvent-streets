@@ -264,11 +264,11 @@ func TestStoreStatsPropagatesComputeError(t *testing.T) {
 	// A committed parking compute, so the lookup really queries the table
 	// (with no snapshot it short-circuits to "never computed").
 	commitRun(t, store, "hash", "parking", func(run int64) {
-		if err := store.SaveComputeResult(ctx, ComputeResult{ResourceType: rtParking, TotalArea: 1, RunID: run}); err != nil {
+		if err := store.SaveCityMetrics(ctx, run, []CityMetric{{Metric: "paved_area_m2", Subject: "parking", Value: 1}}); err != nil {
 			t.Fatal(err)
 		}
 	})
-	// Break only the city_metrics table so LatestComputeResult errors with
+	// Break only the city_metrics table so the totals read errors with
 	// "no such table" while the feature count/fetched_at queries still work.
 	if _, err := store.(*sqliteStore).db.ExecContext(ctx, `DROP TABLE city_metrics`); err != nil {
 		t.Fatal(err)

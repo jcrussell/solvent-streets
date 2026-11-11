@@ -10,6 +10,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/all"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/compute"
@@ -70,12 +71,12 @@ func TestAllCompute_SharedGridMatchesStandalone(t *testing.T) {
 		hexStatsByID(t, ctx, storeB, rtCity))
 
 	// (2) The combined pass ran against the shared grid.
-	combined, err := storeA.LatestComputeResult(ctx, resource.CombinedAll)
-	if err != nil {
+	combined, ok, err := results.LoadTotal(ctx, storeA, resource.CombinedAll)
+	if err != nil || !ok {
 		t.Fatalf("all compute wrote no %q result: %v", resource.CombinedAll, err)
 	}
-	if combined.TotalArea <= 0 {
-		t.Errorf("combined TotalArea = %v; want > 0", combined.TotalArea)
+	if combined.Area <= 0 {
+		t.Errorf("combined Area = %v; want > 0", combined.Area)
 	}
 
 	// (3) Perf signal: shared once, not rebuilt per resource. These are
@@ -91,13 +92,13 @@ func TestAllCompute_SharedGridMatchesStandalone(t *testing.T) {
 	}
 }
 
-func hexStatsByID(t *testing.T, ctx context.Context, store db.Store, rt resource.Type) map[string]db.HexStat {
+func hexStatsByID(t *testing.T, ctx context.Context, store db.Store, rt resource.Type) map[string]results.HexCoverage {
 	t.Helper()
-	stats, err := store.ListHexStats(ctx, rt)
+	stats, err := results.LoadHexCoverage(ctx, store, rt)
 	if err != nil {
-		t.Fatalf("ListHexStats(%s): %v", rt, err)
+		t.Fatalf("LoadHexCoverage(%s): %v", rt, err)
 	}
-	m := make(map[string]db.HexStat, len(stats))
+	m := make(map[string]results.HexCoverage, len(stats))
 	for _, s := range stats {
 		m[s.HexID] = s
 	}
@@ -107,7 +108,7 @@ func hexStatsByID(t *testing.T, ctx context.Context, store db.Store, rt resource
 // assertHexStatsEqual compares two hex-stat sets by hex id, requiring identical
 // Area and PctCovered — an inline-vs-shared grid must produce byte-identical
 // per-hex output.
-func assertHexStatsEqual(t *testing.T, label string, got, want map[string]db.HexStat) {
+func assertHexStatsEqual(t *testing.T, label string, got, want map[string]results.HexCoverage) {
 	t.Helper()
 	if len(got) != len(want) {
 		t.Errorf("%s: hex count differs: all-compute=%d standalone=%d", label, len(got), len(want))

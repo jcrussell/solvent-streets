@@ -11,6 +11,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
@@ -37,13 +38,12 @@ func seedComputedCity(t *testing.T, path string, cfg *config.Config, city *confi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SaveComputeResult(ctx, db.ComputeResult{ResourceType: resource.TypeRoads, TotalArea: 100_000, FeatureCount: 2, RunID: run.ID}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.SaveCohortStats(ctx, []db.CohortStat{
-		{ResourceType: resource.TypeRoads, Classification: "residential", Area: 60_000, FeatureCount: 1, RunID: run.ID},
-		{ResourceType: resource.TypeRoads, Classification: "primary", Area: 40_000, FeatureCount: 1, RunID: run.ID},
-	}); err != nil {
+	rows := append(results.TotalRows(resource.TypeRoads, results.Totals{Area: 100_000, Features: 2}),
+		results.CohortRows(resource.TypeRoads, []results.Cohort{
+			{Class: "residential", Area: 60_000, Features: 1},
+			{Class: "primary", Area: 40_000, Features: 1},
+		})...)
+	if err := store.SaveCityMetrics(ctx, run.ID, rows); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.CommitSnapshot(ctx, hash, map[string]int64{string(resource.TypeRoads): run.ID}); err != nil {

@@ -2,17 +2,13 @@ package db
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
-	"errors"
 	"maps"
 	"path/filepath"
 	"slices"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
 // commitRun creates a run for producer under hash, lets write store rows
@@ -35,19 +31,20 @@ func commitRun(t *testing.T, store Store, hash, producer string, write func(run 
 	return run.ID, snap.ID
 }
 
-// roadsRun / fireRun / parkingRun write one recognisable row each, so a read
-// can tell which run it came from by the value.
+// roadsRun / fireRun / parkingRun write recognisable rows, so a read can
+// tell which run they came from by the value. roadsRun writes two city rows
+// (total and one cohort class) and one hex row.
 func roadsRun(t *testing.T, store Store, area float64) func(int64) {
 	t.Helper()
 	return func(run int64) {
 		ctx := context.Background()
-		if err := store.SaveComputeResult(ctx, ComputeResult{ResourceType: rtRoads, TotalArea: area, RunID: run}); err != nil {
+		if err := store.SaveCityMetrics(ctx, run, []CityMetric{
+			{Metric: "paved_area_m2", Subject: "roads", Value: area},
+			{Metric: "paved_area_m2", Subject: "roads", Class: "primary", Value: area},
+		}); err != nil {
 			t.Fatal(err)
 		}
-		if err := store.SaveHexStats(ctx, []HexStat{{HexID: "h1", ResourceType: rtRoads, Area: area, RunID: run}}); err != nil {
-			t.Fatal(err)
-		}
-		if err := store.SaveCohortStats(ctx, []CohortStat{{ResourceType: rtRoads, Classification: "primary", Area: area, RunID: run}}); err != nil {
+		if err := store.SaveHexMetrics(ctx, run, []HexMetric{{HexID: "h1", Metric: "paved_area_m2", Subject: "roads", Value: area}}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -56,7 +53,10 @@ func roadsRun(t *testing.T, store Store, area float64) func(int64) {
 func fireRun(t *testing.T, store Store, rows ...HexMetric) func(int64) {
 	t.Helper()
 	return func(run int64) {
-		if err := store.SaveHexMetrics(context.Background(), "fire_response_s", run, rows); err != nil {
+		for i := range rows {
+			rows[i].Metric = "fire_response_s"
+		}
+		if err := store.SaveHexMetrics(context.Background(), run, rows); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -65,24 +65,40 @@ func fireRun(t *testing.T, store Store, rows ...HexMetric) func(int64) {
 func parkingRun(t *testing.T, store Store, area float64) func(int64) {
 	t.Helper()
 	return func(run int64) {
-		if err := store.SaveComputeResult(context.Background(), ComputeResult{ResourceType: rtParking, TotalArea: area, RunID: run}); err != nil {
+		if err := store.SaveCityMetrics(context.Background(), run, []CityMetric{{Metric: "paved_area_m2", Subject: "parking", Value: area}}); err != nil {
 			t.Fatal(err)
 		}
 	}
 }
 
+// cityArea is subject's paved-area city total in the view; ok is false when
+// the view holds none.
+func cityArea(t *testing.T, store Store, subject string) (area float64, ok bool) {
+	t.Helper()
+	rows, err := store.ListCityMetrics(context.Background(), []string{subject})
+	if err != nil {
+		t.Fatalf("ListCityMetrics(%s): %v", subject, err)
+	}
+	for _, m := range rows {
+		if m.Metric == "paved_area_m2" && m.Class == "" {
+			return m.Value, true
+		}
+	}
+	return 0, false
+}
+
 func roadsArea(t *testing.T, store Store) float64 {
 	t.Helper()
-	r, err := store.LatestComputeResult(context.Background(), rtRoads)
-	if err != nil {
-		t.Fatalf("LatestComputeResult(roads): %v", err)
+	area, ok := cityArea(t, store, "roads")
+	if !ok {
+		t.Fatal("no roads total in the view")
 	}
-	return r.TotalArea
+	return area
 }
 
 func fireHexes(t *testing.T, store Store) []string {
 	t.Helper()
-	rows, err := store.ListHexMetrics(context.Background(), "fire_response_s")
+	rows, err := store.ListHexMetrics(context.Background(), "fire_response_s", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,13 +166,12 @@ func TestSnapshot_PinnedReadIsTheWholeCity(t *testing.T) {
 	if got := roadsArea(t, pinned); got != 100 {
 		t.Errorf("pinned roads = %v, want 100 (the roads run in snapshot %d, not the later recompute)", got, s2)
 	}
-	park, err := pinned.LatestComputeResult(ctx, rtParking)
-	if err != nil || park.TotalArea != 7 {
-		t.Errorf("pinned parking = (%+v, %v), want 7: a pin reads every part, not only the run that made it", park, err)
+	if park, ok := cityArea(t, pinned, "parking"); !ok || park != 7 {
+		t.Errorf("pinned parking = (%v, %v), want 7: a pin reads every part, not only the run that made it", park, ok)
 	}
-	stats, err := pinned.ListHexStats(ctx, rtRoads)
-	if err != nil || len(stats) != 1 || stats[0].Area != 100 {
-		t.Errorf("pinned roads hex stats = (%+v, %v), want the one 100 row", stats, err)
+	stats, err := pinned.ListHexMetrics(ctx, "paved_area_m2", "roads")
+	if err != nil || len(stats) != 1 || stats[0].Value != 100 {
+		t.Errorf("pinned roads hex rows = (%+v, %v), want the one 100 row", stats, err)
 	}
 }
 
@@ -180,7 +195,6 @@ func TestSnapshot_EmptyRunHidesMetric(t *testing.T) {
 // own config hash, and nothing is carried across hashes, because hex ids from
 // another config's grid would land on the wrong hexes.
 func TestSnapshot_ConfigHashesDoNotMix(t *testing.T) {
-	ctx := context.Background()
 	store := openTestStore(t)
 	commitRun(t, store, "A", "roads", roadsRun(t, store, 100))
 	_, sB := commitRun(t, store, "B", "parking", parkingRun(t, store, 7))
@@ -191,18 +205,18 @@ func TestSnapshot_ConfigHashesDoNotMix(t *testing.T) {
 	if got := roadsArea(t, store.WithConfigHash("A")); got != 100 {
 		t.Errorf("hash A roads = %v, want 100", got)
 	}
-	if _, err := store.WithConfigHash("A").LatestComputeResult(ctx, rtParking); !errors.Is(err, sql.ErrNoRows) {
-		t.Errorf("hash A parking err = %v, want sql.ErrNoRows", err)
+	if _, ok := cityArea(t, store.WithConfigHash("A"), "parking"); ok {
+		t.Error("hash A reads parking, want none (parking belongs to hash B)")
 	}
-	if _, err := store.WithConfigHash("B").LatestComputeResult(ctx, rtRoads); !errors.Is(err, sql.ErrNoRows) {
-		t.Errorf("hash B roads err = %v, want sql.ErrNoRows", err)
+	if _, ok := cityArea(t, store.WithConfigHash("B"), "roads"); ok {
+		t.Error("hash B reads roads, want none (roads belongs to hash A)")
 	}
-	if _, err := store.WithConfigHash("C").LatestComputeResult(ctx, rtRoads); !errors.Is(err, sql.ErrNoRows) {
-		t.Errorf("unknown hash err = %v, want sql.ErrNoRows", err)
+	if _, ok := cityArea(t, store.WithConfigHash("C"), "roads"); ok {
+		t.Error("an unknown hash reads roads, want none")
 	}
 	// Unpinned reads the newest snapshot of any hash.
-	if _, err := store.LatestComputeResult(ctx, rtParking); err != nil {
-		t.Errorf("unpinned parking: %v, want the newest (hash B) snapshot", err)
+	if _, ok := cityArea(t, store, "parking"); !ok {
+		t.Error("unpinned parking missing, want the newest (hash B) snapshot")
 	}
 }
 
@@ -362,7 +376,7 @@ func TestGC_OrphanRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := GCReport{OrphanRuns: 1, OrphanRunResults: GCResultCounts{CityMetrics: 4, HexMetrics: 2}}
+	want := GCReport{OrphanRuns: 1, OrphanRunResults: GCResultCounts{CityMetrics: 2, HexMetrics: 1}}
 	if *scan != want {
 		t.Errorf("scan = %+v, want %+v (only the old orphan)", *scan, want)
 	}
@@ -507,8 +521,8 @@ func TestDraft(t *testing.T) {
 	}
 	roadsRun(t, store, 100)(roads)
 	d.Put("roads", roads)
-	if _, err := store.LatestComputeResult(ctx, rtRoads); !errors.Is(err, sql.ErrNoRows) {
-		t.Errorf("put but uncommitted roads: err = %v, want sql.ErrNoRows", err)
+	if _, ok := cityArea(t, store, "roads"); ok {
+		t.Error("put but uncommitted roads is readable, want invisible")
 	}
 	abandoned, _ := d.NewRun(ctx, "parking")
 	parkingRun(t, store, 5)(abandoned)
@@ -572,39 +586,39 @@ func TestHexMetrics_WriteOnce(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 	commitRun(t, store, "h", "census", func(run int64) {
-		if err := store.SaveHexMetrics(ctx, "population", run, []HexMetric{{HexID: "h1", Value: 12}}); err != nil {
+		if err := store.SaveHexMetrics(ctx, run, []HexMetric{{HexID: "h1", Metric: "population", Value: 12}}); err != nil {
 			t.Fatal(err)
 		}
-		if err := store.SaveHexMetrics(ctx, "density", run, []HexMetric{{HexID: "h1", Value: 3, Ref: "x"}}); err != nil {
+		if err := store.SaveHexMetrics(ctx, run, []HexMetric{{HexID: "h1", Metric: "density", Value: 3, Ref: "x"}}); err != nil {
 			t.Fatal(err)
 		}
-		if err := store.SaveHexMetrics(ctx, "population", run, []HexMetric{{HexID: "h1", Value: 9}}); err == nil {
+		if err := store.SaveHexMetrics(ctx, run, []HexMetric{{HexID: "h1", Metric: "population", Value: 9}}); err == nil {
 			t.Error("second population save for h1 in one run succeeded, want a primary-key failure")
 		}
 	})
-	pop, _ := store.ListHexMetrics(ctx, "population")
+	pop, _ := store.ListHexMetrics(ctx, "population", "")
 	if len(pop) != 1 || pop[0].HexID != "h1" || pop[0].Value != 12 || pop[0].Metric != "population" {
 		t.Errorf("population = %+v, want the first save (h1=12)", pop)
 	}
-	den, _ := store.ListHexMetrics(ctx, "density")
+	den, _ := store.ListHexMetrics(ctx, "density", "")
 	if len(den) != 1 || den[0].Ref != "x" {
 		t.Errorf("density = %+v, want its own row", den)
 	}
-	if none, err := store.ListHexMetrics(ctx, "nope"); none != nil || err != nil {
+	if none, err := store.ListHexMetrics(ctx, "nope", ""); none != nil || err != nil {
 		t.Errorf("unknown metric = (%v, %v), want (nil, nil)", none, err)
 	}
 }
 
-// TestSaveHexMetricSet_Atomic: the keys of one set commit or roll back
-// together. A trigger aborts the second key's insert (sorted order), and the
-// first key's rows must roll back with it.
-func TestSaveHexMetricSet_Atomic(t *testing.T) {
+// TestSaveHexMetrics_Atomic: the rows of one save commit or roll back
+// together. A trigger aborts the second metric's insert, and the first
+// metric's rows must roll back with it.
+func TestSaveHexMetrics_Atomic(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 	run, _ := commitRun(t, store, "h", "census", func(run int64) {
-		if err := store.SaveHexMetricSet(ctx, run, map[string][]HexMetric{
-			"a_metric": {{HexID: "h1", Value: 1}},
-			"b_metric": {{HexID: "h1", Value: 2}},
+		if err := store.SaveHexMetrics(ctx, run, []HexMetric{
+			{HexID: "h1", Metric: "a_metric", Value: 1},
+			{HexID: "h1", Metric: "b_metric", Value: 2},
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -614,76 +628,90 @@ func TestSaveHexMetricSet_Atomic(t *testing.T) {
 		WHEN NEW.metric = 'b_metric' BEGIN SELECT RAISE(ABORT, 'boom'); END`); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SaveHexMetricSet(ctx, run, map[string][]HexMetric{
-		"a_metric": {{HexID: "h2", Value: 10}},
-		"b_metric": {{HexID: "h2", Value: 20}},
+	if err := store.SaveHexMetrics(ctx, run, []HexMetric{
+		{HexID: "h2", Metric: "a_metric", Value: 10},
+		{HexID: "h2", Metric: "b_metric", Value: 20},
 	}); err == nil {
-		t.Fatal("expected the aborted insert to fail the set")
+		t.Fatal("expected the aborted insert to fail the save")
 	}
 	for key, want := range map[string]float64{"a_metric": 1, "b_metric": 2} {
-		rows, err := store.ListHexMetrics(ctx, key)
+		rows, err := store.ListHexMetrics(ctx, key, "")
 		if err != nil {
 			t.Fatal(err)
 		}
 		if len(rows) != 1 || rows[0].Value != want {
-			t.Errorf("%s = %+v after a failed set, want the previous value %v (rolled back)", key, rows, want)
+			t.Errorf("%s = %+v after a failed save, want the previous value %v (rolled back)", key, rows, want)
 		}
 	}
 }
 
-// TestHasHexStats agrees with ListHexStats: false with no snapshot and for
-// types without rows, true once any requested type has rows, and scoped to the
-// resolved snapshot like every other read.
-func TestHasHexStats(t *testing.T) {
+// TestHasHexMetric agrees with ListHexMetrics: false with no snapshot and
+// for subjects or metrics without rows, true once any requested subject has
+// rows, and scoped to the resolved snapshot like every other read.
+func TestHasHexMetric(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
-	both := []resource.Type{rtRoads, rtParking}
-	if ok, err := store.HasHexStats(ctx, both); err != nil || ok {
+	both := []string{"roads", "parking"}
+	if ok, err := store.HasHexMetric(ctx, "paved_area_m2", both); err != nil || ok {
 		t.Fatalf("no snapshot: (%v, %v), want (false, nil)", ok, err)
 	}
 	_, snap := commitRun(t, store, "hash", "parking", func(run int64) {
-		if err := store.SaveHexStats(ctx, []HexStat{{HexID: "h1", ResourceType: rtParking, Area: 1, PctCovered: 1, RunID: run}}); err != nil {
+		if err := store.SaveHexMetrics(ctx, run, []HexMetric{{HexID: "h1", Metric: "paved_area_m2", Subject: "parking", Value: 1}}); err != nil {
 			t.Fatal(err)
 		}
 	})
-	if ok, err := store.HasHexStats(ctx, []resource.Type{rtRoads}); err != nil || ok {
+	if ok, err := store.HasHexMetric(ctx, "paved_area_m2", []string{"roads"}); err != nil || ok {
 		t.Errorf("roads only: (%v, %v), want (false, nil)", ok, err)
 	}
-	if ok, err := store.HasHexStats(ctx, both); err != nil || !ok {
+	if ok, err := store.HasHexMetric(ctx, "coverage_pct", both); err != nil || ok {
+		t.Errorf("another metric: (%v, %v), want (false, nil)", ok, err)
+	}
+	if ok, err := store.HasHexMetric(ctx, "paved_area_m2", both); err != nil || !ok {
 		t.Errorf("roads+parking: (%v, %v), want (true, nil)", ok, err)
 	}
-	if ok, _ := store.WithConfigHash("other").HasHexStats(ctx, both); ok {
+	if ok, _ := store.WithConfigHash("other").HasHexMetric(ctx, "paved_area_m2", both); ok {
 		t.Error("a different config hash must not see the rows")
 	}
-	if ok, _ := store.WithSnapshot(snap+100).HasHexStats(ctx, both); ok {
+	if ok, _ := store.WithSnapshot(snap+100).HasHexMetric(ctx, "paved_area_m2", both); ok {
 		t.Error("a pin to a snapshot that does not exist must see nothing")
 	}
 }
 
-// TestEstimatedSpacesRoundTrip: the parking compute's estimated_spaces is read
-// back by every reader (single, batched, Stats); a resource that never sets it
-// reads 0.
-func TestEstimatedSpacesRoundTrip(t *testing.T) {
+// TestCityMetrics_RoundTrip: rows read back with the run's id and timestamp,
+// ordered by subject, class, metric; Stats reads the class-"" totals; a
+// repeated (metric, subject, class) in one run fails on the primary key.
+func TestCityMetrics_RoundTrip(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
-	commitRun(t, store, "h", "parking", func(run int64) {
-		if err := store.SaveComputeResult(ctx, ComputeResult{ResourceType: rtParking, TotalArea: 900, FeatureCount: 3, EstimatedSpaces: 31, RunID: run}); err != nil {
+	run, _ := commitRun(t, store, "h", "parking", func(run int64) {
+		if err := store.SaveCityMetrics(ctx, run, []CityMetric{
+			{Metric: "parking_spaces", Subject: "parking", Value: 31},
+			{Metric: "paved_area_m2", Subject: "parking", Value: 900},
+			{Metric: "paved_area_m2", Subject: "parking", Class: "parking", Value: 900},
+		}); err != nil {
 			t.Fatal(err)
 		}
+		if err := store.SaveCityMetrics(ctx, run, []CityMetric{{Metric: "paved_area_m2", Subject: "parking", Value: 1}}); err == nil {
+			t.Error("a second parking total in one run succeeded, want a primary-key failure")
+		}
 	})
-	commitRun(t, store, "h", "roads", roadsRun(t, store, 5000))
-
-	got, err := store.LatestComputeResult(ctx, rtParking)
-	if err != nil || got.EstimatedSpaces != 31 {
-		t.Errorf("LatestComputeResult(parking) = (%+v, %v), want 31 spaces", got, err)
+	rows, err := store.ListCityMetrics(ctx, []string{"parking", "roads"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	batch, err := store.LatestComputeResults(ctx, []resource.Type{rtParking, rtRoads})
-	if err != nil || batch[rtParking].EstimatedSpaces != 31 || batch[rtRoads].EstimatedSpaces != 0 {
-		t.Errorf("LatestComputeResults = (%+v, %v), want parking 31 / roads 0", batch, err)
+	var got []string
+	for _, m := range rows {
+		got = append(got, m.Subject+"/"+m.Class+"/"+m.Metric)
+		if m.RunID != run || m.ComputedAt.IsZero() {
+			t.Errorf("row %+v: want run %d and the run's timestamp", m, run)
+		}
+	}
+	if want := []string{"parking//parking_spaces", "parking//paved_area_m2", "parking/parking/paved_area_m2"}; !slices.Equal(got, want) {
+		t.Errorf("rows = %v, want %v", got, want)
 	}
 	info, err := store.Stats(ctx, rtParking)
-	if err != nil || info.EstimatedSpaces != 31 {
-		t.Errorf("Stats(parking) = (%+v, %v), want 31", info, err)
+	if err != nil || info.EstimatedSpaces != 31 || info.TotalArea != 900 || info.LastComputeAt == nil {
+		t.Errorf("Stats(parking) = (%+v, %v), want 900 m² and 31 spaces", info, err)
 	}
 }
 

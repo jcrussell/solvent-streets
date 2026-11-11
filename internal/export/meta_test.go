@@ -2,7 +2,6 @@ package export
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"math"
 	"testing"
@@ -15,6 +14,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/results"
 )
 
 var (
@@ -28,15 +28,9 @@ var (
 // area is computed in projected meters; the actual number isn't asserted on).
 const boundaryGeoJSON = `{"type":"Polygon","coordinates":[[[-122.5,37.5],[-122.4,37.5],[-122.4,37.6],[-122.5,37.6],[-122.5,37.5]]]}`
 
-func newMockEntry(results map[resource.Type]db.ComputeResult) CityEntry {
+func newMockEntry(totals map[resource.Type]results.Totals) CityEntry {
 	store := &dbtest.MockStore{
-		LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
-			r, ok := results[rt]
-			if !ok {
-				return nil, sql.ErrNoRows
-			}
-			return &r, nil
-		},
+		CityMetrics: totalsFixture(totals),
 		GetBoundaryFunc: func(_ context.Context) (string, error) {
 			return boundaryGeoJSON, nil
 		},
@@ -50,16 +44,16 @@ func newMockEntry(results map[resource.Type]db.ComputeResult) CityEntry {
 }
 
 // TestBuildMeta_PrefersCombinedOverSum is the cx2 regression: when the
-// "combined" ComputeResult exists, BuildMeta must use it for total_paved
+// "combined" totals exist, BuildMeta must use it for total_paved
 // instead of the (overcounted) sum of per-resource rows.
 func TestBuildMeta_PrefersCombinedOverSum(t *testing.T) {
-	results := map[resource.Type]db.ComputeResult{
-		mtRoads:     {ResourceType: mtRoads, TotalArea: 1000},
-		mtParking:   {ResourceType: mtParking, TotalArea: 500},
-		mtSidewalks: {ResourceType: mtSidewalks, TotalArea: 300},
-		mtCombined:  {ResourceType: mtCombined, TotalArea: 1500}, // less than 1800 sum because of buffer overlap
+	totals := map[resource.Type]results.Totals{
+		mtRoads:     {Area: 1000},
+		mtParking:   {Area: 500},
+		mtSidewalks: {Area: 300},
+		mtCombined:  {Area: 1500}, // less than 1800 sum because of buffer overlap
 	}
-	entry := newMockEntry(results)
+	entry := newMockEntry(totals)
 	meta, err := BuildMeta(context.Background(), entry, 0)
 	if err != nil {
 		t.Fatalf("BuildMeta: %v", err)
@@ -85,16 +79,16 @@ func TestBuildMultiCityMeta_AggregatesAcrossEntries(t *testing.T) {
 	// Two non-overlapping sub-cities with distinct boundaries and different
 	// per-resource totals. Use boundaries far apart enough that the union
 	// area is approximately the sum.
-	cityA := newMockEntryWithBoundary(map[resource.Type]db.ComputeResult{
-		mtRoads:    {ResourceType: mtRoads, TotalArea: 1000, FeatureCount: 10},
-		mtCombined: {ResourceType: mtCombined, TotalArea: 800},
+	cityA := newMockEntryWithBoundary(map[resource.Type]results.Totals{
+		mtRoads:    {Area: 1000, Features: 10},
+		mtCombined: {Area: 800},
 	}, `{"type":"Polygon","coordinates":[[[-122.5,37.5],[-122.4,37.5],[-122.4,37.6],[-122.5,37.6],[-122.5,37.5]]]}`)
 	cityA.City.Name = "City A"
 	cityA.Slug = "city-a"
 
-	cityB := newMockEntryWithBoundary(map[resource.Type]db.ComputeResult{
-		mtRoads:    {ResourceType: mtRoads, TotalArea: 2000, FeatureCount: 20},
-		mtCombined: {ResourceType: mtCombined, TotalArea: 1700},
+	cityB := newMockEntryWithBoundary(map[resource.Type]results.Totals{
+		mtRoads:    {Area: 2000, Features: 20},
+		mtCombined: {Area: 1700},
 	}, `{"type":"Polygon","coordinates":[[[-121.5,37.5],[-121.4,37.5],[-121.4,37.6],[-121.5,37.6],[-121.5,37.5]]]}`)
 	cityB.City.Name = "City B"
 	cityB.Slug = "city-b"
@@ -131,15 +125,9 @@ func TestBuildMultiCityMeta_AggregatesAcrossEntries(t *testing.T) {
 	}
 }
 
-func newMockEntryWithBoundary(results map[resource.Type]db.ComputeResult, boundary string) CityEntry {
+func newMockEntryWithBoundary(totals map[resource.Type]results.Totals, boundary string) CityEntry {
 	store := &dbtest.MockStore{
-		LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
-			r, ok := results[rt]
-			if !ok {
-				return nil, sql.ErrNoRows
-			}
-			return &r, nil
-		},
+		CityMetrics: totalsFixture(totals),
 		GetBoundaryFunc: func(_ context.Context) (string, error) {
 			return boundary, nil
 		},
@@ -158,12 +146,12 @@ func newMockEntryWithBoundary(results map[resource.Type]db.ComputeResult, bounda
 // per-resource rows. The sum overcounts buffer overlap (the original bug),
 // but reporting zero would be worse.
 func TestBuildMeta_FallsBackToSumWhenCombinedMissing(t *testing.T) {
-	results := map[resource.Type]db.ComputeResult{
-		mtRoads:     {ResourceType: mtRoads, TotalArea: 1000},
-		mtParking:   {ResourceType: mtParking, TotalArea: 500},
-		mtSidewalks: {ResourceType: mtSidewalks, TotalArea: 300},
+	totals := map[resource.Type]results.Totals{
+		mtRoads:     {Area: 1000},
+		mtParking:   {Area: 500},
+		mtSidewalks: {Area: 300},
 	}
-	entry := newMockEntry(results)
+	entry := newMockEntry(totals)
 	meta, err := BuildMeta(context.Background(), entry, 0)
 	if err != nil {
 		t.Fatalf("BuildMeta: %v", err)
@@ -181,9 +169,6 @@ func TestBuildMeta_SnapshotDateUsesPinnedComputedAt(t *testing.T) {
 	computed := time.Date(2025, 11, 3, 9, 30, 0, 0, time.UTC)
 	store := &dbtest.MockStore{
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return boundaryGeoJSON, nil },
-		LatestComputeResultFunc: func(_ context.Context, _ resource.Type) (*db.ComputeResult, error) {
-			return nil, sql.ErrNoRows
-		},
 		ListSnapshotsFunc: func(_ context.Context) ([]db.Snapshot, error) {
 			return []db.Snapshot{
 				{ID: 7, CreatedAt: computed},
@@ -225,16 +210,16 @@ func TestBuildMeta_SnapshotDateLatestIsToday(t *testing.T) {
 // entry still contributes rather than being dropped. The sum overcounts B's
 // buffer overlap, but a missing city is worse than an overcounted one.
 func TestBuildMultiCityMeta_MixedCombinedRollout(t *testing.T) {
-	cityA := newMockEntryWithBoundary(map[resource.Type]db.ComputeResult{
-		mtRoads:    {ResourceType: mtRoads, TotalArea: 1000},
-		mtCombined: {ResourceType: mtCombined, TotalArea: 800},
+	cityA := newMockEntryWithBoundary(map[resource.Type]results.Totals{
+		mtRoads:    {Area: 1000},
+		mtCombined: {Area: 800},
 	}, `{"type":"Polygon","coordinates":[[[-122.5,37.5],[-122.4,37.5],[-122.4,37.6],[-122.5,37.6],[-122.5,37.5]]]}`)
 	cityA.City.Name = "City A"
 	cityA.Slug = "city-a"
 
 	// City B has no combined row — partial-rollout state.
-	cityB := newMockEntryWithBoundary(map[resource.Type]db.ComputeResult{
-		mtRoads: {ResourceType: mtRoads, TotalArea: 2000},
+	cityB := newMockEntryWithBoundary(map[resource.Type]results.Totals{
+		mtRoads: {Area: 2000},
 	}, `{"type":"Polygon","coordinates":[[[-121.5,37.5],[-121.4,37.5],[-121.4,37.6],[-121.5,37.6],[-121.5,37.5]]]}`)
 	cityB.City.Name = "City B"
 	cityB.Slug = "city-b"
@@ -261,14 +246,14 @@ func TestBuildMultiCityMeta_FarApartCitiesUsePerCityUTMZones(t *testing.T) {
 	// ~1 km² square near downtown San Francisco (37.77°N, -122.42°W).
 	const sfBoundary = `{"type":"Polygon","coordinates":[[[-122.425,37.765],[-122.4137,37.765],[-122.4137,37.774],[-122.425,37.774],[-122.425,37.765]]]}`
 
-	cityA := newMockEntryWithBoundary(map[resource.Type]db.ComputeResult{
-		mtRoads: {ResourceType: mtRoads, TotalArea: 1},
+	cityA := newMockEntryWithBoundary(map[resource.Type]results.Totals{
+		mtRoads: {Area: 1},
 	}, bostonBoundary)
 	cityA.City.Name = "Boston"
 	cityA.Slug = "boston"
 
-	cityB := newMockEntryWithBoundary(map[resource.Type]db.ComputeResult{
-		mtRoads: {ResourceType: mtRoads, TotalArea: 1},
+	cityB := newMockEntryWithBoundary(map[resource.Type]results.Totals{
+		mtRoads: {Area: 1},
 	}, sfBoundary)
 	cityB.City.Name = "San Francisco"
 	cityB.Slug = "san-francisco"
@@ -317,9 +302,9 @@ func TestBuildMultiCityMeta_FarApartCitiesUsePerCityUTMZones(t *testing.T) {
 // TestBuildMeta_CarriesEstimatedSpaces: the parking stat in meta.json carries
 // the compute pass's estimated space count; other resources omit the key.
 func TestBuildMeta_CarriesEstimatedSpaces(t *testing.T) {
-	entry := hexEntry(t, nil, map[resource.Type]db.ComputeResult{
-		rtRoads:      {ResourceType: rtRoads, TotalArea: 1000, FeatureCount: 10},
-		rtParkingAll: {ResourceType: rtParkingAll, TotalArea: 300, FeatureCount: 3, EstimatedSpaces: 42},
+	entry := hexEntry(t, nil, map[resource.Type]results.Totals{
+		rtRoads:      {Area: 1000, Features: 10},
+		rtParkingAll: {Area: 300, Features: 3, Spaces: 42},
 	})
 	meta, err := BuildMeta(t.Context(), entry, 0)
 	if err != nil {

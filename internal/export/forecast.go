@@ -2,7 +2,6 @@ package export
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"math"
@@ -11,6 +10,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/results"
 )
 
 // ConvertCostTiers converts config cost tiers to forecast cost tiers.
@@ -28,12 +28,12 @@ func ConvertCostTiers(fc *config.ForecastConfig) []forecast.CostTier {
 }
 
 // BuildCohortsForResource builds forecast cohorts for a resource type from the store.
-// Falls back to a single cohort if no cohort stats exist. A non-nil error is a
-// real DB failure, not "no rows" — ListCohortStats returns an empty slice with
-// nil error when there are no matching rows.
+// Falls back to a single cohort if no cohort split exists. A non-nil error is
+// a real DB failure, not "no rows" — results.LoadCohorts returns an empty
+// slice with nil error when there are no matching rows.
 func BuildCohortsForResource(ctx context.Context, rt resource.Source, area float64, store db.Store, fc *config.ForecastConfig) ([]forecast.Cohort, error) {
 	t := rt.Type()
-	stats, err := store.ListCohortStats(ctx, t)
+	stats, err := results.LoadCohorts(ctx, store, t)
 	if err != nil {
 		return nil, fmt.Errorf("listing cohort stats for %s: %w", t, err)
 	}
@@ -43,12 +43,12 @@ func BuildCohortsForResource(ctx context.Context, rt resource.Source, area float
 // buildCohortsFromStats is the pure shaping kernel of
 // BuildCohortsForResource — takes pre-fetched stats instead of a Store
 // so callers that batched the DB lookup don't refetch per resource type.
-func buildCohortsFromStats(t resource.Type, area float64, stats []db.CohortStat, fc *config.ForecastConfig) []forecast.Cohort {
+func buildCohortsFromStats(t resource.Type, area float64, stats []results.Cohort, fc *config.ForecastConfig) []forecast.Cohort {
 	currentPCI := fc.InitialPCI
 	var inputs []forecast.CohortInput
 	for _, st := range stats {
 		inputs = append(inputs, forecast.CohortInput{
-			Classification: st.Classification,
+			Classification: st.Class,
 			Area:           st.Area,
 		})
 	}
@@ -112,8 +112,8 @@ var errSkipResource = errors.New("no compute result for resource")
 // baseline is stored as AllBaseline for the "All Roads" toggle.
 //
 // Returns (forecasts, nil) on success, (nil, err) on any real DB failure.
-// sql.ErrNoRows from LatestComputeResult is treated as "no compute run yet
-// for this resource" and silently skipped — that's a legitimate empty state
+// A resource with no city totals is treated as "no compute run yet for this
+// resource" and silently skipped — that's a legitimate empty state
 // for a freshly-bootstrapped city. Real errors across resources are
 // aggregated via errors.Join so callers (e.g. server cache thunks) get the
 // full picture in one return; any non-nil error discards the partial slice
@@ -121,23 +121,17 @@ var errSkipResource = errors.New("no compute result for resource")
 func BuildForecastsForCity(ctx context.Context, entry CityEntry, fc *config.ForecastConfig, costTiers []forecast.CostTier) ([]ForecastExport, error) {
 	doNothing := forecast.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: forecast.StrategyDoNothing}
 
-	// Two batched DB roundtrips replace the previous per-resource loop's
-	// LatestComputeResult + (per scope) ListCohortStats calls. Across the
-	// 3-resource × 2-scope cross-product that's 6 → 1 for compute results
-	// and 6 → 1 for cohort stats, per city.
+	// One batched DB roundtrip reads the totals and cohort splits of the
+	// 3-resource × 2-scope cross-product, per city.
 	allTypes := make([]resource.Type, 0, len(resource.All))
 	cityTypes := make([]resource.Type, 0, len(resource.All))
 	for _, rt := range resource.All {
 		allTypes = append(allTypes, rt.Type())
 		cityTypes = append(cityTypes, rt.Type().With(resource.ScopeCity))
 	}
-	latestByType, err := entry.Store.LatestComputeResults(ctx, allTypes)
+	latestByType, cohortStats, err := results.Load(ctx, entry.Store, append(append([]resource.Type{}, allTypes...), cityTypes...))
 	if err != nil {
-		return nil, fmt.Errorf("loading latest compute results: %w", err)
-	}
-	cohortStats, err := entry.Store.ListCohortStatsForTypes(ctx, append(append([]resource.Type{}, allTypes...), cityTypes...))
-	if err != nil {
-		return nil, fmt.Errorf("loading cohort stats: %w", err)
+		return nil, fmt.Errorf("loading compute results: %w", err)
 	}
 
 	var forecasts []ForecastExport
@@ -163,18 +157,18 @@ func BuildForecastsForCity(ctx context.Context, entry CityEntry, fc *config.Fore
 // buildResourceForecast builds the forecast for a single resource from
 // pre-batched DB results. Returns errSkipResource when the resource has
 // no compute run yet — a legitimate skip on a fresh DB.
-func buildResourceForecast(rt resource.Source, fc *config.ForecastConfig, costTiers []forecast.CostTier, doNothing forecast.Scenario, latestByType map[resource.Type]*db.ComputeResult, cohortStats map[resource.Type][]db.CohortStat) (ForecastExport, error) {
+func buildResourceForecast(rt resource.Source, fc *config.ForecastConfig, costTiers []forecast.CostTier, doNothing forecast.Scenario, latestByType map[resource.Type]results.Totals, cohortStats map[resource.Type][]results.Cohort) (ForecastExport, error) {
 	t := rt.Type()
 	tName := string(t)
 	result, ok := latestByType[t]
-	if !ok || result == nil {
+	if !ok {
 		return ForecastExport{}, errSkipResource
 	}
 
 	years := fc.Years
 	rtParams := forecast.NewParamsForResource(tName, fc.GrowthRate, costTiers, fc.TreatmentCycleYears, fc.ResolvedCostOverhead())
 
-	allCohorts := buildCohortsFromStats(t, result.TotalArea, cohortStats[t], fc)
+	allCohorts := buildCohortsFromStats(t, result.Area, cohortStats[t], fc)
 
 	// Try city-scoped cohorts — use as primary if available. Empty result is
 	// legitimate (not all cities have city-scope data).
@@ -226,14 +220,14 @@ func buildResourceForecast(rt resource.Source, fc *config.ForecastConfig, costTi
 // cityScopeCohorts converts city-scope cohort stats to forecast cohorts.
 // Returns (nil, false) if the stats are empty or BuildCohorts rejects them,
 // signalling the caller should fall back to all-scope cohorts.
-func cityScopeCohorts(cityStats []db.CohortStat, fc *config.ForecastConfig) ([]forecast.Cohort, bool) {
+func cityScopeCohorts(cityStats []results.Cohort, fc *config.ForecastConfig) ([]forecast.Cohort, bool) {
 	if len(cityStats) == 0 {
 		return nil, false
 	}
 	cityInputs := make([]forecast.CohortInput, 0, len(cityStats))
 	for _, st := range cityStats {
 		cityInputs = append(cityInputs, forecast.CohortInput{
-			Classification: st.Classification,
+			Classification: st.Class,
 			Area:           st.Area,
 		})
 	}
@@ -310,7 +304,7 @@ type scenarioAreas struct {
 	allArea, cityArea float64
 }
 
-// aggregateScenarioAreas sums TotalArea across all
+// aggregateScenarioAreas sums the paved area across all
 // resources for both all and city scopes. The city-scope lookup is gated
 // on all-scope row existence for the same resource — a resource with no
 // all-scope row contributes to neither total. One batched DB call collects
@@ -321,28 +315,24 @@ func aggregateScenarioAreas(ctx context.Context, entry CityEntry) (scenarioAreas
 		t := rt.Type()
 		types = append(types, t, t.With(resource.ScopeCity))
 	}
-	latestByType, err := entry.Store.LatestComputeResults(ctx, types)
+	latestByType, err := results.LoadTotals(ctx, entry.Store, types)
 	if err != nil {
-		// sql.ErrNoRows is the normal "nothing computed yet" state — treat it
-		// as empty. Any other error is a real DB failure and is propagated so
-		// serveScenariosJSON's cache evicts and retries instead of locking in
-		// a zero-area payload for the server's lifetime.
-		if errors.Is(err, sql.ErrNoRows) {
-			return scenarioAreas{}, nil
-		}
+		// A real DB failure is propagated so serveScenariosJSON's cache
+		// evicts and retries instead of locking in a zero-area payload for
+		// the server's lifetime. Nothing computed yet is just an empty map.
 		return scenarioAreas{}, fmt.Errorf("latest compute results: %w", err)
 	}
 	var agg scenarioAreas
 	for _, rt := range resource.All {
 		t := rt.Type()
 		result, ok := latestByType[t]
-		if !ok || result == nil {
+		if !ok {
 			continue
 		}
-		agg.allArea += result.TotalArea
+		agg.allArea += result.Area
 
-		if cityResult, ok := latestByType[t.With(resource.ScopeCity)]; ok && cityResult != nil {
-			agg.cityArea += cityResult.TotalArea
+		if cityResult, ok := latestByType[t.With(resource.ScopeCity)]; ok {
+			agg.cityArea += cityResult.Area
 		}
 	}
 	return agg, nil
@@ -574,8 +564,8 @@ func scopeYear1Needs(fe ForecastExport) (city, all float64, hasCity bool) {
 // {year1_need, total_area} pair under out[scope][rt.Bare()]. Missing
 // compute rows are skipped silently.
 func addScopeRow(ctx context.Context, entry CityEntry, out map[string]map[string]map[string]float64, scope string, rt resource.Type, year1Need float64) {
-	r, err := entry.Store.LatestComputeResult(ctx, rt)
-	if err != nil || r == nil {
+	r, ok, err := results.LoadTotal(ctx, entry.Store, rt)
+	if err != nil || !ok {
 		return
 	}
 	if out[scope] == nil {
@@ -583,7 +573,7 @@ func addScopeRow(ctx context.Context, entry CityEntry, out map[string]map[string
 	}
 	out[scope][string(rt.Bare())] = map[string]float64{
 		"year1_need": year1Need,
-		"total_area": r.TotalArea,
+		"total_area": r.Area,
 	}
 }
 

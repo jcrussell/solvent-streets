@@ -335,9 +335,9 @@ func route(ctx context.Context, out, progress, errOut io.Writer, notify tui.Phas
 	}
 	metrics := make([]db.HexMetric, len(cov.Hexes))
 	for i, h := range cov.Hexes {
-		metrics[i] = db.HexMetric{HexID: h.HexID, Value: h.Seconds, Ref: facilities[h.Facility].ID}
+		metrics[i] = db.HexMetric{HexID: h.HexID, Metric: spec.Metric, Value: h.Seconds, Ref: facilities[h.Facility].ID}
 	}
-	if err := store.SaveHexMetrics(ctx, spec.Metric, runID, metrics); err != nil {
+	if err := store.SaveHexMetrics(ctx, runID, metrics); err != nil {
 		notify.PhaseDone(phaseSave, err)
 		return fmt.Errorf("save hex metrics: %w", err)
 	}

@@ -2,14 +2,13 @@ package export
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
+	"maps"
 	"math"
 	"slices"
 	"sort"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/peterstace/simplefeatures/geom"
 
@@ -20,6 +19,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/hexmetric"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/results"
 )
 
 var (
@@ -208,22 +208,17 @@ func TestCityHexGrid_HonorsPerCityMinHexArea(t *testing.T) {
 	}
 }
 
-// hexEntry builds a CityEntry whose ListHexStats returns rows from the given
-// map (keyed by full resource label, e.g. roads or roads:city).
-// LatestComputeResult is similarly keyed.
-func hexEntry(t *testing.T, hexStats map[resource.Type][]db.HexStat, results map[resource.Type]db.ComputeResult) CityEntry {
+// hexEntry builds a CityEntry whose store holds the given per-hex coverage
+// and city totals, keyed by resource type (scope included).
+func hexEntry(t *testing.T, hexStats map[resource.Type][]results.HexCoverage, totals map[resource.Type]results.Totals) CityEntry {
 	t.Helper()
+	var hexRows []db.HexMetric
+	for _, rt := range slices.Sorted(maps.Keys(hexStats)) {
+		hexRows = append(hexRows, results.HexCoverageRows(rt, hexStats[rt])...)
+	}
 	store := &dbtest.MockStore{
-		ListHexStatsFunc: func(_ context.Context, rt resource.Type) ([]db.HexStat, error) {
-			return hexStats[rt], nil
-		},
-		LatestComputeResultFunc: func(_ context.Context, rt resource.Type) (*db.ComputeResult, error) {
-			r, ok := results[rt]
-			if !ok {
-				return nil, sql.ErrNoRows
-			}
-			return &r, nil
-		},
+		CityMetrics: totalsFixture(totals),
+		HexMetrics:  hexRows,
 		GetBoundaryFunc: func(_ context.Context) (string, error) {
 			return boundaryGeoJSON, nil
 		},
@@ -241,10 +236,9 @@ func hexEntry(t *testing.T, hexStats map[resource.Type][]db.HexStat, results map
 // when there are no rows at all. The per-feature {all, city?} shape is pinned
 // deterministically in TestBuildHexFeature_NestedScopes.
 func TestBuildHexGeoJSON_EmittedWhenRowsExist(t *testing.T) {
-	now := time.Now()
-	cityRows := []db.HexStat{{HexID: "0,0", ResourceType: rtRoadsCity, Area: 100, PctCovered: 50, ComputedAt: now}}
-	allRows := []db.HexStat{{HexID: "0,0", ResourceType: rtRoads, Area: 200, PctCovered: 75, ComputedAt: now}}
-	entry := hexEntry(t, map[resource.Type][]db.HexStat{
+	cityRows := []results.HexCoverage{{HexID: "0,0", Area: 100, PctCovered: 50}}
+	allRows := []results.HexCoverage{{HexID: "0,0", Area: 200, PctCovered: 75}}
+	entry := hexEntry(t, map[resource.Type][]results.HexCoverage{
 		rtRoads:       allRows,
 		rtRoadsCity:   cityRows,
 		rtParkingAll:  nil,
@@ -394,9 +388,8 @@ func TestBuildHexFeature_CitySameElidesDuplicate(t *testing.T) {
 // on. Without it an older client silently drops ~70% of city-scope features
 // instead of showing the error banner.
 func TestBuildHexGeoJSON_CarriesFormatVersion(t *testing.T) {
-	now := time.Now()
-	entry := hexEntry(t, map[resource.Type][]db.HexStat{
-		rtRoads: {{HexID: "0,0", ResourceType: rtRoads, Area: 200, PctCovered: 75, ComputedAt: now}},
+	entry := hexEntry(t, map[resource.Type][]results.HexCoverage{
+		rtRoads: {{HexID: "0,0", Area: 200, PctCovered: 75}},
 	}, nil)
 	_, lon, lat, err := entry.BBoxAndCenter(t.Context())
 	if err != nil {
@@ -466,8 +459,8 @@ func TestBuildHexFeature_RespectsCoordinatePrecision(t *testing.T) {
 // hex_stats rows still yield a FeatureCollection, but no feature carries a "city"
 // object. The client uses that absence as the "hide the scope toggle" signal.
 func TestBuildHexGeoJSON_NoCityRowsOmitsCity(t *testing.T) {
-	allRows := []db.HexStat{{HexID: "0,0", ResourceType: rtRoads, Area: 100, PctCovered: 50}}
-	entry := hexEntry(t, map[resource.Type][]db.HexStat{
+	allRows := []results.HexCoverage{{HexID: "0,0", Area: 100, PctCovered: 50}}
+	entry := hexEntry(t, map[resource.Type][]results.HexCoverage{
 		rtRoads:       allRows,
 		rtParkingAll:  nil,
 		rtSidewalkAll: nil,
@@ -494,12 +487,11 @@ func TestBuildHexGeoJSON_NoCityRowsOmitsCity(t *testing.T) {
 // AllBaseline is set on the forecast export (the marker that compute produced
 // both scopes).
 func TestBuildHexCostSummary_NestedByScope(t *testing.T) {
-	now := time.Now()
-	results := map[resource.Type]db.ComputeResult{
-		rtRoads:     {ResourceType: rtRoads, TotalArea: 2000, ComputedAt: now},
-		rtRoadsCity: {ResourceType: rtRoadsCity, TotalArea: 1000, ComputedAt: now},
+	totals := map[resource.Type]results.Totals{
+		rtRoads:     {Area: 2000},
+		rtRoadsCity: {Area: 1000},
 	}
-	entry := hexEntry(t, nil, results)
+	entry := hexEntry(t, nil, totals)
 
 	allBaseline := forecast.ScenarioResult{
 		Years: []forecast.ScenarioYear{{AnnualNeed: 50000}},
@@ -538,10 +530,10 @@ func TestBuildHexCostSummary_NestedByScope(t *testing.T) {
 // (single-scope compute), the output has only the "all" key and
 // Baseline carries the all-scope numbers.
 func TestBuildHexCostSummary_AllOnlyWhenNoCity(t *testing.T) {
-	results := map[resource.Type]db.ComputeResult{
-		rtRoads: {ResourceType: rtRoads, TotalArea: 2000},
+	totals := map[resource.Type]results.Totals{
+		rtRoads: {Area: 2000},
 	}
-	entry := hexEntry(t, nil, results)
+	entry := hexEntry(t, nil, totals)
 
 	forecasts := []ForecastExport{{
 		ResourceType: "roads",
@@ -563,11 +555,11 @@ func TestBuildHexCostSummary_AllOnlyWhenNoCity(t *testing.T) {
 // carries exactly the "city" and "all" scope keys — no summary or feature
 // counts (the site publishes none).
 func TestBuildScenariosData_ScopeKeys(t *testing.T) {
-	results := map[resource.Type]db.ComputeResult{
-		rtRoads:     {ResourceType: rtRoads, TotalArea: 2000, FeatureCount: 100},
-		rtRoadsCity: {ResourceType: rtRoadsCity, TotalArea: 1000, FeatureCount: 60},
+	totals := map[resource.Type]results.Totals{
+		rtRoads:     {Area: 2000, Features: 100},
+		rtRoadsCity: {Area: 1000, Features: 60},
 	}
-	entry := hexEntry(t, nil, results)
+	entry := hexEntry(t, nil, totals)
 	fc := &config.ForecastConfig{Years: 5, InitialPCI: 85, DecayRate: 1.5}
 
 	out, err := BuildScenariosData(t.Context(), entry, fc)
@@ -597,10 +589,10 @@ func scenarioKeys(m map[string]any) []string {
 // TestBuildScenariosData_AllOnlyKey: when only all-scope compute rows exist,
 // the output has just the "all" key — no "city".
 func TestBuildScenariosData_AllOnlyKey(t *testing.T) {
-	results := map[resource.Type]db.ComputeResult{
-		rtRoads: {ResourceType: rtRoads, TotalArea: 2000, FeatureCount: 100},
+	totals := map[resource.Type]results.Totals{
+		rtRoads: {Area: 2000, Features: 100},
 	}
-	entry := hexEntry(t, nil, results)
+	entry := hexEntry(t, nil, totals)
 	fc := &config.ForecastConfig{Years: 5, InitialPCI: 85, DecayRate: 1.5}
 
 	out, err := BuildScenariosData(t.Context(), entry, fc)
@@ -797,37 +789,30 @@ func TestBuildHexGeoJSON_DefaultCoordinatePrecision(t *testing.T) {
 }
 
 // TestBuildHexGeoJSON_ParkingSpaces pins the "spaces" key: a parking hex
-// carries its apportioned spaces (stored in hex_metrics, one key per scope)
+// carries its apportioned spaces (stored in hex_metrics under each scope)
 // rounded to a whole count, a sub-space sliver and every non-parking resource
 // carry no key, and — because both scopes round through the same function — an
 // identical city scope still dedups to city_same rather than silently emitting
 // a duplicate object.
 func TestBuildHexGeoJSON_ParkingSpaces(t *testing.T) {
-	now := time.Now()
 	const run = int64(7)
 	parkingCity := rtParkingAll.With(resource.ScopeCity)
-	entry := hexEntry(t, map[resource.Type][]db.HexStat{
-		rtRoads: {{HexID: "0,0", ResourceType: rtRoads, Area: 200, PctCovered: 75, ComputedAt: now}},
-		rtParkingAll: {{HexID: "0,0", ResourceType: rtParkingAll, Area: 90, PctCovered: 30, ComputedAt: now, RunID: run},
-			{HexID: "0,1", ResourceType: rtParkingAll, Area: 9, PctCovered: 3, ComputedAt: now, RunID: run}},
-		parkingCity: {{HexID: "0,0", ResourceType: parkingCity, Area: 90, PctCovered: 30, ComputedAt: now, RunID: run},
-			{HexID: "0,1", ResourceType: parkingCity, Area: 9, PctCovered: 3, ComputedAt: now, RunID: run}},
+	entry := hexEntry(t, map[resource.Type][]results.HexCoverage{
+		rtRoads: {{HexID: "0,0", Area: 200, PctCovered: 75}},
+		rtParkingAll: {{HexID: "0,0", Area: 90, PctCovered: 30},
+			{HexID: "0,1", Area: 9, PctCovered: 3}},
+		parkingCity: {{HexID: "0,0", Area: 90, PctCovered: 30},
+			{HexID: "0,1", Area: 9, PctCovered: 3}},
 	}, nil)
-	spaceRows := []db.HexMetric{{HexID: "0,0", Value: 12.4, RunID: run}, {HexID: "0,1", Value: 0.3, RunID: run}}
-	var listed []string
-	entry.Store.(*dbtest.MockStore).ListHexMetricsFunc = func(_ context.Context, metric string) ([]db.HexMetric, error) {
-		listed = append(listed, metric)
-		if metric == resource.SpacesMetricAll || metric == resource.SpacesMetricCity {
-			return spaceRows, nil
-		}
-		return nil, nil
+	store := entry.Store.(*dbtest.MockStore)
+	for _, subject := range []string{"parking", "parking:city"} {
+		store.HexMetrics = append(store.HexMetrics,
+			db.HexMetric{HexID: "0,0", Metric: resource.MetricParkingSpaces, Subject: subject, Value: 12.4, RunID: run},
+			db.HexMetric{HexID: "0,1", Metric: resource.MetricParkingSpaces, Subject: subject, Value: 0.3, RunID: run})
 	}
 	aggs, err := aggregateHexStats(t.Context(), entry)
 	if err != nil {
 		t.Fatalf("aggregateHexStats: %v", err)
-	}
-	if want := []string{resource.SpacesMetricAll, resource.SpacesMetricCity}; !slices.Equal(listed, want) {
-		t.Errorf("listed metrics %v, want only the parking space keys %v", listed, want)
 	}
 	a := aggs["0,0"]
 	if got := a.all["parking"]["spaces"]; got != 12 {
@@ -844,13 +829,15 @@ func TestBuildHexGeoJSON_ParkingSpaces(t *testing.T) {
 	}
 }
 
-// TestParkingSpaceKeysUnregistered guards the stored space keys from being
-// registered as hex metrics: a stored spec would duplicate the derived
-// "parking_spaces" Color-by and ignore the scope toggle.
-func TestParkingSpaceKeysUnregistered(t *testing.T) {
-	for _, key := range []string{resource.SpacesMetricAll, resource.SpacesMetricCity} {
-		if _, ok := hexmetric.Lookup(key); ok {
-			t.Errorf("%s is registered in hexmetric; it must stay an export-internal key", key)
+// TestPavementKeysNotStoredSpecs guards the pavement metric keys from being
+// registered as stored hex metrics: a stored spec would read the
+// resource-subject rows as if they were one city-wide metric, duplicating the
+// derived Color-by of the same name and ignoring the resource and scope
+// toggles. Registering a key as a derived spec is fine.
+func TestPavementKeysNotStoredSpecs(t *testing.T) {
+	for _, key := range []string{resource.MetricPavedArea, resource.MetricCoveragePct, resource.MetricFeatureCount, resource.MetricParkingSpaces} {
+		if spec, ok := hexmetric.Lookup(key); ok && !spec.Derived() {
+			t.Errorf("%s is a stored hexmetric spec; pavement keys must stay derived or unregistered", key)
 		}
 	}
 }
@@ -871,8 +858,8 @@ func TestBuildHexGeoJSON_EmitsEveryGridHex(t *testing.T) {
 		t.Fatalf("cityHexGrid: %d hexes, err %v; need at least 2", len(grid), err)
 	}
 	paved := grid[0].ID
-	entry := hexEntry(t, map[resource.Type][]db.HexStat{
-		rtRoads: {{HexID: paved, ResourceType: rtRoads, Area: 100, PctCovered: 50}},
+	entry := hexEntry(t, map[resource.Type][]results.HexCoverage{
+		rtRoads: {{HexID: paved, Area: 100, PctCovered: 50}},
 	}, nil)
 
 	fc, err := BuildHexGeoJSON(t.Context(), entry, proj)

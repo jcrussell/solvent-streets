@@ -1,9 +1,8 @@
 package dbtest
 
 import (
+	"cmp"
 	"context"
-	"database/sql"
-	"errors"
 	"maps"
 	"slices"
 
@@ -24,34 +23,35 @@ var _ db.Store = (*MockStore)(nil)
 // Tests that assert the empty-path JSON shape (nil -> `null` vs
 // `[]`) must therefore use a real in-memory store, not this mock.
 type MockStore struct {
-	UpsertFeaturesFunc          func(context.Context, resource.Type, []db.Feature, []string) error
-	ListFeaturesFunc            func(context.Context, resource.Type) ([]db.Feature, error)
-	SaveComputeResultFunc       func(context.Context, db.ComputeResult) error
-	LatestComputeResultFunc     func(context.Context, resource.Type) (*db.ComputeResult, error)
-	LatestComputeResultsFunc    func(context.Context, []resource.Type) (map[resource.Type]*db.ComputeResult, error)
-	ListCohortStatsForTypesFunc func(context.Context, []resource.Type) (map[resource.Type][]db.CohortStat, error)
-	SaveHexStatsFunc            func(context.Context, []db.HexStat) error
-	ListHexStatsFunc            func(context.Context, resource.Type) ([]db.HexStat, error)
-	HasHexStatsFunc             func(context.Context, []resource.Type) (bool, error)
-	SaveHexMetricsFunc          func(context.Context, string, int64, []db.HexMetric) error
-	SaveHexMetricSetFunc        func(context.Context, int64, map[string][]db.HexMetric) error
-	ListHexMetricsFunc          func(context.Context, string) ([]db.HexMetric, error)
-	CreateRunFunc               func(context.Context, string, string) (*db.Run, error)
-	DiscardRunFunc              func(context.Context, int64) error
-	CommitSnapshotFunc          func(context.Context, string, map[string]int64) (*db.Snapshot, error)
-	ListSnapshotsFunc           func(context.Context) ([]db.Snapshot, error)
-	ResolveSnapshotFunc         func(context.Context, int64) error
-	WithSnapshotFunc            func(int64) db.Store
-	WithConfigHashFunc          func(string) db.Store
-	DeleteSnapshotFunc          func(context.Context, int64) (bool, error)
-	GCScanFunc                  func(context.Context, []string) (*db.GCReport, error)
-	GCSweepFunc                 func(context.Context, []string) (*db.GCReport, error)
-	SaveCohortStatsFunc         func(context.Context, []db.CohortStat) error
-	ListCohortStatsFunc         func(context.Context, resource.Type) ([]db.CohortStat, error)
-	SaveBoundaryFunc            func(context.Context, string, string) error
-	GetBoundaryFunc             func(context.Context) (string, error)
-	StatsFunc                   func(context.Context, resource.Type) (*db.StatusInfo, error)
-	CloseFunc                   func() error
+	UpsertFeaturesFunc  func(context.Context, resource.Type, []db.Feature, []string) error
+	ListFeaturesFunc    func(context.Context, resource.Type) ([]db.Feature, error)
+	SaveCityMetricsFunc func(context.Context, int64, []db.CityMetric) error
+	ListCityMetricsFunc func(context.Context, []string) ([]db.CityMetric, error)
+	SaveHexMetricsFunc  func(context.Context, int64, []db.HexMetric) error
+	ListHexMetricsFunc  func(context.Context, string, string) ([]db.HexMetric, error)
+	HasHexMetricFunc    func(context.Context, string, []string) (bool, error)
+	CreateRunFunc       func(context.Context, string, string) (*db.Run, error)
+	DiscardRunFunc      func(context.Context, int64) error
+	CommitSnapshotFunc  func(context.Context, string, map[string]int64) (*db.Snapshot, error)
+	ListSnapshotsFunc   func(context.Context) ([]db.Snapshot, error)
+	ResolveSnapshotFunc func(context.Context, int64) error
+	WithSnapshotFunc    func(int64) db.Store
+	WithConfigHashFunc  func(string) db.Store
+	DeleteSnapshotFunc  func(context.Context, int64) (bool, error)
+	GCScanFunc          func(context.Context, []string) (*db.GCReport, error)
+	GCSweepFunc         func(context.Context, []string) (*db.GCReport, error)
+	SaveBoundaryFunc    func(context.Context, string, string) error
+	GetBoundaryFunc     func(context.Context) (string, error)
+	StatsFunc           func(context.Context, resource.Type) (*db.StatusInfo, error)
+	CloseFunc           func() error
+
+	// CityMetrics and HexMetrics are the rows the default result methods
+	// read and write: SaveCityMetrics / SaveHexMetrics append (tagged with
+	// the run), and the List / Has methods filter them, ordered like the real
+	// store. Seed them with internal/results' row builders. Snapshots are not
+	// modelled: every row is visible.
+	CityMetrics []db.CityMetric
+	HexMetrics  []db.HexMetric
 
 	lastRunID int64 // CreateRun's default id sequence
 }
@@ -70,62 +70,78 @@ func (m *MockStore) ListFeatures(ctx context.Context, rt resource.Type) ([]db.Fe
 	return []db.Feature{}, nil
 }
 
-func (m *MockStore) SaveComputeResult(ctx context.Context, r db.ComputeResult) error {
-	if m.SaveComputeResultFunc != nil {
-		return m.SaveComputeResultFunc(ctx, r)
+// SaveCityMetrics delegates to SaveCityMetricsFunc if set, otherwise
+// appends rows to CityMetrics under runID.
+func (m *MockStore) SaveCityMetrics(ctx context.Context, runID int64, rows []db.CityMetric) error {
+	if m.SaveCityMetricsFunc != nil {
+		return m.SaveCityMetricsFunc(ctx, runID, rows)
+	}
+	for _, r := range rows {
+		r.RunID = runID
+		m.CityMetrics = append(m.CityMetrics, r)
 	}
 	return nil
 }
 
-func (m *MockStore) LatestComputeResult(ctx context.Context, rt resource.Type) (*db.ComputeResult, error) {
-	if m.LatestComputeResultFunc != nil {
-		return m.LatestComputeResultFunc(ctx, rt)
+// ListCityMetrics delegates to ListCityMetricsFunc if set, otherwise returns
+// the CityMetrics rows over subjects ordered by subject, class, metric, run.
+func (m *MockStore) ListCityMetrics(ctx context.Context, subjects []string) ([]db.CityMetric, error) {
+	if m.ListCityMetricsFunc != nil {
+		return m.ListCityMetricsFunc(ctx, subjects)
 	}
-	return nil, sql.ErrNoRows
-}
-
-// LatestComputeResults delegates to LatestComputeResultsFunc if set,
-// otherwise routes each requested type through LatestComputeResultFunc
-// so existing tests that stub the singular method keep working without
-// having to set both fields. sql.ErrNoRows from the singular path is
-// treated as "no row for that type" and simply omitted from the map;
-// any other error propagates so error-path tests behave the same as
-// they did before batching.
-func (m *MockStore) LatestComputeResults(ctx context.Context, types []resource.Type) (map[resource.Type]*db.ComputeResult, error) {
-	if m.LatestComputeResultsFunc != nil {
-		return m.LatestComputeResultsFunc(ctx, types)
-	}
-	out := make(map[resource.Type]*db.ComputeResult, len(types))
-	for _, t := range types {
-		r, err := m.LatestComputeResult(ctx, t)
-		if errors.Is(err, sql.ErrNoRows) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		if r != nil {
-			out[t] = r
+	out := []db.CityMetric{}
+	for _, r := range m.CityMetrics {
+		if slices.Contains(subjects, r.Subject) {
+			out = append(out, r)
 		}
 	}
+	slices.SortStableFunc(out, func(a, b db.CityMetric) int {
+		return cmp.Or(cmp.Compare(a.Subject, b.Subject), cmp.Compare(a.Class, b.Class),
+			cmp.Compare(a.Metric, b.Metric), cmp.Compare(a.RunID, b.RunID))
+	})
 	return out, nil
 }
 
-func (m *MockStore) SaveHexStats(ctx context.Context, stats []db.HexStat) error {
-	if m.SaveHexStatsFunc != nil {
-		return m.SaveHexStatsFunc(ctx, stats)
+// SaveHexMetrics delegates to SaveHexMetricsFunc if set, otherwise appends
+// rows to HexMetrics under runID.
+func (m *MockStore) SaveHexMetrics(ctx context.Context, runID int64, rows []db.HexMetric) error {
+	if m.SaveHexMetricsFunc != nil {
+		return m.SaveHexMetricsFunc(ctx, runID, rows)
+	}
+	for _, r := range rows {
+		r.RunID = runID
+		m.HexMetrics = append(m.HexMetrics, r)
 	}
 	return nil
 }
 
-// HasHexStats delegates to HasHexStatsFunc if set, otherwise answers from
-// ListHexStats per type, so fixtures that only stub ListHexStatsFunc agree.
-func (m *MockStore) HasHexStats(ctx context.Context, types []resource.Type) (bool, error) {
-	if m.HasHexStatsFunc != nil {
-		return m.HasHexStatsFunc(ctx, types)
+// ListHexMetrics delegates to ListHexMetricsFunc if set, otherwise returns
+// the HexMetrics rows of metric over subject ordered by hex id, run.
+func (m *MockStore) ListHexMetrics(ctx context.Context, metric, subject string) ([]db.HexMetric, error) {
+	if m.ListHexMetricsFunc != nil {
+		return m.ListHexMetricsFunc(ctx, metric, subject)
 	}
-	for _, t := range types {
-		rows, err := m.ListHexStats(ctx, t)
+	out := []db.HexMetric{}
+	for _, r := range m.HexMetrics {
+		if r.Metric == metric && r.Subject == subject {
+			out = append(out, r)
+		}
+	}
+	slices.SortStableFunc(out, func(a, b db.HexMetric) int {
+		return cmp.Or(cmp.Compare(a.HexID, b.HexID), cmp.Compare(a.RunID, b.RunID))
+	})
+	return out, nil
+}
+
+// HasHexMetric delegates to HasHexMetricFunc if set, otherwise answers from
+// ListHexMetrics per subject, so fixtures that stub only ListHexMetricsFunc
+// agree.
+func (m *MockStore) HasHexMetric(ctx context.Context, metric string, subjects []string) (bool, error) {
+	if m.HasHexMetricFunc != nil {
+		return m.HasHexMetricFunc(ctx, metric, subjects)
+	}
+	for _, s := range subjects {
+		rows, err := m.ListHexMetrics(ctx, metric, s)
 		if err != nil {
 			return false, err
 		}
@@ -134,13 +150,6 @@ func (m *MockStore) HasHexStats(ctx context.Context, types []resource.Type) (boo
 		}
 	}
 	return false, nil
-}
-
-func (m *MockStore) ListHexStats(ctx context.Context, rt resource.Type) ([]db.HexStat, error) {
-	if m.ListHexStatsFunc != nil {
-		return m.ListHexStatsFunc(ctx, rt)
-	}
-	return []db.HexStat{}, nil
 }
 
 // CreateRun delegates to CreateRunFunc, else hands out run ids 1, 2, 3, ...
@@ -235,40 +244,6 @@ func (m *MockStore) WithConfigHash(configHash string) db.Store {
 	return m
 }
 
-func (m *MockStore) SaveCohortStats(ctx context.Context, stats []db.CohortStat) error {
-	if m.SaveCohortStatsFunc != nil {
-		return m.SaveCohortStatsFunc(ctx, stats)
-	}
-	return nil
-}
-
-func (m *MockStore) ListCohortStats(ctx context.Context, rt resource.Type) ([]db.CohortStat, error) {
-	if m.ListCohortStatsFunc != nil {
-		return m.ListCohortStatsFunc(ctx, rt)
-	}
-	return []db.CohortStat{}, nil
-}
-
-// ListCohortStatsForTypes delegates to ListCohortStatsForTypesFunc if
-// set, otherwise routes each requested type through ListCohortStatsFunc
-// so existing tests that stub the singular method keep working.
-func (m *MockStore) ListCohortStatsForTypes(ctx context.Context, types []resource.Type) (map[resource.Type][]db.CohortStat, error) {
-	if m.ListCohortStatsForTypesFunc != nil {
-		return m.ListCohortStatsForTypesFunc(ctx, types)
-	}
-	out := make(map[resource.Type][]db.CohortStat, len(types))
-	for _, t := range types {
-		stats, err := m.ListCohortStats(ctx, t)
-		if err != nil {
-			return nil, err
-		}
-		if len(stats) > 0 {
-			out[t] = stats
-		}
-	}
-	return out, nil
-}
-
 func (m *MockStore) SaveBoundary(ctx context.Context, geometryJSON, source string) error {
 	if m.SaveBoundaryFunc != nil {
 		return m.SaveBoundaryFunc(ctx, geometryJSON, source)
@@ -332,33 +307,4 @@ func (m *MockRootStore) Close() error {
 		return m.CloseFunc()
 	}
 	return nil
-}
-
-func (m *MockStore) SaveHexMetrics(ctx context.Context, metric string, runID int64, rows []db.HexMetric) error {
-	if m.SaveHexMetricsFunc != nil {
-		return m.SaveHexMetricsFunc(ctx, metric, runID, rows)
-	}
-	return nil
-}
-
-// SaveHexMetricSet delegates to SaveHexMetricSetFunc if set, otherwise
-// replays the set through SaveHexMetrics key by key (sorted), so tests that
-// only capture SaveHexMetricsFunc still observe every metric.
-func (m *MockStore) SaveHexMetricSet(ctx context.Context, runID int64, set map[string][]db.HexMetric) error {
-	if m.SaveHexMetricSetFunc != nil {
-		return m.SaveHexMetricSetFunc(ctx, runID, set)
-	}
-	for _, metric := range slices.Sorted(maps.Keys(set)) {
-		if err := m.SaveHexMetrics(ctx, metric, runID, set[metric]); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (m *MockStore) ListHexMetrics(ctx context.Context, metric string) ([]db.HexMetric, error) {
-	if m.ListHexMetricsFunc != nil {
-		return m.ListHexMetricsFunc(ctx, metric)
-	}
-	return nil, nil
 }

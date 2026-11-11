@@ -2,7 +2,6 @@ package forecast
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"math"
 	"regexp"
@@ -58,7 +57,7 @@ func TestForecastAllResources_PropagatesNonNoRowsError(t *testing.T) {
 
 	boom := errors.New("database is locked")
 	store := &dbtest.MockStore{
-		LatestComputeResultFunc: func(_ context.Context, _ resource.Type) (*db.ComputeResult, error) {
+		ListCityMetricsFunc: func(context.Context, []string) ([]db.CityMetric, error) {
 			return nil, boom
 		},
 	}
@@ -76,18 +75,14 @@ func TestForecastAllResources_PropagatesNonNoRowsError(t *testing.T) {
 }
 
 // TestForecastAllResources_AllSkippedReturnsNoResults guards yvlv.38: when every
-// resource is un-computed (sql.ErrNoRows) the command returns ErrNoResults
+// resource is un-computed (no city totals) the command returns ErrNoResults
 // (exit 3), not (nil, nil) → exit 0.
 func TestForecastAllResources_AllSkippedReturnsNoResults(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	opts := &Options{IO: ios}
 	fc := &config.ForecastConfig{InitialPCI: 85, Years: 5}
 
-	store := &dbtest.MockStore{
-		LatestComputeResultFunc: func(_ context.Context, _ resource.Type) (*db.ComputeResult, error) {
-			return nil, sql.ErrNoRows
-		},
-	}
+	store := &dbtest.MockStore{}
 
 	results, err := forecastAllResources(context.Background(), opts, store, "c", fc, units.Metric)
 	if !errors.Is(err, cmdutil.ErrNoResults) {
@@ -230,9 +225,6 @@ func TestRunForecast_StaleSnapshotsSayWhy(t *testing.T) {
 	store := &dbtest.MockStore{
 		ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
 			return []db.Snapshot{{ID: 1, ConfigHash: "0ld0ld0ld0ld0ld0"}}, nil
-		},
-		LatestComputeResultFunc: func(context.Context, resource.Type) (*db.ComputeResult, error) {
-			return nil, sql.ErrNoRows
 		},
 	}
 	opts := &Options{

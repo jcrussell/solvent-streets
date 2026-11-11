@@ -19,6 +19,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/logs"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/internal/tui"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
@@ -493,7 +494,7 @@ func (c *computer) runAllFeaturesPass(ctx context.Context, allBuffered []resourc
 	return c.computeHexPipeline(ctx, resource.Geoms(allBuffered), boundaryGJSON)
 }
 
-// saveAllJurisdictionsResult persists the every-jurisdiction ComputeResult,
+// saveAllJurisdictionsResult persists the every-jurisdiction city totals,
 // cohort stats, and prose summary derived from the pre-buffered features.
 // Splits out from runAllFeaturesPass so the hex pipeline output is reusable
 // for the city-only pass before any per-jurisdiction persistence happens.
@@ -509,26 +510,15 @@ func (c *computer) saveAllJurisdictionsResult(ctx context.Context, allBuffered [
 
 	rtAll := c.opts.ResourceType.Type()
 	spaces := sumSpaces(hexStats)
-	result := db.ComputeResult{
-		ResourceType:    rtAll,
-		TotalArea:       area,
-		FeatureCount:    featureCount,
-		EstimatedSpaces: spaces,
-		RunID:           c.runID,
-	}
-	if err := c.store.SaveComputeResult(ctx, result); err != nil {
+	cohorts := c.buildCohorts(ctx, allBuffered, area, clippedHexes)
+	rows := append(results.TotalRows(rtAll, results.Totals{Area: area, Features: featureCount, Spaces: spaces}),
+		results.CohortRows(rtAll, cohorts)...)
+	if err := c.store.SaveCityMetrics(ctx, c.runID, rows); err != nil {
 		return fmt.Errorf("save result: %w", err)
 	}
 	c.recordRow("all", featureCount, area, spaces)
-
-	cohortStats := c.buildCohortStats(ctx, rtAll, allBuffered, area, clippedHexes)
-	if len(cohortStats) > 0 {
-		if err := c.store.SaveCohortStats(ctx, cohortStats); err != nil {
-			return fmt.Errorf("save cohort stats: %w", err)
-		}
-		if !c.opts.CityOnly && c.opts.ResourceType.HasCohorts() {
-			printCohortBreakdown(c.out, "Cohort breakdown", cohortStats, area, c.sys)
-		}
+	if len(cohorts) > 0 && !c.opts.CityOnly && c.opts.ResourceType.HasCohorts() {
+		printCohortBreakdown(c.out, "Cohort breakdown", cohorts, area, c.sys)
 	}
 	if !c.opts.CityOnly {
 		printResults(c.out, fmt.Sprintf("%s Results (all)", rtAll.Bare()), featureCount, area, spaces, c.sys)
@@ -540,45 +530,35 @@ func (c *computer) saveHexStats(ctx context.Context, hexStats []geo.HexStat) err
 	c.notify.PhaseStart(phaseSave)
 	defer c.notify.PhaseDone(phaseSave, nil)
 	rt := c.opts.ResourceType.Type()
-	dbStats := make([]db.HexStat, len(hexStats))
-	for i, s := range hexStats {
-		dbStats[i] = db.HexStat{
-			HexID:        s.HexID,
-			ResourceType: rt,
-			Area:         s.Area,
-			PctCovered:   s.PctCovered,
-			RunID:        c.runID,
-		}
-	}
-	if err := c.store.SaveHexStats(ctx, dbStats); err != nil {
+	if err := c.store.SaveHexMetrics(ctx, c.runID, hexRows(rt, hexStats)); err != nil {
 		return fmt.Errorf("save hex stats: %w", err)
-	}
-	return c.saveSpaceMetrics(ctx, rt, hexStats)
-}
-
-// saveSpaceMetrics persists the per-hex parking spaces of rt's stats to
-// hex_metrics (resource.SpacesMetricKey) under this compute's run, the same
-// run its hex_stats rows carry, so the snapshot always pairs them.
-// Hexes with no spaces are not stored. A no-op for resources without spaces.
-func (c *computer) saveSpaceMetrics(ctx context.Context, rt resource.Type, stats []geo.HexStat) error {
-	key := resource.SpacesMetricKey(rt)
-	if key == "" {
-		return nil
-	}
-	var rows []db.HexMetric
-	for _, s := range stats {
-		if s.EstimatedSpaces > 0 {
-			rows = append(rows, db.HexMetric{HexID: s.HexID, Value: s.EstimatedSpaces})
-		}
-	}
-	if err := c.store.SaveHexMetrics(ctx, key, c.runID, rows); err != nil {
-		return fmt.Errorf("save %s parking space metrics: %w", rt, err)
 	}
 	return nil
 }
 
+// hexRows returns rt's per-hex coverage as metric rows, plus, for parking,
+// each hex's estimated spaces (resource.MetricParkingSpaces) under the same
+// run, so the snapshot always pairs them. Hexes with no spaces get no spaces
+// row.
+func hexRows(rt resource.Type, stats []geo.HexStat) []db.HexMetric {
+	cov := make([]results.HexCoverage, len(stats))
+	for i, s := range stats {
+		cov[i] = results.HexCoverage{HexID: s.HexID, Area: s.Area, PctCovered: s.PctCovered}
+	}
+	rows := results.HexCoverageRows(rt, cov)
+	if rt.Bare() != resource.TypeParking {
+		return rows
+	}
+	for _, s := range stats {
+		if s.EstimatedSpaces > 0 {
+			rows = append(rows, db.HexMetric{HexID: s.HexID, Metric: resource.MetricParkingSpaces, Subject: resource.Subject(rt), Value: s.EstimatedSpaces})
+		}
+	}
+	return rows
+}
+
 // processCityResults runs the city-jurisdiction hex pipeline over the
-// pre-buffered city subset and persists the :city ComputeResult, cohort
+// pre-buffered city subset and persists the :city totals, cohort
 // stats, and prose summary. featureCount is the input city-feature count
 // (including any later dropped by the buffer step).
 func (c *computer) processCityResults(ctx context.Context, cityBuffered []resource.BufferedFeature, featureCount int, clippedHexes []geo.Hex) error {
@@ -597,45 +577,23 @@ func (c *computer) processCityResults(ctx context.Context, cityBuffered []resour
 	}
 
 	var cityArea float64
-	cityDBStats := make([]db.HexStat, len(cityStats))
-	for i, s := range cityStats {
+	for _, s := range cityStats {
 		cityArea += s.Area
-		cityDBStats[i] = db.HexStat{
-			HexID:        s.HexID,
-			ResourceType: rtCity,
-			Area:         s.Area,
-			PctCovered:   s.PctCovered,
-			RunID:        c.runID,
-		}
 	}
-	if err := c.store.SaveHexStats(ctx, cityDBStats); err != nil {
+	if err := c.store.SaveHexMetrics(ctx, c.runID, hexRows(rtCity, cityStats)); err != nil {
 		return fmt.Errorf("save city hex stats: %w", err)
-	}
-	if err := c.saveSpaceMetrics(ctx, rtCity, cityStats); err != nil {
-		return err
 	}
 
 	citySpaces := sumSpaces(cityStats)
-	cityResult := db.ComputeResult{
-		ResourceType:    rtCity,
-		TotalArea:       cityArea,
-		FeatureCount:    featureCount,
-		EstimatedSpaces: citySpaces,
-		RunID:           c.runID,
-	}
-	if err := c.store.SaveComputeResult(ctx, cityResult); err != nil {
+	cityCohorts := c.buildCohorts(ctx, cityBuffered, cityArea, clippedHexes)
+	rows := append(results.TotalRows(rtCity, results.Totals{Area: cityArea, Features: featureCount, Spaces: citySpaces}),
+		results.CohortRows(rtCity, cityCohorts)...)
+	if err := c.store.SaveCityMetrics(ctx, c.runID, rows); err != nil {
 		return fmt.Errorf("save city result: %w", err)
 	}
 	c.recordRow("city", featureCount, cityArea, citySpaces)
-
-	cityCohortStats := c.buildCohortStats(ctx, rtCity, cityBuffered, cityArea, clippedHexes)
-	if len(cityCohortStats) > 0 {
-		if err := c.store.SaveCohortStats(ctx, cityCohortStats); err != nil {
-			return fmt.Errorf("save city cohort stats: %w", err)
-		}
-		if c.opts.ResourceType.HasCohorts() {
-			printCohortBreakdown(c.out, "City cohort breakdown", cityCohortStats, cityArea, c.sys)
-		}
+	if len(cityCohorts) > 0 && c.opts.ResourceType.HasCohorts() {
+		printCohortBreakdown(c.out, "City cohort breakdown", cityCohorts, cityArea, c.sys)
 	}
 
 	printResults(c.out, fmt.Sprintf("%s Results (city only)", c.opts.ResourceType.Type()), featureCount, cityArea, citySpaces, c.sys)
@@ -674,7 +632,7 @@ func printResults(out io.Writer, label string, featureCount int, area float64, s
 	}
 }
 
-func printCohortBreakdown(out io.Writer, title string, stats []db.CohortStat, totalArea float64, sys units.System) {
+func printCohortBreakdown(out io.Writer, title string, stats []results.Cohort, totalArea float64, sys units.System) {
 	fmt.Fprintf(out, "\n%s:\n", title)
 	for _, cs := range stats {
 		pct := 0.0
@@ -682,7 +640,7 @@ func printCohortBreakdown(out io.Writer, title string, stats []db.CohortStat, to
 			pct = cs.Area / totalArea * 100
 		}
 		fmt.Fprintf(out, "  %-12s %6.1f%% (%s, %d features)\n",
-			cs.Classification, pct, units.FormatArea(cs.Area, sys), cs.FeatureCount)
+			cs.Class, pct, units.FormatArea(cs.Area, sys), cs.Features)
 	}
 }
 
@@ -800,20 +758,19 @@ func parseGeoJSONGeometry(gjson string, proj *geo.UTMProjector) (geom.Geometry, 
 	return g, nil
 }
 
-// buildCohortStats builds cohort stats for the resource type variant rt
-// (e.g. "roads" or "roads:city"). When the resource has cohorts it computes
-// per-classification areas via the same hex-clipped pipeline used for the
-// resource total; otherwise it returns a single cohort stat. buffered carries
+// buildCohorts builds the cohort split of totalArea over buffered (all
+// features, or the city-only subset). When the resource has cohorts it
+// computes per-classification areas via the same hex-clipped pipeline used for
+// the resource total; otherwise it returns a single cohort named after the
+// resource. Cohorts come out sorted by class. buffered carries
 // each feature paired with its pre-buffered polygon so cohort computation
 // reuses those polygons rather than re-buffering.
-func (c *computer) buildCohortStats(ctx context.Context, rt resource.Type, buffered []resource.BufferedFeature, totalArea float64, hexes []geo.Hex) []db.CohortStat {
+func (c *computer) buildCohorts(ctx context.Context, buffered []resource.BufferedFeature, totalArea float64, hexes []geo.Hex) []results.Cohort {
 	if !c.opts.ResourceType.HasCohorts() {
-		return []db.CohortStat{{
-			ResourceType:   rt,
-			Classification: string(rt.Bare()),
-			Area:           totalArea,
-			FeatureCount:   len(buffered),
-			RunID:          c.runID,
+		return []results.Cohort{{
+			Class:    string(c.opts.ResourceType.Type()),
+			Area:     totalArea,
+			Features: len(buffered),
 		}}
 	}
 
@@ -831,19 +788,17 @@ func (c *computer) buildCohortStats(ctx context.Context, rt resource.Type, buffe
 		class := forecast.NormalizeClass(bf.Feature.Tags["highway"])
 		counts[class]++
 	}
-	stats := make([]db.CohortStat, 0, len(classes))
+	stats := make([]results.Cohort, 0, len(classes))
 	for _, class := range classes {
 		rawArea := rawAreas[class]
 		proportion := 0.0
 		if rawTotal > 0 {
 			proportion = rawArea / rawTotal
 		}
-		stats = append(stats, db.CohortStat{
-			ResourceType:   rt,
-			Classification: class,
-			Area:           totalArea * proportion,
-			FeatureCount:   counts[class],
-			RunID:          c.runID,
+		stats = append(stats, results.Cohort{
+			Class:    class,
+			Area:     totalArea * proportion,
+			Features: counts[class],
 		})
 	}
 	return stats

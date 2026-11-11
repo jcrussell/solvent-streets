@@ -51,11 +51,13 @@ func fixtureStore(out saved, commits *[]map[string]int64) *dbtest.MockStore {
 			runs[next] = producer
 			return &db.Run{ID: next, Producer: producer, ConfigHash: hash}, nil
 		},
-		SaveHexMetricsFunc: func(_ context.Context, metric string, runID int64, rows []db.HexMetric) error {
+		SaveHexMetricsFunc: func(_ context.Context, runID int64, rows []db.HexMetric) error {
 			if runs[runID] != Producer {
-				return fmt.Errorf("metric %s saved under run %d (%q), want a %q run", metric, runID, runs[runID], Producer)
+				return fmt.Errorf("metrics saved under run %d (%q), want a %q run", runID, runs[runID], Producer)
 			}
-			out[metric] = rows
+			for _, r := range rows {
+				out[r.Metric] = append(out[r.Metric], r)
+			}
 			return nil
 		},
 		CommitSnapshotFunc: func(_ context.Context, hash string, parts map[string]int64) (*db.Snapshot, error) {
