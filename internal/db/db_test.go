@@ -268,9 +268,9 @@ func TestStoreStatsPropagatesComputeError(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	// Break only the compute_results table so LatestComputeResult errors with
+	// Break only the city_metrics table so LatestComputeResult errors with
 	// "no such table" while the feature count/fetched_at queries still work.
-	if _, err := store.(*sqliteStore).db.ExecContext(ctx, `DROP TABLE compute_results`); err != nil {
+	if _, err := store.(*sqliteStore).db.ExecContext(ctx, `DROP TABLE city_metrics`); err != nil {
 		t.Fatal(err)
 	}
 

@@ -54,7 +54,6 @@ func ResourceFeatures(rows []Feature) []resource.Feature {
 }
 
 type ComputeResult struct {
-	ID           int64
 	ResourceType resource.Type
 	TotalArea    float64
 	FeatureCount int
@@ -138,7 +137,6 @@ type SnapshotPart struct {
 }
 
 type CohortStat struct {
-	ID             int64
 	ResourceType   resource.Type
 	Classification string
 	Area           float64
@@ -154,17 +152,15 @@ type City struct {
 }
 
 // GCResultCounts holds per-result-table row counts for a gc sweep
-// (compute_results, hex_stats, cohort_stats, hex_metrics).
+// (city_metrics, hex_metrics).
 type GCResultCounts struct {
-	ComputeResults int
-	HexStats       int
-	CohortStats    int
-	HexMetrics     int
+	CityMetrics int
+	HexMetrics  int
 }
 
 // Total returns the sum of all per-table counts.
 func (c GCResultCounts) Total() int {
-	return c.ComputeResults + c.HexStats + c.CohortStats + c.HexMetrics
+	return c.CityMetrics + c.HexMetrics
 }
 
 // GCReport summarizes the rows a gc scan/sweep found (or deleted), broken

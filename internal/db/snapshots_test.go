@@ -291,7 +291,7 @@ func TestDeleteSnapshot_KeepsRunsOtherSnapshotsUse(t *testing.T) {
 	if n := countRows(t, root, `SELECT COUNT(*) FROM runs WHERE id = ?`, roads2); n != 0 {
 		t.Error("the roads run only s3 used survived its deletion")
 	}
-	if n := countRows(t, root, `SELECT COUNT(*) FROM hex_stats WHERE run_id = ?`, roads2); n != 0 {
+	if n := countRows(t, root, `SELECT COUNT(*) FROM hex_metrics WHERE run_id = ?`, roads2); n != 0 {
 		t.Error("rows of the deleted run survived")
 	}
 	// s2 is now the newest: roads 100 and fire intact.
@@ -323,7 +323,7 @@ func TestDiscardRun(t *testing.T) {
 	}
 	raw := store.(*sqliteStore)
 	var n int
-	if err := raw.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM compute_results WHERE run_id = ?`, pending.ID).Scan(&n); err != nil || n != 0 {
+	if err := raw.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM city_metrics WHERE run_id = ?`, pending.ID).Scan(&n); err != nil || n != 0 {
 		t.Errorf("discarded run's rows remain: %d (%v)", n, err)
 	}
 	if err := store.DiscardRun(ctx, committed); err == nil {
@@ -362,7 +362,7 @@ func TestGC_OrphanRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := GCReport{OrphanRuns: 1, OrphanRunResults: GCResultCounts{ComputeResults: 1, HexStats: 1, CohortStats: 1}}
+	want := GCReport{OrphanRuns: 1, OrphanRunResults: GCResultCounts{CityMetrics: 4, HexMetrics: 2}}
 	if *scan != want {
 		t.Errorf("scan = %+v, want %+v (only the old orphan)", *scan, want)
 	}
@@ -383,6 +383,12 @@ func TestGC_OrphanRuns(t *testing.T) {
 	}
 	if got := roadsArea(t, store); got != 100 {
 		t.Errorf("committed roads after the sweep = %v, want 100", got)
+	}
+	// The swept run's rows went with it (ON DELETE CASCADE).
+	for _, table := range []string{"city_metrics", "hex_metrics"} {
+		if n := countRows(t, root, `SELECT COUNT(*) FROM `+table+` WHERE run_id = ?`, old.ID); n != 0 {
+			t.Errorf("%s rows of the swept run = %d, want 0", table, n)
+		}
 	}
 }
 
@@ -558,33 +564,31 @@ func TestDraft_DropRemovesPart(t *testing.T) {
 	}
 }
 
-// TestHexMetrics_ReplaceWithinRun: saving the same metric twice in one run
-// keeps the last save, another metric of the run is untouched, and an unknown
-// metric lists (nil, nil).
-func TestHexMetrics_ReplaceWithinRun(t *testing.T) {
+// TestHexMetrics_WriteOnce: a run's rows for a metric are written once.
+// Saving the metric again in the same run fails on the primary key and leaves
+// the first save in place; another metric of the run is its own row; an
+// unknown metric lists (nil, nil).
+func TestHexMetrics_WriteOnce(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 	commitRun(t, store, "h", "census", func(run int64) {
-		for _, save := range []struct {
-			metric string
-			rows   []HexMetric
-		}{
-			{"population", []HexMetric{{HexID: "h1", Value: 12}}},
-			{"density", []HexMetric{{HexID: "h1", Value: 3, Ref: "x"}}},
-			{"population", []HexMetric{{HexID: "h2", Value: 9}}},
-		} {
-			if err := store.SaveHexMetrics(ctx, save.metric, run, save.rows); err != nil {
-				t.Fatal(err)
-			}
+		if err := store.SaveHexMetrics(ctx, "population", run, []HexMetric{{HexID: "h1", Value: 12}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.SaveHexMetrics(ctx, "density", run, []HexMetric{{HexID: "h1", Value: 3, Ref: "x"}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.SaveHexMetrics(ctx, "population", run, []HexMetric{{HexID: "h1", Value: 9}}); err == nil {
+			t.Error("second population save for h1 in one run succeeded, want a primary-key failure")
 		}
 	})
 	pop, _ := store.ListHexMetrics(ctx, "population")
-	if len(pop) != 1 || pop[0].HexID != "h2" || pop[0].Value != 9 || pop[0].Metric != "population" {
-		t.Errorf("population = %+v, want only the last save (h2=9)", pop)
+	if len(pop) != 1 || pop[0].HexID != "h1" || pop[0].Value != 12 || pop[0].Metric != "population" {
+		t.Errorf("population = %+v, want the first save (h1=12)", pop)
 	}
 	den, _ := store.ListHexMetrics(ctx, "density")
 	if len(den) != 1 || den[0].Ref != "x" {
-		t.Errorf("density = %+v, want its own row untouched", den)
+		t.Errorf("density = %+v, want its own row", den)
 	}
 	if none, err := store.ListHexMetrics(ctx, "nope"); none != nil || err != nil {
 		t.Errorf("unknown metric = (%v, %v), want (nil, nil)", none, err)
@@ -593,7 +597,7 @@ func TestHexMetrics_ReplaceWithinRun(t *testing.T) {
 
 // TestSaveHexMetricSet_Atomic: the keys of one set commit or roll back
 // together. A trigger aborts the second key's insert (sorted order), and the
-// first key's replacement must roll back with it.
+// first key's rows must roll back with it.
 func TestSaveHexMetricSet_Atomic(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
@@ -611,8 +615,8 @@ func TestSaveHexMetricSet_Atomic(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := store.SaveHexMetricSet(ctx, run, map[string][]HexMetric{
-		"a_metric": {{HexID: "h1", Value: 10}},
-		"b_metric": {{HexID: "h1", Value: 20}},
+		"a_metric": {{HexID: "h2", Value: 10}},
+		"b_metric": {{HexID: "h2", Value: 20}},
 	}); err == nil {
 		t.Fatal("expected the aborted insert to fail the set")
 	}
@@ -680,26 +684,6 @@ func TestEstimatedSpacesRoundTrip(t *testing.T) {
 	info, err := store.Stats(ctx, rtParking)
 	if err != nil || info.EstimatedSpaces != 31 {
 		t.Errorf("Stats(parking) = (%+v, %v), want 31", info, err)
-	}
-}
-
-// TestGCResultTablesCoversResultTables: gc and deletion share one list of
-// run-tagged tables, each with its own counter.
-func TestGCResultTablesCoversResultTables(t *testing.T) {
-	var counts GCResultCounts
-	pairs := gcResultTables(&counts)
-	if len(pairs) != len(resultTables) {
-		t.Fatalf("gcResultTables has %d entries, resultTables has %d", len(pairs), len(resultTables))
-	}
-	seen := map[*int]string{}
-	for i, p := range pairs {
-		if p.table != resultTables[i] {
-			t.Errorf("gcResultTables[%d] = %q, want %q", i, p.table, resultTables[i])
-		}
-		if prev, dup := seen[p.count]; dup {
-			t.Errorf("%s and %s share a counter", prev, p.table)
-		}
-		seen[p.count] = p.table
 	}
 }
 

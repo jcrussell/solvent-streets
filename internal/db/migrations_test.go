@@ -41,11 +41,9 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 		want := []string{
 			"cities",
 			"city_boundaries",
-			"cohort_stats",
-			"compute_results",
+			"city_metrics",
 			"features",
 			"hex_metrics",
-			"hex_stats",
 			"runs",
 			"schema_version",
 			"snapshot_parts",
@@ -57,24 +55,26 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 				t.Errorf("missing table %q; got tables %v", name, got)
 			}
 		}
-		// Forecasts are simulated on demand from cohort_stats, never stored.
-		if slices.Contains(got, "forecast_results") {
-			t.Error("forecast_results exists; nothing writes or reads stored forecasts")
+		// Forecasts are simulated on demand from the cohort split, never
+		// stored, and the pavement-specific result tables of generation 3
+		// are now city_metrics / hex_metrics rows.
+		for _, gone := range []string{"forecast_results", "compute_results", "hex_stats", "cohort_stats"} {
+			if slices.Contains(got, gone) {
+				t.Errorf("%s exists; generation 4 has no such table", gone)
+			}
 		}
 	})
 
 	t.Run("city-scoped tables FK to cities(id)", func(t *testing.T) {
 		// Every table that holds per-city data must enforce cities(id) so
-		// orphaned rows can't accumulate when a city is removed.
+		// orphaned rows can't accumulate when a city is removed. Result rows
+		// are scoped through their run instead (see
+		// TestColdMigration_ResultRowsRequireARun).
 		scoped := []string{
 			"city_boundaries",
 			"features",
 			"runs",
 			"snapshots",
-			"compute_results",
-			"hex_stats",
-			"cohort_stats",
-			"hex_metrics",
 		}
 		for _, table := range scoped {
 			fks := listForeignKeys(t, ctx, root.db, table)
@@ -91,27 +91,28 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 		}
 	})
 
-	t.Run("hex_stats has auto-increment id PK", func(t *testing.T) {
-		// hex_stats uses an auto-increment id so multiple snapshots can
-		// coexist for the same (hex_id, resource_type, city_id). Reverting
-		// to a composite PK on those three columns would silently re-introduce
-		// the snapshot-overwrite bug.
-		cols := listColumns(t, ctx, root.db, "hex_stats")
-		var id *columnInfo
-		for i := range cols {
-			if cols[i].name == "id" {
-				id = &cols[i]
-				break
+	t.Run("result tables are keyed by run and measure", func(t *testing.T) {
+		// The primary key makes each (run, measure) write-once, and its run_id
+		// prefix is the index every read and delete seeks. No id, city_id or
+		// computed_at: the run owns all three.
+		want := map[string][]string{
+			"city_metrics": {"run_id", "metric", "subject", "class"},
+			"hex_metrics":  {"run_id", "metric", "subject", "hex_id"},
+		}
+		for table, pk := range want {
+			cols := listColumns(t, ctx, root.db, table)
+			got := make([]string, len(pk))
+			for _, c := range cols {
+				if c.pk > 0 && c.pk <= len(pk) {
+					got[c.pk-1] = c.name
+				}
+				if c.name == "id" || c.name == "city_id" || c.name == "computed_at" {
+					t.Errorf("%s.%s exists; result rows hang off their run", table, c.name)
+				}
 			}
-		}
-		if id == nil {
-			t.Fatalf("hex_stats missing id column; got %+v", cols)
-		}
-		if id.pk != 1 {
-			t.Errorf("hex_stats.id pk = %d; want 1 (primary key)", id.pk)
-		}
-		if id.typ != "INTEGER" {
-			t.Errorf("hex_stats.id type = %q; want INTEGER (auto-increment)", id.typ)
+			if !slices.Equal(got, pk) {
+				t.Errorf("%s primary key = %v, want %v", table, got, pk)
+			}
 		}
 	})
 
@@ -127,30 +128,13 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 		}
 	})
 
-	t.Run("estimated_spaces is on compute_results only", func(t *testing.T) {
-		hasSpaces := func(table string) bool {
-			return slices.ContainsFunc(listColumns(t, ctx, root.db, table), func(c columnInfo) bool { return c.name == "estimated_spaces" })
-		}
-		if !hasSpaces("compute_results") {
-			t.Error("compute_results missing estimated_spaces column")
-		}
-		// Per-hex spaces are hex_metrics rows (resource.SpacesMetricKey).
-		if hasSpaces("hex_stats") {
-			t.Error("hex_stats must not carry estimated_spaces; per-hex spaces live in hex_metrics")
-		}
-	})
-
 	t.Run("query-planner indexes exist", func(t *testing.T) {
 		// These are the indexes the runtime path depends on. Dropping any
 		// would silently turn a hot read into a table scan.
 		want := map[string][]string{
-			"features":        {"idx_features_city_type", "idx_features_city_type_time"},
-			"hex_stats":       {"idx_hex_stats_city_type_run", "idx_hex_stats_run"},
-			"compute_results": {"idx_compute_results_city_type_run", "idx_compute_results_run"},
-			"cohort_stats":    {"idx_cohort_stats_city_type_run", "idx_cohort_stats_run"},
-			"hex_metrics":     {"idx_hex_metrics_city_metric_run", "idx_hex_metrics_run"},
-			"snapshots":       {"idx_snapshots_city_hash"},
-			"snapshot_parts":  {"idx_snapshot_parts_run"},
+			"features":       {"idx_features_city_type", "idx_features_city_type_time"},
+			"snapshots":      {"idx_snapshots_city_hash"},
+			"snapshot_parts": {"idx_snapshot_parts_run"},
 		}
 		for table, indexes := range want {
 			got := listIndexes(t, ctx, root.db, table)
@@ -175,7 +159,7 @@ func TestColdMigration_ResultRowsRequireARun(t *testing.T) {
 	t.Cleanup(func() { _ = root.Close() })
 	// Every result row is tagged with the run that wrote it, NOT NULL: a
 	// row no snapshot can reach through a run would be invisible forever.
-	for _, table := range resultTables {
+	for _, table := range []string{"city_metrics", "hex_metrics"} {
 		var run *columnInfo
 		cols := listColumns(t, ctx, root.db, table)
 		for i := range cols {
@@ -190,18 +174,18 @@ func TestColdMigration_ResultRowsRequireARun(t *testing.T) {
 			t.Errorf("%s.run_id = %+v, want a NOT NULL column", table, run)
 		}
 		if !slices.ContainsFunc(listForeignKeys(t, ctx, root.db, table), func(fk foreignKey) bool {
-			return fk.from == "run_id" && fk.table == "runs" && fk.to == "id"
+			return fk.from == "run_id" && fk.table == "runs" && fk.to == "id" && fk.onDelete == "CASCADE"
 		}) {
-			t.Errorf("%s missing FK run_id -> runs(id)", table)
+			t.Errorf("%s missing FK run_id -> runs(id) ON DELETE CASCADE", table)
 		}
 	}
 }
 
-// TestQueryPlan_UsesCompositeIndexes is a regression guard for the
-// (city_id, key, run_id) composite indexes. Every result read has the
-// viewQuery shape — `city_id = ? AND key IN (...) AND run_id IN (...)` — and
-// must seek the composite, not scan all of a city's rows across every run.
-// The snapshot resolution and the run-reference checks must seek too.
+// TestQueryPlan_UsesCompositeIndexes is a regression guard for the indexes
+// the hot reads depend on. Every result read has the viewQuery shape —
+// `run_id IN (<the snapshot's runs>) AND ...` — and must seek the result
+// table's (run_id, ...) primary key, not scan every run's rows. The snapshot
+// resolution and the run-reference checks must seek too.
 func TestQueryPlan_UsesCompositeIndexes(t *testing.T) {
 	ctx := context.Background()
 
@@ -211,23 +195,18 @@ func TestQueryPlan_UsesCompositeIndexes(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = root.Close() })
 
-	view := func(cols, table, key string) string {
-		return `SELECT ` + cols + ` FROM ` + table + ` WHERE city_id = ? AND ` + key + ` IN (?, ?) AND run_id IN (?, ?, ?)`
-	}
 	cases := []struct {
 		name      string
 		query     string
 		wantIndex string
 	}{
-		{"hex_stats view read", view("hex_id", "hex_stats", "resource_type"), "idx_hex_stats_city_type_run"},
-		{"compute_results view read", view("id", "compute_results", "resource_type") + ` ORDER BY computed_at DESC, id DESC LIMIT 1`, "idx_compute_results_city_type_run"},
-		{"cohort_stats view read", view("classification", "cohort_stats", "resource_type"), "idx_cohort_stats_city_type_run"},
-		{"hex_metrics view read", view("hex_id", "hex_metrics", "metric"), "idx_hex_metrics_city_metric_run"},
-		{"features outer filter", `SELECT id FROM features WHERE resource_type = ? AND city_id = ?`, "idx_features_city_type"},
-		{"features last ingest lookup", `SELECT fetched_at FROM features WHERE resource_type = ? AND city_id = ? ORDER BY fetched_at DESC LIMIT 1`, "idx_features_city_type_time"},
-		{"newest snapshot for a hash", `SELECT id FROM snapshots WHERE city_id = ? AND config_hash = ? ORDER BY id DESC LIMIT 1`, "idx_snapshots_city_hash"},
-		{"run still referenced", `SELECT COUNT(*) FROM snapshot_parts WHERE run_id = ?`, "idx_snapshot_parts_run"},
-		{"delete a run's rows", `DELETE FROM hex_stats WHERE run_id IN (?, ?)`, "idx_hex_stats_run"},
+		{"city_metrics view read", `SELECT value FROM city_metrics WHERE run_id IN (?, ?, ?) AND class = ? AND subject IN (?, ?)`, "PRIMARY KEY"},
+		{"hex_metrics view read", `SELECT value FROM hex_metrics WHERE run_id IN (?, ?, ?) AND metric = ? AND subject = ?`, "PRIMARY KEY"},
+		{"features outer filter", `SELECT id FROM features WHERE resource_type = ? AND city_id = ?`, "INDEX idx_features_city_type"},
+		{"features last ingest lookup", `SELECT fetched_at FROM features WHERE resource_type = ? AND city_id = ? ORDER BY fetched_at DESC LIMIT 1`, "INDEX idx_features_city_type_time"},
+		{"newest snapshot for a hash", `SELECT id FROM snapshots WHERE city_id = ? AND config_hash = ? ORDER BY id DESC LIMIT 1`, "INDEX idx_snapshots_city_hash"},
+		{"run still referenced", `SELECT COUNT(*) FROM snapshot_parts WHERE run_id = ?`, "INDEX idx_snapshot_parts_run"},
+		{"count a run's rows", `SELECT COUNT(*) FROM hex_metrics WHERE run_id IN (?, ?)`, "PRIMARY KEY"},
 	}
 
 	for _, tc := range cases {
@@ -236,10 +215,10 @@ func TestQueryPlan_UsesCompositeIndexes(t *testing.T) {
 			// Accept both "USING INDEX" and "USING COVERING INDEX" — the
 			// latter (an index-only plan) is strictly better and is what the
 			// MAX(snapshot_id) subqueries resolve to.
-			if !strings.Contains(plan, "INDEX "+tc.wantIndex) {
-				t.Errorf("query %q\nplan:\n%s\nwant INDEX %s", tc.query, plan, tc.wantIndex)
+			if !strings.Contains(plan, tc.wantIndex) {
+				t.Errorf("query %q\nplan:\n%s\nwant %s", tc.query, plan, tc.wantIndex)
 			}
-			for _, table := range []string{"hex_stats", "features", "compute_results", "cohort_stats", "hex_metrics", "snapshots", "snapshot_parts"} {
+			for _, table := range []string{"features", "city_metrics", "hex_metrics", "snapshots", "snapshot_parts"} {
 				if strings.Contains(plan, "SCAN "+table+"\n") {
 					t.Errorf("query %q falls back to a full table scan:\n%s", tc.query, plan)
 				}
@@ -282,7 +261,7 @@ type columnInfo struct {
 }
 
 type foreignKey struct {
-	from, table, to string
+	from, table, to, onDelete string
 }
 
 func listTables(t *testing.T, ctx context.Context, d *sql.DB) []string {
@@ -329,7 +308,7 @@ func listColumns(t *testing.T, ctx context.Context, d *sql.DB, table string) []c
 
 func listForeignKeys(t *testing.T, ctx context.Context, d *sql.DB, table string) []foreignKey {
 	t.Helper()
-	rows, err := d.QueryContext(ctx, `SELECT "from", "table", "to" FROM pragma_foreign_key_list(?)`, table)
+	rows, err := d.QueryContext(ctx, `SELECT "from", "table", "to", on_delete FROM pragma_foreign_key_list(?)`, table)
 	if err != nil {
 		t.Fatalf("pragma_foreign_key_list(%q): %v", table, err)
 	}
@@ -337,7 +316,7 @@ func listForeignKeys(t *testing.T, ctx context.Context, d *sql.DB, table string)
 	var fks []foreignKey
 	for rows.Next() {
 		var fk foreignKey
-		if err := rows.Scan(&fk.from, &fk.table, &fk.to); err != nil {
+		if err := rows.Scan(&fk.from, &fk.table, &fk.to, &fk.onDelete); err != nil {
 			t.Fatalf("scan fk: %v", err)
 		}
 		fks = append(fks, fk)

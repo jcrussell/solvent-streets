@@ -1,9 +1,12 @@
 -- Init schema: all tables with multi-city support.
 --
--- SCHEMA GENERATION 2. Generation 1 squashed every migration up to and
+-- SCHEMA GENERATION 4. Generation 1 squashed every migration up to and
 -- including v0.4.1's 001/002 and the unreleased 003 (solvent-streets-25t6.2);
 -- generation 2 replaced per-resource snapshots with runs and whole-city
--- snapshot manifests (solvent-streets-25t6.3).
+-- snapshot manifests (solvent-streets-25t6.3); generation 3 stopped storing
+-- forecasts (solvent-streets-ern4.16); generation 4 replaced the
+-- pavement-specific result tables with city_metrics / hex_metrics
+-- (solvent-streets-0dkz).
 -- A squash is a deliberate breaking change: databases created under an earlier
 -- generation already record schema_version 1, so this file would be SKIPPED for
 -- them and they would run on the old schema. migrate() therefore refuses any
@@ -98,74 +101,42 @@ CREATE TABLE IF NOT EXISTS snapshot_parts (
 -- "Is this run still referenced by any snapshot?" (delete / gc).
 CREATE INDEX IF NOT EXISTS idx_snapshot_parts_run ON snapshot_parts(run_id);
 
-CREATE TABLE IF NOT EXISTS compute_results (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    resource_type TEXT NOT NULL,
-    city_id INTEGER NOT NULL REFERENCES cities(id),
-    total_area REAL NOT NULL DEFAULT 0,
-    feature_count INTEGER NOT NULL DEFAULT 0,
-    run_id INTEGER NOT NULL REFERENCES runs(id),
-    computed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    -- Estimated parking spaces (solvent-streets-l3gz): the parking compute
-    -- pass derives a space count per lot (OSM capacity tag, else footprint
-    -- area over resource.ParkingSpaceAreaM2, times levels for structured
-    -- parking). The city total lives here; per-hex shares are hex_metrics
-    -- rows. Non-parking rows keep 0; readers treat 0 as "no estimate".
-    estimated_spaces INTEGER NOT NULL DEFAULT 0
-);
-
--- Reads filter `city_id = ? AND resource_type = ? AND run_id IN (...)` (the
--- resolved snapshot's runs); deletes filter `run_id = ?`.
-CREATE INDEX IF NOT EXISTS idx_compute_results_city_type_run ON compute_results(city_id, resource_type, run_id);
-CREATE INDEX IF NOT EXISTS idx_compute_results_run ON compute_results(run_id);
-
-CREATE TABLE IF NOT EXISTS hex_stats (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    hex_id TEXT NOT NULL,
-    resource_type TEXT NOT NULL,
-    city_id INTEGER NOT NULL REFERENCES cities(id),
-    run_id INTEGER NOT NULL REFERENCES runs(id),
-    area REAL NOT NULL DEFAULT 0,
-    pct_covered REAL NOT NULL DEFAULT 0,
-    computed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
--- Every read filters `city_id = ? AND resource_type = ? AND run_id IN (...)`
--- (the resolved snapshot's runs); deletes filter `run_id = ?`. hex_id never
--- appears in a WHERE clause, so it is deliberately not indexed.
-CREATE INDEX IF NOT EXISTS idx_hex_stats_city_type_run ON hex_stats(city_id, resource_type, run_id);
-CREATE INDEX IF NOT EXISTS idx_hex_stats_run ON hex_stats(run_id);
-
-CREATE TABLE IF NOT EXISTS cohort_stats (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    resource_type TEXT NOT NULL,
-    city_id INTEGER NOT NULL REFERENCES cities(id),
-    classification TEXT NOT NULL,
-    area REAL NOT NULL DEFAULT 0,
-    feature_count INTEGER NOT NULL DEFAULT 0,
-    run_id INTEGER NOT NULL REFERENCES runs(id),
-    computed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
--- Same read and delete shapes as hex_stats.
-CREATE INDEX IF NOT EXISTS idx_cohort_stats_city_type_run ON cohort_stats(city_id, resource_type, run_id);
-CREATE INDEX IF NOT EXISTS idx_cohort_stats_run ON cohort_stats(run_id);
-
--- Generic per-hex metrics (solvent-streets-ql2w). One row per
--- (run, hex, metric): a named numeric value (internal/hexmetric) such as
--- fire_response_s, plus an optional reference id (the nearest facility for a
--- coverage metric). `metric` plays the role resource_type plays on the other
--- result tables.
-CREATE TABLE IF NOT EXISTS hex_metrics (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    hex_id TEXT NOT NULL,
-    city_id INTEGER NOT NULL REFERENCES cities(id),
-    run_id INTEGER NOT NULL REFERENCES runs(id),
+-- RESULTS (solvent-streets-0dkz). Every result is a named measure written by
+-- one run, in long format so a new producer adds metric keys, not tables.
+-- Rows carry no id, city_id or timestamp: the run owns all three (readers
+-- join runs.computed_at; a city's rows are its runs' rows). Deleting a run
+-- deletes its rows by ON DELETE CASCADE, and the primary key makes each
+-- (run, measure) write-once. Its run_id prefix serves every read, which
+-- filters `run_id IN (<the resolved snapshot's runs>)`, and every delete.
+--
+--   metric  what is measured, snake_case with a unit: paved_area_m2,
+--           coverage_pct, feature_count, parking_spaces, fire_response_s ...
+--   subject what it is measured over: a pavement resource.Type including its
+--           scope ('roads', 'roads:city', 'combined:city'), or '' for
+--           producers that are not about one resource (fire, census).
+--
+-- city_metrics holds city-wide totals (class '') and, for pavement subjects,
+-- the per-highway-class cohort split (class = 'primary', 'residential', ...).
+-- Counts are stored as REAL like every other value.
+CREATE TABLE IF NOT EXISTS city_metrics (
+    run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
     metric TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    class TEXT NOT NULL,
+    value REAL NOT NULL,
+    PRIMARY KEY (run_id, metric, subject, class)
+) STRICT, WITHOUT ROWID;
+
+-- hex_metrics holds per-hex values: pavement coverage (paved_area_m2,
+-- coverage_pct, parking_spaces) and the registered metrics of
+-- internal/hexmetric (fire_response_s, population ...), plus an optional
+-- reference id (the nearest facility for a coverage metric).
+CREATE TABLE IF NOT EXISTS hex_metrics (
+    run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    hex_id TEXT NOT NULL,
+    metric TEXT NOT NULL,
+    subject TEXT NOT NULL,
     value REAL NOT NULL,
     ref TEXT NOT NULL DEFAULT '',
-    computed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_hex_metrics_city_metric_run ON hex_metrics(city_id, metric, run_id);
-CREATE INDEX IF NOT EXISTS idx_hex_metrics_run ON hex_metrics(run_id);
+    PRIMARY KEY (run_id, metric, subject, hex_id)
+) STRICT, WITHOUT ROWID;

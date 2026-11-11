@@ -27,16 +27,6 @@ const OrphanRunGrace = 24 * time.Hour
 // command's runs, possibly hours of compute, so it waits generously.
 const commitBusyBudget = 2 * time.Minute
 
-// resultTables is the canonical set of tables whose rows carry a run_id.
-// Every entry is a compile-time literal, never user input, so interpolating
-// it into SQL is safe (gosec G202 does not apply).
-var resultTables = []string{
-	"compute_results",
-	"hex_stats",
-	"cohort_stats",
-	"hex_metrics",
-}
-
 // WithSnapshot returns a view that reads exactly the given snapshot. A
 // snapshotID of 0 returns an unpinned view. A pin wins over WithConfigHash
 // (it is the more specific request, matching the server's ?snapshot=N).
@@ -144,27 +134,66 @@ func (s *sqliteStore) viewRunIDs(ctx context.Context) ([]int64, error) {
 	return slices.Sorted(maps.Values(parts)), nil
 }
 
-// viewQuery builds `selectClause WHERE city_id = ? AND keyColumn IN (keys)
-// AND run_id IN (<this view's runs>) suffix` and its binds. ok is false when
-// the view reads no runs (the city has no snapshot yet), in which case
-// callers return an empty result without querying. keyColumn is always a
-// compile-time literal at the call site, never user input.
-func (s *sqliteStore) viewQuery(ctx context.Context, selectClause, keyColumn string, keys []string, suffix string) (q string, args []any, ok bool, err error) {
+// viewFilter is a WHERE fragment and its binds. Column names in sql are
+// always compile-time literals at the call site, never user input; every
+// value is a bound parameter.
+type viewFilter struct {
+	sql  string
+	args []any
+}
+
+// eq is `column = value`.
+func eq(column string, value any) viewFilter {
+	return viewFilter{sql: column + ` = ?`, args: []any{value}}
+}
+
+// ne is `column != value`.
+func ne(column string, value any) viewFilter {
+	return viewFilter{sql: column + ` != ?`, args: []any{value}}
+}
+
+// in is `column IN (values)`; with no values it matches nothing.
+func in(column string, values []string) viewFilter {
+	if len(values) == 0 {
+		return viewFilter{sql: `0`}
+	}
+	args := make([]any, len(values))
+	for i, v := range values {
+		args[i] = v
+	}
+	return viewFilter{sql: column + ` IN (` + placeholders(len(values)) + `)`, args: args}
+}
+
+// and conjoins filters.
+func and(fs ...viewFilter) viewFilter {
+	var out viewFilter
+	for i, f := range fs {
+		if i > 0 {
+			out.sql += ` AND `
+		}
+		out.sql += f.sql
+		out.args = append(out.args, f.args...)
+	}
+	return out
+}
+
+// viewQuery builds `selectClause WHERE run_id IN (<this view's runs>) AND
+// where suffix` and its binds. Result rows carry no city_id: the view's runs
+// come from the city's own snapshot, so the run filter alone scopes the read
+// to the city. ok is false when the view reads no runs (the city has no
+// snapshot yet), in which case callers return an empty result without
+// querying.
+func (s *sqliteStore) viewQuery(ctx context.Context, selectClause string, where viewFilter, suffix string) (q string, args []any, ok bool, err error) {
 	runs, err := s.viewRunIDs(ctx)
-	if err != nil || len(runs) == 0 || len(keys) == 0 {
+	if err != nil || len(runs) == 0 {
 		return "", nil, false, err
 	}
-	args = make([]any, 0, 1+len(keys)+len(runs))
-	args = append(args, s.cityID)
-	for _, k := range keys {
-		args = append(args, k)
+	args = append(runArgs(runs), where.args...)
+	q = selectClause + ` WHERE run_id IN (` + placeholders(len(runs)) + `)`
+	if where.sql != "" {
+		q += ` AND ` + where.sql
 	}
-	for _, r := range runs {
-		args = append(args, r)
-	}
-	q = selectClause + ` WHERE city_id = ? AND ` + keyColumn + ` IN (` + placeholders(len(keys)) +
-		`) AND run_id IN (` + placeholders(len(runs)) + `)` + suffix
-	return q, args, true, nil
+	return q + suffix, args, true, nil
 }
 
 // placeholders returns "?,?,...,?" with n entries (n > 0).
@@ -459,27 +488,34 @@ func unreferencedRuns(ctx context.Context, tx *sql.Tx, runIDs []int64) ([]int64,
 }
 
 // deleteRuns deletes those of runIDs that belong to this city, with every row
-// they wrote, returning per-table row counts. The caller guarantees no
-// snapshot references them. Ids are narrowed to the city's runs first, so the
-// row deletes can filter on run_id alone and seek its index (a city_id
-// predicate makes the planner scan the city's whole slice instead).
+// they wrote (ON DELETE CASCADE), returning per-table row counts. The caller
+// guarantees no snapshot references them.
 func deleteRuns(ctx context.Context, tx *sql.Tx, cityID int64, runIDs []int64) (GCResultCounts, error) {
-	var counts GCResultCounts
 	owned, err := ownedRuns(ctx, tx, cityID, runIDs)
 	if err != nil || len(owned) == 0 {
+		return GCResultCounts{}, err
+	}
+	counts, err := countRunResults(ctx, tx, owned)
+	if err != nil {
 		return counts, err
 	}
-	args := runArgs(owned)
-	in := placeholders(len(owned))
-	for _, t := range gcResultTables(&counts) {
-		q := `DELETE FROM ` + t.table + ` WHERE run_id IN (` + in + `)`
-		if err := execDeleteCount(ctx, tx, t.table, q, t.count, args...); err != nil {
-			return counts, err
-		}
-	}
-	// in is only "?,?,..."; every id is a bound parameter.
-	if _, err := tx.ExecContext(ctx, `DELETE FROM runs WHERE id IN (`+in+`)`, args...); err != nil { //nolint:gosec // placeholders only; values are bound
+	// placeholders are only "?,?,..."; every id is a bound parameter.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM runs WHERE id IN (`+placeholders(len(owned))+`)`, runArgs(owned)...); err != nil { //nolint:gosec // placeholders only; values are bound
 		return counts, fmt.Errorf("delete runs: %w", err)
+	}
+	return counts, nil
+}
+
+// countRunResults counts the result rows runIDs wrote, per table. The ids
+// must already be scoped to one city.
+func countRunResults(ctx context.Context, q queryer, runIDs []int64) (GCResultCounts, error) {
+	var counts GCResultCounts
+	in, args := placeholders(len(runIDs)), runArgs(runIDs)
+	if err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM city_metrics WHERE run_id IN (`+in+`)`, args...).Scan(&counts.CityMetrics); err != nil {
+		return counts, fmt.Errorf("count run city metrics: %w", err)
+	}
+	if err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM hex_metrics WHERE run_id IN (`+in+`)`, args...).Scan(&counts.HexMetrics); err != nil {
+		return counts, fmt.Errorf("count run hex metrics: %w", err)
 	}
 	return counts, nil
 }
@@ -513,24 +549,6 @@ func runArgs(ids []int64) []any {
 		args[i] = id
 	}
 	return args
-}
-
-// gcResultTables pairs each result table with its counter in GCResultCounts.
-// Spelled as literals rather than zipped against resultTables so adding a
-// table fails to compile here instead of panicking at runtime.
-func gcResultTables(c *GCResultCounts) []struct {
-	table string
-	count *int
-} {
-	return []struct {
-		table string
-		count *int
-	}{
-		{"compute_results", &c.ComputeResults},
-		{"hex_stats", &c.HexStats},
-		{"cohort_stats", &c.CohortStats},
-		{"hex_metrics", &c.HexMetrics},
-	}
 }
 
 // orphanRuns lists this city's runs that no snapshot references and that are
@@ -576,14 +594,10 @@ func (s *sqliteStore) GCScan(ctx context.Context, keepSources []string) (*GCRepo
 	if len(runs) == 0 {
 		return report, nil
 	}
-	// orphanRuns is already scoped to this city, so count by run_id alone
-	// (see deleteRuns on why that matters for the plan).
-	args := runArgs(runs)
-	for _, t := range gcResultTables(&report.OrphanRunResults) {
-		q := `SELECT COUNT(*) FROM ` + t.table + ` WHERE run_id IN (` + placeholders(len(runs)) + `)`
-		if err := s.db.QueryRowContext(ctx, q, args...).Scan(t.count); err != nil {
-			return nil, fmt.Errorf("count orphan-run %s: %w", t.table, err)
-		}
+	// orphanRuns is already scoped to this city.
+	report.OrphanRunResults, err = countRunResults(ctx, s.db, runs)
+	if err != nil {
+		return nil, err
 	}
 	return report, nil
 }
