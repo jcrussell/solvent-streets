@@ -137,13 +137,11 @@ func ResolveCycleYears(years float64) float64 {
 // fullFund selects exact allocation instead of the proportional split: each
 // cohort is handed its own need_j rather than totalSpend * (need_j/totalNeed).
 // With totalSpend == totalNeed the two are the same number in exact arithmetic,
-// but not in floating point, and the difference is not cosmetic — it decides
-// which side of applyCohortSpend's `spend >= need` test each cohort lands on,
-// and the two sides model different things (full restoration vs. recovering
-// only spendRatio*efficiency of the year's decay). Round-tripping through the
-// ratio put ~40% of cohort-years on the wrong side, so "full funding" quietly
-// under-restored them and the blended PCI moved ~0.5 points purely with the
-// cost scale. See solvent-streets-0ulx.
+// but not in floating point: round-tripping through the ratio lands a cohort a
+// hair either side of spend == need, which the old discontinuous response
+// turned into ~0.5 points of blended PCI moving purely with the cost scale
+// (solvent-streets-0ulx). The response is continuous now, but exact
+// allocation still keeps full funding exactly at need.
 func (sm *simulator) distribute(totalNeed, totalSpend float64, strategy Strategy, fullFund bool) float64 {
 	actualSpend := 0.0
 	for j := range sm.states {
@@ -163,68 +161,86 @@ func (sm *simulator) distribute(totalNeed, totalSpend float64, strategy Strategy
 	return actualSpend
 }
 
+// surplusGapYears is how many years of surplus, each the size of the year's
+// hold-steady need, it takes to close a cohort's gap to maxPCI at efficiency
+// 1. It is the default treatment cycle: a need is the cost of treating 1/N of
+// the cohort, so a second need's worth treats another 1/N, which restores
+// 1/N of the gap. Fixed rather than read off Params.CycleYears so the
+// response depends on spend only through spend/need, which keeps the cycle
+// gating a pure 1/N rescaling in dollars (BreakEvenBudget scales exactly 1/N).
+const surplusGapYears = DefaultTreatmentCycleYears
+
+// applyCohortSpend applies one year's spend on one cohort and returns the
+// spend actually used. need is the cost of holding the cohort steady: treating
+// its scheduled slice at the tier cost of its decayed condition. The response
+// is continuous and monotone in spend, and depends on it only through
+// spend/need (solvent-streets-j5co):
+//
+//   - spend <= need recovers fundedFraction(spend/need) of the year's decay,
+//     from 0 (decays like doing nothing) to 1 (holds at the current PCI). The
+//     strategy's efficiency bends the curve between the ends, so a worst-first
+//     program buys less recovery per partial dollar and a preventive-first one
+//     more, without changing what full funding means.
+//   - spend > need buys treatment of extra area at the same tier cost: the
+//     surplus treats a further eff*(surplus/need)/surplusGapYears of the
+//     cohort, which closes that fraction of the gap to maxPCI. Gains
+//     therefore diminish as the cohort improves, a budget twice the need
+//     closes about 1/12 of the gap a year, and the surplus that can be used
+//     stops at treating the whole cohort.
+//
+// The model used to freeze a funded cohort and let any surplus close
+// surplus/need of the gap in one year. Once PCI rose past the preventive
+// threshold the need fell tenfold, a fixed budget became a large multiple of
+// it, and the cohort snapped to 100: a budget 10% above the year-1 need ended
+// at PCI 100 while spending half as much as the need itself.
 func applyCohortSpend(st *cohortState, decayedPCI, spend, need float64, strategy Strategy) float64 {
 	if spend <= 0 || need <= 0 {
 		st.currentPCI = decayedPCI
 		return 0
 	}
-	if spend >= need {
-		actual := need
-		surplus := spend - need
-		if surplus > 0 {
-			// The 2x cap (spend beyond 2*need buys nothing) is a deliberate
-			// diminishing-returns model, not an oversight, and the surplus it
-			// discards is intentionally not redistributed — see
-			// solvent-streets-z3fo. For the cap alone, redistribution is a
-			// no-op: distribute() allocates spend_j proportional to need_j
-			// (spend_j = totalSpend * need_j/totalNeed), so when totalNeed > 0
-			// the ratio spend_j/need_j = totalSpend/totalNeed is identical for
-			// every cohort. The cap triggers exactly when that shared ratio
-			// exceeds 2, so either all cohorts saturate — leaving no
-			// unsaturated cohort to receive the remainder — or none do.
-			//
-			// distribute()'s second allocation path (fullFund: spend_j =
-			// need_j exactly) preserves this. There the shared ratio is 1 for
-			// every cohort, so it never exceeds 2 and the cap is unreachable —
-			// surplus is 0 and this whole block is skipped.
-			//
-			// Two caveats. (1) The claim is scoped to this cap; it does NOT
-			// cover the maxPCI clamp below, where a cohort already at PCI 100
-			// still adds its full usableSurplus to actual for zero PCI gain
-			// while under-100 cohorts stay under-funded. That is a reachable
-			// mixed state in which redistribution would change outcomes.
-			// (2) The proof is an invariant of distribute()'s proportional
-			// allocation, asserted here at the callee and pinned by no test.
-			// Strategy is documented as prioritizing lowest/highest-PCI
-			// segments and today only scales an efficiency multiplier; if
-			// allocation ever becomes priority-ordered, the uniform ratio —
-			// and this proof — dies silently.
-			usableSurplus := math.Min(surplus, need)
-			improveFraction := usableSurplus / need
-			st.currentPCI = math.Min(maxPCI, st.currentPCI+(maxPCI-st.currentPCI)*improveFraction)
-			actual += usableSurplus
-		}
-		return actual
+	eff := strategyEfficiency(strategy)
+	if spend <= need {
+		recovery := (st.currentPCI - decayedPCI) * fundedFraction(spend/need, eff)
+		st.currentPCI = math.Min(maxPCI, decayedPCI+recovery)
+		return spend
 	}
-	spendRatio := spend / need
-	efficiency := 1.0
+	// Held steady by the first need dollars; the surplus treats extra area.
+	gap := maxPCI - st.currentPCI
+	if gap <= 0 {
+		return need
+	}
+	usable := math.Min(spend-need, need*surplusGapYears/eff)
+	treated := eff * (usable / need) / surplusGapYears
+	st.currentPCI = math.Min(maxPCI, st.currentPCI+gap*treated)
+	return need + usable
+}
+
+// fundedFraction is the share of a year's decay that funding ratio r (0..1) of
+// the hold-steady need recovers: r^(1/eff). It is 0 at r = 0 and 1 at r = 1
+// for every efficiency, so full funding holds steady under any strategy; an
+// efficiency below 1 bends it below the diagonal (less recovery per partial
+// dollar) and above 1 bends it above.
+func fundedFraction(r, eff float64) float64 {
+	return math.Pow(r, 1/eff)
+}
+
+// strategyEfficiency is the cost-effectiveness multiplier of a strategy.
+func strategyEfficiency(strategy Strategy) float64 {
 	switch strategy {
-	case StrategyDoNothing:
-		// efficiency stays 1.0; spend will be 0 for do-nothing scenarios
 	case StrategyPreventiveFirst:
-		// 1.2× efficiency: preventive maintenance yields better cost-effectiveness
-		// per FHWA-HIF-12-042 "Pavement Preservation" (Fig. 3) — every $1 of
+		// 1.2x: preventive maintenance yields better cost-effectiveness per
+		// FHWA-HIF-12-042 "Pavement Preservation" (Fig. 3) — every $1 of
 		// preventive work avoids $6-10 in future reconstruction.
-		efficiency = 1.2
+		return 1.2
 	case StrategyWorstFirst:
-		// 0.8× efficiency: worst-first reconstruction is less cost-effective
-		// per unit spend because it addresses pavement already past its
-		// economic service life (FHWA-HIF-12-042, Section 3.2).
-		efficiency = 0.8
+		// 0.8x: worst-first reconstruction is less cost-effective per unit
+		// spend because it addresses pavement already past its economic
+		// service life (FHWA-HIF-12-042, Section 3.2).
+		return 0.8
+	case StrategyDoNothing:
+		// Spend is 0 for do-nothing scenarios; the efficiency is unused.
 	}
-	recovery := (st.currentPCI - decayedPCI) * spendRatio * efficiency
-	st.currentPCI = math.Min(maxPCI, decayedPCI+recovery)
-	return spend
+	return 1.0
 }
 
 func blendedPCI(states []cohortState) float64 {

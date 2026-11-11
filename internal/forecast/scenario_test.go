@@ -580,10 +580,11 @@ func TestSimulate_FullFunding_SpendsExactlyNeed(t *testing.T) {
 // rescaling in dollar-space: it multiplies need_j and totalSpend by the same
 // factor and leaves need_j/totalNeed untouched, so it cannot move a PCI in the
 // model. It did anyway — the rescale perturbed the low bits of
-// totalSpend * (need_j/totalNeed), flipping cohorts across applyCohortSpend's
-// `spend >= need` branch, where under-funded cohorts recover only
-// spendRatio*0.8 of the year's decay. The measured swing was ~0.46 PCI with no
-// modelled cause.
+// totalSpend * (need_j/totalNeed), flipping cohorts across what was then a
+// discontinuous `spend >= need` branch, where under-funded cohorts recovered
+// only spendRatio*0.8 of the year's decay. The measured swing was ~0.46 PCI
+// with no modelled cause. The response is continuous now
+// (solvent-streets-j5co), and exact allocation still keeps it bit-identical.
 func TestSimulate_FullFunding_InvariantUnderCostScale(t *testing.T) {
 	scenario := Scenario{Name: "full", Label: "Full", FullFunding: true, Strategy: StrategyWorstFirst}
 

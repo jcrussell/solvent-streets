@@ -25,7 +25,7 @@ build by [`pvmt validate`](#7-what-is-gated-and-what-remains-open).
 | Unit costs | Bare-construction level | they match contractor bids, and run ~2–3× below loaded municipal costs (§3) |
 | Condition spread | Partly corrected | pricing a single average understates cost ~32–37%; the default spread recovers much of it (§4) |
 | Treatment cycle | Matches published cadences | N = 12 sits inside the 10–14-year cycles cities report (§5) |
-| Break-even budget | Matches Berkeley | $17.9M against the cited $18.3M hold-steady, −2.3% (§6) |
+| Break-even budget | Matches Berkeley | $18.7M against the cited $18.3M hold-steady, +2.1% (§6) |
 
 The physical estimates hold up across all eight cities. The solvency dollars
 reproduce the one city with an independent hold-steady figure. They are
@@ -194,9 +194,9 @@ Its $18.3M hold-steady budget buys proportionally more, a cadence of
 14.1 × 15 / 18.3 ≈ 11.6 years, which is the model's N = 12. With the cycle
 fixed there, the cost level is no longer free:
 
-- Bare tiers with the §4 spread give **$5.42/m²·yr**, against Berkeley's cited
-  **$5.6**. Without the spread they give $4.5, so the spread is load-bearing.
-- Loaded tiers (~2.5×) would give ~$13.5, which only N ≈ 29 could match, and
+- Bare tiers with the §4 spread give **$5.66/m²·yr**, against Berkeley's cited
+  **$5.6**. Without the spread they give $4.7, so the spread is load-bearing.
+- Loaded tiers (~2.5×) would give ~$14, which only N ≈ 30 could match, and
   that contradicts the published cadence.
 
 The shipped defaults, that is, together reproduce Berkeley's published
@@ -206,12 +206,12 @@ current model on the six cities with committed reference data (from
 
 | City | PCI | Break-even | $/m²·yr | Published hold-steady | Current budget | Funding gap |
 |---|---|---|---|---|---|---|
-| Berkeley | 56 | $17.9M | $5.42 | $18.3M (−2.3%) | $15.0M | +19% |
-| Oakland | 58 | $73.9M | $5.12 | — | $60.0M | +23% |
-| Hayward | 73 | $20.3M | $2.82 | — | $10.1M | +102% |
-| Dublin | 78 | $7.7M | $2.16 | — | $3.7M | +107% |
-| Pleasanton | 76 | $12.3M | $2.40 | — | $4.8M | +157% |
-| Livermore | 75 | $15.2M | $2.53 | — | $4.85M | +214% |
+| Berkeley | 56 | $18.7M | $5.66 | $18.3M (+2.1%) | $15.0M | +25% |
+| Oakland | 58 | $77.0M | $5.34 | — | $60.0M | +28% |
+| Hayward | 73 | $21.1M | $2.93 | — | $10.1M | +110% |
+| Dublin | 78 | $8.0M | $2.24 | — | $3.7M | +115% |
+| Pleasanton | 76 | $12.8M | $2.49 | — | $4.8M | +167% |
+| Livermore | 75 | $15.8M | $2.62 | — | $4.85M | +226% |
 
 The paved areas in that data match the §1 tool measurements to within 1%.
 San Leandro and Fremont publish no single citable annual budget, so they have

@@ -135,6 +135,24 @@ lowest-PCI segments first):
 A **do-nothing** baseline (no spend, uncontrolled decay) is shown
 alongside the funded runs for comparison.
 
+### How spending moves condition
+
+Each year a road class's **need** is the cost of holding it steady:
+treating its scheduled 1/N slice at the cost of its condition. Condition
+responds smoothly to spend on both sides of that need:
+
+- **Below need**, spend recovers part of the year's decay, from none at $0
+  to all of it at full need, so a fully funded class holds its condition.
+- **Above need**, the extra money treats more pavement at the same cost.
+  A second need's worth treats another 1/12 of the class and closes about
+  1/12 of its gap to PCI 100 that year, so gains shrink as roads improve
+  and condition never jumps to 100.
+
+Because better pavement is cheaper to treat, a budget slightly above need
+improves condition a little faster each year, and one slightly below loses
+it a little faster: the network tends to drift away from the hold-steady
+point. The hold-steady (break-even) budget below is that point.
+
 The forecast library also implements a **preventive-first** strategy
 (prioritize highest-PCI segments that are still in the preservation
 window), but the default UI comparisons do not exercise it. Preventive
@@ -199,10 +217,10 @@ Three caveats apply to these figures specifically:
   balance.** It only ever grows; spending in a later year reduces *new*
   need but never pays down backlog already accrued. Read it as "total
   treatment value foregone to date," not as a debt that can be cleared.
-- In early years the reported **annual spend can exceed the configured
-  budget**. Budget left over once a road class is fully treated goes into
-  extra condition recovery, and that extra counts as spend, so this is
-  expected, not an error.
+- The reported **annual spend can be below the configured budget**. Money
+  beyond what treating every remaining road would cost buys nothing, and a
+  class already at PCI 100 needs only its hold-steady share, so that part of
+  the budget is not counted as spend.
 - Break-even assumes the cost-versus-PCI relationship is **monotone**
   (true for the default cost tiers: worse pavement costs more to treat).
   A pathological custom `cost_tiers` curve that violates this could make
@@ -347,8 +365,9 @@ encodes; and OSM's station coverage is uneven.
   externalities, project bundling).
 - All costs are in today's dollars. No inflation, discounting, or
   present-value adjustment is applied.
-- Treatment effectiveness is modeled as an efficiency multiplier on
-  spend, not as a deterministic post-treatment PCI bump.
+- Treatment effectiveness is modeled as an efficiency factor on how
+  much condition a dollar buys, not as a deterministic post-treatment PCI
+  bump.
 - Output is a planning-grade estimate, not an engineering specification.
 
 ### References
