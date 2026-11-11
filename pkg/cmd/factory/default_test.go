@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -540,5 +541,44 @@ func TestHintForConfigError_ExampleConfigLoads(t *testing.T) {
 		if _, err := config.Load(path); err != nil {
 			t.Errorf("%v: the hint's example config does not load: %v", sentinel, err)
 		}
+	}
+}
+
+// TestHostTransport_OverpassWaitsLongerForHeaders pins solvent-streets-e7h3:
+// Overpass holds its headers until the query has run, so its requests get a
+// header deadline above the queries' [timeout:N]; every other host keeps the
+// short one, so a dead server still fails fast.
+func TestHostTransport_OverpassWaitsLongerForHeaders(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(300 * time.Millisecond) // a query still running
+		_, _ = w.Write([]byte("{}"))
+	}))
+	t.Cleanup(srv.Close)
+	port := srv.Listener.Addr().(*net.TCPAddr).Port
+	tp := &hostTransport{
+		overpassHost: "127.0.0.1",
+		overpass:     newTransport(2 * time.Second),
+		rest:         newTransport(50 * time.Millisecond),
+	}
+	client := &http.Client{Transport: tp}
+
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/", port))
+	if err != nil {
+		t.Fatalf("Overpass-host request failed: %v; it must wait out a slow query", err)
+	}
+	_ = resp.Body.Close()
+	if _, err := client.Get(fmt.Sprintf("http://localhost:%d/", port)); err == nil {
+		t.Fatal("other-host request waited past its 50 ms header deadline")
+	}
+
+	base := newBaseTransport().(*hostTransport)
+	if base.overpassHost != ingest.OverpassHost {
+		t.Errorf("Overpass host = %q, want %q", base.overpassHost, ingest.OverpassHost)
+	}
+	if got := base.overpass.(*http.Transport).ResponseHeaderTimeout; got != ingest.OverpassHeaderTimeout {
+		t.Errorf("Overpass header timeout = %v, want %v", got, ingest.OverpassHeaderTimeout)
+	}
+	if got := base.rest.(*http.Transport).ResponseHeaderTimeout; got != 30*time.Second {
+		t.Errorf("other hosts' header timeout = %v, want 30s", got)
 	}
 }

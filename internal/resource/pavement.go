@@ -16,11 +16,11 @@ func (p *Pavement) HasCohorts() bool      { return true }
 func (p *Pavement) AsphaltSurfaced() bool { return true }
 
 func (p *Pavement) OverpassQuery(bbox [4]float64) string {
-	return fmt.Sprintf(`[out:json][timeout:120];
+	return fmt.Sprintf(`[out:json][timeout:%d];
 (
   way["highway"]["highway"!~"^(proposed|construction|bridleway|steps|footway|cycleway|path|track|pedestrian|corridor)$"](%f,%f,%f,%f);
 );
-out geom;`, bbox[0], bbox[1], bbox[2], bbox[3])
+out geom;`, OverpassTimeoutS, bbox[0], bbox[1], bbox[2], bbox[3])
 }
 
 func (p *Pavement) BufferFeaturesPaired(ctx context.Context, features []Feature, proj geo.Projector) []BufferedFeature {

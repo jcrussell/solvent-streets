@@ -58,7 +58,7 @@ func (f *Facility) AsphaltSurfaced() bool { return false }
 // with inline geometry so ways and relations can be collapsed to a point.
 func (f *Facility) OverpassQuery(bbox [4]float64) string {
 	var b strings.Builder
-	b.WriteString("[out:json][timeout:120];\n(\n")
+	fmt.Fprintf(&b, "[out:json][timeout:%d];\n(\n", OverpassTimeoutS)
 	for _, sel := range f.Selectors {
 		for _, kind := range []string{"node", "way", "relation"} {
 			fmt.Fprintf(&b, "  %s%s(%f,%f,%f,%f);\n", kind, sel, bbox[0], bbox[1], bbox[2], bbox[3])

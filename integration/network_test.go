@@ -48,7 +48,11 @@ func TestE2ENetwork_Livermore(t *testing.T) {
 	}
 
 	state := setupE2E(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	// A cold-cache Livermore ingest is minutes of Overpass time on a slow
+	// day; the budget leaves room for that, and stays inside `make e2e`'s
+	// -timeout so an exhausted budget reports which stage it ran out in
+	// rather than dying in a test-binary timeout (solvent-streets-e7h3).
+	ctx, cancel := context.WithTimeout(context.Background(), e2eBudget)
 	defer cancel()
 
 	runStages(t, ctx, state)
@@ -110,6 +114,10 @@ func setupE2E(t *testing.T) *e2eState {
 	}
 }
 
+// e2eBudget is the whole pipeline's time limit. `make e2e` passes a longer
+// go test -timeout.
+const e2eBudget = 20 * time.Minute
+
 // runStages executes the four pipeline stages in order. Stops at the
 // first failure via t.Fatalf so downstream assertions don't run against
 // half-built state.
@@ -127,6 +135,10 @@ func runStages(t *testing.T, ctx context.Context, s *e2eState) {
 		cmd.SetErr(s.ios.ErrOut)
 		cmd.SetArgs(args)
 		if err := cmd.ExecuteContext(ctx); err != nil {
+			if ctx.Err() != nil {
+				t.Fatalf("%s (%v): the %v e2e budget ran out; upstream (Overpass/ArcGIS) is slow, not necessarily a code bug: %v\nstderr:\n%s",
+					stage, args, e2eBudget, err, s.stderr.String())
+			}
 			t.Fatalf("%s (%v): %v\nstdout:\n%s\nstderr:\n%s",
 				stage, args, err, s.stdout.String(), s.stderr.String())
 		}

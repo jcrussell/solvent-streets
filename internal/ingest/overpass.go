@@ -19,6 +19,18 @@ import (
 
 const overpassAPI = "https://overpass-api.de/api/interpreter" //nolint:gosec // G101: not a credential
 
+// OverpassHost is the host every Overpass query goes to.
+const OverpassHost = "overpass-api.de"
+
+// OverpassHeaderTimeout is how long the client waits for an Overpass
+// response's headers. Overpass sends them only once the query has run, so a
+// deadline below the queries' server-side [timeout:N]
+// (resource.OverpassTimeoutS) cut slow-but-progressing queries off at 30 s
+// and the retry transport then re-ran them up to six times: one stalled
+// request cost minutes before failing (solvent-streets-e7h3). The margin
+// covers transfer start; past it a dead server still fails.
+const OverpassHeaderTimeout = time.Duration(resource.OverpassTimeoutS+30) * time.Second
+
 const (
 	geomLineString   = "LineString"
 	geomPolygon      = "Polygon"

@@ -63,6 +63,11 @@ func hintForConfigError(err error) error {
 // pvmt only talks to a handful of well-known endpoints (Overpass, ArcGIS,
 // Nominatim) and a 10s connect ceiling fails fast on bad networks.
 func newPVMTTransport() *http.Transport {
+	return newTransport(30 * time.Second)
+}
+
+// newTransport is newPVMTTransport with the given ResponseHeaderTimeout.
+func newTransport(headerTimeout time.Duration) *http.Transport {
 	return &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
@@ -71,11 +76,38 @@ func newPVMTTransport() *http.Transport {
 		}).DialContext,
 		ForceAttemptHTTP2:     true,
 		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: 30 * time.Second,
+		ResponseHeaderTimeout: headerTimeout,
 		ExpectContinueTimeout: 1 * time.Second,
 		IdleConnTimeout:       90 * time.Second,
 		MaxIdleConns:          100,
 		MaxIdleConnsPerHost:   10,
+	}
+}
+
+// hostTransport sends requests for overpassHost through overpass and every
+// other request through rest. Overpass alone holds its response headers
+// until the query has run (up to resource.OverpassTimeoutS), so only it gets
+// the longer header deadline (ingest.OverpassHeaderTimeout); ArcGIS,
+// Nominatim and TIGERweb keep the 30 s one, which fails a dead server fast.
+type hostTransport struct {
+	overpassHost string
+	overpass     http.RoundTripper
+	rest         http.RoundTripper
+}
+
+func (t *hostTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.URL.Hostname() == t.overpassHost {
+		return t.overpass.RoundTrip(req)
+	}
+	return t.rest.RoundTrip(req)
+}
+
+// newBaseTransport is the innermost transport of the client stack.
+func newBaseTransport() http.RoundTripper {
+	return &hostTransport{
+		overpassHost: ingest.OverpassHost,
+		overpass:     newTransport(ingest.OverpassHeaderTimeout),
+		rest:         newPVMTTransport(),
 	}
 }
 
@@ -86,7 +118,8 @@ func newPVMTTransport() *http.Transport {
 //     lifetime, so commands that never hit the network (e.g. --version,
 //     `pvmt config show`) pay nothing for HTTP setup.
 //   - The transport stack is, outermost → innermost,
-//     cache.NewTransport → ingest.NewTransport (UA → Retry) → newPVMTTransport.
+//     cache.NewTransport → ingest.NewTransport (UA → Retry) → newBaseTransport
+//     (newPVMTTransport, with a longer header deadline for Overpass).
 //     The disk cache wraps the ingest middleware chain so cache hits skip
 //     retries and UA stamping entirely (byob-http-client.1).
 //   - Client.Timeout is deliberately 0. A client-wide timeout kills
@@ -108,7 +141,7 @@ func httpClientFactory(f *cmdutil.Factory, cacheTTL time.Duration) func() (*http
 			return nil, err
 		}
 		transport := cache.NewTransport(
-			ingest.NewTransport(newPVMTTransport()),
+			ingest.NewTransport(newBaseTransport()),
 			cacheDir,
 			cacheTTL,
 		)

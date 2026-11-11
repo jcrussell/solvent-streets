@@ -54,9 +54,10 @@ vuln:
 
 # Real-network e2e. Gated by PVMT_E2E_NETWORK=1 so `make test` stays
 # hermetic. Hits Overpass + ArcGIS; 429/504 from upstream is flakiness,
-# not a code bug.
+# not a code bug. -timeout sits above the test's own 20-minute budget so a
+# slow upstream fails with the stage it ran out in.
 e2e:
-	PVMT_E2E_NETWORK=1 go test -race -timeout=10m -run TestE2ENetwork ./integration/...
+	PVMT_E2E_NETWORK=1 go test -race -timeout=25m -run TestE2ENetwork ./integration/...
 
 # Pinned floor lives in .golangci-version; CI pins the action to that same
 # version. Local installs that drift warn but do not fail (CI is the gate).

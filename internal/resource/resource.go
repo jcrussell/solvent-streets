@@ -38,6 +38,13 @@ const (
 	ScopeCity Scope = ":city"
 )
 
+// OverpassTimeoutS is the server-side [timeout:N], in seconds, every Overpass
+// feature query sends (roads, parking, sidewalks, facilities). Overpass holds
+// the response headers until the query finishes, so the client's header
+// deadline for Overpass (ingest.OverpassHeaderTimeout) is derived from it and
+// must stay above it (solvent-streets-e7h3).
+const OverpassTimeoutS = 120
+
 // scopeSep is the separator between bare Type and Scope suffix.
 const scopeSep = ":"
 

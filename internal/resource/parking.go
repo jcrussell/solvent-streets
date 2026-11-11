@@ -14,12 +14,12 @@ func (p *Parking) HasCohorts() bool      { return false }
 func (p *Parking) AsphaltSurfaced() bool { return true }
 
 func (p *Parking) OverpassQuery(bbox [4]float64) string {
-	return fmt.Sprintf(`[out:json][timeout:120];
+	return fmt.Sprintf(`[out:json][timeout:%d];
 (
   way["amenity"="parking"](%f,%f,%f,%f);
   relation["amenity"="parking"](%f,%f,%f,%f);
 );
-out geom;`, bbox[0], bbox[1], bbox[2], bbox[3],
+out geom;`, OverpassTimeoutS, bbox[0], bbox[1], bbox[2], bbox[3],
 		bbox[0], bbox[1], bbox[2], bbox[3])
 }
 
