@@ -588,3 +588,56 @@ func TestSortCitiesByName(t *testing.T) {
 		t.Errorf("order = %v; want %v", got, want)
 	}
 }
+
+// TestRunMultiCity_WritesCompareRollup pins solvent-streets-l0qo: a
+// multi-city export writes compare.json beside cities.json, one entry per
+// exported city, each a strict subset of that city's files, and far smaller
+// than the four files the Compare and Aggregate tabs used to fetch.
+func TestRunMultiCity_WritesCompareRollup(t *testing.T) {
+	cfg := &config.Config{}
+	entries := []CityEntry{
+		roadEntry(t, cfg, "Alpha", "alpha", exportBoundaryA),
+		roadEntry(t, cfg, "Bravo", "bravo", exportBoundaryB),
+	}
+	dir := t.TempDir()
+	if err := New(entries, cfg, dir, "metric", testAssets(t)).Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, CompareFileName))
+	if err != nil {
+		t.Fatalf("read %s: %v", CompareFileName, err)
+	}
+	var got CompareJSON
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.V != CompareFileVersion || len(got.Cities) != 2 {
+		t.Fatalf("compare.json = v%d with %d cities, want v%d with 2", got.V, len(got.Cities), CompareFileVersion)
+	}
+	var perCity int
+	for _, c := range got.Cities {
+		dataDir := filepath.Join(dir, "cities", c.Slug, "data")
+		for _, name := range []string{"meta.json", "scenarios.json", "forecast_seed.json", "forecast.json"} {
+			if fi, err := os.Stat(filepath.Join(dataDir, name)); err == nil {
+				perCity += int(fi.Size())
+			}
+		}
+		if c.Meta == nil || len(c.Meta.Stats) == 0 || c.Seed == nil || len(c.Scenarios) == 0 || len(c.Forecast) != 1 {
+			t.Errorf("%s: incomplete entry %+v", c.Slug, c)
+			continue
+		}
+		var meta MetaJSON
+		if ok, err := readDataFile(dataDir, "meta.json", &meta); err != nil || !ok {
+			t.Fatal(err)
+		}
+		if c.Meta.TotalPaved != meta.TotalPaved || c.Meta.Stats[0].TotalArea != meta.Stats[0].TotalArea {
+			t.Errorf("%s: rollup meta %+v differs from meta.json", c.Slug, c.Meta)
+		}
+		if c.Forecast[0].ResourceType != "roads" {
+			t.Errorf("%s: rollup forecast is %q, want the roads entry", c.Slug, c.Forecast[0].ResourceType)
+		}
+	}
+	if len(raw)*4 > perCity {
+		t.Errorf("compare.json is %d bytes against %d for the per-city files; want well under a quarter", len(raw), perCity)
+	}
+}

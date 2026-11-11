@@ -148,6 +148,23 @@ func (e *Exporter) exportOneCity(ctx context.Context, entry CityEntry) (CityInfo
 	return info, true, nil
 }
 
+// writeCompareRollup writes compare.json for the exported cities, built from
+// the files just written so each value is the one its city's file carries.
+func (e *Exporter) writeCompareRollup(cities []CityInfo) error {
+	compare := CompareJSON{V: CompareFileVersion, Cities: make([]CompareCity, 0, len(cities))}
+	for _, c := range cities {
+		cc, err := compareCityFromDir(c.Slug, filepath.Join(e.outputDir, "cities", c.Slug, "data"))
+		if err != nil {
+			return fmt.Errorf("build %s for %s: %w", CompareFileName, c.Slug, err)
+		}
+		compare.Cities = append(compare.Cities, cc)
+	}
+	if err := writeJSON(filepath.Join(e.outputDir, CompareFileName), compare); err != nil {
+		return fmt.Errorf("write %s: %w", CompareFileName, err)
+	}
+	return nil
+}
+
 func (e *Exporter) runMultiCity(ctx context.Context) error {
 	if err := os.MkdirAll(e.outputDir, 0o755); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
@@ -180,6 +197,9 @@ func (e *Exporter) runMultiCity(ctx context.Context) error {
 	sortCitiesByName(cities)
 	if err := writeJSON(filepath.Join(e.outputDir, "cities.json"), cities); err != nil {
 		return fmt.Errorf("write cities.json: %w", err)
+	}
+	if err := e.writeCompareRollup(cities); err != nil {
+		return err
 	}
 
 	if err := e.assets.WriteTo(e.outputDir); err != nil {

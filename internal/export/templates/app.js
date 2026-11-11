@@ -3333,18 +3333,40 @@
         // in-flight Promise (not the resolved data) so two near-simultaneous
         // openings — e.g. a deep-link plus a click — dedupe to one fan-out
         // instead of both observing an undefined data var and re-fetching.
+        // loadAllCityData resolves every city's Compare/Aggregate inputs
+        // ({slug, name, meta, scenarios, seed, forecast}). A static export ships
+        // them in one rollup, compare.json, holding just the slice of each data
+        // file those tabs read (solvent-streets-l0qo); a city missing from it
+        // reads as missing files, with no banner. `pvmt serve` has no rollup, so
+        // a 404 (or a version this page does not know) falls back to fetching
+        // the four files per city.
         function loadAllCityData() {
             if (!allCityDataPromise) {
-                allCityDataPromise = Promise.all(CITIES.map(async function(city) {
-                    var prefix = 'cities/' + city.slug + '/';
-                    const [meta, scenarios, seed, forecast] = await Promise.all([
-                        loadJSON(prefix + 'data/meta.json'),
-                        loadJSON(prefix + 'data/scenarios.json'),
-                        loadJSON(prefix + 'data/forecast_seed.json'),
-                        loadJSON(prefix + 'data/forecast.json')
-                    ]);
-                    return { slug: city.slug, name: city.name, meta, scenarios, seed, forecast };
-                }));
+                allCityDataPromise = (async function() {
+                    const rollup = await loadJSON('compare.json', { silent404: true });
+                    if (rollup && rollup.v === 1 && Array.isArray(rollup.cities)) {
+                        /** @type {Map<string, any>} */
+                        const bySlug = new Map(rollup.cities.map(c => [c.slug, c]));
+                        return CITIES.map(function(city) {
+                            const c = bySlug.get(city.slug) || {};
+                            return {
+                                slug: city.slug, name: city.name,
+                                meta: c.meta || null, scenarios: c.scenarios || null,
+                                seed: c.seed || null, forecast: c.forecast || null,
+                            };
+                        });
+                    }
+                    return Promise.all(CITIES.map(async function(city) {
+                        var prefix = 'cities/' + city.slug + '/';
+                        const [meta, scenarios, seed, forecast] = await Promise.all([
+                            loadJSON(prefix + 'data/meta.json'),
+                            loadJSON(prefix + 'data/scenarios.json'),
+                            loadJSON(prefix + 'data/forecast_seed.json'),
+                            loadJSON(prefix + 'data/forecast.json')
+                        ]);
+                        return { slug: city.slug, name: city.name, meta, scenarios, seed, forecast };
+                    }));
+                })();
             }
             return allCityDataPromise;
         }

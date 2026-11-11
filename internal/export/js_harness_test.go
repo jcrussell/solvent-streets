@@ -225,6 +225,18 @@ func writeJSFixtureTree(t *testing.T, dir string) {
 	if err := os.WriteFile(filepath.Join(dir, "forecast_seed.json"), []byte(seed), 0o644); err != nil {
 		t.Fatalf("write forecast_seed.json: %v", err)
 	}
+	// The Compare/Aggregate rollup as the multi-city export builds it, from
+	// the files just written (every fixture city shares them). The specs
+	// check the tabs render the same from it as from the per-city files.
+	compare := CompareJSON{V: CompareFileVersion}
+	for _, slug := range []string{"alpha-ca", "beta-ca", "gamma-or"} {
+		c, err := compareCityFromDir(slug, dir)
+		if err != nil {
+			t.Fatalf("build compare.json: %v", err)
+		}
+		compare.Cities = append(compare.Cities, c)
+	}
+	writeFixtureJSON(t, dir, CompareFileName, compare)
 	writeJSFixtureBoard(t, dir)
 }
 

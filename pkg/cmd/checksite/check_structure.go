@@ -53,6 +53,13 @@ func (r *runner) checkExampleStructure(ex example) {
 	} else {
 		r.failf("structure: %s is missing cities.json", ex.slug)
 	}
+	// The Compare/Aggregate rollup; without it those tabs fall back to
+	// fetching four files per city.
+	if fileExists(filepath.Join(ex.dir, export.CompareFileName)) {
+		r.passf("structure: %s has %s", ex.slug, export.CompareFileName)
+	} else {
+		r.failf("structure: %s is missing %s", ex.slug, export.CompareFileName)
+	}
 	if len(ex.cities) == 0 {
 		r.failf("structure: %s has a cities/ dir with no city subdirectories", ex.slug)
 	}

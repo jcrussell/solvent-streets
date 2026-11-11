@@ -528,6 +528,7 @@ func buildValidRootSite(t *testing.T) string {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(dir, "cities.json"), `[{"slug":"demo","name":"Demo"}]`)
+	writeFile(t, filepath.Join(dir, "compare.json"), `{"v":1,"cities":[]}`)
 	writeDataDir(t, filepath.Join(dir, "cities", "demo", "data"), 0.525, 50000)
 
 	return dir
@@ -584,6 +585,7 @@ func addMultiCityExample(t *testing.T, dir, exSlug, citySlug string, totalPaved,
 	writeFile(t, filepath.Join(exDir, "index.html"),
 		`<html><head><script src="../wasm_exec.js"></script></head><body>map</body></html>`)
 	writeFile(t, filepath.Join(exDir, "cities.json"), `[{"slug":"`+citySlug+`","name":"Demo"}]`)
+	writeFile(t, filepath.Join(exDir, "compare.json"), `{"v":1,"cities":[]}`)
 	writeDataDir(t, filepath.Join(exDir, "cities", citySlug, "data"), pavedShare, totalPaved)
 }
 
