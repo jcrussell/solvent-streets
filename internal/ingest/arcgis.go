@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"path"
@@ -39,7 +40,7 @@ const defaultArcGISCenterlines = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/
 // ArcGISSource ingests road centerlines from an ArcGIS layer. It is the roads
 // adapter over ArcGISQuery: the query core owns paging, completeness checks
 // and the SSRF guard; this type only picks the layer and maps rows onto road
-// features (name from FULLNAME).
+// features (see roadFeaturesFromRows).
 type ArcGISSource struct {
 	BBox         [4]float64 // [south, west, north, east]
 	URL          string     // custom ArcGIS endpoint; empty uses default
@@ -75,22 +76,26 @@ func (s *ArcGISSource) Fetch(ctx context.Context, client *http.Client, rt resour
 }
 
 // roadFeaturesFromRows maps fetched rows onto road features: every property
-// becomes a tag, and FULLNAME (any casing seen in the wild) is the name.
+// becomes a tag, a highway tag is derived from the functional class when the
+// row has none (arcgisHighway), and the name is the first of FULLNAME, STREET
+// or SFEANME the layer carries (any casing seen in the wild).
 func roadFeaturesFromRows(rows []ArcGISRow, resourceType resource.Type) []db.Feature {
 	features := make([]db.Feature, 0, len(rows))
 	now := time.Now()
 	for _, r := range rows {
-		var name string
-		for _, k := range []string{"FULLNAME", "FullName", "fullname"} {
-			if v, ok := r.Props[k]; ok {
-				name = v
+		tags := r.Props
+		if _, ok := tags["highway"]; !ok {
+			if hw := arcgisHighway(tags); hw != "" {
+				tags = maps.Clone(tags)
+				tags["highway"] = hw
 			}
 		}
+		name := arcgisName(tags)
 		features = append(features, db.Feature{
 			ID:           r.ID,
 			ResourceType: resourceType,
 			Name:         name,
-			Tags:         r.Props,
+			Tags:         tags,
 			GeometryJSON: string(r.Geometry),
 			SourceAPI:    "arcgis",
 			FetchedAt:    now,
