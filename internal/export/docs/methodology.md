@@ -85,7 +85,8 @@ gives the evidence.
 The multiplier exists as `cost_overhead` (default `1.0`) so the regime is
 explicit and adjustable rather than assumed, and the Financials tab exposes
 it as a live slider for a reader whose local numbers say otherwise.
-Changing it scales every dollar figure and nothing else.
+Changing it scales every dollar figure on the tab, the hold-steady headline
+included, and nothing else.
 
 ### Condition spread
 

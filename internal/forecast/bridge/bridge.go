@@ -58,6 +58,21 @@ type Input struct {
 	// blank ones are wrong by everything.
 	CostOverhead float64  `json:"cost_overhead,omitempty"`
 	Cohorts      []Cohort `json:"cohorts,omitempty"`
+	// Solvency asks for the solvency metrics of these inputs alongside the
+	// scenario: the worst-first hold-steady (break-even) budget, and the
+	// insolvency year of the scenario as run. The Financials page anchors its
+	// budget slider and recomputes its headline with them, so they follow the
+	// live Initial PCI, cost multiplier and tiers (solvent-streets-i68t,
+	// solvent-streets-a6ci). Off by default: a bisection costs ~30 simulations.
+	Solvency bool `json:"solvency,omitempty"`
+}
+
+// Output is a ScenarioResult plus, when Input.Solvency is set, its solvency
+// metrics. The embedded result keeps the JSON shape of a plain run.
+type Output struct {
+	forecast.ScenarioResult
+	BreakEvenBudget *float64 `json:"break_even_budget,omitempty"`
+	InsolvencyYear  *int     `json:"insolvency_year,omitempty"`
 }
 
 // resolveOverhead clamps a missing or nonsensical multiplier to 1.0 (bare).
@@ -241,5 +256,13 @@ func Run(raw []byte) ([]byte, error) {
 	// export table instead of showing K duplicate rows per class.
 	result.FinalCohorts = forecast.AggregateCohortSummariesByClass(result.FinalCohorts)
 
-	return json.Marshal(result)
+	out := Output{ScenarioResult: result}
+	if in.Solvency {
+		be := forecast.BreakEvenBudget(cohorts, years, params, forecast.StrategyWorstFirst)
+		out.BreakEvenBudget = &be
+		if yr, ok := forecast.InsolvencyYear(result, params.CycleYears); ok {
+			out.InsolvencyYear = &yr
+		}
+	}
+	return json.Marshal(out)
 }

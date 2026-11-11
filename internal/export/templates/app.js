@@ -63,6 +63,7 @@
                     scope:    p.get('scope'),
                     snapshot: p.get('snapshot'),
                     metric:   p.get('metric'),
+                    budget:   p.get('budget'),
                 };
             },
             current() {
@@ -80,6 +81,9 @@
                 // (the same rule scope follows). Coverage is the default and is
                 // left out of the URL.
                 const onMap = tabBtn && tabBtn.dataset.tab === 'map-tab';
+                // The Financials budget, likewise, only once the reader has
+                // set one: the default (today's budget) needs no URL.
+                const onFinancials = tabBtn && tabBtn.dataset.tab === 'financials-tab';
                 // With no city matching the filters the select holds a disabled
                 // placeholder (value ''); the city actually in view is the one
                 // DATA_PREFIX points at, so the URL keeps naming it.
@@ -91,12 +95,13 @@
                     scope:    (scopeVis && scopeBtn) ? scopeBtn.dataset.scope : null,
                     snapshot: snapEl ? snapEl.value : null,
                     metric:   (onMap && hexMetric !== DEFAULT_METRIC) ? hexMetric : null,
+                    budget:   (onFinancials && budgetUserSet) ? String(Math.round(budgetDollars)) : null,
                 };
             },
             // url serializes a state object to this page's path + query string.
             url(s) {
                 const p = new URLSearchParams();
-                for (const k of ['city', 'tab', 'scope', 'snapshot', 'metric']) {
+                for (const k of ['city', 'tab', 'scope', 'snapshot', 'metric', 'budget']) {
                     if (s[k]) p.set(k, s[k]);
                 }
                 PvmtSelectors.urlTags(s.tags, TAG_DIMS).forEach(t => p.append('tag', t));
@@ -122,6 +127,24 @@
         // Scope state. Declared above applyInitialState so the URL-state IIFE
         // can read/write it before the map state block runs.
         let currentScope = 'city';
+
+        // Financials budget state (solvent-streets-i68t), declared here for the
+        // same reason: Router.current serializes it. budgetDollars is the
+        // interactive forecast's annual budget in dollars. Until the reader
+        // moves the slider (budgetUserSet) it tracks the default — today's cited
+        // budget, else the hold-steady budget — so it lands right whichever data
+        // arrives first; after that it stays put while Initial PCI, the cost
+        // multiplier and the tiers move. budgetCity resets it on a city switch.
+        let budgetDollars = 0;
+        let budgetUserSet = false;
+        let budgetCity = null;
+        let budgetFromURL = new URLSearchParams(location.search).get('budget');
+        // The roads solvency headline recomputed at the live settings
+        // (computeLiveSolvency); null until the forecast simulator has run for
+        // this city. Declared up here because renderSolvencyHeadline reads it
+        // from the first financials load.
+        /** @type {{break_even_budget: number, current_budget: number, insolvency_year: number | null} | null} */
+        let liveSolvency = null;
 
         // Compare/Aggregate tab state. These MUST be initialized above the
         // applyInitialState IIFE: for a deep link (?tab=aggregate-tab/compare-tab)
@@ -2139,6 +2162,7 @@
             // forecast.json fetch would leave the previous city's metrics on
             // screen — a wrong dollar claim under the new city's name.
             forecastData = null;
+            liveSolvency = null;
             renderSolvencyHeadline();
             // Drop the previous city's scenarios and seed-loaded flag for the same
             // reason, and so renderFinancialsFromCache — which any units toggle can
@@ -2579,7 +2603,10 @@
         function renderSolvencyHeadline() {
             var el = document.getElementById('solvency-headline');
             if (!el) return;
-            var roads = forecastData ? forecastData.find(function(f) { return f.resource_type === 'roads'; }) : null;
+            // Live (WASM) figures at the current settings once they exist, else
+            // forecast.json's, which is what the live ones reproduce at the
+            // seeded settings.
+            var roads = liveSolvency || (forecastData ? forecastData.find(function(f) { return f.resource_type === 'roads'; }) : null);
             if (!roads || !(roads.break_even_budget > 0)) {
                 el.style.display = 'none';
                 return;
@@ -2618,23 +2645,25 @@
         // "comparable to a published pavement budget" is the accurate claim, and
         // it is the claim a reader needs in order to use the number.
         //
-        // Reads the seed, not the slider: the headline comes from forecast.json,
-        // which was priced server-side at the seeded multiplier. The slider only
-        // moves the interactive custom line.
+        // Names the multiplier the headline was priced at: the slider's once the
+        // headline is live (liveSolvency), else the seed's, which is what
+        // forecast.json was priced at.
         function costRegimeText() {
-            const oh = FORECAST_SEED && Number(FORECAST_SEED.cost_overhead);
+            const seeded = FORECAST_SEED && Number(FORECAST_SEED.cost_overhead);
+            const oh = liveSolvency ? currentOverhead() : seeded;
             if (!Number.isFinite(oh) || oh <= 1) {
                 return 'Figures are calibrated against real municipal hold-steady spending, so they are '
                     + 'comparable to a published pavement budget. See Methodology for the cost basis.';
             }
+            const where = (Number.isFinite(seeded) && Math.abs(oh - seeded) < 1e-9)
+                ? 'set for this city in <code>forecast.cost_overhead</code>'
+                : 'set on the Cost multiplier slider';
             return 'Figures carry a <strong>' + oh.toFixed(2).replace(/0$/, '')
-                + '\u00d7 cost multiplier</strong> over the calibrated default \u2014 set for this city in '
-                + '<code>forecast.cost_overhead</code>.';
+                + '\u00d7 cost multiplier</strong> over the calibrated default \u2014 ' + where + '.';
         }
 
-        // The slider moves the interactive line's basis, so keep its label honest
-        // while the user drags. The headline note above stays on the seeded
-        // value, which is what forecast.json was priced at.
+        // The slider moves the interactive line's basis and the live headline, so
+        // keep its label honest while the user drags.
         function renderOverheadRegimeLabel() {
             const el = document.getElementById('overhead-value');
             if (!el) return;
@@ -2961,7 +2990,6 @@
         }
 
         function getControlValues() {
-            const budgetPct = parseInt(inputById('budget-slider').value) / 100;
             const initialPCI = parseInt(inputById('pci-slider').value);
 
             // Read tier values from inputs (advanced), fallback to seed
@@ -2998,30 +3026,6 @@
                 ? (FORECAST_SEED.cohorts || [])
                 : FORECAST_SEED.city_cohorts;
 
-            // Compute baseline year-1 need to derive budget
-            const baselineInput = {
-                area: area,
-                initial_pci: initialPCI,
-                decay_rate: FORECAST_SEED.decay_rate,
-                growth_rate: FORECAST_SEED.growth_rate,
-                horizon_years: FORECAST_SEED.horizon_years,
-                treatment_cycle_years: FORECAST_SEED.treatment_cycle_years,
-                cost_tiers: tiers,
-                // Same overhead as the scenario below. The Budget Level slider is
-                // a PERCENTAGE of this year-1 need, so pricing the two runs
-                // differently would silently scale the budget by the overhead:
-                // "50% funding" against a bare need, spent at loaded cost.
-                cost_overhead: currentOverhead(),
-                annual_budget: 0,
-                strategy: 'do-nothing',
-                cohorts: seedCohorts
-            };
-            const baseline = safeSimulate(baselineInput);
-            if (!baseline) return null;
-
-            const year1Need = baseline.years && baseline.years.length > 0 ? baseline.years[0].annual_need : 0;
-            const annualBudget = budgetPct > 0 ? year1Need * budgetPct : 0;
-
             return {
                 area: area,
                 initial_pci: initialPCI,
@@ -3031,16 +3035,137 @@
                 treatment_cycle_years: FORECAST_SEED.treatment_cycle_years,
                 cost_tiers: tiers,
                 cost_overhead: currentOverhead(),
-                annual_budget: annualBudget,
+                annual_budget: budgetDollars,
                 strategy: currentStrategy,
                 cohorts: seedCohorts
             };
+        }
+
+        // memoSolvency runs a solvency probe of input through the bridge (the
+        // worst-first hold-steady budget, plus the insolvency year at
+        // input.annual_budget) and caches the last answer, so a budget drag that
+        // leaves the probe unchanged costs no bisection.
+        /** @param {{key: string, value: any}} cache @param {any} probe */
+        function memoSolvency(cache, probe) {
+            const key = JSON.stringify(probe);
+            if (key !== cache.key) {
+                cache.key = key;
+                cache.value = safeSimulate(Object.assign({}, probe, { solvency: true }));
+            }
+            return cache.value;
+        }
+        const holdCache = { key: '', value: null };
+        const headlineCache = { key: '', value: null };
+
+        // holdSteadyBudget is the budget that holds the network the slider
+        // simulates (the seeded cohorts of the active scope) steady at the live
+        // settings: the slider's "Hold steady" anchor.
+        function holdSteadyBudget(input) {
+            const r = memoSolvency(holdCache, Object.assign({}, input, { annual_budget: 0, strategy: 'worst-first' }));
+            return r && r.break_even_budget > 0 ? r.break_even_budget : 0;
+        }
+
+        // todayBudget is the city's cited annual street budget, 0 when none.
+        function todayBudget() {
+            const roads = forecastData ? forecastData.find(f => f.resource_type === 'roads') : null;
+            return roads && roads.current_budget > 0 ? roads.current_budget : 0;
+        }
+
+        // liveSolvency recomputes the roads-only solvency headline at the live
+        // settings (solvent-streets-a6ci): the same cohorts, horizon and budget
+        // forecast.json's roads entry used, so it reproduces the exported figures
+        // at the seeded settings and follows Initial PCI, the cost multiplier and
+        // the tiers when they move. null when there is no roads forecast.
+        function computeLiveSolvency(input) {
+            const roads = forecastData ? forecastData.find(f => f.resource_type === 'roads') : null;
+            const src = (FORECAST_SEED.city_cohorts && FORECAST_SEED.city_cohorts.length)
+                ? FORECAST_SEED.city_cohorts : (FORECAST_SEED.cohorts || []);
+            const cohorts = src.filter(c => c.classification !== 'parking' && c.classification !== 'sidewalks');
+            if (!roads || cohorts.length === 0) return null;
+            const current = roads.current_budget > 0 ? roads.current_budget : 0;
+            const r = memoSolvency(headlineCache, Object.assign({}, input, {
+                cohorts: cohorts,
+                area: cohorts.reduce((sum, c) => sum + (c.area || 0), 0),
+                annual_budget: current,
+                strategy: 'worst-first',
+            }));
+            if (!r || !(r.break_even_budget > 0)) return null;
+            return {
+                break_even_budget: r.break_even_budget,
+                current_budget: current,
+                insolvency_year: current > 0 && r.insolvency_year ? r.insolvency_year : null,
+            };
+        }
+
+        // niceCeil rounds up to 1, 2, 2.5 or 5 times a power of ten, so the
+        // slider's range ends on a round figure.
+        function niceCeil(x) {
+            if (!(x > 0)) return 1;
+            const p = Math.pow(10, Math.floor(Math.log10(x)));
+            for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= x) return m * p;
+            return 10 * p;
+        }
+
+        // applyBudget settles the interactive budget for this run: resets it on a
+        // city switch, takes ?budget= on the first run, follows the default until
+        // the reader moves the slider, then re-ranges the slider and its anchors
+        // around it. Returns the dollars to simulate.
+        function applyBudget(input) {
+            const today = todayBudget();
+            const hold = holdSteadyBudget(input);
+            if (budgetCity !== DATA_PREFIX) {
+                budgetCity = DATA_PREFIX;
+                const fromURL = budgetFromURL != null ? parseFloat(budgetFromURL) : NaN;
+                budgetFromURL = null;
+                budgetUserSet = Number.isFinite(fromURL) && fromURL >= 0;
+                if (budgetUserSet) budgetDollars = fromURL;
+            }
+            if (!budgetUserSet) budgetDollars = today > 0 ? today : hold;
+            renderBudgetSlider(today, hold);
+            return budgetDollars;
+        }
+
+        /** @param {number} today @param {number} hold */
+        function renderBudgetSlider(today, hold) {
+            const slider = inputById('budget-slider');
+            const top = niceCeil(2 * Math.max(today, hold, budgetDollars, 1));
+            slider.max = String(top);
+            slider.step = String(top / 400);
+            slider.value = String(budgetDollars);
+            slider.setAttribute('aria-valuemax', slider.max);
+            syncAriaValueNow(slider);
+            slider.setAttribute('aria-valuetext', fmtCost(budgetDollars) + ' a year');
+            document.getElementById('budget-value').textContent = fmtCost(budgetDollars) + '/yr';
+            document.getElementById('budget-share').textContent = hold > 0
+                ? '(' + Math.round(100 * budgetDollars / hold) + '% of hold-steady)' : '';
+            const ticks = document.getElementById('budget-ticks');
+            ticks.innerHTML = '';
+            /** @type {Array<[number, string]>} */
+            const tickList = [[today, 'Today'], [hold, 'Hold steady']];
+            for (const [v, label] of tickList) {
+                if (!(v > 0)) continue;
+                const opt = document.createElement('option');
+                opt.value = String(v);
+                opt.label = label;
+                ticks.appendChild(opt);
+            }
+            /** @type {Array<[string, number]>} */
+            const anchorList = [['budget-today', today], ['budget-hold', hold]];
+            for (const [id, v] of anchorList) {
+                const btn = buttonById(id);
+                btn.hidden = !(v > 0);
+                btn.dataset.budget = String(v);
+                queryEl('.num', btn).textContent = fmtCost(v);
+            }
         }
 
         function runCustomScenario() {
             if (!wasmReady) return;
             const input = getControlValues();
             if (!input) return;
+            input.annual_budget = applyBudget(input);
+            liveSolvency = computeLiveSolvency(input);
+            renderSolvencyHeadline();
 
             const result = safeSimulate(input);
             if (!result) return;
@@ -3075,23 +3200,23 @@
 
             // Update PCI chart
             if (chartRefs.pci) {
-                updateChartDataset(chartRefs.pci, 'Custom Scenario', years.map(y => y.pci), customColor);
+                updateChartDataset(chartRefs.pci, 'Your budget', years.map(y => y.pci), customColor);
             }
             // Update backlog chart
             if (chartRefs.backlog) {
-                updateChartDataset(chartRefs.backlog, 'Custom Scenario', years.map(y => y.deferred_backlog), customColor);
+                updateChartDataset(chartRefs.backlog, 'Your budget', years.map(y => y.deferred_backlog), customColor);
             }
             // Update spending chart
             if (chartRefs.spending) {
                 let cum = 0;
                 const cumData = years.map(y => { cum += y.annual_spend; return cum; });
-                updateChartDataset(chartRefs.spending, 'Custom Scenario', cumData, customColor);
+                updateChartDataset(chartRefs.spending, 'Your budget', cumData, customColor);
             }
             // Update tier chart
             if (chartRefs.tier) {
-                const idx = chartRefs.tier.data.datasets.findIndex(ds => ds.label === 'Custom Need');
+                const idx = chartRefs.tier.data.datasets.findIndex(ds => ds.label === 'Need at your budget');
                 const ds = {
-                    label: 'Custom Need',
+                    label: 'Need at your budget',
                     data: years.map(y => y.annual_need),
                     backgroundColor: years.map(y => tierColor(y.cost_tier) + '80'),
                     borderColor: customColor,
@@ -3149,11 +3274,18 @@
         // Control event bindings. Each listener is bound to its own slider, so it
         // closes over the typed element rather than narrowing e.target.
         const budgetSlider = inputById('budget-slider');
-        budgetSlider.addEventListener('input', () => {
-            document.getElementById('budget-value').textContent = budgetSlider.value + '%';
-            syncAriaValueNow(budgetSlider);
+        /** @param {number} dollars */
+        function setBudget(dollars) {
+            budgetDollars = dollars;
+            budgetUserSet = true;
             runCustomScenario();
-        });
+            Router.replace();
+        }
+        budgetSlider.addEventListener('input', () => setBudget(parseFloat(budgetSlider.value) || 0));
+        for (const id of ['budget-today', 'budget-hold']) {
+            const btn = buttonById(id);
+            btn.addEventListener('click', () => setBudget(parseFloat(btn.dataset.budget || '0') || 0));
+        }
         const pciSlider = inputById('pci-slider');
         pciSlider.addEventListener('input', () => {
             document.getElementById('pci-value').textContent = pciSlider.value;

@@ -143,29 +143,35 @@ test('forecast controls stay hidden when the seed is missing', async () => {
 
 // solvent-streets-i9pt. Three call sites each ran runCustomScenario twice —
 // renderFinancialsFromCache, selectScope, and the renderFinancials wrapper
-// firing inside both. Each runCustomScenario is TWO simulateForecast calls (the
-// year-1 baseline inside getControlValues, then the result), so a render cost
-// four sims where two would do.
+// firing inside both, so a render cost two custom scenarios where one would
+// do. Each runCustomScenario is one scenario simulation, plus solvency probes
+// (the slider's hold-steady anchor and the live headline) that are memoised
+// on their inputs, so count the scenario runs.
+/** @param {any} win */
+const scenarioRuns = (win) => win.__simCalls.filter((c) => !c.solvency).length;
+
 test('a cache re-render runs exactly one custom scenario', async () => {
-  const { win, resetSimCalls, simCalls, flush } = await ready();
+  const { win, resetSimCalls, flush } = await ready();
 
   resetSimCalls();
   win.renderFinancialsFromCache();
   await flush();
 
-  assert.equal(simCalls(), 2,
-    `expected 2 simulateForecast calls (one runCustomScenario), got ${simCalls()}`);
+  assert.equal(scenarioRuns(win), 1,
+    `expected one custom scenario, got ${scenarioRuns(win)}`);
+  assert.equal(win.__simCalls.length, 1,
+    'unchanged inputs must reuse the memoised solvency probes');
 });
 
 test('a scope change runs exactly one custom scenario', async () => {
-  const { win, resetSimCalls, simCalls, flush } = await ready();
+  const { win, resetSimCalls, flush } = await ready();
 
   resetSimCalls();
   win.selectScope('all', { push: false });
   await flush();
 
-  assert.equal(simCalls(), 2,
-    `expected 2 simulateForecast calls (one runCustomScenario), got ${simCalls()}`);
+  assert.equal(scenarioRuns(win), 1,
+    `expected one custom scenario, got ${scenarioRuns(win)}`);
 });
 
 // The dedupe must not silently drop the re-run: the headline tiles are written

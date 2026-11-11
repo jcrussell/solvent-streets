@@ -455,3 +455,44 @@ func TestRun_NegativeCostOverheadIsRejected(t *testing.T) {
 		t.Error("a negative cost_overhead was accepted; want a validation error")
 	}
 }
+
+// TestRun_Solvency: with solvency set, Run adds the worst-first break-even of
+// the same inputs and the scenario's insolvency year; without it the output is
+// the plain ScenarioResult (TestRunEndToEnd pins that byte for byte).
+func TestRun_Solvency(t *testing.T) {
+	in := Input{
+		Area: 750_000, InitialPCI: 60, DecayRate: 0.04, HorizonYears: 20,
+		AnnualBudget: 100_000, Strategy: "worst-first", Solvency: true,
+	}
+	raw, _ := json.Marshal(in)
+	out, err := Run(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		BreakEven      *float64 `json:"break_even_budget"`
+		InsolvencyYear *int     `json:"insolvency_year"`
+		Years          []any    `json:"years"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatal(err)
+	}
+	_, cohorts, years, params, _ := Translate(in)
+	want := forecast.BreakEvenBudget(cohorts, years, params, forecast.StrategyWorstFirst)
+	if got.BreakEven == nil || *got.BreakEven != want {
+		t.Errorf("break_even_budget = %v, want %v", got.BreakEven, want)
+	}
+	if got.InsolvencyYear == nil {
+		t.Error("a $100k budget on a PCI-60 network must report an insolvency year")
+	}
+	if len(got.Years) != 20 {
+		t.Errorf("years = %d, want the scenario's 20", len(got.Years))
+	}
+
+	in.Solvency = false
+	raw, _ = json.Marshal(in)
+	out, _ = Run(raw)
+	if strings.Contains(string(out), "break_even_budget") {
+		t.Error("solvency metrics leaked into a plain run")
+	}
+}

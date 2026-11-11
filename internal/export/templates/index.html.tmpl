@@ -371,6 +371,10 @@
         .control-group { display: flex; flex-direction: column; gap: 4px; }
         .control-group label { font-size: 13px; color: var(--text-muted); font-weight: 500; }
         .control-group .control-value { font-size: 13px; color: var(--text-strong); font-weight: 600; }
+        .control-group .control-sub { font-size: 12px; color: var(--text-muted); font-weight: 400; }
+        .budget-anchors { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+        .budget-anchors button { font-size: 12px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--text-muted); cursor: pointer; }
+        .budget-anchors button:hover, .budget-anchors button:focus-visible { color: var(--text-strong); border-color: var(--text-muted); }
         .control-group input[type="range"] {
             width: 100%;
             accent-color: var(--accent);
@@ -767,9 +771,14 @@
             <div class="forecast-controls" id="forecast-controls">
                 <h3>Interactive Forecast</h3>
                 <div class="controls-grid">
-                    <div class="control-group">
-                        <label for="budget-slider">Budget Level: <span class="control-value" id="budget-value">50%</span></label>
-                        <input type="range" id="budget-slider" min="0" max="150" value="50" step="5" aria-valuemin="0" aria-valuemax="150" aria-valuenow="50">
+                    <div class="control-group budget-group">
+                        <label for="budget-slider">Annual budget: <span class="control-value" id="budget-value">—</span> <span class="control-sub" id="budget-share"></span></label>
+                        <input type="range" id="budget-slider" min="0" max="1" value="0" step="1" list="budget-ticks" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0">
+                        <datalist id="budget-ticks"></datalist>
+                        <div class="budget-anchors">
+                            <button type="button" id="budget-today" hidden title="This city's cited annual street budget">Today <span class="num"></span></button>
+                            <button type="button" id="budget-hold" hidden title="The budget that holds this network's condition steady at these settings (worst-first)">Hold steady <span class="num"></span></button>
+                        </div>
                     </div>
                     <div class="control-group">
                         <label for="pci-slider">Initial PCI: <span class="control-value" id="pci-value">85</span></label>

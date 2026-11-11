@@ -57,16 +57,13 @@ test('a stale seed with no cost_overhead falls back to bare, not to $0', async (
   assert.equal(sent.cost_overhead, 1, 'the bridge must receive 1.0, never 0');
 });
 
-test('the overhead reaches the WASM bridge on both runs of a simulation', async () => {
-  const { win, resetSimCalls } = await ready(withSeedOverhead(1.5));
-  resetSimCalls();
-  win.runCustomScenario();
-
-  // Two calls: the year-1 baseline inside getControlValues, then the scenario.
-  // BOTH must carry the same overhead — the Budget Level slider is a percentage
-  // of that year-1 need, so pricing them differently would silently scale the
-  // budget by the overhead.
-  assert.equal(win.__simCalls.length, 2);
+test('the overhead reaches the WASM bridge on every simulation of a run', async () => {
+  // A run is the scenario plus its solvency probes: the slider's hold-steady
+  // anchor and the live headline. They must all price at the same overhead,
+  // or the anchor and the headline describe a different cost basis from the
+  // line they sit beside.
+  const { win } = await ready(withSeedOverhead(1.5));
+  assert.ok(win.__simCalls.some((c) => c.solvency), 'no solvency probe ran');
   for (const call of win.__simCalls) {
     assert.equal(call.cost_overhead, 1.5,
       'every simulation in a run must price at the same overhead');
