@@ -108,8 +108,9 @@ import (
 // costs every user a full recompute. When unsure, compare a city's stored
 // results before and after the change. See CONTRIBUTING.md.
 //
-// History: 1 — v0.5.0, the first semantic hash.
-const ComputeEpoch = 1
+// History (all before v0.5.0): 1 — the first semantic hash. 2 — untagged
+// highway=secondary is City, not County (solvent-streets-0mre).
+const ComputeEpoch = 2
 
 // computeInputsScheme names the encoding of hashEnvelope; part of the hashed
 // bytes so a future encoding can never collide with this one.

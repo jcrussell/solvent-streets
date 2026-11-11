@@ -52,7 +52,12 @@ func TestClassifyJurisdiction(t *testing.T) {
 		{"trunk link", map[string]string{"highway": "trunk_link"}, JurisdictionState},
 		{"county operator", map[string]string{"operator": "Alameda County", "highway": "secondary"}, JurisdictionCounty},
 		{"county network", map[string]string{"network": "Alameda county roads"}, JurisdictionCounty},
-		{"secondary no operator", map[string]string{"highway": "secondary"}, JurisdictionCounty},
+		// highway=secondary is importance, not ownership (solvent-streets-0mre):
+		// Livermore's First Street, East Avenue, Airway Boulevard ... carry no
+		// ref or operator and are city arterials. Its real county roads carry
+		// a county ref.
+		{"secondary no operator", map[string]string{"highway": "secondary"}, JurisdictionCity},
+		{"secondary county ref", map[string]string{"highway": "secondary", "ref": "CR J2"}, JurisdictionCounty},
 		{"secondary city operator", map[string]string{"highway": "secondary", "operator": "City of Livermore"}, JurisdictionCity},
 		{"residential", map[string]string{"highway": "residential"}, JurisdictionCity},
 		{"tertiary", map[string]string{"highway": "tertiary"}, JurisdictionCity},
@@ -592,8 +597,8 @@ func TestPartition(t *testing.T) {
 	}
 
 	parts := Partition(features)
-	if len(parts[JurisdictionCity]) != 2 {
-		t.Errorf("expected 2 city, got %d", len(parts[JurisdictionCity]))
+	if len(parts[JurisdictionCity]) != 3 {
+		t.Errorf("expected 3 city (the untagged secondary included), got %d", len(parts[JurisdictionCity]))
 	}
 	if len(parts[JurisdictionFederal]) != 1 {
 		t.Errorf("expected 1 federal, got %d", len(parts[JurisdictionFederal]))
@@ -601,8 +606,8 @@ func TestPartition(t *testing.T) {
 	if len(parts[JurisdictionState]) != 1 {
 		t.Errorf("expected 1 state, got %d", len(parts[JurisdictionState]))
 	}
-	if len(parts[JurisdictionCounty]) != 1 {
-		t.Errorf("expected 1 county, got %d", len(parts[JurisdictionCounty]))
+	if len(parts[JurisdictionCounty]) != 0 {
+		t.Errorf("expected no county, got %d", len(parts[JurisdictionCounty]))
 	}
 }
 
@@ -694,11 +699,10 @@ func TestRefPrefixesNeverFallToCity(t *testing.T) {
 // had been anchored on a state name for exactly this reason; the anchoring was
 // applied to one order only.
 //
-// highway=secondary is covered deliberately: ClassifyJurisdiction routes a
-// secondary way to County unless isCityOperator claims it, so fixing only
-// isStateOperator would have moved this lane area from State to County rather
-// than to City -- a different wrong answer, and one the published numbers could
-// not tell apart from the first.
+// highway=secondary is covered too. ClassifyJurisdiction used to route a
+// secondary way to County unless isCityOperator claimed it (removed in
+// solvent-streets-0mre), and these rows keep a municipal DOT's secondaries in
+// City whatever the County rules become.
 func TestMunicipalTransportationDepartments(t *testing.T) {
 	tests := []struct {
 		name string
@@ -770,17 +774,10 @@ func TestMunicipalTransportationDepartments(t *testing.T) {
 // strings.Contains(operator, "department of transportation") it replaced had
 // caught all of them.
 //
-// Covering highway=secondary as well as residential is deliberate, because the
-// two halves of the fix fail DIFFERENTLY and a residential-only table cannot
-// tell the second failure from success:
-//
-//   - Fix only isStateTransportationAgency and these stay City -- isStateOperator
-//     bails on isCityOperator first, and isLocalTransportationAgency still
-//     claims them.
-//   - Fix only isLocalTransportationAgency and the secondary ways land in
-//     County, via ClassifyJurisdiction's "secondary unless a city operator"
-//     rule, while the residential ones correctly reach... City, which is wrong.
-//
+// Both residential and secondary are covered, so a class-specific County or
+// City rule cannot make a half-fix look like success. Fixing only
+// isStateTransportationAgency leaves these City: isStateOperator bails on
+// isCityOperator first, and isLocalTransportationAgency still claims them.
 // Only the shared isStateQualifier predicate makes every row below pass.
 func TestAbbreviatedStateTransportationAgencies(t *testing.T) {
 	states := []string{
@@ -814,7 +811,7 @@ func TestAbbreviatedStateTransportationAgencies(t *testing.T) {
 		"Fairfax Co DOT",
 		"Marin Co Department of Transportation",
 	}
-	// highway is varied because the two half-fixes land in different buckets.
+	// highway is varied so no class-specific rule can mask a half-fix.
 	for _, highway := range []string{"residential", "secondary"} {
 		for _, operator := range states {
 			t.Run(highway+"/"+operator, func(t *testing.T) {
@@ -844,21 +841,20 @@ func TestAbbreviatedStateTransportationAgencies(t *testing.T) {
 // says.
 //
 // The guard only makes isStateOperator decline it; the buckets below are the
-// ordinary ladder's call afterwards, and the primary one is the only change in
-// this slice that moves features INTO City.
+// ordinary ladder's call afterwards, which for an operator naming no county
+// is City whatever the class.
 //
-// Only 5 of the 9 actually move: 4 of the Jacksonville secondaries carry
-// ref="CR 228", so countyRefRe routes them County before the operator is ever
-// consulted. The ref rules running ahead of the operator rules is why the
-// bucket here is worth pinning through ClassifyJurisdiction rather than
-// through isStateOperator alone.
+// 4 of the Jacksonville secondaries carry ref="CR 228", so countyRefRe routes
+// them County before the operator is ever consulted. The ref rules running
+// ahead of the operator rules is why the bucket here is worth pinning through
+// ClassifyJurisdiction rather than through isStateOperator alone.
 func TestOperatorDisclaimingADOTIsNotState(t *testing.T) {
 	tests := []struct {
 		highway string
 		want    Jurisdiction
 	}{
-		{"primary", JurisdictionCity},     // Tampa, 4 features
-		{"secondary", JurisdictionCounty}, // Jacksonville, 5 features
+		{"primary", JurisdictionCity},   // Tampa, 4 features
+		{"secondary", JurisdictionCity}, // Jacksonville, 5 features
 		{"residential", JurisdictionCity},
 	}
 	for _, tt := range tests {

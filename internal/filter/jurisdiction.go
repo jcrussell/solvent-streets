@@ -366,10 +366,9 @@ var (
 	// spacedDOTRe needs a word boundary before "dot" and "fdot" has none, and
 	// classify State -- the exact opposite of what the tag says. The guard
 	// only makes isStateOperator decline them; where they land afterwards is
-	// the ordinary ladder's call. Net movement is 5 features, not 9: the
-	// Tampa primaries fall to City and one Jacksonville secondary to County,
-	// while the other four Jacksonville ways carry ref="CR 228" and were
-	// already County via countyRefRe, which runs ahead of every operator rule.
+	// the ordinary ladder's call: City, except four Jacksonville ways that
+	// carry ref="CR 228" and are County via countyRefRe, which runs ahead of
+	// every operator rule.
 	//
 	// Consulted by BOTH isFederalOperator and isStateOperator, because
 	// ClassifyJurisdiction asks the federal question first: guarding only the
@@ -799,11 +798,10 @@ func ClassifyJurisdiction(tags map[string]string) Jurisdiction {
 		return JurisdictionState
 	}
 
-	// County
+	// County. highway=secondary is road importance, not ownership: untagged
+	// secondaries are overwhelmingly city arterials, and real county roads
+	// carry a county ref (countyRefRe, above) or a county operator/network.
 	if strings.Contains(operator, "county") || strings.Contains(network, "county") {
-		return JurisdictionCounty
-	}
-	if highway == "secondary" && !isCityOperator(operator) {
 		return JurisdictionCounty
 	}
 
@@ -815,10 +813,8 @@ func ClassifyJurisdiction(tags map[string]string) Jurisdiction {
 // Beyond the "city"/"municipal" tokens, it recognises a transportation
 // department whose qualifier is not a state name -- "Columbus Department of
 // Transportation", DC's "District Department of Transportation". Those carry
-// neither token, so without this they would fail the City test twice: once as
-// isStateOperator's exclusion, leaving them in the State bucket, and once at
-// ClassifyJurisdiction's highway=secondary rule, which would route them to
-// County instead.
+// neither token, so without this they would fail isStateOperator's City
+// exclusion and land in the State bucket.
 func isCityOperator(operator string) bool {
 	return strings.Contains(operator, "city") ||
 		strings.Contains(operator, "municipal") ||
