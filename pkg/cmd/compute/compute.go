@@ -818,18 +818,19 @@ func (c *computer) buildCohortStats(ctx context.Context, rt resource.Type, buffe
 	}
 
 	rawAreas := resource.ComputeRoadCohortAreas(ctx, buffered, hexes)
+	// Sum and emit classes in sorted order: ranging over the map would change
+	// the float summation order, and so the last digits of every share, from
+	// run to run.
+	classes := slices.Sorted(maps.Keys(rawAreas))
 	var rawTotal float64
-	for _, a := range rawAreas {
-		rawTotal += a
+	for _, class := range classes {
+		rawTotal += rawAreas[class]
 	}
 	counts := make(map[string]int)
 	for _, bf := range buffered {
 		class := forecast.NormalizeClass(bf.Feature.Tags["highway"])
 		counts[class]++
 	}
-	// Iterate classes in sorted order so rows (and every float sum a reader
-	// takes over them) come out the same on every run.
-	classes := slices.Sorted(maps.Keys(rawAreas))
 	stats := make([]db.CohortStat, 0, len(classes))
 	for _, class := range classes {
 		rawArea := rawAreas[class]
