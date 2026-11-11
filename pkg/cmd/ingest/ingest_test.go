@@ -1060,3 +1060,29 @@ func TestResolveSources_OwnSourcedTakesItsOwnSource(t *testing.T) {
 		}
 	}
 }
+
+// TestReplaceScope pins solvent-streets-vqu9: only a --source all run whose
+// every source succeeded replaces the whole resource. A single-source run on
+// a city that also uses another source used to wipe that source's rows (all
+// 9,992 Livermore OSM ways on `pvmt roads ingest --source arcgis`).
+func TestReplaceScope(t *testing.T) {
+	tests := []struct {
+		name      string
+		requested cmdutil.Source
+		resolved  int
+		succeeded []string
+		want      []string
+	}{
+		{"all sources succeeded", cmdutil.SourceAll, 2, []string{"overpass", "arcgis"}, nil},
+		{"one of two failed", cmdutil.SourceAll, 2, []string{"overpass"}, []string{"overpass"}},
+		{"single source requested", cmdutil.SourceArcGIS, 1, []string{"arcgis"}, []string{"arcgis"}},
+		{"overpass only requested", cmdutil.SourceOverpass, 1, []string{"overpass"}, []string{"overpass"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := replaceScope(tt.requested, tt.resolved, tt.succeeded); !slices.Equal(got, tt.want) {
+				t.Errorf("replaceScope = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

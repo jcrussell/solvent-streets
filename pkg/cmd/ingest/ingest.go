@@ -272,14 +272,7 @@ func runIngest(ctx context.Context, opts *Options) error {
 		return cmdutil.ErrNoResults
 	}
 
-	// When every resolved source succeeded, replace the whole resource set
-	// (nil scope) — this also clears any legacy/empty source_api rows. When a
-	// source failed, scope the replace to the sources that succeeded so the
-	// down source's previously-stored rows are preserved rather than wiped.
-	var replaceSources []string
-	if len(succeeded) < len(sources) {
-		replaceSources = succeeded
-	}
+	replaceSources := replaceScope(opts.Source, len(sources), succeeded)
 
 	logs.From(ctx).Info("saving features to database", "count", len(allFeatures), "resource", opts.ResourceType.Type())
 	if err := store.UpsertFeatures(ctx, opts.ResourceType.Type(), allFeatures, replaceSources); err != nil {
@@ -383,6 +376,20 @@ func liveBoundaryFetchers() boundaryFetchers {
 		byRelation: ingestpkg.FetchCityBoundaryFromRelation,
 		water:      ingestpkg.FetchOSMWater,
 	}
+}
+
+// replaceScope returns the source_api values a save replaces, or nil to
+// replace the city's whole resource. Only a run that covered every configured
+// source (--source all) and saw each succeed replaces the whole set, which
+// also clears any legacy/empty source_api rows. Otherwise the replace is
+// scoped to the sources that succeeded: a down source's previously-stored
+// rows, and a source the run never asked for (--source arcgis on a city that
+// also uses overpass), are preserved rather than wiped.
+func replaceScope(requested cmdutil.Source, resolved int, succeeded []string) []string {
+	if requested == cmdutil.SourceAll && len(succeeded) == resolved {
+		return nil
+	}
+	return succeeded
 }
 
 // freshBoundary carries the metadata the post-strip road-coverage
