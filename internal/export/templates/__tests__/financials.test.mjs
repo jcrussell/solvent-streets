@@ -197,3 +197,19 @@ test('the custom scenario, not the baseline, has the last word on the tiles', as
   assert.match(spend.textContent, /99|\$/,
     'headline tiles were not written by the custom scenario');
 });
+
+// solvent-streets-i4ly: the four Financials charts are created without the
+// entry animation, because the interactive series is pushed with
+// update('none') right after creation and that froze the other series
+// mid-animation, drawn below their data.
+test('the Financials charts are built without the entry animation', async () => {
+  const { win, flush } = await ready();
+  win.selectTab('financials-tab');
+  await flush();
+  // renderFinancials builds the four charts last, in this order.
+  const financial = win.__charts.slice(-4);
+  assert.equal(financial.length, 4, `expected the four Financials charts, got ${financial.length}`);
+  for (const c of financial) {
+    assert.equal(c.options.animation, false, 'a Financials chart animates its first draw');
+  }
+});

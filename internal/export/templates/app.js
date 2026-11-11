@@ -1828,6 +1828,15 @@
         // _origRenderFinancials — is legal to both ESLint (no-func-assign) and
         // tsc --checkJs (TS2630). Callers run only after this point, so there is
         // no temporal-dead-zone hazard (same reason no-use-before-define is off).
+        // The Financials charts are drawn without the entry animation. The
+        // interactive "Your budget" series is added right after each chart is
+        // built and pushed with update('none'), which left the other series
+        // frozen partway through their first animation: the Cumulative Spending
+        // lines started below $0 and ended ~20% low, with the data correct
+        // (solvent-streets-i4ly). With nothing animating, every element sits at
+        // its final position from the first frame.
+        const FINANCIAL_CHART_ANIMATION = false;
+
         let renderFinancials = function(scenarios, scope) {
             if (!scenarios || scenarios.length === 0) {
                 document.getElementById('charts').innerHTML = '';
@@ -1867,7 +1876,7 @@
                             pointRadius: 0
                         }))
                     },
-                    options: { responsive: true, interaction: { mode: 'index', intersect: false }, scales: { y: { min: 0, max: 100, title: { display: true, text: 'PCI' } } }, plugins: { legend: { position: 'bottom' } } }
+                    options: { responsive: true, animation: FINANCIAL_CHART_ANIMATION, interaction: { mode: 'index', intersect: false }, scales: { y: { min: 0, max: 100, title: { display: true, text: 'PCI' } } }, plugins: { legend: { position: 'bottom' } } }
                 }));
             }
 
@@ -1890,7 +1899,7 @@
                             pointRadius: 0
                         }))
                     },
-                    options: { responsive: true, interaction: { mode: 'index', intersect: false }, scales: { y: { title: { display: true, text: 'Dollars ($)' }, ticks: { callback: v => fmt$(v) } } }, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + fmt$(ctx.parsed.y) } } } }
+                    options: { responsive: true, animation: FINANCIAL_CHART_ANIMATION, interaction: { mode: 'index', intersect: false }, scales: { y: { title: { display: true, text: 'Dollars ($)' }, ticks: { callback: v => fmt$(v) } } }, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + fmt$(ctx.parsed.y) } } } }
                 }));
             }
 
@@ -1916,7 +1925,7 @@
                             };
                         })
                     },
-                    options: { responsive: true, interaction: { mode: 'index', intersect: false }, scales: { y: { title: { display: true, text: 'Dollars ($)' }, ticks: { callback: v => fmt$(v) } } }, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + fmt$(ctx.parsed.y) } } } }
+                    options: { responsive: true, animation: FINANCIAL_CHART_ANIMATION, interaction: { mode: 'index', intersect: false }, scales: { y: { title: { display: true, text: 'Dollars ($)' }, ticks: { callback: v => fmt$(v) } } }, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + fmt$(ctx.parsed.y) } } } }
                 }));
             }
 
@@ -1938,6 +1947,7 @@
                     },
                     options: {
                         responsive: true,
+                        animation: FINANCIAL_CHART_ANIMATION,
                         scales: { y: { title: { display: true, text: 'Dollars ($)' }, ticks: { callback: v => fmt$(v) } } },
                         plugins: {
                             verticalCrosshair: false,
