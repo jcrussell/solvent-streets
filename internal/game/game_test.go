@@ -730,3 +730,85 @@ func TestStateJSONSummaryFields(t *testing.T) {
 		t.Fatalf("summary fields wrong: spent=%v treatments=%d", st.Spent, st.Treatments)
 	}
 }
+
+// idleConfig is a board that decays slowly enough that neither the PCI floor
+// nor closures end the game inside the horizon, so only insolvency can.
+func idleConfig(budget float64) Config {
+	cfg := baseConfig()
+	cfg.HorizonYears = 20
+	cfg.InitialPCI = 75
+	cfg.StartingBudget = budget
+	cfg.Hexes = []HexConfig{
+		{ID: "a", RoadArea: 1000, K: 0.02},
+		{ID: "b", RoadArea: 2000, K: 0.02},
+	}
+	cfg.Cohorts = []CohortConfig{{Classification: "residential", Area: 3000, DecayRate: 0.02}}
+	return cfg
+}
+
+// playIdle ticks a year at a time without treating anything and returns the
+// year the game ended in (0 if it did not end).
+func playIdle(g *Game) int {
+	for y := 1; y <= 30; y++ {
+		g.Tick(1)
+		if g.status != "running" {
+			return y
+		}
+	}
+	return 0
+}
+
+// TestIdlePlayerGoesInsolvent pins solvent-streets-1b8d: an idle player used
+// to win "You stayed solvent!" while the start screen predicted insolvency,
+// because the loss ceiling was the cost of rebuilding the whole network.
+// Insolvency is now the forecast's definition: a full treatment cycle of
+// year-1 need deferred. Doing nothing defers a growing need every year (worse
+// pavement costs more), so it gets there before the 12-year cycle ends.
+func TestIdlePlayerGoesInsolvent(t *testing.T) {
+	g := newGame(t, idleConfig(1_000_000))
+	year := playIdle(g)
+	if g.status != "lost" {
+		t.Fatalf("idle player finished %q, want lost to insolvency", g.status)
+	}
+	if g.networkPCI() < LosePCIFloor {
+		t.Fatalf("fixture lost on the PCI floor (%.1f), not insolvency", g.networkPCI())
+	}
+	if year < 6 || year > 12 {
+		t.Errorf("idle player went insolvent in year %d, want within the 12-year cycle", year)
+	}
+}
+
+// TestLiveInsolvencyMatchesProjection: at a $0 budget the pregame projection
+// and the live game, played idle, report insolvency in the same year (within
+// one, for the projection's condition spread).
+func TestLiveInsolvencyMatchesProjection(t *testing.T) {
+	cfg := idleConfig(0)
+	want, ok := ProjectInsolvency(cfg)
+	if !ok {
+		t.Fatal("projection says solvent at $0")
+	}
+	got := playIdle(newGame(t, cfg))
+	if got == 0 || got < want-1 || got > want+1 {
+		t.Errorf("live game ended in year %d, projection says %d", got, want)
+	}
+}
+
+// TestFundedYearDefersNothing: treatment spend that covers the year's need
+// leaves nothing deferred.
+func TestFundedYearDefersNothing(t *testing.T) {
+	g := newGame(t, idleConfig(1_000_000))
+	g.Tick(0.5)
+	for _, id := range []string{"a", "b"} {
+		if !g.Treat(id, "auto") {
+			t.Fatalf("treat %s failed", id)
+		}
+	}
+	g.Tick(0.5)
+	if g.backlog != 0 {
+		t.Errorf("backlog after a funded year = %v, want 0", g.backlog)
+	}
+	g.Tick(1)
+	if g.backlog <= 0 {
+		t.Error("an unfunded year deferred nothing")
+	}
+}

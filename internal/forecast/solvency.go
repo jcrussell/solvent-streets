@@ -40,7 +40,7 @@ func InsolvencyYear(result ScenarioResult, cycleYears float64) (year int, ok boo
 	if len(result.Years) == 0 {
 		return 0, false
 	}
-	threshold := result.Years[0].AnnualNeed * ResolveCycleYears(cycleYears)
+	threshold := InsolvencyThreshold(result.Years[0].AnnualNeed, cycleYears)
 	if threshold <= 0 {
 		return 0, false
 	}
@@ -50,6 +50,14 @@ func InsolvencyYear(result ScenarioResult, cycleYears float64) (year int, ok boo
 		}
 	}
 	return 0, false
+}
+
+// InsolvencyThreshold is the cumulative deferred backlog at which a network is
+// insolvent: one full treatment cycle of year-1 need. It is the one definition
+// shared by InsolvencyYear (the Financials headline and the Play projection)
+// and the live game's loss condition (internal/game).
+func InsolvencyThreshold(year1Need, cycleYears float64) float64 {
+	return year1Need * ResolveCycleYears(cycleYears)
 }
 
 // BreakEvenBudget returns the smallest constant annual budget whose final

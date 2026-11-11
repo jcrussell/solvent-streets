@@ -443,7 +443,11 @@
         // and each change refreshes the projected-insolvency preview. The Start
         // button launches play. Called from boot once gameConfig exists;
         // defaultBudget is the forecast-derived rate (pickStartingBudget).
-        function wireStartOverlay(defaultBudget) {
+        /**
+         * @param {number} defaultBudget
+         * @param {number} holdSteady roads break-even budget, or 0 when unknown
+         */
+        function wireStartOverlay(defaultBudget, holdSteady) {
             const hwrap = document.getElementById('horizon-buttons');
             const markActive = () => queryAll('.btn', hwrap).forEach(b => {
                 const h = b.dataset.horizon;
@@ -460,12 +464,14 @@
             }));
             markActive(); // highlight the default horizon on boot
 
-            // Annual-budget slider: 0..2x the forecast-derived default (same range as
-            // the old in-game slider). Sets gameConfig.starting_budget and refreshes
-            // the preview; there is no in-game budget slider anymore.
+            // Annual-budget slider: 0..2x the larger of the forecast-derived default
+            // and the hold-steady (break-even) budget, so a solvent budget is always
+            // reachable even when today's budget is far below it. Sets
+            // gameConfig.starting_budget and refreshes the preview; there is no
+            // in-game budget slider anymore.
             const slider = inputById('start-budget-slider');
             const out = document.getElementById('start-budget-value');
-            const max = Math.max(1, defaultBudget * 2);
+            const max = Math.max(1, 2 * Math.max(defaultBudget, holdSteady || 0));
             slider.min = '0';
             slider.max = String(max);
             slider.step = String(Math.max(1, Math.round(max / 200)));
@@ -524,6 +530,17 @@
         }
 
         // ---- Board build + boot ----------------------------------------------
+        /**
+         * The roads forecast's hold-steady (break-even) budget, or 0.
+         * @param {any} forecast
+         * @returns {number}
+         */
+        function pickHoldSteady(forecast) {
+            if (!Array.isArray(forecast)) return 0;
+            const roads = forecast.find(f => f.resource_type === 'roads');
+            return (roads && roads.break_even_budget > 0) ? roads.break_even_budget : 0;
+        }
+
         function pickStartingBudget(forecast) {
             // Prefer the ROADS entry's current_budget; else sum across resources;
             // else a sane default.
@@ -686,9 +703,15 @@
             // first choice, but `city_cohorts` is omitempty — fall back to the
             // all-scope cohorts so the headline isn't permanently "solvent" (and
             // the budget slider isn't inert) for cities lacking city-scope stats.
-            const macroCohorts =
-                (seed.city_cohorts && seed.city_cohorts.length) ? seed.city_cohorts :
-                (seed.cohorts || []);
+            // Roads only: the board is road area, and the Financials insolvency
+            // year it must agree with is the roads forecast's. The seed's cohort
+            // lists also carry the parking and sidewalks classes, which billed
+            // the road budget for lots and sidewalks and put Play's insolvency a
+            // year early (solvent-streets-162r).
+            /** @param {any[]} list */
+            const roadCohorts = list => (list || []).filter(c => c.classification !== 'parking' && c.classification !== 'sidewalks');
+            const cityRoads = roadCohorts(seed.city_cohorts);
+            const macroCohorts = cityRoads.length ? cityRoads : roadCohorts(seed.cohorts);
             // Hoisted to module scope so reset() and the horizon buttons can
             // re-seed the game from the same config.
             gameConfig = {
@@ -709,7 +732,7 @@
             //    picks the horizon and budget on the start overlay and presses Start
             //    (startGame() seeds). The budget default is the forecast-derived rate.
             wireControls();
-            wireStartOverlay(startingBudget);
+            wireStartOverlay(startingBudget, pickHoldSteady(forecast));
 
             document.getElementById('loading').style.display = 'none';
             setInGameUI(false);

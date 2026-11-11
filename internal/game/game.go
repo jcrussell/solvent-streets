@@ -126,7 +126,6 @@ type Game struct {
 
 	treasury   float64
 	budgetRate float64
-	backlog    float64 // cumulative maintenance need not yet addressed by treatment
 	simYears   float64
 	horizon    float64
 	endless    bool   // when true, never auto-win at the horizon (sandbox)
@@ -155,10 +154,18 @@ type Game struct {
 	insolvencyYear int
 	insolvencyOK   bool
 
-	// loseBacklogCeiling is the backlog at which the game is lost: the cost to
-	// reconstruct the entire network (total road area x the priciest tier). Once
-	// you have deferred a whole network's worth of work, you have spiraled.
-	loseBacklogCeiling float64
+	// Insolvency, on the forecast's definition (forecast.InsolvencyThreshold)
+	// applied to the player's own network. Each sim-year the hold-steady need of
+	// the board (every hex's tiered cost at its current PCI, over the treatment
+	// cycle) accrues in yearNeed and the player's treatments in yearSpent; at
+	// the year boundary the shortfall joins backlog, which only ever grows. The
+	// game is lost when backlog reaches insolvencyAt, one cycle of the board's
+	// year-1 need — the threshold the pregame projection reports against.
+	backlog      float64 // cumulative unmet need (forecast DeferredBacklog)
+	yearNeed     float64
+	yearSpent    float64
+	yearsDone    int // completed sim-years already settled into backlog
+	insolvencyAt float64
 }
 
 // New validates cfg and builds a Game. It returns error (not a concrete type)
@@ -279,12 +286,8 @@ func New(cfg Config) (*Game, error) {
 		cycleYears: forecast.ResolveCycleYears(cfg.TreatmentCycleYears),
 	}
 
-	maxCost := 0.0
 	minCost := math.Inf(1)
 	for _, t := range tiers {
-		if t.CostPerSqM > maxCost {
-			maxCost = t.CostPerSqM
-		}
 		if t.CostPerSqM < minCost {
 			minCost = t.CostPerSqM
 		}
@@ -310,7 +313,14 @@ func New(cfg Config) (*Game, error) {
 		}
 		totalArea += h.RoadArea
 	}
-	g.loseBacklogCeiling = totalArea * maxCost
+	// One cycle of the board's year-1 need, priced as the forecast prices it:
+	// each hex at its PCI after one year's decay.
+	var year1Need float64
+	for i := range g.hexes {
+		h := &g.hexes[i]
+		year1Need += g.holdSteadyNeed(h.roadArea, h.pci*math.Exp(-h.k))
+	}
+	g.insolvencyAt = forecast.InsolvencyThreshold(year1Need, g.cycleYears)
 
 	g.tierRanks = make([]int, len(tiers))
 	for i := range tiers {
@@ -325,9 +335,10 @@ func New(cfg Config) (*Game, error) {
 // Tick advances sim time by dt sim-years. Each open hex decays continuously by
 // exp(-k*dt); because exp composes (prod over a year of exp(-k*dt) == exp(-k*1)),
 // repeated ticks land exactly on the annual ExponentialPCIForecaster step with no
-// drift. The treasury refills at budgetRate*dt. This tick's maintenance need —
-// the tiered cost of the PCI lost, scaled by the fraction of full condition lost
-// (delta/100) — accrues into the backlog. Hexes at or below ClosureEpsilon close.
+// drift. The treasury refills at budgetRate*dt. The board's hold-steady need
+// accrues for the tick, and each completed sim-year settles its unmet need
+// (need minus the year's treatment spend, if positive) into the backlog. Hexes
+// at or below ClosureEpsilon close.
 func (g *Game) Tick(dt float64) {
 	// Reject non-finite or non-positive dt: a bare dt<=0 guard lets NaN and +Inf
 	// through (NaN<=0 and +Inf<=0 are both false), which would poison simYears,
@@ -343,19 +354,21 @@ func (g *Game) Tick(dt float64) {
 		if h.closed {
 			continue
 		}
-		before := h.pci
-		after := before * math.Exp(-h.k*dt)
-		delta := before - after
-		if delta > 0 {
-			// Full treatment cost at the post-decay condition, weighted by the
-			// share of full condition (100 PCI points) lost this tick.
-			g.backlog += g.cost.ProjectCost(h.roadArea, after) * (delta / 100.0)
-		}
-		h.pci = after
+		h.pci *= math.Exp(-h.k * dt)
 		if h.pci <= ClosureEpsilon {
 			h.pci = 0
 			h.closed = true
 		}
+	}
+	// This tick's share of the year's hold-steady need. Closed hexes still need
+	// rebuilding, so every hex counts (a closed hex at PCI 0).
+	for i := range g.hexes {
+		g.yearNeed += g.holdSteadyNeed(g.hexes[i].roadArea, g.hexes[i].pci) * dt
+	}
+	for float64(g.yearsDone+1) <= g.simYears {
+		g.backlog += math.Max(0, g.yearNeed-g.yearSpent)
+		g.yearNeed, g.yearSpent = 0, 0
+		g.yearsDone++
 	}
 
 	g.recomputeStatus()
@@ -419,13 +432,8 @@ func (g *Game) treatOne(hexID, tier string) bool {
 	}
 	g.treasury -= cost
 	g.spent += cost
+	g.yearSpent += cost
 	g.treatments++
-
-	// Spending addresses deferred need.
-	g.backlog -= cost
-	if g.backlog < 0 {
-		g.backlog = 0
-	}
 
 	// Lift toward 100 by (rank+1)/n of the remaining headroom; top tier -> 100.
 	frac := float64(g.tierRanks[ti]+1) / float64(len(g.tiers))
@@ -563,8 +571,10 @@ func insolvencyFromForecast(cohortCfgs []CohortConfig, initialPCI, growthRate fl
 }
 
 // recomputeStatus transitions status. won/lost are terminal. Lose if the network
-// PCI falls below the floor, too many hexes have closed, or backlog exceeds the
-// reconstruct-the-network ceiling. Win if the horizon is reached still solvent.
+// PCI falls below the floor, too many hexes have closed, or the deferred
+// backlog reaches one treatment cycle of year-1 need (insolvent, the same
+// definition the pregame projection and the Financials headline use). Win if
+// the horizon is reached still solvent.
 func (g *Game) recomputeStatus() {
 	if g.status != "running" {
 		return
@@ -579,7 +589,7 @@ func (g *Game) recomputeStatus() {
 
 	if g.networkPCI() < LosePCIFloor ||
 		closedFrac > LoseClosedFraction ||
-		g.backlog > g.loseBacklogCeiling {
+		(g.insolvencyAt > 0 && g.backlog >= g.insolvencyAt) {
 		g.status = "lost"
 		return
 	}
@@ -588,6 +598,13 @@ func (g *Game) recomputeStatus() {
 	if !g.endless && g.simYears >= g.horizon {
 		g.status = "won"
 	}
+}
+
+// holdSteadyNeed is one hex's annual hold-steady need at pci: treating its
+// scheduled 1/N slice at the tiered cost of its condition, exactly as
+// forecast.Simulate prices a cohort's need.
+func (g *Game) holdSteadyNeed(area, pci float64) float64 {
+	return g.cost.ProjectCost(area, pci) / g.cycleYears
 }
 
 // networkPCI is the area-weighted PCI over OPEN hexes (closed hexes contribute
