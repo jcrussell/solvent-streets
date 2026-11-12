@@ -395,7 +395,7 @@
         // success, or null on failure — callers fall back gracefully.
         // opts.silent404 swallows a 404 without surfacing — used for the
         // hexgrid file, which is legitimately absent for cities with no
-        // hex_stats rows at all.
+        // hex_metrics rows at all.
         async function loadJSON(url, opts) {
             try {
                 const resp = await fetch(url);

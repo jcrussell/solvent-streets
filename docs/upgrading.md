@@ -10,7 +10,7 @@ Upgrading from v0.4.x takes seven steps. Plan for the first one: it re-fetches e
 
 ### 1. Move the database aside and re-ingest
 
-pvmt v0.5.0 refuses a database created by v0.4.1 or earlier with `incompatible database` and leaves the file untouched. Move it aside with its `-wal`/`-shm` files and rebuild it, as [`#incompatible-database`](troubleshooting.md#incompatible-database) describes:
+pvmt v0.5.0 refuses a database created by v0.4.1 or earlier with `incompatible database` and leaves the file untouched. The same goes for a database built by a pre-release v0.5.0 binary (schema generation 3 or earlier): only the result tables changed, but there is no in-place migration, so it is re-ingested like any other. Move it aside with its `-wal`/`-shm` files and rebuild it, as [`#incompatible-database`](troubleshooting.md#incompatible-database) describes:
 
 ```
 pvmt all ingest

@@ -28,7 +28,7 @@ import (
 // TestPipeline_ComputeForecastExport pins the data-flow contract across
 // compute → forecast → export. Each stage is independently unit-tested,
 // but no other test wires them: a regression that, say, has compute write
-// hex_stats with a different resource_type label than export reads would
+// hex_metrics under a different subject than export reads would
 // produce silently empty heatmaps.
 //
 // Ingest is intentionally skipped — its HTTP path is tested in pkg/cmd/
@@ -66,9 +66,9 @@ func TestPipeline_ComputeForecastExport(t *testing.T) {
 	f := factoryFor(cfg, &city, store, root)
 
 	// compute roads, then parking. Order doesn't matter for the assertions
-	// below, but running both proves the per-resource scoping in hex_stats
-	// (city_id, resource_type) works across two writes against the same
-	// store.
+	// below, but running both proves the per-subject scoping in hex_metrics
+	// (one run per resource, rows keyed by subject) works across two writes
+	// against the same store.
 	for _, rt := range []resource.Source{&resource.Pavement{}, &resource.Parking{}} {
 		cmd := compute.NewCmdCompute(f, rt, nil)
 		cmd.SilenceErrors, cmd.SilenceUsage = true, true

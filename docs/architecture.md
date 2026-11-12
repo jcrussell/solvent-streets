@@ -229,7 +229,10 @@ than converting it (see
 
 A *run* is one producer's output for one city. The producers are the roads,
 parking or sidewalks compute, the combined pass, `service:<name>` and census.
-Every result row carries its `run_id`, and runs are immutable. A *snapshot* is
+Every result row carries its `run_id`, and runs are immutable. Result rows
+have no timestamp of their own: a row's time is its run's `computed_at`, set
+when the run is created, so `status` and `snapshots ls` show when a compute
+began, not when it finished saving. A *snapshot* is
 the city's complete computed state: a manifest in `snapshot_parts` that names
 one run per part. Every read resolves exactly one snapshot and reads only its
 runs. That snapshot is the pinned id, or else the newest one under the city's
