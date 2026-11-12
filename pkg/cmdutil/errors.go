@@ -42,3 +42,10 @@ var ErrNoResults = errors.New("no results")
 // zero features). Used by ingest to surface deployment-wide outages
 // that would otherwise look like a silent no-op via `pvmt all`.
 var ErrAllSourcesFailed = errors.New("all sources failed")
+
+// ErrPartialIngest signals that some of a resource's sources failed while
+// others answered: what answered was saved, but the resource is incomplete
+// for this run. It fails the run (exit 1) so a chained
+// `ingest && compute && export` does not publish a city missing a source
+// as if it were complete (solvent-streets-r0ro).
+var ErrPartialIngest = errors.New("some sources failed")

@@ -594,3 +594,40 @@ func TestAllCompute_CombinedFailureNotMaskedByEmptyResources(t *testing.T) {
 			"exercising the masking case")
 	}
 }
+
+// TestAllIngest_FailuresFailTheRunWithRetryCommands pins solvent-streets-r0ro:
+// with every upstream down, `all ingest` still visits every step, then fails
+// (not exit 0) with an error that lists each failed step, the fire and
+// Census steps included, with the command that retries it.
+func TestAllIngest_FailuresFailTheRunWithRetryCommands(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func(context.Context) (string, error) { return ingestTestBoundary, nil },
+	}
+	f := ingestFactory(ios, store)
+	city, _ := f.CurrentCity()
+	city.Overpass = true
+	f.HttpClient = func() (*http.Client, error) {
+		return &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, errors.New("connection refused")
+		})}, nil
+	}
+	cmd := NewCmdAll(f)
+	cmd.SetArgs([]string{"ingest"})
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	err := cmd.ExecuteContext(context.Background())
+	if err == nil || errors.Is(err, cmdutil.ErrNoResults) {
+		t.Fatalf("all ingest = %v; want a failure", err)
+	}
+	for _, want := range []string{
+		"retry: pvmt --city " + city.Slug() + " roads ingest",
+		"retry: pvmt --city " + city.Slug() + " sidewalks ingest",
+		"fire ingest:", "retry: pvmt --city " + city.Slug() + " services ingest",
+		"census ingest:", "retry: pvmt --city " + city.Slug() + " census ingest",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error missing %q\ngot: %v", want, err)
+		}
+	}
+}

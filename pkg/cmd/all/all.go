@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
@@ -24,9 +25,12 @@ func NewCmdAll(f *cmdutil.Factory) *cobra.Command {
 		Short: "Operate on all resource types",
 		Long: `Fan out the ingest or compute pipeline across every pavement resource
 (roads, parking, sidewalks) for every [[cities]] entry in pvmt.toml, then
-run the fire-station and Census steps ('pvmt services', 'pvmt census')
-best-effort: a failure there is warned about and does not fail the run.
-A city with census = false skips the Census steps.
+run the fire-station and Census steps ('pvmt services', 'pvmt census').
+'all ingest' keeps going past a failed step, so every other step and city
+still runs, then exits 1 and lists each failure with the command that
+retries it. 'all compute' runs the fire and Census steps best-effort: a
+failure there is warned about and does not fail the run. A city with
+census = false skips the Census steps.
 
 'all compute' also runs the combined paved-area pass, which unions the
 per-resource geometries to avoid double-counting overlap, before fire
@@ -52,8 +56,10 @@ func newAllIngest(f *cmdutil.Factory) *cobra.Command {
 		Long: `Run every ingest step for every configured city, or the one --city names.
 The city boundary is resolved once; a city whose boundary cannot be had is
 skipped with a warning. Roads, parking and sidewalks are then fetched from
-the city's sources, followed best-effort by fire stations and Census blocks
-(see 'pvmt help all').
+the city's sources, followed by fire stations and Census blocks. A step
+that fails, or a resource one of whose sources fails, is warned about and
+the run goes on; it then exits 1, and the error lists each failed step
+with the command that retries it.
 
 Unlike the per-resource ingest commands this takes no --source, --force or
 --dry-run; use 'pvmt <resource> ingest' for those. Run 'pvmt all compute'
@@ -80,19 +86,30 @@ func ingestCity(ctx context.Context, ios *iostreams.IOStreams, cf *cmdutil.Facto
 		}
 		return err
 	}
+	retry := func(err error, cmd string) error {
+		if err == nil || isCancel(err) || errors.Is(err, cmdutil.ErrNoResults) {
+			return err
+		}
+		return fmt.Errorf("%w (retry: pvmt --city %s %s ingest)", err, city.Slug(), cmd)
+	}
 	err = forEachResource(ios, func(rt resource.Source) error {
-		return ingest.RunResourceWithBoundary(ctx, cf, rt, boundary)
+		return retry(ingest.RunResourceWithBoundary(ctx, cf, rt, boundary), string(rt.Type()))
 	})
 	if isCancel(err) {
 		return err
 	}
-	// Facility and Census ingest ride along best-effort (see
-	// runOptionalStep).
+	// Facility and Census ingest run after the pavement resources. Unlike in
+	// `all compute`, a failure here fails the run (after every step has had
+	// its turn): a city published without its fire stations or population is
+	// incomplete, and only the exit status reaches a chained
+	// `ingest && compute && export` (solvent-streets-r0ro).
 	return runOptionalSteps(err, ios, []optionalStep{
-		{servicescmd.DefaultService + " ingest", func() error {
-			return servicescmd.RunIngestForCity(ctx, cf, servicescmd.DefaultService)
+		{label: servicescmd.DefaultService + " ingest", required: true, fn: func() error {
+			return retry(servicescmd.RunIngestForCity(ctx, cf, servicescmd.DefaultService), "services")
 		}},
-		{"census ingest", func() error { return censuscmd.RunIngestForCity(ctx, cf) }},
+		{label: "census ingest", required: true, fn: func() error {
+			return retry(censuscmd.RunIngestForCity(ctx, cf), "census")
+		}},
 	})
 }
 
@@ -206,10 +223,10 @@ func computeSteps(ctx context.Context, ios *iostreams.IOStreams, cf *cmdutil.Fac
 	// the pavement passes, on the same shared grid (see
 	// runOptionalStep).
 	return runOptionalSteps(resErr, ios, []optionalStep{
-		{servicescmd.DefaultService + " compute", func() error {
+		{label: servicescmd.DefaultService + " compute", fn: func() error {
 			return servicescmd.RunComputeForCity(ctx, cf, servicescmd.DefaultService, grid, draft)
 		}},
-		{"census compute", func() error { return censuscmd.RunComputeForCity(ctx, cf, grid, draft) }},
+		{label: "census compute", fn: func() error { return censuscmd.RunComputeForCity(ctx, cf, grid, draft) }},
 	})
 }
 
@@ -224,27 +241,38 @@ func isCancel(err error) bool {
 type optionalStep struct {
 	label string
 	fn    func() error
+	// required makes a failure fail the run once every step has run, instead
+	// of only warning (ingest; see ingestCity).
+	required bool
 }
 
 // runOptionalSteps runs each step best-effort (runOptionalStep) and folds the
 // outcome into the pavement result: a cancellation stops the remaining steps
 // and wins; otherwise the pavement result stands.
+//
+// A required step's failure is warned about like any other and the remaining
+// steps still run, but it is joined into the result.
 func runOptionalSteps(resErr error, ios *iostreams.IOStreams, steps []optionalStep) error {
+	errs := []error{resErr}
 	for _, st := range steps {
-		if err := runOptionalStep(ios, st.label, st.fn); isCancel(err) {
+		err := runOptionalStep(ios, st.label, st.fn)
+		switch {
+		case isCancel(err):
 			return err
+		case err != nil && st.required:
+			errs = append(errs, fmt.Errorf("%s: %w", st.label, err))
 		}
 	}
-	return resErr
+	return errors.Join(errs...)
 }
 
 // runOptionalStep runs one optional step best-effort: cancellation is
 // returned as-is so the city aborts; ErrNoResults (no stations mapped, no
 // Census blocks, a city that opted out — the common case in a large config)
 // is a silent skip exactly like an empty pavement resource; any other failure
-// is warned about and dropped so the pavement outcome, exit code and combined
-// pass are unchanged. The step is optional output, so it never fails a run
-// on its own.
+// is warned about and returned. runOptionalSteps drops it for a best-effort
+// step (compute: the pavement outcome, exit code and
+// combined pass are unchanged) and keeps it for a required one (ingest).
 func runOptionalStep(ios *iostreams.IOStreams, label string, fn func() error) error {
 	fmt.Fprintf(ios.ErrOut, "\n--- %s ---\n", label)
 	err := fn()
@@ -255,7 +283,7 @@ func runOptionalStep(ios *iostreams.IOStreams, label string, fn func() error) er
 		return err
 	default:
 		cmdutil.Warnf(ios, "%s failed: %v", label, err)
-		return nil
+		return err
 	}
 }
 
@@ -295,7 +323,12 @@ func forEachResource(ios *iostreams.IOStreams, fn func(resource.Source) error) e
 			// ingested, so a chained `ingest && compute && export` would sail on
 			// and publish an empty site. Collect and join instead.
 			cmdutil.Warnf(ios, "%s failed: %v", rt.Type(), err)
-			errs = append(errs, fmt.Errorf("%s: %w", rt.Type(), err))
+			// Ingest errors already lead with the resource ("roads: all
+			// sources failed"); prefixing again printed "roads: roads: ...".
+			if !strings.HasPrefix(err.Error(), string(rt.Type())+": ") {
+				err = fmt.Errorf("%s: %w", rt.Type(), err)
+			}
+			errs = append(errs, err)
 		}
 	}
 	// Every resource came back empty and none produced anything: propagate

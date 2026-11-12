@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/jcrussell/solvent-streets/internal/cache"
@@ -325,7 +326,23 @@ func runIngest(ctx context.Context, opts *Options) error {
 	}
 
 	logs.From(ctx).Info("ingest complete", "count", len(allFeatures), "resource", opts.ResourceType.Type())
+	if failed := failedSources(sources, succeeded); len(failed) > 0 {
+		return fmt.Errorf("%s: %s failed, saved %d features from %s: %w",
+			opts.ResourceType.Type(), strings.Join(failed, ", "), len(allFeatures),
+			strings.Join(succeeded, ", "), cmdutil.ErrPartialIngest)
+	}
 	return nil
+}
+
+// failedSources lists the sources that did not answer, in source order.
+func failedSources(sources []ingestpkg.Source, succeeded []string) []string {
+	var failed []string
+	for _, src := range sources {
+		if !slices.Contains(succeeded, src.Name()) {
+			failed = append(failed, src.Name())
+		}
+	}
+	return failed
 }
 
 // printDryRunPlan reports what runIngest would do without making any

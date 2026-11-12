@@ -1159,3 +1159,52 @@ func TestRunIngest_SourceArcGISKeepsOverpassRows(t *testing.T) {
 		t.Errorf("arcgis rows = %d, want 2 (all rows: %v)", bySource["arcgis"], bySource)
 	}
 }
+
+// TestRunIngest_PartialSourceFailureSavesAndFails pins solvent-streets-r0ro:
+// when one of a city's sources fails, what answered is saved, but the run
+// reports ErrPartialIngest naming the failed source, so `pvmt all ingest`
+// exits 1 instead of publishing a city missing a source as if complete.
+func TestRunIngest_PartialSourceFailureSavesAndFails(t *testing.T) {
+	ctx := context.Background()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"features":[
+			{"properties":{"OBJECTID":7},"geometry":{"type":"LineString","coordinates":[[-121.80,37.68],[-121.79,37.68]]}}
+		],"properties":{"exceededTransferLimit":false}}`))
+	}))
+	t.Cleanup(srv.Close)
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Hostname() == ingestpkg.OverpassHost {
+			return nil, errors.New("http2: timeout awaiting response headers")
+		}
+		return srv.Client().Transport.RoundTrip(r)
+	})}
+
+	var saved []db.Feature
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return noSourceBoundary, nil },
+		UpsertFeaturesFunc: func(_ context.Context, _ resource.Type, f []db.Feature, _ []string) error {
+			saved = append(saved, f...)
+			return nil
+		},
+	}
+	city := cmdtest.NewTestCity()
+	city.Overpass = true
+	city.ArcGISURL = srv.URL + "/query"
+	city.AllowPrivateArcGIS = true
+	ios, _, _, _ := iostreams.Test()
+	err := runIngest(ctx, &Options{
+		IO:           ios,
+		CityDB:       func() (db.Store, error) { return store, nil },
+		CurrentCity:  func() (*config.CityConfig, error) { return city, nil },
+		HttpClient:   func() (*http.Client, error) { return client, nil },
+		ResourceType: &resource.Pavement{},
+		Source:       cmdutil.SourceAll,
+	})
+	if !errors.Is(err, cmdutil.ErrPartialIngest) || !strings.Contains(err.Error(), "overpass failed") {
+		t.Fatalf("runIngest = %v; want ErrPartialIngest naming overpass", err)
+	}
+	if n := len(saved); n != 1 {
+		t.Errorf("saved %d features, want the 1 ArcGIS row kept despite the failure", n)
+	}
+}
