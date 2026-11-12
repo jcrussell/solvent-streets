@@ -136,6 +136,13 @@ lowest-PCI segments first):
 A **do-nothing** baseline (no spend, uncontrolled decay) is shown
 alongside the funded runs for comparison.
 
+On the Financials tab these runs, the budget slider and its **Hold steady**
+mark cover the part of the network the forecast maintains: streets only by
+default, the same network as the solvency headline and the cited current
+budget. **Advanced options → Maintaining** adds parking lots and sidewalks.
+The comparison runs use the city's configured settings, so they stay put
+while Initial PCI and the cost multiplier move the "Your budget" line.
+
 ### How spending moves condition
 
 Each year a road class's **need** is the cost of holding it steady:

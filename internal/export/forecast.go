@@ -579,14 +579,7 @@ func addScopeRow(ctx context.Context, entry CityEntry, out map[string]map[string
 
 // BuildScenarios generates scenario results for a given area.
 func BuildScenarios(cohorts []forecast.Cohort, years int, params *forecast.Params) []forecast.ScenarioResult {
-	baseline := forecast.Simulate(
-		forecast.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: forecast.StrategyDoNothing},
-		cohorts, years, params,
-	)
-
-	year1Need := baseline.Years[0].AnnualNeed
-	scenarios := forecast.SimulateDefaults(year1Need, cohorts, years, params)
-	results := append([]forecast.ScenarioResult{baseline}, scenarios...)
+	results := forecast.ReferenceScenarios(cohorts, years, params)
 	for i := range results {
 		results[i] = collapseFinalCohorts(results[i])
 	}

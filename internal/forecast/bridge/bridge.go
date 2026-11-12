@@ -65,6 +65,12 @@ type Input struct {
 	// live Initial PCI, cost multiplier and tiers (solvent-streets-i68t,
 	// solvent-streets-a6ci). Off by default: a bisection costs ~30 simulations.
 	Solvency bool `json:"solvency,omitempty"`
+	// Scenarios asks for the reference set (forecast.ReferenceScenarios: the
+	// do-nothing baseline and the default funding levels) over these cohorts.
+	// The Financials charts draw it when the reader maintains only part of the
+	// network, which scenarios.json (every resource) cannot answer
+	// (solvent-streets-ma98). Off by default: it costs four simulations.
+	Scenarios bool `json:"scenarios,omitempty"`
 }
 
 // Output is a ScenarioResult plus, when Input.Solvency is set, its solvency
@@ -73,6 +79,8 @@ type Output struct {
 	forecast.ScenarioResult
 	BreakEvenBudget *float64 `json:"break_even_budget,omitempty"`
 	InsolvencyYear  *int     `json:"insolvency_year,omitempty"`
+	// Scenarios is the reference set when Input.Scenarios is set.
+	Scenarios []forecast.ScenarioResult `json:"scenarios,omitempty"`
 }
 
 // resolveOverhead clamps a missing or nonsensical multiplier to 1.0 (bare).
@@ -262,6 +270,12 @@ func Run(raw []byte) ([]byte, error) {
 		out.BreakEvenBudget = &be
 		if yr, ok := forecast.InsolvencyYear(result, params.CycleYears); ok {
 			out.InsolvencyYear = &yr
+		}
+	}
+	if in.Scenarios {
+		out.Scenarios = forecast.ReferenceScenarios(cohorts, years, params)
+		for i := range out.Scenarios {
+			out.Scenarios[i].FinalCohorts = forecast.AggregateCohortSummariesByClass(out.Scenarios[i].FinalCohorts)
 		}
 	}
 	return json.Marshal(out)

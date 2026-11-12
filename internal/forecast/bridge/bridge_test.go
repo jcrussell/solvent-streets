@@ -496,3 +496,50 @@ func TestRun_Solvency(t *testing.T) {
 		t.Error("solvency metrics leaked into a plain run")
 	}
 }
+
+// TestRun_Scenarios: with scenarios set, Run adds the reference set the
+// Financials charts draw — the same forecast.ReferenceScenarios the export
+// writes to scenarios.json — over the payload's cohorts, collapsed to one
+// final-cohort row per class like the custom run. Without it nothing leaks.
+func TestRun_Scenarios(t *testing.T) {
+	in := Input{
+		InitialPCI: 70, HorizonYears: 20, Strategy: "worst-first", Scenarios: true,
+		Cohorts: []Cohort{
+			{Classification: "residential", Area: 500_000, DecayRate: 0.04},
+			{Classification: "secondary", Area: 200_000, DecayRate: 0.03},
+		},
+	}
+	raw, _ := json.Marshal(in)
+	out, err := Run(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got Output
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatal(err)
+	}
+	_, cohorts, years, params, _ := Translate(in)
+	want := forecast.ReferenceScenarios(cohorts, years, params)
+	if len(got.Scenarios) != len(want) {
+		t.Fatalf("scenarios = %d, want %d", len(got.Scenarios), len(want))
+	}
+	for i, w := range want {
+		g := got.Scenarios[i]
+		if g.Scenario.Name != w.Scenario.Name {
+			t.Errorf("scenario %d = %q, want %q", i, g.Scenario.Name, w.Scenario.Name)
+		}
+		if len(g.Years) != len(w.Years) || g.Years[len(g.Years)-1].PCI != w.Years[len(w.Years)-1].PCI {
+			t.Errorf("%s: final year differs from ReferenceScenarios", w.Scenario.Name)
+		}
+		if len(g.FinalCohorts) != 2 {
+			t.Errorf("%s: %d final-cohort rows, want one per class (2)", w.Scenario.Name, len(g.FinalCohorts))
+		}
+	}
+
+	in.Scenarios = false
+	raw, _ = json.Marshal(in)
+	out, _ = Run(raw)
+	if strings.Contains(string(out), `"scenarios"`) {
+		t.Error("reference scenarios leaked into a plain run")
+	}
+}

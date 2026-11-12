@@ -414,6 +414,10 @@
             padding-top: 16px;
         }
         .advanced-controls.visible { display: block; }
+        .maintain-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin-bottom: 12px; }
+        .maintain-row[hidden] { display: none; }
+        .maintain-label { font-size: 13px; font-weight: 600; color: var(--text-muted); }
+        .layer-toggle.maintain-toggles { display: flex; flex-wrap: wrap; gap: 0 16px; margin-top: 0; border-top: none; padding-top: 0; }
         .tier-row {
             display: grid;
             grid-template-columns: 1fr 80px 80px 100px;
@@ -798,6 +802,10 @@
                 </div>
                 <button class="advanced-toggle" id="advanced-toggle">Advanced options</button>
                 <div class="advanced-controls" id="advanced-controls">
+                    <div class="maintain-row" id="maintain-row" hidden>
+                        <span class="maintain-label" title="The parts of the network the interactive forecast maintains: the budget, Hold steady, the charts and the breakdown all cover these. The headline above is always streets only.">Maintaining</span>
+                        <div class="layer-toggle maintain-toggles" id="maintain-toggles"></div>
+                    </div>
                     <div class="tier-row header">
                         <span>Tier</span>
                         <span>Min PCI</span>

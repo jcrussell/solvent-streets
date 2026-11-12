@@ -7,8 +7,8 @@ import { load } from './harness.mjs';
 import { fullData, seedJSON } from './fixtures.mjs';
 
 // ready boots a window, loads the Financials data, and brings WASM up.
-async function ready() {
-  const h = load({ data: fullData });
+async function ready(opts = {}) {
+  const h = load({ data: fullData, ...opts });
   await h.flush();
   h.win.onWasmReady();     // sets wasmReady, reveals controls, runs the first sim
   await h.flush();
@@ -75,11 +75,25 @@ test('the seeded area and cohorts reach the WASM bridge', async () => {
   assert.equal(sent.area, seedJSON.city_paved,
     'the bridge did not receive the seeded city_paved area');
   assert.ok(sent.area > 0, 'the bridge simulated a network of zero area');
+  // By default the forecast maintains streets only (solvent-streets-ma98).
   assert.deepEqual(
     Array.from(sent.cohorts ?? [], (c) => c.classification).sort(),
+    roadClasses(seedJSON.city_cohorts),
+    'the bridge did not receive the seeded city road cohorts');
+
+  // Maintaining everything sends every seeded cohort.
+  const all = await ready({ url: 'https://example.test/index.html?maintain=roads,parking,sidewalks' });
+  assert.deepEqual(
+    Array.from(all.win.__simCalls.at(-1).cohorts ?? [], (c) => c.classification).sort(),
     Array.from(seedJSON.city_cohorts ?? [], (c) => c.classification).sort(),
     'the bridge did not receive the seeded city cohorts');
 });
+
+/** @param {Array<{classification: string}> | undefined} cohorts */
+function roadClasses(cohorts) {
+  return Array.from(cohorts ?? [], (c) => c.classification)
+    .filter((k) => k !== 'parking' && k !== 'sidewalks').sort();
+}
 
 // The other half of the same key contract: the All-Roads scope reads
 // total_area / cohorts instead. Both branches of getControlValues' scope
@@ -98,8 +112,8 @@ test('the All-Roads scope simulates over the seeded all-scope area', async () =>
   assert.ok(sent.area > 0, 'the bridge simulated a network of zero area');
   assert.deepEqual(
     Array.from(sent.cohorts ?? [], (c) => c.classification).sort(),
-    Array.from(seedJSON.cohorts ?? [], (c) => c.classification).sort(),
-    'the bridge did not receive the seeded all-scope cohorts');
+    roadClasses(seedJSON.cohorts),
+    'the bridge did not receive the seeded all-scope road cohorts');
 });
 
 // loadFinancials strips .visible from #forecast-controls on every teardown,
@@ -148,7 +162,7 @@ test('forecast controls stay hidden when the seed is missing', async () => {
 // (the slider's hold-steady anchor and the live headline) that are memoised
 // on their inputs, so count the scenario runs.
 /** @param {any} win */
-const scenarioRuns = (win) => win.__simCalls.filter((c) => !c.solvency).length;
+const scenarioRuns = (win) => win.__simCalls.filter((c) => !c.solvency && !c.scenarios).length;
 
 test('a cache re-render runs exactly one custom scenario', async () => {
   const { win, resetSimCalls, flush } = await ready();

@@ -64,6 +64,7 @@
                     snapshot: p.get('snapshot'),
                     metric:   p.get('metric'),
                     budget:   p.get('budget'),
+                    maintain: p.get('maintain'),
                 };
             },
             current() {
@@ -96,12 +97,15 @@
                     snapshot: snapEl ? snapEl.value : null,
                     metric:   (onMap && hexMetric !== DEFAULT_METRIC) ? hexMetric : null,
                     budget:   (onFinancials && budgetUserSet) ? String(Math.round(budgetDollars)) : null,
+                    // Likewise what the forecast maintains, once it differs
+                    // from the default (streets only).
+                    maintain: (onFinancials && !sameMaintain(maintained, DEFAULT_MAINTAIN)) ? maintained.join(',') : null,
                 };
             },
             // url serializes a state object to this page's path + query string.
             url(s) {
                 const p = new URLSearchParams();
-                for (const k of ['city', 'tab', 'scope', 'snapshot', 'metric', 'budget']) {
+                for (const k of ['city', 'tab', 'scope', 'snapshot', 'metric', 'budget', 'maintain']) {
                     if (s[k]) p.set(k, s[k]);
                 }
                 PvmtSelectors.urlTags(s.tags, TAG_DIMS).forEach(t => p.append('tag', t));
@@ -134,11 +138,46 @@
         // moves the slider (budgetUserSet) it tracks the default — today's cited
         // budget, else the hold-steady budget — so it lands right whichever data
         // arrives first; after that it stays put while Initial PCI, the cost
-        // multiplier and the tiers move. budgetCity resets it on a city switch.
+        // multiplier and the tiers move. budgetCity names the city the state
+        // belongs to: resetBudget settles it on boot, a city switch and
+        // back/forward (solvent-streets-n2y3).
         let budgetDollars = 0;
         let budgetUserSet = false;
         let budgetCity = null;
-        let budgetFromURL = new URLSearchParams(location.search).get('budget');
+
+        // What the interactive forecast maintains (solvent-streets-ma98): a
+        // subset of the resource types, in MAINTAIN_TYPES order. The default is
+        // streets only — the network the solvency headline, the cited "Today"
+        // budget (a street budget) and Play all describe. ?maintain= carries any
+        // other choice. Independent of the map's layer toggles.
+        const MAINTAIN_TYPES = ['roads', 'parking', 'sidewalks'];
+        const DEFAULT_MAINTAIN = ['roads'];
+        let maintained = DEFAULT_MAINTAIN.slice();
+
+        // resetBudget settles the budget state for the city DATA_PREFIX names:
+        // the dollars in `param` (a ?budget= value) when it parses as a
+        // non-negative number, else the default, which applyBudget fills in.
+        /** @param {string | null | undefined} param */
+        function resetBudget(param) {
+            const v = param != null && param !== '' ? parseFloat(param) : NaN;
+            budgetCity = DATA_PREFIX;
+            budgetUserSet = Number.isFinite(v) && v >= 0;
+            if (budgetUserSet) budgetDollars = v;
+        }
+
+        // parseMaintain reads a ?maintain= value into a MAINTAIN_TYPES subset,
+        // or null when it names none of them.
+        /** @param {string | null | undefined} param @returns {string[] | null} */
+        function parseMaintain(param) {
+            const want = String(param || '').split(',');
+            const got = MAINTAIN_TYPES.filter(t => want.includes(t));
+            return got.length ? got : null;
+        }
+
+        /** @param {string[]} a @param {string[]} b */
+        function sameMaintain(a, b) {
+            return a.length === b.length && a.every((t, i) => t === b[i]);
+        }
         // The roads solvency headline recomputed at the live settings
         // (computeLiveSolvency); null until the forecast simulator has run for
         // this city. Declared up here because renderSolvencyHeadline reads it
@@ -255,6 +294,11 @@
             // The metric list arrives with the city's data; keep the requested
             // key and let loadCityData fall back to coverage if it is absent.
             if (init.metric) hexMetric = init.metric;
+            // Settle the budget and the maintained network before the
+            // replaceState below, or it would serialize the defaults and drop a
+            // shared ?budget= / ?maintain= from the address bar.
+            resetBudget(init.budget);
+            maintained = parseMaintain(init.maintain) || DEFAULT_MAINTAIN.slice();
             Router.replace();
         })();
 
@@ -320,6 +364,20 @@
             const targetMetric = s.metric || DEFAULT_METRIC;
             if (cityChanged) hexMetric = targetMetric;
             else if (targetMetric !== hexMetric) selectHexMetric(targetMetric, { push: false });
+            // Restore the Financials budget and maintained network. selectCity
+            // has already reset the budget for a new city; this puts the
+            // entry's own back. A city or snapshot change reloads Financials,
+            // which picks both up; otherwise repaint in place.
+            const budgetBefore = budgetUserSet ? budgetDollars : null;
+            const maintainBefore = maintained;
+            resetBudget(s.budget);
+            maintained = parseMaintain(s.maintain) || DEFAULT_MAINTAIN.slice();
+            renderMaintainToggles();
+            const budgetAfter = budgetUserSet ? budgetDollars : null;
+            if (!cityChanged && !snapshotChanged &&
+                (budgetAfter !== budgetBefore || !sameMaintain(maintained, maintainBefore))) {
+                renderFinancialsFromCache();
+            }
         });
 
         // dataURL builds a /data/{file} request URL, appending ?snapshot=<id>
@@ -1604,6 +1662,9 @@
             const opt = sel.selectedOptions[0];
             if (!opt) return;
             DATA_PREFIX = 'cities/' + slug + '/';
+            // A budget belongs to one city: drop it before Router.push below
+            // writes the URL, so the new city's entry doesn't carry it.
+            resetBudget(null);
             const bboxParts = opt.dataset.bbox.split(',').map(Number);
             // data-bbox is [west, south, east, north], fitBounds' own order.
             map.fitBounds([[bboxParts[0], bboxParts[1]], [bboxParts[2], bboxParts[3]]], { padding: 40 });
@@ -2112,7 +2173,8 @@
         // this is a no-op.
         function renderFinancialsFromCache() {
             if (!scenarioData) return;
-            const scenarios = scenariosForScope(scenarioData, currentScope);
+            renderMaintainToggles();
+            const scenarios = financialScenarios(currentScope);
             if (!scenarios || scenarios.length === 0) return;
             applyHorizonLabels();
             // Either branch below settles the cohort table itself, so the
@@ -2710,7 +2772,8 @@
             updateHexGrid();
 
             if (scenarioData) {
-                const scenarios = scenariosForScope(scenarioData, scope);
+                renderMaintainToggles();
+                const scenarios = financialScenarios(scope);
                 if (scenarios) {
                     deferCustomScenario = true;
                     try {
@@ -2993,10 +3056,116 @@
         function onWasmReady() {
             wasmReady = true;
             document.getElementById('forecast-controls').classList.add('visible');
-            // Run initial simulation to populate cohort table
-            runCustomScenario();
+            // Run initial simulation to populate cohort table. When the reader
+            // maintains part of the network, the reference lines drawn from
+            // scenarios.json until now cover all of it: redraw them too.
+            renderMaintainToggles();
+            if (scenarioData && forecastSeedReady && effectiveMaintained().length !== presentTypes().length) {
+                renderFinancialsFromCache();
+            } else {
+                runCustomScenario();
+            }
             // Populate tier inputs from seed
             rebuildTierInputs();
+        }
+
+        // Display names for the maintained-network control and its summary.
+        /** @type {Record<string, string>} */
+        const MAINTAIN_LABELS = { roads: 'Streets', parking: 'Parking lots', sidewalks: 'Sidewalks' };
+        /** @type {Record<string, string>} */
+        const MAINTAIN_SHORT = { roads: 'streets', parking: 'lots', sidewalks: 'sidewalks' };
+
+        // cohortType maps a seed cohort to its resource type: parking and
+        // sidewalks carry their type as the class, every other class is a road.
+        /** @param {{classification: string}} c */
+        function cohortType(c) {
+            return c.classification === 'parking' || c.classification === 'sidewalks' ? c.classification : 'roads';
+        }
+
+        // scopeSeedCohorts is the seed cohorts of the active scope:
+        // city-scoped by default, all-jurisdiction when scope === 'all'.
+        function scopeSeedCohorts() {
+            const activeScope = queryEl('#scope-toggle button.active');
+            const scope = activeScope ? activeScope.dataset.scope : 'city';
+            return (scope === 'all' || !FORECAST_SEED.city_cohorts || FORECAST_SEED.city_cohorts.length === 0)
+                ? (FORECAST_SEED.cohorts || [])
+                : FORECAST_SEED.city_cohorts;
+        }
+
+        // presentTypes is the resource types this city's seed has cohorts for.
+        function presentTypes() {
+            const have = new Set(scopeSeedCohorts().map(cohortType));
+            return MAINTAIN_TYPES.filter(t => have.has(t));
+        }
+
+        // effectiveMaintained is the maintained set this city can honour: the
+        // choice narrowed to the types it has, else the default, else all of
+        // them. A ?maintain= naming only absent types can't empty the forecast.
+        function effectiveMaintained() {
+            const have = presentTypes();
+            for (const want of [maintained, DEFAULT_MAINTAIN, have]) {
+                const got = want.filter(t => have.includes(t));
+                if (got.length) return got;
+            }
+            return DEFAULT_MAINTAIN.slice();
+        }
+
+        // renderMaintainToggles draws one checkbox per resource type the city
+        // has, in the map's layer-toggle style. The last checked box is
+        // disabled: the forecast always maintains something.
+        function renderMaintainToggles() {
+            const wrap = document.getElementById('maintain-toggles');
+            if (!wrap) return;
+            const have = presentTypes();
+            const on = effectiveMaintained();
+            document.getElementById('maintain-row').hidden = have.length < 2;
+            wrap.innerHTML = have.map(t =>
+                '<label><input type="checkbox" data-type="' + t + '"' + (on.includes(t) ? ' checked' : '') +
+                (on.length === 1 && on.includes(t) ? ' disabled' : '') + '>' +
+                '<span class="legend-dot" style="background:' + layerColors[t] + '"></span>' + MAINTAIN_LABELS[t] + '</label>'
+            ).join('');
+        }
+
+        // referenceCache memoizes the re-simulated reference lines (see
+        // financialScenarios) by their inputs.
+        const referenceCache = { key: '', value: null };
+
+        // financialScenarios is the reference set (baseline and funding levels)
+        // the Financials charts draw for `scope`. scenarios.json covers every
+        // resource, so when the reader maintains only part of the network the
+        // set is re-simulated over those cohorts, at the seeded settings the
+        // export used — the reference lines stay fixed while the sliders move,
+        // as before; only "Your budget" follows them. Without the simulator or
+        // this city's seed, the exported set stands in.
+        /** @param {string} scope */
+        function financialScenarios(scope) {
+            const exported = scenariosForScope(scenarioData, scope);
+            if (!exported || !wasmReady || !forecastSeedReady) return exported;
+            const types = effectiveMaintained();
+            if (types.length === presentTypes().length) return exported;
+            const cohorts = scopeSeedCohorts().filter(c => types.includes(cohortType(c)));
+            if (cohorts.length === 0) return exported;
+            const input = {
+                area: cohorts.reduce((sum, c) => sum + (c.area || 0), 0),
+                initial_pci: FORECAST_SEED.initial_pci,
+                decay_rate: FORECAST_SEED.decay_rate,
+                growth_rate: FORECAST_SEED.growth_rate,
+                horizon_years: FORECAST_SEED.horizon_years,
+                treatment_cycle_years: FORECAST_SEED.treatment_cycle_years,
+                cost_tiers: FORECAST_SEED.cost_tiers || [],
+                cost_overhead: Number(FORECAST_SEED.cost_overhead) > 0 ? Number(FORECAST_SEED.cost_overhead) : 1,
+                annual_budget: 0,
+                strategy: 'worst-first',
+                cohorts: cohorts,
+                scenarios: true,
+            };
+            const key = JSON.stringify(input);
+            if (key !== referenceCache.key) {
+                const r = safeSimulate(input);
+                referenceCache.key = key;
+                referenceCache.value = r && r.scenarios && r.scenarios.length ? r.scenarios : null;
+            }
+            return referenceCache.value || exported;
         }
 
         function getControlValues() {
@@ -3032,9 +3201,11 @@
             const area = (scope === 'all' || !FORECAST_SEED.city_paved)
                 ? FORECAST_SEED.total_area
                 : FORECAST_SEED.city_paved;
-            const seedCohorts = (scope === 'all' || !FORECAST_SEED.city_cohorts || FORECAST_SEED.city_cohorts.length === 0)
-                ? (FORECAST_SEED.cohorts || [])
-                : FORECAST_SEED.city_cohorts;
+            // Simulate only the maintained part of the network (the cohort
+            // filter computeLiveSolvency applies for the headline). The bridge
+            // reads `area` only when there are no cohorts (a fresh DB).
+            const types = effectiveMaintained();
+            const seedCohorts = scopeSeedCohorts().filter(c => types.includes(cohortType(c)));
 
             return {
                 area: area,
@@ -3116,20 +3287,15 @@
             return 10 * p;
         }
 
-        // applyBudget settles the interactive budget for this run: resets it on a
-        // city switch, takes ?budget= on the first run, follows the default until
-        // the reader moves the slider, then re-ranges the slider and its anchors
-        // around it. Returns the dollars to simulate.
+        // applyBudget settles the interactive budget for this run: follows the
+        // default until the reader sets one (slider, anchor or ?budget=), then
+        // re-ranges the slider and its anchors around it. Returns the dollars to
+        // simulate. resetBudget (boot, city switch, back/forward) owns the
+        // per-city reset; the guard here only covers a path that skipped it.
         function applyBudget(input) {
             const today = todayBudget();
             const hold = holdSteadyBudget(input);
-            if (budgetCity !== DATA_PREFIX) {
-                budgetCity = DATA_PREFIX;
-                const fromURL = budgetFromURL != null ? parseFloat(budgetFromURL) : NaN;
-                budgetFromURL = null;
-                budgetUserSet = Number.isFinite(fromURL) && fromURL >= 0;
-                if (budgetUserSet) budgetDollars = fromURL;
-            }
+            if (budgetCity !== DATA_PREFIX) resetBudget(null);
             if (!budgetUserSet) budgetDollars = today > 0 ? today : hold;
             renderBudgetSlider(today, hold);
             return budgetDollars;
@@ -3138,7 +3304,12 @@
         /** @param {number} today @param {number} hold */
         function renderBudgetSlider(today, hold) {
             const slider = inputById('budget-slider');
-            const top = niceCeil(2 * Math.max(today, hold, budgetDollars, 1));
+            // The range is twice the larger anchor. The budget widens it only
+            // when it lies beyond (a ?budget= link, or anchors that fell after a
+            // setting change): sizing it off the budget on every input moved
+            // the max under a dragging pointer and ran away (solvent-streets-5298).
+            let top = niceCeil(2 * Math.max(today, hold, 1));
+            if (budgetDollars > top) top = niceCeil(budgetDollars);
             slider.max = String(top);
             slider.step = String(top / 400);
             slider.value = String(budgetDollars);
@@ -3146,8 +3317,12 @@
             syncAriaValueNow(slider);
             slider.setAttribute('aria-valuetext', fmtCost(budgetDollars) + ' a year');
             document.getElementById('budget-value').textContent = fmtCost(budgetDollars) + '/yr';
+            // Name the network when it isn't the default, so the figures can't
+            // be read as the streets-only ones the headline quotes.
+            const types = effectiveMaintained();
+            const net = sameMaintain(types, DEFAULT_MAINTAIN) ? '' : ' · ' + types.map(t => MAINTAIN_SHORT[t]).join(' + ');
             document.getElementById('budget-share').textContent = hold > 0
-                ? '(' + Math.round(100 * budgetDollars / hold) + '% of hold-steady)' : '';
+                ? '(' + Math.round(100 * budgetDollars / hold) + '% of hold-steady' + net + ')' : '';
             const ticks = document.getElementById('budget-ticks');
             ticks.innerHTML = '';
             /** @type {Array<[number, string]>} */
@@ -3316,6 +3491,13 @@
                 currentStrategy = btn.dataset.strategy;
                 runCustomScenario();
             });
+        });
+        document.getElementById('maintain-toggles').addEventListener('change', () => {
+            const checked = queryAll('#maintain-toggles input:checked').map(cb => cb.dataset.type || '');
+            maintained = MAINTAIN_TYPES.filter(t => checked.includes(t));
+            if (maintained.length === 0) maintained = DEFAULT_MAINTAIN.slice();
+            renderFinancialsFromCache();
+            Router.replace();
         });
         document.getElementById('advanced-toggle').addEventListener('click', () => {
             const adv = document.getElementById('advanced-controls');
