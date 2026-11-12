@@ -470,6 +470,8 @@
             font-size: 13px;
         }
         .tier-row.header { font-weight: 600; color: var(--text-muted); }
+        .tier-row input[aria-invalid="true"] { outline: 2px solid #dc2626; }
+        .tier-errors { color: #dc2626; font-size: 12px; margin-top: 6px; }
         .tier-row input {
             width: 100%;
             padding: 4px 6px;
@@ -862,6 +864,7 @@
                         <span id="tier-cost-th">$/unit</span>
                     </div>
                     <div id="tier-inputs"></div>
+                    <div id="tier-errors" class="tier-errors" role="alert" hidden></div>
                 </div>
             </div>
 

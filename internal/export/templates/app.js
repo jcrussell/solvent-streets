@@ -3060,6 +3060,54 @@
         }
         syncOverheadSliderFromSeed();
 
+        /** @param {number} v */
+        function roundCents(v) { return Math.round(v * 100) / 100; }
+
+        // validateTierInputs checks the Advanced-options tier table before it
+        // reaches the simulator: finite numbers, a non-negative cost, PCI bounds
+        // in 0-100 with min below max, and no two tiers covering the same PCI.
+        // Invalid fields are marked and the reasons shown next to the table,
+        // in the units on screen; it returns false so the sim is not run on
+        // them (solvent-streets-8ade). Bad input used to reach the WASM bridge,
+        // whose error raised the page-level "Failed to load data" banner, in
+        // $/sq m, over the nav.
+        function validateTierInputs() {
+            const errs = [];
+            const ranges = [];
+            queryAll('#tier-inputs input').forEach(el => el.removeAttribute('aria-invalid'));
+            (FORECAST_SEED.cost_tiers || []).forEach((t, i) => {
+                const name = t.label || 'Tier ' + (i + 1);
+                const get = (field) => queryInput('[data-tier="' + i + '"][data-field="' + field + '"]');
+                const minEl = get('min_pci'), maxEl = get('max_pci'), costEl = get('cost_per_sqm');
+                if (!minEl || !maxEl || !costEl) return;
+                const bad = (el, msg) => { el.setAttribute('aria-invalid', 'true'); errs.push(name + ': ' + msg); };
+                const min = parseFloat(minEl.value), max = parseFloat(maxEl.value), cost = parseFloat(costEl.value);
+                if (costEl.value !== '' && !(Number.isFinite(cost) && cost >= 0)) bad(costEl, 'cost must be $0/' + areaUnit() + ' or more');
+                const minOK = minEl.value === '' || (Number.isFinite(min) && min >= 0 && min <= 100);
+                const maxOK = maxEl.value === '' || (Number.isFinite(max) && max >= 0 && max <= 100);
+                if (!minOK) bad(minEl, 'minimum PCI must be between 0 and 100');
+                if (!maxOK) bad(maxEl, 'maximum PCI must be between 0 and 100');
+                if (!minOK || !maxOK) return;
+                const lo = minEl.value === '' ? t.min_pci : min;
+                const hi = maxEl.value === '' ? t.max_pci : (max >= 100 ? Math.max(100, t.max_pci) : max);
+                if (lo >= hi) { bad(minEl, 'minimum PCI must be below its maximum'); return; }
+                ranges.push({ name, lo, hi, el: minEl });
+            });
+            ranges.sort((a, b) => a.lo - b.lo);
+            for (let k = 1; k < ranges.length; k++) {
+                if (ranges[k].lo < ranges[k - 1].hi) {
+                    ranges[k].el.setAttribute('aria-invalid', 'true');
+                    errs.push(ranges[k - 1].name + ' and ' + ranges[k].name + ' overlap (PCI ' + ranges[k].lo + '\u2013' + Math.min(100, ranges[k - 1].hi) + ')');
+                }
+            }
+            const box = document.getElementById('tier-errors');
+            if (box) {
+                box.hidden = errs.length === 0;
+                box.textContent = errs.length ? 'Not run: ' + errs.join('; ') + '.' : '';
+            }
+            return errs.length === 0;
+        }
+
         function rebuildTierInputs() {
             const tierDiv = document.getElementById('tier-inputs');
             tierDiv.innerHTML = '';
@@ -3072,12 +3120,18 @@
                 // data-sqm carries the canonical $/sq m alongside the displayed value so
                 // a units toggle can re-derive the display from it exactly (see
                 // syncTierCostInputsToUnits) instead of rounding the visible number.
+                //
+                // The shown cost is rounded to cents; the sim reads data-sqm, so
+                // rounding never moves the numbers. The open top bound (max_pci
+                // 101, an internal sentinel so PCI 100 falls inside) shows as 100
+                // and reads back as the seed's own top (solvent-streets-8ade).
                 const costDisplay = UNIT_SYSTEM === 'metric' ? t.cost_per_sqm : t.cost_per_sqm / SQM_TO_SQFT;
+                const name = esc(t.label || 'Tier ' + (i+1));
                 row.innerHTML =
-                    '<span>' + esc(t.label || 'Tier ' + (i+1)) + '</span>' +
-                    '<input type="number" data-tier="' + i + '" data-field="min_pci" value="' + t.min_pci + '" step="1">' +
-                    '<input type="number" data-tier="' + i + '" data-field="max_pci" value="' + t.max_pci + '" step="1">' +
-                    '<input type="number" data-tier="' + i + '" data-field="cost_per_sqm" data-sqm="' + t.cost_per_sqm + '" value="' + costDisplay + '" step="0.01">';
+                    '<span>' + name + '</span>' +
+                    '<input type="number" data-tier="' + i + '" data-field="min_pci" value="' + t.min_pci + '" step="1" min="0" max="100" aria-label="' + name + ' minimum PCI">' +
+                    '<input type="number" data-tier="' + i + '" data-field="max_pci" value="' + Math.min(100, t.max_pci) + '" step="1" min="0" max="100" aria-label="' + name + ' maximum PCI">' +
+                    '<input type="number" data-tier="' + i + '" data-field="cost_per_sqm" data-sqm="' + t.cost_per_sqm + '" value="' + roundCents(costDisplay) + '" step="0.01" min="0" aria-label="' + name + ' cost per ' + areaUnit() + '">';
                 tierDiv.appendChild(row);
             });
             // Label the cost column header with the live unit (the input values are
@@ -3226,12 +3280,16 @@
                 // to JSON null and zeroes the tier in the WASM sim. Fall back to
                 // the seed value whenever the parse isn't a finite number.
                 const minV = minInput ? parseFloat(minInput.value) : NaN;
-                const maxV = maxInput ? parseFloat(maxInput.value) : NaN;
-                // The cost input is displayed in the live unit (see rebuildTierInputs);
-                // convert it back to $/sq m — the unit the sim and the static export
-                // lines use — so the custom line stays comparable after a units toggle.
-                const costRaw = costInput ? parseFloat(costInput.value) : NaN;
-                const costV = UNIT_SYSTEM === 'metric' ? costRaw : costRaw * SQM_TO_SQFT;
+                const maxRaw = maxInput ? parseFloat(maxInput.value) : NaN;
+                // 100 is shown for the open top bound; reading it back keeps the
+                // seed's own top (the 101 sentinel, where it uses one).
+                const maxV = maxRaw >= 100 ? Math.max(100, t.max_pci) : maxRaw;
+                // The cost is read from data-sqm, the exact $/sq m the input
+                // stands for (the sim's and the static lines' unit), kept in
+                // step with typing; the shown value is rounded to cents, so
+                // re-parsing it would move the custom line off the seed. A
+                // cleared box falls back to the seed below.
+                const costV = (costInput && costInput.value !== '') ? parseFloat(costInput.dataset.sqm || '') : NaN;
                 return {
                     min_pci: Number.isFinite(minV) ? minV : t.min_pci,
                     max_pci: Number.isFinite(maxV) ? maxV : t.max_pci,
@@ -3439,6 +3497,7 @@
 
         function runCustomScenario() {
             if (!wasmReady) return;
+            if (!validateTierInputs()) return;
             const input = getControlValues();
             if (!input) return;
             input.annual_budget = applyBudget(input);
@@ -3761,7 +3820,9 @@
                 if (!Number.isFinite(parseFloat(inp.value))) return;
                 const sqm = parseFloat(inp.dataset.sqm);
                 if (!Number.isFinite(sqm)) return;
-                inp.value = String(UNIT_SYSTEM === 'metric' ? sqm : sqm / SQM_TO_SQFT);
+                inp.value = String(roundCents(UNIT_SYSTEM === 'metric' ? sqm : sqm / SQM_TO_SQFT));
+                const label = inp.getAttribute('aria-label');
+                if (label) inp.setAttribute('aria-label', label.replace(/cost per .*$/, 'cost per ' + areaUnit()));
             });
             // Header follows the values (rebuildTierInputs sets it the same way).
             document.getElementById('tier-cost-th').textContent = '$/' + areaUnit();
