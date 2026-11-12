@@ -6,7 +6,7 @@ The release notes link here from their header. Their "Breaking Changes" list nam
 
 ## v0.5.0
 
-Upgrading from v0.4.x takes seven steps. Plan for the first one: it re-fetches every city from the upstream sources.
+Upgrading from v0.4.x takes eight steps. Plan for the first one: it re-fetches every city from the upstream sources.
 
 ### 1. Move the database aside and re-ingest
 
@@ -89,3 +89,7 @@ A tag is now read as `dimension:value` when it contains a colon, and the config 
 ### 7. Set the forecast horizon once per config
 
 A config now has one forecast horizon, and its default is 30 years (up from 20). A `years` inside `[cities.forecast]` fails to load with exit 2: move it to the top-level `[forecast]`. A file pulled in with `[[include]]` must state the same `years` as the file that includes it, or both must leave it unset. A config that left `years` unset now forecasts 30 years, so its headline totals (`30-Year Spend`) and insolvency years cover a longer run. Set `years = 20` at the top level to keep the old horizon. Forecasts are not part of the snapshot hash, so this needs a re-export, not a recompute.
+
+### 8. Expect a partial ingest to exit 1
+
+`pvmt all ingest`, and each `pvmt <resource> ingest`, now exit 1 when any of a city's sources or steps failed, including the fire and Census steps of `all ingest`. They used to warn and exit 0. What did answer is still saved, and `all ingest` still runs every remaining step and city. The final error lists each failure with the command that retries it. A script that ran `pvmt all ingest || true` before `compute` to ride out a flaky upstream now sees those failures. Retry the listed commands, or keep `|| true` if a partial city is acceptable.
