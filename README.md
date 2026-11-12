@@ -27,7 +27,7 @@ tar -xzf pvmt_<version>_<os>_<arch>.tar.gz && sudo mv pvmt /usr/local/bin/   # a
 On macOS, a tarball downloaded with a browser is quarantined, so clear it
 before the first run with `xattr -d com.apple.quarantine pvmt`. To build from
 source, clone the repo and run `make install`, which installs to
-`~/.local/bin` (Go 1.26+; see [CONTRIBUTING.md](CONTRIBUTING.md)). `go install
+`~/.local/bin` (with the Go version `go.mod` names; see [CONTRIBUTING.md](CONTRIBUTING.md)). `go install
 github.com/jcrussell/solvent-streets/cmd/pvmt@latest` also works, but builds
 without the in-browser forecast, so it can't export or serve a dashboard (see
 [troubleshooting](docs/troubleshooting.md#export-errnowasm)).

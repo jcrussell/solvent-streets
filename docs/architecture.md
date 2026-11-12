@@ -58,9 +58,10 @@ graph TD
     Factory --> Paths
 ```
 
-The root command's `PersistentPreRunE` applies `--city/-c`, `--units` and the
-log level before any subcommand runs, so a flag beats per-city and top-level
-config. Multi-city commands iterate with `cmdutil.ForEachCity`, which builds a
+The root command wraps the Factory's `CurrentCity` and `UnitSystem` accessors
+with the `--city/-c` and `--units` flags (`cmdutil.AddCityOverride`,
+`wireUnitSystem`), so a flag beats per-city and top-level config when the
+accessor is first read. `PersistentPreRunE` sets only the log level. Multi-city commands iterate with `cmdutil.ForEachCity`, which builds a
 city-scoped Factory per city.
 
 ## Geometry
@@ -128,7 +129,8 @@ centerline source share one paging and completeness core, `ingest.ArcGISQuery`.
 
 The database is a single SQLite file in the data directory (see
 [configuration.md](configuration.md#files-and-directories)), opened in WAL
-mode. Every ingest and bookkeeping table carries a `city_id`. Results do not:
+mode. Every ingest table, and `runs` and `snapshots`, carries a `city_id`;
+`snapshot_parts` belongs to its city through its snapshot. Results do not:
 each result row hangs off the run that wrote it and is deleted with it
 (`ON DELETE CASCADE`), so a city's results are its runs' results. Results are
 long-format metric rows (metric, subject, value) rather than per-measure
@@ -353,6 +355,21 @@ explicit offline sweep `pvmt cache prune` (see
 It is a command group of its own rather than part of `pvmt gc`, because
 reclaiming disk must not depend on the config or the database. An entry's age is the newer of its body and
 `.meta` files, because a 304 revalidation rewrites only the `.meta`.
+
+**One rollup for Compare.** The Compare and Aggregate tabs read a small slice
+of four data files for every city. A multi-city export writes that slice for
+all cities into one `compare.json` beside `cities.json`, in the same shape as
+the per-city files, so a large site loads them in one request rather than
+four per city. The browser falls back to the per-city files when the rollup is
+absent or of an unknown version, which is how it runs under `pvmt serve`.
+`pvmt check-site` requires the rollup on a multi-city tree.
+
+**Overpass header deadline.** Overpass sends its response headers only once
+a query has run, which can take up to the query's server-side timeout. So
+Overpass alone gets a header deadline just above it
+(`ingest.OverpassHeaderTimeout`), and a slow query is waited out rather than
+cut off and retried. ArcGIS, Nominatim and TIGERweb keep a short deadline, so
+a dead server fails fast.
 
 **TUI progress.** `internal/tui` is one bubbletea `StepModel` that renders the
 phase checklist, log tail, warnings and progress bar in a single view, with no

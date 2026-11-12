@@ -65,11 +65,14 @@ because it belongs to no single config; `pvmt cache prune` manages it (see
 
 A city's `name` is how pvmt finds its boundary, and it derives the city's slug
 from it: `"Berkeley, CA"` becomes `berkeley-ca`. Without `--city`, a command
-runs over every city. `--city` picks one, by name or slug.
+runs over every city. `--city` picks one, by name or slug. Every city needs a
+`name` whose slug is not empty, and no two cities in a file may share a slug.
 
 **Data sources.** `overpass = true` fetches roads, parking and sidewalks from
 OpenStreetMap. `arcgis_url` adds an ArcGIS FeatureServer of road centerlines.
-A city may use both, and features are deduplicated by ID. A private or
+A city may use both, and features are deduplicated by ID. A city must set at
+least one of them: `overpass` defaults to false, so a city with neither is
+rejected. A private or
 loopback ArcGIS address is refused unless the city also sets
 `allow_private_arcgis = true`, which is for self-hosted or staging endpoints
 only. Fire stations always come from OpenStreetMap, and census blocks always
@@ -78,7 +81,7 @@ come from the Census Bureau's TIGERweb, whatever these settings say.
 **Boundary.** The city boundary comes from a Nominatim search for the name.
 When Nominatim has no polygon for the city, set `boundary_relation_id` to the
 city's OSM `admin_level=8` relation, and the boundary is fetched from Overpass
-instead. Ingest's error names this fix. Find the ID with
+instead (the ID must not be negative). Ingest's error names this fix. Find the ID with
 [Overpass Turbo](https://overpass-turbo.eu/):
 `relation["name"="<city>"]["boundary"="administrative"]["admin_level"="8"];out;`.
 A relation whose bbox spans more than 5° is rejected as a likely county or
@@ -122,7 +125,8 @@ tags = ["Bay Area"]
 
 Cities are merged by slug. A city reached through several includes appears
 once, with the union of their tags. Two *different* names that slugify alike
-are an error.
+are an error. A city the including file declares itself replaces every
+included definition of that city whole, tags and calibration included.
 
 Calibration merges per field. That covers `hex_edge_m`, `min_hex_area` and
 every `[forecast]` field. The first include to set a field wins it, and later
@@ -134,7 +138,8 @@ An included file's calibration is flattened into per-city values. So the
 including file may not set top-level `[grid]`, `[forecast]` or
 `[display].min_hex_area`, because those would silently recalibrate the
 included cities. Its `[display].units` and `[export]` apply as usual. An
-included file's `[[services]]` and `[export]` are not carried over.
+included file's `[display].units`, `[[services]]` and `[export]` are not
+carried over.
 
 ### Config identity (`config_id`)
 
@@ -221,7 +226,10 @@ Every setting goes in `[forecast]` or a city's `[cities.forecast]`:
 | `current_budget` | unset | ≥ 0 | the annual pavement budget in dollars; it enables `insolvency_year` and `funding_gap` ([Solvency metrics](../internal/export/docs/methodology.md#solvency-metrics-streetsroads-only)) |
 
 A tier is one `[[forecast.cost_tiers]]` table with `min_pci`, `max_pci`,
-`cost_per_sqm` and a `label`. Setting tiers replaces the defaults entirely.
+`cost_per_sqm` and a `label`: `min_pci` must be below `max_pci`, `cost_per_sqm`
+must be positive and the label must not be empty. Setting tiers replaces the
+road defaults entirely, and sidewalks are priced at 0.6× the same tiers
+([Cost model](../internal/export/docs/methodology.md#cost-model)).
 Except for `growth_rate`, a `0` means "use the default". The default tiers and
 cycle are calibrated together against published city figures. The evidence is
 in [validation.md](validation.md#6-how-the-cost-and-cycle-are-anchored), and
@@ -257,16 +265,18 @@ overpass = true
 as set. The defaults and their sources are in the
 [methodology](../internal/export/docs/methodology.md#service-coverage-fire-response).
 A hand-placed facility is routed from exactly like a mapped one, and may sit
-just outside the boundary. A service name that isn't registered is a config
-error.
+just outside the boundary. It needs a `service` and a valid `lat`/`lon`. A
+service name that isn't registered, a service listed twice, or a negative
+`turnout_s` or `travel_threshold_s` is a config error.
 
 ## Export and hosting
 
-**`[export].title`** names a multi-city dashboard. It defaults to the output
-directory's name.
+**`[export].title`** names a multi-city dashboard built by `pvmt export`. It
+defaults to the output directory's name. `pvmt serve` does not use it.
 
 **`[export].coordinate_decimals`** sets the precision of emitted GeoJSON. The
-default is 5, about 1 m, which is far finer than any hex.
+default is 5, about 1 m, which is far finer than any hex, and the range is
+0–15.
 
 **`[export].boundary_simplify_m`** sets the simplification tolerance, in
 meters, for the *drawn* city outline only. The default is 10. A negative value

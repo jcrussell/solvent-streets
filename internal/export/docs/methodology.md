@@ -61,9 +61,9 @@ tier), the cost is clamped to that anchor's value rather than
 extrapolated. The default tiers are bare-construction contractor bid
 prices: $5 per m² for preventive treatment, $50 for mill-and-overlay
 rehabilitation and $150 for full-depth reconstruction. They are
-calibration inputs, not measurements, and local bid prices will differ. Roads and sidewalks use
-independent cost tiers because the treatment economics differ
-substantially.
+calibration inputs, not measurements, and local bid prices will differ.
+Sidewalks are priced at 0.6× the road tiers in every band ($3, $30 and $90
+per m²), and a config's own `cost_tiers` are scaled the same way.
 
 ### Bare construction cost vs. loaded program cost
 
@@ -125,11 +125,12 @@ gives the derivation and the limits of that anchor.
 ### Scenario comparisons
 
 pvmt ships with three comparison runs driven by annual funding level, all
-using the **worst-first** allocation strategy (budget is spent on the
-lowest-PCI segments first):
+using the **worst-first** strategy (see [How spending moves
+condition](#how-spending-moves-condition)):
 
-- **25% funding** — annual spend = 25% of year-1 worst-first need.
-- **50% funding** — annual spend = 50% of year-1 worst-first need.
+- **25% funding** — annual spend = 25% of the do-nothing baseline's year-1
+  need.
+- **50% funding** — annual spend = 50% of the same need.
 - **Full funding** — unconstrained budget; each year's whole scheduled
   treatment need is funded.
 
@@ -152,20 +153,23 @@ responds smoothly to spend on both sides of that need:
 - **Below need**, spend recovers part of the year's decay, from none at $0
   to all of it at full need, so a fully funded class holds its condition.
 - **Above need**, the extra money treats more pavement at the same cost.
-  A second need's worth treats another 1/12 of the class and closes about
-  1/12 of its gap to PCI 100 that year, so gains shrink as roads improve
-  and condition never jumps to 100.
+  A second need's worth closes the strategy's efficiency times 1/12 of the
+  class's gap to PCI 100 that year (about 1/15 under worst-first; the 1/12
+  is the default cycle, whatever `treatment_cycle_years` says), so gains
+  shrink as roads improve and condition never jumps to 100.
 
 Because better pavement is cheaper to treat, a budget slightly above need
 improves condition a little faster each year, and one slightly below loses
 it a little faster: the network tends to drift away from the hold-steady
 point. The hold-steady (break-even) budget below is that point.
 
-The forecast library also implements a **preventive-first** strategy
-(prioritize highest-PCI segments that are still in the preservation
-window), but the default UI comparisons do not exercise it. Preventive
-vs. worst-first allocation is governed by per-strategy efficiency
-multipliers; those multipliers are **illustrative calibration constants**
+The budget is split across road classes in proportion to their need under
+every strategy. The **strategy** sets only how efficiently that money works:
+**worst-first** (0.8) buys less recovery per dollar than **preventive-first**
+(1.2), both below need and above it. The Financials tab's **Strategy**
+control switches the "Your budget" line between them; the reference runs and
+the Hold steady mark are always worst-first. Those multipliers are
+**illustrative calibration constants**
 chosen to reflect the direction and sign of the effect reported in
 **FHWA-HIF-12-042, *Pavement Preservation: Preserving our Investment*** —
 that $1 of preventive maintenance is reported to avoid $6–$10 of future
@@ -333,8 +337,9 @@ city-builder's service-coverage overlay. It is computed, not observed:
    emergency speeds — intersections and turns roughly offset the
    exemption. `oneway` (and the implied one-way of motorways and
    roundabouts) is respected. One source feeds the graph: OpenStreetMap
-   when ingested, otherwise the agency centerlines (which carry no speed
-   tags and so run at the default).
+   when ingested, otherwise the agency centerlines. Those carry no
+   `maxspeed`, so they run at the class speed of their functional class,
+   or the default when the class is unknown.
 3. **Placement.** Each station is placed at the nearest point along a
    road, preferring the main street network over a closer unconnected stub.
    A station farther than 500 m from any road is ignored with a warning.

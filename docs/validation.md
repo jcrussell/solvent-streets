@@ -36,10 +36,9 @@ in scale, not a budget line item.
 
 Each city's area and cost figures come from running `roads ingest`,
 `roads compute` and `export`, with ArcGIS Street_Centerlines and Overpass as
-sources. The solvency figures come from `pvmt validate`. It prices each city's
-committed reference data (`pkg/cmd/validate/reference.json`) with the shipped
-cost tiers, condition spread and cycle, and with the decay rate recorded for
-that city. The `initial_pci` values in
+sources. The solvency figures come from `pvmt validate`, which prices each
+city's committed reference data (`pkg/cmd/validate/reference.json`); `pvmt help
+validate` gives the run's exact settings. The `initial_pci` values in
 [`examples/bay-area-ca`](../examples/bay-area-ca/pvmt.toml) match the MTC 2024
 table to the digit. The MTC series was extracted three times independently,
 with exact agreement. Cohort area does not depend on the hex size: Berkeley's
@@ -129,8 +128,8 @@ loaded range.
 unit costs*. §6 compares *whole-program annual dollars*, which is what the site
 publishes. At that level the bare tiers, with the condition spread (§4) and
 the 12-year cycle (§5), already reproduce Berkeley's loaded hold-steady figure.
-Multiplying the tiers by 1.5 would put Berkeley's break-even at $26.8M, 47%
-above its published $18.3M. A city whose program costs genuinely run higher
+Multiplying the tiers by 1.5 would put Berkeley's break-even at about $28M,
+53% above its published $18.3M. A city whose program costs genuinely run higher
 has `cost_overhead` (see the
 [methodology](../internal/export/docs/methodology.md#bare-construction-cost-vs-loaded-program-cost)).
 
@@ -176,7 +175,7 @@ The model schedules 1/N of the network each year, with N = 12, the middle of
 the 10–14-year municipal range (see the
 [methodology](../internal/export/docs/methodology.md#treatment-cycle)). The
 cycle has to be in the model. Pricing the whole network every year (N = 1)
-multiplies every break-even by 12, which would put Berkeley at about $65 per m²
+multiplies every break-even by 12, which would put Berkeley at about $68 per m²
 a year against its real $5.6. The insolvency threshold would shrink to a
 single year's need, which a city funding only a small share of it crosses
 within a year or two, so the metric could not tell cities apart. With the cycle, `insolvency_year` separates the underfunded cities from

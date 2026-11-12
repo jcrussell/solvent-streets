@@ -1,7 +1,6 @@
 # Troubleshooting
 
-When pvmt fails, it prints the error and then a one-line **hint** with the
-likely fix. Most sections below are named for an error and quote its hint, so
+When pvmt fails, it prints the error and then a **hint** with the likely fix. Most sections below are named for an error and quote its hint, so
 find the message you got and read on. The last two cover problems that produce
 no error at all.
 
@@ -14,7 +13,7 @@ Every command uses the same codes, so a chain like
 |------|---------|
 | 0 | Success, or you declined a confirmation prompt |
 | 1 | The command failed, or was interrupted (Ctrl-C / SIGTERM) |
-| 2 | Usage error: a bad flag, a missing argument, or an invalid config ([`#invalid-config`](#invalid-config)) |
+| 2 | Usage error: a bad flag, a missing argument, an invalid config ([`#invalid-config`](#invalid-config)) or one with no cities ([`#no-cities`](#no-cities)), or a destructive command run without `--yes` and without a terminal to confirm on |
 | 3 | The command ran cleanly but produced nothing (no features, no cities with data) |
 
 An interrupt exits 1 because the work did not finish. Treating it as success
@@ -32,7 +31,7 @@ create a config there. The hint prints a minimal working one, and
 
 ## `#no-cities`
 
-**Hint:** *add a [[cities]] section to pvmt.toml.*
+**Hint:** *add a [[cities]] section to pvmt.toml*, followed by an example.
 
 The config parsed but defines no cities, either directly or through
 `[[include]]`. Every command needs at least one.
@@ -48,7 +47,8 @@ bad input from an operational failure. Valid values and ranges are in
 
 ## `#permission-denied`
 
-**Hint:** *check filesystem permissions on `<path>`.*
+**Hint:** *check filesystem permissions on `<path>`* (or *on the pvmt.toml path*
+when the config itself is unreadable).
 
 pvmt could not read the config, or could not create or write its cache or data
 directory. The path in the hint is the one that failed (where each directory

@@ -16,8 +16,8 @@
 #   - San Jose uses hex_edge_m = 150 (sprawls to ~466 km²).
 #
 # Heads up: 98 Nominatim + 98 Overpass + 14 ArcGIS pulls — expect hours
-# for `pvmt all ingest`. The committed file ships the config only;
-# pre-computed dist/ artifacts are produced locally before `make site`.
+# for `pvmt all ingest`. The committed file ships the config only; run
+# `pvmt all ingest` and `pvmt all compute` before exporting.
 
 config_id = "bay-area-ca"
 

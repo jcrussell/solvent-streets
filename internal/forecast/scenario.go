@@ -138,10 +138,9 @@ func ResolveCycleYears(years float64) float64 {
 // cohort is handed its own need_j rather than totalSpend * (need_j/totalNeed).
 // With totalSpend == totalNeed the two are the same number in exact arithmetic,
 // but not in floating point: round-tripping through the ratio lands a cohort a
-// hair either side of spend == need, which the old discontinuous response
-// turned into ~0.5 points of blended PCI moving purely with the cost scale
-// (solvent-streets-0ulx). The response is continuous now, but exact
-// allocation still keeps full funding exactly at need.
+// hair either side of spend == need. Exact allocation keeps full funding
+// exactly at need, so the fully funded run never moves with the cost scale
+// (solvent-streets-0ulx).
 func (sm *simulator) distribute(totalNeed, totalSpend float64, strategy Strategy, fullFund bool) float64 {
 	actualSpend := 0.0
 	for j := range sm.states {
@@ -185,14 +184,13 @@ const surplusGapYears = DefaultTreatmentCycleYears
 //     surplus treats a further eff*(surplus/need)/surplusGapYears of the
 //     cohort, which closes that fraction of the gap to maxPCI. Gains
 //     therefore diminish as the cohort improves, a budget twice the need
-//     closes about 1/12 of the gap a year, and the surplus that can be used
+//     closes eff/12 of the gap a year, and the surplus that can be used
 //     stops at treating the whole cohort.
 //
-// The model used to freeze a funded cohort and let any surplus close
-// surplus/need of the gap in one year. Once PCI rose past the preventive
-// threshold the need fell tenfold, a fixed budget became a large multiple of
-// it, and the cohort snapped to 100: a budget 10% above the year-1 need ended
-// at PCI 100 while spending half as much as the need itself.
+// Dividing by surplusGapYears is what keeps a surplus from snapping a cohort
+// to 100: once PCI passes the preventive threshold the need falls tenfold, so
+// a fixed budget becomes a large multiple of it, and a response linear in
+// surplus/need alone would close the whole gap in a year.
 func applyCohortSpend(st *cohortState, decayedPCI, spend, need float64, strategy Strategy) float64 {
 	if spend <= 0 || need <= 0 {
 		st.currentPCI = decayedPCI
