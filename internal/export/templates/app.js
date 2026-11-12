@@ -2706,7 +2706,11 @@
             var c = (typeof CITIES !== 'undefined') ? CITIES.find(function(c) { return c.slug === slug; }) : null;
             if (c) return c.name;
             if (typeof CITIES !== 'undefined' && CITIES.length > 0) return CITIES[0].name;
-            return 'This city';
+            // Single-city pages have no CITIES; the loaded meta.json names the
+            // city (solvent-streets-qtjh). The last resort is read mid-sentence
+            // ("At current funding, this city's ..."), so it is lower case.
+            if (lastCityMeta && lastCityMeta.project_name) return lastCityMeta.project_name;
+            return 'this city';
         }
 
         // Render the roads-only solvency headline above the Financials charts
