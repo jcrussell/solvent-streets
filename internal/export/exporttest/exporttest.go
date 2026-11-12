@@ -49,7 +49,7 @@ func Store() *dbtest.MockStore {
 		resource.TypeSidewalks.With(resource.ScopeCity): {Area: 80_000, Features: 200},
 	}
 	// Per-class cohort stats per resource and scope. BuildScenariosData and
-	// BuildForecastsForCity now build their lines from these multi-cohort seeds
+	// BuildForecastsForCity build their lines from these multi-cohort seeds
 	// (the same source as the interactive WASM line), so the fixture must supply
 	// them to exercise that path rather than the single-synthetic-cohort
 	// fallback. Class areas are split so they roughly sum to the matching

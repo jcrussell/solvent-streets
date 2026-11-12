@@ -78,10 +78,10 @@ func SubtractGeoJSON(ctx context.Context, boundaryGJSON, otherGJSON string) (str
 	// mixing polygons and linestrings when the operands share boundary
 	// segments outside the 2-D overlap. Strip back to 2-D before the
 	// subtraction — the 1-D shared-edge artifacts aren't part of the water
-	// area we want to subtract. (On v0.59.0 Difference accepts a mixed GC and
-	// its output is clean either way, so the strip is belt-and-suspenders
-	// here; it is strictly required at the hex-clip call sites that keep the
-	// result geometry — see RetainPolygonal. Originally solvent-streets-i3ih.)
+	// area we want to subtract. (Difference accepts a mixed GC and its
+	// output is clean either way, so the strip is belt-and-suspenders here;
+	// it is strictly required at the hex-clip call sites that keep the
+	// result geometry — see RetainPolygonal. solvent-streets-i3ih.)
 	otherClipped, err = RetainPolygonal(otherClipped)
 	if err != nil {
 		return "", fmt.Errorf("clean clipped subtrahend (polygonal-only): %w", err)

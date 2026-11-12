@@ -204,7 +204,7 @@ func (s *Server) renderGame(slug string) ([]byte, error) {
 // continue-past-broken-cities tolerance the rest of the multi-city surface
 // already has (buildIndexData's cities loop, handleCitiesList, the static
 // exporter). Returns the last build error only when no city renders, so a
-// single broken city no longer 500s the entire site.
+// single broken city does not 500 the entire site.
 func (s *Server) firstRenderableCity(ctx context.Context) (export.CityEntry, export.TemplateData, error) {
 	var lastErr error
 	for _, entry := range s.cities {

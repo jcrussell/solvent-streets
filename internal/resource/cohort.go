@@ -13,8 +13,8 @@ import (
 // already-buffered features by labelling each feature's polygon with its
 // highway class and running geo.ComputeHexCoverageByGroup — a SINGLE pass over
 // the clipped hex grid that searches one combined index per hex, groups that
-// hex's candidates by class, and accumulates per-class coverage. This replaces
-// the former per-class loop that traversed the whole grid once per class.
+// hex's candidates by class, and accumulates per-class coverage, rather than
+// traversing the whole grid once per class.
 // Buffering happens once at the caller; this function only indexes and
 // intersects. Intra-class overlaps are dedup'd per-hex rather than via one big
 // UnionAll, and per-class totals are clipped to the same hex grid as the "all"

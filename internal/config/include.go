@@ -289,9 +289,9 @@ func stampSource(dst *CityConfig, child *Config, src *CityConfig, configID strin
 // Two includes that both set a field to different values is the one case where
 // something is genuinely dropped: the first still wins, and unionCalibration
 // reports the field so mergeIncludedCities can record a warning naming the
-// city, the field, both values, and both includes. A backfill is not a
-// disagreement and is silent — it is the deferral case, in the direction the
-// merge used to handle only for a *later* unset field.
+// city, the field, both values, and both includes. A backfill (a later
+// include filling a field the winner left unset) is not a disagreement and is
+// silent.
 //
 // A city the parent declared directly (not via include) is exempt entirely:
 // "the parent's own city wins" is a documented local override, and it wins
@@ -426,8 +426,8 @@ func unionCalibration(existing *CityConfig, child *Config, src *CityConfig) (con
 // threshold from a different include makes filterHexSlivers drop EVERY hex.
 // That failure is silent in both directions — the snapshot hash covers the edge
 // but not the export-time threshold, so it passes, and the result is a
-// SUCCESSFUL export of an empty map. Unioning the two fields independently, as the old per-field code did,
-// reintroduces through the include path exactly what the display.min_hex_area
+// SUCCESSFUL export of an empty map. Unioning the two fields independently
+// would reintroduce through the include path exactly what the display.min_hex_area
 // gate in validateGrid was written to prevent.
 //
 // Adopting the pair also moves the source identity (SourceConfigID and the
@@ -440,7 +440,7 @@ func unionCalibration(existing *CityConfig, child *Config, src *CityConfig) (con
 // snapshot there carries the hash of the edge the city resolves, so it would
 // read nothing, with no fix available from the union file.
 //
-// The consequence is that a partial statement of the grid is no longer
+// The consequence is that a partial statement of the grid is not
 // backfilled: once existing has named either field, only agreeing values are
 // accepted and anything else is reported as a conflict rather than folded in.
 // Splitting the pair across two includes is precisely the hazard above.

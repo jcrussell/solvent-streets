@@ -2,16 +2,14 @@
 // otherwise-interactive commands depend on. Per byob-prompter.1 the
 // interface is intentionally small (five methods) so swapping the live
 // implementation touches one file rather than every caller. The live impl
-// (live.go) is backed by charm.land/huh/v2 — the original objection to huh
-// (v1.x rode the old github.com/charmbracelet dep tree and would have
-// forked the repo's charm.land bubbletea/v2 stack) evaporated when huh v2
-// shipped on the same charm.land tree. Behavior changes versus the old
-// stdlib impl are accepted: stdin EOF mid-prompt no longer surfaces
-// io.EOF (the form blocks until ctx cancellation); the answered prompt
-// is cleared from scrollback when the form quits; and Input prefills
-// the default as editable text (typed input edits it rather than
-// replacing it, and clearing the field submits ""), where the old impl
-// returned the default only on a blank line.
+// (live.go) is backed by charm.land/huh/v2, which shares the repo's
+// charm.land bubbletea/v2 dependency tree (huh v1.x would fork it onto
+// github.com/charmbracelet). Consequences of the huh form that callers
+// accept: stdin EOF mid-prompt does not surface io.EOF (the form blocks
+// until ctx cancellation); the answered prompt is cleared from scrollback
+// when the form quits; and Input prefills the default as editable text
+// (typed input edits it rather than replacing it, and clearing the field
+// submits "").
 package prompt
 
 import (

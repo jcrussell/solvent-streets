@@ -256,9 +256,9 @@ func mergeCohortSeeds(ctx context.Context, entries []CityEntry, fc *config.Forec
 	}
 	for _, entry := range entries {
 		// One batched cohort-stats lookup per entry; a scoped type absent
-		// from the map is the same skip as the old per-type err/empty path.
+		// from the map is skipped, the same as a type with no stats.
 		// Iterate resource.All (not the map) so first-seen Order stays
-		// deterministic and matches the pre-batch insertion order.
+		// deterministic, in resource.All order.
 		statsByType, err := results.LoadCohortsByType(ctx, entry.Store, scopedTypes)
 		if err != nil {
 			continue

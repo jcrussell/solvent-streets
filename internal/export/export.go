@@ -114,18 +114,18 @@ func (e *Exporter) runSingleCity(ctx context.Context) error {
 // aggregation helpers (regionBBox, summedBoundaryArea, etc.) already
 // tolerate missing boundaries via continue-on-error.
 func (e *Exporter) exportOneCity(ctx context.Context, entry CityEntry) (CityInfo, bool, error) {
-	// Decide whether to skip BEFORE creating the directory, not after. The
-	// MkdirAll used to run first, so a skipped city left cities/<slug>/data/
+	// Decide whether to skip BEFORE creating the directory, not after. If
+	// MkdirAll ran first, a skipped city would leave cities/<slug>/data/
 	// behind, empty — and checksite's discover.go enumerates every directory
 	// under cities/ regardless of what cities.json lists, so `pvmt check-site`
-	// then failed on a city the exporter had deliberately dropped. Ordering is
-	// the fix rather than a RemoveAll in the skip branch, so a future early
-	// return cannot reintroduce the ghost by forgetting to clean up.
+	// would fail on a city the exporter had deliberately dropped. Ordering
+	// prevents this rather than a RemoveAll in the skip branch, so a future
+	// early return cannot leave a ghost directory by forgetting to clean up.
 	//
 	// Info is the same BBoxAndCenter lookup exportCityData does first, and it
 	// is where ErrNoBoundary originates (entry.go:178) — before anything is
-	// written. Doing it up front also collapses what used to be two separate
-	// ErrNoBoundary branches into one.
+	// written. Doing it up front also means ErrNoBoundary is handled in one
+	// branch.
 	info, err := entry.Info(ctx)
 	if err != nil {
 		if errors.Is(err, ErrNoBoundary) {
@@ -297,10 +297,10 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 	// "hide the scope toggle" to the client.
 	//
 	// The hex grid itself (lattice, boundary clip, sliver filter) is built at
-	// most ONCE per city and shared with BuildPlayHexes below. Both used to
-	// build it independently, so every export paid for the clip twice — for a
-	// city like Jacksonville that second pass is Buffer(0) over 302 boundary
-	// parts plus a union. Lazy, not eager: each consumer has an empty case that
+	// most ONCE per city and shared with BuildPlayHexes below. Building it
+	// independently in each would pay for the clip twice — for a city like
+	// Jacksonville that second pass is Buffer(0) over 302 boundary parts plus
+	// a union. Lazy, not eager: each consumer has an empty case that
 	// returns before it needs a grid.
 	grid := newCityHexGridOnce(ctx, entry, proj)
 

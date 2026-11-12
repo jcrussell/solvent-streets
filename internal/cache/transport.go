@@ -161,7 +161,7 @@ func withConditionalValidators(req *http.Request, meta *entryMeta) *http.Request
 // firstHeaderValue returns the first value stored for key, or "" when the
 // header is absent or has no values. Validators (ETag, Last-Modified) are
 // single-valued in practice, so the first value is the right choice even
-// though the cache now stores every value for a header.
+// though the cache stores every value for a header.
 func firstHeaderValue(h map[string][]string, key string) string {
 	if vs := h[key]; len(vs) > 0 {
 		return vs[0]
@@ -240,8 +240,9 @@ func (t *CachingTransport) writeCacheMeta(metaPath string, meta entryMeta) {
 
 func (t *CachingTransport) writeCache(metaPath, bodyPath string, resp *http.Response, body []byte, url string) {
 	// Store every value for each header. resp.Header is already
-	// map[string][]string; collapsing to a single value (the old
-	// resp.Header.Get) dropped repeated headers like Set-Cookie and Vary.
+	// map[string][]string; collapsing to a single value (as
+	// resp.Header.Get does) would drop repeated headers like Set-Cookie
+	// and Vary.
 	headers := make(map[string][]string, len(resp.Header))
 	for k, vs := range resp.Header {
 		cp := make([]string, len(vs))

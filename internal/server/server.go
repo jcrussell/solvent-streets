@@ -28,9 +28,9 @@ type Server struct {
 	forecasts sync.Map // city slug → *forecastThunk (sync.OnceValue wrapper); shared by serveForecastJSON and serveHexCostSummary
 
 	// indexTemplate and gameTemplate lazily parse the (embedded, deterministic)
-	// page templates once for the server's lifetime. Templates no longer depend
+	// page templates once for the server's lifetime. Templates do not depend
 	// on the unit system — display units are a client-side preference (frlu) —
-	// so a single cached parse per page replaces the former System-keyed maps.
+	// so a single cached parse per page suffices.
 	indexTemplate func() (*template.Template, error)
 	gameTemplate  func() (*template.Template, error)
 

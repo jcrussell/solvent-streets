@@ -24,12 +24,10 @@ import (
 // they are reported as tree totals and carry no per-city budget.
 //
 // Every budget is a ceiling that catches a runaway, not a tracker of current
-// size. All eight were originally seeded against a pretty-printed export from
-// before the site-weight work (solvent-streets-pav7); this map was RE-SEEDED
-// against a real full export once that epic's last step (B7) landed, which is
-// what its own note asked for.
+// size. The budgets are seeded against a real full export taken after the
+// site-weight epic (solvent-streets-pav7) landed its last step (B7):
 //
-// Re-seed baseline: 277 cities, 309 MB total (from 637 MB), audit clean.
+// Seed baseline: 277 cities, 309 MB total, audit clean.
 // Worst city per file at that point:
 //
 //	hexgrid.geojson       6.2 MiB  (portland-or)   mean 845.0 KiB   total 228.6 MiB
@@ -39,28 +37,26 @@ import (
 //	scenarios.json       47.5 KiB  (oakland-ca)    mean  40.8 KiB   total  11.0 MiB
 //	forecast_seed.json    1.8 KiB / meta.json 559 B / hex-cost-summary.json 474 B
 //
-// Two budgets moved, and neither was raised just to silence a warning:
+// Two budgets are set from that measurement rather than from a target, and
+// neither is sized just to silence a warning:
 //
-//   - hexgrid.geojson 3 -> 8 MiB. The old value was seeded when the file was
-//     the epic's target, and B6b + B7 did shrink it (7.0 -> 6.2 MiB worst,
-//     258.8 -> 228.6 MiB total) — just not under a ceiling chosen for a
-//     hoped-for endpoint rather than a measured one. 8 MiB sits ~29% above the
-//     real worst city, which still catches a doubling. This file is now 74% of
+//   - hexgrid.geojson 8 MiB. A ceiling chosen for a hoped-for endpoint rather
+//     than a measured one would fire on every export. 8 MiB sits ~29% above
+//     the real worst city, which still catches a doubling. This file is 74% of
 //     the published tree and is the only place a further large win is left; the
 //     remaining lever (lattice reconstruction, ~145 MB) is deliberately
 //     deferred in solvent-streets-pav7 until there is an executing JS test
 //     harness, because it cannot fail loudly.
 //
-//   - play-hexes.json 1 -> 2 MiB. It was at ~93% of its old ceiling, clearing
-//     by 6.6% — one larger city or a finer hex edge re-trips it. The previous
-//     note here said to raise it or shrink the file rather than re-seed it
-//     silently; this is that raise, and it is the reason the file is called out
-//     rather than quietly adjusted.
+//   - play-hexes.json 2 MiB. The worst city is at ~93% of 1 MiB, so a 1 MiB
+//     ceiling would be re-tripped by one larger city or a finer hex edge.
+//     Raising it is called out here rather than adjusted quietly, so a future
+//     breach means raising it or shrinking the file, not a silent re-seed.
 //
-// The other six are unchanged and sit far under: boundary clears by ~40% after
-// B4b simplified the display copy, forecast.json is at about a seventh of its
-// ceiling, and forecast_seed / meta / hex-cost-summary remain nominal ceilings
-// orders of magnitude above today's bytes.
+// The other six sit far under: boundary clears by ~40% because B4b simplifies
+// the display copy, forecast.json is at about a seventh of its ceiling, and
+// forecast_seed / meta / hex-cost-summary are nominal ceilings orders of
+// magnitude above today's bytes.
 var sizeBudgets = map[string]int64{
 	"boundary.geojson":      2 << 20,   // 2 MiB  (worst 1.2 MiB after B4b)
 	"forecast.json":         512 << 10, // 512 KiB
@@ -68,7 +64,7 @@ var sizeBudgets = map[string]int64{
 	"hex-cost-summary.json": 64 << 10,  // 64 KiB  (nominal)
 	"hexgrid.geojson":       8 << 20,   // 8 MiB  (worst 6.2 MiB; 74% of the tree)
 	"meta.json":             64 << 10,  // 64 KiB  (nominal)
-	"play-hexes.json":       2 << 20,   // 2 MiB  (worst 956 KiB; was at 93% of 1 MiB)
+	"play-hexes.json":       2 << 20,   // 2 MiB  (worst 956 KiB; 93% of 1 MiB)
 	"scenarios.json":        256 << 10, // 256 KiB (nominal)
 	"hex-metrics.json":      2 << 20,   // 2 MiB  (optional; ~30 B per painted hex per metric)
 }

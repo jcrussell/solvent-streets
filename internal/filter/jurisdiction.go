@@ -63,7 +63,7 @@ var (
 	// federally administered, not state maintained. They are matched here
 	// rather than deny-listed in statePostalDeny because a deny entry routes
 	// to City, the fallthrough bucket, which is further from the truth than
-	// the State they used to get. None of the three is a USPS state code, so
+	// State would be. None of the three is a USPS state code, so
 	// none can shadow a real state route. Measured against the ingested
 	// corpus: NF 61 (Angeles NF, in the Los Angeles/Glendale/La Cañada
 	// Flintridge bboxes), FR 2N72 / 3S04 / 333 (San Bernardino NF plus
@@ -279,16 +279,16 @@ var (
 	// a digit can never match (RD|ROAD|HWY|HIGHWAY|RTE|ROUTE), so Colorado
 	// keeps every ref it already had.
 	//
-	// Both spelled prefixes share ONE designator alternation. They did not
-	// used to: the CO arm carried RD|ROAD|HWY|HIGHWAY|RTE|ROUTE while the
-	// COUNTY arm carried only the spelled-out ROAD|HIGHWAY|ROUTE|TRUNK, so
-	// "CO RD 45" was County but "County Rd 12" was City, and "CO HWY 12" was
-	// County but "COUNTY HWY 5" was City -- the same "one county road billed
-	// to the state, its neighbour billed to the city" split the CO arm exists
-	// to prevent, reintroduced one level down. solvent-streets-fu74.
+	// Both spelled prefixes share ONE designator alternation. Separate lists
+	// drift: with RD|ROAD|HWY|HIGHWAY|RTE|ROUTE on the CO arm but only the
+	// spelled-out ROAD|HIGHWAY|ROUTE|TRUNK on the COUNTY arm, "CO RD 45" is
+	// County but "County Rd 12" is City, and "CO HWY 12" is County but
+	// "COUNTY HWY 5" is City -- the same "one county road billed to the
+	// state, its neighbour billed to the city" split the CO arm exists to
+	// prevent, one level down. solvent-streets-fu74.
 	//
-	// Measured: every spelling this widening adds is ZERO in the ingested
-	// corpus (8.7M road features) -- COUNTY HWY, COUNTY RTE, CO.RD, CO TRUNK
+	// Measured: every spelling only the shared alternation reaches is ZERO
+	// in the ingested corpus (8.7M road features) -- COUNTY HWY, COUNTY RTE, CO.RD, CO TRUNK
 	// all absent; "County Road 17" is the single COUNTY-arm feature and it
 	// already matched. So this is INERT today, kept for the same reason the
 	// CO arm above is: the shape belongs to rural county addressing that a
@@ -298,16 +298,14 @@ var (
 	// would match a street named "CORD 45". A period makes the separator
 	// optional ("CO.RD 45"); without one a separator is still required.
 	//
-	// The COUNTY arm's separator widened from a literal space to [ -], so
-	// "COUNTY-RD 12" now matches too.
+	// The COUNTY arm's separator is [ -], so "COUNTY-RD 12" matches too.
 	//
 	// Colorado is still safe. The 33 distinct ^CO refs in the corpus (12118
 	// features, "CO 121" 2377, "CO 30" 1398) are all the "CO <digits>" shape,
-	// and a digit can never match the designator alternation -- which gained
-	// only TRUNK, another word. Verified unmoved in the corpus dump.
+	// and a digit can never match the designator alternation, whose members
+	// are all words. Verified in the corpus dump.
 	//
-	// One shared \b after the shared alternation is the same assertion the
-	// old per-arm \b made, and load-bearing the same way stateWordRefRe's
+	// The shared \b after the shared alternation is load-bearing the same way stateWordRefRe's
 	// trailing \d is: without it "CO ROUTED", "COUNTY ROADWAY 4" or a street
 	// named "CO RDS" would match.
 	spelledCountyRefRe = regexp.MustCompile(
@@ -316,22 +314,22 @@ var (
 	// stateWordRefRe matches the state-route types spelled as words rather than
 	// abbreviated. statePostalDeny's note below already records that TxDOT's
 	// abbreviated SL/SS (state loop / state spur) forms reach isStateRef and
-	// are correctly State; the spelled forms of the very same roads matched
-	// nothing and fell through to City -- "Loop 12" is 1172 features in
+	// are correctly State; without this rule the spelled forms of the very
+	// same roads match nothing and fall through to City -- "Loop 12" is 1172 features in
 	// Dallas, "Spur 303" 327, 2905 in total across Dallas, Austin, San Antonio
 	// and Fort Worth.
 	//
 	// The trailing \d is load-bearing: it is what keeps a street literally
 	// named "Loop Road" or "Spur Trail" out of the State bucket.
 	//
-	// This closed the LOOP/SPUR gap and nothing wider; the spelled State, US
-	// and County forms it used to leave open are now handled by
+	// This covers the LOOP/SPUR gap and nothing wider; the spelled State, US
+	// and County forms are handled by
 	// stateExplicitRefRe, federalWordRefRe and spelledCountyRefRe's shared
 	// designator alternation (solvent-streets-fu74, all measured ~0 and
 	// carried on domain knowledge).
 	//
 	// What remains open is NOT a spelling gap but a shape gap, and it is
-	// bigger than the one just closed. Every ref rule in this file is
+	// bigger than the LOOP/SPUR one. Every ref rule in this file is
 	// ^-anchored against a prefix, so the classes below reach no rule at all:
 	// foreign national routes ("MEX 45", "CHL 784", ~600 features in the
 	// border bboxes, billed to a US city today), California county
@@ -436,34 +434,33 @@ var (
 // past the county checks, and land in the City bucket, silently inflating
 // city cohort area, AnnualNeed and FundingGap.
 //
-// The deny list is NOT the whole story, and reading it as such is how
-// solvent-streets-qwfo happened. Every rule here is a two-letter-then-DIGIT
-// shape, so it can only ever see the ABBREVIATED spelling of a route. The
-// same TxDOT loops and spurs this comment credits the permissive default with
-// catching as "SL 12"/"SS 55" were, written out as "Loop 12" and "Spur 303",
-// matching nothing at all and landing in City — 2905 features. Lettered
-// designators (CR S21, SR A1A) failed the same way, for 9491 more. Those are
-// now handled by stateWordRefRe, spelledCountyRefRe and the [A-Z]? in
-// countyRefRe/stateExplicitRefRe. Before adding a prefix here, check whether
-// the ref convention you are reasoning about also has a spelled or lettered
-// form that no pattern in this file can reach.
+// The deny list is NOT the whole story (solvent-streets-qwfo). Every rule
+// here is a two-letter-then-DIGIT shape, so it can only ever see the
+// ABBREVIATED spelling of a route. The same TxDOT loops and spurs the
+// permissive default catches as "SL 12"/"SS 55" are also written out as
+// "Loop 12" and "Spur 303", which this list cannot reach — 2905 features.
+// Lettered designators (CR S21, SR A1A) are out of its reach the same way,
+// for 9491 more. Those are handled by stateWordRefRe, spelledCountyRefRe and
+// the [A-Z]? in countyRefRe/stateExplicitRefRe. Before adding a prefix here,
+// check whether the ref convention you are reasoning about also has a spelled
+// or lettered form that no pattern in this file can reach.
 //
-// That class is closed for the ABBREVIATED, LETTERED and now the fully
-// SPELLED-OUT shapes -- "State Highway 26", "US Highway 12", "Interstate 90" and
-// "County Rd 12" are handled as of solvent-streets-fu74. What is still open is a
+// That class is closed for the ABBREVIATED, LETTERED and fully SPELLED-OUT
+// shapes -- "State Highway 26", "US Highway 12", "Interstate 90" and
+// "County Rd 12" are handled (solvent-streets-fu74). What is still open is a
 // different axis: refs whose shape defeats the ^-anchor entirely (a leading
 // paren, a foreign country prefix, a bare number with no prefix at all). See the
 // closing paragraphs on stateWordRefRe above before adding a prefix here.
-// solvent-streets-m0qa was the last of it. statePostalRefRe required TWO
-// letters, so the single-letter conventions landed in City -- Michigan's
-// "M 5"/"M 1", Nebraska's "N-64"/"L-28K", Kansas's "K-32", 1648 features. It
-// also required a DIGIT, so Missouri's lettered supplementals ("MO W") landed
-// there too, 81 more. Both are handled above -- by singleLetterStateRefRe and
+// Single letters and lettered supplementals are covered too
+// (solvent-streets-m0qa). A rule requiring TWO letters would send the
+// single-letter conventions to City -- Michigan's "M 5"/"M 1", Nebraska's
+// "N-64"/"L-28K", Kansas's "K-32", 1648 features -- and one requiring a DIGIT
+// would do the same to Missouri's lettered supplementals ("MO W"), 81 more.
+// Both are handled above -- by singleLetterStateRefRe and
 // singleLetterCountyRefRe, and by the [A-Z]{1,2} alternative in
-// statePostalRefRe. Note that the answer to the single-letter case was an
-// allow list of the six measured prefixes and NOT a bare ^[A-Z][ -]\d, which
-// would have swallowed 65385 Interstate features and put Ohio's county
-// "C-138" in the State bucket.
+// statePostalRefRe. The single-letter case is an allow list of the six
+// measured prefixes and NOT a bare ^[A-Z][ -]\d, which would swallow 65385
+// Interstate features and put Ohio's county "C-138" in the State bucket.
 //
 // Three more non-postal prefixes reach this rule and are left as State
 // deliberately, each for its own reason. All three were found by histogramming
@@ -509,12 +506,10 @@ var statePostalDeny = map[string]bool{
 // isStateQualifier, alongside stateNameSuffixRe.
 //
 // solvent-streets-q48z.2: anchoring the DOT qualifier on the 52 spelled-out
-// names alone meant "NYS Department of Transportation", "NC Department of
-// Transportation" and "Guam Department of Transportation" failed
-// isStateTransportationAgency, PASSED isLocalTransportationAgency, and landed
-// in City -- a v0.3.0 regression, since the bare
-// strings.Contains(operator, "department of transportation") it replaced
-// caught all of them.
+// names alone would make "NYS Department of Transportation", "NC Department
+// of Transportation" and "Guam Department of Transportation" fail
+// isStateTransportationAgency, PASS isLocalTransportationAgency, and land in
+// City.
 //
 // This is an ALLOW list, and unlike the ref-side rules it is NOT restricted to
 // prefixes measured in the corpus. That is a deliberate departure and the
@@ -525,7 +520,7 @@ var statePostalDeny = map[string]bool{
 // Department of Transportation" is a state DOT essentially always. Enumerating
 // only the handful of forms someone happened to write down would leave the
 // next one ("PA ...", "WA ...") silently broken, which is the same "the next
-// shape springs the same trap" failure bf0c601 was fixed for.
+// shape springs the same trap" failure bf0c601 guards against.
 //
 // TWO DELIBERATE OMISSIONS, both two-letter codes that are far more often a
 // CITY:
@@ -554,8 +549,8 @@ var statePostalDeny = map[string]bool{
 // road features (3,631 of 8,741,198, 160 distinct values, dominated by transit
 // agencies and businesses), and every state DOT actually present already
 // classified correctly -- spelled-out forms via stateNameSuffixRe, glued forms
-// (FDOT, MassDOT) via the bare-"dot" fallback. The regression is real; its
-// measured impact is not. Fixed on correctness, not on volume.
+// (FDOT, MassDOT) via the bare-"dot" fallback. The gap is real; its
+// measured impact is not. The map exists for correctness, not volume.
 var stateAbbrev = map[string]bool{
 	"al": true, "ak": true, "az": true, "ar": true, "ca": true, "co": true,
 	"ct": true, "de": true, "fl": true, "ga": true, "hi": true, "id": true,

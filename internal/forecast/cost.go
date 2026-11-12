@@ -119,9 +119,9 @@ type TieredCostProjector struct {
 	// config.DefaultCostOverhead = 1.0). This package never defaults it.
 	Overhead float64
 
-	// anchors is memoized from Tiers on first use. buildAnchors was previously
-	// re-run on every ProjectCost call (once per cohort per year in Simulate);
-	// the tier set is immutable for a projector's lifetime, so build it once.
+	// anchors is memoized from Tiers on first use. ProjectCost runs once per
+	// cohort per year in Simulate, and the tier set is immutable for a
+	// projector's lifetime, so buildAnchors runs once rather than per call.
 	anchorsOnce sync.Once
 	anchors     []costAnchor
 }

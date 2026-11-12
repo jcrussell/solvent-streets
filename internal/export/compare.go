@@ -11,7 +11,7 @@ import (
 
 // CompareFileName is the site-level rollup a multi-city export writes beside
 // cities.json for the Compare and Aggregate tabs (solvent-streets-l0qo).
-// Those tabs used to fetch meta.json, scenarios.json, forecast_seed.json and
+// Without it those tabs fetch meta.json, scenarios.json, forecast_seed.json and
 // forecast.json for every city before rendering anything: ~1,100 requests and
 // ~21 MB raw for a 277-city site, whatever the tag filter. They read a small
 // slice of each, so the rollup carries exactly that slice, in the same shape.

@@ -139,8 +139,8 @@ func (s *sqliteStore) Stats(ctx context.Context, resourceType resource.Type) (*S
 
 	// ORDER BY ... LIMIT 1 + sql.ErrNoRows cleanly distinguishes "no
 	// features yet" (leave LastIngestAt nil) from a real query failure
-	// (locked DB, transient I/O) which previously folded indistinguishably
-	// into the same "no features" branch. modernc.org/sqlite scans the
+	// (locked DB, transient I/O), which must not fold into the same
+	// "no features" branch. modernc.org/sqlite scans the
 	// TEXT-stored timestamp into *time.Time directly; sql.NullTime would
 	// route through stdlib's convertAssign and fail to parse the format.
 	var t time.Time

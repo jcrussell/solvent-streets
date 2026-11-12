@@ -56,11 +56,12 @@ func run(ctx context.Context, f *cmdutil.Factory, args []string) int {
 func exitCode(err error, errOut io.Writer) int {
 	// A declined confirmation prompt is a deliberate user choice, so it is a
 	// success: exit 0. An INTERRUPT is not. Mapping context.Canceled to 0 here
-	// too meant `pvmt check-site && deploy` and `pvmt export && deploy` treated
-	// a half-done run as a green gate — the gate reported ready for checks that
-	// never ran, and export exited 0 with a partially written site after
-	// SafeCleanDir had already removed the previous one (solvent-streets-kh5n).
-	// Cancellation now falls through to the generic arm below: printed, exit 1.
+	// too would make `pvmt check-site && deploy` and `pvmt export && deploy`
+	// treat a half-done run as a green gate — the gate would report ready for
+	// checks that never ran, and export would exit 0 with a partially written
+	// site after SafeCleanDir had already removed the previous one
+	// (solvent-streets-kh5n). Cancellation falls through to the generic arm
+	// below: printed, exit 1.
 	//
 	// Deliberately NOT a dedicated quiet `context.Canceled -> 1` arm. A
 	// multi-city run that is interrupted after real per-city failures returns

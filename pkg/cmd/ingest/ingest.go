@@ -207,8 +207,8 @@ func ResolveBoundaryForCity(ctx context.Context, f *cmdutil.Factory) (*Boundary,
 // here.
 func RunResourceWithBoundary(ctx context.Context, f *cmdutil.Factory, rt resource.Source, b *Boundary) error {
 	// Pre-check cancellation before doing any work. The `all` fan-out calls
-	// this in-process (it used to go through a throwaway cobra command, whose
-	// cmdutil.ForEachCity pre-check supplied this), so without it a mid-fan-out
+	// this in-process, not through a cobra command, so cmdutil.ForEachCity's
+	// pre-check does not cover it, and without this check a mid-fan-out
 	// cancellation aborts only because the store or HTTP layer happens to
 	// surface context.Canceled. Real sqlite does; a ctx-ignoring store —
 	// dbtest.MockStore — would run every remaining resource after cancellation.

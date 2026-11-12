@@ -29,9 +29,9 @@ func (p *Parking) BufferFeaturesPaired(ctx context.Context, features []Feature, 
 		if err != nil {
 			return nil
 		}
-		// Accept both Polygon and MultiPolygon: the parser now emits parking
+		// Accept both Polygon and MultiPolygon: the parser emits parking
 		// relations (multi-part lots, lots with holes) as MultiPolygon, and
-		// dropping them discarded real parking area. Parking does not buffer
+		// dropping them would discard real parking area. Parking does not buffer
 		// (unlike roads/sidewalks), so it can't use the generic width-based
 		// helper; it only cleans the polygonal geometry. validatePolygonOK's
 		// Buffer(0) clean is dimension-agnostic and fixes both, exactly as the

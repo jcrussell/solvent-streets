@@ -79,8 +79,7 @@ func (p *live) Input(ctx context.Context, msg, def string) (string, error) {
 	if err := p.promptable(); err != nil {
 		return "", err
 	}
-	// The default is prefilled and editable; plain Enter returns def,
-	// matching the old "blank returns def" contract.
+	// The default is prefilled and editable, so plain Enter returns def.
 	v := def
 	field := huh.NewInput().Title(msg).Value(&v)
 	if err := p.run(ctx, field); err != nil {

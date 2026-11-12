@@ -94,8 +94,7 @@ func migrateFS(ctx context.Context, d *sql.DB, source fs.FS, root string) error 
 	// integer (ascending) rather than lexically. Lexical order would run
 	// "10_*.sql" before "2_*.sql", applying dependency-ordered DDL
 	// backwards. Entries without a ".sql" suffix or a valid numeric
-	// prefix are dropped here — the same filter the old inline gate
-	// applied via SplitN + strconv.Atoi, just hoisted before the sort.
+	// prefix are dropped here, before the sort.
 	type pending struct {
 		version int
 		name    string

@@ -96,7 +96,7 @@ type Config struct {
 	// Endless suppresses the time-based win: the game never auto-"wins" at the
 	// horizon, so play continues until a loss condition triggers (sandbox mode).
 	// HorizonYears must still be > 0 — it is used only for the insolvency
-	// projection now, not as a finish line. A huge HorizonYears must NOT be used
+	// projection, not as a finish line. A huge HorizonYears must NOT be used
 	// to fake endless: recomputeInsolvency runs a per-year forecast over it.
 	Endless bool `json:"endless"`
 }
@@ -307,7 +307,8 @@ func New(cfg Config) (*Game, error) {
 			closed:      pci <= ClosureEpsilon,
 			paintedBand: -1, // never painted -> first StateJSON emits all hexes
 		}
-		// First-wins on duplicate ids, matching the old linear scan's semantics.
+		// First-wins on duplicate ids: the lookup returns the same hex a linear
+		// scan of g.hexes would.
 		if _, ok := g.hexByID[h.ID]; !ok {
 			g.hexByID[h.ID] = &g.hexes[i]
 		}

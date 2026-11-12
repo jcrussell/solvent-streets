@@ -41,9 +41,9 @@ const SidewalkCostRatio = 0.6
 // custom config tiers it returns the discounted DefaultSidewalkCostTiers. When
 // a config supplies custom cost_tiers, those describe a *road* schedule (there
 // is no separate sidewalk schedule in config), so sidewalk tiers are derived
-// by scaling the custom road tiers by SidewalkCostRatio. Previously the custom
-// road tiers were applied to sidewalks at full price, mis-pricing sidewalks at
-// road cost (LA/Boston sidewalks ran ~1.7× too high — sidewalk/road eff ≈ 0.98
+// by scaling the custom road tiers by SidewalkCostRatio. Applying the custom
+// road tiers to sidewalks at full price would mis-price sidewalks at road cost
+// (LA/Boston sidewalks would run ~1.7× too high — sidewalk/road eff ≈ 0.98
 // instead of ≈ 0.6).
 func sidewalkCostTiers(costTiers []CostTier) []CostTier {
 	if len(costTiers) == 0 {

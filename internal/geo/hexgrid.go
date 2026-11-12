@@ -37,9 +37,8 @@ func HexGrid(minX, minY, maxX, maxY, edge float64) []Hex {
 	// returns zero candidates and the function returns early. The result is a
 	// silently EMPTY hex layer — a blank city — not NaN coverage.
 	//
-	// +Inf is the reachable one. config rejects non-finite hex_edge_m at load
-	// now, but that gate postdates this one and HexGrid is exported, so keep
-	// the check here too.
+	// +Inf is the reachable one. config rejects non-finite hex_edge_m at load,
+	// but HexGrid is exported, so keep the check here too.
 	if math.IsNaN(edge) || math.IsInf(edge, 0) || edge <= 0 || maxX <= minX || maxY <= minY {
 		return nil
 	}
@@ -172,9 +171,8 @@ type groupArea struct {
 // The returned map has exactly ONE KEY PER DISTINCT INPUT LABEL: every label
 // appearing in labels is present, and a label whose geoms cover no clipped hex
 // (e.g. features that fall in the bbox margin but outside the boundary) maps to
-// 0.0 rather than being dropped. This matches the old per-class cohort loop,
-// whose callers persist one row and a feature count per distinct class — a
-// zero-coverage class must still produce that row.
+// 0.0 rather than being dropped. Callers persist one row and a feature count
+// per distinct class, so a zero-coverage class must still produce that row.
 //
 // This is exactly equivalent to running ComputeHexStats once per group against
 // a per-group index (same hexCoverageArea clip-first dedup), but pays the
@@ -207,10 +205,8 @@ func ComputeHexCoverageByGroup(ctx context.Context, hexes []Hex, geoms []geom.Ge
 	// Pre-seed every distinct input label at 0.0 so the key set equals "one key
 	// per distinct label", independent of coverage. A label whose geoms never
 	// cover a clipped hex (e.g. features in the bbox margin but outside the
-	// boundary) thus survives as a 0.0 entry instead of being dropped. This
-	// mirrors the old per-class loop, which keyed off every class regardless of
-	// whether it covered any hex. Seed from labels directly so even empty or
-	// invalid geoms still produce a key.
+	// boundary) thus survives as a 0.0 entry instead of being dropped. Seed
+	// from labels directly so even empty or invalid geoms still produce a key.
 	areas := make(map[string]float64)
 	for _, label := range labels {
 		areas[label] = 0
@@ -399,8 +395,8 @@ func hexCoverageArea(h geom.Geometry, candidates []geom.Geometry) (float64, bool
 // REQUIRED here: unlike Difference, geom.Union/UnionMany propagate the 1-D
 // parts into their output, so without it the retained h.Geom becomes a
 // GeometryCollection carrying a stray LineString and serializes as a malformed
-// hex feature. (On v0.59.0 the overlay ops no longer error on a mixed GC — this
-// is about keeping the stored geometry clean, not avoiding a panic.) For the
+// hex feature. (The overlay ops do not error on a mixed GC — this is about
+// keeping the stored geometry clean, not avoiding a panic.) For the
 // normal clean-polygon case Intersection already returns a pure polygon and
 // RetainPolygonal is a no-op.
 func clipHexToCandidates(h Hex, candidates []geom.Geometry) (Hex, bool) {

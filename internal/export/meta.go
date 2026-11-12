@@ -538,8 +538,8 @@ func snapshotDate(ctx context.Context, store db.Store, snapshotID int64) (string
 
 // totalPavedFromStore returns the cross-resource paved area: the "combined"
 // totals if present, otherwise the sum of per-resource Stats. The
-// fallback intentionally double-counts where buffers overlap (the bug that
-// motivated RunCombined) — better than reporting zero before `all compute`
+// fallback intentionally double-counts where buffers overlap (which
+// RunCombined exists to avoid) — better than reporting zero before `all compute`
 // has populated the combined row.
 func totalPavedFromStore(ctx context.Context, store db.Store, perResource []StatJSON) float64 {
 	if r, ok, err := results.LoadTotal(ctx, store, resource.CombinedAll); err == nil && ok {

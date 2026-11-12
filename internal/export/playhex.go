@@ -55,8 +55,8 @@ func BuildPlayHexes(ctx context.Context, entry CityEntry, proj *geo.UTMProjector
 
 // buildPlayHexesFromGrid is BuildPlayHexes with the grid supplied as a thunk, so
 // exportCityData can share one build with buildHexGeoJSONFromGrid. The thunk is
-// forced where cityHexGrid used to be called — after the no-road-features early
-// return — so the empty case still never builds a grid.
+// forced only after the no-road-features early return, so the empty case never
+// builds a grid.
 func buildPlayHexesFromGrid(ctx context.Context, entry CityEntry, proj *geo.UTMProjector, grid cityHexGridFunc) ([]PlayHex, error) {
 	dbFeatures, err := entry.Store.ListFeatures(ctx, resource.TypeRoads)
 	if err != nil {

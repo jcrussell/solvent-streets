@@ -92,11 +92,11 @@ func warnInvalidEnv(_ *cobra.Command, f *cmdutil.Factory) error {
 		// Ordered before the range test on purpose: ParseFloat accepts "inf"
 		// with a nil error, and +Inf <= 0 is false, so an infinite edge would
 		// otherwise fall through both arms and this middleware would stay
-		// silent about a value the resolver now drops — breaking the
+		// silent about a value the resolver drops — breaking the
 		// silence-implies-honored contract above.
 		case nonFiniteEnv(n):
 			warnf("PVMT_HEX_EDGE_M=%q must be a finite number", v)
-		// Subsumes the old `n <= 0` arm rather than sitting beside it: the
+		// Also covers `n <= 0` rather than leaving that to its own arm: the
 		// floor is strictly tighter, and a second arm would push this
 		// function past gocognit's threshold. Mirrors hexEdgeFromEnv's
 		// `f >= MinHexEdgeM`, which is what actually drops the value.
@@ -125,10 +125,9 @@ func warnInvalidEnv(_ *cobra.Command, f *cmdutil.Factory) error {
 	return nil
 }
 
-// (An unknown display.units used to be warned about here and silently coerced
-// to imperial; Config.validate now hard-rejects it at load time — solvent-streets-dfm5
-// — so that warning became unreachable and was removed. PVMT_UNITS, which is
-// still soft-defaulted rather than validated, is covered by warnInvalidEnv.)
+// (display.units needs no warning here: Config.validate hard-rejects an
+// unknown value at load time — solvent-streets-dfm5. PVMT_UNITS, which is
+// soft-defaulted rather than validated, is covered by warnInvalidEnv.)
 
 func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 	cmd := &cobra.Command{
@@ -201,7 +200,7 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 // refuseUnknownHelpTopics makes `pvmt help <typo>` a usage error (exit 2)
 // while leaving cobra's help text and completion untouched. Cobra's help
 // command reports an unknown topic only by printing to stdout with a nil
-// error, so `pvmt help biuld` used to exit 0. A topic is unknown when Find
+// error, so without this `pvmt help biuld` would exit 0. A topic is unknown when Find
 // fails (`help biuld`) or stops at a group with arguments left over
 // (`help cache biuld`). Leftovers after a leaf are that command's own
 // positional arguments (`help snapshots rm 5`), so its help is shown.

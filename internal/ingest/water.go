@@ -66,9 +66,9 @@ func fetchWaterElements(ctx context.Context, client *http.Client, baseURL string
 		// An oversized response body belongs to the same "response unusable,
 		// shrink the bbox" class as a truncation remark (see isParseError), and
 		// this function already has the quadrant machinery for it. Without this
-		// arm a water response over the size cap hard-failed the ingest, even
-		// though splitting would have succeeded — the same regression
-		// fetchRecursive had for roads.
+		// arm a water response over the size cap would hard-fail the ingest,
+		// even though splitting would succeed — fetchRecursive splits for the
+		// same reason on roads.
 		if !isParseError(err) || depth >= maxSplitDepth {
 			return nil, err
 		}
@@ -185,8 +185,8 @@ type waterPolygon struct {
 // parseWaterResponse parses one Overpass water response body and
 // assembles its GeoJSON. It fails loudly on a truncation remark — a
 // truncated water response would under-report water and silently inflate
-// land area. fetchOSMWater no longer routes through this (it splits the
-// fetch and assembles via assembleWaterGeoJSON), but it remains the
+// land area. fetchOSMWater does not route through this (it splits the
+// fetch and assembles via assembleWaterGeoJSON); this is the
 // single-response entry point exercised by the parse-layer tests.
 func parseWaterResponse(ctx context.Context, data []byte, bbox [4]float64, landProbes [][2]float64) (string, error) {
 	elements, truncated, err := parseWaterElements(data)
@@ -616,10 +616,10 @@ func buildChainForward(
 // the water-side ring is the one that contains NONE of the probes.
 // This is a global correctness invariant: a water polygon used to
 // subtract from a city boundary cannot contain any point of the
-// city's land. Replaces the old local right-hand-water probe (closed
-// bead solvent-streets-vtcs), which guessed wrong for OSM coastline
-// ways in NYC that were digitized inconsistently with the convention
-// (root cause of solvent-streets-yrr0).
+// city's land. A local right-hand-water probe would rely on the OSM
+// coastline direction convention, and guesses wrong for ways digitized
+// inconsistently with it, as some in NYC are (solvent-streets-vtcs,
+// solvent-streets-yrr0).
 //
 // When a chain's closure produces two candidate rings that both
 // contain land probes (NYC chain=30 cuts through multiple boroughs),

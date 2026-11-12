@@ -25,10 +25,10 @@ const OverpassHost = "overpass-api.de"
 // OverpassHeaderTimeout is how long the client waits for an Overpass
 // response's headers. Overpass sends them only once the query has run, so a
 // deadline below the queries' server-side [timeout:N]
-// (resource.OverpassTimeoutS) cut slow-but-progressing queries off at 30 s
-// and the retry transport then re-ran them up to six times: one stalled
-// request cost minutes before failing (solvent-streets-e7h3). The margin
-// covers transfer start; past it a dead server still fails.
+// (resource.OverpassTimeoutS) would cut slow-but-progressing queries off,
+// and the retry transport would then re-run them up to six times: one
+// stalled request would cost minutes before failing (solvent-streets-e7h3).
+// The margin covers transfer start; past it a dead server still fails.
 const OverpassHeaderTimeout = time.Duration(resource.OverpassTimeoutS+30) * time.Second
 
 const (
@@ -140,13 +140,10 @@ var errOverpassParse = errors.New("parse overpass json")
 // the bbox and retry" class that fetchRecursive splits quadrants for.
 //
 // httpio.ErrBodyTooLarge is in that class even though it is not a parse
-// failure. Before the read moved to httpio.ReadAllLimit, both this package and
-// the cache transport read through a silently-truncating io.LimitReader, so an
-// oversized response reached parseOverpassResponse, failed json.Unmarshal, and
-// split. Detecting the overflow instead of truncating it is the right change,
-// but it reclassified the error out of this set, and a city whose roads
-// response exceeds the limit went from "succeeds after splitting" to
-// ErrAllSourcesFailed for the whole resource.
+// failure: an oversized response is as unusable as a truncated one, and
+// splitting the bbox shrinks it. Without it, a city whose roads response
+// exceeds httpio.ReadAllLimit's cap would fail the whole resource with
+// ErrAllSourcesFailed instead of succeeding after splitting.
 //
 // Both routes to the sentinel are covered: this package's own read (bare
 // clients, i.e. tests) and the cache transport's read, which in production runs

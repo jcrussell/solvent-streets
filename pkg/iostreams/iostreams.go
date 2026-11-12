@@ -175,8 +175,9 @@ func FormatTimestamp(raw string, isTTY bool) string {
 
 // isTerminal reports whether f is an interactive terminal. It asks the
 // terminal driver (an ioctl) rather than checking for a character device:
-// /dev/null is one too, so `pvmt roads compute > /dev/null` from cron or CI
-// used to pick the TUI and die opening /dev/tty.
+// /dev/null is one too, so a device check would make
+// `pvmt roads compute > /dev/null` from cron or CI pick the TUI and die
+// opening /dev/tty.
 func isTerminal(f *os.File) bool {
 	return isatty.IsTerminal(f.Fd()) || isatty.IsCygwinTerminal(f.Fd())
 }

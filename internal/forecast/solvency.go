@@ -16,7 +16,7 @@ const breakEvenRelTol = 1e-4
 // city has deferred an entire network's worth of treatment. With the
 // treatment-cycle gating in Simulate, AnnualNeed is one cycle-slice (~1/N of the
 // full network), so the threshold is cycleYears * year-1 need, which restores
-// the full-network dollar figure but is now *reachable* because backlog accrues
+// the full-network dollar figure but is *reachable* because backlog accrues
 // against the small annual slice rather than tripping on the whole network in
 // year 1. Because DeferredBacklog is a monotonically non-decreasing accumulator
 // (scenario.go), once crossed it never recovers, so this is the civic

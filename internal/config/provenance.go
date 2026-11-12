@@ -192,7 +192,7 @@ type forecastProvenance struct {
 
 // resolveForecast returns the merged forecast config (env > city > file >
 // default) with a source for each field. Mirrors ResolvedForecast's
-// precedence exactly — ResolvedForecast is now a thin wrapper.
+// precedence exactly — ResolvedForecast is a thin wrapper over it.
 //
 // Fields that config can't default (DecayRate, GrowthRate, CostTiers) are
 // reported as SourceDefault when no layer supplies them; callers that need
@@ -214,21 +214,11 @@ func fileForecastProv(fc *ForecastConfig) forecastProvenance {
 	if fc.DecayRate > 0 {
 		p.DecayRate = Source{Kind: SourceFile, Detail: "forecast.decay_rate"}
 	}
-	// GrowthRate has no "unset" sentinel (0 is a legitimate "no growth"), so an
-	// explicit `growth_rate = 0` is labeled SourceDefault here rather than
-	// SourceFile (solvent-streets-22kp). Deliberately left alone: no production
-	// code reads forecastProvenance.GrowthRate. It is set here, in
-	// applyCityForecastProv, and in applyDefaultForecastProv, and consumed only
-	// by provenance_test.go's "negative per-city growth_rate is not dropped"
-	// case, which asserts the city-layer label — so a future fix must update
-	// that test, but changes nothing a user sees: Config.Resolve does not emit
-	// forecast.growth_rate at any layer, so `config show --sources` never prints
-	// this label.
-	//
-	// The same `!= 0` sentinel in applyCityForecastProv was NOT inert — there it
-	// dropped the value as well as the label, so a city could not opt out of a
-	// positive top-level growth rate. That was solvent-streets-r312, now fixed
-	// with the ForecastConfig.growthRateSet presence bit.
+	// GrowthRate has no "unset" sentinel (0 is a legitimate "no growth"), so
+	// the ForecastConfig.growthRateSet presence bit marks an explicit
+	// `growth_rate = 0` as SourceFile (solvent-streets-22kp). The same bit in
+	// applyCityForecastProv lets a city opt out of a positive top-level growth
+	// rate (solvent-streets-r312).
 	if fc.GrowthRate != 0 || fc.growthRateSet {
 		p.GrowthRate = Source{Kind: SourceFile, Detail: "forecast.growth_rate"}
 	}
@@ -464,8 +454,8 @@ func (c *Config) Resolve(flagUnits string) []ResolvedField {
 				Source: Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].forecast.treatment_cycle_years", slug)},
 			})
 		}
-		// Without this the top-level forecast.cost_overhead line is worse than
-		// the omission it replaced: a city overriding the multiplier to 1.8
+		// Without this the top-level forecast.cost_overhead line misleads: a
+		// city overriding the multiplier to 1.8
 		// would print `forecast.cost_overhead = 1 (default)` and nothing else,
 		// reading as "every city prices bare". A positive test is the right
 		// presence check (Validate rejects 0), matching applyCityForecastProv.

@@ -201,8 +201,8 @@ paging:
 			// failing: the error path preserves what is already in the
 			// database.
 			//
-			// The offset-ignoring server this cap used to fire on is handled
-			// below by the no-new-ids rule, so reaching the cap now means
+			// An offset-ignoring server with real object ids is handled
+			// below by the no-new-ids rule, so reaching the cap means
 			// something genuinely pathological.
 			return nil, fmt.Errorf("arcgis: exceeded %d pages (%d features), aborting", arcgisMaxPages, len(allRows))
 		}
@@ -289,9 +289,9 @@ const (
 //     arcgisMaxPages and errors.
 //
 //  4. Otherwise keep paging. In particular a flag-absent short page is
-//     ambiguous, and the old `!exceeded && rawCount < arcgisMaxRecords` break
-//     trusted that absence and once dropped 2000 of 5780 Livermore rows
-//     (solvent-streets-9auy). We no longer trust it.
+//     ambiguous: stopping on it (`!exceeded && rawCount < arcgisMaxRecords`)
+//     drops real rows — 2000 of 5780 on Livermore's layer
+//     (solvent-streets-9auy).
 func classifyArcGISPage(rawCount, parsed, newUnique int, exceeded, flagPresent bool) pageOutcome {
 	if rawCount == 0 {
 		return pageDone
