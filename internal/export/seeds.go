@@ -227,12 +227,11 @@ func collectCohortSeeds(ctx context.Context, store db.Store, fc *config.Forecast
 	return out, nil
 }
 
-// resolvedDecayRate returns the decay rate for a classification, applying the
-// config override only to road classes.
+// resolvedDecayRate returns the decay rate for a classification under the
+// config override: forecast.ClassDecayRate, the rule forecast.json's
+// BuildCohorts uses. Setting every road class to the override instead (as
+// this once did) made the dashboard's seed-based Financials disagree with
+// forecast.json for any city with a decay_rate override (solvent-streets-89n4).
 func resolvedDecayRate(classification string, overrideRate float64) float64 {
-	rate := forecast.DecayRateForClass(classification)
-	if overrideRate > 0 && forecast.IsRoadClass(classification) {
-		rate = overrideRate
-	}
-	return rate
+	return forecast.ClassDecayRate(classification, overrideRate)
 }

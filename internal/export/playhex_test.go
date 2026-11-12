@@ -208,12 +208,14 @@ func TestBuildPlayHexes_HonorsDecayOverride(t *testing.T) {
 		if !ok {
 			continue
 		}
-		// Class-default k stays at 0.040; the override must lift it toward 0.08.
+		// Class-default k stays at 0.040; the override must lift it to the
+		// residential rate scaled around the override, the rate forecast.json
+		// uses (forecast.ClassDecayRate; solvent-streets-89n4).
 		if ph.K > bk+1e-9 {
 			sawShift = true
 		}
-		if ph.K < classDefault-1e-9 || ph.K > override+1e-9 {
-			t.Errorf("hex %q k = %v escaped [%v, %v] after override", ph.ID, ph.K, classDefault, override)
+		if scaled := forecast.ClassDecayRate("residential", override); ph.K < classDefault-1e-9 || ph.K > scaled*(1+1e-3) {
+			t.Errorf("hex %q k = %v escaped [%v, %v] after override", ph.ID, ph.K, classDefault, scaled)
 		}
 	}
 	if !sawShift {
@@ -389,12 +391,13 @@ func TestBuildPlayHexes_TinyDecayOverrideSurvivesRounding(t *testing.T) {
 	if len(hexes) == 0 {
 		t.Fatal("BuildPlayHexes returned no hexes; expected a road-bearing hex")
 	}
+	want := forecast.ClassDecayRate("residential", tiny) // the override, scaled for the class
 	for _, ph := range hexes {
 		if ph.K <= 0 {
 			t.Fatalf("hex %q k = %v after rounding a %v decay_rate; game.New would reject the whole board", ph.ID, ph.K, tiny)
 		}
-		if math.Abs(ph.K-tiny) > tiny*1e-3 {
-			t.Errorf("hex %q k = %v; want ~%v (the configured override)", ph.ID, ph.K, tiny)
+		if math.Abs(ph.K-want) > want*1e-3 {
+			t.Errorf("hex %q k = %v; want ~%v (the configured override, scaled for the class)", ph.ID, ph.K, want)
 		}
 	}
 

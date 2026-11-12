@@ -50,6 +50,19 @@ func ScaleRoadDecay(classRate, overrideDecayRate float64) float64 {
 	return classRate * (overrideDecayRate / roadDecayAnchor)
 }
 
+// ClassDecayRate is the decay rate a cohort of classification uses under a
+// config decay_rate override (0 = none): road classes scale their default by
+// the override (ScaleRoadDecay); parking and sidewalks keep their own rates.
+// It is the one rule every path that builds cohorts follows, so forecast.json,
+// the dashboard's seeds and the game's hexes agree (solvent-streets-89n4).
+func ClassDecayRate(classification string, overrideDecayRate float64) float64 {
+	rate := DecayRateForClass(classification)
+	if overrideDecayRate > 0 && IsRoadClass(classification) {
+		rate = ScaleRoadDecay(rate, overrideDecayRate)
+	}
+	return rate
+}
+
 // BuildCohorts converts CohortInputs into Cohorts with appropriate decay rates.
 // If overrideDecayRate > 0, road cohorts scale their class-specific default by
 // the override (see ScaleRoadDecay); non-road cohorts (parking, sidewalks)
@@ -63,14 +76,10 @@ func BuildCohorts(inputs []CohortInput, initialPCI, overrideDecayRate float64) [
 
 	cohorts := make([]Cohort, len(inputs))
 	for i, in := range inputs {
-		rate := DecayRateForClass(in.Classification)
-		if overrideDecayRate > 0 && IsRoadClass(in.Classification) {
-			rate = ScaleRoadDecay(rate, overrideDecayRate)
-		}
 		cohorts[i] = Cohort{
 			Classification: in.Classification,
 			Area:           in.Area,
-			DecayRate:      rate,
+			DecayRate:      ClassDecayRate(in.Classification, overrideDecayRate),
 			InitialPCI:     initialPCI,
 		}
 	}
