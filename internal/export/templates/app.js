@@ -538,6 +538,10 @@
         function areaLargeUnit() {
             return UNIT_SYSTEM === 'metric' ? 'ha' : 'acres';
         }
+        // Singular large-area unit, for rates ("per acre", "per hectare").
+        function areaLargeUnitSingular() {
+            return UNIT_SYSTEM === 'metric' ? 'hectare' : 'acre';
+        }
         function areaVeryLargeUnit() {
             return UNIT_SYSTEM === 'metric' ? 'sq km' : 'sq mi';
         }
@@ -3846,6 +3850,10 @@
             }
             var scopeAreaLarge = scopeAreaSqM > 0 ? toAreaLarge(scopeAreaSqM) : m.totalAreaLarge;
             m.year1PerAreaUnit = scopeAreaLarge > 0 ? m.year1Need / scopeAreaLarge : 0;
+            // The backlog ranks per unit of network in the same scope: raw
+            // dollars made the smallest city "Least Deferred" by size alone
+            // (solvent-streets-3ij1).
+            m.endBacklogPerAreaUnit = scopeAreaLarge > 0 ? m.endBacklog / scopeAreaLarge : 0;
 
             // Roads-only solvency metrics from forecast.json (an array of
             // per-resource ForecastExport — find the roads element). These are
@@ -3854,11 +3862,13 @@
             // present for any city with roads. Leaderboard categories filter on
             // these so a missing metric never corrupts a sort/bar.
             m.breakEvenBudget = null; m.insolvencyYear = null; m.fundingGap = null; m.currentBudget = 0;
+            m.solvencyRoadsAreaLarge = 0; // the city-maintained roads the solvency figures price
             if (city.forecast && city.forecast.find) {
                 var roadsFe = city.forecast.find(function(f) { return f.resource_type === 'roads'; });
                 if (roadsFe) {
                     if (roadsFe.break_even_budget > 0) m.breakEvenBudget = roadsFe.break_even_budget;
                     m.currentBudget = roadsFe.current_budget || 0;
+                    if (roadsFe.roads_area > 0) m.solvencyRoadsAreaLarge = toAreaLarge(roadsFe.roads_area);
                     if (roadsFe.current_budget > 0) {
                         // insolvency_year is null when solvent through horizon.
                         if (roadsFe.insolvency_year) m.insolvencyYear = roadsFe.insolvency_year;
@@ -3933,6 +3943,9 @@
             // Strict-position ranks over an already-sorted list: one #1, no shared medals.
             function assignRanks(list) { list.forEach(function(m, i) { m.rank = i + 1; }); return list; }
 
+            // A medal needs a field: with fewer than two ranked cities the one
+            // city would take gold by default (solvent-streets-3ij1), so
+            // opts.ranked is passed false then and no medal is drawn.
             function scoreCard(m, opts) {
                 var medal = (opts.ranked && m.rank <= 3) ? medals[m.rank - 1] : '';
                 var cls = (opts.ranked && m.rank <= 3) ? (' ' + rankClasses[m.rank - 1]) : '';
@@ -3954,15 +3967,17 @@
                     (m.breakEvenBudget > 0 ? '<div class="sb-row"><span>Hold-Steady Budget</span><span>' + fmtCost(m.breakEvenBudget) + '/yr</span></div>' : '') +
                     '<div class="sb-row"><span>Funding Gap</span><span>' + gap + '</span></div>' +
                     '<div class="sb-row"><span>Insolvency</span><span>' + insolv + '</span></div>' +
-                    '<div class="sb-row"><span>Total Network</span><span>' + m.totalAreaLarge.toFixed(0) + ' ' + areaLargeUnit() + '</span></div>';
+                    // The budgets above price city-maintained roads only, so
+                    // show that network, not the all-resource total.
+                    (m.solvencyRoadsAreaLarge > 0 ? '<div class="sb-row"><span>City-Maintained Roads</span><span>' + fmtNum(m.solvencyRoadsAreaLarge) + ' ' + areaLargeUnit() + '</span></div>' : '');
             }
 
             function infraBreakdown(m) {
-                return (m.cityAreaLarge > 0 ? '<div class="sb-row"><span>City Area</span><span>' + m.cityAreaLarge.toFixed(0) + ' ' + areaLargeUnit() + '</span></div>' : '') +
+                return (m.cityAreaLarge > 0 ? '<div class="sb-row"><span>City Area</span><span>' + fmtNum(m.cityAreaLarge) + ' ' + areaLargeUnit() + '</span></div>' : '') +
                     (m.pctPaved > 0 ? '<div class="sb-row"><span title="% Paved divides paved area by the Nominatim boundary polygon. Boundary scope varies across cities, so cross-city comparison is approximate.">% Paved <span class="sb-note">ⓘ</span></span><span>' + m.pctPaved.toFixed(1) + '%</span></div>' : '') +
-                    '<div class="sb-row"><span>Total Network</span><span>' + m.totalAreaLarge.toFixed(0) + ' ' + areaLargeUnit() + '</span></div>' +
-                    '<div class="sb-row"><span>Roads</span><span>' + m.roadsAreaLarge.toFixed(0) + ' ' + areaLargeUnit() + '</span></div>' +
-                    '<div class="sb-row"><span>Parking</span><span>' + m.parkingAreaLarge.toFixed(0) + ' ' + areaLargeUnit() + '</span></div>' +
+                    '<div class="sb-row"><span>Total Network</span><span>' + fmtNum(m.totalAreaLarge) + ' ' + areaLargeUnit() + '</span></div>' +
+                    '<div class="sb-row"><span>Roads</span><span>' + fmtNum(m.roadsAreaLarge) + ' ' + areaLargeUnit() + '</span></div>' +
+                    '<div class="sb-row"><span>Parking</span><span>' + fmtNum(m.parkingAreaLarge) + ' ' + areaLargeUnit() + '</span></div>' +
                     '<div class="sb-row"><span>Sidewalks</span><span>' + m.sidewalksAreaLarge.toFixed(1) + ' ' + areaLargeUnit() + '</span></div>' +
                     '<div class="sb-row"><span>Sidewalk/Road</span><span>' + m.sidewalkToRoadPct.toFixed(1) + '%</span></div>' +
                     (m.parkingSpaces > 0 ? '<div class="sb-row"><span>Parking Spaces (est.)</span><span>' + m.parkingSpaces.toLocaleString() + '</span></div>' : '') +
@@ -3979,7 +3994,7 @@
                 }));
             var solvUnscored = allMetrics.filter(function(m) { return m.solvScore === null; });
             var solvCards = solvScored.map(function(m) {
-                return scoreCard(m, { ranked: true, value: m.solvScore, label: 'Solvency Score', breakdown: solvencyBreakdown(m) });
+                return scoreCard(m, { ranked: solvScored.length >= 2, value: m.solvScore, label: 'Solvency Score', breakdown: solvencyBreakdown(m) });
             }).concat(solvUnscored.map(function(m) {
                 return scoreCard(m, { ranked: false, muted: true, value: 'N/A', label: 'No cited budget — unranked', breakdown: solvencyBreakdown(m) });
             }));
@@ -3988,29 +4003,30 @@
             // Infrastructure Index cards: every city places (composite is always computable).
             var infraRanked = assignRanks(allMetrics.slice().sort(function(a, b) { return b.infraScore - a.infraScore; }));
             document.getElementById('infra-cards').innerHTML = infraRanked.map(function(m) {
-                return scoreCard(m, { ranked: true, value: m.infraScore, label: 'Infrastructure Index', breakdown: infraBreakdown(m) });
+                return scoreCard(m, { ranked: infraRanked.length >= 2, value: m.infraScore, label: 'Infrastructure Index', breakdown: infraBreakdown(m) });
             }).join('');
 
             // Leaderboards — data-driven categories
             var categories = [
-                { key: 'cityAreaLarge', label: 'City Area', award: 'Largest City', higher: true, fmt: function(v) { return v.toFixed(0) + ' ' + areaLargeUnit(); }, color: '#059669', note: 'City Area is the Nominatim admin polygon. Polygon scope varies (e.g. Boston includes harbor water; Nashville is consolidated Davidson County), so cross-city comparison is approximate.' },
+                { key: 'cityAreaLarge', label: 'City Area', award: 'Largest City', higher: true, fmt: function(v) { return fmtNum(v) + ' ' + areaLargeUnit(); }, color: '#059669', note: 'City Area is the Nominatim admin polygon. Polygon scope varies (e.g. Boston includes harbor water; Nashville is consolidated Davidson County), so cross-city comparison is approximate.' },
                 { key: 'pctPaved', label: '% Paved', award: 'Most Paved', higher: true, fmt: function(v) { return v.toFixed(1) + '%'; }, color: '#dc2626', note: '% Paved divides paved area by the Nominatim boundary polygon for each city. Polygon scope varies across cities (Boston includes harbor water; Nashville is consolidated Davidson County), so cross-city comparison is approximate.' },
-                { key: 'totalAreaLarge', label: 'Total Managed Area', award: 'Biggest Network', higher: true, fmt: function(v) { return v.toFixed(0) + ' ' + areaLargeUnit(); }, color: '#6366f1' },
+                { key: 'totalAreaLarge', label: 'Total Managed Area', award: 'Biggest Network', higher: true, fmt: function(v) { return fmtNum(v) + ' ' + areaLargeUnit(); }, color: '#6366f1' },
                 { key: 'sidewalkToRoadPct', label: 'Walkability (Sidewalk-to-Road Ratio)', award: 'Most Walkable', higher: true, fmt: function(v) { return v.toFixed(1) + '%'; }, color: '#10b981' },
-                { key: 'parkingAreaLarge', label: 'Parking Infrastructure', award: 'Most Parking', higher: true, fmt: function(v) { return v.toFixed(0) + ' ' + areaLargeUnit(); }, color: '#3b82f6' },
+                { key: 'parkingAreaLarge', label: 'Parking Infrastructure', award: 'Most Parking', higher: true, fmt: function(v) { return fmtNum(v) + ' ' + areaLargeUnit(); }, color: '#3b82f6' },
                 // No award of its own: "Most Parking" above already crowns parking, and two parking medals would be noise.
                 { key: 'parkingSpaces', label: 'Parking Spaces (est.)', higher: true, filter: function(m) { return m.parkingSpaces > 0; }, fmt: function(v) { return v.toLocaleString(); }, color: '#60a5fa', note: 'Estimated vehicle capacity of mapped lots and garages: the OSM capacity tag where present, otherwise lot footprint ÷ 30 m² per space (× levels for structured parking). On-street parking is not counted. Cities computed before the estimate existed are omitted.' },
                 { key: 'cityPct', label: 'City Ownership Share', award: 'Most City-Owned', higher: true, fmt: function(v) { return v.toFixed(0) + '%'; }, color: '#8b5cf6' },
                 { key: 'blendedDecay', label: 'Blended Decay Rate (lower is better)', award: 'Slowest Decay', higher: false, fmt: function(v) { return (v * 100).toFixed(2) + '%/yr'; }, color: '#ef4444' },
-                { key: 'year1PerAreaUnit', label: 'Year 1 Maintenance Cost per ' + areaLargeUnit().charAt(0).toUpperCase() + areaLargeUnit().slice(1), award: 'Most Efficient', higher: false, fmt: function(v) { return '$' + (v >= 1e3 ? (v/1e3).toFixed(1) + 'K' : v.toFixed(0)); }, color: '#ec4899' },
-                // endBacklog is each city's final-year backlog; every city
-                // shares one horizon, so this compares the same year.
-                { key: 'endBacklog', label: compareHorizon + '-Year Deferred Backlog', award: 'Least Deferred', higher: false, fmt: function(v) { return '$' + (v >= 1e9 ? (v/1e9).toFixed(2) + 'B' : (v/1e6).toFixed(1) + 'M'); }, color: '#d946ef' },
+                { key: 'year1PerAreaUnit', label: 'Year 1 Maintenance Cost per ' + areaLargeUnitSingular(), award: 'Lowest Cost per ' + areaLargeUnitSingular(), higher: false, fmt: function(v) { return '$' + (v >= 1e3 ? (v/1e3).toFixed(1) + 'K' : v.toFixed(0)); }, color: '#ec4899' },
+                // The final-year backlog per unit of network (same scope as the
+                // need). Every city shares one horizon, so this compares the
+                // same year; per area, so size alone does not win.
+                { key: 'endBacklogPerAreaUnit', label: compareHorizon + '-Year Deferred Backlog per ' + areaLargeUnitSingular(), award: 'Least Deferred per ' + areaLargeUnitSingular(), higher: false, fmt: function(v) { return '$' + (v >= 1e3 ? (v/1e3).toFixed(1) + 'K' : v.toFixed(0)); }, color: '#d946ef' },
                 // Roads-only solvency metrics. filter excludes cities that lack
                 // the metric (no cited budget / no roads) so a null value never
                 // produces a NaN sort key or a corrupt bar width.
-                { key: 'fundingGap', label: 'Street Funding Gap (roads, lower is better)', award: 'Best Funded', higher: false, filter: function(m) { return m.fundingGap !== null; }, fmt: function(v) { return (v >= 0 ? '+' : '') + v.toFixed(0) + '%'; }, color: '#0ea5e9', note: 'Funding gap = (hold-steady budget − current budget) / current budget, computed on roads/streets only. Shown only for cities with a cited current_budget. Negative means the budget already exceeds the hold-steady level.' },
-                { key: 'insolvencyYear', label: 'Years to Insolvency (roads, higher is better)', award: 'Most Solvent', higher: true, filter: function(m) { return m.insolvencyYear !== null; }, fmt: function(v) { return 'Year ' + v; }, color: '#14b8a6', note: 'Insolvency year = the first forecast year a city’s cumulative roads backlog grows to an entire treatment cycle of deferred work — a whole network’s worth of treatment, unrecoverable. Computed on roads/streets only at the current budget; shown only for cities with a cited current_budget that go insolvent within the horizon. Cities that stay solvent (most, with realistic budgets) are omitted — funding gap is the primary metric there.' }
+                { key: 'fundingGap', label: 'Street Funding Gap (roads, lower is better)', award: 'Smallest Funding Gap', higher: false, filter: function(m) { return m.fundingGap !== null; }, fmt: function(v) { return (v >= 0 ? '+' : '') + v.toFixed(0) + '%'; }, color: '#0ea5e9', note: 'Funding gap = (hold-steady budget − current budget) / current budget, computed on roads/streets only. Shown only for cities with a cited current_budget. Negative means the budget already exceeds the hold-steady level.' },
+                { key: 'insolvencyYear', label: 'Years to Insolvency (roads, higher is better)', award: 'Latest Insolvency', higher: true, filter: function(m) { return m.insolvencyYear !== null; }, fmt: function(v) { return 'Year ' + v; }, color: '#14b8a6', note: 'Insolvency year = the first forecast year a city’s cumulative roads backlog grows to an entire treatment cycle of deferred work — a whole network’s worth of treatment, unrecoverable. Computed on roads/streets only at the current budget; shown only for cities with a cited current_budget that go insolvent within the horizon. Cities that stay solvent (most, with realistic budgets) are omitted — funding gap is the primary metric there.' }
             ];
 
             var lbHtml = categories.map(function(cat) {
@@ -4040,7 +4056,7 @@
                     // an invalid bar width. maxVal is floored at 0 above, so the
                     // over-funded case lands at 0% here rather than overflowing.
                     var pct = Math.max(0, Math.min(100, m[cat.key] / maxVal * 100)).toFixed(1);
-                    var medalIcon = i < 3 && i < medals.length ? medals[i] : (i + 1) + '.';
+                    var medalIcon = (sorted.length >= 2 && i < 3 && i < medals.length) ? medals[i] : (i + 1) + '.';
                     return '<div class="lb-row">' +
                         '<span class="lb-medal">' + medalIcon + '</span>' +
                         '<span class="lb-name">' + esc(m.name) + '</span>' +
@@ -4051,7 +4067,7 @@
 
                 var noteIcon = cat.note ? ' <span class="lb-note" title="' + cat.note.replace(/"/g, '&quot;') + '">ⓘ</span>' : '';
                 return '<div class="lb-category">' +
-                    '<div class="lb-title"><h4>' + cat.label + noteIcon + '</h4>' + (cat.award ? '<span class="lb-award">' + medals[0] + ' ' + cat.award + ': ' + esc(sorted[0].name) + '</span>' : '') + '</div>' +
+                    '<div class="lb-title"><h4>' + cat.label + noteIcon + '</h4>' + (cat.award && sorted.length >= 2 ? '<span class="lb-award">' + medals[0] + ' ' + cat.award + ': ' + esc(sorted[0].name) + '</span>' : '') + '</div>' +
                     rows +
                 '</div>';
             }).join('');
@@ -4253,10 +4269,12 @@
             document.getElementById('aggregate-headlines').innerHTML = [
                 aggCard('Total Network Area', fmtNum(totalNetwork) + ' ' + unit, 'Roads + parking + sidewalks across ' + allMetrics.length + ' cities'),
                 aggCard('Paved Share', totalCityArea > 0 ? (totalPaved / totalCityArea * 100).toFixed(1) + '%' : '—', 'Paved (union) area vs. municipal area'),
-                aggCard('Area-Weighted PCI', weightedPCI === null ? '—' : weightedPCI.toFixed(0), 'Baseline condition (simplified single-cohort)'),
+                // baselineYears[0] is year 1, after one year's decay from the
+                // configured starting PCI, so say so (solvent-streets-3ij1).
+                aggCard('Area-Weighted PCI', weightedPCI === null ? '—' : weightedPCI.toFixed(0), 'Year-1 condition, after one year of decay with no spend'),
                 aggCard('Year-1 Maintenance Need', hasFc ? fmt$(regionYear1) : '—', 'To hold the whole network steady'),
                 aggCard(horizon + 'Deferred Backlog', hasFc ? fmt$(regionBacklog) : '—', hasFc ? 'Unfunded need accumulated by year ' + minLen : 'No forecast data in this region'),
-                aggCard('Year-1 Need / ' + unit, perArea === null ? '—' : '$' + fmtNum(perArea), 'Region maintenance intensity'),
+                aggCard('Year-1 Need per ' + areaLargeUnitSingular(), perArea === null ? '—' : '$' + fmtNum(perArea), 'Region maintenance intensity'),
                 aggCard('Est. Parking Spaces', totalSpaces > 0 ? fmtNum(totalSpaces) : '—', 'Lots and garages: OSM capacity, else footprint ÷ 30 m²/space')
             ].join('');
 

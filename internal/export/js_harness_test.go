@@ -77,7 +77,8 @@ const jsFixtureSnapshotID = 1
 const jsFixtureBoundary = `{"type":"Polygon","coordinates":[[[-122.3,37.7],[-122.2,37.7],[-122.2,37.8],[-122.3,37.8],[-122.3,37.7]]]}`
 
 // jsFixtureForecastConfig is exporttest.ForecastConfig with two deliberate changes:
-// a 20-year horizon (what a real site ships) and the canonical worst-tier label
+// a 20-year horizon (not the 30-year default, so a label that hardcodes the
+// default instead of reading horizon_years fails) and the canonical worst-tier label
 // "reconstruction". The fixture's "reconstruct" does not match
 // forecast.DefaultMaterialTiers, so reusing it verbatim would silently drive the
 // Materials tab down MaterialTierFor's fallback path instead of a label match.

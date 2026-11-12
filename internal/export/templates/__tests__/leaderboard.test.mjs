@@ -73,3 +73,36 @@ test('all gaps exactly zero: no division by zero', async () => {
   const win = await renderWith([city('A', 0), city('B', 0)]);
   assert.deepEqual(barWidths(win), [0, 0]);
 });
+
+// solvent-streets-3ij1: medals need a field, and awards must not read as
+// praise for a bad outcome.
+test('one eligible city gets no medal and no award', async () => {
+  // Only Alpha has a cited budget, so the funding-gap pool has one city.
+  const solo = city('Alpha', 2.15);
+  const unbudgeted = readFixture('forecast.json').map((f) => {
+    if (f.resource_type !== 'roads') return f;
+    const rest = { ...f };
+    delete rest.current_budget;
+    delete rest.funding_gap;
+    delete rest.insolvency_year;
+    return rest;
+  });
+  const noBudget = { ...city('Beta', 0), forecast: unbudgeted };
+  const win = await renderWith([solo, noBudget]);
+  const html = win.document.getElementById('leaderboard-list').innerHTML;
+  const start = html.indexOf('Street Funding Gap');
+  const block = html.slice(start, html.indexOf('Years to Insolvency', start) >= 0 ? html.indexOf('Years to Insolvency', start) : html.length);
+  assert.ok(!block.includes('lb-award'), `a one-city category must not award gold:\n${block}`);
+  assert.ok(!block.includes('\u{1F947}'), 'a one-city category must not draw a medal');
+  const cards = win.document.getElementById('solvency-cards').innerHTML;
+  assert.ok(!cards.includes('\u{1F947}'), 'the only budgeted city must not take a solvency gold by default');
+});
+
+test('awards use neutral wording and the backlog ranks per acre', async () => {
+  const win = await renderWith([city('Alpha', 0.4), city('Beta', 0.2)]);
+  const html = win.document.getElementById('leaderboard-list').innerHTML;
+  assert.ok(html.includes('Smallest Funding Gap: Beta'), 'funding-gap award should be "Smallest Funding Gap"');
+  assert.ok(!html.includes('Best Funded'), '"Best Funded" praised a funding gap');
+  assert.match(html, /Deferred Backlog per acre/, 'the backlog leaderboard should rank per acre');
+  assert.match(html, /Maintenance Cost per acre/, 'per-area labels use the singular unit');
+});
