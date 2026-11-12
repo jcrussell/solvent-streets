@@ -566,11 +566,15 @@ func TestOpen_RefusesOlderGeneration(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		versions []int
-		gen      int // PRAGMA user_version stamped on the seeded file; 0 = never stamped
+		gen      int    // PRAGMA user_version stamped on the seeded file; 0 = never stamped
+		table    string // a table only that generation had, seeded alongside the stamp
 	}{
-		{"v0.4.1 (001, 002)", []int{1, 2}, 0},
-		{"pre-release HEAD (001, 002, 003)", []int{1, 2, 3}, 0},
-		{"pre-release generation 2 (stored forecasts)", []int{1}, 2},
+		{"v0.4.1 (001, 002)", []int{1, 2}, 0, ""},
+		{"pre-release HEAD (001, 002, 003)", []int{1, 2, 3}, 0, ""},
+		{"pre-release generation 2 (stored forecasts)", []int{1}, 2, "forecast_results"},
+		// Generation 3 is the one pre-release users actually hold: typed result
+		// tables (hex_stats) before the generic city_metrics / hex_metrics rows.
+		{"pre-release generation 3 (typed result tables)", []int{1}, 3, "hex_stats"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -587,8 +591,8 @@ func TestOpen_RefusesOlderGeneration(t *testing.T) {
 				}
 			}
 			if tc.gen > 0 {
-				if _, err := d.ExecContext(ctx, fmt.Sprintf(`CREATE TABLE forecast_results (id INTEGER PRIMARY KEY);
-					PRAGMA user_version = %d;`, tc.gen)); err != nil {
+				if _, err := d.ExecContext(ctx, fmt.Sprintf(`CREATE TABLE %s (id INTEGER PRIMARY KEY);
+					PRAGMA user_version = %d;`, tc.table, tc.gen)); err != nil {
 					t.Fatalf("seed generation %d: %v", tc.gen, err)
 				}
 			}

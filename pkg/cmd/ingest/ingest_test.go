@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
@@ -1084,5 +1086,76 @@ func TestReplaceScope(t *testing.T) {
 				t.Errorf("replaceScope = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestRunIngest_SourceArcGISKeepsOverpassRows drives the --source arcgis
+// wiring end to end against a real store (solvent-streets-vqu9, -rcpy):
+// a city that uses both sources re-ingests ArcGIS only, and its stored
+// Overpass rows must survive the save. TestReplaceScope covers the helper;
+// this covers runIngest passing its result to UpsertFeatures.
+func TestRunIngest_SourceArcGISKeepsOverpassRows(t *testing.T) {
+	ctx := context.Background()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"features":[
+			{"properties":{"OBJECTID":7},"geometry":{"type":"LineString","coordinates":[[-121.80,37.68],[-121.79,37.68]]}},
+			{"properties":{"OBJECTID":8},"geometry":{"type":"LineString","coordinates":[[-121.78,37.69],[-121.77,37.69]]}}
+		],"properties":{"exceededTransferLimit":false}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	root, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	id, err := root.EnsureCity(ctx, "test-city", "Test City", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := root.ForCity(id)
+	if err := store.SaveBoundary(ctx, noSourceBoundary, "nominatim"); err != nil {
+		t.Fatal(err)
+	}
+	overpassRow := db.Feature{
+		ID: "osm:way:1", ResourceType: resource.TypeRoads, Tags: map[string]string{"highway": "residential"},
+		GeometryJSON: `{"type":"LineString","coordinates":[[-121.76,37.68],[-121.75,37.68]]}`,
+		SourceAPI:    "overpass", FetchedAt: time.Now(),
+	}
+	if err := store.UpsertFeatures(ctx, resource.TypeRoads, []db.Feature{overpassRow}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	city := cmdtest.NewTestCity()
+	city.Overpass = true
+	city.ArcGISURL = srv.URL + "/query"
+	city.AllowPrivateArcGIS = true // httptest binds 127.0.0.1
+	ios, _, _, errBuf := iostreams.Test()
+	opts := &Options{
+		IO:           ios,
+		CityDB:       func() (db.Store, error) { return store, nil },
+		CurrentCity:  func() (*config.CityConfig, error) { return city, nil },
+		HttpClient:   func() (*http.Client, error) { return srv.Client(), nil },
+		ResourceType: &resource.Pavement{},
+		Source:       cmdutil.SourceArcGIS,
+	}
+	if err := runIngest(ctx, opts); err != nil {
+		t.Fatalf("runIngest: %v\nstderr: %s", err, errBuf)
+	}
+
+	rows, err := store.ListFeatures(ctx, resource.TypeRoads)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bySource := map[string]int{}
+	for _, r := range rows {
+		bySource[r.SourceAPI]++
+	}
+	if bySource["overpass"] != 1 {
+		t.Errorf("overpass rows after --source arcgis = %d, want the 1 stored row kept (all rows: %v)", bySource["overpass"], bySource)
+	}
+	if bySource["arcgis"] != 2 {
+		t.Errorf("arcgis rows = %d, want 2 (all rows: %v)", bySource["arcgis"], bySource)
 	}
 }

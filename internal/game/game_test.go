@@ -779,17 +779,33 @@ func TestIdlePlayerGoesInsolvent(t *testing.T) {
 }
 
 // TestLiveInsolvencyMatchesProjection: at a $0 budget the pregame projection
-// and the live game, played idle, report insolvency in the same year (within
-// one, for the projection's condition spread).
+// and the live game, played idle at the frame-sized ticks the browser uses,
+// report insolvency in the same year, for slow and fast decay alike
+// (solvent-streets-rcpy). Whole-year ticks price each year's need at its
+// end-of-year condition only and can land a year early, which an earlier
+// +-1 tolerance hid; the browser never ticks that coarsely.
 func TestLiveInsolvencyMatchesProjection(t *testing.T) {
-	cfg := idleConfig(0)
-	want, ok := ProjectInsolvency(cfg)
-	if !ok {
-		t.Fatal("projection says solvent at $0")
-	}
-	got := playIdle(newGame(t, cfg))
-	if got == 0 || got < want-1 || got > want+1 {
-		t.Errorf("live game ended in year %d, projection says %d", got, want)
+	const dt = 1.0 / 60
+	for _, k := range []float64{0.02, 0.04, 0.06, 0.09} {
+		cfg := idleConfig(0)
+		for i := range cfg.Hexes {
+			cfg.Hexes[i].K = k
+		}
+		cfg.Cohorts[0].DecayRate = k
+		want, ok := ProjectInsolvency(cfg)
+		if !ok {
+			t.Fatalf("k=%g: projection says solvent at $0", k)
+		}
+		g := newGame(t, cfg)
+		for step := 0; step < 40*60 && g.status == "running"; step++ {
+			g.Tick(dt)
+		}
+		if g.status != "lost" {
+			t.Fatalf("k=%g: idle game finished %q, want lost", k, g.status)
+		}
+		if g.yearsDone != want {
+			t.Errorf("k=%g: live game went insolvent in year %d, projection says %d", k, g.yearsDone, want)
+		}
 	}
 }
 
