@@ -51,8 +51,8 @@ func TestNewCmdExport_Defaults(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if gotOpts.OutputDir != "dist" {
-		t.Errorf("expected default OutputDir dist, got %q", gotOpts.OutputDir)
+	if gotOpts.OutputDir != "site" {
+		t.Errorf("expected default OutputDir site, got %q", gotOpts.OutputDir)
 	}
 	if gotOpts.Clean {
 		t.Errorf("expected default --clean to be false")

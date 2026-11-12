@@ -49,7 +49,7 @@ func NewCmdExport(f *cmdutil.Factory, runF func(context.Context, *Options) error
 		Use:   "export",
 		Short: "Export a static HTML site with map and stats",
 		Long:  "Generate a self-contained HTML site with MapLibre dashboard, hex heatmap, and summary stats.\nDeploy to GitHub Pages or any static host.",
-		Example: `  # Export the default static site to ./dist
+		Example: `  # Export the static site to ./site
   pvmt export
 
   # Pick an output directory and overwrite an existing one
@@ -68,7 +68,7 @@ func NewCmdExport(f *cmdutil.Factory, runF func(context.Context, *Options) error
 		},
 	}
 
-	cmd.Flags().StringVarP(&opts.OutputDir, "output", "o", "dist", "Output directory")
+	cmd.Flags().StringVarP(&opts.OutputDir, "output", "o", "site", "Output directory")
 	cmd.Flags().BoolVar(&opts.Clean, "clean", false, "Remove output directory before exporting")
 	cmdutil.AddDocumentJSONFlags(cmd, &opts.JSON, "Emit a JSON manifest of written files to stdout instead of human chatter")
 
