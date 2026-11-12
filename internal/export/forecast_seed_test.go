@@ -63,9 +63,9 @@ func TestMergeCohortSeeds_KeysOnResourceAndClassification(t *testing.T) {
 	// Order is first-seen: resource.All order, then each resource's cohorts
 	// by class, as the store returns them.
 	want := []CohortSeed{
-		{Classification: "default", Area: 500},  // roads "default" only
-		{Classification: "primary", Area: 1200}, // roads: 1000 + 200
-		{Classification: "default", Area: 400},  // parking "default": 300 + 100
+		{ResourceType: "roads", Classification: "default", Area: 500},   // roads "default" only
+		{ResourceType: "roads", Classification: "primary", Area: 1200},  // roads: 1000 + 200
+		{ResourceType: "parking", Classification: "default", Area: 400}, // parking "default": 300 + 100
 	}
 	if diff := cmp.Diff(want, got, cmpopts.IgnoreFields(CohortSeed{}, "DecayRate")); diff != "" {
 		t.Errorf("mergeCohortSeeds (-want +got):\n%s", diff)
@@ -292,21 +292,22 @@ func TestMergeCohortSeeds_AsphaltShareIsRegionWide(t *testing.T) {
 	}
 }
 
-// TestResolvedDecayRate_MatchesForecastCohorts pins solvent-streets-89n4: the
+// TestSeedDecayRate_MatchesForecastCohorts pins solvent-streets-89n4: the
 // seed cohorts the dashboard and WASM simulate, and the game's hexes, resolve
-// each class's decay exactly as forecast.json's BuildCohorts does. With a
+// each class's decay (forecast.ClassDecayRate) exactly as forecast.json's
+// cohorts (forecast.CohortsFromInputs) do. With a
 // decay_rate override the seeds once set every road class to the override
 // while forecast.json scaled each class around it, so the Financials headline
 // changed numbers once the WASM run replaced the forecast.json one.
-func TestResolvedDecayRate_MatchesForecastCohorts(t *testing.T) {
+func TestSeedDecayRate_MatchesForecastCohorts(t *testing.T) {
 	classes := []string{"parking", "sidewalks", "footway", "unknown", "primary_link"}
 	for c := range forecast.RoadDecayRates {
 		classes = append(classes, c)
 	}
 	for _, override := range []float64{0, 0.03, 0.06} {
 		for _, c := range classes {
-			want := forecast.BuildCohorts([]forecast.CohortInput{{Classification: c, Area: 1}}, 85, override)[0].DecayRate
-			if got := resolvedDecayRate(c, override); got != want {
+			want := forecast.CohortsFromInputs([]forecast.CohortInput{{Classification: c, Area: 1}}, 85, override)[0].DecayRate
+			if got := forecast.ClassDecayRate(c, override); got != want {
 				t.Errorf("override %g, class %q: seed decay %g, forecast.json decay %g", override, c, got, want)
 			}
 		}

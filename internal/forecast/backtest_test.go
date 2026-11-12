@@ -50,11 +50,11 @@ func TestBacktest_TreatmentCycleClosesSec5Gap(t *testing.T) {
 	for _, c := range backtestCities {
 		t.Run(c.name, func(t *testing.T) {
 			// Spread the mean PCI exactly as the shipped export/CLI/WASM paths do
-			// (ApplyConditionSpread), so this gate validates the real pipeline.
+			// (applyConditionSpread), so this gate validates the real pipeline.
 			// The 1/N relationship (property 1) factors through the spread
 			// unchanged; the gated dollar figure rises by the §4 condition-spread
 			// uplift, which property 2's band still tolerates.
-			cohorts := ApplyConditionSpread([]Cohort{{
+			cohorts := applyConditionSpread([]Cohort{{
 				Classification: "residential",
 				Area:           c.areaSqM,
 				DecayRate:      c.decay,

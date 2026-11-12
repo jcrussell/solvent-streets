@@ -3175,11 +3175,12 @@
         /** @type {Record<string, string>} */
         const MAINTAIN_SHORT = { roads: 'streets', parking: 'lots', sidewalks: 'sidewalks' };
 
-        // cohortType maps a seed cohort to its resource type: parking and
-        // sidewalks carry their type as the class, every other class is a road.
-        /** @param {{classification: string}} c */
+        // cohortType is a seed cohort's resource type, which the export emits on
+        // every CohortSeed (solvent-streets-i55x) so no page has to guess it from
+        // the class name.
+        /** @param {{resource_type: string}} c */
         function cohortType(c) {
-            return c.classification === 'parking' || c.classification === 'sidewalks' ? c.classification : 'roads';
+            return c.resource_type;
         }
 
         // scopeSeedCohorts is the seed cohorts of the active scope:
@@ -3365,7 +3366,7 @@
             const roads = forecastData ? forecastData.find(f => f.resource_type === 'roads') : null;
             const src = (FORECAST_SEED.city_cohorts && FORECAST_SEED.city_cohorts.length)
                 ? FORECAST_SEED.city_cohorts : (FORECAST_SEED.cohorts || []);
-            const cohorts = src.filter(c => c.classification !== 'parking' && c.classification !== 'sidewalks');
+            const cohorts = src.filter(c => cohortType(c) === 'roads');
             if (!roads || cohorts.length === 0) return null;
             const current = roads.current_budget > 0 ? roads.current_budget : 0;
             const r = memoSolvency(headlineCache, Object.assign({}, input, {
@@ -3907,7 +3908,7 @@
             m.cityRoadsSqM = 0;
             if (city.seed && city.seed.cohorts) {
                 city.seed.cohorts.forEach(function(c) {
-                    if (c.classification !== 'parking' && c.classification !== 'sidewalks') {
+                    if (cohortType(c) === 'roads') {
                         m.cohorts[c.classification] = c.area;
                     }
                 });

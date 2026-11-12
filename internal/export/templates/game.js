@@ -725,7 +725,7 @@
             // the road budget for lots and sidewalks and put Play's insolvency a
             // year early (solvent-streets-162r).
             /** @param {any[]} list */
-            const roadCohorts = list => (list || []).filter(c => c.classification !== 'parking' && c.classification !== 'sidewalks');
+            const roadCohorts = list => (list || []).filter(c => c.resource_type === 'roads');
             const cityRoads = roadCohorts(seed.city_cohorts);
             const macroCohorts = cityRoads.length ? cityRoads : roadCohorts(seed.cohorts);
             // Hoisted to module scope so reset() and the horizon buttons can

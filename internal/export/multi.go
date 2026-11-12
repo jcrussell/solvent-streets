@@ -275,8 +275,9 @@ func mergeCohortSeeds(ctx context.Context, entries []CityEntry, fc *config.Forec
 					b = &bucket{
 						Order: nextOrder,
 						Seed: CohortSeed{
+							ResourceType:   k.Resource,
 							Classification: st.Class,
-							DecayRate:      resolvedDecayRate(st.Class, fc.DecayRate),
+							DecayRate:      forecast.ClassDecayRate(st.Class, fc.DecayRate),
 						},
 					}
 					buckets[k] = b

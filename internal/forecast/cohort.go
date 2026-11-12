@@ -85,3 +85,78 @@ func BuildCohorts(inputs []CohortInput, initialPCI, overrideDecayRate float64) [
 	}
 	return cohorts
 }
+
+// RawCohort is a cohort before the condition spread: a class, its area and its
+// already-resolved decay rate. It is what a seed or a single synthetic cohort
+// carries; SpreadCohorts turns it into the cohorts Simulate runs on.
+type RawCohort struct {
+	Classification string
+	Area           float64
+	DecayRate      float64
+}
+
+// SpreadCohorts is the one way to build the cohorts a forecast simulates. Every
+// cohort starts at the single mean initialPCI, a decay rate <= 0 resolves to the
+// default rate (so a CohortSummary reports the rate actually simulated), and the
+// mean is spread into a condition distribution exactly once
+// (applyConditionSpread, which is not idempotent). Pair the simulated result
+// with CollapseBands for display.
+//
+// Export, the WASM bridge, the game, validate and the CLI all build cohorts
+// through here or CohortsFromInputs, so they cannot drift on the spread or the
+// decay fallback (solvent-streets-i55x).
+func SpreadCohorts(raw []RawCohort, initialPCI float64) []Cohort {
+	if len(raw) == 0 {
+		return nil
+	}
+	cohorts := make([]Cohort, len(raw))
+	for i, r := range raw {
+		rate := r.DecayRate
+		if rate <= 0 {
+			rate = DefaultDecayRates["default"]
+		}
+		cohorts[i] = Cohort{
+			Classification: r.Classification,
+			Area:           r.Area,
+			DecayRate:      rate,
+			InitialPCI:     initialPCI,
+		}
+	}
+	return applyConditionSpread(cohorts)
+}
+
+// CohortsFromInputs builds the simulated cohorts for per-class stats: each class
+// decays at ClassDecayRate under the config override, then SpreadCohorts applies
+// the mean PCI and the condition spread. Returns nil for empty inputs (the caller
+// decides on a fallback).
+func CohortsFromInputs(inputs []CohortInput, initialPCI, overrideDecayRate float64) []Cohort {
+	if len(inputs) == 0 {
+		return nil
+	}
+	raw := make([]RawCohort, len(inputs))
+	for i, in := range inputs {
+		raw[i] = RawCohort{
+			Classification: in.Classification,
+			Area:           in.Area,
+			DecayRate:      ClassDecayRate(in.Classification, overrideDecayRate),
+		}
+	}
+	return SpreadCohorts(raw, initialPCI)
+}
+
+// CollapseBands collapses the per-band FinalCohorts that SpreadCohorts produces
+// back to one row per classification, for display. Headline figures already sum
+// across the bands and are unaffected.
+func CollapseBands(r ScenarioResult) ScenarioResult {
+	r.FinalCohorts = AggregateCohortSummariesByClass(r.FinalCohorts)
+	return r
+}
+
+// CollapseAllBands applies CollapseBands to every result in place and returns
+// the slice.
+func CollapseAllBands(rs []ScenarioResult) []ScenarioResult {
+	for i := range rs {
+		rs[i] = CollapseBands(rs[i])
+	}
+	return rs
+}

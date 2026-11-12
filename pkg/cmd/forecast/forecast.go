@@ -119,9 +119,9 @@ func simulateResource(city string, rt resource.Source, cohorts []fcpkg.Cohort, y
 		fcpkg.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: fcpkg.StrategyDoNothing},
 		cohorts, years, params,
 	)
-	// Collapse the per-band sub-cohort summaries (from ApplyConditionSpread) back
-	// to one row per classification for the cohort-breakdown table.
-	baseline.FinalCohorts = fcpkg.AggregateCohortSummariesByClass(baseline.FinalCohorts)
+	// Collapse the per-band sub-cohort summaries back to one row per
+	// classification for the cohort-breakdown table.
+	baseline = fcpkg.CollapseBands(baseline)
 
 	var rows []forecastRow
 	var totalDeferredCost float64

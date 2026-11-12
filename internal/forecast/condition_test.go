@@ -35,13 +35,13 @@ func TestBetaQuantileInverts(t *testing.T) {
 	}
 }
 
-// ApplyConditionSpread must preserve the area-weighted mean PCI exactly (the
+// applyConditionSpread must preserve the area-weighted mean PCI exactly (the
 // whole point of the Beta-conditional-mean discretization) and split area into
 // exactly K bands per cohort.
 func TestApplyConditionSpreadMeanPreserved(t *testing.T) {
 	for _, mu := range []float64{40, 55, 67, 78, 85} {
 		in := []Cohort{{Classification: "roads", Area: 1000, DecayRate: 0.04, InitialPCI: mu}}
-		out := ApplyConditionSpread(in)
+		out := applyConditionSpread(in)
 		if len(out) != conditionBands {
 			t.Fatalf("mu=%g: got %d sub-cohorts, want %d", mu, len(out), conditionBands)
 		}
@@ -66,12 +66,12 @@ func TestApplyConditionSpreadMeanPreserved(t *testing.T) {
 func TestApplyConditionSpreadDegenerate(t *testing.T) {
 	for _, mu := range []float64{0, 100} {
 		in := []Cohort{{Classification: "x", Area: 10, InitialPCI: mu, DecayRate: 0.04}}
-		out := ApplyConditionSpread(in)
+		out := applyConditionSpread(in)
 		if len(out) != 1 || out[0].InitialPCI != mu {
 			t.Errorf("mu=%g: expected passthrough, got %+v", mu, out)
 		}
 	}
-	if ApplyConditionSpread(nil) != nil {
+	if applyConditionSpread(nil) != nil {
 		t.Error("nil input should return nil")
 	}
 }
@@ -83,7 +83,7 @@ func TestApplyConditionSpreadDegenerate(t *testing.T) {
 // InitialPCI upstream).
 func TestApplyConditionSpreadNonFinite(t *testing.T) {
 	in := []Cohort{{Classification: "x", Area: 10, InitialPCI: math.NaN(), DecayRate: 0.04}}
-	out := ApplyConditionSpread(in)
+	out := applyConditionSpread(in)
 	if len(out) != 1 || !math.IsNaN(out[0].InitialPCI) {
 		t.Errorf("NaN mean: expected passthrough, got %+v", out)
 	}
@@ -100,7 +100,7 @@ func TestConditionSpreadCalibration(t *testing.T) {
 	uplift := func(mu float64) float64 {
 		base := []Cohort{{Classification: "roads", Area: 1e6, DecayRate: decay, InitialPCI: mu}}
 		b := Simulate(Scenario{Strategy: StrategyDoNothing}, base, 20, params)
-		s := Simulate(Scenario{Strategy: StrategyDoNothing}, ApplyConditionSpread(base), 20, params)
+		s := Simulate(Scenario{Strategy: StrategyDoNothing}, applyConditionSpread(base), 20, params)
 		return s.Years[0].AnnualNeed/b.Years[0].AnnualNeed - 1
 	}
 	// Representative mid-range (most shipped cities are PCI 56–78): a material

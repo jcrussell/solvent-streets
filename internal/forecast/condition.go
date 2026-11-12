@@ -12,7 +12,7 @@ import "math"
 // the single-average assumption under-stating modeled cost by ~32–37%.
 //
 // We have no measured per-segment condition yet (that arrives with the Phase-2
-// per-segment ingest, solvent-streets-mmvv.1). So ApplyConditionSpread models the
+// per-segment ingest, solvent-streets-mmvv.1). So applyConditionSpread models the
 // distribution parametrically: a Beta on [0,100] re-centered on each cohort's
 // InitialPCI, discretized into equal-probability sub-cohorts. This is a deliberate
 // *conservative partial* correction — a unimodal Beta cannot reproduce a true
@@ -39,19 +39,20 @@ const (
 	conditionEps = 1e-6
 )
 
-// ApplyConditionSpread replaces each cohort with K=conditionBands equal-probability
+// applyConditionSpread replaces each cohort with K=conditionBands equal-probability
 // sub-cohorts sampled from a Beta(α,β) on [0,100] with mean = InitialPCI/100 and
 // fixed concentration ν=conditionConcentration (α=mν, β=(1−m)ν). Each band's PCI
 // is its conditional mean and its area is the cohort's area / K, so the
 // area-weighted mean PCI is preserved exactly (no truncation, no shift). The
 // returned cohorts share each original's Classification and DecayRate.
 //
-// It is a pure function and deterministic. Apply it at the cohort-construction
-// call sites (export, WASM bridge, CLI) — NOT inside Simulate or BuildCohorts,
-// which several tests rely on leaving cohorts un-expanded. Pair it with
-// AggregateCohortSummariesByClass to collapse the resulting per-band summary rows
-// back to one row per classification for display.
-func ApplyConditionSpread(cohorts []Cohort) []Cohort {
+// It is a pure function and deterministic, but not idempotent: spreading twice
+// spreads the bands again. That is why it is unexported — callers outside this
+// package build cohorts through SpreadCohorts or CohortsFromInputs, which apply
+// it exactly once, and collapse the per-band summaries with CollapseBands. It is
+// NOT applied inside Simulate or BuildCohorts, which several tests rely on
+// leaving cohorts un-expanded.
+func applyConditionSpread(cohorts []Cohort) []Cohort {
 	if len(cohorts) == 0 {
 		return cohorts
 	}

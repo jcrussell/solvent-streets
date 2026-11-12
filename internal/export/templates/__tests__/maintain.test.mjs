@@ -7,8 +7,7 @@ import assert from 'node:assert/strict';
 import { load, defaultSimulate } from './harness.mjs';
 import { fullData, seedJSON } from './fixtures.mjs';
 
-const typeOf = (k) => (k === 'parking' || k === 'sidewalks' ? k : 'roads');
-const types = (cohorts) => [...new Set(Array.from(cohorts ?? [], (c) => typeOf(c.classification)))].sort();
+const types = (cohorts) => [...new Set(Array.from(cohorts ?? [], (c) => c.resource_type))].sort();
 
 // refSim answers reference-set requests with a recognizable baseline, and
 // solvency probes with a hold-steady budget proportional to the cohort area,
@@ -28,8 +27,8 @@ function refSim(input) {
   return out;
 }
 
-async function ready(url) {
-  const h = load({ data: fullData, simulate: refSim, url: 'https://example.test/index.html?tab=financials-tab' + (url || '') });
+async function ready(url, data = fullData) {
+  const h = load({ data, simulate: refSim, url: 'https://example.test/index.html?tab=financials-tab' + (url || '') });
   await h.flush();
   h.win.onWasmReady();
   await h.flush();
@@ -92,4 +91,18 @@ test('the solvency headline stays streets-only whatever is maintained', async ()
   const { win } = await ready('&maintain=roads,parking,sidewalks');
   const headline = win.__simCalls.filter((c) => c.solvency && c.annual_budget > 0).at(-1);
   assert.deepEqual(types(headline.cohorts), ['roads']);
+});
+
+// solvent-streets-i55x: the page selects cohorts by the seed's resource_type,
+// not by guessing from the class name. A parking cohort whose class is not
+// literally "parking" must still stay out of the streets-only forecast.
+test('streets-only follows resource_type, not the class name', async () => {
+  const seed = structuredClone(seedJSON);
+  const lot = seed.city_cohorts.find((c) => c.resource_type === 'parking');
+  lot.classification = 'surface_lot';
+  const { win } = await ready('', { ...fullData, 'forecast_seed.json': seed });
+  const sentClasses = (calls) => Array.from(calls.cohorts ?? [], (c) => c.classification);
+  assert.ok(!sentClasses(custom(win)).includes('surface_lot'), 'a parking cohort reached the streets forecast');
+  const headline = win.__simCalls.filter((c) => c.solvency && c.annual_budget > 0).at(-1);
+  assert.ok(!sentClasses(headline).includes('surface_lot'), 'a parking cohort reached the roads headline');
 });

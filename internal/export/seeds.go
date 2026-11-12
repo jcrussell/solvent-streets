@@ -17,6 +17,10 @@ import (
 
 // CohortSeed holds per-cohort data for interactive controls.
 type CohortSeed struct {
+	// ResourceType is the resource the cohort belongs to ("roads", "parking",
+	// "sidewalks"). The browser selects the roads cohorts by it rather than by
+	// guessing from the class name.
+	ResourceType   string  `json:"resource_type"`
 	Classification string  `json:"classification"`
 	Area           float64 `json:"area"`
 	DecayRate      float64 `json:"decay_rate"`
@@ -204,9 +208,10 @@ func collectCohortSeeds(ctx context.Context, store db.Store, fc *config.Forecast
 		for _, st := range stats {
 			allSplit.add(st.Area, asphalt)
 			out.All = append(out.All, CohortSeed{
+				ResourceType:   string(t),
 				Classification: st.Class,
 				Area:           st.Area,
-				DecayRate:      resolvedDecayRate(st.Class, fc.DecayRate),
+				DecayRate:      forecast.ClassDecayRate(st.Class, fc.DecayRate),
 			})
 		}
 		cityStats, err := results.LoadCohorts(ctx, store, t.With(resource.ScopeCity))
@@ -216,22 +221,14 @@ func collectCohortSeeds(ctx context.Context, store db.Store, fc *config.Forecast
 		for _, st := range cityStats {
 			citySplit.add(st.Area, asphalt)
 			out.City = append(out.City, CohortSeed{
+				ResourceType:   string(t),
 				Classification: st.Class,
 				Area:           st.Area,
-				DecayRate:      resolvedDecayRate(st.Class, fc.DecayRate),
+				DecayRate:      forecast.ClassDecayRate(st.Class, fc.DecayRate),
 			})
 		}
 	}
 	out.AllAsphaltShare = allSplit.share()
 	out.CityAsphaltShare = citySplit.share()
 	return out, nil
-}
-
-// resolvedDecayRate returns the decay rate for a classification under the
-// config override: forecast.ClassDecayRate, the rule forecast.json's
-// BuildCohorts uses. Setting every road class to the override instead (as
-// this once did) made the dashboard's seed-based Financials disagree with
-// forecast.json for any city with a decay_rate override (solvent-streets-89n4).
-func resolvedDecayRate(classification string, overrideRate float64) float64 {
-	return forecast.ClassDecayRate(classification, overrideRate)
 }

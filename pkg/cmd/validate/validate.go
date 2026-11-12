@@ -233,12 +233,11 @@ func evaluateCity(c referenceCity, tolerance float64) Result {
 	// this measures the real pipeline rather than a flat-average shortcut. The
 	// spread is load-bearing for the Berkeley match (§4 Resolution): without it
 	// the figure lands ~19% low.
-	cohorts := forecast.ApplyConditionSpread([]forecast.Cohort{{
+	cohorts := forecast.SpreadCohorts([]forecast.RawCohort{{
 		Classification: "residential",
 		Area:           c.PavedAreaSqM,
 		DecayRate:      c.DecayRate,
-		InitialPCI:     c.PCI,
-	}})
+	}}, c.PCI)
 
 	// Growth 0.005 and a fixed 25-year horizon match backtest_test.go (and
 	// what examples/bay-area-ca used before configs moved to one 30-year

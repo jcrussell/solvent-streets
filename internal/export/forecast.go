@@ -44,42 +44,32 @@ func BuildCohortsForResource(ctx context.Context, rt resource.Source, area float
 // BuildCohortsForResource — takes pre-fetched stats instead of a Store
 // so callers that batched the DB lookup don't refetch per resource type.
 func buildCohortsFromStats(t resource.Type, area float64, stats []results.Cohort, fc *config.ForecastConfig) []forecast.Cohort {
-	currentPCI := fc.InitialPCI
-	var inputs []forecast.CohortInput
+	inputs := cohortInputs(stats)
+	if len(inputs) == 0 {
+		// No per-class stats yet: one synthetic cohort of the resource's whole
+		// area, decaying at its class rate under the override.
+		inputs = []forecast.CohortInput{{Classification: string(t), Area: area}}
+	}
+	// CohortsFromInputs spreads the single configured mean PCI into a condition
+	// distribution so the cost figures reflect the failed/poor tail
+	// (docs/validation.md §4); every downstream consumer (baseline, scenarios,
+	// break-even, insolvency) sees the same corrected cohorts.
+	return forecast.CohortsFromInputs(inputs, fc.InitialPCI, fc.DecayRate)
+}
+
+// cohortInputs converts stored cohort stats to forecast inputs.
+func cohortInputs(stats []results.Cohort) []forecast.CohortInput {
+	if len(stats) == 0 {
+		return nil
+	}
+	inputs := make([]forecast.CohortInput, 0, len(stats))
 	for _, st := range stats {
 		inputs = append(inputs, forecast.CohortInput{
 			Classification: st.Class,
 			Area:           st.Area,
 		})
 	}
-	cohorts := forecast.BuildCohorts(inputs, currentPCI, fc.DecayRate)
-	if cohorts == nil {
-		tName := string(t)
-		defaultRate := forecast.DecayRateForClass(tName)
-		if fc.DecayRate > 0 && forecast.IsRoadClass(tName) {
-			defaultRate = fc.DecayRate
-		}
-		cohorts = []forecast.Cohort{{
-			Classification: tName,
-			Area:           area,
-			DecayRate:      defaultRate,
-			InitialPCI:     currentPCI,
-		}}
-	}
-	// Spread the single configured mean PCI into a condition distribution so the
-	// cost figures reflect the failed/poor tail (docs/validation.md §4). Applied
-	// at this chokepoint so every downstream consumer (baseline, scenarios,
-	// break-even, insolvency) sees the same corrected cohorts.
-	return forecast.ApplyConditionSpread(cohorts)
-}
-
-// collapseFinalCohorts aggregates the per-band sub-cohort summaries produced by
-// ApplyConditionSpread back to one row per classification for display. Headline
-// math (Years/AnnualNeed/break-even) already sums across the bands and is
-// unaffected; this only de-duplicates the FinalCohorts table.
-func collapseFinalCohorts(r forecast.ScenarioResult) forecast.ScenarioResult {
-	r.FinalCohorts = forecast.AggregateCohortSummariesByClass(r.FinalCohorts)
-	return r
+	return inputs
 }
 
 // ForecastExport holds per-resource forecast results.
@@ -181,10 +171,8 @@ func buildResourceForecast(rt resource.Source, fc *config.ForecastConfig, costTi
 	year1Need := baseline.Years[0].AnnualNeed
 	scenarios := forecast.SimulateDefaults(year1Need, primaryCohorts, years, rtParams)
 
-	baseline = collapseFinalCohorts(baseline)
-	for i := range scenarios {
-		scenarios[i] = collapseFinalCohorts(scenarios[i])
-	}
+	baseline = forecast.CollapseBands(baseline)
+	scenarios = forecast.CollapseAllBands(scenarios)
 
 	fe := ForecastExport{
 		ResourceType: tName,
@@ -192,7 +180,7 @@ func buildResourceForecast(rt resource.Source, fc *config.ForecastConfig, costTi
 		Scenarios:    scenarios,
 	}
 	if hasCityScope {
-		allBaseline := collapseFinalCohorts(forecast.Simulate(doNothing, allCohorts, years, rtParams))
+		allBaseline := forecast.CollapseBands(forecast.Simulate(doNothing, allCohorts, years, rtParams))
 		fe.AllBaseline = &allBaseline
 	}
 
@@ -221,21 +209,8 @@ func buildResourceForecast(rt resource.Source, fc *config.ForecastConfig, costTi
 // Returns (nil, false) if the stats are empty or BuildCohorts rejects them,
 // signalling the caller should fall back to all-scope cohorts.
 func cityScopeCohorts(cityStats []results.Cohort, fc *config.ForecastConfig) ([]forecast.Cohort, bool) {
-	if len(cityStats) == 0 {
-		return nil, false
-	}
-	cityInputs := make([]forecast.CohortInput, 0, len(cityStats))
-	for _, st := range cityStats {
-		cityInputs = append(cityInputs, forecast.CohortInput{
-			Classification: st.Class,
-			Area:           st.Area,
-		})
-	}
-	cohorts := forecast.BuildCohorts(cityInputs, fc.InitialPCI, fc.DecayRate)
-	if cohorts == nil {
-		return nil, false
-	}
-	return forecast.ApplyConditionSpread(cohorts), true
+	cohorts := forecast.CohortsFromInputs(cohortInputs(cityStats), fc.InitialPCI, fc.DecayRate)
+	return cohorts, cohorts != nil
 }
 
 // BuildScenariosData builds the aggregate scenarios JSON structure for a city:
@@ -347,18 +322,17 @@ func cohortsFromSeeds(seeds []CohortSeed, initialPCI float64) []forecast.Cohort 
 	if len(seeds) == 0 {
 		return nil
 	}
-	cohorts := make([]forecast.Cohort, len(seeds))
+	raw := make([]forecast.RawCohort, len(seeds))
 	for i, s := range seeds {
-		cohorts[i] = forecast.Cohort{
+		raw[i] = forecast.RawCohort{
 			Classification: s.Classification,
 			Area:           s.Area,
 			DecayRate:      s.DecayRate,
-			InitialPCI:     initialPCI,
 		}
 	}
-	// Spread to match the static-line cohorts and the WASM custom line (which
-	// also spreads in bridge.Translate), so all three agree at equal settings.
-	return forecast.ApplyConditionSpread(cohorts)
+	// SpreadCohorts is the same constructor the WASM custom line uses
+	// (bridge.Translate), so the static and custom lines agree at equal settings.
+	return forecast.SpreadCohorts(raw, initialPCI)
 }
 
 // scenariosFromSeeds builds a scenario set from the multi-cohort seeds shared
@@ -375,12 +349,11 @@ func scenariosFromSeeds(seeds []CohortSeed, initialPCI float64, years int, param
 // singleCohortScenarios builds a scenario set from one synthetic cohort —
 // the aggregate-area fallback used when no per-class cohort stats exist yet.
 func singleCohortScenarios(classification string, area, initialPCI, decayRate float64, years int, params *forecast.Params) []forecast.ScenarioResult {
-	return BuildScenarios(forecast.ApplyConditionSpread([]forecast.Cohort{{
+	return BuildScenarios(forecast.SpreadCohorts([]forecast.RawCohort{{
 		Classification: classification,
 		Area:           area,
 		DecayRate:      decayRate,
-		InitialPCI:     initialPCI,
-	}}), years, params)
+	}}, initialPCI), years, params)
 }
 
 // Emission-time rounding for forecast.json and scenarios.json.
@@ -579,9 +552,5 @@ func addScopeRow(ctx context.Context, entry CityEntry, out map[string]map[string
 
 // BuildScenarios generates scenario results for a given area.
 func BuildScenarios(cohorts []forecast.Cohort, years int, params *forecast.Params) []forecast.ScenarioResult {
-	results := forecast.ReferenceScenarios(cohorts, years, params)
-	for i := range results {
-		results[i] = collapseFinalCohorts(results[i])
-	}
-	return results
+	return forecast.CollapseAllBands(forecast.ReferenceScenarios(cohorts, years, params))
 }

@@ -529,23 +529,20 @@ func insolvencyFromForecast(cohortCfgs []CohortConfig, initialPCI, growthRate fl
 			return 0, false
 		}
 	}
-	cohorts := make([]forecast.Cohort, len(cohortCfgs))
+	raw := make([]forecast.RawCohort, len(cohortCfgs))
 	for i, c := range cohortCfgs {
-		cohorts[i] = forecast.Cohort{
+		raw[i] = forecast.RawCohort{
 			Classification: c.Classification,
 			Area:           c.Area,
 			DecayRate:      c.DecayRate,
-			InitialPCI:     initialPCI,
 		}
 	}
-	// Spread the single mean InitialPCI into a condition distribution, matching
-	// every other cohort-build site (export/forecast.go, bridge.go, CLI). The flat
-	// single-average model understates program cost ~32-37% (condition.go), so
-	// omitting this here diverged the game's insolvency headline from the real
-	// forecast. Applied exactly once at this chokepoint (both callers pass raw
-	// CohortConfigs); ApplyConditionSpread is NOT idempotent, so it must not be
-	// applied again upstream.
-	cohorts = forecast.ApplyConditionSpread(cohorts)
+	// SpreadCohorts spreads the single mean InitialPCI into a condition
+	// distribution, through the same constructor as export, the WASM bridge and
+	// the CLI. The flat single-average model understates program cost ~32-37%
+	// (condition.go), so the game's insolvency headline must not skip it. Both
+	// callers pass raw CohortConfigs, so the spread is applied exactly once.
+	cohorts := forecast.SpreadCohorts(raw, initialPCI)
 	// Overhead 1.0 (bare) deliberately, NOT config.DefaultCostOverhead.
 	//
 	// The game prices work through two different paths: backlog accrues via

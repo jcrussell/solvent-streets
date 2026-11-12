@@ -44,7 +44,7 @@ func TestTranslateExplicitCohorts(t *testing.T) {
 		t.Errorf("Strategy = %v, want WorstFirst", scenario.Strategy)
 	}
 	// Translate now spreads the single InitialPCI into a condition distribution
-	// (ApplyConditionSpread), so each input cohort becomes several per-band
+	// (forecast.SpreadCohorts), so each input cohort becomes several per-band
 	// sub-cohorts. Assert the per-class aggregates round-trip: total area is
 	// conserved and the area-weighted mean PCI equals the input InitialPCI (80).
 	if len(cohorts) <= 2 {

@@ -18,7 +18,7 @@ import (
 // finite reports whether f is a real number (not NaN or ±Inf). The browser
 // payload is untrusted: a NaN/Inf propagates through Simulate and then makes
 // json.Marshal fail with "unsupported value: NaN", and a NaN InitialPCI slips
-// past ApplyConditionSpread's degenerate-Beta guards (all NaN comparisons are
+// past the condition spread's degenerate-Beta guards (all NaN comparisons are
 // false) to yield NaN PCIs. Reject non-finite values at this boundary instead.
 func finite(f float64) bool { return !math.IsNaN(f) && !math.IsInf(f, 0) }
 
@@ -198,42 +198,29 @@ func Translate(in Input) (forecast.Scenario, []forecast.Cohort, int, *forecast.P
 		Strategy:     strategy,
 	}
 
-	// resolveDecay applies the same missing/zero-rate fallback in both the
-	// multi-cohort and single-cohort branches: a rate <= 0 resolves to the
-	// default, so a cohort's reported DecayRate in its CohortSummary is the
-	// rate actually simulated (Forecast also clamps k<=0 internally, so the
-	// PCI alone would not reveal a 0 rate).
-	resolveDecay := func(rate float64) float64 {
-		if rate <= 0 {
-			return forecast.DefaultDecayRates["default"]
-		}
-		return rate
-	}
-
-	var cohorts []forecast.Cohort
+	// SpreadCohorts is the constructor every forecast surface shares: it applies
+	// the single mean PCI, resolves a missing/zero decay rate to the default (so a
+	// cohort's reported DecayRate is the rate actually simulated), and spreads the
+	// mean into the condition distribution, so the in-browser custom line agrees
+	// with the server export's static lines at equal settings.
+	var raw []forecast.RawCohort
 	if len(in.Cohorts) > 0 {
-		for _, c := range in.Cohorts {
-			cohorts = append(cohorts, forecast.Cohort{
+		raw = make([]forecast.RawCohort, len(in.Cohorts))
+		for i, c := range in.Cohorts {
+			raw[i] = forecast.RawCohort{
 				Classification: c.Classification,
 				Area:           c.Area,
-				DecayRate:      resolveDecay(c.DecayRate),
-				InitialPCI:     in.InitialPCI,
-			})
+				DecayRate:      c.DecayRate,
+			}
 		}
 	} else {
-		cohorts = []forecast.Cohort{{
+		raw = []forecast.RawCohort{{
 			Classification: "default",
 			Area:           in.Area,
-			DecayRate:      resolveDecay(in.DecayRate),
-			InitialPCI:     in.InitialPCI,
+			DecayRate:      in.DecayRate,
 		}}
 	}
-
-	// Spread the single mean PCI into a condition distribution, identically to the
-	// server export path (internal/export/forecast.go), so the in-browser custom
-	// line agrees with the static lines at equal settings. Derives purely from
-	// InitialPCI, so nothing new crosses the JS boundary.
-	cohorts = forecast.ApplyConditionSpread(cohorts)
+	cohorts := forecast.SpreadCohorts(raw, in.InitialPCI)
 
 	return scenario, cohorts, in.HorizonYears, params, nil
 }
@@ -258,13 +245,9 @@ func Run(raw []byte) ([]byte, error) {
 	// or in Simulate breaks both surfaces at once.
 	result := forecast.Simulate(scenario, cohorts, years, params)
 
-	// ApplyConditionSpread (in Translate) expands each cohort into per-band
-	// sub-cohorts; collapse the resulting summary rows back to one per
-	// classification so the browser's cohort-breakdown table matches the static
-	// export table instead of showing K duplicate rows per class.
-	result.FinalCohorts = forecast.AggregateCohortSummariesByClass(result.FinalCohorts)
-
-	out := Output{ScenarioResult: result}
+	// Collapse the per-band summary rows to one per class for the browser's
+	// cohort-breakdown table; the headline math reads result.Years, unaffected.
+	out := Output{ScenarioResult: forecast.CollapseBands(result)}
 	if in.Solvency {
 		be := forecast.BreakEvenBudget(cohorts, years, params, forecast.StrategyWorstFirst)
 		out.BreakEvenBudget = &be
@@ -273,10 +256,10 @@ func Run(raw []byte) ([]byte, error) {
 		}
 	}
 	if in.Scenarios {
-		out.Scenarios = forecast.ReferenceScenarios(cohorts, years, params)
-		for i := range out.Scenarios {
-			out.Scenarios[i].FinalCohorts = forecast.AggregateCohortSummariesByClass(out.Scenarios[i].FinalCohorts)
-		}
+		// SpreadCohorts (in Translate) expands each cohort into per-band
+		// sub-cohorts; collapse them so the browser's cohort-breakdown table
+		// matches the static export table.
+		out.Scenarios = forecast.CollapseAllBands(forecast.ReferenceScenarios(cohorts, years, params))
 	}
 	return json.Marshal(out)
 }

@@ -67,13 +67,7 @@ type compareSeed struct {
 	CostTiers    json.RawMessage `json:"cost_tiers,omitempty"`
 	TotalArea    float64         `json:"total_area,omitempty"`
 	CityPaved    float64         `json:"city_paved,omitempty"`
-	Cohorts      []compareCohort `json:"cohorts,omitempty"`
-}
-
-type compareCohort struct {
-	Classification string  `json:"classification"`
-	Area           float64 `json:"area"`
-	DecayRate      float64 `json:"decay_rate"`
+	Cohorts      []CohortSeed    `json:"cohorts,omitempty"`
 }
 
 // compareScenario is the baseline (first) scenario of a scope, with only the

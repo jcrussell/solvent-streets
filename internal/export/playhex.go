@@ -99,13 +99,13 @@ func buildPlayHexesFromGrid(ctx context.Context, entry CityEntry, proj *geo.UTMP
 	// area-weighted decay so K finalizes as weighted/area.
 	//
 	// Resolve the per-class rate through the config's decay_rate override
-	// (resolvedDecayRate) — the same path seed cohorts and forecast.json take —
+	// (forecast.ClassDecayRate) — the same path seed cohorts and forecast.json take —
 	// so the game board hexes decay at the override-adjusted rate rather than
 	// class defaults, keeping them consistent with the macro insolvency forecast.
 	fc := entry.Config.ResolvedForecast(&entry.City)
 	blends := make(map[string]*hexBlend)
 	for class, geoms := range byClass {
-		rate := resolvedDecayRate(class, fc.DecayRate)
+		rate := forecast.ClassDecayRate(class, fc.DecayRate)
 		idx := geo.NewGeomIndexFromGeoms(geoms)
 		for _, st := range geo.ComputeHexStats(ctx, hexes, idx, class, nil) {
 			b := blends[st.HexID]

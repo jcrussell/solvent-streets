@@ -163,7 +163,7 @@ func playHexEntryWithDecay(roads []db.Feature, decayRate float64) CityEntry {
 // TestBuildPlayHexes_HonorsDecayOverride pins yvlv.18: a configured decay_rate
 // override must reshape the per-hex k for road classes, so the game board decays
 // at the same rate as the macro insolvency forecast (which already applies the
-// override via resolvedDecayRate / ScaleRoadDecay). A high override (0.08) must
+// override via forecast.ClassDecayRate / ScaleRoadDecay). A high override (0.08) must
 // push a residential-only hex above its 0.040 class default.
 func TestBuildPlayHexes_HonorsDecayOverride(t *testing.T) {
 	ctx := context.Background()

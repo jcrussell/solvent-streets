@@ -109,7 +109,7 @@ test('the solvency headline follows the cost multiplier', async () => {
   const probe = win.__simCalls.filter((c) => c.solvency && c.annual_budget === TODAY).at(-1);
   assert.ok(probe, 'no headline probe at today\'s budget');
   assert.equal(probe.strategy, 'worst-first');
-  assert.ok(probe.cohorts.every((c) => c.classification !== 'parking' && c.classification !== 'sidewalks'),
+  assert.ok(probe.cohorts.every((c) => c.resource_type === 'roads'),
     'the roads headline must not include parking or sidewalks');
 });
 
