@@ -264,10 +264,6 @@ func applyCityForecastProv(fc *ForecastConfig, p *forecastProvenance, city *City
 		fc.growthRateSet = true
 		p.GrowthRate = Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].forecast.growth_rate", slug)}
 	}
-	if ov.Years > 0 {
-		fc.Years = ov.Years
-		p.Years = Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].forecast.years", slug)}
-	}
 	if len(ov.CostTiers) > 0 {
 		fc.CostTiers = ov.CostTiers
 		p.CostTiers = Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].forecast.cost_tiers", slug)}
@@ -431,13 +427,6 @@ func (c *Config) Resolve(flagUnits string) []ResolvedField {
 				Key:    fmt.Sprintf("cities[%s].forecast.initial_pci", slug),
 				Value:  city.Forecast.InitialPCI,
 				Source: Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].forecast.initial_pci", slug)},
-			})
-		}
-		if city.Forecast.Years > 0 {
-			fields = append(fields, ResolvedField{
-				Key:    fmt.Sprintf("cities[%s].forecast.years", slug),
-				Value:  city.Forecast.Years,
-				Source: Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].forecast.years", slug)},
 			})
 		}
 		if city.Forecast.CurrentBudget > 0 {

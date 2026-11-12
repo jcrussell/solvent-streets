@@ -720,7 +720,7 @@
                 pci_jitter: 8,
                 cost_tiers: seed.cost_tiers || [],
                 starting_budget: startingBudget,
-                horizon_years: seed.horizon_years || 20,
+                horizon_years: seed.horizon_years || 30,
                 endless: false,
                 treatment_cycle_years: seed.treatment_cycle_years || 0,
                 growth_rate: seed.growth_rate || 0,

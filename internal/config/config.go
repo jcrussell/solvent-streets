@@ -36,9 +36,14 @@ const (
 	// floor cannot reject a legitimate config, while capping a large city near
 	// ~1.5e6 cells -- slow (see project_compute_perf) but survivable.
 	// solvent-streets-rbv7.
-	MinHexEdgeM          = 10.0
-	DefaultInitialPCI    = 85.0
-	DefaultForecastYears = 20
+	MinHexEdgeM       = 10.0
+	DefaultInitialPCI = 85.0
+	// DefaultForecastYears is the forecast horizon when forecast.years is
+	// unset. One config has one horizon: forecast.years is top-level only, and
+	// [[include]]d files must agree with the file that includes them, so
+	// cities compared side by side are always forecast over the same years
+	// (solvent-streets-zkf2).
+	DefaultForecastYears = 30
 	// DefaultMinHexArea is the minimum projected hex area (in square
 	// meters) below which a clipped boundary sliver is dropped from the
 	// heatmap. A single feature inside a tiny clipped hex would render as
@@ -249,7 +254,7 @@ type ForecastConfig struct {
 	InitialPCI float64       `toml:"initial_pci"` // starting PCI (1-100); 0 means "use default 85"
 	DecayRate  float64       `toml:"decay_rate"`  // PCI decay k-value, 0 = use class defaults
 	GrowthRate float64       `toml:"growth_rate"` // annual pavement growth rate (0.01 = 1%)
-	Years      int           `toml:"years"`       // forecast horizon, default 20
+	Years      int           `toml:"years"`       // forecast horizon, default 30; top-level only
 	CostTiers  []CostTierCfg `toml:"cost_tiers"`  // custom cost tiers
 	// TreatmentCycleYears is the pavement treatment cycle N: the model schedules
 	// ~1/N of the network for treatment each year, so annual need = full-network
@@ -857,9 +862,15 @@ func (c *Config) validate(requireCities bool) error {
 	// threshold with no error from BuildHexGeoJSON. The gate is field-scoped, not
 	// table-scoped: display.units carries no per-city layer and stays legal in an
 	// including file (examples/all relies on the rest of [display]/[export]).
-	if len(c.Include) > 0 && (!forecastIsZero(c.Forecast) || c.Grid.HexEdgeM > 0 || c.Display.MinHexArea > 0) {
+	//
+	// forecast.years is the exception: it is not a per-city calibration but
+	// the config's one horizon, which included files must already agree with
+	// (checkIncludedHorizon), so stating it here re-calibrates nothing.
+	calibration := c.Forecast
+	calibration.Years = 0
+	if len(c.Include) > 0 && (!forecastIsZero(calibration) || c.Grid.HexEdgeM > 0 || c.Display.MinHexArea > 0) {
 		return errors.Join(ErrInvalidConfig, errors.New(
-			"a config with [[include]] must keep top-level [grid]/[forecast] and display.min_hex_area empty; "+
+			"a config with [[include]] must keep top-level [grid]/[forecast] (other than forecast.years) and display.min_hex_area empty; "+
 				"they would silently re-calibrate included cities (set per-city or per-example instead)"))
 	}
 	// nonFinite is load-bearing here, not tidiness. resolveHexEdge gates on
@@ -1068,6 +1079,12 @@ func validateCityFields(i int, city CityConfig) error {
 		return err
 	}
 	if city.Forecast != nil {
+		if city.Forecast.Years != 0 {
+			return errors.Join(ErrInvalidConfig, fmt.Errorf(
+				"cities[%d] (%s): forecast.years is set per config, not per city; "+
+					"move it to the top-level [forecast] (every city in a config shares one horizon)",
+				i, city.Name))
+		}
 		if err := city.Forecast.Validate(); err != nil {
 			return errors.Join(ErrInvalidConfig,
 				fmt.Errorf("cities[%d] (%s): %w", i, city.Name, err))

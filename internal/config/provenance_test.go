@@ -169,10 +169,10 @@ func TestResolveForecast_Precedence(t *testing.T) {
 		os.Unsetenv("PVMT_FORECAST_INITIAL_PCI")
 	})
 
-	t.Run("env beats city beats file", func(t *testing.T) {
+	t.Run("env beats file", func(t *testing.T) {
 		t.Setenv("PVMT_FORECAST_YEARS", "7")
 		cfg := &Config{Forecast: ForecastConfig{Years: 20, InitialPCI: 85}}
-		city := &CityConfig{Name: "Test", Forecast: &ForecastConfig{Years: 15}}
+		city := &CityConfig{Name: "Test", Forecast: &ForecastConfig{DecayRate: 0.05}}
 		fc, prov := cfg.resolveForecast(city)
 		if fc.Years != 7 {
 			t.Errorf("Years = %d, want 7", fc.Years)
@@ -182,16 +182,17 @@ func TestResolveForecast_Precedence(t *testing.T) {
 		}
 	})
 
-	t.Run("city overrides file when env unset", func(t *testing.T) {
+	t.Run("a city never sets the horizon", func(t *testing.T) {
 		os.Unsetenv("PVMT_FORECAST_YEARS")
 		cfg := &Config{Forecast: ForecastConfig{Years: 20, InitialPCI: 85}}
+		// Validate rejects a per-city years; even one built in code is ignored.
 		city := &CityConfig{Name: "Test", Forecast: &ForecastConfig{Years: 15}}
 		fc, prov := cfg.resolveForecast(city)
-		if fc.Years != 15 {
-			t.Errorf("Years = %d, want 15", fc.Years)
+		if fc.Years != 20 {
+			t.Errorf("Years = %d, want the top-level 20", fc.Years)
 		}
-		if prov.Years != (Source{Kind: SourceFile, Detail: "cities[test].forecast.years"}) {
-			t.Errorf("Years source = %v, want city file source", prov.Years)
+		if prov.Years != (Source{Kind: SourceFile, Detail: "forecast.years"}) {
+			t.Errorf("Years source = %v, want the top-level file source", prov.Years)
 		}
 	})
 
@@ -253,7 +254,7 @@ func TestResolve_EmitsExpectedFields(t *testing.T) {
 		Grid:     GridConfig{HexEdgeM: 100},
 		Forecast: ForecastConfig{Years: 25},
 		Cities: []CityConfig{
-			{Name: "Detroit", HexEdgeM: 75, Forecast: &ForecastConfig{Years: 30, TreatmentCycleYears: 8}},
+			{Name: "Detroit", HexEdgeM: 75, Forecast: &ForecastConfig{TreatmentCycleYears: 8}},
 			{Name: "Chicago"}, // no overrides
 		},
 	}
@@ -261,12 +262,11 @@ func TestResolve_EmitsExpectedFields(t *testing.T) {
 	fields := cfg.Resolve("")
 
 	want := map[string]bool{
-		"units":                          false,
-		"grid.hex_edge_m":                false,
-		"forecast.initial_pci":           false,
-		"forecast.years":                 false,
-		"cities[detroit].hex_edge_m":     false,
-		"cities[detroit].forecast.years": false,
+		"units":                      false,
+		"grid.hex_edge_m":            false,
+		"forecast.initial_pci":       false,
+		"forecast.years":             false,
+		"cities[detroit].hex_edge_m": false,
 		"cities[detroit].forecast.treatment_cycle_years": false,
 		"forecast.cost_overhead":                         false,
 	}

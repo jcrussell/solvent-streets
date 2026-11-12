@@ -122,15 +122,14 @@ func TestResolvedForecast_CityOverride(t *testing.T) {
 		Name: "Test",
 		Forecast: &ForecastConfig{
 			DecayRate: 0.08,
-			Years:     30,
 		},
 	}
 	fc2 := cfg.ResolvedForecast(cityOverride)
 	if fc2.DecayRate != 0.08 {
 		t.Errorf("expected 0.08, got %f", fc2.DecayRate)
 	}
-	if fc2.Years != 30 {
-		t.Errorf("expected 30, got %d", fc2.Years)
+	if fc2.Years != 20 {
+		t.Errorf("expected the top-level horizon 20, got %d", fc2.Years)
 	}
 	if fc2.GrowthRate != 0.01 {
 		t.Errorf("expected inherited 0.01, got %f", fc2.GrowthRate)

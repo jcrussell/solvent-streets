@@ -297,7 +297,6 @@ hex_edge_m = 80
 min_hex_area = 20
 [forecast]
 decay_rate = 0.04
-years = 25
 [[cities]]
 name = "Reno, NV"
 overpass = true
@@ -371,7 +370,6 @@ hex_edge_m = 125
 [display]
 min_hex_area = 20
 [forecast]
-years = 20
 decay_rate = 0.03
 [[forecast.cost_tiers]]
 min_pci = 0
@@ -388,7 +386,6 @@ hex_edge_m = 150
 [display]
 min_hex_area = 60
 [forecast]
-years = 20
 growth_rate = 0.005
 [[cities]]
 name = "Los Angeles, CA"
@@ -421,10 +418,10 @@ tags = ["Top 50"]
 		}
 	}
 	// Only genuine disagreements belong in the list, or it stops meaning "what
-	// you lost": years is set identically on both sides; decay_rate and
+	// you lost": decay_rate and
 	// cost_tiers are set by the winner alone; growth_rate by the loser alone
 	// (a backfill, which loses nothing).
-	for _, quiet := range []string{"forecast.years", "forecast.decay_rate", "forecast.cost_tiers", "forecast.growth_rate"} {
+	for _, quiet := range []string{"forecast.decay_rate", "forecast.cost_tiers", "forecast.growth_rate"} {
 		if strings.Contains(w, quiet) {
 			t.Errorf("warning names %s, which is not a disagreement\ngot: %s", quiet, w)
 		}
@@ -1930,5 +1927,81 @@ tags = ["metro:Kansas City"]
 	want := []string{"metro:Kansas City", "Top 50", "state:MO", "state:KS"}
 	if !equalStrings(kc.Tags, want) {
 		t.Errorf("tags = %v; want %v", kc.Tags, want)
+	}
+}
+
+// TestInclude_OneHorizon pins solvent-streets-zkf2: a config has one forecast
+// horizon. An included file must agree with the including file (unset on
+// both sides means the default), and an including file may state the
+// horizon at its top level even though the rest of its [forecast] must stay
+// empty.
+func TestInclude_OneHorizon(t *testing.T) {
+	city := func(name string) string {
+		return "[[cities]]\nname = \"" + name + "\"\noverpass = true\n"
+	}
+	t.Run("unset everywhere is the default", func(t *testing.T) {
+		dir := t.TempDir()
+		writeTOML(t, dir, "a/pvmt.toml", city("Reno, NV"))
+		top := writeTOML(t, dir, "all/pvmt.toml", "[[include]]\npath = \"../a/pvmt.toml\"\n")
+		cfg, err := Load(top)
+		if err != nil {
+			t.Fatalf("load: %v", err)
+		}
+		reno := cityBySlug(t, cfg, "reno-nv")
+		if got := cfg.ResolvedForecast(&reno).Years; got != 30 {
+			t.Errorf("Years = %d, want the default 30", got)
+		}
+	})
+	t.Run("agreeing horizons load", func(t *testing.T) {
+		dir := t.TempDir()
+		writeTOML(t, dir, "a/pvmt.toml", "[forecast]\nyears = 25\n"+city("Reno, NV"))
+		top := writeTOML(t, dir, "all/pvmt.toml", "[forecast]\nyears = 25\n[[include]]\npath = \"../a/pvmt.toml\"\n")
+		cfg, err := Load(top)
+		if err != nil {
+			t.Fatalf("load: %v", err)
+		}
+		reno := cityBySlug(t, cfg, "reno-nv")
+		if got := cfg.ResolvedForecast(&reno).Years; got != 25 {
+			t.Errorf("Years = %d, want 25", got)
+		}
+	})
+	for name, files := range map[string][2]string{
+		"child sets, parent unset": {"[forecast]\nyears = 15\n", ""},
+		"parent sets, child unset": {"", "[forecast]\nyears = 15\n"},
+		"both set, differently":    {"[forecast]\nyears = 15\n", "[forecast]\nyears = 25\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeTOML(t, dir, "a/pvmt.toml", files[0]+city("Reno, NV"))
+			top := writeTOML(t, dir, "all/pvmt.toml", files[1]+"[[include]]\npath = \"../a/pvmt.toml\"\n")
+			_, err := Load(top)
+			if err == nil {
+				t.Fatal("load succeeded; want a horizon mismatch")
+			}
+			if !errors.Is(err, ErrInvalidConfig) || !strings.Contains(err.Error(), "../a/pvmt.toml") ||
+				!strings.Contains(err.Error(), "one forecast horizon") {
+				t.Errorf("err = %v; want ErrInvalidConfig naming the include and the rule", err)
+			}
+		})
+	}
+}
+
+// TestValidate_PerCityYearsRejected: forecast.years is top-level only
+// (solvent-streets-zkf2). A per-city value fails to load with a hint
+// instead of giving one city its own horizon.
+func TestValidate_PerCityYearsRejected(t *testing.T) {
+	path := writeTOML(t, t.TempDir(), "pvmt.toml", `
+[[cities]]
+name = "Reno, NV"
+overpass = true
+[cities.forecast]
+years = 15
+`)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("load succeeded; want per-city forecast.years rejected")
+	}
+	if !errors.Is(err, ErrInvalidConfig) || !strings.Contains(err.Error(), "top-level [forecast]") {
+		t.Errorf("err = %v; want ErrInvalidConfig pointing at the top-level [forecast]", err)
 	}
 }

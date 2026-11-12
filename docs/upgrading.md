@@ -6,7 +6,7 @@ The release notes link here from their header. Their "Breaking Changes" list nam
 
 ## v0.5.0
 
-Upgrading from v0.4.x takes six steps. Plan for the first one: it re-fetches every city from the upstream sources.
+Upgrading from v0.4.x takes seven steps. Plan for the first one: it re-fetches every city from the upstream sources.
 
 ### 1. Move the database aside and re-ingest
 
@@ -85,3 +85,7 @@ Only names that existed in v0.4.x are listed. Fields of the commands and files t
 ### 6. Check tags that contain a colon
 
 A tag is now read as `dimension:value` when it contains a colon, and the config refuses one whose dimension is not an identifier or whose value is empty ([Tags](configuration.md#tags)). A v0.4.x tag such as `"Bay Area: East"` fails to load with exit 2; rename it, e.g. to `"metro:Bay Area East"`.
+
+### 7. Set the forecast horizon once per config
+
+A config now has one forecast horizon, and its default is 30 years (up from 20). A `years` inside `[cities.forecast]` fails to load with exit 2: move it to the top-level `[forecast]`. A file pulled in with `[[include]]` must state the same `years` as the file that includes it, or both must leave it unset. A config that left `years` unset now forecasts 30 years, so its headline totals (`30-Year Spend`) and insolvency years cover a longer run. Set `years = 20` at the top level to keep the old horizon. Forecasts are not part of the snapshot hash, so this needs a re-export, not a recompute.

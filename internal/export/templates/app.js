@@ -2129,7 +2129,7 @@
             });
         });
 
-        // Horizon-derived labels (never hardcode 20). FORECAST_SEED.horizon_years is
+        // Horizon-derived labels (never hardcode the number). FORECAST_SEED.horizon_years is
         // the configured forecast horizon; the headline/cohort values are
         // summed over it, so the captions must follow it too. The cohort Area
         // cells convert to the live large-area unit (ha/acres), so that header
@@ -2144,7 +2144,7 @@
         // (renderFinancialsFromCache, and the pre-fetch call in loadFinancials)
         // satisfy that today.
         function applyHorizonLabels() {
-            const yrs = (FORECAST_SEED && FORECAST_SEED.horizon_years) || 20;
+            const yrs = (FORECAST_SEED && FORECAST_SEED.horizon_years) || 30;
             document.getElementById('hl-spend-label').textContent = yrs + '-Year Spend';
             document.getElementById('hl-deficit-label').textContent = yrs + '-Year Deficit';
             document.getElementById('cohort-spend-th').textContent = yrs + 'yr Spend';
@@ -3877,19 +3877,18 @@
             var medals = ['\u{1F947}', '\u{1F948}', '\u{1F949}'];
             var rankClasses = ['rank-1', 'rank-2', 'rank-3'];
 
-            // Horizon-derived labels (never hardcode 20). The Compare tab plots
-            // each city's baselineYears, so the longest horizon is the trajectory
-            // length; the "final year" bars/backlog also use that last plotted
-            // point. Cities may configure different horizons — the leaderboard
-            // then compares each city's own final year, which is a known
-            // cross-city mixed-horizon limitation (the divergence note on the
-            // Aggregate tab flags this). Fall back to 20 only when no city has a
-            // forecast, matching the Financials tab's fallback.
+            // Horizon-derived labels (never hardcode the number). A config has
+            // one forecast horizon (forecast.years is top-level only and
+            // includes must agree), so every city's baselineYears has the same
+            // length and the "final year" bars/backlog compare the same year.
+            // The longest length is taken only so a malformed series cannot
+            // shorten the label. Fall back to the default 30 only when no city
+            // has a forecast, matching the Financials tab's fallback.
             var compareMaxYears = 0;
             allMetrics.forEach(function(m) {
                 if (m.baselineYears.length > compareMaxYears) compareMaxYears = m.baselineYears.length;
             });
-            var compareHorizon = compareMaxYears > 0 ? compareMaxYears : 20;
+            var compareHorizon = compareMaxYears > 0 ? compareMaxYears : 30;
             var costTitleEl = document.getElementById('compare-cost-title');
             if (costTitleEl) costTitleEl.textContent = compareHorizon + '-Year Cost Trajectory';
             var needTitleEl = document.getElementById('compare-need-title');
@@ -4004,8 +4003,8 @@
                 { key: 'cityPct', label: 'City Ownership Share', award: 'Most City-Owned', higher: true, fmt: function(v) { return v.toFixed(0) + '%'; }, color: '#8b5cf6' },
                 { key: 'blendedDecay', label: 'Blended Decay Rate (lower is better)', award: 'Slowest Decay', higher: false, fmt: function(v) { return (v * 100).toFixed(2) + '%/yr'; }, color: '#ef4444' },
                 { key: 'year1PerAreaUnit', label: 'Year 1 Maintenance Cost per ' + areaLargeUnit().charAt(0).toUpperCase() + areaLargeUnit().slice(1), award: 'Most Efficient', higher: false, fmt: function(v) { return '$' + (v >= 1e3 ? (v/1e3).toFixed(1) + 'K' : v.toFixed(0)); }, color: '#ec4899' },
-                // endBacklog is each city's own final-year backlog; with mixed
-                // horizons this compares different end-years (known limitation).
+                // endBacklog is each city's final-year backlog; every city
+                // shares one horizon, so this compares the same year.
                 { key: 'endBacklog', label: compareHorizon + '-Year Deferred Backlog', award: 'Least Deferred', higher: false, fmt: function(v) { return '$' + (v >= 1e9 ? (v/1e9).toFixed(2) + 'B' : (v/1e6).toFixed(1) + 'M'); }, color: '#d946ef' },
                 // Roads-only solvency metrics. filter excludes cities that lack
                 // the metric (no cited budget / no roads) so a null value never
@@ -4210,8 +4209,10 @@
             });
             maybeRevealScopeToggle();
 
-            // Truncate to the shortest horizon so summed years align and the
-            // headline backlog matches the chart's final plotted point.
+            // Every city shares one horizon, so this is that horizon; taking
+            // the shortest series keeps summed years aligned even if one city's
+            // series were malformed, and the headline backlog matches the
+            // chart's final plotted point.
             var minLen = fc.length > 0 ? Math.min.apply(null, fc.map(function(m) { return m.baselineYears.length; })) : 0;
 
             // Region area sums (every city, forecast or not).
@@ -4260,24 +4261,25 @@
             ].join('');
 
             // Forecast divergence note: per-city [forecast] can override
-            // horizon, initial PCI, decay, and cost tiers — summed dollars
-            // would then mix cost bases. forecast_seed.json carries all four.
+            // initial PCI, decay, and cost tiers — summed dollars would then
+            // mix cost bases. forecast_seed.json carries all three. The
+            // horizon is one per config, so it is not part of the signature.
             var sigs = {};
             cityData.forEach(function(city, idx) {
                 if (!allMetrics[idx].hasForecasts || !city.seed) return;
                 var s = city.seed;
-                sigs[JSON.stringify([s.initial_pci, s.decay_rate, s.horizon_years, s.cost_tiers])] = true;
+                sigs[JSON.stringify([s.initial_pci, s.decay_rate, s.cost_tiers])] = true;
             });
             var noteEl = document.getElementById('aggregate-divergence-note');
             if (Object.keys(sigs).length > 1) {
                 noteEl.hidden = false;
-                noteEl.textContent = 'Heads up: cities in this region use different forecast settings (horizon, initial PCI, decay, or cost tiers). ' +
-                    'Summed dollars may mix cost bases, and trajectories are truncated to the shortest horizon (' + minLen + ' years).';
+                noteEl.textContent = 'Heads up: cities in this region use different forecast settings (initial PCI, decay, or cost tiers). ' +
+                    'Summed dollars may mix cost bases.';
             } else {
                 noteEl.hidden = true;
             }
 
-            // Dynamic, horizon-derived chart + column titles (never hardcode 20).
+            // Dynamic, horizon-derived chart + column titles (never hardcode the number).
             document.getElementById('agg-cost-title').textContent = 'Region ' + horizon + 'Cost Trajectory';
             document.getElementById('agg-backlog-title').textContent = 'Region ' + horizon + 'Deferred Backlog';
             document.getElementById('agg-contrib-backlog-th').textContent = hasFc ? minLen + '-Yr Backlog' : 'Backlog';

@@ -181,7 +181,7 @@ func TestCityHash_ForecastEditsDoNotMove(t *testing.T) {
 			return strings.Replace(s, "[[cities]]", "[[forecast.cost_tiers]]\nmin_pci = 0\nmax_pci = 101\ncost_per_sqm = 9\nlabel = \"flat\"\n\n[[cities]]", 1)
 		},
 		"per-city [cities.forecast]": func(s string) string {
-			return strings.Replace(s, "hex_edge_m = 90", "hex_edge_m = 90\n[cities.forecast]\ninitial_pci = 70\nyears = 10", 1)
+			return strings.Replace(s, "hex_edge_m = 90", "hex_edge_m = 90\n[cities.forecast]\ninitial_pci = 70", 1)
 		},
 	} {
 		t.Run(name, func(t *testing.T) { check(t, edit(twoCities)) })

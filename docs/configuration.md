@@ -137,7 +137,8 @@ prints a `warning:` naming the city, the field, both values and both files.
 An included file's calibration is flattened into per-city values. So the
 including file may not set top-level `[grid]`, `[forecast]` or
 `[display].min_hex_area`, because those would silently recalibrate the
-included cities. Its `[display].units` and `[export]` apply as usual. An
+included cities. The exception is `[forecast].years`, the one horizon every
+included file must already agree with ([Forecast](#forecast)). Its `[display].units` and `[export]` apply as usual. An
 included file's `[display].units`, `[[services]]` and `[export]` are not
 carried over.
 
@@ -212,14 +213,15 @@ presentation only.
 The forecast models each road class's condition decaying over the horizon,
 priced by PCI-banded cost tiers, against the city's budget. What each setting
 means is explained in the [methodology](../internal/export/docs/methodology.md).
-Every setting goes in `[forecast]` or a city's `[cities.forecast]`:
+Every setting except `years` goes in `[forecast]` or a city's `[cities.forecast]`.
+`years` is top-level only (see below the table):
 
 | Key | Default | Range | Sets |
 |---|---|---|---|
 | `initial_pci` | 85 | (0, 100] | the network's average starting condition ([Data sources](../internal/export/docs/methodology.md#data-sources)) |
 | `decay_rate` | per class | 0–1 | the decay rate of a typical road; every road class scales with it, and parking and sidewalks keep their own rates ([Decay model](../internal/export/docs/methodology.md#decay-model)) |
 | `growth_rate` | 0 | −0.5–0.5 | linear annual growth of paved area; a per-city `0` overrides the top level ([Area growth](../internal/export/docs/methodology.md#area-growth)) |
-| `years` | 20 | ≥ 0 | the forecast horizon |
+| `years` | 30 | ≥ 0 | the forecast horizon, one per config |
 | `cost_tiers` | 3 tiers | PCI 0–101 | treatment cost per m² by PCI band ([Cost model](../internal/export/docs/methodology.md#cost-model)) |
 | `cost_overhead` | 1.0 | 0–5 | a multiplier on every tier ([Bare construction cost vs. loaded program cost](../internal/export/docs/methodology.md#bare-construction-cost-vs-loaded-program-cost)) |
 | `treatment_cycle_years` | 12 | 1–40 | the share of the network treated per year, 1/N ([Treatment cycle](../internal/export/docs/methodology.md#treatment-cycle)) |
@@ -234,6 +236,12 @@ Except for `growth_rate`, a `0` means "use the default". The default tiers and
 cycle are calibrated together against published city figures. The evidence is
 in [validation.md](validation.md#6-how-the-cost-and-cycle-are-anchored), and
 it is why `cost_overhead` defaults to 1.0.
+
+A config has one forecast horizon, so every city in it, and every city shown
+side by side on Compare and Aggregate, is forecast over the same years. A
+`years` inside `[cities.forecast]` fails to load. A file pulled in with
+`[[include]]` must state the same `years` as the file that includes it, or
+leave it unset on both sides for the default.
 
 ## Services (`[[services]]`, `[[cities.facilities]]`)
 

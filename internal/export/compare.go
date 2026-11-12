@@ -56,9 +56,10 @@ type compareStat struct {
 	EstimatedSpaces int     `json:"estimated_spaces,omitempty"`
 }
 
-// compareSeed keeps the cohorts and areas the tabs read, plus the four
-// settings the Aggregate divergence note compares. cost_tiers passes through
-// verbatim so that comparison sees exactly the seed's value.
+// compareSeed keeps the cohorts and areas the tabs read, the horizon, and the
+// three settings the Aggregate divergence note compares (initial PCI, decay,
+// cost tiers). cost_tiers passes through verbatim so that comparison sees
+// exactly the seed's value.
 type compareSeed struct {
 	InitialPCI   float64         `json:"initial_pci"`
 	DecayRate    float64         `json:"decay_rate"`

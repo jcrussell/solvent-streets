@@ -226,10 +226,41 @@ func resolveOneInclude(parent *Config, inc IncludeSpec, i int, dir string,
 	if err != nil {
 		return fmt.Errorf("include %q: %w", inc.Path, err)
 	}
+	if err := checkIncludedHorizon(parent, child); err != nil {
+		return fmt.Errorf("include %q: %w", inc.Path, err)
+	}
 	if err := mergeIncludedCities(parent, child, inc.Tags, incAbs, ms); err != nil {
 		return fmt.Errorf("include %q: %w", inc.Path, err)
 	}
 	return nil
+}
+
+// checkIncludedHorizon refuses an include whose forecast horizon differs from
+// the including file's. A config has one horizon (forecast.years, top-level
+// only) so that cities shown side by side -- Compare, Aggregate -- are
+// forecast over the same years; merging a 15-year metro into a 25-year list
+// would otherwise put one city's backlog under another's horizon
+// (solvent-streets-zkf2). Unset means the default on both sides, so leaving
+// years out everywhere always agrees.
+func checkIncludedHorizon(parent, child *Config) error {
+	py, cy := fileHorizon(parent), fileHorizon(child)
+	if py == cy {
+		return nil
+	}
+	return errors.Join(ErrInvalidConfig, fmt.Errorf(
+		"forecast.years is %d there but %d in the including file; a config has one forecast horizon, "+
+			"so set the same top-level forecast.years in both (or leave both unset for the default %d)",
+		cy, py, DefaultForecastYears))
+}
+
+// fileHorizon is the horizon a file states, with unset read as the default.
+// The env override (PVMT_FORECAST_YEARS) applies to the merged config as a
+// whole, so it plays no part in whether two files agree.
+func fileHorizon(c *Config) int {
+	if c.Forecast.Years > 0 {
+		return c.Forecast.Years
+	}
+	return DefaultForecastYears
 }
 
 // sourceConfigID is the ConfigID a config's own cities are stored under,
@@ -491,14 +522,6 @@ func unionForecast(dst, src *ForecastConfig) []string {
 	unionFloat(&dst.CostOverhead, src.CostOverhead, "forecast.cost_overhead", &conflicts)
 
 	switch {
-	case src.Years == 0: // unset upstream; nothing to fold in
-	case dst.Years == 0:
-		dst.Years = src.Years
-	case dst.Years != src.Years:
-		conflicts = append(conflicts, fmt.Sprintf("forecast.years (%d vs %d)", dst.Years, src.Years))
-	}
-
-	switch {
 	case len(src.CostTiers) == 0: // unset upstream; nothing to fold in
 	case len(dst.CostTiers) == 0:
 		dst.CostTiers = src.CostTiers
@@ -615,10 +638,15 @@ func (c *Config) effectiveMinHexArea(city *CityConfig) float64 {
 // the original resolution under a merged config with an empty top-level
 // [forecast] (env and defaults are re-applied identically at runtime). Returns
 // nil when neither layer set anything, so no override is stored.
+//
+// forecast.years is left out: it is the config's one horizon, not a city's
+// calibration, and checkIncludedHorizon has already made it agree with the
+// including file's.
 func (c *Config) effectiveForecast(city *CityConfig) *ForecastConfig {
 	fc := c.Forecast
 	var prov forecastProvenance
 	applyCityForecastProv(&fc, &prov, city)
+	fc.Years = 0
 	if forecastIsZero(fc) {
 		return nil
 	}
