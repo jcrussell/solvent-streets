@@ -3278,15 +3278,6 @@
             };
         }
 
-        // niceCeil rounds up to 1, 2, 2.5 or 5 times a power of ten, so the
-        // slider's range ends on a round figure.
-        function niceCeil(x) {
-            if (!(x > 0)) return 1;
-            const p = Math.pow(10, Math.floor(Math.log10(x)));
-            for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= x) return m * p;
-            return 10 * p;
-        }
-
         // applyBudget settles the interactive budget for this run: follows the
         // default until the reader sets one (slider, anchor or ?budget=), then
         // re-ranges the slider and its anchors around it. Returns the dollars to
@@ -3301,47 +3292,103 @@
             return budgetDollars;
         }
 
+        // The budget slider's track is a percentage of the hold-steady budget,
+        // in tenths of a percent: 0 to 150%, with Hold steady always at the same
+        // place (two-thirds along) and a notch every 25%. Every cited city spends
+        // well under hold steady (31-80% in docs/validation.md), so 150% leaves
+        // room to explore catching up without wasting the track. The budget
+        // itself stays in dollars (budgetDollars, ?budget=); the range only
+        // grows, in 25% steps, to fit a cited or linked budget beyond 150%.
+        // budgetScale converts between the two for the input handler.
+        const BUDGET_TOP_PCT = 1.5;
+        const BUDGET_NOTCH_PCT = 0.25;
+        /** @type {{base: number, top: number}} */
+        let budgetScale = { base: 1, top: BUDGET_TOP_PCT };
+        // budgetSnaps is today's budget and hold steady in dollars: a drag that
+        // ends within BUDGET_SNAP of one lands on it exactly. (A <datalist>
+        // would snap natively, but Chromium draws its own ticks off our
+        // notches and Firefox/Safari don't snap at all.)
+        /** @type {number[]} */
+        let budgetSnaps = [];
+        const BUDGET_SNAP = 0.015;
+
+        // budgetFromSlider is the dollars at a slider position, rounded to a
+        // tidy step four significant figures below the hold-steady budget.
+        /** @param {number} permille */
+        function budgetFromSlider(permille) {
+            const dollars = budgetScale.base * permille / 1000;
+            for (const v of budgetSnaps) {
+                if (Math.abs(dollars - v) <= BUDGET_SNAP * budgetScale.base) return v;
+            }
+            const step = Math.pow(10, Math.floor(Math.log10(budgetScale.base)) - 3);
+            return step > 0 && Number.isFinite(step) ? Math.round(dollars / step) * step : dollars;
+        }
+
         /** @param {number} today @param {number} hold */
         function renderBudgetSlider(today, hold) {
             const slider = inputById('budget-slider');
-            // The range is twice the larger anchor. The budget widens it only
-            // when it lies beyond (a ?budget= link, or anchors that fell after a
-            // setting change): sizing it off the budget on every input moved
-            // the max under a dragging pointer and ran away (solvent-streets-5298).
-            let top = niceCeil(2 * Math.max(today, hold, 1));
-            if (budgetDollars > top) top = niceCeil(budgetDollars);
-            slider.max = String(top);
-            slider.step = String(top / 400);
-            slider.value = String(budgetDollars);
+            const base = hold > 0 ? hold : (today > 0 ? today : Math.max(budgetDollars, 1));
+            // Grow past 150% only for a budget beyond it, to the next notch. The
+            // 1% slack absorbs the tidy rounding at the top end, so a drag to the
+            // end can't widen the range under the pointer (solvent-streets-5298).
+            const need = Math.max(BUDGET_TOP_PCT, today / base, budgetDollars / base);
+            const top = Math.ceil(need / BUDGET_NOTCH_PCT - 0.01) * BUDGET_NOTCH_PCT;
+            budgetScale = { base: base, top: top };
+            slider.max = String(Math.round(top * 1000));
+            slider.step = '1';
+            slider.value = String(Math.round(1000 * budgetDollars / base));
             slider.setAttribute('aria-valuemax', slider.max);
             syncAriaValueNow(slider);
-            slider.setAttribute('aria-valuetext', fmtCost(budgetDollars) + ' a year');
+            // The thumb against the % notches shows the share of hold steady;
+            // a screen reader hears it with the dollars.
+            slider.setAttribute('aria-valuetext', fmtCost(budgetDollars) + ' a year' +
+                (hold > 0 ? ', ' + Math.round(100 * budgetDollars / hold) + '% of hold-steady' : ''));
             document.getElementById('budget-value').textContent = fmtCost(budgetDollars) + '/yr';
             // Name the network when it isn't the default, so the figures can't
             // be read as the streets-only ones the headline quotes.
             const types = effectiveMaintained();
-            const net = sameMaintain(types, DEFAULT_MAINTAIN) ? '' : ' · ' + types.map(t => MAINTAIN_SHORT[t]).join(' + ');
-            document.getElementById('budget-share').textContent = hold > 0
-                ? '(' + Math.round(100 * budgetDollars / hold) + '% of hold-steady' + net + ')' : '';
-            const ticks = document.getElementById('budget-ticks');
-            ticks.innerHTML = '';
-            /** @type {Array<[number, string]>} */
-            const tickList = [[today, 'Today'], [hold, 'Hold steady']];
-            for (const [v, label] of tickList) {
-                if (!(v > 0)) continue;
-                const opt = document.createElement('option');
-                opt.value = String(v);
-                opt.label = label;
-                ticks.appendChild(opt);
+            document.getElementById('budget-share').textContent = sameMaintain(types, DEFAULT_MAINTAIN)
+                ? '' : 'for ' + types.map(t => MAINTAIN_SHORT[t]).join(' + ');
+
+            budgetSnaps = [today, hold].filter(v => v > 0);
+
+            // Notches, in % of hold steady; each names its dollars on hover.
+            // Without a hold-steady budget the percentages mean nothing: hide.
+            const scale = document.getElementById('budget-scale');
+            scale.hidden = !(hold > 0);
+            queryAll('.budget-notch', scale).forEach(n => n.remove());
+            const at = (/** @type {number} */ f) => 'calc(var(--thumb) / 2 + (100% - var(--thumb)) * ' + (f / top) + ')';
+            const count = Math.round(top / BUDGET_NOTCH_PCT);
+            // A range grown past 150% keeps every tick but labels fewer of them
+            // (about seven), always the ends and 100%, so phones don't crowd.
+            const every = Math.ceil(count / 6);
+            for (let i = 0; i <= count; i++) {
+                const f = i * BUDGET_NOTCH_PCT;
+                const n = document.createElement('span');
+                // Labelled: the ends, 100%, and every `every`-th notch that
+                // isn't crowding the end label or 100%'s.
+                const hold100 = i * BUDGET_NOTCH_PCT === 1;
+                const holdIdx = Math.round(1 / BUDGET_NOTCH_PCT);
+                const quiet = !(i === 0 || i === count || hold100) &&
+                    (i % every !== 0 || count - i < every || Math.abs(i - holdIdx) < every);
+                n.className = 'budget-notch' + (i === 0 ? ' first' : '') + (i === count ? ' last' : '') + (hold100 ? ' hold' : '') + (quiet ? ' quiet' : '');
+                n.style.left = i === 0 ? '0' : (i === count ? '100%' : at(f));
+                // 100% is labelled by the hold-steady button (its dollars).
+                n.textContent = hold100 ? '' : Math.round(f * 100) + '%';
+                n.title = fmtCost(f * base) + '/yr';
+                n.setAttribute('aria-hidden', 'true');
+                scale.appendChild(n);
             }
-            /** @type {Array<[string, number]>} */
-            const anchorList = [['budget-today', today], ['budget-hold', hold]];
-            for (const [id, v] of anchorList) {
-                const btn = buttonById(id);
-                btn.hidden = !(v > 0);
-                btn.dataset.budget = String(v);
-                queryEl('.num', btn).textContent = fmtCost(v);
-            }
+            const holdBtn = buttonById('budget-hold');
+            holdBtn.hidden = !(hold > 0);
+            holdBtn.dataset.budget = String(hold);
+            holdBtn.style.left = at(1);
+            queryEl('.num', holdBtn).textContent = fmtCost(hold);
+            holdBtn.setAttribute('aria-label', 'Hold steady, ' + fmtCost(hold) + ' a year');
+            const todayBtn = buttonById('budget-today');
+            todayBtn.hidden = !(today > 0);
+            todayBtn.dataset.budget = String(today);
+            queryEl('.num', todayBtn).textContent = fmtCost(today);
         }
 
         function runCustomScenario() {
@@ -3466,7 +3513,7 @@
             runCustomScenario();
             Router.replace();
         }
-        budgetSlider.addEventListener('input', () => setBudget(parseFloat(budgetSlider.value) || 0));
+        budgetSlider.addEventListener('input', () => setBudget(budgetFromSlider(parseFloat(budgetSlider.value) || 0)));
         for (const id of ['budget-today', 'budget-hold']) {
             const btn = buttonById(id);
             btn.addEventListener('click', () => setBudget(parseFloat(btn.dataset.budget || '0') || 0));

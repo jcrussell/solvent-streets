@@ -32,6 +32,11 @@ async function ready(opts = {}) {
 /** @param {any} win */
 const lastScenario = (win) => win.__simCalls.filter((c) => !c.solvency).at(-1);
 
+// The budget slider runs in tenths of a percent of hold steady ($30M in
+// solvencySim at multiplier 1): budgetAt converts dollars to a position.
+const HOLD = 30_000_000;
+const budgetAt = (dollars, hold = HOLD) => String(Math.round(1000 * dollars / hold));
+
 /** @param {any} win @param {string} sel @param {string} value */
 function drag(win, sel, value) {
   const el = win.document.querySelector(sel);
@@ -44,7 +49,8 @@ test('the slider starts at today\'s cited budget, in dollars', async () => {
   const { win, $ } = await ready();
   assert.equal(lastScenario(win).annual_budget, TODAY);
   assert.match($('#budget-value').textContent, /^\$20\.0M\/yr$/);
-  assert.match($('#budget-share').textContent, /67% of hold-steady/);
+  assert.match($('#budget-slider').getAttribute('aria-valuetext'), /^\$20\.0M a year, 67% of hold-steady$/);
+  assert.match($('#budget-today').textContent, /^\(\$20\.0M\/yr today\)$/);
 });
 
 test('the anchors show today and hold-steady, and snap the budget', async () => {
@@ -52,17 +58,24 @@ test('the anchors show today and hold-steady, and snap the budget', async () => 
   assert.equal($('#budget-today').hidden, false);
   assert.match($('#budget-today').textContent, /\$20\.0M/);
   assert.match($('#budget-hold').textContent, /\$30\.0M/);
-  assert.ok(parseFloat($('#budget-slider').max) >= 60_000_000,
-    'the range must reach twice the larger anchor');
+  assert.equal($('#budget-slider').max, '1500', 'the range runs to 150% of hold steady');
+  assert.equal($('#budget-slider').value, budgetAt(TODAY), 'the thumb is not at today\'s budget');
+  // Notches every 25%, named in percent with their dollars on hover; 100% is
+  // labelled by the hold-steady button, in dollars.
+  const notches = Array.from(win.document.querySelectorAll('.budget-notch'), (n) => n.textContent);
+  assert.deepEqual(notches, ['0%', '25%', '50%', '75%', '', '125%', '150%']);
+  assert.equal(win.document.querySelector('.budget-notch.hold').title, '$30.0M/yr');
+  assert.equal($('#budget-hold').textContent.trim(), '$30.0M');
+  assert.match($('#budget-hold').getAttribute('aria-label'), /Hold steady/);
 
   $('#budget-hold').click();
   assert.equal(lastScenario(win).annual_budget, 30_000_000);
-  assert.match($('#budget-share').textContent, /100% of hold-steady/);
+  assert.match($('#budget-slider').getAttribute('aria-valuetext'), /100% of hold-steady/);
 });
 
 test('the dollar budget stays put when Initial PCI or the multiplier move', async () => {
   const { win, $ } = await ready();
-  drag(win, '#budget-slider', '12000000');
+  drag(win, '#budget-slider', budgetAt(12_000_000));
   assert.equal(lastScenario(win).annual_budget, 12_000_000);
 
   drag(win, '#pci-slider', '60');
@@ -79,7 +92,7 @@ test('?budget= seeds the slider and a drag writes it back', async () => {
   const { win } = await ready({ url: 'https://example.test/index.html?tab=financials-tab&budget=7500000' });
   assert.equal(lastScenario(win).annual_budget, 7_500_000);
 
-  drag(win, '#budget-slider', '9000000');
+  drag(win, '#budget-slider', budgetAt(9_000_000));
   assert.equal(new URL(win.location.href).searchParams.get('budget'), '9000000');
 });
 
@@ -107,17 +120,18 @@ const params = (win) => new URLSearchParams(win.location.search);
 test('dragging to the top of the range does not grow it', async () => {
   const { win, $ } = await ready();
   const max = $('#budget-slider').max;
-  for (const f of [0.6, 0.75, 0.9, 1]) {
-    drag(win, '#budget-slider', String(parseFloat(max) * f));
+  for (const f of [0.6, 0.75, 0.9, 0.999, 1]) {
+    drag(win, '#budget-slider', String(Math.round(parseFloat(max) * f)));
     assert.equal($('#budget-slider').max, max, `max moved after a drag to ${f * 100}%`);
   }
-  assert.equal(lastScenario(win).annual_budget, parseFloat(max));
+  assert.equal(lastScenario(win).annual_budget, 1.5 * HOLD, 'the end of the track is 150% of hold steady');
 });
 
 test('a ?budget= beyond the range widens it to fit', async () => {
   const { win, $ } = await ready({ url: 'https://example.test/index.html?tab=financials-tab&budget=900000000' });
   assert.equal(lastScenario(win).annual_budget, 900_000_000);
-  assert.ok(parseFloat($('#budget-slider').max) >= 900_000_000, 'the thumb cannot show the linked budget');
+  assert.ok(parseFloat($('#budget-slider').max) >= parseFloat(budgetAt(900_000_000)), 'the thumb cannot show the linked budget');
+  assert.equal(parseFloat($('#budget-slider').max) % 250, 0, 'the range grows in whole notches');
 });
 
 // solvent-streets-n2y3: the boot replaceState ran before the budget was
@@ -129,7 +143,7 @@ test('a linked ?budget= stays in the address bar', async () => {
 
 test('a city switch drops the previous city\'s budget from the URL', async () => {
   const { win, flush } = await ready({ url: 'https://example.test/index.html?tab=financials-tab' });
-  drag(win, '#budget-slider', '9000000');
+  drag(win, '#budget-slider', budgetAt(9_000_000));
   assert.equal(params(win).get('budget'), '9000000');
 
   // Read the pushed entry before the load settles: a later replaceState can
@@ -143,7 +157,7 @@ test('a city switch drops the previous city\'s budget from the URL', async () =>
 
 test('back/forward restores the budget of the history entry', async () => {
   const { win, flush } = await ready({ url: 'https://example.test/index.html?tab=financials-tab' });
-  drag(win, '#budget-slider', '9000000');
+  drag(win, '#budget-slider', budgetAt(9_000_000));
   const city = params(win).get('city');
   win.dispatchEvent(new win.PopStateEvent('popstate', {
     state: { city, tab: 'financials-tab', budget: '5000000', tags: {} },
@@ -154,4 +168,29 @@ test('back/forward restores the budget of the history entry', async () => {
   win.dispatchEvent(new win.PopStateEvent('popstate', { state: { city, tab: 'financials-tab', tags: {} } }));
   await flush();
   assert.equal(lastScenario(win).annual_budget, TODAY, 'an entry without a budget must restore the default');
+});
+
+test('a drag close to Today or Hold steady lands on it exactly', async () => {
+  const { win } = await ready();
+  drag(win, '#budget-slider', '1010'); // 101% of hold steady
+  assert.equal(lastScenario(win).annual_budget, HOLD);
+  drag(win, '#budget-slider', String(Math.round(1000 * TODAY / HOLD) - 9));
+  assert.equal(lastScenario(win).annual_budget, TODAY);
+  drag(win, '#budget-slider', '1100'); // 110%: no snap, a tidy figure
+  assert.equal(lastScenario(win).annual_budget, 33_000_000);
+});
+
+test('a range grown past 150% labels the ends and 100% without crowding', async () => {
+  const { win } = await ready({ url: 'https://example.test/index.html?tab=financials-tab&budget=100000000' });
+  const labels = Array.from(win.document.querySelectorAll('.budget-notch:not(.quiet)'), (n) => n.textContent);
+  assert.equal(labels[0], '0%');
+  assert.ok(win.document.querySelector('.budget-notch.hold:not(.quiet)'), '100% must keep its notch');
+  const notches = win.document.querySelectorAll('.budget-notch');
+  assert.equal(labels.at(-1), notches[notches.length - 1].textContent, 'the end of the range must be labelled');
+  assert.ok(labels.length <= 8, `${labels.length} labels crowd the track: ${labels}`);
+  const pcts = Array.from(win.document.querySelectorAll('.budget-notch:not(.quiet)'),
+    (n) => (n.classList.contains('hold') ? 100 : parseInt(n.textContent, 10)));
+  for (let i = 1; i < pcts.length; i++) {
+    assert.ok(pcts[i] - pcts[i - 1] >= 50, `labels ${pcts[i - 1]}% and ${pcts[i]}% sit too close`);
+  }
 });

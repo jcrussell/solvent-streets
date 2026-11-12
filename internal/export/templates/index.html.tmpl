@@ -363,20 +363,55 @@
         }
         .forecast-controls.visible { display: block; }
         .forecast-controls h3 { font-size: 15px; margin-bottom: 16px; color: var(--text); }
+        /* The budget is the main control: it gets a full-width row, and the
+           settings that shape the forecast (Initial PCI, cost multiplier,
+           strategy) share an even row beneath it. --control-h is the height
+           of a row's control (a slider or the strategy buttons), so every
+           track and button in a row sits on one line. */
         .controls-grid {
+            --control-h: 30px;
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-            gap: 16px;
+            /* Two sliders share the width; Strategy takes what its buttons need. */
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+            gap: 16px 24px;
         }
+        .controls-grid .budget-group { grid-column: 1 / -1; }
+        .budget-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; }
         .control-group { display: flex; flex-direction: column; gap: 4px; }
         .control-group label { font-size: 13px; color: var(--text-muted); font-weight: 500; }
         .control-group .control-value { font-size: 13px; color: var(--text-strong); font-weight: 600; }
         .control-group .control-sub { font-size: 12px; color: var(--text-muted); font-weight: 400; }
-        .budget-anchors { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
-        .budget-anchors button { font-size: 12px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--text-muted); cursor: pointer; }
-        .budget-anchors button:hover, .budget-anchors button:focus-visible { color: var(--text-strong); border-color: var(--text-muted); }
+        /* Labels stay one line so every slider in the row sits at the same
+           height; the budget's longer note lives under its slider. */
+        .controls-grid .control-group label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        /* The budget track is a percentage of hold-steady: a notch every 25%,
+           with 100% named Hold steady and showing its dollars. Notches sit at
+           the thumb centre's position, which travels the track less half a
+           thumb at each end (--thumb). */
+        .budget-scale { --thumb: 16px; position: relative; height: 24px; margin-top: 2px; }
+        .budget-scale[hidden] { display: none; }
+        .budget-notch { position: absolute; top: 0; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; font-size: 11px; color: var(--text-muted); line-height: 1.2; pointer-events: none; }
+        .budget-notch::before { content: ""; width: 1px; height: 6px; background: var(--border); margin-bottom: 2px; }
+        .budget-notch.first { transform: none; align-items: flex-start; }
+        .budget-notch.first::before { margin-left: calc(var(--thumb) / 2); }
+        .budget-notch.last { transform: translateX(-100%); align-items: flex-end; }
+        .budget-notch.last::before { margin-right: calc(var(--thumb) / 2); }
+        .budget-notch.hold { color: var(--text-strong); font-weight: 600; }
+        .budget-notch.quiet { color: transparent; }
+        .budget-notch.hold::before { background: var(--text-muted); height: 8px; }
+        /* The 100% notch is labelled with the hold-steady dollars, and the
+           label is the button that snaps the budget there. */
+        .budget-hold { position: absolute; top: 8px; transform: translateX(-50%); white-space: nowrap; font-size: 11px; line-height: 1.2; font-weight: 600; padding: 0 2px; border: none; border-radius: 3px; background: transparent; color: var(--text-strong); cursor: pointer; }
+        .budget-hold:hover, .budget-hold:focus-visible { text-decoration: underline; }
+        /* "(… today)" beside the budget: reads as part of the label, and
+           resets the budget to the cited figure when clicked. */
+        .budget-today { font: inherit; font-size: 13px; padding: 0; border: none; background: transparent; color: var(--text-muted); cursor: pointer; }
+        .budget-today:hover, .budget-today:focus-visible { color: var(--text-strong); text-decoration: underline; }
         .control-group input[type="range"] {
             width: 100%;
+            /* One fixed height, so tracks in a row share a centre line. */
+            height: var(--control-h, 16px);
+            margin: 0;
             accent-color: var(--accent);
         }
         .strategy-buttons {
@@ -384,7 +419,9 @@
             gap: 6px;
         }
         .strategy-buttons button {
-            padding: 6px 14px;
+            height: var(--control-h, auto);
+            padding: 0 14px;
+            white-space: nowrap;
             border: 1px solid var(--border);
             border-radius: 6px;
             background: var(--panel);
@@ -622,7 +659,7 @@
             .headline-card .value { font-size: 22px; }
             .chart-grid { grid-template-columns: 1fr; gap: 16px; }
             .chart-card { padding: 14px; }
-            .controls-grid { grid-template-columns: 1fr; gap: 12px; }
+            .controls-grid { grid-template-columns: 1fr; gap: 12px; --control-h: 24px; }
             .compare-charts { grid-template-columns: 1fr; gap: 16px; }
             .compare-chart-card { padding: 14px; }
             .compare-header h2 { font-size: 22px; }
@@ -776,12 +813,14 @@
                 <h3>Interactive Forecast</h3>
                 <div class="controls-grid">
                     <div class="control-group budget-group">
-                        <label for="budget-slider">Annual budget: <span class="control-value" id="budget-value">—</span> <span class="control-sub" id="budget-share"></span></label>
-                        <input type="range" id="budget-slider" min="0" max="1" value="0" step="1" list="budget-ticks" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0">
-                        <datalist id="budget-ticks"></datalist>
-                        <div class="budget-anchors">
-                            <button type="button" id="budget-today" hidden title="This city's cited annual street budget">Today <span class="num"></span></button>
-                            <button type="button" id="budget-hold" hidden title="The budget that holds this network's condition steady at these settings (worst-first)">Hold steady <span class="num"></span></button>
+                        <div class="budget-head">
+                            <label for="budget-slider">Annual budget: <span class="control-value" id="budget-value">—</span></label>
+                            <button type="button" class="budget-today" id="budget-today" hidden title="Set the budget to this city's cited annual street budget">(<span class="num"></span>/yr today)</button>
+                            <span class="control-sub" id="budget-share"></span>
+                        </div>
+                        <input type="range" id="budget-slider" min="0" max="1" value="0" step="1" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0" aria-describedby="budget-share">
+                        <div class="budget-scale" id="budget-scale">
+                            <button type="button" class="budget-hold" id="budget-hold" hidden title="Hold steady: the budget that holds this network's condition steady at these settings (worst-first)"><span class="num"></span></button>
                         </div>
                     </div>
                     <div class="control-group">

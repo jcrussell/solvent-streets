@@ -58,7 +58,7 @@ test('by default the forecast maintains streets only, and draws streets-only ref
   assert.ok(pci, 'the charts did not draw the re-simulated reference set');
 
   assert.equal(params(win).get('maintain'), null, 'the default needs no URL');
-  assert.doesNotMatch($('#budget-share').textContent, /·/, 'the default network needs no note');
+  assert.equal($('#budget-share').textContent, '', 'the default network needs no note');
 });
 
 test('the checkboxes add parking and sidewalks, and the URL records it', async () => {
@@ -72,7 +72,7 @@ test('the checkboxes add parking and sidewalks, and the URL records it', async (
   box('parking').dispatchEvent(new win.Event('change', { bubbles: true }));
   assert.deepEqual(types(custom(win).cohorts), ['parking', 'roads']);
   assert.equal(params(win).get('maintain'), 'roads,parking');
-  assert.match($('#budget-share').textContent, /streets \+ lots/);
+  assert.equal($('#budget-share').textContent, 'for streets + lots');
   assert.equal(box('roads').disabled, false);
 });
 
