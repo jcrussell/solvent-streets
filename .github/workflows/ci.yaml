@@ -222,5 +222,5 @@ jobs:
       - name: Check GoReleaser config
         uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7
         with:
-          version: latest
+          version: v2.14.1 # pinned; bump deliberately and re-run goreleaser check (solvent-streets-6q9k)
           args: check
