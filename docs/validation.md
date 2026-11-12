@@ -19,13 +19,13 @@ build by [`pvmt validate`](#7-what-is-gated-and-what-remains-open).
 
 | Stage | Result | Evidence |
 |---|---|---|
-| Pavement area | Sound | 1.2–1.8× bare travel-lane area in all 8 cities, no outliers (§1) |
+| Pavement area | Sound | 1.2–1.9× bare travel-lane area in all 8 cities, no outliers (§1) |
 | Decay form | Sound | the do-nothing curve is a clean lower bound on every city (§2) |
 | Decay rate | Not verifiable from public data | published PCI already includes maintenance (§2) |
 | Unit costs | Bare-construction level | they match contractor bids, and run ~2–3× below loaded municipal costs (§3) |
 | Condition spread | Partly corrected | pricing a single average understates cost ~32–37%; the default spread recovers much of it (§4) |
 | Treatment cycle | Matches published cadences | N = 12 sits inside the 10–14-year cycles cities report (§5) |
-| Break-even budget | Matches Berkeley | $18.7M against the cited $18.3M hold-steady, +2.1% (§6) |
+| Break-even budget | Matches Berkeley | $19.3M against the cited $18.3M hold-steady, +5.7% (§6) |
 
 The physical estimates hold up across all eight cities. The solvency dollars
 reproduce the one city with an independent hold-steady figure. They are
@@ -54,18 +54,18 @@ area should come out somewhat larger.
 
 | City | Tool area | MTC lane-mi | Implied ft/lane-mi | vs 12-ft travel lane |
 |---|---|---|---|---|
-| Oakland | 155.1M sf | 2,052 | 14.3 | 1.19× |
-| Berkeley | 35.3M sf | 450 | 14.9 | 1.24× |
-| Livermore | 64.8M sf | 734 | 16.7 | 1.39× |
-| San Leandro | 39.1M sf | 394 | 18.8 | 1.57× |
-| Pleasanton | 55.4M sf | 520 | 20.2 | 1.68× |
-| Dublin | 38.3M sf | 350 | 20.7 | 1.73× |
-| Fremont | 121.1M sf | 1,095 | 20.9 | 1.75× |
-| Hayward | 77.4M sf | 681 | 21.5 | 1.79× |
+| Oakland | 160.8M sf | 2,052 | 14.8 | 1.24× |
+| Berkeley | 36.8M sf | 450 | 15.5 | 1.29× |
+| Livermore | 70.9M sf | 734 | 18.3 | 1.52× |
+| San Leandro | 40.0M sf | 394 | 19.2 | 1.60× |
+| Pleasanton | 59.6M sf | 520 | 21.7 | 1.81× |
+| Fremont | 128.1M sf | 1,095 | 22.2 | 1.85× |
+| Dublin | 41.2M sf | 350 | 22.3 | 1.86× |
+| Hayward | 80.4M sf | 681 | 22.4 | 1.86× |
 
-Tool area is consistently 1.2–1.8× the bare travel-lane area. That is the
+Tool area is consistently 1.2–1.9× the bare travel-lane area. That is the
 signature of curb-to-curb pavement. Dense grids land lowest (Oakland,
-Berkeley) and suburban networks widest (Hayward, Fremont). No city is an
+Berkeley) and suburban networks widest (Fremont, Dublin, Hayward). No city is an
 outlier, across an 8× range of network sizes.
 
 ## 2. Decay: form and rate
@@ -128,8 +128,8 @@ loaded range.
 unit costs*. §6 compares *whole-program annual dollars*, which is what the site
 publishes. At that level the bare tiers, with the condition spread (§4) and
 the 12-year cycle (§5), already reproduce Berkeley's loaded hold-steady figure.
-Multiplying the tiers by 1.5 would put Berkeley's break-even at about $28M,
-53% above its published $18.3M. A city whose program costs genuinely run higher
+Multiplying the tiers by 1.5 would put Berkeley's break-even at about $29M,
+59% above its published $18.3M. A city whose program costs genuinely run higher
 has `cost_overhead` (see the
 [methodology](../internal/export/docs/methodology.md#bare-construction-cost-vs-loaded-program-cost)).
 
@@ -156,7 +156,7 @@ tabulated.
 
 The forecast prices an assumed spread around the configured average (see the
 [methodology](../internal/export/docs/methodology.md#condition-spread)). It
-moves Berkeley's break-even from about $15M to about $18M. A single-peaked
+moves Berkeley's break-even from about $16M to about $19M. A single-peaked
 spread cannot reproduce Berkeley's barbell, though, so the correction is
 partial, and only measured per-segment condition would close the gap.
 
@@ -205,12 +205,12 @@ current model on the six cities with committed reference data (from
 
 | City | PCI | Break-even | $/m²·yr | Published hold-steady | Current budget | Funding gap |
 |---|---|---|---|---|---|---|
-| Berkeley | 56 | $18.7M | $5.66 | $18.3M (+2.1%) | $15.0M | +25% |
-| Oakland | 58 | $77.0M | $5.34 | — | $60.0M | +28% |
-| Hayward | 73 | $21.1M | $2.93 | — | $10.1M | +110% |
-| Dublin | 78 | $8.0M | $2.24 | — | $3.7M | +115% |
-| Pleasanton | 76 | $12.8M | $2.49 | — | $4.8M | +167% |
-| Livermore | 75 | $15.8M | $2.62 | — | $4.85M | +226% |
+| Berkeley | 56 | $19.3M | $5.66 | $18.3M (+5.7%) | $15.0M | +29% |
+| Oakland | 58 | $79.8M | $5.34 | — | $60.0M | +33% |
+| Hayward | 73 | $21.9M | $2.93 | — | $10.1M | +118% |
+| Dublin | 78 | $8.6M | $2.24 | — | $3.7M | +132% |
+| Pleasanton | 76 | $13.8M | $2.49 | — | $4.8M | +187% |
+| Livermore | 75 | $17.3M | $2.62 | — | $4.85M | +256% |
 
 The paved areas in that data match the §1 tool measurements to within 1%.
 San Leandro and Fremont publish no single citable annual budget, so they have
