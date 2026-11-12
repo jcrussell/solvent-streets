@@ -73,7 +73,7 @@ was downloaded months ago.
 
 No stored data is lost: pruning only discards downloaded responses. It
 is not free, though — every removed entry is re-fetched from Overpass /
-ArcGIS / Nominatim on next use, so the cost is bandwidth and load on
+ArcGIS / Nominatim / TIGERweb on next use, so the cost is bandwidth and load on
 community-funded endpoints. Unlike gc, this command reads no config and
 opens no database, so it works when either is broken.
 

@@ -97,6 +97,26 @@ func (r computeRow) ExportData(fields []string) map[string]any {
 	return out
 }
 
+// Short is the one-line help of the coverage compute subcommand of the command
+// group named group (`pvmt <group> compute`).
+func Short(group string) string {
+	return fmt.Sprintf("Compute %s area per hex from the stored features", group)
+}
+
+// Long is the --help description of the coverage compute subcommand of the
+// command group named group.
+func Long(group string) string {
+	return fmt.Sprintf(`Turn the stored %s features of every configured city, or the one --city
+names, into paved surface (lines buffered to an estimated width, areas as
+mapped), clip it to the city boundary, and measure its area in each hex of
+the city's grid. Totals are kept for every jurisdiction and for the
+city-maintained subset. The result is committed as this resource's part of
+the city's snapshot, under the current config hash.
+
+Needs a prior 'pvmt %s ingest'. Rerun after re-ingesting or after changing a
+setting that affects results.`, group, group)
+}
+
 // Example is the --help example text for the coverage compute subcommand of
 // the command group named group (`pvmt <group> compute`).
 func Example(group string) string {
@@ -107,7 +127,7 @@ func Example(group string) string {
   pvmt %s compute --city-only
 
   # Scope to a single city
-  pvmt --city oakland %s compute`, group, group, group, group)
+  pvmt --city oakland-ca %s compute`, group, group, group, group)
 }
 
 var computeFields = []string{"city", "resource_type", "jurisdiction", "feature_count", "area", "estimated_spaces", "run_id"}
@@ -125,7 +145,8 @@ func NewCmdCompute(f *cmdutil.Factory, rt resource.Source, runF func(context.Con
 	t := rt.Type()
 	cmd := &cobra.Command{
 		Use:     "compute",
-		Short:   fmt.Sprintf("Compute %s area statistics", t),
+		Short:   Short(string(t)),
+		Long:    Long(string(t)),
 		Example: Example(string(t)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
@@ -135,7 +156,7 @@ func NewCmdCompute(f *cmdutil.Factory, rt resource.Source, runF func(context.Con
 		},
 	}
 
-	cmd.Flags().BoolVar(&opts.CityOnly, "city-only", false, "Only show city-maintained road results")
+	cmd.Flags().BoolVar(&opts.CityOnly, "city-only", false, "Print only the city-maintained results (--json still includes every jurisdiction)")
 	cmdutil.AddJSONFlags(cmd, &opts.Exporter, computeFields)
 
 	return cmd

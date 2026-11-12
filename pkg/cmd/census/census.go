@@ -43,7 +43,7 @@ city to keep it out of the census steps of 'pvmt all'.`,
 		Example: `  # Pull Census blocks for every configured city
   pvmt census ingest
 
-  # Apportion them onto the hex grid (after a roads compute)
+  # Apportion them onto the hex grid (after the ingest)
   pvmt census compute
 
   # Show block counts and last ingest
@@ -156,7 +156,7 @@ rather than keeping an old result.`,
   pvmt census compute
 
   # One city, as JSON
-  pvmt --city oakland census compute --json city,hex_count,population`,
+  pvmt --city oakland-ca census compute --json city,hex_count,population`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
 				return runF(cmd.Context(), opts)

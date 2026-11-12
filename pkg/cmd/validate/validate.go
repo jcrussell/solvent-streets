@@ -126,8 +126,11 @@ func NewCmdValidate(f *cmdutil.Factory, runF func(context.Context, *Options) err
 from real cities.
 
 This is an offline calibration gate: no database, no ingest, no network. The
-reference data ships with the binary and every row carries its source. Exits
-non-zero when a city with a published hold-steady budget falls outside the
+reference data ships with the binary and every row carries its source. Each
+city is priced as one residential class of its published paved area, PCI
+and decay rate, with the shipped cost tiers, condition spread and treatment
+cycle, no cost overhead, 0.5% annual area growth and a 25-year worst-first
+horizon. Exits non-zero when a city with a published hold-steady budget falls outside the
 tolerance band, so it can run in CI.
 
 Only cities that publish an independent hold-steady figure are gated. Others

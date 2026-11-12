@@ -208,7 +208,7 @@ func renderScenarioComparisons(ios *iostreams.IOStreams, baseline fcpkg.Scenario
 
 	fmt.Fprintf(ios.Out, "  Funding Levels:\n")
 	tp := iostreams.NewTablePrinter(ios)
-	tp.AddHeader("Scenario", "End PCI", "Annual Budget", "20yr Backlog")
+	tp.AddHeader("Scenario", "End PCI", "Annual Budget", fmt.Sprintf("%dyr Backlog", years))
 	for _, sr := range scenarios {
 		last := sr.Years[len(sr.Years)-1]
 		budgetStr := "unconstrained"

@@ -53,7 +53,7 @@ without a TTY the command refuses to prune.`,
   pvmt snapshots prune --keep=5 --yes
 
   # Restrict the prune to one city
-  pvmt --city oakland snapshots prune --keep=3`,
+  pvmt --city oakland-ca snapshots prune --keep=3`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if opts.Keep <= 0 {
 				return cmdutil.FlagErrorf("--keep must be > 0, got %d", opts.Keep)

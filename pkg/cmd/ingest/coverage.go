@@ -226,7 +226,7 @@ func describeGateFailure(cityName string, ratioStripped, ratioOriginal float64) 
 			"both below %.0f%% threshold. Nominatim probably returned the wrong "+
 			"administrative unit for %q. Fix: find the OSM admin_level=8 relation "+
 			"at https://overpass-turbo.eu/ and set [[cities]].boundary_relation_id "+
-			"in pvmt.toml, or set skip=true if this city is intentionally untracked.",
+			"in pvmt.toml.",
 		100*ratioStripped, 100*ratioOriginal, 100*stripCoverageMinRatio, cityName,
 	)
 }

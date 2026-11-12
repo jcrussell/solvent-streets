@@ -45,14 +45,12 @@ func NewCmdGC(f *cmdutil.Factory, runF func(context.Context, *Options) error) *c
 		Long: `Garbage-collect database rows that snapshot prune/rm structurally
 cannot reach:
 
-  - Stale feature rows whose source_api is no longer produced by any
-    source this city resolves from config (e.g. arcgis_url was removed
-    from pvmt.toml). Rows with an empty source_api are never swept —
-    they predate source tracking and are not safely attributable.
-    Neither are overpass rows on a city with overpass unset or false:
-    older releases ingested overpass regardless of that flag, so those
-    rows are usually real data rather than orphans. They are reported
-    and left in place; --sweep-disabled-sources deletes them.
+  - Roads, parking and sidewalks rows whose source_api is not a source
+    this city resolves from config (e.g. arcgis_url was removed from
+    pvmt.toml). Rows with an empty source_api are never swept: they
+    cannot be attributed to a source. Overpass rows on a city with
+    overpass unset or false are reported and left in place;
+    --sweep-disabled-sources deletes them.
   - Runs no snapshot references, with every row they wrote: left behind
     by a compute that crashed or was killed before it committed its
     snapshot. Runs younger than a day are never swept, because they
@@ -73,7 +71,7 @@ and never writes.`,
   pvmt gc --dry-run
 
   # Garbage-collect a single city (prompts)
-  pvmt --city oakland gc
+  pvmt --city oakland-ca gc
 
   # Skip the confirmation prompt
   pvmt gc --yes

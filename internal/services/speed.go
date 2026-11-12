@@ -41,8 +41,9 @@ var DefaultRoadSpeeds = SpeedTable{
 
 // SpeedKmh returns the travel speed for a road with the given OSM tags: the
 // parsed `maxspeed` when present and sensible, else the class speed, else
-// Default. Roads from a non-OSM source (ArcGIS centerlines carry agency
-// fields, not OSM tags) therefore get Default.
+// Default. ArcGIS centerlines carry no maxspeed, so they get the class speed
+// of the highway tag ingest derives from their functional class
+// (ingest.arcgisHighway), or Default when the class is unknown.
 func (t SpeedTable) SpeedKmh(tags map[string]string) float64 {
 	if v, ok := ParseMaxspeed(tags["maxspeed"]); ok {
 		return v

@@ -118,7 +118,7 @@ facility carry no value.`,
   pvmt services compute
 
   # One city, as JSON
-  pvmt --city oakland services compute --json city,hex_count,within_threshold_share`,
+  pvmt --city oakland-ca services compute --json city,hex_count,within_threshold_share`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if service != nil {
 				opts.Service = *service

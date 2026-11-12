@@ -49,6 +49,15 @@ func newAllIngest(f *cmdutil.Factory) *cobra.Command {
 	return &cobra.Command{
 		Use:   "ingest",
 		Short: "Ingest data for all resource types",
+		Long: `Run every ingest step for every configured city, or the one --city names.
+The city boundary is resolved once; a city whose boundary cannot be had is
+skipped with a warning. Roads, parking and sidewalks are then fetched from
+the city's sources, followed best-effort by fire stations and Census blocks
+(see 'pvmt help all').
+
+Unlike the per-resource ingest commands this takes no --source, --force or
+--dry-run; use 'pvmt <resource> ingest' for those. Run 'pvmt all compute'
+next.`,
 		Example: `  # Pull roads, parking, sidewalks, fire stations and Census blocks for every [[cities]] entry
   pvmt all ingest`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -91,6 +100,15 @@ func newAllCompute(f *cmdutil.Factory) *cobra.Command {
 	return &cobra.Command{
 		Use:   "compute",
 		Short: "Compute stats for all resource types",
+		Long: `Run every compute step for every configured city, or the one --city names,
+on one shared hex grid: roads, parking and sidewalks coverage, the combined
+paved-area pass, then best-effort fire response coverage and per-hex
+population. All of a city's steps commit together as its next snapshot. A
+failed pavement or combined step keeps its previous part and fails the run;
+a failed optional step only warns. An interrupted run commits nothing.
+
+Needs a prior 'pvmt all ingest'. Rerun after re-ingesting or after changing
+a setting that affects results.`,
 		Example: `  # Compute every resource and then the combined paved-area pass
   pvmt all compute`,
 		RunE: func(cmd *cobra.Command, args []string) error {

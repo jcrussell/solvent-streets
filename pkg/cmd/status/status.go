@@ -75,6 +75,26 @@ func (r statusRow) ExportData(fields []string) map[string]any {
 	return out
 }
 
+// Short is the one-line help of the status subcommand of the command group
+// named group (`pvmt <group> status`).
+func Short(group string) string {
+	return fmt.Sprintf("Show %s ingest and compute status", group)
+}
+
+// Long is the --help description of the status subcommand of the command
+// group named group. Only a paved resource reports an area.
+func Long(group string, rt resource.Source) string {
+	area := ""
+	if t := rt.Type(); !t.IsLayer() && !t.IsFacility() {
+		area = ", and paved area in the active unit system"
+	}
+	return fmt.Sprintf(`Report ingest and compute progress for %s in the current city:
+ingested feature count (everything the bounding-box fetch returned, before
+the boundary clip), last-ingest and last-compute timestamps%s. Use --json
+with a comma-separated field list (resource_type, feature_count,
+last_ingest_at, last_compute_at, area, estimated_spaces) for a single row.`, group, area)
+}
+
 // Example is the --help example text for the status subcommand of the
 // command group named group (`pvmt <group> status`). The group name is not
 // derivable from the resource type (census blocks are stored as
@@ -117,13 +137,7 @@ estimated_spaces) to emit one row per resource.`
   # Emit one row per resource as JSON
   pvmt status --json resource_type,feature_count,area`
 	if rt != nil {
-		short = fmt.Sprintf("Show %s status", rt.Type())
-		long = fmt.Sprintf(`Report ingest and compute progress for the %s resource in the
-current city: ingested feature count (everything the bounding-box fetch
-returned, before the boundary clip), last-ingest and last-compute
-timestamps, and paved area in the active unit system. Use --json with a
-comma-separated field list (resource_type, feature_count, last_ingest_at,
-last_compute_at, area, estimated_spaces) for a single row.`, rt.Type())
+		short, long = Short(string(rt.Type())), Long(string(rt.Type()), rt)
 		example = Example(string(rt.Type()))
 	}
 

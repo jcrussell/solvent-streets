@@ -38,21 +38,21 @@ func New(f *cmdutil.Factory, rt resource.Source, spec Spec) *cobra.Command {
 		Example: spec.Example,
 	}
 	cmdutil.MarkGroup(cmd)
-	// The subcommands' examples name the group (`pvmt census ingest`), not
+	// The subcommands' help names the group (`pvmt census ingest`), not
 	// rt.Type(), which for census and services is a storage name
 	// ("layer-census-blocks", "facility-fire") rather than a command.
 	ing := ingest.NewCmdIngest(f, rt, nil)
-	ing.Example = ingest.Example(spec.Use, rt)
+	ing.Short, ing.Long, ing.Example = ingest.Short(spec.Use), ingest.Long(spec.Use, rt), ingest.Example(spec.Use, rt)
 	cmd.AddCommand(ing)
 	if spec.Compute != nil {
 		cmd.AddCommand(spec.Compute(f, rt))
 	} else {
 		comp := compute.NewCmdCompute(f, rt, nil)
-		comp.Example = compute.Example(spec.Use)
+		comp.Short, comp.Long, comp.Example = compute.Short(spec.Use), compute.Long(spec.Use), compute.Example(spec.Use)
 		cmd.AddCommand(comp)
 	}
 	st := status.NewCmdStatus(f, rt, nil)
-	st.Example = status.Example(spec.Use)
+	st.Short, st.Long, st.Example = status.Short(spec.Use), status.Long(spec.Use, rt), status.Example(spec.Use)
 	cmd.AddCommand(st)
 	return cmd
 }

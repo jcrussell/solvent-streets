@@ -46,7 +46,8 @@ func NewCmdIngest(f *cmdutil.Factory, rt resource.Source, runF func(context.Cont
 
 	cmd := &cobra.Command{
 		Use:     "ingest",
-		Short:   fmt.Sprintf("Ingest %s data from APIs", rt.Type()),
+		Short:   Short(string(rt.Type())),
+		Long:    Long(string(rt.Type()), rt),
 		Example: Example(string(rt.Type()), rt),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
@@ -59,7 +60,7 @@ func NewCmdIngest(f *cmdutil.Factory, rt resource.Source, runF func(context.Cont
 	source := &cmdutil.SourceFlag{Value: &opts.Source, Valid: sourceValues(rt)}
 	cmd.Flags().Var(source, "source", "Data source ("+strings.Join(source.Valid, "|")+")")
 	_ = cmd.RegisterFlagCompletionFunc("source", source.Completion())
-	cmd.Flags().BoolVar(&opts.Force, "force", false, "Bypass HTTP cache")
+	cmd.Flags().BoolVar(&opts.Force, "force", false, "Bypass the HTTP cache and re-fetch the city boundary")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Resolve sources and print plan without fetching or writing")
 
 	// --dry-run never fetches, so --force (bypass cache) is meaningless
@@ -80,6 +81,35 @@ func sourceValues(rt resource.Source) []string {
 		return []string{string(cmdutil.SourceAll), own.OwnSource()}
 	}
 	return cmdutil.PavementSources()
+}
+
+// Short is the one-line help of the ingest subcommand of the command group
+// named group (`pvmt <group> ingest`).
+func Short(group string) string {
+	return fmt.Sprintf("Fetch %s data for each configured city", group)
+}
+
+// Long is the --help description of the ingest subcommand of the command
+// group named group. Its source sentence depends on whether rt has its own
+// fixed source or reads the city's overpass / arcgis_url settings.
+func Long(group string, rt resource.Source) string {
+	var src string
+	if own, ok := rt.(resource.OwnSourced); ok {
+		src = fmt.Sprintf("from %s (its only source; the city's overpass and arcgis_url settings\ndo not apply)", own.OwnSource())
+	} else {
+		src = "from the city's configured sources: OpenStreetMap via Overpass when\noverpass = true, and the agency ArcGIS layer when arcgis_url is set"
+	}
+	return fmt.Sprintf(`Fetch %s features for every configured city, or the one --city names,
+%s, and store them in the local database. Rows from each
+source that answered replace that source's previous rows; a source that
+fails leaves its rows in place.
+
+The city boundary is resolved first, from boundary_relation_id when set and
+otherwise by name from Nominatim, with open water stripped, and stored for
+every later step. HTTP responses are cached; --force bypasses the cache and
+re-fetches the boundary.
+
+Run 'pvmt %s compute' next.`, group, src, group)
 }
 
 // Example is the --help example text for the ingest subcommand of the
@@ -480,9 +510,9 @@ func resolveBoundary(
 	if stripErr != nil {
 		return "", nil, hint.Withf(fmt.Errorf("water strip for %s: %w", city.Name, stripErr),
 			"This usually means the OSM water-stitching pipeline produced a polygon "+
-				"covering more than the city boundary. Re-run with verbose logging "+
-				"(check stderr for 'water way:', 'water relation:', or 'water coastline:' "+
-				"rejection warnings) to find the offending OSM way or relation id, then "+
+				"covering more than the city boundary. The 'water way:', 'water relation:' or "+
+				"'water coastline:' rejection warnings above it on stderr name the "+
+				"offending OSM way or relation id; "+
 				"open an issue with the city name, bbox, and the warning text.")
 	}
 	if warn != "" {

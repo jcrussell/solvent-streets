@@ -58,7 +58,7 @@ without a TTY the command refuses to delete.`,
   pvmt snapshots rm 42 --yes
 
   # Scope the lookup to one city
-  pvmt --city oakland snapshots rm 42`,
+  pvmt --city oakland-ca snapshots rm 42`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := strconv.ParseInt(args[0], 10, 64)

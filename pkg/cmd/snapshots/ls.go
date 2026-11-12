@@ -84,7 +84,7 @@ Export and serve read the newest snapshot for the current config.`,
   pvmt snapshots ls
 
   # Restrict to one city
-  pvmt --city oakland snapshots ls
+  pvmt --city oakland-ca snapshots ls
 
   # Machine-readable
   pvmt snapshots ls --json city,id,created_at,parts`,

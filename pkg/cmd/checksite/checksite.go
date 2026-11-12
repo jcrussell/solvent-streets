@@ -1,7 +1,6 @@
 // Package checksite implements `pvmt check-site`, a read-only validator over a
 // built static-site tree (the output of `make site` / `pvmt export`). It performs the
-// publish-readiness audit that once caught a shipped near-zero-paved-area
-// geometry bug: structural inventory, dangling-reference detection, WASM
+// publish-readiness audit: structural inventory, dangling-reference detection, WASM
 // freshness against this binary's embedded copy, publish hygiene (no host paths,
 // emails, or secrets), size constraints, and data reasonableness/regression
 // guards. It never touches the database, network, or config.
@@ -39,11 +38,10 @@ func NewCmdCheckSite(f *cmdutil.Factory, runF func(context.Context, *Options) er
 	cmd := &cobra.Command{
 		Use:   "check-site [dir]",
 		Short: "Validate a built static-site tree for publish-readiness",
-		Long: `Validate a built static-site tree (the output of 'make site') before
-publishing it. This is a read-only audit — it never touches the database,
-network, or config — that mechanizes the manual publish-readiness review,
-including the check that once caught a shipped near-zero-paved-area geometry
-bug.
+		Long: `Validate a built static-site tree (the output of 'pvmt export' or 'make site')
+before publishing it. This is a read-only audit — it never touches the
+database, network, or config — that mechanizes the manual publish-readiness
+review.
 
 A current 'pvmt export' writes one tree rooted at the given directory, so the
 audit normally runs against that single export; trees that nest one export per
@@ -52,11 +50,12 @@ per subdirectory.
 
 The following checks run over the given directory (default "site"):
 
-  - STRUCTURE: every city carries the expected data files
-    (boundary.geojson, hexgrid.geojson, meta.json, forecast_seed.json,
-    forecast.json, hex-cost-summary.json, play-hexes.json, scenarios.json)
-    and the site root has index.html, .nojekyll, pvmt.wasm, wasm_exec.js,
-    app.js, and game.js.
+  - STRUCTURE: the site root has its shared assets (index.html, .nojekyll,
+    pvmt.wasm, wasm_exec.js, app.js, game.js, selectors.js); a multi-city
+    tree has cities.json and the compare.json rollup; and every city
+    carries the expected data files (boundary.geojson, hexgrid.geojson,
+    meta.json, forecast_seed.json, forecast.json, hex-cost-summary.json,
+    play-hexes.json, scenarios.json; hex-metrics.json is optional).
   - REFERENCES: every local asset referenced by index.html (pvmt.wasm,
     wasm_exec.js, local .css/.js) resolves on disk.
   - WASM FRESHNESS: the site's pvmt.wasm and wasm_exec.js match the
