@@ -162,11 +162,21 @@ func (sm *simulator) distribute(totalNeed, totalSpend float64, strategy Strategy
 
 // surplusGapYears is how many years of surplus, each the size of the year's
 // hold-steady need, it takes to close a cohort's gap to maxPCI at efficiency
-// 1. It is the default treatment cycle: a need is the cost of treating 1/N of
-// the cohort, so a second need's worth treats another 1/N, which restores
-// 1/N of the gap. Fixed rather than read off Params.CycleYears so the
-// response depends on spend only through spend/need, which keeps the cycle
-// gating a pure 1/N rescaling in dollars (BreakEvenBudget scales exactly 1/N).
+// 1. It is a calibration constant equal to the DEFAULT treatment cycle, and it
+// is deliberately not the configured one (solvent-streets-mcn8).
+//
+// Physically a need is the cost of treating 1/N of the cohort, so a second
+// need's worth would treat another 1/N and restore 1/N of the gap. At the
+// default N = 12 that is exactly what this computes. For any other configured
+// N the surplus response stays at 1/12: a 1-year cycle's surplus buys a
+// twelfth of the area it pays for, a 40-year cycle's about 3.3x. That is the
+// price of the property the solvency math relies on: with the constant fixed,
+// the response depends on spend only through spend/need, so the cycle gating
+// is a pure 1/N rescaling in dollars and BreakEvenBudget scales exactly 1/N
+// (TestBreakEvenBudget_ScalesInverselyWithCycle,
+// TestBacktest_TreatmentCycleClosesSec5Gap). Reading Params.CycleYears here
+// breaks both. The methodology states the 1/12 ("How spending moves
+// condition").
 const surplusGapYears = DefaultTreatmentCycleYears
 
 // applyCohortSpend applies one year's spend on one cohort and returns the

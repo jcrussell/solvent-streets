@@ -240,8 +240,9 @@ func evaluateCity(c referenceCity, tolerance float64) Result {
 		InitialPCI:     c.PCI,
 	}})
 
-	// Growth 0.005 and a 25-year horizon match backtest_test.go and
-	// examples/bay-area-ca. Cost overhead is left at bare (1) because the
+	// Growth 0.005 and a fixed 25-year horizon match backtest_test.go (and
+	// what examples/bay-area-ca used before configs moved to one 30-year
+	// default), so docs/validation.md §6 stays reproducible. Cost overhead is left at bare (1) because the
 	// shipped calibration is bare tiers x spread x N=12 — see
 	// config.DefaultCostOverhead.
 	params := forecast.NewParams(0.005, nil, forecast.DefaultTreatmentCycleYears, 1)

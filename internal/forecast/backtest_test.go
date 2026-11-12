@@ -30,7 +30,10 @@ var backtestCities = []backtestCity{
 	{name: "dublin", initialPCI: 78, decay: 0.035, areaSqM: 1_900_000, currentBudget: 3_700_000},
 }
 
-const backtestYears = 25 // matches examples/bay-area-ca/pvmt.toml
+// backtestYears is the fixtures' own horizon. It is fixed at 25 (what
+// examples/bay-area-ca used before configs moved to one 30-year default) so
+// the §6 figures quoted in config.go's DefaultCostOverhead comment stay put.
+const backtestYears = 25
 
 // TestBacktest_TreatmentCycleClosesSec5Gap is the offline regression gate for the
 // solvency-dollar-fidelity epic (qehh). For each representative city it proves:

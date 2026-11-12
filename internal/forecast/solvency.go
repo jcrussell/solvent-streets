@@ -86,8 +86,9 @@ func InsolvencyThreshold(year1Need, cycleYears float64) float64 {
 // Caveat: bisection requires final backlog to be monotone non-increasing in
 // budget. This holds for StrategyWorstFirst with the default (monotone) cost
 // tiers — the only configuration the export uses. It is NOT guaranteed for
-// StrategyPreventiveFirst (its 1.2x efficiency bonus in applyCohortSpend can
-// make a larger budget leave slightly more final backlog) nor for a
+// StrategyPreventiveFirst (its 1.2x efficiency bends the partial-funding curve
+// and scales the surplus response in applyCohortSpend; monotonicity of final
+// backlog in budget has not been verified for it) nor for a
 // pathological custom cost_tiers curve; either can make bisection land off the
 // true infimum. Pass worst-first unless you have verified monotonicity for
 // your inputs. Documented in the methodology.
