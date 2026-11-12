@@ -956,3 +956,35 @@ func TestNewTransport_ChainAppliesUserAgentAndRetries(t *testing.T) {
 		}
 	}
 }
+
+// TestNoRetry_IsFinalButKeepsTheCause pins the solvent-streets-lrnw marker:
+// a NoRetry-wrapped timeout is not retried, yet still unwraps to the
+// original error.
+func TestNoRetry_IsFinalButKeepsTheCause(t *testing.T) {
+	cause := &url.Error{Op: "Post", URL: overpassAPI, Err: syscall.ECONNRESET}
+	if !isRetryableErr(cause) {
+		t.Fatal("precondition: ECONNRESET is retryable")
+	}
+	final := NoRetry(cause)
+	if isRetryableErr(final) {
+		t.Error("NoRetry(err) was classified as retryable")
+	}
+	if !errors.Is(final, syscall.ECONNRESET) {
+		t.Error("NoRetry(err) no longer unwraps to its cause")
+	}
+	if NoRetry(nil) != nil {
+		t.Error("NoRetry(nil) != nil")
+	}
+}
+
+// TestOverpassHost_MatchesEndpoint ties OverpassHost (which the factory
+// uses to pick the Overpass transport) to the endpoint queries go to.
+func TestOverpassHost_MatchesEndpoint(t *testing.T) {
+	u, err := url.Parse(overpassAPI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Hostname() != OverpassHost {
+		t.Errorf("overpassAPI host = %q, OverpassHost = %q", u.Hostname(), OverpassHost)
+	}
+}

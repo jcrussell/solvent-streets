@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -575,10 +576,39 @@ func TestHostTransport_OverpassWaitsLongerForHeaders(t *testing.T) {
 	if base.overpassHost != ingest.OverpassHost {
 		t.Errorf("Overpass host = %q, want %q", base.overpassHost, ingest.OverpassHost)
 	}
-	if got := base.overpass.(*http.Transport).ResponseHeaderTimeout; got != ingest.OverpassHeaderTimeout {
+	if got := base.overpass.(*headerTimeoutIsFinal).inner.ResponseHeaderTimeout; got != ingest.OverpassHeaderTimeout {
 		t.Errorf("Overpass header timeout = %v, want %v", got, ingest.OverpassHeaderTimeout)
 	}
 	if got := base.rest.(*http.Transport).ResponseHeaderTimeout; got != 30*time.Second {
 		t.Errorf("other hosts' header timeout = %v, want 30s", got)
+	}
+}
+
+// TestOverpassHeaderTimeout_NotRetried pins solvent-streets-lrnw: a server
+// that holds its headers past the Overpass header deadline is dead, so the
+// full client stack makes one attempt, not seven.
+func TestOverpassHeaderTimeout_NotRetried(t *testing.T) {
+	var attempts atomic.Int32
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(func() { close(release); srv.Close() })
+
+	client := &http.Client{Transport: ingest.NewTransport(&headerTimeoutIsFinal{inner: newTransport(100 * time.Millisecond)})}
+	_, err := client.Get(srv.URL)
+	if err == nil {
+		t.Fatal("request succeeded; want a header timeout")
+	}
+	var ne net.Error
+	if !errors.As(err, &ne) || !ne.Timeout() {
+		t.Errorf("err = %v; want it to still read as a net.Error timeout", err)
+	}
+	if got := attempts.Load(); got != 1 {
+		t.Errorf("attempts = %d, want 1: a header timeout must not be retried", got)
 	}
 }

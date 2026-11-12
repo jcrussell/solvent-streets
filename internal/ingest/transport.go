@@ -267,6 +267,8 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 // Version Not Supported), and 425 (Too Early) are deliberately excluded
 // — they describe a state the server will not exit by retrying.
 //
+// An error wrapped with NoRetry is never retried.
+//
 // Error allowlist: net.Error.Timeout(), syscall.ECONNRESET,
 // syscall.ECONNREFUSED, syscall.EPIPE, io.ErrUnexpectedEOF — each
 // indicates a transport-level disconnect, not a request the server
@@ -288,7 +290,40 @@ func shouldRetry(resp *http.Response, err error) bool {
 	return false
 }
 
+// NoRetry marks err as final: the retry transport returns it at once
+// instead of trying again. The original error stays reachable through
+// errors.Is / errors.As, so callers that inspect it (a net.Error timeout,
+// say) see no difference.
+//
+// It is for failures whose cause a retry cannot change, such as Overpass
+// holding its response headers past the query's own server-side timeout:
+// the server is not slow then but gone, and each retry would wait out the
+// full header deadline again (solvent-streets-lrnw).
+func NoRetry(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &noRetryError{err: err}
+}
+
+type noRetryError struct{ err error }
+
+func (e *noRetryError) Error() string { return e.err.Error() }
+func (e *noRetryError) Unwrap() error { return e.err }
+
+// Timeout reports the cause's Timeout. *url.Error asks its Err for
+// Timeout() by type assertion rather than errors.As, so without this a
+// wrapped timeout would stop reading as one once the client wraps it.
+func (e *noRetryError) Timeout() bool {
+	var ne net.Error
+	return errors.As(e.err, &ne) && ne.Timeout()
+}
+
 func isRetryableErr(err error) bool {
+	var final *noRetryError
+	if errors.As(err, &final) {
+		return false
+	}
 	// Caller-driven cancellation is never retryable — the ctx itself is
 	// the signal to stop.
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

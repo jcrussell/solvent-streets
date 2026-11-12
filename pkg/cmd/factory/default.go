@@ -102,11 +102,34 @@ func (t *hostTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return t.rest.RoundTrip(req)
 }
 
+// headerTimeoutIsFinal marks a timeout that arrives once the inner
+// transport's ResponseHeaderTimeout has run out as not worth retrying
+// (ingest.NoRetry). The Overpass header deadline is set above the queries'
+// own [timeout:N], so reaching it means the server is dead, not slow, and
+// each retry would cost the full deadline again: seven attempts made one
+// dead request take about 18 minutes (solvent-streets-lrnw). Shorter
+// timeouts (dial, TLS handshake) end before the deadline and stay
+// retryable, as do 429/504 answers from an Overpass at capacity.
+type headerTimeoutIsFinal struct {
+	inner *http.Transport
+}
+
+func (t *headerTimeoutIsFinal) RoundTrip(req *http.Request) (*http.Response, error) {
+	start := time.Now()
+	resp, err := t.inner.RoundTrip(req)
+	var ne net.Error
+	if err != nil && errors.As(err, &ne) && ne.Timeout() &&
+		time.Since(start) >= t.inner.ResponseHeaderTimeout {
+		return resp, ingest.NoRetry(err)
+	}
+	return resp, err
+}
+
 // newBaseTransport is the innermost transport of the client stack.
 func newBaseTransport() http.RoundTripper {
 	return &hostTransport{
 		overpassHost: ingest.OverpassHost,
-		overpass:     newTransport(ingest.OverpassHeaderTimeout),
+		overpass:     &headerTimeoutIsFinal{inner: newTransport(ingest.OverpassHeaderTimeout)},
 		rest:         newPVMTTransport(),
 	}
 }
