@@ -69,6 +69,12 @@
         .tab-bar .theme-toggle:hover { border-color: var(--header-fg); }
         .tab-content { display: none; position: absolute; top: calc(48px + var(--banner-h)); left: 0; right: 0; bottom: 28px; z-index: 1; }
         .tab-content.active { display: block; }
+        /* solvent-streets-mw80: with no city matching the tag filters, the
+           city-scoped tabs would show a stale city or empty charts; the
+           no-match panel replaces them (About and Config stay). */
+        body.no-city-match .tab-content[data-city-scoped].active { display: none; }
+        .no-match-panel { position: absolute; top: calc(48px + var(--banner-h)); left: 0; right: 0; z-index: 2; padding: 48px 24px; text-align: center; font-size: 15px; }
+        .no-match-panel button { margin-left: 8px; padding: 4px 12px; cursor: pointer; }
         .site-footer {
             position: fixed;
             bottom: 0;
@@ -757,7 +763,11 @@
         </div>
     </div>
 
-    <div id="map-tab" class="tab-content active" role="tabpanel" aria-labelledby="map-tab-btn">
+    <div id="no-match" class="no-match-panel" hidden role="status">
+        <span id="no-match-text">No cities match these filters.</span>
+        <button type="button" id="no-match-clear">Clear filters</button>
+    </div>
+    <div id="map-tab" class="tab-content active" data-city-scoped role="tabpanel" aria-labelledby="map-tab-btn">
         <div id="map"></div>
         <button id="region-select-btn" type="button" aria-pressed="false" disabled
                 title="Drag a rectangle on the map to total the hexes inside it">Select Region</button>
@@ -788,7 +798,7 @@
         <div id="hex-tooltip"></div>
     </div>
 
-    <div id="financials-tab" class="tab-content" role="tabpanel" aria-labelledby="financials-tab-btn">
+    <div id="financials-tab" class="tab-content" data-city-scoped role="tabpanel" aria-labelledby="financials-tab-btn">
         <div class="financials">
             <div class="solvency-headline" id="solvency-headline" style="display:none"></div>
             <div class="headlines" id="headlines" style="display:none">
@@ -875,7 +885,7 @@
         </div>
     </div>
 
-    <div id="materials-tab" class="tab-content" role="tabpanel" aria-labelledby="materials-tab-btn">
+    <div id="materials-tab" class="tab-content" data-city-scoped role="tabpanel" aria-labelledby="materials-tab-btn">
         <div class="financials">
             <div class="headlines" id="materials-headlines" style="display:none">
                 <div class="headline-card">
@@ -932,7 +942,7 @@
     </div>
 
     {{if .Cities}}
-    <div id="compare-tab" class="tab-content" role="tabpanel" aria-labelledby="compare-tab-btn" style="overflow-y:auto;">
+    <div id="compare-tab" class="tab-content" data-city-scoped role="tabpanel" aria-labelledby="compare-tab-btn" style="overflow-y:auto;">
         <div class="compare">
             <div class="compare-header">
                 <h2>City Showdown</h2>
@@ -971,7 +981,7 @@
             </div>
         </div>
     </div>
-    <div id="aggregate-tab" class="tab-content" role="tabpanel" aria-labelledby="aggregate-tab-btn" style="overflow-y:auto;">
+    <div id="aggregate-tab" class="tab-content" data-city-scoped role="tabpanel" aria-labelledby="aggregate-tab-btn" style="overflow-y:auto;">
         <div class="compare">
             <div class="compare-header">
                 <h2>Region Rollup</h2>

@@ -86,11 +86,13 @@
                 // set one: the default (today's budget) needs no URL.
                 const onFinancials = tabBtn && tabBtn.dataset.tab === 'financials-tab';
                 // With no city matching the filters the select holds a disabled
-                // placeholder (value ''); the city actually in view is the one
-                // DATA_PREFIX points at, so the URL keeps naming it.
-                const loaded = DATA_PREFIX.startsWith('cities/') ? DATA_PREFIX.slice('cities/'.length, -1) : '';
+                // placeholder (value '') and no city is in view (the no-match
+                // panel replaces the city tabs), so the URL names none. A
+                // reload of ?tag=<unsatisfiable> then lands on the same empty
+                // state, as /play does, instead of a ?city= that wins and
+                // silently drops the filters (solvent-streets-mw80).
                 return {
-                    city:     sel ? (sel.value || loaded || null) : null,
+                    city:     sel ? (sel.value || null) : null,
                     tab:      tabBtn ? tabBtn.dataset.tab : null,
                     tags:     PvmtSelectors.readFilters(),
                     scope:    (scopeVis && scopeBtn) ? scopeBtn.dataset.scope : null,
@@ -238,7 +240,32 @@
         function rebuildCitySelector(prefer) {
             const sel = selectById('city-select');
             if (!sel || CITIES.length === 0) return '';
-            return PvmtSelectors.rebuildCitySelect(sel, CITIES, TAG_DIMS, selectedTags, prefer);
+            const picked = PvmtSelectors.rebuildCitySelect(sel, CITIES, TAG_DIMS, selectedTags, prefer);
+            syncNoMatchState();
+            return picked;
+        }
+
+        // syncNoMatchState shows the one shared empty state when the tag
+        // filters match no city: the city-scoped tabs (Map, Financials,
+        // Materials, Compare, Aggregate) are replaced by "No cities match
+        // <filters> — Clear filters" instead of a stale city or empty charts
+        // (solvent-streets-mw80). Run after every selector rebuild and tab
+        // change.
+        function syncNoMatchState() {
+            const sel = selectById('city-select');
+            const empty = !!sel && CITIES.length > 0 && !sel.value;
+            document.body.classList.toggle('no-city-match', empty);
+            const panel = document.getElementById('no-match');
+            if (!panel) return;
+            const active = queryEl('.tab-content.active');
+            panel.hidden = !(empty && active && active.hasAttribute('data-city-scoped'));
+            if (!empty) return;
+            const labels = queryAll('select.tag-filter')
+                .map(el => /** @type {HTMLSelectElement} */ (el))
+                .filter(f => f.value && f.selectedOptions[0])
+                .map(f => f.selectedOptions[0].textContent.trim());
+            document.getElementById('no-match-text').textContent =
+                'No cities match ' + (labels.length ? labels.join(' + ') : 'these filters') + '.';
         }
 
         // Apply URL state synchronously, before first render, to avoid flicker.
@@ -466,6 +493,7 @@
             btn.classList.add('active');
             content.classList.add('active');
             syncTabAria();
+            syncNoMatchState();
             if (opts && opts.focus) btn.focus();
             if (tabId === 'map-tab' && window._map) window._map.resize();
             if (tabId === 'compare-tab') loadCompareData();
@@ -3670,7 +3698,8 @@
         // applyTagFilters applies a {dimension: configTag} selection: the city
         // selector is rebuilt to the matching cities and, when the city in view
         // is filtered out, the first visible city is loaded in its place (an
-        // empty match keeps the current city's data on screen). Then the
+        // empty match shows the no-match panel; the last city's data stays
+        // loaded behind it, so clearing the filters returns to it). Then the
         // Compare/Aggregate scope follows.
         /** @param {Record<string, string>} selected */
         function applyTagFilters(selected) {
@@ -3688,6 +3717,13 @@
         function onTagFilterChange() {
             applyTagFilters(PvmtSelectors.readFilters());
             Router.push();
+        }
+        {
+            const clear = document.getElementById('no-match-clear');
+            if (clear) clear.addEventListener('click', () => {
+                PvmtSelectors.writeFilters({});
+                onTagFilterChange();
+            });
         }
 
         // --- Units toggle (gear menu) --------------------------------------

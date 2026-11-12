@@ -269,3 +269,35 @@ test('the tab title follows the selected city', async () => {
   assert.equal(win.document.title, 'Solvent Streets — ' + gamma);
   assert.equal($('#panel h2').textContent, gamma);
 });
+
+// solvent-streets-mw80: one shared empty state. The city-scoped tabs give way
+// to "No cities match ... Clear filters", the URL names no city (so a reload
+// keeps the filters, as /play does), and Clear filters restores the view.
+test('no matching city shows the no-match panel; clearing restores the city', async () => {
+  const { win, $, flush } = load({ data: fullData });
+  await flush();
+  win.selectCity('gamma-or');
+  await flush();
+
+  filter($, 'group').value = 'Top 50';
+  filter($, 'state').value = 'state:OR';
+  win.onTagFilterChange();
+  await flush();
+  assert.ok(win.document.body.classList.contains('no-city-match'));
+  assert.equal($('#no-match').hidden, false, 'the Map tab must show the no-match panel');
+  assert.match($('#no-match-text').textContent, /No cities match .+\+.+\./, 'the panel names the filters');
+  assert.equal(params(win).get('city'), null, 'an empty match must not name a city in the URL');
+  assert.deepEqual(params(win).getAll('tag').sort(), ['group:Top 50', 'state:OR'].sort());
+
+  win.selectTab('about-tab');
+  assert.equal($('#no-match').hidden, true, 'About is not city-scoped and stays readable');
+  win.selectTab('compare-tab');
+  await flush();
+  assert.equal($('#no-match').hidden, false, 'Compare gets the same empty state');
+
+  $('#no-match-clear').click();
+  await flush();
+  assert.ok(!win.document.body.classList.contains('no-city-match'));
+  assert.equal($('#no-match').hidden, true);
+  assert.notEqual($('#city-select').value, '', 'clearing the filters selects a city again');
+});

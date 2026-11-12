@@ -87,3 +87,17 @@ test('play (live server): an unknown ?city= with no filters keeps the served cit
   assert.equal(get('DATA_PREFIX'), 'cities/gamma-or/');
   assert.deepEqual(gone, []);
 });
+
+// solvent-streets-mw80: an unsatisfiable ?tag= set leaves no city to play, so
+// Start is disabled and says why, rather than starting the excluded city.
+test('play: no matching city disables Start', async () => {
+  const { $, flush } = load({
+    page: 'play',
+    data: {},
+    url: 'https://example.test/play.html?tag=group:Top%2050&tag=state:OR',
+  });
+  await flush();
+  assert.equal($('#city-select').value, '', 'no city matches');
+  assert.equal($('#start-btn').disabled, true, 'Start must be disabled with no matching city');
+  assert.equal($('#start-no-match').hidden, false, 'the overlay must say why');
+});

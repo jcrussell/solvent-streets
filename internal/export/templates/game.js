@@ -65,12 +65,24 @@
                 // defers to the served city (or the first option on a static host).
                 const prefer = (want && cities.some(c => c.slug === want)) ? want : (served || sel.value);
                 if (cities.length > 0) PvmtSelectors.rebuildCitySelect(sel, cities, dims, filters, prefer);
+                // With no city matching, the board behind the overlay is a city
+                // the filters exclude, so Start stays disabled until one matches
+                // (solvent-streets-mw80).
+                const syncNoMatch = () => {
+                    const empty = cities.length > 0 && !sel.value;
+                    const btn = /** @type {HTMLButtonElement | null} */ (document.getElementById('start-btn'));
+                    if (btn) btn.disabled = empty;
+                    const note = document.getElementById('start-no-match');
+                    if (note) note.hidden = !empty;
+                };
+                syncNoMatch();
                 /** @param {string} slug @param {Record<string, string>} selected */
                 const urlFor = (slug, selected) => {
                     const u = new URL(location.href);
                     u.searchParams.delete('tag');
                     PvmtSelectors.urlTags(selected, dims).forEach(t => u.searchParams.append('tag', t));
                     if (slug) u.searchParams.set('city', slug);
+                    else u.searchParams.delete('city');
                     return u;
                 };
                 const valid = new Set(Array.from(sel.options).map(o => o.value));
@@ -95,8 +107,12 @@
                         const picked = cities.length > 0
                             ? PvmtSelectors.rebuildCitySelect(sel, cities, dims, selected, before)
                             : before;
+                        syncNoMatch();
                         if (picked && picked !== before) navigateTo(urlFor(picked, selected));
-                        else history.replaceState(null, '', urlFor(picked || before, selected));
+                        // An empty match names no city, so a reload lands on the
+                        // same empty state rather than a ?city= that would win
+                        // and drop the filters (the dashboard's rule too).
+                        else history.replaceState(null, '', urlFor(picked, selected));
                     });
                 });
             }
