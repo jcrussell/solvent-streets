@@ -114,6 +114,23 @@ func (d TemplateData) CityGroups() []CityGroup {
 	return d.TagDimensions[0].Groups
 }
 
+// HeadingName is the name the page title and panel heading show before any
+// script runs: in multi-city mode the city the selector opens on (its first
+// <option>, which follows the tag groups rather than the config order), else
+// ProjectName. The dashboard then keeps both in step with the selected city
+// (solvent-streets-youz).
+func (d TemplateData) HeadingName() string {
+	for _, g := range d.CityGroups() {
+		if len(g.Cities) > 0 {
+			return g.Cities[0].Name
+		}
+	}
+	if len(d.Cities) > 0 {
+		return d.Cities[0].Name
+	}
+	return d.ProjectName
+}
+
 // HasTagFilters reports whether any dimension offers a real choice (two or
 // more values). The templates omit the filter row entirely when it is false —
 // a single-value dimension cannot narrow anything.

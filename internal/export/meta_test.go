@@ -331,3 +331,24 @@ func TestBuildMeta_CarriesEstimatedSpaces(t *testing.T) {
 		}
 	}
 }
+
+// TestHeadingName pins solvent-streets-youz: before any script runs, a
+// multi-city page names the city its selector opens on (the first city of
+// the first tag group), not the config's first city.
+func TestHeadingName(t *testing.T) {
+	single := TemplateData{MetaJSON: MetaJSON{ProjectName: "Livermore, CA"}}
+	if got := single.HeadingName(); got != "Livermore, CA" {
+		t.Errorf("single-city HeadingName = %q, want the project name", got)
+	}
+	multi := TemplateData{
+		MetaJSON: MetaJSON{ProjectName: "Livermore, CA"},
+		Cities:   []CityInfo{{Name: "Livermore, CA"}, {Name: "Piedmont, CA"}},
+		TagDimensions: []TagDimension{{Groups: []CityGroup{
+			{Tag: "East Bay", Cities: []CityInfo{{Name: "Piedmont, CA"}}},
+			{Tag: "Tri-Valley", Cities: []CityInfo{{Name: "Livermore, CA"}}},
+		}}},
+	}
+	if got := multi.HeadingName(); got != "Piedmont, CA" {
+		t.Errorf("multi-city HeadingName = %q, want the selector's first city", got)
+	}
+}

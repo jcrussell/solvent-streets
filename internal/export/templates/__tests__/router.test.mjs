@@ -253,3 +253,19 @@ test('back to a different tab of the same city does not reload the city', async 
   assert.equal(params(win).get('tab'), startTab, 'going back did not return to the earlier tab');
   assert.equal(cityLoads(), before, 'a tab-only back navigation reloaded the city');
 });
+
+// solvent-streets-youz: the browser tab names the city in view: the one the
+// selector opens on, then whichever city is selected.
+test('the tab title follows the selected city', async () => {
+  const { win, $, flush } = load({ data: fullData });
+  await flush();
+  const shown = $('#city-select').selectedOptions[0].textContent.trim();
+  assert.equal(win.document.title, 'Solvent Streets — ' + shown, 'the title must name the city the selector opened on');
+
+  // Checked before the city's data load settles: the fixtures serve one
+  // meta.json (Alpha's) for every city, so the load would rename it back.
+  win.selectCity('gamma-or');
+  const gamma = $('#city-select option[value="gamma-or"]').textContent.trim();
+  assert.equal(win.document.title, 'Solvent Streets — ' + gamma);
+  assert.equal($('#panel h2').textContent, gamma);
+});

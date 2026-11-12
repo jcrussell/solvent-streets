@@ -872,7 +872,7 @@
                 const meta = await loadJSON(dataURL(prefix, 'meta.json'));
                 if (gen !== cityLoadGen) return; // a newer load superseded us
                 if (meta) {
-                    document.querySelector('#panel h2').textContent = meta.project_name;
+                    setCityHeading(meta.project_name);
                     const subtitleEl = document.querySelector('#panel .subtitle');
                     if (subtitleEl && meta.snapshot_date) {
                         subtitleEl.textContent = 'Pavement & Parking Analysis | Last computed ' + meta.snapshot_date;
@@ -1658,6 +1658,16 @@
 
         map.on('load', () => loadCityData());
 
+        // setCityHeading names the shown city in the panel heading and the
+        // browser tab, so tabs, bookmarks, history and link previews follow
+        // the selected city rather than the first one in the config
+        // (solvent-streets-youz).
+        function setCityHeading(name) {
+            if (!name) return;
+            document.querySelector('#panel h2').textContent = name;
+            document.title = 'Solvent Streets \u2014 ' + name;
+        }
+
         // City switcher
         function selectCity(slug, opts) {
             const sel = selectById('city-select');
@@ -1672,7 +1682,7 @@
             const bboxParts = opt.dataset.bbox.split(',').map(Number);
             // data-bbox is [west, south, east, north], fitBounds' own order.
             map.fitBounds([[bboxParts[0], bboxParts[1]], [bboxParts[2], bboxParts[3]]], { padding: 40 });
-            document.querySelector('#panel h2').textContent = opt.textContent.trim();
+            setCityHeading(opt.textContent.trim());
             // Snapshot ids are per-city. Reset the picker on city change so a
             // stale id can't be sent against the new city's data endpoints.
             const snapEl = selectById('snapshot-picker');
