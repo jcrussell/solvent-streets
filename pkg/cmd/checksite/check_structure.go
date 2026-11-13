@@ -10,13 +10,11 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/export"
 )
 
-// rootAssets are the files every site root must carry alongside its city data.
-var rootAssets = []string{"index.html", ".nojekyll", "pvmt.wasm", "wasm_exec.js", "app.js", "game.js", "selectors.js"}
-
 // checkStructure verifies the site root carries its shared assets and every
 // example carries the full set of per-city data files.
 func (r *runner) checkStructure(s *site) {
-	for _, name := range rootAssets {
+	// Every file the exporter writes at a site root, alongside the city data.
+	for _, name := range export.SiteRootFiles() {
 		if fileExists(filepath.Join(s.dir, name)) {
 			r.passf("structure: site root has %s", name)
 		} else {

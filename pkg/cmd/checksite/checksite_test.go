@@ -491,6 +491,7 @@ func buildValidSite(t *testing.T) string {
 		writeFile(t, filepath.Join(dir, name), string(assets.Bytes(name)))
 	}
 	writeFile(t, filepath.Join(dir, "index.html"), `<html><body>landing</body></html>`)
+	writeFile(t, filepath.Join(dir, "play.html"), `<html><body>play</body></html>`)
 	if err := os.WriteFile(filepath.Join(dir, ".nojekyll"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -524,6 +525,7 @@ func buildValidRootSite(t *testing.T) string {
 	writeFile(t, filepath.Join(dir, "index.html"),
 		`<html><head><script src="wasm_exec.js"></script>`+
 			`<script>script.src = 'pvmt.wasm';</script></head><body>map</body></html>`)
+	writeFile(t, filepath.Join(dir, "play.html"), `<html><body>play</body></html>`)
 	if err := os.WriteFile(filepath.Join(dir, ".nojekyll"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -684,5 +686,20 @@ func TestCheckDataDir_OptionalFiles(t *testing.T) {
 	r.checkDataDir("x", dataDir)
 	if r.fail != 0 || r.warn != 0 {
 		t.Errorf("optional file present: fail=%d warn=%d, want 0/0 (must not be reported as extra)", r.fail, r.warn)
+	}
+}
+
+// check-site requires every file the exporter writes at a site root
+// (export.SiteRootFiles), the /play page included.
+func TestCheckSite_MissingRootFileFails(t *testing.T) {
+	for _, name := range export.SiteRootFiles() {
+		dir := buildValidSite(t)
+		if err := os.Remove(filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		}
+		out, err := run(t, dir, false)
+		if err == nil || !strings.Contains(out, "site root is missing "+name) {
+			t.Errorf("a site without %s must fail naming it; err=%v\n%s", name, err, out)
+		}
 	}
 }
