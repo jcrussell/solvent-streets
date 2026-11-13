@@ -49,6 +49,30 @@ func UTMLonSpanExceeds(minLon, maxLon, degrees float64) bool {
 	return math.Abs(maxLon-minLon) > degrees
 }
 
+// UTMZoneWidthDeg is the longitude a UTM zone spans.
+const UTMZoneWidthDeg = 6.0
+
+// BBoxExceedsUTMZone reports whether bbox ([south, west, north, east]) is
+// wider than one UTM zone, the span past which the single zone a projector
+// picks distorts areas near the edges (see UTMLonSpanExceeds). Every caller
+// that warns about an oversized city asks here.
+func BBoxExceedsUTMZone(bbox [4]float64) bool {
+	return UTMLonSpanExceeds(bbox[1], bbox[3], UTMZoneWidthDeg)
+}
+
+// ProjectorForBoundary derives a boundary's bbox ([south, west, north, east])
+// and the UTM projector centred on it. It is the one derivation of a city's
+// projection: compute, export and the boundary-area and water-subtraction
+// maths all project through it, so their metres and hex ids agree.
+func ProjectorForBoundary(boundaryGJSON string) ([4]float64, *UTMProjector, error) {
+	bbox, err := BBoxFromGeoJSON(boundaryGJSON)
+	if err != nil {
+		return [4]float64{}, nil, err
+	}
+	lon, lat := CenterFromBBox(bbox)
+	return bbox, NewUTMProjector(lon, lat), nil
+}
+
 // NewUTMProjector creates a UTM projector for the given lon/lat center point.
 //
 // ACCURACY LIMIT: exactly one UTM zone is chosen from the center longitude and

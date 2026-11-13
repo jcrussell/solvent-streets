@@ -15,12 +15,10 @@ import (
 // sub-polygons to cleaning failures, a one-line warning is emitted so
 // operators can fix the source data (see GeoJSONToProjectedGeometryDropped).
 func BoundaryArea(ctx context.Context, boundaryGJSON string) (float64, error) {
-	bbox, err := BBoxFromGeoJSON(boundaryGJSON)
+	_, proj, err := ProjectorForBoundary(boundaryGJSON)
 	if err != nil {
 		return 0, err
 	}
-	lon, lat := CenterFromBBox(bbox)
-	proj := NewUTMProjector(lon, lat)
 	g, _, dropped, err := GeoJSONToProjectedGeometryDropped(boundaryGJSON, proj)
 	if err != nil {
 		return 0, err

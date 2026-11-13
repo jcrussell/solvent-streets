@@ -463,17 +463,15 @@ func LoadBoundary(ctx context.Context, store db.Store, city *config.CityConfig) 
 	if boundaryGJSON == "" {
 		return "", [4]float64{}, nil, fmt.Errorf("no boundary stored for city %s — run 'pvmt all ingest' first", city.Name)
 	}
-	bbox, err := geo.BBoxFromGeoJSON(boundaryGJSON)
+	bbox, proj, err := geo.ProjectorForBoundary(boundaryGJSON)
 	if err != nil {
 		return "", [4]float64{}, nil, fmt.Errorf("derive bbox: %w", err)
 	}
-	lon, lat := geo.CenterFromBBox(bbox)
-	proj := geo.NewUTMProjector(lon, lat)
 	// A single UTM zone is picked from the bbox center; a bbox much wider than
 	// one 6° zone gets distorted metric areas/lengths near its edges. Warn so an
 	// oversized city isn't silently mis-measured (bbox is [south,west,north,east],
 	// so the lon span is east-west = bbox[3]-bbox[1]).
-	if geo.UTMLonSpanExceeds(bbox[1], bbox[3], 6) {
+	if geo.BBoxExceedsUTMZone(bbox) {
 		logs.From(ctx).Warn("boundary: bbox longitude span exceeds one UTM zone; metric areas near the edges may be distorted",
 			"city", city.Name, "lon_span_deg", bbox[3]-bbox[1], "utm_zone", proj.Zone)
 	}

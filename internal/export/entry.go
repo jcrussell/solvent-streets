@@ -102,6 +102,20 @@ func (entry CityEntry) PinCurrentSnapshot(ctx context.Context) (CityEntry, error
 	return entry, nil
 }
 
+// PinAll pins every entry in place to its current snapshot
+// (PinCurrentSnapshot), so one export or one server lifetime reads each city
+// from a single snapshot throughout.
+func PinAll(ctx context.Context, entries []CityEntry) error {
+	for i, entry := range entries {
+		pinned, err := entry.PinCurrentSnapshot(ctx)
+		if err != nil {
+			return err
+		}
+		entries[i] = pinned
+	}
+	return nil
+}
+
 // RequireMatchingSnapshot returns ErrNoMatchingSnapshot when the city's
 // snapshots include none with the city's current hash (Config.CityHash). This
 // is the fail-loud signal that the city was never computed, or not since a

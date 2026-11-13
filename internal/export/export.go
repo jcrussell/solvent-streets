@@ -58,12 +58,8 @@ func (e *Exporter) Run(ctx context.Context) error {
 	// otherwise resolve "newest snapshot for the config" on its own, and a
 	// compute committing mid-export could leave a city's files (and the
 	// multi-city totals) built from two different snapshots.
-	for i, entry := range e.entries {
-		pinned, err := entry.PinCurrentSnapshot(ctx)
-		if err != nil {
-			return err
-		}
-		e.entries[i] = pinned
+	if err := PinAll(ctx, e.entries); err != nil {
+		return err
 	}
 	if len(e.entries) == 1 {
 		return e.runSingleCity(ctx)
@@ -282,7 +278,7 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 	// one 6° zone gets distorted areas near its edges. Warn so an oversized city
 	// isn't silently exported with skewed metrics (bbox is [south,west,north,
 	// east], so the lon span is east-west = bbox[3]-bbox[1]).
-	if geo.UTMLonSpanExceeds(bbox[1], bbox[3], 6) {
+	if geo.BBoxExceedsUTMZone(bbox) {
 		fmt.Fprintf(e.warnOut(),
 			"warning: city %q bbox spans %.1f° of longitude; a single UTM zone (%d) is used, so exported areas near the edges may be distorted\n",
 			entry.City.Name, bbox[3]-bbox[1], proj.Zone)

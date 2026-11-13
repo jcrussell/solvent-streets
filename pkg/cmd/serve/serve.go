@@ -134,12 +134,10 @@ func runServe(ctx context.Context, opts *Options) error {
 // operator has to diagnose: the settings changed since its last compute, or an
 // [[include]]d city resolves different data inputs than its own config.
 func pinEntries(ctx context.Context, entries []exportpkg.CityEntry, errOut io.Writer) error {
-	for i, entry := range entries {
-		pinned, err := entry.PinCurrentSnapshot(ctx)
-		if err != nil {
-			return err
-		}
-		entries[i] = pinned
+	if err := exportpkg.PinAll(ctx, entries); err != nil {
+		return err
+	}
+	for _, pinned := range entries {
 		if err := pinned.RequireMatchingSnapshot(ctx); err != nil {
 			cmdutil.FprintWarnf(errOut, "%v; serving it without data", err)
 			hint.Fprint(errOut, err)

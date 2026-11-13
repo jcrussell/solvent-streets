@@ -30,12 +30,10 @@ func SubtractGeoJSON(ctx context.Context, boundaryGJSON, otherGJSON string) (str
 		return boundaryGJSON, nil
 	}
 
-	bbox, err := BBoxFromGeoJSON(boundaryGJSON)
+	_, proj, err := ProjectorForBoundary(boundaryGJSON)
 	if err != nil {
 		return "", fmt.Errorf("boundary bbox: %w", err)
 	}
-	lon, lat := CenterFromBBox(bbox)
-	proj := NewUTMProjector(lon, lat)
 
 	boundary, _, dropped, err := GeoJSONToProjectedGeometryDropped(boundaryGJSON, proj)
 	if err != nil {

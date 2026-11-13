@@ -110,3 +110,28 @@ func TestUTMLonSpanExceeds(t *testing.T) {
 		})
 	}
 }
+
+// ProjectorForBoundary centres the projector on the boundary's bbox, and
+// BBoxExceedsUTMZone flags a bbox wider than one zone.
+func TestProjectorForBoundary(t *testing.T) {
+	const gj = `{"type":"Polygon","coordinates":[[[-122.5,37.5],[-122.4,37.5],[-122.4,37.6],[-122.5,37.6],[-122.5,37.5]]]}`
+	bbox, proj, err := ProjectorForBoundary(gj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := [4]float64{37.5, -122.5, 37.6, -122.4}; bbox != want {
+		t.Errorf("bbox = %v, want %v", bbox, want)
+	}
+	if want := NewUTMProjector(-122.45, 37.55); proj.Zone != want.Zone {
+		t.Errorf("zone = %d, want %d", proj.Zone, want.Zone)
+	}
+	if BBoxExceedsUTMZone(bbox) {
+		t.Error("a 0.1 degree bbox does not exceed a UTM zone")
+	}
+	if !BBoxExceedsUTMZone([4]float64{30, -100, 40, -93.9}) {
+		t.Error("a 6.1 degree bbox exceeds a UTM zone")
+	}
+	if _, _, err := ProjectorForBoundary(`{"type":"Polygon"`); err == nil {
+		t.Error("an unparseable boundary must be an error")
+	}
+}
