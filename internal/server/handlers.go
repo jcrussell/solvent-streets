@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -9,7 +8,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
-	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -75,6 +74,9 @@ type indexThunk struct {
 // restart-after-changes design (restart for a fresh date), same as every other
 // cached endpoint.
 func (s *Server) renderIndex() ([]byte, error) {
+	if len(s.cities) > 1 {
+		return s.renderCachedPage("index", &s.indexPages, s.indexTemplate, s.buildSiteIndexData)
+	}
 	return s.renderCachedPage("index", &s.indexPages, s.indexTemplate, s.firstRenderableCity)
 }
 
@@ -100,15 +102,7 @@ func (s *Server) renderCachedPage(key string, pages *sync.Map, parse func() (*te
 			if err != nil {
 				return nil, err
 			}
-			tmpl, err := parse()
-			if err != nil {
-				return nil, err
-			}
-			var buf bytes.Buffer
-			if err := tmpl.Execute(&buf, td); err != nil {
-				return nil, err
-			}
-			return buf.Bytes(), nil
+			return export.RenderPage(parse, td)
 		})}
 		actual, _ := pages.LoadOrStore(key, fresh)
 		entry = actual.(*indexThunk) //nolint:forcetypeassert // type invariant: only render sites Store *indexThunk here
@@ -219,66 +213,67 @@ func (s *Server) firstRenderableCity(ctx context.Context) (export.CityEntry, exp
 	return export.CityEntry{}, export.TemplateData{}, lastErr
 }
 
-// buildIndexData assembles the TemplateData for handleIndex. Multi-city
-// cities list is populated only when len(s.cities) > 1 so the static
-// single-city DATA_PREFIX wiring keeps matching the /data/{file} routes.
+// buildIndexData assembles the TemplateData for one city's pages: the /play
+// page of any city, and the index of a single-city server. The cities list is
+// populated only when len(s.cities) > 1 so the single-city DATA_PREFIX wiring
+// keeps matching the /data/{file} routes.
 func (s *Server) buildIndexData(ctx context.Context, entry export.CityEntry) (export.TemplateData, error) {
-	// The index/game page always renders the latest snapshot; pinned-snapshot
-	// views are served via /data/meta.json?snapshot=N (serveMetaJSON), so
-	// snapshotID is 0 here.
-	meta, err := export.BuildMeta(ctx, entry, 0)
+	// The pages always render the latest snapshot; pinned-snapshot views are
+	// served via /data/meta.json?snapshot=N (serveMetaJSON).
+	meta, seed, err := export.PageMetaAndSeed(ctx, entry.Config, []export.CityEntry{entry}, "")
 	if err != nil {
 		return export.TemplateData{}, err
 	}
-
-	var rawTOML string
-	if entry.Config.SourcePath != "" {
-		if data, err := os.ReadFile(entry.Config.SourcePath); err == nil {
-			rawTOML = string(data)
-		}
-	}
-
-	fc := entry.Config.ResolvedForecast(&entry.City)
-
 	var cities []export.CityInfo
 	var activeSlug string
 	if len(s.cities) > 1 {
 		activeSlug = entry.Slug
-		// export.CityInfos leaves out a city with no boundary ingested (logged,
-		// since the rendered HTML is lifetime-cached) and returns any other
-		// error, so renderCachedPage evicts and the next request retries
-		// rather than baking a missing city into the CITIES array.
-		var err error
-		cities, err = export.CityInfos(ctx, s.cities, s.logUnlisted("the index dropdown"))
-		if err != nil {
+		if cities, err = s.listedCities(ctx); err != nil {
 			return export.TemplateData{}, err
 		}
 	}
+	return s.templateData(entry.Config, meta, seed, cities, activeSlug)
+}
 
-	seed, err := export.BuildForecastSeed(ctx, &fc, entry.Store)
+// buildSiteIndexData assembles the TemplateData for a multi-city index: the
+// config-wide meta and forecast seed a static export's index.html carries,
+// rather than any one city's. The index switches cities client-side, so it
+// has no active city.
+func (s *Server) buildSiteIndexData(ctx context.Context) (export.CityEntry, export.TemplateData, error) {
+	cfg := s.cities[0].Config
+	title := "pvmt"
+	if cfg.SourcePath != "" {
+		title = filepath.Base(filepath.Dir(cfg.SourcePath))
+	}
+	meta, seed, err := export.PageMetaAndSeed(ctx, cfg, s.cities, export.SiteTitle(cfg, title))
+	if err != nil {
+		return export.CityEntry{}, export.TemplateData{}, err
+	}
+	cities, err := s.listedCities(ctx)
+	if err != nil {
+		return export.CityEntry{}, export.TemplateData{}, err
+	}
+	td, err := s.templateData(cfg, meta, seed, cities, "")
+	return export.CityEntry{}, td, err
+}
+
+// listedCities is the page's CITIES array. export.CityInfos leaves out a city
+// with no boundary ingested (logged, since the rendered HTML is
+// lifetime-cached) and returns any other error, so renderCachedPage evicts and
+// the next request retries rather than baking a missing city into the page.
+func (s *Server) listedCities(ctx context.Context) ([]export.CityInfo, error) {
+	return export.CityInfos(ctx, s.cities, s.logUnlisted("the index dropdown"))
+}
+
+// templateData is export.NewTemplateData marked as a live-server render.
+func (s *Server) templateData(cfg *config.Config, meta export.MetaJSON, seed template.JS, cities []export.CityInfo, activeSlug string) (export.TemplateData, error) {
+	td, err := export.NewTemplateData(cfg, meta, seed, cities, s.unitSystem(cfg))
 	if err != nil {
 		return export.TemplateData{}, err
 	}
-	methodology, err := export.MethodologyHTML()
-	if err != nil {
-		return export.TemplateData{}, err
-	}
-	date, ver := export.FooterInfo()
-	return export.TemplateData{
-		MetaJSON:        meta,
-		ForecastSeed:    seed,
-		LayerColors:     export.ResourceColorsJS(),
-		RawTOML:         rawTOML,
-		ResolvedTOML:    export.ResolvedTOML(entry.Config),
-		UnitSystem:      s.unitSystem(entry.Config),
-		Cities:          cities,
-		TagDimensions:   export.GroupCitiesByDimension(cities),
-		ActiveSlug:      activeSlug,
-		MethodologyHTML: methodology,
-		IsLiveServer:    true,
-		GeneratedDate:   date,
-		BuildVersion:    ver,
-	}, nil
+	td.ActiveSlug = activeSlug
+	td.IsLiveServer = true
+	return td, nil
 }
 
 // unitSystem is the display unit system the pages open in: s.UnitSystem when

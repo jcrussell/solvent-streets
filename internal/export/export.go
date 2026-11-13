@@ -96,15 +96,7 @@ func (e *Exporter) runSingleCity(ctx context.Context) error {
 		return err
 	}
 
-	// Read raw TOML and build resolved version for Config tab
-	var rawTOML string
-	if e.cfg.SourcePath != "" {
-		if data, err := os.ReadFile(e.cfg.SourcePath); err == nil {
-			rawTOML = string(data)
-		}
-	}
-
-	return e.renderHTML(meta, seed, rawTOML, ResolvedTOML(e.cfg), nil)
+	return e.renderHTML(meta, seed, nil)
 }
 
 // exportOneCity writes one sub-city's data directory and returns its
@@ -204,31 +196,13 @@ func (e *Exporter) runMultiCity(ctx context.Context) error {
 		return err
 	}
 
-	// Render the dashboard index: aggregated meta and forecast seed across all
-	// sub-cities. Without this aggregation the dashboard silently presents the
-	// first city's totals as the headline for the whole config.
-	title := e.cfg.Export.Title
-	if title == "" {
-		title = filepath.Base(e.outputDir)
-	}
-	fc := e.cfg.ResolvedForecast(nil)
-	meta, err := BuildMultiCityMeta(ctx, e.entries, title)
+	// Render the dashboard index against the config-wide meta and forecast
+	// seed (PageMetaAndSeed).
+	meta, seed, err := PageMetaAndSeed(ctx, e.cfg, e.entries, SiteTitle(e.cfg, filepath.Base(e.outputDir)))
 	if err != nil {
 		return err
 	}
-	seed, err := BuildMultiCityForecastSeed(ctx, &fc, e.entries)
-	if err != nil {
-		return err
-	}
-
-	var rawTOML string
-	if e.cfg.SourcePath != "" {
-		if data, err := os.ReadFile(e.cfg.SourcePath); err == nil {
-			rawTOML = string(data)
-		}
-	}
-
-	return e.renderHTML(meta, seed, rawTOML, ResolvedTOML(e.cfg), cities)
+	return e.renderHTML(meta, seed, cities)
 }
 
 // listedInfo is the one rule for which cities a multi-city site lists: a city
@@ -592,35 +566,21 @@ func (e *Exporter) writeNojekyll() error {
 	return nil
 }
 
-func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolvedTOML string, cities []CityInfo) error {
-	methodology, err := MethodologyHTML()
+func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, cities []CityInfo) error {
+	// IsLiveServer and ActiveSlug stay zero: this is the static export, so the
+	// game page resolves the active city client-side from ?city=.
+	td, err := NewTemplateData(e.cfg, meta, seed, cities, e.unitSystem)
 	if err != nil {
-		return fmt.Errorf("render methodology: %w", err)
-	}
-	date, ver := FooterInfo()
-	td := TemplateData{
-		MetaJSON:        meta,
-		ForecastSeed:    seed,
-		LayerColors:     ResourceColorsJS(),
-		RawTOML:         rawTOML,
-		ResolvedTOML:    resolvedTOML,
-		UnitSystem:      e.unitSystem,
-		Cities:          cities,
-		TagDimensions:   GroupCitiesByDimension(cities),
-		MethodologyHTML: methodology,
-		GeneratedDate:   date,
-		BuildVersion:    ver,
-		// IsLiveServer and ActiveSlug stay zero: this is the static export, so
-		// the game page resolves the active city client-side from ?city=.
+		return err
 	}
 
 	// Render both pages before writing either, so a game-template failure
 	// can't leave a partial site (index.html present, play.html missing).
-	index, err := renderPage(ParseIndexTemplate, td)
+	index, err := RenderPage(ParseIndexTemplate, td)
 	if err != nil {
 		return err
 	}
-	play, err := renderPage(ParseGameTemplate, td)
+	play, err := RenderPage(ParseGameTemplate, td)
 	if err != nil {
 		return err
 	}
@@ -628,21 +588,6 @@ func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, rawTOML, resolved
 		return err
 	}
 	return fsutil.WriteFile(filepath.Join(e.outputDir, "play.html"), play, 0o644)
-}
-
-// renderPage parses a page template and renders it against td into a buffer.
-// Buffering (plus fsutil.WriteFile's temp+rename at the call site) keeps an
-// interrupted Execute from leaving a partial file visible.
-func renderPage(parse func() (*template.Template, error), td TemplateData) ([]byte, error) {
-	tmpl, err := parse()
-	if err != nil {
-		return nil, err
-	}
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, td); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
 }
 
 // writeJSON writes minified JSON (no indentation). Indentation is pure weight

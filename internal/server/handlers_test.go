@@ -1465,3 +1465,59 @@ func TestHandleCitiesList_OrderAndSkipPolicy(t *testing.T) {
 		t.Errorf("the city left out for want of a boundary should be logged; log: %q", errOut.String())
 	}
 }
+
+// A multi-city index carries the config-wide totals and forecast seed a static
+// export's index.html carries, not the first city's.
+func TestRenderIndex_MultiCityUsesConfigWideTotals(t *testing.T) {
+	west := `{"type":"Polygon","coordinates":[[[-122.0,37.0],[-121.0,37.0],[-121.0,38.0],[-122.0,38.0],[-122.0,37.0]]]}`
+	east := `{"type":"Polygon","coordinates":[[[-120.0,37.0],[-119.0,37.0],[-119.0,38.0],[-120.0,38.0],[-120.0,37.0]]]}`
+	store := func(boundary string, area float64) *dbtest.MockStore {
+		return &dbtest.MockStore{
+			GetBoundaryFunc: func(_ context.Context) (string, error) { return boundary, nil },
+			CityMetrics:     results.TotalRows(srvRtRoads, results.Totals{Area: area, Features: 1}),
+		}
+	}
+	cfg := &config.Config{
+		Export: config.ExportConfig{Title: "Two Cities"},
+		Cities: []config.CityConfig{{Name: "West"}, {Name: "East"}},
+	}
+	entries := []export.CityEntry{
+		{Config: cfg, City: cfg.Cities[0], Store: store(west, 1000), Slug: cfg.Cities[0].Slug()},
+		{Config: cfg, City: cfg.Cities[1], Store: store(east, 3000), Slug: cfg.Cities[1].Slug()},
+	}
+	ios, _, _, _ := iostreams.Test()
+	srv := New(entries, "127.0.0.1", 0, ios, testAssets(t))
+
+	_, td, err := srv.buildSiteIndexData(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantMeta, wantSeed, err := export.PageMetaAndSeed(context.Background(), cfg, entries, "Two Cities")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if td.TotalPaved != 4000 || td.TotalPaved != wantMeta.TotalPaved {
+		t.Errorf("index total paved = %v, want both cities' 4000", td.TotalPaved)
+	}
+	if td.Center != wantMeta.Center || td.Center[0] != -120.5 {
+		t.Errorf("index center = %v, want the region's %v", td.Center, wantMeta.Center)
+	}
+	if td.ProjectName != "Two Cities" {
+		t.Errorf("index project name = %q, want the [export] title", td.ProjectName)
+	}
+	if td.ForecastSeed != wantSeed {
+		t.Errorf("index forecast seed is not the config-wide seed:\n got %s\nwant %s", td.ForecastSeed, wantSeed)
+	}
+	if !td.IsLiveServer || td.ActiveSlug != "" || len(td.Cities) != 2 {
+		t.Errorf("index render: live=%v active=%q cities=%d", td.IsLiveServer, td.ActiveSlug, len(td.Cities))
+	}
+
+	// The page itself is that render.
+	page, err := srv.renderIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(page, []byte(`"center":[-120.5,37.5]`)) {
+		t.Errorf("rendered multi-city index does not open on the region's center")
+	}
+}

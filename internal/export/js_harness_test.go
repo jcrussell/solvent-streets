@@ -330,7 +330,7 @@ func writeJSFixtureSite(t *testing.T, dir string, seed template.JS) {
 		BuildVersion:  "test",
 	}
 
-	index, err := renderPage(ParseIndexTemplate, td)
+	index, err := RenderPage(ParseIndexTemplate, td)
 	if err != nil {
 		t.Fatalf("render index: %v", err)
 	}
@@ -340,7 +340,7 @@ func writeJSFixtureSite(t *testing.T, dir string, seed template.JS) {
 	// The play page too, so the game.js selector specs run against the real
 	// game template (static-host shape: ActiveSlug empty, city resolved from
 	// ?city= client-side).
-	play, err := renderPage(ParseGameTemplate, td)
+	play, err := RenderPage(ParseGameTemplate, td)
 	if err != nil {
 		t.Fatalf("render play: %v", err)
 	}
@@ -353,7 +353,7 @@ func writeJSFixtureSite(t *testing.T, dir string, seed template.JS) {
 	live := td
 	live.ActiveSlug = "gamma-or"
 	live.IsLiveServer = true
-	playLive, err := renderPage(ParseGameTemplate, live)
+	playLive, err := RenderPage(ParseGameTemplate, live)
 	if err != nil {
 		t.Fatalf("render play-live: %v", err)
 	}
