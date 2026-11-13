@@ -163,9 +163,7 @@
         <span class="spacer"></span>
         {{if .Cities}}
         <label for="city-select" style="font-size:12px;color:#9aa4b2;">City</label>
-        <select id="city-select" autocomplete="off">
-            {{range .CityGroups}}{{if .Tag}}<optgroup label="{{.Label}}">{{range .Cities}}<option value="{{.Slug}}"{{if eq .Slug $.ActiveSlug}} selected{{end}}>{{.Name}}</option>{{end}}</optgroup>{{else}}{{range .Cities}}<option value="{{.Slug}}"{{if eq .Slug $.ActiveSlug}} selected{{end}}>{{.Name}}</option>{{end}}{{end}}{{end}}
-        </select>
+        {{template "city_select" .}}
         {{if .HasTagFilters}}{{template "tag_filters" .}}{{end}}
         {{end}}
     </div>

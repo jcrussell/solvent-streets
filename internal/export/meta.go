@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -112,6 +113,68 @@ func (d TemplateData) CityGroups() []CityGroup {
 		return nil
 	}
 	return d.TagDimensions[0].Groups
+}
+
+// CityOption is one <option> of the city selector: the city's slug as the
+// value, its name as the label, and its bbox ("west,south,east,north", which
+// the index page reads to fit the map) as data-bbox. Selected marks the one
+// option the selector opens on.
+type CityOption struct {
+	Slug     string
+	Name     string
+	BBox     string
+	Selected bool
+}
+
+// CityOptionGroup is a run of city options: one <optgroup> labelled Label
+// when Grouped, bare options otherwise (the untagged cities).
+type CityOptionGroup struct {
+	Grouped bool
+	Label   string
+	Options []CityOption
+}
+
+// CitySelect is the city selector as the city_select partial renders it and
+// as selectors.js rebuildCitySelect rebuilds it: CityGroups' layout, one
+// option shape, and exactly one option selected. That is ActiveSlug's first
+// occurrence (a multi-tag city is listed under each of its groups), or the
+// first option when ActiveSlug is empty or names no listed city.
+func (d TemplateData) CitySelect() []CityOptionGroup {
+	groups := d.CityGroups()
+	out := make([]CityOptionGroup, 0, len(groups))
+	var first, active *CityOption
+	for _, g := range groups {
+		og := CityOptionGroup{Grouped: g.Tag != "", Label: g.Label, Options: make([]CityOption, len(g.Cities))}
+		for i, c := range g.Cities {
+			og.Options[i] = CityOption{Slug: c.Slug, Name: c.Name, BBox: bboxAttr(c.BBox)}
+			opt := &og.Options[i]
+			if first == nil {
+				first = opt
+			}
+			if active == nil && d.ActiveSlug != "" && c.Slug == d.ActiveSlug {
+				active = opt
+			}
+		}
+		out = append(out, og)
+	}
+	if active == nil {
+		active = first
+	}
+	if active != nil {
+		active.Selected = true
+	}
+	return out
+}
+
+// bboxAttr joins a bbox as the comma-separated decimals JavaScript's
+// Array.join gives the same numbers, so the server-rendered data-bbox and the
+// one rebuildCitySelect writes are the same string.
+func bboxAttr(b [4]float64) string {
+	parts := make([]string, len(b))
+	for i, v := range b {
+		parts[i] = strconv.FormatFloat(v, 'f', -1, 64)
+	}
+	return strings.Join(parts, ",")
 }
 
 // HeadingName is the name the page title and panel heading show before any

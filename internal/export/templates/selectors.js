@@ -150,15 +150,17 @@ window.PvmtSelectors = (function () {
 
     /**
      * rebuildCitySelect regenerates #city-select from the flat cities array
-     * restricted to `selected`, laid out exactly as the Go template renders it
-     * server-side: one <optgroup> per default-dimension value in dims[0] order
-     * (a multi-tag city appears under each), then untagged cities as bare
-     * <option>s, cities sorted case-insensitively by name within each. Options
-     * carry data-bbox when the city has one, which the index page's selectCity
-     * reads from the DOM. The previous selection (or
-     * `prefer`) is kept when it survives the filter, otherwise the first visible
-     * city is selected; with no match the select holds one disabled "No cities
-     * match" option. Returns the selected slug, or '' when nothing matches.
+     * restricted to `selected`, in the markup the city_select partial
+     * (selectors.html.tmpl) renders server-side: one <optgroup> per
+     * default-dimension value in dims[0] order (a multi-tag city appears under
+     * each), then untagged cities as bare <option>s, cities sorted
+     * case-insensitively by name within each. An option is value, data-bbox
+     * (which the index page's selectCity reads from the DOM) and the name, and
+     * the one the selector lands on carries `selected`. The previous selection
+     * (or `prefer`) is kept when it survives the filter, otherwise the first
+     * visible city is selected; with no match the select holds one disabled
+     * "No cities match" option. Returns the selected slug, or '' when nothing
+     * matches.
      * @param {HTMLSelectElement} sel
      * @param {PvmtCity[]} cities
      * @param {PvmtTagDimension[] | undefined} dims
@@ -207,6 +209,9 @@ window.PvmtSelectors = (function () {
         });
         const keep = visible.some(function (c) { return c.slug === prev; }) ? prev : sel.options[0].value;
         sel.value = keep;
+        // Mark the landed-on option (the first, for a city listed under
+        // several groups) as the partial marks the one the page opens on.
+        sel.options[sel.selectedIndex].defaultSelected = true;
         return keep;
     }
 
