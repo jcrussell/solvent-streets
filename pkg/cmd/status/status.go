@@ -311,11 +311,9 @@ func printCitySummary(ctx context.Context, ios *iostreams.IOStreams, store db.St
 // totalPavedArea returns the paved area for the City Summary and whether that
 // figure is free of cross-resource double-counting.
 //
-// For an all-resources status it prefers the "combined" totals written
-// by `pvmt all compute` (the de-duplicated union, mirroring
-// export.totalPavedFromStore so `pvmt status` agrees with meta.json); when that
-// row is absent it falls back to summing per-resource areas, which
-// intentionally double-counts where road/parking/sidewalk buffers overlap
+// An all-resources status reports the de-duplicated combined total
+// (results.PavedArea, the figure meta.json publishes) and, until `pvmt all
+// compute` has stored one, the sum of the rows in the table above it
 // (accurate=false → footnoted).
 //
 // For a single-resource status (`pvmt <res> status`) the sum is just that one
@@ -324,8 +322,8 @@ func printCitySummary(ctx context.Context, ios *iostreams.IOStreams, store db.St
 // table above it.
 func totalPavedArea(ctx context.Context, store db.Store, rows []statusRow, allResources bool) (float64, bool) {
 	if allResources {
-		if tot, ok, err := results.LoadTotal(ctx, store, resource.CombinedAll); err == nil && ok {
-			return tot.Area, true
+		if area, deduped, err := results.PavedArea(ctx, store, resource.ScopeAll); err == nil && deduped {
+			return area, true
 		}
 	}
 	var sum float64

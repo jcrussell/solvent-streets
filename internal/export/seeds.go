@@ -109,10 +109,10 @@ func BuildForecastSeed(ctx context.Context, fc *config.ForecastConfig, store db.
 	// Deliberately NOT scaled by the overhead — see the CostTiers field comment.
 	costOverhead := fc.ResolvedCostOverhead()
 
-	// Prefer the cross-resource union rows (RunCombined). Fall back to summing
-	// per-resource rows when missing — same behavior as BuildMeta.
-	totalArea := entryAreaWithFallback(ctx, store, resource.CombinedAll, resource.ScopeAll)
-	cityArea := entryAreaWithFallback(ctx, store, resource.CombinedCity, resource.ScopeCity)
+	totalArea, cityArea, err := pavedAreas(ctx, store)
+	if err != nil {
+		return "", fmt.Errorf("paved area: %w", err)
+	}
 
 	decayRate := fc.DecayRate
 	if decayRate <= 0 {
@@ -149,6 +149,18 @@ func BuildForecastSeed(ctx context.Context, fc *config.ForecastConfig, store db.
 		return "", fmt.Errorf("marshal forecast seed: %w", err)
 	}
 	return template.JS(data), nil
+}
+
+// pavedAreas returns a store's paved area (results.PavedArea) in the
+// all-jurisdiction and the city scope: the seed's total_area and city_paved.
+func pavedAreas(ctx context.Context, store db.Store) (all, city float64, err error) {
+	if all, _, err = results.PavedArea(ctx, store, resource.ScopeAll); err != nil {
+		return 0, 0, err
+	}
+	if city, _, err = results.PavedArea(ctx, store, resource.ScopeCity); err != nil {
+		return 0, 0, err
+	}
+	return all, city, nil
 }
 
 // cohortSet is what one store's cohort stats resolve to: the per-scope seeds

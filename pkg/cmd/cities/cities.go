@@ -164,13 +164,11 @@ func buildCityRow(ctx context.Context, store db.Store, c db.City, ios *iostreams
 			latestCompute = *info.LastComputeAt
 		}
 	}
-	// Prefer the combined (de-duplicated) compute row from `pvmt all compute`
-	// for TotalPaved; fall back to the per-resource sum when it's absent. The
-	// sum double-counts road/parking/sidewalk buffer overlap — mirrors
-	// export.totalPavedFromStore so `pvmt cities` agrees with meta.json.
-	row.TotalPaved = perResourceSum
-	if tot, ok, err := results.LoadTotal(ctx, store, resource.CombinedAll); err == nil && ok {
-		row.TotalPaved = tot.Area
+	// The figure meta.json publishes as total_paved (results.PavedArea).
+	if area, _, err := results.PavedArea(ctx, store, resource.ScopeAll); err != nil {
+		cmdutil.Warnf(ios, "%s: paved area: %v", c.Slug, err)
+	} else {
+		row.TotalPaved = area
 	}
 	if !latestIngest.IsZero() {
 		row.LastIngestAt = latestIngest.UTC().Format(time.RFC3339)

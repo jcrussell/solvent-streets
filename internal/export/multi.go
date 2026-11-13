@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
-	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/resource"
@@ -40,7 +39,15 @@ func BuildMultiCityMeta(ctx context.Context, entries []CityEntry, title string) 
 		SnapshotDate: time.Now().Format("2006-01-02"),
 		Stats:        aggregatePerResourceStats(ctx, entries),
 	}
-	meta.TotalPaved = aggregateTotalPaved(ctx, entries)
+	for _, entry := range entries {
+		// Per entry, so a config where only some cities have the combined
+		// total still counts the others, by their per-resource sum.
+		paved, _, err := results.PavedArea(ctx, entry.Store, resource.ScopeAll)
+		if err != nil {
+			return MetaJSON{}, fmt.Errorf("paved area for %s: %w", entry.City.Name, err)
+		}
+		meta.TotalPaved += paved
+	}
 	meta.CityArea = summedBoundaryArea(ctx, entries)
 	if meta.CityArea > 0 && meta.TotalPaved > 0 {
 		meta.PavedShare = meta.TotalPaved / meta.CityArea
@@ -90,20 +97,6 @@ func aggregatePerResourceStats(ctx context.Context, entries []CityEntry) []StatJ
 		}
 	}
 	return out
-}
-
-// aggregateTotalPaved sums each entry's cross-resource paved area: the
-// "combined" row when present, otherwise that entry's per-resource sum.
-// Falling back per-entry (rather than flipping a global flag) keeps mixed
-// rollout states correct: when only some entries have been re-run through
-// `pvmt all compute`, the not-yet-computed entries still contribute via
-// their per-resource sum instead of dropping out of the regional total.
-func aggregateTotalPaved(ctx context.Context, entries []CityEntry) float64 {
-	var sum float64
-	for _, entry := range entries {
-		sum += entryAreaWithFallback(ctx, entry.Store, resource.CombinedAll, resource.ScopeAll)
-	}
-	return sum
 }
 
 // summedBoundaryArea computes each sub-city's boundary area in its own UTM
@@ -175,8 +168,12 @@ func BuildMultiCityForecastSeed(ctx context.Context, fc *config.ForecastConfig, 
 
 	var totalArea, cityArea float64
 	for _, entry := range entries {
-		totalArea += entryAreaWithFallback(ctx, entry.Store, resource.CombinedAll, resource.ScopeAll)
-		cityArea += entryAreaWithFallback(ctx, entry.Store, resource.CombinedCity, resource.ScopeCity)
+		all, city, err := pavedAreas(ctx, entry.Store)
+		if err != nil {
+			return "", fmt.Errorf("paved area for %s: %w", entry.City.Name, err)
+		}
+		totalArea += all
+		cityArea += city
 	}
 
 	decayRate := fc.DecayRate
@@ -207,21 +204,6 @@ func BuildMultiCityForecastSeed(ctx context.Context, fc *config.ForecastConfig, 
 		return "", fmt.Errorf("marshal multi-city forecast seed: %w", err)
 	}
 	return template.JS(data), nil
-}
-
-// entryAreaWithFallback reads the combined row for a single entry; if absent,
-// sums the per-resource rows in the matching scope.
-func entryAreaWithFallback(ctx context.Context, store db.Store, combinedLabel resource.Type, scope resource.Scope) float64 {
-	if r, ok, err := results.LoadTotal(ctx, store, combinedLabel); err == nil && ok {
-		return r.Area
-	}
-	var sum float64
-	for _, rt := range resource.All {
-		if r, ok, err := results.LoadTotal(ctx, store, rt.Type().With(scope)); err == nil && ok {
-			sum += r.Area
-		}
-	}
-	return sum
 }
 
 // mergeCohortSeeds collects cohort stats across entries and sums areas for

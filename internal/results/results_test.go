@@ -2,6 +2,7 @@ package results
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"testing"
 
@@ -125,5 +126,41 @@ func TestPivot_NewerRunWins(t *testing.T) {
 	want := []Cohort{{Class: "primary", Area: 200}, {Class: "service", Area: 200}}
 	if diff := cmp.Diff(want, cohorts[roads]); diff != "" {
 		t.Errorf("cohorts (-want +got):\n%s", diff)
+	}
+}
+
+// PavedArea prefers the combined (de-duplicated) total in the asked scope and
+// otherwise sums that scope's per-resource totals.
+func TestPavedArea(t *testing.T) {
+	ctx := context.Background()
+	var rows []db.CityMetric
+	rows = append(rows, TotalRows(resource.TypeRoads, Totals{Area: 100})...)
+	rows = append(rows, TotalRows(resource.TypeParking, Totals{Area: 30})...)
+	rows = append(rows, TotalRows(resource.TypeRoads.With(resource.ScopeCity), Totals{Area: 60})...)
+	store := &dbtest.MockStore{CityMetrics: rows}
+
+	area, deduped, err := PavedArea(ctx, store, resource.ScopeAll)
+	if err != nil || deduped || area != 130 {
+		t.Errorf("no combined total: got (%v, %v, %v), want the per-resource sum 130, not de-duplicated", area, deduped, err)
+	}
+	area, deduped, err = PavedArea(ctx, store, resource.ScopeCity)
+	if err != nil || deduped || area != 60 {
+		t.Errorf("city scope: got (%v, %v, %v), want 60", area, deduped, err)
+	}
+
+	store.CityMetrics = append(store.CityMetrics, TotalRows(resource.CombinedAll, Totals{Area: 120})...)
+	area, deduped, err = PavedArea(ctx, store, resource.ScopeAll)
+	if err != nil || !deduped || area != 120 {
+		t.Errorf("with a combined total: got (%v, %v, %v), want 120, de-duplicated", area, deduped, err)
+	}
+	if area, deduped, _ = PavedArea(ctx, store, resource.ScopeCity); deduped || area != 60 {
+		t.Errorf("an all-scope combined total must not answer for the city scope: got (%v, %v)", area, deduped)
+	}
+
+	failing := &dbtest.MockStore{ListCityMetricsFunc: func(context.Context, []string) ([]db.CityMetric, error) {
+		return nil, errors.New("db unavailable")
+	}}
+	if _, _, err := PavedArea(ctx, failing, resource.ScopeAll); err == nil {
+		t.Error("a read failure must be returned, not reported as zero area")
 	}
 }

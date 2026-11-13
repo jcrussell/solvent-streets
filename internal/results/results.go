@@ -197,6 +197,29 @@ func LoadTotal(ctx context.Context, s CityMetricLister, t resource.Type) (tot To
 	return tot, ok, nil
 }
 
+// PavedArea is a city's cross-resource paved area in scope: the combined
+// total `pvmt all compute` stores (the union of every resource's footprint),
+// else the sum of the per-resource totals. deduped is false for the sum, which
+// counts the overlap between road, parking and sidewalk footprints more than
+// once; it stands in until the combined total is computed.
+func PavedArea(ctx context.Context, s CityMetricLister, scope resource.Scope) (area float64, deduped bool, err error) {
+	types := []resource.Type{resource.TypeCombined.With(scope)}
+	for _, rt := range resource.All {
+		types = append(types, rt.Type().With(scope))
+	}
+	totals, err := LoadTotals(ctx, s, types)
+	if err != nil {
+		return 0, false, err
+	}
+	if tot, ok := totals[types[0]]; ok {
+		return tot.Area, true, nil
+	}
+	for _, t := range types[1:] {
+		area += totals[t].Area
+	}
+	return area, false, nil
+}
+
 // LoadCohorts reads t's cohort split, ordered by class; nil when t has none.
 func LoadCohorts(ctx context.Context, s CityMetricLister, t resource.Type) ([]Cohort, error) {
 	_, cohorts, err := Load(ctx, s, []resource.Type{t})

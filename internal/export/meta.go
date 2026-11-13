@@ -511,7 +511,10 @@ func BuildMeta(ctx context.Context, entry CityEntry, snapshotID int64) (MetaJSON
 	// summing per-resource rows when the combined row is missing — the sum
 	// inflates paved_share by the road/sidewalk/parking buffer overlap, but
 	// keeps single-resource workflows usable until `all compute` runs.
-	meta.TotalPaved = totalPavedFromStore(ctx, entry.Store, meta.Stats)
+	meta.TotalPaved, _, err = results.PavedArea(ctx, entry.Store, resource.ScopeAll)
+	if err != nil {
+		return MetaJSON{}, fmt.Errorf("paved area for %s: %w", entry.City.Name, err)
+	}
 
 	// Compute city boundary area and the paved share of it.
 	if boundaryGJSON, err := entry.Store.GetBoundary(ctx); err == nil && boundaryGJSON != "" {
@@ -549,20 +552,4 @@ func snapshotDate(ctx context.Context, store db.Store, snapshotID int64) (string
 		}
 	}
 	return "", fmt.Errorf("snapshot %d not found", snapshotID)
-}
-
-// totalPavedFromStore returns the cross-resource paved area: the "combined"
-// totals if present, otherwise the sum of per-resource Stats. The
-// fallback intentionally double-counts where buffers overlap (which
-// RunCombined exists to avoid) — better than reporting zero before `all compute`
-// has populated the combined row.
-func totalPavedFromStore(ctx context.Context, store db.Store, perResource []StatJSON) float64 {
-	if r, ok, err := results.LoadTotal(ctx, store, resource.CombinedAll); err == nil && ok {
-		return r.Area
-	}
-	var sum float64
-	for _, st := range perResource {
-		sum += st.TotalArea
-	}
-	return sum
 }
