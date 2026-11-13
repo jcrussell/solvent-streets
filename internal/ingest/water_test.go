@@ -759,6 +759,81 @@ func TestFetchOSMWater_TruncatedAtMaxDepthErrors(t *testing.T) {
 	}
 }
 
+// TestFetchOSMWater_SplitsOnCutOffJSON: a full-bbox response cut off
+// mid-stream (malformed JSON) splits into quadrants like a truncation remark
+// does, and the quadrants' elements are assembled into the result.
+func TestFetchOSMWater_SplitsOnCutOffJSON(t *testing.T) {
+	full := [4]float64{0, 0, 2, 2}
+	fullTag := bboxTag(full)
+	neTag := bboxTag(splitBBox(full)[3])
+	neOnly := [][2]float64{{1.4, 1.4}, {1.6, 1.4}, {1.6, 1.6}, {1.4, 1.6}, {1.4, 1.4}}
+	whole := closedWayBody(2, neOnly)
+
+	var mu sync.Mutex
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("parse form: %v", err)
+		}
+		q := r.PostForm.Get("data")
+		mu.Lock()
+		requests++
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+		switch {
+		case strings.Contains(q, fullTag):
+			_, _ = w.Write([]byte(whole[:len(whole)/2]))
+		case strings.Contains(q, neTag):
+			_, _ = w.Write([]byte(whole))
+		default:
+			_, _ = w.Write([]byte(`{"elements":[]}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	result, err := fetchOSMWater(context.Background(), uaClient(srv), srv.URL, full, [][2]float64{{0.1, 1.9}})
+	if err != nil {
+		t.Fatalf("fetchOSMWater: %v (a cut-off response must split, not fail)", err)
+	}
+	if requests != 5 {
+		t.Errorf("made %d requests, want 5 (1 cut off + 4 quadrants)", requests)
+	}
+	var parsed struct {
+		Coordinates [][][][2]float64 `json:"coordinates"`
+	}
+	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
+		t.Fatalf("parse result json: %v: %s", err, result)
+	}
+	if len(parsed.Coordinates) != 1 {
+		t.Errorf("got %d polygons, want the NE quadrant's 1: %s", len(parsed.Coordinates), result)
+	}
+}
+
+// TestFetchOSMWater_CutOffJSONAtMaxDepthErrors: a response that stays
+// malformed at every depth stops at maxSplitDepth with the parse error.
+func TestFetchOSMWater_CutOffJSONAtMaxDepthErrors(t *testing.T) {
+	var mu sync.Mutex
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		requests++
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"elements":[{"type":"way","id":`))
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := fetchOSMWater(context.Background(), uaClient(srv), srv.URL, [4]float64{0, 0, 2, 2}, nil)
+	if !errors.Is(err, errOverpassParse) {
+		t.Fatalf("err = %v, want errOverpassParse", err)
+	}
+	// The first quadrant fails at each depth, so the descent is one request
+	// per level: depths 0 through maxSplitDepth.
+	if requests != maxSplitDepth+1 {
+		t.Errorf("made %d requests, want %d", requests, maxSplitDepth+1)
+	}
+}
+
 func TestStitchRings_AlreadyClosed(t *testing.T) {
 	ways := []stitchInput{
 		{id: 1, coords: [][2]float64{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}}},

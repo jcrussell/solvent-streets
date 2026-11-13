@@ -54,33 +54,22 @@ func fetchOSMWater(ctx context.Context, client *http.Client, baseURL string, bbo
 }
 
 // fetchWaterElements fetches the raw Overpass water elements for bbox,
-// recursively splitting into quadrants when the server returns a
-// truncation remark (timeout / OOM), exactly like fetchRecursive does for
-// roads/parking. Elements are deduped by type+id via seen because a water
-// body spanning a quadrant boundary is returned in full by every quadrant
-// it touches. A quadrant still truncated at maxSplitDepth propagates the
-// error (fail loud) rather than silently under-reporting water.
+// recursively splitting into quadrants when the response is unusable
+// (isParseError: malformed JSON, a truncation remark, an oversized body),
+// under the same conditions as fetchRecursive for features. Elements are
+// deduped by type+id via seen because a water body spanning a quadrant
+// boundary is returned in full by every quadrant it touches. A quadrant
+// still unusable at maxSplitDepth propagates the error (fail loud) rather
+// than silently under-reporting water.
 func fetchWaterElements(ctx context.Context, client *http.Client, baseURL string, bbox [4]float64, seen map[string]bool, depth int) ([]overpassElement, error) {
+	var elements []overpassElement
 	body, err := postOverpass(ctx, client, baseURL, buildWaterQuery(bbox))
+	if err == nil {
+		elements, err = parseWaterElements(body)
+	}
 	if err != nil {
-		// An oversized response body belongs to the same "response unusable,
-		// shrink the bbox" class as a truncation remark (see isParseError), and
-		// this function already has the quadrant machinery for it. Without this
-		// arm a water response over the size cap would hard-fail the ingest,
-		// even though splitting would succeed — fetchRecursive splits for the
-		// same reason on roads.
 		if !isParseError(err) || depth >= maxSplitDepth {
 			return nil, err
-		}
-		return fetchWaterQuadrants(ctx, client, baseURL, bbox, seen, depth)
-	}
-	elements, truncated, err := parseWaterElements(body)
-	if err != nil {
-		return nil, err
-	}
-	if truncated {
-		if depth >= maxSplitDepth {
-			return nil, fmt.Errorf("overpass water remark: %w", errOverpassTruncated)
 		}
 		return fetchWaterQuadrants(ctx, client, baseURL, bbox, seen, depth)
 	}
@@ -101,9 +90,7 @@ func fetchWaterElements(ctx context.Context, client *http.Client, baseURL string
 }
 
 // fetchWaterQuadrants splits bbox into quadrants and concatenates their
-// elements. Shared by the two reasons a response is unusable — an oversized
-// body and a server truncation remark — so they cannot drift apart. Dedup is
-// left to the callee via the shared seen map.
+// elements. Dedup is left to the callee via the shared seen map.
 func fetchWaterQuadrants(ctx context.Context, client *http.Client, baseURL string, bbox [4]float64, seen map[string]bool, depth int) ([]overpassElement, error) {
 	var all []overpassElement
 	for _, q := range splitBBox(bbox) {
@@ -116,16 +103,21 @@ func fetchWaterQuadrants(ctx context.Context, client *http.Client, baseURL strin
 	return all, nil
 }
 
-// parseWaterElements unmarshals an Overpass water response body and
-// reports whether the server truncated the result (runtime timeout / OOM
-// remark). It does NOT error on truncation — the caller decides whether to
-// split-and-retry — but does error on malformed JSON.
-func parseWaterElements(data []byte) (elements []overpassElement, truncated bool, err error) {
+// parseWaterElements unmarshals an Overpass water response body. Malformed
+// JSON (a response cut off mid-stream) and a server truncation remark
+// (runtime timeout / OOM) both return an isParseError-class error, so
+// fetchWaterElements splits the bbox on either and a single-response caller
+// fails loudly: a truncated water response would under-report water and
+// silently inflate land area.
+func parseWaterElements(data []byte) ([]overpassElement, error) {
 	var resp overpassResponse
 	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, false, fmt.Errorf("parse overpass water json: %w", err)
+		return nil, fmt.Errorf("water: %w: %w", errOverpassParse, err)
 	}
-	return resp.Elements, remarkIndicatesTruncation(resp.Remark), nil
+	if remarkIndicatesTruncation(resp.Remark) {
+		return nil, fmt.Errorf("overpass water remark %q: %w", strings.TrimSpace(resp.Remark), errOverpassTruncated)
+	}
+	return resp.Elements, nil
 }
 
 // maxResponseBodyBytes caps every external API response (Overpass,
@@ -183,18 +175,13 @@ type waterPolygon struct {
 }
 
 // parseWaterResponse parses one Overpass water response body and
-// assembles its GeoJSON. It fails loudly on a truncation remark — a
-// truncated water response would under-report water and silently inflate
-// land area. fetchOSMWater does not route through this (it splits the
-// fetch and assembles via assembleWaterGeoJSON); this is the
-// single-response entry point exercised by the parse-layer tests.
+// assembles its GeoJSON. It is the single-response entry point exercised by
+// the parse-layer tests; fetchOSMWater splits the fetch and assembles via
+// assembleWaterGeoJSON.
 func parseWaterResponse(ctx context.Context, data []byte, bbox [4]float64, landProbes [][2]float64) (string, error) {
-	elements, truncated, err := parseWaterElements(data)
+	elements, err := parseWaterElements(data)
 	if err != nil {
 		return "", err
-	}
-	if truncated {
-		return "", fmt.Errorf("overpass water remark: %w", errOverpassTruncated)
 	}
 	return assembleWaterGeoJSON(ctx, elements, bbox, landProbes)
 }
