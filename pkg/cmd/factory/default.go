@@ -359,13 +359,7 @@ func New() *cmdutil.Factory {
 
 	f.CityFlagSet = func() bool { return false }
 
-	f.UnitSystem = func() units.System {
-		c, err := f.Config()
-		if err != nil {
-			return units.Imperial
-		}
-		return c.UnitSystem()
-	}
+	f.UnitSystem = func() units.System { return cmdutil.ConfigUnitSystem(f.Config) }
 
 	f.CurrentCity = func() (*config.CityConfig, error) {
 		c, err := f.Config()

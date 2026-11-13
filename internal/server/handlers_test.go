@@ -1377,3 +1377,33 @@ func TestServeHexGridGeoJSON_EmptyFCCarriesVersion(t *testing.T) {
 		t.Errorf("v = %d; want %d — a version-less empty FC blanks the page under the client's format gate", fc.V, export.HexGridFileVersion)
 	}
 }
+
+// The pages open in the unit system the caller chose (pvmt serve passes
+// --units), and in the config's own when none was chosen.
+func TestBuildIndexData_UnitSystem(t *testing.T) {
+	boundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return boundary, nil },
+	}
+	cfg := &config.Config{
+		Display: config.DisplayConfig{Units: "imperial"},
+		Cities:  []config.CityConfig{{Name: "Test City"}},
+	}
+	entry := export.CityEntry{Config: cfg, City: cfg.Cities[0], Store: store, Slug: cfg.Cities[0].Slug()}
+	ios, _, _, _ := iostreams.Test()
+
+	for _, tc := range []struct{ chosen, want string }{
+		{"", "imperial"},
+		{"metric", "metric"},
+	} {
+		srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios, testAssets(t))
+		srv.UnitSystem = tc.chosen
+		td, err := srv.buildIndexData(context.Background(), entry)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if td.UnitSystem != tc.want {
+			t.Errorf("UnitSystem chosen %q: page opens in %q, want %q", tc.chosen, td.UnitSystem, tc.want)
+		}
+	}
+}

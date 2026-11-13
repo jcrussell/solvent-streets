@@ -10,6 +10,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	exportpkg "github.com/jcrussell/solvent-streets/internal/export"
+	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
@@ -361,5 +362,26 @@ func TestNewCmdExport_FilterRequiresJSON(t *testing.T) {
 	}
 	if ran {
 		t.Error("export ran despite the flag error")
+	}
+}
+
+// --units reaches the export through f.UnitSystem; without a factory lookup
+// the config's own unit system applies.
+func TestOptions_UnitSystem(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	cfg := &config.Config{Display: config.DisplayConfig{Units: "imperial"}}
+
+	f := &cmdutil.Factory{IOStreams: ios, UnitSystem: func() units.System { return units.Metric }}
+	var opts *Options
+	cmd := NewCmdExport(f, func(_ context.Context, o *Options) error { opts = o; return nil })
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got := opts.unitSystem(cfg); got != units.Metric {
+		t.Errorf("with f.UnitSystem = metric: export uses %v", got)
+	}
+	if got := (&Options{}).unitSystem(cfg); got != units.Imperial {
+		t.Errorf("without a factory lookup: export uses %v, want the config's imperial", got)
 	}
 }

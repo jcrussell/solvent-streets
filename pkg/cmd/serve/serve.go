@@ -11,6 +11,7 @@ import (
 	exportpkg "github.com/jcrussell/solvent-streets/internal/export"
 	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/internal/server"
+	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 
@@ -18,13 +19,16 @@ import (
 )
 
 type Options struct {
-	IO        *iostreams.IOStreams
-	RootDB    func() (*db.RootStore, error)
-	Config    func() (*config.Config, error)
-	Cities    func() ([]config.CityConfig, error)
-	Host      string
-	Port      int
-	ReadyFile string
+	IO     *iostreams.IOStreams
+	RootDB func() (*db.RootStore, error)
+	Config func() (*config.Config, error)
+	Cities func() ([]config.CityConfig, error)
+	// UnitSystem is the display unit system the site opens in: --units, else
+	// the config's (cmdutil.Factory.UnitSystem).
+	UnitSystem func() units.System
+	Host       string
+	Port       int
+	ReadyFile  string
 	// Assets loads the site-root browser files. NewCmd sets
 	// exportpkg.EmbeddedAssets, which fails with ErrNoWasm on a `go install`
 	// build; tests pass fakes.
@@ -33,11 +37,12 @@ type Options struct {
 
 func NewCmdServe(f *cmdutil.Factory, runF func(context.Context, *Options) error) *cobra.Command {
 	opts := &Options{
-		IO:     f.IOStreams,
-		RootDB: f.RootDB,
-		Config: f.Config,
-		Cities: func() ([]config.CityConfig, error) { return cmdutil.ResolveCities(f) },
-		Assets: exportpkg.EmbeddedAssets,
+		IO:         f.IOStreams,
+		RootDB:     f.RootDB,
+		Config:     f.Config,
+		Cities:     func() ([]config.CityConfig, error) { return cmdutil.ResolveCities(f) },
+		UnitSystem: f.UnitSystem,
+		Assets:     exportpkg.EmbeddedAssets,
 	}
 
 	cmd := &cobra.Command{
@@ -112,6 +117,9 @@ func runServe(ctx context.Context, opts *Options) error {
 
 	srv := server.New(entries, opts.Host, opts.Port, opts.IO, assets)
 	srv.ReadyFile = opts.ReadyFile
+	if opts.UnitSystem != nil {
+		srv.UnitSystem = opts.UnitSystem().String()
+	}
 	return srv.ListenAndServe(ctx)
 }
 

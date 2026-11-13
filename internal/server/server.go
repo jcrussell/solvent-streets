@@ -46,6 +46,10 @@ type Server struct {
 	// would otherwise collide on the shared "index" key.
 	gamePages sync.Map // "game" → *indexThunk (sync.OnceValues wrapper)
 
+	// UnitSystem is the display unit system the pages open in ("metric" or
+	// "imperial"). Empty means the config's own.
+	UnitSystem string
+
 	// ReadyFile, if non-empty, receives the listening URL atomically
 	// once the TCP listener is bound. Container/test orchestration polls
 	// for the file's existence instead of parsing log lines or sleeping.

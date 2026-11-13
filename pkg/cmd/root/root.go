@@ -271,16 +271,14 @@ func skipMiddleware(c *cobra.Command) bool {
 	return false
 }
 
+// wireUnitSystem makes f.UnitSystem honour --units, falling back to the
+// config's unit system.
 func wireUnitSystem(root *cobra.Command, f *cmdutil.Factory) {
 	f.UnitSystem = func() units.System {
 		if fl := root.PersistentFlags().Lookup("units"); fl != nil && fl.Changed {
 			return units.ParseSystem(fl.Value.String())
 		}
-		cfg, err := f.Config()
-		if err != nil {
-			return units.Imperial
-		}
-		return cfg.UnitSystem()
+		return cmdutil.ConfigUnitSystem(f.Config)
 	}
 }
 

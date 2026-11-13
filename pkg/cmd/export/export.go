@@ -14,6 +14,7 @@ import (
 	exportpkg "github.com/jcrussell/solvent-streets/internal/export"
 	"github.com/jcrussell/solvent-streets/internal/fsutil"
 	"github.com/jcrussell/solvent-streets/internal/logs"
+	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 
@@ -21,12 +22,15 @@ import (
 )
 
 type Options struct {
-	IO        *iostreams.IOStreams
-	RootDB    func() (*db.RootStore, error)
-	Config    func() (*config.Config, error)
-	Cities    func() ([]config.CityConfig, error)
-	OutputDir string
-	Clean     bool
+	IO     *iostreams.IOStreams
+	RootDB func() (*db.RootStore, error)
+	Config func() (*config.Config, error)
+	Cities func() ([]config.CityConfig, error)
+	// UnitSystem is the display unit system the site opens in: --units, else
+	// the config's (cmdutil.Factory.UnitSystem).
+	UnitSystem func() units.System
+	OutputDir  string
+	Clean      bool
 	// JSON is set by --json (nil otherwise) and applies --jq / --template to
 	// the manifest.
 	JSON *cmdutil.DocumentExporter
@@ -38,11 +42,12 @@ type Options struct {
 
 func NewCmdExport(f *cmdutil.Factory, runF func(context.Context, *Options) error) *cobra.Command {
 	opts := &Options{
-		IO:     f.IOStreams,
-		RootDB: f.RootDB,
-		Config: f.Config,
-		Cities: func() ([]config.CityConfig, error) { return cmdutil.ResolveCities(f) },
-		Assets: exportpkg.EmbeddedAssets,
+		IO:         f.IOStreams,
+		RootDB:     f.RootDB,
+		Config:     f.Config,
+		Cities:     func() ([]config.CityConfig, error) { return cmdutil.ResolveCities(f) },
+		UnitSystem: f.UnitSystem,
+		Assets:     exportpkg.EmbeddedAssets,
 	}
 
 	cmd := &cobra.Command{
@@ -95,6 +100,15 @@ func (opts *Options) Validate() error {
 	return nil
 }
 
+// unitSystem is the site's display unit system: opts.UnitSystem when wired,
+// else the config's.
+func (opts *Options) unitSystem(cfg *config.Config) units.System {
+	if opts.UnitSystem != nil {
+		return opts.UnitSystem()
+	}
+	return cfg.UnitSystem()
+}
+
 func runExport(ctx context.Context, opts *Options) error {
 	ios := opts.IO
 
@@ -137,7 +151,7 @@ func runExport(ctx context.Context, opts *Options) error {
 
 	logs.From(ctx).Info("exporting static site", "output_dir", opts.OutputDir)
 
-	exporter := exportpkg.New(entries, cfg, opts.OutputDir, cfg.UnitSystem().String(), assets)
+	exporter := exportpkg.New(entries, cfg, opts.OutputDir, opts.unitSystem(cfg).String(), assets)
 	exporter.SetErrOut(ios.ErrOut)
 	if err := exporter.Run(ctx); err != nil {
 		return fmt.Errorf("export: %w", err)

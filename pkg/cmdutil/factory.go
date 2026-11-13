@@ -373,3 +373,13 @@ func withCity(ctx context.Context, f *Factory, city *config.CityConfig) *Factory
 	}
 	return &cp
 }
+
+// ConfigUnitSystem is the display unit system the config asks for (display.units
+// or PVMT_UNITS), and imperial when the config does not load.
+func ConfigUnitSystem(loadConfig func() (*config.Config, error)) units.System {
+	cfg, err := loadConfig()
+	if err != nil {
+		return units.Imperial
+	}
+	return cfg.UnitSystem()
+}

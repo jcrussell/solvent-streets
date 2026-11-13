@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/export"
 	"github.com/jcrussell/solvent-streets/internal/geo"
@@ -288,7 +289,7 @@ func (s *Server) buildIndexData(ctx context.Context, entry export.CityEntry) (ex
 		LayerColors:     export.ResourceColorsJS(),
 		RawTOML:         rawTOML,
 		ResolvedTOML:    export.ResolvedTOML(entry.Config),
-		UnitSystem:      entry.Config.UnitSystem().String(),
+		UnitSystem:      s.unitSystem(entry.Config),
 		Cities:          cities,
 		TagDimensions:   export.GroupCitiesByDimension(cities),
 		ActiveSlug:      activeSlug,
@@ -297,6 +298,15 @@ func (s *Server) buildIndexData(ctx context.Context, entry export.CityEntry) (ex
 		GeneratedDate:   date,
 		BuildVersion:    ver,
 	}, nil
+}
+
+// unitSystem is the display unit system the pages open in: s.UnitSystem when
+// the caller set one (pvmt serve passes --units), else the config's.
+func (s *Server) unitSystem(cfg *config.Config) string {
+	if s.UnitSystem != "" {
+		return s.UnitSystem
+	}
+	return cfg.UnitSystem().String()
 }
 
 // httpErr logs the full err server-side and writes a generic status-matched
