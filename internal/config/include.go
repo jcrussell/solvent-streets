@@ -257,10 +257,7 @@ func checkIncludedHorizon(parent, child *Config) error {
 // The env override (PVMT_FORECAST_YEARS) applies to the merged config as a
 // whole, so it plays no part in whether two files agree.
 func fileHorizon(c *Config) int {
-	if c.Forecast.Years > 0 {
-		return c.Forecast.Years
-	}
-	return DefaultForecastYears
+	return horizonOrDefault(c.Forecast.Years)
 }
 
 // sourceConfigID is the ConfigID a config's own cities are stored under,

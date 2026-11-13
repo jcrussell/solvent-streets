@@ -304,8 +304,12 @@ func TestWarnInvalidEnv_BadValuesEmitWarning(t *testing.T) {
 		{"unknown units", map[string]string{"PVMT_UNITS": "furlongs"}, "PVMT_UNITS"},
 		{"valid units silent", map[string]string{"PVMT_UNITS": "metric"}, ""},
 		{"unparseable years", map[string]string{"PVMT_FORECAST_YEARS": "lots"}, "not a valid integer"},
-		{"zero years", map[string]string{"PVMT_FORECAST_YEARS": "0"}, "must be > 0"},
-		{"negative years", map[string]string{"PVMT_FORECAST_YEARS": "-5"}, "must be > 0"},
+		{"zero years", map[string]string{"PVMT_FORECAST_YEARS": "0"}, "must be between 1 and 200"},
+		{"negative years", map[string]string{"PVMT_FORECAST_YEARS": "-5"}, "must be between 1 and 200"},
+		// The horizon bound a pvmt.toml is held to: a longer forecast is one
+		// the browser refuses to run.
+		{"years over the maximum", map[string]string{"PVMT_FORECAST_YEARS": "201"}, "must be between 1 and 200"},
+		{"maximum years silent", map[string]string{"PVMT_FORECAST_YEARS": "200"}, ""},
 		{"valid years silent", map[string]string{"PVMT_FORECAST_YEARS": "10"}, ""},
 		{"unparseable hex edge", map[string]string{"PVMT_HEX_EDGE_M": "wide"}, "not a valid number"},
 		{"negative hex edge", map[string]string{"PVMT_HEX_EDGE_M": "-5"}, "must be >="},

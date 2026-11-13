@@ -4,10 +4,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
 
+	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/units"
 )
 
@@ -590,5 +592,61 @@ func TestFindAndLoad_NotFound(t *testing.T) {
 	_, err := FindAndLoad(dir)
 	if !errors.Is(err, ErrConfigNotFound) {
 		t.Fatalf("expected ErrConfigNotFound, got %v", err)
+	}
+}
+
+// TestResolvedForecast_EnvYearsOverMaximumIgnored holds the env layer to the
+// horizon bound the file layer is validated against: the env value never
+// passes through Validate.
+func TestResolvedForecast_EnvYearsOverMaximumIgnored(t *testing.T) {
+	cfg := &Config{Forecast: ForecastConfig{Years: 20}}
+	t.Setenv("PVMT_FORECAST_YEARS", strconv.Itoa(forecast.MaxHorizonYears+1))
+	if got := cfg.ResolvedForecast(nil).Years; got != 20 {
+		t.Errorf("an env horizon over the maximum should fall through to the file, got %d", got)
+	}
+	t.Setenv("PVMT_FORECAST_YEARS", strconv.Itoa(forecast.MaxHorizonYears))
+	if got := cfg.ResolvedForecast(nil).Years; got != forecast.MaxHorizonYears {
+		t.Errorf("the maximum horizon should be honored, got %d", got)
+	}
+}
+
+// TestForecastDefaults_OneStep pins the three places that fill the forecast
+// defaults to one answer: NormalizeForecast, the layered resolve, and the
+// horizon an [[include]] is checked against.
+func TestForecastDefaults_OneStep(t *testing.T) {
+	for _, fc := range []ForecastConfig{
+		{},
+		{InitialPCI: 77, Years: 15, CostOverhead: 1.5},
+		{InitialPCI: -10, Years: -3, CostOverhead: -1},
+		{InitialPCI: 150},
+		{InitialPCI: 100, Years: 1},
+	} {
+		normalized := fc
+		NormalizeForecast(&normalized)
+
+		cfg := &Config{Forecast: fc}
+		resolved, prov := cfg.resolveForecast(nil)
+		if resolved.InitialPCI != normalized.InitialPCI || resolved.Years != normalized.Years ||
+			resolved.CostOverhead != normalized.CostOverhead {
+			t.Errorf("%+v: resolveForecast = (pci %v, years %v, overhead %v), NormalizeForecast = (pci %v, years %v, overhead %v)",
+				fc, resolved.InitialPCI, resolved.Years, resolved.CostOverhead,
+				normalized.InitialPCI, normalized.Years, normalized.CostOverhead)
+		}
+		if got := fileHorizon(cfg); got != normalized.Years {
+			t.Errorf("%+v: fileHorizon = %d, NormalizeForecast years = %d", fc, got, normalized.Years)
+		}
+		// A field is labelled default exactly when the default step filled it.
+		for name, c := range map[string]struct {
+			filled bool
+			src    Source
+		}{
+			"initial_pci":   {normalized.InitialPCI != fc.InitialPCI, prov.InitialPCI},
+			"years":         {normalized.Years != fc.Years, prov.Years},
+			"cost_overhead": {normalized.CostOverhead != fc.CostOverhead, prov.CostOverhead},
+		} {
+			if isDefault := c.src.Kind == SourceDefault; isDefault != c.filled {
+				t.Errorf("%+v: %s source = %v, but default filled = %v", fc, name, c.src, c.filled)
+			}
+		}
 	}
 }

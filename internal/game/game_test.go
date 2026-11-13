@@ -848,3 +848,55 @@ func TestAutoTierSelection_GapUsesTheForecastsTier(t *testing.T) {
 		}
 	}
 }
+
+// TestForecastBoundsHoldForNewAndTheProjection pins the game's two entry
+// points to one set of forecast bounds: an input New refuses is one the
+// pregame projection (which never goes through New) reports no result for.
+func TestForecastBoundsHoldForNewAndTheProjection(t *testing.T) {
+	unfunded := func() Config {
+		cfg := baseConfig()
+		cfg.StartingBudget = 0
+		return cfg
+	}
+	if _, err := New(unfunded()); err != nil {
+		t.Fatalf("New(valid): %v", err)
+	}
+	if _, ok := ProjectInsolvency(unfunded()); !ok {
+		t.Fatal("an unfunded network should project an insolvency year")
+	}
+
+	cases := map[string]func(*Config){
+		"horizon over the maximum": func(c *Config) { c.HorizonYears = forecast.MaxHorizonYears + 1 },
+		"horizon under a year":     func(c *Config) { c.HorizonYears = 0.5 },
+		"initial pci over 100":     func(c *Config) { c.InitialPCI = 101 },
+		"growth over 0.5":          func(c *Config) { c.GrowthRate = 0.6 },
+		"negative cycle":           func(c *Config) { c.TreatmentCycleYears = -1 },
+		"cycle over 40":            func(c *Config) { c.TreatmentCycleYears = 41 },
+		"free tier":                func(c *Config) { c.CostTiers[0].CostPerSqM = 0 },
+		"inverted tier band":       func(c *Config) { c.CostTiers[0].MinPCI, c.CostTiers[0].MaxPCI = 90, 80 },
+		"unlabelled tier":          func(c *Config) { c.CostTiers[0].Label = "" },
+		"negative cohort area":     func(c *Config) { c.Cohorts[0].Area = -1 },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			cfg := unfunded()
+			mutate(&cfg)
+			if _, err := New(cfg); err == nil {
+				t.Error("New accepted it")
+			}
+			if year, ok := ProjectInsolvency(cfg); ok {
+				t.Errorf("ProjectInsolvency projected year %d", year)
+			}
+		})
+	}
+
+	// The longest horizon a config may state starts a game and projects.
+	cfg := unfunded()
+	cfg.HorizonYears = forecast.MaxHorizonYears
+	if _, err := New(cfg); err != nil {
+		t.Errorf("New at the maximum horizon: %v", err)
+	}
+	if _, ok := ProjectInsolvency(cfg); !ok {
+		t.Error("no projection at the maximum horizon")
+	}
+}

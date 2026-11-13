@@ -40,12 +40,6 @@ const (
 	// LoseClosedFraction: if more than this fraction of hexes have closed, the
 	// game is lost.
 	LoseClosedFraction = 0.5
-
-	// maxForecastHorizon bounds the macro forecast horizon fed to
-	// forecast.Simulate. Beyond this, make([]float64, years) in EstimateGrowth
-	// is an OOM/overflow risk with no analytical value; an out-of-range horizon
-	// is treated as "no result" (see insolvencyFromForecast).
-	maxForecastHorizon = 1000
 )
 
 // --- Config: the JSON contract decoded from the browser at gameInit ---
@@ -145,9 +139,9 @@ type Game struct {
 	// the "can't afford anything" (out-of-funds) test in StateJSON.
 	minTierCost float64
 
-	// macro-forecast inputs (for SetBudget's insolvency recompute)
-	cohorts    []CohortConfig
-	growthRate float64
+	// macro is the macro forecast's inputs, re-run at the current budgetRate
+	// by recomputeInsolvency. cycleYears is its treatment cycle, resolved.
+	macro      forecast.Inputs
 	cycleYears float64
 
 	// cached macro insolvency headline
@@ -168,19 +162,55 @@ type Game struct {
 	insolvencyAt float64
 }
 
-// New validates cfg and builds a Game. It returns error (not a concrete type)
-// per byob-errors.5. Validation (byob-input-validation.2) rejects empty hexes,
-// non-positive k, negative road_area, non-positive horizon, and empty cost_tiers.
-//
-// Starting PCI per hex is initial_pci offset by a *deterministic* jitter derived
-// from an FNV hash of the hex id (range [-pci_jitter, +pci_jitter], clamped to
-// [0,100]). No global math/rand is used, so runs and tests are reproducible.
+// inputNames is what the game's JSON calls the inputs forecast.Inputs
+// validates, where the key differs from the forecast package's name.
+var inputNames = map[string]string{
+	forecast.FieldYears:  "horizon_years",
+	forecast.FieldBudget: "starting_budget",
+}
+
+// forecastInputs is the macro forecast's view of cfg at the given annual
+// budget: what New validates and what insolvencyFromForecast simulates. The
+// cost overhead is left unset because the game prices bare (see
+// insolvencyFromForecast).
+func (cfg Config) forecastInputs(budget float64) forecast.Inputs {
+	raw := make([]forecast.RawCohort, len(cfg.Cohorts))
+	for i, c := range cfg.Cohorts {
+		raw[i] = forecast.RawCohort{
+			Classification: c.Classification,
+			Area:           c.Area,
+			DecayRate:      c.DecayRate,
+		}
+	}
+	return forecast.Inputs{
+		InitialPCI: cfg.InitialPCI,
+		GrowthRate: cfg.GrowthRate,
+		Years:      cfg.HorizonYears,
+		Budget:     budget,
+		CycleYears: cfg.TreatmentCycleYears,
+		CostTiers:  cfg.CostTiers,
+		Cohorts:    raw,
+	}
+}
+
+// noDebt is the game's funding rule: there is no debt model, so a negative
+// annual rate is no funding at all rather than a drain on the treasury.
+func noDebt(rate float64) float64 {
+	if rate < 0 {
+		return 0
+	}
+	return rate
+}
+
 // validateConfig rejects the untrusted JS->WASM Config before New trusts it.
-// finite guards come FIRST on every float: a bare `<= 0` / `< 0` comparison lets
-// NaN and ±Inf slip through (all comparisons against NaN are false), and a
-// non-finite value poisons treasury, per-hex PCI, and the forecast core
-// irrecoverably. (ProjectInsolvency reaches the forecast core without New, so it
-// re-guards the same numerics at insolvencyFromForecast.)
+// The forecast inputs are held to forecast.Inputs.Validate, the bounds a
+// pvmt.toml is loaded under, so the seed an export wrote always starts a game.
+// The rest are the game's own: a board, at least one cost tier (the treatments
+// on offer), the jitter, and a finite budget.
+//
+// Each float check is written so NaN and ±Inf fail it: a bare `<= 0` / `< 0`
+// lets NaN through (all comparisons against NaN are false), and a non-finite
+// value poisons treasury, per-hex PCI, and the forecast core irrecoverably.
 func validateConfig(cfg Config) error {
 	if len(cfg.Hexes) == 0 {
 		return errors.New("game: config has no hexes")
@@ -188,53 +218,22 @@ func validateConfig(cfg Config) error {
 	if len(cfg.CostTiers) == 0 {
 		return errors.New("game: cost_tiers must be non-empty")
 	}
-	if err := validateConfigScalars(cfg); err != nil {
-		return err
-	}
-	return validateConfigCollections(cfg)
-}
-
-// validateConfigScalars checks the top-level float fields. finite guards come
-// first: a bare `<= 0` / `< 0` lets NaN and ±Inf through (all NaN comparisons
-// are false), and a non-finite value poisons treasury/PCI/the forecast core.
-func validateConfigScalars(cfg Config) error {
-	if !finite(cfg.HorizonYears) || cfg.HorizonYears <= 0 {
-		return fmt.Errorf("game: horizon_years must be finite and > 0, got %g", cfg.HorizonYears)
-	}
-	if !finite(cfg.InitialPCI) || cfg.InitialPCI < 0 || cfg.InitialPCI > 100 {
-		return fmt.Errorf("game: initial_pci must be finite in [0,100], got %g", cfg.InitialPCI)
-	}
 	if !finite(cfg.PCIJitter) || cfg.PCIJitter < 0 {
 		return fmt.Errorf("game: pci_jitter must be finite and >= 0, got %g", cfg.PCIJitter)
 	}
 	if !finite(cfg.StartingBudget) {
 		return fmt.Errorf("game: starting_budget must be finite, got %g", cfg.StartingBudget)
 	}
-	if !finite(cfg.GrowthRate) {
-		return fmt.Errorf("game: growth_rate must be finite, got %g", cfg.GrowthRate)
+	if err := cfg.forecastInputs(noDebt(cfg.StartingBudget)).Validate(inputNames); err != nil {
+		return fmt.Errorf("game: %w", err)
 	}
-	// Mirrors config.ForecastConfig.Validate: 0 means "use the forecast default"
-	// (ResolveCycleYears), and a positive but sub-annual cycle makes the 1/N
-	// gating in Simulate exceed the whole network — eligibleFrac = 1/1e-9 = 1e9
-	// declares insolvency in year 1 at ANY budget. ResolveCycleYears only rejects
-	// <= 0, so it does not catch that band.
-	if !finite(cfg.TreatmentCycleYears) ||
-		(cfg.TreatmentCycleYears != 0 && (cfg.TreatmentCycleYears < 1 || cfg.TreatmentCycleYears > 40)) {
-		return fmt.Errorf("game: treatment_cycle_years %g out of range (1-40, or 0 for default)", cfg.TreatmentCycleYears)
-	}
-	return nil
+	return validateHexes(cfg.Hexes)
 }
 
-// validateConfigCollections checks the per-tier, per-hex, and per-cohort fields.
-func validateConfigCollections(cfg Config) error {
-	for i, t := range cfg.CostTiers {
-		// A negative or non-finite cost_per_sqm lets treatOne ADD to the treasury
-		// (money-printing) and corrupts the loss-backlog ceiling.
-		if !finite(t.CostPerSqM) || t.CostPerSqM < 0 {
-			return fmt.Errorf("game: cost_tier %d (%q) has invalid cost_per_sqm %g (want finite >= 0)", i, t.Label, t.CostPerSqM)
-		}
-	}
-	for i, h := range cfg.Hexes {
+// validateHexes checks the board: every hex has an id, a positive decay rate
+// and a non-negative road area.
+func validateHexes(hexes []HexConfig) error {
+	for i, h := range hexes {
 		if h.ID == "" {
 			return fmt.Errorf("game: hex %d has empty id", i)
 		}
@@ -245,17 +244,14 @@ func validateConfigCollections(cfg Config) error {
 			return fmt.Errorf("game: hex %q has invalid road_area %g (want finite >= 0)", h.ID, h.RoadArea)
 		}
 	}
-	for i, c := range cfg.Cohorts {
-		if !finite(c.Area) || c.Area < 0 {
-			return fmt.Errorf("game: cohort %d (%q) has invalid area %g (want finite >= 0)", i, c.Classification, c.Area)
-		}
-		if !finite(c.DecayRate) || c.DecayRate < 0 {
-			return fmt.Errorf("game: cohort %d (%q) has invalid decay_rate %g (want finite >= 0)", i, c.Classification, c.DecayRate)
-		}
-	}
 	return nil
 }
 
+// New validates cfg (validateConfig) and builds a Game.
+//
+// Starting PCI per hex is initial_pci offset by a *deterministic* jitter derived
+// from an FNV hash of the hex id (range [-pci_jitter, +pci_jitter], clamped to
+// [0,100]). No global math/rand is used, so runs and tests are reproducible.
 func New(cfg Config) (*Game, error) {
 	if err := validateConfig(cfg); err != nil {
 		return nil, err
@@ -264,13 +260,7 @@ func New(cfg Config) (*Game, error) {
 	tiers := make([]forecast.CostTier, len(cfg.CostTiers))
 	copy(tiers, cfg.CostTiers)
 
-	// Clamp a negative StartingBudget to 0, matching SetBudget's no-debt clamp
-	// (there is no debt model — a negative rate must not bleed the treasury below
-	// zero over ticks, and a negative seed treasury is likewise nonsensical).
-	startBudget := cfg.StartingBudget
-	if startBudget < 0 {
-		startBudget = 0
-	}
+	startBudget := noDebt(cfg.StartingBudget)
 
 	g := &Game{
 		treasury:   startBudget,
@@ -281,8 +271,7 @@ func New(cfg Config) (*Game, error) {
 		cost:       &forecast.TieredCostProjector{Tiers: tiers},
 		tiers:      tiers,
 		initialPCI: cfg.InitialPCI,
-		cohorts:    cfg.Cohorts,
-		growthRate: cfg.GrowthRate,
+		macro:      cfg.forecastInputs(startBudget),
 		cycleYears: forecast.ResolveCycleYears(cfg.TreatmentCycleYears),
 	}
 
@@ -449,24 +438,20 @@ func (g *Game) treatOne(hexID, tier string) bool {
 // by running the real forecast engine (worst-first, current cohorts, this rate).
 func (g *Game) SetBudget(rate float64) {
 	// Ignore non-finite rates: a NaN/Inf rate would poison the treasury on the
-	// next Tick (treasury += budgetRate*dt). There is no debt model in the game,
-	// so a negative rate is clamped to 0 rather than bleeding the treasury below
-	// zero over ticks.
+	// next Tick (treasury += budgetRate*dt).
 	if !finite(rate) {
 		return
 	}
-	if rate < 0 {
-		rate = 0
-	}
-	g.budgetRate = rate
+	g.budgetRate = noDebt(rate)
 	g.recomputeInsolvency()
 }
 
 // recomputeInsolvency runs forecast.Simulate (worst-first) with the configured
 // cohorts at the current budgetRate and caches InsolvencyYear's verdict.
 func (g *Game) recomputeInsolvency() {
-	g.insolvencyYear, g.insolvencyOK = insolvencyFromForecast(
-		g.cohorts, g.initialPCI, g.growthRate, g.tiers, g.cycleYears, g.horizon, g.budgetRate)
+	in := g.macro
+	in.Budget = g.budgetRate
+	g.insolvencyYear, g.insolvencyOK = insolvencyFromForecast(in)
 }
 
 // ProjectInsolvency runs the same worst-first macro forecast as
@@ -476,73 +461,31 @@ func (g *Game) recomputeInsolvency() {
 // year (year, true) or (0, false) when the network stays solvent through the
 // horizon. cfg.Hexes is ignored, so no validation/New is required.
 func ProjectInsolvency(cfg Config) (year int, ok bool) {
-	return insolvencyFromForecast(
-		cfg.Cohorts, cfg.InitialPCI, cfg.GrowthRate, cfg.CostTiers,
-		forecast.ResolveCycleYears(cfg.TreatmentCycleYears), cfg.HorizonYears, cfg.StartingBudget)
+	return insolvencyFromForecast(cfg.forecastInputs(noDebt(cfg.StartingBudget)))
 }
 
 // insolvencyFromForecast is the shared forecast core behind recomputeInsolvency
-// (live) and ProjectInsolvency (pregame preview): it builds the cohorts, runs
-// forecast.Simulate worst-first at the given annual budget over the horizon, and
-// returns InsolvencyYear's verdict. An empty cohort set is treated as solvent
+// (live) and ProjectInsolvency (pregame preview): it spreads the cohorts, runs
+// forecast.Simulate worst-first at in.Budget over the horizon, and returns
+// InsolvencyYear's verdict. An empty cohort set is treated as solvent
 // (0, false) — there is nothing to forecast.
-func insolvencyFromForecast(cohortCfgs []CohortConfig, initialPCI, growthRate float64, tiers []forecast.CostTier, cycleYears, horizon, budget float64) (int, bool) {
-	if len(cohortCfgs) == 0 {
+//
+// ProjectInsolvency reaches here straight from an untrusted Config (the WASM
+// gameProjectInsolvency export) without going through New, so the inputs are
+// validated here too, against the same bounds. Inputs outside them return the
+// "no result" signal (0, false) rather than a garbage preview or, for the
+// horizon, a crash: forecast.Simulate allocates per year, so a non-positive
+// horizon panics and a huge one exhausts the WASM runtime.
+func insolvencyFromForecast(in forecast.Inputs) (int, bool) {
+	if len(in.Cohorts) == 0 || in.Validate(nil) != nil {
 		return 0, false
-	}
-	// Bound the horizon BEFORE the int() conversion below. forecast.Simulate ->
-	// EstimateGrowth does make([]float64, years): a non-positive horizon panics
-	// (negative make), and a huge/overflowing finite value OOMs or overflows the
-	// int cast. This is the single chokepoint for both callers (recomputeInsolvency
-	// with a New-validated but possibly huge g.horizon, and ProjectInsolvency with
-	// a fully untrusted cfg.HorizonYears), so an out-of-range horizon returns the
-	// "no result" signal (0, false) rather than crashing the WASM runtime.
-	if !finite(horizon) || horizon <= 0 || horizon > maxForecastHorizon {
-		return 0, false
-	}
-	// ProjectInsolvency reaches here straight from an untrusted Config (the WASM
-	// gameProjectInsolvency export) WITHOUT going through New, so re-guard the
-	// remaining numerics at this shared chokepoint. A non-finite/out-of-range
-	// input can't crash (the output is year|null, no float is marshaled), but it
-	// would yield a silently garbage preview. Treat bad input as "no result"
-	// (0, false), consistent with the horizon guard above. For the live-game
-	// caller these are always-true no-ops — New already validated the same fields.
-	if !finite(initialPCI) || initialPCI < 0 || initialPCI > 100 || !finite(growthRate) || !finite(budget) {
-		return 0, false
-	}
-	// cycleYears arrives already through ResolveCycleYears, which only maps <= 0
-	// to the default — a tiny positive value survives it. Simulate computes
-	// eligibleFrac = 1/cycleYears, so 1e-9 makes the whole network eligible 1e9
-	// times over and reports insolvency in year 1 regardless of budget. Bound it
-	// to the same [1,40] band config.ForecastConfig.Validate enforces; post-Resolve
-	// the unset case is already DefaultTreatmentCycleYears, so < 1 is the floor.
-	if !finite(cycleYears) || cycleYears < 1 || cycleYears > 40 {
-		return 0, false
-	}
-	for _, t := range tiers {
-		if !finite(t.CostPerSqM) || t.CostPerSqM < 0 {
-			return 0, false
-		}
-	}
-	for _, c := range cohortCfgs {
-		if !finite(c.Area) || c.Area < 0 || !finite(c.DecayRate) || c.DecayRate < 0 {
-			return 0, false
-		}
-	}
-	raw := make([]forecast.RawCohort, len(cohortCfgs))
-	for i, c := range cohortCfgs {
-		raw[i] = forecast.RawCohort{
-			Classification: c.Classification,
-			Area:           c.Area,
-			DecayRate:      c.DecayRate,
-		}
 	}
 	// SpreadCohorts spreads the single mean InitialPCI into a condition
 	// distribution, through the same constructor as export, the WASM bridge and
 	// the CLI. The flat single-average model understates program cost ~32-37%
-	// (condition.go), so the game's insolvency headline must not skip it. Both
-	// callers pass raw CohortConfigs, so the spread is applied exactly once.
-	cohorts := forecast.SpreadCohorts(raw, initialPCI)
+	// (condition.go), so the game's insolvency headline must not skip it.
+	cohorts := forecast.SpreadCohorts(in.Cohorts, in.InitialPCI)
+	cycleYears := forecast.ResolveCycleYears(in.CycleYears)
 	// Overhead 1.0 (bare) deliberately, NOT config.DefaultCostOverhead.
 	//
 	// The game prices work through two different paths: backlog accrues via
@@ -558,13 +501,13 @@ func insolvencyFromForecast(cohortCfgs []CohortConfig, initialPCI, growthRate fl
 	// Making the game genuinely overhead-aware means scaling all four sites
 	// together and plumbing the value through forecast_seed.json, which
 	// game.js does not carry today. Tracked as solvent-streets-0mc9.
-	params := forecast.NewParams(growthRate, tiers, cycleYears, 1)
+	params := forecast.NewParams(in.GrowthRate, in.CostTiers, cycleYears, 1)
 	scenario := forecast.Scenario{
 		Name:         "game",
-		AnnualBudget: budget,
+		AnnualBudget: in.Budget,
 		Strategy:     forecast.StrategyWorstFirst,
 	}
-	result := forecast.Simulate(scenario, cohorts, int(horizon), params)
+	result := forecast.Simulate(scenario, cohorts, int(in.Years), params)
 	return forecast.InsolvencyYear(result, cycleYears)
 }
 

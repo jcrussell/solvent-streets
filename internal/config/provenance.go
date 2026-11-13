@@ -208,7 +208,7 @@ func (c *Config) resolveForecast(city *CityConfig) (ForecastConfig, forecastProv
 
 func fileForecastProv(fc *ForecastConfig) forecastProvenance {
 	var p forecastProvenance
-	if fc.InitialPCI > 0 && fc.InitialPCI <= 100 {
+	if ValidInitialPCI(fc.InitialPCI) {
 		p.InitialPCI = Source{Kind: SourceFile, Detail: "forecast.initial_pci"}
 	}
 	if fc.DecayRate > 0 {
@@ -246,7 +246,7 @@ func applyCityForecastProv(fc *ForecastConfig, p *forecastProvenance, city *City
 	}
 	slug := city.Slug()
 	ov := city.Forecast
-	if ov.InitialPCI > 0 && ov.InitialPCI <= 100 {
+	if ValidInitialPCI(ov.InitialPCI) {
 		fc.InitialPCI = ov.InitialPCI
 		p.InitialPCI = Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].forecast.initial_pci", slug)}
 	}
@@ -286,7 +286,7 @@ func applyCityForecastProv(fc *ForecastConfig, p *forecastProvenance, city *City
 }
 
 func applyEnvForecastProv(fc *ForecastConfig, p *forecastProvenance) {
-	if n, ok := parsePositiveIntEnv("PVMT_FORECAST_YEARS"); ok {
+	if n, ok := parseYearsEnv("PVMT_FORECAST_YEARS"); ok {
 		fc.Years = n
 		p.Years = Source{Kind: SourceEnv, Detail: "PVMT_FORECAST_YEARS"}
 	}
@@ -296,13 +296,14 @@ func applyEnvForecastProv(fc *ForecastConfig, p *forecastProvenance) {
 	}
 }
 
+// applyDefaultForecastProv fills the forecast defaults (applyForecastDefaults)
+// and labels every field no layer supplied as SourceDefault.
 func applyDefaultForecastProv(fc *ForecastConfig, p *forecastProvenance) {
-	if fc.InitialPCI <= 0 || fc.InitialPCI > 100 {
-		fc.InitialPCI = DefaultInitialPCI
+	d := applyForecastDefaults(fc)
+	if d.InitialPCI {
 		p.InitialPCI = Source{Kind: SourceDefault}
 	}
-	if fc.Years <= 0 {
-		fc.Years = DefaultForecastYears
+	if d.Years {
 		p.Years = Source{Kind: SourceDefault}
 	}
 	if (p.DecayRate == Source{}) {
@@ -326,8 +327,7 @@ func applyDefaultForecastProv(fc *ForecastConfig, p *forecastProvenance) {
 	// the forecast core reads a zero overhead as bare (1.0) on purpose, so a
 	// default applied there would silently load every directly-constructed
 	// projector. See ForecastConfig.ResolvedCostOverhead.
-	if fc.CostOverhead <= 0 {
-		fc.CostOverhead = DefaultCostOverhead
+	if d.CostOverhead {
 		p.CostOverhead = Source{Kind: SourceDefault}
 	}
 }
@@ -341,9 +341,8 @@ func applyDefaultForecastProv(fc *ForecastConfig, p *forecastProvenance) {
 // forecast.growth_rate, forecast.cost_tiers, export.*) are visible in
 // the default TOML output and would be misleading here: decay_rate and
 // cost_tiers pull their zero-value defaults from the forecast package
-// downstream of config, so config can't report the effective value
-// without importing forecast, and the existing layering keeps those
-// packages decoupled.
+// downstream of config resolution, so the value config holds for them is
+// not the effective one.
 //
 // Fields are emitted in a stable order: top-level first, then one block
 // per city containing only the fields that city explicitly overrides.
@@ -422,7 +421,7 @@ func (c *Config) Resolve(flagUnits string) []ResolvedField {
 		if city.Forecast == nil {
 			continue
 		}
-		if city.Forecast.InitialPCI > 0 && city.Forecast.InitialPCI <= 100 {
+		if ValidInitialPCI(city.Forecast.InitialPCI) {
 			fields = append(fields, ResolvedField{
 				Key:    fmt.Sprintf("cities[%s].forecast.initial_pci", slug),
 				Value:  city.Forecast.InitialPCI,

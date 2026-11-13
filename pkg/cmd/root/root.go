@@ -10,6 +10,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/build"
 	"github.com/jcrussell/solvent-streets/internal/config"
+	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/logs"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/all"
@@ -80,8 +81,8 @@ func warnInvalidEnv(_ *cobra.Command, f *cmdutil.Factory) error {
 		switch {
 		case err != nil:
 			warnf("PVMT_FORECAST_YEARS=%q is not a valid integer", v)
-		case n <= 0:
-			warnf("PVMT_FORECAST_YEARS=%q must be > 0", v)
+		case n <= 0 || n > forecast.MaxHorizonYears:
+			warnf("PVMT_FORECAST_YEARS=%q must be between 1 and %d", v, forecast.MaxHorizonYears)
 		}
 	}
 	if v, ok := os.LookupEnv("PVMT_HEX_EDGE_M"); ok && v != "" {
@@ -109,11 +110,9 @@ func warnInvalidEnv(_ *cobra.Command, f *cmdutil.Factory) error {
 		switch {
 		case err != nil:
 			warnf("PVMT_FORECAST_INITIAL_PCI=%q is not a valid number", v)
-		// Same ordering, and here NaN is the one that escapes: it is false
-		// against both `<= 0` and `> 100`.
 		case nonFiniteEnv(n):
 			warnf("PVMT_FORECAST_INITIAL_PCI=%q must be a finite number", v)
-		case n <= 0 || n > 100:
+		case !config.ValidInitialPCI(n):
 			warnf("PVMT_FORECAST_INITIAL_PCI=%q must be in (0, 100]", v)
 		}
 	}

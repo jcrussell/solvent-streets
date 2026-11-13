@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/jcrussell/solvent-streets/internal/forecast"
 )
 
 func TestForecastConfig_Validate_RejectsBad(t *testing.T) {
@@ -18,14 +20,15 @@ func TestForecastConfig_Validate_RejectsBad(t *testing.T) {
 		"growth too high":     {GrowthRate: 1.5},
 		"growth too negative": {GrowthRate: -1.0},
 		"years negative":      {Years: -1},
+		"years over maximum":  {Years: forecast.MaxHorizonYears + 1},
 		"tier negative cost":  {CostTiers: []CostTierCfg{{MinPCI: 0, MaxPCI: 40, CostPerSqM: -5, Label: "x"}}},
 		"tier zero cost":      {CostTiers: []CostTierCfg{{MinPCI: 0, MaxPCI: 40, CostPerSqM: 0, Label: "x"}}},
 		"tier inverted band":  {CostTiers: []CostTierCfg{{MinPCI: 70, MaxPCI: 40, CostPerSqM: 5, Label: "x"}}},
 		"tier min negative":   {CostTiers: []CostTierCfg{{MinPCI: -1, MaxPCI: 40, CostPerSqM: 5, Label: "x"}}},
 		"tier max over 101":   {CostTiers: []CostTierCfg{{MinPCI: 0, MaxPCI: 150, CostPerSqM: 5, Label: "x"}}},
-		// Every check in validateCostTiers is an ordered comparison, so NaN was
-		// false against all four and a NaN tier loaded clean — then killed
-		// `pvmt export` at json.Marshal, after ingest and compute had run.
+		// NaN is false against every ordered comparison, so a tier check
+		// written as one admits it, and a NaN tier kills `pvmt export` at
+		// json.Marshal, after ingest and compute have run.
 		"tier NaN cost":    {CostTiers: []CostTierCfg{{MinPCI: 0, MaxPCI: 40, CostPerSqM: math.NaN(), Label: "x"}}},
 		"tier +Inf cost":   {CostTiers: []CostTierCfg{{MinPCI: 0, MaxPCI: 40, CostPerSqM: math.Inf(1), Label: "x"}}},
 		"tier NaN min":     {CostTiers: []CostTierCfg{{MinPCI: math.NaN(), MaxPCI: 40, CostPerSqM: 5, Label: "x"}}},
@@ -78,6 +81,10 @@ func TestForecastConfig_Validate_AcceptsOK(t *testing.T) {
 	zero := ForecastConfig{}
 	if err := zero.Validate(); err != nil {
 		t.Errorf("zero values must be allowed (used as 'default' sentinels): %v", err)
+	}
+	longest := ForecastConfig{Years: forecast.MaxHorizonYears}
+	if err := longest.Validate(); err != nil {
+		t.Errorf("the maximum horizon must be allowed: %v", err)
 	}
 }
 
@@ -774,6 +781,47 @@ func TestConfig_Validate_Services(t *testing.T) {
 		}
 		if !errors.Is(err, ErrInvalidConfig) {
 			t.Errorf("%s: %v does not chain to ErrInvalidConfig", name, err)
+		}
+	}
+}
+
+// TestForecastConfig_Validate_NamesTheTOMLKey pins the wording a user reads:
+// the bounds are the forecast package's, the key is pvmt.toml's.
+func TestForecastConfig_Validate_NamesTheTOMLKey(t *testing.T) {
+	cases := []struct {
+		fc   ForecastConfig
+		want string
+	}{
+		{ForecastConfig{InitialPCI: 200}, "forecast.initial_pci 200 out of range (0-100)"},
+		{ForecastConfig{Years: 500}, "forecast.years 500 out of range (1-200)"},
+		{ForecastConfig{CurrentBudget: -1}, "forecast.current_budget -1 must be a non-negative finite number"},
+		{ForecastConfig{TreatmentCycleYears: 50}, "forecast.treatment_cycle_years 50 out of range (1-40, or 0 for default)"},
+		{
+			ForecastConfig{CostTiers: []CostTierCfg{{MinPCI: 0, MaxPCI: 40, CostPerSqM: 0, Label: "x"}}},
+			"forecast.cost_tiers[0] (x): cost_per_sqm 0 must be a positive finite number",
+		},
+	}
+	for _, tc := range cases {
+		err := tc.fc.Validate()
+		if err == nil || err.Error() != tc.want {
+			t.Errorf("Validate() = %v, want %q", err, tc.want)
+		}
+	}
+}
+
+// TestValidInitialPCI pins the one test of "this layer states a starting
+// PCI" that the file, city, env and default layers all read.
+func TestValidInitialPCI(t *testing.T) {
+	for v, want := range map[float64]bool{
+		0: false, -1: false, 0.5: true, 85: true, 100: true, 100.5: false,
+	} {
+		if got := ValidInitialPCI(v); got != want {
+			t.Errorf("ValidInitialPCI(%g) = %v, want %v", v, got, want)
+		}
+	}
+	for _, v := range []float64{math.NaN(), math.Inf(1)} {
+		if ValidInitialPCI(v) {
+			t.Errorf("ValidInitialPCI(%g) = true, want false", v)
 		}
 	}
 }

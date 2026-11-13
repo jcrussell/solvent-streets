@@ -38,7 +38,7 @@ fields that differ.
 |---|---|
 | `PVMT_UNITS` | `[display].units` (`metric` or `imperial`) |
 | `PVMT_HEX_EDGE_M` | `hex_edge_m` (meters, minimum 10) |
-| `PVMT_FORECAST_YEARS` | `[forecast].years` |
+| `PVMT_FORECAST_YEARS` | `[forecast].years` (1–200) |
 | `PVMT_FORECAST_INITIAL_PCI` | `[forecast].initial_pci` |
 | `PVMT_LOG` | the log level (`debug`, `info`, `warn`, `error`; default `warn`) |
 
@@ -221,7 +221,7 @@ Every setting except `years` goes in `[forecast]` or a city's `[cities.forecast]
 | `initial_pci` | 85 | (0, 100] | the network's average starting condition ([Data sources](../internal/export/docs/methodology.md#data-sources)) |
 | `decay_rate` | per class | 0–1 | the decay rate of a typical road; every road class scales with it, and parking and sidewalks keep their own rates ([Decay model](../internal/export/docs/methodology.md#decay-model)) |
 | `growth_rate` | 0 | −0.5–0.5 | linear annual growth of paved area; a per-city `0` overrides the top level ([Area growth](../internal/export/docs/methodology.md#area-growth)) |
-| `years` | 30 | ≥ 0 | the forecast horizon, one per config |
+| `years` | 30 | 1–200 | the forecast horizon, one per config |
 | `cost_tiers` | 3 tiers | PCI 0–101 | treatment cost per m² by PCI band ([Cost model](../internal/export/docs/methodology.md#cost-model)) |
 | `cost_overhead` | 1.0 | 0–5 | a multiplier on every tier ([Bare construction cost vs. loaded program cost](../internal/export/docs/methodology.md#bare-construction-cost-vs-loaded-program-cost)) |
 | `treatment_cycle_years` | 12 | 1–40 | the share of the network treated per year, 1/N ([Treatment cycle](../internal/export/docs/methodology.md#treatment-cycle)) |
@@ -232,7 +232,9 @@ A tier is one `[[forecast.cost_tiers]]` table with `min_pci`, `max_pci`,
 must be positive and the label must not be empty. Setting tiers replaces the
 road defaults entirely, and sidewalks are priced at 0.6× the same tiers
 ([Cost model](../internal/export/docs/methodology.md#cost-model)).
-Except for `growth_rate`, a `0` means "use the default". The default tiers and
+Except for `growth_rate`, a `0` means "use the default". The browser forecast
+and Play check the exported settings against these same ranges, so a config
+that loads exports a site whose forecast runs. The default tiers and
 cycle are calibrated together against published city figures. The evidence is
 in [validation.md](validation.md#6-how-the-cost-and-cycle-are-anchored), and
 it is why `cost_overhead` defaults to 1.0.

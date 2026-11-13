@@ -13,6 +13,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
+	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/units"
 )
 
@@ -328,79 +329,42 @@ func (fc *ForecastConfig) GrowthRateSet() bool { return fc != nil && fc.growthRa
 // layer (see the geo.HexGrid guard).
 func nonFinite(v float64) bool { return math.IsNaN(v) || math.IsInf(v, 0) }
 
-// Validate rejects obviously-wrong forecast inputs at config-load time
-// per byob-input-validation.2. Zero values are allowed for fields whose
-// comment says "0 means default" (InitialPCI, DecayRate, Years);
-// NormalizeForecast fills those in. GrowthRate has no default sentinel
-// so 0 is a legitimate "no growth" value.
-//
-// Every float check is paired with nonFinite: a bare range comparison admits
-// NaN, because all comparisons against NaN are false. cost_overhead's check is
-// the exception that needs no pairing — its `!(x > 0 && x <= 5)` form already
-// rejects NaN.
-func (fc *ForecastConfig) Validate() error {
-	if nonFinite(fc.InitialPCI) || fc.InitialPCI < 0 || fc.InitialPCI > 100 {
-		return fmt.Errorf("forecast.initial_pci %g out of range (0-100)", fc.InitialPCI)
-	}
-	if nonFinite(fc.DecayRate) || fc.DecayRate < 0 || fc.DecayRate > 1 {
-		return fmt.Errorf("forecast.decay_rate %g out of range (0-1)", fc.DecayRate)
-	}
-	if nonFinite(fc.GrowthRate) || fc.GrowthRate < -0.5 || fc.GrowthRate > 0.5 {
-		return fmt.Errorf("forecast.growth_rate %g out of range (-0.5 to 0.5)", fc.GrowthRate)
-	}
-	if fc.Years < 0 {
-		return fmt.Errorf("forecast.years %d must be non-negative", fc.Years)
-	}
-	if nonFinite(fc.CurrentBudget) || fc.CurrentBudget < 0 {
-		return fmt.Errorf("forecast.current_budget %g must be a non-negative finite number", fc.CurrentBudget)
-	}
-	// 0 means "use DefaultCostOverhead". A negative or NaN multiplier would
-	// produce negative or blank dollar figures with nothing to flag them, and a
-	// value above 5 is past any documented load stack (Berkeley's is ~1.5, and
-	// its note about small systems running 25-50% higher tops out well under 3)
-	// — far more likely a decimal slip or a value typed as a percentage.
-	if fc.CostOverhead != 0 && !(fc.CostOverhead > 0 && fc.CostOverhead <= 5) {
-		return fmt.Errorf("forecast.cost_overhead %g out of range (0 = default, else 0-5)", fc.CostOverhead)
-	}
-	// 0 means "use default"; a positive but sub-annual cycle (<1) would make the
-	// 1/N gating exceed the full network, and an implausibly long cycle (>40 yr)
-	// is almost certainly a typo. The forecast core resolves 0 to the default.
-	if nonFinite(fc.TreatmentCycleYears) ||
-		(fc.TreatmentCycleYears != 0 && (fc.TreatmentCycleYears < 1 || fc.TreatmentCycleYears > 40)) {
-		return fmt.Errorf("forecast.treatment_cycle_years %g out of range (1-40, or 0 for default)", fc.TreatmentCycleYears)
-	}
-	return validateCostTiers(fc.CostTiers)
+// forecastInputNames is what pvmt.toml calls the inputs forecast.Inputs
+// validates, where the key differs from the forecast package's name.
+var forecastInputNames = map[string]string{
+	forecast.FieldBudget: "current_budget",
 }
 
-// validateCostTiers rejects degenerate custom cost tiers. They feed buildAnchors'
-// midpoint interpolation directly, so a negative cost, an inverted band, or an
-// out-of-range bound silently produces wrong dollar figures (overlap and coverage
-// gaps are intentionally left to the operator). Split out of Validate to keep its
-// cognitive complexity in check.
+// Validate rejects forecast settings outside the bounds the forecast package
+// states (forecast.Inputs.Validate), naming the TOML key. Zero is allowed for
+// the fields where it means "use the default" (initial_pci, decay_rate, years,
+// treatment_cycle_years, cost_overhead); growth_rate has no such sentinel, so
+// its 0 is a legitimate "no growth".
 //
-// All three floats are nonFinite-guarded for the same reason every other float
-// bound in this package is: NaN is false against every ordered comparison here,
-// so `cost_per_sqm <= 0`, `min_pci < 0`, `max_pci > 101` and `min_pci >= max_pci`
-// all admit it. A NaN tier price loads clean and reaches the seed, where
-// json.Marshal kills `pvmt export` with "unsupported value: NaN" — after the
-// user has already run ingest and compute.
-func validateCostTiers(tiers []CostTierCfg) error {
-	for i, t := range tiers {
-		if nonFinite(t.CostPerSqM) || t.CostPerSqM <= 0 {
-			return fmt.Errorf("forecast.cost_tiers[%d] (%s): cost_per_sqm %g must be a positive finite number", i, t.Label, t.CostPerSqM)
-		}
-		if nonFinite(t.MinPCI) || nonFinite(t.MaxPCI) {
-			return fmt.Errorf("forecast.cost_tiers[%d] (%s): pci band [%g, %g) must be finite", i, t.Label, t.MinPCI, t.MaxPCI)
-		}
-		if t.MinPCI < 0 || t.MaxPCI > 101 {
-			return fmt.Errorf("forecast.cost_tiers[%d] (%s): pci band [%g, %g) out of range (0-101)", i, t.Label, t.MinPCI, t.MaxPCI)
-		}
-		if t.MinPCI >= t.MaxPCI {
-			return fmt.Errorf("forecast.cost_tiers[%d] (%s): min_pci %g must be less than max_pci %g", i, t.Label, t.MinPCI, t.MaxPCI)
-		}
-		if t.Label == "" {
-			return fmt.Errorf("forecast.cost_tiers[%d]: label must not be empty", i)
-		}
+// The bounds are the forecast package's because the browser forecast and the
+// game validate the exported seed against the same ones: a config that loads
+// cannot export a seed they refuse.
+func (fc *ForecastConfig) Validate() error {
+	tiers := make([]forecast.CostTier, len(fc.CostTiers))
+	for i, t := range fc.CostTiers {
+		tiers[i] = forecast.CostTier{MinPCI: t.MinPCI, MaxPCI: t.MaxPCI, CostPerSqM: t.CostPerSqM, Label: t.Label}
+	}
+	in := forecast.Inputs{
+		InitialPCI:   fc.InitialPCI,
+		DecayRate:    fc.DecayRate,
+		GrowthRate:   fc.GrowthRate,
+		Years:        float64(fc.Years),
+		Budget:       fc.CurrentBudget,
+		CycleYears:   fc.TreatmentCycleYears,
+		CostOverhead: fc.CostOverhead,
+		CostTiers:    tiers,
+	}
+	// An unset horizon is the default one; a negative one stays out of range.
+	if fc.Years == 0 {
+		in.Years = DefaultForecastYears
+	}
+	if err := in.Validate(forecastInputNames); err != nil {
+		return fmt.Errorf("forecast.%w", err)
 	}
 	return nil
 }
@@ -574,18 +538,49 @@ func (c *Config) ResolvedForecast(city *CityConfig) ForecastConfig {
 	return fc
 }
 
-// NormalizeForecast fills unset or out-of-range InitialPCI and Years with
-// their package defaults. DecayRate, GrowthRate, and CostTiers carry
-// forecast-package defaults that config can't know about and are left to
-// the caller. Idempotent.
+// ValidInitialPCI reports whether v states a starting PCI, a value in
+// (0, forecast.MaxPCI]. Every layer reads anything else as unset: 0 is the
+// "use the default" sentinel, and a negative, above-scale or NaN value never
+// overrides the layer below it.
+func ValidInitialPCI(v float64) bool { return v > 0 && v <= forecast.MaxPCI }
+
+// horizonOrDefault is the forecast horizon a years setting stands for:
+// DefaultForecastYears when it is unset (<= 0).
+func horizonOrDefault(years int) int {
+	if years <= 0 {
+		return DefaultForecastYears
+	}
+	return years
+}
+
+// forecastDefaulted names the fields applyForecastDefaults filled.
+type forecastDefaulted struct {
+	InitialPCI, Years, CostOverhead bool
+}
+
+// applyForecastDefaults is the one default step for a forecast config: it
+// fills an unset or out-of-range InitialPCI, Years and CostOverhead with the
+// package defaults and reports which it filled. DecayRate, GrowthRate,
+// CostTiers and TreatmentCycleYears take their defaults in the forecast
+// package and are left alone. Idempotent.
+func applyForecastDefaults(fc *ForecastConfig) forecastDefaulted {
+	var d forecastDefaulted
+	if !ValidInitialPCI(fc.InitialPCI) {
+		fc.InitialPCI, d.InitialPCI = DefaultInitialPCI, true
+	}
+	if y := horizonOrDefault(fc.Years); y != fc.Years {
+		fc.Years, d.Years = y, true
+	}
+	if oh := fc.ResolvedCostOverhead(); oh != fc.CostOverhead {
+		fc.CostOverhead, d.CostOverhead = oh, true
+	}
+	return d
+}
+
+// NormalizeForecast applies the forecast defaults (applyForecastDefaults) to a
+// config that did not come through ResolvedForecast.
 func NormalizeForecast(fc *ForecastConfig) {
-	if fc.InitialPCI <= 0 || fc.InitialPCI > 100 {
-		fc.InitialPCI = DefaultInitialPCI
-	}
-	if fc.Years <= 0 {
-		fc.Years = DefaultForecastYears
-	}
-	fc.CostOverhead = fc.ResolvedCostOverhead()
+	applyForecastDefaults(fc)
 }
 
 // ResolvedCostOverhead is the effective loaded-cost multiplier: the configured
@@ -605,36 +600,36 @@ func (fc *ForecastConfig) ResolvedCostOverhead() float64 {
 	return fc.CostOverhead
 }
 
-// parsePositiveIntEnv returns the int value of envKey if it is set to a
-// string that parses as a positive integer, else (0, false).
-func parsePositiveIntEnv(envKey string) (int, bool) {
+// parseYearsEnv returns the int value of envKey if it is set to a string that
+// parses as a forecast horizon, an integer in [1, forecast.MaxHorizonYears],
+// else (0, false). The env layer never goes through Validate, so the horizon
+// bound is applied here.
+func parseYearsEnv(envKey string) (int, bool) {
 	s, ok := os.LookupEnv(envKey)
 	if !ok || s == "" {
 		return 0, false
 	}
 	n, err := strconv.Atoi(s)
-	if err != nil || n <= 0 {
+	if err != nil || n <= 0 || n > forecast.MaxHorizonYears {
 		return 0, false
 	}
 	return n, true
 }
 
-// parsePCIEnv returns the float value of envKey if it is set to a
-// string that parses as a float in (0, 100], else (0, false).
+// parsePCIEnv returns the float value of envKey if it is set to a string that
+// parses as a starting PCI (ValidInitialPCI), else (0, false).
 //
-// The nonFinite guard is not redundant with the range test. strconv.ParseFloat
-// accepts "nan", "inf" and "Infinity" with a nil error, and NaN is false against
-// both `<= 0` and `> 100` — so PVMT_FORECAST_INITIAL_PCI=nan was ACCEPTED here
-// and `pvmt forecast` printed "Initial PCI: NaN" with every dollar column NaN
-// and exit code 0. The file layer grew this guard in Validate; the env layer
-// needs its own, because it never goes through Validate.
+// strconv.ParseFloat accepts "nan", "inf" and "Infinity" with a nil error, and
+// the env layer never goes through Validate, so ValidInitialPCI is what keeps
+// PVMT_FORECAST_INITIAL_PCI=nan from printing "Initial PCI: NaN" with every
+// dollar column NaN and exit code 0.
 func parsePCIEnv(envKey string) (float64, bool) {
 	s, ok := os.LookupEnv(envKey)
 	if !ok || s == "" {
 		return 0, false
 	}
 	f, err := strconv.ParseFloat(s, 64)
-	if err != nil || nonFinite(f) || f <= 0 || f > 100 {
+	if err != nil || !ValidInitialPCI(f) {
 		return 0, false
 	}
 	return f, true
