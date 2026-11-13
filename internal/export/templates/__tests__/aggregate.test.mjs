@@ -1,0 +1,83 @@
+// The Aggregate tab's region figures, rendered through the real
+// extractMetrics -> renderAggregate path over the exporter's fixture files.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { load } from './harness.mjs';
+import { fullData, readFixture } from './fixtures.mjs';
+
+/**
+ * city is one element of the array renderAggregate consumes: the real fixture
+ * files, with `edit` free to change the fresh copies.
+ * @param {string} name
+ * @param {(c: any) => void} [edit]
+ */
+function city(name, edit) {
+  const c = {
+    slug: name.toLowerCase(),
+    name,
+    meta: readFixture('meta.json'),
+    scenarios: readFixture('scenarios.json'),
+    seed: readFixture('forecast_seed.json'),
+    forecast: readFixture('forecast.json'),
+  };
+  if (edit) edit(c);
+  return c;
+}
+
+/** @param {any[]} cities @param {string} [query] */
+async function page(cities, query = '') {
+  const h = load({ data: fullData, url: 'https://example.test/index.html' + query });
+  await h.flush();
+  h.win.renderAggregate(cities);
+  return h;
+}
+
+/** headline returns the value text of the Aggregate card whose label matches. */
+function headline(doc, label) {
+  const cards = Array.from(doc.querySelectorAll('#aggregate-headlines .headline-card'));
+  const hit = cards.find((c) => label.test(c.querySelector('.label').textContent));
+  assert.ok(hit, `no Aggregate card matches ${label}`);
+  return hit.querySelector('.value').textContent;
+}
+
+const dollars = (text) => parseFloat(text.replace(/[$,]/g, ''));
+
+// solvent-streets-lu32.19: the per-area need and the weighted PCI divide by
+// the area the scope's dollars cover, as Compare's per-area figures do.
+test('Year-1 need per acre divides the city-scope need by the city-maintained area', async () => {
+  // A city that maintains a tenth of the pavement inside its boundary: the
+  // city-scope need is over seed.city_paved, not the all-jurisdiction stats.
+  const mostlyState = city('Alpha', (c) => { c.seed.city_paved = c.seed.total_area / 10; });
+  const { win, doc } = await page([mostlyState]);
+
+  const need = mostlyState.scenarios.city[0].years[0].annual_need;
+  const want = need / win.toAreaLarge(mostlyState.seed.city_paved);
+  const statsArea = mostlyState.meta.stats.reduce((s, st) => s + win.toAreaLarge(st.total_area || 0), 0);
+  assert.ok(Math.abs(want - need / statsArea) > 1, 'fixture cannot tell the two denominators apart');
+  assert.equal(dollars(headline(doc, /^Year-1 Need per acre$/)), Math.round(want));
+
+  // Compare shows the same city at the same figure.
+  win.renderCompare([mostlyState, city('Beta')]);
+  const m = win.extractMetrics(mostlyState);
+  assert.equal(Math.round(m.year1PerAreaUnit), Math.round(want));
+});
+
+test('under ?scope=all the per-acre need divides by the all-jurisdiction area', async () => {
+  const c = city('Alpha', (x) => { x.seed.city_paved = x.seed.total_area / 10; });
+  const { win, doc } = await page([c], '?scope=all');
+  const want = c.scenarios.all[0].years[0].annual_need / win.toAreaLarge(c.seed.total_area);
+  assert.equal(dollars(headline(doc, /^Year-1 Need per acre$/)), Math.round(want));
+});
+
+test('Area-Weighted PCI weights each city by the area its PCI describes', async () => {
+  // Same published stats, but Beta maintains a tenth of what Alpha does, so
+  // Beta's poor condition carries a tenth of the weight.
+  const alpha = city('Alpha', (c) => { c.scenarios.city[0].years[0].pci = 80; });
+  const beta = city('Beta', (c) => {
+    c.scenarios.city[0].years[0].pci = 20;
+    c.seed.city_paved = alpha.seed.city_paved / 10;
+  });
+  const { doc } = await page([alpha, beta]);
+  const want = (80 * 1 + 20 * 0.1) / 1.1;
+  assert.equal(headline(doc, /^Area-Weighted PCI$/), want.toFixed(0));
+});

@@ -3866,6 +3866,25 @@
         });
         syncUnitsToggle();
 
+        // scopeAreaLarge is the paved area, in display large-area units, that a
+        // city's scope-selected forecast dollars and PCI cover: seed.city_paved
+        // under the city scope, else seed.total_area. It is the denominator of
+        // every per-area figure and the weight of the area-weighted PCI on
+        // Compare and Aggregate. m.totalAreaLarge is not that area: it sums
+        // meta.stats, which is all-jurisdiction and counts road/sidewalk/parking
+        // overlap once per resource, so under a city-scope numerator it
+        // understates the ratio for a city with a lot of state- or county-owned
+        // network. It stands in only for a city whose seed carries no area.
+        function scopeAreaLarge(city, m) {
+            var sqm = 0;
+            if (city.seed) {
+                sqm = (currentScope === 'city' && city.seed.city_paved)
+                    ? city.seed.city_paved
+                    : (city.seed.total_area || 0);
+            }
+            return sqm > 0 ? toAreaLarge(sqm) : m.totalAreaLarge;
+        }
+
         function extractMetrics(city) {
             var m = { name: city.name, slug: city.slug };
 
@@ -3947,25 +3966,14 @@
                 m.year1Need = 0; m.year20Need = 0; m.endBacklog = 0;
                 m.hasForecasts = false;
             }
-            // Divide the (scope-selected) year-1 need by an area in the SAME
-            // scope. m.totalAreaLarge sums meta.stats, which BuildMeta populates
-            // from bare all-jurisdiction compute rows, so using it with
-            // a city-scope numerator mixes scopes and understates the ratio for
-            // cities with lots of state/county-owned network. Use seed.city_paved
-            // when the city scope is active, else seed.total_area (both sq m, so
-            // convert to display large-area units to match m.totalAreaLarge).
-            var scopeAreaSqM = 0;
-            if (city.seed) {
-                scopeAreaSqM = (currentScope === 'city' && city.seed.city_paved)
-                    ? city.seed.city_paved
-                    : (city.seed.total_area || 0);
-            }
-            var scopeAreaLarge = scopeAreaSqM > 0 ? toAreaLarge(scopeAreaSqM) : m.totalAreaLarge;
-            m.year1PerAreaUnit = scopeAreaLarge > 0 ? m.year1Need / scopeAreaLarge : 0;
+            // Per-area figures divide the scope-selected dollars by the area in
+            // the same scope.
+            m.scopeAreaLarge = scopeAreaLarge(city, m);
+            m.year1PerAreaUnit = m.scopeAreaLarge > 0 ? m.year1Need / m.scopeAreaLarge : 0;
             // The backlog ranks per unit of network in the same scope: raw
             // dollars made the smallest city "Least Deferred" by size alone
             // (solvent-streets-3ij1).
-            m.endBacklogPerAreaUnit = scopeAreaLarge > 0 ? m.endBacklog / scopeAreaLarge : 0;
+            m.endBacklogPerAreaUnit = m.scopeAreaLarge > 0 ? m.endBacklog / m.scopeAreaLarge : 0;
 
             // Roads-only solvency metrics from forecast.json (an array of
             // per-resource ForecastExport — find the roads element). These are
@@ -4356,11 +4364,13 @@
             });
 
             // Dollar + PCI sums over forecast cities only, so the weighted PCI
-            // denominator and the trajectories stay honest.
+            // denominator and the trajectories stay honest. The area is the one
+            // the scope's dollars and PCI cover (scopeAreaLarge), not the
+            // all-jurisdiction Total Network Area above.
             var fcArea = 0, pciWeighted = 0, regionYear1 = 0, regionBacklog = 0;
             fc.forEach(function(m) {
-                fcArea += m.totalAreaLarge;
-                pciWeighted += (m.baselineYears[0].pci || 0) * m.totalAreaLarge;
+                fcArea += m.scopeAreaLarge;
+                pciWeighted += (m.baselineYears[0].pci || 0) * m.scopeAreaLarge;
                 regionYear1 += m.baselineYears[0].annual_need || 0;
                 regionBacklog += m.baselineYears[minLen - 1] ? (m.baselineYears[minLen - 1].deferred_backlog || 0) : 0;
             });
