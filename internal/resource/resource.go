@@ -39,7 +39,8 @@ const (
 )
 
 // OverpassTimeoutS is the server-side [timeout:N], in seconds, every Overpass
-// feature query sends (roads, parking, sidewalks, facilities). Overpass holds
+// query sends: the feature queries (roads, parking, sidewalks, facilities)
+// and ingest's boundary-relation and water queries. Overpass holds
 // the response headers until the query finishes, so the client's header
 // deadline for Overpass (ingest.OverpassHeaderTimeout) is derived from it and
 // must stay above it (solvent-streets-e7h3).

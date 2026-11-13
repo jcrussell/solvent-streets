@@ -9,6 +9,7 @@ import (
 	"net/http"
 
 	"github.com/jcrussell/solvent-streets/internal/logs"
+	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
 // Sentinels for FetchCityBoundaryFromRelation failure modes. Callers
@@ -52,13 +53,16 @@ func FetchCityBoundaryFromRelation(ctx context.Context, client *http.Client, rel
 	return fetchCityBoundaryFromRelation(ctx, client, overpassAPI, relationID)
 }
 
+func buildBoundaryRelationQuery(relationID int64) string {
+	return fmt.Sprintf("[out:json][timeout:%d];relation(%d);out geom;", resource.OverpassTimeoutS, relationID)
+}
+
 func fetchCityBoundaryFromRelation(ctx context.Context, client *http.Client, baseURL string, relationID int64) (string, error) {
 	if relationID <= 0 {
 		return "", fmt.Errorf("invalid relation id %d", relationID)
 	}
 
-	query := fmt.Sprintf("[out:json][timeout:60];relation(%d);out geom;", relationID)
-	body, err := postOverpass(ctx, client, baseURL, query)
+	body, err := postOverpass(ctx, client, baseURL, buildBoundaryRelationQuery(relationID))
 	if err != nil {
 		return "", err
 	}

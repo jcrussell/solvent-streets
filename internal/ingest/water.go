@@ -12,6 +12,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/httpio"
 	"github.com/jcrussell/solvent-streets/internal/logs"
+	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
 // FetchOSMWater queries Overpass for OSM water polygons inside bbox and
@@ -161,7 +162,8 @@ func buildWaterQuery(bbox [4]float64) string {
 	// The coastline query is separate from the water query because the
 	// post-processing differs (coastline ways need bbox-edge closing).
 	return fmt.Sprintf(
-		`[out:json][timeout:60];(way["natural"="water"](%f,%f,%f,%f);relation["natural"="water"](%f,%f,%f,%f);way["natural"="coastline"](%f,%f,%f,%f););out geom;`,
+		`[out:json][timeout:%d];(way["natural"="water"](%f,%f,%f,%f);relation["natural"="water"](%f,%f,%f,%f);way["natural"="coastline"](%f,%f,%f,%f););out geom;`,
+		resource.OverpassTimeoutS,
 		bbox[0], bbox[1], bbox[2], bbox[3],
 		bbox[0], bbox[1], bbox[2], bbox[3],
 		bbox[0], bbox[1], bbox[2], bbox[3],
