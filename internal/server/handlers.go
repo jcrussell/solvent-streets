@@ -10,7 +10,6 @@ import (
 	"html/template"
 	"net/http"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -201,10 +200,7 @@ func (s *Server) renderGame(slug string) ([]byte, error) {
 }
 
 // firstRenderableCity returns the first city entry whose buildIndexData
-// succeeds, along with its assembled TemplateData. It mirrors the
-// continue-past-broken-cities tolerance the rest of the multi-city surface
-// already has (buildIndexData's cities loop, handleCitiesList, the static
-// exporter). Returns the last build error only when no city renders, so a
+// succeeds, along with its assembled TemplateData. Returns the last build error only when no city renders, so a
 // single broken city does not 500 the entire site.
 func (s *Server) firstRenderableCity(ctx context.Context) (export.CityEntry, export.TemplateData, error) {
 	var lastErr error
@@ -248,30 +244,15 @@ func (s *Server) buildIndexData(ctx context.Context, entry export.CityEntry) (ex
 	var activeSlug string
 	if len(s.cities) > 1 {
 		activeSlug = entry.Slug
-		for _, e := range s.cities {
-			info, err := e.Info(ctx)
-			if err != nil {
-				// A genuinely-unconfigured city (no boundary ingested) is
-				// skipped from the dropdown, matching the rest of the
-				// multi-city surface — but log it so the drop isn't silent
-				// (the rendered HTML is lifetime-cached). A transient DB error
-				// (not ErrNoBoundary) is propagated instead so renderCachedPage
-				// evicts and the next request retries, rather than baking a
-				// missing city into the CITIES array until restart.
-				if errors.Is(err, export.ErrNoBoundary) {
-					fmt.Fprintf(s.ios.ErrOut, "server: skipping city %s in index dropdown: %v\n", e.Slug, err)
-					continue
-				}
-				return export.TemplateData{}, fmt.Errorf("city %s info: %w", e.Slug, err)
-			}
-			cities = append(cities, info)
+		// export.CityInfos leaves out a city with no boundary ingested (logged,
+		// since the rendered HTML is lifetime-cached) and returns any other
+		// error, so renderCachedPage evicts and the next request retries
+		// rather than baking a missing city into the CITIES array.
+		var err error
+		cities, err = export.CityInfos(ctx, s.cities, s.logUnlisted("the index dropdown"))
+		if err != nil {
+			return export.TemplateData{}, err
 		}
-		// Alphabetise the flat list case-insensitively by Name, matching the
-		// static exporter (export.go runMultiCity) so the CITIES JS array and
-		// /api/cities ordering line up.
-		sort.SliceStable(cities, func(i, j int) bool {
-			return strings.ToLower(cities[i].Name) < strings.ToLower(cities[j].Name)
-		})
 	}
 
 	seed, err := export.BuildForecastSeed(ctx, &fc, entry.Store)
@@ -366,25 +347,19 @@ func (s *Server) handleCityDataFile(w http.ResponseWriter, r *http.Request) {
 // serveJSONCached: the first arriver's build outlives their request.
 func (s *Server) handleCitiesList(w http.ResponseWriter, _ *http.Request) {
 	s.serveJSONCached(w, "cities", func() (any, error) {
-		var cities []export.CityInfo
-		for _, e := range s.cities {
-			info, err := e.Info(context.Background())
-			if err != nil {
-				// Preserve the skip-broken-city tolerance: a city whose
-				// boundary fails to load shouldn't 500 the whole list.
-				fmt.Fprintf(s.ios.ErrOut, "server: skipping city %s in /api/cities: %v\n", e.Slug, err)
-				continue
-			}
-			cities = append(cities, info)
-		}
-		// Emit [] rather than null when every city skips, matching
-		// serveSnapshotsJSON's nil-guard and the static cities.json path so a
-		// consumer iterating the list never hits a null (server/static parity).
-		if cities == nil {
-			cities = []export.CityInfo{}
-		}
-		return cities, nil
+		// The same list, order and skip rule as the static cities.json. An
+		// error other than a missing boundary fails the request, and
+		// serveJSONCached evicts so the next one retries.
+		return export.CityInfos(context.Background(), s.cities, s.logUnlisted("/api/cities"))
 	})
+}
+
+// logUnlisted returns export.CityInfos' callback: it logs each city left out
+// of a lifetime-cached list for want of a boundary, so the drop is not silent.
+func (s *Server) logUnlisted(where string) func(export.CityEntry) {
+	return func(e export.CityEntry) {
+		fmt.Fprintf(s.ios.ErrOut, "server: skipping city %s in %s: no boundary stored\n", e.Slug, where)
+	}
 }
 
 // handleSnapshotsList returns a handler for the single-city /api/snapshots route.

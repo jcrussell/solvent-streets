@@ -442,9 +442,7 @@ func groupCitiesInDimension(cities []CityInfo, dim string) []CityGroup {
 	groups := make([]CityGroup, 0, len(byTag))
 	appendSortedGroup := func(tag string) {
 		group := byTag[tag]
-		sort.SliceStable(group, func(i, j int) bool {
-			return strings.ToLower(group[i].Name) < strings.ToLower(group[j].Name)
-		})
+		sortCitiesByName(group)
 		groups = append(groups, CityGroup{Tag: tag, Label: config.TagLabel(tag), Cities: group})
 	}
 	for _, t := range tags {

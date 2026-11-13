@@ -126,13 +126,13 @@ func (e *Exporter) exportOneCity(ctx context.Context, entry CityEntry) (CityInfo
 	// is where ErrNoBoundary originates (entry.go:178) — before anything is
 	// written. Doing it up front also means ErrNoBoundary is handled in one
 	// branch.
-	info, err := entry.Info(ctx)
+	info, listed, err := entry.listedInfo(ctx)
 	if err != nil {
-		if errors.Is(err, ErrNoBoundary) {
-			fmt.Fprintf(e.warnOut(), "  skipping %s: no boundary stored (ingest failed earlier)\n", entry.Slug)
-			return CityInfo{}, false, nil
-		}
-		return CityInfo{}, false, fmt.Errorf("city %s bbox: %w", entry.Slug, err)
+		return CityInfo{}, false, err
+	}
+	if !listed {
+		fmt.Fprintf(e.warnOut(), "  skipping %s: no boundary stored (ingest failed earlier)\n", entry.Slug)
+		return CityInfo{}, false, nil
 	}
 
 	cityDataDir := filepath.Join(e.outputDir, "cities", entry.Slug, "data")
@@ -187,10 +187,8 @@ func (e *Exporter) runMultiCity(ctx context.Context) error {
 		}
 	}
 
-	// Write cities.json. Emit [] rather than null when every city skipped,
-	// matching the /api/cities nil-guard so server/static parity holds
-	// (TestHandleCitiesList_SchemaParity) and a consumer iterating the list
-	// never hits a null.
+	// Write cities.json, in the order and with the [] (never null) that
+	// /api/cities serves through CityInfos.
 	if cities == nil {
 		cities = []CityInfo{}
 	}
@@ -231,6 +229,44 @@ func (e *Exporter) runMultiCity(ctx context.Context) error {
 	}
 
 	return e.renderHTML(meta, seed, rawTOML, ResolvedTOML(e.cfg), cities)
+}
+
+// listedInfo is the one rule for which cities a multi-city site lists: a city
+// with no boundary stored is left out (listed=false), and any other failure
+// to read it is an error, so a transient database error fails the export or
+// the request rather than quietly publishing a site without the city.
+func (entry CityEntry) listedInfo(ctx context.Context) (info CityInfo, listed bool, err error) {
+	info, err = entry.Info(ctx)
+	switch {
+	case errors.Is(err, ErrNoBoundary):
+		return CityInfo{}, false, nil
+	case err != nil:
+		return CityInfo{}, false, fmt.Errorf("city %s info: %w", entry.Slug, err)
+	}
+	return info, true, nil
+}
+
+// CityInfos returns the cities a multi-city site lists, in selector order
+// (sortCitiesByName): cities.json, the pages' CITIES array and /api/cities all
+// carry this list. unlisted, when non-nil, is told about each city left out
+// for want of a boundary. The result is never nil, so it marshals as [].
+func CityInfos(ctx context.Context, entries []CityEntry, unlisted func(CityEntry)) ([]CityInfo, error) {
+	cities := make([]CityInfo, 0, len(entries))
+	for _, entry := range entries {
+		info, listed, err := entry.listedInfo(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if !listed {
+			if unlisted != nil {
+				unlisted(entry)
+			}
+			continue
+		}
+		cities = append(cities, info)
+	}
+	sortCitiesByName(cities)
+	return cities, nil
 }
 
 // sortCitiesByName orders the city selector alphabetically by Name,

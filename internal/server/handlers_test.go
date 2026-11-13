@@ -1407,3 +1407,61 @@ func TestBuildIndexData_UnitSystem(t *testing.T) {
 		}
 	}
 }
+
+// /api/cities follows the static cities.json: selector order, a city with no
+// boundary left out, and any other read failure an error (retried on the next
+// request) rather than a list that silently lacks the city.
+func TestHandleCitiesList_OrderAndSkipPolicy(t *testing.T) {
+	boundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
+	ok := func() *dbtest.MockStore {
+		return &dbtest.MockStore{GetBoundaryFunc: func(_ context.Context) (string, error) { return boundary, nil }}
+	}
+	var failing atomic.Bool
+	flaky := &dbtest.MockStore{GetBoundaryFunc: func(_ context.Context) (string, error) {
+		if failing.Load() {
+			return "", errors.New("db unavailable")
+		}
+		return boundary, nil
+	}}
+	unconfigured := &dbtest.MockStore{GetBoundaryFunc: func(_ context.Context) (string, error) { return "", nil }}
+
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Zebra"}, {Name: "apple"}, {Name: "Mango"}, {Name: "Banana"}}}
+	stores := []db.Store{ok(), ok(), unconfigured, flaky}
+	entries := make([]export.CityEntry, len(stores))
+	for i, st := range stores {
+		entries[i] = export.CityEntry{Config: cfg, City: cfg.Cities[i], Store: st, Slug: cfg.Cities[i].Slug()}
+	}
+	ios, _, _, errOut := iostreams.Test()
+	srv := New(entries, "127.0.0.1", 0, ios, testAssets(t))
+	hit := func() *httptest.ResponseRecorder {
+		req, _ := http.NewRequestWithContext(context.Background(), "GET", "/api/cities", nil)
+		w := httptest.NewRecorder()
+		srv.handleCitiesList(w, req)
+		return w
+	}
+
+	failing.Store(true)
+	if w := hit(); w.Code != http.StatusInternalServerError {
+		t.Fatalf("a transient read failure: status %d, want 500", w.Code)
+	}
+
+	failing.Store(false)
+	w := hit()
+	if w.Code != http.StatusOK {
+		t.Fatalf("after the store recovers: status %d, want 200 (the failure must not be cached)", w.Code)
+	}
+	var got []export.CityInfo
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, c := range got {
+		names = append(names, c.Name)
+	}
+	if want := "apple,Banana,Zebra"; strings.Join(names, ",") != want {
+		t.Errorf("/api/cities = %v, want %s", names, want)
+	}
+	if !strings.Contains(errOut.String(), "mango") {
+		t.Errorf("the city left out for want of a boundary should be logged; log: %q", errOut.String())
+	}
+}
