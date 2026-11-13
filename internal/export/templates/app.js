@@ -3145,13 +3145,13 @@
         function roundCents(v) { return Math.round(v * 100) / 100; }
 
         // validateTierInputs checks the Advanced-options tier table before it
-        // reaches the simulator: finite numbers, a non-negative cost, PCI bounds
-        // in 0-100 with min below max, and no two tiers covering the same PCI.
-        // Invalid fields are marked and the reasons shown next to the table,
-        // in the units on screen; it returns false so the sim is not run on
-        // them (solvent-streets-8ade). Bad input used to reach the WASM bridge,
-        // whose error raised the page-level "Failed to load data" banner, in
-        // $/sq m, over the nav.
+        // reaches the simulator, against the bounds the simulator enforces
+        // (forecast.Inputs.Validate): finite numbers, a cost above zero, PCI
+        // bounds in 0-100 with min below max, and no two tiers covering the
+        // same PCI. Invalid fields are marked and the reasons shown next to
+        // the table, in the units on screen; it returns false so the sim is
+        // not run on them, and a bad value never surfaces as the page-level
+        // error banner (solvent-streets-8ade).
         function validateTierInputs() {
             const errs = [];
             const ranges = [];
@@ -3163,7 +3163,7 @@
                 if (!minEl || !maxEl || !costEl) return;
                 const bad = (el, msg) => { el.setAttribute('aria-invalid', 'true'); errs.push(name + ': ' + msg); };
                 const min = parseFloat(minEl.value), max = parseFloat(maxEl.value), cost = parseFloat(costEl.value);
-                if (costEl.value !== '' && !(Number.isFinite(cost) && cost >= 0)) bad(costEl, 'cost must be $0/' + areaUnit() + ' or more');
+                if (costEl.value !== '' && !(Number.isFinite(cost) && cost > 0)) bad(costEl, 'cost must be more than $0/' + areaUnit());
                 const minOK = minEl.value === '' || (Number.isFinite(min) && min >= 0 && min <= 100);
                 const maxOK = maxEl.value === '' || (Number.isFinite(max) && max >= 0 && max <= 100);
                 if (!minOK) bad(minEl, 'minimum PCI must be between 0 and 100');

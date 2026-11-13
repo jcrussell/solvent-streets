@@ -29,9 +29,15 @@ test('a negative cost is flagged inline and never reaches the simulator', async 
   await flush();
   assert.equal(win.__simCalls.length, calls, 'invalid input must not be simulated');
   assert.equal($('#tier-errors').hidden, false);
-  assert.match($('#tier-errors').textContent, /cost must be \$0\/sq ft or more/, 'the message uses the units on screen');
+  assert.match($('#tier-errors').textContent, /cost must be more than \$0\/sq ft/, 'the message uses the units on screen');
   assert.equal(input($, 0, 'cost_per_sqm').getAttribute('aria-invalid'), 'true');
   assert.equal($('#error-banner').hidden, true, 'an input error is not a load failure');
+
+  // A free tier is refused too: the simulator rejects a zero cost.
+  type(win, input($, 0, 'cost_per_sqm'), 0);
+  await flush();
+  assert.equal(win.__simCalls.length, calls, 'a $0 tier must not be simulated');
+  assert.equal($('#tier-errors').hidden, false);
 
   // Correcting it clears the message and runs again.
   type(win, input($, 0, 'cost_per_sqm'), 1);
