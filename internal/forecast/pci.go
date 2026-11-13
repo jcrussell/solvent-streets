@@ -8,28 +8,40 @@ import (
 
 const ClassResidential = "residential"
 
-// RoadDecayRates holds per-class decay rates for road types.
+// defaultDecayRate is the decay rate of pavement with no class of its own: the
+// fallback for an unknown class, and the rate of the aggregate "roads" type.
+// Units: per year.
+const defaultDecayRate = 0.035
+
+// highwayDecayRates holds the decay rate of each highway class that is its own
+// cohort. Its keys are the classes NormalizeClass keeps.
 // Higher k = faster decay. Units: per year.
 // Derived from FHWA-RD-01-156 "Long-Term Pavement Performance" data:
 // higher-class roads (motorway, trunk) decay slower due to thicker pavement
 // sections and more rigorous design standards.
-var RoadDecayRates = map[string]float64{
-	"motorway":    0.015,
-	"trunk":       0.020,
-	"primary":     0.025,
-	"secondary":   0.030,
-	"tertiary":    0.035,
-	"residential": 0.040,
-	"service":     0.045,
-	"roads":       0.035, // aggregate resource type, uses default road rate
+var highwayDecayRates = map[string]float64{
+	"motorway":       0.015,
+	"trunk":          0.020,
+	"primary":        0.025,
+	"secondary":      0.030,
+	"tertiary":       0.035,
+	ClassResidential: 0.040,
+	"service":        0.045,
 }
+
+// RoadDecayRates holds the decay rates of the road types: every highway class
+// plus "roads", the aggregate resource type, which decays at the default rate.
+var RoadDecayRates = func() map[string]float64 {
+	m := maps.Clone(highwayDecayRates)
+	m["roads"] = defaultDecayRate
+	return m
+}()
 
 // DefaultDecayRates is the full lookup table (roads + non-road + fallback).
 var DefaultDecayRates = func() map[string]float64 {
-	m := make(map[string]float64, len(RoadDecayRates)+2)
-	maps.Copy(m, RoadDecayRates)
+	m := maps.Clone(RoadDecayRates)
 	m["sidewalks"] = 0.025 // key must match resource.TypeSidewalks ("sidewalks")
-	m["default"] = 0.035
+	m["default"] = defaultDecayRate
 	return m
 }()
 
@@ -39,7 +51,7 @@ var DefaultDecayRates = func() map[string]float64 {
 // through it, so they simulate and report the same rate.
 func ResolveDecayRate(k float64) float64 {
 	if k <= 0 {
-		return DefaultDecayRates["default"]
+		return defaultDecayRate
 	}
 	return k
 }
@@ -86,35 +98,31 @@ func (f *ExponentialPCIForecaster) decayOneStep(currentPCI float64) float64 {
 	return pci
 }
 
-// NormalizeClass maps a highway tag value to a canonical classification.
-// It strips _link suffixes and maps uncommon values to their parent class.
-func NormalizeClass(highway string) string {
-	// Strip _link suffix (e.g. "motorway_link" → "motorway")
-	if before, ok := strings.CutSuffix(highway, "_link"); ok {
-		highway = before
-	}
-
-	switch highway {
-	case "motorway", "trunk", "primary", "secondary", "tertiary", ClassResidential, "service":
-		return highway
-	case "living_street", "unclassified":
-		return ClassResidential
-	default:
-		return ClassResidential
-	}
+// parentClass strips one trailing _link, so a link ramp ("motorway_link")
+// reads as the class it connects ("motorway").
+func parentClass(highway string) string {
+	return strings.TrimSuffix(highway, "_link")
 }
 
-// DecayRateForClass returns the decay rate for a road classification. A trailing
-// _link suffix is stripped so link ramps (e.g. "motorway_link") get their parent
-// class's rate. Unlike NormalizeClass, unknown values are NOT collapsed to
-// residential — they fall through to the "default" rate, so non-road classes
-// (e.g. "sidewalks") keep their own entry.
-func DecayRateForClass(highway string) float64 {
-	if before, ok := strings.CutSuffix(highway, "_link"); ok {
-		highway = before
+// NormalizeClass maps a highway tag value to the cohort class it is filed
+// under: a link ramp's parent class (parentClass), kept when it is a highway
+// class with its own decay rate (highwayDecayRates), and residential for
+// everything else.
+func NormalizeClass(highway string) string {
+	class := parentClass(highway)
+	if _, ok := highwayDecayRates[class]; ok {
+		return class
 	}
-	if k, ok := DefaultDecayRates[highway]; ok {
+	return ClassResidential
+}
+
+// DecayRateForClass returns the decay rate for a classification, a link ramp
+// taking its parent class's rate (parentClass). Unlike NormalizeClass, unknown
+// values are NOT collapsed to residential — they get the default rate, so
+// non-road classes (e.g. "sidewalks") keep their own entry.
+func DecayRateForClass(highway string) float64 {
+	if k, ok := DefaultDecayRates[parentClass(highway)]; ok {
 		return k
 	}
-	return DefaultDecayRates["default"]
+	return defaultDecayRate
 }
