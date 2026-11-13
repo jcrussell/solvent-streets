@@ -828,3 +828,23 @@ func TestFundedYearDefersNothing(t *testing.T) {
 		t.Error("an unfunded year deferred nothing")
 	}
 }
+
+// Where the cost tiers leave a PCI gap, the "auto" brush applies the tier the
+// forecast prices that pavement at (the nearest band) rather than nothing.
+func TestAutoTierSelection_GapUsesTheForecastsTier(t *testing.T) {
+	cfg := baseConfig()
+	cfg.CostTiers = []forecast.CostTier{
+		{MinPCI: 80, MaxPCI: 101, CostPerSqM: 5, Label: "seal"},
+		{MinPCI: 0, MaxPCI: 40, CostPerSqM: 150, Label: "rebuild"},
+	}
+	g := newGame(t, cfg)
+	for pci, want := range map[float64]string{70: "seal", 50: "rebuild", 90: "seal", 10: "rebuild"} {
+		i := g.autoTierIndex(pci)
+		if i < 0 || g.tiers[i].Label != want {
+			t.Errorf("autoTierIndex(%g) = %d, want %s", pci, i, want)
+		}
+		if fi := forecast.TierIndexForPCI(cfg.CostTiers, pci); fi != i {
+			t.Errorf("game picks tier %d at PCI %g, the forecast tier %d", i, pci, fi)
+		}
+	}
+}

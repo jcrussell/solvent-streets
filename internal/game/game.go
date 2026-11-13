@@ -734,7 +734,7 @@ func (g *Game) tierIndex(label string) int {
 // resolveTier maps a treatment request to a tier index. The sentinel "auto"
 // picks the tier whose [MinPCI, MaxPCI) band contains pci (the rule that lets
 // the brush apply the right treatment per hex); any other value is a literal
-// tier label. Returns -1 if nothing matches.
+// tier label. Returns -1 for a label no tier has.
 func (g *Game) resolveTier(tier string, pci float64) int {
 	if tier == "auto" {
 		return g.autoTierIndex(pci)
@@ -742,16 +742,11 @@ func (g *Game) resolveTier(tier string, pci float64) int {
 	return g.tierIndex(tier)
 }
 
-// autoTierIndex returns the tier whose [MinPCI, MaxPCI) contains pci, or -1 if
-// the tiers don't cover it. MaxPCI is exclusive with a 101 sentinel on the top
-// tier so PCI == 100 still matches (see forecast.CostTier).
+// autoTierIndex returns the tier the forecast would treat pci with
+// (forecast.TierIndexForPCI): the tier whose [MinPCI, MaxPCI) band contains
+// it, or the nearest band where the tiers leave a gap. -1 only with no tiers.
 func (g *Game) autoTierIndex(pci float64) int {
-	for i := range g.tiers {
-		if pci >= g.tiers[i].MinPCI && pci < g.tiers[i].MaxPCI {
-			return i
-		}
-	}
-	return -1
+	return forecast.TierIndexForPCI(g.tiers, pci)
 }
 
 // tierCostRank returns the ascending cost rank of tier i (0 = cheapest). Ties on

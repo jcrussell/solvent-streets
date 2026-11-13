@@ -164,9 +164,35 @@ func (p *TieredCostProjector) ProjectCost(area float64, pci float64) float64 {
 	return area * interpolateCost(p.resolvedAnchors(), pci)
 }
 
+// TierIndexForPCI returns the index of the tier that treats pavement at pci:
+// the tier whose [MinPCI, MaxPCI) band contains it, else the tier whose band
+// is nearest, or -1 for no tiers. Operators may leave coverage gaps
+// (config.ForecastConfig.Validate permits them); the nearest band mirrors how
+// interpolateCost clamps to the nearest anchor, so the tier named, the tier
+// the game applies and the dollars charged agree in a gap. Ties go to the
+// earlier tier.
+func TierIndexForPCI(tiers []CostTier, pci float64) int {
+	best, bestDist := -1, math.Inf(1)
+	for i, t := range tiers {
+		var d float64
+		switch {
+		case pci < t.MinPCI:
+			d = t.MinPCI - pci
+		case pci >= t.MaxPCI:
+			d = pci - t.MaxPCI
+		default:
+			return i
+		}
+		if d < bestDist {
+			best, bestDist = i, d
+		}
+	}
+	return best
+}
+
 // TierForPCIIn returns the label of the tier whose PCI band contains pci, or
-// "" if none matches. This is the single tier-lookup primitive; callers that
-// need a fallback label supply their own.
+// "" if none matches. Callers that want a label in a coverage gap use
+// TierIndexForPCI.
 func TierForPCIIn(tiers []CostTier, pci float64) string {
 	for _, t := range tiers {
 		if pci >= t.MinPCI && pci < t.MaxPCI {
@@ -192,36 +218,8 @@ func (p *TieredCostProjector) TierForPCI(pci float64) string {
 	if len(tiers) == 0 {
 		tiers = DefaultCostTiers
 	}
-	if label := TierForPCIIn(tiers, pci); label != "" {
-		return label
+	if i := TierIndexForPCI(tiers, pci); i >= 0 {
+		return tiers[i].Label
 	}
-	// Operators may leave coverage gaps (config.ForecastConfig.Validate
-	// permits them), so a PCI can fall outside every band. Use the nearest
-	// band's label, mirroring how interpolateCost clamps to the nearest
-	// anchor — never a hardcoded default-schedule label that may not exist in
-	// the operator's set.
-	return nearestTierLabel(tiers, pci)
-}
-
-// nearestTierLabel returns the label of the tier whose PCI band is closest to
-// pci. Only used as a coverage-gap fallback.
-func nearestTierLabel(tiers []CostTier, pci float64) string {
-	best := ""
-	bestDist := math.Inf(1)
-	for _, t := range tiers {
-		var d float64
-		switch {
-		case pci < t.MinPCI:
-			d = t.MinPCI - pci
-		case pci >= t.MaxPCI:
-			d = pci - t.MaxPCI
-		default:
-			return t.Label
-		}
-		if d < bestDist {
-			bestDist = d
-			best = t.Label
-		}
-	}
-	return best
+	return ""
 }

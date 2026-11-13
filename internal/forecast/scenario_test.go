@@ -620,3 +620,32 @@ func TestSimulate_NegativeYearsClamped(t *testing.T) {
 		t.Fatalf("Years = %d, want 0 for a negative horizon", len(result.Years))
 	}
 }
+
+// TierIndexForPCI: the containing band, and in a coverage gap the nearest
+// band, which is the tier the projector's label names too.
+func TestTierIndexForPCI(t *testing.T) {
+	gapped := []CostTier{
+		{MinPCI: 80, MaxPCI: 101, CostPerSqM: 5, Label: "seal"},
+		{MinPCI: 0, MaxPCI: 40, CostPerSqM: 150, Label: "rebuild"},
+	}
+	for _, tc := range []struct {
+		pci  float64
+		want string
+	}{
+		{100, "seal"}, {80, "seal"}, {79, "seal"}, {61, "seal"},
+		{59, "rebuild"}, {40, "rebuild"}, {39.9, "rebuild"}, {0, "rebuild"},
+	} {
+		i := TierIndexForPCI(gapped, tc.pci)
+		if i < 0 || gapped[i].Label != tc.want {
+			t.Errorf("TierIndexForPCI(%g) = %d, want %s", tc.pci, i, tc.want)
+			continue
+		}
+		p := &TieredCostProjector{Tiers: gapped}
+		if got := p.TierForPCI(tc.pci); got != tc.want {
+			t.Errorf("projector label at %g = %s, want %s", tc.pci, got, tc.want)
+		}
+	}
+	if i := TierIndexForPCI(nil, 50); i != -1 {
+		t.Errorf("no tiers: index %d, want -1", i)
+	}
+}
