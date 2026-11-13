@@ -231,6 +231,17 @@ func parseOverpassResponse(ctx context.Context, data []byte, resourceType resour
 	return features, nil
 }
 
+// featureName is a feature's display name: its name tag, else the kind of
+// thing it is (its highway tag, else its amenity tag), else empty.
+func featureName(tags map[string]string) string {
+	for _, key := range []string{"name", "highway", "amenity"} {
+		if v := tags[key]; v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 func buildFeatureFromWay(e overpassElement, nodes map[int64][2]float64, resourceType resource.Type) (db.Feature, bool) {
 	coords := resolveWayCoords(e, nodes)
 	if len(coords) < 2 {
@@ -251,15 +262,10 @@ func buildFeatureFromWay(e overpassElement, nodes map[int64][2]float64, resource
 		geojson = coordsToLineStringGeoJSON(coords)
 	}
 
-	name := e.Tags["name"]
-	if name == "" {
-		name = e.Tags["highway"]
-	}
-
 	return db.Feature{
 		ID:           fmt.Sprintf("osm:way:%d", e.ID),
 		ResourceType: resourceType,
-		Name:         name,
+		Name:         featureName(e.Tags),
 		Tags:         e.Tags,
 		GeometryJSON: geojson,
 		SourceAPI:    sourceOverpass,
@@ -278,15 +284,10 @@ func buildFeatureFromRelation(ctx context.Context, e overpassElement, resourceTy
 		return db.Feature{}, false
 	}
 
-	name := e.Tags["name"]
-	if name == "" {
-		name = e.Tags["amenity"]
-	}
-
 	return db.Feature{
 		ID:           fmt.Sprintf("osm:relation:%d", e.ID),
 		ResourceType: resourceType,
-		Name:         name,
+		Name:         featureName(e.Tags),
 		Tags:         e.Tags,
 		GeometryJSON: polysToMultiPolygonGeoJSON(polys),
 		SourceAPI:    sourceOverpass,
@@ -305,14 +306,10 @@ func parseFacilityElements(ctx context.Context, elements []overpassElement, node
 		if !ok {
 			continue
 		}
-		name := e.Tags["name"]
-		if name == "" {
-			name = e.Tags["amenity"]
-		}
 		features = append(features, db.Feature{
 			ID:           fmt.Sprintf("osm:%s:%d", e.Type, e.ID),
 			ResourceType: resourceType,
-			Name:         name,
+			Name:         featureName(e.Tags),
 			Tags:         e.Tags,
 			GeometryJSON: coordToPointGeoJSON(c),
 			SourceAPI:    sourceOverpass,

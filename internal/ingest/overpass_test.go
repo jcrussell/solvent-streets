@@ -598,3 +598,42 @@ func abs(v float64) float64 {
 	}
 	return v
 }
+
+// TestParseOverpassResponse_UnnamedFeatureNames: an unnamed feature is named
+// after its highway tag, else its amenity tag, whichever element type carries
+// it, so an unnamed parking way and an unnamed parking relation read alike.
+func TestParseOverpassResponse_UnnamedFeatureNames(t *testing.T) {
+	data := []byte(`{"elements":[
+		{"type":"way","id":1,"tags":{"amenity":"parking"},
+		 "geometry":[{"lat":0,"lon":0},{"lat":0,"lon":1},{"lat":1,"lon":1},{"lat":0,"lon":0}]},
+		{"type":"relation","id":2,"tags":{"type":"multipolygon","amenity":"parking"},
+		 "members":[{"type":"way","ref":20,"role":"outer",
+		  "geometry":[{"lat":5,"lon":5},{"lat":5,"lon":6},{"lat":6,"lon":6},{"lat":5,"lon":5}]}]},
+		{"type":"relation","id":3,"tags":{"type":"multipolygon","highway":"pedestrian"},
+		 "members":[{"type":"way","ref":30,"role":"outer",
+		  "geometry":[{"lat":7,"lon":7},{"lat":7,"lon":8},{"lat":8,"lon":8},{"lat":7,"lon":7}]}]},
+		{"type":"way","id":4,"tags":{"highway":"service","amenity":"parking","name":"Lot A"},
+		 "geometry":[{"lat":0,"lon":0},{"lat":0,"lon":1}]},
+		{"type":"way","id":5,"tags":{"highway":"service","amenity":"parking"},
+		 "geometry":[{"lat":0,"lon":0},{"lat":0,"lon":1}]}
+	]}`)
+	features, err := parseOverpassResponse(context.Background(), data, resource.TypeParking)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"osm:way:1":      "parking",
+		"osm:relation:2": "parking",
+		"osm:relation:3": "pedestrian",
+		"osm:way:4":      "Lot A",
+		"osm:way:5":      "service",
+	}
+	if len(features) != len(want) {
+		t.Fatalf("got %d features, want %d", len(features), len(want))
+	}
+	for _, f := range features {
+		if f.Name != want[f.ID] {
+			t.Errorf("%s name = %q, want %q", f.ID, f.Name, want[f.ID])
+		}
+	}
+}
