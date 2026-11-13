@@ -2,6 +2,7 @@ package geo
 
 import (
 	"context"
+	"errors"
 	"math"
 	"testing"
 
@@ -205,5 +206,33 @@ func TestComputeHexStats_SkipsZeroAreaHex(t *testing.T) {
 	stats := ComputeHexStats(context.Background(), hexes, idx, "roads", nil)
 	if len(stats) != 0 {
 		t.Errorf("expected zero-area hex to be skipped, got %d stats: %+v", len(stats), stats)
+	}
+}
+
+// Without a usable boundary the lattice comes back whole, with an error the
+// caller can tell apart (ErrNoClipBoundary) and warn about.
+func TestClipHexesToBoundaryGeoJSON_NoUsableBoundary(t *testing.T) {
+	proj := NewUTMProjector(-122.45, 37.55)
+	lattice := CityLattice(proj, [4]float64{37.5, -122.5, 37.6, -122.4}, 500)
+	if len(lattice) == 0 {
+		t.Fatal("empty lattice")
+	}
+	for name, gjson := range map[string]string{"none stored": "", "unparseable": `{"type":"Polygon","coordinates":`} {
+		got, err := ClipHexesToBoundaryGeoJSON(context.Background(), lattice, gjson, proj, nil)
+		if !errors.Is(err, ErrNoClipBoundary) {
+			t.Errorf("%s: err = %v, want ErrNoClipBoundary", name, err)
+		}
+		if len(got) != len(lattice) {
+			t.Errorf("%s: %d hexes returned, want the whole lattice of %d", name, len(got), len(lattice))
+		}
+	}
+
+	inner := `{"type":"Polygon","coordinates":[[[-122.47,37.53],[-122.43,37.53],[-122.43,37.57],[-122.47,37.57],[-122.47,37.53]]]}`
+	got, err := ClipHexesToBoundaryGeoJSON(context.Background(), lattice, inner, proj, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) == 0 || len(got) >= len(lattice) {
+		t.Errorf("clipped to an inner boundary: %d of %d hexes kept", len(got), len(lattice))
 	}
 }

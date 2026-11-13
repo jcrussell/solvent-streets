@@ -196,18 +196,9 @@ func BuildCityGrid(ctx context.Context, f *cmdutil.Factory) ([]geo.Hex, error) {
 // to the boundary — the grid every per-city pass shares (see BuildCityGrid,
 // which loads the boundary first).
 func BuildClippedHexGrid(ctx context.Context, cfg *config.Config, city *config.CityConfig, proj *geo.UTMProjector, bbox [4]float64, boundaryGJSON string, errOut io.Writer) []geo.Hex {
-	hexEdge := cfg.ResolvedHexEdge(city)
-	minX, minY, maxX, maxY := geo.ProjectedBBoxExtent(proj, bbox)
-	hexes := geo.HexGrid(minX, minY, maxX, maxY, hexEdge)
-	boundaryGeom, err := parseGeoJSONGeometry(boundaryGJSON, proj)
-	switch {
-	case err != nil:
-		// Skipping the clip runs combined stats over the full bbox grid.
-		fmt.Fprintf(errOut, "combined: boundary parse failed for city %q, computing over full bbox: %v\n", city.Name, err)
-	case boundaryGeom.IsEmpty():
-		fmt.Fprintf(errOut, "combined: boundary empty after cleaning for city %q, computing over full bbox\n", city.Name)
-	default:
-		hexes = geo.ClipHexesToBoundary(ctx, hexes, boundaryGeom, nil)
+	hexes, clipErr := geo.ClipHexesToBoundaryGeoJSON(ctx, geo.CityLattice(proj, bbox, cfg.ResolvedHexEdge(city)), boundaryGJSON, proj, nil)
+	if clipErr != nil {
+		warnUnclipped(errOut, city, clipErr)
 	}
 	return hexes
 }

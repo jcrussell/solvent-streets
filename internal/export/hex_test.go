@@ -612,7 +612,7 @@ func TestBuildScenariosData_AllOnlyKey(t *testing.T) {
 
 // projectedLonLatSquare builds a hex whose Geom is the lon/lat square
 // [(lon0,lat0),(lon1,lat1)] projected into proj's coordinate system — i.e. in
-// the same projected space clipHexGridToBoundary operates in. Used to place
+// the same projected space the boundary clip operates in. Used to place
 // test hexes at known positions relative to a lon/lat boundary fixture.
 func projectedLonLatSquare(t *testing.T, proj *geo.UTMProjector, id string, lon0, lat0, lon1, lat1 float64) geo.Hex {
 	t.Helper()
@@ -626,36 +626,25 @@ func projectedLonLatSquare(t *testing.T, proj *geo.UTMProjector, id string, lon0
 	return geo.Hex{ID: id, Geom: geom.NewPolygon([]geom.LineString{ring}).AsGeometry()}
 }
 
-// TestClipHexGridToBoundary_MatchesUnconditionalOverlay pins the prepared-
-// geometry fast path against the original behavior: preparing the boundary once
-// and using Intersects/Covers to skip the overlay for outside/interior hexes
-// must produce exactly the same kept set and the same clipped areas as calling
-// geom.Intersection unconditionally on every hex.
+// TestSharedClip_MatchesUnconditionalOverlay pins the clip compute and export
+// share (geo.ClipHexesToBoundaryGeoJSON) against the plain definition of a
+// clipped grid: it must keep exactly the hexes, with the same clipped areas,
+// that calling geom.Intersection on every hex against the boundary keeps.
 //
 // The boundary is a square with a hole, and the hexes deliberately hit every
-// branch: fully interior (Covers→keep as-is), perimeter-straddling (overlay),
-// fully outside (Intersects=false→drop), straddling the hole (overlay clips the
-// hole out), and fully inside the hole (disjoint→drop).
+// branch: fully interior (kept as-is), perimeter-straddling (clipped), fully
+// outside (dropped), straddling the hole (the hole is clipped out), and fully
+// inside the hole (dropped).
 //
-// Regression caught: a wrong predicate (e.g. Contains instead of Covers
-// dropping edge-touching hexes), or the keep-shortcut emitting an unclipped
-// hex where the hole/boundary should have trimmed it.
-func TestClipHexGridToBoundary_MatchesUnconditionalOverlay(t *testing.T) {
+// Regression caught: a fast path that drops an edge-touching hex, or keeps a
+// hex unclipped where the hole or the boundary should have trimmed it.
+func TestSharedClip_MatchesUnconditionalOverlay(t *testing.T) {
 	proj := geo.NewUTMProjector(-122.45, 37.55)
 	// Square boundary (-122.5,37.5)-(-122.4,37.6) with a hole
 	// (-122.47,37.53)-(-122.43,37.57).
 	const boundaryWithHole = `{"type":"Polygon","coordinates":[` +
 		`[[-122.5,37.5],[-122.4,37.5],[-122.4,37.6],[-122.5,37.6],[-122.5,37.5]],` +
 		`[[-122.47,37.53],[-122.43,37.53],[-122.43,37.57],[-122.47,37.57],[-122.47,37.53]]]}`
-	entry := CityEntry{
-		Config: &config.Config{Grid: config.GridConfig{HexEdgeM: 200}},
-		City:   config.CityConfig{Name: "Test City"},
-		Slug:   "test-city",
-		Store: &dbtest.MockStore{
-			GetBoundaryFunc: func(_ context.Context) (string, error) { return boundaryWithHole, nil },
-		},
-	}
-
 	hexes := []geo.Hex{
 		projectedLonLatSquare(t, proj, "interior", -122.495, 37.505, -122.49, 37.51),      // Covers → keep
 		projectedLonLatSquare(t, proj, "straddle-edge", -122.405, 37.55, -122.395, 37.56), // overlay
@@ -677,7 +666,10 @@ func TestClipHexGridToBoundary_MatchesUnconditionalOverlay(t *testing.T) {
 		}
 	}
 
-	got := clipHexGridToBoundary(t.Context(), hexes, entry, proj)
+	got, err := geo.ClipHexesToBoundaryGeoJSON(t.Context(), hexes, boundaryWithHole, proj, nil)
+	if err != nil {
+		t.Fatalf("clip: %v", err)
+	}
 	gotAreas := map[string]float64{}
 	for _, h := range got {
 		gotAreas[h.ID] = h.Geom.Area()

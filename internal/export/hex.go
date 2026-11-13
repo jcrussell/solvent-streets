@@ -3,13 +3,12 @@ package export
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"math"
 	"sort"
 	"sync"
-
-	"github.com/peterstace/simplefeatures/geom"
 
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/resource"
@@ -246,7 +245,7 @@ func (a *hexAgg) set(res string, scope resource.Scope, area, share, spaces float
 // CityConfig.MinHexArea override (resolved via Config.ResolvedMinHexArea, which
 // pairs with the per-city hex edge); the filter sits in BuildHexGeoJSON rather
 // than ComputeHexStats so paved_share's numerator/denominator scope matches.
-// Used after clipHexGridToBoundary to skip the visual misrepresentation
+// Used after the boundary clip (cityHexGrid) to skip the visual misrepresentation
 // that a fully-covered sliver hex would produce on the heatmap.
 func filterHexSlivers(hexes []geo.Hex, minArea float64) []geo.Hex {
 	kept := make([]geo.Hex, 0, len(hexes))
@@ -257,48 +256,6 @@ func filterHexSlivers(hexes []geo.Hex, minArea float64) []geo.Hex {
 		kept = append(kept, h)
 	}
 	return kept
-}
-
-func clipHexGridToBoundary(ctx context.Context, hexes []geo.Hex, entry CityEntry, proj *geo.UTMProjector) []geo.Hex {
-	boundaryGJSON, err := entry.Store.GetBoundary(ctx)
-	if err != nil || boundaryGJSON == "" {
-		return hexes
-	}
-	boundaryGeom, _, gErr := geo.GeoJSONToProjectedGeometry(boundaryGJSON, proj)
-	if gErr != nil || boundaryGeom.IsEmpty() {
-		return hexes
-	}
-
-	// geom.Intersection runs a full OverlayNG per call, rebuilding the
-	// boundary's spatial index from scratch every time — for tens of
-	// thousands of hexes that dominates export. Prepare the boundary once so
-	// its index is cached, then use cheap prepared predicates to clip only the
-	// hexes that actually straddle the boundary edge:
-	//   - not intersecting  -> drop (hex lies entirely outside the city)
-	//   - fully covered     -> keep as-is (hex ∩ boundary == hex, no overlay)
-	//   - otherwise         -> the expensive overlay, but only for the thin
-	//                          perimeter band.
-	// If Prepare fails, fall back to the unconditional per-hex overlay.
-	prep, pErr := geom.Prepare(boundaryGeom)
-
-	filtered := make([]geo.Hex, 0, len(hexes))
-	for _, h := range hexes {
-		if pErr == nil {
-			if intersects, iErr := prep.Intersects(h.Geom); iErr == nil && !intersects {
-				continue
-			}
-			if covers, cErr := prep.Covers(h.Geom); cErr == nil && covers {
-				filtered = append(filtered, h)
-				continue
-			}
-		}
-		inter, iErr := geom.Intersection(h.Geom, boundaryGeom)
-		if iErr == nil && !inter.IsEmpty() {
-			h.Geom = inter
-			filtered = append(filtered, h)
-		}
-	}
-	return filtered
 }
 
 // cityHexGrid builds the boundary-clipped, sliver-filtered hex grid for entry.
@@ -326,12 +283,22 @@ func cityHexGrid(ctx context.Context, entry CityEntry, proj *geo.UTMProjector) (
 	if err != nil {
 		return nil, err
 	}
-	hexEdge := entry.Config.ResolvedHexEdge(&entry.City)
-	minX, minY, maxX, maxY := geo.ProjectedBBoxExtent(proj, bbox)
-	hexes := geo.HexGrid(minX, minY, maxX, maxY, hexEdge)
-	hexes = clipHexGridToBoundary(ctx, hexes, entry, proj)
-	hexes = filterHexSlivers(hexes, entry.Config.ResolvedMinHexArea(&entry.City))
-	return hexes, nil
+	// The lattice and the clip compute stored the per-hex results on
+	// (geo.CityLattice, geo.ClipHexesToBoundaryGeoJSON), so every stored hex
+	// id has the hex it was computed for. Without a usable boundary compute
+	// ran over the unclipped lattice, and so does this.
+	hexes := geo.CityLattice(proj, bbox, entry.Config.ResolvedHexEdge(&entry.City))
+	boundaryGJSON, err := entry.Store.GetBoundary(ctx)
+	if err != nil {
+		boundaryGJSON = ""
+	}
+	hexes, clipErr := geo.ClipHexesToBoundaryGeoJSON(ctx, hexes, boundaryGJSON, proj, nil)
+	if clipErr != nil && !errors.Is(clipErr, geo.ErrNoClipBoundary) {
+		return nil, clipErr
+	}
+	// The sliver filter is display-only: compute keeps slivers so paved
+	// totals stay whole; the map leaves them out.
+	return filterHexSlivers(hexes, entry.Config.ResolvedMinHexArea(&entry.City)), nil
 }
 
 // buildHexFeature builds one GeoJSON feature for a hex from its aggregated

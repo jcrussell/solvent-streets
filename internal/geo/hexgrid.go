@@ -2,6 +2,7 @@ package geo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -528,4 +529,37 @@ func ClipHexesToBoundary(ctx context.Context, hexes []Hex, boundary geom.Geometr
 		}
 		return []Hex{clipped}
 	}, counter)
+}
+
+// CityLattice generates the unclipped hex lattice covering bbox
+// ([south, west, north, east]) in proj's coordinates. Hex ids depend only on
+// the projection, the bbox and the edge, so every producer and reader of a
+// city's per-hex results must build its lattice here.
+func CityLattice(proj *UTMProjector, bbox [4]float64, hexEdge float64) []Hex {
+	minX, minY, maxX, maxY := ProjectedBBoxExtent(proj, bbox)
+	return HexGrid(minX, minY, maxX, maxY, hexEdge)
+}
+
+// ErrNoClipBoundary reports that ClipHexesToBoundaryGeoJSON had no usable
+// boundary to clip against and returned the lattice unclipped.
+var ErrNoClipBoundary = errors.New("no usable boundary to clip the hex grid against")
+
+// ClipHexesToBoundaryGeoJSON clips a city's lattice to its stored boundary
+// (ClipHexesToBoundary). It is the one clip compute stores per-hex results on
+// and export draws them on, so the two agree on which hexes exist and what
+// shape each has. When the boundary is absent, does not parse or is empty
+// after cleaning, the lattice comes back unclipped with an error wrapping
+// ErrNoClipBoundary, for the caller to warn about or tolerate.
+func ClipHexesToBoundaryGeoJSON(ctx context.Context, hexes []Hex, boundaryGJSON string, proj Projector, counter *atomic.Int64) ([]Hex, error) {
+	if boundaryGJSON == "" {
+		return hexes, fmt.Errorf("%w: none stored", ErrNoClipBoundary)
+	}
+	boundary, _, err := GeoJSONToProjectedGeometry(boundaryGJSON, proj)
+	switch {
+	case err != nil:
+		return hexes, fmt.Errorf("%w: boundary parse failed: %w", ErrNoClipBoundary, err)
+	case boundary.IsEmpty():
+		return hexes, fmt.Errorf("%w: boundary empty after cleaning", ErrNoClipBoundary)
+	}
+	return ClipHexesToBoundary(ctx, hexes, boundary, counter), nil
 }

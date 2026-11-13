@@ -708,29 +708,22 @@ func (c *computer) hexGrid(ctx context.Context, boundaryGJSON string) []geo.Hex 
 	c.notify.PhaseStart(phaseHexGrid)
 
 	hexEdge := c.cfg.ResolvedHexEdge(c.city)
-	minX, minY, maxX, maxY := geo.ProjectedBBoxExtent(c.proj, c.bbox)
 
 	fmt.Fprintf(c.progress, "\nComputing hex grid (edge=%.0fm)...\n", hexEdge)
-	hexes := geo.HexGrid(minX, minY, maxX, maxY, hexEdge)
+	hexes := geo.CityLattice(c.proj, c.bbox, hexEdge)
 	fmt.Fprintf(c.progress, "  Generated %d hexes\n", len(hexes))
 	c.notify.PhaseDone(phaseHexGrid, nil)
 
 	// --- Phase 2: Clip hexes to boundary ---
 	c.notify.PhaseStart(phaseClip)
 
-	boundaryGeom, err := parseGeoJSONGeometry(boundaryGJSON, c.proj)
-	switch {
-	case err != nil:
-		// Skipping the clip runs stats over the full rectangular bbox grid,
-		// inflating coverage. Warn (as loadBoundary does) so it isn't silent.
-		cmdutil.FprintWarnf(c.errOut, "boundary parse failed for city %q, computing over full bbox: %v", c.city.Name, err)
-	case boundaryGeom.IsEmpty():
-		cmdutil.FprintWarnf(c.errOut, "boundary empty after cleaning for city %q, computing over full bbox", c.city.Name)
-	default:
-		var clipCounter atomic.Int64
-		stopClipProgress := startProgressTicker(ctx, c.notify, phaseClip, len(hexes), &clipCounter)
-		hexes = geo.ClipHexesToBoundary(ctx, hexes, boundaryGeom, &clipCounter)
-		stopClipProgress()
+	var clipCounter atomic.Int64
+	stopClipProgress := startProgressTicker(ctx, c.notify, phaseClip, len(hexes), &clipCounter)
+	hexes, clipErr := geo.ClipHexesToBoundaryGeoJSON(ctx, hexes, boundaryGJSON, c.proj, &clipCounter)
+	stopClipProgress()
+	if clipErr != nil {
+		warnUnclipped(c.errOut, c.city, clipErr)
+	} else {
 		fmt.Fprintf(c.progress, "  Clipped to boundary: %d hexes\n", len(hexes))
 	}
 	c.notify.PhaseDone(phaseClip, nil)
@@ -771,12 +764,10 @@ func startProgressTicker(ctx context.Context, notify tui.PhaseNotifier, phase, t
 	}
 }
 
-func parseGeoJSONGeometry(gjson string, proj *geo.UTMProjector) (geom.Geometry, error) {
-	g, _, err := geo.GeoJSONToProjectedGeometry(gjson, proj)
-	if err != nil {
-		return geom.Geometry{}, err
-	}
-	return g, nil
+// warnUnclipped says that the city is being computed over its full bbox
+// lattice. Skipping the clip inflates coverage, so it must not be silent.
+func warnUnclipped(errOut io.Writer, city *config.CityConfig, clipErr error) {
+	cmdutil.FprintWarnf(errOut, "city %q is computed over its full bbox: %v", city.Name, clipErr)
 }
 
 // buildCohorts builds the cohort split of totalArea over buffered (all
