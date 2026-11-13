@@ -408,7 +408,7 @@ func TestParseWaterResponse_AcceptsLargeCoastlineRingInWaterDominatedBBox(t *tes
 	// Confirm the accepted ring is the large (water) side, > 0.8 of the
 	// bbox — i.e. exactly the ring the old cap rejected.
 	const bboxArea = 100.0
-	area := math.Abs(ringSignedArea(parsed.Coordinates[0][0])) / 2
+	area := math.Abs(ringSignedArea(parsed.Coordinates[0][0]))
 	if frac := area / bboxArea; frac <= maxOuterBboxAreaFraction {
 		t.Errorf("expected the accepted ring to exceed the bbox-fraction cap (frac > %.2f); got frac=%.3f",
 			maxOuterBboxAreaFraction, frac)

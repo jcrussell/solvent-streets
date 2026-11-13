@@ -1,5 +1,7 @@
 package ingest
 
+import "github.com/jcrussell/solvent-streets/internal/geo"
+
 // stitchInput pairs an OSM way's ref id with its coordinate sequence.
 // stitchRings consumes these so it can report the ids of member ways
 // whose partial chains had to be dropped.
@@ -189,20 +191,15 @@ func pointInRing(p [2]float64, ring [][2]float64) bool {
 	return inside
 }
 
-// ringSignedArea returns twice the signed area of ring in lon/lat
-// coordinates (x=lon east-positive, y=lat north-positive). Only the
-// sign matters for orientation, so the divide-by-two is skipped.
-// Positive = CCW, negative = CW. A degenerate ring (fewer than 4
-// vertices) returns 0.
+// ringSignedArea is geo.SignedRingArea for a ring in lon/lat coordinates
+// (x=lon east-positive, y=lat north-positive): positive = CCW, negative =
+// CW. A degenerate ring (fewer than 4 vertices, so not a closed ring) has
+// area 0.
 func ringSignedArea(ring [][2]float64) float64 {
 	if len(ring) < 4 {
 		return 0
 	}
-	var sum float64
-	for i := range len(ring) - 1 {
-		sum += ring[i][0]*ring[i+1][1] - ring[i+1][0]*ring[i][1]
-	}
-	return sum
+	return geo.SignedRingArea(ring)
 }
 
 // ringIsCW reports whether ring is clockwise in lon/lat with y=lat

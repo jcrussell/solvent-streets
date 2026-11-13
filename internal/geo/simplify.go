@@ -119,7 +119,7 @@ func simplifyRings(rings [][][2]float64, proj *UTMProjector, tolMeters float64, 
 // for a 2D display boundary.
 func simplifyRing(ring [][2]float64, proj *UTMProjector, tolMeters float64, decimals int, acc *areaAccumulator) [][2]float64 {
 	projected := projectCoords(ring, proj)
-	acc.addBefore(signedRingArea(projected))
+	acc.addBefore(SignedRingArea(projected))
 
 	candidate := projected
 	simplified := geom.NewLineString(coordsToSequence(projected)).Simplify(tolMeters)
@@ -134,7 +134,7 @@ func simplifyRing(ring [][2]float64, proj *UTMProjector, tolMeters float64, deci
 		candidate = sequenceToCoords(seq)
 	}
 
-	acc.addAfter(signedRingArea(candidate))
+	acc.addAfter(SignedRingArea(candidate))
 
 	// Rounding happens AFTER simplification and can itself degenerate a ring
 	// that passed the check above: RDP keeps vertices that are far from the
@@ -201,8 +201,11 @@ func distinctPoints(ring [][2]float64) int {
 	return len(seen)
 }
 
-// signedRingArea is the shoelace area of a ring in projected units.
-func signedRingArea(ring [][2]float64) float64 {
+// SignedRingArea is the shoelace area of a closed ring (first point repeated
+// last), in the square of the ring's own units: positive when the ring runs
+// counter-clockwise with y up, negative when clockwise. Fewer than 3 points
+// have no area.
+func SignedRingArea(ring [][2]float64) float64 {
 	if len(ring) < 3 {
 		return 0
 	}

@@ -314,7 +314,7 @@ func closeAndAcceptCoastline(ctx context.Context, chainIdx int, chain [][2]float
 // caller can accumulate a summary. Mirrors the WARN-shape of the
 // per-source rejection logs so accept/reject traces diff cleanly.
 func logAcceptedWaterPolygon(ctx context.Context, msg, idKey string, idVal int64, outer [][2]float64, bboxArea float64) float64 {
-	area := math.Abs(ringSignedArea(outer)) / 2
+	area := math.Abs(ringSignedArea(outer))
 	var frac float64
 	if bboxArea > 0 {
 		frac = area / bboxArea
@@ -369,7 +369,7 @@ func acceptWaterPolygon(outer [][2]float64, bboxArea float64) (bool, string) {
 		return false, "ring not closed"
 	}
 	if bboxArea > 0 {
-		area := math.Abs(ringSignedArea(outer)) / 2
+		area := math.Abs(ringSignedArea(outer))
 		if frac := area / bboxArea; frac > maxOuterBboxAreaFraction {
 			return false, fmt.Sprintf("outer covers %.1f%% of bbox (max %.0f%%)",
 				100*frac, 100*maxOuterBboxAreaFraction)
@@ -380,7 +380,7 @@ func acceptWaterPolygon(outer [][2]float64, bboxArea float64) (bool, string) {
 
 // bboxLonLatArea returns the planar lon/lat area of bbox. Used as the
 // denominator for the per-polygon area fraction check — both numerator
-// (ringSignedArea/2) and denominator are in the same lon/lat units, so
+// (ringSignedArea) and denominator are in the same lon/lat units, so
 // the ratio is meaningful even though neither value is in m².
 func bboxLonLatArea(bbox [4]float64) float64 {
 	south, west, north, east := bbox[0], bbox[1], bbox[2], bbox[3]

@@ -353,3 +353,17 @@ func TestSimplifyGeoJSONMeters_RoundsCoordinates(t *testing.T) {
 		}
 	}
 }
+
+func TestSignedRingArea(t *testing.T) {
+	ccw := [][2]float64{{0, 0}, {2, 0}, {2, 3}, {0, 3}, {0, 0}}
+	cw := [][2]float64{{0, 0}, {0, 3}, {2, 3}, {2, 0}, {0, 0}}
+	if got := SignedRingArea(ccw); got != 6 {
+		t.Errorf("CCW 2x3 rectangle area = %v, want 6", got)
+	}
+	if got := SignedRingArea(cw); got != -6 {
+		t.Errorf("CW 2x3 rectangle area = %v, want -6", got)
+	}
+	if got := SignedRingArea([][2]float64{{0, 0}, {1, 1}}); got != 0 {
+		t.Errorf("2-point ring area = %v, want 0", got)
+	}
+}

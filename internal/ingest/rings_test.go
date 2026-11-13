@@ -59,3 +59,25 @@ func TestStitchRingsBidi_DoesNotMergeDistinctChains(t *testing.T) {
 		}
 	}
 }
+
+// ringSignedArea is the true signed area (CCW positive), and a ring with
+// fewer than 4 vertices cannot be closed, so it has no area and is not CW.
+func TestRingSignedArea(t *testing.T) {
+	ccw := [][2]float64{{0, 0}, {2, 0}, {2, 3}, {0, 3}, {0, 0}}
+	cw := [][2]float64{{0, 0}, {0, 3}, {2, 3}, {2, 0}, {0, 0}}
+	if got := ringSignedArea(ccw); got != 6 {
+		t.Errorf("CCW 2x3 rectangle area = %v, want 6", got)
+	}
+	if got := ringSignedArea(cw); got != -6 {
+		t.Errorf("CW 2x3 rectangle area = %v, want -6", got)
+	}
+	// Open 3-point path running clockwise: the shoelace sum over its two
+	// edges is negative, but it is not a ring.
+	open3 := [][2]float64{{1, 1}, {1, 2}, {2, 1}}
+	if got := ringSignedArea(open3); got != 0 {
+		t.Errorf("3-vertex area = %v, want 0", got)
+	}
+	if ringIsCW(open3) {
+		t.Error("a 3-vertex ring must not read as CW")
+	}
+}
