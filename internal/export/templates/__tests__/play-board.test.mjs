@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
-import { fullData, seedJSON, hexgridJSON, playHexesJSON } from './fixtures.mjs';
+import { fullData, seedJSON, forecastJSON, hexgridJSON, playHexesJSON } from './fixtures.mjs';
 
 // bootBoard loads the play page with a working WASM and the board files, then
 // fires the map 'load' event boot() waits for.
@@ -67,4 +67,28 @@ test('play: the map is fitted to the board, not left on the region', async () =>
   // which strict deepEqual would reject on prototype alone.
   const last = JSON.parse(JSON.stringify(win.__fitBounds.at(-1) ?? null));
   assert.deepEqual(last, want, 'the last fit was not to the board');
+});
+
+// solvent-streets-lu32.22: the start screen opens at the cited street budget,
+// else at the roads hold-steady budget, as the Financials slider does.
+const roadsForecast = forecastJSON.find((f) => f.resource_type === 'roads');
+
+test('play: the start budget is the cited street budget', async () => {
+  assert.ok(roadsForecast.current_budget > 0, 'fixture must cite a budget');
+  const { get, $ } = await bootBoard(boardData(seedJSON));
+  assert.equal(get('gameConfig').starting_budget, roadsForecast.current_budget);
+  assert.equal($('#start-budget-slider').value, String(roadsForecast.current_budget));
+});
+
+test('play: with no cited budget the start budget is the hold-steady budget', async () => {
+  assert.ok(roadsForecast.break_even_budget > 0, 'fixture must carry a hold-steady budget');
+  const forecast = structuredClone(forecastJSON);
+  for (const f of forecast) {
+    if (f.resource_type === 'roads') delete f.current_budget;
+    // A budget on another resource is not a street budget.
+    else f.current_budget = 123_456;
+  }
+  const { get, $ } = await bootBoard({ ...boardData(seedJSON), 'forecast.json': forecast });
+  assert.equal(get('gameConfig').starting_budget, roadsForecast.break_even_budget);
+  assert.equal($('#start-budget-value').textContent, get('fmtMoney')(roadsForecast.break_even_budget));
 });

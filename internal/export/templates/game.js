@@ -557,17 +557,18 @@
             return (roads && roads.break_even_budget > 0) ? roads.break_even_budget : 0;
         }
 
+        /**
+         * The budget the start screen opens at: the city's cited annual street
+         * budget (forecast.json carries current_budget on the roads entry
+         * only), else the roads hold-steady budget, which is where the
+         * Financials budget slider opens for a city with no cited budget.
+         * @param {any} forecast
+         * @returns {number}
+         */
         function pickStartingBudget(forecast) {
-            // Prefer the ROADS entry's current_budget; else sum across resources;
-            // else a sane default.
-            if (Array.isArray(forecast)) {
-                const roads = forecast.find(f => f.resource_type === 'roads' && f.current_budget);
-                if (roads && roads.current_budget) return roads.current_budget;
-                let sum = 0;
-                for (const f of forecast) if (f.current_budget) sum += f.current_budget;
-                if (sum > 0) return sum;
-            }
-            return 1000000; // fallback: $1M/yr
+            const roads = Array.isArray(forecast) ? forecast.find(f => f.resource_type === 'roads') : null;
+            if (roads && roads.current_budget > 0) return roads.current_budget;
+            return pickHoldSteady(forecast);
         }
 
         async function boot() {

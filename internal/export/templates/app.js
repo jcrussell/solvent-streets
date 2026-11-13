@@ -3245,14 +3245,64 @@
             return c.resource_type;
         }
 
-        // scopeSeedCohorts is the seed cohorts of the active scope:
-        // city-scoped by default, all-jurisdiction when scope === 'all'.
-        function scopeSeedCohorts() {
+        // seedCohortsFor is the seed's cohorts of one resource type for a
+        // scope. 'all' is every jurisdiction's. 'city' is the city-maintained
+        // cohorts of that resource when it has any, else its all-jurisdiction
+        // ones: the choice is per resource, the rule forecast.json's
+        // per-resource figures are built with (Go: buildResourceForecast), so a
+        // city with city-scope parking but no city-scope roads still has roads.
+        /** @param {string} type @param {string} scope */
+        function seedCohortsFor(type, scope) {
+            const of = (/** @type {any[]} */ list) => (list || []).filter(c => cohortType(c) === type);
+            const all = of(FORECAST_SEED.cohorts);
+            if (scope === 'all') return all;
+            const city = of(FORECAST_SEED.city_cohorts);
+            return city.length ? city : all;
+        }
+
+        // seedTypes is the resource types the seed has cohorts for, in seed order.
+        function seedTypes() {
+            return Array.from(new Set((FORECAST_SEED.cohorts || []).concat(FORECAST_SEED.city_cohorts || []).map(cohortType)));
+        }
+
+        function activeScopeName() {
             const activeScope = queryEl('#scope-toggle button.active');
-            const scope = activeScope ? activeScope.dataset.scope : 'city';
-            return (scope === 'all' || !FORECAST_SEED.city_cohorts || FORECAST_SEED.city_cohorts.length === 0)
-                ? (FORECAST_SEED.cohorts || [])
-                : FORECAST_SEED.city_cohorts;
+            return activeScope ? activeScope.dataset.scope : 'city';
+        }
+
+        // scopeSeedCohorts is the seed cohorts of the active scope, resource
+        // by resource (seedCohortsFor): the network the budget slider simulates.
+        function scopeSeedCohorts() {
+            const scope = activeScopeName();
+            return seedTypes().flatMap(t => seedCohortsFor(t, scope));
+        }
+
+        // headlineRoadCohorts is the roads the solvency headline prices: the
+        // city scope's, whatever the scope toggle says, because the cited
+        // budget it is measured against pays for city-maintained streets.
+        function headlineRoadCohorts() {
+            return seedCohortsFor('roads', 'city');
+        }
+
+        // sliderRoadsAreWider reports that the slider's streets are every
+        // jurisdiction's while the headline's are the city's own, so the two
+        // hold-steady budgets on the page are different figures and the
+        // slider's must say so (renderBudgetSlider).
+        function sliderRoadsAreWider() {
+            return activeScopeName() === 'all' &&
+                (FORECAST_SEED.city_cohorts || []).some(c => cohortType(c) === 'roads');
+        }
+
+        // exportedSetMatchesScope reports that scenarios.json's set for the
+        // active scope was simulated over scopeSeedCohorts(). It is not when a
+        // resource without city-scope cohorts borrows its all-jurisdiction
+        // ones: the exported city set leaves that resource out.
+        function exportedSetMatchesScope() {
+            if (activeScopeName() === 'all') return true;
+            const city = FORECAST_SEED.city_cohorts || [];
+            if (city.length === 0) return true;
+            const have = new Set(city.map(cohortType));
+            return seedTypes().every(t => have.has(t));
         }
 
         // presentTypes is the resource types this city's seed has cohorts for.
@@ -3305,7 +3355,7 @@
             const exported = scenariosForScope(scenarioData, scope);
             if (!exported || !wasmReady || !forecastSeedReady) return exported;
             const types = effectiveMaintained();
-            if (types.length === presentTypes().length) return exported;
+            if (types.length === presentTypes().length && exportedSetMatchesScope()) return exported;
             const cohorts = scopeSeedCohorts().filter(c => types.includes(cohortType(c)));
             if (cohorts.length === 0) return exported;
             const input = {
@@ -3363,8 +3413,7 @@
 
             // Area/cohorts for the active scope: city-scoped data by default,
             // all-jurisdiction data when scope === 'all'.
-            const activeScope = queryEl('#scope-toggle button.active');
-            const scope = activeScope ? activeScope.dataset.scope : 'city';
+            const scope = activeScopeName();
             const area = (scope === 'all' || !FORECAST_SEED.city_paved)
                 ? FORECAST_SEED.total_area
                 : FORECAST_SEED.city_paved;
@@ -3426,9 +3475,7 @@
         // the tiers when they move. null when there is no roads forecast.
         function computeLiveSolvency(input) {
             const roads = forecastData ? forecastData.find(f => f.resource_type === 'roads') : null;
-            const src = (FORECAST_SEED.city_cohorts && FORECAST_SEED.city_cohorts.length)
-                ? FORECAST_SEED.city_cohorts : (FORECAST_SEED.cohorts || []);
-            const cohorts = src.filter(c => cohortType(c) === 'roads');
+            const cohorts = headlineRoadCohorts();
             if (!roads || cohorts.length === 0) return null;
             const current = roads.current_budget > 0 ? roads.current_budget : 0;
             const r = memoSolvency(headlineCache, Object.assign({}, input, {
@@ -3511,11 +3558,14 @@
             slider.setAttribute('aria-valuetext', fmtCost(budgetDollars) + ' a year' +
                 (hold > 0 ? ', ' + Math.round(100 * budgetDollars / hold) + '% of hold-steady' : ''));
             document.getElementById('budget-value').textContent = fmtCost(budgetDollars) + '/yr';
-            // Name the network when it isn't the default, so the figures can't
-            // be read as the streets-only ones the headline quotes.
+            // Name the network when it isn't the headline's (city-maintained
+            // streets), so this hold-steady budget can't be read as the one
+            // the headline quotes: other resource types, or every
+            // jurisdiction's streets under the all-jurisdiction scope.
             const types = effectiveMaintained();
-            document.getElementById('budget-share').textContent = sameMaintain(types, DEFAULT_MAINTAIN)
-                ? '' : 'for ' + types.map(t => MAINTAIN_SHORT[t]).join(' + ');
+            const wider = types.includes('roads') && sliderRoadsAreWider();
+            document.getElementById('budget-share').textContent = (sameMaintain(types, DEFAULT_MAINTAIN) && !wider)
+                ? '' : 'for ' + types.map(t => MAINTAIN_SHORT[t]).join(' + ') + (wider ? ', all jurisdictions' : '');
 
             budgetSnaps = [today, hold].filter(v => v > 0);
 

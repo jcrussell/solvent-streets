@@ -106,3 +106,48 @@ test('streets-only follows resource_type, not the class name', async () => {
   const headline = win.__simCalls.filter((c) => c.solvency && c.annual_budget > 0).at(-1);
   assert.ok(!sentClasses(headline).includes('surface_lot'), 'a parking cohort reached the roads headline');
 });
+
+// solvent-streets-lu32.22: which road cohorts a figure prices is one rule
+// (seedCohortsFor): per resource, the city-maintained cohorts when the
+// resource has any, else every jurisdiction's.
+const roadsOf = (list) => list.filter((c) => c.resource_type === 'roads');
+const areaOf = (list) => list.reduce((s, c) => s + c.area, 0);
+const headlineProbe = (win) => win.__simCalls.filter((c) => c.solvency && c.annual_budget > 0).at(-1);
+const holdProbe = (win) => win.__simCalls.filter((c) => c.solvency && c.annual_budget === 0).at(-1);
+
+test('a city with city-scope cohorts but none for roads still gets a live roads headline', async () => {
+  const seed = structuredClone(seedJSON);
+  seed.city_cohorts = seed.city_cohorts.filter((c) => c.resource_type !== 'roads');
+  assert.ok(seed.city_cohorts.length > 0 && roadsOf(seed.cohorts).length > 0, 'fixture cannot build the case');
+  const { win, doc } = await ready('', { ...fullData, 'forecast_seed.json': seed });
+
+  const probe = headlineProbe(win);
+  assert.ok(probe, 'the headline was not recomputed live');
+  assert.deepEqual(Array.from(probe.cohorts), roadsOf(seed.cohorts), 'roads fall back to every jurisdiction\'s cohorts');
+  // refSim prices hold steady at the cohort area, so the headline names it.
+  assert.ok(doc.getElementById('solvency-headline').textContent
+    .includes(win.fmtCost(areaOf(roadsOf(seed.cohorts))) + '/yr'), 'the headline is not the live figure');
+  // The slider maintains the same streets, so its anchor is the same figure.
+  assert.deepEqual(Array.from(custom(win).cohorts), roadsOf(seed.cohorts));
+  assert.equal(doc.getElementById('budget-share').textContent, '');
+});
+
+test('under ?scope=all the slider\'s hold-steady budget says it covers all jurisdictions', async () => {
+  const city = roadsOf(seedJSON.city_cohorts);
+  const all = roadsOf(seedJSON.cohorts);
+  assert.notEqual(areaOf(city), areaOf(all), 'fixture scopes must differ');
+  const { win, $ } = await ready('&scope=all');
+
+  // Two different networks on one page: the headline prices the streets the
+  // cited budget pays for, the slider the scope's.
+  assert.deepEqual(Array.from(headlineProbe(win).cohorts), city);
+  assert.deepEqual(Array.from(holdProbe(win).cohorts), all);
+  assert.equal($('#budget-share').textContent, 'for streets, all jurisdictions');
+  assert.equal($('#budget-slider').getAttribute('aria-describedby'), 'budget-share');
+});
+
+test('under the city scope the headline and the slider price the same streets', async () => {
+  const { win, $ } = await ready();
+  assert.deepEqual(Array.from(headlineProbe(win).cohorts), Array.from(holdProbe(win).cohorts));
+  assert.equal($('#budget-share').textContent, '');
+});
