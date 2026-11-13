@@ -159,3 +159,34 @@ func TestScenarios_Year1NeedMatchesPerResourceForecasts(t *testing.T) {
 		t.Errorf("year-1 need: scenarios.json %.2f, sum of forecast.json baselines %.2f", blended, perResource)
 	}
 }
+
+// forecast.json's roads entry states the area its solvency figures are
+// measured on, so the live server's Compare tab (which reads forecast.json,
+// with no compare.json rollup) shows the same "City-Maintained Roads" row a
+// static export does.
+func TestBuildForecastsForCity_RoadsEntryCarriesItsArea(t *testing.T) {
+	var rows []db.CityMetric
+	rows = append(rows, results.TotalRows(resource.TypeRoads, results.Totals{Area: 9000})...)
+	rows = append(rows, results.CohortRows(resource.TypeRoads, []results.Cohort{{Class: "residential", Area: 9000}})...)
+	rows = append(rows, results.TotalRows(resource.TypeParking, results.Totals{Area: 500})...)
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "A"}}}
+	entry := CityEntry{Config: cfg, City: cfg.Cities[0], Store: &dbtest.MockStore{CityMetrics: rows}, Slug: "a"}
+	fc := cfg.ResolvedForecast(&entry.City)
+
+	forecasts, err := BuildForecastsForCity(context.Background(), entry, &fc, ConvertCostTiers(&fc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fe := range forecasts {
+		switch fe.ResourceType {
+		case "roads":
+			if fe.RoadsArea <= 0 || fe.RoadsArea != fe.Baseline.Years[0].Area {
+				t.Errorf("roads_area = %v, want the baseline's year-1 area %v", fe.RoadsArea, fe.Baseline.Years[0].Area)
+			}
+		default:
+			if fe.RoadsArea != 0 {
+				t.Errorf("%s carries roads_area %v; it belongs to the roads entry only", fe.ResourceType, fe.RoadsArea)
+			}
+		}
+	}
+}

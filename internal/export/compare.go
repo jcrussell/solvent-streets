@@ -7,6 +7,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
 // CompareFileName is the site-level rollup a multi-city export writes beside
@@ -82,11 +84,8 @@ type compareYear struct {
 	DeferredBacklog float64 `json:"deferred_backlog"`
 }
 
-// compareForecast is the roads entry of forecast.json, solvency fields only,
-// plus RoadsArea: the year-1 area of the baseline those figures are measured
-// on (city-maintained roads), so the Solvency card can show the network the
-// hold-steady budget actually maintains rather than an all-jurisdiction,
-// all-resource total (solvent-streets-3ij1).
+// compareForecast is the roads entry of forecast.json, solvency fields only
+// (ForecastExport's, under the same keys).
 type compareForecast struct {
 	ResourceType    string   `json:"resource_type"`
 	BreakEvenBudget float64  `json:"break_even_budget,omitempty"`
@@ -94,17 +93,6 @@ type compareForecast struct {
 	InsolvencyYear  *int     `json:"insolvency_year,omitempty"`
 	FundingGap      *float64 `json:"funding_gap,omitempty"`
 	RoadsArea       float64  `json:"roads_area,omitempty"`
-}
-
-// forecastFileEntry is how compareCityFromDir reads one forecast.json entry:
-// the solvency fields plus the baseline's year-1 area.
-type forecastFileEntry struct {
-	compareForecast
-	Baseline struct {
-		Years []struct {
-			Area float64 `json:"area"`
-		} `json:"years"`
-	} `json:"baseline"`
 }
 
 // compareCityFromDir builds slug's entry from the data files exported into
@@ -146,23 +134,17 @@ func compareCityFromDir(slug, dataDir string) (CompareCity, error) {
 // readRoadsForecast returns forecast.json's roads entry as a one-element
 // slice, or nil when the file or the entry is absent.
 func readRoadsForecast(dataDir string) ([]compareForecast, error) {
-	var forecasts []forecastFileEntry
+	var forecasts []compareForecast
 	ok, err := readDataFile(dataDir, ForecastFileName, &forecasts)
 	if err != nil || !ok {
 		return nil, err
 	}
-	var out []compareForecast
 	for _, f := range forecasts {
-		if f.ResourceType != "roads" {
-			continue
+		if f.ResourceType == string(resource.TypeRoads) {
+			return []compareForecast{f}, nil
 		}
-		cf := f.compareForecast
-		if len(f.Baseline.Years) > 0 {
-			cf.RoadsArea = f.Baseline.Years[0].Area
-		}
-		out = []compareForecast{cf}
 	}
-	return out, nil
+	return nil, nil
 }
 
 // readDataFile decodes dataDir/name into v. It reports false, with no error,

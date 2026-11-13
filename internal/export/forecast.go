@@ -88,6 +88,11 @@ type ForecastExport struct {
 	BreakEvenBudget float64  `json:"break_even_budget,omitempty"` // smallest constant annual budget that holds the network steady
 	CurrentBudget   float64  `json:"current_budget,omitempty"`    // the configured budget the metrics are measured against; omitted when unset
 	FundingGap      *float64 `json:"funding_gap,omitempty"`       // (break_even_budget - current_budget)/current_budget; omitted when no budget is configured
+	// RoadsArea is the year-1 area of the baseline the solvency figures are
+	// measured on (city-maintained roads when the city has them), so a page can
+	// show the network the hold-steady budget maintains rather than an
+	// all-jurisdiction, all-resource total. Roads only, like the figures.
+	RoadsArea float64 `json:"roads_area,omitempty"`
 }
 
 // errSkipResource sentinel: a resource has no compute run yet (or returned
@@ -189,6 +194,9 @@ func buildResourceForecast(rt resource.Source, fc *config.ForecastConfig, costTi
 	// insolvency year and funding gap need a configured current_budget.
 	if t == resource.TypeRoads {
 		fe.BreakEvenBudget = forecast.BreakEvenBudget(primaryCohorts, years, rtParams, forecast.StrategyWorstFirst)
+		if len(baseline.Years) > 0 {
+			fe.RoadsArea = baseline.Years[0].Area
+		}
 		if fc.CurrentBudget > 0 {
 			fe.CurrentBudget = fc.CurrentBudget
 			currentRun := forecast.Simulate(
@@ -458,6 +466,7 @@ func RoundForecastsForEmission(fes []ForecastExport) []ForecastExport {
 		}
 		fe.Scenarios = roundScenarioResults(fe.Scenarios)
 		fe.BreakEvenBudget = roundMoney(fe.BreakEvenBudget)
+		fe.RoadsArea = roundArea(fe.RoadsArea)
 		fe.CurrentBudget = roundMoney(fe.CurrentBudget)
 		if fe.FundingGap != nil {
 			g := roundTo(*fe.FundingGap, emitRatioDecimals)
