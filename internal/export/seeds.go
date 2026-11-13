@@ -102,41 +102,37 @@ type ForecastSeedJSON struct {
 
 // BuildForecastSeed constructs a ForecastSeedJSON for the given forecast config and store.
 func BuildForecastSeed(ctx context.Context, fc *config.ForecastConfig, store db.Store) (template.JS, error) {
-	costTiers := ConvertCostTiers(fc)
-	if len(costTiers) == 0 {
-		costTiers = forecast.DefaultCostTiers
-	}
-	// Deliberately NOT scaled by the overhead — see the CostTiers field comment.
-	costOverhead := fc.ResolvedCostOverhead()
-
 	totalArea, cityArea, err := pavedAreas(ctx, store)
 	if err != nil {
 		return "", fmt.Errorf("paved area: %w", err)
 	}
-
-	decayRate := fc.DecayRate
-	if decayRate <= 0 {
-		decayRate = forecast.DefaultDecayRates["default"]
-	}
-
-	years := fc.Years
-
-	// Collect cohort stats
 	cohorts, err := collectCohortSeeds(ctx, store, fc)
 	if err != nil {
 		return "", err
 	}
+	return marshalForecastSeed(fc, totalArea, cityArea, cohorts)
+}
 
+// marshalForecastSeed is the one place a forecast seed is assembled, for one
+// city (BuildForecastSeed) and for a whole config
+// (BuildMultiCityForecastSeed): the resolved forecast settings plus the paved
+// areas and cohorts the caller read.
+func marshalForecastSeed(fc *config.ForecastConfig, totalArea, cityArea float64, cohorts cohortSet) (template.JS, error) {
+	costTiers := ConvertCostTiers(fc)
+	if len(costTiers) == 0 {
+		costTiers = forecast.DefaultCostTiers
+	}
 	seed := ForecastSeedJSON{
-		InitialPCI:           fc.InitialPCI,
-		DecayRate:            decayRate,
-		GrowthRate:           fc.GrowthRate,
-		HorizonYears:         years,
-		TreatmentCycleYears:  forecast.ResolveCycleYears(fc.TreatmentCycleYears),
-		TotalArea:            totalArea,
-		CityPaved:            cityArea,
+		InitialPCI:          fc.InitialPCI,
+		DecayRate:           forecast.ResolveDecayRate(fc.DecayRate),
+		GrowthRate:          fc.GrowthRate,
+		HorizonYears:        fc.Years,
+		TreatmentCycleYears: forecast.ResolveCycleYears(fc.TreatmentCycleYears),
+		TotalArea:           totalArea,
+		CityPaved:           cityArea,
+		// Deliberately NOT scaled by the overhead — see the CostTiers field comment.
 		CostTiers:            costTiers,
-		CostOverhead:         costOverhead,
+		CostOverhead:         fc.ResolvedCostOverhead(),
 		MaterialTiers:        forecast.DefaultMaterialTiers,
 		BarrelsPerTonBinder:  forecast.BarrelsPerTonBinder,
 		Cohorts:              cohorts.All,

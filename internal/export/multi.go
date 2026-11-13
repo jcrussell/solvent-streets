@@ -2,7 +2,6 @@ package export
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -161,11 +160,6 @@ func regionBBox(ctx context.Context, entries []CityEntry) ([4]float64, bool) {
 // pair — cross-resource collisions stay as separate cohorts to match the
 // single-city collectCohortSeeds shape.
 func BuildMultiCityForecastSeed(ctx context.Context, fc *config.ForecastConfig, entries []CityEntry) (template.JS, error) {
-	costTiers := ConvertCostTiers(fc)
-	if len(costTiers) == 0 {
-		costTiers = forecast.DefaultCostTiers
-	}
-
 	var totalArea, cityArea float64
 	for _, entry := range entries {
 		all, city, err := pavedAreas(ctx, entry.Store)
@@ -175,35 +169,15 @@ func BuildMultiCityForecastSeed(ctx context.Context, fc *config.ForecastConfig, 
 		totalArea += all
 		cityArea += city
 	}
-
-	decayRate := fc.DecayRate
-	if decayRate <= 0 {
-		decayRate = forecast.DefaultDecayRates["default"]
+	var cohorts cohortSet
+	var err error
+	if cohorts.All, cohorts.AllAsphaltShare, err = mergeCohortSeeds(ctx, entries, fc, false); err != nil {
+		return "", err
 	}
-	allCohorts, allAsphaltShare := mergeCohortSeeds(ctx, entries, fc, false)
-	cityCohorts, cityAsphaltShare := mergeCohortSeeds(ctx, entries, fc, true)
-	seed := ForecastSeedJSON{
-		InitialPCI:           fc.InitialPCI,
-		DecayRate:            decayRate,
-		GrowthRate:           fc.GrowthRate,
-		HorizonYears:         fc.Years,
-		TreatmentCycleYears:  forecast.ResolveCycleYears(fc.TreatmentCycleYears),
-		TotalArea:            totalArea,
-		CityPaved:            cityArea,
-		CostTiers:            costTiers,
-		CostOverhead:         fc.ResolvedCostOverhead(),
-		MaterialTiers:        forecast.DefaultMaterialTiers,
-		BarrelsPerTonBinder:  forecast.BarrelsPerTonBinder,
-		Cohorts:              allCohorts,
-		CityCohorts:          cityCohorts,
-		AsphaltAreaShare:     allAsphaltShare,
-		CityAsphaltAreaShare: cityAsphaltShare,
+	if cohorts.City, cohorts.CityAsphaltShare, err = mergeCohortSeeds(ctx, entries, fc, true); err != nil {
+		return "", err
 	}
-	data, err := json.Marshal(seed)
-	if err != nil {
-		return "", fmt.Errorf("marshal multi-city forecast seed: %w", err)
-	}
-	return template.JS(data), nil
+	return marshalForecastSeed(fc, totalArea, cityArea, cohorts)
 }
 
 // mergeCohortSeeds collects cohort stats across entries and sums areas for
@@ -212,7 +186,7 @@ func BuildMultiCityForecastSeed(ctx context.Context, fc *config.ForecastConfig, 
 // "default") stay as separate cohorts — matching collectCohortSeeds' single-
 // city shape, where each cohort row of rt appears verbatim and a
 // classification can recur across resources.
-func mergeCohortSeeds(ctx context.Context, entries []CityEntry, fc *config.ForecastConfig, cityScope bool) ([]CohortSeed, float64) {
+func mergeCohortSeeds(ctx context.Context, entries []CityEntry, fc *config.ForecastConfig, cityScope bool) ([]CohortSeed, float64, error) {
 	type key struct {
 		Resource       string
 		Classification string
@@ -243,7 +217,7 @@ func mergeCohortSeeds(ctx context.Context, entries []CityEntry, fc *config.Forec
 		// deterministic, in resource.All order.
 		statsByType, err := results.LoadCohortsByType(ctx, entry.Store, scopedTypes)
 		if err != nil {
-			continue
+			return nil, 0, fmt.Errorf("list cohort stats for %s: %w", entry.City.Name, err)
 		}
 		for _, rt := range resource.All {
 			t := rt.Type()
@@ -270,11 +244,11 @@ func mergeCohortSeeds(ctx context.Context, entries []CityEntry, fc *config.Forec
 		}
 	}
 	if len(buckets) == 0 {
-		return nil, split.share()
+		return nil, split.share(), nil
 	}
 	out := make([]CohortSeed, len(buckets))
 	for _, b := range buckets {
 		out[b.Order] = b.Seed
 	}
-	return out, split.share()
+	return out, split.share(), nil
 }

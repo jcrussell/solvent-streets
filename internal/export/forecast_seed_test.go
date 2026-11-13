@@ -3,6 +3,7 @@ package export
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -55,7 +56,7 @@ func TestMergeCohortSeeds_KeysOnResourceAndClassification(t *testing.T) {
 	}
 
 	fc := &config.ForecastConfig{}
-	got, _ := mergeCohortSeeds(context.Background(), []CityEntry{cityA, cityB}, fc, false)
+	got, _, _ := mergeCohortSeeds(context.Background(), []CityEntry{cityA, cityB}, fc, false)
 
 	// Three distinct (resource, classification) pairs across both cities:
 	// roads/primary, roads/default, parking/default. Keying on classification
@@ -180,7 +181,9 @@ func TestMergeCohortSeeds_CityScopeReadsCityLabels(t *testing.T) {
 			},
 		},
 	}
-	mergeCohortSeeds(context.Background(), []CityEntry{entry}, &config.ForecastConfig{}, true)
+	if _, _, err := mergeCohortSeeds(context.Background(), []CityEntry{entry}, &config.ForecastConfig{}, true); err != nil {
+		t.Fatal(err)
+	}
 
 	for _, subject := range seen {
 		if resource.Type(subject).Scope() != resource.ScopeCity {
@@ -286,7 +289,7 @@ func TestMergeCohortSeeds_AsphaltShareIsRegionWide(t *testing.T) {
 	// big: 900/1000 asphalt (0.9). small: 10/100 asphalt (0.1).
 	// Region-wide: 910/1100. Averaging the two would give 0.5.
 	entries := []CityEntry{entry(900, 100), entry(10, 90)}
-	_, share := mergeCohortSeeds(context.Background(), entries, &config.ForecastConfig{}, false)
+	_, share, _ := mergeCohortSeeds(context.Background(), entries, &config.ForecastConfig{}, false)
 	if want := 910.0 / 1100.0; share != want {
 		t.Errorf("region asphalt share = %v; want %v (area-weighted, not the 0.5 average of 0.9 and 0.1)", share, want)
 	}
@@ -311,5 +314,51 @@ func TestSeedDecayRate_MatchesForecastCohorts(t *testing.T) {
 				t.Errorf("override %g, class %q: seed decay %g, forecast.json decay %g", override, c, got, want)
 			}
 		}
+	}
+}
+
+// A failed cohort read fails the multi-city seed, as it fails a single city's:
+// a seed quietly missing one city's cohorts would publish a region forecast
+// that undercounts the network.
+func TestBuildMultiCityForecastSeed_CohortReadErrorIsReturned(t *testing.T) {
+	ok := &dbtest.MockStore{}
+	failing := &dbtest.MockStore{ListCityMetricsFunc: func(_ context.Context, subjects []string) ([]db.CityMetric, error) {
+		return nil, errors.New("db unavailable")
+	}}
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "A"}, {Name: "B"}}}
+	entries := []CityEntry{
+		{Config: cfg, City: cfg.Cities[0], Store: ok, Slug: "a"},
+		{Config: cfg, City: cfg.Cities[1], Store: failing, Slug: "b"},
+	}
+	if _, err := BuildMultiCityForecastSeed(context.Background(), &config.ForecastConfig{}, entries); err == nil {
+		t.Fatal("expected the failed read to be returned")
+	}
+	if _, _, err := mergeCohortSeeds(context.Background(), entries, &config.ForecastConfig{}, true); err == nil {
+		t.Fatal("mergeCohortSeeds must return a failed cohort read")
+	}
+}
+
+// One city's seed and a one-city region's seed are the same document: both are
+// assembled by marshalForecastSeed from the same settings, areas and cohorts.
+func TestForecastSeed_SingleAndMultiCityAgree(t *testing.T) {
+	var rows []db.CityMetric
+	rows = append(rows, results.TotalRows(resource.TypeRoads, results.Totals{Area: 900})...)
+	rows = append(rows, results.CohortRows(resource.TypeRoads, []results.Cohort{{Class: "primary", Area: 400}, {Class: "residential", Area: 500}})...)
+	rows = append(rows, results.CohortRows(resource.TypeSidewalks, []results.Cohort{{Class: "sidewalks", Area: 100}})...)
+	store := &dbtest.MockStore{CityMetrics: rows}
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "A"}}}
+	entry := CityEntry{Config: cfg, City: cfg.Cities[0], Store: store, Slug: "a"}
+	fc := cfg.ResolvedForecast(&entry.City)
+
+	single, err := BuildForecastSeed(context.Background(), &fc, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	multi, err := BuildMultiCityForecastSeed(context.Background(), &fc, []CityEntry{entry})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if single != multi {
+		t.Errorf("seeds differ:\nsingle %s\n multi %s", single, multi)
 	}
 }

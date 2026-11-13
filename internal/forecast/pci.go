@@ -33,16 +33,24 @@ var DefaultDecayRates = func() map[string]float64 {
 	return m
 }()
 
+// ResolveDecayRate applies the default decay rate when k is unset (<= 0). It
+// is the one fallback for a decay rate that was not configured: the forecast
+// core, the cohort builders and the exported seed and scenarios all resolve
+// through it, so they simulate and report the same rate.
+func ResolveDecayRate(k float64) float64 {
+	if k <= 0 {
+		return DefaultDecayRates["default"]
+	}
+	return k
+}
+
 // ExponentialPCIForecaster models PCI decay as PCI(t) = PCI_0 * exp(-k * t).
 type ExponentialPCIForecaster struct {
-	DecayRate float64 // k value; if 0, uses DefaultDecayRates["default"]
+	DecayRate float64 // k value, resolved through ResolveDecayRate
 }
 
 func (f *ExponentialPCIForecaster) Forecast(currentPCI float64, years int) []float64 {
-	k := f.DecayRate
-	if k <= 0 {
-		k = DefaultDecayRates["default"]
-	}
+	k := ResolveDecayRate(f.DecayRate)
 	// Clamp negative years to 0 (house style: clamp-in-place, not error-return);
 	// make([]float64, years) panics on a negative length.
 	if years < 0 {
@@ -70,10 +78,7 @@ func (f *ExponentialPCIForecaster) Forecast(currentPCI float64, years int) []flo
 // slice matters. The k-resolution and clamp mirror Forecast exactly so the two
 // paths are numerically identical.
 func (f *ExponentialPCIForecaster) decayOneStep(currentPCI float64) float64 {
-	k := f.DecayRate
-	if k <= 0 {
-		k = DefaultDecayRates["default"]
-	}
+	k := ResolveDecayRate(f.DecayRate)
 	pci := currentPCI * math.Exp(-k)
 	if pci < 0 {
 		pci = 0

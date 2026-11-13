@@ -447,9 +447,7 @@ func ResolvedTOML(cfg *config.Config) string {
 	resolved.Export.CoordinateDecimals = cfg.CoordinateDecimals()
 	resolved.Export.BoundarySimplifyM = cfg.BoundarySimplifyM()
 	config.NormalizeForecast(&resolved.Forecast)
-	if resolved.Forecast.DecayRate <= 0 {
-		resolved.Forecast.DecayRate = forecast.DefaultDecayRates["default"]
-	}
+	resolved.Forecast.DecayRate = forecast.ResolveDecayRate(resolved.Forecast.DecayRate)
 	if len(resolved.Forecast.CostTiers) == 0 {
 		for _, t := range forecast.DefaultCostTiers {
 			resolved.Forecast.CostTiers = append(resolved.Forecast.CostTiers, config.CostTierCfg{

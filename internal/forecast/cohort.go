@@ -111,14 +111,10 @@ func SpreadCohorts(raw []RawCohort, initialPCI float64) []Cohort {
 	}
 	cohorts := make([]Cohort, len(raw))
 	for i, r := range raw {
-		rate := r.DecayRate
-		if rate <= 0 {
-			rate = DefaultDecayRates["default"]
-		}
 		cohorts[i] = Cohort{
 			Classification: r.Classification,
 			Area:           r.Area,
-			DecayRate:      rate,
+			DecayRate:      ResolveDecayRate(r.DecayRate),
 			InitialPCI:     initialPCI,
 		}
 	}

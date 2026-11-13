@@ -231,10 +231,7 @@ func cityScopeCohorts(cityStats []results.Cohort, fc *config.ForecastConfig) ([]
 func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.ForecastConfig) (map[string]any, error) {
 	costTiers := ConvertCostTiers(fc)
 	params := forecast.NewParams(fc.GrowthRate, costTiers, fc.TreatmentCycleYears, fc.ResolvedCostOverhead())
-	defaultRate := forecast.DefaultDecayRates["default"]
-	if fc.DecayRate > 0 {
-		defaultRate = fc.DecayRate
-	}
+	defaultRate := forecast.ResolveDecayRate(fc.DecayRate)
 
 	areas, err := aggregateScenarioAreas(ctx, entry)
 	if err != nil {

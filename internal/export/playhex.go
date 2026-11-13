@@ -123,12 +123,10 @@ func buildPlayHexesFromGrid(ctx context.Context, entry CityEntry, proj *geo.UTMP
 		if b.area <= 0 {
 			continue
 		}
-		k := b.weighted / b.area
-		if k <= 0 {
-			// Defensive: every road class has a positive rate, so this only
-			// fires if a hex somehow accrued area with no class weight.
-			k = forecast.DefaultDecayRates["default"]
-		}
+		// Defensive fallback: every road class has a positive rate, so the
+		// default only applies if a hex somehow accrued area with no class
+		// weight.
+		k := forecast.ResolveDecayRate(b.weighted / b.area)
 		// Round at construction so play-hexes.json carries display precision
 		// rather than full float64 (704.5835576057434 -> 704.58); the mantissa
 		// is most of this file's bytes and nothing downstream reads past it.
