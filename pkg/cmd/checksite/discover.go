@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/jcrussell/solvent-streets/internal/export"
 )
 
 // site is the discovered shape of a built static-site tree. Discovery is
@@ -81,20 +83,20 @@ func discoverSite(dir string) (*site, error) {
 // has a data/ directory (single-city) or a cities/ directory (multi-city);
 // anything else (an asset dir, say) is skipped.
 func classifyExample(slug, exDir string) (example, bool) {
-	dataDir := filepath.Join(exDir, "data")
+	dataDir := filepath.Join(exDir, export.DataDirName)
 	if isDir(dataDir) {
 		return example{slug: slug, dir: exDir, dataDir: dataDir}, true
 	}
-	citiesDir := filepath.Join(exDir, "cities")
+	citiesDir := filepath.Join(exDir, export.CitiesDirName)
 	if isDir(citiesDir) {
-		ex := example{slug: slug, dir: exDir, cityJSON: filepath.Join(exDir, "cities.json")}
+		ex := example{slug: slug, dir: exDir, cityJSON: filepath.Join(exDir, export.CitiesFileName)}
 		cityEntries, err := os.ReadDir(citiesDir)
 		if err == nil {
 			for _, ce := range cityEntries {
 				if ce.IsDir() {
 					ex.cities = append(ex.cities, cityDir{
 						slug:    ce.Name(),
-						dataDir: filepath.Join(citiesDir, ce.Name(), "data"),
+						dataDir: export.CityDataDir(exDir, ce.Name()),
 					})
 				}
 			}

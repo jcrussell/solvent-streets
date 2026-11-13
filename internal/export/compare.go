@@ -113,19 +113,19 @@ type forecastFileEntry struct {
 func compareCityFromDir(slug, dataDir string) (CompareCity, error) {
 	c := CompareCity{Slug: slug}
 	var meta compareMeta
-	if ok, err := readDataFile(dataDir, "meta.json", &meta); err != nil {
+	if ok, err := readDataFile(dataDir, MetaFileName, &meta); err != nil {
 		return c, err
 	} else if ok {
 		c.Meta = &meta
 	}
 	var seed compareSeed
-	if ok, err := readDataFile(dataDir, "forecast_seed.json", &seed); err != nil {
+	if ok, err := readDataFile(dataDir, ForecastSeedFileName, &seed); err != nil {
 		return c, err
 	} else if ok {
 		c.Seed = &seed
 	}
 	var scenarios map[string][]compareScenario
-	if ok, err := readDataFile(dataDir, "scenarios.json", &scenarios); err != nil {
+	if ok, err := readDataFile(dataDir, ScenariosFileName, &scenarios); err != nil {
 		return c, err
 	} else if ok {
 		c.Scenarios = map[string][]compareScenario{}
@@ -147,7 +147,7 @@ func compareCityFromDir(slug, dataDir string) (CompareCity, error) {
 // slice, or nil when the file or the entry is absent.
 func readRoadsForecast(dataDir string) ([]compareForecast, error) {
 	var forecasts []forecastFileEntry
-	ok, err := readDataFile(dataDir, "forecast.json", &forecasts)
+	ok, err := readDataFile(dataDir, ForecastFileName, &forecasts)
 	if err != nil || !ok {
 		return nil, err
 	}

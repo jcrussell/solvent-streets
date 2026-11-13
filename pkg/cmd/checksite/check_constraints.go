@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/jcrussell/solvent-streets/internal/export"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 )
 
@@ -65,7 +66,7 @@ func (r *runner) checkConstraints(s *site) {
 // only skips Jekyll when the file is present; the zero-byte convention keeps it
 // an unambiguous marker rather than accidentally-meaningful content.
 func (r *runner) checkNojekyll(s *site) {
-	info, err := os.Stat(filepath.Join(s.dir, ".nojekyll"))
+	info, err := os.Stat(filepath.Join(s.dir, export.NojekyllFileName))
 	switch {
 	case err != nil:
 		r.failf("constraints: .nojekyll is missing")

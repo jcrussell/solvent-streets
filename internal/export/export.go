@@ -73,7 +73,7 @@ func (e *Exporter) Run(ctx context.Context) error {
 
 func (e *Exporter) runSingleCity(ctx context.Context) error {
 	entry := e.entries[0]
-	dataDir := filepath.Join(e.outputDir, "data")
+	dataDir := filepath.Join(e.outputDir, DataDirName)
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
 	}
@@ -127,7 +127,7 @@ func (e *Exporter) exportOneCity(ctx context.Context, entry CityEntry) (CityInfo
 		return CityInfo{}, false, nil
 	}
 
-	cityDataDir := filepath.Join(e.outputDir, "cities", entry.Slug, "data")
+	cityDataDir := CityDataDir(e.outputDir, entry.Slug)
 	if err := os.MkdirAll(cityDataDir, 0o755); err != nil {
 		return CityInfo{}, false, fmt.Errorf("create city dir %s: %w", entry.Slug, err)
 	}
@@ -145,7 +145,7 @@ func (e *Exporter) exportOneCity(ctx context.Context, entry CityEntry) (CityInfo
 func (e *Exporter) writeCompareRollup(cities []CityInfo) error {
 	compare := CompareJSON{V: CompareFileVersion, Cities: make([]CompareCity, 0, len(cities))}
 	for _, c := range cities {
-		cc, err := compareCityFromDir(c.Slug, filepath.Join(e.outputDir, "cities", c.Slug, "data"))
+		cc, err := compareCityFromDir(c.Slug, CityDataDir(e.outputDir, c.Slug))
 		if err != nil {
 			return fmt.Errorf("build %s for %s: %w", CompareFileName, c.Slug, err)
 		}
@@ -185,8 +185,8 @@ func (e *Exporter) runMultiCity(ctx context.Context) error {
 		cities = []CityInfo{}
 	}
 	sortCitiesByName(cities)
-	if err := writeJSON(filepath.Join(e.outputDir, "cities.json"), cities); err != nil {
-		return fmt.Errorf("write cities.json: %w", err)
+	if err := writeJSON(filepath.Join(e.outputDir, CitiesFileName), cities); err != nil {
+		return fmt.Errorf("write %s: %w", CitiesFileName, err)
 	}
 	if err := e.writeCompareRollup(cities); err != nil {
 		return err
@@ -319,7 +319,7 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 		return MetaJSON{}, "", fmt.Errorf("build hexgrid: %w", err)
 	}
 	if hexFC != nil {
-		if err := writeJSON(filepath.Join(dataDir, "hexgrid.geojson"), hexFC); err != nil {
+		if err := writeJSON(filepath.Join(dataDir, HexGridFileName), hexFC); err != nil {
 			return MetaJSON{}, "", fmt.Errorf("write hexgrid: %w", err)
 		}
 	}
@@ -335,13 +335,13 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 		return MetaJSON{}, "", fmt.Errorf("build play hexes: %w", err)
 	}
 	if playHexes != nil {
-		if err := writeJSON(filepath.Join(dataDir, "play-hexes.json"), playHexes); err != nil {
+		if err := writeJSON(filepath.Join(dataDir, PlayHexesFileName), playHexes); err != nil {
 			return MetaJSON{}, "", fmt.Errorf("write play-hexes: %w", err)
 		}
 	}
 
 	// Write meta.json
-	if err := writeJSON(filepath.Join(dataDir, "meta.json"), meta); err != nil {
+	if err := writeJSON(filepath.Join(dataDir, MetaFileName), meta); err != nil {
 		return MetaJSON{}, "", fmt.Errorf("write meta: %w", err)
 	}
 
@@ -360,7 +360,7 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 	if err != nil {
 		return MetaJSON{}, "", fmt.Errorf("build forecast seed: %w", err)
 	}
-	if err := fsutil.WriteFile(filepath.Join(dataDir, "forecast_seed.json"), []byte(seed), 0o644); err != nil {
+	if err := fsutil.WriteFile(filepath.Join(dataDir, ForecastSeedFileName), []byte(seed), 0o644); err != nil {
 		return MetaJSON{}, "", fmt.Errorf("write forecast_seed.json: %w", err)
 	}
 
@@ -379,7 +379,7 @@ func writeHexMetrics(ctx context.Context, entry CityEntry, dataDir string) error
 	if hm == nil {
 		return nil
 	}
-	if err := writeJSON(filepath.Join(dataDir, "hex-metrics.json"), hm); err != nil {
+	if err := writeJSON(filepath.Join(dataDir, HexMetricsFileName), hm); err != nil {
 		return fmt.Errorf("write hex-metrics: %w", err)
 	}
 	return nil
@@ -397,12 +397,12 @@ func exportScenariosForCity(ctx context.Context, entry CityEntry, dataDir string
 	if len(forecasts) > 0 {
 		// Round for emission only, on a copy: BuildHexCostSummary below derives
 		// from `forecasts` and must see full precision.
-		if err := writeJSON(filepath.Join(dataDir, "forecast.json"), RoundForecastsForEmission(forecasts)); err != nil {
+		if err := writeJSON(filepath.Join(dataDir, ForecastFileName), RoundForecastsForEmission(forecasts)); err != nil {
 			return fmt.Errorf("write forecast.json: %w", err)
 		}
 
 		hexCostSummary := BuildHexCostSummary(ctx, entry, forecasts)
-		if err := writeJSON(filepath.Join(dataDir, "hex-cost-summary.json"), hexCostSummary); err != nil {
+		if err := writeJSON(filepath.Join(dataDir, HexCostSummaryFileName), hexCostSummary); err != nil {
 			return fmt.Errorf("write hex-cost-summary.json: %w", err)
 		}
 
@@ -410,7 +410,7 @@ func exportScenariosForCity(ctx context.Context, entry CityEntry, dataDir string
 		if err != nil {
 			return fmt.Errorf("build scenarios: %w", err)
 		}
-		if err := writeJSON(filepath.Join(dataDir, "scenarios.json"), RoundScenariosForEmission(scenariosOut)); err != nil {
+		if err := writeJSON(filepath.Join(dataDir, ScenariosFileName), RoundScenariosForEmission(scenariosOut)); err != nil {
 			return fmt.Errorf("write scenarios.json: %w", err)
 		}
 	}
@@ -530,7 +530,7 @@ func (e *Exporter) writeBoundary(ctx context.Context, entry CityEntry, proj *geo
 			"warning: city %q boundary could not be simplified, writing it in full: %v\n",
 			entry.City.Name, simplifyErr)
 	}
-	if err := writeJSON(filepath.Join(dataDir, "boundary.geojson"), fc); err != nil {
+	if err := writeJSON(filepath.Join(dataDir, BoundaryFileName), fc); err != nil {
 		return fmt.Errorf("write boundary geojson: %w", err)
 	}
 	return nil
@@ -557,7 +557,7 @@ func (e *Exporter) writeExportMarker() error {
 // before the site consolidated to a single `pvmt export`. Written next to the
 // export marker (post-MkdirAll) so the output dir already exists.
 func (e *Exporter) writeNojekyll() error {
-	path := filepath.Join(e.outputDir, ".nojekyll")
+	path := filepath.Join(e.outputDir, NojekyllFileName)
 	if err := fsutil.WriteFile(path, nil, 0o644); err != nil {
 		return fmt.Errorf("write .nojekyll: %w", err)
 	}
@@ -582,10 +582,10 @@ func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, cities []CityInfo
 	if err != nil {
 		return err
 	}
-	if err := fsutil.WriteFile(filepath.Join(e.outputDir, "index.html"), index, 0o644); err != nil {
+	if err := fsutil.WriteFile(filepath.Join(e.outputDir, IndexFileName), index, 0o644); err != nil {
 		return err
 	}
-	return fsutil.WriteFile(filepath.Join(e.outputDir, "play.html"), play, 0o644)
+	return fsutil.WriteFile(filepath.Join(e.outputDir, PlayFileName), play, 0o644)
 }
 
 // writeJSON writes minified JSON (no indentation). Indentation is pure weight

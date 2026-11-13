@@ -251,12 +251,12 @@ func buildManifest(outputDir string, entries []exportpkg.CityEntry) (manifest, e
 // cities/<slug>/ attach to that slug when it matches a known entry.
 func attributeFile(rel, singleSlug string, bySlug map[string][]string) string {
 	if singleSlug != "" {
-		if strings.HasPrefix(rel, "data/") {
+		if strings.HasPrefix(rel, exportpkg.DataDirName+"/") {
 			return singleSlug
 		}
 		return ""
 	}
-	if !strings.HasPrefix(rel, "cities/") {
+	if !strings.HasPrefix(rel, exportpkg.CitiesDirName+"/") {
 		return ""
 	}
 	parts := strings.SplitN(rel, "/", 3)

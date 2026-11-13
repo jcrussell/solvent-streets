@@ -1521,3 +1521,20 @@ func TestRenderIndex_MultiCityUsesConfigWideTotals(t *testing.T) {
 		t.Errorf("rendered multi-city index does not open on the region's center")
 	}
 }
+
+// Every data file a static export can write has a route on the live server,
+// and the server routes no file the export does not know.
+func TestDataFiles_RouteEveryExportedFile(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	srv := New(nil, "127.0.0.1", 0, ios, testAssets(t))
+	routes := srv.dataFiles()
+	want := export.AllDataFileNames()
+	for _, name := range want {
+		if routes[name] == nil {
+			t.Errorf("no route serves %s, which the exporter writes", name)
+		}
+	}
+	if len(routes) != len(want) {
+		t.Errorf("server routes %d data files, the exporter writes %d", len(routes), len(want))
+	}
+}

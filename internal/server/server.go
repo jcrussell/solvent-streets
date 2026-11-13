@@ -142,7 +142,7 @@ func (s *Server) handler() http.Handler {
 		// Single-city mode: serve data at /data/{file}, the same layout a
 		// single-city static export uses.
 		entry := s.cities[0]
-		mux.HandleFunc("GET /data/{file}", s.handleDataFile(entry))
+		mux.HandleFunc("GET /"+export.DataDirName+"/{file}", s.handleDataFile(entry))
 		mux.HandleFunc("GET /api/snapshots", s.handleSnapshotsList(entry))
 		mux.HandleFunc("GET /play", s.handleGame) // DATA_PREFIX='' → /data/<file>
 		mux.HandleFunc("GET /", s.handleIndex)
@@ -150,7 +150,7 @@ func (s *Server) handler() http.Handler {
 		// Multi-city mode
 		mux.HandleFunc("GET /api/cities", s.handleCitiesList)
 		mux.HandleFunc("GET /api/cities/{slug}/snapshots", s.handleCitySnapshotsList)
-		mux.HandleFunc("GET /cities/{slug}/data/{file}", s.handleCityDataFile)
+		mux.HandleFunc("GET /"+export.CityDataPrefix("{slug}")+export.DataDirName+"/{file}", s.handleCityDataFile)
 		// /play renders per-city: the city comes from ?city=<slug> (the dropdown
 		// navigates there), defaulting to the first renderable city, and the page
 		// fetches its board under /cities/{slug}/data/. See handleGame.

@@ -404,27 +404,30 @@ func (s *Server) serveDataFile(w http.ResponseWriter, r *http.Request, file stri
 		}
 		entry = entry.WithSnapshot(snapshotID)
 	}
-	switch file {
-	case "meta.json":
-		s.serveMetaJSON(w, r, entry, snapshotID)
-	case "hexgrid.geojson":
-		s.serveHexGridGeoJSON(w, r, entry, snapshotID)
-	case "play-hexes.json":
-		s.servePlayHexes(w, r, entry, snapshotID)
-	case "scenarios.json":
-		s.serveScenariosJSON(w, r, entry, snapshotID)
-	case "forecast.json":
-		s.serveForecastJSON(w, r, entry, snapshotID)
-	case "forecast_seed.json":
-		s.serveForecastSeed(w, r, entry, snapshotID)
-	case "hex-cost-summary.json":
-		s.serveHexCostSummary(w, r, entry, snapshotID)
-	case "boundary.geojson":
-		s.serveBoundaryGeoJSON(w, r, entry, snapshotID)
-	case "hex-metrics.json":
-		s.serveHexMetrics(w, r, entry, snapshotID)
-	default:
+	serve, ok := s.dataFiles()[file]
+	if !ok {
 		http.NotFound(w, r)
+		return
+	}
+	serve(w, r, entry, snapshotID)
+}
+
+// dataFileHandler serves one of a city's data files.
+type dataFileHandler func(w http.ResponseWriter, r *http.Request, entry export.CityEntry, snapshotID int64)
+
+// dataFiles routes every per-city data file a static export can write
+// (export.AllDataFileNames) to the handler that builds the same document.
+func (s *Server) dataFiles() map[string]dataFileHandler {
+	return map[string]dataFileHandler{
+		export.MetaFileName:           s.serveMetaJSON,
+		export.HexGridFileName:        s.serveHexGridGeoJSON,
+		export.PlayHexesFileName:      s.servePlayHexes,
+		export.ScenariosFileName:      s.serveScenariosJSON,
+		export.ForecastFileName:       s.serveForecastJSON,
+		export.ForecastSeedFileName:   s.serveForecastSeed,
+		export.HexCostSummaryFileName: s.serveHexCostSummary,
+		export.BoundaryFileName:       s.serveBoundaryGeoJSON,
+		export.HexMetricsFileName:     s.serveHexMetrics,
 	}
 }
 
@@ -592,12 +595,7 @@ func (s *Server) serveHexGridGeoJSON(w http.ResponseWriter, _ *http.Request, ent
 			return nil, err
 		}
 		if fc == nil {
-			// Carry the version even on the empty FC. This is the one place the
-			// hexgrid is built INLINE rather than by BuildHexGeoJSON, and the
-			// client aborts the whole city load on an unrecognized version — so
-			// omitting it here would turn "city has no hex stats", which
-			// degrades gracefully today, into a blank page under `pvmt serve`.
-			fc = map[string]any{"type": "FeatureCollection", "v": export.HexGridFileVersion, "features": []any{}}
+			fc = export.EmptyHexGrid()
 		}
 		return fc, nil
 	})
@@ -614,7 +612,7 @@ func (s *Server) serveHexMetrics(w http.ResponseWriter, _ *http.Request, entry e
 			return nil, err
 		}
 		if hm == nil {
-			return export.HexMetricsJSON{V: export.HexMetricsFileVersion, Metrics: map[string]export.MetricJSON{}}, nil
+			return export.EmptyHexMetrics(), nil
 		}
 		return hm, nil
 	})
@@ -754,7 +752,7 @@ func (s *Server) serveBoundaryGeoJSON(w http.ResponseWriter, _ *http.Request, en
 		_, lon, lat, err := entry.BBoxAndCenter(ctx)
 		switch {
 		case errors.Is(err, export.ErrNoBoundary):
-			return map[string]any{"type": "FeatureCollection", "features": []any{}}, nil
+			return export.EmptyBoundary(), nil
 		case err != nil:
 			fmt.Fprintf(s.ios.ErrOut,
 				"server: city %q boundary has no derivable projection (%v); serving it unsimplified\n",
@@ -770,7 +768,7 @@ func (s *Server) serveBoundaryGeoJSON(w http.ResponseWriter, _ *http.Request, en
 			if simplifyErr != nil {
 				return nil, simplifyErr
 			}
-			return map[string]any{"type": "FeatureCollection", "features": []any{}}, nil
+			return export.EmptyBoundary(), nil
 		}
 		if simplifyErr != nil {
 			fmt.Fprintf(s.ios.ErrOut,

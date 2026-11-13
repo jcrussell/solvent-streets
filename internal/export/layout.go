@@ -36,3 +36,25 @@ func CityDataDir(root, slug string) string {
 func CityDataPrefix(slug string) string {
 	return CitiesDirName + "/" + slug + "/"
 }
+
+// A static export leaves a data file out when the city has nothing to put in
+// it, and the page treats the missing file as empty. The live server answers
+// every data file, so for those cities it serves the documents below: what
+// each builder's output looks like with nothing in it.
+
+// EmptyHexGrid is hexgrid.geojson for a city with no per-hex results. It
+// carries the file version: the page refuses a hex grid whose version it does
+// not recognise, which would turn "no hex stats yet" into a failed city load.
+func EmptyHexGrid() map[string]any {
+	return map[string]any{"type": "FeatureCollection", "v": HexGridFileVersion, "features": []any{}}
+}
+
+// EmptyBoundary is boundary.geojson for a city with no boundary stored.
+func EmptyBoundary() map[string]any {
+	return map[string]any{"type": "FeatureCollection", "features": []any{}}
+}
+
+// EmptyHexMetrics is hex-metrics.json for a city with no metric rows.
+func EmptyHexMetrics() HexMetricsJSON {
+	return HexMetricsJSON{V: HexMetricsFileVersion, Metrics: map[string]MetricJSON{}}
+}

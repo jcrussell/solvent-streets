@@ -271,9 +271,9 @@ func (d TemplateData) IndexConfigJSON() template.JS {
 func (d TemplateData) GameConfigJSON() template.JS {
 	dataPrefix := ""
 	if d.ActiveSlug != "" {
-		dataPrefix = "cities/" + d.ActiveSlug + "/"
+		dataPrefix = CityDataPrefix(d.ActiveSlug)
 	}
-	mapHref := "index.html"
+	mapHref := IndexFileName
 	if d.IsLiveServer {
 		mapHref = "/"
 	}

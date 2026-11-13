@@ -31,8 +31,8 @@ func (s *site) dataDirsWithLabel() []struct{ label, slug, dir string } {
 // forecast.json (monotonic baseline) found in the tree.
 func (r *runner) checkReasonableness(s *site) {
 	for _, d := range s.dataDirsWithLabel() {
-		r.checkMeta(d.label, filepath.Join(d.dir, "meta.json"))
-		r.checkForecast(d.label, d.slug, filepath.Join(d.dir, "forecast.json"))
+		r.checkMeta(d.label, filepath.Join(d.dir, export.MetaFileName))
+		r.checkForecast(d.label, d.slug, filepath.Join(d.dir, export.ForecastFileName))
 	}
 }
 
@@ -46,7 +46,7 @@ const minPlausiblePavedShare = 0.01
 // city.
 func (r *runner) checkMeta(label, path string) {
 	var meta export.MetaJSON
-	if !readJSON(r, "reasonableness", label, "meta.json", path, &meta) {
+	if !readJSON(r, "reasonableness", label, export.MetaFileName, path, &meta) {
 		return
 	}
 	switch {
@@ -65,7 +65,7 @@ func (r *runner) checkMeta(label, path string) {
 // nothing to compare.
 func (r *runner) checkForecast(label, slug, path string) {
 	var forecasts []export.ForecastExport
-	if !readJSON(r, "reasonableness", label, "forecast.json", path, &forecasts) {
+	if !readJSON(r, "reasonableness", label, export.ForecastFileName, path, &forecasts) {
 		return
 	}
 	if len(forecasts) == 0 {
@@ -164,7 +164,7 @@ func (r *runner) checkConsistency(s *site) {
 	bySlug := make(map[string][]seen)
 	for _, d := range s.dataDirsWithLabel() {
 		var meta export.MetaJSON
-		if !readJSON(r, "consistency", d.label, "meta.json", filepath.Join(d.dir, "meta.json"), &meta) {
+		if !readJSON(r, "consistency", d.label, export.MetaFileName, filepath.Join(d.dir, export.MetaFileName), &meta) {
 			continue
 		}
 		bySlug[d.slug] = append(bySlug[d.slug], seen{label: d.label, paved: meta.TotalPaved})

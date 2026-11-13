@@ -58,15 +58,15 @@ import (
 // forecast_seed / meta / hex-cost-summary are nominal ceilings orders of
 // magnitude above today's bytes.
 var sizeBudgets = map[string]int64{
-	"boundary.geojson":      2 << 20,   // 2 MiB  (worst 1.2 MiB after B4b)
-	"forecast.json":         512 << 10, // 512 KiB
-	"forecast_seed.json":    64 << 10,  // 64 KiB  (nominal)
-	"hex-cost-summary.json": 64 << 10,  // 64 KiB  (nominal)
-	"hexgrid.geojson":       8 << 20,   // 8 MiB  (worst 6.2 MiB; 74% of the tree)
-	"meta.json":             64 << 10,  // 64 KiB  (nominal)
-	"play-hexes.json":       2 << 20,   // 2 MiB  (worst 956 KiB; 93% of 1 MiB)
-	"scenarios.json":        256 << 10, // 256 KiB (nominal)
-	"hex-metrics.json":      2 << 20,   // 2 MiB  (optional; ~30 B per painted hex per metric)
+	export.BoundaryFileName:       2 << 20,   // 2 MiB  (worst 1.2 MiB after B4b)
+	export.ForecastFileName:       512 << 10, // 512 KiB
+	export.ForecastSeedFileName:   64 << 10,  // 64 KiB  (nominal)
+	export.HexCostSummaryFileName: 64 << 10,  // 64 KiB  (nominal)
+	export.HexGridFileName:        8 << 20,   // 8 MiB  (worst 6.2 MiB; 74% of the tree)
+	export.MetaFileName:           64 << 10,  // 64 KiB  (nominal)
+	export.PlayHexesFileName:      2 << 20,   // 2 MiB  (worst 956 KiB; 93% of 1 MiB)
+	export.ScenariosFileName:      256 << 10, // 256 KiB (nominal)
+	export.HexMetricsFileName:     2 << 20,   // 2 MiB  (optional; ~30 B per painted hex per metric)
 }
 
 // dataFileNameSet is export.DataFileNames as a set, so the shared-asset walk

@@ -127,7 +127,7 @@ func (r *runner) checkReferences(s *site) {
 }
 
 func (r *runner) checkExampleReferences(ex example) {
-	indexPath := filepath.Join(ex.dir, "index.html")
+	indexPath := filepath.Join(ex.dir, export.IndexFileName)
 	data, err := os.ReadFile(indexPath)
 	if err != nil {
 		r.failf("references: %s: cannot read index.html: %v", ex.slug, err)
