@@ -71,7 +71,6 @@ func TestExportScenariosForCity_PropagatesDBError(t *testing.T) {
 // Simulate over all cohorts when city stats are present.
 func TestBuildResourceForecast_AllBaselineGatedOnCityScope(t *testing.T) {
 	now := time.Now()
-	doNothing := forecast.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: forecast.StrategyDoNothing}
 	fc := &config.ForecastConfig{InitialPCI: 85, GrowthRate: 0.01, Years: 5}
 	costTiers := forecast.DefaultCostTiers
 
@@ -86,7 +85,7 @@ func TestBuildResourceForecast_AllBaselineGatedOnCityScope(t *testing.T) {
 		// Empty maps for both all and city scopes — no cohort stats stored.
 		cohorts := map[resource.Type][]results.Cohort{}
 
-		fe, err := buildResourceForecast(pavement, fc, costTiers, doNothing, latest, cohorts)
+		fe, err := buildResourceForecast(pavement, fc, costTiers, latest, cohorts)
 		if err != nil {
 			t.Fatalf("buildResourceForecast: %v", err)
 		}
@@ -106,7 +105,7 @@ func TestBuildResourceForecast_AllBaselineGatedOnCityScope(t *testing.T) {
 			tCity: {{Class: "residential", Area: 500}},
 		}
 
-		fe, err := buildResourceForecast(pavement, fc, costTiers, doNothing, latest, cohorts)
+		fe, err := buildResourceForecast(pavement, fc, costTiers, latest, cohorts)
 		if err != nil {
 			t.Fatalf("buildResourceForecast: %v", err)
 		}

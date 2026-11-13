@@ -114,8 +114,6 @@ var errSkipResource = errors.New("no compute result for resource")
 // full picture in one return; any non-nil error discards the partial slice
 // so the cache evicts and retries instead of memoizing a partial result.
 func BuildForecastsForCity(ctx context.Context, entry CityEntry, fc *config.ForecastConfig, costTiers []forecast.CostTier) ([]ForecastExport, error) {
-	doNothing := forecast.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: forecast.StrategyDoNothing}
-
 	// One batched DB roundtrip reads the totals and cohort splits of the
 	// 3-resource × 2-scope cross-product, per city.
 	allTypes := make([]resource.Type, 0, len(resource.All))
@@ -132,7 +130,7 @@ func BuildForecastsForCity(ctx context.Context, entry CityEntry, fc *config.Fore
 	var forecasts []ForecastExport
 	var errs []error
 	for _, rt := range resource.All {
-		fe, err := buildResourceForecast(rt, fc, costTiers, doNothing, latestByType, cohortStats)
+		fe, err := buildResourceForecast(rt, fc, costTiers, latestByType, cohortStats)
 		if errors.Is(err, errSkipResource) {
 			continue
 		}
@@ -152,7 +150,7 @@ func BuildForecastsForCity(ctx context.Context, entry CityEntry, fc *config.Fore
 // buildResourceForecast builds the forecast for a single resource from
 // pre-batched DB results. Returns errSkipResource when the resource has
 // no compute run yet — a legitimate skip on a fresh DB.
-func buildResourceForecast(rt resource.Source, fc *config.ForecastConfig, costTiers []forecast.CostTier, doNothing forecast.Scenario, latestByType map[resource.Type]results.Totals, cohortStats map[resource.Type][]results.Cohort) (ForecastExport, error) {
+func buildResourceForecast(rt resource.Source, fc *config.ForecastConfig, costTiers []forecast.CostTier, latestByType map[resource.Type]results.Totals, cohortStats map[resource.Type][]results.Cohort) (ForecastExport, error) {
 	t := rt.Type()
 	tName := string(t)
 	result, ok := latestByType[t]
@@ -172,12 +170,9 @@ func buildResourceForecast(rt resource.Source, fc *config.ForecastConfig, costTi
 		primaryCohorts = allCohorts
 	}
 
-	baseline := forecast.Simulate(doNothing, primaryCohorts, years, rtParams)
-	year1Need := baseline.Years[0].AnnualNeed
-	scenarios := forecast.SimulateDefaults(year1Need, primaryCohorts, years, rtParams)
-
-	baseline = forecast.CollapseBands(baseline)
-	scenarios = forecast.CollapseAllBands(scenarios)
+	// The baseline, then the funding levels sized off its year-1 need.
+	reference := forecast.CollapseAllBands(forecast.ReferenceScenarios(primaryCohorts, years, rtParams))
+	baseline, scenarios := reference[0], reference[1:]
 
 	fe := ForecastExport{
 		ResourceType: tName,
@@ -185,7 +180,7 @@ func buildResourceForecast(rt resource.Source, fc *config.ForecastConfig, costTi
 		Scenarios:    scenarios,
 	}
 	if hasCityScope {
-		allBaseline := forecast.CollapseBands(forecast.Simulate(doNothing, allCohorts, years, rtParams))
+		allBaseline := forecast.CollapseBands(forecast.SimulateBaseline(allCohorts, years, rtParams))
 		fe.AllBaseline = &allBaseline
 	}
 

@@ -115,10 +115,7 @@ A city with nothing computed under its current settings exits 3.`,
 // simulateResource runs rt's baseline (do-nothing) forecast and returns its
 // per-year rows, total deferred cost, and the baseline itself.
 func simulateResource(city string, rt resource.Source, cohorts []fcpkg.Cohort, years int, params *fcpkg.Params) ([]forecastRow, float64, fcpkg.ScenarioResult) {
-	baseline := fcpkg.Simulate(
-		fcpkg.Scenario{Name: "baseline", Label: "Baseline (Do Nothing)", Strategy: fcpkg.StrategyDoNothing},
-		cohorts, years, params,
-	)
+	baseline := fcpkg.SimulateBaseline(cohorts, years, params)
 	// Collapse the per-band sub-cohort summaries back to one row per
 	// classification for the cohort-breakdown table.
 	baseline = fcpkg.CollapseBands(baseline)
