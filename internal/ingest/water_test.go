@@ -601,7 +601,7 @@ func bboxTag(bbox [4]float64) string {
 
 // truncatedWaterBody is a well-formed Overpass response carrying a
 // server-side timeout remark — HTTP 200 with partial (here empty)
-// elements, the shape that fetchWaterElements must split-and-retry.
+// elements, the shape that fetchSplitting must split-and-retry.
 const truncatedWaterBody = `{"remark":"runtime error: Query timed out in \"query\" at line 1 after 60 seconds.","elements":[]}`
 
 // closedWayBody returns a single closed natural=water way with the given
@@ -1714,7 +1714,7 @@ func TestPolygonsFromRelation_InnerFallsThroughRejectedOuter(t *testing.T) {
 }
 
 // TestFetchOSMWater_OversizedBodySplitsQuadrants: an oversized water response
-// must reach fetchWaterElements' quadrant splitting, not error out of
+// must reach fetchSplitting's quadrant splitting, not error out of
 // postOverpass and hard-fail the ingest for a bbox that splitting handles.
 func TestFetchOSMWater_OversizedBodySplitsQuadrants(t *testing.T) {
 	prev := maxResponseBodyBytes

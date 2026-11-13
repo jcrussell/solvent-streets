@@ -46,68 +46,25 @@ func fetchOSMWater(ctx context.Context, client *http.Client, baseURL string, bbo
 	// the ORIGINAL bbox, so coastline closing and the land-probe logic
 	// (both tied to the query bbox) behave identically to a single big
 	// successful query — quadrant edges never enter the geometry.
-	seen := make(map[string]bool)
-	elements, err := fetchWaterElements(ctx, client, baseURL, bbox, seen, 0)
+	elements, err := fetchSplitting(bbox,
+		func(bbox [4]float64) ([]overpassElement, error) {
+			body, err := postOverpass(ctx, client, baseURL, buildWaterQuery(bbox))
+			if err != nil {
+				return nil, err
+			}
+			return parseWaterElements(body)
+		},
+		func(e overpassElement) string { return fmt.Sprintf("%s:%d", e.Type, e.ID) })
 	if err != nil {
 		return "", err
 	}
 	return assembleWaterGeoJSON(ctx, elements, bbox, landProbes)
 }
 
-// fetchWaterElements fetches the raw Overpass water elements for bbox,
-// recursively splitting into quadrants when the response is unusable
-// (isParseError: malformed JSON, a truncation remark, an oversized body),
-// under the same conditions as fetchRecursive for features. Elements are
-// deduped by type+id via seen because a water body spanning a quadrant
-// boundary is returned in full by every quadrant it touches. A quadrant
-// still unusable at maxSplitDepth propagates the error (fail loud) rather
-// than silently under-reporting water.
-func fetchWaterElements(ctx context.Context, client *http.Client, baseURL string, bbox [4]float64, seen map[string]bool, depth int) ([]overpassElement, error) {
-	var elements []overpassElement
-	body, err := postOverpass(ctx, client, baseURL, buildWaterQuery(bbox))
-	if err == nil {
-		elements, err = parseWaterElements(body)
-	}
-	if err != nil {
-		if !isParseError(err) || depth >= maxSplitDepth {
-			return nil, err
-		}
-		return fetchWaterQuadrants(ctx, client, baseURL, bbox, seen, depth)
-	}
-
-	// Dedup by stable element key (type+id), mirroring fetchRecursive's
-	// dedup of db.Feature.ID. A boundary-spanning element appears in
-	// multiple quadrant responses with identical full geometry.
-	unique := make([]overpassElement, 0, len(elements))
-	for _, e := range elements {
-		key := fmt.Sprintf("%s:%d", e.Type, e.ID)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		unique = append(unique, e)
-	}
-	return unique, nil
-}
-
-// fetchWaterQuadrants splits bbox into quadrants and concatenates their
-// elements. Dedup is left to the callee via the shared seen map.
-func fetchWaterQuadrants(ctx context.Context, client *http.Client, baseURL string, bbox [4]float64, seen map[string]bool, depth int) ([]overpassElement, error) {
-	var all []overpassElement
-	for _, q := range splitBBox(bbox) {
-		qElements, qErr := fetchWaterElements(ctx, client, baseURL, q, seen, depth+1)
-		if qErr != nil {
-			return nil, qErr
-		}
-		all = append(all, qElements...)
-	}
-	return all, nil
-}
-
 // parseWaterElements unmarshals an Overpass water response body. Malformed
 // JSON (a response cut off mid-stream) and a server truncation remark
 // (runtime timeout / OOM) both return an isParseError-class error, so
-// fetchWaterElements splits the bbox on either and a single-response caller
+// fetchSplitting splits the bbox on either and a single-response caller
 // fails loudly: a truncated water response would under-report water and
 // silently inflate land area.
 func parseWaterElements(data []byte) ([]overpassElement, error) {

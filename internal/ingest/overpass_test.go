@@ -357,7 +357,7 @@ func TestParseOverpassResponse_TruncationRemark(t *testing.T) {
 // TestParseOverpassResponse_MalformedJSONIsParseError pins the typed-sentinel
 // classification of a malformed-JSON parse failure (u78a): isParseError must
 // match via errors.Is on errOverpassParse, not a fragile substring of the
-// formatted message, so fetchRecursive still splits the bbox and retries.
+// formatted message, so fetchSplitting still splits the bbox and retries.
 func TestParseOverpassResponse_MalformedJSONIsParseError(t *testing.T) {
 	_, err := parseOverpassResponse(context.Background(), []byte("{ this is not json"), testResourceRoads)
 	if err == nil {
@@ -436,7 +436,7 @@ func TestCoordsToPolygonGeoJSON(t *testing.T) {
 
 // TestIsParseError_BodyTooLarge pins the q48z.4 fix. An oversized response body
 // belongs to the "response unusable, shrink the bbox and retry" class that
-// fetchRecursive splits quadrants for. Both routes to the sentinel must be
+// fetchSplitting splits quadrants for. Both routes to the sentinel must be
 // recognised: this package's own ReadAllLimit call, and the cache transport's,
 // which surfaces through client.Do wrapped in a *url.Error.
 func TestIsParseError_BodyTooLarge(t *testing.T) {
@@ -471,7 +471,7 @@ func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { retu
 // TestFetch_OversizedBodySplitsQuadrants is the behavioral half of the q48z.4
 // fix: a first response over the size cap must drive the quadrant split, not
 // abort the whole resource. Before the fix the oversized body surfaced as
-// httpio.ErrBodyTooLarge, isParseError returned false, and fetchRecursive
+// httpio.ErrBodyTooLarge, isParseError returned false, and fetchSplitting
 // returned the error straight out — which fetchFromSources then turned into
 // ErrAllSourcesFailed for a city that used to succeed after splitting.
 func TestFetch_OversizedBodySplitsQuadrants(t *testing.T) {

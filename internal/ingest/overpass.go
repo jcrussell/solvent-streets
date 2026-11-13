@@ -57,37 +57,55 @@ func (s *OverpassSource) Name() string { return sourceOverpass }
 const maxSplitDepth = 3 // max 4^3 = 64 requests per city/resource
 
 func (s *OverpassSource) Fetch(ctx context.Context, client *http.Client, rt resource.Source) ([]db.Feature, error) {
-	seen := make(map[string]bool)
-	return fetchRecursive(ctx, client, rt, s.BBox, seen, 0)
+	return fetchSplitting(s.BBox,
+		func(bbox [4]float64) ([]db.Feature, error) { return fetchBBox(ctx, client, rt, bbox) },
+		func(f db.Feature) string { return f.ID })
 }
 
-func fetchRecursive(ctx context.Context, client *http.Client, rt resource.Source, bbox [4]float64, seen map[string]bool, depth int) ([]db.Feature, error) {
-	features, err := fetchBBox(ctx, client, rt, bbox)
-	if err != nil && isParseError(err) && depth < maxSplitDepth {
-		// Response too large / truncated — split into quadrants and retry
-		var all []db.Feature
-		for _, q := range splitBBox(bbox) {
-			qFeatures, qErr := fetchRecursive(ctx, client, rt, q, seen, depth+1)
-			if qErr != nil {
-				return nil, qErr
-			}
-			all = append(all, qFeatures...)
+// fetchSplitting returns fetch(bbox). When that response is unusable
+// (isParseError) it splits bbox into quadrants and fetches each instead,
+// recursing up to maxSplitDepth; a quadrant still unusable at that depth, or
+// any other error, fails the whole fetch. An item that crosses a quadrant
+// edge comes back from every quadrant it touches, so items are deduped by
+// key.
+func fetchSplitting[T any](bbox [4]float64, fetch func([4]float64) ([]T, error), key func(T) string) ([]T, error) {
+	var all []T
+	seen := make(map[string]bool)
+	var visit func(bbox [4]float64, depth int) error
+	visit = func(bbox [4]float64, depth int) error {
+		items, err := fetch(bbox)
+		if err == nil {
+			all = appendUnique(all, seen, items, key)
+			return nil
 		}
-		return all, nil
+		if !isParseError(err) || depth >= maxSplitDepth {
+			return err
+		}
+		for _, q := range splitBBox(bbox) {
+			if err := visit(q, depth+1); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
-	if err != nil {
+	if err := visit(bbox, 0); err != nil {
 		return nil, err
 	}
+	return all, nil
+}
 
-	// Deduplicate features at quadrant boundaries
-	var unique []db.Feature
-	for _, f := range features {
-		if !seen[f.ID] {
-			seen[f.ID] = true
-			unique = append(unique, f)
+// appendUnique appends each item in src to dst, skipping any whose key has
+// already been seen. seen is mutated in place, so it dedupes across calls.
+func appendUnique[T any](dst []T, seen map[string]bool, src []T, key func(T) string) []T {
+	for _, item := range src {
+		k := key(item)
+		if seen[k] {
+			continue
 		}
+		seen[k] = true
+		dst = append(dst, item)
 	}
-	return unique, nil
+	return dst
 }
 
 func fetchBBox(ctx context.Context, client *http.Client, rt resource.Source, bbox [4]float64) ([]db.Feature, error) {
@@ -101,7 +119,7 @@ func fetchBBox(ctx context.Context, client *http.Client, rt resource.Source, bbo
 // errOverpassTruncated marks a 200 response whose top-level "remark" reports a
 // server-side runtime failure (timeout / out of memory). Overpass returns valid
 // JSON with a partial (often empty) elements array in that case, so it parses
-// cleanly; we surface it as a parse-class error so fetchRecursive splits the
+// cleanly; we surface it as a parse-class error so fetchSplitting splits the
 // bbox and retries with smaller queries.
 var errOverpassTruncated = errors.New("overpass result truncated by server remark")
 
@@ -112,7 +130,7 @@ var errOverpassTruncated = errors.New("overpass result truncated by server remar
 var errOverpassParse = errors.New("parse overpass json")
 
 // isParseError reports whether err belongs to the "response unusable, shrink
-// the bbox and retry" class that fetchRecursive splits quadrants for.
+// the bbox and retry" class that fetchSplitting splits quadrants for.
 //
 // httpio.ErrBodyTooLarge is in that class even though it is not a parse
 // failure: an oversized response is as unusable as a truncated one, and

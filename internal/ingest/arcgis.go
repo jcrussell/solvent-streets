@@ -211,7 +211,7 @@ paging:
 			return nil, err
 		}
 		before := len(allRows)
-		allRows = appendUniqueRows(allRows, seen, rows)
+		allRows = appendUnique(allRows, seen, rows, func(r ArcGISRow) string { return r.ID })
 		newUnique := len(allRows) - before
 
 		switch classifyArcGISPage(rawCount, len(rows), newUnique, exceeded, flagPresent) {
@@ -478,20 +478,6 @@ func repeatedPageOutcome(rawCount, maxRecordCount int, metaErr error) pageOutcom
 		return pageTruncated
 	}
 	return pageRepeatedRows
-}
-
-// appendUniqueRows appends each row in src to dst, skipping any whose ID has
-// already been seen. seen is mutated in place so it dedupes across pages.
-// Mirrors the cross-request dedup in overpass.go / water.go.
-func appendUniqueRows(dst []ArcGISRow, seen map[string]bool, src []ArcGISRow) []ArcGISRow {
-	for _, f := range src {
-		if seen[f.ID] {
-			continue
-		}
-		seen[f.ID] = true
-		dst = append(dst, f)
-	}
-	return dst
 }
 
 // fetchPage fetches one page of rows and reports the raw number of rows the
