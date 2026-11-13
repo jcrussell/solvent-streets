@@ -77,12 +77,23 @@ func AddJSONFlags(cmd *cobra.Command, exporter *Exporter, validFields []string) 
 	}
 }
 
-func buildExporter(jsonFields, jqExpr, tmplStr string, validFields []string, out *Exporter) error {
-	if jqExpr != "" && jsonFields == "" {
+// filtersNeedJSON rejects --jq or --template given without --json: both
+// filter the JSON output, so alone they would silently do nothing.
+func filtersNeedJSON(jqExpr, tmplStr string, asJSON bool) error {
+	switch {
+	case asJSON:
+		return nil
+	case jqExpr != "":
 		return FlagErrorf("--jq requires --json")
-	}
-	if tmplStr != "" && jsonFields == "" {
+	case tmplStr != "":
 		return FlagErrorf("--template requires --json")
+	}
+	return nil
+}
+
+func buildExporter(jsonFields, jqExpr, tmplStr string, validFields []string, out *Exporter) error {
+	if err := filtersNeedJSON(jqExpr, tmplStr, jsonFields != ""); err != nil {
+		return err
 	}
 	if jsonFields == "" {
 		return nil
@@ -163,11 +174,8 @@ func AddDocumentJSONFlags(cmd *cobra.Command, exporter **DocumentExporter, usage
 				return err
 			}
 		}
-		if jqExpr != "" && !asJSON {
-			return FlagErrorf("--jq requires --json")
-		}
-		if tmplStr != "" && !asJSON {
-			return FlagErrorf("--template requires --json")
+		if err := filtersNeedJSON(jqExpr, tmplStr, asJSON); err != nil {
+			return err
 		}
 		if !asJSON {
 			*exporter = nil
