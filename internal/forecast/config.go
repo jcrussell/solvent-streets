@@ -37,6 +37,30 @@ func NewParams(growthRate float64, costTiers []CostTier, cycleYears, costOverhea
 // band (3/5, 30/50, 90/150). See sidewalkCostTiers.
 const SidewalkCostRatio = 0.6
 
+// ResourceCostScale is what treating a resource costs relative to the road
+// tiers: SidewalkCostRatio for sidewalks, 1 for roads, parking and anything
+// else. NewParamsForResource applies it to the tiers of a single-resource
+// simulation; a simulation that blends resources applies it per cohort
+// (Cohort.CostScale). Either way a sidewalk is priced once, at the same rate.
+func ResourceCostScale(resourceType string) float64 {
+	if resourceType == sidewalksResource {
+		return SidewalkCostRatio
+	}
+	return 1
+}
+
+// sidewalksResource must match resource.TypeSidewalks; forecast does not
+// import resource.
+const sidewalksResource = "sidewalks"
+
+// resolveCostScale applies the default (1) to an unset Cohort.CostScale.
+func resolveCostScale(scale float64) float64 {
+	if scale <= 0 {
+		return 1
+	}
+	return scale
+}
+
 // sidewalkCostTiers resolves the cost tiers to use for sidewalks. With no
 // custom config tiers it returns the discounted DefaultSidewalkCostTiers. When
 // a config supplies custom cost_tiers, those describe a *road* schedule (there
@@ -64,7 +88,7 @@ func sidewalkCostTiers(costTiers []CostTier) []CostTier {
 // with SidewalkCostRatio by plain multiplication, so the order the two are
 // applied in does not matter.
 func NewParamsForResource(resourceType string, growthRate float64, costTiers []CostTier, cycleYears, costOverhead float64) *Params {
-	if resourceType == "sidewalks" {
+	if resourceType == sidewalksResource {
 		return &Params{
 			Cost:       &TieredCostProjector{Tiers: sidewalkCostTiers(costTiers), Overhead: costOverhead},
 			Growth:     &LinearGrowthEstimator{AnnualGrowthRate: growthRate},

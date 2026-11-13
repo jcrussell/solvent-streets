@@ -79,9 +79,9 @@ type ForecastExport struct {
 	AllBaseline  *forecast.ScenarioResult  `json:"all_baseline,omitempty"` // all-jurisdiction scope (shown when the "All" scope is toggled)
 	Scenarios    []forecast.ScenarioResult `json:"scenarios"`
 
-	// Solvency metrics — populated for the roads resource only (the blended
-	// scenarios mis-price sidewalks at road tiers, so an advocacy headline
-	// must be roads-only). BreakEvenBudget is always computed for roads;
+	// Solvency metrics — populated for the roads resource only (a city's
+	// paving budget is a street budget, so the headline is about streets).
+	// BreakEvenBudget is always computed for roads;
 	// InsolvencyYear and FundingGap require a configured current_budget and
 	// are omitted otherwise. See buildResourceForecast and the methodology doc.
 	InsolvencyYear  *int     `json:"insolvency_year,omitempty"`   // omitted = solvent through the horizon, or no budget configured
@@ -325,6 +325,9 @@ func cohortsFromSeeds(seeds []CohortSeed, initialPCI float64) []forecast.Cohort 
 			Classification: s.Classification,
 			Area:           s.Area,
 			DecayRate:      s.DecayRate,
+			// The blend prices each resource at its own rate, as its
+			// forecast.json entry does (NewParamsForResource).
+			CostScale: forecast.ResourceCostScale(s.ResourceType),
 		}
 	}
 	// SpreadCohorts is the same constructor the WASM custom line uses

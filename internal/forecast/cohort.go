@@ -6,6 +6,11 @@ type Cohort struct {
 	Area           float64 `json:"area"`
 	DecayRate      float64 `json:"decay_rate"`
 	InitialPCI     float64 `json:"initial_pci"`
+	// CostScale multiplies the tier cost of treating this cohort; 0 means 1.
+	// It is how a simulation that blends resources prices each at its own
+	// rate (ResourceCostScale): sidewalk cohorts cost SidewalkCostRatio of
+	// the road tiers beside road cohorts priced in full.
+	CostScale float64 `json:"cost_scale,omitempty"`
 }
 
 // CohortSummary holds end-state results for a single cohort after simulation.
@@ -93,6 +98,9 @@ type RawCohort struct {
 	Classification string
 	Area           float64
 	DecayRate      float64
+	// CostScale is Cohort.CostScale: set it from ResourceCostScale when the
+	// cohorts of several resources are simulated together.
+	CostScale float64
 }
 
 // SpreadCohorts is the one way to build the cohorts a forecast simulates. Every
@@ -115,6 +123,7 @@ func SpreadCohorts(raw []RawCohort, initialPCI float64) []Cohort {
 			Classification: r.Classification,
 			Area:           r.Area,
 			DecayRate:      ResolveDecayRate(r.DecayRate),
+			CostScale:      r.CostScale,
 			InitialPCI:     initialPCI,
 		}
 	}

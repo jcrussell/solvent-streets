@@ -74,6 +74,7 @@ type cohortState struct {
 	forecaster *ExponentialPCIForecaster
 	currentPCI float64
 	areaFrac   float64 // fraction of total area
+	costScale  float64 // resolved Cohort.CostScale
 }
 
 // simulator holds the per-cohort state and scratch/accumulator slices for one
@@ -102,6 +103,7 @@ func initCohortStates(cohorts []Cohort) ([]cohortState, float64) {
 			forecaster: &ExponentialPCIForecaster{DecayRate: c.DecayRate},
 			currentPCI: c.InitialPCI,
 			areaFrac:   frac,
+			costScale:  resolveCostScale(c.CostScale),
 		}
 	}
 	return states, totalArea
@@ -302,7 +304,7 @@ func Simulate(s Scenario, cohorts []Cohort, years int, p *Params) ScenarioResult
 		var totalNeed float64
 		for j := range sm.states {
 			sm.decayed[j] = sm.states[j].forecaster.decayOneStep(sm.states[j].currentPCI)
-			fullNeed := p.Cost.ProjectCost(area*sm.states[j].areaFrac, sm.decayed[j])
+			fullNeed := p.Cost.ProjectCost(area*sm.states[j].areaFrac, sm.decayed[j]) * sm.states[j].costScale
 			need := fullNeed * eligibleFrac
 			sm.need[j] = need
 			totalNeed += need

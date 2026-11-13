@@ -2,6 +2,7 @@ package bridge
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"reflect"
 	"strings"
@@ -541,5 +542,38 @@ func TestRun_Scenarios(t *testing.T) {
 	out, _ = Run(raw)
 	if strings.Contains(string(out), `"scenarios"`) {
 		t.Error("reference scenarios leaked into a plain run")
+	}
+}
+
+// A cohort's resource_type sets its price: a sidewalk cohort sent with the
+// seed's resource_type costs SidewalkCostRatio of the same cohort sent bare
+// (priced at the road tiers), so "Your budget" and the reference lines agree
+// with forecast.json's sidewalks entry.
+func TestRun_SidewalkCohortsPricedAtTheSidewalkRate(t *testing.T) {
+	run := func(resourceType string) float64 {
+		t.Helper()
+		in := fmt.Sprintf(`{"area":2000,"initial_pci":70,"horizon_years":3,"treatment_cycle_years":12,
+			"cost_overhead":1,"annual_budget":0,"strategy":"do-nothing",
+			"cohorts":[{"resource_type":%q,"classification":"sidewalks","area":2000,"decay_rate":0.025}]}`, resourceType)
+		out, err := Run([]byte(in))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got struct {
+			Years []struct {
+				AnnualNeed float64 `json:"annual_need"`
+			} `json:"years"`
+		}
+		if err := json.Unmarshal(out, &got); err != nil {
+			t.Fatal(err)
+		}
+		return got.Years[0].AnnualNeed
+	}
+	road, walk := run("roads"), run("sidewalks")
+	if want := road * forecast.SidewalkCostRatio; math.Abs(walk-want) > 1e-9*want || walk <= 0 {
+		t.Errorf("sidewalk cohort need = %g, want %g (%g of the road-tier %g)", walk, want, forecast.SidewalkCostRatio, road)
+	}
+	if bare := run(""); bare != road {
+		t.Errorf("a cohort without resource_type = %g, want the road-tier %g", bare, road)
 	}
 }

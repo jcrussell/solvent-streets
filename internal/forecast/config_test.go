@@ -85,3 +85,50 @@ func TestNewParamsForResource_SidewalkEffIsDiscounted(t *testing.T) {
 		}
 	}
 }
+
+// A sidewalk cohort costs the same whether it is simulated on its own under
+// NewParamsForResource or blended with other resources under NewParams with
+// its ResourceCostScale: one sidewalk rate, applied once.
+func TestResourceCostScale_BlendMatchesPerResourcePricing(t *testing.T) {
+	const years = 10
+	doNothing := Scenario{Name: "baseline", Strategy: StrategyDoNothing}
+	custom := []CostTier{
+		{MinPCI: 70, MaxPCI: 101, CostPerSqM: 8, Label: "preventive"},
+		{MinPCI: 40, MaxPCI: 70, CostPerSqM: 60, Label: "rehab"},
+		{MinPCI: 0, MaxPCI: 40, CostPerSqM: 200, Label: "reconstruction"},
+	}
+	for name, tiers := range map[string][]CostTier{"default tiers": nil, "custom tiers": custom} {
+		road := RawCohort{Classification: "residential", Area: 5000, DecayRate: 0.04}
+		walk := RawCohort{Classification: "sidewalks", Area: 2000, DecayRate: 0.025}
+
+		roadAlone := Simulate(doNothing, SpreadCohorts([]RawCohort{road}, 70), years, NewParamsForResource("roads", 0, tiers, 12, 1.3))
+		walkAlone := Simulate(doNothing, SpreadCohorts([]RawCohort{walk}, 70), years, NewParamsForResource("sidewalks", 0, tiers, 12, 1.3))
+
+		walk.CostScale = ResourceCostScale("sidewalks")
+		road.CostScale = ResourceCostScale("roads")
+		blend := Simulate(doNothing, SpreadCohorts([]RawCohort{road, walk}, 70), years, NewParams(0, tiers, 12, 1.3))
+
+		for y := range years {
+			want := roadAlone.Years[y].AnnualNeed + walkAlone.Years[y].AnnualNeed
+			if got := blend.Years[y].AnnualNeed; math.Abs(got-want) > 1e-6*want {
+				t.Errorf("%s, year %d: blended need %.4f, per-resource sum %.4f", name, y+1, got, want)
+			}
+		}
+
+		// Unscaled, the blend prices the sidewalk at road cost: the figure the
+		// per-resource forecast never showed.
+		walk.CostScale = 0
+		unscaled := Simulate(doNothing, SpreadCohorts([]RawCohort{road, walk}, 70), years, NewParams(0, tiers, 12, 1.3))
+		if unscaled.Years[0].AnnualNeed <= blend.Years[0].AnnualNeed {
+			t.Errorf("%s: an unscaled sidewalk cohort should cost more than a scaled one", name)
+		}
+	}
+}
+
+func TestResourceCostScale(t *testing.T) {
+	for rt, want := range map[string]float64{"sidewalks": SidewalkCostRatio, "roads": 1, "parking": 1, "": 1} {
+		if got := ResourceCostScale(rt); got != want {
+			t.Errorf("ResourceCostScale(%q) = %v, want %v", rt, got, want)
+		}
+	}
+}

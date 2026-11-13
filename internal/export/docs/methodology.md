@@ -63,7 +63,9 @@ prices: $5 per m² for preventive treatment, $50 for mill-and-overlay
 rehabilitation and $150 for full-depth reconstruction. They are
 calibration inputs, not measurements, and local bid prices will differ.
 Sidewalks are priced at 0.6× the road tiers in every band ($3, $30 and $90
-per m²), and a config's own `cost_tiers` are scaled the same way.
+per m²), and a config's own `cost_tiers` are scaled the same way. That
+holds wherever sidewalks are costed: on their own, and inside the
+scenarios that blend roads, parking and sidewalks.
 
 ### Bare construction cost vs. loaded program cost
 
@@ -193,9 +195,8 @@ models a shrinking network, floored at zero area.
 
 The dashboard's Financials headline and the cross-city leaderboard report
 three solvency figures. They are computed on the **roads/streets** cohort
-only — the aggregate scenarios blend roads, parking, and sidewalks but
-cost the blend at road tiers, which would mis-price sidewalks, so an
-absolute dollar claim must be roads-only. They are derived from a
+only: a city's paving budget is a street budget, so a claim about what it
+covers is a claim about streets. They are derived from a
 **worst-first** run at the city's configured annual budget.
 
 - **Insolvency year** — the first forecast year in which the cumulative

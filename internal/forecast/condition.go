@@ -78,6 +78,7 @@ func applyConditionSpread(cohorts []Cohort) []Cohort {
 				Area:           bandArea,
 				DecayRate:      c.DecayRate,
 				InitialPCI:     pci * 100.0,
+				CostScale:      c.CostScale,
 			})
 		}
 	}

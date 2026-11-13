@@ -3,6 +3,7 @@ package export
 import (
 	"context"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -122,4 +123,39 @@ func TestBuildResourceForecast_AllBaselineGatedOnCityScope(t *testing.T) {
 				fe.AllBaseline.Years[0].AnnualNeed, fe.Baseline.Years[0].AnnualNeed)
 		}
 	})
+}
+
+// The blended scenarios and the per-resource forecasts price the same network
+// the same way: the baseline's year-1 need in scenarios.json is the sum of
+// forecast.json's per-resource baselines, sidewalks at the sidewalk rate in
+// both (solvent-streets-mea7).
+func TestScenarios_Year1NeedMatchesPerResourceForecasts(t *testing.T) {
+	var rows []db.CityMetric
+	rows = append(rows, results.TotalRows(resource.TypeRoads, results.Totals{Area: 9000})...)
+	rows = append(rows, results.CohortRows(resource.TypeRoads, []results.Cohort{{Class: "primary", Area: 4000}, {Class: "residential", Area: 5000}})...)
+	rows = append(rows, results.TotalRows(resource.TypeSidewalks, results.Totals{Area: 3000})...)
+	rows = append(rows, results.CohortRows(resource.TypeSidewalks, []results.Cohort{{Class: "sidewalks", Area: 3000}})...)
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "A"}}}
+	entry := CityEntry{Config: cfg, City: cfg.Cities[0], Store: &dbtest.MockStore{CityMetrics: rows}, Slug: "a"}
+	fc := cfg.ResolvedForecast(&entry.City)
+	ctx := context.Background()
+
+	forecasts, err := BuildForecastsForCity(ctx, entry, &fc, ConvertCostTiers(&fc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var perResource float64
+	for _, fe := range forecasts {
+		perResource += fe.Baseline.Years[0].AnnualNeed
+	}
+
+	data, err := BuildScenariosData(ctx, entry, &fc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blended := data["all"].([]forecast.ScenarioResult)[0].Years[0].AnnualNeed
+
+	if perResource <= 0 || math.Abs(blended-perResource) > 1e-6*perResource {
+		t.Errorf("year-1 need: scenarios.json %.2f, sum of forecast.json baselines %.2f", blended, perResource)
+	}
 }

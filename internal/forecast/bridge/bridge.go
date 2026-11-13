@@ -95,6 +95,10 @@ func resolveOverhead(v float64) float64 {
 
 // Cohort mirrors a single per-classification cohort from the browser payload.
 type Cohort struct {
+	// ResourceType is the resource the cohort belongs to, as the forecast
+	// seed carries it. It sets the cohort's cost scale, so sidewalk cohorts
+	// are priced at the sidewalk rate; empty prices at the road tiers.
+	ResourceType   string  `json:"resource_type"`
 	Classification string  `json:"classification"`
 	Area           float64 `json:"area"`
 	DecayRate      float64 `json:"decay_rate"`
@@ -211,6 +215,7 @@ func Translate(in Input) (forecast.Scenario, []forecast.Cohort, int, *forecast.P
 				Classification: c.Classification,
 				Area:           c.Area,
 				DecayRate:      c.DecayRate,
+				CostScale:      forecast.ResourceCostScale(c.ResourceType),
 			}
 		}
 	} else {
