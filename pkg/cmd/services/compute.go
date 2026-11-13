@@ -318,10 +318,10 @@ func route(ctx context.Context, out, progress, errOut io.Writer, notify tui.Phas
 	// Warnings go through errOut, the TUI's warn writer, not straight to
 	// ErrOut under the alt-screen program.
 	for _, i := range cov.Unsnapped {
-		fmt.Fprintf(errOut, "warning: %s facility %s (%s) is more than %.0f m from any road and was ignored\n", spec.Name, facilities[i].ID, facilities[i].Name, services.FacilitySnapM)
+		cmdutil.FprintWarnf(errOut, "%s facility %s (%s) is more than %.0f m from any road and was ignored", spec.Name, facilities[i].ID, facilities[i].Name, services.FacilitySnapM)
 	}
 	for _, i := range cov.Isolated {
-		fmt.Fprintf(errOut, "warning: %s facility %s (%s) snapped to a road fragment of fewer than %d vertices (an apron or driveway OSM does not join to the street); it reaches almost nothing\n", spec.Name, facilities[i].ID, facilities[i].Name, services.MinFacilityComponent)
+		cmdutil.FprintWarnf(errOut, "%s facility %s (%s) snapped to a road fragment of fewer than %d vertices (an apron or driveway OSM does not join to the street); it reaches almost nothing", spec.Name, facilities[i].ID, facilities[i].Name, services.MinFacilityComponent)
 	}
 	notify.PhaseDone(phaseRoute, nil)
 

@@ -152,7 +152,7 @@ func buildCityRow(ctx context.Context, store db.Store, c db.City, ios *iostreams
 		t := rt.Type()
 		info, err := store.Stats(ctx, t)
 		if err != nil {
-			fmt.Fprintf(ios.ErrOut, "Warning: %s/%s: %v\n", c.Slug, t, err)
+			cmdutil.Warnf(ios, "%s/%s: %v", c.Slug, t, err)
 			continue
 		}
 		row.FeatureCounts[string(t)] = info.FeatureCount

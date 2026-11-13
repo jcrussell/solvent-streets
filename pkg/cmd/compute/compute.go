@@ -723,9 +723,9 @@ func (c *computer) hexGrid(ctx context.Context, boundaryGJSON string) []geo.Hex 
 	case err != nil:
 		// Skipping the clip runs stats over the full rectangular bbox grid,
 		// inflating coverage. Warn (as loadBoundary does) so it isn't silent.
-		fmt.Fprintf(c.errOut, "Warning: boundary parse failed for city %q, computing over full bbox: %v\n", c.city.Name, err)
+		cmdutil.FprintWarnf(c.errOut, "boundary parse failed for city %q, computing over full bbox: %v", c.city.Name, err)
 	case boundaryGeom.IsEmpty():
-		fmt.Fprintf(c.errOut, "Warning: boundary empty after cleaning for city %q, computing over full bbox\n", c.city.Name)
+		cmdutil.FprintWarnf(c.errOut, "boundary empty after cleaning for city %q, computing over full bbox", c.city.Name)
 	default:
 		var clipCounter atomic.Int64
 		stopClipProgress := startProgressTicker(ctx, c.notify, phaseClip, len(hexes), &clipCounter)

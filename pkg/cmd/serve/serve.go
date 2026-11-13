@@ -141,7 +141,7 @@ func pinEntries(ctx context.Context, entries []exportpkg.CityEntry, errOut io.Wr
 		}
 		entries[i] = pinned
 		if err := pinned.RequireMatchingSnapshot(ctx); err != nil {
-			fmt.Fprintf(errOut, "warning: %v; serving it without data\n", err)
+			cmdutil.FprintWarnf(errOut, "%v; serving it without data", err)
 			hint.Fprint(errOut, err)
 		}
 	}

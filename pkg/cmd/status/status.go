@@ -182,7 +182,7 @@ func runStatus(ctx context.Context, opts *Options) error {
 		rtVal := rt.Type()
 		info, err := store.Stats(ctx, rtVal)
 		if err != nil {
-			fmt.Fprintf(ios.ErrOut, "Warning: could not get stats for %s: %v\n", rt.Type(), err)
+			cmdutil.Warnf(ios, "could not get stats for %s: %v", rt.Type(), err)
 			continue
 		}
 		row := statusRow{

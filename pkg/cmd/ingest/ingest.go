@@ -771,7 +771,7 @@ func fetchFromSources(ctx context.Context, sources []ingestpkg.Source, client *h
 		fmt.Fprintf(opts.IO.ErrOut, "Fetching %s data from %s for %s...\n", opts.ResourceType.Type(), src.Name(), cityName)
 		features, err := src.Fetch(ctx, client, opts.ResourceType)
 		if err != nil {
-			fmt.Fprintf(opts.IO.ErrOut, "Warning: %s fetch failed: %v\n", src.Name(), err)
+			cmdutil.Warnf(opts.IO, "%s fetch failed: %v", src.Name(), err)
 			failures++
 			continue
 		}

@@ -317,7 +317,7 @@ func forecastAllResources(ctx context.Context, opts *Options, store db.Store, ci
 		case err != nil:
 			return nil, fmt.Errorf("forecast %s: %w", t, err)
 		case !ok:
-			fmt.Fprintf(ios.ErrOut, "Warning: no compute results for %s, skipping\n", t)
+			cmdutil.Warnf(ios, "no compute results for %s, skipping", t)
 			continue
 		}
 		cohorts, err := export.BuildCohortsForResource(ctx, rt, result.Area, store, fc)
