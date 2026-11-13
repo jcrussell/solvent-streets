@@ -1794,18 +1794,69 @@
         // Shared forecast helpers, used by the Financials, Materials, and
         // interactive-forecast views.
         //
-        // Cost/material tier → chart color; tierColor() applies the neutral
-        // fallback for an unrecognized tier label.
-        const TIER_COLORS = { preventive: '#22c55e', rehab: '#f59e0b', reconstruction: '#ef4444' };
-        function tierColor(label) { return TIER_COLORS[label] || '#9ca3af'; }
+        // Cost tiers. The city's schedule is FORECAST_SEED.cost_tiers
+        // ({min_pci, max_pci, cost_per_sqm, label}; the defaults are
+        // preventive / rehab / reconstruction, and a config can set its own
+        // bands and labels). Everything the page derives from a tier goes
+        // through the helpers below: which tier a PCI falls in, a tier's
+        // colour, the chart legend, and the cohort table's PCI badge.
+        //
+        // rankedCostTiers is the schedule from the best condition (highest
+        // PCI, cheapest work) to the worst.
+        function rankedCostTiers() {
+            const tiers = (FORECAST_SEED && FORECAST_SEED.cost_tiers) || [];
+            return tiers.slice().sort((a, b) => b.min_pci - a.min_pci);
+        }
+        // tierForPCI is the tier whose band [min_pci, max_pci) holds pci. A
+        // schedule may leave gaps, so a PCI in none takes the nearest band (as
+        // Go's TieredCostProjector.TierForPCI does). null with no schedule.
+        function tierForPCI(pci) {
+            let best = null, bestDist = Infinity;
+            for (const t of rankedCostTiers()) {
+                if (pci >= t.min_pci && pci < t.max_pci) return t;
+                const d = pci < t.min_pci ? t.min_pci - pci : pci - t.max_pci;
+                if (d < bestDist) { bestDist = d; best = t; }
+            }
+            return best;
+        }
+        // Tier colours run green (best) to red (worst) by rank, through amber:
+        // three tiers get exactly the three stops.
+        const TIER_RAMP = [[0x22, 0xc5, 0x5e], [0xf5, 0x9e, 0x0b], [0xef, 0x44, 0x44]];
+        const TIER_COLOR_UNKNOWN = '#9ca3af';
+        /** @param {number} rank @param {number} count */
+        function tierRampColor(rank, count) {
+            const pos = count > 1 ? rank / (count - 1) * (TIER_RAMP.length - 1) : 0;
+            const i = Math.min(Math.floor(pos), TIER_RAMP.length - 2), f = pos - i;
+            return '#' + TIER_RAMP[i].map((c, k) =>
+                Math.round(c + (TIER_RAMP[i + 1][k] - c) * f).toString(16).padStart(2, '0')).join('');
+        }
+        // tierColor is the colour of the tier with this label. Material tiers
+        // carry the default labels whatever the city's cost schedule, so a
+        // label the schedule lacks takes its default colour; any other is grey.
+        const DEFAULT_TIER_LABELS = ['preventive', 'rehab', 'reconstruction'];
+        function tierColor(label) {
+            const tiers = rankedCostTiers();
+            const rank = tiers.findIndex(t => t.label === label);
+            if (rank >= 0) return tierRampColor(rank, tiers.length);
+            const dflt = DEFAULT_TIER_LABELS.indexOf(label);
+            return dflt >= 0 ? tierRampColor(dflt, DEFAULT_TIER_LABELS.length) : TIER_COLOR_UNKNOWN;
+        }
         // Chart.js legend items for a tier-colored bar chart (Financials +
-        // Materials share this exact legend).
+        // Materials share this exact legend): the city's tiers, best first.
         function tierLegendLabels() {
-            return [
-                { text: 'Preventive', fillStyle: TIER_COLORS.preventive, strokeStyle: TIER_COLORS.preventive },
-                { text: 'Rehab', fillStyle: TIER_COLORS.rehab, strokeStyle: TIER_COLORS.rehab },
-                { text: 'Reconstruction', fillStyle: TIER_COLORS.reconstruction, strokeStyle: TIER_COLORS.reconstruction }
-            ];
+            return rankedCostTiers().map(t => {
+                const name = String(t.label || '');
+                const color = tierColor(t.label);
+                return { text: name.charAt(0).toUpperCase() + name.slice(1), fillStyle: color, strokeStyle: color };
+            });
+        }
+        // pciBadgeClass is the cohort table's condition badge for a PCI: good
+        // in the best tier, poor in the worst, fair in between.
+        function pciBadgeClass(pci) {
+            const tiers = rankedCostTiers();
+            const rank = tiers.indexOf(tierForPCI(pci));
+            if (rank <= 0) return 'pci-good';
+            return rank === tiers.length - 1 ? 'pci-poor' : 'pci-fair';
         }
         // The forecast horizon. A config has one (forecast.years), exported as
         // horizon_years on every city's seed. Every "N-Year" label and every
@@ -2174,9 +2225,7 @@
             sorted.forEach(c => {
                 const areaLargeVal = toAreaLarge(c.area);
                 const pci = c.end_pci;
-                let cls = 'pci-good';
-                if (pci < 40) cls = 'pci-poor';
-                else if (pci < 60) cls = 'pci-fair';
+                const cls = pciBadgeClass(pci);
 
                 totalSpend += c.total_spend;
                 totalDeficit += c.total_deficit;
