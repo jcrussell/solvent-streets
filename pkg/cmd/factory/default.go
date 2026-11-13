@@ -378,12 +378,7 @@ func New() *cmdutil.Factory {
 }
 
 // buildCityDB returns a CityDB closure that resolves the current city and
-// returns a city-scoped Store. The store is auto-pinned to the loaded
-// config's hash via Store.WithConfigHash so unpinned snapshot-aware
-// reads (status, forecast, etc.) only see snapshots written by the
-// same config — preventing slug-sharing examples from reading each
-// other's data. If config load fails the pin is silently skipped,
-// preserving today's behavior for commands that work without a config.
+// returns its cmdutil.PinnedCityStore.
 func buildCityDB(f *cmdutil.Factory) func() (db.Store, error) {
 	return func() (db.Store, error) {
 		city, err := f.CurrentCity()
@@ -394,18 +389,9 @@ func buildCityDB(f *cmdutil.Factory) func() (db.Store, error) {
 		if err != nil {
 			return nil, err
 		}
-		configID := cmdutil.ResolveConfigID(f.Config, city)
 		// Honor the per-invocation context installed by the root command's
 		// PersistentPreRunE (finding 0nyu). Falls back to Background when no
 		// request ctx was set (e.g. a command exempt from PersistentPreRunE).
-		id, err := root.EnsureCity(f.RequestContext(), city.Slug(), city.Name, configID)
-		if err != nil {
-			return nil, err
-		}
-		store := root.ForCity(id)
-		if cfg, cfgErr := f.Config(); cfgErr == nil && cfg != nil {
-			store = store.WithConfigHash(cfg.CityHash(city))
-		}
-		return store, nil
+		return cmdutil.PinnedCityStore(f.RequestContext(), root, f.Config, city)
 	}
 }

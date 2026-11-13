@@ -9,6 +9,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
@@ -434,5 +435,35 @@ func TestForEachCityRows(t *testing.T) {
 	}
 	if sawRows {
 		t.Error("without an exporter run must get a nil accumulator")
+	}
+}
+
+// PinnedCityStore pins the city's store to its current settings hash when a
+// config loads, and returns it unpinned when none does.
+func TestPinnedCityStore(t *testing.T) {
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Test City"}}}
+	city := &cfg.Cities[0]
+	var pinned []string
+	store := &dbtest.MockStore{}
+	store.WithConfigHashFunc = func(hash string) db.Store {
+		pinned = append(pinned, hash)
+		return store
+	}
+	root := &dbtest.MockRootStore{ForCityFunc: func(int64) db.Store { return store }}
+
+	if _, err := cmdutil.PinnedCityStore(context.Background(), root, func() (*config.Config, error) { return cfg, nil }, city); err != nil {
+		t.Fatal(err)
+	}
+	if len(pinned) != 1 || pinned[0] != cfg.CityHash(city) {
+		t.Errorf("pinned to %q, want the city hash %q", pinned, cfg.CityHash(city))
+	}
+
+	pinned = nil
+	noConfig := func() (*config.Config, error) { return nil, errors.New("no pvmt.toml") }
+	if _, err := cmdutil.PinnedCityStore(context.Background(), root, noConfig, city); err != nil {
+		t.Fatal(err)
+	}
+	if len(pinned) != 0 {
+		t.Errorf("without a config the store must stay unpinned, got %q", pinned)
 	}
 }

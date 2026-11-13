@@ -325,14 +325,30 @@ func ResolveCities(f *Factory) ([]config.CityConfig, error) {
 // its city-scoped store. It deliberately does NOT apply a config-hash pin:
 // snapshots commands span config hashes (rm searches all cities by id, ls
 // displays the ConfigHash column, prune lists all snapshots), so pinning
-// here would hide rows they need to see. Single-city pinned paths
-// (buildCityDB, withCity) apply WithConfigHash themselves instead.
+// here would hide rows they need to see. Commands that read one config's
+// results use PinnedCityStore instead.
 func EnsureCityStore(ctx context.Context, root db.RootStorer, city config.CityConfig, configID string) (db.Store, error) {
 	id, err := root.EnsureCity(ctx, city.Slug(), city.Name, configID)
 	if err != nil {
 		return nil, fmt.Errorf("ensure city %s: %w", city.Slug(), err)
 	}
 	return root.ForCity(id), nil
+}
+
+// PinnedCityStore is EnsureCityStore pinned to the city's current settings
+// (Store.WithConfigHash of Config.CityHash), so snapshot-aware reads see only
+// what this config computed and slug-sharing configs cannot read each other's
+// results. It is the store behind Factory.CityDB. When the config does not
+// load the pin is skipped, for commands that work without one.
+func PinnedCityStore(ctx context.Context, root db.RootStorer, loadConfig func() (*config.Config, error), city *config.CityConfig) (db.Store, error) {
+	store, err := EnsureCityStore(ctx, root, *city, ResolveConfigID(loadConfig, city))
+	if err != nil {
+		return nil, err
+	}
+	if hash := ResolveCityHash(loadConfig, city); hash != "" {
+		store = store.WithConfigHash(hash)
+	}
+	return store, nil
 }
 
 func withCity(ctx context.Context, f *Factory, city *config.CityConfig) *Factory {
@@ -360,15 +376,7 @@ func withCity(ctx context.Context, f *Factory, city *config.CityConfig) *Factory
 		configID := ResolveConfigID(f.Config, &c)
 		key := c.Slug() + "\x00" + configID
 		return cache.get(key, func() (db.Store, error) {
-			id, err := root.EnsureCity(ctx, c.Slug(), c.Name, configID)
-			if err != nil {
-				return nil, err
-			}
-			store := root.ForCity(id)
-			if cfg, cfgErr := f.Config(); cfgErr == nil && cfg != nil {
-				store = store.WithConfigHash(cfg.CityHash(&c))
-			}
-			return store, nil
+			return PinnedCityStore(ctx, root, f.Config, &c)
 		})
 	}
 	return &cp
