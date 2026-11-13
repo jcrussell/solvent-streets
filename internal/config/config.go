@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -491,8 +490,7 @@ type GridConfig struct {
 
 // HexEdge returns the top-level grid hex-edge length in meters.
 // Precedence: PVMT_HEX_EDGE_M env > Grid.HexEdgeM file > DefaultHexEdgeM.
-// Invalid or non-positive env values are ignored; the warnInvalidEnv
-// middleware surfaces them to the user.
+// An env value parseHexEdgeEnv refuses is ignored; EnvProblems reports it.
 func (c *Config) HexEdge() float64 {
 	v, _ := c.resolveHexEdge()
 	return v
@@ -530,19 +528,18 @@ func (c *Config) CityConfigID(city *CityConfig) string {
 // the returned value — callers read them directly. A nil city is treated
 // as "no per-city overrides."
 //
-// Invalid or out-of-range env values are silently ignored so the merged
-// config still reflects the next layer down; the warnInvalidEnv
-// middleware at the CLI boundary surfaces these to the user.
+// Invalid or out-of-range env values are ignored so the merged config
+// still reflects the next layer down; EnvProblems reports them.
 func (c *Config) ResolvedForecast(city *CityConfig) ForecastConfig {
 	fc, _ := c.resolveForecast(city)
 	return fc
 }
 
-// ValidInitialPCI reports whether v states a starting PCI, a value in
+// validInitialPCI reports whether v states a starting PCI, a value in
 // (0, forecast.MaxPCI]. Every layer reads anything else as unset: 0 is the
 // "use the default" sentinel, and a negative, above-scale or NaN value never
 // overrides the layer below it.
-func ValidInitialPCI(v float64) bool { return v > 0 && v <= forecast.MaxPCI }
+func validInitialPCI(v float64) bool { return v > 0 && v <= forecast.MaxPCI }
 
 // horizonOrDefault is the forecast horizon a years setting stands for:
 // DefaultForecastYears when it is unset (<= 0).
@@ -565,7 +562,7 @@ type forecastDefaulted struct {
 // package and are left alone. Idempotent.
 func applyForecastDefaults(fc *ForecastConfig) forecastDefaulted {
 	var d forecastDefaulted
-	if !ValidInitialPCI(fc.InitialPCI) {
+	if !validInitialPCI(fc.InitialPCI) {
 		fc.InitialPCI, d.InitialPCI = DefaultInitialPCI, true
 	}
 	if y := horizonOrDefault(fc.Years); y != fc.Years {
@@ -598,41 +595,6 @@ func (fc *ForecastConfig) ResolvedCostOverhead() float64 {
 		return DefaultCostOverhead
 	}
 	return fc.CostOverhead
-}
-
-// parseYearsEnv returns the int value of envKey if it is set to a string that
-// parses as a forecast horizon, an integer in [1, forecast.MaxHorizonYears],
-// else (0, false). The env layer never goes through Validate, so the horizon
-// bound is applied here.
-func parseYearsEnv(envKey string) (int, bool) {
-	s, ok := os.LookupEnv(envKey)
-	if !ok || s == "" {
-		return 0, false
-	}
-	n, err := strconv.Atoi(s)
-	if err != nil || n <= 0 || n > forecast.MaxHorizonYears {
-		return 0, false
-	}
-	return n, true
-}
-
-// parsePCIEnv returns the float value of envKey if it is set to a string that
-// parses as a starting PCI (ValidInitialPCI), else (0, false).
-//
-// strconv.ParseFloat accepts "nan", "inf" and "Infinity" with a nil error, and
-// the env layer never goes through Validate, so ValidInitialPCI is what keeps
-// PVMT_FORECAST_INITIAL_PCI=nan from printing "Initial PCI: NaN" with every
-// dollar column NaN and exit code 0.
-func parsePCIEnv(envKey string) (float64, bool) {
-	s, ok := os.LookupEnv(envKey)
-	if !ok || s == "" {
-		return 0, false
-	}
-	f, err := strconv.ParseFloat(s, 64)
-	if err != nil || !ValidInitialPCI(f) {
-		return 0, false
-	}
-	return f, true
 }
 
 // Slug returns a URL-safe slug for the city name.

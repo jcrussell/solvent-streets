@@ -729,8 +729,8 @@ func TestEnvOverrides_RejectNonFinite(t *testing.T) {
 		})
 		t.Run("PVMT_FORECAST_INITIAL_PCI="+lit, func(t *testing.T) {
 			t.Setenv("PVMT_FORECAST_INITIAL_PCI", lit)
-			if v, ok := parsePCIEnv("PVMT_FORECAST_INITIAL_PCI"); ok {
-				t.Errorf("parsePCIEnv accepted %s (%g); `pvmt forecast` then prints "+
+			if v, ok := envOverride(EnvForecastInitialPCI, parseInitialPCIEnv); ok {
+				t.Errorf("parseInitialPCIEnv accepted %s (%g); `pvmt forecast` then prints "+
 					"NaN in every column with exit code 0", lit, v)
 			}
 		})
@@ -745,8 +745,8 @@ func TestEnvOverrides_StillAcceptFiniteValues(t *testing.T) {
 		t.Errorf("hexEdgeFromEnv() = %g, ok %v; want 60, true", v, ok)
 	}
 	t.Setenv("PVMT_FORECAST_INITIAL_PCI", "72.5")
-	if v, ok := parsePCIEnv("PVMT_FORECAST_INITIAL_PCI"); !ok || v != 72.5 {
-		t.Errorf("parsePCIEnv() = %g, ok %v; want 72.5, true", v, ok)
+	if v, ok := envOverride(EnvForecastInitialPCI, parseInitialPCIEnv); !ok || v != 72.5 {
+		t.Errorf("parseInitialPCIEnv() = %g, ok %v; want 72.5, true", v, ok)
 	}
 }
 
@@ -809,19 +809,19 @@ func TestForecastConfig_Validate_NamesTheTOMLKey(t *testing.T) {
 	}
 }
 
-// TestValidInitialPCI pins the one test of "this layer states a starting
+// TestValidInitialPCIPredicate pins the one test of "this layer states a starting
 // PCI" that the file, city, env and default layers all read.
-func TestValidInitialPCI(t *testing.T) {
+func TestValidInitialPCIPredicate(t *testing.T) {
 	for v, want := range map[float64]bool{
 		0: false, -1: false, 0.5: true, 85: true, 100: true, 100.5: false,
 	} {
-		if got := ValidInitialPCI(v); got != want {
-			t.Errorf("ValidInitialPCI(%g) = %v, want %v", v, got, want)
+		if got := validInitialPCI(v); got != want {
+			t.Errorf("validInitialPCI(%g) = %v, want %v", v, got, want)
 		}
 	}
 	for _, v := range []float64{math.NaN(), math.Inf(1)} {
-		if ValidInitialPCI(v) {
-			t.Errorf("ValidInitialPCI(%g) = true, want false", v)
+		if validInitialPCI(v) {
+			t.Errorf("validInitialPCI(%g) = true, want false", v)
 		}
 	}
 }

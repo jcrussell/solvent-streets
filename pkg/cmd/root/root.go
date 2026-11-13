@@ -3,14 +3,11 @@ package root
 import (
 	"errors"
 	"log/slog"
-	"math"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/jcrussell/solvent-streets/internal/build"
 	"github.com/jcrussell/solvent-streets/internal/config"
-	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/logs"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/all"
@@ -53,18 +50,13 @@ var middlewares = []middleware{
 	warnInvalidEnv,
 }
 
-// nonFiniteEnv mirrors config.nonFinite for the env-warning middleware, which
-// lives outside that package. Kept in step with the resolvers in
-// internal/config: a value this reports true for is a value they drop.
-func nonFiniteEnv(v float64) bool { return math.IsNaN(v) || math.IsInf(v, 0) }
-
-// warnInvalidEnv emits a one-line stderr warning for any PVMT_* env var
-// set to an unparseable or out-of-range value. The config resolvers
-// (UnitSystem, HexEdge, ResolvedForecast) silently fall through on
-// invalid input, which is safe but gives the user no signal their env
-// was ignored; this middleware is the signal. Range checks mirror the
-// validation inside those resolvers so a warning implies the env will
-// be ignored and silence implies it will be honored.
+// warnInvalidEnv emits a one-line stderr warning for each PVMT_* env var set
+// to a value that is dropped. The config resolvers fall through on invalid
+// input, which is safe but gives the user no signal their env was ignored;
+// this middleware is the signal. Which values those are is config's to say
+// (config.EnvProblems, computed by the functions that apply the overrides), so
+// a warning implies the env will be ignored and silence implies it will be
+// honored. PVMT_LOG is the one variable read here rather than by config.
 func warnInvalidEnv(_ *cobra.Command, f *cmdutil.Factory) error {
 	ios := f.IOStreams
 	if ios == nil {
@@ -73,48 +65,8 @@ func warnInvalidEnv(_ *cobra.Command, f *cmdutil.Factory) error {
 	warnf := func(format string, args ...any) {
 		cmdutil.Warnf(ios, format+"; falling back to config/default", args...)
 	}
-	if v, ok := os.LookupEnv("PVMT_UNITS"); ok && v != "" && !units.IsKnown(v) {
-		warnf("PVMT_UNITS=%q is not a known unit system", v)
-	}
-	if v, ok := os.LookupEnv("PVMT_FORECAST_YEARS"); ok && v != "" {
-		n, err := strconv.Atoi(v)
-		switch {
-		case err != nil:
-			warnf("PVMT_FORECAST_YEARS=%q is not a valid integer", v)
-		case n <= 0 || n > forecast.MaxHorizonYears:
-			warnf("PVMT_FORECAST_YEARS=%q must be between 1 and %d", v, forecast.MaxHorizonYears)
-		}
-	}
-	if v, ok := os.LookupEnv("PVMT_HEX_EDGE_M"); ok && v != "" {
-		n, err := strconv.ParseFloat(v, 64)
-		switch {
-		case err != nil:
-			warnf("PVMT_HEX_EDGE_M=%q is not a valid number", v)
-		// Ordered before the range test on purpose: ParseFloat accepts "inf"
-		// with a nil error, and +Inf <= 0 is false, so an infinite edge would
-		// otherwise fall through both arms and this middleware would stay
-		// silent about a value the resolver drops — breaking the
-		// silence-implies-honored contract above.
-		case nonFiniteEnv(n):
-			warnf("PVMT_HEX_EDGE_M=%q must be a finite number", v)
-		// Also covers `n <= 0` rather than leaving that to its own arm: the
-		// floor is strictly tighter, and a second arm would push this
-		// function past gocognit's threshold. Mirrors hexEdgeFromEnv's
-		// `f >= MinHexEdgeM`, which is what actually drops the value.
-		case n < config.MinHexEdgeM:
-			warnf("PVMT_HEX_EDGE_M=%q must be >= %g (hex count grows as 1/edge²)", v, config.MinHexEdgeM)
-		}
-	}
-	if v, ok := os.LookupEnv("PVMT_FORECAST_INITIAL_PCI"); ok && v != "" {
-		n, err := strconv.ParseFloat(v, 64)
-		switch {
-		case err != nil:
-			warnf("PVMT_FORECAST_INITIAL_PCI=%q is not a valid number", v)
-		case nonFiniteEnv(n):
-			warnf("PVMT_FORECAST_INITIAL_PCI=%q must be a finite number", v)
-		case !config.ValidInitialPCI(n):
-			warnf("PVMT_FORECAST_INITIAL_PCI=%q must be in (0, 100]", v)
-		}
+	for _, p := range config.EnvProblems() {
+		warnf("%s=%q %s", p.Variable, p.Value, p.Reason)
 	}
 	if v, ok := os.LookupEnv("PVMT_LOG"); ok && v != "" {
 		if _, valid := cmdutil.ParseLogLevel(v); !valid {

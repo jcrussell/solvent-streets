@@ -2,8 +2,6 @@ package config
 
 import (
 	"fmt"
-	"os"
-	"strconv"
 
 	"github.com/jcrussell/solvent-streets/internal/units"
 )
@@ -28,8 +26,8 @@ import (
 //
 // Invalid or out-of-range env values are ignored at parse time and fall
 // through to the next layer down so the merged config remains
-// well-typed; the warnInvalidEnv middleware at the CLI boundary
-// surfaces the rejection to the user.
+// well-typed. The rule for each variable is its parse function in env.go,
+// and EnvProblems reports the values those functions refuse.
 
 type SourceKind string
 
@@ -90,8 +88,8 @@ func (c *Config) resolveUnits(flagUnits string) (units.System, Source) {
 	if flagUnits != "" {
 		return units.ParseSystem(flagUnits), Source{Kind: SourceFlag, Detail: "--units"}
 	}
-	if v, ok := os.LookupEnv("PVMT_UNITS"); ok && v != "" && units.IsKnown(v) {
-		return units.ParseSystem(v), Source{Kind: SourceEnv, Detail: "PVMT_UNITS"}
+	if v, ok := envOverride(EnvUnits, parseUnitsEnv); ok {
+		return v, Source{Kind: SourceEnv, Detail: EnvUnits}
 	}
 	if c.Display.Units != "" {
 		return units.ParseSystem(c.Display.Units), Source{Kind: SourceFile, Detail: "display.units"}
@@ -99,31 +97,15 @@ func (c *Config) resolveUnits(flagUnits string) (units.System, Source) {
 	return units.Imperial, Source{Kind: SourceDefault}
 }
 
-// hexEdgeFromEnv reads the PVMT_HEX_EDGE_M override. The bool reports whether
-// a valid positive FINITE value was present. Shared by resolveHexEdge and
-// resolveHexEdgeForCity so the env layer is read identically in both.
-//
-// nonFinite is load-bearing, not tidiness. strconv.ParseFloat accepts "inf" and
-// "Infinity" with a nil error and +Inf > 0 is true, so PVMT_HEX_EDGE_M=inf was
-// accepted here and went straight to geo.HexGrid — whose guard then returns nil
-// and the city exports with an empty hex layer, no error, exit 0. Config's
-// load-time gate on grid.hex_edge_m does not cover this: the env layer wins over
-// the file value and never passes through Validate.
-//
-// The MinHexEdgeM floor is here for that same reason, and it is the ONLY thing
-// standing between PVMT_HEX_EDGE_M=1 and an OOM kill: Validate's floor cannot
-// see the env layer at all. Below the floor we fall through to the file/default
-// value rather than erroring, matching how every other invalid env value is
-// handled here — warnInvalidEnv in pkg/cmd/root is what tells the user their
-// value was dropped, and its range test must mirror this one or that contract
-// breaks. solvent-streets-rbv7.
+// hexEdgeFromEnv reads the PVMT_HEX_EDGE_M override (parseHexEdgeEnv). The
+// bool reports whether a usable value was present. Shared by resolveHexEdge
+// and resolveHexEdgeForCity so the env layer is read identically in both.
 func hexEdgeFromEnv() (float64, Source, bool) {
-	if v, ok := os.LookupEnv("PVMT_HEX_EDGE_M"); ok && v != "" {
-		if f, err := strconv.ParseFloat(v, 64); err == nil && !nonFinite(f) && f >= MinHexEdgeM {
-			return f, Source{Kind: SourceEnv, Detail: "PVMT_HEX_EDGE_M"}, true
-		}
+	f, ok := envOverride(EnvHexEdgeM, parseHexEdgeEnv)
+	if !ok {
+		return 0, Source{}, false
 	}
-	return 0, Source{}, false
+	return f, Source{Kind: SourceEnv, Detail: EnvHexEdgeM}, true
 }
 
 // resolveHexEdge returns the top-level hex edge and its source.
@@ -208,7 +190,7 @@ func (c *Config) resolveForecast(city *CityConfig) (ForecastConfig, forecastProv
 
 func fileForecastProv(fc *ForecastConfig) forecastProvenance {
 	var p forecastProvenance
-	if ValidInitialPCI(fc.InitialPCI) {
+	if validInitialPCI(fc.InitialPCI) {
 		p.InitialPCI = Source{Kind: SourceFile, Detail: "forecast.initial_pci"}
 	}
 	if fc.DecayRate > 0 {
@@ -246,7 +228,7 @@ func applyCityForecastProv(fc *ForecastConfig, p *forecastProvenance, city *City
 	}
 	slug := city.Slug()
 	ov := city.Forecast
-	if ValidInitialPCI(ov.InitialPCI) {
+	if validInitialPCI(ov.InitialPCI) {
 		fc.InitialPCI = ov.InitialPCI
 		p.InitialPCI = Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].forecast.initial_pci", slug)}
 	}
@@ -286,13 +268,13 @@ func applyCityForecastProv(fc *ForecastConfig, p *forecastProvenance, city *City
 }
 
 func applyEnvForecastProv(fc *ForecastConfig, p *forecastProvenance) {
-	if n, ok := parseYearsEnv("PVMT_FORECAST_YEARS"); ok {
+	if n, ok := envOverride(EnvForecastYears, parseForecastYearsEnv); ok {
 		fc.Years = n
-		p.Years = Source{Kind: SourceEnv, Detail: "PVMT_FORECAST_YEARS"}
+		p.Years = Source{Kind: SourceEnv, Detail: EnvForecastYears}
 	}
-	if f, ok := parsePCIEnv("PVMT_FORECAST_INITIAL_PCI"); ok {
+	if f, ok := envOverride(EnvForecastInitialPCI, parseInitialPCIEnv); ok {
 		fc.InitialPCI = f
-		p.InitialPCI = Source{Kind: SourceEnv, Detail: "PVMT_FORECAST_INITIAL_PCI"}
+		p.InitialPCI = Source{Kind: SourceEnv, Detail: EnvForecastInitialPCI}
 	}
 }
 
@@ -421,7 +403,7 @@ func (c *Config) Resolve(flagUnits string) []ResolvedField {
 		if city.Forecast == nil {
 			continue
 		}
-		if ValidInitialPCI(city.Forecast.InitialPCI) {
+		if validInitialPCI(city.Forecast.InitialPCI) {
 			fields = append(fields, ResolvedField{
 				Key:    fmt.Sprintf("cities[%s].forecast.initial_pci", slug),
 				Value:  city.Forecast.InitialPCI,
