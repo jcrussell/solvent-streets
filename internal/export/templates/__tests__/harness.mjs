@@ -213,7 +213,11 @@ export function defaultSimulate(input) {
 // `data` maps a data-file suffix (e.g. 'scenarios.json') to a parsed object;
 // the fetch stub matches by suffix so both single-city ('data/x.json') and
 // multi-city ('cities/<slug>/x.json') prefixes resolve.
-export function load({ page = 'index', data = {}, simulate = defaultSimulate, url, navigate, wasm = false, goRuntime = page.startsWith('play'), hold = [] } = {}) {
+//
+// `config` is called with the page's PVMT_CONFIG after the template's inline
+// script has set it and before the page scripts run, so a spec can stand in
+// for a page rendered from a different config.
+export function load({ page = 'index', data = {}, simulate = defaultSimulate, url, navigate, wasm = false, goRuntime = page.startsWith('play'), hold = [], config } = {}) {
   // 'play-live' is the play page as `pvmt serve` renders it: ActiveSlug set,
   // DATA_PREFIX injected, the served city pre-selected.
   const file = page === 'play' ? 'play.html' : page === 'play-live' ? 'play-live.html' : 'index.html';
@@ -240,6 +244,7 @@ export function load({ page = 'index', data = {}, simulate = defaultSimulate, ur
   const release = (suffix) => { gates.delete(suffix); (releases.get(suffix) || (() => {}))(); };
   for (const suffix of hold) addGate(suffix);
   installStubs(win, { data, simulate, gates, wasm, goRuntime });
+  if (config) config(win.PVMT_CONFIG);
   // The play page's navigation seam: record where it would have gone.
   if (navigate) win.__pvmtNavigate = navigate;
 

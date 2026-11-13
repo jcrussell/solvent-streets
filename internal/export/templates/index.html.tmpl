@@ -796,12 +796,12 @@
                     <div class="sub">Area-weighted condition after forecast</div>
                 </div>
                 <div class="headline-card">
-                    <div class="label" id="hl-spend-label">30-Year Spend</div>
+                    <div class="label" id="hl-spend-label">{{.ForecastDefaults.HorizonYears}}-Year Spend</div>
                     <div class="value" id="hl-total-spend">—</div>
                     <div class="sub">Total budget allocated</div>
                 </div>
                 <div class="headline-card">
-                    <div class="label" id="hl-deficit-label">30-Year Deficit</div>
+                    <div class="label" id="hl-deficit-label">{{.ForecastDefaults.HorizonYears}}-Year Deficit</div>
                     <div class="value" id="hl-total-deficit">—</div>
                     <div class="sub">Accumulated unfunded need</div>
                 </div>
@@ -822,8 +822,8 @@
                         </div>
                     </div>
                     <div class="control-group">
-                        <label for="pci-slider">Initial PCI: <span class="control-value" id="pci-value">85</span></label>
-                        <input type="range" id="pci-slider" min="50" max="100" value="85" step="1" aria-valuemin="50" aria-valuemax="100" aria-valuenow="85">
+                        <label for="pci-slider">Initial PCI: <span class="control-value" id="pci-value">{{.ForecastDefaults.PCISlider}}</span></label>
+                        <input type="range" id="pci-slider" min="50" max="100" value="{{.ForecastDefaults.PCISlider}}" step="1" aria-valuemin="50" aria-valuemax="100" aria-valuenow="{{.ForecastDefaults.PCISlider}}">
                     </div>
                     <div class="control-group">
                         <label for="overhead-slider" title="Scales every cost tier. The default 1.0 already lands on real municipal hold-steady spending (see Methodology); raise it only if your local program costs run higher.">Cost multiplier: <span class="control-value" id="overhead-value">1&times;</span></label>
@@ -863,8 +863,8 @@
                         <th class="number">Area %</th>
                         <th class="number">Decay Rate</th>
                         <th class="number">End PCI</th>
-                        <th class="number" id="cohort-spend-th">30yr Spend</th>
-                        <th class="number" id="cohort-deficit-th">30yr Deficit</th>
+                        <th class="number" id="cohort-spend-th">{{.ForecastDefaults.HorizonYears}}yr Spend</th>
+                        <th class="number" id="cohort-deficit-th">{{.ForecastDefaults.HorizonYears}}yr Deficit</th>
                     </tr></thead>
                     <tbody></tbody>
                 </table>
@@ -959,11 +959,11 @@
                         <canvas id="compare-mix-chart" role="img" aria-label="Road Network Composition chart"></canvas>
                     </div>
                     <div class="compare-chart-card">
-                        <h3 id="compare-cost-title">30-Year Cost Trajectory</h3>
+                        <h3 id="compare-cost-title">{{.ForecastDefaults.HorizonYears}}-Year Cost Trajectory</h3>
                         <canvas id="compare-cost-chart" role="img" aria-label="Cost Trajectory chart"></canvas>
                     </div>
                     <div class="compare-chart-card">
-                        <h3 id="compare-need-title">Year 1 vs Year 30 Maintenance Need</h3>
+                        <h3 id="compare-need-title">Year 1 vs Year {{.ForecastDefaults.HorizonYears}} Maintenance Need</h3>
                         <canvas id="compare-need-chart" role="img" aria-label="Year 1 vs final-year Maintenance Need chart"></canvas>
                     </div>
                 </div>

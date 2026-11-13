@@ -1830,9 +1830,12 @@
         // through the helpers below, so a label and the figure under it name
         // the same year.
         //
+        // FORECAST_DEFAULTS are the Go-owned forecast settings (the page seed's,
+        // else the config defaults), for a value a city's seed omits.
         // DEFAULT_HORIZON_YEARS labels a page that has no forecast to read a
         // horizon from.
-        const DEFAULT_HORIZON_YEARS = 30;
+        const FORECAST_DEFAULTS = PVMT_CONFIG.forecast_defaults;
+        const DEFAULT_HORIZON_YEARS = FORECAST_DEFAULTS.horizon_years;
         // forecastHorizon is one city's horizon in years: the seed's
         // horizon_years, else the length of its series, else 0.
         function forecastHorizon(seed, years) {
@@ -1889,8 +1892,14 @@
             return scenarios.some(s => s.scenario) ? null : scenarios[0];
         }
 
-        // The funding-level scenarios the charts plot (order matters for COLORS).
-        const FUNDING_SCENARIO_NAMES = ['baseline', 'fund-25pct', 'fund-50pct', 'fund-100pct'];
+        // describedScenarios is the entries of a scope's set the charts plot one
+        // line each for: those carrying their scenario's name and label, in the
+        // set's own order (which the COLORS follow). Go defines the set
+        // (forecast.ReferenceScenarios); compare.json's stripped entries carry
+        // no scenario and are never charted.
+        function describedScenarios(scenarios) {
+            return scenarios.filter(s => s.scenario);
+        }
         // scenarios.json / city.scenarios is scope-keyed ({city, all, summary}).
         // effectiveScope resolves a preferred scope to one actually present;
         // scenariosForScope selects the list for a scope with the city→all
@@ -2030,10 +2039,8 @@
             const chartsDiv = document.getElementById('charts');
             chartsDiv.innerHTML = '';
 
-            // Get funding-level scenarios
-            const fundingScenarios = scenarios.filter(s =>
-                FUNDING_SCENARIO_NAMES.includes(s.scenario.name)
-            );
+            // The baseline and the funding levels, one line each.
+            const fundingScenarios = describedScenarios(scenarios);
 
             // 1. PCI over time
             if (fundingScenarios.length > 0) {
@@ -2071,7 +2078,7 @@
                             data: s.years.map(y => y.deferred_backlog),
                             borderColor: COLORS[i % COLORS.length],
                             backgroundColor: COLORS[i % COLORS.length] + '20',
-                            fill: s.scenario.name === 'baseline',
+                            fill: s === baseline,
                             tension: 0.3,
                             pointRadius: 0
                         }))
@@ -2081,7 +2088,7 @@
             }
 
             // 3. Cumulative cost (exclude baseline)
-            const fundedScenarios = fundingScenarios.filter(s => s.scenario.name !== 'baseline');
+            const fundedScenarios = fundingScenarios.filter(s => s !== baseline);
             if (fundedScenarios.length > 0) {
                 const card = makeChartCard('Cumulative Spending');
                 chartsDiv.appendChild(card);
@@ -2448,11 +2455,11 @@
         // figure; the do-nothing baseline's rising reconstruction share shows the
         // deferred-maintenance material blowout.
         //
-        // Default binder→oil factor; renderMaterials overrides it from the seed
-        // (barrels_per_ton_binder / forecast.BarrelsPerTonBinder) so Go and the
-        // browser share one source of truth. Read at call time by the render
-        // helpers below, so updating it before they run is sufficient.
-        var BARRELS_PER_TON_BINDER = 6.23;
+        // The binder→oil factor is Go's (forecast.BarrelsPerTonBinder): the page
+        // default until renderMaterials takes the city seed's
+        // barrels_per_ton_binder. Read at call time by the render helpers
+        // below, so updating it before they run is sufficient.
+        var BARRELS_PER_TON_BINDER = FORECAST_DEFAULTS.barrels_per_ton_binder;
 
         function destroyMaterialsCharts() {
             materialsCharts.forEach(function(c) { c.destroy(); });
@@ -2561,7 +2568,7 @@
                 showMaterialsEmpty('No material intensities in the forecast seed. Re-run <code>pvmt export</code> to refresh it.');
                 return;
             }
-            // Prefer the seed's binder→oil factor; keep the JS default otherwise.
+            // Prefer the seed's binder→oil factor; keep the page default otherwise.
             if (seed && seed.barrels_per_ton_binder) BARRELS_PER_TON_BINDER = seed.barrels_per_ton_binder;
             var tierByLabel = {};
             tiers.forEach(function(t) { tierByLabel[t.label] = t; });
@@ -2569,16 +2576,14 @@
             var worstTier = tiers.reduce(function(a, b) {
                 return b.mix_kg_per_sqm > a.mix_kg_per_sqm ? b : a;
             }, tiers[0]);
-            var cycleYears = (seed && seed.treatment_cycle_years) || 12;
+            var cycleYears = (seed && seed.treatment_cycle_years) || FORECAST_DEFAULTS.treatment_cycle_years;
             // Scope-selected the same way the forecast controls pick their area
             // and cohorts: the all-scope share unless a city scope is actually loaded.
             var asphaltShare = (scope === 'all' || !(seed && seed.city_paved))
                 ? (seed && seed.asphalt_area_share)
                 : (seed && seed.city_asphalt_area_share);
 
-            var fundingScenarios = scenarios.filter(function(s) {
-                return FUNDING_SCENARIO_NAMES.includes(s.scenario.name);
-            });
+            var fundingScenarios = describedScenarios(scenarios);
             if (fundingScenarios.length === 0) fundingScenarios = scenarios.slice(0, 1);
 
             var seriesByName = {};

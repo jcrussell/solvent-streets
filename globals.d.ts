@@ -103,7 +103,16 @@ interface PvmtConfig {
   data_prefix?: string;
   map_href?: string;
   band_count?: number;
+  pci_jitter?: number; // play page: the board's starting-PCI spread (export.GamePCIJitter)
   forecast_seed: any;
+  // The Go-owned forecast settings (export.ForecastDefaults), for a value a
+  // city's seed omits.
+  forecast_defaults: {
+    initial_pci: number;
+    horizon_years: number;
+    treatment_cycle_years: number;
+    barrels_per_ton_binder: number;
+  };
 }
 
 interface Window {

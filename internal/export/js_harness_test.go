@@ -267,9 +267,10 @@ func writeJSFixtureBoard(t *testing.T, dir string) {
 	writeFixtureJSON(t, dir, "play-hexes.json", playHexes)
 }
 
-// assertFundingScenarios pins the scenario names app.js filters on
-// (FUNDING_SCENARIO_NAMES). Renaming one on the Go side drops a chart from the
-// Financials tab; without this the JS specs would just see fewer charts.
+// assertFundingScenarios pins the fixture's scenario set: the baseline and
+// three funding levels per scope, each carrying its name. The Financials
+// charts draw one line per scenario the set describes, and several specs pick
+// entries by these names.
 func assertFundingScenarios(t *testing.T, scenarios map[string]any) {
 	t.Helper()
 	want := []string{"baseline", "fund-25pct", "fund-50pct", "fund-100pct"}

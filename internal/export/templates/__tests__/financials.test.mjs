@@ -15,10 +15,10 @@ async function ready(opts = {}) {
   return h;
 }
 
-// The whole Financials tab is four charts, and three of them are gated on
-// FUNDING_SCENARIO_NAMES matching the scenario names in scenarios.json. A
-// mismatch renders ONE card while every other spec still passes, so assert
-// the count and the titles: this is the tripwire that drift trips.
+// The whole Financials tab is four charts, and three of them are drawn from
+// the scenarios scenarios.json describes. A set the page cannot read renders
+// ONE card while every other spec still passes, so assert the count and the
+// titles: this is the tripwire that drift trips.
 test('all four Financials charts render from real exporter data', async () => {
   const { win, $$, flush } = await ready();
   win.selectTab('financials-tab');
@@ -30,8 +30,7 @@ test('all four Financials charts render from real exporter data', async () => {
     'Deferred Maintenance Backlog',
     'Cumulative Spending',
     'Annual Treatment Need by Condition Tier',
-  ], 'the funding-level charts did not render; scenario names in scenarios.json ' +
-     'no longer match FUNDING_SCENARIO_NAMES');
+  ], 'the funding-level charts did not render from scenarios.json');
 });
 
 // The other half of the same drift: meta.json's per-resource numbers live in

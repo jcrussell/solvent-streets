@@ -214,9 +214,8 @@
         <div class="sub">Keep the network solvent through the horizon.</div>
         <label>Horizon</label>
         <div class="row-buttons" id="horizon-buttons">
-            <button class="btn" type="button" data-horizon="20">20y</button>
-            <button class="btn" type="button" data-horizon="30">30y</button>
-            <button class="btn" type="button" data-horizon="50">50y</button>
+            {{range .GameHorizons}}<button class="btn" type="button" data-horizon="{{.}}">{{.}}y</button>
+            {{end -}}
             <button class="btn" type="button" data-horizon="endless">Endless</button>
         </div>
         <label style="margin-top:16px">Annual budget: <span class="ctrl-value" id="start-budget-value"></span>/yr</label>

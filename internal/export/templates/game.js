@@ -4,6 +4,8 @@
         const PVMT_CONFIG = window.PVMT_CONFIG;
         const CENTER = PVMT_CONFIG.center;
         const FORECAST_SEED = PVMT_CONFIG.forecast_seed;
+        // The Go-owned forecast settings, for a value the city's seed omits.
+        const FORECAST_DEFAULTS = PVMT_CONFIG.forecast_defaults;
         // Single-city: data files are at data/<file> (DATA_PREFIX ''). Multi-city:
         // the live server injects the active city's slug (it re-renders per
         // ?city=<slug>); a static host leaves ActiveSlug empty, so the block below
@@ -688,11 +690,11 @@
             // re-seed the game from the same config.
             gameConfig = {
                 hexes: gameHexes,
-                initial_pci: seed.initial_pci != null ? seed.initial_pci : 85,
-                pci_jitter: 8,
+                initial_pci: seed.initial_pci != null ? seed.initial_pci : FORECAST_DEFAULTS.initial_pci,
+                pci_jitter: PVMT_CONFIG.pci_jitter,
                 cost_tiers: seed.cost_tiers || [],
                 starting_budget: startingBudget,
-                horizon_years: seed.horizon_years || 30,
+                horizon_years: seed.horizon_years || FORECAST_DEFAULTS.horizon_years,
                 endless: false,
                 treatment_cycle_years: seed.treatment_cycle_years || 0,
                 growth_rate: seed.growth_rate || 0,

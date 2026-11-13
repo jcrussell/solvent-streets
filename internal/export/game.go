@@ -3,7 +3,28 @@ package export
 import (
 	"html/template"
 	"io/fs"
+	"slices"
+
+	"github.com/jcrussell/solvent-streets/internal/config"
 )
+
+// GamePCIJitter is how far a hex's starting PCI on the Play board may sit
+// above or below the city's initial PCI (game.Config.PCIJitter), so the board
+// opens as a patchwork instead of one flat colour.
+const GamePCIJitter = 8.0
+
+// gameHorizonAlternatives are the horizons the Play start screen offers
+// besides the forecast's own: a shorter and a longer game.
+var gameHorizonAlternatives = []int{20, 50}
+
+// GameHorizons lists the horizons, in years, the Play start screen offers,
+// ascending: the page's forecast horizon (which the game opens on), the
+// default horizon, and gameHorizonAlternatives.
+func (d TemplateData) GameHorizons() []int {
+	out := append([]int{d.ForecastDefaults().HorizonYears, config.DefaultForecastYears}, gameHorizonAlternatives...)
+	slices.Sort(out)
+	return slices.Compact(out)
+}
 
 // ParseGameTemplate returns the parsed template tree for the /play game page:
 // templates/game.html.tmpl plus the partials it shares with the index page

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/build"
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/game"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/hexmetric"
@@ -206,6 +208,50 @@ func (d TemplateData) HasTagFilters() bool {
 	return false
 }
 
+// ForecastDefaults are the forecast settings a page shows in its static markup
+// and falls back on in script wherever a city's own forecast_seed.json has not
+// loaded or omits a value. The browser reads them as
+// PVMT_CONFIG.forecast_defaults, so it carries no copy of these numbers.
+type ForecastDefaults struct {
+	InitialPCI          float64 `json:"initial_pci"`
+	HorizonYears        int     `json:"horizon_years"`
+	TreatmentCycleYears float64 `json:"treatment_cycle_years"`
+	BarrelsPerTonBinder float64 `json:"barrels_per_ton_binder"`
+}
+
+// PCISlider is InitialPCI on the Initial PCI slider's whole-number track,
+// rounded half up as the browser's Math.round does when it seeds the slider.
+func (f ForecastDefaults) PCISlider() int { return int(math.Floor(f.InitialPCI + 0.5)) }
+
+// ForecastDefaults returns the page's forecast settings: those of the seed it
+// was rendered with (resolved from the config), and the Go defaults for a
+// page with no seed or a value the seed leaves unset.
+func (d TemplateData) ForecastDefaults() ForecastDefaults {
+	out := ForecastDefaults{
+		InitialPCI:          config.DefaultInitialPCI,
+		HorizonYears:        config.DefaultForecastYears,
+		TreatmentCycleYears: forecast.DefaultTreatmentCycleYears,
+		BarrelsPerTonBinder: forecast.BarrelsPerTonBinder,
+	}
+	var seed ForecastSeedJSON
+	if d.ForecastSeed == "" || json.Unmarshal([]byte(d.ForecastSeed), &seed) != nil {
+		return out
+	}
+	if seed.InitialPCI > 0 {
+		out.InitialPCI = seed.InitialPCI
+	}
+	if seed.HorizonYears > 0 {
+		out.HorizonYears = seed.HorizonYears
+	}
+	if seed.TreatmentCycleYears > 0 {
+		out.TreatmentCycleYears = seed.TreatmentCycleYears
+	}
+	if seed.BarrelsPerTonBinder > 0 {
+		out.BarrelsPerTonBinder = seed.BarrelsPerTonBinder
+	}
+	return out
+}
+
 // BandCount exposes game.BandCount to the game template, which checks its
 // BAND_COLORS palette against it at boot. A method (not a field) so every
 // TemplateData construction site — static export and live server — gets it
@@ -308,6 +354,7 @@ func (d TemplateData) IndexConfigJSON() template.JS {
 		LayerColors   json.RawMessage  `json:"layer_colors"`
 		UnitSystem    string           `json:"unit_system"`
 		ForecastSeed  json.RawMessage  `json:"forecast_seed"`
+		Defaults      ForecastDefaults `json:"forecast_defaults"`
 		HexMetrics    []hexmetric.Spec `json:"hex_metrics"`
 	}{
 		Cities:        citiesOrEmpty(d.Cities),
@@ -316,6 +363,7 @@ func (d TemplateData) IndexConfigJSON() template.JS {
 		LayerColors:   rawOrNull(d.LayerColors),
 		UnitSystem:    d.UnitSystem,
 		ForecastSeed:  rawOrNull(d.ForecastSeed),
+		Defaults:      d.ForecastDefaults(),
 		// The derived "Color by" metrics (coverage, area, spaces, est. cost):
 		// static registry data, so every city offers them with or without
 		// a hex-metrics.json.
@@ -330,7 +378,8 @@ func (d TemplateData) IndexConfigJSON() template.JS {
 // client resolves the city itself); map_href is the back-to-map link, relative
 // on a static host. cities/tag_dimensions carry the same payload the index page
 // gets so the play page's tag filters can rebuild its city selector
-// client-side from the same data.
+// client-side from the same data. pci_jitter is the board's starting-PCI
+// spread (GamePCIJitter).
 func (d TemplateData) GameConfigJSON() template.JS {
 	dataPrefix := ""
 	if d.ActiveSlug != "" {
@@ -345,17 +394,21 @@ func (d TemplateData) GameConfigJSON() template.JS {
 		TagDimensions []jsTagDimension `json:"tag_dimensions"`
 		Center        [2]float64       `json:"center"`
 		ForecastSeed  json.RawMessage  `json:"forecast_seed"`
+		Defaults      ForecastDefaults `json:"forecast_defaults"`
 		DataPrefix    string           `json:"data_prefix"`
 		MapHref       string           `json:"map_href"`
 		BandCount     int              `json:"band_count"`
+		PCIJitter     float64          `json:"pci_jitter"`
 	}{
 		Cities:        citiesOrEmpty(d.Cities),
 		TagDimensions: jsTagDimensions(d.TagDimensions),
 		Center:        d.Center,
 		ForecastSeed:  rawOrNull(d.ForecastSeed),
+		Defaults:      d.ForecastDefaults(),
 		DataPrefix:    dataPrefix,
 		MapHref:       mapHref,
 		BandCount:     d.BandCount(),
+		PCIJitter:     GamePCIJitter,
 	}
 	data, _ := json.Marshal(cfg)
 	return template.JS(data)
