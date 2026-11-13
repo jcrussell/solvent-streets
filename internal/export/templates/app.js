@@ -1807,6 +1807,58 @@
                 { text: 'Reconstruction', fillStyle: TIER_COLORS.reconstruction, strokeStyle: TIER_COLORS.reconstruction }
             ];
         }
+        // The forecast horizon. A config has one (forecast.years), exported as
+        // horizon_years on every city's seed. Every "N-Year" label and every
+        // figure "at the horizon" on Financials, Compare and Aggregate goes
+        // through the helpers below, so a label and the figure under it name
+        // the same year.
+        //
+        // DEFAULT_HORIZON_YEARS labels a page that has no forecast to read a
+        // horizon from.
+        const DEFAULT_HORIZON_YEARS = 30;
+        // forecastHorizon is one city's horizon in years: the seed's
+        // horizon_years, else the length of its series, else 0.
+        function forecastHorizon(seed, years) {
+            const h = seed ? Number(seed.horizon_years) : 0;
+            if (h > 0) return h;
+            return years ? years.length : 0;
+        }
+        // yearAtHorizon is the entry of a per-year series for year `horizon`
+        // (years[0] is year 1). A series that stops short of the horizon gives
+        // its last year; an empty one gives null.
+        function yearAtHorizon(years, horizon) {
+            if (!years || years.length === 0 || horizon <= 0) return null;
+            return years[Math.min(horizon, years.length) - 1];
+        }
+        // applyRegionHorizon settles the horizon for a set of cities shown
+        // together (Compare, Aggregate) and stores each city's figures at it.
+        // The horizon is the config's, which every city's seed carries; if
+        // the cities disagree (a seed without horizon_years falls back to its
+        // series length) the longest wins. A city whose series stops short
+        // shows its last year, and m.shortSeriesYears is that year so the page
+        // can flag it (shortSeriesNote). Returns 0 when no city has a forecast.
+        function applyRegionHorizon(allMetrics) {
+            let horizon = 0;
+            allMetrics.forEach(function(m) {
+                if (m.hasForecasts && m.horizon > horizon) horizon = m.horizon;
+            });
+            allMetrics.forEach(function(m) {
+                const at = m.hasForecasts ? yearAtHorizon(m.baselineYears, horizon) : null;
+                m.horizonNeed = at ? (at.annual_need || 0) : 0;
+                m.horizonBacklog = at ? (at.deferred_backlog || 0) : 0;
+                m.horizonBacklogPerAreaUnit = m.scopeAreaLarge > 0 ? m.horizonBacklog / m.scopeAreaLarge : 0;
+                m.shortSeriesYears = (at && m.baselineYears.length < horizon) ? m.baselineYears.length : 0;
+            });
+            return horizon;
+        }
+        // shortSeriesNote is the inline flag for a city whose figure at the
+        // horizon is its last forecast year instead (HTML; '' for most cities).
+        function shortSeriesNote(m) {
+            if (!m.shortSeriesYears) return '';
+            return ' <span class="lb-note" title="This city’s forecast ends at year ' + m.shortSeriesYears +
+                '; its last year is shown.">(through year ' + m.shortSeriesYears + ')</span>';
+        }
+
         // The funding-level scenarios the charts plot (order matters for COLORS).
         const FUNDING_SCENARIO_NAMES = ['baseline', 'fund-25pct', 'fund-50pct', 'fund-100pct'];
         // scenarios.json / city.scenarios is scope-keyed ({city, all, summary}).
@@ -2171,9 +2223,19 @@
             });
         });
 
-        // Horizon-derived labels (never hardcode the number). FORECAST_SEED.horizon_years is
-        // the configured forecast horizon; the headline/cohort values are
-        // summed over it, so the captions must follow it too. The cohort Area
+        // financialsHorizon is the horizon the Financials tab labels and reads
+        // its headline tiles at: this city's (forecastHorizon over the seed
+        // and the exported series of the active scope), or the default while
+        // neither is loaded.
+        function financialsHorizon() {
+            const scenarios = scenarioData ? scenariosForScope(scenarioData, currentScope) : null;
+            const years = (scenarios && scenarios.length > 0) ? scenarios[0].years : null;
+            return forecastHorizon(FORECAST_SEED, years) || DEFAULT_HORIZON_YEARS;
+        }
+
+        // Horizon-derived labels (never hardcode the number). The headline
+        // and cohort values are read at financialsHorizon(), so the captions
+        // follow it too. The cohort Area
         // cells convert to the live large-area unit (ha/acres), so that header
         // carries the unit too — which is why the units toggle has to re-run
         // this (via renderFinancialsFromCache) and not just the table body.
@@ -2186,7 +2248,7 @@
         // (renderFinancialsFromCache, and the pre-fetch call in loadFinancials)
         // satisfy that today.
         function applyHorizonLabels() {
-            const yrs = (FORECAST_SEED && FORECAST_SEED.horizon_years) || 30;
+            const yrs = financialsHorizon();
             document.getElementById('hl-spend-label').textContent = yrs + '-Year Spend';
             document.getElementById('hl-deficit-label').textContent = yrs + '-Year Deficit';
             document.getElementById('cohort-spend-th').textContent = yrs + 'yr Spend';
@@ -3521,10 +3583,13 @@
         }
 
         function updateSummaryCards(result) {
-            const years = result.years || [];
-            const lastPCI = years.length > 0 ? years[years.length - 1].pci : 0;
+            // Read at the horizon the tiles are labelled with (applyHorizonLabels).
+            const horizon = financialsHorizon();
+            const years = (result.years || []).slice(0, horizon);
+            const at = yearAtHorizon(years, horizon);
+            const lastPCI = at ? at.pci : 0;
             const totalSpend = years.reduce((s, y) => s + y.annual_spend, 0);
-            const totalDeficit = years.length > 0 ? years[years.length - 1].deferred_backlog : 0;
+            const totalDeficit = at ? at.deferred_backlog : 0;
 
             document.getElementById('hl-end-pci').textContent = lastPCI.toFixed(0);
             document.getElementById('hl-total-spend').textContent = fmt$(totalSpend);
@@ -3959,21 +4024,19 @@
                 var years = baseline.years || [];
                 m.baselineYears = years;
                 m.year1Need = years.length > 0 ? years[0].annual_need : 0;
-                m.year20Need = years.length > 0 ? years[years.length - 1].annual_need : 0;
-                m.endBacklog = years.length > 0 ? years[years.length - 1].deferred_backlog : 0;
                 m.hasForecasts = true;
             } else {
-                m.year1Need = 0; m.year20Need = 0; m.endBacklog = 0;
+                m.year1Need = 0;
                 m.hasForecasts = false;
             }
+            // This city's own horizon. The figures at the horizon
+            // (horizonNeed, horizonBacklog, horizonBacklogPerAreaUnit) are
+            // filled in by applyRegionHorizon once the set of cities is known.
+            m.horizon = m.hasForecasts ? forecastHorizon(city.seed, m.baselineYears) : 0;
             // Per-area figures divide the scope-selected dollars by the area in
             // the same scope.
             m.scopeAreaLarge = scopeAreaLarge(city, m);
             m.year1PerAreaUnit = m.scopeAreaLarge > 0 ? m.year1Need / m.scopeAreaLarge : 0;
-            // The backlog ranks per unit of network in the same scope: raw
-            // dollars made the smallest city "Least Deferred" by size alone
-            // (solvent-streets-3ij1).
-            m.endBacklogPerAreaUnit = m.scopeAreaLarge > 0 ? m.endBacklog / m.scopeAreaLarge : 0;
 
             // Roads-only solvency metrics from forecast.json (an array of
             // per-resource ForecastExport — find the roads element). These are
@@ -4007,18 +4070,12 @@
             var medals = ['\u{1F947}', '\u{1F948}', '\u{1F949}'];
             var rankClasses = ['rank-1', 'rank-2', 'rank-3'];
 
-            // Horizon-derived labels (never hardcode the number). A config has
-            // one forecast horizon (forecast.years is top-level only and
-            // includes must agree), so every city's baselineYears has the same
-            // length and the "final year" bars/backlog compare the same year.
-            // The longest length is taken only so a malformed series cannot
-            // shorten the label. Fall back to the default 30 only when no city
-            // has a forecast, matching the Financials tab's fallback.
-            var compareMaxYears = 0;
-            allMetrics.forEach(function(m) {
-                if (m.baselineYears.length > compareMaxYears) compareMaxYears = m.baselineYears.length;
-            });
-            var compareHorizon = compareMaxYears > 0 ? compareMaxYears : 30;
+            // One horizon for the titles, the leaderboard label and every
+            // city's figure at it (applyRegionHorizon; Aggregate uses the same
+            // call). With no forecast in the set the titles take the default,
+            // as the Financials tab does.
+            var forecastYears = applyRegionHorizon(allMetrics);
+            var compareHorizon = forecastYears || DEFAULT_HORIZON_YEARS;
             var costTitleEl = document.getElementById('compare-cost-title');
             if (costTitleEl) costTitleEl.textContent = compareHorizon + '-Year Cost Trajectory';
             var needTitleEl = document.getElementById('compare-need-title');
@@ -4138,10 +4195,11 @@
                 { key: 'cityPct', label: 'City Ownership Share', award: 'Most City-Owned', higher: true, fmt: function(v) { return v.toFixed(0) + '%'; }, color: '#8b5cf6' },
                 { key: 'blendedDecay', label: 'Blended Decay Rate (lower is better)', award: 'Slowest Decay', higher: false, fmt: function(v) { return (v * 100).toFixed(2) + '%/yr'; }, color: '#ef4444' },
                 { key: 'year1PerAreaUnit', label: 'Year 1 Maintenance Cost per ' + areaLargeUnitSingular(), award: 'Lowest Cost per ' + areaLargeUnitSingular(), higher: false, fmt: function(v) { return '$' + (v >= 1e3 ? (v/1e3).toFixed(1) + 'K' : v.toFixed(0)); }, color: '#ec4899' },
-                // The final-year backlog per unit of network (same scope as the
-                // need). Every city shares one horizon, so this compares the
-                // same year; per area, so size alone does not win.
-                { key: 'endBacklogPerAreaUnit', label: compareHorizon + '-Year Deferred Backlog per ' + areaLargeUnitSingular(), award: 'Least Deferred per ' + areaLargeUnitSingular(), higher: false, fmt: function(v) { return '$' + (v >= 1e3 ? (v/1e3).toFixed(1) + 'K' : v.toFixed(0)); }, color: '#d946ef' },
+                // The backlog at the horizon per unit of network (same scope as
+                // the need): per area, so size alone does not win (raw dollars
+                // made the smallest city "Least Deferred"). A city whose
+                // forecast stops short of the horizon is flagged on its row.
+                { key: 'horizonBacklogPerAreaUnit', rowNote: shortSeriesNote, label: compareHorizon + '-Year Deferred Backlog per ' + areaLargeUnitSingular(), award: 'Least Deferred per ' + areaLargeUnitSingular(), higher: false, fmt: function(v) { return '$' + (v >= 1e3 ? (v/1e3).toFixed(1) + 'K' : v.toFixed(0)); }, color: '#d946ef' },
                 // Roads-only solvency metrics. filter excludes cities that lack
                 // the metric (no cited budget / no roads) so a null value never
                 // produces a NaN sort key or a corrupt bar width.
@@ -4179,7 +4237,7 @@
                     var medalIcon = (sorted.length >= 2 && i < 3 && i < medals.length) ? medals[i] : (i + 1) + '.';
                     return '<div class="lb-row">' +
                         '<span class="lb-medal">' + medalIcon + '</span>' +
-                        '<span class="lb-name">' + esc(m.name) + '</span>' +
+                        '<span class="lb-name">' + esc(m.name) + (cat.rowNote ? cat.rowNote(m) : '') + '</span>' +
                         '<div class="lb-bar-wrap"><div class="lb-bar" style="width:' + pct + '%;background:' + cat.color + ';"></div></div>' +
                         '<span class="lb-val">' + cat.fmt(m[cat.key]) + '</span>' +
                     '</div>';
@@ -4252,10 +4310,10 @@
                 }
             }));
 
-            // 3. 20-year cost trajectory (line chart)
-            var maxYears = Math.max.apply(null, allMetrics.map(function(m) { return m.baselineYears.length; }));
+            // 3. Cost trajectory to the horizon (line chart). A city whose
+            // forecast stops short ends its line there.
             var yearLabels = [];
-            for (var i = 1; i <= maxYears; i++) yearLabels.push('Year ' + i);
+            for (var i = 1; i <= forecastYears; i++) yearLabels.push('Year ' + i);
 
             compareCharts.push(new Chart(canvasById('compare-cost-chart').getContext('2d'), {
                 type: 'line',
@@ -4264,7 +4322,7 @@
                     datasets: allMetrics.map(function(m, idx) {
                         return {
                             label: m.name,
-                            data: m.baselineYears.map(function(y) { return y.deferred_backlog; }),
+                            data: m.baselineYears.slice(0, forecastYears).map(function(y) { return y.deferred_backlog; }),
                             borderColor: cityColors[idx % cityColors.length],
                             backgroundColor: cityColors[idx % cityColors.length] + '22',
                             fill: false,
@@ -4287,7 +4345,7 @@
                 }
             }));
 
-            // 4. Year 1 vs Year 20 need
+            // 4. Year 1 vs the horizon year's need
             compareCharts.push(new Chart(canvasById('compare-need-chart').getContext('2d'), {
                 type: 'bar',
                 data: {
@@ -4302,7 +4360,7 @@
                         },
                         {
                             label: 'Year ' + compareHorizon + ' Need',
-                            data: allMetrics.map(function(m) { return m.year20Need; }),
+                            data: allMetrics.map(function(m) { return m.horizonNeed; }),
                             backgroundColor: allMetrics.map(function(_, i) { return cityColors[i % cityColors.length] + '55'; }),
                             borderColor: allMetrics.map(function(_, i) { return cityColors[i % cityColors.length]; }),
                             borderWidth: 1
@@ -4345,11 +4403,10 @@
             });
             maybeRevealScopeToggle();
 
-            // Every city shares one horizon, so this is that horizon; taking
-            // the shortest series keeps summed years aligned even if one city's
-            // series were malformed, and the headline backlog matches the
-            // chart's final plotted point.
-            var minLen = fc.length > 0 ? Math.min.apply(null, fc.map(function(m) { return m.baselineYears.length; })) : 0;
+            // The horizon and each city's figures at it, by the same call
+            // Compare makes. The summed trajectories below run to it too, so
+            // the headline backlog is the backlog chart's final point.
+            var horizonYears = applyRegionHorizon(allMetrics);
 
             // Region area sums (every city, forecast or not).
             var totalRoads = 0, totalParking = 0, totalSidewalks = 0, totalNetwork = 0, totalCityArea = 0, totalPaved = 0, totalSpaces = 0;
@@ -4372,7 +4429,7 @@
                 fcArea += m.scopeAreaLarge;
                 pciWeighted += (m.baselineYears[0].pci || 0) * m.scopeAreaLarge;
                 regionYear1 += m.baselineYears[0].annual_need || 0;
-                regionBacklog += m.baselineYears[minLen - 1] ? (m.baselineYears[minLen - 1].deferred_backlog || 0) : 0;
+                regionBacklog += m.horizonBacklog;
             });
             var weightedPCI = fcArea > 0 ? pciWeighted / fcArea : null;
             var perArea = fcArea > 0 ? regionYear1 / fcArea : null;
@@ -4381,7 +4438,7 @@
             // before `forecast`) has no horizon; drop the "N-Year" prefix and
             // dash out the forecast-dependent figures rather than show "0-Year".
             var hasFc = fc.length > 0;
-            var horizon = hasFc ? minLen + '-Year ' : '';
+            var horizon = hasFc ? horizonYears + '-Year ' : '';
 
             // Headline cards.
             function aggCard(label, value, sub) {
@@ -4395,7 +4452,7 @@
                 // configured starting PCI, so say so (solvent-streets-3ij1).
                 aggCard('Area-Weighted PCI', weightedPCI === null ? '—' : weightedPCI.toFixed(0), 'Year-1 condition, after one year of decay with no spend'),
                 aggCard('Year-1 Maintenance Need', hasFc ? fmt$(regionYear1) : '—', 'To hold the whole network steady'),
-                aggCard(horizon + 'Deferred Backlog', hasFc ? fmt$(regionBacklog) : '—', hasFc ? 'Unfunded need accumulated by year ' + minLen : 'No forecast data in this region'),
+                aggCard(horizon + 'Deferred Backlog', hasFc ? fmt$(regionBacklog) : '—', hasFc ? 'Unfunded need accumulated by year ' + horizonYears : 'No forecast data in this region'),
                 aggCard('Year-1 Need per ' + areaLargeUnitSingular(), perArea === null ? '—' : '$' + fmtNum(perArea), 'Region maintenance intensity'),
                 aggCard('Est. Parking Spaces', totalSpaces > 0 ? fmtNum(totalSpaces) : '—', 'Lots and garages: OSM capacity, else footprint ÷ 30 m²/space')
             ].join('');
@@ -4422,15 +4479,18 @@
             // Dynamic, horizon-derived chart + column titles (never hardcode the number).
             document.getElementById('agg-cost-title').textContent = 'Region ' + horizon + 'Cost Trajectory';
             document.getElementById('agg-backlog-title').textContent = 'Region ' + horizon + 'Deferred Backlog';
-            document.getElementById('agg-contrib-backlog-th').textContent = hasFc ? minLen + '-Yr Backlog' : 'Backlog';
+            document.getElementById('agg-contrib-backlog-th').textContent = hasFc ? horizonYears + '-Yr Backlog' : 'Backlog';
 
-            // Element-wise summed trajectories over the aligned horizon.
+            // Element-wise summed trajectories to the horizon. A city whose
+            // forecast stops short carries its last year forward, the value
+            // its row in the contribution table shows.
             var yearLabels = [], costSeries = [], backlogSeries = [];
-            for (var y = 0; y < minLen; y++) {
+            for (var y = 0; y < horizonYears; y++) {
                 var needSum = 0, backSum = 0;
                 fc.forEach(function(m) {
-                    needSum += m.baselineYears[y].annual_need || 0;
-                    backSum += m.baselineYears[y].deferred_backlog || 0;
+                    var at = yearAtHorizon(m.baselineYears, y + 1);
+                    needSum += at.annual_need || 0;
+                    backSum += at.deferred_backlog || 0;
                 });
                 yearLabels.push('Year ' + (y + 1));
                 costSeries.push(needSum);
@@ -4482,10 +4542,10 @@
             var sorted = allMetrics.slice().sort(function(a, b) { return (b.year1Need || 0) - (a.year1Need || 0); });
             document.querySelector('#aggregate-contrib-table tbody').innerHTML = sorted.map(function(m) {
                 var y1 = m.hasForecasts ? m.year1Need : 0;
-                var bk = (m.hasForecasts && m.baselineYears[minLen - 1]) ? (m.baselineYears[minLen - 1].deferred_backlog || 0) : 0;
+                var bk = m.horizonBacklog;
                 var y1Share = regionYear1 > 0 ? (y1 / regionYear1 * 100).toFixed(1) + '%' : '—';
                 var bkShare = regionBacklog > 0 ? (bk / regionBacklog * 100).toFixed(1) + '%' : '—';
-                var name = m.hasForecasts ? esc(m.name) : esc(m.name) + ' <span class="lb-note" title="No forecast data">(no forecast)</span>';
+                var name = m.hasForecasts ? esc(m.name) + shortSeriesNote(m) : esc(m.name) + ' <span class="lb-note" title="No forecast data">(no forecast)</span>';
                 return '<tr><td>' + name + '</td>' +
                     '<td class="number">' + fmtNum(m.totalAreaLarge) + ' ' + unit + '</td>' +
                     '<td class="number">' + (m.hasForecasts ? fmt$(y1) : '—') + '</td>' +
