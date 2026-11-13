@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/jcrussell/solvent-streets/internal/resource"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -15,8 +17,8 @@ type Source string
 
 const (
 	SourceAll      Source = "all"
-	SourceOverpass Source = "overpass"
-	SourceArcGIS   Source = "arcgis"
+	SourceOverpass Source = resource.SourceOverpass
+	SourceArcGIS   Source = resource.SourceArcGIS
 )
 
 // PavementSources returns the --source values a pavement resource accepts:

@@ -152,11 +152,7 @@ func in(column string, values []string) viewFilter {
 	if len(values) == 0 {
 		return viewFilter{sql: `0`}
 	}
-	args := make([]any, len(values))
-	for i, v := range values {
-		args[i] = v
-	}
-	return viewFilter{sql: column + ` IN (` + placeholders(len(values)) + `)`, args: args}
+	return viewFilter{sql: column + ` IN (` + placeholders(len(values)) + `)`, args: anyArgs(values)}
 }
 
 // and conjoins filters.
@@ -194,6 +190,15 @@ func (s *sqliteStore) viewQuery(ctx context.Context, selectClause string, where 
 // placeholders returns "?,?,...,?" with n entries (n > 0).
 func placeholders(n int) string {
 	return strings.TrimSuffix(strings.Repeat("?,", n), ",")
+}
+
+// anyArgs returns values as bound query arguments.
+func anyArgs(values []string) []any {
+	args := make([]any, len(values))
+	for i, v := range values {
+		args[i] = v
+	}
+	return args
 }
 
 // CreateRun records a new run. It is invisible to readers until a snapshot
@@ -573,10 +578,8 @@ func orphanRuns(ctx context.Context, q queryer, cityID int64) ([]int64, error) {
 func (s *sqliteStore) GCScan(ctx context.Context, keepSources []string) (*GCReport, error) {
 	report := &GCReport{}
 	if len(keepSources) > 0 {
-		placeholders, args := s.gcKeepArgs(keepSources)
-		typePlaceholders, typeArgs := gcSweptTypes()
-		args = append(args, typeArgs...)
-		q := `SELECT COUNT(*) FROM features WHERE city_id = ? AND source_api NOT IN (` + placeholders + `) AND source_api != '' AND resource_type IN (` + typePlaceholders + `)`
+		where, args := s.staleFeatures(keepSources)
+		q := `SELECT COUNT(*) FROM features WHERE ` + where
 		if err := s.db.QueryRowContext(ctx, q, args...).Scan(&report.StaleFeatures); err != nil {
 			return nil, fmt.Errorf("count stale features: %w", err)
 		}
@@ -603,10 +606,8 @@ func (s *sqliteStore) GCSweep(ctx context.Context, keepSources []string) (*GCRep
 	report := &GCReport{}
 	err := s.withTx(ctx, func(tx *sql.Tx) error {
 		if len(keepSources) > 0 {
-			placeholders, args := s.gcKeepArgs(keepSources)
-			typePlaceholders, typeArgs := gcSweptTypes()
-			args = append(args, typeArgs...)
-			q := `DELETE FROM features WHERE city_id = ? AND source_api NOT IN (` + placeholders + `) AND source_api != '' AND resource_type IN (` + typePlaceholders + `)`
+			where, args := s.staleFeatures(keepSources)
+			q := `DELETE FROM features WHERE ` + where
 			if err := execDeleteCount(ctx, tx, "stale features", q, &report.StaleFeatures, args...); err != nil {
 				return err
 			}

@@ -32,7 +32,7 @@ type CensusBlocksSource struct {
 
 var _ Source = (*CensusBlocksSource)(nil)
 
-func (s *CensusBlocksSource) Name() string { return "tigerweb" }
+func (s *CensusBlocksSource) Name() string { return resource.SourceTigerweb }
 
 func (s *CensusBlocksSource) Fetch(ctx context.Context, client *http.Client, rt resource.Source) ([]db.Feature, error) {
 	endpoint := s.URL
@@ -89,9 +89,9 @@ func SourcesFor(rt resource.Source, bbox [4]float64, overpass bool, arcgisURL st
 // ownSource builds the named fixed source, or nil for an unknown name.
 func ownSource(name string, bbox [4]float64, opts Options) Source {
 	switch name {
-	case sourceOverpass:
+	case resource.SourceOverpass:
 		return &OverpassSource{BBox: bbox}
-	case "tigerweb":
+	case resource.SourceTigerweb:
 		return &CensusBlocksSource{BBox: bbox, Progress: opts.Progress}
 	}
 	return nil

@@ -38,6 +38,16 @@ const (
 	ScopeCity Scope = ":city"
 )
 
+// The data sources features are fetched from. Each name is the SourceAPI its
+// ingest stamps on a stored feature, the value `--source` takes, and what gc
+// and the road-graph builder match stored rows by, so all of them use these
+// constants.
+const (
+	SourceOverpass = "overpass"
+	SourceArcGIS   = "arcgis"
+	SourceTigerweb = "tigerweb"
+)
+
 // OverpassTimeoutS is the server-side [timeout:N], in seconds, every Overpass
 // query sends: the feature queries (roads, parking, sidewalks, facilities)
 // and ingest's boundary-relation and water queries. Overpass holds

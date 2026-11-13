@@ -30,7 +30,7 @@ func line(tags map[string]string, pts ...[2]float64) resource.Feature {
 		fmt.Fprintf(&s, "[%.7f,%.7f]", p[0], p[1])
 	}
 	s.WriteString("]}")
-	return resource.Feature{ID: fmt.Sprintf("r%d", len(pts)), Tags: tags, GeometryJSON: s.String(), SourceAPI: sourceOverpass}
+	return resource.Feature{ID: fmt.Sprintf("r%d", len(pts)), Tags: tags, GeometryJSON: s.String(), SourceAPI: resource.SourceOverpass}
 }
 
 func testProj() *geo.UTMProjector { return geo.NewUTMProjector(lonB, latB) }

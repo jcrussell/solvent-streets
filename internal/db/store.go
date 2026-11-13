@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/jcrussell/solvent-streets/internal/resource"
@@ -61,14 +60,9 @@ func (s *sqliteStore) deleteFeaturesForReplace(ctx context.Context, tx *sql.Tx, 
 		}
 		return nil
 	}
-	args := make([]any, 0, len(sourceAPIs)+2)
-	args = append(args, resourceType, s.cityID)
-	for _, sa := range sourceAPIs {
-		args = append(args, sa)
-	}
-	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(sourceAPIs)), ",")
+	args := append([]any{resourceType, s.cityID}, anyArgs(sourceAPIs)...)
 	// placeholders is only "?,?,..." — every source value is a bound parameter.
-	q := `DELETE FROM features WHERE resource_type = ? AND city_id = ? AND source_api IN (` + placeholders + `)` //nolint:gosec // placeholders are "?" only; values are parameterized via args
+	q := `DELETE FROM features WHERE resource_type = ? AND city_id = ? AND source_api IN (` + placeholders(len(sourceAPIs)) + `)` //nolint:gosec // placeholders are "?" only; values are parameterized via args
 	if _, err := tx.ExecContext(ctx, q, args...); err != nil {
 		return fmt.Errorf("delete old features by source: %w", err)
 	}
@@ -206,33 +200,26 @@ func (s *sqliteStore) withTx(ctx context.Context, fn func(*sql.Tx) error) error 
 	return nil
 }
 
-// gcKeepPlaceholders builds the parameterized "?,?,..." placeholder list
-// and the matching args slice (city_id first, then each keep source) for
-// the stale-features statements. Source values are bound parameters, never
-// interpolated — same approach as deleteFeaturesForReplace.
-func (s *sqliteStore) gcKeepArgs(keepSources []string) (placeholders string, args []any) {
-	args = make([]any, 0, len(keepSources)+1)
-	args = append(args, s.cityID)
-	for _, src := range keepSources {
-		args = append(args, src)
+// staleFeatures is the WHERE clause, with its bound values, that defines this
+// city's stale features for the given keep list: pavement features (the
+// resource.All types, whose sources the city config chooses) fetched from a
+// source no longer kept. GCScan counts by it and GCSweep deletes by it, so a
+// dry run reports exactly what the sweep removes.
+//
+// Every other stored type — facility points, attribute layers such as census
+// blocks — owns its source (resource.OwnSourced) and so is never stale on the
+// pavement sources' account. Listing the swept types, rather than excluding
+// known prefixes, keeps a new own-sourced type safe without touching this
+// query. Values are bound parameters, never interpolated.
+func (s *sqliteStore) staleFeatures(keepSources []string) (where string, args []any) {
+	types := make([]string, len(resource.All))
+	for i, r := range resource.All {
+		types[i] = string(r.Type())
 	}
-	placeholders = strings.TrimSuffix(strings.Repeat("?,", len(keepSources)), ",")
-	return placeholders, args
-}
-
-// gcSweptTypes returns the placeholders and bound values for the resource
-// types the stale-source sweep applies to: the pavement types (resource.All),
-// whose sources the city config chooses. Every other stored type — facility
-// points, attribute layers such as census blocks — owns its source
-// (resource.OwnSourced) and so is never stale on the pavement sources'
-// account. Listing the swept types, rather than excluding known prefixes,
-// keeps a new own-sourced type safe without touching this query.
-func gcSweptTypes() (placeholders string, args []any) {
-	for _, r := range resource.All {
-		args = append(args, string(r.Type()))
-	}
-	placeholders = strings.TrimSuffix(strings.Repeat("?,", len(args)), ",")
-	return placeholders, args
+	where = `city_id = ? AND source_api NOT IN (` + placeholders(len(keepSources)) +
+		`) AND source_api != '' AND resource_type IN (` + placeholders(len(types)) + `)`
+	args = append([]any{s.cityID}, anyArgs(keepSources)...)
+	return where, append(args, anyArgs(types)...)
 }
 
 // execDeleteCount runs a DELETE and writes the affected-row count into dst,

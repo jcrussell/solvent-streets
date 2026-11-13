@@ -96,9 +96,6 @@ type Seed struct {
 	Source int
 }
 
-// sourceOverpass is the SourceAPI label the Overpass ingest writes.
-const sourceOverpass = "overpass"
-
 // PreferredRoads picks the road rows the graph is built from: the Overpass
 // rows when any exist, else everything (an ArcGIS-only city). A city that
 // ingested both sources holds two complete networks of the same streets whose
@@ -108,12 +105,12 @@ const sourceOverpass = "overpass"
 func PreferredRoads(roads []resource.Feature) ([]resource.Feature, string) {
 	var osm []resource.Feature
 	for _, r := range roads {
-		if r.SourceAPI == sourceOverpass {
+		if r.SourceAPI == resource.SourceOverpass {
 			osm = append(osm, r)
 		}
 	}
 	if len(osm) > 0 {
-		return osm, sourceOverpass
+		return osm, resource.SourceOverpass
 	}
 	return roads, "all"
 }

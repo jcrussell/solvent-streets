@@ -26,7 +26,7 @@ type OwnSourced interface {
 
 // OwnSource implements OwnSourced: facilities are always fetched from
 // Overpass, even for a city that sources its pavement from ArcGIS.
-func (f *Facility) OwnSource() string { return "overpass" }
+func (f *Facility) OwnSource() string { return SourceOverpass }
 
 var _ OwnSourced = (*Facility)(nil)
 
@@ -70,7 +70,7 @@ var (
 func (*CensusBlocks) Type() Type                      { return TypeCensusBlocks }
 func (*CensusBlocks) HasCohorts() bool                { return false }
 func (*CensusBlocks) AsphaltSurfaced() bool           { return false }
-func (*CensusBlocks) OwnSource() string               { return "tigerweb" }
+func (*CensusBlocks) OwnSource() string               { return SourceTigerweb }
 func (*CensusBlocks) OverpassQuery([4]float64) string { return "" }
 
 // BufferFeaturesPaired projects each block polygon and cleans it (Buffer(0)

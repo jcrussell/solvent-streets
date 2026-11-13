@@ -50,7 +50,7 @@ type ArcGISSource struct {
 
 var _ Source = (*ArcGISSource)(nil)
 
-func (s *ArcGISSource) Name() string { return "arcgis" }
+func (s *ArcGISSource) Name() string { return resource.SourceArcGIS }
 
 func (s *ArcGISSource) Fetch(ctx context.Context, client *http.Client, rt resource.Source) ([]db.Feature, error) {
 	// Only fetch centerlines for road type
@@ -97,7 +97,7 @@ func roadFeaturesFromRows(rows []ArcGISRow, resourceType resource.Type) []db.Fea
 			Name:         name,
 			Tags:         tags,
 			GeometryJSON: string(r.Geometry),
-			SourceAPI:    "arcgis",
+			SourceAPI:    resource.SourceArcGIS,
 			FetchedAt:    now,
 		})
 	}
@@ -156,7 +156,7 @@ func (q *ArcGISQuery) idField() string {
 
 func (q *ArcGISQuery) idPrefix() string {
 	if q.IDPrefix == "" {
-		return "arcgis"
+		return resource.SourceArcGIS
 	}
 	return q.IDPrefix
 }
@@ -687,7 +687,7 @@ func parseArcGISGeoJSON(data []byte, resourceType resource.Type, baseIndex int) 
 	if err != nil {
 		return nil, 0, err
 	}
-	rows, rawCount := rowsFromArcGISPage(page, "OBJECTID", "arcgis", baseIndex)
+	rows, rawCount := rowsFromArcGISPage(page, "OBJECTID", resource.SourceArcGIS, baseIndex)
 	return roadFeaturesFromRows(rows, resourceType), rawCount, nil
 }
 

@@ -6,6 +6,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/prompt"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
@@ -119,10 +120,10 @@ and never writes.`,
 func keepSourcesFor(city config.CityConfig, sweepDisabled bool) []string {
 	var keep []string
 	if city.Overpass || !sweepDisabled {
-		keep = append(keep, "overpass")
+		keep = append(keep, resource.SourceOverpass)
 	}
 	if city.ArcGISURL != "" {
-		keep = append(keep, "arcgis")
+		keep = append(keep, resource.SourceArcGIS)
 	}
 	return keep
 }
