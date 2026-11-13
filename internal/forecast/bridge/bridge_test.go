@@ -19,7 +19,7 @@ func TestTranslateExplicitCohorts(t *testing.T) {
 		HorizonYears: 5,
 		AnnualBudget: 500_000,
 		Strategy:     "worst-first",
-		CostTiers: []CostTier{
+		CostTiers: []forecast.CostTier{
 			{MinPCI: 0, MaxPCI: 50, CostPerSqM: 40, Label: "recon"},
 		},
 		Cohorts: []Cohort{
@@ -232,7 +232,7 @@ func TestTranslateNonFiniteInputs(t *testing.T) {
 		"nan budget":      func(in *Input) { in.AnnualBudget = math.NaN() },
 		"neg budget":      func(in *Input) { in.AnnualBudget = -1 },
 		"nan tier cost": func(in *Input) {
-			in.CostTiers = []CostTier{{MinPCI: 0, MaxPCI: 100, CostPerSqM: math.NaN(), Label: "x"}}
+			in.CostTiers = []forecast.CostTier{{MinPCI: 0, MaxPCI: 100, CostPerSqM: math.NaN(), Label: "x"}}
 		},
 		"nan cohort area":  func(in *Input) { in.Cohorts = []Cohort{{Classification: "c", Area: math.NaN(), DecayRate: 0.04}} },
 		"neg cohort area":  func(in *Input) { in.Cohorts = []Cohort{{Classification: "c", Area: -1, DecayRate: 0.04}} },
@@ -267,7 +267,7 @@ func TestRunEndToEnd(t *testing.T) {
 		HorizonYears: 10,
 		AnnualBudget: 1_000_000,
 		Strategy:     "worst-first",
-		CostTiers: []CostTier{
+		CostTiers: []forecast.CostTier{
 			{MinPCI: 0, MaxPCI: 40, CostPerSqM: 50, Label: "reconstruction"},
 			{MinPCI: 40, MaxPCI: 70, CostPerSqM: 15, Label: "rehabilitation"},
 			{MinPCI: 70, MaxPCI: 100, CostPerSqM: 2, Label: "preventive"},
@@ -575,5 +575,63 @@ func TestRun_SidewalkCohortsPricedAtTheSidewalkRate(t *testing.T) {
 	}
 	if bare := run(""); bare != road {
 		t.Errorf("a cohort without resource_type = %g, want the road-tier %g", bare, road)
+	}
+}
+
+// TestTranslate_CostOverheadReachesTheProjectorOnce pins how a payload's
+// cost_overhead prices: an absent (0) one is bare, a positive one multiplies
+// every dollar by exactly itself, and a negative or non-finite one is refused.
+// The projector owns the "unset is bare" rule (TieredCostProjector.Overhead);
+// the expected price here is worked out from the tiers alone.
+func TestTranslate_CostOverheadReachesTheProjectorOnce(t *testing.T) {
+	const area, pci = 1000.0, 55.0
+	base := Input{Area: area, InitialPCI: 70, HorizonYears: 1, Strategy: "do-nothing"}
+	bare := (&forecast.TieredCostProjector{}).ProjectCost(area, pci)
+	if bare <= 0 {
+		t.Fatalf("bare cost = %g, want > 0", bare)
+	}
+
+	for overhead, multiple := range map[float64]float64{0: 1, 1: 1, 0.5: 0.5, 1.5: 1.5, 5: 5} {
+		in := base
+		in.CostOverhead = overhead
+		_, _, _, params, err := Translate(in)
+		if err != nil {
+			t.Fatalf("Translate(cost_overhead=%g): %v", overhead, err)
+		}
+		if got, want := params.Cost.ProjectCost(area, pci), bare*multiple; math.Abs(got-want) > 1e-9*want {
+			t.Errorf("cost_overhead %g prices %g, want %g (bare %g x %g)", overhead, got, want, bare, multiple)
+		}
+	}
+
+	for _, overhead := range []float64{-1, -1e-9, math.NaN(), math.Inf(1), math.Inf(-1), 5.5} {
+		in := base
+		in.CostOverhead = overhead
+		if _, _, _, _, err := Translate(in); err == nil {
+			t.Errorf("Translate accepted cost_overhead %g", overhead)
+		}
+	}
+}
+
+// TestInput_CostTiersDecodeAsForecastTiers pins the tier wire format: a
+// payload's cost_tiers decode straight into the forecast's own tier type and
+// reach the projector unchanged.
+func TestInput_CostTiersDecodeAsForecastTiers(t *testing.T) {
+	raw := `{"area":1000,"initial_pci":70,"horizon_years":1,"strategy":"do-nothing",
+	         "cost_tiers":[{"min_pci":70,"max_pci":101,"cost_per_sqm":7,"label":"Good"},
+	                       {"min_pci":0,"max_pci":70,"cost_per_sqm":90,"label":"Poor"}]}`
+	var in Input
+	if err := json.Unmarshal([]byte(raw), &in); err != nil {
+		t.Fatal(err)
+	}
+	want := []forecast.CostTier{
+		{MinPCI: 70, MaxPCI: 101, CostPerSqM: 7, Label: "Good"},
+		{MinPCI: 0, MaxPCI: 70, CostPerSqM: 90, Label: "Poor"},
+	}
+	_, _, _, params, err := Translate(in)
+	if err != nil {
+		t.Fatalf("Translate: %v", err)
+	}
+	if !reflect.DeepEqual(params.Cost.Tiers, want) {
+		t.Errorf("projector tiers = %+v, want %+v", params.Cost.Tiers, want)
 	}
 }

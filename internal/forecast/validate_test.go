@@ -200,11 +200,7 @@ func surfaceVerdicts(t *testing.T, in forecast.Inputs) map[string]bool {
 		Strategy:     "worst-first",
 		CycleYears:   in.CycleYears,
 		CostOverhead: in.CostOverhead,
-	}
-	for _, t := range in.CostTiers {
-		bin.CostTiers = append(bin.CostTiers, bridge.CostTier{
-			MinPCI: t.MinPCI, MaxPCI: t.MaxPCI, CostPerSqM: t.CostPerSqM, Label: t.Label,
-		})
+		CostTiers:    in.CostTiers,
 	}
 	for _, c := range in.Cohorts {
 		bin.Cohorts = append(bin.Cohorts, bridge.Cohort{Classification: c.Classification, Area: c.Area, DecayRate: c.DecayRate})

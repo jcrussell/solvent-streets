@@ -15,25 +15,20 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 )
 
-// finite reports whether f is a real number (not NaN or ±Inf). The browser
-// payload is untrusted: a NaN/Inf propagates through Simulate and then makes
-// json.Marshal fail with "unsupported value: NaN", and a NaN InitialPCI slips
-// past the condition spread's degenerate-Beta guards (all NaN comparisons are
-// false) to yield NaN PCIs. Reject non-finite values at this boundary instead.
-func finite(f float64) bool { return !math.IsNaN(f) && !math.IsInf(f, 0) }
-
 // Input mirrors the JSON structure sent from the browser controls.
 // Its json tags are contractually aligned with internal/export/seeds.go's
 // ForecastSeedJSON / CohortSeed; bridge_test.go pins that alignment.
 type Input struct {
-	Area         float64    `json:"area"`
-	InitialPCI   float64    `json:"initial_pci"`
-	DecayRate    float64    `json:"decay_rate"`
-	GrowthRate   float64    `json:"growth_rate"`
-	HorizonYears int        `json:"horizon_years"`
-	CostTiers    []CostTier `json:"cost_tiers"`
-	AnnualBudget float64    `json:"annual_budget"`
-	Strategy     string     `json:"strategy"`
+	Area         float64 `json:"area"`
+	InitialPCI   float64 `json:"initial_pci"`
+	DecayRate    float64 `json:"decay_rate"`
+	GrowthRate   float64 `json:"growth_rate"`
+	HorizonYears int     `json:"horizon_years"`
+	// CostTiers is the forecast's own tier type: the seed marshals
+	// forecast.CostTier, and the payload returns it edited.
+	CostTiers    []forecast.CostTier `json:"cost_tiers"`
+	AnnualBudget float64             `json:"annual_budget"`
+	Strategy     string              `json:"strategy"`
 	// CycleYears is the treatment cycle N (annual need = full-network cost / N).
 	// Must match the value the static export lines use (seeded via
 	// ForecastSeedJSON.TreatmentCycleYears) or the custom line diverges ~N×.
@@ -44,13 +39,15 @@ type Input struct {
 	// forecast_seed.json and adjustable live via the forecast page's overhead
 	// slider.
 	//
-	// 0 is resolved to 1.0 (bare), NOT to the config default, by
-	// resolveOverhead below. This matters: a partially-rebuilt site pairing a
-	// new pvmt.wasm with an old per-city forecast_seed.json sends no
-	// cost_overhead at all, which decodes to 0 — and a bare multiply would then
-	// price the entire page at $0. Bare figures are off by whatever the
-	// configured overhead was (nothing at all under the current 1.0 default);
-	// blank ones are wrong by everything.
+	// 0 prices at 1.0 (bare), NOT at the config default: the projector reads
+	// an unset overhead as bare (forecast.TieredCostProjector.Overhead). This
+	// matters: a partially-rebuilt site pairing a new pvmt.wasm with an old
+	// per-city forecast_seed.json sends no cost_overhead at all, which
+	// decodes to 0 — and a bare multiply would then price the entire page at
+	// $0. Bare figures are off by whatever the configured overhead was
+	// (nothing at all under the current 1.0 default); blank ones are wrong by
+	// everything. A negative or non-finite one is a caller error and is
+	// refused by validateInput rather than read as bare.
 	CostOverhead float64  `json:"cost_overhead,omitempty"`
 	Cohorts      []Cohort `json:"cohorts,omitempty"`
 	// Solvency asks for the solvency metrics of these inputs alongside the
@@ -78,16 +75,6 @@ type Output struct {
 	Scenarios []forecast.ScenarioResult `json:"scenarios,omitempty"`
 }
 
-// resolveOverhead clamps a missing or nonsensical multiplier to 1.0 (bare).
-// Input is decoded from untrusted browser JSON, so this is a boundary check,
-// not a defaulting convenience.
-func resolveOverhead(v float64) float64 {
-	if !finite(v) || v <= 0 {
-		return 1
-	}
-	return v
-}
-
 // Cohort mirrors a single per-classification cohort from the browser payload.
 type Cohort struct {
 	// ResourceType is the resource the cohort belongs to, as the forecast
@@ -97,14 +84,6 @@ type Cohort struct {
 	Classification string  `json:"classification"`
 	Area           float64 `json:"area"`
 	DecayRate      float64 `json:"decay_rate"`
-}
-
-// CostTier mirrors a single cost tier from the browser payload.
-type CostTier struct {
-	MinPCI     float64 `json:"min_pci"`
-	MaxPCI     float64 `json:"max_pci"`
-	CostPerSqM float64 `json:"cost_per_sqm"`
-	Label      string  `json:"label"`
 }
 
 // inputNames is what the browser payload calls the inputs forecast.Inputs
@@ -120,7 +99,7 @@ var inputNames = map[string]string{
 // seed an export wrote is never refused here. The network area is the one
 // input only this payload carries: a NaN or Inf corrupts every output number
 // and breaks the final json.Marshal ("unsupported value: NaN").
-func validateInput(in Input, tiers []forecast.CostTier, cohorts []forecast.RawCohort) error {
+func validateInput(in Input, cohorts []forecast.RawCohort) error {
 	if !(in.Area >= 0) || math.IsInf(in.Area, 0) {
 		return fmt.Errorf("area %g must be a non-negative finite number", in.Area)
 	}
@@ -132,26 +111,16 @@ func validateInput(in Input, tiers []forecast.CostTier, cohorts []forecast.RawCo
 		Budget:       in.AnnualBudget,
 		CycleYears:   in.CycleYears,
 		CostOverhead: in.CostOverhead,
-		CostTiers:    tiers,
+		CostTiers:    in.CostTiers,
 		Cohorts:      cohorts,
 	}.Validate(inputNames)
 }
 
 // Translate converts a decoded Input into the arguments forecast.Simulate
-// expects: the cost tiers, the Params, the parsed strategy (whose error is
+// expects: the Params, the parsed strategy (whose error is
 // surfaced, not swallowed), the "custom" scenario, and the cohorts, falling
 // back to one whole-network cohort when the payload lists none.
 func Translate(in Input) (forecast.Scenario, []forecast.Cohort, int, *forecast.Params, error) {
-	var tiers []forecast.CostTier
-	for _, t := range in.CostTiers {
-		tiers = append(tiers, forecast.CostTier{
-			MinPCI:     t.MinPCI,
-			MaxPCI:     t.MaxPCI,
-			CostPerSqM: t.CostPerSqM,
-			Label:      t.Label,
-		})
-	}
-
 	raw := make([]forecast.RawCohort, len(in.Cohorts))
 	for i, c := range in.Cohorts {
 		raw[i] = forecast.RawCohort{
@@ -162,11 +131,11 @@ func Translate(in Input) (forecast.Scenario, []forecast.Cohort, int, *forecast.P
 		}
 	}
 
-	if err := validateInput(in, tiers, raw); err != nil {
+	if err := validateInput(in, raw); err != nil {
 		return forecast.Scenario{}, nil, 0, nil, err
 	}
 
-	params := forecast.NewParams(in.GrowthRate, tiers, in.CycleYears, resolveOverhead(in.CostOverhead))
+	params := forecast.NewParams(in.GrowthRate, in.CostTiers, in.CycleYears, in.CostOverhead)
 
 	strategy, err := forecast.ParseStrategy(in.Strategy)
 	if err != nil {
