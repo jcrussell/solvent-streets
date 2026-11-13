@@ -28,7 +28,7 @@ test('Financials: the deficit tile is read at the year its label names', async (
   const { win, $ } = await financials({ ...readFixture('forecast_seed.json'), horizon_years: 12 });
   assert.equal($('#hl-deficit-label').textContent, '12-Year Deficit');
   assert.equal($('#hl-spend-label').textContent, '12-Year Spend');
-  assert.equal($('#hl-total-deficit').textContent, win.fmt$(baselineYears[11].deferred_backlog));
+  assert.equal($('#hl-total-deficit').textContent, win.PvmtCommon.fmtMoney(baselineYears[11].deferred_backlog));
   assert.equal($('#hl-end-pci').textContent, baselineYears[11].pci.toFixed(0));
 });
 
@@ -38,7 +38,7 @@ test('Financials: a seed without horizon_years is labelled with the series lengt
   const { win, $ } = await financials(seed);
   assert.equal($('#hl-deficit-label').textContent, HORIZON + '-Year Deficit');
   assert.equal($('#cohort-deficit-th').textContent, HORIZON + 'yr Deficit');
-  assert.equal($('#hl-total-deficit').textContent, win.fmt$(baselineYears[HORIZON - 1].deferred_backlog));
+  assert.equal($('#hl-total-deficit').textContent, win.PvmtCommon.fmtMoney(baselineYears[HORIZON - 1].deferred_backlog));
 });
 
 /** @param {string} name @param {number} [years] series length; the full horizon by default */
@@ -102,16 +102,16 @@ test('a city that stops short shows its last year on both pages, flagged', async
   const rows = Array.from(doc.querySelectorAll('#aggregate-contrib-table tbody tr'));
   const row = rows.find((r) => r.cells[0].textContent.startsWith('Short'));
   assert.match(row.cells[0].textContent, /\(through year 12\)/);
-  assert.equal(row.cells[4].textContent, win.fmt$(short.deferred_backlog));
+  assert.equal(row.cells[4].textContent, win.PvmtCommon.fmtMoney(short.deferred_backlog));
   const fullRow = rows.find((r) => r.cells[0].textContent.startsWith('Full'));
   assert.equal(fullRow.cells[0].textContent, 'Full');
-  assert.equal(fullRow.cells[4].textContent, win.fmt$(full.deferred_backlog));
+  assert.equal(fullRow.cells[4].textContent, win.PvmtCommon.fmtMoney(full.deferred_backlog));
 
   // The region headline is the sum of the rows and the chart's last point.
   const card = Array.from(doc.querySelectorAll('#aggregate-headlines .headline-card'))
     .find((c) => /Deferred Backlog$/.test(c.querySelector('.label').textContent));
   const region = full.deferred_backlog + short.deferred_backlog;
-  assert.equal(card.querySelector('.value').textContent, win.fmt$(region));
+  assert.equal(card.querySelector('.value').textContent, win.PvmtCommon.fmtMoney(region));
   const chart = win.__charts.find((c) => c.data.datasets[0].label === 'Region Deferred Backlog');
   assert.equal(chart.data.labels.length, HORIZON);
   assert.equal(chart.data.datasets[0].data.at(-1), region);

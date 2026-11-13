@@ -2,9 +2,12 @@ package export
 
 import (
 	"errors"
+	"html/template"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -120,5 +123,38 @@ func TestLoadEmbeddedAssets(t *testing.T) {
 				t.Errorf("err = %v; want a remediation hint", err)
 			}
 		})
+	}
+}
+
+// TestPagesLoadOnlyListedScripts renders both pages and checks every local
+// script they reference is a site-root asset (so export writes it, serve
+// routes it and check-site requires it), and that both load the shared
+// common.js and selectors.js.
+func TestPagesLoadOnlyListedScripts(t *testing.T) {
+	scriptSrc := regexp.MustCompile(`<script src="([^"]+)"`)
+	pages := map[string]func() (*template.Template, error){
+		IndexFileName: ParseIndexTemplate,
+		PlayFileName:  ParseGameTemplate,
+	}
+	for name, parse := range pages {
+		html, err := RenderPage(parse, TemplateData{})
+		if err != nil {
+			t.Fatalf("render %s: %v", name, err)
+		}
+		var local []string
+		for _, m := range scriptSrc.FindAllStringSubmatch(string(html), -1) {
+			if strings.HasPrefix(m[1], "https://") {
+				continue
+			}
+			local = append(local, m[1])
+			if !slices.Contains(assetNames, m[1]) {
+				t.Errorf("%s loads %s, which is not a site-root asset", name, m[1])
+			}
+		}
+		for _, shared := range []string{"common.js", "selectors.js"} {
+			if !slices.Contains(local, shared) {
+				t.Errorf("%s does not load %s (loads %v)", name, shared, local)
+			}
+		}
 	}
 }

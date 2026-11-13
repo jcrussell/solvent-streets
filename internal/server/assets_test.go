@@ -38,6 +38,7 @@ func TestAssets_ServedAtSiteRoot(t *testing.T) {
 		"app.js":       "application/javascript",
 		"game.js":      "application/javascript",
 		"selectors.js": "application/javascript",
+		"common.js":    "application/javascript",
 	}
 	if len(assets.Names()) != len(wantType) {
 		t.Fatalf("asset names = %v; update wantType", assets.Names())

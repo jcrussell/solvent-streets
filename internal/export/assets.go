@@ -18,7 +18,7 @@ import (
 // in the order they are written and served. The pages reference them by
 // these names, so this list is the one definition `pvmt export` writes,
 // `pvmt serve` routes and `pvmt check-site` verifies.
-var assetNames = []string{"pvmt.wasm", "wasm_exec.js", "app.js", "game.js", "selectors.js"}
+var assetNames = []string{"pvmt.wasm", "wasm_exec.js", "app.js", "game.js", "selectors.js", "common.js"}
 
 // Assets is the set of site-root browser files: the forecast WASM, the Go
 // runtime shim that loads it, and the pages' JavaScript. Production code gets
@@ -83,8 +83,9 @@ var wasmFS embed.FS
 
 // app.js and game.js are the index and play pages' application JavaScript,
 // extracted out of index.html.tmpl / game.html.tmpl so they can be linted
-// (ESLint + tsc --checkJs) as real files; selectors.js is the selector logic
-// both pages load first. They are tracked, so unlike the WASM they are always
+// (ESLint + tsc --checkJs) as real files; common.js (formatting, the error
+// banner, fetching, the WASM loader) and selectors.js (the selector logic) are
+// what both pages load first. They are tracked, so unlike the WASM they are always
 // embedded. The templates reference all of them as external <script src>.
 //
 //go:embed templates/app.js
@@ -95,6 +96,9 @@ var gameJS []byte
 
 //go:embed templates/selectors.js
 var selectorsJS []byte
+
+//go:embed templates/common.js
+var commonJS []byte
 
 // ErrNoWasm means this binary was built without the forecast WASM, so it
 // cannot write, serve or verify a site.
@@ -126,5 +130,6 @@ func loadEmbeddedAssets(wasm fs.FS) (*Assets, error) {
 		"app.js":       appJS,
 		"game.js":      gameJS,
 		"selectors.js": selectorsJS,
+		"common.js":    commonJS,
 	})
 }

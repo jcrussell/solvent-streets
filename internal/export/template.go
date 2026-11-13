@@ -51,8 +51,8 @@ func TemplateFS() fs.ReadFileFS {
 }
 
 // ParseIndexTemplate returns the parsed template tree for the index page,
-// including the methodology, theme and selectors partials that index.html.tmpl
-// references via {{template ...}}. Shared between the static exporter and the
+// including the methodology, theme, selectors and common partials that
+// index.html.tmpl references via {{template ...}}. Shared between the static exporter and the
 // live server so they can't drift.
 func ParseIndexTemplate() (*template.Template, error) {
 	return ParseIndexTemplateFS(templatesFS)
@@ -69,12 +69,13 @@ func ParseIndexTemplateFS(source fs.FS) (*template.Template, error) {
 		"templates/methodology.html.tmpl",
 		"templates/theme.html.tmpl",
 		"templates/selectors.html.tmpl",
+		"templates/common.html.tmpl",
 	)
 }
 
 // parseTemplateFiles parses files[0] as the page template named name and the
 // rest as partials into the same tree. Both page parsers go through it so the
-// shared partials (selectors.html.tmpl) are wired identically.
+// shared partials (selectors.html.tmpl, common.html.tmpl) are wired identically.
 func parseTemplateFiles(source fs.FS, name string, files ...string) (*template.Template, error) {
 	var tmpl *template.Template
 	for _, file := range files {

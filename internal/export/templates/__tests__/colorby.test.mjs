@@ -98,7 +98,7 @@ test('area legend edges are compact and name the unit once', async () => {
     ? ['≤ 5.4K', '5.4K–11K', '11K–22K', '22K–43K', '43K–86K', '> 86K ' + unit]
     : ['≤ 500', '500–1K', '1K–2K', '2K–4K', '4K–8K', '> 8K ' + unit]);
 
-  // Dollar edges keep a decimal: fmtCost would round $2,500 to "$3K".
+  // Dollar edges are compacted like the other legend edges.
   win.selectHexMetric('est_cost_usd');
   assert.deepEqual($$('#legend .legend-labels span').map((s) => s.textContent),
     ['≤ $1K', '$1K–$2.5K', '$2.5K–$5K', '$5K–$10K', '$10K–$20K', '> $20K']);

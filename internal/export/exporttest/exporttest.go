@@ -27,6 +27,7 @@ func AssetFiles() map[string][]byte {
 		"app.js":       []byte("// fake app.js\n"),
 		"game.js":      []byte("// fake game.js\n"),
 		"selectors.js": []byte("// fake selectors.js\n"),
+		"common.js":    []byte("// fake common.js\n"),
 	}
 }
 

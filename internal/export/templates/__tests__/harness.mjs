@@ -20,6 +20,7 @@ import { JSDOM } from 'jsdom';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const APP_JS = join(HERE, '..', 'app.js');
 const SELECTORS_JS = join(HERE, '..', 'selectors.js');
+const COMMON_JS = join(HERE, '..', 'common.js');
 const GAME_JS = join(HERE, '..', 'game.js');
 
 export function fixtureDir() {
@@ -35,7 +36,7 @@ export function fixtureDir() {
 // installStubs provides the browser APIs app.js reaches for at evaluation time.
 // Each entry here is load-bearing: without it app.js throws before any test
 // gets to run.
-function installStubs(win, { data, simulate, gates, wasm }) {
+function installStubs(win, { data, simulate, gates, wasm, goRuntime }) {
   // MapLibre GL, not Leaflet. app.js constructs `new maplibregl.Map(...)` at
   // top level and later swaps sources and layers on it, so this needs real
   // behaviour rather than a no-op: updateHexGrid reads back the source it just
@@ -100,11 +101,15 @@ function installStubs(win, { data, simulate, gates, wasm }) {
     },
   };
 
-  // The Go WASM runtime constructor from wasm_exec.js (play page). The boot
-  // then fetches pvmt.wasm through the fetch stub below, which 404s, so the
-  // page reports a WASM error and never boots the board — the selector block
-  // this harness exists to test runs before that.
-  win.Go = class { constructor() { this.importObject = {}; } run() {} };
+  // The Go WASM runtime constructor from wasm_exec.js. Both pages get it
+  // from PvmtCommon.loadWasm, which injects wasm_exec.js when Go is undefined.
+  // jsdom fetches no external script here, so without this stub the injected
+  // script never loads and the boot never settles: the dashboard stays in its
+  // no-simulator state until a spec calls onWasmReady() itself. With it
+  // (`goRuntime`, the default on the play page) the boot goes on to fetch
+  // pvmt.wasm through the fetch stub below, which 404s, so the page reports a
+  // WASM error and never boots the board.
+  if (goRuntime) win.Go = class { constructor() { this.importObject = {}; } run() { win.__goRuns = (win.__goRuns || 0) + 1; } };
   // With `wasm: true` the instantiate succeeds (go.run is the no-op above), so
   // the play page goes on to boot its board on the map's 'load' event (fire
   // it with fireMap). The engine itself is never called: game.js only
@@ -208,7 +213,7 @@ export function defaultSimulate(input) {
 // `data` maps a data-file suffix (e.g. 'scenarios.json') to a parsed object;
 // the fetch stub matches by suffix so both single-city ('data/x.json') and
 // multi-city ('cities/<slug>/x.json') prefixes resolve.
-export function load({ page = 'index', data = {}, simulate = defaultSimulate, url, navigate, wasm = false, hold = [] } = {}) {
+export function load({ page = 'index', data = {}, simulate = defaultSimulate, url, navigate, wasm = false, goRuntime = page.startsWith('play'), hold = [] } = {}) {
   // 'play-live' is the play page as `pvmt serve` renders it: ActiveSlug set,
   // DATA_PREFIX injected, the served city pre-selected.
   const file = page === 'play' ? 'play.html' : page === 'play-live' ? 'play-live.html' : 'index.html';
@@ -234,7 +239,7 @@ export function load({ page = 'index', data = {}, simulate = defaultSimulate, ur
   };
   const release = (suffix) => { gates.delete(suffix); (releases.get(suffix) || (() => {}))(); };
   for (const suffix of hold) addGate(suffix);
-  installStubs(win, { data, simulate, gates, wasm });
+  installStubs(win, { data, simulate, gates, wasm, goRuntime });
   // The play page's navigation seam: record where it would have gone.
   if (navigate) win.__pvmtNavigate = navigate;
 
@@ -244,8 +249,9 @@ export function load({ page = 'index', data = {}, simulate = defaultSimulate, ur
   // wasmReady, ...) would be created there and discarded, leaving them
   // invisible to `get` below. Appending a <script> puts those bindings in the
   // window's global lexical environment, where they belong.
-  // selectors.js first, exactly as the page's <script src> order has it.
-  for (const path of [SELECTORS_JS, page.startsWith('play') ? GAME_JS : APP_JS]) {
+  // common.js and selectors.js first, exactly as the page's <script src>
+  // order has it.
+  for (const path of [COMMON_JS, SELECTORS_JS, page.startsWith('play') ? GAME_JS : APP_JS]) {
     const el = win.document.createElement('script');
     el.textContent = readFileSync(path, 'utf8');
     win.document.body.appendChild(el);

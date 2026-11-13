@@ -13,6 +13,9 @@
         // host so navigation stays inside the exported tree wherever it is
         // mounted (e.g. a project subpath like /solvent-streets/).
         const MAP_HREF = PVMT_CONFIG.map_href;
+        // Money formatting, the error banner and the JSON fetch wrapper are the
+        // shared ones from common.js, which the page loads before this script.
+        const { fmtMoney, showError, loadJSON } = PvmtCommon;
 
         // Typed DOM accessors — same pattern as app.js: one audited type-assertion
         // each so the call sites below read straight (el.value / el.dataset / …)
@@ -149,71 +152,12 @@
         const HEX_SOURCE = 'play-hexes';
         const HEX_FILL = 'play-fill';
 
-        // ---- Error surfacing -------------------------------------------------
-        function showError(label, detail) {
-            console.error('[play]', label, detail);
-            const banner = document.getElementById('error-banner');
-            const list = document.getElementById('error-banner-list');
-            const li = document.createElement('li');
-            li.textContent = label + (detail ? ' (' + detail + ')' : '');
-            list.appendChild(li);
-            banner.style.display = 'block';
-        }
-
-        // callWasm wraps a window.gameXxx function: stringify-free args in,
-        // parsed state out. Surfaces {error} via the banner and returns null.
+        // callWasm calls a window.gameXxx export of the forecast WASM and returns
+        // its parsed state; a failure is shown in the error banner and returns
+        // null.
+        /** @param {string} fnName @param {...any} args */
         function callWasm(fnName, ...args) {
-            // window is indexed by a runtime string, so one honest `any` hop here;
-            // WasmFn (globals.d.ts) then carries a real call signature through the
-            // rest, and the guard narrows away the undefined case.
-            /** @type {WasmFn|undefined} */
-            const fn = /** @type {any} */ (window)[fnName];
-            if (typeof fn !== 'function') {
-                showError(fnName, 'WASM function not registered');
-                return null;
-            }
-            let raw;
-            try {
-                raw = fn(...args);
-            } catch (err) {
-                showError(fnName, err.message || String(err));
-                return null;
-            }
-            let parsed;
-            try {
-                parsed = JSON.parse(raw);
-            } catch (err) {
-                showError(fnName, 'invalid response: ' + (err.message || String(err)));
-                return null;
-            }
-            if (parsed && parsed.error) {
-                showError(fnName, parsed.error);
-                return null;
-            }
-            return parsed;
-        }
-
-        async function loadJSON(url) {
-            try {
-                const resp = await fetch(url);
-                if (!resp.ok) { showError(url, 'HTTP ' + resp.status); return null; }
-                return await resp.json();
-            } catch (err) {
-                showError(url, err.message || String(err));
-                return null;
-            }
-        }
-
-        // ---- Formatting ------------------------------------------------------
-        function fmtMoney(n) {
-            if (n == null || isNaN(n)) return '$0';
-            const neg = n < 0;
-            const abs = Math.abs(n);
-            let s;
-            if (abs >= 1e9) s = '$' + (abs / 1e9).toFixed(2) + 'B';
-            else if (abs >= 1e6) s = '$' + (abs / 1e6).toFixed(2) + 'M';
-            else s = '$' + Math.round(abs).toLocaleString();
-            return (neg ? '-' : '') + s;
+            return PvmtCommon.callWasm(fnName, args);
         }
 
         // ---- Map setup -------------------------------------------------------
@@ -773,11 +717,5 @@
             else map.once('load', boot);
         }
 
-        if (typeof WebAssembly !== 'undefined' && typeof Go !== 'undefined') {
-            const go = new Go();
-            WebAssembly.instantiateStreaming(fetch('pvmt.wasm'), go.importObject)
-                .then(result => { go.run(result.instance); onWasmReady(); })
-                .catch(err => showError('forecast WASM', err.message || String(err)));
-        } else {
-            showError('WASM', 'WebAssembly or Go runtime unavailable');
-        }
+        PvmtCommon.loadWasm().then(onWasmReady)
+            .catch(err => showError('forecast WASM', PvmtCommon.errorText(err)));

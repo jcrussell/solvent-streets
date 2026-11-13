@@ -90,5 +90,5 @@ test('play: with no cited budget the start budget is the hold-steady budget', as
   }
   const { get, $ } = await bootBoard({ ...boardData(seedJSON), 'forecast.json': forecast });
   assert.equal(get('gameConfig').starting_budget, roadsForecast.break_even_budget);
-  assert.equal($('#start-budget-value').textContent, get('fmtMoney')(roadsForecast.break_even_budget));
+  assert.equal($('#start-budget-value').textContent, get('PvmtCommon.fmtMoney')(roadsForecast.break_even_budget));
 });

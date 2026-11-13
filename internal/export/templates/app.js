@@ -1,6 +1,9 @@
         // Config injected by the template as window.PVMT_CONFIG (see
         // TemplateData.IndexConfigJSON in internal/export/meta.go).
         const PVMT_CONFIG = window.PVMT_CONFIG;
+        // Money formatting, the error banner and the JSON fetch wrapper are the
+        // shared ones from common.js, which the page loads before this script.
+        const { fmtMoney, showError, loadJSON } = PvmtCommon;
 
         // Multi-city data prefix
         var CITIES = PVMT_CONFIG.cities;
@@ -416,62 +419,12 @@
             return prefix + 'data/' + file + (snap ? '?snapshot=' + encodeURIComponent(snap) : '');
         }
 
-        // Single fetch wrapper: reports network/HTTP failures via the visible
-        // error banner and console.error so a silent empty-chart never looks
-        // like "still loading" (solvent-streets-y68). Returns parsed JSON on
-        // success, or null on failure — callers fall back gracefully.
-        // opts.silent404 swallows a 404 without surfacing — used for the
-        // hexgrid file, which is legitimately absent for cities with no
-        // hex_metrics rows at all.
-        async function loadJSON(url, opts) {
-            try {
-                const resp = await fetch(url);
-                if (!resp.ok) {
-                    if (!(opts && opts.silent404 && resp.status === 404)) {
-                        showLoadError(url, 'HTTP ' + resp.status);
-                    }
-                    return null;
-                }
-                return await resp.json();
-            } catch (err) {
-                showLoadError(url, err.message || String(err));
-                return null;
-            }
-        }
-        function showLoadError(url, detail) {
-            console.error('failed to load', url, detail);
-            const banner = document.getElementById('error-banner');
-            const list = document.getElementById('error-banner-list');
-            if (!banner || !list) return;
-            const li = document.createElement('li');
-            li.textContent = url + ' (' + detail + ')';
-            list.appendChild(li);
-            banner.hidden = false;
-        }
-        // safeSimulate wraps window.simulateForecast so a WASM-side panic
-        // surfaces in the error banner instead of silently freezing the
-        // chart. Returns null when the simulation throws or reports an
-        // error; callers must check for null and bail.
+        // safeSimulate runs the forecast simulator (the WASM's simulateForecast
+        // export) on input. A WASM-side panic or reported error surfaces in the
+        // error banner instead of silently freezing the chart, and returns
+        // null; callers must check for null and bail.
         function safeSimulate(input) {
-            let raw;
-            try {
-                raw = window.simulateForecast(JSON.stringify(input));
-            } catch (err) {
-                showLoadError('forecast simulator', err.message || String(err));
-                return null;
-            }
-            let parsed;
-            try {
-                parsed = JSON.parse(raw);
-            } catch (err) {
-                showLoadError('forecast simulator', 'invalid response: ' + (err.message || String(err)));
-                return null;
-            }
-            if (parsed && parsed.error) {
-                showLoadError('forecast simulator', parsed.error);
-                return null;
-            }
-            return parsed;
+            return PvmtCommon.callWasm('simulateForecast', [JSON.stringify(input)], 'forecast simulator');
         }
 
         // Tab switching. Keeps .active class, aria-selected, and roving
@@ -577,9 +530,23 @@
         function areaUnit() {
             return UNIT_SYSTEM === 'metric' ? 'sq m' : 'sq ft';
         }
+        // toAreaBase converts sq m to the base display unit (areaUnit).
+        function toAreaBase(sqm) {
+            return UNIT_SYSTEM === 'metric' ? sqm : sqm * SQM_TO_SQFT;
+        }
         function fmtArea(sqm) {
-            const val = UNIT_SYSTEM === 'metric' ? sqm : sqm * SQM_TO_SQFT;
-            return fmtNum(val) + ' ' + areaUnit();
+            return fmtNum(toAreaBase(sqm)) + ' ' + areaUnit();
+        }
+        // A cost rate is stored and simulated in $/sq m and shown in $/areaUnit():
+        // costPerAreaToDisplay converts a $/sq m rate for display, and
+        // costPerAreaFromDisplay converts a displayed rate back.
+        /** @param {number} perSqm */
+        function costPerAreaToDisplay(perSqm) {
+            return UNIT_SYSTEM === 'metric' ? perSqm : perSqm / SQM_TO_SQFT;
+        }
+        /** @param {number} perUnit */
+        function costPerAreaFromDisplay(perUnit) {
+            return UNIT_SYSTEM === 'metric' ? perUnit : perUnit * SQM_TO_SQFT;
         }
 
         const map = new maplibregl.Map({
@@ -628,6 +595,13 @@
         // pointer handlers below.
         let selecting = false;
 
+        // showNoData replaces a tab's chart area with its empty-state message
+        // (msg is trusted HTML written in this file).
+        /** @param {string} containerId @param {string} msg */
+        function showNoData(containerId, msg) {
+            document.getElementById(containerId).innerHTML = '<div class="no-data">' + msg + '</div>';
+        }
+
         function fmtNum(n) {
             return Math.round(n).toLocaleString();
         }
@@ -643,13 +617,6 @@
                 .replace(/>/g, '&gt;')
                 .replace(/"/g, '&quot;')
                 .replace(/'/g, '&#39;');
-        }
-
-        function fmtCost(n) {
-            if (n >= 1e9) return '$' + (n/1e9).toFixed(2) + 'B';
-            if (n >= 1e6) return '$' + (n/1e6).toFixed(1) + 'M';
-            if (n >= 1e3) return '$' + (n/1e3).toFixed(0) + 'K';
-            return '$' + Math.round(n).toLocaleString();
         }
 
         // Build a blended hex FeatureCollection from the active resource
@@ -999,7 +966,7 @@
             // of city-scope features with no error anywhere. Better to show the
             // banner and render nothing than a plausible wrong map.
             if (hexData && hexData.v !== 5) {
-                showLoadError(dataURL(prefix, 'hexgrid.geojson'),
+                showError(dataURL(prefix, 'hexgrid.geojson'),
                     'unsupported hexgrid format (expected v5) — re-export this site with a current pvmt');
                 return;
             }
@@ -1136,7 +1103,7 @@
                     tooltip.innerHTML =
                         '<strong>Coverage:</strong> ' + (p.share != null ? Math.round(p.share * 100) : 0) + '%<br>' +
                         '<strong>Area:</strong> ' + fmtArea(p.area || 0) + '<br>' +
-                        '<strong>Est. Annual Cost:</strong> ' + fmtCost(p.est_cost || 0) +
+                        '<strong>Est. Annual Cost:</strong> ' + fmtMoney(p.est_cost || 0) +
                         (p.spaces > 0 ? '<br><strong>Est. Parking Spaces:</strong> ' + Math.round(p.spaces).toLocaleString() : '') +
                         metricTooltipLine(p);
                     tooltip.style.display = 'block';
@@ -1182,7 +1149,7 @@
                 totalArea += area;
                 totalPct += pct;
                 totalCost += cost;
-                rows += '<tr><td style="text-transform:capitalize">' + type + '</td><td>' + fmtArea(area) + '</td><td>' + Math.round(pct) + '%</td><td>' + fmtCost(cost) + '</td></tr>';
+                rows += '<tr><td style="text-transform:capitalize">' + type + '</td><td>' + fmtArea(area) + '</td><td>' + Math.round(pct) + '%</td><td>' + fmtMoney(cost) + '</td></tr>';
             }
 
             statsEl.innerHTML =
@@ -1190,7 +1157,7 @@
                 '<h3>Hex ' + hexId + '<button class="close-btn" id="close-hex" type="button" aria-label="Close hex details">&times;</button></h3>' +
                 '<table><tr><th>Type</th><th>Area</th><th>Coverage</th><th>Est. Cost</th></tr>' +
                 rows +
-                '<tr class="total-row"><td>Total</td><td>' + fmtArea(totalArea) + '</td><td>' + Math.min(Math.round(totalPct), 100) + '%</td><td>' + fmtCost(totalCost) + '</td></tr>' +
+                '<tr class="total-row"><td>Total</td><td>' + fmtArea(totalArea) + '</td><td>' + Math.min(Math.round(totalPct), 100) + '%</td><td>' + fmtMoney(totalCost) + '</td></tr>' +
                 '</table>' +
                 (totalSpaces > 0 ? '<div class="stat-row"><span class="stat-label">Est. Parking Spaces</span><span class="stat-value">' + Math.round(totalSpaces).toLocaleString() + '</span></div>' : '') +
                 '</div>';
@@ -1363,7 +1330,7 @@
                     return m + ':' + (s < 10 ? '0' : '') + s;
                 }
                 case 'float1': return v.toFixed(1);
-                case 'usd': return fmtCost(v);
+                case 'usd': return fmtMoney(v);
                 case 'percent': return Math.round(v * 100) + '%';
                 case 'area': return fmtArea(v);
                 case 'density': return Math.round(densityInUnit(v)).toLocaleString() + ' / ' + areaVeryLargeUnit();
@@ -1394,14 +1361,13 @@
         // of ranges names it once), everything else as fmtMetric does.
         function fmtLegend(v, format, withUnit) {
             if (format === 'area') {
-                const val = UNIT_SYSTEM === 'metric' ? v : v * SQM_TO_SQFT;
-                return compactNum(val) + (withUnit ? ' ' + areaUnit() : '');
+                return compactNum(toAreaBase(v)) + (withUnit ? ' ' + areaUnit() : '');
             }
             if (format === 'density') {
                 return compactNum(densityInUnit(v)) + (withUnit ? ' / ' + areaVeryLargeUnit() : '');
             }
-            // fmtCost rounds to whole thousands ($2.5K -> "$3K"), which
-            // misstates a band edge; keep one decimal here.
+            // A dollar edge is compacted like the count and area edges, so a
+            // row of ranges stays narrow ("$2.5K–$5K").
             if (format === 'usd') return '$' + compactNum(v);
             if (format === 'int') return compactNum(v);
             return fmtMetric(v, format);
@@ -1679,7 +1645,7 @@
                     '<div class="stat-row"><span class="stat-label">Hexes selected</span><span class="stat-value">' + fmtNum(count) + '</span></div>' +
                     '<div class="stat-row"><span class="stat-label">Total Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + toAreaLarge(sumArea).toFixed(1) + '</span></div>' +
                     '<div class="stat-row"><span class="stat-label">% Covered (area-weighted)</span><span class="stat-value">' + wPct.toFixed(1) + '%</span></div>' +
-                    '<div class="stat-row"><span class="stat-label">Est. Annual Cost</span><span class="stat-value">' + fmtCost(sumCost) + '</span></div>' +
+                    '<div class="stat-row"><span class="stat-label">Est. Annual Cost</span><span class="stat-value">' + fmtMoney(sumCost) + '</span></div>' +
                     '</div></div>';
             }
         })();
@@ -2023,13 +1989,6 @@
                 .forEach(function(c) { c.update('none'); });
         });
 
-        function fmt$(n) {
-            if (n >= 1e9) return '$' + (n/1e9).toFixed(1) + 'B';
-            if (n >= 1e6) return '$' + (n/1e6).toFixed(1) + 'M';
-            if (n >= 1e3) return '$' + (n/1e3).toFixed(0) + 'K';
-            return '$' + n.toFixed(0);
-        }
-
         let scenarioData = null;
         // True once THIS city's forecast_seed.json has landed and been applied to
         // FORECAST_SEED and the interactive controls. Reset by loadFinancials'
@@ -2117,7 +2076,7 @@
                             pointRadius: 0
                         }))
                     },
-                    options: { responsive: true, animation: FINANCIAL_CHART_ANIMATION, interaction: { mode: 'index', intersect: false }, scales: { y: { title: { display: true, text: 'Dollars ($)' }, ticks: { callback: v => fmt$(v) } } }, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + fmt$(ctx.parsed.y) } } } }
+                    options: { responsive: true, animation: FINANCIAL_CHART_ANIMATION, interaction: { mode: 'index', intersect: false }, scales: { y: { title: { display: true, text: 'Dollars ($)' }, ticks: { callback: v => fmtMoney(v) } } }, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + fmtMoney(ctx.parsed.y) } } } }
                 }));
             }
 
@@ -2143,7 +2102,7 @@
                             };
                         })
                     },
-                    options: { responsive: true, animation: FINANCIAL_CHART_ANIMATION, interaction: { mode: 'index', intersect: false }, scales: { y: { title: { display: true, text: 'Dollars ($)' }, ticks: { callback: v => fmt$(v) } } }, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + fmt$(ctx.parsed.y) } } } }
+                    options: { responsive: true, animation: FINANCIAL_CHART_ANIMATION, interaction: { mode: 'index', intersect: false }, scales: { y: { title: { display: true, text: 'Dollars ($)' }, ticks: { callback: v => fmtMoney(v) } } }, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + fmtMoney(ctx.parsed.y) } } } }
                 }));
             }
 
@@ -2166,7 +2125,7 @@
                     options: {
                         responsive: true,
                         animation: FINANCIAL_CHART_ANIMATION,
-                        scales: { y: { title: { display: true, text: 'Dollars ($)' }, ticks: { callback: v => fmt$(v) } } },
+                        scales: { y: { title: { display: true, text: 'Dollars ($)' }, ticks: { callback: v => fmtMoney(v) } } },
                         plugins: {
                             verticalCrosshair: false,
                             legend: {
@@ -2218,10 +2177,6 @@
                 return cohortSortAsc ? cmp : -cmp;
             });
 
-            function fmtCurrency(v) {
-                return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-            }
-
             // Update header sort arrows
             queryAll('#cohort-table thead th').forEach((th, i) => {
                 var arrow = th.querySelector('.sort-arrow');
@@ -2249,8 +2204,8 @@
                     '<td class="number">' + c.area_pct.toFixed(1) + '%</td>' +
                     '<td class="number">' + c.decay_rate.toFixed(4) + '</td>' +
                     '<td class="number"><span class="pci-badge ' + cls + '">' + pci.toFixed(0) + '</span></td>' +
-                    '<td class="number">' + fmtCurrency(c.total_spend) + '</td>' +
-                    '<td class="number">' + fmtCurrency(c.total_deficit) + '</td>';
+                    '<td class="number">' + fmtMoney(c.total_spend, { full: true }) + '</td>' +
+                    '<td class="number">' + fmtMoney(c.total_deficit, { full: true }) + '</td>';
                 tbody.appendChild(tr);
             });
 
@@ -2263,8 +2218,8 @@
                 '<td class="number">' + totalAreaLarge.toFixed(1) + '</td>' +
                 '<td class="number">100%</td>' +
                 '<td></td><td></td>' +
-                '<td class="number">' + fmtCurrency(totalSpend) + '</td>' +
-                '<td class="number">' + fmtCurrency(totalDeficit) + '</td>';
+                '<td class="number">' + fmtMoney(totalSpend, { full: true }) + '</td>' +
+                '<td class="number">' + fmtMoney(totalDeficit, { full: true }) + '</td>';
             tbody.appendChild(totTr);
 
             document.getElementById('cohort-section').style.display = 'block';
@@ -2425,7 +2380,7 @@
             if (gen !== financialsLoadGen) return; // a newer load superseded us
             scenarioData = loadedScenarios;
             if (!scenarioData) {
-                document.getElementById('charts').innerHTML = '<div class="no-data">No financial data available. Run <code>pvmt forecast</code> and <code>pvmt export</code> first.</div>';
+                showNoData('charts', 'No financial data available. Run <code>pvmt forecast</code> and <code>pvmt export</code> first.');
                 return;
             }
 
@@ -2439,7 +2394,7 @@
             const scenarios = scenariosForScope(scenarioData, currentScope);
 
             if (!scenarios || scenarios.length === 0) {
-                document.getElementById('charts').innerHTML = '<div class="no-data">No scenario data found.</div>';
+                showNoData('charts', 'No scenario data found.');
                 return;
             }
 
@@ -2579,18 +2534,23 @@
             section.style.display = '';
         }
 
+        // showMaterialsEmpty is the Materials tab with nothing to chart: the
+        // headline tiles, tier table and note hidden, and msg in their place.
+        /** @param {string} msg */
+        function showMaterialsEmpty(msg) {
+            destroyMaterialsCharts();
+            document.getElementById('materials-headlines').style.display = 'none';
+            document.getElementById('materials-tier-section').style.display = 'none';
+            document.getElementById('materials-note').style.display = 'none';
+            showNoData('materials-charts', msg);
+        }
+
         function renderMaterials(scenarios, seed, scope) {
             var chartsDiv = document.getElementById('materials-charts');
             destroyMaterialsCharts();
             chartsDiv.innerHTML = '';
-            function showEmpty(msg) {
-                document.getElementById('materials-headlines').style.display = 'none';
-                document.getElementById('materials-tier-section').style.display = 'none';
-                document.getElementById('materials-note').style.display = 'none';
-                chartsDiv.innerHTML = '<div class="no-data">' + msg + '</div>';
-            }
             if (!scenarios || scenarios.length === 0) {
-                showEmpty('No scenario data found.');
+                showMaterialsEmpty('No scenario data found.');
                 return;
             }
             var tiers = (seed && seed.material_tiers) || [];
@@ -2598,7 +2558,7 @@
             // area by; show a message rather than misleading all-zero charts
             // (e.g. an older seed, or one that failed to load).
             if (tiers.length === 0) {
-                showEmpty('No material intensities in the forecast seed. Re-run <code>pvmt export</code> to refresh it.');
+                showMaterialsEmpty('No material intensities in the forecast seed. Re-run <code>pvmt export</code> to refresh it.');
                 return;
             }
             // Prefer the seed's binder→oil factor; keep the JS default otherwise.
@@ -2779,12 +2739,8 @@
             if (gen !== materialsLoadGen) return;
             var seed = await loadJSON(dataURL(prefix, 'forecast_seed.json'));
             if (gen !== materialsLoadGen) return;
-            var chartsDiv = document.getElementById('materials-charts');
             if (!scenarios) {
-                document.getElementById('materials-headlines').style.display = 'none';
-                document.getElementById('materials-tier-section').style.display = 'none';
-                document.getElementById('materials-note').style.display = 'none';
-                chartsDiv.innerHTML = '<div class="no-data">No material data available. Run <code>pvmt forecast</code> and <code>pvmt export</code> first.</div>';
+                showMaterialsEmpty('No material data available. Run <code>pvmt forecast</code> and <code>pvmt export</code> first.');
                 return;
             }
             // Scope fallback mirrors loadFinancials: honor currentScope but fall
@@ -2863,12 +2819,12 @@
                     lead = 'At current funding, ' + name + '’s streets stay solvent through the forecast horizon.';
                 }
                 if (gapDollars > 0) {
-                    detail = 'Holding the network steady would take <strong>' + fmtCost(breakEven) + '/yr</strong> — <strong>' + fmtCost(gapDollars) + ' more</strong> than today’s ' + fmtCost(roads.current_budget) + ' (streets/roads only).';
+                    detail = 'Holding the network steady would take <strong>' + fmtMoney(breakEven) + '/yr</strong> — <strong>' + fmtMoney(gapDollars) + ' more</strong> than today’s ' + fmtMoney(roads.current_budget) + ' (streets/roads only).';
                 } else {
-                    detail = 'Today’s ' + fmtCost(roads.current_budget) + '/yr is at or above the ' + fmtCost(breakEven) + '/yr needed to hold the network steady (streets/roads only).';
+                    detail = 'Today’s ' + fmtMoney(roads.current_budget) + '/yr is at or above the ' + fmtMoney(breakEven) + '/yr needed to hold the network steady (streets/roads only).';
                 }
             } else {
-                lead = 'Holding ' + name + '’s streets steady would take <span class="num">' + fmtCost(breakEven) + '/yr</span> (streets/roads only).';
+                lead = 'Holding ' + name + '’s streets steady would take <span class="num">' + fmtMoney(breakEven) + '/yr</span> (streets/roads only).';
                 detail = 'No current budget configured for this city, so the funding gap and insolvency year aren’t shown. Set <code>forecast.current_budget</code> (cited) to see them.';
             }
             el.innerHTML = '<div class="lead">' + lead + '</div><div class="detail">' + detail
@@ -3245,7 +3201,7 @@
                 // rounding never moves the numbers. The open top bound (max_pci
                 // 101, an internal sentinel so PCI 100 falls inside) shows as 100
                 // and reads back as the seed's own top (solvent-streets-8ade).
-                const costDisplay = UNIT_SYSTEM === 'metric' ? t.cost_per_sqm : t.cost_per_sqm / SQM_TO_SQFT;
+                const costDisplay = costPerAreaToDisplay(t.cost_per_sqm);
                 const name = esc(t.label || 'Tier ' + (i+1));
                 row.innerHTML =
                     '<span>' + name + '</span>' +
@@ -3265,7 +3221,7 @@
                     inp.addEventListener('input', () => {
                         const v = parseFloat(inp.value);
                         if (Number.isFinite(v)) {
-                            inp.dataset.sqm = String(UNIT_SYSTEM === 'metric' ? v : v * SQM_TO_SQFT);
+                            inp.dataset.sqm = String(costPerAreaFromDisplay(v));
                         }
                     });
                 }
@@ -3613,9 +3569,9 @@
             syncAriaValueNow(slider);
             // The thumb against the % notches shows the share of hold steady;
             // a screen reader hears it with the dollars.
-            slider.setAttribute('aria-valuetext', fmtCost(budgetDollars) + ' a year' +
+            slider.setAttribute('aria-valuetext', fmtMoney(budgetDollars) + ' a year' +
                 (hold > 0 ? ', ' + Math.round(100 * budgetDollars / hold) + '% of hold-steady' : ''));
-            document.getElementById('budget-value').textContent = fmtCost(budgetDollars) + '/yr';
+            document.getElementById('budget-value').textContent = fmtMoney(budgetDollars) + '/yr';
             // Name the network when it isn't the headline's (city-maintained
             // streets), so this hold-steady budget can't be read as the one
             // the headline quotes: other resource types, or every
@@ -3650,7 +3606,7 @@
                 n.style.left = i === 0 ? '0' : (i === count ? '100%' : at(f));
                 // 100% is labelled by the hold-steady button (its dollars).
                 n.textContent = hold100 ? '' : Math.round(f * 100) + '%';
-                n.title = fmtCost(f * base) + '/yr';
+                n.title = fmtMoney(f * base) + '/yr';
                 n.setAttribute('aria-hidden', 'true');
                 scale.appendChild(n);
             }
@@ -3658,12 +3614,12 @@
             holdBtn.hidden = !(hold > 0);
             holdBtn.dataset.budget = String(hold);
             holdBtn.style.left = at(1);
-            queryEl('.num', holdBtn).textContent = fmtCost(hold);
-            holdBtn.setAttribute('aria-label', 'Hold steady, ' + fmtCost(hold) + ' a year');
+            queryEl('.num', holdBtn).textContent = fmtMoney(hold);
+            holdBtn.setAttribute('aria-label', 'Hold steady, ' + fmtMoney(hold) + ' a year');
             const todayBtn = buttonById('budget-today');
             todayBtn.hidden = !(today > 0);
             todayBtn.dataset.budget = String(today);
-            queryEl('.num', todayBtn).textContent = fmtCost(today);
+            queryEl('.num', todayBtn).textContent = fmtMoney(today);
         }
 
         function runCustomScenario() {
@@ -3700,8 +3656,8 @@
             const totalDeficit = at ? at.deferred_backlog : 0;
 
             document.getElementById('hl-end-pci').textContent = lastPCI.toFixed(0);
-            document.getElementById('hl-total-spend').textContent = fmt$(totalSpend);
-            document.getElementById('hl-total-deficit').textContent = fmt$(totalDeficit);
+            document.getElementById('hl-total-spend').textContent = fmtMoney(totalSpend);
+            document.getElementById('hl-total-deficit').textContent = fmtMoney(totalDeficit);
             document.getElementById('headlines').style.display = '';
         }
 
@@ -3994,7 +3950,7 @@
                 if (!Number.isFinite(parseFloat(inp.value))) return;
                 const sqm = parseFloat(inp.dataset.sqm);
                 if (!Number.isFinite(sqm)) return;
-                inp.value = String(roundCents(UNIT_SYSTEM === 'metric' ? sqm : sqm / SQM_TO_SQFT));
+                inp.value = String(roundCents(costPerAreaToDisplay(sqm)));
                 const label = inp.getAttribute('aria-label');
                 if (label) inp.setAttribute('aria-label', label.replace(/cost per .*$/, 'cost per ' + areaUnit()));
             });
@@ -4248,8 +4204,8 @@
                 var insolv = m.currentBudget > 0
                     ? (m.insolvencyYear ? 'Year ' + m.insolvencyYear : 'Solvent through horizon')
                     : '—';
-                return (m.currentBudget > 0 ? '<div class="sb-row"><span>Current Budget</span><span>' + fmtCost(m.currentBudget) + '/yr</span></div>' : '') +
-                    (m.breakEvenBudget > 0 ? '<div class="sb-row"><span>Hold-Steady Budget</span><span>' + fmtCost(m.breakEvenBudget) + '/yr</span></div>' : '') +
+                return (m.currentBudget > 0 ? '<div class="sb-row"><span>Current Budget</span><span>' + fmtMoney(m.currentBudget) + '/yr</span></div>' : '') +
+                    (m.breakEvenBudget > 0 ? '<div class="sb-row"><span>Hold-Steady Budget</span><span>' + fmtMoney(m.breakEvenBudget) + '/yr</span></div>' : '') +
                     '<div class="sb-row"><span>Funding Gap</span><span>' + gap + '</span></div>' +
                     '<div class="sb-row"><span>Insolvency</span><span>' + insolv + '</span></div>' +
                     // The budgets above price city-maintained roads only, so
@@ -4302,12 +4258,12 @@
                 { key: 'parkingSpaces', label: 'Parking Spaces (est.)', higher: true, filter: function(m) { return m.parkingSpaces > 0; }, fmt: function(v) { return v.toLocaleString(); }, color: '#60a5fa', note: 'Estimated vehicle capacity of mapped lots and garages: the OSM capacity tag where present, otherwise lot footprint ÷ 30 m² per space (× levels for structured parking). On-street parking is not counted. Cities computed before the estimate existed are omitted.' },
                 { key: 'cityPct', label: 'City Ownership Share', award: 'Most City-Owned', higher: true, fmt: function(v) { return v.toFixed(0) + '%'; }, color: '#8b5cf6' },
                 { key: 'blendedDecay', label: 'Blended Decay Rate (lower is better)', award: 'Slowest Decay', higher: false, fmt: function(v) { return (v * 100).toFixed(2) + '%/yr'; }, color: '#ef4444' },
-                { key: 'year1PerAreaUnit', label: 'Year 1 Maintenance Cost per ' + areaLargeUnitSingular(), award: 'Lowest Cost per ' + areaLargeUnitSingular(), higher: false, fmt: function(v) { return '$' + (v >= 1e3 ? (v/1e3).toFixed(1) + 'K' : v.toFixed(0)); }, color: '#ec4899' },
+                { key: 'year1PerAreaUnit', label: 'Year 1 Maintenance Cost per ' + areaLargeUnitSingular(), award: 'Lowest Cost per ' + areaLargeUnitSingular(), higher: false, fmt: function(v) { return fmtMoney(v); }, color: '#ec4899' },
                 // The backlog at the horizon per unit of network (same scope as
                 // the need): per area, so size alone does not win (raw dollars
                 // made the smallest city "Least Deferred"). A city whose
                 // forecast stops short of the horizon is flagged on its row.
-                { key: 'horizonBacklogPerAreaUnit', rowNote: shortSeriesNote, label: compareHorizon + '-Year Deferred Backlog per ' + areaLargeUnitSingular(), award: 'Least Deferred per ' + areaLargeUnitSingular(), higher: false, fmt: function(v) { return '$' + (v >= 1e3 ? (v/1e3).toFixed(1) + 'K' : v.toFixed(0)); }, color: '#d946ef' },
+                { key: 'horizonBacklogPerAreaUnit', rowNote: shortSeriesNote, label: compareHorizon + '-Year Deferred Backlog per ' + areaLargeUnitSingular(), award: 'Least Deferred per ' + areaLargeUnitSingular(), higher: false, fmt: function(v) { return fmtMoney(v); }, color: '#d946ef' },
                 // Roads-only solvency metrics. filter excludes cities that lack
                 // the metric (no cited budget / no roads) so a null value never
                 // produces a NaN sort key or a corrupt bar width.
@@ -4445,7 +4401,7 @@
                         y: {
                             beginAtZero: true,
                             title: { display: true, text: 'Deferred Backlog ($)' },
-                            ticks: { callback: function(v) { return v >= 1e9 ? '$' + (v/1e9).toFixed(1) + 'B' : '$' + (v/1e6).toFixed(0) + 'M'; } }
+                            ticks: { callback: function(v) { return fmtMoney(v); } }
                         }
                     },
                     plugins: { legend: { position: 'top' } },
@@ -4481,13 +4437,13 @@
                         y: {
                             beginAtZero: true,
                             title: { display: true, text: 'Annual Need ($)' },
-                            ticks: { callback: function(v) { return '$' + (v/1e6).toFixed(0) + 'M'; } }
+                            ticks: { callback: function(v) { return fmtMoney(v); } }
                         }
                     },
                     plugins: {
                         verticalCrosshair: false,
                         legend: { position: 'top' },
-                        tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': $' + (ctx.raw/1e6).toFixed(1) + 'M'; } } }
+                        tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ' + fmtMoney(ctx.raw); } } }
                     }
                 }
             }));
@@ -4559,9 +4515,9 @@
                 // baselineYears[0] is year 1, after one year's decay from the
                 // configured starting PCI, so say so (solvent-streets-3ij1).
                 aggCard('Area-Weighted PCI', weightedPCI === null ? '—' : weightedPCI.toFixed(0), 'Year-1 condition, after one year of decay with no spend'),
-                aggCard('Year-1 Maintenance Need', hasFc ? fmt$(regionYear1) : '—', 'To hold the whole network steady'),
-                aggCard(horizon + 'Deferred Backlog', hasFc ? fmt$(regionBacklog) : '—', hasFc ? 'Unfunded need accumulated by year ' + horizonYears : 'No forecast data in this region'),
-                aggCard('Year-1 Need per ' + areaLargeUnitSingular(), perArea === null ? '—' : '$' + fmtNum(perArea), 'Region maintenance intensity'),
+                aggCard('Year-1 Maintenance Need', hasFc ? fmtMoney(regionYear1) : '—', 'To hold the whole network steady'),
+                aggCard(horizon + 'Deferred Backlog', hasFc ? fmtMoney(regionBacklog) : '—', hasFc ? 'Unfunded need accumulated by year ' + horizonYears : 'No forecast data in this region'),
+                aggCard('Year-1 Need per ' + areaLargeUnitSingular(), perArea === null ? '—' : fmtMoney(perArea, { full: true }), 'Region maintenance intensity'),
                 aggCard('Est. Parking Spaces', totalSpaces > 0 ? fmtNum(totalSpaces) : '—', 'Lots and garages: OSM capacity, else footprint ÷ 30 m²/space')
             ].join('');
 
@@ -4604,7 +4560,7 @@
                 costSeries.push(needSum);
                 backlogSeries.push(backSum);
             }
-            var dollarTicks = function(v) { return v >= 1e9 ? '$' + (v / 1e9).toFixed(1) + 'B' : '$' + (v / 1e6).toFixed(0) + 'M'; };
+            var dollarTicks = function(v) { return fmtMoney(v); };
 
             aggregateCharts.forEach(function(c) { c.destroy(); });
             aggregateCharts = [];
@@ -4615,7 +4571,7 @@
                 options: {
                     responsive: true,
                     scales: { y: { beginAtZero: true, title: { display: true, text: 'Annual Need ($)' }, ticks: { callback: dollarTicks } } },
-                    plugins: { verticalCrosshair: false, legend: { display: false }, tooltip: { callbacks: { label: function(c) { return fmt$(c.raw); } } } },
+                    plugins: { verticalCrosshair: false, legend: { display: false }, tooltip: { callbacks: { label: function(c) { return fmtMoney(c.raw); } } } },
                     interaction: { mode: 'index', intersect: false }
                 }
             }));
@@ -4626,7 +4582,7 @@
                 options: {
                     responsive: true,
                     scales: { y: { beginAtZero: true, title: { display: true, text: 'Deferred Backlog ($)' }, ticks: { callback: dollarTicks } } },
-                    plugins: { verticalCrosshair: false, legend: { display: false }, tooltip: { callbacks: { label: function(c) { return fmt$(c.raw); } } } },
+                    plugins: { verticalCrosshair: false, legend: { display: false }, tooltip: { callbacks: { label: function(c) { return fmtMoney(c.raw); } } } },
                     interaction: { mode: 'index', intersect: false }
                 }
             }));
@@ -4656,9 +4612,9 @@
                 var name = m.hasForecasts ? esc(m.name) + shortSeriesNote(m) : esc(m.name) + ' <span class="lb-note" title="No forecast data">(no forecast)</span>';
                 return '<tr><td>' + name + '</td>' +
                     '<td class="number">' + fmtNum(m.totalAreaLarge) + ' ' + unit + '</td>' +
-                    '<td class="number">' + (m.hasForecasts ? fmt$(y1) : '—') + '</td>' +
+                    '<td class="number">' + (m.hasForecasts ? fmtMoney(y1) : '—') + '</td>' +
                     '<td class="number">' + (m.hasForecasts ? y1Share : '—') + '</td>' +
-                    '<td class="number">' + (m.hasForecasts ? fmt$(bk) : '—') + '</td>' +
+                    '<td class="number">' + (m.hasForecasts ? fmtMoney(bk) : '—') + '</td>' +
                     '<td class="number">' + (m.hasForecasts ? bkShare : '—') + '</td></tr>';
             }).join('');
 
@@ -4673,18 +4629,11 @@
             document.getElementById('aggregate-content').style.display = 'block';
         }
 
-        // Load WASM
+        // Boot the forecast simulator. The page works without it (the static
+        // exports stand in), so a browser with no WebAssembly is not an error.
         if (typeof WebAssembly !== 'undefined') {
-            const script = document.createElement('script');
-            script.src = 'wasm_exec.js';
-            script.onload = function() {
-                const go = new Go();
-                WebAssembly.instantiateStreaming(fetch('pvmt.wasm'), go.importObject)
-                    .then(result => { go.run(result.instance); onWasmReady(); })
-                    .catch(err => {
-                        console.warn('WASM load failed:', err);
-                        showLoadError('forecast WASM', err.message || String(err));
-                    });
-            };
-            document.head.appendChild(script);
+            PvmtCommon.loadWasm().then(onWasmReady).catch(err => {
+                console.warn('WASM load failed:', err);
+                showError('forecast WASM', PvmtCommon.errorText(err));
+            });
         }

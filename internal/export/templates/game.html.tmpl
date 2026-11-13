@@ -147,14 +147,7 @@
         #start-overlay .ctrl-value { color: #e8eaed; font-weight: 600; }
         #start-overlay #start-btn { width: 100%; margin-top: 18px; padding: 10px; font-weight: 700; }
 
-        /* Error banner */
-        #error-banner {
-            position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
-            background: #c53030; color: #fff; padding: 8px 16px; font-size: 13px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.3); display: none;
-        }
-        #error-banner ul { margin: 4px 0 0 18px; }
-        #error-banner button { float: right; background: transparent; color: #fff; border: 1px solid #fff; cursor: pointer; padding: 2px 8px; border-radius: 3px; }
+        {{template "error_banner_styles" .}}
         #loading {
             position: absolute; z-index: 40; top: 50%; left: 50%; transform: translate(-50%,-50%);
             color: #9aa4b2; font-size: 14px;
@@ -162,11 +155,7 @@
     </style>
 </head>
 <body>
-    <div id="error-banner" role="alert" aria-live="assertive">
-        <button type="button" onclick="document.getElementById('error-banner').style.display='none'">Dismiss</button>
-        <strong>Error:</strong>
-        <ul id="error-banner-list"></ul>
-    </div>
+    {{template "error_banner" .}}
 
     <div id="topbar">
         <span class="brand">Pavement Manager</span>
@@ -241,9 +230,8 @@
 
     <div id="banner"></div>
 
-    <!-- Shared with the index page; mounted once on the server (do not duplicate). -->
-    <script src="wasm_exec.js"></script>
     <script>window.PVMT_CONFIG = {{ .GameConfigJSON }};</script>
+    <script src="common.js"></script>
     <script src="selectors.js"></script>
     <script src="game.js"></script>
 </body>

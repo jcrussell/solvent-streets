@@ -126,7 +126,7 @@ test('a city with city-scope cohorts but none for roads still gets a live roads 
   assert.deepEqual(Array.from(probe.cohorts), roadsOf(seed.cohorts), 'roads fall back to every jurisdiction\'s cohorts');
   // refSim prices hold steady at the cohort area, so the headline names it.
   assert.ok(doc.getElementById('solvency-headline').textContent
-    .includes(win.fmtCost(areaOf(roadsOf(seed.cohorts))) + '/yr'), 'the headline is not the live figure');
+    .includes(win.PvmtCommon.fmtMoney(areaOf(roadsOf(seed.cohorts))) + '/yr'), 'the headline is not the live figure');
   // The slider maintains the same streets, so its anchor is the same figure.
   assert.deepEqual(Array.from(custom(win).cohorts), roadsOf(seed.cohorts));
   assert.equal(doc.getElementById('budget-share').textContent, '');

@@ -80,6 +80,19 @@ interface PvmtSelectorsAPI {
 }
 declare const PvmtSelectors: PvmtSelectorsAPI;
 
+// window.PvmtCommon, assigned by common.js (loaded before the page script):
+// the money formatter, error banner, JSON fetch and WASM plumbing both pages
+// share.
+interface PvmtCommonAPI {
+  fmtMoney(n: number | null | undefined, opts?: { full?: boolean }): string;
+  showError(label: string, detail?: string): void;
+  errorText(err: unknown): string;
+  loadJSON(url: string, opts?: { silent404?: boolean }): Promise<any>;
+  callWasm(fnName: string, args: any[], label?: string): any;
+  loadWasm(): Promise<void>;
+}
+declare const PvmtCommon: PvmtCommonAPI;
+
 interface PvmtConfig {
   center: [number, number];
   cities?: PvmtCity[];
@@ -96,6 +109,7 @@ interface PvmtConfig {
 interface Window {
   PVMT_CONFIG: PvmtConfig;
   PvmtSelectors: PvmtSelectorsAPI;
+  PvmtCommon: PvmtCommonAPI;
   // Test seam for the play page's navigation (see game.js navigateTo).
   __pvmtNavigate?: (u: URL) => void;
   _map?: any; // debug/resize handle to the live maplibre Map (app.js sets window._map = map)
