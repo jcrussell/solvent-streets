@@ -157,3 +157,22 @@ func TestCensus_OptOutSkips(t *testing.T) {
 		t.Errorf("compute commits = %v, want one dropping the census part", commits)
 	}
 }
+
+// A cancelled run stops before the census compute opens the store, like the
+// other per-city computes `pvmt all compute` chains.
+func TestRunComputeForCity_CancelledBeforeStart(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	opened := false
+	cf := &cmdutil.Factory{
+		IOStreams: ios,
+		CityDB:    func() (db.Store, error) { opened = true; return nil, errors.New("must not be opened") },
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := RunComputeForCity(ctx, cf, nil, nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if opened {
+		t.Error("the store was opened for a cancelled run")
+	}
+}

@@ -180,7 +180,7 @@ func computeSteps(ctx context.Context, ios *iostreams.IOStreams, cf *cmdutil.Fac
 	// Cancellation stops the city here: the combined pass would fail
 	// the same way, and running it on a half-computed city would
 	// overwrite a good combined row with a partial one.
-	if errors.Is(resErr, context.Canceled) || errors.Is(resErr, context.DeadlineExceeded) {
+	if isCancel(resErr) {
 		return resErr
 	}
 	// Any OTHER per-resource failure is reported but must not skip
@@ -312,7 +312,7 @@ func forEachResource(ios *iostreams.IOStreams, fn func(resource.Source) error) e
 			// and the run would still exit 0. Checking only Canceled would
 			// also swallow the ctx.Err() pre-checks that
 			// ingest/compute.RunResourceForCity return.
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			if isCancel(err) {
 				return err
 			}
 			// A total-source-failure for ONE resource is non-fatal to the

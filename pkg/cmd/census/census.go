@@ -68,6 +68,11 @@ func RunIngestForCity(ctx context.Context, cf *cmdutil.Factory) error {
 // `pvmt all compute` calls it in-process after the pavement passes, with the
 // city's draft (nil commits this run's own snapshot).
 func RunComputeForCity(ctx context.Context, cf *cmdutil.Factory, grid []geo.Hex, draft *db.Draft) error {
+	// Fail fast on a cancelled run, as the pavement and services computes do,
+	// rather than open the store and start a pass that cannot finish.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return runCompute(ctx, &Options{
 		IO: cf.IOStreams, CityDB: cf.CityDB, Config: cf.Config, CurrentCity: cf.CurrentCity, PrebuiltGrid: grid, Draft: draft,
 	})
@@ -84,10 +89,15 @@ func optedOut(cf *cmdutil.Factory) (bool, error) {
 		return true, fmt.Errorf("city: %w", err)
 	}
 	if !city.CensusEnabled() {
-		fmt.Fprintf(cf.IOStreams.ErrOut, "Census disabled for %s (census = false); skipping.\n", city.Name)
+		noteDisabled(cf.IOStreams.ErrOut, city)
 		return true, cmdutil.ErrNoResults
 	}
 	return false, nil
+}
+
+// noteDisabled says why a city with census = false is skipped.
+func noteDisabled(errOut io.Writer, city *config.CityConfig) {
+	fmt.Fprintf(errOut, "Census disabled for %s (census = false); skipping.\n", city.Name)
 }
 
 // Options for the population compute.
@@ -199,7 +209,7 @@ func runCompute(ctx context.Context, opts *Options) error {
 		// in `pvmt all`) that drops the census part, so a city that had
 		// population before stops publishing it.
 		if !city.CensusEnabled() {
-			fmt.Fprintf(errOut, "Census disabled for %s (census = false); skipping.\n", city.Name)
+			noteDisabled(errOut, city)
 			draft.Drop(Producer)
 			return cmdutil.ErrNoResults
 		}
