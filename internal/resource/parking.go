@@ -23,26 +23,8 @@ out geom;`, OverpassTimeoutS, bbox[0], bbox[1], bbox[2], bbox[3],
 		bbox[0], bbox[1], bbox[2], bbox[3])
 }
 
+// BufferFeaturesPaired cleans each lot polygon without buffering (unlike
+// roads and sidewalks, a lot's footprint is its drawn outline).
 func (p *Parking) BufferFeaturesPaired(ctx context.Context, features []Feature, proj geo.Projector) []BufferedFeature {
-	return geo.ParallelMap(ctx, features, func(_ int, f Feature) []BufferedFeature {
-		g, gtype, err := geo.GeoJSONToProjectedGeometry(f.GeometryJSON, proj)
-		if err != nil {
-			return nil
-		}
-		// Accept both Polygon and MultiPolygon: the parser emits parking
-		// relations (multi-part lots, lots with holes) as MultiPolygon, and
-		// dropping them would discard real parking area. Parking does not buffer
-		// (unlike roads/sidewalks), so it can't use the generic width-based
-		// helper; it only cleans the polygonal geometry. validatePolygonOK's
-		// Buffer(0) clean is dimension-agnostic and fixes both, exactly as the
-		// shared cleanFeatureGeometry does for its Polygon/MultiPolygon case.
-		if gtype != GeomPolygon && gtype != GeomMultiPolygon {
-			return nil
-		}
-		cleaned, ok := validatePolygonOK(g)
-		if !ok {
-			return nil
-		}
-		return []BufferedFeature{{Feature: f, Geom: cleaned}}
-	}, nil)
+	return cleanPolygonsPaired(ctx, features, proj)
 }

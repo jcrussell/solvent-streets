@@ -50,6 +50,13 @@ type ArcGISSource struct {
 
 var _ Source = (*ArcGISSource)(nil)
 
+// ArcGIS query defaults: the object-id field a layer has unless it says
+// otherwise, and the WHERE clause that matches every row.
+const (
+	defaultOIDField = "OBJECTID"
+	matchAllWhere   = "1=1"
+)
+
 func (s *ArcGISSource) Name() string { return resource.SourceArcGIS }
 
 func (s *ArcGISSource) Fetch(ctx context.Context, client *http.Client, rt resource.Source) ([]db.Feature, error) {
@@ -149,7 +156,7 @@ func (q *ArcGISQuery) progress() io.Writer {
 
 func (q *ArcGISQuery) idField() string {
 	if q.IDField == "" {
-		return "OBJECTID"
+		return defaultOIDField
 	}
 	return q.IDField
 }
@@ -489,7 +496,7 @@ func (q *ArcGISQuery) fetchPage(ctx context.Context, client *http.Client, offset
 	envelope := fmt.Sprintf("%f,%f,%f,%f", bbox[1], bbox[0], bbox[3], bbox[2])
 	where := q.Where
 	if where == "" {
-		where = "1=1"
+		where = matchAllWhere
 	}
 	outFields := "*"
 	if len(q.OutFields) > 0 {
@@ -687,7 +694,7 @@ func parseArcGISGeoJSON(data []byte, resourceType resource.Type, baseIndex int) 
 	if err != nil {
 		return nil, 0, err
 	}
-	rows, rawCount := rowsFromArcGISPage(page, "OBJECTID", resource.SourceArcGIS, baseIndex)
+	rows, rawCount := rowsFromArcGISPage(page, defaultOIDField, resource.SourceArcGIS, baseIndex)
 	return roadFeaturesFromRows(rows, resourceType), rawCount, nil
 }
 

@@ -168,6 +168,26 @@ type Feature struct {
 	SourceAPI    string
 }
 
+// cleanPolygonsPaired is BufferFeaturesPaired for a resource whose features
+// are areas already: each is projected and cleaned (validatePolygonOK), not
+// buffered. Polygon and MultiPolygon are both kept, since relations
+// (multi-part lots, lots with holes) arrive as MultiPolygon and dropping them
+// would discard real area; anything else, and anything that will not clean,
+// is dropped.
+func cleanPolygonsPaired(ctx context.Context, features []Feature, proj geo.Projector) []BufferedFeature {
+	return geo.ParallelMap(ctx, features, func(_ int, f Feature) []BufferedFeature {
+		g, gtype, err := geo.GeoJSONToProjectedGeometry(f.GeometryJSON, proj)
+		if err != nil || (gtype != GeomPolygon && gtype != GeomMultiPolygon) {
+			return nil
+		}
+		cleaned, ok := validatePolygonOK(g)
+		if !ok {
+			return nil
+		}
+		return []BufferedFeature{{Feature: f, Geom: cleaned}}
+	}, nil)
+}
+
 type widthFunc func(tags map[string]string) float64
 
 // cleanFeatureGeometry converts a single feature to a cleaned projected geometry.

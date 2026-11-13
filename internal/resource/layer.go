@@ -73,21 +73,10 @@ func (*CensusBlocks) AsphaltSurfaced() bool           { return false }
 func (*CensusBlocks) OwnSource() string               { return SourceTigerweb }
 func (*CensusBlocks) OverpassQuery([4]float64) string { return "" }
 
-// BufferFeaturesPaired projects each block polygon and cleans it (Buffer(0)
-// via validatePolygonOK), without buffering — the same treatment as parking
-// lots. Non-polygonal or invalid rows are dropped.
+// BufferFeaturesPaired cleans each block polygon without buffering, the same
+// treatment as parking lots.
 func (*CensusBlocks) BufferFeaturesPaired(ctx context.Context, features []Feature, proj geo.Projector) []BufferedFeature {
-	return geo.ParallelMap(ctx, features, func(_ int, f Feature) []BufferedFeature {
-		g, gtype, err := geo.GeoJSONToProjectedGeometry(f.GeometryJSON, proj)
-		if err != nil || (gtype != GeomPolygon && gtype != GeomMultiPolygon) {
-			return nil
-		}
-		cleaned, ok := validatePolygonOK(g)
-		if !ok {
-			return nil
-		}
-		return []BufferedFeature{{Feature: f, Geom: cleaned}}
-	}, nil)
+	return cleanPolygonsPaired(ctx, features, proj)
 }
 
 // CensusCounts returns a block's population and housing units from its tags;
