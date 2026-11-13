@@ -390,3 +390,24 @@ func TestExport_WarnsAboutMissingParts(t *testing.T) {
 		t.Errorf("warnings = %q; want one naming census and snapshot 1", warn.String())
 	}
 }
+
+// StaleSettings is the one test for "computed, but not readable under the
+// current settings" that export, serve, status and forecast share.
+func TestStaleSettings(t *testing.T) {
+	cfg := &config.Config{}
+	city := &config.CityConfig{Name: "Test City"}
+	cur := cfg.CityHash(city)
+	for _, tc := range []struct {
+		name  string
+		snaps []db.Snapshot
+		want  bool
+	}{
+		{"never computed", nil, false},
+		{"computed under the current settings", []db.Snapshot{{ID: 2, ConfigHash: cur}, {ID: 1, ConfigHash: "0ld0ld0ld0ld0ld0"}}, false},
+		{"computed only under other settings", []db.Snapshot{{ID: 1, ConfigHash: "0ld0ld0ld0ld0ld0"}}, true},
+	} {
+		if got := StaleSettings(cfg, city, tc.snaps); got != tc.want {
+			t.Errorf("%s: StaleSettings = %t, want %t", tc.name, got, tc.want)
+		}
+	}
+}

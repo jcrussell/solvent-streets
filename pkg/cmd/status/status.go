@@ -8,6 +8,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/export"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/results"
@@ -252,7 +253,7 @@ func (opts *Options) noteStaleSnapshots(ios *iostreams.IOStreams, snaps []db.Sna
 		return ""
 	}
 	hash := cfg.CityHash(city)
-	if snapsErr == nil && db.StaleFor(snaps, hash) {
+	if snapsErr == nil && export.StaleSettings(cfg, city, snaps) {
 		fmt.Fprintf(ios.ErrOut, "\nNote: %s\n", cfg.StaleHint(city))
 	}
 	return hash

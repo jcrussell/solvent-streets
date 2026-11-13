@@ -271,8 +271,8 @@ func runForecast(ctx context.Context, opts *Options) error {
 	if err != nil {
 		return fmt.Errorf("list snapshots: %w", err)
 	}
-	if db.StaleFor(snaps, cfg.CityHash(city)) {
-		fmt.Fprintf(ios.ErrOut, "Warning: %s\n", cfg.StaleHint(city))
+	if export.StaleSettings(cfg, city, snaps) {
+		cmdutil.Warnf(ios, "%s", cfg.StaleHint(city))
 		return cmdutil.ErrNoResults
 	}
 

@@ -127,12 +127,5 @@ func classifyUsageError(err error) error {
 
 func printError(w io.Writer, err error) {
 	fmt.Fprintf(w, "Error: %s\n", err)
-	var he *hint.ErrHint
-	if errors.As(err, &he) && he.Hint != "" {
-		lines := strings.Split(he.Hint, "\n")
-		fmt.Fprintf(w, "hint: %s\n", lines[0])
-		for _, l := range lines[1:] {
-			fmt.Fprintf(w, "      %s\n", l)
-		}
-	}
+	hint.Fprint(w, err)
 }

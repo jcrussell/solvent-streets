@@ -134,14 +134,28 @@ func (entry CityEntry) RequireMatchingSnapshot(ctx context.Context) error {
 				"under the current settings. The city's snapshot so far holds only %s.", entry.Slug, partNames(s))
 	}
 	err = fmt.Errorf("%w for %s", ErrNoMatchingSnapshot, entry.City.Name)
-	// Computed under other settings, or an [[include]]d city whose stored data
-	// this config would not have computed (CityHash refused the source's
-	// stamp; StaleHint names the diverging setting).
-	if db.StaleFor(snaps, configHash) || len(entry.Config.SourceDivergence(&entry.City)) > 0 {
+	if StaleSettings(entry.Config, &entry.City, snaps) {
 		return hint.With(err, entry.Config.StaleHint(&entry.City))
 	}
 	return hint.Withf(err, "%s has never been computed. Run `pvmt --city %s all compute` (after "+
 		"`pvmt --city %s all ingest` if its data is not ingested yet).", entry.City.Name, entry.Slug, entry.Slug)
+}
+
+// StaleSettings reports whether city has results that its current settings
+// (cfg.CityHash) cannot read: it was computed under other settings, or it is
+// an [[include]]d city whose stored data this config would not have computed
+// (CityHash refused the source's stamp). Config.StaleHint explains either
+// case, and export, serve, `pvmt status` and `pvmt forecast` all decide
+// whether to show it here. snaps is the city's snapshot list; a city with a
+// snapshot under the current hash, or one simply never computed, is not stale.
+func StaleSettings(cfg *config.Config, city *config.CityConfig, snaps []db.Snapshot) bool {
+	hash := cfg.CityHash(city)
+	for _, s := range snaps {
+		if s.ConfigHash == hash {
+			return false
+		}
+	}
+	return len(snaps) > 0 || len(cfg.SourceDivergence(city)) > 0
 }
 
 // MissingParts reports the parts the export of this city will lack although

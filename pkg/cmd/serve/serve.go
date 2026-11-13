@@ -2,7 +2,6 @@ package serve
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 
@@ -143,10 +142,7 @@ func pinEntries(ctx context.Context, entries []exportpkg.CityEntry, errOut io.Wr
 		entries[i] = pinned
 		if err := pinned.RequireMatchingSnapshot(ctx); err != nil {
 			fmt.Fprintf(errOut, "warning: %v; serving it without data\n", err)
-			var h *hint.ErrHint
-			if errors.As(err, &h) {
-				fmt.Fprintf(errOut, "  hint: %s\n", h.Hint)
-			}
+			hint.Fprint(errOut, err)
 		}
 	}
 	return nil

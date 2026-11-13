@@ -3,6 +3,7 @@ package hint
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -70,5 +71,18 @@ func TestWithf_SurvivesFmtErrorfWrap(t *testing.T) {
 	}
 	if !errors.Is(wrapped, base) {
 		t.Error("errors.Is(wrapped, base) = false; wrap chain broken")
+	}
+}
+
+func TestFprint(t *testing.T) {
+	var b strings.Builder
+	Fprint(&b, fmt.Errorf("wrapped: %w", With(errors.New("boom"), "fix line one\nthen line two")))
+	if got, want := b.String(), "hint: fix line one\n      then line two\n"; got != want {
+		t.Errorf("Fprint = %q, want %q", got, want)
+	}
+	b.Reset()
+	Fprint(&b, errors.New("no hint"))
+	if b.Len() != 0 {
+		t.Errorf("an error without a hint printed %q", b.String())
 	}
 }
