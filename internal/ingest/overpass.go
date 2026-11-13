@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -92,34 +91,10 @@ func fetchRecursive(ctx context.Context, client *http.Client, rt resource.Source
 }
 
 func fetchBBox(ctx context.Context, client *http.Client, rt resource.Source, bbox [4]float64) ([]db.Feature, error) {
-	query := rt.OverpassQuery(bbox)
-
-	// Overpass uses POST only because the query body is too large for a
-	// URL; the request is semantically a read. Opt the ctx into retry so
-	// the byob-http-client.3 transport will back off and re-issue on 429
-	// / 502 / 503 / 504 instead of treating POST as a write that must
-	// never replay.
-	req, err := http.NewRequestWithContext(AllowRetry(ctx), http.MethodPost, overpassAPI, strings.NewReader(url.Values{"data": {query}}.Encode()))
+	body, err := postOverpass(ctx, client, overpassAPI, rt.OverpassQuery(bbox))
 	if err != nil {
-		return nil, fmt.Errorf("create overpass request: %w", err)
+		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("overpass request: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := httpio.ReadAllLimit(resp.Body, maxResponseBodyBytes)
-	if err != nil {
-		return nil, fmt.Errorf("read overpass response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("overpass returned %d: %s", resp.StatusCode, truncate(string(body)))
-	}
-
 	return parseOverpassResponse(ctx, body, rt.Type())
 }
 
