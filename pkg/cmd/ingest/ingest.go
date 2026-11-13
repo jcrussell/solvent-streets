@@ -358,10 +358,10 @@ func printDryRunPlan(ctx context.Context, opts *Options, store db.Store, city *c
 	if err != nil {
 		return fmt.Errorf("reading cached boundary: %w", err)
 	}
-	if boundary == "" || opts.Force {
-		fmt.Fprintf(out, "[dry-run]   would fetch boundary from Nominatim for %q\n", city.Name)
+	if src := boundarySourceFor(city); boundary == "" || opts.Force {
+		fmt.Fprintf(out, "[dry-run]   would fetch boundary for %q from %s\n", city.Name, src.from)
 	} else {
-		fmt.Fprintln(out, "[dry-run]   boundary cached, would skip Nominatim")
+		fmt.Fprintf(out, "[dry-run]   boundary cached, would skip %s\n", src.from)
 	}
 	if own, ok := opts.ResourceType.(resource.OwnSourced); ok {
 		fmt.Fprintf(out, "[dry-run]   would fetch from source: %s (fixed for %s)\n", own.OwnSource(), opts.ResourceType.Type())
@@ -371,11 +371,8 @@ func printDryRunPlan(ctx context.Context, opts *Options, store db.Store, city *c
 		fmt.Fprintln(out, "[dry-run]   would fetch + dedupe across all sources")
 	} else {
 		fmt.Fprintf(out, "[dry-run]   would fetch from source: %s\n", opts.Source)
-		if opts.Source == cmdutil.SourceOverpass && !city.Overpass {
-			fmt.Fprintln(out, "[dry-run]   WARNING: overpass selected but city.overpass is false")
-		}
-		if opts.Source == cmdutil.SourceArcGIS && city.ArcGISURL == "" {
-			fmt.Fprintln(out, "[dry-run]   WARNING: arcgis selected but city.arcgis_url is empty")
+		if reason := disabledSourceReason(opts.Source, city.Overpass, city.ArcGISURL); reason != "" {
+			fmt.Fprintf(out, "[dry-run]   WARNING: source %q is not available for this city: %s\n", opts.Source, reason)
 		}
 	}
 	return nil
@@ -414,6 +411,41 @@ type boundaryFetchers struct {
 	byName     nominatimFetcher
 	byRelation relationFetcher
 	water      waterFetcher
+}
+
+// boundarySource is where a fresh boundary for a city is fetched from. The
+// real run fetches through it and the dry run describes it, so the two
+// cannot disagree about which upstream a city uses.
+type boundarySource struct {
+	// name is the source the unstripped boundary is saved under.
+	name string
+	// from names the upstream in messages.
+	from string
+	// relationID is the OSM relation to fetch via Overpass; 0 means search
+	// Nominatim by city name.
+	relationID int64
+}
+
+// boundarySourceFor picks the boundary source for city: its
+// boundary_relation_id via Overpass when set (the escape hatch for cities
+// like Albuquerque whose boundary lives only in OSM, not in Nominatim's
+// index), otherwise the Nominatim search by city name.
+func boundarySourceFor(city *config.CityConfig) boundarySource {
+	if city.BoundaryRelationID > 0 {
+		return boundarySource{
+			name:       "overpass-relation",
+			from:       fmt.Sprintf("OSM relation %d via Overpass", city.BoundaryRelationID),
+			relationID: city.BoundaryRelationID,
+		}
+	}
+	return boundarySource{name: "nominatim", from: "Nominatim"}
+}
+
+func (s boundarySource) fetch(ctx context.Context, client *http.Client, cityName string, fetch boundaryFetchers) (string, error) {
+	if s.relationID > 0 {
+		return fetch.byRelation(ctx, client, s.relationID)
+	}
+	return fetch.byName(ctx, client, cityName)
 }
 
 // liveBoundaryFetchers wires the real upstream fetchers.
@@ -463,11 +495,7 @@ type freshBoundary struct {
 // applyRoadCoverageGate after features are ingested; the gate either
 // confirms the strip or rolls back to the unstripped Nominatim.
 //
-// Fetch source selection: if city.BoundaryRelationID is set, fetch
-// the admin boundary by relation ID via Overpass (the escape hatch
-// for cities like Albuquerque whose boundary lives only in OSM, not
-// in Nominatim's index). Otherwise, do the usual Nominatim search by
-// city name.
+// The fetch goes to the city's boundarySourceFor.
 //
 // Fresh fetches subtract OSM `natural=water` polygons from the
 // boundary so cross-city % paved is apples-to-apples. A failed water
@@ -493,18 +521,10 @@ func resolveBoundary(
 		return boundaryGJSON, nil, nil
 	}
 
-	var unstrippedSource string
-	switch {
-	case city.BoundaryRelationID > 0:
-		fmt.Fprintf(opts.IO.ErrOut, "Fetching boundary for %s from OSM relation %d via Overpass...\n",
-			city.Name, city.BoundaryRelationID)
-		boundaryGJSON, err = fetch.byRelation(ctx, client, city.BoundaryRelationID)
-		unstrippedSource = "overpass-relation"
-	default:
-		fmt.Fprintf(opts.IO.ErrOut, "Fetching boundary for %s from Nominatim...\n", city.Name)
-		boundaryGJSON, err = fetch.byName(ctx, client, city.Name)
-		unstrippedSource = "nominatim"
-	}
+	src := boundarySourceFor(city)
+	unstrippedSource := src.name
+	fmt.Fprintf(opts.IO.ErrOut, "Fetching boundary for %s from %s...\n", city.Name, src.from)
+	boundaryGJSON, err = src.fetch(ctx, client, city.Name, fetch)
 	if err != nil {
 		return "", nil, hint.Withf(fmt.Errorf("fetch boundary: %w", err),
 			"%s", boundaryFetchHint(err))
@@ -711,8 +731,8 @@ func resolveSources(opts *Options, bbox [4]float64, overpass bool, arcgisURL str
 	// matches, which is the wrong diagnosis for a source that IS a valid
 	// --source value (sourceValues) but is switched off for this city.
 	// The user typed nothing wrong; their pvmt.toml disagrees with their flag,
-	// and "unknown source: overpass" sends them looking for a typo. The dry-run
-	// path already says the right thing — say it here too.
+	// and "unknown source: overpass" sends them looking for a typo. The dry
+	// run warns with the same disabledSourceReason.
 	if disabled := disabledSourceReason(opts.Source, overpass, arcgisURL); disabled != "" {
 		return nil, hint.Withf(
 			fmt.Errorf("source %q is not available for this city", opts.Source),

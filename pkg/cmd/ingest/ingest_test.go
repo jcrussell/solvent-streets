@@ -867,8 +867,7 @@ func TestStripWaterFromBoundary_NoWaterIsNoOp(t *testing.T) {
 // But "overpass" IS a valid --source value (the --source flag rejects
 // anything else before this point), so the user typed nothing wrong — their
 // config disagrees with their flag, and "unknown source" sends them hunting for
-// a typo. The dry-run path already printed the right diagnostic; the live path
-// has to match it.
+// a typo.
 func TestResolveSources_DisabledSourceExplainsItself(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	cases := []struct {
@@ -1206,5 +1205,102 @@ func TestRunIngest_PartialSourceFailureSavesAndFails(t *testing.T) {
 	}
 	if n := len(saved); n != 1 {
 		t.Errorf("saved %d features, want the 1 ArcGIS row kept despite the failure", n)
+	}
+}
+
+// dryRunOutput runs printDryRunPlan for city against a store whose cached
+// boundary is cachedBoundary.
+func dryRunOutput(t *testing.T, city *config.CityConfig, source cmdutil.Source, cachedBoundary string) string {
+	t.Helper()
+	ios, _, out, _ := iostreams.Test()
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return cachedBoundary, nil },
+	}
+	opts := &Options{IO: ios, ResourceType: resource.ByType(resource.TypeRoads), Source: source, DryRun: true}
+	if err := printDryRunPlan(context.Background(), opts, store, city); err != nil {
+		t.Fatalf("printDryRunPlan: %v", err)
+	}
+	return out.String()
+}
+
+// TestPrintDryRunPlan_BoundarySourceMatchesTheRealRun: the dry run names the
+// upstream the real run fetches the boundary from, which is the OSM relation
+// via Overpass for a city with boundary_relation_id and Nominatim otherwise.
+func TestPrintDryRunPlan_BoundarySourceMatchesTheRealRun(t *testing.T) {
+	cases := []struct {
+		name string
+		city *config.CityConfig
+	}{
+		{"relation", &config.CityConfig{Name: "Albuquerque, NM", Overpass: true, BoundaryRelationID: 171262}},
+		{"nominatim", &config.CityConfig{Name: "Oakland, CA", Overpass: true}},
+	}
+	const boundary = `{"type":"Polygon","coordinates":[[[-122.5,37.5],[-122.4,37.5],[-122.4,37.6],[-122.5,37.6],[-122.5,37.5]]]}`
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// What the real run says it fetches from.
+			ios, _, _, errOut := iostreams.Test()
+			store := &dbtest.MockStore{
+				GetBoundaryFunc:  func(_ context.Context) (string, error) { return "", nil },
+				SaveBoundaryFunc: func(_ context.Context, _, _ string) error { return nil },
+			}
+			_, _, err := resolveBoundary(context.Background(), &Options{IO: ios}, store, &http.Client{}, tc.city,
+				boundaryFetchers{
+					byName:     recordingNominatim(boundary, nil),
+					byRelation: recordingRelation(boundary, nil),
+					water:      fakeWaterFetcher(""),
+				})
+			if err != nil {
+				t.Fatalf("resolveBoundary: %v", err)
+			}
+			from := boundarySourceFor(tc.city).from
+			if !strings.Contains(errOut.String(), "from "+from+"...") {
+				t.Fatalf("real run stderr = %q; want it to fetch from %q", errOut.String(), from)
+			}
+
+			got := dryRunOutput(t, tc.city, cmdutil.SourceAll, "")
+			if !strings.Contains(got, "would fetch boundary for \""+tc.city.Name+"\" from "+from+"\n") {
+				t.Errorf("dry run = %q; want the boundary fetched from %q", got, from)
+			}
+			if tc.city.BoundaryRelationID > 0 && strings.Contains(got, "Nominatim") {
+				t.Errorf("dry run = %q; a city with boundary_relation_id never asks Nominatim", got)
+			}
+
+			cached := dryRunOutput(t, tc.city, cmdutil.SourceAll, boundary)
+			if !strings.Contains(cached, "boundary cached, would skip "+from+"\n") {
+				t.Errorf("dry run with a cached boundary = %q; want it to skip %q", cached, from)
+			}
+		})
+	}
+}
+
+// TestPrintDryRunPlan_DisabledSourceGivesTheRealRunsReason: for a --source the
+// city has switched off, the dry run warns with the remedy the real run's
+// error hint carries.
+func TestPrintDryRunPlan_DisabledSourceGivesTheRealRunsReason(t *testing.T) {
+	cases := []struct {
+		name   string
+		source cmdutil.Source
+		city   *config.CityConfig
+	}{
+		{"overpass off", cmdutil.SourceOverpass, &config.CityConfig{Name: "X", ArcGISURL: "https://x"}},
+		{"no arcgis url", cmdutil.SourceArcGIS, &config.CityConfig{Name: "X", Overpass: true}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ios, _, _, _ := iostreams.Test()
+			_, err := resolveSources(&Options{Source: tc.source}, [4]float64{}, tc.city.Overpass, tc.city.ArcGISURL, false, ios)
+			var he *hint.ErrHint
+			if !errors.As(err, &he) {
+				t.Fatalf("resolveSources error = %v; want an ErrHint", err)
+			}
+			got := dryRunOutput(t, tc.city, tc.source, "cached")
+			if !strings.Contains(got, "WARNING") || !strings.Contains(got, he.Hint) {
+				t.Errorf("dry run = %q; want a WARNING carrying %q", got, he.Hint)
+			}
+		})
+	}
+	enabled := dryRunOutput(t, &config.CityConfig{Name: "X", Overpass: true}, cmdutil.SourceOverpass, "cached")
+	if strings.Contains(enabled, "WARNING") {
+		t.Errorf("dry run = %q; an enabled source needs no warning", enabled)
 	}
 }
