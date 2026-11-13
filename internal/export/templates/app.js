@@ -1910,6 +1910,19 @@
                 '; its last year is shown.">(through year ' + m.shortSeriesYears + ')</span>';
         }
 
+        // findBaseline is the no-intervention scenario of a scope's set: the
+        // entry whose strategy is do-nothing (0) or whose name is 'baseline' or
+        // 'do-nothing'. compare.json keeps only that scenario per scope,
+        // stripped to its years, so a set whose entries carry no scenario
+        // metadata is its first entry. null when the set has no baseline.
+        function findBaseline(scenarios) {
+            if (!scenarios || scenarios.length === 0) return null;
+            const marked = scenarios.find(s => s.scenario &&
+                (s.scenario.strategy === 0 || s.scenario.name === 'do-nothing' || s.scenario.name === 'baseline'));
+            if (marked) return marked;
+            return scenarios.some(s => s.scenario) ? null : scenarios[0];
+        }
+
         // The funding-level scenarios the charts plot (order matters for COLORS).
         const FUNDING_SCENARIO_NAMES = ['baseline', 'fund-25pct', 'fund-50pct', 'fund-100pct'];
         // scenarios.json / city.scenarios is scope-keyed ({city, all, summary}).
@@ -2051,8 +2064,7 @@
 
             destroyCharts();
 
-            // Find baseline (do-nothing)
-            const baseline = scenarios.find(s => s.scenario.strategy === 0 || s.scenario.name === 'do-nothing' || s.scenario.name === 'baseline');
+            const baseline = findBaseline(scenarios);
             if (!baseline) return;
 
             // Charts
@@ -2278,7 +2290,8 @@
         // neither is loaded.
         function financialsHorizon() {
             const scenarios = scenarioData ? scenariosForScope(scenarioData, currentScope) : null;
-            const years = (scenarios && scenarios.length > 0) ? scenarios[0].years : null;
+            const baseline = findBaseline(scenarios);
+            const years = baseline ? baseline.years : null;
             return forecastHorizon(FORECAST_SEED, years) || DEFAULT_HORIZON_YEARS;
         }
 
@@ -2342,9 +2355,7 @@
             }
 
             // Headline tiles come from the baseline scenario, so they work without WASM.
-            const baseline = scenarios.find(s =>
-                s.scenario.strategy === 0 || s.scenario.name === 'do-nothing' || s.scenario.name === 'baseline'
-            );
+            const baseline = findBaseline(scenarios);
             if (baseline) {
                 updateSummaryCards(baseline);
             }
@@ -2732,9 +2743,7 @@
             // 3. Annual mix by condition tier for the do-nothing baseline — shows
             // the deferred-maintenance blowout as the network decays.
             (function() {
-                var baseline = scenarios.find(function(s) {
-                    return s.scenario.strategy === 0 || s.scenario.name === 'do-nothing' || s.scenario.name === 'baseline';
-                });
+                var baseline = findBaseline(scenarios);
                 if (!baseline) return;
                 var series = materialSeries(baseline, cycleYears, tierByLabel, worstTier, asphaltShare);
                 var card = makeChartCard('Annual Mix by Condition Tier (Do-Nothing)');
@@ -4118,8 +4127,8 @@
             var scenarios = city.scenarios
                 ? (scenariosForScope(city.scenarios, currentScope) || null)
                 : null;
-            if (scenarios && scenarios.length > 0) {
-                var baseline = scenarios[0];
+            var baseline = findBaseline(scenarios);
+            if (baseline) {
                 var years = baseline.years || [];
                 m.baselineYears = years;
                 m.year1Need = years.length > 0 ? years[0].annual_need : 0;

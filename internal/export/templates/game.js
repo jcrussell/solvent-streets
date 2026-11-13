@@ -135,6 +135,17 @@
         const BAND_COUNT = PVMT_CONFIG.band_count;
         const BAND_COLORS = ['#b2182b', '#ef8a62', '#fddbc7', '#a6d96a', '#66bd63', '#1a9850'];
         const GRAVEL_COLOR = '#8d8074';
+        // The legend's ramp and gravel swatch are drawn from the same two
+        // values the map paints with.
+        function paintLegend() {
+            for (const bar of queryAll('#legend .legend-bar')) {
+                bar.style.backgroundImage = 'linear-gradient(90deg, ' + BAND_COLORS.join(', ') + ')';
+            }
+            for (const swatch of queryAll('#legend .gravel-swatch')) {
+                swatch.style.backgroundColor = GRAVEL_COLOR;
+            }
+        }
+        paintLegend();
         const HEX_SOURCE = 'play-hexes';
         const HEX_FILL = 'play-fill';
 
