@@ -81,3 +81,27 @@ test('Area-Weighted PCI weights each city by the area its PCI describes', async 
   const want = (80 * 1 + 20 * 0.1) / 1.1;
   assert.equal(headline(doc, /^Area-Weighted PCI$/), want.toFixed(0));
 });
+
+// solvent-streets-lu32.26: the resource colours are the page config's
+// (PVMT_CONFIG.layer_colors, which also colours the map toggles), so the
+// Aggregate mix chart and Compare's stacked area chart cannot drift from them.
+test('the resource charts take their colours from the page config', async () => {
+  const { win, get } = await page([city('Alpha'), city('Beta')]);
+  const config = get('PVMT_CONFIG.layer_colors');
+  for (const t of ['roads', 'parking', 'sidewalks']) {
+    assert.match(config[t], /^#[0-9a-f]{6}$/, `the page config has no ${t} colour`);
+  }
+  // Recolour the config: charts drawn afterwards must follow it.
+  Object.assign(config, { roads: '#010101', parking: '#020202', sidewalks: '#030303' });
+  win.__charts.length = 0;
+  win.renderAggregate([city('Alpha'), city('Beta')]);
+  win.renderCompare([city('Alpha'), city('Beta')]);
+
+  const mix = win.__charts.find((c) => c.data.labels.join() === 'Roads,Parking,Sidewalks');
+  assert.ok(mix, 'the Aggregate mix chart did not render');
+  assert.deepEqual(Array.from(mix.data.datasets[0].backgroundColor), ['#010101', '#020202', '#030303']);
+
+  const stacked = win.__charts.find((c) => c.data.datasets.map((d) => d.label).join() === 'Roads,Parking,Sidewalks');
+  assert.ok(stacked, 'the Compare area chart did not render');
+  assert.deepEqual(Array.from(stacked.data.datasets, (d) => d.backgroundColor),['#010101', '#020202', '#030303']);
+});

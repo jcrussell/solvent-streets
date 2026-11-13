@@ -4370,9 +4370,9 @@
                 data: {
                     labels: allMetrics.map(function(m) { return m.name; }),
                     datasets: [
-                        { label: 'Roads', data: allMetrics.map(function(m) { return m.roadsAreaLarge; }), backgroundColor: '#6b7280' },
-                        { label: 'Parking', data: allMetrics.map(function(m) { return m.parkingAreaLarge; }), backgroundColor: '#3b82f6' },
-                        { label: 'Sidewalks', data: allMetrics.map(function(m) { return m.sidewalksAreaLarge; }), backgroundColor: '#f59e0b' }
+                        { label: 'Roads', data: allMetrics.map(function(m) { return m.roadsAreaLarge; }), backgroundColor: layerColors.roads },
+                        { label: 'Parking', data: allMetrics.map(function(m) { return m.parkingAreaLarge; }), backgroundColor: layerColors.parking },
+                        { label: 'Sidewalks', data: allMetrics.map(function(m) { return m.sidewalksAreaLarge; }), backgroundColor: layerColors.sidewalks }
                     ]
                 },
                 options: {
@@ -4635,7 +4635,7 @@
                 type: 'bar',
                 data: {
                     labels: ['Roads', 'Parking', 'Sidewalks'],
-                    datasets: [{ label: 'Network area (' + unit + ')', data: [totalRoads, totalParking, totalSidewalks], backgroundColor: ['#6b7280', '#3b82f6', '#f59e0b'] }]
+                    datasets: [{ label: 'Network area (' + unit + ')', data: [totalRoads, totalParking, totalSidewalks], backgroundColor: [layerColors.roads, layerColors.parking, layerColors.sidewalks] }]
                 },
                 options: {
                     indexAxis: 'y',
