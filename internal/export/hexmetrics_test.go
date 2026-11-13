@@ -222,3 +222,14 @@ func TestSummarizeMetric_AdditiveTotal(t *testing.T) {
 		t.Errorf("fire response must not carry a total, got %v", *s.Total)
 	}
 }
+
+// The dashboard's derived metric keys name the same measures compute stores:
+// hexmetric cannot import resource, so the pairs are pinned here.
+func TestDerivedMetricKeysMatchStoredMetricNames(t *testing.T) {
+	if hexmetric.KeyArea != resource.MetricPavedArea {
+		t.Errorf("hexmetric.KeyArea = %q, resource.MetricPavedArea = %q", hexmetric.KeyArea, resource.MetricPavedArea)
+	}
+	if hexmetric.KeySpaces != resource.MetricParkingSpaces {
+		t.Errorf("hexmetric.KeySpaces = %q, resource.MetricParkingSpaces = %q", hexmetric.KeySpaces, resource.MetricParkingSpaces)
+	}
+}

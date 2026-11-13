@@ -73,7 +73,9 @@ var UserAgent = sync.OnceValue(func() string {
 // the sync.OnceValue cache or mutating build.* package vars.
 func formatUserAgent(i build.Info) string {
 	ua := fmt.Sprintf("pvmt/%s (%s; %s)", i.Version, i.OS, i.Arch)
-	if i.Commit != "" && i.Commit != build.CommitNone {
+	if i.HasCommit() {
+		// Seven characters: the User-Agent contract's short form, briefer
+		// than the twelve --version shows.
 		commit := i.Commit
 		if len(commit) > 7 {
 			commit = commit[:7]

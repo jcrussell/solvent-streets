@@ -19,6 +19,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/hexmetric"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/units"
 )
 
 // Metric keys.
@@ -107,7 +108,7 @@ func Apportion(ctx context.Context, grid []geo.Hex, blocks []resource.BufferedFe
 		if p > 0 {
 			m.Population = append(m.Population, db.HexMetric{HexID: sh.HexID, Value: p})
 			if a := hexArea[sh.HexID]; a > 0 {
-				m.Density = append(m.Density, db.HexMetric{HexID: sh.HexID, Value: p / (a / 1e6)})
+				m.Density = append(m.Density, db.HexMetric{HexID: sh.HexID, Value: p / units.SqMToSqKm(a)})
 			}
 		}
 		if u > 0 {

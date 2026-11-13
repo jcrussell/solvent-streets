@@ -43,12 +43,16 @@ type Spec struct {
 // legendBandStepS is the width of each legend band after the first edge.
 const legendBandStepS = 120
 
+// CoveredS is the total response time, in seconds, within which a hex counts
+// as covered: turnout plus the travel threshold.
+func (s Spec) CoveredS() float64 { return s.TurnoutS + s.TravelThresholdS }
+
 // LegendBands returns the legend band edges in total seconds for this spec:
 // the first edge is turnout + travel threshold (the "covered" line), then
 // three two-minute steps. Derived rather than stored so a [[services]]
 // override of turnout_s or travel_threshold_s moves the legend with it.
 func (s Spec) LegendBands() []float64 {
-	first := s.TurnoutS + s.TravelThresholdS
+	first := s.CoveredS()
 	return []float64{first, first + legendBandStepS, first + 2*legendBandStepS, first + 3*legendBandStepS}
 }
 

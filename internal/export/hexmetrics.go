@@ -91,7 +91,7 @@ func resolvedScale(entry CityEntry, spec hexmetric.Spec) (hexmetric.Scale, float
 	}
 	scale := spec.Scale
 	scale.Bands = svc.LegendBands()
-	return scale, svc.TurnoutS + svc.TravelThresholdS, true
+	return scale, svc.CoveredS(), true
 }
 
 // BuildHexMetrics assembles hex-metrics.json for a city. Returns (nil, nil)

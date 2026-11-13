@@ -94,16 +94,21 @@ func (i Info) commitLabel() string {
 	switch {
 	case i.Modified:
 		c += "-dirty"
-	case !i.VCSKnown && i.Commit != CommitNone && i.Commit != "":
+	case !i.VCSKnown && i.HasCommit():
 		c += "+unknown"
 	}
 	return c
 }
 
+// HasCommit reports whether the build recorded a commit, from ldflags or VCS.
+func (i Info) HasCommit() bool {
+	return i.Commit != "" && i.Commit != CommitNone
+}
+
 // fromModule reports a binary Go built from a downloaded module: a go.sum
 // hash and no commit from either ldflags or VCS.
 func (i Info) fromModule() bool {
-	return i.Sum != "" && (i.Commit == CommitNone || i.Commit == "")
+	return i.Sum != "" && !i.HasCommit()
 }
 
 // provenance is the parenthetical after the version: which commit, or for a
