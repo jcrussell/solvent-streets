@@ -2,12 +2,11 @@
 #
 # Portland and its westside/eastside suburbs have excellent OSM coverage.
 # This config renders all output in metric units and uses a moderately
-# fine hex grid, with a long 25-year forecast horizon.
+# fine hex grid.
 #
 # Techniques demonstrated:
 #   - [display].units = "metric" for metric output everywhere.
 #   - hex_edge_m = 80 (a middle-ground grid resolution).
-#   - A 25-year forecast horizon.
 #
 # Overpass-only. Expect ~7 Nominatim + Overpass pulls for `pvmt all ingest`.
 

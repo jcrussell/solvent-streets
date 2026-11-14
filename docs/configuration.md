@@ -242,8 +242,8 @@ it is why `cost_overhead` defaults to 1.0.
 A config has one forecast horizon, so every city in it, and every city shown
 side by side on Compare and Aggregate, is forecast over the same years. A
 `years` inside `[cities.forecast]` fails to load. A file pulled in with
-`[[include]]` must state the same `years` as the file that includes it, or
-leave it unset on both sides for the default.
+`[[include]]` must resolve to the same `years` as the file that includes it,
+where an unset `years` counts as the default 30.
 
 ## Services (`[[services]]`, `[[cities.facilities]]`)
 
