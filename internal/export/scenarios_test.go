@@ -159,6 +159,40 @@ func TestScenarios_Year1NeedMatchesPerResourceForecasts(t *testing.T) {
 	}
 }
 
+// scenarios.json carries each year's material demand, with the concrete
+// sidewalk area netted out by the scope's asphalt share: sidewalks are a
+// quarter of this network, so the mix is three quarters of what the whole
+// area would take.
+func TestScenarios_YearsCarryMaterialsNetOfConcrete(t *testing.T) {
+	var rows []db.CityMetric
+	rows = append(rows, results.TotalRows(resource.TypeRoads, results.Totals{Area: 9000})...)
+	rows = append(rows, results.CohortRows(resource.TypeRoads, []results.Cohort{{Class: "residential", Area: 9000}})...)
+	rows = append(rows, results.TotalRows(resource.TypeSidewalks, results.Totals{Area: 3000})...)
+	rows = append(rows, results.CohortRows(resource.TypeSidewalks, []results.Cohort{{Class: "sidewalks", Area: 3000}})...)
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "A"}}}
+	entry := CityEntry{Config: cfg, City: cfg.Cities[0], Store: &dbtest.MockStore{CityMetrics: rows}, Slug: "a"}
+	fc := cfg.ResolvedForecast(&entry.City)
+
+	data, err := BuildScenariosData(context.Background(), entry, &fc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cycle := forecast.ResolveCycleYears(fc.TreatmentCycleYears)
+	for _, sr := range data["all"].([]forecast.ScenarioResult) {
+		for _, y := range sr.Years {
+			if y.Materials == nil {
+				t.Fatalf("%s year %d carries no materials", sr.Scenario.Name, y.Year)
+			}
+			tier, _ := forecast.MaterialTierFor(forecast.DefaultMaterialTiers, y.CostTier)
+			want := forecast.MaterialsForArea(y.Area*0.75/cycle, tier)
+			if math.Abs(y.Materials.MixTonnes-want.MixTonnes) > 1e-9*want.MixTonnes {
+				t.Fatalf("%s year %d: mix %.4f t, want %.4f t (3/4 of the area is asphalt)",
+					sr.Scenario.Name, y.Year, y.Materials.MixTonnes, want.MixTonnes)
+			}
+		}
+	}
+}
+
 // forecast.json's roads entry states the area its solvency figures are
 // measured on, so the live server's Compare tab (which reads forecast.json,
 // with no compare.json rollup) shows the same "City-Maintained Roads" row a

@@ -9,7 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
-import { fullData, seedJSON, readFixture } from './fixtures.mjs';
+import { fullData, seedJSON, scenariosJSON, readFixture } from './fixtures.mjs';
 
 // ready boots a window and renders the Materials tab.
 async function ready(data = fullData) {
@@ -70,44 +70,54 @@ test('the fixture seed carries an asphalt share below 1', () => {
 // says outright that sidewalks are concrete), but scenario.years[].area sums
 // every resource. Multiplying the two attributes crude-oil-equivalent barrels to
 // concrete panels that consume zero bitumen.
-test('the mix/binder/oil headlines net concrete sidewalk area out', async () => {
+//
+// Go nets that area out when it computes each year's quantities
+// (forecast.WithMaterials; scenarios_test.go pins the arithmetic). The tab only
+// averages what scenarios.json carries, so each headline is the mean of the
+// best-funded scenario's figures.
+test('the headlines average the material quantities scenarios.json carries', async () => {
   const { win } = await ready();
-  const seed = seedJSON;
-  // The tab defaults to the city scope when the seed has city_paved.
-  const share = seed.city_paved ? seed.city_asphalt_area_share : seed.asphalt_area_share;
+  const list = scenariosJSON.city || scenariosJSON.all;
+  const finalPci = (s) => s.years[s.years.length - 1].pci;
+  const best = list.reduce((a, b) => (finalPci(b) > finalPci(a) ? b : a));
+  const mean = (key) => best.years.reduce((acc, y) => acc + y.materials[key], 0) / best.years.length;
 
-  const netted = {
-    mix: headline(win, 'hl-mix'),
-    binder: headline(win, 'hl-binder'),
-    oil: headline(win, 'hl-oil'),
-  };
-  for (const [name, value] of Object.entries(netted)) {
-    assert.ok(value > 0, `#hl-${name} rendered ${value}; the tab did not compute anything`);
-  }
-
-  // Re-render with the share removed — the pre-fix behavior — and confirm every
-  // headline was larger by exactly 1/share. Asserting the ratio rather than
-  // "it got smaller" is what pins the arithmetic.
-  const h2 = await ready({ ...fullData, 'forecast_seed.json': seedWithoutShare() });
-  const gross = {
-    mix: headline(h2.win, 'hl-mix'),
-    binder: headline(h2.win, 'hl-binder'),
-    oil: headline(h2.win, 'hl-oil'),
-  };
-  for (const name of Object.keys(netted)) {
-    // Headlines are rounded for display, so compare with a tolerance rather
-    // than exactly; the effect (7-11% here) is far larger than the rounding.
-    const ratio = gross[name] / netted[name];
-    assert.ok(Math.abs(ratio - 1 / share) < 0.02,
-      `#hl-${name}: un-netted/netted = ${ratio}, want ~${1 / share} (1/asphalt share)`);
-    assert.ok(gross[name] > netted[name],
-      `#hl-${name} did not shrink when the sidewalk area was netted out`);
-  }
+  assert.ok(mean('oil_barrels') > 0, 'the fixture scenarios carry no oil demand');
+  assert.equal(headline(win, 'hl-oil'), Math.round(mean('oil_barrels')));
+  // Masses show as tonnes or US short tons, by unit system.
+  const perTonne = win.document.getElementById('hl-mix').textContent.includes('tons') ? 1000 / 907.18474 : 1;
+  assert.equal(headline(win, 'hl-mix'), Math.round(mean('mix_tonnes') * perTonne));
+  assert.equal(headline(win, 'hl-binder'), Math.round(mean('binder_tonnes') * perTonne));
 });
 
-// A seed exported before the field existed must render exactly as it used to,
-// not blank out. `undefined` reaching the multiply as 0 would zero the tab.
-test('an older seed without the share renders unchanged, not blank', async () => {
+// An export from before scenarios.json carried the quantities has nothing to
+// chart; the tab says how to refresh it instead of drawing zeros.
+test('scenarios without material quantities ask for a fresh export', async () => {
+  const scenarios = readFixture('scenarios.json');
+  for (const list of Object.values(scenarios)) {
+    for (const s of list) for (const y of s.years) delete y.materials;
+  }
+  const { win, $$ } = await ready({ ...fullData, 'scenarios.json': scenarios });
+  assert.equal($$('#materials-charts h3').length, 0, 'charts drew without any material quantities');
+  assert.match(win.document.getElementById('materials-charts').textContent, /Re-run pvmt export/);
+});
+
+// The intensity table shows each tier's per-1000 m2 figures as the seed
+// carries them.
+test('the tier table reads its per-1000 m2 figures from the seed', async () => {
+  const { $$ } = await ready();
+  const rows = $$('#materials-tier-table tbody tr');
+  assert.equal(rows.length, seedJSON.material_tiers.length);
+  seedJSON.material_tiers.forEach((t, i) => {
+    const cells = rows[i].querySelectorAll('td');
+    assert.equal(cells[3].textContent, t.per_1000_sqm.binder_tonnes.toFixed(1));
+    assert.equal(cells[4].textContent, t.per_1000_sqm.oil_barrels.toFixed(1));
+  });
+});
+
+// The headlines come from scenarios.json, so a seed without the share still
+// shows them.
+test('a seed without the share still renders the headlines', async () => {
   const { win } = await ready({ ...fullData, 'forecast_seed.json': seedWithoutShare() });
   assert.ok(headline(win, 'hl-mix') > 0, '#hl-mix blanked out on a seed with no asphalt share');
   assert.ok(headline(win, 'hl-oil') > 0, '#hl-oil blanked out on a seed with no asphalt share');

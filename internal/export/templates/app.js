@@ -2442,24 +2442,16 @@
 
         // Materials
         //
-        // Material demand is a linear function of already-computed forecast data:
-        // each simulated year retreats one treatment-cycle slice of the network
-        // (treatedArea = year.area / treatment_cycle_years, the same 1/N slice the
-        // cost model bills as eligibleFrac), and the per-tier material intensity
-        // shipped in the seed (material_tiers) turns that treated area into asphalt
-        // mix, binder, and oil-equivalent barrels. The per-year tier is the
-        // network-blended cost_tier — coarser than the per-cohort interpolated
-        // dollar model, so these figures track the scenario's condition trajectory
-        // rather than reconciling with annual_need. The headline uses the
-        // best-funded scenario (highest final PCI) as the "network kept in repair"
-        // figure; the do-nothing baseline's rising reconstruction share shows the
+        // Go computes the material demand (forecast.WithMaterials) and ships it
+        // on every scenario year in scenarios.json: each simulated year retreats
+        // one treatment-cycle slice of the asphalt area, and the year's
+        // network-blended cost_tier picks the material intensity. That tier is
+        // coarser than the per-cohort interpolated dollar model, so these
+        // figures track the scenario's condition trajectory rather than
+        // reconciling with annual_need. The headline uses the best-funded
+        // scenario (highest final PCI) as the "network kept in repair" figure;
+        // the do-nothing baseline's rising reconstruction share shows the
         // deferred-maintenance material blowout.
-        //
-        // The binder→oil factor is Go's (forecast.BarrelsPerTonBinder): the page
-        // default until renderMaterials takes the city seed's
-        // barrels_per_ton_binder. Read at call time by the render helpers
-        // below, so updating it before they run is sufficient.
-        var BARRELS_PER_TON_BINDER = FORECAST_DEFAULTS.barrels_per_ton_binder;
 
         function destroyMaterialsCharts() {
             materialsCharts.forEach(function(c) { c.destroy(); });
@@ -2478,44 +2470,33 @@
 
         // Metric tonnes by default; US short tons under imperial display (barrels
         // are unit-neutral). Mirrors the UNIT_SYSTEM branch in the area helpers.
-        function fmtMass(kg) {
-            if (UNIT_SYSTEM === 'metric') return fmtNum(kg / 1000) + ' t';
-            return fmtNum(kg / 907.18474) + ' tons';
+        function fmtMass(tonnes) {
+            if (UNIT_SYSTEM === 'metric') return fmtNum(tonnes) + ' t';
+            return fmtNum(tonnes * 1000 / 907.18474) + ' tons';
         }
         function fmtBarrels(bbl) {
             return fmtNum(bbl) + ' bbl';
         }
 
-        // materialSeries computes per-year material quantities (kg + barrels) for
-        // one scenario given the treatment cycle N, a label->tier lookup, and a
-        // fallback tier used when a year's cost_tier has no matching material tier
-        // (e.g. a custom tier set). fallbackTier is the highest-intensity tier —
-        // mirroring the Go MaterialTierFor fallback — so an unmatched label
-        // over-counts rather than silently reporting zero material.
-        //
-        // asphaltShare nets the concrete out. y.area sums every resource — roads,
-        // parking AND sidewalks — but the material tiers describe flexible
-        // (asphalt) pavement only, so without it the oil/binder figures bill
-        // concrete sidewalk panels, which consume zero bitumen, as hot-mix. The
-        // share comes from the seed (asphalt_area_share / city_asphalt_area_share)
-        // and is computed on the same cohort area basis y.area is. Defaults to 1
-        // so a site exported before the field existed renders unchanged.
-        function materialSeries(scenario, cycleYears, tierByLabel, fallbackTier, asphaltShare) {
-            var zero = { mix_kg_per_sqm: 0, binder_share: 0 };
-            var share = typeof asphaltShare === 'number' && asphaltShare >= 0 ? asphaltShare : 1;
+        // materialSeries is one scenario's per-year material demand, in tonnes
+        // and barrels, as scenarios.json carries it.
+        function materialSeries(scenario) {
             return scenario.years.map(function(y) {
-                var treatedArea = cycleYears > 0 ? (y.area * share) / cycleYears : 0;
-                var tier = tierByLabel[y.cost_tier] || fallbackTier || zero;
-                var mixKg = treatedArea * tier.mix_kg_per_sqm;
-                var binderKg = mixKg * tier.binder_share;
                 return {
                     year: y.year,
                     tier: y.cost_tier,
-                    mixKg: mixKg,
-                    binderKg: binderKg,
-                    aggregateKg: mixKg - binderKg,
-                    oilBarrels: (binderKg / 1000) * BARRELS_PER_TON_BINDER
+                    mixTonnes: y.materials.mix_tonnes,
+                    binderTonnes: y.materials.binder_tonnes,
+                    oilBarrels: y.materials.oil_barrels
                 };
+            });
+        }
+
+        // hasMaterials reports whether every scenario year carries its material
+        // demand; an export from before scenarios.json shipped it does not.
+        function hasMaterials(scenarios) {
+            return scenarios.every(function(s) {
+                return s.years.every(function(y) { return !!y.materials; });
             });
         }
 
@@ -2524,10 +2505,9 @@
             var tbody = document.querySelector('#materials-tier-table tbody');
             if (!tiers || tiers.length === 0) { section.style.display = 'none'; return; }
             tbody.innerHTML = tiers.map(function(t) {
-                var binderKgSqM = t.mix_kg_per_sqm * t.binder_share;
-                // Over 1000 m^2 the binder mass in tonnes equals binderKgSqM, so
-                // barrels/1000 m^2 = binderKgSqM * BARRELS_PER_TON_BINDER.
-                var oilPer1000 = binderKgSqM * BARRELS_PER_TON_BINDER;
+                // Tonnes of binder over 1000 m^2 is kilograms per m^2.
+                var binderKgSqM = t.per_1000_sqm.binder_tonnes;
+                var oilPer1000 = t.per_1000_sqm.oil_barrels;
                 var dot = '<span style="display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;background:' +
                     tierColor(t.label) + '"></span>';
                 return '<tr>' +
@@ -2561,24 +2541,18 @@
                 return;
             }
             var tiers = (seed && seed.material_tiers) || [];
-            // Without per-tier intensities there is nothing to multiply treated
-            // area by; show a message rather than misleading all-zero charts
-            // (e.g. an older seed, or one that failed to load).
-            if (tiers.length === 0) {
-                showMaterialsEmpty('No material intensities in the forecast seed. Re-run <code>pvmt export</code> to refresh it.');
+            // An older export, or a seed that failed to load: say so rather than
+            // draw nothing.
+            if (tiers.length === 0 || !tiers[0].per_1000_sqm || !hasMaterials(scenarios)) {
+                showMaterialsEmpty('No material quantities in the forecast data. Re-run <code>pvmt export</code> to refresh it.');
                 return;
             }
-            // Prefer the seed's binder→oil factor; keep the page default otherwise.
-            if (seed && seed.barrels_per_ton_binder) BARRELS_PER_TON_BINDER = seed.barrels_per_ton_binder;
-            var tierByLabel = {};
-            tiers.forEach(function(t) { tierByLabel[t.label] = t; });
-            // Highest-intensity tier, used as the unmatched-label fallback.
-            var worstTier = tiers.reduce(function(a, b) {
-                return b.mix_kg_per_sqm > a.mix_kg_per_sqm ? b : a;
-            }, tiers[0]);
+            var barrelsPerTonBinder = (seed && seed.barrels_per_ton_binder) || FORECAST_DEFAULTS.barrels_per_ton_binder;
             var cycleYears = (seed && seed.treatment_cycle_years) || FORECAST_DEFAULTS.treatment_cycle_years;
-            // Scope-selected the same way the forecast controls pick their area
-            // and cohorts: the all-scope share unless a city scope is actually loaded.
+            // The share of the network area the figures cover, for the note
+            // below. Scope-selected the same way the forecast controls pick
+            // their area and cohorts: the all-scope share unless a city scope
+            // is actually loaded.
             var asphaltShare = (scope === 'all' || !(seed && seed.city_paved))
                 ? (seed && seed.asphalt_area_share)
                 : (seed && seed.city_asphalt_area_share);
@@ -2588,7 +2562,7 @@
 
             var seriesByName = {};
             fundingScenarios.forEach(function(s) {
-                seriesByName[s.scenario.name] = materialSeries(s, cycleYears, tierByLabel, worstTier, asphaltShare);
+                seriesByName[s.scenario.name] = materialSeries(s);
             });
 
             // Final-year PCI, tolerant of an empty years array.
@@ -2602,15 +2576,15 @@
             });
             var bestSeries = seriesByName[best.scenario.name];
             var n = bestSeries.length || 1;
-            var avgMix = bestSeries.reduce(function(acc, r) { return acc + r.mixKg; }, 0) / n;
-            var avgBinder = bestSeries.reduce(function(acc, r) { return acc + r.binderKg; }, 0) / n;
+            var avgMix = bestSeries.reduce(function(acc, r) { return acc + r.mixTonnes; }, 0) / n;
+            var avgBinder = bestSeries.reduce(function(acc, r) { return acc + r.binderTonnes; }, 0) / n;
             var avgOil = bestSeries.reduce(function(acc, r) { return acc + r.oilBarrels; }, 0) / n;
 
             document.getElementById('hl-mix').textContent = fmtMass(avgMix) + '/yr';
             document.getElementById('hl-binder').textContent = fmtMass(avgBinder) + '/yr';
             document.getElementById('hl-oil').textContent = fmtBarrels(avgOil) + '/yr';
             document.getElementById('hl-mix-sub').textContent = 'Avg/yr under "' + esc(best.scenario.label) + '"';
-            document.getElementById('hl-oil-sub').textContent = '~' + BARRELS_PER_TON_BINDER + ' bbl per tonne binder';
+            document.getElementById('hl-oil-sub').textContent = '~' + barrelsPerTonBinder + ' bbl per tonne binder';
             document.getElementById('materials-headlines').style.display = '';
 
             var note = document.getElementById('materials-note');
@@ -2669,7 +2643,7 @@
                         datasets: fundingScenarios.map(function(s, i) {
                             return {
                                 label: s.scenario.label,
-                                data: seriesByName[s.scenario.name].map(function(r) { return r.mixKg; }),
+                                data: seriesByName[s.scenario.name].map(function(r) { return r.mixTonnes; }),
                                 borderColor: COLORS[i % COLORS.length],
                                 backgroundColor: 'transparent',
                                 tension: 0.3,
@@ -2693,7 +2667,7 @@
                         datasets: fundingScenarios.map(function(s, i) {
                             return {
                                 label: s.scenario.label,
-                                data: seriesByName[s.scenario.name].map(function(r) { return r.binderKg; }),
+                                data: seriesByName[s.scenario.name].map(function(r) { return r.binderTonnes; }),
                                 borderColor: COLORS[i % COLORS.length],
                                 backgroundColor: 'transparent',
                                 tension: 0.3,
@@ -2701,7 +2675,7 @@
                             };
                         })
                     },
-                    options: { responsive: true, interaction: { mode: 'index', intersect: false }, scales: { y: massAxis() }, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ' + fmtMass(ctx.parsed.y) + ' · ' + fmtBarrels(ctx.parsed.y / 1000 * BARRELS_PER_TON_BINDER); } } } } }
+                    options: { responsive: true, interaction: { mode: 'index', intersect: false }, scales: { y: massAxis() }, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ' + fmtMass(ctx.parsed.y) + ' · ' + fmtBarrels(seriesByName[fundingScenarios[ctx.datasetIndex].scenario.name][ctx.dataIndex].oilBarrels); } } } } }
                 }));
             })();
 
@@ -2710,7 +2684,7 @@
             (function() {
                 var baseline = findBaseline(scenarios);
                 if (!baseline) return;
-                var series = materialSeries(baseline, cycleYears, tierByLabel, worstTier, asphaltShare);
+                var series = materialSeries(baseline);
                 var card = makeChartCard('Annual Mix by Condition Tier (Do-Nothing)');
                 chartsDiv.appendChild(card);
                 var ctx = card.querySelector('canvas').getContext('2d');
@@ -2720,7 +2694,7 @@
                         labels: series.map(function(r) { return 'Year ' + r.year; }),
                         datasets: [{
                             label: 'Asphalt Mix',
-                            data: series.map(function(r) { return r.mixKg; }),
+                            data: series.map(function(r) { return r.mixTonnes; }),
                             backgroundColor: series.map(function(r) { return tierColor(r.tier); })
                         }]
                     },

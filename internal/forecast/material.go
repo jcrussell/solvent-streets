@@ -88,3 +88,22 @@ func MaterialsForArea(area float64, t MaterialTier) MaterialQuantities {
 		OilBarrels:      binderTonnes * BarrelsPerTonBinder,
 	}
 }
+
+// WithMaterials returns r with every year's Materials filled in: the demand to
+// retreat that year's share of the network. Each year area/cycleYears is
+// treated (the eligible fraction the cost model bills), asphaltShare of it is
+// asphalt, and the year's blended CostTier picks the material tier
+// (MaterialTierFor, so an unmatched label counts at the highest intensity).
+// r's own Years slice is left untouched.
+func WithMaterials(r ScenarioResult, tiers []MaterialTier, cycleYears, asphaltShare float64) ScenarioResult {
+	cycle := ResolveCycleYears(cycleYears)
+	years := make([]ScenarioYear, len(r.Years))
+	for i, y := range r.Years {
+		tier, _ := MaterialTierFor(tiers, y.CostTier)
+		q := MaterialsForArea(y.Area*asphaltShare/cycle, tier)
+		y.Materials = &q
+		years[i] = y
+	}
+	r.Years = years
+	return r
+}

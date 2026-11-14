@@ -263,14 +263,31 @@ func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.Forecas
 		}
 	}
 
+	// Each scope's material demand nets out its own concrete share. With no
+	// cohorts the share is 1, which suits the single-cohort fallback.
+	allScenarios = withMaterials(allScenarios, params, cohorts.AllAsphaltShare)
+
 	out := map[string]any{}
 	if areas.cityArea > 0 {
-		out["city"] = primaryScenarios
+		out["city"] = withMaterials(primaryScenarios, params, cohorts.CityAsphaltShare)
 		out["all"] = allScenarios
 	} else {
-		out["all"] = primaryScenarios
+		out["all"] = allScenarios
 	}
 	return out, nil
+}
+
+// withMaterials adds each scenario year's asphalt demand (forecast.WithMaterials)
+// at the default material tiers and the treatment cycle the costs were billed on.
+func withMaterials(rs []forecast.ScenarioResult, params *forecast.Params, asphaltShare float64) []forecast.ScenarioResult {
+	if rs == nil {
+		return nil
+	}
+	out := make([]forecast.ScenarioResult, len(rs))
+	for i, r := range rs {
+		out[i] = forecast.WithMaterials(r, forecast.DefaultMaterialTiers, params.CycleYears, asphaltShare)
+	}
+	return out
 }
 
 // scenarioAreas pairs all-scope and city-scope aggregate areas across all
@@ -388,6 +405,8 @@ const (
 	emitRateDecimals = 6
 	// emitRatioDecimals: funding_gap is a ratio the client renders as a percentage.
 	emitRatioDecimals = 6
+	// emitMaterialDecimals: tonnes and barrels, rendered as whole numbers.
+	emitMaterialDecimals = 3
 )
 
 func roundTo(v float64, decimals int) float64 {
@@ -407,6 +426,16 @@ func roundMoney(v float64) float64 { return roundTo(v, 0) }
 // visible, and area_pct is self-normalising over the same rounded values.
 func roundArea(v float64) float64 { return roundTo(v, 0) }
 
+// roundMaterials rounds masses to the kilogram and oil to a hundredth of a
+// barrel; the site shows whole tonnes and whole barrels.
+func roundMaterials(m forecast.MaterialQuantities) forecast.MaterialQuantities {
+	m.MixTonnes = roundTo(m.MixTonnes, emitMaterialDecimals)
+	m.BinderTonnes = roundTo(m.BinderTonnes, emitMaterialDecimals)
+	m.AggregateTonnes = roundTo(m.AggregateTonnes, emitMaterialDecimals)
+	m.OilBarrels = roundTo(m.OilBarrels, emitMaterialDecimals)
+	return m
+}
+
 func roundScenarioResult(r forecast.ScenarioResult) forecast.ScenarioResult {
 	years := make([]forecast.ScenarioYear, len(r.Years))
 	for i, y := range r.Years {
@@ -415,6 +444,10 @@ func roundScenarioResult(r forecast.ScenarioResult) forecast.ScenarioResult {
 		y.AnnualNeed = roundMoney(y.AnnualNeed)
 		y.AnnualSpend = roundMoney(y.AnnualSpend)
 		y.DeferredBacklog = roundMoney(y.DeferredBacklog)
+		if y.Materials != nil {
+			m := roundMaterials(*y.Materials)
+			y.Materials = &m
+		}
 		years[i] = y
 	}
 	r.Years = years

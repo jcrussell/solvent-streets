@@ -56,46 +56,44 @@ type ForecastSeedJSON struct {
 	// slider. Key matches bridge.Input.CostOverhead.
 	CostOverhead float64 `json:"cost_overhead"`
 	// MaterialTiers ships the per-tier physical material intensities (asphalt
-	// mix mass + binder fraction per m^2) that the Materials tab multiplies by
-	// each year's treated area (area / treatment_cycle_years) to estimate annual
-	// asphalt/binder/oil demand. Aligned label-for-label with CostTiers.
-	MaterialTiers []forecast.MaterialTier `json:"material_tiers,omitempty"`
+	// mix mass + binder fraction per m^2) behind each scenario year's materials
+	// in scenarios.json, for the Materials tab's intensity table. Aligned
+	// label-for-label with CostTiers.
+	MaterialTiers []MaterialTierSeed `json:"material_tiers,omitempty"`
 	// BarrelsPerTonBinder is the crude-oil-equivalent barrels per tonne of
-	// asphalt binder, shipped so the Materials tab's oil figures use the same
-	// factor as the Go model (forecast.BarrelsPerTonBinder) rather than a
-	// duplicated JS constant that could drift.
+	// asphalt binder (forecast.BarrelsPerTonBinder), which the Materials tab
+	// quotes beside its oil figure.
 	BarrelsPerTonBinder float64      `json:"barrels_per_ton_binder,omitempty"`
 	Cohorts             []CohortSeed `json:"cohorts,omitempty"`
 	CityCohorts         []CohortSeed `json:"city_cohorts,omitempty"`
 	// AsphaltAreaShare and CityAsphaltAreaShare are the fraction of each
 	// scope's cohort area that is actually flexible (asphalt) pavement, i.e.
-	// roads and parking but not sidewalks. They exist because MaterialTiers
-	// describes asphalt only — forecast/material.go says outright that
-	// sidewalks are concrete — while the scenario areas the Materials tab
-	// multiplies by those tiers sum ALL of resource.All. Without the netting,
-	// "Annual Binder (Oil)" attributes crude-oil-equivalent barrels to concrete
-	// sidewalk panels that consume zero bitumen, overstating the mix/binder/oil
-	// headlines by the sidewalk share (1.4% alameda-ca, 7.0% atlanta-ga, 8.9%
-	// austin-tx in a real 277-city export).
+	// roads and parking but not sidewalks. MaterialTiers describes asphalt
+	// only — forecast/material.go says outright that sidewalks are concrete —
+	// while scenario areas sum ALL of resource.All, so BuildScenariosData
+	// scales each year's treated area by the scope's share before pricing its
+	// materials. Without the netting, "Annual Binder (Oil)" attributes
+	// crude-oil-equivalent barrels to concrete sidewalk panels that consume
+	// zero bitumen, overstating the mix/binder/oil headlines by the sidewalk
+	// share (1.4% alameda-ca, 7.0% atlanta-ga, 8.9% austin-tx in a real
+	// 277-city export). The Materials tab reads the share to say how much of
+	// the network its figures cover.
 	//
-	// They are a SHARE and not an area because the browser applies them to
+	// They are a SHARE and not an area because they apply to
 	// scenario.years[].area, which is the cohort-summed area — not the deduped
 	// union geometry behind TotalArea/CityPaved. Same scope-selection shape as
 	// that pair. 1.0 means "no netting" and is what an absent or empty cohort
-	// set resolves to, so a fresh DB behaves exactly as before.
+	// set resolves to.
 	//
 	// Not omitempty, and the reason is NOT that 0 is unreachable. A
 	// concrete-only network resolves a legitimate 0: buildCohortStats in
 	// pkg/cmd/compute emits a synthetic single-cohort row even where
 	// HasCohorts() is false, so a sidewalk-only store does produce cohort seeds
-	// and scenarios to draw. The browser handles it correctly (>= 0 accepted;
-	// the Materials tab renders 0 t mix, 0 bbl oil and three flat-zero charts,
-	// which is the right answer for a network that consumes no bitumen).
-	//
-	// omitempty must not be added precisely BECAUSE 0 is reachable: it would
-	// elide a real 0 and make it indistinguishable from an older export's
-	// absent key, which the browser defaults to 1 — silently reporting a
-	// concrete-only city as 100% asphalt. solvent-streets-ujji.
+	// and scenarios to draw, and the Materials tab renders 0 t mix, 0 bbl oil
+	// and three flat-zero charts, which is the right answer for a network that
+	// consumes no bitumen. omitempty would elide that real 0 and the tab's
+	// note would describe a concrete-only city as all asphalt.
+	// solvent-streets-ujji.
 	AsphaltAreaShare     float64 `json:"asphalt_area_share"`
 	CityAsphaltAreaShare float64 `json:"city_asphalt_area_share"`
 }
@@ -133,7 +131,7 @@ func marshalForecastSeed(fc *config.ForecastConfig, totalArea, cityArea float64,
 		// Deliberately NOT scaled by the overhead — see the CostTiers field comment.
 		CostTiers:            costTiers,
 		CostOverhead:         fc.ResolvedCostOverhead(),
-		MaterialTiers:        forecast.DefaultMaterialTiers,
+		MaterialTiers:        materialTierSeeds(forecast.DefaultMaterialTiers),
 		BarrelsPerTonBinder:  forecast.BarrelsPerTonBinder,
 		Cohorts:              cohorts.All,
 		CityCohorts:          cohorts.City,
@@ -145,6 +143,21 @@ func marshalForecastSeed(fc *config.ForecastConfig, totalArea, cityArea float64,
 		return "", fmt.Errorf("marshal forecast seed: %w", err)
 	}
 	return template.JS(data), nil
+}
+
+// MaterialTierSeed is a material tier with the quantities it takes to treat
+// 1000 m^2, as the Materials tab's intensity table shows them.
+type MaterialTierSeed struct {
+	forecast.MaterialTier
+	Per1000SqM forecast.MaterialQuantities `json:"per_1000_sqm"`
+}
+
+func materialTierSeeds(tiers []forecast.MaterialTier) []MaterialTierSeed {
+	out := make([]MaterialTierSeed, len(tiers))
+	for i, t := range tiers {
+		out[i] = MaterialTierSeed{MaterialTier: t, Per1000SqM: roundMaterials(forecast.MaterialsForArea(1000, t))}
+	}
+	return out
 }
 
 // pavedAreas returns a store's paved area (results.PavedArea) in the
@@ -172,9 +185,8 @@ type cohortSet struct {
 type areaSplit struct{ asphalt, total float64 }
 
 // share returns the asphalt fraction, or 1 when there is no area to split.
-// 1 is the identity for the browser's multiplication, so a store with no
-// cohorts behaves exactly as it did before the netting existed — including the
-// fresh-DB path where scenariosFromSeeds returns nil and BuildScenariosData
+// 1 nets nothing out, which is right for a store with no cohorts — including
+// the fresh-DB path where scenariosFromSeeds returns nil and BuildScenariosData
 // falls back to singleCohortScenarios over the aggregate compute area.
 func (a *areaSplit) share() float64 {
 	if a.total <= 0 {

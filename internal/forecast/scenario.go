@@ -60,6 +60,9 @@ type ScenarioYear struct {
 	AnnualSpend     float64 `json:"annual_spend"`
 	DeferredBacklog float64 `json:"deferred_backlog"`
 	CostTier        string  `json:"cost_tier"`
+	// Materials is the asphalt demand of the year's treated area. Set by
+	// WithMaterials for the exported scenarios; nil from Simulate.
+	Materials *MaterialQuantities `json:"materials,omitempty"`
 }
 
 // ScenarioResult is the full output of running a scenario simulation.

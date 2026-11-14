@@ -82,3 +82,39 @@ func TestMaterialTierForFallback(t *testing.T) {
 		t.Errorf("ok = true for empty tier set, want false")
 	}
 }
+
+// WithMaterials treats one cycle-slice of the asphalt share of each year's
+// area at the year's blended tier, and leaves its input alone.
+func TestWithMaterials(t *testing.T) {
+	in := ScenarioResult{Years: []ScenarioYear{
+		{Year: 1, Area: 120000, CostTier: "rehab"},
+		{Year: 2, Area: 120000, CostTier: "no-such-tier"},
+	}}
+	const cycle, share = 12.0, 0.75
+	got := WithMaterials(in, DefaultMaterialTiers, cycle, share)
+
+	if in.Years[0].Materials != nil {
+		t.Fatal("WithMaterials wrote to its input's years")
+	}
+	rehab, _ := MaterialTierFor(DefaultMaterialTiers, "rehab")
+	worst, _ := MaterialTierFor(DefaultMaterialTiers, "no-such-tier")
+	wants := []MaterialQuantities{
+		MaterialsForArea(120000*share/cycle, rehab),
+		MaterialsForArea(120000*share/cycle, worst),
+	}
+	for i, want := range wants {
+		if got.Years[i].Materials == nil || *got.Years[i].Materials != want {
+			t.Errorf("year %d: got %+v, want %+v", i+1, got.Years[i].Materials, want)
+		}
+	}
+	if wants[0].MixTonnes != 900 { // 7500 m^2 at 120 kg/m^2
+		t.Errorf("rehab year mix = %v t, want 900", wants[0].MixTonnes)
+	}
+
+	// An unset cycle is the default cycle, as it is for costs.
+	unset := WithMaterials(in, DefaultMaterialTiers, 0, share)
+	byDefault := WithMaterials(in, DefaultMaterialTiers, DefaultTreatmentCycleYears, share)
+	if *unset.Years[0].Materials != *byDefault.Years[0].Materials {
+		t.Errorf("cycle 0: got %+v, want the default cycle's %+v", unset.Years[0].Materials, byDefault.Years[0].Materials)
+	}
+}
