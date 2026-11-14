@@ -352,3 +352,21 @@ func TestHeadingName(t *testing.T) {
 		t.Errorf("multi-city HeadingName = %q, want the selector's first city", got)
 	}
 }
+
+// A page rendered for one city of several (the live server's /play) is headed
+// by that city, and the city a page opens on by default is the same one for
+// the server and the static export: the selector's first option.
+func TestHeadingName_FollowsTheSelectedCity(t *testing.T) {
+	if got := citySelectFixture("denver").HeadingName(); got != "Denver, CO" {
+		t.Errorf("HeadingName with denver active = %q, want Denver, CO", got)
+	}
+	if got := citySelectFixture("").HeadingName(); got != "Oakland, CA" {
+		t.Errorf("HeadingName with no active city = %q, want the first option, Oakland, CA", got)
+	}
+	if got := DefaultCitySlug(citySelectFixture("").Cities); got != "oakland" {
+		t.Errorf("DefaultCitySlug = %q, want oakland", got)
+	}
+	if got := DefaultCitySlug(nil); got != "" {
+		t.Errorf("DefaultCitySlug(nil) = %q, want empty", got)
+	}
+}

@@ -230,14 +230,16 @@ func TestHandleGame_MultiCity(t *testing.T) {
 			GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
 		}
 	}
+	// City B comes first in the config: the page must still open on City A,
+	// the selector's first option, as a static export's play.html does.
 	cfg := &config.Config{Cities: []config.CityConfig{
-		{Name: "City A"}, {Name: "City B"},
+		{Name: "City B"}, {Name: "City A"},
 	}}
 	entries := []export.CityEntry{
 		{Config: cfg, City: cfg.Cities[0], Store: newStore(), Slug: cfg.Cities[0].Slug()},
 		{Config: cfg, City: cfg.Cities[1], Store: newStore(), Slug: cfg.Cities[1].Slug()},
 	}
-	slugA, slugB := entries[0].Slug, entries[1].Slug
+	slugB, slugA := entries[0].Slug, entries[1].Slug
 	ios, _, _, _ := iostreams.Test()
 	srv := New(entries, "127.0.0.1", 0, ios, testAssets(t))
 	mux := http.NewServeMux()
@@ -250,7 +252,7 @@ func TestHandleGame_MultiCity(t *testing.T) {
 		return w.Code, w.Body.String()
 	}
 
-	// Default (no ?city=): first renderable city (config order = A), selector present.
+	// Default (no ?city=): the selector's first city (A), selector present.
 	code, body := get("/play")
 	if code != http.StatusOK {
 		t.Fatalf("GET /play: expected 200, got %d: %s", code, body)
@@ -260,6 +262,9 @@ func TestHandleGame_MultiCity(t *testing.T) {
 	}
 	if !strings.Contains(body, `"data_prefix":"cities/`+slugA+`/"`) {
 		t.Errorf("default /play should render city A's data prefix %q", slugA)
+	}
+	if !strings.Contains(body, `<span id="hud-city">City A</span>`) {
+		t.Errorf("default /play should head the HUD with City A")
 	}
 
 	// ?city=B renders city B's prefix AND project name — proving the per-city
@@ -275,7 +280,7 @@ func TestHandleGame_MultiCity(t *testing.T) {
 		t.Errorf("/play?city=%s should render city B's project name in the HUD", slugB)
 	}
 
-	// Unknown slug falls back to the first renderable city (200, not 404/500).
+	// Unknown slug falls back to the default city (200, not 404/500).
 	code, body = get("/play?city=no-such-city")
 	if code != http.StatusOK {
 		t.Fatalf("GET /play?city=no-such-city: expected 200 fallback, got %d", code)

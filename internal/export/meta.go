@@ -180,20 +180,37 @@ func bboxAttr(b [4]float64) string {
 }
 
 // HeadingName is the name the page title and panel heading show before any
-// script runs: in multi-city mode the city the selector opens on (its first
-// <option>, which follows the tag groups rather than the config order), else
-// ProjectName. The dashboard then keeps both in step with the selected city
-// (solvent-streets-youz).
+// script runs: in multi-city mode the city the selector opens on (CitySelect's
+// selected option), else ProjectName. The pages then keep it in step with the
+// selected city (solvent-streets-youz).
 func (d TemplateData) HeadingName() string {
-	for _, g := range d.CityGroups() {
-		if len(g.Cities) > 0 {
-			return g.Cities[0].Name
-		}
+	if opt, ok := d.selectedCity(); ok {
+		return opt.Name
 	}
 	if len(d.Cities) > 0 {
 		return d.Cities[0].Name
 	}
 	return d.ProjectName
+}
+
+// selectedCity is the option CitySelect marks selected.
+func (d TemplateData) selectedCity() (CityOption, bool) {
+	for _, g := range d.CitySelect() {
+		for _, opt := range g.Options {
+			if opt.Selected {
+				return opt, true
+			}
+		}
+	}
+	return CityOption{}, false
+}
+
+// DefaultCitySlug is the city a multi-city page opens on when none is asked
+// for: the selector's first option, which follows the tag groups rather than
+// the config order. Empty when no city is listed.
+func DefaultCitySlug(cities []CityInfo) string {
+	opt, _ := TemplateData{Cities: cities, TagDimensions: GroupCitiesByDimension(cities)}.selectedCity()
+	return opt.Slug
 }
 
 // HasTagFilters reports whether any dimension offers a real choice (two or

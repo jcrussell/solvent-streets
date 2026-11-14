@@ -150,7 +150,7 @@ func (s *Server) handleGame(w http.ResponseWriter, r *http.Request) {
 
 // renderGame renders (and caches per slug) the /play page for the requested
 // city. A known slug renders that city; an empty or unknown slug — and any city
-// whose data fails to build — falls back to firstRenderableCity, preserving the
+// whose data fails to build — falls back to defaultGameCity, preserving the
 // skip-broken-city tolerance of the rest of the multi-city surface. Each city's
 // page is cached under its own key so a busy city doesn't re-render per request.
 //
@@ -165,9 +165,9 @@ func (s *Server) handleGame(w http.ResponseWriter, r *http.Request) {
 func (s *Server) renderGame(slug string) ([]byte, error) {
 	entry := s.cityBySlug(slug)
 	if entry == nil {
-		// Empty or unknown slug: render the first renderable city under the
-		// shared key (there is no per-slug identity to cache against).
-		return s.renderCachedPage("game", &s.gamePages, s.gameTemplate, s.firstRenderableCity)
+		// Empty or unknown slug: render the default city under the shared key
+		// (there is no per-slug identity to cache against).
+		return s.renderCachedPage("game", &s.gamePages, s.gameTemplate, s.defaultGameCity)
 	}
 
 	// Try the requested city under its own key. resolve returns the requested
@@ -186,10 +186,25 @@ func (s *Server) renderGame(slug string) ([]byte, error) {
 	}
 
 	// The requested city didn't build. Don't 500 the game — fall back to the
-	// first renderable city, cached under the shared "game" key (never the
-	// requested slug's key).
+	// default city, cached under the shared "game" key (never the requested
+	// slug's key).
 	fmt.Fprintf(s.ios.ErrOut, "server: falling back for /play?city=%s: %v\n", slug, err)
-	return s.renderCachedPage("game", &s.gamePages, s.gameTemplate, s.firstRenderableCity)
+	return s.renderCachedPage("game", &s.gamePages, s.gameTemplate, s.defaultGameCity)
+}
+
+// defaultGameCity is the city /play opens on when the request names none: the
+// one a static export's play.html opens on (export.DefaultCitySlug, the city
+// selector's first option). A city that fails to build, or a list that cannot
+// be read, falls back to firstRenderableCity.
+func (s *Server) defaultGameCity(ctx context.Context) (export.CityEntry, export.TemplateData, error) {
+	if cities, err := s.listedCities(ctx); err == nil {
+		if entry := s.cityBySlug(export.DefaultCitySlug(cities)); entry != nil {
+			if td, err := s.buildIndexData(ctx, *entry); err == nil {
+				return *entry, td, nil
+			}
+		}
+	}
+	return s.firstRenderableCity(ctx)
 }
 
 // firstRenderableCity returns the first city entry whose buildIndexData

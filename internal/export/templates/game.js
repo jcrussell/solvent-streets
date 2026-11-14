@@ -101,6 +101,12 @@
                     // option (a multi-city export has no root data/ dir).
                     DATA_PREFIX = 'cities/' + sel.value + '/';
                 }
+                // The heading names the city the board shows; on a static host
+                // that can be a ?city= other than the one the page was built
+                // to open on.
+                const heading = document.getElementById('hud-city');
+                const shown = sel.selectedOptions[0];
+                if (heading && shown && shown.value) heading.textContent = shown.textContent;
                 sel.addEventListener('change', () => {
                     if (!sel.value) return;
                     navigateTo(urlFor(sel.value, PvmtSelectors.readFilters()));

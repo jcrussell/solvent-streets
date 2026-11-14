@@ -26,6 +26,10 @@ test('play: ?tag= narrows the city selector and the deep-linked city is kept', a
   // game.js declares DATA_PREFIX with `let`, so read it in script scope.
   assert.equal(get('DATA_PREFIX'), 'cities/beta-ca/');
   assert.equal(filter($, 'state').value, 'state:CA');
+  // The heading names the city the board shows, not the one the static page
+  // was built to open on.
+  assert.equal($('#hud-city').textContent, $('#city-select').selectedOptions[0].textContent);
+  assert.match($('#hud-city').textContent, /Beta/);
 });
 
 test('play: a deep-linked city outside the filters wins', async () => {

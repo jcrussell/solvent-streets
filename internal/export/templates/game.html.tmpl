@@ -169,7 +169,7 @@
     </div>
 
     <!-- game-root doubles as the MapLibre container; a server test asserts this id exists. -->
-    <div id="game-root" data-project="{{.MetaJSON.ProjectName}}">
+    <div id="game-root" data-project="{{.HeadingName}}">
         <div id="map"></div>
     </div>
 
@@ -177,7 +177,7 @@
     <div id="loading">Loading board&hellip;</div>
 
     <div class="panel" id="hud" style="display:none">
-        <h1>Pavement Manager &mdash; {{.MetaJSON.ProjectName}}</h1>
+        <h1>Pavement Manager &mdash; <span id="hud-city">{{.HeadingName}}</span></h1>
         <div class="hud-row"><span class="k">Year</span><span class="v" id="hud-year">&mdash;</span></div>
         <div class="hud-row"><span class="k">Treasury</span><span class="v" id="hud-treasury">&mdash;</span></div>
         <div class="funds-warn" id="hud-funds-warn">Out of funds &mdash; waiting on budget</div>
