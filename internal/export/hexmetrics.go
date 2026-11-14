@@ -69,9 +69,15 @@ type MetricSummaryJSON struct {
 	Median     float64  `json:"median"`
 	Max        float64  `json:"max"`
 	PointCount int      `json:"point_count,omitempty"`
-	// ThresholdS and WithinThresholdShare (0..1 of the hexes) describe
-	// coverage against the service's resolved threshold (total seconds);
-	// omitted for metrics without one.
+	// UnreachableCount is, for a service's coverage metric, the hexes on the
+	// road network that no facility reached (services.SubjectUnreachable).
+	// They carry no value, so the map leaves them blank, and they are not in
+	// HexCount, Min, Median or Max.
+	UnreachableCount int `json:"unreachable_count,omitempty"`
+	// ThresholdS and WithinThresholdShare describe coverage against the
+	// service's resolved threshold (total seconds): the share is of every
+	// hex on the network, the unreachable ones included. Omitted for metrics
+	// without one.
 	ThresholdS           float64  `json:"threshold_s,omitempty"`
 	WithinThresholdShare *float64 `json:"within_threshold_share,omitempty"`
 }
@@ -251,11 +257,10 @@ func buildMetricSummaries(ctx context.Context, entry CityEntry) (map[string]Metr
 			}
 			checkedGrid = true
 		}
-		_, threshold, hasThreshold, err := resolvedScale(ctx, entry, spec)
+		sum, ok, err := metricSummary(ctx, entry, spec, rows)
 		if err != nil {
 			return nil, err
 		}
-		sum, ok := summarizeMetric(spec, rows, threshold, hasThreshold)
 		if !ok {
 			continue
 		}
@@ -267,8 +272,29 @@ func buildMetricSummaries(ctx context.Context, entry CityEntry) (map[string]Metr
 	return out, nil
 }
 
+// metricSummary summarises one metric's rows against its resolved
+// threshold, counting a service's unreachable hexes (rows under
+// services.SubjectUnreachable) against the within-threshold share.
+func metricSummary(ctx context.Context, entry CityEntry, spec hexmetric.Spec, rows []db.HexMetric) (MetricSummaryJSON, bool, error) {
+	_, threshold, hasThreshold, err := resolvedScale(ctx, entry, spec)
+	if err != nil {
+		return MetricSummaryJSON{}, false, err
+	}
+	var unreachable []db.HexMetric
+	if hasThreshold {
+		if unreachable, err = entry.Store.ListHexMetrics(ctx, spec.Key, services.SubjectUnreachable); err != nil {
+			return MetricSummaryJSON{}, false, fmt.Errorf("listing unreachable hexes of %s: %w", spec.Key, err)
+		}
+	}
+	sum, ok := summarizeMetric(spec, rows, len(unreachable), threshold, hasThreshold)
+	return sum, ok, nil
+}
+
 // summarizeMetric reduces one metric's rows; ok is false when there are none.
-func summarizeMetric(spec hexmetric.Spec, rows []db.HexMetric, threshold float64, hasThreshold bool) (MetricSummaryJSON, bool) {
+// unreachable is the count of hexes on the network with no value (a
+// service's unreachable hexes): they count against the within-threshold
+// share and nowhere else.
+func summarizeMetric(spec hexmetric.Spec, rows []db.HexMetric, unreachable int, threshold float64, hasThreshold bool) (MetricSummaryJSON, bool) {
 	var vals []float64
 	within := 0
 	refs := map[string]bool{}
@@ -300,7 +326,8 @@ func summarizeMetric(spec hexmetric.Spec, rows []db.HexMetric, threshold float64
 	}
 	if hasThreshold {
 		sum.ThresholdS = threshold
-		share := round4(float64(within) / float64(len(vals)))
+		sum.UnreachableCount = unreachable
+		share := round4(float64(within) / float64(len(vals)+unreachable))
 		sum.WithinThresholdShare = &share
 	}
 	return sum, true

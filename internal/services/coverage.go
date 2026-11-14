@@ -19,6 +19,12 @@ type HexCoverage struct {
 // Coverage is the result of ComputeCoverage.
 type Coverage struct {
 	Hexes []HexCoverage
+	// Unreachable lists the hexes on the network (a road within HexSnapM)
+	// that no facility reaches: a disconnected fragment, a one-way trap, or
+	// every road when no facility snapped. They are the least-covered hexes
+	// there are, so the within-threshold share counts them; they carry no
+	// seconds.
+	Unreachable []string
 	// Unsnapped lists facilities farther than FacilitySnapM from any road
 	// vertex, which therefore contributed nothing; callers warn about them.
 	Unsnapped []int
@@ -38,10 +44,11 @@ type Coverage struct {
 // the snapped point. Facilities snap to the street network (SnapConnected)
 // rather than to a closer unjoined stub, and hexes to the nearest position a
 // facility can reach; neither snaps onto a motorway carriageway unless no
-// other road is in range (see SnapWhere). Hexes off the network or unreachable from every
-// facility are omitted — they carry no value rather than a sentinel. ctx
-// cancellation yields a partial Hexes list with no error, like
-// geo.ComputeHexStats; callers check ctx.Err() before persisting.
+// other road is in range (see SnapWhere). Hexes off the network are
+// omitted; hexes on it that no facility reaches are listed in Unreachable,
+// with no seconds rather than a sentinel. ctx cancellation yields partial
+// lists with no error, like geo.ComputeHexStats; callers check ctx.Err()
+// before persisting.
 func ComputeCoverage(ctx context.Context, spec Spec, hexes []geo.Hex, g *Graph, facilities []Facility) Coverage {
 	var cov Coverage
 	var seeds []Seed
@@ -62,9 +69,6 @@ func ComputeCoverage(ctx context.Context, spec Spec, hexes []geo.Hex, g *Graph, 
 		sourceSnaps[s.Seg] = append(sourceSnaps[s.Seg], i)
 		seeds = append(seeds, g.SeedsAt(s, i)...)
 	}
-	if len(sourceSnaps) == 0 {
-		return cov
-	}
 	dist, src := g.ShortestFromSeeds(seeds)
 	// arrival is the best (seconds, facility) for a network position: via
 	// the end vertices, or along the segment from a facility snapped onto it.
@@ -81,14 +85,28 @@ func ComputeCoverage(ctx context.Context, spec Spec, hexes []geo.Hex, g *Graph, 
 		_, fi := arrival(s)
 		return fi >= 0
 	}
-	cov.Hexes = geo.ParallelMap(ctx, hexes, func(_ int, h geo.Hex) []HexCoverage {
+	type result struct {
+		hex       HexCoverage
+		reachable bool
+	}
+	results := geo.ParallelMap(ctx, hexes, func(_ int, h geo.Hex) []result {
 		x, y := h.InteriorXY()
 		s, ok := g.SnapWhere(x, y, HexSnapM, reachable)
 		if !ok {
+			if _, onNetwork := g.SnapWhere(x, y, HexSnapM, nil); onNetwork {
+				return []result{{hex: HexCoverage{HexID: h.ID}}}
+			}
 			return nil
 		}
 		secs, fi := arrival(s)
-		return []HexCoverage{{HexID: h.ID, Seconds: spec.TurnoutS + secs, Facility: fi}}
+		return []result{{hex: HexCoverage{HexID: h.ID, Seconds: spec.TurnoutS + secs, Facility: fi}, reachable: true}}
 	}, nil)
+	for _, r := range results {
+		if r.reachable {
+			cov.Hexes = append(cov.Hexes, r.hex)
+		} else {
+			cov.Unreachable = append(cov.Unreachable, r.hex.HexID)
+		}
+	}
 	return cov
 }

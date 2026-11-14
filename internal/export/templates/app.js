@@ -778,6 +778,10 @@
                     // rate or density has no meaningful sum.
                     (s.total != null ? '<div class="stat-row"><span class="stat-label">Total</span><span class="stat-value">' + fmtMetric(s.total, s.format) + '</span></div>' : '') +
                     (s.threshold_s > 0 ? '<div class="stat-row"><span class="stat-label">Within ' + fmtMetric(s.threshold_s, s.format) + '</span><span class="stat-value">' + ((s.within_threshold_share || 0) * 100).toFixed(1) + '%</span></div>' : '') +
+                    // Hexes on the road network no point of service reaches:
+                    // left blank on the map (they have no time), but counted
+                    // against the share above.
+                    (s.unreachable_count > 0 ? '<div class="stat-row"><span class="stat-label">Unreachable hexes</span><span class="stat-value">' + s.unreachable_count.toLocaleString() + '</span></div>' : '') +
                     '<div class="stat-row"><span class="stat-label">Median</span><span class="stat-value">' + fmtMetric(s.median, s.format) + '</span></div>' +
                     // Compact, unit once: "0 – 24K / sq mi", not the unit twice.
                     '<div class="stat-row"><span class="stat-label">Range</span><span class="stat-value">' + fmtLegend(s.min, s.format, false) + ' – ' + fmtLegend(s.max, s.format, true) + '</span></div>' +

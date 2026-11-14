@@ -278,9 +278,10 @@ func TestServicesCompute_ZeroTurnoutIsHonoured(t *testing.T) {
 }
 
 // TestServicesCompute_NoReachCommitsEmptyRun: when routing reaches no hex
-// (the only station is beyond the snap radius) an EMPTY fire run is still
-// committed, so the snapshot's fire part hides the previous run's coverage
-// instead of carrying it forward.
+// (the only station is beyond the snap radius) a fire run with no times is
+// still committed, so the snapshot's fire part hides the previous run's
+// coverage instead of carrying it forward. The hexes on the network are
+// recorded as unreachable (solvent-streets-8x0f).
 func TestServicesCompute_NoReachCommitsEmptyRun(t *testing.T) {
 	var saved []db.HexMetric
 	var commits []map[string]int64
@@ -297,8 +298,13 @@ func TestServicesCompute_NoReachCommitsEmptyRun(t *testing.T) {
 	if err := RunComputeForCity(context.Background(), f, "fire", nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	if len(saved) != 1 || saved[0].HexID != "<empty>" || saved[0].Metric != services.MetricFire {
-		t.Fatalf("expected one empty save of %s, got %+v", services.MetricFire, saved)
+	if len(saved) == 0 {
+		t.Fatal("expected the network's hexes saved as unreachable, got nothing")
+	}
+	for _, r := range saved {
+		if r.Metric != services.MetricFire || r.Subject != services.SubjectUnreachable || r.RunID != saved[0].RunID {
+			t.Fatalf("expected only unreachable %s rows of one run, got %+v", services.MetricFire, r)
+		}
 	}
 	if !committedOnlyFire(commits, saved[0].RunID) {
 		t.Errorf("commits = %v, want the empty fire run %d committed", commits, saved[0].RunID)
@@ -321,7 +327,7 @@ func TestSummarize_ShareIsAFraction(t *testing.T) {
 	out := row.ExportData(computeFields)
 	want := map[string]any{
 		"city": "livermore-ca", "service": "fire", "facility_count": 3, "unsnapped_count": 1,
-		"hex_count": 4, "threshold_s": 240.0, "within_threshold_share": 0.75,
+		"hex_count": 4, "unreachable_count": 0, "threshold_s": 240.0, "within_threshold_share": 0.75,
 		"median_response_s": 300.0, "run_id": int64(9),
 	}
 	if len(out) != len(want) {
@@ -333,12 +339,44 @@ func TestSummarize_ShareIsAFraction(t *testing.T) {
 		}
 	}
 
-	// No hex reached: the share and median are not applicable and are omitted.
+	// No hex on the network: the share and median are not applicable and
+	// are omitted.
 	empty := summarize(testCity.Slug(), spec, services.Coverage{}, 3, 9).ExportData(computeFields)
 	for _, k := range []string{"within_threshold_share", "median_response_s"} {
 		if v, ok := empty[k]; ok {
 			t.Errorf("%s = %v with no hexes reached; want it omitted", k, v)
 		}
+	}
+}
+
+// TestSummarize_UnreachableLowersShare pins solvent-streets-8x0f: a hex on
+// the network that no station reaches counts in the within-threshold share's
+// denominator (it is not covered), but not in the median, which has no time
+// for it.
+func TestSummarize_UnreachableLowersShare(t *testing.T) {
+	spec := services.Spec{Name: "fire", TurnoutS: 60, TravelThresholdS: 240}
+	cov := services.Coverage{
+		Hexes: []services.HexCoverage{
+			{HexID: "a", Seconds: 100}, {HexID: "b", Seconds: 200},
+			{HexID: "c", Seconds: 300}, {HexID: "d", Seconds: 400},
+		},
+		Unreachable: []string{"e", "f"},
+	}
+	row := summarize(testCity.Slug(), spec, cov, 1, 9)
+	if row.UnreachableCount != 2 || row.HexCount != 4 {
+		t.Errorf("counts = %d reached, %d unreachable; want 4, 2", row.HexCount, row.UnreachableCount)
+	}
+	if row.WithinThresholdShare == nil || *row.WithinThresholdShare != 0.5 {
+		t.Errorf("share = %v, want 0.5 (3 within of 6 on the network)", row.WithinThresholdShare)
+	}
+	if row.MedianResponseS == nil || *row.MedianResponseS != 300 {
+		t.Errorf("median = %v, want 300 over the reached hexes", row.MedianResponseS)
+	}
+
+	// Nothing reached: the share is 0, not omitted, and there is no median.
+	none := summarize(testCity.Slug(), spec, services.Coverage{Unreachable: []string{"e"}}, 1, 9)
+	if none.WithinThresholdShare == nil || *none.WithinThresholdShare != 0 || none.MedianResponseS != nil {
+		t.Errorf("all unreachable: share %v, median %v; want 0 and none", none.WithinThresholdShare, none.MedianResponseS)
 	}
 }
 

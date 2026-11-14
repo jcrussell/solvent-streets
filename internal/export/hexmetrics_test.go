@@ -151,6 +151,40 @@ func TestBuildMeta_MetricSummaries(t *testing.T) {
 	}
 }
 
+// TestBuildMeta_UnreachableHexesLowerTheShare pins solvent-streets-8x0f: a
+// hex the fire run recorded as unreachable counts against the
+// within-threshold share and is reported, but has no value in
+// hex-metrics.json and stays out of the count, median and range.
+func TestBuildMeta_UnreachableHexesLowerTheShare(t *testing.T) {
+	now := time.Now()
+	rows := []db.HexMetric{
+		{HexID: "h1", Metric: services.MetricFire, Value: 300, Ref: "a", ComputedAt: now},
+		{HexID: "h2", Metric: services.MetricFire, Value: 420, Ref: "a", ComputedAt: now},
+		{HexID: "h3", Metric: services.MetricFire, Subject: services.SubjectUnreachable, ComputedAt: now},
+		{HexID: "h4", Metric: services.MetricFire, Subject: services.SubjectUnreachable, ComputedAt: now},
+	}
+	stats := []results.HexCoverage{{HexID: "h1", Area: 1}}
+	entry := metricsEntry(t, rows, nil, stats)
+	meta, err := BuildMeta(context.Background(), entry, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := meta.Metrics[services.MetricFire]
+	if s.HexCount != 2 || s.UnreachableCount != 2 || s.Min != 300 || s.Max != 420 {
+		t.Errorf("summary = %+v, want 2 timed hexes (300..420) and 2 unreachable", s)
+	}
+	if s.WithinThresholdShare == nil || *s.WithinThresholdShare != 0.25 {
+		t.Errorf("share = %v, want 0.25 (1 within of 4 on the network)", s.WithinThresholdShare)
+	}
+	hm, err := BuildHexMetrics(context.Background(), entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := hm.Metrics[services.MetricFire].Values; len(v) != 2 {
+		t.Errorf("values = %v, want only the timed hexes (an unreachable hex has no value)", v)
+	}
+}
+
 // TestHexMetrics_IndependentOfRoadsCompute: stored metrics are their
 // producers' own parts of the resolved snapshot, so they are published
 // whether or not the city has a roads compute, a roads recompute does not hide
@@ -206,12 +240,12 @@ func TestRegistry_ProducersLinked(t *testing.T) {
 func TestSummarizeMetric_AdditiveTotal(t *testing.T) {
 	rows := []db.HexMetric{{HexID: "a", Value: 12.5}, {HexID: "b", Value: 30}}
 	pop, _ := hexmetric.Lookup("population")
-	s, ok := summarizeMetric(pop, rows, 0, false)
+	s, ok := summarizeMetric(pop, rows, 0, 0, false)
 	if !ok || s.Total == nil || *s.Total != 42.5 {
 		t.Errorf("population total = %v, want 42.5", s.Total)
 	}
 	fire, _ := hexmetric.Lookup(services.MetricFire)
-	if s, _ := summarizeMetric(fire, rows, 0, false); s.Total != nil {
+	if s, _ := summarizeMetric(fire, rows, 0, 0, false); s.Total != nil {
 		t.Errorf("fire response must not carry a total, got %v", *s.Total)
 	}
 }

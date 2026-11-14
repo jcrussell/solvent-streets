@@ -529,3 +529,34 @@ func TestComputeCoverage_ClippedHexRoutesFromItsPart(t *testing.T) {
 		t.Errorf("sliver travel = %.1f s, want ~0 (routed from its part beside the station, not its centre 250 m along)", travel)
 	}
 }
+
+// TestComputeCoverage_UnreachableHexesAreListed pins solvent-streets-8x0f: a
+// hex beside a road no station reaches is listed as unreachable (not
+// dropped like a hex off the network), and with no station snapped every
+// hex on the network is.
+func TestComputeCoverage_UnreachableHexesAreListed(t *testing.T) {
+	p := testProj()
+	g := BuildGraph(context.Background(), []resource.Feature{
+		line(map[string]string{"highway": "residential"}, [2]float64{lonA, latA}, [2]float64{lonB, latB}),
+		line(map[string]string{"highway": "residential"}, [2]float64{lonC, latC}, [2]float64{lonD, latD}), // disjoint island
+	}, DefaultRoadSpeeds, p)
+	ax, ay := p.ToProjected(lonA, latA)
+	cx, cy := p.ToProjected(lonC, latC)
+	hexes := []geo.Hex{
+		{ID: "street", CenterX: ax + 20, CenterY: ay + 20},
+		{ID: "island", CenterX: cx, CenterY: cy + 20},
+		{ID: "off-network", CenterX: cx + 5000, CenterY: cy + 5000},
+	}
+	spec := Registry["fire"]
+	cov := ComputeCoverage(context.Background(), spec, hexes, g, []Facility{{ID: "st", Lon: lonA, Lat: latA}})
+	if len(cov.Hexes) != 1 || cov.Hexes[0].HexID != "street" {
+		t.Errorf("reached = %+v, want only the street hex", cov.Hexes)
+	}
+	if len(cov.Unreachable) != 1 || cov.Unreachable[0] != "island" {
+		t.Errorf("unreachable = %v, want [island]", cov.Unreachable)
+	}
+	none := ComputeCoverage(context.Background(), spec, hexes, g, []Facility{{ID: "far", Lon: lonA + 1, Lat: latA}})
+	if len(none.Hexes) != 0 || len(none.Unreachable) != 2 {
+		t.Errorf("no station snapped: reached %v, unreachable %v; want none and both on-network hexes", none.Hexes, none.Unreachable)
+	}
+}

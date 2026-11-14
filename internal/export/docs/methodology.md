@@ -371,10 +371,14 @@ city-builder's service-coverage overlay. It is computed, not observed:
    arterials, are not excluded.
 6. **Display.** Hexes are painted in five bands of total time (≤ 5:20,
    7:20, 9:20, 11:20, > 11:20). Any hex of the grid can be painted, paved or
-   not, and a hex with no road within reach is left blank. The summary's
-   "within threshold" share uses NFPA 1710's 240 s first-engine travel
-   time. `[[services]]` in the config overrides the turnout and the
-   threshold.
+   not, and a hex with no road within reach is left blank. A hex with a
+   road within reach that no station can drive to (a disconnected road
+   fragment, a one-way trap) is left blank too, but it is counted as
+   **unreachable**: the summary's "within threshold" share is of every hex
+   with a road within reach, so an unreachable hex counts as not covered.
+   The median and range are over the hexes that were reached. The share
+   uses NFPA 1710's 240 s first-engine travel time. `[[services]]` in the
+   config overrides the turnout and the threshold.
 
 Limitations: traffic, signals, unit availability, dispatch time and
 apparatus type are not modelled, nor is grade separation beyond what OSM

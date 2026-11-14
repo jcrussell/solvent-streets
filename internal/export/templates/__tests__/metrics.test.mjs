@@ -62,6 +62,21 @@ test('the Color-by selector lists the available derived metrics plus each stored
   assert.match(card.textContent, /Points of service\s*1/);
 });
 
+test('an unreachable hex has no value on the map but counts against the within-threshold share', async () => {
+  const { win, $$ } = await loadWithMetrics();
+  const card = $$('#stats .stat-card').find((c) => c.querySelector('h3').textContent === 'Fire response');
+  // The fixture's fire run reached two hexes (300 s within 5:20, 700 s not)
+  // and recorded a third, on the network, as unreachable.
+  assert.equal(metaJSON.metrics.fire_response_s.unreachable_count, 1);
+  assert.match(card.textContent, /Unreachable hexes\s*1/);
+  assert.match(card.textContent, /Within 5:20\s*33\.3%/, 'the share is of all three hexes on the network');
+  assert.equal(fire.values['hex:0:2'], undefined, 'an unreachable hex carries no time');
+  win.selectHexMetric('fire_response_s');
+  const fc = plain(win.buildBlendedHexFC());
+  const byId = Object.fromEntries(fc.features.map((f) => [f.properties.hex_id, f.properties]));
+  assert.equal(byId['hex:0:2'].metric_v, undefined, 'so it is painted as a hex without a value');
+});
+
 test('selecting a metric paints discrete bands guarded for missing values, redraws the legend, and shows points', async () => {
   const { win, $, $$, get } = await loadWithMetrics();
   assert.equal(plain(win.hexFillColor())[2][0], 'interpolate', 'coverage paints the continuous ramp');

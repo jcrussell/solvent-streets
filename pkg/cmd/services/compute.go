@@ -43,15 +43,19 @@ type Options struct {
 }
 
 type computeRow struct {
-	City           string  `json:"city"`
-	Service        string  `json:"service"`
-	FacilityCount  int     `json:"facility_count"`
-	UnsnappedCount int     `json:"unsnapped_count"`
-	HexCount       int     `json:"hex_count"`
-	ThresholdS     float64 `json:"threshold_s"`
-	// WithinThresholdShare is the fraction (0..1) of reached hexes whose
-	// travel time is within ThresholdS. It and MedianResponseS are nil (and
-	// omitted) when no hex was reached.
+	City           string `json:"city"`
+	Service        string `json:"service"`
+	FacilityCount  int    `json:"facility_count"`
+	UnsnappedCount int    `json:"unsnapped_count"`
+	HexCount       int    `json:"hex_count"`
+	// UnreachableCount is the hexes on the road network that no facility
+	// reaches (services.Coverage.Unreachable).
+	UnreachableCount int     `json:"unreachable_count"`
+	ThresholdS       float64 `json:"threshold_s"`
+	// WithinThresholdShare is the fraction (0..1) of the hexes on the
+	// network, reached or not, whose travel time is within ThresholdS; nil
+	// (and omitted) when there are none. MedianResponseS is over the reached
+	// hexes, nil when none was reached.
 	WithinThresholdShare *float64 `json:"within_threshold_share,omitempty"`
 	MedianResponseS      *float64 `json:"median_response_s,omitempty"`
 	RunID                int64    `json:"run_id,omitempty"`
@@ -73,6 +77,8 @@ func (r computeRow) ExportData(fields []string) map[string]any {
 			out[f] = r.UnsnappedCount
 		case "hex_count":
 			out[f] = r.HexCount
+		case "unreachable_count":
+			out[f] = r.UnreachableCount
 		case "threshold_s":
 			out[f] = r.ThresholdS
 		case "within_threshold_share":
@@ -92,7 +98,7 @@ func (r computeRow) ExportData(fields []string) map[string]any {
 	return out
 }
 
-var computeFields = []string{"city", "service", "facility_count", "unsnapped_count", "hex_count", "threshold_s", "within_threshold_share", "median_response_s", "run_id"}
+var computeFields = []string{"city", "service", "facility_count", "unsnapped_count", "hex_count", "unreachable_count", "threshold_s", "within_threshold_share", "median_response_s", "run_id"}
 
 // NewCmdCompute builds `services compute`. service points at the group's
 // --service flag value, read at run time.
@@ -115,8 +121,9 @@ centre the boundary clipped away, from a point inside what remains) — as a
 per-hex metric.
 The result updates the service's own part of the city's latest compute, so
 a later roads compute leaves it in place; run 'pvmt snapshots create' to
-publish it, and rerun this after re-ingesting roads or facilities. Hexes off the network or unreachable from every
-facility carry no value.`,
+publish it, and rerun this after re-ingesting roads or facilities. Hexes off
+the network carry no value; hexes on it that no facility reaches are recorded
+as unreachable, with no time, and count against the within-threshold share.`,
 		Example: `  # Fire response coverage for every configured city
   pvmt services compute
 
@@ -342,9 +349,12 @@ func route(ctx context.Context, out, progress, errOut io.Writer, notify tui.Phas
 		notify.PhaseDone(phaseSave, err)
 		return err
 	}
-	metrics := make([]db.HexMetric, len(cov.Hexes))
-	for i, h := range cov.Hexes {
-		metrics[i] = db.HexMetric{HexID: h.HexID, Metric: spec.Metric, Value: h.Seconds, Ref: facilities[h.Facility].ID}
+	metrics := make([]db.HexMetric, 0, len(cov.Hexes)+len(cov.Unreachable))
+	for _, h := range cov.Hexes {
+		metrics = append(metrics, db.HexMetric{HexID: h.HexID, Metric: spec.Metric, Value: h.Seconds, Ref: facilities[h.Facility].ID})
+	}
+	for _, id := range cov.Unreachable {
+		metrics = append(metrics, db.HexMetric{HexID: id, Metric: spec.Metric, Subject: services.SubjectUnreachable})
 	}
 	if err := store.SaveHexMetrics(ctx, runID, metrics); err != nil {
 		notify.PhaseDone(phaseSave, err)
@@ -364,6 +374,9 @@ func route(ctx context.Context, out, progress, errOut io.Writer, notify tui.Phas
 	fmt.Fprintf(out, "\n%s Results:\n", spec.Label)
 	fmt.Fprintf(out, "  Facilities:        %d (%d unsnapped)\n", row.FacilityCount, row.UnsnappedCount)
 	fmt.Fprintf(out, "  Hexes reached:     %d\n", row.HexCount)
+	if row.UnreachableCount > 0 {
+		fmt.Fprintf(out, "  Hexes unreachable: %d (on the road network, but no facility reaches them)\n", row.UnreachableCount)
+	}
 	if row.WithinThresholdShare != nil {
 		fmt.Fprintf(out, "  Within %.0f s travel: %.1f%%\n", row.ThresholdS, *row.WithinThresholdShare*100)
 	}
@@ -395,15 +408,20 @@ func saveRunContext(ctx context.Context, store db.Store, runID int64, spec servi
 // summarize reduces a coverage result to the JSON row / prose figures.
 func summarize(citySlug string, spec services.Spec, cov services.Coverage, facilities int, runID int64) computeRow {
 	row := computeRow{
-		City:           citySlug,
-		Service:        spec.Name,
-		FacilityCount:  facilities,
-		UnsnappedCount: len(cov.Unsnapped),
-		HexCount:       len(cov.Hexes),
-		ThresholdS:     spec.TravelThresholdS,
-		RunID:          runID,
+		City:             citySlug,
+		Service:          spec.Name,
+		FacilityCount:    facilities,
+		UnsnappedCount:   len(cov.Unsnapped),
+		HexCount:         len(cov.Hexes),
+		UnreachableCount: len(cov.Unreachable),
+		ThresholdS:       spec.TravelThresholdS,
+		RunID:            runID,
 	}
-	if len(cov.Hexes) == 0 {
+	// The share's denominator is every hex on the network: an unreachable
+	// hex is not within the threshold, and leaving it out would bias the
+	// share upward.
+	onNetwork := len(cov.Hexes) + len(cov.Unreachable)
+	if onNetwork == 0 {
 		return row
 	}
 	secs := make([]float64, len(cov.Hexes))
@@ -414,10 +432,12 @@ func summarize(citySlug string, spec services.Spec, cov services.Coverage, facil
 			within++
 		}
 	}
-	sort.Float64s(secs)
-	share := float64(within) / float64(len(secs))
-	median := secs[len(secs)/2]
+	share := float64(within) / float64(onNetwork)
 	row.WithinThresholdShare = &share
-	row.MedianResponseS = &median
+	if len(secs) > 0 {
+		sort.Float64s(secs)
+		median := secs[len(secs)/2]
+		row.MedianResponseS = &median
+	}
 	return row
 }

@@ -132,6 +132,13 @@ func ForMetric(metric string) (Spec, bool) {
 // whatever turnout_s the config says now.
 const MetricTurnoutS = "turnout_s"
 
+// SubjectUnreachable is the hex_metrics subject a service run records its
+// unreachable hexes under (Coverage.Unreachable), beside the metric's timed
+// rows (subject ""): one row per hex on the road network that no facility
+// reaches. The row's value carries nothing (it is stored as 0); the subject
+// is the record. Readers of the times list subject "" and never see these.
+const SubjectUnreachable = "unreachable"
+
 // MetricFire is the hexmetric key for fire response time.
 const MetricFire = "fire_response_s"
 

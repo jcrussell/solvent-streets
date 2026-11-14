@@ -132,7 +132,10 @@ func jsFixtureEntry(t *testing.T) CityEntry {
 	}}
 	store.HexMetrics = append(store.HexMetrics,
 		db.HexMetric{HexID: "hex:0:0", Metric: services.MetricFire, Value: 300, Ref: jsFixtureStationID},
-		db.HexMetric{HexID: "hex:0:1", Metric: services.MetricFire, Value: 700, Ref: jsFixtureStationID})
+		db.HexMetric{HexID: "hex:0:1", Metric: services.MetricFire, Value: 700, Ref: jsFixtureStationID},
+		// On the network but reached by no station: no value, counted
+		// against the within-threshold share (solvent-streets-8x0f).
+		db.HexMetric{HexID: "hex:0:2", Metric: services.MetricFire, Subject: services.SubjectUnreachable})
 	store.HexMetrics = append(store.HexMetrics, results.HexCoverageRows(resource.TypeRoads,
 		[]results.HexCoverage{{HexID: "hex:0:0", Area: 1}, {HexID: "hex:0:1", Area: 1}})...)
 	// Matches a city option in the rendered index.html, so meta.project_name and

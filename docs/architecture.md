@@ -99,7 +99,11 @@ pavement compute onto those rows. Every other metric is registered in
 metrics:
 
 - **Fire response.** `internal/services` routes from fire stations over a
-  graph built from the stored roads.
+  graph built from the stored roads. A hex on the road network that no
+  station reaches gets a row under subject `unreachable`
+  (`services.SubjectUnreachable`) instead of a time; its value carries
+  nothing. The exporter counts those rows against the within-threshold
+  share and leaves the hexes out of `hex-metrics.json`.
 - **Population.** `internal/population` apportions 2020 Census blocks onto
   hexes by area.
 
