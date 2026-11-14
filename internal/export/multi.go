@@ -181,15 +181,20 @@ func BuildMultiCityForecastSeed(ctx context.Context, fc *config.ForecastConfig, 
 }
 
 // mergeCohortSeeds collects cohort stats across entries and sums areas for
-// the same (resource_type, classification) pair. cityScope=true reads ":city"
+// the same (resource_type, classification, decay rate). cityScope=true reads ":city"
 // cohort rows. Cross-resource collisions (e.g. roads "default" vs parking
 // "default") stay as separate cohorts — matching collectCohortSeeds' single-
 // city shape, where each cohort row of rt appears verbatim and a
 // classification can recur across resources.
 func mergeCohortSeeds(ctx context.Context, entries []CityEntry, fc *config.ForecastConfig, cityScope bool) ([]CohortSeed, float64, error) {
+	// DecayRate is part of the key: a city whose [cities.forecast] (or whose
+	// included file's [forecast]) sets its own decay_rate keeps its cohorts
+	// apart at that rate, as its own forecast.json prices them, instead of
+	// being folded into the region's rate.
 	type key struct {
 		Resource       string
 		Classification string
+		DecayRate      float64
 	}
 	type bucket struct {
 		Order int
@@ -219,13 +224,15 @@ func mergeCohortSeeds(ctx context.Context, entries []CityEntry, fc *config.Forec
 		if err != nil {
 			return nil, 0, fmt.Errorf("list cohort stats for %s: %w", entry.City.Name, err)
 		}
+		decayRate := entryDecayRate(entry, fc)
 		for _, rt := range resource.All {
 			t := rt.Type()
 			stats := statsByType[t.With(scope)]
 			asphalt := rt.AsphaltSurfaced()
 			for _, st := range stats {
 				split.add(st.Area, asphalt)
-				k := key{Resource: string(t), Classification: st.Class}
+				rate := forecast.ClassDecayRate(st.Class, decayRate)
+				k := key{Resource: string(t), Classification: st.Class, DecayRate: rate}
 				b, ok := buckets[k]
 				if !ok {
 					b = &bucket{
@@ -233,7 +240,7 @@ func mergeCohortSeeds(ctx context.Context, entries []CityEntry, fc *config.Forec
 						Seed: CohortSeed{
 							ResourceType:   k.Resource,
 							Classification: st.Class,
-							DecayRate:      forecast.ClassDecayRate(st.Class, fc.DecayRate),
+							DecayRate:      rate,
 						},
 					}
 					buckets[k] = b
@@ -251,4 +258,14 @@ func mergeCohortSeeds(ctx context.Context, entries []CityEntry, fc *config.Forec
 		out[b.Order] = b.Seed
 	}
 	return out, split.share(), nil
+}
+
+// entryDecayRate is the decay_rate a city's own forecast resolves to — the
+// rate its forecast.json uses — falling back to the region's fc when the
+// entry carries no config.
+func entryDecayRate(entry CityEntry, fc *config.ForecastConfig) float64 {
+	if entry.Config == nil {
+		return fc.DecayRate
+	}
+	return entry.Config.ResolvedForecast(&entry.City).DecayRate
 }

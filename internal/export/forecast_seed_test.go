@@ -73,6 +73,42 @@ func TestMergeCohortSeeds_KeysOnResourceAndClassification(t *testing.T) {
 	}
 }
 
+// TestMergeCohortSeeds_PerCityDecayRate (solvent-streets-l8d2): a city whose
+// own forecast overrides decay_rate keeps its road cohorts at that rate in the
+// regional seed — the rate its forecast.json uses — rather than taking the
+// region's. Cities that resolve to the same rate still merge.
+func TestMergeCohortSeeds_PerCityDecayRate(t *testing.T) {
+	cfg := &config.Config{}
+	roads := func(area float64) *dbtest.MockStore {
+		return &dbtest.MockStore{CityMetrics: cohortsFixture(map[resource.Type][]results.Cohort{
+			resource.TypeRoads: {{Class: "primary", Area: area}},
+		})}
+	}
+	plainA := CityEntry{Config: cfg, City: config.CityConfig{Name: "A"}, Slug: "a", Store: roads(100)}
+	plainB := CityEntry{Config: cfg, City: config.CityConfig{Name: "B"}, Slug: "b", Store: roads(50)}
+	override := CityEntry{
+		Config: cfg,
+		City:   config.CityConfig{Name: "C", Forecast: &config.ForecastConfig{DecayRate: 0.05}},
+		Slug:   "c",
+		Store:  roads(30),
+	}
+
+	got, _, err := mergeCohortSeeds(context.Background(), []CityEntry{plainA, override, plainB}, &config.ForecastConfig{}, false)
+	if err != nil {
+		t.Fatalf("mergeCohortSeeds: %v", err)
+	}
+	want := []CohortSeed{
+		{ResourceType: "roads", Classification: "primary", Area: 150, DecayRate: forecast.ClassDecayRate("primary", 0)},
+		{ResourceType: "roads", Classification: "primary", Area: 30, DecayRate: forecast.ClassDecayRate("primary", 0.05)},
+	}
+	if want[0].DecayRate == want[1].DecayRate {
+		t.Fatal("fixture: the override must change the primary rate")
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("mergeCohortSeeds (-want +got):\n%s", diff)
+	}
+}
+
 // TestBuildMultiCityForecastSeed_CarriesTreatmentCycleYears: the region seed
 // must carry the resolved treatment_cycle_years so the multi-city landing's
 // interactive Custom Scenario line uses the same cycle N as the per-city
