@@ -381,9 +381,28 @@ func vertexCentroid(coords [][2]float64) ([2]float64, bool) {
 	return [2]float64{sx / n, sy / n}, true
 }
 
+// coordDecimals is the precision ingest writes coordinates at: 7 decimal
+// degrees, about a centimetre and the precision OSM stores.
+const coordDecimals = 7
+
+// coordJSON is one GeoJSON position, "[lon,lat]".
+func coordJSON(c [2]float64) string {
+	return "[" + strconv.FormatFloat(c[0], 'f', coordDecimals, 64) + "," +
+		strconv.FormatFloat(c[1], 'f', coordDecimals, 64) + "]"
+}
+
+// coordListJSON is a GeoJSON position array (a line or a ring), brackets
+// included.
+func coordListJSON(coords [][2]float64) string {
+	parts := make([]string, len(coords))
+	for i, c := range coords {
+		parts[i] = coordJSON(c)
+	}
+	return "[" + strings.Join(parts, ",") + "]"
+}
+
 func coordToPointGeoJSON(c [2]float64) string {
-	return fmt.Sprintf(`{"type":"%s","coordinates":[%s,%s]}`, geomPoint,
-		strconv.FormatFloat(c[0], 'f', 7, 64), strconv.FormatFloat(c[1], 'f', 7, 64))
+	return fmt.Sprintf(`{"type":"%s","coordinates":%s}`, geomPoint, coordJSON(c))
 }
 
 func resolveWayCoords(e overpassElement, nodes map[int64][2]float64) [][2]float64 {
@@ -407,19 +426,11 @@ func resolveWayCoords(e overpassElement, nodes map[int64][2]float64) [][2]float6
 }
 
 func coordsToLineStringGeoJSON(coords [][2]float64) string {
-	parts := make([]string, len(coords))
-	for i, c := range coords {
-		parts[i] = fmt.Sprintf("[%s,%s]", strconv.FormatFloat(c[0], 'f', 7, 64), strconv.FormatFloat(c[1], 'f', 7, 64))
-	}
-	return fmt.Sprintf(`{"type":"LineString","coordinates":[%s]}`, strings.Join(parts, ","))
+	return fmt.Sprintf(`{"type":"LineString","coordinates":%s}`, coordListJSON(coords))
 }
 
 func coordsToPolygonGeoJSON(coords [][2]float64) string {
-	parts := make([]string, len(coords))
-	for i, c := range coords {
-		parts[i] = fmt.Sprintf("[%s,%s]", strconv.FormatFloat(c[0], 'f', 7, 64), strconv.FormatFloat(c[1], 'f', 7, 64))
-	}
-	return fmt.Sprintf(`{"type":"Polygon","coordinates":[[%s]]}`, strings.Join(parts, ","))
+	return fmt.Sprintf(`{"type":"Polygon","coordinates":[%s]}`, coordListJSON(coords))
 }
 
 // errSnippetMaxLen bounds how much of an upstream error-response body is folded

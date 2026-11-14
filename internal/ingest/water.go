@@ -432,21 +432,13 @@ func polysToMultiPolygonGeoJSON(polys []waterPolygon) string {
 	parts := make([]string, len(polys))
 	for i, p := range polys {
 		rings := make([]string, 0, 1+len(p.holes))
-		rings = append(rings, coordRingJSON(p.outer))
+		rings = append(rings, coordListJSON(p.outer))
 		for _, h := range p.holes {
-			rings = append(rings, coordRingJSON(h))
+			rings = append(rings, coordListJSON(h))
 		}
 		parts[i] = "[" + strings.Join(rings, ",") + "]"
 	}
 	return fmt.Sprintf(`{"type":"MultiPolygon","coordinates":[%s]}`, strings.Join(parts, ","))
-}
-
-func coordRingJSON(coords [][2]float64) string {
-	parts := make([]string, len(coords))
-	for i, c := range coords {
-		parts[i] = fmt.Sprintf("[%g,%g]", c[0], c[1])
-	}
-	return "[" + strings.Join(parts, ",") + "]"
 }
 
 // stitchCoastlineChains chains coastline ways head-to-tail preserving
