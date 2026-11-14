@@ -304,11 +304,25 @@ func (s *Server) unitSystem(cfg *config.Config) string {
 // wrapped error chains stay out of the response body while operators still
 // see the real cause in the server log.
 //
+// db.ErrSnapshotGone overrides code: the snapshot this server pinned at
+// startup (or a ?snapshot=N that resolved a moment ago) was deleted or
+// pruned, which a retry cannot fix, so it is 410 Gone with a fixed message
+// saying to restart. Every cache here evicts errors, so the 410 is never
+// memoized and a restarted server serves the current snapshot.
+//
 //nolint:unparam // every current caller is 500, but the helper is the seam for any 4xx/5xx surface.
 func (s *Server) httpErr(w http.ResponseWriter, err error, code int) {
+	msg := http.StatusText(code)
+	if errors.Is(err, db.ErrSnapshotGone) {
+		code, msg = http.StatusGone, snapshotGoneMessage
+	}
 	fmt.Fprintf(s.ios.ErrOut, "server: %d %s: %v\n", code, http.StatusText(code), err)
-	http.Error(w, http.StatusText(code), code)
+	http.Error(w, msg, code)
 }
+
+// snapshotGoneMessage is the 410 body for a read of a deleted snapshot.
+const snapshotGoneMessage = "the snapshot this page was serving has been deleted or pruned; " +
+	"restart `pvmt serve` to serve the current snapshot"
 
 // handleAsset serves one site-root browser asset. They are immutable for the
 // server's lifetime, so they get the same Cache-Control as the JSON endpoints
@@ -740,13 +754,10 @@ func (s *Server) serveHexCostSummary(w http.ResponseWriter, _ *http.Request, ent
 // export.BuildBoundaryGeoJSON the static exporter uses so the served bytes and
 // the exported file stay identical.
 //
-// The cache key deliberately omits snapshotID, unlike every other handler here.
-// GetBoundary is snapshot-unaware, so the payload is byte-identical across
-// snapshots; keying on the snapshot would re-run the projector derivation —
-// which json.Unmarshals once per coordinate, 205,961 times for Jacksonville —
-// every time the user scrubs the time-travel picker, to produce the same bytes.
-func (s *Server) serveBoundaryGeoJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry, _ int64) {
-	s.serveJSONCached(w, cacheKey("boundary", entry.Slug, 0), func() (any, error) {
+// A pinned store's GetBoundary reads the boundary its snapshot froze, so the
+// payload is keyed on the snapshot like every other handler here.
+func (s *Server) serveBoundaryGeoJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry, snapshotID int64) {
+	s.serveJSONCached(w, cacheKey("boundary", entry.Slug, snapshotID), func() (any, error) {
 		ctx := context.Background()
 
 		// Derive the projector the shared builder needs. BBoxAndCenter reports

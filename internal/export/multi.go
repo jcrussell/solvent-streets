@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
+	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/resource"
@@ -25,18 +26,25 @@ func BuildMultiCityMeta(ctx context.Context, entries []CityEntry, title string) 
 	if len(entries) == 0 {
 		return MetaJSON{}, errors.New("no entries to aggregate")
 	}
-	bbox, hasBBox := regionBBox(ctx, entries)
+	bbox, hasBBox, err := regionBBox(ctx, entries)
+	if err != nil {
+		return MetaJSON{}, err
+	}
 	if !hasBBox {
 		return MetaJSON{}, errors.New("no usable boundaries across entries")
 	}
 	centerLon, centerLat := geo.CenterFromBBox(bbox)
+	stats, err := aggregatePerResourceStats(ctx, entries)
+	if err != nil {
+		return MetaJSON{}, err
+	}
 
 	meta := MetaJSON{
 		ProjectName:  title,
 		BBox:         geoJSONBBox(bbox),
 		Center:       [2]float64{centerLon, centerLat},
 		SnapshotDate: time.Now().Format(time.DateOnly),
-		Stats:        aggregatePerResourceStats(ctx, entries),
+		Stats:        stats,
 	}
 	for _, entry := range entries {
 		// Per entry, so a config where only some cities have the combined
@@ -47,7 +55,9 @@ func BuildMultiCityMeta(ctx context.Context, entries []CityEntry, title string) 
 		}
 		meta.TotalPaved += paved
 	}
-	meta.CityArea = summedBoundaryArea(ctx, entries)
+	if meta.CityArea, err = summedBoundaryArea(ctx, entries); err != nil {
+		return MetaJSON{}, err
+	}
 	if meta.CityArea > 0 && meta.TotalPaved > 0 {
 		meta.PavedShare = meta.TotalPaved / meta.CityArea
 	}
@@ -60,7 +70,12 @@ func BuildMultiCityMeta(ctx context.Context, entries []CityEntry, title string) 
 //
 // Reads only rt.Name() (no ":city" variants): the per-resource cards on the
 // dashboard surface all-jurisdiction totals, matching single-city BuildMeta.
-func aggregatePerResourceStats(ctx context.Context, entries []CityEntry) []StatJSON {
+//
+// An entry whose results cannot be read is skipped, except when its pinned
+// snapshot is gone (db.ErrSnapshotGone): that is returned, so a snapshot
+// deleted mid-export fails the export rather than dropping the city from the
+// totals. The same holds for summedBoundaryArea and regionBBox.
+func aggregatePerResourceStats(ctx context.Context, entries []CityEntry) ([]StatJSON, error) {
 	types := make([]resource.Type, 0, len(resource.All))
 	for _, rt := range resource.All {
 		types = append(types, rt.Type())
@@ -70,6 +85,9 @@ func aggregatePerResourceStats(ctx context.Context, entries []CityEntry) []StatJ
 		// One batched lookup per entry. A type missing from the returned map
 		// has not been computed and contributes nothing.
 		latestByType, err := results.LoadTotals(ctx, entry.Store, types)
+		if errors.Is(err, db.ErrSnapshotGone) {
+			return nil, fmt.Errorf("%s: %w", entry.City.Name, err)
+		}
 		if err != nil {
 			continue
 		}
@@ -95,7 +113,7 @@ func aggregatePerResourceStats(ctx context.Context, entries []CityEntry) []StatJ
 			out = append(out, *st)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // summedBoundaryArea computes each sub-city's boundary area in its own UTM
@@ -107,10 +125,13 @@ func aggregatePerResourceStats(ctx context.Context, entries []CityEntry) []StatJ
 // boundaries (e.g. a parent jurisdiction plus its child) would be double-
 // counted; the recommended workaround for that case is to configure a single
 // boundary that already contains the children.
-func summedBoundaryArea(ctx context.Context, entries []CityEntry) float64 {
+func summedBoundaryArea(ctx context.Context, entries []CityEntry) (float64, error) {
 	var total float64
 	for _, entry := range entries {
 		gjson, err := entry.Store.GetBoundary(ctx)
+		if errors.Is(err, db.ErrSnapshotGone) {
+			return 0, fmt.Errorf("%s: %w", entry.City.Name, err)
+		}
 		if err != nil || gjson == "" {
 			continue
 		}
@@ -120,15 +141,18 @@ func summedBoundaryArea(ctx context.Context, entries []CityEntry) float64 {
 		}
 		total += a
 	}
-	return total
+	return total, nil
 }
 
 // regionBBox returns the union of sub-city bboxes ([south, west, north, east]).
-func regionBBox(ctx context.Context, entries []CityEntry) ([4]float64, bool) {
+func regionBBox(ctx context.Context, entries []CityEntry) ([4]float64, bool, error) {
 	var out [4]float64
 	first := true
 	for _, entry := range entries {
 		bb, _, _, err := entry.BBoxAndCenter(ctx)
+		if errors.Is(err, db.ErrSnapshotGone) {
+			return out, false, err
+		}
 		if err != nil {
 			continue
 		}
@@ -150,7 +174,7 @@ func regionBBox(ctx context.Context, entries []CityEntry) ([4]float64, bool) {
 			out[3] = bb[3]
 		}
 	}
-	return out, !first
+	return out, !first, nil
 }
 
 // BuildMultiCityForecastSeed aggregates per-city forecast seeds into one

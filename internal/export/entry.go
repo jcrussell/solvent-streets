@@ -35,8 +35,10 @@ type CityEntry struct {
 
 // WithSnapshot returns a copy of this CityEntry whose Store is pinned to
 // the given snapshot id. Snapshot-aware reads (compute results, hex stats,
-// cohorts, forecasts) on the returned store will filter to that snapshot;
-// unaware reads (features, boundary, snapshot list) are unchanged.
+// cohorts, forecasts, and the boundary, which reads the one the snapshot
+// froze) on the returned store filter to that snapshot, and fail with
+// db.ErrSnapshotGone once it is deleted; unaware reads (features, snapshot
+// list) are unchanged.
 func (entry CityEntry) WithSnapshot(snapshotID int64) CityEntry {
 	entry.Store = entry.Store.WithSnapshot(snapshotID)
 	return entry

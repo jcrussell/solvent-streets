@@ -17,7 +17,11 @@ import (
 
 // listView runs a viewQuery and scans every row. No snapshot, or no rows,
 // returns (nil, nil), never sql.ErrNoRows: the server's cache-eviction logic
-// relies on that for genuinely empty cities.
+// relies on that for genuinely empty cities. A pinned view checks its
+// snapshot again after reading: a delete that committed between resolving the
+// runs and the SELECT would otherwise read as an empty result, and a snapshot
+// still present after the read was present for all of it (ids are never
+// reused), so the rows are complete.
 func listView[T any](ctx context.Context, s *sqliteStore, what, selectClause string, where viewFilter, suffix string, scan func(*sql.Rows) (T, error)) ([]T, error) {
 	q, args, ok, err := s.viewQuery(ctx, selectClause, where, suffix)
 	if err != nil || !ok {
@@ -36,7 +40,13 @@ func listView[T any](ctx context.Context, s *sqliteStore, what, selectClause str
 		}
 		out = append(out, row)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.checkPin(ctx, s.db); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // SaveCityMetrics writes rows under runID in one transaction.

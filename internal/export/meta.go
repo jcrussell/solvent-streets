@@ -659,8 +659,14 @@ func BuildMeta(ctx context.Context, entry CityEntry, snapshotID int64) (MetaJSON
 		return MetaJSON{}, fmt.Errorf("paved area for %s: %w", entry.City.Name, err)
 	}
 
-	// Compute city boundary area and the paved share of it.
-	if boundaryGJSON, err := entry.Store.GetBoundary(ctx); err == nil && boundaryGJSON != "" {
+	// Compute city boundary area and the paved share of it. A read failure
+	// (a pinned snapshot gone above all) fails the build; an unparsable
+	// boundary only leaves the area out.
+	boundaryGJSON, err := entry.Store.GetBoundary(ctx)
+	if err != nil {
+		return MetaJSON{}, fmt.Errorf("boundary for %s: %w", entry.City.Name, err)
+	}
+	if boundaryGJSON != "" {
 		if cityArea, err := geo.BoundaryArea(ctx, boundaryGJSON); err == nil && cityArea > 0 {
 			meta.CityArea = cityArea
 			if meta.TotalPaved > 0 {

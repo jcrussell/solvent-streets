@@ -130,6 +130,15 @@ after a settings change, for example `pvmt roads compute` after editing
 population, or the combined paved total, without which the page sums the
 resources and double-counts their overlap. Run `pvmt --city <slug> all compute`.
 
+## Snapshot no longer exists
+
+`pvmt serve` answers a data request with **410 Gone**, `the snapshot this page
+was serving has been deleted or pruned`, or `pvmt export` fails with
+`snapshot N: snapshot no longer exists (deleted or pruned)`. Both pin each
+city's snapshot when they start, and `pvmt snapshots rm` or `prune` deleted it
+while they were running. Restart `pvmt serve`, or re-run the export, and it
+reads the city's current snapshot.
+
 ## Water strip errors and warnings
 
 Ingest subtracts OSM water from the city boundary, so that `% paved` compares

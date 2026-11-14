@@ -292,7 +292,11 @@ runs. That snapshot is the pinned id, or else the newest one under the city's
 current config hash. `pvmt export` and `pvmt serve` pin each city's snapshot
 once at startup (`CityEntry.PinCurrentSnapshot`), so a compute that commits
 meanwhile cannot mix two snapshots into one city's files. `?snapshot=N`
-overrides the pin per request.
+overrides the pin per request. A pinned view (`Store.WithSnapshot`) also reads
+the boundary its snapshot froze. If the snapshot is deleted while pinned,
+every snapshot-scoped read fails with `db.ErrSnapshotGone` (checked before and
+after each read) rather than reading as an empty city: export fails, and serve
+answers 410 and caches nothing.
 
 A snapshot also freezes what drawing its grid depends on: the hex edge it was
 tiled at (`hex_edge_m`) and the boundary it was clipped to, stored once per

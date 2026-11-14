@@ -28,10 +28,18 @@ const OrphanRunGrace = 24 * time.Hour
 // command's runs, possibly hours of compute, so it waits generously.
 const commitBusyBudget = 2 * time.Minute
 
-// WithSnapshot returns a view that reads exactly the given snapshot. A
-// snapshotID of 0 returns an unpinned view. A pin wins over WithConfigHash
-// (it is the more specific request, matching the server's ?snapshot=N).
-// The underlying DB connection is shared.
+// ErrSnapshotGone is returned by every snapshot-scoped read (city and hex
+// metrics, the frozen boundary) of a view pinned with WithSnapshot when that
+// snapshot does not exist: deleted or pruned since it was pinned, or never
+// created. A pinned view never reads a missing snapshot as an empty city.
+var ErrSnapshotGone = errors.New("snapshot no longer exists (deleted or pruned)")
+
+// WithSnapshot returns a view that reads exactly the given snapshot, including
+// the boundary it froze (GetBoundary). A snapshotID of 0 returns an unpinned
+// view. A pin wins over WithConfigHash (it is the more specific request,
+// matching the server's ?snapshot=N). Once the snapshot is gone every
+// snapshot-scoped read returns ErrSnapshotGone. The underlying DB connection
+// is shared.
 func (s *sqliteStore) WithSnapshot(snapshotID int64) Store {
 	cp := *s
 	cp.snapshotID = snapshotID
@@ -48,12 +56,30 @@ func (s *sqliteStore) WithConfigHash(configHash string) Store {
 	return &cp
 }
 
+// checkPin returns ErrSnapshotGone when the view is pinned to a snapshot this
+// city does not have. An unpinned view always passes.
+func (s *sqliteStore) checkPin(ctx context.Context, q queryer) error {
+	if s.snapshotID <= 0 {
+		return nil
+	}
+	var id int64
+	switch err := q.QueryRowContext(ctx, `SELECT id FROM snapshots WHERE id = ? AND city_id = ?`,
+		s.snapshotID, s.cityID).Scan(&id); {
+	case errors.Is(err, sql.ErrNoRows):
+		return fmt.Errorf("snapshot %d: %w", s.snapshotID, ErrSnapshotGone)
+	case err != nil:
+		return fmt.Errorf("check snapshot %d: %w", s.snapshotID, err)
+	}
+	return nil
+}
+
 // resolvedSnapshotID returns the snapshot this view reads: the pinned id, else
 // the newest snapshot for the view's config hash (any hash when unset). It
-// returns 0 when the city has no such snapshot.
+// returns 0 when the city has no such snapshot, and ErrSnapshotGone when the
+// pinned one does not exist.
 func (s *sqliteStore) resolvedSnapshotID(ctx context.Context, q queryer) (int64, error) {
 	if s.snapshotID > 0 {
-		return s.snapshotID, nil
+		return s.snapshotID, s.checkPin(ctx, q)
 	}
 	return newestSnapshotID(ctx, q, s.cityID, s.configHash)
 }

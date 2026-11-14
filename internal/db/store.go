@@ -116,7 +116,19 @@ func (s *sqliteStore) SaveBoundary(ctx context.Context, geometryJSON, source str
 	})
 }
 
+// GetBoundary returns the city's boundary GeoJSON, "" when none is stored.
+// A view pinned with WithSnapshot returns the boundary that snapshot froze,
+// falling back to the live boundary only when the snapshot froze none (the
+// city had no boundary at commit), and ErrSnapshotGone when the snapshot does
+// not exist. Every other view reads the live boundary, which ingest and
+// compute work from.
 func (s *sqliteStore) GetBoundary(ctx context.Context) (string, error) {
+	if s.snapshotID > 0 {
+		gj, frozen, err := s.frozenBoundary(ctx)
+		if err != nil || frozen {
+			return gj, err
+		}
+	}
 	var gj string
 	err := s.db.QueryRowContext(ctx, `SELECT geometry_json FROM city_boundaries WHERE city_id = ?`, s.cityID).Scan(&gj)
 	if err != nil {
@@ -126,6 +138,22 @@ func (s *sqliteStore) GetBoundary(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("get boundary: %w", err)
 	}
 	return gj, nil
+}
+
+// frozenBoundary reads the pinned snapshot's frozen boundary in one
+// statement. frozen is false when the snapshot froze none.
+func (s *sqliteStore) frozenBoundary(ctx context.Context) (gj string, frozen bool, err error) {
+	var geometry sql.NullString
+	err = s.db.QueryRowContext(ctx, `SELECT b.geometry_json FROM snapshots s
+		LEFT JOIN snapshot_boundaries b ON b.id = s.boundary_id
+		WHERE s.id = ? AND s.city_id = ?`, s.snapshotID, s.cityID).Scan(&geometry)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return "", false, fmt.Errorf("snapshot %d: %w", s.snapshotID, ErrSnapshotGone)
+	case err != nil:
+		return "", false, fmt.Errorf("get snapshot %d boundary: %w", s.snapshotID, err)
+	}
+	return geometry.String, geometry.Valid, nil
 }
 
 func (s *sqliteStore) Stats(ctx context.Context, resourceType resource.Type) (*StatusInfo, error) {

@@ -223,6 +223,9 @@ type Store interface {
 	// its manifest.
 	ListSnapshots(ctx context.Context) ([]Snapshot, error)
 	ResolveSnapshot(ctx context.Context, snapshotID int64) error
+	// WithSnapshot returns a view pinned to one snapshot: its runs and its
+	// frozen boundary. Every snapshot-scoped read of the view returns
+	// ErrSnapshotGone once that snapshot no longer exists.
 	WithSnapshot(snapshotID int64) Store
 	WithConfigHash(configHash string) Store
 	// DeleteSnapshot removes one snapshot's manifest, then every run no
@@ -250,6 +253,8 @@ type Store interface {
 	// stored maps to "".
 	InputDigests(ctx context.Context, inputs ...string) (map[string]string, error)
 	SaveBoundary(ctx context.Context, geometryJSON, source string) error
+	// GetBoundary returns the live boundary ("" when none), or for a view
+	// pinned with WithSnapshot the boundary that snapshot froze.
 	GetBoundary(ctx context.Context) (string, error)
 	Stats(ctx context.Context, resourceType resource.Type) (*StatusInfo, error)
 	Close() error

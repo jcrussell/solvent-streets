@@ -1,0 +1,90 @@
+package db
+
+import (
+	"context"
+	"errors"
+	"testing"
+)
+
+// TestWithSnapshot_GoneFailsEveryRead: a view pinned to a snapshot that was
+// deleted (or never existed, or is another city's) fails every
+// snapshot-scoped read with ErrSnapshotGone instead of reading as an empty,
+// never-computed city (solvent-streets-jxdj).
+func TestWithSnapshot_GoneFailsEveryRead(t *testing.T) {
+	ctx := context.Background()
+	root, store, _ := openInputsStore(t)
+	if err := store.SaveBoundary(ctx, geomA, "nominatim"); err != nil {
+		t.Fatal(err)
+	}
+	_, s1 := commitRun(t, store, "h", "roads", roadsRun(t, store, 100))
+	commitRun(t, store, "h", "roads", roadsRun(t, store, 200))
+	otherID, err := root.EnsureCity(ctx, "b", "B", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pinned := store.WithSnapshot(s1)
+	if got := roadsArea(t, pinned); got != 100 {
+		t.Fatalf("pinned roads before delete = %v, want 100", got)
+	}
+	if ok, err := store.DeleteSnapshot(ctx, s1); err != nil || !ok {
+		t.Fatalf("DeleteSnapshot = (%v, %v)", ok, err)
+	}
+
+	views := map[string]Store{
+		"deleted":      pinned,
+		"never":        store.WithSnapshot(9999),
+		"another city": root.ForCity(otherID).WithSnapshot(s1 + 1),
+	}
+	for name, v := range views {
+		reads := map[string]func() error{
+			"ListCityMetrics": func() error { _, err := v.ListCityMetrics(ctx, []string{"roads"}); return err },
+			"ListHexMetrics":  func() error { _, err := v.ListHexMetrics(ctx, "paved_area_m2", "roads"); return err },
+			"HasHexMetric":    func() error { _, err := v.HasHexMetric(ctx, "paved_area_m2", []string{"roads"}); return err },
+			"GetBoundary":     func() error { _, err := v.GetBoundary(ctx); return err },
+			"Stats":           func() error { _, err := v.Stats(ctx, "roads"); return err },
+		}
+		for read, fn := range reads {
+			if err := fn(); !errors.Is(err, ErrSnapshotGone) {
+				t.Errorf("%s view: %s error = %v, want ErrSnapshotGone", name, read, err)
+			}
+		}
+	}
+
+	// The unpinned view and the surviving snapshot are unaffected.
+	if got := roadsArea(t, store); got != 200 {
+		t.Errorf("unpinned roads = %v, want 200", got)
+	}
+}
+
+// TestWithSnapshot_GetBoundaryIsFrozen: a pinned view reads the boundary its
+// snapshot froze, whatever was ingested since; a snapshot that froze none
+// (the city had no boundary at commit) falls back to the live one.
+func TestWithSnapshot_GetBoundaryIsFrozen(t *testing.T) {
+	ctx := context.Background()
+	_, store, _ := openInputsStore(t)
+	_, s0 := commitRun(t, store, "h", "roads", nil) // no boundary yet
+	if err := store.SaveBoundary(ctx, geomA, "nominatim"); err != nil {
+		t.Fatal(err)
+	}
+	_, s1 := commitRun(t, store, "h", "parking", nil)
+	if err := store.SaveBoundary(ctx, geomB, "nominatim"); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, c := range []struct {
+		name string
+		view Store
+		want string
+	}{
+		{"pinned to s1", store.WithSnapshot(s1), geomA},
+		{"pinned to s0 (froze none)", store.WithSnapshot(s0), geomB},
+		{"unpinned", store, geomB},
+		{"config-hash view", store.WithConfigHash("h"), geomB},
+	} {
+		got, err := c.view.GetBoundary(ctx)
+		if err != nil || got != c.want {
+			t.Errorf("%s: GetBoundary = (%s, %v), want %s", c.name, got, err, c.want)
+		}
+	}
+}
