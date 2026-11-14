@@ -1,15 +1,8 @@
 -- Init schema: all tables with multi-city support.
 --
--- SCHEMA GENERATION 5. Generation 1 squashed every migration up to and
--- including v0.4.1's 001/002 and the unreleased 003 (solvent-streets-25t6.2);
--- generation 2 replaced per-resource snapshots with runs and whole-city
--- snapshot manifests (solvent-streets-25t6.3); generation 3 stopped storing
--- forecasts (solvent-streets-ern4.16); generation 4 replaced the
--- pavement-specific result tables with city_metrics / hex_metrics
--- (solvent-streets-0dkz); generation 5 added input digests (city_inputs,
--- run_inputs), the per-city working state (working_parts), frozen facility
--- positions (run_facilities) and each snapshot's own hex edge and boundary
--- (snapshot_boundaries) (solvent-streets-we5i).
+-- SCHEMA GENERATION 1 (v0.5.0). It squashes every migration up to and
+-- including v0.4.1's 001/002; the pre-release generations that followed are
+-- folded in, because every pre-release database is rebuilt, not migrated.
 -- A squash is a deliberate breaking change: databases created under an earlier
 -- generation already record schema_version 1, so this file would be SKIPPED for
 -- them and they would run on the old schema. migrate() therefore refuses any

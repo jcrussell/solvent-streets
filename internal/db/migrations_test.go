@@ -64,7 +64,7 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 		// are now city_metrics / hex_metrics rows.
 		for _, gone := range []string{"forecast_results", "compute_results", "hex_stats", "cohort_stats"} {
 			if slices.Contains(got, gone) {
-				t.Errorf("%s exists; generation 5 has no such table", gone)
+				t.Errorf("%s exists; generation 1 has no such table", gone)
 			}
 		}
 	})
@@ -569,11 +569,6 @@ func openRaw(t *testing.T, path string) *sql.DB {
 // would skip the new 001_init.sql and run on the old schema. Open must refuse
 // it with ErrIncompatibleDatabase, name the path in the hint, and leave the
 // file byte-identical: it may hold hours of ingested data.
-//
-// Generation 2 is the pre-release schema that still stored forecasts
-// (forecast_results, forecast:<resource> snapshot parts); generation 3 dropped
-// them by editing 001_init.sql in place, so a generation-2 database records
-// schema_version 1 too and must be refused the same way.
 func TestOpen_RefusesOlderGeneration(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
@@ -583,14 +578,6 @@ func TestOpen_RefusesOlderGeneration(t *testing.T) {
 	}{
 		{"v0.4.1 (001, 002)", []int{1, 2}, 0, ""},
 		{"pre-release HEAD (001, 002, 003)", []int{1, 2, 3}, 0, ""},
-		{"pre-release generation 2 (stored forecasts)", []int{1}, 2, "forecast_results"},
-		// Generation 3 is the one pre-release users actually hold: typed result
-		// tables (hex_stats) before the generic city_metrics / hex_metrics rows.
-		{"pre-release generation 3 (typed result tables)", []int{1}, 3, "hex_stats"},
-		// Generation 4 had no input digests, working state or frozen snapshot
-		// grid; it is the schema the v0.5.0 pre-release binaries before
-		// solvent-streets-we5i created.
-		{"pre-release generation 4 (no input digests)", []int{1}, 4, "generation_4_marker"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()

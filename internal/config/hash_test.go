@@ -697,7 +697,7 @@ func TestComputeInputs_EveryFieldClassified(t *testing.T) {
 // computeInputsScheme too when the change re-encodes the same inputs in a way
 // that could collide with hashes already stored by a readable database.
 // (The scheme starts at v1 with v0.5.0: no released database holds a hash
-// under an earlier encoding, and schema generation 5 refuses every one that
+// under an earlier encoding, and schema generation 1 refuses every one that
 // could.)
 func TestCityHash_PinnedValue(t *testing.T) {
 	c := &Config{

@@ -120,7 +120,7 @@ import (
 //
 // History: 1 — v0.5.0, the first release with a semantic hash. (The
 // pre-release bumps were folded into it: no released database holds an
-// older epoch, and schema generation 5 refuses every database that could.)
+// older epoch, and schema generation 1 refuses every database that could.)
 const ComputeEpoch = 1
 
 // computeInputsScheme names the encoding of hashEnvelope; part of the hashed
