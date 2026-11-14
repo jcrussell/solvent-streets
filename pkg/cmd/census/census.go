@@ -66,7 +66,7 @@ func RunIngestForCity(ctx context.Context, cf *cmdutil.Factory) error {
 
 // RunComputeForCity apportions the city's blocks onto grid (nil builds it).
 // `pvmt all compute` calls it in-process after the pavement passes, with the
-// city's draft (nil commits this run's own snapshot).
+// city's draft (nil commits this run's own update).
 func RunComputeForCity(ctx context.Context, cf *cmdutil.Factory, grid []geo.Hex, draft *db.Draft) error {
 	// Fail fast on a cancelled run, as the pavement and services computes do,
 	// rather than open the store and start a pass that cannot finish.
@@ -110,7 +110,7 @@ type Options struct {
 	// PrebuiltGrid is the clipped hex grid when `all compute` already built
 	// one for the city; nil builds it here.
 	PrebuiltGrid []geo.Hex
-	// Draft is the snapshot `all compute` is assembling; nil commits this
+	// Draft is the latest-compute update `all compute` is assembling; nil commits this
 	// run's own (see compute.WithDraft).
 	Draft *db.Draft
 	rows  *[]computeRow
@@ -159,8 +159,9 @@ func NewCmdCompute(f *cmdutil.Factory, runF func(context.Context, *Options) erro
 		Long: `Spread each stored Census block's population and housing units onto the
 hexes it overlaps, in proportion to the overlapping area, and store per hex:
 population, housing_units and population_per_km2 (population over the hex's
-own boundary-clipped area). The result is committed as the census part of
-the city's snapshot, so a later roads compute leaves it in place. A city
+own boundary-clipped area). The result updates the census part of the
+city's latest compute, so a later roads compute leaves it in place; run
+'pvmt snapshots create' to publish it. A city
 with census = false, or with no stored blocks, has its census part removed
 rather than keeping an old result.`,
 		Example: `  # Every configured city

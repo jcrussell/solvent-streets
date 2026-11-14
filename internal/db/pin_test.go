@@ -80,7 +80,8 @@ func TestWithSnapshot_GetBoundaryIsFrozen(t *testing.T) {
 		{"pinned to s1", store.WithSnapshot(s1), geomA},
 		{"pinned to s0 (froze none)", store.WithSnapshot(s0), geomB},
 		{"unpinned", store, geomB},
-		{"config-hash view", store.WithConfigHash("h"), geomB},
+		{"latest-compute view", store.WithLatestCompute("h"), geomB},
+		{"pinned runs", store.WithRuns([]int64{1}), geomB},
 	} {
 		got, err := c.view.GetBoundary(ctx)
 		if err != nil || got != c.want {
@@ -95,7 +96,7 @@ func TestWithSnapshot_GetBoundaryIsFrozen(t *testing.T) {
 func TestViewSnapshot(t *testing.T) {
 	ctx := context.Background()
 	_, store, _ := openInputsStore(t)
-	if snap, err := store.WithConfigHash("h").ViewSnapshot(ctx); err != nil || snap != nil {
+	if snap, err := store.WithLatestCompute("h").ViewSnapshot(ctx); err != nil || snap != nil {
 		t.Fatalf("no snapshot: ViewSnapshot = (%+v, %v), want (nil, nil)", snap, err)
 	}
 	_, s0 := commitRun(t, store, "h", "roads", nil) // no boundary
@@ -111,11 +112,17 @@ func TestViewSnapshot(t *testing.T) {
 	}{
 		{store.WithSnapshot(s0), s0, false},
 		{store.WithSnapshot(s1), s1, true},
-		{store.WithConfigHash("h"), s1, true},
+		{store, s1, true},
 	} {
 		snap, err := c.view.ViewSnapshot(ctx)
 		if err != nil || snap == nil || snap.ID != c.want || snap.HexEdgeM != testEdge || (snap.BoundaryDigest != "") != c.hasDigest {
 			t.Errorf("ViewSnapshot = (%+v, %v), want snapshot %d at %v m, boundary digest %v", snap, err, c.want, testEdge, c.hasDigest)
+		}
+	}
+	// A latest compute is not a snapshot, whether resolved live or pinned.
+	for name, view := range map[string]Store{"latest": store.WithLatestCompute("h"), "runs": store.WithRuns([]int64{1})} {
+		if snap, err := view.ViewSnapshot(ctx); err != nil || snap != nil {
+			t.Errorf("%s: ViewSnapshot = (%+v, %v), want (nil, nil)", name, snap, err)
 		}
 	}
 	if _, err := store.DeleteSnapshot(ctx, s0); err != nil {
@@ -123,5 +130,27 @@ func TestViewSnapshot(t *testing.T) {
 	}
 	if _, err := store.WithSnapshot(s0).ViewSnapshot(ctx); !errors.Is(err, ErrSnapshotGone) {
 		t.Errorf("deleted pin: err = %v, want ErrSnapshotGone", err)
+	}
+}
+
+// TestWithRuns: a view of pinned runs reads exactly them, whatever is
+// committed later, and fails with ErrSnapshotGone once gc has swept any.
+func TestWithRuns(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	roads := commitLatestRun(t, store, "roads", roadsRun(t, store, 100))
+	pinned := store.WithRuns([]int64{roads})
+	commitLatestRun(t, store, "roads", roadsRun(t, store, 200))
+	if got := roadsArea(t, pinned); got != 100 {
+		t.Errorf("pinned runs roads = %v, want 100 (a later commit must not mix in)", got)
+	}
+	if got := roadsArea(t, store.WithLatestCompute("h")); got != 200 {
+		t.Errorf("live latest compute roads = %v, want 200", got)
+	}
+	if err := store.DiscardRun(ctx, roads); err != nil { // as gc would, once unreferenced
+		t.Fatal(err)
+	}
+	if _, err := pinned.ListCityMetrics(ctx, []string{"roads"}); !errors.Is(err, ErrSnapshotGone) {
+		t.Errorf("swept run: err = %v, want ErrSnapshotGone", err)
 	}
 }

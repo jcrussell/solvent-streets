@@ -122,9 +122,10 @@ func newAllCompute(f *cmdutil.Factory) *cobra.Command {
 		Long: `Run every compute step for every configured city, or the one --city names,
 on one shared hex grid: roads, parking and sidewalks coverage, the combined
 paved-area pass, then best-effort fire response coverage and per-hex
-population. All of a city's steps commit together as its next snapshot. A
-failed pavement or combined step keeps its previous part and fails the run;
-a failed optional step only warns. An interrupted run commits nothing.
+population. All of a city's steps update its latest compute together; run
+'pvmt snapshots create' to publish it. A failed pavement or combined step
+keeps its previous part and fails the run; a failed optional step only
+warns. An interrupted run commits nothing.
 
 Needs a prior 'pvmt all ingest'. Rerun after re-ingesting or after changing
 a setting that affects results.`,
@@ -139,7 +140,7 @@ a setting that affects results.`,
 }
 
 // computeCity runs every compute step for one city into ONE draft and commits
-// it as the city's next snapshot: the steps that succeeded swap in their
+// it into the city's latest compute: the steps that succeeded swap in their
 // parts, a failed step leaves its part as it was, and a cancellation commits
 // nothing (solvent-streets-25t6).
 func computeCity(ctx context.Context, ios *iostreams.IOStreams, cf *cmdutil.Factory, city *config.CityConfig) error {
@@ -156,7 +157,7 @@ func computeCity(ctx context.Context, ios *iostreams.IOStreams, cf *cmdutil.Fact
 	if isCancel(stepsErr) {
 		return errors.Join(stepsErr, draft.Discard(context.WithoutCancel(ctx)))
 	}
-	if _, err := draft.Commit(ctx); err != nil {
+	if err := draft.Commit(ctx); err != nil {
 		return compute.CommitFailed(stepsErr, err, draft.Discard(context.WithoutCancel(ctx)))
 	}
 	return stepsErr

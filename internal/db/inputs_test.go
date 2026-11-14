@@ -308,7 +308,7 @@ func TestCreateRun_RecordsInputs(t *testing.T) {
 }
 
 // workingParts reads the working state for (city, hash) as part -> run.
-func workingParts(t *testing.T, root *RootStore, cityID int64, hash string) map[string]int64 {
+func workingPartsOf(t *testing.T, root *RootStore, cityID int64, hash string) map[string]int64 {
 	t.Helper()
 	rows, err := root.db.QueryContext(context.Background(),
 		`SELECT part, run_id FROM working_parts WHERE city_id = ? AND config_hash = ?`, cityID, hash)
@@ -353,23 +353,23 @@ func runInputs(t *testing.T, root *RootStore, runID int64) map[string]string {
 	return out
 }
 
-// TestCommitSnapshot_SetsWorkingState: a commit makes its manifest the
-// working state for its hash, drops included.
-func TestCommitSnapshot_SetsWorkingState(t *testing.T) {
+// TestCommitLatest_SetsWorkingParts: a commit applies its parts to the
+// latest compute (working_parts) for its hash, drops included.
+func TestCommitLatest_SetsWorkingParts(t *testing.T) {
 	ctx := context.Background()
 	root, store, id := openInputsStore(t)
 	roads, _ := commitRun(t, store, "h", "roads", nil)
 	fire, _ := commitRun(t, store, "h", "service:fire", nil)
-	if got, want := workingParts(t, root, id, "h"), map[string]int64{"roads": roads, "service:fire": fire}; !maps.Equal(got, want) {
+	if got, want := workingPartsOf(t, root, id, "h"), map[string]int64{"roads": roads, "service:fire": fire}; !maps.Equal(got, want) {
 		t.Errorf("working state = %v, want %v", got, want)
 	}
-	if _, err := store.CommitSnapshot(ctx, "h", testEdge, map[string]int64{"service:fire": 0}); err != nil {
+	if err := store.CommitLatest(ctx, "h", map[string]int64{"service:fire": 0}); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := workingParts(t, root, id, "h"), map[string]int64{"roads": roads}; !maps.Equal(got, want) {
+	if got, want := workingPartsOf(t, root, id, "h"), map[string]int64{"roads": roads}; !maps.Equal(got, want) {
 		t.Errorf("working state after the drop = %v, want %v", got, want)
 	}
-	if got := workingParts(t, root, id, "other"); len(got) != 0 {
+	if got := workingPartsOf(t, root, id, "other"); len(got) != 0 {
 		t.Errorf("another hash's working state = %v, want empty", got)
 	}
 }
@@ -463,7 +463,7 @@ func TestSnapshot_FreezesEdgeAndBoundary(t *testing.T) {
 	if boundaryOf(s3) != geomB {
 		t.Error("deleting other snapshots lost s3's boundary")
 	}
-	if _, err := store.CommitSnapshot(ctx, "h", 0, map[string]int64{"roads": 0}); err == nil {
-		t.Error("a commit with no hex edge succeeded")
+	if _, _, err := store.CreateSnapshot(ctx, "h", 0, nil); err == nil {
+		t.Error("a snapshot with no hex edge succeeded")
 	}
 }

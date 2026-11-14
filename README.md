@@ -42,11 +42,12 @@ name = "Alameda, CA"
 overpass = true
 ```
 
-Fetch the data, compute it, and look at it:
+Fetch the data, compute it, snapshot it, and look at it:
 
 ```
 pvmt all ingest
 pvmt all compute
+pvmt snapshots create   # freeze the compute; export publishes the newest snapshot
 pvmt serve              # http://localhost:8080
 pvmt export -o ./site   # or: a static site for any web host
 ```

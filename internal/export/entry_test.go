@@ -3,6 +3,8 @@ package export
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,75 +18,137 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/results"
 )
 
-// TestRequireMatchingSnapshot covers the 8xqn fail-loud behavior: the
-// exporter must reject a city whose snapshots predate the current config
-// hash, but pass a city with a matching snapshot even when its per-hex coverage is
-// empty (legitimate tiny-city case).
-func TestRequireMatchingSnapshot(t *testing.T) {
+// TestPinNewest_PinsNewestAnyHash: an export reads ONE snapshot per city,
+// the newest whatever settings it was created under, warns when those are
+// not the current ones, notes a latest compute not yet snapshotted, and keeps
+// reading the pinned snapshot after a later compute or create.
+func TestPinNewest_PinsNewestAnyHash(t *testing.T) {
+	ctx := context.Background()
 	cfg := &config.Config{}
-	wantHash := cfg.CityHash(nil)
-
-	cases := []struct {
-		name    string
-		snaps   []db.Snapshot
-		wantErr error
-	}{
-		{
-			name:    "no snapshots at all",
-			snaps:   nil,
-			wantErr: ErrNoMatchingSnapshot,
-		},
-		{
-			name:    "snapshots exist but hash mismatch",
-			snaps:   []db.Snapshot{{ID: 1, ConfigHash: "other-hash"}},
-			wantErr: ErrNoMatchingSnapshot,
-		},
-		{
-			name:    "snapshot with matching hash",
-			snaps:   []db.Snapshot{{ID: 1, ConfigHash: wantHash, Parts: paved}},
-			wantErr: nil,
-		},
-		{
-			name: "multiple snapshots, one matches",
-			snaps: []db.Snapshot{
-				{ID: 1, ConfigHash: "stale"},
-				{ID: 2, ConfigHash: wantHash, Parts: paved},
-			},
-			wantErr: nil,
-		},
+	c := newSQLiteCity(t, cfg, "Test City", exportBoundaryA)
+	hash := cfg.CityHash(&c.city)
+	roads := func(h string, area float64) int64 {
+		t.Helper()
+		run, err := c.store.CreateRun(ctx, "roads", h, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := c.store.SaveCityMetrics(ctx, run.ID, results.TotalRows(resource.TypeRoads, results.Totals{Area: area})); err != nil {
+			t.Fatal(err)
+		}
+		return run.ID
+	}
+	if _, err := dbtest.Publish(ctx, c.store, hash, 100, map[string]int64{"roads": roads(hash, 100)}); err != nil {
+		t.Fatal(err)
+	}
+	newest, err := dbtest.Publish(ctx, c.store, "another-config", 100, map[string]int64{"roads": roads("another-config", 999)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.store.CommitLatest(ctx, hash, map[string]int64{"roads": roads(hash, 200)}); err != nil {
+		t.Fatal(err)
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			snaps := tc.snaps
-			store := &dbtest.MockStore{
-				ListSnapshotsFunc: func(_ context.Context) ([]db.Snapshot, error) {
-					return snaps, nil
-				},
-			}
-			entry := CityEntry{
-				Config: cfg,
-				City:   config.CityConfig{Name: "Test City"},
-				Store:  store,
-				Slug:   "test-city",
-			}
-			err := entry.RequireMatchingSnapshot(context.Background())
-			if !errors.Is(err, tc.wantErr) {
-				t.Errorf("RequireMatchingSnapshot: got %v, want %v", err, tc.wantErr)
-			}
-		})
+	entries := []CityEntry{c.entry()}
+	var warn strings.Builder
+	if err := PinNewest(ctx, entries, false, &warn); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbtest.Publish(ctx, c.store, hash, 100, map[string]int64{"roads": roads(hash, 300)}); err != nil { // lands "mid-export"
+		t.Fatal(err)
+	}
+	r, ok, err := results.LoadTotal(ctx, entries[0].Store, resource.TypeRoads)
+	if err != nil || !ok || r.Area != 999 {
+		t.Errorf("pinned read = (%+v, %v), want the newest snapshot's 999 whatever its hash", r, err)
+	}
+	got := warn.String()
+	if want := fmt.Sprintf("snapshot #%d was created under other settings", newest.ID); !strings.Contains(got, want) ||
+		!strings.Contains(got, "exporting it as created") {
+		t.Errorf("warnings = %q; want the other-settings warning for snapshot %d", got, newest.ID)
+	}
+	if !strings.Contains(got, "note: Test City: the latest compute has roads not yet snapshotted") {
+		t.Errorf("warnings = %q; want a note that roads is not yet snapshotted", got)
 	}
 }
 
-// TestRequireMatchingSnapshot_IncludedCityUsesSourceHash: a city pulled in via
+// TestPinNewest_RefusesCitiesWithNoSnapshot: one city without a snapshot
+// refuses the whole export, naming every such city with the command that
+// fixes it (all compute first when nothing is computed either), and pins
+// nothing. In a multi-city export a city with no boundary either is left for
+// the exporter to skip.
+func TestPinNewest_RefusesCitiesWithNoSnapshot(t *testing.T) {
+	ctx := context.Background()
+	cfg := &config.Config{}
+	pins := 0
+	entry := func(name, boundary string, snaps []db.Snapshot, latest []db.LatestPart) CityEntry {
+		city := config.CityConfig{Name: name}
+		return CityEntry{Config: cfg, City: city, Slug: city.Slug(), Store: &dbtest.MockStore{
+			ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) { return snaps, nil },
+			LatestComputeFunc: func(context.Context, string) ([]db.LatestPart, error) { return latest, nil },
+			GetBoundaryFunc:   func(context.Context) (string, error) { return boundary, nil },
+			WithSnapshotFunc:  func(int64) db.Store { pins++; return &dbtest.MockStore{} },
+		}}
+	}
+	entries := []CityEntry{
+		entry("Done", exportBoundaryA, []db.Snapshot{{ID: 1, ConfigHash: cfg.CityHash(&config.CityConfig{Name: "Done"}), Parts: paved}}, nil),
+		entry("Computed", exportBoundaryA, nil, []db.LatestPart{{Part: "roads", RunID: 1}}),
+		entry("Bare", exportBoundaryA, nil, nil),
+		entry("Unbounded", "", nil, nil),
+	}
+	err := PinNewest(ctx, entries, true, io.Discard)
+	var h *hint.ErrHint
+	if !errors.Is(err, ErrNoSnapshot) || !errors.As(err, &h) {
+		t.Fatalf("err = %v, want a hinted ErrNoSnapshot", err)
+	}
+	for _, want := range []string{
+		"Computed: pvmt --city computed snapshots create",
+		"Bare: pvmt --city bare all compute && pvmt --city bare snapshots create",
+	} {
+		if !strings.Contains(h.Hint, want) {
+			t.Errorf("hint %q lacks %q", h.Hint, want)
+		}
+	}
+	if strings.Contains(h.Hint, "Done") || strings.Contains(h.Hint, "Unbounded") {
+		t.Errorf("hint %q names a city with a snapshot or one the export skips", h.Hint)
+	}
+	if !strings.Contains(err.Error(), "2 cities have none") {
+		t.Errorf("err = %q, want the count of cities with none", err)
+	}
+	if pins != 0 {
+		t.Errorf("a refused export pinned %d cities, want none", pins)
+	}
+	if err := PinNewest(ctx, entries[3:], false, io.Discard); !errors.Is(err, ErrNoSnapshot) {
+		t.Errorf("single-city export of a city with no snapshot or boundary = %v, want ErrNoSnapshot", err)
+	}
+}
+
+// TestExport_NoSnapshotWritesNothing: the refusal comes before any file is
+// written.
+func TestExport_NoSnapshotWritesNothing(t *testing.T) {
+	cfg := &config.Config{}
+	entry := exportTestEntry(cfg, "Solo City", "solo-city", exportBoundaryA, nil)
+	entry.Store.(*dbtest.MockStore).ListSnapshotsFunc = func(context.Context) ([]db.Snapshot, error) { return nil, nil }
+	dir := filepath.Join(t.TempDir(), "site")
+	e := New([]CityEntry{entry}, cfg, dir, "metric", testAssets(t))
+	if err := e.Run(context.Background()); !errors.Is(err, ErrNoSnapshot) {
+		t.Fatalf("Run = %v, want ErrNoSnapshot", err)
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a refused export created %s (stat err %v)", dir, err)
+	}
+}
+
+// TestSnapshotSettingsWarning_IncludedCityUsesSourceHash: a city pulled in via
 // [[include]] reads the snapshots its SOURCE config wrote, not the including
-// config's. Without this the union config looks for a hash nothing ever wrote
-// and every city fails — which is exactly why `make site` could not run.
+// config's, and its source's snapshot counts as current. Without this every
+// city of the union config would warn of other settings, and its computes
+// would write a namespace nothing else reads — which is exactly why
+// `make site` could not run.
 //
 // The union also gives the city a forecast calibration its source lacks, the
 // way examples/all backfills cited figures; [forecast] is not a compute input,
 // so the source's snapshot still applies.
-func TestRequireMatchingSnapshot_IncludedCityUsesSourceHash(t *testing.T) {
+func TestSnapshotSettingsWarning_IncludedCityUsesSourceHash(t *testing.T) {
 	dir := t.TempDir()
 	write := func(rel, data string) string {
 		t.Helper()
@@ -126,19 +190,19 @@ func TestRequireMatchingSnapshot_IncludedCityUsesSourceHash(t *testing.T) {
 			},
 		},
 	}
-	if err := entry.RequireMatchingSnapshot(context.Background()); err != nil {
-		t.Fatalf("included city should match its source snapshot, got %v", err)
+	if w := entry.SnapshotSettingsWarning(&db.Snapshot{ID: 1, ConfigHash: sourceHash, Parts: paved}); w != "" {
+		t.Fatalf("included city should match its source snapshot, got warning %q", w)
 	}
 	if got := cfg.CityConfigID(&city); got != "bay-area-ca" {
 		t.Errorf("CityConfigID = %q, want the source's cities row %q", got, "bay-area-ca")
 	}
 }
 
-// TestRequireMatchingSnapshot_IncludedServicesMatchSource pins
+// TestSnapshotSettingsWarning_IncludedServicesMatchSource pins
 // solvent-streets-qtue: an [[include]]d city whose own config sets
 // [[services]] runs under them in the union too, so the union reads the
 // snapshot its source computed instead of refusing it as diverged.
-func TestRequireMatchingSnapshot_IncludedServicesMatchSource(t *testing.T) {
+func TestSnapshotSettingsWarning_IncludedServicesMatchSource(t *testing.T) {
 	dir := t.TempDir()
 	write := func(rel, data string) string {
 		t.Helper()
@@ -171,238 +235,68 @@ func TestRequireMatchingSnapshot_IncludedServicesMatchSource(t *testing.T) {
 			},
 		},
 	}
-	if err := entry.RequireMatchingSnapshot(context.Background()); err != nil {
-		t.Fatalf("included city should read its source's snapshot, got %v", err)
+	if w := entry.SnapshotSettingsWarning(&db.Snapshot{ID: 1, ConfigHash: leafHash, Parts: paved}); w != "" {
+		t.Fatalf("included city should read its source's snapshot, got warning %q", w)
 	}
 	if got := cfg.ResolvedServices(&entry.City); len(got) != 1 || got[0].TurnoutS == nil || *got[0].TurnoutS != 60 {
 		t.Errorf("ResolvedServices = %+v, want the leaf's fire turnout_s = 60", got)
 	}
 }
 
-// TestPinCurrentSnapshot: an export reads ONE snapshot per city. The pin picks
-// the newest snapshot for the city's current config hash, ignores other hashes,
-// and keeps reading it after a later commit, so a compute that lands
-// mid-export cannot mix two snapshots into one city's files.
-func TestPinCurrentSnapshot(t *testing.T) {
-	ctx := context.Background()
-	root, err := db.Open(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = root.Close() })
-	cfg := &config.Config{}
-	city := config.CityConfig{Name: "Test City"}
-	id, err := root.EnsureCity(ctx, "test-city", city.Name, "test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	store := root.ForCity(id)
-	hash := cfg.CityHash(&city)
-	commitArea := func(h string, area float64) {
-		t.Helper()
-		run, err := store.CreateRun(ctx, "roads", h, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := store.SaveCityMetrics(ctx, run.ID, results.TotalRows(resource.TypeRoads, results.Totals{Area: area})); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := store.CommitSnapshot(ctx, h, cfg.ResolvedHexEdge(&city), map[string]int64{"roads": run.ID}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	commitArea(hash, 100)
-	commitArea("another-config", 999)
-
-	entry := CityEntry{Config: cfg, City: city, Store: store.WithConfigHash(hash), Slug: "test-city"}
-	pinned, err := entry.PinCurrentSnapshot(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	commitArea(hash, 200) // lands "mid-export"
-
-	r, ok, err := results.LoadTotal(ctx, pinned.Store, resource.TypeRoads)
-	if err != nil || !ok || r.Area != 100 {
-		t.Errorf("pinned read = (%+v, %v), want the 100 snapshot that was current when the export started", r, err)
-	}
-	if r, ok, _ := results.LoadTotal(ctx, entry.Store, resource.TypeRoads); !ok || r.Area != 200 {
-		t.Errorf("unpinned entry = %+v, want the newer 200 (so the pin is what holds the export steady)", r)
-	}
-}
-
 // paved is the manifest of a snapshot that holds a pavement compute, which
-// RequireMatchingSnapshot requires before a city may be exported.
+// every exported snapshot has (snapshots create refuses one without).
 var paved = []db.SnapshotPart{{Part: "roads", RunID: 1}}
 
-// TestRequireMatchingSnapshot_MetricsOnlyIsRefused: a snapshot under the
-// current config that holds only metric parts (fire coverage, census) must
-// not pass. After any pvmt.toml edit `pvmt services compute` alone commits
-// exactly that, and exporting it publishes a blank city at exit 0.
-func TestRequireMatchingSnapshot_MetricsOnlyIsRefused(t *testing.T) {
-	cfg := &config.Config{}
-	store := &dbtest.MockStore{ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
-		return []db.Snapshot{
-			{ID: 3, ConfigHash: cfg.CityHash(nil), Parts: []db.SnapshotPart{{Part: "service:fire"}}},
-			{ID: 2, ConfigHash: "older-config", Parts: paved},
-		}, nil
-	}}
-	entry := CityEntry{Config: cfg, City: config.CityConfig{Name: "Test City"}, Store: store, Slug: "test-city"}
-	err := entry.RequireMatchingSnapshot(context.Background())
-	if !errors.Is(err, ErrNoMatchingSnapshot) || !strings.Contains(err.Error(), "no pavement") {
-		t.Errorf("err = %v, want ErrNoMatchingSnapshot naming the missing pavement compute", err)
+// TestRequirePavement: export's defensive check refuses a snapshot that holds
+// only metric parts (fire coverage, census), which would publish a blank
+// city.
+func TestRequirePavement(t *testing.T) {
+	entry := CityEntry{City: config.CityConfig{Name: "Test City"}}
+	err := RequirePavement(entry, &db.Snapshot{ID: 3, Parts: []db.SnapshotPart{{Part: "service:fire"}}})
+	if err == nil || !strings.Contains(err.Error(), "no pavement") || !strings.Contains(err.Error(), "service:fire") {
+		t.Errorf("err = %v, want one naming the missing pavement compute", err)
+	}
+	if err := RequirePavement(entry, &db.Snapshot{ID: 4, Parts: paved}); err != nil {
+		t.Errorf("paved snapshot: %v", err)
 	}
 }
 
-// TestRequireMatchingSnapshot_StaleSaysSettingsChanged: a city computed only
-// under other settings gets the shared "settings changed" hint (the one
-// forecast and status print too), and a never-computed city a different one.
-func TestRequireMatchingSnapshot_StaleSaysSettingsChanged(t *testing.T) {
+// TestSnapshotSettingsWarning: a snapshot under the current settings is
+// silent; one under others names the snapshot and how to publish the current
+// settings.
+func TestSnapshotSettingsWarning(t *testing.T) {
 	cfg := &config.Config{}
-	entryWith := func(snaps []db.Snapshot) CityEntry {
-		return CityEntry{
-			Config: cfg, City: config.CityConfig{Name: "Test City"}, Slug: "test-city",
-			Store: &dbtest.MockStore{ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) { return snaps, nil }},
+	city := config.CityConfig{Name: "Test City"}
+	entry := CityEntry{Config: cfg, City: city, Slug: city.Slug()}
+	if w := entry.SnapshotSettingsWarning(&db.Snapshot{ID: 1, ConfigHash: cfg.CityHash(&city)}); w != "" {
+		t.Errorf("current snapshot warned %q", w)
+	}
+	w := entry.SnapshotSettingsWarning(&db.Snapshot{ID: 2, ConfigHash: "0ld0ld0ld0ld0ld0"})
+	for _, want := range []string{"snapshot #2", "0ld0ld0ld0ld0ld0", "hex_edge_m", "pvmt --city test-city snapshots create"} {
+		if !strings.Contains(w, want) {
+			t.Errorf("warning %q lacks %q", w, want)
 		}
-	}
-	hintOf := func(err error) string {
-		t.Helper()
-		var h *hint.ErrHint
-		if !errors.As(err, &h) {
-			t.Fatalf("want a hinted error, got %v", err)
-		}
-		return h.Hint
-	}
-
-	stale := hintOf(entryWith([]db.Snapshot{{ID: 1, ConfigHash: "0123456789abcdef", Parts: paved}}).
-		RequireMatchingSnapshot(context.Background()))
-	if want := cfg.StaleHint(&config.CityConfig{Name: "Test City"}); stale != want {
-		t.Errorf("stale hint = %q; want the shared Config.StaleHint %q", stale, want)
-	}
-	never := hintOf(entryWith(nil).RequireMatchingSnapshot(context.Background()))
-	if !strings.Contains(never, "never been computed") {
-		t.Errorf("never-computed hint = %q; want it to say so", never)
-	}
-}
-
-// TestMissingParts is solvent-streets-ern4.12 (a): a settings change followed
-// by a partial recompute leaves the current snapshot without parts the city had
-// under its earlier settings, and export would publish it without them.
-func TestMissingParts(t *testing.T) {
-	cfg := &config.Config{}
-	cur := cfg.CityHash(nil)
-	parts := func(names ...string) []db.SnapshotPart {
-		out := make([]db.SnapshotPart, len(names))
-		for i, n := range names {
-			out[i] = db.SnapshotPart{Part: n, RunID: int64(i + 1)}
-		}
-		return out
-	}
-	full := parts("roads", "parking", "sidewalks", "combined", "service:fire", "census")
-	off := false
-
-	for _, tc := range []struct {
-		name     string
-		city     config.CityConfig
-		snaps    []db.Snapshot // newest first
-		want     []string
-		wantPrev int64
-	}{
-		{
-			name: "partial recompute after a settings change",
-			snaps: []db.Snapshot{
-				{ID: 3, ConfigHash: cur, Parts: parts("roads")},
-				{ID: 2, ConfigHash: "0ld0ld0ld0ld0ld0", Parts: full},
-			},
-			want:     []string{"parking", "sidewalks", "combined", "service:fire", "census"},
-			wantPrev: 2,
-		},
-		{
-			name: "everything recomputed",
-			snaps: []db.Snapshot{
-				{ID: 3, ConfigHash: cur, Parts: full},
-				{ID: 2, ConfigHash: "0ld0ld0ld0ld0ld0", Parts: full},
-			},
-		},
-		{
-			name: "dropped under the current settings is deliberate",
-			snaps: []db.Snapshot{
-				{ID: 4, ConfigHash: cur, Parts: parts("roads", "parking", "sidewalks", "combined", "census")},
-				{ID: 3, ConfigHash: cur, Parts: full},
-				{ID: 2, ConfigHash: "0ld0ld0ld0ld0ld0", Parts: full},
-			},
-		},
-		{
-			name: "census = false is not reported",
-			city: config.CityConfig{Census: &off},
-			snaps: []db.Snapshot{
-				{ID: 3, ConfigHash: cur, Parts: parts("roads", "parking", "sidewalks", "combined", "service:fire")},
-				{ID: 2, ConfigHash: "0ld0ld0ld0ld0ld0", Parts: full},
-			},
-		},
-		{
-			name:  "no other settings",
-			snaps: []db.Snapshot{{ID: 1, ConfigHash: cur, Parts: parts("roads")}},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			city := tc.city
-			city.Name = "Test City"
-			snaps := tc.snaps
-			entry := CityEntry{
-				Config: cfg, City: city, Slug: "test-city",
-				Store: &dbtest.MockStore{ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) { return snaps, nil }},
-			}
-			got, prev, err := entry.MissingParts(context.Background())
-			if err != nil {
-				t.Fatal(err)
-			}
-			// prev only means something when a part is missing.
-			if strings.Join(got, ",") != strings.Join(tc.want, ",") || (len(tc.want) > 0 && prev != tc.wantPrev) {
-				t.Errorf("MissingParts = %v (prev %d); want %v (prev %d)", got, prev, tc.want, tc.wantPrev)
-			}
-		})
-	}
-}
-
-// TestExport_WarnsAboutMissingParts: the export still succeeds (the rest of
-// the city is current) but says what it is leaving out.
-func TestExport_WarnsAboutMissingParts(t *testing.T) {
-	cfg := &config.Config{}
-	entry := exportTestEntry(cfg, "Solo City", "solo-city", exportBoundaryA, nil)
-	cur := cfg.CityHash(&entry.City)
-	entry.Store.(*dbtest.MockStore).ListSnapshotsFunc = func(context.Context) ([]db.Snapshot, error) {
-		return []db.Snapshot{
-			{ID: 2, ConfigHash: cur, Parts: paved},
-			{ID: 1, ConfigHash: "0ld0ld0ld0ld0ld0", Parts: append([]db.SnapshotPart{{Part: "census", RunID: 9}}, paved...)},
-		}, nil
-	}
-	var warn strings.Builder
-	e := New([]CityEntry{entry}, cfg, t.TempDir(), "metric", testAssets(t))
-	e.SetErrOut(&warn)
-	if err := e.Run(context.Background()); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	if !strings.Contains(warn.String(), "census") || !strings.Contains(warn.String(), "snapshot 1") {
-		t.Errorf("warnings = %q; want one naming census and snapshot 1", warn.String())
 	}
 }
 
 // StaleSettings is the one test for "computed, but not readable under the
-// current settings" that export, serve, status and forecast share.
+// current settings" that status and forecast share.
 func TestStaleSettings(t *testing.T) {
 	cfg := &config.Config{}
 	city := &config.CityConfig{Name: "Test City"}
-	cur := cfg.CityHash(city)
+	old := []db.Snapshot{{ID: 1, ConfigHash: "0ld0ld0ld0ld0ld0"}}
+	latest := []db.LatestPart{{Part: "roads", RunID: 2}}
 	for _, tc := range []struct {
-		name  string
-		snaps []db.Snapshot
-		want  bool
+		name   string
+		snaps  []db.Snapshot
+		latest []db.LatestPart
+		want   bool
 	}{
-		{"never computed", nil, false},
-		{"computed under the current settings", []db.Snapshot{{ID: 2, ConfigHash: cur}, {ID: 1, ConfigHash: "0ld0ld0ld0ld0ld0"}}, false},
-		{"computed only under other settings", []db.Snapshot{{ID: 1, ConfigHash: "0ld0ld0ld0ld0ld0"}}, true},
+		{"never computed", nil, nil, false},
+		{"computed under the current settings", old, latest, false},
+		{"computed only under other settings", old, nil, true},
 	} {
-		if got := StaleSettings(cfg, city, tc.snaps); got != tc.want {
+		if got := StaleSettings(cfg, city, tc.snaps, tc.latest); got != tc.want {
 			t.Errorf("%s: StaleSettings = %t, want %t", tc.name, got, tc.want)
 		}
 	}

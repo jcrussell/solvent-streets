@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
+	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/results"
@@ -28,7 +29,7 @@ func (c *sqliteCity) commitGrid(cfg *config.Config, city config.CityConfig, cov 
 	if err := c.store.SaveHexMetrics(ctx, run.ID, results.HexCoverageRows(resource.TypeRoads, cov)); err != nil {
 		c.t.Fatal(err)
 	}
-	snap, err := c.store.CommitSnapshot(ctx, hash, cfg.ResolvedHexEdge(&city), map[string]int64{"roads": run.ID})
+	snap, err := dbtest.Publish(ctx, c.store, hash, cfg.ResolvedHexEdge(&city), map[string]int64{"roads": run.ID})
 	if err != nil {
 		c.t.Fatal(err)
 	}
@@ -121,7 +122,7 @@ func TestSnapshot_RendersOnItsOwnEdgeAndBoundary(t *testing.T) {
 			len(ids), covered, len(oldIDs))
 	}
 
-	latest, err := c.entry().PinCurrentSnapshot(ctx)
+	latest, err := c.entry().PinNewestSnapshot(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,7 +6,7 @@ The release notes link here from their header. Their "Breaking Changes" list nam
 
 ## v0.5.0
 
-Upgrading from v0.4.x takes eight steps. Plan for the first one: it re-fetches every city from the upstream sources.
+Upgrading from v0.4.x takes ten steps. Plan for the first one: it re-fetches every city from the upstream sources.
 
 ### 1. Move the database aside and re-ingest
 
@@ -21,18 +21,28 @@ The new database fills from Overpass, ArcGIS and TIGERweb again, so a large conf
 
 Snapshot config hashes are also computed differently: per city, over only the settings that affect results (see [Snapshots and the config hash](configuration.md#snapshots-and-the-config-hash)). A `config_hash` a script recorded from v0.4.x never matches a v0.5.0 snapshot; the recompute above is all that is needed.
 
-### 2. Re-export sites
+### 2. Create a snapshot before exporting
 
-A site exported by v0.4.x cannot be refreshed in place. Its data files use the old formats, and the v0.5.0 dashboard refuses them (`unsupported hexgrid format (expected v6) — re-export this site`). After the compute, run `pvmt export` again (and `pvmt check-site` on the result) and redeploy the whole tree.
+Computes no longer publish. `pvmt all compute` and every `pvmt <resource> compute` update the city's *latest compute*, and `pvmt export` and `pvmt serve` publish each city's newest snapshot, which only `pvmt snapshots create` makes. After the compute, run:
 
-### 3. Update links to the dashboard
+```
+pvmt snapshots create
+```
+
+`pvmt export` refuses, before writing anything, when any city has no snapshot, and lists each with the command that makes one. A script that ran `compute` then `export` needs `snapshots create` between them. `create` refuses a city whose parts were computed from features or a boundary ingested again since, and names the compute to rerun (see [troubleshooting](troubleshooting.md#snapshots-create-refuses-a-city)). A snapshot never changes after it is created: export draws it as created, whatever was ingested or edited since. Roll a city back with `pvmt --city <slug> snapshots delete <id>` of its newest snapshot. `pvmt snapshots ls` and `rm` are now `list` and `delete`, with the old names kept as aliases.
+
+### 3. Re-export sites
+
+A site exported by v0.4.x cannot be refreshed in place. Its data files use the old formats, and the v0.5.0 dashboard refuses them (`unsupported hexgrid format (expected v6) — re-export this site`). After `pvmt snapshots create`, run `pvmt export` again (and `pvmt check-site` on the result) and redeploy the whole tree.
+
+### 4. Update links to the dashboard
 
 | v0.4.x URL | v0.5.0 URL |
 |------------|------------|
 | `?tag=<value>` | `?tag=group:<value>`. A tag without its dimension prefix is ignored |
 | `?scope=bbox` | `?scope=all` |
 
-### 4. Update anything that reads pvmt's JSON
+### 5. Update anything that reads pvmt's JSON
 
 Every JSON document pvmt emits (`--json` output, the `pvmt serve` API, the exported site's data files and `window.PVMT_CONFIG`) now uses one vocabulary, described in [JSON conventions](architecture.md#json-conventions). A script that reads an old name gets nothing back rather than an error, so check each one against the tables below.
 
@@ -57,7 +67,7 @@ Only names that existed in v0.4.x are listed. Fields of the commands and files t
 
 | Endpoint | v0.4.x | v0.5.0 |
 |----------|--------|--------|
-| `/api/snapshots`, `/api/cities/{slug}/snapshots` | `computed_at` | `created_at`; new `parts` (`part`, `run_id`, `computed_at`) |
+| `/api/snapshots`, `/api/cities/{slug}/snapshots` | `computed_at` | `created_at`; new `hex_edge_m` and `parts` (`part`, `run_id`, `computed_at`) |
 | `/api/cities` | as `cities.json` below | as `cities.json` below |
 
 `/data/{file}` serves the site data files below.
@@ -80,22 +90,22 @@ Only names that existed in v0.4.x are listed. Fields of the commands and files t
 | `PVMT_CONFIG` (play page) | `forecastSeed`, `dataPrefix`, `mapHref`, `bandCount`, `wasmPrefix` | `forecast_seed`, `data_prefix`, `map_href`, `band_count`, `hexgrid_version` (`wasmPrefix` is gone) |
 | play page game state | `backlog`, `spent`, `treatments`; `insolvency_year` as `null` | `deferred_backlog`, `total_spend`, `treatment_count`; `insolvency_year` omitted |
 
-### 5. Check where `pvmt export` writes
+### 6. Check where `pvmt export` writes
 
 `pvmt export` without `-o` writes to `./site`, the directory `pvmt check-site` checks by default, rather than `./dist`. A deploy script that picks the site up from `dist/` should pass `-o dist` or read `site/`.
 
-### 6. Check tags that contain a colon
+### 7. Check tags that contain a colon
 
 A tag is now read as `dimension:value` when it contains a colon, and the config refuses one whose dimension is not an identifier or whose value is empty ([Tags](configuration.md#tags)). A v0.4.x tag such as `"Bay Area: East"` fails to load with exit 2; rename it, e.g. to `"metro:Bay Area East"`.
 
-### 7. Set the forecast horizon once per config
+### 8. Set the forecast horizon once per config
 
 A config now has one forecast horizon, and its default is 30 years (up from 20). A `years` inside `[cities.forecast]` fails to load with exit 2: move it to the top-level `[forecast]`. A file pulled in with `[[include]]` must resolve to the same `years` as the file that includes it, where an unset `years` counts as the default 30. A config that left `years` unset now forecasts 30 years, so its headline totals (`30-Year Spend`) and insolvency years cover a longer run. Set `years = 20` at the top level to keep the old horizon. The horizon is also capped at 200 years: a `years` above 200 fails to load with exit 2, and a `PVMT_FORECAST_YEARS` above 200 is ignored with a warning. The browser forecast never ran a longer one, so such a config used to export a site whose Financials page failed. Forecasts are not part of the snapshot hash, so this needs a re-export, not a recompute.
 
-### 8. Expect a partial ingest to exit 1
+### 9. Expect a partial ingest to exit 1
 
 `pvmt all ingest`, and each `pvmt <resource> ingest`, now exit 1 when any of a city's sources or steps failed, including the fire and Census steps of `all ingest`. They used to warn and exit 0. What did answer is still saved, and `all ingest` still runs every remaining step and city. The final error lists each failure with the command that retries it. A script that ran `pvmt all ingest || true` before `compute` to ride out a flaky upstream now sees those failures. Retry the listed commands, or keep `|| true` if a partial city is acceptable.
 
-### 9. Remove overlapping cost tiers
+### 10. Remove overlapping cost tiers
 
 A config whose `[[forecast.cost_tiers]]` bands overlap now fails to load with exit 2, naming the two bands. A PCI inside both had two prices, and the dashboard already refused to run its forecast controls on such a schedule. Move one band's `min_pci` or `max_pci` so the bands meet or leave a gap ([Forecast](configuration.md#forecast)).

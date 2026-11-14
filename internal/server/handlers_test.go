@@ -396,7 +396,7 @@ func TestHandleSnapshots_SingleCity(t *testing.T) {
 	if got[0]["id"] != float64(2) || got[1]["id"] != float64(1) {
 		t.Errorf("expected DESC order id=2,1, got %v,%v", got[0]["id"], got[1]["id"])
 	}
-	for _, k := range []string{"id", "created_at", "config_hash", "parts"} {
+	for _, k := range []string{"id", "created_at", "config_hash", "hex_edge_m", "parts"} {
 		if _, ok := got[0][k]; !ok {
 			t.Errorf("missing key %q in response", k)
 		}

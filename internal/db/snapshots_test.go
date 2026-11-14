@@ -15,8 +15,8 @@ import (
 const testEdge = 100.0
 
 // commitRun creates a run for producer under hash, lets write store rows
-// tagged with it, and commits a snapshot that swaps in just that part. It
-// returns the run and snapshot ids.
+// tagged with it, commits it into the latest compute and snapshots that
+// (snapshotLatest). It returns the run and snapshot ids.
 func commitRun(t *testing.T, store Store, hash, producer string, write func(run int64)) (int64, int64) {
 	t.Helper()
 	ctx := context.Background()
@@ -27,11 +27,21 @@ func commitRun(t *testing.T, store Store, hash, producer string, write func(run 
 	if write != nil {
 		write(run.ID)
 	}
-	snap, err := store.CommitSnapshot(ctx, hash, testEdge, map[string]int64{producer: run.ID})
-	if err != nil {
-		t.Fatalf("CommitSnapshot(%s): %v", producer, err)
+	if err := store.CommitLatest(ctx, hash, map[string]int64{producer: run.ID}); err != nil {
+		t.Fatalf("CommitLatest(%s): %v", producer, err)
 	}
-	return run.ID, snap.ID
+	return run.ID, snapshotLatest(t, store, hash)
+}
+
+// snapshotLatest freezes the latest compute under hash, unchecked, and
+// returns the snapshot's id.
+func snapshotLatest(t *testing.T, store Store, hash string) int64 {
+	t.Helper()
+	snap, _, err := store.CreateSnapshot(context.Background(), hash, testEdge, nil)
+	if err != nil {
+		t.Fatalf("CreateSnapshot(%s): %v", hash, err)
+	}
+	return snap.ID
 }
 
 // roadsRun / fireRun / parkingRun write recognisable rows, so a read can
@@ -131,28 +141,93 @@ func parts(t *testing.T, store Store, snapID int64) map[string]int64 {
 	return nil
 }
 
-// TestSnapshot_RecomputeSwapsOnlyItsPart is the headline contract of epic
-// solvent-streets-25t6: recomputing roads produces a new snapshot that swaps
-// in the new roads run and carries every other part (fire coverage here)
-// forward untouched. The old behaviour hid fire until it was rerun.
-func TestSnapshot_RecomputeSwapsOnlyItsPart(t *testing.T) {
-	store := openTestStore(t)
-	roads1, _ := commitRun(t, store, "h", "roads", roadsRun(t, store, 100))
-	fire1, s2 := commitRun(t, store, "h", "service:fire", fireRun(t, store, HexMetric{HexID: "f1", Value: 300}))
-	roads2, s3 := commitRun(t, store, "h", "roads", roadsRun(t, store, 200))
+// commitLatestRun is commitRun under hash "h" without the snapshot: the run
+// only updates the latest compute, as every compute command does. It returns
+// the run id.
+func commitLatestRun(t *testing.T, store Store, producer string, write func(run int64)) int64 {
+	t.Helper()
+	const hash = "h"
+	ctx := context.Background()
+	run, err := store.CreateRun(ctx, producer, hash, nil)
+	if err != nil {
+		t.Fatalf("CreateRun(%s): %v", producer, err)
+	}
+	if write != nil {
+		write(run.ID)
+	}
+	if err := store.CommitLatest(ctx, hash, map[string]int64{producer: run.ID}); err != nil {
+		t.Fatalf("CommitLatest(%s): %v", producer, err)
+	}
+	return run.ID
+}
 
-	if got := parts(t, store, s2); !maps.Equal(got, map[string]int64{"roads": roads1, "service:fire": fire1}) {
-		t.Errorf("snapshot after the fire run = %v, want roads=%d fire=%d", got, roads1, fire1)
+// latestParts is the latest compute under hash as part -> run.
+func latestParts(t *testing.T, store Store, hash string) map[string]int64 {
+	t.Helper()
+	latest, err := store.LatestCompute(context.Background(), hash)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := parts(t, store, s3); !maps.Equal(got, map[string]int64{"roads": roads2, "service:fire": fire1}) {
-		t.Errorf("snapshot after recomputing roads = %v, want roads=%d (new) and fire=%d (carried)", got, roads2, fire1)
+	out := map[string]int64{}
+	for _, p := range latest {
+		out[p.Part] = p.RunID
 	}
-	if got := roadsArea(t, store); got != 200 {
-		t.Errorf("roads area = %v, want 200 from the recompute", got)
+	return out
+}
+
+// TestCommitLatest_SwapsOnlyItsPart: recomputing roads swaps the new roads
+// run into the latest compute and carries every other part (fire coverage
+// here) forward untouched (solvent-streets-25t6), and no commit creates a
+// snapshot: a snapshot is only ever made by CreateSnapshot, and one made
+// earlier keeps reading what it froze.
+func TestCommitLatest_SwapsOnlyItsPart(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	roads1 := commitLatestRun(t, store, "roads", roadsRun(t, store, 100))
+	fire1 := commitLatestRun(t, store, "service:fire", fireRun(t, store, HexMetric{HexID: "f1", Value: 300}))
+	if snaps, _ := store.ListSnapshots(ctx); len(snaps) != 0 {
+		t.Fatalf("commits created snapshots: %+v", snaps)
 	}
-	if got := fireHexes(t, store); !slices.Equal(got, []string{"f1"}) {
+	s1 := snapshotLatest(t, store, "h")
+	roads2 := commitLatestRun(t, store, "roads", roadsRun(t, store, 200))
+
+	if got := latestParts(t, store, "h"); !maps.Equal(got, map[string]int64{"roads": roads2, "service:fire": fire1}) {
+		t.Errorf("latest compute after recomputing roads = %v, want roads=%d (new) and fire=%d (carried)", got, roads2, fire1)
+	}
+	latest := store.WithLatestCompute("h")
+	if got := roadsArea(t, latest); got != 200 {
+		t.Errorf("latest roads area = %v, want 200 from the recompute", got)
+	}
+	if got := fireHexes(t, latest); !slices.Equal(got, []string{"f1"}) {
 		t.Errorf("fire hexes after a roads recompute = %v, want [f1] (carried forward, not hidden)", got)
 	}
+	if got := parts(t, store, s1); !maps.Equal(got, map[string]int64{"roads": roads1, "service:fire": fire1}) {
+		t.Errorf("snapshot %d after the recompute = %v, want it unchanged (roads=%d)", s1, got, roads1)
+	}
+	if got := roadsArea(t, store); got != 100 {
+		t.Errorf("unpinned (newest snapshot) roads = %v, want the frozen 100", got)
+	}
+	if snaps, _ := store.ListSnapshots(ctx); len(snaps) != 1 {
+		t.Errorf("snapshots = %d, want only the one created", len(snaps))
+	}
+	// The replaced run is left for gc, not deleted at commit; the snapshot
+	// holds it here anyway, so check a run no snapshot holds.
+	roads3 := commitLatestRun(t, store, "roads", nil)
+	_ = roads3
+	if n := runCount(t, store, roads2); n != 1 {
+		t.Errorf("replaced run %d deleted at commit (%d rows), want it left for gc", roads2, n)
+	}
+}
+
+// runCount is 1 when run exists, else 0.
+func runCount(t *testing.T, store Store, run int64) int {
+	t.Helper()
+	var n int
+	if err := store.(*sqliteStore).db.QueryRowContext(context.Background(),
+		`SELECT COUNT(*) FROM runs WHERE id = ?`, run).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
 }
 
 // TestSnapshot_PinnedReadIsTheWholeCity: pinning a snapshot reads every part
@@ -205,16 +280,16 @@ func TestSnapshot_ConfigHashesDoNotMix(t *testing.T) {
 	if got := parts(t, store, sB); len(got) != 1 || got["parking"] == 0 {
 		t.Errorf("first hash-B snapshot = %v, want only parking (roads belongs to hash A)", got)
 	}
-	if got := roadsArea(t, store.WithConfigHash("A")); got != 100 {
+	if got := roadsArea(t, store.WithLatestCompute("A")); got != 100 {
 		t.Errorf("hash A roads = %v, want 100", got)
 	}
-	if _, ok := cityArea(t, store.WithConfigHash("A"), "parking"); ok {
+	if _, ok := cityArea(t, store.WithLatestCompute("A"), "parking"); ok {
 		t.Error("hash A reads parking, want none (parking belongs to hash B)")
 	}
-	if _, ok := cityArea(t, store.WithConfigHash("B"), "roads"); ok {
+	if _, ok := cityArea(t, store.WithLatestCompute("B"), "roads"); ok {
 		t.Error("hash B reads roads, want none (roads belongs to hash A)")
 	}
-	if _, ok := cityArea(t, store.WithConfigHash("C"), "roads"); ok {
+	if _, ok := cityArea(t, store.WithLatestCompute("C"), "roads"); ok {
 		t.Error("an unknown hash reads roads, want none")
 	}
 	// Unpinned reads the newest snapshot of any hash.
@@ -224,7 +299,7 @@ func TestSnapshot_ConfigHashesDoNotMix(t *testing.T) {
 }
 
 // TestSnapshot_UncommittedRunsAreInvisible: rows written under a run are not
-// readable until a snapshot references the run.
+// readable until the run is committed into the latest compute.
 func TestSnapshot_UncommittedRunsAreInvisible(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
@@ -235,21 +310,22 @@ func TestSnapshot_UncommittedRunsAreInvisible(t *testing.T) {
 	}
 	roadsRun(t, store, 200)(run.ID)
 
-	if got := roadsArea(t, store); got != 100 {
+	latest := store.WithLatestCompute("h")
+	if got := roadsArea(t, latest); got != 100 {
 		t.Errorf("committed view = %v, want 100 (the pending run is invisible)", got)
 	}
-	if _, err := store.CommitSnapshot(ctx, "h", testEdge, map[string]int64{"roads": run.ID}); err != nil {
+	if err := store.CommitLatest(ctx, "h", map[string]int64{"roads": run.ID}); err != nil {
 		t.Fatal(err)
 	}
-	if got := roadsArea(t, store); got != 200 {
+	if got := roadsArea(t, latest); got != 200 {
 		t.Errorf("after committing the run = %v, want 200", got)
 	}
 }
 
-// TestCommitSnapshot_RejectsInconsistentRuns: a manifest may only reference
-// this city's runs, each produced for the part it fills under the snapshot's
-// hash. A rejected commit creates no snapshot.
-func TestCommitSnapshot_RejectsInconsistentRuns(t *testing.T) {
+// TestCommitLatest_RejectsInconsistentRuns: a manifest may only reference
+// this city's runs, each produced for the part it fills under the commit's
+// hash. A rejected commit changes nothing.
+func TestCommitLatest_RejectsInconsistentRuns(t *testing.T) {
 	ctx := context.Background()
 	root, err := Open(":memory:")
 	if err != nil {
@@ -272,12 +348,14 @@ func TestCommitSnapshot_RejectsInconsistentRuns(t *testing.T) {
 		if name == "wrong hash" {
 			hash = "other"
 		}
-		if _, err := storeA.CommitSnapshot(ctx, hash, testEdge, parts); err == nil {
+		if err := storeA.CommitLatest(ctx, hash, parts); err == nil {
 			t.Errorf("%s: commit succeeded, want an error", name)
 		}
 	}
-	if snaps, _ := storeA.ListSnapshots(ctx); len(snaps) != 0 {
-		t.Errorf("rejected commits left snapshots behind: %+v", snaps)
+	for _, hash := range []string{"h", "other"} {
+		if got := latestParts(t, storeA, hash); len(got) != 0 {
+			t.Errorf("rejected commits left a latest compute under %s: %v", hash, got)
+		}
 	}
 }
 
@@ -525,75 +603,79 @@ func TestResolveSnapshot(t *testing.T) {
 	}
 }
 
-// TestDraft: a draft's runs stay invisible until Commit, which writes one
-// snapshot with exactly the put parts swapped in and discards runs that were
-// created but never put, and Discard deletes every run it created.
+// TestDraft: a draft's runs stay invisible until Commit, which swaps exactly
+// the put parts into the latest compute and discards runs that were created
+// but never put, and Discard deletes every run it created.
 func TestDraft(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
-	commitRun(t, store, "h", "service:fire", fireRun(t, store, HexMetric{HexID: "f1"}))
+	commitLatestRun(t, store, "service:fire", fireRun(t, store, HexMetric{HexID: "f1"}))
+	latest := store.WithLatestCompute("h")
 
-	d := NewDraft(store, "h", testEdge)
+	d := NewDraft(store, "h")
 	roads, err := d.NewRun(ctx, "roads", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	roadsRun(t, store, 100)(roads)
 	d.Put("roads", roads)
-	if _, ok := cityArea(t, store, "roads"); ok {
+	if _, ok := cityArea(t, latest, "roads"); ok {
 		t.Error("put but uncommitted roads is readable, want invisible")
 	}
 	abandoned, _ := d.NewRun(ctx, "parking", nil)
 	parkingRun(t, store, 5)(abandoned)
 
-	snap, err := d.Commit(ctx)
-	if err != nil {
+	if err := d.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := parts(t, store, snap.ID); len(got) != 2 || got["roads"] != roads || got["service:fire"] == 0 {
-		t.Errorf("committed manifest = %v, want roads=%d plus the carried fire part", got, roads)
+	if got := latestParts(t, store, "h"); len(got) != 2 || got["roads"] != roads || got["service:fire"] == 0 {
+		t.Errorf("latest compute = %v, want roads=%d plus the carried fire part", got, roads)
 	}
-	if got := roadsArea(t, store); got != 100 {
+	if got := roadsArea(t, latest); got != 100 {
 		t.Errorf("roads after Commit = %v, want 100", got)
 	}
-	raw := store.(*sqliteStore)
-	var n int
-	if err := raw.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM runs WHERE id = ?`, abandoned).Scan(&n); err != nil || n != 0 {
-		t.Errorf("the never-put run survived Commit (%d, %v)", n, err)
+	if n := runCount(t, store, abandoned); n != 0 {
+		t.Errorf("the never-put run survived Commit (%d)", n)
 	}
 
-	if s, err := NewDraft(store, "h", testEdge).Commit(ctx); err != nil || s == nil || s.ID != snap.ID {
-		t.Errorf("empty draft Commit = (%v, %v), want the current snapshot %d unchanged", s, err, snap.ID)
+	if err := NewDraft(store, "h").Commit(ctx); err != nil {
+		t.Errorf("empty draft Commit = %v, want nil", err)
+	}
+	if snaps, _ := store.ListSnapshots(ctx); len(snaps) != 0 {
+		t.Errorf("Commit created snapshots: %+v", snaps)
 	}
 
-	d2 := NewDraft(store, "h", testEdge)
+	d2 := NewDraft(store, "h")
 	r2, _ := d2.NewRun(ctx, "roads", nil)
 	d2.Put("roads", r2)
 	if err := d2.Discard(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := raw.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM runs WHERE id = ?`, r2).Scan(&n); err != nil || n != 0 {
-		t.Errorf("Discard left run %d behind (%d, %v)", r2, n, err)
+	if n := runCount(t, store, r2); n != 0 {
+		t.Errorf("Discard left run %d behind (%d)", r2, n)
 	}
-	if got := roadsArea(t, store); got != 100 {
+	if got := roadsArea(t, latest); got != 100 {
 		t.Errorf("roads after a discarded draft = %v, want the committed 100", got)
 	}
 }
 
-// TestDraft_DropRemovesPart: Drop takes a part out of the next snapshot, e.g.
-// a service whose stations are gone, so its coverage stops being published.
+// TestDraft_DropRemovesPart: Drop takes a part out of the latest compute,
+// e.g. a service whose stations are gone, so its coverage is not frozen by
+// the next snapshot. A snapshot that already holds it is unchanged.
 func TestDraft_DropRemovesPart(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
-	commitRun(t, store, "h", "service:fire", nil)
-	d := NewDraft(store, "h", testEdge)
+	_, s1 := commitRun(t, store, "h", "service:fire", nil)
+	d := NewDraft(store, "h")
 	d.Drop("service:fire")
-	snap, err := d.Commit(ctx)
-	if err != nil {
+	if err := d.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := parts(t, store, snap.ID); len(got) != 0 {
-		t.Errorf("manifest after Drop = %v, want empty", got)
+	if got := latestParts(t, store, "h"); len(got) != 0 {
+		t.Errorf("latest compute after Drop = %v, want empty", got)
+	}
+	if got := parts(t, store, s1); len(got) != 1 {
+		t.Errorf("snapshot %d after Drop = %v, want its fire part kept", s1, got)
 	}
 }
 
@@ -688,7 +770,7 @@ func TestHasHexMetric(t *testing.T) {
 	if ok, err := store.HasHexMetric(ctx, "paved_area_m2", both); err != nil || !ok {
 		t.Errorf("roads+parking: (%v, %v), want (true, nil)", ok, err)
 	}
-	if ok, _ := store.WithConfigHash("other").HasHexMetric(ctx, "paved_area_m2", both); ok {
+	if ok, _ := store.WithLatestCompute("other").HasHexMetric(ctx, "paved_area_m2", both); ok {
 		t.Error("a different config hash must not see the rows")
 	}
 	if ok, _ := store.WithSnapshot(snap+100).HasHexMetric(ctx, "paved_area_m2", both); ok {
@@ -734,13 +816,13 @@ func TestCityMetrics_RoundTrip(t *testing.T) {
 	}
 }
 
-// TestCommitSnapshot_ConcurrentProcesses: two pvmt processes (two handles on
+// TestCommitLatest_ConcurrentProcesses: two pvmt processes (two handles on
 // one file) committing at once must both succeed. Commits read the base
-// snapshot and then write, so a DEFERRED transaction loses the race with
+// manifest and then write, so a DEFERRED transaction loses the race with
 // SQLITE_BUSY_SNAPSHOT (517), which busy_timeout cannot retry, and the
 // caller then discards its runs. Write transactions take the lock up front
 // (_txlock=immediate) so the loser waits instead.
-func TestCommitSnapshot_ConcurrentProcesses(t *testing.T) {
+func TestCommitLatest_ConcurrentProcesses(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "pvmt.db")
 	var stores [2]Store
@@ -758,6 +840,7 @@ func TestCommitSnapshot_ConcurrentProcesses(t *testing.T) {
 	}
 	const perProcess = 25
 	errs := make(chan error, 2*perProcess)
+	last := [2]int64{}
 	var wg sync.WaitGroup
 	for i, store := range stores {
 		producer := []string{"roads", "parking"}[i]
@@ -765,7 +848,8 @@ func TestCommitSnapshot_ConcurrentProcesses(t *testing.T) {
 			for range perProcess {
 				run, err := store.CreateRun(ctx, producer, "h", nil)
 				if err == nil {
-					_, err = store.CommitSnapshot(ctx, "h", testEdge, map[string]int64{producer: run.ID})
+					err = store.CommitLatest(ctx, "h", map[string]int64{producer: run.ID})
+					last[i] = run.ID
 				}
 				errs <- err
 			}
@@ -778,70 +862,45 @@ func TestCommitSnapshot_ConcurrentProcesses(t *testing.T) {
 			t.Fatalf("concurrent commit failed: %v", err)
 		}
 	}
-	snaps, err := stores[0].ListSnapshots(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(snaps) != 2*perProcess {
-		t.Errorf("snapshots = %d, want %d", len(snaps), 2*perProcess)
-	}
-	// Every commit composed on the true newest base: the final snapshot has
-	// both producers' latest runs, none lost to a stale base.
-	if got := parts(t, stores[0], snaps[0].ID); len(got) != 2 {
-		t.Errorf("final manifest = %v, want both roads and parking", got)
+	// Every commit composed on the true newest base: the latest compute has
+	// both producers' last runs, none lost to a stale base.
+	if got := latestParts(t, stores[0], "h"); !maps.Equal(got, map[string]int64{"roads": last[0], "parking": last[1]}) {
+		t.Errorf("final latest compute = %v, want roads=%d parking=%d", got, last[0], last[1])
 	}
 }
 
-// TestCommitSnapshot_NoOpWritesNothing: a commit that would not change the
-// manifest mints no snapshot (it would take a `snapshots prune` slot), and a
-// hash with no snapshot never gets an EMPTY one, which export would publish
-// as a blank city. Dropping a part that is not there is such a no-op: it is
-// how a census-disabled or station-less city reports "nothing to do".
-func TestCommitSnapshot_NoOpWritesNothing(t *testing.T) {
+// TestCommitLatest_NoOp: a commit that would not change the manifest leaves
+// the latest compute as it was, and never mints a snapshot. Dropping a part
+// that is not there is such a no-op: it is how a census-disabled or
+// station-less city reports "nothing to do".
+func TestCommitLatest_NoOp(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 
-	snap, err := store.CommitSnapshot(ctx, "h", testEdge, map[string]int64{"census": 0})
-	if err != nil || snap != nil {
-		t.Errorf("drop-only commit with no base = (%+v, %v), want (nil, nil)", snap, err)
+	if err := store.CommitLatest(ctx, "h", map[string]int64{"census": 0}); err != nil {
+		t.Fatal(err)
 	}
-	if snaps, _ := store.ListSnapshots(ctx); len(snaps) != 0 {
-		t.Fatalf("a no-op commit created snapshots: %+v", snaps)
+	if got := latestParts(t, store, "h"); len(got) != 0 {
+		t.Fatalf("a drop-only commit with no base left %v", got)
 	}
 
-	roads, s1 := commitRun(t, store, "h", "roads", nil)
+	roads := commitLatestRun(t, store, "roads", nil)
 	for name, parts := range map[string]map[string]int64{
 		"drop of an absent part": {"census": 0},
 		"same run again":         {"roads": roads},
 		"nothing":                {},
 	} {
-		got, err := store.CommitSnapshot(ctx, "h", testEdge, parts)
-		if err != nil || got == nil || got.ID != s1 {
-			t.Errorf("%s: commit = (%+v, %v), want the unchanged snapshot %d", name, got, err, s1)
+		if err := store.CommitLatest(ctx, "h", parts); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+		if got := latestParts(t, store, "h"); !maps.Equal(got, map[string]int64{"roads": roads}) {
+			t.Errorf("%s: latest compute = %v, want roads=%d", name, got, roads)
 		}
 	}
-	if snaps, _ := store.ListSnapshots(ctx); len(snaps) != 1 {
-		t.Errorf("no-op commits minted snapshots: %d, want 1", len(snaps))
+	if snaps, _ := store.ListSnapshots(ctx); len(snaps) != 0 {
+		t.Errorf("commits minted snapshots: %d", len(snaps))
 	}
-	if _, err := store.CommitSnapshot(ctx, "", testEdge, map[string]int64{"roads": roads}); err == nil {
+	if err := store.CommitLatest(ctx, "", map[string]int64{"roads": roads}); err == nil {
 		t.Error("commit with an empty config hash succeeded; it would take its base from any hash")
-	}
-}
-
-// TestStaleFor: stale means "computed, but not under these settings"; a city
-// never computed is not stale (its hint is a different one).
-func TestStaleFor(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		snaps []Snapshot
-		want  bool
-	}{
-		{"never computed", nil, false},
-		{"only other hashes", []Snapshot{{ID: 2, ConfigHash: "b"}, {ID: 1, ConfigHash: "c"}}, true},
-		{"one matches", []Snapshot{{ID: 2, ConfigHash: "b"}, {ID: 1, ConfigHash: "a"}}, false},
-	} {
-		if got := StaleFor(tc.snaps, "a"); got != tc.want {
-			t.Errorf("%s: StaleFor = %t, want %t", tc.name, got, tc.want)
-		}
 	}
 }

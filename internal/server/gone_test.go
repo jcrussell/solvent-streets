@@ -11,6 +11,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/export"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/resource"
@@ -49,13 +50,13 @@ func sqliteEntry(t *testing.T, cfg *config.Config, city config.CityConfig) (expo
 		if err := store.SaveCityMetrics(ctx, run.ID, results.TotalRows(resource.TypeRoads, results.Totals{Area: area, Features: 1})); err != nil {
 			t.Fatal(err)
 		}
-		snap, err := store.CommitSnapshot(ctx, hash, cfg.ResolvedHexEdge(&city), map[string]int64{"roads": run.ID})
+		snap, err := dbtest.Publish(ctx, store, hash, cfg.ResolvedHexEdge(&city), map[string]int64{"roads": run.ID})
 		if err != nil {
 			t.Fatal(err)
 		}
 		return snap.ID
 	}
-	entry := export.CityEntry{Config: cfg, City: city, Store: store.WithConfigHash(cfg.CityHash(&city)), Slug: city.Slug()}
+	entry := export.CityEntry{Config: cfg, City: city, Store: store.WithLatestCompute(cfg.CityHash(&city)), Slug: city.Slug()}
 	return entry, store, commit
 }
 
@@ -69,7 +70,7 @@ func TestDataFile_PinnedSnapshotDeletedIs410(t *testing.T) {
 	entry, store, commit := sqliteEntry(t, cfg, cfg.Cities[0])
 	commit(100)
 	newest := commit(200)
-	pinned, err := entry.PinCurrentSnapshot(ctx)
+	pinned, err := entry.PinNewestSnapshot(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +150,7 @@ func TestDataFile_SnapshotAtAnotherEdgeRenders(t *testing.T) {
 		if err := store.SaveHexMetrics(ctx, run.ID, results.HexCoverageRows(resource.TypeRoads, cov)); err != nil {
 			t.Fatal(err)
 		}
-		snap, err := store.CommitSnapshot(ctx, hash, edge, map[string]int64{"roads": run.ID})
+		snap, err := dbtest.Publish(ctx, store, hash, edge, map[string]int64{"roads": run.ID})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -161,7 +162,7 @@ func TestDataFile_SnapshotAtAnotherEdgeRenders(t *testing.T) {
 		t.Fatal(err)
 	}
 	commitGrid(cfg)
-	pinned, err := entry.PinCurrentSnapshot(ctx)
+	pinned, err := entry.PinNewestSnapshot(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}

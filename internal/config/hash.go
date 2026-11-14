@@ -11,10 +11,13 @@ import (
 // The snapshot key: a per-city SEMANTIC hash of the settings that change a
 // stored result.
 //
-// Every producer commits its runs under CityHash(city) (via db.Draft) and every
-// reader resolves the newest snapshot for the same value (db.Store.
-// WithConfigHash), so the hash decides one thing: whether results already in the
-// database were computed from the settings now in force. It answers that by
+// Every producer commits its runs into the city's latest compute under
+// CityHash(city) (via db.Draft), compute-side readers read the latest compute
+// for the same value (db.Store.WithLatestCompute), and `pvmt snapshots create`
+// freezes it under that value, so the hash decides one thing: whether results
+// already in the database were computed from the settings now in force. A
+// snapshot keeps the hash it was created under, and export and serve publish
+// the newest whatever its hash, warning when it is not the current one. It answers that by
 // hashing a dedicated value, computeInputs, which holds only the RESOLVED
 // settings (defaults applied, [[include]]s flattened, PVMT_* env overrides
 // applied) that change any stored result computed from the same stored features
@@ -58,11 +61,14 @@ import (
 //     boundary_relation_id and the name used for the Nominatim lookup. They
 //     decide which features and boundary get stored; compute reads the stored
 //     copies, so changing a source does not invalidate results computed from
-//     what is stored. Neither does the re-ingest that follows: ingest never
-//     touches snapshots, and a partial recompute carries the parts it did not
-//     redo over from the previous snapshot, since the hash is unchanged. Only
-//     a full `pvmt all compute` brings every part in line with the new
-//     features (solvent-streets-n6lh).
+//     what is stored. The re-ingest that follows does not change the hash
+//     either, and a partial recompute carries the parts it did not redo over
+//     in the latest compute. What keeps those stale parts from being
+//     published is the input digests, not the hash: each run records the
+//     digest of every input it read, and `pvmt snapshots create` refuses a
+//     latest compute with a part computed from inputs ingested again since,
+//     naming the compute that fixes it (internal/coherence;
+//     solvent-streets-n6lh).
 //   - Identity and plumbing: config_id (keys the cities row instead),
 //     [[include]] paths and tags (the merged cities are hashed, not the file
 //     layout), SourcePath, and the stamps the merge leaves.
@@ -92,9 +98,11 @@ import (
 
 // ComputeEpoch identifies the compute logic behind a stored result, the half
 // of "what produced this" that no setting can see (solvent-streets-mfjb). It
-// is part of every CityHash, so bumping it makes every stored snapshot stop
-// matching: export then refuses each city with the "settings or pvmt changed"
-// hint until it is recomputed.
+// is part of every CityHash, so bumping it leaves every city's latest compute
+// under the new hash empty: `pvmt snapshots create` has nothing to freeze
+// until the city is recomputed. Existing snapshots are untouched and still
+// export as created, with a warning that they were created under other
+// settings.
 //
 // Bump it by one, in the same commit, whenever a code change alters what a
 // producer stores for the same stored features and the same settings — for
@@ -247,9 +255,10 @@ func (c *Config) SourceDivergence(city *CityConfig) []string {
 	return out
 }
 
-// StaleHint is the one explanation export, `pvmt forecast` and `pvmt status`
-// give for a city with no snapshot under its current CityHash although it has
-// snapshots (db.StaleFor). It lives here because what invalidates a snapshot
+// StaleHint is the one explanation `pvmt forecast`, `pvmt status` and serve
+// give for a city with nothing computed under its current CityHash although it
+// has snapshots (export.StaleSettings), or an [[include]]d city whose data
+// this config would not have computed. It lives here because what invalidates a snapshot
 // is this file's business: a result-affecting setting, an env override, a
 // ComputeEpoch bump — or, for an [[include]]d city, this config resolving the
 // city's inputs differently from the config that declared it, which StaleHint
@@ -257,16 +266,17 @@ func (c *Config) SourceDivergence(city *CityConfig) []string {
 func (c *Config) StaleHint(city *CityConfig) string {
 	slug, hash := city.Slug(), c.CityHash(city)
 	if d := c.SourceDivergence(city); len(d) > 0 {
-		return fmt.Sprintf("%s is pulled in via [[include]], so it reads the snapshots its own config "+
+		return fmt.Sprintf("%s is pulled in via [[include]], so it reads the results its own config "+
 			"computed — but this config resolves %s, which changes the stored results, so those "+
-			"snapshots do not apply here. Make the including config agree with the city's own, or run "+
-			"`pvmt --city %s all compute` under this config.", city.Name, strings.Join(d, "; "), slug)
+			"results do not apply here. Make the including config agree with the city's own, or run "+
+			"`pvmt --city %s all compute` and `pvmt --city %s snapshots create` under this config.", city.Name, strings.Join(d, "; "), slug, slug)
 	}
 	return fmt.Sprintf("%s was computed, but not under the current settings (hash %s): a setting that "+
 		"affects results changed since its last compute (hex_edge_m, [[services]] turnout_s, "+
 		"facilities, census, or a PVMT_HEX_EDGE_M override), or this pvmt computes "+
-		"differently from the one that did. Run `pvmt --city %s all compute`; "+
-		"`pvmt --city %s snapshots list` lists the older snapshots.", slug, hash, slug, slug)
+		"differently from the one that did. Run `pvmt --city %s all compute`, then "+
+		"`pvmt --city %s snapshots create` to publish it; `pvmt --city %s snapshots list` lists the "+
+		"older snapshots.", slug, hash, slug, slug, slug)
 }
 
 // hashBytes returns the 16-hex-char sha256 prefix of b. Used for the

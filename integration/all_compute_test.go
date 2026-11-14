@@ -126,10 +126,23 @@ func assertHexStatsEqual(t *testing.T, label string, got, want map[string]result
 	}
 }
 
+// allFixtureConfig is the config the all-compute fixture city is computed
+// under.
+func allFixtureConfig() *config.Config {
+	return &config.Config{ConfigID: "test", Cities: []config.CityConfig{{Name: "Grid City"}}}
+}
+
 func allComputeFactory(ios *iostreams.IOStreams, store db.Store) *cmdutil.Factory {
-	cfg := &config.Config{ConfigID: "test", Cities: []config.CityConfig{{Name: "Grid City"}}}
+	return allFixtureFactory(ios, nil, store, allFixtureConfig())
+}
+
+// allFixtureFactory is allComputeFactory with the root store, for commands
+// that open cities themselves (snapshots create, export), and the config,
+// which a test may edit between commands. root may be nil.
+func allFixtureFactory(ios *iostreams.IOStreams, root *db.RootStore, store db.Store, cfg *config.Config) *cmdutil.Factory {
 	city := cfg.Cities[0]
 	return &cmdutil.Factory{
+		RootDB:      func() (*db.RootStore, error) { return root, nil },
 		IOStreams:   ios,
 		UnitSystem:  func() units.System { return units.Metric },
 		Config:      func() (*config.Config, error) { return cfg, nil },
@@ -142,7 +155,18 @@ func allComputeFactory(ios *iostreams.IOStreams, store db.Store) *cmdutil.Factor
 // newAllFixtureStore opens a fresh sqlite store and loads a boundary plus a few
 // roads (mixed jurisdictions/cohorts), one parking lot, and one sidewalk — all
 // inside a ~1km Livermore bbox, small enough for a fast hex grid.
+// newAllFixtureStore is newAllFixture's store.
 func newAllFixtureStore(t *testing.T, ctx context.Context) db.Store {
+	t.Helper()
+	_, store := newAllFixture(t, ctx)
+	return store
+}
+
+// newAllFixture opens a database holding the fixture city's boundary and
+// features, and returns it with the city's store as the commands get it
+// (cmdutil.PinnedCityStore): a view of its latest compute under
+// allFixtureConfig.
+func newAllFixture(t *testing.T, ctx context.Context) (*db.RootStore, db.Store) {
 	t.Helper()
 	root, err := db.Open(filepath.Join(t.TempDir(), "all.db"))
 	if err != nil {
@@ -154,7 +178,8 @@ func newAllFixtureStore(t *testing.T, ctx context.Context) db.Store {
 	if err != nil {
 		t.Fatalf("EnsureCity: %v", err)
 	}
-	store := root.ForCity(cityID)
+	cfg := allFixtureConfig()
+	store := root.ForCity(cityID).WithLatestCompute(cfg.CityHash(&cfg.Cities[0]))
 
 	const boundary = `{"type":"Polygon","coordinates":[[[-121.770,37.680],[-121.760,37.680],[-121.760,37.690],[-121.770,37.690],[-121.770,37.680]]]}`
 	if err := store.SaveBoundary(ctx, boundary, "fixture"); err != nil {
@@ -182,7 +207,7 @@ func newAllFixtureStore(t *testing.T, ctx context.Context) db.Store {
 	if err := store.UpsertFeatures(ctx, resource.TypeSidewalks, sidewalks, nil); err != nil {
 		t.Fatalf("UpsertFeatures sidewalks: %v", err)
 	}
-	return store
+	return root, store
 }
 
 func feat(id string, rt resource.Type, tags map[string]string, geomJSON string) db.Feature {

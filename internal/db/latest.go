@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"time"
 )
 
@@ -89,7 +90,7 @@ func inputStates(ctx context.Context, q queryer, cityID int64) ([]InputState, er
 
 // CreateSnapshot freezes the latest compute as a snapshot. See the Store
 // interface for the contract. It retries while another process holds the
-// write lock, like CommitSnapshot.
+// write lock, like CommitLatest.
 func (s *sqliteStore) CreateSnapshot(ctx context.Context, configHash string, hexEdgeM float64, check CheckFunc) (*Snapshot, bool, error) {
 	if configHash == "" {
 		return nil, false, errors.New("create snapshot: config hash is required")
@@ -217,4 +218,30 @@ func retryBusy(ctx context.Context, attempt func() error) error {
 		case <-time.After(wait):
 		}
 	}
+}
+
+// UnsnapshottedParts lists, sorted, the parts on which a city's latest
+// compute differs from snap (its newest snapshot; nil when it has none): a
+// part computed or recomputed since snap was created, or one snap holds that
+// the latest compute dropped. Empty means `pvmt snapshots create` would find
+// nothing new to freeze.
+func UnsnapshottedParts(latest []LatestPart, snap *Snapshot) []string {
+	held := map[string]int64{}
+	if snap != nil {
+		for _, p := range snap.Parts {
+			held[p.Part] = p.RunID
+		}
+	}
+	var out []string
+	for _, p := range latest {
+		if held[p.Part] != p.RunID {
+			out = append(out, p.Part)
+		}
+		delete(held, p.Part)
+	}
+	if len(latest) > 0 { // an empty latest compute (other settings) has dropped nothing
+		out = append(out, slices.Collect(maps.Keys(held))...)
+	}
+	slices.Sort(out)
+	return out
 }

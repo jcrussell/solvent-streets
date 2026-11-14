@@ -393,7 +393,7 @@ func mergeExistingCity(existing *CityConfig, child *Config, src *CityConfig,
 		// folding in) would relabel a grandchild's city as belonging to the
 		// middle file. Doing that made Config.CityConfigID key EnsureCity on the
 		// wrong ID — a brand-new empty cities row — so the city came out blank
-		// or died on ErrNoMatchingSnapshot.
+		// or had no snapshot to export.
 		//
 		// ms.fromInclude is deliberately NOT moved with any of it. That map names
 		// the include a warning reports as the winner, and the winner is

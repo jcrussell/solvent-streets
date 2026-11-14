@@ -369,9 +369,10 @@ func TestStatusRow_ExportData_ComputedZeroAreaIsKept(t *testing.T) {
 }
 
 // TestRunStatus_StaleSnapshotsSayWhy is solvent-streets-ern4.12 (b): after a
-// settings change, Last Compute reads through the new settings' (missing)
-// snapshot and shows blank. Status must say why — with export's hint — and mark
-// which listed snapshots are current, rather than look never-computed.
+// settings change, Last Compute reads through the new settings' (empty)
+// latest compute and shows blank. Status must say why — with the shared hint —
+// and mark which listed snapshots are current, rather than look
+// never-computed.
 func TestRunStatus_StaleSnapshotsSayWhy(t *testing.T) {
 	cfg := &config.Config{}
 	city := &config.CityConfig{Name: "Test City"}
@@ -406,7 +407,11 @@ func TestRunStatus_StaleSnapshotsSayWhy(t *testing.T) {
 		t.Errorf("snapshot history should list the old hash, unmarked:\n%s", out)
 	}
 
-	// Once a snapshot under the current settings exists: no hint, and it is marked.
+	// Once computed under the current settings, and snapshotted: no hint, and
+	// the snapshot is marked.
+	store.LatestComputeFunc = func(context.Context, string) ([]db.LatestPart, error) {
+		return []db.LatestPart{{Part: "roads", RunID: 1}}, nil
+	}
 	store.ListSnapshotsFunc = func(context.Context) ([]db.Snapshot, error) {
 		return []db.Snapshot{
 			{ID: 8, ConfigHash: cur, CreatedAt: time.Now()},
@@ -421,7 +426,7 @@ func TestRunStatus_StaleSnapshotsSayWhy(t *testing.T) {
 	}
 	out = stderr.String()
 	if strings.Contains(out, "not under the current settings") {
-		t.Errorf("hint printed although a current snapshot exists:\n%s", out)
+		t.Errorf("hint printed although the city is computed under the current settings:\n%s", out)
 	}
 	if !strings.Contains(out, cur+"  (current settings)") {
 		t.Errorf("current snapshot not marked:\n%s", out)

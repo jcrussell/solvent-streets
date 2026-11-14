@@ -36,31 +36,45 @@ var ErrSnapshotGone = errors.New("snapshot no longer exists (deleted or pruned)"
 
 // WithSnapshot returns a view that reads exactly the given snapshot, including
 // the boundary it froze (GetBoundary). A snapshotID of 0 returns an unpinned
-// view. A pin wins over WithConfigHash (it is the more specific request,
-// matching the server's ?snapshot=N). Once the snapshot is gone every
-// snapshot-scoped read returns ErrSnapshotGone. The underlying DB connection
-// is shared.
+// view. A pin wins over WithLatestCompute and WithRuns (it is the more
+// specific request, matching the server's ?snapshot=N). Once the snapshot is
+// gone every snapshot-scoped read returns ErrSnapshotGone. The underlying DB
+// connection is shared.
 func (s *sqliteStore) WithSnapshot(snapshotID int64) Store {
 	cp := *s
 	cp.snapshotID = snapshotID
 	return &cp
 }
 
-// WithConfigHash returns a view that reads the newest snapshot committed
-// under configHash. Export and serve use it so a city shared by two configs
-// at different hex_edge_m never reads the other config's (incompatible)
-// hex_id namespace. An empty hash reads the newest snapshot of any hash.
-func (s *sqliteStore) WithConfigHash(configHash string) Store {
+// WithLatestCompute returns a view that reads the city's latest compute
+// under configHash (working_parts), resolved on every read: what compute,
+// status and forecast work from, so a city shared by two configs at
+// different hex_edge_m never reads the other config's (incompatible) hex_id
+// namespace. An empty hash reads the newest snapshot of any hash.
+func (s *sqliteStore) WithLatestCompute(configHash string) Store {
 	cp := *s
 	cp.configHash = configHash
 	return &cp
 }
 
+// WithRuns returns a view that reads exactly runIDs, with the live boundary:
+// a latest compute pinned as of one moment (serve's view of a city with no
+// snapshot), so later computes do not mix into it. Once any of the runs is
+// gone (gc swept it after a later compute replaced it) every read returns
+// ErrSnapshotGone. A snapshot pin (WithSnapshot) wins over it.
+func (s *sqliteStore) WithRuns(runIDs []int64) Store {
+	cp := *s
+	cp.runs = slices.Sorted(slices.Values(runIDs))
+	cp.runsPinned = true
+	return &cp
+}
+
 // checkPin returns ErrSnapshotGone when the view is pinned to a snapshot this
-// city does not have. An unpinned view always passes.
+// city does not have, or to runs (WithRuns) that no longer all exist. An
+// unpinned view always passes.
 func (s *sqliteStore) checkPin(ctx context.Context, q queryer) error {
 	if s.snapshotID <= 0 {
-		return nil
+		return s.checkRuns(ctx, q)
 	}
 	var id int64
 	switch err := q.QueryRowContext(ctx, `SELECT id FROM snapshots WHERE id = ? AND city_id = ?`,
@@ -73,15 +87,35 @@ func (s *sqliteStore) checkPin(ctx context.Context, q queryer) error {
 	return nil
 }
 
-// resolvedSnapshotID returns the snapshot this view reads: the pinned id, else
-// the newest snapshot for the view's config hash (any hash when unset). It
-// returns 0 when the city has no such snapshot, and ErrSnapshotGone when the
-// pinned one does not exist.
+// checkRuns is checkPin for a WithRuns view: every pinned run must still
+// exist for this city.
+func (s *sqliteStore) checkRuns(ctx context.Context, q queryer) error {
+	if !s.runsPinned || len(s.runs) == 0 {
+		return nil
+	}
+	owned, err := ownedRuns(ctx, q, s.cityID, s.runs)
+	if err != nil {
+		return err
+	}
+	if len(owned) != len(s.runs) {
+		return fmt.Errorf("latest compute: %d of its %d runs: %w", len(s.runs)-len(owned), len(s.runs), ErrSnapshotGone)
+	}
+	return nil
+}
+
+// resolvedSnapshotID returns the snapshot this view reads: the pinned id,
+// else, for a view with no config hash and no pinned runs, the newest
+// snapshot. It returns 0 when the view reads no snapshot (a latest compute,
+// pinned runs, or a city with none), and ErrSnapshotGone when the pinned one
+// does not exist.
 func (s *sqliteStore) resolvedSnapshotID(ctx context.Context, q queryer) (int64, error) {
 	if s.snapshotID > 0 {
 		return s.snapshotID, s.checkPin(ctx, q)
 	}
-	return newestSnapshotID(ctx, q, s.cityID, s.configHash)
+	if s.runsPinned || s.configHash != "" {
+		return 0, nil
+	}
+	return newestSnapshotID(ctx, q, s.cityID, "")
 }
 
 // queryer is the read surface shared by *sql.DB and *sql.Tx.
@@ -147,9 +181,21 @@ func applyParts(base, parts map[string]int64) {
 	}
 }
 
-// viewRunIDs returns the runs this view reads: the resolved snapshot's
-// manifest, sorted for stable SQL.
+// viewRunIDs returns the runs this view reads, sorted for stable SQL: the
+// pinned snapshot's manifest, the pinned runs, the latest compute under the
+// view's hash, or else the newest snapshot's manifest.
 func (s *sqliteStore) viewRunIDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case s.snapshotID > 0:
+	case s.runsPinned:
+		return s.runs, s.checkRuns(ctx, s.db)
+	case s.configHash != "":
+		parts, err := workingParts(ctx, s.db, s.cityID, s.configHash)
+		if err != nil {
+			return nil, err
+		}
+		return slices.Sorted(maps.Values(parts)), nil
+	}
 	snap, err := s.resolvedSnapshotID(ctx, s.db)
 	if err != nil {
 		return nil, err
@@ -258,7 +304,7 @@ func (s *sqliteStore) CreateRun(ctx context.Context, producer, configHash string
 }
 
 // runRefs counts the references that keep a run alive: snapshot manifests
-// and the working state.
+// and the latest compute.
 func runRefs(ctx context.Context, q queryer, runID int64) (int, error) {
 	var refs int
 	if err := q.QueryRowContext(ctx,
@@ -270,8 +316,8 @@ func runRefs(ctx context.Context, q queryer, runID int64) (int, error) {
 }
 
 // DiscardRun deletes an unreferenced run and its rows. A run some snapshot
-// or the working state references is left alone (returns an error), because
-// removing it would change what that snapshot or the working state reads.
+// or the latest compute references is left alone (returns an error), because
+// removing it would change what that snapshot or the latest compute reads.
 func (s *sqliteStore) DiscardRun(ctx context.Context, runID int64) error {
 	return s.withTx(ctx, func(tx *sql.Tx) error {
 		refs, err := runRefs(ctx, tx, runID)
@@ -279,30 +325,21 @@ func (s *sqliteStore) DiscardRun(ctx context.Context, runID int64) error {
 			return err
 		}
 		if refs > 0 {
-			return fmt.Errorf("discard run %d: still referenced by %d snapshot or working part(s)", runID, refs)
+			return fmt.Errorf("discard run %d: still referenced by %d snapshot or latest-compute part(s)", runID, refs)
 		}
 		_, err = deleteRuns(ctx, tx, s.cityID, []int64{runID})
 		return err
 	})
 }
 
-// CommitSnapshot creates the next snapshot for configHash. See the Store
-// interface for the contract. It retries while another process holds the
-// write lock (isBusy), for up to commitBusyBudget.
-func (s *sqliteStore) CommitSnapshot(ctx context.Context, configHash string, hexEdgeM float64, parts map[string]int64) (*Snapshot, error) {
+// CommitLatest applies parts to the city's latest compute for configHash.
+// See the Store interface for the contract. It retries while another process
+// holds the write lock (isBusy), for up to commitBusyBudget.
+func (s *sqliteStore) CommitLatest(ctx context.Context, configHash string, parts map[string]int64) error {
 	if configHash == "" {
-		return nil, errors.New("commit snapshot: config hash is required")
+		return errors.New("commit latest compute: config hash is required")
 	}
-	if hexEdgeM <= 0 {
-		return nil, fmt.Errorf("commit snapshot: hex edge must be positive, got %v", hexEdgeM)
-	}
-	var snap *Snapshot
-	err := retryBusy(ctx, func() error {
-		var err error
-		snap, err = s.commitSnapshot(ctx, configHash, hexEdgeM, parts)
-		return err
-	})
-	return snap, err
+	return retryBusy(ctx, func() error { return s.commitLatest(ctx, configHash, parts) })
 }
 
 // isBusy reports SQLITE_BUSY / SQLITE_LOCKED (any extended code): another
@@ -316,50 +353,48 @@ func isBusy(err error) bool {
 	return code == sqlite3.SQLITE_BUSY || code == sqlite3.SQLITE_LOCKED
 }
 
-// commitSnapshot is one attempt at CommitSnapshot. A commit that would not
-// change the manifest (dropping a part the base lacks, re-putting the same
-// run) writes nothing and returns the base snapshot, or (nil, nil) when the
-// hash has no snapshot yet: a no-op command must not mint a snapshot (it
-// would use up a `snapshots prune` slot) and must never create an empty one.
-func (s *sqliteStore) commitSnapshot(ctx context.Context, configHash string, hexEdgeM float64, parts map[string]int64) (*Snapshot, error) {
-	var snap *Snapshot
-	err := s.withTx(ctx, func(tx *sql.Tx) error {
+// commitLatest is one attempt at CommitLatest. A commit that would not
+// change the manifest (dropping a part the latest compute lacks, re-putting
+// the same run) writes nothing. A replaced run is not deleted: it becomes
+// unreferenced, unless a snapshot holds it, and gc sweeps it after
+// OrphanRunGrace.
+func (s *sqliteStore) commitLatest(ctx context.Context, configHash string, parts map[string]int64) error {
+	return s.withTx(ctx, func(tx *sql.Tx) error {
 		if err := s.checkCommitRuns(ctx, tx, configHash, parts); err != nil {
 			return err
 		}
-		base, err := newestSnapshotID(ctx, tx, s.cityID, configHash)
+		base, err := workingParts(ctx, tx, s.cityID, configHash)
 		if err != nil {
 			return err
 		}
-		baseParts, err := snapshotParts(ctx, tx, s.cityID, base)
-		if err != nil {
-			return err
-		}
-		manifest := maps.Clone(baseParts)
+		manifest := maps.Clone(base)
 		applyParts(manifest, parts)
-		id := base
-		if !maps.Equal(manifest, baseParts) {
-			if id, err = s.insertSnapshot(ctx, tx, configHash, hexEdgeM, manifest); err != nil {
-				return err
-			}
-			if err := s.setWorkingParts(ctx, tx, configHash, manifest); err != nil {
-				return err
-			}
+		if maps.Equal(manifest, base) {
+			return nil
 		}
-		if id == 0 {
-			return nil // no-op on a hash with no snapshot: nothing to return
-		}
-		snaps, err := listSnapshots(ctx, tx, s.cityID, id)
-		if err != nil {
-			return err
-		}
-		snap = &snaps[0]
-		return nil
+		return s.setWorkingParts(ctx, tx, configHash, manifest)
 	})
+}
+
+// workingParts returns the city's latest compute for configHash as part ->
+// run id (empty when nothing is computed under it).
+func workingParts(ctx context.Context, q queryer, cityID int64, configHash string) (map[string]int64, error) {
+	rows, err := q.QueryContext(ctx,
+		`SELECT part, run_id FROM working_parts WHERE city_id = ? AND config_hash = ?`, cityID, configHash)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query latest compute: %w", err)
 	}
-	return snap, nil
+	defer func() { _ = rows.Close() }()
+	parts := map[string]int64{}
+	for rows.Next() {
+		var part string
+		var run int64
+		if err := rows.Scan(&part, &run); err != nil {
+			return nil, fmt.Errorf("scan latest compute part: %w", err)
+		}
+		parts[part] = run
+	}
+	return parts, rows.Err()
 }
 
 // insertSnapshot writes a new snapshot row with manifest as its parts,
@@ -388,10 +423,10 @@ func (s *sqliteStore) insertSnapshot(ctx context.Context, tx *sql.Tx, configHash
 	return id, nil
 }
 
-// setWorkingParts makes manifest the city's working state for configHash.
+// setWorkingParts makes manifest the city's latest compute for configHash.
 func (s *sqliteStore) setWorkingParts(ctx context.Context, tx *sql.Tx, configHash string, manifest map[string]int64) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM working_parts WHERE city_id = ? AND config_hash = ?`, s.cityID, configHash); err != nil {
-		return fmt.Errorf("clear working state: %w", err)
+		return fmt.Errorf("clear latest compute: %w", err)
 	}
 	for _, part := range slices.Sorted(maps.Keys(manifest)) {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO working_parts (city_id, config_hash, part, run_id) VALUES (?, ?, ?, ?)`,
@@ -404,7 +439,8 @@ func (s *sqliteStore) setWorkingParts(ctx context.Context, tx *sql.Tx, configHas
 
 // checkCommitRuns enforces the manifest invariants on the runs a commit adds:
 // each belongs to this city, was produced for the part it fills, and carries
-// the snapshot's config hash (so every run in a snapshot shares its hash).
+// the commit's config hash (so every run of a latest compute, and so of a
+// snapshot, shares its hash).
 func (s *sqliteStore) checkCommitRuns(ctx context.Context, tx *sql.Tx, configHash string, parts map[string]int64) error {
 	for _, part := range slices.Sorted(maps.Keys(parts)) {
 		runID := parts[part]
@@ -415,16 +451,16 @@ func (s *sqliteStore) checkCommitRuns(ctx context.Context, tx *sql.Tx, configHas
 		err := tx.QueryRowContext(ctx, `SELECT producer, config_hash FROM runs WHERE id = ? AND city_id = ?`,
 			runID, s.cityID).Scan(&producer, &hash)
 		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("commit snapshot: run %d for part %q not found for this city", runID, part)
+			return fmt.Errorf("commit latest compute: run %d for part %q not found for this city", runID, part)
 		}
 		if err != nil {
-			return fmt.Errorf("commit snapshot: look up run %d: %w", runID, err)
+			return fmt.Errorf("commit latest compute: look up run %d: %w", runID, err)
 		}
 		if producer != part {
-			return fmt.Errorf("commit snapshot: run %d was produced for %q, not %q", runID, producer, part)
+			return fmt.Errorf("commit latest compute: run %d was produced for %q, not %q", runID, producer, part)
 		}
 		if hash != configHash {
-			return fmt.Errorf("commit snapshot: run %d has config hash %q, snapshot has %q", runID, hash, configHash)
+			return fmt.Errorf("commit latest compute: run %d has config hash %q, snapshot has %q", runID, hash, configHash)
 		}
 	}
 	return nil
@@ -572,7 +608,7 @@ func (s *sqliteStore) DeleteSnapshot(ctx context.Context, snapshotID int64) (boo
 }
 
 // unreferencedRuns returns those of runIDs that neither a snapshot nor the
-// working state references.
+// latest compute references.
 func unreferencedRuns(ctx context.Context, tx *sql.Tx, runIDs []int64) ([]int64, error) {
 	var out []int64
 	for _, run := range runIDs {

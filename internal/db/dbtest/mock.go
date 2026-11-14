@@ -34,14 +34,15 @@ type MockStore struct {
 	ListRunFacilitiesFunc func(context.Context, string) ([]db.RunFacility, error)
 	CreateRunFunc         func(context.Context, string, string, map[string]string) (*db.Run, error)
 	DiscardRunFunc        func(context.Context, int64) error
-	CommitSnapshotFunc    func(context.Context, string, float64, map[string]int64) (*db.Snapshot, error)
+	CommitLatestFunc      func(context.Context, string, map[string]int64) error
 	LatestComputeFunc     func(context.Context, string) ([]db.LatestPart, error)
 	CreateSnapshotFunc    func(context.Context, string, float64, db.CheckFunc) (*db.Snapshot, bool, error)
 	ListSnapshotsFunc     func(context.Context) ([]db.Snapshot, error)
 	ResolveSnapshotFunc   func(context.Context, int64) error
 	ViewSnapshotFunc      func(context.Context) (*db.Snapshot, error)
 	WithSnapshotFunc      func(int64) db.Store
-	WithConfigHashFunc    func(string) db.Store
+	WithLatestComputeFunc func(string) db.Store
+	WithRunsFunc          func([]int64) db.Store
 	DeleteSnapshotFunc    func(context.Context, int64) (bool, error)
 	GCScanFunc            func(context.Context, []string) (*db.GCReport, error)
 	GCSweepFunc           func(context.Context, []string) (*db.GCReport, error)
@@ -225,20 +226,12 @@ func (m *MockStore) DiscardRun(ctx context.Context, id int64) error {
 	return nil
 }
 
-// CommitSnapshot delegates to CommitSnapshotFunc, else returns snapshot 1
-// whose manifest is exactly parts (zero ids dropped). It does not carry a
-// previous snapshot forward; tests of carry-forward use a real store.
-func (m *MockStore) CommitSnapshot(ctx context.Context, hash string, hexEdgeM float64, parts map[string]int64) (*db.Snapshot, error) {
-	if m.CommitSnapshotFunc != nil {
-		return m.CommitSnapshotFunc(ctx, hash, hexEdgeM, parts)
+// CommitLatest delegates to CommitLatestFunc, else accepts the commit.
+func (m *MockStore) CommitLatest(ctx context.Context, hash string, parts map[string]int64) error {
+	if m.CommitLatestFunc != nil {
+		return m.CommitLatestFunc(ctx, hash, parts)
 	}
-	snap := &db.Snapshot{ID: 1, ConfigHash: hash, HexEdgeM: hexEdgeM}
-	for _, part := range slices.Sorted(maps.Keys(parts)) {
-		if parts[part] != 0 {
-			snap.Parts = append(snap.Parts, db.SnapshotPart{Part: part, RunID: parts[part]})
-		}
-	}
-	return snap, nil
+	return nil
 }
 
 // LatestCompute delegates to LatestComputeFunc, else returns (nil, nil):
@@ -355,16 +348,24 @@ func (m *MockStore) WithSnapshot(snapshotID int64) db.Store {
 	return m
 }
 
-// WithConfigHash returns the mock unchanged by default. NOTE: this
-// silently bypasses the production config_hash filtering that
-// sqliteStore.WithConfigHash applies, so a test that mocks the store
-// will exercise "no filtering" even when its production caller pins
-// via WithConfigHash. Tests that need to observe the pin should set
-// WithConfigHashFunc; tests that need to exercise the actual filter
-// should use a real sqlite store via openTestStore.
-func (m *MockStore) WithConfigHash(configHash string) db.Store {
-	if m.WithConfigHashFunc != nil {
-		return m.WithConfigHashFunc(configHash)
+// WithLatestCompute returns the mock unchanged by default. NOTE: this
+// silently bypasses the latest-compute filtering that
+// sqliteStore.WithLatestCompute applies, so a test that mocks the store
+// will exercise "no filtering" even when its production caller pins via
+// WithLatestCompute. Tests that need to observe the pin should set
+// WithLatestComputeFunc; tests that need to exercise the actual filter
+// should use a real sqlite store.
+func (m *MockStore) WithLatestCompute(configHash string) db.Store {
+	if m.WithLatestComputeFunc != nil {
+		return m.WithLatestComputeFunc(configHash)
+	}
+	return m
+}
+
+// WithRuns returns the mock unchanged unless WithRunsFunc is set.
+func (m *MockStore) WithRuns(runIDs []int64) db.Store {
+	if m.WithRunsFunc != nil {
+		return m.WithRunsFunc(runIDs)
 	}
 	return m
 }
@@ -432,4 +433,15 @@ func (m *MockRootStore) Close() error {
 		return m.CloseFunc()
 	}
 	return nil
+}
+
+// Publish commits parts into store's latest compute under hash, then
+// freezes it as a snapshot tiled at hexEdgeM, unchecked: what `pvmt <res>
+// compute` followed by `pvmt snapshots create` leaves behind.
+func Publish(ctx context.Context, store db.Store, hash string, hexEdgeM float64, parts map[string]int64) (*db.Snapshot, error) {
+	if err := store.CommitLatest(ctx, hash, parts); err != nil {
+		return nil, err
+	}
+	snap, _, err := store.CreateSnapshot(ctx, hash, hexEdgeM, nil)
+	return snap, err
 }

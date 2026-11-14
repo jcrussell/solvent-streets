@@ -53,10 +53,11 @@ cannot reach:
     cannot be attributed to a source. Overpass rows on a city with
     overpass unset or false are reported and left in place;
     --sweep-disabled-sources deletes them.
-  - Runs no snapshot references, with every row they wrote: left behind
-    by a compute that crashed or was killed before it committed its
-    snapshot. Runs younger than a day are never swept, because they
-    may belong to a compute that is still running.
+  - Runs neither a snapshot nor a latest compute references, with every
+    row they wrote: replaced in the latest compute by a later compute, or
+    left behind by a compute that crashed or was killed before it
+    committed. Runs younger than a day are never swept, because they may
+    belong to a compute that is still running.
 
 Scope: all configured cities by default; restrict to one with --city.
 

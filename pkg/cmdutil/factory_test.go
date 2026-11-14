@@ -487,7 +487,7 @@ func TestPinnedCityStore(t *testing.T) {
 	city := &cfg.Cities[0]
 	var pinned []string
 	store := &dbtest.MockStore{}
-	store.WithConfigHashFunc = func(hash string) db.Store {
+	store.WithLatestComputeFunc = func(hash string) db.Store {
 		pinned = append(pinned, hash)
 		return store
 	}

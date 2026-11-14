@@ -58,8 +58,8 @@ func TestStoreCache_BuildsOncePerKey(t *testing.T) {
 
 // TestWithCity_MemoizesStore pins the withCity end of finding xygq: repeated
 // CityDB() calls on a city-scoped factory copy return the SAME store without
-// re-running the EnsureCity + ForCity + WithConfigHash chain. Without the memo
-// each call rebuilds a fresh *sqliteStore (WithConfigHash copies), so identity
+// re-running the EnsureCity + ForCity + WithLatestCompute chain. Without the memo
+// each call rebuilds a fresh *sqliteStore (WithLatestCompute copies), so identity
 // equality is the observable proof the cache short-circuited the rebuild.
 func TestWithCity_MemoizesStore(t *testing.T) {
 	root, err := db.Open(filepath.Join(t.TempDir(), "pvmt.db"))

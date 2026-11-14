@@ -21,6 +21,7 @@ import (
 	"github.com/jcrussell/solvent-streets/pkg/cmd/compute"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/export"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/forecast"
+	"github.com/jcrussell/solvent-streets/pkg/cmd/snapshots"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
@@ -77,6 +78,10 @@ func TestPipeline_ComputeForecastExport(t *testing.T) {
 			t.Fatalf("compute %s: %v", rt.Type(), err)
 		}
 	}
+	// The combined pass, without which snapshots create refuses the city.
+	if err := compute.RunCombined(ctx, f, nil, nil); err != nil {
+		t.Fatalf("combined: %v", err)
+	}
 
 	// forecast: simulates from compute_results + cohort_stats and writes
 	// nothing, so it commits no snapshot.
@@ -90,6 +95,9 @@ func TestPipeline_ComputeForecastExport(t *testing.T) {
 	if after := len(listSnapshots(t, store)); after != before {
 		t.Errorf("forecast changed the snapshot count from %d to %d; it must only read", before, after)
 	}
+
+	// export publishes the newest snapshot: freeze the latest compute first.
+	snapshotsCreate(t, ctx, f)
 
 	// export: reads everything, writes the static-site files.
 	ecmd := export.NewCmdExport(f, nil)
@@ -223,9 +231,20 @@ func factoryFor(cfg *config.Config, city *config.CityConfig, store db.Store, roo
 		UnitSystem:  func() units.System { return units.Metric },
 		Config:      func() (*config.Config, error) { return cfg, nil },
 		CurrentCity: func() (*config.CityConfig, error) { return city, nil },
-		CityDB:      func() (db.Store, error) { return store, nil },
+		CityDB:      func() (db.Store, error) { return store.WithLatestCompute(cfg.CityHash(city)), nil },
 		RootDB:      func() (*db.RootStore, error) { return root, nil },
 		CityFlagSet: func() bool { return true },
+	}
+}
+
+// snapshotsCreate runs `pvmt snapshots create` for f's city.
+func snapshotsCreate(t *testing.T, ctx context.Context, f *cmdutil.Factory) {
+	t.Helper()
+	cmd := snapshots.NewCmdSnapshots(f)
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	cmd.SetArgs([]string{"create"})
+	if err := cmd.ExecuteContext(ctx); err != nil {
+		t.Fatalf("snapshots create: %v\nstdout:\n%v\nstderr:\n%v", err, f.IOStreams.Out, f.IOStreams.ErrOut)
 	}
 }
 

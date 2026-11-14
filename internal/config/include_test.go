@@ -1758,7 +1758,7 @@ path = "../second/pvmt.toml"
 // unconditionally. Livermore, declared in leaf and pulled through mid, came out
 // of `all` labelled as mid's: CityConfigID keys EnsureCity on a brand-new empty
 // cities row, and CityHash pins every compute/serve/export lookup to a merged
-// hash no compute run ever wrote (ErrNoMatchingSnapshot, or a blank city).
+// hash no compute run ever wrote (no snapshot to export, or a blank city).
 //
 // The fixture is four files: all -> [first, mid], mid -> leaf, and only leaf
 // carries the grid, so folding mid into all takes the merge path with
@@ -1828,7 +1828,7 @@ path = "../mid/pvmt.toml"
 		t.Errorf("CityConfigID() = %q; want \"leafid\" — this keys the cities row", got)
 	}
 	if got, want := cfg.CityHash(&liv), standaloneLeaf.CityHash(leafCity); got != want {
-		t.Errorf("CityHash() = %q; want %q — this is what RequireMatchingSnapshot compares", got, want)
+		t.Errorf("CityHash() = %q; want %q — this is the hash its computes and snapshots carry", got, want)
 	}
 }
 

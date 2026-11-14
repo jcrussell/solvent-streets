@@ -7,28 +7,28 @@ import (
 	"maps"
 )
 
-// Draft is the snapshot one command is assembling. Every producer the command
-// runs (a resource compute, the combined pass, service coverage, census)
-// creates its run through the draft and Puts it once the run is complete. No
-// producer reads another's stored results, so a draft has no read view: its
-// runs stay invisible until Commit writes ONE snapshot with only the put parts
-// swapped in. Discard deletes every run the draft created and nothing else.
+// Draft is the update one command is assembling for the city's latest
+// compute. Every producer the command runs (a resource compute, the combined
+// pass, service coverage, census) creates its run through the draft and Puts
+// it once the run is complete. No producer reads another's stored results, so
+// a draft has no read view: its runs stay invisible until Commit swaps only
+// the put parts into the latest compute, in one transaction. Nothing is
+// published: `pvmt snapshots create` freezes the latest compute. Discard
+// deletes every run the draft created and nothing else.
 //
 // A Draft is not safe for concurrent use.
 type Draft struct {
 	store      Store
 	configHash string
-	hexEdgeM   float64           // the hex edge the committed snapshot is tiled at
 	parts      map[string]int64  // committed by Commit; 0 removes a part
 	created    []int64           // every run created through this draft
 	pinned     map[string]string // input -> digest every run records (PinInput)
 }
 
 // NewDraft starts a draft over store for configHash, the hash that owns the
-// city's data (config.Config.CityHash), whose grid is tiled at hexEdgeM
-// (config.Config.ResolvedHexEdge).
-func NewDraft(store Store, configHash string, hexEdgeM float64) *Draft {
-	return &Draft{store: store, configHash: configHash, hexEdgeM: hexEdgeM, parts: map[string]int64{}}
+// city's data (config.Config.CityHash).
+func NewDraft(store Store, configHash string) *Draft {
+	return &Draft{store: store, configHash: configHash, parts: map[string]int64{}}
 }
 
 // ConfigHash is the hash the draft commits under.
@@ -36,8 +36,8 @@ func (d *Draft) ConfigHash() string { return d.configHash }
 
 // NewRun creates a run for producer under the draft's hash, recording inputs,
 // the digests the producer read before reading its data (ReadProducerInputs).
-// The run stays invisible to every reader until a committed snapshot
-// references it.
+// The run stays invisible to every reader until Commit puts it in the latest
+// compute.
 func (d *Draft) NewRun(ctx context.Context, producer string, inputs map[string]string) (int64, error) {
 	if len(d.pinned) > 0 {
 		inputs = maps.Clone(inputs)
@@ -71,7 +71,7 @@ func (d *Draft) PinInput(input, digest string) {
 // Put makes runID the draft's run for producer (the part it fills).
 func (d *Draft) Put(producer string, runID int64) { d.parts[producer] = runID }
 
-// Drop removes producer's part from the snapshot the draft will commit, e.g.
+// Drop removes producer's part from the latest compute on Commit, e.g.
 // when the producer found nothing to work from (no features, no stations), so
 // results computed from inputs that are gone stop being published.
 func (d *Draft) Drop(producer string) { d.parts[producer] = 0 }
@@ -79,25 +79,24 @@ func (d *Draft) Drop(producer string) { d.parts[producer] = 0 }
 // Parts returns a copy of the parts put (or dropped, as 0) so far.
 func (d *Draft) Parts() map[string]int64 { return maps.Clone(d.parts) }
 
-// Commit writes the draft as the city's next snapshot and returns it. When
-// the draft would not change the newest snapshot for its hash (no parts, or
-// only drops of parts that are not there) nothing is written, and Commit
-// returns that snapshot, or nil when the hash has none.
+// Commit applies the draft's parts to the city's latest compute
+// (Store.CommitLatest). A draft that would not change it (no parts, or only
+// drops of parts that are not there) writes nothing. The runs it replaces are
+// left for gc.
 //
 // An error means nothing was committed, so the caller can Discard. Runs that
 // were created but never Put are discarded only AFTER a successful commit,
-// best-effort: a failure there must not turn a committed snapshot into a
+// best-effort: a failure there must not turn a committed update into a
 // reported failure, and gc sweeps whatever is left (OrphanRunGrace).
-func (d *Draft) Commit(ctx context.Context) (*Snapshot, error) {
+func (d *Draft) Commit(ctx context.Context) error {
 	unused := d.unusedRuns()
-	snap, err := d.store.CommitSnapshot(ctx, d.configHash, d.hexEdgeM, d.parts)
-	if err != nil {
-		return nil, err
+	if err := d.store.CommitLatest(ctx, d.configHash, d.parts); err != nil {
+		return err
 	}
 	d.created, d.parts = nil, map[string]int64{}
 	// Best-effort: an unreferenced run that survives is gc's to sweep.
 	_ = d.discard(ctx, unused)
-	return snap, nil
+	return nil
 }
 
 // Discard deletes every run the draft created; nothing is committed. Callers

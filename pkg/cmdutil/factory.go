@@ -367,10 +367,10 @@ func EnsureCityStore(ctx context.Context, root db.RootStorer, city config.CityCo
 	return root.ForCity(id), nil
 }
 
-// PinnedCityStore is EnsureCityStore pinned to the city's current settings
-// (Store.WithConfigHash of Config.CityHash), so snapshot-aware reads see only
-// what this config computed and slug-sharing configs cannot read each other's
-// results. It is the store behind Factory.CityDB. When the config does not
+// PinnedCityStore is EnsureCityStore pinned to the city's latest compute
+// under its current settings (Store.WithLatestCompute of Config.CityHash), so
+// result reads see only what this config computed and slug-sharing configs
+// cannot read each other's results. It is the store behind Factory.CityDB. When the config does not
 // load the pin is skipped, for commands that work without one.
 func PinnedCityStore(ctx context.Context, root db.RootStorer, loadConfig func() (*config.Config, error), city *config.CityConfig) (db.Store, error) {
 	store, err := EnsureCityStore(ctx, root, *city, ResolveConfigID(loadConfig, city))
@@ -378,7 +378,7 @@ func PinnedCityStore(ctx context.Context, root db.RootStorer, loadConfig func() 
 		return nil, err
 	}
 	if hash := ResolveCityHash(loadConfig, city); hash != "" {
-		store = store.WithConfigHash(hash)
+		store = store.WithLatestCompute(hash)
 	}
 	return store, nil
 }

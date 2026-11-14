@@ -262,14 +262,18 @@ func runForecast(ctx context.Context, opts *Options) error {
 	fc := cfg.ResolvedForecast(city)
 	sys := opts.UnitSystem()
 
-	// Computed, but not under the current settings: there is nothing to
-	// forecast from, and "no compute results" for every resource would hide
-	// why. Say it once, the way export does.
+	// Computed, but not under the current settings: the latest compute it
+	// forecasts from is empty, and "no compute results" for every resource
+	// would hide why. Say it once.
 	snaps, err := store.ListSnapshots(ctx)
 	if err != nil {
 		return fmt.Errorf("list snapshots: %w", err)
 	}
-	if export.StaleSettings(cfg, city, snaps) {
+	latest, err := store.LatestCompute(ctx, cfg.CityHash(city))
+	if err != nil {
+		return fmt.Errorf("latest compute: %w", err)
+	}
+	if export.StaleSettings(cfg, city, snaps, latest) {
 		cmdutil.Warnf(ios, "%s", cfg.StaleHint(city))
 		return cmdutil.ErrNoResults
 	}

@@ -96,39 +96,59 @@ run, and `pvmt check-site` fails its asset check. Everything else works.
 Install a release or build from a checkout, as in the
 [README](../README.md#install).
 
-## No snapshot matches current config hash
+## City has no snapshot
 
-The commands report this in different ways:
+`pvmt export` fails with `no snapshot to export: N cities have none`, before
+it writes anything, and its hint lists each such city with the command that
+fixes it:
 
-- `pvmt export` fails with `no snapshot matches current config hash for <city>`.
-- `pvmt forecast` warns `<slug> was computed, but not under the current settings …`, and exits 3 when no city has results.
-- `pvmt status` shows a blank *Last Compute*, with the same note.
-- `pvmt serve` logs it at startup and serves the city without data.
+```
+hint: Export publishes each city's newest snapshot. Create one for each first:
+  Oakland, CA: pvmt --city oakland-ca snapshots create
+  Reno, NV: pvmt --city reno-nv all compute && pvmt --city reno-nv snapshots create
+```
 
-Results are read back only under the settings they were computed with (see
-[Snapshots and the config hash](configuration.md#snapshots-and-the-config-hash)).
-For `pvmt export`, the message says which of three cases you are in:
+Computes only update a city's latest compute; `pvmt snapshots create` freezes
+it as the snapshot export publishes. Run the listed commands. `all compute`
+comes first for a city with nothing computed under the current settings:
+never computed, or computed only under settings that have changed since. A
+multi-city export skips a city with no boundary stored (its ingest failed)
+rather than refusing it.
 
-- **Computed, but not under the current settings.** A setting in the hash
-  changed, `PVMT_HEX_EDGE_M` was set or unset, or a new pvmt release computes
-  differently. Run `pvmt --city <slug> all compute`. `pvmt status` marks which
-  of the city's snapshots match the current settings.
-- **Never computed.** Run `pvmt --city <slug> all compute`, after
-  `pvmt all ingest` if the city has no data yet.
-- **Pulled in via `[[include]]` but resolved differently.** The including
-  config resolves a setting in the hash differently from the file that
-  declared the city, and the message names it. The usual cause is
-  `[[services]]`, which an include does not carry over. Make the two agree, or
-  compute the city under the including config. Copying `[[services]]` into the
-  including config works only if every included example uses the same
-  overrides, because they apply to all of its cities.
+`pvmt serve` serves such a city from its latest compute, and says so at
+startup (`<city> has no snapshot; serving its latest compute (not
+snapshotted)`). With nothing computed either, it logs `no snapshot for <city>;
+serving it without data` and a hint. `pvmt forecast` and `pvmt status` read the
+latest compute: for a city with nothing computed under the current settings,
+`pvmt forecast` warns `<slug> was computed, but not under the current settings
+…` and exits 3 when no city has results, and `pvmt status` shows a blank *Last
+Compute* with the same note.
 
-A related **warning** reads `no snapshot under the current settings has <parts>,
-which snapshot N (earlier settings) had`. It means only some steps were rerun
-after a settings change, for example `pvmt roads compute` after editing
-`hex_edge_m`. The export goes ahead without those parts: fire coverage,
-population, or the combined paved total, without which the page sums the
-resources and double-counts their overlap. Run `pvmt --city <slug> all compute`.
+For an `[[include]]`d city, the message can instead say the including config
+resolves a setting in the hash differently from the file that declared the
+city, and name it. The usual cause is `[[services]]`, which an include does not
+carry over. Make the two agree, or compute and snapshot the city under the
+including config. Copying `[[services]]` into the including config works only
+if every included example uses the same overrides, because they apply to all of
+its cities.
+
+## Snapshot was created under other settings
+
+`pvmt export` warns `<city>: snapshot #N was created under other settings
+(hash <old>, now <new>): …; exporting it as created`, and `pvmt serve` logs the
+same at startup. Export and serve publish each city's newest snapshot whatever
+settings it was created under, and draw it exactly as created: its hex edge,
+boundary, stations and results. A setting in the hash changed since (see
+[Snapshots and the config hash](configuration.md#snapshots-and-the-config-hash)),
+`PVMT_HEX_EDGE_M` was set or unset, or a new pvmt release computes
+differently. To publish the current settings, run
+`pvmt --city <slug> all compute`, then `pvmt --city <slug> snapshots create`.
+To keep publishing the old snapshot, ignore the warning.
+
+A related **note** reads `<city>: the latest compute has <parts> not yet
+snapshotted`. A compute ran after the newest snapshot was created, so the
+export publishes the snapshot without it. Run
+`pvmt --city <slug> snapshots create` to publish it.
 
 ## Snapshot no longer exists
 
@@ -137,7 +157,9 @@ was serving has been deleted or pruned`, or `pvmt export` fails with
 `snapshot N: snapshot no longer exists (deleted or pruned)`. Both pin each
 city's snapshot when they start, and `pvmt snapshots delete` or `prune` deleted it
 while they were running. Restart `pvmt serve`, or re-run the export, and it
-reads the city's current snapshot.
+reads the city's newest snapshot. `pvmt serve` also answers 410 for a city it
+serves from its latest compute once `pvmt gc` has swept runs that a later
+compute replaced.
 
 ## `snapshots create` refuses a city
 

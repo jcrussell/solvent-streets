@@ -51,9 +51,10 @@ build regenerates them.
 
 Computed results are stored per city under `Config.CityHash`
 (`internal/config/hash.go`). That is a hash of the resolved settings that
-change what a compute stores, plus a hand-maintained `ComputeEpoch`. A snapshot
-is read back only under the hash it was written with. Users see this as the
-table in [configuration.md](docs/configuration.md#snapshots-and-the-config-hash).
+change what a compute stores, plus a hand-maintained `ComputeEpoch`. Computes
+update the city's latest compute under its current hash, and
+`pvmt snapshots create` freezes only that one. Users see this as the table in
+[configuration.md](docs/configuration.md#snapshots-and-the-config-hash).
 Two kinds of change have to keep that table true.
 
 **Adding a config field.** `TestComputeInputs_EveryFieldClassified`
@@ -75,7 +76,7 @@ Every other field is *presentation* (read only when exporting or rendering),
 (decides what is fetched, not what compute does with it) or *plumbing*.
 When unsure, grep the producers for the field. Hashing a field no producer
 reads costs users spurious recomputes. Leaving out a field a producer does read
-lets export publish stale results.
+lets `snapshots create` freeze stale results.
 
 **Changing compute logic.** Bump `config.ComputeEpoch` by one, in the same
 commit, when a code change alters what a producer stores for the same features
@@ -89,8 +90,10 @@ and settings. Examples:
 - census apportionment;
 - what a producer writes or drops.
 
-Every stored snapshot then stops matching and export asks for a recompute,
-which is the point. Don't bump it for ingest, forecast, export, serve, CLI,
+Every city's latest compute under the new hash is then empty, so
+`pvmt snapshots create` has nothing to freeze until the city is recomputed,
+which is the point. Existing snapshots still export as created, with a
+warning that they were created under other settings. Don't bump it for ingest, forecast, export, serve, CLI,
 docs or test changes. Each bump costs every user a full recompute. Note the
 bump in the commit body.
 
@@ -179,11 +182,16 @@ publish:
 
 ```
 cd examples/<name> && pvmt all ingest && pvmt all compute   # each stale example; hours
-make site          # render ./site/ from the local database
+cd examples/all && pvmt snapshots create                     # freeze every city's latest compute
+make site          # render ./site/ from each city's newest snapshot
 make site-report   # pvmt check-site: per-city size budgets and the asset audit
 make deploy        # force-push ./site/ to gh-pages
 ```
 
-Run `make site` and `make site-report` before tagging a release that changes
-export output, so a city over its size budget is caught first. GitHub Pages
+`make site` never creates snapshots: publishing is the deliberate
+`snapshots create`, and rolling a city back is `pvmt --city <slug> snapshots
+delete` of its newest snapshot, which a create inside `make site` would undo.
+A city with no snapshot makes `make site` refuse, naming it. Run `make site`
+and `make site-report` before tagging a release that changes export output, so
+a city over its size budget is caught first. GitHub Pages
 serves the new commit on its next sync.

@@ -489,9 +489,9 @@ func TestAllCompute_TUIInterruptAbortsCity(t *testing.T) {
 		listed = append(listed, rt)
 		return nil, tui.ErrInterrupted // the user hit ctrl+c in the first step's TUI
 	}
-	store.CommitSnapshotFunc = func(context.Context, string, float64, map[string]int64) (*db.Snapshot, error) {
+	store.CommitLatestFunc = func(context.Context, string, map[string]int64) error {
 		commits++
-		return &db.Snapshot{ID: 1}, nil
+		return nil
 	}
 
 	cmd := NewCmdAll(computeFactory(ios, store))

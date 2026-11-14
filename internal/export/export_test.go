@@ -21,7 +21,7 @@ import (
 
 // exportTestEntry builds a CityEntry whose store satisfies the exporter's
 // preconditions: a boundary (so BBoxAndCenter/Info succeed) and a snapshot
-// whose config hash matches the city's CityHash (so RequireMatchingSnapshot passes).
+// whose config hash matches the city's CityHash (so PinNewest pins it silently).
 // Compute results drive the per-resource stats / forecast totals.
 func exportTestEntry(cfg *config.Config, name, slug, boundary string, totals map[resource.Type]results.Totals) CityEntry {
 	store := &dbtest.MockStore{
@@ -152,8 +152,8 @@ func TestRunSingleCity_ReusesExportedMetaAndSeed(t *testing.T) {
 }
 
 // TestRunMultiCity_FailureLeavesRecoverableDir pins yvlv.19: when the export
-// fails partway (here, a second city whose stored snapshot hash doesn't match,
-// so RequireMatchingSnapshot fails), the output dir is left non-empty and
+// fails partway (here, a second city whose snapshot holds no pavement, so
+// RequirePavement fails), the output dir is left non-empty and
 // WITHOUT index.html — but WITH the ExportMarkerName sentinel written up front,
 // so a retry with --clean can recover it instead of dead-ending on a manual
 // rm -rf.
@@ -162,21 +162,20 @@ func TestRunMultiCity_FailureLeavesRecoverableDir(t *testing.T) {
 	good := exportTestEntry(cfg, "Good", "good", exportBoundaryA, map[resource.Type]results.Totals{
 		resource.TypeRoads: {Area: 1000, Features: 10},
 	})
-	// A city whose only snapshot carries a non-matching config hash: its
-	// RequireMatchingSnapshot returns ErrNoMatchingSnapshot, aborting the run
-	// after the marker (and possibly the good city's data) is written.
+	// A city whose snapshot holds only fire coverage: RequirePavement aborts
+	// the run after the marker (and possibly the good city's data) is written.
+	fireOnly := []db.Snapshot{{ID: 2, ConfigHash: cfg.CityHash(&config.CityConfig{Name: "Bad"}), Parts: []db.SnapshotPart{{Part: "service:fire", RunID: 2}}}}
 	badStore := &dbtest.MockStore{
-		GetBoundaryFunc: func(context.Context) (string, error) { return exportBoundaryB, nil },
-		ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
-			return []db.Snapshot{{ID: 2, ConfigHash: "mismatch"}}, nil
-		},
+		GetBoundaryFunc:   func(context.Context) (string, error) { return exportBoundaryB, nil },
+		ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) { return fireOnly, nil },
+		ViewSnapshotFunc:  func(context.Context) (*db.Snapshot, error) { return &fireOnly[0], nil },
 	}
 	bad := CityEntry{Config: cfg, City: config.CityConfig{Name: "Bad"}, Store: badStore, Slug: "bad"}
 
 	dir := t.TempDir()
 	err := New([]CityEntry{good, bad}, cfg, dir, "metric", testAssets(t)).Run(context.Background())
 	if err == nil {
-		t.Fatal("expected export to fail on the mismatched-snapshot city")
+		t.Fatal("expected export to fail on the city with no pavement")
 	}
 
 	// index.html is NOT present (it's written last, after the failing city).
@@ -483,7 +482,7 @@ func TestExportOneCity_SkippedCityLeavesNoDirectory(t *testing.T) {
 	cfg := &config.Config{Forecast: jsFixtureForecastConfig(t)}
 
 	// entry returns a fixture city wired to cfg, with a snapshot whose hash
-	// matches so RequireMatchingSnapshot passes.
+	// matches so PinNewest pins it silently.
 	entry := func(slug string) CityEntry {
 		e := jsFixtureEntry(t)
 		e.Config = cfg

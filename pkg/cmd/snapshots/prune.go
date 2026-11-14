@@ -36,11 +36,12 @@ func NewCmdPrune(f *cmdutil.Factory, runF func(context.Context, *PruneOptions) e
 		Use:   "prune",
 		Args:  cobra.NoArgs,
 		Short: "Retain the N most recent snapshots per city",
-		Long: `Delete every snapshot beyond the N most recent per city, then every run
-no remaining snapshot references, with the rows those runs wrote. Each
-snapshot is a whole city, so the N kept are N complete versions: runs the
-kept snapshots share with deleted ones stay. --keep is required and must
-be > 0.
+		Long: `Delete every snapshot beyond the N most recent per city, whatever settings
+each was created under, then every run neither a remaining snapshot nor the
+city's latest compute references, with the rows those runs wrote. The newest
+snapshot, the one export and serve publish, is always kept. Each snapshot is
+a whole city, so the N kept are N complete versions: runs the kept snapshots
+share with deleted ones stay. --keep is required and must be > 0.
 
 Scope: all configured cities by default; restrict to one with --city.
 
@@ -100,8 +101,10 @@ func runPrune(ctx context.Context, opts *PruneOptions) error {
 		if err != nil {
 			return err
 		}
-		// ListSnapshots already returns newest-first; everything past
-		// the keep window is eligible for deletion.
+		// ListSnapshots already returns newest-first, across every config
+		// hash; everything past the keep window is eligible for deletion.
+		// Export publishes the newest whatever its hash, so counting across
+		// hashes always keeps the published one (solvent-streets-ewxx).
 		snaps, err := store.ListSnapshots(ctx)
 		if err != nil {
 			return fmt.Errorf("list snapshots for %s: %w", city.Slug(), err)

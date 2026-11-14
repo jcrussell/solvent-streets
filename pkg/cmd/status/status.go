@@ -252,7 +252,7 @@ func runStatus(ctx context.Context, opts *Options) error {
 	}
 
 	snaps, snapsErr := store.ListSnapshots(ctx)
-	hash := opts.noteStaleSnapshots(ios, snaps, snapsErr)
+	hash := opts.noteStaleSnapshots(ctx, ios, store, snaps, snapsErr)
 
 	if ios.IsTTY() {
 		printCitySummary(ctx, ios, store, rows, sys, opts.ResourceType == nil)
@@ -264,18 +264,19 @@ func runStatus(ctx context.Context, opts *Options) error {
 	return nil
 }
 
-// noteStaleSnapshots prints the shared stale-snapshot hint when the city has
-// snapshots but none under its current settings, and returns the current hash
-// ("" without a config). "Last Compute" reads through the current settings'
-// snapshot, so such a city shows it blank; say why, the way export does,
-// rather than leave it looking never-computed.
-func (opts *Options) noteStaleSnapshots(ios *iostreams.IOStreams, snaps []db.Snapshot, snapsErr error) string {
+// noteStaleSnapshots prints the shared stale-settings hint when the city has
+// snapshots but nothing computed under its current settings, and returns the
+// current hash ("" without a config). "Last Compute" reads through the latest
+// compute under the current settings, so such a city shows it blank; say
+// why rather than leave it looking never-computed.
+func (opts *Options) noteStaleSnapshots(ctx context.Context, ios *iostreams.IOStreams, store db.Store, snaps []db.Snapshot, snapsErr error) string {
 	cfg, city := opts.currentCity()
 	if cfg == nil {
 		return ""
 	}
 	hash := cfg.CityHash(city)
-	if snapsErr == nil && export.StaleSettings(cfg, city, snaps) {
+	latest, latestErr := store.LatestCompute(ctx, hash)
+	if snapsErr == nil && latestErr == nil && export.StaleSettings(cfg, city, snaps, latest) {
 		fmt.Fprintf(ios.ErrOut, "\nNote: %s\n", cfg.StaleHint(city))
 	}
 	return hash

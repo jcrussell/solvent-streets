@@ -11,8 +11,8 @@ import (
 )
 
 // WithDraft runs fn against draft, or, when draft is nil, against a fresh
-// draft over store for the city's config hash and hex edge (NewDraft) that it
-// owns: committed as ONE snapshot when fn succeeds (or reports
+// draft over store for the city's config hash (NewDraft) that it owns:
+// committed into the city's latest compute when fn succeeds (or reports
 // cmdutil.ErrNoResults, see below), discarded when fn fails otherwise or
 // commit fails. A caller-supplied
 // draft (`pvmt all compute`, which commits once per city after every step) is
@@ -33,25 +33,24 @@ func WithDraft(ctx context.Context, draft *db.Draft, store db.Store, cfg *config
 	if err != nil && !errors.Is(err, cmdutil.ErrNoResults) {
 		return errors.Join(err, draft.Discard(context.WithoutCancel(ctx)))
 	}
-	if _, cerr := draft.Commit(ctx); cerr != nil {
+	if cerr := draft.Commit(ctx); cerr != nil {
 		return CommitFailed(err, cerr, draft.Discard(context.WithoutCancel(ctx)))
 	}
 	return err
 }
 
-// NewDraft starts a draft for city over store, under the city's config hash
-// and hex edge.
+// NewDraft starts a draft for city over store, under the city's config hash.
 func NewDraft(store db.Store, cfg *config.Config, city *config.CityConfig) *db.Draft {
-	return db.NewDraft(store, cfg.CityHash(city), cfg.ResolvedHexEdge(city))
+	return db.NewDraft(store, cfg.CityHash(city))
 }
 
 // CommitFailed builds the error for a draft whose commit failed after its
 // steps returned stepsErr. ErrNoResults is deliberately NOT carried over: it
 // is matched ahead of every other error (ForEachCity files the city as empty,
 // the runner exits 3 without printing), so joining it would hide that the
-// commit failed and the old result is still published.
+// commit failed and the latest compute still holds the old result.
 func CommitFailed(stepsErr, commitErr, discardErr error) error {
-	return errors.Join(withoutNoResults(stepsErr), fmt.Errorf("commit snapshot: %w", commitErr), discardErr)
+	return errors.Join(withoutNoResults(stepsErr), fmt.Errorf("commit latest compute: %w", commitErr), discardErr)
 }
 
 // withoutNoResults strips ErrNoResults out of err, keeping every other error

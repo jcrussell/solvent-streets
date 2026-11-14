@@ -96,7 +96,9 @@ func NewCmdCreate(f *cmdutil.Factory, runF func(context.Context, *CreateOptions)
 		Short: "Freeze each city's latest compute as a snapshot",
 		Long: `Freeze each city's latest compute (the newest run of every part under the
 current settings) as an immutable snapshot, with its hex edge and boundary.
-Every configured city by default; restrict to one with --city.
+Every configured city by default; restrict to one with --city. Export and
+serve publish each city's newest snapshot; computes only update the latest
+compute.
 
 A snapshot must be coherent. create refuses a city when any part was
 computed from features or a boundary that have been ingested again since,

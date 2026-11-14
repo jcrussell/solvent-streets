@@ -47,9 +47,9 @@ type Options struct {
 	// path). The grid depends only on (boundary, hex edge), identical across
 	// resources for a city.
 	PrebuiltGrid []geo.Hex
-	// Draft, when non-nil, is the snapshot the caller is assembling (`all
-	// compute` commits one per city once all its steps are done). nil means this run
-	// owns its draft and commits it as one snapshot (see WithDraft).
+	// Draft, when non-nil, is the latest-compute update the caller is
+	// assembling (`all compute` commits one per city once all its steps are
+	// done). nil means this run owns its draft and commits it (see WithDraft).
 	Draft *db.Draft
 }
 
@@ -62,9 +62,9 @@ type computeRow struct {
 	// EstimatedSpaces is the parking resource's estimated vehicle capacity
 	// (0 and omitted for every other resource).
 	EstimatedSpaces int `json:"estimated_spaces,omitempty"`
-	// RunID is the run this compute wrote. The snapshot id is not known yet
-	// when the row is recorded: under `all compute` the city's snapshot is
-	// committed once all of the city's steps are done.
+	// RunID is the run this compute wrote. Under `all compute` it is
+	// committed into the city's latest compute once all of the city's steps
+	// are done.
 	RunID int64 `json:"run_id,omitempty"`
 }
 
@@ -110,8 +110,9 @@ func Long(group string) string {
 names, into paved surface (lines buffered to an estimated width, areas as
 mapped), clip it to the city boundary, and measure its area in each hex of
 the city's grid. Totals are kept for every jurisdiction and for the
-city-maintained subset. The result is committed as this resource's part of
-the city's snapshot, under the current config hash.
+city-maintained subset. The result updates this resource's part of the
+city's latest compute, under the current config hash; run
+'pvmt snapshots create' to publish it.
 
 Needs a prior 'pvmt %s ingest'. Rerun after re-ingesting or after changing a
 setting that affects results.`, group, group)
@@ -170,7 +171,8 @@ func NewCmdCompute(f *cmdutil.Factory, rt resource.Source, runF func(context.Con
 // across the per-resource passes. It mirrors the Options NewCmdCompute builds and
 // runs the same single-city path (TTY/JSON routing included).
 //
-// draft is the snapshot the caller is assembling; nil commits this run's own.
+// draft is the latest-compute update the caller is assembling; nil commits
+// this run's own.
 func RunResourceForCity(ctx context.Context, f *cmdutil.Factory, rt resource.Source, grid []geo.Hex, draft *db.Draft) error {
 	// Pre-check cancellation before doing any work. The `all` fan-out calls
 	// this in-process, bypassing cmdutil.ForEachCity's pre-check, so without it

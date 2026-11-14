@@ -54,7 +54,11 @@ func NewCmdExport(f *cmdutil.Factory, runF func(context.Context, *Options) error
 		Use:   "export",
 		Args:  cobra.NoArgs,
 		Short: "Export a static HTML site with map and stats",
-		Long:  "Generate a self-contained HTML site with MapLibre dashboard, hex heatmap, and summary stats.\nDeploy to GitHub Pages or any static host.",
+		Long: `Generate a self-contained HTML site with MapLibre dashboard, hex heatmap, and
+summary stats from each city's newest snapshot (pvmt snapshots create), as it
+was created. A city with no snapshot refuses the whole export before anything
+is written; one created under other settings is exported with a warning.
+Deploy to GitHub Pages or any static host.`,
 		Example: `  # Export the static site to ./site
   pvmt export
 
@@ -123,13 +127,6 @@ func runExport(ctx context.Context, opts *Options) error {
 		return err
 	}
 
-	// SafeCleanDir refuses to delete a non-empty directory that does not look
-	// like a generated site (no index.html sentinel), so a mistyped --output
-	// can't wipe unrelated user data.
-	if err := fsutil.SafeCleanDir(opts.OutputDir); err != nil {
-		return fmt.Errorf("clean output directory: %w", err)
-	}
-
 	cfg, err := opts.Config()
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
@@ -150,10 +147,23 @@ func runExport(ctx context.Context, opts *Options) error {
 		return err
 	}
 
-	logs.From(ctx).Info("exporting static site", "output_dir", opts.OutputDir)
-
 	exporter := exportpkg.New(entries, cfg, opts.OutputDir, opts.unitSystem(cfg).String(), assets)
 	exporter.SetErrOut(ios.ErrOut)
+	// Pin each city to its newest snapshot, refusing the export when any city
+	// has none, before --clean deletes the previous site.
+	if err := exporter.Pin(ctx); err != nil {
+		return fmt.Errorf("export: %w", err)
+	}
+
+	// SafeCleanDir refuses to delete a non-empty directory that does not look
+	// like a generated site (no index.html sentinel), so a mistyped --output
+	// can't wipe unrelated user data.
+	if err := fsutil.SafeCleanDir(opts.OutputDir); err != nil {
+		return fmt.Errorf("clean output directory: %w", err)
+	}
+
+	logs.From(ctx).Info("exporting static site", "output_dir", opts.OutputDir)
+
 	if err := exporter.Run(ctx); err != nil {
 		return fmt.Errorf("export: %w", err)
 	}

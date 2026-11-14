@@ -19,7 +19,7 @@ import (
 func TestWithDraft_FailedCommitIsNotNoResults(t *testing.T) {
 	boom := errors.New("database is locked")
 	store := &dbtest.MockStore{
-		CommitSnapshotFunc: func(context.Context, string, float64, map[string]int64) (*db.Snapshot, error) { return nil, boom },
+		CommitLatestFunc: func(context.Context, string, map[string]int64) error { return boom },
 	}
 	err := WithDraft(context.Background(), nil, store, &config.Config{}, &config.CityConfig{Name: "Testville"}, func(d *db.Draft) error {
 		d.Drop("service:fire")

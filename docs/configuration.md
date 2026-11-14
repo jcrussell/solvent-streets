@@ -163,7 +163,7 @@ from `examples/all` writes into, and replaces, those examples' data. This holds
 while the including config resolves the same
 [compute inputs](#snapshots-and-the-config-hash) for the city. When it doesn't,
 the city reads nothing until it is computed under the including config, and
-export names the setting that differs.
+export's warning names the setting that differs.
 
 Two configs that set the *same* `config_id` and define the same city share its
 row and overwrite each other's data, so give each config its own.
@@ -171,8 +171,10 @@ row and overwrite each other's data, so give each config its own.
 ## Snapshots and the config hash
 
 Computed results are stored per city under a hash of just the resolved
-settings that change them. Export, serve and `pvmt forecast` read only results
-whose hash matches the city's current one.
+settings that change them. Every compute updates the city's *latest compute*
+under its current hash, which `pvmt forecast` and `pvmt status` read.
+`pvmt snapshots create` freezes the latest compute as a snapshot, and export and
+serve publish each city's newest snapshot.
 
 | Changes the hash (recompute the city) | Does not |
 |---|---|
@@ -185,12 +187,15 @@ whose hash matches the city's current one.
 
 Forecasts are never stored. Every reader simulates them from the stored
 results under the settings in force, so a forecast edit takes effect on the
-next read. Editing a data source changes what the next ingest fetches, but
-nothing marks the stored results stale, because the hash does not change. Run
-`pvmt all compute` after that ingest. A single `pvmt roads compute` would
-publish the new roads beside parking, sidewalks, services and census results
-computed from the old features. An explicit default
-(`hex_edge_m = 100`) hashes the same as leaving it out. The exception is
+next read. Editing a data source changes what the next ingest fetches, not the
+hash. What the re-ingest changes is caught when the snapshot is created: each
+part records the features and boundary it was computed from, and
+`pvmt snapshots create` refuses a city with a part computed from data ingested
+again since, naming the compute to rerun (see
+[troubleshooting](troubleshooting.md#snapshots-create-refuses-a-city)). After
+a single `pvmt roads compute`, for example, the combined total and the service
+coverage still read the old roads, so create asks for `pvmt all compute`. An
+explicit default (`hex_edge_m = 100`) hashes the same as leaving it out. The exception is
 `turnout_s`, whose default lives in the services registry.
 
 A service run freezes the facilities it routed from, names included, and the
@@ -198,15 +203,23 @@ turnout it used. The map's station markers and the coverage legend therefore
 show the run as computed, and a renamed or moved facility appears after the
 next `pvmt services compute`. `travel_threshold_s` is read when exporting.
 
-When a city's results were computed under other settings, export refuses the
-city, and forecast, status and serve report the same thing (see
-[troubleshooting](troubleshooting.md#no-snapshot-matches-current-config-hash)).
-`pvmt status` and `pvmt snapshots list` show each snapshot's hash.
+After a hash change the latest compute under the new hash is empty until the
+city is recomputed, and `pvmt forecast` and `pvmt status` say so. A snapshot
+never changes after it is created: it keeps the hash, `hex_edge_m`, boundary,
+stations and turnout it was created with, and exports exactly as created after
+any later ingest or config edit. Export and serve warn when a city's newest
+snapshot was created under other settings than the current ones (see
+[troubleshooting](troubleshooting.md#snapshot-was-created-under-other-settings)).
+Export refuses, before writing anything, when a city has no snapshot (see
+[troubleshooting](troubleshooting.md#city-has-no-snapshot)). `pvmt status` and
+`pvmt snapshots list` show each snapshot's hash.
 
 `pvmt snapshots create` freezes each city's latest compute as a snapshot under
 its current hash and `hex_edge_m`, and refuses a city whose parts were not all
 computed from the features and boundary stored now (see
-[troubleshooting](troubleshooting.md#snapshots-create-refuses-a-city)).
+[troubleshooting](troubleshooting.md#snapshots-create-refuses-a-city)). To roll
+a city back, delete its newest snapshot; `pvmt snapshots prune --keep N` keeps
+each city's N newest, whatever their hash.
 
 ## Grid and display
 
@@ -315,8 +328,8 @@ the drawn outline by up to the tolerance. A simplified ring is not guaranteed
 to be a valid polygon, which matters only to a consumer that fills
 `boundary.geojson` rather than drawing it.
 
-`pvmt serve` pins each city's snapshot when it starts and sends
-`Cache-Control: public, max-age=300` on every response, so restart it to pick
-up a new compute. `pvmt export` writes plain files, so caching is whatever the
+`pvmt serve` pins each city's newest snapshot (its latest compute, for a city
+with none) when it starts and sends `Cache-Control: public, max-age=300` on
+every response, so restart it to pick up a new snapshot. `pvmt export` writes plain files, so caching is whatever the
 host applies. After re-publishing, purge the
 CDN if the new build has to show immediately.

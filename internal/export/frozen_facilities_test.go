@@ -6,6 +6,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/services"
 )
@@ -44,10 +45,10 @@ func TestBuildHexMetrics_MarkersAndLegendFromTheRun(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.store.CommitSnapshot(ctx, hash, cfg.ResolvedHexEdge(&c.city), map[string]int64{db.ServiceProducer("fire"): run.ID}); err != nil {
+	if _, err := dbtest.Publish(ctx, c.store, hash, cfg.ResolvedHexEdge(&c.city), map[string]int64{db.ServiceProducer("fire"): run.ID}); err != nil {
 		t.Fatal(err)
 	}
-	entry, err := c.entry().PinCurrentSnapshot(ctx)
+	entry, err := c.entry().PinNewestSnapshot(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}

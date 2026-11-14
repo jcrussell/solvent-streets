@@ -246,3 +246,32 @@ func TestRunForecast_StaleSnapshotsSayWhy(t *testing.T) {
 		t.Errorf("stderr still has the bare per-resource warnings:\n%s", out)
 	}
 }
+
+// TestRunForecast_LatestComputeIsNotStale: forecast reads the latest compute,
+// so a city recomputed under the current settings but never snapshotted under
+// them is current; the stale hint is for a city with nothing computed under
+// them.
+func TestRunForecast_LatestComputeIsNotStale(t *testing.T) {
+	ios, _, _, stderr := iostreams.Test()
+	cfg := &config.Config{}
+	city := &config.CityConfig{Name: "Test City"}
+	store := &dbtest.MockStore{
+		ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
+			return []db.Snapshot{{ID: 1, ConfigHash: "0ld0ld0ld0ld0ld0"}}, nil
+		},
+		LatestComputeFunc: func(context.Context, string) ([]db.LatestPart, error) {
+			return []db.LatestPart{{Part: "roads", RunID: 2}}, nil
+		},
+	}
+	opts := &Options{
+		IO:          ios,
+		Config:      func() (*config.Config, error) { return cfg, nil },
+		CurrentCity: func() (*config.CityConfig, error) { return city, nil },
+		CityDB:      func() (db.Store, error) { return store, nil },
+		UnitSystem:  func() units.System { return units.Metric },
+	}
+	_ = runForecast(context.Background(), opts)
+	if out := stderr.String(); strings.Contains(out, cfg.StaleHint(city)) {
+		t.Errorf("stale hint printed for a city with a latest compute under the current settings:\n%s", out)
+	}
+}

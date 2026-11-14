@@ -36,7 +36,7 @@ import (
 // (standalone use).
 //
 // The pass is the draft's "combined" part (both labels' rows share one run).
-// draft is the snapshot the caller is assembling; nil commits its own.
+// draft is the latest-compute update the caller is assembling; nil commits its own.
 func RunCombined(ctx context.Context, f *cmdutil.Factory, grid []geo.Hex, draft *db.Draft) error {
 	cfg, err := f.Config()
 	if err != nil {

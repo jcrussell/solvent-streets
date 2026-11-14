@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
@@ -18,12 +19,11 @@ import (
 // use errors.Is to skip the city rather than failing the whole export.
 var ErrNoBoundary = errors.New("no boundary stored")
 
-// ErrNoMatchingSnapshot signals that no snapshot for this city was computed
-// under its current settings (Config.CityHash) — the city was never computed,
-// or a setting that affects results (or pvmt's compute logic, ComputeEpoch)
-// changed since. The exporter fails loud rather than emitting a silent empty
-// grid / zero meta totals.
-var ErrNoMatchingSnapshot = errors.New("no snapshot matches current config hash")
+// ErrNoSnapshot signals that a city has no snapshot to publish: it was never
+// computed, or its latest compute was never frozen with `pvmt snapshots
+// create`. Export refuses the whole site up front (PinNewest) rather than
+// publish a city as an empty grid with zero totals.
+var ErrNoSnapshot = errors.New("no snapshot")
 
 // CityEntry holds the config and store for a single city.
 type CityEntry struct {
@@ -45,12 +45,12 @@ func (entry CityEntry) WithSnapshot(snapshotID int64) CityEntry {
 }
 
 // BuildCityEntries creates CityEntry values for the given cities. The returned
-// stores are auto-pinned to cfg.CityHash(city) so unpinned reads (per-hex
-// coverage, cohort splits, city totals) only see snapshots written by the
-// config that owns that city's data — preventing slug-sharing examples (e.g.
-// Livermore in both livermore-ca and the bay-area-ca metro) from reading each
-// other's incompatible hex_id namespace. Callers that legitimately need
-// cross-config reads can call entry.Store.WithConfigHash("") to clear the pin.
+// stores read the latest compute under cfg.CityHash(city) until they are
+// pinned (PinNewest, or WithSnapshot), so unpinned reads (per-hex coverage,
+// cohort splits, city totals) only see runs written by the config that owns
+// that city's data — preventing slug-sharing examples (e.g. Livermore in both
+// livermore-ca and the bay-area-ca metro) from reading each other's
+// incompatible hex_id namespace.
 //
 // "The config that owns the data" is per city, not per Config: a city pulled in
 // through [[include]] is owned by the file that declared it. See
@@ -73,7 +73,7 @@ func BuildCityEntries(ctx context.Context, rootDB db.RootStorer, cfg *config.Con
 		entries = append(entries, CityEntry{
 			Config: cfg,
 			City:   city,
-			Store:  rootDB.ForCity(id).WithConfigHash(cfg.CityHash(&city)),
+			Store:  rootDB.ForCity(id).WithLatestCompute(cfg.CityHash(&city)),
 			Slug:   city.Slug(),
 		})
 	}
@@ -83,140 +83,193 @@ func BuildCityEntries(ctx context.Context, rootDB db.RootStorer, cfg *config.Con
 	return entries, nil
 }
 
-// PinCurrentSnapshot returns entry pinned to the newest snapshot for its
-// current config hash, so every later read sees that one snapshot even if a
-// compute commits another meanwhile. Without such a snapshot (or a config) the
-// entry is returned unchanged, and RequireMatchingSnapshot reports why.
-func (entry CityEntry) PinCurrentSnapshot(ctx context.Context) (CityEntry, error) {
-	if entry.Config == nil {
-		return entry, nil
-	}
+// NewestSnapshot returns the city's newest snapshot, whatever config hash it
+// was created under: the one export and serve publish. nil when it has none.
+func (entry CityEntry) NewestSnapshot(ctx context.Context) (*db.Snapshot, error) {
 	snaps, err := entry.Store.ListSnapshots(ctx)
 	if err != nil {
-		return entry, fmt.Errorf("list snapshots for %s: %w", entry.City.Name, err)
+		return nil, fmt.Errorf("list snapshots for %s: %w", entry.City.Name, err)
 	}
-	hash := entry.Config.CityHash(&entry.City)
-	for _, s := range snaps { // newest first
-		if s.ConfigHash == hash {
-			return entry.WithSnapshot(s.ID), nil
-		}
+	if len(snaps) == 0 {
+		return nil, nil //nolint:nilnil // nil snapshot = none
 	}
-	return entry, nil
+	return &snaps[0], nil // newest first
 }
 
-// PinAll pins every entry in place to its current snapshot
-// (PinCurrentSnapshot), so one export or one server lifetime reads each city
-// from a single snapshot throughout.
-func PinAll(ctx context.Context, entries []CityEntry) error {
+// PinNewestSnapshot returns entry pinned to its newest snapshot
+// (NewestSnapshot), or unchanged when it has none.
+func (entry CityEntry) PinNewestSnapshot(ctx context.Context) (CityEntry, error) {
+	snap, err := entry.NewestSnapshot(ctx)
+	if err != nil || snap == nil {
+		return entry, err
+	}
+	return entry.WithSnapshot(snap.ID), nil
+}
+
+// PinNewest pins every entry in place to its newest snapshot, so one export
+// reads each city from that one snapshot throughout even if another is created
+// meanwhile. It writes nothing and pins nothing unless every city has a
+// snapshot: otherwise it returns one ErrNoSnapshot naming every city without
+// one and the commands that make one. A city with neither a snapshot nor a
+// stored boundary is left unpinned rather than refused when skipNoBoundary is
+// set (the multi-city export skips such a city: its ingest failed). It warns
+// on warn about every snapshot created under other settings than the current
+// ones (SnapshotSettingsWarning) and notes a latest compute with parts not yet
+// snapshotted.
+func PinNewest(ctx context.Context, entries []CityEntry, skipNoBoundary bool, warn io.Writer) error {
+	snaps := make([]*db.Snapshot, len(entries))
+	var missing []string
 	for i, entry := range entries {
-		pinned, err := entry.PinCurrentSnapshot(ctx)
+		snap, refuse, err := entry.exportableSnapshot(ctx, skipNoBoundary)
 		if err != nil {
 			return err
 		}
-		entries[i] = pinned
+		snaps[i] = snap
+		if refuse != "" {
+			missing = append(missing, refuse)
+		}
+	}
+	if len(missing) > 0 {
+		noun := "city has"
+		if len(missing) > 1 {
+			noun = "cities have"
+		}
+		return hint.Withf(fmt.Errorf("%w to export: %d %s none", ErrNoSnapshot, len(missing), noun),
+			"Export publishes each city's newest snapshot. Create one for each first:\n  %s",
+			strings.Join(missing, "\n  "))
+	}
+	for i, entry := range entries {
+		if snaps[i] == nil {
+			continue
+		}
+		if err := entry.warnPublished(ctx, snaps[i], warn); err != nil {
+			return err
+		}
+		entries[i] = entry.WithSnapshot(snaps[i].ID)
 	}
 	return nil
 }
 
-// RequireMatchingSnapshot returns ErrNoMatchingSnapshot when the city's
-// snapshots include none with the city's current hash (Config.CityHash). This
-// is the fail-loud signal that the city was never computed, or not since a
-// setting that affects results changed — exporting would otherwise produce
-// a silent empty grid and zero totals.
-//
-// A city with snapshots matching the current hash but with no per-hex
-// coverage (e.g. tiny city, all features below the sliver threshold)
-// passes — that's a legitimate empty result, not a setup error.
-func (entry CityEntry) RequireMatchingSnapshot(ctx context.Context) error {
+// exportableSnapshot returns the city's newest snapshot or, when it has
+// none, the line PinNewest's refusal lists for it ("" for a city the export
+// skips for want of a boundary, when skipNoBoundary is set).
+func (entry CityEntry) exportableSnapshot(ctx context.Context, skipNoBoundary bool) (snap *db.Snapshot, refuse string, err error) {
+	if snap, err = entry.NewestSnapshot(ctx); err != nil || snap != nil {
+		return snap, "", err
+	}
+	if skipNoBoundary {
+		gj, err := entry.Store.GetBoundary(ctx)
+		if err != nil {
+			return nil, "", fmt.Errorf("boundary for %s: %w", entry.City.Name, err)
+		}
+		if gj == "" {
+			return nil, "", nil
+		}
+	}
+	cmd, err := entry.createCommand(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	return nil, fmt.Sprintf("%s: %s", entry.City.Name, cmd), nil
+}
+
+// warnPublished writes the other-settings warning and the not-yet-snapshotted
+// note for snap, the snapshot the city is published from.
+func (entry CityEntry) warnPublished(ctx context.Context, snap *db.Snapshot, warn io.Writer) error {
+	if w := entry.SnapshotSettingsWarning(snap); w != "" {
+		fmt.Fprintf(warn, "warning: %s; exporting it as created\n", w)
+	}
+	note, err := entry.UnsnapshottedNote(ctx, snap)
+	if err != nil {
+		return err
+	}
+	if note != "" {
+		fmt.Fprintf(warn, "note: %s\n", note)
+	}
+	return nil
+}
+
+// createCommand is the command that gives a city with no snapshot one:
+// `snapshots create`, after `all compute` when its latest compute under the
+// current settings is empty too.
+func (entry CityEntry) createCommand(ctx context.Context) (string, error) {
+	create := fmt.Sprintf("pvmt --city %s snapshots create", entry.Slug)
 	if entry.Config == nil {
+		return create, nil
+	}
+	latest, err := entry.Store.LatestCompute(ctx, entry.Config.CityHash(&entry.City))
+	if err != nil {
+		return "", fmt.Errorf("latest compute for %s: %w", entry.City.Name, err)
+	}
+	if len(latest) == 0 {
+		return fmt.Sprintf("pvmt --city %s all compute && %s", entry.Slug, create), nil
+	}
+	return create, nil
+}
+
+// SnapshotSettingsWarning explains, in one line, that snap (a snapshot of this
+// city) was created under other settings than the current ones (another
+// Config.CityHash), naming the setting when an [[include]] is the cause
+// (Config.SourceDivergence). "" when snap matches the current settings.
+func (entry CityEntry) SnapshotSettingsWarning(snap *db.Snapshot) string {
+	if entry.Config == nil || snap == nil {
+		return ""
+	}
+	hash := entry.Config.CityHash(&entry.City)
+	if snap.ConfigHash == hash {
+		return ""
+	}
+	why := "a setting that affects results (hex_edge_m, [[services]] turnout_s, facilities, census, " +
+		"a PVMT_HEX_EDGE_M override) or pvmt's compute logic changed since"
+	if d := entry.Config.SourceDivergence(&entry.City); len(d) > 0 {
+		why = "this config resolves " + strings.Join(d, "; ") + " differently from the city's own config"
+	}
+	return fmt.Sprintf("%s: snapshot #%d was created under other settings (hash %s, now %s): %s; "+
+		"run `pvmt --city %s all compute` and `pvmt --city %s snapshots create` to publish the current ones",
+		entry.City.Name, snap.ID, snap.ConfigHash, hash, why, entry.Slug, entry.Slug)
+}
+
+// UnsnapshottedNote is a one-line note when the city's latest compute under
+// the current settings holds parts its newest snapshot snap does not
+// (db.UnsnapshottedParts), "" otherwise.
+func (entry CityEntry) UnsnapshottedNote(ctx context.Context, snap *db.Snapshot) (string, error) {
+	if entry.Config == nil {
+		return "", nil
+	}
+	latest, err := entry.Store.LatestCompute(ctx, entry.Config.CityHash(&entry.City))
+	if err != nil {
+		return "", fmt.Errorf("latest compute for %s: %w", entry.City.Name, err)
+	}
+	parts := db.UnsnapshottedParts(latest, snap)
+	if len(parts) == 0 {
+		return "", nil
+	}
+	return fmt.Sprintf("%s: the latest compute has %s not yet snapshotted; run `pvmt --city %s snapshots create` to publish it",
+		entry.City.Name, strings.Join(parts, ", "), entry.Slug), nil
+}
+
+// RequirePavement fails when snap holds no pavement resource's compute, the
+// data every page is built from. `pvmt snapshots create` refuses such a
+// snapshot, so this is a defensive check, not a user-facing path.
+func RequirePavement(entry CityEntry, snap *db.Snapshot) error {
+	if snap == nil || hasPavement(*snap) {
 		return nil
 	}
-	configHash := entry.Config.CityHash(&entry.City)
-	snaps, err := entry.Store.ListSnapshots(ctx)
-	if err != nil {
-		return fmt.Errorf("list snapshots for %s: %w", entry.City.Name, err)
-	}
-	for _, s := range snaps { // newest first: the snapshot the export pins
-		if s.ConfigHash != configHash {
-			continue
-		}
-		if hasPavement(s) {
-			return nil
-		}
-		// Only metric parts (coverage, census) under this config: exporting
-		// would publish a city with no pavement at all, at exit 0.
-		return hint.Withf(fmt.Errorf("%w for %s: snapshot %d has no pavement compute", ErrNoMatchingSnapshot, entry.City.Name, s.ID),
-			"Run `pvmt --city %s all compute` (or a roads/parking/sidewalks compute) "+
-				"under the current settings. The city's snapshot so far holds only %s.", entry.Slug, partNames(s))
-	}
-	err = fmt.Errorf("%w for %s", ErrNoMatchingSnapshot, entry.City.Name)
-	if StaleSettings(entry.Config, &entry.City, snaps) {
-		return hint.With(err, entry.Config.StaleHint(&entry.City))
-	}
-	return hint.Withf(err, "%s has never been computed. Run `pvmt --city %s all compute` (after "+
-		"`pvmt --city %s all ingest` if its data is not ingested yet).", entry.City.Name, entry.Slug, entry.Slug)
+	return fmt.Errorf("%s: snapshot %d has no pavement compute (it holds %s)", entry.City.Name, snap.ID, partNames(*snap))
 }
 
 // StaleSettings reports whether city has results that its current settings
-// (cfg.CityHash) cannot read: it was computed under other settings, or it is
-// an [[include]]d city whose stored data this config would not have computed
-// (CityHash refused the source's stamp). Config.StaleHint explains either
-// case, and export, serve, `pvmt status` and `pvmt forecast` all decide
-// whether to show it here. snaps is the city's snapshot list; a city with a
-// snapshot under the current hash, or one simply never computed, is not stale.
-func StaleSettings(cfg *config.Config, city *config.CityConfig, snaps []db.Snapshot) bool {
-	hash := cfg.CityHash(city)
-	for _, s := range snaps {
-		if s.ConfigHash == hash {
-			return false
-		}
+// (cfg.CityHash) cannot read: nothing is computed under them (latest is the
+// latest compute under the current hash) although the city has snapshots, or
+// it is an [[include]]d city whose stored data this config would not have
+// computed (CityHash refused the source's stamp). Config.StaleHint explains
+// either case, and `pvmt status` and `pvmt forecast` decide whether to show it
+// here.
+func StaleSettings(cfg *config.Config, city *config.CityConfig, snaps []db.Snapshot, latest []db.LatestPart) bool {
+	if len(latest) > 0 {
+		return false
 	}
 	return len(snaps) > 0 || len(cfg.SourceDivergence(city)) > 0
-}
-
-// MissingParts reports the parts the export of this city will lack although
-// the city once had them: parts of its newest snapshot under OTHER settings
-// (a different config hash) that no snapshot under the current hash has ever
-// held. That is the trace of a settings change followed by a partial recompute —
-// say `pvmt roads compute` after a hex_edge_m edit — which leaves the current
-// snapshot without fire coverage, population or the combined total, and the
-// export would otherwise publish the city without them, silently. (A part
-// dropped under the current settings, because its producer found nothing to
-// work from, was held by an earlier current-hash snapshot and is not reported:
-// that drop is deliberate.) Census is not reported for a city with census =
-// false. prev is that other snapshot's id; missing is empty when nothing is
-// missing or there is no other snapshot.
-func (entry CityEntry) MissingParts(ctx context.Context) (missing []string, prev int64, err error) {
-	if entry.Config == nil {
-		return nil, 0, nil
-	}
-	snaps, err := entry.Store.ListSnapshots(ctx)
-	if err != nil {
-		return nil, 0, fmt.Errorf("list snapshots for %s: %w", entry.City.Name, err)
-	}
-	hash := entry.Config.CityHash(&entry.City)
-	held := map[string]bool{}
-	var other *db.Snapshot
-	for i := range snaps { // newest first
-		s := &snaps[i]
-		if s.ConfigHash == hash {
-			for _, p := range s.Parts {
-				held[p.Part] = true
-			}
-		} else if other == nil {
-			other = s
-		}
-	}
-	if other == nil || len(held) == 0 {
-		return nil, 0, nil
-	}
-	for _, p := range other.Parts {
-		if held[p.Part] || (p.Part == "census" && !entry.City.CensusEnabled()) {
-			continue
-		}
-		missing = append(missing, p.Part)
-	}
-	return missing, other.ID, nil
 }
 
 // hasPavement reports whether the snapshot holds at least one pavement
@@ -315,4 +368,16 @@ func (entry CityEntry) Info(ctx context.Context) (CityInfo, error) {
 		// selector groups and /api/cities all see the same tags.
 		Tags: entry.City.EffectiveTags(),
 	}, nil
+}
+
+// LatestComputeEntry returns entry pinned to latest, a latest compute read a
+// moment ago (Store.WithRuns): what serve shows for a city with no snapshot.
+// Its reads fail with db.ErrSnapshotGone once gc sweeps any of those runs.
+func LatestComputeEntry(entry CityEntry, latest []db.LatestPart) CityEntry {
+	runs := make([]int64, len(latest))
+	for i, p := range latest {
+		runs[i] = p.RunID
+	}
+	entry.Store = entry.Store.WithRuns(runs)
+	return entry
 }

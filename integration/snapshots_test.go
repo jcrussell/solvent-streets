@@ -1,56 +1,55 @@
 package integration
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
+	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
+	exportpkg "github.com/jcrussell/solvent-streets/internal/export"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/all"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/compute"
+	"github.com/jcrussell/solvent-streets/pkg/cmd/export"
 	servicescmd "github.com/jcrussell/solvent-streets/pkg/cmd/services"
+	"github.com/jcrussell/solvent-streets/pkg/cmd/snapshots"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
 
-// TestSnapshots_RecomputeSwapsOnlyItsPart drives real commands against a real
-// store through the snapshot lifecycle of epic solvent-streets-25t6:
+// TestSnapshots_LatestComputeSwapsOnlyItsPart drives real commands against a
+// real store through the latest-compute lifecycle (epics solvent-streets-25t6
+// and solvent-streets-we5i):
 //
-//  1. `all compute` commits exactly ONE snapshot holding every step's part,
-//     fire coverage included, and a census part only when there is census.
-//  2. A standalone `roads compute` commits a new snapshot that swaps in a new
-//     roads run, and carries every other part (fire coverage, parking, the
-//     combined pass) forward untouched.
+//  1. `all compute` commits ONE update of the latest compute holding every
+//     step's part, fire coverage included, and a census part only when there
+//     is census. It creates no snapshot.
+//  2. A standalone `roads compute` swaps in a new roads run, and carries every
+//     other part (fire coverage, parking, the combined pass) forward
+//     untouched. It creates no snapshot either.
 //  3. A services compute that finds no stations drops its part, so the old
-//     coverage stops being published while everything else stays.
-func TestSnapshots_RecomputeSwapsOnlyItsPart(t *testing.T) {
+//     coverage stops being part of the latest compute while everything else
+//     stays.
+func TestSnapshots_LatestComputeSwapsOnlyItsPart(t *testing.T) {
 	ctx := context.Background()
 	store := newAllFixtureStore(t, ctx)
-	fire := resource.FacilityType("fire")
-	station := feat("osm:node:1", fire, map[string]string{"amenity": "fire_station"},
-		`{"type":"Point","coordinates":[-121.765,37.684]}`)
-	station.SourceAPI = "overpass"
-	if err := store.UpsertFeatures(ctx, fire, []db.Feature{station}, nil); err != nil {
-		t.Fatal(err)
-	}
+	addFixtureStation(t, ctx, store, `{"type":"Point","coordinates":[-121.765,37.684]}`)
 	ios, _, _, stderr := iostreams.Test()
 	f := allComputeFactory(ios, store)
 
-	// 1. One `all compute`, one snapshot.
-	allCmd := all.NewCmdAll(f)
-	allCmd.SilenceErrors, allCmd.SilenceUsage = true, true
-	allCmd.SetArgs([]string{"compute"})
-	if err := allCmd.ExecuteContext(ctx); err != nil {
-		t.Fatalf("all compute: %v\nstderr:\n%s", err, stderr.String())
+	// 1. One `all compute`, one update, no snapshot.
+	runAllCompute(t, ctx, f, stderr)
+	if snaps := listSnapshots(t, store); len(snaps) != 0 {
+		t.Fatalf("all compute created %d snapshots, want none: %+v", len(snaps), snaps)
 	}
-	snaps := listSnapshots(t, store)
-	if len(snaps) != 1 {
-		t.Fatalf("all compute committed %d snapshots, want exactly 1: %+v", len(snaps), snaps)
-	}
-	first := partsOf(snaps[0])
+	first := latestOf(t, store)
 	wantParts := []string{"combined", "parking", "roads", "service:fire", "sidewalks"}
 	if got := slices.Sorted(maps.Keys(first)); !slices.Equal(got, wantParts) {
 		t.Errorf("all compute parts = %v, want %v (no census part: the fixture has no blocks)", got, wantParts)
@@ -67,11 +66,10 @@ func TestSnapshots_RecomputeSwapsOnlyItsPart(t *testing.T) {
 	if err := rcmd.ExecuteContext(ctx); err != nil {
 		t.Fatalf("roads compute: %v\nstderr:\n%s", err, stderr.String())
 	}
-	snaps = listSnapshots(t, store)
-	if len(snaps) != 2 {
-		t.Fatalf("snapshots after roads compute = %d, want 2", len(snaps))
+	if snaps := listSnapshots(t, store); len(snaps) != 0 {
+		t.Fatalf("roads compute created %d snapshots, want none", len(snaps))
 	}
-	second := partsOf(snaps[0])
+	second := latestOf(t, store)
 	for part, run := range first {
 		swapped := part == "roads"
 		if swapped && second[part] == run {
@@ -89,15 +87,14 @@ func TestSnapshots_RecomputeSwapsOnlyItsPart(t *testing.T) {
 	}
 
 	// 3. No stations left: the fire part is dropped, nothing else moves.
-	if err := store.UpsertFeatures(ctx, fire, nil, nil); err != nil {
+	if err := store.UpsertFeatures(ctx, resource.FacilityType("fire"), nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	err := servicescmd.RunComputeForCity(ctx, f, servicescmd.DefaultService, nil, nil)
 	if !errors.Is(err, cmdutil.ErrNoResults) {
 		t.Fatalf("services compute with no stations = %v, want ErrNoResults", err)
 	}
-	snaps = listSnapshots(t, store)
-	third := partsOf(snaps[0])
+	third := latestOf(t, store)
 	if _, ok := third["service:fire"]; ok {
 		t.Errorf("parts after losing every station = %v, want service:fire dropped", third)
 	}
@@ -105,8 +102,173 @@ func TestSnapshots_RecomputeSwapsOnlyItsPart(t *testing.T) {
 		t.Errorf("dropping fire moved other parts: %v -> %v", second, third)
 	}
 	if got := hexMetricCount(t, store, "fire_response_s"); got != 0 {
-		t.Errorf("fire coverage still published (%d hexes) after every station was removed", got)
+		t.Errorf("fire coverage still in the latest compute (%d hexes) after every station was removed", got)
 	}
+}
+
+// TestSnapshots_FrozenAfterReingestAndConfigEdit: a snapshot exports exactly
+// as created. After it is created, the boundary and the fire station are
+// re-ingested somewhere else, and hex_edge_m and turnout_s are edited, with no
+// recompute: a second export is identical to the first in its hex grid (ids,
+// areas, the Play board's k), its boundary, and its station markers and
+// coverage legend, and it warns that the snapshot was created under other
+// settings.
+func TestSnapshots_FrozenAfterReingestAndConfigEdit(t *testing.T) {
+	ctx := context.Background()
+	root, store := newAllFixture(t, ctx)
+	addFixtureStation(t, ctx, store, `{"type":"Point","coordinates":[-121.765,37.684]}`)
+	cfg := allFixtureConfig()
+	ios, _, _, stderr := iostreams.Test()
+	f := allFixtureFactory(ios, root, store, cfg)
+
+	runAllCompute(t, ctx, f, stderr)
+	snapshotsCreate(t, ctx, f)
+	stderr.Reset()
+	dirA := runExport(t, ctx, f, stderr)
+	if strings.Contains(stderr.String(), "warning:") {
+		t.Errorf("export A under the snapshot's own settings warned:\n%s", stderr.String())
+	}
+
+	const moved = `{"type":"Polygon","coordinates":[[[-121.772,37.678],[-121.762,37.678],[-121.762,37.688],[-121.772,37.688],[-121.772,37.678]]]}`
+	if err := store.SaveBoundary(ctx, moved, "fixture"); err != nil {
+		t.Fatal(err)
+	}
+	addFixtureStation(t, ctx, store, `{"type":"Point","coordinates":[-121.768,37.687]}`)
+	cfg.Grid.HexEdgeM = 150
+	turnout := 200.0
+	cfg.Services = []config.ServiceOverride{{Name: "fire", TurnoutS: &turnout}}
+
+	stderr.Reset()
+	dirB := runExport(t, ctx, f, stderr)
+	if got := stderr.String(); !strings.Contains(got, "was created under other settings") || !strings.Contains(got, "exporting it as created") {
+		t.Errorf("export B lacks the other-settings warning:\n%s", got)
+	}
+
+	hexes := 0
+	for _, name := range []string{exportpkg.HexGridFileName, exportpkg.BoundaryFileName, exportpkg.HexMetricsFileName} {
+		a, b := readDataFile(t, dirA, name), readDataFile(t, dirB, name)
+		if !bytes.Equal(a, b) {
+			t.Errorf("%s changed after a re-ingest and a config edit with no new snapshot:\nA: %.300s\nB: %.300s", name, a, b)
+		}
+		if name == exportpkg.HexGridFileName {
+			hexes = bytes.Count(a, []byte(`"Feature"`))
+			if !bytes.Contains(a, []byte(`"k":`)) {
+				t.Errorf("%s carries no Play-board k to compare", name)
+			}
+		}
+		if name == exportpkg.HexMetricsFileName && !bytes.Contains(a, []byte(`"points"`)) {
+			t.Errorf("%s carries no station markers to compare", name)
+		}
+	}
+	if hexes == 0 {
+		t.Error("the export drew no hexes; the comparison proves nothing")
+	}
+}
+
+// TestSnapshotsCreate_RefusesStale: after a roads re-ingest and a roads
+// compute alone, the combined pass is stale (it read the old roads), so
+// create refuses the city and names `all compute` (solvent-streets-wcuw); once
+// `all compute` has run, create succeeds.
+func TestSnapshotsCreate_RefusesStale(t *testing.T) {
+	ctx := context.Background()
+	root, store := newAllFixture(t, ctx)
+	ios, _, stdout, stderr := iostreams.Test()
+	f := allFixtureFactory(ios, root, store, allFixtureConfig())
+
+	runAllCompute(t, ctx, f, stderr)
+	snapshotsCreate(t, ctx, f)
+
+	road := feat("road:res", resource.TypeRoads, map[string]string{"highway": "residential"},
+		`{"type":"LineString","coordinates":[[-121.769,37.681],[-121.761,37.689]]}`)
+	if err := store.UpsertFeatures(ctx, resource.TypeRoads, []db.Feature{road}, nil); err != nil {
+		t.Fatal(err)
+	}
+	rcmd := compute.NewCmdCompute(f, &resource.Pavement{}, nil)
+	rcmd.SilenceErrors, rcmd.SilenceUsage = true, true
+	rcmd.SetArgs(nil)
+	if err := rcmd.ExecuteContext(ctx); err != nil {
+		t.Fatalf("roads compute: %v\nstderr:\n%s", err, stderr.String())
+	}
+
+	stdout.Reset()
+	cmd := snapshots.NewCmdSnapshots(f)
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	cmd.SetArgs([]string{"create"})
+	err := cmd.ExecuteContext(ctx)
+	out := stdout.String()
+	if !errors.Is(err, cmdutil.ErrSilent) || !strings.Contains(out, "grid-city: refused:") ||
+		!strings.Contains(out, "combined") || !strings.Contains(out, "hint: pvmt --city grid-city all compute") {
+		t.Fatalf("create after a roads-only recompute = (%v)\n%s\nwant refused, naming the combined pass and all compute", err, out)
+	}
+	if snaps := listSnapshots(t, store); len(snaps) != 1 {
+		t.Errorf("snapshots after the refusal = %d, want the first one only", len(snaps))
+	}
+
+	runAllCompute(t, ctx, f, stderr)
+	snapshotsCreate(t, ctx, f)
+	if snaps := listSnapshots(t, store); len(snaps) != 2 {
+		t.Errorf("snapshots after all compute and create = %d, want 2", len(snaps))
+	}
+}
+
+// addFixtureStation replaces the fixture city's fire stations with one at
+// point (a GeoJSON Point).
+func addFixtureStation(t *testing.T, ctx context.Context, store db.Store, point string) {
+	t.Helper()
+	fire := resource.FacilityType("fire")
+	station := feat("osm:node:1", fire, map[string]string{"amenity": "fire_station"}, point)
+	station.SourceAPI = "overpass"
+	if err := store.UpsertFeatures(ctx, fire, []db.Feature{station}, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func runAllCompute(t *testing.T, ctx context.Context, f *cmdutil.Factory, stderr *bytes.Buffer) {
+	t.Helper()
+	cmd := all.NewCmdAll(f)
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	cmd.SetArgs([]string{"compute"})
+	if err := cmd.ExecuteContext(ctx); err != nil {
+		t.Fatalf("all compute: %v\nstderr:\n%s", err, stderr.String())
+	}
+}
+
+// runExport exports f's city to a fresh directory and returns it.
+func runExport(t *testing.T, ctx context.Context, f *cmdutil.Factory, stderr *bytes.Buffer) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "site")
+	cmd := export.NewCmdExport(f, nil)
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	cmd.SetArgs([]string{"--output", dir})
+	if err := cmd.ExecuteContext(ctx); err != nil {
+		t.Fatalf("export: %v\nstderr:\n%s", err, stderr.String())
+	}
+	return dir
+}
+
+func readDataFile(t *testing.T, dir, name string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(dir, exportpkg.DataDirName, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// latestOf is the store's latest compute (it is a WithLatestCompute view)
+// as part -> run.
+func latestOf(t *testing.T, store db.Store) map[string]int64 {
+	t.Helper()
+	cfg := allFixtureConfig()
+	latest, err := store.LatestCompute(context.Background(), cfg.CityHash(&cfg.Cities[0]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]int64{}
+	for _, p := range latest {
+		out[p.Part] = p.RunID
+	}
+	return out
 }
 
 func listSnapshots(t *testing.T, store db.Store) []db.Snapshot {
@@ -116,14 +278,6 @@ func listSnapshots(t *testing.T, store db.Store) []db.Snapshot {
 		t.Fatal(err)
 	}
 	return snaps
-}
-
-func partsOf(s db.Snapshot) map[string]int64 {
-	out := map[string]int64{}
-	for _, p := range s.Parts {
-		out[p.Part] = p.RunID
-	}
-	return out
 }
 
 func hexMetricCount(t *testing.T, store db.Store, metric string) int {

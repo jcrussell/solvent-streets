@@ -46,10 +46,10 @@ func seedComputedCity(t *testing.T, path string, cfg *config.Config, city *confi
 	if err := store.SaveCityMetrics(ctx, run.ID, rows); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.CommitSnapshot(ctx, hash, cfg.ResolvedHexEdge(city), map[string]int64{string(resource.TypeRoads): run.ID}); err != nil {
+	if err := store.CommitLatest(ctx, hash, map[string]int64{string(resource.TypeRoads): run.ID}); err != nil {
 		t.Fatal(err)
 	}
-	return store.WithConfigHash(hash)
+	return store.WithLatestCompute(hash)
 }
 
 // countRows counts the runs and snapshots in the database file at path,

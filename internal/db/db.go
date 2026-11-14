@@ -26,7 +26,7 @@ var migrationsFS embed.FS
 // constraints the schema declares (SQLite defaults them off).
 //
 // _txlock=immediate makes every BeginTx take the write lock up front. Write
-// transactions here read before they write (CommitSnapshot reads its base
+// transactions here read before they write (CommitLatest reads its base
 // manifest, DeleteSnapshot its parts, gc its orphans). A DEFERRED one that
 // loses a race with another process fails with SQLITE_BUSY_SNAPSHOT (517),
 // which busy_timeout cannot retry; IMMEDIATE waits out busy_timeout at BEGIN
@@ -113,9 +113,11 @@ type Run struct {
 	ComputedAt time.Time `json:"computed_at"`
 }
 
-// Snapshot is a city's complete computed state: one run per part. Every
-// reader resolves exactly one snapshot (Store.WithSnapshot / WithConfigHash /
-// newest) and reads only its runs.
+// Snapshot is a city's computed state frozen by `pvmt snapshots create`: one
+// run per part. It never changes after it is created. Every reader resolves
+// exactly one manifest (a snapshot via Store.WithSnapshot or the newest, or
+// the latest compute via WithLatestCompute / WithRuns) and reads only its
+// runs.
 type Snapshot struct {
 	ID         int64     `json:"id"`
 	CreatedAt  time.Time `json:"created_at"`
@@ -127,18 +129,6 @@ type Snapshot struct {
 	// snapshot_boundaries digest); "" when it froze none. Not published: it
 	// keys caches of what is drawn from that boundary.
 	BoundaryDigest string `json:"-"`
-}
-
-// StaleFor reports whether snaps (one city's) hold snapshots but none
-// committed under configHash: the city was computed, just not under the
-// settings now in force. Empty snaps (never computed) is not stale.
-func StaleFor(snaps []Snapshot, configHash string) bool {
-	for _, s := range snaps {
-		if s.ConfigHash == configHash {
-			return false
-		}
-	}
-	return len(snaps) > 0
 }
 
 // SnapshotPart is one (part -> run) entry of a snapshot's manifest.
@@ -172,7 +162,7 @@ type GCReport struct {
 	// StaleFeatures counts features whose source_api is a non-empty value
 	// that is no longer resolvable from the city's configured sources.
 	StaleFeatures int
-	// OrphanRuns counts runs neither a snapshot nor the working state
+	// OrphanRuns counts runs neither a snapshot nor the latest compute
 	// references that are older than
 	// OrphanRunGrace: left behind by a command that failed or was killed
 	// before it committed. Younger unreferenced runs may belong to a command
@@ -222,8 +212,8 @@ type Store interface {
 	// or a run that recorded none, returns (nil, nil).
 	ListRunFacilities(ctx context.Context, producer string) ([]RunFacility, error)
 	// CreateRun starts a run for producer under configHash. Its rows are
-	// invisible to every reader until a snapshot that includes the run is
-	// committed (CommitSnapshot).
+	// invisible to every reader until the run is committed into the latest
+	// compute (CommitLatest).
 	// inputs is the digest of every input the producer read
 	// (ReadProducerInputs), recorded with the run in the same transaction.
 	CreateRun(ctx context.Context, producer, configHash string, inputs map[string]string) (*Run, error)
@@ -231,19 +221,16 @@ type Store interface {
 	// references it (a committed run is only ever removed with its last
 	// snapshot). Used to clean up after a failed or cancelled command.
 	DiscardRun(ctx context.Context, runID int64) error
-	// CommitSnapshot creates this city's next snapshot for configHash, tiled
-	// at hexEdgeM (> 0) and frozen to the city's current boundary: the
-	// newest existing snapshot with that hash, with parts applied on top
-	// (part -> run; a run id of 0 removes the part). Every run in parts must
-	// belong to this city, carry configHash, and have Producer == part. One
-	// transaction; returns the new snapshot with its full manifest. A commit
-	// that would not change the manifest writes nothing and returns the
-	// current snapshot, or (nil, nil) when configHash has none, so no-op
-	// commands never mint snapshots and no snapshot is ever empty. An empty
-	// configHash is rejected. A new snapshot's manifest also becomes the
-	// working state for configHash (working_parts). Retries while another
-	// process holds the lock.
-	CommitSnapshot(ctx context.Context, configHash string, hexEdgeM float64, parts map[string]int64) (*Snapshot, error)
+	// CommitLatest applies parts (part -> run; a run id of 0 removes the
+	// part) to this city's latest compute for configHash (working_parts):
+	// the parts the command produced swap in, every other part carries over.
+	// Every run in parts must belong to this city, carry configHash, and have
+	// Producer == part. One transaction. A commit that would not change the
+	// manifest writes nothing. A replaced run is not deleted here: once no
+	// snapshot or latest compute references it, gc sweeps it. Nothing is
+	// published: a snapshot never changes after CreateSnapshot. An empty
+	// configHash is rejected. Retries while another process holds the lock.
+	CommitLatest(ctx context.Context, configHash string, parts map[string]int64) error
 	// LatestCompute returns this city's latest compute under configHash
 	// (working_parts): one entry per part, ordered by part, each with its run,
 	// the run's computed_at and the input digests the run recorded. No parts
@@ -265,23 +252,30 @@ type Store interface {
 	ListSnapshots(ctx context.Context) ([]Snapshot, error)
 	ResolveSnapshot(ctx context.Context, snapshotID int64) error
 	// ViewSnapshot returns the snapshot this view reads, with its manifest:
-	// the pinned one (ErrSnapshotGone when it no longer exists), else the
-	// newest for the view's config hash. (nil, nil) when there is none.
+	// the pinned one (ErrSnapshotGone when it no longer exists), else, for a
+	// view of neither a latest compute nor pinned runs, the newest. (nil,
+	// nil) when the view reads no snapshot.
 	ViewSnapshot(ctx context.Context) (*Snapshot, error)
 	// WithSnapshot returns a view pinned to one snapshot: its runs and its
 	// frozen boundary. Every snapshot-scoped read of the view returns
 	// ErrSnapshotGone once that snapshot no longer exists.
 	WithSnapshot(snapshotID int64) Store
-	WithConfigHash(configHash string) Store
+	// WithLatestCompute returns a view of the latest compute under
+	// configHash, resolved on every read.
+	WithLatestCompute(configHash string) Store
+	// WithRuns returns a view that reads exactly runIDs (a latest compute
+	// pinned at one moment); every read returns ErrSnapshotGone once any of
+	// them is gone.
+	WithRuns(runIDs []int64) Store
 	// DeleteSnapshot removes one snapshot's manifest, then every run no
-	// remaining snapshot or the working state references, with the rows
+	// remaining snapshot or the latest compute references, with the rows
 	// those runs wrote, and any frozen boundary no snapshot uses any more.
 	// Runs still referenced elsewhere are kept, so deleting any snapshot
-	// never changes what another snapshot or the working state reads.
+	// never changes what another snapshot or the latest compute reads.
 	DeleteSnapshot(ctx context.Context, snapshotID int64) (bool, error)
 	// GCScan counts orphan rows for this city WITHOUT writing: features
 	// with a stale source_api (non-empty, not in keepSources) and runs no
-	// snapshot references that are older than OrphanRunGrace, with their
+	// snapshot or latest compute references that are older than OrphanRunGrace, with their
 	// rows. An empty keepSources skips the feature scan entirely (never
 	// reports every row as stale).
 	GCScan(ctx context.Context, keepSources []string) (*GCReport, error)
@@ -308,8 +302,10 @@ type Store interface {
 type sqliteStore struct {
 	db         *sql.DB
 	cityID     int64
-	snapshotID int64  // 0 = unpinned; >0 = read exactly this snapshot (wins over configHash)
-	configHash string // "" = newest snapshot; non-empty = newest snapshot with this hash
+	snapshotID int64   // 0 = unpinned; >0 = read exactly this snapshot (wins over the rest)
+	runs       []int64 // with runsPinned: read exactly these runs (WithRuns)
+	runsPinned bool
+	configHash string // "" = newest snapshot; non-empty = the latest compute under this hash
 }
 
 var _ Store = (*sqliteStore)(nil)

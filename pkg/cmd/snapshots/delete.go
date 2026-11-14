@@ -43,8 +43,8 @@ func NewCmdDelete(f *cmdutil.Factory, runF func(context.Context, *DeleteOptions)
 references, with all the result rows those runs wrote, in a single
 transaction. Runs another snapshot or the latest compute still uses are
 kept, so every remaining snapshot reads exactly what it did before. Export
-and serve read each city's newest snapshot for the current config, so
-deleting that one rolls the city back to the one before.
+and serve publish each city's newest snapshot, whatever settings it was
+created under, so deleting that one rolls the city back to the one before.
 
 Snapshot IDs are unique across cities; the command searches every
 configured city for the id and deletes from whichever city owns it.

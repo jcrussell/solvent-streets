@@ -142,9 +142,9 @@ func TestCreate_JSON(t *testing.T) {
 	}
 }
 
-// TestRunCreate_RealStore runs create against a real database: the compute's
-// own snapshot is unchanged, a roads re-ingest refuses the city, and nothing
-// is written for it.
+// TestRunCreate_RealStore runs create against a real database: a compute
+// creates no snapshot, create freezes it, a second create is unchanged, a
+// roads re-ingest refuses the city, and nothing is written for it.
 func TestRunCreate_RealStore(t *testing.T) {
 	ctx := context.Background()
 	root, err := db.Open(":memory:")
@@ -169,7 +169,7 @@ func TestRunCreate_RealStore(t *testing.T) {
 		}
 	}
 	roads(`{"type":"LineString","coordinates":[[0,0],[1,1]]}`)
-	draft := db.NewDraft(store, cfg.CityHash(city), cfg.ResolvedHexEdge(city))
+	draft := db.NewDraft(store, cfg.CityHash(city))
 	for _, producer := range []string{"roads", "combined"} {
 		in, err := db.ReadProducerInputs(ctx, store, producer)
 		if err != nil {
@@ -181,9 +181,11 @@ func TestRunCreate_RealStore(t *testing.T) {
 		}
 		draft.Put(producer, run)
 	}
-	snap, err := draft.Commit(ctx)
-	if err != nil {
+	if err := draft.Commit(ctx); err != nil {
 		t.Fatal(err)
+	}
+	if snaps, err := store.ListSnapshots(ctx); err != nil || len(snaps) != 0 {
+		t.Fatalf("a compute created snapshots: %v (%v)", snaps, err)
 	}
 
 	run := func() (string, error) {
@@ -197,8 +199,13 @@ func TestRunCreate_RealStore(t *testing.T) {
 		return stdout.String(), err
 	}
 	out, err := run()
-	if err != nil || out != fmt.Sprintf("alpha: unchanged (#%d)\n", snap.ID) {
-		t.Fatalf("coherent city: (%q, %v), want unchanged #%d", out, err, snap.ID)
+	snaps, _ := store.ListSnapshots(ctx)
+	if err != nil || len(snaps) != 1 || out != fmt.Sprintf("alpha: created #%d\n", snaps[0].ID) {
+		t.Fatalf("coherent city: (%q, %v), want created", out, err)
+	}
+	snapID := snaps[0].ID
+	if out, err = run(); err != nil || out != fmt.Sprintf("alpha: unchanged (#%d)\n", snapID) {
+		t.Fatalf("second create: (%q, %v), want unchanged #%d", out, err, snapID)
 	}
 
 	roads(`{"type":"LineString","coordinates":[[0,0],[2,2]]}`)
@@ -207,7 +214,7 @@ func TestRunCreate_RealStore(t *testing.T) {
 		!strings.Contains(out, "after the combined and roads computes\n  hint: pvmt --city alpha all compute\n") {
 		t.Errorf("after a roads re-ingest: (%q, %v), want refused with the all compute hint", out, err)
 	}
-	snaps, err := store.ListSnapshots(ctx)
+	snaps, err = store.ListSnapshots(ctx)
 	if err != nil || len(snaps) != 1 {
 		t.Errorf("snapshots after a refusal = %d (%v), want 1", len(snaps), err)
 	}

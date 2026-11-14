@@ -32,6 +32,7 @@ type Exporter struct {
 	unitSystem string
 	errOut     io.Writer // progress/warning sink; nil means discard (byob-iostreams.3)
 	assets     *Assets   // site-root browser files written beside index.html
+	pinned     bool      // Pin has run
 }
 
 // SetErrOut routes the exporter's progress and warning output (chatter, not
@@ -53,12 +54,27 @@ func New(entries []CityEntry, cfg *config.Config, outputDir, unitSystem string, 
 	return &Exporter{entries: entries, cfg: cfg, outputDir: outputDir, unitSystem: unitSystem, assets: assets}
 }
 
-func (e *Exporter) Run(ctx context.Context) error {
-	// Pin every city to ONE snapshot for the whole export. Each read would
-	// otherwise resolve "newest snapshot for the config" on its own, and a
-	// compute committing mid-export could leave a city's files (and the
+// Pin pins every city to its newest snapshot for the whole export (PinNewest),
+// warning on the exporter's warning sink, and refuses the export, before
+// anything is written, when any city has no snapshot. Run calls it when the
+// caller has not, so a caller that must not touch the output directory
+// before the refusal (pvmt export's --clean) calls it first.
+func (e *Exporter) Pin(ctx context.Context) error {
+	if e.pinned {
+		return nil
+	}
+	// One snapshot per city: each read would otherwise resolve on its own,
+	// and a snapshot created mid-export could leave a city's files (and the
 	// multi-city totals) built from two different snapshots.
-	if err := PinAll(ctx, e.entries); err != nil {
+	if err := PinNewest(ctx, e.entries, len(e.entries) > 1, e.warnOut()); err != nil {
+		return err
+	}
+	e.pinned = true
+	return nil
+}
+
+func (e *Exporter) Run(ctx context.Context) error {
+	if err := e.Pin(ctx); err != nil {
 		return err
 	}
 	if len(e.entries) == 1 {
@@ -253,21 +269,12 @@ func sortCitiesByName(cities []CityInfo) {
 // the same city (runSingleCity) reuses them instead of recomputing — each
 // rebuild is a fresh round of DB queries plus boundary re-parsing.
 func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir string) (MetaJSON, template.JS, error) {
-	if err := entry.RequireMatchingSnapshot(ctx); err != nil {
-		return MetaJSON{}, "", err
-	}
-	// Warn, not refuse: a missing part may be a half-finished recompute or a
-	// deliberate change, and the rest of the city is still current.
-	missing, prev, err := entry.MissingParts(ctx)
+	snap, err := entry.Store.ViewSnapshot(ctx)
 	if err != nil {
-		return MetaJSON{}, "", err
+		return MetaJSON{}, "", fmt.Errorf("snapshot for %s: %w", entry.City.Name, err)
 	}
-	if len(missing) > 0 {
-		fmt.Fprintf(e.warnOut(),
-			"warning: %s: no snapshot under the current settings has %s, which snapshot %d (earlier "+
-				"settings) had, so this export publishes the city without them; run `pvmt --city %s "+
-				"all compute` to recompute them (ignore this if they were dropped on purpose)\n",
-			entry.City.Name, strings.Join(missing, ", "), prev, entry.Slug)
+	if err := RequirePavement(entry, snap); err != nil {
+		return MetaJSON{}, "", err
 	}
 	bbox, lon, lat, err := entry.BBoxAndCenter(ctx)
 	if err != nil {
@@ -536,7 +543,7 @@ func (e *Exporter) writeBoundary(ctx context.Context, entry CityEntry, proj *geo
 
 // writeExportMarker drops a fsutil.ExportMarkerName sentinel at the top of the
 // output dir at the very start of a run. index.html is only written last, so a
-// run that fails partway (e.g. RequireMatchingSnapshot on city N of M) would
+// run that fails partway (e.g. a read error on city N of M) would
 // otherwise leave a non-empty tree that SafeCleanDir refuses to remove; the
 // early marker keeps such a partial export recoverable via --clean.
 func (e *Exporter) writeExportMarker() error {

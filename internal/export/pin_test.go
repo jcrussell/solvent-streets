@@ -3,12 +3,14 @@ package export
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/results"
 )
@@ -59,7 +61,7 @@ func (c *sqliteCity) commitRoads(area float64) int64 {
 	if err := c.store.SaveCityMetrics(ctx, run.ID, results.TotalRows(resource.TypeRoads, results.Totals{Area: area, Features: 1})); err != nil {
 		c.t.Fatal(err)
 	}
-	snap, err := c.store.CommitSnapshot(ctx, hash, c.cfg.ResolvedHexEdge(&c.city), map[string]int64{"roads": run.ID})
+	snap, err := dbtest.Publish(ctx, c.store, hash, c.cfg.ResolvedHexEdge(&c.city), map[string]int64{"roads": run.ID})
 	if err != nil {
 		c.t.Fatal(err)
 	}
@@ -68,7 +70,7 @@ func (c *sqliteCity) commitRoads(area float64) int64 {
 
 // entry is the city as BuildCityEntries makes it: scoped to its current hash.
 func (c *sqliteCity) entry() CityEntry {
-	return CityEntry{Config: c.cfg, City: c.city, Store: c.store.WithConfigHash(c.cfg.CityHash(&c.city)), Slug: c.city.Slug()}
+	return CityEntry{Config: c.cfg, City: c.city, Store: c.store.WithLatestCompute(c.cfg.CityHash(&c.city)), Slug: c.city.Slug()}
 }
 
 // TestExport_PinnedSnapshotDeletedFails: a snapshot deleted while an export
@@ -81,10 +83,11 @@ func TestExport_PinnedSnapshotDeletedFails(t *testing.T) {
 	c.commitRoads(100)
 	newest := c.commitRoads(200)
 
-	pinned, err := c.entry().PinCurrentSnapshot(ctx)
-	if err != nil {
+	entries := []CityEntry{c.entry()}
+	if err := PinNewest(ctx, entries, false, io.Discard); err != nil {
 		t.Fatal(err)
 	}
+	pinned := entries[0]
 	if _, err := c.store.DeleteSnapshot(ctx, newest); err != nil {
 		t.Fatal(err)
 	}

@@ -440,9 +440,9 @@ func TestRunCompute_NoFeaturesDropsThePart(t *testing.T) {
 			runCreated = true
 			return &db.Run{ID: 1, Producer: producer, ConfigHash: hash}, nil
 		},
-		CommitSnapshotFunc: func(_ context.Context, _ string, _ float64, parts map[string]int64) (*db.Snapshot, error) {
+		CommitLatestFunc: func(_ context.Context, _ string, parts map[string]int64) error {
 			committed = parts
-			return &db.Snapshot{ID: 1}, nil
+			return nil
 		},
 	}
 	ios, _, _, _ := iostreams.Test()
@@ -565,9 +565,9 @@ func TestRunCompute_CancelledDiscardsRun(t *testing.T) {
 			discardCtxErr = ctx.Err()
 			return nil
 		},
-		CommitSnapshotFunc: func(_ context.Context, _ string, _ float64, _ map[string]int64) (*db.Snapshot, error) {
+		CommitLatestFunc: func(context.Context, string, map[string]int64) error {
 			committed = true
-			return &db.Snapshot{ID: 1}, nil
+			return nil
 		},
 	}
 	ios, _, _, _ := iostreams.Test()
@@ -823,9 +823,9 @@ func TestRunCompute_CommitsOnlyItsOwnPart(t *testing.T) {
 			producers[next] = producer
 			return &db.Run{ID: next, Producer: producer, ConfigHash: hash}, nil
 		},
-		CommitSnapshotFunc: func(_ context.Context, hash string, _ float64, parts map[string]int64) (*db.Snapshot, error) {
+		CommitLatestFunc: func(_ context.Context, _ string, parts map[string]int64) error {
 			commits = append(commits, parts)
-			return &db.Snapshot{ID: 1, ConfigHash: hash}, nil
+			return nil
 		},
 	}
 	ios, _, _, stderr := iostreams.Test()
@@ -860,18 +860,18 @@ func TestRunCompute_CommitsOnlyItsOwnPart(t *testing.T) {
 	}
 }
 
-// TestRunCompute_RecordsInputsAndEdge: the roads run records the digests of
-// the boundary and the roads it read, and the snapshot is committed at the
-// city's resolved hex edge.
-func TestRunCompute_RecordsInputsAndEdge(t *testing.T) {
-	var edge float64
+// TestRunCompute_RecordsInputs: the roads run records the digests of the
+// boundary and the roads it read, and is committed into the latest compute
+// under the city's hash.
+func TestRunCompute_RecordsInputs(t *testing.T) {
+	var hash string
 	store := &dbtest.MockStore{
 		GetBoundaryFunc:  func(_ context.Context) (string, error) { return testBoundary, nil },
 		ListFeaturesFunc: roadsFeaturesFunc,
 		Digests:          map[string]string{"boundary": "b", "roads": "r", "parking": "p"},
-		CommitSnapshotFunc: func(_ context.Context, hash string, hexEdgeM float64, _ map[string]int64) (*db.Snapshot, error) {
-			edge = hexEdgeM
-			return &db.Snapshot{ID: 1, ConfigHash: hash}, nil
+		CommitLatestFunc: func(_ context.Context, h string, _ map[string]int64) error {
+			hash = h
+			return nil
 		},
 	}
 	ios, _, _, stderr := iostreams.Test()
@@ -892,8 +892,8 @@ func TestRunCompute_RecordsInputsAndEdge(t *testing.T) {
 	if len(store.RunInputs) != 1 || !maps.Equal(store.RunInputs[1], want) {
 		t.Errorf("run inputs = %v, want run 1 with %v", store.RunInputs, want)
 	}
-	if want := testCfg.ResolvedHexEdge(testCity); edge != want {
-		t.Errorf("committed at hex edge %v, want %v", edge, want)
+	if want := testCfg.CityHash(testCity); hash != want {
+		t.Errorf("committed under hash %q, want %q", hash, want)
 	}
 }
 

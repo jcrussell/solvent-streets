@@ -123,26 +123,50 @@ func runServe(ctx context.Context, opts *Options) error {
 	return srv.ListenAndServe(ctx)
 }
 
-// pinEntries pins every city to one snapshot: the newest for its config hash
-// when the server starts. Each endpoint resolving "newest" on its own would
-// mix snapshots after a compute commits mid-session, and responses are cached
-// for the server's lifetime anyway (restart to pick up new data). ?snapshot=N
-// still overrides the pin per request.
+// pinEntries pins every city when the server starts: to its newest snapshot,
+// whatever settings it was created under (warning when they are not the
+// current ones), or, for a city with no snapshot, to its latest compute as it
+// stands now (Store.WithRuns), so later computes do not mix into a running
+// server's pages. Responses are cached for the server's lifetime anyway
+// (restart to pick up new data). ?snapshot=N still overrides the pin per
+// request.
 //
-// A city with no snapshot under its current settings is still served (as an
-// empty map, HTTP 200, like any uncomputed city), so say why once per city at
-// startup — with export's error and hint — rather than leave a blank map the
-// operator has to diagnose: the settings changed since its last compute, or an
-// [[include]]d city resolves different data inputs than its own config.
+// A city with neither is still served (as an empty map, HTTP 200, like any
+// uncomputed city), so say why once per city at startup rather than leave a
+// blank map the operator has to diagnose.
 func pinEntries(ctx context.Context, entries []exportpkg.CityEntry, errOut io.Writer) error {
-	if err := exportpkg.PinAll(ctx, entries); err != nil {
-		return err
-	}
-	for _, pinned := range entries {
-		if err := pinned.RequireMatchingSnapshot(ctx); err != nil {
-			cmdutil.FprintWarnf(errOut, "%v; serving it without data", err)
-			hint.Fprint(errOut, err)
+	for i, entry := range entries {
+		snap, err := entry.NewestSnapshot(ctx)
+		if err != nil {
+			return err
 		}
+		if snap != nil {
+			entries[i] = entry.WithSnapshot(snap.ID)
+			if w := entry.SnapshotSettingsWarning(snap); w != "" {
+				cmdutil.FprintWarnf(errOut, "%s; serving it as created", w)
+			}
+			continue
+		}
+		latest, err := entry.Store.LatestCompute(ctx, entry.Config.CityHash(&entry.City))
+		if err != nil {
+			return fmt.Errorf("latest compute for %s: %w", entry.City.Name, err)
+		}
+		if len(latest) > 0 {
+			entries[i] = exportpkg.LatestComputeEntry(entry, latest)
+			cmdutil.FprintWarnf(errOut, "%s has no snapshot; serving its latest compute (not snapshotted). "+
+				"Run `pvmt --city %s snapshots create` to publish it", entry.City.Name, entry.Slug)
+			continue
+		}
+		err = fmt.Errorf("%w for %s", exportpkg.ErrNoSnapshot, entry.City.Name)
+		if len(entry.Config.SourceDivergence(&entry.City)) > 0 {
+			err = hint.With(err, entry.Config.StaleHint(&entry.City))
+		} else {
+			err = hint.Withf(err, "%s has never been computed. Run `pvmt --city %s all compute` (after "+
+				"`pvmt --city %s all ingest` if its data is not ingested yet), then `pvmt --city %s snapshots create`.",
+				entry.City.Name, entry.Slug, entry.Slug, entry.Slug)
+		}
+		cmdutil.FprintWarnf(errOut, "%v; serving it without data", err)
+		hint.Fprint(errOut, err)
 	}
 	return nil
 }

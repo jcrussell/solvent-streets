@@ -36,7 +36,7 @@ type Options struct {
 	// PrebuiltGrid is the clipped hex grid when `all compute` already built
 	// one for the city; nil builds it here (compute.BuildCityGrid shape).
 	PrebuiltGrid []geo.Hex
-	// Draft is the snapshot `all compute` is assembling; nil commits this
+	// Draft is the latest-compute update `all compute` is assembling; nil commits this
 	// run's own (see compute.WithDraft).
 	Draft *db.Draft
 	rows  *[]computeRow
@@ -111,9 +111,9 @@ func NewCmdCompute(f *cmdutil.Factory, service *string, runF func(context.Contex
 present, else the agency centerlines), route from every facility at once,
 and store each hex's response time — turnout plus travel to the nearest
 reachable point along a road from the hex centre — as a per-hex metric.
-The result is committed as the service's own part of the city's snapshot,
-so a later roads compute leaves it in place; rerun this after re-ingesting
-roads or facilities. Hexes off the network or unreachable from every
+The result updates the service's own part of the city's latest compute, so
+a later roads compute leaves it in place; run 'pvmt snapshots create' to
+publish it, and rerun this after re-ingesting roads or facilities. Hexes off the network or unreachable from every
 facility carry no value.`,
 		Example: `  # Fire response coverage for every configured city
   pvmt services compute
@@ -140,7 +140,7 @@ facility carry no value.`,
 // RunComputeForCity computes coverage for one city against the city-scoped
 // factory cf, reusing grid (nil = build one). `pvmt all compute` calls it
 // in-process after the pavement passes, with the city's draft (nil commits
-// this run's own snapshot).
+// this run's own update).
 func RunComputeForCity(ctx context.Context, cf *cmdutil.Factory, service string, grid []geo.Hex, draft *db.Draft) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -220,7 +220,7 @@ type inputs struct {
 // clipped grid. It returns cmdutil.ErrNoResults (after a note on errOut) when
 // the city has no roads or no facilities — an empty result, not a failure —
 // together with the partly filled inputs (store, hash, spec), so the caller
-// can drop the service's part from the snapshot.
+// can drop the service's part from the latest compute.
 func loadInputs(ctx context.Context, errOut io.Writer, opts *Options) (*inputs, error) {
 	cfg, err := opts.Config()
 	if err != nil {

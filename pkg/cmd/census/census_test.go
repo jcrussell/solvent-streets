@@ -61,11 +61,11 @@ func fixtureStore(out saved, commits *[]map[string]int64) *dbtest.MockStore {
 			}
 			return nil
 		},
-		CommitSnapshotFunc: func(_ context.Context, hash string, _ float64, parts map[string]int64) (*db.Snapshot, error) {
+		CommitLatestFunc: func(_ context.Context, _ string, parts map[string]int64) error {
 			if commits != nil {
 				*commits = append(*commits, parts)
 			}
-			return &db.Snapshot{ID: 1, ConfigHash: hash}, nil
+			return nil
 		},
 	}
 }
