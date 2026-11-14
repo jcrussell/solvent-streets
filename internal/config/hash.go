@@ -125,7 +125,7 @@ const ComputeEpoch = 1
 
 // computeInputsScheme names the encoding of hashEnvelope; part of the hashed
 // bytes so a future encoding can never collide with this one.
-const computeInputsScheme = "pvmt-compute-inputs/v2"
+const computeInputsScheme = "pvmt-compute-inputs/v1"
 
 // hashEnvelope is the value actually encoded: the code epoch, then the
 // resolved settings. computeInputs is embedded, so encoding/json promotes its

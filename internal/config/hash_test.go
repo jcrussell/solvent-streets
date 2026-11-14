@@ -696,8 +696,9 @@ func TestComputeInputs_EveryFieldClassified(t *testing.T) {
 // If the change is intended, update the value and say so in the commit. Bump
 // computeInputsScheme too when the change re-encodes the same inputs in a way
 // that could collide with hashes already stored by a readable database.
-// (The [forecast] fields left the encoding in schema generation 3, which no
-// database holding the older hashes can be opened under, so the scheme stayed.)
+// (The scheme starts at v1 with v0.5.0: no released database holds a hash
+// under an earlier encoding, and schema generation 5 refuses every one that
+// could.)
 func TestCityHash_PinnedValue(t *testing.T) {
 	c := &Config{
 		Services: []ServiceOverride{{Name: "fire", TurnoutS: new(60.0)}},
@@ -707,7 +708,7 @@ func TestCityHash_PinnedValue(t *testing.T) {
 			Facilities: []FacilityConfig{{Service: "fire", Lat: 39.5, Lon: -119.8}},
 		}},
 	}
-	if got, want := c.CityHash(&c.Cities[0]), "b05f7b2b5d073534"; got != want {
+	if got, want := c.CityHash(&c.Cities[0]), "828b047bc9923dbd"; got != want {
 		t.Errorf("CityHash = %q, want %q (scheme %s, epoch %d)", got, want, computeInputsScheme, ComputeEpoch)
 	}
 }
