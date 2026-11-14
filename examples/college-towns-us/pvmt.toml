@@ -1,39 +1,73 @@
-# College Towns — US university towns, on the finest grid in the showcase.
+# College Towns — every US town where students are a quarter of residents.
 #
 # In a college town a small property-tax base carries a street network sized
 # for a much larger daytime population: the fiscal squeeze solvent-streets
 # measures, at the opposite scale from top-50-cities.
 #
-# Techniques demonstrated:
-#   - The fine end of grid tuning: hex_edge_m = 60 for every town that is in
-#     no other example. Elsewhere only Cambridge and Somerville
-#     (greater-boston-ma) go this fine; the other configs sit at 75-300 m.
-#   - boundary_relation_id where the lookup picks the wrong municipality:
-#     "Ithaca, NY" resolves to the Town of Ithaca, which surrounds the City.
-#   - A low growth_rate (0.002) for built-out towns that add little new
-#     network.
+# Selection rule: every incorporated place with a population of at least
+# 20,000 in which residents enrolled in college or graduate school are at
+# least 25% of the total population. That gives 59 places, listed here by
+# that share, highest first.
+#   - students = B14001_E008 (undergraduate) + B14001_E009 (graduate or
+#     professional school); population = B01003_E001. B14001's universe is
+#     the population aged 3 and over; the share divides by everyone.
+#   - Places only (GEO_ID prefix 1600000US), and only incorporated ones:
+#     places the 2023 Gazetteer marks FUNCSTAT S (census-designated places
+#     and Puerto Rico's zonas urbanas and comunidades) are excluded. The
+#     balance of a consolidated city-county (Athens-Clarke, FUNCSTAT F)
+#     counts as incorporated.
+#   - Noise guard: a place is dropped if the margin of error of its student
+#     count, sqrt(M008² + M009²), exceeds a third of the count. The 20,000
+#     floor already removes every such place; the widest remaining MOE is
+#     under 12% of its count.
+#   - At the 20,000 floor the 20% and 30% cuts give 85 and 40 places; at
+#     the 25% cut the 10,000 and 30,000 floors give 89 and 46.
 #
-# Selection: twelve towns whose flagship or land-grant university dominates
-# the town and that no other example holds, plus three deliberate
-# crossovers, Berkeley (bay-area-ca), Boulder (denver-metro-co) and Madison
-# (state-capitals-us). The crossovers are what tags are for: in examples/all
-# each appears under both of its groups. They carry the hex_edge_m and
-# growth_rate of the config examples/all merges first, so the union stays
-# free of merge warnings, and the price is a second standalone ingest of
-# those three cities under this config_id.
+# Source: US Census Bureau, American Community Survey 2023 5-year estimates,
+# table-based summary file, tables B14001 and B01003 with the Geos20235YR
+# geography file, retrieved 2026-11-14 from
+#   https://www2.census.gov/programs-surveys/acs/summary_file/2023/table-based-SF/
+# and land areas from the 2023 Gazetteer place file
+# (https://www2.census.gov/geo/docs/maps-data/data/gazetteer/2023_Gazetteer/).
 #
-# Every name was checked against Nominatim on 2026-11-14. Each resolves to
-# its own boundary=administrative polygon, the towns, borough, independent
-# city and consolidated city-county included (Amherst, Chapel Hill, State
-# College, Charlottesville, Athens-Clarke), except Ithaca, pinned below.
+# Names: "City, ST", with the Census type suffix dropped ("Amherst Town
+# city" is Amherst, MA; "Athens-Clarke County unified government (balance)"
+# is Athens, GA). Every name was checked against Nominatim on 2026-11-14 with
+# pvmt's own query, and each resolves to a boundary=administrative polygon
+# whose area is within 15% of the Census figure, except Ithaca, pinned
+# below. San Marcos, TX is the loosest fit: its OSM boundary is ~15%
+# smaller than the Census place.
 #
-# Forecasts ride the package defaults: no town's PCI or street budget is
-# cited here yet. Berkeley and Boulder get their cited figures from their
-# metros in examples/all.
+# Grid: 60 m, the finest in the showcase (elsewhere only Cambridge and
+# Somerville in greater-boston-ma go this fine). A town whose land area
+# would need more than ~12,000 hexes at 60 m gets the finest of 75 m or
+# 100 m that fits under that, so no town's compute or hexgrid.geojson runs
+# far past a mid-size city's: 75 m for College Station, Gainesville, Auburn,
+# Flagstaff and Tuscaloosa, 100 m for Athens-Clarke.
+#
+# Shared with other examples: Davis (sacramento-ca), Boulder
+# (denver-metro-co), Berkeley (bay-area-ca) and Tallahassee
+# (state-capitals-us). Each carries the hex_edge_m and growth_rate of that
+# example (marked "= <example>"), because examples/all merges it first and a
+# different value would be a new merge warning; in examples/all each appears
+# under both of its groups. Madison, WI, Lawrence, KS and Charlottesville,
+# VA, in an earlier hand-picked version of this list, fall under 25% (18.0%,
+# 24.7%, 22.2%) and are out.
+#
+# Caveats:
+#   - ACS counts students where they live while at school, so the share is
+#     a resident share, and a big city dilutes even a large campus
+#     (Madison is 18.0%).
+#   - Urbana and Champaign both host the University of Illinois and both
+#     qualify on their own.
+#   - A standalone ingest fetches again the four shared towns under this
+#     config_id, the same accepted trade as the other rollups.
+#   - Forecasts ride the package defaults apart from the low growth rate:
+#     no town's PCI or street budget is cited here yet.
 #
 # To run:
 #   cd examples/college-towns-us
-#   pvmt all ingest      # 15 Nominatim + Overpass pulls
+#   pvmt all ingest      # 59 Nominatim + 59 Overpass pulls; takes hours
 #   pvmt all compute
 #   pvmt serve
 
@@ -43,75 +77,259 @@ config_id = "college-towns-us"
 hex_edge_m = 60
 
 [forecast]
-growth_rate = 0.002
+growth_rate = 0.002  # built-out towns that add little new network
 
 [export]
 title = "US College Towns"
 
 [[cities]]
-name = "Ann Arbor, MI"  # University of Michigan
+name = "State College, PA"  # 65.7% students, pop. 40,669; Penn State
 overpass = true
 
 [[cities]]
-name = "Ithaca, NY"  # Cornell University
+name = "West Lafayette, IN"  # 62.8% students, pop. 44,802; Purdue
 overpass = true
-# The City of Ithaca. A Nominatim search for the name returns the
-# surrounding Town of Ithaca first.
+
+[[cities]]
+name = "Oxford, OH"  # 62.4% students, pop. 22,069; Miami University
+overpass = true
+
+[[cities]]
+name = "East Lansing, MI"  # 60.2% students, pop. 45,394; Michigan State
+overpass = true
+
+[[cities]]
+name = "Amherst, MA"  # 58.5% students, pop. 35,472; UMass Amherst, Amherst College
+overpass = true
+
+[[cities]]
+name = "Athens, OH"  # 57.8% students, pop. 23,211; Ohio University
+overpass = true
+
+[[cities]]
+name = "Blacksburg, VA"  # 56.5% students, pop. 45,288; Virginia Tech
+overpass = true
+
+[[cities]]
+name = "Rexburg, ID"  # 53.6% students, pop. 39,589; BYU-Idaho
+overpass = true
+
+[[cities]]
+name = "College Park, MD"  # 51.6% students, pop. 34,397; University of Maryland
+overpass = true
+
+[[cities]]
+name = "Ithaca, NY"  # 51.4% students, pop. 31,792; Cornell, Ithaca College
+overpass = true
+# The City of Ithaca. A Nominatim search for the name picks the
+# surrounding Town of Ithaca (relation 9155213), five times its area.
 boundary_relation_id = 174979
 
 [[cities]]
-name = "State College, PA"  # Penn State
+name = "Pullman, WA"  # 47.2% students, pop. 31,939; Washington State
 overpass = true
 
 [[cities]]
-name = "Bloomington, IN"  # Indiana University
+name = "Newark, DE"  # 46.6% students, pop. 30,309; University of Delaware
 overpass = true
 
 [[cities]]
-name = "Chapel Hill, NC"  # UNC
+name = "Morgantown, WV"  # 43.1% students, pop. 30,273; West Virginia University
 overpass = true
 
 [[cities]]
-name = "Athens, GA"  # University of Georgia
+name = "Ames, IA"  # 42.9% students, pop. 66,112; Iowa State
 overpass = true
 
 [[cities]]
-name = "Corvallis, OR"  # Oregon State
+name = "Bloomington, IN"  # 40.2% students, pop. 78,791; Indiana University
 overpass = true
 
 [[cities]]
-name = "Iowa City, IA"  # University of Iowa
+name = "Mount Pleasant, MI"  # 40.0% students, pop. 21,420; Central Michigan
 overpass = true
 
 [[cities]]
-name = "Lawrence, KS"  # University of Kansas
+name = "Stillwater, OK"  # 39.6% students, pop. 48,818; Oklahoma State
 overpass = true
 
 [[cities]]
-name = "Charlottesville, VA"  # University of Virginia
+name = "Statesboro, GA"  # 39.1% students, pop. 33,705; Georgia Southern
 overpass = true
 
 [[cities]]
-name = "Amherst, MA"  # UMass Amherst
+name = "College Station, TX"  # 38.9% students, pop. 122,280; Texas A&M
+overpass = true
+hex_edge_m = 75  # ~133 km² of land
+
+[[cities]]
+name = "Provo, UT"  # 37.1% students, pop. 114,303; BYU
 overpass = true
 
 [[cities]]
-name = "College Station, TX"  # Texas A&M
+name = "Urbana, IL"  # 36.7% students, pop. 38,447; University of Illinois
 overpass = true
 
 [[cities]]
-name = "Berkeley, CA"  # UC Berkeley
+name = "Bowling Green, OH"  # 36.2% students, pop. 30,051; Bowling Green State
 overpass = true
-hex_edge_m = 75          # = bay-area-ca
-forecast.growth_rate = 0.005  # = bay-area-ca
 
 [[cities]]
-name = "Boulder, CO"  # CU Boulder
+name = "Carbondale, IL"  # 36.2% students, pop. 21,813; Southern Illinois
 overpass = true
-hex_edge_m = 100         # = denver-metro-co
-forecast.growth_rate = 0.015  # = denver-metro-co
 
 [[cities]]
-name = "Madison, WI"  # UW-Madison
+name = "Moscow, ID"  # 35.1% students, pop. 25,868; University of Idaho
+overpass = true
+
+[[cities]]
+name = "Kent, OH"  # 35.0% students, pop. 27,190; Kent State
+overpass = true
+
+[[cities]]
+name = "Ann Arbor, MI"  # 34.8% students, pop. 121,179; University of Michigan
+overpass = true
+
+[[cities]]
+name = "Chapel Hill, NC"  # 34.7% students, pop. 59,889; UNC
+overpass = true
+
+[[cities]]
+name = "Gainesville, FL"  # 34.0% students, pop. 143,611; University of Florida
+overpass = true
+hex_edge_m = 75  # ~166 km² of land
+
+[[cities]]
+name = "Iowa City, IA"  # 33.8% students, pop. 75,264; University of Iowa
+overpass = true
+
+[[cities]]
+name = "Davis, CA"  # 33.1% students, pop. 66,801; UC Davis
+overpass = true
+hex_edge_m = 125               # = sacramento-ca
+forecast.growth_rate = 0.01    # = sacramento-ca
+
+[[cities]]
+name = "San Marcos, TX"  # 32.7% students, pop. 68,920; Texas State
+overpass = true
+
+[[cities]]
+name = "Normal, IL"  # 32.6% students, pop. 52,908; Illinois State
+overpass = true
+
+[[cities]]
+name = "Manhattan, KS"  # 32.5% students, pop. 53,951; Kansas State
+overpass = true
+
+[[cities]]
+name = "San Luis Obispo, CA"  # 32.2% students, pop. 48,039; Cal Poly
+overpass = true
+
+[[cities]]
+name = "Burlington, VT"  # 32.2% students, pop. 44,649; University of Vermont
+overpass = true
+
+[[cities]]
+name = "Corvallis, OR"  # 32.2% students, pop. 60,424; Oregon State
+overpass = true
+
+[[cities]]
+name = "Laramie, WY"  # 31.7% students, pop. 31,848; University of Wyoming
+overpass = true
+
+[[cities]]
+name = "Auburn, AL"  # 31.1% students, pop. 78,738; Auburn University
+overpass = true
+hex_edge_m = 75  # ~162 km² of land
+
+[[cities]]
+name = "Princeton, NJ"  # 30.5% students, pop. 30,451; Princeton University
+overpass = true
+
+[[cities]]
+name = "Boulder, CO"  # 30.5% students, pop. 106,274; CU Boulder
+overpass = true
+hex_edge_m = 100               # = denver-metro-co
+forecast.growth_rate = 0.015   # = denver-metro-co
+
+[[cities]]
+name = "Ruston, LA"  # 29.9% students, pop. 22,224; Louisiana Tech
+overpass = true
+
+[[cities]]
+name = "Harrisonburg, VA"  # 29.5% students, pop. 51,492; James Madison
+overpass = true
+
+[[cities]]
+name = "Santa Cruz, CA"  # 29.4% students, pop. 60,953; UC Santa Cruz
+overpass = true
+
+[[cities]]
+name = "Brookings, SD"  # 29.0% students, pop. 23,710; South Dakota State
+overpass = true
+
+[[cities]]
+name = "Rolla, MO"  # 28.8% students, pop. 20,144; Missouri S&T
+overpass = true
+
+[[cities]]
+name = "Flagstaff, AZ"  # 28.5% students, pop. 76,333; Northern Arizona
+overpass = true
+hex_edge_m = 75  # ~171 km² of land
+
+[[cities]]
+name = "Champaign, IL"  # 28.4% students, pop. 88,822; University of Illinois
+overpass = true
+
+[[cities]]
+name = "Logan, UT"  # 28.1% students, pop. 53,923; Utah State
+overpass = true
+
+[[cities]]
+name = "Northfield, MN"  # 28.0% students, pop. 20,678; Carleton, St. Olaf
+overpass = true
+
+[[cities]]
+name = "Nacogdoches, TX"  # 27.2% students, pop. 32,104; Stephen F. Austin
+overpass = true
+
+[[cities]]
+name = "Berkeley, CA"  # 26.9% students, pop. 120,223; UC Berkeley
+overpass = true
+hex_edge_m = 75                # = bay-area-ca
+forecast.growth_rate = 0.005   # = bay-area-ca
+
+[[cities]]
+name = "Starkville, MS"  # 26.6% students, pop. 25,611; Mississippi State
+overpass = true
+
+[[cities]]
+name = "Glassboro, NJ"  # 26.5% students, pop. 23,375; Rowan
+overpass = true
+
+[[cities]]
+name = "Athens, GA"  # 26.4% students, pop. 126,987; University of Georgia
+overpass = true
+hex_edge_m = 100  # Athens-Clarke County, ~302 km² of land
+
+[[cities]]
+name = "Stephenville, TX"  # 26.1% students, pop. 21,345; Tarleton State
+overpass = true
+
+[[cities]]
+name = "Tuscaloosa, AL"  # 25.5% students, pop. 107,699; University of Alabama
+overpass = true
+hex_edge_m = 75  # ~161 km² of land
+
+[[cities]]
+name = "DeKalb, IL"  # 25.4% students, pop. 40,464; Northern Illinois
+overpass = true
+
+[[cities]]
+name = "New Brunswick, NJ"  # 25.4% students, pop. 55,744; Rutgers
+overpass = true
+
+[[cities]]
+name = "Tallahassee, FL"  # 25.1% students, pop. 199,696; Florida State, FAMU
 overpass = true
 hex_edge_m = 100  # = state-capitals-us

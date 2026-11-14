@@ -32,11 +32,13 @@ The national rollups:
   cities rather than metros, for the reasons its config's header gives.
 - **[state-capitals-us](state-capitals-us/)**: the 50 state capitals, which
   reach down to Montpelier, VT, a city of under 10,000.
-- **[college-towns-us](college-towns-us/)**: university towns, where a small
-  tax base carries a network sized for a large daytime population, on the
-  finest grid of any example. Berkeley, Boulder and Madison are also in other
-  examples, so in the published site each appears under both of its groups;
-  the cost is a second standalone ingest of those three.
+- **[college-towns-us](college-towns-us/)**: the 59 towns of 20,000 or more
+  where college and graduate students are at least a quarter of residents
+  (ACS 2023 5-year), where a small tax base carries a network sized for a
+  large daytime population, on the finest grid of any example. Davis,
+  Boulder, Berkeley and Tallahassee are also in other examples, so in the
+  published site each appears under both of its groups; the cost is a second
+  standalone ingest of those four.
 - **[springfields-us](springfields-us/)**: every state's incorporated
   Springfield, a city or town that shares only its name with the rest. It
   shows why every example names its cities `"City, ST"`: the state suffix is
