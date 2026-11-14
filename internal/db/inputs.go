@@ -41,8 +41,8 @@ func ServiceProducer(service string) string { return producerServicePrefix + ser
 //
 //   - roads / parking / sidewalks: the boundary and that resource's features;
 //   - combined: the boundary and every pavement resource (resource.All);
-//   - service:<name>: the boundary, the roads it routes over and the
-//     service's facilities;
+//   - service:<name>: the boundary, the roads it routes over (the city's
+//     and the routing roads around it) and the service's facilities;
 //   - census: the boundary and the census blocks.
 func ProducerInputs(producer string) []string {
 	switch {
@@ -56,7 +56,7 @@ func ProducerInputs(producer string) []string {
 		return []string{InputBoundary, string(resource.TypeCensusBlocks)}
 	case strings.HasPrefix(producer, producerServicePrefix):
 		service := strings.TrimPrefix(producer, producerServicePrefix)
-		return []string{InputBoundary, string(resource.TypeRoads), string(resource.FacilityType(service))}
+		return []string{InputBoundary, string(resource.TypeRoads), string(resource.TypeRoutingRoads), string(resource.FacilityType(service))}
 	}
 	for _, r := range resource.All {
 		if producer == string(r.Type()) {

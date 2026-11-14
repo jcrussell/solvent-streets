@@ -386,7 +386,7 @@ func TestSummarize_UnreachableLowersShare(t *testing.T) {
 func TestServicesCompute_RecordsInputs(t *testing.T) {
 	var saved []db.HexMetric
 	store := fixtureStore(&saved, nil)
-	store.Digests = map[string]string{"boundary": "b", "roads": "r", "facility-fire": "f", "parking": "p"}
+	store.Digests = map[string]string{"boundary": "b", "roads": "r", "routing-roads": "rr", "facility-fire": "f", "parking": "p"}
 	var recorded map[string]string
 	create := store.CreateRunFunc
 	store.CreateRunFunc = func(ctx context.Context, producer, hash string, inputs map[string]string) (*db.Run, error) {
@@ -399,7 +399,7 @@ func TestServicesCompute_RecordsInputs(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]string{"boundary": "b", "roads": "r", "facility-fire": "f"}
+	want := map[string]string{"boundary": "b", "roads": "r", "routing-roads": "rr", "facility-fire": "f"}
 	if !maps.Equal(recorded, want) {
 		t.Errorf("fire run inputs = %v, want %v", recorded, want)
 	}
@@ -448,5 +448,53 @@ func TestServicesCompute_FreezesFacilitiesAndTurnout(t *testing.T) {
 	}
 	if len(turnout) != 1 || turnout[0].Subject != Producer("fire") || turnout[0].Value != 200 || turnout[0].RunID != facilityRun {
 		t.Errorf("turnout rows = %+v, want one 200 s row for %s under run %d", turnout, Producer("fire"), facilityRun)
+	}
+}
+
+// TestServicesCompute_StationOutsideTheBoundaryServesEdgeHexes pins
+// solvent-streets-n17z: a neighbouring station 2 km west of the boundary,
+// 2.5 km from the city's own road, is routed in over the routing roads
+// fetched around the city and serves the west edge hexes. Without the
+// routing roads it is unplaced and reaches nothing.
+func TestServicesCompute_StationOutsideTheBoundaryServesEdgeHexes(t *testing.T) {
+	run := func(withRouting bool) []db.HexMetric {
+		var saved []db.HexMetric
+		store := fixtureStore(&saved, nil)
+		inner := store.ListFeaturesFunc
+		store.ListFeaturesFunc = func(ctx context.Context, rt resource.Type) ([]db.Feature, error) {
+			switch {
+			case rt.IsFacility():
+				return []db.Feature{{ID: "osm:node:west", ResourceType: rt, Name: "Neighbour", SourceAPI: "overpass",
+					GeometryJSON: `{"type":"Point","coordinates":[-121.8030000,37.6805000]}`}}, nil
+			case rt == resource.TypeRoutingRoads && withRouting:
+				// Joins the city's road at its west end, a shared OSM node.
+				return []db.Feature{{ID: "osm:way:2", ResourceType: rt, SourceAPI: "overpass",
+					Tags:         map[string]string{"highway": "tertiary"},
+					GeometryJSON: `{"type":"LineString","coordinates":[[-121.8030000,37.6800000],[-121.7750000,37.6800000]]}`}}, nil
+			}
+			return inner(ctx, rt)
+		}
+		if err := RunComputeForCity(context.Background(), testFactory(store), "fire", nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		var reached []db.HexMetric
+		for _, r := range saved {
+			if r.Subject == "" && r.HexID != "<empty>" {
+				reached = append(reached, r)
+			}
+		}
+		return reached
+	}
+	if got := run(false); len(got) != 0 {
+		t.Errorf("without routing roads the outside station reached %d hexes, want 0", len(got))
+	}
+	got := run(true)
+	if len(got) == 0 {
+		t.Fatal("with routing roads the outside station must reach the city's hexes")
+	}
+	for _, r := range got {
+		if r.Ref != "osm:node:west" {
+			t.Errorf("hex %s served by %q, want the outside station", r.HexID, r.Ref)
+		}
 	}
 }

@@ -127,8 +127,9 @@ import (
 // to motor traffic (solvent-streets-b27r). 6 — a boundary-clipped hex is
 // routed from a point inside its clipped part (solvent-streets-e414). 7 — a
 // service run records the hexes on the network it does not reach
-// (solvent-streets-8x0f).
-const ComputeEpoch = 7
+// (solvent-streets-8x0f). 8 — a service run routes over the routing roads
+// around the city too (solvent-streets-n17z).
+const ComputeEpoch = 8
 
 // computeInputsScheme names the encoding of hashEnvelope; part of the hashed
 // bytes so a future encoding can never collide with this one.

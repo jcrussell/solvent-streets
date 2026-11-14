@@ -16,6 +16,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/hint"
 	ingestpkg "github.com/jcrussell/solvent-streets/internal/ingest"
 	"github.com/jcrussell/solvent-streets/internal/resource"
@@ -1407,5 +1408,64 @@ func TestRunIngest_DisabledSourceFailsBeforeBoundary(t *testing.T) {
 	var h *hint.ErrHint
 	if err == nil || !strings.Contains(err.Error(), "not available for this city") || !errors.As(err, &h) {
 		t.Fatalf("err = %v, want the disabled-source error with a hint", err)
+	}
+}
+
+// TestRunResourceForCity_FacilitiesFetchPaddedWithRoutingRoads pins
+// solvent-streets-n17z: a service's facilities are fetched over the boundary
+// bbox padded by resource.ServiceAreaPadM, so a neighbouring station just
+// across the line exists, and the ingest also fetches the routing roads (a
+// companion) over the same padded bbox, so the graph reaches it. Each is
+// saved under its own type.
+func TestRunResourceForCity_FacilitiesFetchPaddedWithRoutingRoads(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	city := cmdtest.NewTestCity()
+	var queries []string
+	var upserted []resource.Type
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func(context.Context) (string, error) { return bigSquareBoundary, nil },
+		UpsertFeaturesFunc: func(_ context.Context, rt resource.Type, _ []db.Feature, _ []string) error {
+			upserted = append(upserted, rt)
+			return nil
+		},
+	}
+	const body = `{"elements":[
+		{"type":"node","id":1,"lat":-0.02,"lon":0.5,"tags":{"amenity":"fire_station"}},
+		{"type":"node","id":2,"lat":-0.03,"lon":0.5},
+		{"type":"way","id":10,"nodes":[1,2],"tags":{"highway":"residential"}}]}`
+	f := &cmdutil.Factory{
+		IOStreams:   ios,
+		CityDB:      func() (db.Store, error) { return store, nil },
+		CurrentCity: func() (*config.CityConfig, error) { return city, nil },
+		HttpClient: func() (*http.Client, error) {
+			return &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				if err := r.ParseForm(); err != nil {
+					return nil, err
+				}
+				queries = append(queries, r.PostForm.Get("data"))
+				return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
+					Body: io.NopCloser(strings.NewReader(body))}, nil
+			})}, nil
+		},
+	}
+	fac := &resource.Facility{Service: "fire", Selectors: []string{`["amenity"="fire_station"]`}}
+	if err := RunResourceForCity(context.Background(), f, fac); err != nil {
+		t.Fatalf("facility ingest = %v", err)
+	}
+	if want := []resource.Type{resource.FacilityType("fire"), resource.TypeRoutingRoads}; !slices.Equal(upserted, want) {
+		t.Errorf("upserted %v, want %v", upserted, want)
+	}
+	if len(queries) != 2 {
+		t.Fatalf("overpass queries = %d, want 2 (stations, then routing roads)", len(queries))
+	}
+	padded := geo.PadBBox([4]float64{0, 0, 2, 2}, resource.ServiceAreaPadM)
+	wantBBox := fmt.Sprintf("(%f,%f,%f,%f)", padded[0], padded[1], padded[2], padded[3])
+	for i, q := range queries {
+		if !strings.Contains(q, wantBBox) {
+			t.Errorf("query %d is not over the padded bbox %s:\n%s", i, wantBBox, q)
+		}
+	}
+	if !strings.Contains(queries[0], "fire_station") || !strings.Contains(queries[1], `"highway"~`) {
+		t.Errorf("queries = %q, want the stations then the routing roads", queries)
 	}
 }

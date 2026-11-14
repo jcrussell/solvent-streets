@@ -115,6 +115,31 @@ func PreferredRoads(roads []resource.Feature) ([]resource.Feature, string) {
 	return roads, "all"
 }
 
+// WithRoutingRoads extends the city's chosen road rows (PreferredRoads) with
+// the routing roads around it (resource.RoutingRoads, fetched
+// resource.ServiceAreaPadM beyond the boundary bbox), so a station outside the
+// city is routed in over the roads between. A routing road the city's rows
+// already hold (the same OSM way id) is skipped: the city's row is the one
+// pavement measured. The routing roads come from OpenStreetMap, so they join
+// only an OSM network; for a city routed over agency centerlines (source
+// "all") their vertices would never coincide, and roads is returned as is.
+func WithRoutingRoads(roads []resource.Feature, source string, routing []resource.Feature) []resource.Feature {
+	if source != resource.SourceOverpass || len(routing) == 0 {
+		return roads
+	}
+	have := make(map[string]bool, len(roads))
+	for _, r := range roads {
+		have[r.ID] = true
+	}
+	out := roads[:len(roads):len(roads)]
+	for _, r := range routing {
+		if !have[r.ID] {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // BuildGraph assembles the network from road features. Vertices are keyed by
 // their unprojected lon/lat as parsed from the stored GeoJSON: ways that share
 // an OSM node were written from the same node coordinates by the same

@@ -131,3 +131,32 @@ func CenterFromBBox(bbox [4]float64) (lon, lat float64) {
 	lon = (bbox[1] + bbox[3]) / 2
 	return lon, lat
 }
+
+// Degree lengths on the WGS84 ellipsoid, taken at their shortest so a pad
+// is never less than asked: a degree of latitude is shortest at the equator
+// (110.574 km), and a degree of longitude at latitude φ is at least the
+// equatorial 111.32 km times cos φ.
+const (
+	metresPerDegreeLat      = 110574.0
+	metresPerDegreeLonEquat = 111320.0
+)
+
+// PadBBox grows a [south, west, north, east] bbox by at least m metres on
+// every side. The longitude pad is taken at the edge farther from the
+// equator, where a degree is shortest, so no side gets less than m; the
+// latitudes are clamped to ±90.
+func PadBBox(bbox [4]float64, m float64) [4]float64 {
+	dLat := m / metresPerDegreeLat
+	lat := math.Max(math.Abs(bbox[0]), math.Abs(bbox[2]))
+	cos := math.Cos(lat * math.Pi / 180)
+	dLon := 180.0 // at a pole every longitude is within m
+	if cos > 1e-9 {
+		dLon = math.Min(180, m/(metresPerDegreeLonEquat*cos))
+	}
+	return [4]float64{
+		math.Max(-90, bbox[0]-dLat),
+		math.Max(-180, bbox[1]-dLon),
+		math.Min(90, bbox[2]+dLat),
+		math.Min(180, bbox[3]+dLon),
+	}
+}

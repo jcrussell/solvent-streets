@@ -335,9 +335,16 @@ city-builder's service-coverage overlay. It is computed, not observed:
 1. **Facilities.** Fire stations come from OpenStreetMap
    (`amenity=fire_station` nodes, buildings and multipolygons, collapsed
    to a point), plus any hand-placed `[[cities.facilities]]` in the
-   config for stations OSM lacks.
-2. **Road graph.** The city's stored roads become a routable graph: ways
-   that share an OSM node join at that vertex; each segment costs its
+   config for stations OSM lacks. Stations are fetched up to 5 km beyond
+   the city's bounding box, so a neighbouring city's station just across
+   the line serves the edge hexes it is nearest to. 5 km is the 240 s
+   first-engine travel time at 75 km/h; a station farther out could make an
+   edge hex's threshold only by freeway.
+2. **Road graph.** The city's stored roads, joined to the public roads in
+   the same 5 km margin (fetched with the stations, without driveways and
+   parking aisles) so an outside station is routed in over real streets,
+   become a routable graph: ways that share an OSM node join at that
+   vertex; each segment costs its
    length over the road's posted `maxspeed` when tagged, else a per-class
    free-flow speed (motorway 100 km/h … residential 40, service 20,
    default 30). These are deliberately near posted limits rather than
@@ -351,7 +358,10 @@ city-builder's service-coverage overlay. It is computed, not observed:
    in, as engines carry the gate codes. One source feeds the graph:
    OpenStreetMap when ingested, otherwise the agency centerlines. Those carry no
    `maxspeed`, so they run at the class speed of their functional class,
-   or the default when the class is unknown.
+   or the default when the class is unknown. Agency centerlines never share
+   a vertex with OpenStreetMap, so a city routed over them gets no margin
+   roads, and a station outside it counts only if it is within 500 m of
+   the city's own roads.
 3. **Placement.** Each station is placed at the nearest point along a
    road, preferring the main street network over a closer unconnected stub.
    A station farther than 500 m from any road is ignored with a warning.

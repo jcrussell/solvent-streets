@@ -73,3 +73,30 @@ func TestBBoxFromGeoJSON_AntimeridianCrossing(t *testing.T) {
 		t.Errorf("got %q, want error mentioning antimeridian-crossing boundaries unsupported", err.Error())
 	}
 }
+
+// PadBBox grows every side by at least the distance asked, measured in
+// projected metres, and clamps at the poles.
+func TestPadBBox(t *testing.T) {
+	bbox := [4]float64{37.62, -121.85, 37.72, -121.69} // Livermore-ish
+	p := PadBBox(bbox, 5000)
+	proj := NewUTMProjector(-121.77, 37.67)
+	// dist is the projected metres between two lon/lat points.
+	dist := func(lon0, lat0, lon1, lat1 float64) float64 {
+		x0, y0 := proj.ToProjected(lon0, lat0)
+		x1, y1 := proj.ToProjected(lon1, lat1)
+		return math.Hypot(x1-x0, y1-y0)
+	}
+	for name, d := range map[string]float64{
+		"south": dist(bbox[1], bbox[0], bbox[1], p[0]),
+		"north": dist(bbox[1], bbox[2], bbox[1], p[2]),
+		"west":  dist(bbox[1], bbox[2], p[1], bbox[2]),
+		"east":  dist(bbox[3], bbox[2], p[3], bbox[2]),
+	} {
+		if d < 4995 || d > 5100 { // UTM's 0.9996 scale on the central meridian
+			t.Errorf("%s pad = %.0f m, want at least 5000 and not much more", name, d)
+		}
+	}
+	if polar := PadBBox([4]float64{89.99, -10, 90, 10}, 5000); polar[2] != 90 || polar[1] != -180 || polar[3] != 180 {
+		t.Errorf("polar pad = %v, want clamped to the pole and the antimeridian", polar)
+	}
+}

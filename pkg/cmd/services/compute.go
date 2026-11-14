@@ -114,7 +114,8 @@ func NewCmdCompute(f *cmdutil.Factory, service *string, runF func(context.Contex
 		Args:  cobra.NoArgs,
 		Short: "Compute response-time coverage per hex",
 		Long: `Build a routable graph from the stored roads (OpenStreetMap rows when
-present, else the agency centerlines), route from every facility at once,
+present, joined to the routing roads fetched around the city with its
+facilities; else the agency centerlines), route from every facility at once,
 and store each hex's response time — turnout plus travel to the nearest
 reachable point along a road from the hex centre (or, for an edge hex whose
 centre the boundary clipped away, from a point inside what remains) — as a
@@ -279,6 +280,11 @@ func loadInputs(ctx context.Context, errOut io.Writer, opts *Options) (*inputs, 
 	}
 	in.proj, in.grid = target.Proj, target.Grid
 	in.roads, in.source = services.PreferredRoads(db.ResourceFeatures(roadRows))
+	routingRows, err := store.ListFeatures(ctx, resource.TypeRoutingRoads)
+	if err != nil {
+		return nil, fmt.Errorf("list routing roads: %w", err)
+	}
+	in.roads = services.WithRoutingRoads(in.roads, in.source, db.ResourceFeatures(routingRows))
 	return in, nil
 }
 

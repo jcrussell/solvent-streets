@@ -203,9 +203,9 @@ func TestAllIngest_InProcessFanOut(t *testing.T) {
 		t.Errorf("a resource failed and was warn-swallowed; want every resource to reach ErrNoResults cleanly.\nstderr:\n%s", errBuf.String())
 	}
 	// The up-front boundary resolve, every pavement resource, and the
-	// best-effort fire-facility and Census block ingests that ride along
-	// after them (runOptionalStep).
-	wantRuns := 1 + len(resource.All) + 2
+	// best-effort fire-facility (with its routing roads, a companion) and
+	// Census block ingests that ride along after them (runOptionalStep).
+	wantRuns := 1 + len(resource.All) + 3
 	if boundaryCalls != wantRuns {
 		t.Errorf("ingested %d resources, want %d — the fan-out must visit every resource and the optional steps", boundaryCalls, wantRuns)
 	}

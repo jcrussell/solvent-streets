@@ -560,3 +560,18 @@ func TestComputeCoverage_UnreachableHexesAreListed(t *testing.T) {
 		t.Errorf("no station snapped: reached %v, unreachable %v; want none and both on-network hexes", none.Hexes, none.Unreachable)
 	}
 }
+
+// WithRoutingRoads adds the routing roads the city's OSM rows lack, keeps the
+// city's row for a way both hold, and leaves an agency-centerline network
+// alone (OSM vertices would never join it).
+func TestWithRoutingRoads(t *testing.T) {
+	city := []resource.Feature{{ID: "osm:way:1", Name: "city"}}
+	routing := []resource.Feature{{ID: "osm:way:1", Name: "ring copy"}, {ID: "osm:way:2", Name: "ring"}}
+	got := WithRoutingRoads(city, resource.SourceOverpass, routing)
+	if len(got) != 2 || got[0].Name != "city" || got[1].ID != "osm:way:2" {
+		t.Errorf("osm city: got %+v, want the city's way 1 plus the ring's way 2", got)
+	}
+	if got := WithRoutingRoads(city, "all", routing); len(got) != 1 {
+		t.Errorf("agency-centerline city: got %+v, want its own rows only", got)
+	}
+}

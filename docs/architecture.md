@@ -137,7 +137,13 @@ Fire stations and census blocks are *own-sourced* (`resource.OwnSourced`):
 each comes from one fixed upstream, whatever the city's `overpass` /
 `arcgis_url` settings. `ingest.SourcesFor` resolves the source, and `pvmt gc`'s
 stale-source sweep covers only the pavement types in `resource.All`, so a new
-own-sourced type needs no special case in either. TIGERweb and the ArcGIS
+own-sourced type needs no special case in either. A facility ingest also
+fetches its *companion* (`resource.Companioned`), the routing roads
+(`routing-roads`, OSM only, never in `resource.All`), and both are fetched
+over the boundary bbox padded by `resource.ServiceAreaPadM`
+(`resource.FetchPadder`), so a station across the city line exists and the
+graph reaches it. Pavement stays unpadded: its feature counts and the
+inverted-boundary gate read the whole fetch. TIGERweb and the ArcGIS
 centerline source share one paging and completeness core, `ingest.ArcGISQuery`.
 
 ## Database

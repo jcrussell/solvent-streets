@@ -219,6 +219,8 @@ func inputLabel(in string) string {
 	switch {
 	case in == string(resource.TypeCensusBlocks):
 		return "census blocks"
+	case in == string(resource.TypeRoutingRoads):
+		return "routing roads"
 	case t.IsFacility():
 		return t.FacilityService() + " facilities"
 	}

@@ -306,10 +306,13 @@ overpass = true
 `[[services]]` overrides only the fields it sets, and an explicit `0` counts
 as set. The defaults and their sources are in the
 [methodology](../internal/export/docs/methodology.md#service-coverage-fire-response).
-A hand-placed facility is routed from exactly like a mapped one, and may sit
-just outside the boundary. It needs a `service` and a valid `lat`/`lon`. A
-service name that isn't registered, a service listed twice, or a negative
-`turnout_s` or `travel_threshold_s` is a config error.
+A hand-placed facility is routed from exactly like a mapped one. Mapped
+stations are fetched up to 5 km beyond the boundary's bounding box, with the
+roads in that margin, so a station in that margin, hand-placed or mapped, is
+routed in over real roads; one farther out reaches the city only if it is
+within 500 m of the stored roads. It needs a `service` and a valid
+`lat`/`lon`. A service name that isn't registered, a service listed twice,
+or a negative `turnout_s` or `travel_threshold_s` is a config error.
 
 ## Export and hosting
 

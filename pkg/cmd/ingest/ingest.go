@@ -258,7 +258,9 @@ func runIngest(ctx context.Context, opts *Options) error {
 	}
 
 	if opts.DryRun {
-		return printDryRunPlan(ctx, opts, store, city)
+		return ingestCompanions(opts, printDryRunPlan(ctx, opts, store, city), func(o *Options) error {
+			return printDryRunPlan(ctx, o, store, city)
+		})
 	}
 
 	// --force is documented as "bypass HTTP cache". Mark the context so
@@ -273,7 +275,30 @@ func runIngest(ctx context.Context, opts *Options) error {
 	// A --source this city's pvmt.toml switched off fails before the
 	// boundary fetch, not after it (solvent-streets-0z82). The dry run above
 	// only warns about it.
-	return fetchAndSave(ctx, opts, store, client, city)
+	err = fetchAndSave(ctx, opts, store, client, city)
+	return ingestCompanions(opts, err, func(o *Options) error {
+		return fetchAndSave(ctx, o, store, client, city)
+	})
+}
+
+// ingestCompanions runs run for each of opts.ResourceType's companions
+// (resource.Companioned) with the same options, after the resource's own
+// ingest returned err. A failed own ingest stops there; one that found
+// nothing (ErrNoResults: a city whose stations are all hand-placed) still
+// fetches its companions, and reports ErrNoResults only if they succeed.
+func ingestCompanions(opts *Options, err error, run func(*Options) error) error {
+	c, ok := opts.ResourceType.(resource.Companioned)
+	if !ok || (err != nil && !errors.Is(err, cmdutil.ErrNoResults)) {
+		return err
+	}
+	for _, rt := range c.Companions() {
+		o := *opts
+		o.ResourceType = rt
+		if cerr := run(&o); cerr != nil && !errors.Is(cerr, cmdutil.ErrNoResults) {
+			return fmt.Errorf("%s: %w", rt.Type(), cerr)
+		}
+	}
+	return err
 }
 
 // fetchAndSave is the network half of runIngest: the source check, the
@@ -298,6 +323,7 @@ func fetchAndSave(ctx context.Context, opts *Options, store db.Store, client *ht
 	if err != nil {
 		return fmt.Errorf("derive bbox: %w", err)
 	}
+	bbox = fetchBBox(opts.ResourceType, bbox)
 
 	// An own-sourced resource (facilities, census blocks) ignores the city's
 	// overpass / arcgis_url settings; see resolveSources.
@@ -351,6 +377,16 @@ func fetchAndSave(ctx context.Context, opts *Options, store db.Store, client *ht
 	return nil
 }
 
+// fetchBBox is the bbox rt is fetched over: the boundary's, grown by the
+// resource's pad when it has one (resource.FetchPadder: service facilities
+// and their routing roads reach past the city line).
+func fetchBBox(rt resource.Source, bbox [4]float64) [4]float64 {
+	if p, ok := rt.(resource.FetchPadder); ok {
+		return geo.PadBBox(bbox, p.FetchPadM())
+	}
+	return bbox
+}
+
 // emptyFetchErr is the result of a fetch that saved nothing. A source that
 // failed outranks an empty survivor: reporting ErrNoResults would let
 // `pvmt all ingest` skip the layer as empty and exit 0 with it missing
@@ -391,6 +427,9 @@ func printDryRunPlan(ctx context.Context, opts *Options, store db.Store, city *c
 		fmt.Fprintf(out, "[dry-run]   would fetch boundary for %q from %s\n", city.Name, src.from)
 	} else {
 		fmt.Fprintf(out, "[dry-run]   boundary cached, would skip %s\n", src.from)
+	}
+	if p, ok := opts.ResourceType.(resource.FetchPadder); ok {
+		fmt.Fprintf(out, "[dry-run]   would fetch over the boundary bbox padded by %.0f m\n", p.FetchPadM())
 	}
 	if own, ok := opts.ResourceType.(resource.OwnSourced); ok {
 		fmt.Fprintf(out, "[dry-run]   would fetch from source: %s (fixed for %s)\n", own.OwnSource(), opts.ResourceType.Type())

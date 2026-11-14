@@ -264,7 +264,7 @@ func TestReadProducerInputs(t *testing.T) {
 		"parking":      {"boundary", "parking"},
 		"sidewalks":    {"boundary", "sidewalks"},
 		"combined":     {"boundary", "parking", "roads", "sidewalks"},
-		"service:fire": {"boundary", "facility-fire", "roads"},
+		"service:fire": {"boundary", "facility-fire", "roads", "routing-roads"},
 		"census":       {"boundary", "layer-census-blocks"},
 	} {
 		got, err := ReadProducerInputs(ctx, store, producer)
