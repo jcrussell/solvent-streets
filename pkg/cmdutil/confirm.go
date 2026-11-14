@@ -10,6 +10,17 @@ import (
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
 
+// yesHint is the remedy offered when a confirmation cannot be asked.
+const yesHint = "pass --yes/-y to skip the prompt in non-interactive environments"
+
+// ConfirmHelp is the help paragraph for a command that goes through
+// ConfirmDestructive; verb is what it refuses to do unconfirmed ("delete").
+func ConfirmHelp(verb string) string {
+	return `Confirmation: prompts on TTY by default. Pass --yes/-y to skip the
+prompt for non-interactive use (scripts, CI). Without --yes and
+without a TTY the command refuses to ` + verb + "."
+}
+
 // ConfirmDestructive gates a destructive delete behind a user confirmation.
 // When yes is true the gate is open. Otherwise: on a TTY it prompts via
 // prompter and returns ErrCancel on "no"; off a TTY it refuses with a
@@ -23,7 +34,7 @@ func ConfirmDestructive(ctx context.Context, io *iostreams.IOStreams, prompter p
 	if !io.IsStdinTTY() {
 		return hint.Withf(
 			FlagErrorf("%s", refusal),
-			"pass --yes/-y to skip the prompt in non-interactive environments",
+			yesHint,
 		)
 	}
 	ok, err := prompter.Confirm(ctx, question, false)
@@ -39,7 +50,7 @@ func ConfirmDestructive(ctx context.Context, io *iostreams.IOStreams, prompter p
 		// give those callers the same --yes hint, not a bare error.
 		return hint.Withf(
 			FlagErrorf("%s", refusal),
-			"pass --yes/-y to skip the prompt in non-interactive environments",
+			yesHint,
 		)
 	}
 	if err != nil {

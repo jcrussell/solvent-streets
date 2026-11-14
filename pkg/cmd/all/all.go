@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
@@ -288,58 +287,35 @@ func runOptionalStep(ios *iostreams.IOStreams, label string, fn func() error) er
 }
 
 func forEachResource(ios *iostreams.IOStreams, fn func(resource.Source) error) error {
-	var errs []error
-	sawResult := false    // at least one resource produced something
-	skippedEmpty := false // at least one resource came back empty
+	// cmdutil.Outcomes is the rule ForEachCity applies one level up: an empty
+	// resource is skipped, a failed one is kept while the rest still run, and
+	// the city is ErrNoResults (exit 3, as `pvmt roads ingest` is for the same
+	// condition) only when every resource was empty. A failure must stay fatal
+	// to the run: dropping it would let `pvmt all ingest` exit 0 with nothing
+	// ingested, and a chained `ingest && compute && export` would publish an
+	// empty site.
+	var out cmdutil.Outcomes
 	for _, rt := range resource.All {
 		fmt.Fprintf(ios.ErrOut, "\n--- %s ---\n", rt.Type())
 		err := fn(rt)
-		if err == nil {
-			sawResult = true
+		// A cancelled compute (SIGINT / TUI ctrl+c) must abort the fan-out
+		// immediately: warn-and-continue would launch the next resource's TUI
+		// while the interrupted one just refused to save, and would mask the
+		// cancellation as exit 0.
+		//
+		// DeadlineExceeded gets the same treatment: an expired context does
+		// not un-expire, so every remaining resource would fail identically.
+		// Checking only Canceled would also swallow the ctx.Err() pre-checks
+		// that ingest/compute.RunResourceForCity return.
+		if isCancel(err) {
+			return err
 		}
-		if err != nil {
-			if errors.Is(err, cmdutil.ErrNoResults) {
-				skippedEmpty = true
-				continue
-			}
-			// A cancelled compute (SIGINT / TUI ctrl+c) must abort the
-			// fan-out immediately: warn-and-continue would launch the next
-			// resource's TUI while the interrupted one just refused to save,
-			// and would mask the cancellation as exit 0.
-			//
-			// DeadlineExceeded gets the same treatment: an expired context does
-			// not un-expire, so every remaining resource would fail identically
-			// and the run would still exit 0. Checking only Canceled would
-			// also swallow the ctx.Err() pre-checks that
-			// ingest/compute.RunResourceForCity return.
-			if isCancel(err) {
-				return err
-			}
-			// A total-source-failure for ONE resource is non-fatal to the
-			// REST of the fan-out: warn and move on so the remaining resources
-			// (e.g. parking, sidewalks) still run instead of being skipped by an
-			// early return (finding 0yfp). It is still fatal to the RUN, though
-			// — dropping it here would make `pvmt all ingest` exit 0 with nothing
-			// ingested, so a chained `ingest && compute && export` would sail on
-			// and publish an empty site. Collect and join instead.
+		if err != nil && !errors.Is(err, cmdutil.ErrNoResults) {
 			cmdutil.Warnf(ios, "%s failed: %v", rt.Type(), err)
-			// Ingest errors already lead with the resource ("roads: all
-			// sources failed"); prefixing again printed "roads: roads: ...".
-			if !strings.HasPrefix(err.Error(), string(rt.Type())+": ") {
-				err = fmt.Errorf("%s: %w", rt.Type(), err)
-			}
-			errs = append(errs, err)
 		}
+		// Ingest errors already lead with the resource ("roads: all sources
+		// failed"); Add does not prefix those again.
+		out.Add(string(rt.Type()), err)
 	}
-	// Every resource came back empty and none produced anything: propagate
-	// ErrNoResults so the city exits 3, the same as `pvmt roads ingest` does
-	// for the identical condition. Returning nil here let `all ingest` exit 0
-	// on a city that ingested nothing at all, and a chained
-	// `ingest && compute && export` would publish the empty result.
-	// ForEachCity applies the same sawResult/skippedEmpty rule one level up,
-	// so a run is only ErrNoResults when EVERY city was empty.
-	if len(errs) == 0 && !sawResult && skippedEmpty {
-		return cmdutil.ErrNoResults
-	}
-	return errors.Join(errs...)
+	return out.Err()
 }

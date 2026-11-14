@@ -80,10 +80,8 @@ opens no database, so it works when either is broken.
 Pass 0 to disable a cap (--max-age=0 skips age pruning, --max-size=0
 skips size pruning); incomplete entries are still swept.
 
-Confirmation: prompts on TTY by default. Pass --yes/-y to skip the
-prompt for non-interactive use (scripts, CI). Without --yes and without
-a TTY the command refuses to delete. --dry-run reports what would go,
-never prompts, and writes nothing.`,
+` + cmdutil.ConfirmHelp("delete") + `
+--dry-run reports what would go, never prompts, and writes nothing.`,
 		Example: `  # Report what would be reclaimed, without deleting or prompting
   pvmt cache prune --dry-run
 

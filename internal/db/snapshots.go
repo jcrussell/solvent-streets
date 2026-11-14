@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -417,6 +418,19 @@ func listSnapshots(ctx context.Context, q queryer, cityID, only int64) ([]Snapsh
 		}
 	}
 	return out, rows.Err()
+}
+
+// ParseSnapshotID reads a snapshot id as a person supplies it, on a command
+// line or in a URL: a positive whole number.
+func ParseSnapshotID(s string) (int64, error) {
+	id, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid snapshot id %q: %w", s, err)
+	}
+	if id <= 0 {
+		return 0, fmt.Errorf("snapshot id must be positive, got %d", id)
+	}
+	return id, nil
 }
 
 // ResolveSnapshot returns nil iff the snapshot exists and belongs to this

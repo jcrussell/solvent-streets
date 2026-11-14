@@ -151,7 +151,7 @@ func renderBaselineTable(ios *iostreams.IOStreams, rt resource.Source, area, cur
 				strconv.Itoa(y.Year),
 				fmt.Sprintf("%.1f", y.PCI),
 				fmt.Sprintf("%.1f", units.AreaLargeValue(y.Area, sys)),
-				fmt.Sprintf("$%.0f", y.AnnualNeed),
+				units.FormatDollars(y.AnnualNeed),
 				y.CostTier,
 			)
 		}
@@ -159,7 +159,7 @@ func renderBaselineTable(ios *iostreams.IOStreams, rt resource.Source, area, cur
 	if err := tp.Render(); err != nil {
 		return err
 	}
-	fmt.Fprintf(ios.Out, "\n  Total %d-year deferred maintenance: $%.0f\n\n", years, totalDeferredCost)
+	fmt.Fprintf(ios.Out, "\n  Total %d-year deferred maintenance: %s\n\n", years, units.FormatDollars(totalDeferredCost))
 
 	if len(baseline.FinalCohorts) > 1 {
 		fmt.Fprintf(ios.Out, "  Cohort Breakdown:\n")
@@ -210,13 +210,13 @@ func renderScenarioComparisons(ios *iostreams.IOStreams, baseline fcpkg.Scenario
 		last := sr.Years[len(sr.Years)-1]
 		budgetStr := "unconstrained"
 		if sr.Scenario.AnnualBudget > 0 {
-			budgetStr = fmt.Sprintf("$%.0f", sr.Scenario.AnnualBudget)
+			budgetStr = units.FormatDollars(sr.Scenario.AnnualBudget)
 		}
 		tp.AddRow(
 			sr.Scenario.Label,
 			fmt.Sprintf("%.1f", last.PCI),
 			budgetStr,
-			fmt.Sprintf("$%.0f", last.DeferredBacklog),
+			units.FormatDollars(last.DeferredBacklog),
 		)
 	}
 	if err := tp.Render(); err != nil {

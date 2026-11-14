@@ -64,10 +64,8 @@ upstream (the partial-re-ingest residual) is NOT gc-detectable — gc
 cannot distinguish stale-but-valid rows from current ones. That case
 is cured by a successful full re-ingest, not by gc.
 
-Confirmation: prompts on TTY by default. Pass --yes/-y to skip the
-prompt for non-interactive use (scripts, CI). Without --yes and
-without a TTY the command refuses to delete. --dry-run reports counts
-and never writes.`,
+` + cmdutil.ConfirmHelp("delete") + `
+--dry-run reports counts and never writes.`,
 		Example: `  # Report what would be collected, without deleting
   pvmt gc --dry-run
 

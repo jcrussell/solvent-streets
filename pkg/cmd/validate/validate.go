@@ -15,9 +15,9 @@ import (
 	"fmt"
 	"math"
 	"sort"
-	"text/tabwriter"
 
 	"github.com/jcrussell/solvent-streets/internal/forecast"
+	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 
@@ -184,8 +184,8 @@ func Run(_ context.Context, opts *Options) error {
 		if err := opts.JSON.Write(opts.IO, report); err != nil {
 			return fmt.Errorf("write report: %w", err)
 		}
-	} else {
-		writeTable(opts.IO, report)
+	} else if err := writeTable(opts.IO, report); err != nil {
+		return fmt.Errorf("write report: %w", err)
 	}
 
 	if report.FailCount > 0 {
@@ -276,11 +276,10 @@ func evaluateCity(c referenceCity, tolerance float64) Result {
 	return res
 }
 
-func writeTable(io *iostreams.IOStreams, r Report) {
+func writeTable(io *iostreams.IOStreams, r Report) error {
 	cs := io.ColorScheme()
-	w := tabwriter.NewWriter(io.Out, 0, 4, 2, ' ', 0)
-
-	fmt.Fprintln(w, "CITY\tBREAK-EVEN\t$/SQ M·YR\tPUBLISHED\tRESIDUAL\tSTATUS")
+	tp := iostreams.NewTablePrinter(io)
+	tp.AddHeader("CITY", "BREAK-EVEN", "$/SQ M·YR", "PUBLISHED", "RESIDUAL", "STATUS")
 	for _, res := range r.Results {
 		published, residual := "—", "—"
 		if res.HoldSteadyBudget > 0 {
@@ -296,21 +295,23 @@ func writeTable(io *iostreams.IOStreams, r Report) {
 		case statusFail:
 			status = cs.Red("FAIL")
 		}
-		fmt.Fprintf(w, "%s\t%s\t$%.2f\t%s\t%s\t%s\n",
-			res.Name, fmtDollars(res.BreakEvenBudget), res.BreakEvenPerSqM, published, residual, status)
+		tp.AddRow(res.Name, fmtDollars(res.BreakEvenBudget), fmt.Sprintf("$%.2f", res.BreakEvenPerSqM), published, residual, status)
 	}
-	_ = w.Flush()
+	if err := tp.Render(); err != nil {
+		return err
+	}
 
 	// Chatter to ErrOut so `pvmt validate > table.txt` yields only the table.
 	fmt.Fprintf(io.ErrOut, "\n%d gated (%d pass, %d fail), %d context-only, tolerance ±%.0f%%\n",
 		r.PassCount+r.FailCount, r.PassCount, r.FailCount, r.ContextCount, r.Tolerance*100)
 	fmt.Fprintln(io.ErrOut,
 		"Only cities publishing an independent hold-steady budget are gated; see docs/validation.md §6.")
+	return nil
 }
 
 func fmtDollars(v float64) string {
 	if v >= 1e6 {
 		return fmt.Sprintf("$%.1fM", v/1e6)
 	}
-	return fmt.Sprintf("$%.0f", v)
+	return units.FormatDollars(v)
 }

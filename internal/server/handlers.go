@@ -9,7 +9,6 @@ import (
 	"html/template"
 	"net/http"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -441,8 +440,8 @@ func (s *Server) parseSnapshotParam(ctx context.Context, w http.ResponseWriter, 
 	if raw == "" {
 		return 0, true
 	}
-	id, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil || id <= 0 {
+	id, err := db.ParseSnapshotID(raw)
+	if err != nil {
 		http.NotFound(w, r)
 		return 0, false
 	}

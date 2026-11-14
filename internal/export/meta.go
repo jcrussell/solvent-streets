@@ -440,9 +440,9 @@ type StatJSON struct {
 
 // ResourceColors maps resource type names to their display colors.
 var ResourceColors = map[string]string{
-	"roads":     "#6b7280",
-	"parking":   "#3b82f6",
-	"sidewalks": "#f59e0b",
+	string(resource.TypeRoads):     "#6b7280",
+	string(resource.TypeParking):   "#3b82f6",
+	string(resource.TypeSidewalks): "#f59e0b",
 }
 
 // GroupCitiesByDimension groups cities per tag dimension for the selectors.

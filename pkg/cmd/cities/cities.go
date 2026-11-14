@@ -129,9 +129,9 @@ func runCities(ctx context.Context, opts *Options) error {
 		tp.AddRow(
 			r.Slug,
 			r.Name,
-			strconv.Itoa(r.FeatureCounts["roads"]),
-			strconv.Itoa(r.FeatureCounts["parking"]),
-			strconv.Itoa(r.FeatureCounts["sidewalks"]),
+			strconv.Itoa(r.FeatureCounts[string(resource.TypeRoads)]),
+			strconv.Itoa(r.FeatureCounts[string(resource.TypeParking)]),
+			strconv.Itoa(r.FeatureCounts[string(resource.TypeSidewalks)]),
 			fmt.Sprintf("%.1f", units.AreaLargeValue(r.TotalPaved, sys)),
 			iostreams.FormatTimestamp(r.LastIngestAt, ios.IsTTY()),
 			iostreams.FormatTimestamp(r.LastComputeAt, ios.IsTTY()),

@@ -41,7 +41,7 @@ func stateJSON() any {
 
 func simulateForecast(_ js.Value, args []js.Value) any {
 	if len(args) < 1 {
-		return js.ValueOf(`{"error":"missing input argument"}`)
+		return errJSON("missing input argument")
 	}
 
 	out, err := bridge.Run([]byte(args[0].String()))

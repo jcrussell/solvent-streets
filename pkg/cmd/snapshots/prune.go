@@ -43,9 +43,7 @@ be > 0.
 
 Scope: all configured cities by default; restrict to one with --city.
 
-Confirmation: prompts on TTY by default. Pass --yes/-y to skip the
-prompt for non-interactive use (scripts, CI). Without --yes and
-without a TTY the command refuses to prune.`,
+` + cmdutil.ConfirmHelp("prune"),
 		Example: `  # Keep the 5 most recent snapshots in every city (prompts)
   pvmt snapshots prune --keep=5
 

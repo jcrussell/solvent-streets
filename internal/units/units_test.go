@@ -66,7 +66,7 @@ func TestFormatAreaLarge(t *testing.T) {
 }
 
 func TestParseSystem(t *testing.T) {
-	if ParseSystem(metricName) != Metric {
+	if ParseSystem(MetricName) != Metric {
 		t.Error("ParseSystem(metric) should be Metric")
 	}
 	if ParseSystem("imperial") != Imperial {
@@ -85,7 +85,7 @@ func TestParseSystem(t *testing.T) {
 }
 
 func TestSystemString(t *testing.T) {
-	if Metric.String() != metricName {
+	if Metric.String() != MetricName {
 		t.Error("Metric.String() should be 'metric'")
 	}
 	if Imperial.String() != "imperial" {

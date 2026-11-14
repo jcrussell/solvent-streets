@@ -226,24 +226,15 @@ func ForEachCity(ctx context.Context, f *Factory, fn func(cf *Factory, city *con
 		}
 	}
 
-	var errs []error
-	sawResult := false    // at least one city returned nil (produced output)
-	skippedEmpty := false // at least one city returned ErrNoResults
+	var out Outcomes
 	for _, city := range cities {
 		if err := ctx.Err(); err != nil {
-			errs = append(errs, err)
+			out.Fail(err)
 			break
 		}
 		fmt.Fprintf(f.IOStreams.ErrOut, "\n=== %s ===\n", city.Name)
 		err := fn(withCity(ctx, f, &city), &city)
-		switch {
-		case err == nil:
-			sawResult = true
-		case errors.Is(err, ErrNoResults):
-			skippedEmpty = true
-		default:
-			errs = append(errs, fmt.Errorf("%s: %w", city.Name, err))
-		}
+		out.Add(city.Name, err)
 		// A city that was cancelled stops the run even when ctx is still live:
 		// a ctrl+c inside a TUI step never reaches ctx (raw mode swallows the
 		// signal) and surfaces only as the step's tui.ErrInterrupted.
@@ -251,12 +242,47 @@ func ForEachCity(ctx context.Context, f *Factory, fn func(cf *Factory, city *con
 			break
 		}
 	}
-	// Only when there were no real errors and no city produced anything: every
-	// processed city was empty, so surface ErrNoResults (exit 3).
-	if len(errs) == 0 && !sawResult && skippedEmpty {
+	return out.Err()
+}
+
+// Outcomes folds the results of running one step over several items (cities,
+// resources) into the run's error. An item that returns ErrNoResults is
+// skipped, so one empty item does not fail a run that produced results
+// elsewhere; a real failure is kept and the rest still run. The run is
+// ErrNoResults only when nothing failed, nothing produced a result and at
+// least one item was empty, so "nothing produced" exits 3 at every level.
+type Outcomes struct {
+	errs         []error
+	sawResult    bool
+	skippedEmpty bool
+}
+
+// Add records the outcome of the item named label. A real failure is kept as
+// "label: err", unless err already leads with the label.
+func (o *Outcomes) Add(label string, err error) {
+	switch {
+	case err == nil:
+		o.sawResult = true
+	case errors.Is(err, ErrNoResults):
+		o.skippedEmpty = true
+	default:
+		if !strings.HasPrefix(err.Error(), label+": ") {
+			err = fmt.Errorf("%s: %w", label, err)
+		}
+		o.errs = append(o.errs, err)
+	}
+}
+
+// Fail records a failure that belongs to no one item.
+func (o *Outcomes) Fail(err error) { o.errs = append(o.errs, err) }
+
+// Err is the run's error: the failures joined, else ErrNoResults when every
+// item was empty, else nil.
+func (o *Outcomes) Err() error {
+	if len(o.errs) == 0 && !o.sawResult && o.skippedEmpty {
 		return ErrNoResults
 	}
-	return errors.Join(errs...)
+	return errors.Join(o.errs...)
 }
 
 // ResolveConfigID returns the ConfigID that owns city's row in the cities

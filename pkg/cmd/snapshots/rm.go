@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strconv"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
@@ -48,9 +47,7 @@ Snapshot IDs are unique across cities; the command searches every
 configured city for the id and deletes from whichever city owns it.
 Use --city to restrict the lookup to one city.
 
-Confirmation: prompts on TTY by default. Pass --yes/-y to skip the
-prompt for non-interactive use (scripts, CI). Without --yes and
-without a TTY the command refuses to delete.`,
+` + cmdutil.ConfirmHelp("delete"),
 		Example: `  # Delete snapshot 42 from whichever city owns it (prompts)
   pvmt snapshots rm 42
 
@@ -61,12 +58,9 @@ without a TTY the command refuses to delete.`,
   pvmt --city oakland-ca snapshots rm 42`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := strconv.ParseInt(args[0], 10, 64)
+			id, err := db.ParseSnapshotID(args[0])
 			if err != nil {
-				return cmdutil.FlagErrorf("invalid snapshot id %q: %v", args[0], err)
-			}
-			if id <= 0 {
-				return cmdutil.FlagErrorf("snapshot id must be positive, got %d", id)
+				return cmdutil.FlagErrorf("%v", err)
 			}
 			opts.SnapshotID = id
 			if runF != nil {

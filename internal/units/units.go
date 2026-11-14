@@ -22,9 +22,15 @@ const (
 // ParseSystem / IsKnown / String, and so the user-facing spelling lives
 // in exactly one place.
 const (
-	metricName   = "metric"
-	imperialName = "imperial"
+	MetricName   = "metric"
+	ImperialName = "imperial"
 )
+
+// Names lists the unit systems' spellings, metric first.
+func Names() []string { return []string{MetricName, ImperialName} }
+
+// FormatDollars renders a dollar amount to the whole dollar, "$1234567".
+func FormatDollars(v float64) string { return fmt.Sprintf("$%.0f", v) }
 
 // Conversion constants.
 const (
@@ -106,7 +112,7 @@ func AreaLargeValue(sqm float64, sys System) float64 {
 // unrecognized values, so callers that must reject typos should gate on
 // IsKnown first (e.g. "metirc" would otherwise silently render imperial).
 func ParseSystem(s string) System {
-	if normalizeSystem(s) == metricName {
+	if normalizeSystem(s) == MetricName {
 		return Metric
 	}
 	return Imperial
@@ -118,7 +124,7 @@ func ParseSystem(s string) System {
 // want to distinguish "unset" from "explicitly imperial" need this).
 func IsKnown(s string) bool {
 	switch normalizeSystem(s) {
-	case metricName, imperialName:
+	case MetricName, ImperialName:
 		return true
 	default:
 		return false
@@ -133,7 +139,7 @@ func normalizeSystem(s string) string {
 
 func (s System) String() string {
 	if s == Metric {
-		return metricName
+		return MetricName
 	}
-	return imperialName
+	return ImperialName
 }

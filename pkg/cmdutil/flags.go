@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/units"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -67,8 +68,8 @@ func (f *SourceFlag) Completion() cobra.CompletionFunc {
 type UnitSystem string
 
 const (
-	UnitMetric   UnitSystem = "metric"
-	UnitImperial UnitSystem = "imperial"
+	UnitMetric   UnitSystem = units.MetricName
+	UnitImperial UnitSystem = units.ImperialName
 )
 
 func (u *UnitSystem) Set(v string) error {
@@ -76,12 +77,11 @@ func (u *UnitSystem) Set(v string) error {
 		*u = ""
 		return nil
 	}
-	switch v {
-	case "metric", "imperial":
+	if slices.Contains(units.Names(), v) {
 		*u = UnitSystem(v)
 		return nil
 	}
-	return FlagErrorf("unknown unit system %q, valid: metric, imperial", v)
+	return FlagErrorf("unknown unit system %q, valid: %s", v, strings.Join(units.Names(), ", "))
 }
 
 func (u *UnitSystem) String() string { return string(*u) }
@@ -89,7 +89,7 @@ func (u *UnitSystem) Type() string   { return "units" }
 
 // UnitSystemCompletion returns the completion func for --units.
 func UnitSystemCompletion() cobra.CompletionFunc {
-	return cobra.FixedCompletions([]string{"metric", "imperial"}, cobra.ShellCompDirectiveNoFileComp)
+	return cobra.FixedCompletions(units.Names(), cobra.ShellCompDirectiveNoFileComp)
 }
 
 // CitySlugCompletion reads pvmt.toml on tab-completion and returns configured
