@@ -2,7 +2,6 @@ package config
 
 import (
 	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -193,10 +192,7 @@ func hashComputeInputs(epoch int, in computeInputs) string {
 		// (Validate rejects NaN/Inf) and slices of them.
 		panic(fmt.Sprintf("config: encode compute inputs: %v", err))
 	}
-	h := sha256.New()
-	h.Write([]byte(computeInputsScheme + "\n"))
-	h.Write(b)
-	return hex.EncodeToString(h.Sum(nil))[:16]
+	return hashBytes(append([]byte(computeInputsScheme+"\n"), b...))
 }
 
 // CityHash returns the snapshot key for city: the hash every producer commits

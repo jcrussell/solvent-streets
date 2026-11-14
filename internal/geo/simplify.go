@@ -177,7 +177,7 @@ func unprojectAndRound(coords [][2]float64, proj *UTMProjector, decimals int) []
 	out := make([][2]float64, len(coords))
 	for i, c := range coords {
 		lon, lat := proj.FromProjected(c[0], c[1])
-		out[i] = [2]float64{roundTo(lon, decimals), roundTo(lat, decimals)}
+		out[i] = [2]float64{RoundTo(lon, decimals), RoundTo(lat, decimals)}
 	}
 	return out
 }

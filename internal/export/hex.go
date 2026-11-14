@@ -129,10 +129,10 @@ func sameCoverage(a, b map[string]float64) bool {
 	return maps.Equal(a, b)
 }
 
-func round2(v float64) float64 { return math.Round(v*100) / 100 }
+func round2(v float64) float64 { return geo.RoundTo(v, 2) }
 
 // round4 rounds a 0..1 share to four decimals (a hundredth of a percent).
-func round4(v float64) float64 { return math.Round(v*1e4) / 1e4 }
+func round4(v float64) float64 { return geo.RoundTo(v, 4) }
 
 // roundSig rounds v to digits significant figures. Unlike round2 it never
 // flattens a nonzero magnitude to zero, which matters for values a consumer

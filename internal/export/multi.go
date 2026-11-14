@@ -35,7 +35,7 @@ func BuildMultiCityMeta(ctx context.Context, entries []CityEntry, title string) 
 		ProjectName:  title,
 		BBox:         geoJSONBBox(bbox),
 		Center:       [2]float64{centerLon, centerLat},
-		SnapshotDate: time.Now().Format("2006-01-02"),
+		SnapshotDate: time.Now().Format(time.DateOnly),
 		Stats:        aggregatePerResourceStats(ctx, entries),
 	}
 	for _, entry := range entries {

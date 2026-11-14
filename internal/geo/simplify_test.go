@@ -347,7 +347,7 @@ func TestSimplifyGeoJSONMeters_RoundsCoordinates(t *testing.T) {
 	_, rings := decodePolygon(t, out)
 	for _, c := range rings[0] {
 		for _, v := range c {
-			if math.Abs(v-roundTo(v, 5)) > 1e-12 {
+			if math.Abs(v-RoundTo(v, 5)) > 1e-12 {
 				t.Errorf("coordinate %v carries more than 5 decimals", v)
 			}
 		}

@@ -262,7 +262,7 @@ func (TemplateData) BandCount() int { return game.BandCount }
 // date (YYYY-MM-DD) and the build version string, which matches
 // `pvmt --version` (build.Current().Short()).
 func FooterInfo() (generatedDate, buildVersion string) {
-	return time.Now().Format("2006-01-02"), build.Current().Short()
+	return time.Now().Format(time.DateOnly), build.Current().Short()
 }
 
 // resourceColorsJSOnce lazily marshals ResourceColors. Lazy so a binary
@@ -656,7 +656,7 @@ func BuildMeta(ctx context.Context, entry CityEntry, snapshotID int64) (MetaJSON
 // so serveMetaJSON's cache evicts and retries.
 func snapshotDate(ctx context.Context, store db.Store, snapshotID int64) (string, error) {
 	if snapshotID <= 0 {
-		return time.Now().Format("2006-01-02"), nil
+		return time.Now().Format(time.DateOnly), nil
 	}
 	snaps, err := store.ListSnapshots(ctx)
 	if err != nil {
@@ -664,7 +664,7 @@ func snapshotDate(ctx context.Context, store db.Store, snapshotID int64) (string
 	}
 	for _, snap := range snaps {
 		if snap.ID == snapshotID {
-			return snap.CreatedAt.Format("2006-01-02"), nil
+			return snap.CreatedAt.Format(time.DateOnly), nil
 		}
 	}
 	return "", fmt.Errorf("snapshot %d not found", snapshotID)

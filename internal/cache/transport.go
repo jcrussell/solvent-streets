@@ -75,8 +75,8 @@ func (t *CachingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	}
 
 	key := cacheKey(req.Method, req.URL.String(), bodyBytes)
-	bodyPath := filepath.Join(t.Dir, key+".json")
-	metaPath := filepath.Join(t.Dir, key+".meta")
+	bodyPath := filepath.Join(t.Dir, key+bodyExt)
+	metaPath := filepath.Join(t.Dir, key+metaExt)
 
 	// Two things suppress the read entirely: TTL=0 (cache fully disabled)
 	// and a per-request --force bypass (cache.WithBypass). Checking bypass
@@ -168,6 +168,14 @@ func firstHeaderValue(h map[string][]string, key string) string {
 	}
 	return ""
 }
+
+// A cache entry is two files named after its key: <key>.json holds the
+// response body and <key>.meta its metadata. The key is a sha256 in hex.
+const (
+	bodyExt = ".json"
+	metaExt = ".meta"
+	keyLen  = sha256.Size * 2
+)
 
 // cacheKey derives the on-disk cache filename from the request method,
 // URL, and body. Folding the body in lets POSTs with identical URLs but

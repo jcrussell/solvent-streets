@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
+	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/results"
 )
@@ -409,37 +409,29 @@ const (
 	emitMaterialDecimals = 3
 )
 
-func roundTo(v float64, decimals int) float64 {
-	if v == 0 || math.IsNaN(v) || math.IsInf(v, 0) {
-		return v
-	}
-	p := math.Pow(10, float64(decimals))
-	return math.Round(v*p) / p
-}
-
 // roundMoney rounds to whole currency units. Every dollar figure on the site is
 // formatted with maximumFractionDigits: 0, so this is display-identical.
-func roundMoney(v float64) float64 { return roundTo(v, 0) }
+func roundMoney(v float64) float64 { return geo.RoundTo(v, 0) }
 
 // roundArea rounds to whole square metres. Areas are displayed in acres or km2
 // to one decimal (1 acre ~ 4047 m2), so 1 m2 granularity is far below anything
 // visible, and area_pct is self-normalising over the same rounded values.
-func roundArea(v float64) float64 { return roundTo(v, 0) }
+func roundArea(v float64) float64 { return geo.RoundTo(v, 0) }
 
 // roundMaterials rounds masses to the kilogram and oil to a hundredth of a
 // barrel; the site shows whole tonnes and whole barrels.
 func roundMaterials(m forecast.MaterialQuantities) forecast.MaterialQuantities {
-	m.MixTonnes = roundTo(m.MixTonnes, emitMaterialDecimals)
-	m.BinderTonnes = roundTo(m.BinderTonnes, emitMaterialDecimals)
-	m.AggregateTonnes = roundTo(m.AggregateTonnes, emitMaterialDecimals)
-	m.OilBarrels = roundTo(m.OilBarrels, emitMaterialDecimals)
+	m.MixTonnes = geo.RoundTo(m.MixTonnes, emitMaterialDecimals)
+	m.BinderTonnes = geo.RoundTo(m.BinderTonnes, emitMaterialDecimals)
+	m.AggregateTonnes = geo.RoundTo(m.AggregateTonnes, emitMaterialDecimals)
+	m.OilBarrels = geo.RoundTo(m.OilBarrels, emitMaterialDecimals)
 	return m
 }
 
 func roundScenarioResult(r forecast.ScenarioResult) forecast.ScenarioResult {
 	years := make([]forecast.ScenarioYear, len(r.Years))
 	for i, y := range r.Years {
-		y.PCI = roundTo(y.PCI, emitPCIDecimals)
+		y.PCI = geo.RoundTo(y.PCI, emitPCIDecimals)
 		y.Area = roundArea(y.Area)
 		y.AnnualNeed = roundMoney(y.AnnualNeed)
 		y.AnnualSpend = roundMoney(y.AnnualSpend)
@@ -454,9 +446,9 @@ func roundScenarioResult(r forecast.ScenarioResult) forecast.ScenarioResult {
 
 	cohorts := make([]forecast.CohortSummary, len(r.FinalCohorts))
 	for i, c := range r.FinalCohorts {
-		c.EndPCI = roundTo(c.EndPCI, emitPCIDecimals)
+		c.EndPCI = geo.RoundTo(c.EndPCI, emitPCIDecimals)
 		c.Area = roundArea(c.Area)
-		c.DecayRate = roundTo(c.DecayRate, emitRateDecimals)
+		c.DecayRate = geo.RoundTo(c.DecayRate, emitRateDecimals)
 		c.TotalSpend = roundMoney(c.TotalSpend)
 		c.TotalDeficit = roundMoney(c.TotalDeficit)
 		cohorts[i] = c
@@ -497,7 +489,7 @@ func RoundForecastsForEmission(fes []ForecastExport) []ForecastExport {
 		fe.RoadsArea = roundArea(fe.RoadsArea)
 		fe.CurrentBudget = roundMoney(fe.CurrentBudget)
 		if fe.FundingGap != nil {
-			g := roundTo(*fe.FundingGap, emitRatioDecimals)
+			g := geo.RoundTo(*fe.FundingGap, emitRatioDecimals)
 			fe.FundingGap = &g
 		}
 		out[i] = fe

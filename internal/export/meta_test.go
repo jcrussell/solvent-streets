@@ -199,7 +199,7 @@ func TestBuildMeta_SnapshotDateLatestIsToday(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildMeta: %v", err)
 	}
-	if want := time.Now().Format("2006-01-02"); meta.SnapshotDate != want {
+	if want := time.Now().Format(time.DateOnly); meta.SnapshotDate != want {
 		t.Errorf("latest snapshot_date = %q; want today %q", meta.SnapshotDate, want)
 	}
 }

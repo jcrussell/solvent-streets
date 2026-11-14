@@ -420,18 +420,18 @@ func (s *cacheScan) addFile(key string, file cacheFile, isMeta bool, mtime time.
 // unrelated file a user parked in the cache dir is left alone.
 func splitEntryName(name string) (key string, isMeta, ok bool) {
 	ext := filepath.Ext(name)
-	if ext != ".json" && ext != ".meta" {
+	if ext != bodyExt && ext != metaExt {
 		return "", false, false
 	}
 	key = strings.TrimSuffix(name, ext)
 	if !isCacheKey(key) {
 		return "", false, false
 	}
-	return key, ext == ".meta", true
+	return key, ext == metaExt, true
 }
 
 func isCacheKey(s string) bool {
-	if len(s) != 64 {
+	if len(s) != keyLen {
 		return false
 	}
 	for i := range len(s) {

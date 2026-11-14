@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/forecast"
+	"github.com/jcrussell/solvent-streets/internal/geo"
 )
 
 func emitTestForecasts() []ForecastExport {
@@ -181,8 +182,8 @@ func TestRoundScenariosForEmission_PassesNonScenarioKeysThrough(t *testing.T) {
 // zeroed dollar figure is not. Mirrors roundSig's contract.
 func TestRoundTo_NonFinitePassthrough(t *testing.T) {
 	for _, v := range []float64{math.NaN(), math.Inf(1), math.Inf(-1), 0} {
-		if got := roundTo(v, 2); !(math.IsNaN(v) && math.IsNaN(got)) && got != v {
-			t.Errorf("roundTo(%v) = %v, want %v", v, got, v)
+		if got := geo.RoundTo(v, 2); !(math.IsNaN(v) && math.IsNaN(got)) && got != v {
+			t.Errorf("geo.RoundTo(%v) = %v, want %v", v, got, v)
 		}
 	}
 }

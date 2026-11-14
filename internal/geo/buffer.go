@@ -179,7 +179,7 @@ func tryReprojectCoord(c []any, proj *UTMProjector, decimals int) ([]any, bool) 
 	}
 	if !isLonLat(x, y) {
 		lon, lat := proj.FromProjected(x, y)
-		return []any{roundTo(lon, decimals), roundTo(lat, decimals)}, true
+		return []any{RoundTo(lon, decimals), RoundTo(lat, decimals)}, true
 	}
 	return c, true
 }
@@ -219,7 +219,12 @@ func isLonLat(x, y float64) bool {
 	return math.Abs(x) <= 180 && math.Abs(y) <= 90
 }
 
-func roundTo(v float64, decimals int) float64 {
+// RoundTo rounds v to decimals decimal places. Zero and non-finite values
+// pass through.
+func RoundTo(v float64, decimals int) float64 {
+	if v == 0 || math.IsNaN(v) || math.IsInf(v, 0) {
+		return v
+	}
 	pow := math.Pow(10, float64(decimals))
 	return math.Round(v*pow) / pow
 }
