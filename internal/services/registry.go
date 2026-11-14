@@ -88,6 +88,22 @@ func ValidateConfig(cfg *config.Config) error {
 				"services[%d]: name %q is not a registered service (registered: %s)", i, o.Name, strings.Join(Names(), ", ")))
 		}
 	}
+	for i := range cfg.Cities {
+		city := &cfg.Cities[i]
+		if city.SourceConfigID == "" {
+			continue
+		}
+		// A city reached through [[include]] runs under its declaring file's
+		// [[services]] (config.ResolvedServices), which the loop above never
+		// sees.
+		for j, o := range cfg.ResolvedServices(city) {
+			if _, ok := Registry[o.Name]; !ok {
+				return errors.Join(config.ErrInvalidConfig, fmt.Errorf(
+					"cities[%d] (%s): services[%d] from its own config: name %q is not a registered service (registered: %s)",
+					i, city.Name, j, o.Name, strings.Join(Names(), ", ")))
+			}
+		}
+	}
 	for i, city := range cfg.Cities {
 		for j, f := range city.Facilities {
 			if _, ok := Registry[f.Service]; !ok {

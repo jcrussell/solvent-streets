@@ -134,13 +134,11 @@ func TestRequireMatchingSnapshot_IncludedCityUsesSourceHash(t *testing.T) {
 	}
 }
 
-// TestRequireMatchingSnapshot_IncludedDataDivergence: an [[include]]d city
-// whose data inputs this config resolves differently from its own config gets
-// its own hash (Config.CityHash), so the source's snapshots stop satisfying it
-// — and the error says which setting diverged rather than just "recompute".
-// The divergence used is solvent-streets-qtue: the merge drops an included
-// file's [[services]].
-func TestRequireMatchingSnapshot_IncludedDataDivergence(t *testing.T) {
+// TestRequireMatchingSnapshot_IncludedServicesMatchSource pins
+// solvent-streets-qtue: an [[include]]d city whose own config sets
+// [[services]] runs under them in the union too, so the union reads the
+// snapshot its source computed instead of refusing it as diverged.
+func TestRequireMatchingSnapshot_IncludedServicesMatchSource(t *testing.T) {
 	dir := t.TempDir()
 	write := func(rel, data string) string {
 		t.Helper()
@@ -173,13 +171,11 @@ func TestRequireMatchingSnapshot_IncludedDataDivergence(t *testing.T) {
 			},
 		},
 	}
-	err = entry.RequireMatchingSnapshot(context.Background())
-	if !errors.Is(err, ErrNoMatchingSnapshot) {
-		t.Fatalf("want ErrNoMatchingSnapshot, got %v", err)
+	if err := entry.RequireMatchingSnapshot(context.Background()); err != nil {
+		t.Fatalf("included city should read its source's snapshot, got %v", err)
 	}
-	var h *hint.ErrHint
-	if !errors.As(err, &h) || !strings.Contains(h.Hint, "[[services]]") || !strings.Contains(h.Hint, "[[include]]") {
-		t.Errorf("hint should name the [[include]] and the diverging [[services]], got %v", err)
+	if got := cfg.ResolvedServices(&entry.City); len(got) != 1 || got[0].TurnoutS == nil || *got[0].TurnoutS != 60 {
+		t.Errorf("ResolvedServices = %+v, want the leaf's fire turnout_s = 60", got)
 	}
 }
 

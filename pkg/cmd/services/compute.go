@@ -237,7 +237,7 @@ func loadInputs(ctx context.Context, errOut io.Writer, opts *Options) (*inputs, 
 	if err != nil {
 		return nil, err
 	}
-	in := &inputs{store: store, city: city, configHash: cfg.CityHash(city), spec: services.Resolve(spec, cfg.Services)}
+	in := &inputs{store: store, city: city, configHash: cfg.CityHash(city), spec: services.Resolve(spec, cfg.ResolvedServices(city))}
 
 	// Empty inputs are ErrNoResults (a quiet skip in `pvmt all`): a city with
 	// no roads or no stations is not a failure. Coverage routes over the road

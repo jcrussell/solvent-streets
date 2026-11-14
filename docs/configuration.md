@@ -139,8 +139,10 @@ including file may not set top-level `[grid]`, `[forecast]` or
 `[display].min_hex_area`, because those would silently recalibrate the
 included cities. The exception is `[forecast].years`, the one horizon every
 included file must already agree with ([Forecast](#forecast)). Its `[display].units` and `[export]` apply as usual. An
-included file's `[display].units`, `[[services]]` and `[export]` are not
-carried over.
+included file's `[display].units` and `[export]` are not carried over. Its
+`[[services]]` apply to its own cities: an included city's coverage is
+computed and published under the `[[services]]` of the file that declares it,
+and the including file's apply only to the cities it declares itself.
 
 ### Config identity (`config_id`)
 

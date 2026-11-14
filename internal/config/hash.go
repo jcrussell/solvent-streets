@@ -171,7 +171,7 @@ func (c *Config) cityComputeInputs(city *CityConfig) computeInputs {
 		HexEdgeM: canon(c.ResolvedHexEdge(city)),
 		Census:   city == nil || city.CensusEnabled(),
 	}
-	for _, s := range c.Services {
+	for _, s := range c.ResolvedServices(city) {
 		if s.TurnoutS != nil {
 			in.Services = append(in.Services, serviceInputs{Name: s.Name, TurnoutS: canon(*s.TurnoutS)})
 		}
@@ -234,10 +234,7 @@ func (c *Config) SourceDivergence(city *CityConfig) []string {
 		out = append(out, fmt.Sprintf("census (%t here, %t in its own config)", here.Census, src.Census))
 	}
 	if !slices.Equal(here.Services, src.Services) {
-		// The likely cause is solvent-streets-qtue: the [[include]] merge does
-		// not carry an included file's [[services]] into the including config.
-		out = append(out, "[[services]] turnout_s (an included file's [[services]] are not "+
-			"applied by the including config; only its own top-level [[services]] are)")
+		out = append(out, "[[services]] turnout_s")
 	}
 	if !slices.Equal(here.Facilities, src.Facilities) {
 		out = append(out, fmt.Sprintf("[[cities.facilities]] (%d here, %d in its own config)",

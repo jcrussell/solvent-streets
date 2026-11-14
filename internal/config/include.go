@@ -287,11 +287,12 @@ func sourceConfigID(child *Config, incAbs string) string {
 // nested city never gets relabelled as the middle file's.
 func stampSource(dst *CityConfig, child *Config, src *CityConfig, configID string) {
 	if src.SourceConfigID != "" {
-		dst.SourceConfigID, dst.sourceInputs = src.SourceConfigID, src.sourceInputs
+		dst.SourceConfigID, dst.sourceInputs, dst.sourceServices = src.SourceConfigID, src.sourceInputs, src.sourceServices
 		return
 	}
 	in := child.cityComputeInputs(src)
 	dst.SourceConfigID, dst.sourceInputs = configID, &in
+	dst.sourceServices = slices.Clone(child.Services)
 }
 
 // mergeIncludedCities folds child's cities into parent, tagging each with

@@ -460,6 +460,26 @@ type CityConfig struct {
 	// lets SourceDivergence say which setting makes this config's hash for
 	// the city differ from the source's. nil for a hand-built CityConfig.
 	sourceInputs *computeInputs
+
+	// sourceServices is the [[services]] list of the config that declared this
+	// city, stamped with SourceConfigID. [[services]] are a top-level table,
+	// so the [[include]] merge would otherwise drop an included file's list
+	// and run its cities under the including file's (solvent-streets-qtue).
+	// ResolvedServices reads it.
+	sourceServices []ServiceOverride
+}
+
+// ResolvedServices is the [[services]] list that applies to city: its
+// declaring config's for a city reached through [[include]], else this
+// config's own. Every reader of service settings for a city goes through it
+// (the hash, services compute, export), so an included city is computed,
+// hashed and published under the settings its own config states. A nil city
+// gets this config's list.
+func (c *Config) ResolvedServices(city *CityConfig) []ServiceOverride {
+	if city != nil && city.SourceConfigID != "" {
+		return city.sourceServices
+	}
+	return c.Services
 }
 
 // ServiceOverride adjusts one service's coverage parameters. A nil numeric

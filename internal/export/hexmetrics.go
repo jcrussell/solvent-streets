@@ -87,7 +87,7 @@ func resolvedScale(entry CityEntry, spec hexmetric.Spec) (hexmetric.Scale, float
 		return spec.Scale, 0, false
 	}
 	if entry.Config != nil {
-		svc = services.Resolve(svc, entry.Config.Services)
+		svc = services.Resolve(svc, entry.Config.ResolvedServices(&entry.City))
 	}
 	scale := spec.Scale
 	scale.Bands = svc.LegendBands()

@@ -397,17 +397,11 @@ func TestCityHash_IncludedForecastBackfillKeepsSourceHash(t *testing.T) {
 	}
 }
 
-// TestCityHash_IncludedDataDivergenceGetsOwnHash: when the union would compute
-// different stored data than the source did, reading the source's snapshots
-// would be wrong, so the city gets its own hash and SourceDivergence says why.
-//
-// The [[services]] case pins solvent-streets-qtue as it stands: the include
-// merge does not carry an included file's [[services]], so the union resolves
-// the registry defaults. Before this hash the union read the source's coverage
-// (seconds with the source's turnout baked in) against default legend bands,
-// silently. Now it is loud. Fixing qtue would make this case agree again —
-// update the test then.
-func TestCityHash_IncludedDataDivergenceGetsOwnHash(t *testing.T) {
+// TestCityHash_IncludedServicesFollowTheSource pins solvent-streets-qtue: an
+// [[include]]d city runs under its declaring file's [[services]], so it hashes
+// as its source does and reads the source's coverage, instead of the merge
+// dropping the leaf's turnout and resolving registry defaults.
+func TestCityHash_IncludedServicesFollowTheSource(t *testing.T) {
 	dir := t.TempDir()
 	leaf := writeTOML(t, dir, "leaf/pvmt.toml", `
 config_id = "leaf"
@@ -425,19 +419,41 @@ overpass = true
 	if city.SourceConfigID != "leaf" {
 		t.Fatalf("SourceConfigID = %q, want the leaf's", city.SourceConfigID)
 	}
-	if union.CityHash(city) == src.CityHash(srcCity) {
-		t.Error("the union drops the leaf's [[services]] (qtue) yet reads the leaf's coverage")
+	if got, want := union.CityHash(city), src.CityHash(srcCity); got != want {
+		t.Errorf("included city hashes %q under the union, %q under its own config", got, want)
 	}
+	if d := union.SourceDivergence(city); len(d) != 0 {
+		t.Errorf("SourceDivergence = %q, want none", d)
+	}
+	if got := union.ResolvedServices(city); len(got) != 1 || got[0].TurnoutS == nil || *got[0].TurnoutS != 60 {
+		t.Errorf("ResolvedServices = %+v, want the leaf's fire turnout_s = 60", got)
+	}
+
+	// The union's own [[services]] apply to its own cities, not to the leaf's.
+	other := writeTOML(t, dir, "other/pvmt.toml", "[[services]]\nname = \"fire\"\nturnout_s = 90\n[[include]]\npath = \"../leaf/pvmt.toml\"\n")
+	otherCfg, otherCity := loadCity(t, other, "reno-nv")
+	if got, want := otherCfg.CityHash(otherCity), src.CityHash(srcCity); got != want {
+		t.Errorf("a differing top-level [[services]] moved the included city off its source's hash: %q vs %q", got, want)
+	}
+}
+
+// TestSourceDivergence_NamesTheSetting: when an included city's compute
+// inputs under the union differ from its source's, SourceDivergence names the
+// setting. No shipped merge path diverges today, so the source's stamp is
+// edited by hand.
+func TestSourceDivergence_NamesTheSetting(t *testing.T) {
+	dir := t.TempDir()
+	writeTOML(t, dir, "leaf/pvmt.toml", "config_id = \"leaf\"\n[[cities]]\nname = \"Reno, NV\"\noverpass = true\n")
+	union, city := loadCity(t, writeTOML(t, dir, "all/pvmt.toml", "[[include]]\npath = \"../leaf/pvmt.toml\"\n"), "reno-nv")
+	diverged := *city.sourceInputs
+	diverged.Services = []serviceInputs{{Name: "fire", TurnoutS: 60}}
+	city.sourceInputs = &diverged
 	d := union.SourceDivergence(city)
 	if len(d) != 1 || !strings.Contains(d[0], "[[services]]") {
 		t.Errorf("SourceDivergence = %q, want one [[services]] entry", d)
 	}
-
-	// The same union, given the [[services]] at its own top level, agrees again.
-	agree := writeTOML(t, dir, "agree/pvmt.toml", "[[services]]\nname = \"fire\"\nturnout_s = 60\n[[include]]\npath = \"../leaf/pvmt.toml\"\n")
-	agreeCfg, agreeCity := loadCity(t, agree, "reno-nv")
-	if got, want := agreeCfg.CityHash(agreeCity), src.CityHash(srcCity); got != want {
-		t.Errorf("matching [[services]] in the union: hash %q, want the source's %q", got, want)
+	if h := union.StaleHint(city); !strings.Contains(h, "[[include]]") || !strings.Contains(h, "[[services]]") {
+		t.Errorf("divergence hint = %q; want it to name the [[include]] and [[services]]", h)
 	}
 }
 
@@ -597,6 +613,9 @@ var configFieldRules = map[string]fieldRule{
 	}},
 	"CityConfig.SourceConfigID": {class: plumbing},
 	"CityConfig.sourceInputs":   {class: plumbing},
+	// Read through ResolvedServices, whose values the ServiceOverride rules
+	// below classify; the field itself only carries the source's list.
+	"CityConfig.sourceServices": {class: plumbing},
 
 	"ServiceOverride.Name":             {hashed, func(c *Config) { c.Services[0].Name = "ems" }},
 	"ServiceOverride.TurnoutS":         {hashed, func(c *Config) { c.Services[0].TurnoutS = new(60.0) }},
@@ -703,12 +722,6 @@ func TestStaleHint(t *testing.T) {
 		t.Errorf("stale hint = %q", h)
 	}
 
-	dir := t.TempDir()
-	writeTOML(t, dir, "leaf/pvmt.toml", "config_id = \"leaf\"\n[[services]]\nname = \"fire\"\nturnout_s = 60\n"+
-		"[[cities]]\nname = \"Reno, NV\"\noverpass = true\n")
-	union, city := loadCity(t, writeTOML(t, dir, "all/pvmt.toml", "[[include]]\npath = \"../leaf/pvmt.toml\"\n"), "reno-nv")
-	h = union.StaleHint(city)
-	if !strings.Contains(h, "[[include]]") || !strings.Contains(h, "[[services]]") {
-		t.Errorf("divergence hint = %q; want it to name the [[include]] and [[services]]", h)
-	}
+	// The divergence wording for an included city is pinned by
+	// TestSourceDivergence_NamesTheSetting.
 }
