@@ -296,37 +296,15 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 	// export writes; a feature with NEITHER "city" nor "city_same" signals
 	// "hide the scope toggle" to the client.
 	//
-	// The hex grid itself (lattice, boundary clip, sliver filter) is built at
-	// most ONCE per city and shared with BuildPlayHexes below. Building it
-	// independently in each would pay for the clip twice — for a city like
-	// Jacksonville that second pass is Buffer(0) over 302 boundary parts plus
-	// a union. Lazy, not eager: each consumer has an empty case that
-	// returns before it needs a grid.
-	grid := newCityHexGridOnce(ctx, entry, proj)
-
-	hexFC, err := buildHexGeoJSONFromGrid(ctx, entry, proj, grid)
+	// The /play board reads its road area and decay rate (k) from this file
+	// too, so there is no separate board file.
+	hexFC, err := BuildHexGeoJSON(ctx, entry, proj)
 	if err != nil {
 		return MetaJSON{}, "", fmt.Errorf("build hexgrid: %w", err)
 	}
 	if hexFC != nil {
 		if err := writeJSON(filepath.Join(dataDir, HexGridFileName), hexFC); err != nil {
 			return MetaJSON{}, "", fmt.Errorf("write hexgrid: %w", err)
-		}
-	}
-
-	// Export the /play board's per-hex blended decay rates from real road
-	// geometry — the same data the live server computes on demand. BuildPlayHexes
-	// shares cityHexGrid with BuildHexGeoJSON, so the emitted ids are a subset of
-	// hexgrid.geojson; it returns nil when the city has no road features, so skip
-	// the write then (exactly like hexFC above). Enumerated in DataFileNames
-	// (checkassets.go) so check-site requires it for a publish-ready city.
-	playHexes, err := buildPlayHexesFromGrid(ctx, entry, proj, grid)
-	if err != nil {
-		return MetaJSON{}, "", fmt.Errorf("build play hexes: %w", err)
-	}
-	if playHexes != nil {
-		if err := writeJSON(filepath.Join(dataDir, PlayHexesFileName), playHexes); err != nil {
-			return MetaJSON{}, "", fmt.Errorf("write play-hexes: %w", err)
 		}
 	}
 

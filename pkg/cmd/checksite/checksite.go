@@ -55,7 +55,7 @@ The following checks run over the given directory (default "site"):
     tree has cities.json and the compare.json rollup; and every city
     carries the expected data files (boundary.geojson, hexgrid.geojson,
     meta.json, forecast_seed.json, forecast.json, hex-cost-summary.json,
-    play-hexes.json, scenarios.json; hex-metrics.json is optional).
+    scenarios.json; hex-metrics.json is optional).
   - REFERENCES: every local asset referenced by index.html (pvmt.wasm,
     wasm_exec.js, local .css/.js) resolves on disk.
   - WASM FRESHNESS: the site's pvmt.wasm and wasm_exec.js match the

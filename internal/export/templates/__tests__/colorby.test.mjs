@@ -14,7 +14,7 @@ const plain = (v) => JSON.parse(JSON.stringify(v));
 function hexFC(features) {
   return {
     type: 'FeatureCollection',
-    v: 5,
+    v: 6,
     features: features.map((props, i) => ({
       type: 'Feature',
       geometry: { type: 'Polygon', coordinates: [[[0, 0], [0, 1], [1, 1], [0, 0]]] },

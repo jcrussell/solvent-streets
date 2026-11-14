@@ -3,6 +3,7 @@ package export
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"maps"
 	"math"
 	"slices"
@@ -53,7 +54,7 @@ func offsetSquareHex(t *testing.T, id string, ox, oy, side float64) geo.Hex {
 	return geo.Hex{ID: id, Geom: poly.AsGeometry()}
 }
 
-// TestRoundSig covers the significant-figure rounder BuildPlayHexes uses for k.
+// TestRoundSig covers the significant-figure rounder hexgrid's k goes through.
 // The load-bearing property is the last group: a nonzero magnitude stays nonzero
 // no matter how small, because the game engine rejects a board with k <= 0 and a
 // fixed decimal count would flatten a legal 1e-7 decay_rate to zero.
@@ -157,12 +158,11 @@ func TestFilterHexSlivers_DropsBelowThreshold(t *testing.T) {
 // TestCityHexGrid_HonorsPerCityMinHexArea pins l51o's runtime half: the shared
 // grid resolves the sliver threshold per city (Config.ResolvedMinHexArea), not
 // from the top level alone, so a city that tuned min_hex_area alongside its hex
-// edge actually gets its threshold. Because cityHexGrid is the single source of
-// the grid for BuildHexGeoJSON and BuildPlayHexes, the /play board moves with
-// the heatmap — asserted here so the two stay in lock-step.
+// edge actually gets its threshold. The /play board draws the same
+// hexgrid.geojson, so it moves with the heatmap.
 func TestCityHexGrid_HonorsPerCityMinHexArea(t *testing.T) {
 	ctx := context.Background()
-	entry := playHexEntry(nil)
+	entry := hexEntry(t, nil, nil)
 	_, lon0, lat0, err := entry.BBoxAndCenter(ctx)
 	if err != nil {
 		t.Fatalf("BBoxAndCenter: %v", err)
@@ -179,7 +179,7 @@ func TestCityHexGrid_HonorsPerCityMinHexArea(t *testing.T) {
 
 	// A full 200 m-edge hex is 3√3/2·200² ≈ 103.9k sqm, so a 100k threshold
 	// keeps only unclipped hexes and drops every boundary sliver.
-	tuned := playHexEntry(nil)
+	tuned := hexEntry(t, nil, nil)
 	tuned.City.MinHexArea = 100_000
 	got, err := cityHexGrid(ctx, tuned, proj)
 	if err != nil {
@@ -196,7 +196,7 @@ func TestCityHexGrid_HonorsPerCityMinHexArea(t *testing.T) {
 	// The same value set at the top level (with no per-city override) must
 	// produce the identical grid — the per-city layer is an override, not a
 	// separate mechanism.
-	topLevel := playHexEntry(nil)
+	topLevel := hexEntry(t, nil, nil)
 	topLevel.Config.Display.MinHexArea = 100_000
 	viaTop, err := cityHexGrid(ctx, topLevel, proj)
 	if err != nil {
@@ -399,8 +399,8 @@ func TestBuildHexGeoJSON_CarriesFormatVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildHexGeoJSON: %v", err)
 	}
-	if fc["v"] != HexGridFileVersion || HexGridFileVersion != 5 {
-		t.Errorf("v = %v; want 5 — the client refuses to render an unrecognized version", fc["v"])
+	if fc["v"] != HexGridFileVersion || HexGridFileVersion != 6 {
+		t.Errorf("v = %v; want 6 — the client refuses to render an unrecognized version", fc["v"])
 	}
 }
 
@@ -874,5 +874,88 @@ func TestBuildHexGeoJSON_EmitsEveryGridHex(t *testing.T) {
 		if hasAll || len(props) != 1 {
 			t.Errorf("pavement-free hex must carry only its id, got %v", props)
 		}
+	}
+}
+
+// TestBuildHexGeoJSON_RoadDecayRate pins hexgrid's "k", the /play board's
+// per-hex decay rate: read from the stored default-rate blend
+// (resource.MetricDefaultDecayRate, never from road features — roadEntry fails
+// the test on ListFeatures), present only on city-jurisdiction road hexes, and
+// scaled by the decay_rate override exactly as each road class is
+// (forecast.ClassDecayRate), so a blend of one class lands on that class's
+// overridden rate.
+func TestBuildHexGeoJSON_RoadDecayRate(t *testing.T) {
+	for _, override := range []float64{0, 0.07, 1e-7} {
+		cfg := &config.Config{Grid: config.GridConfig{HexEdgeM: 200}}
+		cfg.Forecast.DecayRate = override
+		entry := roadEntry(t, cfg, "Board City", "board-city", exportBoundaryA)
+		fc, err := BuildHexGeoJSON(t.Context(), entry, projectorFor(t, entry))
+		if err != nil || fc == nil {
+			t.Fatalf("override %g: BuildHexGeoJSON = (%v, %v)", override, fc, err)
+		}
+		// fixtureArterialK0 is primary's default rate and fixtureLocalK0
+		// residential's, so each fixture hex is a one-class blend.
+		want := map[float64]float64{
+			fixtureArterialK0: roundSig(forecast.ClassDecayRate("primary", override), 4),
+			fixtureLocalK0:    roundSig(forecast.ClassDecayRate(forecast.ClassResidential, override), 4),
+		}
+		if forecast.DecayRateForClass("primary") != fixtureArterialK0 || forecast.DecayRateForClass(forecast.ClassResidential) != fixtureLocalK0 {
+			t.Fatal("fixture k0 values no longer match the class defaults they stand for")
+		}
+		stored := map[string]float64{}
+		for _, r := range entry.Store.(*dbtest.MockStore).HexMetrics {
+			if r.Metric == resource.MetricDefaultDecayRate {
+				stored[r.HexID] = r.Value
+			}
+		}
+		var withK, withoutK int
+		for _, f := range fc["features"].([]map[string]any) {
+			props := f["properties"].(map[string]any)
+			id := props["id"].(string)
+			k, hasK := props["k"]
+			k0, isRoad := stored[id]
+			switch {
+			case isRoad && !hasK:
+				t.Errorf("override %g: road hex %s has no k", override, id)
+			case !isRoad && hasK:
+				t.Errorf("override %g: hex %s with no city roads carries k = %v", override, id, k)
+			case isRoad:
+				withK++
+				if k != want[k0] {
+					t.Errorf("override %g: hex %s k = %v, want %v (k0 %v)", override, id, k, want[k0], k0)
+				}
+			default:
+				withoutK++
+			}
+		}
+		if withK == 0 || withoutK == 0 {
+			t.Fatalf("override %g: %d hexes with k, %d without; the fixture must hold both", override, withK, withoutK)
+		}
+	}
+}
+
+// projectorFor builds the UTM projector for a fixture entry the same way the
+// production export path does, so grid ids line up with the stored rows.
+func projectorFor(t *testing.T, entry CityEntry) *geo.UTMProjector {
+	t.Helper()
+	_, lon0, lat0, err := entry.BBoxAndCenter(context.Background())
+	if err != nil {
+		t.Fatalf("BBoxAndCenter: %v", err)
+	}
+	return geo.NewUTMProjector(lon0, lat0)
+}
+
+// TestBuildHexGeoJSON_NoStatsBuildsNoGrid: a city with no hex stats returns
+// before it needs a grid, so it pays for no lattice+clip and a grid error
+// cannot abort its export. The grid thunk is poisoned: forcing it fails.
+func TestBuildHexGeoJSON_NoStatsBuildsNoGrid(t *testing.T) {
+	entry := hexEntry(t, nil, nil)
+	poison := cityHexGridFunc(func() ([]geo.Hex, error) {
+		t.Error("hex grid was built for a city with no hex stats")
+		return nil, errors.New("grid must not be built")
+	})
+	got, err := buildHexGeoJSONFromGrid(t.Context(), entry, projectorFor(t, entry), poison)
+	if err != nil || got != nil {
+		t.Errorf("buildHexGeoJSONFromGrid = (%v, %v), want (nil, nil)", got, err)
 	}
 }

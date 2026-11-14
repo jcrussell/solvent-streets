@@ -373,6 +373,7 @@ func (d TemplateData) IndexConfigJSON() template.JS {
 		ForecastSeed  json.RawMessage  `json:"forecast_seed"`
 		Defaults      ForecastDefaults `json:"forecast_defaults"`
 		HexMetrics    []hexmetric.Spec `json:"hex_metrics"`
+		HexGridV      int              `json:"hexgrid_version"`
 	}{
 		Cities:        citiesOrEmpty(d.Cities),
 		TagDimensions: jsTagDimensions(d.TagDimensions),
@@ -385,6 +386,7 @@ func (d TemplateData) IndexConfigJSON() template.JS {
 		// static registry data, so every city offers them with or without
 		// a hex-metrics.json.
 		HexMetrics: hexmetric.DerivedSpecs(),
+		HexGridV:   HexGridFileVersion,
 	}
 	data, _ := json.Marshal(cfg)
 	return template.JS(data)
@@ -396,7 +398,8 @@ func (d TemplateData) IndexConfigJSON() template.JS {
 // on a static host. cities/tag_dimensions carry the same payload the index page
 // gets so the play page's tag filters can rebuild its city selector
 // client-side from the same data. pci_jitter is the board's starting-PCI
-// spread (GamePCIJitter).
+// spread (GamePCIJitter). hexgrid_version is the hexgrid.geojson "v" the
+// board reads (HexGridFileVersion), as on the index page.
 func (d TemplateData) GameConfigJSON() template.JS {
 	dataPrefix := ""
 	if d.ActiveSlug != "" {
@@ -416,6 +419,7 @@ func (d TemplateData) GameConfigJSON() template.JS {
 		MapHref       string           `json:"map_href"`
 		BandCount     int              `json:"band_count"`
 		PCIJitter     float64          `json:"pci_jitter"`
+		HexGridV      int              `json:"hexgrid_version"`
 	}{
 		Cities:        citiesOrEmpty(d.Cities),
 		TagDimensions: jsTagDimensions(d.TagDimensions),
@@ -426,6 +430,7 @@ func (d TemplateData) GameConfigJSON() template.JS {
 		MapHref:       mapHref,
 		BandCount:     d.BandCount(),
 		PCIJitter:     GamePCIJitter,
+		HexGridV:      HexGridFileVersion,
 	}
 	data, _ := json.Marshal(cfg)
 	return template.JS(data)

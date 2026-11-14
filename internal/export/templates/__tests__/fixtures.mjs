@@ -31,10 +31,10 @@ export const scenariosJSON = readFixture('scenarios.json');
 export const forecastJSON = readFixture('forecast.json');
 export const seedJSON = readFixture('forecast_seed.json');
 
-// The /play board: the exporter's hexgrid.geojson and play-hexes.json for a
-// city with real road geometry (js_harness_test.go:writeJSFixtureBoard).
+// The /play board: the exporter's hexgrid.geojson for a city with per-hex road
+// results and decay rates (js_harness_test.go:writeJSFixtureBoard). Its board
+// hexes are the features carrying k.
 export const hexgridJSON = readFixture('hexgrid.geojson');
-export const playHexesJSON = readFixture('play-hexes.json');
 
 // fullData is everything a city needs for the Financials tab to render.
 export const fullData = {

@@ -438,7 +438,6 @@ func (s *Server) dataFiles() map[string]dataFileHandler {
 	return map[string]dataFileHandler{
 		export.MetaFileName:           s.serveMetaJSON,
 		export.HexGridFileName:        s.serveHexGridGeoJSON,
-		export.PlayHexesFileName:      s.servePlayHexes,
 		export.ScenariosFileName:      s.serveScenariosJSON,
 		export.ForecastFileName:       s.serveForecastJSON,
 		export.ForecastSeedFileName:   s.serveForecastSeed,
@@ -587,28 +586,6 @@ func (s *Server) serveHexMetrics(w http.ResponseWriter, _ *http.Request, entry e
 			return export.EmptyHexMetrics(), nil
 		}
 		return hm, nil
-	})
-}
-
-// servePlayHexes serves the /play board's per-hex blended decay rates at
-// /data/play-hexes.json — a JSON array of {id, road_area, k} for the
-// city-jurisdiction, road-bearing hexes. ids match hexgrid.geojson so the
-// front-end joins the two by id. Mirrors serveHexGridGeoJSON's projector setup
-// and rides serveJSONCached for single-flight, lifetime caching.
-func (s *Server) servePlayHexes(w http.ResponseWriter, _ *http.Request, entry export.CityEntry, snapshotID int64) {
-	s.serveJSONCached(w, cacheKey("playhexes", entry.Slug, snapshotID), func() (any, error) {
-		_, lon0, lat0, err := entry.BBoxAndCenter(context.Background())
-		if err != nil {
-			return nil, err
-		}
-		hexes, err := export.BuildPlayHexes(context.Background(), entry, geo.NewUTMProjector(lon0, lat0))
-		if err != nil {
-			return nil, err
-		}
-		if hexes == nil {
-			hexes = []export.PlayHex{}
-		}
-		return hexes, nil
 	})
 }
 

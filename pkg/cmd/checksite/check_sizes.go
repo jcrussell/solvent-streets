@@ -33,12 +33,14 @@ import (
 //	hexgrid.geojson       6.2 MiB  (portland-or)   mean 845.0 KiB   total 228.6 MiB
 //	boundary.geojson      1.2 MiB  (jacksonville)  mean  41.4 KiB   total  11.2 MiB
 //	play-hexes.json     956.4 KiB  (portland-or)   mean 107.0 KiB   total  28.9 MiB
+//	                    (since removed: the /play board reads hexgrid.geojson,
+//	                    whose road hexes gained a "k" of ~12 B each, ~1-2%)
 //	forecast.json        75.0 KiB  (pacifica-ca)   mean  63.1 KiB   total  17.1 MiB
 //	scenarios.json       47.5 KiB  (oakland-ca)    mean  40.8 KiB   total  11.0 MiB
 //	forecast_seed.json    1.8 KiB / meta.json 559 B / hex-cost-summary.json 474 B
 //
-// Two budgets are set from that measurement rather than from a target, and
-// neither is sized just to silence a warning:
+// The hexgrid budget is set from that measurement rather than from a target,
+// and is not sized just to silence a warning:
 //
 //   - hexgrid.geojson 8 MiB. A ceiling chosen for a hoped-for endpoint rather
 //     than a measured one would fire on every export. 8 MiB sits ~29% above
@@ -48,12 +50,7 @@ import (
 //     deferred in solvent-streets-pav7 until there is an executing JS test
 //     harness, because it cannot fail loudly.
 //
-//   - play-hexes.json 2 MiB. The worst city is at ~93% of 1 MiB, so a 1 MiB
-//     ceiling would be re-tripped by one larger city or a finer hex edge.
-//     Raising it is called out here rather than adjusted quietly, so a future
-//     breach means raising it or shrinking the file, not a silent re-seed.
-//
-// The other six sit far under: boundary clears by ~40% because B4b simplifies
+// The others sit far under: boundary clears by ~40% because B4b simplifies
 // the display copy, forecast.json is at about a seventh of its ceiling, and
 // forecast_seed / meta / hex-cost-summary are nominal ceilings orders of
 // magnitude above today's bytes.
@@ -64,7 +61,6 @@ var sizeBudgets = map[string]int64{
 	export.HexCostSummaryFileName: 64 << 10,  // 64 KiB  (nominal)
 	export.HexGridFileName:        8 << 20,   // 8 MiB  (worst 6.2 MiB; 74% of the tree)
 	export.MetaFileName:           64 << 10,  // 64 KiB  (nominal)
-	export.PlayHexesFileName:      2 << 20,   // 2 MiB  (worst 956 KiB; 93% of 1 MiB)
 	export.ScenariosFileName:      256 << 10, // 256 KiB (nominal)
 	export.HexMetricsFileName:     2 << 20,   // 2 MiB  (optional; ~30 B per painted hex per metric)
 }

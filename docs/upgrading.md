@@ -23,7 +23,7 @@ Snapshot config hashes are also computed differently: per city, over only the se
 
 ### 2. Re-export sites
 
-A site exported by v0.4.x cannot be refreshed in place. Its data files use the old formats, and the v0.5.0 dashboard refuses them (`unsupported hexgrid format (expected v5) — re-export this site`). After the compute, run `pvmt export` again (and `pvmt check-site` on the result) and redeploy the whole tree.
+A site exported by v0.4.x cannot be refreshed in place. Its data files use the old formats, and the v0.5.0 dashboard refuses them (`unsupported hexgrid format (expected v6) — re-export this site`). After the compute, run `pvmt export` again (and `pvmt check-site` on the result) and redeploy the whole tree.
 
 ### 3. Update links to the dashboard
 
@@ -70,13 +70,14 @@ Only names that existed in v0.4.x are listed. Fields of the commands and files t
 | `cities.json`, `meta.json` | `bbox`: `[south, west, north, east]` | `bbox`: `[west, south, east, north]` |
 | `meta.json` | `pct_paved` (0..100); `stats[].type`; `stats[].feature_count` | `paved_share` (0..1); `stats[].resource_type`; no feature count |
 | `meta.json` | — | `missing_resources`: the resources with no ingested data (omitted when none) |
-| `hexgrid.geojson` | format `v` 2; per-hex scope key `bbox`; coverage `pct` (0..100) | format `v` 5; scope key `all`; coverage `share` (0..1) |
+| `hexgrid.geojson` | format `v` 2; per-hex scope key `bbox`; coverage `pct` (0..100) | format `v` 6; scope key `all`; coverage `share` (0..1); city road hexes carry `k`, the Play board's decay rate |
+| `play-hexes.json` | the Play board: `id`, `road_area`, `k` per hex | gone: the board reads `hexgrid.geojson`. Its road area is now the map's city-scope roads area, which counts pavement where road classes overlap once rather than once per class |
 | `scenarios.json` | scope key `bbox`; summary `city_count`, `all_count`, `city_pct`, `state_count`, `county_count`, `federal_count` | scope key `all`; the `summary` block is gone (its feature counts and city share were never shown) |
 | `hex-cost-summary.json` | scope key `bbox`; `year1_cost` | scope key `all`; `year1_need` |
 | `forecast.json` | `bbox_baseline`; `insolvency_year`, `funding_gap` as `null` | `all_baseline`; `insolvency_year`, `funding_gap` omitted |
 | `forecast_seed.json` | `years`; material `binder_pct` | `horizon_years`; material `binder_share` |
-| `PVMT_CONFIG` (dashboard) | `layerColors`, `unitSystem`, `forecastSeed`, `wasmPrefix`; `cities[].lon`, `cities[].lat` | `layer_colors`, `unit_system`, `forecast_seed` (`wasmPrefix` is gone); `cities[].center` |
-| `PVMT_CONFIG` (play page) | `forecastSeed`, `dataPrefix`, `mapHref`, `bandCount`, `wasmPrefix` | `forecast_seed`, `data_prefix`, `map_href`, `band_count` (`wasmPrefix` is gone) |
+| `PVMT_CONFIG` (dashboard) | `layerColors`, `unitSystem`, `forecastSeed`, `wasmPrefix`; `cities[].lon`, `cities[].lat` | `layer_colors`, `unit_system`, `forecast_seed`, `hexgrid_version` (`wasmPrefix` is gone); `cities[].center` |
+| `PVMT_CONFIG` (play page) | `forecastSeed`, `dataPrefix`, `mapHref`, `bandCount`, `wasmPrefix` | `forecast_seed`, `data_prefix`, `map_href`, `band_count`, `hexgrid_version` (`wasmPrefix` is gone) |
 | play page game state | `backlog`, `spent`, `treatments`; `insolvency_year` as `null` | `deferred_backlog`, `total_spend`, `treatment_count`; `insolvency_year` omitted |
 
 ### 5. Check where `pvmt export` writes

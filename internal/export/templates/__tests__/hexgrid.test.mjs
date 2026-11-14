@@ -16,7 +16,7 @@ import { metaJSON } from './fixtures.mjs';
 function hexFC(features) {
   return {
     type: 'FeatureCollection',
-    v: 5,
+    v: 6,
     features: features.map((props, i) => ({
       type: 'Feature',
       geometry: { type: 'Polygon', coordinates: [[[0, 0], [0, 1], [1, 1], [0, 0]]] },
@@ -77,7 +77,7 @@ test('an unsupported hexgrid version is refused rather than under-reported', asy
     'a version-less file must not populate any scope');
   const banner = doc.getElementById('load-error') || doc.querySelector('.load-error, #error-banner');
   const text = banner ? banner.textContent : doc.body.textContent;
-  assert.match(text, /hexgrid|unsupported|v5/i, 'no error surfaced for an unsupported hexgrid format');
+  assert.match(text, /hexgrid|unsupported|v6/i, 'no error surfaced for an unsupported hexgrid format');
 });
 
 test('multiple resource types stay separated per scope', async () => {

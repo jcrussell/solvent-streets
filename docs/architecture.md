@@ -102,7 +102,15 @@ metrics:
 
 The pavement keys are deliberately not registered as stored metrics: the
 exporter folds coverage and parking spaces into `hexgrid.geojson`, and the
-dashboard derives its colorings from there.
+dashboard derives its colorings from there. The roads compute also stores
+`default_decay_rate` under `roads:city`: each city road hex's blend of its
+road classes' decay rates, weighted by in-hex class area, at no `decay_rate`
+override. It comes from the per-hex class areas the cohort split already
+clips, so it costs no extra pass. The exporter scales it by the override
+(every road class scales linearly, so the blend does too) and writes it as
+the hex's `k` in `hexgrid.geojson`. The `/play` board reads its hexes from
+that file: the features carrying `k`, with the city-scope roads area. Export
+never reads road features.
 
 Both metric producers resolve, through `compute.LoadMetricTarget`
 (`pkg/cmd/compute`), the same projection and clipped grid the pavement passes
@@ -399,9 +407,8 @@ A few formats are exempt:
 - HTTP cache entries;
 - `pvmt.toml` keys;
 - `pkg/cmd/validate/reference.json`;
-- the deliberately short per-hex keys in the large hexgrid and play-board
-  arrays (`area`, `share`, `spaces`, `city_same`, `k`, and the file version
-  `v`).
+- the deliberately short per-hex keys in the large hexgrid (`area`,
+  `share`, `spaces`, `city_same`, `k`, and the file version `v`).
 
 `TestJSONTagsSnakeCase` and `TestJSONFields_SnakeCase` enforce the
 conventions.

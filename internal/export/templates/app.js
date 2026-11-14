@@ -983,9 +983,12 @@
             // changed property shape (e.g. not expanding city_same) drops ~70%
             // of city-scope features with no error anywhere. Better to show the
             // banner and render nothing than a plausible wrong map.
-            if (hexData && hexData.v !== 5) {
+            // The version is the exporter's (export.HexGridFileVersion),
+            // injected so the two cannot drift.
+            if (hexData && hexData.v !== PVMT_CONFIG.hexgrid_version) {
                 showError(dataURL(prefix, 'hexgrid.geojson'),
-                    'unsupported hexgrid format (expected v5) — re-export this site with a current pvmt');
+                    'unsupported hexgrid format (expected v' + PVMT_CONFIG.hexgrid_version +
+                    ') — re-export this site with a current pvmt');
                 return;
             }
             if (hexData && hexData.features) {

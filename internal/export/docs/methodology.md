@@ -50,6 +50,12 @@ proportionally, so the per-class ordering (higher classes decay slower)
 is preserved rather than flattened. Sidewalks
 decay on a separate, slower track and are not treated as a highway class.
 
+The Play board decays each hex at one blended rate: the rates of the road
+classes the city maintains in that hex, weighted by each class's paved area
+there, under the same `decay_rate` scaling. Its road area is the map's
+city-scope roads area for the hex, so where two classes overlap (an
+intersection) the shared pavement is counted once.
+
 ### Cost model
 
 Treatment costs are banded by PCI: each band has a representative

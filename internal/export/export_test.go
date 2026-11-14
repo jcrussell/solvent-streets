@@ -193,56 +193,76 @@ func TestRunMultiCity_FailureLeavesRecoverableDir(t *testing.T) {
 	}
 }
 
-// boundaryMinLon returns the smallest longitude in a GeoJSON Polygon boundary
-// string. roadEntry uses it to place roads relative to the boundary's western
-// edge, so the same helper drops roads inside exportBoundaryA (-122.5..-122.4)
-// or exportBoundaryB (-121.5..-121.4) — otherwise a fixed -122.x road would
-// clip out of B and leave bravo with no play-hexes.
-func boundaryMinLon(t *testing.T, boundary string) float64 {
-	t.Helper()
-	var poly struct {
-		Coordinates [][][]float64 `json:"coordinates"`
-	}
-	if err := json.Unmarshal([]byte(boundary), &poly); err != nil {
-		t.Fatalf("parse boundary: %v", err)
-	}
-	if len(poly.Coordinates) == 0 || len(poly.Coordinates[0]) == 0 {
-		t.Fatalf("boundary has no ring")
-	}
-	minLon := poly.Coordinates[0][0][0]
-	for _, pt := range poly.Coordinates[0] {
-		if pt[0] < minLon {
-			minLon = pt[0]
-		}
-	}
-	return minLon
-}
+// Fixture road decay rates: roadEntry gives its road hexes alternating
+// default-rate blends, so a board built from it is not one uniform k.
+const (
+	fixtureArterialK0 = 0.025
+	fixtureLocalK0    = 0.04
+)
 
-// roadEntry augments an exportTestEntry with city-jurisdiction road features so
-// BuildPlayHexes emits a board (and the exporter writes play-hexes.json). The
-// roads sit inside the given boundary (offsets from its western edge) so their
-// buffered footprint clips into hexes.
+// roadEntry augments an exportTestEntry with per-hex results on the city's own
+// grid, the way a roads compute stores them: every resource covers every hex
+// in both scopes, except that roads:city covers only every other hex (so the
+// rest are not road hexes in the city scope), at half the all-scope area on
+// every fourth hex (so some road hexes carry a "city" object rather than
+// city_same), and each roads:city hex has its default-rate decay blend
+// (resource.MetricDefaultDecayRate). Export must build the /play board from
+// these rows alone, so reading road features fails the test.
 func roadEntry(t *testing.T, cfg *config.Config, name, slug, boundary string) CityEntry {
 	t.Helper()
-	lon0 := boundaryMinLon(t, boundary)
+	ctx := context.Background()
 	entry := exportTestEntry(cfg, name, slug, boundary, map[resource.Type]results.Totals{
 		resource.TypeRoads: {Area: 1000, Features: 2},
 	})
-	entry.Store.(*dbtest.MockStore).ListFeaturesFunc = func(_ context.Context, rt resource.Type) ([]db.Feature, error) {
-		if rt == resource.TypeRoads {
-			return []db.Feature{
-				lineFeature("primary-1", "primary", lon0+0.015, 37.515, lon0+0.030, 37.515),
-				lineFeature("res-1", "residential", lon0+0.080, 37.585, lon0+0.095, 37.585),
-			}, nil
-		}
+	store := entry.Store.(*dbtest.MockStore)
+	store.ListFeaturesFunc = func(_ context.Context, rt resource.Type) ([]db.Feature, error) {
+		t.Errorf("export read %s features; the board must come from stored results", rt)
 		return nil, nil
 	}
+	_, lon, lat, err := entry.BBoxAndCenter(ctx)
+	if err != nil {
+		t.Fatalf("BBoxAndCenter: %v", err)
+	}
+	hexes, err := cityHexGrid(ctx, entry, geo.NewUTMProjector(lon, lat))
+	if err != nil {
+		t.Fatalf("cityHexGrid: %v", err)
+	}
+	slices.SortFunc(hexes, func(a, b geo.Hex) int { return strings.Compare(a.ID, b.ID) })
+	cov := make([]results.HexCoverage, len(hexes))
+	var cityRoads []results.HexCoverage
+	var decay []db.HexMetric
+	cityRoadsType := resource.TypeRoads.With(resource.ScopeCity)
+	for i, h := range hexes {
+		cov[i] = results.HexCoverage{HexID: h.ID, Area: 1000, PctCovered: 12.5}
+		if i%2 != 0 {
+			continue
+		}
+		c := cov[i]
+		if i%4 == 2 {
+			c.Area, c.PctCovered = 500, 6.25
+		}
+		cityRoads = append(cityRoads, c)
+		k0 := fixtureArterialK0
+		if i%4 == 2 {
+			k0 = fixtureLocalK0
+		}
+		decay = append(decay, db.HexMetric{HexID: h.ID, Metric: resource.MetricDefaultDecayRate, Subject: resource.Subject(cityRoadsType), Value: k0})
+	}
+	var others []resource.Type
+	for _, rt := range pavementTypes() {
+		if rt != cityRoadsType {
+			others = append(others, rt)
+		}
+	}
+	store.HexMetrics = append(coverageFixture(others, cov), results.HexCoverageRows(cityRoadsType, cityRoads)...)
+	store.HexMetrics = append(store.HexMetrics, decay...)
 	return entry
 }
 
 // TestRunSingleCity_WritesPlayPage: the static export must emit a play.html at
-// the site root and the board's data/play-hexes.json, so /play works on a plain
-// static host. Single-city has no city selector and an empty DATA_PREFIX.
+// the site root and a data/hexgrid.geojson carrying the board's k, so /play
+// works on a plain static host. Single-city has no city selector and an empty
+// DATA_PREFIX.
 func TestRunSingleCity_WritesPlayPage(t *testing.T) {
 	cfg := &config.Config{}
 	entry := roadEntry(t, cfg, "Solo City", "solo-city", exportBoundaryA)
@@ -262,14 +282,35 @@ func TestRunSingleCity_WritesPlayPage(t *testing.T) {
 	if strings.Contains(string(play), `id="city-select"`) {
 		t.Errorf("single-city play.html should not render a city selector")
 	}
-	if _, err := os.Stat(filepath.Join(dir, "data", "play-hexes.json")); err != nil {
-		t.Errorf("expected data/play-hexes.json: %v", err)
+	assertBoardHexgrid(t, filepath.Join(dir, "data"))
+}
+
+// assertBoardHexgrid checks that dataDir's hexgrid.geojson carries the /play
+// board (some hex with k) and that no separate board file was written.
+func assertBoardHexgrid(t *testing.T, dataDir string) {
+	t.Helper()
+	if _, err := os.Stat(filepath.Join(dataDir, "play-hexes.json")); err == nil {
+		t.Errorf("%s: play-hexes.json was written; the board reads hexgrid.geojson", dataDir)
 	}
+	var fc struct {
+		Features []struct {
+			Properties map[string]any `json:"properties"`
+		} `json:"features"`
+	}
+	if ok, err := readDataFile(dataDir, HexGridFileName, &fc); err != nil || !ok {
+		t.Fatalf("%s: read hexgrid: ok=%v err=%v", dataDir, ok, err)
+	}
+	for _, f := range fc.Features {
+		if _, ok := f.Properties["k"]; ok {
+			return
+		}
+	}
+	t.Errorf("%s: no hexgrid feature carries k; the /play board would be empty", dataDir)
 }
 
 // TestRunMultiCity_WritesPlayPageAndHexes: multi-city export emits one root
-// play.html (with a city selector) and per-city play-hexes.json under
-// cities/<slug>/data/.
+// play.html (with a city selector) and, per city, a hexgrid.geojson under
+// cities/<slug>/data/ that carries the board's k.
 func TestRunMultiCity_WritesPlayPageAndHexes(t *testing.T) {
 	cfg := &config.Config{}
 	entries := []CityEntry{
@@ -290,9 +331,7 @@ func TestRunMultiCity_WritesPlayPageAndHexes(t *testing.T) {
 		t.Errorf("multi-city play.html should render a city selector")
 	}
 	for _, slug := range []string{"alpha", "bravo"} {
-		if _, err := os.Stat(filepath.Join(dir, "cities", slug, "data", "play-hexes.json")); err != nil {
-			t.Errorf("expected cities/%s/data/play-hexes.json: %v", slug, err)
-		}
+		assertBoardHexgrid(t, filepath.Join(dir, "cities", slug, "data"))
 	}
 }
 
@@ -374,29 +413,14 @@ func TestExport_HexGridBytesPerFeature(t *testing.T) {
 	}
 }
 
-// minifyFixture builds a roadEntry whose per-hex coverage rows carry the city grid's
-// own hex ids. BuildHexGeoJSON joins on those ids, and the exporter skips
-// hexgrid.geojson entirely when the join is empty (export.go:279) — so without
-// this seeding the heaviest file would be silently absent and the sweep in
+// minifyFixture is roadEntry: its per-hex rows carry the city grid's own hex
+// ids. BuildHexGeoJSON joins on those ids, and the exporter skips
+// hexgrid.geojson entirely when the join is empty — so without that seeding
+// the heaviest file would be silently absent and the sweep in
 // TestExport_DataFilesAreMinified would not cover it.
 func minifyFixture(t *testing.T, cfg *config.Config, name, slug, boundary string) CityEntry {
 	t.Helper()
-	ctx := context.Background()
-	entry := roadEntry(t, cfg, name, slug, boundary)
-	_, lon, lat, err := entry.BBoxAndCenter(ctx)
-	if err != nil {
-		t.Fatalf("BBoxAndCenter: %v", err)
-	}
-	hexes, err := cityHexGrid(ctx, entry, geo.NewUTMProjector(lon, lat))
-	if err != nil {
-		t.Fatalf("cityHexGrid: %v", err)
-	}
-	cov := make([]results.HexCoverage, len(hexes))
-	for i, h := range hexes {
-		cov[i] = results.HexCoverage{HexID: h.ID, Area: 1000, PctCovered: 12.5}
-	}
-	entry.Store.(*dbtest.MockStore).HexMetrics = coverageFixture(pavementTypes(), cov)
-	return entry
+	return roadEntry(t, cfg, name, slug, boundary)
 }
 
 // TestExport_DataFilesAreMinified pins that every JSON file the export writes is

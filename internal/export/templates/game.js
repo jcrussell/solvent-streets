@@ -157,7 +157,7 @@
             }
         }
         paintLegend();
-        const HEX_SOURCE = 'play-hexes';
+        const HEX_SOURCE = 'play-board';
         const HEX_FILL = 'play-fill';
 
         // callWasm calls a window.gameXxx export of the forecast WASM and returns
@@ -534,6 +534,31 @@
             return pickHoldSteady(forecast);
         }
 
+        // HEXGRID_VERSION is the hexgrid.geojson "v" this page reads
+        // (export.HexGridFileVersion, injected); app.js gates on the same value.
+        const HEXGRID_VERSION = PVMT_CONFIG.hexgrid_version;
+        // MIN_PLAY_AREA is the smallest road area a board hex is given, m². The
+        // map rounds areas to 2dp, so a hex clipping only the tip of a road can
+        // read 0.00; k says it holds road, and a zero-area open hex would pin
+        // the engine's out-of-funds bound (cost x 0) false for the whole city.
+        const MIN_PLAY_AREA = 0.01;
+
+        /**
+         * playHex reads one hexgrid feature's properties as a board hex
+         * {id, road_area, k}, or null when it is not on the board. A board hex
+         * carries k (city-jurisdiction roads); its road area is the city-scope
+         * roads area, read through city_same the way the map reads it.
+         * @param {any} props
+         * @returns {{id: string, road_area: number, k: number} | null}
+         */
+        function playHex(props) {
+            if (!props || props.id == null || !(props.k > 0)) return null;
+            const city = props.city_same ? props.all : props.city;
+            const roads = city && city.roads;
+            if (!roads || !(roads.area >= 0)) return null;
+            return { id: props.id, road_area: Math.max(roads.area, MIN_PLAY_AREA), k: props.k };
+        }
+
         async function boot() {
             // Palette ↔ Go band-count guard (see BAND_COLORS): surface a loud
             // error instead of silently graying out out-of-range bands.
@@ -543,34 +568,41 @@
                 return;
             }
 
-            // 1. Fetch board geometry + the authoritative playable-hex set + budget.
+            // 1. Fetch the board (hexgrid.geojson: geometry, road area, k) + budget.
             //    Also fetch the PER-CITY forecast seed (cohorts/cost_tiers/etc.) so
             //    it comes from the SAME city as the board and budget below; the
             //    template-embedded FORECAST_SEED is a region-wide aggregate in
             //    multi-city static export and would mismatch the per-city budget.
-            const [hexgrid, playHexes, forecast, fetchedSeed] = await Promise.all([
+            const [hexgrid, forecast, fetchedSeed] = await Promise.all([
                 loadJSON(DATA_PREFIX + 'data/hexgrid.geojson'),
-                loadJSON(DATA_PREFIX + 'data/play-hexes.json'),
                 loadJSON(DATA_PREFIX + 'data/forecast.json'),
                 loadJSON(DATA_PREFIX + 'data/forecast_seed.json')
             ]);
-            if (!hexgrid || !hexgrid.features || !playHexes) {
-                showError('board data', 'missing hexgrid or play-hexes');
+            if (!hexgrid || !hexgrid.features) {
+                showError('board data', 'missing hexgrid');
+                return;
+            }
+            // Same format gate as the map (app.js): a hexgrid of another shape
+            // would read as an empty or wrong board with no error anywhere.
+            if (hexgrid.v !== HEXGRID_VERSION) {
+                showError('board data', 'unsupported hexgrid format (expected v' + HEXGRID_VERSION +
+                    ') — re-export this site with a current pvmt');
                 return;
             }
 
-            // 2. Join: keep hexgrid features whose id is in the play-hex set;
-            //    play-hexes supplies road_area + k for the gameInit config.
+            // 2. The board is the hexgrid's city-jurisdiction road hexes: those
+            //    carrying k (their decay rate). Road area is the map's own
+            //    city-scope roads area, so Play bills exactly what the map shows.
             const playById = new Map();
-            for (const ph of playHexes) playById.set(ph.id, ph);
             const features = [];
             for (const f of hexgrid.features) {
-                const id = f.properties && f.properties.id;
-                if (id == null || !playById.has(id)) continue;       // out-of-bounds / non-playable
-                features.push({ type: 'Feature', id: id, geometry: f.geometry, properties: { id: id } });
+                const ph = playHex(f.properties);
+                if (!ph) continue;                                    // out-of-bounds / non-playable
+                playById.set(ph.id, ph);
+                features.push({ type: 'Feature', id: ph.id, geometry: f.geometry, properties: { id: ph.id } });
             }
             if (features.length === 0) {
-                showError('board data', 'no playable hexes after join');
+                showError('board data', 'no city road hexes in hexgrid');
                 return;
             }
 
@@ -671,10 +703,8 @@
             const seed = fetchedSeed || FORECAST_SEED || {};
             const startingBudget = pickStartingBudget(forecast);
             // The game must simulate exactly the hexes it renders: build cfg.hexes
-            // from the joined `features` (those present in BOTH the grid and the
-            // play-hex set), not the raw play-hex list. Otherwise a play-hex
-            // missing from the served grid becomes an invisible, untreatable hex
-            // that still decays, closes, and drives the loss conditions.
+            // from `features`, so no hex decays, closes or drives the loss
+            // conditions without a cell on the map to treat it.
             const gameHexes = features.map(f => {
                 const ph = playById.get(f.id);
                 return { id: ph.id, road_area: ph.road_area, k: ph.k };

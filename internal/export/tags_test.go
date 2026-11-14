@@ -224,7 +224,7 @@ func equalSlice(a, b []string) bool {
 }
 
 // TestGroupCitiesByTag_CaseDifferingTagsDeterministic pins the byte-identical
-// regen property the export pipeline preserves elsewhere (hex.go, playhex.go,
+// regen property the export pipeline preserves elsewhere (hex.go,
 // export.go). tags is built by ranging a map, so a comparator that keys only on
 // strings.ToLower leaves case-differing tags as ties, and sort.Slice is not
 // stable -- group order then followed map iteration and index.html changed

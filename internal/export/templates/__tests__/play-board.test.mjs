@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
-import { fullData, seedJSON, forecastJSON, hexgridJSON, playHexesJSON } from './fixtures.mjs';
+import { fullData, seedJSON, forecastJSON, hexgridJSON } from './fixtures.mjs';
 
 // bootBoard loads the play page with a working WASM and the board files, then
 // fires the map 'load' event boot() waits for.
@@ -19,11 +19,18 @@ async function bootBoard(data) {
   return h;
 }
 
+// boardFeatures is the fixture hexgrid's board: the features carrying k (the
+// city-jurisdiction road hexes).
+const boardFeatures = () => hexgridJSON.features.filter((f) => f.properties.k > 0);
+
+// cityRoadsArea is a feature's city-scope roads area as the map reads it:
+// city_same refers back to "all".
+const cityRoadsArea = (p) => (p.city_same ? p.all : p.city).roads.area;
+
 const boardData = (seed) => ({
   ...fullData,
   'forecast_seed.json': seed,
   'hexgrid.geojson': hexgridJSON,
-  'play-hexes.json': playHexesJSON,
 });
 
 test('play: the board seeds from the per-city forecast_seed.json, not the embedded region seed', async () => {
@@ -39,7 +46,7 @@ test('play: the board seeds from the per-city forecast_seed.json, not the embedd
   assert.ok(cfg, 'the board did not boot');
   assert.equal(cfg.initial_pci, 61.25, 'the board used the embedded seed instead of the per-city one');
   assert.equal(cfg.horizon_years, 17);
-  assert.equal(cfg.hexes.length, playHexesJSON.length, 'every playable hex should be on the board');
+  assert.equal(cfg.hexes.length, boardFeatures().length, 'every playable hex should be on the board');
 });
 
 test('play: without a per-city seed the board falls back to the embedded one', async () => {
@@ -55,9 +62,7 @@ test('play: without a per-city seed the board falls back to the embedded one', a
 test('play: the map is fitted to the board, not left on the region', async () => {
   const { win } = await bootBoard(boardData(seedJSON));
 
-  const playable = new Set(playHexesJSON.map((p) => p.id));
-  const coords = hexgridJSON.features
-    .filter((f) => playable.has(f.properties.id))
+  const coords = boardFeatures()
     .flatMap((f) => f.geometry.coordinates.flat(f.geometry.type === 'MultiPolygon' ? 2 : 1));
   const lngs = coords.map((c) => c[0]);
   const lats = coords.map((c) => c[1]);
@@ -91,4 +96,39 @@ test('play: with no cited budget the start budget is the hold-steady budget', as
   const { get, $ } = await bootBoard({ ...boardData(seedJSON), 'forecast.json': forecast });
   assert.equal(get('gameConfig').starting_budget, roadsForecast.break_even_budget);
   assert.equal($('#start-budget-value').textContent, get('PvmtCommon.fmtMoney')(roadsForecast.break_even_budget));
+});
+
+// The board is read from hexgrid.geojson alone: each board hex's road area is
+// the map's city-scope roads area (through city_same or a "city" object) and
+// its k is the feature's k, and hexes without k are not on the board.
+test('play: board hexes take road area and k from hexgrid', async () => {
+  const want = boardFeatures();
+  assert.ok(want.some((f) => f.properties.city_same) && want.some((f) => f.properties.city),
+    'fixture must hold board hexes of both city encodings');
+  assert.ok(hexgridJSON.features.length > want.length, 'fixture must hold hexes off the board');
+
+  const { get } = await bootBoard(boardData(seedJSON));
+  const got = JSON.parse(JSON.stringify(get('gameConfig').hexes));
+  assert.deepEqual(got, want.map((f) => ({
+    id: f.properties.id,
+    road_area: cityRoadsArea(f.properties),
+    k: f.properties.k,
+  })));
+});
+
+test('play: a road hex the map rounds to zero area keeps a positive board area', async () => {
+  const grid = structuredClone(hexgridJSON);
+  const sliver = grid.features.find((f) => f.properties.k > 0 && f.properties.city);
+  sliver.properties.city.roads.area = 0;
+  const { get } = await bootBoard({ ...boardData(seedJSON), 'hexgrid.geojson': grid });
+  const hex = get('gameConfig').hexes.find((h) => h.id === sliver.properties.id);
+  assert.equal(hex.road_area, 0.01);
+});
+
+test('play: a hexgrid of another format is refused', async () => {
+  const grid = structuredClone(hexgridJSON);
+  grid.v = 5;
+  const { get, doc } = await bootBoard({ ...boardData(seedJSON), 'hexgrid.geojson': grid });
+  assert.equal(get('gameConfig'), null, 'the board booted from an unsupported hexgrid');
+  assert.match(doc.body.textContent, /unsupported hexgrid format/);
 });

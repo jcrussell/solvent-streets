@@ -233,11 +233,10 @@ func writeJSFixtureTree(t *testing.T, dir string) {
 	writeJSFixtureBoard(t, dir)
 }
 
-// writeJSFixtureBoard writes the /play board's hexgrid.geojson and
-// play-hexes.json, built by the exporter's own entry points over a city with
-// real road geometry and per-hex stats (minifyFixture), so the play specs
-// boot a board in exactly the shape `pvmt export` ships. The 200 m edge keeps
-// it to a handful of hexes.
+// writeJSFixtureBoard writes the /play board's hexgrid.geojson, built by the
+// exporter's own entry point over a city with per-hex road results and decay
+// rates (minifyFixture), so the play specs boot a board in exactly the shape
+// `pvmt export` ships. The 200 m edge keeps it to a handful of hexes.
 func writeJSFixtureBoard(t *testing.T, dir string) {
 	t.Helper()
 	ctx := context.Background()
@@ -246,17 +245,20 @@ func writeJSFixtureBoard(t *testing.T, dir string) {
 	if err != nil {
 		t.Fatalf("board bbox: %v", err)
 	}
-	proj := geo.NewUTMProjector(lon, lat)
-	hexgrid, err := BuildHexGeoJSON(ctx, entry, proj)
+	hexgrid, err := BuildHexGeoJSON(ctx, entry, geo.NewUTMProjector(lon, lat))
 	if err != nil || hexgrid == nil {
 		t.Fatalf("build board hexgrid: %v (nil: %v)", err, hexgrid == nil)
 	}
-	playHexes, err := BuildPlayHexes(ctx, entry, proj)
-	if err != nil || len(playHexes) == 0 {
-		t.Fatalf("build play hexes: %v (got %d); the play specs would boot no board", err, len(playHexes))
+	board := 0
+	for _, f := range hexgrid["features"].([]map[string]any) {
+		if _, ok := f["properties"].(map[string]any)["k"]; ok {
+			board++
+		}
+	}
+	if board == 0 {
+		t.Fatal("board hexgrid has no hex with k; the play specs would boot no board")
 	}
 	writeFixtureJSON(t, dir, "hexgrid.geojson", hexgrid)
-	writeFixtureJSON(t, dir, "play-hexes.json", playHexes)
 }
 
 // assertFundingScenarios pins the fixture's scenario set: the baseline and

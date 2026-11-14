@@ -8,8 +8,8 @@ import (
 	"maps"
 	"math"
 	"sort"
-	"sync"
 
+	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/results"
@@ -20,7 +20,7 @@ import (
 // client and the exporter ship together, so a bump costs nothing, while a
 // client misreading a changed shape (e.g. expanding "city" but not
 // "city_same") would silently drop features instead of failing.
-const HexGridFileVersion = 5
+const HexGridFileVersion = 6
 
 // hexAgg accumulates a single hex's coverage across resources and scopes.
 // all/city map a bare resource name -> {"area", "share"}; city stays nil until
@@ -32,6 +32,9 @@ const HexGridFileVersion = 5
 type hexAgg struct {
 	all  map[string]map[string]float64
 	city map[string]map[string]float64
+	// k is the hex's city-jurisdiction road decay rate under the config's
+	// decay_rate override (roadDecayRates); 0 when the hex has none.
+	k float64
 }
 
 // BuildHexGeoJSON builds a single GeoJSON FeatureCollection covering both
@@ -55,17 +58,23 @@ type hexAgg struct {
 // A parking entry additionally carries "spaces" — the estimated parking spaces
 // apportioned to the hex, rounded to a whole count — when it is at least one.
 //
+// A hex with city-jurisdiction roads also carries "k": the area-weighted blend
+// of its road classes' decay rates under the config's decay_rate override (see
+// roadDecayRates). It is a city-scope value that sits beside "all" and
+// "city"/"city_same" rather than inside the city object, so it does not defeat
+// the city_same dedup. The /play board reads it with the city-scope roads area.
+//
 // Returns (nil, nil) when no per-hex coverage exists (a legitimate empty
 // state), but propagates any real coverage-read DB error so callers can evict and retry
 // instead of caching a blank grid for the server's lifetime — mirroring
 // serveBoundaryGeoJSON's empty-vs-error split.
 func BuildHexGeoJSON(ctx context.Context, entry CityEntry, proj *geo.UTMProjector) (map[string]any, error) {
-	return buildHexGeoJSONFromGrid(ctx, entry, proj, newCityHexGridOnce(ctx, entry, proj))
+	return buildHexGeoJSONFromGrid(ctx, entry, proj, func() ([]geo.Hex, error) { return cityHexGrid(ctx, entry, proj) })
 }
 
-// buildHexGeoJSONFromGrid is BuildHexGeoJSON with the grid supplied as a thunk
-// so exportCityData can share one build with buildPlayHexesFromGrid. The thunk
-// is forced only *after* the no-hex-stats early return below.
+// buildHexGeoJSONFromGrid is BuildHexGeoJSON with the grid supplied as a thunk,
+// forced only *after* the no-hex-stats early return below, so a city with no
+// hex stats never builds a grid.
 func buildHexGeoJSONFromGrid(ctx context.Context, entry CityEntry, proj *geo.UTMProjector, grid cityHexGridFunc) (map[string]any, error) {
 	decimals := entry.Config.CoordinateDecimals()
 
@@ -136,8 +145,8 @@ func round4(v float64) float64 { return geo.RoundTo(v, 4) }
 
 // roundSig rounds v to digits significant figures. Unlike round2 it never
 // flattens a nonzero magnitude to zero, which matters for values a consumer
-// validates as strictly positive at any scale (BuildPlayHexes' k — the game
-// engine rejects the whole board on k <= 0).
+// validates as strictly positive at any scale (hexgrid's k — the game engine
+// rejects the whole board on k <= 0).
 //
 // Zero and non-finite inputs pass through. So does anything whose scaling would
 // overflow (a denormal drives mag to +Inf and the quotient to NaN): emitting v
@@ -194,7 +203,47 @@ func aggregateHexStats(ctx context.Context, entry CityEntry) (map[string]*hexAgg
 			}
 		}
 	}
+	ks, err := roadDecayRates(ctx, entry)
+	if err != nil {
+		return nil, err
+	}
+	for id, k := range ks {
+		if a := aggs[id]; a != nil {
+			a.k = k
+		}
+	}
 	return aggs, nil
+}
+
+// roadDecayRates returns each city-jurisdiction road hex's decay rate keyed by
+// hex ID, for hexgrid's "k". The roads compute stores the blend at no override
+// (resource.MetricDefaultDecayRate, k0 = Σ area_c·rate_c / Σ area_c over the
+// hex's classes); an override scales every road class by the same factor
+// (forecast.ClassDecayRate → ScaleRoadDecay: rate·override/anchor), so it
+// scales the blend by that factor too:
+//
+//	k = Σ area_c·rate_c·f / Σ area_c = k0·f
+//
+// which keeps k on the rates forecast.json and the seed cohorts use. Rounded to
+// four significant figures, which never flattens a positive rate to zero.
+func roadDecayRates(ctx context.Context, entry CityEntry) (map[string]float64, error) {
+	rows, err := entry.Store.ListHexMetrics(ctx, resource.MetricDefaultDecayRate, resource.Subject(resource.TypeRoads.With(resource.ScopeCity)))
+	if err != nil {
+		return nil, fmt.Errorf("listing hex road decay rates: %w", err)
+	}
+	var override float64
+	if entry.Config != nil {
+		override = entry.Config.ResolvedForecast(&entry.City).DecayRate
+	}
+	out := make(map[string]float64, len(rows))
+	for _, r := range rows {
+		k := r.Value
+		if override > 0 {
+			k = forecast.ScaleRoadDecay(k, override)
+		}
+		out[r.HexID] = roundSig(k, 4)
+	}
+	return out, nil
 }
 
 // hexSpaces returns t's per-hex parking spaces keyed by hex ID, read from
@@ -280,26 +329,14 @@ func filterHexSlivers(hexes []geo.Hex, minArea float64) []geo.Hex {
 	return kept
 }
 
-// cityHexGrid builds the boundary-clipped, sliver-filtered hex grid for entry.
-// It is the single source of the grid for both BuildHexGeoJSON (the served
-// hexgrid.geojson) and BuildPlayHexes (the /play board); sharing one function
-// keeps their hex ids ("hex:col:row") in lock-step so the front-end join holds.
-// cityHexGridFunc defers a cityHexGrid build to its first use and memoizes the
-// result. Both consumers return early in their own empty cases (no hex stats /
-// no road features) before they need a grid, so an eagerly-built grid would add
-// a full lattice+clip for those cities and would turn a cityHexGrid error from
-// "skip this file" into "abort the whole export".
+// cityHexGridFunc defers a cityHexGrid build until BuildHexGeoJSON needs it.
 type cityHexGridFunc func() ([]geo.Hex, error)
 
-// newCityHexGridOnce builds the grid at most once for the given city. The
-// returned slice is shared read-only by every caller: BuildHexGeoJSON only takes
-// &hexes[i] to read, and geo.ComputeHexStats takes each Hex by value.
-func newCityHexGridOnce(ctx context.Context, entry CityEntry, proj *geo.UTMProjector) cityHexGridFunc {
-	return sync.OnceValues(func() ([]geo.Hex, error) {
-		return cityHexGrid(ctx, entry, proj)
-	})
-}
-
+// cityHexGrid builds the boundary-clipped, sliver-filtered hex grid for entry:
+// the grid of the served hexgrid.geojson, which the map and the /play board
+// both draw. BuildHexGeoJSON forces it only after its no-hex-stats early
+// return, so a city with no hex stats pays for no lattice+clip, and a
+// cityHexGrid error there is "skip this file" rather than "abort the export".
 func cityHexGrid(ctx context.Context, entry CityEntry, proj *geo.UTMProjector) ([]geo.Hex, error) {
 	bbox, _, _, err := entry.BBoxAndCenter(ctx)
 	if err != nil {
@@ -358,6 +395,9 @@ func buildHexFeature(hexID string, agg *hexAgg, hexMap map[string]*geo.Hex, proj
 		}, true
 	}
 	props["all"] = agg.all
+	if agg.k > 0 {
+		props["k"] = agg.k
+	}
 	switch {
 	case agg.city == nil:
 		// No ":city" rows: this hex is outside the city polygon. Neither key is

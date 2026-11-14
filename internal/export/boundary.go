@@ -32,8 +32,7 @@ import (
 // proj is a PARAMETER rather than derived here on purpose. Deriving it means
 // BBoxFromGeoJSON, which json.Unmarshals once per coordinate — 205,961 times
 // for Jacksonville — and the export path has already paid that cost by the time
-// it calls this. Both sibling builders (BuildHexGeoJSON, BuildPlayHexes) take a
-// projector for the same reason.
+// it calls this. BuildHexGeoJSON takes a projector for the same reason.
 //
 // The two knobs are read from entry.Config, NOT from any caller-side config
 // value. BuildCityEntries hands every entry the same *config.Config the

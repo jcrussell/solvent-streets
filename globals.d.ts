@@ -104,6 +104,7 @@ interface PvmtConfig {
   map_href?: string;
   band_count?: number;
   pci_jitter?: number; // play page: the board's starting-PCI spread (export.GamePCIJitter)
+  hexgrid_version: number; // the hexgrid.geojson "v" both pages read (export.HexGridFileVersion)
   forecast_seed: any;
   // The Go-owned forecast settings (export.ForecastDefaults), for a value a
   // city's seed omits.

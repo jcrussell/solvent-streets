@@ -13,7 +13,7 @@ import { metaJSON } from './fixtures.mjs';
 // changes what its panel lists; hex:0:1 is identical in both scopes.
 const grid = {
   type: 'FeatureCollection',
-  v: 5,
+  v: 6,
   features: [
     {
       all: { roads: { area: 1000, share: 0.4 }, parking: { area: 3000, share: 0.7, spaces: 120 } },

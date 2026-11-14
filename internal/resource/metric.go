@@ -19,6 +19,11 @@ const (
 	// MetricParkingSpaces is estimated parking capacity (see
 	// EstimateParkingSpaces); written for parking subjects only.
 	MetricParkingSpaces = "parking_spaces"
+	// MetricDefaultDecayRate is a hex's road decay rate, per year, at no
+	// decay_rate override: the area-weighted blend of its road classes'
+	// default rates (DefaultDecayBlends). Written per hex for roads:city only;
+	// export scales it by the override for the Play board's k.
+	MetricDefaultDecayRate = "default_decay_rate"
 )
 
 // Subject returns the result-row subject t's measures are stored under: t

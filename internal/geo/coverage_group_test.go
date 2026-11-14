@@ -138,3 +138,59 @@ func TestComputeHexCoverageByGroup_EqualsPerClass(t *testing.T) {
 		t.Errorf("residential area %v exceeds dedup'd union area 2000 — overlap not dedup'd", got["residential"])
 	}
 }
+
+// TestComputeHexCoverageByGroupPerHex: the per-hex breakdown is what the
+// totals are summed from (each label's entries sum to its total), each entry
+// equals ComputeHexStats for that label alone on that hex, and entries come
+// grouped by hex in grid order and sorted by label within a hex, so a caller
+// folding them sums in the same order every run.
+func TestComputeHexCoverageByGroupPerHex(t *testing.T) {
+	hexes := HexGrid(0, 0, 100, 100, 20)
+	geoms := []geom.Geometry{makeRect(10, 30, 60, 70), makeRect(30, 40, 80, 60), makeRect(10, 80, 90, 95)}
+	labels := []string{"residential", "primary", "secondary"}
+
+	totals, perHex := ComputeHexCoverageByGroupPerHex(t.Context(), hexes, geoms, labels, nil)
+	assertMapEqual(t, totals, ComputeHexCoverageByGroup(t.Context(), hexes, geoms, labels, nil))
+
+	sums := map[string]float64{}
+	for _, e := range perHex {
+		sums[e.Label] += e.Area
+	}
+	assertMapEqual(t, sums, totals)
+
+	order := map[string]int{}
+	for i, h := range hexes {
+		order[h.ID] = i
+	}
+	for i := 1; i < len(perHex); i++ {
+		a, b := perHex[i-1], perHex[i]
+		if order[a.HexID] > order[b.HexID] || (a.HexID == b.HexID && a.Label >= b.Label) {
+			t.Errorf("entries %d,%d out of order: %+v then %+v", i-1, i, a, b)
+		}
+	}
+
+	mixed := false
+	for label, g := range map[string]geom.Geometry{"residential": geoms[0], "primary": geoms[1]} {
+		want := map[string]float64{}
+		for _, st := range ComputeHexStats(t.Context(), hexes, NewGeomIndexFromGeoms([]geom.Geometry{g}), label, nil) {
+			want[st.HexID] = st.Area
+		}
+		got := map[string]float64{}
+		for _, e := range perHex {
+			if e.Label == label {
+				got[e.HexID] = e.Area
+			}
+		}
+		assertMapEqual(t, got, want)
+	}
+	seen := map[string]int{}
+	for _, e := range perHex {
+		seen[e.HexID]++
+		if seen[e.HexID] > 1 {
+			mixed = true
+		}
+	}
+	if !mixed {
+		t.Error("fixture has no hex holding two labels")
+	}
+}

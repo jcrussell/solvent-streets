@@ -9,7 +9,6 @@ const (
 	HexCostSummaryFileName = "hex-cost-summary.json"
 	HexGridFileName        = "hexgrid.geojson"
 	MetaFileName           = "meta.json"
-	PlayHexesFileName      = "play-hexes.json"
 	ScenariosFileName      = "scenarios.json"
 	HexMetricsFileName     = "hex-metrics.json"
 )
@@ -29,7 +28,6 @@ var DataFileNames = []string{
 	HexCostSummaryFileName,
 	HexGridFileName,
 	MetaFileName,
-	PlayHexesFileName,
 	ScenariosFileName,
 }
 

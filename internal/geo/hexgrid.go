@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"math"
+	"slices"
 	"sync/atomic"
 
 	"github.com/peterstace/simplefeatures/geom"
@@ -155,11 +157,13 @@ func ComputeHexStats(ctx context.Context, hexes []Hex, idx *GeomIndex, resourceT
 	}, counter)
 }
 
-// groupArea is the per-hex, per-group coverage result produced by
-// ComputeHexCoverageByGroup before flattening and summing by label.
-type groupArea struct {
-	label string
-	area  float64
+// HexGroupArea is one hex's coverage by one group, produced by
+// ComputeHexCoverageByGroupPerHex: the union of that group's geoms clipped to
+// the hex, in m².
+type HexGroupArea struct {
+	HexID string
+	Label string
+	Area  float64
 }
 
 // ComputeHexCoverageByGroup computes per-group coverage area in a SINGLE pass
@@ -190,16 +194,26 @@ type groupArea struct {
 // If counter is non-nil it is incremented after each hex is processed. ctx
 // cancellation stops dispatching further hexes; in-flight hexes complete.
 func ComputeHexCoverageByGroup(ctx context.Context, hexes []Hex, geoms []geom.Geometry, labels []string, counter *atomic.Int64) map[string]float64 {
+	areas, _ := ComputeHexCoverageByGroupPerHex(ctx, hexes, geoms, labels, counter)
+	return areas
+}
+
+// ComputeHexCoverageByGroupPerHex is ComputeHexCoverageByGroup that also
+// returns the per-hex breakdown the totals are summed from: one entry per
+// (hex, label) with positive in-hex area, in hex order and, within a hex, in
+// label order, so a caller folding them gets the same float sums every run.
+// It is the same single pass, so a caller that needs both pays for one.
+func ComputeHexCoverageByGroupPerHex(ctx context.Context, hexes []Hex, geoms []geom.Geometry, labels []string, counter *atomic.Int64) (map[string]float64, []HexGroupArea) {
 	// geoms and labels are parallel slices: the record IDs returned by the index
 	// built from geoms are used to index labels[id]. A length mismatch would
 	// therefore panic on labels[id] out of range. Refuse the malformed call and
 	// return an empty map rather than risk an index-out-of-range in a worker.
 	if len(geoms) != len(labels) {
-		return map[string]float64{}
+		return map[string]float64{}, nil
 	}
 	idx := NewGeomIndexFromGeoms(geoms)
 
-	perHex := ParallelMap(ctx, hexes, func(_ int, h Hex) []groupArea {
+	perHex := ParallelMap(ctx, hexes, func(_ int, h Hex) []HexGroupArea {
 		return hexGroupAreas(h, idx, labels)
 	}, counter)
 
@@ -213,15 +227,16 @@ func ComputeHexCoverageByGroup(ctx context.Context, hexes []Hex, geoms []geom.Ge
 		areas[label] = 0
 	}
 	for _, ga := range perHex {
-		areas[ga.label] += ga.area
+		areas[ga.Label] += ga.Area
 	}
-	return areas
+	return areas, perHex
 }
 
-// hexGroupAreas is the per-hex body of ComputeHexCoverageByGroup: one R-tree search for h's candidates, grouped by
-// labels[id], each group clipped to h and unioned via hexCoverageArea. Returns
-// one entry per label with positive in-hex area; nil when nothing overlaps.
-func hexGroupAreas(h Hex, idx *GeomIndex, labels []string) []groupArea {
+// hexGroupAreas is the per-hex body of ComputeHexCoverageByGroupPerHex: one
+// R-tree search for h's candidates, grouped by labels[id], each group clipped
+// to h and unioned via hexCoverageArea. Returns one entry per label with
+// positive in-hex area, sorted by label; nil when nothing overlaps.
+func hexGroupAreas(h Hex, idx *GeomIndex, labels []string) []HexGroupArea {
 	ids := idx.SearchIDs(h.Geom.Envelope())
 	if len(ids) == 0 {
 		return nil
@@ -231,13 +246,13 @@ func hexGroupAreas(h Hex, idx *GeomIndex, labels []string) []groupArea {
 		label := labels[id]
 		byLabel[label] = append(byLabel[label], idx.parts[id])
 	}
-	out := make([]groupArea, 0, len(byLabel))
-	for label, groupGeoms := range byLabel {
-		area, ok := hexCoverageArea(h.Geom, groupGeoms)
+	out := make([]HexGroupArea, 0, len(byLabel))
+	for _, label := range slices.Sorted(maps.Keys(byLabel)) {
+		area, ok := hexCoverageArea(h.Geom, byLabel[label])
 		if !ok || area <= 0 {
 			continue
 		}
-		out = append(out, groupArea{label: label, area: area})
+		out = append(out, HexGroupArea{HexID: h.ID, Label: label, Area: area})
 	}
 	return out
 }

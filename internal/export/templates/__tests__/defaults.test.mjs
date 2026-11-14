@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { JSDOM } from 'jsdom';
 import { load, fixtureDir } from './harness.mjs';
-import { fullData, seedJSON, scenariosJSON, hexgridJSON, playHexesJSON } from './fixtures.mjs';
+import { fullData, seedJSON, scenariosJSON, hexgridJSON } from './fixtures.mjs';
 
 // served is a page as the Go template rendered it, with no script run.
 function served(file) {
@@ -110,7 +110,7 @@ test('Financials and Materials plot whatever scenarios the set describes', async
 // ---- Play ---------------------------------------------------------------
 
 async function bootBoard(seed, config) {
-  const data = { ...fullData, 'forecast_seed.json': seed, 'hexgrid.geojson': hexgridJSON, 'play-hexes.json': playHexesJSON };
+  const data = { ...fullData, 'forecast_seed.json': seed, 'hexgrid.geojson': hexgridJSON };
   const h = load({ page: 'play', wasm: true, data, config });
   await h.flush();
   h.fireMap('load');

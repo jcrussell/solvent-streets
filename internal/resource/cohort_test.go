@@ -2,6 +2,7 @@ package resource
 
 import (
 	"context"
+	"math"
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/forecast"
@@ -135,5 +136,35 @@ func TestComputeRoadCohortAreas_UnknownClassFallsToResidential(t *testing.T) {
 		if class != forecast.ClassResidential {
 			t.Errorf("unexpected class %q in result; want only %q", class, forecast.ClassResidential)
 		}
+	}
+}
+
+// TestDefaultDecayBlends pins the per-hex blend the Play board's k is built
+// from: each hex's class decay rates at no override, weighted by in-hex class
+// area. A hex of 300 m² primary and 100 m² residential blends to
+// (300·0.025 + 100·0.040) / 400 = 0.02875, not the unweighted 0.0325; a
+// one-class hex keeps its class rate; a hex with no area is omitted.
+func TestDefaultDecayBlends(t *testing.T) {
+	got := DefaultDecayBlends([]geo.HexGroupArea{
+		{HexID: "hex:0:0", Label: "primary", Area: 300},
+		{HexID: "hex:0:0", Label: "residential", Area: 100},
+		{HexID: "hex:0:1", Label: "service", Area: 50},
+		{HexID: "hex:0:2", Label: "primary", Area: 0},
+	})
+	primary, residential := forecast.DecayRateForClass("primary"), forecast.DecayRateForClass("residential")
+	want := []HexDecayRate{
+		{HexID: "hex:0:0", K: (300*primary + 100*residential) / 400},
+		{HexID: "hex:0:1", K: forecast.DecayRateForClass("service")},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("DefaultDecayBlends = %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i].HexID != want[i].HexID || math.Abs(got[i].K-want[i].K) > 1e-12 {
+			t.Errorf("[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+	if math.Abs(got[0].K-0.02875) > 1e-12 {
+		t.Errorf("two-class blend = %v, want 0.02875", got[0].K)
 	}
 }

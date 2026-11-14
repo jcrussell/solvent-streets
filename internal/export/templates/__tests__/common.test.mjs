@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
-import { fullData, forecastJSON, seedJSON, hexgridJSON, playHexesJSON } from './fixtures.mjs';
+import { fullData, forecastJSON, seedJSON, hexgridJSON } from './fixtures.mjs';
 
 const PAGES = ['index', 'play'];
 
@@ -66,7 +66,6 @@ test('the hold-steady budget reads the same on Financials and on Play', async ()
     'forecast.json': forecast,
     'forecast_seed.json': seedJSON,
     'hexgrid.geojson': hexgridJSON,
-    'play-hexes.json': playHexesJSON,
   };
 
   const index = load({ data });

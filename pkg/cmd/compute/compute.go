@@ -536,7 +536,7 @@ func (c *computer) saveAllJurisdictionsResult(ctx context.Context, allBuffered [
 
 	rtAll := c.opts.ResourceType.Type()
 	spaces := sumSpaces(hexStats)
-	cohorts := c.buildCohorts(ctx, allBuffered, area, clippedHexes)
+	cohorts, _ := c.buildCohorts(ctx, allBuffered, area, clippedHexes)
 	rows := append(results.TotalRows(rtAll, results.Totals{Area: area, Features: featureCount, Spaces: spaces}),
 		results.CohortRows(rtAll, cohorts)...)
 	if err := c.store.SaveCityMetrics(ctx, c.runID, rows); err != nil {
@@ -606,12 +606,18 @@ func (c *computer) processCityResults(ctx context.Context, cityBuffered []resour
 	for _, s := range cityStats {
 		cityArea += s.Area
 	}
-	if err := c.store.SaveHexMetrics(ctx, c.runID, hexRows(rtCity, cityStats)); err != nil {
+	citySpaces := sumSpaces(cityStats)
+	cityCohorts, perHexClasses := c.buildCohorts(ctx, cityBuffered, cityArea, clippedHexes)
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("compute cancelled: %w", err)
+	}
+	// The Play board's per-hex decay rate rides on the cohort pass's per-hex
+	// class areas, so it costs no second clip (decayRows).
+	hexMetrics := append(hexRows(rtCity, cityStats), decayRows(rtCity, perHexClasses)...)
+	if err := c.store.SaveHexMetrics(ctx, c.runID, hexMetrics); err != nil {
 		return fmt.Errorf("save city hex stats: %w", err)
 	}
 
-	citySpaces := sumSpaces(cityStats)
-	cityCohorts := c.buildCohorts(ctx, cityBuffered, cityArea, clippedHexes)
 	rows := append(results.TotalRows(rtCity, results.Totals{Area: cityArea, Features: featureCount, Spaces: citySpaces}),
 		results.CohortRows(rtCity, cityCohorts)...)
 	if err := c.store.SaveCityMetrics(ctx, c.runID, rows); err != nil {
@@ -775,23 +781,38 @@ func warnUnclipped(errOut io.Writer, city *config.CityConfig, clipErr error) {
 	cmdutil.FprintWarnf(errOut, "city %q is computed over its full bbox: %v", city.Name, clipErr)
 }
 
+// decayRows returns, for road resources, each hex's default-rate blend of its
+// road class decay rates (resource.DefaultDecayBlends over the cohort pass's
+// per-hex class areas) as resource.MetricDefaultDecayRate rows under rt's
+// subject. Export scales it by the decay_rate override into the Play board's
+// k. Nil for resources without cohorts (perHex is nil there).
+func decayRows(rt resource.Type, perHex []geo.HexGroupArea) []db.HexMetric {
+	blends := resource.DefaultDecayBlends(perHex)
+	rows := make([]db.HexMetric, 0, len(blends))
+	for _, b := range blends {
+		rows = append(rows, db.HexMetric{HexID: b.HexID, Metric: resource.MetricDefaultDecayRate, Subject: resource.Subject(rt), Value: b.K})
+	}
+	return rows
+}
+
 // buildCohorts builds the cohort split of totalArea over buffered (all
 // features, or the city-only subset). When the resource has cohorts it
 // computes per-classification areas via the same hex-clipped pipeline used for
 // the resource total; otherwise it returns a single cohort named after the
 // resource. Cohorts come out sorted by class. buffered carries
 // each feature paired with its pre-buffered polygon so cohort computation
-// reuses those polygons rather than re-buffering.
-func (c *computer) buildCohorts(ctx context.Context, buffered []resource.BufferedFeature, totalArea float64, hexes []geo.Hex) []results.Cohort {
+// reuses those polygons rather than re-buffering. The second result is the
+// per-hex class areas the cohort split was summed from (nil without cohorts).
+func (c *computer) buildCohorts(ctx context.Context, buffered []resource.BufferedFeature, totalArea float64, hexes []geo.Hex) ([]results.Cohort, []geo.HexGroupArea) {
 	if !c.opts.ResourceType.HasCohorts() {
 		return []results.Cohort{{
 			Class:    string(c.opts.ResourceType.Type()),
 			Area:     totalArea,
 			Features: len(buffered),
-		}}
+		}}, nil
 	}
 
-	rawAreas := resource.ComputeRoadCohortAreas(ctx, buffered, hexes)
+	rawAreas, perHex := resource.ComputeRoadCohortAreasPerHex(ctx, buffered, hexes)
 	// Sum and emit classes in sorted order: ranging over the map would change
 	// the float summation order, and so the last digits of every share, from
 	// run to run.
@@ -818,5 +839,5 @@ func (c *computer) buildCohorts(ctx context.Context, buffered []resource.Buffere
 			Features: counts[class],
 		})
 	}
-	return stats
+	return stats, perHex
 }

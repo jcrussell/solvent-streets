@@ -490,7 +490,7 @@ var (
 // Worth knowing before agonizing over County vs State vs Federal for a new
 // prefix: ClassifyJurisdiction is consumed as a binary City / not-City gate
 // everywhere it feeds an output (compute.go's filterBufferedByJurisdiction,
-// combined.go, export/playhex.go). The three non-City buckets are told apart
+// combined.go). The three non-City buckets are told apart
 // only in compute's progress line. So a choice among them is a labeling
 // choice with no effect on any published number — and a choice to route
 // something to City is the one that moves area, AnnualNeed and FundingGap.

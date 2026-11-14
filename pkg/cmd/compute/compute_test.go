@@ -14,6 +14,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/results"
@@ -893,5 +894,79 @@ func TestRunCompute_RecordsInputsAndEdge(t *testing.T) {
 	}
 	if want := testCfg.ResolvedHexEdge(testCity); edge != want {
 		t.Errorf("committed at hex edge %v, want %v", edge, want)
+	}
+}
+
+// TestRunCompute_StoresRoadDecayBlend: a roads compute stores, per
+// city-jurisdiction road hex, the default-rate blend of its road classes'
+// decay rates (resource.MetricDefaultDecayRate) under roads:city, in the same
+// run as the coverage, on exactly the hexes roads:city covers. Two parallel
+// roads of different classes share their hexes, so those hexes blend strictly
+// between the two class rates; the exact weighting is pinned by
+// resource.TestDefaultDecayBlends.
+func TestRunCompute_StoresRoadDecayBlend(t *testing.T) {
+	road := func(id, highway string, lat float64) db.Feature {
+		return db.Feature{
+			ID: id, ResourceType: resource.TypeRoads,
+			Tags:         map[string]string{"highway": highway},
+			GeometryJSON: fmt.Sprintf(`{"type":"LineString","coordinates":[[-121.7800,%f],[-121.7600,%f]]}`, lat, lat),
+		}
+	}
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
+		ListFeaturesFunc: func(_ context.Context, _ resource.Type) ([]db.Feature, error) {
+			return []db.Feature{road("p", "primary", 37.6800), road("r", "residential", 37.6802)}, nil
+		},
+	}
+	ios, _, _, _ := iostreams.Test()
+	f := &cmdutil.Factory{
+		IOStreams:   ios,
+		UnitSystem:  func() units.System { return units.Metric },
+		CityDB:      func() (db.Store, error) { return store, nil },
+		CurrentCity: func() (*config.CityConfig, error) { return testCity, nil },
+		Config:      func() (*config.Config, error) { return testCfg, nil },
+	}
+	cmd := NewCmdCompute(f, &resource.Pavement{}, nil)
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	primary, residential := forecast.DecayRateForClass("primary"), forecast.DecayRateForClass("residential")
+	covered := map[string]int64{}
+	k0 := map[string]float64{}
+	for _, m := range store.HexMetrics {
+		switch {
+		case m.Metric == resource.MetricPavedArea && m.Subject == "roads:city":
+			covered[m.HexID] = m.RunID
+		case m.Metric == resource.MetricDefaultDecayRate:
+			if m.Subject != "roads:city" {
+				t.Errorf("decay blend stored under %q, want roads:city only", m.Subject)
+			}
+			k0[m.HexID] = m.Value
+			if run, ok := covered[m.HexID]; ok && run != m.RunID {
+				t.Errorf("hex %s decay blend run %d, coverage run %d", m.HexID, m.RunID, run)
+			}
+		}
+	}
+	if len(covered) == 0 {
+		t.Fatal("no roads:city coverage stored")
+	}
+	if !slices.Equal(slices.Sorted(maps.Keys(k0)), slices.Sorted(maps.Keys(covered))) {
+		t.Errorf("decay blend hexes %v, want the roads:city hexes %v", slices.Sorted(maps.Keys(k0)), slices.Sorted(maps.Keys(covered)))
+	}
+	mixed := 0
+	for id, k := range k0 {
+		switch {
+		case k > primary && k < residential:
+			mixed++
+		case k != primary && k != residential:
+			t.Errorf("hex %s k0 = %v, outside [%v, %v]", id, k, primary, residential)
+		}
+	}
+	if mixed == 0 {
+		t.Errorf("no hex blends the two classes: %v", k0)
 	}
 }

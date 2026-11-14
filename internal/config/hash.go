@@ -113,8 +113,10 @@ import (
 // History (all before v0.5.0): 1 — the first semantic hash. 2 — untagged
 // highway=secondary is City, not County (solvent-streets-0mre). 3 — a
 // service run records the facilities it routed from and its turnout
-// (solvent-streets-s53d).
-const ComputeEpoch = 3
+// (solvent-streets-s53d). 4 — a roads compute stores each city road hex's
+// default-rate decay blend, which the /play board reads from hexgrid.geojson
+// (solvent-streets-we5i).
+const ComputeEpoch = 4
 
 // computeInputsScheme names the encoding of hashEnvelope; part of the hashed
 // bytes so a future encoding can never collide with this one.
