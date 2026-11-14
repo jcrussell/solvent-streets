@@ -438,6 +438,48 @@ func TestForEachCityRows(t *testing.T) {
 	}
 }
 
+// TestForEachCityRows_PartialFailureStillWritesRows pins solvent-streets-n5fx:
+// when one city fails, the rows of the cities that succeeded are still
+// written, and the failure is still returned so the run exits non-zero.
+func TestForEachCityRows_PartialFailureStillWritesRows(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Alpha"}, {Name: "Beta"}}}
+	f := &cmdutil.Factory{
+		IOStreams:   ios,
+		Config:      func() (*config.Config, error) { return cfg, nil },
+		CityFlagSet: func() bool { return false },
+	}
+	boom := errors.New("boom")
+	run := func(cf *cmdutil.Factory, rows *[]cityRow) error {
+		city, err := cf.CurrentCity()
+		if err != nil {
+			return err
+		}
+		if city.Name == "Beta" {
+			return boom
+		}
+		*rows = append(*rows, cityRow{city: city.Name})
+		return nil
+	}
+	exp := &recordingExporter{}
+	err := cmdutil.ForEachCityRows(context.Background(), f, ios, exp, run)
+	if !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want the Beta failure", err)
+	}
+	if len(exp.writes) != 1 || len(exp.writes[0]) != 1 || exp.writes[0][0]["city"] != "Alpha" {
+		t.Errorf("writes = %v, want one document with Alpha", exp.writes)
+	}
+
+	// Every city failing writes nothing.
+	exp = &recordingExporter{}
+	if err := cmdutil.ForEachCityRows(context.Background(), f, ios, exp, func(*cmdutil.Factory, *[]cityRow) error { return boom }); !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want boom", err)
+	}
+	if len(exp.writes) != 0 {
+		t.Errorf("writes = %v, want none when no city produced rows", exp.writes)
+	}
+}
+
 // PinnedCityStore pins the city's store to its current settings hash when a
 // config loads, and returns it unpinned when none does.
 func TestPinnedCityStore(t *testing.T) {

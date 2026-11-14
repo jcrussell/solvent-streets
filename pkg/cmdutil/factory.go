@@ -176,19 +176,25 @@ func cityOverrideFunc(cmd *cobra.Command, f *Factory, fallback func() (*config.C
 // called once per city with rows, the shared accumulator (nil when exporter
 // is nil, i.e. human output), and when exporter is set every city's rows are
 // written once as a single document instead of one per city.
+//
+// When some cities fail, the rows the others produced are still written and
+// the error is returned after them, so the run exits non-zero without hiding
+// the cities that did commit (solvent-streets-n5fx). A run with no rows at
+// all writes nothing.
 func ForEachCityRows[R RowExporter](ctx context.Context, f *Factory, ios *iostreams.IOStreams, exporter Exporter, run func(cf *Factory, rows *[]R) error) error {
 	var acc []R
 	var rows *[]R
 	if exporter != nil {
 		rows = &acc
 	}
-	if err := ForEachCity(ctx, f, func(cf *Factory, _ *config.CityConfig) error { return run(cf, rows) }); err != nil {
+	err := ForEachCity(ctx, f, func(cf *Factory, _ *config.CityConfig) error { return run(cf, rows) })
+	if exporter == nil || (err != nil && len(acc) == 0) {
 		return err
 	}
-	if exporter != nil {
-		return WriteRows(ios, exporter, acc)
+	if werr := WriteRows(ios, exporter, acc); werr != nil {
+		return errors.Join(err, werr)
 	}
-	return nil
+	return err
 }
 
 // ForEachCity resolves cities from config (all if no --city flag, one if set)
