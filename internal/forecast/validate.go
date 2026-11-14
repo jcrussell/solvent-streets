@@ -1,8 +1,10 @@
 package forecast
 
 import (
+	"cmp"
 	"fmt"
 	"math"
+	"slices"
 )
 
 // The bounds on forecast inputs. Every surface that accepts them checks them
@@ -153,9 +155,34 @@ func (in Inputs) validate() *InputError {
 			return &InputError{Field: FieldCostTiers, Index: i, Label: t.Label, Problem: problem}
 		}
 	}
+	if err := tierOverlap(in.CostTiers); err != nil {
+		return err
+	}
 	for i, c := range in.Cohorts {
 		if problem := cohortProblem(c); problem != "" {
 			return &InputError{Field: FieldCohorts, Index: i, Label: c.Classification, Problem: problem}
+		}
+	}
+	return nil
+}
+
+// tierOverlap reports the first pair of cost tiers whose PCI bands overlap,
+// naming the later band in PCI order. A PCI in two bands has two prices, and
+// the dashboard refuses to run its interactive forecast on such a schedule,
+// so every forecast surface refuses it here, at config load included
+// (solvent-streets-vslt). Gaps between bands stay legal: TierIndexForPCI
+// resolves a gap to the nearest band.
+func tierOverlap(tiers []CostTier) *InputError {
+	order := make([]int, len(tiers))
+	for i := range order {
+		order[i] = i
+	}
+	slices.SortStableFunc(order, func(a, b int) int { return cmp.Compare(tiers[a].MinPCI, tiers[b].MinPCI) })
+	for k := 1; k < len(order); k++ {
+		prev, cur := tiers[order[k-1]], tiers[order[k]]
+		if cur.MinPCI < prev.MaxPCI {
+			return &InputError{Field: FieldCostTiers, Index: order[k], Label: cur.Label, Problem: fmt.Sprintf(
+				"pci band [%g, %g) overlaps %q [%g, %g)", cur.MinPCI, cur.MaxPCI, prev.Label, prev.MinPCI, prev.MaxPCI)}
 		}
 	}
 	return nil
@@ -165,8 +192,7 @@ func (in Inputs) validate() *InputError {
 // buildAnchors' midpoint interpolation directly, so a non-positive cost, an
 // inverted band or an out-of-range bound produces wrong dollar figures with
 // nothing to flag them; in the game a free tier is a treatment that costs
-// nothing. Overlaps and coverage gaps between tiers are left to the operator
-// (TierIndexForPCI resolves a gap to the nearest band).
+// nothing. Overlaps between tiers are tierOverlap's.
 func tierProblem(t CostTier) string {
 	switch {
 	case !(t.CostPerSqM > 0) || math.IsInf(t.CostPerSqM, 0):

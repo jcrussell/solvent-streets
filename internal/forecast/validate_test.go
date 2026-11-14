@@ -108,6 +108,10 @@ var boundCases = []boundCase{
 	{"tier band empty", tier(func(t *forecast.CostTier) { t.MinPCI, t.MaxPCI = 80, 80 }), forecast.FieldCostTiers},
 	{"tier min NaN", tier(func(t *forecast.CostTier) { t.MinPCI = math.NaN() }), forecast.FieldCostTiers},
 	{"tier no label", tier(func(t *forecast.CostTier) { t.Label = "" }), forecast.FieldCostTiers},
+	// Bands may leave a gap (TierIndexForPCI takes the nearest) but not
+	// overlap: a PCI in two bands has two prices (solvent-streets-vslt).
+	{"tier bands leave a gap", tier(func(t *forecast.CostTier) { t.MinPCI = 80 }), ""},
+	{"tier bands overlap", tier(func(t *forecast.CostTier) { t.MinPCI = 60 }), forecast.FieldCostTiers},
 
 	{"cohort area 0", cohort(func(c *forecast.RawCohort) { c.Area = 0 }), ""},
 	{"cohort area negative", cohort(func(c *forecast.RawCohort) { c.Area = -1 }), forecast.FieldCohorts},

@@ -232,7 +232,9 @@ Every setting except `years` goes in `[forecast]` or a city's `[cities.forecast]
 
 A tier is one `[[forecast.cost_tiers]]` table with `min_pci`, `max_pci`,
 `cost_per_sqm` and a `label`: `min_pci` must be below `max_pci`, `cost_per_sqm`
-must be positive and the label must not be empty. Setting tiers replaces the
+must be positive and the label must not be empty. Bands must not overlap; a
+gap between them is allowed, and a PCI in the gap is priced at the nearest
+band. Setting tiers replaces the
 road defaults entirely, and sidewalks are priced at 0.6× the same tiers
 ([Cost model](../internal/export/docs/methodology.md#cost-model)).
 Except for `growth_rate`, a `0` means "use the default". The browser forecast

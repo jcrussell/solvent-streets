@@ -94,3 +94,7 @@ A config now has one forecast horizon, and its default is 30 years (up from 20).
 ### 8. Expect a partial ingest to exit 1
 
 `pvmt all ingest`, and each `pvmt <resource> ingest`, now exit 1 when any of a city's sources or steps failed, including the fire and Census steps of `all ingest`. They used to warn and exit 0. What did answer is still saved, and `all ingest` still runs every remaining step and city. The final error lists each failure with the command that retries it. A script that ran `pvmt all ingest || true` before `compute` to ride out a flaky upstream now sees those failures. Retry the listed commands, or keep `|| true` if a partial city is acceptable.
+
+### 9. Remove overlapping cost tiers
+
+A config whose `[[forecast.cost_tiers]]` bands overlap now fails to load with exit 2, naming the two bands. A PCI inside both had two prices, and the dashboard already refused to run its forecast controls on such a schedule. Move one band's `min_pci` or `max_pci` so the bands meet or leave a gap ([Forecast](configuration.md#forecast)).
