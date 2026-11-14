@@ -16,7 +16,9 @@ import (
 // given set in one transaction. When sourceAPIs is empty the whole resource is
 // replaced for the city; when it is non-empty the delete is scoped to those
 // source_api values, so a partial-source re-ingest (one source down) preserves
-// the surviving sources' rows instead of wiping them.
+// the surviving sources' rows instead of wiping them. The resource's input
+// digest (city_inputs) is recomputed from the stored rows in the same
+// transaction.
 func (s *sqliteStore) UpsertFeatures(ctx context.Context, resourceType resource.Type, features []Feature, sourceAPIs []string) error {
 	return s.withTx(ctx, func(tx *sql.Tx) error {
 		if err := s.deleteFeaturesForReplace(ctx, tx, resourceType, sourceAPIs); err != nil {
@@ -45,7 +47,7 @@ func (s *sqliteStore) UpsertFeatures(ctx context.Context, resourceType resource.
 				return fmt.Errorf("exec upsert feature %s: %w", f.ID, err)
 			}
 		}
-		return nil
+		return refreshFeaturesDigest(ctx, tx, s.cityID, string(resourceType))
 	})
 }
 
@@ -100,15 +102,18 @@ func (s *sqliteStore) ListFeatures(ctx context.Context, resourceType resource.Ty
 	return features, rows.Err()
 }
 
+// SaveBoundary stores the city's boundary and records its digest as the
+// boundary input (city_inputs), in one transaction.
 func (s *sqliteStore) SaveBoundary(ctx context.Context, geometryJSON, source string) error {
-	_, err := s.db.ExecContext(ctx, `
-		INSERT OR REPLACE INTO city_boundaries (city_id, geometry_json, source, fetched_at)
-		VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-	`, s.cityID, geometryJSON, source)
-	if err != nil {
-		return fmt.Errorf("save boundary: %w", err)
-	}
-	return nil
+	return s.withTx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT OR REPLACE INTO city_boundaries (city_id, geometry_json, source, fetched_at)
+			VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+		`, s.cityID, geometryJSON, source); err != nil {
+			return fmt.Errorf("save boundary: %w", err)
+		}
+		return setInputDigest(ctx, tx, s.cityID, InputBoundary, boundaryDigest(geometryJSON, source))
+	})
 }
 
 func (s *sqliteStore) GetBoundary(ctx context.Context) (string, error) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"strings"
 	"testing"
@@ -46,7 +47,7 @@ func fixtureStore(out saved, commits *[]map[string]int64) *dbtest.MockStore {
 			}
 			return nil, nil
 		},
-		CreateRunFunc: func(_ context.Context, producer, hash string) (*db.Run, error) {
+		CreateRunFunc: func(_ context.Context, producer, hash string, _ map[string]string) (*db.Run, error) {
 			next++
 			runs[next] = producer
 			return &db.Run{ID: next, Producer: producer, ConfigHash: hash}, nil
@@ -60,7 +61,7 @@ func fixtureStore(out saved, commits *[]map[string]int64) *dbtest.MockStore {
 			}
 			return nil
 		},
-		CommitSnapshotFunc: func(_ context.Context, hash string, parts map[string]int64) (*db.Snapshot, error) {
+		CommitSnapshotFunc: func(_ context.Context, hash string, _ float64, parts map[string]int64) (*db.Snapshot, error) {
 			if commits != nil {
 				*commits = append(*commits, parts)
 			}
@@ -174,5 +175,29 @@ func TestRunComputeForCity_CancelledBeforeStart(t *testing.T) {
 	}
 	if opened {
 		t.Error("the store was opened for a cancelled run")
+	}
+}
+
+// TestCensusCompute_RecordsInputs: the census run records the digests of the
+// boundary and the census blocks.
+func TestCensusCompute_RecordsInputs(t *testing.T) {
+	store := fixtureStore(saved{}, nil)
+	store.Digests = map[string]string{"boundary": "b", "layer-census-blocks": "c", "roads": "r"}
+	var recorded map[string]string
+	create := store.CreateRunFunc
+	store.CreateRunFunc = func(ctx context.Context, producer, hash string, inputs map[string]string) (*db.Run, error) {
+		recorded = inputs
+		return create(ctx, producer, hash, inputs)
+	}
+	city := &config.CityConfig{Name: "Livermore, CA", Overpass: true}
+	cmd := NewCmdCensus(testFactory(store, city))
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	cmd.SetArgs([]string{"compute"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"boundary": "b", "layer-census-blocks": "c"}
+	if !maps.Equal(recorded, want) {
+		t.Errorf("census run inputs = %v, want %v", recorded, want)
 	}
 }

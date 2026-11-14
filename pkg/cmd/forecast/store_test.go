@@ -34,7 +34,7 @@ func seedComputedCity(t *testing.T, path string, cfg *config.Config, city *confi
 	}
 	store := root.ForCity(id)
 	hash := cfg.CityHash(city)
-	run, err := store.CreateRun(ctx, string(resource.TypeRoads), hash)
+	run, err := store.CreateRun(ctx, string(resource.TypeRoads), hash, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func seedComputedCity(t *testing.T, path string, cfg *config.Config, city *confi
 	if err := store.SaveCityMetrics(ctx, run.ID, rows); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.CommitSnapshot(ctx, hash, map[string]int64{string(resource.TypeRoads): run.ID}); err != nil {
+	if _, err := store.CommitSnapshot(ctx, hash, cfg.ResolvedHexEdge(city), map[string]int64{string(resource.TypeRoads): run.ID}); err != nil {
 		t.Fatal(err)
 	}
 	return store.WithConfigHash(hash)

@@ -202,42 +202,60 @@ func anyArgs(values []string) []any {
 	return args
 }
 
-// CreateRun records a new run. It is invisible to readers until a snapshot
-// references it.
-func (s *sqliteStore) CreateRun(ctx context.Context, producer, configHash string) (*Run, error) {
+// CreateRun records a new run, with the input digests it read (run_inputs),
+// in one transaction. It is invisible to readers until a snapshot references
+// it.
+func (s *sqliteStore) CreateRun(ctx context.Context, producer, configHash string, inputs map[string]string) (*Run, error) {
 	if producer == "" {
 		return nil, errors.New("create run: producer is required")
 	}
-	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO runs (city_id, producer, config_hash) VALUES (?, ?, ?)`, s.cityID, producer, configHash)
+	run := &Run{Producer: producer, ConfigHash: configHash}
+	err := s.withTx(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx,
+			`INSERT INTO runs (city_id, producer, config_hash) VALUES (?, ?, ?)`, s.cityID, producer, configHash)
+		if err != nil {
+			return fmt.Errorf("create run: %w", err)
+		}
+		if run.ID, err = res.LastInsertId(); err != nil {
+			return fmt.Errorf("create run id: %w", err)
+		}
+		if err := tx.QueryRowContext(ctx, `SELECT computed_at FROM runs WHERE id = ?`, run.ID).Scan(&run.ComputedAt); err != nil {
+			return fmt.Errorf("read run timestamp: %w", err)
+		}
+		return recordRunInputs(ctx, tx, run.ID, inputs)
+	})
 	if err != nil {
-		return nil, fmt.Errorf("create run: %w", err)
-	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		return nil, fmt.Errorf("create run id: %w", err)
-	}
-	run := &Run{ID: id, Producer: producer, ConfigHash: configHash}
-	if err := s.db.QueryRowContext(ctx, `SELECT computed_at FROM runs WHERE id = ?`, id).Scan(&run.ComputedAt); err != nil {
-		return nil, fmt.Errorf("read run timestamp: %w", err)
+		return nil, err
 	}
 	run.ComputedAt = canonicalTime(run.ComputedAt)
 	return run, nil
 }
 
+// runRefs counts the references that keep a run alive: snapshot manifests
+// and the working state.
+func runRefs(ctx context.Context, q queryer, runID int64) (int, error) {
+	var refs int
+	if err := q.QueryRowContext(ctx,
+		`SELECT (SELECT COUNT(*) FROM snapshot_parts WHERE run_id = ?) + (SELECT COUNT(*) FROM working_parts WHERE run_id = ?)`,
+		runID, runID).Scan(&refs); err != nil {
+		return 0, fmt.Errorf("check run %d references: %w", runID, err)
+	}
+	return refs, nil
+}
+
 // DiscardRun deletes an unreferenced run and its rows. A run some snapshot
-// references is left alone (returns an error), because removing it would
-// change what that snapshot reads.
+// or the working state references is left alone (returns an error), because
+// removing it would change what that snapshot or the working state reads.
 func (s *sqliteStore) DiscardRun(ctx context.Context, runID int64) error {
 	return s.withTx(ctx, func(tx *sql.Tx) error {
-		var refs int
-		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM snapshot_parts WHERE run_id = ?`, runID).Scan(&refs); err != nil {
-			return fmt.Errorf("check run %d references: %w", runID, err)
+		refs, err := runRefs(ctx, tx, runID)
+		if err != nil {
+			return err
 		}
 		if refs > 0 {
-			return fmt.Errorf("discard run %d: still referenced by %d snapshot(s)", runID, refs)
+			return fmt.Errorf("discard run %d: still referenced by %d snapshot or working part(s)", runID, refs)
 		}
-		_, err := deleteRuns(ctx, tx, s.cityID, []int64{runID})
+		_, err = deleteRuns(ctx, tx, s.cityID, []int64{runID})
 		return err
 	})
 }
@@ -245,13 +263,16 @@ func (s *sqliteStore) DiscardRun(ctx context.Context, runID int64) error {
 // CommitSnapshot creates the next snapshot for configHash. See the Store
 // interface for the contract. It retries while another process holds the
 // write lock (isBusy), for up to commitBusyBudget.
-func (s *sqliteStore) CommitSnapshot(ctx context.Context, configHash string, parts map[string]int64) (*Snapshot, error) {
+func (s *sqliteStore) CommitSnapshot(ctx context.Context, configHash string, hexEdgeM float64, parts map[string]int64) (*Snapshot, error) {
 	if configHash == "" {
 		return nil, errors.New("commit snapshot: config hash is required")
 	}
+	if hexEdgeM <= 0 {
+		return nil, fmt.Errorf("commit snapshot: hex edge must be positive, got %v", hexEdgeM)
+	}
 	deadline := time.Now().Add(commitBusyBudget)
 	for wait := 100 * time.Millisecond; ; wait = min(2*wait, 5*time.Second) {
-		snap, err := s.commitSnapshot(ctx, configHash, parts)
+		snap, err := s.commitSnapshot(ctx, configHash, hexEdgeM, parts)
 		if !isBusy(err) || time.Now().Add(wait).After(deadline) {
 			return snap, err
 		}
@@ -279,7 +300,7 @@ func isBusy(err error) bool {
 // run) writes nothing and returns the base snapshot, or (nil, nil) when the
 // hash has no snapshot yet: a no-op command must not mint a snapshot (it
 // would use up a `snapshots prune` slot) and must never create an empty one.
-func (s *sqliteStore) commitSnapshot(ctx context.Context, configHash string, parts map[string]int64) (*Snapshot, error) {
+func (s *sqliteStore) commitSnapshot(ctx context.Context, configHash string, hexEdgeM float64, parts map[string]int64) (*Snapshot, error) {
 	var snap *Snapshot
 	err := s.withTx(ctx, func(tx *sql.Tx) error {
 		if err := s.checkCommitRuns(ctx, tx, configHash, parts); err != nil {
@@ -297,7 +318,10 @@ func (s *sqliteStore) commitSnapshot(ctx context.Context, configHash string, par
 		applyParts(manifest, parts)
 		id := base
 		if !maps.Equal(manifest, baseParts) {
-			if id, err = s.insertSnapshot(ctx, tx, configHash, manifest); err != nil {
+			if id, err = s.insertSnapshot(ctx, tx, configHash, hexEdgeM, manifest); err != nil {
+				return err
+			}
+			if err := s.setWorkingParts(ctx, tx, configHash, manifest); err != nil {
 				return err
 			}
 		}
@@ -317,10 +341,16 @@ func (s *sqliteStore) commitSnapshot(ctx context.Context, configHash string, par
 	return snap, nil
 }
 
-// insertSnapshot writes a new snapshot row with manifest as its parts and
-// returns its id.
-func (s *sqliteStore) insertSnapshot(ctx context.Context, tx *sql.Tx, configHash string, manifest map[string]int64) (int64, error) {
-	res, err := tx.ExecContext(ctx, `INSERT INTO snapshots (city_id, config_hash) VALUES (?, ?)`, s.cityID, configHash)
+// insertSnapshot writes a new snapshot row with manifest as its parts,
+// freezing hexEdgeM and the city's current boundary on it, and returns its id.
+func (s *sqliteStore) insertSnapshot(ctx context.Context, tx *sql.Tx, configHash string, hexEdgeM float64, manifest map[string]int64) (int64, error) {
+	var boundary sql.NullInt64
+	var err error
+	if boundary.Int64, boundary.Valid, err = freezeBoundary(ctx, tx, s.cityID); err != nil {
+		return 0, err
+	}
+	res, err := tx.ExecContext(ctx, `INSERT INTO snapshots (city_id, config_hash, hex_edge_m, boundary_id) VALUES (?, ?, ?, ?)`,
+		s.cityID, configHash, hexEdgeM, boundary)
 	if err != nil {
 		return 0, fmt.Errorf("create snapshot: %w", err)
 	}
@@ -335,6 +365,20 @@ func (s *sqliteStore) insertSnapshot(ctx context.Context, tx *sql.Tx, configHash
 		}
 	}
 	return id, nil
+}
+
+// setWorkingParts makes manifest the city's working state for configHash.
+func (s *sqliteStore) setWorkingParts(ctx context.Context, tx *sql.Tx, configHash string, manifest map[string]int64) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM working_parts WHERE city_id = ? AND config_hash = ?`, s.cityID, configHash); err != nil {
+		return fmt.Errorf("clear working state: %w", err)
+	}
+	for _, part := range slices.Sorted(maps.Keys(manifest)) {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO working_parts (city_id, config_hash, part, run_id) VALUES (?, ?, ?, ?)`,
+			s.cityID, configHash, part, manifest[part]); err != nil {
+			return fmt.Errorf("record working part %s: %w", part, err)
+		}
+	}
+	return nil
 }
 
 // checkCommitRuns enforces the manifest invariants on the runs a commit adds:
@@ -381,7 +425,7 @@ func canonicalTime(t time.Time) time.Time {
 // has second granularity), each with its manifest sorted by part. A non-zero
 // only restricts the result to that one snapshot.
 func listSnapshots(ctx context.Context, q queryer, cityID, only int64) ([]Snapshot, error) {
-	query := `SELECT s.id, s.created_at, s.config_hash, p.part, p.run_id, r.computed_at
+	query := `SELECT s.id, s.created_at, s.config_hash, s.hex_edge_m, p.part, p.run_id, r.computed_at
 		FROM snapshots s
 		LEFT JOIN snapshot_parts p ON p.snapshot_id = s.id
 		LEFT JOIN runs r ON r.id = p.run_id
@@ -401,7 +445,7 @@ func listSnapshots(ctx context.Context, q queryer, cityID, only int64) ([]Snapsh
 			runID      sql.NullInt64
 			computedAt *time.Time
 		)
-		if err := rows.Scan(&snap.ID, &snap.CreatedAt, &snap.ConfigHash, &part, &runID, &computedAt); err != nil {
+		if err := rows.Scan(&snap.ID, &snap.CreatedAt, &snap.ConfigHash, &snap.HexEdgeM, &part, &runID, &computedAt); err != nil {
 			return nil, fmt.Errorf("scan snapshot: %w", err)
 		}
 		snap.CreatedAt = canonicalTime(snap.CreatedAt)
@@ -480,19 +524,23 @@ func (s *sqliteStore) DeleteSnapshot(ctx context.Context, snapshotID int64) (boo
 		if _, err := deleteRuns(ctx, tx, s.cityID, unreferenced); err != nil {
 			return err
 		}
+		if err := sweepSnapshotBoundaries(ctx, tx, s.cityID); err != nil {
+			return err
+		}
 		deleted = true
 		return nil
 	})
 	return deleted, err
 }
 
-// unreferencedRuns returns those of runIDs that no snapshot references.
+// unreferencedRuns returns those of runIDs that neither a snapshot nor the
+// working state references.
 func unreferencedRuns(ctx context.Context, tx *sql.Tx, runIDs []int64) ([]int64, error) {
 	var out []int64
 	for _, run := range runIDs {
-		var refs int
-		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM snapshot_parts WHERE run_id = ?`, run).Scan(&refs); err != nil {
-			return nil, fmt.Errorf("check run %d references: %w", run, err)
+		refs, err := runRefs(ctx, tx, run)
+		if err != nil {
+			return nil, err
 		}
 		if refs == 0 {
 			out = append(out, run)
@@ -565,13 +613,14 @@ func runArgs(ids []int64) []any {
 	return args
 }
 
-// orphanRuns lists this city's runs that no snapshot references and that are
-// older than OrphanRunGrace.
+// orphanRuns lists this city's runs that neither a snapshot nor the working
+// state references and that are older than OrphanRunGrace.
 func orphanRuns(ctx context.Context, q queryer, cityID int64) ([]int64, error) {
 	cutoff := time.Now().Add(-OrphanRunGrace).UTC().Format(time.DateTime)
 	rows, err := q.QueryContext(ctx,
 		`SELECT id FROM runs WHERE city_id = ? AND computed_at < ?
-		   AND id NOT IN (SELECT run_id FROM snapshot_parts) ORDER BY id`, cityID, cutoff)
+		   AND id NOT IN (SELECT run_id FROM snapshot_parts)
+		   AND id NOT IN (SELECT run_id FROM working_parts) ORDER BY id`, cityID, cutoff)
 	if err != nil {
 		return nil, fmt.Errorf("query orphan runs: %w", err)
 	}
@@ -619,12 +668,11 @@ func (s *sqliteStore) GCScan(ctx context.Context, keepSources []string) (*GCRepo
 func (s *sqliteStore) GCSweep(ctx context.Context, keepSources []string) (*GCReport, error) {
 	report := &GCReport{}
 	err := s.withTx(ctx, func(tx *sql.Tx) error {
-		if len(keepSources) > 0 {
-			where, args := s.staleFeatures(keepSources)
-			q := `DELETE FROM features WHERE ` + where
-			if err := execDeleteCount(ctx, tx, "stale features", q, &report.StaleFeatures, args...); err != nil {
-				return err
-			}
+		if err := s.sweepStaleFeatures(ctx, tx, keepSources, report); err != nil {
+			return err
+		}
+		if err := sweepSnapshotBoundaries(ctx, tx, s.cityID); err != nil {
+			return err
 		}
 		runs, err := orphanRuns(ctx, tx, s.cityID)
 		if err != nil {
@@ -641,4 +689,28 @@ func (s *sqliteStore) GCSweep(ctx context.Context, keepSources []string) (*GCRep
 		return nil, err
 	}
 	return report, nil
+}
+
+// sweepStaleFeatures deletes the stale features GCScan counts (none when
+// keepSources is empty) and refreshes the input digest of every type it
+// deleted from.
+func (s *sqliteStore) sweepStaleFeatures(ctx context.Context, tx *sql.Tx, keepSources []string, report *GCReport) error {
+	if len(keepSources) == 0 {
+		return nil
+	}
+	where, args := s.staleFeatures(keepSources)
+	types, err := staleFeatureTypes(ctx, tx, where, args)
+	if err != nil {
+		return err
+	}
+	q := `DELETE FROM features WHERE ` + where
+	if err := execDeleteCount(ctx, tx, "stale features", q, &report.StaleFeatures, args...); err != nil {
+		return err
+	}
+	for _, t := range types {
+		if err := refreshFeaturesDigest(ctx, tx, s.cityID, t); err != nil {
+			return err
+		}
+	}
+	return nil
 }

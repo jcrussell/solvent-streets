@@ -151,7 +151,7 @@ func computeCity(ctx context.Context, ios *iostreams.IOStreams, cf *cmdutil.Fact
 	if err != nil {
 		return fmt.Errorf("database: %w", err)
 	}
-	draft := db.NewDraft(store, cfg.CityHash(city))
+	draft := compute.NewDraft(store, cfg, city)
 	stepsErr := computeSteps(ctx, ios, cf, draft)
 	if isCancel(stepsErr) {
 		return errors.Join(stepsErr, draft.Discard(context.WithoutCancel(ctx)))

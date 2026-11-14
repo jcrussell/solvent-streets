@@ -5,24 +5,26 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 )
 
 // WithDraft runs fn against draft, or, when draft is nil, against a fresh
-// draft over store for configHash that it owns: committed as ONE snapshot when
-// fn succeeds (or reports cmdutil.ErrNoResults, see below), discarded when fn
-// fails otherwise or commit fails. A caller-supplied
+// draft over store for the city's config hash and hex edge (NewDraft) that it
+// owns: committed as ONE snapshot when fn succeeds (or reports
+// cmdutil.ErrNoResults, see below), discarded when fn fails otherwise or
+// commit fails. A caller-supplied
 // draft (`pvmt all compute`, which commits once per city after every step) is
 // neither committed nor discarded here.
 //
 // Discarding runs on a context that ignores cancellation, so a Ctrl-C'd
 // command still cleans up the runs it created.
-func WithDraft(ctx context.Context, draft *db.Draft, store db.Store, configHash string, fn func(*db.Draft) error) error {
+func WithDraft(ctx context.Context, draft *db.Draft, store db.Store, cfg *config.Config, city *config.CityConfig, fn func(*db.Draft) error) error {
 	if draft != nil {
 		return fn(draft)
 	}
-	draft = db.NewDraft(store, configHash)
+	draft = NewDraft(store, cfg, city)
 	err := fn(draft)
 	// An empty result (ErrNoResults) still commits whatever the step dropped:
 	// a producer that finds nothing to work from (no facilities, census
@@ -35,6 +37,12 @@ func WithDraft(ctx context.Context, draft *db.Draft, store db.Store, configHash 
 		return CommitFailed(err, cerr, draft.Discard(context.WithoutCancel(ctx)))
 	}
 	return err
+}
+
+// NewDraft starts a draft for city over store, under the city's config hash
+// and hex edge.
+func NewDraft(store db.Store, cfg *config.Config, city *config.CityConfig) *db.Draft {
+	return db.NewDraft(store, cfg.CityHash(city), cfg.ResolvedHexEdge(city))
 }
 
 // CommitFailed builds the error for a draft whose commit failed after its

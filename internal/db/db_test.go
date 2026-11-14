@@ -154,7 +154,7 @@ func TestCityStoreClose_KeepsPoolOpen(t *testing.T) {
 	}
 
 	// The sibling city store still works.
-	if _, err := storeB.CreateRun(ctx, "roads", "after-sibling-close"); err != nil {
+	if _, err := storeB.CreateRun(ctx, "roads", "after-sibling-close", nil); err != nil {
 		t.Errorf("sibling store after other city Close: %v", err)
 	}
 	// The RootStore still works.
@@ -163,7 +163,7 @@ func TestCityStoreClose_KeepsPoolOpen(t *testing.T) {
 	}
 	// Even the closed city store still works, since Close is a no-op and the
 	// pool is owned by RootStore.
-	if _, err := storeA.CreateRun(ctx, "roads", "reused-after-close"); err != nil {
+	if _, err := storeA.CreateRun(ctx, "roads", "reused-after-close", nil); err != nil {
 		t.Errorf("closed city store still shares live pool: %v", err)
 	}
 }

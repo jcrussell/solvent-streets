@@ -30,9 +30,9 @@ type MockStore struct {
 	SaveHexMetricsFunc  func(context.Context, int64, []db.HexMetric) error
 	ListHexMetricsFunc  func(context.Context, string, string) ([]db.HexMetric, error)
 	HasHexMetricFunc    func(context.Context, string, []string) (bool, error)
-	CreateRunFunc       func(context.Context, string, string) (*db.Run, error)
+	CreateRunFunc       func(context.Context, string, string, map[string]string) (*db.Run, error)
 	DiscardRunFunc      func(context.Context, int64) error
-	CommitSnapshotFunc  func(context.Context, string, map[string]int64) (*db.Snapshot, error)
+	CommitSnapshotFunc  func(context.Context, string, float64, map[string]int64) (*db.Snapshot, error)
 	ListSnapshotsFunc   func(context.Context) ([]db.Snapshot, error)
 	ResolveSnapshotFunc func(context.Context, int64) error
 	WithSnapshotFunc    func(int64) db.Store
@@ -40,6 +40,8 @@ type MockStore struct {
 	DeleteSnapshotFunc  func(context.Context, int64) (bool, error)
 	GCScanFunc          func(context.Context, []string) (*db.GCReport, error)
 	GCSweepFunc         func(context.Context, []string) (*db.GCReport, error)
+	InputStatesFunc     func(context.Context) ([]db.InputState, error)
+	InputDigestsFunc    func(context.Context, ...string) (map[string]string, error)
 	SaveBoundaryFunc    func(context.Context, string, string) error
 	GetBoundaryFunc     func(context.Context) (string, error)
 	StatsFunc           func(context.Context, resource.Type) (*db.StatusInfo, error)
@@ -52,6 +54,12 @@ type MockStore struct {
 	// modelled: every row is visible.
 	CityMetrics []db.CityMetric
 	HexMetrics  []db.HexMetric
+
+	// Digests is what the default InputDigests reports (an input not in it
+	// reads ""), and RunInputs is what the default CreateRun records: run
+	// id -> the inputs passed with it.
+	Digests   map[string]string
+	RunInputs map[int64]map[string]string
 
 	lastRunID int64 // CreateRun's default id sequence
 }
@@ -154,11 +162,16 @@ func (m *MockStore) HasHexMetric(ctx context.Context, metric string, subjects []
 
 // CreateRun delegates to CreateRunFunc, else hands out run ids 1, 2, 3, ...
 // in call order (so a test can tell runs apart without mocking).
-func (m *MockStore) CreateRun(ctx context.Context, producer, hash string) (*db.Run, error) {
+// The default also records inputs in RunInputs.
+func (m *MockStore) CreateRun(ctx context.Context, producer, hash string, inputs map[string]string) (*db.Run, error) {
 	if m.CreateRunFunc != nil {
-		return m.CreateRunFunc(ctx, producer, hash)
+		return m.CreateRunFunc(ctx, producer, hash, inputs)
 	}
 	m.lastRunID++
+	if m.RunInputs == nil {
+		m.RunInputs = map[int64]map[string]string{}
+	}
+	m.RunInputs[m.lastRunID] = maps.Clone(inputs)
 	return &db.Run{ID: m.lastRunID, Producer: producer, ConfigHash: hash}, nil
 }
 
@@ -172,11 +185,11 @@ func (m *MockStore) DiscardRun(ctx context.Context, id int64) error {
 // CommitSnapshot delegates to CommitSnapshotFunc, else returns snapshot 1
 // whose manifest is exactly parts (zero ids dropped). It does not carry a
 // previous snapshot forward; tests of carry-forward use a real store.
-func (m *MockStore) CommitSnapshot(ctx context.Context, hash string, parts map[string]int64) (*db.Snapshot, error) {
+func (m *MockStore) CommitSnapshot(ctx context.Context, hash string, hexEdgeM float64, parts map[string]int64) (*db.Snapshot, error) {
 	if m.CommitSnapshotFunc != nil {
-		return m.CommitSnapshotFunc(ctx, hash, parts)
+		return m.CommitSnapshotFunc(ctx, hash, hexEdgeM, parts)
 	}
-	snap := &db.Snapshot{ID: 1, ConfigHash: hash}
+	snap := &db.Snapshot{ID: 1, ConfigHash: hash, HexEdgeM: hexEdgeM}
 	for _, part := range slices.Sorted(maps.Keys(parts)) {
 		if parts[part] != 0 {
 			snap.Parts = append(snap.Parts, db.SnapshotPart{Part: part, RunID: parts[part]})
@@ -218,6 +231,26 @@ func (m *MockStore) GCSweep(ctx context.Context, keepSources []string) (*db.GCRe
 		return m.GCSweepFunc(ctx, keepSources)
 	}
 	return &db.GCReport{}, nil
+}
+
+func (m *MockStore) InputStates(ctx context.Context) ([]db.InputState, error) {
+	if m.InputStatesFunc != nil {
+		return m.InputStatesFunc(ctx)
+	}
+	return []db.InputState{}, nil
+}
+
+// InputDigests delegates to InputDigestsFunc if set, otherwise reports each
+// input from Digests ("" when absent).
+func (m *MockStore) InputDigests(ctx context.Context, inputs ...string) (map[string]string, error) {
+	if m.InputDigestsFunc != nil {
+		return m.InputDigestsFunc(ctx, inputs...)
+	}
+	out := make(map[string]string, len(inputs))
+	for _, in := range inputs {
+		out[in] = m.Digests[in]
+	}
+	return out, nil
 }
 
 // WithSnapshot returns the mock unchanged by default — tests that need to

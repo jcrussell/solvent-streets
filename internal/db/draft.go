@@ -18,23 +18,27 @@ import (
 type Draft struct {
 	store      Store
 	configHash string
+	hexEdgeM   float64          // the hex edge the committed snapshot is tiled at
 	parts      map[string]int64 // committed by Commit; 0 removes a part
 	created    []int64          // every run created through this draft
 }
 
 // NewDraft starts a draft over store for configHash, the hash that owns the
-// city's data (config.Config.CityHash).
-func NewDraft(store Store, configHash string) *Draft {
-	return &Draft{store: store, configHash: configHash, parts: map[string]int64{}}
+// city's data (config.Config.CityHash), whose grid is tiled at hexEdgeM
+// (config.Config.ResolvedHexEdge).
+func NewDraft(store Store, configHash string, hexEdgeM float64) *Draft {
+	return &Draft{store: store, configHash: configHash, hexEdgeM: hexEdgeM, parts: map[string]int64{}}
 }
 
 // ConfigHash is the hash the draft commits under.
 func (d *Draft) ConfigHash() string { return d.configHash }
 
-// NewRun creates a run for producer under the draft's hash. The run stays
-// invisible to every reader until a committed snapshot references it.
-func (d *Draft) NewRun(ctx context.Context, producer string) (int64, error) {
-	run, err := d.store.CreateRun(ctx, producer, d.configHash)
+// NewRun creates a run for producer under the draft's hash, recording inputs,
+// the digests the producer read before reading its data (ReadProducerInputs).
+// The run stays invisible to every reader until a committed snapshot
+// references it.
+func (d *Draft) NewRun(ctx context.Context, producer string, inputs map[string]string) (int64, error) {
+	run, err := d.store.CreateRun(ctx, producer, d.configHash, inputs)
 	if err != nil {
 		return 0, err
 	}
@@ -64,7 +68,7 @@ func (d *Draft) Parts() map[string]int64 { return maps.Clone(d.parts) }
 // reported failure, and gc sweeps whatever is left (OrphanRunGrace).
 func (d *Draft) Commit(ctx context.Context) (*Snapshot, error) {
 	unused := d.unusedRuns()
-	snap, err := d.store.CommitSnapshot(ctx, d.configHash, d.parts)
+	snap, err := d.store.CommitSnapshot(ctx, d.configHash, d.hexEdgeM, d.parts)
 	if err != nil {
 		return nil, err
 	}

@@ -104,10 +104,12 @@ type Run struct {
 // reader resolves exactly one snapshot (Store.WithSnapshot / WithConfigHash /
 // newest) and reads only its runs.
 type Snapshot struct {
-	ID         int64          `json:"id"`
-	CreatedAt  time.Time      `json:"created_at"`
-	ConfigHash string         `json:"config_hash"`
-	Parts      []SnapshotPart `json:"parts"`
+	ID         int64     `json:"id"`
+	CreatedAt  time.Time `json:"created_at"`
+	ConfigHash string    `json:"config_hash"`
+	// HexEdgeM is the hex edge, in meters, the snapshot's grid was tiled at.
+	HexEdgeM float64        `json:"hex_edge_m"`
+	Parts    []SnapshotPart `json:"parts"`
 }
 
 // StaleFor reports whether snaps (one city's) hold snapshots but none
@@ -153,7 +155,8 @@ type GCReport struct {
 	// StaleFeatures counts features whose source_api is a non-empty value
 	// that is no longer resolvable from the city's configured sources.
 	StaleFeatures int
-	// OrphanRuns counts runs no snapshot references that are older than
+	// OrphanRuns counts runs neither a snapshot nor the working state
+	// references that are older than
 	// OrphanRunGrace: left behind by a command that failed or was killed
 	// before it committed. Younger unreferenced runs may belong to a command
 	// still running, so they are never swept.
@@ -196,12 +199,15 @@ type Store interface {
 	// CreateRun starts a run for producer under configHash. Its rows are
 	// invisible to every reader until a snapshot that includes the run is
 	// committed (CommitSnapshot).
-	CreateRun(ctx context.Context, producer, configHash string) (*Run, error)
+	// inputs is the digest of every input the producer read
+	// (ReadProducerInputs), recorded with the run in the same transaction.
+	CreateRun(ctx context.Context, producer, configHash string, inputs map[string]string) (*Run, error)
 	// DiscardRun deletes a run and every row it wrote, provided no snapshot
 	// references it (a committed run is only ever removed with its last
 	// snapshot). Used to clean up after a failed or cancelled command.
 	DiscardRun(ctx context.Context, runID int64) error
-	// CommitSnapshot creates this city's next snapshot for configHash: the
+	// CommitSnapshot creates this city's next snapshot for configHash, tiled
+	// at hexEdgeM (> 0) and frozen to the city's current boundary: the
 	// newest existing snapshot with that hash, with parts applied on top
 	// (part -> run; a run id of 0 removes the part). Every run in parts must
 	// belong to this city, carry configHash, and have Producer == part. One
@@ -209,8 +215,10 @@ type Store interface {
 	// that would not change the manifest writes nothing and returns the
 	// current snapshot, or (nil, nil) when configHash has none, so no-op
 	// commands never mint snapshots and no snapshot is ever empty. An empty
-	// configHash is rejected. Retries while another process holds the lock.
-	CommitSnapshot(ctx context.Context, configHash string, parts map[string]int64) (*Snapshot, error)
+	// configHash is rejected. A new snapshot's manifest also becomes the
+	// working state for configHash (working_parts). Retries while another
+	// process holds the lock.
+	CommitSnapshot(ctx context.Context, configHash string, hexEdgeM float64, parts map[string]int64) (*Snapshot, error)
 	// ListSnapshots returns this city's snapshots newest first, each with
 	// its manifest.
 	ListSnapshots(ctx context.Context) ([]Snapshot, error)
@@ -218,9 +226,10 @@ type Store interface {
 	WithSnapshot(snapshotID int64) Store
 	WithConfigHash(configHash string) Store
 	// DeleteSnapshot removes one snapshot's manifest, then every run no
-	// remaining snapshot references, with the rows those runs wrote. Runs
-	// still referenced by another snapshot are kept, so deleting any
-	// snapshot never changes what another snapshot reads.
+	// remaining snapshot or the working state references, with the rows
+	// those runs wrote, and any frozen boundary no snapshot uses any more.
+	// Runs still referenced elsewhere are kept, so deleting any snapshot
+	// never changes what another snapshot or the working state reads.
 	DeleteSnapshot(ctx context.Context, snapshotID int64) (bool, error)
 	// GCScan counts orphan rows for this city WITHOUT writing: features
 	// with a stale source_api (non-empty, not in keepSources) and runs no
@@ -231,7 +240,15 @@ type Store interface {
 	// GCSweep deletes the same orphan rows GCScan counts, in one
 	// transaction, and returns the counts of rows actually deleted. An
 	// empty keepSources skips the feature delete (never wipes all rows).
+	// It refreshes the input digest of every type it deleted features from,
+	// and drops frozen boundaries no snapshot references.
 	GCSweep(ctx context.Context, keepSources []string) (*GCReport, error)
+	// InputStates returns every input this city has stored (city_inputs),
+	// ordered by input.
+	InputStates(ctx context.Context) ([]InputState, error)
+	// InputDigests returns the current digest of each named input; one never
+	// stored maps to "".
+	InputDigests(ctx context.Context, inputs ...string) (map[string]string, error)
 	SaveBoundary(ctx context.Context, geometryJSON, source string) error
 	GetBoundary(ctx context.Context) (string, error)
 	Stats(ctx context.Context, resourceType resource.Type) (*StatusInfo, error)

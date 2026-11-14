@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"strings"
 	"testing"
@@ -51,7 +52,7 @@ func fixtureStore(saved *[]db.HexMetric, commits *[]map[string]int64) *dbtest.Mo
 			}
 			return nil, nil
 		},
-		CreateRunFunc: func(_ context.Context, producer, hash string) (*db.Run, error) {
+		CreateRunFunc: func(_ context.Context, producer, hash string, _ map[string]string) (*db.Run, error) {
 			next++
 			runs[next] = producer
 			return &db.Run{ID: next, Producer: producer, ConfigHash: hash}, nil
@@ -69,7 +70,7 @@ func fixtureStore(saved *[]db.HexMetric, commits *[]map[string]int64) *dbtest.Mo
 			}
 			return nil
 		},
-		CommitSnapshotFunc: func(_ context.Context, hash string, parts map[string]int64) (*db.Snapshot, error) {
+		CommitSnapshotFunc: func(_ context.Context, hash string, _ float64, parts map[string]int64) (*db.Snapshot, error) {
 			if commits != nil {
 				*commits = append(*commits, parts)
 			}
@@ -337,5 +338,30 @@ func TestSummarize_ShareIsAFraction(t *testing.T) {
 		if v, ok := empty[k]; ok {
 			t.Errorf("%s = %v with no hexes reached; want it omitted", k, v)
 		}
+	}
+}
+
+// TestServicesCompute_RecordsInputs: the fire run records the digests of the
+// boundary, the roads it routed over and the fire stations, as they were
+// before the compute read them.
+func TestServicesCompute_RecordsInputs(t *testing.T) {
+	var saved []db.HexMetric
+	store := fixtureStore(&saved, nil)
+	store.Digests = map[string]string{"boundary": "b", "roads": "r", "facility-fire": "f", "parking": "p"}
+	var recorded map[string]string
+	create := store.CreateRunFunc
+	store.CreateRunFunc = func(ctx context.Context, producer, hash string, inputs map[string]string) (*db.Run, error) {
+		recorded = inputs
+		return create(ctx, producer, hash, inputs)
+	}
+	cmd := NewCmdServices(testFactory(store))
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	cmd.SetArgs([]string{"compute"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"boundary": "b", "roads": "r", "facility-fire": "f"}
+	if !maps.Equal(recorded, want) {
+		t.Errorf("fire run inputs = %v, want %v", recorded, want)
 	}
 }

@@ -435,11 +435,11 @@ func TestRunCompute_NoFeaturesDropsThePart(t *testing.T) {
 	store := &dbtest.MockStore{
 		GetBoundaryFunc:  func(_ context.Context) (string, error) { return testBoundary, nil },
 		ListFeaturesFunc: func(_ context.Context, _ resource.Type) ([]db.Feature, error) { return nil, nil },
-		CreateRunFunc: func(_ context.Context, producer, hash string) (*db.Run, error) {
+		CreateRunFunc: func(_ context.Context, producer, hash string, _ map[string]string) (*db.Run, error) {
 			runCreated = true
 			return &db.Run{ID: 1, Producer: producer, ConfigHash: hash}, nil
 		},
-		CommitSnapshotFunc: func(_ context.Context, _ string, parts map[string]int64) (*db.Snapshot, error) {
+		CommitSnapshotFunc: func(_ context.Context, _ string, _ float64, parts map[string]int64) (*db.Snapshot, error) {
 			committed = parts
 			return &db.Snapshot{ID: 1}, nil
 		},
@@ -556,7 +556,7 @@ func TestRunCompute_CancelledDiscardsRun(t *testing.T) {
 	store := &dbtest.MockStore{
 		GetBoundaryFunc:  func(_ context.Context) (string, error) { return testBoundary, nil },
 		ListFeaturesFunc: roadsFeaturesFunc,
-		CreateRunFunc: func(_ context.Context, producer, hash string) (*db.Run, error) {
+		CreateRunFunc: func(_ context.Context, producer, hash string, _ map[string]string) (*db.Run, error) {
 			return &db.Run{ID: runID, Producer: producer, ConfigHash: hash}, nil
 		},
 		DiscardRunFunc: func(ctx context.Context, id int64) error {
@@ -564,7 +564,7 @@ func TestRunCompute_CancelledDiscardsRun(t *testing.T) {
 			discardCtxErr = ctx.Err()
 			return nil
 		},
-		CommitSnapshotFunc: func(_ context.Context, _ string, _ map[string]int64) (*db.Snapshot, error) {
+		CommitSnapshotFunc: func(_ context.Context, _ string, _ float64, _ map[string]int64) (*db.Snapshot, error) {
 			committed = true
 			return &db.Snapshot{ID: 1}, nil
 		},
@@ -817,12 +817,12 @@ func TestRunCompute_CommitsOnlyItsOwnPart(t *testing.T) {
 	store := &dbtest.MockStore{
 		GetBoundaryFunc:  func(_ context.Context) (string, error) { return testBoundary, nil },
 		ListFeaturesFunc: roadsFeaturesFunc,
-		CreateRunFunc: func(_ context.Context, producer, hash string) (*db.Run, error) {
+		CreateRunFunc: func(_ context.Context, producer, hash string, _ map[string]string) (*db.Run, error) {
 			next++
 			producers[next] = producer
 			return &db.Run{ID: next, Producer: producer, ConfigHash: hash}, nil
 		},
-		CommitSnapshotFunc: func(_ context.Context, hash string, parts map[string]int64) (*db.Snapshot, error) {
+		CommitSnapshotFunc: func(_ context.Context, hash string, _ float64, parts map[string]int64) (*db.Snapshot, error) {
 			commits = append(commits, parts)
 			return &db.Snapshot{ID: 1, ConfigHash: hash}, nil
 		},
@@ -856,5 +856,42 @@ func TestRunCompute_CommitsOnlyItsOwnPart(t *testing.T) {
 	}
 	if tot, _, _ := results.LoadTotal(context.Background(), store, resource.TypeRoads); tot.RunID != roadsRun {
 		t.Errorf("roads totals saved under run %d, committed roads run is %d", tot.RunID, roadsRun)
+	}
+}
+
+// TestRunCompute_RecordsInputsAndEdge: the roads run records the digests of
+// the boundary and the roads it read, and the snapshot is committed at the
+// city's resolved hex edge.
+func TestRunCompute_RecordsInputsAndEdge(t *testing.T) {
+	var edge float64
+	store := &dbtest.MockStore{
+		GetBoundaryFunc:  func(_ context.Context) (string, error) { return testBoundary, nil },
+		ListFeaturesFunc: roadsFeaturesFunc,
+		Digests:          map[string]string{"boundary": "b", "roads": "r", "parking": "p"},
+		CommitSnapshotFunc: func(_ context.Context, hash string, hexEdgeM float64, _ map[string]int64) (*db.Snapshot, error) {
+			edge = hexEdgeM
+			return &db.Snapshot{ID: 1, ConfigHash: hash}, nil
+		},
+	}
+	ios, _, _, stderr := iostreams.Test()
+	f := &cmdutil.Factory{
+		IOStreams:   ios,
+		UnitSystem:  func() units.System { return units.Metric },
+		CityDB:      func() (db.Store, error) { return store, nil },
+		CurrentCity: func() (*config.CityConfig, error) { return testCity, nil },
+		Config:      func() (*config.Config, error) { return testCfg, nil },
+	}
+	cmd := NewCmdCompute(f, &resource.Pavement{}, nil)
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("compute: %v\nstderr:\n%s", err, stderr.String())
+	}
+	want := map[string]string{"boundary": "b", "roads": "r"}
+	if len(store.RunInputs) != 1 || !maps.Equal(store.RunInputs[1], want) {
+		t.Errorf("run inputs = %v, want run 1 with %v", store.RunInputs, want)
+	}
+	if want := testCfg.ResolvedHexEdge(testCity); edge != want {
+		t.Errorf("committed at hex edge %v, want %v", edge, want)
 	}
 }

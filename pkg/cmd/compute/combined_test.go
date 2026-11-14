@@ -2,6 +2,7 @@ package compute
 
 import (
 	"context"
+	"maps"
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
@@ -60,6 +61,7 @@ func TestRunCombined_DedupesCrossResourceOverlap(t *testing.T) {
 				return nil, nil
 			}
 		},
+		Digests: map[string]string{"boundary": "b", "roads": "r", "parking": "p", "facility-fire": "f"},
 	}
 
 	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Test City"}}}
@@ -79,6 +81,11 @@ func TestRunCombined_DedupesCrossResourceOverlap(t *testing.T) {
 	combined, ok, err := results.LoadTotal(ctx, store, resource.CombinedAll)
 	if err != nil || !ok {
 		t.Fatalf("no %q totals were saved (got: %+v, %v)", resource.CombinedAll, store.CityMetrics, err)
+	}
+	// The combined run records the boundary and every pavement input, and
+	// only those (an un-ingested one as "").
+	if want := map[string]string{"boundary": "b", "roads": "r", "parking": "p", "sidewalks": ""}; !maps.Equal(store.RunInputs[combined.RunID], want) {
+		t.Errorf("combined run inputs = %v, want %v", store.RunInputs[combined.RunID], want)
 	}
 	if combined.Area <= 0 {
 		t.Fatalf("combined.Area = %v; want > 0", combined.Area)

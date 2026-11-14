@@ -206,7 +206,8 @@ func loadFacilities(ctx context.Context, store db.Store, city *config.CityConfig
 type inputs struct {
 	store      db.Store
 	city       *config.CityConfig
-	configHash string // the hash the city's snapshot is committed under
+	cfg        *config.Config
+	digests    map[string]string // the inputs read, taken before reading them
 	spec       services.Spec
 	roads      []resource.Feature
 	source     string
@@ -237,7 +238,12 @@ func loadInputs(ctx context.Context, errOut io.Writer, opts *Options) (*inputs, 
 	if err != nil {
 		return nil, err
 	}
-	in := &inputs{store: store, city: city, configHash: cfg.CityHash(city), spec: services.Resolve(spec, cfg.ResolvedServices(city))}
+	in := &inputs{store: store, city: city, cfg: cfg, spec: services.Resolve(spec, cfg.ResolvedServices(city))}
+	// Digests first: an ingest landing after this makes the run stale, never
+	// falsely current.
+	if in.digests, err = db.ReadProducerInputs(ctx, store, Producer(in.spec.Name)); err != nil {
+		return nil, err
+	}
 
 	// Empty inputs are ErrNoResults (a quiet skip in `pvmt all`): a city with
 	// no roads or no stations is not a failure. Coverage routes over the road
@@ -274,7 +280,7 @@ func doCompute(ctx context.Context, out, progress, errOut io.Writer, notify tui.
 		// Nothing to route from: drop the service's part, so a city whose
 		// stations were removed stops publishing its old coverage.
 		notify.PhaseDone(phaseLoad, err)
-		return compute.WithDraft(ctx, opts.Draft, in.store, in.configHash, func(draft *db.Draft) error {
+		return compute.WithDraft(ctx, opts.Draft, in.store, in.cfg, in.city, func(draft *db.Draft) error {
 			draft.Drop(Producer(in.spec.Name))
 			return err
 		})
@@ -286,13 +292,13 @@ func doCompute(ctx context.Context, out, progress, errOut io.Writer, notify tui.
 	spec, facilities, grid := in.spec, in.facilities, in.grid
 	fmt.Fprintf(progress, "Loaded %d road features (%s), %d %s facilities, %d hexes\n", len(in.roads), in.source, len(facilities), spec.Name, len(grid))
 	notify.PhaseDone(phaseLoad, nil)
-	return compute.WithDraft(ctx, opts.Draft, in.store, in.configHash, func(draft *db.Draft) error {
+	return compute.WithDraft(ctx, opts.Draft, in.store, in.cfg, in.city, func(draft *db.Draft) error {
 		return route(ctx, out, progress, errOut, notify, opts, in, draft)
 	})
 }
 
 // Producer is the snapshot part a service's coverage fills.
-func Producer(service string) string { return "service:" + service }
+func Producer(service string) string { return db.ServiceProducer(service) }
 
 // route builds the road graph, routes every hex to its nearest facility and
 // saves the result as the draft's run for the service.
@@ -329,7 +335,7 @@ func route(ctx context.Context, out, progress, errOut io.Writer, notify tui.Phas
 	notify.PhaseStart(phaseSave)
 	// The run is committed even when it reached nothing: an empty run hides
 	// the metric instead of leaving the previous run's coverage on the map.
-	runID, err := draft.NewRun(ctx, Producer(spec.Name))
+	runID, err := draft.NewRun(ctx, Producer(spec.Name), in.digests)
 	if err != nil {
 		notify.PhaseDone(phaseSave, err)
 		return err

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
@@ -18,9 +19,9 @@ import (
 func TestWithDraft_FailedCommitIsNotNoResults(t *testing.T) {
 	boom := errors.New("database is locked")
 	store := &dbtest.MockStore{
-		CommitSnapshotFunc: func(context.Context, string, map[string]int64) (*db.Snapshot, error) { return nil, boom },
+		CommitSnapshotFunc: func(context.Context, string, float64, map[string]int64) (*db.Snapshot, error) { return nil, boom },
 	}
-	err := WithDraft(context.Background(), nil, store, "h", func(d *db.Draft) error {
+	err := WithDraft(context.Background(), nil, store, &config.Config{}, &config.CityConfig{Name: "Testville"}, func(d *db.Draft) error {
 		d.Drop("service:fire")
 		return cmdutil.ErrNoResults
 	})

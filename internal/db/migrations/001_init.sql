@@ -1,12 +1,15 @@
 -- Init schema: all tables with multi-city support.
 --
--- SCHEMA GENERATION 4. Generation 1 squashed every migration up to and
+-- SCHEMA GENERATION 5. Generation 1 squashed every migration up to and
 -- including v0.4.1's 001/002 and the unreleased 003 (solvent-streets-25t6.2);
 -- generation 2 replaced per-resource snapshots with runs and whole-city
 -- snapshot manifests (solvent-streets-25t6.3); generation 3 stopped storing
 -- forecasts (solvent-streets-ern4.16); generation 4 replaced the
 -- pavement-specific result tables with city_metrics / hex_metrics
--- (solvent-streets-0dkz).
+-- (solvent-streets-0dkz); generation 5 added input digests (city_inputs,
+-- run_inputs), the per-city working state (working_parts), frozen facility
+-- positions (run_facilities) and each snapshot's own hex edge and boundary
+-- (snapshot_boundaries) (solvent-streets-we5i).
 -- A squash is a deliberate breaking change: databases created under an earlier
 -- generation already record schema_version 1, so this file would be SKIPPED for
 -- them and they would run on the old schema. migrate() therefore refuses any
@@ -58,19 +61,45 @@ CREATE INDEX IF NOT EXISTS idx_features_city_type ON features(city_id, resource_
 -- seek instead of a scan of the city/type slice.
 CREATE INDEX IF NOT EXISTS idx_features_city_type_time ON features(city_id, resource_type, fetched_at);
 
--- RUNS and SNAPSHOTS (solvent-streets-25t6).
+-- INPUTS (solvent-streets-we5i). city_inputs holds one digest per stored
+-- input a producer reads: each features resource_type ('roads',
+-- 'facility-fire', 'layer-census-blocks', ...) and 'boundary'. The digest is
+-- a sha256 over the stored rows of that input in a stable order, '' when
+-- there are none (internal/db/inputs.go). UpsertFeatures, SaveBoundary and
+-- GCSweep keep it current in the same transaction as the rows themselves,
+-- and ingested_at moves only when the digest does, so re-ingesting identical
+-- data changes nothing. A run records the digests it read (run_inputs), which
+-- is how a stale part is told apart from a current one without comparing
+-- clocks.
+CREATE TABLE IF NOT EXISTS city_inputs (
+    city_id INTEGER NOT NULL REFERENCES cities(id),
+    input TEXT NOT NULL,
+    digest TEXT NOT NULL,
+    ingested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (city_id, input)
+);
+
+-- RUNS, the WORKING STATE and SNAPSHOTS (solvent-streets-25t6, -we5i).
 --
 -- A run is one producer's output for one city, immutable once written:
 -- producer names the part it fills ("roads", "parking", "sidewalks",
 -- "combined", "service:fire", "census", ...). Every result row below carries
--- the run_id that wrote it.
+-- the run_id that wrote it, and run_inputs records, with the run, the digest
+-- of every input the producer read (db.ProducerInputs), taken before it read
+-- them.
 --
--- A snapshot is the city's COMPLETE computed state: a manifest of
--- (part -> run) rows in snapshot_parts. Each command commits ONE new snapshot
--- = the newest snapshot for the same config hash, with only the parts that
--- command produced swapped in (so a recompute changes only what it
--- recomputes). Every reader resolves ONE snapshot and reads only its runs.
--- All runs in a snapshot share the snapshot's config_hash.
+-- working_parts is the city's working state per config hash: the latest run
+-- of each part. snapshot_parts is a snapshot's frozen manifest of
+-- (part -> run) rows. A snapshot also freezes what its rendering depends on
+-- beyond its runs: the hex edge its grid was tiled at, and the boundary it
+-- was clipped to (snapshot_boundaries, content-addressed so identical
+-- boundaries are stored once). Every reader resolves ONE snapshot and reads
+-- only its runs. All runs in a snapshot share the snapshot's config_hash.
+--
+-- Each command commits ONE new snapshot = the newest snapshot for the same
+-- config hash, with only the parts that command produced swapped in, and
+-- sets the working state to that manifest. A run referenced by a snapshot or
+-- by the working state is never swept.
 CREATE TABLE IF NOT EXISTS runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     city_id INTEGER NOT NULL REFERENCES cities(id),
@@ -81,15 +110,61 @@ CREATE TABLE IF NOT EXISTS runs (
 
 CREATE INDEX IF NOT EXISTS idx_runs_city ON runs(city_id);
 
+CREATE TABLE IF NOT EXISTS run_inputs (
+    run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    input TEXT NOT NULL,
+    digest TEXT NOT NULL,
+    PRIMARY KEY (run_id, input)
+) STRICT, WITHOUT ROWID;
+
+-- The facility positions a service run routed from, so its coverage renders
+-- with the stations that produced it after the facilities are re-ingested.
+CREATE TABLE IF NOT EXISTS run_facilities (
+    run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    facility_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    source TEXT NOT NULL,
+    lon REAL NOT NULL,
+    lat REAL NOT NULL,
+    PRIMARY KEY (run_id, facility_id)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS working_parts (
+    city_id INTEGER NOT NULL REFERENCES cities(id),
+    config_hash TEXT NOT NULL,
+    part TEXT NOT NULL,
+    run_id INTEGER NOT NULL REFERENCES runs(id),
+    PRIMARY KEY (city_id, config_hash, part)
+) STRICT, WITHOUT ROWID;
+
+-- "Is this run in the working state?" (delete / gc).
+CREATE INDEX IF NOT EXISTS idx_working_parts_run ON working_parts(run_id);
+
+CREATE TABLE IF NOT EXISTS snapshot_boundaries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    city_id INTEGER NOT NULL REFERENCES cities(id),
+    digest TEXT NOT NULL,
+    geometry_json TEXT NOT NULL,
+    source TEXT NOT NULL,
+    UNIQUE (city_id, digest)
+) STRICT;
+
+-- hex_edge_m and boundary_id freeze the grid a snapshot was computed on.
+-- boundary_id is NULL only when the city had no stored boundary at commit.
 CREATE TABLE IF NOT EXISTS snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     city_id INTEGER NOT NULL REFERENCES cities(id),
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    config_hash TEXT NOT NULL DEFAULT ''
+    config_hash TEXT NOT NULL DEFAULT '',
+    hex_edge_m REAL NOT NULL,
+    boundary_id INTEGER REFERENCES snapshot_boundaries(id)
 );
 
--- Resolution reads "newest snapshot for this city [and config hash]".
+-- Resolution reads "newest snapshot for this city [and config hash]"; the
+-- city_id prefix also serves the any-hash reads.
 CREATE INDEX IF NOT EXISTS idx_snapshots_city_hash ON snapshots(city_id, config_hash);
+-- "Is this boundary still frozen by a snapshot?" (delete / gc).
+CREATE INDEX IF NOT EXISTS idx_snapshots_boundary ON snapshots(boundary_id);
 
 CREATE TABLE IF NOT EXISTS snapshot_parts (
     snapshot_id INTEGER NOT NULL REFERENCES snapshots(id),

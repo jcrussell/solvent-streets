@@ -40,13 +40,18 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 		want := []string{
 			"cities",
 			"city_boundaries",
+			"city_inputs",
 			"city_metrics",
 			"features",
 			"hex_metrics",
+			"run_facilities",
+			"run_inputs",
 			"runs",
 			"schema_version",
+			"snapshot_boundaries",
 			"snapshot_parts",
 			"snapshots",
+			"working_parts",
 		}
 		got := listTables(t, ctx, root.db)
 		for _, name := range want {
@@ -59,7 +64,7 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 		// are now city_metrics / hex_metrics rows.
 		for _, gone := range []string{"forecast_results", "compute_results", "hex_stats", "cohort_stats"} {
 			if slices.Contains(got, gone) {
-				t.Errorf("%s exists; generation 4 has no such table", gone)
+				t.Errorf("%s exists; generation 5 has no such table", gone)
 			}
 		}
 	})
@@ -71,9 +76,12 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 		// TestColdMigration_ResultRowsRequireARun).
 		scoped := []string{
 			"city_boundaries",
+			"city_inputs",
 			"features",
 			"runs",
+			"snapshot_boundaries",
 			"snapshots",
+			"working_parts",
 		}
 		for _, table := range scoped {
 			fks := listForeignKeys(t, ctx, root.db, table)
@@ -132,8 +140,9 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 		// would silently turn a hot read into a table scan.
 		want := map[string][]string{
 			"features":       {"idx_features_city_type", "idx_features_city_type_time"},
-			"snapshots":      {"idx_snapshots_city_hash"},
+			"snapshots":      {"idx_snapshots_city_hash", "idx_snapshots_boundary"},
 			"snapshot_parts": {"idx_snapshot_parts_run"},
+			"working_parts":  {"idx_working_parts_run"},
 		}
 		for table, indexes := range want {
 			got := listIndexes(t, ctx, root.db, table)
@@ -158,7 +167,7 @@ func TestColdMigration_ResultRowsRequireARun(t *testing.T) {
 	t.Cleanup(func() { _ = root.Close() })
 	// Every result row is tagged with the run that wrote it, NOT NULL: a
 	// row no snapshot can reach through a run would be invisible forever.
-	for _, table := range []string{"city_metrics", "hex_metrics"} {
+	for _, table := range []string{"city_metrics", "hex_metrics", "run_inputs", "run_facilities"} {
 		var run *columnInfo
 		cols := listColumns(t, ctx, root.db, table)
 		for i := range cols {
@@ -205,6 +214,9 @@ func TestQueryPlan_UsesCompositeIndexes(t *testing.T) {
 		{"features last ingest lookup", `SELECT fetched_at FROM features WHERE resource_type = ? AND city_id = ? ORDER BY fetched_at DESC LIMIT 1`, "INDEX idx_features_city_type_time"},
 		{"newest snapshot for a hash", `SELECT id FROM snapshots WHERE city_id = ? AND config_hash = ? ORDER BY id DESC LIMIT 1`, "INDEX idx_snapshots_city_hash"},
 		{"run still referenced", `SELECT COUNT(*) FROM snapshot_parts WHERE run_id = ?`, "INDEX idx_snapshot_parts_run"},
+		{"run in the working state", `SELECT COUNT(*) FROM working_parts WHERE run_id = ?`, "INDEX idx_working_parts_run"},
+		{"boundary still frozen", `SELECT COUNT(*) FROM snapshots WHERE boundary_id = ?`, "INDEX idx_snapshots_boundary"},
+		{"input digests", `SELECT input, digest FROM city_inputs WHERE city_id = ? AND input IN (?, ?)`, "(city_id=? AND input=?)"},
 		{"count a run's rows", `SELECT COUNT(*) FROM hex_metrics WHERE run_id IN (?, ?)`, "PRIMARY KEY"},
 	}
 
@@ -217,7 +229,7 @@ func TestQueryPlan_UsesCompositeIndexes(t *testing.T) {
 			if !strings.Contains(plan, tc.wantIndex) {
 				t.Errorf("query %q\nplan:\n%s\nwant %s", tc.query, plan, tc.wantIndex)
 			}
-			for _, table := range []string{"features", "city_metrics", "hex_metrics", "snapshots", "snapshot_parts"} {
+			for _, table := range []string{"features", "city_metrics", "hex_metrics", "snapshots", "snapshot_parts", "working_parts", "city_inputs"} {
 				if strings.Contains(plan, "SCAN "+table+"\n") {
 					t.Errorf("query %q falls back to a full table scan:\n%s", tc.query, plan)
 				}
@@ -575,6 +587,10 @@ func TestOpen_RefusesOlderGeneration(t *testing.T) {
 		// Generation 3 is the one pre-release users actually hold: typed result
 		// tables (hex_stats) before the generic city_metrics / hex_metrics rows.
 		{"pre-release generation 3 (typed result tables)", []int{1}, 3, "hex_stats"},
+		// Generation 4 had no input digests, working state or frozen snapshot
+		// grid; it is the schema the v0.5.0 pre-release binaries before
+		// solvent-streets-we5i created.
+		{"pre-release generation 4 (no input digests)", []int{1}, 4, "generation_4_marker"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()

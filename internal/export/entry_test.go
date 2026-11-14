@@ -200,14 +200,14 @@ func TestPinCurrentSnapshot(t *testing.T) {
 	hash := cfg.CityHash(&city)
 	commitArea := func(h string, area float64) {
 		t.Helper()
-		run, err := store.CreateRun(ctx, "roads", h)
+		run, err := store.CreateRun(ctx, "roads", h, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if err := store.SaveCityMetrics(ctx, run.ID, results.TotalRows(resource.TypeRoads, results.Totals{Area: area})); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := store.CommitSnapshot(ctx, h, map[string]int64{"roads": run.ID}); err != nil {
+		if _, err := store.CommitSnapshot(ctx, h, cfg.ResolvedHexEdge(&city), map[string]int64{"roads": run.ID}); err != nil {
 			t.Fatal(err)
 		}
 	}

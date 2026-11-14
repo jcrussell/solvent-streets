@@ -129,8 +129,9 @@ centerline source share one paging and completeness core, `ingest.ArcGISQuery`.
 
 The database is a single SQLite file in the data directory (see
 [configuration.md](configuration.md#files-and-directories)), opened in WAL
-mode. Every ingest table, and `runs` and `snapshots`, carries a `city_id`;
-`snapshot_parts` belongs to its city through its snapshot. Results do not:
+mode. Every ingest table, and `runs`, `working_parts`, `snapshots` and
+`snapshot_boundaries`, carries a `city_id`; `snapshot_parts` belongs to its
+city through its snapshot. Results do not:
 each result row hangs off the run that wrote it and is deleted with it
 (`ON DELETE CASCADE`), so a city's results are its runs' results. Results are
 long-format metric rows (metric, subject, value) rather than per-measure
@@ -143,15 +144,33 @@ tables, so a new producer adds metric keys, not tables:
 Both are keyed by run and measure, which makes each row write-once. The
 metric keys and the subject convention are in `internal/resource/metric.go`.
 
+Freshness is tracked by content, not by clock. `city_inputs` holds a digest
+of each stored input: one per features `resource_type`, plus `boundary`. It
+is a sha256 over the stored rows in id order (`internal/db/inputs.go`), or
+`""` when there are none. `UpsertFeatures`, `SaveBoundary` and `GCSweep`
+update it in the same transaction as the rows. `ingested_at` moves only when
+the digest does, so re-ingesting identical data changes nothing. Each run
+records the digests it read in `run_inputs`. `db.ProducerInputs` is the one
+statement of which inputs each producer reads, and the producer takes the
+digests before it reads the data, so an ingest that lands mid-compute makes
+the run look stale rather than current. `run_facilities` is for the facility
+positions a service run routed from; nothing writes it yet.
+
 ```mermaid
 erDiagram
     cities ||--o{ features : has
     cities ||--o| city_boundaries : has
     cities ||--o{ runs : has
     cities ||--o{ snapshots : has
+    cities ||--o{ city_inputs : has
+    cities ||--o{ working_parts : has
 
     snapshots ||--o{ snapshot_parts : lists
+    snapshot_boundaries |o--o{ snapshots : "clipped to"
     runs ||--o{ snapshot_parts : "fills a part of"
+    runs ||--o{ working_parts : "is the latest of"
+    runs ||--o{ run_inputs : read
+    runs ||--o{ run_facilities : "routed from"
     runs ||--o{ city_metrics : wrote
     runs ||--o{ hex_metrics : wrote
 
@@ -177,6 +196,12 @@ erDiagram
         text source_api
         datetime fetched_at
     }
+    city_inputs {
+        int city_id PK
+        text input PK
+        text digest
+        datetime ingested_at
+    }
     runs {
         int id PK
         int city_id FK
@@ -184,11 +209,39 @@ erDiagram
         text config_hash
         datetime computed_at
     }
+    run_inputs {
+        int run_id PK
+        text input PK
+        text digest
+    }
+    run_facilities {
+        int run_id PK
+        text facility_id PK
+        text name
+        text source
+        real lon
+        real lat
+    }
+    working_parts {
+        int city_id PK
+        text config_hash PK
+        text part PK
+        int run_id FK
+    }
     snapshots {
         int id PK
         int city_id FK
         text config_hash
+        real hex_edge_m
+        int boundary_id FK
         datetime created_at
+    }
+    snapshot_boundaries {
+        int id PK
+        int city_id FK
+        text digest
+        text geometry_json
+        text source
     }
     snapshot_parts {
         int snapshot_id PK
@@ -241,9 +294,15 @@ once at startup (`CityEntry.PinCurrentSnapshot`), so a compute that commits
 meanwhile cannot mix two snapshots into one city's files. `?snapshot=N`
 overrides the pin per request.
 
+A snapshot also freezes what drawing its grid depends on: the hex edge it was
+tiled at (`hex_edge_m`) and the boundary it was clipped to, stored once per
+distinct boundary in `snapshot_boundaries`. Alongside the snapshots,
+`working_parts` holds each city's *working state* per config hash, the latest
+run of each part.
+
 Each command builds a `db.Draft` and commits it as one snapshot: the newest
 snapshot under the same hash, with only the parts the command produced swapped
-in. `pvmt roads compute` replaces the roads part, and fire coverage, population
+in. The commit also makes that manifest the working state. `pvmt roads compute` replaces the roads part, and fire coverage, population
 and the other resources carry over. `pvmt all compute` commits one snapshot
 per city covering all of its steps. A failed step leaves its part as it was.
 
@@ -258,7 +317,8 @@ compute. It warns when a part the city had under earlier settings has not yet
 been produced under the current ones.
 
 Uncommitted runs are invisible. A cancelled or failed command discards its
-runs, and `pvmt gc` sweeps any left by a crash once they are a day old
+runs, and `pvmt gc` sweeps any that neither a snapshot nor the working state
+references once they are a day old
 (`db.OrphanRunGrace`). The grace is that long because one city of `pvmt all
 compute` can legitimately hold an uncommitted run for hours. Write
 transactions take the lock up front (`_txlock=immediate`) and wait out SQLite's
@@ -267,7 +327,8 @@ busy timeout. A snapshot commit then keeps retrying for up to two minutes
 failing. No producer reads
 another's results, so two commands committing in either order each swap in
 only their own parts. `pvmt snapshots prune` and `rm` delete manifests, then
-every run no surviving snapshot references.
+every run that neither a surviving snapshot nor the working state references,
+and every frozen boundary no snapshot uses.
 
 ## Config hash
 

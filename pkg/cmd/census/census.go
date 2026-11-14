@@ -79,7 +79,7 @@ func RunComputeForCity(ctx context.Context, cf *cmdutil.Factory, grid []geo.Hex,
 }
 
 // Producer is the snapshot part the population metrics fill.
-const Producer = "census"
+const Producer = db.ProducerCensus
 
 // optedOut reports a city with census = false as ErrNoResults (a quiet skip
 // in `pvmt all`).
@@ -205,7 +205,7 @@ func runCompute(ctx context.Context, opts *Options) error {
 		return fmt.Errorf("database: %w", err)
 	}
 
-	return compute.WithDraft(ctx, opts.Draft, store, cfg.CityHash(city), func(draft *db.Draft) error {
+	return compute.WithDraft(ctx, opts.Draft, store, cfg, city, func(draft *db.Draft) error {
 		// Opted out, or no blocks: an empty result (ErrNoResults, a quiet skip
 		// in `pvmt all`) that drops the census part, so a city that had
 		// population before stops publishing it.
@@ -213,6 +213,12 @@ func runCompute(ctx context.Context, opts *Options) error {
 			noteDisabled(errOut, city)
 			draft.Drop(Producer)
 			return cmdutil.ErrNoResults
+		}
+		// Digests first: an ingest landing after this makes the run stale,
+		// never falsely current.
+		inputs, err := db.ReadProducerInputs(ctx, store, Producer)
+		if err != nil {
+			return err
 		}
 		rows, err := store.ListFeatures(ctx, resource.TypeCensusBlocks)
 		if err != nil {
@@ -227,14 +233,14 @@ func runCompute(ctx context.Context, opts *Options) error {
 		if err != nil {
 			return err
 		}
-		return apportion(ctx, out, errOut, opts, city, store, rows, target, draft)
+		return apportion(ctx, out, errOut, opts, city, store, rows, target, draft, inputs)
 	})
 }
 
 // apportion spreads the blocks' counts onto the grid and saves the three
 // population metrics as the draft's census run.
 func apportion(ctx context.Context, out, errOut io.Writer, opts *Options, city *config.CityConfig, store db.Store,
-	rows []db.Feature, target *compute.MetricTarget, draft *db.Draft) error {
+	rows []db.Feature, target *compute.MetricTarget, draft *db.Draft, inputs map[string]string) error {
 	feats := db.ResourceFeatures(rows)
 	fmt.Fprintf(errOut, "Apportioning %d Census blocks onto %d hexes for %s...\n", len(feats), len(target.Grid), city.Name)
 	projected := blocks.BufferFeaturesPaired(ctx, feats, target.Proj)
@@ -247,7 +253,7 @@ func apportion(ctx context.Context, out, errOut io.Writer, opts *Options, city *
 	// All three keys in one transaction under one run. The run is committed
 	// even when it apportioned nothing, so an empty rerun hides the metrics
 	// instead of leaving the previous run's on the map.
-	runID, err := draft.NewRun(ctx, Producer)
+	runID, err := draft.NewRun(ctx, Producer, inputs)
 	if err != nil {
 		return err
 	}

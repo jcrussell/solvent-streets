@@ -52,17 +52,23 @@ func RunCombined(ctx context.Context, f *cmdutil.Factory, grid []geo.Hex, draft 
 	}
 	ios := f.IOStreams
 
+	producer := string(resource.CombinedAll)
+	// Digests first: an ingest landing after this makes the run stale, never
+	// falsely current.
+	inputs, err := db.ReadProducerInputs(ctx, store, producer)
+	if err != nil {
+		return err
+	}
 	boundaryGJSON, bbox, proj, err := LoadBoundary(ctx, store, city)
 	if err != nil {
 		return err
 	}
 
-	producer := string(resource.CombinedAll)
 	bufs := bufferAllResources(ctx, store, proj, ios.ErrOut)
 	if len(bufs.all) == 0 {
 		// Nothing to union: drop the part rather than keep an old total.
 		fmt.Fprintf(ios.ErrOut, "combined: no features across resources, skipping\n")
-		return WithDraft(ctx, draft, store, cfg.CityHash(city), func(draft *db.Draft) error {
+		return WithDraft(ctx, draft, store, cfg, city, func(draft *db.Draft) error {
 			draft.Drop(producer)
 			return nil
 		})
@@ -74,8 +80,8 @@ func RunCombined(ctx context.Context, f *cmdutil.Factory, grid []geo.Hex, draft 
 	if hexes == nil {
 		hexes = BuildClippedHexGrid(ctx, cfg, city, proj, bbox, boundaryGJSON, ios.ErrOut)
 	}
-	return WithDraft(ctx, draft, store, cfg.CityHash(city), func(draft *db.Draft) error {
-		runID, err := draft.NewRun(ctx, producer)
+	return WithDraft(ctx, draft, store, cfg, city, func(draft *db.Draft) error {
+		runID, err := draft.NewRun(ctx, producer, inputs)
 		if err != nil {
 			return err
 		}

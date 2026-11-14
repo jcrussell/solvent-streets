@@ -11,20 +11,23 @@ import (
 	"time"
 )
 
+// testEdge is the hex edge test snapshots are committed at.
+const testEdge = 100.0
+
 // commitRun creates a run for producer under hash, lets write store rows
 // tagged with it, and commits a snapshot that swaps in just that part. It
 // returns the run and snapshot ids.
 func commitRun(t *testing.T, store Store, hash, producer string, write func(run int64)) (int64, int64) {
 	t.Helper()
 	ctx := context.Background()
-	run, err := store.CreateRun(ctx, producer, hash)
+	run, err := store.CreateRun(ctx, producer, hash, nil)
 	if err != nil {
 		t.Fatalf("CreateRun(%s): %v", producer, err)
 	}
 	if write != nil {
 		write(run.ID)
 	}
-	snap, err := store.CommitSnapshot(ctx, hash, map[string]int64{producer: run.ID})
+	snap, err := store.CommitSnapshot(ctx, hash, testEdge, map[string]int64{producer: run.ID})
 	if err != nil {
 		t.Fatalf("CommitSnapshot(%s): %v", producer, err)
 	}
@@ -226,7 +229,7 @@ func TestSnapshot_UncommittedRunsAreInvisible(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 	commitRun(t, store, "h", "roads", roadsRun(t, store, 100))
-	run, err := store.CreateRun(ctx, "roads", "h")
+	run, err := store.CreateRun(ctx, "roads", "h", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,7 +238,7 @@ func TestSnapshot_UncommittedRunsAreInvisible(t *testing.T) {
 	if got := roadsArea(t, store); got != 100 {
 		t.Errorf("committed view = %v, want 100 (the pending run is invisible)", got)
 	}
-	if _, err := store.CommitSnapshot(ctx, "h", map[string]int64{"roads": run.ID}); err != nil {
+	if _, err := store.CommitSnapshot(ctx, "h", testEdge, map[string]int64{"roads": run.ID}); err != nil {
 		t.Fatal(err)
 	}
 	if got := roadsArea(t, store); got != 200 {
@@ -257,8 +260,8 @@ func TestCommitSnapshot_RejectsInconsistentRuns(t *testing.T) {
 	idB, _ := root.EnsureCity(ctx, "b", "B", "test")
 	storeA, storeB := root.ForCity(idA), root.ForCity(idB)
 
-	roads, _ := storeA.CreateRun(ctx, "roads", "h")
-	other, _ := storeB.CreateRun(ctx, "roads", "h")
+	roads, _ := storeA.CreateRun(ctx, "roads", "h", nil)
+	other, _ := storeB.CreateRun(ctx, "roads", "h", nil)
 	for name, parts := range map[string]map[string]int64{
 		"wrong part":     {"parking": roads.ID},
 		"wrong hash":     {"roads": roads.ID},
@@ -269,7 +272,7 @@ func TestCommitSnapshot_RejectsInconsistentRuns(t *testing.T) {
 		if name == "wrong hash" {
 			hash = "other"
 		}
-		if _, err := storeA.CommitSnapshot(ctx, hash, parts); err == nil {
+		if _, err := storeA.CommitSnapshot(ctx, hash, testEdge, parts); err == nil {
 			t.Errorf("%s: commit succeeded, want an error", name)
 		}
 	}
@@ -279,8 +282,9 @@ func TestCommitSnapshot_RejectsInconsistentRuns(t *testing.T) {
 }
 
 // TestDeleteSnapshot_KeepsRunsOtherSnapshotsUse: deleting a snapshot removes
-// only runs no other snapshot references, so every surviving snapshot still
-// reads exactly what it did. Another city's id is not found.
+// only runs neither another snapshot nor the working state references, so
+// every surviving snapshot, and the working state, still reads exactly what
+// it did. Another city's id is not found.
 func TestDeleteSnapshot_KeepsRunsOtherSnapshotsUse(t *testing.T) {
 	ctx := context.Background()
 	root, err := Open(":memory:")
@@ -292,8 +296,8 @@ func TestDeleteSnapshot_KeepsRunsOtherSnapshotsUse(t *testing.T) {
 	other, _ := root.EnsureCity(ctx, "b", "B", "test")
 	store := root.ForCity(id)
 
-	roads1, _ := commitRun(t, store, "h", "roads", roadsRun(t, store, 100))
-	commitRun(t, store, "h", "service:fire", fireRun(t, store, HexMetric{HexID: "f1"}))
+	roads1, s1 := commitRun(t, store, "h", "roads", roadsRun(t, store, 100))
+	fire, s2 := commitRun(t, store, "h", "service:fire", fireRun(t, store, HexMetric{HexID: "f1"}))
 	roads2, s3 := commitRun(t, store, "h", "roads", roadsRun(t, store, 200))
 
 	if ok, err := root.ForCity(other).DeleteSnapshot(ctx, s3); err != nil || ok {
@@ -302,11 +306,9 @@ func TestDeleteSnapshot_KeepsRunsOtherSnapshotsUse(t *testing.T) {
 	if ok, err := store.DeleteSnapshot(ctx, s3); err != nil || !ok {
 		t.Fatalf("DeleteSnapshot(s3) = (%v, %v)", ok, err)
 	}
-	if n := countRows(t, root, `SELECT COUNT(*) FROM runs WHERE id = ?`, roads2); n != 0 {
-		t.Error("the roads run only s3 used survived its deletion")
-	}
-	if n := countRows(t, root, `SELECT COUNT(*) FROM hex_metrics WHERE run_id = ?`, roads2); n != 0 {
-		t.Error("rows of the deleted run survived")
+	// The working state is still s3's manifest, so its runs stay.
+	if n := countRows(t, root, `SELECT COUNT(*) FROM runs WHERE id = ?`, roads2); n != 1 {
+		t.Error("the roads run the working state references was deleted with s3")
 	}
 	// s2 is now the newest: roads 100 and fire intact.
 	if got := roadsArea(t, store); got != 100 {
@@ -318,6 +320,23 @@ func TestDeleteSnapshot_KeepsRunsOtherSnapshotsUse(t *testing.T) {
 	if n := countRows(t, root, `SELECT COUNT(*) FROM runs WHERE id = ?`, roads1); n != 1 {
 		t.Error("the roads run s2 still references was deleted")
 	}
+
+	// roads1 is in s1 and s2 only: it goes with the last of them. The fire
+	// run is in the working state too, so it stays.
+	for _, snap := range []int64{s1, s2} {
+		if ok, err := store.DeleteSnapshot(ctx, snap); err != nil || !ok {
+			t.Fatalf("DeleteSnapshot(%d) = (%v, %v)", snap, ok, err)
+		}
+	}
+	if n := countRows(t, root, `SELECT COUNT(*) FROM runs WHERE id = ?`, roads1); n != 0 {
+		t.Error("the roads run no snapshot or working part references survived")
+	}
+	if n := countRows(t, root, `SELECT COUNT(*) FROM hex_metrics WHERE run_id = ?`, roads1); n != 0 {
+		t.Error("rows of the deleted run survived")
+	}
+	if n := countRows(t, root, `SELECT COUNT(*) FROM runs WHERE id = ?`, fire); n != 1 {
+		t.Error("the fire run the working state references was deleted")
+	}
 }
 
 // TestDiscardRun: an uncommitted run and its rows go; a committed one is
@@ -326,7 +345,7 @@ func TestDiscardRun(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 	committed, _ := commitRun(t, store, "h", "roads", roadsRun(t, store, 100))
-	pending, err := store.CreateRun(ctx, "roads", "h")
+	pending, err := store.CreateRun(ctx, "roads", "h", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,9 +382,9 @@ func TestGC_OrphanRuns(t *testing.T) {
 	seedGCFeature(t, root, id, "f1", "overpass")
 
 	committed, _ := commitRun(t, store, "h", "roads", roadsRun(t, store, 100))
-	old, _ := store.CreateRun(ctx, "roads", "h")
+	old, _ := store.CreateRun(ctx, "roads", "h", nil)
 	roadsRun(t, store, 1)(old.ID)
-	young, _ := store.CreateRun(ctx, "parking", "h")
+	young, _ := store.CreateRun(ctx, "parking", "h", nil)
 	parkingRun(t, store, 1)(young.ID)
 	stale := time.Now().Add(-2 * OrphanRunGrace).UTC().Format(time.DateTime)
 	if _, err := root.db.ExecContext(ctx, `UPDATE runs SET computed_at = ? WHERE id IN (?, ?)`, stale, old.ID, committed); err != nil {
@@ -514,8 +533,8 @@ func TestDraft(t *testing.T) {
 	store := openTestStore(t)
 	commitRun(t, store, "h", "service:fire", fireRun(t, store, HexMetric{HexID: "f1"}))
 
-	d := NewDraft(store, "h")
-	roads, err := d.NewRun(ctx, "roads")
+	d := NewDraft(store, "h", testEdge)
+	roads, err := d.NewRun(ctx, "roads", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -524,7 +543,7 @@ func TestDraft(t *testing.T) {
 	if _, ok := cityArea(t, store, "roads"); ok {
 		t.Error("put but uncommitted roads is readable, want invisible")
 	}
-	abandoned, _ := d.NewRun(ctx, "parking")
+	abandoned, _ := d.NewRun(ctx, "parking", nil)
 	parkingRun(t, store, 5)(abandoned)
 
 	snap, err := d.Commit(ctx)
@@ -543,12 +562,12 @@ func TestDraft(t *testing.T) {
 		t.Errorf("the never-put run survived Commit (%d, %v)", n, err)
 	}
 
-	if s, err := NewDraft(store, "h").Commit(ctx); err != nil || s == nil || s.ID != snap.ID {
+	if s, err := NewDraft(store, "h", testEdge).Commit(ctx); err != nil || s == nil || s.ID != snap.ID {
 		t.Errorf("empty draft Commit = (%v, %v), want the current snapshot %d unchanged", s, err, snap.ID)
 	}
 
-	d2 := NewDraft(store, "h")
-	r2, _ := d2.NewRun(ctx, "roads")
+	d2 := NewDraft(store, "h", testEdge)
+	r2, _ := d2.NewRun(ctx, "roads", nil)
 	d2.Put("roads", r2)
 	if err := d2.Discard(ctx); err != nil {
 		t.Fatal(err)
@@ -567,7 +586,7 @@ func TestDraft_DropRemovesPart(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 	commitRun(t, store, "h", "service:fire", nil)
-	d := NewDraft(store, "h")
+	d := NewDraft(store, "h", testEdge)
 	d.Drop("service:fire")
 	snap, err := d.Commit(ctx)
 	if err != nil {
@@ -744,9 +763,9 @@ func TestCommitSnapshot_ConcurrentProcesses(t *testing.T) {
 		producer := []string{"roads", "parking"}[i]
 		wg.Go(func() {
 			for range perProcess {
-				run, err := store.CreateRun(ctx, producer, "h")
+				run, err := store.CreateRun(ctx, producer, "h", nil)
 				if err == nil {
-					_, err = store.CommitSnapshot(ctx, "h", map[string]int64{producer: run.ID})
+					_, err = store.CommitSnapshot(ctx, "h", testEdge, map[string]int64{producer: run.ID})
 				}
 				errs <- err
 			}
@@ -782,7 +801,7 @@ func TestCommitSnapshot_NoOpWritesNothing(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 
-	snap, err := store.CommitSnapshot(ctx, "h", map[string]int64{"census": 0})
+	snap, err := store.CommitSnapshot(ctx, "h", testEdge, map[string]int64{"census": 0})
 	if err != nil || snap != nil {
 		t.Errorf("drop-only commit with no base = (%+v, %v), want (nil, nil)", snap, err)
 	}
@@ -796,7 +815,7 @@ func TestCommitSnapshot_NoOpWritesNothing(t *testing.T) {
 		"same run again":         {"roads": roads},
 		"nothing":                {},
 	} {
-		got, err := store.CommitSnapshot(ctx, "h", parts)
+		got, err := store.CommitSnapshot(ctx, "h", testEdge, parts)
 		if err != nil || got == nil || got.ID != s1 {
 			t.Errorf("%s: commit = (%+v, %v), want the unchanged snapshot %d", name, got, err, s1)
 		}
@@ -804,7 +823,7 @@ func TestCommitSnapshot_NoOpWritesNothing(t *testing.T) {
 	if snaps, _ := store.ListSnapshots(ctx); len(snaps) != 1 {
 		t.Errorf("no-op commits minted snapshots: %d, want 1", len(snaps))
 	}
-	if _, err := store.CommitSnapshot(ctx, "", map[string]int64{"roads": roads}); err == nil {
+	if _, err := store.CommitSnapshot(ctx, "", testEdge, map[string]int64{"roads": roads}); err == nil {
 		t.Error("commit with an empty config hash succeeded; it would take its base from any hash")
 	}
 }

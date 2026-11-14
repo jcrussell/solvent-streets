@@ -287,6 +287,13 @@ func doCompute(ctx context.Context, out, progress, errOut io.Writer, notify tui.
 		return fmt.Errorf("database: %w", err)
 	}
 
+	producer := string(opts.ResourceType.Type())
+	// Digests first: an ingest landing after this makes the run stale, never
+	// falsely current.
+	inputs, err := db.ReadProducerInputs(ctx, store, producer)
+	if err != nil {
+		return err
+	}
 	boundaryGJSON, bbox, proj, err := LoadBoundary(ctx, store, city)
 	if err != nil {
 		return err
@@ -306,7 +313,6 @@ func doCompute(ctx context.Context, out, progress, errOut io.Writer, notify tui.
 		errOut:   errOut,
 	}
 
-	producer := string(opts.ResourceType.Type())
 	// No features is an empty result (ErrNoResults) that removes the
 	// resource's part, so coverage computed from features
 	// that are gone (a source removed and swept) stops being published. A
@@ -314,7 +320,7 @@ func doCompute(ctx context.Context, out, progress, errOut io.Writer, notify tui.
 	// no-op commit.
 	resFeatures, err := c.loadResourceFeatures(ctx)
 	if errors.Is(err, cmdutil.ErrNoResults) {
-		return WithDraft(ctx, opts.Draft, store, cfg.CityHash(city), func(draft *db.Draft) error {
+		return WithDraft(ctx, opts.Draft, store, cfg, city, func(draft *db.Draft) error {
 			draft.Drop(producer)
 			return err
 		})
@@ -322,8 +328,8 @@ func doCompute(ctx context.Context, out, progress, errOut io.Writer, notify tui.
 	if err != nil {
 		return err
 	}
-	return WithDraft(ctx, opts.Draft, store, cfg.CityHash(city), func(draft *db.Draft) error {
-		runID, err := draft.NewRun(ctx, producer)
+	return WithDraft(ctx, opts.Draft, store, cfg, city, func(draft *db.Draft) error {
+		runID, err := draft.NewRun(ctx, producer, inputs)
 		if err != nil {
 			return err
 		}
