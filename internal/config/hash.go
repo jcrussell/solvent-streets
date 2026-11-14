@@ -111,8 +111,10 @@ import (
 // results before and after the change. See CONTRIBUTING.md.
 //
 // History (all before v0.5.0): 1 — the first semantic hash. 2 — untagged
-// highway=secondary is City, not County (solvent-streets-0mre).
-const ComputeEpoch = 2
+// highway=secondary is City, not County (solvent-streets-0mre). 3 — a
+// service run records the facilities it routed from and its turnout
+// (solvent-streets-s53d).
+const ComputeEpoch = 3
 
 // computeInputsScheme names the encoding of hashEnvelope; part of the hashed
 // bytes so a future encoding can never collide with this one.

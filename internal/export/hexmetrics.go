@@ -78,20 +78,45 @@ type MetricSummaryJSON struct {
 
 // resolvedScale returns the scale (and covered threshold) to publish for a
 // metric: the registry's, unless a service produces it, in which case the
-// bands follow the service spec resolved against the entry's config so a
-// turnout/threshold override moves the legend with it. ok is false when the
-// metric has no threshold.
-func resolvedScale(entry CityEntry, spec hexmetric.Spec) (hexmetric.Scale, float64, bool) {
+// bands follow the service spec. The turnout is the one the snapshot's run
+// for the service recorded (services.MetricTurnoutS), since its stored times
+// include it; the travel threshold, a presentation setting, is the config's
+// ([[services]] overrides applied). A run that recorded no turnout falls back
+// to the config's. ok is false when the metric has no threshold.
+func resolvedScale(ctx context.Context, entry CityEntry, spec hexmetric.Spec) (hexmetric.Scale, float64, bool, error) {
 	svc, ok := services.ForMetric(spec.Key)
 	if !ok {
-		return spec.Scale, 0, false
+		return spec.Scale, 0, false, nil
 	}
 	if entry.Config != nil {
 		svc = services.Resolve(svc, entry.Config.ResolvedServices(&entry.City))
 	}
+	turnout, found, err := runTurnout(ctx, entry, svc.Name)
+	if err != nil {
+		return hexmetric.Scale{}, 0, false, err
+	}
+	if found {
+		svc.TurnoutS = turnout
+	}
 	scale := spec.Scale
 	scale.Bands = svc.LegendBands()
-	return scale, svc.CoveredS(), true
+	return scale, svc.CoveredS(), true, nil
+}
+
+// runTurnout is the turnout the snapshot's run for service recorded; found is
+// false when it recorded none.
+func runTurnout(ctx context.Context, entry CityEntry, service string) (turnout float64, found bool, err error) {
+	subject := db.ServiceProducer(service)
+	rows, err := entry.Store.ListCityMetrics(ctx, []string{subject})
+	if err != nil {
+		return 0, false, fmt.Errorf("listing %s run settings: %w", service, err)
+	}
+	for _, r := range rows {
+		if r.Metric == services.MetricTurnoutS && r.Subject == subject && r.Class == "" {
+			return r.Value, true, nil
+		}
+	}
+	return 0, false, nil
 }
 
 // BuildHexMetrics assembles hex-metrics.json for a city. Returns (nil, nil)
@@ -137,7 +162,10 @@ func metricRows(ctx context.Context, entry CityEntry, key string) ([]db.HexMetri
 // description, rounded per-hex values, and — when rows reference points —
 // the resolved points list with per-hex indexes into it.
 func buildMetricJSON(ctx context.Context, entry CityEntry, spec hexmetric.Spec, rows []db.HexMetric) (MetricJSON, error) {
-	scale, threshold, _ := resolvedScale(entry, spec)
+	scale, threshold, _, err := resolvedScale(ctx, entry, spec)
+	if err != nil {
+		return MetricJSON{}, err
+	}
 	m := MetricJSON{Label: spec.Label, Unit: spec.Unit, Format: spec.Format, Source: spec.Source, Scale: scale, ThresholdS: threshold, Values: make(map[string]float64, len(rows))}
 	refIDs := map[string]bool{}
 	for _, r := range rows {
@@ -168,22 +196,23 @@ func buildMetricJSON(ctx context.Context, entry CityEntry, spec hexmetric.Spec, 
 }
 
 // metricPoints resolves the point ids a metric references. A service's
-// coverage metric references its facilities: the ingested OSM points (by
-// feature id) and the city's hand-placed [[cities.facilities]]
-// (services.ConfigFacilityID: service and position, stable across edits to
-// the list's order). Points are returned sorted by id so the file is
-// deterministic.
+// coverage metric references the facilities its run routed from, frozen with
+// the run (Store.ListRunFacilities): the ingested OSM points (by feature id)
+// and the city's hand-placed [[cities.facilities]] (services.ConfigFacilityID).
+// A station moved, added or removed since the compute leaves the markers
+// where the coverage was computed from. Points are returned sorted by id so
+// the file is deterministic.
 func metricPoints(ctx context.Context, entry CityEntry, metricKey string, refIDs map[string]bool) ([]MetricPointJSON, error) {
 	var points []MetricPointJSON
 	for _, spec := range services.Registry {
 		if spec.Metric != metricKey {
 			continue
 		}
-		rows, err := entry.Store.ListFeatures(ctx, resource.FacilityType(spec.Name))
+		facilities, err := entry.Store.ListRunFacilities(ctx, db.ServiceProducer(spec.Name))
 		if err != nil {
 			return nil, fmt.Errorf("listing %s facilities: %w", spec.Name, err)
 		}
-		for _, f := range services.Facilities(db.ResourceFeatures(rows), entry.City.Facilities, spec.Name) {
+		for _, f := range facilities {
 			if refIDs[f.ID] {
 				points = append(points, MetricPointJSON{ID: f.ID, Name: f.Name, Position: [2]float64{f.Lon, f.Lat}, Source: f.Source})
 			}
@@ -222,7 +251,10 @@ func buildMetricSummaries(ctx context.Context, entry CityEntry) (map[string]Metr
 			}
 			checkedGrid = true
 		}
-		_, threshold, hasThreshold := resolvedScale(entry, spec)
+		_, threshold, hasThreshold, err := resolvedScale(ctx, entry, spec)
+		if err != nil {
+			return nil, err
+		}
 		sum, ok := summarizeMetric(spec, rows, threshold, hasThreshold)
 		if !ok {
 			continue

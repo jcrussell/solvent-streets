@@ -117,8 +117,10 @@ CREATE TABLE IF NOT EXISTS run_inputs (
     PRIMARY KEY (run_id, input)
 ) STRICT, WITHOUT ROWID;
 
--- The facility positions a service run routed from, so its coverage renders
--- with the stations that produced it after the facilities are re-ingested.
+-- The facilities a service run routed from (OSM points and
+-- [[cities.facilities]]), so its coverage renders with the stations that
+-- produced it after the facilities are re-ingested or edited. The turnout the
+-- run used is a city_metrics row (metric 'turnout_s', subject the producer).
 CREATE TABLE IF NOT EXISTS run_facilities (
     run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
     facility_id TEXT NOT NULL,

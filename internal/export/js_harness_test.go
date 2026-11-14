@@ -127,17 +127,9 @@ func jsFixtureEntry(t *testing.T) CityEntry {
 	// as painted). hex-metrics.json and meta.metrics in the fixture tree are
 	// then the REAL BuildHexMetrics/BuildMeta output, the same drift guard the
 	// other fixtures get.
-	innerFeatures := store.ListFeaturesFunc
-	store.ListFeaturesFunc = func(ctx context.Context, rt resource.Type) ([]db.Feature, error) {
-		if rt == resource.FacilityType("fire") {
-			return []db.Feature{{ID: jsFixtureStationID, ResourceType: rt, Name: "Station 9", SourceAPI: "overpass",
-				GeometryJSON: `{"type":"Point","coordinates":[-122.25,37.75]}`}}, nil
-		}
-		if innerFeatures != nil {
-			return innerFeatures(ctx, rt)
-		}
-		return nil, nil
-	}
+	store.Facilities = map[string][]db.RunFacility{db.ServiceProducer("fire"): {
+		{ID: jsFixtureStationID, Name: "Station 9", Source: "osm", Lon: -122.25, Lat: 37.75},
+	}}
 	store.HexMetrics = append(store.HexMetrics,
 		db.HexMetric{HexID: "hex:0:0", Metric: services.MetricFire, Value: 300, Ref: jsFixtureStationID},
 		db.HexMetric{HexID: "hex:0:1", Metric: services.MetricFire, Value: 700, Ref: jsFixtureStationID})

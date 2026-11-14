@@ -127,3 +127,36 @@ func (s *sqliteStore) HasHexMetric(ctx context.Context, metric string, subjects 
 		})
 	return len(rows) > 0, err
 }
+
+// SaveRunFacilities writes the facilities runID routed from in one
+// transaction.
+func (s *sqliteStore) SaveRunFacilities(ctx context.Context, runID int64, facilities []RunFacility) error {
+	return s.withTx(ctx, func(tx *sql.Tx) error {
+		stmt, err := tx.PrepareContext(ctx,
+			`INSERT INTO run_facilities (run_id, facility_id, name, source, lon, lat) VALUES (?, ?, ?, ?, ?, ?)`)
+		if err != nil {
+			return fmt.Errorf("prepare run facilities insert: %w", err)
+		}
+		defer func() { _ = stmt.Close() }()
+		for _, f := range facilities {
+			if _, err := stmt.ExecContext(ctx, runID, f.ID, f.Name, f.Source, f.Lon, f.Lat); err != nil {
+				return fmt.Errorf("insert run facility %s: %w", f.ID, err)
+			}
+		}
+		return nil
+	})
+}
+
+// ListRunFacilities returns the facilities of the resolved snapshot's run for
+// producer, ordered by id.
+func (s *sqliteStore) ListRunFacilities(ctx context.Context, producer string) ([]RunFacility, error) {
+	return listView(ctx, s, "run facility",
+		`SELECT facility_id, name, source, lon, lat FROM run_facilities`,
+		viewFilter{sql: `run_id IN (SELECT id FROM runs WHERE producer = ?)`, args: []any{producer}},
+		` ORDER BY facility_id`,
+		func(rows *sql.Rows) (RunFacility, error) {
+			var f RunFacility
+			err := rows.Scan(&f.ID, &f.Name, &f.Source, &f.Lon, &f.Lat)
+			return f, err
+		})
+}

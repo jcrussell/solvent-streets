@@ -348,6 +348,10 @@ func route(ctx context.Context, out, progress, errOut io.Writer, notify tui.Phas
 		notify.PhaseDone(phaseSave, err)
 		return fmt.Errorf("save hex metrics: %w", err)
 	}
+	if err := saveRunContext(ctx, store, runID, spec, facilities); err != nil {
+		notify.PhaseDone(phaseSave, err)
+		return err
+	}
 	draft.Put(Producer(spec.Name), runID)
 	notify.PhaseDone(phaseSave, nil)
 
@@ -363,6 +367,25 @@ func route(ctx context.Context, out, progress, errOut io.Writer, notify tui.Phas
 	}
 	if row.MedianResponseS != nil {
 		fmt.Fprintf(out, "  Median response:   %.0f s (incl. %.0f s turnout)\n", *row.MedianResponseS, spec.TurnoutS)
+	}
+	return nil
+}
+
+// saveRunContext freezes with the run what export draws its coverage with:
+// the facilities it routed from (the station markers) and the turnout its
+// times include (the legend bands and the covered line).
+func saveRunContext(ctx context.Context, store db.Store, runID int64, spec services.Spec, facilities []services.Facility) error {
+	frozen := make([]db.RunFacility, len(facilities))
+	for i, f := range facilities {
+		frozen[i] = db.RunFacility{ID: f.ID, Name: f.Name, Source: f.Source, Lon: f.Lon, Lat: f.Lat}
+	}
+	if err := store.SaveRunFacilities(ctx, runID, frozen); err != nil {
+		return fmt.Errorf("save facilities: %w", err)
+	}
+	if err := store.SaveCityMetrics(ctx, runID, []db.CityMetric{
+		{Metric: services.MetricTurnoutS, Subject: Producer(spec.Name), Value: spec.TurnoutS},
+	}); err != nil {
+		return fmt.Errorf("save turnout: %w", err)
 	}
 	return nil
 }

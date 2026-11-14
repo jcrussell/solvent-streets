@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"slices"
 	"strings"
 	"testing"
 
@@ -363,5 +364,51 @@ func TestServicesCompute_RecordsInputs(t *testing.T) {
 	want := map[string]string{"boundary": "b", "roads": "r", "facility-fire": "f"}
 	if !maps.Equal(recorded, want) {
 		t.Errorf("fire run inputs = %v, want %v", recorded, want)
+	}
+}
+
+// TestServicesCompute_FreezesFacilitiesAndTurnout: the fire run records the
+// facilities it routed from (OSM and [[cities.facilities]]) and the turnout
+// its times include, so export draws markers and legend for the run as
+// computed (solvent-streets-s53d).
+func TestServicesCompute_FreezesFacilitiesAndTurnout(t *testing.T) {
+	var saved []db.HexMetric
+	store := fixtureStore(&saved, nil)
+	var facilities []db.RunFacility
+	var facilityRun int64
+	store.SaveRunFacilitiesFunc = func(_ context.Context, runID int64, fs []db.RunFacility) error {
+		facilityRun, facilities = runID, fs
+		return nil
+	}
+	f := testFactory(store)
+	city := *testCity
+	city.Facilities = []config.FacilityConfig{{Service: "fire", Name: "Manual", Lat: 37.6805, Lon: -121.755}}
+	f.CurrentCity = func() (*config.CityConfig, error) { return &city, nil }
+	f.Config = func() (*config.Config, error) {
+		cfg := testCfg()
+		cfg.Services = []config.ServiceOverride{{Name: "fire", TurnoutS: new(200.0)}}
+		return cfg, nil
+	}
+	if err := RunComputeForCity(context.Background(), f, "fire", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(saved) == 0 || facilityRun != saved[0].RunID {
+		t.Fatalf("facilities saved under run %d, want the fire run %+v", facilityRun, saved)
+	}
+	want := []db.RunFacility{
+		{ID: "osm:node:9", Name: "Station 9", Source: "osm", Lon: -121.775, Lat: 37.6805},
+		{ID: services.ConfigFacilityID("fire", -121.755, 37.6805), Name: "Manual", Source: "config", Lon: -121.755, Lat: 37.6805},
+	}
+	if !slices.Equal(facilities, want) {
+		t.Errorf("frozen facilities = %+v, want %+v", facilities, want)
+	}
+	var turnout []db.CityMetric
+	for _, m := range store.CityMetrics {
+		if m.Metric == services.MetricTurnoutS {
+			turnout = append(turnout, m)
+		}
+	}
+	if len(turnout) != 1 || turnout[0].Subject != Producer("fire") || turnout[0].Value != 200 || turnout[0].RunID != facilityRun {
+		t.Errorf("turnout rows = %+v, want one 200 s row for %s under run %d", turnout, Producer("fire"), facilityRun)
 	}
 }

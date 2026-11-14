@@ -23,29 +23,31 @@ var _ db.Store = (*MockStore)(nil)
 // Tests that assert the empty-path JSON shape (nil -> `null` vs
 // `[]`) must therefore use a real in-memory store, not this mock.
 type MockStore struct {
-	UpsertFeaturesFunc  func(context.Context, resource.Type, []db.Feature, []string) error
-	ListFeaturesFunc    func(context.Context, resource.Type) ([]db.Feature, error)
-	SaveCityMetricsFunc func(context.Context, int64, []db.CityMetric) error
-	ListCityMetricsFunc func(context.Context, []string) ([]db.CityMetric, error)
-	SaveHexMetricsFunc  func(context.Context, int64, []db.HexMetric) error
-	ListHexMetricsFunc  func(context.Context, string, string) ([]db.HexMetric, error)
-	HasHexMetricFunc    func(context.Context, string, []string) (bool, error)
-	CreateRunFunc       func(context.Context, string, string, map[string]string) (*db.Run, error)
-	DiscardRunFunc      func(context.Context, int64) error
-	CommitSnapshotFunc  func(context.Context, string, float64, map[string]int64) (*db.Snapshot, error)
-	ListSnapshotsFunc   func(context.Context) ([]db.Snapshot, error)
-	ResolveSnapshotFunc func(context.Context, int64) error
-	WithSnapshotFunc    func(int64) db.Store
-	WithConfigHashFunc  func(string) db.Store
-	DeleteSnapshotFunc  func(context.Context, int64) (bool, error)
-	GCScanFunc          func(context.Context, []string) (*db.GCReport, error)
-	GCSweepFunc         func(context.Context, []string) (*db.GCReport, error)
-	InputStatesFunc     func(context.Context) ([]db.InputState, error)
-	InputDigestsFunc    func(context.Context, ...string) (map[string]string, error)
-	SaveBoundaryFunc    func(context.Context, string, string) error
-	GetBoundaryFunc     func(context.Context) (string, error)
-	StatsFunc           func(context.Context, resource.Type) (*db.StatusInfo, error)
-	CloseFunc           func() error
+	UpsertFeaturesFunc    func(context.Context, resource.Type, []db.Feature, []string) error
+	ListFeaturesFunc      func(context.Context, resource.Type) ([]db.Feature, error)
+	SaveCityMetricsFunc   func(context.Context, int64, []db.CityMetric) error
+	ListCityMetricsFunc   func(context.Context, []string) ([]db.CityMetric, error)
+	SaveHexMetricsFunc    func(context.Context, int64, []db.HexMetric) error
+	ListHexMetricsFunc    func(context.Context, string, string) ([]db.HexMetric, error)
+	HasHexMetricFunc      func(context.Context, string, []string) (bool, error)
+	SaveRunFacilitiesFunc func(context.Context, int64, []db.RunFacility) error
+	ListRunFacilitiesFunc func(context.Context, string) ([]db.RunFacility, error)
+	CreateRunFunc         func(context.Context, string, string, map[string]string) (*db.Run, error)
+	DiscardRunFunc        func(context.Context, int64) error
+	CommitSnapshotFunc    func(context.Context, string, float64, map[string]int64) (*db.Snapshot, error)
+	ListSnapshotsFunc     func(context.Context) ([]db.Snapshot, error)
+	ResolveSnapshotFunc   func(context.Context, int64) error
+	WithSnapshotFunc      func(int64) db.Store
+	WithConfigHashFunc    func(string) db.Store
+	DeleteSnapshotFunc    func(context.Context, int64) (bool, error)
+	GCScanFunc            func(context.Context, []string) (*db.GCReport, error)
+	GCSweepFunc           func(context.Context, []string) (*db.GCReport, error)
+	InputStatesFunc       func(context.Context) ([]db.InputState, error)
+	InputDigestsFunc      func(context.Context, ...string) (map[string]string, error)
+	SaveBoundaryFunc      func(context.Context, string, string) error
+	GetBoundaryFunc       func(context.Context) (string, error)
+	StatsFunc             func(context.Context, resource.Type) (*db.StatusInfo, error)
+	CloseFunc             func() error
 
 	// CityMetrics and HexMetrics are the rows the default result methods
 	// read and write: SaveCityMetrics / SaveHexMetrics append (tagged with
@@ -61,7 +63,13 @@ type MockStore struct {
 	Digests   map[string]string
 	RunInputs map[int64]map[string]string
 
-	lastRunID int64 // CreateRun's default id sequence
+	// Facilities is what the default ListRunFacilities reads: producer ->
+	// the facilities its run recorded. The default SaveRunFacilities files
+	// rows under the producer the default CreateRun gave the run.
+	Facilities map[string][]db.RunFacility
+
+	lastRunID    int64            // CreateRun's default id sequence
+	runProducers map[int64]string // CreateRun's default run id -> producer
 }
 
 func (m *MockStore) UpsertFeatures(ctx context.Context, rt resource.Type, f []db.Feature, sourceAPIs []string) error {
@@ -172,7 +180,39 @@ func (m *MockStore) CreateRun(ctx context.Context, producer, hash string, inputs
 		m.RunInputs = map[int64]map[string]string{}
 	}
 	m.RunInputs[m.lastRunID] = maps.Clone(inputs)
+	if m.runProducers == nil {
+		m.runProducers = map[int64]string{}
+	}
+	m.runProducers[m.lastRunID] = producer
 	return &db.Run{ID: m.lastRunID, Producer: producer, ConfigHash: hash}, nil
+}
+
+// SaveRunFacilities delegates to SaveRunFacilitiesFunc if set, otherwise
+// appends facilities to Facilities under the run's producer.
+func (m *MockStore) SaveRunFacilities(ctx context.Context, runID int64, facilities []db.RunFacility) error {
+	if m.SaveRunFacilitiesFunc != nil {
+		return m.SaveRunFacilitiesFunc(ctx, runID, facilities)
+	}
+	if m.Facilities == nil {
+		m.Facilities = map[string][]db.RunFacility{}
+	}
+	producer := m.runProducers[runID]
+	m.Facilities[producer] = append(m.Facilities[producer], facilities...)
+	return nil
+}
+
+// ListRunFacilities delegates to ListRunFacilitiesFunc if set, otherwise
+// returns Facilities[producer] ordered by id.
+func (m *MockStore) ListRunFacilities(ctx context.Context, producer string) ([]db.RunFacility, error) {
+	if m.ListRunFacilitiesFunc != nil {
+		return m.ListRunFacilitiesFunc(ctx, producer)
+	}
+	out := slices.Clone(m.Facilities[producer])
+	if out == nil {
+		out = []db.RunFacility{}
+	}
+	slices.SortStableFunc(out, func(a, b db.RunFacility) int { return cmp.Compare(a.ID, b.ID) })
+	return out, nil
 }
 
 func (m *MockStore) DiscardRun(ctx context.Context, id int64) error {

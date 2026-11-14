@@ -91,6 +91,19 @@ type HexMetric struct {
 	ComputedAt time.Time // the run's
 }
 
+// RunFacility is one point of service a service run routed from
+// (run_facilities in 001_init.sql): an ingested OSM facility (Source "osm",
+// ID its feature id) or a hand-placed [[cities.facilities]] entry (Source
+// "config"). Freezing them with the run lets export draw the stations that
+// produced a snapshot's coverage, whatever was ingested or configured since.
+type RunFacility struct {
+	ID     string
+	Name   string
+	Source string
+	Lon    float64
+	Lat    float64
+}
+
 // Run is one producer's output for one city (see 001_init.sql). Producer is
 // the snapshot part it fills, e.g. "roads", "service:fire", "census".
 type Run struct {
@@ -196,6 +209,14 @@ type Store interface {
 	// HasHexMetric reports whether ListHexMetrics would return any row for
 	// metric over any of subjects, with one LIMIT 1 query.
 	HasHexMetric(ctx context.Context, metric string, subjects []string) (bool, error)
+	// SaveRunFacilities records the facilities runID routed from, in one
+	// transaction. Write-once like the metric rows: an id the run already
+	// holds fails the whole save.
+	SaveRunFacilities(ctx context.Context, runID int64, facilities []RunFacility) error
+	// ListRunFacilities returns the facilities recorded by the run that fills
+	// producer's part of the resolved snapshot, ordered by id. No such part,
+	// or a run that recorded none, returns (nil, nil).
+	ListRunFacilities(ctx context.Context, producer string) ([]RunFacility, error)
 	// CreateRun starts a run for producer under configHash. Its rows are
 	// invisible to every reader until a snapshot that includes the run is
 	// committed (CommitSnapshot).

@@ -193,6 +193,11 @@ computed from the old features. An explicit default
 (`hex_edge_m = 100`) hashes the same as leaving it out. The exception is
 `turnout_s`, whose default lives in the services registry.
 
+A service run freezes the facilities it routed from, names included, and the
+turnout it used. The map's station markers and the coverage legend therefore
+show the run as computed, and a renamed or moved facility appears after the
+next `pvmt services compute`. `travel_threshold_s` is read when exporting.
+
 When a city's results were computed under other settings, export refuses the
 city, and forecast, status and serve report the same thing (see
 [troubleshooting](troubleshooting.md#no-snapshot-matches-current-config-hash)).

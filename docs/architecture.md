@@ -153,8 +153,17 @@ the digest does, so re-ingesting identical data changes nothing. Each run
 records the digests it read in `run_inputs`. `db.ProducerInputs` is the one
 statement of which inputs each producer reads, and the producer takes the
 digests before it reads the data, so an ingest that lands mid-compute makes
-the run look stale rather than current. `run_facilities` is for the facility
-positions a service run routed from; nothing writes it yet.
+the run look stale rather than current.
+
+A service run also freezes what export draws its coverage with. It writes
+the facilities it routed from (OSM points and `[[cities.facilities]]`) to
+`run_facilities`. It also writes the turnout its times include as a
+`city_metrics` row: metric `turnout_s`, subject `service:<name>`.
+Export reads both back through the view (`Store.ListRunFacilities`,
+`ListCityMetrics`), so the station markers, legend bands and covered line
+stay those of the run that produced the colours. Later ingests and
+`turnout_s` edits don't move them. Only `travel_threshold_s`, a
+presentation setting, comes from the current config.
 
 ```mermaid
 erDiagram

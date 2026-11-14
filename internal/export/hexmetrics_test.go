@@ -18,19 +18,15 @@ import (
 )
 
 // metricsEntry is a city whose resolved snapshot holds rows (the store's
-// hex metrics), a roads compute and hexStats. The mock stands in for the
-// snapshot: whatever it lists IS the snapshot's metric part.
-func metricsEntry(t *testing.T, rows []db.HexMetric, facilities []db.Feature, hexStats []results.HexCoverage) CityEntry {
+// hex metrics), the facilities the fire run routed from, a roads compute and
+// hexStats. The mock stands in for the snapshot: whatever it lists IS the
+// snapshot's metric part.
+func metricsEntry(t *testing.T, rows []db.HexMetric, facilities []db.RunFacility, hexStats []results.HexCoverage) CityEntry {
 	t.Helper()
 	store := &dbtest.MockStore{
-		CityMetrics: results.TotalRows(resource.TypeRoads, results.Totals{Area: 1}),
-		HexMetrics:  append(slices.Clone(rows), results.HexCoverageRows(rtRoads, hexStats)...),
-		ListFeaturesFunc: func(_ context.Context, rt resource.Type) ([]db.Feature, error) {
-			if rt == resource.FacilityType("fire") {
-				return facilities, nil
-			}
-			return nil, nil
-		},
+		CityMetrics:     results.TotalRows(resource.TypeRoads, results.Totals{Area: 1}),
+		HexMetrics:      append(slices.Clone(rows), results.HexCoverageRows(rtRoads, hexStats)...),
+		Facilities:      map[string][]db.RunFacility{db.ServiceProducer("fire"): facilities},
 		GetBoundaryFunc: func(context.Context) (string, error) { return boundaryGeoJSON, nil },
 	}
 	cfg := &config.Config{ConfigID: "t"}
@@ -38,9 +34,18 @@ func metricsEntry(t *testing.T, rows []db.HexMetric, facilities []db.Feature, he
 	return CityEntry{Config: cfg, City: city, Store: store, Slug: "test-ca"}
 }
 
+// fireFacilities is what a fire run over metricsEntry's city records: one
+// OSM station and the city's hand-placed one.
+func fireFacilities() []db.RunFacility {
+	return []db.RunFacility{
+		{ID: "osm:node:9", Name: "Station 9", Source: "osm", Lon: -122.41, Lat: 37.71},
+		{ID: services.ConfigFacilityID("fire", -122.4, 37.7), Name: "Manual", Source: "config", Lon: -122.4, Lat: 37.7},
+	}
+}
+
 // TestBuildHexMetrics pins the hex-metrics.json contract: one entry per metric
 // with rows carrying the registry description, values rounded, refs resolved
-// to a sorted points list spanning OSM facilities and config facilities, and
+// to a sorted points list spanning the run's OSM and config facilities, and
 // (nil, nil) for a city with no metric rows.
 func TestBuildHexMetrics(t *testing.T) {
 	now := time.Now()
@@ -49,8 +54,7 @@ func TestBuildHexMetrics(t *testing.T) {
 		{HexID: "h2", Metric: services.MetricFire, Value: 420, Ref: services.ConfigFacilityID("fire", -122.4, 37.7), ComputedAt: now},
 		{HexID: "h3", Metric: services.MetricFire, Value: 500, Ref: "osm:node:missing", ComputedAt: now},
 	}
-	facilities := []db.Feature{{ID: "osm:node:9", Name: "Station 9", GeometryJSON: `{"type":"Point","coordinates":[-122.41,37.71]}`}}
-	entry := metricsEntry(t, rows, facilities, nil)
+	entry := metricsEntry(t, rows, fireFacilities(), nil)
 	hm, err := BuildHexMetrics(context.Background(), entry)
 	if err != nil {
 		t.Fatal(err)
@@ -65,7 +69,8 @@ func TestBuildHexMetrics(t *testing.T) {
 	if m.Label != "Fire response" || m.Format != "minutes" || len(m.Scale.Bands) != 4 || m.Scale.Bands[0] != 320 || m.ThresholdS != 320 {
 		t.Errorf("metric description = %+v (bands must start at the default turnout+threshold 320)", m)
 	}
-	// A [[services]] override moves the published bands and threshold with it.
+	// A run that recorded no turnout follows the config's [[services]]
+	// override.
 	entry.Config.Services = []config.ServiceOverride{{Name: "fire", TurnoutS: new(200.0)}}
 	hm2, err := BuildHexMetrics(context.Background(), entry)
 	if err != nil {
@@ -97,24 +102,12 @@ func TestBuildHexMetrics(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A [[cities.facilities]] entry inserted before the station must not
-	// change which station h2 references: ids follow position, not index.
-	entry.City.Facilities = append([]config.FacilityConfig{{Service: "fire", Name: "Inserted", Lat: 37.8, Lon: -122.3}}, entry.City.Facilities...)
-	hm3, err := BuildHexMetrics(context.Background(), entry)
-	if err != nil {
-		t.Fatal(err)
-	}
-	m3 := hm3.Metrics[services.MetricFire]
-	if p := m3.Points[m3.Refs["h2"]]; p.Name != "Manual" {
-		t.Errorf("after inserting a facility, h2 references %q, want Manual", p.Name)
-	}
-
 	empty := metricsEntry(t, nil, nil, nil)
 	if got, err := BuildHexMetrics(context.Background(), empty); err != nil || got != nil {
 		t.Errorf("no rows: got (%v, %v), want (nil, nil)", got, err)
 	}
 
-	boom := metricsEntry(t, rows, facilities, nil)
+	boom := metricsEntry(t, rows, fireFacilities(), nil)
 	boom.Store.(*dbtest.MockStore).ListHexMetricsFunc = func(context.Context, string, string) ([]db.HexMetric, error) { return nil, errors.New("db down") }
 	if _, err := BuildHexMetrics(context.Background(), boom); err == nil {
 		t.Error("a store error must propagate, not become an empty file")

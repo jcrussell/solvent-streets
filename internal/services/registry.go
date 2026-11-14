@@ -126,6 +126,12 @@ func ForMetric(metric string) (Spec, bool) {
 	return Spec{}, false
 }
 
+// MetricTurnoutS is the city metric a service run records its turnout under
+// (subject db.ServiceProducer(name)): the TurnoutS its stored times include,
+// so export draws the legend and the covered line for the run as computed,
+// whatever turnout_s the config says now.
+const MetricTurnoutS = "turnout_s"
+
 // MetricFire is the hexmetric key for fire response time.
 const MetricFire = "fire_response_s"
 
