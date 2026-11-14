@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/jcrussell/solvent-streets/internal/export"
 )
@@ -56,6 +57,11 @@ func (r *runner) checkMeta(label, path string) {
 		r.failf("reasonableness: %s: paved %.3f%% < %.0f%% — possible near-zero-area geometry bug", label, meta.PavedShare*100, minPlausiblePavedShare*100)
 	default:
 		r.passf("reasonableness: %s: paved %.2f%% is plausible", label, meta.PavedShare*100)
+	}
+	// A layer whose ingest failed or never ran ships as missing, not as a
+	// zero; a WARN here is the list of cities to re-ingest (solvent-streets-56r1).
+	if len(meta.MissingResources) > 0 {
+		r.warnf("reasonableness: %s: no data for %s — re-ingest before publishing", label, strings.Join(meta.MissingResources, ", "))
 	}
 }
 

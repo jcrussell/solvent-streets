@@ -443,6 +443,13 @@ type MetaJSON struct {
 	// Metrics summarises each per-hex metric (hex-metrics.json) over the
 	// painted hexes, for the Map stats card. Omitted when none has rows.
 	Metrics map[string]MetricSummaryJSON `json:"metrics,omitempty"`
+	// MissingResources names, in resource.All order, each resource the
+	// city's compute had no features for (or never computed): a layer whose
+	// ingest failed or never ran, not a real zero. The dashboard says the
+	// data is unavailable and keeps the city out of rankings that need the
+	// layer; check-site lists such cities (solvent-streets-56r1). Omitted when
+	// every resource has data, and on a multi-city page's own meta.
+	MissingResources []string `json:"missing_resources,omitempty"`
 }
 
 type StatJSON struct {
@@ -620,11 +627,14 @@ func BuildMeta(ctx context.Context, entry CityEntry, snapshotID int64) (MetaJSON
 			// server's lifetime.
 			return MetaJSON{}, fmt.Errorf("latest compute result for %s: %w", rt.Type(), err)
 		}
+		typeName := string(rt.Type().Bare())
+		if !ok || result.Features == 0 {
+			meta.MissingResources = append(meta.MissingResources, typeName)
+		}
 		if !ok {
 			// This resource hasn't been computed yet.
 			continue
 		}
-		typeName := string(rt.Type().Bare())
 		meta.Stats = append(meta.Stats, StatJSON{
 			ResourceType:    typeName,
 			Color:           ResourceColors[typeName],

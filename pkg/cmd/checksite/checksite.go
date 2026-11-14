@@ -76,7 +76,8 @@ The following checks run over the given directory (default "site"):
   - REASONABLENESS: every meta.json has a plausible paved_share (a value
     between 0 and 0.01 signals the near-zero-area bug), and every
     forecast.json baseline has monotonically falling PCI and non-decreasing
-    deferred backlog year over year.
+    deferred backlog year over year. A city whose meta.json lists
+    missing_resources (a layer with no ingested data) is warned.
   - CONSISTENCY: on a nested multi-export tree, a city slug shared across
     exports reports the same paved area in each. (A single-root export has
     one entry per slug, so nothing to cross-check.)

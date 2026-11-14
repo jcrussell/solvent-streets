@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"math"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -368,5 +370,37 @@ func TestHeadingName_FollowsTheSelectedCity(t *testing.T) {
 	}
 	if got := DefaultCitySlug(nil); got != "" {
 		t.Errorf("DefaultCitySlug(nil) = %q, want empty", got)
+	}
+}
+
+// TestBuildMeta_MissingResources (solvent-streets-56r1): a resource whose
+// compute had no features, or that was never computed, is named in
+// missing_resources so the dashboard does not present it as a real zero.
+func TestBuildMeta_MissingResources(t *testing.T) {
+	entry := hexEntry(t, nil, map[resource.Type]results.Totals{
+		rtRoads:                {Area: 1000, Features: 10},
+		resource.TypeSidewalks: {Area: 0, Features: 0},
+		// parking: never computed
+	})
+	meta, err := BuildMeta(t.Context(), entry, 0)
+	if err != nil {
+		t.Fatalf("BuildMeta: %v", err)
+	}
+	if want := []string{"parking", "sidewalks"}; !slices.Equal(meta.MissingResources, want) {
+		t.Errorf("MissingResources = %v; want %v", meta.MissingResources, want)
+	}
+
+	full := hexEntry(t, nil, map[resource.Type]results.Totals{
+		rtRoads:                {Area: 1000, Features: 10},
+		rtParkingAll:           {Area: 300, Features: 3},
+		resource.TypeSidewalks: {Area: 200, Features: 5},
+	})
+	meta, err = BuildMeta(t.Context(), full, 0)
+	if err != nil {
+		t.Fatalf("BuildMeta: %v", err)
+	}
+	raw, _ := json.Marshal(meta)
+	if strings.Contains(string(raw), "missing_resources") {
+		t.Errorf("a city with every layer must omit missing_resources: %s", raw)
 	}
 }

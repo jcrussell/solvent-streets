@@ -228,6 +228,21 @@ func TestCheckSite_NearZeroPavedShare(t *testing.T) {
 	assertFails(t, dir, "near-zero-area")
 }
 
+// A city with a layer that was never ingested is WARNed by name, so the
+// release build has a re-ingest list (solvent-streets-56r1).
+func TestCheckSite_MissingResourcesWarns(t *testing.T) {
+	dir := buildValidSite(t)
+	m := export.MetaJSON{ProjectName: "Demo", PavedShare: 0.2, TotalPaved: 20000, CityArea: 100000, MissingResources: []string{"sidewalks"}}
+	writeJSONFile(t, filepath.Join(dir, "demo-ca", "data", "meta.json"), m)
+	out, err := run(t, dir, false)
+	if err != nil {
+		t.Fatalf("a missing layer warns, it does not fail: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "no data for sidewalks") {
+		t.Errorf("no missing-layer warning:\n%s", out)
+	}
+}
+
 func TestCheckSite_NonMonotonicForecast(t *testing.T) {
 	dir := buildValidSite(t)
 	// A baseline whose PCI rises year over year.
