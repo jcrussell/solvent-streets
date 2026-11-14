@@ -161,9 +161,30 @@ estimated_spaces) to emit one row per resource.`
 	return cmd
 }
 
+// resolveCityFirst resolves the config and city before the database opens, as
+// the other commands do, so a missing pvmt.toml or an unknown --city says so
+// instead of reading as a database error (solvent-streets-4ftl). Either may be
+// nil (no config).
+func resolveCityFirst(opts *Options) error {
+	if opts.Config != nil {
+		if _, err := opts.Config(); err != nil {
+			return fmt.Errorf("config: %w", err)
+		}
+	}
+	if opts.CurrentCity != nil {
+		if _, err := opts.CurrentCity(); err != nil {
+			return fmt.Errorf("city: %w", err)
+		}
+	}
+	return nil
+}
+
 func runStatus(ctx context.Context, opts *Options) error {
 	ios := opts.IO
 
+	if err := resolveCityFirst(opts); err != nil {
+		return err
+	}
 	store, err := opts.CityDB()
 	if err != nil {
 		return fmt.Errorf("database: %w", err)

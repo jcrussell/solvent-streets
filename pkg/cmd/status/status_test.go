@@ -2,6 +2,7 @@ package status
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -424,5 +425,29 @@ func TestRunStatus_StaleSnapshotsSayWhy(t *testing.T) {
 	}
 	if !strings.Contains(out, cur+"  (current settings)") {
 		t.Errorf("current snapshot not marked:\n%s", out)
+	}
+}
+
+// TestRunStatus_ConfigErrorsAreNotDatabaseErrors pins solvent-streets-4ftl: a
+// missing config or an unknown --city is reported as such, before the
+// database is opened, rather than prefixed "database:".
+func TestRunStatus_ConfigErrorsAreNotDatabaseErrors(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	dbOpened := false
+	opts := &Options{
+		IO:     ios,
+		CityDB: func() (db.Store, error) { dbOpened = true; return &dbtest.MockStore{}, nil },
+		Config: func() (*config.Config, error) { return &config.Config{}, nil },
+		CurrentCity: func() (*config.CityConfig, error) {
+			return nil, errors.New(`city "nowhere" not found in config`)
+		},
+		UnitSystem: func() units.System { return units.Metric },
+	}
+	err := runStatus(context.Background(), opts)
+	if err == nil || !strings.HasPrefix(err.Error(), "city: ") {
+		t.Errorf("err = %v, want a city: error", err)
+	}
+	if dbOpened {
+		t.Error("the database was opened before the city resolved")
 	}
 }
