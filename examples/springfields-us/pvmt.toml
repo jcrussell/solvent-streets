@@ -1,0 +1,134 @@
+# Springfields — every US state's incorporated Springfield that resolves.
+#
+# The name is held constant while geography, climate, size and budget vary,
+# from Springfield, MO (169,847 in the Census Vintage 2025 estimates) and the
+# Illinois state capital down to fifteen towns under that table's 20,000
+# floor. Every other config confounds "different city" with "different
+# region"; this one makes the Compare tab compare cities that share nothing
+# but a name.
+#
+# It is also the plainest proof of the "City, ST" naming rule. A name's
+# slug must be unique in a config (docs/configuration.md, "Cities"), and
+# "Springfield, IL" / "Springfield, MA" become springfield-il /
+# springfield-ma, so twenty-one Springfields load side by side.
+#
+# Selection: for each state, "Springfield, ST" is kept when Nominatim
+# resolves it to that state's incorporated Springfield as a
+# boundary=administrative polygon. Checked 2026-11-14 for all 50 states.
+# Left out:
+#   - not incorporated, or OSM holds only a point: VA (a census-designated
+#     place), AR (a node), and the states where the name is a neighbourhood,
+#     hamlet or unincorporated community (AL, AZ, CA, CT, ID, IN, KS, MD,
+#     MS, MT, NC, NM, NV, OK, RI, TX, UT, WA, WV, WY);
+#   - ambiguous: PA and WI each have several Springfield townships or towns,
+#     and IA's is a civil township, not a municipality;
+#   - no Springfield of their own: the lookups for AK, DE, HI and ND return
+#     another state's Springfield.
+# New Jersey's entry is Springfield Township, Union County, the one its
+# lookup returns.
+#
+# Louisiana is the one that needs boundary_relation_id: its lookup ranks
+# Springfield, Oregon first, so the Louisiana town is pinned by relation.
+#
+# Forecasts ride the package defaults on purpose: these towns share no
+# climate or size story, and the variation is the point. Springfield, IL is
+# also in state-capitals-us; it rides the same 100 m default grid in both,
+# and a standalone ingest of each config fetches it once per config.
+#
+# To run:
+#   cd examples/springfields-us
+#   pvmt all ingest      # 21 Nominatim + Overpass pulls, mostly small towns
+#   pvmt all compute
+#   pvmt serve
+
+config_id = "springfields-us"
+
+[export]
+title = "Springfields"
+
+[[cities]]
+name = "Springfield, CO"
+overpass = true
+
+[[cities]]
+name = "Springfield, FL"
+overpass = true
+
+[[cities]]
+name = "Springfield, GA"
+overpass = true
+
+[[cities]]
+name = "Springfield, IL"
+overpass = true
+
+[[cities]]
+name = "Springfield, KY"
+overpass = true
+
+[[cities]]
+name = "Springfield, LA"
+overpass = true
+# Nominatim ranks Springfield, Oregon first for this name; pin the
+# Livingston Parish town.
+boundary_relation_id = 132092
+
+[[cities]]
+name = "Springfield, MA"
+overpass = true
+
+[[cities]]
+name = "Springfield, ME"
+overpass = true
+
+[[cities]]
+name = "Springfield, MI"
+overpass = true
+
+[[cities]]
+name = "Springfield, MN"
+overpass = true
+
+[[cities]]
+name = "Springfield, MO"
+overpass = true
+
+[[cities]]
+name = "Springfield, NE"
+overpass = true
+
+[[cities]]
+name = "Springfield, NH"
+overpass = true
+
+[[cities]]
+name = "Springfield, NJ"
+overpass = true
+
+[[cities]]
+name = "Springfield, NY"
+overpass = true
+
+[[cities]]
+name = "Springfield, OH"
+overpass = true
+
+[[cities]]
+name = "Springfield, OR"
+overpass = true
+
+[[cities]]
+name = "Springfield, SC"
+overpass = true
+
+[[cities]]
+name = "Springfield, SD"
+overpass = true
+
+[[cities]]
+name = "Springfield, TN"
+overpass = true
+
+[[cities]]
+name = "Springfield, VT"
+overpass = true

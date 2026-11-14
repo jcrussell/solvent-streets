@@ -37,3 +37,8 @@ The national rollups:
   finest grid of any example. Berkeley, Boulder and Madison are also in other
   examples, so in the published site each appears under both of its groups;
   the cost is a second standalone ingest of those three.
+- **[springfields-us](springfields-us/)**: every state's incorporated
+  Springfield, a city or town that shares only its name with the rest. It
+  shows why every example names its cities `"City, ST"`: the state suffix is
+  what gives each one its own slug (see
+  [Cities](../docs/configuration.md#cities)).
