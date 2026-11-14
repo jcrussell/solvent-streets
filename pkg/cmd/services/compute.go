@@ -110,7 +110,9 @@ func NewCmdCompute(f *cmdutil.Factory, service *string, runF func(context.Contex
 		Long: `Build a routable graph from the stored roads (OpenStreetMap rows when
 present, else the agency centerlines), route from every facility at once,
 and store each hex's response time — turnout plus travel to the nearest
-reachable point along a road from the hex centre — as a per-hex metric.
+reachable point along a road from the hex centre (or, for an edge hex whose
+centre the boundary clipped away, from a point inside what remains) — as a
+per-hex metric.
 The result updates the service's own part of the city's latest compute, so
 a later roads compute leaves it in place; run 'pvmt snapshots create' to
 publish it, and rerun this after re-ingesting roads or facilities. Hexes off the network or unreachable from every

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/peterstace/simplefeatures/geom"
+
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
@@ -499,5 +501,31 @@ func TestBuildGraph_ClosedWaysLeftOut(t *testing.T) {
 				t.Errorf("%v: C must be reachable through the way", tc.tags)
 			}
 		})
+	}
+}
+
+// TestComputeCoverage_ClippedHexRoutesFromItsPart pins solvent-streets-e414:
+// a hex clipped to the boundary whose lattice centre fell outside is routed
+// from a point on what remains of it, not from the centre. Here the centre
+// sits beside the street 250 m along from the station, while the clipped
+// part sits beside the station itself.
+func TestComputeCoverage_ClippedHexRoutesFromItsPart(t *testing.T) {
+	p := testProj()
+	g := BuildGraph(context.Background(), []resource.Feature{
+		line(map[string]string{"highway": "residential"}, [2]float64{lonA, latA}, [2]float64{lonB, latB}),
+	}, DefaultRoadSpeeds, p)
+	ax, ay := p.ToProjected(lonA, latA)
+	part := geom.NewPolygon([]geom.LineString{geom.NewLineString(geom.NewSequence([]float64{
+		ax - 10, ay + 10, ax + 10, ay + 10, ax + 10, ay + 30, ax - 10, ay + 30, ax - 10, ay + 10,
+	}, geom.DimXY))}).AsGeometry()
+	hexes := []geo.Hex{{ID: "sliver", CenterX: ax + 250, CenterY: ay - 20, Geom: part}}
+	spec := Registry["fire"]
+	lon, lat := p.FromProjected(ax, ay)
+	cov := ComputeCoverage(context.Background(), spec, hexes, g, []Facility{{ID: "st", Lon: lon, Lat: lat}})
+	if len(cov.Hexes) != 1 {
+		t.Fatalf("hexes = %+v, want the sliver", cov.Hexes)
+	}
+	if travel := cov.Hexes[0].Seconds - spec.TurnoutS; travel > 2 {
+		t.Errorf("sliver travel = %.1f s, want ~0 (routed from its part beside the station, not its centre 250 m along)", travel)
 	}
 }

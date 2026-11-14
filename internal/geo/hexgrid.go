@@ -23,6 +23,27 @@ type Hex struct {
 	Geom    geom.Geometry
 }
 
+// InteriorXY returns a projected point inside the hex as stored: its centre
+// when that lies within Geom (every unclipped hex, and most clipped ones),
+// else a point on the surface of its clipped geometry. A hex clipped to the
+// boundary keeps the lattice centre in CenterX/CenterY, which for an edge
+// sliver can lie across a river or in the neighbouring city; anything that
+// measures from "the hex" (services routing) should start here instead. A
+// hex with no geometry returns its centre.
+func (h Hex) InteriorXY() (float64, float64) {
+	if h.Geom.IsEmpty() {
+		return h.CenterX, h.CenterY
+	}
+	center := geom.NewPoint(geom.Coordinates{XY: geom.XY{X: h.CenterX, Y: h.CenterY}}).AsGeometry()
+	if geom.Intersects(center, h.Geom) {
+		return h.CenterX, h.CenterY
+	}
+	if xy, ok := h.Geom.PointOnSurface().XY(); ok {
+		return xy.X, xy.Y
+	}
+	return h.CenterX, h.CenterY
+}
+
 // HexGrid generates a flat-top hex tiling over a projected bounding box.
 // edge is the hex edge length in projected units (meters for UTM).
 // Returns hexes that intersect the bounding box.

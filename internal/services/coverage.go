@@ -8,7 +8,8 @@ import (
 
 // HexCoverage is one hex's response time for a service: the spec's turnout
 // plus travel from the nearest reachable facility to the road position nearest
-// the hex centre.
+// the hex's interior point (geo.Hex.InteriorXY: its centre, or for a
+// boundary-clipped hex whose centre fell outside, a point on what remains).
 type HexCoverage struct {
 	HexID    string
 	Seconds  float64
@@ -28,9 +29,10 @@ type Coverage struct {
 }
 
 // ComputeCoverage routes from every facility at once (multi-source Dijkstra)
-// and reports, per hex whose centre lies within HexSnapM of a REACHABLE
+// and reports, per hex whose interior point (geo.Hex.InteriorXY) lies within
+// HexSnapM of a REACHABLE
 // position on the road network, the total response seconds and which
-// facility is nearest. Both facilities and hex centres snap to the nearest
+// facility is nearest. Both facilities and hex points snap to the nearest
 // point along a road segment, not merely to a vertex, so a long segment with
 // sparse vertices still reaches the hexes it crosses and travel is costed to
 // the snapped point. Facilities snap to the street network (SnapConnected)
@@ -80,7 +82,8 @@ func ComputeCoverage(ctx context.Context, spec Spec, hexes []geo.Hex, g *Graph, 
 		return fi >= 0
 	}
 	cov.Hexes = geo.ParallelMap(ctx, hexes, func(_ int, h geo.Hex) []HexCoverage {
-		s, ok := g.SnapWhere(h.CenterX, h.CenterY, HexSnapM, reachable)
+		x, y := h.InteriorXY()
+		s, ok := g.SnapWhere(x, y, HexSnapM, reachable)
 		if !ok {
 			return nil
 		}

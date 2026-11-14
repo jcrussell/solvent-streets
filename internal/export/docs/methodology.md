@@ -361,7 +361,9 @@ city-builder's service-coverage overlay. It is computed, not observed:
    travel time to the nearest point along a road from the hex's centre,
    provided that point is within 300 m. Nearest *point*, not nearest
    intersection, so a long straight road still reaches the hexes it
-   crosses.
+   crosses. An edge hex clipped to the city boundary is measured from a
+   point inside what remains of it when its centre was clipped away, so a
+   sliver is not timed to a road across a river or in the next city.
 5. **Freeways.** Neither a station nor a hex centre is placed on a motorway
    or ramp while any other road is within reach. A freeway carriageway is
    one-way with no frontage, so a point beside it placed on it would be

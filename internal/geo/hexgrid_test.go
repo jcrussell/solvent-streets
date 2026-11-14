@@ -236,3 +236,32 @@ func TestClipHexesToBoundaryGeoJSON_NoUsableBoundary(t *testing.T) {
 		t.Errorf("clipped to an inner boundary: %d of %d hexes kept", len(got), len(lattice))
 	}
 }
+
+// A hex clipped so that its lattice centre falls outside what remains is
+// measured from a point on the remaining part; a hex that still holds its
+// centre (and an unclipped one) is measured from the centre.
+func TestHex_InteriorXY(t *testing.T) {
+	hexes := HexGrid(0, 0, 500, 500, 100)
+	h := hexes[len(hexes)/2]
+	if x, y := h.InteriorXY(); x != h.CenterX || y != h.CenterY {
+		t.Errorf("unclipped hex: InteriorXY = (%v, %v), want its centre (%v, %v)", x, y, h.CenterX, h.CenterY)
+	}
+	// Keep only a 40 m strip along the hex's north edge: the centre is gone.
+	strip := makeRect(h.CenterX-40, h.CenterY+45, h.CenterX+40, h.CenterY+85)
+	clipped := ClipHexesToBoundary(context.Background(), []Hex{h}, strip, nil)
+	if len(clipped) != 1 {
+		t.Fatalf("clip = %d hexes, want 1", len(clipped))
+	}
+	c := clipped[0]
+	x, y := c.InteriorXY()
+	pt := geom.NewPoint(geom.Coordinates{XY: geom.XY{X: x, Y: y}}).AsGeometry()
+	if !geom.Intersects(pt, c.Geom) || y < h.CenterY+45 {
+		t.Errorf("clipped hex: InteriorXY = (%v, %v), want a point on the strip (y >= %v)", x, y, h.CenterY+45)
+	}
+	// A clip that keeps the centre leaves it in use.
+	half := makeRect(h.CenterX-200, h.CenterY-200, h.CenterX+200, h.CenterY+10)
+	kept := ClipHexesToBoundary(context.Background(), []Hex{h}, half, nil)
+	if x, y := kept[0].InteriorXY(); x != h.CenterX || y != h.CenterY {
+		t.Errorf("clip keeping the centre: InteriorXY = (%v, %v), want the centre", x, y)
+	}
+}
