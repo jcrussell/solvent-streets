@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -1205,6 +1206,58 @@ func TestRunIngest_PartialSourceFailureSavesAndFails(t *testing.T) {
 	}
 	if n := len(saved); n != 1 {
 		t.Errorf("saved %d features, want the 1 ArcGIS row kept despite the failure", n)
+	}
+}
+
+// TestRunIngest_PartialFailureWithEmptySurvivor pins solvent-streets-sn8l: a
+// failed source outranks an empty survivor. Reporting ErrNoResults would let
+// `pvmt all ingest` skip the layer as empty and exit 0 with it missing. The
+// store is not touched, so previously-stored rows are kept.
+func TestRunIngest_PartialFailureWithEmptySurvivor(t *testing.T) {
+	ctx := context.Background()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"elements":[]}`))
+	}))
+	t.Cleanup(srv.Close)
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Hostname() != ingestpkg.OverpassHost {
+			return nil, errors.New("http2: timeout awaiting response headers")
+		}
+		// Overpass answers, with no features: send it to the fake server.
+		target, _ := url.Parse(srv.URL)
+		r = r.Clone(r.Context())
+		r.URL.Scheme, r.URL.Host = target.Scheme, target.Host
+		return srv.Client().Transport.RoundTrip(r)
+	})}
+
+	upserts := 0
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return noSourceBoundary, nil },
+		UpsertFeaturesFunc: func(_ context.Context, _ resource.Type, _ []db.Feature, _ []string) error {
+			upserts++
+			return nil
+		},
+	}
+	city := cmdtest.NewTestCity()
+	city.Overpass = true
+	city.ArcGISURL = srv.URL + "/query"
+	city.AllowPrivateArcGIS = true
+	ios, _, _, _ := iostreams.Test()
+	err := runIngest(ctx, &Options{
+		IO:           ios,
+		CityDB:       func() (db.Store, error) { return store, nil },
+		CurrentCity:  func() (*config.CityConfig, error) { return city, nil },
+		HttpClient:   func() (*http.Client, error) { return client, nil },
+		ResourceType: &resource.Pavement{},
+		Source:       cmdutil.SourceAll,
+	})
+	if !errors.Is(err, cmdutil.ErrPartialIngest) || errors.Is(err, cmdutil.ErrNoResults) ||
+		!strings.Contains(err.Error(), "arcgis failed") {
+		t.Fatalf("runIngest = %v; want ErrPartialIngest naming arcgis", err)
+	}
+	if upserts != 0 {
+		t.Errorf("UpsertFeatures called %d times; an empty fetch must not touch the store", upserts)
 	}
 }
 

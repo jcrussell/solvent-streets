@@ -250,19 +250,28 @@ type optionalStep struct {
 // and wins; otherwise the pavement result stands.
 //
 // A required step's failure is warned about like any other and the remaining
-// steps still run, but it is joined into the result.
+// steps still run, but it is joined into the result. When the pavement result
+// is ErrNoResults, a required failure replaces it rather than joining it: the
+// callers match ErrNoResults first (Outcomes.Add, ForEachCity, exitCode) and
+// would file the city as empty, swallowing the failure (solvent-streets-sn8l).
 func runOptionalSteps(resErr error, ios *iostreams.IOStreams, steps []optionalStep) error {
-	errs := []error{resErr}
+	var failures []error
 	for _, st := range steps {
 		err := runOptionalStep(ios, st.label, st.fn)
 		switch {
 		case isCancel(err):
 			return err
 		case err != nil && st.required:
-			errs = append(errs, fmt.Errorf("%s: %w", st.label, err))
+			failures = append(failures, fmt.Errorf("%s: %w", st.label, err))
 		}
 	}
-	return errors.Join(errs...)
+	if len(failures) == 0 {
+		return resErr
+	}
+	if errors.Is(resErr, cmdutil.ErrNoResults) {
+		return errors.Join(failures...)
+	}
+	return errors.Join(append([]error{resErr}, failures...)...)
 }
 
 // runOptionalStep runs one optional step best-effort: cancellation is

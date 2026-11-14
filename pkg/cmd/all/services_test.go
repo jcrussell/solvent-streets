@@ -69,6 +69,14 @@ func TestRunOptionalSteps_RequiredFailureFailsTheRun(t *testing.T) {
 	if strings.Join(ran, ",") != "fire,census" {
 		t.Errorf("ran %v; want every step to run past the failure", ran)
 	}
+	// An empty pavement result must not swallow a required failure: callers
+	// match ErrNoResults first and would file the city as empty
+	// (solvent-streets-sn8l).
+	steps[0].fn = func() error { return boom }
+	got = runOptionalSteps(cmdutil.ErrNoResults, ios, steps)
+	if !errors.Is(got, boom) || errors.Is(got, cmdutil.ErrNoResults) {
+		t.Errorf("ErrNoResults + required failure = %v; want the failure alone", got)
+	}
 	// An empty result is still a quiet skip, required or not.
 	steps[0].fn = func() error { return cmdutil.ErrNoResults }
 	if got := runOptionalSteps(nil, ios, steps); got != nil {

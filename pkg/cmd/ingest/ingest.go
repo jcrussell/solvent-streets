@@ -294,13 +294,14 @@ func runIngest(ctx context.Context, opts *Options) error {
 	if err != nil {
 		return err
 	}
+	failed := failedSources(sources, succeeded)
 	if len(allFeatures) == 0 {
 		// Nothing fetched: return without touching the DB so a transient
 		// all-empty result never wipes previously-stored rows. (A surviving
 		// source that legitimately emptied out thus keeps its stale rows until
 		// a clean full re-ingest — preferred over destructive deletion.)
 		logs.From(ctx).Warn("no features fetched", "resource", opts.ResourceType.Type())
-		return cmdutil.ErrNoResults
+		return emptyFetchErr(opts.ResourceType.Type(), failed, succeeded)
 	}
 
 	replaceSources := replaceScope(opts.Source, len(sources), succeeded)
@@ -326,12 +327,24 @@ func runIngest(ctx context.Context, opts *Options) error {
 	}
 
 	logs.From(ctx).Info("ingest complete", "count", len(allFeatures), "resource", opts.ResourceType.Type())
-	if failed := failedSources(sources, succeeded); len(failed) > 0 {
+	if len(failed) > 0 {
 		return fmt.Errorf("%s: %s failed, saved %d features from %s: %w",
 			opts.ResourceType.Type(), strings.Join(failed, ", "), len(allFeatures),
 			strings.Join(succeeded, ", "), cmdutil.ErrPartialIngest)
 	}
 	return nil
+}
+
+// emptyFetchErr is the result of a fetch that saved nothing. A source that
+// failed outranks an empty survivor: reporting ErrNoResults would let
+// `pvmt all ingest` skip the layer as empty and exit 0 with it missing
+// (solvent-streets-sn8l).
+func emptyFetchErr(rt resource.Type, failed, succeeded []string) error {
+	if len(failed) == 0 {
+		return cmdutil.ErrNoResults
+	}
+	return fmt.Errorf("%s: %s failed, %s returned no features: %w",
+		rt, strings.Join(failed, ", "), strings.Join(succeeded, ", "), cmdutil.ErrPartialIngest)
 }
 
 // failedSources lists the sources that did not answer, in source order.
