@@ -1,0 +1,117 @@
+# College Towns — US university towns, on the finest grid in the showcase.
+#
+# In a college town a small property-tax base carries a street network sized
+# for a much larger daytime population: the fiscal squeeze solvent-streets
+# measures, at the opposite scale from top-50-cities.
+#
+# Techniques demonstrated:
+#   - The fine end of grid tuning: hex_edge_m = 60 for every town that is in
+#     no other example. Elsewhere only Cambridge and Somerville
+#     (greater-boston-ma) go this fine; the other configs sit at 75-300 m.
+#   - boundary_relation_id where the lookup picks the wrong municipality:
+#     "Ithaca, NY" resolves to the Town of Ithaca, which surrounds the City.
+#   - A low growth_rate (0.002) for built-out towns that add little new
+#     network.
+#
+# Selection: twelve towns whose flagship or land-grant university dominates
+# the town and that no other example holds, plus three deliberate
+# crossovers, Berkeley (bay-area-ca), Boulder (denver-metro-co) and Madison
+# (state-capitals-us). The crossovers are what tags are for: in examples/all
+# each appears under both of its groups. They carry the hex_edge_m and
+# growth_rate of the config examples/all merges first, so the union stays
+# free of merge warnings, and the price is a second standalone ingest of
+# those three cities under this config_id.
+#
+# Every name was checked against Nominatim on 2026-11-14. Each resolves to
+# its own boundary=administrative polygon, the towns, borough, independent
+# city and consolidated city-county included (Amherst, Chapel Hill, State
+# College, Charlottesville, Athens-Clarke), except Ithaca, pinned below.
+#
+# Forecasts ride the package defaults: no town's PCI or street budget is
+# cited here yet. Berkeley and Boulder get their cited figures from their
+# metros in examples/all.
+#
+# To run:
+#   cd examples/college-towns-us
+#   pvmt all ingest      # 15 Nominatim + Overpass pulls
+#   pvmt all compute
+#   pvmt serve
+
+config_id = "college-towns-us"
+
+[grid]
+hex_edge_m = 60
+
+[forecast]
+growth_rate = 0.002
+
+[export]
+title = "US College Towns"
+
+[[cities]]
+name = "Ann Arbor, MI"  # University of Michigan
+overpass = true
+
+[[cities]]
+name = "Ithaca, NY"  # Cornell University
+overpass = true
+# The City of Ithaca. A Nominatim search for the name returns the
+# surrounding Town of Ithaca first.
+boundary_relation_id = 174979
+
+[[cities]]
+name = "State College, PA"  # Penn State
+overpass = true
+
+[[cities]]
+name = "Bloomington, IN"  # Indiana University
+overpass = true
+
+[[cities]]
+name = "Chapel Hill, NC"  # UNC
+overpass = true
+
+[[cities]]
+name = "Athens, GA"  # University of Georgia
+overpass = true
+
+[[cities]]
+name = "Corvallis, OR"  # Oregon State
+overpass = true
+
+[[cities]]
+name = "Iowa City, IA"  # University of Iowa
+overpass = true
+
+[[cities]]
+name = "Lawrence, KS"  # University of Kansas
+overpass = true
+
+[[cities]]
+name = "Charlottesville, VA"  # University of Virginia
+overpass = true
+
+[[cities]]
+name = "Amherst, MA"  # UMass Amherst
+overpass = true
+
+[[cities]]
+name = "College Station, TX"  # Texas A&M
+overpass = true
+
+[[cities]]
+name = "Berkeley, CA"  # UC Berkeley
+overpass = true
+hex_edge_m = 75          # = bay-area-ca
+forecast.growth_rate = 0.005  # = bay-area-ca
+
+[[cities]]
+name = "Boulder, CO"  # CU Boulder
+overpass = true
+hex_edge_m = 100         # = denver-metro-co
+forecast.growth_rate = 0.015  # = denver-metro-co
+
+[[cities]]
+name = "Madison, WI"  # UW-Madison
+overpass = true
+hex_edge_m = 100  # = state-capitals-us
