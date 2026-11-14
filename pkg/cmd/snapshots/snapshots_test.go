@@ -36,14 +36,14 @@ func rootDBFunc(root db.RootStorer) func() (db.RootStorer, error) {
 	return func() (db.RootStorer, error) { return root, nil }
 }
 
-// TestNewCmdLs_RunFInjection pins the test-injection seam so future
+// TestNewCmdList_RunFInjection pins the test-injection seam so future
 // refactors of the constructor wiring can't quietly break callers'
 // ability to substitute a fake run path.
-func TestNewCmdLs_RunFInjection(t *testing.T) {
+func TestNewCmdList_RunFInjection(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	f := &cmdutil.Factory{IOStreams: ios}
 	called := false
-	cmd := NewCmdLs(f, func(context.Context, *LsOptions) error {
+	cmd := NewCmdList(f, func(context.Context, *ListOptions) error {
 		called = true
 		return nil
 	})
@@ -56,11 +56,11 @@ func TestNewCmdLs_RunFInjection(t *testing.T) {
 	}
 }
 
-// TestRunLs_ListsAcrossCities exercises the happy-path multi-city render.
+// TestRunList_ListsAcrossCities exercises the happy-path multi-city render.
 // Verifies the table shape (one row per snapshot, tagged with the owning
 // city slug, with its manifest as part#run entries) and that newest-first
 // ordering from ListSnapshots is preserved on the way to the printer.
-func TestRunLs_ListsAcrossCities(t *testing.T) {
+func TestRunList_ListsAcrossCities(t *testing.T) {
 	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
 	cities := twoCityConfig()
 
@@ -76,7 +76,7 @@ func TestRunLs_ListsAcrossCities(t *testing.T) {
 			case 1:
 				return &dbtest.MockStore{ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
 					return []db.Snapshot{
-						{ID: 7, CreatedAt: now, ConfigHash: "hash-a-2", Parts: []db.SnapshotPart{
+						{ID: 7, CreatedAt: now, ConfigHash: "hash-a-2", HexEdgeM: 75, Parts: []db.SnapshotPart{
 							{Part: "service:fire", RunID: 13, ComputedAt: now},
 							{Part: "roads", RunID: 12, ComputedAt: now},
 						}},
@@ -93,38 +93,38 @@ func TestRunLs_ListsAcrossCities(t *testing.T) {
 	}
 
 	ios, _, stdout, _ := iostreams.Test()
-	opts := &LsOptions{
+	opts := &ListOptions{
 		IO:            ios,
 		RootDB:        rootDBFunc(root),
 		ResolveCities: resolveCitiesFunc(cities),
 	}
-	if err := runLs(context.Background(), opts); err != nil {
+	if err := runList(context.Background(), opts); err != nil {
 		t.Fatal(err)
 	}
 	out := stdout.String()
-	for _, want := range []string{"alpha", "beta", "7", "6", "9", "hash-a-2", "hash-b-1", "roads#12", "service:fire#13"} {
+	for _, want := range []string{"alpha", "beta", "7", "6", "9", "hash-a-2", "hash-b-1", "75 m", "roads#12", "service:fire#13"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected %q in output, got: %s", want, out)
 		}
 	}
 }
 
-// TestRunLs_EmptyDatabase pins byob-iostreams.3 routing: when there are
+// TestRunList_EmptyDatabase pins byob-iostreams.3 routing: when there are
 // no snapshots, the hint must land on stderr so scripted consumers see
 // an empty stdout.
-func TestRunLs_EmptyDatabase(t *testing.T) {
+func TestRunList_EmptyDatabase(t *testing.T) {
 	cities := twoCityConfig()
 	root := &dbtest.MockRootStore{
 		EnsureCityFunc: func(context.Context, string, string, string) (int64, error) { return 1, nil },
 		ForCityFunc:    func(int64) db.Store { return &dbtest.MockStore{} },
 	}
 	ios, _, stdout, stderr := iostreams.Test()
-	opts := &LsOptions{
+	opts := &ListOptions{
 		IO:            ios,
 		RootDB:        rootDBFunc(root),
 		ResolveCities: resolveCitiesFunc(cities),
 	}
-	if err := runLs(context.Background(), opts); err != nil {
+	if err := runList(context.Background(), opts); err != nil {
 		t.Fatal(err)
 	}
 	if got := stdout.String(); got != "" {
@@ -152,9 +152,9 @@ func TestSnapshotRow_ExportData_AllFieldsPopulated(t *testing.T) {
 	}
 }
 
-// TestLs_JQSeesManifestKeys: --jq evaluates over the same snake_case keys
+// TestList_JQSeesManifestKeys: --jq evaluates over the same snake_case keys
 // --json prints, including inside each part of the manifest.
-func TestLs_JQSeesManifestKeys(t *testing.T) {
+func TestList_JQSeesManifestKeys(t *testing.T) {
 	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
 	root := &dbtest.MockRootStore{
 		EnsureCityFunc: func(context.Context, string, string, string) (int64, error) { return 1, nil },
@@ -167,11 +167,11 @@ func TestLs_JQSeesManifestKeys(t *testing.T) {
 		},
 	}
 	ios, _, stdout, _ := iostreams.Test()
-	cmd := NewCmdLs(&cmdutil.Factory{IOStreams: ios}, func(ctx context.Context, opts *LsOptions) error {
+	cmd := NewCmdList(&cmdutil.Factory{IOStreams: ios}, func(ctx context.Context, opts *ListOptions) error {
 		opts.RootDB = rootDBFunc(root)
 		opts.ResolveCities = resolveCitiesFunc([]config.CityConfig{{Name: "Alpha"}})
 		opts.Config = nil
-		return runLs(ctx, opts)
+		return runList(ctx, opts)
 	})
 	cmd.SetArgs([]string{"--json", "parts,created_at", "--jq", `[.[0].parts[0].run_id, .[0].parts[0].computed_at, .[0].created_at]`})
 	if err := cmd.Execute(); err != nil {
@@ -183,12 +183,12 @@ func TestLs_JQSeesManifestKeys(t *testing.T) {
 	}
 }
 
-// TestRunRm_DeletesFromOwningCity verifies the cross-city discovery loop:
-// the rm subcommand calls ResolveSnapshot on each configured city until
+// TestRunDelete_DeletesFromOwningCity verifies the cross-city discovery loop:
+// the delete subcommand calls ResolveSnapshot on each configured city until
 // one claims the id, then deletes from that city only. This is the
 // contract that lets the user pass an id without --city, and that lets
 // the confirmation prompt name the owning city before any DB mutation.
-func TestRunRm_DeletesFromOwningCity(t *testing.T) {
+func TestRunDelete_DeletesFromOwningCity(t *testing.T) {
 	cities := twoCityConfig()
 	var resolveCalls, deleteCalls []string
 	root := &dbtest.MockRootStore{
@@ -216,15 +216,15 @@ func TestRunRm_DeletesFromOwningCity(t *testing.T) {
 		},
 	}
 	ios, _, _, stderr := iostreams.Test()
-	opts := &RmOptions{
+	opts := &DeleteOptions{
 		IO:            ios,
 		RootDB:        rootDBFunc(root),
 		ResolveCities: resolveCitiesFunc(cities),
 		SnapshotID:    42,
 		Yes:           true,
 	}
-	if err := runRm(context.Background(), opts); err != nil {
-		t.Fatalf("runRm: %v", err)
+	if err := runDelete(context.Background(), opts); err != nil {
+		t.Fatalf("runDelete: %v", err)
 	}
 	if len(resolveCalls) != 2 || resolveCalls[0] != "alpha" || resolveCalls[1] != "beta" {
 		t.Errorf("resolve order: got %v, want [alpha beta]", resolveCalls)
@@ -238,10 +238,10 @@ func TestRunRm_DeletesFromOwningCity(t *testing.T) {
 	}
 }
 
-// TestRunRm_PromptsOnTTY pins the interactive contract: when stdin is a
+// TestRunDelete_PromptsOnTTY pins the interactive contract: when stdin is a
 // TTY and --yes is absent, the command must call Prompter.Confirm with
 // a message that names the snapshot id and the owning city slug.
-func TestRunRm_PromptsOnTTY(t *testing.T) {
+func TestRunDelete_PromptsOnTTY(t *testing.T) {
 	cities := twoCityConfig()
 	root := &dbtest.MockRootStore{
 		EnsureCityFunc: func(_ context.Context, slug, _, _ string) (int64, error) {
@@ -265,15 +265,15 @@ func TestRunRm_PromptsOnTTY(t *testing.T) {
 	ios, _, _, stderr := iostreams.Test()
 	ios.SetStdinTTY(true)
 	stub := &prompt.Stub{Confirms: []bool{true}}
-	opts := &RmOptions{
+	opts := &DeleteOptions{
 		IO:            ios,
 		Prompter:      stub,
 		RootDB:        rootDBFunc(root),
 		ResolveCities: resolveCitiesFunc(cities),
 		SnapshotID:    42,
 	}
-	if err := runRm(context.Background(), opts); err != nil {
-		t.Fatalf("runRm: %v", err)
+	if err := runDelete(context.Background(), opts); err != nil {
+		t.Fatalf("runDelete: %v", err)
 	}
 	if len(stub.Confirms) != 0 {
 		t.Errorf("Prompter.Confirm was not consumed; remaining=%v", stub.Confirms)
@@ -283,10 +283,10 @@ func TestRunRm_PromptsOnTTY(t *testing.T) {
 	}
 }
 
-// TestRunRm_CancelOnPromptNo pins the "no" branch of the confirmation
+// TestRunDelete_CancelOnPromptNo pins the "no" branch of the confirmation
 // prompt: when the user declines, the command returns ErrCancel (exit
 // code 0 at the runner) and must NOT call DeleteSnapshot.
-func TestRunRm_CancelOnPromptNo(t *testing.T) {
+func TestRunDelete_CancelOnPromptNo(t *testing.T) {
 	cities := twoCityConfig()
 	var deleted bool
 	root := &dbtest.MockRootStore{
@@ -304,14 +304,14 @@ func TestRunRm_CancelOnPromptNo(t *testing.T) {
 	ios, _, _, stderr := iostreams.Test()
 	ios.SetStdinTTY(true)
 	stub := &prompt.Stub{Confirms: []bool{false}}
-	opts := &RmOptions{
+	opts := &DeleteOptions{
 		IO:            ios,
 		Prompter:      stub,
 		RootDB:        rootDBFunc(root),
 		ResolveCities: resolveCitiesFunc(cities),
 		SnapshotID:    42,
 	}
-	err := runRm(context.Background(), opts)
+	err := runDelete(context.Background(), opts)
 	if !errors.Is(err, cmdutil.ErrCancel) {
 		t.Errorf("want ErrCancel, got: %v", err)
 	}
@@ -323,10 +323,10 @@ func TestRunRm_CancelOnPromptNo(t *testing.T) {
 	}
 }
 
-// TestRunRm_NoTTYWithoutYesIsFlagError pins byob-prompter.3: refusing to
+// TestRunDelete_NoTTYWithoutYesIsFlagError pins byob-prompter.3: refusing to
 // silently confirm in non-interactive environments. Stdin not a TTY plus
 // no --yes must return a FlagError with a hint pointing at --yes.
-func TestRunRm_NoTTYWithoutYesIsFlagError(t *testing.T) {
+func TestRunDelete_NoTTYWithoutYesIsFlagError(t *testing.T) {
 	cities := twoCityConfig()
 	var deleted bool
 	root := &dbtest.MockRootStore{
@@ -342,13 +342,13 @@ func TestRunRm_NoTTYWithoutYesIsFlagError(t *testing.T) {
 		},
 	}
 	ios, _, _, _ := iostreams.Test() // stdin TTY defaults to false
-	opts := &RmOptions{
+	opts := &DeleteOptions{
 		IO:            ios,
 		RootDB:        rootDBFunc(root),
 		ResolveCities: resolveCitiesFunc(cities),
 		SnapshotID:    42,
 	}
-	err := runRm(context.Background(), opts)
+	err := runDelete(context.Background(), opts)
 	var fe *cmdutil.FlagError
 	if !errors.As(err, &fe) {
 		t.Fatalf("want *cmdutil.FlagError, got %T: %v", err, err)
@@ -362,10 +362,10 @@ func TestRunRm_NoTTYWithoutYesIsFlagError(t *testing.T) {
 	}
 }
 
-// TestRunRm_NotFoundReturnsHint pins the not-found error path so users
-// see a remediation hint pointing at `snapshots ls` rather than a bare
+// TestRunDelete_NotFoundReturnsHint pins the not-found error path so users
+// see a remediation hint pointing at `snapshots list` rather than a bare
 // "not found" message.
-func TestRunRm_NotFoundReturnsHint(t *testing.T) {
+func TestRunDelete_NotFoundReturnsHint(t *testing.T) {
 	cities := twoCityConfig()
 	root := &dbtest.MockRootStore{
 		EnsureCityFunc: func(context.Context, string, string, string) (int64, error) { return 1, nil },
@@ -376,14 +376,14 @@ func TestRunRm_NotFoundReturnsHint(t *testing.T) {
 		},
 	}
 	ios, _, _, _ := iostreams.Test()
-	opts := &RmOptions{
+	opts := &DeleteOptions{
 		IO:            ios,
 		RootDB:        rootDBFunc(root),
 		ResolveCities: resolveCitiesFunc(cities),
 		SnapshotID:    999,
 		Yes:           true,
 	}
-	err := runRm(context.Background(), opts)
+	err := runDelete(context.Background(), opts)
 	if err == nil {
 		t.Fatal("expected not-found error")
 	}
@@ -636,13 +636,13 @@ func TestNewCmdPrune_RequiresKeepFlag(t *testing.T) {
 	}
 }
 
-// TestNewCmdRm_RejectsNonPositiveID guards the input validation: a 0 or
+// TestNewCmdDelete_RejectsNonPositiveID guards the input validation: a 0 or
 // negative id reaches the runtime as a typed FlagError, not a generic
 // failure that exits 1. Pairs with byob-errors.4 exit-code routing.
-func TestNewCmdRm_RejectsNonPositiveID(t *testing.T) {
+func TestNewCmdDelete_RejectsNonPositiveID(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	f := &cmdutil.Factory{IOStreams: ios}
-	cmd := NewCmdRm(f, nil)
+	cmd := NewCmdDelete(f, nil)
 	cmd.SetArgs([]string{"0"})
 	cmd.SetOut(ios.Out)
 	cmd.SetErr(ios.ErrOut)

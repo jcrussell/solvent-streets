@@ -18,9 +18,10 @@ import (
 type Draft struct {
 	store      Store
 	configHash string
-	hexEdgeM   float64          // the hex edge the committed snapshot is tiled at
-	parts      map[string]int64 // committed by Commit; 0 removes a part
-	created    []int64          // every run created through this draft
+	hexEdgeM   float64           // the hex edge the committed snapshot is tiled at
+	parts      map[string]int64  // committed by Commit; 0 removes a part
+	created    []int64           // every run created through this draft
+	pinned     map[string]string // input -> digest every run records (PinInput)
 }
 
 // NewDraft starts a draft over store for configHash, the hash that owns the
@@ -38,12 +39,33 @@ func (d *Draft) ConfigHash() string { return d.configHash }
 // The run stays invisible to every reader until a committed snapshot
 // references it.
 func (d *Draft) NewRun(ctx context.Context, producer string, inputs map[string]string) (int64, error) {
+	if len(d.pinned) > 0 {
+		inputs = maps.Clone(inputs)
+		for in, digest := range d.pinned {
+			if _, reads := inputs[in]; reads {
+				inputs[in] = digest
+			}
+		}
+	}
 	run, err := d.store.CreateRun(ctx, producer, d.configHash, inputs)
 	if err != nil {
 		return 0, err
 	}
 	d.created = append(d.created, run.ID)
 	return run.ID, nil
+}
+
+// PinInput makes every later run of the draft whose producer reads input
+// record digest for it, whatever digest the producer read itself. A command
+// that reads an input once and shares what it derived across producers pins
+// the digest it read BEFORE reading the input: `all compute` builds one hex
+// grid from the boundary for every step, so an ingest that lands after the
+// grid was built makes every step look stale rather than falsely current.
+func (d *Draft) PinInput(input, digest string) {
+	if d.pinned == nil {
+		d.pinned = map[string]string{}
+	}
+	d.pinned[input] = digest
 }
 
 // Put makes runID the draft's run for producer (the part it fills).

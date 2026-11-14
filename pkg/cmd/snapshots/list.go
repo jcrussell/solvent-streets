@@ -15,7 +15,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type LsOptions struct {
+type ListOptions struct {
 	IO            *iostreams.IOStreams
 	RootDB        func() (db.RootStorer, error)
 	ResolveCities func() ([]config.CityConfig, error)
@@ -28,6 +28,7 @@ type snapshotRow struct {
 	ID         int64     `json:"id"`
 	CreatedAt  string    `json:"created_at"`
 	ConfigHash string    `json:"config_hash"`
+	HexEdgeM   float64   `json:"hex_edge_m"`
 	Parts      []partRow `json:"parts"`
 }
 
@@ -40,7 +41,7 @@ type partRow struct {
 
 var _ cmdutil.RowExporter = snapshotRow{}
 
-var snapshotFields = []string{"city", "id", "created_at", "config_hash", "parts"}
+var snapshotFields = []string{"city", "id", "created_at", "config_hash", "hex_edge_m", "parts"}
 
 func (r snapshotRow) ExportData(fields []string) map[string]any {
 	out := make(map[string]any, len(fields))
@@ -54,6 +55,8 @@ func (r snapshotRow) ExportData(fields []string) map[string]any {
 			out[f] = r.CreatedAt
 		case "config_hash":
 			out[f] = r.ConfigHash
+		case "hex_edge_m":
+			out[f] = r.HexEdgeM
 		case "parts":
 			out[f] = r.Parts
 		}
@@ -61,8 +64,8 @@ func (r snapshotRow) ExportData(fields []string) map[string]any {
 	return out
 }
 
-func NewCmdLs(f *cmdutil.Factory, runF func(context.Context, *LsOptions) error) *cobra.Command {
-	opts := &LsOptions{
+func NewCmdList(f *cmdutil.Factory, runF func(context.Context, *ListOptions) error) *cobra.Command {
+	opts := &ListOptions{
 		IO:            f.IOStreams,
 		RootDB:        func() (db.RootStorer, error) { return f.RootDB() },
 		ResolveCities: func() ([]config.CityConfig, error) { return cmdutil.ResolveCities(f) },
@@ -70,30 +73,31 @@ func NewCmdLs(f *cmdutil.Factory, runF func(context.Context, *LsOptions) error) 
 	}
 
 	cmd := &cobra.Command{
-		Use:   "ls",
-		Args:  cobra.NoArgs,
-		Short: "List snapshots",
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Args:    cobra.NoArgs,
+		Short:   "List snapshots",
 		Long: `List snapshots across configured cities, newest first. Use --city to
 scope to one city.
 
 A snapshot is a city's complete computed state: one run per part (roads,
-parking, sidewalks, combined, service coverage, census). A recompute
-commits a new snapshot that swaps in only the parts it produced, so the
-Parts column shows which run each part comes from: "roads#12" is run 12.
-Export and serve read the newest snapshot for the current config.`,
+parking, sidewalks, combined, service coverage, census), the hex edge its
+grid was tiled at, and the boundary it was clipped to. The Parts column
+shows which run each part comes from: "roads#12" is run 12. Export and
+serve read the newest snapshot for the current config.`,
 		Example: `  # All snapshots across every city
-  pvmt snapshots ls
+  pvmt snapshots list
 
   # Restrict to one city
-  pvmt --city oakland-ca snapshots ls
+  pvmt --city oakland-ca snapshots list
 
   # Machine-readable
-  pvmt snapshots ls --json city,id,created_at,parts`,
+  pvmt snapshots list --json city,id,created_at,hex_edge_m,parts`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
 				return runF(cmd.Context(), opts)
 			}
-			return runLs(cmd.Context(), opts)
+			return runList(cmd.Context(), opts)
 		},
 	}
 
@@ -101,7 +105,7 @@ Export and serve read the newest snapshot for the current config.`,
 	return cmd
 }
 
-func runLs(ctx context.Context, opts *LsOptions) error {
+func runList(ctx context.Context, opts *ListOptions) error {
 	rows, err := collectSnapshotRows(ctx, opts.RootDB, opts.ResolveCities, opts.Config)
 	if err != nil {
 		return err
@@ -118,7 +122,7 @@ func runLs(ctx context.Context, opts *LsOptions) error {
 	}
 
 	tp := iostreams.NewTablePrinter(ios)
-	tp.AddHeader("City", "ID", "Created", "Config Hash", "Parts")
+	tp.AddHeader("City", "ID", "Created", "Config Hash", "Hex Edge", "Parts")
 	for _, r := range rows {
 		parts := make([]string, len(r.Parts))
 		for i, p := range r.Parts {
@@ -129,6 +133,7 @@ func runLs(ctx context.Context, opts *LsOptions) error {
 			strconv.FormatInt(r.ID, 10),
 			iostreams.FormatTimestamp(r.CreatedAt, ios.IsTTY()),
 			r.ConfigHash,
+			strconv.FormatFloat(r.HexEdgeM, 'f', -1, 64)+" m",
 			strings.Join(parts, " "),
 		)
 	}
@@ -173,6 +178,7 @@ func collectSnapshotRows(
 				ID:         s.ID,
 				CreatedAt:  s.CreatedAt.UTC().Format(time.RFC3339),
 				ConfigHash: s.ConfigHash,
+				HexEdgeM:   s.HexEdgeM,
 				Parts:      parts,
 			})
 		}

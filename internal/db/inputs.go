@@ -92,22 +92,7 @@ type InputState struct {
 
 // InputStates returns every input this city has stored, ordered by input.
 func (s *sqliteStore) InputStates(ctx context.Context) ([]InputState, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT input, digest, ingested_at FROM city_inputs WHERE city_id = ? ORDER BY input`, s.cityID)
-	if err != nil {
-		return nil, fmt.Errorf("query inputs: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-	var out []InputState
-	for rows.Next() {
-		var st InputState
-		if err := rows.Scan(&st.Input, &st.Digest, &st.IngestedAt); err != nil {
-			return nil, fmt.Errorf("scan input: %w", err)
-		}
-		st.IngestedAt = canonicalTime(st.IngestedAt)
-		out = append(out, st)
-	}
-	return out, rows.Err()
+	return inputStates(ctx, s.db, s.cityID)
 }
 
 // InputDigests returns the current digest of each named input. Every name is

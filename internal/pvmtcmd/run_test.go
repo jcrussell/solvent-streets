@@ -91,7 +91,8 @@ func TestRun_HelpStillWorks(t *testing.T) {
 		{"help", "cache"},
 		{"help", "cache", "prune"},
 		// A leaf's positional argument is not a typo'd topic.
-		{"help", "snapshots", "rm", "5"},
+		{"help", "snapshots", "delete", "5"},
+		{"help", "snapshots", "rm", "5"}, // the alias
 		{"--help"},
 		{"completion"},
 		{"completion", "--help"},

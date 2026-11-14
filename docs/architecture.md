@@ -301,7 +301,7 @@ A *run* is one producer's output for one city. The producers are the roads,
 parking or sidewalks compute, the combined pass, `service:<name>` and census.
 Every result row carries its `run_id`, and runs are immutable. Result rows
 have no timestamp of their own: a row's time is its run's `computed_at`, set
-when the run is created, so `status` and `snapshots ls` show when a compute
+when the run is created, so `status` and `snapshots list` show when a compute
 began, not when it finished saving. A *snapshot* is
 the city's complete computed state: a manifest in `snapshot_parts` that names
 one run per part. Every read resolves exactly one snapshot and reads only its
@@ -336,6 +336,22 @@ nothing to work from drops its part. Either way the older result stops being
 published. A commit that would not change the manifest writes nothing, and no
 snapshot is ever empty.
 
+`pvmt snapshots create` freezes the working state as a snapshot
+(`Store.CreateSnapshot`), after a coherence check. Each run records, in
+`run_inputs`, the digest of every input its producer reads
+(`db.ProducerInputs`, read before the inputs themselves), and `city_inputs`
+holds each input's current digest. `internal/coherence.Check` is a pure
+function of the working state and those digests. It refuses a city when a part
+recorded a digest that is no longer current, when there is no pavement part,
+when pavement has no combined part, or when a pavement input is stored with
+no part. It warns about a missing service or census part whose inputs are
+stored. The check runs inside the snapshot's IMMEDIATE transaction, so no
+ingest lands between the check and the freeze. A create whose newest snapshot
+already holds the same hash, edge, boundary and manifest writes nothing.
+`pvmt all compute` builds one grid from the boundary for every step, so it
+pins the boundary digest it read before building it on the draft
+(`Draft.PinInput`): a boundary ingest during the compute then reads as stale.
+
 Nothing carries across config hashes, because hex ids from another grid would
 land on the wrong hexes. Export refuses a city whose snapshot has no pavement
 compute. It warns when a part the city had under earlier settings has not yet
@@ -351,7 +367,7 @@ busy timeout. A snapshot commit then keeps retrying for up to two minutes
 (`commitBusyBudget`), so two concurrent computes wait for each other instead of
 failing. No producer reads
 another's results, so two commands committing in either order each swap in
-only their own parts. `pvmt snapshots prune` and `rm` delete manifests, then
+only their own parts. `pvmt snapshots prune` and `delete` delete manifests, then
 every run that neither a surviving snapshot nor the working state references,
 and every frozen boundary no snapshot uses.
 

@@ -244,6 +244,22 @@ type Store interface {
 	// working state for configHash (working_parts). Retries while another
 	// process holds the lock.
 	CommitSnapshot(ctx context.Context, configHash string, hexEdgeM float64, parts map[string]int64) (*Snapshot, error)
+	// LatestCompute returns this city's latest compute under configHash
+	// (working_parts): one entry per part, ordered by part, each with its run,
+	// the run's computed_at and the input digests the run recorded. No parts
+	// returns (nil, nil).
+	LatestCompute(ctx context.Context, configHash string) ([]LatestPart, error)
+	// CreateSnapshot freezes the latest compute under configHash as a
+	// snapshot tiled at hexEdgeM (> 0), with the city's current boundary, in
+	// one IMMEDIATE transaction: it reads the latest compute and the current
+	// input states, runs check on them (nil skips it), and returns check's
+	// error unchanged when it refuses, so no ingest or compute can land
+	// between the check and the freeze. An empty latest compute is refused
+	// with ErrNothingComputed. When the city's newest snapshot already has
+	// the same hash, edge, boundary and manifest it is returned with created
+	// false and nothing is written. Retries while another process holds the
+	// lock.
+	CreateSnapshot(ctx context.Context, configHash string, hexEdgeM float64, check CheckFunc) (snap *Snapshot, created bool, err error)
 	// ListSnapshots returns this city's snapshots newest first, each with
 	// its manifest.
 	ListSnapshots(ctx context.Context) ([]Snapshot, error)

@@ -16,7 +16,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type RmOptions struct {
+type DeleteOptions struct {
 	IO            *iostreams.IOStreams
 	Prompter      prompt.Prompter
 	RootDB        func() (db.RootStorer, error)
@@ -26,8 +26,8 @@ type RmOptions struct {
 	Yes           bool
 }
 
-func NewCmdRm(f *cmdutil.Factory, runF func(context.Context, *RmOptions) error) *cobra.Command {
-	opts := &RmOptions{
+func NewCmdDelete(f *cmdutil.Factory, runF func(context.Context, *DeleteOptions) error) *cobra.Command {
+	opts := &DeleteOptions{
 		IO:            f.IOStreams,
 		Prompter:      f.Prompter,
 		RootDB:        func() (db.RootStorer, error) { return f.RootDB() },
@@ -36,12 +36,15 @@ func NewCmdRm(f *cmdutil.Factory, runF func(context.Context, *RmOptions) error) 
 	}
 
 	cmd := &cobra.Command{
-		Use:   "rm <id>",
-		Short: "Delete a snapshot and the runs only it used",
+		Use:     "delete <id>",
+		Aliases: []string{"rm"},
+		Short:   "Delete a snapshot and the runs only it used",
 		Long: `Delete a snapshot, then every run it referenced that no other snapshot
 references, with all the result rows those runs wrote, in a single
-transaction. Runs another snapshot still uses are kept, so every remaining
-snapshot reads exactly what it did before.
+transaction. Runs another snapshot or the latest compute still uses are
+kept, so every remaining snapshot reads exactly what it did before. Export
+and serve read each city's newest snapshot for the current config, so
+deleting that one rolls the city back to the one before.
 
 Snapshot IDs are unique across cities; the command searches every
 configured city for the id and deletes from whichever city owns it.
@@ -49,13 +52,13 @@ Use --city to restrict the lookup to one city.
 
 ` + cmdutil.ConfirmHelp("delete"),
 		Example: `  # Delete snapshot 42 from whichever city owns it (prompts)
-  pvmt snapshots rm 42
+  pvmt snapshots delete 42
 
   # Skip the confirmation prompt
-  pvmt snapshots rm 42 --yes
+  pvmt snapshots delete 42 --yes
 
   # Scope the lookup to one city
-  pvmt --city oakland-ca snapshots rm 42`,
+  pvmt --city oakland-ca snapshots delete 42`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := db.ParseSnapshotID(args[0])
@@ -66,7 +69,7 @@ Use --city to restrict the lookup to one city.
 			if runF != nil {
 				return runF(cmd.Context(), opts)
 			}
-			return runRm(cmd.Context(), opts)
+			return runDelete(cmd.Context(), opts)
 		},
 	}
 
@@ -75,7 +78,7 @@ Use --city to restrict the lookup to one city.
 	return cmd
 }
 
-func runRm(ctx context.Context, opts *RmOptions) error {
+func runDelete(ctx context.Context, opts *DeleteOptions) error {
 	cities, err := opts.ResolveCities()
 	if err != nil {
 		return err
@@ -109,7 +112,7 @@ func runRm(ctx context.Context, opts *RmOptions) error {
 	if ownerCity == nil {
 		return hint.Withf(
 			fmt.Errorf("snapshot %d not found", opts.SnapshotID),
-			"check 'pvmt snapshots ls' for available ids",
+			"check 'pvmt snapshots list' for available ids",
 		)
 	}
 
@@ -131,7 +134,7 @@ func runRm(ctx context.Context, opts *RmOptions) error {
 		// success.
 		return hint.Withf(
 			fmt.Errorf("snapshot %d not found", opts.SnapshotID),
-			"check 'pvmt snapshots ls' for available ids",
+			"check 'pvmt snapshots list' for available ids",
 		)
 	}
 	fmt.Fprintf(opts.IO.ErrOut, "Deleted snapshot %d from %s.\n", opts.SnapshotID, ownerCity.Slug())

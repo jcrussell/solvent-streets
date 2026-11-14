@@ -631,3 +631,47 @@ func TestAllIngest_FailuresFailTheRunWithRetryCommands(t *testing.T) {
 		}
 	}
 }
+
+// TestAllCompute_StepsRecordTheGridsBoundary: every step records the boundary
+// digest read before the shared grid was built, so a boundary ingest that
+// lands after the grid makes the steps stale instead of passing a grid from
+// the old boundary off as current.
+func TestAllCompute_StepsRecordTheGridsBoundary(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	store := combinedTestStore(func([]db.CityMetric) error { return nil })
+	reads := 0
+	store.InputDigestsFunc = func(_ context.Context, inputs ...string) (map[string]string, error) {
+		out := map[string]string{}
+		for _, in := range inputs {
+			out[in] = ""
+		}
+		// The first read is before the grid; every later one sees a boundary
+		// re-ingested meanwhile.
+		out[db.InputBoundary] = "new"
+		if reads == 0 {
+			out[db.InputBoundary] = "old"
+		}
+		reads++
+		return out, nil
+	}
+	recorded := map[string]string{}
+	store.CreateRunFunc = func(_ context.Context, producer, hash string, inputs map[string]string) (*db.Run, error) {
+		recorded[producer] = inputs[db.InputBoundary]
+		return &db.Run{ID: int64(len(recorded)), Producer: producer, ConfigHash: hash}, nil
+	}
+
+	cmd := NewCmdAll(computeFactory(ios, store))
+	cmd.SetArgs([]string{"compute"})
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	_ = cmd.ExecuteContext(context.Background())
+
+	if len(recorded) < 2 {
+		t.Fatalf("runs created = %v, want the roads and combined runs at least", recorded)
+	}
+	for producer, digest := range recorded {
+		if digest != "old" {
+			t.Errorf("%s recorded boundary %q, want the digest read before the grid (\"old\")", producer, digest)
+		}
+	}
+}

@@ -266,7 +266,7 @@ func (c *Config) StaleHint(city *CityConfig) string {
 		"affects results changed since its last compute (hex_edge_m, [[services]] turnout_s, "+
 		"facilities, census, or a PVMT_HEX_EDGE_M override), or this pvmt computes "+
 		"differently from the one that did. Run `pvmt --city %s all compute`; "+
-		"`pvmt snapshots ls --city %s` lists the older snapshots.", slug, hash, slug, slug)
+		"`pvmt --city %s snapshots list` lists the older snapshots.", slug, hash, slug, slug)
 }
 
 // hashBytes returns the 16-hex-char sha256 prefix of b. Used for the

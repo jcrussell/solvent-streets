@@ -169,7 +169,7 @@ func RefuseUnknownShells(root *cobra.Command) {
 // error, so without this `pvmt help biuld` would exit 0. A topic is unknown when Find
 // fails (`help biuld`) or stops at a group with arguments left over
 // (`help cache biuld`). Leftovers after a leaf are that command's own
-// positional arguments (`help snapshots rm 5`), so its help is shown.
+// positional arguments (`help snapshots delete 5`), so its help is shown.
 // (byob-command-shape.6)
 //
 // The root itself deliberately stays non-runnable with no Args: cobra's

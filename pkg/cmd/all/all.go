@@ -172,6 +172,14 @@ func computeSteps(ctx context.Context, ios *iostreams.IOStreams, cf *cmdutil.Fac
 	// built (missing boundary, DB error, ...) every pass would fail
 	// the same way, so surface it once and skip the city rather than
 	// re-running the identical failure three times.
+	//
+	// Every step records the boundary digest read here, before the grid is
+	// built from the boundary, not the one it reads itself later: a boundary
+	// ingest that lands in between then marks the steps stale instead of
+	// passing a grid from the old boundary off as current.
+	if err := pinBoundary(ctx, cf, draft); err != nil {
+		return err
+	}
 	grid, err := compute.BuildCityGrid(ctx, cf)
 	if err != nil {
 		return err
@@ -230,6 +238,21 @@ func computeSteps(ctx context.Context, ios *iostreams.IOStreams, cf *cmdutil.Fac
 		}},
 		{label: "census compute", fn: func() error { return censuscmd.RunComputeForCity(ctx, cf, grid, draft) }},
 	})
+}
+
+// pinBoundary pins the city's current boundary digest on draft (see
+// db.Draft.PinInput).
+func pinBoundary(ctx context.Context, cf *cmdutil.Factory, draft *db.Draft) error {
+	store, err := cf.CityDB()
+	if err != nil {
+		return fmt.Errorf("database: %w", err)
+	}
+	digests, err := store.InputDigests(ctx, db.InputBoundary)
+	if err != nil {
+		return err
+	}
+	draft.PinInput(db.InputBoundary, digests[db.InputBoundary])
+	return nil
 }
 
 // isCancel reports a context cancellation or deadline, which must abort the

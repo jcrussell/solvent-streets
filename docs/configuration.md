@@ -201,7 +201,12 @@ next `pvmt services compute`. `travel_threshold_s` is read when exporting.
 When a city's results were computed under other settings, export refuses the
 city, and forecast, status and serve report the same thing (see
 [troubleshooting](troubleshooting.md#no-snapshot-matches-current-config-hash)).
-`pvmt status` and `pvmt snapshots ls` show each snapshot's hash.
+`pvmt status` and `pvmt snapshots list` show each snapshot's hash.
+
+`pvmt snapshots create` freezes each city's latest compute as a snapshot under
+its current hash and `hex_edge_m`, and refuses a city whose parts were not all
+computed from the features and boundary stored now (see
+[troubleshooting](troubleshooting.md#snapshots-create-refuses-a-city)).
 
 ## Grid and display
 

@@ -296,18 +296,13 @@ func (s *sqliteStore) CommitSnapshot(ctx context.Context, configHash string, hex
 	if hexEdgeM <= 0 {
 		return nil, fmt.Errorf("commit snapshot: hex edge must be positive, got %v", hexEdgeM)
 	}
-	deadline := time.Now().Add(commitBusyBudget)
-	for wait := 100 * time.Millisecond; ; wait = min(2*wait, 5*time.Second) {
-		snap, err := s.commitSnapshot(ctx, configHash, hexEdgeM, parts)
-		if !isBusy(err) || time.Now().Add(wait).After(deadline) {
-			return snap, err
-		}
-		select {
-		case <-ctx.Done():
-			return nil, errors.Join(err, ctx.Err())
-		case <-time.After(wait):
-		}
-	}
+	var snap *Snapshot
+	err := retryBusy(ctx, func() error {
+		var err error
+		snap, err = s.commitSnapshot(ctx, configHash, hexEdgeM, parts)
+		return err
+	})
+	return snap, err
 }
 
 // isBusy reports SQLITE_BUSY / SQLITE_LOCKED (any extended code): another

@@ -103,7 +103,7 @@ func exitCode(err error, errOut io.Writer) int {
 //   - "requires at least ... arg(s)" from MinimumNArgs.
 //
 // Without the arg-count / required-flag prefixes, e.g. `snapshots prune`
-// (missing --keep) and `snapshots rm` (missing id) exited 1 while a bad
+// (missing --keep) and `snapshots delete` (missing id) exited 1 while a bad
 // --keep value exited 2 — inconsistent exit codes for the same class of
 // user error (solvent-streets-8407).
 func classifyUsageError(err error) error {

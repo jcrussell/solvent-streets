@@ -135,9 +135,49 @@ resources and double-counts their overlap. Run `pvmt --city <slug> all compute`.
 `pvmt serve` answers a data request with **410 Gone**, `the snapshot this page
 was serving has been deleted or pruned`, or `pvmt export` fails with
 `snapshot N: snapshot no longer exists (deleted or pruned)`. Both pin each
-city's snapshot when they start, and `pvmt snapshots rm` or `prune` deleted it
+city's snapshot when they start, and `pvmt snapshots delete` or `prune` deleted it
 while they were running. Restart `pvmt serve`, or re-run the export, and it
 reads the city's current snapshot.
+
+## `snapshots create` refuses a city
+
+`pvmt snapshots create` prints one line per city, and exits 1 once every city
+is done if any was refused:
+
+```
+oakland-ca: refused: roads re-ingested 2026-11-14 10:02 UTC after the combined, roads and fire coverage computes
+  hint: pvmt --city oakland-ca all compute
+berkeley-ca: created #12
+```
+
+A snapshot must be coherent, so create refuses a city when a part was
+computed from a feature set or boundary that has been ingested again (or
+first ingested, or removed) since, when it has no pavement compute, when its
+pavement has no combined pass, or when a pavement resource was ingested but
+never computed. Each reason names the input and when it changed. Identical
+data re-ingested does not count: the check compares content digests, not
+times. Run the hinted command, then create again. The hint is one of the
+following.
+
+### `hint: pvmt --city <slug> all compute`
+
+The boundary changed (every part is clipped to it), the combined pass is
+stale or missing, there is no pavement compute, or two or more parts are
+stale. One `all compute` recomputes them together.
+
+### `hint: pvmt --city <slug> services compute`
+
+Only the service coverage is stale: its facilities were re-ingested after it
+was computed. `pvmt services compute` routes from them again.
+
+### `hint: pvmt --city <slug> census compute`
+
+Only the population is stale: the census blocks were re-ingested after it was
+computed.
+
+A **warning** such as `no fire coverage: fire facilities are ingested but never
+computed` does not refuse the city. The snapshot is created without that part,
+and the warning names the command that adds it.
 
 ## Water strip errors and warnings
 

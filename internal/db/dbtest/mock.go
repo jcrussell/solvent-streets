@@ -35,6 +35,8 @@ type MockStore struct {
 	CreateRunFunc         func(context.Context, string, string, map[string]string) (*db.Run, error)
 	DiscardRunFunc        func(context.Context, int64) error
 	CommitSnapshotFunc    func(context.Context, string, float64, map[string]int64) (*db.Snapshot, error)
+	LatestComputeFunc     func(context.Context, string) ([]db.LatestPart, error)
+	CreateSnapshotFunc    func(context.Context, string, float64, db.CheckFunc) (*db.Snapshot, bool, error)
 	ListSnapshotsFunc     func(context.Context) ([]db.Snapshot, error)
 	ResolveSnapshotFunc   func(context.Context, int64) error
 	ViewSnapshotFunc      func(context.Context) (*db.Snapshot, error)
@@ -237,6 +239,46 @@ func (m *MockStore) CommitSnapshot(ctx context.Context, hash string, hexEdgeM fl
 		}
 	}
 	return snap, nil
+}
+
+// LatestCompute delegates to LatestComputeFunc, else returns (nil, nil):
+// nothing computed.
+func (m *MockStore) LatestCompute(ctx context.Context, hash string) ([]db.LatestPart, error) {
+	if m.LatestComputeFunc != nil {
+		return m.LatestComputeFunc(ctx, hash)
+	}
+	return nil, nil
+}
+
+// CreateSnapshot delegates to CreateSnapshotFunc. Otherwise it runs check
+// over LatestCompute and InputStates, refuses an empty latest compute with
+// db.ErrNothingComputed, and returns snapshot 1 holding those parts,
+// created. It never reports unchanged; tests of that use a real store.
+func (m *MockStore) CreateSnapshot(ctx context.Context, hash string, hexEdgeM float64, check db.CheckFunc) (*db.Snapshot, bool, error) {
+	if m.CreateSnapshotFunc != nil {
+		return m.CreateSnapshotFunc(ctx, hash, hexEdgeM, check)
+	}
+	parts, err := m.LatestCompute(ctx, hash)
+	if err != nil {
+		return nil, false, err
+	}
+	states, err := m.InputStates(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	if check != nil {
+		if err := check(parts, states); err != nil {
+			return nil, false, err
+		}
+	}
+	if len(parts) == 0 {
+		return nil, false, db.ErrNothingComputed
+	}
+	snap := &db.Snapshot{ID: 1, ConfigHash: hash, HexEdgeM: hexEdgeM}
+	for _, p := range parts {
+		snap.Parts = append(snap.Parts, db.SnapshotPart{Part: p.Part, RunID: p.RunID, ComputedAt: p.ComputedAt})
+	}
+	return snap, true, nil
 }
 
 func (m *MockStore) ListSnapshots(ctx context.Context) ([]db.Snapshot, error) {
