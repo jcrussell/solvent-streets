@@ -323,7 +323,8 @@ when any city has none, listing each with the commands that make one. It warns
 about a snapshot created under other settings than the current ones, and
 exports it as created. Serve shows a city with no snapshot from its latest
 compute, pinned at startup with `WithRuns`. `?snapshot=N` overrides the pin per
-request. A pinned view also reads the boundary its snapshot froze. If the
+request, and `?snapshot=latest` shows the latest compute read at startup
+(`CityEntry.Latest`), which `meta.json` marks `latest_compute`. A pinned view also reads the boundary its snapshot froze. If the
 snapshot is deleted while pinned, or gc sweeps a pinned run, every read fails
 with `db.ErrSnapshotGone` (checked before and after each read) rather than
 reading as an empty city: export fails, and serve answers 410 and caches

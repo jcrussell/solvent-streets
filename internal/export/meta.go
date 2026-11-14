@@ -14,7 +14,6 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/build"
 	"github.com/jcrussell/solvent-streets/internal/config"
-	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/game"
 	"github.com/jcrussell/solvent-streets/internal/geo"
@@ -441,10 +440,15 @@ type MetaJSON struct {
 	BBox         [4]float64 `json:"bbox"`   // [west, south, east, north]
 	Center       [2]float64 `json:"center"` // [lon, lat]
 	SnapshotDate string     `json:"snapshot_date"`
-	Stats        []StatJSON `json:"stats"`
-	CityArea     float64    `json:"city_area,omitempty"`
-	TotalPaved   float64    `json:"total_paved,omitempty"`
-	PavedShare   float64    `json:"paved_share,omitempty"` // total_paved / city_area, 0..1
+	// SnapshotID is the snapshot the city's data comes from; omitted for a
+	// latest compute, which LatestCompute marks instead (pvmt serve shows it
+	// for a city with no snapshot, and for ?snapshot=latest).
+	SnapshotID    int64      `json:"snapshot_id,omitempty"`
+	LatestCompute bool       `json:"latest_compute,omitempty"`
+	Stats         []StatJSON `json:"stats"`
+	CityArea      float64    `json:"city_area,omitempty"`
+	TotalPaved    float64    `json:"total_paved,omitempty"`
+	PavedShare    float64    `json:"paved_share,omitempty"` // total_paved / city_area, 0..1
 	// Metrics summarises each per-hex metric (hex-metrics.json) over the
 	// painted hexes, for the Map stats card. Omitted when none has rows.
 	Metrics map[string]MetricSummaryJSON `json:"metrics,omitempty"`
@@ -603,26 +607,28 @@ func groupCitiesInDimension(cities []CityInfo, dim string) []CityGroup {
 }
 
 // BuildMeta builds metadata JSON for a city entry. snapshotID is the pinned
-// snapshot the entry's Store was scoped to (0 == latest/unpinned). For a
-// pinned snapshot the SnapshotDate reflects that snapshot's created_at rather
-// than today — a time-travel view of a months-old snapshot must show when it
-// was computed, not the render date (which would freeze at first-request date
-// in the lifetime cache).
+// snapshot the entry's Store was scoped to (<= 0: whatever the Store reads).
+// SnapshotDate is the date of the data, not today: the snapshot's created_at,
+// or for a latest compute its newest run's computed_at — a time-travel view of
+// a months-old snapshot must show when it was computed, not the render date
+// (which would freeze at first-request date in the lifetime cache).
 func BuildMeta(ctx context.Context, entry CityEntry, snapshotID int64) (MetaJSON, error) {
 	bbox, lon, lat, err := entry.BBoxAndCenter(ctx)
 	if err != nil {
 		return MetaJSON{}, fmt.Errorf("city %s: %w", entry.City.Name, err)
 	}
-	snapshotDate, err := snapshotDate(ctx, entry.Store, snapshotID)
+	stamp, err := dataStamp(ctx, entry, snapshotID)
 	if err != nil {
 		return MetaJSON{}, fmt.Errorf("city %s snapshot date: %w", entry.City.Name, err)
 	}
 	meta := MetaJSON{
-		ProjectName:  entry.City.Name,
-		BBox:         geoJSONBBox(bbox),
-		Center:       [2]float64{lon, lat},
-		SnapshotDate: snapshotDate,
-		Stats:        []StatJSON{},
+		ProjectName:   entry.City.Name,
+		BBox:          geoJSONBBox(bbox),
+		Center:        [2]float64{lon, lat},
+		SnapshotDate:  stamp.date,
+		SnapshotID:    stamp.snapshotID,
+		LatestCompute: stamp.latest,
+		Stats:         []StatJSON{},
 	}
 	for _, rt := range resource.All {
 		result, ok, err := results.LoadTotal(ctx, entry.Store, rt.Type())
@@ -683,27 +689,53 @@ func BuildMeta(ctx context.Context, entry CityEntry, snapshotID int64) (MetaJSON
 	return meta, nil
 }
 
-// snapshotDate returns the YYYY-MM-DD date to report as snapshot_date. For the
-// unpinned/latest path (snapshotID <= 0) it returns today, matching the
-// restart-for-fresh-data invariant of the rest of the exporter. For a pinned
-// snapshot it looks up that snapshot's created_at via ListSnapshots (the
-// snapshot-unaware list, which the WithSnapshot-scoped store still exposes) so
-// the time-travel UI shows when the data was actually computed. A pinned id
-// that resolved elsewhere but is absent from the list is treated as a
-// transient inconsistency (error) rather than silently falling back to today,
-// so serveMetaJSON's cache evicts and retries.
-func snapshotDate(ctx context.Context, store db.Store, snapshotID int64) (string, error) {
-	if snapshotID <= 0 {
-		return time.Now().Format(time.DateOnly), nil
-	}
-	snaps, err := store.ListSnapshots(ctx)
-	if err != nil {
-		return "", fmt.Errorf("list snapshots: %w", err)
-	}
-	for _, snap := range snaps {
-		if snap.ID == snapshotID {
-			return snap.CreatedAt.Format(time.DateOnly), nil
+// stamp is where a city's meta.json says its data comes from.
+type stamp struct {
+	date       string // YYYY-MM-DD
+	snapshotID int64  // 0 for a latest compute, or none
+	latest     bool   // a latest compute (CityEntry.ReadsLatest)
+}
+
+// dataStamp dates the data entry reads. A pinned snapshotID (> 0) is looked
+// up in ListSnapshots (the snapshot-unaware list, which a WithSnapshot-scoped
+// store still exposes); an id that resolved elsewhere but is absent from the
+// list is a transient inconsistency (error) rather than a silent fallback to
+// today, so serveMetaJSON's cache evicts and retries. Otherwise the snapshot
+// the store reads (ViewSnapshot) gives its created_at, and a latest compute
+// its newest run's computed_at. Only a store that reads neither (an
+// uncomputed city) reports today.
+func dataStamp(ctx context.Context, entry CityEntry, snapshotID int64) (stamp, error) {
+	if snapshotID > 0 {
+		snaps, err := entry.Store.ListSnapshots(ctx)
+		if err != nil {
+			return stamp{}, fmt.Errorf("list snapshots: %w", err)
 		}
+		for _, snap := range snaps {
+			if snap.ID == snapshotID {
+				return stamp{date: snap.CreatedAt.Format(time.DateOnly), snapshotID: snap.ID}, nil
+			}
+		}
+		return stamp{}, fmt.Errorf("snapshot %d not found", snapshotID)
 	}
-	return "", fmt.Errorf("snapshot %d not found", snapshotID)
+	if entry.ReadsLatest() {
+		var newest time.Time
+		for _, p := range entry.Latest {
+			if p.ComputedAt.After(newest) {
+				newest = p.ComputedAt
+			}
+		}
+		st := stamp{date: time.Now().Format(time.DateOnly), latest: true}
+		if !newest.IsZero() {
+			st.date = newest.Format(time.DateOnly)
+		}
+		return st, nil
+	}
+	snap, err := entry.Store.ViewSnapshot(ctx)
+	if err != nil {
+		return stamp{}, err
+	}
+	if snap != nil {
+		return stamp{date: snap.CreatedAt.Format(time.DateOnly), snapshotID: snap.ID}, nil
+	}
+	return stamp{date: time.Now().Format(time.DateOnly)}, nil
 }

@@ -70,7 +70,7 @@ Only names that existed in v0.4.x are listed. Fields of the commands and files t
 | `/api/snapshots`, `/api/cities/{slug}/snapshots` | `computed_at` | `created_at`; new `hex_edge_m` and `parts` (`part`, `run_id`, `computed_at`) |
 | `/api/cities` | as `cities.json` below | as `cities.json` below |
 
-`/data/{file}` serves the site data files below.
+`/data/{file}` serves the site data files below. `?snapshot=N` picks a snapshot, and `?snapshot=latest` the city's latest compute as the server read it at startup.
 
 #### Site data files and `window.PVMT_CONFIG`
 
@@ -80,6 +80,7 @@ Only names that existed in v0.4.x are listed. Fields of the commands and files t
 | `cities.json`, `meta.json` | `bbox`: `[south, west, north, east]` | `bbox`: `[west, south, east, north]` |
 | `meta.json` | `pct_paved` (0..100); `stats[].type`; `stats[].feature_count` | `paved_share` (0..1); `stats[].resource_type`; no feature count |
 | `meta.json` | — | `missing_resources`: the resources with no ingested data (omitted when none) |
+| `meta.json` | `snapshot_date`: the render date | `snapshot_date`: the date of the data (the snapshot's `created_at`, or the latest compute's newest run); new `snapshot_id`, and from `pvmt serve` `latest_compute: true` for a latest compute (each omitted when not applicable) |
 | `hexgrid.geojson` | format `v` 2; per-hex scope key `bbox`; coverage `pct` (0..100) | format `v` 6; scope key `all`; coverage `share` (0..1); city road hexes carry `k`, the Play board's decay rate |
 | `play-hexes.json` | the Play board: `id`, `road_area`, `k` per hex | gone: the board reads `hexgrid.geojson`. Its road area is now the map's city-scope roads area, which counts pavement where road classes overlap once rather than once per class |
 | `scenarios.json` | scope key `bbox`; summary `city_count`, `all_count`, `city_pct`, `state_count`, `county_count`, `federal_count` | scope key `all`; the `summary` block is gone (its feature counts and city share were never shown) |

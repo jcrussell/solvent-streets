@@ -25,15 +25,19 @@ func TestPinEntries(t *testing.T) {
 	pins := map[string]pin{}
 	entry := func(name string, snaps []db.Snapshot, latest []db.LatestPart) exportpkg.CityEntry {
 		city := config.CityConfig{Name: name}
-		return exportpkg.CityEntry{
-			Config: cfg, City: city, Slug: city.Slug(),
-			Store: &dbtest.MockStore{
-				ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) { return snaps, nil },
-				LatestComputeFunc: func(context.Context, string) ([]db.LatestPart, error) { return latest, nil },
-				WithSnapshotFunc:  func(id int64) db.Store { pins[name] = pin{snapshot: id}; return &dbtest.MockStore{} },
-				WithRunsFunc:      func(runs []int64) db.Store { pins[name] = pin{runs: runs}; return &dbtest.MockStore{} },
-			},
+		store := &dbtest.MockStore{
+			ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) { return snaps, nil },
+			LatestComputeFunc: func(context.Context, string) ([]db.LatestPart, error) { return latest, nil },
+			WithRunsFunc:      func(runs []int64) db.Store { pins[name] = pin{runs: runs}; return &dbtest.MockStore{} },
 		}
+		store.WithSnapshotFunc = func(id int64) db.Store {
+			if id == 0 { // unpinned: LatestComputeEntry clearing any snapshot pin
+				return store
+			}
+			pins[name] = pin{snapshot: id}
+			return &dbtest.MockStore{}
+		}
+		return exportpkg.CityEntry{Config: cfg, City: city, Slug: city.Slug(), Store: store}
 	}
 	cur := cfg.CityHash(&config.CityConfig{Name: "x"})
 	roads := []db.SnapshotPart{{Part: "roads", RunID: 1}}
@@ -56,6 +60,12 @@ func TestPinEntries(t *testing.T) {
 	}
 	if got := pins["Draft City"]; got.snapshot != 0 || len(got.runs) != 2 || got.runs[0] != 7 || got.runs[1] != 8 {
 		t.Errorf("Draft City pinned to %+v, want its latest compute's runs [7 8]", got)
+	}
+	if !entries[2].ReadsLatest() || entries[0].ReadsLatest() {
+		t.Error("only Draft City should read its latest compute")
+	}
+	if len(entries[2].Latest) != 2 || len(entries[3].Latest) != 0 {
+		t.Errorf("Latest = %v / %v, want each city's latest compute kept for ?snapshot=latest", entries[2].Latest, entries[3].Latest)
 	}
 	got := out.String()
 	if strings.Count(got, "warning:") != 3 || strings.Contains(got, "Fresh City") {

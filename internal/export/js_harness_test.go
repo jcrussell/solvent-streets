@@ -355,6 +355,15 @@ func writeJSFixtureSite(t *testing.T, dir string, seed template.JS) {
 	if err := os.WriteFile(filepath.Join(dir, "play-live.html"), playLive, 0o644); err != nil {
 		t.Fatalf("write play-live.html: %v", err)
 	}
+	// The dashboard as `pvmt serve` renders it, with the snapshot picker and
+	// the latest-compute badge.
+	indexLive, err := RenderPage(ParseIndexTemplate, live)
+	if err != nil {
+		t.Fatalf("render index-live: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "index-live.html"), indexLive, 0o644); err != nil {
+		t.Fatalf("write index-live.html: %v", err)
+	}
 
 	// Tripwire: if the template stops emitting city options, every selectCity
 	// test below would pass vacuously against an empty selector.

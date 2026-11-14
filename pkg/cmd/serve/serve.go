@@ -129,13 +129,20 @@ func runServe(ctx context.Context, opts *Options) error {
 // stands now (Store.WithRuns), so later computes do not mix into a running
 // server's pages. Responses are cached for the server's lifetime anyway
 // (restart to pick up new data). ?snapshot=N still overrides the pin per
-// request.
+// request, and ?snapshot=latest shows the latest compute as read here.
 //
 // A city with neither is still served (as an empty map, HTTP 200, like any
 // uncomputed city), so say why once per city at startup rather than leave a
 // blank map the operator has to diagnose.
 func pinEntries(ctx context.Context, entries []exportpkg.CityEntry, errOut io.Writer) error {
 	for i, entry := range entries {
+		// The latest compute first, so that a compute committing between the
+		// two reads cannot leave the snapshot newer than it.
+		latest, err := entry.Store.LatestCompute(ctx, entry.Config.CityHash(&entry.City))
+		if err != nil {
+			return fmt.Errorf("latest compute for %s: %w", entry.City.Name, err)
+		}
+		entry.Latest = latest // ?snapshot=latest
 		snap, err := entry.NewestSnapshot(ctx)
 		if err != nil {
 			return err
@@ -147,10 +154,7 @@ func pinEntries(ctx context.Context, entries []exportpkg.CityEntry, errOut io.Wr
 			}
 			continue
 		}
-		latest, err := entry.Store.LatestCompute(ctx, entry.Config.CityHash(&entry.City))
-		if err != nil {
-			return fmt.Errorf("latest compute for %s: %w", entry.City.Name, err)
-		}
+		entries[i] = entry
 		if len(latest) > 0 {
 			entries[i] = exportpkg.LatestComputeEntry(entry, latest)
 			cmdutil.FprintWarnf(errOut, "%s has no snapshot; serving its latest compute (not snapshotted). "+

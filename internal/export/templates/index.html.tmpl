@@ -108,6 +108,8 @@
         }
         #panel h2 { font-size: 18px; margin-bottom: 4px; }
         #panel .subtitle { color: var(--text-muted); margin-bottom: 16px; font-size: 12px; }
+        .latest-compute-badge { display: inline-block; margin: -10px 0 14px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--summary-bg); border: 1px solid var(--summary-border); }
+        .latest-compute-badge[hidden] { display: none; }
         .stat-card { background: var(--panel-2); border-radius: 6px; padding: 12px; margin-bottom: 8px; }
         .stat-card.summary-card { background: var(--summary-bg); border-left: 3px solid var(--summary-border); }
         .stat-card h3 { font-size: 14px; text-transform: capitalize; margin-bottom: 8px; }
@@ -732,8 +734,8 @@
         {{if .IsLiveServer}}
         <div class="gear-row">
             <span class="gear-label">Snapshot</span>
-            <select id="snapshot-picker" title="Historical compute snapshot">
-                <option value="">Latest</option>
+            <select id="snapshot-picker" title="Snapshot, or the latest compute">
+                <option value="">Newest</option>
             </select>
         </div>
         {{end}}
@@ -766,6 +768,7 @@
         <div id="panel">
             <h2>{{.HeadingName}}</h2>
             <div class="subtitle">Pavement & Parking Analysis | Last computed {{.SnapshotDate}}</div>
+            {{if .IsLiveServer}}<div id="latest-compute-badge" class="latest-compute-badge"{{if not .LatestCompute}} hidden{{end}}>Latest compute (not snapshotted)</div>{{end}}
             <!-- Populated client-side by app.js renderCityStats() from meta.json,
                  which converts raw-metric values to the live unit system. -->
             <div id="stats"></div>

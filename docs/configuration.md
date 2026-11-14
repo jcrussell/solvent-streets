@@ -330,6 +330,9 @@ to be a valid polygon, which matters only to a consumer that fills
 
 `pvmt serve` pins each city's newest snapshot (its latest compute, for a city
 with none) when it starts and sends `Cache-Control: public, max-age=300` on
-every response, so restart it to pick up a new snapshot. `pvmt export` writes plain files, so caching is whatever the
+every response, so restart it to pick up a new snapshot. Its dashboard's
+snapshot picker also lists each older snapshot and *Latest compute (not
+snapshotted)*, which shows what the next `pvmt snapshots create` would
+publish, with a badge saying so. `pvmt export` writes plain files, so caching is whatever the
 host applies. After re-publishing, purge the
 CDN if the new build has to show immediately.

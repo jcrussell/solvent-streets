@@ -31,7 +31,18 @@ type CityEntry struct {
 	City   config.CityConfig
 	Store  db.Store
 	Slug   string
+	// Latest is the city's latest compute as serve read it at startup: what
+	// its ?snapshot=latest view, and a city with no snapshot, show. nil when
+	// not read (export).
+	Latest []db.LatestPart
+	// readsLatest marks an entry whose Store reads Latest
+	// (LatestComputeEntry) rather than a snapshot.
+	readsLatest bool
 }
+
+// ReadsLatest reports whether the entry reads its latest compute
+// (LatestComputeEntry) rather than a snapshot.
+func (entry CityEntry) ReadsLatest() bool { return entry.readsLatest }
 
 // WithSnapshot returns a copy of this CityEntry whose Store is pinned to
 // the given snapshot id. Snapshot-aware reads (compute results, hex stats,
@@ -371,13 +382,15 @@ func (entry CityEntry) Info(ctx context.Context) (CityInfo, error) {
 }
 
 // LatestComputeEntry returns entry pinned to latest, a latest compute read a
-// moment ago (Store.WithRuns): what serve shows for a city with no snapshot.
-// Its reads fail with db.ErrSnapshotGone once gc sweeps any of those runs.
+// moment ago (Store.WithRuns), in place of any snapshot pin: what serve shows
+// for a city with no snapshot, and for ?snapshot=latest. Its reads fail with
+// db.ErrSnapshotGone once gc sweeps any of those runs.
 func LatestComputeEntry(entry CityEntry, latest []db.LatestPart) CityEntry {
 	runs := make([]int64, len(latest))
 	for i, p := range latest {
 		runs[i] = p.RunID
 	}
-	entry.Store = entry.Store.WithRuns(runs)
+	entry.Store = entry.Store.WithSnapshot(0).WithRuns(runs)
+	entry.Latest, entry.readsLatest = latest, true
 	return entry
 }

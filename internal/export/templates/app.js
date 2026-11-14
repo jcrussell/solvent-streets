@@ -890,6 +890,10 @@
                     if (subtitleEl && meta.snapshot_date) {
                         subtitleEl.textContent = 'Pavement & Parking Analysis | Last computed ' + meta.snapshot_date;
                     }
+                    // pvmt serve shows a city with no snapshot, or
+                    // ?snapshot=latest, from its latest compute: say so.
+                    const badgeEl = selectById('latest-compute-badge');
+                    if (badgeEl) badgeEl.hidden = !meta.latest_compute;
                     lastCityMeta = meta;
                     renderCityStats(meta);
                 }
@@ -1720,24 +1724,31 @@
         // Snapshot picker (live server only). loadSnapshots fetches the list
         // for the current city and populates options; selectSnapshot is the
         // counterpart of selectCity / selectTab / selectScope.
+        //
+        // The default option ("") is what the server pinned: the newest
+        // snapshot, or for a city with none its latest compute. "latest"
+        // (?snapshot=latest) is the latest compute, snapshotted or not.
+        const LATEST_COMPUTE_LABEL = 'Latest compute (not snapshotted)';
         async function loadSnapshots(slug) {
             const sel = selectById('snapshot-picker');
             if (!sel) return; // static export
             const url = slug ? 'api/cities/' + slug + '/snapshots' : 'api/snapshots';
             const list = await loadJSON(url);
             if (!list || list.length === 0) {
-                sel.innerHTML = '<option value="">Latest (no snapshots)</option>';
+                sel.innerHTML = '<option value="">' + LATEST_COMPUTE_LABEL + '</option>';
                 return;
             }
             const fmt = (ts) => {
                 try { return new Date(ts).toISOString().slice(0, 16).replace('T', ' '); }
                 catch (e) { return ts; }
             };
-            sel.innerHTML = '<option value="">Latest</option>' +
-                list.map(s => '<option value="' + s.id + '" title="' + (s.config_hash || '').slice(0, 12) + '">' + fmt(s.created_at) + '</option>').join('');
+            const newest = list[0];
+            sel.innerHTML = '<option value="">Newest (#' + newest.id + ', ' + fmt(newest.created_at).slice(0, 10) + ')</option>' +
+                '<option value="latest">' + LATEST_COMPUTE_LABEL + '</option>' +
+                list.map(s => '<option value="' + s.id + '" title="' + (s.config_hash || '').slice(0, 12) + '">#' + s.id + ' ' + fmt(s.created_at) + '</option>').join('');
             // Restore from URL (covers initial load and bfcache restores).
             const want = Router.read().snapshot;
-            if (want && list.some(s => String(s.id) === String(want))) {
+            if (want && (String(want) === 'latest' || list.some(s => String(s.id) === String(want)))) {
                 const prev = sel.value;
                 sel.value = String(want);
                 // Boot's initial loadCityData/loadFinancials ran with the picker

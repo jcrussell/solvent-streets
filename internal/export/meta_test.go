@@ -404,3 +404,38 @@ func TestBuildMeta_MissingResources(t *testing.T) {
 		t.Errorf("a city with every layer must omit missing_resources: %s", raw)
 	}
 }
+
+// TestBuildMeta_StampFromTheView: an export pins each city to its snapshot
+// with snapshotID 0, so meta.json dates the data and names the snapshot from
+// the view (ViewSnapshot) rather than reporting today; a latest compute is
+// marked and dated by its newest run.
+func TestBuildMeta_StampFromTheView(t *testing.T) {
+	created := time.Date(2025, 11, 3, 9, 30, 0, 0, time.UTC)
+	entry := newMockEntry(nil)
+	entry.Store.(*dbtest.MockStore).ViewSnapshotFunc = func(context.Context) (*db.Snapshot, error) {
+		return &db.Snapshot{ID: 9, CreatedAt: created}, nil
+	}
+	meta, err := BuildMeta(context.Background(), entry, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.SnapshotDate != "2025-11-03" || meta.SnapshotID != 9 || meta.LatestCompute {
+		t.Errorf("snapshot view stamp = (%q, %d, %v), want (2025-11-03, 9, false)", meta.SnapshotDate, meta.SnapshotID, meta.LatestCompute)
+	}
+
+	latest := LatestComputeEntry(newMockEntry(nil), []db.LatestPart{
+		{Part: "roads", RunID: 1, ComputedAt: created},
+		{Part: "parking", RunID: 2, ComputedAt: created.AddDate(0, 1, 0)},
+	})
+	meta, err = BuildMeta(context.Background(), latest, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.SnapshotDate != "2025-12-03" || meta.SnapshotID != 0 || !meta.LatestCompute {
+		t.Errorf("latest compute stamp = (%q, %d, %v), want (2025-12-03, 0, true)", meta.SnapshotDate, meta.SnapshotID, meta.LatestCompute)
+	}
+	b, _ := json.Marshal(MetaJSON{})
+	if strings.Contains(string(b), "snapshot_id") || strings.Contains(string(b), "latest_compute") {
+		t.Errorf("empty meta marshals %s; snapshot_id and latest_compute must be omitempty", b)
+	}
+}

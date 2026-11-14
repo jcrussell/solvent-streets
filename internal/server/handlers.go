@@ -68,10 +68,9 @@ type indexThunk struct {
 // handles that), and the all-cities-broken path returns the error to handleIndex
 // for s.httpErr.
 //
-// Caveat: BuildMeta's SnapshotDate uses time.Now() at date granularity, so the
-// cached page freezes that at first-request date — consistent with the
-// restart-after-changes design (restart for a fresh date), same as every other
-// cached endpoint.
+// BuildMeta's SnapshotDate is the date of the data (the snapshot's, or the
+// latest compute's newest run), so the cached page shows when the city was
+// computed, whenever it is first requested.
 func (s *Server) renderIndex() ([]byte, error) {
 	if len(s.cities) > 1 {
 		return s.renderCachedPage("index", &s.indexPages, s.indexTemplate, s.buildSiteIndexData)
@@ -232,8 +231,9 @@ func (s *Server) firstRenderableCity(ctx context.Context) (export.CityEntry, exp
 // populated only when len(s.cities) > 1 so the single-city DATA_PREFIX wiring
 // keeps matching the /data/{file} routes.
 func (s *Server) buildIndexData(ctx context.Context, entry export.CityEntry) (export.TemplateData, error) {
-	// The pages always render the latest snapshot; pinned-snapshot views are
-	// served via /data/meta.json?snapshot=N (serveMetaJSON).
+	// The pages always render the pinned view; other snapshots, and the
+	// latest compute, are served via /data/meta.json?snapshot=N|latest
+	// (serveMetaJSON).
 	meta, seed, err := export.PageMetaAndSeed(ctx, entry.Config, []export.CityEntry{entry}, "")
 	if err != nil {
 		return export.TemplateData{}, err
@@ -418,7 +418,10 @@ func (s *Server) serveDataFile(w http.ResponseWriter, r *http.Request, file stri
 	// GetBoundary), so a snapshot computed under other settings, at another
 	// hex_edge_m say, draws its stored hex ids on the hexes they were
 	// computed for.
-	if snapshotID > 0 {
+	switch {
+	case snapshotID == latestSnapshot:
+		entry = export.LatestComputeEntry(entry, entry.Latest)
+	case snapshotID > 0:
 		entry = entry.WithSnapshot(snapshotID)
 	}
 	serve, ok := s.dataFiles()[file]
@@ -447,8 +450,15 @@ func (s *Server) dataFiles() map[string]dataFileHandler {
 	}
 }
 
+// latestSnapshot is the snapshot id parseSnapshotParam returns for
+// ?snapshot=latest: the city's latest compute as the server read it at
+// startup (CityEntry.Latest), snapshotted or not. Negative, so it never
+// collides with a snapshot id and caches under its own key.
+const latestSnapshot int64 = -1
+
 // parseSnapshotParam reads ?snapshot=<id> from the request:
-//   - absent → returns (0, true): caller serves latest as before.
+//   - absent → returns (0, true): caller serves the pinned view.
+//   - "latest" → returns (latestSnapshot, true).
 //   - non-integer, ≤0, or unknown for this city → writes 404 and returns
 //     (_, false); the bead spec wants invalid ids to 404, not 500.
 //   - valid id belonging to this city → returns (id, true).
@@ -456,6 +466,9 @@ func (s *Server) parseSnapshotParam(ctx context.Context, w http.ResponseWriter, 
 	raw := r.URL.Query().Get("snapshot")
 	if raw == "" {
 		return 0, true
+	}
+	if raw == "latest" {
+		return latestSnapshot, true
 	}
 	id, err := db.ParseSnapshotID(raw)
 	if err != nil {

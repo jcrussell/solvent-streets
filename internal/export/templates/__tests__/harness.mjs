@@ -163,9 +163,11 @@ function installStubs(win, { data, simulate, gates, wasm, goRuntime }) {
   // suffix (see hold() on load's return) waits until it is released, so a
   // spec can make an earlier request finish after a later one.
   win.__fetches = [];
+  win.__fetchURLs = [];
   win.fetch = async (url) => {
     const key = String(url).split('?')[0].replace(/^\.?\//, '');
     win.__fetches.push(key);
+    win.__fetchURLs.push(String(url));
     for (const [suffix, gate] of gates) {
       if (key.endsWith(suffix)) await gate;
     }
@@ -220,7 +222,8 @@ export function defaultSimulate(input) {
 export function load({ page = 'index', data = {}, simulate = defaultSimulate, url, navigate, wasm = false, goRuntime = page.startsWith('play'), hold = [], config } = {}) {
   // 'play-live' is the play page as `pvmt serve` renders it: ActiveSlug set,
   // DATA_PREFIX injected, the served city pre-selected.
-  const file = page === 'play' ? 'play.html' : page === 'play-live' ? 'play-live.html' : 'index.html';
+  // 'index-live' is the dashboard as `pvmt serve` renders it (snapshot picker).
+  const file = { play: 'play.html', 'play-live': 'play-live.html', 'index-live': 'index-live.html' }[page] || 'index.html';
   url = url || 'https://example.test/' + file;
   const html = readFileSync(join(fixtureDir(), file), 'utf8');
   const dom = new JSDOM(html, {
@@ -287,6 +290,8 @@ export function load({ page = 'index', data = {}, simulate = defaultSimulate, ur
     release,
     // fetches lists the requested paths (query string dropped), in order.
     fetches: () => win.__fetches.slice(),
+    // fetchURLs lists the requested URLs with their query strings, in order.
+    fetchURLs: () => win.__fetchURLs.slice(),
     // fireMap runs the handlers the page registered on the map for event.
     fireMap: (event) => { for (const fn of win.__mapHandlers.get(event) || []) fn({}); },
     // flush lets pending microtasks (loadJSON chains) settle.
