@@ -62,6 +62,7 @@ func TestRun_TyposExitTwo(t *testing.T) {
 		{"biuld"},
 		{"help", "biuld"},
 		{"help", "cache", "biuld"},
+		{"completion", "biuld"},
 	}
 	for _, p := range parentPaths(t) {
 		cases = append(cases, append(append([]string(nil), p...), "biuld"))
@@ -92,6 +93,8 @@ func TestRun_HelpStillWorks(t *testing.T) {
 		// A leaf's positional argument is not a typo'd topic.
 		{"help", "snapshots", "rm", "5"},
 		{"--help"},
+		{"completion"},
+		{"completion", "--help"},
 	}
 	for _, p := range parentPaths(t) {
 		cases = append(cases, p, append(append([]string(nil), p...), "--help"))

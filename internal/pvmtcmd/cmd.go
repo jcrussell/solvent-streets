@@ -46,6 +46,7 @@ func Main() int {
 // exit-code mapping without signals or the process environment.
 func run(ctx context.Context, f *cmdutil.Factory, args []string) int {
 	rootCmd := root.NewCmdRoot(f)
+	root.RefuseUnknownShells(rootCmd)
 	rootCmd.SetArgs(args)
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		return exitCode(err, f.IOStreams.ErrOut)

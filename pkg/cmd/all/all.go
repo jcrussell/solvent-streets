@@ -7,6 +7,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	censuscmd "github.com/jcrussell/solvent-streets/pkg/cmd/census"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/compute"
@@ -265,6 +266,11 @@ func runOptionalSteps(resErr error, ios *iostreams.IOStreams, steps []optionalSt
 			return err
 		case err != nil && st.required:
 			failures = append(failures, fmt.Errorf("%s: %w", st.label, err))
+		case err != nil:
+			// A best-effort failure is dropped after its warning, so its
+			// remediation hint is shown here or never (solvent-streets-0z82).
+			// A required one keeps it for the final error.
+			hint.Fprint(ios.ErrOut, err)
 		}
 	}
 	if len(failures) == 0 {

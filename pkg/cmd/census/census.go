@@ -39,7 +39,7 @@ under "Color by", together with per-resident ratios (paved area and
 year-1 need per resident) it derives from them.
 
 US cities only: TIGERweb has no blocks elsewhere. Set census = false on a
-city to keep it out of the census steps of 'pvmt all'.`,
+city to keep it out of every census step, here and in 'pvmt all'.`,
 		Example: `  # Pull Census blocks for every configured city
   pvmt census ingest
 

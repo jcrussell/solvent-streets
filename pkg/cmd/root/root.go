@@ -148,6 +148,21 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 	return cmd
 }
 
+// RefuseUnknownShells makes `pvmt completion <typo>` a usage error (exit 2).
+// Cobra adds the completion command lazily, as a parent with no RunE, so a
+// typo'd shell printed its help and exited 0 -- the one group
+// cmdutil.MarkGroup did not cover (solvent-streets-0z82). Call it right
+// before Execute, once the command's output is final: cobra's completion
+// subcommands write to the output root had when the command was added.
+func RefuseUnknownShells(root *cobra.Command) {
+	root.InitDefaultCompletionCmd()
+	for _, c := range root.Commands() {
+		if c.Name() == "completion" {
+			cmdutil.MarkGroup(c)
+		}
+	}
+}
+
 // refuseUnknownHelpTopics makes `pvmt help <typo>` a usage error (exit 2)
 // while leaving cobra's help text and completion untouched. Cobra's help
 // command reports an unknown topic only by printing to stdout with a nil

@@ -1357,3 +1357,55 @@ func TestPrintDryRunPlan_DisabledSourceGivesTheRealRunsReason(t *testing.T) {
 		t.Errorf("dry run = %q; an enabled source needs no warning", enabled)
 	}
 }
+
+// TestRunIngest_CensusOptOut pins solvent-streets-0z82: a city with
+// census = false is skipped by `pvmt census ingest` (and its --dry-run), as
+// `pvmt census compute` and `pvmt all` already skip it, before any fetch.
+func TestRunIngest_CensusOptOut(t *testing.T) {
+	for _, dry := range []bool{false, true} {
+		off := false
+		city := cmdtest.NewTestCity()
+		city.Census = &off
+		ios, _, _, errOut := iostreams.Test()
+		err := runIngest(context.Background(), &Options{
+			IO:           ios,
+			CityDB:       func() (db.Store, error) { t.Fatal("store opened"); return nil, errors.New("unreachable") },
+			CurrentCity:  func() (*config.CityConfig, error) { return city, nil },
+			HttpClient:   func() (*http.Client, error) { t.Fatal("http client built"); return nil, errors.New("unreachable") },
+			ResourceType: &resource.CensusBlocks{},
+			Source:       cmdutil.SourceAll,
+			DryRun:       dry,
+		})
+		if !errors.Is(err, cmdutil.ErrNoResults) {
+			t.Errorf("dry-run=%v: err = %v, want ErrNoResults", dry, err)
+		}
+		if !strings.Contains(errOut.String(), "census = false") {
+			t.Errorf("dry-run=%v: stderr = %q, want the opt-out named", dry, errOut.String())
+		}
+	}
+}
+
+// TestRunIngest_DisabledSourceFailsBeforeBoundary pins solvent-streets-0z82: a
+// --source the city's pvmt.toml switched off fails before any network work,
+// with the hint naming the setting.
+func TestRunIngest_DisabledSourceFailsBeforeBoundary(t *testing.T) {
+	city := cmdtest.NewTestCity()
+	city.Overpass = false
+	city.ArcGISURL = "https://example.test/query"
+	ios, _, _, _ := iostreams.Test()
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func(context.Context) (string, error) { t.Fatal("boundary resolved"); return "", nil },
+	}
+	err := runIngest(context.Background(), &Options{
+		IO:           ios,
+		CityDB:       func() (db.Store, error) { return store, nil },
+		CurrentCity:  func() (*config.CityConfig, error) { return city, nil },
+		HttpClient:   func() (*http.Client, error) { return &http.Client{}, nil },
+		ResourceType: &resource.Pavement{},
+		Source:       cmdutil.SourceOverpass,
+	})
+	var h *hint.ErrHint
+	if err == nil || !strings.Contains(err.Error(), "not available for this city") || !errors.As(err, &h) {
+		t.Fatalf("err = %v, want the disabled-source error with a hint", err)
+	}
+}

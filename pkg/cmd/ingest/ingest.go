@@ -239,11 +239,12 @@ func runIngestAllCities(ctx context.Context, f *cmdutil.Factory, opts *Options) 
 }
 
 func runIngest(ctx context.Context, opts *Options) error {
-	ios := opts.IO
-
 	city, err := opts.CurrentCity()
 	if err != nil {
 		return fmt.Errorf("city: %w", err)
+	}
+	if err := censusOptOut(opts, city); err != nil {
+		return err
 	}
 
 	client, err := opts.HttpClient()
@@ -268,6 +269,20 @@ func runIngest(ctx context.Context, opts *Options) error {
 	if opts.Force {
 		ctx = cache.WithBypass(ctx)
 	}
+
+	// A --source this city's pvmt.toml switched off fails before the
+	// boundary fetch, not after it (solvent-streets-0z82). The dry run above
+	// only warns about it.
+	return fetchAndSave(ctx, opts, store, client, city)
+}
+
+// fetchAndSave is the network half of runIngest: the source check, the
+// boundary, the fetch, the save and the road-coverage gate.
+func fetchAndSave(ctx context.Context, opts *Options, store db.Store, client *http.Client, city *config.CityConfig) error {
+	if err := checkSourceEnabled(opts, city); err != nil {
+		return err
+	}
+	ios := opts.IO
 
 	boundaryGJSON, fresh, err := resolveBoundary(ctx, opts, store, client, city, liveBoundaryFetchers())
 	if err != nil {
@@ -540,6 +555,10 @@ func resolveBoundary(
 	fmt.Fprintf(opts.IO.ErrOut, "Fetching boundary for %s from %s...\n", city.Name, src.from)
 	boundaryGJSON, err = src.fetch(ctx, client, city.Name, fetch)
 	if err != nil {
+		// A cancelled fetch needs no remediation, as for the water strip below.
+		if errors.Is(err, context.Canceled) {
+			return "", nil, fmt.Errorf("fetch boundary: %w", err)
+		}
 		return "", nil, hint.Withf(fmt.Errorf("fetch boundary: %w", err),
 			"%s", boundaryFetchHint(err))
 	}
@@ -757,6 +776,30 @@ func resolveSources(opts *Options, bbox [4]float64, overpass bool, arcgisURL str
 		return nil, fmt.Errorf("resolving source %q: %w", opts.Source, err)
 	}
 	return []ingestpkg.Source{src}, nil
+}
+
+// censusOptOut keeps a city with census = false out of every census step,
+// `pvmt census ingest` and its --dry-run included, as `pvmt census compute`
+// already does: a quiet skip, exit 3 (solvent-streets-0z82).
+func censusOptOut(opts *Options, city *config.CityConfig) error {
+	if opts.ResourceType.Type() != resource.TypeCensusBlocks || city.CensusEnabled() {
+		return nil
+	}
+	fmt.Fprintf(opts.IO.ErrOut, "Census disabled for %s (census = false); skipping.\n", city.Name)
+	return cmdutil.ErrNoResults
+}
+
+// checkSourceEnabled refuses a named --source the city's config switched off.
+// resolveSources makes the same check; this runs it before any network work.
+// Own-sourced resources ignore the city's source settings, so never fail here.
+func checkSourceEnabled(opts *Options, city *config.CityConfig) error {
+	if _, ok := opts.ResourceType.(resource.OwnSourced); ok || opts.Source == cmdutil.SourceAll {
+		return nil
+	}
+	if disabled := disabledSourceReason(opts.Source, city.Overpass, city.ArcGISURL); disabled != "" {
+		return hint.Withf(fmt.Errorf("source %q is not available for this city", opts.Source), "%s", disabled)
+	}
+	return nil
 }
 
 // disabledSourceReason explains why an otherwise-valid --source value yields no

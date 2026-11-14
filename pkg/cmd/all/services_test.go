@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
@@ -81,5 +82,26 @@ func TestRunOptionalSteps_RequiredFailureFailsTheRun(t *testing.T) {
 	steps[0].fn = func() error { return cmdutil.ErrNoResults }
 	if got := runOptionalSteps(nil, ios, steps); got != nil {
 		t.Errorf("ErrNoResults from a required step = %v, want a skip", got)
+	}
+}
+
+// TestRunOptionalSteps_BestEffortFailureKeepsItsHint pins solvent-streets-0z82:
+// a best-effort step's error is dropped after the warning, so its hint has to
+// be printed with it; a required step's hint is left for the final error.
+func TestRunOptionalSteps_BestEffortFailureKeepsItsHint(t *testing.T) {
+	ios, _, _, errOut := iostreams.Test()
+	withHint := hint.With(errors.New("no boundary"), "run pvmt roads ingest first")
+	got := runOptionalSteps(nil, ios, []optionalStep{{label: "fire compute", fn: func() error { return withHint }}})
+	if got != nil {
+		t.Fatalf("best-effort failure = %v, want it dropped", got)
+	}
+	if !strings.Contains(errOut.String(), "hint: run pvmt roads ingest first") {
+		t.Errorf("stderr = %q, want the hint", errOut.String())
+	}
+
+	ios, _, _, errOut = iostreams.Test()
+	got = runOptionalSteps(nil, ios, []optionalStep{{label: "fire ingest", required: true, fn: func() error { return withHint }}})
+	if got == nil || strings.Contains(errOut.String(), "hint:") {
+		t.Errorf("required failure: err %v, stderr %q; want the error returned and the hint left to it", got, errOut.String())
 	}
 }
