@@ -1,10 +1,12 @@
 # Examples
 
 Each directory here holds a ready-to-run `pvmt.toml`, and each config's
-header comment says what it covers and which settings it demonstrates. Most
-cover a whole metro area, so the dashboard's **Compare** tab can rank
-neighbouring cities against each other — the question solvent-streets exists
-to answer. To try one:
+header comment says what it covers and which settings it demonstrates. They
+come in two kinds. Most are metro configs, covering one metro area so the
+dashboard's **Compare** tab can rank neighbouring cities against each other —
+the question solvent-streets exists to answer. The rest are national rollups
+that pick cities by a category instead of by place, so Compare ranks cities
+that share a size, a role or a name across the whole country. To try one:
 
 ```
 cd examples/livermore-ca
@@ -24,6 +26,9 @@ computed (see
 [Including other configs](../docs/configuration.md#including-other-configs-include)).
 Populate the examples you want, then run `make site`.
 
-**[top-50-cities](top-50-cities/)** is the national sample: the 50 largest US
-cities, ranked as cities rather than metros, for the reasons its config's
-header gives.
+The national rollups:
+
+- **[top-50-cities](top-50-cities/)**: the 50 largest US cities, ranked as
+  cities rather than metros, for the reasons its config's header gives.
+- **[state-capitals-us](state-capitals-us/)**: the 50 state capitals, which
+  reach down to Montpelier, VT, a city of under 10,000.

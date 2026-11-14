@@ -16,8 +16,9 @@
 # horizon, not a per-city calibration, and every included example must agree
 # with it. None of them sets it, so all cities share the default 30 years.
 #
-# Include order matters: metros come before the top-50 list so a city shared
-# between the two keeps the (more local) metro calibration. Calibration merges
+# Include order matters: metros come first, then the national top-50 list,
+# then the national category rollups, so a city shared between them keeps
+# the most local calibration. Calibration merges
 # PER FIELD — the first include to *set* a field wins it, and later includes
 # fill only the fields it left unset. That is why Los Angeles keeps the LA
 # metro's decay rate and cost tiers while still picking up the national growth
@@ -31,7 +32,9 @@
 # forecast.growth_rate) the load prints one `warning:` line per city naming the
 # fields, both values, and both includes. Those warnings are expected here —
 # they are how "first wins" stays visible. Reordering the includes below
-# changes which calibration those cities get.
+# changes which calibration those cities get. The rollups add none: every
+# city they share with an earlier include carries that include's values
+# exactly, as their headers explain.
 #
 # This config stores no data of its own. Each city keeps the config_id of the
 # example that declared it and resolves the same compute settings (hence the
@@ -89,3 +92,7 @@ tags = ["Dallas-Fort Worth"]
 [[include]]
 path = "../top-50-cities/pvmt.toml"
 tags = ["Top 50"]
+
+[[include]]
+path = "../state-capitals-us/pvmt.toml"
+tags = ["State Capitals"]

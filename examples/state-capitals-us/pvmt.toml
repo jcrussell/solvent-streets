@@ -1,0 +1,264 @@
+# US State Capitals — the seat of government of each of the 50 states.
+#
+# A national sample selected on governance rather than population, so it
+# reaches the small end nothing else covers (Montpelier VT, Pierre SD) and
+# spans the widest range of city sizes in the showcase, from Annapolis to
+# the City and Borough of Juneau. Washington, DC is not a state capital; it
+# is in top-50-cities.
+#
+# Selection: the 50 state capitals, listed by state postal code as
+# "City, ST". Every name was checked against Nominatim on 2026-11-14 and
+# resolves to its own polygon (49 to a boundary=administrative relation,
+# Honolulu to a place=city one); none needs a boundary_relation_id, and
+# Denver keeps the pin its other two configs carry.
+#
+# Grid: 100 m, with 300 m for Juneau. A city shared with an earlier example
+# (marked "= <example>") carries that example's hex_edge_m exactly, because
+# examples/all merges the earlier one first and a different value would be
+# a new merge warning. Boston and Denver match on the 100 m default.
+#
+# Caveats:
+#   - Consolidated city-counties (Nashville-Davidson, Indianapolis, the
+#     City and Borough of Juneau, Carson City) are listed under their
+#     common short name, as in top-50-cities.
+#   - Honolulu has no incorporated city below the City and County of
+#     Honolulu. Its lookup resolves to urban Honolulu's place polygon,
+#     roughly the census-designated place, not all of Oahu.
+#   - A standalone ingest fetches again the capitals that other examples
+#     already hold (Sacramento, Denver, Boston and the top-50 capitals)
+#     under this config_id, the same accepted trade as the bay-area-ca /
+#     top-50-cities overlap.
+#   - Forecasts ride the package defaults: no per-capital PCI or budget is
+#     cited yet.
+#
+# To run:
+#   cd examples/state-capitals-us
+#   pvmt all ingest      # 50 Nominatim + 50 Overpass pulls; takes hours
+#   pvmt all compute
+#   pvmt serve
+
+# Database scoping key, set explicitly so this dataset keeps its rows if the
+# file is moved or renamed (see docs/configuration.md, "Config identity").
+config_id = "state-capitals-us"
+
+[grid]
+hex_edge_m = 100
+
+[export]
+title = "US State Capitals"
+
+[[cities]]
+name = "Montgomery, AL"
+overpass = true
+
+[[cities]]
+name = "Juneau, AK"
+overpass = true
+hex_edge_m = 300  # City and Borough of Juneau, ~1.2° x 2° of mountains and ice field
+
+[[cities]]
+name = "Phoenix, AZ"
+overpass = true
+hex_edge_m = 300  # = top-50-cities
+
+[[cities]]
+name = "Little Rock, AR"
+overpass = true
+
+[[cities]]
+name = "Sacramento, CA"
+overpass = true
+hex_edge_m = 200  # = sacramento-ca
+
+[[cities]]
+name = "Denver, CO"
+overpass = true
+# Pinned to the City and County relation, as denver-metro-co and
+# top-50-cities do.
+boundary_relation_id = 1411339
+
+[[cities]]
+name = "Hartford, CT"
+overpass = true
+
+[[cities]]
+name = "Dover, DE"
+overpass = true
+
+[[cities]]
+name = "Tallahassee, FL"
+overpass = true
+
+[[cities]]
+name = "Atlanta, GA"
+overpass = true
+hex_edge_m = 150  # = top-50-cities
+
+[[cities]]
+name = "Honolulu, HI"
+overpass = true
+# Resolves to the place=city polygon of urban Honolulu: the City and County,
+# all of Oahu, spans the Northwestern Hawaiian Islands, past the 5° limit on
+# boundary_relation_id. See the header's caveats.
+
+[[cities]]
+name = "Boise, ID"
+overpass = true
+
+[[cities]]
+name = "Springfield, IL"
+overpass = true
+
+[[cities]]
+name = "Indianapolis, IN"
+overpass = true
+hex_edge_m = 250  # = top-50-cities
+
+[[cities]]
+name = "Des Moines, IA"
+overpass = true
+
+[[cities]]
+name = "Topeka, KS"
+overpass = true
+
+[[cities]]
+name = "Frankfort, KY"
+overpass = true
+
+[[cities]]
+name = "Baton Rouge, LA"
+overpass = true
+
+[[cities]]
+name = "Augusta, ME"
+overpass = true
+
+[[cities]]
+name = "Annapolis, MD"
+overpass = true
+
+[[cities]]
+name = "Boston, MA"
+overpass = true
+
+[[cities]]
+name = "Lansing, MI"
+overpass = true
+
+[[cities]]
+name = "Saint Paul, MN"
+overpass = true
+
+[[cities]]
+name = "Jackson, MS"
+overpass = true
+
+[[cities]]
+name = "Jefferson City, MO"
+overpass = true
+
+[[cities]]
+name = "Helena, MT"
+overpass = true
+
+[[cities]]
+name = "Lincoln, NE"
+overpass = true
+
+[[cities]]
+name = "Carson City, NV"
+overpass = true
+
+[[cities]]
+name = "Concord, NH"
+overpass = true
+
+[[cities]]
+name = "Trenton, NJ"
+overpass = true
+
+[[cities]]
+name = "Santa Fe, NM"
+overpass = true
+
+[[cities]]
+name = "Albany, NY"
+overpass = true
+
+[[cities]]
+name = "Raleigh, NC"
+overpass = true
+hex_edge_m = 150  # = top-50-cities
+
+[[cities]]
+name = "Bismarck, ND"
+overpass = true
+
+[[cities]]
+name = "Columbus, OH"
+overpass = true
+hex_edge_m = 150  # = top-50-cities
+
+[[cities]]
+name = "Oklahoma City, OK"
+overpass = true
+hex_edge_m = 300  # = top-50-cities
+
+[[cities]]
+name = "Salem, OR"
+overpass = true
+
+[[cities]]
+name = "Harrisburg, PA"
+overpass = true
+
+[[cities]]
+name = "Providence, RI"
+overpass = true
+
+[[cities]]
+name = "Columbia, SC"
+overpass = true
+
+[[cities]]
+name = "Pierre, SD"
+overpass = true
+
+[[cities]]
+name = "Nashville, TN"
+overpass = true
+hex_edge_m = 300  # = top-50-cities
+
+[[cities]]
+name = "Austin, TX"
+overpass = true
+hex_edge_m = 150  # = top-50-cities
+
+[[cities]]
+name = "Salt Lake City, UT"
+overpass = true
+
+[[cities]]
+name = "Montpelier, VT"
+overpass = true
+
+[[cities]]
+name = "Richmond, VA"
+overpass = true
+
+[[cities]]
+name = "Olympia, WA"
+overpass = true
+
+[[cities]]
+name = "Charleston, WV"
+overpass = true
+
+[[cities]]
+name = "Madison, WI"
+overpass = true
+
+[[cities]]
+name = "Cheyenne, WY"
+overpass = true
