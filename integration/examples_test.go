@@ -27,7 +27,7 @@ var externalExampleConsumers = map[string]string{
 // without touching the release workflow's own hand-rolled pvmt.toml, and
 // because the smoke job only runs on tag push, nothing noticed for three
 // months. The smoke job now runs against examples/livermore-ca and this test
-// covers it — along with the other eleven examples, which had no test at all.
+// covers it — along with every other example, which had no test at all.
 //
 // Load, not LoadFS: examples/all is built entirely from [[include]], which
 // LoadFS rejects outright, so going through Load also catches a broken or

@@ -1,0 +1,158 @@
+# Dallas–Fort Worth, TX — a flat, sprawling metro growing at very different speeds
+#
+# DFW is the only Texas metro in the showcase, and the one where neighbouring
+# cities are least alike in how fast their road networks grow: the built-out
+# inner ring (Irving, Mesquite, Richardson) barely added residents from 2020
+# to 2025, while the Collin and Denton county suburbs to the north added a
+# fifth to a half. One metro-wide growth_rate would misprice both ends, so
+# this config sets growth per city.
+#
+# Techniques demonstrated:
+#   - Per-city forecast.growth_rate, each cited to the Census population
+#     change it is taken from. Every other metro sets one rate for all its
+#     cities; here a city growing at least 1%/yr gets its own rate, and the
+#     rest ride the default of 0.
+#   - hex_edge_m = 150 throughout, the sprawl calibration top-50-cities also
+#     gives Dallas and Fort Worth.
+#
+# Selection: every incorporated city of 100,000 or more in Dallas, Tarrant,
+# Collin and Denton counties (15), plus three smaller, faster-growing ones
+# for the growth frontier: Mansfield, Prosper and Little Elm.
+#
+# Source: US Census Bureau, "Annual Estimates of the Resident Population for
+# Incorporated Places of 20,000 or More, Ranked by July 1, 2025 Population"
+# (Vintage 2025, SUB-IP-EST2025-ANNRNK.xlsx), the file top-50-cities uses.
+# Retrieved 2026-11-14. Each growth_rate is the April 2020 estimates base to
+# July 2025 change, spread linearly over those 5.25 years, with population
+# standing in for paved area: new subdivisions add streets roughly in step
+# with residents.
+#
+# Every name was checked against Nominatim on 2026-11-14 and resolves to its
+# own boundary=administrative polygon, so no boundary_relation_id is needed.
+#
+# Caveats:
+#   - A 2020–2025 rate is extrapolated linearly over the whole forecast
+#     horizon, which overstates a frontier that will build out. That is why
+#     the frontier picks stop below the metro's hypergrowth places (Celina,
+#     Princeton, Anna, Melissa, Forney, Fate, at 12–53%/yr in the same
+#     table); Celina's rate is beyond the 0.5 that growth_rate accepts.
+#   - Dallas and Fort Worth are also in top-50-cities. They carry no
+#     growth_rate here, so examples/all gives them that config's national
+#     0.005 without a merge warning; Fort Worth's own Census rate (11.9% over
+#     2020–2025, 0.023/yr) is noted at its entry rather than set. A
+#     standalone ingest fetches both cities again under this config_id.
+#
+# To run:
+#   cd examples/dfw-metro-tx
+#   pvmt all ingest      # 18 Nominatim + Overpass pulls
+#   pvmt all compute
+#   pvmt serve
+
+config_id = "dfw-metro-tx"
+
+[grid]
+hex_edge_m = 150
+
+[export]
+title = "Dallas–Fort Worth Pavement Analysis"
+
+[[cities]]
+name = "Dallas, TX"
+overpass = true
+
+[[cities]]
+name = "Fort Worth, TX"
+overpass = true
+# Census: 918,892 (2020) to 1,028,117 (2025), 0.023/yr; not set, see the
+# header's caveat on top-50-cities.
+
+[[cities]]
+name = "Arlington, TX"
+overpass = true
+
+[[cities]]
+name = "Plano, TX"
+overpass = true
+
+[[cities]]
+name = "Irving, TX"
+overpass = true
+
+[[cities]]
+name = "Garland, TX"
+overpass = true
+
+[[cities]]
+name = "Frisco, TX"
+#@cite Census V2025 place estimates: 200,531 (Apr 2020 base) to 236,955 (Jul 2025), +18.2% over 5.25 yr
+#@cite     https://www2.census.gov/programs-surveys/popest/tables/2020-2025/cities/totals/SUB-IP-EST2025-ANNRNK.xlsx (accessed 2026-11-14)
+forecast.growth_rate = 0.035
+overpass = true
+
+[[cities]]
+name = "McKinney, TX"
+#@cite Census V2025 place estimates: 195,331 (Apr 2020 base) to 236,001 (Jul 2025), +20.8% over 5.25 yr
+#@cite     https://www2.census.gov/programs-surveys/popest/tables/2020-2025/cities/totals/SUB-IP-EST2025-ANNRNK.xlsx (accessed 2026-11-14)
+forecast.growth_rate = 0.040
+overpass = true
+
+[[cities]]
+name = "Grand Prairie, TX"
+#@cite Census V2025 place estimates: 196,081 (Apr 2020 base) to 209,434 (Jul 2025), +6.8% over 5.25 yr
+#@cite     https://www2.census.gov/programs-surveys/popest/tables/2020-2025/cities/totals/SUB-IP-EST2025-ANNRNK.xlsx (accessed 2026-11-14)
+forecast.growth_rate = 0.013
+overpass = true
+
+[[cities]]
+name = "Denton, TX"
+#@cite Census V2025 place estimates: 139,898 (Apr 2020 base) to 169,431 (Jul 2025), +21.1% over 5.25 yr
+#@cite     https://www2.census.gov/programs-surveys/popest/tables/2020-2025/cities/totals/SUB-IP-EST2025-ANNRNK.xlsx (accessed 2026-11-14)
+forecast.growth_rate = 0.040
+overpass = true
+
+[[cities]]
+name = "Mesquite, TX"
+overpass = true
+
+[[cities]]
+name = "Lewisville, TX"
+#@cite Census V2025 place estimates: 125,664 (Apr 2020 base) to 139,006 (Jul 2025), +10.6% over 5.25 yr
+#@cite     https://www2.census.gov/programs-surveys/popest/tables/2020-2025/cities/totals/SUB-IP-EST2025-ANNRNK.xlsx (accessed 2026-11-14)
+forecast.growth_rate = 0.020
+overpass = true
+
+[[cities]]
+name = "Carrollton, TX"
+overpass = true
+
+[[cities]]
+name = "Richardson, TX"
+overpass = true
+
+[[cities]]
+name = "Allen, TX"
+#@cite Census V2025 place estimates: 104,655 (Apr 2020 base) to 113,447 (Jul 2025), +8.4% over 5.25 yr
+#@cite     https://www2.census.gov/programs-surveys/popest/tables/2020-2025/cities/totals/SUB-IP-EST2025-ANNRNK.xlsx (accessed 2026-11-14)
+forecast.growth_rate = 0.016
+overpass = true
+
+[[cities]]
+name = "Mansfield, TX"
+#@cite Census V2025 place estimates: 72,624 (Apr 2020 base) to 84,444 (Jul 2025), +16.3% over 5.25 yr
+#@cite     https://www2.census.gov/programs-surveys/popest/tables/2020-2025/cities/totals/SUB-IP-EST2025-ANNRNK.xlsx (accessed 2026-11-14)
+forecast.growth_rate = 0.031
+overpass = true
+
+[[cities]]
+name = "Little Elm, TX"
+#@cite Census V2025 place estimates: 46,044 (Apr 2020 base) to 62,727 (Jul 2025), +36.2% over 5.25 yr
+#@cite     https://www2.census.gov/programs-surveys/popest/tables/2020-2025/cities/totals/SUB-IP-EST2025-ANNRNK.xlsx (accessed 2026-11-14)
+forecast.growth_rate = 0.069
+overpass = true
+
+[[cities]]
+name = "Prosper, TX"
+#@cite Census V2025 place estimates: 30,171 (Apr 2020 base) to 45,605 (Jul 2025), +51.2% over 5.25 yr
+#@cite     https://www2.census.gov/programs-surveys/popest/tables/2020-2025/cities/totals/SUB-IP-EST2025-ANNRNK.xlsx (accessed 2026-11-14)
+forecast.growth_rate = 0.097
+overpass = true
