@@ -146,7 +146,9 @@ func marshalForecastSeed(fc *config.ForecastConfig, totalArea, cityArea float64,
 }
 
 // MaterialTierSeed is a material tier with the quantities it takes to treat
-// 1000 m^2, as the Materials tab's intensity table shows them.
+// 1000 m^2, as the Materials tab's intensity table shows them. They are not
+// rounded: the table shows one decimal, and the preventive tier's binder sits
+// on a rounding boundary (1.95) that an earlier rounding would tip.
 type MaterialTierSeed struct {
 	forecast.MaterialTier
 	Per1000SqM forecast.MaterialQuantities `json:"per_1000_sqm"`
@@ -155,7 +157,7 @@ type MaterialTierSeed struct {
 func materialTierSeeds(tiers []forecast.MaterialTier) []MaterialTierSeed {
 	out := make([]MaterialTierSeed, len(tiers))
 	for i, t := range tiers {
-		out[i] = MaterialTierSeed{MaterialTier: t, Per1000SqM: roundMaterials(forecast.MaterialsForArea(1000, t))}
+		out[i] = MaterialTierSeed{MaterialTier: t, Per1000SqM: forecast.MaterialsForArea(1000, t)}
 	}
 	return out
 }
