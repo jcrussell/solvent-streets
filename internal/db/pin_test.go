@@ -88,3 +88,40 @@ func TestWithSnapshot_GetBoundaryIsFrozen(t *testing.T) {
 		}
 	}
 }
+
+// TestViewSnapshot: the snapshot a view reads, with its edge and frozen
+// boundary's digest; none for a city without one; ErrSnapshotGone for a
+// deleted pin.
+func TestViewSnapshot(t *testing.T) {
+	ctx := context.Background()
+	_, store, _ := openInputsStore(t)
+	if snap, err := store.WithConfigHash("h").ViewSnapshot(ctx); err != nil || snap != nil {
+		t.Fatalf("no snapshot: ViewSnapshot = (%+v, %v), want (nil, nil)", snap, err)
+	}
+	_, s0 := commitRun(t, store, "h", "roads", nil) // no boundary
+	if err := store.SaveBoundary(ctx, geomA, "nominatim"); err != nil {
+		t.Fatal(err)
+	}
+	_, s1 := commitRun(t, store, "h", "parking", nil)
+
+	for _, c := range []struct {
+		view      Store
+		want      int64
+		hasDigest bool
+	}{
+		{store.WithSnapshot(s0), s0, false},
+		{store.WithSnapshot(s1), s1, true},
+		{store.WithConfigHash("h"), s1, true},
+	} {
+		snap, err := c.view.ViewSnapshot(ctx)
+		if err != nil || snap == nil || snap.ID != c.want || snap.HexEdgeM != testEdge || (snap.BoundaryDigest != "") != c.hasDigest {
+			t.Errorf("ViewSnapshot = (%+v, %v), want snapshot %d at %v m, boundary digest %v", snap, err, c.want, testEdge, c.hasDigest)
+		}
+	}
+	if _, err := store.DeleteSnapshot(ctx, s0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.WithSnapshot(s0).ViewSnapshot(ctx); !errors.Is(err, ErrSnapshotGone) {
+		t.Errorf("deleted pin: err = %v, want ErrSnapshotGone", err)
+	}
+}

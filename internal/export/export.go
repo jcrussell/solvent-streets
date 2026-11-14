@@ -92,7 +92,7 @@ func (e *Exporter) runSingleCity(ctx context.Context) error {
 		return err
 	}
 
-	return e.renderHTML(meta, seed, nil)
+	return e.renderHTML(ctx, meta, seed, nil)
 }
 
 // exportOneCity writes one sub-city's data directory and returns its
@@ -198,7 +198,7 @@ func (e *Exporter) runMultiCity(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return e.renderHTML(meta, seed, cities)
+	return e.renderHTML(ctx, meta, seed, cities)
 }
 
 // listedInfo is the one rule for which cities a multi-city site lists: a city
@@ -274,14 +274,8 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 		return MetaJSON{}, "", fmt.Errorf("city bbox: %w", err)
 	}
 	proj := geo.NewUTMProjector(lon, lat)
-	// A single UTM zone is picked from the bbox center; a bbox much wider than
-	// one 6° zone gets distorted areas near its edges. Warn so an oversized city
-	// isn't silently exported with skewed metrics (bbox is [south,west,north,
-	// east], so the lon span is east-west = bbox[3]-bbox[1]).
-	if geo.BBoxExceedsUTMZone(bbox) {
-		fmt.Fprintf(e.warnOut(),
-			"warning: city %q bbox spans %.1f° of longitude; a single UTM zone (%d) is used, so exported areas near the edges may be distorted\n",
-			entry.City.Name, bbox[3]-bbox[1], proj.Zone)
+	if err := e.warnGrid(ctx, entry, bbox, proj); err != nil {
+		return MetaJSON{}, "", err
 	}
 
 	meta, err := BuildMeta(ctx, entry, 0)
@@ -414,8 +408,35 @@ func exportScenariosForCity(ctx context.Context, entry CityEntry, dataDir string
 	return nil
 }
 
+// warnGrid warns about a city whose map will be distorted or empty.
+//
+// A single UTM zone is picked from the bbox center; a bbox much wider than
+// one 6° zone gets distorted areas near its edges. Warn so an oversized city
+// isn't silently exported with skewed metrics (bbox is [south,west,north,
+// east], so the lon span is east-west = bbox[3]-bbox[1]). And min_hex_area is
+// checked against the edge the snapshot is drawn at (sliverThresholdWarning).
+func (e *Exporter) warnGrid(ctx context.Context, entry CityEntry, bbox [4]float64, proj *geo.UTMProjector) error {
+	if geo.BBoxExceedsUTMZone(bbox) {
+		fmt.Fprintf(e.warnOut(),
+			"warning: city %q bbox spans %.1f° of longitude; a single UTM zone (%d) is used, so exported areas near the edges may be distorted\n",
+			entry.City.Name, bbox[3]-bbox[1], proj.Zone)
+	}
+	edge, err := entry.HexEdge(ctx)
+	if err != nil {
+		return err
+	}
+	fmt.Fprint(e.warnOut(), sliverThresholdWarning(entry, edge))
+	return nil
+}
+
 // ResolvedTOML returns the config serialized as TOML with all defaults filled in.
-func ResolvedTOML(cfg *config.Config) string {
+func ResolvedTOML(cfg *config.Config) string { return ResolvedTOMLWithEdges(cfg, nil) }
+
+// ResolvedTOMLWithEdges is ResolvedTOML with each city's hex_edge_m taken
+// from hexEdges (slug -> edge; see HexEdges) where it has one: the edge of the
+// snapshot the site publishes, which is what its map is drawn at, rather than
+// the edge the config has now.
+func ResolvedTOMLWithEdges(cfg *config.Config, hexEdges map[string]float64) string {
 	resolved := *cfg
 
 	// ConfigID is internal plumbing for cities-table keying — not a
@@ -467,6 +488,9 @@ func ResolvedTOML(cfg *config.Config) string {
 		for i := range cities {
 			rf := cfg.ResolvedForecast(&cities[i])
 			cities[i].HexEdgeM = cfg.ResolvedHexEdge(&cities[i])
+			if edge, ok := hexEdges[cities[i].Slug()]; ok && edge > 0 {
+				cities[i].HexEdgeM = edge
+			}
 			// min_hex_area is flattened per-city by the include merge like
 			// hex_edge_m, and CityConfig emits it unconditionally (no
 			// omitempty), so without this every city would publish a
@@ -560,10 +584,14 @@ func (e *Exporter) writeNojekyll() error {
 	return nil
 }
 
-func (e *Exporter) renderHTML(meta MetaJSON, seed template.JS, cities []CityInfo) error {
+func (e *Exporter) renderHTML(ctx context.Context, meta MetaJSON, seed template.JS, cities []CityInfo) error {
+	hexEdges, err := HexEdges(ctx, e.entries)
+	if err != nil {
+		return err
+	}
 	// IsLiveServer and ActiveSlug stay zero: this is the static export, so the
 	// game page resolves the active city client-side from ?city=.
-	td, err := NewTemplateData(e.cfg, meta, seed, cities, e.unitSystem)
+	td, err := NewTemplateData(e.cfg, meta, seed, cities, e.unitSystem, hexEdges)
 	if err != nil {
 		return err
 	}

@@ -309,7 +309,11 @@ answers 410 and caches nothing.
 
 A snapshot also freezes what drawing its grid depends on: the hex edge it was
 tiled at (`hex_edge_m`) and the boundary it was clipped to, stored once per
-distinct boundary in `snapshot_boundaries`. Alongside the snapshots,
+distinct boundary in `snapshot_boundaries`. Export and serve draw a snapshot
+on that lattice (`CityEntry.HexEdge`, and the pinned `GetBoundary`), so any
+snapshot renders as computed after a `hex_edge_m` edit or a boundary
+re-ingest, `?snapshot=N` included. The Config tab shows each city's
+snapshot edge. Alongside the snapshots,
 `working_parts` holds each city's *working state* per config hash, the latest
 run of each part.
 

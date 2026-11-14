@@ -241,6 +241,39 @@ func partNames(s db.Snapshot) string {
 	return strings.Join(names, ", ")
 }
 
+// HexEdge returns the hex edge, in meters, the city's grid is drawn at: the
+// edge of the snapshot its store reads (the one it was computed on, so a
+// snapshot keeps rendering on its own lattice after a hex_edge_m edit), or
+// the config's resolved edge when the store reads no snapshot. A pinned
+// snapshot that is gone is db.ErrSnapshotGone.
+func (entry CityEntry) HexEdge(ctx context.Context) (float64, error) {
+	snap, err := entry.Store.ViewSnapshot(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("hex edge for %s: %w", entry.City.Name, err)
+	}
+	if snap != nil && snap.HexEdgeM > 0 {
+		return snap.HexEdgeM, nil
+	}
+	if entry.Config == nil {
+		return config.DefaultHexEdgeM, nil
+	}
+	return entry.Config.ResolvedHexEdge(&entry.City), nil
+}
+
+// HexEdges returns HexEdge for every entry, keyed by slug: the edges the
+// Config tab shows (ResolvedTOMLWithEdges).
+func HexEdges(ctx context.Context, entries []CityEntry) (map[string]float64, error) {
+	edges := make(map[string]float64, len(entries))
+	for _, entry := range entries {
+		edge, err := entry.HexEdge(ctx)
+		if err != nil {
+			return nil, err
+		}
+		edges[entry.Slug] = edge
+	}
+	return edges, nil
+}
+
 // BBoxAndCenter derives bbox and center from the stored boundary polygon.
 //
 // A genuinely-missing boundary (GetBoundary returns "", nil) is reported as

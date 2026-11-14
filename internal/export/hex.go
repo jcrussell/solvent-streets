@@ -240,6 +240,28 @@ func (a *hexAgg) set(res string, scope resource.Scope, area, share, spaces float
 	a.all[res] = m
 }
 
+// fullHexArea is the area, in m², of an unclipped flat-top hex of the given
+// edge.
+func fullHexArea(edge float64) float64 { return 3 * math.Sqrt(3) / 2 * edge * edge }
+
+// sliverThresholdWarning returns a warning when the city's min_hex_area would
+// drop every hex of the lattice it is drawn at: the threshold is sized
+// against the hex edge (Config.ResolvedMinHexArea), but a snapshot renders on
+// its own edge, which may be finer than the one the config now has. "" when
+// the threshold leaves whole hexes in place.
+func sliverThresholdWarning(entry CityEntry, edge float64) string {
+	if entry.Config == nil {
+		return ""
+	}
+	minArea := entry.Config.ResolvedMinHexArea(&entry.City)
+	if full := fullHexArea(edge); minArea >= full {
+		return fmt.Sprintf("warning: %s: min_hex_area %.0f m² is at least the area of a whole hex (%.0f m²) at "+
+			"the %g m hex edge its snapshot was computed at, so its map shows no hexes; lower min_hex_area\n",
+			entry.City.Name, minArea, full, edge)
+	}
+	return ""
+}
+
 // filterHexSlivers drops hexes whose geometry area is below minArea sqm.
 // Threshold lives in config.DisplayConfig.MinHexArea with a per-city
 // CityConfig.MinHexArea override (resolved via Config.ResolvedMinHexArea, which
@@ -285,12 +307,20 @@ func cityHexGrid(ctx context.Context, entry CityEntry, proj *geo.UTMProjector) (
 	}
 	// The lattice and the clip compute stored the per-hex results on
 	// (geo.CityLattice, geo.ClipHexesToBoundaryGeoJSON), so every stored hex
-	// id has the hex it was computed for. Without a usable boundary compute
-	// ran over the unclipped lattice, and so does this.
-	hexes := geo.CityLattice(proj, bbox, entry.Config.ResolvedHexEdge(&entry.City))
+	// id has the hex it was computed for. Both come from the snapshot the
+	// store reads: its hex edge (HexEdge) and the boundary it froze
+	// (GetBoundary on a pinned store, which BBoxAndCenter and the projector
+	// were derived from too), not the current config and boundary. Without a
+	// usable boundary compute ran over the unclipped lattice, and so does
+	// this.
+	edge, err := entry.HexEdge(ctx)
+	if err != nil {
+		return nil, err
+	}
+	hexes := geo.CityLattice(proj, bbox, edge)
 	boundaryGJSON, err := entry.Store.GetBoundary(ctx)
 	if err != nil {
-		boundaryGJSON = ""
+		return nil, fmt.Errorf("boundary for %s: %w", entry.City.Name, err)
 	}
 	hexes, clipErr := geo.ClipHexesToBoundaryGeoJSON(ctx, hexes, boundaryGJSON, proj, nil)
 	if clipErr != nil && !errors.Is(clipErr, geo.ErrNoClipBoundary) {

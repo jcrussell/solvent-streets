@@ -213,7 +213,9 @@ the inverse edge, so large cities run coarser: the examples range from 60 m to
 **`min_hex_area`** drops boundary slivers smaller than this many m² from the
 map, the stats and the play board. Set it in `[display]` or per city; the
 default is 100. It is coupled to the edge: a threshold above a full hex's area
-(`3√3/2 · edge²`) drops every hex.
+(`3√3/2 · edge²`) drops every hex. A snapshot is drawn at the edge it was
+computed at, so export checks the threshold against that edge and warns when
+it would drop every hex.
 
 **`[display].units`** is `imperial` (the default) or `metric`. It changes
 presentation only.

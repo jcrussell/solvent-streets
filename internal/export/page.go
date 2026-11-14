@@ -52,9 +52,10 @@ func PageMetaAndSeed(ctx context.Context, cfg *config.Config, entries []CityEntr
 
 // NewTemplateData assembles what index.html and play.html render against, for
 // the static export and the live server alike. cities is nil for a single-city
-// site. The caller sets IsLiveServer and ActiveSlug, which only the live
+// site. hexEdges (HexEdges) is each city's published hex edge, for the Config
+// tab. The caller sets IsLiveServer and ActiveSlug, which only the live
 // server uses.
-func NewTemplateData(cfg *config.Config, meta MetaJSON, seed template.JS, cities []CityInfo, unitSystem string) (TemplateData, error) {
+func NewTemplateData(cfg *config.Config, meta MetaJSON, seed template.JS, cities []CityInfo, unitSystem string, hexEdges map[string]float64) (TemplateData, error) {
 	methodology, err := MethodologyHTML()
 	if err != nil {
 		return TemplateData{}, fmt.Errorf("render methodology: %w", err)
@@ -73,7 +74,7 @@ func NewTemplateData(cfg *config.Config, meta MetaJSON, seed template.JS, cities
 		ForecastSeed:    seed,
 		LayerColors:     ResourceColorsJS(),
 		RawTOML:         rawTOML,
-		ResolvedTOML:    ResolvedTOML(cfg),
+		ResolvedTOML:    ResolvedTOMLWithEdges(cfg, hexEdges),
 		UnitSystem:      unitSystem,
 		Cities:          cities,
 		TagDimensions:   GroupCitiesByDimension(cities),

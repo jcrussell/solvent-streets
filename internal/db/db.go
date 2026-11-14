@@ -123,6 +123,10 @@ type Snapshot struct {
 	// HexEdgeM is the hex edge, in meters, the snapshot's grid was tiled at.
 	HexEdgeM float64        `json:"hex_edge_m"`
 	Parts    []SnapshotPart `json:"parts"`
+	// BoundaryDigest identifies the boundary the snapshot froze (the
+	// snapshot_boundaries digest); "" when it froze none. Not published: it
+	// keys caches of what is drawn from that boundary.
+	BoundaryDigest string `json:"-"`
 }
 
 // StaleFor reports whether snaps (one city's) hold snapshots but none
@@ -244,6 +248,10 @@ type Store interface {
 	// its manifest.
 	ListSnapshots(ctx context.Context) ([]Snapshot, error)
 	ResolveSnapshot(ctx context.Context, snapshotID int64) error
+	// ViewSnapshot returns the snapshot this view reads, with its manifest:
+	// the pinned one (ErrSnapshotGone when it no longer exists), else the
+	// newest for the view's config hash. (nil, nil) when there is none.
+	ViewSnapshot(ctx context.Context) (*Snapshot, error)
 	// WithSnapshot returns a view pinned to one snapshot: its runs and its
 	// frozen boundary. Every snapshot-scoped read of the view returns
 	// ErrSnapshotGone once that snapshot no longer exists.

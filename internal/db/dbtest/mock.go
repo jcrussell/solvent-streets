@@ -37,6 +37,7 @@ type MockStore struct {
 	CommitSnapshotFunc    func(context.Context, string, float64, map[string]int64) (*db.Snapshot, error)
 	ListSnapshotsFunc     func(context.Context) ([]db.Snapshot, error)
 	ResolveSnapshotFunc   func(context.Context, int64) error
+	ViewSnapshotFunc      func(context.Context) (*db.Snapshot, error)
 	WithSnapshotFunc      func(int64) db.Store
 	WithConfigHashFunc    func(string) db.Store
 	DeleteSnapshotFunc    func(context.Context, int64) (bool, error)
@@ -291,6 +292,15 @@ func (m *MockStore) InputDigests(ctx context.Context, inputs ...string) (map[str
 		out[in] = m.Digests[in]
 	}
 	return out, nil
+}
+
+// ViewSnapshot delegates to ViewSnapshotFunc if set, otherwise returns
+// (nil, nil): no snapshot, so callers fall back to the config.
+func (m *MockStore) ViewSnapshot(ctx context.Context) (*db.Snapshot, error) {
+	if m.ViewSnapshotFunc != nil {
+		return m.ViewSnapshotFunc(ctx)
+	}
+	return nil, nil //nolint:nilnil // nil snapshot = none, like the real store
 }
 
 // WithSnapshot returns the mock unchanged by default — tests that need to

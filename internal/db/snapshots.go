@@ -451,8 +451,9 @@ func canonicalTime(t time.Time) time.Time {
 // has second granularity), each with its manifest sorted by part. A non-zero
 // only restricts the result to that one snapshot.
 func listSnapshots(ctx context.Context, q queryer, cityID, only int64) ([]Snapshot, error) {
-	query := `SELECT s.id, s.created_at, s.config_hash, s.hex_edge_m, p.part, p.run_id, r.computed_at
+	query := `SELECT s.id, s.created_at, s.config_hash, s.hex_edge_m, COALESCE(b.digest, ''), p.part, p.run_id, r.computed_at
 		FROM snapshots s
+		LEFT JOIN snapshot_boundaries b ON b.id = s.boundary_id
 		LEFT JOIN snapshot_parts p ON p.snapshot_id = s.id
 		LEFT JOIN runs r ON r.id = p.run_id
 		WHERE s.city_id = ? AND (? = 0 OR s.id = ?)
@@ -471,7 +472,7 @@ func listSnapshots(ctx context.Context, q queryer, cityID, only int64) ([]Snapsh
 			runID      sql.NullInt64
 			computedAt *time.Time
 		)
-		if err := rows.Scan(&snap.ID, &snap.CreatedAt, &snap.ConfigHash, &snap.HexEdgeM, &part, &runID, &computedAt); err != nil {
+		if err := rows.Scan(&snap.ID, &snap.CreatedAt, &snap.ConfigHash, &snap.HexEdgeM, &snap.BoundaryDigest, &part, &runID, &computedAt); err != nil {
 			return nil, fmt.Errorf("scan snapshot: %w", err)
 		}
 		snap.CreatedAt = canonicalTime(snap.CreatedAt)
@@ -488,6 +489,22 @@ func listSnapshots(ctx context.Context, q queryer, cityID, only int64) ([]Snapsh
 		}
 	}
 	return out, rows.Err()
+}
+
+// ViewSnapshot returns the snapshot this view reads. See the Store interface.
+func (s *sqliteStore) ViewSnapshot(ctx context.Context) (*Snapshot, error) {
+	id, err := s.resolvedSnapshotID(ctx, s.db)
+	if err != nil || id == 0 {
+		return nil, err
+	}
+	snaps, err := listSnapshots(ctx, s.db, s.cityID, id)
+	if err != nil {
+		return nil, err
+	}
+	if len(snaps) == 0 { // deleted between the two reads
+		return nil, fmt.Errorf("snapshot %d: %w", id, ErrSnapshotGone)
+	}
+	return &snaps[0], nil
 }
 
 // ParseSnapshotID reads a snapshot id as a person supplies it, on a command

@@ -246,7 +246,7 @@ func (s *Server) buildIndexData(ctx context.Context, entry export.CityEntry) (ex
 			return export.TemplateData{}, err
 		}
 	}
-	return s.templateData(entry.Config, meta, seed, cities, activeSlug)
+	return s.templateData(ctx, entry.Config, meta, seed, cities, activeSlug)
 }
 
 // buildSiteIndexData assembles the TemplateData for a multi-city index: the
@@ -267,7 +267,7 @@ func (s *Server) buildSiteIndexData(ctx context.Context) (export.CityEntry, expo
 	if err != nil {
 		return export.CityEntry{}, export.TemplateData{}, err
 	}
-	td, err := s.templateData(cfg, meta, seed, cities, "")
+	td, err := s.templateData(ctx, cfg, meta, seed, cities, "")
 	return export.CityEntry{}, td, err
 }
 
@@ -279,9 +279,14 @@ func (s *Server) listedCities(ctx context.Context) ([]export.CityInfo, error) {
 	return export.CityInfos(ctx, s.cities, s.logUnlisted("the index dropdown"))
 }
 
-// templateData is export.NewTemplateData marked as a live-server render.
-func (s *Server) templateData(cfg *config.Config, meta export.MetaJSON, seed template.JS, cities []export.CityInfo, activeSlug string) (export.TemplateData, error) {
-	td, err := export.NewTemplateData(cfg, meta, seed, cities, s.unitSystem(cfg))
+// templateData is export.NewTemplateData marked as a live-server render. The
+// Config tab shows each city's pinned snapshot's hex edge.
+func (s *Server) templateData(ctx context.Context, cfg *config.Config, meta export.MetaJSON, seed template.JS, cities []export.CityInfo, activeSlug string) (export.TemplateData, error) {
+	hexEdges, err := export.HexEdges(ctx, s.cities)
+	if err != nil {
+		return export.TemplateData{}, err
+	}
+	td, err := export.NewTemplateData(cfg, meta, seed, cities, s.unitSystem(cfg), hexEdges)
 	if err != nil {
 		return export.TemplateData{}, err
 	}
@@ -408,28 +413,12 @@ func (s *Server) serveDataFile(w http.ResponseWriter, r *http.Request, file stri
 	if !ok {
 		return
 	}
-	// No separate hex-edge guard is needed, even for a city pulled in via
-	// [[include]]: the resolved hex edge is part of Config.CityHash, so an
-	// included city shares its source's hash only while this config resolves
-	// the same edge (and the rest of the city's compute inputs). A divergent
-	// union reads its own hash, so it can never be served the source's hexes
-	// on a different grid.
+	// Any snapshot renders on its own lattice: a pinned store reads the
+	// snapshot's hex edge and frozen boundary (CityEntry.HexEdge,
+	// GetBoundary), so a snapshot computed under other settings, at another
+	// hex_edge_m say, draws its stored hex ids on the hexes they were
+	// computed for.
 	if snapshotID > 0 {
-		// Guard against serving a config-mismatched pinned snapshot: the hex
-		// grid (and every other data file's hex_id namespace) is regenerated
-		// from the CURRENT config, so a snapshot computed under a different
-		// config (e.g. a different hex_edge_m) would have stored hex IDs that
-		// no longer match — buildHexFeature silently drops the rows and the
-		// client gets an empty/mislocated layer with HTTP 200, cached for the
-		// server's lifetime. Fail loud instead. The default (latest) path is
-		// auto-scoped to the current config hash by BuildCityEntries'
-		// WithConfigHash pin, so only an explicitly pinned id needs this.
-		// RequireMatchingSnapshot only asks "does ANY snapshot match the
-		// current hash" and so can't answer "does THIS pinned id match",
-		// hence the dedicated check here.
-		if !s.snapshotMatchesConfig(r.Context(), w, entry, snapshotID) {
-			return
-		}
 		entry = entry.WithSnapshot(snapshotID)
 	}
 	serve, ok := s.dataFiles()[file]
@@ -483,51 +472,6 @@ func (s *Server) parseSnapshotParam(ctx context.Context, w http.ResponseWriter, 
 		return 0, false
 	}
 	return id, true
-}
-
-// snapshotMatchesConfig verifies that an explicitly pinned snapshot was
-// computed under the SAME config hash as the one currently serving. On a
-// mismatch it writes 409 Conflict (the pinned snapshot exists but conflicts
-// with the live grid) and returns false; the caller must not proceed. On a
-// match (or when no config is attached, e.g. some tests) it returns true.
-//
-// The single-snapshot lookup filters entry.Store.ListSnapshots by id rather
-// than adding a new Store accessor: ListSnapshots is already on the interface
-// (every mock implements it) and a city's snapshot list is small, so filtering
-// is KISS and avoids rippling a GetSnapshot method through db.Store and every
-// mock. parseSnapshotParam has already confirmed the id resolves for this city,
-// so a missing row here would be a race, not bad input.
-func (s *Server) snapshotMatchesConfig(ctx context.Context, w http.ResponseWriter, entry export.CityEntry, snapshotID int64) bool {
-	if entry.Config == nil {
-		return true
-	}
-	want := entry.Config.CityHash(&entry.City)
-	snaps, err := entry.Store.ListSnapshots(ctx)
-	if err != nil {
-		s.httpErr(w, fmt.Errorf("listing snapshots: %w", err), http.StatusInternalServerError)
-		return false
-	}
-	for _, snap := range snaps {
-		if snap.ID != snapshotID {
-			continue
-		}
-		if snap.ConfigHash == want {
-			return true
-		}
-		fmt.Fprintf(s.ios.ErrOut,
-			"server: 409 Conflict: snapshot %d config_hash %q != current %q\n",
-			snapshotID, snap.ConfigHash, want)
-		http.Error(w, fmt.Sprintf(
-			"snapshot %d was computed under different settings (or a different pvmt version) "+
-				"and cannot be served against the current config; recompute under the current "+
-				"settings or pick a snapshot matching them",
-			snapshotID), http.StatusConflict)
-		return false
-	}
-	// Resolved by parseSnapshotParam but absent from the list: treat as a
-	// transient inconsistency rather than silently serving mismatched data.
-	s.httpErr(w, fmt.Errorf("snapshot %d resolved but not found in snapshot list", snapshotID), http.StatusInternalServerError)
-	return false
 }
 
 // cacheKey composes the s.cache key for a per-snapshot JSON build. The
@@ -754,10 +698,19 @@ func (s *Server) serveHexCostSummary(w http.ResponseWriter, _ *http.Request, ent
 // export.BuildBoundaryGeoJSON the static exporter uses so the served bytes and
 // the exported file stay identical.
 //
-// A pinned store's GetBoundary reads the boundary its snapshot froze, so the
-// payload is keyed on the snapshot like every other handler here.
-func (s *Server) serveBoundaryGeoJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry, snapshotID int64) {
-	s.serveJSONCached(w, cacheKey("boundary", entry.Slug, snapshotID), func() (any, error) {
+// The cache key is the boundary itself (the frozen boundary's digest), not
+// the snapshot: snapshots that froze the same boundary share one entry, so
+// scrubbing the time-travel picker does not re-run the projector derivation —
+// which json.Unmarshals once per coordinate, 205,961 times for Jacksonville —
+// to produce the same bytes, while a snapshot clipped to another boundary
+// gets its own.
+func (s *Server) serveBoundaryGeoJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry, _ int64) {
+	key, err := boundaryCacheKey(entry)
+	if err != nil {
+		s.httpErr(w, err, http.StatusInternalServerError)
+		return
+	}
+	s.serveJSONCached(w, key, func() (any, error) {
 		ctx := context.Background()
 
 		// Derive the projector the shared builder needs. BBoxAndCenter reports
@@ -802,6 +755,22 @@ func (s *Server) serveBoundaryGeoJSON(w http.ResponseWriter, _ *http.Request, en
 		}
 		return fc, nil
 	})
+}
+
+// boundaryCacheKey keys a city's boundary.geojson on the boundary its store
+// reads: the frozen boundary's digest for a snapshot that froze one, else
+// "live" (the stored boundary, cached for the server's lifetime like every
+// other endpoint).
+func boundaryCacheKey(entry export.CityEntry) (string, error) {
+	snap, err := entry.Store.ViewSnapshot(context.Background())
+	if err != nil {
+		return "", err
+	}
+	id := "live"
+	if snap != nil && snap.BoundaryDigest != "" {
+		id = snap.BoundaryDigest
+	}
+	return "boundary:" + entry.Slug + ":" + id, nil
 }
 
 func (s *Server) serveForecastSeed(w http.ResponseWriter, _ *http.Request, entry export.CityEntry, snapshotID int64) {
