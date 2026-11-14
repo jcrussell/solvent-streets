@@ -118,18 +118,10 @@ import (
 // costs every user a full recompute. When unsure, compare a city's stored
 // results before and after the change. See CONTRIBUTING.md.
 //
-// History (all before v0.5.0): 1 — the first semantic hash. 2 — untagged
-// highway=secondary is City, not County (solvent-streets-0mre). 3 — a
-// service run records the facilities it routed from and its turnout
-// (solvent-streets-s53d). 4 — a roads compute stores each city road hex's
-// default-rate decay blend, which the /play board reads from hexgrid.geojson
-// (solvent-streets-we5i). 5 — the services road graph leaves out ways closed
-// to motor traffic (solvent-streets-b27r). 6 — a boundary-clipped hex is
-// routed from a point inside its clipped part (solvent-streets-e414). 7 — a
-// service run records the hexes on the network it does not reach
-// (solvent-streets-8x0f). 8 — a service run routes over the routing roads
-// around the city too (solvent-streets-n17z).
-const ComputeEpoch = 8
+// History: 1 — v0.5.0, the first release with a semantic hash. (The
+// pre-release bumps were folded into it: no released database holds an
+// older epoch, and schema generation 5 refuses every database that could.)
+const ComputeEpoch = 1
 
 // computeInputsScheme names the encoding of hashEnvelope; part of the hashed
 // bytes so a future encoding can never collide with this one.
