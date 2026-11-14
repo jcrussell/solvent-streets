@@ -57,9 +57,12 @@ import (
 //   - Ingest-only settings: overpass, arcgis_url, allow_private_arcgis,
 //     boundary_relation_id and the name used for the Nominatim lookup. They
 //     decide which features and boundary get stored; compute reads the stored
-//     copies, so changing a source does not by itself invalidate results
-//     computed from what is stored — a re-ingest does, and is followed by a
-//     recompute as usual.
+//     copies, so changing a source does not invalidate results computed from
+//     what is stored. Neither does the re-ingest that follows: ingest never
+//     touches snapshots, and a partial recompute carries the parts it did not
+//     redo over from the previous snapshot, since the hash is unchanged. Only
+//     a full `pvmt all compute` brings every part in line with the new
+//     features (solvent-streets-n6lh).
 //   - Identity and plumbing: config_id (keys the cities row instead),
 //     [[include]] paths and tags (the merged cities are hashed, not the file
 //     layout), SourcePath, and the stamps the merge leaves.

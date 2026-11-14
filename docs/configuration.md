@@ -183,8 +183,11 @@ whose hash matches the city's current one.
 
 Forecasts are never stored. Every reader simulates them from the stored
 results under the settings in force, so a forecast edit takes effect on the
-next read. Editing a data source changes what the next ingest fetches, and the
-recompute that follows an ingest picks it up. An explicit default
+next read. Editing a data source changes what the next ingest fetches, but
+nothing marks the stored results stale, because the hash does not change. Run
+`pvmt all compute` after that ingest. A single `pvmt roads compute` would
+publish the new roads beside parking, sidewalks, services and census results
+computed from the old features. An explicit default
 (`hex_edge_m = 100`) hashes the same as leaving it out. The exception is
 `turnout_s`, whose default lives in the services registry.
 
