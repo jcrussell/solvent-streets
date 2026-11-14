@@ -123,8 +123,9 @@ import (
 // service run records the facilities it routed from and its turnout
 // (solvent-streets-s53d). 4 — a roads compute stores each city road hex's
 // default-rate decay blend, which the /play board reads from hexgrid.geojson
-// (solvent-streets-we5i).
-const ComputeEpoch = 4
+// (solvent-streets-we5i). 5 — the services road graph leaves out ways closed
+// to motor traffic (solvent-streets-b27r).
+const ComputeEpoch = 5
 
 // computeInputsScheme names the encoding of hashEnvelope; part of the hashed
 // bytes so a future encoding can never collide with this one.

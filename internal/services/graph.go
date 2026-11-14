@@ -124,13 +124,17 @@ func PreferredRoads(roads []resource.Feature) ([]resource.Feature, string) {
 // road's tags (speeds.SpeedKmh). oneway=yes/true/1 (and the implied oneway of
 // motorways and roundabouts) keeps only the forward edge, oneway=-1 only the
 // reverse. Motorway and motorway_link segments are marked so snapping can
-// pass over them (SnapWhere). Geometries that are not lines are skipped.
-// Cancelling ctx stops the build and returns what was built so far.
+// pass over them (SnapWhere). Ways closed to the public (closedToTraffic) and
+// geometries that are not lines are skipped. Cancelling ctx stops the build
+// and returns what was built so far.
 func BuildGraph(ctx context.Context, roads []resource.Feature, speeds SpeedTable, proj geo.Projector) *Graph {
 	b := &graphBuilder{g: &Graph{proj: proj}, nodeAt: make(map[[2]float64]int)}
 	for _, r := range roads {
 		if ctx.Err() != nil {
 			break
+		}
+		if closedToTraffic(r.Tags) {
+			continue
 		}
 		mps := speeds.SpeedKmh(r.Tags) / 3.6
 		if mps <= 0 {
@@ -274,6 +278,31 @@ func lineSequences(gjson string) []geom.Sequence {
 		return out
 	}
 	return nil
+}
+
+// closedToTraffic reports whether a way is closed to motor traffic: its
+// most specific access tag (motor_vehicle, else vehicle, else access, the
+// OSM access hierarchy) is private or no. Such a way is a gated driveway,
+// private estate road or closed service road; routing an engine through it
+// would understate the time to the hexes behind it. A way that admits
+// emergency vehicles (emergency=yes or designated, or an access tag of
+// "emergency") stays in: an engine has the gate code or the bollard key.
+func closedToTraffic(tags map[string]string) bool {
+	switch tags["emergency"] {
+	case "yes", "designated":
+		return false
+	}
+	access := ""
+	for _, key := range []string{"access", "vehicle", "motor_vehicle"} {
+		v := tags[key]
+		if v == "emergency" {
+			return false
+		}
+		if v != "" {
+			access = v
+		}
+	}
+	return access == "private" || access == "no"
 }
 
 // direction reports which way a road may be driven: both unless oneway (or

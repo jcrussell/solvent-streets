@@ -707,7 +707,7 @@ func TestCityHash_PinnedValue(t *testing.T) {
 			Facilities: []FacilityConfig{{Service: "fire", Lat: 39.5, Lon: -119.8}},
 		}},
 	}
-	if got, want := c.CityHash(&c.Cities[0]), "5da27487ae4dbd65"; got != want {
+	if got, want := c.CityHash(&c.Cities[0]), "280f6b4687491912"; got != want {
 		t.Errorf("CityHash = %q, want %q (scheme %s, epoch %d)", got, want, computeInputsScheme, ComputeEpoch)
 	}
 }

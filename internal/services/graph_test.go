@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math"
 	"strings"
 	"testing"
@@ -450,5 +451,53 @@ func TestComputeCoverage_MotorwayOnlyStillSnaps(t *testing.T) {
 	want := spec.TurnoutS + math.Hypot(dx-ax, dy-ay)/2/(100/3.6)
 	if len(cov.Hexes) != 1 || math.Abs(cov.Hexes[0].Seconds-want) > 0.1 {
 		t.Errorf("motorway-only hex = %+v, want ~%v s (half the motorway at 100 km/h)", cov.Hexes, want)
+	}
+}
+
+// TestBuildGraph_ClosedWaysLeftOut pins the access rule: a way closed to
+// motor traffic (access or motor_vehicle private/no) is not routed over, its
+// most specific tag wins, and a way that admits emergency vehicles stays in.
+func TestBuildGraph_ClosedWaysLeftOut(t *testing.T) {
+	p := testProj()
+	for name, tc := range map[string]struct {
+		tags map[string]string
+		open bool
+	}{
+		"access=private":                   {map[string]string{"access": "private"}, false},
+		"access=no":                        {map[string]string{"access": "no"}, false},
+		"motor_vehicle=no":                 {map[string]string{"motor_vehicle": "no"}, false},
+		"motor_vehicle=private":            {map[string]string{"motor_vehicle": "private"}, false},
+		"access=private emergency=yes":     {map[string]string{"access": "private", "emergency": "yes"}, true},
+		"access=no emergency=designated":   {map[string]string{"access": "no", "emergency": "designated"}, true},
+		"access=emergency":                 {map[string]string{"access": "emergency"}, true},
+		"motor_vehicle=emergency":          {map[string]string{"access": "no", "motor_vehicle": "emergency"}, true},
+		"access=no motor_vehicle=yes":      {map[string]string{"access": "no", "motor_vehicle": "yes"}, true},
+		"access=yes motor_vehicle=private": {map[string]string{"access": "yes", "motor_vehicle": "private"}, false},
+		"access=destination":               {map[string]string{"access": "destination"}, true},
+		"untagged":                         {map[string]string{}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			gated := map[string]string{"highway": "service"}
+			maps.Copy(gated, tc.tags)
+			// A street A–B, then the tagged way B–C behind it.
+			g := BuildGraph(context.Background(), []resource.Feature{
+				line(map[string]string{"highway": "residential"}, [2]float64{lonA, latA}, [2]float64{lonB, latB}),
+				line(gated, [2]float64{lonB, latB}, [2]float64{lonC, latC}),
+			}, DefaultRoadSpeeds, p)
+			a, _ := g.NearestLonLat(lonA, latA, 1)
+			c, onGraph := g.NearestLonLat(lonC, latC, 1)
+			if !tc.open {
+				if onGraph {
+					t.Errorf("%v: the closed way must not be in the graph", tc.tags)
+				}
+				return
+			}
+			if !onGraph {
+				t.Fatalf("%v: the way must be in the graph", tc.tags)
+			}
+			if dist, _ := g.ShortestFrom([]int{a}); math.IsInf(dist[c], 1) {
+				t.Errorf("%v: C must be reachable through the way", tc.tags)
+			}
+		})
 	}
 }
