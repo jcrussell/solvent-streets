@@ -107,29 +107,35 @@ test('streets-only follows resource_type, not the class name', async () => {
   assert.ok(!sentClasses(headline).includes('surface_lot'), 'a parking cohort reached the roads headline');
 });
 
-// solvent-streets-lu32.22: which road cohorts a figure prices is one rule
-// (seedCohortsFor): per resource, the city-maintained cohorts when the
-// resource has any, else every jurisdiction's.
+// Which cohorts a figure prices is one rule (seedCohortsFor): under the city
+// scope, the city-maintained cohorts of each resource, which is none for a
+// resource the city maintains none of. Only a city with no city-scope cohorts
+// at all uses every jurisdiction's (solvent-streets-lu32.42).
 const roadsOf = (list) => list.filter((c) => c.resource_type === 'roads');
 const areaOf = (list) => list.reduce((s, c) => s + c.area, 0);
 const headlineProbe = (win) => win.__simCalls.filter((c) => c.solvency && c.annual_budget > 0).at(-1);
 const holdProbe = (win) => win.__simCalls.filter((c) => c.solvency && c.annual_budget === 0).at(-1);
 
-test('a city with city-scope cohorts but none for roads still gets a live roads headline', async () => {
+test('a city that maintains no roads has no roads in its city view', async () => {
   const seed = structuredClone(seedJSON);
   seed.city_cohorts = seed.city_cohorts.filter((c) => c.resource_type !== 'roads');
   assert.ok(seed.city_cohorts.length > 0 && roadsOf(seed.cohorts).length > 0, 'fixture cannot build the case');
   const { win, doc } = await ready('', { ...fullData, 'forecast_seed.json': seed });
 
-  const probe = headlineProbe(win);
-  assert.ok(probe, 'the headline was not recomputed live');
-  assert.deepEqual(Array.from(probe.cohorts), roadsOf(seed.cohorts), 'roads fall back to every jurisdiction\'s cohorts');
-  // refSim prices hold steady at the cohort area, so the headline names it.
-  assert.ok(doc.getElementById('solvency-headline').textContent
-    .includes(win.PvmtCommon.fmtMoney(areaOf(roadsOf(seed.cohorts))) + '/yr'), 'the headline is not the live figure');
-  // The slider maintains the same streets, so its anchor is the same figure.
+  // Every jurisdiction's roads are not borrowed for the headline or the slider.
+  assert.equal(headlineProbe(win), undefined, 'the roads headline was priced with no city-maintained roads');
+  for (const call of win.__simCalls) {
+    assert.ok(!types(call.cohorts).includes('roads'), 'a simulation priced roads the city does not maintain');
+  }
+  assert.ok(!Array.from(doc.querySelectorAll('#maintain-toggles input')).some((i) => i.dataset.type === 'roads'),
+    'the maintain toggles offer roads the city does not maintain');
+});
+
+test('a city with no city-scope cohorts at all uses every jurisdiction\'s', async () => {
+  const seed = structuredClone(seedJSON);
+  delete seed.city_cohorts;
+  const { win } = await ready('', { ...fullData, 'forecast_seed.json': seed });
   assert.deepEqual(Array.from(custom(win).cohorts), roadsOf(seed.cohorts));
-  assert.equal(doc.getElementById('budget-share').textContent, '');
 });
 
 test('under ?scope=all the slider\'s hold-steady budget says it covers all jurisdictions', async () => {

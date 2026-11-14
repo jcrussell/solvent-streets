@@ -163,11 +163,16 @@ func buildResourceForecast(rt resource.Source, fc *config.ForecastConfig, costTi
 
 	allCohorts := buildCohortsFromStats(t, result.Area, cohortStats[t], fc)
 
-	// Try city-scoped cohorts — use as primary if available. Empty result is
-	// legitimate (not all cities have city-scope data).
-	primaryCohorts, hasCityScope := cityScopeCohorts(cohortStats[t.With(resource.ScopeCity)], fc)
-	if !hasCityScope {
-		primaryCohorts = allCohorts
+	// The primary baseline is what the city maintains. A city with no
+	// city-scope data at all has only the all-jurisdiction view, so that is
+	// its primary. In a city that has city scope, a resource with no
+	// city-maintained features is one the city maintains none of: its primary
+	// forecast is empty (all zeros), not its all-jurisdiction one, the same
+	// way scenarios.json and the forecast seed leave it out of the city set.
+	primaryCohorts := allCohorts
+	hasCityScope := cityHasScope(cohortStats)
+	if hasCityScope {
+		primaryCohorts = forecast.CohortsFromInputs(cohortInputs(cohortStats[t.With(resource.ScopeCity)]), fc.InitialPCI, fc.DecayRate)
 	}
 
 	// The baseline, then the funding levels sized off its year-1 need.
@@ -194,6 +199,9 @@ func buildResourceForecast(rt resource.Source, fc *config.ForecastConfig, costTi
 		}
 		if fc.CurrentBudget > 0 {
 			fe.CurrentBudget = fc.CurrentBudget
+		}
+		// With no streets to maintain there is no gap or insolvency to state.
+		if fc.CurrentBudget > 0 && len(primaryCohorts) > 0 {
 			currentRun := forecast.Simulate(
 				forecast.Scenario{Name: "current-budget", Label: "Current Budget", AnnualBudget: fc.CurrentBudget, Strategy: forecast.StrategyWorstFirst},
 				primaryCohorts, years, rtParams,
@@ -208,12 +216,16 @@ func buildResourceForecast(rt resource.Source, fc *config.ForecastConfig, costTi
 	return fe, nil
 }
 
-// cityScopeCohorts converts city-scope cohort stats to forecast cohorts.
-// Returns (nil, false) if the stats are empty or BuildCohorts rejects them,
-// signalling the caller should fall back to all-scope cohorts.
-func cityScopeCohorts(cityStats []results.Cohort, fc *config.ForecastConfig) ([]forecast.Cohort, bool) {
-	cohorts := forecast.CohortsFromInputs(cohortInputs(cityStats), fc.InitialPCI, fc.DecayRate)
-	return cohorts, cohorts != nil
+// cityHasScope reports whether the city has a city-maintained view: some
+// resource has city-scope cohorts. collectCohortSeeds' City set is non-empty
+// under the same condition.
+func cityHasScope(cohortStats map[resource.Type][]results.Cohort) bool {
+	for _, rt := range resource.All {
+		if len(cohortStats[rt.Type().With(resource.ScopeCity)]) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // BuildScenariosData builds the aggregate scenarios JSON structure for a city:

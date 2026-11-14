@@ -3239,18 +3239,17 @@
         }
 
         // seedCohortsFor is the seed's cohorts of one resource type for a
-        // scope. 'all' is every jurisdiction's. 'city' is the city-maintained
-        // cohorts of that resource when it has any, else its all-jurisdiction
-        // ones: the choice is per resource, the rule forecast.json's
-        // per-resource figures are built with (Go: buildResourceForecast), so a
-        // city with city-scope parking but no city-scope roads still has roads.
+        // scope. 'all' is every jurisdiction's. 'city' is what the city
+        // maintains of that resource, which is none of it when the city has
+        // city-scope cohorts but this resource does not. A city with no
+        // city-scope cohorts at all has only the all-jurisdiction view. This
+        // is the rule forecast.json and scenarios.json are built with (Go:
+        // buildResourceForecast, collectCohortSeeds).
         /** @param {string} type @param {string} scope */
         function seedCohortsFor(type, scope) {
             const of = (/** @type {any[]} */ list) => (list || []).filter(c => cohortType(c) === type);
-            const all = of(FORECAST_SEED.cohorts);
-            if (scope === 'all') return all;
-            const city = of(FORECAST_SEED.city_cohorts);
-            return city.length ? city : all;
+            const city = FORECAST_SEED.city_cohorts || [];
+            return of(scope === 'all' || city.length === 0 ? FORECAST_SEED.cohorts : city);
         }
 
         // seedTypes is the resource types the seed has cohorts for, in seed order.
@@ -3284,18 +3283,6 @@
         function sliderRoadsAreWider() {
             return activeScopeName() === 'all' &&
                 (FORECAST_SEED.city_cohorts || []).some(c => cohortType(c) === 'roads');
-        }
-
-        // exportedSetMatchesScope reports that scenarios.json's set for the
-        // active scope was simulated over scopeSeedCohorts(). It is not when a
-        // resource without city-scope cohorts borrows its all-jurisdiction
-        // ones: the exported city set leaves that resource out.
-        function exportedSetMatchesScope() {
-            if (activeScopeName() === 'all') return true;
-            const city = FORECAST_SEED.city_cohorts || [];
-            if (city.length === 0) return true;
-            const have = new Set(city.map(cohortType));
-            return seedTypes().every(t => have.has(t));
         }
 
         // presentTypes is the resource types this city's seed has cohorts for.
@@ -3348,7 +3335,7 @@
             const exported = scenariosForScope(scenarioData, scope);
             if (!exported || !wasmReady || !forecastSeedReady) return exported;
             const types = effectiveMaintained();
-            if (types.length === presentTypes().length && exportedSetMatchesScope()) return exported;
+            if (types.length === presentTypes().length) return exported;
             const cohorts = scopeSeedCohorts().filter(c => types.includes(cohortType(c)));
             if (cohorts.length === 0) return exported;
             const input = {

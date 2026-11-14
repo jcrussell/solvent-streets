@@ -159,6 +159,70 @@ func TestScenarios_Year1NeedMatchesPerResourceForecasts(t *testing.T) {
 	}
 }
 
+// A city that has a city-maintained view but maintains none of one resource
+// (every road tagged county, state or federal) gets the same answer from every
+// file: that resource is absent from the city set of scenarios.json and the
+// seed, and its forecast.json entry is an empty city forecast beside the
+// all-jurisdiction one, not the all-jurisdiction roads under the city's name.
+func TestCityScope_AResourceTheCityMaintainsNoneOfIsEmptyEverywhere(t *testing.T) {
+	var rows []db.CityMetric
+	rows = append(rows, results.TotalRows(resource.TypeRoads, results.Totals{Area: 9000})...)
+	rows = append(rows, results.CohortRows(resource.TypeRoads, []results.Cohort{{Class: "primary", Area: 9000}})...)
+	parkingCity := resource.TypeParking.With(resource.ScopeCity)
+	rows = append(rows, results.TotalRows(resource.TypeParking, results.Totals{Area: 4000})...)
+	rows = append(rows, results.CohortRows(resource.TypeParking, []results.Cohort{{Class: "parking", Area: 4000}})...)
+	rows = append(rows, results.TotalRows(parkingCity, results.Totals{Area: 3000})...)
+	rows = append(rows, results.CohortRows(parkingCity, []results.Cohort{{Class: "parking", Area: 3000}})...)
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "A"}}}
+	entry := CityEntry{Config: cfg, City: cfg.Cities[0], Store: &dbtest.MockStore{CityMetrics: rows}, Slug: "a"}
+	fc := cfg.ResolvedForecast(&entry.City)
+	fc.CurrentBudget = 1e6
+	ctx := context.Background()
+
+	forecasts, err := BuildForecastsForCity(ctx, entry, &fc, ConvertCostTiers(&fc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cityNeed float64
+	for _, fe := range forecasts {
+		cityNeed += fe.Baseline.Years[0].AnnualNeed
+		if fe.AllBaseline == nil {
+			t.Fatalf("%s: no all-jurisdiction baseline in a city that has city scope", fe.ResourceType)
+		}
+		if fe.ResourceType != string(resource.TypeRoads) {
+			continue
+		}
+		if y := fe.Baseline.Years[0]; y.Area != 0 || y.AnnualNeed != 0 {
+			t.Errorf("roads city forecast: area %.0f, need %.0f; want an empty forecast", y.Area, y.AnnualNeed)
+		}
+		if fe.AllBaseline.Years[0].Area == 0 {
+			t.Error("roads all-jurisdiction baseline is empty")
+		}
+		if fe.BreakEvenBudget != 0 || fe.RoadsArea != 0 || fe.InsolvencyYear != nil || fe.FundingGap != nil {
+			t.Errorf("roads solvency stated with no city-maintained roads: %+v", fe)
+		}
+	}
+
+	data, err := BuildScenariosData(ctx, entry, &fc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blended := data["city"].([]forecast.ScenarioResult)[0].Years[0].AnnualNeed
+	if cityNeed <= 0 || math.Abs(blended-cityNeed) > 1e-6*cityNeed {
+		t.Errorf("city year-1 need: scenarios.json %.2f, sum of forecast.json baselines %.2f", blended, cityNeed)
+	}
+
+	cohorts, err := collectCohortSeeds(ctx, entry.Store, &fc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range cohorts.City {
+		if c.ResourceType == string(resource.TypeRoads) {
+			t.Errorf("seed city cohorts include roads: %+v", c)
+		}
+	}
+}
+
 // scenarios.json carries each year's material demand, with the concrete
 // sidewalk area netted out by the scope's asphalt share: sidewalks are a
 // quarter of this network, so the mix is three quarters of what the whole
