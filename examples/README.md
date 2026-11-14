@@ -42,3 +42,8 @@ The national rollups:
   shows why every example names its cities `"City, ST"`: the state suffix is
   what gives each one its own slug (see
   [Cities](../docs/configuration.md#cities)).
+
+No example sets `allow_private_arcgis`, on purpose. It turns off the guard
+against private and loopback ArcGIS addresses (see
+[Cities](../docs/configuration.md#cities)), and a shipped config that set it
+would read as a recommendation.

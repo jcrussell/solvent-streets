@@ -9,7 +9,8 @@
 # Techniques demonstrated:
 #   - Climate-tuned decay_rate (0.065) for salt + freeze/thaw.
 #   - Custom three-tier forecast cost schedule.
-#   - Per-city hex_edge_m overrides (60 m for compact Cambridge/Somerville).
+#   - Per-city hex_edge_m overrides (60 m for compact Cambridge/Somerville),
+#     each with a min_hex_area scaled to match.
 #
 # Overpass-only. Expect ~8 Nominatim + Overpass pulls for `pvmt all ingest`.
 
@@ -53,11 +54,13 @@ overpass = true
 name = "Cambridge, MA"
 overpass = true
 hex_edge_m = 60  # compact, dense — finer grid
+min_hex_area = 36  # the 100 m² default scaled to a 60 m hex (100 x 0.6²)
 
 [[cities]]
 name = "Somerville, MA"
 overpass = true
 hex_edge_m = 60  # densest city in New England — finer grid
+min_hex_area = 36  # the 100 m² default scaled to a 60 m hex (100 x 0.6²)
 
 [[cities]]
 name = "Quincy, MA"

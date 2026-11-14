@@ -37,6 +37,14 @@ growth_rate = 0.005  # modest national-average pavement growth
 
 [export]
 title = "City Nerd — 50 Largest US Cities"
+# 4 decimals (~11 m) is still under a tenth of the finest edge here and saves a
+# digit per coordinate in the two largest files. Like boundary_simplify_m, it
+# applies to this config's own export, not to examples/all.
+coordinate_decimals = 4
+# Jacksonville's marsh-laced St. Johns shoreline is the largest boundary in
+# the showcase (see DefaultBoundarySimplifyM, internal/config/config.go); 25 m
+# thins it further while staying a sixth of the finest edge.
+boundary_simplify_m = 25
 
 # Top 50 US cities by population, generated from Census SUB-IP-EST2025-ANNRNK.
 # Sorted by 2025 population (descending). Numbers in trailing comment are 2025 pop.
