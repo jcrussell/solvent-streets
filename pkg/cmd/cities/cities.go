@@ -72,6 +72,7 @@ func NewCmdCities(f *cmdutil.Factory, runF func(context.Context, *Options) error
 
 	cmd := &cobra.Command{
 		Use:   "cities",
+		Args:  cobra.NoArgs,
 		Short: "List cities in the database",
 		Long:  "List all cities stored in the shared pvmt database with per-resource ingested feature counts\n(everything the bounding-box fetch returned, before the boundary clip).",
 		Example: `  # Table of cities with per-resource feature counts

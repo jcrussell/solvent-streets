@@ -28,6 +28,7 @@ func NewCmdShow(f *cmdutil.Factory, runF func(context.Context, *Options) error) 
 
 	cmd := &cobra.Command{
 		Use:   "show",
+		Args:  cobra.NoArgs,
 		Short: "Print the resolved configuration",
 		Long: `Print the resolved pvmt configuration.
 

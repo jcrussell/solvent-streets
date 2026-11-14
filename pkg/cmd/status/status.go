@@ -144,6 +144,7 @@ estimated_spaces) to emit one row per resource.`
 
 	cmd := &cobra.Command{
 		Use:     use,
+		Args:    cobra.NoArgs,
 		Short:   short,
 		Long:    long,
 		Example: example,

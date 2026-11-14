@@ -47,6 +47,7 @@ func NewCmdIngest(f *cmdutil.Factory, rt resource.Source, runF func(context.Cont
 
 	cmd := &cobra.Command{
 		Use:     "ingest",
+		Args:    cobra.NoArgs,
 		Short:   Short(string(rt.Type())),
 		Long:    Long(string(rt.Type()), rt),
 		Example: Example(string(rt.Type()), rt),

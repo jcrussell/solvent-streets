@@ -52,6 +52,7 @@ func NewCmdExport(f *cmdutil.Factory, runF func(context.Context, *Options) error
 
 	cmd := &cobra.Command{
 		Use:   "export",
+		Args:  cobra.NoArgs,
 		Short: "Export a static HTML site with map and stats",
 		Long:  "Generate a self-contained HTML site with MapLibre dashboard, hex heatmap, and summary stats.\nDeploy to GitHub Pages or any static host.",
 		Example: `  # Export the static site to ./site

@@ -20,6 +20,7 @@ func NewCmdVersion(f *cmdutil.Factory, runF func(context.Context, *Options) erro
 
 	return &cobra.Command{
 		Use:   "version",
+		Args:  cobra.NoArgs,
 		Short: "Show pvmt version information",
 		Long:  "Display version, commit, build date, Go version, and os/arch.",
 		Example: `  # Print build metadata (version, commit, date, go version, os/arch)

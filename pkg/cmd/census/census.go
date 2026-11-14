@@ -154,6 +154,7 @@ func NewCmdCompute(f *cmdutil.Factory, runF func(context.Context, *Options) erro
 	opts := &Options{IO: f.IOStreams, CityDB: f.CityDB, Config: f.Config, CurrentCity: f.CurrentCity}
 	cmd := &cobra.Command{
 		Use:   "compute",
+		Args:  cobra.NoArgs,
 		Short: "Apportion Census block counts onto the hex grid",
 		Long: `Spread each stored Census block's population and housing units onto the
 hexes it overlaps, in proportion to the overlapping area, and store per hex:

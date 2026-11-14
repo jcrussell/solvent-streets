@@ -49,6 +49,7 @@ func NewCmdPrune(f *cmdutil.Factory, runF func(context.Context, *PruneOptions) e
 
 	cmd := &cobra.Command{
 		Use:   "prune",
+		Args:  cobra.NoArgs,
 		Short: "Reclaim disk from the HTTP response cache",
 		Long: `Bound the on-disk HTTP cache, which otherwise grows forever: nothing
 in the request path ever evicts an entry.

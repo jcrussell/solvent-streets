@@ -145,6 +145,7 @@ func NewCmdCompute(f *cmdutil.Factory, rt resource.Source, runF func(context.Con
 	t := rt.Type()
 	cmd := &cobra.Command{
 		Use:     "compute",
+		Args:    cobra.NoArgs,
 		Short:   Short(string(t)),
 		Long:    Long(string(t)),
 		Example: Example(string(t)),

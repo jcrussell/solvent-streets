@@ -46,6 +46,7 @@ func NewCmdServe(f *cmdutil.Factory, runF func(context.Context, *Options) error)
 
 	cmd := &cobra.Command{
 		Use:   "serve",
+		Args:  cobra.NoArgs,
 		Short: "Start the web server",
 		Long:  "Start the MapLibre visualization server with API endpoints.",
 		Example: `  # Serve on the default :8080

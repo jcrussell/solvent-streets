@@ -105,6 +105,7 @@ func NewCmdCompute(f *cmdutil.Factory, service *string, runF func(context.Contex
 	}
 	cmd := &cobra.Command{
 		Use:   "compute",
+		Args:  cobra.NoArgs,
 		Short: "Compute response-time coverage per hex",
 		Long: `Build a routable graph from the stored roads (OpenStreetMap rows when
 present, else the agency centerlines), route from every facility at once,

@@ -797,3 +797,35 @@ func TestJSONTagsSnakeCase(t *testing.T) {
 		t.Fatal("no json tags found; the walk checked nothing")
 	}
 }
+
+// TestEveryRunnableCommandDeclaresArgs pins solvent-streets-135f: a runnable
+// command with no Args rule silently ignores stray positional arguments, so
+// `pvmt services compute oakland` ran on the configured city, not Oakland.
+// Every runnable command must say what it accepts (cobra.NoArgs for most).
+// Cobra's own help and completion commands are exempt; the root stays
+// non-runnable (see refuseUnknownHelpTopics).
+func TestEveryRunnableCommandDeclaresArgs(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	f := &cmdutil.Factory{
+		IOStreams: ios,
+		LogLevel:  new(slog.LevelVar),
+		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Config: func() (*config.Config, error) {
+			return &config.Config{Display: config.DisplayConfig{Units: "metric"}}, nil
+		},
+	}
+	root := NewCmdRoot(f)
+	var walk func(c *cobra.Command)
+	walk = func(c *cobra.Command) {
+		for _, sub := range c.Commands() {
+			if c == root && (sub.Name() == "help" || sub.Name() == "completion") {
+				continue
+			}
+			if sub.Runnable() && sub.Args == nil {
+				t.Errorf("%q has no Args rule; stray positional arguments would be ignored", sub.CommandPath())
+			}
+			walk(sub)
+		}
+	}
+	walk(root)
+}

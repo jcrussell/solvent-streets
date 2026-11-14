@@ -71,6 +71,7 @@ func NewCmdLs(f *cmdutil.Factory, runF func(context.Context, *LsOptions) error) 
 
 	cmd := &cobra.Command{
 		Use:   "ls",
+		Args:  cobra.NoArgs,
 		Short: "List snapshots",
 		Long: `List snapshots across configured cities, newest first. Use --city to
 scope to one city.

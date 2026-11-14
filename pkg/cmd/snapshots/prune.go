@@ -34,6 +34,7 @@ func NewCmdPrune(f *cmdutil.Factory, runF func(context.Context, *PruneOptions) e
 
 	cmd := &cobra.Command{
 		Use:   "prune",
+		Args:  cobra.NoArgs,
 		Short: "Retain the N most recent snapshots per city",
 		Long: `Delete every snapshot beyond the N most recent per city, then every run
 no remaining snapshot references, with the rows those runs wrote. Each

@@ -42,6 +42,7 @@ func NewCmdGC(f *cmdutil.Factory, runF func(context.Context, *Options) error) *c
 
 	cmd := &cobra.Command{
 		Use:   "gc",
+		Args:  cobra.NoArgs,
 		Short: "Sweep orphaned rows that snapshot prune can't reach",
 		Long: `Garbage-collect database rows that snapshot prune/rm structurally
 cannot reach:

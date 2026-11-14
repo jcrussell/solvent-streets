@@ -51,6 +51,7 @@ response coverage and per-hex population.`,
 func newAllIngest(f *cmdutil.Factory) *cobra.Command {
 	return &cobra.Command{
 		Use:   "ingest",
+		Args:  cobra.NoArgs,
 		Short: "Ingest data for all resource types",
 		Long: `Run every ingest step for every configured city, or the one --city names.
 The city boundary is resolved once; a city whose boundary cannot be had is
@@ -115,6 +116,7 @@ func ingestCity(ctx context.Context, ios *iostreams.IOStreams, cf *cmdutil.Facto
 func newAllCompute(f *cmdutil.Factory) *cobra.Command {
 	return &cobra.Command{
 		Use:   "compute",
+		Args:  cobra.NoArgs,
 		Short: "Compute stats for all resource types",
 		Long: `Run every compute step for every configured city, or the one --city names,
 on one shared hex grid: roads, parking and sidewalks coverage, the combined

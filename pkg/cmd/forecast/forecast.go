@@ -80,6 +80,7 @@ func NewCmdForecast(f *cmdutil.Factory, runF func(context.Context, *Options) err
 
 	cmd := &cobra.Command{
 		Use:   "forecast",
+		Args:  cobra.NoArgs,
 		Short: "Project pavement deterioration and maintenance costs",
 		Long: `Project PCI decay and maintenance costs over the [forecast] horizon.
 
