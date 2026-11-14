@@ -54,7 +54,7 @@ Only names that existed in v0.4.x are listed. Fields of the commands and files t
 
 | Command | v0.4.x | v0.5.0 |
 |---------|--------|--------|
-| `status` | `resourceType`, `featureCount`, `lastIngest`, `lastCompute` | `resource_type`, `feature_count`, `last_ingest_at`, `last_compute_at` |
+| `status` | `resourceType`, `featureCount`, `lastIngest`, `lastCompute` | `resource_type`, `feature_count`, `last_ingest_at`, `last_compute_at`; new `state` (`current`, `stale`, `not computed`) and `stale_inputs` |
 | `cities` | `features`, `totalArea`, `lastIngest`, `lastCompute` | `feature_counts`, `total_paved`, `last_ingest_at`, `last_compute_at` |
 | `snapshots list` (`ls`) | `computedAt`, `configHash` | `created_at`, `config_hash`; new `hex_edge_m` and `parts` (`part`, `run_id`, `computed_at`) |
 | `<resource> compute` | `resourceType`, `featureCount`, `snapshotId` | `resource_type`, `feature_count`, `run_id` (the compute run, not a snapshot) |

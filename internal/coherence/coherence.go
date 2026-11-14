@@ -257,3 +257,62 @@ func sortedKeys[V any](m map[string]V) []string {
 	slices.Sort(out)
 	return out
 }
+
+// Part states, as `pvmt status` shows them.
+const (
+	StateCurrent     = "current"
+	StateStale       = "stale"
+	StateNotComputed = "not computed"
+)
+
+// PartState is one part's standing in a city's latest compute: not
+// computed, current, or stale because inputs it read were ingested again
+// since (the same digest comparison Check refuses on).
+type PartState struct {
+	Part  string
+	State string // StateCurrent, StateStale or StateNotComputed
+	// Stale lists the inputs that changed since the part read them, as
+	// "<input> re-ingested <when>" (or "ingested" / "removed"), ordered by
+	// input; StaleInputs has the bare input names in the same order.
+	Stale       []string
+	StaleInputs []string
+}
+
+// String is the state as one table cell: "current", "not computed", or
+// "stale: roads re-ingested 2026-11-14 10:02 UTC".
+func (s PartState) String() string {
+	if s.State != StateStale {
+		return s.State
+	}
+	return "stale: " + strings.Join(s.Stale, ", ")
+}
+
+// PartStates returns the state of each named part of the latest compute
+// parts, given the city's current inputs (as for Check).
+func PartStates(names []string, parts []db.LatestPart, inputs []db.InputState) []PartState {
+	current := make(map[string]db.InputState, len(inputs))
+	for _, st := range inputs {
+		current[st.Input] = st
+	}
+	have := make(map[string]db.LatestPart, len(parts))
+	for _, p := range parts {
+		have[p.Part] = p
+	}
+	out := make([]PartState, len(names))
+	for i, name := range names {
+		st := PartState{Part: name, State: StateNotComputed}
+		if p, ok := have[name]; ok {
+			st.State = StateCurrent
+			for _, in := range db.ProducerInputs(name) {
+				if p.Inputs[in] == current[in].Digest {
+					continue
+				}
+				st.State = StateStale
+				st.StaleInputs = append(st.StaleInputs, in)
+				st.Stale = append(st.Stale, inputLabel(in)+" "+changed(current[in], have, name))
+			}
+		}
+		out[i] = st
+	}
+	return out
+}

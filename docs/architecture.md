@@ -358,7 +358,10 @@ function of the latest compute and those digests. It refuses a city when a
 part recorded a digest that is no longer current, when there is no pavement
 part, when pavement has no combined part, or when a pavement input is stored
 with no part. It warns about a missing service or census part whose inputs
-are stored. The check runs inside the snapshot's IMMEDIATE transaction, so no
+are stored. `pvmt status` shows the same comparison per part
+(`coherence.PartStates`: current, stale or not computed), footnotes a stale
+combined total, and counts the parts the newest snapshot does not hold
+(`db.UnsnapshottedParts`). The check runs inside the snapshot's IMMEDIATE transaction, so no
 ingest lands between the check and the freeze. A create whose newest snapshot
 already holds the same hash, edge, boundary and manifest writes nothing, and
 no snapshot is ever empty. `pvmt all compute` builds one grid from the

@@ -210,3 +210,28 @@ func TestCheck(t *testing.T) {
 		})
 	}
 }
+
+// TestPartStates: each part is current, stale (naming the input that moved
+// on and when), or not computed, by the same digests Check compares.
+func TestPartStates(t *testing.T) {
+	at := time.Date(2026, 11, 14, 10, 2, 0, 0, time.UTC)
+	inputs := []db.InputState{
+		{Input: db.InputBoundary, Digest: "b1"},
+		{Input: "roads", Digest: "r2", IngestedAt: at},
+		{Input: "parking", Digest: "p1"},
+	}
+	parts := []db.LatestPart{
+		{Part: "roads", Inputs: map[string]string{db.InputBoundary: "b1", "roads": "r1"}},
+		{Part: "parking", Inputs: map[string]string{db.InputBoundary: "b1", "parking": "p1"}},
+	}
+	got := PartStates([]string{"roads", "parking", "sidewalks"}, parts, inputs)
+	want := []string{"stale: roads re-ingested 2026-11-14 10:02 UTC", "current", "not computed"}
+	for i, st := range got {
+		if st.String() != want[i] {
+			t.Errorf("%s: %q, want %q", st.Part, st.String(), want[i])
+		}
+	}
+	if got[0].State != StateStale || len(got[0].StaleInputs) != 1 || got[0].StaleInputs[0] != "roads" {
+		t.Errorf("roads = %+v, want stale on the roads input", got[0])
+	}
+}

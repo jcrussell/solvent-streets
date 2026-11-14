@@ -2,7 +2,9 @@ package status
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -279,6 +281,8 @@ func TestStatusRow_ExportData_AllFieldsPopulated(t *testing.T) {
 		LastComputeAt:   "2026-04-18T01:00:00Z",
 		Area:            123.4,
 		EstimatedSpaces: 7,
+		State:           "stale",
+		StaleInputs:     []string{"parking"},
 	}
 	out := r.ExportData(statusFields)
 	if len(out) != len(statusFields) {
@@ -428,8 +432,8 @@ func TestRunStatus_StaleSnapshotsSayWhy(t *testing.T) {
 	if strings.Contains(out, "not under the current settings") {
 		t.Errorf("hint printed although the city is computed under the current settings:\n%s", out)
 	}
-	if !strings.Contains(out, cur+"  (current settings)") {
-		t.Errorf("current snapshot not marked:\n%s", out)
+	if !strings.Contains(out, cur+"  (published, current settings)") {
+		t.Errorf("newest snapshot not marked published and current:\n%s", out)
 	}
 }
 
@@ -454,5 +458,152 @@ func TestRunStatus_ConfigErrorsAreNotDatabaseErrors(t *testing.T) {
 	}
 	if dbOpened {
 		t.Error("the database was opened before the city resolved")
+	}
+}
+
+// TestRunStatus_PartStates is solvent-streets-wcuw: after a roads re-ingest
+// and a roads compute alone, status shows each part's state from the latest
+// compute (roads and parking current, the combined total stale, sidewalks
+// not computed), footnotes the stale combined Paved Area instead
+// of passing it off as accurate, says what is not yet snapshotted, and marks
+// the published snapshot. --json carries state and stale_inputs.
+func TestRunStatus_PartStates(t *testing.T) {
+	cfg := &config.Config{}
+	city := &config.CityConfig{Name: "Test City"}
+	at := time.Date(2026, 11, 14, 10, 2, 0, 0, time.UTC)
+	boundaryGJSON := `{"type":"Polygon","coordinates":[[[-97.745,30.265],[-97.7346,30.265],[-97.7346,30.274],[-97.745,30.274],[-97.745,30.265]]]}`
+	latest := []db.LatestPart{
+		{Part: "roads", RunID: 5, Inputs: map[string]string{db.InputBoundary: "b", "roads": "r2"}},
+		{Part: "parking", RunID: 2, Inputs: map[string]string{db.InputBoundary: "b", "parking": "p"}},
+		{Part: "combined", RunID: 3, Inputs: map[string]string{db.InputBoundary: "b", "roads": "r1", "parking": "p", "sidewalks": ""}},
+	}
+	store := &dbtest.MockStore{
+		StatsFunc: func(_ context.Context, rt resource.Type) (*db.StatusInfo, error) {
+			return &db.StatusInfo{ResourceType: rt, TotalArea: 30000}, nil
+		},
+		GetBoundaryFunc:   func(context.Context) (string, error) { return boundaryGJSON, nil },
+		CityMetrics:       results.TotalRows(resource.CombinedAll, results.Totals{Area: 60000}),
+		LatestComputeFunc: func(context.Context, string) ([]db.LatestPart, error) { return latest, nil },
+		InputStatesFunc: func(context.Context) ([]db.InputState, error) {
+			return []db.InputState{
+				{Input: db.InputBoundary, Digest: "b"},
+				{Input: "parking", Digest: "p"},
+				{Input: "roads", Digest: "r2", IngestedAt: at},
+			}, nil
+		},
+		ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
+			return []db.Snapshot{{ID: 4, ConfigHash: cfg.CityHash(city), CreatedAt: at, Parts: []db.SnapshotPart{
+				{Part: "roads", RunID: 1}, {Part: "parking", RunID: 2}, {Part: "combined", RunID: 3},
+			}}}, nil
+		},
+	}
+	run := func(args ...string) (string, string) {
+		t.Helper()
+		ios, _, stdout, stderr := iostreams.Test()
+		ios.SetTTY(true)
+		f := &cmdutil.Factory{
+			IOStreams:   ios,
+			UnitSystem:  func() units.System { return units.Metric },
+			CityDB:      func() (db.Store, error) { return store, nil },
+			Config:      func() (*config.Config, error) { return cfg, nil },
+			CurrentCity: func() (*config.CityConfig, error) { return city, nil },
+		}
+		cmd := NewCmdStatus(f, nil, nil)
+		cmd.SetArgs(args)
+		if err := cmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		return stdout.String(), stderr.String()
+	}
+
+	table, notes := run()
+	for _, want := range []string{"State", "current", "not computed"} {
+		if !strings.Contains(table, want) {
+			t.Errorf("table lacks %q:\n%s", want, table)
+		}
+	}
+	for _, want := range []string{
+		"=== Other parts ===",
+		"combined       stale: roads re-ingested 2026-11-14 10:02 UTC",
+		"census         not computed",
+		"1 part not yet snapshotted (roads); run `pvmt --city test-city snapshots create` to publish",
+		"Paved Area*:",
+		"* the combined total is stale (roads re-ingested 2026-11-14 10:02 UTC since it was computed)",
+		"#4  ",
+		"(published, current settings)",
+	} {
+		if !strings.Contains(notes, want) {
+			t.Errorf("stderr lacks %q:\n%s", want, notes)
+		}
+	}
+
+	out, _ := run("--json", "resource_type,state,stale_inputs")
+	var rows []map[string]any
+	if err := json.Unmarshal([]byte(out), &rows); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		want := "current"
+		if r["resource_type"] == "sidewalks" {
+			want = "not computed"
+		}
+		if r["state"] != want {
+			t.Errorf("%v state = %v, want %s", r["resource_type"], r["state"], want)
+		}
+		if _, ok := r["stale_inputs"]; ok {
+			t.Errorf("%v has stale_inputs although it is not stale", r["resource_type"])
+		}
+	}
+}
+
+// TestRunStatus_StaleResourceRow: a resource row computed from inputs
+// ingested again since reads stale, naming the input, in both outputs.
+func TestRunStatus_StaleResourceRow(t *testing.T) {
+	cfg := &config.Config{}
+	city := &config.CityConfig{Name: "Test City"}
+	store := &dbtest.MockStore{
+		StatsFunc: func(_ context.Context, rt resource.Type) (*db.StatusInfo, error) {
+			return &db.StatusInfo{ResourceType: rt}, nil
+		},
+		LatestComputeFunc: func(context.Context, string) ([]db.LatestPart, error) {
+			return []db.LatestPart{{Part: "roads", RunID: 1, Inputs: map[string]string{db.InputBoundary: "b", "roads": "r1"}}}, nil
+		},
+		InputStatesFunc: func(context.Context) ([]db.InputState, error) {
+			return []db.InputState{{Input: db.InputBoundary, Digest: "b"}, {Input: "roads", Digest: "r2"}}, nil
+		},
+	}
+	ios, _, stdout, _ := iostreams.Test()
+	f := &cmdutil.Factory{
+		IOStreams:   ios,
+		UnitSystem:  func() units.System { return units.Metric },
+		CityDB:      func() (db.Store, error) { return store, nil },
+		Config:      func() (*config.Config, error) { return cfg, nil },
+		CurrentCity: func() (*config.CityConfig, error) { return city, nil },
+	}
+	cmd := NewCmdStatus(f, &resource.Pavement{}, nil)
+	cmd.SetArgs([]string{"--json", "resource_type,state,stale_inputs"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &rows); err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0]["state"] != "stale" || fmt.Sprint(rows[0]["stale_inputs"]) != "[roads]" {
+		t.Errorf("--json = %v, want roads stale on its roads input", rows)
+	}
+}
+
+// TestPartOf: a facility or census status reports the part computed from
+// those features.
+func TestPartOf(t *testing.T) {
+	for in, want := range map[resource.Type]string{
+		resource.TypeRoads:            "roads",
+		resource.FacilityType("fire"): db.ServiceProducer("fire"),
+		resource.TypeCensusBlocks:     db.ProducerCensus,
+	} {
+		if got := partOf(in); got != want {
+			t.Errorf("partOf(%s) = %q, want %q", in, got, want)
+		}
 	}
 }

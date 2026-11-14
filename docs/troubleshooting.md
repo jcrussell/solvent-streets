@@ -178,8 +178,9 @@ first ingested, or removed) since, when it has no pavement compute, when its
 pavement has no combined pass, or when a pavement resource was ingested but
 never computed. Each reason names the input and when it changed. Identical
 data re-ingested does not count: the check compares content digests, not
-times. Run the hinted command, then create again. The hint is one of the
-following.
+times. `pvmt status` shows the same verdict before you create, as each part's
+*State* (`stale: roads re-ingested …`). Run the hinted command, then create
+again. The hint is one of the following.
 
 ### `hint: pvmt --city <slug> all compute`
 
