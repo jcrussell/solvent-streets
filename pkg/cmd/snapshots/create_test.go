@@ -169,7 +169,7 @@ func TestRunCreate_RealStore(t *testing.T) {
 		}
 	}
 	roads(`{"type":"LineString","coordinates":[[0,0],[1,1]]}`)
-	draft := db.NewDraft(store, cfg.CityHash(city))
+	draft := db.NewDraft(store, cfg.CityHash(city), config.ComputeEpoch)
 	for _, producer := range []string{"roads", "combined"} {
 		in, err := db.ReadProducerInputs(ctx, store, producer)
 		if err != nil {

@@ -335,11 +335,11 @@ func (s *sqliteStore) DiscardRun(ctx context.Context, runID int64) error {
 // CommitLatest applies parts to the city's latest compute for configHash.
 // See the Store interface for the contract. It retries while another process
 // holds the write lock (isBusy), for up to commitBusyBudget.
-func (s *sqliteStore) CommitLatest(ctx context.Context, configHash string, parts map[string]int64) error {
+func (s *sqliteStore) CommitLatest(ctx context.Context, configHash string, computeEpoch int, parts map[string]int64) error {
 	if configHash == "" {
 		return errors.New("commit latest compute: config hash is required")
 	}
-	return retryBusy(ctx, func() error { return s.commitLatest(ctx, configHash, parts) })
+	return retryBusy(ctx, func() error { return s.commitLatest(ctx, configHash, computeEpoch, parts) })
 }
 
 // isBusy reports SQLITE_BUSY / SQLITE_LOCKED (any extended code): another
@@ -358,7 +358,7 @@ func isBusy(err error) bool {
 // the same run) writes nothing. A replaced run is not deleted: it becomes
 // unreferenced, unless a snapshot holds it, and gc sweeps it after
 // OrphanRunGrace.
-func (s *sqliteStore) commitLatest(ctx context.Context, configHash string, parts map[string]int64) error {
+func (s *sqliteStore) commitLatest(ctx context.Context, configHash string, computeEpoch int, parts map[string]int64) error {
 	return s.withTx(ctx, func(tx *sql.Tx) error {
 		if err := s.checkCommitRuns(ctx, tx, configHash, parts); err != nil {
 			return err
@@ -372,7 +372,7 @@ func (s *sqliteStore) commitLatest(ctx context.Context, configHash string, parts
 		if maps.Equal(manifest, base) {
 			return nil
 		}
-		return s.setWorkingParts(ctx, tx, configHash, manifest)
+		return s.setWorkingParts(ctx, tx, configHash, computeEpoch, manifest)
 	})
 }
 
@@ -423,14 +423,15 @@ func (s *sqliteStore) insertSnapshot(ctx context.Context, tx *sql.Tx, configHash
 	return id, nil
 }
 
-// setWorkingParts makes manifest the city's latest compute for configHash.
-func (s *sqliteStore) setWorkingParts(ctx context.Context, tx *sql.Tx, configHash string, manifest map[string]int64) error {
+// setWorkingParts makes manifest the city's latest compute for configHash,
+// committed at computeEpoch.
+func (s *sqliteStore) setWorkingParts(ctx context.Context, tx *sql.Tx, configHash string, computeEpoch int, manifest map[string]int64) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM working_parts WHERE city_id = ? AND config_hash = ?`, s.cityID, configHash); err != nil {
 		return fmt.Errorf("clear latest compute: %w", err)
 	}
 	for _, part := range slices.Sorted(maps.Keys(manifest)) {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO working_parts (city_id, config_hash, part, run_id) VALUES (?, ?, ?, ?)`,
-			s.cityID, configHash, part, manifest[part]); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO working_parts (city_id, config_hash, compute_epoch, part, run_id) VALUES (?, ?, ?, ?, ?)`,
+			s.cityID, configHash, computeEpoch, part, manifest[part]); err != nil {
 			return fmt.Errorf("record working part %s: %w", part, err)
 		}
 	}
@@ -687,14 +688,17 @@ func runArgs(ids []int64) []any {
 	return args
 }
 
-// orphanRuns lists this city's runs that neither a snapshot nor the working
-// state references and that are older than OrphanRunGrace.
-func orphanRuns(ctx context.Context, q queryer, cityID int64) ([]int64, error) {
+// orphanRuns lists this city's runs that neither a snapshot nor a latest
+// compute committed at computeEpoch or later references and that are older
+// than OrphanRunGrace. A latest compute from an older epoch is superseded
+// (supersededParts) and holds nothing.
+func orphanRuns(ctx context.Context, q queryer, cityID int64, computeEpoch int) ([]int64, error) {
 	cutoff := time.Now().Add(-OrphanRunGrace).UTC().Format(time.DateTime)
 	rows, err := q.QueryContext(ctx,
 		`SELECT id FROM runs WHERE city_id = ? AND computed_at < ?
 		   AND id NOT IN (SELECT run_id FROM snapshot_parts)
-		   AND id NOT IN (SELECT run_id FROM working_parts) ORDER BY id`, cityID, cutoff)
+		   AND id NOT IN (SELECT run_id FROM working_parts WHERE compute_epoch >= ?) ORDER BY id`,
+		cityID, cutoff, computeEpoch)
 	if err != nil {
 		return nil, fmt.Errorf("query orphan runs: %w", err)
 	}
@@ -710,9 +714,13 @@ func orphanRuns(ctx context.Context, q queryer, cityID int64) ([]int64, error) {
 	return ids, rows.Err()
 }
 
+// supersededPartsCount counts a city's latest-compute parts committed under a
+// ComputeEpoch older than the given one.
+const supersededPartsCount = `SELECT COUNT(*) FROM working_parts WHERE city_id = ? AND compute_epoch < ?`
+
 // GCScan counts orphan rows for this city without writing anything. See the
 // Store interface for the orphan classes and the empty-keepSources guard.
-func (s *sqliteStore) GCScan(ctx context.Context, keepSources []string) (*GCReport, error) {
+func (s *sqliteStore) GCScan(ctx context.Context, keepSources []string, computeEpoch int) (*GCReport, error) {
 	report := &GCReport{}
 	if len(keepSources) > 0 {
 		where, args := s.staleFeatures(keepSources)
@@ -721,7 +729,10 @@ func (s *sqliteStore) GCScan(ctx context.Context, keepSources []string) (*GCRepo
 			return nil, fmt.Errorf("count stale features: %w", err)
 		}
 	}
-	runs, err := orphanRuns(ctx, s.db, s.cityID)
+	if err := s.db.QueryRowContext(ctx, supersededPartsCount, s.cityID, computeEpoch).Scan(&report.SupersededParts); err != nil {
+		return nil, fmt.Errorf("count superseded latest computes: %w", err)
+	}
+	runs, err := orphanRuns(ctx, s.db, s.cityID, computeEpoch)
 	if err != nil {
 		return nil, err
 	}
@@ -739,7 +750,7 @@ func (s *sqliteStore) GCScan(ctx context.Context, keepSources []string) (*GCRepo
 
 // GCSweep deletes the orphan rows GCScan counts and returns the counts of
 // rows actually deleted, all inside a single transaction.
-func (s *sqliteStore) GCSweep(ctx context.Context, keepSources []string) (*GCReport, error) {
+func (s *sqliteStore) GCSweep(ctx context.Context, keepSources []string, computeEpoch int) (*GCReport, error) {
 	report := &GCReport{}
 	err := s.withTx(ctx, func(tx *sql.Tx) error {
 		if err := s.sweepStaleFeatures(ctx, tx, keepSources, report); err != nil {
@@ -748,7 +759,14 @@ func (s *sqliteStore) GCSweep(ctx context.Context, keepSources []string) (*GCRep
 		if err := sweepSnapshotBoundaries(ctx, tx, s.cityID); err != nil {
 			return err
 		}
-		runs, err := orphanRuns(ctx, tx, s.cityID)
+		// Superseded parts go first: their runs are orphans only once no
+		// latest compute row references them.
+		if err := execDeleteCount(ctx, tx, "superseded latest computes",
+			`DELETE FROM working_parts WHERE city_id = ? AND compute_epoch < ?`,
+			&report.SupersededParts, s.cityID, computeEpoch); err != nil {
+			return err
+		}
+		runs, err := orphanRuns(ctx, tx, s.cityID, computeEpoch)
 		if err != nil {
 			return err
 		}

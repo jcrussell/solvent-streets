@@ -41,7 +41,7 @@ func WithDraft(ctx context.Context, draft *db.Draft, store db.Store, cfg *config
 
 // NewDraft starts a draft for city over store, under the city's config hash.
 func NewDraft(store db.Store, cfg *config.Config, city *config.CityConfig) *db.Draft {
-	return db.NewDraft(store, cfg.CityHash(city))
+	return db.NewDraft(store, cfg.CityHash(city), config.ComputeEpoch)
 }
 
 // CommitFailed builds the error for a draft whose commit failed after its

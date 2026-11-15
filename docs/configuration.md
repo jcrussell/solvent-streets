@@ -204,7 +204,12 @@ show the run as computed, and a renamed or moved facility appears after the
 next `pvmt services compute`. `travel_threshold_s` is read when exporting.
 
 After a hash change the latest compute under the new hash is empty until the
-city is recomputed, and `pvmt forecast` and `pvmt status` say so. A snapshot
+city is recomputed, and `pvmt forecast` and `pvmt status` say so. The latest
+compute under the old hash is kept, so reverting the setting makes it current
+again without a recompute. The exception is a new pvmt release that changes
+compute logic: its hashes differ from every older release's, so `pvmt gc`
+drops latest computes made by an older pvmt and sweeps their runs, except the
+ones a snapshot holds. A snapshot
 never changes after it is created: it keeps the hash, `hex_edge_m`, boundary,
 stations and turnout it was created with, and exports exactly as created after
 any later ingest or config edit. Export and serve warn when a city's newest

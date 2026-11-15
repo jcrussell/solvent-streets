@@ -20,7 +20,7 @@ func TestLatestCompute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.CommitLatest(ctx, "h", map[string]int64{"roads": run.ID}); err != nil {
+	if err := store.CommitLatest(ctx, "h", testEpoch, map[string]int64{"roads": run.ID}); err != nil {
 		t.Fatal(err)
 	}
 	census, _ := commitRun(t, store, "h", "census", nil)
@@ -155,7 +155,7 @@ func TestCreateSnapshot_Unchanged(t *testing.T) {
 func TestDraft_PinInput(t *testing.T) {
 	ctx := context.Background()
 	root, store, _ := openInputsStore(t)
-	d := NewDraft(store, "h")
+	d := NewDraft(store, "h", testEpoch)
 	d.PinInput(InputBoundary, "old")
 	read := map[string]string{InputBoundary: "new", "roads": "r1"}
 	roads, err := d.NewRun(ctx, "roads", read)

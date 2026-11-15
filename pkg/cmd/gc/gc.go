@@ -58,6 +58,10 @@ cannot reach:
     left behind by a compute that crashed or was killed before it
     committed. Runs younger than a day are never swept, because they may
     belong to a compute that is still running.
+  - Latest computes made by an older pvmt whose compute logic differs
+    (a lower ComputeEpoch). No config can produce their hash again, so
+    they are dropped and their runs swept as above, unless a snapshot
+    holds them. Another config's latest compute is kept.
 
 Scope: all configured cities by default; restrict to one with --city.
 
@@ -141,7 +145,7 @@ func retainedOverpassRows(ctx context.Context, store db.Store, city config.CityC
 	if sweepDisabled || city.Overpass {
 		return 0, nil
 	}
-	strict, err := store.GCScan(ctx, keepSourcesFor(city, true))
+	strict, err := store.GCScan(ctx, keepSourcesFor(city, true), config.ComputeEpoch)
 	if err != nil {
 		return 0, err
 	}
@@ -159,6 +163,9 @@ func retainedOverpassRows(ctx context.Context, store db.Store, city config.CityC
 func printReport(w *iostreams.IOStreams, report *db.GCReport) {
 	rows := report.OrphanRunResults
 	fmt.Fprintf(w.ErrOut, "  stale features:        %d\n", report.StaleFeatures)
+	if report.SupersededParts > 0 {
+		fmt.Fprintf(w.ErrOut, "  superseded latest:     %d part(s) computed by an older pvmt\n", report.SupersededParts)
+	}
 	fmt.Fprintf(w.ErrOut, "  orphan runs:           %d (city=%d hex=%d metric rows)\n",
 		report.OrphanRuns, rows.CityMetrics, rows.HexMetrics)
 }
@@ -190,7 +197,7 @@ func scanCities(ctx context.Context, opts *Options, root db.RootStorer,
 		if err != nil {
 			return 0, err
 		}
-		report, err := store.GCScan(ctx, keepSourcesFor(city, opts.SweepDisabledSources))
+		report, err := store.GCScan(ctx, keepSourcesFor(city, opts.SweepDisabledSources), config.ComputeEpoch)
 		if err != nil {
 			return 0, fmt.Errorf("scan %s: %w", city.Slug(), err)
 		}
@@ -261,7 +268,7 @@ func runGC(ctx context.Context, opts *Options) error {
 			return err
 		}
 		keep := keepSourcesFor(city, opts.SweepDisabledSources)
-		report, err := store.GCSweep(ctx, keep)
+		report, err := store.GCSweep(ctx, keep, config.ComputeEpoch)
 		if err != nil {
 			return fmt.Errorf("sweep %s: %w", city.Slug(), err)
 		}

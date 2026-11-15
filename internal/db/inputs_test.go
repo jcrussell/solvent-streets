@@ -221,13 +221,13 @@ func TestGCSweep_RefreshesDigest(t *testing.T) {
 		t.Fatal(err)
 	}
 	before, _ := store.InputDigests(ctx, "roads", "parking")
-	if _, err := store.GCScan(ctx, []string{"overpass"}); err != nil {
+	if _, err := store.GCScan(ctx, []string{"overpass"}, testEpoch); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := store.InputDigests(ctx, "roads", "parking"); !maps.Equal(got, before) {
 		t.Errorf("GCScan changed digests: %v -> %v", before, got)
 	}
-	report, err := store.GCSweep(ctx, []string{"overpass"})
+	report, err := store.GCSweep(ctx, []string{"overpass"}, testEpoch)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,7 +363,7 @@ func TestCommitLatest_SetsWorkingParts(t *testing.T) {
 	if got, want := workingPartsOf(t, root, id, "h"), map[string]int64{"roads": roads, "service:fire": fire}; !maps.Equal(got, want) {
 		t.Errorf("working state = %v, want %v", got, want)
 	}
-	if err := store.CommitLatest(ctx, "h", map[string]int64{"service:fire": 0}); err != nil {
+	if err := store.CommitLatest(ctx, "h", testEpoch, map[string]int64{"service:fire": 0}); err != nil {
 		t.Fatal(err)
 	}
 	if got, want := workingPartsOf(t, root, id, "h"), map[string]int64{"roads": roads}; !maps.Equal(got, want) {
@@ -394,7 +394,7 @@ func TestGC_HonoursWorkingState(t *testing.T) {
 	if err := store.DiscardRun(ctx, run); err == nil {
 		t.Error("DiscardRun removed a run the working state references")
 	}
-	report, err := store.GCSweep(ctx, nil)
+	report, err := store.GCSweep(ctx, nil, testEpoch)
 	if err != nil {
 		t.Fatal(err)
 	}

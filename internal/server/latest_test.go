@@ -33,7 +33,7 @@ func TestDataFile_SnapshotLatest(t *testing.T) {
 	if err := store.SaveCityMetrics(ctx, run.ID, results.TotalRows(resource.TypeRoads, results.Totals{Area: 300, Features: 1})); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.CommitLatest(ctx, hash, map[string]int64{"roads": run.ID}); err != nil {
+	if err := store.CommitLatest(ctx, hash, config.ComputeEpoch, map[string]int64{"roads": run.ID}); err != nil {
 		t.Fatal(err)
 	}
 	latest, err := store.LatestCompute(ctx, hash)

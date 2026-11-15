@@ -170,11 +170,15 @@ type GCReport struct {
 	OrphanRuns int
 	// OrphanRunResults counts the result rows those runs wrote.
 	OrphanRunResults GCResultCounts
+	// SupersededParts counts latest-compute parts committed under an older
+	// ComputeEpoch. No config can produce their hash again, so they are
+	// dropped and their runs counted as orphans.
+	SupersededParts int
 }
 
 // Total returns the grand total of every count in the report.
 func (r GCReport) Total() int {
-	return r.StaleFeatures + r.OrphanRuns + r.OrphanRunResults.Total()
+	return r.StaleFeatures + r.SupersededParts + r.OrphanRuns + r.OrphanRunResults.Total()
 }
 
 type Store interface {
@@ -229,8 +233,9 @@ type Store interface {
 	// manifest writes nothing. A replaced run is not deleted here: once no
 	// snapshot or latest compute references it, gc sweeps it. Nothing is
 	// published: a snapshot never changes after CreateSnapshot. An empty
-	// configHash is rejected. Retries while another process holds the lock.
-	CommitLatest(ctx context.Context, configHash string, parts map[string]int64) error
+	// configHash is rejected. computeEpoch (config.ComputeEpoch) is recorded
+	// with the parts, for gc. Retries while another process holds the lock.
+	CommitLatest(ctx context.Context, configHash string, computeEpoch int, parts map[string]int64) error
 	// LatestCompute returns this city's latest compute under configHash
 	// (working_parts): one entry per part, ordered by part, each with its run,
 	// the run's computed_at and the input digests the run recorded. No parts
@@ -274,17 +279,18 @@ type Store interface {
 	// never changes what another snapshot or the latest compute reads.
 	DeleteSnapshot(ctx context.Context, snapshotID int64) (bool, error)
 	// GCScan counts orphan rows for this city WITHOUT writing: features
-	// with a stale source_api (non-empty, not in keepSources) and runs no
-	// snapshot or latest compute references that are older than OrphanRunGrace, with their
-	// rows. An empty keepSources skips the feature scan entirely (never
-	// reports every row as stale).
-	GCScan(ctx context.Context, keepSources []string) (*GCReport, error)
+	// with a stale source_api (non-empty, not in keepSources), latest-compute
+	// parts committed under a ComputeEpoch older than computeEpoch, and runs
+	// older than OrphanRunGrace that no snapshot and no current-epoch latest
+	// compute references, with their rows. An empty keepSources skips the
+	// feature scan entirely (never reports every row as stale).
+	GCScan(ctx context.Context, keepSources []string, computeEpoch int) (*GCReport, error)
 	// GCSweep deletes the same orphan rows GCScan counts, in one
 	// transaction, and returns the counts of rows actually deleted. An
 	// empty keepSources skips the feature delete (never wipes all rows).
 	// It refreshes the input digest of every type it deleted features from,
 	// and drops frozen boundaries no snapshot references.
-	GCSweep(ctx context.Context, keepSources []string) (*GCReport, error)
+	GCSweep(ctx context.Context, keepSources []string, computeEpoch int) (*GCReport, error)
 	// InputStates returns every input this city has stored (city_inputs),
 	// ordered by input.
 	InputStates(ctx context.Context) ([]InputState, error)

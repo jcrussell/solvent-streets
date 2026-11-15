@@ -207,7 +207,7 @@ func TestGC_EmptyKeepSourcesSkipsFeatureSweep(t *testing.T) {
 	seedGCFeature(t, root, idA, "f1", "overpass")
 	seedGCFeature(t, root, idA, "f2", "oldsource")
 
-	report, err := storeA.GCScan(ctx, nil)
+	report, err := storeA.GCScan(ctx, nil, testEpoch)
 	if err != nil {
 		t.Fatalf("GCScan: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestGC_EmptyKeepSourcesSkipsFeatureSweep(t *testing.T) {
 		t.Errorf("empty keepSources scan StaleFeatures = %d, want 0", report.StaleFeatures)
 	}
 
-	swept, err := storeA.GCSweep(ctx, nil)
+	swept, err := storeA.GCSweep(ctx, nil, testEpoch)
 	if err != nil {
 		t.Fatalf("GCSweep: %v", err)
 	}
@@ -717,14 +717,14 @@ func TestGC_KeepsFacilityRows(t *testing.T) {
 	if err := store.UpsertFeatures(ctx, rtRoads, []Feature{{ID: "osm:way:1", ResourceType: rtRoads, GeometryJSON: `{"type":"LineString","coordinates":[[0,0],[1,1]]}`, SourceAPI: "overpass"}}, nil); err != nil {
 		t.Fatal(err)
 	}
-	rep, err := store.GCScan(ctx, []string{"arcgis"})
+	rep, err := store.GCScan(ctx, []string{"arcgis"}, testEpoch)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if rep.StaleFeatures != 1 {
 		t.Errorf("stale = %d, want 1 (the road, not the facility)", rep.StaleFeatures)
 	}
-	if _, err := store.GCSweep(ctx, []string{"arcgis"}); err != nil {
+	if _, err := store.GCSweep(ctx, []string{"arcgis"}, testEpoch); err != nil {
 		t.Fatal(err)
 	}
 	left, _ := store.ListFeatures(ctx, fac)
@@ -748,14 +748,14 @@ func TestGC_KeepsOwnSourcedLayerRows(t *testing.T) {
 	if err := store.UpsertFeatures(ctx, rtRoads, []Feature{{ID: "osm:way:1", ResourceType: rtRoads, GeometryJSON: `{"type":"LineString","coordinates":[[0,0],[1,1]]}`, SourceAPI: "overpass"}}, nil); err != nil {
 		t.Fatal(err)
 	}
-	rep, err := store.GCScan(ctx, []string{"arcgis"})
+	rep, err := store.GCScan(ctx, []string{"arcgis"}, testEpoch)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if rep.StaleFeatures != 1 {
 		t.Errorf("stale = %d, want 1 (the road, not the census block)", rep.StaleFeatures)
 	}
-	if _, err := store.GCSweep(ctx, []string{"arcgis"}); err != nil {
+	if _, err := store.GCSweep(ctx, []string{"arcgis"}, testEpoch); err != nil {
 		t.Fatal(err)
 	}
 	if left, _ := store.ListFeatures(ctx, blk); len(left) != 1 {
@@ -765,3 +765,6 @@ func TestGC_KeepsOwnSourcedLayerRows(t *testing.T) {
 		t.Errorf("stale road survived the sweep: %+v", left)
 	}
 }
+
+// testEpoch is the ComputeEpoch the db tests commit under.
+const testEpoch = 1

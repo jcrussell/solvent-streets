@@ -278,6 +278,7 @@ erDiagram
     working_parts {
         int city_id PK
         text config_hash PK
+        int compute_epoch
         text part PK
         int run_id FK
     }
@@ -412,7 +413,11 @@ Uncommitted runs are invisible. A cancelled or failed command discards its
 runs, and `pvmt gc` sweeps any that neither a snapshot nor a latest compute
 references once they are a day old
 (`db.OrphanRunGrace`). The grace is that long because one city of `pvmt all
-compute` can legitimately hold an uncommitted run for hours. Write
+compute` can legitimately hold an uncommitted run for hours. Each latest
+compute row records the `config.ComputeEpoch` that committed it. gc drops rows
+from an older epoch, whose hash no config can produce again, and their runs
+become orphans in the same pass. Another config's latest compute, from the
+same epoch, is kept. Write
 transactions take the lock up front (`_txlock=immediate`) and wait out SQLite's
 busy timeout. A commit then keeps retrying for up to two minutes
 (`commitBusyBudget`). Only the commit retries: other writes (creating a run,

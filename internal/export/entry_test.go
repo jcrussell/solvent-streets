@@ -45,7 +45,7 @@ func TestPinNewest_PinsNewestAnyHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.store.CommitLatest(ctx, hash, map[string]int64{"roads": roads(hash, 200)}); err != nil {
+	if err := c.store.CommitLatest(ctx, hash, config.ComputeEpoch, map[string]int64{"roads": roads(hash, 200)}); err != nil {
 		t.Fatal(err)
 	}
 

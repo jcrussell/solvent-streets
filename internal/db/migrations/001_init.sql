@@ -147,9 +147,14 @@ CREATE TABLE IF NOT EXISTS run_facilities (
     PRIMARY KEY (run_id, facility_id)
 ) STRICT, WITHOUT ROWID;
 
+-- compute_epoch is the config.ComputeEpoch of the binary that committed the
+-- part. A hash from an older epoch can never be produced again, so gc treats
+-- its latest compute as superseded and sweeps its runs (solvent-streets-e26d);
+-- another config's hash, from the same epoch, is kept.
 CREATE TABLE IF NOT EXISTS working_parts (
     city_id INTEGER NOT NULL REFERENCES cities(id),
     config_hash TEXT NOT NULL,
+    compute_epoch INTEGER NOT NULL,
     part TEXT NOT NULL,
     run_id INTEGER NOT NULL REFERENCES runs(id),
     PRIMARY KEY (city_id, config_hash, part)

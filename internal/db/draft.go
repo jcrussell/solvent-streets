@@ -20,15 +20,17 @@ import (
 type Draft struct {
 	store      Store
 	configHash string
+	epoch      int
 	parts      map[string]int64  // committed by Commit; 0 removes a part
 	created    []int64           // every run created through this draft
 	pinned     map[string]string // input -> digest every run records (PinInput)
 }
 
 // NewDraft starts a draft over store for configHash, the hash that owns the
-// city's data (config.Config.CityHash).
-func NewDraft(store Store, configHash string) *Draft {
-	return &Draft{store: store, configHash: configHash, parts: map[string]int64{}}
+// city's data (config.Config.CityHash), computed by code at computeEpoch
+// (config.ComputeEpoch).
+func NewDraft(store Store, configHash string, computeEpoch int) *Draft {
+	return &Draft{store: store, configHash: configHash, epoch: computeEpoch, parts: map[string]int64{}}
 }
 
 // ConfigHash is the hash the draft commits under.
@@ -90,7 +92,7 @@ func (d *Draft) Parts() map[string]int64 { return maps.Clone(d.parts) }
 // reported failure, and gc sweeps whatever is left (OrphanRunGrace).
 func (d *Draft) Commit(ctx context.Context) error {
 	unused := d.unusedRuns()
-	if err := d.store.CommitLatest(ctx, d.configHash, d.parts); err != nil {
+	if err := d.store.CommitLatest(ctx, d.configHash, d.epoch, d.parts); err != nil {
 		return err
 	}
 	d.created, d.parts = nil, map[string]int64{}

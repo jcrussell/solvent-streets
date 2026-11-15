@@ -27,7 +27,7 @@ func commitRun(t *testing.T, store Store, hash, producer string, write func(run 
 	if write != nil {
 		write(run.ID)
 	}
-	if err := store.CommitLatest(ctx, hash, map[string]int64{producer: run.ID}); err != nil {
+	if err := store.CommitLatest(ctx, hash, testEpoch, map[string]int64{producer: run.ID}); err != nil {
 		t.Fatalf("CommitLatest(%s): %v", producer, err)
 	}
 	return run.ID, snapshotLatest(t, store, hash)
@@ -155,7 +155,7 @@ func commitLatestRun(t *testing.T, store Store, producer string, write func(run 
 	if write != nil {
 		write(run.ID)
 	}
-	if err := store.CommitLatest(ctx, hash, map[string]int64{producer: run.ID}); err != nil {
+	if err := store.CommitLatest(ctx, hash, testEpoch, map[string]int64{producer: run.ID}); err != nil {
 		t.Fatalf("CommitLatest(%s): %v", producer, err)
 	}
 	return run.ID
@@ -314,7 +314,7 @@ func TestSnapshot_UncommittedRunsAreInvisible(t *testing.T) {
 	if got := roadsArea(t, latest); got != 100 {
 		t.Errorf("committed view = %v, want 100 (the pending run is invisible)", got)
 	}
-	if err := store.CommitLatest(ctx, "h", map[string]int64{"roads": run.ID}); err != nil {
+	if err := store.CommitLatest(ctx, "h", testEpoch, map[string]int64{"roads": run.ID}); err != nil {
 		t.Fatal(err)
 	}
 	if got := roadsArea(t, latest); got != 200 {
@@ -348,7 +348,7 @@ func TestCommitLatest_RejectsInconsistentRuns(t *testing.T) {
 		if name == "wrong hash" {
 			hash = "other"
 		}
-		if err := storeA.CommitLatest(ctx, hash, parts); err == nil {
+		if err := storeA.CommitLatest(ctx, hash, testEpoch, parts); err == nil {
 			t.Errorf("%s: commit succeeded, want an error", name)
 		}
 	}
@@ -469,7 +469,7 @@ func TestGC_OrphanRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	scan, err := store.GCScan(ctx, []string{"overpass"})
+	scan, err := store.GCScan(ctx, []string{"overpass"}, testEpoch)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -480,7 +480,7 @@ func TestGC_OrphanRuns(t *testing.T) {
 	if n := countRows(t, root, `SELECT COUNT(*) FROM runs`); n != 3 {
 		t.Errorf("scan wrote: %d runs remain, want 3", n)
 	}
-	swept, err := store.GCSweep(ctx, []string{"overpass"})
+	swept, err := store.GCSweep(ctx, []string{"overpass"}, testEpoch)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -500,6 +500,80 @@ func TestGC_OrphanRuns(t *testing.T) {
 		if n := countRows(t, root, `SELECT COUNT(*) FROM `+table+` WHERE run_id = ?`, old.ID); n != 0 {
 			t.Errorf("%s rows of the swept run = %d, want 0", table, n)
 		}
+	}
+}
+
+// TestGC_SupersededEpoch (solvent-streets-e26d): a latest compute committed
+// under an older ComputeEpoch can never be produced again, so gc drops it and
+// sweeps its runs. Another config's latest compute from the current epoch is
+// kept, and so is an old-epoch run a snapshot still holds.
+func TestGC_SupersededEpoch(t *testing.T) {
+	ctx := context.Background()
+	root, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	id, _ := root.EnsureCity(ctx, "a", "A", "test")
+	store := root.ForCity(id)
+
+	put := func(hash, producer string, epoch int) int64 {
+		t.Helper()
+		run, err := store.CreateRun(ctx, producer, hash, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.CommitLatest(ctx, hash, epoch, map[string]int64{producer: run.ID}); err != nil {
+			t.Fatal(err)
+		}
+		return run.ID
+	}
+	oldRoads := put("old", "roads", 1)
+	oldParking := put("old", "parking", 1)
+	snapped := put("old-snapped", "roads", 1)
+	if _, _, err := store.CreateSnapshot(ctx, "old-snapped", 100, nil); err != nil {
+		t.Fatal(err)
+	}
+	other := put("other", "roads", 2)
+	stale := time.Now().Add(-2 * OrphanRunGrace).UTC().Format(time.DateTime)
+	if _, err := root.db.ExecContext(ctx, `UPDATE runs SET computed_at = ?`, stale); err != nil {
+		t.Fatal(err)
+	}
+
+	scan, err := store.GCScan(ctx, nil, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scan.SupersededParts != 3 || scan.OrphanRuns != 2 {
+		t.Errorf("scan = %+v, want 3 superseded parts and 2 orphan runs", *scan)
+	}
+	if n := countRows(t, root, `SELECT COUNT(*) FROM working_parts`); n != 4 {
+		t.Errorf("scan wrote: %d working parts remain, want 4", n)
+	}
+	swept, err := store.GCSweep(ctx, nil, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *swept != *scan {
+		t.Errorf("sweep = %+v, want what the scan counted, %+v", *swept, *scan)
+	}
+	for run, wantN := range map[int64]int{oldRoads: 0, oldParking: 0, snapped: 1, other: 1} {
+		if n := countRows(t, root, `SELECT COUNT(*) FROM runs WHERE id = ?`, run); n != wantN {
+			t.Errorf("run %d count = %d after sweep, want %d", run, n, wantN)
+		}
+	}
+	if parts, err := store.LatestCompute(ctx, "other"); err != nil || len(parts) != 1 {
+		t.Errorf("current-epoch latest compute of another config = %+v, %v; want it kept", parts, err)
+	}
+
+	// The same database read by the older binary keeps everything it can
+	// still produce: an epoch newer than its own is not superseded.
+	again, err := store.GCScan(ctx, nil, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.SupersededParts != 0 || again.OrphanRuns != 0 {
+		t.Errorf("scan at the older epoch = %+v, want nothing to collect", *again)
 	}
 }
 
@@ -612,7 +686,7 @@ func TestDraft(t *testing.T) {
 	commitLatestRun(t, store, "service:fire", fireRun(t, store, HexMetric{HexID: "f1"}))
 	latest := store.WithLatestCompute("h")
 
-	d := NewDraft(store, "h")
+	d := NewDraft(store, "h", testEpoch)
 	roads, err := d.NewRun(ctx, "roads", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -638,14 +712,14 @@ func TestDraft(t *testing.T) {
 		t.Errorf("the never-put run survived Commit (%d)", n)
 	}
 
-	if err := NewDraft(store, "h").Commit(ctx); err != nil {
+	if err := NewDraft(store, "h", testEpoch).Commit(ctx); err != nil {
 		t.Errorf("empty draft Commit = %v, want nil", err)
 	}
 	if snaps, _ := store.ListSnapshots(ctx); len(snaps) != 0 {
 		t.Errorf("Commit created snapshots: %+v", snaps)
 	}
 
-	d2 := NewDraft(store, "h")
+	d2 := NewDraft(store, "h", testEpoch)
 	r2, _ := d2.NewRun(ctx, "roads", nil)
 	d2.Put("roads", r2)
 	if err := d2.Discard(ctx); err != nil {
@@ -666,7 +740,7 @@ func TestDraft_DropRemovesPart(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 	_, s1 := commitRun(t, store, "h", "service:fire", nil)
-	d := NewDraft(store, "h")
+	d := NewDraft(store, "h", testEpoch)
 	d.Drop("service:fire")
 	if err := d.Commit(ctx); err != nil {
 		t.Fatal(err)
@@ -848,7 +922,7 @@ func TestCommitLatest_ConcurrentProcesses(t *testing.T) {
 			for range perProcess {
 				run, err := store.CreateRun(ctx, producer, "h", nil)
 				if err == nil {
-					err = store.CommitLatest(ctx, "h", map[string]int64{producer: run.ID})
+					err = store.CommitLatest(ctx, "h", testEpoch, map[string]int64{producer: run.ID})
 					last[i] = run.ID
 				}
 				errs <- err
@@ -877,7 +951,7 @@ func TestCommitLatest_NoOp(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 
-	if err := store.CommitLatest(ctx, "h", map[string]int64{"census": 0}); err != nil {
+	if err := store.CommitLatest(ctx, "h", testEpoch, map[string]int64{"census": 0}); err != nil {
 		t.Fatal(err)
 	}
 	if got := latestParts(t, store, "h"); len(got) != 0 {
@@ -890,7 +964,7 @@ func TestCommitLatest_NoOp(t *testing.T) {
 		"same run again":         {"roads": roads},
 		"nothing":                {},
 	} {
-		if err := store.CommitLatest(ctx, "h", parts); err != nil {
+		if err := store.CommitLatest(ctx, "h", testEpoch, parts); err != nil {
 			t.Errorf("%s: %v", name, err)
 		}
 		if got := latestParts(t, store, "h"); !maps.Equal(got, map[string]int64{"roads": roads}) {
@@ -900,7 +974,7 @@ func TestCommitLatest_NoOp(t *testing.T) {
 	if snaps, _ := store.ListSnapshots(ctx); len(snaps) != 0 {
 		t.Errorf("commits minted snapshots: %d", len(snaps))
 	}
-	if err := store.CommitLatest(ctx, "", map[string]int64{"roads": roads}); err == nil {
+	if err := store.CommitLatest(ctx, "", testEpoch, map[string]int64{"roads": roads}); err == nil {
 		t.Error("commit with an empty config hash succeeded; it would take its base from any hash")
 	}
 }

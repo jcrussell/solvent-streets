@@ -6,6 +6,7 @@ import (
 	"maps"
 	"slices"
 
+	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
@@ -231,7 +232,7 @@ func (m *MockStore) DiscardRun(ctx context.Context, id int64) error {
 }
 
 // CommitLatest delegates to CommitLatestFunc, else accepts the commit.
-func (m *MockStore) CommitLatest(ctx context.Context, hash string, parts map[string]int64) error {
+func (m *MockStore) CommitLatest(ctx context.Context, hash string, _ int, parts map[string]int64) error {
 	if m.CommitLatestFunc != nil {
 		return m.CommitLatestFunc(ctx, hash, parts)
 	}
@@ -299,14 +300,14 @@ func (m *MockStore) DeleteSnapshot(ctx context.Context, id int64) (bool, error) 
 	return false, nil
 }
 
-func (m *MockStore) GCScan(ctx context.Context, keepSources []string) (*db.GCReport, error) {
+func (m *MockStore) GCScan(ctx context.Context, keepSources []string, _ int) (*db.GCReport, error) {
 	if m.GCScanFunc != nil {
 		return m.GCScanFunc(ctx, keepSources)
 	}
 	return &db.GCReport{}, nil
 }
 
-func (m *MockStore) GCSweep(ctx context.Context, keepSources []string) (*db.GCReport, error) {
+func (m *MockStore) GCSweep(ctx context.Context, keepSources []string, _ int) (*db.GCReport, error) {
 	if m.GCSweepFunc != nil {
 		return m.GCSweepFunc(ctx, keepSources)
 	}
@@ -443,7 +444,7 @@ func (m *MockRootStore) Close() error {
 // freezes it as a snapshot tiled at hexEdgeM, unchecked: what `pvmt <res>
 // compute` followed by `pvmt snapshots create` leaves behind.
 func Publish(ctx context.Context, store db.Store, hash string, hexEdgeM float64, parts map[string]int64) (*db.Snapshot, error) {
-	if err := store.CommitLatest(ctx, hash, parts); err != nil {
+	if err := store.CommitLatest(ctx, hash, config.ComputeEpoch, parts); err != nil {
 		return nil, err
 	}
 	snap, _, err := store.CreateSnapshot(ctx, hash, hexEdgeM, nil)
