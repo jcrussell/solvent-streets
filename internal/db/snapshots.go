@@ -23,9 +23,10 @@ import (
 // compute, and an orphan only costs disk until then.
 const OrphanRunGrace = 24 * time.Hour
 
-// commitBusyBudget bounds how long CommitSnapshot keeps retrying while another
-// process holds the write lock past busy_timeout. Giving up discards the
-// command's runs, possibly hours of compute, so it waits generously.
+// commitBusyBudget bounds how long CommitLatest and CreateSnapshot keep
+// retrying (retryBusy) while another process holds the write lock past
+// busy_timeout. A compute that gives up discards its runs, possibly hours of
+// work, so it waits generously.
 const commitBusyBudget = 2 * time.Minute
 
 // ErrSnapshotGone is returned by every snapshot-scoped read (city and hex
@@ -243,10 +244,11 @@ func and(fs ...viewFilter) viewFilter {
 
 // viewQuery builds `selectClause WHERE run_id IN (<this view's runs>) AND
 // where suffix` and its binds. Result rows carry no city_id: the view's runs
-// come from the city's own snapshot, so the run filter alone scopes the read
-// to the city. ok is false when the view reads no runs (the city has no
-// snapshot yet), in which case callers return an empty result without
-// querying.
+// come from the city's own snapshot, its pinned runs, or its latest compute
+// under the view's config hash, so the run filter alone scopes the read to
+// the city. ok is false when the view resolves no runs (no snapshot, or
+// nothing computed under the hash), in which case callers return an empty
+// result without querying.
 func (s *sqliteStore) viewQuery(ctx context.Context, selectClause string, where viewFilter, suffix string) (q string, args []any, ok bool, err error) {
 	runs, err := s.viewRunIDs(ctx)
 	if err != nil || len(runs) == 0 {

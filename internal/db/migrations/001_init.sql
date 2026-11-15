@@ -112,10 +112,10 @@ CREATE INDEX IF NOT EXISTS idx_ingest_attempts_key ON ingest_attempts(city_id, i
 -- boundaries are stored once). Every reader resolves ONE snapshot and reads
 -- only its runs. All runs in a snapshot share the snapshot's config_hash.
 --
--- Each command commits ONE new snapshot = the newest snapshot for the same
--- config hash, with only the parts that command produced swapped in, and
--- sets the working state to that manifest. A run referenced by a snapshot or
--- by the working state is never swept.
+-- A compute swaps only the parts it produced into the working state for its
+-- config hash; only `pvmt snapshots create` freezes the working state into a
+-- new snapshot. A run referenced by a snapshot or by a current-epoch working
+-- state is never swept.
 CREATE TABLE IF NOT EXISTS runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     city_id INTEGER NOT NULL REFERENCES cities(id),
