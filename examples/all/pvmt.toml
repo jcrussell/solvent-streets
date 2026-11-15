@@ -39,12 +39,13 @@
 # This config stores no data of its own. Each city keeps the config_id of the
 # example that declared it and resolves the same compute settings (hence the
 # same snapshot hash), so the union reads the rows and snapshots those examples
-# already ingested and computed — there is no separate ingest for
-# `examples/all`. Populate the individual examples, then run `make site`.
+# ingested and computed.
 #
-# Ingest and compute DO work from here, and they write into the per-example
-# namespaces, replacing that data rather than sandboxing it. That is usually not
-# what you want; run them from the example directory instead.
+# Ingest and compute work from here too, and are the cheaper way to rebuild the
+# whole site: each city's run writes into the namespace of the example that
+# declared it, exactly as running that example would, and a city several
+# examples share is fetched once. The duplicate rows those examples' own runs
+# would create are not read here.
 
 [export]
 title = "Solvent Streets"

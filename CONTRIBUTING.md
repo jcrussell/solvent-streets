@@ -174,15 +174,16 @@ The showcase at <https://joncrussell.com/solvent-streets/> is one `pvmt export`
 of [`examples/all/`](examples/all/pvmt.toml). That config `[[include]]`s every
 other example and tags each city at the include site. Ingest and compute can't
 run in CI: the database is about 1 GB, and the upstream pulls are slow and
-rate-limited. So the site is built from a developer machine whose database
-already holds every example's data. `examples/all` reads each example's data
-rather than ingesting its own, so populate the examples, not `examples/all`
-(see [Config identity](docs/configuration.md#config-identity-config_id)). To
-publish:
+rate-limited. So the site is built from a developer machine. `examples/all`
+stores no data of its own: each city keeps the `config_id` of the example that
+declared it, so an ingest or compute run from `examples/all` writes the rows
+that example's own run would, and fetches a city shared by several examples
+once (see [Config identity](docs/configuration.md#config-identity-config_id)).
+To publish:
 
 ```
-cd examples/<name> && pvmt all ingest && pvmt all compute   # each stale example; hours
-cd examples/all && pvmt snapshots create                     # freeze every city's latest compute
+cd examples/all && pvmt all ingest && pvmt all compute   # every city; hours (one city: --city <slug>)
+cd examples/all && pvmt snapshots create                 # freeze every city's latest compute
 make site          # render ./site/ from each city's newest snapshot
 make site-report   # pvmt check-site: per-city size budgets and the asset audit
 make deploy        # force-push ./site/ to gh-pages
