@@ -27,6 +27,10 @@ const (
 // source); older ones are deleted as new ones are recorded.
 const ingestAttemptsKept = 20
 
+// attemptTimeLayout is how attempt times are stored: UTC, in a form SQLite's
+// date functions read (julianday, datetime), to the millisecond.
+const attemptTimeLayout = "2006-01-02 15:04:05.000Z07:00"
+
 // maxIngestErrorBytes bounds the error text stored with a failed attempt.
 const maxIngestErrorBytes = 1024
 
@@ -96,7 +100,7 @@ func (s *sqliteStore) RecordIngestAttempts(ctx context.Context, attempts []Inges
 				INSERT INTO ingest_attempts
 					(city_id, input, source, started_at, finished_at, outcome, feature_count, error)
 				VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-				s.cityID, a.Input, a.Source, a.StartedAt.UTC(), a.FinishedAt.UTC(),
+				s.cityID, a.Input, a.Source, a.StartedAt.UTC().Format(attemptTimeLayout), a.FinishedAt.UTC().Format(attemptTimeLayout),
 				string(a.Outcome), a.FeatureCount, truncateUTF8(a.Error, maxIngestErrorBytes)); err != nil {
 				return fmt.Errorf("record ingest attempt: %w", err)
 			}

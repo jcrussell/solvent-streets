@@ -153,3 +153,28 @@ func TestIngestHistory_ScopedToCity(t *testing.T) {
 		t.Errorf("city b history = %+v, want none", hist)
 	}
 }
+
+// TestIngestAttempts_TimesReadableBySQLite: attempt times are stored in a
+// form SQLite's date functions read, and come back exact to the millisecond.
+func TestIngestAttempts_TimesReadableBySQLite(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	t0 := time.Date(2026, 11, 9, 12, 0, 0, 123e6, time.UTC)
+	if err := store.RecordIngestAttempts(ctx, []IngestAttempt{{Input: "roads", Source: "overpass", StartedAt: t0, FinishedAt: t0.Add(1500 * time.Millisecond), Outcome: IngestOK}}); err != nil {
+		t.Fatal(err)
+	}
+	var secs float64
+	if err := store.(*sqliteStore).db.QueryRowContext(ctx, `SELECT (julianday(finished_at)-julianday(started_at))*86400 FROM ingest_attempts`).Scan(&secs); err != nil {
+		t.Fatal(err)
+	}
+	if secs < 1.499 || secs > 1.501 {
+		t.Errorf("julianday duration = %.3f s, want 1.5", secs)
+	}
+	h, err := store.IngestHistory(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !h[0].Latest.StartedAt.Equal(t0) {
+		t.Errorf("round trip %v != %v", h[0].Latest.StartedAt, t0)
+	}
+}
