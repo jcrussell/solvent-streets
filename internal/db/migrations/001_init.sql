@@ -72,6 +72,29 @@ CREATE TABLE IF NOT EXISTS city_inputs (
     PRIMARY KEY (city_id, input)
 );
 
+-- INGEST ATTEMPTS (solvent-streets-o831.1). One row per source an ingest
+-- asked, whatever came back: input is a city_inputs key ('boundary' or a
+-- features resource_type), source the upstream ('overpass', 'arcgis',
+-- 'tigerweb', 'nominatim', 'overpass-relation'). outcome is 'ok' (rows
+-- saved), 'empty' (the source answered with nothing, so stored rows were
+-- kept) or 'failed' (error holds the message, truncated). A source the run
+-- never asked, and a request the user cancelled, leave no row. Features keep
+-- only the last success; this is how a failed or partial ingest is told from
+-- a complete one. Only the newest rows per (city, input, source) are kept
+-- (db.ingestAttemptsKept).
+CREATE TABLE IF NOT EXISTS ingest_attempts (
+    id INTEGER PRIMARY KEY,
+    city_id INTEGER NOT NULL REFERENCES cities(id),
+    input TEXT NOT NULL,
+    source TEXT NOT NULL,
+    started_at DATETIME NOT NULL,
+    finished_at DATETIME NOT NULL,
+    outcome TEXT NOT NULL CHECK (outcome IN ('ok', 'empty', 'failed')),
+    feature_count INTEGER NOT NULL DEFAULT 0,
+    error TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_ingest_attempts_key ON ingest_attempts(city_id, input, source, id);
+
 -- RUNS, the WORKING STATE and SNAPSHOTS (solvent-streets-25t6, -we5i).
 --
 -- A run is one producer's output for one city, immutable once written:

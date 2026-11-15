@@ -295,6 +295,12 @@ type Store interface {
 	// GetBoundary returns the live boundary ("" when none), or for a view
 	// pinned with WithSnapshot the boundary that snapshot froze.
 	GetBoundary(ctx context.Context) (string, error)
+	// RecordIngestAttempts stores how each source answered an ingest
+	// (ingest_attempts), keeping the newest few per (input, source).
+	RecordIngestAttempts(ctx context.Context, attempts []IngestAttempt) error
+	// IngestHistory returns the city's newest attempt, success and failure
+	// per (input, source).
+	IngestHistory(ctx context.Context) ([]IngestHistory, error)
 	Stats(ctx context.Context, resourceType resource.Type) (*StatusInfo, error)
 	Close() error
 }

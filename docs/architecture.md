@@ -176,6 +176,17 @@ statement of which inputs each producer reads, and the producer takes the
 digests before it reads the data, so an ingest that lands mid-compute makes
 the run look stale rather than current.
 
+Features keep only their last successful fetch, so `ingest_attempts` keeps
+the rest: one row per source an ingest asked, per input (`boundary` or a
+`resource_type`), with its outcome (`ok`, `empty` or `failed`), its feature
+count and, for a failure, the error. The ingest command records them after
+the save, so a source whose rows could not be saved is recorded as failed.
+The write is best-effort and never fails an ingest. A cancelled request
+leaves no row, and only the newest 20 rows per city, input and source are
+kept. `Store.IngestHistory` reads each key's newest attempt, success and
+failure. It is how a failed or partial ingest is told apart from a complete
+one.
+
 A service run also freezes what export draws its coverage with. It writes
 the facilities it routed from (OSM points and `[[cities.facilities]]`) to
 `run_facilities`. It also writes the turnout its times include as a
@@ -194,6 +205,7 @@ erDiagram
     cities ||--o{ snapshots : has
     cities ||--o{ city_inputs : has
     cities ||--o{ working_parts : has
+    cities ||--o{ ingest_attempts : has
 
     snapshots ||--o{ snapshot_parts : lists
     snapshot_boundaries |o--o{ snapshots : "clipped to"
@@ -231,6 +243,17 @@ erDiagram
         text input PK
         text digest
         datetime ingested_at
+    }
+    ingest_attempts {
+        int id PK
+        int city_id FK
+        text input
+        text source
+        datetime started_at
+        datetime finished_at
+        text outcome
+        int feature_count
+        text error
     }
     runs {
         int id PK

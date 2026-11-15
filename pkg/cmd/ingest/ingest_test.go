@@ -339,9 +339,13 @@ func TestFetchFromSources_AllFailedReturnsErrAllSourcesFailed(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	opts := &Options{IO: ios, ResourceType: &resource.Pavement{}}
 	sources := []ingestpkg.Source{&failingSource{name: "a"}, &failingSource{name: "b"}}
-	_, _, err := fetchFromSources(context.Background(), sources, &http.Client{}, opts, "Test City")
+	_, _, attempts, err := fetchFromSources(context.Background(), sources, &http.Client{}, opts, "Test City")
 	if !errors.Is(err, cmdutil.ErrAllSourcesFailed) {
 		t.Errorf("expected ErrAllSourcesFailed, got %v", err)
+	}
+	// Both failures are kept for the record (solvent-streets-o831.1).
+	if len(attempts) != 2 || attempts[0].Outcome != db.IngestFailed || attempts[1].Error != "upstream offline" {
+		t.Errorf("attempts = %+v, want two failed attempts with the error", attempts)
 	}
 }
 
@@ -349,9 +353,13 @@ func TestFetchFromSources_PartialSuccessNoError(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	opts := &Options{IO: ios, ResourceType: &resource.Pavement{}}
 	sources := []ingestpkg.Source{&failingSource{name: "a"}, &emptySource{name: "b"}}
-	features, succeeded, err := fetchFromSources(context.Background(), sources, &http.Client{}, opts, "Test City")
+	features, succeeded, attempts, err := fetchFromSources(context.Background(), sources, &http.Client{}, opts, "Test City")
 	if err != nil {
 		t.Errorf("expected nil error when at least one source returns cleanly, got %v", err)
+	}
+	if len(attempts) != 2 || attempts[0].Source != "a" || attempts[0].Outcome != db.IngestFailed ||
+		attempts[1].Source != "b" || attempts[1].Outcome != db.IngestEmpty || attempts[1].Input != "roads" {
+		t.Errorf("attempts = %+v, want a failed and b empty, both for roads", attempts)
 	}
 	if len(features) != 0 {
 		t.Errorf("expected 0 features, got %d", len(features))
@@ -620,6 +628,37 @@ func TestResolveBoundary_FetcherErrorWrappedWithHint(t *testing.T) {
 	// can find it.
 	if !strings.Contains(err.Error(), "synthetic nominatim failure") {
 		t.Errorf("expected wrapped underlying error, got: %v", err)
+	}
+	// The failed fetch is recorded (solvent-streets-o831.1).
+	if len(store.Attempts) != 1 || store.Attempts[0].Input != db.InputBoundary ||
+		store.Attempts[0].Source != "nominatim" || store.Attempts[0].Outcome != db.IngestFailed ||
+		!strings.Contains(store.Attempts[0].Error, "synthetic nominatim failure") {
+		t.Errorf("attempts = %+v, want one failed nominatim boundary attempt", store.Attempts)
+	}
+}
+
+// TestResolveBoundary_RecordsAttempts (solvent-streets-o831.1): a fetched
+// boundary records an ok attempt under its source; a cached one records
+// nothing, because no upstream was asked.
+func TestResolveBoundary_RecordsAttempts(t *testing.T) {
+	city := &config.CityConfig{Name: "Oakland, CA"}
+	opts := resolveBoundaryHarness(t)
+	fetchers := boundaryFetchers{byName: recordingNominatim(noSourceBoundary, nil), byRelation: nil, water: fakeWaterFetcher("")}
+
+	fresh := &dbtest.MockStore{GetBoundaryFunc: func(_ context.Context) (string, error) { return "", nil }}
+	if _, _, err := resolveBoundary(context.Background(), opts, fresh, &http.Client{}, city, fetchers); err != nil {
+		t.Fatal(err)
+	}
+	if len(fresh.Attempts) != 1 || fresh.Attempts[0].Outcome != db.IngestOK || fresh.Attempts[0].Source != "nominatim" {
+		t.Errorf("fetched boundary attempts = %+v, want one ok nominatim attempt", fresh.Attempts)
+	}
+
+	cached := &dbtest.MockStore{GetBoundaryFunc: func(_ context.Context) (string, error) { return noSourceBoundary, nil }}
+	if _, _, err := resolveBoundary(context.Background(), opts, cached, &http.Client{}, city, fetchers); err != nil {
+		t.Fatal(err)
+	}
+	if len(cached.Attempts) != 0 {
+		t.Errorf("cached boundary attempts = %+v, want none", cached.Attempts)
 	}
 }
 
@@ -1207,6 +1246,54 @@ func TestRunIngest_PartialSourceFailureSavesAndFails(t *testing.T) {
 	}
 	if n := len(saved); n != 1 {
 		t.Errorf("saved %d features, want the 1 ArcGIS row kept despite the failure", n)
+	}
+	// Both answers are on record: the partial-source status reads them
+	// (solvent-streets-o831.1).
+	got := map[string]db.IngestOutcome{}
+	for _, a := range store.Attempts {
+		got[a.Source] = a.Outcome
+	}
+	if got["overpass"] != db.IngestFailed || got["arcgis"] != db.IngestOK || len(store.Attempts) != 2 {
+		t.Errorf("attempts = %+v, want overpass failed and arcgis ok", store.Attempts)
+	}
+}
+
+// TestRunIngest_SaveFailureRecordsFailedAttempts (solvent-streets-o831.1): a
+// source that answered but whose rows could not be saved is recorded as
+// failed, with the save error, not as a success.
+func TestRunIngest_SaveFailureRecordsFailedAttempts(t *testing.T) {
+	ctx := context.Background()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"features":[
+			{"properties":{"OBJECTID":7},"geometry":{"type":"LineString","coordinates":[[-121.80,37.68],[-121.79,37.68]]}}
+		],"properties":{"exceededTransferLimit":false}}`))
+	}))
+	t.Cleanup(srv.Close)
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func(_ context.Context) (string, error) { return noSourceBoundary, nil },
+		UpsertFeaturesFunc: func(_ context.Context, _ resource.Type, _ []db.Feature, _ []string) error {
+			return errors.New("disk full")
+		},
+	}
+	city := cmdtest.NewTestCity()
+	city.ArcGISURL = srv.URL + "/query"
+	city.AllowPrivateArcGIS = true
+	ios, _, _, _ := iostreams.Test()
+	err := runIngest(ctx, &Options{
+		IO:           ios,
+		CityDB:       func() (db.Store, error) { return store, nil },
+		CurrentCity:  func() (*config.CityConfig, error) { return city, nil },
+		HttpClient:   func() (*http.Client, error) { return srv.Client(), nil },
+		ResourceType: &resource.Pavement{},
+		Source:       cmdutil.SourceAll,
+	})
+	if err == nil || !strings.Contains(err.Error(), "disk full") {
+		t.Fatalf("runIngest = %v, want the save error", err)
+	}
+	if len(store.Attempts) != 1 || store.Attempts[0].Outcome != db.IngestFailed ||
+		!strings.Contains(store.Attempts[0].Error, "disk full") {
+		t.Errorf("attempts = %+v, want arcgis failed with the save error", store.Attempts)
 	}
 }
 

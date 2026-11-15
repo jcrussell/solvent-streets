@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/jcrussell/solvent-streets/internal/cache"
 	"github.com/jcrussell/solvent-streets/internal/config"
@@ -332,8 +333,9 @@ func fetchAndSave(ctx context.Context, opts *Options, store db.Store, client *ht
 		return err
 	}
 
-	allFeatures, succeeded, err := fetchFromSources(ctx, sources, client, opts, city.Name)
+	allFeatures, succeeded, attempts, err := fetchFromSources(ctx, sources, client, opts, city.Name)
 	if err != nil {
+		recordAttempts(ctx, opts, store, attempts)
 		return err
 	}
 	failed := failedSources(sources, succeeded)
@@ -342,6 +344,7 @@ func fetchAndSave(ctx context.Context, opts *Options, store db.Store, client *ht
 		// all-empty result never wipes previously-stored rows. (A surviving
 		// source that legitimately emptied out thus keeps its stale rows until
 		// a clean full re-ingest — preferred over destructive deletion.)
+		recordAttempts(ctx, opts, store, attempts)
 		logs.From(ctx).Warn("no features fetched", "resource", opts.ResourceType.Type())
 		return emptyFetchErr(opts.ResourceType.Type(), failed, succeeded)
 	}
@@ -350,8 +353,11 @@ func fetchAndSave(ctx context.Context, opts *Options, store db.Store, client *ht
 
 	logs.From(ctx).Info("saving features to database", "count", len(allFeatures), "resource", opts.ResourceType.Type())
 	if err := store.UpsertFeatures(ctx, opts.ResourceType.Type(), allFeatures, replaceSources); err != nil {
-		return fmt.Errorf("save features: %w", err)
+		err = fmt.Errorf("save features: %w", err)
+		recordAttempts(ctx, opts, store, failAnswered(attempts, err))
+		return err
 	}
+	recordAttempts(ctx, opts, store, attempts)
 
 	// Post-strip road-coverage gate. Runs only on a fresh fetch (cache
 	// hits skip it). The gate detects inverted boundaries by checking
@@ -590,9 +596,35 @@ func resolveBoundary(
 	}
 
 	src := boundarySourceFor(city)
+	started := time.Now()
+	boundaryGJSON, fresh, err := fetchBoundary(ctx, opts, store, client, city, src, fetch)
+	attempt := db.IngestAttempt{Input: db.InputBoundary, Source: src.name, StartedAt: started, FinishedAt: time.Now(),
+		Outcome: db.IngestOK, FeatureCount: 1}
+	switch {
+	case errors.Is(err, context.Canceled):
+	case err != nil:
+		attempt.Outcome, attempt.FeatureCount, attempt.Error = db.IngestFailed, 0, err.Error()
+		recordAttempts(ctx, opts, store, []db.IngestAttempt{attempt})
+	default:
+		recordAttempts(ctx, opts, store, []db.IngestAttempt{attempt})
+	}
+	return boundaryGJSON, fresh, err
+}
+
+// fetchBoundary fetches city's boundary from src, strips water from it and
+// saves it: the network half of resolveBoundary.
+func fetchBoundary(
+	ctx context.Context,
+	opts *Options,
+	store db.Store,
+	client *http.Client,
+	city *config.CityConfig,
+	src boundarySource,
+	fetch boundaryFetchers,
+) (string, *freshBoundary, error) {
 	unstrippedSource := src.name
 	fmt.Fprintf(opts.IO.ErrOut, "Fetching boundary for %s from %s...\n", city.Name, src.from)
-	boundaryGJSON, err = src.fetch(ctx, client, city.Name, fetch)
+	boundaryGJSON, err := src.fetch(ctx, client, city.Name, fetch)
 	if err != nil {
 		// A cancelled fetch needs no remediation, as for the water strip below.
 		if errors.Is(err, context.Canceled) {
@@ -856,27 +888,63 @@ func disabledSourceReason(source cmdutil.Source, overpass bool, arcgisURL string
 }
 
 // fetchFromSources fetches from each source, tolerating per-source failures as
-// long as one succeeds. It returns the fetched features and the names of the
+// long as one succeeds. It returns the fetched features, the names of the
 // sources that succeeded (which equal the source_api written on their rows), so
-// the caller can scope persistence to the sources that actually returned.
-func fetchFromSources(ctx context.Context, sources []ingestpkg.Source, client *http.Client, opts *Options, cityName string) ([]db.Feature, []string, error) {
+// the caller can scope persistence to the sources that actually returned, and
+// how each source answered, for recordAttempts. A source whose request the
+// user cancelled has no attempt.
+func fetchFromSources(ctx context.Context, sources []ingestpkg.Source, client *http.Client, opts *Options, cityName string) ([]db.Feature, []string, []db.IngestAttempt, error) {
 	var allFeatures []db.Feature
 	var succeeded []string
+	var attempts []db.IngestAttempt
 	failures := 0
+	input := string(opts.ResourceType.Type())
 	for _, src := range sources {
 		fmt.Fprintf(opts.IO.ErrOut, "Fetching %s data from %s for %s...\n", opts.ResourceType.Type(), src.Name(), cityName)
+		started := time.Now()
 		features, err := src.Fetch(ctx, client, opts.ResourceType)
+		attempt := db.IngestAttempt{Input: input, Source: src.Name(), StartedAt: started, FinishedAt: time.Now()}
 		if err != nil {
 			cmdutil.Warnf(opts.IO, "%s fetch failed: %v", src.Name(), err)
 			failures++
+			if !errors.Is(err, context.Canceled) {
+				attempt.Outcome, attempt.Error = db.IngestFailed, err.Error()
+				attempts = append(attempts, attempt)
+			}
 			continue
 		}
 		fmt.Fprintf(opts.IO.ErrOut, "  Got %d features from %s\n", len(features), src.Name())
+		attempt.Outcome, attempt.FeatureCount = db.IngestOK, len(features)
+		if len(features) == 0 {
+			attempt.Outcome = db.IngestEmpty
+		}
+		attempts = append(attempts, attempt)
 		allFeatures = append(allFeatures, features...)
 		succeeded = append(succeeded, src.Name())
 	}
 	if len(sources) > 0 && failures == len(sources) {
-		return nil, nil, fmt.Errorf("%s: %w", opts.ResourceType.Type(), cmdutil.ErrAllSourcesFailed)
+		return nil, nil, attempts, fmt.Errorf("%s: %w", opts.ResourceType.Type(), cmdutil.ErrAllSourcesFailed)
 	}
-	return allFeatures, succeeded, nil
+	return allFeatures, succeeded, attempts, nil
+}
+
+// failAnswered marks every source that answered as failed with err: its rows
+// were fetched but not saved.
+func failAnswered(attempts []db.IngestAttempt, err error) []db.IngestAttempt {
+	out := slices.Clone(attempts)
+	for i := range out {
+		if out[i].Outcome != db.IngestFailed {
+			out[i].Outcome, out[i].FeatureCount, out[i].Error = db.IngestFailed, 0, err.Error()
+		}
+	}
+	return out
+}
+
+// recordAttempts stores attempts (ingest_attempts), best-effort: a failure to
+// record is warned about and never fails the ingest. It records even when ctx
+// is cancelled, so the sources that answered before a Ctrl-C keep their trace.
+func recordAttempts(ctx context.Context, opts *Options, store db.Store, attempts []db.IngestAttempt) {
+	if err := store.RecordIngestAttempts(context.WithoutCancel(ctx), attempts); err != nil {
+		cmdutil.Warnf(opts.IO, "could not record the ingest attempt: %v", err)
+	}
 }

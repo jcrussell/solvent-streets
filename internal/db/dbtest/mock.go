@@ -51,6 +51,7 @@ type MockStore struct {
 	SaveBoundaryFunc      func(context.Context, string, string) error
 	GetBoundaryFunc       func(context.Context) (string, error)
 	StatsFunc             func(context.Context, resource.Type) (*db.StatusInfo, error)
+	IngestHistoryFunc     func(context.Context) ([]db.IngestHistory, error)
 	CloseFunc             func() error
 
 	// CityMetrics and HexMetrics are the rows the default result methods
@@ -71,6 +72,9 @@ type MockStore struct {
 	// the facilities its run recorded. The default SaveRunFacilities files
 	// rows under the producer the default CreateRun gave the run.
 	Facilities map[string][]db.RunFacility
+
+	// Attempts is what the default RecordIngestAttempts appends to.
+	Attempts []db.IngestAttempt
 
 	lastRunID    int64            // CreateRun's default id sequence
 	runProducers map[int64]string // CreateRun's default run id -> producer
@@ -444,4 +448,18 @@ func Publish(ctx context.Context, store db.Store, hash string, hexEdgeM float64,
 	}
 	snap, _, err := store.CreateSnapshot(ctx, hash, hexEdgeM, nil)
 	return snap, err
+}
+
+// RecordIngestAttempts appends to m.Attempts.
+func (m *MockStore) RecordIngestAttempts(_ context.Context, attempts []db.IngestAttempt) error {
+	m.Attempts = append(m.Attempts, attempts...)
+	return nil
+}
+
+// IngestHistory delegates to IngestHistoryFunc, or reports none.
+func (m *MockStore) IngestHistory(ctx context.Context) ([]db.IngestHistory, error) {
+	if m.IngestHistoryFunc != nil {
+		return m.IngestHistoryFunc(ctx)
+	}
+	return []db.IngestHistory{}, nil
 }
