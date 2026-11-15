@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -23,8 +24,15 @@ import (
 // compared case-insensitively.
 var arcgisClassFields = []string{"CLASS", "FUNC_CLASS", "FUNCCLASS", "FUNCTIONAL_CLASS", "FCLASS", "F_SYSTEM"}
 
-// arcgisNumericClass maps the HPMS F_SYSTEM codes (1-7), which several layers
-// publish in their functional-class field instead of the text names.
+// arcgisHPMSField is the one field whose digits are read as HPMS F_SYSTEM
+// codes. A bare number under any other class field is not: HERE/NAVTEQ layers
+// publish FUNC_CLASS 1-5 with 5 = local, and FHWA's older two-digit codes
+// read 02 as a rural principal arterial, so treating those digits as F_SYSTEM
+// would turn local streets into collectors and arterials into state trunks
+// (solvent-streets-yd1v). Such a row stays untagged.
+const arcgisHPMSField = "F_SYSTEM"
+
+// arcgisNumericClass maps the HPMS F_SYSTEM codes (1-7).
 var arcgisNumericClass = map[int]string{
 	1: "motorway",    // Interstate
 	2: "trunk",       // Principal Arterial - Other Freeways and Expressways
@@ -35,35 +43,60 @@ var arcgisNumericClass = map[int]string{
 	7: "residential", // Local
 }
 
+// stateRouteRe finds a state route in a ramp's value or street name ("SR 84",
+// "SR-24 ON RAMP", "STATE ROUTE 92", "HWY 13", "STATE HIGHWAY 1").
+var stateRouteRe = regexp.MustCompile(`\b(SR|STATE ROUTE|STATE HWY|STATE HIGHWAY|HWY|HIGHWAY)[- ]?\d{1,3}\b`)
+
 // arcgisHighway returns the OSM highway value for a row's functional class,
 // or "" when the row names none this mapping knows.
 func arcgisHighway(props map[string]string) string {
 	for _, field := range arcgisClassFields {
 		for k, v := range props {
-			if strings.EqualFold(k, field) {
-				if hw := highwayForClass(v); hw != "" {
-					return hw
-				}
+			if !strings.EqualFold(k, field) {
+				continue
+			}
+			if hw := highwayForClass(v, strings.EqualFold(k, arcgisHPMSField), arcgisName(props)); hw != "" {
+				return hw
 			}
 		}
 	}
 	return ""
 }
 
-// highwayForClass maps one functional-class value. Ramps are tested before
-// the road classes because a ramp's value can name its parent ("Interstate
-// Ramp").
-func highwayForClass(v string) string {
+// highwayForClass maps one functional-class value. hpms says whether the
+// field holds HPMS F_SYSTEM codes; a number in any other field maps to
+// nothing. Ramps are tested before the road classes because a ramp's value
+// can name its parent ("Interstate Ramp"). A ramp is a motorway_link
+// (Federal) unless its value says state ("State Route Ramp") or its value or
+// street name names a state route ("SR 24 WB ON RAMP"), which makes it a
+// trunk_link (State). The default stays Interstate because a bare
+// "Ramp" usually is one and its name does not always say so: in Alameda
+// County's layer 49 of Livermore's 50 ramps serve I-580, and one of those
+// is named only "VASCO ON OFF WB".
+func highwayForClass(v string, hpms bool, name string) string {
 	if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+		if !hpms {
+			return ""
+		}
 		return arcgisNumericClass[n]
 	}
 	c := strings.ToLower(v)
 	switch {
 	case strings.Contains(c, "ramp"):
+		if !strings.Contains(c, "interstate") && (strings.Contains(c, "state") ||
+			stateRouteRe.MatchString(strings.ToUpper(v)) || stateRouteRe.MatchString(strings.ToUpper(name))) {
+			return "trunk_link"
+		}
 		return "motorway_link"
 	case strings.Contains(c, "interstate"):
 		return "motorway"
 	case strings.Contains(c, "freeway"), strings.Contains(c, "expressway"):
+		// Functional class 2, Other Freeways and Expressways. The class
+		// says how a road works, not who owns it; mapping it to trunk
+		// (State) is right for the configured layer, whose freeways and
+		// expressways are state routes (Alameda County's SR 84), but a
+		// county expressway system would need an ownership signal
+		// (solvent-streets-hcf0).
 		return "trunk"
 	case strings.Contains(c, "principal arterial"):
 		return "primary"

@@ -60,7 +60,18 @@ func TestArcGISHighway(t *testing.T) {
 		want  string
 	}{
 		{"numeric F_SYSTEM", map[string]string{"F_SYSTEM": "1"}, "motorway"},
-		{"numeric local", map[string]string{"func_class": "7"}, "residential"},
+		{"numeric local", map[string]string{"f_system": "7"}, "residential"},
+		// HERE/NAVTEQ FUNC_CLASS 5 is a local street, not a major collector;
+		// digits outside F_SYSTEM map to nothing (solvent-streets-yd1v).
+		{"HERE-style FUNC_CLASS is not HPMS", map[string]string{"FUNC_CLASS": "5"}, ""},
+		{"digits in CLASS fall through to F_SYSTEM", map[string]string{"CLASS": "2", "F_SYSTEM": "7"}, "residential"},
+		{"Interstate ramp by street name", map[string]string{"CLASS": "Ramp", "STREET": "VASCO OFF I580 EB"}, "motorway_link"},
+		{"ramp whose name names no route", map[string]string{"CLASS": "Ramp", "STREET": "VASCO ON OFF WB"}, "motorway_link"},
+		{"state-route ramp by street name", map[string]string{"CLASS": "Ramp", "STREET": "SR 24 WB ON RAMP"}, "trunk_link"},
+		{"state-route ramp by hyphenated name", map[string]string{"CLASS": "Ramp", "FULLNAME": "Hwy-92 Off Ramp"}, "trunk_link"},
+		{"state-route ramp value", map[string]string{"CLASS": "State Route Ramp", "STREET": "A ST"}, "trunk_link"},
+		{"Interstate ramp value wins over a name", map[string]string{"CLASS": "Interstate Ramp", "STREET": "SR 84 CONN"}, "motorway_link"},
+		{"route-like word is not a route", map[string]string{"CLASS": "Ramp", "STREET": "HIGHWAY RD"}, "motorway_link"},
 		{"lower-case field", map[string]string{"class": "Minor Arterial"}, "secondary"},
 		{"other principal arterial", map[string]string{"FUNC_CLASS": "Other Principal Arterial"}, "primary"},
 		{"interstate ramp is a ramp", map[string]string{"CLASS": "Interstate Ramp"}, "motorway_link"},
