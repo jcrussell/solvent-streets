@@ -12,7 +12,7 @@
 # Honolulu to a place=city one); none needs a boundary_relation_id, and
 # Denver keeps the pin its other two configs carry.
 #
-# Grid: 100 m, with 300 m for Juneau. A city shared with an earlier example
+# Grid: 100 m, with 400 m for Juneau. A city shared with an earlier example
 # (marked "= <example>") carries that example's hex_edge_m exactly, because
 # examples/all merges the earlier one first and a different value would be
 # a new merge warning. Boston and Denver match on the 100 m default.
@@ -29,7 +29,7 @@
 #     under this config_id, the same accepted trade as the bay-area-ca /
 #     top-50-cities overlap.
 #   - Forecasts ride the package defaults: no per-capital PCI or budget is
-#     cited yet.
+#     cited.
 #
 # To run:
 #   cd examples/state-capitals-us
@@ -54,7 +54,7 @@ overpass = true
 [[cities]]
 name = "Juneau, AK"
 overpass = true
-hex_edge_m = 300  # City and Borough of Juneau, ~1.2° x 2° of mountains and ice field
+hex_edge_m = 400  # City and Borough of Juneau, ~1.2° x 2° of mountains and ice field: ~17-20k hexes, under the 8 MiB hexgrid budget
 
 [[cities]]
 name = "Phoenix, AZ"
