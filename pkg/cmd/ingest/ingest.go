@@ -129,7 +129,7 @@ func Example(group string, rt resource.Source) string {
 		fmt.Fprintf(&b, "  # Pull %s from the OpenStreetMap Overpass API only\n  pvmt %s ingest --source overpass\n\n",
 			group, group)
 	}
-	fmt.Fprintf(&b, `  # Bypass the 24h HTTP cache and re-fetch
+	fmt.Fprintf(&b, `  # Bypass the HTTP cache and re-fetch
   pvmt %s ingest --force
 
   # Show what would be fetched without making any requests
@@ -180,12 +180,13 @@ func (b *Boundary) checked() {
 // saves a fresh one, exactly as the first step of a plain ingest would. Pass
 // the result to RunResourceWithBoundary for each step. An error means the
 // city has no usable boundary, so every one of its ingest steps would fail
-// the same way.
-func ResolveBoundaryForCity(ctx context.Context, f *cmdutil.Factory) (*Boundary, error) {
+// the same way. force re-fetches a boundary the store already holds, as
+// --force does for a plain ingest; the caller marks ctx with cache.WithBypass.
+func ResolveBoundaryForCity(ctx context.Context, f *cmdutil.Factory, force bool) (*Boundary, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	opts := &Options{IO: f.IOStreams, Source: cmdutil.SourceAll}
+	opts := &Options{IO: f.IOStreams, Source: cmdutil.SourceAll, Force: force}
 	city, err := f.CurrentCity()
 	if err != nil {
 		return nil, fmt.Errorf("city: %w", err)

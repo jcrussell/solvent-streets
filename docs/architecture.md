@@ -515,8 +515,11 @@ ship the forecast (see
 [troubleshooting](troubleshooting.md#export-errnowasm)). The build order is in
 [CONTRIBUTING.md](../CONTRIBUTING.md#build-test-lint).
 
-**Outbound HTTP cache.** Upstream responses are disk-cached for 24 hours in
-the cache directory. That includes Overpass POSTs, because the key folds in
+**Outbound HTTP cache.** Upstream responses are disk-cached in the cache
+directory and served for `[cache] ttl`, a week by default (`cache.DefaultTTL`).
+The default is long because Overpass and Nominatim send no validators, so a
+stale entry is a full re-download: a week keeps a retry or a replay of the same
+city on the corpus it first fetched. That includes Overpass POSTs, because the key folds in
 the method and body. The cache has no online eviction: a directory scan in
 front of every request would cost more than it saves. Eviction is the
 explicit offline sweep `pvmt cache prune` (see

@@ -240,8 +240,10 @@ unless you pass `--yes`. It reads no config and opens no database, so it works
 when either is broken, and it also sweeps entries half-written by a crash.
 Pruning touches no ingested data. Every pruned response is downloaded again
 when next needed, which costs community-funded endpoints, so prefer a size cap
-to a wipe. The cache can't be turned off. `--force` on an ingest bypasses it
-for that run, and still stores the fresh response.
+to a wipe. The cache can't be turned off. `--force` on an ingest (including `pvmt all
+ingest`) bypasses it for that run, and still stores the fresh response. To see
+OpenStreetMap edits sooner without `--force`, shorten `[cache] ttl` (see
+[configuration](configuration.md#http-cache-cache)).
 
 ## Hexes overhang the city outline at high zoom
 

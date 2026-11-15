@@ -47,6 +47,14 @@ type CachingTransport struct {
 	TTL     time.Duration
 }
 
+// DefaultTTL is how long a cached response is served before it is asked for
+// again when the config sets no [cache] ttl. It is a week, not a day, because
+// Overpass and Nominatim send no ETag or Last-Modified: a stale entry is a full
+// re-download, so a day-long TTL meant a city re-run the next day (a retry, or a
+// replay after an ingest bug is found) re-fetched everything and mixed a day of
+// OpenStreetMap edits into the corpus. --force bypasses it for fresh data.
+const DefaultTTL = 7 * 24 * time.Hour
+
 func NewTransport(wrapped http.RoundTripper, dir string, ttl time.Duration) *CachingTransport {
 	return &CachingTransport{
 		Wrapped: wrapped,

@@ -24,7 +24,8 @@ func NewCmdCache(f *cmdutil.Factory) *cobra.Command {
 user cache directory (` + "`$XDG_CACHE_HOME/pvmt/http`" + ` by default).
 
 Entries are written by every ingest that hits Overpass, ArcGIS,
-Nominatim, or TIGERweb and are served for 24 hours before revalidation. Nothing
+Nominatim, or TIGERweb and are served for the config's [cache] ttl (a week
+by default) before revalidation; --force on an ingest bypasses them. Nothing
 removes them automatically, so the directory grows for as long as the
 install lives; ` + "`pvmt cache prune`" + ` is the reclaim step.
 

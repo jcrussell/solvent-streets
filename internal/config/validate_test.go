@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 )
@@ -382,6 +383,39 @@ func TestConfig_Validate_Tags_AcceptsLabels(t *testing.T) {
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("Validate() rejected valid tags: %v", err)
+	}
+}
+
+// TestLoad_CacheTTL pins the [cache] ttl surface: a Go duration string decodes
+// into CacheConfig.TTL, an omitted table leaves it zero (the factory then uses
+// cache.DefaultTTL), and a negative duration is rejected at load.
+func TestLoad_CacheTTL(t *testing.T) {
+	const city = "\n[[cities]]\nname = \"Oakland, CA\"\noverpass = true\n"
+	tests := map[string]struct {
+		toml    string
+		want    time.Duration
+		wantErr bool
+	}{
+		"set":      {toml: "[cache]\nttl = \"48h\"\n" + city, want: 48 * time.Hour},
+		"omitted":  {toml: city, want: 0},
+		"negative": {toml: "[cache]\nttl = \"-1h\"\n" + city, wantErr: true},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := Load(writeTOML(t, t.TempDir(), "pvmt.toml", tc.toml))
+			if tc.wantErr {
+				if !errors.Is(err, ErrInvalidConfig) {
+					t.Fatalf("Load err = %v; want ErrInvalidConfig", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if cfg.Cache.TTL != tc.want {
+				t.Errorf("Cache.TTL = %s; want %s", cfg.Cache.TTL, tc.want)
+			}
+		})
 	}
 }
 

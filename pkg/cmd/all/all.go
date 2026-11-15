@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jcrussell/solvent-streets/internal/cache"
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/hint"
@@ -50,7 +51,8 @@ response coverage and per-hex population.`,
 }
 
 func newAllIngest(f *cmdutil.Factory) *cobra.Command {
-	return &cobra.Command{
+	var force bool
+	cmd := &cobra.Command{
 		Use:   "ingest",
 		Args:  cobra.NoArgs,
 		Short: "Ingest data for all resource types",
@@ -62,25 +64,38 @@ that fails, or a resource one of whose sources fails, is warned about and
 the run goes on; it then exits 1, and the error lists each failed step
 with the command that retries it.
 
-Unlike the per-resource ingest commands this takes no --source, --force or
+Responses come from the HTTP cache while they are younger than the
+[cache] ttl (a week by default). --force bypasses the cache for every step
+and re-fetches the boundary, for data fresh from upstream.
+
+Unlike the per-resource ingest commands this takes no --source or
 --dry-run; use 'pvmt <resource> ingest' for those. Run 'pvmt all compute'
 next.`,
 		Example: `  # Pull roads, parking, sidewalks, fire stations and Census blocks for every [[cities]] entry
-  pvmt all ingest`,
+  pvmt all ingest
+
+  # Re-fetch one city from upstream, bypassing the HTTP cache
+  pvmt --city livermore-ca all ingest --force`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return cmdutil.ForEachCity(cmd.Context(), f, func(cf *cmdutil.Factory, city *config.CityConfig) error {
-				return ingestCity(cmd.Context(), f.IOStreams, cf, city)
+			ctx := cmd.Context()
+			if force {
+				ctx = cache.WithBypass(ctx)
+			}
+			return cmdutil.ForEachCity(ctx, f, func(cf *cmdutil.Factory, city *config.CityConfig) error {
+				return ingestCity(ctx, f.IOStreams, cf, city, force)
 			})
 		},
 	}
+	cmd.Flags().BoolVar(&force, "force", false, "Bypass the HTTP cache for every step and re-fetch the city boundary")
+	return cmd
 }
 
 // ingestCity runs every ingest step for one city. The boundary (and its
 // water strip, the heaviest Overpass query) is resolved once up front: every
 // step needs it, so when it cannot be had the city is skipped with one
 // warning instead of each step re-fetching it and failing the same way.
-func ingestCity(ctx context.Context, ios *iostreams.IOStreams, cf *cmdutil.Factory, city *config.CityConfig) error {
-	boundary, err := ingest.ResolveBoundaryForCity(ctx, cf)
+func ingestCity(ctx context.Context, ios *iostreams.IOStreams, cf *cmdutil.Factory, city *config.CityConfig, force bool) error {
+	boundary, err := ingest.ResolveBoundaryForCity(ctx, cf, force)
 	if err != nil {
 		if !isCancel(err) {
 			cmdutil.Warnf(ios, "skipping %s: no boundary: %v", city.Name, err)

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 
@@ -120,6 +121,7 @@ type Config struct {
 	Display  DisplayConfig  `toml:"display"`
 	Export   ExportConfig   `toml:"export"`
 	Forecast ForecastConfig `toml:"forecast"`
+	Cache    CacheConfig    `toml:"cache"`
 	Cities   []CityConfig   `toml:"cities"`
 
 	// Include pulls cities from other pvmt.toml files into this one, tagging
@@ -175,6 +177,18 @@ type Config struct {
 //
 // The returned slice is owned by the Config; callers must not mutate it.
 func (c *Config) LoadWarnings() []string { return c.loadWarnings }
+
+// CacheConfig tunes the on-disk HTTP response cache (internal/cache).
+type CacheConfig struct {
+	// TTL is how long a cached upstream response is served before pvmt asks
+	// the upstream again, written as a Go duration ("24h", "72h"). Zero or
+	// unset uses cache.DefaultTTL (one week). Overpass and Nominatim send no
+	// validators, so a stale entry is re-downloaded in full: a shorter TTL
+	// picks up OpenStreetMap edits sooner at the cost of more upstream load.
+	// It is read from the loaded config only; an [[include]]d file's [cache]
+	// is ignored. Negative values are rejected at load.
+	TTL time.Duration `toml:"ttl"`
+}
 
 type DisplayConfig struct {
 	Units string `toml:"units"` // "metric" or "imperial" (default: "imperial")
@@ -868,6 +882,10 @@ func (c *Config) validate(requireCities bool) error {
 		return errors.Join(ErrInvalidConfig, fmt.Errorf(
 			"grid.hex_edge_m %g is below the %g m floor; hex count grows as 1/edge² and a grid this fine "+
 				"will exhaust memory on a city-sized bbox", c.Grid.HexEdgeM, MinHexEdgeM))
+	}
+	if c.Cache.TTL < 0 {
+		return errors.Join(ErrInvalidConfig,
+			fmt.Errorf("cache.ttl %s must not be negative (omit it for the default; use --force to bypass the cache)", c.Cache.TTL))
 	}
 	if nonFinite(c.Display.MinHexArea) || c.Display.MinHexArea < 0 {
 		return errors.Join(ErrInvalidConfig,

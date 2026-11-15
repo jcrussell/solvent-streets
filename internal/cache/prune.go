@@ -27,9 +27,9 @@ import (
 // evicting during RoundTrip would put a full directory scan in front of
 // every request. (solvent-streets-b136)
 const (
-	// DefaultMaxAge is the default age ceiling. The transport's TTL is
-	// 24h, so anything past a month has failed to be requested through
-	// ~30 revalidation windows and is almost certainly a dead key.
+	// DefaultMaxAge is the default age ceiling. An entry untouched for a
+	// month has gone unwanted for at least four DefaultTTL windows (more
+	// under a shorter [cache] ttl) and is almost certainly a dead key.
 	DefaultMaxAge = 30 * 24 * time.Hour
 
 	// DefaultMaxSize is the default total-size ceiling. A single city's

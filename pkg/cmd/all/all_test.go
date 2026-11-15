@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jcrussell/solvent-streets/internal/cache"
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
@@ -211,6 +212,58 @@ func TestAllIngest_InProcessFanOut(t *testing.T) {
 	}
 	if ctxSeen != wantRuns {
 		t.Errorf("request context reached %d of %d ingest runs; a cancellable ctx must propagate to each", ctxSeen, wantRuns)
+	}
+}
+
+// TestAllIngest_ForceBypassesTheCache pins `all ingest --force`
+// (solvent-streets-9vzr): behind a real CachingTransport a repeat run is served
+// entirely from the cache, while --force sends even cached requests upstream
+// and re-fetches the boundary the store already holds instead of reusing it.
+func TestAllIngest_ForceBypassesTheCache(t *testing.T) {
+	upstream := 0
+	inner := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		upstream++
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
+			Body: io.NopCloser(strings.NewReader(`{"elements":[]}`))}, nil
+	})
+	client := &http.Client{Transport: cache.NewTransport(inner, t.TempDir(), cache.DefaultTTL)}
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func(context.Context) (string, error) { return ingestTestBoundary, nil },
+	}
+	run := func(args ...string) string {
+		t.Helper()
+		ios, _, _, errBuf := iostreams.Test()
+		f := ingestFactory(ios, store)
+		f.HttpClient = func() (*http.Client, error) { return client, nil }
+		cmd := NewCmdAll(f)
+		cmd.SetArgs(append([]string{"ingest"}, args...))
+		cmd.SilenceErrors = true
+		cmd.SilenceUsage = true
+		_ = cmd.ExecuteContext(context.Background())
+		return errBuf.String()
+	}
+
+	run()
+	if upstream == 0 {
+		t.Fatal("first run made no upstream request; the fixture no longer exercises the cache")
+	}
+	before := upstream
+	run()
+	if upstream != before {
+		t.Errorf("repeat run made %d upstream requests; want 0 (every response is cached)", upstream-before)
+	}
+	// The first --force run re-fetches the boundary, a request no earlier run
+	// made, so it reaches upstream either way. The second repeats exactly the
+	// first's requests, which are now cached: only a real bypass sends them
+	// upstream again.
+	run("--force")
+	before = upstream
+	stderr := run("--force")
+	if upstream == before {
+		t.Error("a repeated --force run was served from the cache; --force must bypass it")
+	}
+	if strings.Contains(stderr, "Using cached boundary") {
+		t.Errorf("--force reused the stored boundary; want it re-fetched.\nstderr:\n%s", stderr)
 	}
 }
 

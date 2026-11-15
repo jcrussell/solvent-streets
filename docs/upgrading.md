@@ -17,7 +17,7 @@ pvmt all ingest
 pvmt all compute
 ```
 
-The new database fills from Overpass, ArcGIS and TIGERweb again, so a large config takes as long as its first ingest did (hours; about a day for the 277-city showcase). Responses still in the HTTP cache (24-hour TTL) are reused.
+The new database fills from Overpass, ArcGIS and TIGERweb again, so a large config takes as long as its first ingest did (hours; about a day for the 277-city showcase). Responses still in the HTTP cache (one-week TTL by default, `[cache] ttl`) are reused.
 
 Snapshot config hashes are also computed differently: per city, over only the settings that affect results (see [Snapshots and the config hash](configuration.md#snapshots-and-the-config-hash)). A `config_hash` a script recorded from v0.4.x never matches a v0.5.0 snapshot; the recompute above is all that is needed.
 

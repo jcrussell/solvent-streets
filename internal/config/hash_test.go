@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 // loadCity loads the config at path and returns it with the named city.
@@ -564,6 +565,7 @@ var configFieldRules = map[string]fieldRule{
 	"Config.Display":      {class: nested},
 	"Config.Export":       {class: nested},
 	"Config.Forecast":     {class: nested},
+	"Config.Cache":        {class: nested},
 	"Config.Cities":       {class: nested},
 	"Config.Include":      {class: nested},
 	"Config.Services":     {class: nested},
@@ -575,6 +577,10 @@ var configFieldRules = map[string]fieldRule{
 
 	"DisplayConfig.Units":      {presentation, func(c *Config) { c.Display.Units = "metric" }},
 	"DisplayConfig.MinHexArea": {presentation, func(c *Config) { c.Display.MinHexArea = 500 }},
+
+	// The cache TTL only decides whether a response is re-fetched; what is
+	// stored comes from the response, so it is ingest-class.
+	"CacheConfig.TTL": {ingest, func(c *Config) { c.Cache.TTL = time.Hour }},
 
 	"ExportConfig.Title":              {presentation, func(c *Config) { c.Export.Title = "T" }},
 	"ExportConfig.CoordinateDecimals": {presentation, func(c *Config) { c.Export.CoordinateDecimals = 7 }},

@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jcrussell/solvent-streets/internal/cache"
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/hint"
@@ -97,6 +98,50 @@ func TestHttpClientFactory_LazyCachedAcrossCalls(t *testing.T) {
 	}
 }
 
+// TestHttpClientFactory_CacheTTL pins where the HTTP cache TTL comes from: the
+// config's [cache] ttl when set, else cache.DefaultTTL, including when there is
+// no pvmt.toml at all. Any other config error fails the client rather than
+// silently falling back to the default (solvent-streets-9vzr).
+func TestHttpClientFactory_CacheTTL(t *testing.T) {
+	loadErr := errors.New("bad toml")
+	tests := map[string]struct {
+		cfg     func() (*config.Config, error)
+		want    time.Duration
+		wantErr error
+	}{
+		"no config func": {cfg: nil, want: cache.DefaultTTL},
+		"no pvmt.toml":   {cfg: func() (*config.Config, error) { return nil, config.ErrConfigNotFound }, want: cache.DefaultTTL},
+		"unset":          {cfg: func() (*config.Config, error) { return &config.Config{}, nil }, want: cache.DefaultTTL},
+		"set": {cfg: func() (*config.Config, error) {
+			return &config.Config{Cache: config.CacheConfig{TTL: 6 * time.Hour}}, nil
+		}, want: 6 * time.Hour},
+		"broken config": {cfg: func() (*config.Config, error) { return nil, loadErr }, wantErr: loadErr},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			f := newTestFactoryForHTTP(t)
+			f.Config = tc.cfg
+			client, err := f.HttpClient()
+			if tc.wantErr != nil {
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("HttpClient err = %v; want %v", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("HttpClient: %v", err)
+			}
+			ct, ok := client.Transport.(*cache.CachingTransport)
+			if !ok {
+				t.Fatalf("Transport = %T; want *cache.CachingTransport", client.Transport)
+			}
+			if ct.TTL != tc.want {
+				t.Errorf("TTL = %s; want %s", ct.TTL, tc.want)
+			}
+		})
+	}
+}
+
 // TestHttpClientFactory_DefersConstructionUntilCalled locks in the laziness
 // half of the contract. Commands like `pvmt --version` and `pvmt config show`
 // must not touch the cache directory, so the factory must NOT resolve Paths
@@ -111,7 +156,7 @@ func TestHttpClientFactory_DefersConstructionUntilCalled(t *testing.T) {
 		calls++
 		return &paths.Paths{Cache: tmp, Data: tmp}, nil
 	}
-	f.HttpClient = httpClientFactory(f, 24*time.Hour)
+	f.HttpClient = httpClientFactory(f)
 
 	if calls != 0 {
 		t.Fatalf("Paths invoked %d times before HttpClient() was called; construction is not lazy", calls)
@@ -399,7 +444,7 @@ func newTestFactoryForHTTP(t *testing.T) *cmdutil.Factory {
 	f.Paths = func() (*paths.Paths, error) {
 		return &paths.Paths{Cache: tmp, Data: tmp}, nil
 	}
-	f.HttpClient = httpClientFactory(f, 24*time.Hour)
+	f.HttpClient = httpClientFactory(f)
 	return f
 }
 

@@ -243,6 +243,23 @@ it would drop every hex.
 **`[display].units`** is `imperial` (the default) or `metric`. It changes
 presentation only.
 
+## HTTP cache (`[cache]`)
+
+**`ttl`** is how long a cached upstream response is served before pvmt asks
+again, as a Go duration such as `"24h"`. The default is a week. Overpass and
+Nominatim send no `ETag` or `Last-Modified`, so a stale entry is downloaded in
+full again; the long default keeps a retry of a failed city on the same data as
+the rest of the run. Shorten it to pick up OpenStreetMap edits sooner, or pass
+`--force` to an ingest command (`pvmt all ingest --force` included) to bypass
+the cache for one run. Only the loaded file's `[cache]` applies; an
+`[[include]]`d file's is ignored. It changes no stored result, so it is not part
+of the config hash. Disk use is separate: see `pvmt cache prune`.
+
+```toml
+[cache]
+ttl = "24h"
+```
+
 ## Forecast
 
 The forecast models each road class's condition decaying over the horizon,

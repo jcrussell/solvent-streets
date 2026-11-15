@@ -150,8 +150,12 @@ func newBaseTransport() http.RoundTripper {
 //     and the retry transport already bounds the per-request work via
 //     MaxBackoff + MaxRetries. Total request lifetime is the caller's
 //     job via req.Context().
-func httpClientFactory(f *cmdutil.Factory, cacheTTL time.Duration) func() (*http.Client, error) {
+func httpClientFactory(f *cmdutil.Factory) func() (*http.Client, error) {
 	return sync.OnceValues(func() (*http.Client, error) {
+		cacheTTL, err := resolveCacheTTL(f)
+		if err != nil {
+			return nil, err
+		}
 		p, err := f.Paths()
 		if err != nil {
 			return nil, err
@@ -193,6 +197,27 @@ func httpClientFactory(f *cmdutil.Factory, cacheTTL time.Duration) func() (*http
 			},
 		}, nil
 	})
+}
+
+// resolveCacheTTL is the config's [cache] ttl, or cache.DefaultTTL when it is
+// unset or there is no pvmt.toml (a command that fetches without a config).
+// Any other config error is returned: a broken pvmt.toml must not silently
+// fall back to the default TTL.
+func resolveCacheTTL(f *cmdutil.Factory) (time.Duration, error) {
+	if f.Config == nil {
+		return cache.DefaultTTL, nil
+	}
+	cfg, err := f.Config()
+	if errors.Is(err, config.ErrConfigNotFound) {
+		return cache.DefaultTTL, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	if cfg.Cache.TTL > 0 {
+		return cfg.Cache.TTL, nil
+	}
+	return cache.DefaultTTL, nil
 }
 
 // configFactory builds the lazy closure that backs f.Config per the
@@ -354,7 +379,7 @@ func New() *cmdutil.Factory {
 		}),
 	}
 
-	f.HttpClient = httpClientFactory(f, 24*time.Hour)
+	f.HttpClient = httpClientFactory(f)
 	f.RootDB, f.CloseRootDB = rootDBWithClose(rootDBFactory(f, ""))
 
 	f.CityFlagSet = func() bool { return false }
