@@ -19,7 +19,7 @@ import (
 
 // boardFields are the --json fields of `pvmt status --all`, one row per city
 // and layer (solvent-streets-o831.2).
-var boardFields = []string{"city", "layer", "feature_count", "last_success_at", "failing_sources", "error", "state", "incomplete", "retry"}
+var boardFields = []string{"city", "layer", "feature_count", "last_success_at", "failing_sources", "error", "empty_upstream", "state", "incomplete", "retry"}
 
 // boardRow is one city's layer on the status board: what is stored, how its
 // sources last answered, and the state of the part computed from it.
@@ -30,9 +30,13 @@ type boardRow struct {
 	LastSuccessAt string   `json:"last_success_at,omitempty"`
 	Failing       []string `json:"failing_sources,omitempty"`
 	Error         string   `json:"error,omitempty"`
-	State         string   `json:"state,omitempty"`
-	Incomplete    bool     `json:"incomplete"`
-	Retry         string   `json:"retry,omitempty"`
+	// EmptyUpstream marks a layer with no rows because every configured
+	// source answered with none (a small town with no sidewalks mapped): not
+	// a gap a retry can fill, so not incomplete.
+	EmptyUpstream bool   `json:"empty_upstream,omitempty"`
+	State         string `json:"state,omitempty"`
+	Incomplete    bool   `json:"incomplete"`
+	Retry         string `json:"retry,omitempty"`
 	stateText     string
 }
 
@@ -56,6 +60,8 @@ func (r boardRow) ExportData(fields []string) map[string]any {
 			v, ok = r.Failing, len(r.Failing) > 0
 		case "error":
 			v, ok = r.Error, r.Error != ""
+		case "empty_upstream":
+			v = r.EmptyUpstream
 		case "state":
 			v, ok = r.State, r.State != ""
 		case "incomplete":
@@ -145,7 +151,8 @@ func cityBoard(ctx context.Context, c boardCity, hash string) ([]boardRow, error
 		row := boardRow{City: slug, Layer: l.name, FeatureCount: count}
 		row.Failing = db.FailingSources(history, l.input, l.sources)
 		row.LastSuccessAt, row.Error = lastAnswers(history, l.input, row.Failing)
-		row.Incomplete = len(row.Failing) > 0 || (l.needsRows && count == 0)
+		row.EmptyUpstream = count == 0 && len(row.Failing) == 0 && answeredEmpty(history, l.input, l.sources)
+		row.Incomplete = len(row.Failing) > 0 || (l.needsRows && count == 0 && !row.EmptyUpstream)
 		if st, ok := states[l.part]; ok {
 			row.State, row.stateText = st.State, st.String()
 		}
@@ -204,6 +211,21 @@ func layerRows(ctx context.Context, store db.Store, l boardLayer) (int, error) {
 	return info.FeatureCount, nil
 }
 
+// answeredEmpty reports whether every one of sources has an attempt at
+// input and its newest answered with no rows.
+func answeredEmpty(history []db.IngestHistory, input string, sources []string) bool {
+	if len(sources) == 0 {
+		return false
+	}
+	for _, src := range sources {
+		i := slices.IndexFunc(history, func(h db.IngestHistory) bool { return h.Input == input && h.Source == src })
+		if i < 0 || history[i].Latest.Outcome != db.IngestEmpty {
+			return false
+		}
+	}
+	return true
+}
+
 // lastAnswers returns input's newest success over all its sources, as an
 // RFC 3339 time, and the newest error among failing.
 func lastAnswers(history []db.IngestHistory, input string, failing []string) (lastSuccess, lastError string) {
@@ -259,12 +281,15 @@ func printBoard(ios *iostreams.IOStreams, rows []boardRow) error {
 	tp.AddHeader("City", "Layer", "Rows", "Last Success", "Failing", "State", "Retry")
 	for _, r := range rows {
 		failing := "-"
-		if len(r.Failing) > 0 {
+		switch {
+		case len(r.Failing) > 0:
 			failing = strings.Join(r.Failing, ",")
 			if r.Error != "" {
 				failing += " (" + truncateCell(r.Error, 60) + ")"
 			}
-		} else if r.Incomplete {
+		case r.EmptyUpstream:
+			failing = "none upstream"
+		case r.Incomplete:
 			failing = "no rows"
 		}
 		state := r.stateText
@@ -294,8 +319,9 @@ sidewalks, each service's stations and routing roads, and census blocks),
 with the rows stored, the last successful fetch, the configured sources whose
 last ingest failed and hold none of its rows, the state of the part computed
 from it, and the command to run next. A layer is incomplete when a source is
-failing, or when it has no rows at all (stations and routing roads may
-legitimately have none). --incomplete keeps only the incomplete rows, --stale
+failing, or when it has no rows at all, unless every source answered with
+none ("none upstream": a small town with no sidewalks mapped; stations and
+routing roads may also legitimately have none). --incomplete keeps only the incomplete rows, --stale
 adds those whose part is stale or not computed, and --exit-status exits 1 when
 any such row exists. --json takes the board's fields (city, layer,
 feature_count, last_success_at, failing_sources, error, state, incomplete,

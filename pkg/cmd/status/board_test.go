@@ -178,3 +178,44 @@ func (e *recordingExporter) Write(_ *iostreams.IOStreams, rows []map[string]any)
 	e.rows = rows
 	return nil
 }
+
+// TestBoard_EmptyUpstreamIsNotIncomplete: a layer with no rows because every
+// configured source answered with none is marked, not listed for a retry
+// (the 2026-11-15 Springfields pre-flight: small towns with no sidewalks
+// mapped).
+func TestBoard_EmptyUpstreamIsNotIncomplete(t *testing.T) {
+	ctx := context.Background()
+	root, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	c := config.CityConfig{Name: "Springfield, GA", Overpass: true, Census: new(bool)}
+	id, err := root.EnsureCity(ctx, c.Slug(), c.Name, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := root.ForCity(id)
+	now := time.Now()
+	if err := store.RecordIngestAttempts(ctx, []db.IngestAttempt{
+		{Input: "sidewalks", Source: "overpass", StartedAt: now, FinishedAt: now, Outcome: db.IngestEmpty},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := cityBoard(ctx, boardCity{City: c, Store: store}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		switch r.Layer {
+		case "sidewalks":
+			if r.Incomplete || !r.EmptyUpstream || r.Retry != "" {
+				t.Errorf("sidewalks = %+v, want empty upstream, not incomplete", r)
+			}
+		case "parking": // never ingested: still a gap
+			if !r.Incomplete || r.EmptyUpstream {
+				t.Errorf("parking = %+v, want incomplete", r)
+			}
+		}
+	}
+}

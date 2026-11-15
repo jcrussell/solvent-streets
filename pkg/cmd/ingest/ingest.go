@@ -964,7 +964,11 @@ func recordAttempts(ctx context.Context, opts *Options, store db.Store, attempts
 // Overpass are not silent (solvent-streets-t3wt).
 func withRetryNotices(ctx context.Context, ios *iostreams.IOStreams) context.Context {
 	return ingestpkg.WithRetryNotifier(ctx, func(n ingestpkg.RetryNotice) {
+		wait := n.Wait.Round(time.Second)
+		if n.Wait < 10*time.Second {
+			wait = n.Wait.Round(100 * time.Millisecond) // a jittered first retry is under a second
+		}
 		fmt.Fprintf(ios.ErrOut, "  %s busy (%s), retrying in %s (retry %d of %d)\n",
-			n.Host, n.Reason, n.Wait.Round(time.Second), n.Attempt, n.Retries)
+			n.Host, n.Reason, wait, n.Attempt, n.Retries)
 	})
 }
