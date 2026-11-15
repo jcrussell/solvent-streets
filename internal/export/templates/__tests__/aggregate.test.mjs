@@ -105,3 +105,25 @@ test('the resource charts take their colours from the page config', async () => 
   assert.ok(stacked, 'the Compare area chart did not render');
   assert.deepEqual(Array.from(stacked.data.datasets, (d) => d.backgroundColor),['#010101', '#020202', '#030303']);
 });
+
+// solvent-streets-mea7: the two area figures carry one name each across the
+// tabs, a per-area ranking shows its denominator, and the Year-1 need is not
+// called the hold-steady budget.
+test('area labels name the maintained area and the per-area denominator', async () => {
+  const { win, doc } = await page([city('Alpha'), city('Beta')]);
+  const cards = Array.from(doc.querySelectorAll('#aggregate-headlines .headline-card'));
+  const card = (label) => cards.find((c) => label.test(c.querySelector('.label').textContent));
+  assert.ok(card(/^Maintained Area$/), 'no Maintained Area card');
+  assert.ok(!card(/Total Network/), 'the old Total Network Area label is still shown');
+  const need = card(/^Year-1 Maintenance Need$/);
+  assert.doesNotMatch(need.querySelector('.sub').textContent, /hold the whole network steady/);
+  assert.match(need.querySelector('.sub').textContent, /backlog included/);
+  assert.match(card(/^Year-1 Need per acre$/).querySelector('.sub').textContent, /paved footprint \((city-maintained|all owners)\)/);
+
+  win.renderCompare([city('Alpha'), city('Beta'), city('Gamma')]);
+  const cat = Array.from(doc.querySelectorAll('.lb-category'))
+    .find((c) => c.querySelector('h4').textContent.startsWith('Year 1 Maintenance Cost per'));
+  assert.ok(cat, 'per-area category rendered');
+  assert.match(cat.querySelector('.lb-row .lb-name').textContent, /\(÷ [\d,]+ acres\)/);
+  assert.ok(Array.from(doc.querySelectorAll('.lb-category h4')).some((h) => h.textContent.startsWith('Maintained Area (all owners)')));
+});

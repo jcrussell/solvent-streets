@@ -35,7 +35,7 @@ test('all four Financials charts render from real exporter data', async () => {
 
 // The other half of the same drift: meta.json's per-resource numbers live in
 // stats[], and a fixture that put them at the top level rendered a stats panel
-// with zero resource cards and Total Paved reading 0.0.
+// with zero resource cards and Paved Footprint reading 0.0.
 test('the stats panel renders a card per resource from meta.stats[]', async () => {
   const { win, $$, flush } = await ready();
   await win.loadCityData();   // renderCityStats runs off the meta.json fetch
@@ -48,12 +48,12 @@ test('the stats panel renders a card per resource from meta.stats[]', async () =
     'meta.stats[] did not produce a card per resource');
 
   // Read the number, do not pattern-match around it: the drift this guards
-  // showed up as Total Paved rendering 0.0 off a missing total_paved key, and
+  // showed up as Paved Footprint rendering 0.0 off a missing total_paved key, and
   // "does not say 0.0" is satisfied by a panel that says nothing at all.
-  const paved = $$('#stats .stat-row').find((r) => /Total Paved/.test(r.textContent));
-  assert.ok(paved, 'no Total Paved row in the stats panel');
+  const paved = $$('#stats .stat-row').find((r) => /Paved Footprint/.test(r.textContent));
+  assert.ok(paved, 'no Paved Footprint row in the stats panel');
   assert.ok(parseFloat(paved.querySelector('.stat-value').textContent) > 0,
-    'Total Paved read zero — meta.total_paved did not reach the panel');
+    'Paved Footprint read zero — meta.total_paved did not reach the panel');
 });
 
 // The seed's area and cohort keys are what getControlValues ships to the WASM

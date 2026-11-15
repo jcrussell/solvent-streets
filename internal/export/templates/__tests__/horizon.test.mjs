@@ -92,8 +92,10 @@ test('a city that stops short shows its last year on both pages, flagged', async
   const board = doc.getElementById('leaderboard-list').innerHTML;
   const start = board.indexOf('Deferred Backlog per acre');
   const block = board.slice(start, board.indexOf('lb-category', start));
-  assert.match(block, /Short <span class="lb-note"[^>]*>\(through year 12\)<\/span>/);
-  assert.ok(!/Full <span/.test(block), 'a city at the horizon must not be flagged');
+  // Each row also shows its per-area denominator (solvent-streets-mea7).
+  const rowOf = (name) => block.slice(block.indexOf('lb-name">' + name), block.indexOf('lb-bar-wrap', block.indexOf('lb-name">' + name)));
+  assert.match(rowOf('Short'), /<span class="lb-note"[^>]*>\(through year 12\)<\/span>/);
+  assert.ok(!/through year/.test(rowOf('Full')), 'a city at the horizon must not be flagged');
   const m = win.extractMetrics(city('Short', 12));
   win.applyRegionHorizon([win.extractMetrics(city('Full')), m]);
   assert.equal(m.horizonBacklog, short.deferred_backlog);

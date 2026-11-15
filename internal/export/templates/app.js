@@ -777,7 +777,7 @@
                     '<div class="stat-card summary-card"><h3>City Summary</h3>' +
                     '<div class="stat-row"><span class="stat-label">City Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + toAreaLarge(meta.city_area).toFixed(1) + '</span></div>' +
                     '<div class="stat-row"><span class="stat-label">City Area (' + areaVeryLargeUnit() + ')</span><span class="stat-value">' + toAreaVeryLarge(meta.city_area).toFixed(2) + '</span></div>' +
-                    '<div class="stat-row"><span class="stat-label">Total Paved (' + areaLargeUnit() + ')</span><span class="stat-value">' + toAreaLarge(meta.total_paved || 0).toFixed(1) + '</span></div>' +
+                    '<div class="stat-row"><span class="stat-label" title="' + PAVED_FOOTPRINT_TIP + '">Paved Footprint (' + areaLargeUnit() + ')</span><span class="stat-value">' + toAreaLarge(meta.total_paved || 0).toFixed(1) + '</span></div>' +
                     '<div class="stat-row"><span class="stat-label">% Paved</span><span class="stat-value">' + ((meta.paved_share || 0) * 100).toFixed(1) + '%</span></div>' +
                     (missing.length > 0 ? '<div class="stat-row stat-note">Excludes ' + esc(missing.join(', ')) + ' (no data)</div>' : '') +
                     (partial.length > 0 ? '<div class="stat-row stat-note">Partial: ' + esc(partial.join(', ')) + ' (a source failed)</div>' : '') +
@@ -1942,6 +1942,27 @@
         }
         // shortSeriesNote is the inline flag for a city whose figure at the
         // horizon is its last forecast year instead (HTML; '' for most cities).
+        // The two area figures the site shows, named the same everywhere
+        // (solvent-streets-mea7): the paved footprint counts the ground once
+        // where a sidewalk or lot meets a road; the maintained area sums the
+        // resources the forecast prices, so a sidewalk beside a road counts in
+        // both.
+        const PAVED_FOOTPRINT_TIP = 'Paved footprint: the ground covered by pavement, every owner, with overlaps between roads, sidewalks and lots counted once.';
+        const MAINTAINED_AREA_TIP = 'Maintained area: roads + parking + sidewalks summed as the forecast prices them, so a sidewalk beside a road counts in both. Larger than the paved footprint.';
+        const PER_AREA_TIP = 'Divides by the paved footprint in the current scope (city-maintained or all owners), shown beside each city.';
+
+        // scopeName names the current scope for an area label.
+        function scopeName() {
+            return currentScope === 'city' ? 'city-maintained' : 'all owners';
+        }
+
+        // perAreaNote shows a per-area row's denominator.
+        /** @param {any} m @returns {string} */
+        function perAreaNote(m) {
+            if (!(m.scopeAreaLarge > 0)) return '';
+            return ' <span class="lb-note" title="' + PER_AREA_TIP + '">(÷ ' + fmtNum(m.scopeAreaLarge) + ' ' + areaLargeUnit() + ')</span>';
+        }
+
         function shortSeriesNote(m) {
             if (!m.shortSeriesYears) return '';
             return ' <span class="lb-note" title="This city’s forecast ends at year ' + m.shortSeriesYears +
@@ -2353,8 +2374,8 @@
             // so it still sums to 100 against this basis.
             const areaTh = document.getElementById('cohort-area-th');
             areaTh.textContent = 'End Area (' + areaLargeUnit() + ')';
-            areaTh.title = 'Network area in year ' + yrs + ', after growth. '
-                + 'Year-0 area is shown under Total paved.';
+            areaTh.title = 'Maintained area in year ' + yrs + ', after growth: '
+                + 'larger than today\'s at a growth rate above 0.';
         }
 
         // Render the Financials tab from data already in memory: scenarioData,
@@ -4259,7 +4280,7 @@
             function infraBreakdown(m) {
                 return (m.cityAreaLarge > 0 ? '<div class="sb-row"><span>City Area</span><span>' + fmtNum(m.cityAreaLarge) + ' ' + areaLargeUnit() + '</span></div>' : '') +
                     (m.pctPaved > 0 ? '<div class="sb-row"><span title="% Paved divides paved area by the Nominatim boundary polygon. Boundary scope varies across cities, so cross-city comparison is approximate.">% Paved <span class="sb-note">ⓘ</span></span><span>' + m.pctPaved.toFixed(1) + '%</span></div>' : '') +
-                    '<div class="sb-row"><span>Total Network</span><span>' + fmtNum(m.totalAreaLarge) + ' ' + areaLargeUnit() + '</span></div>' +
+                    '<div class="sb-row"><span title="' + MAINTAINED_AREA_TIP + '">Maintained Area</span><span>' + fmtNum(m.totalAreaLarge) + ' ' + areaLargeUnit() + '</span></div>' +
                     '<div class="sb-row"><span>Roads</span><span>' + fmtNum(m.roadsAreaLarge) + ' ' + areaLargeUnit() + '</span></div>' +
                     '<div class="sb-row"><span>Parking</span><span>' + fmtNum(m.parkingAreaLarge) + ' ' + areaLargeUnit() + '</span></div>' +
                     '<div class="sb-row"><span>Sidewalks</span><span>' + m.sidewalksAreaLarge.toFixed(1) + ' ' + areaLargeUnit() + '</span></div>' +
@@ -4297,19 +4318,19 @@
             var categories = [
                 { key: 'cityAreaLarge', label: 'City Area', award: 'Largest City', higher: true, fmt: function(v) { return fmtNum(v) + ' ' + areaLargeUnit(); }, color: '#059669', note: 'City Area is the Nominatim admin polygon. Polygon scope varies (e.g. Boston includes harbor water; Nashville is consolidated Davidson County), so cross-city comparison is approximate.' },
                 { key: 'pctPaved', needs: ['roads', 'parking', 'sidewalks'],  label: '% Paved', award: 'Most Paved', higher: true, fmt: function(v) { return v.toFixed(1) + '%'; }, color: '#dc2626', note: '% Paved divides paved area by the Nominatim boundary polygon for each city. Polygon scope varies across cities (Boston includes harbor water; Nashville is consolidated Davidson County), so cross-city comparison is approximate.' },
-                { key: 'totalAreaLarge', needs: ['roads', 'parking', 'sidewalks'],  label: 'Total Managed Area', award: 'Biggest Network', higher: true, fmt: function(v) { return fmtNum(v) + ' ' + areaLargeUnit(); }, color: '#6366f1' },
+                { key: 'totalAreaLarge', needs: ['roads', 'parking', 'sidewalks'],  label: 'Maintained Area (all owners)', award: 'Biggest Network', higher: true, fmt: function(v) { return fmtNum(v) + ' ' + areaLargeUnit(); }, color: '#6366f1', note: MAINTAINED_AREA_TIP },
                 { key: 'sidewalkToRoadPct', needs: ['roads', 'sidewalks'],  label: 'Walkability (Sidewalk-to-Road Ratio)', award: 'Most Walkable', higher: true, fmt: function(v) { return v.toFixed(1) + '%'; }, color: '#10b981' },
                 { key: 'parkingAreaLarge', needs: ['parking'],  label: 'Parking Infrastructure', award: 'Most Parking', higher: true, fmt: function(v) { return fmtNum(v) + ' ' + areaLargeUnit(); }, color: '#3b82f6' },
                 // No award of its own: "Most Parking" above already crowns parking, and two parking medals would be noise.
                 { key: 'parkingSpaces', needs: ['parking'],  label: 'Parking Spaces (est.)', higher: true, filter: function(m) { return m.parkingSpaces > 0; }, fmt: function(v) { return v.toLocaleString(); }, color: '#60a5fa', note: 'Estimated vehicle capacity of mapped lots and garages: the OSM capacity tag where present, otherwise lot footprint ÷ 30 m² per space (× levels for structured parking). On-street parking is not counted. Cities computed before the estimate existed are omitted.' },
                 { key: 'cityPct', needs: ['roads', 'parking', 'sidewalks'],  label: 'City Ownership Share', award: 'Most City-Owned', higher: true, fmt: function(v) { return v.toFixed(0) + '%'; }, color: '#8b5cf6' },
                 { key: 'blendedDecay', needs: ['roads', 'parking', 'sidewalks'],  label: 'Blended Decay Rate (lower is better)', award: 'Slowest Decay', higher: false, fmt: function(v) { return (v * 100).toFixed(2) + '%/yr'; }, color: '#ef4444' },
-                { key: 'year1PerAreaUnit', needs: ['roads', 'parking', 'sidewalks'],  label: 'Year 1 Maintenance Cost per ' + areaLargeUnitSingular(), award: 'Lowest Cost per ' + areaLargeUnitSingular(), higher: false, fmt: function(v) { return fmtMoney(v); }, color: '#ec4899' },
+                { key: 'year1PerAreaUnit', needs: ['roads', 'parking', 'sidewalks'],  rowNote: perAreaNote, note: PER_AREA_TIP, label: 'Year 1 Maintenance Cost per ' + areaLargeUnitSingular(), award: 'Lowest Cost per ' + areaLargeUnitSingular(), higher: false, fmt: function(v) { return fmtMoney(v); }, color: '#ec4899' },
                 // The backlog at the horizon per unit of network (same scope as
                 // the need): per area, so size alone does not win (raw dollars
                 // made the smallest city "Least Deferred"). A city whose
                 // forecast stops short of the horizon is flagged on its row.
-                { key: 'horizonBacklogPerAreaUnit', needs: ['roads', 'parking', 'sidewalks'],  rowNote: shortSeriesNote, label: compareHorizon + '-Year Deferred Backlog per ' + areaLargeUnitSingular(), award: 'Least Deferred per ' + areaLargeUnitSingular(), higher: false, fmt: function(v) { return fmtMoney(v); }, color: '#d946ef' },
+                { key: 'horizonBacklogPerAreaUnit', needs: ['roads', 'parking', 'sidewalks'],  rowNote: function(m) { return perAreaNote(m) + shortSeriesNote(m); }, note: PER_AREA_TIP, label: compareHorizon + '-Year Deferred Backlog per ' + areaLargeUnitSingular(), award: 'Least Deferred per ' + areaLargeUnitSingular(), higher: false, fmt: function(v) { return fmtMoney(v); }, color: '#d946ef' },
                 // Roads-only solvency metrics. filter excludes cities that lack
                 // the metric (no cited budget / no roads) so a null value never
                 // produces a NaN sort key or a corrupt bar width.
@@ -4553,7 +4574,7 @@
             // Dollar + PCI sums over forecast cities only, so the weighted PCI
             // denominator and the trajectories stay honest. The area is the one
             // the scope's dollars and PCI cover (scopeAreaLarge), not the
-            // all-jurisdiction Total Network Area above.
+            // all-jurisdiction Maintained Area above.
             var fcArea = 0, pciWeighted = 0, regionYear1 = 0, regionBacklog = 0;
             fc.forEach(function(m) {
                 fcArea += m.scopeAreaLarge;
@@ -4576,14 +4597,14 @@
                        '<div class="value">' + value + '</div><div class="sub">' + sub + '</div></div>';
             }
             document.getElementById('aggregate-headlines').innerHTML = [
-                aggCard('Total Network Area', fmtNum(totalNetwork) + ' ' + unit, 'Roads + parking + sidewalks across ' + allMetrics.length + ' cities'),
+                aggCard('Maintained Area', fmtNum(totalNetwork) + ' ' + unit, 'Roads + parking + sidewalks, all owners, across ' + allMetrics.length + ' cities'),
                 aggCard('Paved Share', totalCityArea > 0 ? (totalPaved / totalCityArea * 100).toFixed(1) + '%' : '—', 'Paved (union) area vs. municipal area'),
                 // baselineYears[0] is year 1, after one year's decay from the
                 // configured starting PCI, so say so (solvent-streets-3ij1).
                 aggCard('Area-Weighted PCI', weightedPCI === null ? '—' : weightedPCI.toFixed(0), 'Year-1 condition, after one year of decay with no spend'),
-                aggCard('Year-1 Maintenance Need', hasFc ? fmtMoney(regionYear1) : '—', 'To hold the whole network steady'),
+                aggCard('Year-1 Maintenance Need', hasFc ? fmtMoney(regionYear1) : '—', 'Treating what is due in year 1, backlog included; the hold-steady budget is on Financials'),
                 aggCard(horizon + 'Deferred Backlog', hasFc ? fmtMoney(regionBacklog) : '—', hasFc ? 'Unfunded need accumulated by year ' + horizonYears : 'No forecast data in this region'),
-                aggCard('Year-1 Need per ' + areaLargeUnitSingular(), perArea === null ? '—' : fmtMoney(perArea, { full: true }), 'Region maintenance intensity'),
+                aggCard('Year-1 Need per ' + areaLargeUnitSingular(), perArea === null ? '—' : fmtMoney(perArea, { full: true }), 'Year-1 need ÷ ' + fmtNum(fcArea) + ' ' + unit + ' of paved footprint (' + scopeName() + ')'),
                 aggCard('Est. Parking Spaces', totalSpaces > 0 ? fmtNum(totalSpaces) : '—', 'Lots and garages: OSM capacity, else footprint ÷ 30 m²/space')
             ].join('');
 
@@ -4657,12 +4678,12 @@
                 type: 'bar',
                 data: {
                     labels: ['Roads', 'Parking', 'Sidewalks'],
-                    datasets: [{ label: 'Network area (' + unit + ')', data: [totalRoads, totalParking, totalSidewalks], backgroundColor: [layerColors.roads, layerColors.parking, layerColors.sidewalks] }]
+                    datasets: [{ label: 'Maintained area (' + unit + ')', data: [totalRoads, totalParking, totalSidewalks], backgroundColor: [layerColors.roads, layerColors.parking, layerColors.sidewalks] }]
                 },
                 options: {
                     indexAxis: 'y',
                     responsive: true,
-                    scales: { x: { beginAtZero: true, title: { display: true, text: 'Network area (' + unit + ')' }, ticks: { callback: function(v) { return fmtNum(v); } } } },
+                    scales: { x: { beginAtZero: true, title: { display: true, text: 'Maintained area (' + unit + ')' }, ticks: { callback: function(v) { return fmtNum(v); } } } },
                     plugins: { verticalCrosshair: false, legend: { display: false }, tooltip: { callbacks: { label: function(c) { return fmtNum(c.raw) + ' ' + unit; } } } }
                 }
             }));

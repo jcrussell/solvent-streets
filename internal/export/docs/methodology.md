@@ -246,6 +246,21 @@ Three caveats apply to these figures specifically:
   the search **overstate** the break-even budget — a conservative
   direction (it never understates the gap).
 
+### Area figures
+
+The site reports two areas, and each keeps one name on every tab:
+
+- **Paved footprint** is the ground pavement covers: roads, parking and
+  sidewalks buffered and unioned, so where a sidewalk or lot meets a road the
+  overlap counts once. It is what **% Paved** divides by the city's area, and
+  the denominator of every **per-acre** figure on Compare and Aggregate, in
+  the current scope (city-maintained or all owners), shown beside each city.
+- **Maintained area** is roads + parking + sidewalks summed as the forecast
+  prices them, so a sidewalk beside a road counts in both. It is always the
+  larger of the two, and is what Compare's and Aggregate's area totals and
+  the per-city table show. Financials' **End Area** is the maintained area
+  in the final year, after growth.
+
 ### Compare-tab scores
 
 The multi-city Compare view presents two distinct per-city scores:
