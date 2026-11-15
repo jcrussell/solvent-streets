@@ -307,11 +307,13 @@ func lineSequences(gjson string) []geom.Sequence {
 
 // closedToTraffic reports whether a way is closed to motor traffic: its
 // most specific access tag (motor_vehicle, else vehicle, else access, the
-// OSM access hierarchy) is private or no. Such a way is a gated driveway,
-// private estate road or closed service road; routing an engine through it
-// would understate the time to the hexes behind it. A way that admits
+// OSM access hierarchy) is no, a road closed to vehicles or physically
+// blocked. A private way stays in: it is gated, not closed, and an engine
+// has the gate code. Dropping private ways cut off campuses whose interior
+// roads are private, such as Lawrence Livermore National Lab, whose own fire
+// station then served none of them (solvent-streets-8eb3). A way that admits
 // emergency vehicles (emergency=yes or designated, or an access tag of
-// "emergency") stays in: an engine has the gate code or the bollard key.
+// "emergency") stays in even when closed.
 func closedToTraffic(tags map[string]string) bool {
 	switch tags["emergency"] {
 	case "yes", "designated":
@@ -327,7 +329,7 @@ func closedToTraffic(tags map[string]string) bool {
 			access = v
 		}
 	}
-	return access == "private" || access == "no"
+	return access == "no"
 }
 
 // direction reports which way a road may be driven: both unless oneway (or

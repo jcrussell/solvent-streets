@@ -457,24 +457,27 @@ func TestComputeCoverage_MotorwayOnlyStillSnaps(t *testing.T) {
 }
 
 // TestBuildGraph_ClosedWaysLeftOut pins the access rule: a way closed to
-// motor traffic (access or motor_vehicle private/no) is not routed over, its
-// most specific tag wins, and a way that admits emergency vehicles stays in.
+// motor traffic (access, vehicle or motor_vehicle no) is not routed over, its
+// most specific tag wins, a private (gated) way is routed over, and a way
+// that admits emergency vehicles stays in.
 func TestBuildGraph_ClosedWaysLeftOut(t *testing.T) {
 	p := testProj()
 	for name, tc := range map[string]struct {
 		tags map[string]string
 		open bool
 	}{
-		"access=private":                   {map[string]string{"access": "private"}, false},
+		"access=private":                   {map[string]string{"access": "private"}, true},
 		"access=no":                        {map[string]string{"access": "no"}, false},
 		"motor_vehicle=no":                 {map[string]string{"motor_vehicle": "no"}, false},
-		"motor_vehicle=private":            {map[string]string{"motor_vehicle": "private"}, false},
+		"motor_vehicle=private":            {map[string]string{"motor_vehicle": "private"}, true},
+		"access=private motor_vehicle=no":  {map[string]string{"access": "private", "motor_vehicle": "no"}, false},
+		"vehicle=no":                       {map[string]string{"vehicle": "no"}, false},
 		"access=private emergency=yes":     {map[string]string{"access": "private", "emergency": "yes"}, true},
 		"access=no emergency=designated":   {map[string]string{"access": "no", "emergency": "designated"}, true},
 		"access=emergency":                 {map[string]string{"access": "emergency"}, true},
 		"motor_vehicle=emergency":          {map[string]string{"access": "no", "motor_vehicle": "emergency"}, true},
 		"access=no motor_vehicle=yes":      {map[string]string{"access": "no", "motor_vehicle": "yes"}, true},
-		"access=yes motor_vehicle=private": {map[string]string{"access": "yes", "motor_vehicle": "private"}, false},
+		"access=yes motor_vehicle=private": {map[string]string{"access": "yes", "motor_vehicle": "private"}, true},
 		"access=destination":               {map[string]string{"access": "destination"}, true},
 		"untagged":                         {map[string]string{}, true},
 	} {

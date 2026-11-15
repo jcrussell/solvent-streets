@@ -351,11 +351,12 @@ city-builder's service-coverage overlay. It is computed, not observed:
    emergency speeds — intersections and turns roughly offset the
    exemption. `oneway` (and the implied one-way of motorways and
    roundabouts) is respected. Ways closed to traffic are left out:
-   `access`, `vehicle` or `motor_vehicle` of `private` or `no` (the most
-   specific of the three wins), so an engine is not routed through a gated
-   estate or a closed service road. A way that admits emergency vehicles
-   (`emergency=yes` or `designated`, or an access tag of `emergency`) stays
-   in, as engines carry the gate codes. One source feeds the graph:
+   `access`, `vehicle` or `motor_vehicle` of `no` (the most specific of the
+   three wins), so an engine is not routed down a closed road. Private
+   (gated) ways stay in, as engines carry the gate codes: a campus or estate
+   whose roads are private is reached through them, and its own station
+   serves it. A closed way that admits emergency vehicles (`emergency=yes` or
+   `designated`, or an access tag of `emergency`) stays in too. One source feeds the graph:
    OpenStreetMap when ingested, otherwise the agency centerlines. Those carry no
    `maxspeed`, so they run at the class speed of their functional class,
    or the default when the class is unknown. Agency centerlines never share
