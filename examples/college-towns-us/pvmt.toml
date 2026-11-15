@@ -50,9 +50,8 @@
 # (state-capitals-us). Each carries the hex_edge_m and growth_rate of that
 # example (marked "= <example>"), because examples/all merges it first and a
 # different value would be a new merge warning; in examples/all each appears
-# under both of its groups. Madison, WI, Lawrence, KS and Charlottesville,
-# VA, in an earlier hand-picked version of this list, fall under 25% (18.0%,
-# 24.7%, 22.2%) and are out.
+# under both of its groups. Madison, WI (18.0%), Lawrence, KS (24.7%) and
+# Charlottesville, VA (22.2%) fall under the 25% cut.
 #
 # Caveats:
 #   - ACS counts students where they live while at school, so the share is
@@ -63,7 +62,7 @@
 #   - A standalone ingest fetches again the four shared towns under this
 #     config_id, the same accepted trade as the other rollups.
 #   - Forecasts ride the package defaults apart from the low growth rate:
-#     no town's PCI or street budget is cited here yet.
+#     no town's PCI or street budget is cited here.
 #
 # To run:
 #   cd examples/college-towns-us
@@ -333,3 +332,4 @@ overpass = true
 name = "Tallahassee, FL"  # 25.1% students, pop. 199,696; Florida State, FAMU
 overpass = true
 hex_edge_m = 100  # = state-capitals-us
+forecast.growth_rate = 0  # = state-capitals-us, which sets none
