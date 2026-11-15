@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"html/template"
 	"math"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -754,22 +753,14 @@ func ingestFailures(ctx context.Context, entry CityEntry) (map[string][]string, 
 	}
 	var out map[string][]string
 	for _, rt := range resource.All {
-		input := string(rt.Type())
-		for _, src := range configured {
-			i := slices.IndexFunc(history, func(h db.IngestHistory) bool { return h.Input == input && h.Source == src })
-			if i < 0 {
-				continue
-			}
-			h := history[i]
-			if !h.Failing() || (h.LastSuccess != nil && h.LastSuccess.FeatureCount > 0) {
-				continue
-			}
-			if out == nil {
-				out = map[string][]string{}
-			}
-			name := string(rt.Type().Bare())
-			out[name] = append(out[name], src)
+		failing := db.FailingSources(history, string(rt.Type()), configured)
+		if len(failing) == 0 {
+			continue
 		}
+		if out == nil {
+			out = map[string][]string{}
+		}
+		out[string(rt.Type().Bare())] = failing
 	}
 	return out, nil
 }

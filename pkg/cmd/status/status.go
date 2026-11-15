@@ -34,6 +34,14 @@ type Options struct {
 	UnitSystem   func() units.System
 	ResourceType resource.Source // nil for global status
 	Exporter     cmdutil.Exporter
+
+	// All reports every configured city (or the one --city names) as one
+	// board, a row per layer (solvent-streets-o831.2). Incomplete and Stale
+	// keep only the rows needing an ingest, or also a compute; ExitStatus
+	// exits 1 when any row does. BoardCities lists the cities with their
+	// stores.
+	All, Incomplete, Stale, ExitStatus bool
+	BoardCities                        func(ctx context.Context) ([]boardCity, error)
 }
 
 type statusRow struct {
@@ -165,6 +173,14 @@ state, stale_inputs) to emit one row per resource.`
 		example = Example(string(rt.Type()))
 	}
 
+	fields := statusFields
+	if rt == nil {
+		long += boardHelp
+		example += boardExample
+		fields = append(slices.Clone(statusFields), boardFields...)
+		opts.BoardCities = func(ctx context.Context) ([]boardCity, error) { return boardCities(ctx, f) }
+	}
+
 	cmd := &cobra.Command{
 		Use:     use,
 		Args:    cobra.NoArgs,
@@ -172,14 +188,26 @@ state, stale_inputs) to emit one row per resource.`
 		Long:    long,
 		Example: example,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if !opts.All && (opts.Incomplete || opts.Stale || opts.ExitStatus) {
+				return cmdutil.FlagErrorf("--incomplete, --stale and --exit-status need --all")
+			}
 			if runF != nil {
 				return runF(cmd.Context(), opts)
+			}
+			if opts.All {
+				return runBoard(cmd.Context(), opts)
 			}
 			return runStatus(cmd.Context(), opts)
 		},
 	}
 
-	cmdutil.AddJSONFlags(cmd, &opts.Exporter, statusFields)
+	cmdutil.AddJSONFlags(cmd, &opts.Exporter, fields)
+	if rt == nil {
+		cmd.Flags().BoolVar(&opts.All, "all", false, "Report every configured city as one board, a row per layer")
+		cmd.Flags().BoolVar(&opts.Incomplete, "incomplete", false, "With --all, show only layers missing data or with a failing source")
+		cmd.Flags().BoolVar(&opts.Stale, "stale", false, "With --all, also show layers whose part is stale or not computed")
+		cmd.Flags().BoolVar(&opts.ExitStatus, "exit-status", false, "With --all, exit 1 when any layer is incomplete (or, with --stale, not current)")
+	}
 
 	return cmd
 }

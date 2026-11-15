@@ -60,6 +60,27 @@ type IngestHistory struct {
 // Failing reports whether the newest attempt failed.
 func (h IngestHistory) Failing() bool { return h.Latest.Outcome == IngestFailed }
 
+// FailingSources returns those of sources (in their order) whose newest
+// attempt at input failed and whose last answer, if any, left no rows: the
+// sources a city is missing for input. A failed source keeps the rows an
+// earlier fetch stored (an ingest replaces only the sources that answered),
+// so a source with a successful past is stale at worst, not missing.
+func FailingSources(history []IngestHistory, input string, sources []string) []string {
+	var out []string
+	for _, src := range sources {
+		for _, h := range history {
+			if h.Input != input || h.Source != src {
+				continue
+			}
+			if h.Failing() && (h.LastSuccess == nil || h.LastSuccess.FeatureCount == 0) {
+				out = append(out, src)
+			}
+			break
+		}
+	}
+	return out
+}
+
 // RecordIngestAttempts stores attempts for the city in one transaction, and
 // deletes all but the newest ingestAttemptsKept of each (input, source) they
 // touch.
