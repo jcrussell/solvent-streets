@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -900,9 +901,9 @@ func TestParseArcGISPage_SingleParseDerivesAll(t *testing.T) {
 	if _, ok := arcgisErrorMessageFromPage(page); ok {
 		t.Error("valid FeatureCollection should not be an error envelope")
 	}
-	features, rawCount := rowsFromArcGISPage(page, "OBJECTID", "arcgis", 0)
-	if len(features) != 3 || rawCount != 3 {
-		t.Errorf("expected 3 features and rawCount 3, got %d / %d", len(features), rawCount)
+	features, rawIDs := rowsFromArcGISPage(page, "OBJECTID", "arcgis", 0)
+	if len(features) != 3 || len(rawIDs) != 3 {
+		t.Errorf("expected 3 features and 3 raw ids, got %d / %d", len(features), len(rawIDs))
 	}
 	exceeded, present := transferLimitFromPage(page)
 	if !present || !exceeded {
@@ -1266,6 +1267,87 @@ func TestFetch_NullGeometryPageKeepsPaging(t *testing.T) {
 	}
 }
 
+// TestFetch_RepeatedGeometryRowAmongNewNullRowsKeepsPaging (solvent-streets-cfi8):
+// on a server that paginates correctly but omits exceededTransferLimit, a page
+// whose only geometry row is a re-served boundary row and whose other rows are
+// new but null-geometry is not a re-served page. Treating it as one stopped
+// paging and returned success without the later pages, and a successful source
+// replaces every stored row for the resource.
+func TestFetch_RepeatedGeometryRowAmongNewNullRowsKeepsPaging(t *testing.T) {
+	type feat struct {
+		Properties map[string]any  `json:"properties"`
+		Geometry   json.RawMessage `json:"geometry"`
+	}
+	point := json.RawMessage(`{"type":"Point","coordinates":[-121.77,37.68]}`)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if !strings.HasSuffix(r.URL.Path, "/query") {
+			// Layer metadata: a cap well above the short page, so a page
+			// misread as repeated would be accepted as the complete result.
+			_, _ = w.Write([]byte(`{"maxRecordCount":1000}`))
+			return
+		}
+		offset, _ := strconv.Atoi(r.URL.Query().Get("resultOffset"))
+		switch offset {
+		case 0:
+			_, _ = w.Write(makeArcGISFeatures(3, 1)) // OIDs 1-3
+		case 3:
+			// OID 3 again, with geometry, then two new rows without.
+			data, _ := json.Marshal(map[string]any{"features": []feat{
+				{Properties: map[string]any{"OBJECTID": 3}, Geometry: point},
+				{Properties: map[string]any{"OBJECTID": 4}, Geometry: json.RawMessage(`null`)},
+				{Properties: map[string]any{"OBJECTID": 5}, Geometry: json.RawMessage(`null`)},
+			}})
+			_, _ = w.Write(data)
+		case 6:
+			_, _ = w.Write(makeArcGISFeatures(2, 6)) // OIDs 6-7
+		default:
+			_, _ = w.Write(makeArcGISFeatures(0, 1))
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	q := ArcGISQuery{Endpoint: srv.URL + "/layer/query", AllowPrivate: true}
+	rows, err := q.FetchAll(context.Background(), srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, r := range rows {
+		ids = append(ids, r.ID)
+	}
+	if want := []string{"arcgis:1", "arcgis:2", "arcgis:3", "arcgis:6", "arcgis:7"}; !slices.Equal(ids, want) {
+		t.Errorf("ids = %v, want %v", ids, want)
+	}
+}
+
+// TestFetch_RepeatedNullGeometryPageIsRepeated: an offset-ignoring server
+// whose page repeats rows that all lack geometry is still re-serving what it
+// already sent. It goes to the repeated-page check rather than paging to the
+// page cap.
+func TestFetch_RepeatedNullGeometryPageIsRepeated(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if !strings.HasSuffix(r.URL.Path, "/query") {
+			_, _ = w.Write([]byte(`{"maxRecordCount":1000}`))
+			return
+		}
+		calls++
+		_, _ = w.Write(makeArcGISNullGeometryPage(5)) // the same five rows every time
+	}))
+	t.Cleanup(srv.Close)
+
+	q := ArcGISQuery{Endpoint: srv.URL + "/layer/query", AllowPrivate: true}
+	rows, err := q.FetchAll(context.Background(), srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 || calls != 2 {
+		t.Errorf("rows = %d, query calls = %d; want 0 rows after 2 calls", len(rows), calls)
+	}
+}
+
 // makeArcGISNullGeometryPage builds a page of n rows that all have null
 // geometry, so rawCount is n but every row is dropped by the geometry guard.
 func makeArcGISNullGeometryPage(n int) []byte {
@@ -1328,39 +1410,40 @@ func TestFetch_RepeatedRowsWithExceededFlagErrors(t *testing.T) {
 // each is pinned independently of the HTTP plumbing that exercises them.
 func TestClassifyArcGISPage(t *testing.T) {
 	cases := map[string]struct {
-		rawCount, parsed, newUnique int
-		exceeded, flagPresent       bool
-		want                        pageOutcome
+		rawCount, newRaw      int
+		exceeded, flagPresent bool
+		want                  pageOutcome
 	}{
 		"empty page ends pagination": {
 			rawCount: 0, want: pageDone,
 		},
 		"flag present and false ends pagination": {
-			rawCount: 100, parsed: 100, newUnique: 100, exceeded: false, flagPresent: true, want: pageDone,
+			rawCount: 100, newRaw: 100, exceeded: false, flagPresent: true, want: pageDone,
 		},
 		"flag present and true keeps paging": {
-			rawCount: 100, parsed: 100, newUnique: 100, exceeded: true, flagPresent: true, want: pageContinue,
+			rawCount: 100, newRaw: 100, exceeded: true, flagPresent: true, want: pageContinue,
 		},
 		// The Livermore truncation: a short page with no flag must NOT be
 		// trusted as the last page (solvent-streets-9auy).
 		"short page with no flag keeps paging": {
-			rawCount: 100, parsed: 100, newUnique: 100, want: pageContinue,
+			rawCount: 100, newRaw: 100, want: pageContinue,
 		},
 		"repeated rows with no flag is a complete result": {
-			rawCount: 100, parsed: 100, newUnique: 0, want: pageRepeatedRows,
+			rawCount: 100, newRaw: 0, want: pageRepeatedRows,
 		},
 		"repeated rows while claiming more remain is truncation": {
-			rawCount: 100, parsed: 100, newUnique: 0, exceeded: true, flagPresent: true, want: pageTruncated,
+			rawCount: 100, newRaw: 0, exceeded: true, flagPresent: true, want: pageTruncated,
 		},
-		// All rows dropped by the null-geometry guard: no new ids, but that
-		// says nothing about whether more rows remain.
-		"all-null page keeps paging": {
-			rawCount: 100, parsed: 0, newUnique: 0, want: pageContinue,
+		// Rows are counted whether or not they carry geometry, so a page
+		// whose new rows are all null-geometry is still new
+		// (solvent-streets-cfi8).
+		"page of new rows keeps paging whatever their geometry": {
+			rawCount: 100, newRaw: 99, want: pageContinue,
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := classifyArcGISPage(tc.rawCount, tc.parsed, tc.newUnique, tc.exceeded, tc.flagPresent)
+			got := classifyArcGISPage(tc.rawCount, tc.newRaw, tc.exceeded, tc.flagPresent)
 			if got != tc.want {
 				t.Errorf("classifyArcGISPage = %v, want %v", got, tc.want)
 			}
