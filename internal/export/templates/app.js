@@ -620,6 +620,34 @@
             return (meta && Array.isArray(meta.missing_resources)) ? meta.missing_resources : [];
         }
 
+        // ingestFailures is meta.json's ingest_failures: resource -> the
+        // configured sources whose last ingest failed and that hold none of its
+        // rows. partialLayers are those resources that still have data from
+        // another source (Albany's roads: ArcGIS answered, OpenStreetMap did
+        // not). They are shown with a note and ranked like a missing layer.
+        /** @param {any} meta @returns {Object<string, string[]>} */
+        function ingestFailures(meta) {
+            return (meta && meta.ingest_failures && typeof meta.ingest_failures === 'object') ? meta.ingest_failures : {};
+        }
+        /** @param {any} meta @returns {string[]} */
+        function partialLayers(meta) {
+            const missing = missingLayers(meta);
+            return Object.keys(ingestFailures(meta)).filter(rt => !missing.includes(rt)).sort();
+        }
+        /** @param {string[]} sources @returns {string} */
+        function sourceNames(sources) {
+            return sources.map(s => s === 'overpass' ? 'OpenStreetMap' : s === 'arcgis' ? 'ArcGIS' : s).join(', ');
+        }
+        // unrankedLabel describes the layers that keep m out of a ranking.
+        /** @param {any} m @returns {string} */
+        function unrankedLabel(m) {
+            const parts = [];
+            if (m.missing.length > 0) parts.push('no ' + m.missing.join(', ') + ' data');
+            if (m.partial.length > 0) parts.push('partial ' + m.partial.join(', ') + ' data');
+            const s = parts.join('; ');
+            return s.charAt(0).toUpperCase() + s.slice(1);
+        }
+
         function esc(s) {
             return String(s == null ? '' : s)
                 .replace(/&/g, '&amp;')
@@ -742,6 +770,8 @@
         function cityStatsHTML(meta) {
             let statsHTML = '';
             const missing = missingLayers(meta);
+            const failures = ingestFailures(meta);
+            const partial = partialLayers(meta);
             if (meta.city_area && meta.city_area > 0) {
                 statsHTML +=
                     '<div class="stat-card summary-card"><h3>City Summary</h3>' +
@@ -750,12 +780,14 @@
                     '<div class="stat-row"><span class="stat-label">Total Paved (' + areaLargeUnit() + ')</span><span class="stat-value">' + toAreaLarge(meta.total_paved || 0).toFixed(1) + '</span></div>' +
                     '<div class="stat-row"><span class="stat-label">% Paved</span><span class="stat-value">' + ((meta.paved_share || 0) * 100).toFixed(1) + '%</span></div>' +
                     (missing.length > 0 ? '<div class="stat-row stat-note">Excludes ' + esc(missing.join(', ')) + ' (no data)</div>' : '') +
+                    (partial.length > 0 ? '<div class="stat-row stat-note">Partial: ' + esc(partial.join(', ')) + ' (a source failed)</div>' : '') +
                     '</div>';
             }
             missing.forEach(rt => {
+                const why = failures[rt] ? 'the last ingest from ' + sourceNames(failures[rt]) + ' failed' : 'not ingested for this city';
                 statsHTML +=
                     '<div class="stat-card missing-card"><h3>' + esc(rt) + '</h3>' +
-                    '<div class="stat-row"><span class="stat-label">Data unavailable: not ingested for this city</span></div>' +
+                    '<div class="stat-row"><span class="stat-label">Data unavailable: ' + esc(why) + '</span></div>' +
                     '</div>';
             });
             (meta.stats || []).filter(s => !missing.includes(s.resource_type)).forEach(s => {
@@ -766,6 +798,7 @@
                     '<div class="stat-row"><span class="stat-label">Area (' + areaVeryLargeUnit() + ')</span><span class="stat-value">' + toAreaVeryLarge(s.total_area).toFixed(2) + '</span></div>' +
                     // Parking only: a unitless count, so no units conversion.
                     (s.estimated_spaces > 0 ? '<div class="stat-row"><span class="stat-label">Est. Spaces</span><span class="stat-value">' + s.estimated_spaces.toLocaleString() + '</span></div>' : '') +
+                    (partial.includes(s.resource_type) ? '<div class="stat-row stat-note">Partial: no ' + esc(sourceNames(failures[s.resource_type])) + ' data (its last ingest failed)</div>' : '') +
                     '</div>';
             });
             // One card per per-hex metric (meta.metrics, summarised over the
@@ -4019,6 +4052,9 @@
         function extractMetrics(city) {
             var m = { name: city.name, slug: city.slug };
             m.missing = missingLayers(city.meta);
+            m.partial = partialLayers(city.meta);
+            // unranked: the layers a ranking that reads them cannot trust.
+            m.unranked = m.missing.concat(m.partial);
 
             // Per-type area from meta
             var statByType = {};
@@ -4177,7 +4213,7 @@
             // normalized across the compared cities. NOT a solvency judgment.
             // A city missing a layer is not scored: every component reads
             // every layer, and its zeros would also skew the others' scale.
-            var complete = allMetrics.filter(function(m) { return m.missing.length === 0; });
+            var complete = allMetrics.filter(function(m) { return m.unranked.length === 0; });
             var walkN = normalize(complete, 'sidewalkToRoadPct', true);
             var sizeN = normalize(complete, 'totalAreaLarge', true);
             var cityN = normalize(complete, 'cityPct', true);
@@ -4253,8 +4289,8 @@
             var infraRanked = assignRanks(complete.slice().sort(function(a, b) { return b.infraScore - a.infraScore; }));
             document.getElementById('infra-cards').innerHTML = infraRanked.map(function(m) {
                 return scoreCard(m, { ranked: infraRanked.length >= 2, value: m.infraScore, label: 'Infrastructure Index', breakdown: infraBreakdown(m) });
-            }).concat(allMetrics.filter(function(m) { return m.missing.length > 0; }).map(function(m) {
-                return scoreCard(m, { ranked: false, muted: true, value: 'N/A', label: 'No ' + m.missing.join(', ') + ' data — unranked', breakdown: infraBreakdown(m) });
+            }).concat(allMetrics.filter(function(m) { return m.unranked.length > 0; }).map(function(m) {
+                return scoreCard(m, { ranked: false, muted: true, value: 'N/A', label: unrankedLabel(m) + ' — unranked', breakdown: infraBreakdown(m) });
             })).join('');
 
             // Leaderboards — data-driven categories
@@ -4287,7 +4323,7 @@
                 // widths that corrupt the whole category.
                 // A city missing a layer the metric reads is listed below the
                 // ranking as n/a instead of ranked on a zero (56r1).
-                var lacks = function(m) { return (cat.needs || []).filter(function(rt) { return m.missing.includes(rt); }); };
+                var lacks = function(m) { return (cat.needs || []).filter(function(rt) { return m.unranked.includes(rt); }); };
                 var unavailable = allMetrics.filter(function(m) { return lacks(m).length > 0; });
                 var pool = allMetrics.filter(function(m) { return lacks(m).length === 0 && (!cat.filter || cat.filter(m)); });
                 if (pool.length === 0) return '';
@@ -4324,7 +4360,7 @@
                         '<span class="lb-medal">–</span>' +
                         '<span class="lb-name">' + esc(m.name) + '</span>' +
                         '<div class="lb-bar-wrap"></div>' +
-                        '<span class="lb-val" title="No ' + esc(lacks(m).join(', ')) + ' data for this city">n/a</span>' +
+                        '<span class="lb-val" title="No complete ' + esc(lacks(m).join(', ')) + ' data for this city">n/a</span>' +
                     '</div>';
                 }).join('');
 
@@ -4481,9 +4517,9 @@
         // was never ingested, so a summed figure does not pass for complete.
         /** @param {any[]} allMetrics */
         function incompleteNote(allMetrics) {
-            var gaps = allMetrics.filter(function(m) { return m.missing.length > 0; })
-                .map(function(m) { return m.name + ' (no ' + m.missing.join(', ') + ')'; });
-            return gaps.length > 0 ? ' Totals omit layers with no data: ' + gaps.join('; ') + '.' : '';
+            var gaps = allMetrics.filter(function(m) { return m.unranked.length > 0; })
+                .map(function(m) { return m.name + ' (' + unrankedLabel(m).toLowerCase() + ')'; });
+            return gaps.length > 0 ? ' Totals omit or undercount layers with no or partial data: ' + gaps.join('; ') + '.' : '';
         }
 
         function renderAggregate(cityData) {

@@ -2,9 +2,11 @@ package checksite
 
 import (
 	"encoding/json"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/jcrussell/solvent-streets/internal/export"
@@ -62,6 +64,15 @@ func (r *runner) checkMeta(label, path string) {
 	// zero; a WARN here is the list of cities to re-ingest (solvent-streets-56r1).
 	if len(meta.MissingResources) > 0 {
 		r.warnf("reasonableness: %s: no data for %s — re-ingest before publishing", label, strings.Join(meta.MissingResources, ", "))
+	}
+	// A layer with data whose other configured source failed is partial: its
+	// totals and rankings would undercount the city.
+	for _, rt := range slices.Sorted(maps.Keys(meta.IngestFailures)) {
+		if slices.Contains(meta.MissingResources, rt) {
+			continue
+		}
+		r.warnf("reasonableness: %s: partial %s: no %s data (its last ingest failed) — re-ingest before publishing",
+			label, rt, strings.Join(meta.IngestFailures[rt], ", "))
 	}
 }
 

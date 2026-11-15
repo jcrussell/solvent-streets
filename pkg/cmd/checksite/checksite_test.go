@@ -243,6 +243,26 @@ func TestCheckSite_MissingResourcesWarns(t *testing.T) {
 	}
 }
 
+// A layer with data whose other source failed is WARNed as partial; one that
+// is also missing gets only the missing warning.
+func TestCheckSite_PartialResourcesWarn(t *testing.T) {
+	dir := buildValidSite(t)
+	m := export.MetaJSON{ProjectName: "Demo", PavedShare: 0.2, TotalPaved: 20000, CityArea: 100000,
+		MissingResources: []string{"sidewalks"},
+		IngestFailures:   map[string][]string{"roads": {"overpass"}, "sidewalks": {"overpass"}}}
+	writeJSONFile(t, filepath.Join(dir, "demo-ca", "data", "meta.json"), m)
+	out, err := run(t, dir, false)
+	if err != nil {
+		t.Fatalf("a partial layer warns, it does not fail: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "partial roads: no overpass data") {
+		t.Errorf("no partial-layer warning:\n%s", out)
+	}
+	if strings.Contains(out, "partial sidewalks") {
+		t.Errorf("a missing layer is also warned as partial:\n%s", out)
+	}
+}
+
 func TestCheckSite_NonMonotonicForecast(t *testing.T) {
 	dir := buildValidSite(t)
 	// A baseline whose PCI rises year over year.

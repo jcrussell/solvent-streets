@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/build"
 	"github.com/jcrussell/solvent-streets/internal/config"
+	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/game"
 	"github.com/jcrussell/solvent-streets/internal/geo"
@@ -459,6 +461,15 @@ type MetaJSON struct {
 	// layer; check-site lists such cities (solvent-streets-56r1). Omitted when
 	// every resource has data, and on a multi-city page's own meta.
 	MissingResources []string `json:"missing_resources,omitempty"`
+	// IngestFailures maps a resource to the configured sources whose newest
+	// ingest attempt failed and that hold none of its rows (no earlier
+	// fetch of theirs left any): resource -> sources, in source order. A
+	// resource also in MissingResources failed outright; one with data is
+	// partial (Albany: OpenStreetMap roads failed, ArcGIS answered). The
+	// dashboard marks a partial layer and ranks the city like one missing
+	// it; check-site warns (solvent-streets-56r1). Read from the city's
+	// ingest history at export time. Omitted when no source is failing.
+	IngestFailures map[string][]string `json:"ingest_failures,omitempty"`
 }
 
 type StatJSON struct {
@@ -630,28 +641,12 @@ func BuildMeta(ctx context.Context, entry CityEntry, snapshotID int64) (MetaJSON
 		LatestCompute: stamp.latest,
 		Stats:         []StatJSON{},
 	}
-	for _, rt := range resource.All {
-		result, ok, err := results.LoadTotal(ctx, entry.Store, rt.Type())
-		if err != nil {
-			// A real DB failure is propagated so serveMetaJSON's cache evicts
-			// and retries instead of memoizing a partial meta for the
-			// server's lifetime.
-			return MetaJSON{}, fmt.Errorf("latest compute result for %s: %w", rt.Type(), err)
-		}
-		typeName := string(rt.Type().Bare())
-		if !ok || result.Features == 0 {
-			meta.MissingResources = append(meta.MissingResources, typeName)
-		}
-		if !ok {
-			// This resource hasn't been computed yet.
-			continue
-		}
-		meta.Stats = append(meta.Stats, StatJSON{
-			ResourceType:    typeName,
-			Color:           ResourceColors[typeName],
-			TotalArea:       result.Area,
-			EstimatedSpaces: result.Spaces,
-		})
+	if err := addPavementStats(ctx, entry, &meta); err != nil {
+		return MetaJSON{}, err
+	}
+
+	if meta.IngestFailures, err = ingestFailures(ctx, entry); err != nil {
+		return MetaJSON{}, fmt.Errorf("city %s ingest history: %w", entry.City.Name, err)
 	}
 
 	metrics, err := buildMetricSummaries(ctx, entry)
@@ -738,4 +733,72 @@ func dataStamp(ctx context.Context, entry CityEntry, snapshotID int64) (stamp, e
 		return stamp{date: snap.CreatedAt.Format(time.DateOnly), snapshotID: snap.ID}, nil
 	}
 	return stamp{date: time.Now().Format(time.DateOnly)}, nil
+}
+
+// ingestFailures is MetaJSON.IngestFailures for entry: per pavement resource,
+// the city's configured sources whose newest attempt failed and whose last
+// answer, if any, left no rows. A failed source keeps the rows an earlier
+// fetch stored (the save replaces only the sources that answered), so a
+// source with a successful past is stale at worst, not missing.
+func ingestFailures(ctx context.Context, entry CityEntry) (map[string][]string, error) {
+	history, err := entry.Store.IngestHistory(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var configured []string
+	if entry.City.Overpass {
+		configured = append(configured, resource.SourceOverpass)
+	}
+	if entry.City.ArcGISURL != "" {
+		configured = append(configured, resource.SourceArcGIS)
+	}
+	var out map[string][]string
+	for _, rt := range resource.All {
+		input := string(rt.Type())
+		for _, src := range configured {
+			i := slices.IndexFunc(history, func(h db.IngestHistory) bool { return h.Input == input && h.Source == src })
+			if i < 0 {
+				continue
+			}
+			h := history[i]
+			if !h.Failing() || (h.LastSuccess != nil && h.LastSuccess.FeatureCount > 0) {
+				continue
+			}
+			if out == nil {
+				out = map[string][]string{}
+			}
+			name := string(rt.Type().Bare())
+			out[name] = append(out[name], src)
+		}
+	}
+	return out, nil
+}
+
+// addPavementStats fills meta's Stats and MissingResources from each pavement
+// resource's stored totals.
+func addPavementStats(ctx context.Context, entry CityEntry, meta *MetaJSON) error {
+	for _, rt := range resource.All {
+		result, ok, err := results.LoadTotal(ctx, entry.Store, rt.Type())
+		if err != nil {
+			// A real DB failure is propagated so serveMetaJSON's cache evicts
+			// and retries instead of memoizing a partial meta for the
+			// server's lifetime.
+			return fmt.Errorf("latest compute result for %s: %w", rt.Type(), err)
+		}
+		typeName := string(rt.Type().Bare())
+		if !ok || result.Features == 0 {
+			meta.MissingResources = append(meta.MissingResources, typeName)
+		}
+		if !ok {
+			// This resource hasn't been computed yet.
+			continue
+		}
+		meta.Stats = append(meta.Stats, StatJSON{
+			ResourceType:    typeName,
+			Color:           ResourceColors[typeName],
+			TotalArea:       result.Area,
+			EstimatedSpaces: result.Spaces,
+		})
+	}
+	return nil
 }

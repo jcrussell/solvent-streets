@@ -3,6 +3,8 @@ package export
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"maps"
 	"math"
 	"slices"
 	"strings"
@@ -402,6 +404,47 @@ func TestBuildMeta_MissingResources(t *testing.T) {
 	raw, _ := json.Marshal(meta)
 	if strings.Contains(string(raw), "missing_resources") {
 		t.Errorf("a city with every layer must omit missing_resources: %s", raw)
+	}
+}
+
+// TestBuildMeta_IngestFailures (solvent-streets-56r1): a configured source
+// whose newest attempt failed and that holds no rows is named per resource,
+// whether the resource has data from another source (partial) or none
+// (failed). A source with an earlier successful fetch keeps its rows and is
+// not named, nor is a source the city no longer configures.
+func TestBuildMeta_IngestFailures(t *testing.T) {
+	entry := hexEntry(t, nil, map[resource.Type]results.Totals{
+		rtRoads:                {Area: 1000, Features: 10},
+		rtParkingAll:           {Area: 300, Features: 3},
+		resource.TypeSidewalks: {Area: 0, Features: 0},
+	})
+	entry.City.Overpass = true
+	entry.City.ArcGISURL = "https://example.com/query"
+	failed := db.IngestAttempt{Outcome: db.IngestFailed, Error: "502 Gateway Timeout"}
+	ok := db.IngestAttempt{Outcome: db.IngestOK, FeatureCount: 903}
+	entry.Store.(*dbtest.MockStore).IngestHistoryFunc = func(context.Context) ([]db.IngestHistory, error) {
+		return []db.IngestHistory{
+			{Input: "parking", Source: "overpass", Latest: failed, LastFailure: &failed, LastSuccess: &ok},
+			{Input: "roads", Source: "arcgis", Latest: ok, LastSuccess: &ok},
+			{Input: "roads", Source: "overpass", Latest: failed, LastFailure: &failed},
+			{Input: "roads", Source: "tigerweb", Latest: failed, LastFailure: &failed},
+			{Input: "sidewalks", Source: "overpass", Latest: failed, LastFailure: &failed},
+		}, nil
+	}
+	meta, err := BuildMeta(t.Context(), entry, 0)
+	if err != nil {
+		t.Fatalf("BuildMeta: %v", err)
+	}
+	want := map[string][]string{"roads": {"overpass"}, "sidewalks": {"overpass"}}
+	if !maps.EqualFunc(meta.IngestFailures, want, slices.Equal) {
+		t.Errorf("IngestFailures = %v; want %v", meta.IngestFailures, want)
+	}
+
+	entry.Store.(*dbtest.MockStore).IngestHistoryFunc = func(context.Context) ([]db.IngestHistory, error) {
+		return nil, errors.New("database is locked")
+	}
+	if _, err := BuildMeta(t.Context(), entry, 0); err == nil {
+		t.Error("BuildMeta swallowed an ingest-history error; serve would cache the partial meta")
 	}
 }
 

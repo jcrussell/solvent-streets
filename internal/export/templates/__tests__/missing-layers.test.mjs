@@ -64,3 +64,62 @@ test('Compare drops a city missing sidewalks from Walkability and its award', as
 
   assert.match(doc.getElementById('infra-cards').textContent, /No sidewalks data/);
 });
+
+// A layer one of whose sources failed is partial (meta.json ingest_failures):
+// its card keeps its data with a note, and Compare ranks the city like one
+// missing it, so a data gap cannot win a medal (Albany's 100% city-owned
+// roads came from ArcGIS alone).
+const partialRoads = {
+  ...metaJSON,
+  ingest_failures: { roads: ['overpass'] },
+};
+const failedSidewalks = {
+  ...noSidewalks,
+  ingest_failures: { sidewalks: ['overpass'] },
+};
+
+// statCard returns the stats-panel card titled rt.
+const statCards = ($$, rt) => $$('#stats .stat-card').filter((c) => {
+  const h = c.querySelector('h3');
+  return h && h.textContent === rt;
+});
+
+test('a partial layer keeps its data and says which source failed', async () => {
+  const { win, $$, flush } = load({ data: { ...fullData, 'meta.json': partialRoads } });
+  await flush();
+  await win.loadCityData();
+  await flush();
+  const roads = statCards($$, 'roads');
+  assert.equal(roads.length, 1, 'one roads card');
+  assert.match(roads[0].textContent, /Area/, 'the data that did arrive is shown');
+  assert.match(roads[0].textContent, /Partial: no OpenStreetMap data/);
+});
+
+test('a missing layer whose ingest failed says so', async () => {
+  const { win, $$, flush } = load({ data: { ...fullData, 'meta.json': failedSidewalks } });
+  await flush();
+  await win.loadCityData();
+  await flush();
+  const sidewalk = statCards($$, 'sidewalks');
+  assert.equal(sidewalk.length, 1);
+  assert.match(sidewalk[0].textContent, /the last ingest from OpenStreetMap failed/);
+});
+
+test('Compare keeps a city with partial roads out of City Ownership and its award', async () => {
+  const { win, doc, flush } = load({ data: fullData });
+  await flush();
+  win.renderCompare([
+    city('alpha-ca', 'Alpha, CA', partialRoads),
+    city('beta-ca', 'Beta, CA', metaJSON),
+    city('gamma-ca', 'Gamma, CA', metaJSON),
+  ]);
+  await flush();
+
+  const own = category(doc, 'City Ownership');
+  assert.ok(own, 'City Ownership category rendered');
+  assert.ok(!names(own, '.lb-row:not(.lb-na) .lb-name').includes('Alpha, CA'), 'Alpha is not ranked on partial roads');
+  assert.deepEqual(names(own, '.lb-row.lb-na .lb-name'), ['Alpha, CA']);
+  const award = own.querySelector('.lb-award');
+  assert.doesNotMatch(award ? award.textContent : '', /Alpha/);
+  assert.match(doc.getElementById('infra-cards').textContent, /Partial roads data/);
+});
