@@ -31,11 +31,14 @@
 # own boundary=administrative polygon, so no boundary_relation_id is needed.
 #
 # Caveats:
-#   - A 2020–2025 rate is extrapolated linearly over the whole forecast
-#     horizon, which overstates a frontier that will build out. That is why
-#     the frontier picks stop below the metro's hypergrowth places (Celina,
-#     Princeton, Anna, Melissa, Forney, Fate, at 12–53%/yr in the same
-#     table); Celina's rate is beyond the 0.5 that growth_rate accepts.
+#   - A 2020–2025 rate is extrapolated linearly over the whole 30-year
+#     horizon, which overstates a frontier that will build out: Prosper's
+#     cited 9.7%/yr would make its network 3.9 times today's. So no city's
+#     growth_rate exceeds 0.04, the rate of McKinney and Denton, the
+#     fastest-growing cities of 100,000 or more. Prosper and Little Elm are capped there; each
+#     entry keeps its cited Census rate in a comment. The frontier picks also
+#     stop below the metro's hypergrowth places (Celina, Princeton, Anna,
+#     Melissa, Forney, Fate, at 12–53%/yr in the same table).
 #   - Dallas and Fort Worth are also in top-50-cities. They carry no
 #     growth_rate here, so examples/all gives them that config's national
 #     0.005 without a merge warning; Fort Worth's own Census rate (11.9% over
@@ -147,12 +150,14 @@ overpass = true
 name = "Little Elm, TX"
 #@cite Census V2025 place estimates: 46,044 (Apr 2020 base) to 62,727 (Jul 2025), +36.2% over 5.25 yr
 #@cite     https://www2.census.gov/programs-surveys/popest/tables/2020-2025/cities/totals/SUB-IP-EST2025-ANNRNK.xlsx (accessed 2026-11-14)
-forecast.growth_rate = 0.069
+# Cited rate 0.069/yr, capped at the config's 0.04 (see Caveats).
+forecast.growth_rate = 0.04
 overpass = true
 
 [[cities]]
 name = "Prosper, TX"
 #@cite Census V2025 place estimates: 30,171 (Apr 2020 base) to 45,605 (Jul 2025), +51.2% over 5.25 yr
 #@cite     https://www2.census.gov/programs-surveys/popest/tables/2020-2025/cities/totals/SUB-IP-EST2025-ANNRNK.xlsx (accessed 2026-11-14)
-forecast.growth_rate = 0.097
+# Cited rate 0.097/yr, capped at the config's 0.04 (see Caveats).
+forecast.growth_rate = 0.04
 overpass = true
