@@ -193,6 +193,11 @@ func createForCity(ctx context.Context, root db.RootStorer, cfg *config.Config, 
 	case errors.Is(err, db.ErrNothingComputed):
 		row.Status, row.Reasons = statusRefused, []string{err.Error()}
 		row.Hint = "pvmt --city " + city.Slug() + " all compute"
+		// A city with snapshots was computed, under other settings: say
+		// which change makes its old results not apply.
+		if snaps, lerr := store.ListSnapshots(ctx); lerr == nil && len(snaps) > 0 {
+			row.Hint = cfg.StaleHint(city)
+		}
 		return row, nil
 	case err != nil:
 		return row, fmt.Errorf("create snapshot for %s: %w", city.Slug(), err)

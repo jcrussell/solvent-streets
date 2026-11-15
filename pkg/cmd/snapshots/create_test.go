@@ -218,6 +218,16 @@ func TestRunCreate_RealStore(t *testing.T) {
 	if err != nil || len(snaps) != 1 {
 		t.Errorf("snapshots after a refusal = %d (%v), want 1", len(snaps), err)
 	}
+
+	// A hashed setting changes: nothing is computed under the new hash. The
+	// refusal says so and names the settings change, rather than calling
+	// every ingested resource never computed (solvent-streets-vx0s).
+	cfg.Grid.HexEdgeM = 150
+	out, err = run()
+	if !errors.Is(err, cmdutil.ErrSilent) || !strings.HasPrefix(out, "alpha: refused: nothing computed under the current settings") ||
+		!strings.Contains(out, "was computed, but not under the current settings") || strings.Contains(out, "never computed") {
+		t.Errorf("after a settings change: (%q, %v), want the nothing-computed refusal with the stale-settings hint", out, err)
+	}
 }
 
 // TestSnapshots_VerbAliases: ls and rm still reach list and delete.

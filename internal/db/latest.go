@@ -142,13 +142,17 @@ func (s *sqliteStore) freezeLatest(ctx context.Context, tx *sql.Tx, configHash s
 	if err != nil {
 		return nil, false, err
 	}
+	// Nothing computed is reported as such before check runs: the check
+	// refuses an empty compute too, but would describe each ingested
+	// resource as never computed, hiding that the city was computed under
+	// other settings (solvent-streets-vx0s).
+	if len(parts) == 0 {
+		return nil, false, ErrNothingComputed
+	}
 	if check != nil {
 		if err := check(parts, states); err != nil {
 			return nil, false, err
 		}
-	}
-	if len(parts) == 0 {
-		return nil, false, ErrNothingComputed
 	}
 	manifest := make(map[string]int64, len(parts))
 	for _, p := range parts {
