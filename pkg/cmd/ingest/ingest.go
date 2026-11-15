@@ -198,7 +198,7 @@ func ResolveBoundaryForCity(ctx context.Context, f *cmdutil.Factory) (*Boundary,
 	if err != nil {
 		return nil, fmt.Errorf("database: %w", err)
 	}
-	_, fresh, err := resolveBoundary(ctx, opts, store, client, city, liveBoundaryFetchers())
+	_, fresh, err := resolveBoundary(withRetryNotices(ctx, opts.IO), opts, store, client, city, liveBoundaryFetchers())
 	if err != nil {
 		return nil, err
 	}
@@ -272,6 +272,7 @@ func runIngest(ctx context.Context, opts *Options) error {
 	if opts.Force {
 		ctx = cache.WithBypass(ctx)
 	}
+	ctx = withRetryNotices(ctx, opts.IO)
 
 	// A --source this city's pvmt.toml switched off fails before the
 	// boundary fetch, not after it (solvent-streets-0z82). The dry run above
@@ -646,6 +647,7 @@ func fetchBoundary(
 	// before stripWaterFromBoundary potentially produces a sliver.
 	nominatim := boundaryGJSON
 
+	fmt.Fprintf(opts.IO.ErrOut, "  Fetching water features from Overpass to strip from the boundary...\n")
 	stripped, warn, stripErr := stripWaterFromBoundary(ctx, client, fetch.water, boundaryGJSON)
 	if errors.Is(stripErr, context.Canceled) {
 		// The user stopped it; no "Overpass is overloaded" advice.
@@ -955,4 +957,14 @@ func recordAttempts(ctx context.Context, opts *Options, store db.Store, attempts
 	if err := store.RecordIngestAttempts(context.WithoutCancel(ctx), attempts); err != nil {
 		cmdutil.Warnf(opts.IO, "could not record the ingest attempt: %v", err)
 	}
+}
+
+// withRetryNotices makes every request under ctx print a line to ios.ErrOut
+// when the HTTP client waits to retry it, so minutes of backoff against a busy
+// Overpass are not silent (solvent-streets-t3wt).
+func withRetryNotices(ctx context.Context, ios *iostreams.IOStreams) context.Context {
+	return ingestpkg.WithRetryNotifier(ctx, func(n ingestpkg.RetryNotice) {
+		fmt.Fprintf(ios.ErrOut, "  %s busy (%s), retrying in %s (retry %d of %d)\n",
+			n.Host, n.Reason, n.Wait.Round(time.Second), n.Attempt, n.Retries)
+	})
 }

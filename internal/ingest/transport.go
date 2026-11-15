@@ -128,6 +128,38 @@ func RetryTransport(wrapped http.RoundTripper, cfg RetryConfig) http.RoundTrippe
 	return &retryTransport{wrapped: wrapped, cfg: cfg}
 }
 
+// RetryNotice describes a retry the transport is about to wait for: the
+// upstream, which retry this is out of how many, how long it waits and why.
+type RetryNotice struct {
+	Host    string
+	Attempt int // 1-based: the first retry is 1
+	Retries int
+	Wait    time.Duration
+	Reason  string // "HTTP 429" or the transport error
+}
+
+type retryNotifierKey struct{}
+
+// WithRetryNotifier returns a context whose requests report each retry the
+// transport waits for to notify, so a long ingest can say it is waiting
+// rather than look hung (solvent-streets-t3wt).
+func WithRetryNotifier(ctx context.Context, notify func(RetryNotice)) context.Context {
+	return context.WithValue(ctx, retryNotifierKey{}, notify)
+}
+
+func retryNotifier(ctx context.Context) func(RetryNotice) {
+	notify, _ := ctx.Value(retryNotifierKey{}).(func(RetryNotice))
+	return notify
+}
+
+// retryReason is the cause of a retry as a short phrase.
+func retryReason(resp *http.Response, err error) string {
+	if err != nil {
+		return err.Error()
+	}
+	return fmt.Sprintf("HTTP %d", resp.StatusCode)
+}
+
 // allowRetryKey marks a context as opting non-idempotent requests
 // (POST / PATCH) into the retry transport's backoff loop. Unexported so
 // callers can only set it via AllowRetry; ctx values keyed by an
@@ -210,6 +242,10 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 
 		wait := t.backoffWait(attempt, resp)
+		if notify := retryNotifier(req.Context()); notify != nil {
+			notify(RetryNotice{Host: req.URL.Hostname(), Attempt: attempt + 1, Retries: t.cfg.MaxRetries,
+				Wait: wait, Reason: retryReason(resp, err)})
+		}
 		// Close the prior body before sleeping so a long Retry-After does
 		// not keep the connection pinned for the full backoff window.
 		closeBody(resp)

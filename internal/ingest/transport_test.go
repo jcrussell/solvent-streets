@@ -298,6 +298,35 @@ func TestRetryTransport_RetriesOn500(t *testing.T) {
 	}
 }
 
+// TestRetryTransport_NotifiesEachRetry (solvent-streets-t3wt): a context
+// carrying a retry notifier hears of each retry before its wait, with the
+// upstream, the attempt and the cause.
+func TestRetryTransport_NotifiesEachRetry(t *testing.T) {
+	srv := newSeqServer(t,
+		seqResponse{status: 429, body: "busy"},
+		seqResponse{status: 502, body: "busy"},
+		seqResponse{status: 200, body: "ok"},
+	)
+	transport := RetryTransport(http.DefaultTransport, testRetryConfig(3))
+	var notices []RetryNotice
+	ctx := WithRetryNotifier(context.Background(), func(n RetryNotice) { notices = append(notices, n) })
+	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL, nil)
+	resp, err := transport.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if len(notices) != 2 {
+		t.Fatalf("notices = %+v, want 2", notices)
+	}
+	if n := notices[0]; n.Attempt != 1 || n.Retries != 3 || n.Reason != "HTTP 429" || n.Host != "127.0.0.1" {
+		t.Errorf("first notice = %+v", n)
+	}
+	if n := notices[1]; n.Attempt != 2 || n.Reason != "HTTP 502" {
+		t.Errorf("second notice = %+v", n)
+	}
+}
+
 func TestRetryTransport_RetriesOn429(t *testing.T) {
 	srv := newSeqServer(t,
 		seqResponse{status: 429, body: "rate limited"},

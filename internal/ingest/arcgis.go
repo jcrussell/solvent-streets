@@ -138,6 +138,8 @@ type ArcGISQuery struct {
 	MaxAllowableOffset float64
 	AllowPrivate       bool      // skip the SSRF guard; for self-hosted endpoints on internal networks
 	Progress           io.Writer // pagination progress sink; nil discards
+	// Label names the upstream in progress lines; empty means "ArcGIS".
+	Label string
 }
 
 // ArcGISRow is one fetched row: its id, every non-null attribute rendered as
@@ -261,7 +263,11 @@ paging:
 		}
 
 		offset += rawCount
-		fmt.Fprintf(q.progress(), "ArcGIS: fetched %d features so far, requesting next page at offset %d...\n", len(allRows), offset)
+		label := q.Label
+		if label == "" {
+			label = "ArcGIS"
+		}
+		fmt.Fprintf(q.progress(), "%s: fetched %d features so far, requesting next page at offset %d...\n", label, len(allRows), offset)
 	}
 
 	return allRows, nil

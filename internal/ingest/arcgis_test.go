@@ -1637,3 +1637,25 @@ func TestCensusBlocksSource_Fetch(t *testing.T) {
 		t.Errorf("counts = %v, %v; want 42, 17", pop, hu)
 	}
 }
+
+// TestArcGISQuery_ProgressLabel (solvent-streets-t3wt): progress names the
+// upstream the query is configured with, so census blocks read "TIGERweb:".
+func TestArcGISQuery_ProgressLabel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("resultOffset") == "0" {
+			_, _ = w.Write(makeArcGISPage(2, 1, true))
+			return
+		}
+		_, _ = w.Write(makeArcGISFeatures(0, 1))
+	}))
+	t.Cleanup(srv.Close)
+	var progress strings.Builder
+	q := ArcGISQuery{Endpoint: srv.URL, AllowPrivate: true, Progress: &progress, Label: "TIGERweb"}
+	if _, err := q.FetchAll(context.Background(), srv.Client()); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(progress.String(), "TIGERweb: fetched 2 features") {
+		t.Errorf("progress = %q, want it labelled TIGERweb", progress.String())
+	}
+}

@@ -50,6 +50,7 @@ func (s *CensusBlocksSource) Fetch(ctx context.Context, client *http.Client, rt 
 		MaxAllowableOffset: 0.00001,
 		AllowPrivate:       s.AllowPrivate,
 		Progress:           s.Progress,
+		Label:              "TIGERweb",
 	}
 	rows, err := q.FetchAll(ctx, client)
 	if err != nil {
