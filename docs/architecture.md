@@ -392,8 +392,11 @@ references once they are a day old
 compute` can legitimately hold an uncommitted run for hours. Write
 transactions take the lock up front (`_txlock=immediate`) and wait out SQLite's
 busy timeout. A commit then keeps retrying for up to two minutes
-(`commitBusyBudget`), so two concurrent computes wait for each other instead of
-failing. No producer reads
+(`commitBusyBudget`). Only the commit retries: other writes (creating a run,
+saving its results, an ingest's feature upsert) give up after the busy timeout,
+so pvmt supports one command writing to a database at a time, and a compute
+beside a long ingest or `gc --sweep` can fail after its geometry work. No
+producer reads
 another's results, so two commands committing in either order each swap in
 only their own parts. `pvmt snapshots prune` keeps each city's newest N
 snapshots, whatever their hash, so the published one always survives. It and
