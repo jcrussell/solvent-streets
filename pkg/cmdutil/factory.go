@@ -179,15 +179,23 @@ func cityOverrideFunc(cmd *cobra.Command, f *Factory, fallback func() (*config.C
 //
 // When some cities fail, the rows the others produced are still written and
 // the error is returned after them, so the run exits non-zero without hiding
-// the cities that did commit (solvent-streets-n5fx). A run with no rows at
-// all writes nothing.
+// the cities that did commit (solvent-streets-n5fx). A failed city's own
+// rows are dropped: a command may record a row before the city's commit
+// fails or is cancelled, and that row would name a discarded run
+// (solvent-streets-af52). A run with no rows at all writes nothing.
 func ForEachCityRows[R RowExporter](ctx context.Context, f *Factory, ios *iostreams.IOStreams, exporter Exporter, run func(cf *Factory, rows *[]R) error) error {
 	var acc []R
-	var rows *[]R
-	if exporter != nil {
-		rows = &acc
-	}
-	err := ForEachCity(ctx, f, func(cf *Factory, _ *config.CityConfig) error { return run(cf, rows) })
+	err := ForEachCity(ctx, f, func(cf *Factory, _ *config.CityConfig) error {
+		if exporter == nil {
+			return run(cf, nil)
+		}
+		var cityRows []R
+		err := run(cf, &cityRows)
+		if err == nil || errors.Is(err, ErrNoResults) {
+			acc = append(acc, cityRows...)
+		}
+		return err
+	})
 	if exporter == nil || (err != nil && len(acc) == 0) {
 		return err
 	}

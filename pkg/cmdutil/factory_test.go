@@ -455,10 +455,13 @@ func TestForEachCityRows_PartialFailureStillWritesRows(t *testing.T) {
 		if err != nil {
 			return err
 		}
+		// Every city records its row first; Beta then fails, as a
+		// compute whose commit fails after its row is recorded does
+		// (solvent-streets-af52).
+		*rows = append(*rows, cityRow{city: city.Name})
 		if city.Name == "Beta" {
 			return boom
 		}
-		*rows = append(*rows, cityRow{city: city.Name})
 		return nil
 	}
 	exp := &recordingExporter{}
