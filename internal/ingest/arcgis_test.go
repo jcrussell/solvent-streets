@@ -1426,6 +1426,49 @@ func TestArcGISQuery_ConfigurableQuery(t *testing.T) {
 	}
 }
 
+// TestArcGISQuery_OutFieldsAddsIDField (solvent-streets-ngxx): OutFields that
+// omit IDField still request it, so row ids come from the id field rather
+// than page positions, which would disable cross-page dedup and the
+// repeated-page check.
+func TestArcGISQuery_OutFieldsAddsIDField(t *testing.T) {
+	var got url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.URL.Query()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"properties":{"exceededTransferLimit":false},"features":[
+			{"properties":{"GEOID":"060014507011000","POP100":42},
+			 "geometry":{"type":"Point","coordinates":[-121.8,37.6]}}]}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	outFields := make([]string, 1, 4)
+	outFields[0] = "POP100"
+	q := ArcGISQuery{
+		Endpoint:     srv.URL,
+		OutFields:    outFields,
+		IDField:      "GEOID",
+		AllowPrivate: true, // httptest binds 127.0.0.1
+	}
+	rows, err := q.FetchAll(context.Background(), srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Get("outFields") != "POP100,GEOID" {
+		t.Errorf("outFields = %q, want %q", got.Get("outFields"), "POP100,GEOID")
+	}
+	if len(q.OutFields) != 1 || cap(outFields) != 4 || outFields[:2][1] != "" {
+		t.Errorf("caller's OutFields modified: %q", outFields[:2])
+	}
+	if len(rows) != 1 || rows[0].ID != "arcgis:060014507011000" {
+		t.Errorf("rows = %+v, want one row with id arcgis:060014507011000", rows)
+	}
+
+	q.OutFields = []string{"geoid", "POP100"}
+	if got := q.outFields(); got != "geoid,POP100" {
+		t.Errorf("outFields with the id field in another case = %q, want it unchanged", got)
+	}
+}
+
 // TestArcGISQuery_Defaults: an unconfigured query asks for everything,
 // ordered by OBJECTID, with no generalization params — exactly the request
 // the roads source has always sent.

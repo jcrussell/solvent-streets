@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -159,6 +160,22 @@ func (q *ArcGISQuery) idField() string {
 		return defaultOIDField
 	}
 	return q.IDField
+}
+
+// outFields is the request's outFields value: "*" when OutFields is empty,
+// otherwise OutFields with the id field appended when it is missing. Row ids,
+// cross-page dedup and the repeated-page check all key off the id field, so a
+// response without it would fall back to positional ids and disable them.
+func (q *ArcGISQuery) outFields() string {
+	if len(q.OutFields) == 0 {
+		return "*"
+	}
+	fields := q.OutFields
+	id := q.idField()
+	if !slices.ContainsFunc(fields, func(f string) bool { return strings.EqualFold(f, id) }) {
+		fields = append(slices.Clip(fields), id)
+	}
+	return strings.Join(fields, ",")
 }
 
 func (q *ArcGISQuery) idPrefix() string {
@@ -498,17 +515,13 @@ func (q *ArcGISQuery) fetchPage(ctx context.Context, client *http.Client, offset
 	if where == "" {
 		where = matchAllWhere
 	}
-	outFields := "*"
-	if len(q.OutFields) > 0 {
-		outFields = strings.Join(q.OutFields, ",")
-	}
 	params := url.Values{
 		"where":             {where},
 		"geometry":          {envelope},
 		"geometryType":      {"esriGeometryEnvelope"},
 		"inSR":              {"4326"},
 		"outSR":             {"4326"},
-		"outFields":         {outFields},
+		"outFields":         {q.outFields()},
 		"f":                 {"geojson"},
 		"resultRecordCount": {strconv.Itoa(arcgisMaxRecords)},
 		"resultOffset":      {strconv.Itoa(offset)},
