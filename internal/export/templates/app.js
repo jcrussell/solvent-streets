@@ -784,7 +784,12 @@
                     '</div>';
             }
             missing.forEach(rt => {
-                const why = failures[rt] ? 'the last ingest from ' + sourceNames(failures[rt]) + ' failed' : 'not ingested for this city';
+                // An empty latest compute (a settings change before the
+                // recompute) has every layer missing: it is not computed,
+                // not un-ingested (solvent-streets-qo1y).
+                const uncomputed = meta.latest_compute && (meta.stats || []).length === 0;
+                const why = failures[rt] ? 'the last ingest from ' + sourceNames(failures[rt]) + ' failed'
+                    : uncomputed ? 'not computed under the current settings' : 'not ingested for this city';
                 statsHTML +=
                     '<div class="stat-card missing-card"><h3>' + esc(rt) + '</h3>' +
                     '<div class="stat-row"><span class="stat-label">Data unavailable: ' + esc(why) + '</span></div>' +

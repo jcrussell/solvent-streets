@@ -42,7 +42,7 @@ func TestPinEntries(t *testing.T) {
 	cur := cfg.CityHash(&config.CityConfig{Name: "x"})
 	roads := []db.SnapshotPart{{Part: "roads", RunID: 1}}
 	entries := []exportpkg.CityEntry{
-		entry("Fresh City", []db.Snapshot{{ID: 1, ConfigHash: cur, Parts: roads}}, nil),
+		entry("Fresh City", []db.Snapshot{{ID: 1, ConfigHash: cur, Parts: roads}}, []db.LatestPart{{Part: "roads", RunID: 1}}),
 		entry("Stale City", []db.Snapshot{{ID: 3, ConfigHash: "0ld0ld0ld0ld0ld0", Parts: roads}, {ID: 2, ConfigHash: cur, Parts: roads}}, nil),
 		entry("Draft City", nil, []db.LatestPart{{Part: "roads", RunID: 7}, {Part: "combined", RunID: 8}}),
 		entry("Empty City", nil, nil),
@@ -64,15 +64,21 @@ func TestPinEntries(t *testing.T) {
 	if !entries[2].ReadsLatest() || entries[0].ReadsLatest() {
 		t.Error("only Draft City should read its latest compute")
 	}
+	// solvent-streets-u45d: the snapshot list is read with the pin.
+	if len(entries[1].Snapshots) != 2 || entries[1].Snapshots[0].ID != 3 || entries[3].Snapshots == nil {
+		t.Errorf("Snapshots = %v / %v, want each city's list as read at startup", entries[1].Snapshots, entries[3].Snapshots)
+	}
 	if len(entries[2].Latest) != 2 || len(entries[3].Latest) != 0 {
 		t.Errorf("Latest = %v / %v, want each city's latest compute kept for ?snapshot=latest", entries[2].Latest, entries[3].Latest)
 	}
 	got := out.String()
-	if strings.Count(got, "warning:") != 3 || strings.Contains(got, "Fresh City") {
-		t.Errorf("want one warning each for Stale, Draft and Empty City, none for Fresh City; got:\n%s", got)
+	if strings.Count(got, "warning:") != 4 || strings.Contains(got, "Fresh City") {
+		t.Errorf("want two warnings for Stale City and one each for Draft and Empty City, none for Fresh City; got:\n%s", got)
 	}
 	for _, want := range []string{
 		"Stale City: snapshot #3 was created under other settings",
+		// solvent-streets-qo1y: the picker's Latest compute is empty.
+		"Stale City has nothing computed under the current settings",
 		"Draft City has no snapshot; serving its latest compute (not snapshotted)",
 		"pvmt --city draft-city snapshots create",
 		"no snapshot for Empty City; serving it without data",
@@ -81,5 +87,30 @@ func TestPinEntries(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("output lacks %q; got:\n%s", want, got)
 		}
+	}
+}
+
+// TestPinEntries_StaleLatestWarns (solvent-streets-4300): a latest compute
+// whose boundary was ingested again since is drawn on the new boundary, so
+// serve says so at startup.
+func TestPinEntries_StaleLatestWarns(t *testing.T) {
+	cfg := &config.Config{}
+	city := config.CityConfig{Name: "Moved City"}
+	latest := []db.LatestPart{{Part: "roads", RunID: 1, Inputs: map[string]string{db.InputBoundary: "old", "roads": "r"}}}
+	store := &dbtest.MockStore{
+		LatestComputeFunc: func(context.Context, string) ([]db.LatestPart, error) { return latest, nil },
+		InputStatesFunc: func(context.Context) ([]db.InputState, error) {
+			return []db.InputState{{Input: db.InputBoundary, Digest: "new"}, {Input: "roads", Digest: "r"}}, nil
+		},
+		WithRunsFunc: func([]int64) db.Store { return &dbtest.MockStore{} },
+	}
+	store.WithSnapshotFunc = func(int64) db.Store { return store }
+	entries := []exportpkg.CityEntry{{Config: cfg, City: city, Slug: city.Slug(), Store: store}}
+	var out strings.Builder
+	if err := pinEntries(context.Background(), entries, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Moved City's latest compute is stale: roads (boundary re-ingested") {
+		t.Errorf("no stale-latest warning:\n%s", out.String())
 	}
 }

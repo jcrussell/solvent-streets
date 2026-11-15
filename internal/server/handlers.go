@@ -774,12 +774,15 @@ func (s *Server) serveForecastSeed(w http.ResponseWriter, _ *http.Request, entry
 	})
 }
 
-// serveSnapshotsJSON serves the per-city snapshot list. Snapshots are
-// append-only at the data layer, so the cache is never invalidated —
-// new snapshots written while the server is running won't appear until
-// restart. Acceptable for the time-travel UI, which targets historic data.
+// serveSnapshotsJSON serves the per-city snapshot list: the one read at
+// startup with the pin (CityEntry.Snapshots) when there is one, so the
+// picker's newest entry is the snapshot served. New snapshots appear after a
+// restart, as new data does everywhere else in serve.
 func (s *Server) serveSnapshotsJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry) {
 	s.serveJSONCached(w, "snapshots:"+entry.Slug, func() (any, error) {
+		if entry.Snapshots != nil {
+			return entry.Snapshots, nil
+		}
 		snaps, err := entry.Store.ListSnapshots(context.Background())
 		if err != nil {
 			return nil, fmt.Errorf("listing snapshots: %w", err)

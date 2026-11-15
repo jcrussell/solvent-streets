@@ -718,7 +718,9 @@ func dataStamp(ctx context.Context, entry CityEntry, snapshotID int64) (stamp, e
 				newest = p.ComputedAt
 			}
 		}
-		st := stamp{date: time.Now().Format(time.DateOnly), latest: true}
+		// An empty latest compute has no date: it was never computed, and
+		// today's date would claim it was (solvent-streets-qo1y).
+		st := stamp{latest: true}
 		if !newest.IsZero() {
 			st.date = newest.Format(time.DateOnly)
 		}

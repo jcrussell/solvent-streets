@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 
+	"github.com/jcrussell/solvent-streets/internal/coherence"
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	exportpkg "github.com/jcrussell/solvent-streets/internal/export"
@@ -143,14 +145,23 @@ func pinEntries(ctx context.Context, entries []exportpkg.CityEntry, errOut io.Wr
 			return fmt.Errorf("latest compute for %s: %w", entry.City.Name, err)
 		}
 		entry.Latest = latest // ?snapshot=latest
-		snap, err := entry.NewestSnapshot(ctx)
+		snaps, err := entry.Store.ListSnapshots(ctx)
 		if err != nil {
+			return fmt.Errorf("list snapshots for %s: %w", entry.City.Name, err)
+		}
+		entry.Snapshots = append([]db.Snapshot{}, snaps...) // non-nil: read
+		if err := warnStaleLatest(ctx, entry, errOut); err != nil {
 			return err
 		}
-		if snap != nil {
+		if len(snaps) > 0 {
+			snap := &snaps[0] // newest first
 			entries[i] = entry.WithSnapshot(snap.ID)
 			if w := entry.SnapshotSettingsWarning(snap); w != "" {
 				cmdutil.FprintWarnf(errOut, "%s; serving it as created", w)
+			}
+			if len(latest) == 0 {
+				cmdutil.FprintWarnf(errOut, "%s has nothing computed under the current settings, so its "+
+					"Latest compute view is empty. Run `pvmt --city %s all compute` to fill it", entry.City.Name, entry.Slug)
 			}
 			continue
 		}
@@ -172,5 +183,36 @@ func pinEntries(ctx context.Context, entries []exportpkg.CityEntry, errOut io.Wr
 		cmdutil.FprintWarnf(errOut, "%v; serving it without data", err)
 		hint.Fprint(errOut, err)
 	}
+	return nil
+}
+
+// warnStaleLatest warns when a part of entry's latest compute read inputs
+// ingested again since. Its view is drawn on the current boundary, so after a
+// boundary re-ingest its map and its totals disagree until a recompute
+// (solvent-streets-4300).
+func warnStaleLatest(ctx context.Context, entry exportpkg.CityEntry, errOut io.Writer) error {
+	if len(entry.Latest) == 0 {
+		return nil
+	}
+	inputs, err := entry.Store.InputStates(ctx)
+	if err != nil {
+		return fmt.Errorf("inputs for %s: %w", entry.City.Name, err)
+	}
+	parts := make([]string, len(entry.Latest))
+	for i, p := range entry.Latest {
+		parts[i] = p.Part
+	}
+	var stale []string
+	for _, st := range coherence.PartStates(parts, entry.Latest, inputs) {
+		if st.State == coherence.StateStale {
+			stale = append(stale, st.Part+" ("+strings.Join(st.Stale, ", ")+")")
+		}
+	}
+	if len(stale) == 0 {
+		return nil
+	}
+	cmdutil.FprintWarnf(errOut, "%s's latest compute is stale: %s. Its Latest compute view is drawn on the "+
+		"current boundary and will not match its totals; run `pvmt --city %s all compute`",
+		entry.City.Name, strings.Join(stale, "; "), entry.Slug)
 	return nil
 }

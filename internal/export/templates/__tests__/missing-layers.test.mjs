@@ -95,6 +95,20 @@ test('a partial layer keeps its data and says which source failed', async () => 
   assert.match(roads[0].textContent, /Partial: no OpenStreetMap data/);
 });
 
+// solvent-streets-qo1y: serve's Latest compute view after a settings change
+// has nothing computed; its cards say that, not that nothing was ingested.
+test('an empty latest compute says not computed, not not ingested', async () => {
+  const empty = { ...metaJSON, latest_compute: true, stats: [], missing_resources: ['roads', 'parking', 'sidewalks'] };
+  const { win, $$, flush } = load({ data: { ...fullData, 'meta.json': empty } });
+  await flush();
+  await win.loadCityData();
+  await flush();
+  const roads = statCards($$, 'roads');
+  assert.equal(roads.length, 1);
+  assert.match(roads[0].textContent, /not computed under the current settings/);
+  assert.doesNotMatch(roads[0].textContent, /not ingested/);
+});
+
 test('a missing layer whose ingest failed says so', async () => {
   const { win, $$, flush } = load({ data: { ...fullData, 'meta.json': failedSidewalks } });
   await flush();
