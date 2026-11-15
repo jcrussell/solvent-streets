@@ -142,7 +142,11 @@ fetches its *companion* (`resource.Companioned`), the routing roads
 (`routing-roads`, OSM only, never in `resource.All`), and both are fetched
 over the boundary bbox padded by `resource.ServiceAreaPadM`
 (`resource.FetchPadder`), so a station across the city line exists and the
-graph reaches it. Pavement stays unpadded: its feature counts and the
+graph reaches it. For a city whose roads come from Overpass, the routing roads
+are only the ring outside the boundary bbox (`resource.ExcludingQuerier`, one
+Overpass difference query): every road touching the bbox is already in the
+city's own roads, which the services graph joins by way id. Pavement stays
+unpadded: its feature counts and the
 inverted-boundary gate read the whole fetch. TIGERweb and the ArcGIS
 centerline source share one paging and completeness core, `ingest.ArcGISQuery`.
 

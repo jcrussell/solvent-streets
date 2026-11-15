@@ -25,6 +25,10 @@ type Options struct {
 	// that rejects loopback / link-local / private destinations. Set
 	// only for staging or self-hosted endpoints on internal networks.
 	AllowPrivateArcGIS bool
+
+	// OverpassExclude is the Overpass source's Exclude: the bbox whose
+	// elements another resource already holds (see OverpassSource).
+	OverpassExclude *[4]float64
 }
 
 // AllSources assembles the enabled sources for a city. OverpassSource is
@@ -35,7 +39,7 @@ type Options struct {
 func AllSources(bbox [4]float64, overpass bool, arcgisURL string, opts Options) []Source {
 	var sources []Source
 	if overpass {
-		sources = append(sources, &OverpassSource{BBox: bbox})
+		sources = append(sources, &OverpassSource{BBox: bbox, Exclude: opts.OverpassExclude})
 	}
 	if arcgisURL != "" {
 		sources = append(sources, &ArcGISSource{

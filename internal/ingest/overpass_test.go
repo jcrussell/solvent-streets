@@ -637,3 +637,36 @@ func TestParseOverpassResponse_UnnamedFeatureNames(t *testing.T) {
 		}
 	}
 }
+
+// TestOverpassSource_ExcludeSendsDifference (solvent-streets-530m): with
+// Exclude set, a resource that implements resource.ExcludingQuerier is
+// fetched as the difference between the bbox and the excluded bbox, and every
+// other resource ignores Exclude.
+func TestOverpassSource_ExcludeSendsDifference(t *testing.T) {
+	var queries []string
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(r.Body)
+		form, _ := url.ParseQuery(string(body))
+		queries = append(queries, form.Get("data"))
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Request: r,
+			Body: io.NopCloser(strings.NewReader(`{"elements":[]}`))}, nil
+	})}
+	inner := [4]float64{37.62, -121.84, 37.73, -121.69}
+	src := &OverpassSource{BBox: [4]float64{37.58, -121.90, 37.78, -121.63}, Exclude: &inner}
+
+	if _, err := src.Fetch(context.Background(), client, &resource.RoutingRoads{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := src.Fetch(context.Background(), client, resource.ByType(resource.TypeRoads)); err != nil {
+		t.Fatal(err)
+	}
+	if len(queries) != 2 {
+		t.Fatalf("queries = %d, want 2", len(queries))
+	}
+	if !strings.Contains(queries[0], "- way[") || !strings.Contains(queries[0], "(37.620000,-121.840000,37.730000,-121.690000)") {
+		t.Errorf("routing-roads query is not the difference over the inner bbox:\n%s", queries[0])
+	}
+	if strings.Contains(queries[1], "- way[") || strings.Contains(queries[1], "37.620000") {
+		t.Errorf("roads query used Exclude:\n%s", queries[1])
+	}
+}

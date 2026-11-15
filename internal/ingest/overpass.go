@@ -45,6 +45,10 @@ const (
 
 type OverpassSource struct {
 	BBox [4]float64 // [south, west, north, east]
+	// Exclude, when set, leaves out what a resource implementing
+	// resource.ExcludingQuerier would return over it; other resources
+	// ignore it.
+	Exclude *[4]float64
 }
 
 var _ Source = (*OverpassSource)(nil)
@@ -54,8 +58,13 @@ func (s *OverpassSource) Name() string { return resource.SourceOverpass }
 const maxSplitDepth = 3 // max 4^3 = 64 requests per city/resource
 
 func (s *OverpassSource) Fetch(ctx context.Context, client *http.Client, rt resource.Source) ([]db.Feature, error) {
+	query := rt.OverpassQuery
+	if ex, ok := rt.(resource.ExcludingQuerier); ok && s.Exclude != nil {
+		exclude := *s.Exclude
+		query = func(bbox [4]float64) string { return ex.OverpassQueryExcluding(bbox, exclude) }
+	}
 	return fetchSplitting(s.BBox,
-		func(bbox [4]float64) ([]db.Feature, error) { return fetchBBox(ctx, client, rt, bbox) },
+		func(bbox [4]float64) ([]db.Feature, error) { return fetchBBox(ctx, client, rt.Type(), query(bbox)) },
 		func(f db.Feature) string { return f.ID })
 }
 
@@ -105,12 +114,12 @@ func appendUnique[T any](dst []T, seen map[string]bool, src []T, key func(T) str
 	return dst
 }
 
-func fetchBBox(ctx context.Context, client *http.Client, rt resource.Source, bbox [4]float64) ([]db.Feature, error) {
-	body, err := postOverpass(ctx, client, overpassAPI, rt.OverpassQuery(bbox))
+func fetchBBox(ctx context.Context, client *http.Client, rt resource.Type, query string) ([]db.Feature, error) {
+	body, err := postOverpass(ctx, client, overpassAPI, query)
 	if err != nil {
 		return nil, err
 	}
-	return parseOverpassResponse(ctx, body, rt.Type())
+	return parseOverpassResponse(ctx, body, rt)
 }
 
 // errOverpassTruncated marks a 200 response whose top-level "remark" reports a

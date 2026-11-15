@@ -932,7 +932,7 @@ func TestResolveSources_DisabledSourceExplainsItself(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			opts := &Options{Source: tc.source}
-			_, err := resolveSources(opts, [4]float64{}, tc.overpass, tc.arcgisURL, false, ios)
+			_, err := resolveSources(opts, [4]float64{}, nil, tc.overpass, tc.arcgisURL, false, ios)
 			if err == nil {
 				t.Fatal("expected an error, got nil")
 			}
@@ -966,7 +966,7 @@ func TestResolveSources_EnabledSourcesStillResolve(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			opts := &Options{Source: tc.source}
-			got, err := resolveSources(opts, [4]float64{}, tc.overpass, tc.arcgisURL, false, ios)
+			got, err := resolveSources(opts, [4]float64{}, nil, tc.overpass, tc.arcgisURL, false, ios)
 			if err != nil {
 				t.Fatalf("resolveSources: %v", err)
 			}
@@ -1089,7 +1089,7 @@ func TestResolveSources_OwnSourcedTakesItsOwnSource(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	for _, source := range []cmdutil.Source{cmdutil.SourceAll, "tigerweb"} {
 		opts := &Options{ResourceType: &resource.CensusBlocks{}, Source: source}
-		got, err := resolveSources(opts, [4]float64{}, true, "https://x", false, ios)
+		got, err := resolveSources(opts, [4]float64{}, nil, true, "https://x", false, ios)
 		if err != nil {
 			t.Fatalf("resolveSources(%s): %v", source, err)
 		}
@@ -1429,7 +1429,7 @@ func TestPrintDryRunPlan_DisabledSourceGivesTheRealRunsReason(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			ios, _, _, _ := iostreams.Test()
-			_, err := resolveSources(&Options{Source: tc.source}, [4]float64{}, tc.city.Overpass, tc.city.ArcGISURL, false, ios)
+			_, err := resolveSources(&Options{Source: tc.source}, [4]float64{}, nil, tc.city.Overpass, tc.city.ArcGISURL, false, ios)
 			var he *hint.ErrHint
 			if !errors.As(err, &he) {
 				t.Fatalf("resolveSources error = %v; want an ErrHint", err)
@@ -1554,5 +1554,46 @@ func TestRunResourceForCity_FacilitiesFetchPaddedWithRoutingRoads(t *testing.T) 
 	}
 	if !strings.Contains(queries[0], "fire_station") || !strings.Contains(queries[1], `"highway"~`) {
 		t.Errorf("queries = %q, want the stations then the routing roads", queries)
+	}
+}
+
+// TestRunIngest_RoutingRoadsFetchTheRing (solvent-streets-530m): a city whose
+// roads come from Overpass fetches its routing roads as the ring outside its
+// boundary bbox; a city without OSM roads fetches the whole padded bbox.
+func TestRunIngest_RoutingRoadsFetchTheRing(t *testing.T) {
+	for _, overpass := range []bool{true, false} {
+		t.Run(fmt.Sprintf("overpass=%v", overpass), func(t *testing.T) {
+			var query string
+			client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				body, _ := io.ReadAll(r.Body)
+				form, _ := url.ParseQuery(string(body))
+				query = form.Get("data")
+				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Request: r,
+					Body: io.NopCloser(strings.NewReader(`{"elements":[]}`))}, nil
+			})}
+			store := &dbtest.MockStore{
+				GetBoundaryFunc: func(_ context.Context) (string, error) { return noSourceBoundary, nil },
+			}
+			city := cmdtest.NewTestCity()
+			city.Overpass = overpass
+			if !overpass {
+				city.ArcGISURL = "https://example.com/arcgis/query"
+			}
+			ios, _, _, _ := iostreams.Test()
+			err := runIngest(context.Background(), &Options{
+				IO:           ios,
+				CityDB:       func() (db.Store, error) { return store, nil },
+				CurrentCity:  func() (*config.CityConfig, error) { return city, nil },
+				HttpClient:   func() (*http.Client, error) { return client, nil },
+				ResourceType: &resource.RoutingRoads{},
+				Source:       cmdutil.SourceAll,
+			})
+			if err != nil && !errors.Is(err, cmdutil.ErrNoResults) {
+				t.Fatalf("runIngest: %v", err)
+			}
+			if got := strings.Contains(query, "- way["); got != overpass {
+				t.Errorf("difference query = %v, want %v:\n%s", got, overpass, query)
+			}
+		})
 	}
 }

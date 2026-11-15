@@ -324,11 +324,19 @@ func fetchAndSave(ctx context.Context, opts *Options, store db.Store, client *ht
 	if err != nil {
 		return fmt.Errorf("derive bbox: %w", err)
 	}
+	// A city whose roads come from Overpass already holds every road that
+	// touches its boundary bbox, so the routing roads around it are fetched
+	// as the ring outside it (resource.ExcludingQuerier).
+	var exclude *[4]float64
+	if city.Overpass {
+		inner := bbox
+		exclude = &inner
+	}
 	bbox = fetchBBox(opts.ResourceType, bbox)
 
 	// An own-sourced resource (facilities, census blocks) ignores the city's
 	// overpass / arcgis_url settings; see resolveSources.
-	sources, err := resolveSources(opts, bbox, city.Overpass, city.ArcGISURL, city.AllowPrivateArcGIS, ios)
+	sources, err := resolveSources(opts, bbox, exclude, city.Overpass, city.ArcGISURL, city.AllowPrivateArcGIS, ios)
 	if err != nil {
 		return err
 	}
@@ -819,8 +827,8 @@ func acceptStripRatio(orig, stripped, threshold float64) bool {
 	return stripped/orig >= threshold
 }
 
-func resolveSources(opts *Options, bbox [4]float64, overpass bool, arcgisURL string, allowPrivateArcGIS bool, ios *iostreams.IOStreams) ([]ingestpkg.Source, error) {
-	srcOpts := ingestpkg.Options{Progress: ios.ErrOut, AllowPrivateArcGIS: allowPrivateArcGIS}
+func resolveSources(opts *Options, bbox [4]float64, exclude *[4]float64, overpass bool, arcgisURL string, allowPrivateArcGIS bool, ios *iostreams.IOStreams) ([]ingestpkg.Source, error) {
+	srcOpts := ingestpkg.Options{Progress: ios.ErrOut, AllowPrivateArcGIS: allowPrivateArcGIS, OverpassExclude: exclude}
 	// An own-sourced resource has exactly one source, fixed by the resource
 	// rather than the city config (resource.OwnSourced). The --source flag
 	// admits only "all" or that source's name (sourceValues), both of which
