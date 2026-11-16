@@ -2007,3 +2007,65 @@ func TestResolveBoundary_NoRoadsFallsBackToInteriorPoints(t *testing.T) {
 		t.Errorf("stderr = %q; want the fallback warned about", errOut)
 	}
 }
+
+// bridgedRiverCity is the review's ArcGIS-bridge scenario: a 0.06°×0.05°
+// city cut by a north-south river, residential roads on both banks, and
+// four bridges over the river, each mapped in OSM (bridge=yes) and again
+// by the agency ArcGIS layer, which carries no bridge tag.
+func bridgedRiverCity() (boundary, waterBody string, osm, arcgis []db.Feature) {
+	boundary = `{"type":"Polygon","coordinates":[[[0,0],[0.06,0],[0.06,0.05],[0,0.05],[0,0]]]}`
+	waterBody = `{"elements":[{"type":"way","id":7,"tags":{"natural":"water"},"geometry":[` +
+		`{"lat":-0.01,"lon":0.022},{"lat":-0.01,"lon":0.028},{"lat":0.06,"lon":0.028},{"lat":0.06,"lon":0.022},{"lat":-0.01,"lon":0.022}]}]}`
+	road := func(id, src string, tags map[string]string, x0, y0, x1, y1 float64) db.Feature {
+		return db.Feature{ID: id, ResourceType: resource.TypeRoads, SourceAPI: src, Tags: tags,
+			GeometryJSON: fmt.Sprintf(`{"type":"LineString","coordinates":[[%g,%g],[%g,%g]]}`, x0, y0, x1, y1)}
+	}
+	n := 0
+	for x := 0.001; x < 0.06; x += 0.002 {
+		if x > 0.021 && x < 0.029 {
+			continue
+		}
+		for y := 0.001; y < 0.05; y += 0.002 {
+			n++
+			res := map[string]string{"highway": "residential"}
+			osm = append(osm, road(fmt.Sprint("o", n), "overpass", res, x, y, x+0.0005, y+0.0005))
+			arcgis = append(arcgis, road(fmt.Sprint("a", n), "arcgis", res, x, y, x+0.0005, y+0.0005))
+		}
+	}
+	for i, y := range []float64{0.0105, 0.0205, 0.0305, 0.0405} {
+		osm = append(osm, road(fmt.Sprint("ob", i), "overpass", map[string]string{"highway": "primary", "bridge": "yes"}, 0.021, y, 0.029, y))
+		arcgis = append(arcgis, road(fmt.Sprint("ab", i), "arcgis", map[string]string{"highway": "primary"}, 0.021, y, 0.029, y))
+	}
+	return boundary, waterBody, osm, arcgis
+}
+
+// TestFetchBoundary_ArcGISBridgesDoNotKeepTheRiver: in a city with both road
+// sources, only the OSM roads are land probes, so the ArcGIS copies of its
+// bridges (untagged) do not make the river read as city land; an
+// ArcGIS-only city still gets road probes from ArcGIS.
+func TestFetchBoundary_ArcGISBridgesDoNotKeepTheRiver(t *testing.T) {
+	boundary, waterBody, osm, arcgis := bridgedRiverCity()
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
+			Body: io.NopCloser(strings.NewReader(waterBody)), Request: r}, nil
+	})}
+	both := &config.CityConfig{Name: "Bridges, CA", Overpass: true, ArcGISURL: "https://example.test/query"}
+	var saved, upserts []string
+	_, _, err := resolveBoundary(context.Background(), resolveBoundaryHarness(t), boundaryStore(&saved, &upserts), client, both,
+		boundaryFetchers{byName: recordingNominatim(boundary, nil), water: ingestpkg.FetchOSMWater,
+			roads: recordingRoads(append(slices.Clone(osm), arcgis...), nil)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"nominatim+osm-water"}; !slices.Equal(saved, want) {
+		t.Errorf("boundary saves = %q, want the river stripped: %q", saved, want)
+	}
+
+	if got := landEvidenceRoads(append(slices.Clone(osm), arcgis...), both); len(got) != len(osm) {
+		t.Errorf("land evidence for an Overpass city = %d roads, want the %d OSM ones", len(got), len(osm))
+	}
+	arcgisOnly := &config.CityConfig{Name: "Agency, CA", ArcGISURL: "https://example.test/query"}
+	if got := landEvidenceRoads(arcgis, arcgisOnly); len(got) != len(arcgis) {
+		t.Errorf("land evidence for an ArcGIS-only city = %d roads, want all %d", len(got), len(arcgis))
+	}
+}

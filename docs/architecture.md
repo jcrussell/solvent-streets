@@ -164,7 +164,10 @@ that saves nothing until it ends:
 2. Fetch the roads over that bbox from every configured road source, and
    take their land probes (`ingest.RoadLandProbes`): each road's middle
    vertex inside the unstripped boundary, at most one per 0.001° cell,
-   leaving out bridges, tunnels, piers, fords and the like. With no such
+   leaving out bridges, tunnels, piers, fords and the like. The probes come
+   from the OSM roads whenever the city uses Overpass, and from ArcGIS only
+   when it is the sole source, because ArcGIS centerlines carry no bridge
+   tags. With no such
    road, the probes are the boundary's interior points, one per
    sub-polygon.
 3. Fetch the OSM water (`ingest.FetchOSMWater`: `natural=water` ways and

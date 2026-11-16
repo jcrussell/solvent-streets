@@ -778,7 +778,7 @@ func stripWithLandEvidence(
 	unstripped string,
 	roads []db.Feature,
 ) (string, error) {
-	probes := ingestpkg.RoadLandProbes(roads, unstripped)
+	probes := ingestpkg.RoadLandProbes(landEvidenceRoads(roads, city), unstripped)
 	if len(probes.Points) == 0 {
 		cmdutil.Warnf(opts.IO, "water strip: no road probes for %s, using the boundary's interior points", city.Name)
 		var err error
@@ -811,6 +811,25 @@ func stripWithLandEvidence(
 		fmt.Fprintf(opts.IO.ErrOut, "  %s\n", warn)
 	}
 	return stripped, nil
+}
+
+// landEvidenceRoads is the roads whose points are land probes: the OSM
+// (Overpass) roads when the city has Overpass enabled, and the ArcGIS roads
+// only when ArcGIS is its sole road source. ArcGIS centerlines carry no
+// bridge or tunnel tags, so beside OSM they would put a probe on every
+// bridge OSM's tags leave out, and a river with a few bridges would read as
+// city land. Every source's roads are still saved.
+func landEvidenceRoads(roads []db.Feature, city *config.CityConfig) []db.Feature {
+	if !city.Overpass {
+		return roads
+	}
+	var osm []db.Feature
+	for _, r := range roads {
+		if r.SourceAPI == resource.SourceOverpass {
+			osm = append(osm, r)
+		}
+	}
+	return osm
 }
 
 // saveBoundaryRoads saves the roads fetched over the unstripped boundary's
