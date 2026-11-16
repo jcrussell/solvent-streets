@@ -173,7 +173,10 @@ that saves nothing until it ends:
    (`LandProbes.MaxHits`), since it covers the city's streets, and subtract
    the rest. A lake or river may be far larger than the city; only with the
    interior-point fallback, which is too sparse to catch a mis-tagged giant
-   polygon, is a way or relation covering most of the bbox rejected.
+   polygon, is a way or relation covering most of the bbox rejected. With
+   roads, an island's closed coastline is land: it is a hole in the sea
+   around it, and when only islands' coastlines cross the bbox, the rest of
+   the bbox is the candidate sea, so an island city is cut to its islands.
 4. Check the result against the same roads (`chooseBoundary`): a strip that
    leaves too few of them inside is replaced by its complement, or else by
    the unstripped boundary.

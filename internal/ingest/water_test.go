@@ -1859,3 +1859,147 @@ func TestAssembleWater_LakeHoldingRoadsDropped(t *testing.T) {
 		t.Errorf("water = %q, log = %s; want the lake dropped as containing city land", water, buf.String())
 	}
 }
+
+// coastlineBody returns natural=coastline ways, one per coordinate list, as
+// an Overpass response body.
+func coastlineBody(ways ...[][2]float64) string {
+	els := make([]string, len(ways))
+	for i, w := range ways {
+		pts := make([]string, len(w))
+		for j, c := range w {
+			pts[j] = fmt.Sprintf(`{"lat":%g,"lon":%g}`, c[1], c[0])
+		}
+		els[i] = fmt.Sprintf(`{"type":"way","id":%d,"tags":{"natural":"coastline"},"geometry":[%s]}`, 500+i, strings.Join(pts, ","))
+	}
+	return `{"elements":[` + strings.Join(els, ",") + `]}`
+}
+
+// islandRing is a CCW closed coastline ring around [0.3,0.7]²: an island,
+// with the water on the right of the walk, outside.
+var islandRing = [][2]float64{{0.3, 0.3}, {0.7, 0.3}, {0.7, 0.7}, {0.3, 0.7}, {0.3, 0.3}}
+
+// gridProbes returns dense probes on an n×n grid over [x0,x1]×[y0,y1].
+func gridProbes(n int, x0, y0, x1, y1 float64) [][2]float64 {
+	var pts [][2]float64
+	for i := range n {
+		for j := range n {
+			pts = append(pts, [2]float64{x0 + (x1-x0)*(float64(i)+0.5)/float64(n), y0 + (y1-y0)*(float64(j)+0.5)/float64(n)})
+		}
+	}
+	return pts
+}
+
+func denseProbes(pts [][2]float64) LandProbes {
+	return LandProbes{Points: pts, MaxHits: waterLandHitAllowance(len(pts)), Dense: true}
+}
+
+// TestAssembleWater_IslandCityStripsSurroundingSea pins solvent-streets-gu2k
+// (Alameda): when the only coastline in the bbox is an island's closed CCW
+// ring, everything in the bbox off the island is sea. With road probes on
+// the island, the sea around it is water, so the boundary is stripped to
+// the island.
+func TestAssembleWater_IslandCityStripsSurroundingSea(t *testing.T) {
+	ctx := context.Background()
+	bbox := [4]float64{0, 0, 1, 1}
+	boundary := `{"type":"Polygon","coordinates":[[[0.1,0.1],[0.9,0.1],[0.9,0.9],[0.1,0.9],[0.1,0.1]]]}`
+	body := coastlineBody(islandRing)
+	water, err := parseWaterResponse(ctx, []byte(body), bbox, denseProbes(gridProbes(10, 0.32, 0.32, 0.68, 0.68)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if water == "" {
+		t.Fatal("no water; want the sea around the island")
+	}
+	stripped, err := geo.SubtractGeoJSON(ctx, boundary, water)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, _ := geo.BoundaryArea(ctx, boundary)
+	after, _ := geo.BoundaryArea(ctx, stripped)
+	if r := after / before; math.Abs(r-0.25) > 0.01 {
+		t.Errorf("stripped/original area = %.3f, want 0.25: the boundary cut to the island", r)
+	}
+
+	// The sparse interior-point fallback keeps today's rule: the island is
+	// dropped and nothing is stripped.
+	sparse, err := InteriorLandProbes(boundary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if water, err := parseWaterResponse(ctx, []byte(body), bbox, sparse); err != nil || water != "" {
+		t.Errorf("sparse probes: water = %q, err = %v; want none", water, err)
+	}
+}
+
+// TestAssembleWater_SeaAroundIslandsHoldingRoadsDropped: when the city's
+// roads also lie off the island (the coastline is not the whole story, say
+// an unmapped mainland shore), the sea face holds city land and is dropped,
+// leaving the boundary unchanged.
+func TestAssembleWater_SeaAroundIslandsHoldingRoadsDropped(t *testing.T) {
+	var buf bytes.Buffer
+	ctx := logs.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	pts := append(gridProbes(10, 0.32, 0.32, 0.68, 0.68), gridProbes(3, 0.1, 0.75, 0.25, 0.9)...)
+	water, err := parseWaterResponse(ctx, []byte(coastlineBody(islandRing)), [4]float64{0, 0, 1, 1}, denseProbes(pts))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if water != "" || !strings.Contains(buf.String(), "dropped sea around islands containing city land") {
+		t.Errorf("water = %q, log = %s; want the sea face dropped", water, buf.String())
+	}
+}
+
+// TestAssembleWater_IslandInSeaIsAHole: an island inside the sea an open
+// coastline chain closes is a hole in it, so the island's roads do not make
+// the sea read as land, and the subtract keeps the island.
+func TestAssembleWater_IslandInSeaIsAHole(t *testing.T) {
+	ctx := context.Background()
+	// The mainland coast runs north along x = 0.25, water on its right
+	// (east). The island [0.5,0.7]×[0.4,0.6] sits in that sea.
+	coast := [][2]float64{{0.25, -0.5}, {0.25, 1.5}}
+	island := [][2]float64{{0.5, 0.4}, {0.7, 0.4}, {0.7, 0.6}, {0.5, 0.6}, {0.5, 0.4}}
+	pts := append(gridProbes(10, 0.02, 0.02, 0.23, 0.98), gridProbes(5, 0.52, 0.42, 0.68, 0.58)...)
+	water, err := parseWaterResponse(ctx, []byte(coastlineBody(coast, island)), [4]float64{0, 0, 1, 1}, denseProbes(pts))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if water == "" {
+		t.Fatal("no water; want the sea east of the coast, with the island as a hole")
+	}
+	boundary := `{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,1],[0,0]]]}`
+	stripped, err := geo.SubtractGeoJSON(ctx, boundary, water)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, _ := geo.BoundaryArea(ctx, boundary)
+	after, _ := geo.BoundaryArea(ctx, stripped)
+	if r := after / before; math.Abs(r-0.29) > 0.01 {
+		t.Errorf("stripped/original area = %.3f, want 0.29: the mainland strip and the island", r)
+	}
+}
+
+// TestParseWaterResponse_AcceptsLargeCoastlineRingWithRoadProbes is the
+// road-probe twin of the Foster City guard (bd-86aa): the coastline path
+// stays uncapped with dense probes, and roads in the small land triangle
+// pick the large water side.
+func TestParseWaterResponse_AcceptsLargeCoastlineRingWithRoadProbes(t *testing.T) {
+	body := coastlineBody([][2]float64{{2, 0}, {1, 1}, {0, 2}})
+	var pts [][2]float64
+	for _, p := range gridProbes(10, 0, 0, 1, 1) {
+		if p[0]+p[1] < 1.9 { // inside the SW land triangle
+			pts = append(pts, p)
+		}
+	}
+	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{0, 0, 10, 10}, denseProbes(pts))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed struct {
+		Coordinates [][][][2]float64 `json:"coordinates"`
+	}
+	if err := json.Unmarshal([]byte(result), &parsed); err != nil || len(parsed.Coordinates) != 1 {
+		t.Fatalf("result = %s (err %v); want one water polygon", result, err)
+	}
+	if frac := math.Abs(ringSignedArea(parsed.Coordinates[0][0])) / 100; frac <= maxOuterBboxAreaFraction {
+		t.Errorf("accepted ring covers %.3f of the bbox; want the large water side", frac)
+	}
+}
