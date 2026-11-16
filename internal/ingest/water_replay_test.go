@@ -92,6 +92,10 @@ func replayStrip(t *testing.T, name string) (float64, replayFixture, string) {
 // TestReplay_WaterStripMatchesCensusLand pins the batch-1 replay cities whose
 // strip went wrong (solvent-streets-npg2, -z3si, -gu2k) to their Census land
 // area, on trimmed real data:
+//   - Alameda (an island city): its bay chain's closures held 4 and 424
+//     road probes, so with an allowance of 3 both read as land and the bay
+//     stayed in (1.92x land) until coastlineLowSideFrac.
+//   - Juneau: two channel chains held 19 vs 1422 and 12 vs 1429 probes.
 //   - Burlington and Detroit: their lake and river relations' islands far
 //     outside the bbox were kept as unclipped holes, whose area made the
 //     clipped polygon read as waterless, so Lake Champlain and the Detroit
@@ -101,6 +105,8 @@ func TestReplay_WaterStripMatchesCensusLand(t *testing.T) {
 		name string
 		tol  float64 // allowed |stripped/land - 1|
 	}{
+		{"alameda", 0.05},
+		{"juneau", 0.04},
 		{"burlington", 0.05},
 		{"detroit", 0.02},
 	} {

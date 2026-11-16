@@ -358,6 +358,21 @@ func logAcceptedWaterPolygon(ctx context.Context, msg, idKey string, idVal int64
 	return frac
 }
 
+// coastlineLowSideFrac: with dense probes, when both closures of an open
+// coastline sub-chain hold more probes than the allowance, the one holding
+// at most this fraction of the other's is the water side. Measured on the
+// batch-1 replay (solvent-streets-npg2): Alameda's bay chain 4 vs 424
+// (0.9%; the 4 are wharf and pier roads at Alameda Point), Juneau's two
+// channel chains 19 vs 1422 (1.3%) and 12 vs 1429 (0.8%); New York's chains
+// that cut through several boroughs 6548 vs 25842 (25%), which separate land
+// from land and stay dropped. 5% sits a factor of four above the first and
+// five below the second. Juneau's low side includes mine roads on the part
+// of Admiralty Island inside the borough, a land face one chain cannot tell
+// from the channel around it: taking that side strips those 17 probe cells
+// (of 1596) with the water, which only a face classifier would keep
+// (solvent-streets-aot4).
+const coastlineLowSideFrac = 0.05
+
 // Dense (road) land probes: their hit allowance and dedupe grid
 // (RoadLandProbes). A candidate water polygon is land-side when it holds
 // more than max(waterLandHitFloor, ceil(waterLandHitFrac * probes)) of
@@ -719,6 +734,30 @@ func closeCoastlineChainWith(ctx context.Context, chain [][2]float64, bbox [4]fl
 	return polys, open
 }
 
+// sliverSide re-decides two closures that both hold more probes than the
+// allowance: with dense probes, when one holds only a sliver of what the
+// other does (coastlineLowSideFrac), the chain still separates the city's
+// land from water, and the few probes on the water side are roads the
+// coastline puts in the water (piers, wharves, untagged causeways). It
+// returns whether each side holds land.
+func sliverSide(ctx context.Context, probes *landProbeIndex, vertices, cwHits, ccwHits int) (cwLand, ccwLand bool) {
+	cwLand, ccwLand = true, true
+	if !probes.dense {
+		return cwLand, ccwLand
+	}
+	switch {
+	case float64(cwHits) <= coastlineLowSideFrac*float64(ccwHits):
+		cwLand = false
+	case float64(ccwHits) <= coastlineLowSideFrac*float64(cwHits):
+		ccwLand = false
+	default:
+		return cwLand, ccwLand
+	}
+	logs.From(ctx).Debug("water coastline: took the closure holding a sliver of the probes",
+		"vertices", vertices, "cw_land_hits", cwHits, "ccw_land_hits", ccwHits)
+	return cwLand, ccwLand
+}
+
 // closeOpenSubChain closes one open clipped sub-chain into a water-side
 // ring by picking the candidate (CW or CCW bbox-edge closure) that
 // contains NONE of the city's land probes. A candidate containing
@@ -768,6 +807,9 @@ func closeOpenSubChain(ctx context.Context, sub [][2]float64, bbox [4]float64, p
 
 	cwLand := !okCW || probes.landHit(cwHits)
 	ccwLand := !okCCW || probes.landHit(ccwHits)
+	if cwLand && ccwLand && okCW && okCCW {
+		cwLand, ccwLand = sliverSide(ctx, probes, len(sub), cwHits, ccwHits)
+	}
 	switch {
 	case !cwLand && ccwLand:
 		return polyCW, true

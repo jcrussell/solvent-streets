@@ -2043,3 +2043,30 @@ func TestCloseCoastlineChain_FewerHitsBeatsSmallerArea(t *testing.T) {
 		t.Errorf("rings = %v; want the larger east closure, which holds no probe", rings)
 	}
 }
+
+// TestCloseCoastlineChain_SliverSideIsWater: with dense probes, when both
+// closures hold more than the allowance, the one holding a sliver of the
+// other's probes (Alameda: 4 wharf roads vs 424) is the water; when both
+// hold many (New York: 6548 vs 25842) the chain is still dropped.
+func TestCloseCoastlineChain_SliverSideIsWater(t *testing.T) {
+	chain := [][2]float64{{0.3, 0}, {0.3, 1}}
+	bbox := [4]float64{0, 0, 1, 1}
+	for _, c := range []struct {
+		name string
+		east int
+		kept bool
+	}{
+		{"4 vs 400", 4, true},
+		{"16 vs 400", 16, true},
+		{"100 vs 400", 100, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			pts := append(gridProbes(20, 0.02, 0.02, 0.28, 0.98), gridProbes(int(math.Sqrt(float64(c.east))), 0.6, 0.4, 0.7, 0.6)...)
+			idx := newLandProbeIndexFor(LandProbes{Points: pts, MaxHits: 3, Dense: true})
+			rings := closeCoastlineChain(context.Background(), chain, bbox, idx)
+			if kept := len(rings) == 1 && pointInRing([2]float64{0.8, 0.5}, rings[0]); kept != c.kept {
+				t.Errorf("rings = %v; want the east closure kept: %v", rings, c.kept)
+			}
+		})
+	}
+}
