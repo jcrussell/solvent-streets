@@ -69,8 +69,10 @@ with the command that retries it.
 Responses come from the HTTP cache while they are younger than the
 [cache] ttl (a week by default). --force bypasses the cache for every step
 and re-fetches the boundary, for data fresh from upstream.
---rebuild-boundary re-resolves a stored boundary from the cached responses,
-so a change to the water strip can be replayed without asking upstream again.
+--rebuild-boundary re-resolves a stored boundary through the cache without
+bypassing it, so a change to the water strip can be replayed; any request
+the cache does not hold (such as roads over an unstripped bbox no earlier
+ingest queried) goes upstream.
 
 Unlike the per-resource ingest commands this takes no --source or
 --dry-run; use 'pvmt <resource> ingest' for those. Run 'pvmt all compute'
@@ -81,7 +83,7 @@ next.`,
   # Re-fetch one city from upstream, bypassing the HTTP cache
   pvmt --city livermore-ca all ingest --force
 
-  # Re-resolve one city's stored boundary from the HTTP cache
+  # Re-resolve one city's stored boundary through the HTTP cache
   pvmt --city livermore-ca all ingest --rebuild-boundary`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()

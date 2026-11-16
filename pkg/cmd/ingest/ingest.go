@@ -118,8 +118,9 @@ every configured source and over the unstripped boundary, as land evidence
 for the water strip, and stores them; a roads ingest then reports those
 instead of fetching again. HTTP responses are cached; --force bypasses the cache and
 re-fetches the boundary. --rebuild-boundary re-resolves a stored boundary
-from the cached responses, so a change to the water strip can be replayed
-without asking upstream again.
+through the cache without bypassing it, so a change to the water strip can
+be replayed; any request the cache does not hold (such as roads over an
+unstripped bbox no earlier ingest queried) goes upstream.
 
 Run 'pvmt %s compute' next.`, group, src, group)
 }
@@ -141,7 +142,7 @@ func Example(group string, rt resource.Source) string {
 	fmt.Fprintf(&b, `  # Bypass the HTTP cache and re-fetch
   pvmt %s ingest --force
 
-  # Re-resolve the stored boundary from the HTTP cache
+  # Re-resolve the stored boundary through the HTTP cache
   pvmt %s ingest --rebuild-boundary
 
   # Show what would be fetched without making any requests

@@ -189,7 +189,8 @@ that saves nothing until it ends:
    routing-roads ring still excludes exactly the city's own roads.
 
 A failed roads or water fetch saves nothing, so the next ingest retries.
-`--rebuild-boundary` replays the pass from the HTTP cache.
+`--rebuild-boundary` replays the pass through the HTTP cache; where an
+earlier strip shrank the bbox, its first replay fetches the roads upstream.
 
 ## Database
 
