@@ -300,6 +300,16 @@ func newLandProbeIndexFor(lp LandProbes) *landProbeIndex {
 // more hits than the allowance (any hit, for sparse probes).
 func (l *landProbeIndex) landHit(hits int) bool { return hits > l.maxHits }
 
+// capArea is the bbox area acceptWaterPolygon caps a water way or relation
+// outer at (maxOuterBboxAreaFraction): bboxArea for sparse probes, and 0,
+// no cap, for dense ones, whose hit count is the land test instead.
+func (l *landProbeIndex) capArea(bboxArea float64) float64 {
+	if l.dense {
+		return 0
+	}
+	return bboxArea
+}
+
 func newLandProbeIndex(probes [][2]float64) *landProbeIndex {
 	idx := &landProbeIndex{probes: probes}
 	if len(probes) == 0 {

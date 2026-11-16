@@ -202,7 +202,7 @@ func classifyWaterElement(ctx context.Context, e overpassElement, bboxArea float
 		if !isClosedRing(coords) {
 			return nil, nil, 0
 		}
-		if ok, reason := acceptWaterPolygon(coords, bboxArea); !ok {
+		if ok, reason := acceptWaterPolygon(coords, probes.capArea(bboxArea)); !ok {
 			logs.From(ctx).Warn("water way: rejected polygon",
 				"way", e.ID, "reason", reason, "vertices", len(coords),
 			)
@@ -218,7 +218,7 @@ func classifyWaterElement(ctx context.Context, e overpassElement, bboxArea float
 		frac := logAcceptedWaterPolygon(ctx, "water way: accepted polygon", "way", e.ID, coords, bboxArea)
 		return nil, []waterPolygon{{outer: coords}}, frac
 	case elementRelation:
-		relPolys := polygonsFromRelation(ctx, e, bboxArea)
+		relPolys := polygonsFromRelation(ctx, e, probes.capArea(bboxArea))
 		kept := make([]waterPolygon, 0, len(relPolys))
 		var total float64
 		for _, p := range relPolys {
@@ -314,6 +314,14 @@ const (
 // applies only to closed `natural=water` ways and relation outer rings
 // (classifyWaterElement / polygonsFromRelation), where no other water/
 // land discriminator has run.
+//
+// Nor is it applied with dense (road) land probes (landProbeIndex.capArea):
+// there the probes are the discriminator, and a real lake or river is
+// often far larger than a small city's bbox (Lake Champlain's relation
+// covers 15 times Burlington's, solvent-streets-z3si). A mis-tagged giant
+// polygon holds the city's streets and is dropped "containing city land";
+// one that holds none of them can remove only water, because the subtract
+// clips it to the boundary first.
 //
 // It is intentionally NOT applied to coastline-closure rings: those are
 // already validated by land probes + CW orientation in closeCoastlineChain

@@ -171,7 +171,9 @@ that saves nothing until it ends:
    relations, and `natural=coastline` closed along the bbox), drop every
    candidate that holds more probes than a small allowance
    (`LandProbes.MaxHits`), since it covers the city's streets, and subtract
-   the rest.
+   the rest. A lake or river may be far larger than the city; only with the
+   interior-point fallback, which is too sparse to catch a mis-tagged giant
+   polygon, is a way or relation covering most of the bbox rejected.
 4. Check the result against the same roads (`chooseBoundary`): a strip that
    leaves too few of them inside is replaced by its complement, or else by
    the unstripped boundary.

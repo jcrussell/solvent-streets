@@ -15,6 +15,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/logs"
 )
 
@@ -1759,5 +1760,102 @@ func TestFetchOSMWater_OversizedBodySplitsQuadrants(t *testing.T) {
 	}
 	if !strings.HasPrefix(result, `{"type":"MultiPolygon"`) {
 		t.Errorf("expected MultiPolygon GeoJSON assembled from the quadrants; got %q", result)
+	}
+}
+
+// relationBody returns one natural=water multipolygon relation with a single
+// outer member way, as an Overpass response body.
+func relationBody(id int64, outer [][2]float64) string {
+	pts := make([]string, len(outer))
+	for i, c := range outer {
+		pts[i] = fmt.Sprintf(`{"lat":%g,"lon":%g}`, c[1], c[0])
+	}
+	return fmt.Sprintf(`{"elements":[{"type":"relation","id":%d,"tags":{"natural":"water","type":"multipolygon"},`+
+		`"members":[{"type":"way","ref":1,"role":"outer","geometry":[%s]}]}]}`, id, strings.Join(pts, ","))
+}
+
+// bigLake is a lake relation's outer ring 16 times the [0,1]² city bbox,
+// covering the city's east part (lon > 0.6) and reaching far past it.
+var bigLake = [][2]float64{{0.6, -1.5}, {4.6, -1.5}, {4.6, 2.5}, {0.6, 2.5}, {0.6, -1.5}}
+
+// shoreRoads are dense road probes on the city's land, west of the lake.
+func shoreRoads(extra ...[2]float64) LandProbes {
+	var pts [][2]float64
+	for i := range 10 {
+		for j := range 10 {
+			pts = append(pts, [2]float64{0.05 + 0.05*float64(i), 0.05 + 0.09*float64(j)})
+		}
+	}
+	pts = append(pts, extra...)
+	return LandProbes{Points: pts, MaxHits: waterLandHitAllowance(len(pts)), Dense: true}
+}
+
+// TestAssembleWater_LakeLargerThanBBoxAcceptedWithRoadProbes pins
+// solvent-streets-z3si: a lake far larger than the city's bbox (Lake
+// Champlain is 15 times Burlington's) is real water when none of the
+// city's roads lie in it, so with road probes the bbox-area cap does not
+// apply, and the subtract removes the lake's part of the city.
+func TestAssembleWater_LakeLargerThanBBoxAcceptedWithRoadProbes(t *testing.T) {
+	ctx := context.Background()
+	bbox := [4]float64{0, 0, 1, 1}
+	for name, body := range map[string]string{"relation": relationBody(132216, bigLake), "way": closedWayBody(9, bigLake)} {
+		t.Run(name, func(t *testing.T) {
+			water, err := parseWaterResponse(ctx, []byte(body), bbox, shoreRoads())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if water == "" {
+				t.Fatal("lake rejected; want it accepted with no road probe in it")
+			}
+			city := `{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,1],[0,0]]]}`
+			stripped, err := geo.SubtractGeoJSON(ctx, city, water)
+			if err != nil {
+				t.Fatal(err)
+			}
+			before, _ := geo.BoundaryArea(ctx, city)
+			after, _ := geo.BoundaryArea(ctx, stripped)
+			if r := after / before; math.Abs(r-0.6) > 0.02 {
+				t.Errorf("stripped/original area = %.3f, want about 0.6 (the lake's 40%% removed)", r)
+			}
+		})
+	}
+}
+
+// TestAssembleWater_LakeLargerThanBBoxRejectedWithInteriorProbes: with the
+// sparse interior-point probes (a city with no roads) the cap still
+// applies, as before road probes existed.
+func TestAssembleWater_LakeLargerThanBBoxRejectedWithInteriorProbes(t *testing.T) {
+	var buf bytes.Buffer
+	ctx := logs.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	probes, err := InteriorLandProbes(`{"type":"Polygon","coordinates":[[[0,0],[0.5,0],[0.5,1],[0,1],[0,0]]]}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	water, err := parseWaterResponse(ctx, []byte(relationBody(132216, bigLake)), [4]float64{0, 0, 1, 1}, probes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if water != "" || !strings.Contains(buf.String(), "covers") {
+		t.Errorf("water = %q, log = %s; want the lake rejected by the bbox-area cap", water, buf.String())
+	}
+}
+
+// TestAssembleWater_LakeHoldingRoadsDropped: the cap's job, catching a
+// mis-tagged polygon that covers land, falls to the road probes: a "lake"
+// holding more of the city's roads than the allowance is dropped as
+// containing city land.
+func TestAssembleWater_LakeHoldingRoadsDropped(t *testing.T) {
+	var buf bytes.Buffer
+	ctx := logs.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	var inLake [][2]float64
+	for i := range 10 {
+		inLake = append(inLake, [2]float64{0.7 + 0.02*float64(i), 0.5})
+	}
+	water, err := parseWaterResponse(ctx, []byte(relationBody(132216, bigLake)), [4]float64{0, 0, 1, 1}, shoreRoads(inLake...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if water != "" || !strings.Contains(buf.String(), "containing city land") {
+		t.Errorf("water = %q, log = %s; want the lake dropped as containing city land", water, buf.String())
 	}
 }
