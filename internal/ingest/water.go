@@ -178,7 +178,7 @@ func assembleWaterGeoJSON(ctx context.Context, elements []overpassElement, bbox 
 		}
 	} else {
 		for chainIdx, chain := range chains {
-			coastlinePolys, addedFrac, _ := closeAndAcceptCoastline(ctx, chainIdx, chain, bbox, bboxArea, probes, nil)
+			coastlinePolys, addedFrac := closeAndAcceptCoastline(ctx, chainIdx, chain, bbox, bboxArea, probes)
 			polys = append(polys, coastlinePolys...)
 			sumBBoxFrac += addedFrac
 		}
@@ -268,22 +268,18 @@ func classifyWaterElement(ctx context.Context, e overpassElement, bboxArea float
 // (Foster City's SF Bay ring, 85.6% of a bay-dominated bbox — bd-86aa). The
 // downstream clip-to-boundary (geo.SubtractGeoJSON) and the aggregate
 // waterStripMinAreaRatio backstop guard against any over-subtraction.
-//
-// islands (dense probes only) become holes of the rings that hold them;
-// open is the number of open sub-chains the chain clipped into.
-func closeAndAcceptCoastline(ctx context.Context, chainIdx int, chain [][2]float64, bbox [4]float64, bboxArea float64, probes *landProbeIndex, islands [][][2]float64) (polys []waterPolygon, fracSum float64, open int) {
-	rings, open := closeCoastlineChainWith(ctx, chain, bbox, probes, islands)
-	for _, p := range rings {
-		if !isClosedRing(p.outer) {
+func closeAndAcceptCoastline(ctx context.Context, chainIdx int, chain [][2]float64, bbox [4]float64, bboxArea float64, probes *landProbeIndex) (polys []waterPolygon, fracSum float64) {
+	for _, ring := range closeCoastlineChain(ctx, chain, bbox, probes) {
+		if !isClosedRing(ring) {
 			logs.From(ctx).Warn("water coastline: rejected ring",
-				"reason", "ring not closed", "vertices", len(p.outer),
+				"reason", "ring not closed", "vertices", len(ring),
 			)
 			continue
 		}
-		fracSum += logAcceptedWaterPolygon(ctx, "water coastline: accepted ring", "chain", int64(chainIdx), p.outer, bboxArea)
-		polys = append(polys, p)
+		fracSum += logAcceptedWaterPolygon(ctx, "water coastline: accepted ring", "chain", int64(chainIdx), ring, bboxArea)
+		polys = append(polys, waterPolygon{outer: ring})
 	}
-	return polys, fracSum, open
+	return polys, fracSum
 }
 
 // coastlineIslands returns the closed CCW coastline rings inside bbox: land
@@ -639,39 +635,24 @@ func buildChainForward(
 // contain land probes (NYC chain=30 cuts through multiple boroughs),
 // the chain doesn't separate water from land at all and is dropped.
 func closeCoastlineChain(ctx context.Context, chain [][2]float64, bbox [4]float64, probes *landProbeIndex) [][][2]float64 {
-	polys, _ := closeCoastlineChainWith(ctx, chain, bbox, probes, nil)
-	rings := make([][][2]float64, len(polys))
-	for i, p := range polys {
-		rings[i] = p.outer
-	}
-	return rings
-}
-
-// closeCoastlineChainWith is closeCoastlineChain with islands: each ring
-// takes the islands inside it as holes, whose probes then do not count
-// against it (an island's streets are not in the sea around it). With
-// dense probes a CCW closed ring is one of those islands, collected by
-// coastlineIslands, rather than a dropped ring. open is the number of open
-// sub-chains chain clipped into.
-func closeCoastlineChainWith(ctx context.Context, chain [][2]float64, bbox [4]float64, probes *landProbeIndex, islands [][][2]float64) (polys []waterPolygon, open int) {
+	var rings [][][2]float64
 	for _, sub := range clipChainToBBox(chain, bbox) {
 		if len(sub) < 2 {
 			continue
 		}
 		if isClosedRing(sub) {
-			if p, ok := closedCoastlineRing(ctx, sub, probes, islands); ok {
-				polys = append(polys, p)
+			if p, ok := closedCoastlineRing(ctx, sub, probes, nil); ok {
+				rings = append(rings, p.outer)
 			}
 			continue
 		}
-		open++
-		p, ok := closeOpenSubChain(ctx, sub, bbox, probes, islands)
+		ring, ok := closeOpenSubChain(ctx, sub, bbox, probes)
 		if !ok {
 			continue
 		}
-		polys = append(polys, p)
+		rings = append(rings, ring)
 	}
-	return polys, open
+	return rings
 }
 
 // closedCoastlineRing decides a coastline sub-chain that closes inside the
@@ -726,53 +707,45 @@ func closedCoastlineRing(ctx context.Context, sub [][2]float64, probes *landProb
 // Replaces the prior unanimous-probe and single-midpoint-probe rules,
 // both of which inherited a local right-hand-water assumption that
 // some OSM coastline ways violate (root cause of solvent-streets-yrr0).
-func closeOpenSubChain(ctx context.Context, sub [][2]float64, bbox [4]float64, probes *landProbeIndex, islands [][][2]float64) (waterPolygon, bool) {
+func closeOpenSubChain(ctx context.Context, sub [][2]float64, bbox [4]float64, probes *landProbeIndex) ([][2]float64, bool) {
 	head := sub[0]
 	tail := sub[len(sub)-1]
 	if !onBBoxEdge(head, bbox) || !onBBoxEdge(tail, bbox) {
-		return waterPolygon{}, false
+		return nil, false
 	}
 	ringCW, okCW := assembleClosedRing(sub, bboxWalkCW(tail, head, bbox))
 	ringCCW, okCCW := assembleClosedRing(sub, bboxWalkCCW(tail, head, bbox))
 	if !okCW && !okCCW {
-		return waterPolygon{}, false
+		return nil, false
 	}
 
-	// Each candidate takes the islands inside it as holes (islands is nil
-	// for sparse probes), so an island's probes count against neither.
-	var polyCW, polyCCW waterPolygon
 	var cwHits, ccwHits int
 	if okCW {
-		polyCW = withIslands(ringCW, islands)
-		cwHits = probes.PolygonHits(polyCW)
+		cwHits = probes.RingHits(ringCW)
 	}
 	if okCCW {
-		polyCCW = withIslands(ringCCW, islands)
-		ccwHits = probes.PolygonHits(polyCCW)
+		ccwHits = probes.RingHits(ringCCW)
 	}
 
-	cwLand := !okCW || probes.landHit(cwHits)
-	ccwLand := !okCCW || probes.landHit(ccwHits)
 	switch {
-	case !cwLand && ccwLand:
-		return polyCW, true
-	case !ccwLand && cwLand:
-		return polyCCW, true
-	case !cwLand && !ccwLand:
-		// Both candidates are land-free (within the hit allowance) — usually
-		// a chain in a bbox corner far from the city. Pick the one holding
-		// fewer probes, then the smaller ring; the larger would over-claim
-		// water area beyond the immediate coastline.
+	case okCW && cwHits == 0 && (!okCCW || ccwHits > 0):
+		return ringCW, true
+	case okCCW && ccwHits == 0 && (!okCW || cwHits > 0):
+		return ringCCW, true
+	case okCW && okCCW && cwHits == 0 && ccwHits == 0:
+		// Both candidates are land-free — usually a chain in a bbox corner
+		// far from the city. Pick the smaller ring; the larger would
+		// over-claim water area beyond the immediate coastline.
 		cwArea := math.Abs(ringSignedArea(ringCW))
 		ccwArea := math.Abs(ringSignedArea(ringCCW))
-		if cwHits < ccwHits || (cwHits == ccwHits && cwArea <= ccwArea) {
-			logs.From(ctx).Debug("water coastline: both candidates land-free, picked CW",
-				"vertices", len(sub), "cw_area", cwArea, "ccw_area", ccwArea, "cw_land_hits", cwHits, "ccw_land_hits", ccwHits)
-			return polyCW, true
+		if cwArea <= ccwArea {
+			logs.From(ctx).Debug("water coastline: both candidates land-free, picked smaller CW",
+				"vertices", len(sub), "cw_area", cwArea, "ccw_area", ccwArea)
+			return ringCW, true
 		}
-		logs.From(ctx).Debug("water coastline: both candidates land-free, picked CCW",
-			"vertices", len(sub), "cw_area", cwArea, "ccw_area", ccwArea, "cw_land_hits", cwHits, "ccw_land_hits", ccwHits)
-		return polyCCW, true
+		logs.From(ctx).Debug("water coastline: both candidates land-free, picked smaller CCW",
+			"vertices", len(sub), "cw_area", cwArea, "ccw_area", ccwArea)
+		return ringCCW, true
 	default:
 		// Both candidates contain at least one land probe (chain weaves
 		// through land — NYC chain=30 case). Drop rather than over-
@@ -783,7 +756,7 @@ func closeOpenSubChain(ctx context.Context, sub [][2]float64, bbox [4]float64, p
 			"cw_land_hits", cwHits, "ccw_land_hits", ccwHits,
 			"total_probes", probes.Len(),
 		)
-		return waterPolygon{}, false
+		return nil, false
 	}
 }
 

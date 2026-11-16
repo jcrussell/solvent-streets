@@ -2031,19 +2031,6 @@ func TestAssembleWater_NoSeaFaceOverTheMainland(t *testing.T) {
 	}
 }
 
-// TestCloseCoastlineChain_FewerHitsBeatsSmallerArea: when both closures of
-// an open chain are within the dense allowance, the one holding fewer
-// probes is the water, even when it is the larger.
-func TestCloseCoastlineChain_FewerHitsBeatsSmallerArea(t *testing.T) {
-	chain := [][2]float64{{0.3, 0}, {0.3, 1}}
-	pts := append(gridProbes(10, 2, 2, 3, 3), [2]float64{0.1, 0.5}, [2]float64{0.2, 0.5}) // two probes west of the chain
-	idx := newLandProbeIndexFor(LandProbes{Points: pts, MaxHits: 3, Dense: true})
-	rings := closeCoastlineChain(context.Background(), chain, [4]float64{0, 0, 1, 1}, idx)
-	if len(rings) != 1 || !pointInRing([2]float64{0.8, 0.5}, rings[0]) {
-		t.Errorf("rings = %v; want the larger east closure, which holds no probe", rings)
-	}
-}
-
 // stripRatio strips the water of a [0,1]² bbox from the whole bbox as the
 // city boundary and returns the stripped share of it.
 func stripRatio(t *testing.T, body string, probes LandProbes) float64 {
