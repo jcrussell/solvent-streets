@@ -361,6 +361,9 @@ func fetchAndSave(ctx context.Context, opts *Options, store db.Store, client *ht
 	if err != nil {
 		return err
 	}
+	// Roads a fresh boundary saved in this very run, which a step other than
+	// roads reports alongside its own result (reportBoundaryRoads).
+	freshRoads := b.boundaryRoads()
 	if b == nil {
 		// A boundary resolved up front (`all ingest`) makes this run a cache
 		// hit, but the roads it saved are still this step's to report.
@@ -370,6 +373,38 @@ func fetchAndSave(ctx context.Context, opts *Options, store db.Store, client *ht
 		fmt.Fprintf(ios.ErrOut, "Roads for %s were fetched with the boundary; not fetching them again.\n", city.Name)
 		return roads.result()
 	}
+	return reportBoundaryRoads(ios, city, freshRoads, fetchAndSaveResource(ctx, opts, store, client, city, boundaryGJSON))
+}
+
+// reportBoundaryRoads folds the roads a fresh boundary saved during a
+// non-roads ingest (`pvmt parking ingest` on a new city) into that ingest's
+// result err. A failed roads save fails the run, so its exit status says
+// so; a road source that failed while the rest saved is a warning with the
+// command that retries it. roads is nil when the run's boundary was not
+// fresh.
+func reportBoundaryRoads(ios *iostreams.IOStreams, city *config.CityConfig, roads *roadsOutcome, err error) error {
+	if roads == nil {
+		return err
+	}
+	if len(roads.failed) > 0 && roads.err == nil {
+		cmdutil.Warnf(ios, "roads fetched with the boundary: %s failed, saved %d roads from %s (retry: pvmt --city %s roads ingest)",
+			strings.Join(roads.failed, ", "), roads.saved, strings.Join(roads.succeeded, ", "), city.Slug())
+	}
+	if roads.err == nil {
+		return err
+	}
+	rerr := fmt.Errorf("roads fetched with the boundary: %w (retry: pvmt --city %s roads ingest)", roads.err, city.Slug())
+	if err == nil || errors.Is(err, cmdutil.ErrNoResults) {
+		// ErrNoResults would file the run as empty and swallow the failure.
+		return rerr
+	}
+	return errors.Join(err, rerr)
+}
+
+// fetchAndSaveResource is fetchAndSave's own fetch and save of
+// opts.ResourceType over boundaryGJSON.
+func fetchAndSaveResource(ctx context.Context, opts *Options, store db.Store, client *http.Client, city *config.CityConfig, boundaryGJSON string) error {
+	ios := opts.IO
 
 	bbox, err := geo.BBoxFromGeoJSON(boundaryGJSON)
 	if err != nil {
@@ -741,9 +776,16 @@ func fetchBoundary(
 				"it is usually just overloaded: wait a few minutes and re-run.")
 	}
 
+	// From here on a failure saves neither the boundary nor the roads, so
+	// the sources that answered are recorded as failed, as a roads ingest
+	// whose save failed records them (failAnswered).
+	unsaved := func(err error) (string, *Boundary, error) {
+		recordAttempts(ctx, opts, store, failAnswered(roads.attempts, fmt.Errorf("not saved: the boundary failed: %w", err)))
+		return "", nil, err
+	}
 	stripped, err := stripWithLandEvidence(ctx, opts, client, city, fetch.water, unstripped, roads.features)
 	if err != nil {
-		return "", nil, err
+		return unsaved(err)
 	}
 	savedSource := unstrippedSource
 	if stripped != "" {
@@ -752,13 +794,13 @@ func fetchBoundary(
 
 	final, finalSource, note, err := chooseBoundary(ctx, city.Name, unstripped, stripped, savedSource, unstrippedSource, roads.features)
 	if err != nil {
-		return "", nil, err
+		return unsaved(err)
 	}
 	if note != "" {
 		cmdutil.Warnf(opts.IO, "%s", note)
 	}
 	if err := store.SaveBoundary(ctx, final, finalSource); err != nil {
-		return "", nil, fmt.Errorf("save boundary: %w", err)
+		return unsaved(fmt.Errorf("save boundary: %w", err))
 	}
 	fmt.Fprintf(opts.IO.ErrOut, "  Boundary saved (source=%s).\n", finalSource)
 	return final, &Boundary{roads: saveBoundaryRoads(ctx, opts, store, city, final, roads)}, nil

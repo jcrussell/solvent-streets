@@ -2095,3 +2095,170 @@ func TestResolveBoundary_FewRoadsFallBackToInteriorPoints(t *testing.T) {
 		t.Errorf("stderr = %q; want the fallback warned about", errOut)
 	}
 }
+
+// TestResolveBoundary_FailureAfterRoadsRecordsThem: roads fetched for a
+// boundary that then fails are not saved, and their attempt is recorded as
+// failed with the reason, so `pvmt status` does not read them as stored.
+func TestResolveBoundary_FailureAfterRoadsRecordsThem(t *testing.T) {
+	store := &dbtest.MockStore{}
+	_, _, err := resolveBoundary(context.Background(), resolveBoundaryHarness(t), store, &http.Client{},
+		&config.CityConfig{Name: "Oakland, CA"},
+		boundaryFetchers{byName: recordingNominatim(bigSquareBoundary, nil), water: failingWaterFetcher,
+			roads: recordingRoads([]db.Feature{roadLine("a", 0.2, 0.2, 0.3, 0.3)}, nil)})
+	if !errors.Is(err, ErrWaterFetch) {
+		t.Fatalf("err = %v, want ErrWaterFetch", err)
+	}
+	var roads *db.IngestAttempt
+	for i, a := range store.Attempts {
+		if a.Input == "roads" {
+			roads = &store.Attempts[i]
+		}
+	}
+	if roads == nil || roads.Outcome != db.IngestFailed || !strings.Contains(roads.Error, "not saved") ||
+		!strings.Contains(roads.Error, "simulated overpass outage") {
+		t.Errorf("attempts = %+v, want the roads recorded as failed, not saved, with the water error", store.Attempts)
+	}
+}
+
+// TestRunIngest_ParkingFailsOnBoundaryRoadsSaveFailure: a parking ingest on
+// a fresh boundary whose roads could not be saved fails, naming the roads
+// and their retry command, rather than exiting as an empty parking layer.
+func TestRunIngest_ParkingFailsOnBoundaryRoadsSaveFailure(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	city := cmdtest.NewTestCity()
+	city.Overpass = true
+	up := &fakeUpstream{boundary: noSourceBoundary, roadsBody: oneRoadInNoSourceBoundary}
+	var saved, upserts []string
+	store := boundaryStore(&saved, &upserts)
+	store.UpsertFeaturesFunc = func(_ context.Context, rt resource.Type, _ []db.Feature, _ []string) error {
+		if rt == resource.TypeRoads {
+			return errors.New("disk full")
+		}
+		return nil
+	}
+	err := runIngest(context.Background(), &Options{
+		IO:           ios,
+		CityDB:       func() (db.Store, error) { return store, nil },
+		CurrentCity:  func() (*config.CityConfig, error) { return city, nil },
+		HttpClient:   func() (*http.Client, error) { return up.client(), nil },
+		ResourceType: &resource.Parking{},
+		Source:       cmdutil.SourceAll,
+	})
+	if err == nil || errors.Is(err, cmdutil.ErrNoResults) || !strings.Contains(err.Error(), "disk full") ||
+		!strings.Contains(err.Error(), "retry: pvmt --city "+city.Slug()+" roads ingest") {
+		t.Fatalf("parking ingest = %v, want the roads save failure with its retry command", err)
+	}
+}
+
+// TestReportBoundaryRoads: how a non-roads ingest reports the roads its
+// fresh boundary saved.
+func TestReportBoundaryRoads(t *testing.T) {
+	city := cmdtest.NewTestCity()
+	parkingErr := errors.New("parking: arcgis failed")
+	cases := []struct {
+		name     string
+		roads    *roadsOutcome
+		err      error
+		wantErr  []error
+		noErr    bool
+		wantWarn bool
+	}{
+		{name: "cached boundary", roads: nil, err: parkingErr, wantErr: []error{parkingErr}},
+		{name: "all saved", roads: &roadsOutcome{saved: 3, succeeded: []string{"overpass"}}, noErr: true},
+		{name: "a source failed", roads: &roadsOutcome{saved: 3, succeeded: []string{"arcgis"}, failed: []string{"overpass"}},
+			noErr: true, wantWarn: true},
+		{name: "save failed, own run empty", roads: &roadsOutcome{err: errors.New("disk full")}, err: cmdutil.ErrNoResults},
+		{name: "save failed, own run failed", roads: &roadsOutcome{err: errors.New("disk full")}, err: parkingErr,
+			wantErr: []error{parkingErr}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ios, _, _, errOut := iostreams.Test()
+			err := reportBoundaryRoads(ios, city, c.roads, c.err)
+			if c.noErr != (err == nil) {
+				t.Fatalf("err = %v, want nil: %v", err, c.noErr)
+			}
+			for _, want := range c.wantErr {
+				if !errors.Is(err, want) {
+					t.Errorf("err = %v, want it to wrap %v", err, want)
+				}
+			}
+			if c.roads != nil && c.roads.err != nil && (errors.Is(err, cmdutil.ErrNoResults) || !strings.Contains(err.Error(), "disk full")) {
+				t.Errorf("err = %v, want the roads save failure, not an empty run", err)
+			}
+			warned := strings.Contains(errOut.String(), "overpass failed") &&
+				strings.Contains(errOut.String(), "retry: pvmt --city "+city.Slug()+" roads ingest")
+			if warned != c.wantWarn {
+				t.Errorf("stderr = %q, want the failed-source warning: %v", errOut, c.wantWarn)
+			}
+		})
+	}
+}
+
+// TestSaveBoundaryRoads_ReplacesOnlyTheSourcesThatAnswered: when a road
+// source fails, the boundary's roads replace only the rows of the sources
+// that answered, so the failed source's stored rows survive; when every
+// source answered they replace the whole set.
+func TestSaveBoundaryRoads_ReplacesOnlyTheSourcesThatAnswered(t *testing.T) {
+	city := cmdtest.NewTestCity()
+	features := []db.Feature{roadLine("a", 0.2, 0.2, 0.3, 0.3)}
+	features[0].SourceAPI = "arcgis"
+	for _, c := range []struct {
+		name      string
+		succeeded []string
+		want      []string
+		failed    []string
+	}{
+		{"one failed", []string{"arcgis"}, []string{"arcgis"}, []string{"overpass"}},
+		{"all answered", []string{"overpass", "arcgis"}, nil, nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var scope []string
+			called := false
+			store := &dbtest.MockStore{UpsertFeaturesFunc: func(_ context.Context, _ resource.Type, _ []db.Feature, s []string) error {
+				called, scope = true, s
+				return nil
+			}}
+			out := saveBoundaryRoads(context.Background(), resolveBoundaryHarness(t), store, city, bigSquareBoundary,
+				roadsFetch{features: features, sources: []string{"overpass", "arcgis"}, succeeded: c.succeeded})
+			if !called || !slices.Equal(scope, c.want) {
+				t.Errorf("replace scope = %q (called %v), want %q", scope, called, c.want)
+			}
+			if !slices.Equal(out.failed, c.failed) || out.saved != 1 {
+				t.Errorf("outcome = %+v, want failed %q and 1 saved", out, c.failed)
+			}
+		})
+	}
+}
+
+func TestRoadsOutcome_Result(t *testing.T) {
+	saveErr := errors.New("disk full")
+	for _, c := range []struct {
+		name    string
+		o       roadsOutcome
+		want    error
+		partial string
+	}{
+		{"saved", roadsOutcome{saved: 2, succeeded: []string{"overpass"}}, nil, ""},
+		{"save failed", roadsOutcome{saved: 0, err: saveErr}, saveErr, ""},
+		{"nothing upstream", roadsOutcome{succeeded: []string{"overpass"}}, cmdutil.ErrNoResults, ""},
+		{"empty survivor", roadsOutcome{succeeded: []string{"arcgis"}, failed: []string{"overpass"}}, cmdutil.ErrPartialIngest, "overpass failed"},
+		{"partial", roadsOutcome{saved: 2, succeeded: []string{"arcgis"}, failed: []string{"overpass"}}, cmdutil.ErrPartialIngest, "overpass failed, saved 2"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			err := c.o.result()
+			if c.want == nil {
+				if err != nil {
+					t.Fatalf("result = %v, want nil", err)
+				}
+				return
+			}
+			if !errors.Is(err, c.want) || !strings.Contains(err.Error(), c.partial) {
+				t.Errorf("result = %v, want %v naming %q", err, c.want, c.partial)
+			}
+			if errors.Is(c.want, cmdutil.ErrPartialIngest) && errors.Is(err, cmdutil.ErrNoResults) {
+				t.Errorf("result = %v also matches ErrNoResults", err)
+			}
+		})
+	}
+}
