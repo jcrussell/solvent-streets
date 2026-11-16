@@ -2243,3 +2243,48 @@ func TestFetchOSMWater_LogsItsSplits(t *testing.T) {
 		t.Errorf("log = %q; want the water fetch's splits logged", buf.String())
 	}
 }
+
+// splitAll cuts the unit bbox along each chain's clipped sub-chains, in
+// order.
+func splitAll(t *testing.T, chains ...[][2]float64) []coastFace {
+	t.Helper()
+	bbox := [4]float64{0, 0, 1, 1}
+	idx := newLandProbeIndexFor(LandProbes{Dense: true, MaxHits: 3})
+	_, opens := coastlineSubChains(context.Background(), chains, bbox, idx, nil)
+	faces := []coastFace{{polys: []geo.LonLatPolygon{{{{0, 0}, {0, 1}, {1, 1}, {1, 0}, {0, 0}}}}}}
+	for _, sub := range opens {
+		faces = splitFaces(context.Background(), faces, sub, bbox)
+	}
+	return faces
+}
+
+// TestSplitFaces_MiddleSegmentOnTheBBoxEdge: when a sub-chain's middle
+// segment runs along the bbox edge, the point beside it on one side is
+// outside the bbox, so the face is found from the other side.
+func TestSplitFaces_MiddleSegmentOnTheBBoxEdge(t *testing.T) {
+	// Westward along the bottom edge: its left is outside the bbox.
+	chain := [][2]float64{{1, 0.5}, {0.6, 0}, {0.4, 0}, {0.2, 0}, {0, 0.5}}
+	if faces := splitAll(t, chain); len(faces) != 2 {
+		t.Errorf("%d faces, want 2", len(faces))
+	}
+}
+
+// TestSplitFaces_WrongFaceLeavesAnEmptySideAndIsSkipped: a sub-chain whose
+// middle segment lies along an earlier coastline has a different face on
+// each side; the one it does not cut splits into the face and nothing, so
+// it is skipped for the other, and no empty face is made.
+func TestSplitFaces_WrongFaceLeavesAnEmptySideAndIsSkipped(t *testing.T) {
+	a := [][2]float64{{-0.1, 0.5}, {0.4, 0.5}, {0.6, 0.5}, {1.1, 0.5}}
+	// From the top edge down to a's line, along it westward, and back up:
+	// the face south of a is on its left.
+	b := [][2]float64{{0.7, 1.1}, {0.6, 0.5}, {0.5, 0.5}, {0.4, 0.5}, {0.3, 1.1}}
+	faces := splitAll(t, a, b)
+	if len(faces) != 3 {
+		t.Fatalf("%d faces, want 3: south of a, the pocket b cuts off, and the rest", len(faces))
+	}
+	for i, f := range faces {
+		if len(f.polys) == 0 {
+			t.Errorf("face %d is empty", i)
+		}
+	}
+}

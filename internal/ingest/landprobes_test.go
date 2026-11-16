@@ -194,6 +194,9 @@ func TestRoadLandProbes(t *testing.T) {
 			t.Errorf("probe %d = %v, want %v", i, got.Points[i], want[i])
 		}
 	}
+	if got.Boundary != boundary {
+		t.Errorf("Boundary = %q, want the boundary the probes were taken in", got.Boundary)
+	}
 	if !got.Dense || got.MaxHits != waterLandHitFloor {
 		t.Errorf("Dense = %v, MaxHits = %d; want dense with the floor allowance %d", got.Dense, got.MaxHits, waterLandHitFloor)
 	}
