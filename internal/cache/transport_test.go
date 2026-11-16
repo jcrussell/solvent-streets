@@ -801,3 +801,89 @@ func TestReadCache_RemovesCorruptGzipBody(t *testing.T) {
 		}
 	}
 }
+
+// TestCachingTransport_NoMarkerWithoutAWholeOversized200: only a 200 whose
+// body is over the cap is remembered as too large. A body cut short by the
+// network, and an over-cap error response, leave no marker (and nothing
+// else) behind.
+func TestCachingTransport_NoMarkerWithoutAWholeOversized200(t *testing.T) {
+	prev := httpio.MaxResponseBodyBytes
+	httpio.MaxResponseBodyBytes = 8
+	t.Cleanup(func() { httpio.MaxResponseBodyBytes = prev })
+	for name, handler := range map[string]http.HandlerFunc{
+		"cut short": func(w http.ResponseWriter, _ *http.Request) {
+			// Promise more than is sent, then drop the connection.
+			w.Header().Set("Content-Length", "1000")
+			_, _ = w.Write([]byte(`{"a`))
+			if hj, ok := w.(http.Hijacker); ok {
+				conn, _, _ := hj.Hijack()
+				_ = conn.Close()
+			}
+		},
+		"error over the cap": func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = w.Write([]byte(`{"error":"way over the tiny limit"}`))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(handler)
+			t.Cleanup(srv.Close)
+			dir := t.TempDir()
+			client := &http.Client{Transport: NewTransport(http.DefaultTransport, dir, time.Hour)}
+			if err := getBig(context.Background(), client, srv.URL); err == nil {
+				t.Fatal("want an error")
+			}
+			if files := cacheFiles(t, dir); len(files) != 0 {
+				t.Errorf("cache dir = %q, want nothing", files)
+			}
+		})
+	}
+}
+
+// TestCachingTransport_MarkerFromASmallerCapIsIgnored: a marker written
+// under a smaller cap than this build's is no evidence the response is
+// still too large, so the request goes upstream, and a response that fits
+// replaces the marker.
+func TestCachingTransport_MarkerFromASmallerCapIsIgnored(t *testing.T) {
+	calls := 0
+	srv := oversizedServer(t, &calls, nil)
+	dir := t.TempDir()
+	client := &http.Client{Transport: NewTransport(http.DefaultTransport, dir, time.Hour)}
+	_ = getBig(context.Background(), client, srv.URL) // writes a marker at the 8-byte cap
+
+	httpio.MaxResponseBodyBytes = 1 << 20
+	if err := getBig(context.Background(), client, srv.URL); err != nil || calls != 2 {
+		t.Fatalf("request under a larger cap = %v after %d calls, want a fresh upstream request (2) that fits", err, calls)
+	}
+	if files := cacheFiles(t, dir); slices.ContainsFunc(files, func(n string) bool { return strings.HasSuffix(n, tooLargeExt) }) {
+		t.Errorf("cache dir = %q, want the marker replaced", files)
+	}
+}
+
+// TestCachingTransport_CorruptMarkerIsRemoved: a marker that does not parse
+// is deleted and the request goes upstream.
+func TestCachingTransport_CorruptMarkerIsRemoved(t *testing.T) {
+	calls := 0
+	srv := oversizedServer(t, &calls, nil)
+	dir := t.TempDir()
+	client := &http.Client{Transport: NewTransport(http.DefaultTransport, dir, time.Hour)}
+	_ = getBig(context.Background(), client, srv.URL)
+	files := cacheFiles(t, dir)
+	if len(files) != 1 {
+		t.Fatalf("cache dir = %q, want the marker", files)
+	}
+	marker := filepath.Join(dir, files[0])
+	if err := os.WriteFile(marker, []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := readTooLarge(marker); ok {
+		t.Fatal("a corrupt marker read as present")
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("corrupt marker still on disk: %v", err)
+	}
+	_ = getBig(context.Background(), client, srv.URL)
+	if calls != 2 {
+		t.Errorf("upstream calls = %d, want 2: a corrupt marker answers nothing", calls)
+	}
+}

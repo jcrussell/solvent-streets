@@ -106,7 +106,9 @@ func (t *CachingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		// again: the caller (fetchSplitting) splits it into requests that
 		// are cached, so re-sending this one would only re-download a body
 		// to throw away (solvent-streets-vds3).
-		if m, ok := readTooLarge(markerPath); ok && time.Since(m.Timestamp) < t.TTL {
+		// A marker from a build with a smaller cap says nothing about
+		// whether the response fits this one, so it is ignored.
+		if m, ok := readTooLarge(markerPath); ok && time.Since(m.Timestamp) < t.TTL && m.LimitBytes >= httpio.MaxResponseBodyBytes {
 			return nil, fmt.Errorf("read response body: %w (remembered from %s; not asked for again until the cache ttl passes or --force)",
 				httpio.ErrBodyTooLarge, m.Timestamp.UTC().Format(time.RFC3339))
 		}
