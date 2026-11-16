@@ -97,6 +97,10 @@ func waterFaces(ctx context.Context, faces []coastFace, opens [][][2]float64, pr
 		}
 	}
 	contrast := make([]int, len(faces))
+	// leftOf and rightOf count the coastlines a face lies left of (land, by
+	// OSM's water-on-the-right convention) and right of.
+	leftOf := make([]int, len(faces))
+	rightOf := make([]int, len(faces))
 	for _, sub := range opens {
 		l, r := faceAt(faces, sub, 1), faceAt(faces, sub, -1)
 		if l < 0 || r < 0 || l == r {
@@ -104,16 +108,31 @@ func waterFaces(ctx context.Context, faces []coastFace, opens [][][2]float64, pr
 		}
 		contrast[l] = max(contrast[l], hits[r])
 		contrast[r] = max(contrast[r], hits[l])
+		leftOf[l]++
+		rightOf[r]++
+	}
+	// landByDirection warns about a water face that every coastline bounding
+	// it puts on land. The decision stands, since coastline direction is
+	// sometimes wrong (solvent-streets-yrr0), but such a face is usually a
+	// roadless island or headland, so the warning lets a replay find each
+	// one stripped.
+	landByDirection := func(i int) {
+		if leftOf[i] > 0 && rightOf[i] == 0 {
+			logs.From(ctx).Warn("water coastline: stripped a face its coastlines put on land",
+				"land_hits", hits[i], "coastlines", leftOf[i], "area_lonlat_sq", facesArea(parts[i]))
+		}
 	}
 	var water []waterPolygon
 	for i := range faces {
 		switch h := hits[i]; {
 		case h <= probes.maxHits:
+			landByDirection(i)
 			water = append(water, parts[i]...)
 		case h <= faceSliverMaxAllowances*probes.maxHits && float64(h) <= coastlineLowSideFrac*float64(contrast[i]):
 			logs.From(ctx).Warn("water coastline: stripped a face holding a few city roads beside thousands across its coastline",
 				"land_hits", h, "across_land_hits", contrast[i], "allowance", probes.maxHits,
 				"area_lonlat_sq", facesArea(parts[i]))
+			landByDirection(i)
 			water = append(water, parts[i]...)
 		default:
 			logs.From(ctx).Debug("water coastline: land face",
