@@ -105,3 +105,10 @@ tags = ["College Towns"]
 [[include]]
 path = "../springfields-us/pvmt.toml"
 tags = ["Springfields"]
+
+# The showcase ingest takes about a day for every city and is replayed after
+# ingest fixes (`pvmt all ingest --rebuild-boundary`), so keep upstream
+# responses for 30 days instead of the one-week default. Not hashed: it only
+# decides whether a response is re-fetched.
+[cache]
+ttl = "720h"
