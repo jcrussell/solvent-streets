@@ -2003,3 +2003,43 @@ func TestParseWaterResponse_AcceptsLargeCoastlineRingWithRoadProbes(t *testing.T
 		t.Errorf("accepted ring covers %.3f of the bbox; want the large water side", frac)
 	}
 }
+
+// TestAssembleWater_NoSeaFaceBesideAnOpenCoastline: the bbox-less-islands
+// sea is only for a bbox no open coastline crosses. Here a mainland coast
+// does, and the sea it closes (with the island as a hole) is the water;
+// the bbox-wide face would also claim the mainland, so it must not be
+// added.
+func TestAssembleWater_NoSeaFaceBesideAnOpenCoastline(t *testing.T) {
+	coast := [][2]float64{{0.7, -0.5}, {0.7, 1.5}}
+	island := [][2]float64{{0.8, 0.4}, {0.9, 0.4}, {0.9, 0.6}, {0.8, 0.6}, {0.8, 0.4}}
+	water, err := parseWaterResponse(context.Background(), []byte(coastlineBody(coast, island)), [4]float64{0, 0, 1, 1},
+		denseProbes(gridProbes(5, 0.82, 0.42, 0.88, 0.58)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed struct {
+		Coordinates [][][][2]float64 `json:"coordinates"`
+	}
+	if err := json.Unmarshal([]byte(water), &parsed); err != nil {
+		t.Fatalf("parse %q: %v", water, err)
+	}
+	if len(parsed.Coordinates) != 1 || len(parsed.Coordinates[0]) != 2 {
+		t.Fatalf("water = %s; want one polygon, the sea east of the coast with the island as its hole", water)
+	}
+	if pointInRing([2]float64{0.3, 0.5}, parsed.Coordinates[0][0]) {
+		t.Errorf("the water %v claims the mainland", parsed.Coordinates[0][0])
+	}
+}
+
+// TestCloseCoastlineChain_FewerHitsBeatsSmallerArea: when both closures of
+// an open chain are within the dense allowance, the one holding fewer
+// probes is the water, even when it is the larger.
+func TestCloseCoastlineChain_FewerHitsBeatsSmallerArea(t *testing.T) {
+	chain := [][2]float64{{0.3, 0}, {0.3, 1}}
+	pts := append(gridProbes(10, 2, 2, 3, 3), [2]float64{0.1, 0.5}, [2]float64{0.2, 0.5}) // two probes west of the chain
+	idx := newLandProbeIndexFor(LandProbes{Points: pts, MaxHits: 3, Dense: true})
+	rings := closeCoastlineChain(context.Background(), chain, [4]float64{0, 0, 1, 1}, idx)
+	if len(rings) != 1 || !pointInRing([2]float64{0.8, 0.5}, rings[0]) {
+		t.Errorf("rings = %v; want the larger east closure, which holds no probe", rings)
+	}
+}
