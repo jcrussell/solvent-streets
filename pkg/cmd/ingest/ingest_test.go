@@ -2360,3 +2360,22 @@ func TestResolveBoundary_OverpassRoadsFailureIsHardEvenIfArcGISAnswered(t *testi
 		t.Errorf("ArcGIS-only probes = %+v, want its %d roads", probes, len(arcgis))
 	}
 }
+
+// TestResolveBoundary_CancelledWaterStripRecordsNoRoads: a Ctrl-C during the
+// water fetch records nothing for the roads that already answered.
+func TestResolveBoundary_CancelledWaterStripRecordsNoRoads(t *testing.T) {
+	cancelled := func(context.Context, *http.Client, [4]float64, ingestpkg.LandProbes) (string, error) {
+		return "", context.Canceled
+	}
+	store := &dbtest.MockStore{}
+	_, _, err := resolveBoundary(context.Background(), resolveBoundaryHarness(t), store, &http.Client{},
+		&config.CityConfig{Name: "Oakland, CA"},
+		boundaryFetchers{byName: recordingNominatim(bigSquareBoundary, nil), water: cancelled,
+			roads: recordingRoads([]db.Feature{roadLine("a", 0.2, 0.2, 0.3, 0.3)}, nil)})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if len(store.Attempts) != 0 {
+		t.Errorf("attempts = %+v, want none for a cancelled run", store.Attempts)
+	}
+}

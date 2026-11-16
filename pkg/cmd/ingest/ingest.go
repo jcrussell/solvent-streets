@@ -790,8 +790,11 @@ func fetchBoundary(
 	// From here on a failure saves neither the boundary nor the roads, so
 	// the sources that answered are recorded as failed, as a roads ingest
 	// whose save failed records them (failAnswered).
+	// A cancelled run records nothing, as a cancelled request leaves no row.
 	unsaved := func(err error) (string, *Boundary, error) {
-		recordAttempts(ctx, opts, store, failAnswered(roads.attempts, fmt.Errorf("not saved: the boundary failed: %w", err)))
+		if !errors.Is(err, context.Canceled) && ctx.Err() == nil {
+			recordAttempts(ctx, opts, store, failAnswered(roads.attempts, fmt.Errorf("not saved: the boundary failed: %w", err)))
+		}
 		return "", nil, err
 	}
 	stripped, err := stripWithLandEvidence(ctx, opts, client, city, fetch.water, unstripped, roads.features)
