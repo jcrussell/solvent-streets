@@ -115,8 +115,9 @@ type PruneReport struct {
 
 // cacheFile is one on-disk file with the size prune credits for removing it.
 type cacheFile struct {
-	path string
-	size int64
+	path  string
+	size  int64
+	mtime time.Time
 }
 
 // cacheEntry groups the files sharing a cache key.
@@ -232,6 +233,15 @@ func (p *pruneRun) sweepIncomplete(entries map[string]*cacheEntry, temps []*cach
 			continue
 		}
 		p.report.EntriesScanned++
+		if e.hasMarker && (e.hasBody || e.hasMeta) {
+			// A crash inside writeTooLarge leaves the marker beside the
+			// older pair (or half of it): the marker is the entry, and the
+			// rest is residue that can never be served.
+			marker, rest := splitMarker(e)
+			live = append(live, marker)
+			p.sweepResidue(rest)
+			continue
+		}
 		if e.complete() {
 			live = append(live, e)
 			continue
@@ -253,6 +263,24 @@ func (p *pruneRun) sweepIncomplete(entries map[string]*cacheEntry, temps []*cach
 		p.sweepResidue(tmp)
 	}
 	return live
+}
+
+// splitMarker splits an entry holding a too-large marker into the marker
+// alone and the entry's other files.
+func splitMarker(e *cacheEntry) (marker, rest *cacheEntry) {
+	marker, rest = &cacheEntry{hasMarker: true}, &cacheEntry{}
+	for _, f := range e.files {
+		into := rest
+		if strings.HasSuffix(f.path, tooLargeExt) {
+			into = marker
+		}
+		into.files = append(into.files, f)
+		into.size += f.size
+		if f.mtime.After(into.mtime) {
+			into.mtime = f.mtime
+		}
+	}
+	return marker, rest
 }
 
 // sweepResidue removes one orphan or temp file, unless it is recent
@@ -378,7 +406,7 @@ func (s *cacheScan) add(de fs.DirEntry) {
 	}
 
 	name := de.Name()
-	file := cacheFile{path: filepath.Join(s.dir, name), size: info.Size()}
+	file := cacheFile{path: filepath.Join(s.dir, name), size: info.Size(), mtime: info.ModTime()}
 	if isTempFile(name) || isLegacyBody(name) {
 		s.temps = append(s.temps, &cacheEntry{
 			files: []cacheFile{file},

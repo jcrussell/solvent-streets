@@ -807,3 +807,36 @@ func TestPrune_TooLargeMarkerIsAnEntry(t *testing.T) {
 		t.Errorf("old marker still there: %v", err)
 	}
 }
+
+// TestPrune_MarkerBesideAStrayPairSweepsThePair: a crash inside
+// writeTooLarge, after the marker and before the older pair was removed,
+// leaves both. The marker is the entry; the pair's files are residue,
+// swept once past the orphan grace, while the marker is kept.
+func TestPrune_MarkerBesideAStrayPairSweepsThePair(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, key(1)+tooLargeExt)
+	writeFileAged(t, marker, 60, time.Hour)
+	body, meta := writeEntry(t, dir, key(1), 100, time.Hour)
+	halfMarker := filepath.Join(dir, key(2)+tooLargeExt)
+	writeFileAged(t, halfMarker, 60, time.Hour)
+	halfMeta := filepath.Join(dir, key(2)+".meta")
+	writeFileAged(t, halfMeta, 100, time.Hour)
+
+	r, err := Prune(context.Background(), dir, PruneOptions{MaxAge: DefaultMaxAge})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.OrphansRemoved != 2 || r.BytesRemaining != 120 {
+		t.Errorf("prune = %+v, want both stray residues swept and the two markers' 120 bytes left", r)
+	}
+	for _, p := range []string{marker, halfMarker} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("marker %s removed: %v", p, err)
+		}
+	}
+	for _, p := range []string{body, meta, halfMeta} {
+		if _, err := os.Stat(p); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("stray %s still there: %v", p, err)
+		}
+	}
+}
