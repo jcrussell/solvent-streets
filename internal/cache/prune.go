@@ -91,7 +91,7 @@ type PruneOptions struct {
 // counters describe what would have happened; nothing was written.
 type PruneReport struct {
 	// EntriesScanned counts distinct cache keys found (a `.json.gz`/`.meta`
-	// pair is one entry), including orphans. Temp files and legacy `.json`
+	// pair, or a `.toolarge` marker, is one entry), including orphans. Temp files and legacy `.json`
 	// bodies are not entries.
 	EntriesScanned int
 	// EntriesRemoved counts complete entries evicted by age or size.
@@ -121,14 +121,17 @@ type cacheFile struct {
 
 // cacheEntry groups the files sharing a cache key.
 type cacheEntry struct {
-	files   []cacheFile
-	size    int64
-	mtime   time.Time
-	hasBody bool
-	hasMeta bool
+	files     []cacheFile
+	size      int64
+	mtime     time.Time
+	hasBody   bool
+	hasMeta   bool
+	hasMarker bool
 }
 
-func (e *cacheEntry) complete() bool { return e.hasBody && e.hasMeta }
+// complete reports an entry the transport can serve: a body and meta pair,
+// or a too-large marker, which stands alone.
+func (e *cacheEntry) complete() bool { return (e.hasBody && e.hasMeta) || e.hasMarker }
 
 // Prune bounds the on-disk HTTP cache in dir. It removes, in order:
 // orphaned/half-written entries and leftover temp files; entries whose
@@ -384,19 +387,19 @@ func (s *cacheScan) add(de fs.DirEntry) {
 		})
 		return
 	}
-	key, isMeta, ok := splitEntryName(name)
+	key, ext, ok := splitEntryName(name)
 	if !ok {
 		// Not written by this transport; leave it untouched.
 		s.report.Skipped++
 		return
 	}
-	s.addFile(key, file, isMeta, info.ModTime())
+	s.addFile(key, file, ext, info.ModTime())
 }
 
 // addFile folds one half of a pair into its entry. The entry's mtime is
 // the newer of its two files: a 304 revalidation rewrites only the meta,
 // and that still counts as the entry being wanted.
-func (s *cacheScan) addFile(key string, file cacheFile, isMeta bool, mtime time.Time) {
+func (s *cacheScan) addFile(key string, file cacheFile, ext string, mtime time.Time) {
 	e := s.entries[key]
 	if e == nil {
 		e = &cacheEntry{}
@@ -407,33 +410,37 @@ func (s *cacheScan) addFile(key string, file cacheFile, isMeta bool, mtime time.
 	if mtime.After(e.mtime) {
 		e.mtime = mtime
 	}
-	if isMeta {
+	switch ext {
+	case metaExt:
 		e.hasMeta = true
-	} else {
+	case tooLargeExt:
+		e.hasMarker = true
+	default:
 		e.hasBody = true
 	}
 }
 
 // splitEntryName recognizes the transport's `<key>.json.gz` / `<key>.meta`
-// naming (see cacheKey and writeCache) and reports the key plus whether
-// the file is the meta half. The key must be a full sha256 hex digest:
-// prune only ever deletes names it can prove the transport minted, so an
-// unrelated file a user parked in the cache dir is left alone.
-func splitEntryName(name string) (key string, isMeta, ok bool) {
-	var ext string
+// / `<key>.toolarge` naming (see cacheKey, writeCache and writeTooLarge)
+// and reports the key and the extension. The key must be a full sha256 hex
+// digest: prune only ever deletes names it can prove the transport minted,
+// so an unrelated file a user parked in the cache dir is left alone.
+func splitEntryName(name string) (key, ext string, ok bool) {
 	switch {
 	case strings.HasSuffix(name, bodyExt):
 		ext = bodyExt
 	case strings.HasSuffix(name, metaExt):
 		ext = metaExt
+	case strings.HasSuffix(name, tooLargeExt):
+		ext = tooLargeExt
 	default:
-		return "", false, false
+		return "", "", false
 	}
 	key = strings.TrimSuffix(name, ext)
 	if !isCacheKey(key) {
-		return "", false, false
+		return "", "", false
 	}
-	return key, ext == metaExt, true
+	return key, ext, true
 }
 
 // isLegacyBody reports whether name is a pre-v0.5.0 uncompressed body

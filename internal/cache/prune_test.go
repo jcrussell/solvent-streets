@@ -774,3 +774,36 @@ func TestPrune_SweepsLegacyUncompressedBodies(t *testing.T) {
 		t.Errorf("OrphansRemoved=%d Skipped=%d; want 2/0", report.OrphansRemoved, report.Skipped)
 	}
 }
+
+// TestPrune_TooLargeMarkerIsAnEntry (solvent-streets-vds3): a `<key>.toolarge`
+// marker stands alone as a complete entry: never swept as an orphan, counted
+// by a dry run, and aged out like any other entry.
+func TestPrune_TooLargeMarkerIsAnEntry(t *testing.T) {
+	dir := t.TempDir()
+	fresh := filepath.Join(dir, key(1)+tooLargeExt)
+	old := filepath.Join(dir, key(2)+tooLargeExt)
+	writeFileAged(t, fresh, 60, time.Hour)
+	writeFileAged(t, old, 60, 40*24*time.Hour)
+
+	dry, err := Prune(context.Background(), dir, PruneOptions{MaxAge: DefaultMaxAge, DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dry.EntriesScanned != 2 || dry.AgeRemoved != 1 || dry.OrphansRemoved != 0 || dry.Skipped != 0 {
+		t.Errorf("dry run = %+v, want 2 entries scanned, the old marker aged out, no orphans", dry)
+	}
+
+	r, err := Prune(context.Background(), dir, PruneOptions{MaxAge: DefaultMaxAge})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.AgeRemoved != 1 || r.BytesRemaining != 60 {
+		t.Errorf("prune = %+v, want the old marker removed and the fresh one's 60 bytes left", r)
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Errorf("fresh marker removed: %v", err)
+	}
+	if _, err := os.Stat(old); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("old marker still there: %v", err)
+	}
+}

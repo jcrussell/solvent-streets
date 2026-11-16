@@ -3,12 +3,15 @@ package cache
 import (
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -16,53 +19,111 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/httpio"
 )
 
-// TestCachingTransport_OversizedBodyNotCached pins the cache-path half of the
-// ruk4 fix: an over-limit 200 must error (never silently truncate) and must NOT
-// be written to the disk cache, so it isn't served as a fresh hit until TTL.
-func TestCachingTransport_OversizedBodyNotCached(t *testing.T) {
+// oversizedServer answers every request with a body over a shrunken
+// httpio.MaxResponseBodyBytes (8 bytes), or with small once *small is set,
+// counting the requests.
+func oversizedServer(t *testing.T, calls *int, small *bool) *httptest.Server {
+	t.Helper()
 	prev := httpio.MaxResponseBodyBytes
 	httpio.MaxResponseBodyBytes = 8
 	t.Cleanup(func() { httpio.MaxResponseBodyBytes = prev })
-
-	callCount := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		callCount++
+		*calls++
+		if small != nil && *small {
+			_, _ = w.Write([]byte(`{}`))
+			return
+		}
 		_, _ = w.Write([]byte(`{"data":"way over the tiny limit"}`))
 	}))
 	t.Cleanup(srv.Close)
+	return srv
+}
 
-	dir := t.TempDir()
-	client := &http.Client{Transport: NewTransport(http.DefaultTransport, dir, time.Hour)}
+// cacheFiles lists the names in the cache dir.
+func cacheFiles(t *testing.T, dir string) []string {
+	t.Helper()
+	ents, _ := os.ReadDir(dir)
+	var names []string
+	for _, e := range ents {
+		names = append(names, e.Name())
+	}
+	return names
+}
 
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/big", nil)
+func getBig(ctx context.Context, client *http.Client, url string) error {
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url+"/big", nil)
 	resp, err := client.Do(req)
 	if err == nil {
 		_ = resp.Body.Close()
-		t.Fatal("expected error on oversized body, got nil")
 	}
-	if !errors.Is(err, httpio.ErrBodyTooLarge) {
-		t.Errorf("expected ErrBodyTooLarge, got %v", err)
+	return err
+}
+
+// TestCachingTransport_OversizedBodyLeavesAMarker pins the cache-path half of
+// the ruk4 fix and solvent-streets-vds3: an over-limit 200 errors (never
+// silently truncated) and its body is never cached, so it cannot be served as
+// a fresh hit; instead a too-large marker is written, and until the TTL the
+// request fails at once with the same ErrBodyTooLarge, without asking
+// upstream, so fetchSplitting goes straight to its (cached) quadrants.
+func TestCachingTransport_OversizedBodyLeavesAMarker(t *testing.T) {
+	calls := 0
+	srv := oversizedServer(t, &calls, nil)
+	dir := t.TempDir()
+	client := &http.Client{Transport: NewTransport(http.DefaultTransport, dir, time.Hour)}
+
+	if err := getBig(context.Background(), client, srv.URL); !errors.Is(err, httpio.ErrBodyTooLarge) {
+		t.Fatalf("first request = %v, want ErrBodyTooLarge", err)
+	}
+	files := cacheFiles(t, dir)
+	if len(files) != 1 || !strings.HasSuffix(files[0], tooLargeExt) {
+		t.Fatalf("cache dir = %q, want just the too-large marker (no body)", files)
 	}
 
-	// Nothing must have been persisted to the cache dir.
-	var files int
-	_ = filepath.Walk(dir, func(_ string, info os.FileInfo, _ error) error {
-		if info != nil && !info.IsDir() {
-			files++
-		}
-		return nil
-	})
-	if files != 0 {
-		t.Errorf("oversized 200 must not be cached; found %d cache files", files)
+	err := getBig(context.Background(), client, srv.URL)
+	var ue *url.Error
+	if !errors.Is(err, httpio.ErrBodyTooLarge) || !errors.As(err, &ue) {
+		t.Errorf("second request = %v, want ErrBodyTooLarge through *url.Error, as a live oversized body", err)
+	}
+	if calls != 1 {
+		t.Errorf("upstream calls = %d, want 1: the marker answers the second request", calls)
+	}
+}
+
+// TestCachingTransport_TooLargeMarkerBypassAndExpiry: --force (WithBypass)
+// and an expired marker ask upstream again, and a 200 that fits replaces the
+// marker with an ordinary entry.
+func TestCachingTransport_TooLargeMarkerBypassAndExpiry(t *testing.T) {
+	calls := 0
+	small := false
+	srv := oversizedServer(t, &calls, &small)
+	dir := t.TempDir()
+	tr := NewTransport(http.DefaultTransport, dir, time.Hour)
+	client := &http.Client{Transport: tr}
+
+	_ = getBig(context.Background(), client, srv.URL)
+	if err := getBig(WithBypass(context.Background()), client, srv.URL); !errors.Is(err, httpio.ErrBodyTooLarge) || calls != 2 {
+		t.Errorf("bypassed request = %v after %d calls, want a fresh upstream request (2)", err, calls)
 	}
 
-	// A second request must hit the origin again (proving it wasn't cached).
-	req2, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/big", nil)
-	if resp2, err := client.Do(req2); err == nil {
-		_ = resp2.Body.Close()
+	// Age the marker past the TTL: the next request goes upstream, and a
+	// response that now fits replaces the marker.
+	files := cacheFiles(t, dir)
+	marker := filepath.Join(dir, files[0])
+	data, _ := os.ReadFile(marker)
+	var m tooLargeMarker
+	_ = json.Unmarshal(data, &m)
+	m.Timestamp = time.Now().Add(-2 * time.Hour)
+	data, _ = json.Marshal(m)
+	_ = os.WriteFile(marker, data, 0o644)
+	small = true
+	if err := getBig(context.Background(), client, srv.URL); err != nil || calls != 3 {
+		t.Fatalf("request after expiry = %v after %d calls, want a fresh upstream request (3) that fits", err, calls)
 	}
-	if callCount != 2 {
-		t.Errorf("expected 2 origin calls (no cache), got %d", callCount)
+	if files := cacheFiles(t, dir); len(files) != 2 || slices.ContainsFunc(files, func(n string) bool { return strings.HasSuffix(n, tooLargeExt) }) {
+		t.Errorf("cache dir = %q, want the body and meta, the marker gone", files)
+	}
+	if err := getBig(context.Background(), client, srv.URL); err != nil || calls != 3 {
+		t.Errorf("repeat = %v after %d calls, want a cache hit", err, calls)
 	}
 }
 

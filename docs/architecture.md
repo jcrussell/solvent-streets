@@ -568,7 +568,11 @@ request, and served for `[cache] ttl`, a week by default (`cache.DefaultTTL`).
 The default is long because Overpass and Nominatim send no validators, so a
 stale entry is a full re-download: a week keeps a retry or a replay of the same
 city on the corpus it first fetched. That includes Overpass POSTs, because the key folds in
-the method and body. The cache has no online eviction: a directory scan in
+the method and body. A `200` whose body is over the 100 MiB response cap (New
+York's roads over its whole bbox) is not cached; a `<key>.toolarge` marker
+records it instead, for the TTL, and the request then fails at once as too
+large without asking upstream, so the Overpass fetch splits straight to its
+quadrants, which are cached (`--force` ignores the marker). The cache has no online eviction: a directory scan in
 front of every request would cost more than it saves. Eviction is the
 explicit offline sweep `pvmt cache prune` (see
 [troubleshooting](troubleshooting.md#disk-usage-the-http-cache-keeps-growing)).

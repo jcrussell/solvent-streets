@@ -12,6 +12,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/httpio"
+	"github.com/jcrussell/solvent-streets/internal/logs"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/textutil"
 )
@@ -63,7 +64,7 @@ func (s *OverpassSource) Fetch(ctx context.Context, client *http.Client, rt reso
 		exclude := *s.Exclude
 		query = func(bbox [4]float64) string { return ex.OverpassQueryExcluding(bbox, exclude) }
 	}
-	return fetchSplitting(s.BBox,
+	return fetchSplittingLogged(s.BBox, splitLogger(ctx),
 		func(bbox [4]float64) ([]db.Feature, error) { return fetchBBox(ctx, client, rt.Type(), query(bbox)) },
 		func(f db.Feature) string { return f.ID })
 }
@@ -75,6 +76,22 @@ func (s *OverpassSource) Fetch(ctx context.Context, client *http.Client, rt reso
 // edge comes back from every quadrant it touches, so items are deduped by
 // key.
 func fetchSplitting[T any](bbox [4]float64, fetch func([4]float64) ([]T, error), key func(T) string) ([]T, error) {
+	return fetchSplittingLogged(bbox, nil, fetch, key)
+}
+
+// splitLogger logs each fetchSplitting split at Info on ctx's logger,
+// naming the reason (a response too large for one request, a truncation
+// remark, cut-off JSON), so a run's log shows when a bbox was split.
+func splitLogger(ctx context.Context) func(depth int, reason error) {
+	return func(depth int, reason error) {
+		logs.From(ctx).Info("overpass response unusable for one request; splitting into quadrants",
+			"depth", depth, "reason", reason)
+	}
+}
+
+// fetchSplittingLogged is fetchSplitting calling onSplit (when non-nil)
+// before each split, with the new depth and the error that caused it.
+func fetchSplittingLogged[T any](bbox [4]float64, onSplit func(depth int, reason error), fetch func([4]float64) ([]T, error), key func(T) string) ([]T, error) {
 	var all []T
 	seen := make(map[string]bool)
 	var visit func(bbox [4]float64, depth int) error
@@ -86,6 +103,9 @@ func fetchSplitting[T any](bbox [4]float64, fetch func([4]float64) ([]T, error),
 		}
 		if !isParseError(err) || depth >= maxSplitDepth {
 			return err
+		}
+		if onSplit != nil {
+			onSplit(depth+1, err)
 		}
 		for _, q := range splitBBox(bbox) {
 			if err := visit(q, depth+1); err != nil {

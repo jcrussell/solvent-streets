@@ -1,19 +1,24 @@
 package ingest
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 	"unicode/utf8"
 
+	"github.com/jcrussell/solvent-streets/internal/cache"
 	"github.com/jcrussell/solvent-streets/internal/httpio"
+	"github.com/jcrussell/solvent-streets/internal/logs"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
@@ -668,5 +673,52 @@ func TestOverpassSource_ExcludeSendsDifference(t *testing.T) {
 	}
 	if strings.Contains(queries[1], "- way[") || strings.Contains(queries[1], "37.620000") {
 		t.Errorf("roads query used Exclude:\n%s", queries[1])
+	}
+}
+
+// TestFetch_TooLargeMarkerSkipsTheFullRequestOnRepeat (solvent-streets-vds3):
+// behind the caching transport, a full-bbox response over the size cap is
+// remembered as too large, so a repeat fetch makes no upstream request at
+// all: the marker answers the full request and the quadrants are cached.
+// The split is logged.
+func TestFetch_TooLargeMarkerSkipsTheFullRequestOnRepeat(t *testing.T) {
+	prevCache, prevIngest := httpio.MaxResponseBodyBytes, maxResponseBodyBytes
+	httpio.MaxResponseBodyBytes, maxResponseBodyBytes = 256, 256
+	t.Cleanup(func() { httpio.MaxResponseBodyBytes, maxResponseBodyBytes = prevCache, prevIngest })
+
+	bbox := [4]float64{37.6, -121.9, 37.8, -121.6}
+	full := fmt.Sprintf("(%f,%f,%f,%f)", bbox[0], bbox[1], bbox[2], bbox[3])
+	var mu sync.Mutex
+	upstream := 0
+	inner := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		raw, _ := io.ReadAll(r.Body)
+		form, _ := url.ParseQuery(string(raw))
+		mu.Lock()
+		upstream++
+		n := upstream
+		mu.Unlock()
+		body := fmt.Sprintf(`{"elements":[{"type":"way","id":%d,"tags":{"highway":"residential"},`+
+			`"geometry":[{"lat":37.68,"lon":-121.77},{"lat":37.69,"lon":-121.76}]}]}`, 1000+n)
+		if strings.Contains(form.Get("data"), full) {
+			body = `{"elements":[],"padding":"` + strings.Repeat("x", 512) + `"}`
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)),
+			Header: make(http.Header), Request: r}, nil
+	})
+	client := &http.Client{Transport: cache.NewTransport(inner, t.TempDir(), time.Hour)}
+	src := &OverpassSource{BBox: bbox}
+
+	var buf bytes.Buffer
+	ctx := logs.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	first, err := src.Fetch(ctx, client, resource.ByType(resource.TypeRoads))
+	if err != nil || len(first) != 4 || upstream != 5 {
+		t.Fatalf("first fetch = %d features, %v after %d upstream requests; want 4 from 1 oversized + 4 quadrants", len(first), err, upstream)
+	}
+	if !strings.Contains(buf.String(), "splitting into quadrants") {
+		t.Errorf("log = %q; want the split logged", buf.String())
+	}
+	again, err := src.Fetch(ctx, client, resource.ByType(resource.TypeRoads))
+	if err != nil || len(again) != 4 || upstream != 5 {
+		t.Errorf("repeat fetch = %d features, %v after %d upstream requests; want 4 with none upstream", len(again), err, upstream-5)
 	}
 }

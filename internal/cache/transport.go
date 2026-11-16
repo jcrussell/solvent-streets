@@ -87,6 +87,7 @@ func (t *CachingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	key := cacheKey(req.Method, req.URL.String(), bodyBytes)
 	bodyPath := filepath.Join(t.Dir, key+bodyExt)
 	metaPath := filepath.Join(t.Dir, key+metaExt)
+	markerPath := filepath.Join(t.Dir, key+tooLargeExt)
 
 	// Two things suppress the read entirely: TTL=0 (cache fully disabled)
 	// and a per-request --force bypass (cache.WithBypass). Checking bypass
@@ -101,6 +102,14 @@ func (t *CachingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		haveCache  bool
 	)
 	if t.TTL > 0 && !bypassRequested(req.Context()) {
+		// A response remembered as over the size cap is not asked for
+		// again: the caller (fetchSplitting) splits it into requests that
+		// are cached, so re-sending this one would only re-download a body
+		// to throw away (solvent-streets-vds3).
+		if m, ok := readTooLarge(markerPath); ok && time.Since(m.Timestamp) < t.TTL {
+			return nil, fmt.Errorf("read response body: %w (remembered from %s; not asked for again until the cache ttl passes or --force)",
+				httpio.ErrBodyTooLarge, m.Timestamp.UTC().Format(time.RFC3339))
+		}
 		meta, cachedBody, haveCache = t.readCache(metaPath, bodyPath)
 	}
 	if t.TTL > 0 && haveCache && time.Since(meta.Timestamp) < t.TTL {
@@ -135,11 +144,15 @@ func (t *CachingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	body, err := httpio.ReadAllLimit(resp.Body, httpio.MaxResponseBodyBytes)
 	_ = resp.Body.Close()
 	if err != nil {
+		if errors.Is(err, httpio.ErrBodyTooLarge) && resp.StatusCode == http.StatusOK {
+			t.writeTooLarge(markerPath, metaPath, bodyPath, req.URL.String())
+		}
 		return nil, fmt.Errorf("read response body: %w", err)
 	}
 
 	if resp.StatusCode == http.StatusOK {
 		t.writeCache(metaPath, bodyPath, resp, body, req.URL.String())
+		_ = os.Remove(markerPath) // the key fits now; best-effort
 	}
 
 	resp.Body = io.NopCloser(bytes.NewReader(body))
@@ -188,12 +201,53 @@ func firstHeaderValue(h map[string][]string, key string) string {
 // legacyBodyExt is the uncompressed <key>.json body written before v0.5.0.
 // The transport never reads one (that key is a miss and is re-fetched into
 // the new format); prune recognizes it only to sweep it as residue.
+//
+// A request whose 200 response was over httpio.MaxResponseBodyBytes has,
+// instead of the pair, a <key>.toolarge marker (tooLargeMarker): it is
+// remembered as too large, like any entry, for the TTL.
 const (
 	bodyExt       = ".json.gz"
 	legacyBodyExt = ".json"
 	metaExt       = ".meta"
+	tooLargeExt   = ".toolarge"
 	keyLen        = sha256.Size * 2
 )
+
+// tooLargeMarker is the content of a <key>.toolarge file.
+type tooLargeMarker struct {
+	Timestamp  time.Time `json:"timestamp"`
+	URL        string    `json:"url"`
+	LimitBytes int64     `json:"limit_bytes"`
+}
+
+// readTooLarge reads a too-large marker. A corrupt one is removed and
+// reads as absent.
+func readTooLarge(path string) (tooLargeMarker, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return tooLargeMarker{}, false
+	}
+	var m tooLargeMarker
+	if err := json.Unmarshal(data, &m); err != nil {
+		_ = os.Remove(path)
+		return tooLargeMarker{}, false
+	}
+	return m, true
+}
+
+// writeTooLarge records that the key's response is over the cap, replacing
+// any earlier entry for the key (which a fresh request means was stale).
+func (t *CachingTransport) writeTooLarge(markerPath, metaPath, bodyPath, url string) {
+	data, err := json.Marshal(tooLargeMarker{Timestamp: time.Now(), URL: url, LimitBytes: httpio.MaxResponseBodyBytes})
+	if err != nil {
+		return
+	}
+	if err := fsutil.WriteFile(markerPath, data, 0o644); err != nil { // best-effort cache write
+		return
+	}
+	_ = os.Remove(metaPath)
+	_ = os.Remove(bodyPath)
+}
 
 // cacheKey derives the on-disk cache filename from the request method,
 // URL, and body. Folding the body in lets POSTs with identical URLs but
