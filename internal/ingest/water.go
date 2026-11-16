@@ -199,6 +199,10 @@ func assembleWaterGeoJSON(ctx context.Context, elements []overpassElement, bbox 
 	if len(polys) == 0 {
 		return "", nil
 	}
+	polys = clipWaterToBBox(polys, bbox)
+	if len(polys) == 0 {
+		return "", nil
+	}
 	return polysToMultiPolygonGeoJSON(polys), nil
 }
 

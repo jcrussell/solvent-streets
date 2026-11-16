@@ -179,6 +179,8 @@ that saves nothing until it ends:
    roads, an island's closed coastline is land: it is a hole in the sea
    around it, and when only islands' coastlines cross the bbox, the rest of
    the bbox is the candidate sea, so an island city is cut to its islands.
+   The water is clipped to the bbox before the subtract, so a Great Lake
+   costs no more than a pond.
 4. Check the result against the same roads (`chooseBoundary`): a strip that
    leaves too few of them inside is replaced by its complement, or else by
    the unstripped boundary.
