@@ -2227,3 +2227,19 @@ func TestAssembleWater_WarnsOnStrippingAFaceItsCoastlinesPutOnLand(t *testing.T)
 		}
 	}
 }
+
+// TestFetchOSMWater_LogsItsSplits: the water fetch logs each split, as the
+// Overpass feature fetch does.
+func TestFetchOSMWater_LogsItsSplits(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(truncatedWaterBody))
+	}))
+	t.Cleanup(srv.Close)
+	var buf bytes.Buffer
+	ctx := logs.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	_, _ = fetchOSMWater(ctx, uaClient(srv), srv.URL, [4]float64{0, 0, 2, 2}, LandProbes{Points: [][2]float64{{1, 1}}})
+	if !strings.Contains(buf.String(), "splitting into quadrants") {
+		t.Errorf("log = %q; want the water fetch's splits logged", buf.String())
+	}
+}

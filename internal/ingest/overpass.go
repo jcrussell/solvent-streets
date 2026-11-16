@@ -64,19 +64,9 @@ func (s *OverpassSource) Fetch(ctx context.Context, client *http.Client, rt reso
 		exclude := *s.Exclude
 		query = func(bbox [4]float64) string { return ex.OverpassQueryExcluding(bbox, exclude) }
 	}
-	return fetchSplittingLogged(s.BBox, splitLogger(ctx),
+	return fetchSplitting(s.BBox, splitLogger(ctx),
 		func(bbox [4]float64) ([]db.Feature, error) { return fetchBBox(ctx, client, rt.Type(), query(bbox)) },
 		func(f db.Feature) string { return f.ID })
-}
-
-// fetchSplitting returns fetch(bbox). When that response is unusable
-// (isParseError) it splits bbox into quadrants and fetches each instead,
-// recursing up to maxSplitDepth; a quadrant still unusable at that depth, or
-// any other error, fails the whole fetch. An item that crosses a quadrant
-// edge comes back from every quadrant it touches, so items are deduped by
-// key.
-func fetchSplitting[T any](bbox [4]float64, fetch func([4]float64) ([]T, error), key func(T) string) ([]T, error) {
-	return fetchSplittingLogged(bbox, nil, fetch, key)
 }
 
 // splitLogger logs each fetchSplitting split at Info on ctx's logger,
@@ -89,9 +79,15 @@ func splitLogger(ctx context.Context) func(depth int, reason error) {
 	}
 }
 
-// fetchSplittingLogged is fetchSplitting calling onSplit (when non-nil)
-// before each split, with the new depth and the error that caused it.
-func fetchSplittingLogged[T any](bbox [4]float64, onSplit func(depth int, reason error), fetch func([4]float64) ([]T, error), key func(T) string) ([]T, error) {
+// fetchSplitting returns fetch(bbox). When that response is unusable
+// (isParseError) it splits bbox into quadrants and fetches each instead,
+// recursing up to maxSplitDepth; a quadrant still unusable at that depth, or
+// any other error, fails the whole fetch. An item that crosses a quadrant
+// edge comes back from every quadrant it touches, so items are deduped by
+// key.
+// onSplit, when non-nil, is called before each split with the new depth and
+// the error that caused it (splitLogger).
+func fetchSplitting[T any](bbox [4]float64, onSplit func(depth int, reason error), fetch func([4]float64) ([]T, error), key func(T) string) ([]T, error) {
 	var all []T
 	seen := make(map[string]bool)
 	var visit func(bbox [4]float64, depth int) error

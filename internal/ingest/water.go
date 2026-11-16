@@ -47,7 +47,7 @@ func fetchOSMWater(ctx context.Context, client *http.Client, baseURL string, bbo
 	// the ORIGINAL bbox, so coastline closing and the land-probe logic
 	// (both tied to the query bbox) behave identically to a single big
 	// successful query — quadrant edges never enter the geometry.
-	elements, err := fetchSplitting(bbox,
+	elements, err := fetchSplitting(bbox, splitLogger(ctx),
 		func(bbox [4]float64) ([]overpassElement, error) {
 			body, err := postOverpass(ctx, client, baseURL, buildWaterQuery(bbox))
 			if err != nil {
