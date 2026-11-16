@@ -557,6 +557,10 @@ name = "Redwood City, CA"
 #@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
 forecast.initial_pci = 68
 overpass = true
+# OSM's Redwood City boundary (relation 112309) is tagged type=site with no
+# boundary=administrative (seen 2026-11-16), so Nominatim returns only the
+# place node; pin the relation to get the municipal footprint.
+boundary_relation_id = 112309
 
 [[cities]]
 name = "San Bruno, CA"
