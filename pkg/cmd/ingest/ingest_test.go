@@ -2379,3 +2379,48 @@ func TestResolveBoundary_CancelledWaterStripRecordsNoRoads(t *testing.T) {
 		t.Errorf("attempts = %+v, want none for a cancelled run", store.Attempts)
 	}
 }
+
+// TestRunIngest_FacilityRunsCompanionDespiteBoundaryRoadsSaveFailure: in a
+// services ingest on a fresh boundary, a failed save of the boundary's
+// roads still fails the run, but only after the routing-roads companion,
+// which does not depend on those roads, has been fetched.
+func TestRunIngest_FacilityRunsCompanionDespiteBoundaryRoadsSaveFailure(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	city := cmdtest.NewTestCity()
+	city.Overpass = true
+	up := &fakeUpstream{boundary: noSourceBoundary, roadsBody: oneRoadInNoSourceBoundary}
+	inner := up.client().Transport
+	routing := 0
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Method == http.MethodPost {
+			raw, _ := io.ReadAll(r.Body)
+			if form, _ := url.ParseQuery(string(raw)); strings.Contains(form.Get("data"), "living_street") {
+				routing++
+			}
+			r.Body = io.NopCloser(strings.NewReader(string(raw)))
+		}
+		return inner.RoundTrip(r)
+	})}
+	var saved, upserts []string
+	store := boundaryStore(&saved, &upserts)
+	store.UpsertFeaturesFunc = func(_ context.Context, rt resource.Type, _ []db.Feature, _ []string) error {
+		if rt == resource.TypeRoads {
+			return errors.New("disk full")
+		}
+		return nil
+	}
+	err := runIngest(context.Background(), &Options{
+		IO:           ios,
+		CityDB:       func() (db.Store, error) { return store, nil },
+		CurrentCity:  func() (*config.CityConfig, error) { return city, nil },
+		HttpClient:   func() (*http.Client, error) { return client, nil },
+		ResourceType: &resource.Facility{Service: "fire", Selectors: []string{`["amenity"="fire_station"]`}},
+		Source:       cmdutil.SourceAll,
+	})
+	if routing != 1 {
+		t.Errorf("routing-roads queries = %d, want 1: the companion must run", routing)
+	}
+	if err == nil || errors.Is(err, cmdutil.ErrNoResults) || !strings.Contains(err.Error(), "disk full") {
+		t.Errorf("services ingest = %v, want the roads save failure", err)
+	}
+}

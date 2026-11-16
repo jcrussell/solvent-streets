@@ -316,16 +316,21 @@ func runIngest(ctx context.Context, opts *Options) error {
 	// A --source this city's pvmt.toml switched off fails before the
 	// boundary fetch, not after it (solvent-streets-0z82). The dry run above
 	// only warns about it.
-	err = fetchAndSave(ctx, opts, store, client, city)
-	return ingestCompanions(opts, err, func(o *Options) error {
+	roads, err := fetchAndSave(ctx, opts, store, client, city)
+	err = ingestCompanions(opts, err, func(o *Options) error {
 		// The resource's own run resolved the boundary, so a companion
 		// reads it from the store rather than re-resolving it for
 		// --force or --rebuild-boundary.
 		if o.boundary == nil {
 			o.boundary = &Boundary{}
 		}
-		return fetchAndSave(ctx, o, store, client, city)
+		_, err := fetchAndSave(ctx, o, store, client, city)
+		return err
 	})
+	// The roads a fresh boundary saved are reported after the companions,
+	// which do not depend on them: a failed roads save must not keep the
+	// routing roads from being fetched.
+	return reportBoundaryRoads(opts.IO, city, roads, err)
 }
 
 // ingestCompanions runs run for each of opts.ResourceType's companions
@@ -351,16 +356,18 @@ func ingestCompanions(opts *Options, err error, run func(*Options) error) error 
 // fetchAndSave is the network half of runIngest: the source check, the
 // boundary, the fetch and the save. A fresh boundary saves the city's roads
 // itself (fetchBoundary), so a roads ingest then reports those instead of
-// fetching them again.
-func fetchAndSave(ctx context.Context, opts *Options, store db.Store, client *http.Client, city *config.CityConfig) error {
+// fetching them again. Any other ingest returns, beside its own result, the
+// roads its fresh boundary saved, for the caller to report
+// (reportBoundaryRoads); nil when the boundary was not fresh in this run.
+func fetchAndSave(ctx context.Context, opts *Options, store db.Store, client *http.Client, city *config.CityConfig) (*roadsOutcome, error) {
 	if err := checkSourceEnabled(opts, city); err != nil {
-		return err
+		return nil, err
 	}
 	ios := opts.IO
 
 	boundaryGJSON, b, err := resolveBoundary(ctx, opts, store, client, city, liveBoundaryFetchers(opts, city))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// Roads a fresh boundary saved in this very run, which a step other than
 	// roads reports alongside its own result (reportBoundaryRoads).
@@ -372,9 +379,9 @@ func fetchAndSave(ctx context.Context, opts *Options, store db.Store, client *ht
 	}
 	if roads := b.boundaryRoads(); roads != nil && opts.ResourceType.Type() == resource.TypeRoads {
 		fmt.Fprintf(ios.ErrOut, "Roads for %s were fetched with the boundary; not fetching them again.\n", city.Name)
-		return roads.result()
+		return nil, roads.result()
 	}
-	return reportBoundaryRoads(ios, city, freshRoads, fetchAndSaveResource(ctx, opts, store, client, city, boundaryGJSON))
+	return freshRoads, fetchAndSaveResource(ctx, opts, store, client, city, boundaryGJSON)
 }
 
 // reportBoundaryRoads folds the roads a fresh boundary saved during a
