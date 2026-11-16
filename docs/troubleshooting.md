@@ -222,11 +222,11 @@ wrong:
   failed while the boundary was resolved, and the roads are the strip's land
   evidence. Nothing was saved, so the next ingest retries. The warnings above
   it name the source.
-- **Warning `water strip: no road probes for <city>, using the boundary's
-  interior points`.** No road lies inside the boundary, or the city has no
-  road source, so the strip fell back to one interior point per sub-polygon
-  and can keep water that roads would have exposed. Check the city's
-  `overpass` and `arcgis_url` settings.
+- **Warning `water strip: no road probes for <city> (fewer than 30 roads
+  inside its boundary), …`.** Too few roads lie inside the boundary (one per
+  0.001° cell counts), or the city has no road source, so the strip fell
+  back to one interior point per sub-polygon and can keep water that roads
+  would have exposed. Check the city's `overpass` and `arcgis_url` settings.
 - **Warning `Water-strip inversion recovered …` or `Water-strip rollback …`.**
   The strip left too few of the city's roads inside the boundary, so the
   complement of the strip, or the unstripped boundary, was saved instead.

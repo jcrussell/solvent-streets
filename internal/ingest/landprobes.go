@@ -41,10 +41,23 @@ func InteriorLandProbes(boundaryGJSON string) (LandProbes, error) {
 // midpoint of a two-vertex road), not its first: a bridge approach starts on
 // the shore, and a road's middle is the part least likely to be at a
 // shoreline. MaxHits is waterLandHitFloor, or waterLandHitFrac of the
-// probes when that is more. It returns no points when no road qualifies, or
-// when boundaryGJSON is not a polygon; the caller then falls back to
-// InteriorLandProbes.
+// probes when that is more. It returns no points when fewer than
+// RoadProbeMinCells cells qualify, or when boundaryGJSON is not a polygon;
+// the caller then falls back to InteriorLandProbes.
 func RoadLandProbes(roads []db.Feature, boundaryGJSON string) LandProbes {
+	return roadLandProbes(roads, boundaryGJSON, RoadProbeMinCells)
+}
+
+// RoadProbeMinCells is the fewest road probes (grid cells) that make dense
+// probes. Dense probes reject a water candidate only above the allowance,
+// at least waterLandHitFloor hits, and lift the bbox-area cap; a handful of
+// probes could hardly ever exceed that floor, so they would reject almost
+// nothing, which is weaker than the one-hit rule of the interior points.
+// Ten times the floor keeps a land-side candidate of a sparsely-roaded city
+// (or one whose road fetch came back nearly empty) clearly over it.
+const RoadProbeMinCells = 10 * waterLandHitFloor
+
+func roadLandProbes(roads []db.Feature, boundaryGJSON string, minCells int) LandProbes {
 	polys, err := parsePolygons(boundaryGJSON)
 	if err != nil || len(roads) == 0 {
 		return LandProbes{}
@@ -67,7 +80,7 @@ func RoadLandProbes(roads []db.Feature, boundaryGJSON string) LandProbes {
 		seen[cell] = true
 		pts = append(pts, p)
 	}
-	if len(pts) == 0 {
+	if len(pts) == 0 || len(pts) < minCells {
 		return LandProbes{}
 	}
 	return LandProbes{Points: pts, MaxHits: waterLandHitAllowance(len(pts)), Dense: true}

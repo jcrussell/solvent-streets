@@ -780,7 +780,8 @@ func stripWithLandEvidence(
 ) (string, error) {
 	probes := ingestpkg.RoadLandProbes(landEvidenceRoads(roads, city), unstripped)
 	if len(probes.Points) == 0 {
-		cmdutil.Warnf(opts.IO, "water strip: no road probes for %s, using the boundary's interior points", city.Name)
+		cmdutil.Warnf(opts.IO, "water strip: no road probes for %s (fewer than %d roads inside its boundary), using the boundary's interior points",
+			city.Name, ingestpkg.RoadProbeMinCells)
 		var err error
 		if probes, err = ingestpkg.InteriorLandProbes(unstripped); err != nil {
 			fmt.Fprintf(opts.IO.ErrOut, "  water strip skipped: interior points: %v\n", err)

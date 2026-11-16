@@ -167,9 +167,8 @@ that saves nothing until it ends:
    leaving out bridges, tunnels, piers, fords and the like. The probes come
    from the OSM roads whenever the city uses Overpass, and from ArcGIS only
    when it is the sole source, because ArcGIS centerlines carry no bridge
-   tags. With no such
-   road, the probes are the boundary's interior points, one per
-   sub-polygon.
+   tags. With fewer than 30 such roads (`ingest.RoadProbeMinCells`), the
+   probes are the boundary's interior points, one per sub-polygon.
 3. Fetch the OSM water (`ingest.FetchOSMWater`: `natural=water` ways and
    relations, and `natural=coastline` closed along the bbox), drop every
    candidate that holds more probes than a small allowance

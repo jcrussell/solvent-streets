@@ -184,7 +184,7 @@ func TestRoadLandProbes(t *testing.T) {
 		// bridge=no is an ordinary road.
 		roadFeature("not-a-bridge", map[string]string{"highway": "primary", "bridge": "no"}, [2]float64{0.85, 0.85}, [2]float64{0.95, 0.95}),
 	}
-	got := RoadLandProbes(roads, boundary)
+	got := roadLandProbes(roads, boundary, 1)
 	want := [][2]float64{{0.25, 0.25}, {0.75, 0.25}, {0.9, 0.9}}
 	if len(got.Points) != len(want) {
 		t.Fatalf("probes = %v, want %v", got.Points, want)
@@ -245,5 +245,24 @@ func TestAssembleWater_DenseProbesAllowAFewHits(t *testing.T) {
 				t.Errorf("lake kept = %v, want %v (result %q)", kept, c.kept, got)
 			}
 		})
+	}
+}
+
+// TestRoadLandProbes_TooFewFallsBack: fewer than RoadProbeMinCells road
+// probes would reject almost no water candidate (the allowance is at least
+// waterLandHitFloor), so they give no dense probes and the caller falls
+// back to the interior points' one-hit rule.
+func TestRoadLandProbes_TooFewFallsBack(t *testing.T) {
+	boundary := `{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,1],[0,0]]]}`
+	var roads []db.Feature
+	for i := range RoadProbeMinCells {
+		x := 0.01 + 0.02*float64(i)
+		roads = append(roads, roadFeature(fmt.Sprint(i), nil, [2]float64{x, 0.5}, [2]float64{x, 0.5}))
+	}
+	if got := RoadLandProbes(roads[:RoadProbeMinCells-1], boundary); len(got.Points) != 0 || got.Dense {
+		t.Errorf("%d roads gave %+v, want no probes", RoadProbeMinCells-1, got)
+	}
+	if got := RoadLandProbes(roads, boundary); len(got.Points) != RoadProbeMinCells || !got.Dense {
+		t.Errorf("%d roads gave %d probes (dense %v), want %d dense", RoadProbeMinCells, len(got.Points), got.Dense, RoadProbeMinCells)
 	}
 }

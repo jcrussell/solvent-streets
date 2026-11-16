@@ -1838,7 +1838,11 @@ func TestFetchBoundary_FetchesRoadsOverUnstrippedBBox(t *testing.T) {
 	// The water is the right half, so the stripped boundary's bbox is half
 	// the unstripped one's.
 	water := `{"type":"MultiPolygon","coordinates":[[[[1,0],[2,0],[2,2],[1,2],[1,0]]]]}`
-	roads := []db.Feature{roadLine("a", 0.2, 0.2, 0.3, 0.3), roadLine("b", 0.5, 1.5, 0.6, 1.5)}
+	var roads []db.Feature
+	for i := range 40 {
+		y := 0.02 + 0.045*float64(i)
+		roads = append(roads, roadLine(fmt.Sprint("r", i), 0.2, y, 0.3, y))
+	}
 	var gotBBox [4]float64
 	var probes ingestpkg.LandProbes
 	var saved, upserts []string
@@ -1853,14 +1857,14 @@ func TestFetchBoundary_FetchesRoadsOverUnstrippedBBox(t *testing.T) {
 	if want, _ := geo.BBoxFromGeoJSON(bigSquareBoundary); gotBBox != want {
 		t.Errorf("roads fetched over %v, want the unstripped boundary's bbox %v", gotBBox, want)
 	}
-	if !probes.Dense || len(probes.Points) != 2 {
-		t.Errorf("water probes = %+v, want the two roads' dense probes", probes)
+	if !probes.Dense || len(probes.Points) != 40 {
+		t.Errorf("water probes = %+v, want the 40 roads' dense probes", probes)
 	}
 	if want := []string{"nominatim+osm-water"}; !slices.Equal(saved, want) {
 		t.Errorf("boundary saves = %q, want %q", saved, want)
 	}
-	if b == nil || b.roads == nil || b.roads.saved != 2 || b.roads.result() != nil {
-		t.Errorf("boundary roads = %+v, want both roads saved", b)
+	if b == nil || b.roads == nil || b.roads.saved != 40 || b.roads.result() != nil {
+		t.Errorf("boundary roads = %+v, want every road saved", b)
 	}
 }
 
@@ -2067,5 +2071,27 @@ func TestFetchBoundary_ArcGISBridgesDoNotKeepTheRiver(t *testing.T) {
 	arcgisOnly := &config.CityConfig{Name: "Agency, CA", ArcGISURL: "https://example.test/query"}
 	if got := landEvidenceRoads(arcgis, arcgisOnly); len(got) != len(arcgis) {
 		t.Errorf("land evidence for an ArcGIS-only city = %d roads, want all %d", len(got), len(arcgis))
+	}
+}
+
+// TestResolveBoundary_FewRoadsFallBackToInteriorPoints: a few roads inside
+// the boundary are too few to be dense probes, so the strip uses the
+// interior points, with the fallback warning.
+func TestResolveBoundary_FewRoadsFallBackToInteriorPoints(t *testing.T) {
+	var probes ingestpkg.LandProbes
+	ios, _, _, errOut := iostreams.Test()
+	few := []db.Feature{roadLine("a", 0.2, 0.2, 0.3, 0.3), roadLine("b", 0.5, 1.5, 0.6, 1.5)}
+	_, _, err := resolveBoundary(context.Background(), &Options{IO: ios}, &dbtest.MockStore{}, &http.Client{},
+		&config.CityConfig{Name: "Oakland, CA"},
+		boundaryFetchers{byName: recordingNominatim(bigSquareBoundary, nil), water: recordingWater("", &probes),
+			roads: recordingRoads(few, nil)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if probes.Dense || !slices.Equal(probes.Points, interiorProbes(t, bigSquareBoundary).Points) {
+		t.Errorf("water probes = %+v, want the interior points", probes)
+	}
+	if !strings.Contains(errOut.String(), "no road probes") {
+		t.Errorf("stderr = %q; want the fallback warned about", errOut)
 	}
 }
