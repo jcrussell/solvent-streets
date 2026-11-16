@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"context"
+	"fmt"
 	"math"
 
 	"github.com/jcrussell/solvent-streets/internal/geo"
@@ -124,7 +125,11 @@ func waterFaces(ctx context.Context, faces []coastFace, opens [][][2]float64, pr
 
 // splitFaces cuts the face holding sub into its parts inside sub's two
 // bbox closures. sub's vertices lie inside one face (coastlines do not
-// cross), found by its middle point.
+// cross), but a vertex may be shared with an earlier sub, and then lies on
+// two faces' boundaries; so the face is looked up with points a hair off
+// sub's middle segment, and a face whose split leaves one side empty is the
+// wrong one: the next candidate is tried, and a chain with none is dropped
+// with a warning.
 func splitFaces(ctx context.Context, faces []coastFace, sub [][2]float64, bbox [4]float64) []coastFace {
 	drop := func(reason string) []coastFace {
 		logs.From(ctx).Warn("water coastline: dropped chain — "+reason, "vertices", len(sub))
@@ -132,40 +137,49 @@ func splitFaces(ctx context.Context, faces []coastFace, sub [][2]float64, bbox [
 	}
 	head, tail := sub[0], sub[len(sub)-1]
 	if !onBBoxEdge(head, bbox) || !onBBoxEdge(tail, bbox) {
-		return faces // cannot enclose anything, as in closeOpenSubChain
+		if !zeroLength(sub) { // a clip touching the bbox at one point is no chain
+			logs.From(ctx).Warn("water coastline: skipped a coastline that does not reach the bbox edge at both ends",
+				"vertices", len(sub), "head", fmt.Sprint(head), "tail", fmt.Sprint(tail))
+		}
+		return faces
 	}
 	ringCW, okCW := assembleClosedRing(sub, bboxWalkCW(tail, head, bbox))
 	ringCCW, okCCW := assembleClosedRing(sub, bboxWalkCCW(tail, head, bbox))
 	if !okCW || !okCCW {
 		return faces // degenerate: both endpoints on one edge with nothing between
 	}
-	mid := subChainMiddle(sub)
-	at := -1
-	for i, f := range faces {
-		if lonLatContains(f.polys, mid) {
-			at = i
-			break
+	tried := map[int]bool{}
+	for _, at := range []int{faceAt(faces, sub, 1), faceAt(faces, sub, -1)} {
+		if at < 0 || tried[at] {
+			continue
+		}
+		tried[at] = true
+		cw, err := geo.IntersectLonLat(faces[at].polys, []geo.LonLatPolygon{{ringCW}})
+		if err != nil {
+			return drop("face split failed: " + err.Error())
+		}
+		ccw, err := geo.IntersectLonLat(faces[at].polys, []geo.LonLatPolygon{{ringCCW}})
+		if err != nil {
+			return drop("face split failed: " + err.Error())
+		}
+		if len(cw) == 0 || len(ccw) == 0 {
+			continue // the face lies wholly on one side: not the one sub cuts
+		}
+		out := append([]coastFace{}, faces[:at]...)
+		out = append(out, faces[at+1:]...)
+		return append(out, coastFace{polys: cw}, coastFace{polys: ccw})
+	}
+	return drop("no face holds it")
+}
+
+// zeroLength reports a sub-chain whose vertices all coincide.
+func zeroLength(sub [][2]float64) bool {
+	for _, p := range sub[1:] {
+		if p != sub[0] {
+			return false
 		}
 	}
-	if at < 0 {
-		return drop("no face holds it")
-	}
-	cw, err := geo.IntersectLonLat(faces[at].polys, []geo.LonLatPolygon{{ringCW}})
-	if err != nil {
-		return drop("face split failed: " + err.Error())
-	}
-	ccw, err := geo.IntersectLonLat(faces[at].polys, []geo.LonLatPolygon{{ringCCW}})
-	if err != nil {
-		return drop("face split failed: " + err.Error())
-	}
-	out := append([]coastFace{}, faces[:at]...)
-	out = append(out, faces[at+1:]...)
-	for _, part := range [][]geo.LonLatPolygon{cw, ccw} {
-		if len(part) > 0 {
-			out = append(out, coastFace{polys: part})
-		}
-	}
-	return out
+	return true
 }
 
 // faceWater is a face as water polygons, each with the islands inside it as
@@ -226,15 +240,6 @@ func startOutside(chain [][2]float64, bbox [4]float64) [][2]float64 {
 		}
 	}
 	return chain
-}
-
-// subChainMiddle is the middle vertex of sub, or the midpoint of its only
-// segment.
-func subChainMiddle(sub [][2]float64) [2]float64 {
-	if len(sub) == 2 {
-		return [2]float64{(sub[0][0] + sub[1][0]) / 2, (sub[0][1] + sub[1][1]) / 2}
-	}
-	return sub[len(sub)/2]
 }
 
 func lonLatContains(polys []geo.LonLatPolygon, p [2]float64) bool {

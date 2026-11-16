@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -2134,5 +2135,70 @@ func TestAssembleWater_FaceSliverIsCapped(t *testing.T) {
 		if warned := strings.Contains(buf.String(), "stripped a face holding a few city roads"); warned != c.warn {
 			t.Errorf("%d east probes: warned %v, want %v: %s", c.side*c.side, warned, c.warn, buf.String())
 		}
+	}
+}
+
+// TestSplitFaces_SubsTouchingAtAVertex is the review's case: two coastlines
+// that touch at one vertex, the middle vertex of one of them, so that a
+// lookup at that vertex can find the face on the wrong side. Over every
+// symmetry of the bbox, both directions and both orders, the two chains cut
+// the bbox into three faces.
+func TestSplitFaces_SubsTouchingAtAVertex(t *testing.T) {
+	a := [][2]float64{{0.5, -0.1}, {0.5, 0.5}, {1.1, 0.5}}
+	b := [][2]float64{{-0.1, 0.5}, {0.5, 0.5}, {0.5, 1.1}}
+	syms := []func(p [2]float64) [2]float64{
+		func(p [2]float64) [2]float64 { return p },
+		func(p [2]float64) [2]float64 { return [2]float64{1 - p[0], p[1]} },
+		func(p [2]float64) [2]float64 { return [2]float64{p[0], 1 - p[1]} },
+		func(p [2]float64) [2]float64 { return [2]float64{1 - p[0], 1 - p[1]} },
+		func(p [2]float64) [2]float64 { return [2]float64{p[1], p[0]} },
+		func(p [2]float64) [2]float64 { return [2]float64{1 - p[1], p[0]} },
+		func(p [2]float64) [2]float64 { return [2]float64{p[1], 1 - p[0]} },
+		func(p [2]float64) [2]float64 { return [2]float64{1 - p[1], 1 - p[0]} },
+	}
+	apply := func(f func([2]float64) [2]float64, chain [][2]float64, reverse bool) [][2]float64 {
+		out := make([][2]float64, len(chain))
+		for i, p := range chain {
+			out[i] = f(p)
+		}
+		if reverse {
+			slices.Reverse(out)
+		}
+		return out
+	}
+	bbox := [4]float64{0, 0, 1, 1}
+	idx := newLandProbeIndexFor(LandProbes{Dense: true, MaxHits: 3})
+	for si, f := range syms {
+		for _, reverse := range []bool{false, true} {
+			for _, swap := range []bool{false, true} {
+				chains := [][][2]float64{apply(f, a, reverse), apply(f, b, reverse)}
+				if swap {
+					chains[0], chains[1] = chains[1], chains[0]
+				}
+				_, opens := coastlineSubChains(context.Background(), chains, bbox, idx, nil)
+				faces := []coastFace{{polys: []geo.LonLatPolygon{{{{0, 0}, {0, 1}, {1, 1}, {1, 0}, {0, 0}}}}}}
+				for _, sub := range opens {
+					faces = splitFaces(context.Background(), faces, sub, bbox)
+				}
+				if len(faces) != 3 {
+					t.Errorf("symmetry %d reverse=%v swap=%v: %d faces, want 3", si, reverse, swap, len(faces))
+				}
+			}
+		}
+	}
+}
+
+// TestAssembleWater_WarnsOnACoastlineEndingInsideTheBBox: an open coastline
+// that does not reach the bbox edge at both ends cuts no face; it is warned
+// about rather than skipped silently.
+func TestAssembleWater_WarnsOnACoastlineEndingInsideTheBBox(t *testing.T) {
+	var buf bytes.Buffer
+	ctx := logs.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	body := coastlineBody([][2]float64{{0.5, -0.5}, {0.5, 0.5}})
+	if _, err := parseWaterResponse(ctx, []byte(body), [4]float64{0, 0, 1, 1}, denseProbes(gridProbes(10, 0.05, 0.05, 0.45, 0.95))); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "does not reach the bbox edge at both ends") {
+		t.Errorf("log = %q; want the skipped coastline warned about", buf.String())
 	}
 }
