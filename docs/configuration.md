@@ -253,7 +253,9 @@ Nominatim send no `ETag` or `Last-Modified`, so a stale entry is downloaded in
 full again; the long default keeps a retry of a failed city on the same data as
 the rest of the run. Shorten it to pick up OpenStreetMap edits sooner, or pass
 `--force` to an ingest command (`pvmt all ingest --force` included) to bypass
-the cache for one run. Only the loaded file's `[cache]` applies; an
+the cache for one run. `--rebuild-boundary` on the same commands re-resolves a
+stored city boundary and its water strip from the cached responses, so a fix
+to the strip can be replayed without asking upstream again. Only the loaded file's `[cache]` applies; an
 `[[include]]`d file's is ignored. It changes no stored result, so it is not part
 of the config hash. Disk use is separate: see `pvmt cache prune`.
 

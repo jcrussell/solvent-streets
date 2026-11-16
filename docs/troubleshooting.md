@@ -210,7 +210,9 @@ fairly across cities. It can fail in three ways:
 - **Warning `water strip skipped: …`** (`bbox:`, `interior points:` or
   `subtract:`). The geometry step failed, so the boundary was saved with its
   water still in, and area figures are inflated. Re-run the ingest with
-  `--force`. If it recurs, the boundary itself is probably wrong (next item).
+  `--rebuild-boundary`, which re-resolves the stored boundary from the HTTP
+  cache, or `--force` to fetch it fresh from upstream. If it recurs, the
+  boundary itself is probably wrong (next item).
 - **Error `water strip for <city>: water fetch failed`.** Overpass did not
   answer. Nothing was saved, so the next ingest retries. Wait a few minutes
   and re-run.

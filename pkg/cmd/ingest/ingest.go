@@ -32,6 +32,9 @@ type Options struct {
 	Source       cmdutil.Source
 	Force        bool
 	DryRun       bool
+	// RebuildBoundary re-resolves a stored boundary through the HTTP cache.
+	// --force implies it (see rebuildsBoundary).
+	RebuildBoundary bool
 
 	boundary *Boundary // resolved up front by `all ingest`; nil resolves it per run
 }
@@ -64,6 +67,7 @@ func NewCmdIngest(f *cmdutil.Factory, rt resource.Source, runF func(context.Cont
 	cmd.Flags().Var(source, "source", "Data source ("+strings.Join(source.Valid, "|")+")")
 	_ = cmd.RegisterFlagCompletionFunc("source", source.Completion())
 	cmd.Flags().BoolVar(&opts.Force, "force", false, "Bypass the HTTP cache and re-fetch the city boundary")
+	cmd.Flags().BoolVar(&opts.RebuildBoundary, "rebuild-boundary", false, "Re-resolve the stored city boundary and its water strip, through the HTTP cache")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Resolve sources and print plan without fetching or writing")
 
 	// --dry-run never fetches, so --force (bypass cache) is meaningless
@@ -110,7 +114,9 @@ fails leaves its rows in place.
 The city boundary is resolved first, from boundary_relation_id when set and
 otherwise by name from Nominatim, with open water stripped, and stored for
 every later step. HTTP responses are cached; --force bypasses the cache and
-re-fetches the boundary.
+re-fetches the boundary. --rebuild-boundary re-resolves a stored boundary
+from the cached responses, so a change to the water strip can be replayed
+without asking upstream again.
 
 Run 'pvmt %s compute' next.`, group, src, group)
 }
@@ -132,8 +138,11 @@ func Example(group string, rt resource.Source) string {
 	fmt.Fprintf(&b, `  # Bypass the HTTP cache and re-fetch
   pvmt %s ingest --force
 
+  # Re-resolve the stored boundary from the HTTP cache
+  pvmt %s ingest --rebuild-boundary
+
   # Show what would be fetched without making any requests
-  pvmt %s ingest --dry-run`, group, group)
+  pvmt %s ingest --dry-run`, group, group, group)
 	return b.String()
 }
 
@@ -180,13 +189,15 @@ func (b *Boundary) checked() {
 // saves a fresh one, exactly as the first step of a plain ingest would. Pass
 // the result to RunResourceWithBoundary for each step. An error means the
 // city has no usable boundary, so every one of its ingest steps would fail
-// the same way. force re-fetches a boundary the store already holds, as
-// --force does for a plain ingest; the caller marks ctx with cache.WithBypass.
-func ResolveBoundaryForCity(ctx context.Context, f *cmdutil.Factory, force bool) (*Boundary, error) {
+// the same way. rebuild re-resolves a boundary the store already holds, as
+// --rebuild-boundary does for a plain ingest. It does not bypass the HTTP
+// cache: for --force (which implies rebuild) the caller marks ctx with
+// cache.WithBypass.
+func ResolveBoundaryForCity(ctx context.Context, f *cmdutil.Factory, rebuild bool) (*Boundary, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	opts := &Options{IO: f.IOStreams, Source: cmdutil.SourceAll, Force: force}
+	opts := &Options{IO: f.IOStreams, Source: cmdutil.SourceAll, RebuildBoundary: rebuild}
 	city, err := f.CurrentCity()
 	if err != nil {
 		return nil, fmt.Errorf("city: %w", err)
@@ -280,6 +291,12 @@ func runIngest(ctx context.Context, opts *Options) error {
 	// only warns about it.
 	err = fetchAndSave(ctx, opts, store, client, city)
 	return ingestCompanions(opts, err, func(o *Options) error {
+		// The resource's own run resolved the boundary, so a companion
+		// reads it from the store rather than re-resolving it for
+		// --force or --rebuild-boundary.
+		if o.boundary == nil {
+			o.boundary = &Boundary{}
+		}
 		return fetchAndSave(ctx, o, store, client, city)
 	})
 }
@@ -439,9 +456,12 @@ func printDryRunPlan(ctx context.Context, opts *Options, store db.Store, city *c
 	if err != nil {
 		return fmt.Errorf("reading cached boundary: %w", err)
 	}
-	if src := boundarySourceFor(city); boundary == "" || opts.Force {
+	switch src := boundarySourceFor(city); {
+	case boundary == "" || opts.Force:
 		fmt.Fprintf(out, "[dry-run]   would fetch boundary for %q from %s\n", city.Name, src.from)
-	} else {
+	case opts.RebuildBoundary:
+		fmt.Fprintf(out, "[dry-run]   would re-resolve the stored boundary for %q from %s, through the HTTP cache\n", city.Name, src.from)
+	default:
 		fmt.Fprintf(out, "[dry-run]   boundary cached, would skip %s\n", src.from)
 	}
 	if p, ok := opts.ResourceType.(resource.FetchPadder); ok {
@@ -541,6 +561,15 @@ func liveBoundaryFetchers() boundaryFetchers {
 	}
 }
 
+// rebuildsBoundary reports whether this run re-resolves a boundary the store
+// already holds: --rebuild-boundary, or --force, which also bypasses the
+// HTTP cache.
+// A run whose boundary was already resolved (o.boundary set: by `all ingest`,
+// or by the resource a companion rides along with) never rebuilds it again.
+func (o *Options) rebuildsBoundary() bool {
+	return o.boundary == nil && (o.Force || o.RebuildBoundary)
+}
+
 // replaceScope returns the source_api values a save replaces, or nil to
 // replace the city's whole resource. Only a run that covered every configured
 // source (--source all) and saw each succeed replaces the whole set, which
@@ -575,7 +604,7 @@ type freshBoundary struct {
 // error is a real DB problem and must surface.
 //
 // The second return is non-nil exactly when a fresh fetch happened
-// (cache miss or --force). The caller passes it to
+// (cache miss, --force or --rebuild-boundary). The caller passes it to
 // applyRoadCoverageGate after features are ingested; the gate either
 // confirms the strip or rolls back to the unstripped Nominatim.
 //
@@ -600,8 +629,8 @@ func resolveBoundary(
 	if err != nil {
 		return "", nil, fmt.Errorf("reading cached boundary: %w", err)
 	}
-	if boundaryGJSON != "" && !opts.Force {
-		fmt.Fprintf(opts.IO.ErrOut, "Using cached boundary for %s (use --force to refresh).\n", city.Name)
+	if boundaryGJSON != "" && !opts.rebuildsBoundary() {
+		fmt.Fprintf(opts.IO.ErrOut, "Using cached boundary for %s (--rebuild-boundary re-resolves it).\n", city.Name)
 		return boundaryGJSON, nil, nil
 	}
 

@@ -728,3 +728,53 @@ func TestAllCompute_StepsRecordTheGridsBoundary(t *testing.T) {
 		}
 	}
 }
+
+// TestAllIngest_RebuildBoundaryReadsTheCache: `all ingest --rebuild-boundary`
+// re-resolves the boundary the store holds, as --force does, but through the
+// HTTP cache: a repeat run is served from the cache entirely.
+func TestAllIngest_RebuildBoundaryReadsTheCache(t *testing.T) {
+	upstream := 0
+	inner := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		upstream++
+		body := `{"elements":[]}`
+		if r.URL.Hostname() == "nominatim.openstreetmap.org" {
+			body = `[{"addresstype":"city","geojson":` + ingestTestBoundary + `}]`
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
+			Body: io.NopCloser(strings.NewReader(body))}, nil
+	})
+	client := &http.Client{Transport: cache.NewTransport(inner, t.TempDir(), cache.DefaultTTL)}
+	saves := 0
+	store := &dbtest.MockStore{
+		GetBoundaryFunc:  func(context.Context) (string, error) { return ingestTestBoundary, nil },
+		SaveBoundaryFunc: func(context.Context, string, string) error { saves++; return nil },
+	}
+	run := func() string {
+		t.Helper()
+		ios, _, _, errBuf := iostreams.Test()
+		f := ingestFactory(ios, store)
+		f.HttpClient = func() (*http.Client, error) { return client, nil }
+		cmd := NewCmdAll(f)
+		cmd.SetArgs([]string{"ingest", "--rebuild-boundary"})
+		cmd.SilenceErrors = true
+		cmd.SilenceUsage = true
+		_ = cmd.ExecuteContext(context.Background())
+		return errBuf.String()
+	}
+
+	run()
+	if saves != 1 {
+		t.Fatalf("first run saved the boundary %d times, want 1", saves)
+	}
+	before := upstream
+	stderr := run()
+	if saves != 2 {
+		t.Errorf("repeat run saved the boundary %d times in total, want 2: --rebuild-boundary must re-resolve it", saves)
+	}
+	if upstream != before {
+		t.Errorf("repeat run made %d upstream requests; want 0 (--rebuild-boundary must not bypass the cache)", upstream-before)
+	}
+	if !strings.Contains(stderr, "Fetching boundary for") {
+		t.Errorf("stderr = %q; want the boundary re-resolved", stderr)
+	}
+}

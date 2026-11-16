@@ -51,7 +51,7 @@ response coverage and per-hex population.`,
 }
 
 func newAllIngest(f *cmdutil.Factory) *cobra.Command {
-	var force bool
+	var force, rebuild bool
 	cmd := &cobra.Command{
 		Use:   "ingest",
 		Args:  cobra.NoArgs,
@@ -67,6 +67,8 @@ with the command that retries it.
 Responses come from the HTTP cache while they are younger than the
 [cache] ttl (a week by default). --force bypasses the cache for every step
 and re-fetches the boundary, for data fresh from upstream.
+--rebuild-boundary re-resolves a stored boundary from the cached responses,
+so a change to the water strip can be replayed without asking upstream again.
 
 Unlike the per-resource ingest commands this takes no --source or
 --dry-run; use 'pvmt <resource> ingest' for those. Run 'pvmt all compute'
@@ -75,18 +77,22 @@ next.`,
   pvmt all ingest
 
   # Re-fetch one city from upstream, bypassing the HTTP cache
-  pvmt --city livermore-ca all ingest --force`,
+  pvmt --city livermore-ca all ingest --force
+
+  # Re-resolve one city's stored boundary from the HTTP cache
+  pvmt --city livermore-ca all ingest --rebuild-boundary`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			if force {
 				ctx = cache.WithBypass(ctx)
 			}
 			return cmdutil.ForEachCity(ctx, f, func(cf *cmdutil.Factory, city *config.CityConfig) error {
-				return ingestCity(ctx, f.IOStreams, cf, city, force)
+				return ingestCity(ctx, f.IOStreams, cf, city, force || rebuild)
 			})
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "Bypass the HTTP cache for every step and re-fetch the city boundary")
+	cmd.Flags().BoolVar(&rebuild, "rebuild-boundary", false, "Re-resolve the stored city boundary and its water strip, through the HTTP cache")
 	return cmd
 }
 
@@ -94,8 +100,11 @@ next.`,
 // water strip, the heaviest Overpass query) is resolved once up front: every
 // step needs it, so when it cannot be had the city is skipped with one
 // warning instead of each step re-fetching it and failing the same way.
-func ingestCity(ctx context.Context, ios *iostreams.IOStreams, cf *cmdutil.Factory, city *config.CityConfig, force bool) error {
-	boundary, err := ingest.ResolveBoundaryForCity(ctx, cf, force)
+//
+// rebuild re-resolves a stored boundary (--rebuild-boundary, or --force,
+// whose cache bypass is already on ctx).
+func ingestCity(ctx context.Context, ios *iostreams.IOStreams, cf *cmdutil.Factory, city *config.CityConfig, rebuild bool) error {
+	boundary, err := ingest.ResolveBoundaryForCity(ctx, cf, rebuild)
 	if err != nil {
 		if !isCancel(err) {
 			cmdutil.Warnf(ios, "skipping %s: no boundary: %v", city.Name, err)

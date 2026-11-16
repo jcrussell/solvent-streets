@@ -1597,3 +1597,109 @@ func TestRunIngest_RoutingRoadsFetchTheRing(t *testing.T) {
 		})
 	}
 }
+
+func TestNewCmdIngest_RebuildBoundaryFlag(t *testing.T) {
+	// --rebuild-boundary goes with --dry-run (it changes the plan) and with
+	// --force (which implies it).
+	for _, args := range [][]string{{"--rebuild-boundary"}, {"--rebuild-boundary", "--dry-run"}, {"--rebuild-boundary", "--force"}} {
+		ios, _, _, _ := iostreams.Test()
+		var gotOpts *Options
+		cmd := NewCmdIngest(testFactory(ios), &resource.Pavement{}, func(_ context.Context, opts *Options) error {
+			gotOpts = opts
+			return nil
+		})
+		cmd.SetArgs(args)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		if !gotOpts.RebuildBoundary {
+			t.Errorf("%v: RebuildBoundary = false, want true", args)
+		}
+	}
+}
+
+// TestResolveBoundary_RebuildReResolvesStoredBoundary: --rebuild-boundary
+// re-resolves a boundary the store already holds, as --force does, but
+// without marking the context to bypass the HTTP cache, so the replay reads
+// the cached responses.
+func TestResolveBoundary_RebuildReResolvesStoredBoundary(t *testing.T) {
+	stored := `{"type":"Polygon","coordinates":[[[-122.5,37.5],[-122.4,37.5],[-122.4,37.6],[-122.5,37.6],[-122.5,37.5]]]}`
+	var saves []string
+	store := &dbtest.MockStore{
+		GetBoundaryFunc:  func(context.Context) (string, error) { return stored, nil },
+		SaveBoundaryFunc: func(_ context.Context, _, source string) error { saves = append(saves, source); return nil },
+	}
+	var name string
+	ios, _, _, errOut := iostreams.Test()
+	_, fresh, err := resolveBoundary(context.Background(), &Options{IO: ios, RebuildBoundary: true}, store, &http.Client{},
+		&config.CityConfig{Name: "Oakland, CA"},
+		boundaryFetchers{byName: recordingNominatim(stored, &name), byRelation: recordingRelation("", nil), water: fakeWaterFetcher("")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name != "Oakland, CA" || len(saves) != 1 || fresh == nil {
+		t.Errorf("nominatim asked for %q, saves = %q, fresh = %v; want the stored boundary re-resolved and saved once", name, saves, fresh)
+	}
+	if strings.Contains(errOut.String(), "Using cached boundary") {
+		t.Errorf("stderr = %q; --rebuild-boundary must not reuse the stored boundary", errOut.String())
+	}
+}
+
+// TestPrintDryRunPlan_RebuildBoundary: the dry run of --rebuild-boundary on a
+// stored boundary says it would re-resolve it from the HTTP cache.
+func TestPrintDryRunPlan_RebuildBoundary(t *testing.T) {
+	ios, _, out, _ := iostreams.Test()
+	store := &dbtest.MockStore{GetBoundaryFunc: func(context.Context) (string, error) { return noSourceBoundary, nil }}
+	opts := &Options{IO: ios, ResourceType: &resource.Pavement{}, Source: cmdutil.SourceAll, DryRun: true, RebuildBoundary: true}
+	city := &config.CityConfig{Name: "Oakland, CA", Overpass: true}
+	if err := printDryRunPlan(context.Background(), opts, store, city); err != nil {
+		t.Fatal(err)
+	}
+	want := `would re-resolve the stored boundary for "Oakland, CA" from Nominatim, through the HTTP cache`
+	if got := out.String(); !strings.Contains(got, want) || strings.Contains(got, "boundary cached, would skip") {
+		t.Errorf("dry run = %q; want %q", got, want)
+	}
+}
+
+// nominatimAndEmptyOverpass answers Nominatim with boundary as a city result
+// and every other request with an empty Overpass result, counting the
+// Nominatim requests.
+func nominatimAndEmptyOverpass(boundary string, nominatim *int) *http.Client {
+	return &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		body := `{"elements":[]}`
+		if r.URL.Hostname() == "nominatim.openstreetmap.org" {
+			*nominatim++
+			body = `[{"addresstype":"city","geojson":` + boundary + `}]`
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
+			Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
+	})}
+}
+
+// TestRunIngest_CompanionDoesNotRebuildBoundaryAgain: a facility ingest with
+// --rebuild-boundary re-resolves the boundary once; its routing-roads
+// companion reads the result from the store instead of resolving it again.
+func TestRunIngest_CompanionDoesNotRebuildBoundaryAgain(t *testing.T) {
+	nominatim := 0
+	store := &dbtest.MockStore{
+		GetBoundaryFunc:  func(context.Context) (string, error) { return noSourceBoundary, nil },
+		SaveBoundaryFunc: func(context.Context, string, string) error { return nil },
+	}
+	city := cmdtest.NewTestCity()
+	ios, _, _, _ := iostreams.Test()
+	err := runIngest(context.Background(), &Options{
+		IO:              ios,
+		CityDB:          func() (db.Store, error) { return store, nil },
+		CurrentCity:     func() (*config.CityConfig, error) { return city, nil },
+		HttpClient:      func() (*http.Client, error) { return nominatimAndEmptyOverpass(noSourceBoundary, &nominatim), nil },
+		ResourceType:    &resource.Facility{Service: "fire", Selectors: []string{`["amenity"="fire_station"]`}},
+		Source:          cmdutil.SourceAll,
+		RebuildBoundary: true,
+	})
+	if err != nil && !errors.Is(err, cmdutil.ErrNoResults) {
+		t.Fatalf("runIngest: %v", err)
+	}
+	if nominatim != 1 {
+		t.Errorf("nominatim asked %d times, want 1: the companion must not re-resolve the boundary", nominatim)
+	}
+}
