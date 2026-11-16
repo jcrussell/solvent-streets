@@ -763,6 +763,16 @@ func fetchBoundary(
 
 	fmt.Fprintf(opts.IO.ErrOut, "  Fetching roads over the unstripped boundary as land evidence for the water strip...\n")
 	roads, err := fetch.roads(ctx, client, bbox)
+	if err == nil && ctx.Err() == nil && city.Overpass &&
+		slices.Contains(roads.sources, resource.SourceOverpass) && !slices.Contains(roads.succeeded, resource.SourceOverpass) {
+		// The OSM roads are the land evidence of a city that uses Overpass
+		// (landEvidenceRoads); without them the strip would fall back to
+		// the interior points, and the weaker boundary would be stored for
+		// good. So, as when every source fails, nothing is saved and the
+		// next ingest retries, even though another source answered.
+		err = fmt.Errorf("roads: %s failed, and its roads are the water strip's land evidence", resource.SourceOverpass)
+		roads.attempts = failAnswered(roads.attempts, fmt.Errorf("not saved: %w", err))
+	}
 	if err != nil {
 		recordAttempts(ctx, opts, store, roads.attempts)
 		if cerr := ctx.Err(); cerr != nil {

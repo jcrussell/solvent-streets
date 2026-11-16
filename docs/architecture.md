@@ -188,7 +188,9 @@ that saves nothing until it ends:
    a fetch over that bbox stores, so the roads step reuses them, and the
    routing-roads ring still excludes exactly the city's own roads.
 
-A failed roads or water fetch saves nothing, so the next ingest retries.
+A failed roads or water fetch saves nothing, so the next ingest retries; for
+a city that uses Overpass, a failed Overpass roads fetch counts as failed
+even when ArcGIS answered.
 `--rebuild-boundary` replays the pass through the HTTP cache; where an
 earlier strip shrank the bbox, its first replay fetches the roads upstream.
 

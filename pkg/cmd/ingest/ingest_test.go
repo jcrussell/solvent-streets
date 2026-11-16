@@ -2291,3 +2291,72 @@ func TestFetchBoundary_CityOnALakeIslandIsNotASubtractFailure(t *testing.T) {
 		t.Errorf("saves = %q, stderr = %q; want the boundary saved with no water and no skipped-strip warning", saved, errOut)
 	}
 }
+
+// TestResolveBoundary_OverpassRoadsFailureIsHardEvenIfArcGISAnswered: for a
+// city that uses Overpass, its OSM roads are the water strip's land
+// evidence, so their failing saves nothing (no boundary, no roads) and asks
+// for a retry, though ArcGIS answered; the boundary is not built on the
+// interior points.
+func TestResolveBoundary_OverpassRoadsFailureIsHardEvenIfArcGISAnswered(t *testing.T) {
+	var arcgis []db.Feature
+	for i := range 40 {
+		y := 0.02 + 0.045*float64(i)
+		f := roadLine(fmt.Sprint("a", i), 0.2, y, 0.3, y)
+		f.SourceAPI = "arcgis"
+		arcgis = append(arcgis, f)
+	}
+	partial := func(context.Context, *http.Client, [4]float64) (roadsFetch, error) {
+		return roadsFetch{features: arcgis, sources: []string{"overpass", "arcgis"}, succeeded: []string{"arcgis"},
+			attempts: []db.IngestAttempt{
+				{Input: "roads", Source: "overpass", Outcome: db.IngestFailed, Error: "http2: timeout awaiting response headers"},
+				{Input: "roads", Source: "arcgis", Outcome: db.IngestOK, FeatureCount: len(arcgis)},
+			}}, nil
+	}
+	water := func(context.Context, *http.Client, [4]float64, ingestpkg.LandProbes) (string, error) {
+		t.Error("water fetched without the OSM roads")
+		return "", nil
+	}
+	store := &dbtest.MockStore{
+		SaveBoundaryFunc: func(context.Context, string, string) error { t.Error("SaveBoundary called"); return nil },
+		UpsertFeaturesFunc: func(context.Context, resource.Type, []db.Feature, []string) error {
+			t.Error("UpsertFeatures called")
+			return nil
+		},
+	}
+	city := &config.CityConfig{Name: "Fort Worth, TX", Overpass: true, ArcGISURL: "https://example.test/query"}
+	ios, _, _, errOut := iostreams.Test()
+	_, b, err := resolveBoundary(context.Background(), &Options{IO: ios}, store, &http.Client{}, city,
+		boundaryFetchers{byName: recordingNominatim(bigSquareBoundary, nil), water: water, roads: partial})
+	if !errors.Is(err, ErrRoadsFetch) || b != nil {
+		t.Fatalf("resolveBoundary = (%v, %v), want ErrRoadsFetch and no boundary", b, err)
+	}
+	var he *hint.ErrHint
+	if !errors.As(err, &he) || !strings.Contains(he.Hint, "next ingest retries") {
+		t.Errorf("err = %v, want the retry hint", err)
+	}
+	if strings.Contains(errOut.String(), "no road probes") {
+		t.Errorf("stderr = %q; the interior-point fallback must not run", errOut)
+	}
+	got := map[string]db.IngestOutcome{}
+	for _, a := range store.Attempts {
+		got[a.Input+"/"+a.Source] = a.Outcome
+	}
+	if got["roads/overpass"] != db.IngestFailed || got["roads/arcgis"] != db.IngestFailed || got["boundary/nominatim"] != db.IngestFailed {
+		t.Errorf("attempts = %+v, want every roads source and the boundary recorded as failed", store.Attempts)
+	}
+
+	// An ArcGIS-only city has no OSM roads to miss: its ArcGIS roads are
+	// its probes.
+	var probes ingestpkg.LandProbes
+	arcgisOnly := &config.CityConfig{Name: "Agency, CA", ArcGISURL: "https://example.test/query"}
+	ok := func(context.Context, *http.Client, [4]float64) (roadsFetch, error) {
+		return roadsFetch{features: arcgis, sources: []string{"arcgis"}, succeeded: []string{"arcgis"}}, nil
+	}
+	if _, _, err := resolveBoundary(context.Background(), resolveBoundaryHarness(t), &dbtest.MockStore{}, &http.Client{}, arcgisOnly,
+		boundaryFetchers{byName: recordingNominatim(bigSquareBoundary, nil), water: recordingWater("", &probes), roads: ok}); err != nil {
+		t.Fatalf("ArcGIS-only city: %v", err)
+	}
+	if !probes.Dense || len(probes.Points) != len(arcgis) {
+		t.Errorf("ArcGIS-only probes = %+v, want its %d roads", probes, len(arcgis))
+	}
+}
