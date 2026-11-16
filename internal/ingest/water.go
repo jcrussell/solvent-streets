@@ -24,9 +24,9 @@ import (
 // bbox). Empty water responses return ("", nil) — callers must treat
 // this as a benign no-op (no water in the bbox).
 //
-// landProbes is one lon/lat point per sub-polygon of the city
-// boundary — see geo.InteriorPoints. They disambiguate coastline
-// closures: an open chain's closure produces two candidate rings (CW
+// probes are lon/lat points on the city's land (LandProbes; sparse
+// InteriorLandProbes are one per sub-polygon of the city boundary). They
+// disambiguate coastline closures: an open chain's closure produces two candidate rings (CW
 // and CCW around bbox edges), and the water-side ring is the one
 // that contains NONE of the probes. If a candidate ring contains any
 // probe it overlaps land and is wrong. If both candidates contain
@@ -34,11 +34,11 @@ import (
 // and is dropped. This invariant catches OSM coastline ways
 // digitized in inconsistent orientations relative to the right-hand-
 // water convention (the cause of solvent-streets-yrr0).
-func FetchOSMWater(ctx context.Context, client *http.Client, bbox [4]float64, landProbes [][2]float64) (string, error) {
-	return fetchOSMWater(ctx, client, overpassAPI, bbox, landProbes)
+func FetchOSMWater(ctx context.Context, client *http.Client, bbox [4]float64, probes LandProbes) (string, error) {
+	return fetchOSMWater(ctx, client, overpassAPI, bbox, probes)
 }
 
-func fetchOSMWater(ctx context.Context, client *http.Client, baseURL string, bbox [4]float64, landProbes [][2]float64) (string, error) {
+func fetchOSMWater(ctx context.Context, client *http.Client, baseURL string, bbox [4]float64, probes LandProbes) (string, error) {
 	// Split only the FETCH on truncation — never the ASSEMBLY. Each
 	// quadrant query returns full geometry for every element it
 	// intersects, so the deduped union of quadrant elements equals the
@@ -58,7 +58,7 @@ func fetchOSMWater(ctx context.Context, client *http.Client, baseURL string, bbo
 	if err != nil {
 		return "", err
 	}
-	return assembleWaterGeoJSON(ctx, elements, bbox, landProbes)
+	return assembleWaterGeoJSON(ctx, elements, bbox, probes)
 }
 
 // parseWaterElements unmarshals an Overpass water response body. Malformed
@@ -137,7 +137,7 @@ type waterPolygon struct {
 // assembles its GeoJSON. It is the single-response entry point exercised by
 // the parse-layer tests; fetchOSMWater splits the fetch and assembles via
 // assembleWaterGeoJSON.
-func parseWaterResponse(ctx context.Context, data []byte, bbox [4]float64, landProbes [][2]float64) (string, error) {
+func parseWaterResponse(ctx context.Context, data []byte, bbox [4]float64, landProbes LandProbes) (string, error) {
 	elements, err := parseWaterElements(data)
 	if err != nil {
 		return "", err
@@ -151,9 +151,9 @@ func parseWaterResponse(ctx context.Context, data []byte, bbox [4]float64, landP
 // is the bbox-tied assembly stage — it MUST run once against the original
 // query bbox, never per quadrant, or coastlines would close along quadrant
 // edges and corrupt land area. Returns ("", nil) when no water survives.
-func assembleWaterGeoJSON(ctx context.Context, elements []overpassElement, bbox [4]float64, landProbes [][2]float64) (string, error) {
+func assembleWaterGeoJSON(ctx context.Context, elements []overpassElement, bbox [4]float64, landProbes LandProbes) (string, error) {
 	bboxArea := bboxLonLatArea(bbox)
-	probes := newLandProbeIndex(landProbes)
+	probes := newLandProbeIndex(landProbes.Points)
 	polys := make([]waterPolygon, 0, len(elements))
 	coastWays := make([][][2]float64, 0, len(elements))
 	var sumBBoxFrac float64
@@ -670,101 +670,6 @@ func closeOpenSubChain(ctx context.Context, sub [][2]float64, bbox [4]float64, p
 		)
 		return nil, false
 	}
-}
-
-// landProbeIndex caches land probes with their overall bounding box
-// so each per-polygon hit-count call can early-reject polygons whose
-// bbox doesn't overlap any probe, and bbox-reject individual probes
-// before paying for pointInRing on every ring vertex. Coastal cities
-// can produce hundreds of water polygons against a handful of probes;
-// without this, countLandProbeHits is O(polygons × probes × vertices)
-// in the coastline path. Solvent-streets-m3kj.
-type landProbeIndex struct {
-	probes [][2]float64
-	// Overall bbox of every probe (lon/lat). Inclusive; degenerate when
-	// len(probes)==1.
-	minX, minY, maxX, maxY float64
-}
-
-func newLandProbeIndex(probes [][2]float64) *landProbeIndex {
-	idx := &landProbeIndex{probes: probes}
-	if len(probes) == 0 {
-		return idx
-	}
-	idx.minX, idx.maxX = probes[0][0], probes[0][0]
-	idx.minY, idx.maxY = probes[0][1], probes[0][1]
-	for _, p := range probes[1:] {
-		switch {
-		case p[0] < idx.minX:
-			idx.minX = p[0]
-		case p[0] > idx.maxX:
-			idx.maxX = p[0]
-		}
-		switch {
-		case p[1] < idx.minY:
-			idx.minY = p[1]
-		case p[1] > idx.maxY:
-			idx.maxY = p[1]
-		}
-	}
-	return idx
-}
-
-func (l *landProbeIndex) Len() int { return len(l.probes) }
-
-// RingHits returns the number of probes inside ring. Used by the
-// coastline closure rule to detect candidate rings that overlap city
-// land (those rings are land-side and would over-subtract).
-func (l *landProbeIndex) RingHits(ring [][2]float64) int {
-	if len(ring) == 0 || len(l.probes) == 0 {
-		return 0
-	}
-	rMinX, rMinY, rMaxX, rMaxY := ringBBox(ring)
-	if rMaxX < l.minX || rMinX > l.maxX || rMaxY < l.minY || rMinY > l.maxY {
-		return 0
-	}
-	hits := 0
-	for _, p := range l.probes {
-		if p[0] < rMinX || p[0] > rMaxX || p[1] < rMinY || p[1] > rMaxY {
-			continue
-		}
-		if pointInRing(p, ring) {
-			hits++
-		}
-	}
-	return hits
-}
-
-// PolygonHits returns the number of probes that lie set-theoretic-
-// inside the polygon (inside the outer ring AND outside every hole).
-// A probe that lands in a hole is geometrically NOT in the water
-// polygon — the hole represents a non-water region (typically a real
-// island within a lake), so the polygon doesn't claim that area.
-func (l *landProbeIndex) PolygonHits(p waterPolygon) int {
-	if len(p.outer) == 0 || len(l.probes) == 0 {
-		return 0
-	}
-	oMinX, oMinY, oMaxX, oMaxY := ringBBox(p.outer)
-	if oMaxX < l.minX || oMinX > l.maxX || oMaxY < l.minY || oMinY > l.maxY {
-		return 0
-	}
-	hits := 0
-probeLoop:
-	for _, probe := range l.probes {
-		if probe[0] < oMinX || probe[0] > oMaxX || probe[1] < oMinY || probe[1] > oMaxY {
-			continue
-		}
-		if !pointInRing(probe, p.outer) {
-			continue
-		}
-		for _, hole := range p.holes {
-			if pointInRing(probe, hole) {
-				continue probeLoop
-			}
-		}
-		hits++
-	}
-	return hits
 }
 
 // ringBBox returns the axis-aligned envelope of ring. Single-pass O(V).

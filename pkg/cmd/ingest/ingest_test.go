@@ -439,7 +439,7 @@ func TestAcceptStripRatio(t *testing.T) {
 // of stripWaterFromBoundary control what "the Overpass API" returns
 // without standing up an httptest server.
 func fakeWaterFetcher(body string) waterFetcher {
-	return func(_ context.Context, _ *http.Client, _ [4]float64, _ [][2]float64) (string, error) {
+	return func(_ context.Context, _ *http.Client, _ [4]float64, _ ingestpkg.LandProbes) (string, error) {
 		return body, nil
 	}
 }
@@ -799,7 +799,7 @@ func TestStripWaterFromBoundary_AcceptsModestStrip(t *testing.T) {
 }
 
 // failingWaterFetcher simulates the water fetch failing upstream.
-func failingWaterFetcher(_ context.Context, _ *http.Client, _ [4]float64, _ [][2]float64) (string, error) {
+func failingWaterFetcher(_ context.Context, _ *http.Client, _ [4]float64, _ ingestpkg.LandProbes) (string, error) {
 	return "", errors.New("simulated overpass outage")
 }
 
@@ -868,7 +868,7 @@ func TestResolveBoundary_CancelledWaterFetchHasNoOverloadHint(t *testing.T) {
 			return nil
 		},
 	}
-	cancelled := func(context.Context, *http.Client, [4]float64, [][2]float64) (string, error) {
+	cancelled := func(context.Context, *http.Client, [4]float64, ingestpkg.LandProbes) (string, error) {
 		return "", context.Canceled
 	}
 

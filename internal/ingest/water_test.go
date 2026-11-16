@@ -48,7 +48,7 @@ func TestFetchOSMWater_Success(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	result, err := fetchOSMWater(context.Background(), uaClient(srv), srv.URL, [4]float64{42.0, -72.0, 43.0, -71.0}, [][2]float64{{-71.5, 42.5}})
+	result, err := fetchOSMWater(context.Background(), uaClient(srv), srv.URL, [4]float64{42.0, -72.0, 43.0, -71.0}, LandProbes{Points: [][2]float64{{-71.5, 42.5}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestFetchOSMWater_NoWaterReturnsEmpty(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	result, err := fetchOSMWater(context.Background(), uaClient(srv), srv.URL, [4]float64{0, 0, 1, 1}, [][2]float64{{0.5, 0.5}})
+	result, err := fetchOSMWater(context.Background(), uaClient(srv), srv.URL, [4]float64{0, 0, 1, 1}, LandProbes{Points: [][2]float64{{0.5, 0.5}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestFetchOSMWater_SkipsOpenWays(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	result, err := fetchOSMWater(context.Background(), uaClient(srv), srv.URL, [4]float64{0, 0, 1, 1}, [][2]float64{{0.5, 0.5}})
+	result, err := fetchOSMWater(context.Background(), uaClient(srv), srv.URL, [4]float64{0, 0, 1, 1}, LandProbes{Points: [][2]float64{{0.5, 0.5}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestFetchOSMWater_Non200(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, err := fetchOSMWater(context.Background(), uaClient(srv), srv.URL, [4]float64{0, 0, 1, 1}, [][2]float64{{0.5, 0.5}})
+	_, err := fetchOSMWater(context.Background(), uaClient(srv), srv.URL, [4]float64{0, 0, 1, 1}, LandProbes{Points: [][2]float64{{0.5, 0.5}}})
 	if err == nil {
 		t.Fatal("expected error on non-200")
 	}
@@ -160,7 +160,7 @@ func TestParseWaterResponse_RelationStitchedOuter(t *testing.T) {
 	// to other parseWaterResponse tests below. landProbe is placed
 	// OUTSIDE the unit-square water polygon so the new per-polygon land-
 	// probe filter doesn't drop it.
-	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{-1, -1, 2, 2}, [][2]float64{{-0.5, -0.5}})
+	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{-1, -1, 2, 2}, LandProbes{Points: [][2]float64{{-0.5, -0.5}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestParseWaterResponse_RelationWithInnerHole(t *testing.T) {
 		]
 	}]}`
 
-	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{-5, -5, 15, 15}, [][2]float64{{5, 5}})
+	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{-5, -5, 15, 15}, LandProbes{Points: [][2]float64{{5, 5}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +227,7 @@ func TestParseWaterResponse_RelationDropsOpenChain(t *testing.T) {
 		]
 	}]}`
 
-	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{0, 0, 10, 10}, [][2]float64{{5, 5}})
+	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{0, 0, 10, 10}, LandProbes{Points: [][2]float64{{5, 5}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +256,7 @@ func TestParseWaterResponse_DropsWayContainingLandProbe(t *testing.T) {
 	ctx := logs.WithLogger(context.Background(), logger)
 
 	// landProbe at (0.5, 0.5) is INSIDE the way's outer ring.
-	result, err := parseWaterResponse(ctx, []byte(body), [4]float64{-1, -1, 2, 2}, [][2]float64{{0.5, 0.5}})
+	result, err := parseWaterResponse(ctx, []byte(body), [4]float64{-1, -1, 2, 2}, LandProbes{Points: [][2]float64{{0.5, 0.5}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +301,7 @@ func TestParseWaterResponse_DropsRelationContainingLandProbe(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	ctx := logs.WithLogger(context.Background(), logger)
 
-	result, err := parseWaterResponse(ctx, []byte(body), [4]float64{-1, -1, 2, 2}, [][2]float64{{0.5, 0.5}})
+	result, err := parseWaterResponse(ctx, []byte(body), [4]float64{-1, -1, 2, 2}, LandProbes{Points: [][2]float64{{0.5, 0.5}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +346,7 @@ func TestParseWaterResponse_RelationHoleContainingProbeKeepsPolygon(t *testing.T
 
 	// Probe at (5, 5) lies in the hole — not in the water polygon's
 	// set-theoretic interior. Polygon must survive.
-	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{-5, -5, 15, 15}, [][2]float64{{5, 5}})
+	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{-5, -5, 15, 15}, LandProbes{Points: [][2]float64{{5, 5}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,7 +388,7 @@ func TestParseWaterResponse_AcceptsLargeCoastlineRingInWaterDominatedBBox(t *tes
 		]}
 	]}`
 
-	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{0, 0, 10, 10}, [][2]float64{{0.5, 0.5}})
+	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{0, 0, 10, 10}, LandProbes{Points: [][2]float64{{0.5, 0.5}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -433,7 +433,7 @@ func TestParseWaterResponse_LogsDroppedMemberWays(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	ctx := logs.WithLogger(context.Background(), logger)
 
-	if _, err := parseWaterResponse(ctx, []byte(body), [4]float64{0, 0, 10, 10}, [][2]float64{{5, 5}}); err != nil {
+	if _, err := parseWaterResponse(ctx, []byte(body), [4]float64{0, 0, 10, 10}, LandProbes{Points: [][2]float64{{5, 5}}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -663,7 +663,7 @@ func TestFetchOSMWater_SplitsOnTruncation(t *testing.T) {
 
 	// Probe well outside both water polygons (NW corner) so neither is
 	// dropped by the land-probe filter.
-	result, err := fetchOSMWater(context.Background(), uaClient(srv), srv.URL, full, [][2]float64{{0.1, 1.9}})
+	result, err := fetchOSMWater(context.Background(), uaClient(srv), srv.URL, full, LandProbes{Points: [][2]float64{{0.1, 1.9}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -719,7 +719,7 @@ func TestFetchOSMWater_RecursesDeeperOnQuadrantTruncation(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	result, err := fetchOSMWater(context.Background(), uaClient(srv), srv.URL, full, [][2]float64{{1.9, 1.9}})
+	result, err := fetchOSMWater(context.Background(), uaClient(srv), srv.URL, full, LandProbes{Points: [][2]float64{{1.9, 1.9}}})
 	if err != nil {
 		t.Fatalf("expected recovery via deeper recursion, got error: %v", err)
 	}
@@ -750,7 +750,7 @@ func TestFetchOSMWater_TruncatedAtMaxDepthErrors(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, err := fetchOSMWater(context.Background(), uaClient(srv), srv.URL, [4]float64{0, 0, 2, 2}, [][2]float64{{1, 1}})
+	_, err := fetchOSMWater(context.Background(), uaClient(srv), srv.URL, [4]float64{0, 0, 2, 2}, LandProbes{Points: [][2]float64{{1, 1}}})
 	if err == nil {
 		t.Fatal("expected an error when truncation persists to max depth")
 	}
@@ -791,7 +791,7 @@ func TestFetchOSMWater_SplitsOnCutOffJSON(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	result, err := fetchOSMWater(context.Background(), uaClient(srv), srv.URL, full, [][2]float64{{0.1, 1.9}})
+	result, err := fetchOSMWater(context.Background(), uaClient(srv), srv.URL, full, LandProbes{Points: [][2]float64{{0.1, 1.9}}})
 	if err != nil {
 		t.Fatalf("fetchOSMWater: %v (a cut-off response must split, not fail)", err)
 	}
@@ -823,7 +823,7 @@ func TestFetchOSMWater_CutOffJSONAtMaxDepthErrors(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, err := fetchOSMWater(context.Background(), uaClient(srv), srv.URL, [4]float64{0, 0, 2, 2}, nil)
+	_, err := fetchOSMWater(context.Background(), uaClient(srv), srv.URL, [4]float64{0, 0, 2, 2}, LandProbes{})
 	if !errors.Is(err, errOverpassParse) {
 		t.Fatalf("err = %v, want errOverpassParse", err)
 	}
@@ -1259,7 +1259,7 @@ func TestParseWaterResponse_CoastlineClosedAtBBox(t *testing.T) {
 			{"lat":0.5,"lon":1}
 		]}
 	]}`
-	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{0, 0, 1, 1}, [][2]float64{{0.5, 0.5}})
+	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{0, 0, 1, 1}, LandProbes{Points: [][2]float64{{0.5, 0.5}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1297,7 +1297,7 @@ func TestParseWaterResponse_DegenerateRingDoesNotCrash(t *testing.T) {
 			{"lat":0,"lon":0}
 		]}
 	]}`
-	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{0, 0, 1, 1}, [][2]float64{{0.5, 0.5}})
+	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{0, 0, 1, 1}, LandProbes{Points: [][2]float64{{0.5, 0.5}}})
 	if err != nil {
 		t.Fatalf("parseWaterResponse: %v", err)
 	}
@@ -1382,7 +1382,7 @@ func TestPolygonsFromRelation_NestedOuterFirstMatchWins(t *testing.T) {
 	// landProbe placed OUTSIDE both outer rings (in the bbox's NW
 	// corner) so the per-polygon land-probe filter doesn't drop them —
 	// this test pins inner-ring assignment, not the land filter.
-	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{-5, -5, 15, 15}, [][2]float64{{-3, -3}})
+	result, err := parseWaterResponse(context.Background(), []byte(body), [4]float64{-5, -5, 15, 15}, LandProbes{Points: [][2]float64{{-3, -3}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1595,7 +1595,7 @@ func TestParseWaterResponse_RejectsOversizedRelation(t *testing.T) {
 	ctx := logs.WithLogger(context.Background(), logger)
 
 	// bbox is the same as the outer → 100% coverage, well over 80% limit.
-	result, err := parseWaterResponse(ctx, []byte(body), [4]float64{0, 0, 1, 1}, [][2]float64{{0.5, 0.5}})
+	result, err := parseWaterResponse(ctx, []byte(body), [4]float64{0, 0, 1, 1}, LandProbes{Points: [][2]float64{{0.5, 0.5}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1749,7 +1749,7 @@ func TestFetchOSMWater_OversizedBodySplitsQuadrants(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	result, err := fetchOSMWater(context.Background(), uaClient(srv), srv.URL,
-		[4]float64{42.0, -72.0, 43.0, -71.0}, [][2]float64{{-71.5, 42.5}})
+		[4]float64{42.0, -72.0, 43.0, -71.0}, LandProbes{Points: [][2]float64{{-71.5, 42.5}}})
 	if err != nil {
 		t.Fatalf("fetchOSMWater: %v (an oversized body must split, not hard-fail)", err)
 	}

@@ -779,11 +779,10 @@ var ErrWaterFetch = errors.New("water fetch failed")
 // fake response without spinning up an httptest server inside the
 // internal/ingest package. The interface is intentionally narrow per
 // byob-interfaces.1 (define in consumer, not in internal/ingest).
-// landProbes are lon/lat points inside the city's land — typically
-// PointOnSurface samples, one per sub-polygon of the city boundary;
-// the water-stitching pipeline uses them to disambiguate coastline
-// closures.
-type waterFetcher func(ctx context.Context, client *http.Client, bbox [4]float64, landProbes [][2]float64) (string, error)
+// probes are points on the city's land (ingestpkg.LandProbes); the
+// water-stitching pipeline uses them to drop water candidates that hold
+// city land and to disambiguate coastline closures.
+type waterFetcher func(ctx context.Context, client *http.Client, bbox [4]float64, probes ingestpkg.LandProbes) (string, error)
 
 // stripWaterFromBoundary tries to subtract OSM water from boundaryGJSON.
 //
@@ -822,7 +821,7 @@ func stripWaterFromBoundary(
 	if err != nil {
 		return "", fmt.Sprintf("water strip skipped: bbox: %v", err), nil
 	}
-	landProbes, err := geo.InteriorPoints(boundaryGJSON)
+	landProbes, err := ingestpkg.InteriorLandProbes(boundaryGJSON)
 	if err != nil {
 		return "", fmt.Sprintf("water strip skipped: interior points: %v", err), nil
 	}
