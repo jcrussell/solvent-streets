@@ -1,9 +1,11 @@
 package ingest
 
 import (
+	"context"
 	"math"
 
 	"github.com/jcrussell/solvent-streets/internal/geo"
+	"github.com/jcrussell/solvent-streets/internal/logs"
 )
 
 // waterClipPadM is how far past the query bbox the water polygons are
@@ -21,7 +23,7 @@ const waterClipPadM = 100
 // cleanup dominate the run. A polygon already inside the padded bbox is
 // returned unchanged; one with no water left inside the padded bbox
 // (waterless) is dropped.
-func clipWaterToBBox(polys []waterPolygon, bbox [4]float64) []waterPolygon {
+func clipWaterToBBox(ctx context.Context, polys []waterPolygon, bbox [4]float64) []waterPolygon {
 	clip := geo.PadBBox(bbox, waterClipPadM)
 	out := make([]waterPolygon, 0, len(polys))
 	for _, p := range polys {
@@ -31,11 +33,20 @@ func clipWaterToBBox(polys []waterPolygon, bbox [4]float64) []waterPolygon {
 		}
 		cp := waterPolygon{outer: outer}
 		for _, h := range p.holes {
+			// A hole wholly outside the padded bbox (one of Lake
+			// Champlain's big islands, miles from Burlington) can change
+			// nothing inside it, and kept unclipped its area would count
+			// against the clipped outer's in waterless.
+			if disjointFromBBox(h, clip) {
+				continue
+			}
 			if hole, ok := clipRingToBBox(h, clip); ok {
 				cp.holes = append(cp.holes, hole)
 			}
 		}
 		if waterless(cp) {
+			logs.From(ctx).Debug("water: dropped a polygon with no water left inside the bbox",
+				"outer_vertices", len(p.outer), "holes", len(p.holes))
 			continue
 		}
 		out = append(out, cp)
@@ -122,4 +133,13 @@ func atX(a, b [2]float64, v float64) [2]float64 {
 func atY(a, b [2]float64, v float64) [2]float64 {
 	t := (v - a[1]) / (b[1] - a[1])
 	return [2]float64{a[0] + t*(b[0]-a[0]), v}
+}
+
+// disjointFromBBox reports a ring whose envelope misses bbox.
+func disjointFromBBox(ring [][2]float64, bbox [4]float64) bool {
+	if len(ring) == 0 {
+		return true
+	}
+	minX, minY, maxX, maxY := ringBBox(ring)
+	return maxX < bbox[1] || minX > bbox[3] || maxY < bbox[0] || minY > bbox[2]
 }

@@ -73,7 +73,7 @@ func TestClipWaterToBBox_SubtractUnchanged(t *testing.T) {
 		outer: densify([][2]float64{{0.6, 0.1}, {3, 0.1}, {3, 0.9}, {0.6, 0.9}, {0.6, 0.7}, {2, 0.7}, {2, 0.3}, {0.6, 0.3}, {0.6, 0.1}}),
 		holes: [][][2]float64{densify([][2]float64{{0.8, 0.75}, {1.2, 0.75}, {1.2, 0.85}, {0.8, 0.85}, {0.8, 0.75}})},
 	}
-	clipped := clipWaterToBBox([]waterPolygon{lake}, bbox)
+	clipped := clipWaterToBBox(context.Background(), []waterPolygon{lake}, bbox)
 	if len(clipped) != 1 || len(clipped[0].holes) != 1 {
 		t.Fatalf("clipped = %+v, want the lake and its island cut at the padded bbox", clipped)
 	}
@@ -98,7 +98,7 @@ func TestClipWaterToBBox_SubtractUnchanged(t *testing.T) {
 
 	// A polygon inside the padded bbox is untouched.
 	small := waterPolygon{outer: [][2]float64{{0.2, 0.2}, {0.4, 0.2}, {0.4, 0.4}, {0.2, 0.4}, {0.2, 0.2}}}
-	if got := clipWaterToBBox([]waterPolygon{small}, bbox); len(got) != 1 || &got[0].outer[0] != &small.outer[0] {
+	if got := clipWaterToBBox(context.Background(), []waterPolygon{small}, bbox); len(got) != 1 || &got[0].outer[0] != &small.outer[0] {
 		t.Errorf("an inside polygon was rewritten: %+v", got)
 	}
 }
@@ -130,7 +130,7 @@ func BenchmarkSubtract_500kVertexLake(b *testing.B) {
 		name  string
 		polys []waterPolygon
 	}{
-		{"clipped", clipWaterToBBox([]waterPolygon{lake}, bbox)},
+		{"clipped", clipWaterToBBox(context.Background(), []waterPolygon{lake}, bbox)},
 		{"unclipped", []waterPolygon{lake}},
 	} {
 		water := polysToMultiPolygonGeoJSON(c.polys)
@@ -162,5 +162,23 @@ func TestAssembleWater_CityOnAnIslandOfALakeHasNoWater(t *testing.T) {
 	}
 	if !waterless(waterPolygon{outer: [][2]float64{{0, 0}, {1, 0}, {1, 1}, {0, 0}}, holes: [][][2]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 0}}}}) {
 		t.Error("a polygon whose hole is its outer has water")
+	}
+}
+
+// TestClipWaterToBBox_FarIslandsDoNotEmptyTheLake: a lake's islands wholly
+// outside the padded bbox are dropped, not kept unclipped: their area would
+// otherwise outweigh the clipped outer and drop the lake as waterless (Lake
+// Champlain's big islands, miles north of Burlington, solvent-streets-z3si).
+func TestClipWaterToBBox_FarIslandsDoNotEmptyTheLake(t *testing.T) {
+	lake := waterPolygon{
+		outer: [][2]float64{{-1, -1}, {-1, 20}, {20, 20}, {20, -1}, {-1, -1}},
+		holes: [][][2]float64{
+			{{5, 5}, {5, 15}, {15, 15}, {15, 5}, {5, 5}},                 // far island, larger than the clipped lake
+			{{0.4, 0.4}, {0.4, 0.6}, {0.6, 0.6}, {0.6, 0.4}, {0.4, 0.4}}, // island in the bbox
+		},
+	}
+	got := clipWaterToBBox(context.Background(), []waterPolygon{lake}, [4]float64{0, 0, 1, 1})
+	if len(got) != 1 || len(got[0].holes) != 1 || got[0].holes[0][0] != [2]float64{0.4, 0.4} {
+		t.Fatalf("clipped = %+v; want the lake kept with only the island inside the bbox", got)
 	}
 }
