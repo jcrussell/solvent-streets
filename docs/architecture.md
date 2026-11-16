@@ -173,14 +173,15 @@ that saves nothing until it ends:
    relations, and `natural=coastline` closed along the bbox), drop every
    candidate that holds more probes than a small allowance
    (`LandProbes.MaxHits`), since it covers the city's streets, and subtract
-   the rest. An open coastline closes into two candidates; when both hold
-   more than the allowance, the one holding a sliver (5%) of the other's
-   probes is still the water, and otherwise the coastline is dropped. A lake or river may be far larger than the city; only with the
+   the rest. Coastlines are judged as faces (`coastlineFaces`): every open
+   coastline cuts the bbox along itself, so each landmass and each body of
+   water is a face of its own, and a face holding more probes than the
+   allowance is land. A water face with a few piers' roads beside a land
+   face holding thousands is the one, warned-about, exception. A lake or river may be far larger than the city; only with the
    interior-point fallback, which is too sparse to catch a mis-tagged giant
    polygon, is a way or relation covering most of the bbox rejected. With
-   roads, an island's closed coastline is land: it is a hole in the sea
-   around it, and when only islands' coastlines cross the bbox, the rest of
-   the bbox is the candidate sea, so an island city is cut to its islands.
+   roads, an island's closed coastline is land, a hole in the face around
+   it, so an island city is cut to its islands.
    The water is clipped to the bbox before the subtract, so a Great Lake
    costs no more than a pond.
 4. Check the result against the same roads (`chooseBoundary`): a strip that

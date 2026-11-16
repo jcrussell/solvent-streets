@@ -1943,8 +1943,8 @@ func TestAssembleWater_SeaAroundIslandsHoldingRoadsDropped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if water != "" || !strings.Contains(buf.String(), "dropped sea around islands containing city land") {
-		t.Errorf("water = %q, log = %s; want the sea face dropped", water, buf.String())
+	if water != "" {
+		t.Errorf("water = %q, log = %s; want the sea face, which holds city roads, kept as land", water, buf.String())
 	}
 }
 
@@ -2004,16 +2004,15 @@ func TestParseWaterResponse_AcceptsLargeCoastlineRingWithRoadProbes(t *testing.T
 	}
 }
 
-// TestAssembleWater_NoSeaFaceBesideAnOpenCoastline: the bbox-less-islands
-// sea is only for a bbox no open coastline crosses. Here a mainland coast
-// does, and the sea it closes (with the island as a hole) is the water;
-// the bbox-wide face would also claim the mainland, so it must not be
-// added.
-func TestAssembleWater_NoSeaFaceBesideAnOpenCoastline(t *testing.T) {
+// TestAssembleWater_NoSeaFaceOverTheMainland: beside an open mainland coast
+// the island's sea is the face east of the coast, with the island as its
+// hole; the mainland, which holds city roads, is a land face of its own and
+// is not claimed.
+func TestAssembleWater_NoSeaFaceOverTheMainland(t *testing.T) {
 	coast := [][2]float64{{0.7, -0.5}, {0.7, 1.5}}
 	island := [][2]float64{{0.8, 0.4}, {0.9, 0.4}, {0.9, 0.6}, {0.8, 0.6}, {0.8, 0.4}}
-	water, err := parseWaterResponse(context.Background(), []byte(coastlineBody(coast, island)), [4]float64{0, 0, 1, 1},
-		denseProbes(gridProbes(5, 0.82, 0.42, 0.88, 0.58)))
+	pts := append(gridProbes(5, 0.82, 0.42, 0.88, 0.58), gridProbes(5, 0.1, 0.1, 0.6, 0.9)...)
+	water, err := parseWaterResponse(context.Background(), []byte(coastlineBody(coast, island)), [4]float64{0, 0, 1, 1}, denseProbes(pts))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2044,29 +2043,96 @@ func TestCloseCoastlineChain_FewerHitsBeatsSmallerArea(t *testing.T) {
 	}
 }
 
-// TestCloseCoastlineChain_SliverSideIsWater: with dense probes, when both
-// closures hold more than the allowance, the one holding a sliver of the
-// other's probes (Alameda: 4 wharf roads vs 424) is the water; when both
-// hold many (New York: 6548 vs 25842) the chain is still dropped.
-func TestCloseCoastlineChain_SliverSideIsWater(t *testing.T) {
-	chain := [][2]float64{{0.3, 0}, {0.3, 1}}
-	bbox := [4]float64{0, 0, 1, 1}
+// stripRatio strips the water of a [0,1]² bbox from the whole bbox as the
+// city boundary and returns the stripped share of it.
+func stripRatio(t *testing.T, body string, probes LandProbes) float64 {
+	t.Helper()
+	return stripRatioCtx(context.Background(), t, body, probes)
+}
+
+func stripRatioCtx(ctx context.Context, t *testing.T, body string, probes LandProbes) float64 {
+	t.Helper()
+	city := `{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,1],[0,0]]]}`
+	water, err := parseWaterResponse(ctx, []byte(body), [4]float64{0, 0, 1, 1}, probes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stripped := city
+	if water != "" {
+		if stripped, err = geo.SubtractGeoJSON(ctx, city, water); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, _ := geo.BoundaryArea(ctx, city)
+	after, _ := geo.BoundaryArea(ctx, stripped)
+	return after / before
+}
+
+// TestAssembleWater_IslandAcrossTheBBoxEdgeIsItsOwnFace is the review's
+// case for the coastline faces (solvent-streets-aot4): a mainland west of a
+// coast at x = 0.3 with 400 road probes, and an island at x 0.6–0.8, y
+// 0.7–1.3 that crosses the bbox's north edge, so its coastline is an open
+// sub-chain rather than a closed island. The island is a face of its own
+// and stays land with any road cells over the allowance (3), however few
+// beside the mainland's; with none it is stripped with the sea.
+func TestAssembleWater_IslandAcrossTheBBoxEdgeIsItsOwnFace(t *testing.T) {
+	coast := [][2]float64{{0.3, -0.5}, {0.3, 1.5}}
+	island := [][2]float64{{0.6, 0.7}, {0.8, 0.7}, {0.8, 1.3}, {0.6, 1.3}, {0.6, 0.7}}
+	body := coastlineBody(coast, island)
 	for _, c := range []struct {
-		name string
-		east int
-		kept bool
-	}{
-		{"4 vs 400", 4, true},
-		{"16 vs 400", 16, true},
-		{"100 vs 400", 100, false},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			pts := append(gridProbes(20, 0.02, 0.02, 0.28, 0.98), gridProbes(int(math.Sqrt(float64(c.east))), 0.6, 0.4, 0.7, 0.6)...)
-			idx := newLandProbeIndexFor(LandProbes{Points: pts, MaxHits: 3, Dense: true})
-			rings := closeCoastlineChain(context.Background(), chain, bbox, idx)
-			if kept := len(rings) == 1 && pointInRing([2]float64{0.8, 0.5}, rings[0]); kept != c.kept {
-				t.Errorf("rings = %v; want the east closure kept: %v", rings, c.kept)
-			}
-		})
+		side int // island probes: side×side
+		want float64
+	}{{2, 0.36}, {3, 0.36}, {4, 0.36}, {0, 0.30}} {
+		pts := gridProbes(20, 0.01, 0.01, 0.29, 0.99)
+		if c.side > 0 {
+			pts = append(pts, gridProbes(c.side, 0.62, 0.72, 0.78, 0.98)...)
+		}
+		if got := stripRatio(t, body, LandProbes{Points: pts, MaxHits: 3, Dense: true}); math.Abs(got-c.want) > 0.005 {
+			t.Errorf("%d island probes: stripped share %.3f, want %.2f", c.side*c.side, got, c.want)
+		}
+	}
+}
+
+// TestAssembleWater_TwoLandmassesAcrossAChannel is the plan's
+// multi-landmass case (New York's chains cut through several boroughs):
+// a mainland west of x = 0.3 and a second landmass at x 0.5–0.7 spanning the
+// bbox, each with roads, a channel between them and the sea east. One
+// coastline's two closures each hold land, so judged chain by chain the
+// channel and the sea stayed; as faces each landmass and each water body is
+// its own face, and both waters go.
+func TestAssembleWater_TwoLandmassesAcrossAChannel(t *testing.T) {
+	body := coastlineBody(
+		[][2]float64{{0.3, -0.5}, {0.3, 1.5}}, // mainland's east shore, water east
+		[][2]float64{{0.5, 1.5}, {0.5, -0.5}}, // landmass's west shore, water west
+		[][2]float64{{0.7, -0.5}, {0.7, 1.5}}, // landmass's east shore, water east
+	)
+	pts := append(gridProbes(20, 0.01, 0.01, 0.29, 0.99), gridProbes(20, 0.51, 0.01, 0.69, 0.99)...)
+	if got := stripRatio(t, body, denseProbes(pts)); math.Abs(got-0.5) > 0.005 {
+		t.Errorf("stripped share %.3f, want 0.50: both landmasses kept, the channel and the sea stripped", got)
+	}
+}
+
+// TestAssembleWater_FaceSliverIsCapped: a face holding a handful of probes
+// beside thousands across its coastline (Alameda's 4 wharf roads against
+// 424) is stripped as water, with a warning; one holding more than
+// faceSliverMaxAllowances times the allowance stays land whatever the
+// ratio.
+func TestAssembleWater_FaceSliverIsCapped(t *testing.T) {
+	body := coastlineBody([][2]float64{{0.3, -0.5}, {0.3, 1.5}})
+	for _, c := range []struct {
+		side int // east probes: side×side, against 900 west
+		want float64
+		warn bool
+	}{{2, 0.30, true}, {4, 1.0, false}} {
+		var buf bytes.Buffer
+		ctx := logs.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+		pts := append(gridProbes(30, 0.01, 0.01, 0.29, 0.99), gridProbes(c.side, 0.6, 0.4, 0.7, 0.6)...)
+		got := stripRatioCtx(ctx, t, body, LandProbes{Points: pts, MaxHits: 3, Dense: true})
+		if math.Abs(got-c.want) > 0.005 {
+			t.Errorf("%d east probes: stripped share %.3f, want %.2f", c.side*c.side, got, c.want)
+		}
+		if warned := strings.Contains(buf.String(), "stripped a face holding a few city roads"); warned != c.warn {
+			t.Errorf("%d east probes: warned %v, want %v: %s", c.side*c.side, warned, c.warn, buf.String())
+		}
 	}
 }

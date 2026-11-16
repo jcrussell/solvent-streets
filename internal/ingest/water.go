@@ -168,26 +168,19 @@ func assembleWaterGeoJSON(ctx context.Context, elements []overpassElement, bbox 
 	}
 
 	chains := stitchCoastlineChains(coastWays)
-	// With road probes, an island's closed CCW coastline ring is land, so
-	// it is a hole in the sea around it (solvent-streets-gu2k).
-	var islands [][][2]float64
 	if probes.dense {
-		islands = coastlineIslands(chains, bbox)
-	}
-	openSubChains := 0
-	for chainIdx, chain := range chains {
-		coastlinePolys, addedFrac, open := closeAndAcceptCoastline(ctx, chainIdx, chain, bbox, bboxArea, probes, islands)
-		polys = append(polys, coastlinePolys...)
-		sumBBoxFrac += addedFrac
-		openSubChains += open
-	}
-	if len(islands) > 0 && openSubChains == 0 {
-		// Only islands' coastlines cross the bbox, so every bit of the bbox
-		// off the islands is sea: an island city whose boundary reaches
-		// into the water around it (Alameda).
-		if sea, ok := seaAroundIslands(ctx, bbox, islands, probes); ok {
-			sumBBoxFrac += logAcceptedWaterPolygon(ctx, "water coastline: accepted sea around islands", "islands", int64(len(islands)), sea.outer, bboxArea)
-			polys = append(polys, sea)
+		// With road probes the coastlines cut the bbox into faces, each
+		// classified by the roads it holds (solvent-streets-aot4); an
+		// island's closed CCW ring is land, a hole in the face around it.
+		for _, p := range coastlineFaces(ctx, chains, bbox, probes, coastlineIslands(chains, bbox)) {
+			sumBBoxFrac += logAcceptedWaterPolygon(ctx, "water coastline: accepted face", "holes", int64(len(p.holes)), p.outer, bboxArea)
+			polys = append(polys, p)
+		}
+	} else {
+		for chainIdx, chain := range chains {
+			coastlinePolys, addedFrac, _ := closeAndAcceptCoastline(ctx, chainIdx, chain, bbox, bboxArea, probes, nil)
+			polys = append(polys, coastlinePolys...)
+			sumBBoxFrac += addedFrac
 		}
 	}
 
@@ -320,25 +313,6 @@ func withIslands(ring [][2]float64, islands [][][2]float64) waterPolygon {
 	return p
 }
 
-// seaAroundIslands is the candidate sea when only islands' coastlines cross
-// bbox: the bbox with the islands as holes, accepted when it holds no city
-// land (within the probes' allowance). Subtracting it leaves the city's
-// boundary intersected with its islands.
-func seaAroundIslands(ctx context.Context, bbox [4]float64, islands [][][2]float64, probes *landProbeIndex) (waterPolygon, bool) {
-	south, west, north, east := bbox[0], bbox[1], bbox[2], bbox[3]
-	sea := waterPolygon{
-		outer: [][2]float64{{west, south}, {west, north}, {east, north}, {east, south}, {west, south}},
-		holes: islands,
-	}
-	if hits := probes.PolygonHits(sea); probes.landHit(hits) {
-		logs.From(ctx).Warn("water coastline: dropped sea around islands containing city land",
-			"islands", len(islands), "land_hits", hits, "land_probes", probes.Len(),
-		)
-		return waterPolygon{}, false
-	}
-	return sea, true
-}
-
 // logAcceptedWaterPolygon emits one Debug-level log line per accepted
 // water polygon and returns the polygon's bbox-area fraction so the
 // caller can accumulate a summary. Mirrors the WARN-shape of the
@@ -357,21 +331,6 @@ func logAcceptedWaterPolygon(ctx context.Context, msg, idKey string, idVal int64
 	)
 	return frac
 }
-
-// coastlineLowSideFrac: with dense probes, when both closures of an open
-// coastline sub-chain hold more probes than the allowance, the one holding
-// at most this fraction of the other's is the water side. Measured on the
-// batch-1 replay (solvent-streets-npg2): Alameda's bay chain 4 vs 424
-// (0.9%; the 4 are wharf and pier roads at Alameda Point), Juneau's two
-// channel chains 19 vs 1422 (1.3%) and 12 vs 1429 (0.8%); New York's chains
-// that cut through several boroughs 6548 vs 25842 (25%), which separate land
-// from land and stay dropped. 5% sits a factor of four above the first and
-// five below the second. Juneau's low side includes mine roads on the part
-// of Admiralty Island inside the borough, a land face one chain cannot tell
-// from the channel around it: taking that side strips those 17 probe cells
-// (of 1596) with the water, which only a face classifier would keep
-// (solvent-streets-aot4).
-const coastlineLowSideFrac = 0.05
 
 // Dense (road) land probes: their hit allowance and dedupe grid
 // (RoadLandProbes). A candidate water polygon is land-side when it holds
@@ -700,28 +659,9 @@ func closeCoastlineChainWith(ctx context.Context, chain [][2]float64, bbox [4]fl
 			continue
 		}
 		if isClosedRing(sub) {
-			if !ringIsCW(sub) {
-				if probes.dense {
-					logs.From(ctx).Debug("water coastline: kept CCW closed ring as an island", "vertices", len(sub))
-					continue
-				}
-				logs.From(ctx).Warn("water coastline: dropped CCW closed ring (island, not water polygon)",
-					"vertices", len(sub),
-				)
-				continue
+			if p, ok := closedCoastlineRing(ctx, sub, probes, islands); ok {
+				polys = append(polys, p)
 			}
-			// A closed coastline ring should not enclose any of the
-			// city's land probes — if it does, it's traced around land
-			// in the wrong direction (data error) and would over-subtract.
-			p := withIslands(sub, islands)
-			if hits := probes.PolygonHits(p); probes.landHit(hits) {
-				logs.From(ctx).Warn("water coastline: dropped CW closed ring containing city land",
-					"vertices", len(sub),
-					"land_hits", hits, "land_probes", probes.Len(),
-				)
-				continue
-			}
-			polys = append(polys, p)
 			continue
 		}
 		open++
@@ -734,28 +674,34 @@ func closeCoastlineChainWith(ctx context.Context, chain [][2]float64, bbox [4]fl
 	return polys, open
 }
 
-// sliverSide re-decides two closures that both hold more probes than the
-// allowance: with dense probes, when one holds only a sliver of what the
-// other does (coastlineLowSideFrac), the chain still separates the city's
-// land from water, and the few probes on the water side are roads the
-// coastline puts in the water (piers, wharves, untagged causeways). It
-// returns whether each side holds land.
-func sliverSide(ctx context.Context, probes *landProbeIndex, vertices, cwHits, ccwHits int) (cwLand, ccwLand bool) {
-	cwLand, ccwLand = true, true
-	if !probes.dense {
-		return cwLand, ccwLand
+// closedCoastlineRing decides a coastline sub-chain that closes inside the
+// bbox. A CW ring has water inside (a lagoon); it is water, with the
+// islands inside it as holes, unless it holds city land. A CCW ring is an
+// island: with dense probes it is land that coastlineIslands collected, and
+// with sparse probes it is dropped.
+func closedCoastlineRing(ctx context.Context, sub [][2]float64, probes *landProbeIndex, islands [][][2]float64) (waterPolygon, bool) {
+	if !ringIsCW(sub) {
+		if probes.dense {
+			logs.From(ctx).Debug("water coastline: kept CCW closed ring as an island", "vertices", len(sub))
+			return waterPolygon{}, false
+		}
+		logs.From(ctx).Warn("water coastline: dropped CCW closed ring (island, not water polygon)",
+			"vertices", len(sub),
+		)
+		return waterPolygon{}, false
 	}
-	switch {
-	case float64(cwHits) <= coastlineLowSideFrac*float64(ccwHits):
-		cwLand = false
-	case float64(ccwHits) <= coastlineLowSideFrac*float64(cwHits):
-		ccwLand = false
-	default:
-		return cwLand, ccwLand
+	// A closed coastline ring should not enclose any of the city's land
+	// probes — if it does, it's traced around land in the wrong direction
+	// (data error) and would over-subtract.
+	p := withIslands(sub, islands)
+	if hits := probes.PolygonHits(p); probes.landHit(hits) {
+		logs.From(ctx).Warn("water coastline: dropped CW closed ring containing city land",
+			"vertices", len(sub),
+			"land_hits", hits, "land_probes", probes.Len(),
+		)
+		return waterPolygon{}, false
 	}
-	logs.From(ctx).Debug("water coastline: took the closure holding a sliver of the probes",
-		"vertices", vertices, "cw_land_hits", cwHits, "ccw_land_hits", ccwHits)
-	return cwLand, ccwLand
+	return p, true
 }
 
 // closeOpenSubChain closes one open clipped sub-chain into a water-side
@@ -807,9 +753,6 @@ func closeOpenSubChain(ctx context.Context, sub [][2]float64, bbox [4]float64, p
 
 	cwLand := !okCW || probes.landHit(cwHits)
 	ccwLand := !okCCW || probes.landHit(ccwHits)
-	if cwLand && ccwLand && okCW && okCCW {
-		cwLand, ccwLand = sliverSide(ctx, probes, len(sub), cwHits, ccwHits)
-	}
 	switch {
 	case !cwLand && ccwLand:
 		return polyCW, true
