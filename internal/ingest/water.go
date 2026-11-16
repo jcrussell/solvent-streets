@@ -172,7 +172,8 @@ func assembleWaterGeoJSON(ctx context.Context, elements []overpassElement, bbox 
 		// With road probes the coastlines cut the bbox into faces, each
 		// classified by the roads it holds (solvent-streets-aot4); an
 		// island's closed CCW ring is land, a hole in the face around it.
-		for _, p := range coastlineFaces(ctx, chains, bbox, probes, coastlineIslands(chains, bbox)) {
+		boundary := boundaryLonLat(landProbes.Boundary)
+		for _, p := range coastlineFaces(ctx, chains, bbox, probes, coastlineIslands(chains, bbox), boundary) {
 			sumBBoxFrac += logAcceptedWaterPolygon(ctx, "water coastline: accepted face", "holes", int64(len(p.holes)), p.outer, bboxArea)
 			polys = append(polys, p)
 		}

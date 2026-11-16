@@ -49,7 +49,10 @@ const (
 // water faces are returned. Closed CW rings (lagoons) are decided as
 // before (closedCoastlineRing). A chain whose overlay fails is dropped,
 // with a warning, and the faces it would have cut stay whole.
-func coastlineFaces(ctx context.Context, chains [][][2]float64, bbox [4]float64, probes *landProbeIndex, islands [][][2]float64) []waterPolygon {
+//
+// boundary is the unstripped city boundary, or nil; it only scopes the
+// land-side warning (waterFaces).
+func coastlineFaces(ctx context.Context, chains [][][2]float64, bbox [4]float64, probes *landProbeIndex, islands [][][2]float64, boundary []geo.LonLatPolygon) []waterPolygon {
 	water, opens := coastlineSubChains(ctx, chains, bbox, probes, islands)
 	if len(opens) == 0 && len(islands) == 0 {
 		return water
@@ -61,7 +64,7 @@ func coastlineFaces(ctx context.Context, chains [][][2]float64, bbox [4]float64,
 	for _, sub := range opens {
 		faces = splitFaces(ctx, faces, sub, bbox)
 	}
-	return append(water, waterFaces(ctx, faces, opens, probes, islands)...)
+	return append(water, waterFaces(ctx, faces, opens, probes, islands, boundary)...)
 }
 
 // coastlineSubChains clips every chain to bbox: the lagoons (closed CW
@@ -87,7 +90,7 @@ func coastlineSubChains(ctx context.Context, chains [][][2]float64, bbox [4]floa
 // islands as holes, and returns the water ones (see the face
 // classification constants). A face's contrast is the most probes any face
 // across one of its coastlines holds.
-func waterFaces(ctx context.Context, faces []coastFace, opens [][][2]float64, probes *landProbeIndex, islands [][][2]float64) []waterPolygon {
+func waterFaces(ctx context.Context, faces []coastFace, opens [][][2]float64, probes *landProbeIndex, islands [][][2]float64, boundary []geo.LonLatPolygon) []waterPolygon {
 	parts := make([][]waterPolygon, len(faces))
 	hits := make([]int, len(faces))
 	for i, f := range faces {
@@ -112,15 +115,22 @@ func waterFaces(ctx context.Context, faces []coastFace, opens [][][2]float64, pr
 		rightOf[r]++
 	}
 	// landByDirection warns about a water face that every coastline bounding
-	// it puts on land. The decision stands, since coastline direction is
-	// sometimes wrong (solvent-streets-yrr0), but such a face is usually a
-	// roadless island or headland, so the warning lets a replay find each
-	// one stripped.
+	// it puts on land, when enough of it lies in the city boundary to matter
+	// (landSideWarnMinKm2). The decision stands, since coastline direction
+	// is sometimes wrong (solvent-streets-yrr0), but such a face is usually
+	// a roadless island or headland, so the warning lets a replay find each
+	// one the city loses.
+	minKm2 := landSideWarnMin(boundary)
 	landByDirection := func(i int) {
-		if leftOf[i] > 0 && rightOf[i] == 0 {
-			logs.From(ctx).Warn("water coastline: stripped a face its coastlines put on land",
-				"land_hits", hits[i], "coastlines", leftOf[i], "area_lonlat_sq", facesArea(parts[i]))
+		if leftOf[i] == 0 || rightOf[i] > 0 {
+			return
 		}
+		inside, at, ok := areaInBoundary(faces[i].polys, boundary)
+		if !ok || inside <= minKm2 {
+			return
+		}
+		logs.From(ctx).Warn("water coastline: stripped a face its coastlines put on land",
+			"land_hits", hits[i], "coastlines", leftOf[i], "km2_in_boundary", inside, "at", fmt.Sprint(at))
 	}
 	var water []waterPolygon
 	for i := range faces {
@@ -289,4 +299,74 @@ func facesArea(parts []waterPolygon) float64 {
 		}
 	}
 	return a
+}
+
+// The land-side warning (waterFaces) fires only for a face with more than
+// landSideWarnMinKm2 inside the city boundary, or landSideWarnMinFrac of
+// the boundary when that is less: most faces the coastlines put on land
+// lie outside the boundary, in the bbox around it (the batch-1 sample's
+// 34 such warnings, all but one in Juneau, San Francisco, Tampa,
+// Jacksonville and Foster City, held no probe at all and changed no
+// city's area), and a tiny boundary's islets still matter to it.
+const (
+	landSideWarnMinKm2  = 0.05
+	landSideWarnMinFrac = 0.005
+)
+
+// landSideWarnMin is the in-boundary area a land-side face needs to be
+// warned about.
+func landSideWarnMin(boundary []geo.LonLatPolygon) float64 {
+	return min(landSideWarnMinKm2, landSideWarnMinFrac*lonLatKm2(boundary))
+}
+
+// areaInBoundary is how much of a face lies inside the boundary, in km²,
+// and a point of that part; ok is false with no boundary or a failed
+// overlay.
+func areaInBoundary(face, boundary []geo.LonLatPolygon) (float64, [2]float64, bool) {
+	if len(boundary) == 0 {
+		return 0, [2]float64{}, false
+	}
+	inside, err := geo.IntersectLonLat(face, boundary)
+	if err != nil || len(inside) == 0 {
+		return 0, [2]float64{}, err == nil
+	}
+	return lonLatKm2(inside), inside[0][0][0], true
+}
+
+// lonLatKm2 approximates the area of lon/lat polygons in km², scaling each
+// ring by its latitude: enough for a warning threshold.
+func lonLatKm2(polys []geo.LonLatPolygon) float64 {
+	const kmPerDeg = 111.32
+	var a float64
+	for _, p := range polys {
+		for i, r := range p {
+			if len(r) == 0 {
+				continue
+			}
+			_, minY, _, maxY := ringBBox(r)
+			ra := math.Abs(ringSignedArea(r)) * kmPerDeg * kmPerDeg * math.Cos((minY+maxY)/2*math.Pi/180)
+			if i == 0 {
+				a += ra
+			} else {
+				a -= ra
+			}
+		}
+	}
+	return a
+}
+
+// boundaryLonLat reads a GeoJSON boundary as lon/lat polygons, or nil.
+func boundaryLonLat(gjson string) []geo.LonLatPolygon {
+	if gjson == "" {
+		return nil
+	}
+	polys, err := parsePolygons(gjson)
+	if err != nil {
+		return nil
+	}
+	out := make([]geo.LonLatPolygon, len(polys))
+	for i, p := range polys {
+		out[i] = p
+	}
+	return out
 }

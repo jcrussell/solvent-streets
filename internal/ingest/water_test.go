@@ -2193,27 +2193,37 @@ func TestAssembleWater_WarnsOnACoastlineEndingInsideTheBBox(t *testing.T) {
 // TestAssembleWater_WarnsOnStrippingAFaceItsCoastlinesPutOnLand: a roadless
 // island crossing the bbox edge holds no probes, so it is stripped with the
 // sea; its coastline, walked with the water on the right, puts it on land,
-// so the strip is warned about. The sea, on the water side, is not; nor is
-// the island once it holds roads and is kept.
+// so the strip is warned about, with its area inside the city boundary. The
+// sea, on the water side, is not; nor is the island once it holds roads and
+// is kept, nor when it lies outside the boundary.
 func TestAssembleWater_WarnsOnStrippingAFaceItsCoastlinesPutOnLand(t *testing.T) {
 	coast := [][2]float64{{0.3, -0.5}, {0.3, 1.5}}                                     // water east
 	island := [][2]float64{{0.6, 0.7}, {0.8, 0.7}, {0.8, 1.3}, {0.6, 1.3}, {0.6, 0.7}} // CCW: land inside
 	body := coastlineBody(coast, island)
+	const whole = `{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,1],[0,0]]]}`
+	const westHalf = `{"type":"Polygon","coordinates":[[[0,0],[0.5,0],[0.5,1],[0,1],[0,0]]]}`
 	for _, c := range []struct {
-		side int
-		warn bool
-	}{{0, true}, {2, false}} {
+		side     int
+		boundary string
+		warn     bool
+	}{{0, whole, true}, {2, whole, false}, {0, westHalf, false}} {
 		var buf bytes.Buffer
 		ctx := logs.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
 		pts := gridProbes(20, 0.01, 0.01, 0.29, 0.99)
 		if c.side > 0 {
 			pts = append(pts, gridProbes(c.side, 0.62, 0.72, 0.78, 0.98)...)
 		}
-		if _, err := parseWaterResponse(ctx, []byte(body), [4]float64{0, 0, 1, 1}, LandProbes{Points: pts, MaxHits: 3, Dense: true}); err != nil {
+		probes := LandProbes{Points: pts, MaxHits: 3, Dense: true, Boundary: c.boundary}
+		if _, err := parseWaterResponse(ctx, []byte(body), [4]float64{0, 0, 1, 1}, probes); err != nil {
 			t.Fatal(err)
 		}
-		if got := strings.Count(buf.String(), "stripped a face its coastlines put on land"); got != map[bool]int{true: 1, false: 0}[c.warn] {
-			t.Errorf("%d island probes: %d warnings, want warned=%v\n%s", c.side*c.side, got, c.warn, buf.String())
+		got := strings.Count(buf.String(), "stripped a face its coastlines put on land")
+		if got != map[bool]int{true: 1, false: 0}[c.warn] {
+			t.Errorf("%d island probes, boundary %s: %d warnings, want warned=%v\n%s", c.side*c.side, c.boundary, got, c.warn, buf.String())
+		}
+		// The island's 0.2 x 0.3 degrees at the equator, about 744 km².
+		if c.warn && !strings.Contains(buf.String(), "km2_in_boundary=74") {
+			t.Errorf("log = %s; want the island's area inside the boundary", buf.String())
 		}
 	}
 }

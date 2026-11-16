@@ -22,6 +22,10 @@ type LandProbes struct {
 	Points  [][2]float64
 	MaxHits int
 	Dense   bool
+	// Boundary is the unstripped city boundary (GeoJSON) dense probes were
+	// taken in. It decides nothing; the coastline faces use it to warn only
+	// about faces that matter to the city (coastlineFaces).
+	Boundary string
 }
 
 // InteriorLandProbes returns one probe per sub-polygon of boundaryGJSON
@@ -83,7 +87,7 @@ func roadLandProbes(roads []db.Feature, boundaryGJSON string, minCells int) Land
 	if len(pts) == 0 || len(pts) < minCells {
 		return LandProbes{}
 	}
-	return LandProbes{Points: pts, MaxHits: waterLandHitAllowance(len(pts)), Dense: true}
+	return LandProbes{Points: pts, MaxHits: waterLandHitAllowance(len(pts)), Dense: true, Boundary: boundaryGJSON}
 }
 
 // waterLandHitAllowance is the MaxHits of n dense probes.
