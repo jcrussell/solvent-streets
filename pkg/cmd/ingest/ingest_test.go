@@ -2262,3 +2262,32 @@ func TestRoadsOutcome_Result(t *testing.T) {
 		})
 	}
 }
+
+// TestFetchBoundary_CityOnALakeIslandIsNotASubtractFailure: a city wholly on
+// an island (the inner ring) of a lake relation has no water to strip; it
+// is saved unstripped with no "water strip skipped" warning.
+func TestFetchBoundary_CityOnALakeIslandIsNotASubtractFailure(t *testing.T) {
+	body := `{"elements":[{"type":"relation","id":88,"tags":{"natural":"water","type":"multipolygon"},"members":[` +
+		`{"type":"way","ref":1,"role":"outer","geometry":[{"lat":-5,"lon":-5},{"lat":-5,"lon":6},{"lat":6,"lon":6},{"lat":6,"lon":-5},{"lat":-5,"lon":-5}]},` +
+		`{"type":"way","ref":2,"role":"inner","geometry":[{"lat":-2,"lon":-2},{"lat":-2,"lon":3},{"lat":3,"lon":3},{"lat":3,"lon":-2},{"lat":-2,"lon":-2}]}]}]}`
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
+			Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
+	})}
+	var roads []db.Feature
+	for i := range 40 {
+		y := 0.02 + 0.045*float64(i)
+		roads = append(roads, roadLine(fmt.Sprint("r", i), 0.2, y, 0.3, y))
+	}
+	ios, _, _, errOut := iostreams.Test()
+	var saved, upserts []string
+	_, _, err := resolveBoundary(context.Background(), &Options{IO: ios}, boundaryStore(&saved, &upserts), client,
+		&config.CityConfig{Name: "Island, NY"},
+		boundaryFetchers{byName: recordingNominatim(bigSquareBoundary, nil), water: ingestpkg.FetchOSMWater, roads: recordingRoads(roads, nil)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(errOut.String(), "water strip skipped") || !slices.Equal(saved, []string{"nominatim"}) {
+		t.Errorf("saves = %q, stderr = %q; want the boundary saved with no water and no skipped-strip warning", saved, errOut)
+	}
+}

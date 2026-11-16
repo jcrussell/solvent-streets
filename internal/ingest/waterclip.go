@@ -1,6 +1,10 @@
 package ingest
 
-import "github.com/jcrussell/solvent-streets/internal/geo"
+import (
+	"math"
+
+	"github.com/jcrussell/solvent-streets/internal/geo"
+)
 
 // waterClipPadM is how far past the query bbox the water polygons are
 // clipped (clipWaterToBBox). The city boundary lies inside the bbox, so the
@@ -15,7 +19,8 @@ const waterClipPadM = 100
 // far larger than the city (Lake Michigan beside Milwaukee) otherwise
 // reaches geo.SubtractGeoJSON with every vertex, and its projection and
 // cleanup dominate the run. A polygon already inside the padded bbox is
-// returned unchanged.
+// returned unchanged; one with no water left inside the padded bbox
+// (waterless) is dropped.
 func clipWaterToBBox(polys []waterPolygon, bbox [4]float64) []waterPolygon {
 	clip := geo.PadBBox(bbox, waterClipPadM)
 	out := make([]waterPolygon, 0, len(polys))
@@ -30,9 +35,27 @@ func clipWaterToBBox(polys []waterPolygon, bbox [4]float64) []waterPolygon {
 				cp.holes = append(cp.holes, hole)
 			}
 		}
+		if waterless(cp) {
+			continue
+		}
 		out = append(out, cp)
 	}
 	return out
+}
+
+// waterless reports a clipped polygon with no water left: its outer has no
+// area, or its holes cover it, as when the city lies wholly on an island
+// (an inner ring) of a lake that also encloses the bbox, so that the outer
+// and the island both clip to the padded bbox itself. Holes of a valid
+// polygon do not overlap, so their areas add up. Left in, it would reach
+// the subtract as an empty polygon and fail it.
+func waterless(p waterPolygon) bool {
+	outer := math.Abs(ringSignedArea(p.outer))
+	var holes float64
+	for _, h := range p.holes {
+		holes += math.Abs(ringSignedArea(h))
+	}
+	return outer == 0 || holes >= outer*(1-1e-9)
 }
 
 // clipRingToBBox clips a closed ring to bbox ([south, west, north, east])

@@ -141,3 +141,26 @@ func BenchmarkSubtract_500kVertexLake(b *testing.B) {
 		})
 	}
 }
+
+// islandInLake is a water relation whose outer and inner (an island) both
+// enclose the [0,1]² bbox: a city wholly on a river or lake island.
+func islandInLake() string {
+	return `{"elements":[{"type":"relation","id":88,"tags":{"natural":"water","type":"multipolygon"},"members":[` +
+		`{"type":"way","ref":1,"role":"outer","geometry":[{"lat":-5,"lon":-5},{"lat":-5,"lon":6},{"lat":6,"lon":6},{"lat":6,"lon":-5},{"lat":-5,"lon":-5}]},` +
+		`{"type":"way","ref":2,"role":"inner","geometry":[{"lat":-2,"lon":-2},{"lat":-2,"lon":3},{"lat":3,"lon":3},{"lat":3,"lon":-2},{"lat":-2,"lon":-2}]}]}]}`
+}
+
+// TestAssembleWater_CityOnAnIslandOfALakeHasNoWater: the island (the
+// relation's inner) holds the whole bbox, so once clipped the outer and its
+// hole are the same rectangle and no water is left: the assembly answers no
+// water rather than an empty polygon the subtract would fail on.
+func TestAssembleWater_CityOnAnIslandOfALakeHasNoWater(t *testing.T) {
+	water, err := parseWaterResponse(context.Background(), []byte(islandInLake()), [4]float64{0, 0, 1, 1},
+		denseProbes(gridProbes(10, 0.05, 0.05, 0.95, 0.95)))
+	if err != nil || water != "" {
+		t.Errorf("water = %q, err = %v; want no water", water, err)
+	}
+	if !waterless(waterPolygon{outer: [][2]float64{{0, 0}, {1, 0}, {1, 1}, {0, 0}}, holes: [][][2]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 0}}}}) {
+		t.Error("a polygon whose hole is its outer has water")
+	}
+}
