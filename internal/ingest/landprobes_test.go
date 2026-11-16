@@ -1,9 +1,15 @@
 package ingest
 
 import (
+	"context"
+	"fmt"
 	"math"
 	"math/rand/v2"
+	"slices"
+	"strings"
 	"testing"
+
+	"github.com/jcrussell/solvent-streets/internal/db"
 )
 
 // noisyRing is a closed CW ring of n vertices around (cx, cy): a circle of
@@ -110,5 +116,134 @@ func BenchmarkRingHits_150kRoads_10kRing(b *testing.B) {
 	b.ResetTimer()
 	for b.Loop() {
 		_ = idx.RingHits(ring)
+	}
+}
+
+func roadFeature(id string, tags map[string]string, coords ...[2]float64) db.Feature {
+	pts := make([]string, len(coords))
+	for i, c := range coords {
+		pts[i] = fmt.Sprintf("[%v,%v]", c[0], c[1])
+	}
+	if tags == nil {
+		tags = map[string]string{"highway": "residential"}
+	}
+	return db.Feature{ID: id, Tags: tags,
+		GeometryJSON: `{"type":"LineString","coordinates":[` + strings.Join(pts, ",") + `]}`}
+}
+
+// TestFeaturesTouchingBBox: a feature is kept when any segment touches the
+// bbox, so a road that crosses it with no vertex inside is kept, as an
+// Overpass way(bbox) query returns it.
+func TestFeaturesTouchingBBox(t *testing.T) {
+	bbox := [4]float64{0, 0, 1, 1} // south, west, north, east
+	features := []db.Feature{
+		roadFeature("inside", nil, [2]float64{0.2, 0.2}, [2]float64{0.3, 0.3}),
+		roadFeature("crossing", nil, [2]float64{-0.5, 0.5}, [2]float64{1.5, 0.5}),
+		roadFeature("leaving", nil, [2]float64{0.9, 0.9}, [2]float64{2, 2}),
+		roadFeature("outside", nil, [2]float64{2, 2}, [2]float64{3, 3}),
+		roadFeature("corner-miss", nil, [2]float64{1.6, 0.5}, [2]float64{0.5, 1.6}),
+		{ID: "multi", GeometryJSON: `{"type":"MultiLineString","coordinates":[[[5,5],[6,6]],[[0.5,-1],[0.5,2]]]}`},
+		{ID: "point", GeometryJSON: `{"type":"Point","coordinates":[0.5,0.5]}`},
+		{ID: "garbage", GeometryJSON: `not json`},
+	}
+	var got []string
+	for _, f := range FeaturesTouchingBBox(features, bbox) {
+		got = append(got, f.ID)
+	}
+	want := []string{"inside", "crossing", "leaving", "multi", "point"}
+	if !slices.Equal(got, want) {
+		t.Errorf("FeaturesTouchingBBox = %q, want %q", got, want)
+	}
+}
+
+// TestRoadLandProbes covers how roads become land probes: the middle
+// vertex (or a two-vertex road's midpoint), roads over water excluded by
+// their tags, only points inside the boundary, one per grid cell, and the
+// hit allowance.
+func TestRoadLandProbes(t *testing.T) {
+	// A [0,1]² boundary with a hole at [0.4,0.6]².
+	boundary := `{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,1],[0,0]],[[0.4,0.4],[0.6,0.4],[0.6,0.6],[0.4,0.6],[0.4,0.4]]]}`
+	roads := []db.Feature{
+		// Middle vertex (0.25,0.25), though the first vertex is outside.
+		roadFeature("three", nil, [2]float64{-1, -1}, [2]float64{0.25, 0.25}, [2]float64{3, 3}),
+		// Two vertices: the segment midpoint (0.75, 0.25).
+		roadFeature("two", nil, [2]float64{0.7, 0.2}, [2]float64{0.8, 0.3}),
+		// Same 0.001° cell as "two": deduplicated.
+		roadFeature("twin", nil, [2]float64{0.7504, 0.2504}, [2]float64{0.7504, 0.2504}),
+		// In the hole and outside the boundary: not land.
+		roadFeature("hole", nil, [2]float64{0.5, 0.5}, [2]float64{0.5, 0.5}),
+		roadFeature("outside", nil, [2]float64{2, 2}, [2]float64{2, 2}),
+		// Structures over or through water.
+		roadFeature("bridge", map[string]string{"highway": "primary", "bridge": "yes"}, [2]float64{0.1, 0.9}, [2]float64{0.2, 0.9}),
+		roadFeature("tunnel", map[string]string{"highway": "primary", "tunnel": "culvert"}, [2]float64{0.1, 0.8}, [2]float64{0.2, 0.8}),
+		roadFeature("pier", map[string]string{"highway": "footway", "man_made": "pier"}, [2]float64{0.1, 0.7}, [2]float64{0.2, 0.7}),
+		roadFeature("ford", map[string]string{"highway": "track", "ford": "yes"}, [2]float64{0.1, 0.6}, [2]float64{0.2, 0.6}),
+		roadFeature("embankment", map[string]string{"highway": "primary", "embankment": "yes"}, [2]float64{0.1, 0.5}, [2]float64{0.2, 0.5}),
+		roadFeature("causeway", map[string]string{"highway": "primary", "causeway": "yes"}, [2]float64{0.1, 0.4}, [2]float64{0.2, 0.4}),
+		roadFeature("ferry", map[string]string{"route": "ferry"}, [2]float64{0.1, 0.3}, [2]float64{0.2, 0.3}),
+		// bridge=no is an ordinary road.
+		roadFeature("not-a-bridge", map[string]string{"highway": "primary", "bridge": "no"}, [2]float64{0.85, 0.85}, [2]float64{0.95, 0.95}),
+	}
+	got := RoadLandProbes(roads, boundary)
+	want := [][2]float64{{0.25, 0.25}, {0.75, 0.25}, {0.9, 0.9}}
+	if len(got.Points) != len(want) {
+		t.Fatalf("probes = %v, want %v", got.Points, want)
+	}
+	for i := range want {
+		if math.Abs(got.Points[i][0]-want[i][0]) > 1e-9 || math.Abs(got.Points[i][1]-want[i][1]) > 1e-9 {
+			t.Errorf("probe %d = %v, want %v", i, got.Points[i], want[i])
+		}
+	}
+	if !got.Dense || got.MaxHits != waterLandHitFloor {
+		t.Errorf("Dense = %v, MaxHits = %d; want dense with the floor allowance %d", got.Dense, got.MaxHits, waterLandHitFloor)
+	}
+	if empty := RoadLandProbes(nil, boundary); len(empty.Points) != 0 || empty.Dense {
+		t.Errorf("no roads gave %+v, want no probes", empty)
+	}
+	if bad := RoadLandProbes(roads, `{"type":"Point","coordinates":[0,0]}`); len(bad.Points) != 0 {
+		t.Errorf("a non-polygon boundary gave %+v, want no probes", bad)
+	}
+}
+
+func TestWaterLandHitAllowance(t *testing.T) {
+	for _, c := range []struct{ n, want int }{{1, 3}, {3000, 3}, {3001, 4}, {150_000, 150}} {
+		if got := waterLandHitAllowance(c.n); got != c.want {
+			t.Errorf("waterLandHitAllowance(%d) = %d, want %d", c.n, got, c.want)
+		}
+	}
+}
+
+// TestAssembleWater_DenseProbesAllowAFewHits: with road probes, a lake that
+// holds up to MaxHits of them (a bridge's ArcGIS centerline, a dam-crest
+// road) is still water; one that holds more is land-side and dropped.
+func TestAssembleWater_DenseProbesAllowAFewHits(t *testing.T) {
+	body := closedWayBody(7, [][2]float64{{0.2, 0.2}, {0.2, 0.4}, {0.4, 0.4}, {0.4, 0.2}, {0.2, 0.2}})
+	bbox := [4]float64{0, 0, 1, 1}
+	outside := randomPoints(rand.New(rand.NewPCG(7, 8)), 200, 0.5, 0.5, 1, 1)
+	inLake := [][2]float64{{0.25, 0.25}, {0.3, 0.3}, {0.35, 0.35}, {0.3, 0.25}}
+	for _, c := range []struct {
+		name   string
+		inside int
+		dense  bool
+		kept   bool
+	}{
+		{"dense, within the allowance", 3, true, true},
+		{"dense, over the allowance", 4, true, false},
+		{"sparse, one hit", 1, false, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			pts := append(slices.Clone(outside), inLake[:c.inside]...)
+			probes := LandProbes{Points: pts, Dense: c.dense}
+			if c.dense {
+				probes.MaxHits = waterLandHitAllowance(len(pts))
+			}
+			got, err := parseWaterResponse(context.Background(), []byte(body), bbox, probes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if kept := got != ""; kept != c.kept {
+				t.Errorf("lake kept = %v, want %v (result %q)", kept, c.kept, got)
+			}
+		})
 	}
 }

@@ -113,7 +113,10 @@ fails leaves its rows in place.
 
 The city boundary is resolved first, from boundary_relation_id when set and
 otherwise by name from Nominatim, with open water stripped, and stored for
-every later step. HTTP responses are cached; --force bypasses the cache and
+every later step. Resolving a boundary also fetches the city's roads, from
+every configured source and over the unstripped boundary, as land evidence
+for the water strip, and stores them; a roads ingest then reports those
+instead of fetching again. HTTP responses are cached; --force bypasses the cache and
 re-fetches the boundary. --rebuild-boundary re-resolves a stored boundary
 from the cached responses, so a change to the water strip can be replayed
 without asking upstream again.
@@ -162,27 +165,47 @@ func RunResourceForCity(ctx context.Context, f *cmdutil.Factory, rt resource.Sou
 // Boundary is a city's boundary resolved once by ResolveBoundaryForCity and
 // shared by the ingest steps that follow, so `pvmt all ingest` fetches the
 // boundary and its water strip once per city instead of once per step. The
-// boundary itself lives in the store; Boundary carries the road-coverage
-// check a fresh fetch still owes, which the first step with roads runs.
+// boundary itself lives in the store; Boundary carries what resolving it
+// did that a later step reports: a fresh boundary fetches and saves the
+// city's roads (fetchBoundary), so the roads step has nothing left to fetch.
 type Boundary struct {
-	fresh *freshBoundary // nil on a cache hit, and once the check has run
+	roads *roadsOutcome // nil on a cache hit, or when no roads were fetched
 }
 
-// pending returns the road-coverage check b still owes, or nil (also for a
+// boundaryRoads returns the roads b's resolution saved, or nil (also for a
 // nil b).
-func (b *Boundary) pending() *freshBoundary {
+func (b *Boundary) boundaryRoads() *roadsOutcome {
 	if b == nil {
 		return nil
 	}
-	return b.fresh
+	return b.roads
 }
 
-// checked records that the road-coverage check has run, so later steps skip
-// it. A nil b is a no-op.
-func (b *Boundary) checked() {
-	if b != nil {
-		b.fresh = nil
+// roadsOutcome is the roads a fresh boundary's resolution fetched, over the
+// unstripped boundary's bbox, and saved, over the final boundary's bbox.
+type roadsOutcome struct {
+	saved     int
+	succeeded []string // sources that answered
+	failed    []string // sources that did not
+	err       error    // the save failed
+}
+
+// result is what the roads step reports for roads the boundary step saved,
+// matching what fetchAndSave reports for a fetch of its own: the save error,
+// ErrNoResults (or ErrPartialIngest when a source failed) for nothing saved,
+// ErrPartialIngest naming a failed source, or nil.
+func (o *roadsOutcome) result() error {
+	switch {
+	case o.err != nil:
+		return o.err
+	case o.saved == 0:
+		return emptyFetchErr(resource.TypeRoads, o.failed, o.succeeded)
+	case len(o.failed) > 0:
+		return fmt.Errorf("%s: %s failed, saved %d features from %s: %w",
+			resource.TypeRoads, strings.Join(o.failed, ", "), o.saved,
+			strings.Join(o.succeeded, ", "), cmdutil.ErrPartialIngest)
 	}
+	return nil
 }
 
 // ResolveBoundaryForCity returns the city's cached boundary or fetches and
@@ -210,11 +233,14 @@ func ResolveBoundaryForCity(ctx context.Context, f *cmdutil.Factory, rebuild boo
 	if err != nil {
 		return nil, fmt.Errorf("database: %w", err)
 	}
-	_, fresh, err := resolveBoundary(withRetryNotices(ctx, opts.IO), opts, store, client, city, liveBoundaryFetchers())
+	_, b, err := resolveBoundary(withRetryNotices(ctx, opts.IO), opts, store, client, city, liveBoundaryFetchers(opts, city))
 	if err != nil {
 		return nil, err
 	}
-	return &Boundary{fresh: fresh}, nil
+	if b == nil {
+		b = &Boundary{}
+	}
+	return b, nil
 }
 
 // RunResourceWithBoundary is RunResourceForCity for a city whose boundary
@@ -322,21 +348,27 @@ func ingestCompanions(opts *Options, err error, run func(*Options) error) error 
 }
 
 // fetchAndSave is the network half of runIngest: the source check, the
-// boundary, the fetch, the save and the road-coverage gate.
+// boundary, the fetch and the save. A fresh boundary saves the city's roads
+// itself (fetchBoundary), so a roads ingest then reports those instead of
+// fetching them again.
 func fetchAndSave(ctx context.Context, opts *Options, store db.Store, client *http.Client, city *config.CityConfig) error {
 	if err := checkSourceEnabled(opts, city); err != nil {
 		return err
 	}
 	ios := opts.IO
 
-	boundaryGJSON, fresh, err := resolveBoundary(ctx, opts, store, client, city, liveBoundaryFetchers())
+	boundaryGJSON, b, err := resolveBoundary(ctx, opts, store, client, city, liveBoundaryFetchers(opts, city))
 	if err != nil {
 		return err
 	}
-	if fresh == nil {
-		// A boundary fetched up front makes this run a cache hit, but the
-		// road-coverage check that fetch owes may still be pending.
-		fresh = opts.boundary.pending()
+	if b == nil {
+		// A boundary resolved up front (`all ingest`) makes this run a cache
+		// hit, but the roads it saved are still this step's to report.
+		b = opts.boundary
+	}
+	if roads := b.boundaryRoads(); roads != nil && opts.ResourceType.Type() == resource.TypeRoads {
+		fmt.Fprintf(ios.ErrOut, "Roads for %s were fetched with the boundary; not fetching them again.\n", city.Name)
+		return roads.result()
 	}
 
 	bbox, err := geo.BBoxFromGeoJSON(boundaryGJSON)
@@ -385,21 +417,6 @@ func fetchAndSave(ctx context.Context, opts *Options, store db.Store, client *ht
 		return err
 	}
 	recordAttempts(ctx, opts, store, attempts)
-
-	// Post-strip road-coverage gate. Runs only on a fresh fetch (cache
-	// hits skip it). The gate detects inverted boundaries by checking
-	// whether most of the city's road features actually land inside the
-	// stored boundary — an evidence-based defense independent of the
-	// water-strip's own geometry heuristics. solvent-streets-e5mk.
-	if fresh != nil {
-		roads, ok := roadsForCoverageGate(ctx, store, opts, allFeatures)
-		if ok {
-			opts.boundary.checked()
-			if err := applyRoadCoverageGate(ctx, store, city.Name, boundaryGJSON, fresh, roads, opts.IO.ErrOut); err != nil {
-				return err
-			}
-		}
-	}
 
 	logs.From(ctx).Info("ingest complete", "count", len(allFeatures), "resource", opts.ResourceType.Type())
 	if len(failed) > 0 {
@@ -464,6 +481,9 @@ func printDryRunPlan(ctx context.Context, opts *Options, store db.Store, city *c
 	default:
 		fmt.Fprintf(out, "[dry-run]   boundary cached, would skip %s\n", src.from)
 	}
+	if boundary == "" || opts.rebuildsBoundary() {
+		fmt.Fprintln(out, "[dry-run]   would fetch roads over the unstripped boundary bbox as land evidence for the water strip, and save them")
+	}
 	if p, ok := opts.ResourceType.(resource.FetchPadder); ok {
 		fmt.Fprintf(out, "[dry-run]   would fetch over the boundary bbox padded by %.0f m\n", p.FetchPadM())
 	}
@@ -506,15 +526,30 @@ type nominatimFetcher func(ctx context.Context, client *http.Client, cityName st
 // the same shape and rationale as nominatimFetcher.
 type relationFetcher func(ctx context.Context, client *http.Client, relationID int64) (string, error)
 
-// boundaryFetchers is every network call resolveBoundary makes. All three
-// are injected — the water fetch included — so its tests never reach
-// Nominatim or Overpass: a hardcoded FetchOSMWater once made them hang
+// roadsFetcher fetches the city's roads over bbox from every configured road
+// source, as fetchFromSources does. A failed source is in the result, not
+// the error; err is non-nil only when every source failed (or the fetch was
+// cancelled).
+type roadsFetcher func(ctx context.Context, client *http.Client, bbox [4]float64) (roadsFetch, error)
+
+// roadsFetch is one roadsFetcher answer.
+type roadsFetch struct {
+	features  []db.Feature
+	sources   []string // every source asked, in order
+	succeeded []string
+	attempts  []db.IngestAttempt
+}
+
+// boundaryFetchers is every network call resolveBoundary makes. All four
+// are injected — the water and roads fetches included — so its tests never
+// reach Nominatim or Overpass: a hardcoded FetchOSMWater once made them hang
 // `make test` for its full timeout wherever Overpass was unreachable
 // (solvent-streets-zdv7).
 type boundaryFetchers struct {
 	byName     nominatimFetcher
 	byRelation relationFetcher
 	water      waterFetcher
+	roads      roadsFetcher
 }
 
 // boundarySource is where a fresh boundary for a city is fetched from. The
@@ -552,12 +587,25 @@ func (s boundarySource) fetch(ctx context.Context, client *http.Client, cityName
 	return fetch.byName(ctx, client, cityName)
 }
 
-// liveBoundaryFetchers wires the real upstream fetchers.
-func liveBoundaryFetchers() boundaryFetchers {
+// liveBoundaryFetchers wires the real upstream fetchers. The roads come
+// from every road source city configures, whatever --source says: they are
+// the water strip's land evidence, and the roads step reuses them.
+func liveBoundaryFetchers(opts *Options, city *config.CityConfig) boundaryFetchers {
 	return boundaryFetchers{
 		byName:     ingestpkg.FetchCityBoundary,
 		byRelation: ingestpkg.FetchCityBoundaryFromRelation,
 		water:      ingestpkg.FetchOSMWater,
+		roads: func(ctx context.Context, client *http.Client, bbox [4]float64) (roadsFetch, error) {
+			sources := ingestpkg.AllSources(bbox, city.Overpass, city.ArcGISURL,
+				ingestpkg.Options{Progress: opts.IO.ErrOut, AllowPrivateArcGIS: city.AllowPrivateArcGIS})
+			roadOpts := &Options{IO: opts.IO, ResourceType: &resource.Pavement{}, Source: cmdutil.SourceAll}
+			features, succeeded, attempts, err := fetchFromSources(ctx, sources, client, roadOpts, city.Name)
+			out := roadsFetch{features: features, succeeded: succeeded, attempts: attempts}
+			for _, src := range sources {
+				out.sources = append(out.sources, src.Name())
+			}
+			return out, err
+		},
 	}
 }
 
@@ -584,39 +632,15 @@ func replaceScope(requested cmdutil.Source, resolved int, succeeded []string) []
 	return succeeded
 }
 
-// freshBoundary carries the metadata the post-strip road-coverage
-// gate needs to roll back a freshly-stored boundary if the strip turns
-// out to be inverted. resolveBoundary returns *freshBoundary == nil on
-// a cache hit (gate is skipped) and non-nil on a fresh fetch.
-//
-// SavedSource is the source label written to the DB at fresh-fetch
-// time (e.g. "nominatim+osm-water"); UnstrippedSource is what to write
-// on rollback (e.g. "nominatim"). The two differ only when a water
-// strip actually happened.
-type freshBoundary struct {
-	Nominatim        string
-	SavedSource      string
-	UnstrippedSource string
-}
-
 // resolveBoundary returns the cached city boundary or fetches a fresh
 // one. GetBoundary returns ("", nil) on sql.ErrNoRows — any returned
 // error is a real DB problem and must surface.
 //
 // The second return is non-nil exactly when a fresh fetch happened
-// (cache miss, --force or --rebuild-boundary). The caller passes it to
-// applyRoadCoverageGate after features are ingested; the gate either
-// confirms the strip or rolls back to the unstripped Nominatim.
+// (cache miss, --force or --rebuild-boundary), and carries the roads that
+// fetch saved (fetchBoundary).
 //
 // The fetch goes to the city's boundarySourceFor.
-//
-// Fresh fetches subtract OSM `natural=water` polygons from the
-// boundary so cross-city % paved is apples-to-apples. A failed water
-// FETCH is a HARD error and nothing is saved, so the next ingest retries
-// (ErrWaterFetch); geometry-side strip failures are warned + fallback;
-// over-subtraction is a HARD error.
-// Silent inversions are caught downstream by the road-coverage gate
-// (solvent-streets-e5mk).
 func resolveBoundary(
 	ctx context.Context,
 	opts *Options,
@@ -624,7 +648,7 @@ func resolveBoundary(
 	client *http.Client,
 	city *config.CityConfig,
 	fetch boundaryFetchers,
-) (string, *freshBoundary, error) {
+) (string, *Boundary, error) {
 	boundaryGJSON, err := store.GetBoundary(ctx)
 	if err != nil {
 		return "", nil, fmt.Errorf("reading cached boundary: %w", err)
@@ -636,7 +660,7 @@ func resolveBoundary(
 
 	src := boundarySourceFor(city)
 	started := time.Now()
-	boundaryGJSON, fresh, err := fetchBoundary(ctx, opts, store, client, city, src, fetch)
+	boundaryGJSON, b, err := fetchBoundary(ctx, opts, store, client, city, src, fetch)
 	attempt := db.IngestAttempt{Input: db.InputBoundary, Source: src.name, StartedAt: started, FinishedAt: time.Now(),
 		Outcome: db.IngestOK, FeatureCount: 1}
 	switch {
@@ -647,11 +671,27 @@ func resolveBoundary(
 	default:
 		recordAttempts(ctx, opts, store, []db.IngestAttempt{attempt})
 	}
-	return boundaryGJSON, fresh, err
+	return boundaryGJSON, b, err
 }
 
 // fetchBoundary fetches city's boundary from src, strips water from it and
 // saves it: the network half of resolveBoundary.
+//
+// The city's roads are its land evidence. They are fetched first, from every
+// configured road source, over the unstripped boundary's bbox, which holds
+// every boundary the strip can produce. Their points inside the unstripped
+// boundary are the water strip's land probes (ingest.RoadLandProbes), so a
+// water candidate that holds the city's streets is dropped; a city with no
+// such roads falls back to the boundary's interior points. The road-coverage
+// backstop (chooseBoundary) then checks the stripped boundary against the
+// same roads before anything is saved. The boundary is saved once, and the
+// roads are saved filtered to the saved boundary's bbox, the rows a fetch
+// over that bbox would store, so the roads step has nothing left to fetch.
+//
+// A failed water or roads FETCH is a HARD error and nothing is saved, so
+// the next ingest retries (ErrWaterFetch, ErrRoadsFetch); geometry-side
+// strip failures are warned + fallback; over-subtraction, and a boundary
+// that holds too few of the city's own roads, are HARD errors.
 func fetchBoundary(
 	ctx context.Context,
 	opts *Options,
@@ -660,10 +700,10 @@ func fetchBoundary(
 	city *config.CityConfig,
 	src boundarySource,
 	fetch boundaryFetchers,
-) (string, *freshBoundary, error) {
+) (string, *Boundary, error) {
 	unstrippedSource := src.name
 	fmt.Fprintf(opts.IO.ErrOut, "Fetching boundary for %s from %s...\n", city.Name, src.from)
-	boundaryGJSON, err := src.fetch(ctx, client, city.Name, fetch)
+	unstripped, err := src.fetch(ctx, client, city.Name, fetch)
 	if err != nil {
 		// A cancelled fetch needs no remediation, as for the water strip below.
 		if errors.Is(err, context.Canceled) {
@@ -673,23 +713,94 @@ func fetchBoundary(
 			"%s", boundaryFetchHint(err))
 	}
 
-	// Preserve the unstripped Nominatim for the gate's rollback path
-	// before stripWaterFromBoundary potentially produces a sliver.
-	nominatim := boundaryGJSON
+	bbox, err := geo.BBoxFromGeoJSON(unstripped)
+	if err != nil {
+		// Nothing can be fetched over it: save it unstripped, as before
+		// roads were fetched here, and let the roads step fail on it.
+		fmt.Fprintf(opts.IO.ErrOut, "  water strip skipped: bbox: %v\n", err)
+		if err := store.SaveBoundary(ctx, unstripped, unstrippedSource); err != nil {
+			return "", nil, fmt.Errorf("save boundary: %w", err)
+		}
+		fmt.Fprintf(opts.IO.ErrOut, "  Boundary saved (source=%s).\n", unstrippedSource)
+		return unstripped, &Boundary{}, nil
+	}
+
+	fmt.Fprintf(opts.IO.ErrOut, "  Fetching roads over the unstripped boundary as land evidence for the water strip...\n")
+	roads, err := fetch.roads(ctx, client, bbox)
+	if err != nil {
+		recordAttempts(ctx, opts, store, roads.attempts)
+		if cerr := ctx.Err(); cerr != nil {
+			// A cancelled source counts as failed in fetchFromSources; the
+			// user stopped the run, so no retry advice.
+			return "", nil, fmt.Errorf("water strip for %s: roads: %w", city.Name, cerr)
+		}
+		err = fmt.Errorf("water strip for %s: %w: %w", city.Name, ErrRoadsFetch, err)
+		return "", nil, hint.Withf(err,
+			"The boundary was not saved, so the next ingest retries the roads fetch. "+
+				"The warnings above name the road source that failed; if it is Overpass, "+
+				"it is usually just overloaded: wait a few minutes and re-run.")
+	}
+
+	stripped, err := stripWithLandEvidence(ctx, opts, client, city, fetch.water, unstripped, roads.features)
+	if err != nil {
+		return "", nil, err
+	}
+	savedSource := unstrippedSource
+	if stripped != "" {
+		savedSource += "+osm-water"
+	}
+
+	final, finalSource, note, err := chooseBoundary(ctx, city.Name, unstripped, stripped, savedSource, unstrippedSource, roads.features)
+	if err != nil {
+		return "", nil, err
+	}
+	if note != "" {
+		cmdutil.Warnf(opts.IO, "%s", note)
+	}
+	if err := store.SaveBoundary(ctx, final, finalSource); err != nil {
+		return "", nil, fmt.Errorf("save boundary: %w", err)
+	}
+	fmt.Fprintf(opts.IO.ErrOut, "  Boundary saved (source=%s).\n", finalSource)
+	return final, &Boundary{roads: saveBoundaryRoads(ctx, opts, store, city, final, roads)}, nil
+}
+
+// stripWithLandEvidence strips water from unstripped with the city's roads
+// as land probes, falling back to the boundary's interior points when no
+// road qualifies. It returns the stripped boundary, or "" when nothing was
+// stripped (no water, or a soft failure, which it warns about); err is a
+// HARD failure (stripWaterFromBoundary) with its hint attached.
+func stripWithLandEvidence(
+	ctx context.Context,
+	opts *Options,
+	client *http.Client,
+	city *config.CityConfig,
+	fetchWater waterFetcher,
+	unstripped string,
+	roads []db.Feature,
+) (string, error) {
+	probes := ingestpkg.RoadLandProbes(roads, unstripped)
+	if len(probes.Points) == 0 {
+		cmdutil.Warnf(opts.IO, "water strip: no road probes for %s, using the boundary's interior points", city.Name)
+		var err error
+		if probes, err = ingestpkg.InteriorLandProbes(unstripped); err != nil {
+			fmt.Fprintf(opts.IO.ErrOut, "  water strip skipped: interior points: %v\n", err)
+			return "", nil
+		}
+	}
 
 	fmt.Fprintf(opts.IO.ErrOut, "  Fetching water features from Overpass to strip from the boundary...\n")
-	stripped, warn, stripErr := stripWaterFromBoundary(ctx, client, fetch.water, boundaryGJSON)
+	stripped, warn, stripErr := stripWaterFromBoundary(ctx, client, fetchWater, unstripped, probes)
 	if errors.Is(stripErr, context.Canceled) {
 		// The user stopped it; no "Overpass is overloaded" advice.
-		return "", nil, fmt.Errorf("water strip for %s: %w", city.Name, stripErr)
+		return "", fmt.Errorf("water strip for %s: %w", city.Name, stripErr)
 	}
 	if errors.Is(stripErr, ErrWaterFetch) {
-		return "", nil, hint.Withf(fmt.Errorf("water strip for %s: %w", city.Name, stripErr),
+		return "", hint.Withf(fmt.Errorf("water strip for %s: %w", city.Name, stripErr),
 			"The boundary was not saved, so the next ingest retries the water fetch. "+
 				"Overpass is usually just overloaded: wait a few minutes and re-run.")
 	}
 	if stripErr != nil {
-		return "", nil, hint.Withf(fmt.Errorf("water strip for %s: %w", city.Name, stripErr),
+		return "", hint.Withf(fmt.Errorf("water strip for %s: %w", city.Name, stripErr),
 			"This usually means the OSM water-stitching pipeline produced a polygon "+
 				"covering more than the city boundary. The 'water way:', 'water relation:' or "+
 				"'water coastline:' rejection warnings above it on stderr name the "+
@@ -699,22 +810,58 @@ func fetchBoundary(
 	if warn != "" {
 		fmt.Fprintf(opts.IO.ErrOut, "  %s\n", warn)
 	}
+	return stripped, nil
+}
 
-	savedSource := unstrippedSource
-	if stripped != "" {
-		boundaryGJSON = stripped
-		savedSource += "+osm-water"
+// saveBoundaryRoads saves the roads fetched over the unstripped boundary's
+// bbox that touch the saved boundary's bbox (ingest.FeaturesTouchingBBox):
+// the rows a fetch over that bbox would store, so feature counts, and the
+// routing-roads ring that excludes the boundary bbox
+// (resource.ExcludingQuerier), are those of a plain roads ingest. Each
+// source's attempt records the count it saved. Nothing fetched leaves the
+// stored roads untouched, as fetchAndSave does.
+func saveBoundaryRoads(ctx context.Context, opts *Options, store db.Store, city *config.CityConfig, boundary string, fetched roadsFetch) *roadsOutcome {
+	out := &roadsOutcome{succeeded: fetched.succeeded}
+	for _, name := range fetched.sources {
+		if !slices.Contains(fetched.succeeded, name) {
+			out.failed = append(out.failed, name)
+		}
 	}
-
-	if err := store.SaveBoundary(ctx, boundaryGJSON, savedSource); err != nil {
-		return "", nil, fmt.Errorf("save boundary: %w", err)
+	features := fetched.features
+	if bbox, err := geo.BBoxFromGeoJSON(boundary); err == nil {
+		features = ingestpkg.FeaturesTouchingBBox(features, bbox)
 	}
-	fmt.Fprintf(opts.IO.ErrOut, "  Boundary saved (source=%s).\n", savedSource)
-	return boundaryGJSON, &freshBoundary{
-		Nominatim:        nominatim,
-		SavedSource:      savedSource,
-		UnstrippedSource: unstrippedSource,
-	}, nil
+	saved := map[string]int{}
+	for _, f := range features {
+		saved[f.SourceAPI]++
+	}
+	attempts := slices.Clone(fetched.attempts)
+	for i, a := range attempts {
+		if a.Outcome == db.IngestFailed {
+			continue
+		}
+		attempts[i].FeatureCount, attempts[i].Outcome = saved[a.Source], db.IngestOK
+		if saved[a.Source] == 0 {
+			attempts[i].Outcome = db.IngestEmpty
+		}
+	}
+	if len(features) == 0 {
+		recordAttempts(ctx, opts, store, attempts)
+		logs.From(ctx).Warn("no features fetched", "resource", resource.TypeRoads)
+		return out
+	}
+	logs.From(ctx).Info("saving features to database", "count", len(features), "resource", resource.TypeRoads)
+	replace := replaceScope(cmdutil.SourceAll, len(fetched.sources), fetched.succeeded)
+	if err := store.UpsertFeatures(ctx, resource.TypeRoads, features, replace); err != nil {
+		out.err = fmt.Errorf("save features: %w", err)
+		recordAttempts(ctx, opts, store, failAnswered(attempts, out.err))
+		return out
+	}
+	recordAttempts(ctx, opts, store, attempts)
+	out.saved = len(features)
+	fmt.Fprintf(opts.IO.ErrOut, "  Saved %d roads for %s from %s with the boundary; the roads step reuses them.\n",
+		out.saved, city.Name, strings.Join(fetched.succeeded, ", "))
+	return out
 }
 
 // boundaryFetchHint picks a remediation message tailored to the failure
@@ -775,6 +922,12 @@ var ErrWaterStripOverSubtracted = errors.New("water strip over-subtracted")
 // so the next ingest retries.
 var ErrWaterFetch = errors.New("water fetch failed")
 
+// ErrRoadsFetch signals that every road source failed while resolving a
+// fresh boundary. The roads are the water strip's land evidence, so it is a
+// HARD failure like ErrWaterFetch: nothing is saved, and the next ingest
+// retries.
+var ErrRoadsFetch = errors.New("roads fetch failed")
+
 // waterFetcher abstracts the OSM water fetch so tests can inject a
 // fake response without spinning up an httptest server inside the
 // internal/ingest package. The interface is intentionally narrow per
@@ -784,31 +937,29 @@ var ErrWaterFetch = errors.New("water fetch failed")
 // city land and to disambiguate coastline closures.
 type waterFetcher func(ctx context.Context, client *http.Client, bbox [4]float64, probes ingestpkg.LandProbes) (string, error)
 
-// stripWaterFromBoundary tries to subtract OSM water from boundaryGJSON.
+// stripWaterFromBoundary tries to subtract OSM water from boundaryGJSON,
+// with probes as the city's land (see ingest.FetchOSMWater).
 //
 // Returns (stripped, warn, err):
 //   - (gjson, "", nil)  - success; use stripped boundary, caller appends
 //     "+osm-water" to its existing source label
 //   - ("", "", nil)     - no water in bbox; use unstripped boundary
-//   - ("", warn, nil)   - soft failure (geometry: bbox, interior points,
-//     subtract); log warn and fall back. These are deterministic, so a
-//     retry could not succeed where this run failed.
+//   - ("", warn, nil)   - soft failure (geometry: bbox, subtract); log warn
+//     and fall back. These are deterministic, so a retry could not succeed
+//     where this run failed.
 //   - ("", "", err)     - HARD failure: the water fetch failed
 //     (ErrWaterFetch; retryable, so nothing may be saved) or the
 //     over-subtraction guard tripped (ErrWaterStripOverSubtracted); abort
 //
-// boundaryGJSON itself is preserved verbatim — callers pass it in and
-// hold onto it for the rollback path of the post-strip road-coverage
-// gate (validateBoundaryAgainstRoads). This function intentionally
-// does not return the original because the caller already owns it; the
-// 2026-05-28 inversion fix (solvent-streets-e5mk) only changed the
-// caller's responsibility, not this function's contract.
+// boundaryGJSON itself is preserved verbatim: the caller holds onto it for
+// the road-coverage backstop (chooseBoundary), whose fallbacks are built
+// from it.
 //
 // The err return wraps ErrWaterFetch or ErrWaterStripOverSubtracted (the
 // latter with areas + ratio); callers should attach the city name via
 // ErrHint so the operator can identify which city is affected.
 //
-// The source label is composed by the caller (resolveBoundary) so the
+// The source label is composed by the caller (fetchBoundary) so the
 // upstream fetch (nominatim vs overpass-relation) is preserved in the
 // final label — e.g., "nominatim+osm-water" or "overpass-relation+osm-water".
 func stripWaterFromBoundary(
@@ -816,16 +967,13 @@ func stripWaterFromBoundary(
 	client *http.Client,
 	fetchWater waterFetcher,
 	boundaryGJSON string,
+	probes ingestpkg.LandProbes,
 ) (gjson, warn string, err error) {
 	bbox, err := geo.BBoxFromGeoJSON(boundaryGJSON)
 	if err != nil {
 		return "", fmt.Sprintf("water strip skipped: bbox: %v", err), nil
 	}
-	landProbes, err := ingestpkg.InteriorLandProbes(boundaryGJSON)
-	if err != nil {
-		return "", fmt.Sprintf("water strip skipped: interior points: %v", err), nil
-	}
-	waterGJSON, err := fetchWater(ctx, client, bbox, landProbes)
+	waterGJSON, err := fetchWater(ctx, client, bbox, probes)
 	if err != nil {
 		return "", "", fmt.Errorf("%w: %w", ErrWaterFetch, err)
 	}

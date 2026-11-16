@@ -209,59 +209,131 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-// TestRunResourceWithBoundary_RunsPendingCoverageCheckOnce: when `all ingest`
-// fetches the boundary up front, every step then hits the cache, but the
-// road-coverage check that a fresh water strip owes (solvent-streets-e5mk)
-// must still run, once, in the first step that has roads. Losing it would
-// leave an inverted water strip in place for the whole city.
-func TestRunResourceWithBoundary_RunsPendingCoverageCheckOnce(t *testing.T) {
-	ios, _, _, _ := iostreams.Test()
-	city := cmdtest.NewTestCity()
-	city.Overpass = true
-	// Roads sit in the left half of the [0,2]² city; the saved strip kept
-	// only the right half, so the strip is inverted and the check must
-	// replace it with the complement.
-	const overpassRoads = `{"elements":[
-		{"type":"node","id":1,"lat":0.5,"lon":0.5},
-		{"type":"node","id":2,"lat":0.51,"lon":0.51},
-		{"type":"way","id":10,"nodes":[1,2],"tags":{"highway":"residential"}}]}`
-	var saved []string
-	store := &dbtest.MockStore{
-		// Deliberately does not reflect SaveBoundary, so a second check would
-		// find the strip inverted again and save again.
-		GetBoundaryFunc: func(context.Context) (string, error) { return rightHalfBoundary, nil },
-		SaveBoundaryFunc: func(_ context.Context, _, source string) error {
-			saved = append(saved, source)
+// fakeUpstream answers Nominatim with boundary and Overpass by query: the
+// roads query with roadsBody, every other query (water, parking, sidewalks,
+// facilities) with no elements. It counts the roads queries.
+type fakeUpstream struct {
+	boundary, roadsBody string
+	roadsQueries        int
+}
+
+func (u *fakeUpstream) client() *http.Client {
+	return &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		body := `{"elements":[]}`
+		switch {
+		case r.URL.Hostname() == "nominatim.openstreetmap.org":
+			body = `[{"addresstype":"city","geojson":` + u.boundary + `}]`
+		case r.Method == http.MethodPost:
+			raw, _ := io.ReadAll(r.Body)
+			form, _ := url.ParseQuery(string(raw))
+			if strings.Contains(form.Get("data"), (&resource.Pavement{}).OverpassQuery([4]float64{})[:60]) {
+				u.roadsQueries++
+				body = u.roadsBody
+			}
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
+			Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
+	})}
+}
+
+// oneRoadInNoSourceBoundary is an Overpass roads answer with one residential
+// way inside noSourceBoundary.
+const oneRoadInNoSourceBoundary = `{"elements":[{"type":"way","id":10,"tags":{"highway":"residential"},
+	"geometry":[{"lat":37.68,"lon":-121.80},{"lat":37.68,"lon":-121.79},{"lat":37.69,"lon":-121.78}]}]}`
+
+// boundaryStore is a MockStore whose boundary reads back what was saved and
+// that records each feature upsert's type and count.
+func boundaryStore(saved *[]string, upserts *[]string) *dbtest.MockStore {
+	var boundary string
+	return &dbtest.MockStore{
+		GetBoundaryFunc: func(context.Context) (string, error) { return boundary, nil },
+		SaveBoundaryFunc: func(_ context.Context, gjson, source string) error {
+			boundary = gjson
+			*saved = append(*saved, source)
 			return nil
 		},
-		ListFeaturesFunc: func(context.Context, resource.Type) ([]db.Feature, error) {
-			return []db.Feature{road("r1", 0.5, 0.5)}, nil
+		UpsertFeaturesFunc: func(_ context.Context, rt resource.Type, f []db.Feature, _ []string) error {
+			*upserts = append(*upserts, fmt.Sprintf("%s:%d", rt, len(f)))
+			return nil
 		},
 	}
+}
+
+// TestRunResourceWithBoundary_RoadsStepReusesBoundaryRoads
+// (solvent-streets-npg2): `all ingest` resolves a fresh boundary up front,
+// which fetches the roads over the unstripped boundary and saves them; the
+// roads step then reports those instead of fetching again, so the roads,
+// parking and sidewalks steps make exactly one roads query between them.
+func TestRunResourceWithBoundary_RoadsStepReusesBoundaryRoads(t *testing.T) {
+	ios, _, _, errOut := iostreams.Test()
+	city := cmdtest.NewTestCity()
+	city.Overpass = true
+	up := &fakeUpstream{boundary: noSourceBoundary, roadsBody: oneRoadInNoSourceBoundary}
+	var saved, upserts []string
+	store := boundaryStore(&saved, &upserts)
 	f := &cmdutil.Factory{
 		IOStreams:   ios,
 		CityDB:      func() (db.Store, error) { return store, nil },
 		CurrentCity: func() (*config.CityConfig, error) { return city, nil },
-		HttpClient: func() (*http.Client, error) {
-			return &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-				return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
-					Body: io.NopCloser(strings.NewReader(overpassRoads))}, nil
-			})}, nil
-		},
+		HttpClient:  func() (*http.Client, error) { return up.client(), nil },
 	}
-	b := &Boundary{fresh: &freshBoundary{
-		Nominatim:        bigSquareBoundary,
-		SavedSource:      "nominatim+osm-water",
-		UnstrippedSource: "nominatim",
-	}}
-
-	for _, rt := range []resource.Source{&resource.Pavement{}, &resource.Parking{}} {
-		if err := RunResourceWithBoundary(context.Background(), f, rt, b); err != nil {
-			t.Fatalf("%s ingest = %v", rt.Type(), err)
+	b, err := ResolveBoundaryForCity(context.Background(), f, false)
+	if err != nil {
+		t.Fatalf("ResolveBoundaryForCity: %v\nstderr: %s", err, errOut)
+	}
+	for _, rt := range resource.All {
+		err := RunResourceWithBoundary(context.Background(), f, rt, b)
+		if rt.Type() == resource.TypeRoads && err != nil {
+			t.Fatalf("roads step = %v, want the boundary's roads reported as a success", err)
 		}
 	}
-	if want := []string{"nominatim+osm-water-inverted"}; !slices.Equal(saved, want) {
-		t.Errorf("boundary saves = %q, want %q: the pending check must run exactly once", saved, want)
+	if up.roadsQueries != 1 {
+		t.Errorf("roads queries = %d, want 1: the roads step must reuse the boundary's roads", up.roadsQueries)
+	}
+	if want := []string{"roads:1"}; !slices.Equal(upserts, want) {
+		t.Errorf("feature upserts = %q, want %q", upserts, want)
+	}
+	if len(saved) != 1 {
+		t.Errorf("boundary saves = %q, want one", saved)
+	}
+	if !strings.Contains(errOut.String(), "fetched with the boundary") {
+		t.Errorf("stderr = %q; want the roads step to say it reused the boundary's roads", errOut)
+	}
+}
+
+// TestRunIngest_ParkingOnFreshBoundarySavesRoads: `pvmt parking ingest` on a
+// city with no stored boundary saves the roads its boundary fetched, and
+// says so, before its own parking fetch.
+func TestRunIngest_ParkingOnFreshBoundarySavesRoads(t *testing.T) {
+	ios, _, _, errOut := iostreams.Test()
+	city := cmdtest.NewTestCity()
+	city.Overpass = true
+	up := &fakeUpstream{boundary: noSourceBoundary, roadsBody: oneRoadInNoSourceBoundary}
+	var saved, upserts []string
+	store := boundaryStore(&saved, &upserts)
+	err := runIngest(context.Background(), &Options{
+		IO:           ios,
+		CityDB:       func() (db.Store, error) { return store, nil },
+		CurrentCity:  func() (*config.CityConfig, error) { return city, nil },
+		HttpClient:   func() (*http.Client, error) { return up.client(), nil },
+		ResourceType: &resource.Parking{},
+		Source:       cmdutil.SourceAll,
+	})
+	if !errors.Is(err, cmdutil.ErrNoResults) {
+		t.Fatalf("parking ingest = %v, want ErrNoResults (no parking upstream)", err)
+	}
+	if want := []string{"roads:1"}; !slices.Equal(upserts, want) {
+		t.Errorf("feature upserts = %q, want %q", upserts, want)
+	}
+	if !strings.Contains(errOut.String(), "Saved 1 roads") {
+		t.Errorf("stderr = %q; want the roads saved with the boundary named", errOut)
+	}
+	got := map[string]db.IngestOutcome{}
+	for _, a := range store.Attempts {
+		got[a.Input+"/"+a.Source] = a.Outcome
+	}
+	if got["roads/overpass"] != db.IngestOK || got["boundary/nominatim"] != db.IngestOK {
+		t.Errorf("attempts = %+v, want ok roads and boundary attempts", store.Attempts)
 	}
 }
 
@@ -435,6 +507,19 @@ func TestAcceptStripRatio(t *testing.T) {
 	}
 }
 
+// noRoads is a roadsFetcher for a city with no road sources.
+func noRoads(context.Context, *http.Client, [4]float64) (roadsFetch, error) { return roadsFetch{}, nil }
+
+// interiorProbes is the sparse land probes of boundary.
+func interiorProbes(t *testing.T, boundary string) ingestpkg.LandProbes {
+	t.Helper()
+	probes, err := ingestpkg.InteriorLandProbes(boundary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return probes
+}
+
 // fakeWaterFetcher returns the same body for every call. Lets tests
 // of stripWaterFromBoundary control what "the Overpass API" returns
 // without standing up an httptest server.
@@ -502,6 +587,7 @@ func TestResolveBoundary_NominatimWhenNoRelationID(t *testing.T) {
 			byName:     recordingNominatim(boundary, &nomName),
 			byRelation: recordingRelation("", &relID),
 			water:      fakeWaterFetcher(""),
+			roads:      noRoads,
 		},
 	)
 	if err != nil {
@@ -543,6 +629,7 @@ func TestResolveBoundary_RelationWhenIDSet(t *testing.T) {
 			byName:     recordingNominatim("", &nomName),
 			byRelation: recordingRelation(boundary, &relID),
 			water:      fakeWaterFetcher(""),
+			roads:      noRoads,
 		},
 	)
 	if err != nil {
@@ -585,6 +672,7 @@ func TestResolveBoundary_CachedShortCircuitsBothFetchers(t *testing.T) {
 			byName:     recordingNominatim("nope", &nomName),
 			byRelation: recordingRelation("nope", &relID),
 			water:      fakeWaterFetcher(""),
+			roads:      noRoads,
 		},
 	)
 	if err != nil {
@@ -618,7 +706,7 @@ func TestResolveBoundary_FetcherErrorWrappedWithHint(t *testing.T) {
 
 	_, _, err := resolveBoundary(
 		context.Background(), opts, store, &http.Client{}, city,
-		boundaryFetchers{byName: failingNominatim, byRelation: failingRelation, water: fakeWaterFetcher("")},
+		boundaryFetchers{byName: failingNominatim, byRelation: failingRelation, water: fakeWaterFetcher(""), roads: noRoads},
 	)
 	if err == nil {
 		t.Fatal("expected error from failing fetcher")
@@ -643,7 +731,7 @@ func TestResolveBoundary_FetcherErrorWrappedWithHint(t *testing.T) {
 func TestResolveBoundary_RecordsAttempts(t *testing.T) {
 	city := &config.CityConfig{Name: "Oakland, CA"}
 	opts := resolveBoundaryHarness(t)
-	fetchers := boundaryFetchers{byName: recordingNominatim(noSourceBoundary, nil), byRelation: nil, water: fakeWaterFetcher("")}
+	fetchers := boundaryFetchers{byName: recordingNominatim(noSourceBoundary, nil), byRelation: nil, water: fakeWaterFetcher(""), roads: noRoads}
 
 	fresh := &dbtest.MockStore{GetBoundaryFunc: func(_ context.Context) (string, error) { return "", nil }}
 	if _, _, err := resolveBoundary(context.Background(), opts, fresh, &http.Client{}, city, fetchers); err != nil {
@@ -708,7 +796,7 @@ func TestResolveBoundary_RelationErrorHintsAreClassSpecific(t *testing.T) {
 			opts := resolveBoundaryHarness(t)
 			_, _, err := resolveBoundary(
 				context.Background(), opts, store, &http.Client{}, city,
-				boundaryFetchers{byName: recordingNominatim("", nil), byRelation: failing, water: fakeWaterFetcher("")},
+				boundaryFetchers{byName: recordingNominatim("", nil), byRelation: failing, water: fakeWaterFetcher(""), roads: noRoads},
 			)
 			if err == nil {
 				t.Fatal("expected error")
@@ -759,7 +847,7 @@ func TestStripWaterFromBoundary_BackstopTripsOnDonutHole(t *testing.T) {
 		`]]}`
 
 	gjson, warn, err := stripWaterFromBoundary(
-		context.Background(), &http.Client{}, fakeWaterFetcher(water), boundary,
+		context.Background(), &http.Client{}, fakeWaterFetcher(water), boundary, interiorProbes(t, boundary),
 	)
 	if !errors.Is(err, ErrWaterStripOverSubtracted) {
 		t.Fatalf("err = %v, want errors.Is ErrWaterStripOverSubtracted", err)
@@ -785,7 +873,7 @@ func TestStripWaterFromBoundary_AcceptsModestStrip(t *testing.T) {
 	water := `{"type":"MultiPolygon","coordinates":[[[[-71.055,42.365],[-71.050,42.365],[-71.050,42.370],[-71.055,42.370],[-71.055,42.365]]]]}`
 
 	gjson, warn, err := stripWaterFromBoundary(
-		context.Background(), &http.Client{}, fakeWaterFetcher(water), boundary,
+		context.Background(), &http.Client{}, fakeWaterFetcher(water), boundary, interiorProbes(t, boundary),
 	)
 	if err != nil {
 		t.Fatalf("err = %v, want nil", err)
@@ -811,7 +899,7 @@ func TestStripWaterFromBoundary_FetchErrorIsHard(t *testing.T) {
 	boundary := `{"type":"Polygon","coordinates":[[[-71.06,42.36],[-71.05,42.36],[-71.05,42.37],[-71.06,42.37],[-71.06,42.36]]]}`
 
 	gjson, warn, err := stripWaterFromBoundary(
-		context.Background(), &http.Client{}, failingWaterFetcher, boundary,
+		context.Background(), &http.Client{}, failingWaterFetcher, boundary, interiorProbes(t, boundary),
 	)
 	if !errors.Is(err, ErrWaterFetch) {
 		t.Fatalf("err = %v, want ErrWaterFetch", err)
@@ -842,6 +930,7 @@ func TestResolveBoundary_WaterFetchErrorSavesNothing(t *testing.T) {
 			byName:     recordingNominatim(boundary, nil),
 			byRelation: recordingRelation("", nil),
 			water:      failingWaterFetcher,
+			roads:      noRoads,
 		},
 	)
 	if !errors.Is(err, ErrWaterFetch) {
@@ -874,7 +963,7 @@ func TestResolveBoundary_CancelledWaterFetchHasNoOverloadHint(t *testing.T) {
 
 	_, _, err := resolveBoundary(
 		context.Background(), resolveBoundaryHarness(t), store, &http.Client{}, &config.CityConfig{Name: "Oakland, CA"},
-		boundaryFetchers{byName: recordingNominatim(boundary, nil), byRelation: recordingRelation("", nil), water: cancelled},
+		boundaryFetchers{byName: recordingNominatim(boundary, nil), byRelation: recordingRelation("", nil), water: cancelled, roads: noRoads},
 	)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
@@ -892,7 +981,7 @@ func TestStripWaterFromBoundary_NoWaterIsNoOp(t *testing.T) {
 	boundary := `{"type":"Polygon","coordinates":[[[-71.06,42.36],[-71.05,42.36],[-71.05,42.37],[-71.06,42.37],[-71.06,42.36]]]}`
 
 	gjson, warn, err := stripWaterFromBoundary(
-		context.Background(), &http.Client{}, fakeWaterFetcher(""), boundary,
+		context.Background(), &http.Client{}, fakeWaterFetcher(""), boundary, interiorProbes(t, boundary),
 	)
 	if err != nil || gjson != "" || warn != "" {
 		t.Errorf("no-water path should return all zero; got gjson=%d warn=%q err=%v",
@@ -1389,6 +1478,7 @@ func TestPrintDryRunPlan_BoundarySourceMatchesTheRealRun(t *testing.T) {
 					byName:     recordingNominatim(boundary, nil),
 					byRelation: recordingRelation(boundary, nil),
 					water:      fakeWaterFetcher(""),
+					roads:      noRoads,
 				})
 			if err != nil {
 				t.Fatalf("resolveBoundary: %v", err)
@@ -1633,7 +1723,7 @@ func TestResolveBoundary_RebuildReResolvesStoredBoundary(t *testing.T) {
 	ios, _, _, errOut := iostreams.Test()
 	_, fresh, err := resolveBoundary(context.Background(), &Options{IO: ios, RebuildBoundary: true}, store, &http.Client{},
 		&config.CityConfig{Name: "Oakland, CA"},
-		boundaryFetchers{byName: recordingNominatim(stored, &name), byRelation: recordingRelation("", nil), water: fakeWaterFetcher("")})
+		boundaryFetchers{byName: recordingNominatim(stored, &name), byRelation: recordingRelation("", nil), water: fakeWaterFetcher(""), roads: noRoads})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1658,6 +1748,15 @@ func TestPrintDryRunPlan_RebuildBoundary(t *testing.T) {
 	want := `would re-resolve the stored boundary for "Oakland, CA" from Nominatim, through the HTTP cache`
 	if got := out.String(); !strings.Contains(got, want) || strings.Contains(got, "boundary cached, would skip") {
 		t.Errorf("dry run = %q; want %q", got, want)
+	}
+	// A fresh boundary fetches the roads as the strip's land evidence; a
+	// cached one does not.
+	const roads = "would fetch roads over the unstripped boundary bbox as land evidence for the water strip"
+	if got := out.String(); !strings.Contains(got, roads) {
+		t.Errorf("dry run = %q; want %q", got, roads)
+	}
+	if got := dryRunOutput(t, city, cmdutil.SourceAll, noSourceBoundary); strings.Contains(got, roads) {
+		t.Errorf("dry run with a cached boundary = %q; want no roads fetch for the strip", got)
 	}
 }
 
@@ -1701,5 +1800,210 @@ func TestRunIngest_CompanionDoesNotRebuildBoundaryAgain(t *testing.T) {
 	}
 	if nominatim != 1 {
 		t.Errorf("nominatim asked %d times, want 1: the companion must not re-resolve the boundary", nominatim)
+	}
+}
+
+// roadLine is an Overpass road feature along (lon0,lat0)->(lon1,lat1).
+func roadLine(id string, lon0, lat0, lon1, lat1 float64) db.Feature {
+	return db.Feature{ID: id, ResourceType: resource.TypeRoads, SourceAPI: "overpass", Tags: map[string]string{"highway": "residential"},
+		GeometryJSON: fmt.Sprintf(`{"type":"LineString","coordinates":[[%v,%v],[%v,%v]]}`, lon0, lat0, lon1, lat1)}
+}
+
+// recordingRoads is a roadsFetcher answering features from overpass, and
+// recording the bbox it was asked for.
+func recordingRoads(features []db.Feature, gotBBox *[4]float64) roadsFetcher {
+	return func(_ context.Context, _ *http.Client, bbox [4]float64) (roadsFetch, error) {
+		if gotBBox != nil {
+			*gotBBox = bbox
+		}
+		return roadsFetch{features: features, sources: []string{"overpass"}, succeeded: []string{"overpass"},
+			attempts: []db.IngestAttempt{{Input: "roads", Source: "overpass", Outcome: db.IngestOK, FeatureCount: len(features)}}}, nil
+	}
+}
+
+// recordingWater is a waterFetcher answering body and recording the probes
+// it was given.
+func recordingWater(body string, got *ingestpkg.LandProbes) waterFetcher {
+	return func(_ context.Context, _ *http.Client, _ [4]float64, probes ingestpkg.LandProbes) (string, error) {
+		*got = probes
+		return body, nil
+	}
+}
+
+// TestFetchBoundary_FetchesRoadsOverUnstrippedBBox (solvent-streets-npg2):
+// the roads are fetched over the unstripped boundary's bbox, which holds
+// every boundary the strip can produce, and become the water strip's dense
+// land probes.
+func TestFetchBoundary_FetchesRoadsOverUnstrippedBBox(t *testing.T) {
+	// The water is the right half, so the stripped boundary's bbox is half
+	// the unstripped one's.
+	water := `{"type":"MultiPolygon","coordinates":[[[[1,0],[2,0],[2,2],[1,2],[1,0]]]]}`
+	roads := []db.Feature{roadLine("a", 0.2, 0.2, 0.3, 0.3), roadLine("b", 0.5, 1.5, 0.6, 1.5)}
+	var gotBBox [4]float64
+	var probes ingestpkg.LandProbes
+	var saved, upserts []string
+	store := boundaryStore(&saved, &upserts)
+	_, b, err := resolveBoundary(context.Background(), resolveBoundaryHarness(t), store, &http.Client{},
+		&config.CityConfig{Name: "Oakland, CA"},
+		boundaryFetchers{byName: recordingNominatim(bigSquareBoundary, nil), water: recordingWater(water, &probes),
+			roads: recordingRoads(roads, &gotBBox)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want, _ := geo.BBoxFromGeoJSON(bigSquareBoundary); gotBBox != want {
+		t.Errorf("roads fetched over %v, want the unstripped boundary's bbox %v", gotBBox, want)
+	}
+	if !probes.Dense || len(probes.Points) != 2 {
+		t.Errorf("water probes = %+v, want the two roads' dense probes", probes)
+	}
+	if want := []string{"nominatim+osm-water"}; !slices.Equal(saved, want) {
+		t.Errorf("boundary saves = %q, want %q", saved, want)
+	}
+	if b == nil || b.roads == nil || b.roads.saved != 2 || b.roads.result() != nil {
+		t.Errorf("boundary roads = %+v, want both roads saved", b)
+	}
+}
+
+// TestFetchBoundary_InvertedStripKeepsRoadsForFinalBoundary
+// (solvent-streets-npg2, the El Segundo case): when the backstop replaces an
+// inverted strip with its complement, the boundary is saved once, and the
+// saved roads are the ones touching the FINAL boundary's bbox, not the
+// inverted shape's.
+func TestFetchBoundary_InvertedStripKeepsRoadsForFinalBoundary(t *testing.T) {
+	// The "water" came back as the land: [0,1]×[0,1.9], leaving the
+	// right half plus a strip along the top (invertedStripBoundary).
+	water := `{"type":"MultiPolygon","coordinates":[[[[0,0],[1,0],[1,1.9],[0,1.9],[0,0]]]]}`
+	var roads []db.Feature
+	for i := range 20 {
+		y := 0.1 + 0.08*float64(i)
+		roads = append(roads, roadLine(fmt.Sprintf("land%d", i), 0.2, y, 0.4, y))
+	}
+	roads = append(roads,
+		roadLine("east", 1.5, 0.5, 1.6, 0.5),     // in the inverted strip, outside the land's bbox
+		roadLine("crossing", 1.2, 1.0, 0.8, 2.0), // no vertex in the land's bbox, a segment crosses it
+	)
+	var probes ingestpkg.LandProbes
+	var saved []string
+	var upserted []db.Feature
+	store := &dbtest.MockStore{
+		SaveBoundaryFunc: func(_ context.Context, _, source string) error { saved = append(saved, source); return nil },
+		UpsertFeaturesFunc: func(_ context.Context, _ resource.Type, f []db.Feature, _ []string) error {
+			upserted = f
+			return nil
+		},
+	}
+	ios, _, _, errOut := iostreams.Test()
+	_, b, err := resolveBoundary(context.Background(), &Options{IO: ios}, store, &http.Client{},
+		&config.CityConfig{Name: "El Segundo, CA"},
+		boundaryFetchers{byName: recordingNominatim(bigSquareBoundary, nil), water: recordingWater(water, &probes),
+			roads: recordingRoads(roads, nil)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"nominatim+osm-water-inverted"}; !slices.Equal(saved, want) {
+		t.Errorf("boundary saves = %q, want the complement saved once: %q", saved, want)
+	}
+	var ids []string
+	for _, f := range upserted {
+		ids = append(ids, f.ID)
+	}
+	if len(ids) != 21 || slices.Contains(ids, "east") || !slices.Contains(ids, "crossing") {
+		t.Errorf("saved roads = %q, want the 20 land roads and the crossing one, not the east one", ids)
+	}
+	if b.roads.saved != 21 {
+		t.Errorf("roads outcome saved = %d, want 21", b.roads.saved)
+	}
+	if !strings.Contains(errOut.String(), "Water-strip inversion recovered") {
+		t.Errorf("stderr = %q; want the backstop's warning", errOut)
+	}
+	if len(store.Attempts) == 0 || store.Attempts[0].Input != "roads" || store.Attempts[0].FeatureCount != 21 {
+		t.Errorf("attempts = %+v, want the roads attempt to record the 21 roads saved", store.Attempts)
+	}
+}
+
+// TestResolveBoundary_RoadsFetchErrorSavesNothing: when every road source
+// fails, the boundary has no land evidence; like a failed water fetch that is
+// a hard error that saves nothing, so the next ingest retries.
+func TestResolveBoundary_RoadsFetchErrorSavesNothing(t *testing.T) {
+	store := &dbtest.MockStore{
+		SaveBoundaryFunc: func(context.Context, string, string) error { t.Error("SaveBoundary called"); return nil },
+		UpsertFeaturesFunc: func(context.Context, resource.Type, []db.Feature, []string) error {
+			t.Error("UpsertFeatures called")
+			return nil
+		},
+	}
+	failing := func(context.Context, *http.Client, [4]float64) (roadsFetch, error) {
+		return roadsFetch{sources: []string{"overpass"}, attempts: []db.IngestAttempt{{Input: "roads", Source: "overpass", Outcome: db.IngestFailed, Error: "timeout"}}},
+			fmt.Errorf("roads: %w", cmdutil.ErrAllSourcesFailed)
+	}
+	water := func(context.Context, *http.Client, [4]float64, ingestpkg.LandProbes) (string, error) {
+		t.Error("water fetched after the roads failed")
+		return "", nil
+	}
+	_, b, err := resolveBoundary(context.Background(), resolveBoundaryHarness(t), store, &http.Client{},
+		&config.CityConfig{Name: "Oakland, CA"},
+		boundaryFetchers{byName: recordingNominatim(bigSquareBoundary, nil), water: water, roads: failing})
+	if !errors.Is(err, ErrRoadsFetch) || !errors.Is(err, cmdutil.ErrAllSourcesFailed) {
+		t.Fatalf("err = %v, want ErrRoadsFetch wrapping the source failure", err)
+	}
+	var he *hint.ErrHint
+	if !errors.As(err, &he) || !strings.Contains(he.Hint, "next ingest retries") {
+		t.Errorf("err = %v, want the retry hint", err)
+	}
+	if b != nil {
+		t.Errorf("boundary = %+v, want nil on error", b)
+	}
+	got := map[string]db.IngestOutcome{}
+	for _, a := range store.Attempts {
+		got[a.Input] = a.Outcome
+	}
+	if got["roads"] != db.IngestFailed || got[db.InputBoundary] != db.IngestFailed {
+		t.Errorf("attempts = %+v, want failed roads and boundary attempts", store.Attempts)
+	}
+}
+
+// TestResolveBoundary_CancelledRoadsFetchHasNoHint: a Ctrl-C during the roads
+// fetch is a plain cancellation, recorded as no boundary attempt.
+func TestResolveBoundary_CancelledRoadsFetchHasNoHint(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancelling := func(context.Context, *http.Client, [4]float64) (roadsFetch, error) {
+		cancel()
+		return roadsFetch{sources: []string{"overpass"}}, fmt.Errorf("roads: %w", cmdutil.ErrAllSourcesFailed)
+	}
+	store := &dbtest.MockStore{}
+	_, _, err := resolveBoundary(ctx, resolveBoundaryHarness(t), store, &http.Client{}, &config.CityConfig{Name: "Oakland, CA"},
+		boundaryFetchers{byName: recordingNominatim(bigSquareBoundary, nil), water: fakeWaterFetcher(""), roads: cancelling})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	var he *hint.ErrHint
+	if errors.As(err, &he) {
+		t.Errorf("a cancelled roads fetch carries hint %q, want none", he.Hint)
+	}
+	if len(store.Attempts) != 0 {
+		t.Errorf("attempts = %+v, want none for a cancelled run", store.Attempts)
+	}
+}
+
+// TestResolveBoundary_NoRoadsFallsBackToInteriorPoints: a city with no road
+// inside its boundary strips water with the boundary's interior points, as
+// before roads were land evidence, and warns that it did.
+func TestResolveBoundary_NoRoadsFallsBackToInteriorPoints(t *testing.T) {
+	var probes ingestpkg.LandProbes
+	ios, _, _, errOut := iostreams.Test()
+	outside := []db.Feature{roadLine("far", 5, 5, 5.1, 5.1)}
+	_, _, err := resolveBoundary(context.Background(), &Options{IO: ios}, &dbtest.MockStore{}, &http.Client{},
+		&config.CityConfig{Name: "Oakland, CA"},
+		boundaryFetchers{byName: recordingNominatim(bigSquareBoundary, nil), water: recordingWater("", &probes),
+			roads: recordingRoads(outside, nil)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := interiorProbes(t, bigSquareBoundary)
+	if probes.Dense || probes.MaxHits != 0 || !slices.Equal(probes.Points, want.Points) {
+		t.Errorf("water probes = %+v, want the interior points %+v", probes, want)
+	}
+	if !strings.Contains(errOut.String(), "no road probes") {
+		t.Errorf("stderr = %q; want the fallback warned about", errOut)
 	}
 }

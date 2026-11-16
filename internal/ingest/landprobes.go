@@ -1,8 +1,11 @@
 package ingest
 
 import (
+	"encoding/json"
+	"fmt"
 	"math"
 
+	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 )
 
@@ -31,6 +34,224 @@ func InteriorLandProbes(boundaryGJSON string) (LandProbes, error) {
 	return LandProbes{Points: pts}, nil
 }
 
+// RoadLandProbes returns dense land probes taken from roads: one point per
+// road that is not built over or through water, kept only when it lies
+// inside boundaryGJSON (the unstripped boundary), at most one per
+// roadProbeCellDeg grid cell. The point is the road's middle vertex (the
+// midpoint of a two-vertex road), not its first: a bridge approach starts on
+// the shore, and a road's middle is the part least likely to be at a
+// shoreline. MaxHits is waterLandHitFloor, or waterLandHitFrac of the
+// probes when that is more. It returns no points when no road qualifies, or
+// when boundaryGJSON is not a polygon; the caller then falls back to
+// InteriorLandProbes.
+func RoadLandProbes(roads []db.Feature, boundaryGJSON string) LandProbes {
+	polys, err := parsePolygons(boundaryGJSON)
+	if err != nil || len(roads) == 0 {
+		return LandProbes{}
+	}
+	inBoundary := newPolygonsTester(polys)
+	seen := make(map[[2]int64]bool)
+	var pts [][2]float64
+	for _, r := range roads {
+		if overWater(r.Tags) {
+			continue
+		}
+		p, ok := middlePoint(r.GeometryJSON)
+		if !ok {
+			continue
+		}
+		cell := [2]int64{int64(math.Floor(p[0] / roadProbeCellDeg)), int64(math.Floor(p[1] / roadProbeCellDeg))}
+		if seen[cell] || !inBoundary(p) {
+			continue
+		}
+		seen[cell] = true
+		pts = append(pts, p)
+	}
+	if len(pts) == 0 {
+		return LandProbes{}
+	}
+	return LandProbes{Points: pts, MaxHits: waterLandHitAllowance(len(pts)), Dense: true}
+}
+
+// waterLandHitAllowance is the MaxHits of n dense probes.
+func waterLandHitAllowance(n int) int {
+	return max(waterLandHitFloor, int(math.Ceil(waterLandHitFrac*float64(n))))
+}
+
+// overWater reports a road whose tags put it on a structure over or through
+// water (a bridge, tunnel, pier, breakwater, groyne, ford, embankment,
+// causeway or ferry route), so its points are not evidence of land. ArcGIS
+// centerlines carry no such tags; the hit allowance absorbs their bridges.
+func overWater(tags map[string]string) bool {
+	for _, k := range []string{"bridge", "tunnel"} {
+		if v, ok := tags[k]; ok && v != "no" {
+			return true
+		}
+	}
+	switch tags["man_made"] {
+	case "pier", "breakwater", "groyne":
+		return true
+	}
+	if _, ok := tags["causeway"]; ok {
+		return true
+	}
+	return tags["ford"] == osmYes || tags["embankment"] == osmYes || tags["route"] == "ferry"
+}
+
+// osmYes is the OSM tag value "yes".
+const osmYes = "yes"
+
+// middlePoint returns the middle vertex of a road's first line (the
+// midpoint of its only segment when it has two vertices).
+func middlePoint(geometryJSON string) ([2]float64, bool) {
+	lines := lineParts(geometryJSON)
+	if len(lines) == 0 || len(lines[0]) == 0 {
+		return [2]float64{}, false
+	}
+	l := lines[0]
+	if len(l) == 2 {
+		return [2]float64{(l[0][0] + l[1][0]) / 2, (l[0][1] + l[1][1]) / 2}, true
+	}
+	return l[len(l)/2], true
+}
+
+// lineParts returns the vertex sequences of a GeoJSON LineString,
+// MultiLineString, Polygon (its rings) or Point (one one-vertex part).
+// Other types, and unparseable geometry, return nil.
+func lineParts(geometryJSON string) [][][2]float64 {
+	var g struct {
+		Type        string          `json:"type"`
+		Coordinates json.RawMessage `json:"coordinates"`
+	}
+	if json.Unmarshal([]byte(geometryJSON), &g) != nil {
+		return nil
+	}
+	switch g.Type {
+	case "Point":
+		var c [2]float64
+		if json.Unmarshal(g.Coordinates, &c) != nil {
+			return nil
+		}
+		return [][][2]float64{{c}}
+	case "LineString":
+		var c [][2]float64
+		if json.Unmarshal(g.Coordinates, &c) != nil {
+			return nil
+		}
+		return [][][2]float64{c}
+	case "MultiLineString", "Polygon":
+		var c [][][2]float64
+		if json.Unmarshal(g.Coordinates, &c) != nil {
+			return nil
+		}
+		return c
+	}
+	return nil
+}
+
+// FeaturesTouchingBBox returns the features with any segment (or, for a
+// single point, the point) inside or crossing bbox ([south, west, north,
+// east]): the set an Overpass way(bbox) or ArcGIS envelope query over bbox
+// returns. A road fetched over a larger bbox and filtered with it is
+// therefore the row a fetch over bbox itself would have stored.
+func FeaturesTouchingBBox(features []db.Feature, bbox [4]float64) []db.Feature {
+	var out []db.Feature
+	for _, f := range features {
+		if touchesBBox(lineParts(f.GeometryJSON), bbox) {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+func touchesBBox(parts [][][2]float64, bbox [4]float64) bool {
+	for _, part := range parts {
+		if len(part) == 1 {
+			if _, _, ok := liangBarsky(part[0], part[0], bbox); ok {
+				return true
+			}
+		}
+		for i := 1; i < len(part); i++ {
+			if _, _, ok := liangBarsky(part[i-1], part[i], bbox); ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// parsePolygons reads a GeoJSON Polygon or MultiPolygon as polygons of
+// rings (outer first, then holes).
+func parsePolygons(gjson string) ([][][][2]float64, error) {
+	var g struct {
+		Type        string          `json:"type"`
+		Coordinates json.RawMessage `json:"coordinates"`
+	}
+	if err := json.Unmarshal([]byte(gjson), &g); err != nil {
+		return nil, err
+	}
+	switch g.Type {
+	case "Polygon":
+		var rings [][][2]float64
+		if err := json.Unmarshal(g.Coordinates, &rings); err != nil {
+			return nil, err
+		}
+		return [][][][2]float64{rings}, nil
+	case "MultiPolygon":
+		var polys [][][][2]float64
+		if err := json.Unmarshal(g.Coordinates, &polys); err != nil {
+			return nil, err
+		}
+		return polys, nil
+	}
+	return nil, fmt.Errorf("not a polygon: %s", g.Type)
+}
+
+// polygonTester is one polygon of a boundary with its rings edge-indexed.
+type polygonTester struct {
+	minX, minY, maxX, maxY float64
+	outer                  func([2]float64) bool
+	holes                  []func([2]float64) bool
+}
+
+func (t polygonTester) contains(p [2]float64) bool {
+	if p[0] < t.minX || p[0] > t.maxX || p[1] < t.minY || p[1] > t.maxY || !t.outer(p) {
+		return false
+	}
+	for _, hole := range t.holes {
+		if hole(p) {
+			return false
+		}
+	}
+	return true
+}
+
+// newPolygonsTester returns a point-in-polygons predicate (inside some
+// polygon's outer ring and none of its holes), each ring edge-indexed, for
+// testing many points against a city boundary.
+func newPolygonsTester(polys [][][][2]float64) func([2]float64) bool {
+	var ts []polygonTester
+	for _, rings := range polys {
+		if len(rings) == 0 || len(rings[0]) < 4 {
+			continue
+		}
+		t := polygonTester{outer: ringTester(rings[0], indexedRingMinProbes)}
+		t.minX, t.minY, t.maxX, t.maxY = ringBBox(rings[0])
+		for _, h := range rings[1:] {
+			t.holes = append(t.holes, ringTester(h, indexedRingMinProbes))
+		}
+		ts = append(ts, t)
+	}
+	return func(p [2]float64) bool {
+		for _, t := range ts {
+			if t.contains(p) {
+				return true
+			}
+		}
+		return false
+	}
+}
+
 // landProbeIndex answers "how many probes lie inside this ring" for the
 // many candidate rings of one water fetch. Probes are bucketed into a
 // uniform grid over their bbox, so a ring visits only the cells its own
@@ -43,6 +264,11 @@ func InteriorLandProbes(boundaryGJSON string) (LandProbes, error) {
 // thousands (solvent-streets-m3kj).
 type landProbeIndex struct {
 	probes [][2]float64
+	// maxHits is LandProbes.MaxHits: a candidate holding more probes than
+	// this holds city land (landHit).
+	maxHits int
+	// dense is LandProbes.Dense.
+	dense bool
 	// Overall bbox of every probe (lon/lat). Inclusive; degenerate when
 	// len(probes)==1.
 	minX, minY, maxX, maxY float64
@@ -62,6 +288,17 @@ const probeGridTarget = 4
 // which the ring is edge-indexed before testing. Below it, building the
 // index costs more than the plain O(V) ray casts it saves.
 const indexedRingMinProbes = 16
+
+// newLandProbeIndexFor indexes lp's points with its allowance.
+func newLandProbeIndexFor(lp LandProbes) *landProbeIndex {
+	idx := newLandProbeIndex(lp.Points)
+	idx.maxHits, idx.dense = lp.MaxHits, lp.Dense
+	return idx
+}
+
+// landHit reports whether a candidate holding hits probes holds city land:
+// more hits than the allowance (any hit, for sparse probes).
+func (l *landProbeIndex) landHit(hits int) bool { return hits > l.maxHits }
 
 func newLandProbeIndex(probes [][2]float64) *landProbeIndex {
 	idx := &landProbeIndex{probes: probes}

@@ -5,12 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/hint"
-	"github.com/jcrussell/solvent-streets/internal/resource"
+	ingestpkg "github.com/jcrussell/solvent-streets/internal/ingest"
 )
 
 // stripCoverageMinRatio is the minimum fraction of bbox-queried road
@@ -231,32 +230,23 @@ func describeGateFailure(cityName string, ratioStripped, ratioOriginal float64) 
 	)
 }
 
-// roadsForCoverageGate returns the road feature set the gate should
-// validate against, plus whether the gate has anything to do. The
-// freshly-ingested features are reused when this run is roads-ingest;
-// for parking/sidewalks-ingest, roads are read from the DB if a prior
-// run stored them. ok=false means the gate must skip (no roads
-// available) — that preserves current per-resource workflow for
-// pre-roads ingest runs.
-func roadsForCoverageGate(ctx context.Context, store db.Store, opts *Options, justIngested []db.Feature) ([]db.Feature, bool) {
-	if opts.ResourceType.Type() == resource.TypeRoads {
-		return justIngested, len(justIngested) > 0
-	}
-	roads, err := store.ListFeatures(ctx, resource.TypeRoads)
-	if err != nil || len(roads) == 0 {
-		return nil, false
-	}
-	return roads, true
-}
-
-// applyRoadCoverageGate runs the post-strip road-coverage check
-// described in solvent-streets-e5mk. It does nothing when the stripped
-// boundary already passes. When the strip is inverted it tries, in
-// order: (1) the geometric complement of the stripped shape, which
-// recovers the land when the water polygon came back covering land
-// instead of water; (2) failing that, the unstripped Nominatim shape.
-// When even the unstripped Nominatim fails the gate, returns
-// ErrBoundaryInvertedVsRoads wrapped with an operator-actionable hint.
+// chooseBoundary is the road-coverage backstop of solvent-streets-e5mk,
+// run on a fresh boundary before it is saved: it returns the boundary to
+// save, its source label, and a note to warn with when it replaced the
+// stripped one. unstripped is the fetched boundary and stripped what the
+// water strip left of it ("" when nothing was stripped); roads are the
+// roads fetched over the unstripped boundary's bbox.
+//
+// The stripped boundary is kept when at least stripCoverageMinRatio of the
+// roads touching its bbox have their first coord inside it: the roads a
+// fetch over its bbox returns, which is what the ratio is calibrated on.
+// When the strip is inverted it tries, in order: (1) the geometric
+// complement of the stripped shape, which recovers the land when the water
+// polygon came back covering land instead of water; (2) failing that, the
+// unstripped shape. When even the unstripped shape fails it returns
+// ErrBoundaryInvertedVsRoads wrapped with an operator-actionable hint. Every
+// candidate is measured against the same road set. With no roads to measure
+// it keeps the stripped boundary.
 //
 // Why the complement is preferred over the unstripped rollback: when
 // the stitched OSM water polygon is inverted (covers land, not water —
@@ -268,65 +258,53 @@ func roadsForCoverageGate(ctx context.Context, store db.Store, opts *Options, ju
 // paved_share for coastal cities. Validated on SF: B-water=481 km² at
 // 0.6% road coverage; B-(B-water)=119.5 km² (≈SF land) at 43%.
 //
-// Caller is responsible for already having saved the stripped boundary
-// (resolveBoundary does this); this function only overwrites it via
-// SaveBoundary. Logs go to errOut so prose stays out of stdout per
-// byob-iostreams.3.
-func applyRoadCoverageGate(
+// The roads are the water strip's own land probes too (fetchBoundary), so
+// the backstop firing means the strip went wrong despite them.
+func chooseBoundary(
 	ctx context.Context,
-	store db.Store,
-	cityName string,
-	currentBoundary string,
-	fresh *freshBoundary,
+	cityName, unstripped, stripped, strippedSource, unstrippedSource string,
 	roads []db.Feature,
-	errOut io.Writer,
-) error {
-	ratioStripped, ok := validateBoundaryAgainstRoads(currentBoundary, roads)
-	if !ok {
-		return nil
+) (gjson, source, note string, err error) {
+	current, currentSource := unstripped, unstrippedSource
+	if stripped != "" {
+		current, currentSource = stripped, strippedSource
 	}
-	if ratioStripped >= stripCoverageMinRatio {
-		return nil
+	if bbox, err := geo.BBoxFromGeoJSON(current); err == nil {
+		roads = ingestpkg.FeaturesTouchingBBox(roads, bbox)
+	}
+	ratioStripped, ok := validateBoundaryAgainstRoads(current, roads)
+	if !ok || ratioStripped >= stripCoverageMinRatio {
+		return current, currentSource, "", nil
 	}
 
 	// Strip is inverted. First try the complement B-(B-water), which
 	// recovers a land-only boundary when the water polygon covered land.
-	// Only attempt when a water strip actually happened (SavedSource
-	// differs from UnstrippedSource); otherwise currentBoundary == B and
-	// the complement is empty.
-	if fresh.SavedSource != fresh.UnstrippedSource {
-		if inverted, err := geo.SubtractGeoJSON(ctx, fresh.Nominatim, currentBoundary); err == nil && inverted != "" {
+	// Only when a water strip actually happened; otherwise current is B
+	// and the complement is empty.
+	if stripped != "" {
+		if inverted, err := geo.SubtractGeoJSON(ctx, unstripped, stripped); err == nil && inverted != "" {
 			if ratioInv, ok := validateBoundaryAgainstRoads(inverted, roads); ok && ratioInv >= stripCoverageMinRatio {
-				invSource := fresh.SavedSource + "-inverted"
-				if err := store.SaveBoundary(ctx, inverted, invSource); err != nil {
-					return fmt.Errorf("save complement boundary: %w", err)
-				}
-				fmt.Fprintf(errOut,
-					"  Water-strip inversion recovered for %s: stripped boundary contained %.1f%% of road centroids (< %.0f%% threshold); restored land via complement (%.1f%% coverage, source=%s).\n",
+				invSource := strippedSource + "-inverted"
+				return inverted, invSource, fmt.Sprintf(
+					"Water-strip inversion recovered for %s: stripped boundary contained %.1f%% of road centroids (< %.0f%% threshold); restored land via complement (%.1f%% coverage, source=%s).",
 					cityName, 100*ratioStripped, 100*stripCoverageMinRatio, 100*ratioInv, invSource,
-				)
-				return nil
+				), nil
 			}
 		}
 	}
 
-	// Complement didn't recover the land either. Roll back to unstripped
-	// Nominatim — safe for the paved-area numerator, but leaves any water
-	// in the paved_share denominator.
-	ratioOriginal, ok := validateBoundaryAgainstRoads(fresh.Nominatim, roads)
+	// Complement didn't recover the land either. Roll back to the
+	// unstripped boundary — safe for the paved-area numerator, but leaves
+	// any water in the paved_share denominator.
+	ratioOriginal, ok := validateBoundaryAgainstRoads(unstripped, roads)
 	if !ok || ratioOriginal < stripCoverageMinRatio {
-		return hint.Withf(
+		return "", "", "", hint.Withf(
 			fmt.Errorf("%w: city=%q stripped=%.3f original=%.3f", ErrBoundaryInvertedVsRoads, cityName, ratioStripped, ratioOriginal),
 			"%s", describeGateFailure(cityName, ratioStripped, ratioOriginal),
 		)
 	}
-
-	if err := store.SaveBoundary(ctx, fresh.Nominatim, fresh.UnstrippedSource); err != nil {
-		return fmt.Errorf("rollback boundary: %w", err)
-	}
-	fmt.Fprintf(errOut,
-		"  Water-strip rollback for %s: stripped boundary contained %.1f%% of road centroids (< %.0f%% threshold); restored unstripped Nominatim (%.1f%% coverage, source=%s).\n",
-		cityName, 100*ratioStripped, 100*stripCoverageMinRatio, 100*ratioOriginal, fresh.UnstrippedSource,
-	)
-	return nil
+	return unstripped, unstrippedSource, fmt.Sprintf(
+		"Water-strip rollback for %s: stripped boundary contained %.1f%% of road centroids (< %.0f%% threshold); restored unstripped boundary (%.1f%% coverage, source=%s).",
+		cityName, 100*ratioStripped, 100*stripCoverageMinRatio, 100*ratioOriginal, unstrippedSource,
+	), nil
 }

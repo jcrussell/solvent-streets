@@ -24,16 +24,17 @@ import (
 // bbox). Empty water responses return ("", nil) — callers must treat
 // this as a benign no-op (no water in the bbox).
 //
-// probes are lon/lat points on the city's land (LandProbes; sparse
-// InteriorLandProbes are one per sub-polygon of the city boundary). They
-// disambiguate coastline closures: an open chain's closure produces two candidate rings (CW
-// and CCW around bbox edges), and the water-side ring is the one
-// that contains NONE of the probes. If a candidate ring contains any
-// probe it overlaps land and is wrong. If both candidates contain
-// land probes, the chain doesn't cleanly separate water from land
-// and is dropped. This invariant catches OSM coastline ways
-// digitized in inconsistent orientations relative to the right-hand-
-// water convention (the cause of solvent-streets-yrr0).
+// probes are lon/lat points on the city's land (LandProbes): dense road
+// probes (RoadLandProbes), or sparse interior points, one per sub-polygon
+// of the city boundary (InteriorLandProbes). A candidate holding more than
+// probes.MaxHits of them (any, for sparse probes) holds city land: a water
+// way or relation polygon that does is dropped. They also disambiguate
+// coastline closures: an open chain's closure produces two candidate rings
+// (CW and CCW around bbox edges), and the water-side ring is the one that
+// holds no city land. If both candidates hold land, the chain doesn't
+// cleanly separate water from land and is dropped. This invariant catches
+// OSM coastline ways digitized in inconsistent orientations relative to the
+// right-hand-water convention (the cause of solvent-streets-yrr0).
 func FetchOSMWater(ctx context.Context, client *http.Client, bbox [4]float64, probes LandProbes) (string, error) {
 	return fetchOSMWater(ctx, client, overpassAPI, bbox, probes)
 }
@@ -153,7 +154,7 @@ func parseWaterResponse(ctx context.Context, data []byte, bbox [4]float64, landP
 // edges and corrupt land area. Returns ("", nil) when no water survives.
 func assembleWaterGeoJSON(ctx context.Context, elements []overpassElement, bbox [4]float64, landProbes LandProbes) (string, error) {
 	bboxArea := bboxLonLatArea(bbox)
-	probes := newLandProbeIndex(landProbes.Points)
+	probes := newLandProbeIndexFor(landProbes)
 	polys := make([]waterPolygon, 0, len(elements))
 	coastWays := make([][][2]float64, 0, len(elements))
 	var sumBBoxFrac float64
@@ -207,7 +208,7 @@ func classifyWaterElement(ctx context.Context, e overpassElement, bboxArea float
 			)
 			return nil, nil, 0
 		}
-		if hits := probes.RingHits(coords); hits > 0 {
+		if hits := probes.RingHits(coords); probes.landHit(hits) {
 			logs.From(ctx).Warn("water way: dropped polygon containing city land",
 				"way", e.ID, "land_hits", hits, "land_probes", probes.Len(),
 				"vertices", len(coords),
@@ -221,7 +222,7 @@ func classifyWaterElement(ctx context.Context, e overpassElement, bboxArea float
 		kept := make([]waterPolygon, 0, len(relPolys))
 		var total float64
 		for _, p := range relPolys {
-			if hits := probes.PolygonHits(p); hits > 0 {
+			if hits := probes.PolygonHits(p); probes.landHit(hits) {
 				logs.From(ctx).Warn("water relation: dropped polygon containing city land",
 					"relation", e.ID, "land_hits", hits, "land_probes", probes.Len(),
 					"outer_vertices", len(p.outer), "holes", len(p.holes),
@@ -284,6 +285,27 @@ func logAcceptedWaterPolygon(ctx context.Context, msg, idKey string, idVal int64
 	)
 	return frac
 }
+
+// Dense (road) land probes: their hit allowance and dedupe grid
+// (RoadLandProbes). A candidate water polygon is land-side when it holds
+// more than max(waterLandHitFloor, ceil(waterLandHitFrac * probes)) of
+// them: a few road probes legitimately sit in water (an ArcGIS centerline
+// over a bridge, which carries no bridge tag; a dam-crest road across a
+// reservoir such as Livermore's; a mistagged pier), while a land-side
+// candidate holds hundreds. Probes are deduplicated to one per
+// roadProbeCellDeg cell, about 100 m, so a dense downtown grid does not
+// outweigh the rest of the city.
+//
+// These are first guesses, not calibrated values: calibrate them on the
+// batch-1 replay (solvent-streets-npg2) against each city's boundary area
+// versus Census land area, tuning the floor up only for a city whose real
+// water is dropped "containing city land" with a handful of hits, and down
+// only for one whose land-side candidate slipped under it.
+const (
+	waterLandHitFloor = 3
+	waterLandHitFrac  = 0.001
+	roadProbeCellDeg  = 0.001
+)
 
 // maxOuterBboxAreaFraction caps the planar lon/lat area of any single
 // water outer ring at this fraction of the query bbox area. A larger
@@ -578,7 +600,7 @@ func closeCoastlineChain(ctx context.Context, chain [][2]float64, bbox [4]float6
 			// A closed coastline ring should not enclose any of the
 			// city's land probes — if it does, it's traced around land
 			// in the wrong direction (data error) and would over-subtract.
-			if hits := probes.RingHits(sub); hits > 0 {
+			if hits := probes.RingHits(sub); probes.landHit(hits) {
 				logs.From(ctx).Warn("water coastline: dropped CW closed ring containing city land",
 					"vertices", len(sub),
 					"land_hits", hits, "land_probes", probes.Len(),
@@ -639,24 +661,27 @@ func closeOpenSubChain(ctx context.Context, sub [][2]float64, bbox [4]float64, p
 		ccwHits = probes.RingHits(ringCCW)
 	}
 
+	cwLand := !okCW || probes.landHit(cwHits)
+	ccwLand := !okCCW || probes.landHit(ccwHits)
 	switch {
-	case okCW && cwHits == 0 && (!okCCW || ccwHits > 0):
+	case !cwLand && ccwLand:
 		return ringCW, true
-	case okCCW && ccwHits == 0 && (!okCW || cwHits > 0):
+	case !ccwLand && cwLand:
 		return ringCCW, true
-	case okCW && okCCW && cwHits == 0 && ccwHits == 0:
-		// Both candidates are land-free — usually a chain in a bbox corner
-		// far from the city. Pick the smaller ring; the larger would
-		// over-claim water area beyond the immediate coastline.
+	case !cwLand && !ccwLand:
+		// Both candidates are land-free (within the hit allowance) — usually
+		// a chain in a bbox corner far from the city. Pick the one holding
+		// fewer probes, then the smaller ring; the larger would over-claim
+		// water area beyond the immediate coastline.
 		cwArea := math.Abs(ringSignedArea(ringCW))
 		ccwArea := math.Abs(ringSignedArea(ringCCW))
-		if cwArea <= ccwArea {
-			logs.From(ctx).Debug("water coastline: both candidates land-free, picked smaller CW",
-				"vertices", len(sub), "cw_area", cwArea, "ccw_area", ccwArea)
+		if cwHits < ccwHits || (cwHits == ccwHits && cwArea <= ccwArea) {
+			logs.From(ctx).Debug("water coastline: both candidates land-free, picked CW",
+				"vertices", len(sub), "cw_area", cwArea, "ccw_area", ccwArea, "cw_land_hits", cwHits, "ccw_land_hits", ccwHits)
 			return ringCW, true
 		}
-		logs.From(ctx).Debug("water coastline: both candidates land-free, picked smaller CCW",
-			"vertices", len(sub), "cw_area", cwArea, "ccw_area", ccwArea)
+		logs.From(ctx).Debug("water coastline: both candidates land-free, picked CCW",
+			"vertices", len(sub), "cw_area", cwArea, "ccw_area", ccwArea, "cw_land_hits", cwHits, "ccw_land_hits", ccwHits)
 		return ringCCW, true
 	default:
 		// Both candidates contain at least one land probe (chain weaves

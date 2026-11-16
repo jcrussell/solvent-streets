@@ -205,17 +205,33 @@ and the warning names the command that adds it.
 ## Water strip errors and warnings
 
 Ingest subtracts OSM water from the city boundary, so that `% paved` compares
-fairly across cities. It can fail in three ways:
+fairly across cities, using the city's roads to tell water from land (see
+[architecture](architecture.md#city-boundary-and-water-strip)). What can go
+wrong:
 
 - **Warning `water strip skipped: …`** (`bbox:`, `interior points:` or
   `subtract:`). The geometry step failed, so the boundary was saved with its
   water still in, and area figures are inflated. Re-run the ingest with
   `--rebuild-boundary`, which re-resolves the stored boundary from the HTTP
   cache, or `--force` to fetch it fresh from upstream. If it recurs, the
-  boundary itself is probably wrong (next item).
+  boundary itself is probably wrong (last item).
 - **Error `water strip for <city>: water fetch failed`.** Overpass did not
   answer. Nothing was saved, so the next ingest retries. Wait a few minutes
   and re-run.
+- **Error `water strip for <city>: roads fetch failed`.** Every road source
+  failed while the boundary was resolved, and the roads are the strip's land
+  evidence. Nothing was saved, so the next ingest retries. The warnings above
+  it name the source.
+- **Warning `water strip: no road probes for <city>, using the boundary's
+  interior points`.** No road lies inside the boundary, or the city has no
+  road source, so the strip fell back to one interior point per sub-polygon
+  and can keep water that roads would have exposed. Check the city's
+  `overpass` and `arcgis_url` settings.
+- **Warning `Water-strip inversion recovered …` or `Water-strip rollback …`.**
+  The strip left too few of the city's roads inside the boundary, so the
+  complement of the strip, or the unstripped boundary, was saved instead.
+  Compare the saved area with the city's land area; if it is wrong, open an
+  issue with the city and the warning.
 - **Error `water strip over-subtracted`, or `boundary excludes most of the
   city's own roads`.** The water polygon, or Nominatim's boundary, has the
   wrong shape. For a bad boundary, set `boundary_relation_id` (see

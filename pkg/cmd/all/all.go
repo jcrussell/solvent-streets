@@ -58,8 +58,10 @@ func newAllIngest(f *cmdutil.Factory) *cobra.Command {
 		Short: "Ingest data for all resource types",
 		Long: `Run every ingest step for every configured city, or the one --city names.
 The city boundary is resolved once; a city whose boundary cannot be had is
-skipped with a warning. Roads, parking and sidewalks are then fetched from
-the city's sources, followed by fire stations and Census blocks. A step
+skipped with a warning. A fresh boundary fetches the city's roads with it,
+as land evidence for its water strip, and the roads step reports those.
+Roads, parking and sidewalks are otherwise fetched from the city's sources,
+followed by fire stations and Census blocks. A step
 that fails, or a resource one of whose sources fails, is warned about and
 the run goes on; it then exits 1, and the error lists each failed step
 with the command that retries it.

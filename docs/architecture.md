@@ -146,9 +146,41 @@ graph reaches it. For a city whose roads come from Overpass, the routing roads
 are only the ring outside the boundary bbox (`resource.ExcludingQuerier`, one
 Overpass difference query): every road touching the bbox is already in the
 city's own roads, which the services graph joins by way id. Pavement stays
-unpadded: its feature counts and the
-inverted-boundary gate read the whole fetch. TIGERweb and the ArcGIS
-centerline source share one paging and completeness core, `ingest.ArcGISQuery`.
+unpadded, so its feature counts are those of the boundary bbox. TIGERweb and
+the ArcGIS centerline source share one paging and completeness core,
+`ingest.ArcGISQuery`.
+
+## City boundary and water strip
+
+Every ingest step starts from the city boundary: the stored one, or a fresh
+one, fetched from `boundary_relation_id` via Overpass or by name from
+Nominatim, with open water subtracted so that `% paved` compares land with
+land. The city's roads are the strip's evidence of where the land is, so a
+fresh boundary (`fetchBoundary`, `pkg/cmd/ingest`) is resolved in one pass
+that saves nothing until it ends:
+
+1. Fetch the unstripped boundary. Its bbox holds every boundary the strip
+   can produce.
+2. Fetch the roads over that bbox from every configured road source, and
+   take their land probes (`ingest.RoadLandProbes`): each road's middle
+   vertex inside the unstripped boundary, at most one per 0.001° cell,
+   leaving out bridges, tunnels, piers, fords and the like. With no such
+   road, the probes are the boundary's interior points, one per
+   sub-polygon.
+3. Fetch the OSM water (`ingest.FetchOSMWater`: `natural=water` ways and
+   relations, and `natural=coastline` closed along the bbox), drop every
+   candidate that holds more probes than a small allowance
+   (`LandProbes.MaxHits`), since it covers the city's streets, and subtract
+   the rest.
+4. Check the result against the same roads (`chooseBoundary`): a strip that
+   leaves too few of them inside is replaced by its complement, or else by
+   the unstripped boundary.
+5. Save the boundary, then the roads that touch its bbox. Those are the rows
+   a fetch over that bbox stores, so the roads step reuses them, and the
+   routing-roads ring still excludes exactly the city's own roads.
+
+A failed roads or water fetch saves nothing, so the next ingest retries.
+`--rebuild-boundary` replays the pass from the HTTP cache.
 
 ## Database
 
