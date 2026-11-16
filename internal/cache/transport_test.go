@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"compress/gzip"
 	"context"
 	"errors"
 	"io"
@@ -314,7 +315,7 @@ func TestWriteCache_MetaNotWrittenWhenBodyFails(t *testing.T) {
 	ct := NewTransport(http.DefaultTransport, dir, time.Hour)
 
 	key := cacheKey(http.MethodGet, "https://example.test/x", nil)
-	bodyPath := filepath.Join(dir, key+".json")
+	bodyPath := filepath.Join(dir, key+bodyExt)
 	metaPath := filepath.Join(dir, key+".meta")
 
 	// Force the body write to fail by making bodyPath an existing
@@ -394,7 +395,7 @@ func TestCachingTransport_BypassSkipsCacheRead(t *testing.T) {
 
 	key := cacheKey(http.MethodGet, srv.URL+"/x", nil)
 	metaPath := filepath.Join(dir, key+".meta")
-	bodyPath := filepath.Join(dir, key+".json")
+	bodyPath := filepath.Join(dir, key+bodyExt)
 	if err := os.WriteFile(metaPath, []byte("{ not valid json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -427,7 +428,7 @@ func TestReadCache_RemovesCorruptEntry(t *testing.T) {
 
 	key := cacheKey(http.MethodGet, "https://example.test/x", nil)
 	metaPath := filepath.Join(dir, key+".meta")
-	bodyPath := filepath.Join(dir, key+".json")
+	bodyPath := filepath.Join(dir, key+bodyExt)
 	if err := os.WriteFile(metaPath, []byte("{corrupt"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -637,5 +638,105 @@ func TestCachingTransport_TTL0NoRevalidate(t *testing.T) {
 	}
 	if resp2.Header.Get("X-Pvmt-Cache") == "hit" {
 		t.Error("TTL=0 response must not be marked a cache hit")
+	}
+}
+
+// getBody issues a GET through client and returns the response body.
+func getBody(t *testing.T, client *http.Client, url string) string {
+	t.Helper()
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return string(b)
+}
+
+// TestCachingTransport_BodiesAreGzipped pins solvent-streets-lv3r: the body
+// half of an entry is <key>.json.gz holding a gzip stream of the response, no
+// uncompressed <key>.json is written, and a hit serves the decompressed bytes.
+func TestCachingTransport_BodiesAreGzipped(t *testing.T) {
+	const payload = `{"elements":[{"type":"way","id":1}]}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(payload))
+	}))
+	t.Cleanup(srv.Close)
+	dir := t.TempDir()
+	client := &http.Client{Transport: NewTransport(http.DefaultTransport, dir, time.Hour)}
+
+	if got := getBody(t, client, srv.URL+"/x"); got != payload {
+		t.Fatalf("miss body = %q; want %q", got, payload)
+	}
+	k := cacheKey(http.MethodGet, srv.URL+"/x", nil)
+	f, err := os.Open(filepath.Join(dir, k+bodyExt))
+	if err != nil {
+		t.Fatalf("no %s body file: %v", bodyExt, err)
+	}
+	defer f.Close()
+	zr, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatalf("body file is not gzip: %v", err)
+	}
+	if raw, _ := io.ReadAll(zr); string(raw) != payload {
+		t.Errorf("decompressed body file = %q; want %q", raw, payload)
+	}
+	if _, err := os.Stat(filepath.Join(dir, k+legacyBodyExt)); !os.IsNotExist(err) {
+		t.Errorf("an uncompressed %s body was written beside the gzip one", legacyBodyExt)
+	}
+	if got := getBody(t, client, srv.URL+"/x"); got != payload {
+		t.Errorf("hit body = %q; want %q", got, payload)
+	}
+}
+
+// TestCachingTransport_LegacyBodyIsAMiss pins the dropped compatibility path:
+// a pre-v0.5.0 uncompressed <key>.json beside a valid meta is never served;
+// the key re-fetches and is rewritten in the gzip format.
+func TestCachingTransport_LegacyBodyIsAMiss(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		_, _ = w.Write([]byte(`fresh`))
+	}))
+	t.Cleanup(srv.Close)
+	dir := t.TempDir()
+	ct := NewTransport(http.DefaultTransport, dir, time.Hour)
+	k := cacheKey(http.MethodGet, srv.URL+"/x", nil)
+	ct.writeCacheMeta(filepath.Join(dir, k+metaExt), entryMeta{StatusCode: http.StatusOK, Timestamp: time.Now(), URL: srv.URL + "/x"})
+	if err := os.WriteFile(filepath.Join(dir, k+legacyBodyExt), []byte(`stale legacy`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := getBody(t, &http.Client{Transport: ct}, srv.URL+"/x"); got != "fresh" {
+		t.Errorf("body = %q; want the upstream response, not the legacy entry", got)
+	}
+	if calls != 1 {
+		t.Errorf("upstream calls = %d; want 1 (a legacy entry is a miss)", calls)
+	}
+	if _, err := os.Stat(filepath.Join(dir, k+bodyExt)); err != nil {
+		t.Errorf("the re-fetch was not written as %s: %v", bodyExt, err)
+	}
+}
+
+// TestReadCache_RemovesCorruptGzipBody mirrors TestReadCache_RemovesCorruptEntry
+// for the body half: a body that does not decompress can never be served, so
+// the pair is dropped and the key re-fetches.
+func TestReadCache_RemovesCorruptGzipBody(t *testing.T) {
+	dir := t.TempDir()
+	ct := NewTransport(http.DefaultTransport, dir, time.Hour)
+	metaPath := filepath.Join(dir, key(1)+metaExt)
+	bodyPath := filepath.Join(dir, key(1)+bodyExt)
+	ct.writeCacheMeta(metaPath, entryMeta{StatusCode: http.StatusOK, Timestamp: time.Now()})
+	if err := os.WriteFile(bodyPath, []byte("not gzip"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok := ct.readCache(metaPath, bodyPath); ok {
+		t.Fatal("readCache served a body that does not decompress")
+	}
+	for _, p := range []string{metaPath, bodyPath} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("%s survived; a corrupt body must drop the pair", filepath.Base(p))
+		}
 	}
 }

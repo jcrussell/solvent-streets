@@ -22,7 +22,7 @@ func key(n int) string { return fmt.Sprintf("%064x", n) }
 // the given per-file byte count and mtime, and returns the two paths.
 func writeEntry(t *testing.T, dir, k string, size int, age time.Duration) (string, string) {
 	t.Helper()
-	body := filepath.Join(dir, k+".json")
+	body := filepath.Join(dir, k+bodyExt)
 	meta := filepath.Join(dir, k+".meta")
 	writeFileAged(t, body, size, age)
 	writeFileAged(t, meta, size, age)
@@ -44,7 +44,7 @@ func writeFileAged(t *testing.T, path string, size int, age time.Duration) {
 // mtimes, which is the shape a 304 revalidation produces.
 func writeEntryMtimes(t *testing.T, dir, k string, bodyAge, metaAge time.Duration) (string, string) {
 	t.Helper()
-	body := filepath.Join(dir, k+".json")
+	body := filepath.Join(dir, k+bodyExt)
 	meta := filepath.Join(dir, k+".meta")
 	writeFileAged(t, body, 100, bodyAge)
 	writeFileAged(t, meta, 100, metaAge)
@@ -151,7 +151,7 @@ func TestPrune_CancelledSweepStopsAndReportsIt(t *testing.T) {
 
 	surviving := 0
 	for i := range entries {
-		if exists(t, filepath.Join(dir, key(i+1)+".json")) {
+		if exists(t, filepath.Join(dir, key(i+1)+bodyExt)) {
 			surviving++
 		}
 	}
@@ -209,7 +209,7 @@ func TestPrune_CancelledMidSweepStopsEarly(t *testing.T) {
 	// The survivors must still be on disk: stopping means leaving them alone.
 	surviving := 0
 	for i := range entries {
-		if exists(t, filepath.Join(dir, key(i+1)+".json")) {
+		if exists(t, filepath.Join(dir, key(i+1)+bodyExt)) {
 			surviving++
 		}
 	}
@@ -234,7 +234,7 @@ func TestPrune_CancelledSweepAccountsForUnsweptTemps(t *testing.T) {
 	const temps = 6
 	const tempSize = 50 // leftoverTempFile writes 50 bytes
 	for i := range temps {
-		leftoverTempFile(t, dir, key(i+1)+".json", 2*orphanGrace) // past the grace window: real targets
+		leftoverTempFile(t, dir, key(i+1)+bodyExt, 2*orphanGrace) // past the grace window: real targets
 	}
 
 	// Spend exactly the scan's probe budget (one per directory entry) so the
@@ -330,11 +330,11 @@ func TestPrune_SizeCountsBothFilesOfAPair(t *testing.T) {
 // fsutil.WriteFile temp file.
 func TestPrune_SweepsOrphansAndTempFiles(t *testing.T) {
 	dir := t.TempDir()
-	bodyOnly := filepath.Join(dir, key(1)+".json")
+	bodyOnly := filepath.Join(dir, key(1)+bodyExt)
 	metaOnly := filepath.Join(dir, key(2)+".meta")
 	writeFileAged(t, bodyOnly, 50, time.Hour)
 	writeFileAged(t, metaOnly, 50, time.Hour)
-	tempFile := leftoverTempFile(t, dir, key(3)+".json", time.Hour)
+	tempFile := leftoverTempFile(t, dir, key(3)+bodyExt, time.Hour)
 	intactBody, intactMeta := writeEntry(t, dir, key(4), 10, time.Hour)
 
 	// No age or size pressure: orphan cleanup is unconditional.
@@ -432,7 +432,7 @@ func TestPrune_SweepsRealWriteFileResidue(t *testing.T) {
 	residue := leftoverTempFile(t, dir, key(1)+".meta", time.Hour)
 
 	// A completed write leaves exactly the pair and no temp file.
-	if err := fsutil.WriteFile(filepath.Join(dir, key(2)+".json"), make([]byte, 10), 0o644); err != nil {
+	if err := fsutil.WriteFile(filepath.Join(dir, key(2)+bodyExt), make([]byte, 10), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := fsutil.WriteFile(filepath.Join(dir, key(2)+".meta"), make([]byte, 10), 0o644); err != nil {
@@ -467,7 +467,7 @@ func TestIsTempFile_RejectsForeignNames(t *testing.T) {
 		key(1) + ".meta.tmp-1":     true,
 		key(1) + ".json.tmp-":      false, // no random part
 		key(1) + ".json.tmp-abc":   false, // CreateTemp only emits digits
-		key(1) + ".json":           false, // a real entry half
+		key(1) + bodyExt:           false, // a real entry half
 		"notes.tmp-12345":          false, // not an entry base
 		"short.json.tmp-12345":     false, // base is not a cache key
 	}
@@ -484,7 +484,7 @@ func TestIsTempFile_RejectsForeignNames(t *testing.T) {
 // process. Only residue older than orphanGrace is swept.
 func TestPrune_LeavesInFlightOrphansAlone(t *testing.T) {
 	dir := t.TempDir()
-	inFlight := filepath.Join(dir, key(1)+".json")
+	inFlight := filepath.Join(dir, key(1)+bodyExt)
 	writeFileAged(t, inFlight, 50, 0)
 
 	report, err := Prune(context.Background(), dir, PruneOptions{MaxAge: time.Nanosecond, MaxSize: 1})
@@ -507,7 +507,7 @@ func TestPrune_LeavesInFlightOrphansAlone(t *testing.T) {
 func TestPrune_DryRunMakesNoChanges(t *testing.T) {
 	dir := t.TempDir()
 	staleBody, staleMeta := writeEntry(t, dir, key(1), 100, 48*time.Hour)
-	orphan := filepath.Join(dir, key(2)+".json")
+	orphan := filepath.Join(dir, key(2)+bodyExt)
 	writeFileAged(t, orphan, 50, time.Hour)
 
 	report, err := Prune(context.Background(), dir, PruneOptions{MaxAge: 24 * time.Hour, DryRun: true})
@@ -534,7 +534,7 @@ func TestPrune_DryRunMakesNoChanges(t *testing.T) {
 func TestRemoveEntry_VanishedFileIsNotAnError(t *testing.T) {
 	dir := t.TempDir()
 	e := &cacheEntry{files: []cacheFile{
-		{path: filepath.Join(dir, key(1)+".json"), size: 100},
+		{path: filepath.Join(dir, key(1)+bodyExt), size: 100},
 		{path: filepath.Join(dir, key(1)+".meta"), size: 20},
 	}}
 	reclaimed, err := removeEntry(e, false)
@@ -623,7 +623,7 @@ func TestPrune_SkipsForeignPathsAndDoesNotRecurse(t *testing.T) {
 	// name looks exactly like a stale cache entry.
 	victim := filepath.Join(outside, "precious.json")
 	writeFileAged(t, victim, 10, 90*24*time.Hour)
-	link := filepath.Join(dir, key(1)+".json")
+	link := filepath.Join(dir, key(1)+bodyExt)
 	if err := os.Symlink(victim, link); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
@@ -633,7 +633,7 @@ func TestPrune_SkipsForeignPathsAndDoesNotRecurse(t *testing.T) {
 	if err := os.Mkdir(sub, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	nested := filepath.Join(sub, key(2)+".json")
+	nested := filepath.Join(sub, key(2)+bodyExt)
 	writeFileAged(t, nested, 10, 90*24*time.Hour)
 
 	// Files in the cache dir that pvmt did not write.
@@ -683,7 +683,7 @@ func TestPrune_RealTransportEntriesAreRecognized(t *testing.T) {
 	resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Etag": {`"v1"`}}}
 	tr.writeCache(
 		filepath.Join(dir, k+".meta"),
-		filepath.Join(dir, k+".json"),
+		filepath.Join(dir, k+bodyExt),
 		resp, []byte("body bytes"), "https://example.com/x",
 	)
 
@@ -744,5 +744,33 @@ func TestParseSize(t *testing.T) {
 				t.Errorf("ParseSize(%q) = %d, want %d", tc.in, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestPrune_SweepsLegacyUncompressedBodies pins the upgrade half of
+// solvent-streets-lv3r: a pre-v0.5.0 <key>.json body is never read again, so
+// prune reclaims it (past the in-flight grace window) instead of skipping it
+// as a file it does not recognize, and leaves the gzip entry beside it alone.
+func TestPrune_SweepsLegacyUncompressedBodies(t *testing.T) {
+	dir := t.TempDir()
+	body, meta := writeEntry(t, dir, key(1), 100, time.Hour)
+	legacy := filepath.Join(dir, key(1)+legacyBodyExt)
+	writeFileAged(t, legacy, 300, 48*time.Hour)
+	legacyTemp := leftoverTempFile(t, dir, key(2)+legacyBodyExt, time.Hour)
+
+	report, err := Prune(context.Background(), dir, PruneOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{legacy, legacyTemp} {
+		if exists(t, p) {
+			t.Errorf("%s survived; legacy uncompressed files must be swept", filepath.Base(p))
+		}
+	}
+	if !exists(t, body) || !exists(t, meta) {
+		t.Error("the gzip entry sharing the legacy body's key was removed")
+	}
+	if report.OrphansRemoved != 2 || report.Skipped != 0 {
+		t.Errorf("OrphansRemoved=%d Skipped=%d; want 2/0", report.OrphansRemoved, report.Skipped)
 	}
 }

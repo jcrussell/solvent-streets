@@ -56,9 +56,11 @@ effect on the next read.
 | HTTP response cache | `$XDG_CACHE_HOME/pvmt/http`, default `~/.cache/pvmt/http` | `~/Library/Caches/pvmt/http` |
 
 Every config on the machine shares one database and one cache. On macOS the
-`XDG_*` variables are ignored. The cache keeps
-upstream responses for 24 hours. It is not configurable from `pvmt.toml`,
-because it belongs to no single config; `pvmt cache prune` manages it (see
+`XDG_*` variables are ignored. The cache stores
+upstream responses gzip-compressed. Because it belongs to no single config, a
+config only sets how old an entry its own runs accept (`[cache] ttl`, a week by
+default; see [HTTP cache](#http-cache-cache)); `pvmt cache prune` manages its
+size (see
 [troubleshooting](troubleshooting.md#disk-usage-the-http-cache-keeps-growing)).
 
 ## Cities

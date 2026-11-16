@@ -81,8 +81,8 @@ for f in <path> <path>-wal <path>-shm; do [ -e "$f" ] && mv "$f" "$f.old"; done
 ```
 
 Then run ingest and compute again. Everything in the database is rebuilt from
-upstream sources. The HTTP cache is separate, so any response fetched within
-the last 24 hours is reused. [upgrading.md](upgrading.md) lists the releases
+upstream sources. The HTTP cache is separate, so any response younger than
+`[cache] ttl` (a week by default) is reused. [upgrading.md](upgrading.md) lists the releases
 that need this.
 
 ## `#export-errnowasm`
@@ -227,7 +227,8 @@ fairly across cities. It can fail in three ways:
 This produces no error. Every Overpass, ArcGIS, Nominatim and TIGERweb response
 is written to the HTTP cache. Nothing in the request path ever removes an
 entry, and an edited bbox or config writes new entries beside the old ones. A
-long-lived install can reach several GiB. `pvmt cache prune` reclaims it:
+long-lived install can reach several GiB, even though bodies are stored
+gzip-compressed. `pvmt cache prune` reclaims it:
 
 ```
 pvmt cache prune --dry-run    # what would go, and how much it frees

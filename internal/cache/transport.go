@@ -2,10 +2,12 @@ package cache
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -177,12 +179,20 @@ func firstHeaderValue(h map[string][]string, key string) string {
 	return ""
 }
 
-// A cache entry is two files named after its key: <key>.json holds the
-// response body and <key>.meta its metadata. The key is a sha256 in hex.
+// A cache entry is two files named after its key: <key>.json.gz holds the
+// gzip-compressed response body and <key>.meta its metadata. The key is a
+// sha256 in hex. Bodies are compressed because upstream JSON shrinks about
+// sixfold and a large city's responses run to hundreds of MB uncompressed
+// (solvent-streets-lv3r).
+//
+// legacyBodyExt is the uncompressed <key>.json body written before v0.5.0.
+// The transport never reads one (that key is a miss and is re-fetched into
+// the new format); prune recognizes it only to sweep it as residue.
 const (
-	bodyExt = ".json"
-	metaExt = ".meta"
-	keyLen  = sha256.Size * 2
+	bodyExt       = ".json.gz"
+	legacyBodyExt = ".json"
+	metaExt       = ".meta"
+	keyLen        = sha256.Size * 2
 )
 
 // cacheKey derives the on-disk cache filename from the request method,
@@ -237,11 +247,53 @@ func (t *CachingTransport) readCache(metaPath, bodyPath string) (*entryMeta, []b
 		_ = os.Remove(bodyPath)
 		return nil, nil, false
 	}
-	body, err := os.ReadFile(bodyPath)
+	body, err := readBody(bodyPath)
+	if errors.Is(err, errCorruptBody) {
+		// Same rule as a corrupt meta: this pair can never be served.
+		_ = os.Remove(metaPath)
+		_ = os.Remove(bodyPath)
+		return nil, nil, false
+	}
 	if err != nil {
 		return nil, nil, false
 	}
 	return &meta, body, true
+}
+
+// errCorruptBody marks a body file that exists but does not decompress.
+var errCorruptBody = errors.New("corrupt cache body")
+
+// readBody reads and decompresses one body file. Decompression is bounded by
+// the same cap the transport applies to a live response, so a damaged or
+// hostile file cannot inflate without limit.
+func readBody(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	zr, err := gzip.NewReader(f)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errCorruptBody, err)
+	}
+	body, err := httpio.ReadAllLimit(zr, httpio.MaxResponseBodyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errCorruptBody, err)
+	}
+	return body, nil
+}
+
+// gzipBody compresses a response body for the cache.
+func gzipBody(body []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	if _, err := zw.Write(body); err != nil {
+		return nil, err
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // writeCacheMeta replaces the .meta file in place — used by the 304
@@ -283,7 +335,11 @@ func (t *CachingTransport) writeCache(metaPath, bodyPath string, resp *http.Resp
 	// fresh hit forever. Committing meta only after a successful body
 	// write means a body failure leaves the previous (consistent) pair
 	// intact and the entry simply re-fetches. (solvent-streets-2a7n.24)
-	if err := fsutil.WriteFile(bodyPath, body, 0o644); err != nil {
+	compressed, err := gzipBody(body)
+	if err != nil {
+		return
+	}
+	if err := fsutil.WriteFile(bodyPath, compressed, 0o644); err != nil {
 		return
 	}
 	_ = fsutil.WriteFile(metaPath, metaData, 0o644) // commit; best-effort

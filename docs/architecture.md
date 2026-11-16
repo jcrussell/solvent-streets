@@ -516,7 +516,8 @@ ship the forecast (see
 [CONTRIBUTING.md](../CONTRIBUTING.md#build-test-lint).
 
 **Outbound HTTP cache.** Upstream responses are disk-cached in the cache
-directory and served for `[cache] ttl`, a week by default (`cache.DefaultTTL`).
+directory, one `<key>.json.gz` (the gzip-compressed body) and `<key>.meta` per
+request, and served for `[cache] ttl`, a week by default (`cache.DefaultTTL`).
 The default is long because Overpass and Nominatim send no validators, so a
 stale entry is a full re-download: a week keeps a retry or a replay of the same
 city on the corpus it first fetched. That includes Overpass POSTs, because the key folds in

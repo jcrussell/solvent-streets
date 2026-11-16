@@ -58,10 +58,12 @@ Three sweeps run, in order:
 
   - Incomplete entries. Each cache entry is a body/metadata file pair;
     a crash between the two writes, or a leftover temp file, leaves
-    bytes that can never be served. These are always removed.
+    bytes that can never be served. Uncompressed bodies left by pvmt
+    before v0.5.0 are never read either. These are always removed.
   - Age. Entries untouched for longer than --max-age are removed.
-    Entries are revalidated every 24h, so a month-old entry has gone
-    ~30 windows without being wanted.
+    Entries are revalidated every [cache] ttl (a week by default), so
+    a month-old entry has gone at least four windows without being
+    wanted.
   - Size. If the cache is still over --max-size, whole entries are
     removed oldest-first until it fits. The ceiling covers the cache
     entries prune manages; bytes it deliberately leaves alone (a

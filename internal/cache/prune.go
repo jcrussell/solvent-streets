@@ -17,7 +17,7 @@ import (
 )
 
 // The disk cache written by CachingTransport is append-only: every miss
-// adds a `<key>.json` / `<key>.meta` pair and nothing ever removes one
+// adds a `<key>.json.gz` / `<key>.meta` pair and nothing ever removes one
 // (readCache's corrupt-meta cleanup is deliberately narrow — it only
 // fires on an entry it just failed to parse). A long-lived install
 // therefore grows without bound, and keys that will never be requested
@@ -75,7 +75,7 @@ func isTempFile(name string) bool {
 		return false
 	}
 	_, _, ok = splitEntryName(base)
-	return ok
+	return ok || isLegacyBody(base)
 }
 
 // PruneOptions configures a sweep. A zero MaxAge disables age pruning and
@@ -90,16 +90,17 @@ type PruneOptions struct {
 // PruneReport summarizes a sweep. With DryRun set the Removed/Reclaimed
 // counters describe what would have happened; nothing was written.
 type PruneReport struct {
-	// EntriesScanned counts distinct cache keys found (a `.json`/`.meta`
-	// pair is one entry), including orphans. Temp files are not entries.
+	// EntriesScanned counts distinct cache keys found (a `.json.gz`/`.meta`
+	// pair is one entry), including orphans. Temp files and legacy `.json`
+	// bodies are not entries.
 	EntriesScanned int
 	// EntriesRemoved counts complete entries evicted by age or size.
 	EntriesRemoved int
 	// AgeRemoved and SizeRemoved break EntriesRemoved down by cause.
 	AgeRemoved  int
 	SizeRemoved int
-	// OrphansRemoved counts half-written entries and leftover temp
-	// files reclaimed.
+	// OrphansRemoved counts half-written entries, leftover temp files and
+	// pre-v0.5.0 uncompressed bodies reclaimed.
 	OrphansRemoved int
 	// BytesReclaimed is the on-disk size of everything removed, counting
 	// both files of a pair.
@@ -375,7 +376,7 @@ func (s *cacheScan) add(de fs.DirEntry) {
 
 	name := de.Name()
 	file := cacheFile{path: filepath.Join(s.dir, name), size: info.Size()}
-	if isTempFile(name) {
+	if isTempFile(name) || isLegacyBody(name) {
 		s.temps = append(s.temps, &cacheEntry{
 			files: []cacheFile{file},
 			size:  file.size,
@@ -413,14 +414,19 @@ func (s *cacheScan) addFile(key string, file cacheFile, isMeta bool, mtime time.
 	}
 }
 
-// splitEntryName recognizes the transport's `<key>.json` / `<key>.meta`
+// splitEntryName recognizes the transport's `<key>.json.gz` / `<key>.meta`
 // naming (see cacheKey and writeCache) and reports the key plus whether
 // the file is the meta half. The key must be a full sha256 hex digest:
 // prune only ever deletes names it can prove the transport minted, so an
 // unrelated file a user parked in the cache dir is left alone.
 func splitEntryName(name string) (key string, isMeta, ok bool) {
-	ext := filepath.Ext(name)
-	if ext != bodyExt && ext != metaExt {
+	var ext string
+	switch {
+	case strings.HasSuffix(name, bodyExt):
+		ext = bodyExt
+	case strings.HasSuffix(name, metaExt):
+		ext = metaExt
+	default:
 		return "", false, false
 	}
 	key = strings.TrimSuffix(name, ext)
@@ -428,6 +434,14 @@ func splitEntryName(name string) (key string, isMeta, ok bool) {
 		return "", false, false
 	}
 	return key, ext == metaExt, true
+}
+
+// isLegacyBody reports whether name is a pre-v0.5.0 uncompressed body
+// (`<key>.json`). The transport no longer reads these, so prune sweeps each
+// one as residue; without this an upgraded install would keep them forever,
+// since prune leaves names it does not recognize alone.
+func isLegacyBody(name string) bool {
+	return strings.HasSuffix(name, legacyBodyExt) && isCacheKey(strings.TrimSuffix(name, legacyBodyExt))
 }
 
 func isCacheKey(s string) bool {

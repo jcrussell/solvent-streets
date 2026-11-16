@@ -17,13 +17,14 @@ import (
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
 
-// writeEntry lays down a complete cache pair with the given mtime, using a
+// writeEntry lays down a complete cache pair (<key>.json.gz + <key>.meta)
+// with the given mtime, using a
 // well-formed 64-hex-char key so prune recognizes it.
 func writeEntry(t *testing.T, dir string, n int, age time.Duration) (string, string) {
 	t.Helper()
 	const size = 100
 	k := strings.Repeat("0", 63) + string("0123456789abcdef"[n%16])
-	body := filepath.Join(dir, k+".json")
+	body := filepath.Join(dir, k+".json.gz")
 	meta := filepath.Join(dir, k+".meta")
 	for _, p := range []string{body, meta} {
 		if err := os.WriteFile(p, make([]byte, size), 0o644); err != nil {
