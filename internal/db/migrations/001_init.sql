@@ -14,6 +14,10 @@
 --     applied within the current generation. Never edit this file for those.
 --   * Editing this file in place IS a squash: bump schemaGeneration in the same
 --     commit, and mark that commit breaking ("!" in the subject).
+--
+-- Timestamps (every *_at column) are INTEGER unix seconds, UTC, written by Go
+-- (internal/db/timestamps.go): no DEFAULT, so a statement that forgets one
+-- fails instead of storing a value in another format.
 
 CREATE TABLE IF NOT EXISTS cities (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -27,7 +31,7 @@ CREATE TABLE IF NOT EXISTS city_boundaries (
     city_id INTEGER NOT NULL REFERENCES cities(id),
     geometry_json TEXT NOT NULL,
     source TEXT NOT NULL DEFAULT 'nominatim',
-    fetched_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    fetched_at INTEGER NOT NULL,
     UNIQUE(city_id)
 );
 
@@ -39,20 +43,15 @@ CREATE TABLE IF NOT EXISTS features (
     tags TEXT NOT NULL DEFAULT '{}',
     geometry_json TEXT NOT NULL,
     source_api TEXT NOT NULL DEFAULT '',
-    fetched_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    fetched_at INTEGER NOT NULL,
     PRIMARY KEY (id, resource_type, city_id)
 );
 
 -- ListFeatures / DeleteFeatures / FeatureInfo all filter `resource_type = ?
 -- AND city_id = ?`; no query ever filters features.resource_type alone, so a
 -- single composite (city_id, resource_type) serves every read as a seek and
--- also covers city_id-only lookups. The old single-column idx_features_city
--- and idx_features_resource_type were dropped as redundant write overhead.
+-- also covers city_id-only lookups.
 CREATE INDEX IF NOT EXISTS idx_features_city_type ON features(city_id, resource_type);
--- LastIngestAt filters `resource_type = ? AND city_id = ?` and orders by
--- fetched_at DESC LIMIT 1; the trailing fetched_at makes that an index-only
--- seek instead of a scan of the city/type slice.
-CREATE INDEX IF NOT EXISTS idx_features_city_type_time ON features(city_id, resource_type, fetched_at);
 
 -- INPUTS (solvent-streets-we5i). city_inputs holds one digest per stored
 -- input a producer reads: each features resource_type ('roads',
@@ -61,14 +60,18 @@ CREATE INDEX IF NOT EXISTS idx_features_city_type_time ON features(city_id, reso
 -- there are none (internal/db/inputs.go). UpsertFeatures, SaveBoundary and
 -- GCSweep keep it current in the same transaction as the rows themselves,
 -- and ingested_at moves only when the digest does, so re-ingesting identical
--- data changes nothing. A run records the digests it read (run_inputs), which
--- is how a stale part is told apart from a current one without comparing
--- clocks.
+-- data changes no digest. fetched_at is the newest features.fetched_at of the
+-- input's stored rows (NULL when there are none; the boundary's save time for
+-- 'boundary'), kept in the same pass as the digest, so "when was this last
+-- ingested" is a key lookup rather than a scan of the rows. A run records
+-- the digests it read (run_inputs), which is how a stale part is told apart
+-- from a current one without comparing clocks.
 CREATE TABLE IF NOT EXISTS city_inputs (
     city_id INTEGER NOT NULL REFERENCES cities(id),
     input TEXT NOT NULL,
     digest TEXT NOT NULL,
-    ingested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    ingested_at INTEGER NOT NULL,
+    fetched_at INTEGER,
     PRIMARY KEY (city_id, input)
 );
 
@@ -87,8 +90,8 @@ CREATE TABLE IF NOT EXISTS ingest_attempts (
     city_id INTEGER NOT NULL REFERENCES cities(id),
     input TEXT NOT NULL,
     source TEXT NOT NULL,
-    started_at DATETIME NOT NULL,
-    finished_at DATETIME NOT NULL,
+    started_at INTEGER NOT NULL,
+    finished_at INTEGER NOT NULL,
     outcome TEXT NOT NULL CHECK (outcome IN ('ok', 'empty', 'failed')),
     feature_count INTEGER NOT NULL DEFAULT 0,
     error TEXT NOT NULL DEFAULT ''
@@ -121,7 +124,7 @@ CREATE TABLE IF NOT EXISTS runs (
     city_id INTEGER NOT NULL REFERENCES cities(id),
     producer TEXT NOT NULL,
     config_hash TEXT NOT NULL DEFAULT '',
-    computed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    computed_at INTEGER NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_runs_city ON runs(city_id);
@@ -177,7 +180,7 @@ CREATE TABLE IF NOT EXISTS snapshot_boundaries (
 CREATE TABLE IF NOT EXISTS snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     city_id INTEGER NOT NULL REFERENCES cities(id),
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at INTEGER NOT NULL,
     config_hash TEXT NOT NULL DEFAULT '',
     hex_edge_m REAL NOT NULL,
     boundary_id INTEGER REFERENCES snapshot_boundaries(id)

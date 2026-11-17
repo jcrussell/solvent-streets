@@ -154,27 +154,30 @@ func TestIngestHistory_ScopedToCity(t *testing.T) {
 	}
 }
 
-// TestIngestAttempts_TimesReadableBySQLite: attempt times are stored in a
-// form SQLite's date functions read, and come back exact to the millisecond.
+// TestIngestAttempts_TimesReadableBySQLite: attempt times are stored as unix
+// seconds, which SQLite's date functions read with 'unixepoch', and come back
+// in UTC to the second.
 func TestIngestAttempts_TimesReadableBySQLite(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 	t0 := time.Date(2026, 11, 9, 12, 0, 0, 123e6, time.UTC)
-	if err := store.RecordIngestAttempts(ctx, []IngestAttempt{{Input: "roads", Source: "overpass", StartedAt: t0, FinishedAt: t0.Add(1500 * time.Millisecond), Outcome: IngestOK}}); err != nil {
+	if err := store.RecordIngestAttempts(ctx, []IngestAttempt{{Input: "roads", Source: "overpass", StartedAt: t0, FinishedAt: t0.Add(2500 * time.Millisecond), Outcome: IngestOK}}); err != nil {
 		t.Fatal(err)
 	}
-	var secs float64
-	if err := store.(*sqliteStore).db.QueryRowContext(ctx, `SELECT (julianday(finished_at)-julianday(started_at))*86400 FROM ingest_attempts`).Scan(&secs); err != nil {
+	var secs int
+	var started string
+	if err := store.(*sqliteStore).db.QueryRowContext(ctx,
+		`SELECT finished_at - started_at, datetime(started_at, 'unixepoch') FROM ingest_attempts`).Scan(&secs, &started); err != nil {
 		t.Fatal(err)
 	}
-	if secs < 1.499 || secs > 1.501 {
-		t.Errorf("julianday duration = %.3f s, want 1.5", secs)
+	if secs != 2 || started != "2026-11-09 12:00:00" {
+		t.Errorf("stored duration %d s, start %q; want 2 s from 2026-11-09 12:00:00", secs, started)
 	}
 	h, err := store.IngestHistory(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !h[0].Latest.StartedAt.Equal(t0) {
-		t.Errorf("round trip %v != %v", h[0].Latest.StartedAt, t0)
+	if want := t0.Truncate(time.Second); !h[0].Latest.StartedAt.Equal(want) || h[0].Latest.StartedAt.Location() != time.UTC {
+		t.Errorf("round trip %v, want %v in UTC", h[0].Latest.StartedAt, want)
 	}
 }

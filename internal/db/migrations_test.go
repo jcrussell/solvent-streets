@@ -139,7 +139,7 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 		// These are the indexes the runtime path depends on. Dropping any
 		// would silently turn a hot read into a table scan.
 		want := map[string][]string{
-			"features":       {"idx_features_city_type", "idx_features_city_type_time"},
+			"features":       {"idx_features_city_type"},
 			"snapshots":      {"idx_snapshots_city_hash", "idx_snapshots_boundary"},
 			"snapshot_parts": {"idx_snapshot_parts_run"},
 			"working_parts":  {"idx_working_parts_run"},
@@ -211,7 +211,7 @@ func TestQueryPlan_UsesCompositeIndexes(t *testing.T) {
 		{"city_metrics view read", `SELECT value FROM city_metrics WHERE run_id IN (?, ?, ?) AND class = ? AND subject IN (?, ?)`, "PRIMARY KEY"},
 		{"hex_metrics view read", `SELECT value FROM hex_metrics WHERE run_id IN (?, ?, ?) AND metric = ? AND subject = ?`, "PRIMARY KEY"},
 		{"features outer filter", `SELECT id FROM features WHERE resource_type = ? AND city_id = ?`, "INDEX idx_features_city_type"},
-		{"features last ingest lookup", `SELECT fetched_at FROM features WHERE resource_type = ? AND city_id = ? ORDER BY fetched_at DESC LIMIT 1`, "INDEX idx_features_city_type_time"},
+		{"last ingest lookup", `SELECT fetched_at FROM city_inputs WHERE city_id = ? AND input = ?`, "(city_id=? AND input=?)"},
 		{"newest snapshot for a hash", `SELECT id FROM snapshots WHERE city_id = ? AND config_hash = ? ORDER BY id DESC LIMIT 1`, "INDEX idx_snapshots_city_hash"},
 		{"run still referenced", `SELECT COUNT(*) FROM snapshot_parts WHERE run_id = ?`, "INDEX idx_snapshot_parts_run"},
 		{"run in the working state", `SELECT COUNT(*) FROM working_parts WHERE run_id = ?`, "INDEX idx_working_parts_run"},

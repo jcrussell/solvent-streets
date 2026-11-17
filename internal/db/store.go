@@ -43,7 +43,7 @@ func (s *sqliteStore) UpsertFeatures(ctx context.Context, resourceType resource.
 			if fetchedAt.IsZero() {
 				fetchedAt = time.Now()
 			}
-			if _, err := stmt.ExecContext(ctx, f.ID, resourceType, s.cityID, f.Name, string(tagsJSON), f.GeometryJSON, f.SourceAPI, fetchedAt); err != nil {
+			if _, err := stmt.ExecContext(ctx, f.ID, resourceType, s.cityID, f.Name, string(tagsJSON), f.GeometryJSON, f.SourceAPI, unixSeconds(fetchedAt)); err != nil {
 				return fmt.Errorf("exec upsert feature %s: %w", f.ID, err)
 			}
 		}
@@ -85,7 +85,7 @@ func (s *sqliteStore) ListFeatures(ctx context.Context, resourceType resource.Ty
 	for rows.Next() {
 		var f Feature
 		var tagsJSON string
-		if err := rows.Scan(&f.ID, &f.ResourceType, &f.Name, &tagsJSON, &f.GeometryJSON, &f.SourceAPI, &f.FetchedAt); err != nil {
+		if err := rows.Scan(&f.ID, &f.ResourceType, &f.Name, &tagsJSON, &f.GeometryJSON, &f.SourceAPI, unixTime{&f.FetchedAt}); err != nil {
 			return nil, fmt.Errorf("scan feature: %w", err)
 		}
 		if err := json.Unmarshal([]byte(tagsJSON), &f.Tags); err != nil {
@@ -105,14 +105,15 @@ func (s *sqliteStore) ListFeatures(ctx context.Context, resourceType resource.Ty
 // SaveBoundary stores the city's boundary and records its digest as the
 // boundary input (city_inputs), in one transaction.
 func (s *sqliteStore) SaveBoundary(ctx context.Context, geometryJSON, source string) error {
+	now := nowUnix()
 	return s.withTx(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `
 			INSERT OR REPLACE INTO city_boundaries (city_id, geometry_json, source, fetched_at)
-			VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-		`, s.cityID, geometryJSON, source); err != nil {
+			VALUES (?, ?, ?, ?)
+		`, s.cityID, geometryJSON, source, now); err != nil {
 			return fmt.Errorf("save boundary: %w", err)
 		}
-		return setInputDigest(ctx, tx, s.cityID, InputBoundary, boundaryDigest(geometryJSON, source))
+		return setInputDigest(ctx, tx, s.cityID, InputBoundary, boundaryDigest(geometryJSON, source), sql.NullInt64{Int64: now, Valid: true})
 	})
 }
 
@@ -164,20 +165,19 @@ func (s *sqliteStore) Stats(ctx context.Context, resourceType resource.Type) (*S
 		return nil, fmt.Errorf("count features: %w", err)
 	}
 
-	// ORDER BY ... LIMIT 1 + sql.ErrNoRows cleanly distinguishes "no
-	// features yet" (leave LastIngestAt nil) from a real query failure
-	// (locked DB, transient I/O), which must not fold into the same
-	// "no features" branch. modernc.org/sqlite scans the
-	// TEXT-stored timestamp into *time.Time directly; sql.NullTime would
-	// route through stdlib's convertAssign and fail to parse the format.
-	var t time.Time
-	err = s.db.QueryRowContext(ctx, `SELECT fetched_at FROM features WHERE resource_type = ? AND city_id = ? ORDER BY fetched_at DESC LIMIT 1`, resourceType, s.cityID).Scan(&t)
+	// city_inputs.fetched_at is the newest fetched_at of the stored rows,
+	// kept with the digest (refreshFeaturesDigest). No row, or NULL (no
+	// stored rows), leaves LastIngestAt nil; a real query failure (locked DB,
+	// transient I/O) must not fold into that branch.
+	var fetched sql.NullInt64
+	err = s.db.QueryRowContext(ctx, `SELECT fetched_at FROM city_inputs WHERE city_id = ? AND input = ?`, s.cityID, string(resourceType)).Scan(&fetched)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		// no features yet
+		// never ingested
 	case err != nil:
 		return nil, fmt.Errorf("latest fetched_at: %w", err)
-	default:
+	case fetched.Valid:
+		t := fromUnix(fetched.Int64)
 		info.LastIngestAt = &t
 	}
 

@@ -53,11 +53,10 @@ func latestCompute(ctx context.Context, q queryer, cityID int64, configHash stri
 			p             LatestPart
 			input, digest sql.NullString
 		)
-		if err := rows.Scan(&p.Part, &p.RunID, &p.ComputedAt, &input, &digest); err != nil {
+		if err := rows.Scan(&p.Part, &p.RunID, unixTime{&p.ComputedAt}, &input, &digest); err != nil {
 			return nil, fmt.Errorf("scan latest compute: %w", err)
 		}
 		if len(out) == 0 || out[len(out)-1].Part != p.Part {
-			p.ComputedAt = canonicalTime(p.ComputedAt)
 			p.Inputs = map[string]string{}
 			out = append(out, p)
 		}
@@ -79,10 +78,9 @@ func inputStates(ctx context.Context, q queryer, cityID int64) ([]InputState, er
 	var out []InputState
 	for rows.Next() {
 		var st InputState
-		if err := rows.Scan(&st.Input, &st.Digest, &st.IngestedAt); err != nil {
+		if err := rows.Scan(&st.Input, &st.Digest, unixTime{&st.IngestedAt}); err != nil {
 			return nil, fmt.Errorf("scan input: %w", err)
 		}
-		st.IngestedAt = canonicalTime(st.IngestedAt)
 		out = append(out, st)
 	}
 	return out, rows.Err()

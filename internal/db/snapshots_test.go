@@ -464,7 +464,7 @@ func TestGC_OrphanRuns(t *testing.T) {
 	roadsRun(t, store, 1)(old.ID)
 	young, _ := store.CreateRun(ctx, "parking", "h", nil)
 	parkingRun(t, store, 1)(young.ID)
-	stale := time.Now().Add(-2 * OrphanRunGrace).UTC().Format(time.DateTime)
+	stale := time.Now().Add(-2 * OrphanRunGrace).Unix()
 	if _, err := root.db.ExecContext(ctx, `UPDATE runs SET computed_at = ? WHERE id IN (?, ?)`, stale, old.ID, committed); err != nil {
 		t.Fatal(err)
 	}
@@ -535,7 +535,7 @@ func TestGC_SupersededEpoch(t *testing.T) {
 		t.Fatal(err)
 	}
 	other := put("other", "roads", 2)
-	stale := time.Now().Add(-2 * OrphanRunGrace).UTC().Format(time.DateTime)
+	stale := time.Now().Add(-2 * OrphanRunGrace).Unix()
 	if _, err := root.db.ExecContext(ctx, `UPDATE runs SET computed_at = ?`, stale); err != nil {
 		t.Fatal(err)
 	}
@@ -602,14 +602,15 @@ func TestListSnapshots_Manifests(t *testing.T) {
 
 // TestListSnapshots_TimestampsMarshalLikeTheCLI guards that marshaling a
 // listed snapshot (what /api/snapshots serves) gives the same timestamp
-// string the CLI prints, even when the stored value carries an offset and
-// sub-second digits.
+// string the CLI prints: stored unix seconds read back in UTC, whatever the
+// local zone.
 func TestListSnapshots_TimestampsMarshalLikeTheCLI(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 	run, snap := commitRun(t, store, "h", "roads", nil)
 	raw := store.(*sqliteStore).db
-	const stored = "2026-03-04 05:06:07.123456789-07:00"
+	t.Setenv("TZ", "America/Los_Angeles")
+	stored := time.Date(2026, 3, 4, 5, 6, 7, 123456789, time.FixedZone("", -7*3600)).Unix()
 	if _, err := raw.ExecContext(ctx, `UPDATE snapshots SET created_at = ? WHERE id = ?`, stored, snap); err != nil {
 		t.Fatal(err)
 	}

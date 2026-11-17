@@ -76,8 +76,7 @@ func (s *sqliteStore) ListCityMetrics(ctx context.Context, subjects []string) ([
 		in("subject", subjects), ` ORDER BY subject, class, metric, city_metrics.run_id`,
 		func(rows *sql.Rows) (CityMetric, error) {
 			var m CityMetric
-			err := rows.Scan(&m.Metric, &m.Subject, &m.Class, &m.Value, &m.RunID, &m.ComputedAt)
-			m.ComputedAt = canonicalTime(m.ComputedAt)
+			err := rows.Scan(&m.Metric, &m.Subject, &m.Class, &m.Value, &m.RunID, unixTime{&m.ComputedAt})
 			return m, err
 		})
 }
@@ -109,8 +108,7 @@ func (s *sqliteStore) ListHexMetrics(ctx context.Context, metric, subject string
 		and(eq("metric", metric), eq("subject", subject)), ` ORDER BY hex_id, hex_metrics.run_id`,
 		func(rows *sql.Rows) (HexMetric, error) {
 			var m HexMetric
-			err := rows.Scan(&m.HexID, &m.Metric, &m.Subject, &m.Value, &m.Ref, &m.RunID, &m.ComputedAt)
-			m.ComputedAt = canonicalTime(m.ComputedAt)
+			err := rows.Scan(&m.HexID, &m.Metric, &m.Subject, &m.Value, &m.Ref, &m.RunID, unixTime{&m.ComputedAt})
 			return m, err
 		})
 }

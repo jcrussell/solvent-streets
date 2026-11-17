@@ -48,13 +48,13 @@ func inputState(t *testing.T, store Store, input string) InputState {
 }
 
 // backdateInputs moves every ingested_at an hour into the past, so a test can
-// tell whether a later write touched it (CURRENT_TIMESTAMP has second
+// tell whether a later write touched it (timestamps have second
 // granularity).
 func backdateInputs(t *testing.T, root *RootStore) time.Time {
 	t.Helper()
 	past := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
 	if _, err := root.db.ExecContext(context.Background(), `UPDATE city_inputs SET ingested_at = ?`,
-		past.Format(time.DateTime)); err != nil {
+		past.Unix()); err != nil {
 		t.Fatal(err)
 	}
 	return past
@@ -387,7 +387,7 @@ func TestGC_HonoursWorkingState(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	stale := time.Now().Add(-2 * OrphanRunGrace).UTC().Format(time.DateTime)
+	stale := time.Now().Add(-2 * OrphanRunGrace).Unix()
 	if _, err := root.db.ExecContext(ctx, `UPDATE runs SET computed_at = ? WHERE id = ?`, stale, run); err != nil {
 		t.Fatal(err)
 	}

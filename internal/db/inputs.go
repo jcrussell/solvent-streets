@@ -143,33 +143,39 @@ func (w *digestWriter) sum() string { return hex.EncodeToString(w.h.Sum(nil)) }
 // resourceType: a sha256 over every row in id order, covering the columns a
 // producer reads (id, source_api, name, tags, geometry_json) and not
 // fetched_at, so re-ingesting identical data keeps the digest. "" when the
-// type has no rows.
-func featuresDigest(ctx context.Context, q queryer, cityID int64, resourceType string) (string, error) {
+// type has no rows. The same pass returns the newest fetched_at of those rows
+// (invalid when there are none), which city_inputs keeps beside the digest.
+func featuresDigest(ctx context.Context, q queryer, cityID int64, resourceType string) (string, sql.NullInt64, error) {
+	var newest sql.NullInt64
 	rows, err := q.QueryContext(ctx,
-		`SELECT id, source_api, name, tags, geometry_json FROM features
+		`SELECT id, source_api, name, tags, geometry_json, fetched_at FROM features
 		 WHERE city_id = ? AND resource_type = ? ORDER BY id`, cityID, resourceType)
 	if err != nil {
-		return "", fmt.Errorf("query %s features for digest: %w", resourceType, err)
+		return "", newest, fmt.Errorf("query %s features for digest: %w", resourceType, err)
 	}
 	defer func() { _ = rows.Close() }()
 	w, n := newDigestWriter(), 0
 	for rows.Next() {
 		var id, source, name, tags, geometry string
-		if err := rows.Scan(&id, &source, &name, &tags, &geometry); err != nil {
-			return "", fmt.Errorf("scan %s feature for digest: %w", resourceType, err)
+		var fetchedAt int64
+		if err := rows.Scan(&id, &source, &name, &tags, &geometry, &fetchedAt); err != nil {
+			return "", newest, fmt.Errorf("scan %s feature for digest: %w", resourceType, err)
 		}
 		for _, f := range []string{id, source, name, tags, geometry} {
 			w.field(f)
 		}
+		if !newest.Valid || fetchedAt > newest.Int64 {
+			newest = sql.NullInt64{Int64: fetchedAt, Valid: true}
+		}
 		n++
 	}
 	if err := rows.Err(); err != nil {
-		return "", fmt.Errorf("read %s features for digest: %w", resourceType, err)
+		return "", newest, fmt.Errorf("read %s features for digest: %w", resourceType, err)
 	}
 	if n == 0 {
-		return "", nil
+		return "", newest, nil
 	}
-	return w.sum(), nil
+	return w.sum(), newest, nil
 }
 
 // boundaryDigest is the digest of a stored boundary: its geometry and source.
@@ -185,28 +191,31 @@ func boundaryDigest(geometryJSON, source string) string {
 	return w.sum()
 }
 
-// setInputDigest records digest as input's current digest. ingested_at moves
-// only when the digest changes, so an identical re-ingest leaves the row as
-// it was.
-func setInputDigest(ctx context.Context, tx *sql.Tx, cityID int64, input, digest string) error {
+// setInputDigest records digest as input's current digest and fetchedAt as
+// when its stored rows were fetched. ingested_at moves only when the digest
+// changes, so an identical re-ingest keeps it; fetched_at always follows the
+// stored rows, which an identical re-ingest rewrote.
+func setInputDigest(ctx context.Context, tx *sql.Tx, cityID int64, input, digest string, fetchedAt sql.NullInt64) error {
 	_, err := tx.ExecContext(ctx,
-		`INSERT INTO city_inputs (city_id, input, digest, ingested_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-		 ON CONFLICT(city_id, input) DO UPDATE SET digest = excluded.digest, ingested_at = excluded.ingested_at
-		 WHERE city_inputs.digest != excluded.digest`, cityID, input, digest)
+		`INSERT INTO city_inputs (city_id, input, digest, ingested_at, fetched_at) VALUES (?, ?, ?, ?, ?)
+		 ON CONFLICT(city_id, input) DO UPDATE SET
+		   ingested_at = CASE WHEN city_inputs.digest != excluded.digest THEN excluded.ingested_at ELSE city_inputs.ingested_at END,
+		   digest = excluded.digest,
+		   fetched_at = excluded.fetched_at`, cityID, input, digest, nowUnix(), fetchedAt)
 	if err != nil {
 		return fmt.Errorf("record %s digest: %w", input, err)
 	}
 	return nil
 }
 
-// refreshFeaturesDigest recomputes resourceType's digest from its stored rows
-// and records it.
+// refreshFeaturesDigest recomputes resourceType's digest and newest fetch
+// time from its stored rows and records them.
 func refreshFeaturesDigest(ctx context.Context, tx *sql.Tx, cityID int64, resourceType string) error {
-	digest, err := featuresDigest(ctx, tx, cityID, resourceType)
+	digest, fetchedAt, err := featuresDigest(ctx, tx, cityID, resourceType)
 	if err != nil {
 		return err
 	}
-	return setInputDigest(ctx, tx, cityID, resourceType, digest)
+	return setInputDigest(ctx, tx, cityID, resourceType, digest, fetchedAt)
 }
 
 // staleFeatureTypes lists the resource types that have rows matching the

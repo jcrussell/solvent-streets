@@ -283,25 +283,22 @@ func (s *sqliteStore) CreateRun(ctx context.Context, producer, configHash string
 	if producer == "" {
 		return nil, errors.New("create run: producer is required")
 	}
-	run := &Run{Producer: producer, ConfigHash: configHash}
+	now := nowUnix()
+	run := &Run{Producer: producer, ConfigHash: configHash, ComputedAt: fromUnix(now)}
 	err := s.withTx(ctx, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx,
-			`INSERT INTO runs (city_id, producer, config_hash) VALUES (?, ?, ?)`, s.cityID, producer, configHash)
+			`INSERT INTO runs (city_id, producer, config_hash, computed_at) VALUES (?, ?, ?, ?)`, s.cityID, producer, configHash, now)
 		if err != nil {
 			return fmt.Errorf("create run: %w", err)
 		}
 		if run.ID, err = res.LastInsertId(); err != nil {
 			return fmt.Errorf("create run id: %w", err)
 		}
-		if err := tx.QueryRowContext(ctx, `SELECT computed_at FROM runs WHERE id = ?`, run.ID).Scan(&run.ComputedAt); err != nil {
-			return fmt.Errorf("read run timestamp: %w", err)
-		}
 		return recordRunInputs(ctx, tx, run.ID, inputs)
 	})
 	if err != nil {
 		return nil, err
 	}
-	run.ComputedAt = canonicalTime(run.ComputedAt)
 	return run, nil
 }
 
@@ -407,8 +404,8 @@ func (s *sqliteStore) insertSnapshot(ctx context.Context, tx *sql.Tx, configHash
 	if boundary.Int64, boundary.Valid, err = freezeBoundary(ctx, tx, s.cityID); err != nil {
 		return 0, err
 	}
-	res, err := tx.ExecContext(ctx, `INSERT INTO snapshots (city_id, config_hash, hex_edge_m, boundary_id) VALUES (?, ?, ?, ?)`,
-		s.cityID, configHash, hexEdgeM, boundary)
+	res, err := tx.ExecContext(ctx, `INSERT INTO snapshots (city_id, created_at, config_hash, hex_edge_m, boundary_id) VALUES (?, ?, ?, ?, ?)`,
+		s.cityID, nowUnix(), configHash, hexEdgeM, boundary)
 	if err != nil {
 		return 0, fmt.Errorf("create snapshot: %w", err)
 	}
@@ -474,13 +471,6 @@ func (s *sqliteStore) ListSnapshots(ctx context.Context) ([]Snapshot, error) {
 	return listSnapshots(ctx, s.db, s.cityID, 0)
 }
 
-// canonicalTime puts a stored timestamp in UTC at second precision, so
-// marshaling a Snapshot or Run yields the same RFC3339 string the CLI prints
-// with t.UTC().Format(time.RFC3339).
-func canonicalTime(t time.Time) time.Time {
-	return t.UTC().Truncate(time.Second)
-}
-
 // listSnapshots lists the city's snapshots newest first (by id; created_at
 // has second granularity), each with its manifest sorted by part. A non-zero
 // only restricts the result to that one snapshot.
@@ -504,20 +494,16 @@ func listSnapshots(ctx context.Context, q queryer, cityID, only int64) ([]Snapsh
 			snap       Snapshot
 			part       sql.NullString
 			runID      sql.NullInt64
-			computedAt *time.Time
+			computedAt time.Time
 		)
-		if err := rows.Scan(&snap.ID, &snap.CreatedAt, &snap.ConfigHash, &snap.HexEdgeM, &snap.BoundaryDigest, &part, &runID, &computedAt); err != nil {
+		if err := rows.Scan(&snap.ID, unixTime{&snap.CreatedAt}, &snap.ConfigHash, &snap.HexEdgeM, &snap.BoundaryDigest, &part, &runID, unixTime{&computedAt}); err != nil {
 			return nil, fmt.Errorf("scan snapshot: %w", err)
 		}
-		snap.CreatedAt = canonicalTime(snap.CreatedAt)
 		if len(out) == 0 || out[len(out)-1].ID != snap.ID {
 			out = append(out, snap)
 		}
 		if part.Valid {
-			p := SnapshotPart{Part: part.String, RunID: runID.Int64}
-			if computedAt != nil {
-				p.ComputedAt = canonicalTime(*computedAt)
-			}
+			p := SnapshotPart{Part: part.String, RunID: runID.Int64, ComputedAt: computedAt}
 			last := &out[len(out)-1]
 			last.Parts = append(last.Parts, p)
 		}
@@ -695,7 +681,7 @@ func runArgs(ids []int64) []any {
 // than OrphanRunGrace. A latest compute from an older epoch is superseded
 // (supersededParts) and holds nothing.
 func orphanRuns(ctx context.Context, q queryer, cityID int64, computeEpoch int) ([]int64, error) {
-	cutoff := time.Now().Add(-OrphanRunGrace).UTC().Format(time.DateTime)
+	cutoff := unixSeconds(time.Now().Add(-OrphanRunGrace))
 	rows, err := q.QueryContext(ctx,
 		`SELECT id FROM runs WHERE city_id = ? AND computed_at < ?
 		   AND id NOT IN (SELECT run_id FROM snapshot_parts)

@@ -221,7 +221,10 @@ of each stored input: one per features `resource_type`, plus `boundary`. It
 is a sha256 over the stored rows in id order (`internal/db/inputs.go`), or
 `""` when there are none. `UpsertFeatures`, `SaveBoundary` and `GCSweep`
 update it in the same transaction as the rows. `ingested_at` moves only when
-the digest does, so re-ingesting identical data changes nothing. Each run
+the digest does, so re-ingesting identical data changes no digest. The same
+pass over the rows keeps `fetched_at`, the newest fetch time among them
+(`Stats.LastIngestAt`, what `status` and `cities` show), so that is a key
+lookup rather than a scan of the type's rows. Each run
 records the digests it read in `run_inputs`. `db.ProducerInputs` is the one
 statement of which inputs each producer reads, and the producer takes the
 digests before it reads the data, so an ingest that lands mid-compute makes
@@ -277,7 +280,7 @@ erDiagram
         int city_id FK
         text geometry_json
         text source
-        datetime fetched_at
+        int fetched_at
     }
     features {
         text id PK
@@ -287,21 +290,22 @@ erDiagram
         text tags
         text geometry_json
         text source_api
-        datetime fetched_at
+        int fetched_at
     }
     city_inputs {
         int city_id PK
         text input PK
         text digest
-        datetime ingested_at
+        int ingested_at
+        int fetched_at
     }
     ingest_attempts {
         int id PK
         int city_id FK
         text input
         text source
-        datetime started_at
-        datetime finished_at
+        int started_at
+        int finished_at
         text outcome
         int feature_count
         text error
@@ -311,7 +315,7 @@ erDiagram
         int city_id FK
         text producer
         text config_hash
-        datetime computed_at
+        int computed_at
     }
     run_inputs {
         int run_id PK
@@ -339,7 +343,7 @@ erDiagram
         text config_hash
         real hex_edge_m
         int boundary_id FK
-        datetime created_at
+        int created_at
     }
     snapshot_boundaries {
         int id PK
@@ -374,6 +378,13 @@ erDiagram
 configs that happen to define the same city apart, while a city pulled in
 through `[[include]]` resolves to its declaring config's row (see
 [Config identity](configuration.md#config-identity-config_id)).
+
+Every timestamp (`*_at`) is an `INTEGER` of unix seconds, UTC. Go writes each
+one; the columns have no SQL default, so a statement that forgets one fails
+rather than storing another format. Stored times therefore compare as numbers
+(gc's `computed_at < cutoff`) and read back in UTC at second precision, the
+form the CLI and JSON print. `internal/db/timestamps.go` holds the one pair of
+conversions every bind and scan uses.
 
 `001_init.sql` creates the schema, and `checkGeneration`
 (`internal/db/migrations.go`) stamps a fresh database's `PRAGMA user_version`

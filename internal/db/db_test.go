@@ -174,7 +174,7 @@ func seedGCFeature(t *testing.T, root *RootStore, cityID int64, id, sourceAPI st
 	t.Helper()
 	_, err := root.db.ExecContext(context.Background(),
 		`INSERT INTO features (id, resource_type, city_id, name, tags, geometry_json, source_api, fetched_at)
-		 VALUES (?, ?, ?, '', '{}', '{}', ?, CURRENT_TIMESTAMP)`,
+		 VALUES (?, ?, ?, '', '{}', '{}', ?, unixepoch())`,
 		id, rtRoads, cityID, sourceAPI)
 	if err != nil {
 		t.Fatalf("seed feature %s: %v", id, err)
@@ -547,7 +547,7 @@ func TestWithTx(t *testing.T) {
 		s := root.ForCity(cityID).(*sqliteStore)
 
 		err = s.withTx(ctx, func(tx *sql.Tx) error {
-			_, err := tx.ExecContext(ctx, `INSERT INTO city_boundaries (city_id, geometry_json, source, fetched_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)`, cityID, `{"x":1}`, "test")
+			_, err := tx.ExecContext(ctx, `INSERT INTO city_boundaries (city_id, geometry_json, source, fetched_at) VALUES (?, ?, ?, unixepoch())`, cityID, `{"x":1}`, "test")
 			return err
 		})
 		if err != nil {
@@ -576,7 +576,7 @@ func TestWithTx(t *testing.T) {
 
 		sentinel := errors.New("fn failed")
 		err = s.withTx(ctx, func(tx *sql.Tx) error {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO city_boundaries (city_id, geometry_json, source, fetched_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)`, cityID, `{"x":1}`, "test"); err != nil {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO city_boundaries (city_id, geometry_json, source, fetched_at) VALUES (?, ?, ?, unixepoch())`, cityID, `{"x":1}`, "test"); err != nil {
 				t.Fatal(err)
 			}
 			return sentinel
