@@ -1,5 +1,5 @@
 // Package snapshots implements the `pvmt snapshots` command group: create,
-// list, delete and prune. A snapshot is a named, immutable tag
+// list, show, delete and prune. A snapshot is a named, immutable tag
 // over every configured city, like a git tag: each city's latest compute,
 // frozen together with the hex edge and boundary it was computed on.
 package snapshots
@@ -22,7 +22,7 @@ func NewCmdSnapshots(f *cmdutil.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "snapshots",
 		Short: "Create and manage snapshots",
-		Long: `Create, list, delete and prune snapshots. A snapshot is a
+		Long: `Create, list, show, delete and prune snapshots. A snapshot is a
 named, immutable tag over every configured city, like a git tag: each
 city's complete computed state, one run per part, frozen with the hex edge
 and boundary it was computed on. create freezes every city's latest compute
@@ -35,6 +35,9 @@ now, or freezes nothing. Export and serve publish the newest snapshot;
   # List snapshots, newest first
   pvmt snapshots list
 
+  # Each city in one snapshot
+  pvmt snapshots show v0.5.0
+
   # Replace a snapshot: delete it (and the runs only it used), then create it
   pvmt snapshots delete v0.5.0 --yes && pvmt snapshots create v0.5.0
 
@@ -44,6 +47,7 @@ now, or freezes nothing. Export and serve publish the newest snapshot;
 	cmdutil.MarkGroup(cmd)
 	cmd.AddCommand(NewCmdCreate(f, nil))
 	cmd.AddCommand(NewCmdList(f, nil))
+	cmd.AddCommand(NewCmdShow(f, nil))
 	cmd.AddCommand(NewCmdDelete(f, nil))
 	cmd.AddCommand(NewCmdPrune(f, nil))
 	return cmd

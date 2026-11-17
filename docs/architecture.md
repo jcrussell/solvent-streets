@@ -4,8 +4,9 @@
 features for each configured city from upstream services and stores them.
 **Compute** projects those features onto a hex grid, and each producer stores
 its results as an immutable *run* in the city's *latest compute*.
-`pvmt snapshots create` freezes the latest compute as a *snapshot*, and
-**publish** commands, export and serve, read each city's newest snapshot.
+`pvmt snapshots create <name>` freezes every city's latest compute into one
+named *snapshot*, and **publish** commands, export and serve, read each city
+from the newest snapshot that covers it.
 `pvmt forecast` reads the latest compute. Every reader simulates the forecast
 when it runs, so nothing forecast-related is ever stored. This page explains how each stage is built and why. What the models
 *mean* (decay, cost, solvency, fire response, population) is in the
@@ -37,7 +38,7 @@ flowchart LR
     Ingest --> Features[(features)]
     Features --> Grid --> Pavement --> Latest[(latest compute)]
     Grid --> Metrics --> Latest
-    Latest -- "snapshots create" --> Snap[(snapshot)]
+    Latest -- "snapshots create <name>" --> Snap[(snapshot)]
     Snap --> Forecast --> Export & Serve
     Latest --> Forecast --> CLI
 ```
@@ -475,10 +476,13 @@ have no timestamp of their own: a row's time is its run's `computed_at`, set
 when the run is created, so `status` and `snapshots list` show when a compute
 began, not when it finished saving. The city's
 *latest compute* under a config hash (`working_parts`) names one run per part:
-the newest committed run of each producer. A *snapshot* is a manifest in
-`snapshot_parts` that `pvmt snapshots create` copies from the latest compute,
-and it never changes after that. Every read resolves exactly one manifest and
-reads only its runs: a pinned snapshot (`Store.WithSnapshot`), the latest
+the newest committed run of each producer. A *snapshot* is a named, immutable
+tag over every configured city, like a git tag. `pvmt snapshots create
+<name>` copies each city's latest compute into it (one `snapshot_cities` row
+and its `snapshot_parts` manifest per city), and it never changes after that:
+creating a name that exists is refused, and replacing a snapshot is `delete`
+then `create`. Every city read resolves exactly one manifest and reads only
+its runs: the city in a pinned snapshot (`Store.WithSnapshot`), the latest
 compute under the city's current config hash (`Store.WithLatestCompute`, what
 `cmdutil.PinnedCityStore` gives compute, status and forecast), or a latest
 compute pinned as of one moment (`Store.WithRuns`).
@@ -490,8 +494,8 @@ city before writing anything (`export.PinNewest`) and refuses the whole site
 when any city has none, listing each with the commands that make one. It warns
 about a snapshot created under other settings than the current ones, and
 exports it as created. Serve shows a city with no snapshot from its latest
-compute, pinned at startup with `WithRuns`. `?snapshot=N` overrides the pin per
-request, and `?snapshot=latest` shows the latest compute read at startup
+compute, pinned at startup with `WithRuns`. `?snapshot=<name>` overrides the pin
+per request, and `?snapshot=latest` shows the latest compute read at startup
 (`CityEntry.Latest`), which `meta.json` marks `latest_compute`. A pinned view also reads the boundary its snapshot froze. If the
 snapshot is deleted while pinned, or gc sweeps a pinned run, every read fails
 with `db.ErrSnapshotGone` (checked before and after each read) rather than
@@ -503,7 +507,7 @@ tiled at (`hex_edge_m`) and the boundary it was clipped to, stored once per
 distinct boundary in `snapshot_boundaries`. Export and serve draw a snapshot
 on that lattice (`CityEntry.HexEdge`, and the pinned `GetBoundary`), so any
 snapshot renders as computed after a `hex_edge_m` edit or a boundary
-re-ingest, `?snapshot=N` included. The Config tab shows each city's
+re-ingest, `?snapshot=<name>` included. The Config tab shows each city's
 snapshot edge. A service run freezes the facilities and turnout it used, so
 markers and the legend follow the snapshot too.
 
@@ -518,8 +522,10 @@ A rerun that reaches nothing still commits, as an empty run. A producer with
 nothing to work from drops its part. Either way the older result leaves the
 latest compute. A commit that would not change the manifest writes nothing.
 
-`pvmt snapshots create` freezes the latest compute as a snapshot
-(`Store.CreateSnapshot`), after a coherence check. Each run records, in
+`pvmt snapshots create <name>` freezes every configured city's latest compute
+as one snapshot (`RootStorer.CreateSnapshot`), after a coherence check of each
+city, all or nothing: one refused city refuses the snapshot, every refusal is
+listed, and nothing is written. Each run records, in
 `run_inputs`, the digest of every input its producer reads
 (`db.ProducerInputs`, read before the inputs themselves), and `city_inputs`
 holds each input's current digest. `internal/coherence.Check` is a pure
@@ -531,16 +537,17 @@ are stored. `pvmt status` shows the same comparison per part
 (`coherence.PartStates`: current, stale or not computed), footnotes a stale
 combined total, and counts the parts the newest snapshot does not hold
 (`db.UnsnapshottedParts`). The check runs inside the snapshot's IMMEDIATE transaction, so no
-ingest lands between the check and the freeze. A create whose newest snapshot
-already holds the same hash, edge, boundary and manifest writes nothing, and
-no snapshot is ever empty. `pvmt all compute` builds one grid from the
+ingest lands between the check and the freeze. No city of a snapshot is ever
+empty, and a city unchanged since the last snapshot is frozen with the same
+runs, so a new snapshot of a mostly unchanged tree costs a few rows per city.
+The snapshot records the `config.ComputeEpoch` of the pvmt that created it. `pvmt all compute` builds one grid from the
 boundary for every step, so it pins the boundary digest it read before
 building it on the draft (`Draft.PinInput`): a boundary ingest during the
 compute then reads as stale.
 
 Nothing carries across config hashes, because hex ids from another grid would
 land on the wrong hexes: each hash has its own latest compute, and a snapshot
-holds runs of one hash. Export keeps a defensive check that a snapshot holds a
+holds, per city, runs of one hash. Export keeps a defensive check that a snapshot holds a
 pavement compute.
 
 Uncommitted runs are invisible. A cancelled or failed command discards its
@@ -560,10 +567,12 @@ so pvmt supports one command writing to a database at a time, and a compute
 beside a long ingest or `gc --sweep` can fail after its geometry work. No
 producer reads
 another's results, so two commands committing in either order each swap in
-only their own parts. `pvmt snapshots prune` keeps each city's newest N
-snapshots, whatever their hash, so the published one always survives. It and
-`delete` delete manifests, then every run that neither a surviving snapshot
-nor a latest compute references, and every frozen boundary no snapshot uses.
+only their own parts. `pvmt snapshots prune --keep N` keeps the newest N
+snapshots, so the published one always survives. It and `delete` delete
+snapshots with their cities' manifests, then every run that neither a
+surviving snapshot nor a latest compute references, and every frozen boundary
+no snapshot uses. A run the latest compute still references stays, so
+`delete v1` then `create v1` re-freezes it rather than recomputing.
 
 ## Config hash
 

@@ -47,9 +47,9 @@ Fetch the data, compute it, snapshot it, and look at it:
 ```
 pvmt all ingest
 pvmt all compute
-pvmt snapshots create   # freeze the compute; export publishes the newest snapshot
-pvmt serve              # http://localhost:8080
-pvmt export -o ./site   # or: a static site for any web host
+pvmt snapshots create first   # freeze every city under a name, like a git tag
+pvmt serve                    # http://localhost:8080; publishes the newest snapshot
+pvmt export -o ./site         # or: a static site for any web host
 ```
 
 `pvmt forecast` prints the same deterioration and cost projections in the

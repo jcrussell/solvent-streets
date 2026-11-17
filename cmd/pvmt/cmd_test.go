@@ -65,6 +65,7 @@ func TestCobraTree_SubcommandRouting(t *testing.T) {
 		"pvmt snapshots",
 		"pvmt snapshots create",
 		"pvmt snapshots list",
+		"pvmt snapshots show",
 		"pvmt snapshots prune",
 		"pvmt snapshots delete",
 		"pvmt status",

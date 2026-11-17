@@ -71,8 +71,8 @@ many cities it covers, and the compute epoch of the pvmt that created it.
 With --city, only the snapshots that cover that city.
 
 A snapshot is a named tag over every configured city: each city's complete
-computed state, one run per part. Export and serve publish the newest
-snapshot.`,
+computed state, one run per part. Use 'pvmt snapshots show <name>' for each
+city's settings and runs. Export and serve publish the newest snapshot.`,
 		Example: `  # Every snapshot
   pvmt snapshots list
 

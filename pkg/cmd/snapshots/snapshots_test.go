@@ -191,6 +191,66 @@ func TestList_JSON(t *testing.T) {
 	}
 }
 
+// TestRunShow: one row per city with its hash, edge and manifest; --city
+// narrows to one; an unknown name is an error naming `list`.
+func TestRunShow(t *testing.T) {
+	ios, _, stdout, stderr := iostreams.Test()
+	opts := &ShowOptions{IO: ios, RootDB: rootDBFunc(tagRoot(nil)), Name: "v2"}
+	if err := runShow(context.Background(), opts); err != nil {
+		t.Fatal(err)
+	}
+	want := "alpha\thalpha\t100 m\troads#21\nbeta\thbeta\t100 m\troads#22\n"
+	if stdout.String() != want {
+		t.Errorf("show output = %q, want %q", stdout.String(), want)
+	}
+	if !strings.Contains(stderr.String(), "Snapshot v2: created") || !strings.Contains(stderr.String(), "compute epoch 3, 2 cities") {
+		t.Errorf("show header = %q", stderr.String())
+	}
+
+	stdout.Reset()
+	opts.CityFlagSet = func() bool { return true }
+	opts.ResolveCities = resolveCitiesFunc(twoCityConfig()[1:])
+	if err := runShow(context.Background(), opts); err != nil {
+		t.Fatal(err)
+	}
+	if got := stdout.String(); got != "beta\thbeta\t100 m\troads#22\n" {
+		t.Errorf("--city beta output = %q", got)
+	}
+
+	opts.Name = "nope"
+	err := runShow(context.Background(), opts)
+	var h *hint.ErrHint
+	if err == nil || !errors.As(err, &h) || !strings.Contains(h.Hint, "pvmt snapshots list") {
+		t.Errorf("unknown name: err = %v, want a hint naming snapshots list", err)
+	}
+}
+
+// TestShow_JSON: --json rows carry the snapshot name, city and manifest.
+func TestShow_JSON(t *testing.T) {
+	ios, _, stdout, _ := iostreams.Test()
+	cmd := NewCmdShow(&cmdutil.Factory{IOStreams: ios}, func(ctx context.Context, opts *ShowOptions) error {
+		opts.RootDB = rootDBFunc(tagRoot(nil))
+		return runShow(ctx, opts)
+	})
+	cmd.SetArgs([]string{"v1", "--json", "snapshot,city,config_hash,hex_edge_m,parts"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var rows []struct {
+		Snapshot string    `json:"snapshot"`
+		City     string    `json:"city"`
+		HexEdgeM float64   `json:"hex_edge_m"`
+		Parts    []partRow `json:"parts"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &rows); err != nil {
+		t.Fatalf("%v: %s", err, stdout)
+	}
+	if len(rows) != 1 || rows[0].Snapshot != "v1" || rows[0].City != "alpha" || rows[0].HexEdgeM != 100 ||
+		len(rows[0].Parts) != 1 || rows[0].Parts[0].RunID != 11 || rows[0].Parts[0].ComputedAt != "2026-05-18T12:00:00Z" {
+		t.Errorf("rows = %+v", rows)
+	}
+}
+
 // TestRunDelete_DeletesByName: --yes deletes the named snapshot and says so.
 func TestRunDelete_DeletesByName(t *testing.T) {
 	var deleted []string

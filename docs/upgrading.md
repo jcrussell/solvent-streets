@@ -30,17 +30,17 @@ Snapshot config hashes are also computed differently: per city, over only the se
 
 ### 2. Create a snapshot before exporting
 
-Computes no longer publish. `pvmt all compute` and every `pvmt <resource> compute` update the city's *latest compute*, and `pvmt export` and `pvmt serve` publish each city's newest snapshot, which only `pvmt snapshots create` makes. After the compute, run:
+Computes no longer publish. `pvmt all compute` and every `pvmt <resource> compute` update the city's *latest compute*, and `pvmt export` and `pvmt serve` publish each city's newest snapshot, which only `pvmt snapshots create <name>` makes. A snapshot is a named tag over every configured city, like a git tag. After the compute, run:
 
 ```
-pvmt snapshots create
+pvmt snapshots create v0.5.0
 ```
 
-`pvmt export` refuses, before writing anything, when any city has no snapshot, and lists each with the command that makes one. A script that ran `compute` then `export` needs `snapshots create` between them. `create` refuses a city whose parts were computed from features or a boundary ingested again since, and names the compute to rerun (see [troubleshooting](troubleshooting.md#snapshots-create-refuses-a-city)). A snapshot never changes after it is created: export draws it as created, whatever was ingested or edited since. Roll a city back with `pvmt --city <slug> snapshots delete <id>` of its newest snapshot. `pvmt snapshots ls` and `rm` are now `list` and `delete`, with the old names kept as aliases.
+`pvmt export` refuses, before writing anything, when any city has no snapshot, and lists each with the command that makes one. A script that ran `compute` then `export` needs `snapshots create <name>` between them. `create` freezes every configured city or none: it refuses the snapshot when any city's parts were computed from features or a boundary ingested again since, and names the compute to rerun for each (see [troubleshooting](troubleshooting.md#snapshots-create-refuses-a-city)). A snapshot never changes after it is created: export draws it as created, whatever was ingested or edited since, and a name that exists is refused (`pvmt snapshots delete <name>`, then create it again, replaces it). `pvmt snapshots ls` and `rm` are now `list` and `delete`, with the old names kept as aliases.
 
 ### 3. Re-export sites
 
-A site exported by v0.4.x cannot be refreshed in place. Its data files use the old formats, and the v0.5.0 dashboard refuses them (`unsupported hexgrid format (expected v6) — re-export this site`). After `pvmt snapshots create`, run `pvmt export` again (and `pvmt check-site` on the result) and redeploy the whole tree.
+A site exported by v0.4.x cannot be refreshed in place. Its data files use the old formats, and the v0.5.0 dashboard refuses them (`unsupported hexgrid format (expected v6) — re-export this site`). After `pvmt snapshots create <name>`, run `pvmt export` again (and `pvmt check-site` on the result) and redeploy the whole tree.
 
 ### 4. Update links to the dashboard
 
@@ -63,7 +63,7 @@ Only names that existed in v0.4.x are listed. Fields of the commands and files t
 |---------|--------|--------|
 | `status` | `resourceType`, `featureCount`, `lastIngest`, `lastCompute` | `resource_type`, `feature_count`, `last_ingest_at`, `last_compute_at`; new `state` (`current`, `stale`, `not computed`) and `stale_inputs` |
 | `cities` | `features`, `totalArea`, `lastIngest`, `lastCompute` | `feature_counts`, `total_paved`, `last_ingest_at`, `last_compute_at` |
-| `snapshots list` (`ls`) | `computedAt`, `configHash` | `created_at`, `config_hash`; new `hex_edge_m` and `parts` (`part`, `run_id`, `computed_at`) |
+| `snapshots list` (`ls`) | one row per city's snapshot: `id`, `computedAt`, `configHash` | one row per named snapshot: `name`, `created_at`, `city_count`, `compute_epoch`; each city's `config_hash`, `hex_edge_m` and `parts` (`part`, `run_id`, `computed_at`) are in `snapshots show <name>` |
 | `<resource> compute` | `resourceType`, `featureCount`, `snapshotId` | `resource_type`, `feature_count`, `run_id` (the compute run, not a snapshot) |
 | `<resource> compute` | `city`: display name (`Oakland, CA`) | `city`: slug (`oakland-ca`) |
 | `forecast` | `resourceType`, `treatmentCost`, `treatmentTier` | `resource_type`, `annual_need`, `cost_tier`; new `city` |
@@ -74,10 +74,10 @@ Only names that existed in v0.4.x are listed. Fields of the commands and files t
 
 | Endpoint | v0.4.x | v0.5.0 |
 |----------|--------|--------|
-| `/api/snapshots`, `/api/cities/{slug}/snapshots` | `computed_at` | `created_at`; new `hex_edge_m` and `parts` (`part`, `run_id`, `computed_at`) |
+| `/api/snapshots`, `/api/cities/{slug}/snapshots` | `computed_at` | `created_at`; new `name`, `compute_epoch`, `hex_edge_m` and `parts` (`part`, `run_id`, `computed_at`) |
 | `/api/cities` | as `cities.json` below | as `cities.json` below |
 
-`/data/{file}` serves the site data files below. `?snapshot=N` picks a snapshot, and `?snapshot=latest` the city's latest compute as the server read it at startup.
+`/data/{file}` serves the site data files below. `?snapshot=<name>` picks a snapshot, and `?snapshot=latest` the city's latest compute as the server read it at startup.
 
 #### Site data files and `window.PVMT_CONFIG`
 

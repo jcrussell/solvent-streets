@@ -176,8 +176,8 @@ row and overwrite each other's data, so give each config its own.
 Computed results are stored per city under a hash of just the resolved
 settings that change them. Every compute updates the city's *latest compute*
 under its current hash, which `pvmt forecast` and `pvmt status` read.
-`pvmt snapshots create` freezes the latest compute as a snapshot, and export and
-serve publish each city's newest snapshot.
+`pvmt snapshots create <name>` freezes every city's latest compute as one named
+snapshot, and export and serve publish the newest.
 
 | Changes the hash (recompute the city) | Does not |
 |---|---|
@@ -194,8 +194,8 @@ results under the settings in force, so a forecast edit takes effect on the
 next read. Editing a data source changes what the next ingest fetches, not the
 hash. What the re-ingest changes is caught when the snapshot is created: each
 part records the features and boundary it was computed from, and
-`pvmt snapshots create` refuses a city with a part computed from data ingested
-again since, naming the compute to rerun (see
+`pvmt snapshots create` refuses the snapshot when any city has a part computed
+from data ingested again since, naming the compute to rerun (see
 [troubleshooting](troubleshooting.md#snapshots-create-refuses-a-city)). After
 a single `pvmt roads compute`, for example, the combined total and the service
 coverage still read the old roads, so create asks for `pvmt all compute`. An
@@ -216,19 +216,24 @@ drops latest computes made by an older pvmt and sweeps their runs, except the
 ones a snapshot holds. A snapshot
 never changes after it is created: it keeps the hash, `hex_edge_m`, boundary,
 stations and turnout it was created with, and exports exactly as created after
-any later ingest or config edit. Export and serve warn when a city's newest
-snapshot was created under other settings than the current ones (see
+any later ingest or config edit. Export and serve warn when a city in the
+published snapshot was frozen under other settings than the current ones (see
 [troubleshooting](troubleshooting.md#snapshot-was-created-under-other-settings)).
 Export refuses, before writing anything, when a city has no snapshot (see
 [troubleshooting](troubleshooting.md#city-has-no-snapshot)). `pvmt status` and
-`pvmt snapshots list` show each snapshot's hash.
+`pvmt snapshots show <name>` show each city's hash in a snapshot.
 
-`pvmt snapshots create` freezes each city's latest compute as a snapshot under
-its current hash and `hex_edge_m`, and refuses a city whose parts were not all
-computed from the features and boundary stored now (see
-[troubleshooting](troubleshooting.md#snapshots-create-refuses-a-city)). To roll
-a city back, delete its newest snapshot; `pvmt snapshots prune --keep N` keeps
-each city's N newest, whatever their hash.
+A snapshot is a named, immutable tag over every configured city, like a git
+tag. `pvmt snapshots create v0.5.0` freezes each city's latest compute under
+its current hash and `hex_edge_m`, all at once or not at all: it refuses the
+snapshot when any city's parts were not all computed from the features and
+boundary stored now, listing every refused city (see
+[troubleshooting](troubleshooting.md#snapshots-create-refuses-a-city)). A
+name is 1 to 64 letters, digits, `.`, `_` or `-`, starting with a letter or
+digit; `latest` is reserved. Creating a name that exists is refused: to
+replace a snapshot, `pvmt snapshots delete v0.5.0` and create it again. To
+roll back, delete the newest snapshot. `pvmt snapshots prune --keep N`
+keeps the N newest.
 
 ## Grid and display
 
@@ -398,7 +403,7 @@ to be a valid polygon, which matters only to a consumer that fills
 with none) when it starts and sends `Cache-Control: public, max-age=300` on
 every response, so restart it to pick up a new snapshot. Its dashboard's
 snapshot picker also lists each older snapshot and *Latest compute (not
-snapshotted)*, which shows what the next `pvmt snapshots create` would
+snapshotted)*, which shows what the next `pvmt snapshots create <name>` would
 publish, with a badge saying so. `pvmt export` writes plain files, so caching is whatever the
 host applies. After re-publishing, purge the
 CDN if the new build has to show immediately.

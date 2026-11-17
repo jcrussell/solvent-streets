@@ -104,16 +104,17 @@ fixes it:
 
 ```
 hint: Export publishes each city's newest snapshot. Create one for each first:
-  Oakland, CA: pvmt --city oakland-ca snapshots create
-  Reno, NV: pvmt --city reno-nv all compute && pvmt --city reno-nv snapshots create
+  Oakland, CA: pvmt snapshots create <name>
+  Reno, NV: pvmt --city reno-nv all compute && pvmt snapshots create <name>
 ```
 
-Computes only update a city's latest compute; `pvmt snapshots create` freezes
-it as the snapshot export publishes. Run the listed commands. `all compute`
-comes first for a city with nothing computed under the current settings:
-never computed, or computed only under settings that have changed since. A
-multi-city export skips a city with no boundary stored (its ingest failed)
-rather than refusing it.
+Computes only update a city's latest compute; `pvmt snapshots create <name>`
+freezes every city's as the snapshot export publishes. Run the listed
+commands: the computes first, then one `snapshots create`, which covers every
+configured city. `all compute` comes first for a city with nothing computed
+under the current settings: never computed, or computed only under settings
+that have changed since. A multi-city export skips a city with no boundary
+stored (its ingest failed) rather than refusing it.
 
 `pvmt serve` serves such a city from its latest compute, and says so at
 startup (`<city> has no snapshot; serving its latest compute (not
@@ -134,27 +135,27 @@ its cities.
 
 ## Snapshot was created under other settings
 
-`pvmt export` warns `<city>: snapshot #N was created under other settings
+`pvmt export` warns `<city>: snapshot <name> was created under other settings
 (hash <old>, now <new>): …; exporting it as created`, and `pvmt serve` logs the
-same at startup. Export and serve publish each city's newest snapshot whatever
-settings it was created under, and draw it exactly as created: its hex edge,
+same at startup. Export and serve publish each city from its snapshot whatever
+settings it was frozen under, and draw it exactly as created: its hex edge,
 boundary, stations and results. A setting in the hash changed since (see
 [Snapshots and the config hash](configuration.md#snapshots-and-the-config-hash)),
 `PVMT_HEX_EDGE_M` was set or unset, or a new pvmt release computes
 differently. To publish the current settings, run
-`pvmt --city <slug> all compute`, then `pvmt --city <slug> snapshots create`.
+`pvmt --city <slug> all compute`, then `pvmt snapshots create <name>`.
 To keep publishing the old snapshot, ignore the warning.
 
 A related **note** reads `<city>: the latest compute has <parts> not yet
 snapshotted`. A compute ran after the newest snapshot was created, so the
 export publishes the snapshot without it. Run
-`pvmt --city <slug> snapshots create` to publish it.
+`pvmt snapshots create <name>` to publish it.
 
 ## Snapshot no longer exists
 
 `pvmt serve` answers a data request with **410 Gone**, `the snapshot this page
 was serving has been deleted or pruned`, or `pvmt export` fails with
-`snapshot N: snapshot no longer exists (deleted or pruned)`. Both pin each
+`snapshot <id>: snapshot no longer exists (deleted or pruned)`. Both pin each
 city's snapshot when they start, and `pvmt snapshots delete` or `prune` deleted it
 while they were running. Restart `pvmt serve`, or re-run the export, and it
 reads the city's newest snapshot. `pvmt serve` also answers 410 for a city it
@@ -163,13 +164,14 @@ compute replaced.
 
 ## `snapshots create` refuses a city
 
-`pvmt snapshots create` prints one line per city, and exits 1 once every city
-is done if any was refused:
+`pvmt snapshots create <name>` is all or nothing: it judges every city, and
+when any is refused it creates nothing, prints one line per refused city and
+exits 1:
 
 ```
 oakland-ca: refused: roads re-ingested 2026-11-14 10:02 UTC after the combined, roads and fire coverage computes
   hint: pvmt --city oakland-ca all compute
-berkeley-ca: created #12
+refused v0.5.0: 1 of 2 cities refused; nothing was created
 ```
 
 A snapshot must be coherent, so create refuses a city when a part was
@@ -180,7 +182,12 @@ never computed. Each reason names the input and when it changed. Identical
 data re-ingested does not count: the check compares content digests, not
 times. `pvmt status` shows the same verdict before you create, as each part's
 *State* (`stale: roads re-ingested …`). Run the hinted command, then create
-again. The hint is one of the following.
+again with the same name. The hint is one of the following.
+
+`snapshot <name> already exists` is a refusal too: snapshots never change.
+Delete it with `pvmt snapshots delete <name>` and create it again (cities that
+were not recomputed keep their runs, so this is cheap), or choose another
+name.
 
 ### `hint: pvmt --city <slug> all compute`
 
@@ -200,7 +207,7 @@ computed.
 
 A **warning** such as `no fire coverage: fire facilities are ingested but never
 computed` does not refuse the city. The snapshot is created without that part,
-and the warning names the command that adds it.
+and the warning, prefixed with the city, names the command that adds it.
 
 ## Water strip errors and warnings
 
