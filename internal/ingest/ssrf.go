@@ -19,12 +19,14 @@ import (
 // pvmt.toml cannot steer ingest at internal services
 // (localhost, 169.254.169.254, RFC1918 ranges) — solvent-streets-di49.
 //
-// Today this is wired only into arcgis.go, because Overpass
-// (overpass.go) and Nominatim (nominatim.go) use hardcoded endpoints
-// that aren't operator-controlled. If those endpoints — or any new
-// source — become configurable, route them through this guard at the
-// same layer (post-config-load, pre-fetch) so the policy is not
-// silently lost.
+// It is wired into arcgis.go (per city), and into the Overpass endpoint
+// ([overpass] url / PVMT_OVERPASS_URL), which the factory's
+// cmdutil.Factory.OverpassURL validates once, after config load and before
+// the first Overpass fetch; the default overpass-api.de endpoint skips it.
+// Nominatim (nominatim.go) uses a hardcoded endpoint that isn't
+// operator-controlled. If it — or any new source — becomes configurable,
+// route it through this guard at the same layer (post-config-load,
+// pre-fetch) so the policy is not silently lost.
 //
 // A transport-level enforcement (Dial check on the shared http.Client)
 // would make the rule mechanically unforgettable but would also force
@@ -50,8 +52,8 @@ import (
 // Resolution happens at call time, so DNS rebinding after this check
 // can still slip past in principle. The mitigation here is per-request
 // rather than per-connection because pvmt's HTTP client is shared
-// across all ingest sources and the policy is per-city (only the
-// arcgis_url path is operator-supplied; Overpass/Nominatim are fixed).
+// across all ingest sources and the policy is per-endpoint (arcgis_url
+// per city, the Overpass endpoint per run; Nominatim is fixed).
 // Wiring a transport-level dial check would force the same policy on
 // every source.
 // allowPrivateKey carries the AllowPrivate opt-in on a request context so

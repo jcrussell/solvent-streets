@@ -17,10 +17,23 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/textutil"
 )
 
-const overpassAPI = "https://overpass-api.de/api/interpreter" //nolint:gosec // G101: not a credential
+// DefaultOverpassURL is the Overpass interpreter queries go to when the
+// config sets no [overpass] url and PVMT_OVERPASS_URL is unset. Requests to it
+// are byte-for-byte what they were before the endpoint was configurable, so
+// their HTTP cache keys (method, URL and body) still match stored entries.
+const DefaultOverpassURL = "https://overpass-api.de/api/interpreter" //nolint:gosec // G101: not a credential
 
-// OverpassHost is the host every Overpass query goes to.
-const OverpassHost = "overpass-api.de"
+// DefaultOverpassHost is DefaultOverpassURL's host.
+const DefaultOverpassHost = "overpass-api.de"
+
+// overpassURLOr returns baseURL, or DefaultOverpassURL when it is empty: an
+// unset endpoint everywhere in this package means the default instance.
+func overpassURLOr(baseURL string) string {
+	if baseURL == "" {
+		return DefaultOverpassURL
+	}
+	return baseURL
+}
 
 // OverpassHeaderTimeout is how long the client waits for an Overpass
 // response's headers. Overpass sends them only once the query has run, so a
@@ -50,6 +63,9 @@ type OverpassSource struct {
 	// resource.ExcludingQuerier would return over it; other resources
 	// ignore it.
 	Exclude *[4]float64
+	// URL is the Overpass interpreter to query ([overpass] url or
+	// PVMT_OVERPASS_URL); empty uses DefaultOverpassURL.
+	URL string
 }
 
 var _ Source = (*OverpassSource)(nil)
@@ -65,7 +81,9 @@ func (s *OverpassSource) Fetch(ctx context.Context, client *http.Client, rt reso
 		query = func(bbox [4]float64) string { return ex.OverpassQueryExcluding(bbox, exclude) }
 	}
 	return fetchSplitting(s.BBox, splitLogger(ctx),
-		func(bbox [4]float64) ([]db.Feature, error) { return fetchBBox(ctx, client, rt.Type(), query(bbox)) },
+		func(bbox [4]float64) ([]db.Feature, error) {
+			return fetchBBox(ctx, client, overpassURLOr(s.URL), rt.Type(), query(bbox))
+		},
 		func(f db.Feature) string { return f.ID })
 }
 
@@ -130,8 +148,8 @@ func appendUnique[T any](dst []T, seen map[string]bool, src []T, key func(T) str
 	return dst
 }
 
-func fetchBBox(ctx context.Context, client *http.Client, rt resource.Type, query string) ([]db.Feature, error) {
-	body, err := postOverpass(ctx, client, overpassAPI, query)
+func fetchBBox(ctx context.Context, client *http.Client, baseURL string, rt resource.Type, query string) ([]db.Feature, error) {
+	body, err := postOverpass(ctx, client, baseURL, query)
 	if err != nil {
 		return nil, err
 	}

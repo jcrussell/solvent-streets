@@ -47,8 +47,11 @@ In scope:
 Out of scope:
 
 - Vulnerabilities in third-party data sources (OpenStreetMap's
-  Overpass and Nominatim APIs, ArcGIS feature servers, the Census
-  Bureau's TIGERweb). Report those upstream.
+  Overpass and Nominatim APIs, including an Overpass instance chosen with
+  `[overpass] url` or `PVMT_OVERPASS_URL`, ArcGIS feature servers, the
+  Census Bureau's TIGERweb). Report those upstream. A configured Overpass
+  endpoint must be `https://` and resolve to public addresses, as
+  `arcgis_url` must.
 - Issues that require a malicious `pvmt.toml` or local SQLite database
   controlled by the attacker; `pvmt` trusts its own configuration and
   on-disk state by design.

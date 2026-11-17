@@ -35,8 +35,11 @@ import (
 // cleanly separate water from land and is dropped. This invariant catches
 // OSM coastline ways digitized in inconsistent orientations relative to the
 // right-hand-water convention (the cause of solvent-streets-yrr0).
-func FetchOSMWater(ctx context.Context, client *http.Client, bbox [4]float64, probes LandProbes) (string, error) {
-	return fetchOSMWater(ctx, client, overpassAPI, bbox, probes)
+//
+// baseURL is the Overpass interpreter to query; empty uses
+// DefaultOverpassURL.
+func FetchOSMWater(ctx context.Context, client *http.Client, baseURL string, bbox [4]float64, probes LandProbes) (string, error) {
+	return fetchOSMWater(ctx, client, overpassURLOr(baseURL), bbox, probes)
 }
 
 func fetchOSMWater(ctx context.Context, client *http.Client, baseURL string, bbox [4]float64, probes LandProbes) (string, error) {

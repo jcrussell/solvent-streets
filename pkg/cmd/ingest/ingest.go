@@ -24,10 +24,13 @@ import (
 )
 
 type Options struct {
-	IO           *iostreams.IOStreams
-	CityDB       func() (db.Store, error)
-	CurrentCity  func() (*config.CityConfig, error)
-	HttpClient   func() (*http.Client, error)
+	IO          *iostreams.IOStreams
+	CityDB      func() (db.Store, error)
+	CurrentCity func() (*config.CityConfig, error)
+	HttpClient  func() (*http.Client, error)
+	// OverpassURL is the factory's cmdutil.Factory.OverpassURL; nil uses
+	// ingest.DefaultOverpassURL.
+	OverpassURL  func() (string, error)
 	ResourceType resource.Source
 	Source       cmdutil.Source
 	Force        bool
@@ -37,6 +40,25 @@ type Options struct {
 	RebuildBoundary bool
 
 	boundary *Boundary // resolved up front by `all ingest`; nil resolves it per run
+
+	// overpassURL is OverpassURL's value, resolved by resolveOverpassURL
+	// before the run's first fetch; empty means ingest.DefaultOverpassURL.
+	overpassURL string
+}
+
+// resolveOverpassURL resolves o.OverpassURL into o.overpassURL. It runs
+// before the first fetch, so a non-default endpoint that fails the SSRF guard
+// stops the run before any Overpass request is sent.
+func (o *Options) resolveOverpassURL() error {
+	if o.OverpassURL == nil {
+		return nil
+	}
+	u, err := o.OverpassURL()
+	if err != nil {
+		return err
+	}
+	o.overpassURL = u
+	return nil
 }
 
 func NewCmdIngest(f *cmdutil.Factory, rt resource.Source, runF func(context.Context, *Options) error) *cobra.Command {
@@ -45,6 +67,7 @@ func NewCmdIngest(f *cmdutil.Factory, rt resource.Source, runF func(context.Cont
 		CityDB:       f.CityDB,
 		CurrentCity:  f.CurrentCity,
 		HttpClient:   f.HttpClient,
+		OverpassURL:  f.OverpassURL,
 		ResourceType: rt,
 		Source:       cmdutil.SourceAll,
 	}
@@ -221,10 +244,13 @@ func ResolveBoundaryForCity(ctx context.Context, f *cmdutil.Factory, rebuild boo
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	opts := &Options{IO: f.IOStreams, Source: cmdutil.SourceAll, RebuildBoundary: rebuild}
+	opts := &Options{IO: f.IOStreams, OverpassURL: f.OverpassURL, Source: cmdutil.SourceAll, RebuildBoundary: rebuild}
 	city, err := f.CurrentCity()
 	if err != nil {
 		return nil, fmt.Errorf("city: %w", err)
+	}
+	if err := opts.resolveOverpassURL(); err != nil {
+		return nil, err
 	}
 	client, err := f.HttpClient()
 	if err != nil {
@@ -262,6 +288,7 @@ func RunResourceWithBoundary(ctx context.Context, f *cmdutil.Factory, rt resourc
 		CityDB:       f.CityDB,
 		CurrentCity:  f.CurrentCity,
 		HttpClient:   f.HttpClient,
+		OverpassURL:  f.OverpassURL,
 		ResourceType: rt,
 		Source:       cmdutil.SourceAll,
 		boundary:     b,
@@ -312,6 +339,9 @@ func runIngest(ctx context.Context, opts *Options) error {
 		ctx = cache.WithBypass(ctx)
 	}
 	ctx = withRetryNotices(ctx, opts.IO)
+	if err := opts.resolveOverpassURL(); err != nil {
+		return err
+	}
 
 	// A --source this city's pvmt.toml switched off fails before the
 	// boundary fetch, not after it (solvent-streets-0z82). The dry run above
@@ -633,14 +663,20 @@ func (s boundarySource) fetch(ctx context.Context, client *http.Client, cityName
 // liveBoundaryFetchers wires the real upstream fetchers. The roads come
 // from every road source city configures, whatever --source says: they are
 // the water strip's land evidence, and the roads step reuses them.
+// Every Overpass fetch among them goes to opts.overpassURL.
 func liveBoundaryFetchers(opts *Options, city *config.CityConfig) boundaryFetchers {
+	overpassURL := opts.overpassURL
 	return boundaryFetchers{
-		byName:     ingestpkg.FetchCityBoundary,
-		byRelation: ingestpkg.FetchCityBoundaryFromRelation,
-		water:      ingestpkg.FetchOSMWater,
+		byName: ingestpkg.FetchCityBoundary,
+		byRelation: func(ctx context.Context, client *http.Client, relationID int64) (string, error) {
+			return ingestpkg.FetchCityBoundaryFromRelation(ctx, client, overpassURL, relationID)
+		},
+		water: func(ctx context.Context, client *http.Client, bbox [4]float64, probes ingestpkg.LandProbes) (string, error) {
+			return ingestpkg.FetchOSMWater(ctx, client, overpassURL, bbox, probes)
+		},
 		roads: func(ctx context.Context, client *http.Client, bbox [4]float64) (roadsFetch, error) {
 			sources := ingestpkg.AllSources(bbox, city.Overpass, city.ArcGISURL,
-				ingestpkg.Options{Progress: opts.IO.ErrOut, AllowPrivateArcGIS: city.AllowPrivateArcGIS})
+				ingestpkg.Options{Progress: opts.IO.ErrOut, AllowPrivateArcGIS: city.AllowPrivateArcGIS, OverpassURL: overpassURL})
 			roadOpts := &Options{IO: opts.IO, ResourceType: &resource.Pavement{}, Source: cmdutil.SourceAll}
 			features, succeeded, attempts, err := fetchFromSources(ctx, sources, client, roadOpts, city.Name)
 			out := roadsFetch{features: features, succeeded: succeeded, attempts: attempts}
@@ -1090,7 +1126,7 @@ func acceptStripRatio(orig, stripped, threshold float64) bool {
 }
 
 func resolveSources(opts *Options, bbox [4]float64, exclude *[4]float64, overpass bool, arcgisURL string, allowPrivateArcGIS bool, ios *iostreams.IOStreams) ([]ingestpkg.Source, error) {
-	srcOpts := ingestpkg.Options{Progress: ios.ErrOut, AllowPrivateArcGIS: allowPrivateArcGIS, OverpassExclude: exclude}
+	srcOpts := ingestpkg.Options{Progress: ios.ErrOut, AllowPrivateArcGIS: allowPrivateArcGIS, OverpassExclude: exclude, OverpassURL: opts.overpassURL}
 	// An own-sourced resource has exactly one source, fixed by the resource
 	// rather than the city config (resource.OwnSourced). The --source flag
 	// admits only "all" or that source's name (sourceValues), both of which

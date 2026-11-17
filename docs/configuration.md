@@ -40,6 +40,7 @@ fields that differ.
 | `PVMT_HEX_EDGE_M` | `hex_edge_m` (meters, minimum 10) |
 | `PVMT_FORECAST_YEARS` | `[forecast].years` (1–200) |
 | `PVMT_FORECAST_INITIAL_PCI` | `[forecast].initial_pci` |
+| `PVMT_OVERPASS_URL` | `[overpass].url` (see [Overpass endpoint](#overpass-endpoint-overpass)) |
 | `PVMT_LOG` | the log level (`debug`, `info`, `warn`, `error`; default `warn`) |
 
 An environment value that doesn't parse, or is out of range, is ignored with a
@@ -186,6 +187,7 @@ serve publish each city's newest snapshot.
 | `census = false` | `[display]`, `min_hex_area`, `[export]`, `tags`, city names |
 | a pvmt release whose compute logic changed | every `[forecast]` setting and `PVMT_FORECAST_*` |
 | | data sources: `overpass`, `arcgis_url`, `allow_private_arcgis`, `boundary_relation_id` |
+| | ingest settings: `[cache]`, `[overpass]`, `PVMT_OVERPASS_URL` |
 
 Forecasts are never stored. Every reader simulates them from the stored
 results under the settings in force, so a forecast edit takes effect on the
@@ -266,6 +268,37 @@ of the config hash. Disk use is separate: see `pvmt cache prune`.
 ```toml
 [cache]
 ttl = "24h"
+```
+
+## Overpass endpoint (`[overpass]`)
+
+**`url`** is the Overpass API instance every OpenStreetMap query goes to:
+roads, parking, sidewalks, facilities, OSM water and `boundary_relation_id`
+boundaries. The default is the public `https://overpass-api.de/api/interpreter`.
+Point it at another public instance when that one is busy or down (see
+[troubleshooting](troubleshooting.md#overpass-busy-or-down-switch-instance)).
+`PVMT_OVERPASS_URL` overrides it for one run without editing the file, and it
+applies with no `pvmt.toml` too.
+
+The URL must be `https://`, name its host by DNS name rather than an IP
+address, carry no credentials, query string or fragment, and end in
+`/interpreter` (the API endpoint, not the instance's web page). A file value
+that breaks these rules fails the load; an env value that does is ignored with
+a `warning:`. Before the first Overpass request, a non-default endpoint must
+also resolve to public addresses only, the guard `arcgis_url` gets, and the run
+prints `overpass endpoint: <host>` on stderr. Only the loaded file's
+`[overpass]` applies; an `[[include]]`d file's is ignored.
+
+Every instance serves the same OpenStreetMap data, give or take replication
+lag, so the endpoint is not part of the config hash, and its rows are still
+stored under the source `overpass`. The HTTP cache keys on the full URL, so
+responses are never shared between instances: a city already ingested from the
+default stays cached for it, and a replay of that city should unset
+`PVMT_OVERPASS_URL`.
+
+```toml
+[overpass]
+url = "https://overpass.private.coffee/api/interpreter"
 ```
 
 ## Forecast

@@ -91,7 +91,7 @@ func SourcesFor(rt resource.Source, bbox [4]float64, overpass bool, arcgisURL st
 func ownSource(name string, bbox [4]float64, opts Options) Source {
 	switch name {
 	case resource.SourceOverpass:
-		return &OverpassSource{BBox: bbox, Exclude: opts.OverpassExclude}
+		return &OverpassSource{BBox: bbox, Exclude: opts.OverpassExclude, URL: opts.OverpassURL}
 	case resource.SourceTigerweb:
 		return &CensusBlocksSource{BBox: bbox, Progress: opts.Progress}
 	}

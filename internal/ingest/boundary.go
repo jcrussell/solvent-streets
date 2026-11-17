@@ -48,9 +48,10 @@ const boundaryCloseTolDeg = 1e-3
 // rather than as a boundary=administrative relation. Bounded to
 // city-scale relations (admin_level=8 is the design target);
 // stitchRings is O(n²) on member count so larger relations are
-// allowed but slower.
-func FetchCityBoundaryFromRelation(ctx context.Context, client *http.Client, relationID int64) (string, error) {
-	return fetchCityBoundaryFromRelation(ctx, client, overpassAPI, relationID)
+// allowed but slower. baseURL is the Overpass interpreter to query; empty
+// uses DefaultOverpassURL.
+func FetchCityBoundaryFromRelation(ctx context.Context, client *http.Client, baseURL string, relationID int64) (string, error) {
+	return fetchCityBoundaryFromRelation(ctx, client, overpassURLOr(baseURL), relationID)
 }
 
 func buildBoundaryRelationQuery(relationID int64) string {

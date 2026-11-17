@@ -16,6 +16,7 @@ const (
 	EnvHexEdgeM           = "PVMT_HEX_EDGE_M"
 	EnvForecastYears      = "PVMT_FORECAST_YEARS"
 	EnvForecastInitialPCI = "PVMT_FORECAST_INITIAL_PCI"
+	EnvOverpassURL        = "PVMT_OVERPASS_URL" //nolint:gosec // G101: names a variable holding a URL, not a credential
 )
 
 // The env layer never passes through Validate, so each parse function below
@@ -112,6 +113,7 @@ var envRules = []struct {
 	{EnvForecastYears, reasonOf(parseForecastYearsEnv)},
 	{EnvHexEdgeM, reasonOf(parseHexEdgeEnv)},
 	{EnvForecastInitialPCI, reasonOf(parseInitialPCIEnv)},
+	{EnvOverpassURL, reasonOf(parseOverpassURLEnv)},
 }
 
 // EnvProblem is an override variable whose value the resolvers drop.

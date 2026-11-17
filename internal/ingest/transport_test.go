@@ -990,7 +990,7 @@ func TestNewTransport_ChainAppliesUserAgentAndRetries(t *testing.T) {
 // a NoRetry-wrapped timeout is not retried, yet still unwraps to the
 // original error.
 func TestNoRetry_IsFinalButKeepsTheCause(t *testing.T) {
-	cause := &url.Error{Op: "Post", URL: overpassAPI, Err: syscall.ECONNRESET}
+	cause := &url.Error{Op: "Post", URL: DefaultOverpassURL, Err: syscall.ECONNRESET}
 	if !isRetryableErr(cause) {
 		t.Fatal("precondition: ECONNRESET is retryable")
 	}
@@ -1006,14 +1006,20 @@ func TestNoRetry_IsFinalButKeepsTheCause(t *testing.T) {
 	}
 }
 
-// TestOverpassHost_MatchesEndpoint ties OverpassHost (which the factory
-// uses to pick the Overpass transport) to the endpoint queries go to.
-func TestOverpassHost_MatchesEndpoint(t *testing.T) {
-	u, err := url.Parse(overpassAPI)
+// TestDefaultOverpassHost_MatchesEndpoint ties DefaultOverpassHost (which the
+// factory uses to pick the Overpass transport when no endpoint is configured)
+// to the default endpoint, and pins that endpoint's exact string: the HTTP
+// cache key hashes the request URL, so any change to it (even a trailing
+// slash) would orphan every cached Overpass response (solvent-streets-ern4.18).
+func TestDefaultOverpassHost_MatchesEndpoint(t *testing.T) {
+	if DefaultOverpassURL != "https://overpass-api.de/api/interpreter" {
+		t.Errorf("DefaultOverpassURL = %q; changing it misses every cached Overpass response", DefaultOverpassURL)
+	}
+	u, err := url.Parse(DefaultOverpassURL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if u.Hostname() != OverpassHost {
-		t.Errorf("overpassAPI host = %q, OverpassHost = %q", u.Hostname(), OverpassHost)
+	if u.Hostname() != DefaultOverpassHost {
+		t.Errorf("DefaultOverpassURL host = %q, DefaultOverpassHost = %q", u.Hostname(), DefaultOverpassHost)
 	}
 }

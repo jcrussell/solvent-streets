@@ -449,7 +449,7 @@ func TestIsParseError_BodyTooLarge(t *testing.T) {
 		"bare sentinel": httpio.ErrBodyTooLarge,
 		"overpass read": fmt.Errorf("read overpass response: %w", httpio.ErrBodyTooLarge),
 		"cache transport": fmt.Errorf("overpass request: %w",
-			&url.Error{Op: "Post", URL: overpassAPI, Err: httpio.ErrBodyTooLarge}),
+			&url.Error{Op: "Post", URL: DefaultOverpassURL, Err: httpio.ErrBodyTooLarge}),
 	}
 	for name, err := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -468,7 +468,7 @@ func TestIsParseError_BodyTooLarge(t *testing.T) {
 }
 
 // roundTripFunc adapts a function to http.RoundTripper so a test can serve
-// canned Overpass responses without the const overpassAPI endpoint.
+// canned Overpass responses without reaching DefaultOverpassURL.
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }

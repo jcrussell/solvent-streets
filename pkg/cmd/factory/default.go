@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sync"
@@ -126,9 +127,12 @@ func (t *headerTimeoutIsFinal) RoundTrip(req *http.Request) (*http.Response, err
 }
 
 // newBaseTransport is the innermost transport of the client stack.
-func newBaseTransport() http.RoundTripper {
+// overpassHost is the configured Overpass endpoint's host
+// (resolveOverpassURL), so the long header deadline follows the instance
+// queries actually go to.
+func newBaseTransport(overpassHost string) http.RoundTripper {
 	return &hostTransport{
-		overpassHost: ingest.OverpassHost,
+		overpassHost: overpassHost,
 		overpass:     &headerTimeoutIsFinal{inner: newTransport(ingest.OverpassHeaderTimeout)},
 		rest:         newPVMTTransport(),
 	}
@@ -156,6 +160,10 @@ func httpClientFactory(f *cmdutil.Factory) func() (*http.Client, error) {
 		if err != nil {
 			return nil, err
 		}
+		base, err := baseTransportFor(f)
+		if err != nil {
+			return nil, err
+		}
 		p, err := f.Paths()
 		if err != nil {
 			return nil, err
@@ -168,7 +176,7 @@ func httpClientFactory(f *cmdutil.Factory) func() (*http.Client, error) {
 			return nil, err
 		}
 		transport := cache.NewTransport(
-			ingest.NewTransport(newBaseTransport()),
+			ingest.NewTransport(base),
 			cacheDir,
 			cacheTTL,
 		)
@@ -218,6 +226,77 @@ func resolveCacheTTL(f *cmdutil.Factory) (time.Duration, error) {
 		return cfg.Cache.TTL, nil
 	}
 	return cache.DefaultTTL, nil
+}
+
+// baseTransportFor is newBaseTransport for the configured Overpass endpoint's
+// host (resolveOverpassURL).
+func baseTransportFor(f *cmdutil.Factory) (http.RoundTripper, error) {
+	overpassURL, err := resolveOverpassURL(f)
+	if err != nil {
+		return nil, err
+	}
+	u, err := url.Parse(overpassURL)
+	if err != nil {
+		return nil, fmt.Errorf("overpass endpoint: %w", err)
+	}
+	return newBaseTransport(u.Hostname()), nil
+}
+
+// resolveOverpassURL is the Overpass endpoint (config.OverpassURL:
+// PVMT_OVERPASS_URL, else [overpass] url), or ingest.DefaultOverpassURL when
+// neither is set or there is no pvmt.toml. The env layer applies without a
+// pvmt.toml too. Any other config error is returned, as resolveCacheTTL does:
+// a broken pvmt.toml must not silently send queries to the default instance.
+// It does no network check; overpassURLFactory adds the SSRF guard.
+func resolveOverpassURL(f *cmdutil.Factory) (string, error) {
+	var cfg *config.Config
+	if f.Config != nil {
+		c, err := f.Config()
+		switch {
+		case errors.Is(err, config.ErrConfigNotFound):
+		case err != nil:
+			return "", err
+		default:
+			cfg = c
+		}
+	}
+	if u, _ := config.OverpassURL(cfg); u != "" {
+		return u, nil
+	}
+	return ingest.DefaultOverpassURL, nil
+}
+
+// validatePublicHTTPURL is the SSRF guard overpassURLFactory applies; a var
+// so tests can stand in for its DNS lookup, which unit tests may not make.
+var validatePublicHTTPURL = ingest.ValidatePublicHTTPURL
+
+// overpassURLFactory builds the lazy closure that backs f.OverpassURL: the
+// endpoint resolveOverpassURL picks, resolved once per process. A non-default
+// endpoint is operator-controlled, so it passes the SSRF guard
+// (ingest.ValidatePublicHTTPURL) here, after config load and before the
+// first Overpass fetch, and the run says on stderr which instance it uses
+// (`overpass endpoint: <host>`), once. The default endpoint is fixed, so it
+// skips both, and a run that configures nothing behaves exactly as before.
+func overpassURLFactory(f *cmdutil.Factory) func() (string, error) {
+	return sync.OnceValues(func() (string, error) {
+		u, err := resolveOverpassURL(f)
+		if err != nil || u == ingest.DefaultOverpassURL {
+			return u, err
+		}
+		if err := validatePublicHTTPURL(f.RequestContext(), u); err != nil {
+			return "", hint.Withf(fmt.Errorf("overpass endpoint %s: %w", u, err),
+				"point [overpass] url or %s at a public Overpass instance, or unset both to use %s",
+				config.EnvOverpassURL, ingest.DefaultOverpassHost)
+		}
+		parsed, err := url.Parse(u)
+		if err != nil {
+			return "", fmt.Errorf("overpass endpoint: %w", err)
+		}
+		if f.IOStreams != nil {
+			fmt.Fprintf(f.IOStreams.ErrOut, "overpass endpoint: %s\n", parsed.Host)
+		}
+		return u, nil
+	})
 }
 
 // configFactory builds the lazy closure that backs f.Config per the
@@ -380,6 +459,7 @@ func New() *cmdutil.Factory {
 	}
 
 	f.HttpClient = httpClientFactory(f)
+	f.OverpassURL = overpassURLFactory(f)
 	f.RootDB, f.CloseRootDB = rootDBWithClose(rootDBFactory(f, ""))
 
 	f.CityFlagSet = func() bool { return false }

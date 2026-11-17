@@ -122,6 +122,7 @@ type Config struct {
 	Export   ExportConfig   `toml:"export"`
 	Forecast ForecastConfig `toml:"forecast"`
 	Cache    CacheConfig    `toml:"cache"`
+	Overpass OverpassConfig `toml:"overpass"`
 	Cities   []CityConfig   `toml:"cities"`
 
 	// Include pulls cities from other pvmt.toml files into this one, tagging
@@ -828,6 +829,21 @@ func (c *Config) Validate() error {
 	return c.validate(true)
 }
 
+// validateIngestTables checks the root-only tables that steer ingest:
+// [cache] and [overpass].
+func (c *Config) validateIngestTables() error {
+	if c.Cache.TTL < 0 {
+		return errors.Join(ErrInvalidConfig,
+			fmt.Errorf("cache.ttl %s must not be negative (omit it for the default; use --force to bypass the cache)", c.Cache.TTL))
+	}
+	if c.Overpass.URL != "" {
+		if reason := checkOverpassURL(c.Overpass.URL); reason != "" {
+			return errors.Join(ErrInvalidConfig, fmt.Errorf("overpass.url %q %s", c.Overpass.URL, reason))
+		}
+	}
+	return nil
+}
+
 // validate is Validate with a switch for the ≥1-city requirement. parseConfig
 // passes requireCities=false for an include-bearing file (its cities arrive
 // during the Load merge); Load re-runs the full check post-merge.
@@ -883,9 +899,8 @@ func (c *Config) validate(requireCities bool) error {
 			"grid.hex_edge_m %g is below the %g m floor; hex count grows as 1/edge² and a grid this fine "+
 				"will exhaust memory on a city-sized bbox", c.Grid.HexEdgeM, MinHexEdgeM))
 	}
-	if c.Cache.TTL < 0 {
-		return errors.Join(ErrInvalidConfig,
-			fmt.Errorf("cache.ttl %s must not be negative (omit it for the default; use --force to bypass the cache)", c.Cache.TTL))
+	if err := c.validateIngestTables(); err != nil {
+		return err
 	}
 	if nonFinite(c.Display.MinHexArea) || c.Display.MinHexArea < 0 {
 		return errors.Join(ErrInvalidConfig,

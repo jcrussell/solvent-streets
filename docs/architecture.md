@@ -568,7 +568,9 @@ request, and served for `[cache] ttl`, a week by default (`cache.DefaultTTL`).
 The default is long because Overpass and Nominatim send no validators, so a
 stale entry is a full re-download: a week keeps a retry or a replay of the same
 city on the corpus it first fetched. That includes Overpass POSTs, because the key folds in
-the method and body. A `200` whose body is over the 100 MiB response cap (New
+the method, the full URL and the body. A configured Overpass endpoint therefore
+gets entries of its own, and the default endpoint's URL is a pinned constant so
+its entries keep matching. A `200` whose body is over the 100 MiB response cap (New
 York's roads over its whole bbox) is not cached; a `<key>.toolarge` marker
 records it instead, for the TTL, and the request then fails at once as too
 large without asking upstream, so the Overpass fetch splits straight to its
@@ -593,7 +595,12 @@ a query has run, which can take up to the query's server-side timeout. So
 Overpass alone gets a header deadline just above it
 (`ingest.OverpassHeaderTimeout`), and a slow query is waited out rather than
 cut off and retried. ArcGIS, Nominatim and TIGERweb keep a short deadline, so
-a dead server fails fast.
+a dead server fails fast. The factory picks the transport by host, and the
+Overpass host is the configured endpoint's (`[overpass] url` or
+`PVMT_OVERPASS_URL`, else `ingest.DefaultOverpassURL`), resolved once per
+process as `cmdutil.Factory.OverpassURL`; the ingest command threads the same
+URL into every Overpass caller. A non-default endpoint passes the SSRF guard
+there, before the first fetch.
 
 **TUI progress.** `internal/tui` is one bubbletea `StepModel` that renders the
 phase checklist, log tail, warnings and progress bar in a single view, with no

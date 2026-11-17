@@ -42,6 +42,10 @@ func TestEnvProblems_ReportedExactlyWhenDropped(t *testing.T) {
 			_, prov := c.resolveForecast(nil)
 			return prov.InitialPCI.Kind == SourceEnv
 		},
+		EnvOverpassURL: func(c *Config) bool {
+			_, src := OverpassURL(c)
+			return src.Kind == SourceEnv
+		},
 	}
 	cases := []struct {
 		name, value string
@@ -75,6 +79,12 @@ func TestEnvProblems_ReportedExactlyWhenDropped(t *testing.T) {
 		{EnvForecastInitialPCI, "-inf", "must be a finite number"},
 		{EnvForecastInitialPCI, "0", "must be in (0, 100]"},
 		{EnvForecastInitialPCI, "500", "must be in (0, 100]"},
+
+		{EnvOverpassURL, "https://overpass.example.org/api/interpreter", ""},
+		{EnvOverpassURL, "https://overpass.example.org:8443/api/interpreter", ""},
+		{EnvOverpassURL, "http://overpass.example.org/api/interpreter", "must be an https:// URL"},
+		{EnvOverpassURL, "https://203.0.113.7/api/interpreter", "must name its host by DNS name, not an IP address"},
+		{EnvOverpassURL, "https://overpass.example.org/", `must be the instance's API endpoint, ending in "/interpreter"`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name+"="+tc.value, func(t *testing.T) {
@@ -119,7 +129,7 @@ func TestEnvProblems_UnsetAndEmptyAreSilent(t *testing.T) {
 // variables the package names: each Env* constant has exactly one rule, and
 // each is a PVMT_ variable.
 func TestEnvRules_CoverEveryOverride(t *testing.T) {
-	want := map[string]bool{EnvUnits: true, EnvHexEdgeM: true, EnvForecastYears: true, EnvForecastInitialPCI: true}
+	want := map[string]bool{EnvUnits: true, EnvHexEdgeM: true, EnvForecastYears: true, EnvForecastInitialPCI: true, EnvOverpassURL: true}
 	for _, r := range envRules {
 		if !strings.HasPrefix(r.name, "PVMT_") {
 			t.Errorf("rule %q is not a PVMT_ variable", r.name)

@@ -1,6 +1,7 @@
 package factory
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -140,6 +141,157 @@ func TestHttpClientFactory_CacheTTL(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestResolveOverpassURL pins where the Overpass endpoint comes from:
+// PVMT_OVERPASS_URL over the config's [overpass] url over
+// ingest.DefaultOverpassURL, the env layer applying with no pvmt.toml too. An
+// unusable env value is dropped (config.EnvProblems reports it), and a broken
+// config fails rather than silently querying the default instance
+// (solvent-streets-ern4.18).
+func TestResolveOverpassURL(t *testing.T) {
+	const fileURL = "https://overpass.example.org/api/interpreter"
+	const envURL = "https://overpass.example.net/api/interpreter"
+	loadErr := errors.New("bad toml")
+	withURL := func() (*config.Config, error) {
+		return &config.Config{Overpass: config.OverpassConfig{URL: fileURL}}, nil
+	}
+	tests := map[string]struct {
+		cfg     func() (*config.Config, error)
+		env     string
+		want    string
+		wantErr error
+	}{
+		"no config func":   {cfg: nil, want: ingest.DefaultOverpassURL},
+		"no pvmt.toml":     {cfg: func() (*config.Config, error) { return nil, config.ErrConfigNotFound }, want: ingest.DefaultOverpassURL},
+		"unset":            {cfg: func() (*config.Config, error) { return &config.Config{}, nil }, want: ingest.DefaultOverpassURL},
+		"file":             {cfg: withURL, want: fileURL},
+		"env over file":    {cfg: withURL, env: envURL, want: envURL},
+		"env, no toml":     {cfg: func() (*config.Config, error) { return nil, config.ErrConfigNotFound }, env: envURL, want: envURL},
+		"bad env dropped":  {cfg: withURL, env: "http://overpass.example.net/api/interpreter", want: fileURL},
+		"broken config":    {cfg: func() (*config.Config, error) { return nil, loadErr }, wantErr: loadErr},
+		"broken, with env": {cfg: func() (*config.Config, error) { return nil, loadErr }, env: envURL, wantErr: loadErr},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(config.EnvOverpassURL, tc.env)
+			f := &cmdutil.Factory{Config: tc.cfg}
+			got, err := resolveOverpassURL(f)
+			if tc.wantErr != nil {
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("err = %v; want %v", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveOverpassURL: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("got %q; want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestBaseTransportFor_FollowsOverpassEndpoint pins that the long Overpass
+// header deadline goes to the configured endpoint's host, and to
+// overpass-api.de when none is configured.
+func TestBaseTransportFor_FollowsOverpassEndpoint(t *testing.T) {
+	t.Setenv(config.EnvOverpassURL, "")
+	for url, want := range map[string]string{
+		"": ingest.DefaultOverpassHost,
+		"https://overpass.example.org:8443/api/interpreter": "overpass.example.org",
+	} {
+		f := &cmdutil.Factory{Config: func() (*config.Config, error) {
+			return &config.Config{Overpass: config.OverpassConfig{URL: url}}, nil
+		}}
+		rt, err := baseTransportFor(f)
+		if err != nil {
+			t.Fatalf("baseTransportFor(%q): %v", url, err)
+		}
+		if got := rt.(*hostTransport).overpassHost; got != want {
+			t.Errorf("url %q: Overpass host = %q; want %q", url, got, want)
+		}
+	}
+}
+
+// TestOverpassURLFactory_GuardsAndAnnouncesNonDefault pins what f.OverpassURL
+// adds to resolveOverpassURL: a non-default endpoint passes the SSRF guard
+// once and is named on stderr once; a guard failure stops it with a hint; the
+// default endpoint is neither checked nor announced, so a run that configures
+// nothing prints and resolves exactly what it did before.
+func TestOverpassURLFactory_GuardsAndAnnouncesNonDefault(t *testing.T) {
+	const custom = "https://overpass.example.org/api/interpreter"
+	stubGuard := func(t *testing.T, err error) *int {
+		t.Helper()
+		calls := 0
+		orig := validatePublicHTTPURL
+		validatePublicHTTPURL = func(_ context.Context, u string) error {
+			calls++
+			if u != custom {
+				t.Errorf("guard checked %q; want %q", u, custom)
+			}
+			return err
+		}
+		t.Cleanup(func() { validatePublicHTTPURL = orig })
+		return &calls
+	}
+	newFactory := func(url string) (*cmdutil.Factory, *bytes.Buffer) {
+		ios, _, _, stderr := iostreams.Test()
+		return &cmdutil.Factory{
+			IOStreams: ios,
+			Config: func() (*config.Config, error) {
+				return &config.Config{Overpass: config.OverpassConfig{URL: url}}, nil
+			},
+		}, stderr
+	}
+	t.Setenv(config.EnvOverpassURL, "")
+
+	t.Run("default", func(t *testing.T) {
+		calls := stubGuard(t, nil)
+		f, stderr := newFactory("")
+		get := overpassURLFactory(f)
+		got, err := get()
+		if err != nil || got != ingest.DefaultOverpassURL {
+			t.Fatalf("got (%q, %v); want the default", got, err)
+		}
+		if *calls != 0 || stderr.Len() != 0 {
+			t.Errorf("default endpoint: %d guard calls, stderr %q; want none", *calls, stderr.String())
+		}
+	})
+	t.Run("custom", func(t *testing.T) {
+		calls := stubGuard(t, nil)
+		f, stderr := newFactory(custom)
+		get := overpassURLFactory(f)
+		for range 2 {
+			got, err := get()
+			if err != nil || got != custom {
+				t.Fatalf("got (%q, %v); want %q", got, err, custom)
+			}
+		}
+		if *calls != 1 {
+			t.Errorf("guard ran %d times; want once", *calls)
+		}
+		if got := stderr.String(); got != "overpass endpoint: overpass.example.org\n" {
+			t.Errorf("stderr = %q; want one endpoint line", got)
+		}
+	})
+	t.Run("guard refuses", func(t *testing.T) {
+		guardErr := errors.New("resolves to a private address")
+		stubGuard(t, guardErr)
+		f, stderr := newFactory(custom)
+		_, err := overpassURLFactory(f)()
+		if !errors.Is(err, guardErr) {
+			t.Fatalf("err = %v; want the guard's", err)
+		}
+		var h *hint.ErrHint
+		if !errors.As(err, &h) {
+			t.Errorf("err %v carries no hint", err)
+		}
+		if stderr.Len() != 0 {
+			t.Errorf("stderr = %q; a refused endpoint must not be announced", stderr.String())
+		}
+	})
 }
 
 // TestHttpClientFactory_DefersConstructionUntilCalled locks in the laziness
@@ -617,9 +769,9 @@ func TestHostTransport_OverpassWaitsLongerForHeaders(t *testing.T) {
 		t.Fatal("other-host request waited past its 50 ms header deadline")
 	}
 
-	base := newBaseTransport().(*hostTransport)
-	if base.overpassHost != ingest.OverpassHost {
-		t.Errorf("Overpass host = %q, want %q", base.overpassHost, ingest.OverpassHost)
+	base := newBaseTransport("overpass.example.org").(*hostTransport)
+	if base.overpassHost != "overpass.example.org" {
+		t.Errorf("Overpass host = %q, want the configured endpoint's host", base.overpassHost)
 	}
 	if got := base.overpass.(*headerTimeoutIsFinal).inner.ResponseHeaderTimeout; got != ingest.OverpassHeaderTimeout {
 		t.Errorf("Overpass header timeout = %v, want %v", got, ingest.OverpassHeaderTimeout)

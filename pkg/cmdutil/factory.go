@@ -24,7 +24,13 @@ type Factory struct {
 	ExecutableName string
 	IOStreams      *iostreams.IOStreams
 	HttpClient     func() (*http.Client, error)
-	RootDB         func() (*db.RootStore, error)
+	// OverpassURL is the Overpass interpreter endpoint ingest queries:
+	// PVMT_OVERPASS_URL, else the config's [overpass] url, else
+	// ingest.DefaultOverpassURL. Lazy and resolved once; a non-default
+	// endpoint has passed the SSRF guard by the time it is returned. Nil
+	// (a test factory) means the default.
+	OverpassURL func() (string, error)
+	RootDB      func() (*db.RootStore, error)
 	// CloseRootDB releases the RootDB handle at process shutdown, but only
 	// if RootDB was actually opened during the run — commands that never
 	// touch the database (--version, --help) pay nothing and never create

@@ -224,7 +224,8 @@ wrong:
   the strip's land evidence, and a boundary stripped without them would be
   stored for good. Nothing was saved, so the next ingest retries. The warnings
   above it name the source; an Overpass at capacity usually answers after a
-  few minutes.
+  few minutes (if it does not, see
+  [Overpass busy or down](#overpass-busy-or-down-switch-instance)).
 - **Warning `water strip: no road probes for <city> (fewer than 30 roads
   inside its boundary), …`.** The roads answered, but too few lie inside the
   boundary (one per 0.001° cell counts), as in a very small town, or the city
@@ -243,6 +244,30 @@ wrong:
   `water relation:` or `water coastline:` warnings above the error name the OSM
   element at fault (`-vv` also logs the polygons that were accepted). Open an
   issue with the city, its bbox and that warning.
+
+## Overpass busy or down: switch instance
+
+Lines such as `overpass-api.de busy (504), retrying in 1m0s (retry 3 of 6)` are
+the client backing off from an Overpass instance at capacity; it usually
+answers within minutes. When it keeps failing (every city's Overpass step
+ending in `overpass request:` or `overpass returned 5xx` errors, or header
+timeouts), the instance is down, and waiting does not help. Point pvmt at
+another public instance for the run:
+
+```
+PVMT_OVERPASS_URL=https://overpass.private.coffee/api/interpreter pvmt all ingest
+```
+
+or set `[overpass] url` in `pvmt.toml` (see
+[configuration](configuration.md#overpass-endpoint-overpass)). The run prints
+`overpass endpoint: <host>` when it starts. Cached responses are per instance,
+so cities already ingested replay from the cache only with the endpoint they
+were fetched from: unset the variable to re-run one of them. Other
+instances are listed on the OpenStreetMap wiki's Overpass API page. An endpoint
+refused at load (`overpass.url "..." must be ...`) names the rule it broke; one
+refused before the first fetch (`overpass endpoint ...: refusing "<host>":
+resolves to ...`) resolves to a private address, and `allow_private_arcgis`,
+which that message mentions, does not apply to it.
 
 ## Disk usage: the HTTP cache keeps growing
 

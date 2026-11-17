@@ -419,6 +419,85 @@ func TestLoad_CacheTTL(t *testing.T) {
 	}
 }
 
+// TestLoad_OverpassURL pins the [overpass] url surface: a usable endpoint
+// decodes into OverpassConfig.URL, an omitted table leaves it empty (the
+// factory then uses ingest.DefaultOverpassURL), and an endpoint that is not
+// https, names an IP, carries credentials, a query or a fragment, or is not an
+// /interpreter path is rejected at load (solvent-streets-ern4.18).
+func TestLoad_OverpassURL(t *testing.T) {
+	const city = "\n[[cities]]\nname = \"Oakland, CA\"\noverpass = true\n"
+	table := func(u string) string { return "[overpass]\nurl = \"" + u + "\"\n" + city }
+	tests := map[string]struct {
+		toml    string
+		want    string
+		wantErr string
+	}{
+		"set":        {toml: table("https://overpass.example.org/api/interpreter"), want: "https://overpass.example.org/api/interpreter"},
+		"with port":  {toml: table("https://overpass.example.org:8443/api/interpreter"), want: "https://overpass.example.org:8443/api/interpreter"},
+		"omitted":    {toml: city, want: ""},
+		"empty":      {toml: table(""), want: ""},
+		"http":       {toml: table("http://overpass.example.org/api/interpreter"), wantErr: "https://"},
+		"userinfo":   {toml: table("https://u:p@overpass.example.org/api/interpreter"), wantErr: "credentials"},
+		"query":      {toml: table("https://overpass.example.org/api/interpreter?key=x"), wantErr: "query"},
+		"bare query": {toml: table("https://overpass.example.org/api/interpreter?"), wantErr: "query"},
+		"fragment":   {toml: table("https://overpass.example.org/api/interpreter#x"), wantErr: "fragment"},
+		"ipv4":       {toml: table("https://203.0.113.7/api/interpreter"), wantErr: "IP address"},
+		"ipv6":       {toml: table("https://[2001:db8::1]/api/interpreter"), wantErr: "IP address"},
+		"no host":    {toml: table("https:///api/interpreter"), wantErr: "no host"},
+		"web page":   {toml: table("https://overpass.example.org/"), wantErr: "/interpreter"},
+		"not a URL":  {toml: table("overpass.example.org/api/interpreter"), wantErr: "https://"},
+		"bad escape": {toml: table("https://overpass.example.org/%zz/interpreter"), wantErr: "not a valid URL"},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := Load(writeTOML(t, t.TempDir(), "pvmt.toml", tc.toml))
+			if tc.wantErr != "" {
+				if !errors.Is(err, ErrInvalidConfig) || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("Load err = %v; want ErrInvalidConfig mentioning %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if cfg.Overpass.URL != tc.want {
+				t.Errorf("Overpass.URL = %q; want %q", cfg.Overpass.URL, tc.want)
+			}
+		})
+	}
+}
+
+// TestOverpassURL_Precedence pins config.OverpassURL's layers: a usable
+// PVMT_OVERPASS_URL wins over the file, the file over the default, and a nil
+// Config (no pvmt.toml) still honours the env.
+func TestOverpassURL_Precedence(t *testing.T) {
+	const fileURL = "https://overpass.example.org/api/interpreter"
+	const envURL = "https://overpass.example.net/api/interpreter"
+	file := &Config{Overpass: OverpassConfig{URL: fileURL}}
+	tests := map[string]struct {
+		cfg     *Config
+		env     string
+		want    string
+		wantSrc Source
+	}{
+		"default":       {cfg: &Config{}, want: "", wantSrc: Source{Kind: SourceDefault}},
+		"nil config":    {cfg: nil, want: "", wantSrc: Source{Kind: SourceDefault}},
+		"file":          {cfg: file, want: fileURL, wantSrc: Source{Kind: SourceFile, Detail: "overpass.url"}},
+		"env over file": {cfg: file, env: envURL, want: envURL, wantSrc: Source{Kind: SourceEnv, Detail: EnvOverpassURL}},
+		"env, nil cfg":  {cfg: nil, env: envURL, want: envURL, wantSrc: Source{Kind: SourceEnv, Detail: EnvOverpassURL}},
+		"bad env":       {cfg: file, env: "https://overpass.example.net/", want: fileURL, wantSrc: Source{Kind: SourceFile, Detail: "overpass.url"}},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(EnvOverpassURL, tc.env)
+			got, src := OverpassURL(tc.cfg)
+			if got != tc.want || src != tc.wantSrc {
+				t.Errorf("OverpassURL = (%q, %v); want (%q, %v)", got, src, tc.want, tc.wantSrc)
+			}
+		})
+	}
+}
+
 func TestConfig_Validate_MinHexArea_RejectsNegative(t *testing.T) {
 	cfg := Config{
 		Display: DisplayConfig{MinHexArea: -1},

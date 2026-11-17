@@ -29,6 +29,10 @@ type Options struct {
 	// OverpassExclude is the Overpass source's Exclude: the bbox whose
 	// elements another resource already holds (see OverpassSource).
 	OverpassExclude *[4]float64
+
+	// OverpassURL is the Overpass interpreter every OverpassSource queries;
+	// empty uses DefaultOverpassURL.
+	OverpassURL string
 }
 
 // AllSources assembles the enabled sources for a city. OverpassSource is
@@ -39,7 +43,7 @@ type Options struct {
 func AllSources(bbox [4]float64, overpass bool, arcgisURL string, opts Options) []Source {
 	var sources []Source
 	if overpass {
-		sources = append(sources, &OverpassSource{BBox: bbox, Exclude: opts.OverpassExclude})
+		sources = append(sources, &OverpassSource{BBox: bbox, Exclude: opts.OverpassExclude, URL: opts.OverpassURL})
 	}
 	if arcgisURL != "" {
 		sources = append(sources, &ArcGISSource{

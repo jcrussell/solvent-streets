@@ -566,6 +566,7 @@ var configFieldRules = map[string]fieldRule{
 	"Config.Export":       {class: nested},
 	"Config.Forecast":     {class: nested},
 	"Config.Cache":        {class: nested},
+	"Config.Overpass":     {class: nested},
 	"Config.Cities":       {class: nested},
 	"Config.Include":      {class: nested},
 	"Config.Services":     {class: nested},
@@ -581,6 +582,12 @@ var configFieldRules = map[string]fieldRule{
 	// The cache TTL only decides whether a response is re-fetched; what is
 	// stored comes from the response, so it is ingest-class.
 	"CacheConfig.TTL": {ingest, func(c *Config) { c.Cache.TTL = time.Hour }},
+
+	// The Overpass endpoint decides which instance answers a fetch, not what
+	// compute does with the features, so it is ingest-class.
+	"OverpassConfig.URL": {ingest, func(c *Config) {
+		c.Overpass.URL = "https://overpass.example.org/api/interpreter"
+	}},
 
 	"ExportConfig.Title":              {presentation, func(c *Config) { c.Export.Title = "T" }},
 	"ExportConfig.CoordinateDecimals": {presentation, func(c *Config) { c.Export.CoordinateDecimals = 7 }},

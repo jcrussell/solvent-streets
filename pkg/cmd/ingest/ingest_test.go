@@ -1303,7 +1303,7 @@ func TestRunIngest_PartialSourceFailureSavesAndFails(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		if r.URL.Hostname() == ingestpkg.OverpassHost {
+		if r.URL.Hostname() == ingestpkg.DefaultOverpassHost {
 			return nil, errors.New("http2: timeout awaiting response headers")
 		}
 		return srv.Client().Transport.RoundTrip(r)
@@ -1398,7 +1398,7 @@ func TestRunIngest_PartialFailureWithEmptySurvivor(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		if r.URL.Hostname() != ingestpkg.OverpassHost {
+		if r.URL.Hostname() != ingestpkg.DefaultOverpassHost {
 			return nil, errors.New("http2: timeout awaiting response headers")
 		}
 		// Overpass answers, with no features: send it to the fake server.
@@ -2056,7 +2056,7 @@ func TestFetchBoundary_ArcGISBridgesDoNotKeepTheRiver(t *testing.T) {
 	both := &config.CityConfig{Name: "Bridges, CA", Overpass: true, ArcGISURL: "https://example.test/query"}
 	var saved, upserts []string
 	_, _, err := resolveBoundary(context.Background(), resolveBoundaryHarness(t), boundaryStore(&saved, &upserts), client, both,
-		boundaryFetchers{byName: recordingNominatim(boundary, nil), water: ingestpkg.FetchOSMWater,
+		boundaryFetchers{byName: recordingNominatim(boundary, nil), water: defaultOverpassWater,
 			roads: recordingRoads(append(slices.Clone(osm), arcgis...), nil)})
 	if err != nil {
 		t.Fatal(err)
@@ -2283,7 +2283,7 @@ func TestFetchBoundary_CityOnALakeIslandIsNotASubtractFailure(t *testing.T) {
 	var saved, upserts []string
 	_, _, err := resolveBoundary(context.Background(), &Options{IO: ios}, boundaryStore(&saved, &upserts), client,
 		&config.CityConfig{Name: "Island, NY"},
-		boundaryFetchers{byName: recordingNominatim(bigSquareBoundary, nil), water: ingestpkg.FetchOSMWater, roads: recordingRoads(roads, nil)})
+		boundaryFetchers{byName: recordingNominatim(bigSquareBoundary, nil), water: defaultOverpassWater, roads: recordingRoads(roads, nil)})
 	if err != nil {
 		t.Fatal(err)
 	}
