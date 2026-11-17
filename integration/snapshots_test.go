@@ -191,9 +191,11 @@ func TestSnapshotsCreate_RefusesStale(t *testing.T) {
 	}
 
 	stdout.Reset()
-	cmd := snapshots.NewCmdSnapshots(f)
+	all := *f
+	all.CityFlagSet = nil // a snapshot covers every configured city
+	cmd := snapshots.NewCmdSnapshots(&all)
 	cmd.SilenceErrors, cmd.SilenceUsage = true, true
-	cmd.SetArgs([]string{"create"})
+	cmd.SetArgs([]string{"create", "stale"})
 	err := cmd.ExecuteContext(ctx)
 	out := stdout.String()
 	if !errors.Is(err, cmdutil.ErrSilent) || !strings.Contains(out, "grid-city: refused:") ||
@@ -271,7 +273,7 @@ func latestOf(t *testing.T, store db.Store) map[string]int64 {
 	return out
 }
 
-func listSnapshots(t *testing.T, store db.Store) []db.Snapshot {
+func listSnapshots(t *testing.T, store db.Store) []db.SnapshotCity {
 	t.Helper()
 	snaps, err := store.ListSnapshots(context.Background())
 	if err != nil {

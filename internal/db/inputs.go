@@ -293,9 +293,7 @@ func freezeBoundary(ctx context.Context, tx *sql.Tx, cityID int64) (id int64, ok
 // sweepSnapshotBoundaries deletes this city's frozen boundaries that no
 // snapshot references any more.
 func sweepSnapshotBoundaries(ctx context.Context, tx *sql.Tx, cityID int64) error {
-	if _, err := tx.ExecContext(ctx,
-		`DELETE FROM snapshot_boundaries WHERE city_id = ?
-		   AND id NOT IN (SELECT boundary_id FROM snapshots WHERE boundary_id IS NOT NULL)`, cityID); err != nil {
+	if _, err := tx.ExecContext(ctx, sqlSweepSnapshotBoundaries, cityID); err != nil {
 		return fmt.Errorf("delete unreferenced snapshot boundaries: %w", err)
 	}
 	return nil

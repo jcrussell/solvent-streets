@@ -10,8 +10,8 @@ import (
 	"time"
 )
 
-// ErrNothingComputed is returned by CreateSnapshot when the city has no
-// latest compute under the config hash: a snapshot is never empty.
+// ErrNothingComputed refuses a city in CreateSnapshot when it has no latest
+// compute under the config hash: no city of a snapshot is ever empty.
 var ErrNothingComputed = errors.New("nothing computed under the current settings")
 
 // LatestPart is one part of a city's latest compute (working_parts): the run
@@ -26,7 +26,8 @@ type LatestPart struct {
 
 // CheckFunc judges whether a city's latest compute may be frozen as a
 // snapshot, given its parts and the city's current input states. A non-nil
-// error refuses the snapshot and is returned by CreateSnapshot unchanged.
+// error refuses the city, and so the snapshot; CreateSnapshot returns it
+// unchanged in its *SnapshotRefusedError.
 type CheckFunc func(parts []LatestPart, inputs []InputState) error
 
 // LatestCompute returns this city's latest compute under configHash, ordered
@@ -86,123 +87,37 @@ func inputStates(ctx context.Context, q queryer, cityID int64) ([]InputState, er
 	return out, rows.Err()
 }
 
-// CreateSnapshot freezes the latest compute as a snapshot. See the Store
-// interface for the contract. It retries while another process holds the
-// write lock, like CommitLatest.
-func (s *sqliteStore) CreateSnapshot(ctx context.Context, configHash string, hexEdgeM float64, check CheckFunc) (*Snapshot, bool, error) {
-	if configHash == "" {
-		return nil, false, errors.New("create snapshot: config hash is required")
-	}
-	if hexEdgeM <= 0 {
-		return nil, false, fmt.Errorf("create snapshot: hex edge must be positive, got %v", hexEdgeM)
-	}
-	var (
-		snap    *Snapshot
-		created bool
-	)
-	err := retryBusy(ctx, func() error {
-		var err error
-		snap, created, err = s.createSnapshot(ctx, configHash, hexEdgeM, check)
-		return err
-	})
+// freezeCity is one city of CreateSnapshot inside its transaction: it reads
+// the city's latest compute and input states, runs the check, and on success
+// records the city and its manifest in snapshot snapshotID. A refusal (the
+// check's error, or ErrNothingComputed) is returned as refusal with a nil
+// err; err is a failure to read or write.
+func freezeCity(ctx context.Context, tx *sql.Tx, snapshotID int64, req SnapshotRequest) (refusal, err error) {
+	parts, err := latestCompute(ctx, tx, req.CityID, req.ConfigHash)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	return snap, created, nil
-}
-
-// createSnapshot is one attempt at CreateSnapshot, in one IMMEDIATE
-// transaction: the check sees exactly the inputs and manifest that are
-// frozen, and no ingest or compute can land in between.
-func (s *sqliteStore) createSnapshot(ctx context.Context, configHash string, hexEdgeM float64, check CheckFunc) (*Snapshot, bool, error) {
-	var (
-		snap    *Snapshot
-		created bool
-	)
-	err := s.withTx(ctx, func(tx *sql.Tx) error {
-		var err error
-		snap, created, err = s.freezeLatest(ctx, tx, configHash, hexEdgeM, check)
-		return err
-	})
+	states, err := inputStates(ctx, tx, req.CityID)
 	if err != nil {
-		return nil, false, err
-	}
-	return snap, created, nil
-}
-
-// freezeLatest is createSnapshot's body inside its transaction.
-func (s *sqliteStore) freezeLatest(ctx context.Context, tx *sql.Tx, configHash string, hexEdgeM float64, check CheckFunc) (*Snapshot, bool, error) {
-	parts, err := latestCompute(ctx, tx, s.cityID, configHash)
-	if err != nil {
-		return nil, false, err
-	}
-	states, err := inputStates(ctx, tx, s.cityID)
-	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	// Nothing computed is reported as such before check runs: the check
 	// refuses an empty compute too, but would describe each ingested
 	// resource as never computed, hiding that the city was computed under
 	// other settings (solvent-streets-vx0s).
 	if len(parts) == 0 {
-		return nil, false, ErrNothingComputed
+		return ErrNothingComputed, nil
 	}
-	if check != nil {
-		if err := check(parts, states); err != nil {
-			return nil, false, err
+	if req.Check != nil {
+		if err := req.Check(parts, states); err != nil {
+			return err, nil
 		}
 	}
 	manifest := make(map[string]int64, len(parts))
 	for _, p := range parts {
 		manifest[p.Part] = p.RunID
 	}
-	id, err := s.unchangedSnapshot(ctx, tx, configHash, hexEdgeM, manifest, states)
-	if err != nil {
-		return nil, false, err
-	}
-	created := id == 0
-	if created {
-		if id, err = s.insertSnapshot(ctx, tx, configHash, hexEdgeM, manifest); err != nil {
-			return nil, false, err
-		}
-	}
-	snaps, err := listSnapshots(ctx, tx, s.cityID, id)
-	if err != nil {
-		return nil, false, err
-	}
-	return &snaps[0], created, nil
-}
-
-// unchangedSnapshot returns the id of the city's newest snapshot when it
-// already freezes exactly this: the same config hash, hex edge, boundary and
-// manifest. 0 when there is no such snapshot.
-func (s *sqliteStore) unchangedSnapshot(ctx context.Context, tx *sql.Tx, configHash string, hexEdgeM float64, manifest map[string]int64, states []InputState) (int64, error) {
-	newest, err := newestSnapshotID(ctx, tx, s.cityID, "")
-	if err != nil || newest == 0 {
-		return 0, err
-	}
-	snaps, err := listSnapshots(ctx, tx, s.cityID, newest)
-	if err != nil || len(snaps) == 0 {
-		return 0, err
-	}
-	n := snaps[0]
-	boundary := ""
-	for _, st := range states {
-		if st.Input == InputBoundary {
-			boundary = st.Digest
-		}
-	}
-	if n.ConfigHash != configHash || n.HexEdgeM != hexEdgeM || n.BoundaryDigest != boundary {
-		return 0, nil
-	}
-	have := make(map[string]int64, len(n.Parts))
-	for _, p := range n.Parts {
-		have[p.Part] = p.RunID
-	}
-	if !maps.Equal(have, manifest) {
-		return 0, nil
-	}
-	return n.ID, nil
+	return nil, insertSnapshotCity(ctx, tx, snapshotID, req, manifest)
 }
 
 // retryBusy runs attempt until it does not fail with isBusy, for up to
@@ -223,11 +138,11 @@ func retryBusy(ctx context.Context, attempt func() error) error {
 }
 
 // UnsnapshottedParts lists, sorted, the parts on which a city's latest
-// compute differs from snap (its newest snapshot; nil when it has none): a
-// part computed or recomputed since snap was created, or one snap holds that
-// the latest compute dropped. Empty means `pvmt snapshots create` would find
-// nothing new to freeze.
-func UnsnapshottedParts(latest []LatestPart, snap *Snapshot) []string {
+// compute differs from snap (the city in its newest snapshot; nil when it has
+// none): a part computed or recomputed since snap was created, or one snap
+// holds that the latest compute dropped. Empty means a new snapshot would
+// freeze the same runs for the city.
+func UnsnapshottedParts(latest []LatestPart, snap *SnapshotCity) []string {
 	held := map[string]int64{}
 	if snap != nil {
 		for _, p := range snap.Parts {

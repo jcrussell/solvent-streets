@@ -53,7 +53,7 @@ Computed results are stored per city under `Config.CityHash`
 (`internal/config/hash.go`). That is a hash of the resolved settings that
 change what a compute stores, plus a hand-maintained `ComputeEpoch`. Computes
 update the city's latest compute under its current hash, and
-`pvmt snapshots create` freezes only that one. Users see this as the table in
+`pvmt snapshots create <name>` freezes only that one. Users see this as the table in
 [configuration.md](docs/configuration.md#snapshots-and-the-config-hash).
 Two kinds of change have to keep that table true.
 
@@ -96,6 +96,20 @@ which is the point. Existing snapshots still export as created, with a
 warning that they were created under other settings. Don't bump it for ingest, forecast, export, serve, CLI,
 docs or test changes. Each bump costs every user a full recompute. Note the
 bump in the commit body.
+
+## Schema changes
+
+`internal/db/migrations/001_init.sql` is frozen: it is the v0.5.0 baseline and
+is never edited again. Every schema change is an additive numbered migration
+in the same directory (`002_*.sql`, `003_*.sql`, ...). `migrateFS`
+(`internal/db/migrations.go`) applies the ones a database has not recorded in
+`schema_version`, in numeric order, each in its own transaction. A migration
+must carry an existing database forward: add tables, columns and indexes,
+and backfill them in the same file. Bump the expected version in
+`TestColdMigration_SchemaShape` and describe the change in
+[architecture.md](docs/architecture.md#database). Rewriting 001 instead is a
+squash, a breaking change: it needs a `schemaGeneration` bump and a `!`
+commit, and every user's database is rebuilt.
 
 ## Commit messages
 

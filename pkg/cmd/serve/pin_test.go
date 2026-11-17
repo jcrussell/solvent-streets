@@ -23,10 +23,10 @@ func TestPinEntries(t *testing.T) {
 		runs     []int64
 	}
 	pins := map[string]pin{}
-	entry := func(name string, snaps []db.Snapshot, latest []db.LatestPart) exportpkg.CityEntry {
+	entry := func(name string, snaps []db.SnapshotCity, latest []db.LatestPart) exportpkg.CityEntry {
 		city := config.CityConfig{Name: name}
 		store := &dbtest.MockStore{
-			ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) { return snaps, nil },
+			ListSnapshotsFunc: func(context.Context) ([]db.SnapshotCity, error) { return snaps, nil },
 			LatestComputeFunc: func(context.Context, string) ([]db.LatestPart, error) { return latest, nil },
 			WithRunsFunc:      func(runs []int64) db.Store { pins[name] = pin{runs: runs}; return &dbtest.MockStore{} },
 		}
@@ -42,8 +42,8 @@ func TestPinEntries(t *testing.T) {
 	cur := cfg.CityHash(&config.CityConfig{Name: "x"})
 	roads := []db.SnapshotPart{{Part: "roads", RunID: 1}}
 	entries := []exportpkg.CityEntry{
-		entry("Fresh City", []db.Snapshot{{ID: 1, ConfigHash: cur, Parts: roads}}, []db.LatestPart{{Part: "roads", RunID: 1}}),
-		entry("Stale City", []db.Snapshot{{ID: 3, ConfigHash: "0ld0ld0ld0ld0ld0", Parts: roads}, {ID: 2, ConfigHash: cur, Parts: roads}}, nil),
+		entry("Fresh City", []db.SnapshotCity{{ID: 1, ConfigHash: cur, Parts: roads}}, []db.LatestPart{{Part: "roads", RunID: 1}}),
+		entry("Stale City", []db.SnapshotCity{{ID: 3, Name: "v3", ConfigHash: "0ld0ld0ld0ld0ld0", Parts: roads}, {ID: 2, ConfigHash: cur, Parts: roads}}, nil),
 		entry("Draft City", nil, []db.LatestPart{{Part: "roads", RunID: 7}, {Part: "combined", RunID: 8}}),
 		entry("Empty City", nil, nil),
 	}
@@ -76,11 +76,11 @@ func TestPinEntries(t *testing.T) {
 		t.Errorf("want two warnings for Stale City and one each for Draft and Empty City, none for Fresh City; got:\n%s", got)
 	}
 	for _, want := range []string{
-		"Stale City: snapshot #3 was created under other settings",
+		"Stale City: snapshot v3 was created under other settings",
 		// solvent-streets-qo1y: the picker's Latest compute is empty.
 		"Stale City has nothing computed under the current settings",
 		"Draft City has no snapshot; serving its latest compute (not snapshotted)",
-		"pvmt --city draft-city snapshots create",
+		"Run `pvmt snapshots create <name>` to publish it",
 		"no snapshot for Empty City; serving it without data",
 		"Empty City has never been computed",
 	} {

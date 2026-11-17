@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
@@ -20,45 +19,34 @@ type ListOptions struct {
 	RootDB        func() (db.RootStorer, error)
 	ResolveCities func() ([]config.CityConfig, error)
 	Config        func() (*config.Config, error)
+	CityFlagSet   func() bool
 	Exporter      cmdutil.Exporter
 }
 
+// snapshotRow is one snapshot (one tag) in `snapshots list`.
 type snapshotRow struct {
-	City       string    `json:"city"`
-	ID         int64     `json:"id"`
-	CreatedAt  string    `json:"created_at"`
-	ConfigHash string    `json:"config_hash"`
-	HexEdgeM   float64   `json:"hex_edge_m"`
-	Parts      []partRow `json:"parts"`
-}
-
-// partRow is one entry of a snapshot's manifest: the run filling a part.
-type partRow struct {
-	Part       string `json:"part"`
-	RunID      int64  `json:"run_id"`
-	ComputedAt string `json:"computed_at"`
+	Name         string `json:"name"`
+	CreatedAt    string `json:"created_at"`
+	CityCount    int    `json:"city_count"`
+	ComputeEpoch int    `json:"compute_epoch"`
 }
 
 var _ cmdutil.RowExporter = snapshotRow{}
 
-var snapshotFields = []string{"city", "id", "created_at", "config_hash", "hex_edge_m", "parts"}
+var snapshotFields = []string{"name", "created_at", "city_count", "compute_epoch"}
 
 func (r snapshotRow) ExportData(fields []string) map[string]any {
 	out := make(map[string]any, len(fields))
 	for _, f := range fields {
 		switch f {
-		case "city":
-			out[f] = r.City
-		case "id":
-			out[f] = r.ID
+		case "name":
+			out[f] = r.Name
 		case "created_at":
 			out[f] = r.CreatedAt
-		case "config_hash":
-			out[f] = r.ConfigHash
-		case "hex_edge_m":
-			out[f] = r.HexEdgeM
-		case "parts":
-			out[f] = r.Parts
+		case "city_count":
+			out[f] = r.CityCount
+		case "compute_epoch":
+			out[f] = r.ComputeEpoch
 		}
 	}
 	return out
@@ -70,6 +58,7 @@ func NewCmdList(f *cmdutil.Factory, runF func(context.Context, *ListOptions) err
 		RootDB:        func() (db.RootStorer, error) { return f.RootDB() },
 		ResolveCities: func() ([]config.CityConfig, error) { return cmdutil.ResolveCities(f) },
 		Config:        func() (*config.Config, error) { return f.Config() },
+		CityFlagSet:   cityFlagSet(f),
 	}
 
 	cmd := &cobra.Command{
@@ -77,22 +66,21 @@ func NewCmdList(f *cmdutil.Factory, runF func(context.Context, *ListOptions) err
 		Aliases: []string{"ls"},
 		Args:    cobra.NoArgs,
 		Short:   "List snapshots",
-		Long: `List snapshots across configured cities, newest first. Use --city to
-scope to one city.
+		Long: `List snapshots, newest first: each one's name, when it was created, how
+many cities it covers, and the compute epoch of the pvmt that created it.
+With --city, only the snapshots that cover that city.
 
-A snapshot is a city's complete computed state: one run per part (roads,
-parking, sidewalks, combined, service coverage, census), the hex edge its
-grid was tiled at, and the boundary it was clipped to. The Parts column
-shows which run each part comes from: "roads#12" is run 12. Export and
-serve read the newest snapshot for the current config.`,
-		Example: `  # All snapshots across every city
+A snapshot is a named tag over every configured city: each city's complete
+computed state, one run per part. Export and serve publish the newest
+snapshot.`,
+		Example: `  # Every snapshot
   pvmt snapshots list
 
-  # Restrict to one city
+  # The snapshots that cover one city
   pvmt --city oakland-ca snapshots list
 
   # Machine-readable
-  pvmt snapshots list --json city,id,created_at,hex_edge_m,parts`,
+  pvmt snapshots list --json name,created_at,city_count`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
 				return runF(cmd.Context(), opts)
@@ -106,7 +94,7 @@ serve read the newest snapshot for the current config.`,
 }
 
 func runList(ctx context.Context, opts *ListOptions) error {
-	rows, err := collectSnapshotRows(ctx, opts.RootDB, opts.ResolveCities, opts.Config)
+	rows, err := collectSnapshotRows(ctx, opts)
 	if err != nil {
 		return err
 	}
@@ -117,71 +105,75 @@ func runList(ctx context.Context, opts *ListOptions) error {
 
 	ios := opts.IO
 	if len(rows) == 0 {
-		fmt.Fprintln(ios.ErrOut, "No snapshots in database. Run 'pvmt all compute' to create one.")
+		fmt.Fprintln(ios.ErrOut, "No snapshots. Run 'pvmt all compute', then 'pvmt snapshots create <name>'.")
 		return nil
 	}
 
 	tp := iostreams.NewTablePrinter(ios)
-	tp.AddHeader("City", "ID", "Created", "Config Hash", "Hex Edge", "Parts")
+	tp.AddHeader("Name", "Created", "Cities", "Epoch")
 	for _, r := range rows {
-		parts := make([]string, len(r.Parts))
-		for i, p := range r.Parts {
-			parts[i] = p.Part + "#" + strconv.FormatInt(p.RunID, 10)
-		}
 		tp.AddRow(
-			r.City,
-			strconv.FormatInt(r.ID, 10),
+			r.Name,
 			iostreams.FormatTimestamp(r.CreatedAt, ios.IsTTY()),
-			r.ConfigHash,
-			strconv.FormatFloat(r.HexEdgeM, 'f', -1, 64)+" m",
-			strings.Join(parts, " "),
+			strconv.Itoa(r.CityCount),
+			strconv.Itoa(r.ComputeEpoch),
 		)
 	}
 	return tp.Render()
 }
 
-// collectSnapshotRows resolves cities from --city / config and returns
-// every snapshot tagged with its owning city slug, newest-first per
-// city (matching ListSnapshots' ORDER BY).
-func collectSnapshotRows(
-	ctx context.Context,
-	rootDB func() (db.RootStorer, error),
-	resolveCities func() ([]config.CityConfig, error),
-	resolveConfig func() (*config.Config, error),
-) ([]snapshotRow, error) {
-	cities, err := resolveCities()
-	if err != nil {
-		return nil, err
-	}
-	root, err := rootDB()
+// collectSnapshotRows returns every snapshot newest first or, with --city,
+// those covering the selected city.
+func collectSnapshotRows(ctx context.Context, opts *ListOptions) ([]snapshotRow, error) {
+	root, err := opts.RootDB()
 	if err != nil {
 		return nil, fmt.Errorf("database: %w", err)
 	}
+	snaps, err := root.ListSnapshots(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var covers map[int64]bool
+	if opts.CityFlagSet != nil && opts.CityFlagSet() {
+		if covers, err = coveringSnapshots(ctx, opts, root); err != nil {
+			return nil, err
+		}
+	}
+	rows := make([]snapshotRow, 0, len(snaps))
+	for _, s := range snaps {
+		if covers != nil && !covers[s.ID] {
+			continue
+		}
+		rows = append(rows, snapshotRow{
+			Name:         s.Name,
+			CreatedAt:    s.CreatedAt.UTC().Format(time.RFC3339),
+			CityCount:    s.CityCount,
+			ComputeEpoch: s.ComputeEpoch,
+		})
+	}
+	return rows, nil
+}
 
-	var rows []snapshotRow
+// coveringSnapshots returns the ids of the snapshots that cover the cities
+// --city selects.
+func coveringSnapshots(ctx context.Context, opts *ListOptions, root db.RootStorer) (map[int64]bool, error) {
+	cities, err := opts.ResolveCities()
+	if err != nil {
+		return nil, err
+	}
+	covers := map[int64]bool{}
 	for _, city := range cities {
-		store, err := cmdutil.EnsureCityStore(ctx, root, city, cmdutil.ResolveConfigID(resolveConfig, &city))
+		store, err := cmdutil.EnsureCityStore(ctx, root, city, cmdutil.ResolveConfigID(opts.Config, &city))
 		if err != nil {
 			return nil, err
 		}
-		snaps, err := store.ListSnapshots(ctx)
+		own, err := store.ListSnapshots(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("list snapshots for %s: %w", city.Slug(), err)
 		}
-		for _, s := range snaps {
-			parts := make([]partRow, len(s.Parts))
-			for i, p := range s.Parts {
-				parts[i] = partRow{Part: p.Part, RunID: p.RunID, ComputedAt: p.ComputedAt.UTC().Format(time.RFC3339)}
-			}
-			rows = append(rows, snapshotRow{
-				City:       city.Slug(),
-				ID:         s.ID,
-				CreatedAt:  s.CreatedAt.UTC().Format(time.RFC3339),
-				ConfigHash: s.ConfigHash,
-				HexEdgeM:   s.HexEdgeM,
-				Parts:      parts,
-			})
+		for _, s := range own {
+			covers[s.ID] = true
 		}
 	}
-	return rows, nil
+	return covers, nil
 }

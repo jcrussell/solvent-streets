@@ -8,8 +8,8 @@ import { load } from './harness.mjs';
 import { fullData, readFixture } from './fixtures.mjs';
 
 const snapshots = [
-  { id: 5, created_at: '2026-11-10T12:00:00Z', config_hash: 'abcdef0123456789', hex_edge_m: 100, parts: [] },
-  { id: 3, created_at: '2026-10-01T08:30:00Z', config_hash: '0123456789abcdef', hex_edge_m: 150, parts: [] },
+  { id: 5, name: 'v0.6.0', created_at: '2026-11-10T12:00:00Z', compute_epoch: 2, config_hash: 'abcdef0123456789', hex_edge_m: 100, parts: [] },
+  { id: 3, name: 'v0.5.0', created_at: '2026-10-01T08:30:00Z', compute_epoch: 1, config_hash: '0123456789abcdef', hex_edge_m: 150, parts: [] },
 ];
 
 const options = (sel) => Array.from(sel.options).map((o) => [o.value, o.textContent]);
@@ -19,12 +19,22 @@ test('a city with snapshots defaults to the newest, and offers the latest comput
   await flush();
   const sel = $('#snapshot-picker');
   assert.deepEqual(options(sel), [
-    ['', 'Newest (#5, 2026-11-10)'],
+    ['', 'Newest (v0.6.0, 2026-11-10)'],
     ['latest', 'Latest compute (not snapshotted)'],
-    ['5', '#5 2026-11-10 12:00'],
-    ['3', '#3 2026-10-01 08:30'],
+    ['v0.6.0', 'v0.6.0 2026-11-10 12:00'],
+    ['v0.5.0', 'v0.5.0 2026-10-01 08:30'],
   ]);
   assert.equal(sel.value, '');
+});
+
+test('choosing a snapshot requests it by name', async () => {
+  const { win, $, flush, fetchURLs } = load({ page: 'index-live', data: { ...fullData, snapshots } });
+  await flush();
+  win.selectSnapshot('v0.5.0');
+  await flush();
+  assert.equal($('#snapshot-picker').value, 'v0.5.0');
+  assert.ok(fetchURLs().some((u) => u.includes('meta.json?snapshot=v0.5.0')),
+    'no meta.json request carried ?snapshot=v0.5.0: ' + fetchURLs().join(', '));
 });
 
 test('choosing the latest compute requests ?snapshot=latest', async () => {

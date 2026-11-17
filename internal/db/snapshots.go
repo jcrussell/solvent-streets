@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -70,16 +69,15 @@ func (s *sqliteStore) WithRuns(runIDs []int64) Store {
 	return &cp
 }
 
-// checkPin returns ErrSnapshotGone when the view is pinned to a snapshot this
-// city does not have, or to runs (WithRuns) that no longer all exist. An
+// checkPin returns ErrSnapshotGone when the view is pinned to a snapshot that
+// does not cover this city (deleted, or never had it), or to runs (WithRuns) that no longer all exist. An
 // unpinned view always passes.
 func (s *sqliteStore) checkPin(ctx context.Context, q queryer) error {
 	if s.snapshotID <= 0 {
 		return s.checkRuns(ctx, q)
 	}
-	var id int64
-	switch err := q.QueryRowContext(ctx, `SELECT id FROM snapshots WHERE id = ? AND city_id = ?`,
-		s.snapshotID, s.cityID).Scan(&id); {
+	var one int
+	switch err := q.QueryRowContext(ctx, sqlCityInSnapshot, s.snapshotID, s.cityID).Scan(&one); {
 	case errors.Is(err, sql.ErrNoRows):
 		return fmt.Errorf("snapshot %d: %w", s.snapshotID, ErrSnapshotGone)
 	case err != nil:
@@ -116,7 +114,7 @@ func (s *sqliteStore) resolvedSnapshotID(ctx context.Context, q queryer) (int64,
 	if s.runsPinned || s.configHash != "" {
 		return 0, nil
 	}
-	return newestSnapshotID(ctx, q, s.cityID, "")
+	return newestSnapshotID(ctx, q, s.cityID)
 }
 
 // queryer is the read surface shared by *sql.DB and *sql.Tx.
@@ -125,18 +123,38 @@ type queryer interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
-// newestSnapshotID is the newest snapshot for the city, restricted to
-// configHash when it is non-empty. Ordered by id, which is monotonic, rather
-// than created_at, which has second granularity. 0 when none.
-func newestSnapshotID(ctx context.Context, q queryer, cityID int64, configHash string) (int64, error) {
-	query := `SELECT id FROM snapshots WHERE city_id = ? ORDER BY id DESC LIMIT 1`
-	args := []any{cityID}
-	if configHash != "" {
-		query = `SELECT id FROM snapshots WHERE city_id = ? AND config_hash = ? ORDER BY id DESC LIMIT 1`
-		args = append(args, configHash)
-	}
+// The statements that resolve a city's snapshot. Each names the city and
+// seeks a key: snapshot_cities' primary key or idx_snapshot_cities_city,
+// snapshot_parts' primary key (TestQueryPlan_SnapshotStatements).
+const (
+	// sqlCityInSnapshot: does snapshot ? cover city ?
+	sqlCityInSnapshot = `SELECT 1 FROM snapshot_cities WHERE snapshot_id = ? AND city_id = ?`
+	// sqlNewestSnapshotForCity: the newest snapshot covering city ?. By id,
+	// which is monotonic, rather than created_at, which has second
+	// granularity.
+	sqlNewestSnapshotForCity = `SELECT snapshot_id FROM snapshot_cities WHERE city_id = ? ORDER BY snapshot_id DESC LIMIT 1`
+	// sqlSnapshotParts: city ?'s manifest in snapshot ?.
+	sqlSnapshotParts = `SELECT part, run_id FROM snapshot_parts WHERE snapshot_id = ? AND city_id = ?`
+	// sqlResolveSnapshotName: the id of snapshot named ? when it covers city ?.
+	sqlResolveSnapshotName = `SELECT c.snapshot_id FROM snapshots s
+		JOIN snapshot_cities c ON c.snapshot_id = s.id AND c.city_id = ?
+		WHERE s.name = ?`
+	// sqlFrozenBoundary: the boundary snapshot ? froze for city ?.
+	sqlFrozenBoundary = `SELECT b.geometry_json FROM snapshot_cities c
+		LEFT JOIN snapshot_boundaries b ON b.id = c.boundary_id
+		WHERE c.snapshot_id = ? AND c.city_id = ?`
+	// sqlRunInSnapshots: how many snapshot manifests hold run ?.
+	sqlRunInSnapshots = `SELECT COUNT(*) FROM snapshot_parts WHERE run_id = ?`
+	// sqlSweepSnapshotBoundaries: drop city ?'s frozen boundaries no snapshot
+	// city references any more.
+	sqlSweepSnapshotBoundaries = `DELETE FROM snapshot_boundaries WHERE city_id = ?
+		AND id NOT IN (SELECT boundary_id FROM snapshot_cities WHERE boundary_id IS NOT NULL)`
+)
+
+// newestSnapshotID is the newest snapshot covering the city; 0 when none.
+func newestSnapshotID(ctx context.Context, q queryer, cityID int64) (int64, error) {
 	var id int64
-	switch err := q.QueryRowContext(ctx, query, args...).Scan(&id); {
+	switch err := q.QueryRowContext(ctx, sqlNewestSnapshotForCity, cityID).Scan(&id); {
 	case errors.Is(err, sql.ErrNoRows):
 		return 0, nil
 	case err != nil:
@@ -145,16 +163,14 @@ func newestSnapshotID(ctx context.Context, q queryer, cityID int64, configHash s
 	return id, nil
 }
 
-// snapshotParts returns a snapshot's manifest as part -> run id. An id of 0
-// (no snapshot) returns an empty map.
+// snapshotParts returns the city's manifest in a snapshot as part -> run id.
+// An id of 0 (no snapshot) returns an empty map.
 func snapshotParts(ctx context.Context, q queryer, cityID, snapshotID int64) (map[string]int64, error) {
 	parts := map[string]int64{}
 	if snapshotID == 0 {
 		return parts, nil
 	}
-	rows, err := q.QueryContext(ctx,
-		`SELECT p.part, p.run_id FROM snapshot_parts p JOIN snapshots s ON s.id = p.snapshot_id
-		 WHERE p.snapshot_id = ? AND s.city_id = ?`, snapshotID, cityID)
+	rows, err := q.QueryContext(ctx, sqlSnapshotParts, snapshotID, cityID)
 	if err != nil {
 		return nil, fmt.Errorf("query snapshot parts: %w", err)
 	}
@@ -183,8 +199,8 @@ func applyParts(base, parts map[string]int64) {
 }
 
 // viewRunIDs returns the runs this view reads, sorted for stable SQL: the
-// pinned snapshot's manifest, the pinned runs, the latest compute under the
-// view's hash, or else the newest snapshot's manifest.
+// city's manifest in the pinned snapshot, the pinned runs, the latest compute
+// under the view's hash, or else its manifest in the newest snapshot.
 func (s *sqliteStore) viewRunIDs(ctx context.Context) ([]int64, error) {
 	switch {
 	case s.snapshotID > 0:
@@ -307,7 +323,7 @@ func (s *sqliteStore) CreateRun(ctx context.Context, producer, configHash string
 func runRefs(ctx context.Context, q queryer, runID int64) (int, error) {
 	var refs int
 	if err := q.QueryRowContext(ctx,
-		`SELECT (SELECT COUNT(*) FROM snapshot_parts WHERE run_id = ?) + (SELECT COUNT(*) FROM working_parts WHERE run_id = ?)`,
+		`SELECT (`+sqlRunInSnapshots+`) + (SELECT COUNT(*) FROM working_parts WHERE run_id = ?)`,
 		runID, runID).Scan(&refs); err != nil {
 		return 0, fmt.Errorf("check run %d references: %w", runID, err)
 	}
@@ -396,30 +412,26 @@ func workingParts(ctx context.Context, q queryer, cityID int64, configHash strin
 	return parts, rows.Err()
 }
 
-// insertSnapshot writes a new snapshot row with manifest as its parts,
-// freezing hexEdgeM and the city's current boundary on it, and returns its id.
-func (s *sqliteStore) insertSnapshot(ctx context.Context, tx *sql.Tx, configHash string, hexEdgeM float64, manifest map[string]int64) (int64, error) {
+// insertSnapshotCity records req's city in snapshot snapshotID with manifest
+// as its parts, freezing req.HexEdgeM and the city's current boundary.
+func insertSnapshotCity(ctx context.Context, tx *sql.Tx, snapshotID int64, req SnapshotRequest, manifest map[string]int64) error {
 	var boundary sql.NullInt64
 	var err error
-	if boundary.Int64, boundary.Valid, err = freezeBoundary(ctx, tx, s.cityID); err != nil {
-		return 0, err
+	if boundary.Int64, boundary.Valid, err = freezeBoundary(ctx, tx, req.CityID); err != nil {
+		return err
 	}
-	res, err := tx.ExecContext(ctx, `INSERT INTO snapshots (city_id, created_at, config_hash, hex_edge_m, boundary_id) VALUES (?, ?, ?, ?, ?)`,
-		s.cityID, nowUnix(), configHash, hexEdgeM, boundary)
-	if err != nil {
-		return 0, fmt.Errorf("create snapshot: %w", err)
-	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		return 0, fmt.Errorf("create snapshot id: %w", err)
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO snapshot_cities (snapshot_id, city_id, config_hash, hex_edge_m, boundary_id) VALUES (?, ?, ?, ?, ?)`,
+		snapshotID, req.CityID, req.ConfigHash, req.HexEdgeM, boundary); err != nil {
+		return fmt.Errorf("record snapshot city %d: %w", req.CityID, err)
 	}
 	for _, part := range slices.Sorted(maps.Keys(manifest)) {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO snapshot_parts (snapshot_id, part, run_id) VALUES (?, ?, ?)`,
-			id, part, manifest[part]); err != nil {
-			return 0, fmt.Errorf("record snapshot part %s: %w", part, err)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO snapshot_parts (snapshot_id, city_id, part, run_id) VALUES (?, ?, ?, ?)`,
+			snapshotID, req.CityID, part, manifest[part]); err != nil {
+			return fmt.Errorf("record snapshot part %s: %w", part, err)
 		}
 	}
-	return id, nil
+	return nil
 }
 
 // setWorkingParts makes manifest the city's latest compute for configHash,
@@ -466,58 +478,62 @@ func (s *sqliteStore) checkCommitRuns(ctx context.Context, tx *sql.Tx, configHas
 	return nil
 }
 
-// ListSnapshots returns this city's snapshots newest first, with manifests.
-func (s *sqliteStore) ListSnapshots(ctx context.Context) ([]Snapshot, error) {
-	return listSnapshots(ctx, s.db, s.cityID, 0)
+// ListSnapshots returns the snapshots covering this city newest first, with
+// the city's manifests.
+func (s *sqliteStore) ListSnapshots(ctx context.Context) ([]SnapshotCity, error) {
+	return listSnapshotCities(ctx, s.db, `c.city_id = ?`, `c.snapshot_id DESC`, s.cityID)
 }
 
-// listSnapshots lists the city's snapshots newest first (by id; created_at
-// has second granularity), each with its manifest sorted by part. A non-zero
-// only restricts the result to that one snapshot.
-func listSnapshots(ctx context.Context, q queryer, cityID, only int64) ([]Snapshot, error) {
-	query := `SELECT s.id, s.created_at, s.config_hash, s.hex_edge_m, COALESCE(b.digest, ''), p.part, p.run_id, r.computed_at
-		FROM snapshots s
-		LEFT JOIN snapshot_boundaries b ON b.id = s.boundary_id
-		LEFT JOIN snapshot_parts p ON p.snapshot_id = s.id
+// listSnapshotCities reads snapshot cities matching where (a fragment over
+// snapshot_cities c, with its binds), ordered by order then part, each with
+// its manifest. Both fragments are compile-time literals at every call site.
+func listSnapshotCities(ctx context.Context, q queryer, where, order string, args ...any) ([]SnapshotCity, error) {
+	query := `SELECT s.id, s.name, s.created_at, s.compute_epoch, c.city_id, ci.slug, c.config_hash, c.hex_edge_m,
+			COALESCE(b.digest, ''), p.part, p.run_id, r.computed_at
+		FROM snapshot_cities c
+		JOIN snapshots s ON s.id = c.snapshot_id
+		JOIN cities ci ON ci.id = c.city_id
+		LEFT JOIN snapshot_boundaries b ON b.id = c.boundary_id
+		LEFT JOIN snapshot_parts p ON p.snapshot_id = c.snapshot_id AND p.city_id = c.city_id
 		LEFT JOIN runs r ON r.id = p.run_id
-		WHERE s.city_id = ? AND (? = 0 OR s.id = ?)
-		ORDER BY s.id DESC, p.part`
-	rows, err := q.QueryContext(ctx, query, cityID, only, only)
+		WHERE ` + where + `
+		ORDER BY ` + order + `, p.part`
+	rows, err := q.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query snapshots: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
-	var out []Snapshot
+	var out []SnapshotCity
 	for rows.Next() {
 		var (
-			snap       Snapshot
+			snap       SnapshotCity
 			part       sql.NullString
 			runID      sql.NullInt64
 			computedAt time.Time
 		)
-		if err := rows.Scan(&snap.ID, unixTime{&snap.CreatedAt}, &snap.ConfigHash, &snap.HexEdgeM, &snap.BoundaryDigest, &part, &runID, unixTime{&computedAt}); err != nil {
+		if err := rows.Scan(&snap.ID, &snap.Name, unixTime{&snap.CreatedAt}, &snap.ComputeEpoch, &snap.CityID, &snap.CitySlug,
+			&snap.ConfigHash, &snap.HexEdgeM, &snap.BoundaryDigest, &part, &runID, unixTime{&computedAt}); err != nil {
 			return nil, fmt.Errorf("scan snapshot: %w", err)
 		}
-		if len(out) == 0 || out[len(out)-1].ID != snap.ID {
+		if n := len(out); n == 0 || out[n-1].ID != snap.ID || out[n-1].CityID != snap.CityID {
 			out = append(out, snap)
 		}
 		if part.Valid {
-			p := SnapshotPart{Part: part.String, RunID: runID.Int64, ComputedAt: computedAt}
 			last := &out[len(out)-1]
-			last.Parts = append(last.Parts, p)
+			last.Parts = append(last.Parts, SnapshotPart{Part: part.String, RunID: runID.Int64, ComputedAt: computedAt})
 		}
 	}
 	return out, rows.Err()
 }
 
 // ViewSnapshot returns the snapshot this view reads. See the Store interface.
-func (s *sqliteStore) ViewSnapshot(ctx context.Context) (*Snapshot, error) {
+func (s *sqliteStore) ViewSnapshot(ctx context.Context) (*SnapshotCity, error) {
 	id, err := s.resolvedSnapshotID(ctx, s.db)
 	if err != nil || id == 0 {
 		return nil, err
 	}
-	snaps, err := listSnapshots(ctx, s.db, s.cityID, id)
+	snaps, err := listSnapshotCities(ctx, s.db, `c.snapshot_id = ? AND c.city_id = ?`, `c.snapshot_id`, id, s.cityID)
 	if err != nil {
 		return nil, err
 	}
@@ -527,76 +543,18 @@ func (s *sqliteStore) ViewSnapshot(ctx context.Context) (*Snapshot, error) {
 	return &snaps[0], nil
 }
 
-// ParseSnapshotID reads a snapshot id as a person supplies it, on a command
-// line or in a URL: a positive whole number.
-func ParseSnapshotID(s string) (int64, error) {
-	id, err := strconv.ParseInt(s, 10, 64)
-	if err != nil {
-		return 0, fmt.Errorf("invalid snapshot id %q: %w", s, err)
-	}
-	if id <= 0 {
-		return 0, fmt.Errorf("snapshot id must be positive, got %d", id)
+// ResolveSnapshot returns the id of the snapshot named name when it covers
+// this city, and sql.ErrNoRows otherwise. The server uses it to turn an
+// unknown ?snapshot=<name> into a 404 rather than an empty response.
+func (s *sqliteStore) ResolveSnapshot(ctx context.Context, name string) (int64, error) {
+	var id int64
+	if err := s.db.QueryRowContext(ctx, sqlResolveSnapshotName, s.cityID, name).Scan(&id); err != nil {
+		return 0, err
 	}
 	return id, nil
 }
 
-// ResolveSnapshot returns nil iff the snapshot exists and belongs to this
-// city, and sql.ErrNoRows otherwise. The server uses it to turn an unknown
-// ?snapshot=<id> into a 404 rather than an empty response.
-func (s *sqliteStore) ResolveSnapshot(ctx context.Context, snapshotID int64) error {
-	if snapshotID <= 0 {
-		return fmt.Errorf("invalid snapshot id %d", snapshotID)
-	}
-	var n int64
-	return s.db.QueryRowContext(ctx,
-		`SELECT id FROM snapshots WHERE city_id = ? AND id = ?`, s.cityID, snapshotID).Scan(&n)
-}
-
-// DeleteSnapshot removes the snapshot's manifest, then the runs it referenced
-// that no remaining snapshot references (with their rows). A snapshot owned by
-// another city is treated as not found (false, nil).
-func (s *sqliteStore) DeleteSnapshot(ctx context.Context, snapshotID int64) (bool, error) {
-	if snapshotID <= 0 {
-		return false, fmt.Errorf("invalid snapshot id %d", snapshotID)
-	}
-	var deleted bool
-	err := s.withTx(ctx, func(tx *sql.Tx) error {
-		var owned int64
-		err := tx.QueryRowContext(ctx, `SELECT id FROM snapshots WHERE id = ? AND city_id = ?`,
-			snapshotID, s.cityID).Scan(&owned)
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("lookup snapshot: %w", err)
-		}
-		parts, err := snapshotParts(ctx, tx, s.cityID, snapshotID)
-		if err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM snapshot_parts WHERE snapshot_id = ?`, snapshotID); err != nil {
-			return fmt.Errorf("delete snapshot parts: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM snapshots WHERE id = ? AND city_id = ?`, snapshotID, s.cityID); err != nil {
-			return fmt.Errorf("delete snapshot: %w", err)
-		}
-		unreferenced, err := unreferencedRuns(ctx, tx, slices.Sorted(maps.Values(parts)))
-		if err != nil {
-			return err
-		}
-		if _, err := deleteRuns(ctx, tx, s.cityID, unreferenced); err != nil {
-			return err
-		}
-		if err := sweepSnapshotBoundaries(ctx, tx, s.cityID); err != nil {
-			return err
-		}
-		deleted = true
-		return nil
-	})
-	return deleted, err
-}
-
-// unreferencedRuns returns those of runIDs that neither a snapshot nor the
+// unreferencedRuns returns those of runIDs that neither a snapshot nor a
 // latest compute references.
 func unreferencedRuns(ctx context.Context, tx *sql.Tx, runIDs []int64) ([]int64, error) {
 	var out []int64
@@ -612,7 +570,7 @@ func unreferencedRuns(ctx context.Context, tx *sql.Tx, runIDs []int64) ([]int64,
 	return out, nil
 }
 
-// deleteRuns deletes those of runIDs that belong to this city, with every row
+// deleteRuns deletes those of runIDs that belong to cityID, with every row
 // they wrote (ON DELETE CASCADE), returning per-table row counts. The caller
 // guarantees no snapshot references them.
 func deleteRuns(ctx context.Context, tx *sql.Tx, cityID int64, runIDs []int64) (GCResultCounts, error) {

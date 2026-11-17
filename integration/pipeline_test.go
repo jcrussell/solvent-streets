@@ -8,9 +8,11 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -237,12 +239,19 @@ func factoryFor(cfg *config.Config, city *config.CityConfig, store db.Store, roo
 	}
 }
 
-// snapshotsCreate runs `pvmt snapshots create` for f's city.
+// created numbers the snapshots snapshotsCreate names.
+var created atomic.Int64
+
+// snapshotsCreate runs `pvmt snapshots create <name>` over f's config, which
+// snapshots every configured city (so without --city).
 func snapshotsCreate(t *testing.T, ctx context.Context, f *cmdutil.Factory) {
 	t.Helper()
-	cmd := snapshots.NewCmdSnapshots(f)
+	all := *f
+	all.CityFlagSet = nil
+	cmd := snapshots.NewCmdSnapshots(&all)
 	cmd.SilenceErrors, cmd.SilenceUsage = true, true
-	cmd.SetArgs([]string{"create"})
+	name := fmt.Sprintf("s%d", created.Add(1))
+	cmd.SetArgs([]string{"create", name})
 	if err := cmd.ExecuteContext(ctx); err != nil {
 		t.Fatalf("snapshots create: %v\nstdout:\n%v\nstderr:\n%v", err, f.IOStreams.Out, f.IOStreams.ErrOut)
 	}

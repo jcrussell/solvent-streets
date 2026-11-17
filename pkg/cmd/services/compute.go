@@ -121,7 +121,7 @@ reachable point along a road from the hex centre (or, for an edge hex whose
 centre the boundary clipped away, from a point inside what remains) — as a
 per-hex metric.
 The result updates the service's own part of the city's latest compute, so
-a later roads compute leaves it in place; run 'pvmt snapshots create' to
+a later roads compute leaves it in place; run 'pvmt snapshots create <name>' to
 publish it, and rerun this after re-ingesting roads or facilities. Hexes off
 the network carry no value; hexes on it that no facility reaches are recorded
 as unreachable, with no time, and count against the within-threshold share.`,

@@ -43,32 +43,31 @@ func TestLatestCompute(t *testing.T) {
 	}
 }
 
-// TestCreateSnapshot: create freezes the latest compute, is a no-op when the
-// newest snapshot already freezes the same thing, and never creates an empty
-// snapshot.
+// TestCreateSnapshot: a city with nothing computed is refused, an empty hash
+// or zero edge is an error, and every create makes a new snapshot, even of
+// an unchanged latest compute (a snapshot is a name, not a deduplicated
+// state).
 func TestCreateSnapshot(t *testing.T) {
 	ctx := context.Background()
 	_, store, _ := openInputsStore(t)
 
-	if _, _, err := store.CreateSnapshot(ctx, "h", testEdge, nil); !errors.Is(err, ErrNothingComputed) {
+	if _, err := createCitySnapshot(store, "h", testEdge, nil); !errors.Is(err, ErrNothingComputed) {
 		t.Fatalf("empty latest compute: err = %v, want ErrNothingComputed", err)
 	}
-	if _, _, err := store.CreateSnapshot(ctx, "", testEdge, nil); err == nil {
+	if _, err := createCitySnapshot(store, "", testEdge, nil); err == nil {
 		t.Error("an empty config hash was accepted")
 	}
-	if _, _, err := store.CreateSnapshot(ctx, "h", 0, nil); err == nil {
+	if _, err := createCitySnapshot(store, "h", 0, nil); err == nil {
 		t.Error("a zero hex edge was accepted")
 	}
 
 	if err := store.SaveBoundary(ctx, geomA, "nominatim"); err != nil {
 		t.Fatal(err)
 	}
-	_, s1 := commitRun(t, store, "h", "roads", nil)
-
-	// The compute's own snapshot already freezes this: unchanged.
-	snap, created, err := store.CreateSnapshot(ctx, "h", testEdge, nil)
-	if err != nil || created || snap.ID != s1 {
-		t.Fatalf("CreateSnapshot = (%+v, %v, %v), want snapshot %d unchanged", snap, created, err, s1)
+	roads, s1 := commitRun(t, store, "h", "roads", nil)
+	snap, err := createCitySnapshot(store, "h", testEdge, nil)
+	if err != nil || snap.ID == s1 || len(snap.Parts) != 1 || snap.Parts[0].RunID != roads {
+		t.Fatalf("CreateSnapshot = (%+v, %v), want a new snapshot of roads run %d", snap, err, roads)
 	}
 }
 
@@ -79,7 +78,7 @@ func TestCreateSnapshot_Check(t *testing.T) {
 	ctx := context.Background()
 	root, store, id := openInputsStore(t)
 	snapshots := func() int {
-		return countRows(t, root, `SELECT COUNT(*) FROM snapshots WHERE city_id = ?`, id)
+		return countRows(t, root, `SELECT COUNT(*) FROM snapshot_cities WHERE city_id = ?`, id)
 	}
 	if err := store.SaveBoundary(ctx, geomA, "nominatim"); err != nil {
 		t.Fatal(err)
@@ -95,7 +94,7 @@ func TestCreateSnapshot_Check(t *testing.T) {
 	if err := store.SaveBoundary(ctx, geomB, "nominatim"); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err := store.CreateSnapshot(ctx, "h", testEdge, func(parts []LatestPart, inputs []InputState) error {
+	_, err := createCitySnapshot(store, "h", testEdge, func(parts []LatestPart, inputs []InputState) error {
 		seen, seenInputs = parts, inputs
 		return refuse
 	})
@@ -112,41 +111,13 @@ func TestCreateSnapshot_Check(t *testing.T) {
 		t.Errorf("a refused create wrote %d snapshot(s)", n-before)
 	}
 
-	// A new boundary makes a new snapshot of the same manifest, frozen to it.
-	snap, created, err := store.CreateSnapshot(ctx, "h", testEdge, func([]LatestPart, []InputState) error { return nil })
-	if err != nil || !created || snap.ID == s1 {
-		t.Fatalf("after a boundary change CreateSnapshot = (%+v, %v, %v), want a new snapshot", snap, created, err)
+	// A passing check freezes the same manifest on the new boundary.
+	snap, err := createCitySnapshot(store, "h", testEdge, func([]LatestPart, []InputState) error { return nil })
+	if err != nil || snap.ID == s1 {
+		t.Fatalf("after a boundary change CreateSnapshot = (%+v, %v), want a new snapshot", snap, err)
 	}
 	if snap.BoundaryDigest != boundaryDigest(geomB, "nominatim") || len(snap.Parts) != 1 || snap.Parts[0].RunID != roads {
 		t.Errorf("new snapshot = %+v, want roads run %d on boundary B", snap, roads)
-	}
-}
-
-// TestCreateSnapshot_Unchanged: a new edge makes a new snapshot, repeating
-// it is unchanged, and the newest snapshot being another hash's makes the
-// same latest compute new again.
-func TestCreateSnapshot_Unchanged(t *testing.T) {
-	ctx := context.Background()
-	_, store, _ := openInputsStore(t)
-	_, s1 := commitRun(t, store, "h", "roads", nil)
-
-	// A new edge makes a new snapshot; repeating it is unchanged.
-	snap, created, err := store.CreateSnapshot(ctx, "h", 2*testEdge, nil)
-	if err != nil || !created || snap.HexEdgeM != 2*testEdge {
-		t.Fatalf("new edge: CreateSnapshot = (%+v, %v, %v), want a new snapshot at %v m", snap, created, err, 2*testEdge)
-	}
-	again, created, err := store.CreateSnapshot(ctx, "h", 2*testEdge, nil)
-	if err != nil || created || again.ID != snap.ID {
-		t.Errorf("repeat: CreateSnapshot = (%+v, %v, %v), want %d unchanged", again, created, err, snap.ID)
-	}
-	if again.ID == s1 {
-		t.Error("the repeat matched an older snapshot, not the newest")
-	}
-
-	// The newest snapshot being another hash's makes this one new again.
-	commitRun(t, store, "other", "roads", nil)
-	if _, created, err := store.CreateSnapshot(ctx, "h", 2*testEdge, nil); err != nil || !created {
-		t.Errorf("after another hash's snapshot: created = %v, err = %v; want a new snapshot", created, err)
 	}
 }
 

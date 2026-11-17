@@ -3,8 +3,10 @@ package dbtest
 import (
 	"cmp"
 	"context"
+	"fmt"
 	"maps"
 	"slices"
+	"sync/atomic"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
@@ -37,14 +39,12 @@ type MockStore struct {
 	DiscardRunFunc        func(context.Context, int64) error
 	CommitLatestFunc      func(context.Context, string, map[string]int64) error
 	LatestComputeFunc     func(context.Context, string) ([]db.LatestPart, error)
-	CreateSnapshotFunc    func(context.Context, string, float64, db.CheckFunc) (*db.Snapshot, bool, error)
-	ListSnapshotsFunc     func(context.Context) ([]db.Snapshot, error)
-	ResolveSnapshotFunc   func(context.Context, int64) error
-	ViewSnapshotFunc      func(context.Context) (*db.Snapshot, error)
+	ListSnapshotsFunc     func(context.Context) ([]db.SnapshotCity, error)
+	ResolveSnapshotFunc   func(context.Context, string) (int64, error)
+	ViewSnapshotFunc      func(context.Context) (*db.SnapshotCity, error)
 	WithSnapshotFunc      func(int64) db.Store
 	WithLatestComputeFunc func(string) db.Store
 	WithRunsFunc          func([]int64) db.Store
-	DeleteSnapshotFunc    func(context.Context, int64) (bool, error)
 	GCScanFunc            func(context.Context, []string) (*db.GCReport, error)
 	GCSweepFunc           func(context.Context, []string) (*db.GCReport, error)
 	InputStatesFunc       func(context.Context) ([]db.InputState, error)
@@ -248,56 +248,20 @@ func (m *MockStore) LatestCompute(ctx context.Context, hash string) ([]db.Latest
 	return nil, nil
 }
 
-// CreateSnapshot delegates to CreateSnapshotFunc. Otherwise it runs check
-// over LatestCompute and InputStates, refuses an empty latest compute with
-// db.ErrNothingComputed, and returns snapshot 1 holding those parts,
-// created. It never reports unchanged; tests of that use a real store.
-func (m *MockStore) CreateSnapshot(ctx context.Context, hash string, hexEdgeM float64, check db.CheckFunc) (*db.Snapshot, bool, error) {
-	if m.CreateSnapshotFunc != nil {
-		return m.CreateSnapshotFunc(ctx, hash, hexEdgeM, check)
-	}
-	parts, err := m.LatestCompute(ctx, hash)
-	if err != nil {
-		return nil, false, err
-	}
-	states, err := m.InputStates(ctx)
-	if err != nil {
-		return nil, false, err
-	}
-	if check != nil {
-		if err := check(parts, states); err != nil {
-			return nil, false, err
-		}
-	}
-	if len(parts) == 0 {
-		return nil, false, db.ErrNothingComputed
-	}
-	snap := &db.Snapshot{ID: 1, ConfigHash: hash, HexEdgeM: hexEdgeM}
-	for _, p := range parts {
-		snap.Parts = append(snap.Parts, db.SnapshotPart{Part: p.Part, RunID: p.RunID, ComputedAt: p.ComputedAt})
-	}
-	return snap, true, nil
-}
-
-func (m *MockStore) ListSnapshots(ctx context.Context) ([]db.Snapshot, error) {
+func (m *MockStore) ListSnapshots(ctx context.Context) ([]db.SnapshotCity, error) {
 	if m.ListSnapshotsFunc != nil {
 		return m.ListSnapshotsFunc(ctx)
 	}
-	return []db.Snapshot{}, nil
+	return []db.SnapshotCity{}, nil
 }
 
-func (m *MockStore) ResolveSnapshot(ctx context.Context, id int64) error {
+// ResolveSnapshot delegates to ResolveSnapshotFunc, else resolves every
+// name to snapshot 1.
+func (m *MockStore) ResolveSnapshot(ctx context.Context, name string) (int64, error) {
 	if m.ResolveSnapshotFunc != nil {
-		return m.ResolveSnapshotFunc(ctx, id)
+		return m.ResolveSnapshotFunc(ctx, name)
 	}
-	return nil
-}
-
-func (m *MockStore) DeleteSnapshot(ctx context.Context, id int64) (bool, error) {
-	if m.DeleteSnapshotFunc != nil {
-		return m.DeleteSnapshotFunc(ctx, id)
-	}
-	return false, nil
+	return 1, nil
 }
 
 func (m *MockStore) GCScan(ctx context.Context, keepSources []string, _ int) (*db.GCReport, error) {
@@ -336,7 +300,7 @@ func (m *MockStore) InputDigests(ctx context.Context, inputs ...string) (map[str
 
 // ViewSnapshot delegates to ViewSnapshotFunc if set, otherwise returns
 // (nil, nil): no snapshot, so callers fall back to the config.
-func (m *MockStore) ViewSnapshot(ctx context.Context) (*db.Snapshot, error) {
+func (m *MockStore) ViewSnapshot(ctx context.Context) (*db.SnapshotCity, error) {
 	if m.ViewSnapshotFunc != nil {
 		return m.ViewSnapshotFunc(ctx)
 	}
@@ -406,10 +370,14 @@ func (m *MockStore) Close() error {
 // MockRootStore mocks the RootStore for testing multi-city commands.
 // It implements db.RootStorer.
 type MockRootStore struct {
-	EnsureCityFunc func(context.Context, string, string, string) (int64, error)
-	ListCitiesFunc func(context.Context) ([]db.City, error)
-	ForCityFunc    func(id int64) db.Store
-	CloseFunc      func() error
+	EnsureCityFunc     func(context.Context, string, string, string) (int64, error)
+	ListCitiesFunc     func(context.Context) ([]db.City, error)
+	ForCityFunc        func(id int64) db.Store
+	CreateSnapshotFunc func(context.Context, string, int, []db.SnapshotRequest) (*db.Snapshot, error)
+	ListSnapshotsFunc  func(context.Context) ([]db.Snapshot, error)
+	SnapshotFunc       func(context.Context, string) (*db.Snapshot, error)
+	DeleteSnapshotFunc func(context.Context, string) (bool, error)
+	CloseFunc          func() error
 }
 
 func (m *MockRootStore) EnsureCity(ctx context.Context, slug, name, configID string) (int64, error) {
@@ -433,6 +401,75 @@ func (m *MockRootStore) ForCity(id int64) db.Store {
 	return &MockStore{}
 }
 
+// CreateSnapshot delegates to CreateSnapshotFunc. Otherwise, for each city,
+// it runs the check over ForCity's LatestCompute and InputStates and refuses
+// an empty latest compute with db.ErrNothingComputed, like the real store;
+// any refusal returns a *db.SnapshotRefusedError, else snapshot 1 named name
+// holding every city's parts.
+func (m *MockRootStore) CreateSnapshot(ctx context.Context, name string, epoch int, cities []db.SnapshotRequest) (*db.Snapshot, error) {
+	if m.CreateSnapshotFunc != nil {
+		return m.CreateSnapshotFunc(ctx, name, epoch, cities)
+	}
+	if err := db.CheckSnapshotName(name); err != nil {
+		return nil, err
+	}
+	snap := &db.Snapshot{ID: 1, Name: name, ComputeEpoch: epoch}
+	refused := &db.SnapshotRefusedError{Name: name}
+	for _, req := range cities {
+		store := m.ForCity(req.CityID)
+		parts, err := store.LatestCompute(ctx, req.ConfigHash)
+		if err != nil {
+			return nil, err
+		}
+		states, err := store.InputStates(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if len(parts) == 0 {
+			refused.Refusals = append(refused.Refusals, db.CityRefusal{CityID: req.CityID, Err: db.ErrNothingComputed})
+			continue
+		}
+		if req.Check != nil {
+			if err := req.Check(parts, states); err != nil {
+				refused.Refusals = append(refused.Refusals, db.CityRefusal{CityID: req.CityID, Err: err})
+				continue
+			}
+		}
+		city := db.SnapshotCity{ID: 1, Name: name, ComputeEpoch: epoch, CityID: req.CityID, ConfigHash: req.ConfigHash, HexEdgeM: req.HexEdgeM}
+		for _, p := range parts {
+			city.Parts = append(city.Parts, db.SnapshotPart{Part: p.Part, RunID: p.RunID, ComputedAt: p.ComputedAt})
+		}
+		snap.Cities = append(snap.Cities, city)
+	}
+	if len(refused.Refusals) > 0 {
+		return nil, refused
+	}
+	snap.CityCount = len(snap.Cities)
+	return snap, nil
+}
+
+func (m *MockRootStore) ListSnapshots(ctx context.Context) ([]db.Snapshot, error) {
+	if m.ListSnapshotsFunc != nil {
+		return m.ListSnapshotsFunc(ctx)
+	}
+	return []db.Snapshot{}, nil
+}
+
+// Snapshot delegates to SnapshotFunc, else reports db.ErrSnapshotNotFound.
+func (m *MockRootStore) Snapshot(ctx context.Context, name string) (*db.Snapshot, error) {
+	if m.SnapshotFunc != nil {
+		return m.SnapshotFunc(ctx, name)
+	}
+	return nil, db.ErrSnapshotNotFound
+}
+
+func (m *MockRootStore) DeleteSnapshot(ctx context.Context, name string) (bool, error) {
+	if m.DeleteSnapshotFunc != nil {
+		return m.DeleteSnapshotFunc(ctx, name)
+	}
+	return false, nil
+}
+
 func (m *MockRootStore) Close() error {
 	if m.CloseFunc != nil {
 		return m.CloseFunc()
@@ -440,15 +477,24 @@ func (m *MockRootStore) Close() error {
 	return nil
 }
 
-// Publish commits parts into store's latest compute under hash, then
-// freezes it as a snapshot tiled at hexEdgeM, unchecked: what `pvmt <res>
-// compute` followed by `pvmt snapshots create` leaves behind.
-func Publish(ctx context.Context, store db.Store, hash string, hexEdgeM float64, parts map[string]int64) (*db.Snapshot, error) {
-	if err := store.CommitLatest(ctx, hash, config.ComputeEpoch, parts); err != nil {
+// published numbers the snapshots Publish creates.
+var published atomic.Int64
+
+// Publish commits parts into city cityID's latest compute under hash, then
+// freezes it, unchecked and tiled at hexEdgeM, as a new snapshot covering
+// only that city (named "publish-<n>"): what `pvmt <res> compute` followed by
+// `pvmt snapshots create` leaves behind. It returns the city's entry.
+func Publish(ctx context.Context, root db.RootStorer, cityID int64, hash string, hexEdgeM float64, parts map[string]int64) (*db.SnapshotCity, error) {
+	if err := root.ForCity(cityID).CommitLatest(ctx, hash, config.ComputeEpoch, parts); err != nil {
 		return nil, err
 	}
-	snap, _, err := store.CreateSnapshot(ctx, hash, hexEdgeM, nil)
-	return snap, err
+	name := fmt.Sprintf("publish-%d", published.Add(1))
+	snap, err := root.CreateSnapshot(ctx, name, config.ComputeEpoch,
+		[]db.SnapshotRequest{{CityID: cityID, ConfigHash: hash, HexEdgeM: hexEdgeM}})
+	if err != nil {
+		return nil, err
+	}
+	return &snap.Cities[0], nil
 }
 
 // RecordIngestAttempts appends to m.Attempts.
@@ -463,4 +509,19 @@ func (m *MockStore) IngestHistory(ctx context.Context) ([]db.IngestHistory, erro
 		return m.IngestHistoryFunc(ctx)
 	}
 	return []db.IngestHistory{}, nil
+}
+
+// DeleteSnapshotID deletes the snapshot with id (as Publish returns it)
+// through root.DeleteSnapshot; (false, nil) when there is none.
+func DeleteSnapshotID(ctx context.Context, root db.RootStorer, id int64) (bool, error) {
+	snaps, err := root.ListSnapshots(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, s := range snaps {
+		if s.ID == id {
+			return root.DeleteSnapshot(ctx, s.Name)
+		}
+	}
+	return false, nil
 }

@@ -49,7 +49,7 @@ func TestRunFacilities_ReadFromTheResolvedSnapshot(t *testing.T) {
 		t.Errorf("another producer = %+v, want none", got)
 	}
 
-	if _, err := store.DeleteSnapshot(ctx, s1); err != nil {
+	if _, err := deleteSnapshotID(store, s1); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.WithSnapshot(s1).ListRunFacilities(ctx, "service:fire"); !errors.Is(err, ErrSnapshotGone) {

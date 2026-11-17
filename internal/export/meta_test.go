@@ -173,8 +173,8 @@ func TestBuildMeta_SnapshotDateUsesPinnedComputedAt(t *testing.T) {
 	computed := time.Date(2025, 11, 3, 9, 30, 0, 0, time.UTC)
 	store := &dbtest.MockStore{
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return boundaryGeoJSON, nil },
-		ListSnapshotsFunc: func(_ context.Context) ([]db.Snapshot, error) {
-			return []db.Snapshot{
+		ListSnapshotsFunc: func(_ context.Context) ([]db.SnapshotCity, error) {
+			return []db.SnapshotCity{
 				{ID: 7, CreatedAt: computed},
 				{ID: 6, CreatedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)},
 			}, nil
@@ -455,8 +455,8 @@ func TestBuildMeta_IngestFailures(t *testing.T) {
 func TestBuildMeta_StampFromTheView(t *testing.T) {
 	created := time.Date(2025, 11, 3, 9, 30, 0, 0, time.UTC)
 	entry := newMockEntry(nil)
-	entry.Store.(*dbtest.MockStore).ViewSnapshotFunc = func(context.Context) (*db.Snapshot, error) {
-		return &db.Snapshot{ID: 9, CreatedAt: created}, nil
+	entry.Store.(*dbtest.MockStore).ViewSnapshotFunc = func(context.Context) (*db.SnapshotCity, error) {
+		return &db.SnapshotCity{ID: 9, Name: "v0.5.0", CreatedAt: created}, nil
 	}
 	meta, err := BuildMeta(context.Background(), entry, 0)
 	if err != nil {

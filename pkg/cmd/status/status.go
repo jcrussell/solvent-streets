@@ -362,7 +362,7 @@ type latestView struct {
 	hash     string
 	latest   []db.LatestPart
 	inputs   []db.InputState
-	snaps    []db.Snapshot
+	snaps    []db.SnapshotCity
 	snapsErr error
 }
 
@@ -441,7 +441,7 @@ func (v latestView) printUnsnapshotted(ios *iostreams.IOStreams) {
 	if !v.ok || v.snapsErr != nil || len(v.latest) == 0 {
 		return
 	}
-	var newest *db.Snapshot
+	var newest *db.SnapshotCity
 	if len(v.snaps) > 0 {
 		newest = &v.snaps[0]
 	}
@@ -453,8 +453,8 @@ func (v latestView) printUnsnapshotted(ios *iostreams.IOStreams) {
 	if len(parts) > 1 {
 		noun = "parts"
 	}
-	fmt.Fprintf(ios.ErrOut, "\n%d %s not yet snapshotted (%s); run `pvmt --city %s snapshots create` to publish\n",
-		len(parts), noun, strings.Join(parts, ", "), v.city.Slug())
+	fmt.Fprintf(ios.ErrOut, "\n%d %s not yet snapshotted (%s); run `pvmt snapshots create <name>` to publish\n",
+		len(parts), noun, strings.Join(parts, ", "))
 }
 
 // noteStale prints the shared stale-settings hint when the city has
@@ -556,7 +556,7 @@ func totalPavedArea(ctx context.Context, store db.Store, rows []statusRow, allRe
 // printSnapshotHistory lists the newest snapshots with their config hash,
 // marking the newest, which export and serve publish, and the ones created
 // under the current settings (hash; "" marks none).
-func printSnapshotHistory(ios *iostreams.IOStreams, snapshots []db.Snapshot, hash string) {
+func printSnapshotHistory(ios *iostreams.IOStreams, snapshots []db.SnapshotCity, hash string) {
 	if len(snapshots) == 0 {
 		return
 	}
@@ -574,7 +574,7 @@ func printSnapshotHistory(ios *iostreams.IOStreams, snapshots []db.Snapshot, has
 		if len(marks) > 0 {
 			mark = "  (" + strings.Join(marks, ", ") + ")"
 		}
-		fmt.Fprintf(ios.ErrOut, "  #%d  %s  (%s)  %d parts  %s%s\n", s.ID, s.CreatedAt.Format(time.RFC3339),
+		fmt.Fprintf(ios.ErrOut, "  %s  %s  (%s)  %d parts  %s%s\n", s.Name, s.CreatedAt.Format(time.RFC3339),
 			iostreams.RelativeTime(s.CreatedAt), len(s.Parts), s.ConfigHash, mark)
 	}
 	if len(snapshots) > 5 {

@@ -425,8 +425,8 @@ func TestSnapshot_FreezesEdgeAndBoundary(t *testing.T) {
 	boundaryOf := func(snap int64) string {
 		t.Helper()
 		var gj string
-		if err := root.db.QueryRowContext(ctx, `SELECT b.geometry_json FROM snapshots s
-			JOIN snapshot_boundaries b ON b.id = s.boundary_id WHERE s.id = ?`, snap).Scan(&gj); err != nil {
+		if err := root.db.QueryRowContext(ctx, `SELECT b.geometry_json FROM snapshot_cities c
+			JOIN snapshot_boundaries b ON b.id = c.boundary_id WHERE c.snapshot_id = ?`, snap).Scan(&gj); err != nil {
 			t.Fatalf("boundary of snapshot %d: %v", snap, err)
 		}
 		return gj
@@ -448,7 +448,7 @@ func TestSnapshot_FreezesEdgeAndBoundary(t *testing.T) {
 	}
 
 	for _, snap := range []int64{s1, s2} {
-		if _, err := store.DeleteSnapshot(ctx, snap); err != nil {
+		if _, err := deleteSnapshotID(store, snap); err != nil {
 			t.Fatal(err)
 		}
 		// A survives s1's deletion (s2 still uses it), not s2's.
@@ -463,7 +463,7 @@ func TestSnapshot_FreezesEdgeAndBoundary(t *testing.T) {
 	if boundaryOf(s3) != geomB {
 		t.Error("deleting other snapshots lost s3's boundary")
 	}
-	if _, _, err := store.CreateSnapshot(ctx, "h", 0, nil); err == nil {
+	if _, err := createCitySnapshot(store, "h", 0, nil); err == nil {
 		t.Error("a snapshot with no hex edge succeeded")
 	}
 }

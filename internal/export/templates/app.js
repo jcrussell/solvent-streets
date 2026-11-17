@@ -410,7 +410,7 @@
             }
         });
 
-        // dataURL builds a /data/{file} request URL, appending ?snapshot=<id>
+        // dataURL builds a /data/{file} request URL, appending ?snapshot=<name>
         // if the snapshot-picker has a non-empty value. The picker only exists
         // in live-server mode; in static export this returns the bare URL.
         function dataURL(prefix, file) {
@@ -1744,8 +1744,8 @@
             // data-bbox is [west, south, east, north], fitBounds' own order.
             map.fitBounds([[bboxParts[0], bboxParts[1]], [bboxParts[2], bboxParts[3]]], { padding: 40 });
             setCityHeading(opt.textContent.trim());
-            // Snapshot ids are per-city. Reset the picker on city change so a
-            // stale id can't be sent against the new city's data endpoints.
+            // Each city has its own snapshot list. Reset the picker on city
+            // change so a snapshot the new city lacks is never requested.
             const snapEl = selectById('snapshot-picker');
             if (snapEl) snapEl.value = '';
             loadSnapshots(slug);
@@ -1784,18 +1784,20 @@
                 try { return new Date(ts).toISOString().slice(0, 16).replace('T', ' '); }
                 catch (e) { return ts; }
             };
+            // Snapshots are named (`pvmt snapshots create <name>`); names are
+            // [A-Za-z0-9._-] only, so they need no escaping in markup or URLs.
             const newest = list[0];
-            sel.innerHTML = '<option value="">Newest (#' + newest.id + ', ' + fmt(newest.created_at).slice(0, 10) + ')</option>' +
+            sel.innerHTML = '<option value="">Newest (' + newest.name + ', ' + fmt(newest.created_at).slice(0, 10) + ')</option>' +
                 '<option value="latest">' + LATEST_COMPUTE_LABEL + '</option>' +
-                list.map(s => '<option value="' + s.id + '" title="' + (s.config_hash || '').slice(0, 12) + '">#' + s.id + ' ' + fmt(s.created_at) + '</option>').join('');
+                list.map(s => '<option value="' + s.name + '" title="' + (s.config_hash || '').slice(0, 12) + '">' + s.name + ' ' + fmt(s.created_at) + '</option>').join('');
             // Restore from URL (covers initial load and bfcache restores).
             const want = Router.read().snapshot;
-            if (want && (String(want) === 'latest' || list.some(s => String(s.id) === String(want)))) {
+            if (want && (String(want) === 'latest' || list.some(s => s.name === String(want)))) {
                 const prev = sel.value;
                 sel.value = String(want);
                 // Boot's initial loadCityData/loadFinancials ran with the picker
                 // empty (Latest). If the URL deep-links a real snapshot, reload
-                // once so the board/financials reflect snapshot N. Guard against a
+                // once so the board/financials reflect that snapshot. Guard against a
                 // redundant load when the picker already held this value; the
                 // Bug-1 generation guard makes a stray concurrent reload safe, but
                 // avoid an obviously wasteful double-load.

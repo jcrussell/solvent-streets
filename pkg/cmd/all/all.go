@@ -151,7 +151,7 @@ func newAllCompute(f *cmdutil.Factory) *cobra.Command {
 on one shared hex grid: roads, parking and sidewalks coverage, the combined
 paved-area pass, then best-effort fire response coverage and per-hex
 population. All of a city's steps update its latest compute together; run
-'pvmt snapshots create' to publish it. A failed pavement or combined step
+'pvmt snapshots create <name>' to publish it. A failed pavement or combined step
 keeps its previous part and fails the run; a failed optional step only
 warns. An interrupted run commits nothing.
 

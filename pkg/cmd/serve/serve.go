@@ -149,7 +149,7 @@ func pinEntries(ctx context.Context, entries []exportpkg.CityEntry, errOut io.Wr
 		if err != nil {
 			return fmt.Errorf("list snapshots for %s: %w", entry.City.Name, err)
 		}
-		entry.Snapshots = append([]db.Snapshot{}, snaps...) // non-nil: read
+		entry.Snapshots = append([]db.SnapshotCity{}, snaps...) // non-nil: read
 		if err := warnStaleLatest(ctx, entry, errOut); err != nil {
 			return err
 		}
@@ -169,7 +169,7 @@ func pinEntries(ctx context.Context, entries []exportpkg.CityEntry, errOut io.Wr
 		if len(latest) > 0 {
 			entries[i] = exportpkg.LatestComputeEntry(entry, latest)
 			cmdutil.FprintWarnf(errOut, "%s has no snapshot; serving its latest compute (not snapshotted). "+
-				"Run `pvmt --city %s snapshots create` to publish it", entry.City.Name, entry.Slug)
+				"Run `pvmt snapshots create <name>` to publish it", entry.City.Name)
 			continue
 		}
 		err = fmt.Errorf("%w for %s", exportpkg.ErrNoSnapshot, entry.City.Name)
@@ -177,8 +177,8 @@ func pinEntries(ctx context.Context, entries []exportpkg.CityEntry, errOut io.Wr
 			err = hint.With(err, entry.Config.StaleHint(&entry.City))
 		} else {
 			err = hint.Withf(err, "%s has never been computed. Run `pvmt --city %s all compute` (after "+
-				"`pvmt --city %s all ingest` if its data is not ingested yet), then `pvmt --city %s snapshots create`.",
-				entry.City.Name, entry.Slug, entry.Slug, entry.Slug)
+				"`pvmt --city %s all ingest` if its data is not ingested yet), then `pvmt snapshots create <name>`.",
+				entry.City.Name, entry.Slug, entry.Slug)
 		}
 		cmdutil.FprintWarnf(errOut, "%v; serving it without data", err)
 		hint.Fprint(errOut, err)

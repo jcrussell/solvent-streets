@@ -147,7 +147,7 @@ func runStages(t *testing.T, ctx context.Context, s *e2eState) {
 	exec("ingest", "all", "ingest")
 	exec("compute", "all", "compute")
 	exec("forecast", "forecast")
-	exec("snapshot", "snapshots", "create")
+	exec("snapshot", "snapshots", "create", "e2e")
 	exec("export", "export", "--output", s.outDir, "--clean", "--json")
 	s.exportStdout = s.stdout.String()
 

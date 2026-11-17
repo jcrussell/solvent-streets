@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/prompt"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
@@ -14,47 +13,44 @@ import (
 )
 
 type PruneOptions struct {
-	IO            *iostreams.IOStreams
-	Prompter      prompt.Prompter
-	RootDB        func() (db.RootStorer, error)
-	ResolveCities func() ([]config.CityConfig, error)
-	Config        func() (*config.Config, error)
-	Keep          int
-	Yes           bool
+	IO          *iostreams.IOStreams
+	Prompter    prompt.Prompter
+	RootDB      func() (db.RootStorer, error)
+	CityFlagSet func() bool
+	Keep        int
+	Yes         bool
 }
 
 func NewCmdPrune(f *cmdutil.Factory, runF func(context.Context, *PruneOptions) error) *cobra.Command {
 	opts := &PruneOptions{
-		IO:            f.IOStreams,
-		Prompter:      f.Prompter,
-		RootDB:        func() (db.RootStorer, error) { return f.RootDB() },
-		ResolveCities: func() ([]config.CityConfig, error) { return cmdutil.ResolveCities(f) },
-		Config:        func() (*config.Config, error) { return f.Config() },
+		IO:          f.IOStreams,
+		Prompter:    f.Prompter,
+		RootDB:      func() (db.RootStorer, error) { return f.RootDB() },
+		CityFlagSet: cityFlagSet(f),
 	}
 
 	cmd := &cobra.Command{
 		Use:   "prune",
 		Args:  cobra.NoArgs,
-		Short: "Retain the N most recent snapshots per city",
-		Long: `Delete every snapshot beyond the N most recent per city, whatever settings
-each was created under, then every run neither a remaining snapshot nor the
-city's latest compute references, with the rows those runs wrote. The newest
-snapshot, the one export and serve publish, is always kept. Each snapshot is
-a whole city, so the N kept are N complete versions: runs the kept snapshots
-share with deleted ones stay. --keep is required and must be > 0.
-
-Scope: all configured cities by default; restrict to one with --city.
+		Short: "Retain the N most recent snapshots",
+		Long: `Delete every snapshot beyond the N most recent, then every run neither a
+remaining snapshot nor a latest compute references, with the rows those
+runs wrote. The newest snapshot, the one export and serve publish, is
+always kept. Each snapshot covers every city, so the N kept are N complete
+versions: runs the kept snapshots share with deleted ones stay. --keep is
+required and must be > 0. --city is not supported: a snapshot covers every
+configured city.
 
 ` + cmdutil.ConfirmHelp("prune"),
-		Example: `  # Keep the 5 most recent snapshots in every city (prompts)
+		Example: `  # Keep the 5 most recent snapshots (prompts)
   pvmt snapshots prune --keep=5
 
   # Skip the confirmation prompt
-  pvmt snapshots prune --keep=5 --yes
-
-  # Restrict the prune to one city
-  pvmt --city oakland-ca snapshots prune --keep=3`,
+  pvmt snapshots prune --keep=5 --yes`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := rejectCity(opts.CityFlagSet, "prune"); err != nil {
+				return err
+			}
 			if opts.Keep <= 0 {
 				return cmdutil.FlagErrorf("--keep must be > 0, got %d", opts.Keep)
 			}
@@ -65,84 +61,47 @@ Scope: all configured cities by default; restrict to one with --city.
 		},
 	}
 
-	cmd.Flags().IntVar(&opts.Keep, "keep", 0, "Number of most recent snapshots to retain per city (required)")
+	cmd.Flags().IntVar(&opts.Keep, "keep", 0, "Number of most recent snapshots to retain (required)")
 	cmd.Flags().BoolVarP(&opts.Yes, "yes", "y", false, "Skip the interactive confirmation")
 	_ = cmd.MarkFlagRequired("keep")
 
 	return cmd
 }
 
-// pruneVictims pairs a city with the snapshots that fall outside its
-// keep window, captured during the discovery pass so the confirmation
-// prompt can quote real totals and so a declined prompt leaves the DB
-// untouched.
-type pruneVictims struct {
-	city    config.CityConfig
-	store   db.Store
-	victims []db.Snapshot
-}
-
 func runPrune(ctx context.Context, opts *PruneOptions) error {
-	cities, err := opts.ResolveCities()
-	if err != nil {
-		return err
-	}
 	root, err := opts.RootDB()
 	if err != nil {
 		return fmt.Errorf("database: %w", err)
 	}
-
-	// Discovery: collect every city's victims first so we can quote the
-	// total in the prompt and bail without touching the DB on "no".
-	var plan []pruneVictims
-	var totalVictims int
-	for _, city := range cities {
-		store, err := cmdutil.EnsureCityStore(ctx, root, city, cmdutil.ResolveConfigID(opts.Config, &city))
-		if err != nil {
-			return err
-		}
-		// ListSnapshots already returns newest-first, across every config
-		// hash; everything past the keep window is eligible for deletion.
-		// Export publishes the newest whatever its hash, so counting across
-		// hashes always keeps the published one (solvent-streets-ewxx).
-		snaps, err := store.ListSnapshots(ctx)
-		if err != nil {
-			return fmt.Errorf("list snapshots for %s: %w", city.Slug(), err)
-		}
-		if len(snaps) <= opts.Keep {
-			continue
-		}
-		victims := snaps[opts.Keep:]
-		plan = append(plan, pruneVictims{city: city, store: store, victims: victims})
-		totalVictims += len(victims)
+	// Newest first: everything past the keep window goes. Discovery comes
+	// first, so the prompt can quote the total and a "no" writes nothing.
+	snaps, err := root.ListSnapshots(ctx)
+	if err != nil {
+		return err
 	}
-
-	if totalVictims == 0 {
+	if len(snaps) <= opts.Keep {
 		fmt.Fprintln(opts.IO.ErrOut, "Nothing to prune.")
 		return nil
 	}
+	victims := snaps[opts.Keep:]
 
 	if err := cmdutil.ConfirmDestructive(ctx, opts.IO, opts.Prompter, opts.Yes,
-		fmt.Sprintf("Delete %d snapshot(s) across %d city(ies)?", totalVictims, len(plan)),
-		fmt.Sprintf("refusing to prune %d snapshot(s) across %d city(ies) without confirmation",
-			totalVictims, len(plan)),
+		fmt.Sprintf("Delete %d snapshot(s), keeping the %d newest?", len(victims), opts.Keep),
+		fmt.Sprintf("refusing to prune %d snapshot(s) without confirmation", len(victims)),
 	); err != nil {
 		return err
 	}
 
-	var totalDeleted int
-	for _, p := range plan {
-		for _, s := range p.victims {
-			ok, err := p.store.DeleteSnapshot(ctx, s.ID)
-			if err != nil {
-				return fmt.Errorf("delete snapshot %d in %s: %w", s.ID, p.city.Slug(), err)
-			}
-			if ok {
-				totalDeleted++
-			}
+	deleted := 0
+	for _, s := range victims {
+		ok, err := root.DeleteSnapshot(ctx, s.Name)
+		if err != nil {
+			return fmt.Errorf("delete snapshot %s: %w", s.Name, err)
 		}
-		fmt.Fprintf(opts.IO.ErrOut, "Pruned %d snapshot(s) from %s (kept %d).\n",
-			len(p.victims), p.city.Slug(), opts.Keep)
+		if ok {
+			deleted++
+		}
 	}
+	fmt.Fprintf(opts.IO.ErrOut, "Pruned %d snapshot(s) (kept %d).\n", deleted, opts.Keep)
 	return nil
 }

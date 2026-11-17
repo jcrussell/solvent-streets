@@ -385,8 +385,8 @@ func TestRunStatus_StaleSnapshotsSayWhy(t *testing.T) {
 		StatsFunc: func(_ context.Context, rt resource.Type) (*db.StatusInfo, error) {
 			return &db.StatusInfo{ResourceType: rt}, nil
 		},
-		ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
-			return []db.Snapshot{{ID: 7, ConfigHash: "0ld0ld0ld0ld0ld0", CreatedAt: time.Now()}}, nil
+		ListSnapshotsFunc: func(context.Context) ([]db.SnapshotCity, error) {
+			return []db.SnapshotCity{{ID: 7, ConfigHash: "0ld0ld0ld0ld0ld0", CreatedAt: time.Now()}}, nil
 		},
 	}
 	ios, _, _, stderr := iostreams.Test()
@@ -416,8 +416,8 @@ func TestRunStatus_StaleSnapshotsSayWhy(t *testing.T) {
 	store.LatestComputeFunc = func(context.Context, string) ([]db.LatestPart, error) {
 		return []db.LatestPart{{Part: "roads", RunID: 1}}, nil
 	}
-	store.ListSnapshotsFunc = func(context.Context) ([]db.Snapshot, error) {
-		return []db.Snapshot{
+	store.ListSnapshotsFunc = func(context.Context) ([]db.SnapshotCity, error) {
+		return []db.SnapshotCity{
 			{ID: 8, ConfigHash: cur, CreatedAt: time.Now()},
 			{ID: 7, ConfigHash: "0ld0ld0ld0ld0ld0", CreatedAt: time.Now()},
 		}, nil
@@ -491,8 +491,8 @@ func TestRunStatus_PartStates(t *testing.T) {
 				{Input: "roads", Digest: "r2", IngestedAt: at},
 			}, nil
 		},
-		ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
-			return []db.Snapshot{{ID: 4, ConfigHash: cfg.CityHash(city), CreatedAt: at, Parts: []db.SnapshotPart{
+		ListSnapshotsFunc: func(context.Context) ([]db.SnapshotCity, error) {
+			return []db.SnapshotCity{{ID: 4, Name: "v4", ConfigHash: cfg.CityHash(city), CreatedAt: at, Parts: []db.SnapshotPart{
 				{Part: "roads", RunID: 1}, {Part: "parking", RunID: 2}, {Part: "combined", RunID: 3},
 			}}}, nil
 		},
@@ -526,10 +526,10 @@ func TestRunStatus_PartStates(t *testing.T) {
 		"=== Other parts ===",
 		"combined       stale: roads re-ingested 2026-11-14 10:02 UTC",
 		"census         not computed",
-		"1 part not yet snapshotted (roads); run `pvmt --city test-city snapshots create` to publish",
+		"1 part not yet snapshotted (roads); run `pvmt snapshots create <name>` to publish",
 		"Paved Area*:",
 		"* the combined total is stale (roads re-ingested 2026-11-14 10:02 UTC since it was computed)",
-		"#4  ",
+		"  v4  ",
 		"(published, current settings)",
 	} {
 		if !strings.Contains(notes, want) {

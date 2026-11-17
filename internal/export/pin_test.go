@@ -22,6 +22,8 @@ type sqliteCity struct {
 	cfg   *config.Config
 	city  config.CityConfig
 	store db.Store
+	root  db.RootStorer
+	id    int64
 }
 
 // newSQLiteCity opens an in-memory database holding one city with boundary
@@ -45,7 +47,7 @@ func newSQLiteCity(t *testing.T, cfg *config.Config, name, boundary string) *sql
 			t.Fatal(err)
 		}
 	}
-	return &sqliteCity{t: t, cfg: cfg, city: city, store: store}
+	return &sqliteCity{t: t, cfg: cfg, city: city, store: store, root: root, id: id}
 }
 
 // commitRoads commits a snapshot whose roads part holds area, under the
@@ -61,7 +63,7 @@ func (c *sqliteCity) commitRoads(area float64) int64 {
 	if err := c.store.SaveCityMetrics(ctx, run.ID, results.TotalRows(resource.TypeRoads, results.Totals{Area: area, Features: 1})); err != nil {
 		c.t.Fatal(err)
 	}
-	snap, err := dbtest.Publish(ctx, c.store, hash, c.cfg.ResolvedHexEdge(&c.city), map[string]int64{"roads": run.ID})
+	snap, err := dbtest.Publish(ctx, c.root, c.id, hash, c.cfg.ResolvedHexEdge(&c.city), map[string]int64{"roads": run.ID})
 	if err != nil {
 		c.t.Fatal(err)
 	}
@@ -88,7 +90,7 @@ func TestExport_PinnedSnapshotDeletedFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	pinned := entries[0]
-	if _, err := c.store.DeleteSnapshot(ctx, newest); err != nil {
+	if _, err := dbtest.DeleteSnapshotID(ctx, c.root, newest); err != nil {
 		t.Fatal(err)
 	}
 

@@ -27,7 +27,7 @@ func TestWithSnapshot_GoneFailsEveryRead(t *testing.T) {
 	if got := roadsArea(t, pinned); got != 100 {
 		t.Fatalf("pinned roads before delete = %v, want 100", got)
 	}
-	if ok, err := store.DeleteSnapshot(ctx, s1); err != nil || !ok {
+	if ok, err := deleteSnapshotID(store, s1); err != nil || !ok {
 		t.Fatalf("DeleteSnapshot = (%v, %v)", ok, err)
 	}
 
@@ -125,7 +125,7 @@ func TestViewSnapshot(t *testing.T) {
 			t.Errorf("%s: ViewSnapshot = (%+v, %v), want (nil, nil)", name, snap, err)
 		}
 	}
-	if _, err := store.DeleteSnapshot(ctx, s0); err != nil {
+	if _, err := deleteSnapshotID(store, s0); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.WithSnapshot(s0).ViewSnapshot(ctx); !errors.Is(err, ErrSnapshotGone) {

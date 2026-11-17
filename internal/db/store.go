@@ -185,9 +185,7 @@ func (s *sqliteStore) GetBoundary(ctx context.Context) (string, error) {
 // statement. frozen is false when the snapshot froze none.
 func (s *sqliteStore) frozenBoundary(ctx context.Context) (gj string, frozen bool, err error) {
 	var geometry sql.NullString
-	err = s.db.QueryRowContext(ctx, `SELECT b.geometry_json FROM snapshots s
-		LEFT JOIN snapshot_boundaries b ON b.id = s.boundary_id
-		WHERE s.id = ? AND s.city_id = ?`, s.snapshotID, s.cityID).Scan(&geometry)
+	err = s.db.QueryRowContext(ctx, sqlFrozenBoundary, s.snapshotID, s.cityID).Scan(&geometry)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		return "", false, fmt.Errorf("snapshot %d: %w", s.snapshotID, ErrSnapshotGone)
@@ -255,7 +253,13 @@ func (s *sqliteStore) Close() error {
 // per-operation context inside fn). On success the tx is committed; a
 // Begin or Commit failure is wrapped with a short prefix.
 func (s *sqliteStore) withTx(ctx context.Context, fn func(*sql.Tx) error) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	return withTx(ctx, s.db, fn)
+}
+
+// withTx runs fn in one transaction on d (IMMEDIATE, per dsnPragmas),
+// committing when it returns nil and rolling back otherwise.
+func withTx(ctx context.Context, d *sql.DB, fn func(*sql.Tx) error) error {
+	tx, err := d.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}

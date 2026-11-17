@@ -456,26 +456,33 @@ func (s *Server) dataFiles() map[string]dataFileHandler {
 // collides with a snapshot id and caches under its own key.
 const latestSnapshot int64 = -1
 
-// parseSnapshotParam reads ?snapshot=<id> from the request:
+// latestSnapshotParam is the ?snapshot= value for latestSnapshot. No snapshot
+// can be named it (db.CheckSnapshotName).
+const latestSnapshotParam = db.LatestComputeName
+
+// parseSnapshotParam reads ?snapshot=<name> from the request:
 //   - absent → returns (0, true): caller serves the pinned view.
 //   - "latest" → returns (latestSnapshot, true).
-//   - non-integer, ≤0, or unknown for this city → writes 404 and returns
-//     (_, false); the bead spec wants invalid ids to 404, not 500.
-//   - valid id belonging to this city → returns (id, true).
+//   - an invalid name, or a snapshot that does not cover this city → writes
+//     404 and returns (_, false); the bead spec wants unknown snapshots to
+//     404, not 500.
+//   - a snapshot covering this city → returns (its id, true). Responses
+//     cache under the id, so a snapshot deleted and created again under the
+//     same name never serves the old one's cache.
 func (s *Server) parseSnapshotParam(ctx context.Context, w http.ResponseWriter, r *http.Request, store db.Store) (int64, bool) {
 	raw := r.URL.Query().Get("snapshot")
 	if raw == "" {
 		return 0, true
 	}
-	if raw == "latest" {
+	if raw == latestSnapshotParam {
 		return latestSnapshot, true
 	}
-	id, err := db.ParseSnapshotID(raw)
-	if err != nil {
+	if db.CheckSnapshotName(raw) != nil {
 		http.NotFound(w, r)
 		return 0, false
 	}
-	if err := store.ResolveSnapshot(ctx, id); err != nil {
+	id, err := store.ResolveSnapshot(ctx, raw)
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.NotFound(w, r)
 			return 0, false
@@ -788,7 +795,7 @@ func (s *Server) serveSnapshotsJSON(w http.ResponseWriter, _ *http.Request, entr
 			return nil, fmt.Errorf("listing snapshots: %w", err)
 		}
 		if snaps == nil {
-			snaps = []db.Snapshot{}
+			snaps = []db.SnapshotCity{}
 		}
 		return snaps, nil
 	})

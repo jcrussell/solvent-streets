@@ -2,7 +2,9 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"maps"
 	"path/filepath"
 	"slices"
@@ -37,7 +39,7 @@ func commitRun(t *testing.T, store Store, hash, producer string, write func(run 
 // returns the snapshot's id.
 func snapshotLatest(t *testing.T, store Store, hash string) int64 {
 	t.Helper()
-	snap, _, err := store.CreateSnapshot(context.Background(), hash, testEdge, nil)
+	snap, err := createCitySnapshot(store, hash, testEdge, nil)
 	if err != nil {
 		t.Fatalf("CreateSnapshot(%s): %v", hash, err)
 	}
@@ -362,7 +364,7 @@ func TestCommitLatest_RejectsInconsistentRuns(t *testing.T) {
 // TestDeleteSnapshot_KeepsRunsOtherSnapshotsUse: deleting a snapshot removes
 // only runs neither another snapshot nor the working state references, so
 // every surviving snapshot, and the working state, still reads exactly what
-// it did. Another city's id is not found.
+// it did.
 func TestDeleteSnapshot_KeepsRunsOtherSnapshotsUse(t *testing.T) {
 	ctx := context.Background()
 	root, err := Open(":memory:")
@@ -371,17 +373,13 @@ func TestDeleteSnapshot_KeepsRunsOtherSnapshotsUse(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = root.Close() })
 	id, _ := root.EnsureCity(ctx, "a", "A", "test")
-	other, _ := root.EnsureCity(ctx, "b", "B", "test")
 	store := root.ForCity(id)
 
 	roads1, s1 := commitRun(t, store, "h", "roads", roadsRun(t, store, 100))
 	fire, s2 := commitRun(t, store, "h", "service:fire", fireRun(t, store, HexMetric{HexID: "f1"}))
 	roads2, s3 := commitRun(t, store, "h", "roads", roadsRun(t, store, 200))
 
-	if ok, err := root.ForCity(other).DeleteSnapshot(ctx, s3); err != nil || ok {
-		t.Errorf("another city deleting s3 = (%v, %v), want (false, nil)", ok, err)
-	}
-	if ok, err := store.DeleteSnapshot(ctx, s3); err != nil || !ok {
+	if ok, err := deleteSnapshotID(store, s3); err != nil || !ok {
 		t.Fatalf("DeleteSnapshot(s3) = (%v, %v)", ok, err)
 	}
 	// The working state is still s3's manifest, so its runs stay.
@@ -402,7 +400,7 @@ func TestDeleteSnapshot_KeepsRunsOtherSnapshotsUse(t *testing.T) {
 	// roads1 is in s1 and s2 only: it goes with the last of them. The fire
 	// run is in the working state too, so it stays.
 	for _, snap := range []int64{s1, s2} {
-		if ok, err := store.DeleteSnapshot(ctx, snap); err != nil || !ok {
+		if ok, err := deleteSnapshotID(store, snap); err != nil || !ok {
 			t.Fatalf("DeleteSnapshot(%d) = (%v, %v)", snap, ok, err)
 		}
 	}
@@ -531,7 +529,7 @@ func TestGC_SupersededEpoch(t *testing.T) {
 	oldRoads := put("old", "roads", 1)
 	oldParking := put("old", "parking", 1)
 	snapped := put("old-snapped", "roads", 1)
-	if _, _, err := store.CreateSnapshot(ctx, "old-snapped", 100, nil); err != nil {
+	if _, err := createCitySnapshot(store, "old-snapped", 100, nil); err != nil {
 		t.Fatal(err)
 	}
 	other := put("other", "roads", 2)
@@ -650,8 +648,8 @@ func TestListSnapshots_TimestampsMarshalLikeTheCLI(t *testing.T) {
 	}
 }
 
-// TestResolveSnapshot: an owned id resolves; another city's, an unknown and
-// a non-positive id do not.
+// TestResolveSnapshot: a name resolves for a city it covers; another city's,
+// and an unknown name, do not.
 func TestResolveSnapshot(t *testing.T) {
 	ctx := context.Background()
 	root, err := Open(":memory:")
@@ -662,18 +660,21 @@ func TestResolveSnapshot(t *testing.T) {
 	idA, _ := root.EnsureCity(ctx, "a", "A", "test")
 	idB, _ := root.EnsureCity(ctx, "b", "B", "test")
 	storeA := root.ForCity(idA)
-	_, snap := commitRun(t, storeA, "x", "roads", nil)
-
-	if err := storeA.ResolveSnapshot(ctx, snap); err != nil {
-		t.Errorf("owning city: %v", err)
+	commitLatestRun(t, storeA, "roads", nil)
+	snap, err := root.CreateSnapshot(ctx, "v1", testEpoch, []SnapshotRequest{{CityID: idA, ConfigHash: "h", HexEdgeM: testEdge}})
+	if err != nil {
+		t.Fatal(err)
 	}
-	for name, s := range map[string]func() error{
-		"another city": func() error { return root.ForCity(idB).ResolveSnapshot(ctx, snap) },
-		"unknown id":   func() error { return storeA.ResolveSnapshot(ctx, 99999) },
-		"zero id":      func() error { return storeA.ResolveSnapshot(ctx, 0) },
+
+	if got, err := storeA.ResolveSnapshot(ctx, "v1"); err != nil || got != snap.ID {
+		t.Errorf("covered city: (%d, %v), want %d", got, err, snap.ID)
+	}
+	for name, s := range map[string]func() (int64, error){
+		"another city": func() (int64, error) { return root.ForCity(idB).ResolveSnapshot(ctx, "v1") },
+		"unknown name": func() (int64, error) { return storeA.ResolveSnapshot(ctx, "v2") },
 	} {
-		if err := s(); err == nil {
-			t.Errorf("%s resolved, want an error", name)
+		if _, err := s(); !errors.Is(err, sql.ErrNoRows) {
+			t.Errorf("%s: err = %v, want sql.ErrNoRows", name, err)
 		}
 	}
 }

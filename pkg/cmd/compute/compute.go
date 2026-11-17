@@ -112,7 +112,7 @@ mapped), clip it to the city boundary, and measure its area in each hex of
 the city's grid. Totals are kept for every jurisdiction and for the
 city-maintained subset. The result updates this resource's part of the
 city's latest compute, under the current config hash; run
-'pvmt snapshots create' to publish it.
+'pvmt snapshots create <name>' to publish it.
 
 Needs a prior 'pvmt %s ingest'. Rerun after re-ingesting or after changing a
 setting that affects results.`, group, group)

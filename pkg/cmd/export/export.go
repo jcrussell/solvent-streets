@@ -55,7 +55,7 @@ func NewCmdExport(f *cmdutil.Factory, runF func(context.Context, *Options) error
 		Args:  cobra.NoArgs,
 		Short: "Export a static HTML site with map and stats",
 		Long: `Generate a self-contained HTML site with MapLibre dashboard, hex heatmap, and
-summary stats from each city's newest snapshot (pvmt snapshots create), as it
+summary stats from each city's newest snapshot (pvmt snapshots create <name>), as it
 was created. A city with no snapshot refuses the whole export before anything
 is written; one created under other settings is exported with a warning.
 Deploy to GitHub Pages or any static host.`,

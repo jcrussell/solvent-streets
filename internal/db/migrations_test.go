@@ -49,6 +49,7 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 			"runs",
 			"schema_version",
 			"snapshot_boundaries",
+			"snapshot_cities",
 			"snapshot_parts",
 			"snapshots",
 			"working_parts",
@@ -80,7 +81,7 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 			"features",
 			"runs",
 			"snapshot_boundaries",
-			"snapshots",
+			"snapshot_cities",
 			"working_parts",
 		}
 		for _, table := range scoped {
@@ -139,9 +140,9 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 		// These are the indexes the runtime path depends on. Dropping any
 		// would silently turn a hot read into a table scan.
 		want := map[string][]string{
-			"snapshots":      {"idx_snapshots_city_hash", "idx_snapshots_boundary"},
-			"snapshot_parts": {"idx_snapshot_parts_run"},
-			"working_parts":  {"idx_working_parts_run"},
+			"snapshot_cities": {"idx_snapshot_cities_city", "idx_snapshot_cities_boundary"},
+			"snapshot_parts":  {"idx_snapshot_parts_run"},
+			"working_parts":   {"idx_working_parts_run"},
 		}
 		for table, indexes := range want {
 			got := listIndexes(t, ctx, root.db, table)
@@ -152,6 +153,60 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestColdMigration_SnapshotTags pins the snapshot layout: snapshots is the
+// tag (no city_id, a unique name); each city it covers is a snapshot_cities
+// row, and each manifest row names its city.
+func TestColdMigration_SnapshotTags(t *testing.T) {
+	ctx := context.Background()
+	root, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:): %v", err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	want := map[string][]string{
+		"snapshots":       {"id"},
+		"snapshot_cities": {"snapshot_id", "city_id"},
+		"snapshot_parts":  {"snapshot_id", "city_id", "part"},
+	}
+	for table, pk := range want {
+		cols := listColumns(t, ctx, root.db, table)
+		got := make([]string, len(pk))
+		for _, c := range cols {
+			if c.pk > 0 && c.pk <= len(pk) {
+				got[c.pk-1] = c.name
+			}
+		}
+		if !slices.Equal(got, pk) {
+			t.Errorf("%s primary key = %v, want %v", table, got, pk)
+		}
+	}
+	var names []string
+	for _, c := range listColumns(t, ctx, root.db, "snapshots") {
+		names = append(names, c.name)
+	}
+	if !slices.Equal(names, []string{"id", "name", "created_at", "compute_epoch"}) {
+		t.Errorf("snapshots columns = %v, want id, name, created_at, compute_epoch", names)
+	}
+	var unique int
+	if err := root.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM pragma_index_list('snapshots') WHERE "unique" = 1 AND origin = 'u'`).Scan(&unique); err != nil {
+		t.Fatal(err)
+	}
+	if unique != 1 {
+		t.Errorf("snapshots has %d UNIQUE constraint(s), want 1 (name)", unique)
+	}
+	fks := listForeignKeys(t, ctx, root.db, "snapshot_parts")
+	var toCity bool
+	for _, fk := range fks {
+		if fk.table == "snapshot_cities" {
+			toCity = true
+		}
+	}
+	if !toCity {
+		t.Errorf("snapshot_parts has no FK to snapshot_cities; got %+v", fks)
+	}
 }
 
 // TestColdMigration_FeaturesKey pins the features layout: keyed by city,
@@ -244,10 +299,8 @@ func TestQueryPlan_UsesCompositeIndexes(t *testing.T) {
 	}{
 		{"city_metrics view read", `SELECT value FROM city_metrics WHERE run_id IN (?, ?, ?) AND class = ? AND subject IN (?, ?)`, "PRIMARY KEY"},
 		{"hex_metrics view read", `SELECT value FROM hex_metrics WHERE run_id IN (?, ?, ?) AND metric = ? AND subject = ?`, "PRIMARY KEY"},
-		{"newest snapshot for a hash", `SELECT id FROM snapshots WHERE city_id = ? AND config_hash = ? ORDER BY id DESC LIMIT 1`, "INDEX idx_snapshots_city_hash"},
-		{"run still referenced", `SELECT COUNT(*) FROM snapshot_parts WHERE run_id = ?`, "INDEX idx_snapshot_parts_run"},
+		{"run still referenced", sqlRunInSnapshots, "INDEX idx_snapshot_parts_run"},
 		{"run in the working state", `SELECT COUNT(*) FROM working_parts WHERE run_id = ?`, "INDEX idx_working_parts_run"},
-		{"boundary still frozen", `SELECT COUNT(*) FROM snapshots WHERE boundary_id = ?`, "INDEX idx_snapshots_boundary"},
 		{"input digests", `SELECT input, digest FROM city_inputs WHERE city_id = ? AND input IN (?, ?)`, "(city_id=? AND input=?)"},
 		{"count a run's rows", `SELECT COUNT(*) FROM hex_metrics WHERE run_id IN (?, ?)`, "PRIMARY KEY"},
 	}
@@ -261,7 +314,7 @@ func TestQueryPlan_UsesCompositeIndexes(t *testing.T) {
 			if !strings.Contains(plan, tc.wantIndex) {
 				t.Errorf("query %q\nplan:\n%s\nwant %s", tc.query, plan, tc.wantIndex)
 			}
-			for _, table := range []string{"features", "city_metrics", "hex_metrics", "snapshots", "snapshot_parts", "working_parts", "city_inputs"} {
+			for _, table := range []string{"features", "city_metrics", "hex_metrics", "snapshot_cities", "snapshot_parts", "working_parts", "city_inputs"} {
 				if strings.Contains(plan, "SCAN "+table+"\n") {
 					t.Errorf("query %q falls back to a full table scan:\n%s", tc.query, plan)
 				}
@@ -310,6 +363,67 @@ func TestQueryPlan_FeaturesStatements(t *testing.T) {
 			}
 			if strings.Contains(plan, "SCAN ") || strings.Contains(plan, "USE TEMP B-TREE") {
 				t.Errorf("query %q scans or sorts:\n%s", query, plan)
+			}
+		})
+	}
+}
+
+// TestQueryPlan_SnapshotStatements runs EXPLAIN QUERY PLAN on every
+// statement that resolves, lists or deletes a snapshot, exactly as the store
+// issues it, and requires each table it reads to be searched by a key or
+// index, never scanned, and no temp b-tree for an ORDER BY the key gives. A
+// new snapshot statement belongs here.
+func TestQueryPlan_SnapshotStatements(t *testing.T) {
+	ctx := context.Background()
+	root, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:): %v", err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+
+	cases := []struct {
+		name  string
+		query string
+		want  []string // plan fragments, one per table read
+	}{
+		{"pinned city in a snapshot", sqlCityInSnapshot, []string{"SEARCH snapshot_cities USING PRIMARY KEY (snapshot_id=? AND city_id=?)"}},
+		{"newest snapshot containing a city", sqlNewestSnapshotForCity, []string{"SEARCH snapshot_cities USING COVERING INDEX idx_snapshot_cities_city (city_id=?)"}},
+		{"a city's manifest", sqlSnapshotParts, []string{"SEARCH snapshot_parts USING PRIMARY KEY (snapshot_id=? AND city_id=?)"}},
+		{"resolve a name for a city", sqlResolveSnapshotName, []string{
+			"SEARCH s USING COVERING INDEX sqlite_autoindex_snapshots_1 (name=?)",
+			"SEARCH c USING PRIMARY KEY (snapshot_id=? AND city_id=?)",
+		}},
+		{"frozen boundary", sqlFrozenBoundary, []string{
+			"SEARCH c USING PRIMARY KEY (snapshot_id=? AND city_id=?)",
+			"SEARCH b USING INTEGER PRIMARY KEY (rowid=?)",
+		}},
+		{"run still in a snapshot", sqlRunInSnapshots, []string{"SEARCH snapshot_parts USING COVERING INDEX idx_snapshot_parts_run (run_id=?)"}},
+		{"sweep frozen boundaries", sqlSweepSnapshotBoundaries, []string{
+			"SEARCH snapshot_boundaries USING COVERING INDEX sqlite_autoindex_snapshot_boundaries_1 (city_id=?)",
+			"idx_snapshot_cities_boundary",
+		}},
+		{"snapshot by name", sqlSnapshotByName, []string{"SEARCH snapshots USING COVERING INDEX sqlite_autoindex_snapshots_1 (name=?)"}},
+		{"a snapshot's runs (delete)", sqlSnapshotRuns, []string{"SEARCH snapshot_parts USING PRIMARY KEY (snapshot_id=?)"}},
+		{"list snapshots", sqlListSnapshots, []string{
+			"SCAN s", // every snapshot is listed: a scan of the tag table, by its key
+			"SEARCH c USING PRIMARY KEY (snapshot_id=?)",
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			plan := queryPlan(t, ctx, root.db, tc.query)
+			for _, want := range tc.want {
+				if !strings.Contains(plan, want) {
+					t.Errorf("query %q\nplan:\n%s\nwant %s", tc.query, plan, want)
+				}
+			}
+			for _, table := range []string{"snapshot_cities", "snapshot_parts", "snapshot_boundaries", "c", "p", "b"} {
+				if strings.Contains(plan, "SCAN "+table+"\n") || strings.HasSuffix(plan, "SCAN "+table) {
+					t.Errorf("query %q scans %s:\n%s", tc.query, table, plan)
+				}
+			}
+			if strings.Contains(plan, "USE TEMP B-TREE") {
+				t.Errorf("query %q sorts:\n%s", tc.query, plan)
 			}
 		})
 	}

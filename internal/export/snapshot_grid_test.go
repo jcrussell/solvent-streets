@@ -29,7 +29,7 @@ func (c *sqliteCity) commitGrid(cfg *config.Config, city config.CityConfig, cov 
 	if err := c.store.SaveHexMetrics(ctx, run.ID, results.HexCoverageRows(resource.TypeRoads, cov)); err != nil {
 		c.t.Fatal(err)
 	}
-	snap, err := dbtest.Publish(ctx, c.store, hash, cfg.ResolvedHexEdge(&city), map[string]int64{"roads": run.ID})
+	snap, err := dbtest.Publish(ctx, c.root, c.id, hash, cfg.ResolvedHexEdge(&city), map[string]int64{"roads": run.ID})
 	if err != nil {
 		c.t.Fatal(err)
 	}

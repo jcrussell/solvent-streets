@@ -131,7 +131,7 @@ help:
 	@echo "  gendocs       regenerate docs/reference/ from cobra"
 	@echo "  site          render the combined tagged static site to \$$SITE_DIR"
 	@echo "                from each city's newest snapshot; never creates one (needs each included"
-	@echo "                example ingested, computed and snapshotted: pvmt snapshots create)"
+	@echo "                example ingested, computed and snapshotted: pvmt snapshots create <name>)"
 	@echo "  site-report   per-file size totals and per-city budgets over \$$SITE_DIR"
 	@echo "  deploy        push existing \$$SITE_DIR to gh-pages (run 'make site' first)"
 	@echo "  clean         remove build outputs"

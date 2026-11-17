@@ -111,8 +111,8 @@ func jsFixtureEntry(t *testing.T) CityEntry {
 		t.Fatalf("fixtureEntry store is %T, not *dbtest.MockStore", entry.Store)
 	}
 	store.GetBoundaryFunc = func(context.Context) (string, error) { return jsFixtureBoundary, nil }
-	store.ListSnapshotsFunc = func(context.Context) ([]db.Snapshot, error) {
-		return []db.Snapshot{{ID: jsFixtureSnapshotID, CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}}, nil
+	store.ListSnapshotsFunc = func(context.Context) ([]db.SnapshotCity, error) {
+		return []db.SnapshotCity{{ID: jsFixtureSnapshotID, CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}}, nil
 	}
 	// The parking compute result carries an estimated space count so the
 	// fixture meta.json has the real estimated_spaces key the stats panel and

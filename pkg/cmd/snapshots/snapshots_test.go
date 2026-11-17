@@ -2,7 +2,7 @@ package snapshots
 
 import (
 	"context"
-	"database/sql"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -56,15 +56,32 @@ func TestNewCmdList_RunFInjection(t *testing.T) {
 	}
 }
 
-// TestRunList_ListsAcrossCities exercises the happy-path multi-city render.
-// Verifies the table shape (one row per snapshot, tagged with the owning
-// city slug, with its manifest as part#run entries) and that newest-first
-// ordering from ListSnapshots is preserved on the way to the printer.
-func TestRunList_ListsAcrossCities(t *testing.T) {
-	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
-	cities := twoCityConfig()
+// askStub is a prompt.Stub that records each confirmation question.
+type askStub struct {
+	prompt.Stub
+	Asked []string
+}
 
-	root := &dbtest.MockRootStore{
+func (s *askStub) Confirm(ctx context.Context, msg string, def bool) (bool, error) {
+	s.Asked = append(s.Asked, msg)
+	return s.Stub.Confirm(ctx, msg, def)
+}
+
+// tagRoot is a mock root holding two snapshots, newest first: v2 over alpha
+// and beta, and v1 over alpha only. deleted records DeleteSnapshot calls.
+func tagRoot(deleted *[]string) *dbtest.MockRootStore {
+	created := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+	city := func(id int64, slug, name string, snap int64) db.SnapshotCity {
+		return db.SnapshotCity{ID: snap, Name: name, CityID: id, CitySlug: slug, ConfigHash: "h" + slug, HexEdgeM: 100,
+			Parts: []db.SnapshotPart{{Part: "roads", RunID: 10*snap + id, ComputedAt: created}}}
+	}
+	tags := map[string]*db.Snapshot{
+		"v2": {ID: 2, Name: "v2", CreatedAt: created, ComputeEpoch: 3, CityCount: 2,
+			Cities: []db.SnapshotCity{city(1, "alpha", "v2", 2), city(2, "beta", "v2", 2)}},
+		"v1": {ID: 1, Name: "v1", CreatedAt: created.Add(-time.Hour), ComputeEpoch: 2, CityCount: 1,
+			Cities: []db.SnapshotCity{city(1, "alpha", "v1", 1)}},
+	}
+	return &dbtest.MockRootStore{
 		EnsureCityFunc: func(_ context.Context, slug, _, _ string) (int64, error) {
 			if slug == "alpha" {
 				return 1, nil
@@ -72,595 +89,279 @@ func TestRunList_ListsAcrossCities(t *testing.T) {
 			return 2, nil
 		},
 		ForCityFunc: func(id int64) db.Store {
-			switch id {
-			case 1:
-				return &dbtest.MockStore{ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
-					return []db.Snapshot{
-						{ID: 7, CreatedAt: now, ConfigHash: "hash-a-2", HexEdgeM: 75, Parts: []db.SnapshotPart{
-							{Part: "service:fire", RunID: 13, ComputedAt: now},
-							{Part: "roads", RunID: 12, ComputedAt: now},
-						}},
-						{ID: 6, CreatedAt: now.Add(-time.Hour), ConfigHash: "hash-a-1"},
-					}, nil
-				}}
-			case 2:
-				return &dbtest.MockStore{ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
-					return []db.Snapshot{{ID: 9, CreatedAt: now, ConfigHash: "hash-b-1"}}, nil
-				}}
-			}
-			return &dbtest.MockStore{}
-		},
-	}
-
-	ios, _, stdout, _ := iostreams.Test()
-	opts := &ListOptions{
-		IO:            ios,
-		RootDB:        rootDBFunc(root),
-		ResolveCities: resolveCitiesFunc(cities),
-	}
-	if err := runList(context.Background(), opts); err != nil {
-		t.Fatal(err)
-	}
-	out := stdout.String()
-	for _, want := range []string{"alpha", "beta", "7", "6", "9", "hash-a-2", "hash-b-1", "75 m", "roads#12", "service:fire#13"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("expected %q in output, got: %s", want, out)
-		}
-	}
-}
-
-// TestRunList_EmptyDatabase pins byob-iostreams.3 routing: when there are
-// no snapshots, the hint must land on stderr so scripted consumers see
-// an empty stdout.
-func TestRunList_EmptyDatabase(t *testing.T) {
-	cities := twoCityConfig()
-	root := &dbtest.MockRootStore{
-		EnsureCityFunc: func(context.Context, string, string, string) (int64, error) { return 1, nil },
-		ForCityFunc:    func(int64) db.Store { return &dbtest.MockStore{} },
-	}
-	ios, _, stdout, stderr := iostreams.Test()
-	opts := &ListOptions{
-		IO:            ios,
-		RootDB:        rootDBFunc(root),
-		ResolveCities: resolveCitiesFunc(cities),
-	}
-	if err := runList(context.Background(), opts); err != nil {
-		t.Fatal(err)
-	}
-	if got := stdout.String(); got != "" {
-		t.Errorf("stdout should be empty for empty-state; got: %q", got)
-	}
-	if !strings.Contains(stderr.String(), "No snapshots") {
-		t.Errorf("expected empty-db hint on stderr, got: %s", stderr.String())
-	}
-}
-
-// TestSnapshotRow_ExportData_AllFieldsPopulated guards the handwritten
-// switch in snapshotRow.ExportData against typo regressions, the same
-// way cities does it for cityRow.
-func TestSnapshotRow_ExportData_AllFieldsPopulated(t *testing.T) {
-	r := snapshotRow{City: "alpha", ID: 1, CreatedAt: "2026-05-18T12:00:00Z", ConfigHash: "h",
-		Parts: []partRow{{Part: "roads", RunID: 3, ComputedAt: "2026-05-18T12:00:00Z"}}}
-	out := r.ExportData(snapshotFields)
-	if len(out) != len(snapshotFields) {
-		t.Fatalf("want %d keys, got %d: %v", len(snapshotFields), len(out), out)
-	}
-	for _, f := range snapshotFields {
-		if _, ok := out[f]; !ok {
-			t.Errorf("missing field %q", f)
-		}
-	}
-}
-
-// TestList_JQSeesManifestKeys: --jq evaluates over the same snake_case keys
-// --json prints, including inside each part of the manifest.
-func TestList_JQSeesManifestKeys(t *testing.T) {
-	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
-	root := &dbtest.MockRootStore{
-		EnsureCityFunc: func(context.Context, string, string, string) (int64, error) { return 1, nil },
-		ForCityFunc: func(int64) db.Store {
-			return &dbtest.MockStore{ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
-				return []db.Snapshot{{ID: 7, CreatedAt: now, ConfigHash: "h", Parts: []db.SnapshotPart{
-					{Part: "roads", RunID: 12, ComputedAt: now},
-				}}}, nil
+			return &dbtest.MockStore{ListSnapshotsFunc: func(context.Context) ([]db.SnapshotCity, error) {
+				var out []db.SnapshotCity
+				for _, name := range []string{"v2", "v1"} {
+					for _, c := range tags[name].Cities {
+						if c.CityID == id {
+							out = append(out, c)
+						}
+					}
+				}
+				return out, nil
 			}}
 		},
+		ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
+			var out []db.Snapshot
+			for _, name := range []string{"v2", "v1"} {
+				if t, ok := tags[name]; ok {
+					cp := *t
+					cp.Cities = nil
+					out = append(out, cp)
+				}
+			}
+			return out, nil
+		},
+		SnapshotFunc: func(_ context.Context, name string) (*db.Snapshot, error) {
+			if t, ok := tags[name]; ok {
+				return t, nil
+			}
+			return nil, db.ErrSnapshotNotFound
+		},
+		DeleteSnapshotFunc: func(_ context.Context, name string) (bool, error) {
+			if _, ok := tags[name]; !ok {
+				return false, nil
+			}
+			if deleted != nil {
+				*deleted = append(*deleted, name)
+			}
+			delete(tags, name)
+			return true, nil
+		},
 	}
+}
+
+// TestRunList: one row per snapshot, newest first, with its city count and
+// epoch; --city keeps the snapshots covering that city.
+func TestRunList(t *testing.T) {
+	ios, _, stdout, _ := iostreams.Test()
+	opts := &ListOptions{IO: ios, RootDB: rootDBFunc(tagRoot(nil)), ResolveCities: resolveCitiesFunc(twoCityConfig())}
+	if err := runList(context.Background(), opts); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	if len(lines) != 2 || !strings.HasPrefix(lines[0], "v2\t") || !strings.HasSuffix(lines[0], "\t2\t3") ||
+		!strings.HasPrefix(lines[1], "v1\t") || !strings.HasSuffix(lines[1], "\t1\t2") {
+		t.Errorf("list output = %q, want v2 (2 cities, epoch 3) then v1 (1, epoch 2)", stdout.String())
+	}
+
+	stdout.Reset()
+	opts.CityFlagSet = func() bool { return true }
+	opts.ResolveCities = resolveCitiesFunc(twoCityConfig()[1:]) // beta
+	opts.Config = func() (*config.Config, error) { return &config.Config{ConfigID: "test"}, nil }
+	if err := runList(context.Background(), opts); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(stdout.String()); !strings.HasPrefix(got, "v2\t") || strings.Contains(got, "v1") {
+		t.Errorf("--city beta output = %q, want only v2", got)
+	}
+}
+
+// TestRunList_EmptyDatabase: a database with no snapshots says how to make
+// one on stderr and writes nothing to stdout.
+func TestRunList_EmptyDatabase(t *testing.T) {
+	ios, _, stdout, stderr := iostreams.Test()
+	opts := &ListOptions{IO: ios, RootDB: rootDBFunc(&dbtest.MockRootStore{})}
+	if err := runList(context.Background(), opts); err != nil {
+		t.Fatal(err)
+	}
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "pvmt snapshots create <name>") {
+		t.Errorf("stdout = %q, stderr = %q", stdout, stderr)
+	}
+}
+
+// TestList_JSON: --json rows carry the snake_case tag fields.
+func TestList_JSON(t *testing.T) {
 	ios, _, stdout, _ := iostreams.Test()
 	cmd := NewCmdList(&cmdutil.Factory{IOStreams: ios}, func(ctx context.Context, opts *ListOptions) error {
-		opts.RootDB = rootDBFunc(root)
-		opts.ResolveCities = resolveCitiesFunc([]config.CityConfig{{Name: "Alpha"}})
-		opts.Config = nil
+		opts.RootDB = rootDBFunc(tagRoot(nil))
 		return runList(ctx, opts)
 	})
-	cmd.SetArgs([]string{"--json", "parts,created_at", "--jq", `[.[0].parts[0].run_id, .[0].parts[0].computed_at, .[0].created_at]`})
+	cmd.SetArgs([]string{"--json", "name,created_at,city_count,compute_epoch"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	got := strings.Join(strings.Fields(stdout.String()), "")
-	if want := `[12,"2026-05-18T12:00:00Z","2026-05-18T12:00:00Z"]`; got != want {
-		t.Errorf("jq output = %s, want %s", got, want)
+	var rows []map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &rows); err != nil {
+		t.Fatalf("%v: %s", err, stdout)
+	}
+	if len(rows) != 2 || rows[0]["name"] != "v2" || rows[0]["city_count"] != 2.0 || rows[0]["compute_epoch"] != 3.0 ||
+		rows[0]["created_at"] != "2026-05-18T12:00:00Z" {
+		t.Errorf("rows = %v", rows)
 	}
 }
 
-// TestRunDelete_DeletesFromOwningCity verifies the cross-city discovery loop:
-// the delete subcommand calls ResolveSnapshot on each configured city until
-// one claims the id, then deletes from that city only. This is the
-// contract that lets the user pass an id without --city, and that lets
-// the confirmation prompt name the owning city before any DB mutation.
-func TestRunDelete_DeletesFromOwningCity(t *testing.T) {
-	cities := twoCityConfig()
-	var resolveCalls, deleteCalls []string
-	root := &dbtest.MockRootStore{
-		EnsureCityFunc: func(_ context.Context, slug, _, _ string) (int64, error) {
-			if slug == "alpha" {
-				return 1, nil
-			}
-			return 2, nil
-		},
-		ForCityFunc: func(id int64) db.Store {
-			return &dbtest.MockStore{
-				ResolveSnapshotFunc: func(_ context.Context, sid int64) error {
-					resolveCalls = append(resolveCalls, slugFor(id))
-					// Only beta (id=2) owns snapshot 42.
-					if id == 2 && sid == 42 {
-						return nil
-					}
-					return sql.ErrNoRows
-				},
-				DeleteSnapshotFunc: func(_ context.Context, sid int64) (bool, error) {
-					deleteCalls = append(deleteCalls, slugFor(id))
-					return id == 2 && sid == 42, nil
-				},
-			}
-		},
-	}
+// TestRunDelete_DeletesByName: --yes deletes the named snapshot and says so.
+func TestRunDelete_DeletesByName(t *testing.T) {
+	var deleted []string
 	ios, _, _, stderr := iostreams.Test()
-	opts := &DeleteOptions{
-		IO:            ios,
-		RootDB:        rootDBFunc(root),
-		ResolveCities: resolveCitiesFunc(cities),
-		SnapshotID:    42,
-		Yes:           true,
-	}
+	opts := &DeleteOptions{IO: ios, RootDB: rootDBFunc(tagRoot(&deleted)), Name: "v1", Yes: true}
 	if err := runDelete(context.Background(), opts); err != nil {
-		t.Fatalf("runDelete: %v", err)
+		t.Fatal(err)
 	}
-	if len(resolveCalls) != 2 || resolveCalls[0] != "alpha" || resolveCalls[1] != "beta" {
-		t.Errorf("resolve order: got %v, want [alpha beta]", resolveCalls)
-	}
-	// Delete must hit only the owning city — never the non-owners.
-	if len(deleteCalls) != 1 || deleteCalls[0] != "beta" {
-		t.Errorf("delete calls: got %v, want [beta]", deleteCalls)
-	}
-	if !strings.Contains(stderr.String(), "Deleted snapshot 42 from beta") {
-		t.Errorf("expected confirmation on stderr, got: %s", stderr.String())
+	if len(deleted) != 1 || deleted[0] != "v1" || !strings.Contains(stderr.String(), "Deleted snapshot v1.") {
+		t.Errorf("deleted = %v, stderr = %q", deleted, stderr)
 	}
 }
 
-// TestRunDelete_PromptsOnTTY pins the interactive contract: when stdin is a
-// TTY and --yes is absent, the command must call Prompter.Confirm with
-// a message that names the snapshot id and the owning city slug.
+// TestRunDelete_PromptsOnTTY: on a TTY without --yes the prompt names the
+// snapshot and its city count, and a yes deletes it.
 func TestRunDelete_PromptsOnTTY(t *testing.T) {
-	cities := twoCityConfig()
-	root := &dbtest.MockRootStore{
-		EnsureCityFunc: func(_ context.Context, slug, _, _ string) (int64, error) {
-			if slug == "alpha" {
-				return 1, nil
-			}
-			return 2, nil
-		},
-		ForCityFunc: func(id int64) db.Store {
-			return &dbtest.MockStore{
-				ResolveSnapshotFunc: func(_ context.Context, sid int64) error {
-					if id == 2 && sid == 42 {
-						return nil
-					}
-					return sql.ErrNoRows
-				},
-				DeleteSnapshotFunc: func(_ context.Context, _ int64) (bool, error) { return true, nil },
-			}
-		},
-	}
-	ios, _, _, stderr := iostreams.Test()
+	var deleted []string
+	ios, _, _, _ := iostreams.Test()
 	ios.SetStdinTTY(true)
-	stub := &prompt.Stub{Confirms: []bool{true}}
-	opts := &DeleteOptions{
-		IO:            ios,
-		Prompter:      stub,
-		RootDB:        rootDBFunc(root),
-		ResolveCities: resolveCitiesFunc(cities),
-		SnapshotID:    42,
-	}
+	stub := &askStub{Stub: prompt.Stub{Confirms: []bool{true}}}
+	opts := &DeleteOptions{IO: ios, Prompter: stub, RootDB: rootDBFunc(tagRoot(&deleted)), Name: "v2"}
 	if err := runDelete(context.Background(), opts); err != nil {
 		t.Fatalf("runDelete: %v", err)
 	}
-	if len(stub.Confirms) != 0 {
-		t.Errorf("Prompter.Confirm was not consumed; remaining=%v", stub.Confirms)
+	if len(stub.Confirms) != 0 || len(deleted) != 1 {
+		t.Errorf("confirms left %v, deleted %v", stub.Confirms, deleted)
 	}
-	if !strings.Contains(stderr.String(), "Deleted snapshot 42 from beta") {
-		t.Errorf("expected delete confirmation on stderr, got: %s", stderr.String())
+	if len(stub.Asked) != 1 || stub.Asked[0] != "Delete snapshot v2 (2 cities)?" {
+		t.Errorf("asked %q", stub.Asked)
 	}
 }
 
-// TestRunDelete_CancelOnPromptNo pins the "no" branch of the confirmation
-// prompt: when the user declines, the command returns ErrCancel (exit
-// code 0 at the runner) and must NOT call DeleteSnapshot.
+// TestRunDelete_CancelOnPromptNo: a declined prompt returns ErrCancel and
+// deletes nothing.
 func TestRunDelete_CancelOnPromptNo(t *testing.T) {
-	cities := twoCityConfig()
-	var deleted bool
-	root := &dbtest.MockRootStore{
-		EnsureCityFunc: func(context.Context, string, string, string) (int64, error) { return 1, nil },
-		ForCityFunc: func(int64) db.Store {
-			return &dbtest.MockStore{
-				ResolveSnapshotFunc: func(context.Context, int64) error { return nil },
-				DeleteSnapshotFunc: func(context.Context, int64) (bool, error) {
-					deleted = true
-					return true, nil
-				},
-			}
-		},
-	}
+	var deleted []string
 	ios, _, _, stderr := iostreams.Test()
 	ios.SetStdinTTY(true)
-	stub := &prompt.Stub{Confirms: []bool{false}}
-	opts := &DeleteOptions{
-		IO:            ios,
-		Prompter:      stub,
-		RootDB:        rootDBFunc(root),
-		ResolveCities: resolveCitiesFunc(cities),
-		SnapshotID:    42,
-	}
-	err := runDelete(context.Background(), opts)
-	if !errors.Is(err, cmdutil.ErrCancel) {
+	opts := &DeleteOptions{IO: ios, Prompter: &prompt.Stub{Confirms: []bool{false}}, RootDB: rootDBFunc(tagRoot(&deleted)), Name: "v2"}
+	if err := runDelete(context.Background(), opts); !errors.Is(err, cmdutil.ErrCancel) {
 		t.Errorf("want ErrCancel, got: %v", err)
 	}
-	if deleted {
-		t.Error("DeleteSnapshot was called after the user declined")
-	}
-	if !strings.Contains(stderr.String(), "Canceled.") {
-		t.Errorf("expected 'Canceled.' on stderr, got: %s", stderr.String())
+	if len(deleted) != 0 || !strings.Contains(stderr.String(), "Canceled.") {
+		t.Errorf("deleted %v, stderr %q", deleted, stderr)
 	}
 }
 
-// TestRunDelete_NoTTYWithoutYesIsFlagError pins byob-prompter.3: refusing to
-// silently confirm in non-interactive environments. Stdin not a TTY plus
-// no --yes must return a FlagError with a hint pointing at --yes.
+// TestRunDelete_NoTTYWithoutYesIsFlagError pins byob-prompter.3: no TTY and
+// no --yes refuses with a FlagError rather than deleting.
 func TestRunDelete_NoTTYWithoutYesIsFlagError(t *testing.T) {
-	cities := twoCityConfig()
-	var deleted bool
-	root := &dbtest.MockRootStore{
-		EnsureCityFunc: func(context.Context, string, string, string) (int64, error) { return 1, nil },
-		ForCityFunc: func(int64) db.Store {
-			return &dbtest.MockStore{
-				ResolveSnapshotFunc: func(context.Context, int64) error { return nil },
-				DeleteSnapshotFunc: func(context.Context, int64) (bool, error) {
-					deleted = true
-					return true, nil
-				},
-			}
-		},
-	}
-	ios, _, _, _ := iostreams.Test() // stdin TTY defaults to false
-	opts := &DeleteOptions{
-		IO:            ios,
-		RootDB:        rootDBFunc(root),
-		ResolveCities: resolveCitiesFunc(cities),
-		SnapshotID:    42,
-	}
+	var deleted []string
+	ios, _, _, _ := iostreams.Test()
+	opts := &DeleteOptions{IO: ios, Prompter: &prompt.Stub{}, RootDB: rootDBFunc(tagRoot(&deleted)), Name: "v2"}
 	err := runDelete(context.Background(), opts)
 	var fe *cmdutil.FlagError
-	if !errors.As(err, &fe) {
-		t.Fatalf("want *cmdutil.FlagError, got %T: %v", err, err)
-	}
-	var he *hint.ErrHint
-	if !errors.As(err, &he) || !strings.Contains(he.Hint, "--yes") {
-		t.Errorf("expected --yes hint, got: %v", err)
-	}
-	if deleted {
-		t.Error("DeleteSnapshot was called despite refusal")
+	if !errors.As(err, &fe) || len(deleted) != 0 {
+		t.Errorf("err = %v (deleted %v), want a FlagError and nothing deleted", err, deleted)
 	}
 }
 
-// TestRunDelete_NotFoundReturnsHint pins the not-found error path so users
-// see a remediation hint pointing at `snapshots list` rather than a bare
-// "not found" message.
+// TestRunDelete_NotFoundReturnsHint: an unknown name is an error naming
+// `snapshots list`.
 func TestRunDelete_NotFoundReturnsHint(t *testing.T) {
-	cities := twoCityConfig()
-	root := &dbtest.MockRootStore{
-		EnsureCityFunc: func(context.Context, string, string, string) (int64, error) { return 1, nil },
-		ForCityFunc: func(int64) db.Store {
-			return &dbtest.MockStore{
-				ResolveSnapshotFunc: func(context.Context, int64) error { return sql.ErrNoRows },
-			}
-		},
-	}
 	ios, _, _, _ := iostreams.Test()
-	opts := &DeleteOptions{
-		IO:            ios,
-		RootDB:        rootDBFunc(root),
-		ResolveCities: resolveCitiesFunc(cities),
-		SnapshotID:    999,
-		Yes:           true,
-	}
+	opts := &DeleteOptions{IO: ios, RootDB: rootDBFunc(tagRoot(nil)), Name: "v9", Yes: true}
 	err := runDelete(context.Background(), opts)
-	if err == nil {
-		t.Fatal("expected not-found error")
-	}
-	var he *hint.ErrHint
-	if !errors.As(err, &he) {
-		t.Errorf("expected ErrHint wrapping, got %T: %v", err, err)
-	}
-	if !strings.Contains(err.Error(), "snapshot 999 not found") {
-		t.Errorf("error message should name the id; got: %v", err)
+	var h *hint.ErrHint
+	if err == nil || !strings.Contains(err.Error(), "snapshot v9 not found") || !errors.As(err, &h) {
+		t.Errorf("err = %v, want not found with a hint", err)
 	}
 }
 
-// TestRunPrune_KeepsNMostRecentPerCity is the load-bearing test for the
-// acceptance criterion: --keep=N retains the N most recent snapshots
-// per city. ListSnapshots returns newest-first; everything past index
-// N goes to DeleteSnapshot.
-func TestRunPrune_KeepsNMostRecentPerCity(t *testing.T) {
-	cities := twoCityConfig()
-
-	// Alpha: 4 snapshots. Beta: 2 snapshots.
-	alphaSnaps := []db.Snapshot{
-		{ID: 4}, {ID: 3}, {ID: 2}, {ID: 1},
-	}
-	betaSnaps := []db.Snapshot{{ID: 6}, {ID: 5}}
-
-	var deleted []int64
-	root := &dbtest.MockRootStore{
-		EnsureCityFunc: func(_ context.Context, slug, _, _ string) (int64, error) {
-			if slug == "alpha" {
-				return 1, nil
+// TestDelete_RejectsCityAndBadNames: --city and an invalid name are flag
+// errors before anything runs.
+func TestDelete_RejectsCityAndBadNames(t *testing.T) {
+	for name, c := range map[string]struct {
+		citySet bool
+		args    []string
+	}{
+		"--city":  {true, []string{"v1"}},
+		"no name": {false, nil},
+		"slash":   {false, []string{"a/b"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ios, _, _, _ := iostreams.Test()
+			f := &cmdutil.Factory{IOStreams: ios, CityFlagSet: func() bool { return c.citySet }}
+			ran := false
+			cmd := NewCmdDelete(f, func(context.Context, *DeleteOptions) error { ran = true; return nil })
+			cmd.SetArgs(c.args)
+			cmd.SilenceErrors, cmd.SilenceUsage = true, true
+			if err := cmd.Execute(); err == nil || ran {
+				t.Errorf("err = %v, ran = %v; want a refusal before running", err, ran)
 			}
-			return 2, nil
-		},
-		ForCityFunc: func(id int64) db.Store {
-			snaps := alphaSnaps
-			if id == 2 {
-				snaps = betaSnaps
-			}
-			return &dbtest.MockStore{
-				ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) { return snaps, nil },
-				DeleteSnapshotFunc: func(_ context.Context, sid int64) (bool, error) {
-					deleted = append(deleted, sid)
-					return true, nil
-				},
-			}
-		},
-	}
-	ios, _, _, _ := iostreams.Test()
-	opts := &PruneOptions{
-		IO:            ios,
-		RootDB:        rootDBFunc(root),
-		ResolveCities: resolveCitiesFunc(cities),
-		Keep:          2,
-		Yes:           true,
-	}
-	if err := runPrune(context.Background(), opts); err != nil {
-		t.Fatal(err)
-	}
-	// Alpha had 4, keep 2: delete IDs 2, 1. Beta had 2, keep 2: nothing.
-	want := []int64{2, 1}
-	if len(deleted) != len(want) {
-		t.Fatalf("deleted = %v; want %v", deleted, want)
-	}
-	for i := range want {
-		if deleted[i] != want[i] {
-			t.Errorf("deleted[%d] = %d; want %d", i, deleted[i], want[i])
-		}
+		})
 	}
 }
 
-// TestRunPrune_NothingToDo verifies the no-op path when every city is
-// already at or below the keep window. The "Nothing to prune." hint on
-// stderr makes the no-op visible to humans without writing to stdout,
-// and the command must NOT prompt — nothing destructive is happening.
-func TestRunPrune_NothingToDo(t *testing.T) {
-	cities := twoCityConfig()
-	root := &dbtest.MockRootStore{
-		EnsureCityFunc: func(context.Context, string, string, string) (int64, error) { return 1, nil },
-		ForCityFunc: func(int64) db.Store {
-			return &dbtest.MockStore{ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
-				return []db.Snapshot{{ID: 1}}, nil
-			}}
-		},
-	}
-	ios, _, stdout, stderr := iostreams.Test()
-	ios.SetStdinTTY(true) // would normally prompt — must not, because no victims
-	// Stub with zero Confirms queued: any unexpected Confirm call panics.
-	opts := &PruneOptions{
-		IO:            ios,
-		Prompter:      &prompt.Stub{},
-		RootDB:        rootDBFunc(root),
-		ResolveCities: resolveCitiesFunc(cities),
-		Keep:          5,
-	}
-	if err := runPrune(context.Background(), opts); err != nil {
-		t.Fatal(err)
-	}
-	if got := stdout.String(); got != "" {
-		t.Errorf("stdout should be empty for no-op prune; got: %q", got)
-	}
-	if !strings.Contains(stderr.String(), "Nothing to prune.") {
-		t.Errorf("expected no-op hint on stderr, got: %s", stderr.String())
-	}
-}
-
-// TestRunPrune_PromptsOnTTY pins the interactive contract for prune:
-// confirmation runs once after the discovery pass and quotes the total
-// snapshot+city counts.
-func TestRunPrune_PromptsOnTTY(t *testing.T) {
-	cities := twoCityConfig()
-	var deleted []int64
-	root := &dbtest.MockRootStore{
-		EnsureCityFunc: func(_ context.Context, slug, _, _ string) (int64, error) {
-			if slug == "alpha" {
-				return 1, nil
-			}
-			return 2, nil
-		},
-		ForCityFunc: func(id int64) db.Store {
-			snaps := []db.Snapshot{{ID: 4}, {ID: 3}, {ID: 2}, {ID: 1}}
-			if id == 2 {
-				snaps = []db.Snapshot{{ID: 8}, {ID: 7}, {ID: 6}}
-			}
-			return &dbtest.MockStore{
-				ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) { return snaps, nil },
-				DeleteSnapshotFunc: func(_ context.Context, sid int64) (bool, error) {
-					deleted = append(deleted, sid)
-					return true, nil
-				},
-			}
-		},
-	}
-	ios, _, _, _ := iostreams.Test()
-	ios.SetStdinTTY(true)
-	stub := &prompt.Stub{Confirms: []bool{true}}
-	opts := &PruneOptions{
-		IO:            ios,
-		Prompter:      stub,
-		RootDB:        rootDBFunc(root),
-		ResolveCities: resolveCitiesFunc(cities),
-		Keep:          1,
-	}
-	if err := runPrune(context.Background(), opts); err != nil {
-		t.Fatal(err)
-	}
-	if len(stub.Confirms) != 0 {
-		t.Errorf("Prompter.Confirm was not consumed; remaining=%v", stub.Confirms)
-	}
-	// Alpha: 4 snapshots keep 1 → delete 3, 2, 1.
-	// Beta: 3 snapshots keep 1 → delete 7, 6.
-	if len(deleted) != 5 {
-		t.Errorf("deleted = %v; want 5 ids", deleted)
-	}
-}
-
-// TestRunPrune_CancelOnPromptNo: declining the prompt aborts before any
-// DeleteSnapshot. ErrCancel maps to exit 0 at the runner, so a "no"
-// answer is not an error from the user's perspective.
-func TestRunPrune_CancelOnPromptNo(t *testing.T) {
-	cities := twoCityConfig()
-	var deleted bool
-	root := &dbtest.MockRootStore{
-		EnsureCityFunc: func(context.Context, string, string, string) (int64, error) { return 1, nil },
-		ForCityFunc: func(int64) db.Store {
-			return &dbtest.MockStore{
-				ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
-					return []db.Snapshot{{ID: 3}, {ID: 2}, {ID: 1}}, nil
-				},
-				DeleteSnapshotFunc: func(context.Context, int64) (bool, error) {
-					deleted = true
-					return true, nil
-				},
-			}
-		},
-	}
+// TestRunPrune_KeepsNMostRecent: prune deletes every snapshot past the N
+// newest, oldest included, and keeps the newest.
+func TestRunPrune_KeepsNMostRecent(t *testing.T) {
+	var deleted []string
 	ios, _, _, stderr := iostreams.Test()
+	opts := &PruneOptions{IO: ios, RootDB: rootDBFunc(tagRoot(&deleted)), Keep: 1, Yes: true}
+	if err := runPrune(context.Background(), opts); err != nil {
+		t.Fatal(err)
+	}
+	if len(deleted) != 1 || deleted[0] != "v1" || !strings.Contains(stderr.String(), "Pruned 1 snapshot(s) (kept 1).") {
+		t.Errorf("deleted %v, stderr %q; want v1 pruned", deleted, stderr)
+	}
+}
+
+// TestRunPrune_NothingToDo: keeping at least as many as exist deletes nothing.
+func TestRunPrune_NothingToDo(t *testing.T) {
+	var deleted []string
+	ios, _, _, stderr := iostreams.Test()
+	opts := &PruneOptions{IO: ios, RootDB: rootDBFunc(tagRoot(&deleted)), Keep: 2, Yes: true}
+	if err := runPrune(context.Background(), opts); err != nil {
+		t.Fatal(err)
+	}
+	if len(deleted) != 0 || !strings.Contains(stderr.String(), "Nothing to prune.") {
+		t.Errorf("deleted %v, stderr %q", deleted, stderr)
+	}
+}
+
+// TestRunPrune_CancelOnPromptNo: a declined prompt deletes nothing.
+func TestRunPrune_CancelOnPromptNo(t *testing.T) {
+	var deleted []string
+	ios, _, _, _ := iostreams.Test()
 	ios.SetStdinTTY(true)
-	stub := &prompt.Stub{Confirms: []bool{false}}
-	opts := &PruneOptions{
-		IO:            ios,
-		Prompter:      stub,
-		RootDB:        rootDBFunc(root),
-		ResolveCities: resolveCitiesFunc(cities),
-		Keep:          1,
+	stub := &askStub{Stub: prompt.Stub{Confirms: []bool{false}}}
+	opts := &PruneOptions{IO: ios, Prompter: stub, RootDB: rootDBFunc(tagRoot(&deleted)), Keep: 1}
+	if err := runPrune(context.Background(), opts); !errors.Is(err, cmdutil.ErrCancel) {
+		t.Errorf("want ErrCancel, got %v", err)
 	}
-	err := runPrune(context.Background(), opts)
-	if !errors.Is(err, cmdutil.ErrCancel) {
-		t.Errorf("want ErrCancel, got: %v", err)
-	}
-	if deleted {
-		t.Error("DeleteSnapshot was called after the user declined")
-	}
-	if !strings.Contains(stderr.String(), "Canceled.") {
-		t.Errorf("expected 'Canceled.' on stderr, got: %s", stderr.String())
+	if len(deleted) != 0 || len(stub.Asked) != 1 || stub.Asked[0] != "Delete 1 snapshot(s), keeping the 1 newest?" {
+		t.Errorf("deleted %v, asked %q", deleted, stub.Asked)
 	}
 }
 
-// TestRunPrune_NoTTYWithoutYesIsFlagError pins the same byob-prompter.3
-// contract for prune: refusing to silently confirm in non-interactive
-// environments without --yes.
+// TestRunPrune_NoTTYWithoutYesIsFlagError: no TTY and no --yes refuses.
 func TestRunPrune_NoTTYWithoutYesIsFlagError(t *testing.T) {
-	cities := twoCityConfig()
-	var deleted bool
-	root := &dbtest.MockRootStore{
-		EnsureCityFunc: func(context.Context, string, string, string) (int64, error) { return 1, nil },
-		ForCityFunc: func(int64) db.Store {
-			return &dbtest.MockStore{
-				ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
-					return []db.Snapshot{{ID: 3}, {ID: 2}, {ID: 1}}, nil
-				},
-				DeleteSnapshotFunc: func(context.Context, int64) (bool, error) {
-					deleted = true
-					return true, nil
-				},
-			}
-		},
-	}
-	ios, _, _, _ := iostreams.Test() // stdin TTY false
-	opts := &PruneOptions{
-		IO:            ios,
-		RootDB:        rootDBFunc(root),
-		ResolveCities: resolveCitiesFunc(cities),
-		Keep:          1,
-	}
-	err := runPrune(context.Background(), opts)
+	var deleted []string
+	ios, _, _, _ := iostreams.Test()
+	opts := &PruneOptions{IO: ios, Prompter: &prompt.Stub{}, RootDB: rootDBFunc(tagRoot(&deleted)), Keep: 1}
 	var fe *cmdutil.FlagError
-	if !errors.As(err, &fe) {
-		t.Fatalf("want *cmdutil.FlagError, got %T: %v", err, err)
-	}
-	var he *hint.ErrHint
-	if !errors.As(err, &he) || !strings.Contains(he.Hint, "--yes") {
-		t.Errorf("expected --yes hint, got: %v", err)
-	}
-	if deleted {
-		t.Error("DeleteSnapshot was called despite refusal")
+	if err := runPrune(context.Background(), opts); !errors.As(err, &fe) || len(deleted) != 0 {
+		t.Errorf("err = %v (deleted %v), want a FlagError", err, deleted)
 	}
 }
 
-// TestNewCmdPrune_RequiresKeepFlag pins the flag-required contract so
-// `pvmt snapshots prune` (no flag) is a usage error, not a silent no-op.
+// TestNewCmdPrune_RequiresKeepFlag: --keep is required, and --city refused.
 func TestNewCmdPrune_RequiresKeepFlag(t *testing.T) {
-	ios, _, _, _ := iostreams.Test()
-	f := &cmdutil.Factory{IOStreams: ios}
-	cmd := NewCmdPrune(f, nil)
-	cmd.SetArgs([]string{})
-	cmd.SetOut(ios.Out)
-	cmd.SetErr(ios.ErrOut)
-	if err := cmd.Execute(); err == nil {
-		t.Fatal("expected error when --keep is missing")
+	for name, c := range map[string]struct {
+		citySet bool
+		args    []string
+	}{
+		"no --keep": {false, nil},
+		"--keep=0":  {false, []string{"--keep=0"}},
+		"--city":    {true, []string{"--keep=1"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ios, _, _, _ := iostreams.Test()
+			f := &cmdutil.Factory{IOStreams: ios, CityFlagSet: func() bool { return c.citySet }}
+			ran := false
+			cmd := NewCmdPrune(f, func(context.Context, *PruneOptions) error { ran = true; return nil })
+			cmd.SetArgs(c.args)
+			cmd.SetOut(ios.Out)
+			cmd.SetErr(ios.ErrOut)
+			if err := cmd.Execute(); err == nil || ran {
+				t.Errorf("err = %v, ran = %v; want a refusal", err, ran)
+			}
+		})
 	}
-}
-
-// TestNewCmdDelete_RejectsNonPositiveID guards the input validation: a 0 or
-// negative id reaches the runtime as a typed FlagError, not a generic
-// failure that exits 1. Pairs with byob-errors.4 exit-code routing.
-func TestNewCmdDelete_RejectsNonPositiveID(t *testing.T) {
-	ios, _, _, _ := iostreams.Test()
-	f := &cmdutil.Factory{IOStreams: ios}
-	cmd := NewCmdDelete(f, nil)
-	cmd.SetArgs([]string{"0"})
-	cmd.SetOut(ios.Out)
-	cmd.SetErr(ios.ErrOut)
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected error for non-positive id")
-	}
-	var fe *cmdutil.FlagError
-	if !errors.As(err, &fe) {
-		t.Errorf("want *cmdutil.FlagError, got %T: %v", err, err)
-	}
-}
-
-// slugFor maps the test fixture's city id back to a slug for assertion
-// ordering. Kept inline so the test data stays self-describing.
-func slugFor(id int64) string {
-	if id == 1 {
-		return "alpha"
-	}
-	return "beta"
 }

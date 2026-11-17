@@ -9,11 +9,19 @@
 -- non-empty database whose PRAGMA user_version is not schemaGeneration
 -- (migrations.go) with ErrIncompatibleDatabase.
 --
+-- FROZEN. This file is the v0.5.0 baseline and is never edited again. Its last
+-- in-place edit (solvent-streets-ern4.23, snapshots as named tags) kept
+-- generation 1, because no database but the one release database existed to
+-- support, and that one was converted by a one-off script.
+--
 -- Rules:
---   * Ordinary schema changes are additive numbered migrations (002_..., ...),
---     applied within the current generation. Never edit this file for those.
---   * Editing this file in place IS a squash: bump schemaGeneration in the same
---     commit, and mark that commit breaking ("!" in the subject).
+--   * Every schema change from now on is an additive numbered migration
+--     (002_*.sql, 003_*.sql, ...), applied in order within the current
+--     generation by migrateFS (migrations.go). See CONTRIBUTING.md, "Schema
+--     changes".
+--   * A squash (rewriting this file) is a deliberate breaking change: bump
+--     schemaGeneration in the same commit, and mark that commit breaking ("!"
+--     in the subject).
 --
 -- Timestamps (every *_at column) are INTEGER unix seconds, UTC, written by Go
 -- (internal/db/timestamps.go): no DEFAULT, so a statement that forgets one
@@ -114,17 +122,18 @@ CREATE INDEX IF NOT EXISTS idx_ingest_attempts_key ON ingest_attempts(city_id, i
 -- them.
 --
 -- working_parts is the city's working state per config hash: the latest run
--- of each part. snapshot_parts is a snapshot's frozen manifest of
--- (part -> run) rows. A snapshot also freezes what its rendering depends on
--- beyond its runs: the hex edge its grid was tiled at, and the boundary it
--- was clipped to (snapshot_boundaries, content-addressed so identical
--- boundaries are stored once). Every reader resolves ONE snapshot and reads
--- only its runs. All runs in a snapshot share the snapshot's config_hash.
+-- of each part. A snapshot is a named tag over many cities; snapshot_parts is
+-- each city's frozen manifest of (part -> run) rows in it. A snapshot also
+-- freezes, per city, what its rendering depends on beyond its runs: the hex
+-- edge its grid was tiled at, and the boundary it was clipped to
+-- (snapshot_boundaries, content-addressed so identical boundaries are stored
+-- once). Every city reader resolves ONE snapshot and reads only that city's
+-- runs in it. All of a city's runs in a snapshot share its config_hash.
 --
 -- A compute swaps only the parts it produced into the working state for its
--- config hash; only `pvmt snapshots create` freezes the working state into a
--- new snapshot. A run referenced by a snapshot or by a current-epoch working
--- state is never swept.
+-- config hash; only `pvmt snapshots create <name>` freezes the working state
+-- of every city into a new snapshot. A run referenced by a snapshot or by a
+-- current-epoch working state is never swept.
 CREATE TABLE IF NOT EXISTS runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     city_id INTEGER NOT NULL REFERENCES cities(id),
@@ -181,29 +190,49 @@ CREATE TABLE IF NOT EXISTS snapshot_boundaries (
     UNIQUE (city_id, digest)
 ) STRICT;
 
--- hex_edge_m and boundary_id freeze the grid a snapshot was computed on.
--- boundary_id is NULL only when the city had no stored boundary at commit.
+-- A snapshot is a named, immutable tag over every configured city, like a
+-- git tag (solvent-streets-ern4.23): `pvmt snapshots create v0.5.0` freezes
+-- each city's latest compute in one transaction, or nothing. snapshots is the
+-- tag; compute_epoch is the config.ComputeEpoch of the binary that created
+-- it. created_at orders nothing: "newest" is the highest id (created_at has
+-- second granularity).
 CREATE TABLE IF NOT EXISTS snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    city_id INTEGER NOT NULL REFERENCES cities(id),
+    name TEXT NOT NULL UNIQUE,
     created_at INTEGER NOT NULL,
-    config_hash TEXT NOT NULL DEFAULT '',
+    compute_epoch INTEGER NOT NULL
+) STRICT;
+
+-- One row per city the tag covers: what the city's results were computed
+-- under. hex_edge_m and boundary_id freeze the grid it was computed on;
+-- boundary_id is NULL only when the city had no stored boundary at create.
+-- Keyed by (snapshot_id, city_id): a pinned city view checks its row with a
+-- key lookup, and deleting the tag cascades through the key prefix.
+CREATE TABLE IF NOT EXISTS snapshot_cities (
+    snapshot_id INTEGER NOT NULL REFERENCES snapshots(id) ON DELETE CASCADE,
+    city_id INTEGER NOT NULL REFERENCES cities(id),
+    config_hash TEXT NOT NULL,
     hex_edge_m REAL NOT NULL,
-    boundary_id INTEGER REFERENCES snapshot_boundaries(id)
-);
+    boundary_id INTEGER REFERENCES snapshot_boundaries(id),
+    PRIMARY KEY (snapshot_id, city_id)
+) STRICT, WITHOUT ROWID;
 
--- Resolution reads "newest snapshot for this city [and config hash]"; the
--- city_id prefix also serves the any-hash reads.
-CREATE INDEX IF NOT EXISTS idx_snapshots_city_hash ON snapshots(city_id, config_hash);
+-- "The newest snapshot containing this city" (export, serve, status, a
+-- city's snapshot list): a seek on city_id read backwards by snapshot_id.
+CREATE INDEX IF NOT EXISTS idx_snapshot_cities_city ON snapshot_cities(city_id, snapshot_id);
 -- "Is this boundary still frozen by a snapshot?" (delete / gc).
-CREATE INDEX IF NOT EXISTS idx_snapshots_boundary ON snapshots(boundary_id);
+CREATE INDEX IF NOT EXISTS idx_snapshot_cities_boundary ON snapshot_cities(boundary_id);
 
+-- A city's frozen manifest in a snapshot: (part -> run). Every read names
+-- (snapshot_id, city_id), the key's prefix.
 CREATE TABLE IF NOT EXISTS snapshot_parts (
-    snapshot_id INTEGER NOT NULL REFERENCES snapshots(id),
+    snapshot_id INTEGER NOT NULL,
+    city_id INTEGER NOT NULL,
     part TEXT NOT NULL,
     run_id INTEGER NOT NULL REFERENCES runs(id),
-    PRIMARY KEY (snapshot_id, part)
-);
+    PRIMARY KEY (snapshot_id, city_id, part),
+    FOREIGN KEY (snapshot_id, city_id) REFERENCES snapshot_cities(snapshot_id, city_id) ON DELETE CASCADE
+) STRICT, WITHOUT ROWID;
 
 -- "Is this run still referenced by any snapshot?" (delete / gc).
 CREATE INDEX IF NOT EXISTS idx_snapshot_parts_run ON snapshot_parts(run_id);

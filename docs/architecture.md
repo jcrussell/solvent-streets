@@ -201,9 +201,9 @@ earlier strip shrank the bbox, its first replay fetches the roads upstream.
 
 The database is a single SQLite file in the data directory (see
 [configuration.md](configuration.md#files-and-directories)), opened in WAL
-mode. Every ingest table, and `runs`, `working_parts`, `snapshots` and
-`snapshot_boundaries`, carries a `city_id`; `snapshot_parts` belongs to its
-city through its snapshot. Results do not:
+mode. Every ingest table, and `runs`, `working_parts`, `snapshot_cities`,
+`snapshot_parts` and `snapshot_boundaries`, carries a `city_id`; `snapshots`,
+the named tag over many cities, does not. Results do not either:
 each result row hangs off the run that wrote it and is deleted with it
 (`ON DELETE CASCADE`), so a city's results are its runs' results. Results are
 long-format metric rows (metric, subject, value) rather than per-measure
@@ -257,13 +257,14 @@ erDiagram
     cities ||--o{ features : has
     cities ||--o| city_boundaries : has
     cities ||--o{ runs : has
-    cities ||--o{ snapshots : has
+    cities ||--o{ snapshot_cities : "frozen in"
     cities ||--o{ city_inputs : has
     cities ||--o{ working_parts : has
     cities ||--o{ ingest_attempts : has
 
-    snapshots ||--o{ snapshot_parts : lists
-    snapshot_boundaries |o--o{ snapshots : "clipped to"
+    snapshots ||--o{ snapshot_cities : covers
+    snapshot_cities ||--o{ snapshot_parts : lists
+    snapshot_boundaries |o--o{ snapshot_cities : "clipped to"
     runs ||--o{ snapshot_parts : "fills a part of"
     runs ||--o{ working_parts : "is the latest of"
     runs ||--o{ run_inputs : read
@@ -341,11 +342,16 @@ erDiagram
     }
     snapshots {
         int id PK
-        int city_id FK
+        text name UK
+        int created_at
+        int compute_epoch
+    }
+    snapshot_cities {
+        int snapshot_id PK
+        int city_id PK
         text config_hash
         real hex_edge_m
         int boundary_id FK
-        int created_at
     }
     snapshot_boundaries {
         int id PK
@@ -356,6 +362,7 @@ erDiagram
     }
     snapshot_parts {
         int snapshot_id PK
+        int city_id PK
         text part PK
         int run_id FK
     }
@@ -434,13 +441,30 @@ same coordinates keeps every input current. Tags, names, types and
 sources stay JSON and text so the database stays readable with `sqlite3`;
 boundaries stay GeoJSON.
 
+The snapshot tables are keyed for the statements that read them, and
+`TestQueryPlan_SnapshotStatements` pins each plan:
+
+| Statement | Where | Served by |
+|---|---|---|
+| does snapshot S cover city C | a pinned view (`checkPin`) | `snapshot_cities` key |
+| newest snapshot covering C | an unpinned view, export, serve | `idx_snapshot_cities_city (city_id, snapshot_id)`, read backwards |
+| C's manifest in S | every pinned read (`viewRunIDs`) | `snapshot_parts` key prefix `(snapshot_id, city_id)` |
+| S's frozen boundary for C | `GetBoundary` | `snapshot_cities` key |
+| snapshot by name | create, show, delete, `?snapshot=` | `UNIQUE(name)` |
+| is a run still in a snapshot | delete, gc | `idx_snapshot_parts_run` |
+| is a boundary still frozen | delete, gc | `idx_snapshot_cities_boundary` |
+
+Deleting a snapshot deletes its `snapshot_cities` and `snapshot_parts` rows by
+`ON DELETE CASCADE`, through those keys' `snapshot_id` prefix.
+
 `001_init.sql` creates the schema, and `checkGeneration`
 (`internal/db/migrations.go`) stamps a fresh database's `PRAGMA user_version`
-with `schemaGeneration`.
-Changes within a generation are numbered migrations. A breaking change bumps
-the generation, and pvmt refuses a database from any other generation rather
-than converting it (see
-[troubleshooting](troubleshooting.md#incompatible-database)).
+with `schemaGeneration`. `001_init.sql` is frozen as the v0.5.0 baseline:
+every schema change is an additive numbered migration (`002_*.sql`, ...) that
+`migrateFS` applies within the generation (see
+[CONTRIBUTING.md](../CONTRIBUTING.md#schema-changes)). A squash would bump the
+generation, and pvmt refuses a database from any other generation rather than
+converting it (see [troubleshooting](troubleshooting.md#incompatible-database)).
 
 ## Runs and snapshots
 

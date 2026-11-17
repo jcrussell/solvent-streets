@@ -26,8 +26,8 @@ import (
 func exportTestEntry(cfg *config.Config, name, slug, boundary string, totals map[resource.Type]results.Totals) CityEntry {
 	store := &dbtest.MockStore{
 		GetBoundaryFunc: func(context.Context) (string, error) { return boundary, nil },
-		ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
-			return []db.Snapshot{{ID: 1, ConfigHash: cfg.CityHash(&config.CityConfig{Name: name}), Parts: paved}}, nil
+		ListSnapshotsFunc: func(context.Context) ([]db.SnapshotCity, error) {
+			return []db.SnapshotCity{{ID: 1, ConfigHash: cfg.CityHash(&config.CityConfig{Name: name}), Parts: paved}}, nil
 		},
 		CityMetrics: totalsFixture(totals),
 	}
@@ -164,11 +164,11 @@ func TestRunMultiCity_FailureLeavesRecoverableDir(t *testing.T) {
 	})
 	// A city whose snapshot holds only fire coverage: RequirePavement aborts
 	// the run after the marker (and possibly the good city's data) is written.
-	fireOnly := []db.Snapshot{{ID: 2, ConfigHash: cfg.CityHash(&config.CityConfig{Name: "Bad"}), Parts: []db.SnapshotPart{{Part: "service:fire", RunID: 2}}}}
+	fireOnly := []db.SnapshotCity{{ID: 2, ConfigHash: cfg.CityHash(&config.CityConfig{Name: "Bad"}), Parts: []db.SnapshotPart{{Part: "service:fire", RunID: 2}}}}
 	badStore := &dbtest.MockStore{
 		GetBoundaryFunc:   func(context.Context) (string, error) { return exportBoundaryB, nil },
-		ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) { return fireOnly, nil },
-		ViewSnapshotFunc:  func(context.Context) (*db.Snapshot, error) { return &fireOnly[0], nil },
+		ListSnapshotsFunc: func(context.Context) ([]db.SnapshotCity, error) { return fireOnly, nil },
+		ViewSnapshotFunc:  func(context.Context) (*db.SnapshotCity, error) { return &fireOnly[0], nil },
 	}
 	bad := CityEntry{Config: cfg, City: config.CityConfig{Name: "Bad"}, Store: badStore, Slug: "bad"}
 
@@ -488,8 +488,8 @@ func TestExportOneCity_SkippedCityLeavesNoDirectory(t *testing.T) {
 		e.Config = cfg
 		e.Slug = slug
 		hash := cfg.CityHash(&e.City)
-		e.Store.(*dbtest.MockStore).ListSnapshotsFunc = func(context.Context) ([]db.Snapshot, error) {
-			return []db.Snapshot{{ID: jsFixtureSnapshotID, ConfigHash: hash, Parts: paved}}, nil
+		e.Store.(*dbtest.MockStore).ListSnapshotsFunc = func(context.Context) ([]db.SnapshotCity, error) {
+			return []db.SnapshotCity{{ID: jsFixtureSnapshotID, ConfigHash: hash, Parts: paved}}, nil
 		}
 		return e
 	}

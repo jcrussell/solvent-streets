@@ -113,22 +113,54 @@ type Run struct {
 	ComputedAt time.Time `json:"computed_at"`
 }
 
-// Snapshot is a city's computed state frozen by `pvmt snapshots create`: one
-// run per part. It never changes after it is created. Every reader resolves
-// exactly one manifest (a snapshot via Store.WithSnapshot or the newest, or
-// the latest compute via WithLatestCompute / WithRuns) and reads only its
-// runs.
+// Snapshot is a named, immutable tag over every configured city, like a git
+// tag: `pvmt snapshots create <name>` freezes each city's latest compute into
+// it in one transaction (RootStorer.CreateSnapshot), and it never changes
+// after that. Readers pin one city of it (Store.WithSnapshot with its ID).
 type Snapshot struct {
-	ID         int64     `json:"id"`
-	CreatedAt  time.Time `json:"created_at"`
-	ConfigHash string    `json:"config_hash"`
-	// HexEdgeM is the hex edge, in meters, the snapshot's grid was tiled at.
+	ID        int64     `json:"id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+	// ComputeEpoch is the config.ComputeEpoch of the binary that created it.
+	ComputeEpoch int `json:"compute_epoch"`
+	CityCount    int `json:"city_count"`
+	// Cities is every city the snapshot covers, by slug, each with its
+	// manifest. Filled by RootStorer.Snapshot; nil from ListSnapshots.
+	Cities []SnapshotCity `json:"cities,omitempty"`
+}
+
+// SnapshotCity is one city's frozen state in a snapshot: one run per part,
+// the hex edge its grid was tiled at and the boundary it was clipped to.
+// Every reader resolves exactly one manifest (a city of a snapshot via
+// Store.WithSnapshot or the newest containing the city, or the latest compute
+// via WithLatestCompute / WithRuns) and reads only its runs. ID, Name,
+// CreatedAt and ComputeEpoch are the snapshot's.
+type SnapshotCity struct {
+	ID           int64     `json:"id"`
+	Name         string    `json:"name"`
+	CreatedAt    time.Time `json:"created_at"`
+	ComputeEpoch int       `json:"compute_epoch"`
+	CityID       int64     `json:"-"`
+	// CitySlug is the city's slug (cities.slug).
+	CitySlug   string `json:"city,omitempty"`
+	ConfigHash string `json:"config_hash"`
+	// HexEdgeM is the hex edge, in meters, the city's grid was tiled at.
 	HexEdgeM float64        `json:"hex_edge_m"`
 	Parts    []SnapshotPart `json:"parts"`
-	// BoundaryDigest identifies the boundary the snapshot froze (the
-	// snapshot_boundaries digest); "" when it froze none. Not published: it
-	// keys caches of what is drawn from that boundary.
+	// BoundaryDigest identifies the boundary the snapshot froze for the city
+	// (the snapshot_boundaries digest); "" when it froze none. Not
+	// published: it keys caches of what is drawn from that boundary.
 	BoundaryDigest string `json:"-"`
+}
+
+// SnapshotRequest is one city RootStorer.CreateSnapshot freezes: its latest
+// compute under ConfigHash, tiled at HexEdgeM (> 0), judged by Check (nil
+// skips it).
+type SnapshotRequest struct {
+	CityID     int64
+	ConfigHash string
+	HexEdgeM   float64
+	Check      CheckFunc
 }
 
 // SnapshotPart is one (part -> run) entry of a snapshot's manifest.
@@ -232,7 +264,7 @@ type Store interface {
 	// Producer == part. One transaction. A commit that would not change the
 	// manifest writes nothing. A replaced run is not deleted here: once no
 	// snapshot or latest compute references it, gc sweeps it. Nothing is
-	// published: a snapshot never changes after CreateSnapshot. An empty
+	// published: a snapshot never changes after it is created. An empty
 	// configHash is rejected. computeEpoch (config.ComputeEpoch) is recorded
 	// with the parts, for gc. Retries while another process holds the lock.
 	CommitLatest(ctx context.Context, configHash string, computeEpoch int, parts map[string]int64) error
@@ -241,29 +273,22 @@ type Store interface {
 	// the run's computed_at and the input digests the run recorded. No parts
 	// returns (nil, nil).
 	LatestCompute(ctx context.Context, configHash string) ([]LatestPart, error)
-	// CreateSnapshot freezes the latest compute under configHash as a
-	// snapshot tiled at hexEdgeM (> 0), with the city's current boundary, in
-	// one IMMEDIATE transaction: it reads the latest compute and the current
-	// input states, runs check on them (nil skips it), and returns check's
-	// error unchanged when it refuses, so no ingest or compute can land
-	// between the check and the freeze. An empty latest compute is refused
-	// with ErrNothingComputed. When the city's newest snapshot already has
-	// the same hash, edge, boundary and manifest it is returned with created
-	// false and nothing is written. Retries while another process holds the
-	// lock.
-	CreateSnapshot(ctx context.Context, configHash string, hexEdgeM float64, check CheckFunc) (snap *Snapshot, created bool, err error)
-	// ListSnapshots returns this city's snapshots newest first, each with
-	// its manifest.
-	ListSnapshots(ctx context.Context) ([]Snapshot, error)
-	ResolveSnapshot(ctx context.Context, snapshotID int64) error
-	// ViewSnapshot returns the snapshot this view reads, with its manifest:
-	// the pinned one (ErrSnapshotGone when it no longer exists), else, for a
-	// view of neither a latest compute nor pinned runs, the newest. (nil,
+	// ListSnapshots returns the snapshots that cover this city, newest
+	// first, each with the city's manifest.
+	ListSnapshots(ctx context.Context) ([]SnapshotCity, error)
+	// ResolveSnapshot returns the id of the snapshot named name when it
+	// covers this city, and sql.ErrNoRows otherwise (an unknown name, or a
+	// snapshot without this city).
+	ResolveSnapshot(ctx context.Context, name string) (int64, error)
+	// ViewSnapshot returns the city's state in the snapshot this view reads,
+	// with its manifest: the pinned one (ErrSnapshotGone when it no longer
+	// exists or does not cover the city), else, for a view of neither a
+	// latest compute nor pinned runs, the newest covering the city. (nil,
 	// nil) when the view reads no snapshot.
-	ViewSnapshot(ctx context.Context) (*Snapshot, error)
-	// WithSnapshot returns a view pinned to one snapshot: its runs and its
-	// frozen boundary. Every snapshot-scoped read of the view returns
-	// ErrSnapshotGone once that snapshot no longer exists.
+	ViewSnapshot(ctx context.Context) (*SnapshotCity, error)
+	// WithSnapshot returns a view pinned to this city in one snapshot: its
+	// runs and its frozen boundary. Every snapshot-scoped read of the view
+	// returns ErrSnapshotGone once that snapshot no longer exists.
 	WithSnapshot(snapshotID int64) Store
 	// WithLatestCompute returns a view of the latest compute under
 	// configHash, resolved on every read.
@@ -272,12 +297,6 @@ type Store interface {
 	// pinned at one moment); every read returns ErrSnapshotGone once any of
 	// them is gone.
 	WithRuns(runIDs []int64) Store
-	// DeleteSnapshot removes one snapshot's manifest, then every run no
-	// remaining snapshot or the latest compute references, with the rows
-	// those runs wrote, and any frozen boundary no snapshot uses any more.
-	// Runs still referenced elsewhere are kept, so deleting any snapshot
-	// never changes what another snapshot or the latest compute reads.
-	DeleteSnapshot(ctx context.Context, snapshotID int64) (bool, error)
 	// GCScan counts orphan rows for this city WITHOUT writing: features
 	// with a stale source_api (non-empty, not in keepSources), latest-compute
 	// parts committed under a ComputeEpoch older than computeEpoch, and runs
@@ -327,6 +346,32 @@ type RootStorer interface {
 	EnsureCity(ctx context.Context, slug, name, configID string) (int64, error)
 	ListCities(ctx context.Context) ([]City, error)
 	ForCity(id int64) Store
+	// CreateSnapshot freezes every city in cities into one new snapshot
+	// named name, in one IMMEDIATE transaction, or nothing. For each city
+	// it reads the latest compute and the current input states and runs the
+	// city's Check on them, so no ingest or compute can land between the
+	// check and the freeze; a city with nothing computed is refused with
+	// ErrNothingComputed. Every city is judged; when any is refused nothing
+	// is written and the error is a *SnapshotRefusedError listing each
+	// refusal. A name already taken is ErrSnapshotExists, an invalid one
+	// fails CheckSnapshotName. computeEpoch (config.ComputeEpoch) is
+	// recorded on the snapshot. Retries while another process holds the
+	// lock.
+	CreateSnapshot(ctx context.Context, name string, computeEpoch int, cities []SnapshotRequest) (*Snapshot, error)
+	// ListSnapshots returns every snapshot newest first, with its city
+	// count and no Cities.
+	ListSnapshots(ctx context.Context) ([]Snapshot, error)
+	// Snapshot returns the snapshot named name with every city it covers
+	// (ordered by slug) and their manifests; ErrSnapshotNotFound when there
+	// is none.
+	Snapshot(ctx context.Context, name string) (*Snapshot, error)
+	// DeleteSnapshot removes the snapshot named name and its cities'
+	// manifests, then every run no remaining snapshot or latest compute
+	// references, with the rows those runs wrote, and any frozen boundary
+	// no snapshot uses any more. Runs still referenced elsewhere are kept,
+	// so deleting a snapshot never changes what another snapshot or the
+	// latest compute reads. false, nil when there is no such snapshot.
+	DeleteSnapshot(ctx context.Context, name string) (bool, error)
 	Close() error
 }
 

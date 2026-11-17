@@ -356,17 +356,18 @@ func TestParseIndexTemplate_StaticExport(t *testing.T) {
 }
 
 // TestHandleSnapshots_SingleCity exercises /api/snapshots in single-city mode
-// and asserts the JSON shape matches the {id, created_at, config_hash, parts}
-// contract the dashboard's snapshot picker reads (app.js renders created_at).
+// and asserts the JSON shape matches the {name, created_at, config_hash,
+// parts} contract the dashboard's snapshot picker reads (app.js renders name
+// and created_at).
 func TestHandleSnapshots_SingleCity(t *testing.T) {
 	t1 := time.Date(2026, 5, 14, 10, 0, 0, 0, time.UTC)
 	t2 := time.Date(2026, 5, 15, 12, 30, 0, 0, time.UTC)
 	store := &dbtest.MockStore{
-		ListSnapshotsFunc: func(_ context.Context) ([]db.Snapshot, error) {
+		ListSnapshotsFunc: func(_ context.Context) ([]db.SnapshotCity, error) {
 			// Mirrors ListSnapshots' real newest-first order.
-			return []db.Snapshot{
-				{ID: 2, CreatedAt: t2, ConfigHash: "deadbeef"},
-				{ID: 1, CreatedAt: t1, ConfigHash: "cafebabe"},
+			return []db.SnapshotCity{
+				{ID: 2, Name: "v2", CreatedAt: t2, ConfigHash: "deadbeef"},
+				{ID: 1, Name: "v1", CreatedAt: t1, ConfigHash: "cafebabe"},
 			}, nil
 		},
 	}
@@ -396,17 +397,20 @@ func TestHandleSnapshots_SingleCity(t *testing.T) {
 	if got[0]["id"] != float64(2) || got[1]["id"] != float64(1) {
 		t.Errorf("expected DESC order id=2,1, got %v,%v", got[0]["id"], got[1]["id"])
 	}
-	for _, k := range []string{"id", "created_at", "config_hash", "hex_edge_m", "parts"} {
+	for _, k := range []string{"id", "name", "created_at", "compute_epoch", "config_hash", "hex_edge_m", "parts"} {
 		if _, ok := got[0][k]; !ok {
 			t.Errorf("missing key %q in response", k)
 		}
+	}
+	if got[0]["name"] != "v2" || got[1]["name"] != "v1" {
+		t.Errorf("names = %v / %v, want v2 then v1", got[0]["name"], got[1]["name"])
 	}
 }
 
 // TestHandleSnapshots_EmptyEmitsArrayNotNull pins the empty-path JSON shape
 // against a REAL in-memory store: a city with zero snapshots must serialize
 // to `[]`, not `null`. This is the contract the serveSnapshotsJSON nil-guard
-// (snaps == nil -> []db.Snapshot{}) exists to uphold. The MockStore can't
+// (snaps == nil -> []db.SnapshotCity{}) exists to uphold. The MockStore can't
 // catch a regression here because its List* default returns a non-nil empty
 // slice (a deliberate divergence from the real store, which returns nil on
 // zero rows) — so this assertion must run through real SQLite.
@@ -448,13 +452,13 @@ func TestHandleSnapshots_EmptyEmitsArrayNotNull(t *testing.T) {
 // verifies city-slug routing + 404 on unknown slug.
 func TestHandleSnapshots_MultiCity(t *testing.T) {
 	storeA := &dbtest.MockStore{
-		ListSnapshotsFunc: func(_ context.Context) ([]db.Snapshot, error) {
-			return []db.Snapshot{{ID: 7}}, nil
+		ListSnapshotsFunc: func(_ context.Context) ([]db.SnapshotCity, error) {
+			return []db.SnapshotCity{{ID: 7}}, nil
 		},
 	}
 	storeB := &dbtest.MockStore{
-		ListSnapshotsFunc: func(_ context.Context) ([]db.Snapshot, error) {
-			return []db.Snapshot{{ID: 9}}, nil
+		ListSnapshotsFunc: func(_ context.Context) ([]db.SnapshotCity, error) {
+			return []db.SnapshotCity{{ID: 9}}, nil
 		},
 	}
 	cfg := &config.Config{Cities: []config.CityConfig{
@@ -477,7 +481,7 @@ func TestHandleSnapshots_MultiCity(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200 on known slug, got %d: %s", w.Code, w.Body.String())
 	}
-	var got []db.Snapshot
+	var got []db.SnapshotCity
 	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
 		t.Fatal(err)
 	}
@@ -496,8 +500,9 @@ func TestHandleSnapshots_MultiCity(t *testing.T) {
 }
 
 // TestDataFile_SnapshotParam exercises the ?snapshot= contract on the
-// /data/* endpoints: absent → latest, valid → snapshot-pinned response,
-// invalid/unknown → 404 (not 500), and two snapshots cache independently.
+// /data/* endpoints: absent → latest, a name the city has → that snapshot's
+// response, an invalid or unknown name → 404 (not 500), and two snapshots
+// cache independently.
 func TestDataFile_SnapshotParam(t *testing.T) {
 	testBoundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
 
@@ -509,10 +514,10 @@ func TestDataFile_SnapshotParam(t *testing.T) {
 		// snapshot-unaware, so a pinned store still lists all snapshots —
 		// BuildMeta's snapshot-date lookup relies on the pinned id being
 		// present here.
-		ListSnapshotsFunc: func(_ context.Context) ([]db.Snapshot, error) {
-			return []db.Snapshot{
-				{ID: 2, CreatedAt: time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)},
-				{ID: 1, CreatedAt: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)},
+		ListSnapshotsFunc: func(_ context.Context) ([]db.SnapshotCity, error) {
+			return []db.SnapshotCity{
+				{ID: 2, Name: "v2", CreatedAt: time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)},
+				{ID: 1, Name: "v1", CreatedAt: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)},
 			}, nil
 		},
 		CityMetrics: results.TotalRows(srvRtRoads, results.Totals{Area: float64(pinnedSnapshot * 1000), Features: int(pinnedSnapshot * 10)}),
@@ -522,17 +527,20 @@ func TestDataFile_SnapshotParam(t *testing.T) {
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
 		// snapshots 1 and 2 carry the current config's hash so the
 		// config-mismatch guard in serveDataFile lets them through.
-		ListSnapshotsFunc: func(_ context.Context) ([]db.Snapshot, error) {
-			return []db.Snapshot{
-				{ID: 2, ConfigHash: cfg.CityHash(&cfg.Cities[0])},
-				{ID: 1, ConfigHash: cfg.CityHash(&cfg.Cities[0])},
+		ListSnapshotsFunc: func(_ context.Context) ([]db.SnapshotCity, error) {
+			return []db.SnapshotCity{
+				{ID: 2, Name: "v2", ConfigHash: cfg.CityHash(&cfg.Cities[0])},
+				{ID: 1, Name: "v1", ConfigHash: cfg.CityHash(&cfg.Cities[0])},
 			}, nil
 		},
-		ResolveSnapshotFunc: func(_ context.Context, id int64) error {
-			if id == 1 || id == 2 {
-				return nil
+		ResolveSnapshotFunc: func(_ context.Context, name string) (int64, error) {
+			switch name {
+			case "v1":
+				return 1, nil
+			case "v2":
+				return 2, nil
 			}
-			return sql.ErrNoRows
+			return 0, sql.ErrNoRows
 		},
 		WithSnapshotFunc: func(id int64) db.Store {
 			cp := *pinnedStore
@@ -571,34 +579,30 @@ func TestDataFile_SnapshotParam(t *testing.T) {
 		t.Errorf("absent ?snapshot=: expected latest area 999000, got %+v", latest)
 	}
 
-	// snapshot=1 → root.WithSnapshot(1) is invoked; pinned response.
-	_, s1 := hit(t, "/data/meta.json?snapshot=1")
-	if s1 == nil || s1.Stats[0].TotalArea != 1000 {
-		t.Errorf("snapshot=1: expected area 1000, got %+v", s1)
+	// snapshot=v1 → root.WithSnapshot(1) is invoked; pinned response, and
+	// meta.json names it.
+	_, s1 := hit(t, "/data/meta.json?snapshot=v1")
+	if s1 == nil || s1.Stats[0].TotalArea != 1000 || s1.SnapshotID != 1 || s1.SnapshotDate != "2026-03-01" {
+		t.Errorf("snapshot=v1: expected area 1000 from snapshot v1 of 2026-03-01, got %+v", s1)
 	}
 
-	// snapshot=2 → different cached body. Also confirms cache key isolates.
-	_, s2 := hit(t, "/data/meta.json?snapshot=2")
+	// snapshot=v2 → different cached body. Also confirms cache key isolates.
+	_, s2 := hit(t, "/data/meta.json?snapshot=v2")
 	if s2 == nil || s2.Stats[0].TotalArea != 2000 {
-		t.Errorf("snapshot=2: expected area 2000, got %+v", s2)
+		t.Errorf("snapshot=v2: expected area 2000, got %+v", s2)
 	}
 
-	// Unknown id → 404, not 500.
-	w404, _ := hit(t, "/data/meta.json?snapshot=99999")
+	// Unknown name → 404, not 500.
+	w404, _ := hit(t, "/data/meta.json?snapshot=v9")
 	if w404.Code != http.StatusNotFound {
 		t.Errorf("unknown snapshot: expected 404, got %d", w404.Code)
 	}
 
-	// Garbage id → 404.
-	wBad, _ := hit(t, "/data/meta.json?snapshot=abc")
-	if wBad.Code != http.StatusNotFound {
-		t.Errorf("invalid snapshot: expected 404, got %d", wBad.Code)
-	}
-
-	// Negative id → 404.
-	wNeg, _ := hit(t, "/data/meta.json?snapshot=-1")
-	if wNeg.Code != http.StatusNotFound {
-		t.Errorf("negative snapshot: expected 404, got %d", wNeg.Code)
+	// Not a snapshot name at all → 404.
+	for _, bad := range []string{"-1", "a/b", "%20"} {
+		if w, _ := hit(t, "/data/meta.json?snapshot="+bad); w.Code != http.StatusNotFound {
+			t.Errorf("snapshot=%s: expected 404, got %d", bad, w.Code)
+		}
 	}
 }
 

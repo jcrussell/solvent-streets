@@ -161,7 +161,7 @@ hexes it overlaps, in proportion to the overlapping area, and store per hex:
 population, housing_units and population_per_km2 (population over the hex's
 own boundary-clipped area). The result updates the census part of the
 city's latest compute, so a later roads compute leaves it in place; run
-'pvmt snapshots create' to publish it. A city
+'pvmt snapshots create <name>' to publish it. A city
 with census = false, or with no stored blocks, has its census part removed
 rather than keeping an old result.`,
 		Example: `  # Every configured city

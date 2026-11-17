@@ -21,10 +21,18 @@ import (
 
 const goneBoundary = `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
 
+// cityDB is a city's store with the root it came from, for creating and
+// deleting snapshots, which are root-level.
+type cityDB struct {
+	db.Store
+	root db.RootStorer
+	id   int64
+}
+
 // sqliteEntry returns a city in a real in-memory database with goneBoundary
 // stored, scoped to its current hash as BuildCityEntries makes it, and a
 // commit func that adds a roads snapshot and returns its id.
-func sqliteEntry(t *testing.T, cfg *config.Config, city config.CityConfig) (export.CityEntry, db.Store, func(area float64) int64) {
+func sqliteEntry(t *testing.T, cfg *config.Config, city config.CityConfig) (export.CityEntry, *cityDB, func(area float64) int64) {
 	t.Helper()
 	ctx := context.Background()
 	root, err := db.Open(":memory:")
@@ -36,7 +44,7 @@ func sqliteEntry(t *testing.T, cfg *config.Config, city config.CityConfig) (expo
 	if err != nil {
 		t.Fatal(err)
 	}
-	store := root.ForCity(id)
+	store := &cityDB{Store: root.ForCity(id), root: root, id: id}
 	if err := store.SaveBoundary(ctx, goneBoundary, "test"); err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +58,7 @@ func sqliteEntry(t *testing.T, cfg *config.Config, city config.CityConfig) (expo
 		if err := store.SaveCityMetrics(ctx, run.ID, results.TotalRows(resource.TypeRoads, results.Totals{Area: area, Features: 1})); err != nil {
 			t.Fatal(err)
 		}
-		snap, err := dbtest.Publish(ctx, store, hash, cfg.ResolvedHexEdge(&city), map[string]int64{"roads": run.ID})
+		snap, err := dbtest.Publish(ctx, store.root, store.id, hash, cfg.ResolvedHexEdge(&city), map[string]int64{"roads": run.ID})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -89,7 +97,7 @@ func TestDataFile_PinnedSnapshotDeletedIs410(t *testing.T) {
 	if w := hit(export.MetaFileName); w.Code != http.StatusOK {
 		t.Fatalf("meta before delete: %d %s", w.Code, w.Body)
 	}
-	if _, err := store.DeleteSnapshot(ctx, newest); err != nil {
+	if _, err := dbtest.DeleteSnapshotID(ctx, store.root, newest); err != nil {
 		t.Fatal(err)
 	}
 	for _, file := range []string{export.HexMetricsFileName, export.HexGridFileName, export.BoundaryFileName, export.ScenariosFileName, export.ForecastFileName} {
@@ -123,7 +131,7 @@ func TestDataFile_SnapshotAtAnotherEdgeRenders(t *testing.T) {
 
 	// commitGrid commits a roads snapshot under c's settings with coverage on
 	// every hex of the lattice compute would tile at that edge.
-	commitGrid := func(c *config.Config) int64 {
+	commitGrid := func(c *config.Config) string {
 		t.Helper()
 		city := c.Cities[0]
 		edge := c.ResolvedHexEdge(&city)
@@ -150,11 +158,11 @@ func TestDataFile_SnapshotAtAnotherEdgeRenders(t *testing.T) {
 		if err := store.SaveHexMetrics(ctx, run.ID, results.HexCoverageRows(resource.TypeRoads, cov)); err != nil {
 			t.Fatal(err)
 		}
-		snap, err := dbtest.Publish(ctx, store, hash, edge, map[string]int64{"roads": run.ID})
+		snap, err := dbtest.Publish(ctx, store.root, store.id, hash, edge, map[string]int64{"roads": run.ID})
 		if err != nil {
 			t.Fatal(err)
 		}
-		return snap.ID
+		return snap.Name
 	}
 	old := commitGrid(oldCfg)
 	const shifted = `{"type":"Polygon","coordinates":[[[-121.80,37.64],[-121.68,37.64],[-121.68,37.72],[-121.80,37.72],[-121.80,37.64]]]}`
@@ -200,17 +208,17 @@ func TestDataFile_SnapshotAtAnotherEdgeRenders(t *testing.T) {
 		return len(g.Features), covered
 	}
 
-	oldHexes, oldCovered := counts(fmt.Sprintf("/data/%s?snapshot=%d", export.HexGridFileName, old))
+	oldHexes, oldCovered := counts(fmt.Sprintf("/data/%s?snapshot=%s", export.HexGridFileName, old))
 	newHexes, newCovered := counts("/data/" + export.HexGridFileName)
 	if oldHexes == 0 || oldCovered != oldHexes {
-		t.Errorf("snapshot %d: %d of %d hexes covered, want every one (its ids on its own 150 m lattice)", old, oldCovered, oldHexes)
+		t.Errorf("snapshot %s: %d of %d hexes covered, want every one (its ids on its own 150 m lattice)", old, oldCovered, oldHexes)
 	}
 	if newCovered != newHexes {
 		t.Errorf("latest: %d of %d hexes covered, want every one", newCovered, newHexes)
 	}
 	// 150 m hexes are (100/150)² as many as 100 m ones over a larger area.
 	if oldHexes >= newHexes {
-		t.Errorf("snapshot %d drew %d hexes, the 100 m latest %d: want the coarser 150 m grid", old, oldHexes, newHexes)
+		t.Errorf("snapshot %s drew %d hexes, the 100 m latest %d: want the coarser 150 m grid", old, oldHexes, newHexes)
 	}
 
 	boundaryOf := func(url string) string {
@@ -226,9 +234,9 @@ func TestDataFile_SnapshotAtAnotherEdgeRenders(t *testing.T) {
 		}
 		return string(fc.Features[0].Geometry)
 	}
-	oldB := boundaryOf(fmt.Sprintf("/data/%s?snapshot=%d", export.BoundaryFileName, old))
+	oldB := boundaryOf(fmt.Sprintf("/data/%s?snapshot=%s", export.BoundaryFileName, old))
 	newB := boundaryOf("/data/" + export.BoundaryFileName)
 	if !strings.Contains(oldB, "-121.84") || strings.Contains(newB, "-121.84") {
-		t.Errorf("boundaries = %s / %s, want the frozen one for snapshot %d and the re-ingested one for latest", oldB, newB, old)
+		t.Errorf("boundaries = %s / %s, want the frozen one for snapshot %s and the re-ingested one for latest", oldB, newB, old)
 	}
 }
