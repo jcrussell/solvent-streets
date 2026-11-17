@@ -29,7 +29,10 @@ type Options struct {
 	UnitSystem func() units.System
 	Host       string
 	Port       int
-	ReadyFile  string
+	// Snapshot is --snapshot: the snapshot to serve; "" serves each city's
+	// newest.
+	Snapshot  string
+	ReadyFile string
 	// Assets loads the site-root browser files. NewCmd sets
 	// exportpkg.EmbeddedAssets, which fails with ErrNoWasm on a `go install`
 	// build; tests pass fakes.
@@ -50,9 +53,14 @@ func NewCmdServe(f *cmdutil.Factory, runF func(context.Context, *Options) error)
 		Use:   "serve",
 		Args:  cobra.NoArgs,
 		Short: "Start the web server",
-		Long:  "Start the MapLibre visualization server with API endpoints.",
+		Long: `Start the MapLibre visualization server with API endpoints. Each city is
+served from its newest snapshot, or from the snapshot --snapshot names, which
+must cover every configured city; the page's snapshot picker shows any other.`,
 		Example: `  # Serve on the default :8080
   pvmt serve
+
+  # Serve one snapshot
+  pvmt serve --snapshot v0.5.0
 
   # Serve on an alternate port
   pvmt serve --port 9000`,
@@ -66,6 +74,7 @@ func NewCmdServe(f *cmdutil.Factory, runF func(context.Context, *Options) error)
 
 	cmd.Flags().StringVar(&opts.Host, "host", "127.0.0.1", "Host interface to bind")
 	cmd.Flags().IntVar(&opts.Port, "port", 8080, "Port to listen on")
+	cmd.Flags().StringVar(&opts.Snapshot, "snapshot", "", "Publish the snapshot with this name instead of each city's newest (pvmt snapshots list)")
 	cmd.Flags().StringVar(&opts.ReadyFile, "ready-file", "",
 		"Write the listening URL to this file once the listener is bound (for orchestration)")
 
@@ -79,6 +88,11 @@ func NewCmdServe(f *cmdutil.Factory, runF func(context.Context, *Options) error)
 func (opts *Options) Validate() error {
 	if opts.Port < 1 || opts.Port > 65535 {
 		return cmdutil.FlagErrorf("--port %d is out of range (1-65535)", opts.Port)
+	}
+	if opts.Snapshot != "" {
+		if err := db.CheckSnapshotName(opts.Snapshot); err != nil {
+			return cmdutil.FlagErrorf("--snapshot: %v", err)
+		}
 	}
 	return nil
 }
@@ -113,7 +127,12 @@ func runServe(ctx context.Context, opts *Options) error {
 	if err != nil {
 		return err
 	}
-	if err := pinEntries(ctx, entries, opts.IO.ErrOut); err != nil {
+	if opts.Snapshot != "" {
+		err = pinNamed(ctx, entries, opts.Snapshot, opts.IO.ErrOut)
+	} else {
+		err = pinEntries(ctx, entries, opts.IO.ErrOut)
+	}
+	if err != nil {
 		return err
 	}
 
@@ -182,6 +201,38 @@ func pinEntries(ctx context.Context, entries []exportpkg.CityEntry, errOut io.Wr
 		}
 		cmdutil.FprintWarnf(errOut, "%v; serving it without data", err)
 		hint.Fprint(errOut, err)
+	}
+	return nil
+}
+
+// pinNamed pins every city to the snapshot named name (export.PinSnapshot),
+// refusing to start when it does not cover every configured city. Each
+// entry keeps its latest compute (?snapshot=latest) and snapshot list (the
+// picker), read before the pin.
+func pinNamed(ctx context.Context, entries []exportpkg.CityEntry, name string, errOut io.Writer) error {
+	for i, entry := range entries {
+		latest, err := entry.Store.LatestCompute(ctx, entry.Config.CityHash(&entry.City))
+		if err != nil {
+			return fmt.Errorf("latest compute for %s: %w", entry.City.Name, err)
+		}
+		snaps, err := entry.Store.ListSnapshots(ctx)
+		if err != nil {
+			return fmt.Errorf("list snapshots for %s: %w", entry.City.Name, err)
+		}
+		entries[i].Latest = latest
+		entries[i].Snapshots = append([]db.SnapshotCity{}, snaps...) // non-nil: read
+	}
+	if err := exportpkg.PinSnapshot(ctx, entries, name, false, io.Discard); err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		snap, err := entry.Store.ViewSnapshot(ctx)
+		if err != nil {
+			return fmt.Errorf("snapshot %s for %s: %w", name, entry.City.Name, err)
+		}
+		if w := entry.SnapshotSettingsWarning(snap); w != "" {
+			cmdutil.FprintWarnf(errOut, "%s; serving it as created", w)
+		}
 	}
 	return nil
 }

@@ -33,6 +33,7 @@ type Exporter struct {
 	errOut     io.Writer // progress/warning sink; nil means discard (byob-iostreams.3)
 	assets     *Assets   // site-root browser files written beside index.html
 	pinned     bool      // Pin has run
+	snapshot   string    // SetSnapshot: the snapshot to publish; "" = each city's newest
 }
 
 // SetErrOut routes the exporter's progress and warning output (chatter, not
@@ -54,11 +55,16 @@ func New(entries []CityEntry, cfg *config.Config, outputDir, unitSystem string, 
 	return &Exporter{entries: entries, cfg: cfg, outputDir: outputDir, unitSystem: unitSystem, assets: assets}
 }
 
-// Pin pins every city to its newest snapshot for the whole export (PinNewest),
-// warning on the exporter's warning sink, and refuses the export, before
-// anything is written, when any city has no snapshot. Run calls it when the
-// caller has not, so a caller that must not touch the output directory
-// before the refusal (pvmt export's --clean) calls it first.
+// SetSnapshot makes the export publish the snapshot named name
+// (PinSnapshot) instead of each city's newest. "" restores the newest.
+func (e *Exporter) SetSnapshot(name string) { e.snapshot = name }
+
+// Pin pins every city for the whole export: to the snapshot SetSnapshot
+// named (PinSnapshot), else to its newest (PinNewest), warning on the
+// exporter's warning sink, and refuses the export, before anything is
+// written, when any city has none. Run calls it when the caller has not, so
+// a caller that must not touch the output directory before the refusal (pvmt
+// export's --clean) calls it first.
 func (e *Exporter) Pin(ctx context.Context) error {
 	if e.pinned {
 		return nil
@@ -66,7 +72,12 @@ func (e *Exporter) Pin(ctx context.Context) error {
 	// One snapshot per city: each read would otherwise resolve on its own,
 	// and a snapshot created mid-export could leave a city's files (and the
 	// multi-city totals) built from two different snapshots.
-	if err := PinNewest(ctx, e.entries, len(e.entries) > 1, e.warnOut()); err != nil {
+	skip := len(e.entries) > 1
+	pin := func() error { return PinNewest(ctx, e.entries, skip, e.warnOut()) }
+	if e.snapshot != "" {
+		pin = func() error { return PinSnapshot(ctx, e.entries, e.snapshot, skip, e.warnOut()) }
+	}
+	if err := pin(); err != nil {
 		return err
 	}
 	e.pinned = true

@@ -1786,8 +1786,11 @@
             };
             // Snapshots are named (`pvmt snapshots create <name>`); names are
             // [A-Za-z0-9._-] only, so they need no escaping in markup or URLs.
-            const newest = list[0];
-            sel.innerHTML = '<option value="">Newest (' + newest.name + ', ' + fmt(newest.created_at).slice(0, 10) + ')</option>' +
+            // The default option is the snapshot the server pinned (`served`):
+            // the newest, unless `pvmt serve --snapshot` named another.
+            const served = list.find(s => s.served) || list[0];
+            const label = served === list[0] ? 'Newest' : 'Served';
+            sel.innerHTML = '<option value="">' + label + ' (' + served.name + ', ' + fmt(served.created_at).slice(0, 10) + ')</option>' +
                 '<option value="latest">' + LATEST_COMPUTE_LABEL + '</option>' +
                 list.map(s => '<option value="' + s.name + '" title="' + (s.config_hash || '').slice(0, 12) + '">' + s.name + ' ' + fmt(s.created_at) + '</option>').join('');
             // Restore from URL (covers initial load and bfcache restores).

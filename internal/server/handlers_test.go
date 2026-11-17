@@ -357,8 +357,8 @@ func TestParseIndexTemplate_StaticExport(t *testing.T) {
 
 // TestHandleSnapshots_SingleCity exercises /api/snapshots in single-city mode
 // and asserts the JSON shape matches the {name, created_at, config_hash,
-// parts} contract the dashboard's snapshot picker reads (app.js renders name
-// and created_at).
+// parts, served} contract the dashboard's snapshot picker reads (app.js
+// renders name and created_at, and defaults to the served one).
 func TestHandleSnapshots_SingleCity(t *testing.T) {
 	t1 := time.Date(2026, 5, 14, 10, 0, 0, 0, time.UTC)
 	t2 := time.Date(2026, 5, 15, 12, 30, 0, 0, time.UTC)
@@ -370,6 +370,8 @@ func TestHandleSnapshots_SingleCity(t *testing.T) {
 				{ID: 1, Name: "v1", CreatedAt: t1, ConfigHash: "cafebabe"},
 			}, nil
 		},
+		// The server pinned v1 (pvmt serve --snapshot v1).
+		ViewSnapshotFunc: func(context.Context) (*db.SnapshotCity, error) { return &db.SnapshotCity{ID: 1, Name: "v1"}, nil },
 	}
 	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Test City"}}}
 	entry := export.CityEntry{
@@ -402,8 +404,8 @@ func TestHandleSnapshots_SingleCity(t *testing.T) {
 			t.Errorf("missing key %q in response", k)
 		}
 	}
-	if got[0]["name"] != "v2" || got[1]["name"] != "v1" {
-		t.Errorf("names = %v / %v, want v2 then v1", got[0]["name"], got[1]["name"])
+	if got[0]["name"] != "v2" || got[0]["served"] != nil || got[1]["served"] != true {
+		t.Errorf("names/served = %v %v / %v %v, want v2 then the served v1", got[0]["name"], got[0]["served"], got[1]["name"], got[1]["served"])
 	}
 }
 
@@ -582,7 +584,7 @@ func TestDataFile_SnapshotParam(t *testing.T) {
 	// snapshot=v1 → root.WithSnapshot(1) is invoked; pinned response, and
 	// meta.json names it.
 	_, s1 := hit(t, "/data/meta.json?snapshot=v1")
-	if s1 == nil || s1.Stats[0].TotalArea != 1000 || s1.SnapshotID != 1 || s1.SnapshotDate != "2026-03-01" {
+	if s1 == nil || s1.Stats[0].TotalArea != 1000 || s1.Snapshot != "v1" || s1.SnapshotDate != "2026-03-01" {
 		t.Errorf("snapshot=v1: expected area 1000 from snapshot v1 of 2026-03-01, got %+v", s1)
 	}
 

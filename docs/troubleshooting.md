@@ -116,6 +116,13 @@ under the current settings: never computed, or computed only under settings
 that have changed since. A multi-city export skips a city with no boundary
 stored (its ingest failed) rather than refusing it.
 
+With `--snapshot NAME`, export fails instead with `snapshot NAME does not
+cover N cities (…): no snapshot` when a configured city was added after the
+snapshot was created (or was refused then), before anything is written and
+before `--clean`. Export the cities it covers with `--city`, or create a new
+snapshot covering them all. `pvmt serve --snapshot NAME` refuses to start the
+same way.
+
 `pvmt serve` serves such a city from its latest compute, and says so at
 startup (`<city> has no snapshot; serving its latest compute (not
 snapshotted)`). With nothing computed either, it logs `no snapshot for <city>;

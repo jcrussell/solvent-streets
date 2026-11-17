@@ -177,7 +177,7 @@ Computed results are stored per city under a hash of just the resolved
 settings that change them. Every compute updates the city's *latest compute*
 under its current hash, which `pvmt forecast` and `pvmt status` read.
 `pvmt snapshots create <name>` freezes every city's latest compute as one named
-snapshot, and export and serve publish the newest.
+snapshot, and export and serve publish the newest (or `--snapshot NAME`).
 
 | Changes the hash (recompute the city) | Does not |
 |---|---|
@@ -232,8 +232,9 @@ boundary stored now, listing every refused city (see
 name is 1 to 64 letters, digits, `.`, `_` or `-`, starting with a letter or
 digit; `latest` is reserved. Creating a name that exists is refused: to
 replace a snapshot, `pvmt snapshots delete v0.5.0` and create it again. To
-roll back, delete the newest snapshot. `pvmt snapshots prune --keep N`
-keeps the N newest.
+roll back, delete the newest snapshot, or publish an older one with
+`pvmt export --snapshot NAME`, and `pvmt snapshots prune --keep N` keeps
+the N newest.
 
 ## Grid and display
 
@@ -399,8 +400,8 @@ the drawn outline by up to the tolerance. A simplified ring is not guaranteed
 to be a valid polygon, which matters only to a consumer that fills
 `boundary.geojson` rather than drawing it.
 
-`pvmt serve` pins each city's newest snapshot (its latest compute, for a city
-with none) when it starts and sends `Cache-Control: public, max-age=300` on
+`pvmt serve` pins each city's newest snapshot, or the one `--snapshot NAME`
+names (its latest compute, for a city with none), when it starts and sends `Cache-Control: public, max-age=300` on
 every response, so restart it to pick up a new snapshot. Its dashboard's
 snapshot picker also lists each older snapshot and *Latest compute (not
 snapshotted)*, which shows what the next `pvmt snapshots create <name>` would

@@ -235,13 +235,14 @@ func runAllCompute(t *testing.T, ctx context.Context, f *cmdutil.Factory, stderr
 	}
 }
 
-// runExport exports f's city to a fresh directory and returns it.
-func runExport(t *testing.T, ctx context.Context, f *cmdutil.Factory, stderr *bytes.Buffer) string {
+// runExport exports f's city to a fresh directory, with any extra flags, and
+// returns it.
+func runExport(t *testing.T, ctx context.Context, f *cmdutil.Factory, stderr *bytes.Buffer, flags ...string) string {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "site")
 	cmd := export.NewCmdExport(f, nil)
 	cmd.SilenceErrors, cmd.SilenceUsage = true, true
-	cmd.SetArgs([]string{"--output", dir})
+	cmd.SetArgs(append([]string{"--output", dir}, flags...))
 	if err := cmd.ExecuteContext(ctx); err != nil {
 		t.Fatalf("export: %v\nstderr:\n%s", err, stderr.String())
 	}
@@ -289,4 +290,69 @@ func hexMetricCount(t *testing.T, store db.Store, metric string) int {
 		t.Fatal(err)
 	}
 	return len(rows)
+}
+
+// TestExport_SnapshotByName: export publishes the newest snapshot by default
+// and the named one with --snapshot, byte for byte as created; a configured
+// city the named snapshot does not cover refuses the export before --clean
+// touches the previous site.
+func TestExport_SnapshotByName(t *testing.T) {
+	ctx := context.Background()
+	root, store := newAllFixture(t, ctx)
+	cfg := allFixtureConfig()
+	ios, _, _, stderr := iostreams.Test()
+	f := allFixtureFactory(ios, root, store, cfg)
+
+	runAllCompute(t, ctx, f, stderr)
+	snapshotsCreate(t, ctx, f)
+	first := listSnapshots(t, store)[0].Name
+	dirFirst := runExport(t, ctx, f, stderr)
+
+	// Recompute at another edge and snapshot again: the default export
+	// follows the newest; --snapshot reproduces the first.
+	cfg.Grid.HexEdgeM = 150
+	runAllCompute(t, ctx, f, stderr)
+	snapshotsCreate(t, ctx, f)
+	dirNewest := runExport(t, ctx, f, stderr)
+	dirNamed := runExport(t, ctx, f, stderr, "--snapshot", first)
+	grid := exportpkg.HexGridFileName
+	if bytes.Equal(readDataFile(t, dirFirst, grid), readDataFile(t, dirNewest, grid)) {
+		t.Fatal("the newest snapshot exported the first one's grid; the comparison proves nothing")
+	}
+	if !bytes.Equal(readDataFile(t, dirFirst, grid), readDataFile(t, dirNamed, grid)) {
+		t.Errorf("--snapshot %s did not reproduce its grid", first)
+	}
+	var meta exportpkg.MetaJSON
+	readJSON(t, filepath.Join(dirNamed, exportpkg.DataDirName, exportpkg.MetaFileName), &meta)
+	if meta.Snapshot != first || meta.SnapshotDate == "" {
+		t.Errorf("meta.json snapshot = %q (%q), want %s with its date", meta.Snapshot, meta.SnapshotDate, first)
+	}
+
+	// A second configured city, with a boundary but in no snapshot.
+	other := config.CityConfig{Name: "Other City"}
+	id, err := root.EnsureCity(ctx, other.Slug(), other.Name, cfg.CityConfigID(&other))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := root.ForCity(id).SaveBoundary(ctx, `{"type":"Polygon","coordinates":[[[-121.7,37.6],[-121.6,37.6],[-121.6,37.7],[-121.7,37.6]]]}`, "fixture"); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Cities = append(cfg.Cities, other)
+	all := *f
+	all.CityFlagSet = nil
+	before, err := os.ReadDir(dirNamed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := export.NewCmdExport(&all, nil)
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	cmd.SetArgs([]string{"--output", dirNamed, "--clean", "--snapshot", first})
+	err = cmd.ExecuteContext(ctx)
+	if !errors.Is(err, exportpkg.ErrNoSnapshot) || !strings.Contains(err.Error(), "Other City") {
+		t.Fatalf("export of a snapshot missing a city: err = %v, want ErrNoSnapshot naming Other City", err)
+	}
+	after, err := os.ReadDir(dirNamed)
+	if err != nil || len(after) != len(before) {
+		t.Errorf("the refused export touched the previous site: %d entries, was %d (%v)", len(after), len(before), err)
+	}
 }

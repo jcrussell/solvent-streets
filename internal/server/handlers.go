@@ -781,22 +781,42 @@ func (s *Server) serveForecastSeed(w http.ResponseWriter, _ *http.Request, entry
 	})
 }
 
-// serveSnapshotsJSON serves the per-city snapshot list: the one read at
-// startup with the pin (CityEntry.Snapshots) when there is one, so the
-// picker's newest entry is the snapshot served. New snapshots appear after a
-// restart, as new data does everywhere else in serve.
+// snapshotJSON is one entry of /api/snapshots: the city in a snapshot, and
+// whether it is the one this server pinned at startup (what the picker's
+// default option shows).
+type snapshotJSON struct {
+	db.SnapshotCity
+	Served bool `json:"served,omitempty"`
+}
+
+// serveSnapshotsJSON serves the per-city snapshot list, newest first: the one
+// read at startup with the pin (CityEntry.Snapshots) when there is one, with
+// the pinned snapshot marked served. New snapshots appear after a restart, as
+// new data does everywhere else in serve.
 func (s *Server) serveSnapshotsJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry) {
 	s.serveJSONCached(w, "snapshots:"+entry.Slug, func() (any, error) {
-		if entry.Snapshots != nil {
-			return entry.Snapshots, nil
-		}
-		snaps, err := entry.Store.ListSnapshots(context.Background())
-		if err != nil {
-			return nil, fmt.Errorf("listing snapshots: %w", err)
-		}
+		ctx := context.Background()
+		snaps := entry.Snapshots
 		if snaps == nil {
-			snaps = []db.SnapshotCity{}
+			var err error
+			if snaps, err = entry.Store.ListSnapshots(ctx); err != nil {
+				return nil, fmt.Errorf("listing snapshots: %w", err)
+			}
 		}
-		return snaps, nil
+		var served int64
+		if !entry.ReadsLatest() {
+			pinned, err := entry.Store.ViewSnapshot(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if pinned != nil {
+				served = pinned.ID
+			}
+		}
+		out := make([]snapshotJSON, len(snaps))
+		for i, snap := range snaps {
+			out[i] = snapshotJSON{SnapshotCity: snap, Served: served != 0 && snap.ID == served}
+		}
+		return out, nil
 	})
 }

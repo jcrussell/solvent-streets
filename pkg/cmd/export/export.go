@@ -31,6 +31,9 @@ type Options struct {
 	UnitSystem func() units.System
 	OutputDir  string
 	Clean      bool
+	// Snapshot is --snapshot: the snapshot to publish; "" publishes each
+	// city's newest.
+	Snapshot string
 	// JSON is set by --json (nil otherwise) and applies --jq / --template to
 	// the manifest.
 	JSON *cmdutil.DocumentExporter
@@ -56,14 +59,18 @@ func NewCmdExport(f *cmdutil.Factory, runF func(context.Context, *Options) error
 		Short: "Export a static HTML site with map and stats",
 		Long: `Generate a self-contained HTML site with MapLibre dashboard, hex heatmap, and
 summary stats from each city's newest snapshot (pvmt snapshots create <name>), as it
-was created. A city with no snapshot refuses the whole export before anything
-is written; one created under other settings is exported with a warning.
-Deploy to GitHub Pages or any static host.`,
+was created, or from the snapshot --snapshot names. A city with no snapshot,
+or one the named snapshot does not cover, refuses the whole export before
+anything is written (and before --clean); one created under other settings is
+exported with a warning. Deploy to GitHub Pages or any static host.`,
 		Example: `  # Export the static site to ./site
   pvmt export
 
   # Pick an output directory and overwrite an existing one
   pvmt export --output build --clean
+
+  # Reproduce the site of one snapshot
+  pvmt export --snapshot v0.5.0 --output site-v0.5.0
 
   # Emit a machine-readable manifest of files written (stdout)
   pvmt export --json
@@ -80,6 +87,7 @@ Deploy to GitHub Pages or any static host.`,
 
 	cmd.Flags().StringVarP(&opts.OutputDir, "output", "o", "site", "Output directory")
 	cmd.Flags().BoolVar(&opts.Clean, "clean", false, "Remove output directory before exporting")
+	cmd.Flags().StringVar(&opts.Snapshot, "snapshot", "", "Publish the snapshot with this name instead of each city's newest (pvmt snapshots list)")
 	cmdutil.AddDocumentJSONFlags(cmd, &opts.JSON, "Emit a JSON manifest of written files to stdout instead of human chatter")
 
 	return cmd
@@ -96,6 +104,11 @@ func (opts *Options) Validate() error {
 	}
 	opts.OutputDir = resolved
 
+	if opts.Snapshot != "" {
+		if err := db.CheckSnapshotName(opts.Snapshot); err != nil {
+			return cmdutil.FlagErrorf("--snapshot: %v", err)
+		}
+	}
 	if info, err := os.Stat(opts.OutputDir); err == nil && info.IsDir() && !opts.Clean {
 		return cmdutil.FlagErrorf("output directory %q already exists; use --clean to remove it first", opts.OutputDir)
 	}
@@ -149,8 +162,9 @@ func runExport(ctx context.Context, opts *Options) error {
 
 	exporter := exportpkg.New(entries, cfg, opts.OutputDir, opts.unitSystem(cfg).String(), assets)
 	exporter.SetErrOut(ios.ErrOut)
-	// Pin each city to its newest snapshot, refusing the export when any city
-	// has none, before --clean deletes the previous site.
+	exporter.SetSnapshot(opts.Snapshot)
+	// Pin each city to its newest snapshot (or --snapshot's), refusing the
+	// export when any city has none, before --clean deletes the previous site.
 	if err := exporter.Pin(ctx); err != nil {
 		return fmt.Errorf("export: %w", err)
 	}

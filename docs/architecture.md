@@ -6,7 +6,7 @@ features for each configured city from upstream services and stores them.
 its results as an immutable *run* in the city's *latest compute*.
 `pvmt snapshots create <name>` freezes every city's latest compute into one
 named *snapshot*, and **publish** commands, export and serve, read each city
-from the newest snapshot that covers it.
+from the newest snapshot (or the one `--snapshot` names).
 `pvmt forecast` reads the latest compute. Every reader simulates the forecast
 when it runs, so nothing forecast-related is ever stored. This page explains how each stage is built and why. What the models
 *mean* (decay, cost, solvency, fire response, population) is in the
@@ -487,16 +487,20 @@ compute under the city's current config hash (`Store.WithLatestCompute`, what
 `cmdutil.PinnedCityStore` gives compute, status and forecast), or a latest
 compute pinned as of one moment (`Store.WithRuns`).
 
-`pvmt export` and `pvmt serve` publish each city's newest snapshot, whatever
-config hash it was created under, and pin it once at startup, so a snapshot
+`pvmt export` and `pvmt serve` publish each city from the newest snapshot
+that covers it, whatever config hash the city was frozen under, or from the
+snapshot `--snapshot NAME` names, and pin it once at startup, so a snapshot
 created meanwhile cannot mix two into one city's files. Export pins every
-city before writing anything (`export.PinNewest`) and refuses the whole site
-when any city has none, listing each with the commands that make one. It warns
-about a snapshot created under other settings than the current ones, and
+city before writing anything, and before `--clean` (`export.PinNewest`,
+`export.PinSnapshot`), and refuses the whole site when any city has none, or
+when the named snapshot does not cover a configured city, listing each. It
+warns about a city frozen under other settings than the current ones, and
 exports it as created. Serve shows a city with no snapshot from its latest
-compute, pinned at startup with `WithRuns`. `?snapshot=<name>` overrides the pin
-per request, and `?snapshot=latest` shows the latest compute read at startup
-(`CityEntry.Latest`), which `meta.json` marks `latest_compute`. A pinned view also reads the boundary its snapshot froze. If the
+compute, pinned at startup with `WithRuns`. `?snapshot=<name>` overrides the
+pin per request, and `?snapshot=latest` shows the latest compute read at
+startup (`CityEntry.Latest`), which `meta.json` marks `latest_compute`;
+`meta.json`'s `snapshot` names the snapshot otherwise. No snapshot may be
+named `latest`. A pinned view also reads the boundary its snapshot froze. If the
 snapshot is deleted while pinned, or gc sweeps a pinned run, every read fails
 with `db.ErrSnapshotGone` (checked before and after each read) rather than
 reading as an empty city: export fails, and serve answers 410 and caches

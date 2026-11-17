@@ -73,13 +73,17 @@ func TestDataFile_SnapshotLatest(t *testing.T) {
 		return -1
 	}
 
+	snaps, err := store.ListSnapshots(ctx)
+	if err != nil || len(snaps) != 1 || snaps[0].ID != snapID {
+		t.Fatalf("snapshots = (%+v, %v), want just %d", snaps, err, snapID)
+	}
 	def := meta(pinned, "")
-	if def.SnapshotID != snapID || def.LatestCompute || roads(def) != 100 {
-		t.Errorf("default view = snapshot %d latest %v roads %v, want snapshot %d's 100", def.SnapshotID, def.LatestCompute, roads(def), snapID)
+	if def.Snapshot != snaps[0].Name || def.LatestCompute || roads(def) != 100 {
+		t.Errorf("default view = snapshot %q latest %v roads %v, want snapshot %s's 100", def.Snapshot, def.LatestCompute, roads(def), snaps[0].Name)
 	}
 	lc := meta(pinned, "?snapshot=latest")
-	if lc.SnapshotID != 0 || !lc.LatestCompute || roads(lc) != 300 {
-		t.Errorf("?snapshot=latest = snapshot %d latest %v roads %v, want the latest compute's 300", lc.SnapshotID, lc.LatestCompute, roads(lc))
+	if lc.Snapshot != "" || !lc.LatestCompute || roads(lc) != 300 {
+		t.Errorf("?snapshot=latest = snapshot %q latest %v roads %v, want the latest compute's 300", lc.Snapshot, lc.LatestCompute, roads(lc))
 	}
 	if want := latest[0].ComputedAt.Format("2006-01-02"); lc.SnapshotDate != want {
 		t.Errorf("latest compute snapshot_date = %q, want its run's %q", lc.SnapshotDate, want)

@@ -36,7 +36,7 @@ Computes no longer publish. `pvmt all compute` and every `pvmt <resource> comput
 pvmt snapshots create v0.5.0
 ```
 
-`pvmt export` refuses, before writing anything, when any city has no snapshot, and lists each with the command that makes one. A script that ran `compute` then `export` needs `snapshots create <name>` between them. `create` freezes every configured city or none: it refuses the snapshot when any city's parts were computed from features or a boundary ingested again since, and names the compute to rerun for each (see [troubleshooting](troubleshooting.md#snapshots-create-refuses-a-city)). A snapshot never changes after it is created: export draws it as created, whatever was ingested or edited since, and a name that exists is refused (`pvmt snapshots delete <name>`, then create it again, replaces it). `pvmt snapshots ls` and `rm` are now `list` and `delete`, with the old names kept as aliases.
+`pvmt export` refuses, before writing anything, when any city has no snapshot, and lists each with the command that makes one. A script that ran `compute` then `export` needs `snapshots create <name>` between them. `create` freezes every configured city or none: it refuses the snapshot when any city's parts were computed from features or a boundary ingested again since, and names the compute to rerun for each (see [troubleshooting](troubleshooting.md#snapshots-create-refuses-a-city)). A snapshot never changes after it is created: export draws it as created, whatever was ingested or edited since, and a name that exists is refused (`pvmt snapshots delete <name>`, then create it again, replaces it). Publish an older snapshot with `pvmt export --snapshot <name>` or `pvmt serve --snapshot <name>`. `pvmt snapshots ls` and `rm` are now `list` and `delete`, with the old names kept as aliases.
 
 ### 3. Re-export sites
 
@@ -74,7 +74,7 @@ Only names that existed in v0.4.x are listed. Fields of the commands and files t
 
 | Endpoint | v0.4.x | v0.5.0 |
 |----------|--------|--------|
-| `/api/snapshots`, `/api/cities/{slug}/snapshots` | `computed_at` | `created_at`; new `name`, `compute_epoch`, `hex_edge_m` and `parts` (`part`, `run_id`, `computed_at`) |
+| `/api/snapshots`, `/api/cities/{slug}/snapshots` | `computed_at` | `created_at`; new `name`, `compute_epoch`, `hex_edge_m`, `parts` (`part`, `run_id`, `computed_at`) and `served` (the snapshot the server pinned) |
 | `/api/cities` | as `cities.json` below | as `cities.json` below |
 
 `/data/{file}` serves the site data files below. `?snapshot=<name>` picks a snapshot, and `?snapshot=latest` the city's latest compute as the server read it at startup.
@@ -88,7 +88,7 @@ Only names that existed in v0.4.x are listed. Fields of the commands and files t
 | `meta.json` | `pct_paved` (0..100); `stats[].type`; `stats[].feature_count` | `paved_share` (0..1); `stats[].resource_type`; no feature count |
 | `meta.json` | — | `missing_resources`: the resources with no ingested data (omitted when none) |
 | `meta.json` | — | `ingest_failures`: resource → the configured sources whose last ingest failed and hold none of its rows (omitted when none) |
-| `meta.json` | `snapshot_date`: the render date | `snapshot_date`: the date of the data (the snapshot's `created_at`, or the latest compute's newest run); new `snapshot_id`, and from `pvmt serve` `latest_compute: true` for a latest compute (each omitted when not applicable) |
+| `meta.json` | `snapshot_date`: the render date | `snapshot_date`: the date of the data (the snapshot's `created_at`, or the latest compute's newest run); new `snapshot` (its name), and from `pvmt serve` `latest_compute: true` for a latest compute (each omitted when not applicable) |
 | `hexgrid.geojson` | format `v` 2; per-hex scope key `bbox`; coverage `pct` (0..100) | format `v` 6; scope key `all`; coverage `share` (0..1); city road hexes carry `k`, the Play board's decay rate |
 | `play-hexes.json` | the Play board: `id`, `road_area`, `k` per hex | gone: the board reads `hexgrid.geojson`. Its road area is now the map's city-scope roads area, which counts pavement where road classes overlap once rather than once per class |
 | `scenarios.json` | scope key `bbox`; summary `city_count`, `all_count`, `city_pct`, `state_count`, `county_count`, `federal_count` | scope key `all`; the `summary` block is gone (its feature counts and city share were never shown) |

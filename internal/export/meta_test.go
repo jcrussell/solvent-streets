@@ -462,8 +462,8 @@ func TestBuildMeta_StampFromTheView(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if meta.SnapshotDate != "2025-11-03" || meta.SnapshotID != 9 || meta.LatestCompute {
-		t.Errorf("snapshot view stamp = (%q, %d, %v), want (2025-11-03, 9, false)", meta.SnapshotDate, meta.SnapshotID, meta.LatestCompute)
+	if meta.SnapshotDate != "2025-11-03" || meta.Snapshot != "v0.5.0" || meta.LatestCompute {
+		t.Errorf("snapshot view stamp = (%q, %q, %v), want (2025-11-03, v0.5.0, false)", meta.SnapshotDate, meta.Snapshot, meta.LatestCompute)
 	}
 
 	latest := LatestComputeEntry(newMockEntry(nil), []db.LatestPart{
@@ -474,11 +474,11 @@ func TestBuildMeta_StampFromTheView(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if meta.SnapshotDate != "2025-12-03" || meta.SnapshotID != 0 || !meta.LatestCompute {
-		t.Errorf("latest compute stamp = (%q, %d, %v), want (2025-12-03, 0, true)", meta.SnapshotDate, meta.SnapshotID, meta.LatestCompute)
+	if meta.SnapshotDate != "2025-12-03" || meta.Snapshot != "" || !meta.LatestCompute {
+		t.Errorf("latest compute stamp = (%q, %q, %v), want (2025-12-03, \"\", true)", meta.SnapshotDate, meta.Snapshot, meta.LatestCompute)
 	}
 	b, _ := json.Marshal(MetaJSON{})
-	if strings.Contains(string(b), "snapshot_id") || strings.Contains(string(b), "latest_compute") {
-		t.Errorf("empty meta marshals %s; snapshot_id and latest_compute must be omitempty", b)
+	if strings.Contains(string(b), `"snapshot"`) || strings.Contains(string(b), "latest_compute") {
+		t.Errorf("empty meta marshals %s; snapshot and latest_compute must be omitempty", b)
 	}
 }

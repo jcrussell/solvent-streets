@@ -2,6 +2,8 @@ package serve
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"strings"
 	"testing"
 
@@ -112,5 +114,69 @@ func TestPinEntries_StaleLatestWarns(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Moved City's latest compute is stale: roads (boundary re-ingested") {
 		t.Errorf("no stale-latest warning:\n%s", out.String())
+	}
+}
+
+// TestPinNamed: --snapshot pins every city to the named snapshot, keeps each
+// city's latest compute and snapshot list, warns about one frozen under other
+// settings, and refuses to start when a city is not in it.
+func TestPinNamed(t *testing.T) {
+	cfg := &config.Config{}
+	pins := map[string]int64{}
+	entry := func(name string, has map[string]db.SnapshotCity) exportpkg.CityEntry {
+		city := config.CityConfig{Name: name}
+		var list []db.SnapshotCity
+		for _, s := range has {
+			list = append(list, s)
+		}
+		store := &dbtest.MockStore{
+			ListSnapshotsFunc: func(context.Context) ([]db.SnapshotCity, error) { return list, nil },
+			LatestComputeFunc: func(context.Context, string) ([]db.LatestPart, error) {
+				return []db.LatestPart{{Part: "roads", RunID: 9}}, nil
+			},
+			ResolveSnapshotFunc: func(_ context.Context, snap string) (int64, error) {
+				if s, ok := has[snap]; ok {
+					return s.ID, nil
+				}
+				return 0, sql.ErrNoRows
+			},
+		}
+		store.WithSnapshotFunc = func(id int64) db.Store {
+			pins[name] = id
+			for _, s := range has {
+				if s.ID == id {
+					return &dbtest.MockStore{ViewSnapshotFunc: func(context.Context) (*db.SnapshotCity, error) { return &s, nil }}
+				}
+			}
+			return &dbtest.MockStore{}
+		}
+		return exportpkg.CityEntry{Config: cfg, City: city, Slug: city.Slug(), Store: store}
+	}
+	cur := cfg.CityHash(&config.CityConfig{Name: "x"})
+	build := func() []exportpkg.CityEntry {
+		return []exportpkg.CityEntry{
+			entry("A City", map[string]db.SnapshotCity{"v1": {ID: 1, Name: "v1", ConfigHash: "0ld0ld0ld0ld0ld0"}, "v2": {ID: 2, Name: "v2", ConfigHash: cur}}),
+			entry("B City", map[string]db.SnapshotCity{"v1": {ID: 1, Name: "v1", ConfigHash: cur}}),
+		}
+	}
+	entries := build()
+	var out strings.Builder
+	if err := pinNamed(context.Background(), entries, "v1", &out); err != nil {
+		t.Fatal(err)
+	}
+	if pins["A City"] != 1 || pins["B City"] != 1 {
+		t.Errorf("pins = %v, want both cities on v1", pins)
+	}
+	if len(entries[0].Latest) != 1 || len(entries[0].Snapshots) != 2 {
+		t.Errorf("A City kept latest %v and snapshots %v, want both read", entries[0].Latest, entries[0].Snapshots)
+	}
+	if got := out.String(); !strings.Contains(got, "A City: snapshot v1 was created under other settings") ||
+		!strings.Contains(got, "serving it as created") || strings.Contains(got, "B City") {
+		t.Errorf("warnings = %q, want only A City's other-settings warning", got)
+	}
+
+	err := pinNamed(context.Background(), build(), "v2", &out)
+	if !errors.Is(err, exportpkg.ErrNoSnapshot) || !strings.Contains(err.Error(), "B City") {
+		t.Errorf("v2 (without B City): err = %v, want ErrNoSnapshot naming B City", err)
 	}
 }

@@ -27,6 +27,13 @@ test('a city with snapshots defaults to the newest, and offers the latest comput
   assert.equal(sel.value, '');
 });
 
+test('a server pinned to an older snapshot defaults to it', async () => {
+  const pinned = [snapshots[0], { ...snapshots[1], served: true }];
+  const { $, flush } = load({ page: 'index-live', data: { ...fullData, snapshots: pinned } });
+  await flush();
+  assert.deepEqual(options($('#snapshot-picker'))[0], ['', 'Served (v0.5.0, 2026-10-01)']);
+});
+
 test('choosing a snapshot requests it by name', async () => {
   const { win, $, flush, fetchURLs } = load({ page: 'index-live', data: { ...fullData, snapshots } });
   await flush();
@@ -61,7 +68,7 @@ test('meta.json latest_compute shows the badge; a snapshot hides it', async () =
   await shown.flush();
   assert.equal(shown.$('#latest-compute-badge').hidden, false);
 
-  const snap = { ...readFixture('meta.json'), snapshot_id: 5 };
+  const snap = { ...readFixture('meta.json'), snapshot: 'v0.6.0' };
   const hidden = load({ page: 'index-live', data: { ...fullData, 'meta.json': snap, snapshots } });
   await hidden.flush();
   hidden.fireMap('load');

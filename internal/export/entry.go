@@ -2,6 +2,7 @@ package export
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -163,6 +164,99 @@ func PinNewest(ctx context.Context, entries []CityEntry, skipNoBoundary bool, wa
 		entries[i] = entry.WithSnapshot(snaps[i].ID)
 	}
 	return nil
+}
+
+// PinSnapshot pins every entry in place to the snapshot named name, like
+// PinNewest: it writes nothing and pins nothing unless the snapshot covers
+// every city, and otherwise returns one ErrNoSnapshot naming each city it
+// lacks. A city with neither the snapshot nor a stored boundary is left
+// unpinned rather than refused when skipNoBoundary is set, as in PinNewest.
+// It warns on warn about a city frozen under other settings than the current
+// ones (SnapshotSettingsWarning). An unknown name is an error naming
+// `pvmt snapshots list`.
+func PinSnapshot(ctx context.Context, entries []CityEntry, name string, skipNoBoundary bool, warn io.Writer) error {
+	snaps := make([]*db.SnapshotCity, len(entries))
+	var missing []string
+	for i, entry := range entries {
+		snap, err := entry.namedSnapshot(ctx, name)
+		if err != nil {
+			return err
+		}
+		snaps[i] = snap
+		if snap != nil {
+			continue
+		}
+		skip, err := entry.skippable(ctx, skipNoBoundary)
+		if err != nil {
+			return err
+		}
+		if !skip {
+			missing = append(missing, entry.City.Name)
+		}
+	}
+	if err := notCovered(name, missing, len(entries)); err != nil {
+		return err
+	}
+	for i, entry := range entries {
+		if snaps[i] == nil {
+			continue
+		}
+		if w := entry.SnapshotSettingsWarning(snaps[i]); w != "" {
+			fmt.Fprintf(warn, "warning: %s; exporting it as created\n", w)
+		}
+		entries[i] = entry.WithSnapshot(snaps[i].ID)
+	}
+	return nil
+}
+
+// skippable reports whether a multi-city export (skipNoBoundary) leaves the
+// city out rather than refusing it: it has no stored boundary, so its ingest
+// failed.
+func (entry CityEntry) skippable(ctx context.Context, skipNoBoundary bool) (bool, error) {
+	if !skipNoBoundary {
+		return false, nil
+	}
+	gj, err := entry.Store.GetBoundary(ctx)
+	if err != nil {
+		return false, fmt.Errorf("boundary for %s: %w", entry.City.Name, err)
+	}
+	return gj == "", nil
+}
+
+// notCovered is PinSnapshot's refusal when snapshot name lacks the missing
+// cities (of total), nil when it lacks none.
+func notCovered(name string, missing []string, total int) error {
+	switch {
+	case len(missing) == 0:
+		return nil
+	case len(missing) == total:
+		return hint.Withf(fmt.Errorf("%w named %s covers any configured city", ErrNoSnapshot, name),
+			"check 'pvmt snapshots list' for available names")
+	}
+	noun := "city"
+	if len(missing) > 1 {
+		noun = "cities"
+	}
+	return hint.Withf(fmt.Errorf("snapshot %s does not cover %d %s (%s): %w", name, len(missing), noun, strings.Join(missing, ", "), ErrNoSnapshot),
+		"Snapshot %s does not cover every configured city. Export the cities it covers with --city, "+
+			"or create a snapshot covering them all with `pvmt snapshots create <name>`.", name)
+}
+
+// namedSnapshot returns the city in the snapshot named name, nil when the
+// snapshot does not cover it.
+func (entry CityEntry) namedSnapshot(ctx context.Context, name string) (*db.SnapshotCity, error) {
+	id, err := entry.Store.ResolveSnapshot(ctx, name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil //nolint:nilnil // nil snapshot = not covered
+	}
+	if err != nil {
+		return nil, fmt.Errorf("resolve snapshot %s for %s: %w", name, entry.City.Name, err)
+	}
+	snap, err := entry.Store.WithSnapshot(id).ViewSnapshot(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot %s for %s: %w", name, entry.City.Name, err)
+	}
+	return snap, nil
 }
 
 // exportableSnapshot returns the city's newest snapshot or, when it has

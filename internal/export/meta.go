@@ -441,10 +441,10 @@ type MetaJSON struct {
 	BBox         [4]float64 `json:"bbox"`   // [west, south, east, north]
 	Center       [2]float64 `json:"center"` // [lon, lat]
 	SnapshotDate string     `json:"snapshot_date"`
-	// SnapshotID is the snapshot the city's data comes from; omitted for a
+	// Snapshot names the snapshot the city's data comes from; omitted for a
 	// latest compute, which LatestCompute marks instead (pvmt serve shows it
 	// for a city with no snapshot, and for ?snapshot=latest).
-	SnapshotID    int64      `json:"snapshot_id,omitempty"`
+	Snapshot      string     `json:"snapshot,omitempty"`
 	LatestCompute bool       `json:"latest_compute,omitempty"`
 	Stats         []StatJSON `json:"stats"`
 	CityArea      float64    `json:"city_area,omitempty"`
@@ -636,7 +636,7 @@ func BuildMeta(ctx context.Context, entry CityEntry, snapshotID int64) (MetaJSON
 		BBox:          geoJSONBBox(bbox),
 		Center:        [2]float64{lon, lat},
 		SnapshotDate:  stamp.date,
-		SnapshotID:    stamp.snapshotID,
+		Snapshot:      stamp.snapshot,
 		LatestCompute: stamp.latest,
 		Stats:         []StatJSON{},
 	}
@@ -685,9 +685,9 @@ func BuildMeta(ctx context.Context, entry CityEntry, snapshotID int64) (MetaJSON
 
 // stamp is where a city's meta.json says its data comes from.
 type stamp struct {
-	date       string // YYYY-MM-DD
-	snapshotID int64  // 0 for a latest compute, or none
-	latest     bool   // a latest compute (CityEntry.ReadsLatest)
+	date     string // YYYY-MM-DD
+	snapshot string // the snapshot's name; "" for a latest compute, or none
+	latest   bool   // a latest compute (CityEntry.ReadsLatest)
 }
 
 // dataStamp dates the data entry reads. A pinned snapshotID (> 0) is looked
@@ -706,7 +706,7 @@ func dataStamp(ctx context.Context, entry CityEntry, snapshotID int64) (stamp, e
 		}
 		for _, snap := range snaps {
 			if snap.ID == snapshotID {
-				return stamp{date: snap.CreatedAt.Format(time.DateOnly), snapshotID: snap.ID}, nil
+				return stamp{date: snap.CreatedAt.Format(time.DateOnly), snapshot: snap.Name}, nil
 			}
 		}
 		return stamp{}, fmt.Errorf("snapshot %d not found", snapshotID)
@@ -731,7 +731,7 @@ func dataStamp(ctx context.Context, entry CityEntry, snapshotID int64) (stamp, e
 		return stamp{}, err
 	}
 	if snap != nil {
-		return stamp{date: snap.CreatedAt.Format(time.DateOnly), snapshotID: snap.ID}, nil
+		return stamp{date: snap.CreatedAt.Format(time.DateOnly), snapshot: snap.Name}, nil
 	}
 	return stamp{date: time.Now().Format(time.DateOnly)}, nil
 }
