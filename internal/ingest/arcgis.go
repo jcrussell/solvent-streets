@@ -18,6 +18,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/httpio"
+	"github.com/jcrussell/solvent-streets/internal/logs"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
@@ -627,7 +628,7 @@ func (q *ArcGISQuery) fetchPage(ctx context.Context, client *http.Client, offset
 		return nil, nil, false, false, fmt.Errorf("arcgis %s: %s", endpoint, msg)
 	}
 
-	rows, rawIDs := rowsFromArcGISPage(page, q.idField(), q.idPrefix(), offset)
+	rows, rawIDs := rowsFromArcGISPage(ctx, page, q.idField(), q.idPrefix(), offset)
 	exceeded, present := transferLimitFromPage(page)
 	return rows, rawIDs, exceeded, present, nil
 }
@@ -735,20 +736,26 @@ func parseArcGISGeoJSON(data []byte, resourceType resource.Type, baseIndex int) 
 	if err != nil {
 		return nil, 0, err
 	}
-	rows, rawIDs := rowsFromArcGISPage(page, defaultOIDField, resource.SourceArcGIS, baseIndex)
+	rows, rawIDs := rowsFromArcGISPage(context.Background(), page, defaultOIDField, resource.SourceArcGIS, baseIndex)
 	return roadFeaturesFromRows(rows, resourceType), len(rawIDs), nil
 }
 
 // rowsFromArcGISPage builds rows from an already-parsed page, skipping rows
-// with no usable geometry (missing or explicit JSON null). It also returns the
+// with no usable geometry: missing, explicit JSON null, or GeoJSON the store
+// would refuse (db.CheckGeometry), which is logged with a count and an
+// example, so one malformed row cannot fail the whole layer's save. It also
+// returns the
 // id of every row in the server response, geometry or not. Its length is the
 // raw row count, which the pagination loop uses to advance the offset, and the
 // ids are what it checks for a re-served page (a page may return rows that are
 // all skipped here). A row's id is "<prefix>:<idField value>", or
 // "<prefix>:<position>" when the layer omits the id field.
-func rowsFromArcGISPage(resp arcgisPage, idField, idPrefix string, baseIndex int) ([]ArcGISRow, []string) {
+func rowsFromArcGISPage(ctx context.Context, resp arcgisPage, idField, idPrefix string, baseIndex int) ([]ArcGISRow, []string) {
 	var rows []ArcGISRow
 	rawIDs := make([]string, 0, len(resp.Features))
+	var bad int
+	var badID string
+	var badErr error
 	for i, f := range resp.Features {
 		id := fmt.Sprintf("%s:%d", idPrefix, baseIndex+i)
 		if oid, ok := f.Properties[idField]; ok {
@@ -762,6 +769,13 @@ func rowsFromArcGISPage(resp arcgisPage, idField, idPrefix string, baseIndex int
 		if f.Geometry == nil || bytes.Equal(bytes.TrimSpace(f.Geometry), []byte("null")) {
 			continue
 		}
+		if err := db.CheckGeometry(string(f.Geometry)); err != nil {
+			if bad == 0 {
+				badID, badErr = id, err
+			}
+			bad++
+			continue
+		}
 
 		props := make(map[string]string, len(f.Properties))
 		for k, v := range f.Properties {
@@ -771,6 +785,10 @@ func rowsFromArcGISPage(resp arcgisPage, idField, idPrefix string, baseIndex int
 		}
 
 		rows = append(rows, ArcGISRow{ID: id, Props: props, Geometry: f.Geometry})
+	}
+	if bad > 0 {
+		logs.From(ctx).Warn("arcgis: dropped rows with unusable geometry",
+			"count", bad, "example_id", badID, "err", badErr)
 	}
 
 	return rows, rawIDs

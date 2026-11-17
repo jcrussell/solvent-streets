@@ -24,6 +24,10 @@ const (
 		FROM features WHERE city_id = ? AND resource_type = ?`
 )
 
+// sqlStoredFeatures is Stats' read of a type's stored rows: the count and
+// newest fetch time city_inputs keeps beside the digest.
+const sqlStoredFeatures = `SELECT feature_count, fetched_at FROM city_inputs WHERE city_id = ? AND input = ?`
+
 // sqlDeleteFeaturesFrom deletes a type's rows from n sources: bound as
 // (city_id, resource_type, source...).
 func sqlDeleteFeaturesFrom(n int) string {
@@ -39,6 +43,31 @@ func sqlDeleteFeaturesFrom(n int) string {
 // digest (city_inputs) is recomputed from the stored rows in the same
 // transaction.
 func (s *sqliteStore) UpsertFeatures(ctx context.Context, resourceType resource.Type, features []Feature, sourceAPIs []string) error {
+	// Encode every row before taking the write lock (IMMEDIATE: BeginTx
+	// waits for it, and holds it until commit), so parsing GeoJSON, about
+	// 9 µs a row, never extends the time other writers wait.
+	type row struct {
+		tags, geometry []byte
+		fetchedAt      int64
+	}
+	encoded := make([]row, len(features))
+	now := time.Now()
+	for i, f := range features {
+		tagsJSON, err := json.Marshal(f.Tags)
+		if err != nil {
+			return fmt.Errorf("feature %s: marshal tags: %w", f.ID, err)
+		}
+		geometry, err := encodeGeometry(f.GeometryJSON)
+		if err != nil {
+			return fmt.Errorf("feature %s: %w", f.ID, err)
+		}
+		fetchedAt := f.FetchedAt
+		if fetchedAt.IsZero() {
+			fetchedAt = now
+		}
+		encoded[i] = row{tags: tagsJSON, geometry: geometry, fetchedAt: unixSeconds(fetchedAt)}
+	}
+
 	return s.withTx(ctx, func(tx *sql.Tx) error {
 		if err := s.deleteFeaturesForReplace(ctx, tx, resourceType, sourceAPIs); err != nil {
 			return err
@@ -50,20 +79,9 @@ func (s *sqliteStore) UpsertFeatures(ctx context.Context, resourceType resource.
 		}
 		defer func() { _ = stmt.Close() }()
 
-		for _, f := range features {
-			tagsJSON, err := json.Marshal(f.Tags)
-			if err != nil {
-				return fmt.Errorf("marshal tags: %w", err)
-			}
-			geometry, err := encodeGeometry(f.GeometryJSON)
-			if err != nil {
-				return fmt.Errorf("feature %s: %w", f.ID, err)
-			}
-			fetchedAt := f.FetchedAt
-			if fetchedAt.IsZero() {
-				fetchedAt = time.Now()
-			}
-			if _, err := stmt.ExecContext(ctx, s.cityID, resourceType, f.ID, f.Name, string(tagsJSON), geometry, f.SourceAPI, unixSeconds(fetchedAt)); err != nil {
+		for i, f := range features {
+			r := encoded[i]
+			if _, err := stmt.ExecContext(ctx, s.cityID, resourceType, f.ID, f.Name, string(r.tags), r.geometry, f.SourceAPI, r.fetchedAt); err != nil {
 				return fmt.Errorf("exec upsert feature %s: %w", f.ID, err)
 			}
 		}
@@ -188,8 +206,7 @@ func (s *sqliteStore) Stats(ctx context.Context, resourceType resource.Type) (*S
 	// no stored rows. Either leaves LastIngestAt nil; a real query failure
 	// (locked DB, transient I/O) must not fold into that branch.
 	var fetched sql.NullInt64
-	err := s.db.QueryRowContext(ctx, `SELECT feature_count, fetched_at FROM city_inputs WHERE city_id = ? AND input = ?`,
-		s.cityID, string(resourceType)).Scan(&info.FeatureCount, &fetched)
+	err := s.db.QueryRowContext(ctx, sqlStoredFeatures, s.cityID, string(resourceType)).Scan(&info.FeatureCount, &fetched)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		// never ingested

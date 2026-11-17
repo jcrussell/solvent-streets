@@ -8,9 +8,9 @@ import (
 )
 
 // geometryPrecision is the number of decimal places features.geometry keeps:
-// 1e-7 degrees (about 1 cm), OSM's own precision. TWKB records the precision
-// in each geometry's header, so a source that needs more can be stored at
-// another precision without changing the rows already stored.
+// 1e-7 degrees (about 1 cm), OSM's own precision. It is also TWKB's maximum:
+// the header holds the precision as a 4-bit zigzag (-8..7), so a source that
+// needs finer coordinates would need another encoding.
 const geometryPrecision = 7
 
 // encodeGeometry is a feature's GeoJSON geometry as stored: TWKB at
@@ -24,19 +24,24 @@ func encodeGeometry(geoJSON string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("geometry: parse GeoJSON: %w", err)
 	}
-	var opts []geom.TWKBWriterOption
-	if hasOpenRing(g) {
-		// TWKB leaves out a ring's closing point and the reader closes the
-		// ring with its first one, which would drop the last vertex of a ring
-		// that was never closed. Writing every point keeps them all; the
-		// reader then appends the closing point.
-		opts = append(opts, geom.TWKBCloseRings())
-	}
-	b, err := geom.MarshalTWKB(g, geometryPrecision, opts...)
+	// TWKB normally leaves out a ring's closing point and the reader closes
+	// the ring again from its first point, which loses a doubled closing
+	// vertex or a 2-point ring. Writing every point keeps each ring as it
+	// came, except one whose ends differ (open, or apart only in Z): the
+	// reader appends the first point to that one.
+	b, err := geom.MarshalTWKB(g, geometryPrecision, geom.TWKBCloseRings())
 	if err != nil {
 		return nil, fmt.Errorf("geometry: encode TWKB: %w", err)
 	}
 	return b, nil
+}
+
+// CheckGeometry reports whether UpsertFeatures would store geoJSON, with the
+// same error it would fail on. Ingest calls it on geometry it did not build
+// itself (ArcGIS, TIGERweb), to drop one bad row instead of failing a layer.
+func CheckGeometry(geoJSON string) error {
+	_, err := encodeGeometry(geoJSON)
+	return err
 }
 
 // decodeGeometry reads a stored geometry, unvalidated like encodeGeometry.
@@ -59,39 +64,4 @@ func geometryGeoJSON(b []byte) (string, error) {
 		return "", fmt.Errorf("geometry: marshal GeoJSON: %w", err)
 	}
 	return string(raw), nil
-}
-
-// hasOpenRing reports whether any polygon ring of g has distinct first and
-// last points.
-func hasOpenRing(g geom.Geometry) bool {
-	switch g.Type() {
-	case geom.TypePolygon:
-		return polygonHasOpenRing(g.MustAsPolygon())
-	case geom.TypeMultiPolygon:
-		mp := g.MustAsMultiPolygon()
-		for i := range mp.NumPolygons() {
-			if polygonHasOpenRing(mp.PolygonN(i)) {
-				return true
-			}
-		}
-	case geom.TypeGeometryCollection:
-		gc := g.MustAsGeometryCollection()
-		for i := range gc.NumGeometries() {
-			if hasOpenRing(gc.GeometryN(i)) {
-				return true
-			}
-		}
-	case geom.TypePoint, geom.TypeLineString, geom.TypeMultiPoint, geom.TypeMultiLineString:
-		// no rings
-	}
-	return false
-}
-
-func polygonHasOpenRing(p geom.Polygon) bool {
-	for _, seq := range p.Coordinates() {
-		if n := seq.Length(); n >= 2 && seq.Get(0) != seq.Get(n-1) {
-			return true
-		}
-	}
-	return false
 }

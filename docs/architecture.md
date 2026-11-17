@@ -404,6 +404,11 @@ prefix, which `TestQueryPlan_FeaturesStatements` pins:
 `Stats` reads no features: the count and newest fetch time come from
 `city_inputs`, because `COUNT(*)` on a `WITHOUT ROWID` table reads every row
 of the slice.
+A `WITHOUT ROWID` b-tree keeps at most about 1 KB of a row on its leaf page
+(at the default 4 KB page size) and spills the rest to an overflow page of its
+own; only about 0.07% of rows are that large after TWKB (census blocks and a
+few long roads, about 35 MB on the 16M-row release database), so the page size
+stays the default.
 
 A feature's `geometry` is [TWKB](https://github.com/TWKB/Specification/blob/master/twkb.md)
 at 7 decimal places (1e-7 degrees, about 1 cm), about a sixth of the GeoJSON
@@ -414,9 +419,16 @@ GeoJSON again, so `db.Feature.GeometryJSON` and every reader are unchanged.
 OSM coordinates (7 decimals) and TIGER's (6) read back as bit-identical
 float64s, which the routing graph relies on when it joins vertices across
 roads and routing roads by exact equality. ArcGIS layers serve 12 to 13
-decimals, which are rounded to 7. TWKB records its precision in each
-geometry, so a source that needs more could be stored finer without touching
-the rows already stored. The features digest hashes the decoded coordinates
+decimals, which are rounded to 7. Seven is TWKB's maximum (the header holds
+the precision in 4 bits), so a source that needs finer coordinates would need
+another encoding. Every ring is written with its closing point, so a closed
+ring reads back exactly as written, a doubled closing vertex or a 2-point ring
+included. A ring whose ends differ (open, or apart only in Z) keeps every
+vertex but reads back closed: the TWKB reader appends its first point. GeoJSON
+the store cannot parse fails the upsert; ArcGIS and TIGERweb rows that would
+(`db.CheckGeometry`) are dropped at ingest with a warning, so one bad row does
+not fail a layer. Rows are encoded before the write transaction begins, so
+parsing never holds the write lock. The features digest hashes the decoded coordinates
 (their WKB), not the stored bytes, so a change of encoding that reads back the
 same coordinates keeps every input current. Tags, names, types and
 sources stay JSON and text so the database stays readable with `sqlite3`;

@@ -73,13 +73,76 @@ func TestGeometry_RoundTripsEveryStoredType(t *testing.T) {
 	}
 }
 
-// TestGeometry_OpenRingKeepsEveryVertex: a ring whose last point is not its
-// first (invalid, but parsed unvalidated) keeps every vertex, closed.
-func TestGeometry_OpenRingKeepsEveryVertex(t *testing.T) {
-	got := roundTrip(t, `{"type":"MultiPolygon","coordinates":[[[[0,0],[1,0],[1,1],[0.5,1.5]]]]}`)
-	want := `{"type":"MultiPolygon","coordinates":[[[[0,0],[1,0],[1,1],[0.5,1.5],[0,0]]]]}`
-	if got != want {
-		t.Errorf("open ring = %s, want %s", got, want)
+// TestGeometry_RingsRoundTrip pins what each ring shape reads back as. A
+// closed ring comes back exactly as written, including a doubled closing
+// vertex and a 2-point ring, which TWKB's usual omission of the closing point
+// would lose. A ring whose ends differ (open, or apart only in Z) keeps every
+// vertex, and the TWKB reader appends its first point: simplefeatures'
+// parser closes any ring whose ends differ, so no TWKB it reads can hold one.
+func TestGeometry_RingsRoundTrip(t *testing.T) {
+	cases := []struct{ name, in, want string }{
+		{"doubled closing vertex",
+			`{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0],[0,0]]]}`,
+			`{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0],[0,0]]]}`},
+		{"2-point ring",
+			`{"type":"Polygon","coordinates":[[[0.5,0.5],[0.5,0.5]]]}`,
+			`{"type":"Polygon","coordinates":[[[0.5,0.5],[0.5,0.5]]]}`},
+		{"hole with a doubled vertex",
+			`{"type":"MultiPolygon","coordinates":[[[[0,0],[4,0],[4,4],[0,0]],[[1,1],[2,1],[2,2],[2,2],[1,1]]]]}`,
+			`{"type":"MultiPolygon","coordinates":[[[[0,0],[4,0],[4,4],[0,0]],[[1,1],[2,1],[2,2],[2,2],[1,1]]]]}`},
+		{"3D closed ring",
+			`{"type":"Polygon","coordinates":[[[0,0,5],[1,0,6],[1,1,7],[0,0,5]]]}`,
+			`{"type":"Polygon","coordinates":[[[0,0,5],[1,0,6],[1,1,7],[0,0,5]]]}`},
+		{"3D ends apart only in Z",
+			`{"type":"Polygon","coordinates":[[[0,0,5],[1,0,6],[1,1,7],[0,0,8]]]}`,
+			`{"type":"Polygon","coordinates":[[[0,0,5],[1,0,6],[1,1,7],[0,0,8],[0,0,5]]]}`},
+		{"open ring",
+			`{"type":"MultiPolygon","coordinates":[[[[0,0],[1,0],[1,1],[0.5,1.5]]]]}`,
+			`{"type":"MultiPolygon","coordinates":[[[[0,0],[1,0],[1,1],[0.5,1.5],[0,0]]]]}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := roundTrip(t, tc.in); got != tc.want {
+				t.Errorf("round trip of %s = %s, want %s", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestGeometry_DigestIgnoresTheEncoding: two encodings of the same
+// coordinates (TWKB with and without each ring's closing point) are different
+// bytes but one digest, so the digest hashes what a reader sees, not the blob.
+func TestGeometry_DigestIgnoresTheEncoding(t *testing.T) {
+	ctx := context.Background()
+	gj := `{"type":"Polygon","coordinates":[[[0,0],[0.001,0],[0.001,0.001],[0,0]]]}`
+	g := parseGeoJSON(t, gj)
+	withClose, err := geom.MarshalTWKB(g, geometryPrecision, geom.TWKBCloseRings())
+	if err != nil {
+		t.Fatal(err)
+	}
+	without, err := geom.MarshalTWKB(g, geometryPrecision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(withClose, without) {
+		t.Fatal("both encodings are the same bytes; the test proves nothing")
+	}
+	digest := func(blob []byte) string {
+		t.Helper()
+		root, _, cityID := openInputsStore(t)
+		if _, err := root.db.ExecContext(ctx,
+			`INSERT INTO features (city_id, resource_type, id, name, tags, geometry, source_api, fetched_at)
+			 VALUES (?, 'roads', 'w1', 'n', '{}', ?, 'overpass', 1)`, cityID, blob); err != nil {
+			t.Fatal(err)
+		}
+		sum, err := featuresDigest(ctx, root.db, cityID, "roads")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return sum.digest
+	}
+	if a, b := digest(withClose), digest(without); a == "" || a != b {
+		t.Errorf("digests %q and %q differ for the same coordinates", a, b)
 	}
 }
 

@@ -901,7 +901,7 @@ func TestParseArcGISPage_SingleParseDerivesAll(t *testing.T) {
 	if _, ok := arcgisErrorMessageFromPage(page); ok {
 		t.Error("valid FeatureCollection should not be an error envelope")
 	}
-	features, rawIDs := rowsFromArcGISPage(page, "OBJECTID", "arcgis", 0)
+	features, rawIDs := rowsFromArcGISPage(context.Background(), page, "OBJECTID", "arcgis", 0)
 	if len(features) != 3 || len(rawIDs) != 3 {
 		t.Errorf("expected 3 features and 3 raw ids, got %d / %d", len(features), len(rawIDs))
 	}

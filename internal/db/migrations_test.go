@@ -244,7 +244,6 @@ func TestQueryPlan_UsesCompositeIndexes(t *testing.T) {
 	}{
 		{"city_metrics view read", `SELECT value FROM city_metrics WHERE run_id IN (?, ?, ?) AND class = ? AND subject IN (?, ?)`, "PRIMARY KEY"},
 		{"hex_metrics view read", `SELECT value FROM hex_metrics WHERE run_id IN (?, ?, ?) AND metric = ? AND subject = ?`, "PRIMARY KEY"},
-		{"last ingest lookup", `SELECT fetched_at FROM city_inputs WHERE city_id = ? AND input = ?`, "(city_id=? AND input=?)"},
 		{"newest snapshot for a hash", `SELECT id FROM snapshots WHERE city_id = ? AND config_hash = ? ORDER BY id DESC LIMIT 1`, "INDEX idx_snapshots_city_hash"},
 		{"run still referenced", `SELECT COUNT(*) FROM snapshot_parts WHERE run_id = ?`, "INDEX idx_snapshot_parts_run"},
 		{"run in the working state", `SELECT COUNT(*) FROM working_parts WHERE run_id = ?`, "INDEX idx_working_parts_run"},
@@ -293,7 +292,7 @@ func TestQueryPlan_FeaturesStatements(t *testing.T) {
 		"gc stale types":          sqlStaleFeatureTypes(stale),
 		"gc stale count":          sqlCountFeaturesWhere(stale),
 		"gc stale delete":         sqlDeleteFeaturesWhere(stale),
-		"stats reads city_inputs": `SELECT feature_count, fetched_at FROM city_inputs WHERE city_id = ? AND input = ?`,
+		"stats reads city_inputs": sqlStoredFeatures,
 	}
 	for name, query := range cases {
 		t.Run(name, func(t *testing.T) {
