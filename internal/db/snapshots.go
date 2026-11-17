@@ -712,8 +712,7 @@ func (s *sqliteStore) GCScan(ctx context.Context, keepSources []string, computeE
 	report := &GCReport{}
 	if len(keepSources) > 0 {
 		where, args := s.staleFeatures(keepSources)
-		q := `SELECT COUNT(*) FROM features WHERE ` + where
-		if err := s.db.QueryRowContext(ctx, q, args...).Scan(&report.StaleFeatures); err != nil {
+		if err := s.db.QueryRowContext(ctx, sqlCountFeaturesWhere(where), args...).Scan(&report.StaleFeatures); err != nil {
 			return nil, fmt.Errorf("count stale features: %w", err)
 		}
 	}
@@ -783,8 +782,7 @@ func (s *sqliteStore) sweepStaleFeatures(ctx context.Context, tx *sql.Tx, keepSo
 	if err != nil {
 		return err
 	}
-	q := `DELETE FROM features WHERE ` + where
-	if err := execDeleteCount(ctx, tx, "stale features", q, &report.StaleFeatures, args...); err != nil {
+	if err := execDeleteCount(ctx, tx, "stale features", sqlDeleteFeaturesWhere(where), &report.StaleFeatures, args...); err != nil {
 		return err
 	}
 	for _, t := range types {

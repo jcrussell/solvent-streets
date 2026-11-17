@@ -224,7 +224,8 @@ update it in the same transaction as the rows. `ingested_at` moves only when
 the digest does, so re-ingesting identical data changes no digest. The same
 pass over the rows keeps `fetched_at`, the newest fetch time among them
 (`Stats.LastIngestAt`, what `status` and `cities` show), so that is a key
-lookup rather than a scan of the type's rows. Each run
+lookup rather than a scan of the type's rows, and `feature_count`, the number
+of rows. Each run
 records the digests it read in `run_inputs`. `db.ProducerInputs` is the one
 statement of which inputs each producer reads, and the producer takes the
 digests before it reads the data, so an ingest that lands mid-compute makes
@@ -283,9 +284,9 @@ erDiagram
         int fetched_at
     }
     features {
-        text id PK
-        text resource_type PK
         int city_id PK
+        text resource_type PK
+        text id PK
         text name
         text tags
         text geometry_json
@@ -298,6 +299,7 @@ erDiagram
         text digest
         int ingested_at
         int fetched_at
+        int feature_count
     }
     ingest_attempts {
         int id PK
@@ -385,6 +387,23 @@ rather than storing another format. Stored times therefore compare as numbers
 (gc's `computed_at < cutoff`) and read back in UTC at second precision, the
 form the CLI and JSON print. `internal/db/timestamps.go` holds the one pair of
 conversions every bind and scan uses.
+
+`features` is keyed `(city_id, resource_type, id)` and is `WITHOUT ROWID`, so
+the rows live in the key's b-tree and the key is the table's only index. Every
+statement against it names a city and a type, so each is a seek on the key's
+prefix, which `TestQueryPlan_FeaturesStatements` pins:
+
+| Statement | Where | Served by |
+|---|---|---|
+| upsert (`INSERT OR REPLACE`) | `UpsertFeatures` | the key; replaces by `(city, type, id)` |
+| delete a type, or a type's sources | `UpsertFeatures` (replace) | key prefix, then a `source_api` filter |
+| list a type | `ListFeatures` | key prefix |
+| digest, count, newest `fetched_at` | `featuresDigest` | key prefix; `ORDER BY id` is key order |
+| stale types, count, delete | `gc` (`staleFeatures`) | key prefix over the pavement types |
+
+`Stats` reads no features: the count and newest fetch time come from
+`city_inputs`, because `COUNT(*)` on a `WITHOUT ROWID` table reads every row
+of the slice.
 
 `001_init.sql` creates the schema, and `checkGeneration`
 (`internal/db/migrations.go`) stamps a fresh database's `PRAGMA user_version`

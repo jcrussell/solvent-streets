@@ -35,23 +35,23 @@ CREATE TABLE IF NOT EXISTS city_boundaries (
     UNIQUE(city_id)
 );
 
+-- Every features statement names city_id and resource_type (internal/db:
+-- upsert, both replace deletes, ListFeatures, the digest pass in id order, and
+-- gc's stale count/delete), so the primary key leads with them and is the
+-- only index: each statement is a seek on its prefix, the digest's ORDER BY id
+-- is key order, and WITHOUT ROWID stores the rows in that key's b-tree instead
+-- of beside a rowid table plus a copy of the key.
 CREATE TABLE IF NOT EXISTS features (
-    id TEXT NOT NULL,
-    resource_type TEXT NOT NULL,
     city_id INTEGER NOT NULL REFERENCES cities(id),
+    resource_type TEXT NOT NULL,
+    id TEXT NOT NULL,
     name TEXT NOT NULL DEFAULT '',
     tags TEXT NOT NULL DEFAULT '{}',
     geometry_json TEXT NOT NULL,
     source_api TEXT NOT NULL DEFAULT '',
     fetched_at INTEGER NOT NULL,
-    PRIMARY KEY (id, resource_type, city_id)
-);
-
--- ListFeatures / DeleteFeatures / FeatureInfo all filter `resource_type = ?
--- AND city_id = ?`; no query ever filters features.resource_type alone, so a
--- single composite (city_id, resource_type) serves every read as a seek and
--- also covers city_id-only lookups.
-CREATE INDEX IF NOT EXISTS idx_features_city_type ON features(city_id, resource_type);
+    PRIMARY KEY (city_id, resource_type, id)
+) WITHOUT ROWID;
 
 -- INPUTS (solvent-streets-we5i). city_inputs holds one digest per stored
 -- input a producer reads: each features resource_type ('roads',
@@ -63,7 +63,9 @@ CREATE INDEX IF NOT EXISTS idx_features_city_type ON features(city_id, resource_
 -- data changes no digest. fetched_at is the newest features.fetched_at of the
 -- input's stored rows (NULL when there are none; the boundary's save time for
 -- 'boundary'), kept in the same pass as the digest, so "when was this last
--- ingested" is a key lookup rather than a scan of the rows. A run records
+-- ingested" is a key lookup rather than a scan of the rows. feature_count
+-- is the number of stored rows (0 for 'boundary'), kept the same way: on a
+-- WITHOUT ROWID table COUNT(*) reads every row of the slice. A run records
 -- the digests it read (run_inputs), which is how a stale part is told apart
 -- from a current one without comparing clocks.
 CREATE TABLE IF NOT EXISTS city_inputs (
@@ -72,6 +74,7 @@ CREATE TABLE IF NOT EXISTS city_inputs (
     digest TEXT NOT NULL,
     ingested_at INTEGER NOT NULL,
     fetched_at INTEGER,
+    feature_count INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (city_id, input)
 );
 

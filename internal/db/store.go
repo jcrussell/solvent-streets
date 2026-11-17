@@ -12,6 +12,25 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
+// The statements against features. Each names city_id and resource_type, the
+// prefix of the table's primary key (001_init.sql), so each is a seek on it;
+// TestQueryPlan_FeaturesStatements pins that for every one of them, including
+// the digest pass (inputs.go) and gc's stale filter (staleFeatures).
+const (
+	sqlUpsertFeature = `INSERT OR REPLACE INTO features (city_id, resource_type, id, name, tags, geometry_json, source_api, fetched_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+	sqlDeleteFeatures = `DELETE FROM features WHERE city_id = ? AND resource_type = ?`
+	sqlListFeatures   = `SELECT id, resource_type, name, tags, geometry_json, source_api, fetched_at
+		FROM features WHERE city_id = ? AND resource_type = ?`
+)
+
+// sqlDeleteFeaturesFrom deletes a type's rows from n sources: bound as
+// (city_id, resource_type, source...).
+func sqlDeleteFeaturesFrom(n int) string {
+	// placeholders is only "?,?,..."; every source value is a bound parameter.
+	return sqlDeleteFeatures + ` AND source_api IN (` + placeholders(n) + `)`
+}
+
 // UpsertFeatures replaces stored features for a resource and re-inserts the
 // given set in one transaction. When sourceAPIs is empty the whole resource is
 // replaced for the city; when it is non-empty the delete is scoped to those
@@ -25,10 +44,7 @@ func (s *sqliteStore) UpsertFeatures(ctx context.Context, resourceType resource.
 			return err
 		}
 
-		stmt, err := tx.PrepareContext(ctx, `
-			INSERT OR REPLACE INTO features (id, resource_type, city_id, name, tags, geometry_json, source_api, fetched_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		`)
+		stmt, err := tx.PrepareContext(ctx, sqlUpsertFeature)
 		if err != nil {
 			return fmt.Errorf("prepare upsert: %w", err)
 		}
@@ -43,7 +59,7 @@ func (s *sqliteStore) UpsertFeatures(ctx context.Context, resourceType resource.
 			if fetchedAt.IsZero() {
 				fetchedAt = time.Now()
 			}
-			if _, err := stmt.ExecContext(ctx, f.ID, resourceType, s.cityID, f.Name, string(tagsJSON), f.GeometryJSON, f.SourceAPI, unixSeconds(fetchedAt)); err != nil {
+			if _, err := stmt.ExecContext(ctx, s.cityID, resourceType, f.ID, f.Name, string(tagsJSON), f.GeometryJSON, f.SourceAPI, unixSeconds(fetchedAt)); err != nil {
 				return fmt.Errorf("exec upsert feature %s: %w", f.ID, err)
 			}
 		}
@@ -57,25 +73,20 @@ func (s *sqliteStore) UpsertFeatures(ctx context.Context, resourceType resource.
 // sources' rows survive a partial-source re-ingest.
 func (s *sqliteStore) deleteFeaturesForReplace(ctx context.Context, tx *sql.Tx, resourceType resource.Type, sourceAPIs []string) error {
 	if len(sourceAPIs) == 0 {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM features WHERE resource_type = ? AND city_id = ?`, resourceType, s.cityID); err != nil {
+		if _, err := tx.ExecContext(ctx, sqlDeleteFeatures, s.cityID, resourceType); err != nil {
 			return fmt.Errorf("delete old features: %w", err)
 		}
 		return nil
 	}
-	args := append([]any{resourceType, s.cityID}, anyArgs(sourceAPIs)...)
-	// placeholders is only "?,?,..." — every source value is a bound parameter.
-	q := `DELETE FROM features WHERE resource_type = ? AND city_id = ? AND source_api IN (` + placeholders(len(sourceAPIs)) + `)` //nolint:gosec // placeholders are "?" only; values are parameterized via args
-	if _, err := tx.ExecContext(ctx, q, args...); err != nil {
+	args := append([]any{s.cityID, resourceType}, anyArgs(sourceAPIs)...)
+	if _, err := tx.ExecContext(ctx, sqlDeleteFeaturesFrom(len(sourceAPIs)), args...); err != nil {
 		return fmt.Errorf("delete old features by source: %w", err)
 	}
 	return nil
 }
 
 func (s *sqliteStore) ListFeatures(ctx context.Context, resourceType resource.Type) ([]Feature, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, resource_type, name, tags, geometry_json, source_api, fetched_at
-		FROM features WHERE resource_type = ? AND city_id = ?
-	`, resourceType, s.cityID)
+	rows, err := s.db.QueryContext(ctx, sqlListFeatures, s.cityID, resourceType)
 	if err != nil {
 		return nil, fmt.Errorf("query features: %w", err)
 	}
@@ -113,7 +124,10 @@ func (s *sqliteStore) SaveBoundary(ctx context.Context, geometryJSON, source str
 		`, s.cityID, geometryJSON, source, now); err != nil {
 			return fmt.Errorf("save boundary: %w", err)
 		}
-		return setInputDigest(ctx, tx, s.cityID, InputBoundary, boundaryDigest(geometryJSON, source), sql.NullInt64{Int64: now, Valid: true})
+		return setInput(ctx, tx, s.cityID, InputBoundary, inputSummary{
+			digest:    boundaryDigest(geometryJSON, source),
+			fetchedAt: sql.NullInt64{Int64: now, Valid: true},
+		})
 	})
 }
 
@@ -160,22 +174,19 @@ func (s *sqliteStore) frozenBoundary(ctx context.Context) (gj string, frozen boo
 func (s *sqliteStore) Stats(ctx context.Context, resourceType resource.Type) (*StatusInfo, error) {
 	info := &StatusInfo{ResourceType: resourceType}
 
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM features WHERE resource_type = ? AND city_id = ?`, resourceType, s.cityID).Scan(&info.FeatureCount)
-	if err != nil {
-		return nil, fmt.Errorf("count features: %w", err)
-	}
-
-	// city_inputs.fetched_at is the newest fetched_at of the stored rows,
-	// kept with the digest (refreshFeaturesDigest). No row, or NULL (no
-	// stored rows), leaves LastIngestAt nil; a real query failure (locked DB,
-	// transient I/O) must not fold into that branch.
+	// city_inputs keeps the count and the newest fetched_at of the stored
+	// rows with the digest (refreshFeaturesDigest), so neither reads the
+	// features themselves. No row means never ingested; NULL fetched_at means
+	// no stored rows. Either leaves LastIngestAt nil; a real query failure
+	// (locked DB, transient I/O) must not fold into that branch.
 	var fetched sql.NullInt64
-	err = s.db.QueryRowContext(ctx, `SELECT fetched_at FROM city_inputs WHERE city_id = ? AND input = ?`, s.cityID, string(resourceType)).Scan(&fetched)
+	err := s.db.QueryRowContext(ctx, `SELECT feature_count, fetched_at FROM city_inputs WHERE city_id = ? AND input = ?`,
+		s.cityID, string(resourceType)).Scan(&info.FeatureCount, &fetched)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		// never ingested
 	case err != nil:
-		return nil, fmt.Errorf("latest fetched_at: %w", err)
+		return nil, fmt.Errorf("stored features: %w", err)
 	case fetched.Valid:
 		t := fromUnix(fetched.Int64)
 		info.LastIngestAt = &t
@@ -249,11 +260,19 @@ func (s *sqliteStore) staleFeatures(keepSources []string) (where string, args []
 	for i, r := range resource.All {
 		types[i] = string(r.Type())
 	}
-	where = `city_id = ? AND source_api NOT IN (` + placeholders(len(keepSources)) +
-		`) AND source_api != '' AND resource_type IN (` + placeholders(len(types)) + `)`
-	args = append([]any{s.cityID}, anyArgs(keepSources)...)
-	return where, append(args, anyArgs(types)...)
+	where = `city_id = ? AND resource_type IN (` + placeholders(len(types)) +
+		`) AND source_api NOT IN (` + placeholders(len(keepSources)) + `) AND source_api != ''`
+	args = append([]any{s.cityID}, anyArgs(types)...)
+	return where, append(args, anyArgs(keepSources)...)
 }
+
+// sqlCountFeaturesWhere and sqlDeleteFeaturesWhere count and delete the rows
+// matching where (staleFeatures), so gc's dry run and sweep share one filter.
+func sqlCountFeaturesWhere(where string) string {
+	return `SELECT COUNT(*) FROM features WHERE ` + where
+}
+
+func sqlDeleteFeaturesWhere(where string) string { return `DELETE FROM features WHERE ` + where }
 
 // execDeleteCount runs a DELETE and writes the affected-row count into dst,
 // wrapping both failures with the given label. Keeps GCSweep's three sweeps

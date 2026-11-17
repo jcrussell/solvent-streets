@@ -139,7 +139,6 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 		// These are the indexes the runtime path depends on. Dropping any
 		// would silently turn a hot read into a table scan.
 		want := map[string][]string{
-			"features":       {"idx_features_city_type"},
 			"snapshots":      {"idx_snapshots_city_hash", "idx_snapshots_boundary"},
 			"snapshot_parts": {"idx_snapshot_parts_run"},
 			"working_parts":  {"idx_working_parts_run"},
@@ -153,6 +152,41 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestColdMigration_FeaturesKey pins the features layout: keyed by city,
+// type and id, WITHOUT ROWID, and no secondary index. The key is the table's
+// only index: every features statement seeks its (city_id, resource_type)
+// prefix (TestQueryPlan_FeaturesStatements).
+func TestColdMigration_FeaturesKey(t *testing.T) {
+	ctx := context.Background()
+	root, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:): %v", err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	want := []string{"city_id", "resource_type", "id"}
+	got := make([]string, len(want))
+	for _, c := range listColumns(t, ctx, root.db, "features") {
+		if c.pk > 0 && c.pk <= len(want) {
+			got[c.pk-1] = c.name
+		}
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("features primary key = %v, want %v", got, want)
+	}
+	var sqlText string
+	if err := root.db.QueryRowContext(ctx, `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'features'`).Scan(&sqlText); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sqlText, "WITHOUT ROWID") {
+		t.Errorf("features is not WITHOUT ROWID:\n%s", sqlText)
+	}
+	for _, idx := range listIndexes(t, ctx, root.db, "features") {
+		if !strings.HasPrefix(idx, "sqlite_autoindex_") {
+			t.Errorf("features has secondary index %s; the primary key serves every statement", idx)
+		}
+	}
 }
 
 // TestColdMigration_ResultRowsRequireARun pins that every result row is
@@ -210,7 +244,6 @@ func TestQueryPlan_UsesCompositeIndexes(t *testing.T) {
 	}{
 		{"city_metrics view read", `SELECT value FROM city_metrics WHERE run_id IN (?, ?, ?) AND class = ? AND subject IN (?, ?)`, "PRIMARY KEY"},
 		{"hex_metrics view read", `SELECT value FROM hex_metrics WHERE run_id IN (?, ?, ?) AND metric = ? AND subject = ?`, "PRIMARY KEY"},
-		{"features outer filter", `SELECT id FROM features WHERE resource_type = ? AND city_id = ?`, "INDEX idx_features_city_type"},
 		{"last ingest lookup", `SELECT fetched_at FROM city_inputs WHERE city_id = ? AND input = ?`, "(city_id=? AND input=?)"},
 		{"newest snapshot for a hash", `SELECT id FROM snapshots WHERE city_id = ? AND config_hash = ? ORDER BY id DESC LIMIT 1`, "INDEX idx_snapshots_city_hash"},
 		{"run still referenced", `SELECT COUNT(*) FROM snapshot_parts WHERE run_id = ?`, "INDEX idx_snapshot_parts_run"},
@@ -233,6 +266,51 @@ func TestQueryPlan_UsesCompositeIndexes(t *testing.T) {
 				if strings.Contains(plan, "SCAN "+table+"\n") {
 					t.Errorf("query %q falls back to a full table scan:\n%s", tc.query, plan)
 				}
+			}
+		})
+	}
+}
+
+// TestQueryPlan_FeaturesStatements runs EXPLAIN QUERY PLAN on every
+// statement against features, exactly as the store issues it, and requires a
+// primary-key search with no full scan and no temp b-tree (the digest's ORDER
+// BY id must come from key order). A new features statement belongs here.
+func TestQueryPlan_FeaturesStatements(t *testing.T) {
+	ctx := context.Background()
+	root, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:): %v", err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	stale, _ := (&sqliteStore{cityID: 1}).staleFeatures([]string{"overpass", "arcgis"})
+
+	cases := map[string]string{
+		"upsert":                  sqlUpsertFeature,
+		"replace all":             sqlDeleteFeatures,
+		"replace some sources":    sqlDeleteFeaturesFrom(2),
+		"list":                    sqlListFeatures,
+		"digest in id order":      sqlFeaturesDigest,
+		"gc stale types":          sqlStaleFeatureTypes(stale),
+		"gc stale count":          sqlCountFeaturesWhere(stale),
+		"gc stale delete":         sqlDeleteFeaturesWhere(stale),
+		"stats reads city_inputs": `SELECT feature_count, fetched_at FROM city_inputs WHERE city_id = ? AND input = ?`,
+	}
+	for name, query := range cases {
+		t.Run(name, func(t *testing.T) {
+			plan := queryPlan(t, ctx, root.db, query)
+			if strings.HasPrefix(query, "INSERT") {
+				// An insert has no search; it must not scan either.
+				if strings.Contains(plan, "SCAN ") {
+					t.Errorf("query %q scans:\n%s", query, plan)
+				}
+				return
+			}
+			if !strings.Contains(plan, "SEARCH features USING PRIMARY KEY (city_id=? AND resource_type=?") &&
+				!strings.Contains(plan, "SEARCH city_inputs USING INDEX sqlite_autoindex_city_inputs_1 (city_id=? AND input=?)") {
+				t.Errorf("query %q does not seek the primary key:\n%s", query, plan)
+			}
+			if strings.Contains(plan, "SCAN ") || strings.Contains(plan, "USE TEMP B-TREE") {
+				t.Errorf("query %q scans or sorts:\n%s", query, plan)
 			}
 		})
 	}

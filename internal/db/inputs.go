@@ -139,43 +139,53 @@ func (w *digestWriter) field(s string) {
 
 func (w *digestWriter) sum() string { return hex.EncodeToString(w.h.Sum(nil)) }
 
-// featuresDigest is the digest of this city's stored features of
-// resourceType: a sha256 over every row in id order, covering the columns a
-// producer reads (id, source_api, name, tags, geometry_json) and not
-// fetched_at, so re-ingesting identical data keeps the digest. "" when the
-// type has no rows. The same pass returns the newest fetched_at of those rows
-// (invalid when there are none), which city_inputs keeps beside the digest.
-func featuresDigest(ctx context.Context, q queryer, cityID int64, resourceType string) (string, sql.NullInt64, error) {
-	var newest sql.NullInt64
-	rows, err := q.QueryContext(ctx,
-		`SELECT id, source_api, name, tags, geometry_json, fetched_at FROM features
-		 WHERE city_id = ? AND resource_type = ? ORDER BY id`, cityID, resourceType)
+// sqlFeaturesDigest reads a type's rows in id order, the primary key's order
+// after its (city_id, resource_type) prefix, so no sort is needed.
+const sqlFeaturesDigest = `SELECT id, source_api, name, tags, geometry_json, fetched_at FROM features
+	WHERE city_id = ? AND resource_type = ? ORDER BY id`
+
+// inputSummary is what city_inputs keeps of one input's stored rows.
+type inputSummary struct {
+	digest    string        // "" when there are no rows
+	fetchedAt sql.NullInt64 // the newest fetched_at; invalid when there are no rows
+	count     int           // features rows; 0 for the boundary
+}
+
+// featuresDigest summarizes this city's stored features of resourceType in
+// one pass. The digest is a sha256 over every row in id order, covering the
+// columns a producer reads (id, source_api, name, tags, geometry_json) and
+// not fetched_at, so re-ingesting identical data keeps the digest; "" when the
+// type has no rows. The same pass counts the rows and finds the newest
+// fetched_at.
+func featuresDigest(ctx context.Context, q queryer, cityID int64, resourceType string) (inputSummary, error) {
+	var sum inputSummary
+	rows, err := q.QueryContext(ctx, sqlFeaturesDigest, cityID, resourceType)
 	if err != nil {
-		return "", newest, fmt.Errorf("query %s features for digest: %w", resourceType, err)
+		return sum, fmt.Errorf("query %s features for digest: %w", resourceType, err)
 	}
 	defer func() { _ = rows.Close() }()
-	w, n := newDigestWriter(), 0
+	w := newDigestWriter()
 	for rows.Next() {
 		var id, source, name, tags, geometry string
 		var fetchedAt int64
 		if err := rows.Scan(&id, &source, &name, &tags, &geometry, &fetchedAt); err != nil {
-			return "", newest, fmt.Errorf("scan %s feature for digest: %w", resourceType, err)
+			return sum, fmt.Errorf("scan %s feature for digest: %w", resourceType, err)
 		}
 		for _, f := range []string{id, source, name, tags, geometry} {
 			w.field(f)
 		}
-		if !newest.Valid || fetchedAt > newest.Int64 {
-			newest = sql.NullInt64{Int64: fetchedAt, Valid: true}
+		if !sum.fetchedAt.Valid || fetchedAt > sum.fetchedAt.Int64 {
+			sum.fetchedAt = sql.NullInt64{Int64: fetchedAt, Valid: true}
 		}
-		n++
+		sum.count++
 	}
 	if err := rows.Err(); err != nil {
-		return "", newest, fmt.Errorf("read %s features for digest: %w", resourceType, err)
+		return sum, fmt.Errorf("read %s features for digest: %w", resourceType, err)
 	}
-	if n == 0 {
-		return "", newest, nil
+	if sum.count > 0 {
+		sum.digest = w.sum()
 	}
-	return w.sum(), newest, nil
+	return sum, nil
 }
 
 // boundaryDigest is the digest of a stored boundary: its geometry and source.
@@ -191,38 +201,46 @@ func boundaryDigest(geometryJSON, source string) string {
 	return w.sum()
 }
 
-// setInputDigest records digest as input's current digest and fetchedAt as
-// when its stored rows were fetched. ingested_at moves only when the digest
-// changes, so an identical re-ingest keeps it; fetched_at always follows the
-// stored rows, which an identical re-ingest rewrote.
-func setInputDigest(ctx context.Context, tx *sql.Tx, cityID int64, input, digest string, fetchedAt sql.NullInt64) error {
+// setInput records sum as input's current state. ingested_at moves only when
+// the digest changes, so an identical re-ingest keeps it; fetched_at and
+// feature_count always follow the stored rows, which an identical re-ingest
+// rewrote.
+func setInput(ctx context.Context, tx *sql.Tx, cityID int64, input string, sum inputSummary) error {
 	_, err := tx.ExecContext(ctx,
-		`INSERT INTO city_inputs (city_id, input, digest, ingested_at, fetched_at) VALUES (?, ?, ?, ?, ?)
+		`INSERT INTO city_inputs (city_id, input, digest, ingested_at, fetched_at, feature_count) VALUES (?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(city_id, input) DO UPDATE SET
 		   ingested_at = CASE WHEN city_inputs.digest != excluded.digest THEN excluded.ingested_at ELSE city_inputs.ingested_at END,
 		   digest = excluded.digest,
-		   fetched_at = excluded.fetched_at`, cityID, input, digest, nowUnix(), fetchedAt)
+		   fetched_at = excluded.fetched_at,
+		   feature_count = excluded.feature_count`,
+		cityID, input, sum.digest, nowUnix(), sum.fetchedAt, sum.count)
 	if err != nil {
 		return fmt.Errorf("record %s digest: %w", input, err)
 	}
 	return nil
 }
 
-// refreshFeaturesDigest recomputes resourceType's digest and newest fetch
-// time from its stored rows and records them.
+// refreshFeaturesDigest recomputes resourceType's summary from its stored
+// rows and records it.
 func refreshFeaturesDigest(ctx context.Context, tx *sql.Tx, cityID int64, resourceType string) error {
-	digest, fetchedAt, err := featuresDigest(ctx, tx, cityID, resourceType)
+	sum, err := featuresDigest(ctx, tx, cityID, resourceType)
 	if err != nil {
 		return err
 	}
-	return setInputDigest(ctx, tx, cityID, resourceType, digest, fetchedAt)
+	return setInput(ctx, tx, cityID, resourceType, sum)
+}
+
+// sqlStaleFeatureTypes lists the types with rows matching where
+// (staleFeatures).
+func sqlStaleFeatureTypes(where string) string {
+	return `SELECT DISTINCT resource_type FROM features WHERE ` + where
 }
 
 // staleFeatureTypes lists the resource types that have rows matching the
 // stale-features filter, sorted, so GCSweep can refresh exactly their digests
 // after deleting those rows.
 func staleFeatureTypes(ctx context.Context, tx *sql.Tx, where string, args []any) ([]string, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT resource_type FROM features WHERE `+where, args...) //nolint:gosec // where is built from literals and placeholders; values are bound
+	rows, err := tx.QueryContext(ctx, sqlStaleFeatureTypes(where), args...)
 	if err != nil {
 		return nil, fmt.Errorf("query stale feature types: %w", err)
 	}

@@ -94,7 +94,8 @@ func TestTimestamps_EveryWriterStoresInteger(t *testing.T) {
 	}
 }
 
-// TestStats_LastIngestAt: LastIngestAt is the newest fetched_at of the stored
+// TestStats_LastIngestAt: FeatureCount counts the stored rows, and
+// LastIngestAt is the newest fetched_at of the stored
 // rows, as before city_inputs kept it. A partial replace keeps the other
 // source's rows (and so its time when that is newer), an identical re-ingest
 // moves it, and a type whose rows are all gone has none.
@@ -103,11 +104,15 @@ func TestStats_LastIngestAt(t *testing.T) {
 	_, store, _ := openInputsStore(t)
 	rt := resource.TypeRoads
 	at := func(s int64) time.Time { return time.Unix(s, 0) }
+	stored := 0 // rows the store should hold; Stats' count must match
 	last := func() *time.Time {
 		t.Helper()
 		info, err := store.Stats(ctx, rt)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if info.FeatureCount != stored {
+			t.Errorf("FeatureCount = %d, want %d", info.FeatureCount, stored)
 		}
 		return info.LastIngestAt
 	}
@@ -120,6 +125,7 @@ func TestStats_LastIngestAt(t *testing.T) {
 	if err := store.UpsertFeatures(ctx, rt, []Feature{osm, arc}, nil); err != nil {
 		t.Fatal(err)
 	}
+	stored = 2
 	if got := last(); got == nil || !got.Equal(at(2000)) || got.Location() != time.UTC {
 		t.Fatalf("after both sources: LastIngestAt = %v, want %v UTC", got, at(2000))
 	}
@@ -147,6 +153,7 @@ func TestStats_LastIngestAt(t *testing.T) {
 	if err := store.UpsertFeatures(ctx, rt, nil, nil); err != nil {
 		t.Fatal(err)
 	}
+	stored = 0
 	if got := last(); got != nil {
 		t.Errorf("with no rows: LastIngestAt = %v, want nil", got)
 	}
