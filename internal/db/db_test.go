@@ -78,8 +78,8 @@ func TestUpsertFeatures_ScopedBySourcePreservesOtherSources(t *testing.T) {
 
 	// Initial full ingest: one row from each of two sources.
 	initial := []Feature{
-		{ID: "arc:1", ResourceType: rtRoads, Tags: map[string]string{}, GeometryJSON: `{}`, SourceAPI: "arcgis", FetchedAt: time.Now()},
-		{ID: "osm:1", ResourceType: rtRoads, Tags: map[string]string{}, GeometryJSON: `{}`, SourceAPI: "overpass", FetchedAt: time.Now()},
+		{ID: "arc:1", ResourceType: rtRoads, Tags: map[string]string{}, GeometryJSON: testPoint, SourceAPI: "arcgis", FetchedAt: time.Now()},
+		{ID: "osm:1", ResourceType: rtRoads, Tags: map[string]string{}, GeometryJSON: testPoint, SourceAPI: "overpass", FetchedAt: time.Now()},
 	}
 	if err := store.UpsertFeatures(ctx, rtRoads, initial, nil); err != nil {
 		t.Fatal(err)
@@ -88,7 +88,7 @@ func TestUpsertFeatures_ScopedBySourcePreservesOtherSources(t *testing.T) {
 	// Re-ingest where arcgis was down: only overpass succeeded, so scope the
 	// replace to "overpass". The arcgis row must survive.
 	overpassOnly := []Feature{
-		{ID: "osm:2", ResourceType: rtRoads, Tags: map[string]string{}, GeometryJSON: `{}`, SourceAPI: "overpass", FetchedAt: time.Now()},
+		{ID: "osm:2", ResourceType: rtRoads, Tags: map[string]string{}, GeometryJSON: testPoint, SourceAPI: "overpass", FetchedAt: time.Now()},
 	}
 	if err := store.UpsertFeatures(ctx, rtRoads, overpassOnly, []string{"overpass"}); err != nil {
 		t.Fatal(err)
@@ -168,14 +168,21 @@ func TestCityStoreClose_KeepsPoolOpen(t *testing.T) {
 	}
 }
 
+// testPoint is a geometry for tests that do not look at it.
+const testPoint = `{"type":"Point","coordinates":[-122.2711,37.8044]}`
+
 // seedGCFeature inserts a feature with an explicit source_api for the gc
 // tests, bypassing UpsertFeatures (which would scope deletes by source).
 func seedGCFeature(t *testing.T, root *RootStore, cityID int64, id, sourceAPI string) {
 	t.Helper()
-	_, err := root.db.ExecContext(context.Background(),
-		`INSERT INTO features (id, resource_type, city_id, name, tags, geometry_json, source_api, fetched_at)
-		 VALUES (?, ?, ?, '', '{}', '{}', ?, unixepoch())`,
-		id, rtRoads, cityID, sourceAPI)
+	geometry, err := encodeGeometry(testPoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = root.db.ExecContext(context.Background(),
+		`INSERT INTO features (id, resource_type, city_id, name, tags, geometry, source_api, fetched_at)
+		 VALUES (?, ?, ?, '', '{}', ?, ?, unixepoch())`,
+		id, rtRoads, cityID, geometry, sourceAPI)
 	if err != nil {
 		t.Fatalf("seed feature %s: %v", id, err)
 	}
@@ -232,7 +239,7 @@ func TestStoreStats(t *testing.T) {
 	store := openTestStore(t)
 
 	features := []Feature{
-		{ID: "1", Name: "test", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()},
+		{ID: "1", Name: "test", Tags: map[string]string{}, GeometryJSON: testPoint, FetchedAt: time.Now()},
 	}
 	if err := store.UpsertFeatures(ctx, rtParking, features, nil); err != nil {
 		t.Fatal(err)
@@ -256,7 +263,7 @@ func TestStoreStatsPropagatesComputeError(t *testing.T) {
 
 	// Feature queries must succeed so Stats reaches the compute-result lookup.
 	if err := store.UpsertFeatures(ctx, rtParking, []Feature{
-		{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()},
+		{ID: "1", Tags: map[string]string{}, GeometryJSON: testPoint, FetchedAt: time.Now()},
 	}, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -342,7 +349,7 @@ func TestCityIsolation(t *testing.T) {
 	storeB := root.ForCity(id2)
 
 	// Insert features into city A
-	if err := storeA.UpsertFeatures(ctx, rtRoads, []Feature{{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()}}, nil); err != nil {
+	if err := storeA.UpsertFeatures(ctx, rtRoads, []Feature{{ID: "1", Tags: map[string]string{}, GeometryJSON: testPoint, FetchedAt: time.Now()}}, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -628,7 +635,7 @@ func TestForeignKeyEnforcement(t *testing.T) {
 	// Use a city_id that doesn't exist in the cities table.
 	bogus := root.ForCity(9999)
 	err = bogus.UpsertFeatures(ctx, rtRoads, []Feature{
-		{ID: "1", Tags: map[string]string{}, GeometryJSON: `{}`, FetchedAt: time.Now()},
+		{ID: "1", Tags: map[string]string{}, GeometryJSON: testPoint, FetchedAt: time.Now()},
 	}, nil)
 	if err == nil {
 		t.Fatal("expected FK violation error when inserting feature with nonexistent city_id")

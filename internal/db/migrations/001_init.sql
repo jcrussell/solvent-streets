@@ -41,13 +41,16 @@ CREATE TABLE IF NOT EXISTS city_boundaries (
 -- only index: each statement is a seek on its prefix, the digest's ORDER BY id
 -- is key order, and WITHOUT ROWID stores the rows in that key's b-tree instead
 -- of beside a rowid table plus a copy of the key.
+--
+-- geometry is TWKB at 7 decimal places (internal/db/geometry.go), about a
+-- sixth of the GeoJSON text it is read back as; ListFeatures returns GeoJSON.
 CREATE TABLE IF NOT EXISTS features (
     city_id INTEGER NOT NULL REFERENCES cities(id),
     resource_type TEXT NOT NULL,
     id TEXT NOT NULL,
     name TEXT NOT NULL DEFAULT '',
     tags TEXT NOT NULL DEFAULT '{}',
-    geometry_json TEXT NOT NULL,
+    geometry BLOB NOT NULL,
     source_api TEXT NOT NULL DEFAULT '',
     fetched_at INTEGER NOT NULL,
     PRIMARY KEY (city_id, resource_type, id)

@@ -141,7 +141,7 @@ func (w *digestWriter) sum() string { return hex.EncodeToString(w.h.Sum(nil)) }
 
 // sqlFeaturesDigest reads a type's rows in id order, the primary key's order
 // after its (city_id, resource_type) prefix, so no sort is needed.
-const sqlFeaturesDigest = `SELECT id, source_api, name, tags, geometry_json, fetched_at FROM features
+const sqlFeaturesDigest = `SELECT id, source_api, name, tags, geometry, fetched_at FROM features
 	WHERE city_id = ? AND resource_type = ? ORDER BY id`
 
 // inputSummary is what city_inputs keeps of one input's stored rows.
@@ -152,10 +152,12 @@ type inputSummary struct {
 }
 
 // featuresDigest summarizes this city's stored features of resourceType in
-// one pass. The digest is a sha256 over every row in id order, covering the
-// columns a producer reads (id, source_api, name, tags, geometry_json) and
-// not fetched_at, so re-ingesting identical data keeps the digest; "" when the
-// type has no rows. The same pass counts the rows and finds the newest
+// one pass. The digest is a sha256 over every row in id order, covering what
+// a producer reads (id, source_api, name, tags and the geometry) and not
+// fetched_at, so re-ingesting identical data keeps the digest; "" when the
+// type has no rows. The geometry enters as the WKB of its decoded
+// coordinates, not the stored bytes, so a change of storage encoding that
+// reads back the same coordinates keeps every digest. The same pass counts the rows and finds the newest
 // fetched_at.
 func featuresDigest(ctx context.Context, q queryer, cityID int64, resourceType string) (inputSummary, error) {
 	var sum inputSummary
@@ -166,12 +168,17 @@ func featuresDigest(ctx context.Context, q queryer, cityID int64, resourceType s
 	defer func() { _ = rows.Close() }()
 	w := newDigestWriter()
 	for rows.Next() {
-		var id, source, name, tags, geometry string
+		var id, source, name, tags string
+		var stored []byte
 		var fetchedAt int64
-		if err := rows.Scan(&id, &source, &name, &tags, &geometry, &fetchedAt); err != nil {
+		if err := rows.Scan(&id, &source, &name, &tags, &stored, &fetchedAt); err != nil {
 			return sum, fmt.Errorf("scan %s feature for digest: %w", resourceType, err)
 		}
-		for _, f := range []string{id, source, name, tags, geometry} {
+		g, err := decodeGeometry(stored)
+		if err != nil {
+			return sum, fmt.Errorf("%s feature %s: %w", resourceType, id, err)
+		}
+		for _, f := range []string{id, source, name, tags, string(g.AsBinary())} {
 			w.field(f)
 		}
 		if !sum.fetchedAt.Valid || fetchedAt > sum.fetchedAt.Int64 {

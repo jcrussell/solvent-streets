@@ -289,7 +289,7 @@ erDiagram
         text id PK
         text name
         text tags
-        text geometry_json
+        blob geometry
         text source_api
         int fetched_at
     }
@@ -404,6 +404,23 @@ prefix, which `TestQueryPlan_FeaturesStatements` pins:
 `Stats` reads no features: the count and newest fetch time come from
 `city_inputs`, because `COUNT(*)` on a `WITHOUT ROWID` table reads every row
 of the slice.
+
+A feature's `geometry` is [TWKB](https://github.com/TWKB/Specification/blob/master/twkb.md)
+at 7 decimal places (1e-7 degrees, about 1 cm), about a sixth of the GeoJSON
+text (`internal/db/geometry.go`). `UpsertFeatures` parses the GeoJSON without
+validating it, since OSM holds invalid shapes such as self-intersecting
+polygons that must come back as they went in, and `ListFeatures` hands back
+GeoJSON again, so `db.Feature.GeometryJSON` and every reader are unchanged.
+OSM coordinates (7 decimals) and TIGER's (6) read back as bit-identical
+float64s, which the routing graph relies on when it joins vertices across
+roads and routing roads by exact equality. ArcGIS layers serve 12 to 13
+decimals, which are rounded to 7. TWKB records its precision in each
+geometry, so a source that needs more could be stored finer without touching
+the rows already stored. The features digest hashes the decoded coordinates
+(their WKB), not the stored bytes, so a change of encoding that reads back the
+same coordinates keeps every input current. Tags, names, types and
+sources stay JSON and text so the database stays readable with `sqlite3`;
+boundaries stay GeoJSON.
 
 `001_init.sql` creates the schema, and `checkGeneration`
 (`internal/db/migrations.go`) stamps a fresh database's `PRAGMA user_version`

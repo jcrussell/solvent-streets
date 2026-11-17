@@ -17,10 +17,10 @@ import (
 // TestQueryPlan_FeaturesStatements pins that for every one of them, including
 // the digest pass (inputs.go) and gc's stale filter (staleFeatures).
 const (
-	sqlUpsertFeature = `INSERT OR REPLACE INTO features (city_id, resource_type, id, name, tags, geometry_json, source_api, fetched_at)
+	sqlUpsertFeature = `INSERT OR REPLACE INTO features (city_id, resource_type, id, name, tags, geometry, source_api, fetched_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
 	sqlDeleteFeatures = `DELETE FROM features WHERE city_id = ? AND resource_type = ?`
-	sqlListFeatures   = `SELECT id, resource_type, name, tags, geometry_json, source_api, fetched_at
+	sqlListFeatures   = `SELECT id, resource_type, name, tags, geometry, source_api, fetched_at
 		FROM features WHERE city_id = ? AND resource_type = ?`
 )
 
@@ -55,11 +55,15 @@ func (s *sqliteStore) UpsertFeatures(ctx context.Context, resourceType resource.
 			if err != nil {
 				return fmt.Errorf("marshal tags: %w", err)
 			}
+			geometry, err := encodeGeometry(f.GeometryJSON)
+			if err != nil {
+				return fmt.Errorf("feature %s: %w", f.ID, err)
+			}
 			fetchedAt := f.FetchedAt
 			if fetchedAt.IsZero() {
 				fetchedAt = time.Now()
 			}
-			if _, err := stmt.ExecContext(ctx, s.cityID, resourceType, f.ID, f.Name, string(tagsJSON), f.GeometryJSON, f.SourceAPI, unixSeconds(fetchedAt)); err != nil {
+			if _, err := stmt.ExecContext(ctx, s.cityID, resourceType, f.ID, f.Name, string(tagsJSON), geometry, f.SourceAPI, unixSeconds(fetchedAt)); err != nil {
 				return fmt.Errorf("exec upsert feature %s: %w", f.ID, err)
 			}
 		}
@@ -96,8 +100,12 @@ func (s *sqliteStore) ListFeatures(ctx context.Context, resourceType resource.Ty
 	for rows.Next() {
 		var f Feature
 		var tagsJSON string
-		if err := rows.Scan(&f.ID, &f.ResourceType, &f.Name, &tagsJSON, &f.GeometryJSON, &f.SourceAPI, unixTime{&f.FetchedAt}); err != nil {
+		var geometry []byte
+		if err := rows.Scan(&f.ID, &f.ResourceType, &f.Name, &tagsJSON, &geometry, &f.SourceAPI, unixTime{&f.FetchedAt}); err != nil {
 			return nil, fmt.Errorf("scan feature: %w", err)
+		}
+		if f.GeometryJSON, err = geometryGeoJSON(geometry); err != nil {
+			return nil, fmt.Errorf("feature %s: %w", f.ID, err)
 		}
 		if err := json.Unmarshal([]byte(tagsJSON), &f.Tags); err != nil {
 			// Surface the parse failure so a corrupt tags row is not
