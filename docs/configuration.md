@@ -233,7 +233,8 @@ name is 1 to 64 letters, digits, `.`, `_` or `-`, starting with a letter or
 digit; `latest` is reserved. Creating a name that exists is refused: to
 replace a snapshot, `pvmt snapshots delete v0.5.0` and create it again. To
 roll back, delete the newest snapshot, or publish an older one with
-`pvmt export --snapshot NAME`, and `pvmt snapshots prune --keep N` keeps
+`pvmt export --snapshot NAME`. `pvmt snapshots diff A B` compares two
+snapshots' results city by city, and `pvmt snapshots prune --keep N` keeps
 the N newest.
 
 ## Grid and display

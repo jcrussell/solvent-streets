@@ -578,6 +578,13 @@ surviving snapshot nor a latest compute references, and every frozen boundary
 no snapshot uses. A run the latest compute still references stays, so
 `delete v1` then `create v1` re-freezes it rather than recomputing.
 
+`pvmt snapshots diff A B` compares two snapshots city by city, reading each
+city through its store pinned to each snapshot: the pavement totals
+(`results.LoadTotals`), and the census totals and fire coverage from
+`export.MetricSummaries`, the summary behind the site's Map stats card (its
+"Within 5:20" row). It compares results, not hexes: two snapshots at
+different hex edges share no hex ids.
+
 ## Config hash
 
 Latest computes and snapshots are keyed by `Config.CityHash`

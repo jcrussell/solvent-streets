@@ -347,3 +347,10 @@ func hasHexGrid(ctx context.Context, entry CityEntry) (bool, error) {
 	}
 	return ok, nil
 }
+
+// MetricSummaries is meta.json's per-metric summaries for entry, exactly as
+// the site's Map stats card shows them (its "Within 5:20" share is
+// WithinThresholdShare): `pvmt snapshots diff` compares two snapshots with it.
+func MetricSummaries(ctx context.Context, entry CityEntry) (map[string]MetricSummaryJSON, error) {
+	return buildMetricSummaries(ctx, entry)
+}
