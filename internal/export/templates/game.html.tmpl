@@ -76,8 +76,20 @@
             #topbar select { max-width: 40vw; font-size: 12px; }
         }
 
+        /* Bottom dock: controls bottom left, legend bottom right. Where the
+           two do not fit side by side (a phone), the legend wraps above the
+           controls instead of covering them. The dock itself lets pointer
+           events through to the map between the panels. */
+        #bottom-dock {
+            position: absolute; z-index: 10; left: 12px; right: 12px; bottom: 12px;
+            display: flex; flex-wrap: wrap-reverse; justify-content: space-between;
+            align-items: flex-start; gap: 8px; pointer-events: none;
+        }
+        #bottom-dock .panel { position: relative; pointer-events: auto; }
+        #bottom-dock #legend { margin-left: auto; }
+
         /* Controls — bottom left */
-        #controls { bottom: 12px; left: 12px; padding: 14px 18px; min-width: 260px; max-height: calc(100vh - var(--bar-h) - 24px); overflow-y: auto; }
+        #controls { padding: 14px 18px; min-width: 260px; max-height: calc(100vh - var(--bar-h) - 24px); overflow-y: auto; }
         #controls label .hint { color: #6b7280; font-weight: 400; text-transform: none; }
         #controls .ctrl-block { margin-bottom: 14px; }
         #controls .ctrl-block:last-child { margin-bottom: 0; }
@@ -105,7 +117,7 @@
         }
 
         /* Color legend — bottom right */
-        #legend { bottom: 12px; right: 12px; padding: 10px 14px; font-size: 11px; }
+        #legend { padding: 10px 14px; font-size: 11px; }
         #legend .legend-title { font-weight: 600; margin-bottom: 6px; color: #9aa4b2; }
         /* The bar's ramp and the gravel swatch's colour are set by game.js
            (paintLegend) from the colours the map paints with. */
@@ -197,28 +209,30 @@
         </div>
     </div>
 
-    <div class="panel" id="controls" style="display:none">
-        <div class="ctrl-block">
-            <label>Speed</label>
-            <div class="row-buttons" id="speed-buttons">
-                <button class="btn" id="pause-btn" type="button" data-speed="0">Pause</button>
-                <button class="btn active" type="button" data-speed="1">1&times;</button>
-                <button class="btn" type="button" data-speed="2">2&times;</button>
-                <button class="btn" type="button" data-speed="4">4&times;</button>
+    <div id="bottom-dock">
+        <div class="panel" id="controls" style="display:none">
+            <div class="ctrl-block">
+                <label>Speed</label>
+                <div class="row-buttons" id="speed-buttons">
+                    <button class="btn" id="pause-btn" type="button" data-speed="0">Pause</button>
+                    <button class="btn active" type="button" data-speed="1">1&times;</button>
+                    <button class="btn" type="button" data-speed="2">2&times;</button>
+                    <button class="btn" type="button" data-speed="4">4&times;</button>
+                </div>
+                <button class="btn" id="reset-btn" type="button" style="margin-top:8px;width:100%">Reset</button>
             </div>
-            <button class="btn" id="reset-btn" type="button" style="margin-top:8px;width:100%">Reset</button>
+            <div class="ctrl-block">
+                <label>Brush size <span class="hint" id="brush-hint">(left-drag to treat, right-drag to pan)</span></label>
+                <input type="range" id="brush-size" min="0" max="80" value="24" step="2">
+            </div>
         </div>
-        <div class="ctrl-block">
-            <label>Brush size <span class="hint" id="brush-hint">(left-drag to treat, right-drag to pan)</span></label>
-            <input type="range" id="brush-size" min="0" max="80" value="24" step="2">
-        </div>
-    </div>
 
-    <div class="panel" id="legend" style="display:none">
-        <div class="legend-title">Pavement condition (PCI)</div>
-        <div class="legend-bar"></div>
-        <div class="legend-labels"><span>worst</span><span>best</span></div>
-        <div class="gravel-key"><span class="gravel-swatch"></span>closed &rarr; gravel</div>
+        <div class="panel" id="legend" style="display:none">
+            <div class="legend-title">Pavement condition (PCI)</div>
+            <div class="legend-bar"></div>
+            <div class="legend-labels"><span>worst</span><span>best</span></div>
+            <div class="gravel-key"><span class="gravel-swatch"></span>closed &rarr; gravel</div>
+        </div>
     </div>
 
     <div class="panel" id="start-overlay">
