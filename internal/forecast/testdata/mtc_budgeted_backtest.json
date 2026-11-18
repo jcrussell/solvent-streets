@@ -1,0 +1,179 @@
+{
+ "_comment": "solvent-streets-ern4.29 budgeted backtest. pci_2019/pci_2024: MTC Pavement Condition Index (3-year moving average) per docs/validation.md section 2 sources. current_budget: the cited roads budget in examples/bay-area-ca (today's budget, applied to 2019-24). cohorts: city-maintained road classes and areas (m2) from the v0.5.0 release export's forecast_seed.json city_cohorts. Default cost tiers, overhead 1, 12-year cycle.",
+ "cities": [
+  {
+   "slug": "oakland-ca",
+   "pci_2019": 53,
+   "pci_2024": 58,
+   "current_budget": 60000000,
+   "growth_rate": 0.005,
+   "cohorts": [
+    {
+     "classification": "primary",
+     "area": 2874348
+    },
+    {
+     "classification": "residential",
+     "area": 6624604
+    },
+    {
+     "classification": "secondary",
+     "area": 1779753
+    },
+    {
+     "classification": "service",
+     "area": 2517066
+    },
+    {
+     "classification": "tertiary",
+     "area": 1149353
+    }
+   ]
+  },
+  {
+   "slug": "berkeley-ca",
+   "pci_2019": 57,
+   "pci_2024": 56,
+   "current_budget": 15000000,
+   "growth_rate": 0.005,
+   "cohorts": [
+    {
+     "classification": "primary",
+     "area": 242000
+    },
+    {
+     "classification": "residential",
+     "area": 2044676
+    },
+    {
+     "classification": "secondary",
+     "area": 218007
+    },
+    {
+     "classification": "service",
+     "area": 427499
+    },
+    {
+     "classification": "tertiary",
+     "area": 487136
+    }
+   ]
+  },
+  {
+   "slug": "hayward-ca",
+   "pci_2019": 70,
+   "pci_2024": 73,
+   "current_budget": 10063947,
+   "growth_rate": 0.005,
+   "cohorts": [
+    {
+     "classification": "primary",
+     "area": 547170
+    },
+    {
+     "classification": "residential",
+     "area": 3780358
+    },
+    {
+     "classification": "secondary",
+     "area": 675473
+    },
+    {
+     "classification": "service",
+     "area": 1907625
+    },
+    {
+     "classification": "tertiary",
+     "area": 563488
+    }
+   ]
+  },
+  {
+   "slug": "livermore-ca",
+   "pci_2019": 79,
+   "pci_2024": 75,
+   "current_budget": 4850000,
+   "growth_rate": 0.005,
+   "cohorts": [
+    {
+     "classification": "primary",
+     "area": 730724
+    },
+    {
+     "classification": "residential",
+     "area": 2810849
+    },
+    {
+     "classification": "secondary",
+     "area": 786532
+    },
+    {
+     "classification": "service",
+     "area": 1406502
+    },
+    {
+     "classification": "tertiary",
+     "area": 851294
+    }
+   ]
+  },
+  {
+   "slug": "pleasanton-ca",
+   "pci_2019": 79,
+   "pci_2024": 76,
+   "current_budget": 4800000,
+   "growth_rate": 0.005,
+   "cohorts": [
+    {
+     "classification": "primary",
+     "area": 573438
+    },
+    {
+     "classification": "residential",
+     "area": 2386641
+    },
+    {
+     "classification": "secondary",
+     "area": 716196
+    },
+    {
+     "classification": "service",
+     "area": 1242123
+    },
+    {
+     "classification": "tertiary",
+     "area": 619281
+    }
+   ]
+  },
+  {
+   "slug": "dublin-ca",
+   "pci_2019": 85,
+   "pci_2024": 78,
+   "current_budget": 3700000,
+   "growth_rate": 0.005,
+   "cohorts": [
+    {
+     "classification": "primary",
+     "area": 361747
+    },
+    {
+     "classification": "residential",
+     "area": 2060587
+    },
+    {
+     "classification": "secondary",
+     "area": 354853
+    },
+    {
+     "classification": "service",
+     "area": 765433
+    },
+    {
+     "classification": "tertiary",
+     "area": 282101
+    }
+   ]
+  }
+ ]
+}

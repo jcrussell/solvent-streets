@@ -6,7 +6,7 @@
 # the road network. The Compare tab ranks these neighbors against one another.
 #
 # Techniques demonstrated:
-#   - Climate-tuned decay_rate (0.035) for high heat / UV exposure.
+#   - Climate-tuned decay_rate (0.0245) for high heat / UV exposure.
 #   - growth_rate (0.015) models the fast-expanding network.
 #   - Per-city hex_edge_m overrides for the two largest cities.
 #   - min_hex_area scaled with hex area at both scopes: [display] for the
@@ -23,7 +23,7 @@ config_id = "inland-empire-ca"
 hex_edge_m = 125
 
 [forecast]
-decay_rate = 0.035
+decay_rate = 0.0245
 growth_rate = 0.015
 
 [display]

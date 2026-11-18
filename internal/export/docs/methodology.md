@@ -39,11 +39,13 @@ where `k` is an annual decay constant that depends on the road
 classification. Higher-class roads (motorway, trunk, primary) decay more
 slowly than lower-class roads (residential, service) because they are
 built to thicker, more rigorous design standards and typically receive
-more frequent maintenance. Default values are derived from LTPP data
-reported in **FHWA-RD-01-156, *Long-Term Pavement Performance***; they
-are continental-US
-averages and do not account for local climate, traffic, or
-construction quality. A config may set a per-city `decay_rate` to tune
+more frequent maintenance. The per-class ordering and spacing come from
+LTPP data reported in **FHWA-RD-01-156, *Long-Term Pavement
+Performance***; the level (0.7× that table: residential 0.028 a year, the
+aggregate road rate 0.0245) is fitted, with the strategy efficiencies, to
+six Bay Area cities' audited condition five years after running at their
+cited budgets (validation, §2). They are averages and do not account for
+local climate, traffic, or construction quality. A config may set a per-city `decay_rate` to tune
 for local conditions (e.g. freeze/thaw or road salt); that override is
 applied as the rate for a *typical* road and scales every road class
 proportionally, so the per-class ordering (higher classes decay slower)
@@ -162,8 +164,8 @@ responds smoothly to spend on both sides of that need:
   to all of it at full need, so a fully funded class holds its condition.
 - **Above need**, the extra money treats more pavement at the same cost,
   with diminishing returns. No surplus closes more than the strategy's
-  efficiency times 1/12 of the class's gap to PCI 100 in one year (1/10
-  under preventive-first, 1/15 under worst-first; the 1/12 is the default
+  efficiency times 1/12 of the class's gap to PCI 100 in one year (0.15
+  under preventive-first, 0.10 under worst-first; the 1/12 is the default
   cycle, whatever `treatment_cycle_years` says). A second need's worth gets
   about two-thirds of that ceiling, and three more needs' worth about 95%
   of it. Gains shrink as roads improve, and condition approaches 100 but
@@ -176,16 +178,17 @@ point. The hold-steady (break-even) budget below is that point.
 
 The budget is split across road classes in proportion to their need under
 every strategy. The **strategy** sets only how efficiently that money works:
-**worst-first** (0.8) buys less recovery per dollar than **preventive-first**
-(1.2), both below need and above it. The Financials tab's **Strategy**
+**worst-first** (1.2) buys less recovery per dollar than **preventive-first**
+(1.8), both below need and above it. The Financials tab's **Strategy**
 control switches the "Your budget" line between them; the reference runs and
-the Hold steady mark are always worst-first. Those multipliers are
-**illustrative calibration constants**
+the Hold steady mark are always worst-first. Their ratio is an
+**illustrative calibration constant**
 chosen to reflect the direction and sign of the effect reported in
 **FHWA-HIF-12-042, *Pavement Preservation: Preserving our Investment*** —
 that $1 of preventive maintenance is reported to avoid $6–$10 of future
 reconstruction — not to reproduce that benefit-cost ratio as a
-single-year spending efficiency.
+single-year spending efficiency. Their level is fitted with the decay rates
+(validation, §2).
 
 ### Area growth
 

@@ -11,7 +11,7 @@
 # its own auto-detected zone, so areas and distances stay accurate.
 #
 # Techniques demonstrated:
-#   - Traffic-tuned decay_rate (0.035) for heavy truck loading.
+#   - Traffic-tuned decay_rate (0.0245) for heavy truck loading.
 #   - Per-city hex_edge_m overrides for the two largest cities.
 #
 # Minimal config: every city runs on the top-level [forecast] defaults (no
@@ -25,7 +25,7 @@ config_id = "central-valley-ca"
 hex_edge_m = 125
 
 [forecast]
-decay_rate = 0.035
+decay_rate = 0.0245
 
 [export]
 title = "Central Valley Pavement Analysis"

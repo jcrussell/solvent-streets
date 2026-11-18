@@ -25,9 +25,9 @@ type backtestCity struct {
 // With 1/12 gating they should fall into a plausible hold-steady band.
 var backtestCities = []backtestCity{
 	// Berkeley: PCI ~56, ~$15M/yr budget, Berkeley PMP hold-steady $18.3M (validation §6).
-	{name: "berkeley", initialPCI: 56, decay: 0.045, areaSqM: 3_300_000, currentBudget: 15_000_000},
+	{name: "berkeley", initialPCI: 56, decay: 0.0315, areaSqM: 3_300_000, currentBudget: 15_000_000},
 	// Dublin: good condition (PCI ~78), small network, ~$3.7M/yr.
-	{name: "dublin", initialPCI: 78, decay: 0.035, areaSqM: 1_900_000, currentBudget: 3_700_000},
+	{name: "dublin", initialPCI: 78, decay: 0.0245, areaSqM: 1_900_000, currentBudget: 3_700_000},
 }
 
 // backtestYears is the fixtures' own horizon. It is fixed at 25 (what

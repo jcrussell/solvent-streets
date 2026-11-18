@@ -90,8 +90,8 @@ const (
 	// $5.6/m2-yr, and that cited figure is itself a loaded municipal number.
 	//
 	// Measured against the committed backtest fixtures:
-	//   overhead 1.0 -> Berkeley break_even $18.69M ($5.66/m2-yr) vs cited $18.3M
-	//   overhead 1.5 -> Berkeley break_even $28.04M ($8.50/m2-yr), +53% over
+	//   overhead 1.0 -> Berkeley break_even $18.12M ($5.49/m2-yr) vs cited $18.3M
+	//   overhead 1.5 -> Berkeley break_even $27.19M ($8.24/m2-yr), +49% over
 	// The second also breaks backtest_test.go's [$4.5, $6.5]/m2-yr calibration
 	// bracket. The overhead the tiers appear to be missing is already absorbed
 	// by the cycle and the spread; applying it again double-counts it.

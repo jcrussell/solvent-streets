@@ -251,15 +251,21 @@ func fundedFraction(r, eff float64) float64 {
 func strategyEfficiency(strategy Strategy) float64 {
 	switch strategy {
 	case StrategyPreventiveFirst:
-		// 1.2x: preventive maintenance yields better cost-effectiveness per
+		// 1.8: preventive maintenance yields better cost-effectiveness per
 		// FHWA-HIF-12-042 "Pavement Preservation" (Fig. 3) — every $1 of
-		// preventive work avoids $6-10 in future reconstruction.
-		return 1.2
+		// preventive work avoids $6-10 in future reconstruction. It stays
+		// 1.5x worst-first's efficiency, the ratio the original 1.2 / 0.8
+		// pair set.
+		return 1.8
 	case StrategyWorstFirst:
-		// 0.8x: worst-first reconstruction is less cost-effective per unit
-		// spend because it addresses pavement already past its economic
-		// service life (FHWA-HIF-12-042, Section 3.2).
-		return 0.8
+		// 1.2: worst-first reconstruction is less cost-effective per unit
+		// spend than preventive work because it addresses pavement already
+		// past its economic service life (FHWA-HIF-12-042, Section 3.2). The
+		// level, with the decay rates, is fitted to the budgeted MTC
+		// 2019-2024 backtest (TestBacktest_BudgetedFiveYears,
+		// solvent-streets-ern4.29); 0.8 ran every PCI 70-80 city 6-12 PCI
+		// low over five years.
+		return 1.2
 	case StrategyDoNothing:
 		// Spend is 0 for do-nothing scenarios; the efficiency is unused.
 	}

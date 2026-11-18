@@ -164,7 +164,7 @@ func TestDefaultDecayBlends(t *testing.T) {
 			t.Errorf("[%d] = %+v, want %+v", i, got[i], want[i])
 		}
 	}
-	if math.Abs(got[0].K-0.02875) > 1e-12 {
-		t.Errorf("two-class blend = %v, want 0.02875", got[0].K)
+	if math.Abs(got[0].K-0.020125) > 1e-12 {
+		t.Errorf("two-class blend = %v, want 0.020125", got[0].K)
 	}
 }

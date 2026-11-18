@@ -21,11 +21,11 @@ build by [`pvmt validate`](#7-what-is-gated-and-what-remains-open).
 |---|---|---|
 | Pavement area | Sound | 1.2–1.9× bare travel-lane area in all 8 cities, no outliers (§1) |
 | Decay form | Sound | the do-nothing curve is a clean lower bound on every city (§2) |
-| Decay rate | Not verifiable from public data | published PCI already includes maintenance (§2) |
+| Decay rate and strategy response | Fitted to five-year budgeted history | six cities at their cited budgets, 2019→2024: RMSE 4.7 PCI, from 7.2 before the fit (§2) |
 | Unit costs | Bare-construction level | they match contractor bids, and run ~2–3× below loaded municipal costs (§3) |
 | Condition spread | Partly corrected | pricing a single average understates cost ~32–37%; the default spread recovers much of it (§4) |
 | Treatment cycle | Matches published cadences | N = 12 sits inside the 10–14-year cycles cities report (§5) |
-| Break-even budget | Matches Berkeley | $19.3M against the cited $18.3M hold-steady, +5.7% (§6) |
+| Break-even budget | Matches Berkeley | $18.8M against the cited $18.3M hold-steady, +2.5% (§6) |
 
 The physical estimates hold up across all eight cities. The solvency dollars
 reproduce the one city with an independent hold-steady figure. They are
@@ -71,33 +71,66 @@ outlier, across an 8× range of network sizes.
 ## 2. Decay: form and rate
 
 The model is `PCI(t) = PCI₀·e^(−k·t)` per road class. The backtest uses the
-aggregate road rate, k = 0.035 (a residential street alone decays at 0.040). It
+aggregate road rate, k = 0.0245 (a residential street alone decays at 0.028). It
 sets each city's 2019 MTC PCI, runs the do-nothing forecast for five years, and
 compares the result with the audited 2024 value.
 
 | City | PCI 2019 | Predicted 2024 (do-nothing) | Audited 2024 | Residual | Implied real k |
 |---|---|---|---|---|---|
-| Oakland | 53 | 44.5 | 58 | −13.5 | −0.018 (improved) |
-| Berkeley | 57 | 47.8 | 56 | −8.2 | +0.004 |
-| Fremont | 73 | 61.3 | 71 | −9.7 | +0.006 |
-| Hayward | 70 | 58.8 | 73 | −14.2 | −0.008 (improved) |
-| Livermore | 79 | 66.3 | 75 | −8.7 | +0.010 |
-| San Leandro | 57 | 47.8 | 57 | −9.2 | ~0.000 |
-| Pleasanton | 79 | 66.3 | 76 | −9.7 | +0.008 |
-| Dublin | 85 | 71.4 | 78 | −6.6 | +0.017 |
+| Oakland | 53 | 46.9 | 58 | −11.1 | −0.018 (improved) |
+| Berkeley | 57 | 50.4 | 56 | −5.6 | +0.004 |
+| Fremont | 73 | 64.6 | 71 | −6.4 | +0.006 |
+| Hayward | 70 | 61.9 | 73 | −11.1 | −0.008 (improved) |
+| Livermore | 79 | 69.9 | 75 | −5.1 | +0.010 |
+| San Leandro | 57 | 50.4 | 57 | −6.6 | ~0.000 |
+| Pleasanton | 79 | 69.9 | 76 | −6.1 | +0.008 |
+| Dublin | 85 | 75.2 | 78 | −2.8 | +0.017 |
 
-Every city beat the do-nothing curve, by 7–14 PCI over five years. That is what
+Every city beat the do-nothing curve, by 3–11 PCI over five years. That is what
 the curve should do. It answers "what if spending stopped", while the audited
 series reflects the maintenance cities actually did. The **form** is therefore
 a sound lower bound.
 
-The **rate** cannot be checked from this data, for two reasons. MTC's PCI is a
-three-year moving average imputed by StreetSaver's own model. It also embeds
-maintenance: even Dublin, the one sustained decliner, decays at an effective
-k ≈ 0.017, because it still maintains its streets. Checking the rate needs raw
-field surveys over a documented low-spend period. Until then, this data gives
-no grounds to tune `decay_rate` per city: the observed rates are maintenance,
-not deterioration.
+The do-nothing curve alone cannot check the **rate**: MTC's PCI is a
+three-year moving average imputed by StreetSaver's own model, and it embeds
+maintenance. Even Dublin, the one sustained decliner, decays at an effective
+k ≈ 0.017, because it still maintains its streets. So the rate is checked
+together with the spend response instead, by running the budgeted forecast.
+
+### Budgeted backtest
+
+Six of the cities cite a roads budget. Each is run worst-first at that budget
+for five years from its 2019 PCI, as the dashboard's "Your budget" line runs
+it, on its city-maintained road classes from the release export
+(`internal/forecast/testdata/mtc_budgeted_backtest.json`, gated by
+`TestBacktest_BudgetedFiveYears`).
+
+| City | Budget | PCI 2019 | Predicted 2024, before the fit | Predicted 2024 | Audited 2024 | Residual |
+|---|---|---|---|---|---|---|
+| Oakland | $60.0M | 53 | 49.3 | 51.2 | 58 | −6.8 |
+| Berkeley | $15.0M | 57 | 54.7 | 56.0 | 56 | −0.0 |
+| Hayward | $10.1M | 70 | 61.0 | 65.1 | 73 | −7.9 |
+| Livermore | $4.85M | 79 | 68.4 | 73.1 | 75 | −1.9 |
+| Pleasanton | $4.8M | 79 | 69.1 | 73.7 | 76 | −2.3 |
+| Dublin | $3.7M | 85 | 77.9 | 81.8 | 78 | +3.8 |
+
+Before the fit the model ran every city at PCI 70–80 6–12 PCI low, so it
+overstated how fast a city's network falls on its current budget (RMSE 7.2).
+Two changes were fitted jointly, on a grid, to this table:
+
+- **Decay rates at 0.7× the LTPP-derived table** (residential 0.040 → 0.028,
+  the aggregate road rate 0.035 → 0.0245). The per-class ordering is kept, and
+  so is each example's `decay_rate` override relative to the default.
+- **Strategy efficiency 1.5× higher** (worst-first 0.8 → 1.2,
+  preventive-first 1.2 → 1.8), keeping their ratio.
+
+The fit's RMSE is 4.7. No setting does much better: the floor is about 4.0,
+because Oakland and Hayward *improved* on budgets the model reads as
+underfunded. Two things the data cannot separate account for most of that:
+today's budgets stand in for 2019–24 spending, which was larger in some
+cities, and MTC's three-year average smooths the 2024 value. A larger fit
+would only overfit Dublin. Break-even barely moves (§6), because it is set by
+the need, not by the response to spending below or above it.
 
 ## 3. Cost basis: bare construction vs. loaded program cost
 
@@ -128,8 +161,8 @@ loaded range.
 unit costs*. §6 compares *whole-program annual dollars*, which is what the site
 publishes. At that level the bare tiers, with the condition spread (§4) and
 the 12-year cycle (§5), already reproduce Berkeley's loaded hold-steady figure.
-Multiplying the tiers by 1.5 would put Berkeley's break-even at about $29M,
-59% above its published $18.3M. A city whose program costs genuinely run higher
+Multiplying the tiers by 1.5 would put Berkeley's break-even at about $28M,
+54% above its published $18.3M. A city whose program costs genuinely run higher
 has `cost_overhead` (see the
 [methodology](../internal/export/docs/methodology.md#bare-construction-cost-vs-loaded-program-cost)).
 
@@ -193,7 +226,7 @@ Its $18.3M hold-steady budget buys proportionally more, a cadence of
 14.1 × 15 / 18.3 ≈ 11.6 years, which is the model's N = 12. With the cycle
 fixed there, the cost level is no longer free:
 
-- Bare tiers with the §4 spread give **$5.66/m²·yr**, against Berkeley's cited
+- Bare tiers with the §4 spread give **$5.49/m²·yr**, against Berkeley's cited
   **$5.6**. Without the spread they give $4.7, so the spread is load-bearing.
 - Loaded tiers (~2.5×) would give ~$14, which only N ≈ 30 could match, and
   that contradicts the published cadence.
@@ -205,12 +238,12 @@ current model on the six cities with committed reference data (from
 
 | City | PCI | Break-even | $/m²·yr | Published hold-steady | Current budget | Funding gap |
 |---|---|---|---|---|---|---|
-| Berkeley | 56 | $19.3M | $5.66 | $18.3M (+5.7%) | $15.0M | +29% |
-| Oakland | 58 | $79.8M | $5.34 | — | $60.0M | +33% |
-| Hayward | 73 | $21.9M | $2.93 | — | $10.1M | +118% |
-| Dublin | 78 | $8.6M | $2.24 | — | $3.7M | +132% |
-| Pleasanton | 76 | $13.8M | $2.49 | — | $4.8M | +187% |
-| Livermore | 75 | $17.3M | $2.62 | — | $4.85M | +256% |
+| Berkeley | 56 | $18.8M | $5.49 | $18.3M (+2.5%) | $15.0M | +25% |
+| Oakland | 58 | $77.3M | $5.18 | — | $60.0M | +29% |
+| Hayward | 73 | $21.0M | $2.82 | — | $10.1M | +109% |
+| Dublin | 78 | $8.3M | $2.16 | — | $3.7M | +123% |
+| Pleasanton | 76 | $13.2M | $2.39 | — | $4.8M | +176% |
+| Livermore | 75 | $16.6M | $2.52 | — | $4.85M | +243% |
 
 The paved areas in that data match the §1 tool measurements to within 1%.
 San Leandro and Fremont publish no single citable annual budget, so they have
@@ -236,8 +269,9 @@ and $6.5.
 
 Two things remain open:
 
-- **Decay rate.** It needs raw field-survey PCI over a low-maintenance period
-  (§2).
+- **Decay rate.** It is fitted to six cities' five-year budgeted history
+  (§2), on today's budgets. Year-by-year budgets for 2019–24, or raw
+  field-survey PCI over a low-maintenance period, would test it properly.
 - **Real condition distribution.** Ingesting measured per-segment PCI would
   replace the assumed spread (§4), and would allow a calibration that rests on
   more than one city.
