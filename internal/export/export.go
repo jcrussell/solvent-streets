@@ -527,17 +527,7 @@ func resolvedConfig(cfg *config.Config, hexEdges map[string]float64) config.Conf
 	resolved.Export.CoordinateDecimals = cfg.CoordinateDecimals()
 	resolved.Export.BoundarySimplifyM = cfg.BoundarySimplifyM()
 	config.NormalizeForecast(&resolved.Forecast)
-	resolved.Forecast.DecayRate = forecast.ResolveDecayRate(resolved.Forecast.DecayRate)
-	if len(resolved.Forecast.CostTiers) == 0 {
-		for _, t := range forecast.DefaultCostTiers {
-			resolved.Forecast.CostTiers = append(resolved.Forecast.CostTiers, config.CostTierCfg{
-				MinPCI:     t.MinPCI,
-				MaxPCI:     t.MaxPCI,
-				CostPerSqM: t.CostPerSqM,
-				Label:      t.Label,
-			})
-		}
-	}
+	effectiveForecast(&resolved.Forecast)
 
 	// Per-city calibration: with [[include]] the top-level grid/forecast are
 	// empty and each city carries its own flattened hex_edge/forecast/tags
@@ -560,11 +550,38 @@ func resolvedConfig(cfg *config.Config, hexEdges map[string]float64) config.Conf
 			// fabricated `min_hex_area = 0.0` next to a top level showing the
 			// resolved default.
 			cities[i].MinHexArea = cfg.ResolvedMinHexArea(&cities[i])
+			effectiveForecast(&rf)
 			cities[i].Forecast = &rf
 		}
 		resolved.Cities = cities
 	}
 	return resolved
+}
+
+// effectiveForecast fills the forecast settings config leaves for the
+// forecast package to default (applyForecastDefaults) with the values the
+// forecast runs on, as the forecast seed resolves them (marshalForecastSeed):
+// the default decay rate, treatment cycle and cost tiers when unset. Without
+// it the Config tab, which says it shows defaults filled in, published
+// `decay_rate = 0.0` and `treatment_cycle_years = 0.0` and no cost tiers for
+// every city that left them to the defaults. growth_rate needs nothing: an
+// unset growth rate is a growth of 0, which is what it shows. fc's cost tiers
+// are replaced, not appended to, so a shared slice is never written.
+func effectiveForecast(fc *config.ForecastConfig) {
+	fc.DecayRate = forecast.ResolveDecayRate(fc.DecayRate)
+	fc.TreatmentCycleYears = forecast.ResolveCycleYears(fc.TreatmentCycleYears)
+	if len(fc.CostTiers) == 0 {
+		tiers := make([]config.CostTierCfg, 0, len(forecast.DefaultCostTiers))
+		for _, t := range forecast.DefaultCostTiers {
+			tiers = append(tiers, config.CostTierCfg{
+				MinPCI:     t.MinPCI,
+				MaxPCI:     t.MaxPCI,
+				CostPerSqM: t.CostPerSqM,
+				Label:      t.Label,
+			})
+		}
+		fc.CostTiers = tiers
+	}
 }
 
 // stripZeroCurrentBudget removes `current_budget = 0.0` lines from encoded

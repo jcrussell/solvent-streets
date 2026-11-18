@@ -10,8 +10,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BurntSushi/toml"
+
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/export/exporttest"
+	"github.com/jcrussell/solvent-streets/internal/forecast"
 )
 
 // The export's JSON artifacts are pinned here by contract, not by bytes
@@ -543,5 +546,50 @@ func TestNewTemplateData_MultiCityOmitsWholeConfig(t *testing.T) {
 	}
 	if one.RawTOML != "" || strings.Count(one.ResolvedTOML, "[[cities]]") != 1 || strings.Contains(one.ResolvedTOML, `"B, CA"`) {
 		t.Errorf("one city of a multi-city config shows other cities: raw %d bytes, resolved:\n%s", len(one.RawTOML), one.ResolvedTOML)
+	}
+}
+
+// TestCityResolvedTOML_ShowsEffectiveForecast pins the Config tab's "with
+// defaults filled in": a city that leaves the decay rate, treatment cycle
+// and cost tiers to the defaults shows the values the forecast runs on (as
+// the forecast seed resolves them), not decay_rate = 0.0,
+// treatment_cycle_years = 0.0 and no tiers. A configured value still shows
+// as configured, and so does an unset growth rate: a growth of 0.
+func TestCityResolvedTOML_ShowsEffectiveForecast(t *testing.T) {
+	tiers := []config.CostTierCfg{{MinPCI: 0, MaxPCI: 100, CostPerSqM: 9, Label: "all"}}
+	cfg := &config.Config{Cities: []config.CityConfig{
+		{Name: "Default City, CA"},
+		{Name: "Tuned City, CA", Forecast: &config.ForecastConfig{DecayRate: 0.05, TreatmentCycleYears: 20, CostTiers: tiers}},
+	}}
+	settings := func(city config.CityConfig) config.ForecastConfig {
+		t.Helper()
+		var view struct{ Cities []config.CityConfig }
+		if _, err := toml.Decode(CityResolvedTOML(cfg, city, 0), &view); err != nil {
+			t.Fatal(err)
+		}
+		if len(view.Cities) != 1 || view.Cities[0].Forecast == nil {
+			t.Fatalf("settings carry no forecast: %+v", view.Cities)
+		}
+		return *view.Cities[0].Forecast
+	}
+
+	def := settings(cfg.Cities[0])
+	if def.DecayRate != forecast.ResolveDecayRate(0) || def.TreatmentCycleYears != forecast.DefaultTreatmentCycleYears {
+		t.Errorf("default city shows decay_rate %g, treatment_cycle_years %g; want the defaults %g, %g",
+			def.DecayRate, def.TreatmentCycleYears, forecast.ResolveDecayRate(0), forecast.DefaultTreatmentCycleYears)
+	}
+	if len(def.CostTiers) != len(forecast.DefaultCostTiers) || def.CostTiers[0].CostPerSqM != forecast.DefaultCostTiers[0].CostPerSqM {
+		t.Errorf("default city shows cost tiers %+v; want the %d default tiers", def.CostTiers, len(forecast.DefaultCostTiers))
+	}
+	if def.GrowthRate != 0 {
+		t.Errorf("default city shows growth_rate %g; want 0", def.GrowthRate)
+	}
+
+	tuned := settings(cfg.Cities[1])
+	if tuned.DecayRate != 0.05 || tuned.TreatmentCycleYears != 20 || len(tuned.CostTiers) != 1 || tuned.CostTiers[0].CostPerSqM != 9 {
+		t.Errorf("tuned city shows %+v; want its configured decay 0.05, cycle 20 and one tier", tuned)
+	}
+	if cfg.Cities[0].Forecast != nil || cfg.Forecast.CostTiers != nil || cfg.Forecast.DecayRate != 0 {
+		t.Error("resolving the Config tab wrote defaults into the live config")
 	}
 }
