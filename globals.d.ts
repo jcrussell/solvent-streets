@@ -75,6 +75,7 @@ interface PvmtSelectorsAPI {
   filterCities<T extends { tags?: string[] }>(cities: T[], selected: Record<string, string>): T[];
   readFilters(root?: ParentNode): Record<string, string>;
   writeFilters(selected: Record<string, string>, root?: ParentNode): void;
+  narrowFilters(cities: PvmtCity[], selected: Record<string, string>, root?: ParentNode): void;
   sameFilters(a: Record<string, string>, b: Record<string, string>): boolean;
   rebuildCitySelect(sel: HTMLSelectElement, cities: PvmtCity[], dims: PvmtTagDimension[] | undefined, selected: Record<string, string>, prefer?: string): string;
 }

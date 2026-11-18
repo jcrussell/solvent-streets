@@ -107,6 +107,52 @@ test('rebuildCitySelect keeps a surviving selection, else falls to the first vis
   assert.equal(sel.options[0].textContent, 'No cities match');
 });
 
+// Each filter offers only the values still reachable given the others
+// (solvent-streets-ern4.36): after "Bay Area", the state filter has no TX.
+test('the tag filters narrow each other as the city select is rebuilt', () => {
+  const html = `<body><select id="city-select"></select>
+    <select class="tag-filter" data-dim="group"><option value="">Any</option><option value="Bay Area">Bay Area</option><option value="Top 50">Top 50</option></select>
+    <select class="tag-filter" data-dim="state"><option value="">Any</option><option value="state:CA">CA</option><option value="state:TX">TX</option></select>
+  </body>`;
+  const { S, doc } = loadSelectors(html);
+  const sel = doc.getElementById('city-select');
+  const offered = (dim) => Array.from(doc.querySelectorAll(`select.tag-filter[data-dim="${dim}"] option`))
+    .filter((o) => !o.disabled && !o.hidden).map((o) => o.value);
+
+  S.rebuildCitySelect(sel, cities, dims, {});
+  assert.deepEqual(offered('group'), ['', 'Bay Area', 'Top 50'], 'no selection: every value is reachable');
+  assert.deepEqual(offered('state'), ['', 'state:CA', 'state:TX']);
+
+  S.writeFilters({ group: 'Bay Area' }, doc);
+  S.rebuildCitySelect(sel, cities, dims, { group: 'Bay Area' });
+  assert.deepEqual(offered('state'), ['', 'state:CA'], 'no Bay Area city is in TX');
+  assert.deepEqual(offered('group'), ['', 'Bay Area', 'Top 50'], 'a filter is not narrowed by its own selection');
+
+  S.writeFilters({ state: 'state:TX' }, doc);
+  S.rebuildCitySelect(sel, cities, dims, { state: 'state:TX' });
+  assert.deepEqual(offered('group'), ['', 'Top 50'], 'the reverse direction narrows too');
+  assert.deepEqual(offered('state'), ['', 'state:CA', 'state:TX']);
+
+  // A link combining filters no city satisfies still shows both selections.
+  S.writeFilters({ group: 'Bay Area', state: 'state:TX' }, doc);
+  S.rebuildCitySelect(sel, cities, dims, { group: 'Bay Area', state: 'state:TX' });
+  assert.equal(doc.querySelector('select.tag-filter[data-dim="state"]').value, 'state:TX');
+  assert.ok(offered('state').includes('state:TX'), 'the selected value is never disabled');
+});
+
+test('parseTags warns about each ?tag= it ignores', () => {
+  const { S, win } = loadSelectors();
+  const warnings = [];
+  win.console.warn = (msg) => warnings.push(String(msg));
+  const one = dims.concat([{ name: 'metro', label: 'Metro', values: [{ tag: 'metro:X', label: 'X' }] }]);
+  const p = new URLSearchParams('tag=Bay%20Area&tag=state:ZZ&tag=metro:X&tag=state:CA');
+  assert.deepEqual(plain(S.parseTags(p, one)), { state: 'state:CA' });
+  assert.equal(warnings.length, 3, warnings.join('\n'));
+  assert.match(warnings[0], /\?tag=Bay Area: expected dimension:value, e\.g\. \?tag=group:Bay Area/);
+  assert.match(warnings[1], /\?tag=state:ZZ: no city carries that tag/);
+  assert.match(warnings[2], /\?tag=metro:X: every city shares it/);
+});
+
 test('readFilters/writeFilters round-trip through .tag-filter selects', () => {
   const html = `<body>
     <select class="tag-filter" data-dim="group"><option value="">Any</option><option value="Bay Area">Bay Area</option></select>

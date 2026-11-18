@@ -36,8 +36,9 @@ window.PvmtSelectors = (function () {
      * parseTags reads every ?tag= param into a {dim: configTag} map, keeping
      * only "dim:value" values that exist in dims — an unknown or unprefixed
      * value is ignored rather than filtering every city away, and so is a
-     * dimension with a single value (it renders no filter control). Later
-     * params win within a dimension.
+     * dimension with a single value (it renders no filter control). Each
+     * ignored value is logged as a console warning, so a mistyped link is
+     * not dropped silently. Later params win within a dimension.
      * @param {URLSearchParams} params
      * @param {PvmtTagDimension[] | undefined} dims
      * @returns {Record<string, string>}
@@ -46,16 +47,26 @@ window.PvmtSelectors = (function () {
         /** @type {Record<string, string>} */
         const out = {};
         params.getAll('tag').forEach(function (want) {
-            if (want.indexOf(':') === -1) return;
+            if (want.indexOf(':') === -1) {
+                console.warn('Ignoring ?tag=' + want + ': expected dimension:value, e.g. ?tag=' + normalizeTag(want));
+                return;
+            }
+            let known = false;
             (dims || []).forEach(function (d) {
-                // A dimension with one value renders no (visible) filter, so a
-                // tag in it could never be cleared: ignore it rather than apply
-                // a filter the user cannot see.
-                if (d.values.length < 2) return;
                 d.values.forEach(function (v) {
-                    if (normalizeTag(v.tag) === want) out[d.name] = v.tag;
+                    if (normalizeTag(v.tag) !== want) return;
+                    known = true;
+                    // A dimension with one value renders no (visible) filter,
+                    // so a tag in it could never be cleared: ignore it rather
+                    // than apply a filter the user cannot see.
+                    if (d.values.length < 2) {
+                        console.warn('Ignoring ?tag=' + want + ': every city shares it, so it filters nothing');
+                        return;
+                    }
+                    out[d.name] = v.tag;
                 });
             });
+            if (!known) console.warn('Ignoring ?tag=' + want + ': no city carries that tag');
         });
         return out;
     }
@@ -131,6 +142,38 @@ window.PvmtSelectors = (function () {
     }
 
     /**
+     * narrowFilters limits each .tag-filter select under root to the values
+     * still reachable given the OTHER filters' selections: an option no
+     * remaining city carries is disabled and hidden, so picking a state after
+     * a group offers only that group's states (and the reverse). The
+     * selected value itself is never disabled, so a URL that combined two
+     * filters no city satisfies still shows what it asked for.
+     * @param {PvmtCity[]} cities
+     * @param {Record<string, string>} selected
+     * @param {ParentNode} [root]
+     */
+    function narrowFilters(cities, selected, root) {
+        Array.from((root || document).querySelectorAll('select.tag-filter')).forEach(function (el) {
+            const sel = /** @type {HTMLSelectElement} */ (el);
+            const dim = sel.dataset.dim || '';
+            /** @type {Record<string, string>} */
+            const others = {};
+            Object.keys(selected).forEach(function (k) { if (k !== dim && selected[k]) others[k] = selected[k]; });
+            /** @type {Set<string>} */
+            const reachable = new Set();
+            filterCities(cities, others).forEach(function (c) {
+                (c.tags || []).forEach(function (t) { reachable.add(normalizeTag(t)); });
+            });
+            Array.from(sel.options).forEach(function (o) {
+                if (!o.value) return; // "Any ..." always stays
+                const off = !reachable.has(normalizeTag(o.value)) && o.value !== sel.value;
+                o.disabled = off;
+                o.hidden = off;
+            });
+        });
+    }
+
+    /**
      * sameFilters compares two selected-filter maps by normalized value.
      * @param {Record<string, string>} a
      * @param {Record<string, string>} b
@@ -159,8 +202,10 @@ window.PvmtSelectors = (function () {
      * the one the selector lands on carries `selected`. The previous selection
      * (or `prefer`) is kept when it survives the filter, otherwise the first
      * visible city is selected; with no match the select holds one disabled
-     * "No cities match" option. Returns the selected slug, or '' when nothing
-     * matches.
+     * "No cities match" option. The tag filters in the same document are
+     * narrowed to the values still reachable (narrowFilters), so both pages
+     * get it from the one rebuild. Returns the selected slug, or '' when
+     * nothing matches.
      * @param {HTMLSelectElement} sel
      * @param {PvmtCity[]} cities
      * @param {PvmtTagDimension[] | undefined} dims
@@ -172,6 +217,7 @@ window.PvmtSelectors = (function () {
         const prev = prefer || sel.value;
         const visible = filterCities(cities, selected);
         const doc = sel.ownerDocument;
+        narrowFilters(cities, selected, doc);
         sel.textContent = '';
         if (visible.length === 0) {
             const o = doc.createElement('option');
@@ -225,6 +271,7 @@ window.PvmtSelectors = (function () {
         filterCities: filterCities,
         readFilters: readFilters,
         writeFilters: writeFilters,
+        narrowFilters: narrowFilters,
         sameFilters: sameFilters,
         rebuildCitySelect: rebuildCitySelect,
     };
