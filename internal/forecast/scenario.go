@@ -196,13 +196,15 @@ const surplusGapYears = DefaultTreatmentCycleYears
 //
 //   - spend <= need recovers fundedFraction(spend/need) of the year's decay,
 //     from 0 (decays like doing nothing) to 1 (holds at the current PCI). The
-//     strategy's efficiency bends the curve between the ends, so a worst-first
-//     program buys less recovery per partial dollar than a preventive-first
-//     one, without changing what full funding means.
+//     strategy's partial-funding efficiency (partialEfficiency) bends the
+//     curve between the ends, so a worst-first program buys less recovery per
+//     partial dollar than a preventive-first one, without changing what full
+//     funding means.
 //   - spend > need buys treatment of extra area at the same tier cost, with
 //     diminishing returns: the surplus closes
-//     (eff/surplusGapYears) * (1 - exp(-surplus/need)) of the gap to maxPCI.
-//     A small surplus closes about eff*(surplus/need)/12 of it, as treating
+//     (eff/surplusGapYears) * (1 - exp(-surplus/need)) of the gap to maxPCI,
+//     eff being the strategy's surplus efficiency (surplusEfficiency). A
+//     small surplus closes about eff*(surplus/need)/12 of it, as treating
 //     that much more area would; no surplus closes more than eff/12 of the
 //     gap in one year, so condition approaches maxPCI but never reaches it.
 //     Surplus beyond surplusSaturationNeeds needs buys almost nothing and is
@@ -218,9 +220,8 @@ func applyCohortSpend(st *cohortState, decayedPCI, spend, need float64, strategy
 		st.currentPCI = decayedPCI
 		return 0
 	}
-	eff := strategyEfficiency(strategy)
 	if spend <= need {
-		recovery := (st.currentPCI - decayedPCI) * fundedFraction(spend/need, eff)
+		recovery := (st.currentPCI - decayedPCI) * fundedFraction(spend/need, partialEfficiency(strategy))
 		st.currentPCI = math.Min(maxPCI, decayedPCI+recovery)
 		return spend
 	}
@@ -230,7 +231,7 @@ func applyCohortSpend(st *cohortState, decayedPCI, spend, need float64, strategy
 		return need
 	}
 	usable := math.Min(spend-need, need*surplusSaturationNeeds)
-	treated := eff / surplusGapYears * -math.Expm1(-usable/need)
+	treated := surplusEfficiency(strategy) / surplusGapYears * -math.Expm1(-usable/need)
 	st.currentPCI = math.Min(maxPCI, st.currentPCI+gap*treated)
 	return need + usable
 }
@@ -251,27 +252,47 @@ func fundedFraction(r, eff float64) float64 {
 	return math.Pow(r, 1/eff)
 }
 
-// strategyEfficiency is the cost-effectiveness multiplier of a strategy.
-func strategyEfficiency(strategy Strategy) float64 {
+// partialEfficiency is a strategy's efficiency below need: how much of a
+// year's decay a partial budget recovers (fundedFraction). It is fitted to the
+// budgeted MTC 2019-2024 backtest, in which every city runs below need
+// (TestBacktest_BudgetedFiveYears, solvent-streets-ern4.29). The surplus
+// response keeps its own, smaller multipliers (surplusEfficiency): the
+// backtest says nothing about spending above need, and at these levels a 10%
+// surplus would drive a network to PCI ~100 within 20 years.
+func partialEfficiency(strategy Strategy) float64 {
 	switch strategy {
 	case StrategyPreventiveFirst:
-		// 1.8: preventive maintenance yields better cost-effectiveness per
+		// Preventive maintenance yields better cost-effectiveness per
 		// FHWA-HIF-12-042 "Pavement Preservation" (Fig. 3) — every $1 of
-		// preventive work avoids $6-10 in future reconstruction. It stays
-		// 1.5x worst-first's efficiency, the ratio the original 1.2 / 0.8
-		// pair set.
-		return 1.8
+		// preventive work avoids $6-10 in future reconstruction. 1.5x
+		// worst-first's efficiency, the ratio that source motivates.
+		return 4.5
 	case StrategyWorstFirst:
-		// 1.2: worst-first reconstruction is less cost-effective per unit
-		// spend than preventive work because it addresses pavement already
-		// past its economic service life (FHWA-HIF-12-042, Section 3.2). The
-		// level, with the decay rates, is fitted to the budgeted MTC
-		// 2019-2024 backtest (TestBacktest_BudgetedFiveYears,
-		// solvent-streets-ern4.29); 0.8 ran every PCI 70-80 city 6-12 PCI
-		// low over five years.
-		return 1.2
+		// Worst-first reconstruction is less cost-effective per unit spend
+		// than preventive work because it addresses pavement already past its
+		// economic service life (FHWA-HIF-12-042, Section 3.2). The level is
+		// set by the budgeted MTC 2019-2024 backtest at the LTPP decay rates
+		// (TestBacktest_BudgetedFiveYears, solvent-streets-ern4.29): the
+		// backtest constrains decay and efficiency only together, and the
+		// cited decay rates are kept.
+		return 3.0
 	case StrategyDoNothing:
 		// Spend is 0 for do-nothing scenarios; the efficiency is unused.
+	}
+	return 1.0
+}
+
+// surplusEfficiency is a strategy's efficiency above need, scaling how much
+// of the gap to maxPCI a surplus closes. Worst-first 0.8 and preventive-first
+// 1.2 reflect the direction of FHWA-HIF-12-042's preservation benefit
+// (Section 3.2, Fig. 3), the same 1.5x ratio partialEfficiency keeps.
+func surplusEfficiency(strategy Strategy) float64 {
+	switch strategy {
+	case StrategyPreventiveFirst:
+		return 1.2
+	case StrategyWorstFirst:
+		return 0.8
+	case StrategyDoNothing:
 	}
 	return 1.0
 }

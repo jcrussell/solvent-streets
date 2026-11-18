@@ -195,8 +195,8 @@ func TestRunMultiCity_FailureLeavesRecoverableDir(t *testing.T) {
 // Fixture road decay rates: roadEntry gives its road hexes alternating
 // default-rate blends, so a board built from it is not one uniform k.
 const (
-	fixtureArterialK0 = 0.0175
-	fixtureLocalK0    = 0.028
+	fixtureArterialK0 = 0.025
+	fixtureLocalK0    = 0.04
 )
 
 // roadEntry augments an exportTestEntry with per-hex results on the city's own

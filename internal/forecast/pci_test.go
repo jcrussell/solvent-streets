@@ -18,46 +18,46 @@ func TestClassTable(t *testing.T) {
 		rate  float64
 	}{
 		// The highway classes that are their own cohort.
-		{"motorway", "motorway", 0.0105},
-		{"trunk", "trunk", 0.014},
-		{"primary", "primary", 0.0175},
-		{"secondary", "secondary", 0.021},
-		{"tertiary", "tertiary", 0.0245},
-		{"residential", "residential", 0.028},
-		{"service", "service", 0.0315},
+		{"motorway", "motorway", 0.015},
+		{"trunk", "trunk", 0.020},
+		{"primary", "primary", 0.025},
+		{"secondary", "secondary", 0.030},
+		{"tertiary", "tertiary", 0.035},
+		{"residential", "residential", 0.040},
+		{"service", "service", 0.045},
 
 		// Link ramps take their parent's class and rate.
-		{"motorway_link", "motorway", 0.0105},
-		{"trunk_link", "trunk", 0.014},
-		{"primary_link", "primary", 0.0175},
-		{"secondary_link", "secondary", 0.021},
-		{"tertiary_link", "tertiary", 0.0245},
-		{"residential_link", "residential", 0.028},
-		{"service_link", "service", 0.0315},
+		{"motorway_link", "motorway", 0.015},
+		{"trunk_link", "trunk", 0.020},
+		{"primary_link", "primary", 0.025},
+		{"secondary_link", "secondary", 0.030},
+		{"tertiary_link", "tertiary", 0.035},
+		{"residential_link", "residential", 0.040},
+		{"service_link", "service", 0.045},
 
 		// Every other highway value is a residential cohort; its rate, asked
 		// of the raw tag, is the default.
-		{"living_street", "residential", 0.0245},
-		{"unclassified", "residential", 0.0245},
-		{"track", "residential", 0.0245},
-		{"footway", "residential", 0.0245},
-		{"unknown", "residential", 0.0245},
-		{"", "residential", 0.0245},
-		{"_link", "residential", 0.0245},
-		{"Motorway", "residential", 0.0245},
+		{"living_street", "residential", 0.035},
+		{"unclassified", "residential", 0.035},
+		{"track", "residential", 0.035},
+		{"footway", "residential", 0.035},
+		{"unknown", "residential", 0.035},
+		{"", "residential", 0.035},
+		{"_link", "residential", 0.035},
+		{"Motorway", "residential", 0.035},
 
 		// Only one _link suffix is stripped.
-		{"motorway_link_link", "residential", 0.0245},
+		{"motorway_link_link", "residential", 0.035},
 
 		// The non-highway keys of the rate table are not cohort classes:
 		// they keep their rate and normalize to residential.
-		{"roads", "residential", 0.0245},
-		{"roads_link", "residential", 0.0245},
-		{"sidewalks", "residential", 0.0175},
-		{"sidewalks_link", "residential", 0.0175},
-		{"default", "residential", 0.0245},
-		{"default_link", "residential", 0.0245},
-		{"parking", "residential", 0.0245},
+		{"roads", "residential", 0.035},
+		{"roads_link", "residential", 0.035},
+		{"sidewalks", "residential", 0.025},
+		{"sidewalks_link", "residential", 0.025},
+		{"default", "residential", 0.035},
+		{"default_link", "residential", 0.035},
+		{"parking", "residential", 0.035},
 	}
 	for _, tc := range cases {
 		if got := NormalizeClass(tc.in); got != tc.class {
@@ -73,16 +73,16 @@ func TestClassTable(t *testing.T) {
 // rest of the package reads off them.
 func TestDecayTables(t *testing.T) {
 	wantRoad := map[string]float64{
-		"motorway":    0.0105,
-		"trunk":       0.014,
-		"primary":     0.0175,
-		"secondary":   0.021,
-		"tertiary":    0.0245,
-		"residential": 0.028,
-		"service":     0.0315,
-		"roads":       0.0245,
+		"motorway":    0.015,
+		"trunk":       0.020,
+		"primary":     0.025,
+		"secondary":   0.030,
+		"tertiary":    0.035,
+		"residential": 0.040,
+		"service":     0.045,
+		"roads":       0.035,
 	}
-	wantAll := map[string]float64{"sidewalks": 0.0175, "default": 0.0245}
+	wantAll := map[string]float64{"sidewalks": 0.025, "default": 0.035}
 	maps.Copy(wantAll, wantRoad)
 	for name, tbl := range map[string]struct{ got, want map[string]float64 }{
 		"RoadDecayRates":    {RoadDecayRates, wantRoad},
@@ -98,11 +98,11 @@ func TestDecayTables(t *testing.T) {
 		}
 	}
 
-	if got := ResolveDecayRate(0); got != 0.0245 {
-		t.Errorf("ResolveDecayRate(0) = %v, want 0.0245", got)
+	if got := ResolveDecayRate(0); got != 0.035 {
+		t.Errorf("ResolveDecayRate(0) = %v, want 0.035", got)
 	}
-	if roadDecayAnchor != 0.0245 {
-		t.Errorf("roadDecayAnchor = %v, want 0.0245", roadDecayAnchor)
+	if roadDecayAnchor != 0.035 {
+		t.Errorf("roadDecayAnchor = %v, want 0.035", roadDecayAnchor)
 	}
 	// A cohort class is a road class, and a road class is one NormalizeClass
 	// keeps or the aggregate "roads".

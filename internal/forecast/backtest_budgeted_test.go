@@ -27,14 +27,14 @@ type budgetedBacktest struct {
 // TestBacktest_BudgetedFiveYears runs each city worst-first at its cited
 // budget for five years from its 2019 PCI, as the dashboard's "Your budget"
 // line would, and compares the result with the audited 2024 PCI
-// (docs/validation.md, "Budgeted backtest"). The decay rates and strategy
-// efficiencies were fitted to this set: before the fit the model ran 6-12
-// PCI low for every city at PCI 70-80 (RMSE 7.2).
+// (docs/validation.md, "Budgeted backtest"). partialEfficiency is set by this
+// set at the cited LTPP decay rates, so the gate is in-sample: it catches a
+// change to the partial-funding response, not an independent validation.
 //
 // The tolerance is loose on purpose. Today's budgets stand in for 2019-24
 // spending and MTC's PCI is a three-year average, so Oakland and Hayward,
-// which improved on budgets the model reads as underfunded, stay 7-8 PCI low
-// under any setting (the fit's floor is an RMSE of about 4).
+// which improved on budgets the model reads as underfunded, stay about 6 PCI
+// low under any setting.
 func TestBacktest_BudgetedFiveYears(t *testing.T) {
 	raw, err := os.ReadFile("testdata/mtc_budgeted_backtest.json")
 	if err != nil {
@@ -62,8 +62,8 @@ func TestBacktest_BudgetedFiveYears(t *testing.T) {
 		t.Logf("%-14s 2019 %2.0f -> %5.1f (do-nothing %5.1f), audited %2.0f, residual %+5.1f", c.Slug, c.PCI2019, got, gotDN, c.PCI2024, resid)
 		sse += resid * resid
 		bias += resid
-		if math.Abs(resid) > 9 {
-			t.Errorf("%s: predicted %.1f vs audited %.0f, off by more than 9 PCI", c.Slug, got, c.PCI2024)
+		if math.Abs(resid) > 7.5 {
+			t.Errorf("%s: predicted %.1f vs audited %.0f, off by more than 7.5 PCI", c.Slug, got, c.PCI2024)
 		}
 		// Do-nothing stays a lower bound on what a maintained network does
 		// (validation.md section 2).
@@ -74,7 +74,7 @@ func TestBacktest_BudgetedFiveYears(t *testing.T) {
 	n := float64(len(bt.Cities))
 	rmse := math.Sqrt(sse / n)
 	t.Logf("RMSE %.2f, mean residual %+.2f", rmse, bias/n)
-	if rmse > 5 {
-		t.Errorf("RMSE %.2f, want at most 5 (the fitted model gives about 4.7)", rmse)
+	if rmse > 4.5 {
+		t.Errorf("RMSE %.2f, want at most 4.5 (the shipped response gives about 4.2)", rmse)
 	}
 }

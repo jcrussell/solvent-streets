@@ -5,7 +5,7 @@
 # growth expands the road network year over year (positive growth_rate).
 #
 # Techniques demonstrated:
-#   - Climate-tuned decay_rate (0.042) for freeze/thaw.
+#   - Climate-tuned decay_rate (0.06) for freeze/thaw.
 #   - growth_rate (0.015) models an expanding network in the forecast.
 #   - boundary_relation_id for Denver, whose admin boundary Nominatim
 #     returns only as a place=city node (see the [[cities]] note below).
@@ -18,7 +18,7 @@ config_id = "denver-metro-co"
 hex_edge_m = 100
 
 [forecast]
-decay_rate = 0.042
+decay_rate = 0.06
 growth_rate = 0.015
 
 [export]

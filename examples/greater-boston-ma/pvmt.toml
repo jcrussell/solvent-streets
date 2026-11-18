@@ -7,7 +7,7 @@
 # a finer hex grid for higher-resolution analysis.
 #
 # Techniques demonstrated:
-#   - Climate-tuned decay_rate (0.0455) for salt + freeze/thaw.
+#   - Climate-tuned decay_rate (0.065) for salt + freeze/thaw.
 #   - Custom three-tier forecast cost schedule.
 #   - Per-city hex_edge_m overrides (60 m for compact Cambridge/Somerville),
 #     each with a min_hex_area scaled to match.
@@ -20,7 +20,7 @@ config_id = "greater-boston-ma"
 hex_edge_m = 100
 
 [forecast]
-decay_rate = 0.0455
+decay_rate = 0.065
 
 [export]
 title = "Greater Boston Pavement Analysis"

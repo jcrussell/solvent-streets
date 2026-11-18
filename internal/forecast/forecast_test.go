@@ -156,8 +156,8 @@ func TestLinearGrowthEstimator_NegativeRateFlooredAtZero(t *testing.T) {
 // the default rate. The literal mirrors resource.TypeSidewalks, which cannot be
 // imported here (resource imports forecast).
 func TestDecayRateForClass_Sidewalks(t *testing.T) {
-	if got := DecayRateForClass("sidewalks"); got != 0.0175 {
-		t.Errorf("DecayRateForClass(\"sidewalks\") = %f, want 0.0175", got)
+	if got := DecayRateForClass("sidewalks"); got != 0.025 {
+		t.Errorf("DecayRateForClass(\"sidewalks\") = %f, want 0.025", got)
 	}
 }
 

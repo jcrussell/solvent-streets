@@ -101,8 +101,7 @@ type Report struct {
 // DefaultTolerance is the residual band a gated city must land in.
 //
 // ±25% is deliberately loose. The model is calibrated on ONE city (§6's Limit),
-// its decay rates are fitted to six cities' five-year budgeted history on
-// today's budgets (§2), and
+// its decay rates are not independently identifiable from public data (§2), and
 // the condition spread is assumed rather than measured (§4). A tight band would
 // encode false confidence and would fail on noise; this catches the thing the
 // gate is actually for — a cost-regime or cycle change that moves the dollars by

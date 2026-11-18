@@ -11,25 +11,22 @@ const ClassResidential = "residential"
 // defaultDecayRate is the decay rate of pavement with no class of its own: the
 // fallback for an unknown class, and the rate of the aggregate "roads" type.
 // Units: per year.
-const defaultDecayRate = 0.0245
+const defaultDecayRate = 0.035
 
 // highwayDecayRates holds the decay rate of each highway class that is its own
 // cohort. Its keys are the classes NormalizeClass keeps.
 // Higher k = faster decay. Units: per year.
-// The ordering and spacing come from FHWA-RD-01-156 "Long-Term Pavement
-// Performance" data: higher-class roads (motorway, trunk) decay slower due to
-// thicker pavement sections and more rigorous design standards. The level is
-// 0.7x the LTPP-derived table (motorway 0.015 ... service 0.045), fitted with
-// the strategy efficiencies to the budgeted MTC 2019-2024 backtest
-// (TestBacktest_BudgetedFiveYears, solvent-streets-ern4.29).
+// Derived from FHWA-RD-01-156 "Long-Term Pavement Performance" data:
+// higher-class roads (motorway, trunk) decay slower due to thicker pavement
+// sections and more rigorous design standards.
 var highwayDecayRates = map[string]float64{
-	"motorway":       0.0105,
-	"trunk":          0.014,
-	"primary":        0.0175,
-	"secondary":      0.021,
-	"tertiary":       0.0245,
-	ClassResidential: 0.028,
-	"service":        0.0315,
+	"motorway":       0.015,
+	"trunk":          0.020,
+	"primary":        0.025,
+	"secondary":      0.030,
+	"tertiary":       0.035,
+	ClassResidential: 0.040,
+	"service":        0.045,
 }
 
 // RoadDecayRates holds the decay rates of the road types: every highway class
@@ -43,7 +40,7 @@ var RoadDecayRates = func() map[string]float64 {
 // DefaultDecayRates is the full lookup table (roads + non-road + fallback).
 var DefaultDecayRates = func() map[string]float64 {
 	m := maps.Clone(RoadDecayRates)
-	m["sidewalks"] = 0.0175 // 0.7x like the road table; key must match resource.TypeSidewalks ("sidewalks")
+	m["sidewalks"] = 0.025 // key must match resource.TypeSidewalks ("sidewalks")
 	m["default"] = defaultDecayRate
 	return m
 }()

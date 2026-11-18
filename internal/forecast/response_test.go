@@ -103,7 +103,7 @@ func TestSimulate_NoCliffAboveNeed(t *testing.T) {
 // surplus reached 12/eff needs, then hold it at 100 for the rest of the run.
 func TestApplyCohortSpend_SurplusNeverReaches100(t *testing.T) {
 	for _, s := range []Strategy{StrategyWorstFirst, StrategyPreventiveFirst} {
-		eff := strategyEfficiency(s)
+		eff := surplusEfficiency(s)
 		for _, mult := range []float64{10, 40, 1000, 1e9} {
 			st := cohortState{currentPCI: 75}
 			spent := applyCohortSpend(&st, 72, mult*testNeed, testNeed, s)

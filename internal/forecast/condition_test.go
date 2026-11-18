@@ -114,13 +114,9 @@ func TestConditionSpreadCalibration(t *testing.T) {
 			t.Errorf("uplift(mu=%g) = %.1f%%, want in [%.0f%%,%.0f%%]", tc.mu, u*100, tc.lo*100, tc.hi*100)
 		}
 	}
-	// High-μ guard: bounded, not a Gaussian-style explosion. Near PCI 85 the
-	// unspread network sits in the cheapest tier, so the ratio is taken over a
-	// small base: about 80% at the LTPP-level decay rates and 100% at the
-	// fitted 0.7x rates (solvent-streets-ern4.29), whose slower first year
-	// leaves the base further inside the preventive band.
-	if u := uplift(85); u <= 0 || u >= 1.5 {
-		t.Errorf("uplift(mu=85) = %.1f%%, want bounded (0,150%%)", u*100)
+	// High-μ guard: bounded, not a Gaussian-style >100% explosion.
+	if u := uplift(85); u <= 0 || u >= 1.0 {
+		t.Errorf("uplift(mu=85) = %.1f%%, want bounded (0,100%%)", u*100)
 	}
 	// Direction: spreading must never reduce cost (Jensen).
 	if u := uplift(60); u <= 0 {
