@@ -46,12 +46,12 @@ const dollars = (text) => parseFloat(text.replace(/[$,]/g, ''));
 // the area the scope's dollars cover, as Compare's per-area figures do.
 test('Year-1 need per acre divides the city-scope need by the city-maintained area', async () => {
   // A city that maintains a tenth of the pavement inside its boundary: the
-  // city-scope need is over seed.city_paved, not the all-jurisdiction stats.
-  const mostlyState = city('Alpha', (c) => { c.seed.city_paved = c.seed.total_area / 10; });
+  // city-scope need is over seed.city_maintained_area, not the all-jurisdiction stats.
+  const mostlyState = city('Alpha', (c) => { c.seed.city_maintained_area = c.seed.maintained_area / 10; });
   const { win, doc } = await page([mostlyState]);
 
   const need = mostlyState.scenarios.city[0].years[0].annual_need;
-  const want = need / win.toAreaLarge(mostlyState.seed.city_paved);
+  const want = need / win.toAreaLarge(mostlyState.seed.city_maintained_area);
   const statsArea = mostlyState.meta.stats.reduce((s, st) => s + win.toAreaLarge(st.total_area || 0), 0);
   assert.ok(Math.abs(want - need / statsArea) > 1, 'fixture cannot tell the two denominators apart');
   assert.equal(dollars(headline(doc, /^Year-1 Need per acre$/)), Math.round(want));
@@ -63,10 +63,32 @@ test('Year-1 need per acre divides the city-scope need by the city-maintained ar
 });
 
 test('under ?scope=all the per-acre need divides by the all-jurisdiction area', async () => {
-  const c = city('Alpha', (x) => { x.seed.city_paved = x.seed.total_area / 10; });
+  const c = city('Alpha', (x) => { x.seed.city_maintained_area = x.seed.maintained_area / 10; });
   const { win, doc } = await page([c], '?scope=all');
-  const want = c.scenarios.all[0].years[0].annual_need / win.toAreaLarge(c.seed.total_area);
+  const want = c.scenarios.all[0].years[0].annual_need / win.toAreaLarge(c.seed.maintained_area);
   assert.equal(dollars(headline(doc, /^Year-1 Need per acre$/)), Math.round(want));
+});
+
+// solvent-streets-ern4.33: a per-area figure divides the forecast's dollars
+// by the area they price, the maintained area (roads + parking + sidewalks
+// summed, as meta.stats and the Maintained Area card add them), never by the
+// paved footprint (meta.total_paved, the union).
+test('per-area figures divide by the maintained area, not the paved footprint', async () => {
+  const c = city('Alpha', (x) => { x.meta.total_paved = x.seed.maintained_area / 2; });
+  const { win, doc } = await page([c], '?scope=all');
+  const statsSqM = c.meta.stats.reduce((s, st) => s + (st.total_area || 0), 0);
+  assert.ok(statsSqM > 0, 'fixture meta.json has no stats area');
+  assert.ok(Math.abs(c.seed.maintained_area - statsSqM) < 1e-6 * statsSqM,
+    `forecast_seed maintained_area ${c.seed.maintained_area} is not the meta.stats sum ${statsSqM}`);
+
+  const m = win.extractMetrics(c);
+  assert.equal(m.scopeAreaLarge, win.toAreaLarge(c.seed.maintained_area));
+  assert.ok(Math.abs(m.scopeAreaLarge - m.totalAreaLarge) < 1e-6 * m.totalAreaLarge,
+    'the per-area denominator is not the Maintained Area');
+  const want = c.scenarios.all[0].years[0].annual_need / win.toAreaLarge(c.seed.maintained_area);
+  assert.equal(dollars(headline(doc, /^Year-1 Need per acre$/)), Math.round(want));
+  assert.ok(Math.round(want) !== Math.round(c.scenarios.all[0].years[0].annual_need / win.toAreaLarge(c.meta.total_paved)),
+    'fixture cannot tell the maintained area from the footprint');
 });
 
 test('Area-Weighted PCI weights each city by the area its PCI describes', async () => {
@@ -75,7 +97,7 @@ test('Area-Weighted PCI weights each city by the area its PCI describes', async 
   const alpha = city('Alpha', (c) => { c.scenarios.city[0].years[0].pci = 80; });
   const beta = city('Beta', (c) => {
     c.scenarios.city[0].years[0].pci = 20;
-    c.seed.city_paved = alpha.seed.city_paved / 10;
+    c.seed.city_maintained_area = alpha.seed.city_maintained_area / 10;
   });
   const { doc } = await page([alpha, beta]);
   const want = (80 * 1 + 20 * 0.1) / 1.1;
@@ -118,7 +140,7 @@ test('area labels name the maintained area and the per-area denominator', async 
   const need = card(/^Year-1 Maintenance Need$/);
   assert.doesNotMatch(need.querySelector('.sub').textContent, /hold the whole network steady/);
   assert.match(need.querySelector('.sub').textContent, /backlog included/);
-  assert.match(card(/^Year-1 Need per acre$/).querySelector('.sub').textContent, /paved footprint \((city-maintained|all owners)\)/);
+  assert.match(card(/^Year-1 Need per acre$/).querySelector('.sub').textContent, /maintained area \((city-maintained|all owners)\)/);
 
   win.renderCompare([city('Alpha'), city('Beta'), city('Gamma')]);
   const cat = Array.from(doc.querySelectorAll('.lb-category'))

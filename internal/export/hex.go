@@ -69,7 +69,7 @@ type hexAgg struct {
 // instead of caching a blank grid for the server's lifetime — mirroring
 // serveBoundaryGeoJSON's empty-vs-error split.
 func BuildHexGeoJSON(ctx context.Context, entry CityEntry, proj *geo.UTMProjector) (map[string]any, error) {
-	return buildHexGeoJSONFromGrid(ctx, entry, proj, func() ([]geo.Hex, error) { return cityHexGrid(ctx, entry, proj) })
+	return buildHexGeoJSONFromGrid(ctx, entry, proj, newDrawnGrid(ctx, entry, proj).hexes)
 }
 
 // buildHexGeoJSONFromGrid is BuildHexGeoJSON with the grid supplied as a thunk,
@@ -380,8 +380,8 @@ func buildHexFeature(hexID string, agg *hexAgg, hexMap map[string]*geo.Hex, proj
 	if !ok {
 		return nil, false
 	}
-	gjson, err := geo.GeometryToGeoJSONWithPrecision(h.Geom, proj, decimals)
-	if err != nil {
+	gjson, ok := hexGeometryJSON(h, proj, decimals)
+	if !ok {
 		return nil, false
 	}
 	props := map[string]any{"id": hexID}
@@ -416,4 +416,16 @@ func buildHexFeature(hexID string, agg *hexAgg, hexMap map[string]*geo.Hex, proj
 		"geometry":   json.RawMessage(gjson),
 		"properties": props,
 	}, true
+}
+
+// hexGeometryJSON is h's WGS84 GeoJSON geometry as hexgrid.geojson emits it;
+// ok is false for a hex that cannot be encoded, which the map then does not
+// draw. drawnGrid applies the same test, so the hexes hex-metrics.json
+// covers are exactly the features here.
+func hexGeometryJSON(h *geo.Hex, proj *geo.UTMProjector, decimals int) (string, bool) {
+	gjson, err := geo.GeometryToGeoJSONWithPrecision(h.Geom, proj, decimals)
+	if err != nil {
+		return "", false
+	}
+	return gjson, true
 }

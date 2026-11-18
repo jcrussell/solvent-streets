@@ -27,8 +27,6 @@ type CohortSeed struct {
 }
 
 // ForecastSeedJSON holds the data needed by the browser to initialize interactive controls.
-// CityPaved is the city-jurisdiction paved area, NOT the city boundary area
-// (that's MetaJSON.CityArea); the two differ by an order of magnitude.
 type ForecastSeedJSON struct {
 	InitialPCI   float64 `json:"initial_pci"`
 	DecayRate    float64 `json:"decay_rate"`
@@ -39,8 +37,16 @@ type ForecastSeedJSON struct {
 	// export lines; otherwise the custom line runs at a different N and the two
 	// diverge ~N× on the same chart. Key matches bridge.Input.CycleYears.
 	TreatmentCycleYears float64 `json:"treatment_cycle_years"`
-	TotalArea           float64 `json:"total_area"`
-	CityPaved           float64 `json:"city_paved"`
+	// MaintainedArea and CityMaintainedArea are the maintained area of each
+	// scope (all owners, city-maintained): roads + parking + sidewalks summed
+	// per resource (maintainedAreas), the basis the forecast prices and the
+	// cohorts sum to. They are NOT the paved footprint (MetaJSON.TotalPaved,
+	// the deduplicated union, never larger), nor the city boundary area
+	// (MetaJSON.CityArea). The browser divides the forecast's dollars by the
+	// active scope's for every per-area figure, and sends it as the bridge's
+	// area when there are no cohorts.
+	MaintainedArea     float64 `json:"maintained_area"`
+	CityMaintainedArea float64 `json:"city_maintained_area"`
 	// CostTiers ships the BARE per-m2 schedule, unscaled by CostOverhead. The
 	// browser renders these into the editable #tier-inputs, so scaling them
 	// here would show the user loaded prices in boxes labelled with the tier's
@@ -81,9 +87,8 @@ type ForecastSeedJSON struct {
 	// the network its figures cover.
 	//
 	// They are a SHARE and not an area because they apply to
-	// scenario.years[].area, which is the cohort-summed area — not the deduped
-	// union geometry behind TotalArea/CityPaved. Same scope-selection shape as
-	// that pair. 1.0 means "no netting" and is what an absent or empty cohort
+	// scenario.years[].area, which is the cohort-summed area. Same
+	// scope-selection shape as MaintainedArea/CityMaintainedArea. 1.0 means "no netting" and is what an absent or empty cohort
 	// set resolves to.
 	//
 	// Not omitempty, and the reason is NOT that 0 is unreachable. A
@@ -101,22 +106,22 @@ type ForecastSeedJSON struct {
 
 // BuildForecastSeed constructs a ForecastSeedJSON for the given forecast config and store.
 func BuildForecastSeed(ctx context.Context, fc *config.ForecastConfig, store db.Store) (template.JS, error) {
-	totalArea, cityArea, err := pavedAreas(ctx, store)
+	areas, err := maintainedAreas(ctx, store)
 	if err != nil {
-		return "", fmt.Errorf("paved area: %w", err)
+		return "", fmt.Errorf("maintained area: %w", err)
 	}
 	cohorts, err := collectCohortSeeds(ctx, store, fc)
 	if err != nil {
 		return "", err
 	}
-	return marshalForecastSeed(fc, totalArea, cityArea, cohorts)
+	return marshalForecastSeed(fc, areas, cohorts)
 }
 
 // marshalForecastSeed is the one place a forecast seed is assembled, for one
 // city (BuildForecastSeed) and for a whole config
-// (BuildMultiCityForecastSeed): the resolved forecast settings plus the paved
-// areas and cohorts the caller read.
-func marshalForecastSeed(fc *config.ForecastConfig, totalArea, cityArea float64, cohorts cohortSet) (template.JS, error) {
+// (BuildMultiCityForecastSeed): the resolved forecast settings plus the
+// maintained areas and cohorts the caller read.
+func marshalForecastSeed(fc *config.ForecastConfig, areas scenarioAreas, cohorts cohortSet) (template.JS, error) {
 	costTiers := ConvertCostTiers(fc)
 	if len(costTiers) == 0 {
 		costTiers = forecast.DefaultCostTiers
@@ -127,8 +132,8 @@ func marshalForecastSeed(fc *config.ForecastConfig, totalArea, cityArea float64,
 		GrowthRate:          fc.GrowthRate,
 		HorizonYears:        fc.Years,
 		TreatmentCycleYears: forecast.ResolveCycleYears(fc.TreatmentCycleYears),
-		TotalArea:           totalArea,
-		CityPaved:           cityArea,
+		MaintainedArea:      areas.allArea,
+		CityMaintainedArea:  areas.cityArea,
 		// Deliberately NOT scaled by the overhead — see the CostTiers field comment.
 		CostTiers:            costTiers,
 		CostOverhead:         fc.ResolvedCostOverhead(),
@@ -161,18 +166,6 @@ func materialTierSeeds(tiers []forecast.MaterialTier) []MaterialTierSeed {
 		out[i] = MaterialTierSeed{MaterialTier: t, Per1000SqM: forecast.MaterialsForArea(1000, t)}
 	}
 	return out
-}
-
-// pavedAreas returns a store's paved area (results.PavedArea) in the
-// all-jurisdiction and the city scope: the seed's total_area and city_paved.
-func pavedAreas(ctx context.Context, store db.Store) (all, city float64, err error) {
-	if all, _, err = results.PavedArea(ctx, store, resource.ScopeAll); err != nil {
-		return 0, 0, err
-	}
-	if city, _, err = results.PavedArea(ctx, store, resource.ScopeCity); err != nil {
-		return 0, 0, err
-	}
-	return all, city, nil
 }
 
 // cohortSet is what one store's cohort stats resolve to: the per-scope seeds
@@ -215,9 +208,9 @@ func (a *areaSplit) add(area float64, asphalt bool) {
 //
 // The asphalt shares are accumulated in this same loop, and deliberately so:
 // they have to be computed on the COHORT area basis, because that is what
-// scenario.years[].area sums. The combined compute rows behind TotalArea are
-// deduped union geometry — a different basis — and a share taken from those
-// would leave a residual error in the Materials figures.
+// scenario.years[].area sums. The combined compute rows behind the paved
+// footprint are deduped union geometry — a different basis — and a share
+// taken from those would leave a residual error in the Materials figures.
 func collectCohortSeeds(ctx context.Context, store db.Store, fc *config.ForecastConfig) (cohortSet, error) {
 	var out cohortSet
 	var allSplit, citySplit areaSplit

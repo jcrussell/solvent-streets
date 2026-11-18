@@ -8,6 +8,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/internal/services"
 )
 
@@ -20,17 +21,25 @@ func TestBuildHexMetrics_MarkersAndLegendFromTheRun(t *testing.T) {
 	ctx := context.Background()
 	cfg := &config.Config{}
 	c := newSQLiteCity(t, cfg, "Fire City", exportBoundaryA)
-	c.commitRoads(100)
+	h := drawnHexIDs(t, c.entry(), 2)
 
 	configID := services.ConfigFacilityID("fire", -122.45, 37.55)
 	hash := cfg.CityHash(&c.city)
+	// A roads run with coverage, so the city has a grid to draw the metric on.
+	roads, err := c.store.CreateRun(ctx, "roads", hash, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.store.SaveHexMetrics(ctx, roads.ID, results.HexCoverageRows(resource.TypeRoads, []results.HexCoverage{{HexID: h[0], Area: 1}})); err != nil {
+		t.Fatal(err)
+	}
 	run, err := c.store.CreateRun(ctx, db.ServiceProducer("fire"), hash, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := c.store.SaveHexMetrics(ctx, run.ID, []db.HexMetric{
-		{HexID: "h1", Metric: services.MetricFire, Value: 300, Ref: "osm:node:9"},
-		{HexID: "h2", Metric: services.MetricFire, Value: 400, Ref: configID},
+		{HexID: h[0], Metric: services.MetricFire, Value: 300, Ref: "osm:node:9"},
+		{HexID: h[1], Metric: services.MetricFire, Value: 400, Ref: configID},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +54,7 @@ func TestBuildHexMetrics_MarkersAndLegendFromTheRun(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := dbtest.Publish(ctx, c.root, c.id, hash, cfg.ResolvedHexEdge(&c.city), map[string]int64{db.ServiceProducer("fire"): run.ID}); err != nil {
+	if _, err := dbtest.Publish(ctx, c.root, c.id, hash, cfg.ResolvedHexEdge(&c.city), map[string]int64{"roads": roads.ID, db.ServiceProducer("fire"): run.ID}); err != nil {
 		t.Fatal(err)
 	}
 	entry, err := c.entry().PinNewestSnapshot(ctx)
@@ -74,10 +83,10 @@ func TestBuildHexMetrics_MarkersAndLegendFromTheRun(t *testing.T) {
 	if len(m.Points) != 2 {
 		t.Fatalf("points = %+v, want the run's two stations", m.Points)
 	}
-	if p := m.Points[m.Refs["h1"]]; p.Name != "Station 9" || p.Position != [2]float64{-122.48, 37.52} {
+	if p := m.Points[m.Refs[h[0]]]; p.Name != "Station 9" || p.Position != [2]float64{-122.48, 37.52} {
 		t.Errorf("h1's station = %+v, want Station 9 where the run routed from", p)
 	}
-	if p := m.Points[m.Refs["h2"]]; p.Name != "Manual" || p.Source != "config" {
+	if p := m.Points[m.Refs[h[1]]]; p.Name != "Manual" || p.Source != "config" {
 		t.Errorf("h2's station = %+v, want the run's Manual", p)
 	}
 	// 80 s turnout from the run + 300 s travel threshold from the config.

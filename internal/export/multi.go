@@ -178,20 +178,20 @@ func regionBBox(ctx context.Context, entries []CityEntry) ([4]float64, bool, err
 }
 
 // BuildMultiCityForecastSeed aggregates per-city forecast seeds into one
-// regional ForecastSeedJSON. TotalArea and CityPaved sum the "combined"
-// and "combined:city" rows across entries (with per-resource fallback).
+// regional ForecastSeedJSON. MaintainedArea and CityMaintainedArea sum each
+// entry's maintained areas (maintainedAreas).
 // Cohort areas are summed across cities for each (resource_type, classification)
 // pair — cross-resource collisions stay as separate cohorts to match the
 // single-city collectCohortSeeds shape.
 func BuildMultiCityForecastSeed(ctx context.Context, fc *config.ForecastConfig, entries []CityEntry) (template.JS, error) {
-	var totalArea, cityArea float64
+	var areas scenarioAreas
 	for _, entry := range entries {
-		all, city, err := pavedAreas(ctx, entry.Store)
+		a, err := maintainedAreas(ctx, entry.Store)
 		if err != nil {
-			return "", fmt.Errorf("paved area for %s: %w", entry.City.Name, err)
+			return "", fmt.Errorf("maintained area for %s: %w", entry.City.Name, err)
 		}
-		totalArea += all
-		cityArea += city
+		areas.allArea += a.allArea
+		areas.cityArea += a.cityArea
 	}
 	var cohorts cohortSet
 	var err error
@@ -201,7 +201,7 @@ func BuildMultiCityForecastSeed(ctx context.Context, fc *config.ForecastConfig, 
 	if cohorts.City, cohorts.CityAsphaltShare, err = mergeCohortSeeds(ctx, entries, fc, true); err != nil {
 		return "", err
 	}
-	return marshalForecastSeed(fc, totalArea, cityArea, cohorts)
+	return marshalForecastSeed(fc, areas, cohorts)
 }
 
 // mergeCohortSeeds collects cohort stats across entries and sums areas for

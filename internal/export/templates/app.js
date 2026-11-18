@@ -2093,7 +2093,7 @@
         // both.
         const PAVED_FOOTPRINT_TIP = 'Paved footprint: the ground covered by pavement, every owner, with overlaps between roads, sidewalks and lots counted once.';
         const MAINTAINED_AREA_TIP = 'Maintained area: roads + parking + sidewalks summed as the forecast prices them, so a sidewalk beside a road counts in both. Larger than the paved footprint.';
-        const PER_AREA_TIP = 'Divides by the paved footprint in the current scope (city-maintained or all owners), shown beside each city.';
+        const PER_AREA_TIP = 'Divides by the maintained area the forecast prices, in the current scope (city-maintained or all owners), shown beside each city.';
 
         // scopeName names the current scope for an area label.
         function scopeName() {
@@ -2804,7 +2804,7 @@
             // below. Scope-selected the same way the forecast controls pick
             // their area and cohorts: the all-scope share unless a city scope
             // is actually loaded.
-            var asphaltShare = (scope === 'all' || !(seed && seed.city_paved))
+            var asphaltShare = (scope === 'all' || !(seed && seed.city_maintained_area))
                 ? (seed && seed.asphalt_area_share)
                 : (seed && seed.city_asphalt_area_share);
 
@@ -3729,9 +3729,9 @@
             // Area/cohorts for the active scope: city-scoped data by default,
             // all-jurisdiction data when scope === 'all'.
             const scope = activeScopeName();
-            const area = (scope === 'all' || !FORECAST_SEED.city_paved)
-                ? FORECAST_SEED.total_area
-                : FORECAST_SEED.city_paved;
+            const area = (scope === 'all' || !FORECAST_SEED.city_maintained_area)
+                ? FORECAST_SEED.maintained_area
+                : FORECAST_SEED.city_maintained_area;
             // Simulate only the maintained part of the network (the cohort
             // filter computeLiveSolvency applies for the headline). The bridge
             // reads `area` only when there are no cohorts (a fresh DB).
@@ -4317,21 +4317,23 @@
         });
         syncUnitsToggle();
 
-        // scopeAreaLarge is the paved area, in display large-area units, that a
-        // city's scope-selected forecast dollars and PCI cover: seed.city_paved
-        // under the city scope, else seed.total_area. It is the denominator of
-        // every per-area figure and the weight of the area-weighted PCI on
-        // Compare and Aggregate. m.totalAreaLarge is not that area: it sums
-        // meta.stats, which is all-jurisdiction and counts road/sidewalk/parking
-        // overlap once per resource, so under a city-scope numerator it
-        // understates the ratio for a city with a lot of state- or county-owned
-        // network. It stands in only for a city whose seed carries no area.
+        // scopeAreaLarge is the maintained area, in display large-area units,
+        // that a city's scope-selected forecast dollars and PCI cover:
+        // seed.city_maintained_area under the city scope, else
+        // seed.maintained_area. Those sum the resources as the forecast prices
+        // them (the cohort basis), so dollars and area share one basis. It is
+        // the denominator of every per-area figure and the weight of the
+        // area-weighted PCI on Compare and Aggregate. m.totalAreaLarge (the
+        // meta.stats sum) is the same basis but always all owners, so under a
+        // city-scope numerator it would understate the ratio for a city with a
+        // lot of state- or county-owned network. It stands in only for a city
+        // whose seed carries no area.
         function scopeAreaLarge(city, m) {
             var sqm = 0;
             if (city.seed) {
-                sqm = (currentScope === 'city' && city.seed.city_paved)
-                    ? city.seed.city_paved
-                    : (city.seed.total_area || 0);
+                sqm = (currentScope === 'city' && city.seed.city_maintained_area)
+                    ? city.seed.city_maintained_area
+                    : (city.seed.maintained_area || 0);
             }
             return sqm > 0 ? toAreaLarge(sqm) : m.totalAreaLarge;
         }
@@ -4400,8 +4402,8 @@
                     }
                 });
             }
-            if (city.seed && city.seed.city_paved && city.seed.total_area) {
-                m.cityPct = city.seed.city_paved / city.seed.total_area * 100;
+            if (city.seed && city.seed.city_maintained_area && city.seed.maintained_area) {
+                m.cityPct = city.seed.city_maintained_area / city.seed.maintained_area * 100;
             }
 
             // Blended decay from cohorts (area-weighted)
@@ -4923,7 +4925,7 @@
                 aggCard('Area-Weighted PCI', weightedPCI === null ? '—' : weightedPCI.toFixed(0), 'Year-1 condition, after one year of decay with no spend'),
                 aggCard('Year-1 Maintenance Need', hasFc ? fmtMoney(regionYear1) : '—', 'Treating what is due in year 1, backlog included; the hold-steady budget is on Financials'),
                 aggCard(horizon + 'Deferred Backlog', hasFc ? fmtMoney(regionBacklog) : '—', hasFc ? 'Unfunded need accumulated by year ' + horizonYears : 'No forecast data in this region'),
-                aggCard('Year-1 Need per ' + areaLargeUnitSingular(), perArea === null ? '—' : fmtMoney(perArea, { full: true }), 'Year-1 need ÷ ' + fmtNum(fcArea) + ' ' + unit + ' of paved footprint (' + scopeName() + ')'),
+                aggCard('Year-1 Need per ' + areaLargeUnitSingular(), perArea === null ? '—' : fmtMoney(perArea, { full: true }), 'Year-1 need ÷ ' + fmtNum(fcArea) + ' ' + unit + ' of maintained area (' + scopeName() + ')'),
                 aggCard('Est. Parking Spaces', totalSpaces > 0 ? fmtNum(totalSpaces) : '—', 'Lots and garages: OSM capacity, else footprint ÷ 30 m²/space')
             ].join('');
 

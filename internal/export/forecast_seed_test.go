@@ -398,3 +398,48 @@ func TestForecastSeed_SingleAndMultiCityAgree(t *testing.T) {
 		t.Errorf("seeds differ:\nsingle %s\n multi %s", single, multi)
 	}
 }
+
+// TestForecastSeed_AreasAreTheMaintainedArea pins solvent-streets-ern4.33:
+// the seed's areas are the maintained area — roads + parking + sidewalks
+// summed, the basis the cohorts sum to and the forecast prices — not the
+// deduplicated paved footprint meta.json publishes as total_paved. The
+// browser divides the forecast's dollars by them for every per-area figure,
+// so a footprint here would mix two bases in one ratio.
+func TestForecastSeed_AreasAreTheMaintainedArea(t *testing.T) {
+	ctx := context.Background()
+	totals := map[resource.Type]results.Totals{
+		resource.TypeRoads:                              {Area: 700},
+		resource.TypeParking:                            {Area: 300},
+		resource.TypeSidewalks:                          {Area: 250},
+		resource.TypeRoads.With(resource.ScopeCity):     {Area: 400},
+		resource.TypeSidewalks.With(resource.ScopeCity): {Area: 100},
+		// The footprint: smaller than the sum by the overlap.
+		resource.CombinedAll:  {Area: 1100},
+		resource.CombinedCity: {Area: 450},
+	}
+	entry := newMockEntry(totals)
+	seedJS, err := BuildForecastSeed(ctx, &config.ForecastConfig{Years: 5, InitialPCI: 80}, entry.Store)
+	if err != nil {
+		t.Fatalf("BuildForecastSeed: %v", err)
+	}
+	var seed map[string]any
+	if err := json.Unmarshal([]byte(seedJS), &seed); err != nil {
+		t.Fatalf("unmarshal seed: %v", err)
+	}
+	if seed["maintained_area"] != 1250.0 || seed["city_maintained_area"] != 500.0 {
+		t.Errorf("seed areas = %v / %v, want the per-resource sums 1250 / 500, not the footprint 1100 / 450",
+			seed["maintained_area"], seed["city_maintained_area"])
+	}
+	for _, old := range []string{"total_area", "city_paved"} {
+		if _, ok := seed[old]; ok {
+			t.Errorf("seed still carries %q", old)
+		}
+	}
+	meta, err := BuildMeta(ctx, entry, 0)
+	if err != nil {
+		t.Fatalf("BuildMeta: %v", err)
+	}
+	if meta.TotalPaved != 1100 {
+		t.Errorf("meta total_paved = %v, want the footprint 1100", meta.TotalPaved)
+	}
+}

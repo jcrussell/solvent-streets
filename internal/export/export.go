@@ -295,8 +295,12 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 	if err := e.warnGrid(ctx, entry, bbox, proj); err != nil {
 		return MetaJSON{}, "", err
 	}
+	// One lattice and clip for the three files that describe the drawn grid:
+	// hexgrid.geojson draws it, and meta.json's metric summaries and
+	// hex-metrics.json cover exactly its hexes.
+	grid := newDrawnGrid(ctx, entry, proj)
 
-	meta, err := BuildMeta(ctx, entry, 0)
+	meta, err := buildMeta(ctx, entry, 0, grid)
 	if err != nil {
 		return MetaJSON{}, "", err
 	}
@@ -316,7 +320,7 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 	//
 	// The /play board reads its road area and decay rate (k) from this file
 	// too, so there is no separate board file.
-	hexFC, err := BuildHexGeoJSON(ctx, entry, proj)
+	hexFC, err := buildHexGeoJSONFromGrid(ctx, entry, proj, grid.hexes)
 	if err != nil {
 		return MetaJSON{}, "", fmt.Errorf("build hexgrid: %w", err)
 	}
@@ -331,7 +335,7 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 		return MetaJSON{}, "", fmt.Errorf("write meta: %w", err)
 	}
 
-	if err := writeHexMetrics(ctx, entry, dataDir); err != nil {
+	if err := writeHexMetrics(ctx, entry, grid, dataDir); err != nil {
 		return MetaJSON{}, "", err
 	}
 
@@ -357,8 +361,8 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 // only when a metric has rows (OptionalDataFileNames), so a city that never
 // ran `pvmt services compute` publishes without the file and check-site is
 // content either way.
-func writeHexMetrics(ctx context.Context, entry CityEntry, dataDir string) error {
-	hm, err := BuildHexMetrics(ctx, entry)
+func writeHexMetrics(ctx context.Context, entry CityEntry, grid *drawnGrid, dataDir string) error {
+	hm, err := buildHexMetrics(ctx, entry, grid)
 	if err != nil {
 		return fmt.Errorf("build hex metrics: %w", err)
 	}

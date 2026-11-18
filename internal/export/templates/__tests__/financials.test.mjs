@@ -57,8 +57,8 @@ test('the stats panel renders a card per resource from meta.stats[]', async () =
 });
 
 // The seed's area and cohort keys are what getControlValues ships to the WASM
-// bridge, and a mismatched key is INVISIBLE: `FORECAST_SEED.total_area` on a
-// seed that spells it `area` is undefined, which JSON.stringify turns into null,
+// bridge, and a mismatched key is INVISIBLE: `FORECAST_SEED.maintained_area` on
+// a seed that spells it `area` is undefined, which JSON.stringify turns into null,
 // which the bridge reads as zero area. Every dollar figure on the tab then comes
 // off a network of no size, with nothing thrown anywhere. Assert the values that
 // crossed, not just that a call happened.
@@ -67,12 +67,12 @@ test('the seeded area and cohorts reach the WASM bridge', async () => {
 
   const sent = win.__simCalls.at(-1);
   assert.ok(sent, 'no simulation ran');
-  // Default scope is city, so the city-scoped paved area is the basis. Assert
+  // Default scope is city, so the city-maintained area is the basis. Assert
   // the seed carries the key at all first: comparing two undefineds passes.
-  assert.equal(typeof seedJSON.city_paved, 'number',
-    'forecast_seed.json has no numeric city_paved; the Go json tag moved');
-  assert.equal(sent.area, seedJSON.city_paved,
-    'the bridge did not receive the seeded city_paved area');
+  assert.equal(typeof seedJSON.city_maintained_area, 'number',
+    'forecast_seed.json has no numeric city_maintained_area; the Go json tag moved');
+  assert.equal(sent.area, seedJSON.city_maintained_area,
+    'the bridge did not receive the seeded city_maintained_area');
   assert.ok(sent.area > 0, 'the bridge simulated a network of zero area');
   // By default the forecast maintains streets only (solvent-streets-ma98).
   assert.deepEqual(
@@ -95,7 +95,7 @@ function roadClasses(cohorts) {
 }
 
 // The other half of the same key contract: the All-Roads scope reads
-// total_area / cohorts instead. Both branches of getControlValues' scope
+// maintained_area / cohorts instead. Both branches of getControlValues' scope
 // selection need a live assertion, or a rename covers whichever one is unwatched.
 test('the All-Roads scope simulates over the seeded all-scope area', async () => {
   const { win, flush } = await ready();
@@ -104,10 +104,10 @@ test('the All-Roads scope simulates over the seeded all-scope area', async () =>
   await flush();
 
   const sent = win.__simCalls.at(-1);
-  assert.equal(typeof seedJSON.total_area, 'number',
-    'forecast_seed.json has no numeric total_area; the Go json tag moved');
-  assert.equal(sent.area, seedJSON.total_area,
-    'the bridge did not receive the seeded total_area in all scope');
+  assert.equal(typeof seedJSON.maintained_area, 'number',
+    'forecast_seed.json has no numeric maintained_area; the Go json tag moved');
+  assert.equal(sent.area, seedJSON.maintained_area,
+    'the bridge did not receive the seeded maintained_area in all scope');
   assert.ok(sent.area > 0, 'the bridge simulated a network of zero area');
   assert.deepEqual(
     Array.from(sent.cohorts ?? [], (c) => c.classification).sort(),

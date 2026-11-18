@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"strings"
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/population"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/results"
@@ -43,14 +45,17 @@ func newDiffFixture(t *testing.T) *diffFixture {
 			t.Fatal(err)
 		}
 		ids[c.Slug()] = id
-		if err := root.ForCity(id).SaveBoundary(ctx, `{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}`, "test"); err != nil {
+		if err := root.ForCity(id).SaveBoundary(ctx, diffBoundary, "test"); err != nil {
 			t.Fatal(err)
 		}
 	}
 	// compute commits roads (area, with a hex of coverage so the city has a
-	// grid), census (pop people on one hex) and fire (one hex per response).
-	compute := func(slug string, area, pop float64, fire ...float64) {
+	// grid), census (pop people on one hex) and fire (one hex per response),
+	// on hexes the map draws at the snapshot's hex edge: the diff, like the
+	// stats panel, summarises only those.
+	compute := func(slug string, edge, area, pop float64, fire ...float64) {
 		t.Helper()
+		hexes := interiorHexIDs(t, diffBoundary, edge, len(fire)+1)
 		store := root.ForCity(ids[slug])
 		parts := map[string]int64{}
 		put := func(producer string, city []db.CityMetric, hex []db.HexMetric) {
@@ -69,11 +74,11 @@ func newDiffFixture(t *testing.T) *diffFixture {
 			parts[producer] = run.ID
 		}
 		put("roads", results.TotalRows(resource.TypeRoads, results.Totals{Area: area, Features: 3}),
-			results.HexCoverageRows(resource.TypeRoads, []results.HexCoverage{{HexID: "h1", Area: area, PctCovered: 50}}))
-		put(db.ProducerCensus, nil, []db.HexMetric{{HexID: "h1", Metric: population.KeyPopulation, Value: pop}})
+			results.HexCoverageRows(resource.TypeRoads, []results.HexCoverage{{HexID: hexes[0], Area: area, PctCovered: 50}}))
+		put(db.ProducerCensus, nil, []db.HexMetric{{HexID: hexes[0], Metric: population.KeyPopulation, Value: pop}})
 		var rows []db.HexMetric
 		for i, v := range fire {
-			rows = append(rows, db.HexMetric{HexID: string(rune('a' + i)), Metric: services.MetricFire, Value: v})
+			rows = append(rows, db.HexMetric{HexID: hexes[i+1], Metric: services.MetricFire, Value: v})
 		}
 		put(db.ServiceProducer("fire"), nil, rows)
 		if err := store.CommitLatest(ctx, "h", config.ComputeEpoch, parts); err != nil {
@@ -90,14 +95,44 @@ func newDiffFixture(t *testing.T) *diffFixture {
 			t.Fatal(err)
 		}
 	}
-	compute("alpha", 100, 10, 100, 400) // half within the 5:20 threshold
-	compute("beta", 200, 20, 100)
+	compute("alpha", 100, 100, 10, 100, 400) // half within the 5:20 threshold
+	compute("beta", 100, 200, 20, 100)
 	create("v1", 100, "alpha", "beta")
-	compute("alpha", 150, 12, 100, 100)
-	compute("gamma", 50, 5, 100)
+	compute("alpha", 150, 150, 12, 100, 100)
+	compute("gamma", 150, 50, 5, 100)
 	create("v2", 150, "alpha", "gamma")
 	create("v3", 150, "gamma")
 	return &diffFixture{root: root, cfg: cfg}
+}
+
+// diffBoundary is every fixture city's boundary: a triangle about 1 km on a
+// side, a few hundred hexes at the fixture's edges.
+const diffBoundary = `{"type":"Polygon","coordinates":[[[0,0],[0.01,0],[0.01,0.01],[0,0]]]}`
+
+// interiorHexIDs returns n ids of whole (unclipped) hexes of boundary's grid
+// at edge, which every export draws.
+func interiorHexIDs(t *testing.T, boundary string, edge float64, n int) []string {
+	t.Helper()
+	bbox, err := geo.BBoxFromGeoJSON(boundary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proj := geo.NewUTMProjector(geo.CenterFromBBox(bbox))
+	hexes, err := geo.ClipHexesToBoundaryGeoJSON(context.Background(), geo.CityLattice(proj, bbox, edge), boundary, proj, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	full := 3 * math.Sqrt(3) / 2 * edge * edge
+	var ids []string
+	for _, h := range hexes {
+		if h.Geom.Area() > 0.999*full {
+			ids = append(ids, h.ID)
+		}
+	}
+	if len(ids) < n {
+		t.Fatalf("%d whole hexes at %g m, need %d", len(ids), edge, n)
+	}
+	return ids[:n]
 }
 
 func (fx *diffFixture) run(t *testing.T, args ...string) (stdout, stderr string, err error) {

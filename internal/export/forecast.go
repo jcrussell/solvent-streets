@@ -256,7 +256,7 @@ func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.Forecas
 	params := forecast.NewParams(fc.GrowthRate, costTiers, fc.TreatmentCycleYears, fc.ResolvedCostOverhead())
 	defaultRate := forecast.ResolveDecayRate(fc.DecayRate)
 
-	areas, err := aggregateScenarioAreas(ctx, entry)
+	areas, err := maintainedAreas(ctx, entry.Store)
 	if err != nil {
 		return nil, err
 	}
@@ -310,24 +310,28 @@ func withMaterials(rs []forecast.ScenarioResult, params *forecast.Params, asphal
 	return out
 }
 
-// scenarioAreas pairs all-scope and city-scope aggregate areas across all
-// resources for a single CityEntry.
+// scenarioAreas pairs the all-scope and city-scope maintained areas.
 type scenarioAreas struct {
 	allArea, cityArea float64
 }
 
-// aggregateScenarioAreas sums the paved area across all
-// resources for both all and city scopes. The city-scope lookup is gated
-// on all-scope row existence for the same resource — a resource with no
-// all-scope row contributes to neither total. One batched DB call collects
-// both scopes.
-func aggregateScenarioAreas(ctx context.Context, entry CityEntry) (scenarioAreas, error) {
+// maintainedAreas is a store's maintained area in both scopes: the paved
+// area summed across resources, so the overlap between a road and the
+// sidewalk or lot beside it counts once per resource, as the forecast prices
+// it. It equals the cohort sum (each resource's cohorts split its total). It
+// is what the forecast seed's maintained_area / city_maintained_area carry
+// and what sizes the single-cohort fallback, and deliberately not
+// results.PavedArea, the deduplicated footprint behind meta.json's
+// total_paved and paved_share. The city-scope lookup is gated on all-scope
+// row existence for the same resource — a resource with no all-scope row
+// contributes to neither total. One batched DB call collects both scopes.
+func maintainedAreas(ctx context.Context, store results.CityMetricLister) (scenarioAreas, error) {
 	types := make([]resource.Type, 0, 2*len(resource.All))
 	for _, rt := range resource.All {
 		t := rt.Type()
 		types = append(types, t, t.With(resource.ScopeCity))
 	}
-	latestByType, err := results.LoadTotals(ctx, entry.Store, types)
+	latestByType, err := results.LoadTotals(ctx, store, types)
 	if err != nil {
 		// A real DB failure is propagated so serveScenariosJSON's cache
 		// evicts and retries instead of locking in a zero-area payload for

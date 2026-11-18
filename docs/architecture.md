@@ -131,8 +131,14 @@ them: coverage %, paved area, parking spaces and year-1 cost in
 `internal/population`. Each declares how to combine the per-resource values in
 `hexgrid.geojson`, and the browser resolves it. A new coloring is therefore a
 registry entry, plus a producer if it needs stored data, and no client code.
-`hexgrid.geojson` carries every hex of the clipped grid, so a stored metric can
-paint a hex that has no pavement.
+`hexgrid.geojson` carries every hex of the clipped grid the export draws,
+pavement or not, so a stored metric can paint a hex that has no pavement. The
+drawn grid is not quite the one the producers computed on: the export drops
+edge and shoreline slivers below `min_hex_area`, a presentation setting, so
+the pavement totals stay whole while the map shows no misleading sliver.
+`hex-metrics.json` and the per-metric summaries in `meta.json` cover exactly
+the drawn hexes (`export.drawnGrid`): a stored row whose hex the map does not
+draw is in neither, so the stats panel counts only what the map can paint.
 
 Fire stations and census blocks are *own-sourced* (`resource.OwnSourced`):
 each comes from one fixed upstream, whatever the city's `overpass` /

@@ -134,14 +134,17 @@ func jsFixtureEntry(t *testing.T) CityEntry {
 	store.Facilities = map[string][]db.RunFacility{db.ServiceProducer("fire"): {
 		{ID: jsFixtureStationID, Name: "Station 9", Source: "osm", Lon: -122.25, Lat: 37.75},
 	}}
+	// Real ids of the fixture's drawn grid: hex-metrics.json and meta.metrics
+	// cover only the hexes hexgrid.geojson draws (solvent-streets-ern4.33).
+	h := drawnHexIDs(t, entry, 3)
 	store.HexMetrics = append(store.HexMetrics,
-		db.HexMetric{HexID: "hex:0:0", Metric: services.MetricFire, Value: 300, Ref: jsFixtureStationID},
-		db.HexMetric{HexID: "hex:0:1", Metric: services.MetricFire, Value: 700, Ref: jsFixtureStationID},
+		db.HexMetric{HexID: h[0], Metric: services.MetricFire, Value: 300, Ref: jsFixtureStationID},
+		db.HexMetric{HexID: h[1], Metric: services.MetricFire, Value: 700, Ref: jsFixtureStationID},
 		// On the network but reached by no station: no value, counted
 		// against the within-threshold share (solvent-streets-8x0f).
-		db.HexMetric{HexID: "hex:0:2", Metric: services.MetricFire, Subject: services.SubjectUnreachable})
+		db.HexMetric{HexID: h[2], Metric: services.MetricFire, Subject: services.SubjectUnreachable})
 	store.HexMetrics = append(store.HexMetrics, results.HexCoverageRows(resource.TypeRoads,
-		[]results.HexCoverage{{HexID: "hex:0:0", Area: 1}, {HexID: "hex:0:1", Area: 1}})...)
+		[]results.HexCoverage{{HexID: h[0], Area: 1}, {HexID: h[1], Area: 1}})...)
 	// Matches a city option in the rendered index.html, so meta.project_name and
 	// the DOM describe the same place.
 	entry.City.Name = "Alpha, CA"

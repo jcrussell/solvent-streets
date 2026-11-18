@@ -63,7 +63,7 @@ func init() {
 	})
 	hexmetric.Register(hexmetric.Spec{
 		// FormatArea: stored in m² per resident, shown in the viewer's unit.
-		Key: KeyRoadAreaPerResident, Label: "Paved area per resident", Unit: "m2", Source: "Paved area of the toggled resources ÷ " + source,
+		Key: KeyRoadAreaPerResident, Label: "Maintained area per resident", Unit: "m2", Source: "Maintained area of the toggled resources ÷ " + source,
 		Format: hexmetric.FormatArea,
 		Scale:  hexmetric.Scale{Kind: hexmetric.KindSequential, Transform: hexmetric.TransformLog, Bands: []float64{20, 40, 60, 100, 200}},
 		Derive: &hexmetric.Derivation{Op: hexmetric.OpRatio, Prop: hexmetric.PropArea, Den: KeyPopulation, MinDen: MinResidents},

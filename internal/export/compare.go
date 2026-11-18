@@ -63,13 +63,13 @@ type compareStat struct {
 // cost tiers). cost_tiers passes through verbatim so that comparison sees
 // exactly the seed's value.
 type compareSeed struct {
-	InitialPCI   float64         `json:"initial_pci"`
-	DecayRate    float64         `json:"decay_rate"`
-	HorizonYears int             `json:"horizon_years"`
-	CostTiers    json.RawMessage `json:"cost_tiers,omitempty"`
-	TotalArea    float64         `json:"total_area,omitempty"`
-	CityPaved    float64         `json:"city_paved,omitempty"`
-	Cohorts      []CohortSeed    `json:"cohorts,omitempty"`
+	InitialPCI         float64         `json:"initial_pci"`
+	DecayRate          float64         `json:"decay_rate"`
+	HorizonYears       int             `json:"horizon_years"`
+	CostTiers          json.RawMessage `json:"cost_tiers,omitempty"`
+	MaintainedArea     float64         `json:"maintained_area,omitempty"`
+	CityMaintainedArea float64         `json:"city_maintained_area,omitempty"`
+	Cohorts            []CohortSeed    `json:"cohorts,omitempty"`
 }
 
 // compareScenario is the baseline (first) scenario of a scope, with only the

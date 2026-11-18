@@ -69,7 +69,7 @@ const hexRows = (h) => h.$$('#stats .hex-detail tr td:first-child')
 
 const perResidentArea = (h) => {
   const row = h.$$('#stats .ratio-card .stat-row')
-    .find((r) => r.querySelector('.stat-label').textContent === 'Paved area per resident');
+    .find((r) => r.querySelector('.stat-label').textContent === 'Maintained area per resident');
   return row && row.querySelector('.stat-value').textContent;
 };
 

@@ -17,8 +17,9 @@ import (
 const HexMetricsFileVersion = 2
 
 // HexMetricsJSON is hex-metrics.json: every registered metric that has rows
-// for the city, keyed by metric key, each self-describing enough for the
-// dashboard to format values and paint hexes without metric-specific code.
+// for the city's drawn hexes (drawnGrid), keyed by metric key, each
+// self-describing enough for the dashboard to format values and paint hexes
+// without metric-specific code.
 type HexMetricsJSON struct {
 	V       int                   `json:"v"`
 	Metrics map[string]MetricJSON `json:"metrics"`
@@ -55,8 +56,8 @@ type MetricPointJSON struct {
 }
 
 // MetricSummaryJSON is the per-metric summary meta.json carries for the stats
-// card: computed over every stored row, which are the hexes the map paints
-// for that metric.
+// card: computed over the stored rows of the hexes the map draws (drawnGrid),
+// the same rows hex-metrics.json carries.
 type MetricSummaryJSON struct {
 	Label    string `json:"label"`
 	Unit     string `json:"unit"`
@@ -125,14 +126,19 @@ func runTurnout(ctx context.Context, entry CityEntry, service string) (turnout f
 	return 0, false, nil
 }
 
-// BuildHexMetrics assembles hex-metrics.json for a city. Returns (nil, nil)
-// when no registered metric has rows (the file is optional: see
-// OptionalDataFileNames), and propagates real store errors so the server's
-// cache evicts rather than memoising a blank file.
+// BuildHexMetrics assembles hex-metrics.json for a city: the stored rows of
+// the hexes hexgrid.geojson draws, and no others. Returns (nil, nil) when no
+// registered metric has rows there, or there is no grid (the file is
+// optional: see OptionalDataFileNames), and propagates real store errors so
+// the server's cache evicts rather than memoising a blank file.
 func BuildHexMetrics(ctx context.Context, entry CityEntry) (*HexMetricsJSON, error) {
+	return buildHexMetrics(ctx, entry, newDrawnGrid(ctx, entry, nil))
+}
+
+func buildHexMetrics(ctx context.Context, entry CityEntry, grid *drawnGrid) (*HexMetricsJSON, error) {
 	out := &HexMetricsJSON{V: HexMetricsFileVersion, Metrics: map[string]MetricJSON{}}
 	for _, spec := range hexmetric.StoredSpecs() {
-		rows, err := metricRows(ctx, entry, spec.Key)
+		rows, err := drawnMetricRows(ctx, entry, grid, spec.Key, "")
 		if err != nil {
 			return nil, err
 		}
@@ -156,12 +162,27 @@ func BuildHexMetrics(ctx context.Context, entry CityEntry) (*HexMetricsJSON, err
 // so it is current by construction: a recompute of roads leaves it in place,
 // and a producer rerun that stored nothing hides it (its new, empty run
 // replaces the old one) rather than letting older rows resurface.
-func metricRows(ctx context.Context, entry CityEntry, key string) ([]db.HexMetric, error) {
-	rows, err := entry.Store.ListHexMetrics(ctx, key, "")
+func metricRows(ctx context.Context, entry CityEntry, key, subject string) ([]db.HexMetric, error) {
+	rows, err := entry.Store.ListHexMetrics(ctx, key, subject)
 	if err != nil {
 		return nil, fmt.Errorf("listing hex metric %s: %w", key, err)
 	}
 	return rows, nil
+}
+
+// drawnMetricRows is metricRows less the rows of hexes the map does not draw
+// (drawnGrid). The grid is built only when there are rows to filter; nil
+// when there is no grid at all.
+func drawnMetricRows(ctx context.Context, entry CityEntry, grid *drawnGrid, key, subject string) ([]db.HexMetric, error) {
+	rows, err := metricRows(ctx, entry, key, subject)
+	if err != nil || len(rows) == 0 {
+		return nil, err
+	}
+	ids, err := grid.ids()
+	if err != nil {
+		return nil, fmt.Errorf("hex grid for %s: %w", entry.City.Name, err)
+	}
+	return drawnRows(rows, ids), nil
 }
 
 // buildMetricJSON assembles one metric's file entry: the registry
@@ -228,36 +249,25 @@ func metricPoints(ctx context.Context, entry CityEntry, metricKey string, refIDs
 	return points, nil
 }
 
-// buildMetricSummaries returns meta.json's per-metric summaries over every
-// stored row, or nil when no metric has rows or the city has no hex grid to
-// paint them on. Any store error propagates.
+// buildMetricSummaries returns meta.json's per-metric summaries over the
+// rows hex-metrics.json carries (those of the hexes hexgrid.geojson draws:
+// drawnGrid), or nil when no metric has rows there or the city has no hex
+// grid. Any store error propagates.
 //
-// Every row is a hex the map paints: hexgrid.geojson carries every hex
-// of the clipped grid the producers compute on, whether or not it holds
-// pavement. (The export's sliver filter can drop a handful of edge hexes
-// below min_hex_area; their rows are a rounding error in these figures.)
-func buildMetricSummaries(ctx context.Context, entry CityEntry) (map[string]MetricSummaryJSON, error) {
+// A stored row whose hex the map does not draw (a shoreline or edge sliver
+// under min_hex_area, an id outside the clipped grid) is in neither file, so
+// the counts, shares and totals here describe what the map shows.
+func buildMetricSummaries(ctx context.Context, entry CityEntry, grid *drawnGrid) (map[string]MetricSummaryJSON, error) {
 	var out map[string]MetricSummaryJSON
-	checkedGrid := false // checked lazily: most cities have no metrics
 	for _, spec := range hexmetric.StoredSpecs() {
-		rows, err := metricRows(ctx, entry, spec.Key)
+		rows, err := drawnMetricRows(ctx, entry, grid, spec.Key, "")
 		if err != nil {
 			return nil, err
 		}
 		if len(rows) == 0 {
 			continue
 		}
-		if !checkedGrid {
-			hasGrid, err := hasHexGrid(ctx, entry)
-			if err != nil {
-				return nil, err
-			}
-			if !hasGrid {
-				return nil, nil //nolint:nilnil // nil map = no grid to paint metrics on, not an error
-			}
-			checkedGrid = true
-		}
-		sum, ok, err := metricSummary(ctx, entry, spec, rows)
+		sum, ok, err := metricSummary(ctx, entry, grid, spec, rows)
 		if err != nil {
 			return nil, err
 		}
@@ -274,15 +284,16 @@ func buildMetricSummaries(ctx context.Context, entry CityEntry) (map[string]Metr
 
 // metricSummary summarises one metric's rows against its resolved
 // threshold, counting a service's unreachable hexes (rows under
-// services.SubjectUnreachable) against the within-threshold share.
-func metricSummary(ctx context.Context, entry CityEntry, spec hexmetric.Spec, rows []db.HexMetric) (MetricSummaryJSON, bool, error) {
+// services.SubjectUnreachable, of drawn hexes only) against the
+// within-threshold share.
+func metricSummary(ctx context.Context, entry CityEntry, grid *drawnGrid, spec hexmetric.Spec, rows []db.HexMetric) (MetricSummaryJSON, bool, error) {
 	_, threshold, hasThreshold, err := resolvedScale(ctx, entry, spec)
 	if err != nil {
 		return MetricSummaryJSON{}, false, err
 	}
 	var unreachable []db.HexMetric
 	if hasThreshold {
-		if unreachable, err = entry.Store.ListHexMetrics(ctx, spec.Key, services.SubjectUnreachable); err != nil {
+		if unreachable, err = drawnMetricRows(ctx, entry, grid, spec.Key, services.SubjectUnreachable); err != nil {
 			return MetricSummaryJSON{}, false, fmt.Errorf("listing unreachable hexes of %s: %w", spec.Key, err)
 		}
 	}
@@ -352,5 +363,5 @@ func hasHexGrid(ctx context.Context, entry CityEntry) (bool, error) {
 // the site's Map stats card shows them (its "Within 5:20" share is
 // WithinThresholdShare): `pvmt snapshots diff` compares two snapshots with it.
 func MetricSummaries(ctx context.Context, entry CityEntry) (map[string]MetricSummaryJSON, error) {
-	return buildMetricSummaries(ctx, entry)
+	return buildMetricSummaries(ctx, entry, newDrawnGrid(ctx, entry, nil))
 }

@@ -39,9 +39,9 @@ func init() {
 	})
 	Register(Spec{
 		Key:    KeyArea,
-		Label:  "Paved area",
+		Label:  "Maintained area",
 		Unit:   "m2",
-		Source: "Area of the toggled resources inside the hex (pvmt all compute)",
+		Source: "Area of the toggled resources inside the hex, summed per resource as the forecast prices them (pvmt all compute)",
 		Format: FormatArea,
 		Scale: Scale{
 			Kind: KindSequential, Transform: TransformLinear,

@@ -11,6 +11,17 @@ import { metaJSON, fullData, readFixture } from './fixtures.mjs';
 const plain = (v) => JSON.parse(JSON.stringify(v));
 const params = (win) => new URLSearchParams(win.location.search);
 
+// REAL exporter output (BuildHexMetrics / BuildMeta over the harness fixture,
+// see js_harness_test.go), not hand-written: rename a json tag on the Go side
+// and these specs fail instead of passing over a stale literal.
+const metricsFile = readFixture('hex-metrics.json');
+const fire = metricsFile.metrics.fire_response_s;
+// The fixture's hexes, real ids of its drawn grid: the two the fire run
+// timed, fastest first, then one it did not (the unreachable hex has no value).
+const [h0, h1] = Object.keys(fire.values).sort((a, b) => fire.values[a] - fire.values[b]);
+const h2 = 'hex:unreached';
+const hexIDs = [h0, h1, h2];
+
 function hexFC(features) {
   return {
     type: 'FeatureCollection',
@@ -18,16 +29,10 @@ function hexFC(features) {
     features: features.map((props, i) => ({
       type: 'Feature',
       geometry: { type: 'Polygon', coordinates: [[[0, 0], [0, 1], [1, 1], [0, 0]]] },
-      properties: { id: `hex:0:${i}`, ...props },
+      properties: { id: hexIDs[i], ...props },
     })),
   };
 }
-
-// REAL exporter output (BuildHexMetrics / BuildMeta over the harness fixture,
-// see js_harness_test.go), not hand-written: rename a json tag on the Go side
-// and these specs fail instead of passing over a stale literal.
-const metricsFile = readFixture('hex-metrics.json');
-const fire = metricsFile.metrics.fire_response_s;
 
 const data = {
   ...fullData,
@@ -70,11 +75,11 @@ test('an unreachable hex has no value on the map but counts against the within-t
   assert.equal(metaJSON.metrics.fire_response_s.unreachable_count, 1);
   assert.match(card.textContent, /Unreachable hexes\s*1/);
   assert.match(card.textContent, /Within 5:20\s*33\.3%/, 'the share is of all three hexes on the network');
-  assert.equal(fire.values['hex:0:2'], undefined, 'an unreachable hex carries no time');
+  assert.equal(fire.values[h2], undefined, 'an unreachable hex carries no time');
   win.selectHexMetric('fire_response_s');
   const fc = plain(win.buildBlendedHexFC());
   const byId = Object.fromEntries(fc.features.map((f) => [f.properties.hex_id, f.properties]));
-  assert.equal(byId['hex:0:2'].metric_v, undefined, 'so it is painted as a hex without a value');
+  assert.equal(byId[h2].metric_v, undefined, 'so it is painted as a hex without a value');
 });
 
 test('selecting a metric paints discrete bands guarded for missing values, redraws the legend, and shows points', async () => {
@@ -90,10 +95,10 @@ test('selecting a metric paints discrete bands guarded for missing values, redra
 
   const fc = plain(win.buildBlendedHexFC());
   const byId = Object.fromEntries(fc.features.map((f) => [f.properties.hex_id, f.properties]));
-  assert.equal(byId['hex:0:0'].metric_v, 300);
-  assert.equal(byId['hex:0:0'].metric_ref, 'Station 9');
-  assert.equal(byId['hex:0:1'].metric_v, 700);
-  assert.equal(byId['hex:0:2'].metric_v, undefined, 'a hex the metric does not cover carries no value');
+  assert.equal(byId[h0].metric_v, 300);
+  assert.equal(byId[h0].metric_ref, 'Station 9');
+  assert.equal(byId[h1].metric_v, 700);
+  assert.equal(byId[h2].metric_v, undefined, 'a hex the metric does not cover carries no value');
 
   assert.match($('#legend .legend-row label').textContent, /Color by/);
   // One label per band, centred under its colour block: "≤ first", ranges,

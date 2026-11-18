@@ -623,6 +623,12 @@ func groupCitiesInDimension(cities []CityInfo, dim string) []CityGroup {
 // a months-old snapshot must show when it was computed, not the render date
 // (which would freeze at first-request date in the lifetime cache).
 func BuildMeta(ctx context.Context, entry CityEntry, snapshotID int64) (MetaJSON, error) {
+	return buildMeta(ctx, entry, snapshotID, newDrawnGrid(ctx, entry, nil))
+}
+
+// buildMeta is BuildMeta over grid, the city's drawn hex grid, which an
+// export shares with hexgrid.geojson and hex-metrics.json.
+func buildMeta(ctx context.Context, entry CityEntry, snapshotID int64, grid *drawnGrid) (MetaJSON, error) {
 	bbox, lon, lat, err := entry.BBoxAndCenter(ctx)
 	if err != nil {
 		return MetaJSON{}, fmt.Errorf("city %s: %w", entry.City.Name, err)
@@ -648,7 +654,7 @@ func BuildMeta(ctx context.Context, entry CityEntry, snapshotID int64) (MetaJSON
 		return MetaJSON{}, fmt.Errorf("city %s ingest history: %w", entry.City.Name, err)
 	}
 
-	metrics, err := buildMetricSummaries(ctx, entry)
+	metrics, err := buildMetricSummaries(ctx, entry, grid)
 	if err != nil {
 		return MetaJSON{}, err
 	}

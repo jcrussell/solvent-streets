@@ -259,14 +259,16 @@ The site reports two areas, and each keeps one name on every tab:
 
 - **Paved footprint** is the ground pavement covers: roads, parking and
   sidewalks buffered and unioned, so where a sidewalk or lot meets a road the
-  overlap counts once. It is what **% Paved** divides by the city's area, and
-  the denominator of every **per-acre** figure on Compare and Aggregate, in
-  the current scope (city-maintained or all owners), shown beside each city.
+  overlap counts once. It is used only for itself (the Map's City Summary)
+  and for **% Paved**, which divides it by the city's area.
 - **Maintained area** is roads + parking + sidewalks summed as the forecast
-  prices them, so a sidewalk beside a road counts in both. It is always the
-  larger of the two, and is what Compare's and Aggregate's area totals and
-  the per-city table show. Financials' **End Area** is the maintained area
-  in the final year, after growth.
+  prices them, so a sidewalk beside a road counts in both. It is never
+  smaller than the footprint. Everything priced or apportioned uses it: the
+  forecast, the denominator of every **per-acre** figure on Compare and
+  Aggregate (in the current scope, city-maintained or all owners, shown
+  beside each city), the per-resident figures, and Compare's and Aggregate's
+  area totals and per-city table. Financials' **End Area** is the
+  maintained area in the final year, after growth.
 
 ### Compare-tab scores
 
@@ -328,7 +330,7 @@ are hex-clipped the same way). Limitations:
 ### Color by
 
 The map's **Color by** selector offers every per-hex metric available for
-the city. The pavement colorings — **Coverage %** (the default), **Paved
+the city. The pavement colorings — **Coverage %** (the default), **Maintained
 area**, **Parking spaces** and **Est. year-1 cost** — are computed in the
 browser from the hex grid over the resources currently toggled on, so they
 change as you toggle roads, parking or sidewalks; a coloring with nothing to
@@ -348,8 +350,8 @@ moves people only within a block and never changes the city total. Density
 divides a hex's population by its own area after clipping to the city
 boundary, so edge hexes are not understated.
 
-**Paved area per resident** and **Year-1 need per resident** divide a hex's
-paved area, or its year-1 need, by its population. Both follow the
+**Maintained area per resident** and **Year-1 need per resident** divide a
+hex's maintained area, or its year-1 need, by its population. Both follow the
 resources toggled on. Hexes with fewer than 10 residents are left blank, so
 a nearly empty hex doesn't produce a huge per-resident figure. The year-1
 need is the do-nothing first-year need, including any repair backlog. It is

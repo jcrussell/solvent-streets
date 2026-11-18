@@ -21,8 +21,15 @@ import (
 // hex metrics), the facilities the fire run routed from, a roads compute and
 // hexStats. The mock stands in for the snapshot: whatever it lists IS the
 // snapshot's metric part.
+//
+// With no hexStats the city still has a grid: one roads coverage row on the
+// first of metricsHexIDs, so hexgrid.geojson is written and the metrics have
+// hexes to cover.
 func metricsEntry(t *testing.T, rows []db.HexMetric, facilities []db.RunFacility, hexStats []results.HexCoverage) CityEntry {
 	t.Helper()
+	if len(hexStats) == 0 {
+		hexStats = []results.HexCoverage{{HexID: metricsHexIDs(t)[0], Area: 1}}
+	}
 	store := &dbtest.MockStore{
 		CityMetrics:     results.TotalRows(resource.TypeRoads, results.Totals{Area: 1}),
 		HexMetrics:      append(slices.Clone(rows), results.HexCoverageRows(rtRoads, hexStats)...),
@@ -32,6 +39,19 @@ func metricsEntry(t *testing.T, rows []db.HexMetric, facilities []db.RunFacility
 	cfg := &config.Config{ConfigID: "t"}
 	city := config.CityConfig{Name: "Test, CA", Facilities: []config.FacilityConfig{{Service: "fire", Name: "Manual", Lat: 37.7, Lon: -122.4}}}
 	return CityEntry{Config: cfg, City: city, Store: store, Slug: "test-ca"}
+}
+
+// metricsHexIDs returns five hex ids metricsEntry's city draws
+// (drawnGrid), in id order: rows on them are what hex-metrics.json and
+// meta.json's summaries carry.
+func metricsHexIDs(t *testing.T) []string {
+	t.Helper()
+	probe := CityEntry{
+		Config: &config.Config{ConfigID: "t"},
+		City:   config.CityConfig{Name: "Test, CA"},
+		Store:  &dbtest.MockStore{GetBoundaryFunc: func(context.Context) (string, error) { return boundaryGeoJSON, nil }},
+	}
+	return drawnHexIDs(t, probe, 5)
 }
 
 // fireFacilities is what a fire run over metricsEntry's city records: one
@@ -48,11 +68,12 @@ func fireFacilities() []db.RunFacility {
 // to a sorted points list spanning the run's OSM and config facilities, and
 // (nil, nil) for a city with no metric rows.
 func TestBuildHexMetrics(t *testing.T) {
+	h := metricsHexIDs(t)
 	now := time.Now()
 	rows := []db.HexMetric{
-		{HexID: "h1", Metric: services.MetricFire, Value: 300.123, Ref: "osm:node:9", ComputedAt: now},
-		{HexID: "h2", Metric: services.MetricFire, Value: 420, Ref: services.ConfigFacilityID("fire", -122.4, 37.7), ComputedAt: now},
-		{HexID: "h3", Metric: services.MetricFire, Value: 500, Ref: "osm:node:missing", ComputedAt: now},
+		{HexID: h[0], Metric: services.MetricFire, Value: 300.123, Ref: "osm:node:9", ComputedAt: now},
+		{HexID: h[1], Metric: services.MetricFire, Value: 420, Ref: services.ConfigFacilityID("fire", -122.4, 37.7), ComputedAt: now},
+		{HexID: h[2], Metric: services.MetricFire, Value: 500, Ref: "osm:node:missing", ComputedAt: now},
 	}
 	entry := metricsEntry(t, rows, fireFacilities(), nil)
 	hm, err := BuildHexMetrics(context.Background(), entry)
@@ -80,7 +101,7 @@ func TestBuildHexMetrics(t *testing.T) {
 		t.Errorf("overridden bands/threshold = %v / %v, want 440", m2.Scale.Bands, m2.ThresholdS)
 	}
 	entry.Config.Services = nil
-	if m.Values["h1"] != 300.12 || m.Values["h2"] != 420 {
+	if m.Values[h[0]] != 300.12 || m.Values[h[1]] != 420 {
 		t.Errorf("values = %v", m.Values)
 	}
 	if len(m.Points) != 2 || m.Points[0].ID != services.ConfigFacilityID("fire", -122.4, 37.7) || m.Points[1].ID != "osm:node:9" {
@@ -89,10 +110,10 @@ func TestBuildHexMetrics(t *testing.T) {
 	if m.Points[1].Position[0] != -122.41 || m.Points[0].Source != "config" || m.Points[0].Name != "Manual" {
 		t.Errorf("points = %+v", m.Points)
 	}
-	if m.Refs["h1"] != 1 || m.Refs["h2"] != 0 {
+	if m.Refs[h[0]] != 1 || m.Refs[h[1]] != 0 {
 		t.Errorf("refs = %v", m.Refs)
 	}
-	if _, ok := m.Refs["h3"]; ok {
+	if _, ok := m.Refs[h[2]]; ok {
 		t.Error("a ref to an unknown point must be dropped, not indexed")
 	}
 	// Round-trips as the client reads it.
@@ -118,13 +139,14 @@ func TestBuildHexMetrics(t *testing.T) {
 // stored row — hexgrid paints every grid hex, pavement or not — and omits
 // the key when no metric has rows.
 func TestBuildMeta_MetricSummaries(t *testing.T) {
+	h := metricsHexIDs(t)
 	now := time.Now()
 	rows := []db.HexMetric{
-		{HexID: "h1", Metric: services.MetricFire, Value: 300, Ref: "a", ComputedAt: now},
-		{HexID: "h2", Metric: services.MetricFire, Value: 420, Ref: "b", ComputedAt: now},
-		{HexID: "h-nopave", Metric: services.MetricFire, Value: 9000, Ref: "b", ComputedAt: now},
+		{HexID: h[0], Metric: services.MetricFire, Value: 300, Ref: "a", ComputedAt: now},
+		{HexID: h[1], Metric: services.MetricFire, Value: 420, Ref: "b", ComputedAt: now},
+		{HexID: h[4], Metric: services.MetricFire, Value: 9000, Ref: "b", ComputedAt: now},
 	}
-	stats := []results.HexCoverage{{HexID: "h1", Area: 1}, {HexID: "h2", Area: 1}}
+	stats := []results.HexCoverage{{HexID: h[0], Area: 1}, {HexID: h[1], Area: 1}}
 	entry := metricsEntry(t, rows, nil, stats)
 	meta, err := BuildMeta(context.Background(), entry, 0)
 	if err != nil {
@@ -156,14 +178,15 @@ func TestBuildMeta_MetricSummaries(t *testing.T) {
 // within-threshold share and is reported, but has no value in
 // hex-metrics.json and stays out of the count, median and range.
 func TestBuildMeta_UnreachableHexesLowerTheShare(t *testing.T) {
+	h := metricsHexIDs(t)
 	now := time.Now()
 	rows := []db.HexMetric{
-		{HexID: "h1", Metric: services.MetricFire, Value: 300, Ref: "a", ComputedAt: now},
-		{HexID: "h2", Metric: services.MetricFire, Value: 420, Ref: "a", ComputedAt: now},
-		{HexID: "h3", Metric: services.MetricFire, Subject: services.SubjectUnreachable, ComputedAt: now},
-		{HexID: "h4", Metric: services.MetricFire, Subject: services.SubjectUnreachable, ComputedAt: now},
+		{HexID: h[0], Metric: services.MetricFire, Value: 300, Ref: "a", ComputedAt: now},
+		{HexID: h[1], Metric: services.MetricFire, Value: 420, Ref: "a", ComputedAt: now},
+		{HexID: h[2], Metric: services.MetricFire, Subject: services.SubjectUnreachable, ComputedAt: now},
+		{HexID: h[3], Metric: services.MetricFire, Subject: services.SubjectUnreachable, ComputedAt: now},
 	}
-	stats := []results.HexCoverage{{HexID: "h1", Area: 1}}
+	stats := []results.HexCoverage{{HexID: h[0], Area: 1}}
 	entry := metricsEntry(t, rows, nil, stats)
 	meta, err := BuildMeta(context.Background(), entry, 0)
 	if err != nil {
@@ -190,8 +213,9 @@ func TestBuildMeta_UnreachableHexesLowerTheShare(t *testing.T) {
 // whether or not the city has a roads compute, a roads recompute does not hide
 // them, and it does not matter which run wrote them.
 func TestHexMetrics_IndependentOfRoadsCompute(t *testing.T) {
-	rows := []db.HexMetric{{HexID: "h1", Metric: services.MetricFire, Value: 300, Ref: "a", RunID: 3}}
-	stats := []results.HexCoverage{{HexID: "h1", Area: 1}}
+	h := metricsHexIDs(t)
+	rows := []db.HexMetric{{HexID: h[0], Metric: services.MetricFire, Value: 300, Ref: "a", RunID: 3}}
+	stats := []results.HexCoverage{{HexID: h[0], Area: 1}}
 
 	noRoads := metricsEntry(t, rows, nil, stats)
 	noRoads.Store.(*dbtest.MockStore).CityMetrics = nil
@@ -199,7 +223,7 @@ func TestHexMetrics_IndependentOfRoadsCompute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hm == nil || hm.Metrics[services.MetricFire].Values["h1"] != 300 {
+	if hm == nil || hm.Metrics[services.MetricFire].Values[h[0]] != 300 {
 		t.Errorf("no roads compute: BuildHexMetrics = %+v, want the fire metric published", hm)
 	}
 	meta, err := BuildMeta(context.Background(), metricsEntry(t, rows, nil, stats), 0)

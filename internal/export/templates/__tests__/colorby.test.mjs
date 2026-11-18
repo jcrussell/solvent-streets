@@ -164,12 +164,12 @@ test('the per-resident card is a city-wide sum over sum and follows the toggles'
   const rows = () => Object.fromEntries(h.$$('#stats .ratio-card .stat-row').map((r) =>
     [r.querySelector('.stat-label').textContent, r.querySelector('.stat-value').textContent]));
   // 4500 m² paved / 132 residents (34.1 m², shown in sq ft); $21,000 year-1 need / 132 residents.
-  assert.deepEqual(rows(), { 'Paved area per resident': '367 sq ft', 'Year-1 need per resident': '$159' });
+  assert.deepEqual(rows(), { 'Maintained area per resident': '367 sq ft', 'Year-1 need per resident': '$159' });
   const cb = h.$('#toggles input[data-type="parking"]');
   cb.checked = false;
   cb.dispatchEvent(new h.win.Event('change'));
   // Roads only: 1500 m² and $15,000 over the same 132 residents.
-  assert.deepEqual(rows(), { 'Paved area per resident': '122 sq ft', 'Year-1 need per resident': '$114' });
+  assert.deepEqual(rows(), { 'Maintained area per resident': '122 sq ft', 'Year-1 need per resident': '$114' });
 });
 
 // Untoggling the resource the Color-by metric needs falls back to the default
@@ -183,5 +183,5 @@ test('the per-resident card follows a toggle that drops the Color-by metric', as
   assert.equal(h.get('hexMetric'), 'coverage_share');
   const rows = Object.fromEntries(h.$$('#stats .ratio-card .stat-row').map((r) =>
     [r.querySelector('.stat-label').textContent, r.querySelector('.stat-value').textContent]));
-  assert.deepEqual(rows, { 'Paved area per resident': '122 sq ft', 'Year-1 need per resident': '$114' });
+  assert.deepEqual(rows, { 'Maintained area per resident': '122 sq ft', 'Year-1 need per resident': '$114' });
 });
