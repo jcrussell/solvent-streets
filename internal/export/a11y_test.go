@@ -24,8 +24,8 @@ func TestDashboardTablistAria(t *testing.T) {
 	}
 	out := buf.String()
 
-	if !strings.Contains(out, `class="tab-bar" role="tablist" aria-label="Sections"`) {
-		t.Error("tab-bar missing role=tablist + aria-label")
+	if !strings.Contains(out, `class="tab-list" role="tablist" aria-label="Sections"`) {
+		t.Error("tab-list missing role=tablist + aria-label")
 	}
 
 	tabs := []struct {

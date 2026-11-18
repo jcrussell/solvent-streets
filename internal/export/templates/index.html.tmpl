@@ -10,7 +10,10 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        :root { --banner-h: 26px; }
+        /* --banner-h and --tabbar-h are the fixed WIP banner and tab bar; every
+           panel below them is offset by their sum. The phone query re-sizes
+           both (the banner wraps, the bar takes two rows). */
+        :root { --banner-h: 26px; --tabbar-h: 48px; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); }
         #map { width: 100%; height: 100%; }
         .wip-banner {
@@ -40,8 +43,12 @@
             left: 0;
             right: 0;
             z-index: 1000;
-            height: 48px;
+            height: var(--tabbar-h);
         }
+        /* The tabs (and the Play link) are their own flex row, so on a phone
+           they scroll sideways in their own box while the city select and
+           the gear stay put. */
+        .tab-list { display: flex; min-width: 0; }
         .tab-bar h1 { color: var(--header-fg); font-size: 16px; line-height: 48px; margin-right: 32px; }
         .tab-btn {
             background: none;
@@ -67,13 +74,13 @@
             align-self: center; margin-left: 8px; flex-shrink: 0;
         }
         .tab-bar .theme-toggle:hover { border-color: var(--header-fg); }
-        .tab-content { display: none; position: absolute; top: calc(48px + var(--banner-h)); left: 0; right: 0; bottom: 28px; z-index: 1; }
+        .tab-content { display: none; position: absolute; top: calc(var(--tabbar-h) + var(--banner-h)); left: 0; right: 0; bottom: 28px; z-index: 1; }
         .tab-content.active { display: block; }
         /* solvent-streets-mw80: with no city matching the tag filters, the
            city-scoped tabs would show a stale city or empty charts; the
            no-match panel replaces them (About and Config stay). */
         body.no-city-match .tab-content[data-city-scoped].active { display: none; }
-        .no-match-panel { position: absolute; top: calc(48px + var(--banner-h)); left: 0; right: 0; z-index: 2; padding: 48px 24px; text-align: center; font-size: 15px; }
+        .no-match-panel { position: absolute; top: calc(var(--tabbar-h) + var(--banner-h)); left: 0; right: 0; z-index: 2; padding: 48px 24px; text-align: center; font-size: 15px; }
         .no-match-panel button { margin-left: 8px; padding: 4px 12px; cursor: pointer; }
         .site-footer {
             position: fixed;
@@ -247,11 +254,12 @@
             flex-shrink: 0;
             line-height: 1;
             padding: 0;
+            margin-right: 8px;
         }
         .gear-toggle:hover { border-color: var(--header-fg); }
         .gear-menu {
             position: fixed;
-            top: calc(52px + var(--banner-h));
+            top: calc(var(--tabbar-h) + 4px + var(--banner-h));
             right: 8px;
             background: var(--panel);
             color: var(--text);
@@ -634,14 +642,28 @@
            cards reflow to a single column, allow the cohort table to
            scroll, and reduce the largest typographic accents. */
         @media (max-width: 640px) {
-            .tab-bar {
-                padding: 0 8px;
-                overflow-x: auto;
-                overflow-y: hidden;
-                -webkit-overflow-scrolling: touch;
+            /* The WIP banner wraps to two lines rather than truncating. */
+            :root { --banner-h: 34px; --tabbar-h: 84px; }
+            .wip-banner {
+                display: flex; align-items: center; justify-content: center;
+                line-height: 1.25; white-space: normal; font-size: 11px; padding: 0 8px;
             }
-            .tab-bar h1 { font-size: 14px; margin-right: 12px; }
-            .tab-bar .tab-btn { padding: 0 10px; font-size: 13px; flex-shrink: 0; }
+            /* Two rows: the title, city select and gear on top, always in
+               view; the tabs below, scrolling sideways in their own row with
+               a fade at the right edge to say there is more. */
+            .tab-bar { padding: 0 8px; flex-wrap: wrap; align-items: center; }
+            .tab-bar h1 { font-size: 14px; line-height: 40px; margin-right: 12px; flex-shrink: 0; }
+            #city-select { flex: 1 1 0; min-width: 0; max-width: 260px; margin-right: 8px; font-size: 13px; }
+            .gear-toggle { margin-right: 0; }
+            .tab-list {
+                order: 1; flex: 0 0 100%; height: 44px;
+                overflow-x: auto; overflow-y: hidden;
+                -webkit-overflow-scrolling: touch; scrollbar-width: none;
+                -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+                mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+            }
+            .tab-list::-webkit-scrollbar { display: none; }
+            .tab-bar .tab-btn, .tab-bar a.nav-link { padding: 0 10px; font-size: 13px; flex-shrink: 0; line-height: 42px; white-space: nowrap; }
             .jurisdiction-toggle button { padding: 4px 8px; font-size: 12px; }
 
             /* Map panel: stop covering the map; dock at the bottom with a
@@ -684,11 +706,22 @@
             .score-card { padding: 16px; }
             .score-card .score-value { font-size: 36px; }
 
-            /* Cohort + tier rows: the 7-col cohort table and the 4-col tier
-               grid both exceed 375px. Let cohort scroll horizontally; keep
-               tier as a single block with reduced gutter. */
-            .cohort-section { overflow-x: auto; }
-            .cohort-table { font-size: 13px; min-width: 560px; }
+            /* Tables: tighter cells so the narrower ones fit; one still
+               wider than the screen scrolls inside its own section, which
+               shades the edge it can scroll toward (the local/scroll
+               background pair: the covers move with the content, the
+               shadows stay with the box). The tier grid keeps one block
+               with a reduced gutter. */
+            .cohort-section {
+                overflow-x: auto;
+                background:
+                    linear-gradient(to right, var(--bg) 30%, transparent) left / 24px 100% no-repeat local,
+                    linear-gradient(to left, var(--bg) 30%, transparent) right / 24px 100% no-repeat local,
+                    radial-gradient(farthest-side at 0 50%, rgba(0,0,0,0.18), transparent) left / 12px 100% no-repeat scroll,
+                    radial-gradient(farthest-side at 100% 50%, rgba(0,0,0,0.18), transparent) right / 12px 100% no-repeat scroll;
+            }
+            .cohort-table { font-size: 12px; }
+            .cohort-table th, .cohort-table td { padding: 6px 6px; }
             .tier-row { grid-template-columns: 1fr 64px 64px 80px; gap: 6px; font-size: 12px; }
 
             /* Leaderboard rows: drop the fixed name column so long city
@@ -706,18 +739,20 @@
 <body>
     <div class="wip-banner" role="status">⚠️ Work in progress — data and figures are preliminary.</div>
     {{template "error_banner" .}}
-    <div class="tab-bar" role="tablist" aria-label="Sections">
+    <div class="tab-bar">
         <h1>Solvent Streets</h1>
-        <button class="tab-btn active" data-tab="map-tab" id="map-tab-btn" role="tab" aria-selected="true" aria-controls="map-tab" tabindex="0">Map</button>
-        <button class="tab-btn" data-tab="financials-tab" id="financials-tab-btn" role="tab" aria-selected="false" aria-controls="financials-tab" tabindex="-1">Financials</button>
-        <button class="tab-btn" data-tab="materials-tab" id="materials-tab-btn" role="tab" aria-selected="false" aria-controls="materials-tab" tabindex="-1">Materials</button>
-        {{if .Cities}}
-        <button class="tab-btn" data-tab="compare-tab" id="compare-tab-btn" role="tab" aria-selected="false" aria-controls="compare-tab" tabindex="-1">Compare</button>
-        <button class="tab-btn" data-tab="aggregate-tab" id="aggregate-tab-btn" role="tab" aria-selected="false" aria-controls="aggregate-tab" tabindex="-1">Aggregate</button>
-        {{end}}
-        <button class="tab-btn" data-tab="config-tab" id="config-tab-btn" role="tab" aria-selected="false" aria-controls="config-tab" tabindex="-1">Config</button>
-        <button class="tab-btn" data-tab="about-tab" id="about-tab-btn" role="tab" aria-selected="false" aria-controls="about-tab" tabindex="-1">About</button>
-        <a class="nav-link" href="{{if .IsLiveServer}}/play{{else}}play.html{{end}}" title="Play the Solvent Streets game">Play &#9656;</a>
+        <div class="tab-list" role="tablist" aria-label="Sections">
+            <button class="tab-btn active" data-tab="map-tab" id="map-tab-btn" role="tab" aria-selected="true" aria-controls="map-tab" tabindex="0">Map</button>
+            <button class="tab-btn" data-tab="financials-tab" id="financials-tab-btn" role="tab" aria-selected="false" aria-controls="financials-tab" tabindex="-1">Financials</button>
+            <button class="tab-btn" data-tab="materials-tab" id="materials-tab-btn" role="tab" aria-selected="false" aria-controls="materials-tab" tabindex="-1">Materials</button>
+            {{if .Cities}}
+            <button class="tab-btn" data-tab="compare-tab" id="compare-tab-btn" role="tab" aria-selected="false" aria-controls="compare-tab" tabindex="-1">Compare</button>
+            <button class="tab-btn" data-tab="aggregate-tab" id="aggregate-tab-btn" role="tab" aria-selected="false" aria-controls="aggregate-tab" tabindex="-1">Aggregate</button>
+            {{end}}
+            <button class="tab-btn" data-tab="config-tab" id="config-tab-btn" role="tab" aria-selected="false" aria-controls="config-tab" tabindex="-1">Config</button>
+            <button class="tab-btn" data-tab="about-tab" id="about-tab-btn" role="tab" aria-selected="false" aria-controls="about-tab" tabindex="-1">About</button>
+            <a class="nav-link" href="{{if .IsLiveServer}}/play{{else}}play.html{{end}}" title="Play the Solvent Streets game">Play &#9656;</a>
+        </div>
         {{if .Cities}}
         {{template "city_select" .}}
         {{end}}
@@ -726,7 +761,7 @@
                 aria-haspopup="true"
                 aria-expanded="false"
                 aria-controls="gear-menu"
-                style="{{if not .Cities}}margin-left:auto;{{end}}margin-right:8px;">&#9881;</button>
+                {{if not .Cities}}style="margin-left:auto;"{{end}}>&#9881;</button>
     </div>
     <div class="gear-menu" id="gear-menu" role="menu" hidden>
         {{if .HasTagFilters}}

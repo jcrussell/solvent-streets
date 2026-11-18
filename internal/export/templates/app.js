@@ -406,6 +406,7 @@
                 queryAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === init.tab));
                 queryAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === init.tab));
                 syncTabAria();
+                revealTabButton(queryEl('.tab-btn[data-tab="' + init.tab + '"]'));
                 // Toggling classes does NOT trigger the per-tab data load that
                 // a selectTab() click would, so a deep-linked ?tab= for a
                 // lazy-loaded tab would otherwise hang on its loading spinner.
@@ -548,6 +549,16 @@
                 b.setAttribute('tabindex', active ? '0' : '-1');
             });
         }
+        // revealTabButton scrolls the tab row (which scrolls sideways on a
+        // phone) so the selected tab is in view, e.g. a ?tab=about link.
+        function revealTabButton(btn) {
+            const list = btn.parentElement;
+            if (!list || list.scrollWidth <= list.clientWidth) return;
+            const left = btn.offsetLeft - list.offsetLeft;
+            if (left < list.scrollLeft || left + btn.offsetWidth > list.scrollLeft + list.clientWidth) {
+                list.scrollLeft = Math.max(0, left - 16);
+            }
+        }
         function selectTab(tabId, opts) {
             const btn = queryEl('.tab-btn[data-tab="' + tabId + '"]');
             const content = document.getElementById(tabId);
@@ -558,6 +569,7 @@
             content.classList.add('active');
             syncTabAria();
             syncNoMatchState();
+            revealTabButton(btn);
             if (opts && opts.focus) btn.focus();
             if (tabId === 'map-tab' && window._map) window._map.resize();
             if (tabId === 'compare-tab') loadCompareData();
