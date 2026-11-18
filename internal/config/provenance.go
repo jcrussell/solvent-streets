@@ -188,6 +188,14 @@ func (c *Config) resolveForecast(city *CityConfig) (ForecastConfig, forecastProv
 	return fc, prov
 }
 
+// InitialPCIAssumed reports whether city's initial_pci is the built-in
+// DefaultInitialPCI because no layer (env, city, file) sets one: its
+// condition is assumed, not cited (solvent-streets-ern4.24).
+func (c *Config) InitialPCIAssumed(city *CityConfig) bool {
+	_, prov := c.resolveForecast(city)
+	return prov.InitialPCI.Kind == SourceDefault
+}
+
 func fileForecastProv(fc *ForecastConfig) forecastProvenance {
 	var p forecastProvenance
 	if validInitialPCI(fc.InitialPCI) {

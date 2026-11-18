@@ -93,6 +93,11 @@ type ForecastExport struct {
 	// show the network the hold-steady budget maintains rather than an
 	// all-jurisdiction, all-resource total. Roads only, like the figures.
 	RoadsArea float64 `json:"roads_area,omitempty"`
+	// InitialPCIAssumed marks a roads forecast whose starting condition is
+	// the default PCI because the config cites none
+	// (config.Config.InitialPCIAssumed), so a page can flag the figures
+	// built on it (solvent-streets-ern4.24). Roads only, like the figures.
+	InitialPCIAssumed bool `json:"initial_pci_assumed,omitempty"`
 }
 
 // errSkipResource sentinel: a resource has no compute run yet (or returned
@@ -137,6 +142,9 @@ func BuildForecastsForCity(ctx context.Context, entry CityEntry, fc *config.Fore
 		if err != nil {
 			errs = append(errs, err)
 			continue
+		}
+		if rt.Type() == resource.TypeRoads && entry.Config != nil {
+			fe.InitialPCIAssumed = entry.Config.InitialPCIAssumed(&entry.City)
 		}
 		forecasts = append(forecasts, fe)
 	}

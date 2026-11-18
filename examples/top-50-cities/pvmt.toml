@@ -76,9 +76,8 @@ name = "Houston, TX"
 #@cite Public Works Pavement Conditions, length-weighted network average, ratings through 2023
 #@cite     https://geohub.houstontx.gov/datasets/pavement-conditions (accessed 2026-06-14)
 forecast.initial_pci = 66
-#@cite FY2025 Street & Traffic Control CIP appropriation (broad capital category, not pavement-only)
-#@cite     https://www.houstontx.gov/budget/26budprop/IX_CIP.pdf (accessed 2026-06-14)
-forecast.current_budget = 281071000.0
+# No current_budget (2026-11-18, solvent-streets-ern4.24): the cited $281M is the broad Street & Traffic Control CIP category, not a pavement budget.
+#     https://www.houstontx.gov/budget/26budprop/IX_CIP.pdf
 overpass = true
 hex_edge_m = 300  # ~2,397,315 residents; large land area
 
@@ -163,9 +162,8 @@ overpass = true
 # 14.
 [[cities]]
 name = "Charlotte, NC"
-#@cite $31M approved resurfacing 200+ roads; bundles asphalt/sidewalk/curb (City of Charlotte; WSOC-TV)
-#@cite     https://www.wsoctv.com/news/local/map-council-voting-31-million-resurface-hundreds-charlottes-roads/5BQF22PXBNH3VNHHP3YSXDVR74/ (accessed 2026-06-14)
-forecast.current_budget = 31000000.0
+# No current_budget (2026-11-18, solvent-streets-ern4.24): the cited $31M resurfacing approval bundles sidewalk and curb work in an unknown share.
+#     https://www.wsoctv.com/news/local/map-council-voting-31-million-resurface-hundreds-charlottes-roads/5BQF22PXBNH3VNHHP3YSXDVR74/
 overpass = true
 # 964,784 residents
 
@@ -184,9 +182,8 @@ hex_edge_m = 250  # ~901,116 residents; large land area
 # 17.
 [[cities]]
 name = "San Francisco, CA"
-#@cite FY2025-26 roadway repaving program (incl. SB1 state + local bond funds)
-#@cite     https://www.sf.gov/news-mayor-lurie-announces-priority-street-repaving-projects/ (accessed 2026-06-14)
-forecast.current_budget = 90000000.0
+# No current_budget (2026-11-18, solvent-streets-ern4.24): the cited $90M FY2025-26 repaving program bundles one-off local bond funds with SB1, so it is not a recurring roads budget.
+#     https://www.sf.gov/news-mayor-lurie-announces-priority-street-repaving-projects/
 #@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
 #@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
 forecast.initial_pci = 75
@@ -262,9 +259,8 @@ overpass = true
 # 26.
 [[cities]]
 name = "Detroit, MI"
-#@cite 2023 Infrastructure Improvement Program road paving (81 miles), single-year program
-#@cite     https://detroitmi.gov/news/city-announces-95m-2023-infrastructure-improvement-program-paving-81-miles-roads-and-replacing-70k (accessed 2026-06-14)
-forecast.current_budget = 95000000.0
+# No current_budget (2026-11-18, solvent-streets-ern4.24): the cited $95M 2023 Infrastructure Improvement Program is a single-year program, not a recurring paving budget.
+#     https://detroitmi.gov/news/city-announces-95m-2023-infrastructure-improvement-program-paving-81-miles-roads-and-replacing-70k
 overpass = true
 # 649,095 residents
 
@@ -389,9 +385,10 @@ overpass = true
 # 40.
 [[cities]]
 name = "Colorado Springs, CO"
-#@cite 2C road-improvement program annual revenues; note ~50% funds sidewalks/curbs, not pavement-only (2023)
+#@cite 2C road-improvement program annual revenues $50M, ~50% of which funds sidewalks/curbs (2023);
+#@cite the pavement half, $25M (solvent-streets-ern4.24)
 #@cite     https://coloradosprings.gov/public-works/page/what-2c (accessed 2026-06-14)
-forecast.current_budget = 50000000.0
+forecast.current_budget = 25000000.0
 overpass = true
 # 494,743 residents
 
@@ -455,9 +452,8 @@ overpass = true
 # 48.
 [[cities]]
 name = "Tulsa, OK"
-#@cite assumed arterial street-improvement budget (modeling assumption; arterials only), 2022-2025
-#@cite     https://www.cityoftulsa.org/media/7018/pci_presentation.pdf (accessed 2026-06-14)
-forecast.current_budget = 20000000.0
+# No current_budget (2026-11-18, solvent-streets-ern4.24): the cited $20M is a modelling assumption for arterials only, not a published budget.
+#     https://www.cityoftulsa.org/media/7018/pci_presentation.pdf
 overpass = true
 # 416,209 residents
 

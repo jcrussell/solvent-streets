@@ -2005,3 +2005,48 @@ years = 15
 		t.Errorf("err = %v; want ErrInvalidConfig pointing at the top-level [forecast]", err)
 	}
 }
+
+// TestInitialPCIAssumed: a city's PCI counts as assumed only when no layer sets
+// one and it falls to DefaultInitialPCI -- not when it comes from the city
+// entry, an included example's file-level [forecast], or the environment
+// (solvent-streets-ern4.24).
+func TestInitialPCIAssumed(t *testing.T) {
+	dir := t.TempDir()
+	writeTOML(t, dir, "cited/pvmt.toml", `
+[[cities]]
+name = "Cited, CA"
+overpass = true
+forecast.initial_pci = 62
+[[cities]]
+name = "Bare, CA"
+overpass = true
+`)
+	writeTOML(t, dir, "filewide/pvmt.toml", `
+[forecast]
+initial_pci = 70
+[[cities]]
+name = "Filewide, CA"
+overpass = true
+`)
+	top := writeTOML(t, dir, "all/pvmt.toml", `
+[[include]]
+path = "../cited/pvmt.toml"
+[[include]]
+path = "../filewide/pvmt.toml"
+`)
+	cfg, err := Load(top)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for slug, want := range map[string]bool{"cited-ca": false, "bare-ca": true, "filewide-ca": false} {
+		c := cityBySlug(t, cfg, slug)
+		if got := cfg.InitialPCIAssumed(&c); got != want {
+			t.Errorf("%s: InitialPCIAssumed = %v, want %v (resolved PCI %v)", slug, got, want, cfg.ResolvedForecast(&c).InitialPCI)
+		}
+	}
+	t.Setenv(EnvForecastInitialPCI, "64")
+	bare := cityBySlug(t, cfg, "bare-ca")
+	if cfg.InitialPCIAssumed(&bare) {
+		t.Error("an env PCI counts as assumed")
+	}
+}

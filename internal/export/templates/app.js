@@ -2920,8 +2920,14 @@
                 lead = 'Holding ' + name + '’s streets steady would take <span class="num">' + fmtMoney(breakEven) + '/yr</span> (streets/roads only).';
                 detail = 'No current budget configured for this city, so the funding gap and insolvency year aren’t shown. Set <code>forecast.current_budget</code> (cited) to see them.';
             }
+            var fe = forecastData ? forecastData.find(function(f) { return f.resource_type === 'roads'; }) : null;
+            var seededPCI = FORECAST_SEED ? Number(FORECAST_SEED.initial_pci) : NaN;
+            var pciNow = parseFloat(inputById('pci-slider').value);
+            var assumed = !!(fe && fe.initial_pci_assumed) && (!liveSolvency || pciNow === seededPCI);
             el.innerHTML = '<div class="lead">' + lead + '</div><div class="detail">' + detail
-                + '</div><div class="detail cost-regime" id="cost-regime-note">' + costRegimeText() + '</div>';
+                + '</div>' + (assumed ? '<div class="detail pci-assumed-detail">† ' + PCI_ASSUMED_NOTE
+                    + ' (' + seededPCI + '). Set Initial PCI under Advanced options to test another.</div>' : '')
+                + '<div class="detail cost-regime" id="cost-regime-note">' + costRegimeText() + '</div>';
             el.style.display = 'block';
         }
 
@@ -4114,6 +4120,18 @@
             return sqm > 0 ? toAreaLarge(sqm) : m.totalAreaLarge;
         }
 
+        // PCI_ASSUMED_MARK flags a city whose condition is the default PCI
+        // because its config cites no survey (forecast.json's
+        // initial_pci_assumed, solvent-streets-ern4.24): its hold-steady budget
+        // and solvency score rest on an assumed starting condition.
+        const PCI_ASSUMED_NOTE = 'Condition assumed: no cited pavement survey, so the forecast starts at the default PCI';
+        /** @param {{initialPCIAssumed?: boolean}} m */
+        function pciAssumedMark(m) {
+            return m && m.initialPCIAssumed
+                ? ' <span class="pci-assumed" title="' + PCI_ASSUMED_NOTE + '" aria-label="' + PCI_ASSUMED_NOTE + '">†</span>'
+                : '';
+        }
+
         function extractMetrics(city) {
             var m = { name: city.name, slug: city.slug };
             m.missing = missingLayers(city.meta);
@@ -4213,12 +4231,14 @@
             // present for any city with roads. Leaderboard categories filter on
             // these so a missing metric never corrupts a sort/bar.
             m.breakEvenBudget = null; m.insolvencyYear = null; m.fundingGap = null; m.currentBudget = 0;
+            m.initialPCIAssumed = false;
             m.solvencyRoadsAreaLarge = 0; // the city-maintained roads the solvency figures price
             if (city.forecast && city.forecast.find) {
                 var roadsFe = city.forecast.find(function(f) { return f.resource_type === 'roads'; });
                 if (roadsFe) {
                     if (roadsFe.break_even_budget > 0) m.breakEvenBudget = roadsFe.break_even_budget;
                     m.currentBudget = roadsFe.current_budget || 0;
+                    m.initialPCIAssumed = !!roadsFe.initial_pci_assumed;
                     if (roadsFe.roads_area > 0) m.solvencyRoadsAreaLarge = toAreaLarge(roadsFe.roads_area);
                     if (roadsFe.current_budget > 0) {
                         // insolvency_year is null when solvent through horizon.
@@ -4300,7 +4320,7 @@
                 var cls = (opts.ranked && m.rank <= 3) ? (' ' + rankClasses[m.rank - 1]) : '';
                 return '<div class="score-card' + cls + (opts.muted ? ' score-card-muted' : '') + '">' +
                     '<div class="rank-medal">' + medal + '</div>' +
-                    '<div class="city-name">' + esc(m.name) + '</div>' +
+                    '<div class="city-name">' + esc(m.name) + pciAssumedMark(m) + '</div>' +
                     '<div class="score-value">' + opts.value + '</div>' +
                     '<div class="score-label">' + opts.label + '</div>' +
                     '<div class="score-breakdown">' + opts.breakdown + '</div>' +
@@ -4348,6 +4368,8 @@
                 return scoreCard(m, { ranked: false, muted: true, value: 'N/A', label: 'No cited budget — unranked', breakdown: solvencyBreakdown(m) });
             }));
             document.getElementById('solvency-cards').innerHTML = solvCards.join('');
+            var assumedNote = document.getElementById('pci-assumed-note');
+            if (assumedNote) assumedNote.hidden = !allMetrics.some(function(m) { return m.initialPCIAssumed; });
 
             // Infrastructure Index cards: every city with every layer places;
             // one missing a layer is shown unranked.
@@ -4416,14 +4438,14 @@
                     var medalIcon = (sorted.length >= 2 && i < 3 && i < medals.length) ? medals[i] : (i + 1) + '.';
                     return '<div class="lb-row">' +
                         '<span class="lb-medal">' + medalIcon + '</span>' +
-                        '<span class="lb-name">' + esc(m.name) + (cat.rowNote ? cat.rowNote(m) : '') + '</span>' +
+                        '<span class="lb-name">' + esc(m.name) + pciAssumedMark(m) + (cat.rowNote ? cat.rowNote(m) : '') + '</span>' +
                         '<div class="lb-bar-wrap"><div class="lb-bar" style="width:' + pct + '%;background:' + cat.color + ';"></div></div>' +
                         '<span class="lb-val">' + cat.fmt(m[cat.key]) + '</span>' +
                     '</div>';
                 }).join('') + unavailable.map(function(m) {
                     return '<div class="lb-row lb-na">' +
                         '<span class="lb-medal">–</span>' +
-                        '<span class="lb-name">' + esc(m.name) + '</span>' +
+                        '<span class="lb-name">' + esc(m.name) + pciAssumedMark(m) + '</span>' +
                         '<div class="lb-bar-wrap"></div>' +
                         '<span class="lb-val" title="No complete ' + esc(lacks(m).join(', ')) + ' data for this city">n/a</span>' +
                     '</div>';

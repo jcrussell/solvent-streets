@@ -279,7 +279,13 @@ The multi-city Compare view presents two distinct per-city scores:
   the most-surplus city ranks first (a single gold medal); ties break on
   the later/absent insolvency year. Computed on roads/streets only and
   **only for cities with a cited `current_budget`** — cities without one
-  cannot be scored and are shown `N/A`, unranked.
+  cannot be scored and are shown `N/A`, unranked. A cited budget must be a
+  recurring roads budget: a single-year program, a broad capital category,
+  one grant or funding-source line, or a figure that bundles sidewalks in
+  an unknown share is not comparable with a roads-only need, so such a city
+  carries no `current_budget` and is unranked. A city marked **†** cites no
+  pavement survey, so its forecast starts at the default PCI (85) and its
+  hold-steady budget and score rest on that assumed condition.
 - **Infrastructure Index** (secondary) — a purely *descriptive* composite of
   asset scale, ownership share, walkability, unit cost and blended decay,
   min-max normalized across the compared cities. It is **not** a solvency

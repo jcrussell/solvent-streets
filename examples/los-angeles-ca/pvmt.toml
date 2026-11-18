@@ -340,9 +340,8 @@ name = "Pasadena, CA"
 #@cite Citywide avg PCI 57, FY2026 Street Pavement & Maintenance Audit (cityofpasadena.net) [PCI not byte-verified]
 #@cite     https://www.cityofpasadena.net/city-manager/wp-content/uploads/sites/2/2026-04-Street-Pavement-and-Maintenance-Audit.pdf (accessed 2026-06-14)
 forecast.initial_pci = 57
-#@cite $1.1M CDBG street resurfacing & ADA improvements, FY2026
-#@cite     https://pasadenanow.com/main/local-affordable-housing-homeless-services-and-street-repairs-are-set-for-funding-review-funding-for-2026 (accessed 2026-06-14)
-forecast.current_budget = 1100000.0
+# No current_budget (2026-11-18, solvent-streets-ern4.24): the cited $1.1M is one CDBG grant line, not the city's paving program.
+#     https://pasadenanow.com/main/local-affordable-housing-homeless-services-and-street-repairs-are-set-for-funding-review-funding-for-2026
 overpass = true
 hex_edge_m = 150  # ~60 km²
 
