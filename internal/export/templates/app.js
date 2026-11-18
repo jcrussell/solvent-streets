@@ -1636,7 +1636,7 @@
             if (!metric) {
                 bar.classList.remove('discrete');
                 bar.style.background = cssVar('--metric-none');
-                labels.classList.remove('discrete');
+                labels.classList.remove('discrete', 'ticks');
                 labels.style.gridTemplateColumns = '';
                 labels.innerHTML = '';
                 return;
@@ -1651,8 +1651,15 @@
                 bar.style.background = 'linear-gradient(90deg, ' + stops.join(', ') + ')';
                 const ticks = (metric.scale.ticks && metric.scale.ticks.length) ? metric.scale.ticks : bands;
                 labels.classList.remove('discrete');
+                labels.classList.add('ticks');
                 labels.style.gridTemplateColumns = '';
-                labels.innerHTML = ticks.map(t => '<span>' + esc(f(t, true)) + '</span>').join('');
+                // Each tick sits at its value's position on the bar, with a
+                // tick mark, so the top of the scale (100% coverage) is
+                // labelled where the bar ends rather than past it.
+                labels.innerHTML = ticks.map(t => {
+                    const pos = Math.min(100, Math.max(0, (t - lo) * 100 / span));
+                    return '<span style="left:' + pos + '%">' + esc(f(t, true)) + '</span>';
+                }).join('');
                 return;
             }
             const n = colors.length;
@@ -1669,6 +1676,7 @@
                 if (i === bands.length) return '> ' + f(bands[bands.length - 1], true);
                 return f(bands[i - 1], false) + '–' + f(bands[i], false);
             });
+            labels.classList.remove('ticks');
             labels.classList.add('discrete');
             labels.style.gridTemplateColumns = 'repeat(' + n + ', 1fr)';
             labels.innerHTML = parts.map(t => '<span>' + esc(t) + '</span>').join('');
