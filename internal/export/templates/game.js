@@ -376,12 +376,19 @@
             seedGame();
         }
 
-        // showStartScreen returns to the pre-game start overlay (first boot, and
-        // "Play again" after a game ends) so the horizon can be (re)chosen.
+        // showStartScreen returns to the pre-game start overlay ("Play again"
+        // after a game ends) so the horizon can be (re)chosen. The finished
+        // game's board and HUD would otherwise linger behind the overlay, so
+        // the engine is re-seeded (clock stopped) to show a fresh board.
         function showStartScreen() {
             stopLoop();
             clearBanner();
             setInGameUI(false);
+            document.getElementById('brush-cursor').style.display = 'none';
+            if (gameConfig && gameStatus !== 'running') {
+                const fresh = callWasm('gameInit', JSON.stringify(gameConfig));
+                if (fresh) { peakBacklog = 0; applyState(fresh); }
+            }
         }
 
         // ---- Clock -----------------------------------------------------------

@@ -134,6 +134,23 @@ test('play: the first treatment dismisses the hint', async () => {
   assert.equal(win.localStorage.getItem('pvmtPlayHintSeen'), '1');
 });
 
+// solvent-streets-ern4.36: the finished game's board and HUD must not linger
+// behind the start screen after Play again.
+test('play: Play again shows a fresh board and HUD behind the start screen', async () => {
+  const { $, get, win } = await startBoard();
+  let inits = 0;
+  win.gameInit = () => { inits++; return running({ year: 0, deferred_backlog: 0 }); };
+  win.__end = { status: 'lost', loss_reason: 'backlog', year: 8.1, treasury: 8e6, budget_rate: 1e6, deferred_backlog: 5e6, changed: [] };
+  get('applyState(window.__end)');
+  assert.match($('#hud-year').textContent, /^8\.1/);
+  $('#play-again').click();
+  assert.equal(inits, 1, 'Play again must re-seed the engine');
+  assert.match($('#hud-year').textContent, /^0\.0/, 'the HUD must show the fresh game');
+  assert.equal(get('peakBacklog'), 0);
+  assert.equal($('#start-overlay').style.display, 'block');
+  assert.equal($('#hud').style.display, 'none');
+});
+
 test('play: the hint still works when storage throws', async () => {
   const { $ } = await startBoard({ before(win) {
     Object.defineProperty(win, 'localStorage', { get() { throw new Error('SecurityError'); } });

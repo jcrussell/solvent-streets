@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Pavement Manager</title>
+    <title>Solvent Streets &mdash; Play</title>
     <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css">
     <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
     <style>
@@ -13,8 +13,9 @@
             background: #0f1115; color: #e8eaed; overflow: hidden;
         }
         :root { --bar-h: 44px; }
-        #game-root, #map { position: absolute; top: var(--bar-h); left: 0; right: 0; bottom: 0; }
-        #map { width: 100%; height: 100%; }
+        #game-root { position: absolute; top: var(--bar-h); left: 0; right: 0; bottom: 0; }
+        /* #map sits inside #game-root, which is already below the bar. */
+        #map { position: absolute; inset: 0; }
 
         /* Top bar — fixed, spans the width; houses nav + city selector */
         #topbar {
@@ -176,7 +177,7 @@
     {{template "error_banner" .}}
 
     <div id="topbar">
-        <span class="brand">Pavement Manager</span>
+        <span class="brand">Solvent Streets</span>
         <a class="navlink map-link" href="{{if .IsLiveServer}}/{{else}}index.html{{end}}">&larr; Map</a>
         <span class="spacer"></span>
         {{if .Cities}}
@@ -195,7 +196,7 @@
     <div id="loading">Loading board&hellip;</div>
 
     <div class="panel" id="hud" style="display:none">
-        <h1>Pavement Manager &mdash; <span id="hud-city">{{.HeadingName}}</span></h1>
+        <h1><span id="hud-city">{{.HeadingName}}</span></h1>
         <div class="hud-row"><span class="k">Year</span><span class="v" id="hud-year">&mdash;</span></div>
         <div class="hud-row"><span class="k">Treasury</span><span class="v" id="hud-treasury">&mdash;</span></div>
         <div class="funds-warn" id="hud-funds-warn">Out of funds &mdash; waiting on budget</div>
@@ -236,7 +237,7 @@
     </div>
 
     <div class="panel" id="start-overlay">
-        <div class="headline">Pavement Manager</div>
+        <div class="headline">Solvent Streets</div>
         <div class="sub">Keep the network solvent through the horizon.</div>
         <label>Horizon</label>
         <div class="row-buttons" id="horizon-buttons">
