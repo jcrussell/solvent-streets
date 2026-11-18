@@ -188,12 +188,12 @@ func (c *Config) resolveForecast(city *CityConfig) (ForecastConfig, forecastProv
 	return fc, prov
 }
 
-// InitialPCIAssumed reports whether city's initial_pci is the built-in
-// DefaultInitialPCI because no layer (env, city, file) sets one: its
-// condition is assumed, not cited (solvent-streets-ern4.24).
-func (c *Config) InitialPCIAssumed(city *CityConfig) bool {
+// InitialPCISource returns the layer city's resolved initial_pci comes from,
+// as `config show` reports it. Kind SourceDefault means no layer sets one and
+// the forecast starts at DefaultInitialPCI (solvent-streets-ern4.24).
+func (c *Config) InitialPCISource(city *CityConfig) Source {
 	_, prov := c.resolveForecast(city)
-	return prov.InitialPCI.Kind == SourceDefault
+	return prov.InitialPCI
 }
 
 func fileForecastProv(fc *ForecastConfig) forecastProvenance {

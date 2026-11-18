@@ -315,7 +315,7 @@
         .solvency-headline .lead { font-size: 20px; font-weight: 700; color: var(--text-strong); line-height: 1.4; }
         .solvency-headline .lead .num { color: var(--accent); }
         .solvency-headline .detail { font-size: 14px; color: var(--text-muted); margin-top: 8px; }
-        .pci-assumed { color: var(--text-muted); cursor: help; }
+        .default-pci { color: var(--text-muted); cursor: help; }
         .headlines { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 32px; }
         .headline-card {
             background: var(--panel);
@@ -949,7 +949,7 @@
                 <h3 class="score-section-title">Solvency Score <span class="lb-note" title="Solvency Score = current road budget / hold-steady (break-even) budget, roads/streets only. 100 = fully funded to hold the network steady; 50 = needs ~2x today's budget; 25 = needs ~4x. Surplus (over-funded) is capped at 100. Cities without a cited current_budget can't be scored and are shown unranked (N/A).">ⓘ</span></h3>
                 <div class="score-sub">Can each city afford to hold its street network steady? Higher is more solvent. Cities without a cited current budget are unranked.</div>
                 <div class="score-cards" id="solvency-cards"></div>
-                <div class="score-sub" id="pci-assumed-note" hidden>† Condition assumed: the city cites no pavement survey, so its forecast starts at the default PCI and its score is less certain.</div>
+                <div class="score-sub" id="default-pci-note" hidden>† Condition assumed: the city cites no pavement survey, so its forecast starts at the default PCI and its score is less certain.</div>
                 <h3 class="score-section-title">Infrastructure Index <span class="lb-note" title="A descriptive composite of asset scale, ownership share, walkability, cost and decay — normalized across the compared cities. It is NOT a solvency judgment; use the Solvency Score above for fiscal health.">ⓘ</span></h3>
                 <div class="score-sub">Asset scale, ownership, walkability &amp; condition — a descriptive index, not a solvency judgment.</div>
                 <div class="score-cards" id="infra-cards"></div>

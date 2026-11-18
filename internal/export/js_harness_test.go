@@ -107,7 +107,7 @@ func jsFixtureEntry(t *testing.T) CityEntry {
 	t.Helper()
 	entry := fixtureEntry(t)
 	// Cite the default PCI explicitly: the numbers are those of an unset one,
-	// but the fixture city is not flagged initial_pci_assumed
+	// but the fixture city's initial_pci_source is "file", not "default"
 	// (solvent-streets-ern4.24), so only the specs about that flag see it.
 	entry.Config = &config.Config{Forecast: config.ForecastConfig{InitialPCI: config.DefaultInitialPCI}}
 	store, ok := entry.Store.(*dbtest.MockStore)

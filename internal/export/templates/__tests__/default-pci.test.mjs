@@ -1,7 +1,7 @@
 // solvent-streets-ern4.24: a city whose config cites no PCI forecasts from
 // the default condition, so its hold-steady budget and solvency score rest
 // on an assumed starting point. forecast.json's roads entry says so
-// (initial_pci_assumed), and Compare and Financials mark the city with a †.
+// (initial_pci_source "default"), and Compare and Financials mark the city with a †.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
@@ -10,7 +10,7 @@ import { metaJSON, scenariosJSON, forecastJSON, seedJSON, readFixture } from './
 /** @param {string} name @param {boolean} assumed */
 function city(name, assumed) {
   const forecast = readFixture('forecast.json').map((f) =>
-    f.resource_type === 'roads' ? { ...f, current_budget: 5e6, initial_pci_assumed: assumed || undefined } : f);
+    f.resource_type === 'roads' ? { ...f, current_budget: 5e6, initial_pci_source: assumed ? 'default' : 'file' } : f);
   return { slug: name.toLowerCase(), name, meta: metaJSON, scenarios: scenariosJSON, seed: seedJSON, forecast };
 }
 
@@ -30,16 +30,16 @@ test('Compare marks only the cities whose PCI is assumed, and explains the mark'
   h.win.renderCompare([city('Alpha', true), city('Beta', false)]);
   const names = h.$$('#solvency-cards .city-name').map((el) => el.textContent);
   assert.deepEqual(names.slice().sort(), ['Alpha †', 'Beta']);
-  assert.equal(h.win.document.getElementById('pci-assumed-note').hidden, false);
-  assert.ok(h.$$('#leaderboard-list .pci-assumed').length > 0, 'the leaderboard does not mark Alpha');
+  assert.equal(h.win.document.getElementById('default-pci-note').hidden, false);
+  assert.ok(h.$$('#leaderboard-list .default-pci').length > 0, 'the leaderboard does not mark Alpha');
 
   h.win.renderCompare([city('Beta', false), city('Gamma', false)]);
-  assert.equal(h.win.document.getElementById('pci-assumed-note').hidden, true,
+  assert.equal(h.win.document.getElementById('default-pci-note').hidden, true,
     'the footnote stays up with no marked city on the page');
 });
 
 test('the Financials headline names an assumed PCI', async () => {
-  const assumed = forecastJSON.map((f) => (f.resource_type === 'roads' ? { ...f, initial_pci_assumed: true } : f));
+  const assumed = forecastJSON.map((f) => (f.resource_type === 'roads' ? { ...f, initial_pci_source: 'default' } : f));
   const h = await ready(assumed, 'https://example.test/index.html?tab=financials-tab');
   h.win.renderSolvencyHeadline();
   assert.match(h.$('#solvency-headline').textContent, /Condition assumed: no cited pavement survey/);

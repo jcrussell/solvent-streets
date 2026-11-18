@@ -93,8 +93,8 @@ type compareForecast struct {
 	InsolvencyYear  *int     `json:"insolvency_year,omitempty"`
 	FundingGap      *float64 `json:"funding_gap,omitempty"`
 	RoadsArea       float64  `json:"roads_area,omitempty"`
-	// InitialPCIAssumed: the city cites no PCI (ForecastExport's field).
-	InitialPCIAssumed bool `json:"initial_pci_assumed,omitempty"`
+	// InitialPCISource is ForecastExport's field.
+	InitialPCISource string `json:"initial_pci_source,omitempty"`
 }
 
 // compareCityFromDir builds slug's entry from the data files exported into

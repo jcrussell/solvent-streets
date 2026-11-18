@@ -2006,11 +2006,11 @@ years = 15
 	}
 }
 
-// TestInitialPCIAssumed: a city's PCI counts as assumed only when no layer sets
-// one and it falls to DefaultInitialPCI -- not when it comes from the city
-// entry, an included example's file-level [forecast], or the environment
+// TestInitialPCISource: a city's PCI source is the default only when no layer
+// sets one and it falls to DefaultInitialPCI -- not when it comes from the
+// city entry, an included example's file-level [forecast], or the environment
 // (solvent-streets-ern4.24).
-func TestInitialPCIAssumed(t *testing.T) {
+func TestInitialPCISource(t *testing.T) {
 	dir := t.TempDir()
 	writeTOML(t, dir, "cited/pvmt.toml", `
 [[cities]]
@@ -2038,15 +2038,15 @@ path = "../filewide/pvmt.toml"
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	for slug, want := range map[string]bool{"cited-ca": false, "bare-ca": true, "filewide-ca": false} {
+	for slug, want := range map[string]SourceKind{"cited-ca": SourceFile, "bare-ca": SourceDefault, "filewide-ca": SourceFile} {
 		c := cityBySlug(t, cfg, slug)
-		if got := cfg.InitialPCIAssumed(&c); got != want {
-			t.Errorf("%s: InitialPCIAssumed = %v, want %v (resolved PCI %v)", slug, got, want, cfg.ResolvedForecast(&c).InitialPCI)
+		if got := cfg.InitialPCISource(&c).Kind; got != want {
+			t.Errorf("%s: InitialPCISource = %q, want %q (resolved PCI %v)", slug, got, want, cfg.ResolvedForecast(&c).InitialPCI)
 		}
 	}
 	t.Setenv(EnvForecastInitialPCI, "64")
 	bare := cityBySlug(t, cfg, "bare-ca")
-	if cfg.InitialPCIAssumed(&bare) {
-		t.Error("an env PCI counts as assumed")
+	if got := cfg.InitialPCISource(&bare).Kind; got != SourceEnv {
+		t.Errorf("env PCI: InitialPCISource = %q, want %q", got, SourceEnv)
 	}
 }
