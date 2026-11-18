@@ -102,7 +102,10 @@
                     city:     sel ? (sel.value || null) : null,
                     tab:      tabBtn ? tabBtn.dataset.tab : null,
                     tags:     PvmtSelectors.readFilters(),
-                    scope:    (scopeVis && scopeBtn) ? scopeBtn.dataset.scope : null,
+                    // City-only is the default and is left out of the URL,
+                    // like the metric and budget defaults: only ?scope=all
+                    // is ever written (solvent-streets-ern4.36).
+                    scope:    (scopeVis && scopeBtn && scopeBtn.dataset.scope !== 'city') ? scopeBtn.dataset.scope : null,
                     snapshot: snapEl ? snapEl.value : null,
                     metric:   (onMap && hexMetric !== DEFAULT_METRIC) ? hexMetric : null,
                     budget:   (onFinancials && budgetUserSet) ? String(Math.round(budgetDollars)) : null,
@@ -444,7 +447,8 @@
             if (snapEl) snapEl.value = targetSnap;
             // Update currentScope from URL state before kicking off reloads
             // (selectCity → loadCityData → buildBlendedHexFC reads currentScope).
-            if (s.scope === 'city' || s.scope === 'all') currentScope = s.scope;
+            // No ?scope= is the default, city-only.
+            currentScope = s.scope === 'all' ? 'all' : 'city';
             queryAll('#scope-toggle button').forEach(b =>
                 b.classList.toggle('active', b.dataset.scope === currentScope));
             // Only fire selectCity when the city actually changed. selectCity

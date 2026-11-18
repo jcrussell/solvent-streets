@@ -226,6 +226,21 @@ test('scope selection round-trips only while the scope row is visible', async ()
   win.selectScope('all', { push: true });
   await flush();
   assert.equal(params(win).get('scope'), 'all');
+
+  // City-only is the default and is never written, visible row or not, so
+  // the same view has one URL (solvent-streets-ern4.36).
+  win.selectScope('city', { push: true });
+  await flush();
+  assert.equal(params(win).get('scope'), null, 'the default scope must not pin ?scope=city');
+
+  // Back to the ?scope=all entry, then forward to the bare one: the bare URL
+  // restores city-only rather than keeping the scope it came from.
+  win.history.back();
+  await flush();
+  assert.equal(doc.querySelector('#scope-toggle button.active').dataset.scope, 'all');
+  win.history.forward();
+  await flush();
+  assert.equal(doc.querySelector('#scope-toggle button.active').dataset.scope, 'city');
 });
 
 test('back to a different tab of the same city does not reload the city', async () => {
