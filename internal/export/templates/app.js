@@ -159,6 +159,16 @@
         const DEFAULT_MAINTAIN = ['roads'];
         let maintained = DEFAULT_MAINTAIN.slice();
 
+        // BUDGET_MAX_DOLLARS bounds a ?budget= before the city's anchors are
+        // known; BUDGET_MAX_ANCHOR_MULT bounds it after, as a multiple of the
+        // larger of today's budget and hold steady. A linked budget used to be
+        // taken as given and widened the slider one notch per 25% of hold
+        // steady, so ?budget=1e15 built millions of DOM nodes and crashed the
+        // tab (solvent-streets-ern4.27). Ten times hold steady is far past
+        // where extra money still buys condition.
+        const BUDGET_MAX_DOLLARS = 1e12;
+        const BUDGET_MAX_ANCHOR_MULT = 10;
+
         // resetBudget settles the budget state for the city DATA_PREFIX names:
         // the dollars in `param` (a ?budget= value) when it parses as a
         // non-negative number, else the default, which applyBudget fills in.
@@ -167,7 +177,7 @@
             const v = param != null && param !== '' ? parseFloat(param) : NaN;
             budgetCity = DATA_PREFIX;
             budgetUserSet = Number.isFinite(v) && v >= 0;
-            if (budgetUserSet) budgetDollars = v;
+            if (budgetUserSet) budgetDollars = Math.min(v, BUDGET_MAX_DOLLARS);
         }
 
         // parseMaintain reads a ?maintain= value into a MAINTAIN_TYPES subset,
@@ -3586,6 +3596,12 @@
             const hold = holdSteadyBudget(input);
             if (budgetCity !== DATA_PREFIX) resetBudget(null);
             if (!budgetUserSet) budgetDollars = today > 0 ? today : hold;
+            const cap = BUDGET_MAX_ANCHOR_MULT * Math.max(today, hold);
+            if (budgetUserSet && cap > 0 && budgetDollars > cap) {
+                // Clamp a linked budget, and say so in the address bar.
+                budgetDollars = cap;
+                Router.replace();
+            }
             renderBudgetSlider(today, hold);
             return budgetDollars;
         }
@@ -3600,6 +3616,7 @@
         // budgetScale converts between the two for the input handler.
         const BUDGET_TOP_PCT = 1.5;
         const BUDGET_NOTCH_PCT = 0.25;
+        const BUDGET_MAX_NOTCHES = 40;
         /** @type {{base: number, top: number}} */
         let budgetScale = { base: 1, top: BUDGET_TOP_PCT };
         // budgetSnaps is today's budget and hold steady in dollars: a drag that
@@ -3659,17 +3676,20 @@
             scale.hidden = !(hold > 0);
             queryAll('.budget-notch', scale).forEach(n => n.remove());
             const at = (/** @type {number} */ f) => 'calc(var(--thumb) / 2 + (100% - var(--thumb)) * ' + (f / top) + ')';
-            const count = Math.round(top / BUDGET_NOTCH_PCT);
+            // At most BUDGET_MAX_NOTCHES ticks: a wider range ticks every whole
+            // multiple of 25% that keeps it under the cap.
+            const notchPct = BUDGET_NOTCH_PCT * Math.max(1, Math.ceil(top / BUDGET_NOTCH_PCT / BUDGET_MAX_NOTCHES));
+            const count = Math.round(top / notchPct);
             // A range grown past 150% keeps every tick but labels fewer of them
             // (about seven), always the ends and 100%, so phones don't crowd.
             const every = Math.ceil(count / 6);
+            const holdIdx = Math.round(1 / notchPct);
             for (let i = 0; i <= count; i++) {
-                const f = i * BUDGET_NOTCH_PCT;
+                const f = i * notchPct;
                 const n = document.createElement('span');
                 // Labelled: the ends, 100%, and every `every`-th notch that
                 // isn't crowding the end label or 100%'s.
-                const hold100 = i * BUDGET_NOTCH_PCT === 1;
-                const holdIdx = Math.round(1 / BUDGET_NOTCH_PCT);
+                const hold100 = i === holdIdx && Math.abs(f - 1) < 1e-9;
                 const quiet = !(i === 0 || i === count || hold100) &&
                     (i % every !== 0 || count - i < every || Math.abs(i - holdIdx) < every);
                 n.className = 'budget-notch' + (i === 0 ? ' first' : '') + (i === count ? ' last' : '') + (hold100 ? ' hold' : '') + (quiet ? ' quiet' : '');

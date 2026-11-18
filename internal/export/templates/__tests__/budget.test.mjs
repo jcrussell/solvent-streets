@@ -128,10 +128,29 @@ test('dragging to the top of the range does not grow it', async () => {
 });
 
 test('a ?budget= beyond the range widens it to fit', async () => {
-  const { win, $ } = await ready({ url: 'https://example.test/index.html?tab=financials-tab&budget=900000000' });
-  assert.equal(lastScenario(win).annual_budget, 900_000_000);
-  assert.ok(parseFloat($('#budget-slider').max) >= parseFloat(budgetAt(900_000_000)), 'the thumb cannot show the linked budget');
+  const { win, $ } = await ready({ url: 'https://example.test/index.html?tab=financials-tab&budget=200000000' });
+  assert.equal(lastScenario(win).annual_budget, 200_000_000);
+  assert.ok(parseFloat($('#budget-slider').max) >= parseFloat(budgetAt(200_000_000)), 'the thumb cannot show the linked budget');
   assert.equal(parseFloat($('#budget-slider').max) % 250, 0, 'the range grows in whole notches');
+});
+
+// solvent-streets-ern4.27: a linked budget was taken as given, and the slider
+// grew one notch per 25% of hold steady to fit it, so ?budget=1e15 built
+// millions of DOM nodes and froze or crashed the tab. It is clamped to ten
+// times the larger anchor (hold steady, $30M here), and the address bar says so.
+test('a huge ?budget= is clamped and the slider keeps a bounded number of notches', async () => {
+  for (const linked of ['1e15', '1e300', '900000000']) {
+    const { win, $$ } = await ready({ url: 'https://example.test/index.html?tab=financials-tab&budget=' + linked });
+    assert.equal(lastScenario(win).annual_budget, 10 * HOLD, 'budget=' + linked + ' was not clamped');
+    const notches = $$('#budget-scale .budget-notch').length;
+    assert.ok(notches <= 41, 'budget=' + linked + ': ' + notches + ' notches');
+    assert.equal(params(win).get('budget'), String(10 * HOLD), 'budget=' + linked + ': the URL keeps the unclamped value');
+  }
+});
+
+test('a budget at the clamp is kept as linked', async () => {
+  const { win } = await ready({ url: 'https://example.test/index.html?tab=financials-tab&budget=' + (10 * HOLD) });
+  assert.equal(lastScenario(win).annual_budget, 10 * HOLD);
 });
 
 // solvent-streets-n2y3: the boot replaceState ran before the budget was
