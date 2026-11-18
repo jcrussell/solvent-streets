@@ -534,4 +534,14 @@ func TestNewTemplateData_MultiCityOmitsWholeConfig(t *testing.T) {
 	if !strings.Contains(single.ResolvedTOML, `name = "A, CA"`) {
 		t.Errorf("single-city page lost its resolved config:\n%s", single.ResolvedTOML)
 	}
+
+	// One city's page from a multi-city config (export --city, a one-city
+	// serve) shows that city's settings only, not every [[cities]] entry.
+	one, err := NewTemplateData(cfg, MetaJSON{SettingsTOML: CityResolvedTOML(cfg, cfg.Cities[0], 0)}, "", nil, "imperial", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if one.RawTOML != "" || strings.Count(one.ResolvedTOML, "[[cities]]") != 1 || strings.Contains(one.ResolvedTOML, `"B, CA"`) {
+		t.Errorf("one city of a multi-city config shows other cities: raw %d bytes, resolved:\n%s", len(one.RawTOML), one.ResolvedTOML)
+	}
 }

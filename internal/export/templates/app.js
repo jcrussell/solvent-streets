@@ -449,6 +449,17 @@
             // (selectCity → loadCityData → buildBlendedHexFC reads currentScope).
             // No ?scope= is the default, city-only.
             currentScope = s.scope === 'all' ? 'all' : 'city';
+            // A city with data in one scope only never writes ?scope= (its
+            // scope row is hidden), so on a same-city entry repair the scope
+            // the way the loaders do, or the map and Financials go blank. A
+            // city change repairs it in loadCityData/loadFinancials.
+            if (!cityChanged) {
+                const cityEmpty = Object.keys(hexDataByScope.city).length === 0;
+                const allEmpty = Object.keys(hexDataByScope.all).length === 0;
+                if (currentScope === 'city' && cityEmpty && !allEmpty) currentScope = 'all';
+                else if (currentScope === 'all' && allEmpty && !cityEmpty) currentScope = 'city';
+                if (scenarioData) currentScope = effectiveScope(scenarioData, currentScope);
+            }
             queryAll('#scope-toggle button').forEach(b =>
                 b.classList.toggle('active', b.dataset.scope === currentScope));
             // Only fire selectCity when the city actually changed. selectCity
@@ -2653,6 +2664,9 @@
             // screen — a wrong dollar claim under the new city's name.
             forecastData = null;
             liveSolvency = null;
+            // A tier error dimmed the previous city's figures; they are being
+            // replaced, and a city without a seed never re-validates.
+            markForecastStale(false);
             renderSolvencyHeadline();
             // Drop the previous city's scenarios and seed-loaded flag for the same
             // reason, and so renderFinancialsFromCache — which any units toggle can
@@ -3481,12 +3495,13 @@
             return errs.length === 0;
         }
 
-        // STALE_FORECAST_IDS are the Financials figures the interactive
+        // markForecastStale dims the Financials figures the interactive
         // forecast draws. While the tier inputs are invalid it is not run, so
-        // they still show the last valid run: dim them, and say why.
-        const STALE_FORECAST_IDS = ['solvency-headline', 'headlines', 'cohort-section', 'charts'];
+        // they still show the last valid run: dim them, and say why. The list
+        // is inline, not a const: loadFinancials calls this during boot,
+        // before a const declared here would be initialised.
         function markForecastStale(stale) {
-            STALE_FORECAST_IDS.forEach(id => {
+            ['solvency-headline', 'headlines', 'cohort-section', 'charts'].forEach(id => {
                 const el = document.getElementById(id);
                 if (!el) return;
                 el.classList.toggle('forecast-stale', stale);

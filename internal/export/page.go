@@ -66,7 +66,12 @@ func NewTemplateData(cfg *config.Config, meta MetaJSON, seed template.JS, cities
 	// kilobytes, so its Config tab shows the city in view's own settings
 	// (meta.json settings_toml) instead.
 	var rawTOML, resolvedTOML string
-	if len(cities) == 0 {
+	switch {
+	case len(cities) == 0 && len(cfg.Cities) > 1:
+		// One city of a multi-city config (export --city, a one-city serve):
+		// the file and its resolved form hold every city, so show this one's.
+		resolvedTOML = meta.SettingsTOML
+	case len(cities) == 0:
 		if cfg.SourcePath != "" {
 			if data, err := os.ReadFile(cfg.SourcePath); err == nil {
 				rawTOML = string(data)
