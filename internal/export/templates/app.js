@@ -2610,8 +2610,12 @@
                 var oilPer1000 = t.per_1000_sqm.oil_barrels;
                 var dot = '<span style="display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;background:' +
                     tierColor(t.label) + '"></span>';
+                // Material tiers are chosen by condition (solvent-streets-ern4.25),
+                // so the row names its PCI band; the top band's exclusive 101 reads 100.
+                var band = (typeof t.min_pci === 'number' && typeof t.max_pci === 'number')
+                    ? ' <span style="color:var(--text-muted)">PCI ' + t.min_pci + '–' + Math.min(100, t.max_pci) + '</span>' : '';
                 return '<tr>' +
-                    '<td>' + dot + esc(t.label) + '</td>' +
+                    '<td>' + dot + esc(t.label) + band + '</td>' +
                     '<td class="number">' + t.mix_kg_per_sqm.toFixed(0) + '</td>' +
                     '<td class="number">' + (t.binder_share * 100).toFixed(1) + '%</td>' +
                     '<td class="number">' + binderKgSqM.toFixed(1) + '</td>' +

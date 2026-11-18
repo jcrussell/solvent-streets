@@ -112,6 +112,7 @@ test('the tier table reads its per-1000 m2 figures from the seed', async () => {
     const cells = rows[i].querySelectorAll('td');
     assert.equal(cells[3].textContent, t.per_1000_sqm.binder_tonnes.toFixed(1));
     assert.equal(cells[4].textContent, t.per_1000_sqm.oil_barrels.toFixed(1));
+    assert.match(cells[0].textContent, new RegExp(`PCI ${t.min_pci}–${Math.min(100, t.max_pci)}$`));
   });
 });
 

@@ -1,18 +1,27 @@
 package forecast
 
-// MaterialTier describes the physical makeup of one treatment tier's applied
-// pavement layer, keyed to a CostTier by Label. All quantities are per square
-// meter of treated pavement. This is the material-side parallel to CostTier:
-// where CostTier answers "dollars per m^2 at this condition," MaterialTier
-// answers "asphalt mix (and its binder/aggregate split) per m^2."
+import "math"
+
+// MaterialTier describes the physical makeup of the treatment applied to
+// pavement in one PCI band. All quantities are per square meter of treated
+// pavement. This is the material-side parallel to CostTier: where CostTier
+// answers "dollars per m^2 at this condition," MaterialTier answers "asphalt
+// mix (and its binder/aggregate split) per m^2."
+//
+// A material tier is chosen by condition, never by a cost tier's label: a
+// city may name and band its cost tiers however its pavement program does
+// (Good/Fair/Poor/Failed), but the treatment a road at PCI 55 gets, and so
+// the asphalt it takes, does not follow the name (solvent-streets-ern4.25).
 type MaterialTier struct {
-	Label       string  `json:"label"`          // matches CostTier.Label (preventive/rehab/reconstruction)
+	Label       string  `json:"label"`          // treatment name shown in the Materials tab
+	MinPCI      float64 `json:"min_pci"`        // inclusive lower bound of the band
+	MaxPCI      float64 `json:"max_pci"`        // exclusive upper bound (MaxTierPCI for the top band)
 	MixKgPerSqM float64 `json:"mix_kg_per_sqm"` // applied hot-mix asphalt (or slurry) mass per m^2
 	BinderShare float64 `json:"binder_share"`   // asphalt-cement (bitumen) fraction of mix mass, 0..1
 }
 
 // DefaultMaterialTiers are representative per-tier material intensities for
-// flexible (asphalt) pavement, aligned label-for-label with DefaultCostTiers.
+// flexible (asphalt) pavement, banded like DefaultCostTiers.
 // MixKgPerSqM is derived as compacted lift thickness x hot-mix density
 // (~2400 kg/m^3 dense-graded HMA, Asphalt Institute MS-2) for the overlay and
 // reconstruction tiers, and as a slurry application rate for the preventive
@@ -31,9 +40,9 @@ type MaterialTier struct {
 // (cement/aggregate) would REPLACE that share with a real blend, not stack on
 // top of it — the way DefaultSidewalkCostTiers parallels DefaultCostTiers.
 var DefaultMaterialTiers = []MaterialTier{
-	{Label: "preventive", MixKgPerSqM: 30, BinderShare: 0.065},     // microsurfacing/slurry seal, ~2.0 kg/m^2 binder
-	{Label: "rehab", MixKgPerSqM: 120, BinderShare: 0.055},         // ~50 mm mill & overlay (0.05 m x 2400), ~6.6 kg/m^2 binder
-	{Label: "reconstruction", MixKgPerSqM: 480, BinderShare: 0.05}, // ~200 mm full-depth asphalt (0.20 m x 2400), ~24 kg/m^2 binder
+	{Label: "preventive", MinPCI: 70, MaxPCI: MaxTierPCI, MixKgPerSqM: 30, BinderShare: 0.065}, // microsurfacing/slurry seal, ~2.0 kg/m^2 binder
+	{Label: "rehab", MinPCI: 40, MaxPCI: 70, MixKgPerSqM: 120, BinderShare: 0.055},             // ~50 mm mill & overlay (0.05 m x 2400), ~6.6 kg/m^2 binder
+	{Label: "reconstruction", MinPCI: 0, MaxPCI: 40, MixKgPerSqM: 480, BinderShare: 0.05},      // ~200 mm full-depth asphalt (0.20 m x 2400), ~24 kg/m^2 binder
 }
 
 // BarrelsPerTonBinder converts asphalt-cement (bitumen) tonnage to
@@ -52,24 +61,30 @@ type MaterialQuantities struct {
 	OilBarrels      float64 `json:"oil_barrels"`
 }
 
-// MaterialTierFor returns the tier whose Label matches, and ok=true. When no
-// label matches it falls back to the highest-intensity tier present (so an
-// unexpected cost_tier over-counts rather than silently under-counts material)
-// and ok=false. Returns the zero tier and false for an empty set.
-func MaterialTierFor(tiers []MaterialTier, label string) (MaterialTier, bool) {
-	if len(tiers) == 0 {
-		return MaterialTier{}, false
-	}
-	worst := tiers[0]
-	for _, t := range tiers {
-		if t.Label == label {
+// MaterialTierForPCI returns the tier whose band contains pci, or, in a gap
+// between bands or outside them, the nearest band (ties to the earlier tier),
+// the way TierIndexForPCI resolves cost tiers. ok is false only for an empty
+// set.
+func MaterialTierForPCI(tiers []MaterialTier, pci float64) (MaterialTier, bool) {
+	best, bestDist := -1, math.Inf(1)
+	for i, t := range tiers {
+		var d float64
+		switch {
+		case pci < t.MinPCI:
+			d = t.MinPCI - pci
+		case pci >= t.MaxPCI:
+			d = pci - t.MaxPCI
+		default:
 			return t, true
 		}
-		if t.MixKgPerSqM > worst.MixKgPerSqM {
-			worst = t
+		if d < bestDist {
+			best, bestDist = i, d
 		}
 	}
-	return worst, false
+	if best < 0 {
+		return MaterialTier{}, false
+	}
+	return tiers[best], true
 }
 
 // MaterialsForArea returns the material demand to treat area (m^2) at one tier.
@@ -92,14 +107,13 @@ func MaterialsForArea(area float64, t MaterialTier) MaterialQuantities {
 // WithMaterials returns r with every year's Materials filled in: the demand to
 // retreat that year's share of the network. Each year area/cycleYears is
 // treated (the eligible fraction the cost model bills), asphaltShare of it is
-// asphalt, and the year's blended CostTier picks the material tier
-// (MaterialTierFor, so an unmatched label counts at the highest intensity).
-// r's own Years slice is left untouched.
+// asphalt, and the year's blended PCI picks the material tier
+// (MaterialTierForPCI). r's own Years slice is left untouched.
 func WithMaterials(r ScenarioResult, tiers []MaterialTier, cycleYears, asphaltShare float64) ScenarioResult {
 	cycle := ResolveCycleYears(cycleYears)
 	years := make([]ScenarioYear, len(r.Years))
 	for i, y := range r.Years {
-		tier, _ := MaterialTierFor(tiers, y.CostTier)
+		tier, _ := MaterialTierForPCI(tiers, y.PCI)
 		q := MaterialsForArea(y.Area*asphaltShare/cycle, tier)
 		y.Materials = &q
 		years[i] = y
