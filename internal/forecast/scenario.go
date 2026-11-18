@@ -63,6 +63,10 @@ type ScenarioYear struct {
 	// Materials is the asphalt demand of the year's treated area. Set by
 	// WithMaterials for the exported scenarios; nil from Simulate.
 	Materials *MaterialQuantities `json:"materials,omitempty"`
+	// MaterialTier names the material tier Materials was priced at
+	// (MaterialTierForPCI), which need not share a name or band with
+	// CostTier when the city's cost tiers are its own. Set with Materials.
+	MaterialTier string `json:"material_tier,omitempty"`
 }
 
 // ScenarioResult is the full output of running a scenario simulation.
@@ -193,8 +197,8 @@ const surplusGapYears = DefaultTreatmentCycleYears
 //   - spend <= need recovers fundedFraction(spend/need) of the year's decay,
 //     from 0 (decays like doing nothing) to 1 (holds at the current PCI). The
 //     strategy's efficiency bends the curve between the ends, so a worst-first
-//     program buys less recovery per partial dollar and a preventive-first one
-//     more, without changing what full funding means.
+//     program buys less recovery per partial dollar than a preventive-first
+//     one, without changing what full funding means.
 //   - spend > need buys treatment of extra area at the same tier cost, with
 //     diminishing returns: the surplus closes
 //     (eff/surplusGapYears) * (1 - exp(-surplus/need)) of the gap to maxPCI.
@@ -240,9 +244,9 @@ const surplusSaturationNeeds = 3.0
 
 // fundedFraction is the share of a year's decay that funding ratio r (0..1) of
 // the hold-steady need recovers: r^(1/eff). It is 0 at r = 0 and 1 at r = 1
-// for every efficiency, so full funding holds steady under any strategy; an
-// efficiency below 1 bends it below the diagonal (less recovery per partial
-// dollar) and above 1 bends it above.
+// for every efficiency, so full funding holds steady under any strategy; a
+// higher efficiency bends it further above the diagonal (more recovery per
+// partial dollar), and an efficiency below 1 would bend it below.
 func fundedFraction(r, eff float64) float64 {
 	return math.Pow(r, 1/eff)
 }

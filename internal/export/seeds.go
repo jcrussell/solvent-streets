@@ -57,8 +57,9 @@ type ForecastSeedJSON struct {
 	CostOverhead float64 `json:"cost_overhead"`
 	// MaterialTiers ships the per-tier physical material intensities (asphalt
 	// mix mass + binder fraction per m^2) behind each scenario year's materials
-	// in scenarios.json, for the Materials tab's intensity table. Aligned
-	// label-for-label with CostTiers.
+	// in scenarios.json, for the Materials tab's intensity table. Each tier
+	// carries its own PCI band; it need not match a CostTiers band or label
+	// (solvent-streets-ern4.25).
 	MaterialTiers []MaterialTierSeed `json:"material_tiers,omitempty"`
 	// BarrelsPerTonBinder is the crude-oil-equivalent barrels per tonne of
 	// asphalt binder (forecast.BarrelsPerTonBinder), which the Materials tab

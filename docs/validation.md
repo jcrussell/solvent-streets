@@ -99,7 +99,7 @@ together with the spend response instead, by running the budgeted forecast.
 
 ### Budgeted backtest
 
-Six of the cities cite a roads budget. Each is run worst-first at that budget
+Six of the cities in the table above cite a roads budget. Each is run worst-first at that budget
 for five years from its 2019 PCI, as the dashboard's "Your budget" line runs
 it, on its city-maintained road classes from the release export
 (`internal/forecast/testdata/mtc_budgeted_backtest.json`, gated by
@@ -124,7 +124,9 @@ Two changes were fitted jointly, on a grid, to this table:
 - **Strategy efficiency 1.5× higher** (worst-first 0.8 → 1.2,
   preventive-first 1.2 → 1.8), keeping their ratio.
 
-The fit's RMSE is 4.7. No setting does much better: the floor is about 4.0,
+The fit's RMSE is 4.7. That is in-sample: the gate fits and checks the same
+six cities, so it guards against a regression, not as independent
+validation. No setting does much better: the floor is about 4.0,
 because Oakland and Hayward *improved* on budgets the model reads as
 underfunded. Two things the data cannot separate account for most of that:
 today's budgets stand in for 2019–24 spending, which was larger in some

@@ -2554,8 +2554,10 @@
         //
         // Go computes the material demand (forecast.WithMaterials) and ships it
         // on every scenario year in scenarios.json: each simulated year retreats
-        // one treatment-cycle slice of the asphalt area, and the year's
-        // network-blended cost_tier picks the material intensity. That tier is
+        // one treatment-cycle slice of the asphalt area, and the material tier
+        // whose PCI band holds the year's network-blended condition picks the
+        // intensity (material_tier; not the cost tier's label, which a city
+        // names its own way, solvent-streets-ern4.25). That tier is
         // coarser than the per-cohort interpolated dollar model, so these
         // figures track the scenario's condition trajectory rather than
         // reconciling with annual_need. The headline uses the best-funded
@@ -2594,7 +2596,9 @@
             return scenario.years.map(function(y) {
                 return {
                     year: y.year,
-                    tier: y.cost_tier,
+                    // The material tier the tonnes were priced at, which a
+                    // city's own cost tiers need not match (ern4.25).
+                    tier: y.material_tier || y.cost_tier,
                     mixTonnes: y.materials.mix_tonnes,
                     binderTonnes: y.materials.binder_tonnes,
                     oilBarrels: y.materials.oil_barrels
@@ -2703,7 +2707,7 @@
 
             var note = document.getElementById('materials-note');
             var noteText = 'Each year ~1/' + Math.round(cycleYears) + ' of the network (area ÷ ' +
-                'treatment cycle) is retreated; material intensity follows the blended condition tier, ' +
+                'treatment cycle) is retreated; material intensity follows the blended condition, ' +
                 'so the do-nothing line climbs as pavement decays into reconstruction. Planning-grade estimates.';
             // Say so when the area basis here is narrower than the network area
             // shown on the other tabs, rather than leaving the reader to wonder

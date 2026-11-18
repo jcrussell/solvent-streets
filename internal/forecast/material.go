@@ -116,6 +116,7 @@ func WithMaterials(r ScenarioResult, tiers []MaterialTier, cycleYears, asphaltSh
 		tier, _ := MaterialTierForPCI(tiers, y.PCI)
 		q := MaterialsForArea(y.Area*asphaltShare/cycle, tier)
 		y.Materials = &q
+		y.MaterialTier = tier.Label
 		years[i] = y
 	}
 	r.Years = years

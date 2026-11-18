@@ -118,3 +118,7 @@ A config now has one forecast horizon, and its default is 30 years (up from 20).
 ### 10. Remove overlapping cost tiers
 
 A config whose `[[forecast.cost_tiers]]` bands overlap now fails to load with exit 2, naming the two bands. A PCI inside both had two prices, and the dashboard already refused to run its forecast controls on such a schedule. Move one band's `min_pci` or `max_pci` so the bands meet or leave a gap ([Forecast](configuration.md#forecast)).
+
+### 11. Rescale a `decay_rate` override by 0.7
+
+The default road decay rates are 0.7× what they were, fitted with the strategy efficiencies to a five-year budgeted backtest ([validation](validation.md#budgeted-backtest)): a typical road decays at 0.0245 a year, down from 0.035, and a residential street at 0.028, down from 0.040. A `forecast.decay_rate` override is still the absolute rate of a typical road, so an override written against the old default now decays about 1.43× faster relative to the new one. Multiply it by 0.7 to keep its ratio to the default, as the shipped examples were (Denver's 0.06 became 0.042). The roads compute stores each hex's decay blend for the Play board, so run `pvmt all compute`, then create a snapshot and re-export.
