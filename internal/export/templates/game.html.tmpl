@@ -75,6 +75,12 @@
             #topbar { gap: 6px; padding: 0 8px; }
             #topbar .brand, #topbar label[for="city-select"] { display: none; }
             #topbar select { max-width: 40vw; font-size: 12px; }
+            /* The tag filters share the one fixed-height row: wrapped, they
+               spilled above the bar and over the map (ern4.32 review). */
+            #topbar .tag-filters { flex-wrap: nowrap; gap: 4px; min-width: 0; }
+            #topbar select.tag-filter { max-width: 22vw; padding: 4px; }
+            #topbar #city-select { max-width: 30vw; }
+            #topbar a.navlink { white-space: nowrap; padding: 5px 4px; }
         }
 
         /* Bottom dock: controls bottom left, legend bottom right. Where the
