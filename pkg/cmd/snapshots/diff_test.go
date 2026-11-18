@@ -260,3 +260,36 @@ func TestDiff_NoCityInBoth(t *testing.T) {
 		t.Error("one name was accepted")
 	}
 }
+
+// TestSameResults: a city's two sides are read once only when every part
+// comes from the same run and the grid is drawn on the same boundary at the
+// same edge; any other difference reads both.
+func TestSameResults(t *testing.T) {
+	base := db.SnapshotCity{ID: 1, CityID: 7, HexEdgeM: 100, BoundaryDigest: "b1", ConfigHash: "h1",
+		Parts: []db.SnapshotPart{{Part: "roads", RunID: 10}, {Part: "census", RunID: 11}}}
+	other := func(edit func(*db.SnapshotCity)) db.SnapshotCity {
+		c := base
+		c.ID = 2
+		c.Parts = append([]db.SnapshotPart(nil), base.Parts...)
+		edit(&c)
+		return c
+	}
+	cases := []struct {
+		name string
+		b    db.SnapshotCity
+		want bool
+	}{
+		{"same runs, another snapshot and config hash", other(func(c *db.SnapshotCity) { c.ConfigHash = "h2" }), true},
+		{"parts listed in another order", other(func(c *db.SnapshotCity) { c.Parts[0], c.Parts[1] = c.Parts[1], c.Parts[0] }), true},
+		{"a recomputed part", other(func(c *db.SnapshotCity) { c.Parts[1].RunID = 12 }), false},
+		{"a part added", other(func(c *db.SnapshotCity) { c.Parts = append(c.Parts, db.SnapshotPart{Part: "service:fire", RunID: 13}) }), false},
+		{"another boundary", other(func(c *db.SnapshotCity) { c.BoundaryDigest = "b2" }), false},
+		{"another hex edge", other(func(c *db.SnapshotCity) { c.HexEdgeM = 150 }), false},
+		{"another city", other(func(c *db.SnapshotCity) { c.CityID = 8 }), false},
+	}
+	for _, tc := range cases {
+		if got := sameResults(base, tc.b); got != tc.want {
+			t.Errorf("%s: sameResults = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}

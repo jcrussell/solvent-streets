@@ -3,6 +3,7 @@ package snapshots
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math"
 	"slices"
 	"strconv"
@@ -20,6 +21,7 @@ import (
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/sync/errgroup"
 )
 
 type DiffOptions struct {
@@ -216,14 +218,25 @@ func runDiff(ctx context.Context, opts *DiffOptions) error {
 	return nil
 }
 
+// diffParallelism bounds how many cities diffCities compares at once. Each
+// comparison is mostly one drawn-grid build per side (export.MetricSummaries),
+// which already spreads its clip over every core, so a few at a time keep the
+// cores busy through the reads and parses between clips without holding
+// many cities' grids in memory.
+const diffParallelism = 4
+
 // diffCities compares every city of citiesA (of snapshot a) and citiesB (of
 // b): the ones in both first, the largest relative change in paved area
 // first, then the ones in only one, by slug. compared counts the first.
+// Cities are compared concurrently (diffParallelism); the order does not
+// depend on which finishes first.
 func diffCities(ctx context.Context, root db.RootStorer, cfg *config.Config, a, b *db.Snapshot, citiesA, citiesB []db.SnapshotCity) (rows []diffRow, compared int, err error) {
 	inB := make(map[int64]db.SnapshotCity, len(citiesB))
 	for _, c := range citiesB {
 		inB[c.CityID] = c
 	}
+	type pair struct{ a, b db.SnapshotCity }
+	var both []pair
 	var onlyOne []diffRow
 	for _, ca := range citiesA {
 		cb, ok := inB[ca.CityID]
@@ -232,17 +245,30 @@ func diffCities(ctx context.Context, root db.RootStorer, cfg *config.Config, a, 
 			continue
 		}
 		delete(inB, ca.CityID)
-		row, err := diffCity(ctx, root, cfg, ca, cb)
-		if err != nil {
-			return nil, 0, err
-		}
-		row.ComputeEpochA, row.ComputeEpochB = a.ComputeEpoch, b.ComputeEpoch
-		rows = append(rows, row)
+		both = append(both, pair{ca, cb})
 	}
 	for _, cb := range citiesB {
 		if _, ok := inB[cb.CityID]; ok {
 			onlyOne = append(onlyOne, diffRow{City: cb.CitySlug, Status: statusAdded, HexEdgeB: cb.HexEdgeM, ComputeEpochB: b.ComputeEpoch})
 		}
+	}
+
+	rows = make([]diffRow, len(both))
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(diffParallelism)
+	for i, p := range both {
+		g.Go(func() error {
+			row, err := diffCity(gctx, root, cfg, p.a, p.b)
+			if err != nil {
+				return err
+			}
+			row.ComputeEpochA, row.ComputeEpochB = a.ComputeEpoch, b.ComputeEpoch
+			rows[i] = row
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, 0, err
 	}
 	slices.SortStableFunc(rows, func(x, y diffRow) int {
 		if c := -compareChange(x.Paved, y.Paved); c != 0 {
@@ -251,11 +277,32 @@ func diffCities(ctx context.Context, root db.RootStorer, cfg *config.Config, a, 
 		return strings.Compare(x.City, y.City)
 	})
 	slices.SortStableFunc(onlyOne, func(x, y diffRow) int { return strings.Compare(x.City, y.City) })
-	return append(rows, onlyOne...), len(rows), nil
+	return slices.Concat(rows, onlyOne), len(rows), nil
+}
+
+// sameResults reports whether two snapshots hold the same results for a
+// city: every part read from the same run, drawn on the same boundary at the
+// same hex edge. Everything loadMeasures reads is a function of those (and
+// of the config, which both sides share), so such a city's measures are read
+// once and are equal by construction. Two snapshots of a release share most
+// of their runs, so this skips most of a diff's drawn-grid builds.
+func sameResults(ca, cb db.SnapshotCity) bool {
+	if ca.CityID != cb.CityID || ca.BoundaryDigest != cb.BoundaryDigest || ca.HexEdgeM != cb.HexEdgeM {
+		return false
+	}
+	runs := func(c db.SnapshotCity) map[string]int64 {
+		m := make(map[string]int64, len(c.Parts))
+		for _, p := range c.Parts {
+			m[p.Part] = p.RunID
+		}
+		return m
+	}
+	return len(ca.Parts) == len(cb.Parts) && maps.Equal(runs(ca), runs(cb))
 }
 
 // diffCity compares one city's results in two snapshots, each read through
-// the city's store pinned to that snapshot.
+// the city's store pinned to that snapshot (once, when both hold the same
+// results: sameResults).
 func diffCity(ctx context.Context, root db.RootStorer, cfg *config.Config, ca, cb db.SnapshotCity) (diffRow, error) {
 	city := config.CityConfig{Name: ca.CitySlug}
 	for _, c := range cfg.Cities {
@@ -271,9 +318,11 @@ func diffCity(ctx context.Context, root db.RootStorer, cfg *config.Config, ca, c
 	if err != nil {
 		return diffRow{}, fmt.Errorf("%s in %s: %w", ca.CitySlug, ca.Name, err)
 	}
-	mb, err := loadMeasures(ctx, entry(cb))
-	if err != nil {
-		return diffRow{}, fmt.Errorf("%s in %s: %w", cb.CitySlug, cb.Name, err)
+	mb := ma
+	if !sameResults(ca, cb) {
+		if mb, err = loadMeasures(ctx, entry(cb)); err != nil {
+			return diffRow{}, fmt.Errorf("%s in %s: %w", cb.CitySlug, cb.Name, err)
+		}
 	}
 	row := diffRow{
 		City:              ca.CitySlug,
