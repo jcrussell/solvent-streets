@@ -124,6 +124,9 @@ type Game struct {
 	horizon    float64
 	endless    bool   // when true, never auto-win at the horizon (sandbox)
 	status     string // "running" | "won" | "lost"
+	// lossReason names the condition that lost the game (one of the
+	// LossXxx constants); empty unless status is "lost".
+	lossReason string
 
 	// run totals for the end-of-game summary
 	spent      float64 // cumulative $ debited by treatments
@@ -511,6 +514,14 @@ func insolvencyFromForecast(in forecast.Inputs) (int, bool) {
 	return forecast.InsolvencyYear(result, cycleYears)
 }
 
+// The reasons a game is lost, reported as StateJSON's loss_reason so the
+// end banner can say which condition ended it.
+const (
+	LossPCIFloor = "pci_floor" // network PCI fell below LosePCIFloor
+	LossClosures = "closures"  // more than LoseClosedFraction of hexes closed
+	LossBacklog  = "backlog"   // deferred backlog reached insolvency
+)
+
 // recomputeStatus transitions status. won/lost are terminal. Lose if the network
 // PCI falls below the floor, too many hexes have closed, or the deferred
 // backlog reaches one treatment cycle of year-1 need (insolvent, the same
@@ -528,9 +539,15 @@ func (g *Game) recomputeStatus() {
 	}
 	closedFrac := float64(closed) / float64(len(g.hexes))
 
-	if g.networkPCI() < LosePCIFloor ||
-		closedFrac > LoseClosedFraction ||
-		(g.insolvencyAt > 0 && g.backlog >= g.insolvencyAt) {
+	switch {
+	case g.networkPCI() < LosePCIFloor:
+		g.lossReason = LossPCIFloor
+	case closedFrac > LoseClosedFraction:
+		g.lossReason = LossClosures
+	case g.insolvencyAt > 0 && g.backlog >= g.insolvencyAt:
+		g.lossReason = LossBacklog
+	}
+	if g.lossReason != "" {
 		g.status = "lost"
 		return
 	}
@@ -583,6 +600,9 @@ type stateOut struct {
 	Backlog        float64 `json:"deferred_backlog"`
 	InsolvencyYear *int    `json:"insolvency_year,omitempty"`
 	Status         string  `json:"status"`
+	// LossReason is the LossXxx condition that ended a lost game; omitted
+	// while the game is running or won.
+	LossReason string `json:"loss_reason,omitempty"`
 	// OutOfFunds is true when the treasury can't afford even the cheapest possible
 	// treatment on the board (cheapest tier x smallest open hex). The front-end
 	// surfaces this as the live "out of funds" HUD warning.
@@ -606,6 +626,7 @@ func (g *Game) StateJSON() ([]byte, error) {
 		NetworkPCI: g.networkPCI(),
 		Backlog:    g.backlog,
 		Status:     g.status,
+		LossReason: g.lossReason,
 		Spent:      g.spent,
 		Treatments: g.treatments,
 		Changed:    []changedHex{},

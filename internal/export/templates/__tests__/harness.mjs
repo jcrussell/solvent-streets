@@ -219,7 +219,10 @@ export function defaultSimulate(input) {
 // `config` is called with the page's PVMT_CONFIG after the template's inline
 // script has set it and before the page scripts run, so a spec can stand in
 // for a page rendered from a different config.
-export function load({ page = 'index', data = {}, simulate = defaultSimulate, url, navigate, wasm = false, goRuntime = page.startsWith('play'), hold = [], config } = {}) {
+//
+// `before` is called with the window just before the page scripts run, so a
+// spec can install browser state they read at load (matchMedia, storage).
+export function load({ page = 'index', data = {}, simulate = defaultSimulate, url, navigate, wasm = false, goRuntime = page.startsWith('play'), hold = [], config, before } = {}) {
   // 'play-live' is the play page as `pvmt serve` renders it: ActiveSlug set,
   // DATA_PREFIX injected, the served city pre-selected.
   // 'index-live' is the dashboard as `pvmt serve` renders it (snapshot picker).
@@ -250,6 +253,7 @@ export function load({ page = 'index', data = {}, simulate = defaultSimulate, ur
   if (config) config(win.PVMT_CONFIG);
   // The play page's navigation seam: record where it would have gone.
   if (navigate) win.__pvmtNavigate = navigate;
+  if (before) before(win);
 
   // Run app.js as a real classic script, exactly as <script src> would —
   // NOT via win.eval(). eval evaluates in its own declarative environment, so

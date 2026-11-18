@@ -15,6 +15,20 @@
         // host so navigation stays inside the exported tree wherever it is
         // mounted (e.g. a project subpath like /solvent-streets/).
         const MAP_HREF = PVMT_CONFIG.map_href;
+        // mapHref is MAP_HREF carrying the active city and tag filters, so
+        // the Map links (top bar and end banner) land on the dashboard's view
+        // of the same selection — the reverse of the dashboard's Play link
+        // (syncPlayLink in app.js). syncMapLinks keeps both in step.
+        let mapHref = MAP_HREF;
+        /** @param {string} slug @param {string[]} tags dimension:value pairs */
+        function syncMapLinks(slug, tags) {
+            const p = new URLSearchParams();
+            if (slug) p.set('city', slug);
+            tags.forEach(t => p.append('tag', t));
+            const qs = p.toString();
+            mapHref = MAP_HREF + (qs ? '?' + qs : '');
+            for (const a of document.querySelectorAll('a.map-link')) a.setAttribute('href', mapHref);
+        }
         // Money formatting, the error banner and the JSON fetch wrapper are the
         // shared ones from common.js, which the page loads before this script.
         const { fmtMoney, showError, loadJSON } = PvmtCommon;
@@ -90,6 +104,8 @@
                     else u.searchParams.delete('city');
                     return u;
                 };
+                /** @param {string} slug @param {Record<string, string>} selected */
+                const syncLinks = (slug, selected) => syncMapLinks(slug, PvmtSelectors.urlTags(selected, dims));
                 const valid = new Set(Array.from(sel.options).map(o => o.value));
                 if (served) {
                     if (sel.value && sel.value !== served) navigateTo(urlFor(sel.value, filters));
@@ -107,6 +123,7 @@
                 const heading = document.getElementById('hud-city');
                 const shown = sel.selectedOptions[0];
                 if (heading && shown && shown.value) heading.textContent = shown.textContent;
+                syncLinks(sel.value, filters);
                 sel.addEventListener('change', () => {
                     if (!sel.value) return;
                     navigateTo(urlFor(sel.value, PvmtSelectors.readFilters()));
@@ -119,6 +136,7 @@
                             ? PvmtSelectors.rebuildCitySelect(sel, cities, dims, selected, before)
                             : before;
                         syncNoMatch();
+                        syncLinks(picked, selected);
                         if (picked && picked !== before) navigateTo(urlFor(picked, selected));
                         // An empty match names no city, so a reload lands on the
                         // same empty state rather than a ?city= that would win
@@ -246,6 +264,34 @@
             document.getElementById('hud-backlog').textContent = fmtMoney(state.deferred_backlog);
         }
 
+        /**
+         * lossText is the end banner's headline and explanation for a lost
+         * game, from the condition Go reports as loss_reason. A backlog loss
+         * with a treasury still holding a year's budget (or with nothing ever
+         * treated) is money left unspent, not a budget decay outran: the
+         * treasury only pays for the roads the player treats.
+         * @param {any} s the final game state
+         * @returns {{headline: string, sub: string}}
+         */
+        function lossText(s) {
+            if (s.loss_reason === 'pci_floor') {
+                return { headline: 'Roads failed.', sub: 'Network PCI fell below the failing floor — game over.' };
+            }
+            if (s.loss_reason === 'closures') {
+                return { headline: 'Roads closed.', sub: 'More than half the network has closed to gravel — game over.' };
+            }
+            const treated = s.treatment_count || 0;
+            if (s.loss_reason === 'backlog' && (treated === 0 || s.treasury >= s.budget_rate)) {
+                return {
+                    headline: 'Network insolvent.',
+                    sub: fmtMoney(s.treasury) + ' went unspent' +
+                        (treated === 0 ? ' and no roads were treated' : '') +
+                        ', so deferred repairs piled up. The treasury only pays for roads you treat: drag over the map to treat them.'
+                };
+            }
+            return { headline: 'Network insolvent.', sub: 'Deferred repairs outran the budget — game over.' };
+        }
+
         function onStatusChange(status) {
             if (status === 'running') return;
             stopLoop();
@@ -254,11 +300,14 @@
             const gravelPct = hexCount ? (100 * (s.closed_count || 0) / hexCount) : 0;
             const won = status === 'won';
             const row = (k, v) => '<div class="row"><span class="k">' + k + '</span><span class="v">' + v + '</span></div>';
+            const text = won
+                ? { headline: 'You stayed solvent!', sub: 'The network held through the horizon.' }
+                : lossText(s);
             const banner = document.getElementById('banner');
             banner.className = won ? 'won' : 'lost';
             banner.innerHTML =
-                '<div class="headline">' + (won ? 'You stayed solvent!' : 'Network insolvent.') + '</div>' +
-                '<div class="sub">' + (won ? 'The network held through the horizon.' : 'Decay outran the budget — game over.') + '</div>' +
+                '<div class="headline">' + text.headline + '</div>' +
+                '<div class="sub">' + text.sub + '</div>' +
                 '<div class="banner-stats">' +
                     row('Years', (s.year != null ? s.year.toFixed(1) : '—')) +
                     row('Final PCI', (s.network_pci != null ? s.network_pci.toFixed(1) : '—')) +
@@ -269,7 +318,7 @@
                 '</div>' +
                 '<div class="banner-actions">' +
                     '<button class="btn" type="button" id="play-again">Play again</button>' +
-                    '<a class="btn" href="' + MAP_HREF + '">&larr; Map</a>' +
+                    '<a class="btn map-link" href="' + mapHref + '">&larr; Map</a>' +
                 '</div>';
             document.getElementById('play-again').addEventListener('click', showStartScreen);
         }
@@ -323,6 +372,7 @@
         function startGame() {
             if (!gameConfig) return;
             setInGameUI(true);
+            showHint();
             seedGame();
         }
 
@@ -392,6 +442,7 @@
             if (!ids.length) return; // all hexes under the brush already painted this stroke
             const state = callWasm('gameTreatBatch', JSON.stringify(ids), selectedTier);
             if (state) applyState(state);
+            if (state && state.treatment_count > 0 && !hintDismissed) dismissHint();
         }
         function brushCursorAt(pt) {
             const cur = document.getElementById('brush-cursor');
@@ -404,9 +455,41 @@
             cur.style.display = 'block';
         }
 
+        // ---- First-run hint --------------------------------------------------
+        // The only instructions the board needs: how to treat roads, worded
+        // for the input in hand (a coarse pointer is a finger: one-finger
+        // drag paints, pinch zooms; a mouse left-drags to paint and
+        // right-drags to pan). Shown on Start until it is dismissed or the
+        // first road is treated, and not again once either has happened
+        // (remembered in localStorage when storage works).
+        const HINT_KEY = 'pvmtPlayHintSeen';
+        const TOUCH = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+        function hintSeen() {
+            try { return localStorage.getItem(HINT_KEY) === '1'; } catch (e) { return false; }
+        }
+        let hintDismissed = hintSeen();
+        function dismissHint() {
+            hintDismissed = true;
+            document.getElementById('onboard-hint').hidden = true;
+            try { localStorage.setItem(HINT_KEY, '1'); } catch (e) { /* storage disabled */ }
+        }
+        function wireHint() {
+            document.getElementById('onboard-text').textContent = TOUCH
+                ? 'Drag a finger over the roads to treat them; the treasury only pays for roads you treat. Pinch to zoom.'
+                : 'Drag over the roads to treat them; the treasury only pays for roads you treat. Right-drag to pan, scroll to zoom.';
+            document.getElementById('brush-hint').textContent = TOUCH
+                ? '(drag to treat, pinch to zoom)'
+                : '(left-drag to treat, right-drag to pan)';
+            document.getElementById('onboard-dismiss').addEventListener('click', dismissHint);
+        }
+        function showHint() {
+            document.getElementById('onboard-hint').hidden = hintDismissed;
+        }
+
         // wireControls binds the in-game controls (reset, speed, brush size). Called
         // from boot once gameConfig exists (reset mutates it).
         function wireControls() {
+            wireHint();
             document.getElementById('reset-btn').addEventListener('click', reset);
             // Segmented Pause/1×/2×/4× control.
             queryAll('#speed-buttons .btn').forEach(b =>

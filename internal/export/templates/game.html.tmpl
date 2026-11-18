@@ -53,6 +53,12 @@
         /* Live "out of funds" warning + red treasury readout. */
         .funds-warn { display: none; margin-top: 8px; color: #ff7a6b; font-size: 13px; font-weight: 700; }
         .hud-row .v.broke { color: #ff7a6b; }
+        .onboard-hint {
+            margin-top: 10px; padding-top: 10px; border-top: 1px solid #2a3140;
+            max-width: 260px; font-size: 13px; line-height: 1.4; color: #cdd3db;
+        }
+        .onboard-hint[hidden] { display: none; }
+        .onboard-hint .btn { display: block; margin-top: 8px; padding: 4px 12px; }
 
         /* City selector — lives in the top bar */
         #city-select, #topbar .tag-filter {
@@ -159,7 +165,7 @@
 
     <div id="topbar">
         <span class="brand">Pavement Manager</span>
-        <a class="navlink" href="{{if .IsLiveServer}}/{{else}}index.html{{end}}">&larr; Map</a>
+        <a class="navlink map-link" href="{{if .IsLiveServer}}/{{else}}index.html{{end}}">&larr; Map</a>
         <span class="spacer"></span>
         {{if .Cities}}
         <label for="city-select" style="font-size:12px;color:#9aa4b2;">City</label>
@@ -183,6 +189,12 @@
         <div class="funds-warn" id="hud-funds-warn">Out of funds &mdash; waiting on budget</div>
         <div class="hud-row"><span class="k">Network PCI</span><span class="v" id="hud-pci">&mdash;</span></div>
         <div class="hud-row"><span class="k">Backlog</span><span class="v" id="hud-backlog">&mdash;</span></div>
+        <!-- First-run hint; game.js words it for mouse or touch and shows it
+             until it is dismissed or the first road is treated. -->
+        <div class="onboard-hint" id="onboard-hint" role="note" hidden>
+            <span id="onboard-text"></span>
+            <button class="btn" id="onboard-dismiss" type="button">Got it</button>
+        </div>
     </div>
 
     <div class="panel" id="controls" style="display:none">
@@ -197,7 +209,7 @@
             <button class="btn" id="reset-btn" type="button" style="margin-top:8px;width:100%">Reset</button>
         </div>
         <div class="ctrl-block">
-            <label>Brush size <span class="hint">(left-drag to treat, right-drag to pan)</span></label>
+            <label>Brush size <span class="hint" id="brush-hint">(left-drag to treat, right-drag to pan)</span></label>
             <input type="range" id="brush-size" min="0" max="80" value="24" step="2">
         </div>
     </div>

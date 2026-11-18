@@ -593,6 +593,7 @@ type stateView struct {
 	Backlog        float64      `json:"deferred_backlog"`
 	InsolvencyYear *int         `json:"insolvency_year"`
 	Status         string       `json:"status"`
+	LossReason     string       `json:"loss_reason"`
 	Spent          float64      `json:"total_spend"`
 	Treatments     int          `json:"treatment_count"`
 	ClosedCount    int          `json:"closed_count"`
@@ -776,6 +777,74 @@ func TestIdlePlayerGoesInsolvent(t *testing.T) {
 	if year < 6 || year > 12 {
 		t.Errorf("idle player went insolvent in year %d, want within the 12-year cycle", year)
 	}
+}
+
+// TestLossReason pins solvent-streets-ern4.30: a lost game names the
+// condition that ended it, so the banner can tell an idle player with a full
+// treasury that the money went unspent rather than that decay outran it.
+func TestLossReason(t *testing.T) {
+	t.Run("running and won report none", func(t *testing.T) {
+		cfg := baseConfig()
+		cfg.HorizonYears = 1
+		cfg.InitialPCI = 95
+		cfg.Cohorts = nil
+		g := newGame(t, cfg)
+		if st := decodeState(t, g); st.LossReason != "" {
+			t.Errorf("running game loss_reason = %q, want empty", st.LossReason)
+		}
+		g.Tick(1.5)
+		st := decodeState(t, g)
+		if st.Status != "won" || st.LossReason != "" {
+			t.Errorf("won game: status %q loss_reason %q, want won and empty", st.Status, st.LossReason)
+		}
+	})
+	t.Run("backlog", func(t *testing.T) {
+		g := newGame(t, idleConfig(1_000_000))
+		playIdle(g)
+		st := decodeState(t, g)
+		if st.Status != "lost" || st.LossReason != LossBacklog {
+			t.Errorf("idle player: status %q loss_reason %q, want lost to %q", st.Status, st.LossReason, LossBacklog)
+		}
+		if st.Treasury <= 0 || st.Treatments != 0 {
+			t.Errorf("fixture should lose with money unspent: treasury %v, treatments %d", st.Treasury, st.Treatments)
+		}
+	})
+	t.Run("pci floor", func(t *testing.T) {
+		cfg := baseConfig()
+		cfg.HorizonYears = 100
+		cfg.Hexes = []HexConfig{{ID: "a", RoadArea: 1000, K: 0.05}, {ID: "b", RoadArea: 1000, K: 0.05}}
+		cfg.InitialPCI = 32
+		cfg.StartingBudget = 0
+		cfg.Cohorts = nil
+		g := newGame(t, cfg)
+		for i := 0; i < 100 && g.status == "running"; i++ {
+			g.Tick(0.1)
+		}
+		if st := decodeState(t, g); st.LossReason != LossPCIFloor {
+			t.Errorf("loss_reason = %q (status %q), want %q", st.LossReason, st.Status, LossPCIFloor)
+		}
+	})
+	t.Run("closures", func(t *testing.T) {
+		cfg := baseConfig()
+		cfg.HorizonYears = 100
+		// Two closed hexes and one pristine hex big enough to hold the
+		// area-weighted network PCI above the floor.
+		cfg.Hexes = []HexConfig{
+			{ID: "a", RoadArea: 1, K: 0.01},
+			{ID: "b", RoadArea: 1, K: 0.01},
+			{ID: "c", RoadArea: 1000, K: 0.01},
+		}
+		cfg.InitialPCI = 95
+		cfg.StartingBudget = 0
+		cfg.Cohorts = nil
+		g := newGame(t, cfg)
+		g.hexByID["a"].pci, g.hexByID["a"].closed = 0, true
+		g.hexByID["b"].pci, g.hexByID["b"].closed = 0, true
+		g.Tick(0.01)
+		if st := decodeState(t, g); st.LossReason != LossClosures {
+			t.Errorf("loss_reason = %q (status %q), want %q", st.LossReason, st.Status, LossClosures)
+		}
+	})
 }
 
 // TestLiveInsolvencyMatchesProjection: at a $0 budget the pregame projection
