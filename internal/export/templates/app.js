@@ -68,6 +68,10 @@
                     metric:   p.get('metric'),
                     budget:   p.get('budget'),
                     maintain: p.get('maintain'),
+                    strategy: p.get('strategy'),
+                    pci:      p.get('pci'),
+                    cost:     p.get('cost'),
+                    tiers:    p.get('tiers'),
                 };
             },
             current() {
@@ -105,12 +109,15 @@
                     // Likewise what the forecast maintains, once it differs
                     // from the default (streets only).
                     maintain: (onFinancials && !sameMaintain(maintained, DEFAULT_MAINTAIN)) ? maintained.join(',') : null,
+                    // And the model settings (strategy, Initial PCI, cost
+                    // multiplier, tier costs) that differ from the city's seed.
+                    ...modelURLState(onFinancials),
                 };
             },
             // url serializes a state object to this page's path + query string.
             url(s) {
                 const p = new URLSearchParams();
-                for (const k of ['city', 'tab', 'scope', 'snapshot', 'metric', 'budget', 'maintain']) {
+                for (const k of ['city', 'tab', 'scope', 'snapshot', 'metric', 'budget', 'maintain', 'strategy', 'pci', 'cost', 'tiers']) {
                     if (s[k]) p.set(k, s[k]);
                 }
                 PvmtSelectors.urlTags(s.tags, TAG_DIMS).forEach(t => p.append('tag', t));
@@ -192,6 +199,86 @@
         /** @param {string[]} a @param {string[]} b */
         function sameMaintain(a, b) {
             return a.length === b.length && a.every((t, i) => t === b[i]);
+        }
+
+        // The Financials model settings the URL carries (solvent-streets-ern4.31):
+        // ?strategy=, ?pci= (Initial PCI), ?cost= (the cost multiplier) and
+        // ?tiers= (the cost tiers as min-max:$/sq m, comma-separated, e.g.
+        // 0-40:150,40-70:50,70-101:5; metric whatever the display units). Each
+        // is written only on the Financials tab and only when it differs from
+        // the city's seed, so a shared link reproduces the headline numbers.
+        //
+        // The controls are seeded from forecast_seed.json, which arrives after
+        // the URL is read, so the linked settings wait in pendingModel until
+        // loadFinancials has seeded the controls and applies them over the
+        // seed (applyModel). A null field means "the seed's". While a model is
+        // pending, the URL serializes it rather than the controls, which still
+        // describe the seed or the previous city. A city switch pends the
+        // empty model: the new city starts from its own seed.
+        const STRATEGIES = ['worst-first', 'preventive-first'];
+        const DEFAULT_STRATEGY = 'worst-first';
+        let currentStrategy = DEFAULT_STRATEGY;
+        /** @typedef {{min_pci: number, max_pci: number, cost_per_sqm: number}} TierSetting */
+        /** @typedef {{strategy: string | null, pci: number | null, cost: number | null, tiers: TierSetting[] | null}} ModelSettings */
+        /** @type {ModelSettings | null} */
+        let pendingModel = null;
+        // The cost multiplier's range, as config validation bounds it.
+        const COST_MAX = 5;
+
+        /** @param {string | null | undefined} v @returns {number} */
+        function paramNum(v) {
+            return v == null || String(v).trim() === '' ? NaN : Number(v);
+        }
+
+        // parseTiers reads a ?tiers= value, or null when any tier is malformed,
+        // out of range or overlaps another. The tier count is checked against
+        // the seed when it is applied.
+        /** @param {string | null | undefined} param @returns {TierSetting[] | null} */
+        function parseTiers(param) {
+            if (!param) return null;
+            const tiers = [];
+            for (const part of String(param).split(',')) {
+                const m = /^([^-:]+)-([^-:]+):(.+)$/.exec(part.trim());
+                if (!m) return null;
+                const lo = paramNum(m[1]), hi = paramNum(m[2]), cost = paramNum(m[3]);
+                if (!(lo >= 0 && hi <= 101 && lo < hi && cost > 0 && Number.isFinite(cost))) return null;
+                tiers.push({ min_pci: lo, max_pci: hi, cost_per_sqm: cost });
+            }
+            const sorted = tiers.slice().sort((a, b) => a.min_pci - b.min_pci);
+            for (let k = 1; k < sorted.length; k++) {
+                if (sorted[k].min_pci < sorted[k - 1].max_pci) return null;
+            }
+            return tiers;
+        }
+
+        /** @param {TierSetting[]} tiers */
+        function formatTiers(tiers) {
+            return tiers.map(t => t.min_pci + '-' + t.max_pci + ':' + t.cost_per_sqm).join(',');
+        }
+
+        // parseModel reads the model settings from a URL state, dropping any
+        // malformed value (it falls back to the seed).
+        /** @param {{strategy?: string | null, pci?: string | null, cost?: string | null, tiers?: string | null}} s @returns {ModelSettings} */
+        function parseModel(s) {
+            const pci = paramNum(s.pci), cost = paramNum(s.cost);
+            return {
+                strategy: s.strategy && STRATEGIES.includes(s.strategy) ? s.strategy : null,
+                pci: pci >= 0 && pci <= 100 ? Math.round(pci) : null,
+                cost: cost > 0 && cost <= COST_MAX ? cost : null,
+                tiers: parseTiers(s.tiers),
+            };
+        }
+
+        // modelURLState is the model settings' share of Router.current.
+        /** @param {boolean} onFinancials */
+        function modelURLState(onFinancials) {
+            const m = onFinancials ? (pendingModel || currentModel()) : null;
+            return {
+                strategy: m && m.strategy && m.strategy !== DEFAULT_STRATEGY ? m.strategy : null,
+                pci:      m && m.pci != null ? String(m.pci) : null,
+                cost:     m && m.cost != null ? String(m.cost) : null,
+                tiers:    m && m.tiers ? formatTiers(m.tiers) : null,
+            };
         }
         // The roads solvency headline recomputed at the live settings
         // (computeLiveSolvency); null until the forecast simulator has run for
@@ -334,11 +421,13 @@
             // The metric list arrives with the city's data; keep the requested
             // key and let loadCityData fall back to coverage if it is absent.
             if (init.metric) hexMetric = init.metric;
-            // Settle the budget and the maintained network before the
-            // replaceState below, or it would serialize the defaults and drop a
-            // shared ?budget= / ?maintain= from the address bar.
+            // Settle the budget, the maintained network and the model settings
+            // before the replaceState below, or it would serialize the defaults
+            // and drop a shared ?budget= / ?maintain= / ?pci= ... from the
+            // address bar. loadFinancials applies the model once the seed lands.
             resetBudget(init.budget);
             maintained = parseMaintain(init.maintain) || DEFAULT_MAINTAIN.slice();
+            pendingModel = parseModel(init);
             Router.replace();
         })();
 
@@ -414,8 +503,20 @@
             maintained = parseMaintain(s.maintain) || DEFAULT_MAINTAIN.slice();
             renderMaintainToggles();
             const budgetAfter = budgetUserSet ? budgetDollars : null;
+            // The model settings likewise. A reload (city, snapshot, or a load
+            // still in flight) applies them when its seed lands; otherwise they
+            // go onto the seeded controls here.
+            const inPlace = !cityChanged && !snapshotChanged && pendingModel === null && forecastSeedReady;
+            const modelBefore = inPlace ? JSON.stringify(currentModel()) : '';
+            pendingModel = parseModel(s);
+            let modelChanged = false;
+            if (inPlace) {
+                modelChanged = JSON.stringify(pendingModel) !== modelBefore;
+                if (modelChanged) applyModel(pendingModel);
+                pendingModel = null;
+            }
             if (!cityChanged && !snapshotChanged &&
-                (budgetAfter !== budgetBefore || !sameMaintain(maintained, maintainBefore))) {
+                (budgetAfter !== budgetBefore || !sameMaintain(maintained, maintainBefore) || modelChanged)) {
                 renderFinancialsFromCache();
             }
         });
@@ -1750,6 +1851,9 @@
             // A budget belongs to one city: drop it before Router.push below
             // writes the URL, so the new city's entry doesn't carry it.
             resetBudget(null);
+            // So do the model settings: the new city starts from its own seed.
+            pendingModel = parseModel({});
+            setStrategy(DEFAULT_STRATEGY);
             const bboxParts = opt.dataset.bbox.split(',').map(Number);
             // data-bbox is [west, south, east, north], fitBounds' own order.
             map.fitBounds([[bboxParts[0], bboxParts[1]], [bboxParts[2], bboxParts[3]]], { padding: 40 });
@@ -2463,6 +2567,7 @@
 
         async function loadFinancials() {
             const gen = ++financialsLoadGen; // bail stale loads after each await
+            let tidyURL = false;
             const prefix = DATA_PREFIX; // snapshot to avoid mid-await mutation
             // Clear any prior city's solvency headline up front. forecastData is
             // only reassigned on a successful forecast.json load below, so
@@ -2480,6 +2585,9 @@
             // tiles under the new city's name; if this load then took either early
             // return below, those tiles would stay on screen for good.
             scenarioData = null;
+            // A reload of the same city (a snapshot switch) keeps the reader's
+            // model settings, unless the URL or a city switch has pended others.
+            if (pendingModel === null && forecastSeedReady) pendingModel = currentModel();
             forecastSeedReady = false;
             // Also hide the previous city's headline tiles, cohort table, and
             // forecast controls up front, mirroring the solvency-headline reset
@@ -2521,12 +2629,16 @@
                 if (gen !== financialsLoadGen) return; // a newer load superseded us
                 if (seed) {
                     FORECAST_SEED = seed;
-                    // Reset the interactive controls to the new city's seed. Only
-                    // this fetch path does so — a units toggle must not, or it
-                    // throws away the values the user typed.
-                    syncPCISliderFromSeed();
-                    syncOverheadSliderFromSeed();
-                    rebuildTierInputs();
+                    // Reset the interactive controls to the new city's seed, then
+                    // put the linked model settings over it. Only this fetch path
+                    // does so — a units toggle must not, or it throws away the
+                    // values the user typed.
+                    const linked = pendingModel;
+                    applyModel(linked || parseModel({}));
+                    pendingModel = null;
+                    // Tidy the address bar once the seed can tell which linked
+                    // settings are the city's own (and so need no URL).
+                    tidyURL = !!linked && Object.values(linked).some(v => v != null);
                     // Gate the WASM sim: until this lands, FORECAST_SEED and the
                     // controls still describe the *previous* city (see
                     // renderFinancialsFromCache).
@@ -2548,6 +2660,7 @@
             // scenario runs against this city's seed and controls, not the
             // previous city's.
             renderFinancialsFromCache();
+            if (tidyURL) Router.replace();
         }
 
         // Materials
@@ -3099,7 +3212,6 @@
         // would leave baseline numbers in the headline tiles under a
         // custom-scenario chart line.
         let deferCustomScenario = false;
-        let currentStrategy = 'worst-first';
 
         // The shipped track (min/max/step) of each seeded range input, captured
         // the first time that input is seeded. Every sync restores it before
@@ -3218,10 +3330,14 @@
         function syncOverheadSliderFromSeed() {
             const slider = inputById('overhead-slider');
             if (!slider) return;
-            const seeded = FORECAST_SEED && Number(FORECAST_SEED.cost_overhead);
-            const v = Number.isFinite(seeded) && seeded > 0 ? seeded : 1;
-            seedRangeInput(slider, v);
+            seedRangeInput(slider, seededOverhead());
             renderOverheadValue();
+        }
+
+        // seededOverhead is the multiplier the seed prices at (see above).
+        function seededOverhead() {
+            const seeded = FORECAST_SEED && Number(FORECAST_SEED.cost_overhead);
+            return Number.isFinite(seeded) && seeded > 0 ? seeded : 1;
         }
 
         function renderOverheadValue() {
@@ -3328,7 +3444,10 @@
                         }
                     });
                 }
-                inp.addEventListener('input', runCustomScenario);
+                inp.addEventListener('input', () => {
+                    runCustomScenario();
+                    Router.replace();
+                });
             });
         }
 
@@ -3344,8 +3463,10 @@
             } else {
                 runCustomScenario();
             }
-            // Populate tier inputs from seed
-            rebuildTierInputs();
+            // Populate tier inputs from the fallback seed when this city's has
+            // not landed: once it has, loadFinancials built them, with any
+            // linked tier costs, and a rebuild would drop those.
+            if (!forecastSeedReady) rebuildTierInputs();
         }
 
         // Display names for the maintained-network control and its summary.
@@ -3485,11 +3606,10 @@
             return referenceCache.value || exported;
         }
 
-        function getControlValues() {
-            const initialPCI = parseInt(inputById('pci-slider').value);
-
-            // Read tier values from inputs (advanced), fallback to seed
-            const tiers = (FORECAST_SEED.cost_tiers || []).map((t, i) => {
+        // readTierInputs reads the cost tiers from the Advanced-options inputs,
+        // falling back to the seed field by field.
+        function readTierInputs() {
+            return (FORECAST_SEED.cost_tiers || []).map((t, i) => {
                 const minInput = queryInput('[data-tier="' + i + '"][data-field="min_pci"]');
                 const maxInput = queryInput('[data-tier="' + i + '"][data-field="max_pci"]');
                 const costInput = queryInput('[data-tier="' + i + '"][data-field="cost_per_sqm"]');
@@ -3514,6 +3634,77 @@
                     label: t.label
                 };
             });
+        }
+
+        // seededPCI is the Initial PCI the slider is seeded at.
+        function seededPCI() {
+            return typeof FORECAST_SEED.initial_pci === 'number'
+                ? Math.round(FORECAST_SEED.initial_pci)
+                : parseInt(inputById('pci-slider').defaultValue);
+        }
+
+        // currentModel is the model settings on the controls, each null where
+        // it is the seed's (see pendingModel).
+        /** @returns {ModelSettings} */
+        function currentModel() {
+            const pci = parseInt(inputById('pci-slider').value);
+            const cost = currentOverhead();
+            const seedTiers = FORECAST_SEED.cost_tiers || [];
+            const tiers = readTierInputs().map(t => ({ min_pci: t.min_pci, max_pci: t.max_pci, cost_per_sqm: t.cost_per_sqm }));
+            const tiersSeeded = tiers.every((t, i) => t.min_pci === seedTiers[i].min_pci &&
+                t.max_pci === seedTiers[i].max_pci && t.cost_per_sqm === seedTiers[i].cost_per_sqm);
+            return {
+                strategy: currentStrategy !== DEFAULT_STRATEGY ? currentStrategy : null,
+                pci: pci !== seededPCI() ? pci : null,
+                cost: Math.abs(cost - seededOverhead()) > 1e-9 ? cost : null,
+                tiers: tiersSeeded ? null : tiers,
+            };
+        }
+
+        // applyModel resets the controls to the seed and puts m's settings over
+        // it. Linked tiers are applied only when there are as many as the seed
+        // has, since each input row is one of the seed's tiers.
+        /** @param {ModelSettings} m */
+        function applyModel(m) {
+            syncPCISliderFromSeed();
+            syncOverheadSliderFromSeed();
+            rebuildTierInputs();
+            setStrategy(m.strategy || DEFAULT_STRATEGY);
+            if (m.pci != null) {
+                document.getElementById('pci-value').textContent = String(seedRangeInput(inputById('pci-slider'), m.pci));
+            }
+            if (m.cost != null) {
+                seedRangeInput(inputById('overhead-slider'), m.cost);
+                renderOverheadValue();
+            }
+            renderOverheadRegimeLabel();
+            const seedTiers = FORECAST_SEED.cost_tiers || [];
+            if (m.tiers && m.tiers.length === seedTiers.length) {
+                m.tiers.forEach((t, i) => {
+                    const get = (field) => queryInput('[data-tier="' + i + '"][data-field="' + field + '"]');
+                    const minEl = get('min_pci'), maxEl = get('max_pci'), costEl = get('cost_per_sqm');
+                    if (!minEl || !maxEl || !costEl) return;
+                    minEl.value = String(t.min_pci);
+                    maxEl.value = String(Math.min(100, t.max_pci));
+                    costEl.dataset.sqm = String(t.cost_per_sqm);
+                    costEl.value = String(roundCents(costPerAreaToDisplay(t.cost_per_sqm)));
+                });
+            }
+        }
+
+        // setStrategy selects a repair strategy and its button.
+        /** @param {string} strategy */
+        function setStrategy(strategy) {
+            currentStrategy = strategy;
+            queryAll('#strategy-buttons button').forEach(b =>
+                b.classList.toggle('active', b.dataset.strategy === strategy));
+        }
+
+        function getControlValues() {
+            const initialPCI = parseInt(inputById('pci-slider').value);
+
+            // Read tier values from inputs (advanced), fallback to seed
+            const tiers = readTierInputs();
 
             // Area/cohorts for the active scope: city-scoped data by default,
             // all-jurisdiction data when scope === 'all'.
@@ -3868,6 +4059,7 @@
             document.getElementById('pci-value').textContent = pciSlider.value;
             syncAriaValueNow(pciSlider);
             runCustomScenario();
+            Router.replace();
         });
         const overheadSlider = inputById('overhead-slider');
         overheadSlider.addEventListener('input', () => {
@@ -3875,13 +4067,13 @@
             renderOverheadRegimeLabel();
             syncAriaValueNow(overheadSlider);
             runCustomScenario();
+            Router.replace();
         });
         queryAll('#strategy-buttons button').forEach(btn => {
             btn.addEventListener('click', () => {
-                queryAll('#strategy-buttons button').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                currentStrategy = btn.dataset.strategy;
+                setStrategy(btn.dataset.strategy || DEFAULT_STRATEGY);
                 runCustomScenario();
+                Router.replace();
             });
         });
         document.getElementById('maintain-toggles').addEventListener('change', () => {
