@@ -270,7 +270,7 @@ func New(cfg Config) (*Game, error) {
 		budgetRate: startBudget,
 		horizon:    cfg.HorizonYears,
 		endless:    cfg.Endless,
-		status:     "running",
+		status:     statusRunning,
 		cost:       &forecast.TieredCostProjector{Tiers: tiers},
 		tiers:      tiers,
 		initialPCI: cfg.InitialPCI,
@@ -336,7 +336,7 @@ func (g *Game) Tick(dt float64) {
 	// Reject non-finite or non-positive dt: a bare dt<=0 guard lets NaN and +Inf
 	// through (NaN<=0 and +Inf<=0 are both false), which would poison simYears,
 	// treasury, and every hex's PCI with NaN irrecoverably.
-	if !finite(dt) || dt <= 0 || g.status != "running" {
+	if !finite(dt) || dt <= 0 || g.status != statusRunning {
 		return
 	}
 	g.simYears += dt
@@ -407,7 +407,7 @@ func (g *Game) TreatBatch(hexIDs []string, tier string) int {
 // hex. Returns false (no-op) if the game is over, the tier/hex is unknown, or the
 // treasury can't afford it. Accumulates spent/treatments for the summary.
 func (g *Game) treatOne(hexID, tier string) bool {
-	if g.status != "running" {
+	if g.status != statusRunning {
 		return false
 	}
 	h := g.hexByID[hexID]
@@ -514,6 +514,13 @@ func insolvencyFromForecast(in forecast.Inputs) (int, bool) {
 	return forecast.InsolvencyYear(result, cycleYears)
 }
 
+// The states a game is in, reported as StateJSON's status.
+const (
+	statusRunning = "running"
+	statusWon     = "won"
+	statusLost    = "lost"
+)
+
 // The reasons a game is lost, reported as StateJSON's loss_reason so the
 // end banner can say which condition ended it.
 const (
@@ -528,7 +535,7 @@ const (
 // definition the pregame projection and the Financials headline use). Win if
 // the horizon is reached still solvent.
 func (g *Game) recomputeStatus() {
-	if g.status != "running" {
+	if g.status != statusRunning {
 		return
 	}
 	closed := 0
@@ -548,13 +555,13 @@ func (g *Game) recomputeStatus() {
 		g.lossReason = LossBacklog
 	}
 	if g.lossReason != "" {
-		g.status = "lost"
+		g.status = statusLost
 		return
 	}
 	// Endless (sandbox) never wins by reaching the horizon — play continues until
 	// a loss condition above fires.
 	if !g.endless && g.simYears >= g.horizon {
-		g.status = "won"
+		g.status = statusWon
 	}
 }
 
