@@ -46,6 +46,26 @@ test('a negative cost is flagged inline and never reaches the simulator', async 
   assert.ok(win.__simCalls.length > calls, 'a corrected value runs the simulator');
 });
 
+// Invalid tiers stop the forecast, so the headline figures above still show
+// the last valid run: they are dimmed until the inputs are fixed
+// (solvent-streets-ern4.36).
+test('the forecast figures dim while the tier inputs are invalid', async () => {
+  const { win, $, flush } = await ready();
+  const ids = ['solvency-headline', 'headlines', 'cohort-section', 'charts'];
+  const stale = () => ids.filter((id) => $('#' + id).classList.contains('forecast-stale'));
+  assert.deepEqual(stale(), [], 'valid inputs: nothing dimmed');
+
+  type(win, input($, 0, 'cost_per_sqm'), -5);
+  await flush();
+  assert.deepEqual(stale(), ids, 'every forecast figure is dimmed while the run is refused');
+  assert.match($('#headlines').getAttribute('title'), /Not updated/);
+
+  type(win, input($, 0, 'cost_per_sqm'), 1);
+  await flush();
+  assert.deepEqual(stale(), [], 'a corrected value runs again and undims');
+  assert.equal($('#headlines').getAttribute('title'), null);
+});
+
 test('an inverted or overlapping range is flagged', async () => {
   const { win, $, flush } = await ready();
   type(win, input($, 0, 'min_pci'), 90);

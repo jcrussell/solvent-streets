@@ -133,11 +133,14 @@ test('the region panel stays open and closable after a resource toggle and follo
   drag('mousedown', 0);
   drag('mouseup', 10);
   assert.ok(h.$('#stats .region-detail'), 'the drag did not open the region panel');
-  assert.equal(statValue(h, 'Est. Annual Cost'), '$21.0K');
+  assert.equal(statValue(h, 'Est. year-1 cost'), '$21.0K');
+  // One name for the metric: the panel row reads as the "Color by" option
+  // does (solvent-streets-ern4.36).
+  assert.equal(h.win.PVMT_CONFIG.hex_metrics.find((m) => m.key === 'est_cost_usd').label, 'Est. year-1 cost');
 
   untick(h, 'parking');
   assert.ok(h.$('#stats .region-detail'), 'the toggle closed the region panel');
-  assert.equal(statValue(h, 'Est. Annual Cost'), '$15.0K', 'the region panel kept the toggled-off resource');
+  assert.equal(statValue(h, 'Est. year-1 cost'), '$15.0K', 'the region panel kept the toggled-off resource');
 
   h.$('#close-region').click();
   assert.equal(h.$('#stats .region-detail'), null, 'the close button stopped working after the toggle');

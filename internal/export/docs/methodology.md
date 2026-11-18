@@ -136,11 +136,11 @@ pvmt ships with three comparison runs driven by annual funding level, all
 using the **worst-first** strategy (see [How spending moves
 condition](#how-spending-moves-condition)):
 
-- **25% funding** — annual spend = 25% of the do-nothing baseline's year-1
+- **25% Funding** — annual spend = 25% of the do-nothing baseline's year-1
   need.
-- **50% funding** — annual spend = 50% of the same need.
-- **Full funding** — unconstrained budget; each year's whole scheduled
-  treatment need is funded.
+- **50% Funding** — annual spend = 50% of the same need.
+- **Full Funding** — no budget cap: each year's whole scheduled treatment
+  need is funded.
 
 A **do-nothing** baseline (no spend, uncontrolled decay) is shown
 alongside the funded runs for comparison.

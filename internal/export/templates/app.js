@@ -943,9 +943,11 @@
                     // left blank on the map (they have no time), but counted
                     // against the share above.
                     (s.unreachable_count > 0 ? '<div class="stat-row"><span class="stat-label">Unreachable hexes</span><span class="stat-value">' + s.unreachable_count.toLocaleString() + '</span></div>' : '') +
-                    '<div class="stat-row"><span class="stat-label">Median</span><span class="stat-value">' + fmtMetric(s.median, s.format) + '</span></div>' +
+                    // The median and range are over the painted hexes, not
+                    // the city as a whole: say so.
+                    '<div class="stat-row"><span class="stat-label">Median per hex</span><span class="stat-value">' + fmtMetric(s.median, s.format) + '</span></div>' +
                     // Compact, unit once: "0 – 24K / sq mi", not the unit twice.
-                    '<div class="stat-row"><span class="stat-label">Range</span><span class="stat-value">' + fmtLegend(s.min, s.format, false) + ' – ' + fmtLegend(s.max, s.format, true) + '</span></div>' +
+                    '<div class="stat-row"><span class="stat-label">Range per hex</span><span class="stat-value">' + fmtLegend(s.min, s.format, false) + ' – ' + fmtLegend(s.max, s.format, true) + '</span></div>' +
                     pointsRows(s) +
                     '</div>';
             });
@@ -1309,7 +1311,7 @@
                     tooltip.innerHTML =
                         '<strong>Coverage:</strong> ' + (p.share != null ? Math.round(p.share * 100) : 0) + '%<br>' +
                         '<strong>Area:</strong> ' + fmtArea(p.area || 0) + '<br>' +
-                        '<strong>Est. Annual Cost:</strong> ' + fmtMoney(p.est_cost || 0) +
+                        '<strong>Est. year-1 cost:</strong> ' + fmtMoney(p.est_cost || 0) +
                         (p.spaces > 0 ? '<br><strong>Est. Parking Spaces:</strong> ' + Math.round(p.spaces).toLocaleString() : '') +
                         metricTooltipLine(p);
                     tooltip.style.display = 'block';
@@ -1575,7 +1577,9 @@
             // A dollar edge is compacted like the count and area edges, so a
             // row of ranges stays narrow ("$2.5K–$5K").
             if (format === 'usd') return '$' + compactNum(v);
-            if (format === 'int') return compactNum(v);
+            // A count reads in whole units: an apportioned 6.3 housing
+            // units is "6", not "6.3"; large counts still compact ("1.2K").
+            if (format === 'int') return Math.abs(v) < 1000 ? Math.round(v).toLocaleString() : compactNum(v);
             return fmtMetric(v, format);
         }
 
@@ -1859,7 +1863,7 @@
                     '<div class="stat-row"><span class="stat-label">Hexes selected</span><span class="stat-value">' + fmtNum(count) + '</span></div>' +
                     '<div class="stat-row"><span class="stat-label">Total Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + toAreaLarge(sumArea).toFixed(1) + '</span></div>' +
                     '<div class="stat-row"><span class="stat-label">% Covered (area-weighted)</span><span class="stat-value">' + wPct.toFixed(1) + '%</span></div>' +
-                    '<div class="stat-row"><span class="stat-label">Est. Annual Cost</span><span class="stat-value">' + fmtMoney(sumCost) + '</span></div>' +
+                    '<div class="stat-row"><span class="stat-label">Est. year-1 cost</span><span class="stat-value">' + fmtMoney(sumCost) + '</span></div>' +
                     '</div></div>';
             }
         })();
@@ -3091,7 +3095,7 @@
                 }
             } else {
                 lead = 'Holding ' + name + '’s streets steady would take <span class="num">' + fmtMoney(breakEven) + '/yr</span> (streets/roads only).';
-                detail = 'No current budget configured for this city, so the funding gap and insolvency year aren’t shown. Set <code>forecast.current_budget</code> (cited) to see them.';
+                detail = 'No cited street budget for ' + name + ' is on file, so its funding gap and insolvency year aren’t shown.';
             }
             var fe = forecastData ? forecastData.find(function(f) { return f.resource_type === 'roads'; }) : null;
             var seededPCI = FORECAST_SEED ? Number(FORECAST_SEED.initial_pci) : NaN;
@@ -3456,7 +3460,22 @@
                 box.hidden = errs.length === 0;
                 box.textContent = errs.length ? 'Not run: ' + errs.join('; ') + '.' : '';
             }
+            markForecastStale(errs.length > 0);
             return errs.length === 0;
+        }
+
+        // STALE_FORECAST_IDS are the Financials figures the interactive
+        // forecast draws. While the tier inputs are invalid it is not run, so
+        // they still show the last valid run: dim them, and say why.
+        const STALE_FORECAST_IDS = ['solvency-headline', 'headlines', 'cohort-section', 'charts'];
+        function markForecastStale(stale) {
+            STALE_FORECAST_IDS.forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.classList.toggle('forecast-stale', stale);
+                if (stale) el.setAttribute('title', 'Not updated: fix the cost tiers under Advanced options');
+                else el.removeAttribute('title');
+            });
         }
 
         function rebuildTierInputs() {

@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/jcrussell/solvent-streets/internal/forecast"
 )
 
 // methodologyMarkers are prose markers unique to the methodology source of
@@ -39,6 +41,21 @@ func TestMethodologyHasNoRawHTML(t *testing.T) {
 	for _, s := range forbiddenHTML {
 		if strings.Contains(rendered, s) {
 			t.Errorf("rendered methodology contains forbidden substring %q", s)
+		}
+	}
+}
+
+// TestMethodologyNamesTheFundingLevels: the comparison runs carry one name
+// each, on the Financials charts, the Materials headline and in the
+// methodology that explains them (solvent-streets-ern4.36).
+func TestMethodologyNamesTheFundingLevels(t *testing.T) {
+	html, err := MethodologyHTML()
+	if err != nil {
+		t.Fatalf("MethodologyHTML: %v", err)
+	}
+	for _, s := range forecast.DefaultComparisons(1) {
+		if want := "<strong>" + s.Label + "</strong>"; !strings.Contains(string(html), want) {
+			t.Errorf("methodology does not name the %q run as its label does (looking for %q)", s.Name, want)
 		}
 	}
 }

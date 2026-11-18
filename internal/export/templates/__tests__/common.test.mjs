@@ -71,6 +71,11 @@ test('the hold-steady budget reads the same on Financials and on Play', async ()
   const index = load({ data });
   await index.flush(12);
   assert.match(index.$('#solvency-headline .lead').textContent, /\$12\.3M\/yr/);
+  // Visitors read this: it says what is missing, not which config key to set
+  // (solvent-streets-ern4.36).
+  const detail = index.$('#solvency-headline .detail').textContent;
+  assert.match(detail, /No cited street budget for .+ is on file/);
+  assert.doesNotMatch(index.$('#solvency-headline').innerHTML, /current_budget|<code>/);
 
   const play = load({ page: 'play', wasm: true, data });
   await play.flush();

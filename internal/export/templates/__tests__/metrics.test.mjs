@@ -66,7 +66,8 @@ test('the Color-by selector lists the available derived metrics plus each stored
   assert.equal($('#hex-metric').hidden, false);
   const card = $$('#stats .stat-card').find((c) => c.querySelector('h3').textContent === 'Fire response');
   assert.ok(card, 'no metric card rendered from meta.metrics');
-  assert.match(card.textContent, /Median\s*11:40/, 'median must render in m:ss');
+  assert.match(card.textContent, /Median per hex\s*11:40/, 'median must render in m:ss, marked per hex');
+  assert.match(card.textContent, /Range per hex/);
   assert.match(card.textContent, /Stations serving the city\s*1/);
   assert.doesNotMatch(card.textContent, /outside the city/, 'the fixture station is inside the city');
   assert.equal(card.querySelector('.points-caveat'), null, 'a city with its station inside carries no caveat');
@@ -275,3 +276,14 @@ function goldenBandLabels(bands, fmt) {
   out.push('> ' + fmt(bands[bands.length - 1]));
   return out;
 }
+
+// A count is shown in whole units: apportioning census blocks to hexes gives
+// fractional housing units, and "Range 0 – 6.3" read as fractional homes
+// (solvent-streets-ern4.36). Large counts still compact.
+test('a count metric formats its range and legend edges as whole numbers', async () => {
+  const { win } = await loadWithMetrics();
+  assert.equal(win.fmtLegend(6.3, 'int', true), '6');
+  assert.equal(win.fmtLegend(0.4, 'int', false), '0');
+  assert.equal(win.fmtLegend(250, 'int', false), '250');
+  assert.equal(win.fmtLegend(1234, 'int', false), '1.2K');
+});
