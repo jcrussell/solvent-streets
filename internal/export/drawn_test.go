@@ -73,6 +73,9 @@ func TestHexMetrics_CoverExactlyTheDrawnHexes(t *testing.T) {
 	}, nil)
 	entry.City.MinHexArea = 100_000
 	store := entry.Store.(*dbtest.MockStore)
+	store.Facilities = map[string][]db.RunFacility{db.ServiceProducer("fire"): {
+		{ID: "osm:node:1", Lon: -122.41, Lat: 37.71}, {ID: "osm:node:2", Lon: -122.4, Lat: 37.7}, {ID: "osm:node:3", Lon: -122.4, Lat: 37.7},
+	}}
 	store.HexMetrics = append(store.HexMetrics,
 		db.HexMetric{HexID: interior, Metric: services.MetricFire, Value: 300, Ref: "osm:node:1"},
 		db.HexMetric{HexID: sliver, Metric: services.MetricFire, Value: 9000, Ref: "osm:node:2"},

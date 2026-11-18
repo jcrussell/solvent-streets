@@ -73,7 +73,10 @@ type MetricSummaryJSON struct {
 	Max    float64  `json:"max"`
 	// PointCount is the points of service the metric references over the
 	// drawn hexes: for fire, the stations that are some hex's nearest, inside
-	// the city or across its line.
+	// the city or across its line. For a service it counts only the
+	// facilities its run recorded, which are the markers hex-metrics.json
+	// carries, so it is InsidePointCount + OutsidePointCount when those are
+	// present.
 	PointCount int `json:"point_count,omitempty"`
 	// PointLabel names those points on the stats panel ("Stations serving the
 	// city"), for a service's coverage metric.
@@ -348,14 +351,18 @@ func capitalize(s string) string {
 	return string(s[0]-'a'+'A') + s[1:]
 }
 
-// splitPointsByBoundary counts the facilities rows reference that lie inside
-// and outside the city boundary, for a service's coverage metric. ok is
-// false when the metric is no service's, or the boundary cannot be read as
-// a polygon; a reference to no recorded facility counts in neither.
-func splitPointsByBoundary(ctx context.Context, entry CityEntry, spec hexmetric.Spec, rows []db.HexMetric) (inside, outside int, ok bool, err error) {
+// servicePoints is a service coverage metric's points: the facilities its
+// rows reference that the run recorded (Store.ListRunFacilities), which are
+// the markers hex-metrics.json carries (metricPoints), split by whether they
+// lie inside the city boundary. A reference to no recorded facility has no
+// position, so it is no point: it is in neither the markers nor the counts,
+// and inside + outside is always the point count. isService is false when
+// the metric is no service's; split is false when the boundary cannot be read
+// as a polygon, leaving inside and outside unknown.
+func servicePoints(ctx context.Context, entry CityEntry, spec hexmetric.Spec, rows []db.HexMetric) (points, inside, outside int, isService, split bool, err error) {
 	svc, isService := services.ForMetric(spec.Key)
 	if !isService {
-		return 0, 0, false, nil
+		return 0, 0, 0, false, false, nil
 	}
 	refs := map[string]bool{}
 	for _, r := range rows {
@@ -365,7 +372,7 @@ func splitPointsByBoundary(ctx context.Context, entry CityEntry, spec hexmetric.
 	}
 	facilities, err := entry.Store.ListRunFacilities(ctx, db.ServiceProducer(svc.Name))
 	if err != nil {
-		return 0, 0, false, fmt.Errorf("listing %s facilities: %w", svc.Name, err)
+		return 0, 0, 0, true, false, fmt.Errorf("listing %s facilities: %w", svc.Name, err)
 	}
 	var pts [][2]float64
 	for _, f := range facilities {
@@ -375,11 +382,11 @@ func splitPointsByBoundary(ctx context.Context, entry CityEntry, spec hexmetric.
 	}
 	boundary, err := entry.Store.GetBoundary(ctx)
 	if err != nil {
-		return 0, 0, false, fmt.Errorf("boundary for %s: %w", entry.City.Name, err)
+		return 0, 0, 0, true, false, fmt.Errorf("boundary for %s: %w", entry.City.Name, err)
 	}
 	in, err := geo.PointsInBoundary(boundary, pts)
 	if err != nil {
-		return 0, 0, false, nil //nolint:nilerr // no readable boundary: the split is unknown, not an export failure
+		return len(pts), 0, 0, true, false, nil //nolint:nilerr // no readable boundary: the split is unknown, not an export failure
 	}
 	for _, b := range in {
 		if b {
@@ -388,7 +395,7 @@ func splitPointsByBoundary(ctx context.Context, entry CityEntry, spec hexmetric.
 			outside++
 		}
 	}
-	return inside, outside, true, nil
+	return len(pts), inside, outside, true, true, nil
 }
 
 // metricSummary summarises one metric's rows against its resolved
@@ -410,9 +417,14 @@ func metricSummary(ctx context.Context, entry CityEntry, grid *DrawnGrid, spec h
 	if !ok {
 		return sum, false, nil
 	}
-	inside, outside, split, err := splitPointsByBoundary(ctx, entry, spec, rows)
+	points, inside, outside, isService, split, err := servicePoints(ctx, entry, spec, rows)
 	if err != nil {
 		return MetricSummaryJSON{}, false, err
+	}
+	if isService {
+		// The points the map marks, so the count, the split and the markers
+		// agree (servicePoints).
+		sum.PointCount = points
 	}
 	if split {
 		svc, _ := services.ForMetric(spec.Key)

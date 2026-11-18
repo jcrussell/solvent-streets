@@ -135,6 +135,39 @@ func TestBuildHexMetrics(t *testing.T) {
 	}
 }
 
+// TestBuildMeta_PointCountsAddUp: a service summary's point count is the
+// facilities its run recorded that the rows reference, the markers
+// hex-metrics.json carries, so it is inside + outside. A reference to no
+// recorded facility has no position: it is not a point, so it is in neither
+// the count nor the split (it used to be in point_count only).
+func TestBuildMeta_PointCountsAddUp(t *testing.T) {
+	h := metricsHexIDs(t)
+	rows := []db.HexMetric{
+		{HexID: h[0], Metric: services.MetricFire, Value: 300, Ref: "osm:node:9"},
+		{HexID: h[1], Metric: services.MetricFire, Value: 420, Ref: "osm:node:missing"},
+	}
+	entry := metricsEntry(t, rows, fireFacilities(), nil)
+	meta, err := BuildMeta(context.Background(), entry, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := meta.Metrics[services.MetricFire]
+	if s.InsidePointCount == nil || s.OutsidePointCount == nil {
+		t.Fatalf("summary has no inside/outside split: %+v", s)
+	}
+	if s.PointCount != 1 || *s.InsidePointCount+*s.OutsidePointCount != s.PointCount {
+		t.Errorf("point_count %d, inside %d + outside %d; want 1 recorded station, and the split to add up to it",
+			s.PointCount, *s.InsidePointCount, *s.OutsidePointCount)
+	}
+	hm, err := BuildHexMetrics(context.Background(), entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(hm.Metrics[services.MetricFire].Points); got != s.PointCount {
+		t.Errorf("hex-metrics.json marks %d points, meta.json counts %d", got, s.PointCount)
+	}
+}
+
 // TestBuildMeta_MetricSummaries: meta.json summarises each metric over every
 // stored row — hexgrid paints every grid hex, pavement or not — and omits
 // the key when no metric has rows.
@@ -147,7 +180,8 @@ func TestBuildMeta_MetricSummaries(t *testing.T) {
 		{HexID: h[4], Metric: services.MetricFire, Value: 9000, Ref: "b", ComputedAt: now},
 	}
 	stats := []results.HexCoverage{{HexID: h[0], Area: 1}, {HexID: h[1], Area: 1}}
-	entry := metricsEntry(t, rows, nil, stats)
+	recorded := []db.RunFacility{{ID: "a", Lon: -122.41, Lat: 37.71}, {ID: "b", Lon: -122.4, Lat: 37.7}}
+	entry := metricsEntry(t, rows, recorded, stats)
 	meta, err := BuildMeta(context.Background(), entry, 0)
 	if err != nil {
 		t.Fatal(err)
