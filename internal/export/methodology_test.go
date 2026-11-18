@@ -3,6 +3,7 @@ package export
 import (
 	"bytes"
 	"html/template"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -84,6 +85,43 @@ func TestDashboardHasAboutTab(t *testing.T) {
 	for _, s := range []string{`data-tab="about-tab"`, `id="about-tab"`} {
 		if n := strings.Count(out, s); n != 1 {
 			t.Errorf("dashboard About tab: %q appears %d times, want 1", s, n)
+		}
+	}
+}
+
+// TestMethodologyAnchorsResolve checks every in-document link in the
+// methodology lands on a heading id, so renaming a heading cannot silently
+// break a link to it (solvent-streets-ern4.34). The ids must also be unique
+// on the dashboard, which carries its own ids beside the prose.
+func TestMethodologyAnchorsResolve(t *testing.T) {
+	html, err := MethodologyHTML()
+	if err != nil {
+		t.Fatalf("MethodologyHTML: %v", err)
+	}
+	ids := map[string]bool{}
+	for _, m := range regexp.MustCompile(`<h[1-6] id="([^"]+)"`).FindAllStringSubmatch(string(html), -1) {
+		ids[m[1]] = true
+	}
+	if !ids["how-spending-moves-condition"] {
+		t.Errorf(`rendered methodology has no id="how-spending-moves-condition"; heading ids: %v`, ids)
+	}
+	links := regexp.MustCompile(`\]\(#([^)\s]+)\)`).FindAllSubmatch(methodologyMarkdown, -1)
+	if len(links) == 0 {
+		t.Fatal("methodology.md has no in-document links; the check below would pass vacuously")
+	}
+	for _, m := range links {
+		if !ids[string(m[1])] {
+			t.Errorf("methodology.md links #%s, which no heading generates", m[1])
+		}
+	}
+
+	var buf bytes.Buffer
+	if err := parseDashboardTemplates(t).Execute(&buf, TemplateData{MethodologyHTML: html}); err != nil {
+		t.Fatalf("execute index: %v", err)
+	}
+	for id := range ids {
+		if n := strings.Count(buf.String(), `id="`+id+`"`); n != 1 {
+			t.Errorf(`dashboard has id="%s" %d times, want 1`, id, n)
 		}
 	}
 }

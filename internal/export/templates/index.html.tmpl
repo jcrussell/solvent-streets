@@ -510,6 +510,16 @@
         .score-card.rank-2 { border-color: var(--text-muted); background: linear-gradient(135deg, var(--panel-2) 0%, var(--panel) 50%); }
         .score-card.rank-3 { border-color: #d97706; background: linear-gradient(135deg, var(--fair-bg) 0%, var(--panel) 50%); }
         .rank-medal { font-size: 32px; margin-bottom: 8px; }
+        .rank-medal.rank-num { font-size: 20px; font-weight: 700; color: var(--text-muted); line-height: 38px; }
+        /* The city in view (markCurrentCity): an outline that keeps a podium
+           card's own border colour readable. */
+        .score-card.current-city { outline: 3px solid var(--accent); outline-offset: 2px; }
+        .lb-row.current-city .lb-name { font-weight: 700; color: var(--text-strong); }
+        .lb-row.current-city { box-shadow: inset 3px 0 0 var(--accent); }
+        .visually-hidden {
+            position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+            overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+        }
         .score-card .city-name { font-size: 18px; font-weight: 700; color: var(--text-strong); margin-bottom: 12px; }
         .score-card .score-value { font-size: 48px; font-weight: 800; color: var(--text-strong); line-height: 1; }
         .score-card .score-label { font-size: 13px; color: var(--text-muted); margin-top: 4px; }

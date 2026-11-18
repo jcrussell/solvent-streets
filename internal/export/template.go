@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/parser"
 )
 
 //go:embed templates
@@ -33,7 +34,10 @@ var methodologyMarkdown []byte
 // binary.
 var methodologyHTMLOnce = sync.OnceValues(func() (template.HTML, error) {
 	var buf bytes.Buffer
-	if err := goldmark.New().Convert(methodologyMarkdown, &buf); err != nil {
+	// Auto heading IDs give every heading an id from its text, so the
+	// prose's in-page links ([...](#how-spending-moves-condition)) land.
+	md := goldmark.New(goldmark.WithParserOptions(parser.WithAutoHeadingID()))
+	if err := md.Convert(methodologyMarkdown, &buf); err != nil {
 		return "", fmt.Errorf("render methodology markdown: %w", err)
 	}
 	return template.HTML(buf.String()), nil

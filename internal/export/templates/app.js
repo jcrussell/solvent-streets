@@ -1865,12 +1865,32 @@
             loadSnapshots(slug);
             loadCityData();
             loadFinancials();
+            markCurrentCity();
             reloadMaterialsIfActive();
             if (!opts || opts.push !== false) Router.push();
         }
         const citySelect = selectById('city-select');
         if (citySelect) {
             citySelect.addEventListener('change', () => selectCity(citySelect.value));
+        }
+
+        // In-page links in the About prose ([...](#how-spending-moves-condition))
+        // scroll the tab to their heading here rather than as a fragment
+        // navigation. That would add a history entry and fire popstate, and the
+        // state popstate reads back from an About-tab URL carries none of the
+        // Financials settings (only the Financials tab writes them), so
+        // following a link would reset the reader's budget and model.
+        const aboutTab = document.getElementById('about-tab');
+        if (aboutTab) {
+            aboutTab.addEventListener('click', (e) => {
+                const a = e.target instanceof Element ? e.target.closest('a[href^="#"]') : null;
+                if (!a) return;
+                const id = decodeURIComponent((a.getAttribute('href') || '').slice(1));
+                const target = id ? document.getElementById(id) : null;
+                if (!target || !aboutTab.contains(target)) return;
+                e.preventDefault();
+                target.scrollIntoView({ block: 'start' });
+            });
         }
 
         queryAll('select.tag-filter').forEach(el => {
@@ -4450,6 +4470,33 @@
             return m;
         }
 
+        // A Solvency Score card takes a medal only at or above this score:
+        // 50 is a budget of half the hold-steady need (see Methodology).
+        const SOLVENCY_MEDAL_MIN = 50;
+
+        // markCurrentCity highlights the city in view on the Compare cards and
+        // leaderboard rows: a class for the eye, aria-current and hidden text
+        // for a screen reader. Run after each render and on a city switch.
+        function markCurrentCity() {
+            const slug = DATA_PREFIX.replace(/^cities\//, '').replace(/\/$/, '');
+            queryAll('#compare-tab .current-city-cue').forEach(el => el.remove());
+            queryAll('#compare-tab .score-card[data-slug], #compare-tab .lb-row[data-slug]').forEach(el => {
+                const on = el.getAttribute('data-slug') === slug;
+                el.classList.toggle('current-city', on);
+                if (on) el.setAttribute('aria-current', 'true');
+                else el.removeAttribute('aria-current');
+                const name = el.querySelector('.city-name, .lb-name');
+                if (on && name) {
+                    const cue = document.createElement('span');
+                    cue.className = 'current-city-cue visually-hidden';
+                    cue.textContent = ' (selected city)';
+                    // Beside the name, not inside it, so the name's own text
+                    // stays the city's name.
+                    name.after(cue);
+                }
+            });
+        }
+
         function renderCompare(cityData) {
             var allMetrics = cityData.map(extractMetrics);
             var medals = ['\u{1F947}', '\u{1F948}', '\u{1F949}'];
@@ -4511,12 +4558,17 @@
 
             // A medal needs a field: with fewer than two ranked cities the one
             // city would take gold by default (solvent-streets-3ij1), so
-            // opts.ranked is passed false then and no medal is drawn.
+            // opts.ranked is passed false then and no medal is drawn. A medal
+            // also needs a score of at least opts.medalMin, where one is set:
+            // a city funded at a few percent of hold steady is not on a podium,
+            // whatever its place (solvent-streets-ern4.34). A ranked card
+            // without a medal shows its rank.
             function scoreCard(m, opts) {
-                var medal = (opts.ranked && m.rank <= 3) ? medals[m.rank - 1] : '';
-                var cls = (opts.ranked && m.rank <= 3) ? (' ' + rankClasses[m.rank - 1]) : '';
-                return '<div class="score-card' + cls + (opts.muted ? ' score-card-muted' : '') + '">' +
-                    '<div class="rank-medal">' + medal + '</div>' +
+                var podium = opts.ranked && m.rank <= 3 && (opts.medalMin == null || opts.value >= opts.medalMin);
+                var medal = podium ? medals[m.rank - 1] : (opts.ranked ? '#' + m.rank : '');
+                var cls = podium ? (' ' + rankClasses[m.rank - 1]) : '';
+                return '<div class="score-card' + cls + (opts.muted ? ' score-card-muted' : '') + '" data-slug="' + esc(m.slug || '') + '">' +
+                    '<div class="rank-medal' + (podium ? '' : ' rank-num') + '">' + medal + '</div>' +
                     '<div class="city-name">' + esc(m.name) + defaultPCIMark(m) + '</div>' +
                     '<div class="score-value">' + opts.value + '</div>' +
                     '<div class="score-label">' + opts.label + '</div>' +
@@ -4556,11 +4608,14 @@
             var solvScored = assignRanks(allMetrics.filter(function(m) { return m.solvScore !== null; })
                 .sort(function(a, b) {
                     if (b.solvCoverage !== a.solvCoverage) return b.solvCoverage - a.solvCoverage;
-                    return (b.insolvencyYear || Infinity) - (a.insolvencyYear || Infinity);
+                    // Later (or no) insolvency first. Compared, not subtracted:
+                    // two solvent cities are Infinity - Infinity, which is NaN.
+                    var ya = a.insolvencyYear || Infinity, yb = b.insolvencyYear || Infinity;
+                    return ya === yb ? 0 : (yb > ya ? 1 : -1);
                 }));
             var solvUnscored = allMetrics.filter(function(m) { return m.solvScore === null; });
             var solvCards = solvScored.map(function(m) {
-                return scoreCard(m, { ranked: solvScored.length >= 2, value: m.solvScore, label: 'Solvency Score', breakdown: solvencyBreakdown(m) });
+                return scoreCard(m, { ranked: solvScored.length >= 2, medalMin: SOLVENCY_MEDAL_MIN, value: m.solvScore, label: 'Solvency Score', breakdown: solvencyBreakdown(m) });
             }).concat(solvUnscored.map(function(m) {
                 return scoreCard(m, { ranked: false, muted: true, value: 'N/A', label: 'No cited budget — unranked', breakdown: solvencyBreakdown(m) });
             }));
@@ -4633,14 +4688,14 @@
                     // over-funded case lands at 0% here rather than overflowing.
                     var pct = Math.max(0, Math.min(100, m[cat.key] / maxVal * 100)).toFixed(1);
                     var medalIcon = (sorted.length >= 2 && i < 3 && i < medals.length) ? medals[i] : (i + 1) + '.';
-                    return '<div class="lb-row">' +
+                    return '<div class="lb-row" data-slug="' + esc(m.slug || '') + '">' +
                         '<span class="lb-medal">' + medalIcon + '</span>' +
                         '<span class="lb-name">' + esc(m.name) + defaultPCIMark(m) + (cat.rowNote ? cat.rowNote(m) : '') + '</span>' +
                         '<div class="lb-bar-wrap"><div class="lb-bar" style="width:' + pct + '%;background:' + cat.color + ';"></div></div>' +
                         '<span class="lb-val">' + cat.fmt(m[cat.key]) + '</span>' +
                     '</div>';
                 }).join('') + unavailable.map(function(m) {
-                    return '<div class="lb-row lb-na">' +
+                    return '<div class="lb-row lb-na" data-slug="' + esc(m.slug || '') + '">' +
                         '<span class="lb-medal">–</span>' +
                         '<span class="lb-name">' + esc(m.name) + defaultPCIMark(m) + '</span>' +
                         '<div class="lb-bar-wrap"></div>' +
@@ -4655,6 +4710,7 @@
                 '</div>';
             }).join('');
             document.getElementById('leaderboard-list').innerHTML = lbHtml;
+            markCurrentCity();
 
             // Charts
             compareCharts.forEach(function(c) { c.destroy(); });

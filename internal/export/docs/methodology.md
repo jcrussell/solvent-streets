@@ -278,8 +278,10 @@ The multi-city Compare view presents two distinct per-city scores:
   twice today's budget, 25 ≈ needs four times. Over-funded cities cap at
   100 for display but keep their uncapped coverage as the ranking key, so
   the most-surplus city ranks first (a single gold medal); ties break on
-  the later/absent insolvency year. Computed on roads/streets only and
-  **only for cities with a cited `current_budget`** — cities without one
+  the later/absent insolvency year. Only a score of 50 or more takes a
+  medal: a city lower down keeps its rank but stays off the podium.
+  Computed on roads/streets only and **only for cities with a cited
+  `current_budget`** — cities without one
   cannot be scored and are shown `N/A`, unranked. A cited budget must be a
   recurring roads budget: a single-year program, a broad capital category,
   one grant or funding-source line, or a figure that bundles sidewalks in
