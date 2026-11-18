@@ -195,17 +195,20 @@ const surplusGapYears = DefaultTreatmentCycleYears
 //     strategy's efficiency bends the curve between the ends, so a worst-first
 //     program buys less recovery per partial dollar and a preventive-first one
 //     more, without changing what full funding means.
-//   - spend > need buys treatment of extra area at the same tier cost: the
-//     surplus treats a further eff*(surplus/need)/surplusGapYears of the
-//     cohort, which closes that fraction of the gap to maxPCI. Gains
-//     therefore diminish as the cohort improves, a budget twice the need
-//     closes eff/12 of the gap a year, and the surplus that can be used
-//     stops at treating the whole cohort.
+//   - spend > need buys treatment of extra area at the same tier cost, with
+//     diminishing returns: the surplus closes
+//     (eff/surplusGapYears) * (1 - exp(-surplus/need)) of the gap to maxPCI.
+//     A small surplus closes about eff*(surplus/need)/12 of it, as treating
+//     that much more area would; no surplus closes more than eff/12 of the
+//     gap in one year, so condition approaches maxPCI but never reaches it.
+//     Surplus beyond surplusSaturationNeeds needs buys almost nothing and is
+//     not spent (solvent-streets-ern4.26).
 //
-// Dividing by surplusGapYears is what keeps a surplus from snapping a cohort
-// to 100: once PCI passes the preventive threshold the need falls tenfold, so
-// a fixed budget becomes a large multiple of it, and a response linear in
-// surplus/need alone would close the whole gap in a year.
+// The per-year ceiling is what keeps a surplus from snapping a cohort to 100:
+// once PCI passes the preventive threshold the need falls tenfold, so a fixed
+// budget becomes a large multiple of it. A response that let the surplus treat
+// the whole cohort closed the gap in one year, then held the cohort at 100 at
+// preventive cost for the rest of the horizon.
 func applyCohortSpend(st *cohortState, decayedPCI, spend, need float64, strategy Strategy) float64 {
 	if spend <= 0 || need <= 0 {
 		st.currentPCI = decayedPCI
@@ -222,11 +225,18 @@ func applyCohortSpend(st *cohortState, decayedPCI, spend, need float64, strategy
 	if gap <= 0 {
 		return need
 	}
-	usable := math.Min(spend-need, need*surplusGapYears/eff)
-	treated := eff * (usable / need) / surplusGapYears
+	usable := math.Min(spend-need, need*surplusSaturationNeeds)
+	treated := eff / surplusGapYears * -math.Expm1(-usable/need)
 	st.currentPCI = math.Min(maxPCI, st.currentPCI+gap*treated)
 	return need + usable
 }
+
+// surplusSaturationNeeds is how many needs' worth of surplus a cohort can use
+// in a year. At 3 the surplus has bought 1 - e^-3 (95%) of the year's largest
+// possible gain, and the next dollar buys under 5% of what the first surplus
+// dollar did, so the rest is left unspent rather than counted as spend that
+// buys nothing.
+const surplusSaturationNeeds = 3.0
 
 // fundedFraction is the share of a year's decay that funding ratio r (0..1) of
 // the hold-steady need recovers: r^(1/eff). It is 0 at r = 0 and 1 at r = 1

@@ -95,3 +95,64 @@ func TestSimulate_NoCliffAboveNeed(t *testing.T) {
 		t.Errorf("110%% of need = end PCI %v; a 10%% surplus must not drive the network to ~100", over)
 	}
 }
+
+// TestApplyCohortSpend_SurplusNeverReaches100: however large the surplus, one
+// year closes at most eff/12 of the gap and records at most the saturation
+// spend, so a cohort approaches PCI 100 without reaching it
+// (solvent-streets-ern4.26). It used to treat the whole cohort once the
+// surplus reached 12/eff needs, then hold it at 100 for the rest of the run.
+func TestApplyCohortSpend_SurplusNeverReaches100(t *testing.T) {
+	for _, s := range []Strategy{StrategyWorstFirst, StrategyPreventiveFirst} {
+		eff := strategyEfficiency(s)
+		for _, mult := range []float64{10, 40, 1000, 1e9} {
+			st := cohortState{currentPCI: 75}
+			spent := applyCohortSpend(&st, 72, mult*testNeed, testNeed, s)
+			ceiling := 75 + 25*eff/surplusGapYears
+			if st.currentPCI >= maxPCI || st.currentPCI > ceiling+1e-9 {
+				t.Errorf("%s at %vx need: PCI %v, want < %v (one year's ceiling)", s, mult, st.currentPCI, ceiling)
+			}
+			if want := testNeed * (1 + surplusSaturationNeeds); spent > want+1e-9 {
+				t.Errorf("%s at %vx need: spent %v, want at most %v", s, mult, spent, want)
+			}
+		}
+		// Thirty years of a huge surplus still leave the cohort below 100.
+		st := cohortState{currentPCI: 75}
+		for range 30 {
+			applyCohortSpend(&st, st.currentPCI*math.Exp(-0.04), 1e6*testNeed, testNeed, s)
+		}
+		if st.currentPCI >= maxPCI {
+			t.Errorf("%s: 30 years of surplus reached PCI %v", s, st.currentPCI)
+		}
+	}
+}
+
+// TestSimulate_SurplusSpendStopsAtSaturation: a budget far above need spends
+// no more than each cohort can use, so total spend stops growing with the
+// budget and the network stays below 100.
+func TestSimulate_SurplusSpendStopsAtSaturation(t *testing.T) {
+	p := NewParams(0, nil, 12, 1)
+	cohorts := []Cohort{{Classification: "residential", Area: 3_000_000, DecayRate: 0.04, InitialPCI: 78}}
+	const years = 30
+	y1 := Simulate(Scenario{Strategy: StrategyDoNothing}, cohorts, years, p).Years[0].AnnualNeed
+	total := func(r ScenarioResult) (spend float64) {
+		for _, y := range r.Years {
+			spend += y.AnnualSpend
+		}
+		return spend
+	}
+	for _, s := range []Strategy{StrategyWorstFirst, StrategyPreventiveFirst} {
+		big := Simulate(Scenario{Strategy: s, AnnualBudget: 100 * y1}, cohorts, years, p)
+		huge := Simulate(Scenario{Strategy: s, AnnualBudget: 1e6 * y1}, cohorts, years, p)
+		if a, b := total(big), total(huge); math.Abs(a-b) > 1e-6*a {
+			t.Errorf("%s: 100x need spends %v, 1e6x spends %v; want the same saturated spend", s, a, b)
+		}
+		for _, y := range huge.Years {
+			if y.PCI >= maxPCI {
+				t.Fatalf("%s: year %d PCI %v, want below %v", s, y.Year, y.PCI, maxPCI)
+			}
+			if y.AnnualSpend > 1e6*y1 {
+				t.Fatalf("%s: year %d spend %v above the budget", s, y.Year, y.AnnualSpend)
+			}
+		}
+	}
+}

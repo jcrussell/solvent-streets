@@ -3702,7 +3702,7 @@
 
             customActive = true;
             updateCustomScenario(result);
-            updateSummaryCards(result);
+            updateSummaryCards(result, budgetDollars);
 
             // Update cohort breakdown from WASM result
             if (result.final_cohorts && result.final_cohorts.length > 1) {
@@ -3712,7 +3712,12 @@
             }
         }
 
-        function updateSummaryCards(result) {
+        // updateSummaryCards fills the headline tiles. budget is the annual
+        // budget the result ran at (0 for the static baseline). The spend tile
+        // counts only spend that buys condition, which is below budget x years
+        // once a class has more money than it can use
+        // (solvent-streets-ern4.26), so the sub-line names the budget too.
+        function updateSummaryCards(result, budget) {
             // Read at the horizon the tiles are labelled with (applyHorizonLabels).
             const horizon = financialsHorizon();
             const years = (result.years || []).slice(0, horizon);
@@ -3723,6 +3728,11 @@
 
             document.getElementById('hl-end-pci').textContent = lastPCI.toFixed(0);
             document.getElementById('hl-total-spend').textContent = fmtMoney(totalSpend);
+            const budgeted = (budget || 0) * years.length;
+            document.getElementById('hl-spend-sub').textContent =
+                budgeted > 0 && totalSpend < budgeted * 0.995
+                    ? 'Used of ' + fmtMoney(budgeted) + ' budgeted'
+                    : 'Spend that buys condition';
             document.getElementById('hl-total-deficit').textContent = fmtMoney(totalDeficit);
             document.getElementById('headlines').style.display = '';
         }

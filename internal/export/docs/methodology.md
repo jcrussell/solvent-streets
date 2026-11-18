@@ -160,11 +160,14 @@ responds smoothly to spend on both sides of that need:
 
 - **Below need**, spend recovers part of the year's decay, from none at $0
   to all of it at full need, so a fully funded class holds its condition.
-- **Above need**, the extra money treats more pavement at the same cost.
-  A second need's worth closes the strategy's efficiency times 1/12 of the
-  class's gap to PCI 100 that year (about 1/15 under worst-first; the 1/12
-  is the default cycle, whatever `treatment_cycle_years` says), so gains
-  shrink as roads improve and condition never jumps to 100.
+- **Above need**, the extra money treats more pavement at the same cost,
+  with diminishing returns. No surplus closes more than the strategy's
+  efficiency times 1/12 of the class's gap to PCI 100 in one year (1/10
+  under preventive-first, 1/15 under worst-first; the 1/12 is the default
+  cycle, whatever `treatment_cycle_years` says). A second need's worth gets
+  about two-thirds of that ceiling, and three more needs' worth about 95%
+  of it. Gains shrink as roads improve, and condition approaches 100 but
+  never reaches it.
 
 Because better pavement is cheaper to treat, a budget slightly above need
 improves condition a little faster each year, and one slightly below loses
@@ -236,10 +239,10 @@ Three caveats apply to these figures specifically:
   balance.** It only ever grows; spending in a later year reduces *new*
   need but never pays down backlog already accrued. Read it as "total
   treatment value foregone to date," not as a debt that can be cleared.
-- The reported **annual spend can be below the configured budget**. Money
-  beyond what treating every remaining road would cost buys nothing, and a
-  class already at PCI 100 needs only its hold-steady share, so that part of
-  the budget is not counted as spend.
+- The reported **annual spend can be below the configured budget**. A
+  class can use at most its need plus three more needs' worth in a year;
+  money beyond that would buy almost no condition, so it is not counted as
+  spend.
 - Break-even assumes the cost-versus-PCI relationship is **monotone**
   (true for the default cost tiers: worse pavement costs more to treat).
   A pathological custom `cost_tiers` curve that violates this could make

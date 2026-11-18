@@ -194,3 +194,28 @@ test('a range grown past 150% labels the ends and 100% without crowding', async 
     assert.ok(pcts[i] - pcts[i - 1] >= 50, `labels ${pcts[i - 1]}% and ${pcts[i]}% sit too close`);
   }
 });
+
+// solvent-streets-ern4.26: the spend tile counts only spend that buys
+// condition. When that is below budget x years, the sub-line says how much
+// was budgeted instead of calling the spend "total budget allocated".
+test('the spend tile names the budget when part of it buys nothing', async () => {
+  const underSpend = (input) => {
+    const out = solvencySim(input);
+    if (!input.solvency) {
+      out.years = out.years.map((y) => ({ ...y, annual_spend: input.annual_budget / 4 }));
+    }
+    return out;
+  };
+  const { $ } = await ready({ simulate: underSpend });
+  assert.match($('#hl-spend-sub').textContent, /^Used of \$[\d.]+[KMB] budgeted$/);
+
+  const fullSpend = (input) => {
+    const out = solvencySim(input);
+    if (!input.solvency) {
+      out.years = out.years.map((y) => ({ ...y, annual_spend: input.annual_budget }));
+    }
+    return out;
+  };
+  const h = await ready({ simulate: fullSpend });
+  assert.equal(h.$('#hl-spend-sub').textContent, 'Spend that buys condition');
+});
