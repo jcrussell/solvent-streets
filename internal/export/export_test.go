@@ -612,6 +612,30 @@ func TestSortCitiesByName(t *testing.T) {
 	}
 }
 
+// TestSortCitiesByName_PlaceThenState: "Bell, CA" sorts before
+// "Bell Gardens, CA" (whole names would not: ' ' < ','), and a shared place
+// orders by state (solvent-streets-ern4.36). selectors.test.mjs pins the same
+// order for the client's byName.
+func TestSortCitiesByName_PlaceThenState(t *testing.T) {
+	cities := []CityInfo{
+		{Name: "Bell Gardens, CA", Slug: "bell-gardens-ca"},
+		{Name: "Bellflower, CA", Slug: "bellflower-ca"},
+		{Name: "Portland, OR", Slug: "portland-or"},
+		{Name: "Bell, CA", Slug: "bell-ca"},
+		{Name: "Portland, ME", Slug: "portland-me"},
+		{Name: "Bell", Slug: "bell"},
+	}
+	sortCitiesByName(cities)
+	var got []string
+	for _, c := range cities {
+		got = append(got, c.Slug)
+	}
+	want := []string{"bell", "bell-ca", "bell-gardens-ca", "bellflower-ca", "portland-me", "portland-or"}
+	if !slices.Equal(got, want) {
+		t.Errorf("order = %v; want %v", got, want)
+	}
+}
+
 // TestRunMultiCity_WritesCompareRollup pins solvent-streets-l0qo: a
 // multi-city export writes compare.json beside cities.json, one entry per
 // exported city, each a strict subset of that city's files, and far smaller

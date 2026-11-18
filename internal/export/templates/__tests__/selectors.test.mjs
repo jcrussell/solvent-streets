@@ -107,6 +107,20 @@ test('rebuildCitySelect keeps a surviving selection, else falls to the first vis
   assert.equal(sel.options[0].textContent, 'No cities match');
 });
 
+// The rebuilt selector alphabetizes as cities.json does (Go's
+// TestSortCitiesByName_PlaceThenState): by place, then state, so "Bell, CA"
+// precedes "Bell Gardens, CA" (solvent-streets-ern4.36).
+test('byName sorts by the place before ", ST", then the state', () => {
+  const { S, doc } = loadSelectors('<body><select id="city-select"></select></body>');
+  const names = ['Bell Gardens, CA', 'Bellflower, CA', 'Portland, OR', 'Bell, CA', 'Portland, ME', 'Bell'];
+  const list = names.map((name, i) => ({ slug: 's' + i, name }));
+  assert.deepEqual(list.slice().sort(S.byName).map((c) => c.name),
+    ['Bell', 'Bell, CA', 'Bell Gardens, CA', 'Bellflower, CA', 'Portland, ME', 'Portland, OR']);
+  S.rebuildCitySelect(doc.getElementById('city-select'), list, [], {});
+  assert.deepEqual(Array.from(doc.querySelectorAll('#city-select option')).map((o) => o.textContent).slice(0, 3),
+    ['Bell', 'Bell, CA', 'Bell Gardens, CA']);
+});
+
 // Each filter offers only the values still reachable given the others
 // (solvent-streets-ern4.36): after "Bay Area", the state filter has no TX.
 test('the tag filters narrow each other as the city select is rebuilt', () => {

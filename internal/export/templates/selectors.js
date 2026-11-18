@@ -185,10 +185,30 @@ window.PvmtSelectors = (function () {
         return ka.every(function (k) { return b[k] && normalizeTag(a[k]) === normalizeTag(b[k]); });
     }
 
-    /** @param {PvmtCity} a @param {PvmtCity} b */
+    /**
+     * splitCityName splits a lower-cased "place, st" at its last ", ".
+     * @param {string} name
+     * @returns {[string, string]}
+     */
+    function splitCityName(name) {
+        const i = name.lastIndexOf(', ');
+        return i === -1 ? [name, ''] : [name.slice(0, i), name.slice(i + 2)];
+    }
+
+    /**
+     * byName orders cities as a reader alphabetizes them, the rule Go's
+     * compareCityNames (internal/export) applies to cities.json:
+     * case-insensitively by the place before the last ", ", then by the state
+     * after it, so "Bell, CA" comes before "Bell Gardens, CA" (whole names
+     * would not: ' ' sorts before ',').
+     * @param {PvmtCity} a @param {PvmtCity} b
+     */
     function byName(a, b) {
-        const x = a.name.toLowerCase(), y = b.name.toLowerCase();
-        return x < y ? -1 : x > y ? 1 : 0;
+        const x = splitCityName(a.name.toLowerCase()), y = splitCityName(b.name.toLowerCase());
+        for (let i = 0; i < 2; i++) {
+            if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1;
+        }
+        return 0;
     }
 
     /**
@@ -274,5 +294,6 @@ window.PvmtSelectors = (function () {
         narrowFilters: narrowFilters,
         sameFilters: sameFilters,
         rebuildCitySelect: rebuildCitySelect,
+        byName: byName,
     };
 })();

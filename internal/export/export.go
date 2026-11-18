@@ -266,13 +266,34 @@ func CityInfos(ctx context.Context, entries []CityEntry, unlisted func(CityEntry
 	return cities, nil
 }
 
-// sortCitiesByName orders the city selector alphabetically by Name,
-// case-insensitively (a byte sort would put "apple" after "Banana"). Stable,
-// so ties — two same-named cities in different states — keep config order.
+// sortCitiesByName orders the city selector alphabetically by Name
+// (compareCityNames). Stable, so exact ties keep config order.
 func sortCitiesByName(cities []CityInfo) {
-	slices.SortStableFunc(cities, func(a, b CityInfo) int {
-		return cmp.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
-	})
+	slices.SortStableFunc(cities, func(a, b CityInfo) int { return compareCityNames(a.Name, b.Name) })
+}
+
+// compareCityNames orders city names the way a reader alphabetizes them:
+// case-insensitively (a byte sort would put "apple" after "Banana") by the
+// place, the name before its last ", " ("Bell" of "Bell, CA"), then by what
+// follows it (the state). Comparing whole names would put "Bell Gardens, CA"
+// before "Bell, CA", since ' ' sorts before ','. selectors.js byName is the
+// same rule for the client's rebuilt selector.
+func compareCityNames(a, b string) int {
+	ap, as := splitCityName(strings.ToLower(a))
+	bp, bs := splitCityName(strings.ToLower(b))
+	if c := cmp.Compare(ap, bp); c != 0 {
+		return c
+	}
+	return cmp.Compare(as, bs)
+}
+
+// splitCityName splits "place, ST" at its last ", " into place and state; a
+// name with none is all place.
+func splitCityName(name string) (place, state string) {
+	if i := strings.LastIndex(name, ", "); i >= 0 {
+		return name[:i], name[i+2:]
+	}
+	return name, ""
 }
 
 // exportCityData writes a city's data directory and returns the MetaJSON and
