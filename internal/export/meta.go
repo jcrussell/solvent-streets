@@ -469,6 +469,10 @@ type MetaJSON struct {
 	// it; check-site warns (solvent-streets-56r1). Read from the city's
 	// ingest history at export time. Omitted when no source is failing.
 	IngestFailures map[string][]string `json:"ingest_failures,omitempty"`
+	// SettingsTOML is the settings the city's figures are computed under
+	// (CityResolvedTOML), which a multi-city page's Config tab shows for
+	// the city in view. Omitted when the entry carries no config.
+	SettingsTOML string `json:"settings_toml,omitempty"`
 }
 
 type StatJSON struct {
@@ -659,6 +663,14 @@ func buildMeta(ctx context.Context, entry CityEntry, snapshotID int64, grid *dra
 		return MetaJSON{}, err
 	}
 	meta.Metrics = metrics
+
+	if entry.Config != nil {
+		edge, err := entry.HexEdge(ctx)
+		if err != nil {
+			return MetaJSON{}, fmt.Errorf("hex edge for %s: %w", entry.City.Name, err)
+		}
+		meta.SettingsTOML = CityResolvedTOML(entry.Config, entry.City, edge)
+	}
 
 	// Total paved area across all resource types: prefer the cross-resource
 	// union row written by `pvmt all compute` (RunCombined). Fall back to

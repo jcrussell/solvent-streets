@@ -458,6 +458,48 @@ func ResolvedTOML(cfg *config.Config) string { return ResolvedTOMLWithEdges(cfg,
 // snapshot the site publishes, which is what its map is drawn at, rather than
 // the edge the config has now.
 func ResolvedTOMLWithEdges(cfg *config.Config, hexEdges map[string]float64) string {
+	resolved := resolvedConfig(cfg, hexEdges)
+	return encodeResolvedTOML(resolved)
+}
+
+// CityResolvedTOML returns the settings one city's figures are computed
+// under: its [[cities]] entry as ResolvedTOMLWithEdges shows it (resolved hex
+// edge, sliver threshold and forecast), with hexEdge the edge its published
+// snapshot is drawn at, plus the display units and any service overrides. A
+// multi-city site's Config tab shows this for the city in view (meta.json
+// settings_toml) instead of the whole combined file.
+func CityResolvedTOML(cfg *config.Config, city config.CityConfig, hexEdge float64) string {
+	one := *cfg
+	one.Cities = []config.CityConfig{city}
+	var edges map[string]float64
+	if hexEdge > 0 {
+		edges = map[string]float64{city.Slug(): hexEdge}
+	}
+	resolved := resolvedConfig(&one, edges)
+	view := struct {
+		Display struct {
+			Units string `toml:"units"`
+		} `toml:"display"`
+		Services []config.ServiceOverride `toml:"services,omitempty"`
+		Cities   []config.CityConfig      `toml:"cities"`
+	}{Services: resolved.Services, Cities: resolved.Cities}
+	view.Display.Units = resolved.Display.Units
+	return encodeResolvedTOML(view)
+}
+
+// encodeResolvedTOML encodes a resolved config view for the Config tab.
+func encodeResolvedTOML(v any) string {
+	var buf bytes.Buffer
+	enc := toml.NewEncoder(&buf)
+	if err := enc.Encode(v); err != nil {
+		return "# error encoding config"
+	}
+	return stripZeroCurrentBudget(buf.String())
+}
+
+// resolvedConfig is cfg with every default filled in, as the Config tab shows
+// it (ResolvedTOMLWithEdges). cfg is not mutated.
+func resolvedConfig(cfg *config.Config, hexEdges map[string]float64) config.Config {
 	resolved := *cfg
 
 	// ConfigID is internal plumbing for cities-table keying — not a
@@ -522,13 +564,7 @@ func ResolvedTOMLWithEdges(cfg *config.Config, hexEdges map[string]float64) stri
 		}
 		resolved.Cities = cities
 	}
-
-	var buf bytes.Buffer
-	enc := toml.NewEncoder(&buf)
-	if err := enc.Encode(resolved); err != nil {
-		return "# error encoding config"
-	}
-	return stripZeroCurrentBudget(buf.String())
+	return resolved
 }
 
 // stripZeroCurrentBudget removes `current_budget = 0.0` lines from encoded

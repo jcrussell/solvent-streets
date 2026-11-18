@@ -52,21 +52,27 @@ func PageMetaAndSeed(ctx context.Context, cfg *config.Config, entries []CityEntr
 
 // NewTemplateData assembles what index.html and play.html render against, for
 // the static export and the live server alike. cities is nil for a single-city
-// site. hexEdges (HexEdges) is each city's published hex edge, for the Config
-// tab. The caller sets IsLiveServer and ActiveSlug, which only the live
+// site. hexEdges (HexEdges) is each city's published hex edge, for a
+// single-city Config tab. The caller sets IsLiveServer and ActiveSlug, which only the live
 // server uses.
 func NewTemplateData(cfg *config.Config, meta MetaJSON, seed template.JS, cities []CityInfo, unitSystem string, hexEdges map[string]float64) (TemplateData, error) {
 	methodology, err := MethodologyHTML()
 	if err != nil {
 		return TemplateData{}, fmt.Errorf("render methodology: %w", err)
 	}
-	// The Config tab shows the file as written beside the resolved settings;
-	// an unreadable or absent file leaves the raw view empty.
-	var rawTOML string
-	if cfg.SourcePath != "" {
-		if data, err := os.ReadFile(cfg.SourcePath); err == nil {
-			rawTOML = string(data)
+	// A single-city Config tab shows the file as written beside the resolved
+	// settings; an unreadable or absent file leaves the raw view empty. A
+	// multi-city page shows neither: the combined file runs to hundreds of
+	// kilobytes, so its Config tab shows the city in view's own settings
+	// (meta.json settings_toml) instead.
+	var rawTOML, resolvedTOML string
+	if len(cities) == 0 {
+		if cfg.SourcePath != "" {
+			if data, err := os.ReadFile(cfg.SourcePath); err == nil {
+				rawTOML = string(data)
+			}
 		}
+		resolvedTOML = ResolvedTOMLWithEdges(cfg, hexEdges)
 	}
 	date, ver := FooterInfo()
 	return TemplateData{
@@ -74,7 +80,7 @@ func NewTemplateData(cfg *config.Config, meta MetaJSON, seed template.JS, cities
 		ForecastSeed:    seed,
 		LayerColors:     ResourceColorsJS(),
 		RawTOML:         rawTOML,
-		ResolvedTOML:    ResolvedTOMLWithEdges(cfg, hexEdges),
+		ResolvedTOML:    resolvedTOML,
 		UnitSystem:      unitSystem,
 		Cities:          cities,
 		TagDimensions:   GroupCitiesByDimension(cities),

@@ -601,6 +601,7 @@
         .config-tab { padding: 24px; max-width: 900px; margin: 0 auto; overflow-y: auto; height: 100%; }
         .config-tab h2 { font-size: 18px; margin-bottom: 16px; color: var(--text); }
         .config-tab h3 { font-size: 15px; margin-bottom: 8px; color: var(--text-muted); }
+        .config-tab .config-note { font-size: 13px; margin-bottom: 12px; color: var(--text-muted); }
         .config-tab pre {
             background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
             padding: 20px; overflow-x: auto; font-size: 14px; line-height: 1.6; color: var(--text);
@@ -985,6 +986,15 @@
 
     <div id="config-tab" class="tab-content" role="tabpanel" aria-labelledby="config-tab-btn">
         <div class="config-tab">
+            {{if .Cities}}
+            <!-- One city's settings (meta.json settings_toml), filled and
+                 switched with the city select by app.js renderCitySettings:
+                 the combined file of a multi-city site is far too long to
+                 show whole. -->
+            <h2>Settings for <span id="config-city-name">{{.HeadingName}}</span></h2>
+            <p class="config-note">The settings this city's figures are computed under, with defaults filled in.</p>
+            <pre><code id="config-city-toml">Loading…</code></pre>
+            {{else}}
             <h2>Project Configuration</h2>
             {{if .RawTOML}}
             <h3>Input Configuration</h3>
@@ -992,6 +1002,7 @@
             {{end}}
             <h3>Effective configuration (with defaults)</h3>
             <pre><code>{{.ResolvedTOML}}</code></pre>
+            {{end}}
         </div>
     </div>
 

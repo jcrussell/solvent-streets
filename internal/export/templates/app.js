@@ -876,6 +876,18 @@
             refreshCityStats();
         }
 
+        // renderCitySettings fills a multi-city page's Config tab with the
+        // settings the city in view is computed under (meta.json
+        // settings_toml). A single-city page renders its whole config
+        // server-side and has no #config-city-toml.
+        function renderCitySettings(meta) {
+            const code = document.getElementById('config-city-toml');
+            if (!code) return;
+            const name = document.getElementById('config-city-name');
+            if (name) name.textContent = meta.project_name || currentCityName();
+            code.textContent = meta.settings_toml || 'No settings were published for this city.';
+        }
+
         // lastCityMeta holds the most recently loaded city's meta.json so a units
         // toggle can re-render the (always-visible) stats panel from it without
         // rebuilding the map layers loadCityData otherwise touches.
@@ -1083,6 +1095,7 @@
                     if (badgeEl) badgeEl.hidden = !meta.latest_compute;
                     lastCityMeta = meta;
                     renderCityStats(meta);
+                    renderCitySettings(meta);
                 }
             }
 

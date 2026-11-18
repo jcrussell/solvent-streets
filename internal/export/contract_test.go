@@ -485,3 +485,53 @@ func TestResolvedTOML_ShowsPerCityResolvedCalibration(t *testing.T) {
 		t.Errorf("expected per-city resolved forecast (decay_rate ≥2 occurrences), got %d:\n%s", got, out)
 	}
 }
+
+// TestCityResolvedTOML_OneCity pins the multi-city Config tab
+// (solvent-streets-ern4.36): one city's settings, with its resolved forecast
+// and the edge its snapshot is drawn at, and nothing of the other cities.
+func TestCityResolvedTOML_OneCity(t *testing.T) {
+	cfg := &config.Config{
+		Grid:     config.GridConfig{HexEdgeM: 100},
+		Forecast: config.ForecastConfig{DecayRate: 0.088},
+		Cities: []config.CityConfig{
+			{Name: "Default City, CA"},
+			{Name: "Fine City, CA", HexEdgeM: 250, Tags: []string{"Bay Area"},
+				Forecast: &config.ForecastConfig{CurrentBudget: 4.2e6}},
+		},
+	}
+	out := CityResolvedTOML(cfg, cfg.Cities[1], 150)
+	for _, want := range []string{`name = "Fine City, CA"`, "hex_edge_m = 150.0", "decay_rate = 0.088", "current_budget = 4.2e+06", `units = "imperial"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("city settings lack %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Default City") || strings.Count(out, "[[cities]]") != 1 {
+		t.Errorf("city settings carry another city:\n%s", out)
+	}
+	// No published edge: the configured one.
+	if out := CityResolvedTOML(cfg, cfg.Cities[1], 0); !strings.Contains(out, "hex_edge_m = 250.0") {
+		t.Errorf("with no snapshot edge the configured 250 m edge should show:\n%s", out)
+	}
+}
+
+// TestNewTemplateData_MultiCityOmitsWholeConfig: a multi-city page renders
+// neither the combined file nor its resolved form (the city in view's
+// settings come from meta.json); a single-city page keeps the resolved one.
+func TestNewTemplateData_MultiCityOmitsWholeConfig(t *testing.T) {
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "A, CA"}, {Name: "B, CA"}}}
+	cities := []CityInfo{{Slug: "a-ca", Name: "A, CA"}, {Slug: "b-ca", Name: "B, CA"}}
+	multi, err := NewTemplateData(cfg, MetaJSON{}, "", cities, "imperial", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if multi.RawTOML != "" || multi.ResolvedTOML != "" {
+		t.Errorf("multi-city page carries the whole config: raw %d bytes, resolved %d bytes", len(multi.RawTOML), len(multi.ResolvedTOML))
+	}
+	single, err := NewTemplateData(&config.Config{Cities: cfg.Cities[:1]}, MetaJSON{}, "", nil, "imperial", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(single.ResolvedTOML, `name = "A, CA"`) {
+		t.Errorf("single-city page lost its resolved config:\n%s", single.ResolvedTOML)
+	}
+}
