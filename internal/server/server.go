@@ -26,6 +26,7 @@ type Server struct {
 	ios       *iostreams.IOStreams
 	cache     sync.Map // key → *jsonThunk (sync.OnceValues wrapper); single-flight, never invalidated — restart server after data changes
 	forecasts sync.Map // city slug → *forecastThunk (sync.OnceValue wrapper); shared by serveForecastJSON and serveHexCostSummary
+	grids     sync.Map // "grid:<slug>:<snapshot>" → *export.DrawnGrid; shared by meta.json, hex-metrics.json, hexgrid.geojson and the pages (withDrawnGrid)
 
 	// indexTemplate and gameTemplate lazily parse the (embedded, deterministic)
 	// page templates once for the server's lifetime. Templates do not depend

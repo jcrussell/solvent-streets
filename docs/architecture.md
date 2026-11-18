@@ -137,8 +137,17 @@ drawn grid is not quite the one the producers computed on: the export drops
 edge and shoreline slivers below `min_hex_area`, a presentation setting, so
 the pavement totals stay whole while the map shows no misleading sliver.
 `hex-metrics.json` and the per-metric summaries in `meta.json` cover exactly
-the drawn hexes (`export.drawnGrid`): a stored row whose hex the map does not
+the drawn hexes (`export.DrawnGrid`): a stored row whose hex the map does not
 draw is in neither, so the stats panel counts only what the map can paint.
+The drawn grid encodes each hex's geometry once, and the hexgrid features and
+the drawn id set both come from that, so they cannot disagree. It redraws the
+lattice compute clipped with `geo.ClipHexesToBoundaryLocal`, which cuts each
+straddling hex against a quadtree piece of the boundary rather than all of it:
+the same hexes and shapes to rounding, in under a second where the whole-
+boundary clip takes tens (Charlotte's boundary has 57,000 vertices). Compute
+keeps `geo.ClipHexesToBoundary`, which its stored results are defined on. An
+export builds one drawn grid per city for all three files, and `pvmt serve`
+caches one per city and snapshot, shared by the three endpoints and the pages.
 
 Fire stations and census blocks are *own-sourced* (`resource.OwnSourced`):
 each comes from one fixed upstream, whatever the city's `overpass` /

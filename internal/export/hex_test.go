@@ -297,7 +297,7 @@ func TestBuildHexFeature_NestedScopes(t *testing.T) {
 		all:  map[string]map[string]float64{"roads": {"area": 200, "share": 0.75}},
 		city: map[string]map[string]float64{"roads": {"area": 100, "share": 0.5}},
 	}
-	feat, ok := buildHexFeature("0,0", agg, hexMap, proj, 6)
+	feat, ok := encodedHexFeature("0,0", agg, hexMap, proj, 6)
 	if !ok {
 		t.Fatal("buildHexFeature returned ok=false")
 	}
@@ -322,7 +322,7 @@ func TestBuildHexFeature_NestedScopes(t *testing.T) {
 	// absence of "city" alone — is what tells the client there is no city-scope
 	// data and keeps the scope toggle hidden.
 	allOnly := &hexAgg{all: map[string]map[string]float64{"roads": {"area": 200, "share": 0.75}}}
-	feat2, _ := buildHexFeature("0,0", allOnly, hexMap, proj, 6)
+	feat2, _ := encodedHexFeature("0,0", allOnly, hexMap, proj, 6)
 	props2 := feat2["properties"].(map[string]any)
 	if _, ok := props2["city"]; ok {
 		t.Error("city key must be absent when the hex has no city coverage")
@@ -348,7 +348,7 @@ func TestBuildHexFeature_CitySameElidesDuplicate(t *testing.T) {
 		all:  map[string]map[string]float64{"roads": {"area": 200, "share": 0.75}},
 		city: map[string]map[string]float64{"roads": {"area": 200, "share": 0.75}},
 	}
-	feat, ok := buildHexFeature("0,0", agg, hexMap, proj, 6)
+	feat, ok := encodedHexFeature("0,0", agg, hexMap, proj, 6)
 	if !ok {
 		t.Fatal("buildHexFeature returned ok=false")
 	}
@@ -369,7 +369,7 @@ func TestBuildHexFeature_CitySameElidesDuplicate(t *testing.T) {
 		"different resource": {"parking": {"area": 200, "share": 0.75}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			f, _ := buildHexFeature("0,0", &hexAgg{
+			f, _ := encodedHexFeature("0,0", &hexAgg{
 				all:  map[string]map[string]float64{"roads": {"area": 200, "share": 0.75}},
 				city: city,
 			}, hexMap, proj, 6)
@@ -423,7 +423,7 @@ func TestBuildHexFeature_RespectsCoordinatePrecision(t *testing.T) {
 	agg := &hexAgg{all: map[string]map[string]float64{"roads": {"area": 200, "share": 0.75}}}
 
 	maxFrac := func(decimals int) int {
-		feat, ok := buildHexFeature("0,0", agg, hexMap, proj, decimals)
+		feat, ok := encodedHexFeature("0,0", agg, hexMap, proj, decimals)
 		if !ok {
 			t.Fatalf("buildHexFeature returned ok=false at decimals=%d", decimals)
 		}
@@ -748,7 +748,7 @@ func TestBuildHexGeoJSON_DefaultCoordinatePrecision(t *testing.T) {
 	hexMap := map[string]*geo.Hex{"0,0": &h}
 	agg := &hexAgg{all: map[string]map[string]float64{"roads": {"area": 200, "share": 0.75}}}
 
-	feat, ok := buildHexFeature("0,0", agg, hexMap, proj, decimals)
+	feat, ok := encodedHexFeature("0,0", agg, hexMap, proj, decimals)
 	if !ok {
 		t.Fatal("buildHexFeature returned ok=false")
 	}
@@ -950,12 +950,29 @@ func projectorFor(t *testing.T, entry CityEntry) *geo.UTMProjector {
 // cannot abort its export. The grid thunk is poisoned: forcing it fails.
 func TestBuildHexGeoJSON_NoStatsBuildsNoGrid(t *testing.T) {
 	entry := hexEntry(t, nil, nil)
-	poison := cityHexGridFunc(func() ([]geo.Hex, error) {
+	poison := drawnHexesFunc(func() (*drawnHexes, error) {
 		t.Error("hex grid was built for a city with no hex stats")
 		return nil, errors.New("grid must not be built")
 	})
-	got, err := buildHexGeoJSONFromGrid(t.Context(), entry, projectorFor(t, entry), poison)
+	got, err := buildHexGeoJSONFromGrid(t.Context(), entry, poison)
 	if err != nil || got != nil {
 		t.Errorf("buildHexGeoJSONFromGrid = (%v, %v), want (nil, nil)", got, err)
 	}
+}
+
+// encodedHexFeature is buildHexFeature for hexMap's hex hexID, encoded as
+// DrawnGrid encodes it; ok is false when the hex is missing or cannot be
+// encoded, so DrawnGrid would not draw it.
+//
+//nolint:unparam // hexID keeps buildHexFeature's shape, though every fixture names one hex
+func encodedHexFeature(hexID string, agg *hexAgg, hexMap map[string]*geo.Hex, proj *geo.UTMProjector, decimals int) (map[string]any, bool) {
+	h, ok := hexMap[hexID]
+	if !ok {
+		return nil, false
+	}
+	gjson, ok := hexGeometryJSON(h, proj, decimals)
+	if !ok {
+		return nil, false
+	}
+	return buildHexFeature(hexID, agg, gjson), true
 }

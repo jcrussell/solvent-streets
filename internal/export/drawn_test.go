@@ -2,6 +2,7 @@ package export
 
 import (
 	"context"
+	"maps"
 	"slices"
 	"testing"
 
@@ -13,22 +14,28 @@ import (
 )
 
 // drawnHexIDs returns the first n ids, in id order, of the hexes
-// hexgrid.geojson draws for entry (drawnGrid), failing when there are fewer.
+// hexgrid.geojson draws for entry (DrawnGrid), failing when there are fewer.
 func drawnHexIDs(t *testing.T, entry CityEntry, n int) []string {
 	t.Helper()
-	hexes, err := newDrawnGrid(t.Context(), entry, nil).hexes()
-	if err != nil {
-		t.Fatalf("drawn grid: %v", err)
-	}
-	ids := make([]string, 0, len(hexes))
-	for _, h := range hexes {
-		ids = append(ids, h.ID)
-	}
-	slices.Sort(ids)
+	ids := drawnOrder(t, entry)
 	if len(ids) < n {
 		t.Fatalf("drawn grid has %d hexes, need %d", len(ids), n)
 	}
 	return ids[:n]
+}
+
+// drawnOrder is every hex id hexgrid.geojson draws for entry (DrawnGrid), in
+// id order.
+func drawnOrder(t *testing.T, entry CityEntry) []string {
+	t.Helper()
+	d, err := NewDrawnGrid(t.Context(), entry, nil).drawn()
+	if err != nil {
+		t.Fatalf("drawn grid: %v", err)
+	}
+	if !slices.IsSorted(d.order) {
+		t.Fatal("drawn grid order is not sorted by id")
+	}
+	return d.order
 }
 
 // TestHexMetrics_CoverExactlyTheDrawnHexes pins solvent-streets-ern4.33: a
@@ -42,24 +49,17 @@ func TestHexMetrics_CoverExactlyTheDrawnHexes(t *testing.T) {
 	// clipped edge hex, so a sliver is a hex of the default grid that is not
 	// in this one.
 	probe := hexEntry(t, nil, nil)
-	withSlivers, err := newDrawnGrid(ctx, probe, nil).hexes()
-	if err != nil {
-		t.Fatal(err)
-	}
+	withSlivers := drawnOrder(t, probe)
 	probe.City.MinHexArea = 100_000
 	interior := drawnHexIDs(t, probe, 1)[0]
 	kept := map[string]bool{}
-	hexes, err := newDrawnGrid(ctx, probe, nil).hexes()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, h := range hexes {
-		kept[h.ID] = true
+	for _, id := range drawnOrder(t, probe) {
+		kept[id] = true
 	}
 	sliver := ""
-	for _, h := range withSlivers {
-		if !kept[h.ID] {
-			sliver = h.ID
+	for _, id := range withSlivers {
+		if !kept[id] {
+			sliver = id
 			break
 		}
 	}
@@ -118,5 +118,53 @@ func TestHexMetrics_CoverExactlyTheDrawnHexes(t *testing.T) {
 	}
 	if s.WithinThresholdShare == nil || *s.WithinThresholdShare != 1 {
 		t.Errorf("share = %v, want 1 (the only drawn hex is within)", s.WithinThresholdShare)
+	}
+}
+
+// TestDrawnGrid_OneGridGivesEqualIDSets is the ern4.33 invariant on a shared
+// grid, as an export and the live server build the files: with a metric row
+// on every hex of the lattice (slivers and an id outside the grid included),
+// hex-metrics.json's ids are exactly hexgrid.geojson's, built on one
+// DrawnGrid, and meta.json's summary counts the same hexes.
+func TestDrawnGrid_OneGridGivesEqualIDSets(t *testing.T) {
+	ctx := context.Background()
+	probe := hexEntry(t, nil, nil)
+	lattice := append(drawnOrder(t, probe), "hex:99999:99999")
+
+	entry := hexEntry(t, map[resource.Type][]results.HexCoverage{
+		rtRoads: {{HexID: lattice[0], Area: 100, PctCovered: 10}},
+	}, nil)
+	entry.City.MinHexArea = 100_000 // drops every clipped edge hex
+	store := entry.Store.(*dbtest.MockStore)
+	for i, id := range lattice {
+		store.HexMetrics = append(store.HexMetrics, db.HexMetric{HexID: id, Metric: services.MetricFire, Value: float64(100 + i)})
+	}
+
+	grid := NewDrawnGrid(ctx, entry, nil)
+	fc, err := BuildHexGeoJSONOn(ctx, entry, grid)
+	if err != nil || fc == nil {
+		t.Fatalf("BuildHexGeoJSONOn = (%v, %v)", fc, err)
+	}
+	var drawn []string
+	for _, f := range fc["features"].([]map[string]any) {
+		drawn = append(drawn, f["properties"].(map[string]any)["id"].(string))
+	}
+	hm, err := BuildHexMetricsOn(ctx, entry, grid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	covered := slices.Sorted(maps.Keys(hm.Metrics[services.MetricFire].Values))
+	if !slices.Equal(covered, drawn) {
+		t.Errorf("hex-metrics.json covers %d hexes, hexgrid.geojson draws %d; want the same ids", len(covered), len(drawn))
+	}
+	if len(drawn) == 0 || len(drawn) >= len(lattice)-1 {
+		t.Fatalf("fixture: %d of %d lattice hexes drawn; want some but not all", len(drawn), len(lattice))
+	}
+	meta, err := BuildMetaOn(ctx, entry, 0, grid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := meta.Metrics[services.MetricFire].HexCount; got != len(drawn) {
+		t.Errorf("meta.json summary counts %d hexes, want the %d drawn", got, len(drawn))
 	}
 }

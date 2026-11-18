@@ -233,11 +233,20 @@ func (s *Server) firstRenderableCity(ctx context.Context) (export.CityEntry, exp
 func (s *Server) buildIndexData(ctx context.Context, entry export.CityEntry) (export.TemplateData, error) {
 	// The pages always render the pinned view; other snapshots, and the
 	// latest compute, are served via /data/meta.json?snapshot=N|latest
-	// (serveMetaJSON).
-	meta, seed, err := export.PageMetaAndSeed(ctx, entry.Config, []export.CityEntry{entry}, "")
+	// (serveMetaJSON). The pinned view's drawn grid is the one its
+	// /data/meta.json, hexgrid.geojson and hex-metrics.json share.
+	type page struct {
+		meta export.MetaJSON
+		seed template.JS
+	}
+	built, err := s.withDrawnGrid(entry, 0, func(grid *export.DrawnGrid) (any, error) {
+		meta, seed, err := export.CityPageMetaAndSeed(ctx, entry.Config, entry, grid)
+		return page{meta, seed}, err
+	})
 	if err != nil {
 		return export.TemplateData{}, err
 	}
+	meta, seed := built.(page).meta, built.(page).seed //nolint:forcetypeassert // the build above returns a page
 	var cities []export.CityInfo
 	var activeSlug string
 	if len(s.cities) > 1 {
@@ -560,9 +569,46 @@ func (s *Server) serveJSONCached(w http.ResponseWriter, key string, build func()
 	w.Write(data)
 }
 
+// withDrawnGrid runs build on the city's drawn hex grid for snapshotID
+// (export.DrawnGrid), shared by meta.json, hex-metrics.json, hexgrid.geojson
+// and the pages, so a cold city clips its lattice once however many of them
+// arrive together, rather than once each. entry is the entry serveDataFile
+// resolved for snapshotID, so one key is always one snapshot, boundary and
+// hex edge.
+//
+// A DrawnGrid keeps its first build's result, error included, so a build
+// over it that fails (or panics) drops it from s.grids: the next request
+// builds a fresh one, matching the evict-on-error rule of every cache here.
+// Like serveJSONCached builds, the grid runs under context.Background(): the
+// first arriver's build is shared and outlives their request.
+func (s *Server) withDrawnGrid(entry export.CityEntry, snapshotID int64, build func(*export.DrawnGrid) (any, error)) (any, error) {
+	key := cacheKey("grid", entry.Slug, snapshotID)
+	var grid *export.DrawnGrid
+	if v, ok := s.grids.Load(key); ok {
+		grid = v.(*export.DrawnGrid) //nolint:forcetypeassert // type invariant: only this site Stores into s.grids
+	} else {
+		actual, _ := s.grids.LoadOrStore(key, export.NewDrawnGrid(context.Background(), entry, nil))
+		grid = actual.(*export.DrawnGrid) //nolint:forcetypeassert // type invariant: only this site Stores into s.grids
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			s.grids.CompareAndDelete(key, grid)
+			panic(r)
+		}
+	}()
+	v, err := build(grid)
+	if err != nil {
+		s.grids.CompareAndDelete(key, grid)
+		return nil, err
+	}
+	return v, nil
+}
+
 func (s *Server) serveMetaJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry, snapshotID int64) {
 	s.serveJSONCached(w, cacheKey("meta", entry.Slug, snapshotID), func() (any, error) {
-		return export.BuildMeta(context.Background(), entry, snapshotID)
+		return s.withDrawnGrid(entry, snapshotID, func(grid *export.DrawnGrid) (any, error) {
+			return export.BuildMetaOn(context.Background(), entry, snapshotID, grid)
+		})
 	})
 }
 
@@ -573,22 +619,22 @@ func (s *Server) serveMetaJSON(w http.ResponseWriter, _ *http.Request, entry exp
 // scope toggle.
 func (s *Server) serveHexGridGeoJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry, snapshotID int64) {
 	s.serveJSONCached(w, cacheKey("hexgrid", entry.Slug, snapshotID), func() (any, error) {
-		_, lon0, lat0, err := entry.BBoxAndCenter(context.Background())
-		if err != nil {
-			return nil, err
-		}
-		// BuildHexGeoJSON distinguishes "no hex stats" (nil, nil — cache the
-		// empty FC) from a real DB error (nil, err — surface so serveJSONCached
-		// evicts and the next request retries instead of locking in a blank hex
-		// grid for the server's lifetime), mirroring serveBoundaryGeoJSON.
-		fc, err := export.BuildHexGeoJSON(context.Background(), entry, geo.NewUTMProjector(lon0, lat0))
-		if err != nil {
-			return nil, err
-		}
-		if fc == nil {
-			fc = export.EmptyHexGrid()
-		}
-		return fc, nil
+		return s.withDrawnGrid(entry, snapshotID, func(grid *export.DrawnGrid) (any, error) {
+			// BuildHexGeoJSONOn distinguishes "no hex stats" (nil, nil — cache
+			// the empty FC) from a real DB error (nil, err — surface so
+			// serveJSONCached evicts and the next request retries instead of
+			// locking in a blank hex grid for the server's lifetime), mirroring
+			// serveBoundaryGeoJSON. The grid derives its projector from the
+			// boundary, as the static export does.
+			fc, err := export.BuildHexGeoJSONOn(context.Background(), entry, grid)
+			if err != nil {
+				return nil, err
+			}
+			if fc == nil {
+				fc = export.EmptyHexGrid()
+			}
+			return fc, nil
+		})
 	})
 }
 
@@ -598,14 +644,16 @@ func (s *Server) serveHexGridGeoJSON(w http.ResponseWriter, _ *http.Request, ent
 // propagates so serveJSONCached evicts and retries.
 func (s *Server) serveHexMetrics(w http.ResponseWriter, _ *http.Request, entry export.CityEntry, snapshotID int64) {
 	s.serveJSONCached(w, cacheKey("hexmetrics", entry.Slug, snapshotID), func() (any, error) {
-		hm, err := export.BuildHexMetrics(context.Background(), entry)
-		if err != nil {
-			return nil, err
-		}
-		if hm == nil {
-			return export.EmptyHexMetrics(), nil
-		}
-		return hm, nil
+		return s.withDrawnGrid(entry, snapshotID, func(grid *export.DrawnGrid) (any, error) {
+			hm, err := export.BuildHexMetricsOn(context.Background(), entry, grid)
+			if err != nil {
+				return nil, err
+			}
+			if hm == nil {
+				return export.EmptyHexMetrics(), nil
+			}
+			return hm, nil
+		})
 	})
 }
 

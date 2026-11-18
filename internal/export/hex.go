@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"maps"
 	"math"
-	"sort"
 
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/geo"
@@ -69,15 +68,23 @@ type hexAgg struct {
 // instead of caching a blank grid for the server's lifetime — mirroring
 // serveBoundaryGeoJSON's empty-vs-error split.
 func BuildHexGeoJSON(ctx context.Context, entry CityEntry, proj *geo.UTMProjector) (map[string]any, error) {
-	return buildHexGeoJSONFromGrid(ctx, entry, proj, newDrawnGrid(ctx, entry, proj).hexes)
+	return BuildHexGeoJSONOn(ctx, entry, NewDrawnGrid(ctx, entry, proj))
 }
+
+// BuildHexGeoJSONOn is BuildHexGeoJSON drawn on grid, the city's DrawnGrid,
+// which a caller shares with meta.json and hex-metrics.json so the three
+// build one grid between them.
+func BuildHexGeoJSONOn(ctx context.Context, entry CityEntry, grid *DrawnGrid) (map[string]any, error) {
+	return buildHexGeoJSONFromGrid(ctx, entry, grid.drawn)
+}
+
+// drawnHexesFunc defers a DrawnGrid build until BuildHexGeoJSON needs it.
+type drawnHexesFunc func() (*drawnHexes, error)
 
 // buildHexGeoJSONFromGrid is BuildHexGeoJSON with the grid supplied as a thunk,
 // forced only *after* the no-hex-stats early return below, so a city with no
 // hex stats never builds a grid.
-func buildHexGeoJSONFromGrid(ctx context.Context, entry CityEntry, proj *geo.UTMProjector, grid cityHexGridFunc) (map[string]any, error) {
-	decimals := entry.Config.CoordinateDecimals()
-
+func buildHexGeoJSONFromGrid(ctx context.Context, entry CityEntry, grid drawnHexesFunc) (map[string]any, error) {
 	aggs, err := aggregateHexStats(ctx, entry)
 	if err != nil {
 		return nil, err
@@ -89,32 +96,19 @@ func buildHexGeoJSONFromGrid(ctx context.Context, entry CityEntry, proj *geo.UTM
 		// aggregateHexStats already surfaced above.
 		return nil, nil //nolint:nilnil // nil map = legitimate empty, distinct from the propagated DB error above
 	}
-	hexes, err := grid()
+	drawn, err := grid()
 	if err != nil {
 		return nil, err
 	}
 
-	// Every hex of the clipped grid is emitted, with or without pavement rows,
-	// so a stored metric such as population can paint hexes that hold no
-	// pavement. Hex stats for ids outside the grid (all-scope rows beyond the
-	// boundary) have no geometry and are dropped. Sorted by id so unchanged
-	// data yields a byte-identical file across regens.
-	order := make([]string, 0, len(hexes))
-	for i := range hexes {
-		order = append(order, hexes[i].ID)
-	}
-	sort.Strings(order)
-
-	hexMap := make(map[string]*geo.Hex, len(hexes))
-	for i := range hexes {
-		hexMap[hexes[i].ID] = &hexes[i]
-	}
-
-	var features []map[string]any
-	for _, hexID := range order {
-		if feat, ok := buildHexFeature(hexID, aggs[hexID], hexMap, proj, decimals); ok {
-			features = append(features, feat)
-		}
+	// Every drawn hex is emitted, with or without pavement rows, so a stored
+	// metric such as population can paint hexes that hold no pavement. Hex
+	// stats for ids outside the grid (all-scope rows beyond the boundary)
+	// have no geometry and are dropped. drawn.order is sorted by id so
+	// unchanged data yields a byte-identical file across regens.
+	features := make([]map[string]any, 0, len(drawn.order))
+	for _, hexID := range drawn.order {
+		features = append(features, buildHexFeature(hexID, aggs[hexID], drawn.geometry[hexID]))
 	}
 
 	return map[string]any{
@@ -329,14 +323,12 @@ func filterHexSlivers(hexes []geo.Hex, minArea float64) []geo.Hex {
 	return kept
 }
 
-// cityHexGridFunc defers a cityHexGrid build until BuildHexGeoJSON needs it.
-type cityHexGridFunc func() ([]geo.Hex, error)
-
 // cityHexGrid builds the boundary-clipped, sliver-filtered hex grid for entry:
 // the grid of the served hexgrid.geojson, which the map and the /play board
-// both draw. BuildHexGeoJSON forces it only after its no-hex-stats early
-// return, so a city with no hex stats pays for no lattice+clip, and a
-// cityHexGrid error there is "skip this file" rather than "abort the export".
+// both draw (DrawnGrid). BuildHexGeoJSON forces it only after its
+// no-hex-stats early return, so a city with no hex stats pays for no
+// lattice+clip, and a cityHexGrid error there is "skip this file" rather
+// than "abort the export".
 func cityHexGrid(ctx context.Context, entry CityEntry, proj *geo.UTMProjector) ([]geo.Hex, error) {
 	bbox, _, _, err := entry.BBoxAndCenter(ctx)
 	if err != nil {
@@ -349,7 +341,9 @@ func cityHexGrid(ctx context.Context, entry CityEntry, proj *geo.UTMProjector) (
 	// (GetBoundary on a pinned store, which BBoxAndCenter and the projector
 	// were derived from too), not the current config and boundary. Without a
 	// usable boundary compute ran over the unclipped lattice, and so does
-	// this.
+	// this. The clip is the localized one (ClipHexesToBoundaryLocal): the
+	// same hexes and shapes, to rounding, in a fraction of the time, which is
+	// what lets the live server build a large city's grid inside a request.
 	edge, err := entry.HexEdge(ctx)
 	if err != nil {
 		return nil, err
@@ -359,9 +353,12 @@ func cityHexGrid(ctx context.Context, entry CityEntry, proj *geo.UTMProjector) (
 	if err != nil {
 		return nil, fmt.Errorf("boundary for %s: %w", entry.City.Name, err)
 	}
-	hexes, clipErr := geo.ClipHexesToBoundaryGeoJSON(ctx, hexes, boundaryGJSON, proj, nil)
+	hexes, clipErr := geo.ClipHexesToBoundaryGeoJSONLocal(ctx, hexes, boundaryGJSON, proj)
 	if clipErr != nil && !errors.Is(clipErr, geo.ErrNoClipBoundary) {
 		return nil, clipErr
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err // cancelled part-way: the clip is incomplete
 	}
 	// The sliver filter is display-only: compute keeps slivers so paved
 	// totals stay whole; the map leaves them out.
@@ -369,21 +366,13 @@ func cityHexGrid(ctx context.Context, entry CityEntry, proj *geo.UTMProjector) (
 }
 
 // buildHexFeature builds one GeoJSON feature for a hex from its aggregated
-// per-resource coverage. Geometry is emitted once (clipped to the boundary by
-// the caller); properties carry "id" plus nested scope objects {all, city?}
-// keyed by bare resource name -> {"area", "share"}. The scope dimension lives in
-// these per-feature objects rather than in separate files, and "city" is
-// omitted when the hex has no ":city" rows. Returns the feature and true on
-// success, or nil and false when the hex has no geometry.
-func buildHexFeature(hexID string, agg *hexAgg, hexMap map[string]*geo.Hex, proj *geo.UTMProjector, decimals int) (map[string]any, bool) {
-	h, ok := hexMap[hexID]
-	if !ok {
-		return nil, false
-	}
-	gjson, ok := hexGeometryJSON(h, proj, decimals)
-	if !ok {
-		return nil, false
-	}
+// per-resource coverage and its encoded geometry (DrawnGrid). Geometry is
+// emitted once (clipped to the boundary); properties carry "id" plus nested
+// scope objects {all, city?} keyed by bare resource name -> {"area",
+// "share"}. The scope dimension lives in these per-feature objects rather
+// than in separate files, and "city" is omitted when the hex has no ":city"
+// rows.
+func buildHexFeature(hexID string, agg *hexAgg, gjson string) map[string]any {
 	props := map[string]any{"id": hexID}
 	if agg == nil {
 		// A grid hex with no pavement rows: geometry only, so stored metrics
@@ -392,7 +381,7 @@ func buildHexFeature(hexID string, agg *hexAgg, hexMap map[string]*geo.Hex, proj
 			"type":       "Feature",
 			"geometry":   json.RawMessage(gjson),
 			"properties": props,
-		}, true
+		}
 	}
 	props["all"] = agg.all
 	if agg.k > 0 {
@@ -415,13 +404,14 @@ func buildHexFeature(hexID string, agg *hexAgg, hexMap map[string]*geo.Hex, proj
 		"type":       "Feature",
 		"geometry":   json.RawMessage(gjson),
 		"properties": props,
-	}, true
+	}
 }
 
 // hexGeometryJSON is h's WGS84 GeoJSON geometry as hexgrid.geojson emits it;
 // ok is false for a hex that cannot be encoded, which the map then does not
-// draw. drawnGrid applies the same test, so the hexes hex-metrics.json
-// covers are exactly the features here.
+// draw. DrawnGrid encodes each hex with it once, and both hexgrid.geojson's
+// features and the drawn id set hex-metrics.json covers come from that one
+// result.
 func hexGeometryJSON(h *geo.Hex, proj *geo.UTMProjector, decimals int) (string, bool) {
 	gjson, err := geo.GeometryToGeoJSONWithPrecision(h.Geom, proj, decimals)
 	if err != nil {

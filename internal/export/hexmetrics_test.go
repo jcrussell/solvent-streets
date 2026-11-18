@@ -42,7 +42,7 @@ func metricsEntry(t *testing.T, rows []db.HexMetric, facilities []db.RunFacility
 }
 
 // metricsHexIDs returns five hex ids metricsEntry's city draws
-// (drawnGrid), in id order: rows on them are what hex-metrics.json and
+// (DrawnGrid), in id order: rows on them are what hex-metrics.json and
 // meta.json's summaries carry.
 func metricsHexIDs(t *testing.T) []string {
 	t.Helper()

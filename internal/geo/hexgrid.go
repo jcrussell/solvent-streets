@@ -587,15 +587,36 @@ var ErrNoClipBoundary = errors.New("no usable boundary to clip the hex grid agai
 // after cleaning, the lattice comes back unclipped with an error wrapping
 // ErrNoClipBoundary, for the caller to warn about or tolerate.
 func ClipHexesToBoundaryGeoJSON(ctx context.Context, hexes []Hex, boundaryGJSON string, proj Projector, counter *atomic.Int64) ([]Hex, error) {
+	boundary, err := clipBoundary(boundaryGJSON, proj)
+	if err != nil {
+		return hexes, err
+	}
+	return ClipHexesToBoundary(ctx, hexes, boundary, counter), nil
+}
+
+// ClipHexesToBoundaryGeoJSONLocal is ClipHexesToBoundaryGeoJSON with the
+// localized clip (ClipHexesToBoundaryLocal), for redrawing the grid compute
+// stored its results on: the same boundary handling, the same hexes.
+func ClipHexesToBoundaryGeoJSONLocal(ctx context.Context, hexes []Hex, boundaryGJSON string, proj Projector) ([]Hex, error) {
+	boundary, err := clipBoundary(boundaryGJSON, proj)
+	if err != nil {
+		return hexes, err
+	}
+	return ClipHexesToBoundaryLocal(ctx, hexes, boundary), nil
+}
+
+// clipBoundary is the projected boundary the GeoJSON clips cut to, or an
+// error wrapping ErrNoClipBoundary when there is none usable.
+func clipBoundary(boundaryGJSON string, proj Projector) (geom.Geometry, error) {
 	if boundaryGJSON == "" {
-		return hexes, fmt.Errorf("%w: none stored", ErrNoClipBoundary)
+		return geom.Geometry{}, fmt.Errorf("%w: none stored", ErrNoClipBoundary)
 	}
 	boundary, _, err := GeoJSONToProjectedGeometry(boundaryGJSON, proj)
 	switch {
 	case err != nil:
-		return hexes, fmt.Errorf("%w: boundary parse failed: %w", ErrNoClipBoundary, err)
+		return geom.Geometry{}, fmt.Errorf("%w: boundary parse failed: %w", ErrNoClipBoundary, err)
 	case boundary.IsEmpty():
-		return hexes, fmt.Errorf("%w: boundary empty after cleaning", ErrNoClipBoundary)
+		return geom.Geometry{}, fmt.Errorf("%w: boundary empty after cleaning", ErrNoClipBoundary)
 	}
-	return ClipHexesToBoundary(ctx, hexes, boundary, counter), nil
+	return boundary, nil
 }

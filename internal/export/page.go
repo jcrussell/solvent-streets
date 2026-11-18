@@ -26,17 +26,7 @@ func SiteTitle(cfg *config.Config, fallback string) string {
 // the headline for the whole config.
 func PageMetaAndSeed(ctx context.Context, cfg *config.Config, entries []CityEntry, title string) (MetaJSON, template.JS, error) {
 	if len(entries) == 1 {
-		entry := entries[0]
-		meta, err := BuildMeta(ctx, entry, 0)
-		if err != nil {
-			return MetaJSON{}, "", err
-		}
-		fc := cfg.ResolvedForecast(&entry.City)
-		seed, err := BuildForecastSeed(ctx, &fc, entry.Store)
-		if err != nil {
-			return MetaJSON{}, "", fmt.Errorf("build forecast seed: %w", err)
-		}
-		return meta, seed, nil
+		return CityPageMetaAndSeed(ctx, cfg, entries[0], NewDrawnGrid(ctx, entries[0], nil))
 	}
 	meta, err := BuildMultiCityMeta(ctx, entries, title)
 	if err != nil {
@@ -46,6 +36,22 @@ func PageMetaAndSeed(ctx context.Context, cfg *config.Config, entries []CityEntr
 	seed, err := BuildMultiCityForecastSeed(ctx, &fc, entries)
 	if err != nil {
 		return MetaJSON{}, "", err
+	}
+	return meta, seed, nil
+}
+
+// CityPageMetaAndSeed is PageMetaAndSeed for one city, its meta.json built on
+// grid, the city's DrawnGrid: the live server passes the one it shares with
+// that city's data files, so rendering a page builds no grid of its own.
+func CityPageMetaAndSeed(ctx context.Context, cfg *config.Config, entry CityEntry, grid *DrawnGrid) (MetaJSON, template.JS, error) {
+	meta, err := BuildMetaOn(ctx, entry, 0, grid)
+	if err != nil {
+		return MetaJSON{}, "", err
+	}
+	fc := cfg.ResolvedForecast(&entry.City)
+	seed, err := BuildForecastSeed(ctx, &fc, entry.Store)
+	if err != nil {
+		return MetaJSON{}, "", fmt.Errorf("build forecast seed: %w", err)
 	}
 	return meta, seed, nil
 }
