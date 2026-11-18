@@ -6,7 +6,9 @@ import (
 	"sort"
 
 	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/hexmetric"
+	"github.com/jcrussell/solvent-streets/internal/population"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/internal/services"
@@ -65,11 +67,29 @@ type MetricSummaryJSON struct {
 	HexCount int    `json:"hex_count"`
 	// Total is the sum over the city's hexes, for additive metrics
 	// (hexmetric.Spec.Additive) only.
-	Total      *float64 `json:"total,omitempty"`
-	Min        float64  `json:"min"`
-	Median     float64  `json:"median"`
-	Max        float64  `json:"max"`
-	PointCount int      `json:"point_count,omitempty"`
+	Total  *float64 `json:"total,omitempty"`
+	Min    float64  `json:"min"`
+	Median float64  `json:"median"`
+	Max    float64  `json:"max"`
+	// PointCount is the points of service the metric references over the
+	// drawn hexes: for fire, the stations that are some hex's nearest, inside
+	// the city or across its line.
+	PointCount int `json:"point_count,omitempty"`
+	// PointLabel names those points on the stats panel ("Stations serving the
+	// city"), for a service's coverage metric.
+	PointLabel string `json:"point_label,omitempty"`
+	// InsidePointCount and OutsidePointCount split PointCount by whether the
+	// point lies inside the city boundary. Present (0 included) for a
+	// service's coverage metric whose boundary could be read.
+	InsidePointCount  *int `json:"inside_point_count,omitempty"`
+	OutsidePointCount *int `json:"outside_point_count,omitempty"`
+	// PointsIncomplete flags a facility list that is probably missing some:
+	// no point inside the city serves it, or fewer inside than the service's
+	// floor per 100,000 residents (services.Spec.SparsePer100k, against the
+	// population summary's total). PointsCaveat is the one line the stats
+	// panel shows for it.
+	PointsIncomplete bool   `json:"points_incomplete,omitempty"`
+	PointsCaveat     string `json:"points_caveat,omitempty"`
 	// UnreachableCount is, for a service's coverage metric, the hexes on the
 	// road network that no facility reached (services.SubjectUnreachable).
 	// They carry no value, so the map leaves them blank, and they are not in
@@ -279,7 +299,94 @@ func buildMetricSummaries(ctx context.Context, entry CityEntry, grid *drawnGrid)
 		}
 		out[spec.Key] = sum
 	}
+	flagSparsePoints(out)
 	return out, nil
+}
+
+// flagSparsePoints sets PointsIncomplete and PointsCaveat on each service
+// summary whose facility list looks incomplete: no facility inside the city
+// boundary serves it, or fewer inside than the service's floor per 100,000
+// residents, the population being the census summary's total over the same
+// drawn hexes. OpenStreetMap's station coverage is uneven, and a missing
+// station reads on the map as a slow or uncovered neighbourhood, so the
+// panel says so rather than show the gap as fact. A city without census
+// data gets only the none-inside test.
+func flagSparsePoints(sums map[string]MetricSummaryJSON) {
+	var residents float64
+	if pop, ok := sums[population.KeyPopulation]; ok && pop.Total != nil {
+		residents = *pop.Total
+	}
+	for key, s := range sums {
+		svc, ok := services.ForMetric(key)
+		if !ok || s.InsidePointCount == nil {
+			continue
+		}
+		inside := *s.InsidePointCount
+		reason := ""
+		switch {
+		case inside == 0:
+			reason = "no " + svc.FacilityNoun + " inside the city serves it"
+		case svc.SparsePer100k > 0 && residents > 0 && float64(inside)/residents*1e5 < svc.SparsePer100k:
+			reason = "few " + svc.FacilityNoun + "s inside the city for its population"
+		}
+		if reason == "" {
+			continue
+		}
+		s.PointsIncomplete = true
+		s.PointsCaveat = capitalize(svc.FacilityNoun) + " list from OpenStreetMap may be incomplete: " + reason
+		sums[key] = s
+	}
+}
+
+// capitalize upper-cases an ASCII noun's first letter.
+func capitalize(s string) string {
+	if s == "" || s[0] < 'a' || s[0] > 'z' {
+		return s
+	}
+	return string(s[0]-'a'+'A') + s[1:]
+}
+
+// splitPointsByBoundary counts the facilities rows reference that lie inside
+// and outside the city boundary, for a service's coverage metric. ok is
+// false when the metric is no service's, or the boundary cannot be read as
+// a polygon; a reference to no recorded facility counts in neither.
+func splitPointsByBoundary(ctx context.Context, entry CityEntry, spec hexmetric.Spec, rows []db.HexMetric) (inside, outside int, ok bool, err error) {
+	svc, isService := services.ForMetric(spec.Key)
+	if !isService {
+		return 0, 0, false, nil
+	}
+	refs := map[string]bool{}
+	for _, r := range rows {
+		if r.Ref != "" {
+			refs[r.Ref] = true
+		}
+	}
+	facilities, err := entry.Store.ListRunFacilities(ctx, db.ServiceProducer(svc.Name))
+	if err != nil {
+		return 0, 0, false, fmt.Errorf("listing %s facilities: %w", svc.Name, err)
+	}
+	var pts [][2]float64
+	for _, f := range facilities {
+		if refs[f.ID] {
+			pts = append(pts, [2]float64{f.Lon, f.Lat})
+		}
+	}
+	boundary, err := entry.Store.GetBoundary(ctx)
+	if err != nil {
+		return 0, 0, false, fmt.Errorf("boundary for %s: %w", entry.City.Name, err)
+	}
+	in, err := geo.PointsInBoundary(boundary, pts)
+	if err != nil {
+		return 0, 0, false, nil //nolint:nilerr // no readable boundary: the split is unknown, not an export failure
+	}
+	for _, b := range in {
+		if b {
+			inside++
+		} else {
+			outside++
+		}
+	}
+	return inside, outside, true, nil
 }
 
 // metricSummary summarises one metric's rows against its resolved
@@ -298,7 +405,19 @@ func metricSummary(ctx context.Context, entry CityEntry, grid *drawnGrid, spec h
 		}
 	}
 	sum, ok := summarizeMetric(spec, rows, len(unreachable), threshold, hasThreshold)
-	return sum, ok, nil
+	if !ok {
+		return sum, false, nil
+	}
+	inside, outside, split, err := splitPointsByBoundary(ctx, entry, spec, rows)
+	if err != nil {
+		return MetricSummaryJSON{}, false, err
+	}
+	if split {
+		svc, _ := services.ForMetric(spec.Key)
+		sum.PointLabel = capitalize(svc.FacilityNoun) + "s serving the city"
+		sum.InsidePointCount, sum.OutsidePointCount = &inside, &outside
+	}
+	return sum, true, nil
 }
 
 // summarizeMetric reduces one metric's rows; ok is false when there are none.

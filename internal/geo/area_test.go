@@ -6,6 +6,25 @@ import (
 	"testing"
 )
 
+// TestPointsInBoundary: a point inside a polygon, one outside it, and one in
+// a multipolygon's hole-free second part; a boundary that does not parse is
+// an error, not "all outside".
+func TestPointsInBoundary(t *testing.T) {
+	mp := `{"type":"MultiPolygon","coordinates":[
+		[[[-122.5,37.5],[-122.4,37.5],[-122.4,37.6],[-122.5,37.6],[-122.5,37.5]]],
+		[[[-122.3,37.5],[-122.2,37.5],[-122.2,37.6],[-122.3,37.6],[-122.3,37.5]]]]}`
+	got, err := PointsInBoundary(mp, [][2]float64{{-122.45, 37.55}, {-122.35, 37.55}, {-122.25, 37.55}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []bool{true, false, true}; len(got) != 3 || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
+		t.Errorf("PointsInBoundary = %v, want %v", got, want)
+	}
+	if _, err := PointsInBoundary(`{"type":"Polygon"`, [][2]float64{{0, 0}}); err == nil {
+		t.Error("an unparsable boundary must be an error")
+	}
+}
+
 func TestBoundaryArea(t *testing.T) {
 	// ~1km x 1km square near Austin, TX (30.27°N, -97.74°W)
 	// 0.009° lat ≈ 1 km, 0.0104° lon ≈ 1 km at this latitude

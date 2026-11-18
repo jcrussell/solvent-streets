@@ -934,11 +934,27 @@
                     '<div class="stat-row"><span class="stat-label">Median</span><span class="stat-value">' + fmtMetric(s.median, s.format) + '</span></div>' +
                     // Compact, unit once: "0 – 24K / sq mi", not the unit twice.
                     '<div class="stat-row"><span class="stat-label">Range</span><span class="stat-value">' + fmtLegend(s.min, s.format, false) + ' – ' + fmtLegend(s.max, s.format, true) + '</span></div>' +
-                    (s.point_count > 0 ? '<div class="stat-row"><span class="stat-label">Points of service</span><span class="stat-value">' + s.point_count + '</span></div>' : '') +
+                    pointsRows(s) +
                     '</div>';
             });
             statsHTML += ratioTotalsCard();
             return statsHTML;
+        }
+
+        // pointsRows is a metric card's points-of-service rows: how many
+        // points (fire: stations) are some hex's nearest, how many of those
+        // are outside the city, and the exporter's caveat when the list looks
+        // incomplete (meta.metrics[].points_caveat, solvent-streets-ern4.28).
+        /** @param {any} s @returns {string} */
+        function pointsRows(s) {
+            let html = '';
+            if (s.point_count > 0) {
+                const outside = s.outside_point_count > 0 ? ' (' + s.outside_point_count + ' outside the city)' : '';
+                html += '<div class="stat-row"><span class="stat-label" title="Nearest to at least one hex, inside the city boundary or across its line">' +
+                    esc(s.point_label || 'Points of service') + '</span><span class="stat-value">' + s.point_count + outside + '</span></div>';
+            }
+            if (s.points_caveat) html += '<div class="stat-row stat-note points-caveat">' + esc(s.points_caveat) + '</div>';
+            return html;
         }
 
         // refreshCityStats re-renders the stats panel once hex data arrives or

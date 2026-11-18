@@ -38,6 +38,16 @@ type Spec struct {
 	Speeds SpeedTable
 	// Metric is the hexmetric key the coverage is stored under.
 	Metric string
+	// FacilityNoun names one facility in the dashboard ("station"): the
+	// stats panel's "Stations serving the city" row and its completeness
+	// caveat. Presentation only, read by export.
+	FacilityNoun string
+	// SparsePer100k is the completeness floor export flags a city's facility
+	// list against: fewer facilities inside the city boundary serving it
+	// than this per 100,000 residents, or none at all, and the list is
+	// probably missing some (OSM's coverage is uneven). Presentation only,
+	// read by export; 0 applies only the none-inside test.
+	SparsePer100k float64
 }
 
 // legendBandStepS is the width of each legend band after the first edge.
@@ -156,6 +166,12 @@ var Registry = map[string]Spec{
 		TravelThresholdS: 240,
 		Speeds:           DefaultRoadSpeeds,
 		Metric:           MetricFire,
+		FacilityNoun:     "station",
+		// About the 5th percentile of the v0.5.0 showcase (2.05 per 100k
+		// over the 379 cities with census data and a station inside), where
+		// the cities known to be missing stations in OSM sit: Bismarck 1.4,
+		// Montgomery 1.5, Stockton 1.9 (solvent-streets-ern4.28).
+		SparsePer100k: 2,
 	},
 }
 

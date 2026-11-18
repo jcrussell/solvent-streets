@@ -64,7 +64,34 @@ test('the Color-by selector lists the available derived metrics plus each stored
   const card = $$('#stats .stat-card').find((c) => c.querySelector('h3').textContent === 'Fire response');
   assert.ok(card, 'no metric card rendered from meta.metrics');
   assert.match(card.textContent, /Median\s*11:40/, 'median must render in m:ss');
-  assert.match(card.textContent, /Points of service\s*1/);
+  assert.match(card.textContent, /Stations serving the city\s*1/);
+  assert.doesNotMatch(card.textContent, /outside the city/, 'the fixture station is inside the city');
+  assert.equal(card.querySelector('.points-caveat'), null, 'a city with its station inside carries no caveat');
+});
+
+// solvent-streets-ern4.28: the stations row says how many serve the city
+// from outside it, and a city whose station list looks incomplete says so.
+test('the stations row counts outside stations, and an incomplete list carries the caveat', async () => {
+  const fireSummary = metaJSON.metrics.fire_response_s;
+  assert.equal(fireSummary.point_label, 'Stations serving the city', 'Go names the points');
+  assert.equal(fireSummary.inside_point_count, 1);
+  assert.equal(fireSummary.outside_point_count, 0);
+  const caveat = 'Station list from OpenStreetMap may be incomplete: no station inside the city serves it';
+  const flagged = {
+    ...metaJSON,
+    metrics: {
+      ...metaJSON.metrics,
+      fire_response_s: { ...fireSummary, point_count: 3, inside_point_count: 0, outside_point_count: 3, points_incomplete: true, points_caveat: caveat },
+    },
+  };
+  const h = load({ data: { ...data, 'meta.json': flagged } });
+  await h.flush();
+  await h.win.loadCityData();
+  await h.flush();
+  const card = h.$$('#stats .stat-card').find((c) => c.querySelector('h3').textContent === 'Fire response');
+  assert.ok(card, 'no metric card rendered');
+  assert.match(card.textContent, /Stations serving the city\s*3 \(3 outside the city\)/);
+  assert.equal(card.querySelector('.points-caveat')?.textContent, caveat);
 });
 
 test('an unreachable hex has no value on the map but counts against the within-threshold share', async () => {

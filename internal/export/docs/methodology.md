@@ -422,10 +422,25 @@ city-builder's service-coverage overlay. It is computed, not observed:
    The median and range are over the hexes that were reached. The share
    uses NFPA 1710's 240 s first-engine travel time. `[[services]]` in the
    config overrides the turnout and the threshold.
+7. **Stations serving the city.** The summary counts the stations that are
+   the nearest to at least one hex, and how many of them lie outside the
+   city boundary. A station fetched in the margin that is no hex's nearest
+   is not counted.
+8. **Incomplete station lists.** OpenStreetMap's station coverage is
+   uneven, and a station missing from it reads on the map as a slow or
+   uncovered neighbourhood. The summary therefore carries the caveat
+   "Station list from OpenStreetMap may be incomplete" when no station
+   inside the city serves it, or when the stations inside number fewer than
+   **2 per 100,000 residents** (2020 Census, over the same hexes). That
+   floor is about the 5th percentile of the showcase cities with census
+   data, where cities known to be missing stations sit. The caveat is a
+   prompt to check the list, not a finding: a city served under contract by
+   a county or a neighbour's department can rightly have none inside. A
+   station OSM lacks can be added with `[[cities.facilities]]`.
 
 Limitations: traffic, signals, unit availability, dispatch time and
 apparatus type are not modelled, nor is grade separation beyond what OSM
-encodes; and OSM's station coverage is uneven.
+encodes; and OSM's station coverage is uneven (see 8).
 
 ### Assumptions and limitations
 

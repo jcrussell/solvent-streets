@@ -32,6 +32,30 @@ func BoundaryArea(ctx context.Context, boundaryGJSON string) (float64, error) {
 	return g.Area(), nil
 }
 
+// PointsInBoundary reports, for each lon/lat point, whether it lies inside
+// the boundary polygon or multipolygon (a point on its edge counts as in).
+// The boundary is projected and cleaned as the hex clip reads it
+// (GeoJSONToProjectedGeometry), so "inside" agrees with which hexes the city
+// has. An empty or unparsable boundary is an error.
+func PointsInBoundary(boundaryGJSON string, pts [][2]float64) ([]bool, error) {
+	_, proj, err := ProjectorForBoundary(boundaryGJSON)
+	if err != nil {
+		return nil, err
+	}
+	boundary, _, err := GeoJSONToProjectedGeometry(boundaryGJSON, proj)
+	if err != nil {
+		return nil, err
+	}
+	if boundary.IsEmpty() {
+		return nil, errors.New("empty boundary")
+	}
+	in := make([]bool, len(pts))
+	for i, p := range pts {
+		in[i] = geom.Intersects(projectedPoint(p, proj).AsGeometry(), boundary)
+	}
+	return in, nil
+}
+
 // InteriorPoints returns one lon/lat point per sub-polygon of the
 // polygon or multipolygon described by boundaryGJSON. For a Polygon
 // the slice has one element; for a MultiPolygon it has one element
