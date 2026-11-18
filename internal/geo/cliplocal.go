@@ -44,7 +44,17 @@ const localClipMaxDepth = 24
 // and the hex ids it draws), where rounding-level differences in a clipped
 // edge are invisible. A piece that fails to cut falls back to its parent's
 // piece, which is slower but the same clip.
+//
+// The interior test is a ray-cast parity count, which equals
+// ClipHexesToBoundary's geom.Intersects only for a valid boundary: with
+// overlapping holes or parts it flips whole hexes. A single-Polygon boundary
+// reaches here unvalidated (16 of the 407 release boundaries fail Validate),
+// so an invalid boundary takes ClipHexesToBoundary itself: slower, but the
+// grid compute stored its results on.
 func ClipHexesToBoundaryLocal(ctx context.Context, hexes []Hex, boundary geom.Geometry) []Hex {
+	if boundary.Validate() != nil {
+		return ClipHexesToBoundary(ctx, hexes, boundary, nil)
+	}
 	segs := boundarySegments(boundary)
 	edgeIdx := NewGeomIndexFromGeoms(segs)
 	maxX := math.Inf(1)

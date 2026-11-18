@@ -80,3 +80,38 @@ func TestClipHexesToBoundaryLocal_Cancelled(t *testing.T) {
 		t.Errorf("cancelled clip returned %d hexes, want none", len(got))
 	}
 }
+
+// TestClipHexesToBoundaryLocal_InvalidBoundaryMatches: an invalid boundary
+// (here two overlapping holes) would flip whole interior hexes under the
+// local clip's ray-cast parity test, so it takes ClipHexesToBoundary and the
+// grid matches the one compute stored results on. Peer review found 16 of
+// the 407 release boundaries invalid.
+func TestClipHexesToBoundaryLocal_InvalidBoundaryMatches(t *testing.T) {
+	square := func(x0, y0, x1, y1 float64, cw bool) geom.LineString {
+		c := []float64{x0, y0, x1, y0, x1, y1, x0, y1, x0, y0}
+		if cw {
+			c = []float64{x0, y0, x0, y1, x1, y1, x1, y0, x0, y0}
+		}
+		return geom.NewLineString(geom.NewSequence(c, geom.DimXY))
+	}
+	boundary := geom.NewPolygon([]geom.LineString{
+		square(-2000, -2000, 2000, 2000, false),
+		square(-1000, -1000, 500, 500, true),
+		square(-500, -500, 1000, 1000, true),
+	}).AsGeometry()
+	if boundary.Validate() == nil {
+		t.Fatal("fixture boundary is valid; it must have overlapping holes")
+	}
+	hexes := HexGrid(-2500, -2500, 2500, 2500, 60)
+	ctx := context.Background()
+	want := ClipHexesToBoundary(ctx, hexes, boundary, nil)
+	got := ClipHexesToBoundaryLocal(ctx, hexes, boundary)
+	if len(got) != len(want) {
+		t.Fatalf("local clip kept %d hexes, ClipHexesToBoundary %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i].ID != want[i].ID {
+			t.Fatalf("hex %d: id %s, want %s", i, got[i].ID, want[i].ID)
+		}
+	}
+}
