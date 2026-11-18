@@ -60,6 +60,25 @@ test('play: a backlog loss with a year of budget banked says it went unspent', (
   assert.doesNotMatch(sub, /no roads were treated/);
 });
 
+// Peer review: at a $0 budget there was never money to spend, so the banner
+// must not blame the player for leaving it unspent.
+test('play: a backlog loss at a $0 budget does not call $0 unspent', () => {
+  const { $ } = endBanner({ loss_reason: 'backlog', treasury: 0, budget_rate: 0, treatment_count: 0 });
+  const sub = $('#banner .sub').textContent;
+  assert.doesNotMatch(sub, /unspent/);
+  assert.match(sub, /outran the budget/);
+});
+
+// Peer review: Play again re-seeds a 'running' engine behind the start
+// overlay, so painting must also require the in-game UI to be up.
+test('play: the board does not take treatments behind the start overlay', () => {
+  const h = load({ page: 'play', data: {}, url: 'https://example.test/play.html?city=beta-ca' });
+  h.win.setInGameUI(true);
+  assert.equal(h.get('playing'), true);
+  h.win.setInGameUI(false);
+  assert.equal(h.get('playing'), false, 'the start screen must stop the brush');
+});
+
 test('play: a backlog loss with the budget spent says decay outran it', () => {
   const { $ } = endBanner({ loss_reason: 'backlog', treasury: 2e5, budget_rate: 1e6, treatment_count: 40 });
   assert.match($('#banner .sub').textContent, /outran the budget/);

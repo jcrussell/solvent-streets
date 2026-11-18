@@ -281,7 +281,10 @@
                 return { headline: 'Roads closed.', sub: 'More than half the network has closed to gravel — game over.' };
             }
             const treated = s.treatment_count || 0;
-            if (s.loss_reason === 'backlog' && (treated === 0 || s.treasury >= s.budget_rate)) {
+            // Only money actually left over is "unspent": at a $0 budget there
+            // was never any to spend.
+            const unspent = s.treasury > 0 && (treated === 0 || s.treasury >= s.budget_rate);
+            if (s.loss_reason === 'backlog' && unspent) {
                 return {
                     headline: 'Network insolvent.',
                     sub: fmtMoney(s.treasury) + ' went unspent' +
@@ -353,7 +356,12 @@
         // setInGameUI toggles between the pre-game overlay and the in-game
         // panels. New panels belong here so startGame/showStartScreen stay in
         // sync.
+        // playing is true while the in-game UI is up: the start overlay hides
+        // the board between games, and Play again re-seeds a 'running' engine
+        // behind it, so painting checks this as well as the game status.
+        let playing = false;
         function setInGameUI(inGame) {
+            playing = inGame;
             document.getElementById('start-overlay').style.display = inGame ? 'none' : 'block';
             for (const id of ['hud', 'controls', 'legend'])
                 document.getElementById(id).style.display = inGame ? 'block' : 'none';
@@ -440,7 +448,7 @@
             return map.queryRenderedFeatures(box, { layers: [HEX_FILL] }).map(f => f.id);
         }
         function brushPaint(pt) {
-            if (gameStatus !== 'running' || !brushStroke) return;
+            if (!playing || gameStatus !== 'running' || !brushStroke) return;
             const ids = [];
             for (const id of brushHexesAt(pt)) {
                 const key = String(id);
