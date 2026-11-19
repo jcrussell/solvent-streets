@@ -56,8 +56,12 @@ type Spec struct {
 
 // SourceText is the metric's methodology line for this spec: the turnout it
 // states is s.TurnoutS, credited to NFPA 1710 only while it is the
-// registry's default (a [[services]] turnout_s override is not NFPA's).
+// registry's default (a [[services]] turnout_s override is not NFPA's). A
+// spec without a SourceFormat has no methodology line and returns "".
 func (s Spec) SourceText() string {
+	if s.SourceFormat == "" {
+		return ""
+	}
 	turnout := fmt.Sprintf("%g s turnout", s.TurnoutS)
 	if def, ok := Registry[s.Name]; ok && s.TurnoutS == def.TurnoutS {
 		turnout = "NFPA 1710 " + turnout
