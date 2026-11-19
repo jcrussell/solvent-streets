@@ -133,10 +133,10 @@ gives the derivation and the limits of that anchor.
 ### Materials
 
 The Materials tab turns each forecast year's treatment into the asphalt it
-takes. Each year the model treats the same `1/N` of the network the cost
-model bills (see the treatment cycle above), and of that only the
-asphalt-surfaced share: sidewalks are concrete, so their area is netted out
-rather than priced as hot-mix. The year's network-average PCI picks one
+takes. It covers every asphalt surface, streets and parking lots alike,
+whatever the Financials tab is set to maintain. Each year `1/N` of that
+area is treated (see the treatment cycle above); sidewalks are concrete,
+so their area is netted out rather than priced as hot-mix. The year's network-average PCI picks one
 treatment tier for all of it by condition band (preventive, rehab or
 reconstruction), whatever the city's cost tiers are called. The tab's
 **Material Intensity by Treatment Tier** table gives each tier's mix and
