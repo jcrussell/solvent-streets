@@ -41,6 +41,25 @@ test('a deep-linked tab is restored on load', async () => {
     'the active tab did not adopt ?tab=');
 });
 
+// ?tab= names a tab. An element id that is not one, or a value that is no
+// valid selector, must neither stop the boot nor leave every tab hidden
+// (solvent-streets-ern4.39).
+for (const tab of ['map', 'city-select', 'stats', 'a"]b']) {
+  test('?tab=' + tab + ' is ignored and the dashboard still boots', async () => {
+    const errors = [];
+    const { $, $$, flush } = load({
+      data: fullData,
+      url: 'https://example.test/index.html?tab=' + encodeURIComponent(tab),
+      before: (w) => w.addEventListener('error', (e) => errors.push(String(e.message))),
+    });
+    await flush();
+
+    assert.deepEqual(errors, []);
+    assert.equal($$('.tab-content.active').length, 1, 'exactly one tab panel is active');
+    assert.equal($('.tab-btn.active').dataset.tab, $('.tab-content.active').id);
+  });
+}
+
 // Objects built inside the jsdom window belong to that realm; compare by
 // structure only.
 const plain = (v) => JSON.parse(JSON.stringify(v));

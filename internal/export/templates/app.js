@@ -448,11 +448,14 @@
                 // while the dropdown names another (and replaceState records the truth).
                 if (sel && sel.value) DATA_PREFIX = 'cities/' + sel.value + '/';
             }
-            if (init.tab && document.getElementById(init.tab)) {
-                queryAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === init.tab));
-                queryAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === init.tab));
+            // Only a tab's own id counts: ?tab=map names an element, not a tab.
+            const initTabBtn = tabButton(init.tab);
+            const initTab = document.getElementById(init.tab);
+            if (initTabBtn && initTab && initTab.classList.contains('tab-content')) {
+                queryAll('.tab-btn').forEach(b => b.classList.toggle('active', b === initTabBtn));
+                queryAll('.tab-content').forEach(c => c.classList.toggle('active', c === initTab));
                 syncTabAria();
-                revealTabButton(queryEl('.tab-btn[data-tab="' + init.tab + '"]'));
+                revealTabButton(initTabBtn);
                 // Toggling classes does NOT trigger the per-tab data load that
                 // a selectTab() click would, so a deep-linked ?tab= for a
                 // lazy-loaded tab would otherwise hang on its loading spinner.
@@ -630,8 +633,12 @@
                 list.scrollLeft = Math.max(0, left - 32);
             }
         }
+        /** The tab button for tabId, matched by value so a hostile ?tab= cannot break a selector. @param {string|null} tabId */
+        function tabButton(tabId) {
+            return tabId ? queryAll('.tab-btn').find(b => b.dataset.tab === tabId) || null : null;
+        }
         function selectTab(tabId, opts) {
-            const btn = queryEl('.tab-btn[data-tab="' + tabId + '"]');
+            const btn = tabButton(tabId);
             const content = document.getElementById(tabId);
             if (!btn || !content) return;
             queryAll('.tab-btn').forEach(b => b.classList.remove('active'));
