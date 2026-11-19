@@ -48,6 +48,21 @@ type Spec struct {
 	// probably missing some (OSM's coverage is uneven). Presentation only,
 	// read by export; 0 applies only the none-inside test.
 	SparsePer100k float64
+	// SourceFormat is the metric's methodology line with one %s for the
+	// turnout phrase (SourceText), so the published line states the turnout
+	// the times include. Presentation only, read by export.
+	SourceFormat string
+}
+
+// SourceText is the metric's methodology line for this spec: the turnout it
+// states is s.TurnoutS, credited to NFPA 1710 only while it is the
+// registry's default (a [[services]] turnout_s override is not NFPA's).
+func (s Spec) SourceText() string {
+	turnout := fmt.Sprintf("%g s turnout", s.TurnoutS)
+	if def, ok := Registry[s.Name]; ok && s.TurnoutS == def.TurnoutS {
+		turnout = "NFPA 1710 " + turnout
+	}
+	return fmt.Sprintf(s.SourceFormat, turnout)
 }
 
 // legendBandStepS is the width of each legend band after the first edge.
@@ -172,6 +187,7 @@ var Registry = map[string]Spec{
 		// the cities known to be missing stations in OSM sit: Bismarck 1.4,
 		// Montgomery 1.5, Stockton 1.9 (solvent-streets-ern4.28).
 		SparsePer100k: 2,
+		SourceFormat:  "Nearest OSM fire station over the stored road network: %s plus travel at posted or class-default speeds",
 	},
 }
 
@@ -197,7 +213,7 @@ func init() {
 		Key:    MetricFire,
 		Label:  "Fire response",
 		Unit:   "s",
-		Source: "Nearest OSM fire station over the stored road network: NFPA 1710 80 s turnout plus travel at posted or class-default speeds",
+		Source: Registry["fire"].SourceText(),
 		Format: hexmetric.FormatMinutes,
 		Scale: hexmetric.Scale{
 			Kind:      hexmetric.KindSequential,

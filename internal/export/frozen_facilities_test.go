@@ -2,6 +2,7 @@ package export
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
@@ -92,5 +93,57 @@ func TestBuildHexMetrics_MarkersAndLegendFromTheRun(t *testing.T) {
 	// 80 s turnout from the run + 300 s travel threshold from the config.
 	if m.ThresholdS != 380 || m.Scale.Bands[0] != 380 {
 		t.Errorf("threshold/bands = %v / %v, want 380 (the run's 80 s turnout + the config's 300 s)", m.ThresholdS, m.Scale.Bands)
+	}
+}
+
+// TestBuildHexMetrics_SourceStatesTheRunsTurnout is the znqw regression: the
+// published methodology line names the turnout the run's times include, not
+// the registry's NFPA 1710 80 s, when [[services]] turnout_s overrode it.
+func TestBuildHexMetrics_SourceStatesTheRunsTurnout(t *testing.T) {
+	for _, tc := range []struct {
+		turnout float64
+		want    string
+	}{
+		{80, "NFPA 1710 80 s turnout"},
+		{60, ": 60 s turnout plus travel"},
+	} {
+		ctx := context.Background()
+		cfg := &config.Config{}
+		c := newSQLiteCity(t, cfg, "Fire City", exportBoundaryA)
+		h := drawnHexIDs(t, c.entry(), 1)
+		hash := cfg.CityHash(&c.city)
+		roads, err := c.store.CreateRun(ctx, "roads", hash, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := c.store.SaveHexMetrics(ctx, roads.ID, results.HexCoverageRows(resource.TypeRoads, []results.HexCoverage{{HexID: h[0], Area: 1}})); err != nil {
+			t.Fatal(err)
+		}
+		run, err := c.store.CreateRun(ctx, db.ServiceProducer("fire"), hash, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := c.store.SaveHexMetrics(ctx, run.ID, []db.HexMetric{{HexID: h[0], Metric: services.MetricFire, Value: 300}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := c.store.SaveCityMetrics(ctx, run.ID, []db.CityMetric{
+			{Metric: services.MetricTurnoutS, Subject: db.ServiceProducer("fire"), Value: tc.turnout},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := dbtest.Publish(ctx, c.root, c.id, hash, cfg.ResolvedHexEdge(&c.city), map[string]int64{"roads": roads.ID, db.ServiceProducer("fire"): run.ID}); err != nil {
+			t.Fatal(err)
+		}
+		entry, err := c.entry().PinNewestSnapshot(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		hm, err := BuildHexMetrics(ctx, entry)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := hm.Metrics[services.MetricFire].Source; !strings.Contains(got, tc.want) {
+			t.Errorf("turnout %v: source = %q, want it to contain %q", tc.turnout, got, tc.want)
+		}
 	}
 }

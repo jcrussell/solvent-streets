@@ -106,31 +106,31 @@ type MetricSummaryJSON struct {
 	WithinThresholdShare *float64 `json:"within_threshold_share,omitempty"`
 }
 
-// resolvedScale returns the scale (and covered threshold) to publish for a
+// resolvedSpec returns the spec (and covered threshold) to publish for a
 // metric: the registry's, unless a service produces it, in which case the
-// bands follow the service spec. The turnout is the one the snapshot's run
+// bands and the methodology line (Source) follow the service spec. The turnout is the one the snapshot's run
 // for the service recorded (services.MetricTurnoutS), since its stored times
 // include it; the travel threshold, a presentation setting, is the config's
 // ([[services]] overrides applied). A run that recorded no turnout falls back
 // to the config's. ok is false when the metric has no threshold.
-func resolvedScale(ctx context.Context, entry CityEntry, spec hexmetric.Spec) (hexmetric.Scale, float64, bool, error) {
+func resolvedSpec(ctx context.Context, entry CityEntry, spec hexmetric.Spec) (hexmetric.Spec, float64, bool, error) {
 	svc, ok := services.ForMetric(spec.Key)
 	if !ok {
-		return spec.Scale, 0, false, nil
+		return spec, 0, false, nil
 	}
 	if entry.Config != nil {
 		svc = services.Resolve(svc, entry.Config.ResolvedServices(&entry.City))
 	}
 	turnout, found, err := runTurnout(ctx, entry, svc.Name)
 	if err != nil {
-		return hexmetric.Scale{}, 0, false, err
+		return hexmetric.Spec{}, 0, false, err
 	}
 	if found {
 		svc.TurnoutS = turnout
 	}
-	scale := spec.Scale
-	scale.Bands = svc.LegendBands()
-	return scale, svc.CoveredS(), true, nil
+	spec.Scale.Bands = svc.LegendBands()
+	spec.Source = svc.SourceText()
+	return spec, svc.CoveredS(), true, nil
 }
 
 // runTurnout is the turnout the snapshot's run for service recorded; found is
@@ -214,11 +214,11 @@ func drawnMetricRows(ctx context.Context, entry CityEntry, grid *DrawnGrid, key,
 // description, rounded per-hex values, and — when rows reference points —
 // the resolved points list with per-hex indexes into it.
 func buildMetricJSON(ctx context.Context, entry CityEntry, spec hexmetric.Spec, rows []db.HexMetric) (MetricJSON, error) {
-	scale, threshold, _, err := resolvedScale(ctx, entry, spec)
+	spec, threshold, _, err := resolvedSpec(ctx, entry, spec)
 	if err != nil {
 		return MetricJSON{}, err
 	}
-	m := MetricJSON{Label: spec.Label, Unit: spec.Unit, Format: spec.Format, Source: spec.Source, Scale: scale, ThresholdS: threshold, Values: make(map[string]float64, len(rows))}
+	m := MetricJSON{Label: spec.Label, Unit: spec.Unit, Format: spec.Format, Source: spec.Source, Scale: spec.Scale, ThresholdS: threshold, Values: make(map[string]float64, len(rows))}
 	refIDs := map[string]bool{}
 	for _, r := range rows {
 		m.Values[r.HexID] = round2(r.Value)
@@ -403,7 +403,7 @@ func servicePoints(ctx context.Context, entry CityEntry, spec hexmetric.Spec, ro
 // services.SubjectUnreachable, of drawn hexes only) against the
 // within-threshold share.
 func metricSummary(ctx context.Context, entry CityEntry, grid *DrawnGrid, spec hexmetric.Spec, rows []db.HexMetric) (MetricSummaryJSON, bool, error) {
-	_, threshold, hasThreshold, err := resolvedScale(ctx, entry, spec)
+	_, threshold, hasThreshold, err := resolvedSpec(ctx, entry, spec)
 	if err != nil {
 		return MetricSummaryJSON{}, false, err
 	}
