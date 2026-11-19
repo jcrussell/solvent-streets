@@ -166,6 +166,30 @@ test('back/forward to another city applies the entry\'s settings over that city\
   assert.equal(m.initial_pci, PCI);
 });
 
+// solvent-streets-uzft: only Financials entries carry the model settings and
+// budget, so Back onto another tab's entry must leave them as they are rather
+// than reset them to the seed; returning to Financials then shows them again.
+test('Back through a non-Financials entry keeps the model settings and budget', async () => {
+  const { win, flush } = await ready();
+  setByHand(win);
+  type(win, '#budget-slider', String(parseInt(win.document.querySelector('#budget-slider').value) + 50));
+  const byHand = model(win);
+  const before = params(win);
+  assert.ok(before.get('budget'), 'the drag did not write ?budget=');
+  win.selectTab('map-tab');
+  win.selectTab('about-tab');
+  win.history.back();
+  await flush();
+  assert.equal(params(win).get('tab'), 'map-tab');
+  win.selectTab('financials-tab');
+  await flush();
+  for (const k of [...MODEL_KEYS, 'budget']) {
+    assert.equal(params(win).get(k), before.get(k), `?${k}= was reset by Back through the Map entry`);
+  }
+  win.runCustomScenario();
+  assert.deepEqual(model(win), byHand, 'the forecast was reset to the seed');
+});
+
 // solvent-streets-4hzr: Safari throws SecurityError after ~100 replaceState
 // calls in a short window, and the sliders and tier inputs fire on every input
 // event. A drag (input events, no change yet) writes the URL once it pauses,

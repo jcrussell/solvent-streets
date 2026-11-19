@@ -543,6 +543,14 @@
             const targetMetric = s.metric || DEFAULT_METRIC;
             if (cityChanged || snapshotChanged) hexMetric = targetMetric;
             else if (targetMetric !== hexMetric) selectHexMetric(targetMetric, { push: false });
+            // Only a Financials entry carries the budget, maintained network
+            // and model settings (Router.current), so another tab's entry for
+            // the same city says nothing about them: keep the ones in force,
+            // or Financials -> Map -> About -> Back -> Financials would reset
+            // them to the seed (solvent-streets-uzft). A city change has reset
+            // them in selectCity already.
+            const tabNow = queryEl('.tab-btn.active');
+            if (!cityChanged && !(tabNow && tabNow.dataset.tab === 'financials-tab')) return;
             // Restore the Financials budget and maintained network. selectCity
             // has already reset the budget for a new city; this puts the
             // entry's own back. A city or snapshot change reloads Financials,
