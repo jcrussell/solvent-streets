@@ -147,3 +147,17 @@ test('Compare follows the scope toggle, and a units round trip leaves it unchang
   flip(); await flush(8);
   assert.equal(text(), all, 'a units round trip changed Compare');
 });
+
+test('back to an entry in another scope re-renders Compare in that scope (solvent-streets-aeia)', async () => {
+  const { win, $, flush } = load({ data: { ...fullData, 'compare.json': readFixture('compare.json') },
+    url: 'https://example.test/index.html?city=alpha-ca&tab=compare-tab' });
+  await flush(12);
+  const text = () => $('#compare-tab').textContent.replace(/\s+/g, ' ');
+  const city = text();
+  win.selectCity('beta-ca'); await flush(8);
+  win.selectScope('all'); await flush(8);
+  assert.notEqual(text(), city);
+  win.history.go(-2); await flush(12);
+  assert.equal(win.eval('currentScope'), 'city');
+  assert.equal(text(), city, 'Compare still shows the all-jurisdiction figures');
+});

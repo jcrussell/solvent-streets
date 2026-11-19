@@ -504,6 +504,7 @@
             // Update currentScope from URL state before kicking off reloads
             // (selectCity → loadCityData → buildBlendedHexFC reads currentScope).
             // No ?scope= is the default, city-only.
+            const scopeBefore = currentScope;
             currentScope = s.scope === 'all' ? 'all' : 'city';
             // A city with data in one scope only never writes ?scope= (its
             // scope row is hidden), so on a same-city entry repair the scope
@@ -518,6 +519,9 @@
             }
             queryAll('#scope-toggle button').forEach(b =>
                 b.classList.toggle('active', b.dataset.scope === currentScope));
+            // Compare renders once per scope; an entry in another scope needs
+            // it re-rendered, as selectScope does (solvent-streets-aeia).
+            if (currentScope !== scopeBefore) compareLoaded = false;
             // Only fire selectCity when the city actually changed. selectCity
             // resets the snapshot picker (snapshots are per-city), so calling it
             // on a same-city snapshot-only navigation would clobber targetSnap
