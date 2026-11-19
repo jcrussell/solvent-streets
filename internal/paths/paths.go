@@ -35,11 +35,13 @@ func Resolve(toolName string) (*Paths, error) {
 	if err := validateToolName(toolName); err != nil {
 		return nil, err
 	}
-	cfg, err := os.UserConfigDir()
+	// The stdlib resolvers reject a relative XDG_CONFIG_HOME/XDG_CACHE_HOME
+	// but join a relative $HOME verbatim, so they go through requireAbs too.
+	cfg, err := requireAbs(os.UserConfigDir())
 	if err != nil {
 		return nil, err
 	}
-	cache, err := os.UserCacheDir()
+	cache, err := requireAbs(os.UserCacheDir())
 	if err != nil {
 		return nil, err
 	}
@@ -105,9 +107,10 @@ func (p *Paths) HTTPCacheDir() string { return filepath.Join(p.Cache, "http") }
 
 // requireAbs enforces the Paths doc contract ("all fields are absolute paths")
 // on a resolved root. It exists for the branches that have no spec-blessed
-// fallback to ignore a relative value into -- notably Windows, where
-// os.UserCacheDir returns %LocalAppData% verbatim and errors only when that
-// variable is empty, so a relative value would otherwise flow through
+// fallback to ignore a relative value into: Windows, where os.UserCacheDir
+// returns %LocalAppData% verbatim and errors only when that variable is empty,
+// and $HOME, which os.UserHomeDir returns verbatim on Unix under the same
+// rule (solvent-streets-fepb). A relative value would otherwise flow through
 // untouched. Threading (string, error) lets it wrap a stdlib resolver call
 // directly.
 func requireAbs(dir string, err error) (string, error) {
@@ -118,6 +121,16 @@ func requireAbs(dir string, err error) (string, error) {
 		return "", fmt.Errorf("paths: resolved root %q is not an absolute path", dir)
 	}
 	return dir, nil
+}
+
+// homeJoin joins elem onto the user's home directory, refusing a relative
+// $HOME (see requireAbs).
+func homeJoin(elem ...string) (string, error) {
+	home, err := requireAbs(os.UserHomeDir())
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(append([]string{home}, elem...)...), nil
 }
 
 // stateRoot returns the per-OS root for persistent, non-regenerable state.
@@ -132,30 +145,24 @@ func requireAbs(dir string, err error) (string, error) {
 //     default. The XDG basedir spec says to IGNORE a relative value rather than
 //     error, which is what this does (the stdlib resolvers this otherwise
 //     mirrors error instead).
-//   - The Windows branch has no such fallback to ignore into: os.UserCacheDir
-//     returns %LocalAppData% verbatim and errors only when it is EMPTY, so an
-//     IsAbs test there would fall through to the identical relative value. It
-//     goes through requireAbs, which errors -- the only honest option when
-//     there is nowhere to fall back to.
+//   - The Windows branch and the $HOME joins (darwin, and the Unix default)
+//     have no such fallback to ignore into: os.UserCacheDir returns
+//     %LocalAppData% verbatim and os.UserHomeDir returns $HOME verbatim, each
+//     erroring only when the variable is EMPTY, so an IsAbs test there would
+//     fall through to the identical relative value. They go through
+//     requireAbs, which errors -- the only honest option when there is
+//     nowhere to fall back to.
 func stateRoot() (string, error) {
 	if runtime.GOOS == "windows" {
 		return requireAbs(os.UserCacheDir())
 	}
 	if runtime.GOOS == "darwin" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(home, "Library", "Application Support"), nil
+		return homeJoin("Library", "Application Support")
 	}
 	if d := os.Getenv("XDG_STATE_HOME"); filepath.IsAbs(d) {
 		return d, nil
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".local", "state"), nil
+	return homeJoin(".local", "state")
 }
 
 // dataRoot returns the per-OS root for user-scoped data files (e.g. SQLite
@@ -168,18 +175,10 @@ func dataRoot() (string, error) {
 		return requireAbs(os.UserCacheDir())
 	}
 	if runtime.GOOS == "darwin" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(home, "Library", "Application Support"), nil
+		return homeJoin("Library", "Application Support")
 	}
 	if d := os.Getenv("XDG_DATA_HOME"); filepath.IsAbs(d) {
 		return d, nil
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".local", "share"), nil
+	return homeJoin(".local", "share")
 }

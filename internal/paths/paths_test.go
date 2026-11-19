@@ -126,6 +126,32 @@ func TestResolveIgnoresRelativeXDG(t *testing.T) {
 	}
 }
 
+// TestResolveRejectsRelativeHome pins solvent-streets-fepb: os.UserHomeDir
+// returns $HOME verbatim on Unix and errors only when it is empty, so a
+// relative $HOME used to yield a cwd-relative Paths.State / Paths.Data (and
+// Config / Cache, via the stdlib resolvers) with no error. Unlike a relative
+// XDG var there is no fallback to ignore it into, so Resolve must error.
+func TestResolveRejectsRelativeHome(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("XDG layout is Linux-specific")
+	}
+	for _, v := range []string{"XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME"} {
+		t.Setenv(v, "")
+	}
+	t.Setenv("HOME", "somewhere")
+	if p, err := Resolve("pvmt"); err == nil {
+		t.Fatalf("Resolve with a relative $HOME = %+v, want an error", p)
+	}
+	// Absolute XDG vars for every root mean $HOME is never consulted, so a
+	// relative $HOME is then harmless and must not error.
+	for _, v := range []string{"XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME"} {
+		t.Setenv(v, filepath.Join(t.TempDir(), v))
+	}
+	if _, err := Resolve("pvmt"); err != nil {
+		t.Errorf("Resolve with absolute XDG vars and a relative $HOME: %v", err)
+	}
+}
+
 // TestRequireAbs covers the enforcement the Windows branch depends on. It is
 // tested directly rather than through Resolve because that branch is
 // unreachable on the platforms CI runs -- and the bug it replaced was exactly
