@@ -414,6 +414,16 @@ func (c *Config) Resolve(flagUnits string) []ResolvedField {
 	// every priced dollar passes through.
 	fields = append(fields, ResolvedField{Key: "forecast.cost_overhead", Value: fc.CostOverhead, Source: fprov.CostOverhead})
 
+	// The fetch settings are emitted only when a layer sets them: their
+	// defaults are constants of the ingest and cache packages, applied
+	// downstream like treatment_cycle_years'.
+	if u, src := OverpassURL(c); src.Kind != SourceDefault {
+		fields = append(fields, ResolvedField{Key: "overpass.url", Value: u, Source: src})
+	}
+	if c.Cache.TTL > 0 {
+		fields = append(fields, ResolvedField{Key: "cache.ttl", Value: c.Cache.TTL.String(), Source: Source{Kind: SourceFile, Detail: "cache.ttl"}})
+	}
+
 	fields = c.appendServiceFields(fields)
 
 	for i := range c.Cities {

@@ -5,6 +5,7 @@ import (
 	"sort"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/jcrussell/solvent-streets/internal/units"
 )
@@ -393,6 +394,44 @@ func TestResolve_EmitsCostOverhead(t *testing.T) {
 	}
 	if !saw {
 		t.Error("unset forecast.cost_overhead must still be emitted, as a default")
+	}
+}
+
+// TestResolve_EmitsOverpassURLAndCacheTTL pins that `config show --sources`
+// reports the two fetch settings a layer can set: overpass.url (env > file)
+// and cache.ttl (file). Their defaults are constants of the ingest and cache
+// packages, resolved downstream, so an unset one emits no line, like
+// treatment_cycle_years.
+func TestResolve_EmitsOverpassURLAndCacheTTL(t *testing.T) {
+	t.Setenv(EnvOverpassURL, "")
+	cfg := &Config{
+		Overpass: OverpassConfig{URL: "https://overpass.example.org/api/interpreter"},
+		Cache:    CacheConfig{TTL: 72 * time.Hour},
+	}
+	byKey := make(map[string]ResolvedField)
+	for _, f := range cfg.Resolve("") {
+		byKey[f.Key] = f
+	}
+	if got := byKey["overpass.url"]; got.Value != cfg.Overpass.URL || got.Source.String() != "file:overpass.url" {
+		t.Errorf("overpass.url = %v (%s); want %s (file:overpass.url)", got.Value, got.Source, cfg.Overpass.URL)
+	}
+	if got := byKey["cache.ttl"]; got.Value != "72h0m0s" || got.Source.String() != "file:cache.ttl" {
+		t.Errorf("cache.ttl = %v (%s); want 72h0m0s (file:cache.ttl)", got.Value, got.Source)
+	}
+
+	env := "https://overpass.private.example/api/interpreter"
+	t.Setenv(EnvOverpassURL, env)
+	for _, f := range cfg.Resolve("") {
+		if f.Key == "overpass.url" && (f.Value != env || f.Source.String() != "env:"+EnvOverpassURL) {
+			t.Errorf("overpass.url = %v (%s); want %s (env:%s)", f.Value, f.Source, env, EnvOverpassURL)
+		}
+	}
+
+	t.Setenv(EnvOverpassURL, "")
+	for _, f := range (&Config{}).Resolve("") {
+		if f.Key == "overpass.url" || f.Key == "cache.ttl" {
+			t.Errorf("unset %s emitted %v (%s); its default is resolved downstream", f.Key, f.Value, f.Source)
+		}
 	}
 }
 
