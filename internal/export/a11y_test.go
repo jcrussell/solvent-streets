@@ -7,7 +7,7 @@ import (
 )
 
 // TestDashboardTablistAria asserts the WAI-ARIA tablist pattern is wired
-// into the rendered dashboard: the bar carries role="tablist", each tab
+// into the rendered dashboard: the tab row carries role="tablist", each tab
 // button carries role="tab"/aria-selected/aria-controls and a unique id,
 // and each tab panel carries role="tabpanel"/aria-labelledby pointing at
 // the matching button.
@@ -24,8 +24,8 @@ func TestDashboardTablistAria(t *testing.T) {
 	}
 	out := buf.String()
 
-	if !strings.Contains(out, `class="tab-list" role="tablist" aria-label="Sections"`) {
-		t.Error("tab-list missing role=tablist + aria-label")
+	if !strings.Contains(out, `class="tab-tabs" role="tablist" aria-label="Sections"`) {
+		t.Error("tab-tabs missing role=tablist + aria-label")
 	}
 
 	tabs := []struct {

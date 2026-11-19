@@ -609,7 +609,7 @@
         // revealTabButton scrolls the tab row (which scrolls sideways on a
         // phone) so the selected tab is in view, e.g. a ?tab=about link.
         function revealTabButton(btn) {
-            const list = btn.parentElement;
+            const list = btn.closest('.tab-list');
             if (!list || list.scrollWidth <= list.clientWidth) return;
             const left = btn.offsetLeft - list.offsetLeft;
             if (left < list.scrollLeft || left + btn.offsetWidth > list.scrollLeft + list.clientWidth) {
@@ -3340,8 +3340,9 @@
         });
 
         // Gear popover: groups snapshot picker, scope toggle, and theme
-        // toggle behind a single settings affordance. Closes on outside
-        // click or Escape.
+        // toggle behind a single settings affordance. A disclosure (button
+        // with aria-expanded), not an ARIA menu: it holds form controls, not
+        // menu items. Closes on outside click or Escape.
         (function initGearMenu() {
             const btn = document.getElementById('gear-btn');
             const menu = document.getElementById('gear-menu');
