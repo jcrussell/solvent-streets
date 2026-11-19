@@ -232,15 +232,18 @@ covers is a claim about streets. They are derived from a
   cycle, found by searching over budgets. It does not depend on the configured current
   budget, so it is reported for every city. Read it precisely:
   - Because the backlog only grows (see below), a near-zero final backlog
-    means **no year of the horizon defers need**. The budget therefore
-    covers the costliest year, not the average year.
+    means **no year of the horizon defers more than a rounding error**.
+    The budget therefore covers the costliest year of its own run, not
+    the average year.
   - The figure is one flat amount for every year. A network with area
     growth (`g` above, set per city) needs more each year, so its
-    break-even is sized for the larger late-horizon network.
+    break-even is sized for the larger late-horizon network. In the
+    early years that budget exceeds need, and the surplus raises
+    condition (see *Above need*), so a growing network's "hold steady"
+    improves at first.
   - It is in today's dollars, with no inflation (see Assumptions and
-    limitations).
-    Compare it with a current budget, not with a future year's
-    appropriation.
+    limitations). Compare it with a current budget, not with a future
+    year's appropriation.
 
 - **Funding gap** — `(break-even − current budget) / current budget`,
   the primary cross-city ranking metric. Negative when a city already
