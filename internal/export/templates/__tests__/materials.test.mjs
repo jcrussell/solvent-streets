@@ -103,17 +103,38 @@ test('scenarios without material quantities ask for a fresh export', async () =>
 });
 
 // The intensity table shows each tier's per-1000 m2 figures as the seed
-// carries them.
-test('the tier table reads its per-1000 m2 figures from the seed', async () => {
-  const { $$ } = await ready();
-  const rows = $$('#materials-tier-table tbody tr');
+// carries them under metric display, and converts them under imperial: the
+// fixture page is imperial, and the table used to stay in kg/m2 there while
+// every other figure on the tab switched (solvent-streets-ern4.35).
+test('the tier table reads its figures from the seed in the display units', async () => {
+  const { win, $, $$, flush } = await ready();
+  const headers = () => $$('#materials-tier-table thead th').map((th) => th.textContent);
+  const SQFT = 10.763910417, LB = 2.20462262185;
+
+  assert.deepEqual(headers(), ['Tier', 'Mix (lb/sq ft)', 'Binder %', 'Binder (lb/sq ft)', 'Oil (bbl/10,000 sq ft)']);
+  let rows = $$('#materials-tier-table tbody tr');
   assert.equal(rows.length, seedJSON.material_tiers.length);
   seedJSON.material_tiers.forEach((t, i) => {
     const cells = rows[i].querySelectorAll('td');
-    assert.equal(cells[3].textContent, t.per_1000_sqm.binder_tonnes.toFixed(1));
-    assert.equal(cells[4].textContent, t.per_1000_sqm.oil_barrels.toFixed(1));
+    assert.equal(cells[1].textContent, (t.mix_kg_per_sqm * LB / SQFT).toFixed(1));
+    assert.equal(cells[3].textContent, (t.per_1000_sqm.binder_tonnes * LB / SQFT).toFixed(2));
+    assert.equal(cells[4].textContent, (t.per_1000_sqm.oil_barrels * 10 / SQFT).toFixed(1));
     assert.match(cells[0].textContent, new RegExp(`PCI ${t.min_pci}–${Math.min(100, t.max_pci)}$`));
   });
+
+  // Opening the tab reloads it, as a reader would after the switch.
+  win.selectUnits('metric');
+  win.selectTab('materials-tab');
+  await flush(12);
+  assert.deepEqual(headers(), ['Tier', 'Mix (kg/m²)', 'Binder %', 'Binder (kg/m²)', 'Oil (bbl/1000 m²)']);
+  rows = $$('#materials-tier-table tbody tr');
+  seedJSON.material_tiers.forEach((t, i) => {
+    const cells = rows[i].querySelectorAll('td');
+    assert.equal(cells[1].textContent, t.mix_kg_per_sqm.toFixed(0));
+    assert.equal(cells[3].textContent, t.per_1000_sqm.binder_tonnes.toFixed(1));
+    assert.equal(cells[4].textContent, t.per_1000_sqm.oil_barrels.toFixed(1));
+  });
+  assert.match($('#hl-mix').textContent, / t\/yr$/);
 });
 
 // The headlines come from scenarios.json, so a seed without the share still

@@ -2793,6 +2793,34 @@
         function fmtBarrels(bbl) {
             return fmtNum(bbl) + ' bbl';
         }
+        // A tonne is 1000 kg; a US short ton is 907.18474 kg.
+        const TONNES_PER_SHORT_TON = 0.90718474;
+        const LB_PER_KG = 2.20462262185;
+        // massUnitSingular names the unit fmtMass prints, for rates ("per tonne").
+        function massUnitSingular() {
+            return UNIT_SYSTEM === 'metric' ? 'tonne' : 'ton';
+        }
+        // perTonneToDisplay converts a per-tonne rate to per-massUnitSingular().
+        /** @param {number} perTonne */
+        function perTonneToDisplay(perTonne) {
+            return UNIT_SYSTEM === 'metric' ? perTonne : perTonne * TONNES_PER_SHORT_TON;
+        }
+        // The tier table's intensities: kg/m² and barrels per 1000 m² in
+        // metric, lb/sq ft and barrels per 10,000 sq ft (~929 m²) in imperial.
+        /** @param {number} kgPerSqm */
+        function intensityToDisplay(kgPerSqm) {
+            return UNIT_SYSTEM === 'metric' ? kgPerSqm : kgPerSqm * LB_PER_KG / SQM_TO_SQFT;
+        }
+        function intensityUnit() {
+            return UNIT_SYSTEM === 'metric' ? 'kg/m²' : 'lb/sq ft';
+        }
+        /** @param {number} per1000Sqm */
+        function oilIntensityToDisplay(per1000Sqm) {
+            return UNIT_SYSTEM === 'metric' ? per1000Sqm : per1000Sqm * 10 / SQM_TO_SQFT;
+        }
+        function oilIntensityUnit() {
+            return UNIT_SYSTEM === 'metric' ? 'bbl/1000 m²' : 'bbl/10,000 sq ft';
+        }
 
         // materialSeries is one scenario's per-year material demand, in tonnes
         // and barrels, as scenarios.json carries it.
@@ -2822,6 +2850,11 @@
             var section = document.getElementById('materials-tier-section');
             var tbody = document.querySelector('#materials-tier-table tbody');
             if (!tiers || tiers.length === 0) { section.style.display = 'none'; return; }
+            // Headers and cells follow the unit system (solvent-streets-ern4.35).
+            var metric = UNIT_SYSTEM === 'metric';
+            document.getElementById('materials-mix-th').textContent = 'Mix (' + intensityUnit() + ')';
+            document.getElementById('materials-binder-th').textContent = 'Binder (' + intensityUnit() + ')';
+            document.getElementById('materials-oil-th').textContent = 'Oil (' + oilIntensityUnit() + ')';
             tbody.innerHTML = tiers.map(function(t) {
                 // Tonnes of binder over 1000 m^2 is kilograms per m^2.
                 var binderKgSqM = t.per_1000_sqm.binder_tonnes;
@@ -2834,10 +2867,10 @@
                     ? ' <span style="color:var(--text-muted)">PCI ' + t.min_pci + '–' + Math.min(100, t.max_pci) + '</span>' : '';
                 return '<tr>' +
                     '<td>' + dot + esc(t.label) + band + '</td>' +
-                    '<td class="number">' + t.mix_kg_per_sqm.toFixed(0) + '</td>' +
+                    '<td class="number">' + intensityToDisplay(t.mix_kg_per_sqm).toFixed(metric ? 0 : 1) + '</td>' +
                     '<td class="number">' + (t.binder_share * 100).toFixed(1) + '%</td>' +
-                    '<td class="number">' + binderKgSqM.toFixed(1) + '</td>' +
-                    '<td class="number">' + oilPer1000.toFixed(1) + '</td>' +
+                    '<td class="number">' + intensityToDisplay(binderKgSqM).toFixed(metric ? 1 : 2) + '</td>' +
+                    '<td class="number">' + oilIntensityToDisplay(oilPer1000).toFixed(1) + '</td>' +
                     '</tr>';
             }).join('');
             section.style.display = '';
@@ -2906,7 +2939,8 @@
             document.getElementById('hl-binder').textContent = fmtMass(avgBinder) + '/yr';
             document.getElementById('hl-oil').textContent = fmtBarrels(avgOil) + '/yr';
             document.getElementById('hl-mix-sub').textContent = 'Avg/yr under "' + esc(best.scenario.label) + '"';
-            document.getElementById('hl-oil-sub').textContent = '~' + barrelsPerTonBinder + ' bbl per tonne binder';
+            document.getElementById('hl-oil-sub').textContent = '~' + Number(perTonneToDisplay(barrelsPerTonBinder).toFixed(1)) +
+                ' bbl per ' + massUnitSingular() + ' binder';
             document.getElementById('materials-headlines').style.display = '';
 
             var note = document.getElementById('materials-note');

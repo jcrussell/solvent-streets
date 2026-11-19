@@ -71,6 +71,10 @@ test('Materials falls back to the page treatment cycle and oil factor for a seed
   win.selectTab('materials-tab');
   await flush(12);
   assert.match($('#materials-note').textContent, /~1\/7 of the network/);
+  // The fixture page is imperial: 5.5 bbl per tonne is ~5 bbl per short ton.
+  assert.equal($('#hl-oil-sub').textContent, '~5 bbl per ton binder');
+  win.selectUnits('metric');
+  await flush(12);
   assert.equal($('#hl-oil-sub').textContent, '~5.5 bbl per tonne binder');
 });
 
