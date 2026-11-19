@@ -1278,6 +1278,15 @@
                     lastCityMeta = meta;
                     renderCityStats(meta);
                     renderCitySettings(meta);
+                } else {
+                    // Without its meta.json, nothing of the previous city's
+                    // stats or settings may stay on screen (solvent-streets-06q4).
+                    lastCityMeta = null;
+                    const statsEl = document.getElementById('stats');
+                    if (statsEl) statsEl.innerHTML = '';
+                    savedPanelHTML = '';
+                    renderOpenDetail = null;
+                    renderCitySettings({});
                 }
             }
 

@@ -34,3 +34,16 @@ test('the Config tab shows the city in view and switches with the city select', 
   assert.equal($('#config-city-name').textContent, 'Beta, CA');
   assert.match($('#config-city-toml').textContent, /name = "Beta, CA"/);
 });
+
+test('a city whose meta.json fails to load keeps nothing of the previous city (solvent-streets-06q4)', async () => {
+  const data = { ...fullData };
+  const { win, $, flush, fireMap } = load({ data, url: 'https://example.test/index.html?city=alpha-ca&tab=config-tab' });
+  fireMap('style.load'); await flush(10);
+  const before = $('#config-city-toml').textContent;
+  assert.notEqual($('#stats').innerHTML, '');
+  delete data['meta.json'];
+  win.selectCity('beta-ca'); await flush(10);
+  assert.notEqual($('#config-city-toml').textContent, before);
+  assert.equal($('#config-city-toml').textContent, 'No settings were published for this city.');
+  assert.equal($('#stats').innerHTML, '');
+});
