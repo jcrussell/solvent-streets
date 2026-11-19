@@ -4658,6 +4658,16 @@
         // A Solvency Score card takes a medal only at or above this score:
         // 50 is a budget of half the hold-steady need (see Methodology).
         const SOLVENCY_MEDAL_MIN = 50;
+        // The roads-solvency leaderboards (funding gap, years to insolvency)
+        // hold their medals to the same floor, so a city far short of its
+        // hold-steady budget is not crowned for being the least bad. The
+        // score is null only for a city without a hold-steady figure; its
+        // funding gap then stands in (a score of 50 is a gap of +100%).
+        /** @param {{solvScore: number | null, fundingGap: number | null}} m */
+        function solvencyMedalOK(m) {
+            if (m.solvScore != null) return m.solvScore >= SOLVENCY_MEDAL_MIN;
+            return m.fundingGap != null && m.fundingGap <= (100 / SOLVENCY_MEDAL_MIN - 1) * 100;
+        }
 
         // markCurrentCity highlights the city in view on the Compare cards and
         // leaderboard rows: a class for the eye, aria-current and hidden text
@@ -4837,8 +4847,8 @@
                 // Roads-only solvency metrics. filter excludes cities that lack
                 // the metric (no cited budget / no roads) so a null value never
                 // produces a NaN sort key or a corrupt bar width.
-                { key: 'fundingGap', needs: ['roads'],  label: 'Street Funding Gap (roads, lower is better)', award: 'Smallest Funding Gap', higher: false, filter: function(m) { return m.fundingGap !== null; }, fmt: function(v) { return (v >= 0 ? '+' : '') + v.toFixed(0) + '%'; }, color: '#0ea5e9', note: 'Funding gap = (hold-steady budget − current budget) / current budget, computed on roads/streets only. Shown only for cities with a cited current_budget. Negative means the budget already exceeds the hold-steady level.' },
-                { key: 'insolvencyYear', needs: ['roads'],  label: 'Years to Insolvency (roads, higher is better)', award: 'Latest Insolvency', higher: true, filter: function(m) { return m.insolvencyYear !== null; }, fmt: function(v) { return 'Year ' + v; }, color: '#14b8a6', note: 'Insolvency year = the first forecast year a city’s cumulative roads backlog grows to an entire treatment cycle of deferred work — a whole network’s worth of treatment, unrecoverable. Computed on roads/streets only at the current budget; shown only for cities with a cited current_budget that go insolvent within the horizon. Cities that stay solvent (most, with realistic budgets) are omitted — funding gap is the primary metric there.' }
+                { key: 'fundingGap', needs: ['roads'],  label: 'Street Funding Gap (roads, lower is better)', award: 'Smallest Funding Gap', higher: false, medalIf: solvencyMedalOK, filter: function(m) { return m.fundingGap !== null; }, fmt: function(v) { return (v >= 0 ? '+' : '') + v.toFixed(0) + '%'; }, color: '#0ea5e9', note: 'Funding gap = (hold-steady budget − current budget) / current budget, computed on roads/streets only. Shown only for cities with a cited current_budget. Negative means the budget already exceeds the hold-steady level.' },
+                { key: 'insolvencyYear', needs: ['roads'],  label: 'Years to Insolvency (roads, higher is better)', award: 'Latest Insolvency', higher: true, medalIf: solvencyMedalOK, filter: function(m) { return m.insolvencyYear !== null; }, fmt: function(v) { return 'Year ' + v; }, color: '#14b8a6', note: 'Insolvency year = the first forecast year a city’s cumulative roads backlog grows to an entire treatment cycle of deferred work — a whole network’s worth of treatment, unrecoverable. Computed on roads/streets only at the current budget; shown only for cities with a cited current_budget that go insolvent within the horizon. Cities that stay solvent (most, with realistic budgets) are omitted — funding gap is the primary metric there.' }
             ];
 
             var lbHtml = categories.map(function(cat) {
@@ -4872,7 +4882,7 @@
                     // an invalid bar width. maxVal is floored at 0 above, so the
                     // over-funded case lands at 0% here rather than overflowing.
                     var pct = Math.max(0, Math.min(100, m[cat.key] / maxVal * 100)).toFixed(1);
-                    var medalIcon = (sorted.length >= 2 && i < 3 && i < medals.length) ? medals[i] : (i + 1) + '.';
+                    var medalIcon = (sorted.length >= 2 && i < 3 && i < medals.length && (!cat.medalIf || cat.medalIf(m))) ? medals[i] : (i + 1) + '.';
                     return '<div class="lb-row" data-slug="' + esc(m.slug || '') + '">' +
                         '<span class="lb-medal">' + medalIcon + '</span>' +
                         '<span class="lb-name">' + esc(m.name) + defaultPCIMark(m) + (cat.rowNote ? cat.rowNote(m) : '') + '</span>' +
@@ -4890,7 +4900,7 @@
 
                 var noteIcon = cat.note ? ' <span class="lb-note" title="' + cat.note.replace(/"/g, '&quot;') + '">ⓘ</span>' : '';
                 return '<div class="lb-category">' +
-                    '<div class="lb-title"><h4>' + cat.label + noteIcon + '</h4>' + (cat.award && sorted.length >= 2 ? '<span class="lb-award">' + medals[0] + ' ' + cat.award + ': ' + esc(sorted[0].name) + '</span>' : '') + '</div>' +
+                    '<div class="lb-title"><h4>' + cat.label + noteIcon + '</h4>' + (cat.award && sorted.length >= 2 && (!cat.medalIf || cat.medalIf(sorted[0])) ? '<span class="lb-award">' + medals[0] + ' ' + cat.award + ': ' + esc(sorted[0].name) + '</span>' : '') + '</div>' +
                     rows +
                 '</div>';
             }).join('');

@@ -92,3 +92,31 @@ test('an in-page About link scrolls the tab to its heading', async () => {
   assert.ok(ev.defaultPrevented, 'the link navigated instead of scrolling the tab');
   assert.deepEqual(scrolled, ['how-spending-moves-condition']);
 });
+
+// lbBlock returns the leaderboard category whose title starts with `label`.
+function lbBlock(doc, label) {
+  return Array.from(doc.querySelectorAll('#leaderboard-list .lb-category'))
+    .find((c) => c.querySelector('h4').textContent.startsWith(label));
+}
+const lbMedals = (block) => Array.from(block.querySelectorAll('.lb-row .lb-medal')).map((e) => e.textContent);
+
+test('a Street Funding Gap row takes a medal only at a Solvency Score of 50 (solvent-streets-4nlz)', async () => {
+  const { doc } = await renderWith([city('alpha-ca', 120), city('beta-ca', 60), city('gamma-or', 3)]);
+  const gap = lbBlock(doc, 'Street Funding Gap');
+  assert.deepEqual(lbMedals(gap), [MEDALS[0], MEDALS[1], '3.'], 'a +3233% gap must not take bronze');
+  assert.ok(gap.querySelector('.lb-award'), 'the best gap is still a fair winner');
+});
+
+test('when every gap is poor, the Street Funding Gap board gives no medal and no award (solvent-streets-4nlz)', async () => {
+  const { doc } = await renderWith([city('alpha-ca', 30), city('beta-ca', 10)]);
+  const gap = lbBlock(doc, 'Street Funding Gap');
+  assert.deepEqual(lbMedals(gap), ['1.', '2.']);
+  assert.equal(gap.querySelector('.lb-award'), null, 'a +233% gap must not be crowned');
+});
+
+test('Years to Insolvency medals follow the same floor (solvent-streets-4nlz)', async () => {
+  const { doc } = await renderWith([city('alpha-ca', 60, 20), city('beta-ca', 20, 12), city('gamma-or', 10, 8)]);
+  const ins = lbBlock(doc, 'Years to Insolvency');
+  assert.deepEqual(lbMedals(ins), [MEDALS[0], '2.', '3.']);
+  assert.ok(ins.querySelector('.lb-award'));
+});

@@ -301,7 +301,9 @@ The multi-city Compare view presents two distinct per-city scores:
   100 for display but keep their uncapped coverage as the ranking key, so
   the most-surplus city ranks first (a single gold medal); ties break on
   the later/absent insolvency year. Only a score of 50 or more takes a
-  medal: a city lower down keeps its rank but stays off the podium.
+  medal: a city lower down keeps its rank but stays off the podium. The
+  Street Funding Gap and Years to Insolvency leaderboards hold their medals
+  and award to the same floor.
   Computed on roads/streets only and **only for cities with a cited
   `current_budget`** — cities without one
   cannot be scored and are shown `N/A`, unranked. A cited budget must be a
