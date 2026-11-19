@@ -789,3 +789,44 @@ func TestCheckSite_LowCoverageWarns(t *testing.T) {
 		t.Errorf("a five-city site was judged against its median:\n%s", out)
 	}
 }
+
+// A partial or zero layer already has its own warning with its own cause, so
+// coverage leaves it alone; a malformed meta.json FAILs in the existing checks
+// only (peer review of solvent-streets-ern4.35).
+func TestCheckSite_LowCoverageSkipsExplainedLayers(t *testing.T) {
+	dir := buildValidSite(t)
+	for i := range 12 {
+		slug := fmt.Sprintf("city-%02d", i)
+		addMultiCityExample(t, dir, "region-ca", slug, 20000, 0.2)
+		areas := map[string]float64{"roads": 50000, "parking": 10000, "sidewalks": 2000}
+		path := filepath.Join(dir, "region-ca", "cities", slug, "data", "meta.json")
+		switch slug {
+		case "city-00":
+			areas["parking"] = 500
+			pop := 1000.0
+			m := export.MetaJSON{ProjectName: "Demo", PavedShare: 0.2, TotalPaved: 20000, CityArea: 100000,
+				Metrics:        map[string]export.MetricSummaryJSON{"population": {Total: &pop}},
+				IngestFailures: map[string][]string{"parking": {"overpass"}}}
+			for _, rt := range []string{"roads", "parking", "sidewalks"} {
+				m.Stats = append(m.Stats, export.StatJSON{ResourceType: rt, TotalArea: areas[rt]})
+			}
+			writeJSONFile(t, path, m)
+			continue
+		case "city-01":
+			areas["sidewalks"] = 0
+		case "city-02":
+			writeFile(t, path, "{not json")
+			continue
+		}
+		writeCoverageMeta(t, path, 1000, areas)
+	}
+	out, _ := run(t, dir, false)
+	if !strings.Contains(out, "partial parking") {
+		t.Fatalf("setup: no partial warning for city-00:\n%s", out)
+	}
+	for _, unwanted := range []string{"coverage: region-ca/city-00", "coverage: region-ca/city-01", "coverage: region-ca/city-02"} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("coverage judged a layer another check explains (%s):\n%s", unwanted, out)
+		}
+	}
+}

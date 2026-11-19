@@ -1,7 +1,9 @@
 package checksite
 
 import (
+	"encoding/json"
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -30,8 +32,10 @@ const lowCoverageFraction = 0.10
 // undercount the city. It is a WARN: some cities really have almost none
 // (Rolling Hills has no sidewalks).
 //
-// A city that appears in several examples counts once. A resource listed in
-// missing_resources is skipped, since checkMeta already warns on it.
+// A city that appears in several examples counts once. A resource that is
+// missing, partial (ingest_failures) or zero is skipped: checkMeta and the
+// zero-area forecast warning already name it, with their own cause. A
+// meta.json that cannot be read is skipped quietly, since checkMeta fails it.
 func (r *runner) checkCoverage(s *site) {
 	byRes := r.perResidentByResource(s)
 	for _, rt := range slices.Sorted(maps.Keys(byRes)) {
@@ -56,7 +60,8 @@ func (r *runner) perResidentByResource(s *site) map[string][]cityCoverage {
 			continue
 		}
 		var meta export.MetaJSON
-		if !readJSON(r, "coverage", d.label, export.MetaFileName, filepath.Join(d.dir, export.MetaFileName), &meta) {
+		data, err := os.ReadFile(filepath.Join(d.dir, export.MetaFileName))
+		if err != nil || json.Unmarshal(data, &meta) != nil {
 			continue
 		}
 		seen[d.slug] = true
@@ -65,7 +70,8 @@ func (r *runner) perResidentByResource(s *site) map[string][]cityCoverage {
 			continue
 		}
 		for _, st := range meta.Stats {
-			if !slices.Contains(meta.MissingResources, st.ResourceType) {
+			_, partial := meta.IngestFailures[st.ResourceType]
+			if st.TotalArea > 0 && !partial && !slices.Contains(meta.MissingResources, st.ResourceType) {
 				byRes[st.ResourceType] = append(byRes[st.ResourceType], cityCoverage{d.label, st.TotalArea / *pop.Total})
 			}
 		}

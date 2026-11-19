@@ -82,10 +82,12 @@ The following checks run over the given directory (default "site"):
   - CONSISTENCY: on a nested multi-export tree, a city slug shared across
     exports reports the same paved area in each. (A single-root export has
     one entry per slug, so nothing to cross-check.)
-  - COVERAGE: with at least 10 populated cities, a resource whose paved
-    area per resident is under 10% of the same resource's site median is
-    warned as a likely OpenStreetMap mapping gap (unmapped parking lots or
-    sidewalks), which undercounts that city's per-resident figures.
+  - COVERAGE: once at least 10 populated cities have a resource, a city
+    whose paved area per resident for it is under 10% of the resource's
+    site median is warned as a likely OpenStreetMap mapping gap (unmapped
+    parking lots or sidewalks), which undercounts its per-resident
+    figures. A layer that is missing, partial or zero is left to the
+    warnings above.
 
 Exits non-zero if any check FAILs. With --strict, warnings fail too.`,
 		Example: `  # Validate the default ./site tree
