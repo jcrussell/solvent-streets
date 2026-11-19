@@ -146,3 +146,32 @@ test('the region panel stays open and closable after a resource toggle and follo
   assert.equal(h.$('#stats .region-detail'), null, 'the close button stopped working after the toggle');
   assert.equal(perResidentArea(h), '122 sq ft');
 });
+
+test('the region hex count does not depend on Color by (solvent-streets-jjcz)', async () => {
+  // A third hex with residents but no pavement: a stored metric brings it
+  // onto the map, but it holds nothing to total.
+  const empty = { type: 'Feature', geometry: grid.features[0].geometry, properties: { id: 'hex:0:2', all: {} } };
+  const pop = { ...population, values: { ...population.values, 'hex:0:2': 7 } };
+  const h = load({ data: {
+    'meta.json': metaJSON,
+    'hexgrid.geojson': { ...grid, features: [...grid.features, empty] },
+    'hex-cost-summary.json': costSummary,
+    'hex-metrics.json': { v: 2, metrics: { population: pop } },
+  } });
+  await h.flush();
+  await h.win.loadCityData();
+  await h.flush();
+  h.win._map.unproject = ([x]) => (x === 0 ? { lng: -1, lat: -1 } : { lng: 2, lat: 2 });
+  const drag = (ev, x) => { for (const fn of h.win.__mapHandlers.get(ev)) fn({ originalEvent: { clientX: x, clientY: x } }); };
+  const regionCount = () => {
+    h.$('#region-select-btn').click();
+    drag('mousedown', 0);
+    drag('mouseup', 10);
+    const n = statValue(h, 'Hexes selected');
+    h.$('#close-region').click();
+    return n;
+  };
+  assert.equal(regionCount(), '2');
+  h.win.selectHexMetric('population');
+  assert.equal(regionCount(), '2', 'a stored metric added its pavement-less hex to the count');
+});

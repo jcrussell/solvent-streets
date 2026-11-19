@@ -1165,13 +1165,18 @@
             }
 
             // Stored per-hex metrics (optional file: absent until a producer such
-            // as `pvmt services compute` has run for the city). Refuse an unknown
-            // version like hexgrid does. The fallback for a requested metric the
-            // city lacks runs once the hex grid is in (see metricAvailable).
+            // as `pvmt services compute` has run for the city). An unknown
+            // version is refused with the banner, as hexgrid's is, but the map
+            // still draws: only the stored Color-by options are lost. The
+            // fallback for a requested metric the city lacks runs once the hex
+            // grid is in (see metricAvailable).
             {
                 const hm = await loadJSON(dataURL(prefix, 'hex-metrics.json'), { silent404: true });
                 if (gen !== cityLoadGen) return;
-                if (hm && hm.v === 2 && hm.metrics) hexMetrics = hm.metrics;
+                if (hm && hm.v !== 2) {
+                    showError(dataURL(prefix, 'hex-metrics.json'),
+                        'unsupported hex-metrics format (expected v2) — re-export this site with a current pvmt');
+                } else if (hm && hm.metrics) hexMetrics = hm.metrics;
             }
 
             // Load and render boundary polygon
@@ -1929,6 +1934,10 @@
                     if (!c) continue;
                     if (c[0] < minLng || c[0] > maxLng || c[1] < minLat || c[1] > maxLat) continue;
                     const area = f.properties.area || 0;
+                    // A stored metric adds pavement-less hexes to the map
+                    // (metricExtraHexes); they hold nothing to total, so the
+                    // count must not change with Color by.
+                    if (area <= 0) continue;
                     count++;
                     sumArea += area;
                     sumCost += f.properties.est_cost || 0;

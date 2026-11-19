@@ -192,6 +192,25 @@ test('fmtMetric rounds to whole seconds before splitting minutes', async () => {
   assert.equal(win.fmtMetric(1234.5, 'int'), '1,235');
 });
 
+test('the Color-by select is named by its visible label (solvent-streets-jjcz)', async () => {
+  const { $ } = await loadWithMetrics();
+  assert.equal($('#hex-metric').getAttribute('aria-label'), null, 'an aria-label overrides the visible "Color by" (WCAG 2.5.3)');
+  assert.equal($('label[for="hex-metric"]').textContent, 'Color by');
+});
+
+test('an unknown hex-metrics.json version is refused with the error banner (solvent-streets-jjcz)', async () => {
+  const saved = data['hex-metrics.json'];
+  data['hex-metrics.json'] = { ...saved, v: 99 };
+  try {
+    const { $, $$ } = await loadWithMetrics();
+    assert.equal($('#error-banner').hidden, false, 'the refusal was silent');
+    assert.ok($$('#error-banner-list li').some((li) => li.textContent.includes('hex-metrics.json')));
+    assert.ok(!$$('#hex-metric option').some((o) => o.value === 'fire_response_s'), 'the refused metrics were still listed');
+  } finally {
+    data['hex-metrics.json'] = saved;
+  }
+});
+
 test('a prototype key in ?metric= does not resolve to a metric', async () => {
   const h = await loadWithMetrics('https://example.test/index.html?metric=constructor');
   assert.equal(h.get('hexMetric'), 'coverage_share');
