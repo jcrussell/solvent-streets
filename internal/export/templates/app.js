@@ -816,6 +816,53 @@
             if (m.width - out.left - out.right < FIT_MIN_VIEW || m.height - out.top - out.bottom < FIT_MIN_VIEW) return pad;
             return out;
         }
+
+        // framingBounds is the [[west, south], [east, north]] box the map
+        // fits a city's boundary to: the boundary's parts, largest first, up
+        // to FRAME_AREA_SHARE of its area. San Francisco's boundary carries
+        // the Farallon Islands 40 km out to sea, and framing its whole bbox
+        // drew the city as a sliver at the map's edge
+        // (solvent-streets-ginb). The parts left out stay in the boundary,
+        // the hexes and every total; this is only the view. Areas are
+        // compared, not measured, so the outer rings' shoelace area in
+        // degrees, scaled by cos(latitude), is enough. Null when the
+        // boundary has no polygon.
+        const FRAME_AREA_SHARE = 0.99;
+        /** @param {any} fc @returns {[[number, number], [number, number]] | null} */
+        function framingBounds(fc) {
+            /** @type {{ ring: number[][], area: number }[]} */
+            const parts = [];
+            for (const f of (fc && fc.features) || []) {
+                const g = f && f.geometry;
+                if (!g) continue;
+                const polys = g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : [];
+                for (const poly of polys) {
+                    const ring = poly && poly[0];
+                    if (!ring || ring.length === 0) continue;
+                    let twice = 0;
+                    for (let i = 0; i < ring.length - 1; i++) {
+                        twice += ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1];
+                    }
+                    parts.push({ ring, area: Math.abs(twice / 2) * Math.cos(ring[0][1] * Math.PI / 180) });
+                }
+            }
+            if (parts.length === 0) return null;
+            parts.sort((a, b) => b.area - a.area);
+            const total = parts.reduce((s, p) => s + p.area, 0);
+            let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
+            let kept = 0;
+            for (const part of parts) {
+                for (const c of part.ring) {
+                    if (c[0] < w) w = c[0];
+                    if (c[0] > e) e = c[0];
+                    if (c[1] < s) s = c[1];
+                    if (c[1] > n) n = c[1];
+                }
+                kept += part.area;
+                if (total > 0 && kept >= FRAME_AREA_SHARE * total) break;
+            }
+            return [[w, s], [e, n]];
+        }
         // True while the user is in drag-to-select-region mode. Read by the
         // hex-click handler (suppressed mid-selection) and the region-select
         // pointer handlers below.
@@ -1237,18 +1284,8 @@
                             paint: { 'line-color': '#333', 'line-width': 2, 'line-opacity': 0.8, 'line-dasharray': [3, 2] }
                         });
                     }
-                    // Fit map to boundary bbox
-                    const coords = data.features.flatMap(f => {
-                        const g = f.geometry;
-                        if (g.type === 'Polygon') return g.coordinates[0];
-                        if (g.type === 'MultiPolygon') return g.coordinates.flat(2).length ? g.coordinates.flatMap(p => p[0]) : [];
-                        return [];
-                    });
-                    if (coords.length > 0) {
-                        const lngs = coords.map(c => c[0]);
-                        const lats = coords.map(c => c[1]);
-                        map.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: mapFitPadding() });
-                    }
+                    const frame = framingBounds(data);
+                    if (frame) map.fitBounds(frame, { padding: mapFitPadding() });
                 }
             }
 

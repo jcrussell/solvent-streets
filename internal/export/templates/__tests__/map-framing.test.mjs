@@ -65,3 +65,35 @@ test('switching cities pads the provisional fit the same way', async () => {
   assert.ok(page.win.__fitOptions.length > before, 'selectCity did not fit the map');
   assert.deepEqual(plain(page.win.__fitOptions[before]).padding, { top: 40, right: 410, bottom: 40, left: 40 });
 });
+
+// San Francisco's boundary carries the Farallon Islands, 40 km out to sea:
+// part of the city and county, but framing them drew the city as a sliver at
+// the map's edge (solvent-streets-ginb). The fit frames the parts that make
+// up nearly all of the area; the islands stay in the boundary and the hexes.
+test('the fit leaves out a far-off islet with a sliver of the area', async () => {
+  const { bounds } = await fitAfterLoad(() => {}, [
+    square(-122.5, 37.7, -122.4, 37.8),
+    square(-123.01, 37.69, -123.0, 37.70),
+  ]);
+  assert.deepEqual(bounds, [[-122.5, 37.7], [-122.4, 37.8]]);
+});
+
+test('the fit keeps every part that holds a real share of the city', async () => {
+  // Alameda-like: the main island and a second piece a sixth its size.
+  const { bounds } = await fitAfterLoad(() => {}, [
+    square(-122.33, 37.75, -122.23, 37.80),
+    square(-122.26, 37.72, -122.23, 37.745),
+  ]);
+  assert.deepEqual(bounds, [[-122.33, 37.72], [-122.23, 37.8]]);
+});
+
+test('a single-polygon boundary is framed whole', async () => {
+  const page = load({ data: { ...fullData, 'boundary.geojson': {
+    type: 'FeatureCollection',
+    features: [{ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: square(-121.85, 37.63, -121.7, 37.73) } }],
+  } } });
+  await page.flush();
+  page.fireMap('style.load');
+  await page.flush(12);
+  assert.deepEqual(plain(page.win.__fitBounds.at(-1)), [[-121.85, 37.63], [-121.7, 37.73]]);
+});
