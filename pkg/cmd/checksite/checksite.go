@@ -78,7 +78,9 @@ The following checks run over the given directory (default "site"):
     forecast.json baseline has monotonically falling PCI and non-decreasing
     deferred backlog year over year. A city whose meta.json lists
     missing_resources (a layer with no ingested data) or a partial layer in
-    ingest_failures (a configured source whose last ingest failed) is warned.
+    ingest_failures (a configured source whose last ingest failed) is warned,
+    except a layer every source answered empty for (empty_resources):
+    upstream maps none, so re-ingesting cannot help, and it passes.
   - CONSISTENCY: on a nested multi-export tree, a city slug shared across
     exports reports the same paved area in each. (A single-root export has
     one entry per slug, so nothing to cross-check.)
