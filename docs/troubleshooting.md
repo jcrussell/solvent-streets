@@ -7,7 +7,8 @@ no error at all.
 ## Exit codes
 
 Every command uses the same codes, so a chain like
-`pvmt all compute && pvmt export && pvmt check-site` can be trusted:
+`pvmt all compute && pvmt snapshots create 2026-11 && pvmt export && pvmt check-site`
+can be trusted:
 
 | Code | Meaning |
 |------|---------|
