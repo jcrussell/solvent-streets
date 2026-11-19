@@ -82,6 +82,10 @@ The following checks run over the given directory (default "site"):
   - CONSISTENCY: on a nested multi-export tree, a city slug shared across
     exports reports the same paved area in each. (A single-root export has
     one entry per slug, so nothing to cross-check.)
+  - COVERAGE: with at least 10 populated cities, a resource whose paved
+    area per resident is under 10% of the same resource's site median is
+    warned as a likely OpenStreetMap mapping gap (unmapped parking lots or
+    sidewalks), which undercounts that city's per-resident figures.
 
 Exits non-zero if any check FAILs. With --strict, warnings fail too.`,
 		Example: `  # Validate the default ./site tree
@@ -131,6 +135,7 @@ func runCheckSite(ctx context.Context, opts *Options) error {
 		r.checkSizes,
 		r.checkReasonableness,
 		r.checkConsistency,
+		r.checkCoverage,
 	}
 	for _, check := range checks {
 		if cerr := ctx.Err(); cerr != nil {

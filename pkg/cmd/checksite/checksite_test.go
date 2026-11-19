@@ -738,3 +738,54 @@ func TestCheckSite_MissingRootFileFails(t *testing.T) {
 		}
 	}
 }
+
+// writeCoverageMeta writes a meta.json with a population and one area per
+// resource, for the coverage check.
+func writeCoverageMeta(t *testing.T, path string, pop float64, areas map[string]float64) {
+	t.Helper()
+	m := export.MetaJSON{ProjectName: "Demo", PavedShare: 0.2, TotalPaved: 20000, CityArea: 100000,
+		Metrics: map[string]export.MetricSummaryJSON{"population": {Label: "Population", Total: &pop}}}
+	for _, rt := range []string{"roads", "parking", "sidewalks"} {
+		if a, ok := areas[rt]; ok {
+			m.Stats = append(m.Stats, export.StatJSON{ResourceType: rt, TotalArea: a})
+		}
+	}
+	writeJSONFile(t, path, m)
+}
+
+// A layer far below the site's per-resident median is WARNed as a likely
+// OpenStreetMap gap (solvent-streets-ern4.35); one the city lacks outright is
+// left to the missing-layer warning, and a small site is not judged.
+func TestCheckSite_LowCoverageWarns(t *testing.T) {
+	build := func(n int) string {
+		dir := buildValidSite(t)
+		for i := range n {
+			slug := fmt.Sprintf("city-%02d", i)
+			addMultiCityExample(t, dir, "region-ca", slug, 20000, 0.2)
+			areas := map[string]float64{"roads": 50000, "parking": 10000, "sidewalks": 2000}
+			switch slug {
+			case "city-00":
+				areas["parking"] = 500 // 5% of the median
+			case "city-01":
+				areas["sidewalks"] = 1500 // 75%: fine
+			}
+			writeCoverageMeta(t, filepath.Join(dir, "region-ca", "cities", slug, "data", "meta.json"), 1000, areas)
+		}
+		return dir
+	}
+
+	out, err := run(t, build(12), false)
+	if err != nil {
+		t.Fatalf("low coverage warns, it does not fail: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "coverage: region-ca/city-00 [parking]: 0.50 m² per resident") {
+		t.Errorf("no low-parking warning for city-00:\n%s", out)
+	}
+	if strings.Contains(out, "city-01 [sidewalks]") || strings.Contains(out, "coverage: region-ca/city-00 [roads]") {
+		t.Errorf("a city near the median was warned:\n%s", out)
+	}
+
+	if out, _ := run(t, build(5), false); strings.Contains(out, "coverage: region-ca/city-00") {
+		t.Errorf("a five-city site was judged against its median:\n%s", out)
+	}
+}
