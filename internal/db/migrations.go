@@ -68,17 +68,30 @@ func enableWAL(ctx context.Context, d *sql.DB) error {
 // database holding tables under another generation must not reach migrateFS,
 // which would see schema_version 1 recorded and skip 001_init.sql entirely.
 func checkGeneration(ctx context.Context, d *sql.DB) error {
-	var gen int
-	if err := d.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&gen); err != nil {
-		return fmt.Errorf("read schema generation: %w", err)
+	gen, tables, err := readGeneration(ctx, d)
+	if err != nil {
+		return err
+	}
+	if gen != schemaGeneration && (gen != 0 || tables != 0) {
+		// About to refuse. Another process may be creating this database
+		// right now: it stamps the generation, then creates the tables, and
+		// the two reads above can straddle that, seeing generation 0 beside
+		// its first tables. Read again under a write transaction (the DSN's
+		// _txlock=immediate), which waits for that writer, and refuse only
+		// if the answer holds. Only this path takes the lock, so opening a
+		// healthy database never waits behind a long ingest.
+		tx, err := d.BeginTx(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("read schema generation: %w", err)
+		}
+		gen, tables, err = readGeneration(ctx, tx)
+		_ = tx.Rollback()
+		if err != nil {
+			return err
+		}
 	}
 	if gen == schemaGeneration {
 		return nil
-	}
-	var tables int
-	if err := d.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`).Scan(&tables); err != nil {
-		return fmt.Errorf("inspect database: %w", err)
 	}
 	if gen == 0 && tables == 0 {
 		// PRAGMA takes no bound parameters; schemaGeneration is a constant.
@@ -106,6 +119,24 @@ func checkGeneration(ctx context.Context, d *sql.DB) error {
 	}
 	return fmt.Errorf("%w: schema generation %d predates this pvmt's %d",
 		ErrIncompatibleDatabase, gen, schemaGeneration)
+}
+
+// rowQueryer is what readGeneration needs: a *sql.DB or a *sql.Tx.
+type rowQueryer interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// readGeneration returns the file's schema generation (PRAGMA user_version)
+// and how many non-internal tables it holds.
+func readGeneration(ctx context.Context, q rowQueryer) (gen, tables int, err error) {
+	if err := q.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&gen); err != nil {
+		return 0, 0, fmt.Errorf("read schema generation: %w", err)
+	}
+	if err := q.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`).Scan(&tables); err != nil {
+		return 0, 0, fmt.Errorf("inspect database: %w", err)
+	}
+	return gen, tables, nil
 }
 
 // migrateFS is the fs.FS-parametrized form of migrate. Exposes the
