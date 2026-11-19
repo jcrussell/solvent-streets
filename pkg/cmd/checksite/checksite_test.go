@@ -680,6 +680,23 @@ func TestCheckSite_InterruptedAfterFailStillReportsFailure(t *testing.T) {
 	if !strings.Contains(out.String(), "FAIL") {
 		t.Errorf("expected the recorded FAIL in the output:\n%s", out.String())
 	}
+	// The tally must not read like a completed audit: it names the interrupt
+	// and how many checks never ran (solvent-streets-tq8z).
+	if !strings.Contains(out.String(), "interrupted: 7 of 8 checks not run") {
+		t.Errorf("interrupted tally does not say how many checks were skipped:\n%s", out.String())
+	}
+}
+
+// TestCheckSite_CompletedRunHasNoInterruptLine: a run that finished every
+// check must not carry the interrupted note.
+func TestCheckSite_CompletedRunHasNoInterruptLine(t *testing.T) {
+	dir := buildValidSite(t)
+	ios, _, out, _ := iostreams.Test()
+	opts := &Options{IO: ios, Dir: dir, Assets: testAssetsLoader(t)}
+	_ = runCheckSite(context.Background(), opts)
+	if strings.Contains(out.String(), "interrupted") {
+		t.Errorf("completed run mentions an interrupt:\n%s", out.String())
+	}
 }
 
 // TestCheckSite_InterruptedWithNoFailuresStaysQuiet is the companion guard for

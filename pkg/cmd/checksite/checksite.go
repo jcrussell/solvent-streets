@@ -143,7 +143,7 @@ func runCheckSite(ctx context.Context, opts *Options) error {
 		r.checkCoverage,
 		r.checkDecays,
 	}
-	for _, check := range checks {
+	for i, check := range checks {
 		if cerr := ctx.Err(); cerr != nil {
 			// An interrupted run that has ALREADY recorded a failure must
 			// still finish: finish() is the only thing that prints the tally,
@@ -159,7 +159,11 @@ func runCheckSite(ctx context.Context, opts *Options) error {
 			// interrupt, so the bare ctx error is returned and exitCode maps it
 			// to 1 — never 0, or `pvmt check-site && deploy` would publish a
 			// site whose remaining checks never ran.
+			//
+			// The interrupted tally names how many checks never ran, so it
+			// cannot be mistaken for a completed audit (solvent-streets-tq8z).
 			if r.failing() {
+				r.skipped, r.total = len(checks)-i, len(checks)
 				return r.finish()
 			}
 			return cerr
@@ -180,6 +184,11 @@ type runner struct {
 	pass   int
 	warn   int
 	fail   int
+	// skipped and total are set only by an interrupted run: skipped is how
+	// many of the total checks never ran. finish() reports them so a partial
+	// tally does not read like a full audit.
+	skipped int
+	total   int
 }
 
 func newRunner(io *iostreams.IOStreams, strict bool) *runner {
@@ -211,6 +220,9 @@ func (r *runner) failing() bool {
 
 func (r *runner) finish() error {
 	fmt.Fprintf(r.io.Out, "\n%d passed, %d warnings, %d failed\n", r.pass, r.warn, r.fail)
+	if r.skipped > 0 {
+		fmt.Fprintf(r.io.Out, "interrupted: %d of %d checks not run\n", r.skipped, r.total)
+	}
 	if r.fail > 0 {
 		return cmdutil.ErrSilent
 	}
