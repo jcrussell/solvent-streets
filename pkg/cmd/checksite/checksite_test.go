@@ -243,6 +243,30 @@ func TestCheckSite_MissingResourcesWarns(t *testing.T) {
 	}
 }
 
+// A missing layer every source answered empty for (OpenStreetMap maps none
+// there) is not a re-ingest: no WARN names it, while a missing layer beside
+// it that was never ingested still is (solvent-streets-a3pn).
+func TestCheckSite_EmptyUpstreamDoesNotAskForReingest(t *testing.T) {
+	dir := buildValidSite(t)
+	m := export.MetaJSON{ProjectName: "Demo", PavedShare: 0.2, TotalPaved: 20000, CityArea: 100000,
+		MissingResources: []string{"parking", "sidewalks"},
+		EmptyResources:   map[string][]string{"sidewalks": {"overpass"}}}
+	writeJSONFile(t, filepath.Join(dir, "demo-ca", "data", "meta.json"), m)
+	out, err := run(t, dir, false)
+	if err != nil {
+		t.Fatalf("missing layers warn, they do not fail: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "no data for parking — re-ingest") {
+		t.Errorf("no re-ingest warning for the un-ingested layer:\n%s", out)
+	}
+	if strings.Contains(out, "sidewalks — re-ingest") || strings.Contains(out, "parking, sidewalks") {
+		t.Errorf("an empty-upstream layer is asked to be re-ingested:\n%s", out)
+	}
+	if !strings.Contains(out, "no sidewalks mapped upstream") {
+		t.Errorf("the empty-upstream layer is not reported:\n%s", out)
+	}
+}
+
 // A layer with data whose other source failed is WARNed as partial; one that
 // is also missing gets only the missing warning.
 func TestCheckSite_PartialResourcesWarn(t *testing.T) {

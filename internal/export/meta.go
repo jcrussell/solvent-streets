@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -470,6 +471,14 @@ type MetaJSON struct {
 	// it; check-site warns (solvent-streets-56r1). Read from the city's
 	// ingest history at export time. Omitted when no source is failing.
 	IngestFailures map[string][]string `json:"ingest_failures,omitempty"`
+	// EmptyResources maps each resource in MissingResources that every
+	// configured source last answered with no rows to those sources: upstream
+	// maps none there (a small town with no sidewalks in OpenStreetMap), so a
+	// re-ingest cannot fill it. The dashboard says none is mapped and
+	// check-site does not ask for a re-ingest; the layer stays missing, out
+	// of rankings, since no data is not a measured zero (solvent-streets-a3pn).
+	// Read from the city's ingest history at export time. Omitted when none.
+	EmptyResources map[string][]string `json:"empty_resources,omitempty"`
 	// SettingsTOML is the settings the city's figures are computed under
 	// (CityResolvedTOML), which a multi-city page's Config tab shows for
 	// the city in view. Omitted when the entry carries no config.
@@ -655,7 +664,7 @@ func BuildMetaOn(ctx context.Context, entry CityEntry, snapshotID int64, grid *D
 		return MetaJSON{}, err
 	}
 
-	if meta.IngestFailures, err = ingestFailures(ctx, entry); err != nil {
+	if meta.IngestFailures, meta.EmptyResources, err = ingestGaps(ctx, entry, meta.MissingResources); err != nil {
 		return MetaJSON{}, fmt.Errorf("city %s ingest history: %w", entry.City.Name, err)
 	}
 
@@ -762,15 +771,18 @@ func dataStamp(ctx context.Context, entry CityEntry, snapshotID int64) (stamp, e
 	return stamp{date: time.Now().Format(time.DateOnly)}, nil
 }
 
-// ingestFailures is MetaJSON.IngestFailures for entry: per pavement resource,
-// the city's configured sources whose newest attempt failed and whose last
-// answer, if any, left no rows. A failed source keeps the rows an earlier
-// fetch stored (the save replaces only the sources that answered), so a
-// source with a successful past is stale at worst, not missing.
-func ingestFailures(ctx context.Context, entry CityEntry) (map[string][]string, error) {
+// ingestGaps reads entry's ingest history for MetaJSON's IngestFailures and
+// EmptyResources. failures: per pavement resource, the city's configured
+// sources whose newest attempt failed and whose last answer, if any, left no
+// rows. A failed source keeps the rows an earlier fetch stored (the save
+// replaces only the sources that answered), so a source with a successful
+// past is stale at worst, not missing. empty: per resource in missing, the
+// configured sources when every one of them last answered with no rows
+// (db.AnsweredEmpty).
+func ingestGaps(ctx context.Context, entry CityEntry, missing []string) (failures, empty map[string][]string, err error) {
 	history, err := entry.Store.IngestHistory(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var configured []string
 	if entry.City.Overpass {
@@ -779,18 +791,22 @@ func ingestFailures(ctx context.Context, entry CityEntry) (map[string][]string, 
 	if entry.City.ArcGISURL != "" {
 		configured = append(configured, resource.SourceArcGIS)
 	}
-	var out map[string][]string
 	for _, rt := range resource.All {
-		failing := db.FailingSources(history, string(rt.Type()), configured)
-		if len(failing) == 0 {
-			continue
+		input, name := string(rt.Type()), string(rt.Type().Bare())
+		if failing := db.FailingSources(history, input, configured); len(failing) > 0 {
+			if failures == nil {
+				failures = map[string][]string{}
+			}
+			failures[name] = failing
 		}
-		if out == nil {
-			out = map[string][]string{}
+		if slices.Contains(missing, name) && db.AnsweredEmpty(history, input, configured) {
+			if empty == nil {
+				empty = map[string][]string{}
+			}
+			empty[name] = slices.Clone(configured)
 		}
-		out[string(rt.Type().Bare())] = failing
 	}
-	return out, nil
+	return failures, empty, nil
 }
 
 // addPavementStats fills meta's Stats and MissingResources from each pavement

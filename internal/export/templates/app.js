@@ -767,6 +767,14 @@
         function ingestFailures(meta) {
             return (meta && meta.ingest_failures && typeof meta.ingest_failures === 'object') ? meta.ingest_failures : {};
         }
+        // emptyLayers is meta.json's empty_resources: missing resource -> the
+        // configured sources, every one of which last answered with no rows
+        // (OpenStreetMap maps no sidewalks in a small town). Still missing,
+        // and still unranked: no data is not a measured zero.
+        /** @param {any} meta @returns {Object<string, string[]>} */
+        function emptyLayers(meta) {
+            return (meta && meta.empty_resources && typeof meta.empty_resources === 'object') ? meta.empty_resources : {};
+        }
         /** @param {any} meta @returns {string[]} */
         function partialLayers(meta) {
             const missing = missingLayers(meta);
@@ -921,6 +929,7 @@
             let statsHTML = '';
             const missing = missingLayers(meta);
             const failures = ingestFailures(meta);
+            const empty = emptyLayers(meta);
             const partial = partialLayers(meta);
             if (meta.city_area && meta.city_area > 0) {
                 statsHTML +=
@@ -937,8 +946,11 @@
                 // An empty latest compute (a settings change before the
                 // recompute) has every layer missing: it is not computed,
                 // not un-ingested (solvent-streets-qo1y).
+                // A layer every source answered empty for is mapped by none
+                // of them, not un-ingested (solvent-streets-a3pn).
                 const uncomputed = meta.latest_compute && (meta.stats || []).length === 0;
                 const why = failures[rt] ? 'the last ingest from ' + sourceNames(failures[rt]) + ' failed'
+                    : empty[rt] ? 'none mapped in ' + sourceNames(empty[rt])
                     : uncomputed ? 'not computed under the current settings' : 'not ingested for this city';
                 statsHTML +=
                     '<div class="stat-card missing-card"><h3>' + esc(rt) + '</h3>' +

@@ -81,6 +81,29 @@ func FailingSources(history []IngestHistory, input string, sources []string) []s
 	return out
 }
 
+// AnsweredEmpty reports whether every one of sources (at least one) has a
+// newest attempt at input that answered with no rows: upstream has none to
+// give, so a retry cannot fill the layer. A source never asked, or whose
+// newest attempt failed or returned rows, makes it false.
+func AnsweredEmpty(history []IngestHistory, input string, sources []string) bool {
+	if len(sources) == 0 {
+		return false
+	}
+	for _, src := range sources {
+		found := false
+		for _, h := range history {
+			if h.Input == input && h.Source == src {
+				found = h.Latest.Outcome == IngestEmpty
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
 // RecordIngestAttempts stores attempts for the city in one transaction, and
 // deletes all but the newest ingestAttemptsKept of each (input, source) they
 // touch.

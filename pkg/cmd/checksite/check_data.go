@@ -62,8 +62,18 @@ func (r *runner) checkMeta(label, path string) {
 	}
 	// A layer whose ingest failed or never ran ships as missing, not as a
 	// zero; a WARN here is the list of cities to re-ingest (solvent-streets-56r1).
-	if len(meta.MissingResources) > 0 {
-		r.warnf("reasonableness: %s: no data for %s — re-ingest before publishing", label, strings.Join(meta.MissingResources, ", "))
+	// A layer every source answered empty for is not one: upstream maps none
+	// there, and a re-ingest cannot fill it (solvent-streets-a3pn).
+	var reingest []string
+	for _, rt := range meta.MissingResources {
+		if sources, ok := meta.EmptyResources[rt]; ok {
+			r.passf("reasonableness: %s: no %s mapped upstream (%s answered empty)", label, rt, strings.Join(sources, ", "))
+			continue
+		}
+		reingest = append(reingest, rt)
+	}
+	if len(reingest) > 0 {
+		r.warnf("reasonableness: %s: no data for %s — re-ingest before publishing", label, strings.Join(reingest, ", "))
 	}
 	// A layer with data whose other configured source failed is partial: its
 	// totals and rankings would undercount the city.

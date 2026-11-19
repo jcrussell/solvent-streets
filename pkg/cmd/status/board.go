@@ -151,7 +151,7 @@ func cityBoard(ctx context.Context, c boardCity, hash string) ([]boardRow, error
 		row := boardRow{City: slug, Layer: l.name, FeatureCount: count}
 		row.Failing = db.FailingSources(history, l.input, l.sources)
 		row.LastSuccessAt, row.Error = lastAnswers(history, l.input, row.Failing)
-		row.EmptyUpstream = count == 0 && len(row.Failing) == 0 && answeredEmpty(history, l.input, l.sources)
+		row.EmptyUpstream = count == 0 && len(row.Failing) == 0 && db.AnsweredEmpty(history, l.input, l.sources)
 		row.Incomplete = len(row.Failing) > 0 || (l.needsRows && count == 0 && !row.EmptyUpstream)
 		if st, ok := states[l.part]; ok {
 			row.State, row.stateText = st.State, st.String()
@@ -209,21 +209,6 @@ func layerRows(ctx context.Context, store db.Store, l boardLayer) (int, error) {
 		return 0, err
 	}
 	return info.FeatureCount, nil
-}
-
-// answeredEmpty reports whether every one of sources has an attempt at
-// input and its newest answered with no rows.
-func answeredEmpty(history []db.IngestHistory, input string, sources []string) bool {
-	if len(sources) == 0 {
-		return false
-	}
-	for _, src := range sources {
-		i := slices.IndexFunc(history, func(h db.IngestHistory) bool { return h.Input == input && h.Source == src })
-		if i < 0 || history[i].Latest.Outcome != db.IngestEmpty {
-			return false
-		}
-	}
-	return true
 }
 
 // lastAnswers returns input's newest success over all its sources, as an

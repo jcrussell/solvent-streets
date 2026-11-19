@@ -119,6 +119,20 @@ test('a missing layer whose ingest failed says so', async () => {
   assert.match(sidewalk[0].textContent, /the last ingest from OpenStreetMap failed/);
 });
 
+// solvent-streets-a3pn: a layer every source answered empty for is not
+// un-ingested: OpenStreetMap maps none there (meta.json empty_resources).
+test('a missing layer no source has says none is mapped, not not ingested', async () => {
+  const emptySidewalks = { ...noSidewalks, empty_resources: { sidewalks: ['overpass'] } };
+  const { win, $$, flush } = load({ data: { ...fullData, 'meta.json': emptySidewalks } });
+  await flush();
+  await win.loadCityData();
+  await flush();
+  const sidewalk = statCards($$, 'sidewalks');
+  assert.equal(sidewalk.length, 1);
+  assert.match(sidewalk[0].textContent, /none mapped in OpenStreetMap/);
+  assert.doesNotMatch(sidewalk[0].textContent, /not ingested/);
+});
+
 test('Compare keeps a city with partial roads out of City Ownership and its award', async () => {
   const { win, doc, flush } = load({ data: fullData });
   await flush();

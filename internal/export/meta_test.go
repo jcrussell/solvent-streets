@@ -451,6 +451,50 @@ func TestBuildMeta_IngestFailures(t *testing.T) {
 	}
 }
 
+// TestBuildMeta_EmptyResources (solvent-streets-a3pn): a missing layer every
+// configured source answered empty for is named with those sources, so the
+// dashboard and check-site can say upstream maps none rather than asking for
+// a re-ingest. A layer with a source never asked, or one that failed, or one
+// with data, is not named.
+func TestBuildMeta_EmptyResources(t *testing.T) {
+	entry := hexEntry(t, nil, map[resource.Type]results.Totals{
+		rtRoads:                {Area: 1000, Features: 10},
+		rtParkingAll:           {Area: 0, Features: 0},
+		resource.TypeSidewalks: {Area: 0, Features: 0},
+	})
+	entry.City.Overpass = true
+	empty := db.IngestAttempt{Outcome: db.IngestEmpty}
+	failed := db.IngestAttempt{Outcome: db.IngestFailed, Error: "502"}
+	history := []db.IngestHistory{
+		{Input: "parking", Source: "overpass", Latest: failed, LastFailure: &failed},
+		{Input: "roads", Source: "overpass", Latest: empty, LastSuccess: &empty},
+		{Input: "sidewalks", Source: "overpass", Latest: empty, LastSuccess: &empty},
+	}
+	entry.Store.(*dbtest.MockStore).IngestHistoryFunc = func(context.Context) ([]db.IngestHistory, error) {
+		return history, nil
+	}
+	meta, err := BuildMeta(t.Context(), entry, 0)
+	if err != nil {
+		t.Fatalf("BuildMeta: %v", err)
+	}
+	want := map[string][]string{"sidewalks": {"overpass"}}
+	if !maps.EqualFunc(meta.EmptyResources, want, slices.Equal) {
+		t.Errorf("EmptyResources = %v; want %v", meta.EmptyResources, want)
+	}
+	if !slices.Contains(meta.MissingResources, "sidewalks") {
+		t.Errorf("an empty layer must stay in MissingResources (kept out of rankings): %v", meta.MissingResources)
+	}
+
+	// A second configured source never asked: the layer is not known empty.
+	entry.City.ArcGISURL = "https://example.com/query"
+	if meta, err = BuildMeta(t.Context(), entry, 0); err != nil {
+		t.Fatalf("BuildMeta: %v", err)
+	}
+	if len(meta.EmptyResources) != 0 {
+		t.Errorf("EmptyResources = %v; want none while arcgis has not answered", meta.EmptyResources)
+	}
+}
+
 // TestBuildMeta_StampFromTheView: an export pins each city to its snapshot
 // with snapshotID 0, so meta.json dates the data and names the snapshot from
 // the view (ViewSnapshot) rather than reporting today; a latest compute is
