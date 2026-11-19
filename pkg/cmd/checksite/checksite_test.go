@@ -830,3 +830,47 @@ func TestCheckSite_LowCoverageSkipsExplainedLayers(t *testing.T) {
 		}
 	}
 }
+
+// writeDecayFiles writes a seed whose city road cohorts blend to 0.04 and a
+// hexgrid whose road hexes carry k (one city_same hex, one with its own city
+// object), for the decay check.
+func writeDecayFiles(t *testing.T, dataDir string, k float64) {
+	t.Helper()
+	writeJSONFile(t, filepath.Join(dataDir, "forecast_seed.json"), map[string]any{
+		"city_cohorts": []map[string]any{
+			{"resource_type": "roads", "area": 300, "decay_rate": 0.03},
+			{"resource_type": "roads", "area": 100, "decay_rate": 0.07},
+			{"resource_type": "parking", "area": 999, "decay_rate": 0.5},
+		},
+	})
+	writeJSONFile(t, filepath.Join(dataDir, "hexgrid.geojson"), map[string]any{
+		"type": "FeatureCollection", "v": 6,
+		"features": []map[string]any{
+			{"properties": map[string]any{"id": "a", "k": k, "city_same": 1, "all": map[string]any{"roads": map[string]any{"area": 50}}}},
+			{"properties": map[string]any{"id": "b", "k": k, "all": map[string]any{"roads": map[string]any{"area": 90}}, "city": map[string]any{"roads": map[string]any{"area": 50}}}},
+			{"properties": map[string]any{"id": "c"}},
+		},
+	})
+}
+
+// A map whose hex decay rates match the forecast passes; one left over from a
+// different set of class rates fails and names the recompute (solvent-streets-ern4.29).
+func TestCheckSite_DecayDrift(t *testing.T) {
+	dir := buildValidSite(t)
+	data := filepath.Join(dir, "demo-ca", "data")
+
+	writeDecayFiles(t, data, 0.0405)
+	out, err := run(t, dir, false)
+	if err != nil || !strings.Contains(out, "decay: demo-ca: map and forecast road decay rates agree") {
+		t.Fatalf("matching decay rates did not pass: %v\n%s", err, out)
+	}
+
+	writeDecayFiles(t, data, 0.028) // the old rates, 0.7x
+	out, err = run(t, dir, false)
+	if !errors.Is(err, cmdutil.ErrSilent) {
+		t.Fatalf("a 30%% decay drift did not fail: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "30% off the forecast's (0.0400)") || !strings.Contains(out, "recompute this city") {
+		t.Errorf("drift failure does not give the gap and the fix:\n%s", out)
+	}
+}

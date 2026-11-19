@@ -88,6 +88,9 @@ The following checks run over the given directory (default "site"):
     parking lots or sidewalks), which undercounts its per-resident
     figures. A layer that is missing, partial or zero is left to the
     warnings above.
+  - DECAY: each city's map and forecast agree on its road decay rate (the
+    road-area-weighted hex "k" against the seed's city cohorts, within 5%).
+    A gap means the roads compute predates a decay-rate change: recompute.
 
 Exits non-zero if any check FAILs. With --strict, warnings fail too.`,
 		Example: `  # Validate the default ./site tree
@@ -138,6 +141,7 @@ func runCheckSite(ctx context.Context, opts *Options) error {
 		r.checkReasonableness,
 		r.checkConsistency,
 		r.checkCoverage,
+		r.checkDecays,
 	}
 	for _, check := range checks {
 		if cerr := ctx.Err(); cerr != nil {
