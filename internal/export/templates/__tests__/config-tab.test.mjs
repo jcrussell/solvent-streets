@@ -44,6 +44,16 @@ test('a city whose meta.json fails to load keeps nothing of the previous city (s
   delete data['meta.json'];
   win.selectCity('beta-ca'); await flush(10);
   assert.notEqual($('#config-city-toml').textContent, before);
-  assert.equal($('#config-city-toml').textContent, 'No settings were published for this city.');
+  assert.equal($('#config-city-toml').textContent, 'This city\'s settings could not be loaded.');
   assert.equal($('#stats').innerHTML, '');
+});
+
+test('a failed meta.json leaves no previous-city date in the subtitle (solvent-streets-06q4)', async () => {
+  const data = { ...fullData, 'meta.json': { ...metaJSON, snapshot_date: '1999-01-01' } };
+  const { win, $, flush, fireMap } = load({ data, url: 'https://example.test/index.html?city=alpha-ca' });
+  fireMap('style.load'); await flush(10);
+  assert.match($('#panel .subtitle').textContent, /1999-01-01/);
+  delete data['meta.json'];
+  win.selectCity('beta-ca'); await flush(10);
+  assert.doesNotMatch($('#panel .subtitle').textContent, /1999-01-01/);
 });

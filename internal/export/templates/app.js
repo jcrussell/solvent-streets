@@ -1273,28 +1273,29 @@
             {
                 const meta = await loadJSON(dataURL(prefix, 'meta.json'));
                 if (gen !== cityLoadGen) return; // a newer load superseded us
+                // Without its meta.json, nothing of the previous city's date,
+                // badge, stats or settings may stay on screen (solvent-streets-06q4).
+                const subtitleEl = document.querySelector('#panel .subtitle');
+                if (subtitleEl) {
+                    subtitleEl.textContent = 'Pavement & Parking Analysis' +
+                        (meta && meta.snapshot_date ? ' | Last computed ' + meta.snapshot_date : '');
+                }
+                // pvmt serve shows a city with no snapshot, or
+                // ?snapshot=latest, from its latest compute: say so.
+                const badgeEl = selectById('latest-compute-badge');
+                if (badgeEl) badgeEl.hidden = !(meta && meta.latest_compute);
                 if (meta) {
                     setCityHeading(meta.project_name);
-                    const subtitleEl = document.querySelector('#panel .subtitle');
-                    if (subtitleEl && meta.snapshot_date) {
-                        subtitleEl.textContent = 'Pavement & Parking Analysis | Last computed ' + meta.snapshot_date;
-                    }
-                    // pvmt serve shows a city with no snapshot, or
-                    // ?snapshot=latest, from its latest compute: say so.
-                    const badgeEl = selectById('latest-compute-badge');
-                    if (badgeEl) badgeEl.hidden = !meta.latest_compute;
                     lastCityMeta = meta;
                     renderCityStats(meta);
                     renderCitySettings(meta);
                 } else {
-                    // Without its meta.json, nothing of the previous city's
-                    // stats or settings may stay on screen (solvent-streets-06q4).
                     lastCityMeta = null;
                     const statsEl = document.getElementById('stats');
                     if (statsEl) statsEl.innerHTML = '';
                     savedPanelHTML = '';
                     renderOpenDetail = null;
-                    renderCitySettings({});
+                    renderCitySettings({ settings_toml: 'This city\'s settings could not be loaded.' });
                 }
             }
 
