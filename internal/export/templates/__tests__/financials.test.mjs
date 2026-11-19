@@ -81,7 +81,7 @@ test('the seeded area and cohorts reach the WASM bridge', async () => {
     'the bridge did not receive the seeded city road cohorts');
 
   // Maintaining everything sends every seeded cohort.
-  const all = await ready({ url: 'https://example.test/index.html?maintain=roads,parking,sidewalks' });
+  const all = await ready({ url: 'https://example.test/index.html?tab=financials-tab&maintain=roads,parking,sidewalks' });
   assert.deepEqual(
     Array.from(all.win.__simCalls.at(-1).cohorts ?? [], (c) => c.classification).sort(),
     Array.from(seedJSON.city_cohorts ?? [], (c) => c.classification).sort(),

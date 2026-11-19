@@ -478,9 +478,13 @@
             // before the replaceState below, or it would serialize the defaults
             // and drop a shared ?budget= / ?maintain= / ?pci= ... from the
             // address bar. loadFinancials applies the model once the seed lands.
-            resetBudget(init.budget);
-            maintained = parseMaintain(init.maintain) || DEFAULT_MAINTAIN.slice();
-            pendingModel = parseModel(init);
+            // Router.current writes them only on Financials, so they are read
+            // only there too: elsewhere they would apply settings the address
+            // bar no longer shows (solvent-streets-oalt).
+            const fin = queryEl('.tab-btn.active')?.dataset.tab === 'financials-tab' ? init : {};
+            resetBudget(fin.budget);
+            maintained = parseMaintain(fin.maintain) || DEFAULT_MAINTAIN.slice();
+            pendingModel = parseModel(fin);
             Router.replace();
         })();
 

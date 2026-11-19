@@ -110,6 +110,19 @@ test('the settings are written on the Financials tab only', async () => {
   assert.ok(params(win).get('pci'));
 });
 
+test('settings linked on another tab are not applied, as that tab never writes them (solvent-streets-oalt)', async () => {
+  const h = load({ data: fullData, url: 'https://example.test/index.html?tab=map-tab&pci=' + PCI + '&cost=' + COST + '&budget=1000' });
+  await h.flush();
+  h.win.onWasmReady();
+  await h.flush();
+  assert.equal(params(h.win).get('budget'), null);
+  h.win.selectTab('financials-tab');
+  await h.flush();
+  assert.deepEqual(model(h.win), seedModel);
+  assert.deepEqual(modelParams(h.win), [null, null, null, null]);
+  assert.equal(params(h.win).get('budget'), null);
+});
+
 test('a city switch resets the settings to the new city\'s seed and drops them from the URL', async () => {
   const { win, $, flush } = await ready();
   setByHand(win);
