@@ -263,3 +263,7 @@ overpass = true
 [[cities]]
 name = "Cheyenne, WY"
 overpass = true
+# OSM's Cheyenne boundary is 77 km2 against the Census place's 104 km2 of
+# land (TIGERweb, checked 2026-11-19). The missing annexations, mostly
+# southwest of the city, sit only in Laramie County in OSM, so there is no
+# relation to pin. Figures describe the OSM footprint.
