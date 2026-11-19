@@ -120,3 +120,13 @@ test('Years to Insolvency medals follow the same floor (solvent-streets-4nlz)', 
   assert.deepEqual(lbMedals(ins), [MEDALS[0], '2.', '3.']);
   assert.ok(ins.querySelector('.lb-award'));
 });
+
+// That board sorts by insolvency year, not by score, so its leader can fail
+// the floor while the runner-up passes. Medals stop at the first city under
+// the floor: no silver without a gold, and no award (4nlz peer review).
+test('Years to Insolvency shows no silver under an unmedalled leader (solvent-streets-4nlz)', async () => {
+  const { doc } = await renderWith([city('alpha-ca', 40, 20), city('beta-ca', 60, 12)]);
+  const ins = lbBlock(doc, 'Years to Insolvency');
+  assert.deepEqual(lbMedals(ins), ['1.', '2.']);
+  assert.equal(ins.querySelector('.lb-award'), null);
+});

@@ -5003,13 +5003,22 @@
                 var maxVal = Math.max(0, Math.max.apply(null, vals));
                 if (maxVal === 0) maxVal = 1;
 
+                // Medals run down the board and stop at the first city under
+                // the floor: a board sorted by something other than the
+                // score (insolvency year) must not show a silver without a
+                // gold (solvent-streets-4nlz).
+                var medalRows = sorted.length;
+                if (cat.medalIf) {
+                    var firstFail = sorted.findIndex(function(m) { return !cat.medalIf(m); });
+                    if (firstFail >= 0) medalRows = firstFail;
+                }
                 var rows = sorted.map(function(m, i) {
                     // Clamp to [0,100]: the funding-gap metric is signed
                     // (negative when over-funded), which would otherwise produce
                     // an invalid bar width. maxVal is floored at 0 above, so the
                     // over-funded case lands at 0% here rather than overflowing.
                     var pct = Math.max(0, Math.min(100, m[cat.key] / maxVal * 100)).toFixed(1);
-                    var medalIcon = (sorted.length >= 2 && i < 3 && i < medals.length && (!cat.medalIf || cat.medalIf(m))) ? medals[i] : (i + 1) + '.';
+                    var medalIcon = (sorted.length >= 2 && i < 3 && i < medals.length && i < medalRows) ? medals[i] : (i + 1) + '.';
                     return '<div class="lb-row" data-slug="' + esc(m.slug || '') + '">' +
                         '<span class="lb-medal">' + medalIcon + '</span>' +
                         '<span class="lb-name">' + esc(m.name) + defaultPCIMark(m) + (cat.rowNote ? cat.rowNote(m) : '') + '</span>' +
@@ -5027,7 +5036,7 @@
 
                 var noteIcon = cat.note ? ' <span class="lb-note" title="' + cat.note.replace(/"/g, '&quot;') + '">ⓘ</span>' : '';
                 return '<div class="lb-category">' +
-                    '<div class="lb-title"><h4>' + cat.label + noteIcon + '</h4>' + (cat.award && sorted.length >= 2 && (!cat.medalIf || cat.medalIf(sorted[0])) ? '<span class="lb-award">' + medals[0] + ' ' + cat.award + ': ' + esc(sorted[0].name) + '</span>' : '') + '</div>' +
+                    '<div class="lb-title"><h4>' + cat.label + noteIcon + '</h4>' + (cat.award && sorted.length >= 2 && medalRows > 0 ? '<span class="lb-award">' + medals[0] + ' ' + cat.award + ': ' + esc(sorted[0].name) + '</span>' : '') + '</div>' +
                     rows +
                 '</div>';
             }).join('');
