@@ -340,16 +340,41 @@ func applyDefaultForecastProv(fc *ForecastConfig, p *forecastProvenance) {
 // values appear, an explicit 0 included: an unset override leaves the
 // registry default in force, and that default is a Go constant rather than a
 // config layer.
+//
+// The top-level list is the including file's own. An [[include]]d city runs
+// under its declaring file's list instead (ResolvedServices), so it gets its
+// own block, keyed cities[<slug>].services[...] and sourced to that file by
+// its config_id (solvent-streets-t9rt).
 func (c *Config) appendServiceFields(fields []ResolvedField) []ResolvedField {
-	for _, s := range c.Services {
-		if s.TurnoutS != nil {
-			key := fmt.Sprintf("services[%s].turnout_s", s.Name)
-			fields = append(fields, ResolvedField{Key: key, Value: *s.TurnoutS, Source: Source{Kind: SourceFile, Detail: key}})
+	fields = appendServiceList(fields, c.Services, "", "")
+	for i := range c.Cities {
+		city := &c.Cities[i]
+		if city.SourceConfigID == "" {
+			continue
 		}
-		if s.TravelThresholdS != nil {
-			key := fmt.Sprintf("services[%s].travel_threshold_s", s.Name)
-			fields = append(fields, ResolvedField{Key: key, Value: *s.TravelThresholdS, Source: Source{Kind: SourceFile, Detail: key}})
+		fields = appendServiceList(fields, c.ResolvedServices(city),
+			fmt.Sprintf("cities[%s].", city.Slug()), fmt.Sprintf("config[%s].", city.SourceConfigID))
+	}
+	return fields
+}
+
+// appendServiceList emits one [[services]] list's set overrides. keyPrefix
+// scopes the key to a city; detailPrefix names the declaring file.
+func appendServiceList(fields []ResolvedField, services []ServiceOverride, keyPrefix, detailPrefix string) []ResolvedField {
+	emit := func(field string, v *float64, name string) {
+		if v == nil {
+			return
 		}
+		path := fmt.Sprintf("services[%s].%s", name, field)
+		fields = append(fields, ResolvedField{
+			Key:    keyPrefix + path,
+			Value:  *v,
+			Source: Source{Kind: SourceFile, Detail: detailPrefix + path},
+		})
+	}
+	for _, s := range services {
+		emit("turnout_s", s.TurnoutS, s.Name)
+		emit("travel_threshold_s", s.TravelThresholdS, s.Name)
 	}
 	return fields
 }

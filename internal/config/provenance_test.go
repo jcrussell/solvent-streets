@@ -429,6 +429,42 @@ overpass = true
 	}
 }
 
+// TestResolve_IncludedCityReportsItsSourceServices pins solvent-streets-t9rt:
+// an [[include]]d city runs under its declaring file's [[services]]
+// (ResolvedServices), so `config show --sources` must report those for it,
+// not leave the including file's top-level list as the only services lines.
+func TestResolve_IncludedCityReportsItsSourceServices(t *testing.T) {
+	dir := t.TempDir()
+	writeTOML(t, dir, "leaf/pvmt.toml", `
+config_id = "leaf"
+[[services]]
+name = "fire"
+turnout_s = 60
+[[cities]]
+name = "Reno, NV"
+overpass = true
+`)
+	top := writeTOML(t, dir, "all/pvmt.toml",
+		"[[services]]\nname = \"fire\"\nturnout_s = 90\n[[include]]\npath = \"../leaf/pvmt.toml\"\n")
+	cfg, err := Load(top)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byKey := make(map[string]ResolvedField)
+	for _, f := range cfg.Resolve("") {
+		byKey[f.Key] = f
+	}
+	got, ok := byKey["cities[reno-nv].services[fire].turnout_s"]
+	if !ok || got.Value != 60.0 || got.Source.String() != "file:config[leaf].services[fire].turnout_s" {
+		t.Errorf("cities[reno-nv].services[fire].turnout_s = %+v (emitted %v), want 60 from file:config[leaf].services[fire].turnout_s",
+			got, ok)
+	}
+	// The including file's own list is still what it says.
+	if top, ok := byKey["services[fire].turnout_s"]; !ok || top.Value != 90.0 {
+		t.Errorf("services[fire].turnout_s = %+v (emitted %v), want the including file's 90", top, ok)
+	}
+}
+
 // TestResolve_EmitsPerCityCostOverhead guards the failure mode the top-level
 // emission introduced on its own: Resolve's forecast block resolves with a nil
 // city, so a per-city override never reaches it. Emitting only the top-level
