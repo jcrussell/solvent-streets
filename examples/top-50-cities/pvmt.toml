@@ -16,8 +16,10 @@
 #   https://www2.census.gov/programs-surveys/popest/tables/2020-2025/cities/totals/SUB-IP-EST2025-ANNRNK.xlsx
 #
 # Consolidated city-counties (Nashville-Davidson, Indianapolis,
-# Louisville/Jefferson) are listed under their common short name so
-# Nominatim resolves the city boundary rather than the merged county.
+# Louisville/Jefferson) are listed under their common short name, and
+# Nominatim resolves each to its city government's polygon. For Louisville
+# that is the consolidated Louisville Metro, not the pre-merger city; its
+# entry gives the areas to compare against.
 #
 # To run:
 #   cd examples/top-50-cities

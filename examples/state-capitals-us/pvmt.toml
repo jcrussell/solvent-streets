@@ -22,8 +22,8 @@
 #     City and Borough of Juneau, Carson City) are listed under their
 #     common short name, as in top-50-cities.
 #   - Honolulu has no incorporated city below the City and County of
-#     Honolulu. Its lookup resolves to urban Honolulu's place polygon,
-#     roughly the census-designated place, not all of Oahu.
+#     Honolulu. Its lookup resolves to urban Honolulu's place polygon:
+#     the Urban Honolulu CDP plus East Honolulu, not all of Oahu.
 #   - A standalone ingest fetches again the capitals that other examples
 #     already hold (Sacramento, Denver, Boston and the top-50 capitals)
 #     under this config_id, the same accepted trade as the bay-area-ca /
