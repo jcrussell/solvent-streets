@@ -68,7 +68,7 @@ function installStubs(win, { data, simulate, gates, wasm, goRuntime }) {
       setPaintProperty() {}
       setLayoutProperty() {}
       setFilter() {}
-      fitBounds(bounds) { win.__fitBounds.push(bounds); }
+      fitBounds(bounds, opts) { win.__fitBounds.push(bounds); win.__fitOptions.push(opts); }
       flyTo() {}
       easeTo() {}
       jumpTo() {}
@@ -116,6 +116,7 @@ function installStubs(win, { data, simulate, gates, wasm, goRuntime }) {
   // reaches it when the player presses Start.
   if (wasm) win.WebAssembly = { instantiateStreaming: async () => ({ instance: {} }) };
   win.__fitBounds = [];
+  win.__fitOptions = [];
   win.__mapHandlers = handlers;
 
   // Chart.js. Instances are recorded so a test can read what was plotted

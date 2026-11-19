@@ -788,6 +788,34 @@
         // abort the other.
         let cityLoadGen = 0;
         let financialsLoadGen = 0;
+
+        // mapFitPadding is the padding a fit to the city uses. The stats
+        // panel floats over the map, down the right edge on a wide screen and
+        // docked along the bottom on a phone, so the side it covers is padded
+        // by how far the panel reaches in from it; a uniform padding put the
+        // city's east side under the panel (solvent-streets-ikmm). The panel
+        // hugs whichever side costs the smaller strip of map. A panel with no
+        // box (the Map tab hidden) or one that would leave too little map
+        // keeps the plain padding, since MapLibre refuses a fit that cannot
+        // be made.
+        const FIT_PAD = 40;
+        const FIT_MIN_VIEW = 120;
+        function mapFitPadding() {
+            const pad = { top: FIT_PAD, right: FIT_PAD, bottom: FIT_PAD, left: FIT_PAD };
+            const mapEl = document.getElementById('map');
+            const panelEl = document.getElementById('panel');
+            if (!mapEl || !panelEl) return pad;
+            const m = mapEl.getBoundingClientRect();
+            const p = panelEl.getBoundingClientRect();
+            if (!m.width || !m.height || !p.width || !p.height) return pad;
+            const fromRight = Math.max(0, m.right - p.left);
+            const fromBottom = Math.max(0, m.bottom - p.top);
+            const out = { ...pad };
+            if (fromRight * m.height <= fromBottom * m.width) out.right = Math.round(fromRight) + FIT_PAD;
+            else out.bottom = Math.round(fromBottom) + FIT_PAD;
+            if (m.width - out.left - out.right < FIT_MIN_VIEW || m.height - out.top - out.bottom < FIT_MIN_VIEW) return pad;
+            return out;
+        }
         // True while the user is in drag-to-select-region mode. Read by the
         // hex-click handler (suppressed mid-selection) and the region-select
         // pointer handlers below.
@@ -1219,7 +1247,7 @@
                     if (coords.length > 0) {
                         const lngs = coords.map(c => c[0]);
                         const lats = coords.map(c => c[1]);
-                        map.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: 40 });
+                        map.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: mapFitPadding() });
                     }
                 }
             }
@@ -2021,7 +2049,7 @@
             setStrategy(DEFAULT_STRATEGY);
             const bboxParts = opt.dataset.bbox.split(',').map(Number);
             // data-bbox is [west, south, east, north], fitBounds' own order.
-            map.fitBounds([[bboxParts[0], bboxParts[1]], [bboxParts[2], bboxParts[3]]], { padding: 40 });
+            map.fitBounds([[bboxParts[0], bboxParts[1]], [bboxParts[2], bboxParts[3]]], { padding: mapFitPadding() });
             setCityHeading(opt.textContent.trim());
             // Each city has its own snapshot list. Reset the picker on city
             // change so a snapshot the new city lacks is never requested.
