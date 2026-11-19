@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -706,7 +708,15 @@ func TestCheckSite_InterruptedAfterFailStillReportsFailure(t *testing.T) {
 	}
 	// The tally must not read like a completed audit: it names the interrupt
 	// and how many checks never ran (solvent-streets-tq8z).
-	if !strings.Contains(out.String(), "interrupted: 7 of 8 checks not run") {
+	// Only the first check ran, so every other check is counted as not run,
+	// however many checks there are.
+	m := regexp.MustCompile(`interrupted: (\d+) of (\d+) checks not run`).FindStringSubmatch(out.String())
+	var skipped, total int
+	if m != nil {
+		skipped, _ = strconv.Atoi(m[1])
+		total, _ = strconv.Atoi(m[2])
+	}
+	if m == nil || total < 2 || skipped != total-1 {
 		t.Errorf("interrupted tally does not say how many checks were skipped:\n%s", out.String())
 	}
 }
